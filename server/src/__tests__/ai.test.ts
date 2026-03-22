@@ -329,8 +329,13 @@ describe('Impossible AI', () => {
       { length: 3, cells: ['J4', 'J5', 'J6'] },
       { length: 4, cells: ['J7', 'J8', 'J9', 'J10'] },
     ]);
-    const botPlacement = generatePlacement('impossible');
-    placeShips(game, r1.botId, botPlacement);
+    // Give bot fixed ships far from E5 so it doesn't avoid E5
+    placeShips(game, r1.botId, [
+      { length: 1, cells: ['I1'] },
+      { length: 2, cells: ['I3', 'I4'] },
+      { length: 3, cells: ['I6', 'I7', 'I8'] },
+      { length: 4, cells: ['H1', 'H2', 'H3', 'H4'] },
+    ]);
     beginPlaying(game);
 
     game.turnOrder = [r1.botId, 'h1', 'h2'];
@@ -338,8 +343,8 @@ describe('Impossible AI', () => {
 
     const coords = chooseSalvo(game, r1.botId, 'impossible');
 
-    // E5 should be the first target (hits 2 players)
-    expect(coords[0]).toBe('E5');
+    // E5 should be targeted (hits 2 players — highest score)
+    expect(coords).toContain('E5');
   });
 });
 

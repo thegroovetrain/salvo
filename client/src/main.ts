@@ -36,6 +36,7 @@ interface AppState {
   chatMessages: ChatMessage[];
   // Game over
   gameOverStats: GameOverStats | null;
+  rematchPending: { acceptedIds: string[]; totalHumans: number } | null;
   // Mobile
   mobileTab: 'fleet' | 'target';
   // Error
@@ -67,6 +68,7 @@ const state: AppState = {
   timerInterval: null,
   chatMessages: [],
   gameOverStats: null,
+  rematchPending: null,
   mobileTab: 'fleet',
   errorMessage: null,
   errorTimeout: null,
@@ -180,6 +182,42 @@ socket.on('game-over', (stats) => {
   state.screen = 'gameover';
   state.isMyTurn = false;
   stopTimer();
+  render();
+});
+
+socket.on('rematch-pending', ({ acceptedIds, totalHumans }) => {
+  state.rematchPending = { acceptedIds, totalHumans };
+  render();
+});
+
+socket.on('rematch-starting', ({ game }) => {
+  state.game = game;
+  state.screen = 'placement';
+  state.placedShips = [];
+  state.placingShip = null;
+  state.shipsSent = false;
+  state.selectedTargets = [];
+  state.shotLog = [];
+  state.gameOverStats = null;
+  state.rematchPending = null;
+  render();
+});
+
+socket.on('rematch-declined', ({ playerName, code, game }) => {
+  state.game = game;
+  state.joinCode = code;
+  state.screen = 'waiting';
+  state.placedShips = [];
+  state.selectedTargets = [];
+  state.shotLog = [];
+  state.gameOverStats = null;
+  state.rematchPending = null;
+  state.chatMessages.push({
+    playerId: 'system',
+    playerName: 'SYSTEM',
+    text: `${playerName} left. Back in lobby with code ${code}.`,
+    timestamp: Date.now(),
+  });
   render();
 });
 
@@ -662,6 +700,16 @@ function renderGameOver(): string {
 
   const highlightsHtml = stats.highlights.map(h => `<p class="highlight">${esc(h)}</p>`).join('');
 
+  const pending = state.rematchPending;
+  const alreadyAccepted = pending?.acceptedIds.includes(state.playerId ?? '') ?? false;
+
+  let rematchHtml: string;
+  if (alreadyAccepted && pending) {
+    rematchHtml = `<div class="alert alert-info" style="max-width:300px;margin:24px auto 0">Waiting for others... (${pending.acceptedIds.length}/${pending.totalHumans})</div>`;
+  } else {
+    rematchHtml = `<button class="btn btn-amber" id="btn-rematch" style="max-width:300px;margin:24px auto 0">Play Again</button>`;
+  }
+
   return `
     <div class="screen">
       <div class="game-over">
@@ -670,7 +718,7 @@ function renderGameOver(): string {
           ${winner ? 'Last player standing' : 'All players eliminated simultaneously'}
         </p>
         ${highlightsHtml}
-        <button class="btn btn-amber" id="btn-rematch" style="max-width:300px;margin:24px auto 0">Play Again</button>
+        ${rematchHtml}
         <button class="btn btn-secondary" id="btn-new-game" style="max-width:300px;margin:12px auto 0">New Game</button>
       </div>
     </div>`;
@@ -837,18 +885,11 @@ function bindEvents(): void {
 
   // Rematch
   on('btn-rematch', 'click', () => {
-    // Reset state for rematch — server handles via game-state event
-    state.screen = 'placement';
-    state.placedShips = [];
-    state.selectedTargets = [];
-    state.shotLog = [];
-    state.gameOverStats = null;
-    state.chatMessages = [];
-    // TODO: emit rematch event when server supports it
-    render();
+    socket.emit('rematch-request');
   });
 
   on('btn-new-game', 'click', () => {
+    socket.emit('rematch-decline');
     sessionStorage.removeItem('salvo-playerId');
     sessionStorage.removeItem('salvo-gameId');
     state.screen = 'lobby';
@@ -862,6 +903,7 @@ function bindEvents(): void {
     state.shotLog = [];
     state.chatMessages = [];
     state.gameOverStats = null;
+    state.rematchPending = null;
     render();
   });
 }

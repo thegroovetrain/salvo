@@ -27,6 +27,7 @@ export function createGame(hostId: string, hostName: string, timerConfig: TimerC
     shots: new Set(),
     timerConfig,
     lastActivity: Date.now(),
+    rematchAccepted: new Set(),
   };
 }
 
@@ -370,9 +371,25 @@ export function resetForRematch(game: Game): void {
   game.turnOrder = [];
   game.currentTurnIndex = 0;
   game.lastActivity = Date.now();
+  game.rematchAccepted = new Set();
 
   for (const player of game.players.values()) {
     player.ships = [];
+  }
+}
+
+/** Remove a player and return remaining human count */
+export function removePlayer(game: Game, playerId: string): void {
+  game.players.delete(playerId);
+  game.rematchAccepted.delete(playerId);
+  // If host left, reassign to first remaining human
+  if (game.hostId === playerId) {
+    for (const p of game.players.values()) {
+      if (!p.isBot) {
+        game.hostId = p.id;
+        break;
+      }
+    }
   }
 }
 

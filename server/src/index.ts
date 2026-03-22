@@ -9,7 +9,7 @@ import type {
 } from '@salvo/shared';
 import { isPlayerAlive, playerShotCount } from '@salvo/shared';
 import {
-  createGame, addPlayer, addBot, removeBot, canStartGame, startGame,
+  createGame, addPlayer, addBot, removeBot, removePlayer, canStartGame, startGame,
   placeShips, allShipsPlaced, beginPlaying,
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, forfeitPlayer,
@@ -471,6 +471,121 @@ io.on('connection', (socket) => {
         startTurnTimer(game.id);
       }
     }
+  });
+
+  // Rematch
+  socket.on('rematch-request', () => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game || game.phase !== 'finished') return;
+
+    game.rematchAccepted.add(playerId);
+    // Bots auto-accept
+    for (const p of game.players.values()) {
+      if (p.isBot) game.rematchAccepted.add(p.id);
+    }
+
+    const humanPlayers = [...game.players.values()].filter(p => !p.isBot);
+    const allAccepted = humanPlayers.every(p => game.rematchAccepted.has(p.id));
+
+    if (allAccepted) {
+      // Everyone accepted — start rematch
+      resetForRematch(game);
+
+      // Auto-place bot ships
+      for (const p of game.players.values()) {
+        if (p.isBot && p.aiDifficulty) {
+          const placement = generatePlacement(p.aiDifficulty);
+          placeShips(game, p.id, placement);
+        }
+      }
+
+      for (const pid of game.players.keys()) {
+        if (!game.players.get(pid)?.isBot) {
+          emitToPlayer(pid, 'rematch-starting', { game: toClientView(game, pid) });
+        }
+      }
+
+      // If only bots + 1 human and human places ships, check allShipsPlaced
+      if (allShipsPlaced(game)) {
+        beginPlaying(game);
+        for (const pid of game.players.keys()) {
+          if (!game.players.get(pid)?.isBot) {
+            emitToPlayer(pid, 'all-ready', { game: toClientView(game, pid) });
+          }
+        }
+        emitNextTurn(game.id);
+      }
+    } else {
+      // Broadcast pending status to all humans
+      for (const p of humanPlayers) {
+        emitToPlayer(p.id, 'rematch-pending', {
+          acceptedIds: [...game.rematchAccepted],
+          totalHumans: humanPlayers.length,
+        });
+      }
+    }
+  });
+
+  socket.on('rematch-decline', () => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game || game.phase !== 'finished') return;
+
+    const decliningPlayer = game.players.get(playerId);
+    const decliningName = decliningPlayer?.name ?? 'Unknown';
+
+    // Remove the declining player
+    removePlayer(game, playerId);
+    lobby.registerPlayer(playerId, ''); // unregister from game
+    connections.remove(playerId);
+
+    // If no humans left, clean up
+    const remainingHumans = [...game.players.values()].filter(p => !p.isBot);
+    if (remainingHumans.length === 0) {
+      lobby.removeGame(game.id);
+      return;
+    }
+
+    // Move remaining players to a new lobby with a fresh join code
+    game.phase = 'lobby';
+    game.shots = new Set();
+    game.turnOrder = [];
+    game.currentTurnIndex = 0;
+    game.rematchAccepted = new Set();
+    for (const p of game.players.values()) {
+      p.ships = [];
+    }
+
+    // Generate new join code for the lobby
+    const oldCode = lobby.getCodeForGame(game.id);
+    const newCode = lobby.generateUniqueCode();
+    if (oldCode) {
+      // Remove old code mapping and add new one
+      lobby.removeGame(game.id);
+      lobby.addGame(game, newCode);
+      // Re-register remaining players
+      for (const pid of game.players.keys()) {
+        lobby.registerPlayer(pid, game.id);
+      }
+    }
+
+    // Notify remaining players
+    for (const pid of game.players.keys()) {
+      if (!game.players.get(pid)?.isBot) {
+        emitToPlayer(pid, 'rematch-declined', {
+          playerName: decliningName,
+          code: newCode,
+          game: toClientView(game, pid),
+        });
+      }
+    }
+
+    game.lastActivity = Date.now();
   });
 
   // Handle disconnect

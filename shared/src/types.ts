@@ -62,6 +62,7 @@ export interface Game {
   shots: Set<string>;         // all globally fired coordinates
   timerConfig: TimerConfig;
   lastActivity: number;       // Date.now() for cleanup
+  rematchAccepted: Set<string>; // playerIds who accepted rematch
 }
 
 export const SHIP_LENGTHS = [1, 2, 3, 4] as const;
@@ -161,6 +162,8 @@ export interface ClientToServerEvents {
   'fire': (data: { coords: string[] }) => void;
   'chat-message': (data: { text: string }) => void;
   'rejoin': (data: { playerId: string; gameId: string }) => void;
+  'rematch-request': () => void;
+  'rematch-decline': () => void;
 }
 
 export interface ServerToClientEvents {
@@ -178,4 +181,7 @@ export interface ServerToClientEvents {
   'chat-message': (data: ChatMessage) => void;
   'player-disconnected': (data: { playerId: string; playerName: string; timeoutSeconds: number }) => void;
   'player-reconnected': (data: { playerId: string; playerName: string }) => void;
+  'rematch-pending': (data: { acceptedIds: string[]; totalHumans: number }) => void;
+  'rematch-starting': (data: { game: WireGame }) => void;
+  'rematch-declined': (data: { playerName: string; code: string; game: WireGame }) => void;
 }
