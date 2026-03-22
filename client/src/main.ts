@@ -473,7 +473,8 @@ function getCellState(coord: string, mode: 'placement' | 'fleet' | 'target'): { 
       if (myShip.hits.includes(coord)) return { cssClass: 'cell-ff', symbol: '\u26A0' };
       return { cssClass: 'cell-ship', symbol: '\u25A0' };
     }
-    if (isShot) return { cssClass: 'cell-miss', symbol: '\u2022' };
+    // Fleet view: only show shot indicators on YOUR ship cells (handled above).
+    // Shots at empty cells on your grid are not shown — fleet view is defense-only.
     return { cssClass: 'cell-empty', symbol: '' };
   }
 
