@@ -655,7 +655,7 @@ io.on('connection', (socket) => {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const clientDist = path.resolve(__dirname, '../../client/dist');
-const repoRoot = path.resolve(__dirname, '../../..');
+const repoRoot = path.resolve(__dirname, '../..');
 
 // Serve CHANGELOG.md from repo root
 app.get('/CHANGELOG.md', (_req, res) => {
