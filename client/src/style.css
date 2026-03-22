@@ -32,6 +32,30 @@
   --font-mono: 'Geist Mono', 'SF Mono', monospace;
 }
 
+[data-theme="light"] {
+  --bg-deepest: #F8FAFC;
+  --bg-surface: #FFFFFF;
+  --bg-elevated: #F1F5F9;
+  --bg-hover: #E2E8F0;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #94A3B8;
+  --green: #059669;
+  --green-dim: #047857;
+  --green-bg: rgba(5, 150, 105, 0.08);
+  --amber: #D97706;
+  --amber-dim: #B45309;
+  --amber-bg: rgba(217, 119, 6, 0.08);
+  --red: #DC2626;
+  --red-bg: rgba(220, 38, 38, 0.08);
+  --orange: #EA580C;
+  --orange-bg: rgba(234, 88, 12, 0.08);
+  --sunk: #FCA5A5;
+  --miss: #E2E8F0;
+  --info: #0284C7;
+  --info-bg: rgba(2, 132, 199, 0.08);
+}
+
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
@@ -55,6 +79,23 @@ html, body {
    ============================================================ */
 
 .hidden { display: none !important; }
+
+.theme-toggle {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 100;
+  background: var(--bg-elevated);
+  border: 1px solid var(--bg-hover);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  transition: all 150ms ease-out;
+}
+.theme-toggle:hover { color: var(--green); border-color: var(--green); }
 
 .label {
   font-family: var(--font-mono);

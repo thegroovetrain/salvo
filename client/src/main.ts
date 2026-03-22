@@ -1020,7 +1020,38 @@ function esc(s: string): string {
 }
 
 // ============================================================
+// ============================================================
+// Theme Toggle
+// ============================================================
+
+function initTheme(): void {
+  const saved = localStorage.getItem('salvo-theme');
+  if (saved === 'light') {
+    document.documentElement.setAttribute('data-theme', 'light');
+  }
+
+  const btn = document.createElement('button');
+  btn.className = 'theme-toggle';
+  btn.textContent = saved === 'light' ? 'DARK' : 'LIGHT';
+  btn.addEventListener('click', () => {
+    const current = document.documentElement.getAttribute('data-theme');
+    const next = current === 'light' ? '' : 'light';
+    if (next) {
+      document.documentElement.setAttribute('data-theme', 'light');
+      localStorage.setItem('salvo-theme', 'light');
+      btn.textContent = 'DARK';
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('salvo-theme', 'dark');
+      btn.textContent = 'LIGHT';
+    }
+  });
+  document.body.appendChild(btn);
+}
+
+// ============================================================
 // Initial Render
 // ============================================================
 
+initTheme();
 render();
