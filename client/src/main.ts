@@ -424,6 +424,7 @@ function renderPlacement(): string {
             Click a placed ship to remove it.
           </div>
           <button class="btn btn-secondary" id="btn-rotate" style="margin-top:8px">Rotate</button>
+          <button class="btn btn-secondary" id="btn-randomize" style="margin-top:8px">Randomize</button>
         </div>
         <div class="grid-container">
           <div class="grid-panel">
@@ -722,6 +723,10 @@ function bindEvents(): void {
     }
   });
 
+  on('btn-randomize', 'click', () => {
+    if (!state.shipsSent) randomizePlacement();
+  });
+
   // Keyboard rotate
   document.addEventListener('keydown', (e) => {
     if (e.key === 'r' || e.key === 'R') {
@@ -831,6 +836,45 @@ function bindEvents(): void {
     state.gameOverStats = null;
     render();
   });
+}
+
+function randomizePlacement(): void {
+  const occupied = new Set<string>();
+  const ships: ShipPlacement[] = [];
+
+  // Place largest ships first (harder to fit)
+  const lengths = [...SHIP_LENGTHS].sort((a, b) => b - a);
+
+  for (const length of lengths) {
+    let placed = false;
+    for (let attempt = 0; attempt < 200; attempt++) {
+      const horizontal = Math.random() < 0.5;
+      const maxRow = horizontal ? GRID_SIZE : GRID_SIZE - length;
+      const maxCol = horizontal ? GRID_SIZE - length : GRID_SIZE;
+      const row = Math.floor(Math.random() * maxRow);
+      const col = Math.floor(Math.random() * maxCol);
+
+      const cells = getShipCells(row, col, length, horizontal);
+      if (!cells) continue;
+      if (cells.some(c => occupied.has(c))) continue;
+
+      cells.forEach(c => occupied.add(c));
+      ships.push({ length, cells });
+      placed = true;
+      break;
+    }
+    if (!placed) {
+      // Extremely unlikely on 10x10 with 4 small ships, but handle gracefully
+      state.placedShips = [];
+      randomizePlacement();
+      return;
+    }
+  }
+
+  state.placedShips = ships;
+  state.placingShip = null;
+  state.ghostCells = [];
+  render();
 }
 
 function handlePlacementClick(coord: string): void {
