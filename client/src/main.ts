@@ -46,6 +46,7 @@ interface AppState {
   mobileTab: 'fleet' | 'target';
   // UI
   showJoinModal: boolean;
+  showCreateModal: boolean;
   // Error
   errorMessage: string | null;
   errorTimeout: ReturnType<typeof setTimeout> | null;
@@ -80,6 +81,7 @@ const state: AppState = {
   changelogHtml: null,
   mobileTab: 'fleet',
   showJoinModal: false,
+  showCreateModal: false,
   errorMessage: null,
   errorTimeout: null,
 };
@@ -383,7 +385,7 @@ function renderError(): string {
 }
 
 function renderLobby(): string {
-  const modalHtml = state.showJoinModal ? `
+  const joinModalHtml = state.showJoinModal ? `
     <div class="modal-overlay" id="join-modal-overlay">
       <div class="modal">
         <h2 class="label" style="margin-bottom:12px">Enter Game Code</h2>
@@ -391,6 +393,28 @@ function renderLobby(): string {
         <div style="display:flex;gap:8px;margin-top:4px">
           <button class="btn btn-amber" id="btn-join" style="flex:1">Join</button>
           <button class="btn btn-secondary" id="btn-join-cancel" style="flex:1">Cancel</button>
+        </div>
+      </div>
+    </div>
+  ` : '';
+
+  const createModalHtml = state.showCreateModal ? `
+    <div class="modal-overlay" id="create-modal-overlay">
+      <div class="modal">
+        <h2 class="label" style="margin-bottom:16px">Game Options</h2>
+        <div class="modal-option">
+          <div class="modal-option-row">
+            <input type="checkbox" id="timer-enabled">
+            <label for="timer-enabled">Turn timer</label>
+            <select id="timer-seconds" class="input" style="margin-bottom:0;width:auto;padding:4px 8px;font-family:var(--font-mono);font-size:12px">
+              <option value="30">30s</option>
+              <option value="60" selected>60s</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button class="btn btn-primary" id="btn-create-confirm" style="flex:1">Create</button>
+          <button class="btn btn-secondary" id="btn-create-cancel" style="flex:1">Cancel</button>
         </div>
       </div>
     </div>
@@ -404,20 +428,13 @@ function renderLobby(): string {
       <div class="lobby-card" style="max-width:400px;width:100%">
         <label class="input-label">Your Name</label>
         <input class="input" id="player-name" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off">
-        <div class="timer-config">
-          <input type="checkbox" id="timer-enabled">
-          <label for="timer-enabled">Turn timer</label>
-          <select id="timer-seconds">
-            <option value="30">30s</option>
-            <option value="60" selected>60s</option>
-          </select>
-        </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary" id="btn-create" style="flex:1">Create Game</button>
           <button class="btn btn-amber" id="btn-show-join" style="flex:1">Join Game</button>
         </div>
       </div>
-      ${modalHtml}
+      ${joinModalHtml}
+      ${createModalHtml}
       <div class="lobby-footer">
         <span>v${VERSION}</span>
         <span class="footer-sep">&bull;</span>
@@ -883,13 +900,33 @@ function bindEvents(): void {
   on('btn-create', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
+    state.showCreateModal = true;
+    render();
+  });
+
+  on('btn-create-confirm', 'click', () => {
+    const name = val('player-name');
+    if (!name) return showError('Enter your name');
     const timerEnabled = (document.getElementById('timer-enabled') as HTMLInputElement)?.checked ?? false;
     const timerSecs = parseInt((document.getElementById('timer-seconds') as HTMLSelectElement)?.value ?? '60', 10);
     state.isHost = true;
+    state.showCreateModal = false;
     socket.emit('create-game', {
       playerName: name,
       timerConfig: { enabled: timerEnabled, seconds: timerSecs },
     });
+  });
+
+  on('btn-create-cancel', 'click', () => {
+    state.showCreateModal = false;
+    render();
+  });
+
+  on('create-modal-overlay', 'click', (e?: Event) => {
+    if ((e?.target as HTMLElement)?.id === 'create-modal-overlay') {
+      state.showCreateModal = false;
+      render();
+    }
   });
 
   on('btn-show-join', 'click', () => {

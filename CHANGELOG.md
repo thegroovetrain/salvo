@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.0] - 2026-03-22
+
+### Changed
+- **Game Options modal** — turn timer and future game settings now live in a modal that opens when clicking Create Game, keeping the lobby clean and extensible
+
 ## [0.6.0] - 2026-03-22
 
 ### Changed
