@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0] - 2026-03-22
+
+### Added
+- **Bot friendly names** — bots now have real names like Meredith, Hugo, and Iris instead of "Bot (Medium)." First letter hints at difficulty: E=Easy, M=Medium, H=Hard, I=Impossible
+- **Player icons** — inline SVG icons next to every player name. Person silhouette for humans, robot head for bots. Both in tactical green.
+- 40 bot names total (10 per difficulty, 5 male + 5 female each)
+- Names are randomly assigned and unique within each game
+
 ## [0.7.0] - 2026-03-22
 
 ### Changed

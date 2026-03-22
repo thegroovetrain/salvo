@@ -429,6 +429,7 @@ describe('Bot Management', () => {
     const bot = game.players.get(result.botId)!;
     expect(bot.isBot).toBe(true);
     expect(bot.aiDifficulty).toBe('hard');
-    expect(bot.name).toBe('Bot (Hard)');
+    // Name should start with H (Hard difficulty)
+    expect(bot.name[0]).toBe('H');
   });
 });

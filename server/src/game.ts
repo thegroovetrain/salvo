@@ -3,7 +3,7 @@ import {
   type ShotResult, type WireGame, type WirePlayer, type WireShip,
   type TimerConfig, type GameOverStats, type AiDifficulty,
   isShipSunk, isPlayerAlive, playerShotCount,
-  SHIP_LENGTHS, SHIP_NAMES, GRID_SIZE, ROWS, AI_NAMES,
+  SHIP_LENGTHS, SHIP_NAMES, GRID_SIZE, ROWS, BOT_NAME_POOLS,
 } from '@salvo/shared';
 import crypto from 'node:crypto';
 
@@ -52,7 +52,14 @@ export function addBot(game: Game, difficulty: AiDifficulty): { botId: string } 
   if (game.players.size >= 4) return { error: 'Game is full (4 players max)' };
 
   const botId = `bot-${crypto.randomUUID().slice(0, 8)}`;
-  const name = AI_NAMES[difficulty];
+
+  // Pick a random unique name from the difficulty's pool
+  const usedNames = new Set([...game.players.values()].map(p => p.name));
+  const pool = BOT_NAME_POOLS[difficulty].filter(n => !usedNames.has(n));
+  const name = pool.length > 0
+    ? pool[Math.floor(Math.random() * pool.length)]
+    : `Bot ${game.players.size}`; // fallback (shouldn't happen with 10 names and max 3 bots)
+
   game.players.set(botId, { id: botId, name, ships: [], isBot: true, aiDifficulty: difficulty });
   game.lastActivity = Date.now();
   return { botId };

@@ -534,7 +534,7 @@ function renderWaiting(): string {
     const hostBadge = p.id === Object.keys(state.game?.players ?? {})[0] ? '<span class="host-badge">HOST</span>' : '';
     const botBadge = p.isBot ? `<span class="bot-badge">${esc(p.aiDifficulty ?? 'bot').toUpperCase()}</span>` : '';
     const removeBtn = p.isBot && isHost ? `<button class="btn-remove-bot" data-bot-id="${p.id}" title="Remove bot">&times;</button>` : '';
-    return `<li><span class="player-dot"></span> ${esc(p.name)} ${isMe ? '(you)' : ''} ${hostBadge}${botBadge}${removeBtn}</li>`;
+    return `<li>${playerIcon(p.isBot)} ${esc(p.name)} ${isMe ? '(you)' : ''} ${hostBadge}${botBadge}${removeBtn}</li>`;
   }).join('');
 
   const waitingSlots = Array(4 - players.length).fill(0).map(() =>
@@ -734,7 +734,7 @@ function renderBattle(): string {
     const dotClass = p.alive ? '' : 'dead';
     const nameStyle = p.alive ? '' : 'text-decoration:line-through;color:var(--text-muted)';
     return `<li>
-      <span class="player-dot ${dotClass}"></span>
+      ${playerIcon(p.isBot)}
       <span style="${nameStyle}">${esc(p.name)}${isMe ? ' (you)' : ''}</span>
       <span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${p.alive ? p.shotCount + ' ships' : 'out'}</span>
       ${isCurrent && p.alive ? '<span style="color:var(--amber);font-size:10px">\u25C0</span>' : ''}
@@ -772,7 +772,9 @@ function renderBattle(): string {
     if (m.playerId === 'system') {
       return `<div class="chat-msg" style="color:var(--amber);font-style:italic">${esc(m.text)}</div>`;
     }
-    return `<div class="chat-msg"><span class="chat-name">${esc(m.playerName)}:</span> ${esc(m.text)}</div>`;
+    const chatPlayer = state.game?.players[m.playerId];
+    const chatIcon = chatPlayer ? playerIcon(chatPlayer.isBot) : '';
+    return `<div class="chat-msg">${chatIcon}<span class="chat-name">${esc(m.playerName)}:</span> ${esc(m.text)}</div>`;
   }).join('');
 
   const turnText = isMyTurn
@@ -844,7 +846,7 @@ function renderGameOver(): string {
     const isWinner = p.id === stats.winnerId;
     const rowStyle = isWinner ? 'color:var(--green)' : '';
     return `<tr style="${rowStyle}">
-      <td>${esc(p.name)}${isWinner ? ' \u2605' : ''}</td>
+      <td>${playerIcon(p.isBot)}${esc(p.name)}${isWinner ? ' \u2605' : ''}</td>
       <td>${s.shotsFired}</td>
       <td>${s.hitsLanded}</td>
       <td>${accPct}%</td>
@@ -1214,6 +1216,15 @@ function onKey(id: string, key: string, handler: () => void): void {
 
 function val(id: string): string {
   return (document.getElementById(id) as HTMLInputElement)?.value?.trim() ?? '';
+}
+
+function playerIcon(isBot: boolean): string {
+  if (isBot) {
+    // Robot head — simple geometric bot face
+    return `<span class="player-icon"><svg viewBox="0 0 16 16" fill="var(--green)"><rect x="3" y="5" width="10" height="8" rx="2"/><rect x="6" y="1" width="4" height="4" rx="1"/><rect x="5" y="7" width="2" height="2" rx="0.5"/><rect x="9" y="7" width="2" height="2" rx="0.5"/><rect x="6" y="11" width="4" height="1"/></svg></span>`;
+  }
+  // Person silhouette — head circle + shoulders
+  return `<span class="player-icon"><svg viewBox="0 0 16 16" fill="var(--green)"><circle cx="8" cy="4" r="3"/><path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6"/></svg></span>`;
 }
 
 function esc(s: string): string {

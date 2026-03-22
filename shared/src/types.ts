@@ -19,11 +19,11 @@ export function isShipSunk(ship: Ship): boolean {
 
 export type AiDifficulty = 'easy' | 'medium' | 'hard' | 'impossible';
 
-export const AI_NAMES: Record<AiDifficulty, string> = {
-  easy: 'Bot (Easy)',
-  medium: 'Bot (Medium)',
-  hard: 'Bot (Hard)',
-  impossible: 'Bot (Impossible)',
+export const BOT_NAME_POOLS: Record<AiDifficulty, string[]> = {
+  easy: ['Ethan', 'Emma', 'Eli', 'Eva', 'Eddie', 'Elena', 'Ezra', 'Elise', 'Edgar', 'Emily'],
+  medium: ['Marcus', 'Mia', 'Miles', 'Maya', 'Max', 'Meredith', 'Morgan', 'Molly', 'Malcolm', 'Margot'],
+  hard: ['Helena', 'Hugo', 'Hana', 'Harris', 'Holly', 'Hector', 'Hazel', 'Henry', 'Hope', 'Hans'],
+  impossible: ['Ivan', 'Iris', 'Isaac', 'Isla', 'Ian', 'Ingrid', 'Idris', 'Ivy', 'Igor', 'Imara'],
 };
 
 export interface Player {
