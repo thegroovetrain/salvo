@@ -14,7 +14,7 @@ const VERSION = __APP_VERSION__;
 // State
 // ============================================================
 
-type Screen = 'lobby' | 'waiting' | 'placement' | 'battle' | 'gameover';
+type Screen = 'lobby' | 'waiting' | 'placement' | 'battle' | 'gameover' | 'changelog';
 
 interface AppState {
   screen: Screen;
@@ -364,6 +364,7 @@ function render(): void {
     case 'placement': app.innerHTML = renderPlacement(); break;
     case 'battle': app.innerHTML = renderBattle(); break;
     case 'gameover': app.innerHTML = renderGameOver(); break;
+    case 'changelog': app.innerHTML = renderChangelog(); break;
   }
 
   bindEvents();
@@ -378,7 +379,7 @@ function renderLobby(): string {
   return `
     <div class="screen">
       <h1 class="game-title">SALVO</h1>
-      <p class="game-subtitle">Shared-Ocean Battleship &mdash; v${VERSION}</p>
+      <p class="game-subtitle">Shared-Ocean Battleship</p>
       ${renderError()}
       <div class="lobby-cards">
         <div class="lobby-card">
@@ -404,6 +405,58 @@ function renderLobby(): string {
           <button class="btn btn-amber" id="btn-join">Join</button>
         </div>
       </div>
+      <div class="lobby-footer">
+        <span>v${VERSION}</span>
+        <span class="footer-sep">&bull;</span>
+        <a href="#" id="btn-changelog">Changelog</a>
+      </div>
+    </div>`;
+}
+
+function renderChangelog(): string {
+  return `
+    <div class="screen">
+      <h1 class="game-title" style="font-size:32px">CHANGELOG</h1>
+      <div class="changelog">
+        <div class="changelog-entry">
+          <h2>v0.3.0 <span class="changelog-date">2026-03-22</span></h2>
+          <ul>
+            <li>Added changelog page accessible from lobby</li>
+            <li>Moved version number to footer</li>
+          </ul>
+        </div>
+        <div class="changelog-entry">
+          <h2>v0.2.1 <span class="changelog-date">2026-03-22</span></h2>
+          <ul>
+            <li>Fixed friendly fire tracking &mdash; enemy hits on your ships no longer show as "friendly fire" in the shot log</li>
+          </ul>
+        </div>
+        <div class="changelog-entry">
+          <h2>v0.2.0 <span class="changelog-date">2026-03-22</span></h2>
+          <ul>
+            <li>Game-over stats with highlights: accuracy, ships sunk, friendly fire, first blood</li>
+            <li>Stats table shows per-player performance at end of game</li>
+            <li>Draws now feel earned &mdash; you can see who outplayed whom</li>
+          </ul>
+        </div>
+        <div class="changelog-entry">
+          <h2>v0.1.0 <span class="changelog-date">2026-03-21</span></h2>
+          <ul>
+            <li>Initial playable beta</li>
+            <li>2-4 player shared-ocean Battleship with join codes</li>
+            <li>AI opponents with 4 difficulty tiers (Easy, Medium, Hard, Impossible)</li>
+            <li>Ship placement: click-to-place, rotate, randomize button</li>
+            <li>Turn timer (30s/60s/off, host-configurable)</li>
+            <li>Text chat for all players</li>
+            <li>60-second reconnection with event buffering</li>
+            <li>Rematch with consent (bots auto-accept, declined players go to new lobby)</li>
+            <li>Light/dark mode toggle with localStorage persistence</li>
+            <li>Mobile responsive with tab toggle</li>
+            <li>Deployed on Render.com</li>
+          </ul>
+        </div>
+      </div>
+      <button class="btn btn-secondary" id="btn-changelog-back" style="max-width:200px;margin-top:24px">Back to Lobby</button>
     </div>`;
 }
 
@@ -430,7 +483,7 @@ function renderWaiting(): string {
   return `
     <div class="screen">
       <h1 class="game-title">SALVO</h1>
-      <p class="game-subtitle">Shared-Ocean Battleship &mdash; v${VERSION}</p>
+      <p class="game-subtitle">Shared-Ocean Battleship</p>
       ${renderError()}
       <div class="waiting-room">
         <h2 class="label" style="margin-bottom:12px">Game Created</h2>
@@ -767,6 +820,16 @@ function renderGameOver(): string {
 
 function bindEvents(): void {
   // Lobby
+  on('btn-changelog', 'click', () => {
+    state.screen = 'changelog';
+    render();
+  });
+
+  on('btn-changelog-back', 'click', () => {
+    state.screen = 'lobby';
+    render();
+  });
+
   on('btn-create', 'click', () => {
     const name = val('create-name');
     if (!name) return showError('Enter your name');

@@ -638,6 +638,78 @@ html, body {
   padding: 48px 24px;
 }
 
+/* ============================================================
+   Lobby Footer
+   ============================================================ */
+
+.lobby-footer {
+  margin-top: 24px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lobby-footer a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 150ms;
+}
+.lobby-footer a:hover { color: var(--green); }
+.footer-sep { color: var(--bg-hover); }
+
+/* ============================================================
+   Changelog
+   ============================================================ */
+
+.changelog {
+  max-width: 600px;
+  width: 100%;
+  text-align: left;
+}
+
+.changelog-entry {
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--bg-hover);
+}
+.changelog-entry:last-child { border-bottom: none; }
+
+.changelog-entry h2 {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--green);
+  margin-bottom: 8px;
+}
+
+.changelog-date {
+  font-weight: 400;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.changelog-entry ul {
+  list-style: none;
+  padding: 0;
+}
+
+.changelog-entry li {
+  padding: 3px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.changelog-entry li::before {
+  content: '\2022';
+  color: var(--text-muted);
+  margin-right: 8px;
+}
+
+/* ============================================================
+   Game Over Screen
+   ============================================================ */
+
 .game-over h1 {
   font-family: var(--font-mono);
   font-size: 36px;
