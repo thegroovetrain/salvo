@@ -620,18 +620,21 @@ function renderBattle(): string {
         return `<div class="shot-log-entry">${coordHtml}<span class="miss-text">\u2022 Miss (${esc(entry.shooterName)})</span></div>`;
       }
       return shot.hits.map(hit => {
-        const isFriendlyFire = hit.playerId === entry.shooterName || (state.playerId && hit.playerId === state.playerId && entry.shooterName !== state.game?.players[state.playerId]?.name);
-        // Check if it's the shooter hitting themselves
+        // Check if the shooter hit their OWN ship (true friendly fire)
         const shooterPlayer = Object.values(state.game?.players ?? {}).find(p => p.name === entry.shooterName);
-        const isFF = shooterPlayer && hit.playerId === shooterPlayer.id;
+        const isSelfHit = shooterPlayer && hit.playerId === shooterPlayer.id;
         const isMyShipHit = hit.playerId === state.playerId;
 
-        if (isMyShipHit && !isFF) {
-          return `<div class="shot-log-entry">${coordHtml}<span class="ff">\u26A0 ${esc(entry.shooterName)} hit YOUR ${SHIP_NAMES[hit.shipLength]}${hit.sunk ? ' (SUNK!)' : ''}</span></div>`;
-        }
-        if (isFF) {
+        if (isSelfHit) {
+          // Shooter hit their own ship — true friendly fire
           return `<div class="shot-log-entry">${coordHtml}<span class="ff">\u26A0 FRIENDLY FIRE \u2014 ${esc(entry.shooterName)} hit own ${SHIP_NAMES[hit.shipLength]}${hit.sunk ? ' (SUNK!)' : ''}</span></div>`;
         }
+        if (isMyShipHit) {
+          // Someone else hit MY ship — incoming fire (red, not orange)
+          const cls = hit.sunk ? 'sunk-text' : 'hit';
+          return `<div class="shot-log-entry">${coordHtml}<span class="${cls}">\u00D7 ${esc(entry.shooterName)} hit YOUR ${SHIP_NAMES[hit.shipLength]}${hit.sunk ? ' (SUNK!)' : ''}</span></div>`;
+        }
+        // Someone hit someone else's ship
         const cls = hit.sunk ? 'sunk-text' : 'hit';
         return `<div class="shot-log-entry">${coordHtml}<span class="${cls}">\u00D7 ${esc(entry.shooterName)} hit ${esc(hit.playerName)}'s ${SHIP_NAMES[hit.shipLength]}${hit.sunk ? ' (SUNK!)' : ''}</span></div>`;
       }).join('');
