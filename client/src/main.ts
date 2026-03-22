@@ -48,6 +48,7 @@ interface AppState {
 }
 
 interface ShotLogEntry {
+  shooterId: string;
   shooterName: string;
   shots: ShotResult[];
 }
@@ -160,11 +161,11 @@ socket.on('turn-timeout', () => {
   render();
 });
 
-socket.on('shot-results', ({ shooterName, shots, game }) => {
+socket.on('shot-results', ({ shooterId, shooterName, shots, game }) => {
   state.game = game;
   state.isMyTurn = false;
   stopTimer();
-  state.shotLog.unshift({ shooterName, shots });
+  state.shotLog.unshift({ shooterId, shooterName, shots });
   state.selectedTargets = [];
   render();
 });
@@ -622,11 +623,8 @@ function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: 
       let wasSelfHit = false;
       for (const entry of state.shotLog) {
         for (const shot of entry.shots) {
-          if (shot.coord === coord) {
-            const shooterPlayer = Object.values(game.players).find(p => p.name === entry.shooterName);
-            if (shooterPlayer && shooterPlayer.id === state.playerId) {
-              wasSelfHit = true;
-            }
+          if (shot.coord === coord && entry.shooterId === state.playerId) {
+            wasSelfHit = true;
           }
         }
       }
@@ -698,8 +696,7 @@ function renderBattle(): string {
       }
       return shot.hits.map(hit => {
         // Check if the shooter hit their OWN ship (true friendly fire)
-        const shooterPlayer = Object.values(state.game?.players ?? {}).find(p => p.name === entry.shooterName);
-        const isSelfHit = shooterPlayer && hit.playerId === shooterPlayer.id;
+        const isSelfHit = hit.playerId === entry.shooterId;
         const isMyShipHit = hit.playerId === state.playerId;
 
         if (isSelfHit) {
