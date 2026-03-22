@@ -476,11 +476,11 @@ html, body {
 
 .battle-layout {
   display: grid;
-  grid-template-columns: auto auto 240px;
+  grid-template-columns: auto 240px;
   gap: 24px;
   align-items: start;
   width: 100%;
-  max-width: 1100px;
+  max-width: 800px;
 }
 
 .side-panel {
@@ -784,8 +784,6 @@ html, body {
     grid-template-columns: 1fr;
     max-width: 100%;
   }
-  .mobile-tab-bar { display: flex; }
-  .mobile-hidden { display: none !important; }
   .grid-cell { width: 28px; height: 28px; font-size: 10px; }
   .grid-header { width: 24px; height: 24px; font-size: 9px; }
   .game-grid { grid-template-columns: 24px repeat(10, 1fr); }

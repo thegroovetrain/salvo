@@ -419,6 +419,15 @@ function renderChangelog(): string {
       <h1 class="game-title" style="font-size:32px">CHANGELOG</h1>
       <div class="changelog">
         <div class="changelog-entry">
+          <h2>v0.4.0 <span class="changelog-date">2026-03-22</span></h2>
+          <ul>
+            <li>Unified single grid &mdash; your ships and all shot results on one interactive ocean</li>
+            <li>See friendly fire danger before you shoot &mdash; your green ships are visible on the targeting grid</li>
+            <li>Simplified cell colors: red = enemy hit, orange = you hit your own ship, dark red = enemy hit your ship</li>
+            <li>Removed separate fleet/target grids and mobile tab toggle</li>
+          </ul>
+        </div>
+        <div class="changelog-entry">
           <h2>v0.3.0 <span class="changelog-date">2026-03-22</span></h2>
           <ul>
             <li>Added changelog page accessible from lobby</li>
@@ -550,7 +559,7 @@ function renderPlacement(): string {
     </div>`;
 }
 
-function renderGrid(mode: 'placement' | 'fleet' | 'target'): string {
+function renderGrid(mode: 'placement' | 'battle'): string {
   let html = '<div class="game-grid">';
 
   // Header row
@@ -573,7 +582,7 @@ function renderGrid(mode: 'placement' | 'fleet' | 'target'): string {
   return html;
 }
 
-function getCellState(coord: string, mode: 'placement' | 'fleet' | 'target'): { cssClass: string; symbol: string } {
+function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: string; symbol: string } {
   const game = state.game;
 
   if (mode === 'placement') {
@@ -592,53 +601,68 @@ function getCellState(coord: string, mode: 'placement' | 'fleet' | 'target'): { 
     return { cssClass: 'cell-empty', symbol: '' };
   }
 
+  // Unified battle grid — shows YOUR ships + all shot results
   if (!game || !state.playerId) return { cssClass: 'cell-empty', symbol: '' };
 
   const myPlayer = game.players[state.playerId];
   const isShot = game.shots.includes(coord);
+  const myShip = myPlayer?.ships.find(s => s.cells.includes(coord));
 
-  if (mode === 'fleet') {
-    // My ships
-    const myShip = myPlayer?.ships.find(s => s.cells.includes(coord));
-    if (myShip) {
-      if (myShip.sunk) return { cssClass: 'cell-sunk', symbol: '\u2716' };
-      if (myShip.hits.includes(coord)) return { cssClass: 'cell-ff', symbol: '\u26A0' };
-      return { cssClass: 'cell-ship', symbol: '\u25A0' };
-    }
-    // Fleet view: only show shot indicators on YOUR ship cells (handled above).
-    // Shots at empty cells on your grid are not shown — fleet view is defense-only.
-    return { cssClass: 'cell-empty', symbol: '' };
-  }
-
-  // Target mode
+  // Selected salvo target (highest priority visual)
   if (state.selectedTargets.includes(coord)) {
     return { cssClass: 'cell-selected', symbol: '\u25CE' };
   }
 
   if (isShot) {
-    // Check if any player was hit at this coord
+    // This cell has been shot. Determine what happened.
+    if (myShip && myShip.hits.includes(coord)) {
+      // My ship was hit at this cell
+      // Was it self-inflicted (friendly fire) or enemy fire?
+      // Check shot log to determine who fired this shot
+      let wasSelfHit = false;
+      for (const entry of state.shotLog) {
+        for (const shot of entry.shots) {
+          if (shot.coord === coord) {
+            const shooterPlayer = Object.values(game.players).find(p => p.name === entry.shooterName);
+            if (shooterPlayer && shooterPlayer.id === state.playerId) {
+              wasSelfHit = true;
+            }
+          }
+        }
+      }
+      return wasSelfHit
+        ? { cssClass: 'cell-ff', symbol: '\u26A0' }       // orange — you hit your own ship
+        : { cssClass: 'cell-sunk', symbol: '\u00D7' };     // dark red — enemy hit your ship
+    }
+
+    // Not my ship — check if it hit anyone else
     let wasHit = false;
-    let wasSunk = false;
     for (const player of Object.values(game.players)) {
+      if (player.id === state.playerId) continue;
       for (const ship of player.ships) {
-        if (ship.hits.includes(coord)) {
-          wasHit = true;
-          if (ship.sunk) wasSunk = true;
+        if (ship.hits.includes(coord)) { wasHit = true; break; }
+      }
+      if (wasHit) break;
+    }
+    // Also check shot log (other players' ship cells aren't visible via toClientView)
+    if (!wasHit) {
+      for (const entry of state.shotLog) {
+        for (const shot of entry.shots) {
+          if (shot.coord === coord && shot.hits.length > 0) {
+            wasHit = true; break;
+          }
         }
+        if (wasHit) break;
       }
     }
-    // Also check shot log for hit info
-    for (const entry of state.shotLog) {
-      for (const shot of entry.shots) {
-        if (shot.coord === coord && shot.hits.length > 0) {
-          wasHit = true;
-          if (shot.hits.some(h => h.sunk)) wasSunk = true;
-        }
-      }
-    }
-    if (wasSunk) return { cssClass: 'cell-sunk', symbol: '\u2716' };
-    if (wasHit) return { cssClass: 'cell-hit', symbol: '\u00D7' };
-    return { cssClass: 'cell-miss', symbol: '\u2022' };
+
+    if (wasHit) return { cssClass: 'cell-hit', symbol: '\u00D7' };  // red — hit enemy
+    return { cssClass: 'cell-miss', symbol: '\u2022' };               // muted — miss
+  }
+
+  // Not shot yet
+  if (myShip) {
+    return { cssClass: 'cell-ship', symbol: '\u25A0' };  // green — your ship, untouched
   }
 
   return { cssClass: 'cell-empty', symbol: '' };
@@ -712,18 +736,10 @@ function renderBattle(): string {
   return `
     <div class="screen">
       ${renderError()}
-      <div class="mobile-tab-bar">
-        <button class="mobile-tab ${state.mobileTab === 'fleet' ? 'active' : ''}" data-tab="fleet">Your Fleet</button>
-        <button class="mobile-tab ${state.mobileTab === 'target' ? 'active' : ''}" data-tab="target">Target Ocean</button>
-      </div>
-      <div class="battle-layout">
-        <div class="grid-panel ${state.mobileTab === 'target' ? 'mobile-hidden' : ''}" id="fleet-panel">
-          <h3>Your Fleet</h3>
-          ${renderGrid('fleet')}
-        </div>
-        <div class="grid-panel ${state.mobileTab === 'fleet' ? 'mobile-hidden' : ''}" id="target-panel">
-          <h3>Target Ocean</h3>
-          ${renderGrid('target')}
+      <div class="battle-layout battle-layout-unified">
+        <div class="grid-panel" id="ocean-panel">
+          <h3>Shared Ocean</h3>
+          ${renderGrid('battle')}
         </div>
         <div class="side-panel">
           <div class="turn-indicator ${isMyTurn ? 'your-turn' : 'waiting'}">
@@ -948,7 +964,7 @@ function bindEvents(): void {
     el.addEventListener('click', () => {
       if (mode === 'placement') {
         handlePlacementClick(coord);
-      } else if (mode === 'target') {
+      } else if (mode === 'battle') {
         handleTargetClick(coord);
       }
     });
@@ -967,13 +983,7 @@ function bindEvents(): void {
     stopTimer();
   });
 
-  // Mobile tabs
-  document.querySelectorAll('.mobile-tab').forEach(el => {
-    el.addEventListener('click', () => {
-      state.mobileTab = el.getAttribute('data-tab') as 'fleet' | 'target';
-      render();
-    });
-  });
+  // Mobile tabs removed — unified grid doesn't need them
 
   // Chat
   on('btn-chat', 'click', () => {
