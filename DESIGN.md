@@ -53,17 +53,17 @@
   - Backgrounds: `#F8FAFC` / `#FFFFFF` / `#F1F5F9` / `#E2E8F0`
   - Text: `#0F172A` / `#475569` / `#94A3B8`
 
-### Grid Cell States (critical — these must be visually distinct)
+### Grid Cell States (unified grid — one interactive ocean)
 | State | Color | Symbol | Usage |
 |-------|-------|--------|-------|
-| Empty | `#232937` (elevated) | `·` | Unshot cell |
-| Your Ship | `#00FF88` (green) | `■` | Your ship position (fleet view only) |
-| Ghost | `rgba(0,255,136,0.2)` + dashed border | `■` | Ship placement preview |
+| Empty | `#232937` (elevated) | `·` | Unshot cell, no ship |
+| Your Ship | `#00FF88` (green) | `■` | Your ship position (untouched) |
 | Selected | `#FFB800` (amber) | `◎` | Salvo target selection |
-| Miss | `#2A3040` (hover) | `•` | Shot landed, no ship |
-| Hit | `#FF3B3B` (red) | `×` | Enemy ship hit |
-| Friendly Fire | `#FF8C42` (orange) | `⚠` | YOUR ship was hit |
-| Sunk | `#7F1D1D` (sunk) | `✖` | All cells of ship destroyed |
+| Miss | `#2A3040` (hover) | `•` | Shot landed, no ship here |
+| Hit (enemy) | `#FF3B3B` (red) | `×` | Hit on another player's ship |
+| Friendly Fire | `#FF8C42` (orange) | `⚠` | You hit YOUR OWN ship |
+| Your Ship Hit | `#7F1D1D` (sunk) | `×` | Enemy hit YOUR ship |
+| Ghost | `rgba(0,255,136,0.2)` + dashed border | `■` | Ship placement preview |
 | Valid Placement | `rgba(0,255,136,0.2)` green tint | — | Can place ship here |
 | Invalid Placement | `rgba(255,59,59,0.2)` red tint | — | Cannot place here (overlap/OOB) |
 
@@ -74,12 +74,12 @@
 
 ## Layout
 - **Approach:** Grid-disciplined — the game IS a grid, every screen honors grid alignment
-- **Grid:** Battle screen: 3-column (fleet grid | target grid | side panel) on desktop. Single column with tab toggle on mobile.
+- **Grid:** Battle screen: 2-column (unified ocean grid | side panel) on desktop. Single column stacked on mobile.
 - **Max content width:** 1100px
 - **Border radius:** sm: 2px (grid cells), md: 8px (buttons, inputs, alerts), lg: 12px (cards, panels)
 - **Responsive breakpoints:**
-  - Desktop (>768px): Side-by-side grids + sidebar
-  - Mobile (≤768px): Tab toggle [Your Fleet | Target Ocean], sidebar becomes bottom sheet
+  - Desktop (>768px): Ocean grid + sidebar
+  - Mobile (≤768px): Ocean grid stacked above sidebar
   - Grid cells scale to viewport width, pinch-to-zoom supported
 
 ## Motion

@@ -2,7 +2,7 @@
 
 A browser-based multiplayer Battleship variant where all players share the same ocean. Every shot hits every player's board — including your own. Friendly fire is real.
 
-2-4 players, private lobbies with join codes, no accounts required.
+2-4 players (or solo vs AI), private lobbies with join codes, no accounts required.
 
 ## What Makes It Different
 
@@ -24,9 +24,9 @@ Open two browser tabs to `http://localhost:5173`. Create a game in one tab, copy
 
 ## How to Play
 
-1. **Create or Join** — one player creates a game and shares the 4-letter code
-2. **Place Ships** — click a ship in the dock, click the grid to place, press R to rotate
-3. **Fire Salvos** — click targets on the Target Ocean grid, then FIRE SALVO
+1. **Create or Join** — one player creates a game and shares the 4-letter code (or add AI bots)
+2. **Place Ships** — click a ship in the dock, click the grid to place, press R to rotate (or hit Randomize)
+3. **Fire Salvos** — click targets on the shared ocean grid, then FIRE SALVO
 4. **Win** — last player with ships afloat wins
 
 ### Ships
@@ -45,7 +45,7 @@ You get one shot per surviving ship. Lose a ship, lose a shot.
 - **Client:** Vite + TypeScript (vanilla, no framework)
 - **Server:** Express + socket.io
 - **Shared:** TypeScript types shared via npm workspaces
-- **Tests:** Vitest (47 tests — game logic + security)
+- **Tests:** Vitest (79 tests — game logic, security, AI)
 
 ## Project Structure
 
@@ -54,6 +54,7 @@ salvo/
 ├── shared/src/types.ts       # Shared types, events, computed getters
 ├── server/src/
 │   ├── game.ts               # Pure game logic (no I/O)
+│   ├── ai.ts                 # AI opponents (4 difficulty tiers)
 │   ├── connections.ts         # Reconnection + event buffering
 │   ├── lobby.ts              # Game management, join codes, cleanup
 │   └── index.ts              # Express + socket.io wiring
@@ -73,6 +74,18 @@ npm run dev:client   # Client only
 npm test -w server   # Run tests
 ```
 
+## Features
+
+- **AI opponents** — 4 difficulty tiers (Easy, Medium, Hard, Impossible)
+- **Unified ocean grid** — your ships and all shot results on one interactive board
+- **Game-over stats** — accuracy, ships sunk, friendly fire, highlights (Sharpshooter, First Blood)
+- **Rematch** — play again with the same lobby (consent-based for multiplayer)
+- **Turn timer** — optional 30s/60s countdown, configurable by host
+- **Chat** — text chat for all players including spectators
+- **Light/dark mode** — toggle with localStorage persistence
+- **Reconnection** — 60-second window with event buffering
+- **Changelog** — in-app version history accessible from the lobby
+
 ## Design
 
-Dark tactical display theme — see [DESIGN.md](DESIGN.md) for the full design system.
+Dark tactical display theme with light mode toggle — see [DESIGN.md](DESIGN.md) for the full design system.
