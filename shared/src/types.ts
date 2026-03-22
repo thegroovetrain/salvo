@@ -63,6 +63,18 @@ export interface Game {
   timerConfig: TimerConfig;
   lastActivity: number;       // Date.now() for cleanup
   rematchAccepted: Set<string>; // playerIds who accepted rematch
+  /** Per-player stats accumulated during gameplay */
+  playerStats: Map<string, PlayerGameStats>;
+  /** ID of the player who scored the first hit */
+  firstBloodId: string | null;
+}
+
+export interface PlayerGameStats {
+  shotsFired: number;
+  hitsLanded: number;       // hits on OTHER players' ships
+  shipsSunk: number;        // other players' ships this player sunk
+  friendlyFireHits: number; // hits on OWN ships
+  turnsTaken: number;
 }
 
 export const SHIP_LENGTHS = [1, 2, 3, 4] as const;
@@ -137,10 +149,12 @@ export interface GameOverStats {
   playerStats: Record<string, {
     shotsFired: number;
     hitsLanded: number;
+    accuracy: number;          // hitsLanded / shotsFired (0-1)
     shipsSunk: number;
-    friendlyFireIncidents: number;
+    friendlyFireHits: number;
+    turnsTaken: number;
   }>;
-  highlights: string[]; // e.g. "Most Accurate: Eric (68%)"
+  highlights: string[]; // e.g. "Sharpshooter: Eric (78%)"
 }
 
 // --- Ship placement input ---

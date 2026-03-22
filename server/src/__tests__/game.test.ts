@@ -462,6 +462,98 @@ describe('Rematch', () => {
 });
 
 // ============================================================
+// Game Stats Tracking
+// ============================================================
+
+describe('Game Stats', () => {
+  it('tracks shots fired and hits landed per player', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    game.turnOrder = ['p1', 'p2'];
+    game.currentTurnIndex = 0;
+
+    // p1 ships: A1, B1-B2, C1-C3, D1-D4 (playerIndex 0)
+    // p2 ships: E1, F1-F2, G1-G3, H1-H4 (playerIndex 1)
+    fireSalvo(game, 'p1', ['E1', 'F1', 'G1', 'H1']);
+
+    const p1Stats = game.playerStats.get('p1')!;
+    expect(p1Stats.shotsFired).toBe(4);
+    expect(p1Stats.hitsLanded).toBe(4); // all hits on p2
+    expect(p1Stats.turnsTaken).toBe(1);
+  });
+
+  it('tracks friendly fire separately from hits', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    game.turnOrder = ['p1', 'p2'];
+    game.currentTurnIndex = 0;
+
+    // p1 fires at own Scout (A1) + 3 misses
+    fireSalvo(game, 'p1', ['A1', 'J6', 'J7', 'J8']);
+
+    const p1Stats = game.playerStats.get('p1')!;
+    expect(p1Stats.friendlyFireHits).toBe(1);
+    expect(p1Stats.hitsLanded).toBe(0); // self-hit doesn't count as "landed"
+  });
+
+  it('tracks ships sunk', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    game.turnOrder = ['p1', 'p2'];
+    game.currentTurnIndex = 0;
+
+    // p2's Scout is at E1 (playerIndex 1)
+    fireSalvo(game, 'p1', ['E1', 'J6', 'J7', 'J8']);
+
+    const p1Stats = game.playerStats.get('p1')!;
+    expect(p1Stats.shipsSunk).toBe(1);
+  });
+
+  it('tracks first blood', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    game.turnOrder = ['p1', 'p2'];
+    game.currentTurnIndex = 0;
+
+    expect(game.firstBloodId).toBeNull();
+
+    // Miss everything
+    fireSalvo(game, 'p1', ['J6', 'J7', 'J8', 'J9']);
+    expect(game.firstBloodId).toBeNull();
+
+    advanceTurn(game);
+
+    // p2 hits p1's Scout (A1)
+    fireSalvo(game, 'p2', ['A1', 'J1', 'J2', 'J3']);
+    expect(game.firstBloodId).toBe('p2');
+  });
+
+  it('generates meaningful highlights at game over', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    game.turnOrder = ['p1', 'p2'];
+    game.currentTurnIndex = 0;
+
+    // p1 fires at p2's ships (E1, F1, G1, H1)
+    fireSalvo(game, 'p1', ['E1', 'F1', 'G1', 'H1']); // 4 hits
+    advanceTurn(game);
+    fireSalvo(game, 'p2', ['J6', 'J7', 'J8', 'J9']); // 4 misses
+    advanceTurn(game);
+    fireSalvo(game, 'p1', ['F2', 'G2', 'G3', 'H2']); // 4 more hits
+
+    // Forfeit p2 to end game
+    forfeitPlayer(game, 'p2');
+    const result = checkGameOver(game);
+
+    expect(result).not.toBeNull();
+    expect(result!.playerStats['p1'].accuracy).toBeCloseTo(1.0); // 8/8
+    expect(result!.playerStats['p1'].shipsSunk).toBeGreaterThan(0);
+    expect(result!.highlights.some(h => h.includes('Sharpshooter'))).toBe(true);
+    expect(result!.highlights.some(h => h.includes('First Blood'))).toBe(true);
+  });
+});
+
+// ============================================================
 // Computed Getters
 // ============================================================
 

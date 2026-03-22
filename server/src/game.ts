@@ -28,6 +28,8 @@ export function createGame(hostId: string, hostName: string, timerConfig: TimerC
     timerConfig,
     lastActivity: Date.now(),
     rematchAccepted: new Set(),
+    playerStats: new Map(),
+    firstBloodId: null,
   };
 }
 
@@ -191,6 +193,19 @@ export function beginPlaying(game: Game): void {
   game.currentTurnIndex = 0;
   game.phase = 'playing';
   game.lastActivity = Date.now();
+
+  // Initialize per-player stats
+  game.playerStats = new Map();
+  game.firstBloodId = null;
+  for (const id of game.players.keys()) {
+    game.playerStats.set(id, {
+      shotsFired: 0,
+      hitsLanded: 0,
+      shipsSunk: 0,
+      friendlyFireHits: 0,
+      turnsTaken: 0,
+    });
+  }
 }
 
 // ============================================================
@@ -263,6 +278,29 @@ export function fireSalvo(game: Game, playerId: string, coords: string[]): ShotR
     results.push(shotResult);
   }
 
+  // Phase 2: Accumulate stats for the shooter
+  const shooterStats = game.playerStats.get(playerId);
+  if (shooterStats) {
+    shooterStats.shotsFired += normalizedCoords.length;
+    shooterStats.turnsTaken += 1;
+
+    for (const result of results) {
+      for (const hit of result.hits) {
+        if (hit.playerId === playerId) {
+          shooterStats.friendlyFireHits += 1;
+        } else {
+          shooterStats.hitsLanded += 1;
+          if (game.firstBloodId === null) {
+            game.firstBloodId = playerId;
+          }
+        }
+        if (hit.sunk && hit.playerId !== playerId) {
+          shooterStats.shipsSunk += 1;
+        }
+      }
+    }
+  }
+
   game.lastActivity = Date.now();
   return results;
 }
@@ -306,38 +344,53 @@ export function checkGameOver(game: Game): GameOverStats | null {
 }
 
 function computeGameOverStats(game: Game, winnerId: string | null): GameOverStats {
-  // We track stats from shot results. For now, compute from game state.
-  // This is a simplified version — the full tracking would accumulate during play.
   const playerStats: GameOverStats['playerStats'] = {};
 
-  for (const player of game.players.values()) {
-    playerStats[player.id] = {
-      shotsFired: 0,
-      hitsLanded: 0,
-      shipsSunk: 0,
-      friendlyFireIncidents: 0,
+  for (const [id, player] of game.players) {
+    const stats = game.playerStats.get(id);
+    const shotsFired = stats?.shotsFired ?? 0;
+    const hitsLanded = stats?.hitsLanded ?? 0;
+    playerStats[id] = {
+      shotsFired,
+      hitsLanded,
+      accuracy: shotsFired > 0 ? hitsLanded / shotsFired : 0,
+      shipsSunk: stats?.shipsSunk ?? 0,
+      friendlyFireHits: stats?.friendlyFireHits ?? 0,
+      turnsTaken: stats?.turnsTaken ?? 0,
     };
-  }
-
-  // Count hits on each player's ships
-  for (const player of game.players.values()) {
-    for (const ship of player.ships) {
-      if (isShipSunk(ship)) {
-        // We don't track WHO sunk it in this simplified version
-        // Full tracking would require accumulating during fireSalvo
-      }
-    }
   }
 
   // Generate highlights
   const highlights: string[] = [];
-  if (winnerId) {
-    const winner = game.players.get(winnerId);
-    if (winner) {
-      highlights.push(`Winner: ${winner.name}`);
+  const entries = [...game.players.entries()].map(([id, p]) => ({
+    id, name: p.name, ...playerStats[id],
+  }));
+
+  // Sharpshooter — highest accuracy (min 3 shots to qualify)
+  const qualified = entries.filter(e => e.shotsFired >= 3);
+  if (qualified.length > 0) {
+    const best = qualified.reduce((a, b) => a.accuracy > b.accuracy ? a : b);
+    highlights.push(`Sharpshooter: ${best.name} (${Math.round(best.accuracy * 100)}% accuracy)`);
+  }
+
+  // Most Destructive — most ships sunk
+  const mostSunk = entries.reduce((a, b) => a.shipsSunk > b.shipsSunk ? a : b);
+  if (mostSunk.shipsSunk > 0) {
+    highlights.push(`Most Destructive: ${mostSunk.name} (${mostSunk.shipsSunk} ships sunk)`);
+  }
+
+  // Friendly Fire Champion — most self-hits (only if someone actually did it)
+  const mostFF = entries.reduce((a, b) => a.friendlyFireHits > b.friendlyFireHits ? a : b);
+  if (mostFF.friendlyFireHits > 0) {
+    highlights.push(`Friendly Fire Champion: ${mostFF.name} (${mostFF.friendlyFireHits} self-hits)`);
+  }
+
+  // First Blood
+  if (game.firstBloodId) {
+    const fbPlayer = game.players.get(game.firstBloodId);
+    if (fbPlayer) {
+      highlights.push(`First Blood: ${fbPlayer.name}`);
     }
-  } else {
-    highlights.push('Draw — all players eliminated!');
   }
 
   return { winnerId, playerStats, highlights };
@@ -372,6 +425,8 @@ export function resetForRematch(game: Game): void {
   game.currentTurnIndex = 0;
   game.lastActivity = Date.now();
   game.rematchAccepted = new Set();
+  game.playerStats = new Map();
+  game.firstBloodId = null;
 
   for (const player of game.players.values()) {
     player.ships = [];

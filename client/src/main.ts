@@ -713,6 +713,24 @@ function renderGameOver(): string {
     rematchHtml = `<button class="btn btn-amber" id="btn-rematch" style="max-width:300px;margin:24px auto 0">Play Again</button>`;
   }
 
+  // Stats table
+  const players = state.game ? Object.values(state.game.players) : [];
+  const statsRows = players.map(p => {
+    const s = stats.playerStats[p.id];
+    if (!s) return '';
+    const accPct = Math.round(s.accuracy * 100);
+    const isWinner = p.id === stats.winnerId;
+    const rowStyle = isWinner ? 'color:var(--green)' : '';
+    return `<tr style="${rowStyle}">
+      <td>${esc(p.name)}${isWinner ? ' \u2605' : ''}</td>
+      <td>${s.shotsFired}</td>
+      <td>${s.hitsLanded}</td>
+      <td>${accPct}%</td>
+      <td>${s.shipsSunk}</td>
+      <td>${s.friendlyFireHits}</td>
+    </tr>`;
+  }).join('');
+
   return `
     <div class="screen">
       <div class="game-over">
@@ -721,6 +739,19 @@ function renderGameOver(): string {
           ${winner ? 'Last player standing' : 'All players eliminated simultaneously'}
         </p>
         ${highlightsHtml}
+        <table class="stats-table">
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>Shots</th>
+              <th>Hits</th>
+              <th>Accuracy</th>
+              <th>Sunk</th>
+              <th>FF</th>
+            </tr>
+          </thead>
+          <tbody>${statsRows}</tbody>
+        </table>
         ${rematchHtml}
         <button class="btn btn-secondary" id="btn-new-game" style="max-width:300px;margin:12px auto 0">New Game</button>
       </div>
