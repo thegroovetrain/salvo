@@ -47,6 +47,8 @@ interface AppState {
   // UI
   showJoinModal: boolean;
   showCreateModal: boolean;
+  // Saved form values
+  savedPlayerName: string;
   // Error
   errorMessage: string | null;
   errorTimeout: ReturnType<typeof setTimeout> | null;
@@ -82,6 +84,7 @@ const state: AppState = {
   mobileTab: 'fleet',
   showJoinModal: false,
   showCreateModal: false,
+  savedPlayerName: '',
   errorMessage: null,
   errorTimeout: null,
 };
@@ -427,7 +430,7 @@ function renderLobby(): string {
       ${renderError()}
       <div class="lobby-card" style="max-width:400px;width:100%">
         <label class="input-label">Your Name</label>
-        <input class="input" id="player-name" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off">
+        <input class="input" id="player-name" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off" value="${esc(state.savedPlayerName)}">
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary" id="btn-create" style="flex:1">Create Game</button>
           <button class="btn btn-amber" id="btn-show-join" style="flex:1">Join Game</button>
@@ -902,12 +905,13 @@ function bindEvents(): void {
   on('btn-create', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
+    state.savedPlayerName = name;
     state.showCreateModal = true;
     render();
   });
 
   on('btn-create-confirm', 'click', () => {
-    const name = val('player-name');
+    const name = state.savedPlayerName;
     if (!name) return showError('Enter your name');
     const timerEnabled = (document.getElementById('timer-enabled') as HTMLInputElement)?.checked ?? false;
     const timerSecs = parseInt((document.getElementById('timer-seconds') as HTMLSelectElement)?.value ?? '60', 10);
@@ -934,6 +938,7 @@ function bindEvents(): void {
   on('btn-show-join', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
+    state.savedPlayerName = name;
     state.showJoinModal = true;
     render();
     // Focus the code input after render
@@ -941,11 +946,10 @@ function bindEvents(): void {
   });
 
   on('btn-join', 'click', () => {
-    const name = val('player-name');
     const code = val('join-code');
     if (!code) return showError('Enter a game code');
     state.showJoinModal = false;
-    socket.emit('join-game', { code: code.toUpperCase(), playerName: name || 'Player' });
+    socket.emit('join-game', { code: code.toUpperCase(), playerName: state.savedPlayerName || 'Player' });
   });
 
   on('btn-join-cancel', 'click', () => {
