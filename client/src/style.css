@@ -80,6 +80,30 @@ html, body {
 
 .hidden { display: none !important; }
 
+/* ============================================================
+   Modal
+   ============================================================ */
+
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+}
+
+.modal {
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  min-width: 280px;
+  max-width: 360px;
+  width: 90%;
+}
+
 .theme-toggle {
   position: fixed;
   top: 12px;

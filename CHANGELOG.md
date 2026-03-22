@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0] - 2026-03-22
+
+### Changed
+- **Simplified lobby** — single name field with Create Game and Join Game buttons side by side
+- Join Game opens a focused modal for the 4-letter code instead of a separate form
+- Removed duplicate name input fields
+
 ## [0.5.0] - 2026-03-22
 
 ### Changed

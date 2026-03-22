@@ -44,6 +44,8 @@ interface AppState {
   changelogHtml: string | null;
   // Mobile
   mobileTab: 'fleet' | 'target';
+  // UI
+  showJoinModal: boolean;
   // Error
   errorMessage: string | null;
   errorTimeout: ReturnType<typeof setTimeout> | null;
@@ -77,6 +79,7 @@ const state: AppState = {
   rematchPending: null,
   changelogHtml: null,
   mobileTab: 'fleet',
+  showJoinModal: false,
   errorMessage: null,
   errorTimeout: null,
 };
@@ -380,35 +383,41 @@ function renderError(): string {
 }
 
 function renderLobby(): string {
+  const modalHtml = state.showJoinModal ? `
+    <div class="modal-overlay" id="join-modal-overlay">
+      <div class="modal">
+        <h2 class="label" style="margin-bottom:12px">Enter Game Code</h2>
+        <input class="input input-code" id="join-code" type="text" placeholder="XXXX" maxlength="8" autocomplete="off" autofocus>
+        <div style="display:flex;gap:8px;margin-top:4px">
+          <button class="btn btn-amber" id="btn-join" style="flex:1">Join</button>
+          <button class="btn btn-secondary" id="btn-join-cancel" style="flex:1">Cancel</button>
+        </div>
+      </div>
+    </div>
+  ` : '';
+
   return `
     <div class="screen">
       <h1 class="game-title">SALVO</h1>
       <p class="game-subtitle">Shared-Ocean Battleship</p>
       ${renderError()}
-      <div class="lobby-cards">
-        <div class="lobby-card">
-          <h2>Create Game</h2>
-          <label class="input-label">Your Name</label>
-          <input class="input" id="create-name" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off">
-          <div class="timer-config">
-            <input type="checkbox" id="timer-enabled">
-            <label for="timer-enabled">Turn timer</label>
-            <select id="timer-seconds">
-              <option value="30">30s</option>
-              <option value="60" selected>60s</option>
-            </select>
-          </div>
-          <button class="btn btn-primary" id="btn-create">Create</button>
+      <div class="lobby-card" style="max-width:400px;width:100%">
+        <label class="input-label">Your Name</label>
+        <input class="input" id="player-name" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off">
+        <div class="timer-config">
+          <input type="checkbox" id="timer-enabled">
+          <label for="timer-enabled">Turn timer</label>
+          <select id="timer-seconds">
+            <option value="30">30s</option>
+            <option value="60" selected>60s</option>
+          </select>
         </div>
-        <div class="lobby-card">
-          <h2>Join Game</h2>
-          <label class="input-label">Your Name</label>
-          <input class="input" id="join-name" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off">
-          <label class="input-label">Game Code</label>
-          <input class="input input-code" id="join-code" type="text" placeholder="XXXX" maxlength="8" autocomplete="off">
-          <button class="btn btn-amber" id="btn-join">Join</button>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-primary" id="btn-create" style="flex:1">Create Game</button>
+          <button class="btn btn-amber" id="btn-show-join" style="flex:1">Join Game</button>
         </div>
       </div>
+      ${modalHtml}
       <div class="lobby-footer">
         <span>v${VERSION}</span>
         <span class="footer-sep">&bull;</span>
@@ -872,7 +881,7 @@ function bindEvents(): void {
   });
 
   on('btn-create', 'click', () => {
-    const name = val('create-name');
+    const name = val('player-name');
     if (!name) return showError('Enter your name');
     const timerEnabled = (document.getElementById('timer-enabled') as HTMLInputElement)?.checked ?? false;
     const timerSecs = parseInt((document.getElementById('timer-seconds') as HTMLSelectElement)?.value ?? '60', 10);
@@ -883,16 +892,38 @@ function bindEvents(): void {
     });
   });
 
-  on('btn-join', 'click', () => {
-    const name = val('join-name');
-    const code = val('join-code');
+  on('btn-show-join', 'click', () => {
+    const name = val('player-name');
     if (!name) return showError('Enter your name');
+    state.showJoinModal = true;
+    render();
+    // Focus the code input after render
+    setTimeout(() => document.getElementById('join-code')?.focus(), 0);
+  });
+
+  on('btn-join', 'click', () => {
+    const name = val('player-name');
+    const code = val('join-code');
     if (!code) return showError('Enter a game code');
-    socket.emit('join-game', { code: code.toUpperCase(), playerName: name });
+    state.showJoinModal = false;
+    socket.emit('join-game', { code: code.toUpperCase(), playerName: name || 'Player' });
+  });
+
+  on('btn-join-cancel', 'click', () => {
+    state.showJoinModal = false;
+    render();
+  });
+
+  // Close modal on overlay click
+  on('join-modal-overlay', 'click', (e?: Event) => {
+    if ((e?.target as HTMLElement)?.id === 'join-modal-overlay') {
+      state.showJoinModal = false;
+      render();
+    }
   });
 
   // Enter key on inputs
-  onKey('create-name', 'Enter', () => document.getElementById('btn-create')?.click());
+  onKey('player-name', 'Enter', () => document.getElementById('btn-create')?.click());
   onKey('join-code', 'Enter', () => document.getElementById('btn-join')?.click());
   onKey('chat-input', 'Enter', () => document.getElementById('btn-chat')?.click());
 
@@ -1134,7 +1165,7 @@ function handleTargetClick(coord: string): void {
 // DOM Helpers
 // ============================================================
 
-function on(id: string, event: string, handler: () => void): void {
+function on(id: string, event: string, handler: (e?: Event) => void): void {
   document.getElementById(id)?.addEventListener(event, handler);
 }
 
