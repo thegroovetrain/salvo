@@ -1,9 +1,9 @@
 import {
   type Game, type Player, type Ship, type ShipPlacement,
   type ShotResult, type WireGame, type WirePlayer, type WireShip,
-  type TimerConfig, type GameOverStats,
+  type TimerConfig, type GameOverStats, type AiDifficulty,
   isShipSunk, isPlayerAlive, playerShotCount,
-  SHIP_LENGTHS, SHIP_NAMES, GRID_SIZE, ROWS,
+  SHIP_LENGTHS, SHIP_NAMES, GRID_SIZE, ROWS, AI_NAMES,
 } from '@salvo/shared';
 import crypto from 'node:crypto';
 
@@ -12,7 +12,7 @@ import crypto from 'node:crypto';
 // ============================================================
 
 export function createGame(hostId: string, hostName: string, timerConfig: TimerConfig): Game {
-  const player: Player = { id: hostId, name: hostName, ships: [] };
+  const player: Player = { id: hostId, name: hostName, ships: [], isBot: false, aiDifficulty: null };
   const players = new Map<string, Player>();
   players.set(hostId, player);
 
@@ -39,9 +39,29 @@ export function addPlayer(game: Game, playerId: string, playerName: string): str
   if (game.players.size >= 4) return 'Game is full (4 players max)';
   if (game.players.has(playerId)) return 'Already in this game';
 
-  game.players.set(playerId, { id: playerId, name: playerName, ships: [] });
+  game.players.set(playerId, { id: playerId, name: playerName, ships: [], isBot: false, aiDifficulty: null });
   game.lastActivity = Date.now();
   return null; // success
+}
+
+export function addBot(game: Game, difficulty: AiDifficulty): { botId: string } | { error: string } {
+  if (game.phase !== 'lobby') return { error: 'Game is not in lobby phase' };
+  if (game.players.size >= 4) return { error: 'Game is full (4 players max)' };
+
+  const botId = `bot-${crypto.randomUUID().slice(0, 8)}`;
+  const name = AI_NAMES[difficulty];
+  game.players.set(botId, { id: botId, name, ships: [], isBot: true, aiDifficulty: difficulty });
+  game.lastActivity = Date.now();
+  return { botId };
+}
+
+export function removeBot(game: Game, botId: string): string | null {
+  if (game.phase !== 'lobby') return 'Game is not in lobby phase';
+  const player = game.players.get(botId);
+  if (!player || !player.isBot) return 'Player is not a bot';
+  game.players.delete(botId);
+  game.lastActivity = Date.now();
+  return null;
 }
 
 export function canStartGame(game: Game, requesterId: string): string | null {
@@ -405,6 +425,8 @@ function serializePlayer(player: Player, isOwner: boolean): WirePlayer {
     ),
     alive,
     shotCount: playerShotCount(player),
+    isBot: player.isBot,
+    aiDifficulty: player.aiDifficulty,
   };
 }
 

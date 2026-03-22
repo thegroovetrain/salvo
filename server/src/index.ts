@@ -5,16 +5,17 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   ClientToServerEvents, ServerToClientEvents, ChatMessage,
-  TimerConfig, ShipPlacement,
+  TimerConfig, ShipPlacement, AiDifficulty,
 } from '@salvo/shared';
 import { isPlayerAlive, playerShotCount } from '@salvo/shared';
 import {
-  createGame, addPlayer, canStartGame, startGame,
+  createGame, addPlayer, addBot, removeBot, canStartGame, startGame,
   placeShips, allShipsPlaced, beginPlaying,
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, forfeitPlayer,
   toClientView, resetForRematch,
 } from './game.js';
+import { chooseSalvo, generatePlacement, getBotDelay } from './ai.js';
 import { ConnectionManager } from './connections.js';
 import { LobbyManager } from './lobby.js';
 import crypto from 'node:crypto';
@@ -112,17 +113,81 @@ function emitNextTurn(gameId: string): void {
   const player = game.players.get(currentPlayerId);
   if (!player) return;
 
-  emitToPlayer(currentPlayerId, 'your-turn', {
-    shotCount: playerShotCount(player),
-    timerSeconds: game.timerConfig.enabled ? game.timerConfig.seconds : null,
-  });
-
   // Send updated game state to everyone
   for (const pid of game.players.keys()) {
     emitToPlayer(pid, 'game-state', { game: toClientView(game, pid) });
   }
 
+  // If it's a bot's turn, auto-fire after a delay
+  if (player.isBot && player.aiDifficulty) {
+    const delay = getBotDelay(player.aiDifficulty);
+    setTimeout(() => {
+      executeBotTurn(gameId, currentPlayerId);
+    }, delay);
+    return; // don't emit your-turn or start timer for bots
+  }
+
+  emitToPlayer(currentPlayerId, 'your-turn', {
+    shotCount: playerShotCount(player),
+    timerSeconds: game.timerConfig.enabled ? game.timerConfig.seconds : null,
+  });
+
   startTurnTimer(gameId);
+}
+
+function executeBotTurn(gameId: string, botId: string): void {
+  const game = lobby.getGame(gameId);
+  if (!game || game.phase !== 'playing') return;
+  if (getCurrentTurnPlayerId(game) !== botId) return; // turn may have changed
+
+  const bot = game.players.get(botId);
+  if (!bot || !bot.aiDifficulty) return;
+
+  const coords = chooseSalvo(game, botId, bot.aiDifficulty);
+  if (coords.length === 0) return;
+
+  const err = validateSalvo(game, botId, coords);
+  if (err) {
+    // Bot produced invalid salvo — skip turn (shouldn't happen, but be safe)
+    advanceTurn(game);
+    emitNextTurn(gameId);
+    return;
+  }
+
+  const results = fireSalvo(game, botId, coords);
+
+  // Broadcast shot results to all players
+  for (const pid of game.players.keys()) {
+    emitToPlayer(pid, 'shot-results', {
+      shooterId: botId,
+      shooterName: bot.name,
+      shots: results,
+      game: toClientView(game, pid),
+    });
+  }
+
+  // Check for eliminations
+  for (const player of game.players.values()) {
+    if (!isPlayerAlive(player)) {
+      broadcastToGame(gameId, 'player-eliminated', {
+        playerId: player.id,
+        playerName: player.name,
+        reason: 'sunk' as const,
+      });
+    }
+  }
+
+  // Check game over
+  const gameOver = checkGameOver(game);
+  if (gameOver) {
+    clearTurnTimer(gameId);
+    broadcastToGame(gameId, 'game-over', gameOver);
+    return;
+  }
+
+  // Advance turn
+  advanceTurn(game);
+  emitNextTurn(gameId);
 }
 
 // ============================================================
@@ -171,6 +236,58 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('add-bot', ({ difficulty }: { difficulty: AiDifficulty }) => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game) return;
+
+    if (game.hostId !== playerId) {
+      socket.emit('error', { message: 'Only the host can add bots' });
+      return;
+    }
+
+    const result = addBot(game, difficulty);
+    if ('error' in result) {
+      socket.emit('error', { message: result.error });
+      return;
+    }
+
+    // Broadcast updated state
+    for (const pid of game.players.keys()) {
+      if (!game.players.get(pid)?.isBot) {
+        emitToPlayer(pid, 'player-joined', { game: toClientView(game, pid) });
+      }
+    }
+  });
+
+  socket.on('remove-bot', ({ botId }: { botId: string }) => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game) return;
+
+    if (game.hostId !== playerId) {
+      socket.emit('error', { message: 'Only the host can remove bots' });
+      return;
+    }
+
+    const err = removeBot(game, botId);
+    if (err) {
+      socket.emit('error', { message: err });
+      return;
+    }
+
+    // Broadcast updated state
+    for (const pid of game.players.keys()) {
+      if (!game.players.get(pid)?.isBot) {
+        emitToPlayer(pid, 'player-joined', { game: toClientView(game, pid) });
+      }
+    }
+  });
+
   socket.on('start-game', () => {
     const playerId = connections.getPlayerIdBySocket(socket.id);
     if (!playerId) return;
@@ -186,8 +303,29 @@ io.on('connection', (socket) => {
 
     startGame(game);
 
+    // Auto-place ships for all bots
+    for (const player of game.players.values()) {
+      if (player.isBot && player.aiDifficulty) {
+        const placement = generatePlacement(player.aiDifficulty);
+        placeShips(game, player.id, placement);
+      }
+    }
+
     for (const pid of game.players.keys()) {
-      emitToPlayer(pid, 'placement-phase', { game: toClientView(game, pid) });
+      if (!game.players.get(pid)?.isBot) {
+        emitToPlayer(pid, 'placement-phase', { game: toClientView(game, pid) });
+      }
+    }
+
+    // If all ships are now placed (only bots, or solo with bots), start playing
+    if (allShipsPlaced(game)) {
+      beginPlaying(game);
+      for (const pid of game.players.keys()) {
+        if (!game.players.get(pid)?.isBot) {
+          emitToPlayer(pid, 'all-ready', { game: toClientView(game, pid) });
+        }
+      }
+      emitNextTurn(game.id);
     }
   });
 

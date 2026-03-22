@@ -2,7 +2,7 @@ import { io, Socket } from 'socket.io-client';
 import type {
   ClientToServerEvents, ServerToClientEvents,
   WireGame, WirePlayer, ShotResult, ShipPlacement,
-  ChatMessage, GameOverStats, TimerConfig,
+  ChatMessage, GameOverStats, TimerConfig, AiDifficulty,
 } from '@salvo/shared';
 import { SHIP_LENGTHS, SHIP_NAMES, ROWS, GRID_SIZE } from '@salvo/shared';
 import './style.css';
@@ -375,12 +375,16 @@ function renderWaiting(): string {
   const playerListHtml = players.map(p => {
     const isMe = p.id === state.playerId;
     const hostBadge = p.id === Object.keys(state.game?.players ?? {})[0] ? '<span class="host-badge">HOST</span>' : '';
-    return `<li><span class="player-dot"></span> ${esc(p.name)} ${isMe ? '(you)' : ''} ${hostBadge}</li>`;
+    const botBadge = p.isBot ? `<span class="bot-badge">${esc(p.aiDifficulty ?? 'bot').toUpperCase()}</span>` : '';
+    const removeBtn = p.isBot && isHost ? `<button class="btn-remove-bot" data-bot-id="${p.id}" title="Remove bot">&times;</button>` : '';
+    return `<li><span class="player-dot"></span> ${esc(p.name)} ${isMe ? '(you)' : ''} ${hostBadge}${botBadge}${removeBtn}</li>`;
   }).join('');
 
   const waitingSlots = Array(4 - players.length).fill(0).map(() =>
     '<li><span class="player-dot waiting"></span> <span style="color:var(--text-muted)">waiting...</span></li>'
   ).join('');
+
+  const canAddBot = isHost && players.length < 4;
 
   return `
     <div class="screen">
@@ -393,6 +397,17 @@ function renderWaiting(): string {
         <p class="join-code-hint">Click to copy &bull; Share with friends</p>
         <ul class="player-list">${playerListHtml}${waitingSlots}</ul>
         ${isHost ? `<button class="btn btn-amber" id="btn-start" ${canStart ? '' : 'disabled'}>${canStart ? 'Start Game' : 'Need 2+ Players'}</button>` : '<p class="player-count">Waiting for host to start...</p>'}
+        ${canAddBot ? `
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <select id="bot-difficulty" class="input" style="margin-bottom:0;flex:1">
+              <option value="easy">Easy</option>
+              <option value="medium" selected>Medium</option>
+              <option value="hard">Hard</option>
+              <option value="impossible">Impossible</option>
+            </select>
+            <button class="btn btn-secondary" id="btn-add-bot" style="width:auto;padding:10px 16px">Add Bot</button>
+          </div>
+        ` : ''}
         <p class="player-count">${players.length} of 2–4 players</p>
       </div>
     </div>`;
@@ -701,6 +716,19 @@ function bindEvents(): void {
 
   on('btn-start', 'click', () => {
     socket.emit('start-game');
+  });
+
+  on('btn-add-bot', 'click', () => {
+    const select = document.getElementById('bot-difficulty') as HTMLSelectElement | null;
+    const difficulty = (select?.value ?? 'medium') as AiDifficulty;
+    socket.emit('add-bot', { difficulty });
+  });
+
+  document.querySelectorAll('.btn-remove-bot').forEach(el => {
+    el.addEventListener('click', () => {
+      const botId = el.getAttribute('data-bot-id');
+      if (botId) socket.emit('remove-bot', { botId });
+    });
   });
 
   // Placement

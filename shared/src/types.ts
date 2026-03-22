@@ -17,10 +17,21 @@ export function isShipSunk(ship: Ship): boolean {
   return ship.hits.size === ship.cells.length;
 }
 
+export type AiDifficulty = 'easy' | 'medium' | 'hard' | 'impossible';
+
+export const AI_NAMES: Record<AiDifficulty, string> = {
+  easy: 'Bot (Easy)',
+  medium: 'Bot (Medium)',
+  hard: 'Bot (Hard)',
+  impossible: 'Bot (Impossible)',
+};
+
 export interface Player {
   id: string;
   name: string;
   ships: Ship[];
+  isBot: boolean;
+  aiDifficulty: AiDifficulty | null;
 }
 
 /** Computed: has at least one unsunk ship */
@@ -77,6 +88,8 @@ export interface WirePlayer {
   id: string;
   name: string;
   ships: WireShip[];  // only YOUR ships have cells populated; others have cells=[]
+  isBot: boolean;
+  aiDifficulty: AiDifficulty | null;
   alive: boolean;
   shotCount: number;
 }
@@ -142,6 +155,8 @@ export interface ClientToServerEvents {
   'create-game': (data: { playerName: string; timerConfig?: TimerConfig }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
   'start-game': () => void;
+  'add-bot': (data: { difficulty: AiDifficulty }) => void;
+  'remove-bot': (data: { botId: string }) => void;
   'place-ships': (data: { ships: ShipPlacement[] }) => void;
   'fire': (data: { coords: string[] }) => void;
   'chat-message': (data: { text: string }) => void;

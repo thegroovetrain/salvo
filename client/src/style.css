@@ -200,6 +200,30 @@ html, body {
   border-radius: var(--radius-sm);
 }
 
+.bot-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--info);
+  background: var(--info-bg);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  margin-left: 4px;
+}
+
+.btn-remove-bot {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  transition: color 150ms;
+}
+.btn-remove-bot:hover { color: var(--red); }
+
 .player-count {
   font-size: 12px;
   color: var(--text-muted);
