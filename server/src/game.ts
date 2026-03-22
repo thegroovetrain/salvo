@@ -288,6 +288,7 @@ export function fireSalvo(game: Game, playerId: string, coords: string[]): ShotR
       for (const hit of result.hits) {
         if (hit.playerId === playerId) {
           shooterStats.friendlyFireHits += 1;
+          console.log(`[FF] ${playerId} hit own ship at ${result.coord}, total FF: ${shooterStats.friendlyFireHits}`);
         } else {
           shooterStats.hitsLanded += 1;
           if (game.firstBloodId === null) {
@@ -393,6 +394,8 @@ function computeGameOverStats(game: Game, winnerId: string | null): GameOverStat
     }
   }
 
+  console.log('[GAME OVER] Stats:', JSON.stringify(playerStats));
+  console.log('[GAME OVER] Highlights:', highlights);
   return { winnerId, playerStats, highlights };
 }
 
