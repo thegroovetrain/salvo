@@ -287,9 +287,9 @@ function chooseImpossible(game: Game, botId: string, unshot: string[], count: nu
     }
   }
 
-  // Sort by score (hit most players first), then randomize within same score
-  const scored = [...cellScores.entries()]
-    .sort((a, b) => b[1] - a[1] || Math.random() - 0.5);
+  // Sort by score (hit most players first), shuffle first for random tiebreaking
+  const scored = shuffled([...cellScores.entries()])
+    .sort((a, b) => b[1] - a[1]);
 
   const targets = scored.slice(0, count).map(([coord]) => coord);
 

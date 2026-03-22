@@ -7,7 +7,8 @@ import type {
 import { SHIP_LENGTHS, SHIP_NAMES, ROWS, GRID_SIZE } from '@salvo/shared';
 import './style.css';
 
-const VERSION = '0.1.0';
+declare const __APP_VERSION__: string;
+const VERSION = __APP_VERSION__;
 
 // ============================================================
 // State
