@@ -700,6 +700,15 @@ html, body {
   color: var(--text-secondary);
   font-size: 14px;
 }
+.changelog-subsection {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin: 8px 0 4px;
+}
+
 .changelog-entry li::before {
   content: '\2022';
   color: var(--text-muted);

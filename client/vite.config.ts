@@ -16,6 +16,9 @@ export default defineConfig({
         target: 'http://localhost:3000',
         ws: true,
       },
+      '/CHANGELOG.md': {
+        target: 'http://localhost:3000',
+      },
     },
   },
 });

@@ -40,6 +40,8 @@ interface AppState {
   // Game over
   gameOverStats: GameOverStats | null;
   rematchPending: { acceptedIds: string[]; totalHumans: number } | null;
+  // Changelog
+  changelogHtml: string | null;
   // Mobile
   mobileTab: 'fleet' | 'target';
   // Error
@@ -73,6 +75,7 @@ const state: AppState = {
   chatMessages: [],
   gameOverStats: null,
   rematchPending: null,
+  changelogHtml: null,
   mobileTab: 'fleet',
   errorMessage: null,
   errorTimeout: null,
@@ -415,59 +418,83 @@ function renderLobby(): string {
 }
 
 function renderChangelog(): string {
+  // Content loaded async — show cached or loading state
+  const content = state.changelogHtml || '<p style="color:var(--text-muted)">Loading changelog...</p>';
   return `
     <div class="screen">
       <h1 class="game-title" style="font-size:32px">CHANGELOG</h1>
-      <div class="changelog">
-        <div class="changelog-entry">
-          <h2>v0.4.0 <span class="changelog-date">2026-03-22</span></h2>
-          <ul>
-            <li>Unified single grid &mdash; your ships and all shot results on one interactive ocean</li>
-            <li>See friendly fire danger before you shoot &mdash; your green ships are visible on the targeting grid</li>
-            <li>Simplified cell colors: red = enemy hit, orange = you hit your own ship, dark red = enemy hit your ship</li>
-            <li>Removed separate fleet/target grids and mobile tab toggle</li>
-          </ul>
-        </div>
-        <div class="changelog-entry">
-          <h2>v0.3.0 <span class="changelog-date">2026-03-22</span></h2>
-          <ul>
-            <li>Added changelog page accessible from lobby</li>
-            <li>Moved version number to footer</li>
-          </ul>
-        </div>
-        <div class="changelog-entry">
-          <h2>v0.2.1 <span class="changelog-date">2026-03-22</span></h2>
-          <ul>
-            <li>Fixed friendly fire tracking &mdash; enemy hits on your ships no longer show as "friendly fire" in the shot log</li>
-          </ul>
-        </div>
-        <div class="changelog-entry">
-          <h2>v0.2.0 <span class="changelog-date">2026-03-22</span></h2>
-          <ul>
-            <li>Game-over stats with highlights: accuracy, ships sunk, friendly fire, first blood</li>
-            <li>Stats table shows per-player performance at end of game</li>
-            <li>Draws now feel earned &mdash; you can see who outplayed whom</li>
-          </ul>
-        </div>
-        <div class="changelog-entry">
-          <h2>v0.1.0 <span class="changelog-date">2026-03-21</span></h2>
-          <ul>
-            <li>Initial playable beta</li>
-            <li>2-4 player shared-ocean Battleship with join codes</li>
-            <li>AI opponents with 4 difficulty tiers (Easy, Medium, Hard, Impossible)</li>
-            <li>Ship placement: click-to-place, rotate, randomize button</li>
-            <li>Turn timer (30s/60s/off, host-configurable)</li>
-            <li>Text chat for all players</li>
-            <li>60-second reconnection with event buffering</li>
-            <li>Rematch with consent (bots auto-accept, declined players go to new lobby)</li>
-            <li>Light/dark mode toggle with localStorage persistence</li>
-            <li>Mobile responsive with tab toggle</li>
-            <li>Deployed on Render.com</li>
-          </ul>
-        </div>
-      </div>
+      <div class="changelog">${content}</div>
       <button class="btn btn-secondary" id="btn-changelog-back" style="max-width:200px;margin-top:24px">Back to Lobby</button>
     </div>`;
+}
+
+/** Simple markdown-to-HTML for changelog (headings, lists, bold, horizontal rules) */
+function markdownToHtml(md: string): string {
+  const lines = md.split('\n');
+  let html = '';
+  let inList = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Skip the top-level "# Changelog" heading
+    if (trimmed.startsWith('# ') && !trimmed.startsWith('## ')) continue;
+
+    // ## [0.4.0] - 2026-03-22 → version entry heading
+    const versionMatch = trimmed.match(/^## \[(.+?)\] - (.+)$/);
+    if (versionMatch) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<div class="changelog-entry"><h2>v${esc(versionMatch[1])} <span class="changelog-date">${esc(versionMatch[2])}</span></h2>`;
+      continue;
+    }
+
+    // ### Added/Changed/Fixed → subsection
+    if (trimmed.startsWith('### ')) {
+      if (inList) { html += '</ul>'; inList = false; }
+      html += `<h3 class="changelog-subsection">${esc(trimmed.slice(4))}</h3>`;
+      continue;
+    }
+
+    // - list item (with **bold** support)
+    if (trimmed.startsWith('- ')) {
+      if (!inList) { html += '<ul>'; inList = true; }
+      let text = esc(trimmed.slice(2));
+      // Convert **bold** to <strong>
+      text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      // Convert — to mdash
+      text = text.replace(/ — /g, ' &mdash; ');
+      html += `<li>${text}</li>`;
+      continue;
+    }
+
+    // Empty line — close list and close entry
+    if (trimmed === '') {
+      if (inList) { html += '</ul>'; inList = false; }
+      // Close entry div if we just had content
+      if (html.endsWith('</ul>') || html.endsWith('</h3>')) {
+        html += '</div>';
+      }
+      continue;
+    }
+  }
+
+  if (inList) html += '</ul>';
+  // Close last entry if not closed
+  if (!html.endsWith('</div>')) html += '</div>';
+
+  return html;
+}
+
+async function loadChangelog(): Promise<void> {
+  try {
+    const resp = await fetch('/CHANGELOG.md');
+    if (!resp.ok) throw new Error(`${resp.status}`);
+    const md = await resp.text();
+    state.changelogHtml = markdownToHtml(md);
+  } catch {
+    state.changelogHtml = '<p style="color:var(--text-muted)">Could not load changelog.</p>';
+  }
+  if (state.screen === 'changelog') render();
 }
 
 function renderWaiting(): string {
@@ -836,6 +863,7 @@ function bindEvents(): void {
   on('btn-changelog', 'click', () => {
     state.screen = 'changelog';
     render();
+    loadChangelog();
   });
 
   on('btn-changelog-back', 'click', () => {
