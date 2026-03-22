@@ -7,6 +7,8 @@ import type {
 import { SHIP_LENGTHS, SHIP_NAMES, ROWS, GRID_SIZE } from '@salvo/shared';
 import './style.css';
 
+const VERSION = '0.1.0';
+
 // ============================================================
 // State
 // ============================================================
@@ -375,7 +377,7 @@ function renderLobby(): string {
   return `
     <div class="screen">
       <h1 class="game-title">SALVO</h1>
-      <p class="game-subtitle">Shared-Ocean Battleship</p>
+      <p class="game-subtitle">Shared-Ocean Battleship &mdash; v${VERSION}</p>
       ${renderError()}
       <div class="lobby-cards">
         <div class="lobby-card">
@@ -427,7 +429,7 @@ function renderWaiting(): string {
   return `
     <div class="screen">
       <h1 class="game-title">SALVO</h1>
-      <p class="game-subtitle">Shared-Ocean Battleship</p>
+      <p class="game-subtitle">Shared-Ocean Battleship &mdash; v${VERSION}</p>
       ${renderError()}
       <div class="waiting-room">
         <h2 class="label" style="margin-bottom:12px">Game Created</h2>
