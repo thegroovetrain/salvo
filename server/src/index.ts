@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   ClientToServerEvents, ServerToClientEvents, ChatMessage,
-  TimerConfig, ShipPlacement, AiDifficulty,
+  TimerConfig, ShipPlacement, AiDifficulty, QuickPlayMode,
 } from '@salvo/shared';
 import { isPlayerAlive, playerShotCount } from '@salvo/shared';
 import {
@@ -31,6 +31,100 @@ const connections = new ConnectionManager();
 
 // Turn timers: gameId → timeout handle
 const turnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// ============================================================
+// Quick Play Queue State
+//
+//   LOBBY ──quickplay-join──► QUEUED ──match──► IN_GAME
+//     ▲                         │                  │
+//     │                         │                  │
+//     └──quickplay-leave────────┘                  │
+//     └──disconnect─────────────┘                  │
+//     └──rematch-requeue───────────────────────────┘
+// ============================================================
+
+const queueEntries = new Map<string, { playerName: string; mode: QuickPlayMode }>();
+
+function getQueueRoomName(mode: QuickPlayMode): string {
+  return `quickplay-${mode}`;
+}
+
+function getQueueSize(roomName: string): number {
+  return io.sockets.adapter.rooms.get(roomName)?.size ?? 0;
+}
+
+function broadcastGameCount(): void {
+  const searching1v1 = getQueueSize('quickplay-1v1');
+  const searchingFfa = getQueueSize('quickplay-ffa');
+  const counts = lobby.getActiveGameCounts(searching1v1, searchingFfa);
+  io.emit('game-count', counts);
+}
+
+/** Try to create a match from players in a queue room. Called from join handler and requeue. */
+function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
+  const target = mode === '1v1' ? 2 : 4;
+  const size = getQueueSize(roomName);
+  if (size < target) return;
+
+  const roomSockets = io.sockets.adapter.rooms.get(roomName);
+  if (!roomSockets) return;
+
+  const matchedSocketIds = [...roomSockets].slice(0, target);
+  const gameMode = mode === '1v1' ? 'quickplay-1v1' as const : 'quickplay-ffa' as const;
+
+  // Create the game with the first player as host
+  const firstEntry = queueEntries.get(matchedSocketIds[0]);
+  const hostId = crypto.randomUUID();
+  const game = createGame(
+    hostId,
+    firstEntry?.playerName ?? 'Player',
+    { enabled: true, seconds: 60 },
+    gameMode,
+  );
+
+  const code = lobby.generateUniqueCode();
+  lobby.addGame(game, code);
+  lobby.registerPlayer(hostId, game.id);
+  connections.register(hostId, matchedSocketIds[0], game.id);
+
+  const firstSocket = io.sockets.sockets.get(matchedSocketIds[0]);
+  if (firstSocket) {
+    firstSocket.leave(roomName);
+    firstSocket.join(game.id);
+  }
+  queueEntries.delete(matchedSocketIds[0]);
+
+  io.to(matchedSocketIds[0]).emit('quickplay-matched', { playerId: hostId, gameId: game.id });
+
+  // Add remaining players
+  for (let i = 1; i < matchedSocketIds.length; i++) {
+    const sid = matchedSocketIds[i];
+    const entry = queueEntries.get(sid);
+    const playerId = crypto.randomUUID();
+    addPlayer(game, playerId, entry?.playerName ?? 'Player');
+    lobby.registerPlayer(playerId, game.id);
+    connections.register(playerId, sid, game.id);
+
+    const playerSocket = io.sockets.sockets.get(sid);
+    if (playerSocket) {
+      playerSocket.leave(roomName);
+      playerSocket.join(game.id);
+    }
+    queueEntries.delete(sid);
+
+    io.to(sid).emit('quickplay-matched', { playerId, gameId: game.id });
+  }
+
+  // Start the game immediately (skip lobby phase)
+  startGame(game);
+
+  // Emit placement phase to all players
+  for (const pid of game.players.keys()) {
+    emitToPlayer(pid, 'placement-phase', { game: toClientView(game, pid) });
+  }
+
+  broadcastGameCount();
+}
 
 // ============================================================
 // Helpers
@@ -182,6 +276,7 @@ function executeBotTurn(gameId: string, botId: string): void {
   if (gameOver) {
     clearTurnTimer(gameId);
     broadcastToGame(gameId, 'game-over', gameOver);
+    broadcastGameCount();
     return;
   }
 
@@ -208,6 +303,7 @@ io.on('connection', (socket) => {
 
     socket.emit('game-created', { code, playerId, gameId: game.id });
     socket.emit('game-state', { game: toClientView(game, playerId) });
+    broadcastGameCount();
   });
 
   socket.on('join-game', ({ code, playerName }: { code: string; playerName: string }) => {
@@ -405,6 +501,7 @@ io.on('connection', (socket) => {
     if (gameOver) {
       clearTurnTimer(game.id);
       broadcastToGame(game.id, 'game-over', gameOver);
+      broadcastGameCount();
       return;
     }
 
@@ -473,6 +570,57 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ============================================================
+  // Quick Play Queue
+  // ============================================================
+
+  socket.on('quickplay-join', ({ playerName, mode }: { playerName: string; mode: QuickPlayMode }) => {
+    // Validate mode
+    if (mode !== '1v1' && mode !== 'ffa') return;
+
+    const trimmedName = playerName?.trim()?.slice(0, 20) ?? '';
+    if (!trimmedName) {
+      socket.emit('error', { message: 'Enter your name before joining Quick Play' });
+      return;
+    }
+
+    // Queue switch: if already in a different queue, leave it first
+    const existing = queueEntries.get(socket.id);
+    if (existing) {
+      if (existing.mode === mode) return; // already in this queue
+      const oldRoom = getQueueRoomName(existing.mode);
+      socket.leave(oldRoom);
+      queueEntries.delete(socket.id);
+      const oldSize = getQueueSize(oldRoom);
+      io.to(oldRoom).emit('quickplay-queue-update', { size: oldSize });
+    }
+
+    const roomName = getQueueRoomName(mode);
+    socket.join(roomName);
+    queueEntries.set(socket.id, { playerName: trimmedName, mode });
+
+    // Broadcast queue size to room members
+    const size = getQueueSize(roomName);
+    io.to(roomName).emit('quickplay-queue-update', { size });
+    broadcastGameCount();
+
+    // Check if match is ready
+    tryMatchRoom(roomName, mode);
+  });
+
+  socket.on('quickplay-leave', () => {
+    const entry = queueEntries.get(socket.id);
+    if (!entry) return;
+
+    const roomName = getQueueRoomName(entry.mode);
+    socket.leave(roomName);
+    queueEntries.delete(socket.id);
+
+    const size = getQueueSize(roomName);
+    io.to(roomName).emit('quickplay-queue-update', { size });
+    broadcastGameCount();
+  });
+
   // Rematch
   socket.on('rematch-request', () => {
     const playerId = connections.getPlayerIdBySocket(socket.id);
@@ -491,7 +639,40 @@ io.on('connection', (socket) => {
     const allAccepted = humanPlayers.every(p => game.rematchAccepted.has(p.id));
 
     if (allAccepted) {
-      // Everyone accepted — start rematch
+      // Quick-play rematch: destroy game + requeue all humans
+      if (game.mode !== 'private') {
+        const qpMode: QuickPlayMode = game.mode === 'quickplay-1v1' ? '1v1' : 'ffa';
+        const roomName = getQueueRoomName(qpMode);
+
+        // Requeue each human player
+        for (const p of humanPlayers) {
+          const socketId = connections.getSocketId(p.id);
+          if (!socketId) continue;
+
+          const playerSocket = io.sockets.sockets.get(socketId);
+          if (playerSocket) {
+            playerSocket.leave(game.id);
+            playerSocket.join(roomName);
+          }
+          queueEntries.set(socketId, { playerName: p.name, mode: qpMode });
+          connections.remove(p.id);
+        }
+
+        // Clean up the game (removeGame also cleans playerToGame entries)
+        lobby.removeGame(game.id);
+        clearTurnTimer(game.id);
+
+        // Broadcast queue updates
+        const size = getQueueSize(roomName);
+        io.to(roomName).emit('quickplay-queue-update', { size });
+        broadcastGameCount();
+
+        // Check if the requeue fills the room — call tryMatchRoom directly
+        tryMatchRoom(roomName, qpMode);
+        return;
+      }
+
+      // Private game rematch: in-place reset
       resetForRematch(game);
 
       // Auto-place bot ships
@@ -548,10 +729,42 @@ io.on('connection', (socket) => {
     const remainingHumans = [...game.players.values()].filter(p => !p.isBot);
     if (remainingHumans.length === 0) {
       lobby.removeGame(game.id);
+      broadcastGameCount();
       return;
     }
 
-    // Move remaining players to a new lobby with a fresh join code
+    // Quick-play decline: remaining humans go back to queue
+    if (game.mode !== 'private') {
+      const qpMode: QuickPlayMode = game.mode === 'quickplay-1v1' ? '1v1' : 'ffa';
+      const roomName = getQueueRoomName(qpMode);
+
+      for (const p of remainingHumans) {
+        const socketId = connections.getSocketId(p.id);
+        if (!socketId) continue;
+
+        const playerSocket = io.sockets.sockets.get(socketId);
+        if (playerSocket) {
+          playerSocket.leave(game.id);
+          playerSocket.join(roomName);
+        }
+        queueEntries.set(socketId, { playerName: p.name, mode: qpMode });
+        connections.remove(p.id);
+      }
+
+      // removeGame cleans up playerToGame entries
+      lobby.removeGame(game.id);
+      clearTurnTimer(game.id);
+
+      const size = getQueueSize(roomName);
+      io.to(roomName).emit('quickplay-queue-update', { size });
+      broadcastGameCount();
+
+      // Check if requeue fills the room
+      tryMatchRoom(roomName, qpMode);
+      return;
+    }
+
+    // Private game decline: move remaining to a new lobby
     game.phase = 'lobby';
     game.shots = new Set();
     game.turnOrder = [];
@@ -590,6 +803,17 @@ io.on('connection', (socket) => {
 
   // Handle disconnect
   socket.on('disconnect', () => {
+    // Clean up queue state if player was queued
+    const queueEntry = queueEntries.get(socket.id);
+    if (queueEntry) {
+      const roomName = getQueueRoomName(queueEntry.mode);
+      queueEntries.delete(socket.id);
+      // socket.io auto-removes from rooms on disconnect
+      const size = getQueueSize(roomName);
+      io.to(roomName).emit('quickplay-queue-update', { size });
+      broadcastGameCount();
+    }
+
     const result = connections.handleDisconnect(socket.id, (playerId, gameId) => {
       // Timeout callback — forfeit the player
       const game = lobby.getGame(gameId);
@@ -609,6 +833,7 @@ io.on('connection', (socket) => {
       if (gameOver) {
         clearTurnTimer(gameId);
         broadcastToGame(gameId, 'game-over', gameOver);
+        broadcastGameCount();
         return;
       }
 

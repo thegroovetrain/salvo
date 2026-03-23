@@ -3,6 +3,7 @@ import type {
   ClientToServerEvents, ServerToClientEvents,
   WireGame, WirePlayer, ShotResult, ShipPlacement,
   ChatMessage, GameOverStats, TimerConfig, AiDifficulty,
+  QuickPlayMode, GameCountData,
 } from '@salvo/shared';
 import { SHIP_LENGTHS, SHIP_NAMES, ROWS, GRID_SIZE } from '@salvo/shared';
 import './style.css';
@@ -14,7 +15,7 @@ const VERSION = __APP_VERSION__;
 // State
 // ============================================================
 
-type Screen = 'lobby' | 'waiting' | 'placement' | 'battle' | 'gameover' | 'changelog';
+type Screen = 'lobby' | 'waiting' | 'placement' | 'battle' | 'gameover' | 'changelog' | 'queue';
 
 interface AppState {
   screen: Screen;
@@ -49,6 +50,11 @@ interface AppState {
   showCreateModal: boolean;
   // Saved form values
   savedPlayerName: string;
+  // Quick Play
+  queueMode: QuickPlayMode | null;
+  queueSize: number;
+  gameCounts: GameCountData | null;
+  matchSoundMuted: boolean;
   // Error
   errorMessage: string | null;
   errorTimeout: ReturnType<typeof setTimeout> | null;
@@ -85,6 +91,10 @@ const state: AppState = {
   showJoinModal: false,
   showCreateModal: false,
   savedPlayerName: '',
+  queueMode: null,
+  queueSize: 0,
+  gameCounts: null,
+  matchSoundMuted: localStorage.getItem('salvo-muted') === 'true',
   errorMessage: null,
   errorTimeout: null,
 };
@@ -266,6 +276,54 @@ socket.on('player-reconnected', ({ playerName }) => {
   render();
 });
 
+// Quick Play handlers
+socket.on('quickplay-queue-update', ({ size }) => {
+  state.queueSize = size;
+  // If we receive a queue update and we have a queueMode set (from rematch requeue),
+  // transition to queue screen
+  if (state.queueMode && state.screen !== 'queue') {
+    state.screen = 'queue';
+    state.gameOverStats = null;
+    state.rematchPending = null;
+    state.game = null;
+    state.playerId = null;
+    state.gameId = null;
+    sessionStorage.removeItem('salvo-playerId');
+    sessionStorage.removeItem('salvo-gameId');
+  }
+  render();
+});
+
+socket.on('quickplay-matched', ({ playerId, gameId }) => {
+  state.playerId = playerId;
+  state.gameId = gameId;
+  state.screen = 'placement';
+  state.queueMode = null;
+  state.queueSize = 0;
+  sessionStorage.setItem('salvo-playerId', playerId);
+  sessionStorage.setItem('salvo-gameId', gameId);
+  // Clean up the queue history entry so back button doesn't hit a dead state
+  history.replaceState(null, '');
+  // Play match sound
+  if (!state.matchSoundMuted) {
+    playMatchSound();
+  }
+  render();
+});
+
+socket.on('game-count', (counts) => {
+  state.gameCounts = counts;
+  // Only re-render lobby counters if on lobby screen
+  if (state.screen === 'lobby') {
+    const el = document.getElementById('game-counters');
+    if (el) {
+      el.innerHTML = renderGameCounters();
+    } else {
+      render();
+    }
+  }
+});
+
 // Reconnection handling
 socket.on('connect', () => {
   const savedPlayerId = sessionStorage.getItem('salvo-playerId');
@@ -364,6 +422,45 @@ function getShipCells(startRow: number, startCol: number, length: number, horizo
 }
 
 // ============================================================
+// Match Sound
+// ============================================================
+
+function playMatchSound(): void {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(600, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+    osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.3, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.5);
+    osc.onended = () => ctx.close();
+  } catch {
+    // Audio not supported — silently ignore
+  }
+}
+
+// ============================================================
+// Back Button Guard for Queue
+// ============================================================
+
+window.addEventListener('popstate', () => {
+  if (state.screen === 'queue') {
+    socket.emit('quickplay-leave');
+    state.screen = 'lobby';
+    state.queueMode = null;
+    state.queueSize = 0;
+    render();
+  }
+});
+
+// ============================================================
 // Rendering
 // ============================================================
 
@@ -372,6 +469,7 @@ function render(): void {
 
   switch (state.screen) {
     case 'lobby': app.innerHTML = renderLobby(); break;
+    case 'queue': app.innerHTML = renderQueue(); break;
     case 'waiting': app.innerHTML = renderWaiting(); break;
     case 'placement': app.innerHTML = renderPlacement(); break;
     case 'battle': app.innerHTML = renderBattle(); break;
@@ -431,9 +529,17 @@ function renderLobby(): string {
       <div class="lobby-card" style="max-width:400px;width:100%">
         <label class="input-label">Your Name</label>
         <input class="input" id="player-name" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off" value="${esc(state.savedPlayerName)}">
+        <div class="quickplay-section">
+          <p class="label" style="margin-bottom:8px">Quick Play</p>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-amber btn-quickplay" id="btn-qp-1v1" style="flex:1">1v1</button>
+            <button class="btn btn-amber btn-quickplay" id="btn-qp-ffa" style="flex:1">FFA</button>
+          </div>
+          <div id="game-counters" class="game-counters">${renderGameCounters()}</div>
+        </div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-primary" id="btn-create" style="flex:1">Create Game</button>
-          <button class="btn btn-amber" id="btn-show-join" style="flex:1">Join Game</button>
+          <button class="btn btn-secondary" id="btn-create" style="flex:1">Create Game</button>
+          <button class="btn btn-secondary" id="btn-show-join" style="flex:1">Join Game</button>
         </div>
       </div>
       ${joinModalHtml}
@@ -442,6 +548,43 @@ function renderLobby(): string {
         <span>v${VERSION}</span>
         <span class="footer-sep">&bull;</span>
         <a href="#" id="btn-changelog">Changelog</a>
+      </div>
+    </div>`;
+}
+
+function renderGameCounters(): string {
+  const c = state.gameCounts;
+  if (!c) return '';
+  const parts: string[] = [];
+  if (c.total > 0) parts.push(`${c.total} game${c.total !== 1 ? 's' : ''} active`);
+  if (c.searching1v1 > 0) parts.push(`${c.searching1v1} searching 1v1`);
+  if (c.searchingFfa > 0) parts.push(`${c.searchingFfa} searching FFA`);
+  if (parts.length === 0) return '';
+  return `<span>${parts.join(' &bull; ')}</span>`;
+}
+
+function renderQueue(): string {
+  const mode = state.queueMode;
+  const target = mode === '1v1' ? 2 : 4;
+  const size = state.queueSize;
+
+  const dots = Array.from({ length: target }, (_, i) =>
+    `<span class="queue-dot ${i < size ? 'filled' : ''}">${i < size ? '\u25CF' : '\u25CB'}</span>`
+  ).join(' ');
+
+  const muteIcon = state.matchSoundMuted ? '\uD83D\uDD07' : '\uD83D\uDD0A';
+
+  return `
+    <div class="screen">
+      <h1 class="game-title" style="font-size:32px">SALVO</h1>
+      <div class="queue-wait">
+        <p class="label queue-label">SEARCHING FOR ${mode === '1v1' ? '1V1' : 'FFA'} MATCH...</p>
+        <div class="queue-dots">${dots}</div>
+        <p class="queue-count">${size} of ${target}</p>
+        <div style="display:flex;gap:8px;margin-top:24px">
+          <button class="btn btn-secondary" id="btn-queue-cancel" style="flex:1">Cancel</button>
+          <button class="btn btn-mute" id="btn-mute" title="${state.matchSoundMuted ? 'Unmute' : 'Mute'} match sound">${muteIcon}</button>
+        </div>
       </div>
     </div>`;
 }
@@ -902,6 +1045,50 @@ function bindEvents(): void {
     render();
   });
 
+  // Auto-focus name field on first visit
+  if (state.screen === 'lobby' && !state.savedPlayerName) {
+    setTimeout(() => document.getElementById('player-name')?.focus(), 0);
+  }
+
+  // Quick Play
+  on('btn-qp-1v1', 'click', () => {
+    const name = val('player-name');
+    if (!name) return showError('Enter your name');
+    state.savedPlayerName = name;
+    state.queueMode = '1v1';
+    state.queueSize = 0;
+    state.screen = 'queue';
+    history.pushState({ screen: 'queue' }, '');
+    socket.emit('quickplay-join', { playerName: name, mode: '1v1' });
+    render();
+  });
+
+  on('btn-qp-ffa', 'click', () => {
+    const name = val('player-name');
+    if (!name) return showError('Enter your name');
+    state.savedPlayerName = name;
+    state.queueMode = 'ffa';
+    state.queueSize = 0;
+    state.screen = 'queue';
+    history.pushState({ screen: 'queue' }, '');
+    socket.emit('quickplay-join', { playerName: name, mode: 'ffa' });
+    render();
+  });
+
+  on('btn-queue-cancel', 'click', () => {
+    socket.emit('quickplay-leave');
+    state.screen = 'lobby';
+    state.queueMode = null;
+    state.queueSize = 0;
+    render();
+  });
+
+  on('btn-mute', 'click', () => {
+    state.matchSoundMuted = !state.matchSoundMuted;
+    localStorage.setItem('salvo-muted', String(state.matchSoundMuted));
+    render();
+  });
+
   on('btn-create', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
@@ -1094,6 +1281,12 @@ function bindEvents(): void {
 
   // Rematch
   on('btn-rematch', 'click', () => {
+    // For QP games, Play Again means requeue
+    if (state.game && state.game.mode !== 'private') {
+      const qpMode: QuickPlayMode = state.game.mode === 'quickplay-1v1' ? '1v1' : 'ffa';
+      state.queueMode = qpMode;
+      state.queueSize = 0;
+    }
     socket.emit('rematch-request');
   });
 
@@ -1113,6 +1306,8 @@ function bindEvents(): void {
     state.chatMessages = [];
     state.gameOverStats = null;
     state.rematchPending = null;
+    state.queueMode = null;
+    state.queueSize = 0;
     render();
   });
 }

@@ -51,9 +51,12 @@ export interface TimerConfig {
   seconds: number; // 30 or 60
 }
 
+export type GameMode = 'private' | 'quickplay-1v1' | 'quickplay-ffa';
+
 export interface Game {
   id: string;
   phase: GamePhase;
+  mode: GameMode;
   players: Map<string, Player>;
   hostId: string;
   turnOrder: string[];        // randomized when all ships placed
@@ -129,6 +132,7 @@ export interface ShotResult {
 export interface WireGame {
   id: string;
   phase: GamePhase;
+  mode: GameMode;
   players: Record<string, WirePlayer>;
   turnOrder: string[];
   currentTurnIndex: number;
@@ -166,6 +170,16 @@ export interface ShipPlacement {
 
 // --- Socket Events ---
 
+export type QuickPlayMode = '1v1' | 'ffa';
+
+export interface GameCountData {
+  total: number;
+  oneVsOne: number;
+  ffa: number;
+  searching1v1: number;
+  searchingFfa: number;
+}
+
 export interface ClientToServerEvents {
   'create-game': (data: { playerName: string; timerConfig?: TimerConfig }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
@@ -178,6 +192,8 @@ export interface ClientToServerEvents {
   'rejoin': (data: { playerId: string; gameId: string }) => void;
   'rematch-request': () => void;
   'rematch-decline': () => void;
+  'quickplay-join': (data: { playerName: string; mode: QuickPlayMode }) => void;
+  'quickplay-leave': () => void;
 }
 
 export interface ServerToClientEvents {
@@ -198,4 +214,7 @@ export interface ServerToClientEvents {
   'rematch-pending': (data: { acceptedIds: string[]; totalHumans: number }) => void;
   'rematch-starting': (data: { game: WireGame }) => void;
   'rematch-declined': (data: { playerName: string; code: string; game: WireGame }) => void;
+  'quickplay-queue-update': (data: { size: number }) => void;
+  'quickplay-matched': (data: { playerId: string; gameId: string }) => void;
+  'game-count': (data: GameCountData) => void;
 }
