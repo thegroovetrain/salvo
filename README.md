@@ -2,7 +2,7 @@
 
 A browser-based multiplayer Battleship variant where all players share the same ocean. Every shot hits every player's board — including your own. Friendly fire is real.
 
-2-4 players (or solo vs AI), private lobbies with join codes, no accounts required.
+2-4 players (or solo vs AI). Quick Play matchmaking for instant games, or private lobbies with join codes. No accounts required.
 
 ## What Makes It Different
 
@@ -24,7 +24,7 @@ Open two browser tabs to `http://localhost:5173`. Create a game in one tab, copy
 
 ## How to Play
 
-1. **Create or Join** — one player creates a game and shares the 4-letter code (or add AI bots)
+1. **Quick Play or Create/Join** — click 1v1 or FFA for instant matchmaking, or create a private game with a join code (add AI bots too)
 2. **Place Ships** — click a ship in the dock, click the grid to place, press R to rotate (or hit Randomize)
 3. **Fire Salvos** — click targets on the shared ocean grid, then FIRE SALVO
 4. **Win** — last player with ships afloat wins
@@ -45,7 +45,7 @@ You get one shot per surviving ship. Lose a ship, lose a shot.
 - **Client:** Vite + TypeScript (vanilla, no framework)
 - **Server:** Express + socket.io
 - **Shared:** TypeScript types shared via npm workspaces
-- **Tests:** Vitest (79 tests — game logic, security, AI)
+- **Tests:** Vitest (91 tests — game logic, security, AI, matchmaking)
 
 ## Project Structure
 
@@ -76,6 +76,7 @@ npm test -w server   # Run tests
 
 ## Features
 
+- **Quick Play matchmaking** — 1v1 and FFA queues with live game counters and match-found sound
 - **AI opponents** — 4 difficulty tiers (Easy, Medium, Hard, Impossible)
 - **Unified ocean grid** — your ships and all shot results on one interactive board
 - **Game-over stats** — accuracy, ships sunk, friendly fire, highlights (Sharpshooter, First Blood)

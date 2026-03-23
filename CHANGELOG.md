@@ -16,7 +16,7 @@
 - Quick-play games always use a 60-second turn timer
 - Quick-play rematch destroys the game and requeues all consenting players (clean game boundaries for future ranked play)
 - Quick-play decline sends remaining players back to the queue instead of a private lobby
-- Added `mode` field to Game type (`private`, `quickplay-1v1`, `quickplay-ffa`) for game type tracking
+- Games now track their type (private, 1v1, FFA) for accurate lobby counters and future ranked play
 
 ## [0.8.0] - 2026-03-22
 

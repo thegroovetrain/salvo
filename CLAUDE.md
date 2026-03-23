@@ -7,7 +7,7 @@ Salvo is a multiplayer shared-ocean Battleship game. All players' ships occupy t
 ### Commands
 ```
 npm run dev          # Start server (3000) + client (5173)
-npm test -w server   # Run tests (vitest, 79 tests)
+npm test -w server   # Run tests (vitest, 91 tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 ```
@@ -18,7 +18,7 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - **server/src/connections.ts** — playerId↔socketId mapping, 60s reconnect window, event buffering
 - **server/src/ai.ts** — AI opponents: 4 tiers (Easy/Medium/Hard/Impossible), ship placement + target selection
 - **server/src/lobby.ts** — Game lifecycle, join codes (collision-safe), cleanup timer
-- **server/src/index.ts** — Express + socket.io event routing, turn timer management, bot auto-play
+- **server/src/index.ts** — Express + socket.io event routing, turn timer management, bot auto-play, Quick Play queue (socket.io rooms)
 - **client/src/main.ts** — Single-file vanilla TS client: state management, socket handlers, DOM rendering
 - **client/src/style.css** — Full DESIGN.md implementation
 
@@ -30,6 +30,8 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - Unified single grid — no separate fleet/target grids (shared ocean = one grid)
 - Per-player stats (shots, hits, accuracy, FF) accumulated during fireSalvo, computed at game-over
 - Version is single-source from package.json, injected by Vite at build time via `__APP_VERSION__`
+- Game.mode ('private' | 'quickplay-1v1' | 'quickplay-ffa') distinguishes game types for counters and future ranked play
+- Quick Play rematch destroys the game and requeues players (clean game boundaries); private rematch resets in-place
 - Versioning: 0.X.0 = new features, 0.0.X = bugfixes, X.0.0 = major (fundamentally different game)
 
 ## gstack
