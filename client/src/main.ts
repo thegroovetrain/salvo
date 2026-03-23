@@ -55,6 +55,11 @@ interface AppState {
   queueSize: number;
   onlineCount: number;
   matchSoundMuted: boolean;
+  // Surrender & Rejoin
+  showSurrenderModal: boolean;
+  showRejoinModal: boolean;
+  rejoinTimeRemaining: number;
+  rejoinCountdownInterval: ReturnType<typeof setInterval> | null;
   // Error
   errorMessage: string | null;
   errorTimeout: ReturnType<typeof setTimeout> | null;
@@ -95,6 +100,10 @@ const state: AppState = {
   queueSize: 0,
   onlineCount: 0,
   matchSoundMuted: localStorage.getItem('salvo-muted') === 'true',
+  showSurrenderModal: false,
+  showRejoinModal: false,
+  rejoinTimeRemaining: 0,
+  rejoinCountdownInterval: null,
   errorMessage: null,
   errorTimeout: null,
 };
@@ -154,6 +163,12 @@ socket.on('all-ready', ({ game }) => {
 
 socket.on('game-state', ({ game }) => {
   state.game = game;
+  // Dismiss rejoin modal on successful rejoin
+  if (state.showRejoinModal) {
+    state.showRejoinModal = false;
+    if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
+    state.rejoinCountdownInterval = null;
+  }
   // Restore player identity from sessionStorage on rejoin (state is fresh after page refresh)
   if (!state.playerId) {
     const saved = sessionStorage.getItem('salvo-playerId');
@@ -215,6 +230,9 @@ socket.on('game-over', (stats) => {
   state.screen = 'gameover';
   state.isMyTurn = false;
   stopTimer();
+  // Game is over — clear session so page reload goes to lobby, not rejoin modal
+  sessionStorage.removeItem('salvo-playerId');
+  sessionStorage.removeItem('salvo-gameId');
   render();
 });
 
@@ -233,6 +251,9 @@ socket.on('rematch-starting', ({ game }) => {
   state.shotLog = [];
   state.gameOverStats = null;
   state.rematchPending = null;
+  // Re-store session for reconnection (cleared on game-over)
+  if (state.playerId) sessionStorage.setItem('salvo-playerId', state.playerId);
+  if (game.id) sessionStorage.setItem('salvo-gameId', game.id);
   render();
 });
 
@@ -325,12 +346,74 @@ socket.on('online-count', ({ count }) => {
   if (el) el.textContent = `${count} player${count !== 1 ? 's' : ''} online`;
 });
 
+// Surrender acknowledgment
+socket.on('surrender-ack', () => {
+  sessionStorage.removeItem('salvo-playerId');
+  sessionStorage.removeItem('salvo-gameId');
+  state.screen = 'lobby';
+  state.game = null;
+  state.playerId = null;
+  state.gameId = null;
+  state.joinCode = null;
+  state.showSurrenderModal = false;
+  state.placedShips = [];
+  state.selectedTargets = [];
+  state.shotLog = [];
+  state.chatMessages = [];
+  state.isMyTurn = false;
+  stopTimer();
+  render();
+});
+
+// Rejoin check response
+socket.on('check-rejoin-response', ({ valid, timeRemaining }) => {
+  const savedPlayerId = sessionStorage.getItem('salvo-playerId');
+  const savedGameId = sessionStorage.getItem('salvo-gameId');
+  if (!valid || !savedPlayerId || !savedGameId) {
+    sessionStorage.removeItem('salvo-playerId');
+    sessionStorage.removeItem('salvo-gameId');
+    return; // stay on lobby
+  }
+  // Show rejoin modal with countdown
+  state.showRejoinModal = true;
+  state.rejoinTimeRemaining = timeRemaining;
+  if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
+  state.rejoinCountdownInterval = setInterval(() => {
+    state.rejoinTimeRemaining--;
+    if (state.rejoinTimeRemaining <= 0) {
+      // Time expired — dismiss modal, clear session
+      if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
+      state.rejoinCountdownInterval = null;
+      state.showRejoinModal = false;
+      sessionStorage.removeItem('salvo-playerId');
+      sessionStorage.removeItem('salvo-gameId');
+      render();
+      return;
+    }
+    render();
+  }, 1000);
+  render();
+});
+
 // Reconnection handling
+let isInitialPageLoad = true;
 socket.on('connect', () => {
+  if (!isInitialPageLoad) {
+    // Socket.io internal reconnect — auto-rejoin silently
+    const savedPlayerId = sessionStorage.getItem('salvo-playerId');
+    const savedGameId = sessionStorage.getItem('salvo-gameId');
+    if (savedPlayerId && savedGameId) {
+      socket.emit('rejoin', { playerId: savedPlayerId, gameId: savedGameId });
+    }
+    return;
+  }
+  isInitialPageLoad = false;
+
   const savedPlayerId = sessionStorage.getItem('salvo-playerId');
   const savedGameId = sessionStorage.getItem('salvo-gameId');
   if (savedPlayerId && savedGameId) {
-    socket.emit('rejoin', { playerId: savedPlayerId, gameId: savedGameId });
+    // Check if rejoin is still valid + get countdown
+    socket.emit('check-rejoin', { playerId: savedPlayerId, gameId: savedGameId });
   }
 });
 
@@ -465,6 +548,36 @@ window.addEventListener('popstate', () => {
 // Rendering
 // ============================================================
 
+function renderSurrenderModal(): string {
+  if (!state.showSurrenderModal) return '';
+  return `
+    <div class="modal-overlay" id="surrender-modal-overlay">
+      <div class="modal">
+        <h2 class="label" style="margin-bottom:12px">Surrender?</h2>
+        <p style="margin-bottom:16px;color:var(--text-muted);font-size:14px">Are you sure you want to surrender? Your ships will be removed from the game.</p>
+        <div style="display:flex;gap:8px;justify-content:center">
+          <button class="btn btn-danger" id="btn-surrender-confirm">Surrender</button>
+          <button class="btn btn-secondary" id="btn-surrender-cancel">Cancel</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function renderRejoinModal(): string {
+  if (!state.showRejoinModal) return '';
+  return `
+    <div class="modal-overlay" id="rejoin-modal-overlay">
+      <div class="modal">
+        <h2 class="label" style="margin-bottom:12px">Active Game Found</h2>
+        <p style="margin-bottom:16px;color:var(--text-muted);font-size:14px">You have an active game. Rejoin? (${state.rejoinTimeRemaining}s remaining)</p>
+        <div style="display:flex;gap:8px;justify-content:center">
+          <button class="btn btn-primary" id="btn-rejoin-yes">Rejoin</button>
+          <button class="btn btn-danger" id="btn-rejoin-no">Leave Game</button>
+        </div>
+      </div>
+    </div>`;
+}
+
 function render(): void {
   const app = document.getElementById('app')!;
 
@@ -477,6 +590,9 @@ function render(): void {
     case 'gameover': app.innerHTML = renderGameOver(); break;
     case 'changelog': app.innerHTML = renderChangelog(); break;
   }
+
+  // Append modals (surrender confirmation + rejoin prompt)
+  app.innerHTML += renderSurrenderModal() + renderRejoinModal();
 
   bindEvents();
 }
@@ -729,6 +845,7 @@ function renderPlacement(): string {
           </div>
           <button class="btn btn-secondary" id="btn-rotate" style="margin-top:8px">Rotate</button>
           <button class="btn btn-secondary" id="btn-randomize" style="margin-top:8px">Randomize</button>
+          <button class="btn btn-danger" id="btn-surrender" style="margin-top:16px">Surrender</button>
         </div>
         <div class="grid-container">
           <div class="grid-panel">
@@ -946,6 +1063,7 @@ function renderBattle(): string {
               <button class="btn btn-secondary" id="btn-chat">Send</button>
             </div>
           </div>
+          ${myPlayer?.alive ? '<button class="btn btn-danger" id="btn-surrender" style="margin-top:12px;width:100%">Surrender</button>' : ''}
         </div>
       </div>
     </div>`;
@@ -1288,6 +1406,69 @@ function bindEvents(): void {
     state.rematchPending = null;
     state.queueMode = null;
     state.queueSize = 0;
+    render();
+  });
+
+  // Surrender
+  on('btn-surrender', 'click', () => {
+    state.showSurrenderModal = true;
+    render();
+  });
+
+  on('btn-surrender-confirm', 'click', () => {
+    socket.emit('surrender');
+    state.showSurrenderModal = false;
+  });
+
+  on('btn-surrender-cancel', 'click', () => {
+    state.showSurrenderModal = false;
+    render();
+  });
+
+  on('surrender-modal-overlay', 'click', (e?: Event) => {
+    if ((e?.target as HTMLElement)?.id === 'surrender-modal-overlay') {
+      state.showSurrenderModal = false;
+      render();
+    }
+  });
+
+  // Rejoin modal
+  on('btn-rejoin-yes', 'click', () => {
+    const savedPlayerId = sessionStorage.getItem('salvo-playerId');
+    const savedGameId = sessionStorage.getItem('salvo-gameId');
+    if (savedPlayerId && savedGameId) {
+      socket.emit('rejoin', { playerId: savedPlayerId, gameId: savedGameId });
+    }
+    // Show loading state — modal stays visible until game-state arrives
+    const btn = document.getElementById('btn-rejoin-yes') as HTMLButtonElement | null;
+    if (btn) {
+      btn.textContent = 'Rejoining...';
+      btn.disabled = true;
+    }
+    if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
+    state.rejoinCountdownInterval = null;
+    // Fallback: dismiss modal after 5s if game-state never arrives
+    setTimeout(() => {
+      if (state.showRejoinModal) {
+        state.showRejoinModal = false;
+        sessionStorage.removeItem('salvo-playerId');
+        sessionStorage.removeItem('salvo-gameId');
+        render();
+      }
+    }, 5000);
+  });
+
+  on('btn-rejoin-no', 'click', () => {
+    const savedPlayerId = sessionStorage.getItem('salvo-playerId');
+    const savedGameId = sessionStorage.getItem('salvo-gameId');
+    if (savedPlayerId && savedGameId) {
+      socket.emit('decline-rejoin', { playerId: savedPlayerId, gameId: savedGameId });
+    }
+    sessionStorage.removeItem('salvo-playerId');
+    sessionStorage.removeItem('salvo-gameId');
+    state.showRejoinModal = false;
+    if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
+    state.rejoinCountdownInterval = null;
     render();
   });
 }

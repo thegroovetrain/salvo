@@ -458,6 +458,8 @@ html, body {
 .btn-primary:hover:not(:disabled) { background: var(--green-dim); }
 .btn-amber { background: var(--amber); color: var(--bg-deepest); }
 .btn-amber:hover:not(:disabled) { background: var(--amber-dim); }
+.btn-danger { background: #8B2020; color: var(--text-primary); }
+.btn-danger:hover:not(:disabled) { background: #A02525; }
 .btn-secondary {
   background: var(--bg-elevated);
   color: var(--text-primary);
