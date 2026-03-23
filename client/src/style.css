@@ -455,6 +455,14 @@ html, body {
   color: var(--text-primary);
   border: 1px solid var(--bg-hover);
 }
+.btn-outline-green {
+  background: transparent;
+  color: var(--green);
+  border: 1px solid var(--green);
+}
+.btn-outline-green:hover:not(:disabled) {
+  background: var(--green-bg);
+}
 
 /* Timer config */
 .timer-config {

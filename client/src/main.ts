@@ -538,8 +538,8 @@ function renderLobby(): string {
           <div id="game-counters" class="game-counters">${renderGameCounters()}</div>
         </div>
         <div style="display:flex;gap:8px">
-          <button class="btn btn-secondary" id="btn-create" style="flex:1">Create Game</button>
-          <button class="btn btn-secondary" id="btn-show-join" style="flex:1">Join Game</button>
+          <button class="btn btn-primary" id="btn-create" style="flex:1">Create Game</button>
+          <button class="btn btn-outline-green" id="btn-show-join" style="flex:1">Join Game</button>
         </div>
       </div>
       ${joinModalHtml}
