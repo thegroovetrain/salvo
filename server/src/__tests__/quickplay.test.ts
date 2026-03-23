@@ -48,8 +48,10 @@ describe('LobbyManager.getActiveGameCounts', () => {
     expect(counts).toEqual({
       total: 0,
       oneVsOne: 0,
+      twoVsTwo: 0,
       ffa: 0,
       searching1v1: 0,
+      searching2v2: 0,
       searchingFfa: 0,
     });
   });
@@ -93,8 +95,9 @@ describe('LobbyManager.getActiveGameCounts', () => {
 
   it('passes through searching counts', () => {
     const lobby = new LobbyManager();
-    const counts = lobby.getActiveGameCounts(3, 5);
+    const counts = lobby.getActiveGameCounts(3, 0, 5);
     expect(counts.searching1v1).toBe(3);
+    expect(counts.searching2v2).toBe(0);
     expect(counts.searchingFfa).toBe(5);
   });
 
@@ -108,11 +111,13 @@ describe('LobbyManager.getActiveGameCounts', () => {
     lobby.addGame(g2, 'A002');
     lobby.addGame(g3, 'A003');
     lobby.addGame(g4, 'A004');
-    const counts = lobby.getActiveGameCounts(1, 2);
+    const counts = lobby.getActiveGameCounts(1, 0, 2);
     expect(counts.oneVsOne).toBe(1);
+    expect(counts.twoVsTwo).toBe(0);
     expect(counts.ffa).toBe(2);
     expect(counts.total).toBe(3);
     expect(counts.searching1v1).toBe(1);
+    expect(counts.searching2v2).toBe(0);
     expect(counts.searchingFfa).toBe(2);
   });
 });

@@ -5,15 +5,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type {
   ClientToServerEvents, ServerToClientEvents, ChatMessage,
-  TimerConfig, ShipPlacement, AiDifficulty, QuickPlayMode,
+  TimerConfig, ShipPlacement, AiDifficulty, QuickPlayMode, ChatChannel,
 } from '@salvo/shared';
-import { isPlayerAlive, playerShotCount } from '@salvo/shared';
+import { isPlayerAlive, playerShotCount, toGameMode, toQuickPlayMode } from '@salvo/shared';
 import {
   createGame, addPlayer, addBot, removeBot, removePlayer, canStartGame, startGame,
   placeShips, allShipsPlaced, beginPlaying,
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, forfeitPlayer,
   toClientView, resetForRematch,
+  getTeammate, isTeamAlive,
 } from './game.js';
 import { chooseSalvo, generatePlacement, getBotDelay } from './ai.js';
 import { ConnectionManager } from './connections.js';
@@ -31,6 +32,12 @@ const connections = new ConnectionManager();
 
 // Turn timers: gameId → timeout handle
 const turnTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Placement timers: gameId → timeout handle
+const placementTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Forfeit timers (disconnected player's turn): gameId → timeout handle
+const forfeitTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // ============================================================
 // Quick Play Queue State
@@ -67,7 +74,7 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
   if (!roomSockets) return;
 
   const matchedSocketIds = [...roomSockets].slice(0, target);
-  const gameMode = mode === '1v1' ? 'quickplay-1v1' as const : 'quickplay-ffa' as const;
+  const gameMode = toGameMode(mode);
 
   // Create the game with the first player as host
   const firstEntry = queueEntries.get(matchedSocketIds[0]);
@@ -77,6 +84,8 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
     firstEntry?.playerName ?? 'Player',
     { enabled: true, seconds: 60 },
     gameMode,
+    mode === '2v2',                              // teamsEnabled for 2v2
+    { enabled: true, seconds: 60 },              // placement timer always on for Quick Play
   );
 
   const code = lobby.generateUniqueCode();
@@ -92,6 +101,9 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
   queueEntries.delete(matchedSocketIds[0]);
 
   io.to(matchedSocketIds[0]).emit('quickplay-matched', { playerId: hostId, gameId: game.id });
+
+  // Collect all player IDs for team assignment
+  const allPlayerIds: string[] = [hostId];
 
   // Add remaining players
   for (let i = 1; i < matchedSocketIds.length; i++) {
@@ -110,6 +122,21 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
     queueEntries.delete(sid);
 
     io.to(sid).emit('quickplay-matched', { playerId, gameId: game.id });
+    allPlayerIds.push(playerId);
+  }
+
+  // For 2v2 matches, assign teams: shuffle player IDs, first 2 → 'alpha', last 2 → 'bravo'
+  if (mode === '2v2') {
+    // Shuffle allPlayerIds
+    for (let i = allPlayerIds.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [allPlayerIds[i], allPlayerIds[j]] = [allPlayerIds[j], allPlayerIds[i]];
+    }
+    game.teamsEnabled = true;
+    game.teams.set(allPlayerIds[0], 'alpha');
+    game.teams.set(allPlayerIds[1], 'alpha');
+    game.teams.set(allPlayerIds[2], 'bravo');
+    game.teams.set(allPlayerIds[3], 'bravo');
   }
 
   // Start the game immediately (skip lobby phase)
@@ -119,6 +146,9 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
   for (const pid of game.players.keys()) {
     emitToPlayer(pid, 'placement-phase', { game: toClientView(game, pid) });
   }
+
+  // Start placement timer for Quick Play games
+  startPlacementTimer(game.id);
 
   broadcastOnlineCount();
 }
@@ -155,6 +185,57 @@ function broadcastToGame(gameId: string, event: string, data: unknown): void {
     emitToPlayer(playerId, event, data);
   }
 }
+
+// ============================================================
+// Placement Timer
+// ============================================================
+
+function startPlacementTimer(gameId: string): void {
+  const game = lobby.getGame(gameId);
+  if (!game) return;
+  if (!game.placementTimerConfig.enabled) return;
+
+  clearPlacementTimer(gameId);
+
+  const timer = setTimeout(() => {
+    handlePlacementTimeout(gameId);
+  }, game.placementTimerConfig.seconds * 1000);
+
+  placementTimers.set(gameId, timer);
+}
+
+function clearPlacementTimer(gameId: string): void {
+  const timer = placementTimers.get(gameId);
+  if (timer) {
+    clearTimeout(timer);
+    placementTimers.delete(gameId);
+  }
+}
+
+function handlePlacementTimeout(gameId: string): void {
+  const game = lobby.getGame(gameId);
+  if (!game || game.phase !== 'placement') return;
+
+  // Auto-place ships for all unready players
+  for (const player of game.players.values()) {
+    if (player.ships.length === 0) {
+      const placement = generatePlacement('easy');
+      placeShips(game, player.id, placement);
+    }
+  }
+
+  if (allShipsPlaced(game)) {
+    beginPlaying(game);
+    for (const pid of game.players.keys()) {
+      emitToPlayer(pid, 'all-ready', { game: toClientView(game, pid) });
+    }
+    emitNextTurn(game.id);
+  }
+}
+
+// ============================================================
+// Turn Timer
+// ============================================================
 
 function startTurnTimer(gameId: string): void {
   const game = lobby.getGame(gameId);
@@ -194,6 +275,65 @@ function handleTurnTimeout(gameId: string, playerId: string): void {
   emitNextTurn(gameId);
 }
 
+// ============================================================
+// Forfeit Timer (disconnected player's turn)
+// ============================================================
+
+function startForfeitTimer(gameId: string, playerId: string): void {
+  clearForfeitTimer(gameId);
+
+  const game = lobby.getGame(gameId);
+  const seconds = game?.timerConfig.enabled ? game.timerConfig.seconds : 60;
+
+  const timer = setTimeout(() => {
+    handleForfeitTimeout(gameId, playerId);
+  }, seconds * 1000);
+
+  forfeitTimers.set(gameId, timer);
+}
+
+function clearForfeitTimer(gameId: string): void {
+  const timer = forfeitTimers.get(gameId);
+  if (timer) {
+    clearTimeout(timer);
+    forfeitTimers.delete(gameId);
+  }
+}
+
+function handleForfeitTimeout(gameId: string, playerId: string): void {
+  const game = lobby.getGame(gameId);
+  if (!game || game.phase !== 'playing') return;
+
+  // Only forfeit if it's still this player's turn and they're still disconnected
+  if (getCurrentTurnPlayerId(game) !== playerId) return;
+  if (!connections.isDisconnected(playerId)) return;
+
+  forfeitPlayer(game, playerId);
+  const player = game.players.get(playerId);
+
+  broadcastToGame(gameId, 'player-eliminated', {
+    playerId,
+    playerName: player?.name ?? 'Unknown',
+    reason: 'forfeit' as const,
+  });
+
+  const gameOver = checkGameOver(game);
+  if (gameOver) {
+    clearTurnTimer(gameId);
+    clearForfeitTimer(gameId);
+    broadcastToGame(gameId, 'game-over', gameOver);
+    broadcastOnlineCount();
+    return;
+  }
+
+  advanceTurn(game);
+  emitNextTurn(gameId);
+}
+
+// ============================================================
+// Turn Emission
+// ============================================================
+
 function emitNextTurn(gameId: string): void {
   const game = lobby.getGame(gameId);
   if (!game || game.phase !== 'playing') return;
@@ -216,6 +356,13 @@ function emitNextTurn(gameId: string): void {
       executeBotTurn(gameId, currentPlayerId);
     }, delay);
     return; // don't emit your-turn or start timer for bots
+  }
+
+  // If the current turn player is disconnected, start forfeit timer
+  if (connections.isDisconnected(currentPlayerId)) {
+    startForfeitTimer(gameId, currentPlayerId);
+    // Do NOT emit 'your-turn' to the disconnected player
+    return;
   }
 
   emitToPlayer(currentPlayerId, 'your-turn', {
@@ -314,7 +461,10 @@ function handlePlayerExit(game: ReturnType<typeof lobby.getGame> & {}, playerId:
 
   // Playing phase
   const wasTurn = getCurrentTurnPlayerId(game) === playerId;
-  if (wasTurn) clearTurnTimer(gameId);
+  if (wasTurn) {
+    clearTurnTimer(gameId);
+    clearForfeitTimer(gameId);
+  }
 
   forfeitPlayer(game, playerId);
   const player = game.players.get(playerId);
@@ -328,6 +478,7 @@ function handlePlayerExit(game: ReturnType<typeof lobby.getGame> & {}, playerId:
   const gameOver = checkGameOver(game);
   if (gameOver) {
     clearTurnTimer(gameId);
+    clearForfeitTimer(gameId);
     broadcastToGame(gameId, 'game-over', gameOver);
     broadcastOnlineCount();
     return;
@@ -347,10 +498,16 @@ io.on('connection', (socket) => {
   // Broadcast updated online count (nextTick ensures the new socket's listeners are ready)
   process.nextTick(() => broadcastOnlineCount());
 
-  socket.on('create-game', ({ playerName, timerConfig }: { playerName: string; timerConfig?: TimerConfig }) => {
+  socket.on('create-game', ({ playerName, timerConfig, teamsEnabled, placementTimerConfig }: {
+    playerName: string;
+    timerConfig?: TimerConfig;
+    teamsEnabled?: boolean;
+    placementTimerConfig?: TimerConfig;
+  }) => {
     const playerId = crypto.randomUUID();
     const timer = timerConfig ?? { enabled: false, seconds: 60 };
-    const game = createGame(playerId, playerName, timer);
+    const placTimer = placementTimerConfig ?? { enabled: false, seconds: 30 };
+    const game = createGame(playerId, playerName, timer, 'private', teamsEnabled ?? false, placTimer);
     const code = lobby.generateUniqueCode();
 
     lobby.addGame(game, code);
@@ -470,8 +627,14 @@ io.on('connection', (socket) => {
       }
     }
 
+    // Start placement timer if enabled
+    if (game.placementTimerConfig.enabled) {
+      startPlacementTimer(game.id);
+    }
+
     // If all ships are now placed (only bots, or solo with bots), start playing
     if (allShipsPlaced(game)) {
+      clearPlacementTimer(game.id);
       beginPlaying(game);
       for (const pid of game.players.keys()) {
         if (!game.players.get(pid)?.isBot) {
@@ -496,6 +659,7 @@ io.on('connection', (socket) => {
     }
 
     if (allShipsPlaced(game)) {
+      clearPlacementTimer(game.id);
       beginPlaying(game);
 
       for (const pid of game.players.keys()) {
@@ -567,7 +731,11 @@ io.on('connection', (socket) => {
     emitNextTurn(game.id);
   });
 
-  socket.on('chat-message', ({ text }: { text: string }) => {
+  // ============================================================
+  // Chat — channel routing
+  // ============================================================
+
+  socket.on('chat-message', ({ text, channel: rawChannel }: { text: string; channel?: ChatChannel }) => {
     const playerId = connections.getPlayerIdBySocket(socket.id);
     if (!playerId) return;
 
@@ -577,15 +745,89 @@ io.on('connection', (socket) => {
     const player = game.players.get(playerId);
     if (!player) return;
 
+    const channel: ChatChannel = rawChannel ?? 'global';
+
     const message: ChatMessage = {
       playerId,
       playerName: player.name,
       text: text.slice(0, 200), // limit message length
       timestamp: Date.now(),
+      channel,
     };
 
-    broadcastToGame(game.id, 'chat-message', message);
+    if (channel === 'team' && game.teamsEnabled) {
+      // Team chat: emit to sender + teammate only
+      emitToPlayer(playerId, 'chat-message', message);
+      const teammateId = getTeammate(game, playerId);
+      if (teammateId) {
+        emitToPlayer(teammateId, 'chat-message', message);
+      }
+    } else {
+      // Global chat (or team channel with teams disabled — fall back to global)
+      if (channel === 'team' && !game.teamsEnabled) {
+        message.channel = 'global';
+      }
+      broadcastToGame(game.id, 'chat-message', message);
+    }
   });
+
+  // ============================================================
+  // Swap Team (lobby phase, host only)
+  // ============================================================
+
+  socket.on('swap-team', ({ targetPlayerId }: { targetPlayerId: string }) => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game) return;
+
+    // Validate: game in lobby phase, requester is host
+    if (game.phase !== 'lobby') return;
+    if (game.hostId !== playerId) return;
+
+    // Get the target player — must be in the game
+    const targetPlayer = game.players.get(targetPlayerId);
+    if (!targetPlayer) return;
+
+    // Get their current team and cycle
+    const currentTeam = game.teams.get(targetPlayerId);
+    if (!currentTeam) {
+      game.teams.set(targetPlayerId, 'alpha');
+    } else if (currentTeam === 'alpha') {
+      game.teams.set(targetPlayerId, 'bravo');
+    } else {
+      game.teams.set(targetPlayerId, 'alpha');
+    }
+
+    // Broadcast updated game state to all players
+    emitGameState(game.id);
+  });
+
+  // ============================================================
+  // Placement Preview (team mode)
+  // ============================================================
+
+  socket.on('placement-preview', ({ ships }: { ships: ShipPlacement[] }) => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game) return;
+
+    // Validate: placement phase and teams enabled
+    if (game.phase !== 'placement') return;
+    if (!game.teamsEnabled) return;
+
+    const teammateId = getTeammate(game, playerId);
+    if (teammateId) {
+      emitToPlayer(teammateId, 'teammate-placement-preview', { ships });
+    }
+  });
+
+  // ============================================================
+  // Rejoin
+  // ============================================================
 
   socket.on('rejoin', ({ playerId, gameId }: { playerId: string; gameId: string }) => {
     const result = connections.handleReconnect(playerId, socket.id);
@@ -615,8 +857,9 @@ io.on('connection', (socket) => {
         socket.emit(buffered.event as any, buffered.data as any);
       }
 
-      // If it's this player's turn, emit your-turn
+      // If it's this player's turn, cancel forfeit timer and emit your-turn with remaining time
       if (game.phase === 'playing' && getCurrentTurnPlayerId(game) === playerId) {
+        clearForfeitTimer(game.id);
         const p = game.players.get(playerId)!;
         socket.emit('your-turn', {
           shotCount: playerShotCount(p),
@@ -678,7 +921,7 @@ io.on('connection', (socket) => {
 
   socket.on('quickplay-join', ({ playerName, mode }: { playerName: string; mode: QuickPlayMode }) => {
     // Validate mode
-    if (mode !== '1v1' && mode !== 'ffa') return;
+    if (mode !== '1v1' && mode !== '2v2' && mode !== 'ffa') return;
 
     const trimmedName = playerName?.trim()?.slice(0, 20) ?? '';
     if (!trimmedName) {
@@ -743,7 +986,8 @@ io.on('connection', (socket) => {
     if (allAccepted) {
       // Quick-play rematch: destroy game + requeue all humans
       if (game.mode !== 'private') {
-        const qpMode: QuickPlayMode = game.mode === 'quickplay-1v1' ? '1v1' : 'ffa';
+        const qpMode = toQuickPlayMode(game.mode);
+        if (!qpMode) return; // private game — shouldn't reach here
         const roomName = getQueueRoomName(qpMode);
 
         // Requeue each human player
@@ -791,8 +1035,14 @@ io.on('connection', (socket) => {
         }
       }
 
+      // Start placement timer if enabled
+      if (game.placementTimerConfig.enabled) {
+        startPlacementTimer(game.id);
+      }
+
       // If only bots + 1 human and human places ships, check allShipsPlaced
       if (allShipsPlaced(game)) {
+        clearPlacementTimer(game.id);
         beginPlaying(game);
         for (const pid of game.players.keys()) {
           if (!game.players.get(pid)?.isBot) {
@@ -837,7 +1087,8 @@ io.on('connection', (socket) => {
 
     // Quick-play decline: remaining humans go back to queue
     if (game.mode !== 'private') {
-      const qpMode: QuickPlayMode = game.mode === 'quickplay-1v1' ? '1v1' : 'ffa';
+      const qpMode = toQuickPlayMode(game.mode);
+      if (!qpMode) return; // private game — shouldn't reach here
       const roomName = getQueueRoomName(qpMode);
 
       for (const p of remainingHumans) {
@@ -916,38 +1167,24 @@ io.on('connection', (socket) => {
       broadcastOnlineCount();
     }
 
-    const result = connections.handleDisconnect(socket.id, (playerId, gameId) => {
-      // Timeout callback — forfeit the player
-      const game = lobby.getGame(gameId);
-      if (!game) return;
-
-      handlePlayerExit(game, playerId, gameId);
-    });
+    const result = connections.handleDisconnect(socket.id);
 
     if (result) {
       const game = lobby.getGame(result.gameId);
       if (game) {
         const player = game.players.get(result.playerId);
-        const remaining = connections.getDisconnectTimeRemaining(result.playerId);
         broadcastToGame(result.gameId, 'player-disconnected', {
           playerId: result.playerId,
           playerName: player?.name ?? 'Unknown',
-          timeoutSeconds: remaining ?? 60,
         });
 
-        // If it was the disconnected player's turn, skip after a short delay
+        // If it was the disconnected player's turn, the forfeit timer
+        // will be started by emitNextTurn when it detects the disconnection.
+        // We just need to clear the existing turn timer.
         if (game.phase === 'playing' && getCurrentTurnPlayerId(game) === result.playerId) {
           clearTurnTimer(game.id);
-          // Give them 5 seconds to reconnect before skipping
-          setTimeout(() => {
-            if (connections.isDisconnected(result.playerId)) {
-              const g = lobby.getGame(result.gameId);
-              if (g && g.phase === 'playing' && getCurrentTurnPlayerId(g) === result.playerId) {
-                advanceTurn(g);
-                emitNextTurn(result.gameId);
-              }
-            }
-          }, 5000);
+          // Start forfeit timer — gives them the reconnect window
+          startForfeitTimer(game.id, result.playerId);
         }
       }
     }
