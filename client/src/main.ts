@@ -59,6 +59,8 @@ interface AppState {
   queueSize: number;
   onlineCount: number;
   matchSoundMuted: boolean;
+  // Lobby dropdown
+  openDropdownId: string | null;
   // Surrender & Rejoin
   showSurrenderModal: boolean;
   showRejoinModal: boolean;
@@ -108,6 +110,7 @@ const state: AppState = {
   queueSize: 0,
   onlineCount: 0,
   matchSoundMuted: localStorage.getItem('salvo-muted') === 'true',
+  openDropdownId: null as string | null,
   showSurrenderModal: false,
   showRejoinModal: false,
   rejoinTimeRemaining: 0,
@@ -220,6 +223,7 @@ socket.on('your-turn', ({ shotCount, timerSeconds }) => {
   if (timerSeconds !== null) {
     startTimer(timerSeconds);
   }
+  playTurnSound();
   render();
 });
 
@@ -235,9 +239,16 @@ socket.on('shot-results', ({ shooterId, shooterName, shots, game }) => {
   state.game = game;
   state.isMyTurn = false;
   stopTimer();
-  state.shotLog.unshift({ shooterId, shooterName, shots });
+  state.shotLog.push({ shooterId, shooterName, shots });
   state.selectedTargets = [];
   render();
+  // Auto-scroll shot log to bottom (newest) if user is near the bottom
+  setTimeout(() => {
+    const el = document.querySelector('.shot-log');
+    if (el && (el.scrollHeight - el.scrollTop - el.clientHeight < 50)) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, 0);
 });
 
 socket.on('player-eliminated', ({ playerName, reason }) => {
@@ -652,6 +663,28 @@ function playMatchSound(): void {
   }
 }
 
+function playTurnSound(): void {
+  if (state.matchSoundMuted) return;
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(400, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.15);
+    osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.3);
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.4);
+    osc.onended = () => ctx.close();
+  } catch {
+    // Audio not supported — silently ignore
+  }
+}
+
 // ============================================================
 // Back Button Guard for Queue
 // ============================================================
@@ -916,23 +949,76 @@ function renderWaiting(): string {
   const teamsEnabled = state.game?.teamsEnabled ?? false;
   const teams = state.game?.teams ?? {};
 
-  function renderSeatCard(p: WirePlayer): string {
+  let openSlotCounter = 0;
+
+  // Unified seat card rendering — handles all seat states
+  function renderSeatCard(p: WirePlayer | null, team?: string): string {
+    if (!p) {
+      // Open slot
+      if (!isHost) {
+        return '<div class="seat-card open"><span style="color:var(--text-muted);font-size:12px">Open slot</span></div>';
+      }
+      const slotId = `open-${team ?? 'any'}-${openSlotCounter++}`;
+      const isOpen = state.openDropdownId === slotId;
+      return `<div class="seat-card open">
+        <span style="color:var(--text-muted);font-size:12px">Open slot</span>
+        <button class="seat-menu-trigger" data-dropdown-id="${slotId}" aria-haspopup="true" aria-expanded="${isOpen}">+</button>
+        <div class="seat-menu${isOpen ? ' open' : ''}" role="menu">
+          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="easy" data-bot-team="${team ?? ''}">Add AI (Easy)</button>
+          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="medium" data-bot-team="${team ?? ''}">Add AI (Medium)</button>
+          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="hard" data-bot-team="${team ?? ''}">Add AI (Hard)</button>
+          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="impossible" data-bot-team="${team ?? ''}">Add AI (Impossible)</button>
+        </div>
+      </div>`;
+    }
+
+    // Filled seat
     const isMe = p.id === state.playerId;
     const hostBadge = p.id === Object.keys(state.game?.players ?? {})[0] ? '<span class="host-badge">HOST</span>' : '';
     const botBadge = p.isBot ? `<span class="bot-badge">${esc(p.aiDifficulty ?? 'bot').toUpperCase()}</span>` : '';
-    const removeBtn = p.isBot && isHost ? `<button class="btn-remove-bot" data-bot-id="${p.id}" title="Remove bot" style="margin-left:auto">&times;</button>` : '';
-    return `<div class="seat-card">
-      ${playerIcon(p.isBot)} <span class="player-name">${esc(p.name)}${isMe ? ' (you)' : ''}</span> ${hostBadge}${botBadge}${removeBtn}
-    </div>`;
-  }
 
-  function renderOpenSlot(team?: string): string {
-    const teamParam = team ? `, team: '${team}'` : '';
-    return `<div class="seat-card open">
-      <button class="bot-add-btn" data-bot-diff="easy" data-bot-team="${team ?? ''}" aria-label="Add Easy bot">E</button>
-      <button class="bot-add-btn" data-bot-diff="medium" data-bot-team="${team ?? ''}" aria-label="Add Medium bot">M</button>
-      <button class="bot-add-btn" data-bot-diff="hard" data-bot-team="${team ?? ''}" aria-label="Add Hard bot">H</button>
-      <button class="bot-add-btn" data-bot-diff="impossible" data-bot-team="${team ?? ''}" aria-label="Add Impossible bot">I</button>
+    // Build dropdown menu items
+    const menuItems: string[] = [];
+    if (teamsEnabled) {
+      const myTeam = teams[p.id];
+      const otherTeam = myTeam === 'alpha' ? 'bravo' : 'alpha';
+      const otherTeamLabel = otherTeam === 'alpha' ? 'Alpha' : 'Bravo';
+      const otherTeamPlayers = players.filter(pl => teams[pl.id] === otherTeam);
+      const maxPerTeam = MAX_PLAYERS / 2;
+      const canMove = otherTeamPlayers.length < maxPerTeam;
+
+      if (isHost) {
+        if (canMove) {
+          menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}">Move to ${otherTeamLabel}</button>`);
+        } else {
+          // Other team is full — offer swap with each player on the other team
+          for (const op of otherTeamPlayers) {
+            menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="swap" data-player-a="${p.id}" data-player-b="${op.id}">Swap with ${esc(op.name)}</button>`);
+          }
+        }
+      } else if (isMe && !p.isBot) {
+        if (canMove) {
+          menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}">Move to ${otherTeamLabel}</button>`);
+        }
+      }
+    }
+
+    if (p.isBot && isHost) {
+      menuItems.push(`<button class="seat-menu-item seat-menu-item-danger" role="menuitem" data-action="kick" data-bot-id="${p.id}">Kick</button>`);
+    }
+
+    // Only show trigger if there are actions
+    let dropdownHtml = '';
+    if (menuItems.length > 0) {
+      const cardId = `seat-${p.id}`;
+      const isOpen = state.openDropdownId === cardId;
+      dropdownHtml = `
+        <button class="seat-menu-trigger" data-dropdown-id="${cardId}" aria-haspopup="true" aria-expanded="${isOpen}">\u22EE</button>
+        <div class="seat-menu${isOpen ? ' open' : ''}" role="menu">${menuItems.join('')}</div>`;
+    }
+
+    return `<div class="seat-card">
+      ${playerIcon(p.isBot)} <span class="player-name">${esc(p.name)}${isMe ? ' (you)' : ''}</span> ${hostBadge}${botBadge}${dropdownHtml}
     </div>`;
   }
 
@@ -945,31 +1031,10 @@ function renderWaiting(): string {
     const alphaSlots = Math.max(0, maxPerTeam - alphaPlayers.length);
     const bravoSlots = Math.max(0, maxPerTeam - bravoPlayers.length);
 
-    function renderTeamPlayerCard(p: WirePlayer, teamId: string): string {
-      const isMe = p.id === state.playerId;
-      const otherTeam = teamId === 'alpha' ? 'bravo' : 'alpha';
-      const otherTeamPlayers = otherTeam === 'alpha' ? alphaPlayers : bravoPlayers;
-      const canMove = otherTeamPlayers.length < maxPerTeam;
-      let moveLink = '';
-      if (canMove) {
-        if (isHost) {
-          moveLink = `<button class="move-link" data-swap-team="${p.id}">Move to ${otherTeam === 'alpha' ? 'Alpha' : 'Bravo'}</button>`;
-        } else if (isMe && !p.isBot) {
-          moveLink = `<button class="move-link" data-swap-team="${p.id}">Move to ${otherTeam === 'alpha' ? 'Alpha' : 'Bravo'}</button>`;
-        }
-      }
-      const hostBadge = p.id === Object.keys(state.game?.players ?? {})[0] ? '<span class="host-badge">HOST</span>' : '';
-      const botBadge = p.isBot ? `<span class="bot-badge">${esc(p.aiDifficulty ?? 'bot').toUpperCase()}</span>` : '';
-      const removeBtn = p.isBot && isHost ? `<button class="btn-remove-bot" data-bot-id="${p.id}" title="Remove bot" style="margin-left:auto">&times;</button>` : '';
-      return `<div class="seat-card">
-        ${playerIcon(p.isBot)} <span class="player-name">${esc(p.name)}${isMe ? ' (you)' : ''}</span> ${hostBadge}${botBadge}${moveLink}${removeBtn}
-      </div>`;
-    }
-
-    const alphaCards = alphaPlayers.map(p => renderTeamPlayerCard(p, 'alpha')).join('')
-      + (isHost ? Array(alphaSlots).fill(0).map(() => renderOpenSlot('alpha')).join('') : Array(alphaSlots).fill(0).map(() => '<div class="seat-card open"><span style="color:var(--text-muted);font-size:12px">Open slot</span></div>').join(''));
-    const bravoCards = bravoPlayers.map(p => renderTeamPlayerCard(p, 'bravo')).join('')
-      + (isHost ? Array(bravoSlots).fill(0).map(() => renderOpenSlot('bravo')).join('') : Array(bravoSlots).fill(0).map(() => '<div class="seat-card open"><span style="color:var(--text-muted);font-size:12px">Open slot</span></div>').join(''));
+    const alphaCards = alphaPlayers.map(p => renderSeatCard(p, 'alpha')).join('')
+      + Array(alphaSlots).fill(0).map(() => renderSeatCard(null, 'alpha')).join('');
+    const bravoCards = bravoPlayers.map(p => renderSeatCard(p, 'bravo')).join('')
+      + Array(bravoSlots).fill(0).map(() => renderSeatCard(null, 'bravo')).join('');
 
     lobbyBody = `
       <div class="lobby-columns">
@@ -985,9 +1050,7 @@ function renderWaiting(): string {
   } else {
     const openSlots = Math.max(0, MAX_PLAYERS - players.length);
     const playerCards = players.map(p => renderSeatCard(p)).join('');
-    const openCards = isHost
-      ? Array(openSlots).fill(0).map(() => renderOpenSlot()).join('')
-      : Array(openSlots).fill(0).map(() => '<div class="seat-card open"><span style="color:var(--text-muted);font-size:12px">Open slot</span></div>').join('');
+    const openCards = Array(openSlots).fill(0).map(() => renderSeatCard(null)).join('');
 
     lobbyBody = `
       <div style="width:100%">
@@ -1299,34 +1362,39 @@ function renderBattle(): string {
     </li>`;
   }).join('');
 
-  const shotLogHtml = state.shotLog.slice(0, 20).map(entry => {
-    const shooterTeam = teamsEnabled ? teams[entry.shooterId] : null;
-    return entry.shots.map(shot => {
-      const coordHtml = `<span class="coord">${shot.coord}</span>`;
+  const shotLogHtml = state.shotLog.map(entry => {
+    const allCoords = entry.shots.map(s => s.coord).join(',');
+    // Shot lines — multi-line dialogue format
+    const shotLines = entry.shots.map(shot => {
       if (shot.miss) {
-        return `<div class="shot-log-entry">${coordHtml}<span class="miss-text">\u2022 Miss (${esc(entry.shooterName)})</span></div>`;
+        return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="miss-text">miss</span></div>`;
       }
       return shot.hits.map(hit => {
-        // Check if the shooter hit their OWN ship (true friendly fire)
         const isSelfHit = hit.playerId === entry.shooterId;
         const isMyShipHit = hit.playerId === state.playerId;
-        // Team-colored kills in 2v2
-        const hitPlayerTeam = teamsEnabled ? teams[hit.playerId] : null;
-        const killColorClass = teamsEnabled && hit.sunk
-          ? (shooterTeam === 'alpha' ? 'team-kill-alpha' : shooterTeam === 'bravo' ? 'team-kill-bravo' : '')
-          : '';
-
         if (isSelfHit) {
-          return `<div class="shot-log-entry">${coordHtml}<span class="ff">\u26A0 FRIENDLY FIRE \u2014 ${esc(entry.shooterName)} hit own ${SHIP_NAMES[hit.shipLength]}${hit.sunk ? ' (SUNK!)' : ''}</span></div>`;
+          return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="ff">${esc(entry.shooterName)}: hit!</span></div>`;
         }
         if (isMyShipHit) {
-          const cls = hit.sunk ? `sunk-text ${killColorClass}` : 'hit';
-          return `<div class="shot-log-entry">${coordHtml}<span class="${cls}">\u00D7 ${esc(entry.shooterName)} hit YOUR ${SHIP_NAMES[hit.shipLength]}${hit.sunk ? ' (SUNK!)' : ''}</span></div>`;
+          return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="hit">you: hit!</span></div>`;
         }
-        const cls = hit.sunk ? `sunk-text ${killColorClass}` : 'hit';
-        return `<div class="shot-log-entry">${coordHtml}<span class="${cls}">\u00D7 ${esc(entry.shooterName)} hit ${esc(hit.playerName)}'s ${SHIP_NAMES[hit.shipLength]}${hit.sunk ? ' (SUNK!)' : ''}</span></div>`;
+        return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="hit">${esc(hit.playerName)}: hit!</span></div>`;
       }).join('');
     }).join('');
+
+    // Sink/elimination lines after the salvo
+    const sinkLines = entry.shots.flatMap(shot =>
+      shot.hits.filter(h => h.sunk).map(hit => {
+        const ownerName = hit.playerId === state.playerId ? 'your' : `${esc(hit.playerName)}'s`;
+        return `<div class="shot-log-sink">\u00D7 ${ownerName} ${SHIP_NAMES[hit.shipLength]} sunk</div>`;
+      })
+    ).join('');
+
+    return `<div class="shot-log-salvo" data-coords="${allCoords}">
+      <div class="shot-log-header">${esc(entry.shooterName)} fires:</div>
+      ${shotLines}
+      ${sinkLines}
+    </div>`;
   }).join('');
 
   const turnText = isMyTurn
@@ -1342,7 +1410,7 @@ function renderBattle(): string {
       ${renderError()}
       ${gameModeLabel}
       <div class="battle-layout battle-layout-unified">
-        <div class="grid-panel" id="ocean-panel">
+        <div class="grid-panel${isMyTurn ? ' your-turn-glow' : ''}" id="ocean-panel">
           <h3>Shared Ocean</h3>
           ${renderGrid('battle')}
         </div>
@@ -1629,29 +1697,79 @@ function bindEvents(): void {
     socket.emit('add-bot', { difficulty });
   });
 
-  // One-click bot add buttons (E/M/H/I)
-  document.querySelectorAll('.bot-add-btn').forEach(el => {
-    el.addEventListener('click', () => {
-      const difficulty = el.getAttribute('data-bot-diff') as AiDifficulty;
-      const team = el.getAttribute('data-bot-team') || undefined;
-      if (difficulty) {
-        socket.emit('add-bot', { difficulty, ...(team ? { team } : {}) });
+  // Seat dropdown triggers
+  document.querySelectorAll('.seat-menu-trigger').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const dropdownId = el.getAttribute('data-dropdown-id');
+      if (!dropdownId) return;
+      state.openDropdownId = state.openDropdownId === dropdownId ? null : dropdownId;
+      render();
+    });
+  });
+
+  // Seat dropdown menu actions
+  document.querySelectorAll('.seat-menu-item').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const action = el.getAttribute('data-action');
+      if (action === 'add-bot') {
+        const difficulty = el.getAttribute('data-bot-diff') as AiDifficulty;
+        const team = el.getAttribute('data-bot-team') || undefined;
+        if (difficulty) socket.emit('add-bot', { difficulty, ...(team ? { team } : {}) });
+      } else if (action === 'move') {
+        const targetId = el.getAttribute('data-target');
+        if (targetId) socket.emit('swap-team', { targetPlayerId: targetId });
+      } else if (action === 'swap') {
+        const playerA = el.getAttribute('data-player-a');
+        const playerB = el.getAttribute('data-player-b');
+        if (playerA && playerB) socket.emit('swap-players', { playerA, playerB });
+      } else if (action === 'kick') {
+        const botId = el.getAttribute('data-bot-id');
+        if (botId) socket.emit('remove-bot', { botId });
       }
+      state.openDropdownId = null;
+      render();
     });
   });
 
-  document.querySelectorAll('.btn-remove-bot').forEach(el => {
-    el.addEventListener('click', () => {
-      const botId = el.getAttribute('data-bot-id');
-      if (botId) socket.emit('remove-bot', { botId });
-    });
+  // Smart flip dropdown positioning
+  document.querySelectorAll('.seat-menu.open').forEach(menu => {
+    const trigger = menu.previousElementSibling as HTMLElement;
+    if (!trigger) return;
+    const rect = trigger.getBoundingClientRect();
+    const menuHeight = menu.getBoundingClientRect().height;
+    if (rect.bottom + menuHeight > window.innerHeight) {
+      menu.classList.add('flip-up');
+    }
   });
 
-  // Team swap in waiting room
-  document.querySelectorAll('[data-swap-team]').forEach(el => {
+  // Hover-to-highlight: shot log entries highlight grid cells
+  document.querySelectorAll('.shot-log-salvo').forEach(el => {
+    const coordsAttr = el.getAttribute('data-coords');
+    if (!coordsAttr) return;
+    const coords = coordsAttr.split(',');
+
+    el.addEventListener('mouseenter', () => {
+      coords.forEach(c => {
+        const cell = document.querySelector(`.grid-cell[data-coord="${c}"]`);
+        if (cell) cell.classList.add('cell-highlight');
+      });
+    });
+    el.addEventListener('mouseleave', () => {
+      document.querySelectorAll('.cell-highlight').forEach(c => c.classList.remove('cell-highlight'));
+    });
+
+    // Mobile: tap to toggle
     el.addEventListener('click', () => {
-      const targetPlayerId = el.getAttribute('data-swap-team');
-      if (targetPlayerId) socket.emit('swap-team', { targetPlayerId });
+      const hasHighlight = document.querySelector('.cell-highlight');
+      document.querySelectorAll('.cell-highlight').forEach(c => c.classList.remove('cell-highlight'));
+      if (!hasHighlight || !coords.some(c => document.querySelector(`.grid-cell[data-coord="${c}"].cell-highlight`))) {
+        coords.forEach(c => {
+          const cell = document.querySelector(`.grid-cell[data-coord="${c}"]`);
+          if (cell) cell.classList.add('cell-highlight');
+        });
+      }
     });
   });
 
@@ -2064,4 +2182,13 @@ function initMuteToggle(): void {
 
 initTheme();
 initMuteToggle();
+
+// Click-outside handler for dropdowns — registered once, not per-render
+document.addEventListener('click', () => {
+  if (state.openDropdownId) {
+    state.openDropdownId = null;
+    render();
+  }
+});
+
 render();

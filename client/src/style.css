@@ -301,7 +301,7 @@ html, body {
   border-radius: var(--radius-lg);
   padding: 32px;
   width: 100%;
-  max-width: 440px;
+  max-width: 560px;
   text-align: center;
 }
 
@@ -787,6 +787,25 @@ html, body {
   background: var(--amber-bg);
   border: 1px solid rgba(255, 184, 0, 0.15);
   color: var(--amber);
+  font-size: 18px;
+  font-weight: 700;
+  animation: turn-pulse-text 2s ease-in-out infinite;
+}
+
+/* Grid glow when it's your turn */
+.grid-panel.your-turn-glow {
+  box-shadow: 0 0 20px rgba(255, 184, 0, 0.3), 0 0 40px rgba(255, 184, 0, 0.1);
+  animation: turn-glow 2s ease-in-out infinite;
+}
+
+@keyframes turn-glow {
+  0%, 100% { box-shadow: 0 0 20px rgba(255, 184, 0, 0.15), 0 0 40px rgba(255, 184, 0, 0.05); }
+  50% { box-shadow: 0 0 20px rgba(255, 184, 0, 0.3), 0 0 40px rgba(255, 184, 0, 0.1); }
+}
+
+@keyframes turn-pulse-text {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
 }
 .turn-indicator.waiting {
   background: var(--bg-elevated);
@@ -836,35 +855,60 @@ html, body {
 
 /* Shot log */
 .shot-log {
-  max-height: 200px;
+  height: 200px;
   overflow-y: auto;
-  font-size: 13px;
+  font-size: 12px;
 }
 
-.shot-log-entry {
-  padding: 4px 0;
+.shot-log-salvo {
+  padding: 6px 0;
   border-bottom: 1px solid var(--bg-hover);
-  display: flex;
-  gap: 6px;
-  align-items: baseline;
+}
+
+.shot-log-header {
+  color: var(--text-secondary);
   font-size: 12px;
+  font-weight: 500;
+  margin-bottom: 2px;
+}
+
+.shot-log-line {
+  padding-left: 12px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.shot-log-sink {
+  padding-left: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--red);
 }
 
 .shot-log .coord {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-muted);
-  min-width: 28px;
 }
 
 .shot-log .hit { color: var(--red); }
 .shot-log .miss-text { color: var(--text-muted); }
 .shot-log .ff { color: var(--orange); font-weight: 600; }
-.shot-log .sunk-text { color: var(--red); font-weight: 600; }
 
-/* Team-colored kill messages in shot log */
-.shot-log .team-kill-alpha { color: var(--green); }
-.shot-log .team-kill-bravo { color: var(--red); }
+.shot-log-salvo:hover {
+  background: var(--bg-elevated);
+  cursor: pointer;
+}
+
+/* Hover-to-highlight: info blue pulse on grid cells */
+.cell-highlight {
+  box-shadow: inset 0 0 0 2px var(--info) !important;
+  animation: cell-highlight-pulse 1.5s ease-in-out infinite;
+}
+@keyframes cell-highlight-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
 
 /* ============================================================
    Chat
@@ -920,7 +964,7 @@ html, body {
 }
 
 .chat-messages {
-  max-height: 120px;
+  height: 120px;
   overflow-y: auto;
   margin-bottom: 8px;
   font-size: 12px;
@@ -1195,7 +1239,7 @@ html, body {
   .game-grid { grid-template-columns: 32px repeat(10, 1fr); }
   .player-list li { font-size: 15px; }
   .chat-messages { font-size: 13px; }
-  .shot-log-entry { font-size: 13px; }
+  .shot-log-salvo { font-size: 13px; }
   .label { font-size: 12px; }
 }
 
@@ -1208,7 +1252,7 @@ html, body {
   .battle-layout { max-width: 960px; }
   .player-list li { font-size: 16px; }
   .chat-messages { font-size: 14px; }
-  .shot-log-entry { font-size: 14px; }
+  .shot-log-salvo { font-size: 14px; }
 }
 
 /* ============================================================
@@ -1242,43 +1286,97 @@ html, body {
 .seat-card {
   background: var(--bg-surface);
   border-radius: var(--radius-lg);
-  padding: 12px;
+  padding: 8px 12px;
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+  position: relative;
+  min-width: 0;
+  overflow: visible;
 }
 .seat-card.open {
   background: var(--bg-elevated);
   border: 1px dashed var(--bg-hover);
 }
 
-.bot-add-btn {
-  background: var(--bg-hover);
-  color: var(--text-secondary);
-  padding: 4px 8px;
-  border-radius: var(--radius-md);
-  font-size: 12px;
-  font-family: var(--font-mono);
-  border: none;
-  cursor: pointer;
-  min-height: 44px;
-}
-.bot-add-btn:hover {
-  background: var(--amber);
-  color: var(--bg-deepest);
+.player-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
 }
 
-.move-link {
+/* Dropdown trigger */
+.seat-menu-trigger {
+  margin-left: auto;
+  flex-shrink: 0;
+  background: none;
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-md);
   color: var(--text-muted);
-  font-size: 12px;
   cursor: pointer;
+  font-size: 16px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 150ms, border-color 150ms;
+}
+.seat-menu-trigger:hover {
+  color: var(--text-secondary);
+  border-color: var(--text-muted);
+}
+
+/* Dropdown menu */
+.seat-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 10;
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-md);
+  min-width: 160px;
+  padding: 4px 0;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 100ms, transform 100ms;
+}
+.seat-menu.open {
+  display: block;
+  opacity: 1;
+  transform: translateY(0);
+}
+.seat-menu.flip-up {
+  top: auto;
+  bottom: 100%;
+  transform: translateY(4px);
+}
+.seat-menu.flip-up.open {
+  transform: translateY(0);
+}
+
+.seat-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
   background: none;
   border: none;
-  margin-left: auto;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
 }
-.move-link:hover {
-  color: var(--text-secondary);
+.seat-menu-item:hover {
+  background: var(--bg-hover);
+}
+.seat-menu-item-danger:hover {
+  color: var(--red);
 }
 
 .non-team-grid {
@@ -1290,4 +1388,12 @@ html, body {
 @media (max-width: 767px) {
   .lobby-columns { flex-direction: column; }
   .non-team-grid { grid-template-columns: 1fr; }
+  .seat-menu {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: 100%;
+    min-width: auto;
+  }
+  .seat-card { flex-wrap: wrap; }
 }
