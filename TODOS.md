@@ -1,15 +1,27 @@
 # TODOS
 
-## Quick Play
+## 2v2 Teams
 
-### Queue Timeout to Lobby
+### Friendly Fire Stats Differentiation
 
-**What:** After 5+ minutes in queue with no match, show a message suggesting the player create a private game with bots instead.
+**What:** Track self-hits vs teammate-hits separately in PlayerGameStats. Add "Worst Teammate" highlight for excessive teammate hits. Consider distinct grid color for teammate-ship hits.
 
-**Why:** The "no bot backfill" design means a solo player at 2am waits forever with no feedback. This is the only escape hatch besides manually clicking Cancel.
+**Why:** In 2v2, hitting your teammate's ships is mechanically different from hitting your own — it hurts your team. However, shared-ocean overlap means friendly fire can be strategically necessary (enemy ship at same coordinate). The griefing angle (intentionally targeting teammate) needs exploration before implementing penalties.
 
-**Context:** Quick Play v0.9.0 ships with indefinite queue wait (humans only). This adds a client-side timer that shows "No players found. Try creating a private game with bots?" after 5 minutes, with a button to return to lobby. Server-side unchanged — the timer is purely client UX. The 5-minute threshold is a guess; may need tuning based on actual usage.
+**Context:** Currently `friendlyFireHits` counts only self-hits. Would need a `teammateHits` field on PlayerGameStats, updates in `fireSalvo()` to distinguish self vs teammate, and a new highlight. The grid color question (distinct color for teammate-hit vs self-hit) needs design work. Deferred from v0.10.0 CEO review for deeper exploration of the griefing vs strategy tension.
 
 **Effort:** S
+**Priority:** P3
+**Depends on:** 2v2 team mode (v0.10.0)
+
+### Full Sound Effects Audit
+
+**What:** Comprehensive pass at sound effects across all game modes — not just team events, but placement, shots, hits, sinks, game over, chat notifications, etc.
+
+**Why:** Currently only the Quick Play match-found sound exists. A full sound design pass would make the game feel more alive and provide audio feedback for key moments. Should be done holistically rather than piecemeal.
+
+**Context:** The existing sound system in main.ts uses simple AudioContext beeps (no sound files). Adding tones for team events (teammate places ships, teammate eliminated, team chat received) plus general events (shot hit, ship sunk, your turn, timer warning) would enhance the experience significantly. Deferred from v0.10.0 CEO review to do as a focused effort.
+
+**Effort:** M
 **Priority:** P2
-**Depends on:** Quick Play v0.9.0
+**Depends on:** None (can be done anytime)
