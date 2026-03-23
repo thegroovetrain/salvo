@@ -5,7 +5,7 @@
 ### Added
 - **Surrender button** — players can now leave a game during placement or playing phases via a "Surrender" button with confirmation modal
 - **Rejoin modal** — on page reload, a modal asks "Rejoin?" with a countdown timer showing remaining reconnect time, instead of auto-rejoining silently
-- **Decline rejoin** — clicking "Leave Game" on the rejoin modal immediately forfeits the player server-side (no 60-second zombie wait)
+- **Instant leave from rejoin modal** — clicking "Leave Game" on the rejoin prompt forfeits immediately, so other players aren't stuck waiting
 
 ### Changed
 - **Silent forfeit** — all forfeits (voluntary + disconnect timeout) now silently remove ships instead of marking cells as hit, preventing position leakage in FFA games
