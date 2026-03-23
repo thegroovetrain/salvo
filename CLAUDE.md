@@ -7,7 +7,7 @@ Salvo is a multiplayer shared-ocean Battleship game. All players' ships occupy t
 ### Commands
 ```
 npm run dev          # Start server (3000) + client (5173)
-npm test -w server   # Run tests (vitest, 132 tests)
+npm test -w server   # Run tests (vitest, 141 tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 ```
