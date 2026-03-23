@@ -302,6 +302,8 @@ socket.on('quickplay-matched', ({ playerId, gameId }) => {
   state.queueSize = 0;
   sessionStorage.setItem('salvo-playerId', playerId);
   sessionStorage.setItem('salvo-gameId', gameId);
+  // Clean up the queue history entry so back button doesn't hit a dead state
+  history.replaceState(null, '');
   // Play match sound
   if (!state.matchSoundMuted) {
     playMatchSound();
@@ -438,6 +440,7 @@ function playMatchSound(): void {
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + 0.5);
+    osc.onended = () => ctx.close();
   } catch {
     // Audio not supported — silently ignore
   }
