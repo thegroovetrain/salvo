@@ -216,5 +216,5 @@ export interface ServerToClientEvents {
   'rematch-declined': (data: { playerName: string; code: string; game: WireGame }) => void;
   'quickplay-queue-update': (data: { size: number }) => void;
   'quickplay-matched': (data: { playerId: string; gameId: string }) => void;
-  'game-count': (data: GameCountData) => void;
+  'online-count': (data: { count: number }) => void;
 }

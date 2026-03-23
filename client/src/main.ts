@@ -3,7 +3,7 @@ import type {
   ClientToServerEvents, ServerToClientEvents,
   WireGame, WirePlayer, ShotResult, ShipPlacement,
   ChatMessage, GameOverStats, TimerConfig, AiDifficulty,
-  QuickPlayMode, GameCountData,
+  QuickPlayMode,
 } from '@salvo/shared';
 import { SHIP_LENGTHS, SHIP_NAMES, ROWS, GRID_SIZE } from '@salvo/shared';
 import './style.css';
@@ -53,7 +53,7 @@ interface AppState {
   // Quick Play
   queueMode: QuickPlayMode | null;
   queueSize: number;
-  gameCounts: GameCountData | null;
+  onlineCount: number;
   matchSoundMuted: boolean;
   // Error
   errorMessage: string | null;
@@ -93,7 +93,7 @@ const state: AppState = {
   savedPlayerName: '',
   queueMode: null,
   queueSize: 0,
-  gameCounts: null,
+  onlineCount: 0,
   matchSoundMuted: localStorage.getItem('salvo-muted') === 'true',
   errorMessage: null,
   errorTimeout: null,
@@ -311,17 +311,10 @@ socket.on('quickplay-matched', ({ playerId, gameId }) => {
   render();
 });
 
-socket.on('game-count', (counts) => {
-  state.gameCounts = counts;
-  // Only re-render lobby counters if on lobby screen
-  if (state.screen === 'lobby') {
-    const el = document.getElementById('game-counters');
-    if (el) {
-      el.innerHTML = renderGameCounters();
-    } else {
-      render();
-    }
-  }
+socket.on('online-count', ({ count }) => {
+  state.onlineCount = count;
+  const el = document.getElementById('online-count');
+  if (el) el.textContent = `${count} player${count !== 1 ? 's' : ''} online`;
 });
 
 // Reconnection handling
@@ -525,6 +518,7 @@ function renderLobby(): string {
     <div class="screen">
       <h1 class="game-title">SALVO</h1>
       <p class="game-subtitle">Shared-Ocean Battleship</p>
+      <p class="online-count" id="online-count">${state.onlineCount > 0 ? `${state.onlineCount} player${state.onlineCount !== 1 ? 's' : ''} online` : ''}</p>
       ${renderError()}
       <div class="lobby-card" style="max-width:400px;width:100%">
         <label class="input-label">Your Name</label>
@@ -535,7 +529,6 @@ function renderLobby(): string {
             <button class="btn btn-amber btn-quickplay" id="btn-qp-1v1" style="flex:1">1v1</button>
             <button class="btn btn-amber btn-quickplay" id="btn-qp-ffa" style="flex:1">FFA</button>
           </div>
-          <div id="game-counters" class="game-counters">${renderGameCounters()}</div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary" id="btn-create" style="flex:1">Create Game</button>
@@ -552,16 +545,6 @@ function renderLobby(): string {
     </div>`;
 }
 
-function renderGameCounters(): string {
-  const c = state.gameCounts;
-  if (!c) return '';
-  const parts: string[] = [];
-  if (c.total > 0) parts.push(`${c.total} game${c.total !== 1 ? 's' : ''} active`);
-  if (c.searching1v1 > 0) parts.push(`${c.searching1v1} searching 1v1`);
-  if (c.searchingFfa > 0) parts.push(`${c.searchingFfa} searching FFA`);
-  if (parts.length === 0) return '';
-  return `<span>${parts.join(' &bull; ')}</span>`;
-}
 
 function renderQueue(): string {
   const mode = state.queueMode;
