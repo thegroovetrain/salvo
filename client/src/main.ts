@@ -572,8 +572,6 @@ function renderQueue(): string {
     `<span class="queue-dot ${i < size ? 'filled' : ''}">${i < size ? '\u25CF' : '\u25CB'}</span>`
   ).join(' ');
 
-  const muteIcon = state.matchSoundMuted ? '\uD83D\uDD07' : '\uD83D\uDD0A';
-
   return `
     <div class="screen">
       <h1 class="game-title" style="font-size:32px">SALVO</h1>
@@ -581,10 +579,7 @@ function renderQueue(): string {
         <p class="label queue-label">SEARCHING FOR ${mode === '1v1' ? '1V1' : 'FFA'} MATCH...</p>
         <div class="queue-dots">${dots}</div>
         <p class="queue-count">${size} of ${target}</p>
-        <div style="display:flex;gap:8px;margin-top:24px">
-          <button class="btn btn-secondary" id="btn-queue-cancel" style="flex:1">Cancel</button>
-          <button class="btn btn-mute" id="btn-mute" title="${state.matchSoundMuted ? 'Unmute' : 'Mute'} match sound">${muteIcon}</button>
-        </div>
+        <button class="btn btn-secondary" id="btn-queue-cancel" style="margin-top:24px">Cancel</button>
       </div>
     </div>`;
 }
@@ -1083,12 +1078,6 @@ function bindEvents(): void {
     render();
   });
 
-  on('btn-mute', 'click', () => {
-    state.matchSoundMuted = !state.matchSoundMuted;
-    localStorage.setItem('salvo-muted', String(state.matchSoundMuted));
-    render();
-  });
-
   on('btn-create', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
@@ -1462,9 +1451,23 @@ function initTheme(): void {
   document.body.appendChild(btn);
 }
 
+function initMuteToggle(): void {
+  const btn = document.createElement('button');
+  btn.className = 'mute-toggle';
+  btn.id = 'global-mute';
+  btn.textContent = state.matchSoundMuted ? 'UNMUTE' : 'MUTE';
+  btn.addEventListener('click', () => {
+    state.matchSoundMuted = !state.matchSoundMuted;
+    localStorage.setItem('salvo-muted', String(state.matchSoundMuted));
+    btn.textContent = state.matchSoundMuted ? 'UNMUTE' : 'MUTE';
+  });
+  document.body.appendChild(btn);
+}
+
 // ============================================================
 // Initial Render
 // ============================================================
 
 initTheme();
+initMuteToggle();
 render();

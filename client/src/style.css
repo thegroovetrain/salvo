@@ -130,6 +130,23 @@ html, body {
 }
 .theme-toggle:hover { color: var(--green); border-color: var(--green); }
 
+.mute-toggle {
+  position: fixed;
+  top: 12px;
+  right: 80px;
+  z-index: 100;
+  background: var(--bg-elevated);
+  border: 1px solid var(--bg-hover);
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  transition: all 150ms ease-out;
+}
+.mute-toggle:hover { color: var(--green); border-color: var(--green); }
+
 .label {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -269,19 +286,6 @@ html, body {
   font-size: 14px;
   color: var(--text-secondary);
 }
-
-.btn-mute {
-  background: var(--bg-elevated);
-  border: 1px solid var(--bg-hover);
-  color: var(--text-secondary);
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  font-size: 16px;
-  transition: all 150ms ease-out;
-  width: auto;
-}
-.btn-mute:hover { border-color: var(--green); }
 
 /* Waiting room (after create/join) */
 .waiting-room {
@@ -434,7 +438,7 @@ html, body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 20px;
+  padding: 12px 20px;
   border-radius: var(--radius-md);
   font-family: var(--font-display);
   font-size: 14px;
