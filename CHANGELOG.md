@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.9.0] - 2026-03-23
+
+### Added
+- **Quick Play matchmaking** — 1v1 and FFA queue buttons on the lobby. Click one and wait for other humans to join — no codes, no coordination
+- **Queue wait screen** — animated dots show how many players are queued, with a cancel button to leave
+- **Live game counters** — lobby shows active games and players searching in real-time
+- **Match-found sound** — sonar ping plays when a match is found (with mute toggle)
+- **Queue switching** — clicking a different mode while queued auto-switches without error
+- **Back button guard** — browser back button cleanly exits the queue
+- **Auto-focus name field** — name input gets focus on first visit
+
+### Changed
+- Quick Play is now the primary lobby action; Create/Join are secondary
+- Quick-play games always use a 60-second turn timer
+- Quick-play rematch destroys the game and requeues all consenting players (clean game boundaries for future ranked play)
+- Quick-play decline sends remaining players back to the queue instead of a private lobby
+- Added `mode` field to Game type (`private`, `quickplay-1v1`, `quickplay-ffa`) for game type tracking
+
 ## [0.8.0] - 2026-03-22
 
 ### Added
