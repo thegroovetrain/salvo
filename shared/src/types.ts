@@ -194,6 +194,9 @@ export interface ClientToServerEvents {
   'rematch-decline': () => void;
   'quickplay-join': (data: { playerName: string; mode: QuickPlayMode }) => void;
   'quickplay-leave': () => void;
+  'surrender': () => void;
+  'decline-rejoin': (data: { playerId: string; gameId: string }) => void;
+  'check-rejoin': (data: { playerId: string; gameId: string }) => void;
 }
 
 export interface ServerToClientEvents {
@@ -217,4 +220,6 @@ export interface ServerToClientEvents {
   'quickplay-queue-update': (data: { size: number }) => void;
   'quickplay-matched': (data: { playerId: string; gameId: string }) => void;
   'online-count': (data: { count: number }) => void;
+  'surrender-ack': () => void;
+  'check-rejoin-response': (data: { valid: boolean; timeRemaining: number }) => void;
 }
