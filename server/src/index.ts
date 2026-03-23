@@ -1,3 +1,4 @@
+console.log('[salvo] Server module loading...');
 import express from 'express';
 import { createServer } from 'node:http';
 import { Server } from 'socket.io';
@@ -898,10 +899,12 @@ app.get('*', (_req, res) => {
 
 const PORT = parseInt(process.env.PORT ?? '3000', 10);
 
+console.log('[salvo] Starting cleanup timer...');
 lobby.startCleanup();
 
+console.log(`[salvo] Binding to port ${PORT}...`);
 httpServer.listen(PORT, () => {
-  console.log(`Salvo server listening on port ${PORT}`);
+  console.log(`[salvo] Server listening on port ${PORT}`);
 });
 
 export { app, httpServer, io, lobby, connections };
