@@ -24,10 +24,10 @@ Open two browser tabs to `http://localhost:5173`. Create a game in one tab, copy
 
 ## How to Play
 
-1. **Quick Play or Create/Join** — click 1v1 or FFA for instant matchmaking, or create a private game with a join code (add AI bots too)
-2. **Place Ships** — click a ship in the dock, click the grid to place, press R to rotate (or hit Randomize)
+1. **Quick Play or Create/Join** — click 1v1, 2v2, or FFA for instant matchmaking, or create a private game with a join code (add AI bots, enable teams)
+2. **Place Ships** — click a ship in the dock, click the grid to place, press R to rotate (or hit Randomize). In 2v2, you can see your teammate's ships as they place them.
 3. **Fire Salvos** — click targets on the shared ocean grid, then FIRE SALVO
-4. **Win** — last player with ships afloat wins
+4. **Win** — last player (or team) with ships afloat wins
 
 ### Ships
 
@@ -45,7 +45,7 @@ You get one shot per surviving ship. Lose a ship, lose a shot.
 - **Client:** Vite + TypeScript (vanilla, no framework)
 - **Server:** Express + socket.io
 - **Shared:** TypeScript types shared via npm workspaces
-- **Tests:** Vitest (109 tests — game logic, security, AI, matchmaking, surrender)
+- **Tests:** Vitest (132 tests — game logic, security, AI, matchmaking, surrender, teams)
 
 ## Project Structure
 
@@ -76,16 +76,18 @@ npm test -w server   # Run tests
 
 ## Features
 
-- **Quick Play matchmaking** — 1v1 and FFA queues with live game counters and match-found sound
-- **AI opponents** — 4 difficulty tiers (Easy, Medium, Hard, Impossible)
-- **Unified ocean grid** — your ships and all shot results on one interactive board
-- **Game-over stats** — accuracy, ships sunk, friendly fire, highlights (Sharpshooter, First Blood)
+- **2v2 Team Mode** — play with a teammate: shared ship vision, private team chat, team win condition, ABBA turn order for fairness
+- **Quick Play matchmaking** — 1v1, 2v2, and FFA queues with live game counters and match-found sound
+- **AI opponents** — 4 difficulty tiers (Easy, Medium, Hard, Impossible) — team-aware in 2v2
+- **Unified ocean grid** — your ships and all shot results on one interactive board, with hit count badges for overlapping ships
+- **Game-over stats** — accuracy, ships sunk, friendly fire, team aggregate stats, highlights (Sharpshooter, First Blood)
 - **Rematch** — play again with the same lobby (consent-based for multiplayer)
 - **Turn timer** — optional 30s/60s countdown, configurable by host
-- **Chat** — text chat for all players including spectators
+- **Placement timer** — configurable countdown during ship placement, auto-places on timeout
+- **Chat** — timestamps, game/chat message separation, team/global channel toggle in 2v2
 - **Light/dark mode** — toggle with localStorage persistence
 - **Surrender** — leave any active game via a "Surrender" button with confirmation modal
-- **Reconnection** — 60-second window with event buffering; page reload shows a rejoin modal instead of auto-rejoining
+- **Reconnection** — turn-based forfeit window with event buffering; page reload shows a rejoin modal
 - **Changelog** — in-app version history accessible from the lobby
 
 ## Design

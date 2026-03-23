@@ -4,7 +4,7 @@
 
 ### Added
 - **2v2 Team Mode** — play with a teammate against another pair. Teams share ship vision, coordinate via private team chat, and win/lose together. Available in both Quick Play and private games.
-- **ABBA turn order** — fair snake turn order (A1→B1→B2→A2) compensates for first-mover advantage in team games
+- **Fair turn order** — teams alternate in a balanced A-B-B-A pattern so neither side has a first-mover advantage
 - **Team chat** — toggle between Team (private, green) and Global (public, amber) channels. Only your teammate sees team messages.
 - **Quick Play 2v2** — new matchmaking queue for team games. Random teammate assignment with full team coordination.
 - **Placement timer** — configurable countdown during ship placement. Auto-places ships on timeout. Always enabled for Quick Play (60s), optional for private games.
