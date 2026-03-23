@@ -157,6 +157,17 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
 // Helpers
 // ============================================================
 
+/** Auto-assign a player to the team with fewer members (alpha first, then bravo). */
+function autoAssignTeam(game: import('@salvo/shared').Game, playerId: string): void {
+  let alphaCount = 0;
+  let bravoCount = 0;
+  for (const teamId of game.teams.values()) {
+    if (teamId === 'alpha') alphaCount++;
+    else if (teamId === 'bravo') bravoCount++;
+  }
+  game.teams.set(playerId, alphaCount <= bravoCount ? 'alpha' : 'bravo');
+}
+
 function emitToPlayer(playerId: string, event: string, data: unknown): void {
   // Buffer if disconnected, otherwise emit directly
   if (connections.bufferEvent(playerId, event, data)) return;
@@ -280,7 +291,7 @@ function handleTurnTimeout(gameId: string, playerId: string): void {
 // ============================================================
 
 function startForfeitTimer(gameId: string, playerId: string): void {
-  clearForfeitTimer(gameId);
+  clearForfeitTimer(playerId);
 
   const game = lobby.getGame(gameId);
   const seconds = game?.timerConfig.enabled ? game.timerConfig.seconds : 60;
@@ -289,14 +300,14 @@ function startForfeitTimer(gameId: string, playerId: string): void {
     handleForfeitTimeout(gameId, playerId);
   }, seconds * 1000);
 
-  forfeitTimers.set(gameId, timer);
+  forfeitTimers.set(playerId, timer);
 }
 
-function clearForfeitTimer(gameId: string): void {
-  const timer = forfeitTimers.get(gameId);
+function clearForfeitTimer(playerId: string): void {
+  const timer = forfeitTimers.get(playerId);
   if (timer) {
     clearTimeout(timer);
-    forfeitTimers.delete(gameId);
+    forfeitTimers.delete(playerId);
   }
 }
 
@@ -320,7 +331,7 @@ function handleForfeitTimeout(gameId: string, playerId: string): void {
   const gameOver = checkGameOver(game);
   if (gameOver) {
     clearTurnTimer(gameId);
-    clearForfeitTimer(gameId);
+    clearForfeitTimer(playerId);
     broadcastToGame(gameId, 'game-over', gameOver);
     broadcastOnlineCount();
     return;
@@ -463,7 +474,7 @@ function handlePlayerExit(game: ReturnType<typeof lobby.getGame> & {}, playerId:
   const wasTurn = getCurrentTurnPlayerId(game) === playerId;
   if (wasTurn) {
     clearTurnTimer(gameId);
-    clearForfeitTimer(gameId);
+    clearForfeitTimer(playerId);
   }
 
   forfeitPlayer(game, playerId);
@@ -478,7 +489,7 @@ function handlePlayerExit(game: ReturnType<typeof lobby.getGame> & {}, playerId:
   const gameOver = checkGameOver(game);
   if (gameOver) {
     clearTurnTimer(gameId);
-    clearForfeitTimer(gameId);
+    clearForfeitTimer(playerId);
     broadcastToGame(gameId, 'game-over', gameOver);
     broadcastOnlineCount();
     return;
@@ -508,6 +519,10 @@ io.on('connection', (socket) => {
     const timer = timerConfig ?? { enabled: false, seconds: 60 };
     const placTimer = placementTimerConfig ?? { enabled: false, seconds: 30 };
     const game = createGame(playerId, playerName, timer, 'private', teamsEnabled ?? false, placTimer);
+    // Auto-assign host to alpha in team games
+    if (game.teamsEnabled) {
+      game.teams.set(playerId, 'alpha');
+    }
     const code = lobby.generateUniqueCode();
 
     lobby.addGame(game, code);
@@ -532,6 +547,11 @@ io.on('connection', (socket) => {
     if (err) {
       socket.emit('error', { message: err });
       return;
+    }
+
+    // Auto-assign to team with fewer members in team games
+    if (game.teamsEnabled) {
+      autoAssignTeam(game, playerId);
     }
 
     lobby.registerPlayer(playerId, game.id);
@@ -562,6 +582,11 @@ io.on('connection', (socket) => {
     if ('error' in result) {
       socket.emit('error', { message: result.error });
       return;
+    }
+
+    // Auto-assign bot to team in team games
+    if (game.teamsEnabled && 'botId' in result) {
+      autoAssignTeam(game, result.botId);
     }
 
     // Broadcast updated state
@@ -859,7 +884,7 @@ io.on('connection', (socket) => {
 
       // If it's this player's turn, cancel forfeit timer and emit your-turn with remaining time
       if (game.phase === 'playing' && getCurrentTurnPlayerId(game) === playerId) {
-        clearForfeitTimer(game.id);
+        clearForfeitTimer(playerId);
         const p = game.players.get(playerId)!;
         socket.emit('your-turn', {
           shotCount: playerShotCount(p),

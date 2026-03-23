@@ -1170,7 +1170,7 @@ function renderChat(): string {
 
   // Filter messages by channel in team mode
   const filteredMessages = teamsEnabled
-    ? state.chatMessages.filter(m => m.playerId === 'system' ? state.chatChannel === 'global' : m.channel === state.chatChannel)
+    ? state.chatMessages.filter(m => m.playerId === 'system' || m.channel === state.chatChannel)
     : state.chatMessages;
 
   const chatHtml = filteredMessages.slice(-30).map(m => {

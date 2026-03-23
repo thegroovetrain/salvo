@@ -438,7 +438,10 @@ export function checkGameOver(game: Game): GameOverStats | null {
       // One team survives — find individual winner (first alive player on winning team)
       const winnerTeamId = aliveTeams[0];
       const winnerId = [...game.teams.entries()]
-        .find(([pid, tid]) => tid === winnerTeamId && isPlayerAlive(game.players.get(pid)!))
+        .find(([pid, tid]) => {
+          const player = game.players.get(pid);
+          return player && tid === winnerTeamId && isPlayerAlive(player);
+        })
         ?.[0] ?? null;
       return computeGameOverStats(game, winnerId, winnerTeamId);
     } else {
@@ -584,6 +587,7 @@ export function resetForRematch(game: Game): void {
 export function removePlayer(game: Game, playerId: string): void {
   game.players.delete(playerId);
   game.rematchAccepted.delete(playerId);
+  game.teams.delete(playerId);
   // If host left, reassign to first remaining human
   if (game.hostId === playerId) {
     for (const p of game.players.values()) {
