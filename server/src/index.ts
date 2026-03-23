@@ -283,6 +283,63 @@ function executeBotTurn(gameId: string, botId: string): void {
 }
 
 // ============================================================
+// Shared Player Exit Logic
+// ============================================================
+
+function handlePlayerExit(game: ReturnType<typeof lobby.getGame> & {}, playerId: string, gameId: string): void {
+  if (game.phase !== 'playing') {
+    const player = game.players.get(playerId);
+    broadcastToGame(gameId, 'player-eliminated', {
+      playerId,
+      playerName: player?.name ?? 'Unknown',
+      reason: 'forfeit' as const,
+    });
+    removePlayer(game, playerId);
+    lobby.registerPlayer(playerId, '');
+
+    const remainingHumans = [...game.players.values()].filter(p => !p.isBot);
+    if (remainingHumans.length === 0) {
+      lobby.removeGame(gameId);
+      broadcastOnlineCount();
+    } else if (remainingHumans.length < 2 && game.phase !== 'finished') {
+      // Fewer than 2 humans in placement/lobby — destroy the game
+      for (const p of remainingHumans) {
+        emitToPlayer(p.id, 'error', { message: 'Game ended — not enough players' });
+      }
+      lobby.removeGame(gameId);
+      broadcastOnlineCount();
+    }
+    return;
+  }
+
+  // Playing phase
+  const wasTurn = getCurrentTurnPlayerId(game) === playerId;
+  if (wasTurn) clearTurnTimer(gameId);
+
+  forfeitPlayer(game, playerId);
+  const player = game.players.get(playerId);
+
+  broadcastToGame(gameId, 'player-eliminated', {
+    playerId,
+    playerName: player?.name ?? 'Unknown',
+    reason: 'forfeit' as const,
+  });
+
+  const gameOver = checkGameOver(game);
+  if (gameOver) {
+    clearTurnTimer(gameId);
+    broadcastToGame(gameId, 'game-over', gameOver);
+    broadcastOnlineCount();
+    return;
+  }
+
+  if (wasTurn) {
+    advanceTurn(game);
+    emitNextTurn(gameId);
+  }
+}
+
+// ============================================================
 // Socket Event Handlers
 // ============================================================
 
@@ -571,6 +628,51 @@ io.on('connection', (socket) => {
   });
 
   // ============================================================
+  // Surrender & Rejoin
+  // ============================================================
+
+  socket.on('surrender', () => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const gameId = connections.getGameId(playerId);
+    if (!gameId) return;
+
+    const game = lobby.getGame(gameId);
+    if (!game || game.phase === 'finished') return;
+
+    // Remove connection FIRST to cancel disconnect timer (prevents double-fire race)
+    connections.remove(playerId);
+    handlePlayerExit(game, playerId, gameId);
+    socket.leave(gameId);
+    socket.emit('surrender-ack');
+  });
+
+  socket.on('decline-rejoin', ({ playerId, gameId }: { playerId: string; gameId: string }) => {
+    // Player loaded page, saw rejoin modal, chose to leave.
+    // They haven't reconnected — old socketId is in connections.
+    const timeRemaining = connections.getDisconnectTimeRemaining(playerId);
+    if (timeRemaining === null) return; // already expired or not found
+
+    // Remove connection FIRST to cancel disconnect timer (prevents double-fire race)
+    connections.remove(playerId);
+
+    const game = lobby.getGame(gameId);
+    if (!game) return;
+
+    handlePlayerExit(game, playerId, gameId);
+  });
+
+  socket.on('check-rejoin', ({ playerId, gameId }: { playerId: string; gameId: string }) => {
+    const timeRemaining = connections.getDisconnectTimeRemaining(playerId);
+    const game = lobby.getGame(gameId);
+    socket.emit('check-rejoin-response', {
+      valid: timeRemaining !== null && timeRemaining > 0 && game !== undefined,
+      timeRemaining: timeRemaining ?? 0,
+    });
+  });
+
+  // ============================================================
   // Quick Play Queue
   // ============================================================
 
@@ -819,49 +921,7 @@ io.on('connection', (socket) => {
       const game = lobby.getGame(gameId);
       if (!game) return;
 
-      // If game isn't in playing phase (e.g., lobby or placement),
-      // remove the player and clean up the game if no humans remain.
-      if (game.phase !== 'playing') {
-        const player = game.players.get(playerId);
-        broadcastToGame(gameId, 'player-eliminated', {
-          playerId,
-          playerName: player?.name ?? 'Unknown',
-          reason: 'forfeit' as const,
-        });
-        removePlayer(game, playerId);
-        lobby.registerPlayer(playerId, '');
-
-        const remainingHumans = [...game.players.values()].filter(p => !p.isBot);
-        if (remainingHumans.length === 0) {
-          lobby.removeGame(gameId);
-          broadcastOnlineCount();
-        }
-        return;
-      }
-
-      forfeitPlayer(game, playerId);
-      const player = game.players.get(playerId);
-
-      broadcastToGame(gameId, 'player-eliminated', {
-        playerId,
-        playerName: player?.name ?? 'Unknown',
-        reason: 'forfeit' as const,
-      });
-
-      // Check game over after forfeit
-      const gameOver = checkGameOver(game);
-      if (gameOver) {
-        clearTurnTimer(gameId);
-        broadcastToGame(gameId, 'game-over', gameOver);
-        broadcastOnlineCount();
-        return;
-      }
-
-      // If it was this player's turn, advance
-      if (getCurrentTurnPlayerId(game) === playerId) {
-        advanceTurn(game);
-        emitNextTurn(gameId);
-      }
+      handlePlayerExit(game, playerId, gameId);
     });
 
     if (result) {

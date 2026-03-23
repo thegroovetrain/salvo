@@ -45,7 +45,7 @@ You get one shot per surviving ship. Lose a ship, lose a shot.
 - **Client:** Vite + TypeScript (vanilla, no framework)
 - **Server:** Express + socket.io
 - **Shared:** TypeScript types shared via npm workspaces
-- **Tests:** Vitest (91 tests — game logic, security, AI, matchmaking)
+- **Tests:** Vitest (109 tests — game logic, security, AI, matchmaking, surrender)
 
 ## Project Structure
 
@@ -84,7 +84,8 @@ npm test -w server   # Run tests
 - **Turn timer** — optional 30s/60s countdown, configurable by host
 - **Chat** — text chat for all players including spectators
 - **Light/dark mode** — toggle with localStorage persistence
-- **Reconnection** — 60-second window with event buffering
+- **Surrender** — leave any active game via a "Surrender" button with confirmation modal
+- **Reconnection** — 60-second window with event buffering; page reload shows a rejoin modal instead of auto-rejoining
 - **Changelog** — in-app version history accessible from the lobby
 
 ## Design

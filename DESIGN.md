@@ -100,3 +100,4 @@
 | 2026-03-21 | Geist Mono for grid labels | Coordinate system (A1-J10) requires monospace alignment. Geist Mono matches the tactical display aesthetic. |
 | 2026-03-21 | Dark theme as default | Naval/tactical games demand dark backgrounds. Reduces eye strain for extended play. Light mode available as toggle. |
 | 2026-03-23 | Quick Play as hero action | 1v1/FFA buttons in amber (action color) above secondary Create/Join. Queue wait screen uses animated green dots with 2s pulse. Match-found sonar ping via Web Audio API with mute toggle. |
+| 2026-03-23 | Muted red for destructive actions (`btn-danger`) | `#8B2020` — dim, desaturated red distinct from bright `#FF3B3B` (Impact Red = enemy hits). Reads as caution/destructive without competing with hit cell color. Used for Surrender button and rejoin "Leave Game" button. |

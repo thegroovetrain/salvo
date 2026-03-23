@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.2] - 2026-03-23
+
+### Added
+- **Surrender button** — players can now leave a game during placement or playing phases via a "Surrender" button with confirmation modal
+- **Rejoin modal** — on page reload, a modal asks "Rejoin?" with a countdown timer showing remaining reconnect time, instead of auto-rejoining silently
+- **Instant leave from rejoin modal** — clicking "Leave Game" on the rejoin prompt forfeits immediately, so other players aren't stuck waiting
+
+### Changed
+- **Silent forfeit** — all forfeits (voluntary + disconnect timeout) now silently remove ships instead of marking cells as hit, preventing position leakage in FFA games
+- **Session cleared on game-over** — page reload after a finished game goes straight to lobby instead of showing a confusing rejoin prompt
+
+### Fixed
+- **Race condition** — surrender and disconnect timer can no longer double-fire (connection cleaned up before exit logic runs)
+
 ## [0.9.1] - 2026-03-23
 
 ### Fixed

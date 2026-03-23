@@ -405,19 +405,15 @@ function computeGameOverStats(game: Game, winnerId: string | null): GameOverStat
 }
 
 // ============================================================
-// Forfeit (disconnect timeout)
+// Forfeit (silent removal — no info leakage in FFA)
 // ============================================================
 
 export function forfeitPlayer(game: Game, playerId: string): void {
   const player = game.players.get(playerId);
   if (!player) return;
 
-  // Sink all ships
-  for (const ship of player.ships) {
-    for (const cell of ship.cells) {
-      ship.hits.add(cell);
-    }
-  }
+  // Clear ships entirely — silent removal, no hit markers on the shared board
+  player.ships = [];
 
   game.lastActivity = Date.now();
 }
