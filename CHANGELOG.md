@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.1] - 2026-03-23
+
+### Fixed
+- **Lobby button colors** — Create Game is now green (solid), Join Game is green (outline). Three-tier visual hierarchy: amber Quick Play > green Create > outlined Join
+- **Global mute toggle** — moved from queue screen to top-right corner next to light/dark toggle, available on every screen. Uses text label (MUTE/UNMUTE) instead of emoji
+- **Cleaner queue screen** — removed mute button clutter, Cancel is now full-width
+- **Touch targets** — all buttons now meet 44px minimum height for accessibility
+
 ## [0.9.0] - 2026-03-23
 
 ### Added
