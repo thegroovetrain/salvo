@@ -80,6 +80,9 @@ html, body {
 
 .hidden { display: none !important; }
 
+.desktop-only { display: inline; }
+.mobile-only { display: none; }
+
 /* ============================================================
    Modal
    ============================================================ */
@@ -245,6 +248,18 @@ html, body {
   min-height: 44px;
 }
 
+/* 2v2 Quick Play Button — Info Blue */
+.qp-btn-2v2 {
+  background: var(--info);
+  color: var(--bg-deepest);
+  font-size: 16px;
+  font-weight: 600;
+  padding: 14px 16px;
+  min-height: 44px;
+}
+.qp-btn-2v2:hover:not(:disabled) {
+  background: #2CA8E0;
+}
 
 /* Queue Wait Screen */
 .queue-wait {
@@ -373,6 +388,40 @@ html, body {
   margin-left: 4px;
 }
 
+/* Team Badges */
+.team-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  margin-left: 4px;
+}
+.team-badge.alpha {
+  color: var(--green);
+  background: var(--green-bg);
+}
+.team-badge.bravo {
+  color: var(--red);
+  background: var(--red-bg);
+}
+.team-badge.small {
+  font-size: 9px;
+  padding: 1px 4px;
+  margin-left: 2px;
+}
+
+/* Turn Order Visualization */
+.turn-order-dot {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+.turn-order-dot.alpha { background: var(--green); }
+.turn-order-dot.bravo { background: var(--red); }
+
 .btn-remove-bot {
   margin-left: auto;
   background: none;
@@ -474,6 +523,34 @@ html, body {
   background: var(--green-bg);
 }
 
+/* Chat send button — team/global variants */
+.btn-chat-team {
+  background: var(--green);
+  color: var(--bg-deepest);
+  width: auto;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.btn-chat-team:hover:not(:disabled) { background: var(--green-dim); }
+
+.btn-chat-global {
+  background: var(--amber);
+  color: var(--bg-deepest);
+  width: auto;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.btn-chat-global:hover:not(:disabled) { background: var(--amber-dim); }
+
+/* Reset Button */
+.reset-btn {
+  min-height: 44px;
+}
+.reset-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
 /* Timer config */
 .timer-config {
   display: flex;
@@ -556,6 +633,53 @@ html, body {
   line-height: 1.6;
 }
 
+/* Placement Timer */
+.placement-timer {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-align: center;
+  margin-bottom: 12px;
+  padding: 8px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-md);
+}
+.placement-timer.warning {
+  color: var(--red);
+  border-color: rgba(255, 59, 59, 0.3);
+  background: var(--red-bg);
+}
+
+/* Readiness Indicators */
+.readiness-indicator {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  margin: 0 4px;
+}
+.readiness-indicator.placing {
+  color: var(--amber);
+  background: var(--amber-bg);
+}
+.readiness-indicator.ready {
+  color: var(--green);
+  background: var(--green-bg);
+}
+.placing-dots {
+  animation: placing-dots-anim 1.5s infinite;
+}
+@keyframes placing-dots-anim {
+  0% { opacity: 0.3; }
+  50% { opacity: 1; }
+  100% { opacity: 0.3; }
+}
+
 /* ============================================================
    Game Grid
    ============================================================ */
@@ -600,6 +724,7 @@ html, body {
   transition: background-color 150ms ease-out;
   cursor: pointer;
   user-select: none;
+  position: relative;
 }
 
 .cell-empty { background: var(--bg-elevated); }
@@ -612,6 +737,35 @@ html, body {
 .cell-selected { background: var(--amber); color: var(--bg-deepest); }
 .cell-ghost { background: rgba(0, 255, 136, 0.2); border: 1px dashed var(--green); }
 .cell-invalid { background: rgba(255, 59, 59, 0.2); border: 1px dashed var(--red); }
+
+/* Teammate ship cells (2v2) */
+.cell-teammate-ship {
+  background: rgba(0, 255, 136, 0.5);
+  color: var(--bg-deepest);
+  border: 1px dashed var(--green);
+}
+
+/* Teammate ghost preview during placement */
+.cell-teammate-ghost {
+  background: rgba(0, 255, 136, 0.15);
+  color: rgba(0, 255, 136, 0.4);
+  border: 1px dashed rgba(0, 255, 136, 0.3);
+}
+
+/* Hit Count Badge */
+.hit-count-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--red);
+  background: rgba(0, 0, 0, 0.6);
+  padding: 0 3px;
+  border-radius: 6px;
+  line-height: 14px;
+  pointer-events: none;
+}
 
 /* ============================================================
    Battle Screen
@@ -659,6 +813,21 @@ html, body {
 }
 .turn-timer.warning { color: var(--red); }
 
+/* Game Mode Label */
+.game-mode-label {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  text-align: center;
+  margin-bottom: 12px;
+  padding: 6px 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-md);
+}
+
 .fire-btn {
   width: 100%;
   padding: 12px;
@@ -705,6 +874,10 @@ html, body {
 .shot-log .ff { color: var(--orange); font-weight: 600; }
 .shot-log .sunk-text { color: var(--red); font-weight: 600; }
 
+/* Team-colored kill messages in shot log */
+.shot-log .team-kill-alpha { color: var(--green); }
+.shot-log .team-kill-bravo { color: var(--red); }
+
 /* ============================================================
    Chat
    ============================================================ */
@@ -724,6 +897,40 @@ html, body {
   margin-bottom: 8px;
 }
 
+/* Chat Toggle Tabs */
+.chat-toggle {
+  display: flex;
+  margin-bottom: 8px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  border: 1px solid var(--bg-hover);
+}
+.chat-toggle-tab {
+  flex: 1;
+  padding: 6px 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--bg-elevated);
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 150ms ease-out;
+  min-height: 32px;
+}
+.chat-toggle-tab:hover { color: var(--text-primary); }
+.chat-toggle-tab.active.team {
+  background: var(--green-bg);
+  color: var(--green);
+  border-bottom: 2px solid var(--green);
+}
+.chat-toggle-tab.active.global {
+  background: var(--amber-bg);
+  color: var(--amber);
+  border-bottom: 2px solid var(--amber);
+}
+
 .chat-messages {
   max-height: 120px;
   overflow-y: auto;
@@ -735,9 +942,41 @@ html, body {
   padding: 2px 0;
   color: var(--text-secondary);
 }
+
+/* Game event messages (system) */
+.chat-msg-game {
+  font-style: italic;
+  color: var(--text-muted);
+  border-left: 2px solid var(--bg-elevated);
+  padding-left: 8px;
+  margin: 4px 0;
+  font-size: 11px;
+}
+
+/* Player chat messages */
+.chat-msg-player {
+  margin: 4px 0;
+}
+.chat-msg-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+}
+.chat-msg-body {
+  padding-left: 2px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
 .chat-msg .chat-name {
   color: var(--green);
   font-weight: 500;
+}
+.chat-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
 }
 
 .chat-input-row {
@@ -807,24 +1046,26 @@ html, body {
    ============================================================ */
 
 .changelog {
-  max-width: 600px;
+  max-width: 720px;
   width: 100%;
   text-align: left;
 }
 
 .changelog-entry {
-  margin-bottom: 24px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--bg-hover);
+  margin-bottom: 0;
+  padding: 24px 0;
+  border-top: 1px solid var(--bg-elevated);
+  width: 100%;
 }
-.changelog-entry:last-child { border-bottom: none; }
+.changelog-entry:first-child { border-top: none; }
 
 .changelog-entry h2 {
   font-family: var(--font-mono);
   font-size: 16px;
   font-weight: 600;
   color: var(--green);
-  margin-bottom: 8px;
+  margin-bottom: 4px;
+  text-align: left;
 }
 
 .changelog-date {
@@ -840,8 +1081,10 @@ html, body {
 
 .changelog-entry li {
   padding: 3px 0;
+  padding-left: 16px;
   color: var(--text-secondary);
   font-size: 14px;
+  text-align: left;
 }
 .changelog-subsection {
   font-family: var(--font-mono);
@@ -850,6 +1093,7 @@ html, body {
   letter-spacing: 0.08em;
   color: var(--text-muted);
   margin: 8px 0 4px;
+  text-align: left;
 }
 
 .changelog-entry li::before {
@@ -871,6 +1115,8 @@ html, body {
 }
 
 .game-over .draw { color: var(--amber); }
+.game-over .team-win-alpha { color: var(--green); }
+.game-over .team-win-bravo { color: var(--red); }
 
 .stats-table {
   margin: 24px auto;
@@ -939,10 +1185,40 @@ html, body {
   .grid-cell { width: 28px; height: 28px; font-size: 10px; }
   .grid-header { width: 24px; height: 24px; font-size: 9px; }
   .game-grid { grid-template-columns: 24px repeat(10, 1fr); }
+  .desktop-only { display: none; }
+  .mobile-only { display: inline; }
+  .chat-toggle { width: 100%; }
 }
 
 @media (max-width: 400px) {
   .grid-cell { width: 24px; height: 24px; font-size: 9px; }
   .grid-header { width: 20px; height: 20px; font-size: 8px; }
   .game-grid { grid-template-columns: 20px repeat(10, 1fr); }
+}
+
+/* ============================================================
+   Desktop Font Size & Layout Scaling
+   ============================================================ */
+
+@media (min-width: 1200px) {
+  html, body { font-size: 17px; }
+  .grid-cell { width: 36px; height: 36px; font-size: 13px; }
+  .grid-header { width: 32px; height: 32px; font-size: 12px; }
+  .game-grid { grid-template-columns: 32px repeat(10, 1fr); }
+  .player-list li { font-size: 15px; }
+  .chat-messages { font-size: 13px; }
+  .shot-log-entry { font-size: 13px; }
+  .label { font-size: 12px; }
+}
+
+@media (min-width: 1440px) {
+  html, body { font-size: 18px; }
+  .screen { max-width: 1300px; }
+  .grid-cell { width: 40px; height: 40px; font-size: 14px; }
+  .grid-header { width: 34px; height: 34px; font-size: 13px; }
+  .game-grid { grid-template-columns: 34px repeat(10, 1fr); }
+  .battle-layout { max-width: 960px; }
+  .player-list li { font-size: 16px; }
+  .chat-messages { font-size: 14px; }
+  .shot-log-entry { font-size: 14px; }
 }

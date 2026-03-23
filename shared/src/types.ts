@@ -51,7 +51,9 @@ export interface TimerConfig {
   seconds: number; // 30 or 60
 }
 
-export type GameMode = 'private' | 'quickplay-1v1' | 'quickplay-ffa';
+export type GameMode = 'private' | 'quickplay-1v1' | 'quickplay-2v2' | 'quickplay-ffa';
+
+export type ChatChannel = 'team' | 'global';
 
 export interface Game {
   id: string;
@@ -64,12 +66,16 @@ export interface Game {
   gridSize: 10;
   shots: Set<string>;         // all globally fired coordinates
   timerConfig: TimerConfig;
+  placementTimerConfig: TimerConfig;
   lastActivity: number;       // Date.now() for cleanup
   rematchAccepted: Set<string>; // playerIds who accepted rematch
   /** Per-player stats accumulated during gameplay */
   playerStats: Map<string, PlayerGameStats>;
   /** ID of the player who scored the first hit */
   firstBloodId: string | null;
+  /** Team mode: playerId → teamId ('alpha' | 'bravo') */
+  teams: Map<string, string>;
+  teamsEnabled: boolean;
 }
 
 export interface PlayerGameStats {
@@ -139,6 +145,9 @@ export interface WireGame {
   gridSize: 10;
   shots: string[];
   timerConfig: TimerConfig;
+  placementTimerConfig: TimerConfig;
+  teamsEnabled: boolean;
+  teams: Record<string, string>; // playerId → teamId
 }
 
 export interface ChatMessage {
@@ -146,10 +155,12 @@ export interface ChatMessage {
   playerName: string;
   text: string;
   timestamp: number;
+  channel: ChatChannel;
 }
 
 export interface GameOverStats {
   winnerId: string | null; // null = draw
+  winnerTeamId: string | null; // null = draw or non-team game
   playerStats: Record<string, {
     shotsFired: number;
     hitsLanded: number;
@@ -170,25 +181,29 @@ export interface ShipPlacement {
 
 // --- Socket Events ---
 
-export type QuickPlayMode = '1v1' | 'ffa';
+export type QuickPlayMode = '1v1' | '2v2' | 'ffa';
 
 export interface GameCountData {
   total: number;
   oneVsOne: number;
+  twoVsTwo: number;
   ffa: number;
   searching1v1: number;
+  searching2v2: number;
   searchingFfa: number;
 }
 
 export interface ClientToServerEvents {
-  'create-game': (data: { playerName: string; timerConfig?: TimerConfig }) => void;
+  'create-game': (data: { playerName: string; timerConfig?: TimerConfig; placementTimerConfig?: TimerConfig; teamsEnabled?: boolean }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
   'start-game': () => void;
   'add-bot': (data: { difficulty: AiDifficulty }) => void;
   'remove-bot': (data: { botId: string }) => void;
   'place-ships': (data: { ships: ShipPlacement[] }) => void;
   'fire': (data: { coords: string[] }) => void;
-  'chat-message': (data: { text: string }) => void;
+  'chat-message': (data: { text: string; channel?: ChatChannel }) => void;
+  'swap-team': (data: { targetPlayerId: string }) => void;
+  'placement-preview': (data: { ships: ShipPlacement[] }) => void;
   'rejoin': (data: { playerId: string; gameId: string }) => void;
   'rematch-request': () => void;
   'rematch-decline': () => void;
@@ -203,7 +218,7 @@ export interface ServerToClientEvents {
   'error': (data: { message: string }) => void;
   'game-created': (data: { code: string; playerId: string; gameId: string }) => void;
   'player-joined': (data: { game: WireGame }) => void;
-  'placement-phase': (data: { game: WireGame }) => void;
+  'placement-phase': (data: { game: WireGame; placementDeadline?: number }) => void;
   'all-ready': (data: { game: WireGame }) => void;
   'your-turn': (data: { shotCount: number; timerSeconds: number | null }) => void;
   'turn-timeout': (data: { playerId: string }) => void;
@@ -212,14 +227,36 @@ export interface ServerToClientEvents {
   'game-over': (data: GameOverStats) => void;
   'game-state': (data: { game: WireGame }) => void; // full state on reconnect
   'chat-message': (data: ChatMessage) => void;
-  'player-disconnected': (data: { playerId: string; playerName: string; timeoutSeconds: number }) => void;
+  'player-disconnected': (data: { playerId: string; playerName: string }) => void;
+  'teammate-placement-preview': (data: { ships: ShipPlacement[] }) => void;
   'player-reconnected': (data: { playerId: string; playerName: string }) => void;
   'rematch-pending': (data: { acceptedIds: string[]; totalHumans: number }) => void;
-  'rematch-starting': (data: { game: WireGame }) => void;
+  'rematch-starting': (data: { game: WireGame; placementDeadline?: number }) => void;
   'rematch-declined': (data: { playerName: string; code: string; game: WireGame }) => void;
   'quickplay-queue-update': (data: { size: number }) => void;
   'quickplay-matched': (data: { playerId: string; gameId: string }) => void;
   'online-count': (data: { count: number }) => void;
   'surrender-ack': () => void;
   'check-rejoin-response': (data: { valid: boolean; timeRemaining: number }) => void;
+}
+
+// --- Helpers ---
+
+/** Map QuickPlayMode to GameMode (DRY: used in tryMatchRoom, rematch-request, rematch-decline) */
+export function toGameMode(qpMode: QuickPlayMode): GameMode {
+  switch (qpMode) {
+    case '1v1': return 'quickplay-1v1';
+    case '2v2': return 'quickplay-2v2';
+    case 'ffa': return 'quickplay-ffa';
+  }
+}
+
+/** Map GameMode to QuickPlayMode (inverse of toGameMode) */
+export function toQuickPlayMode(gameMode: GameMode): QuickPlayMode | null {
+  switch (gameMode) {
+    case 'quickplay-1v1': return '1v1';
+    case 'quickplay-2v2': return '2v2';
+    case 'quickplay-ffa': return 'ffa';
+    default: return null;
+  }
 }

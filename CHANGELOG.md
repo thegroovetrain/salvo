@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.10.0] - 2026-03-23
+
+### Added
+- **2v2 Team Mode** — play with a teammate against another pair. Teams share ship vision, coordinate via private team chat, and win/lose together. Available in both Quick Play and private games.
+- **Fair turn order** — teams alternate in a balanced A-B-B-A pattern so neither side has a first-mover advantage
+- **Team chat** — toggle between Team (private, green) and Global (public, amber) channels. Only your teammate sees team messages.
+- **Quick Play 2v2** — new matchmaking queue for team games. Random teammate assignment with full team coordination.
+- **Placement timer** — configurable countdown during ship placement. Auto-places ships on timeout. Always enabled for Quick Play (60s), optional for private games.
+- **Reset board** — return all placed ships to the tray before clicking Ready
+- **Player readiness indicators** — see who is still placing ships vs who is Ready during the placement phase
+- **Live teammate placement preview** — see your teammate's in-progress ship layout as ghost ships on your grid (2v2 only)
+- **Game mode indicator** — "TEAM BATTLE — Alpha vs Bravo" header during 2v2 games
+- **Hit count badges** — when a shot hits multiple overlapping ships, a small "×N" badge shows the hit count
+- **Chat redesign** — timestamps on all messages, visual separation between game events and player chat, auto-scroll to latest message
+
+### Changed
+- **Reconnect timer** — forfeit is now turn-based instead of a fixed 60-second wall-clock countdown. Disconnected players are forfeited when their turn arrives and they haven't returned. Brief network blips during other players' turns cost nothing.
+- **Team-aware bot AI** — bots on a team avoid targeting their teammate's ships (except Easy bots, who hit everything)
+- **Desktop layout** — larger fonts and grid cells on screens ≥1200px, wider content area on ≥1440px
+- **Changelog page** — uniform entry widths, consistent structure, better typography alignment
+
+### Fixed
+- **Light mode compatibility** — CSS now uses variables instead of hardcoded colors for hit badges, chat messages, and changelog entries
+- **Duplicate elimination announcements** — sunk players are only announced once, not re-announced every turn
+- **Stale rejoin modal** — modal auto-dismisses when the server reports the game is no longer valid
+- **Placement timer sync** — client countdown syncs to server deadline instead of starting fresh, preventing drift from network latency
+- **Timer cleanup** — all game timers (placement, forfeit, turn) are properly cleared when a game is removed
+- **Placement preview validation** — server validates teammate placement preview data before relaying
+
 ## [0.9.2] - 2026-03-23
 
 ### Added

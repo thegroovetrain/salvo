@@ -171,12 +171,11 @@ describe('Surrender — toClientView security', () => {
 });
 
 describe('ConnectionManager — surrender cleanup', () => {
-  it('remove() cancels disconnect timer', () => {
+  it('remove() cleans up disconnected player', () => {
     const cm = new ConnectionManager();
     cm.register('player1', 'socket1', 'game1');
 
-    let timedOut = false;
-    cm.handleDisconnect('socket1', () => { timedOut = true; });
+    cm.handleDisconnect('socket1');
 
     // Player surrenders — immediate cleanup
     cm.remove('player1');
@@ -189,7 +188,7 @@ describe('ConnectionManager — surrender cleanup', () => {
   it('getDisconnectTimeRemaining returns time for disconnected player', () => {
     const cm = new ConnectionManager();
     cm.register('player1', 'socket1', 'game1');
-    cm.handleDisconnect('socket1', () => {});
+    cm.handleDisconnect('socket1');
 
     const remaining = cm.getDisconnectTimeRemaining('player1');
     expect(remaining).not.toBeNull();

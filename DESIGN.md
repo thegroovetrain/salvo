@@ -66,6 +66,9 @@
 | Ghost | `rgba(0,255,136,0.2)` + dashed border | `■` | Ship placement preview |
 | Valid Placement | `rgba(0,255,136,0.2)` green tint | — | Can place ship here |
 | Invalid Placement | `rgba(255,59,59,0.2)` red tint | — | Cannot place here (overlap/OOB) |
+| Teammate Ship | `rgba(0,255,136,0.5)` + dashed border | `■` (dashed) | Teammate's ship position (2v2 only) |
+| Teammate Ghost | `rgba(0,255,136,0.15)` + dashed border | `■` (faint) | Teammate's in-progress placement preview |
+| Multi-Hit | `#FF3B3B` + badge | `×N` | Hit on N overlapping ships (badge in top-right) |
 
 ## Spacing
 - **Base unit:** 4px

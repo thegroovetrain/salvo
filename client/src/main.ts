@@ -3,7 +3,7 @@ import type {
   ClientToServerEvents, ServerToClientEvents,
   WireGame, WirePlayer, ShotResult, ShipPlacement,
   ChatMessage, GameOverStats, TimerConfig, AiDifficulty,
-  QuickPlayMode,
+  QuickPlayMode, ChatChannel,
 } from '@salvo/shared';
 import { SHIP_LENGTHS, SHIP_NAMES, ROWS, GRID_SIZE } from '@salvo/shared';
 import './style.css';
@@ -30,6 +30,9 @@ interface AppState {
   ghostCells: string[];
   ghostValid: boolean;
   shipsSent: boolean;  // true after clicking Ready, waiting for all players
+  teammateGhostShips: ShipPlacement[];
+  placementTimerSeconds: number | null;
+  placementTimerInterval: ReturnType<typeof setInterval> | null;
   // Battle
   selectedTargets: string[];
   isMyTurn: boolean;
@@ -38,6 +41,7 @@ interface AppState {
   timerInterval: ReturnType<typeof setInterval> | null;
   // Chat
   chatMessages: ChatMessage[];
+  chatChannel: ChatChannel;
   // Game over
   gameOverStats: GameOverStats | null;
   rematchPending: { acceptedIds: string[]; totalHumans: number } | null;
@@ -83,12 +87,16 @@ const state: AppState = {
   ghostCells: [],
   ghostValid: false,
   shipsSent: false,
+  teammateGhostShips: [],
+  placementTimerSeconds: null,
+  placementTimerInterval: null,
   selectedTargets: [],
   isMyTurn: false,
   shotLog: [],
   timerSeconds: null,
   timerInterval: null,
   chatMessages: [],
+  chatChannel: 'global',
   gameOverStats: null,
   rematchPending: null,
   changelogHtml: null,
@@ -144,12 +152,24 @@ socket.on('player-joined', ({ game }) => {
   render();
 });
 
-socket.on('placement-phase', ({ game }) => {
+socket.on('placement-phase', ({ game, placementDeadline }) => {
   state.game = game;
   state.screen = 'placement';
   state.placedShips = [];
   state.placingShip = null;
   state.shipsSent = false;
+  state.teammateGhostShips = [];
+  // Set default chat channel for team games
+  if (game.teamsEnabled) {
+    state.chatChannel = 'team';
+  }
+  // Start placement timer if configured
+  if (game.placementTimerConfig.enabled) {
+    const remaining = placementDeadline
+      ? Math.max(1, Math.round((placementDeadline - Date.now()) / 1000))
+      : game.placementTimerConfig.seconds;
+    startPlacementTimer(remaining);
+  }
   render();
 });
 
@@ -158,6 +178,7 @@ socket.on('all-ready', ({ game }) => {
   state.screen = 'battle';
   state.selectedTargets = [];
   state.shotLog = [];
+  stopPlacementTimer();
   render();
 });
 
@@ -179,9 +200,14 @@ socket.on('game-state', ({ game }) => {
   }
   if (game.phase === 'placement' && state.screen !== 'placement') {
     state.screen = 'placement';
+    if (game.teamsEnabled) state.chatChannel = 'team';
+    if (game.placementTimerConfig.enabled && !state.placementTimerInterval) {
+      startPlacementTimer(game.placementTimerConfig.seconds);
+    }
   } else if (game.phase === 'playing' && state.screen !== 'battle') {
     state.screen = 'battle';
     state.selectedTargets = [];
+    stopPlacementTimer();
   } else if (game.phase === 'lobby') {
     state.screen = 'waiting';
   }
@@ -221,6 +247,7 @@ socket.on('player-eliminated', ({ playerName, reason }) => {
     playerName: 'SYSTEM',
     text: `${playerName} has been ${reasonText}!`,
     timestamp: Date.now(),
+    channel: 'global',
   });
   render();
 });
@@ -230,6 +257,13 @@ socket.on('game-over', (stats) => {
   state.screen = 'gameover';
   state.isMyTurn = false;
   stopTimer();
+  stopPlacementTimer();
+  // Dismiss rejoin modal if still showing
+  if (state.showRejoinModal) {
+    state.showRejoinModal = false;
+    if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
+    state.rejoinCountdownInterval = null;
+  }
   // Game is over — clear session so page reload goes to lobby, not rejoin modal
   sessionStorage.removeItem('salvo-playerId');
   sessionStorage.removeItem('salvo-gameId');
@@ -241,7 +275,7 @@ socket.on('rematch-pending', ({ acceptedIds, totalHumans }) => {
   render();
 });
 
-socket.on('rematch-starting', ({ game }) => {
+socket.on('rematch-starting', ({ game, placementDeadline }) => {
   state.game = game;
   state.screen = 'placement';
   state.placedShips = [];
@@ -251,6 +285,14 @@ socket.on('rematch-starting', ({ game }) => {
   state.shotLog = [];
   state.gameOverStats = null;
   state.rematchPending = null;
+  state.teammateGhostShips = [];
+  if (game.teamsEnabled) state.chatChannel = 'team';
+  if (game.placementTimerConfig.enabled) {
+    const remaining = placementDeadline
+      ? Math.max(1, Math.round((placementDeadline - Date.now()) / 1000))
+      : game.placementTimerConfig.seconds;
+    startPlacementTimer(remaining);
+  }
   // Re-store session for reconnection (cleared on game-over)
   if (state.playerId) sessionStorage.setItem('salvo-playerId', state.playerId);
   if (game.id) sessionStorage.setItem('salvo-gameId', game.id);
@@ -271,6 +313,7 @@ socket.on('rematch-declined', ({ playerName, code, game }) => {
     playerName: 'SYSTEM',
     text: `${playerName} left. Back in lobby with code ${code}.`,
     timestamp: Date.now(),
+    channel: 'global',
   });
   render();
 });
@@ -285,12 +328,13 @@ socket.on('chat-message', (msg) => {
   }, 0);
 });
 
-socket.on('player-disconnected', ({ playerName, timeoutSeconds }) => {
+socket.on('player-disconnected', ({ playerName }) => {
   state.chatMessages.push({
     playerId: 'system',
     playerName: 'SYSTEM',
-    text: `${playerName} disconnected (${timeoutSeconds}s to reconnect)`,
+    text: `${playerName} disconnected`,
     timestamp: Date.now(),
+    channel: 'global',
   });
   render();
 });
@@ -301,7 +345,13 @@ socket.on('player-reconnected', ({ playerName }) => {
     playerName: 'SYSTEM',
     text: `${playerName} reconnected!`,
     timestamp: Date.now(),
+    channel: 'global',
   });
+  render();
+});
+
+socket.on('teammate-placement-preview', ({ ships }) => {
+  state.teammateGhostShips = ships;
   render();
 });
 
@@ -362,36 +412,26 @@ socket.on('surrender-ack', () => {
   state.chatMessages = [];
   state.isMyTurn = false;
   stopTimer();
+  stopPlacementTimer();
   render();
 });
 
 // Rejoin check response
-socket.on('check-rejoin-response', ({ valid, timeRemaining }) => {
+socket.on('check-rejoin-response', ({ valid }) => {
   const savedPlayerId = sessionStorage.getItem('salvo-playerId');
   const savedGameId = sessionStorage.getItem('salvo-gameId');
   if (!valid || !savedPlayerId || !savedGameId) {
     sessionStorage.removeItem('salvo-playerId');
     sessionStorage.removeItem('salvo-gameId');
+    state.showRejoinModal = false;
+    if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
+    state.rejoinCountdownInterval = null;
+    render();
     return; // stay on lobby
   }
-  // Show rejoin modal with countdown
+  // Show rejoin modal (no countdown — forfeit is turn-based now)
   state.showRejoinModal = true;
-  state.rejoinTimeRemaining = timeRemaining;
-  if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
-  state.rejoinCountdownInterval = setInterval(() => {
-    state.rejoinTimeRemaining--;
-    if (state.rejoinTimeRemaining <= 0) {
-      // Time expired — dismiss modal, clear session
-      if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
-      state.rejoinCountdownInterval = null;
-      state.showRejoinModal = false;
-      sessionStorage.removeItem('salvo-playerId');
-      sessionStorage.removeItem('salvo-gameId');
-      render();
-      return;
-    }
-    render();
-  }, 1000);
+  state.rejoinTimeRemaining = 0;
   render();
 });
 
@@ -412,7 +452,7 @@ socket.on('connect', () => {
   const savedPlayerId = sessionStorage.getItem('salvo-playerId');
   const savedGameId = sessionStorage.getItem('salvo-gameId');
   if (savedPlayerId && savedGameId) {
-    // Check if rejoin is still valid + get countdown
+    // Check if rejoin is still valid
     socket.emit('check-rejoin', { playerId: savedPlayerId, gameId: savedGameId });
   }
 });
@@ -447,6 +487,53 @@ function renderTimer(): void {
   const secs = state.timerSeconds % 60;
   el.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
   el.classList.toggle('warning', state.timerSeconds <= 10);
+}
+
+// ============================================================
+// Placement Timer
+// ============================================================
+
+function startPlacementTimer(seconds: number): void {
+  stopPlacementTimer();
+  state.placementTimerSeconds = seconds;
+  state.placementTimerInterval = setInterval(() => {
+    if (state.placementTimerSeconds !== null && state.placementTimerSeconds > 0) {
+      state.placementTimerSeconds--;
+      renderPlacementTimer();
+    }
+  }, 1000);
+}
+
+function stopPlacementTimer(): void {
+  if (state.placementTimerInterval) {
+    clearInterval(state.placementTimerInterval);
+    state.placementTimerInterval = null;
+  }
+  state.placementTimerSeconds = null;
+}
+
+function renderPlacementTimer(): void {
+  const el = document.querySelector('.placement-timer');
+  if (!el || state.placementTimerSeconds === null) return;
+  const mins = Math.floor(state.placementTimerSeconds / 60);
+  const secs = state.placementTimerSeconds % 60;
+  el.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+  el.classList.toggle('warning', state.placementTimerSeconds <= 10);
+}
+
+// ============================================================
+// Placement Preview Debounce
+// ============================================================
+
+let placementPreviewTimeout: ReturnType<typeof setTimeout> | null = null;
+
+function emitPlacementPreview(): void {
+  if (placementPreviewTimeout) clearTimeout(placementPreviewTimeout);
+  placementPreviewTimeout = setTimeout(() => {
+    if (state.game?.teamsEnabled && state.placedShips.length > 0) {
+      socket.emit('placement-preview', { ships: state.placedShips });
+    }
+  }, 300);
 }
 
 // ============================================================
@@ -503,6 +590,41 @@ function getShipCells(startRow: number, startCol: number, length: number, horizo
     cells.push(coordToId(r, c));
   }
   return cells;
+}
+
+// ============================================================
+// Time Formatting
+// ============================================================
+
+function formatTime(ts: number): string {
+  const d = new Date(ts);
+  return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
+}
+
+// ============================================================
+// Team Helpers
+// ============================================================
+
+function getTeammateId(): string | null {
+  if (!state.game || !state.playerId || !state.game.teamsEnabled) return null;
+  const myTeam = state.game.teams[state.playerId];
+  if (!myTeam) return null;
+  for (const [pid, team] of Object.entries(state.game.teams)) {
+    if (pid !== state.playerId && team === myTeam) return pid;
+  }
+  return null;
+}
+
+function getHitCountAtCoord(coord: string): number {
+  let count = 0;
+  for (const entry of state.shotLog) {
+    for (const shot of entry.shots) {
+      if (shot.coord === coord) {
+        count += shot.hits.length;
+      }
+    }
+  }
+  return count;
 }
 
 // ============================================================
@@ -569,7 +691,7 @@ function renderRejoinModal(): string {
     <div class="modal-overlay" id="rejoin-modal-overlay">
       <div class="modal">
         <h2 class="label" style="margin-bottom:12px">Active Game Found</h2>
-        <p style="margin-bottom:16px;color:var(--text-muted);font-size:14px">You have an active game. Rejoin? (${state.rejoinTimeRemaining}s remaining)</p>
+        <p style="margin-bottom:16px;color:var(--text-muted);font-size:14px">You have an active game. Rejoin?</p>
         <div style="display:flex;gap:8px;justify-content:center">
           <button class="btn btn-primary" id="btn-rejoin-yes">Rejoin</button>
           <button class="btn btn-danger" id="btn-rejoin-no">Leave Game</button>
@@ -630,6 +752,18 @@ function renderLobby(): string {
             </select>
           </div>
         </div>
+        <div class="modal-option" style="margin-top:8px">
+          <div class="modal-option-row">
+            <input type="checkbox" id="placement-timer-enabled">
+            <label for="placement-timer-enabled">Placement timer</label>
+          </div>
+        </div>
+        <div class="modal-option" style="margin-top:8px">
+          <div class="modal-option-row">
+            <input type="checkbox" id="teams-enabled">
+            <label for="teams-enabled">Teams (2v2)</label>
+          </div>
+        </div>
         <div style="display:flex;gap:8px;margin-top:16px">
           <button class="btn btn-primary" id="btn-create-confirm" style="flex:1">Create</button>
           <button class="btn btn-secondary" id="btn-create-cancel" style="flex:1">Cancel</button>
@@ -651,6 +785,7 @@ function renderLobby(): string {
           <p class="label" style="margin-bottom:8px">Quick Play</p>
           <div style="display:flex;gap:8px">
             <button class="btn btn-amber btn-quickplay" id="btn-qp-1v1" style="flex:1">1v1</button>
+            <button class="btn btn-quickplay qp-btn-2v2" id="btn-qp-2v2" style="flex:1" title="Random teammate — coordinate to win">2v2</button>
             <button class="btn btn-amber btn-quickplay" id="btn-qp-ffa" style="flex:1">FFA</button>
           </div>
         </div>
@@ -674,6 +809,7 @@ function renderQueue(): string {
   const mode = state.queueMode;
   const target = mode === '1v1' ? 2 : 4;
   const size = state.queueSize;
+  const modeLabel = mode === '1v1' ? '1V1' : mode === '2v2' ? '2V2 TEAMS' : 'FFA';
 
   const dots = Array.from({ length: target }, (_, i) =>
     `<span class="queue-dot ${i < size ? 'filled' : ''}">${i < size ? '\u25CF' : '\u25CB'}</span>`
@@ -683,7 +819,7 @@ function renderQueue(): string {
     <div class="screen">
       <h1 class="game-title" style="font-size:32px">SALVO</h1>
       <div class="queue-wait">
-        <p class="label queue-label">SEARCHING FOR ${mode === '1v1' ? '1V1' : 'FFA'} MATCH...</p>
+        <p class="label queue-label">SEARCHING FOR ${modeLabel} MATCH...</p>
         <div class="queue-dots">${dots}</div>
         <p class="queue-count">${size} of ${target}</p>
         <button class="btn btn-secondary" id="btn-queue-cancel" style="margin-top:24px">Cancel</button>
@@ -776,13 +912,19 @@ function renderWaiting(): string {
   const isHost = state.game?.players[state.playerId ?? '']?.id === state.game?.turnOrder[0]
     || state.isHost;
   const canStart = players.length >= 2 && isHost;
+  const teamsEnabled = state.game?.teamsEnabled ?? false;
+  const teams = state.game?.teams ?? {};
 
   const playerListHtml = players.map(p => {
     const isMe = p.id === state.playerId;
     const hostBadge = p.id === Object.keys(state.game?.players ?? {})[0] ? '<span class="host-badge">HOST</span>' : '';
     const botBadge = p.isBot ? `<span class="bot-badge">${esc(p.aiDifficulty ?? 'bot').toUpperCase()}</span>` : '';
     const removeBtn = p.isBot && isHost ? `<button class="btn-remove-bot" data-bot-id="${p.id}" title="Remove bot">&times;</button>` : '';
-    return `<li>${playerIcon(p.isBot)} ${esc(p.name)} ${isMe ? '(you)' : ''} ${hostBadge}${botBadge}${removeBtn}</li>`;
+    const teamBadge = teamsEnabled && teams[p.id]
+      ? `<span class="team-badge ${teams[p.id]}" aria-label="Team ${teams[p.id] === 'alpha' ? 'Alpha' : 'Bravo'}">${teams[p.id] === 'alpha' ? 'Alpha' : 'Bravo'}</span>`
+      : '';
+    const swapAttr = teamsEnabled && isHost && !p.isBot ? `data-swap-team="${p.id}" style="cursor:pointer"` : '';
+    return `<li ${swapAttr}>${playerIcon(p.isBot)} ${esc(p.name)} ${isMe ? '(you)' : ''} ${hostBadge}${botBadge}${teamBadge}${removeBtn}</li>`;
   }).join('');
 
   const waitingSlots = Array(4 - players.length).fill(0).map(() =>
@@ -790,6 +932,30 @@ function renderWaiting(): string {
   ).join('');
 
   const canAddBot = isHost && players.length < 4;
+
+  // Snake turn order visualization for team games
+  let turnOrderViz = '';
+  if (teamsEnabled && players.length >= 2) {
+    // Show A-B-B-A pattern
+    const alphaPlayers = players.filter(p => teams[p.id] === 'alpha');
+    const bravoPlayers = players.filter(p => teams[p.id] === 'bravo');
+    if (alphaPlayers.length > 0 && bravoPlayers.length > 0) {
+      turnOrderViz = `
+        <div style="margin-top:12px;text-align:center">
+          <p class="label" style="margin-bottom:4px">Turn Order</p>
+          <div style="display:flex;gap:6px;justify-content:center;align-items:center">
+            <span class="turn-order-dot alpha" title="${esc(alphaPlayers[0]?.name ?? 'A1')}"></span>
+            <span style="color:var(--text-muted);font-size:11px">\u2192</span>
+            <span class="turn-order-dot bravo" title="${esc(bravoPlayers[0]?.name ?? 'B1')}"></span>
+            <span style="color:var(--text-muted);font-size:11px">\u2192</span>
+            <span class="turn-order-dot bravo" title="${esc(bravoPlayers[1]?.name ?? 'B2')}"></span>
+            <span style="color:var(--text-muted);font-size:11px">\u2192</span>
+            <span class="turn-order-dot alpha" title="${esc(alphaPlayers[1]?.name ?? 'A2')}"></span>
+          </div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">A \u2192 B \u2192 B \u2192 A (snake)</p>
+        </div>`;
+    }
+  }
 
   return `
     <div class="screen">
@@ -801,6 +967,7 @@ function renderWaiting(): string {
         <div class="join-code" id="copy-code" title="Click to copy">${state.joinCode ?? ''}</div>
         <p class="join-code-hint">Click to copy &bull; Share with friends</p>
         <ul class="player-list">${playerListHtml}${waitingSlots}</ul>
+        ${turnOrderViz}
         ${isHost ? `<button class="btn btn-amber" id="btn-start" ${canStart ? '' : 'disabled'}>${canStart ? 'Start Game' : 'Need 2+ Players'}</button>` : '<p class="player-count">Waiting for host to start...</p>'}
         ${canAddBot ? `
           <div style="display:flex;gap:8px;margin-top:8px">
@@ -813,7 +980,7 @@ function renderWaiting(): string {
             <button class="btn btn-secondary" id="btn-add-bot" style="width:auto;padding:10px 16px">Add Bot</button>
           </div>
         ` : ''}
-        <p class="player-count">${players.length} of 2–4 players</p>
+        <p class="player-count">${players.length} of 2\u20134 players</p>
       </div>
     </div>`;
 }
@@ -821,6 +988,7 @@ function renderWaiting(): string {
 function renderPlacement(): string {
   const placedLengths = new Set(state.placedShips.map(s => s.length));
   const allPlaced = SHIP_LENGTHS.every(l => placedLengths.has(l));
+  const teamsEnabled = state.game?.teamsEnabled ?? false;
 
   const dockHtml = SHIP_LENGTHS.map(length => {
     const placed = placedLengths.has(length);
@@ -830,9 +998,26 @@ function renderPlacement(): string {
     </div>`;
   }).join('');
 
+  // Readiness indicators
+  const players = state.game ? Object.values(state.game.players) : [];
+  const readinessHtml = players.map(p => {
+    const hasShips = p.ships.length > 0;
+    if (hasShips) {
+      return `<span class="readiness-indicator ready">${esc(p.name)} Ready \u2713</span>`;
+    }
+    return `<span class="readiness-indicator placing">${esc(p.name)} Placing<span class="placing-dots">...</span></span>`;
+  }).join(' ');
+
+  // Placement timer
+  const placementTimerHtml = state.placementTimerSeconds !== null
+    ? `<div class="placement-timer ${state.placementTimerSeconds <= 10 ? 'warning' : ''}">${Math.floor(state.placementTimerSeconds / 60)}:${(state.placementTimerSeconds % 60).toString().padStart(2, '0')}</div>`
+    : '';
+
   return `
     <div class="screen">
       <h1 class="game-title" style="font-size:32px">PLACE YOUR SHIPS</h1>
+      ${placementTimerHtml}
+      <div style="margin-bottom:12px">${readinessHtml}</div>
       ${renderError()}
       <div class="placement-screen">
         <div class="ship-dock">
@@ -845,6 +1030,7 @@ function renderPlacement(): string {
           </div>
           <button class="btn btn-secondary" id="btn-rotate" style="margin-top:8px">Rotate</button>
           <button class="btn btn-secondary" id="btn-randomize" style="margin-top:8px">Randomize</button>
+          <button class="btn btn-secondary reset-btn" id="btn-reset" style="margin-top:8px" ${state.shipsSent ? 'disabled' : ''}>Reset</button>
           <button class="btn btn-danger" id="btn-surrender" style="margin-top:16px">Surrender</button>
         </div>
         <div class="grid-container">
@@ -853,12 +1039,15 @@ function renderPlacement(): string {
             ${renderGrid('placement')}
           </div>
           ${state.shipsSent
-            ? '<div class="alert alert-info" style="margin-top:16px;max-width:300px">Ships locked in — waiting for other players...</div>'
+            ? '<div class="alert alert-info" style="margin-top:16px;max-width:300px">Ships locked in \u2014 waiting for other players...</div>'
             : allPlaced
-              ? '<button class="btn btn-primary" id="btn-ready" style="margin-top:16px;max-width:200px">Ready!</button>'
+              ? `<div style="display:flex;gap:8px;margin-top:16px;max-width:300px">
+                  <button class="btn btn-primary" id="btn-ready" style="flex:1">Ready!</button>
+                </div>`
               : ''}
         </div>
       </div>
+      ${teamsEnabled ? renderChat() : ''}
     </div>`;
 }
 
@@ -876,8 +1065,8 @@ function renderGrid(mode: 'placement' | 'battle'): string {
     html += `<div class="grid-header">${ROWS[r]}</div>`;
     for (let c = 0; c < GRID_SIZE; c++) {
       const coord = coordToId(r, c);
-      const { cssClass, symbol } = getCellState(coord, mode);
-      html += `<div class="grid-cell ${cssClass}" data-coord="${coord}" data-mode="${mode}">${symbol}</div>`;
+      const { cssClass, symbol, extraHtml } = getCellState(coord, mode);
+      html += `<div class="grid-cell ${cssClass}" data-coord="${coord}" data-mode="${mode}">${symbol}${extraHtml || ''}</div>`;
     }
   }
 
@@ -885,11 +1074,11 @@ function renderGrid(mode: 'placement' | 'battle'): string {
   return html;
 }
 
-function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: string; symbol: string } {
+function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: string; symbol: string; extraHtml?: string } {
   const game = state.game;
 
   if (mode === 'placement') {
-    // Ghost preview
+    // Ghost preview (own placement)
     if (state.ghostCells.includes(coord)) {
       return state.ghostValid
         ? { cssClass: 'cell-ghost', symbol: '\u25A0' }
@@ -901,15 +1090,28 @@ function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: 
         return { cssClass: 'cell-ship', symbol: '\u25A0' };
       }
     }
+    // Teammate ghost preview
+    if (state.teammateGhostShips.length > 0) {
+      for (const ship of state.teammateGhostShips) {
+        if (ship.cells.includes(coord)) {
+          return { cssClass: 'cell-teammate-ghost', symbol: '\u25A0' };
+        }
+      }
+    }
     return { cssClass: 'cell-empty', symbol: '' };
   }
 
-  // Unified battle grid — shows YOUR ships + all shot results
+  // Unified battle grid — shows YOUR ships + teammate ships + all shot results
   if (!game || !state.playerId) return { cssClass: 'cell-empty', symbol: '' };
 
   const myPlayer = game.players[state.playerId];
   const isShot = game.shots.includes(coord);
   const myShip = myPlayer?.ships.find(s => s.cells.includes(coord));
+
+  // Check for teammate ship (2v2)
+  const teammateId = getTeammateId();
+  const teammatePlayer = teammateId ? game.players[teammateId] : null;
+  const teammateShip = teammatePlayer?.ships.find(s => s.cells.includes(coord));
 
   // Selected salvo target (highest priority visual)
   if (state.selectedTargets.includes(coord)) {
@@ -918,10 +1120,11 @@ function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: 
 
   if (isShot) {
     // This cell has been shot. Determine what happened.
+    const hitCount = getHitCountAtCoord(coord);
+    const hitBadgeHtml = hitCount > 1 ? `<span class="hit-count-badge">\u00D7${hitCount}</span>` : '';
+
     if (myShip && myShip.hits.includes(coord)) {
       // My ship was hit at this cell
-      // Was it self-inflicted (friendly fire) or enemy fire?
-      // Check shot log to determine who fired this shot
       let wasSelfHit = false;
       for (const entry of state.shotLog) {
         for (const shot of entry.shots) {
@@ -931,8 +1134,13 @@ function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: 
         }
       }
       return wasSelfHit
-        ? { cssClass: 'cell-ff', symbol: '\u26A0' }       // orange — you hit your own ship
-        : { cssClass: 'cell-sunk', symbol: '\u00D7' };     // dark red — enemy hit your ship
+        ? { cssClass: 'cell-ff', symbol: '\u26A0', extraHtml: hitBadgeHtml }
+        : { cssClass: 'cell-sunk', symbol: '\u00D7', extraHtml: hitBadgeHtml };
+    }
+
+    // Teammate ship hit check
+    if (teammateShip && teammateShip.hits.includes(coord)) {
+      return { cssClass: 'cell-sunk', symbol: '\u00D7', extraHtml: hitBadgeHtml };
     }
 
     // Not my ship — check if it hit anyone else
@@ -956,16 +1164,74 @@ function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: 
       }
     }
 
-    if (wasHit) return { cssClass: 'cell-hit', symbol: '\u00D7' };  // red — hit enemy
-    return { cssClass: 'cell-miss', symbol: '\u2022' };               // muted — miss
+    if (wasHit) return { cssClass: 'cell-hit', symbol: '\u00D7', extraHtml: hitBadgeHtml };
+    return { cssClass: 'cell-miss', symbol: '\u2022' };
   }
 
   // Not shot yet
   if (myShip) {
-    return { cssClass: 'cell-ship', symbol: '\u25A0' };  // green — your ship, untouched
+    return { cssClass: 'cell-ship', symbol: '\u25A0' };
+  }
+
+  // Teammate ship (visible in 2v2, not shot)
+  if (teammateShip) {
+    return { cssClass: 'cell-teammate-ship', symbol: '\u25A0' };
   }
 
   return { cssClass: 'cell-empty', symbol: '' };
+}
+
+function renderChat(): string {
+  const teamsEnabled = state.game?.teamsEnabled ?? false;
+
+  // Filter messages by channel in team mode
+  const filteredMessages = teamsEnabled
+    ? state.chatMessages.filter(m => m.playerId === 'system' || m.channel === state.chatChannel)
+    : state.chatMessages;
+
+  const chatHtml = filteredMessages.slice(-30).map(m => {
+    if (m.playerId === 'system') {
+      // Game event message
+      return `<div class="chat-msg chat-msg-game"><span class="chat-time">${formatTime(m.timestamp)}</span> ${esc(m.text)}</div>`;
+    }
+    // Player message
+    const chatPlayer = state.game?.players[m.playerId];
+    const chatIcon = chatPlayer ? playerIcon(chatPlayer.isBot) : '';
+    const teamBadge = teamsEnabled && state.game?.teams[m.playerId]
+      ? `<span class="team-badge small ${state.game.teams[m.playerId]}">${state.game.teams[m.playerId] === 'alpha' ? 'A' : 'B'}</span>`
+      : '';
+    return `<div class="chat-msg chat-msg-player">
+      <div class="chat-msg-header">${chatIcon}${teamBadge}<span class="chat-name">${esc(m.playerName)}</span><span class="chat-time">${formatTime(m.timestamp)}</span></div>
+      <div class="chat-msg-body">${esc(m.text)}</div>
+    </div>`;
+  }).join('');
+
+  // Chat toggle for team games
+  const toggleHtml = teamsEnabled ? `
+    <div class="chat-toggle" role="tablist">
+      <button class="chat-toggle-tab ${state.chatChannel === 'team' ? 'active team' : ''}" data-channel="team" role="tab" aria-selected="${state.chatChannel === 'team'}">Team</button>
+      <button class="chat-toggle-tab ${state.chatChannel === 'global' ? 'active global' : ''}" data-channel="global" role="tab" aria-selected="${state.chatChannel === 'global'}">Global</button>
+    </div>
+  ` : '';
+
+  const placeholder = teamsEnabled
+    ? (state.chatChannel === 'team' ? 'Team message...' : 'Message everyone...')
+    : 'Type a message...';
+
+  const sendBtnClass = teamsEnabled
+    ? (state.chatChannel === 'team' ? 'btn btn-chat-team' : 'btn btn-chat-global')
+    : 'btn btn-secondary';
+
+  return `
+    <div class="chat-panel">
+      <h3>Chat</h3>
+      ${toggleHtml}
+      <div class="chat-messages">${chatHtml}</div>
+      <div class="chat-input-row">
+        <input class="input" id="chat-input" type="text" placeholder="${placeholder}" maxlength="200" autocomplete="off">
+        <button class="${sendBtnClass}" id="btn-chat">Send</button>
+      </div>
+    </div>`;
 }
 
 function renderBattle(): string {
@@ -976,21 +1242,32 @@ function renderBattle(): string {
   const isMyTurn = currentTurnId === state.playerId;
   const expectedShots = myPlayer ? myPlayer.shotCount : 0;
   const canFire = isMyTurn && state.selectedTargets.length === expectedShots;
+  const teamsEnabled = state.game.teamsEnabled;
+  const teams = state.game.teams;
+
+  // Game mode indicator for 2v2
+  const gameModeLabel = teamsEnabled
+    ? `<div class="game-mode-label"><span class="desktop-only">TEAM BATTLE</span><span class="mobile-only">2v2</span> \u2014 <span class="team-badge alpha" style="font-size:inherit;padding:0;background:none">Alpha</span> vs <span class="team-badge bravo" style="font-size:inherit;padding:0;background:none">Bravo</span></div>`
+    : '';
 
   const playersHtml = Object.values(state.game.players).map(p => {
     const isMe = p.id === state.playerId;
     const isCurrent = p.id === currentTurnId;
-    const dotClass = p.alive ? '' : 'dead';
     const nameStyle = p.alive ? '' : 'text-decoration:line-through;color:var(--text-muted)';
+    const teamBadge = teamsEnabled && teams[p.id]
+      ? `<span class="team-badge ${teams[p.id]}" aria-label="Team ${teams[p.id] === 'alpha' ? 'Alpha' : 'Bravo'}">${teams[p.id] === 'alpha' ? 'Alpha' : 'Bravo'}</span>`
+      : '';
     return `<li>
       ${playerIcon(p.isBot)}
       <span style="${nameStyle}">${esc(p.name)}${isMe ? ' (you)' : ''}</span>
+      ${teamBadge}
       <span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${p.alive ? p.shotCount + ' ships' : 'out'}</span>
       ${isCurrent && p.alive ? '<span style="color:var(--amber);font-size:10px">\u25C0</span>' : ''}
     </li>`;
   }).join('');
 
   const shotLogHtml = state.shotLog.slice(0, 20).map(entry => {
+    const shooterTeam = teamsEnabled ? teams[entry.shooterId] : null;
     return entry.shots.map(shot => {
       const coordHtml = `<span class="coord">${shot.coord}</span>`;
       if (shot.miss) {
@@ -1000,30 +1277,23 @@ function renderBattle(): string {
         // Check if the shooter hit their OWN ship (true friendly fire)
         const isSelfHit = hit.playerId === entry.shooterId;
         const isMyShipHit = hit.playerId === state.playerId;
+        // Team-colored kills in 2v2
+        const hitPlayerTeam = teamsEnabled ? teams[hit.playerId] : null;
+        const killColorClass = teamsEnabled && hit.sunk
+          ? (shooterTeam === 'alpha' ? 'team-kill-alpha' : shooterTeam === 'bravo' ? 'team-kill-bravo' : '')
+          : '';
 
         if (isSelfHit) {
-          // Shooter hit their own ship — true friendly fire
           return `<div class="shot-log-entry">${coordHtml}<span class="ff">\u26A0 FRIENDLY FIRE \u2014 ${esc(entry.shooterName)} hit own ${SHIP_NAMES[hit.shipLength]}${hit.sunk ? ' (SUNK!)' : ''}</span></div>`;
         }
         if (isMyShipHit) {
-          // Someone else hit MY ship — incoming fire (red, not orange)
-          const cls = hit.sunk ? 'sunk-text' : 'hit';
+          const cls = hit.sunk ? `sunk-text ${killColorClass}` : 'hit';
           return `<div class="shot-log-entry">${coordHtml}<span class="${cls}">\u00D7 ${esc(entry.shooterName)} hit YOUR ${SHIP_NAMES[hit.shipLength]}${hit.sunk ? ' (SUNK!)' : ''}</span></div>`;
         }
-        // Someone hit someone else's ship
-        const cls = hit.sunk ? 'sunk-text' : 'hit';
+        const cls = hit.sunk ? `sunk-text ${killColorClass}` : 'hit';
         return `<div class="shot-log-entry">${coordHtml}<span class="${cls}">\u00D7 ${esc(entry.shooterName)} hit ${esc(hit.playerName)}'s ${SHIP_NAMES[hit.shipLength]}${hit.sunk ? ' (SUNK!)' : ''}</span></div>`;
       }).join('');
     }).join('');
-  }).join('');
-
-  const chatHtml = state.chatMessages.slice(-30).map(m => {
-    if (m.playerId === 'system') {
-      return `<div class="chat-msg" style="color:var(--amber);font-style:italic">${esc(m.text)}</div>`;
-    }
-    const chatPlayer = state.game?.players[m.playerId];
-    const chatIcon = chatPlayer ? playerIcon(chatPlayer.isBot) : '';
-    return `<div class="chat-msg">${chatIcon}<span class="chat-name">${esc(m.playerName)}:</span> ${esc(m.text)}</div>`;
   }).join('');
 
   const turnText = isMyTurn
@@ -1037,6 +1307,7 @@ function renderBattle(): string {
   return `
     <div class="screen">
       ${renderError()}
+      ${gameModeLabel}
       <div class="battle-layout battle-layout-unified">
         <div class="grid-panel" id="ocean-panel">
           <h3>Shared Ocean</h3>
@@ -1055,14 +1326,7 @@ function renderBattle(): string {
           ` : ''}
           <h3 class="label" style="margin:12px 0 8px">Shot Log</h3>
           <div class="shot-log">${shotLogHtml || '<p style="color:var(--text-muted);font-size:12px">No shots fired yet</p>'}</div>
-          <div class="chat-panel">
-            <h3>Chat</h3>
-            <div class="chat-messages">${chatHtml}</div>
-            <div class="chat-input-row">
-              <input class="input" id="chat-input" type="text" placeholder="Type a message..." maxlength="200" autocomplete="off">
-              <button class="btn btn-secondary" id="btn-chat">Send</button>
-            </div>
-          </div>
+          ${renderChat()}
           ${myPlayer?.alive ? '<button class="btn btn-danger" id="btn-surrender" style="margin-top:12px;width:100%">Surrender</button>' : ''}
         </div>
       </div>
@@ -1074,8 +1338,46 @@ function renderGameOver(): string {
 
   const stats = state.gameOverStats;
   const winner = stats.winnerId ? state.game.players[stats.winnerId] : null;
+  const teamsEnabled = state.game.teamsEnabled;
+  const teams = state.game.teams;
+  const winnerTeamId = stats.winnerTeamId;
+
+  // Team or individual winner banner
+  let winnerText: string;
+  let winnerSubtext: string;
+  if (teamsEnabled && winnerTeamId) {
+    winnerText = `TEAM ${winnerTeamId.toUpperCase()} WINS!`;
+    winnerSubtext = 'The opposing team has been eliminated';
+  } else if (winner) {
+    winnerText = `${esc(winner.name)} WINS!`;
+    winnerSubtext = 'Last player standing';
+  } else {
+    winnerText = 'DRAW!';
+    winnerSubtext = 'All players eliminated simultaneously';
+  }
 
   const highlightsHtml = stats.highlights.map(h => `<p class="highlight">${esc(h)}</p>`).join('');
+
+  // Team aggregate highlights for 2v2
+  let teamHighlightsHtml = '';
+  if (teamsEnabled) {
+    const teamStats: Record<string, { shots: number; hits: number; sunk: number }> = {};
+    for (const [pid, s] of Object.entries(stats.playerStats)) {
+      const teamId = teams[pid] ?? 'unknown';
+      if (!teamStats[teamId]) teamStats[teamId] = { shots: 0, hits: 0, sunk: 0 };
+      teamStats[teamId].shots += s.shotsFired;
+      teamStats[teamId].hits += s.hitsLanded;
+      teamStats[teamId].sunk += s.shipsSunk;
+    }
+    const teamHighlights: string[] = [];
+    for (const [teamId, ts] of Object.entries(teamStats)) {
+      const acc = ts.shots > 0 ? Math.round((ts.hits / ts.shots) * 100) : 0;
+      const label = teamId === 'alpha' ? 'Alpha' : 'Bravo';
+      teamHighlights.push(`Team ${label} Accuracy: ${acc}%`);
+      teamHighlights.push(`Team ${label} Damage: ${ts.sunk} ships sunk`);
+    }
+    teamHighlightsHtml = teamHighlights.map(h => `<p class="highlight">${esc(h)}</p>`).join('');
+  }
 
   const pending = state.rematchPending;
   const alreadyAccepted = pending?.acceptedIds.includes(state.playerId ?? '') ?? false;
@@ -1093,10 +1395,13 @@ function renderGameOver(): string {
     const s = stats.playerStats[p.id];
     if (!s) return '';
     const accPct = Math.round(s.accuracy * 100);
-    const isWinner = p.id === stats.winnerId;
+    const isWinner = teamsEnabled ? teams[p.id] === winnerTeamId : p.id === stats.winnerId;
     const rowStyle = isWinner ? 'color:var(--green)' : '';
+    const teamBadge = teamsEnabled && teams[p.id]
+      ? `<span class="team-badge ${teams[p.id]}">${teams[p.id] === 'alpha' ? 'Alpha' : 'Bravo'}</span>`
+      : '';
     return `<tr style="${rowStyle}">
-      <td>${playerIcon(p.isBot)}${esc(p.name)}${isWinner ? ' \u2605' : ''}</td>
+      <td>${playerIcon(p.isBot)}${esc(p.name)}${isWinner ? ' \u2605' : ''} ${teamBadge}</td>
       <td>${s.shotsFired}</td>
       <td>${s.hitsLanded}</td>
       <td>${accPct}%</td>
@@ -1105,14 +1410,17 @@ function renderGameOver(): string {
     </tr>`;
   }).join('');
 
+  const winClass = teamsEnabled && winnerTeamId
+    ? (winnerTeamId === 'alpha' ? 'team-win-alpha' : 'team-win-bravo')
+    : winner ? '' : 'draw';
+
   return `
     <div class="screen">
       <div class="game-over">
-        <h1 class="${winner ? '' : 'draw'}">${winner ? `${esc(winner.name)} WINS!` : 'DRAW!'}</h1>
-        <p style="color:var(--text-secondary);margin-bottom:16px">
-          ${winner ? 'Last player standing' : 'All players eliminated simultaneously'}
-        </p>
+        <h1 class="${winClass}">${winnerText}</h1>
+        <p style="color:var(--text-secondary);margin-bottom:16px">${winnerSubtext}</p>
         ${highlightsHtml}
+        ${teamHighlightsHtml}
         <table class="stats-table">
           <thead>
             <tr>
@@ -1167,6 +1475,18 @@ function bindEvents(): void {
     render();
   });
 
+  on('btn-qp-2v2', 'click', () => {
+    const name = val('player-name');
+    if (!name) return showError('Enter your name');
+    state.savedPlayerName = name;
+    state.queueMode = '2v2';
+    state.queueSize = 0;
+    state.screen = 'queue';
+    history.pushState({ screen: 'queue' }, '');
+    socket.emit('quickplay-join', { playerName: name, mode: '2v2' });
+    render();
+  });
+
   on('btn-qp-ffa', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
@@ -1200,11 +1520,15 @@ function bindEvents(): void {
     if (!name) return showError('Enter your name');
     const timerEnabled = (document.getElementById('timer-enabled') as HTMLInputElement)?.checked ?? false;
     const timerSecs = parseInt((document.getElementById('timer-seconds') as HTMLSelectElement)?.value ?? '60', 10);
+    const placementTimerEnabled = (document.getElementById('placement-timer-enabled') as HTMLInputElement)?.checked ?? false;
+    const teamsEnabled = (document.getElementById('teams-enabled') as HTMLInputElement)?.checked ?? false;
     state.isHost = true;
     state.showCreateModal = false;
     socket.emit('create-game', {
       playerName: name,
       timerConfig: { enabled: timerEnabled, seconds: timerSecs },
+      placementTimerConfig: { enabled: placementTimerEnabled, seconds: timerSecs },
+      teamsEnabled,
     });
   });
 
@@ -1279,6 +1603,37 @@ function bindEvents(): void {
     });
   });
 
+  // Team swap in waiting room
+  document.querySelectorAll('[data-swap-team]').forEach(el => {
+    el.addEventListener('click', () => {
+      const targetPlayerId = el.getAttribute('data-swap-team');
+      if (targetPlayerId) socket.emit('swap-team', { targetPlayerId });
+    });
+  });
+
+  // Chat toggle tabs
+  document.querySelectorAll('.chat-toggle-tab').forEach(el => {
+    el.addEventListener('click', () => {
+      const channel = el.getAttribute('data-channel') as ChatChannel;
+      if (channel) {
+        state.chatChannel = channel;
+        render();
+      }
+    });
+  });
+
+  // Chat toggle keyboard navigation
+  document.querySelectorAll('.chat-toggle-tab').forEach(el => {
+    el.addEventListener('keydown', (e) => {
+      const ke = e as KeyboardEvent;
+      if (ke.key === 'ArrowLeft' || ke.key === 'ArrowRight') {
+        ke.preventDefault();
+        state.chatChannel = state.chatChannel === 'team' ? 'global' : 'team';
+        render();
+      }
+    });
+  });
+
   // Placement
   document.querySelectorAll('.dock-ship:not(.placed)').forEach(el => {
     el.addEventListener('click', () => {
@@ -1301,6 +1656,16 @@ function bindEvents(): void {
 
   on('btn-randomize', 'click', () => {
     if (!state.shipsSent) randomizePlacement();
+  });
+
+  on('btn-reset', 'click', () => {
+    if (!state.shipsSent) {
+      state.placedShips = [];
+      state.placingShip = null;
+      state.ghostCells = [];
+      state.ghostValid = false;
+      render();
+    }
   });
 
   // Keyboard rotate
@@ -1356,6 +1721,10 @@ function bindEvents(): void {
 
   on('btn-ready', 'click', () => {
     socket.emit('place-ships', { ships: state.placedShips });
+    // Also emit placement preview for teammate
+    if (state.game?.teamsEnabled) {
+      socket.emit('placement-preview', { ships: state.placedShips });
+    }
     state.shipsSent = true;
     render();
   });
@@ -1373,7 +1742,8 @@ function bindEvents(): void {
   on('btn-chat', 'click', () => {
     const text = val('chat-input');
     if (!text) return;
-    socket.emit('chat-message', { text });
+    const channel: ChatChannel | undefined = state.game?.teamsEnabled ? state.chatChannel : undefined;
+    socket.emit('chat-message', { text, channel });
     (document.getElementById('chat-input') as HTMLInputElement).value = '';
   });
 
@@ -1381,7 +1751,12 @@ function bindEvents(): void {
   on('btn-rematch', 'click', () => {
     // For QP games, Play Again means requeue
     if (state.game && state.game.mode !== 'private') {
-      const qpMode: QuickPlayMode = state.game.mode === 'quickplay-1v1' ? '1v1' : 'ffa';
+      const modeMap: Record<string, QuickPlayMode> = {
+        'quickplay-1v1': '1v1',
+        'quickplay-2v2': '2v2',
+        'quickplay-ffa': 'ffa',
+      };
+      const qpMode = modeMap[state.game.mode] ?? '1v1';
       state.queueMode = qpMode;
       state.queueSize = 0;
     }
@@ -1510,6 +1885,7 @@ function randomizePlacement(): void {
   state.placingShip = null;
   state.ghostCells = [];
   render();
+  emitPlacementPreview();
 }
 
 function handlePlacementClick(coord: string): void {
@@ -1518,6 +1894,7 @@ function handlePlacementClick(coord: string): void {
   if (existingIdx !== -1) {
     state.placedShips.splice(existingIdx, 1);
     render();
+    emitPlacementPreview();
     return;
   }
 
@@ -1537,6 +1914,7 @@ function handlePlacementClick(coord: string): void {
   state.placingShip = null;
   state.ghostCells = [];
   render();
+  emitPlacementPreview();
 }
 
 function handleTargetClick(coord: string): void {
