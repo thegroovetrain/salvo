@@ -808,7 +808,6 @@ io.on('connection', (socket) => {
 
   // Handle disconnect
   socket.on('disconnect', () => {
-    console.log(`[disconnect] socket=${socket.id}`);
     // Clean up queue state if player was queued
     const queueEntry = queueEntries.get(socket.id);
     if (queueEntry) {
@@ -823,11 +822,7 @@ io.on('connection', (socket) => {
     const result = connections.handleDisconnect(socket.id, (playerId, gameId) => {
       // Timeout callback — forfeit the player
       const game = lobby.getGame(gameId);
-      if (!game) {
-        console.log(`[forfeit] game ${gameId} not found for player ${playerId}`);
-        return;
-      }
-      console.log(`[forfeit] player=${playerId} game=${gameId} phase=${game.phase} players=${game.players.size}`);
+      if (!game) return;
 
       // If game isn't in playing phase (e.g., lobby or placement),
       // remove the player and clean up the game if no humans remain.
@@ -860,12 +855,10 @@ io.on('connection', (socket) => {
 
       // Check game over after forfeit
       const gameOver = checkGameOver(game);
-      console.log(`[forfeit] checkGameOver result: ${gameOver ? 'game over' : 'still playing'} phase=${game.phase}`);
       if (gameOver) {
         clearTurnTimer(gameId);
         broadcastToGame(gameId, 'game-over', gameOver);
         broadcastGameCount();
-        console.log(`[forfeit] game ${gameId} ended, broadcastGameCount fired`);
         return;
       }
 
@@ -876,7 +869,6 @@ io.on('connection', (socket) => {
       }
     });
 
-    console.log(`[disconnect] handleDisconnect result: ${result ? `player=${result.playerId} game=${result.gameId}` : 'not in a game'}`);
     if (result) {
       const game = lobby.getGame(result.gameId);
       if (game) {
