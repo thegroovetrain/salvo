@@ -152,7 +152,7 @@ socket.on('player-joined', ({ game }) => {
   render();
 });
 
-socket.on('placement-phase', ({ game }) => {
+socket.on('placement-phase', ({ game, placementDeadline }) => {
   state.game = game;
   state.screen = 'placement';
   state.placedShips = [];
@@ -165,7 +165,10 @@ socket.on('placement-phase', ({ game }) => {
   }
   // Start placement timer if configured
   if (game.placementTimerConfig.enabled) {
-    startPlacementTimer(game.placementTimerConfig.seconds);
+    const remaining = placementDeadline
+      ? Math.max(1, Math.round((placementDeadline - Date.now()) / 1000))
+      : game.placementTimerConfig.seconds;
+    startPlacementTimer(remaining);
   }
   render();
 });
@@ -255,6 +258,12 @@ socket.on('game-over', (stats) => {
   state.isMyTurn = false;
   stopTimer();
   stopPlacementTimer();
+  // Dismiss rejoin modal if still showing
+  if (state.showRejoinModal) {
+    state.showRejoinModal = false;
+    if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
+    state.rejoinCountdownInterval = null;
+  }
   // Game is over — clear session so page reload goes to lobby, not rejoin modal
   sessionStorage.removeItem('salvo-playerId');
   sessionStorage.removeItem('salvo-gameId');
@@ -266,7 +275,7 @@ socket.on('rematch-pending', ({ acceptedIds, totalHumans }) => {
   render();
 });
 
-socket.on('rematch-starting', ({ game }) => {
+socket.on('rematch-starting', ({ game, placementDeadline }) => {
   state.game = game;
   state.screen = 'placement';
   state.placedShips = [];
@@ -279,7 +288,10 @@ socket.on('rematch-starting', ({ game }) => {
   state.teammateGhostShips = [];
   if (game.teamsEnabled) state.chatChannel = 'team';
   if (game.placementTimerConfig.enabled) {
-    startPlacementTimer(game.placementTimerConfig.seconds);
+    const remaining = placementDeadline
+      ? Math.max(1, Math.round((placementDeadline - Date.now()) / 1000))
+      : game.placementTimerConfig.seconds;
+    startPlacementTimer(remaining);
   }
   // Re-store session for reconnection (cleared on game-over)
   if (state.playerId) sessionStorage.setItem('salvo-playerId', state.playerId);
@@ -411,6 +423,10 @@ socket.on('check-rejoin-response', ({ valid }) => {
   if (!valid || !savedPlayerId || !savedGameId) {
     sessionStorage.removeItem('salvo-playerId');
     sessionStorage.removeItem('salvo-gameId');
+    state.showRejoinModal = false;
+    if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
+    state.rejoinCountdownInterval = null;
+    render();
     return; // stay on lobby
   }
   // Show rejoin modal (no countdown — forfeit is turn-based now)

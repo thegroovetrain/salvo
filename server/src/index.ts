@@ -143,8 +143,11 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
   startGame(game);
 
   // Emit placement phase to all players
+  const qpPlacementDeadline = game.placementTimerConfig.enabled
+    ? Date.now() + game.placementTimerConfig.seconds * 1000
+    : undefined;
   for (const pid of game.players.keys()) {
-    emitToPlayer(pid, 'placement-phase', { game: toClientView(game, pid) });
+    emitToPlayer(pid, 'placement-phase', { game: toClientView(game, pid), placementDeadline: qpPlacementDeadline });
   }
 
   // Start placement timer for Quick Play games
@@ -231,7 +234,10 @@ function handlePlacementTimeout(gameId: string): void {
   for (const player of game.players.values()) {
     if (player.ships.length === 0) {
       const placement = generatePlacement('easy');
-      placeShips(game, player.id, placement);
+      const err = placeShips(game, player.id, placement);
+      if (err) {
+        console.warn(`Auto-placement failed for ${player.id}: ${err}`);
+      }
     }
   }
 
@@ -309,6 +315,17 @@ function clearForfeitTimer(playerId: string): void {
     clearTimeout(timer);
     forfeitTimers.delete(playerId);
   }
+}
+
+function clearGameTimers(gameId: string): void {
+  clearPlacementTimer(gameId);
+  const game = lobby.getGame(gameId);
+  if (game) {
+    for (const playerId of game.players.keys()) {
+      clearForfeitTimer(playerId);
+    }
+  }
+  clearTurnTimer(gameId);
 }
 
 function handleForfeitTimeout(gameId: string, playerId: string): void {
@@ -403,6 +420,10 @@ function executeBotTurn(gameId: string, botId: string): void {
     return;
   }
 
+  const alreadyDead = new Set(
+    [...game.players.values()].filter(p => !isPlayerAlive(p)).map(p => p.id)
+  );
+
   const results = fireSalvo(game, botId, coords);
 
   // Broadcast shot results to all players
@@ -415,9 +436,9 @@ function executeBotTurn(gameId: string, botId: string): void {
     });
   }
 
-  // Check for eliminations
+  // Check for eliminations (only newly dead players)
   for (const player of game.players.values()) {
-    if (!isPlayerAlive(player)) {
+    if (!isPlayerAlive(player) && !alreadyDead.has(player.id)) {
       broadcastToGame(gameId, 'player-eliminated', {
         playerId: player.id,
         playerName: player.name,
@@ -457,6 +478,7 @@ function handlePlayerExit(game: ReturnType<typeof lobby.getGame> & {}, playerId:
 
     const remainingHumans = [...game.players.values()].filter(p => !p.isBot);
     if (remainingHumans.length === 0) {
+      clearGameTimers(gameId);
       lobby.removeGame(gameId);
       broadcastOnlineCount();
     } else if (remainingHumans.length < 2 && game.phase !== 'finished') {
@@ -464,6 +486,7 @@ function handlePlayerExit(game: ReturnType<typeof lobby.getGame> & {}, playerId:
       for (const p of remainingHumans) {
         emitToPlayer(p.id, 'error', { message: 'Game ended — not enough players' });
       }
+      clearGameTimers(gameId);
       lobby.removeGame(gameId);
       broadcastOnlineCount();
     }
@@ -646,9 +669,12 @@ io.on('connection', (socket) => {
       }
     }
 
+    const startPlacementDeadline = game.placementTimerConfig.enabled
+      ? Date.now() + game.placementTimerConfig.seconds * 1000
+      : undefined;
     for (const pid of game.players.keys()) {
       if (!game.players.get(pid)?.isBot) {
-        emitToPlayer(pid, 'placement-phase', { game: toClientView(game, pid) });
+        emitToPlayer(pid, 'placement-phase', { game: toClientView(game, pid), placementDeadline: startPlacementDeadline });
       }
     }
 
@@ -716,6 +742,10 @@ io.on('connection', (socket) => {
 
     clearTurnTimer(game.id);
 
+    const alreadyDead = new Set(
+      [...game.players.values()].filter(p => !isPlayerAlive(p)).map(p => p.id)
+    );
+
     const results = fireSalvo(game, playerId, coords);
     const shooter = game.players.get(playerId)!;
 
@@ -729,11 +759,9 @@ io.on('connection', (socket) => {
       });
     }
 
-    // Check for eliminations
+    // Check for eliminations (only newly dead players)
     for (const player of game.players.values()) {
-      if (!isPlayerAlive(player)) {
-        // Check if this is newly eliminated (had ships before this salvo)
-        // For simplicity, broadcast elimination for anyone who's dead
+      if (!isPlayerAlive(player) && !alreadyDead.has(player.id)) {
         broadcastToGame(game.id, 'player-eliminated', {
           playerId: player.id,
           playerName: player.name,
@@ -843,6 +871,17 @@ io.on('connection', (socket) => {
     // Validate: placement phase and teams enabled
     if (game.phase !== 'placement') return;
     if (!game.teamsEnabled) return;
+
+    // Validate preview payload
+    if (!Array.isArray(ships) || ships.length > 4) return;
+    const coordPattern = /^[A-J](?:[1-9]|10)$/;
+    for (const ship of ships) {
+      if (typeof ship.length !== 'number' || ship.length < 1 || ship.length > 4) return;
+      if (!Array.isArray(ship.cells)) return;
+      for (const cell of ship.cells) {
+        if (typeof cell !== 'string' || !coordPattern.test(cell)) return;
+      }
+    }
 
     const teammateId = getTeammate(game, playerId);
     if (teammateId) {
@@ -1030,8 +1069,8 @@ io.on('connection', (socket) => {
         }
 
         // Clean up the game (removeGame also cleans playerToGame entries)
+        clearGameTimers(game.id);
         lobby.removeGame(game.id);
-        clearTurnTimer(game.id);
 
         // Broadcast queue updates
         const size = getQueueSize(roomName);
@@ -1054,9 +1093,12 @@ io.on('connection', (socket) => {
         }
       }
 
+      const rematchPlacementDeadline = game.placementTimerConfig.enabled
+        ? Date.now() + game.placementTimerConfig.seconds * 1000
+        : undefined;
       for (const pid of game.players.keys()) {
         if (!game.players.get(pid)?.isBot) {
-          emitToPlayer(pid, 'rematch-starting', { game: toClientView(game, pid) });
+          emitToPlayer(pid, 'rematch-starting', { game: toClientView(game, pid), placementDeadline: rematchPlacementDeadline });
         }
       }
 
@@ -1105,6 +1147,7 @@ io.on('connection', (socket) => {
     // If no humans left, clean up
     const remainingHumans = [...game.players.values()].filter(p => !p.isBot);
     if (remainingHumans.length === 0) {
+      clearGameTimers(game.id);
       lobby.removeGame(game.id);
       broadcastOnlineCount();
       return;
@@ -1130,8 +1173,8 @@ io.on('connection', (socket) => {
       }
 
       // removeGame cleans up playerToGame entries
+      clearGameTimers(game.id);
       lobby.removeGame(game.id);
-      clearTurnTimer(game.id);
 
       const size = getQueueSize(roomName);
       io.to(roomName).emit('quickplay-queue-update', { size });
@@ -1157,6 +1200,7 @@ io.on('connection', (socket) => {
     const newCode = lobby.generateUniqueCode();
     if (oldCode) {
       // Remove old code mapping and add new one
+      clearGameTimers(game.id);
       lobby.removeGame(game.id);
       lobby.addGame(game, newCode);
       // Re-register remaining players

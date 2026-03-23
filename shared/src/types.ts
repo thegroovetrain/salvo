@@ -218,7 +218,7 @@ export interface ServerToClientEvents {
   'error': (data: { message: string }) => void;
   'game-created': (data: { code: string; playerId: string; gameId: string }) => void;
   'player-joined': (data: { game: WireGame }) => void;
-  'placement-phase': (data: { game: WireGame }) => void;
+  'placement-phase': (data: { game: WireGame; placementDeadline?: number }) => void;
   'all-ready': (data: { game: WireGame }) => void;
   'your-turn': (data: { shotCount: number; timerSeconds: number | null }) => void;
   'turn-timeout': (data: { playerId: string }) => void;
@@ -231,7 +231,7 @@ export interface ServerToClientEvents {
   'teammate-placement-preview': (data: { ships: ShipPlacement[] }) => void;
   'player-reconnected': (data: { playerId: string; playerName: string }) => void;
   'rematch-pending': (data: { acceptedIds: string[]; totalHumans: number }) => void;
-  'rematch-starting': (data: { game: WireGame }) => void;
+  'rematch-starting': (data: { game: WireGame; placementDeadline?: number }) => void;
   'rematch-declined': (data: { playerName: string; code: string; game: WireGame }) => void;
   'quickplay-queue-update': (data: { size: number }) => void;
   'quickplay-matched': (data: { playerId: string; gameId: string }) => void;
