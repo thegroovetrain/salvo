@@ -824,6 +824,26 @@ io.on('connection', (socket) => {
       const game = lobby.getGame(gameId);
       if (!game) return;
 
+      // If game isn't in playing phase (e.g., lobby or placement),
+      // remove the player and clean up the game if no humans remain.
+      if (game.phase !== 'playing') {
+        const player = game.players.get(playerId);
+        broadcastToGame(gameId, 'player-eliminated', {
+          playerId,
+          playerName: player?.name ?? 'Unknown',
+          reason: 'forfeit' as const,
+        });
+        removePlayer(game, playerId);
+        lobby.registerPlayer(playerId, '');
+
+        const remainingHumans = [...game.players.values()].filter(p => !p.isBot);
+        if (remainingHumans.length === 0) {
+          lobby.removeGame(gameId);
+          broadcastGameCount();
+        }
+        return;
+      }
+
       forfeitPlayer(game, playerId);
       const player = game.players.get(playerId);
 

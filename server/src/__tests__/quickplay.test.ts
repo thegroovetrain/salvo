@@ -72,12 +72,12 @@ describe('LobbyManager.getActiveGameCounts', () => {
     expect(counts.total).toBe(1);
   });
 
-  it('counts private games in total but not in QP counts', () => {
+  it('does not count private games', () => {
     const lobby = new LobbyManager();
     const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 });
     lobby.addGame(game, 'IJKL');
     const counts = lobby.getActiveGameCounts();
-    expect(counts.total).toBe(1);
+    expect(counts.total).toBe(0);
     expect(counts.oneVsOne).toBe(0);
     expect(counts.ffa).toBe(0);
   });
@@ -111,7 +111,7 @@ describe('LobbyManager.getActiveGameCounts', () => {
     const counts = lobby.getActiveGameCounts(1, 2);
     expect(counts.oneVsOne).toBe(1);
     expect(counts.ffa).toBe(2);
-    expect(counts.total).toBe(4);
+    expect(counts.total).toBe(3);
     expect(counts.searching1v1).toBe(1);
     expect(counts.searchingFfa).toBe(2);
   });
