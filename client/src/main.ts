@@ -785,7 +785,7 @@ function renderLobby(): string {
           <p class="label" style="margin-bottom:8px">Quick Play</p>
           <div style="display:flex;gap:8px">
             <button class="btn btn-amber btn-quickplay" id="btn-qp-1v1" style="flex:1">1v1</button>
-            <button class="btn btn-quickplay qp-btn-2v2" id="btn-qp-2v2" style="flex:1" title="Random teammate — coordinate to win">2v2</button>
+            <button class="btn btn-amber btn-quickplay" id="btn-qp-2v2" style="flex:1" title="Random teammate — coordinate to win">2v2</button>
             <button class="btn btn-amber btn-quickplay" id="btn-qp-ffa" style="flex:1">FFA</button>
           </div>
         </div>
@@ -908,6 +908,7 @@ async function loadChangelog(): Promise<void> {
 }
 
 function renderWaiting(): string {
+  const MAX_PLAYERS = 4;
   const players = state.game ? Object.values(state.game.players) : [];
   const isHost = state.game?.players[state.playerId ?? '']?.id === state.game?.turnOrder[0]
     || state.isHost;
@@ -915,46 +916,86 @@ function renderWaiting(): string {
   const teamsEnabled = state.game?.teamsEnabled ?? false;
   const teams = state.game?.teams ?? {};
 
-  const playerListHtml = players.map(p => {
+  function renderSeatCard(p: WirePlayer): string {
     const isMe = p.id === state.playerId;
     const hostBadge = p.id === Object.keys(state.game?.players ?? {})[0] ? '<span class="host-badge">HOST</span>' : '';
     const botBadge = p.isBot ? `<span class="bot-badge">${esc(p.aiDifficulty ?? 'bot').toUpperCase()}</span>` : '';
-    const removeBtn = p.isBot && isHost ? `<button class="btn-remove-bot" data-bot-id="${p.id}" title="Remove bot">&times;</button>` : '';
-    const teamBadge = teamsEnabled && teams[p.id]
-      ? `<span class="team-badge ${teams[p.id]}" aria-label="Team ${teams[p.id] === 'alpha' ? 'Alpha' : 'Bravo'}">${teams[p.id] === 'alpha' ? 'Alpha' : 'Bravo'}</span>`
-      : '';
-    const swapAttr = teamsEnabled && isHost && !p.isBot ? `data-swap-team="${p.id}" style="cursor:pointer"` : '';
-    return `<li ${swapAttr}>${playerIcon(p.isBot)} ${esc(p.name)} ${isMe ? '(you)' : ''} ${hostBadge}${botBadge}${teamBadge}${removeBtn}</li>`;
-  }).join('');
+    const removeBtn = p.isBot && isHost ? `<button class="btn-remove-bot" data-bot-id="${p.id}" title="Remove bot" style="margin-left:auto">&times;</button>` : '';
+    return `<div class="seat-card">
+      ${playerIcon(p.isBot)} <span class="player-name">${esc(p.name)}${isMe ? ' (you)' : ''}</span> ${hostBadge}${botBadge}${removeBtn}
+    </div>`;
+  }
 
-  const waitingSlots = Array(4 - players.length).fill(0).map(() =>
-    '<li><span class="player-dot waiting"></span> <span style="color:var(--text-muted)">waiting...</span></li>'
-  ).join('');
+  function renderOpenSlot(team?: string): string {
+    const teamParam = team ? `, team: '${team}'` : '';
+    return `<div class="seat-card open">
+      <button class="bot-add-btn" data-bot-diff="easy" data-bot-team="${team ?? ''}" aria-label="Add Easy bot">E</button>
+      <button class="bot-add-btn" data-bot-diff="medium" data-bot-team="${team ?? ''}" aria-label="Add Medium bot">M</button>
+      <button class="bot-add-btn" data-bot-diff="hard" data-bot-team="${team ?? ''}" aria-label="Add Hard bot">H</button>
+      <button class="bot-add-btn" data-bot-diff="impossible" data-bot-team="${team ?? ''}" aria-label="Add Impossible bot">I</button>
+    </div>`;
+  }
 
-  const canAddBot = isHost && players.length < 4;
+  let lobbyBody = '';
 
-  // Snake turn order visualization for team games
-  let turnOrderViz = '';
-  if (teamsEnabled && players.length >= 2) {
-    // Show A-B-B-A pattern
+  if (teamsEnabled) {
+    const maxPerTeam = MAX_PLAYERS / 2;
     const alphaPlayers = players.filter(p => teams[p.id] === 'alpha');
     const bravoPlayers = players.filter(p => teams[p.id] === 'bravo');
-    if (alphaPlayers.length > 0 && bravoPlayers.length > 0) {
-      turnOrderViz = `
-        <div style="margin-top:12px;text-align:center">
-          <p class="label" style="margin-bottom:4px">Turn Order</p>
-          <div style="display:flex;gap:6px;justify-content:center;align-items:center">
-            <span class="turn-order-dot alpha" title="${esc(alphaPlayers[0]?.name ?? 'A1')}"></span>
-            <span style="color:var(--text-muted);font-size:11px">\u2192</span>
-            <span class="turn-order-dot bravo" title="${esc(bravoPlayers[0]?.name ?? 'B1')}"></span>
-            <span style="color:var(--text-muted);font-size:11px">\u2192</span>
-            <span class="turn-order-dot bravo" title="${esc(bravoPlayers[1]?.name ?? 'B2')}"></span>
-            <span style="color:var(--text-muted);font-size:11px">\u2192</span>
-            <span class="turn-order-dot alpha" title="${esc(alphaPlayers[1]?.name ?? 'A2')}"></span>
-          </div>
-          <p style="font-size:11px;color:var(--text-muted);margin-top:4px">A \u2192 B \u2192 B \u2192 A (snake)</p>
-        </div>`;
+    const alphaSlots = Math.max(0, maxPerTeam - alphaPlayers.length);
+    const bravoSlots = Math.max(0, maxPerTeam - bravoPlayers.length);
+
+    function renderTeamPlayerCard(p: WirePlayer, teamId: string): string {
+      const isMe = p.id === state.playerId;
+      const otherTeam = teamId === 'alpha' ? 'bravo' : 'alpha';
+      const otherTeamPlayers = otherTeam === 'alpha' ? alphaPlayers : bravoPlayers;
+      const canMove = otherTeamPlayers.length < maxPerTeam;
+      let moveLink = '';
+      if (canMove) {
+        if (isHost) {
+          moveLink = `<button class="move-link" data-swap-team="${p.id}">Move to ${otherTeam === 'alpha' ? 'Alpha' : 'Bravo'}</button>`;
+        } else if (isMe && !p.isBot) {
+          moveLink = `<button class="move-link" data-swap-team="${p.id}">Move to ${otherTeam === 'alpha' ? 'Alpha' : 'Bravo'}</button>`;
+        }
+      }
+      const hostBadge = p.id === Object.keys(state.game?.players ?? {})[0] ? '<span class="host-badge">HOST</span>' : '';
+      const botBadge = p.isBot ? `<span class="bot-badge">${esc(p.aiDifficulty ?? 'bot').toUpperCase()}</span>` : '';
+      const removeBtn = p.isBot && isHost ? `<button class="btn-remove-bot" data-bot-id="${p.id}" title="Remove bot" style="margin-left:auto">&times;</button>` : '';
+      return `<div class="seat-card">
+        ${playerIcon(p.isBot)} <span class="player-name">${esc(p.name)}${isMe ? ' (you)' : ''}</span> ${hostBadge}${botBadge}${moveLink}${removeBtn}
+      </div>`;
     }
+
+    const alphaCards = alphaPlayers.map(p => renderTeamPlayerCard(p, 'alpha')).join('')
+      + (isHost ? Array(alphaSlots).fill(0).map(() => renderOpenSlot('alpha')).join('') : Array(alphaSlots).fill(0).map(() => '<div class="seat-card open"><span style="color:var(--text-muted);font-size:12px">Open slot</span></div>').join(''));
+    const bravoCards = bravoPlayers.map(p => renderTeamPlayerCard(p, 'bravo')).join('')
+      + (isHost ? Array(bravoSlots).fill(0).map(() => renderOpenSlot('bravo')).join('') : Array(bravoSlots).fill(0).map(() => '<div class="seat-card open"><span style="color:var(--text-muted);font-size:12px">Open slot</span></div>').join(''));
+
+    lobbyBody = `
+      <div class="lobby-columns">
+        <div class="lobby-column alpha">
+          <div class="lobby-column-header alpha" role="heading" aria-level="3">ALPHA</div>
+          ${alphaCards}
+        </div>
+        <div class="lobby-column bravo">
+          <div class="lobby-column-header bravo" role="heading" aria-level="3">BRAVO</div>
+          ${bravoCards}
+        </div>
+      </div>`;
+  } else {
+    const openSlots = Math.max(0, MAX_PLAYERS - players.length);
+    const playerCards = players.map(p => renderSeatCard(p)).join('');
+    const openCards = isHost
+      ? Array(openSlots).fill(0).map(() => renderOpenSlot()).join('')
+      : Array(openSlots).fill(0).map(() => '<div class="seat-card open"><span style="color:var(--text-muted);font-size:12px">Open slot</span></div>').join('');
+
+    lobbyBody = `
+      <div style="width:100%">
+        <div class="lobby-column-header" role="heading" aria-level="3" style="color:var(--text-muted)">PLAYERS</div>
+        <div class="non-team-grid">
+          ${playerCards}${openCards}
+        </div>
+      </div>`;
   }
 
   return `
@@ -966,21 +1007,9 @@ function renderWaiting(): string {
         <h2 class="label" style="margin-bottom:12px">Game Created</h2>
         <div class="join-code" id="copy-code" title="Click to copy">${state.joinCode ?? ''}</div>
         <p class="join-code-hint">Click to copy &bull; Share with friends</p>
-        <ul class="player-list">${playerListHtml}${waitingSlots}</ul>
-        ${turnOrderViz}
+        ${lobbyBody}
+        <p class="player-count">${players.length} of 2\u2013${MAX_PLAYERS} players</p>
         ${isHost ? `<button class="btn btn-amber" id="btn-start" ${canStart ? '' : 'disabled'}>${canStart ? 'Start Game' : 'Need 2+ Players'}</button>` : '<p class="player-count">Waiting for host to start...</p>'}
-        ${canAddBot ? `
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <select id="bot-difficulty" class="input" style="margin-bottom:0;flex:1">
-              <option value="easy">Easy</option>
-              <option value="medium" selected>Medium</option>
-              <option value="hard">Hard</option>
-              <option value="impossible">Impossible</option>
-            </select>
-            <button class="btn btn-secondary" id="btn-add-bot" style="width:auto;padding:10px 16px">Add Bot</button>
-          </div>
-        ` : ''}
-        <p class="player-count">${players.length} of 2\u20134 players</p>
       </div>
     </div>`;
 }
@@ -1250,7 +1279,11 @@ function renderBattle(): string {
     ? `<div class="game-mode-label"><span class="desktop-only">TEAM BATTLE</span><span class="mobile-only">2v2</span> \u2014 <span class="team-badge alpha" style="font-size:inherit;padding:0;background:none">Alpha</span> vs <span class="team-badge bravo" style="font-size:inherit;padding:0;background:none">Bravo</span></div>`
     : '';
 
-  const playersHtml = Object.values(state.game.players).map(p => {
+  const playerEntries = Object.entries(state.game.players);
+  if (state.game.turnOrder.length > 0) {
+    playerEntries.sort((a, b) => state.game!.turnOrder.indexOf(a[0]) - state.game!.turnOrder.indexOf(b[0]));
+  }
+  const playersHtml = playerEntries.map(([, p]) => {
     const isMe = p.id === state.playerId;
     const isCurrent = p.id === currentTurnId;
     const nameStyle = p.alive ? '' : 'text-decoration:line-through;color:var(--text-muted)';
@@ -1594,6 +1627,17 @@ function bindEvents(): void {
     const select = document.getElementById('bot-difficulty') as HTMLSelectElement | null;
     const difficulty = (select?.value ?? 'medium') as AiDifficulty;
     socket.emit('add-bot', { difficulty });
+  });
+
+  // One-click bot add buttons (E/M/H/I)
+  document.querySelectorAll('.bot-add-btn').forEach(el => {
+    el.addEventListener('click', () => {
+      const difficulty = el.getAttribute('data-bot-diff') as AiDifficulty;
+      const team = el.getAttribute('data-bot-team') || undefined;
+      if (difficulty) {
+        socket.emit('add-bot', { difficulty, ...(team ? { team } : {}) });
+      }
+    });
   });
 
   document.querySelectorAll('.btn-remove-bot').forEach(el => {
