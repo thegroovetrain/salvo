@@ -104,13 +104,15 @@ export class LobbyManager {
   getActiveGameCounts(searching1v1: number = 0, searchingFfa: number = 0): GameCountData {
     let oneVsOne = 0;
     let ffa = 0;
+    let privateCount = 0;
     for (const game of this.games.values()) {
       if (game.phase === 'finished') continue;
       if (game.mode === 'quickplay-1v1') oneVsOne++;
       else if (game.mode === 'quickplay-ffa') ffa++;
+      else privateCount++;
     }
     return {
-      total: oneVsOne + ffa,
+      total: oneVsOne + ffa + privateCount,
       oneVsOne,
       ffa,
       searching1v1,

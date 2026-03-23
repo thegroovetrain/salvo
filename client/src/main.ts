@@ -328,7 +328,7 @@ socket.on('game-count', (counts) => {
 socket.on('connect', () => {
   const savedPlayerId = sessionStorage.getItem('salvo-playerId');
   const savedGameId = sessionStorage.getItem('salvo-gameId');
-  if (savedPlayerId && savedGameId && state.playerId) {
+  if (savedPlayerId && savedGameId) {
     socket.emit('rejoin', { playerId: savedPlayerId, gameId: savedGameId });
   }
 });
