@@ -290,6 +290,11 @@ function executeBotTurn(gameId: string, botId: string): void {
 // ============================================================
 
 io.on('connection', (socket) => {
+  // Send current game counts to newly connected client
+  const searching1v1 = getQueueSize('quickplay-1v1');
+  const searchingFfa = getQueueSize('quickplay-ffa');
+  socket.emit('game-count', lobby.getActiveGameCounts(searching1v1, searchingFfa));
+
   socket.on('create-game', ({ playerName, timerConfig }: { playerName: string; timerConfig?: TimerConfig }) => {
     const playerId = crypto.randomUUID();
     const timer = timerConfig ?? { enabled: false, seconds: 60 };
