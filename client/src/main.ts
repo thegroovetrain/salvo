@@ -154,6 +154,14 @@ socket.on('all-ready', ({ game }) => {
 
 socket.on('game-state', ({ game }) => {
   state.game = game;
+  // Restore player identity from sessionStorage on rejoin (state is fresh after page refresh)
+  if (!state.playerId) {
+    const saved = sessionStorage.getItem('salvo-playerId');
+    if (saved && game.players[saved]) {
+      state.playerId = saved;
+      state.gameId = game.id;
+    }
+  }
   if (game.phase === 'placement' && state.screen !== 'placement') {
     state.screen = 'placement';
   } else if (game.phase === 'playing' && state.screen !== 'battle') {
