@@ -423,15 +423,58 @@ describe('Self-Elimination', () => {
 // Forfeit
 // ============================================================
 
-describe('Forfeit', () => {
-  it('sinks all ships on forfeit', () => {
+describe('Forfeit (silent removal)', () => {
+  it('clears ships on forfeit (silent — no info leakage)', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
 
     forfeitPlayer(game, 'p1');
     const p1 = game.players.get('p1')!;
+    expect(p1.ships).toEqual([]);
     expect(isPlayerAlive(p1)).toBe(false);
-    expect(p1.ships.every(s => isShipSunk(s))).toBe(true);
+  });
+
+  it('isPlayerAlive returns false for player with empty ships', () => {
+    const { game } = makeGame(2);
+    startGame(game);
+    placeShips(game, 'p1', defaultPlacements());
+    const p1 = game.players.get('p1')!;
+    expect(isPlayerAlive(p1)).toBe(true);
+
+    p1.ships = [];
+    expect(isPlayerAlive(p1)).toBe(false);
+  });
+
+  it('playerShotCount returns 0 for player with empty ships', () => {
+    const { game } = makeGame(2);
+    startGame(game);
+    placeShips(game, 'p1', defaultPlacements());
+    const p1 = game.players.get('p1')!;
+    expect(playerShotCount(p1)).toBe(4);
+
+    p1.ships = [];
+    expect(playerShotCount(p1)).toBe(0);
+  });
+
+  it('advanceTurn skips player with empty ships', () => {
+    const { game, playerIds } = makeGame(3);
+    setupBattle(game, playerIds);
+    game.turnOrder = ['p1', 'p2', 'p3'];
+    game.currentTurnIndex = 0;
+
+    forfeitPlayer(game, 'p2'); // ships = []
+    advanceTurn(game);
+    expect(getCurrentTurnPlayerId(game)).toBe('p3');
+  });
+
+  it('checkGameOver detects winner after silent forfeit', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+
+    forfeitPlayer(game, 'p2');
+    const result = checkGameOver(game);
+    expect(result).not.toBeNull();
+    expect(result!.winnerId).toBe('p1');
   });
 });
 
