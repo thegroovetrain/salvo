@@ -589,7 +589,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('add-bot', ({ difficulty }: { difficulty: AiDifficulty }) => {
+  socket.on('add-bot', ({ difficulty, team }: { difficulty: AiDifficulty; team?: string }) => {
     const playerId = connections.getPlayerIdBySocket(socket.id);
     if (!playerId) return;
 
@@ -609,7 +609,20 @@ io.on('connection', (socket) => {
 
     // Auto-assign bot to team in team games
     if (game.teamsEnabled && 'botId' in result) {
-      autoAssignTeam(game, result.botId);
+      // If a valid team was specified and that team has room, assign there
+      if (team === 'alpha' || team === 'bravo') {
+        let teamCount = 0;
+        for (const t of game.teams.values()) {
+          if (t === team) teamCount++;
+        }
+        if (teamCount < 2) {
+          game.teams.set(result.botId, team);
+        } else {
+          autoAssignTeam(game, result.botId);
+        }
+      } else {
+        autoAssignTeam(game, result.botId);
+      }
     }
 
     // Broadcast updated state
@@ -835,9 +848,9 @@ io.on('connection', (socket) => {
     const game = lobby.getGameByPlayer(playerId);
     if (!game) return;
 
-    // Validate: game in lobby phase, requester is host
+    // Validate: game in lobby phase, requester is host OR moving self
     if (game.phase !== 'lobby') return;
-    if (game.hostId !== playerId) return;
+    if (game.hostId !== playerId && targetPlayerId !== playerId) return;
 
     // Get the target player — must be in the game
     const targetPlayer = game.players.get(targetPlayerId);

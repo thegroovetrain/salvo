@@ -197,7 +197,7 @@ export interface ClientToServerEvents {
   'create-game': (data: { playerName: string; timerConfig?: TimerConfig; placementTimerConfig?: TimerConfig; teamsEnabled?: boolean }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
   'start-game': () => void;
-  'add-bot': (data: { difficulty: AiDifficulty }) => void;
+  'add-bot': (data: { difficulty: AiDifficulty; team?: string }) => void;
   'remove-bot': (data: { botId: string }) => void;
   'place-ships': (data: { ships: ShipPlacement[] }) => void;
   'fire': (data: { coords: string[] }) => void;
