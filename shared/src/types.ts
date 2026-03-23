@@ -203,6 +203,7 @@ export interface ClientToServerEvents {
   'fire': (data: { coords: string[] }) => void;
   'chat-message': (data: { text: string; channel?: ChatChannel }) => void;
   'swap-team': (data: { targetPlayerId: string }) => void;
+  'swap-players': (data: { playerA: string; playerB: string }) => void;
   'placement-preview': (data: { ships: ShipPlacement[] }) => void;
   'rejoin': (data: { playerId: string; gameId: string }) => void;
   'rematch-request': () => void;
