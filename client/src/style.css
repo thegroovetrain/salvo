@@ -248,18 +248,6 @@ html, body {
   min-height: 44px;
 }
 
-/* 2v2 Quick Play Button — Info Blue */
-.qp-btn-2v2 {
-  background: var(--info);
-  color: var(--bg-deepest);
-  font-size: 16px;
-  font-weight: 600;
-  padding: 14px 16px;
-  min-height: 44px;
-}
-.qp-btn-2v2:hover:not(:disabled) {
-  background: #2CA8E0;
-}
 
 /* Queue Wait Screen */
 .queue-wait {
@@ -1221,4 +1209,85 @@ html, body {
   .player-list li { font-size: 16px; }
   .chat-messages { font-size: 14px; }
   .shot-log-entry { font-size: 14px; }
+}
+
+/* ============================================================
+   Lobby Columns (Team & Non-Team)
+   ============================================================ */
+
+.lobby-columns {
+  display: flex;
+  gap: 16px;
+  width: 100%;
+}
+
+.lobby-column {
+  flex: 1;
+  padding: 16px;
+  border-radius: var(--radius-lg);
+}
+.lobby-column.alpha { background: var(--green-bg); }
+.lobby-column.bravo { background: var(--red-bg); }
+
+.lobby-column-header {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+.lobby-column-header.alpha { color: var(--green); }
+.lobby-column-header.bravo { color: var(--red); }
+
+.seat-card {
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.seat-card.open {
+  background: var(--bg-elevated);
+  border: 1px dashed var(--bg-hover);
+}
+
+.bot-add-btn {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  border: none;
+  cursor: pointer;
+  min-height: 44px;
+}
+.bot-add-btn:hover {
+  background: var(--amber);
+  color: var(--bg-deepest);
+}
+
+.move-link {
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  margin-left: auto;
+}
+.move-link:hover {
+  color: var(--text-secondary);
+}
+
+.non-team-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+@media (max-width: 767px) {
+  .lobby-columns { flex-direction: column; }
+  .non-team-grid { grid-template-columns: 1fr; }
 }

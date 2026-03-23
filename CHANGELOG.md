@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.10.1] - 2026-03-23
+
+### Changed
+- **Quick Play 2v2 button** — now amber like the other QP buttons instead of blue, for visual consistency
+- **Battle player list** — players now appear in turn order so you can see who goes next at a glance
+- **Private game lobby redesign** — team columns (Alpha left, Bravo right) replace the flat player list. Open seats show one-click bot difficulty buttons (E/M/H/I) instead of a dropdown. Players can move themselves between teams, and the host can rearrange anyone.
+
+### Removed
+- **Turn order visualization in lobby** — the A-B-B-A dots were misleading since turn order is randomized at game start. Turn order now only appears in the battle screen where it matters.
+
 ## [0.10.0] - 2026-03-23
 
 ### Added
