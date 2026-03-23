@@ -204,6 +204,85 @@ html, body {
   margin-bottom: 16px;
 }
 
+/* Quick Play Section */
+.quickplay-section {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--bg-hover);
+}
+
+.btn-quickplay {
+  font-size: 16px;
+  font-weight: 600;
+  padding: 14px 16px;
+}
+
+.game-counters {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: center;
+  min-height: 18px;
+}
+
+/* Queue Wait Screen */
+.queue-wait {
+  background: var(--bg-surface);
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-lg);
+  padding: 48px 32px;
+  width: 100%;
+  max-width: 400px;
+  text-align: center;
+}
+
+.queue-label {
+  font-size: 13px;
+  margin-bottom: 24px;
+  color: var(--text-secondary);
+}
+
+.queue-dots {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.queue-dot {
+  color: var(--text-muted);
+  transition: color 150ms ease-out;
+}
+
+.queue-dot.filled {
+  color: var(--green);
+  animation: queue-pulse 2s infinite ease-in-out;
+}
+
+@keyframes queue-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.queue-count {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.btn-mute {
+  background: var(--bg-elevated);
+  border: 1px solid var(--bg-hover);
+  color: var(--text-secondary);
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 150ms ease-out;
+  width: auto;
+}
+.btn-mute:hover { border-color: var(--green); }
+
 /* Waiting room (after create/join) */
 .waiting-room {
   background: var(--bg-surface);
