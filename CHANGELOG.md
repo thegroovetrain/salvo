@@ -23,6 +23,11 @@
 
 ### Fixed
 - **Light mode compatibility** — CSS now uses variables instead of hardcoded colors for hit badges, chat messages, and changelog entries
+- **Duplicate elimination announcements** — sunk players are only announced once, not re-announced every turn
+- **Stale rejoin modal** — modal auto-dismisses when the server reports the game is no longer valid
+- **Placement timer sync** — client countdown syncs to server deadline instead of starting fresh, preventing drift from network latency
+- **Timer cleanup** — all game timers (placement, forfeit, turn) are properly cleared when a game is removed
+- **Placement preview validation** — server validates teammate placement preview data before relaying
 
 ## [0.9.2] - 2026-03-23
 
