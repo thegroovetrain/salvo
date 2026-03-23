@@ -3,7 +3,7 @@ services:
     name: salvo
     runtime: node
     buildCommand: npm install --include=dev && npm run build
-    startCommand: npm start
+    startCommand: echo "=== PRE-START CHECK ===" && ls -la server/dist/index.js shared/dist/types.js client/dist/index.html && echo "=== FILES OK, STARTING ===" && npm start
     envVars:
       - key: NODE_ENV
         value: production
