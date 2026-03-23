@@ -1,7 +1,7 @@
 import {
   type Game, type Player, type Ship, type ShipPlacement,
   type ShotResult, type WireGame, type WirePlayer, type WireShip,
-  type TimerConfig, type GameOverStats, type AiDifficulty,
+  type TimerConfig, type GameOverStats, type AiDifficulty, type GameMode,
   isShipSunk, isPlayerAlive, playerShotCount,
   SHIP_LENGTHS, SHIP_NAMES, GRID_SIZE, ROWS, BOT_NAME_POOLS,
 } from '@salvo/shared';
@@ -11,7 +11,7 @@ import crypto from 'node:crypto';
 // Game Creation
 // ============================================================
 
-export function createGame(hostId: string, hostName: string, timerConfig: TimerConfig): Game {
+export function createGame(hostId: string, hostName: string, timerConfig: TimerConfig, mode: GameMode = 'private'): Game {
   const player: Player = { id: hostId, name: hostName, ships: [], isBot: false, aiDifficulty: null };
   const players = new Map<string, Player>();
   players.set(hostId, player);
@@ -19,6 +19,7 @@ export function createGame(hostId: string, hostName: string, timerConfig: TimerC
   return {
     id: crypto.randomUUID(),
     phase: 'lobby',
+    mode,
     players,
     hostId,
     turnOrder: [],
@@ -518,6 +519,7 @@ export function toClientView(game: Game, viewerId: string): WireGame {
   return {
     id: game.id,
     phase: game.phase,
+    mode: game.mode,
     players,
     turnOrder: game.turnOrder,
     currentTurnIndex: game.currentTurnIndex,

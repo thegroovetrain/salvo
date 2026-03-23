@@ -1,4 +1,4 @@
-import type { Game } from '@salvo/shared';
+import type { Game, GameCountData } from '@salvo/shared';
 
 // ============================================================
 // Lobby Manager
@@ -99,6 +99,23 @@ export class LobbyManager {
         break;
       }
     }
+  }
+
+  getActiveGameCounts(searching1v1: number = 0, searchingFfa: number = 0): GameCountData {
+    let oneVsOne = 0;
+    let ffa = 0;
+    for (const game of this.games.values()) {
+      if (game.phase === 'finished') continue;
+      if (game.mode === 'quickplay-1v1') oneVsOne++;
+      else if (game.mode === 'quickplay-ffa') ffa++;
+    }
+    return {
+      total: oneVsOne + ffa,
+      oneVsOne,
+      ffa,
+      searching1v1,
+      searchingFfa,
+    };
   }
 
   private cleanupAbandoned(): void {
