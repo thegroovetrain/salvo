@@ -11,7 +11,14 @@ import crypto from 'node:crypto';
 // Game Creation
 // ============================================================
 
-export function createGame(hostId: string, hostName: string, timerConfig: TimerConfig, mode: GameMode = 'private'): Game {
+export function createGame(
+  hostId: string,
+  hostName: string,
+  timerConfig: TimerConfig,
+  mode: GameMode = 'private',
+  teamsEnabled: boolean = false,
+  placementTimerConfig: TimerConfig = { enabled: false, seconds: 30 },
+): Game {
   const player: Player = { id: hostId, name: hostName, ships: [], isBot: false, aiDifficulty: null };
   const players = new Map<string, Player>();
   players.set(hostId, player);
@@ -27,11 +34,40 @@ export function createGame(hostId: string, hostName: string, timerConfig: TimerC
     gridSize: 10,
     shots: new Set(),
     timerConfig,
+    placementTimerConfig,
     lastActivity: Date.now(),
     rematchAccepted: new Set(),
     playerStats: new Map(),
     firstBloodId: null,
+    teams: new Map(),
+    teamsEnabled,
   };
+}
+
+// ============================================================
+// Team Helpers
+// ============================================================
+
+/** Returns the teammate's playerId, or null if no teammate found. */
+export function getTeammate(game: Game, playerId: string): string | null {
+  const myTeam = game.teams.get(playerId);
+  if (!myTeam) return null;
+
+  for (const [id, teamId] of game.teams) {
+    if (id !== playerId && teamId === myTeam) return id;
+  }
+  return null;
+}
+
+/** Returns true if any player on the given team has surviving ships. */
+export function isTeamAlive(game: Game, teamId: string): boolean {
+  for (const [playerId, team] of game.teams) {
+    if (team === teamId) {
+      const player = game.players.get(playerId);
+      if (player && isPlayerAlive(player)) return true;
+    }
+  }
+  return false;
 }
 
 // ============================================================
@@ -79,6 +115,19 @@ export function canStartGame(game: Game, requesterId: string): string | null {
   if (game.phase !== 'lobby') return 'Game is not in lobby phase';
   if (requesterId !== game.hostId) return 'Only the host can start the game';
   if (game.players.size < 2) return 'Need at least 2 players';
+
+  // Team balance validation: when teams are enabled, require exactly 2 per team
+  if (game.teamsEnabled) {
+    const teamCounts = new Map<string, number>();
+    for (const teamId of game.teams.values()) {
+      teamCounts.set(teamId, (teamCounts.get(teamId) ?? 0) + 1);
+    }
+    const counts = [...teamCounts.values()];
+    if (counts.length !== 2 || counts.some(c => c !== 2)) {
+      return 'Teams must be balanced — exactly 2 players per team';
+    }
+  }
+
   return null;
 }
 
@@ -191,13 +240,43 @@ export function allShipsPlaced(game: Game): boolean {
 }
 
 export function beginPlaying(game: Game): void {
-  // Randomize turn order
-  const ids = [...game.players.keys()];
-  for (let i = ids.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [ids[i], ids[j]] = [ids[j], ids[i]];
+  // Generate turn order
+  if (game.teamsEnabled && game.teams.size > 0) {
+    // ABBA turn order: group by team, shuffle within each team, interleave [A1, B1, B2, A2]
+    const teamGroups = new Map<string, string[]>();
+    for (const [playerId, teamId] of game.teams) {
+      if (!teamGroups.has(teamId)) teamGroups.set(teamId, []);
+      teamGroups.get(teamId)!.push(playerId);
+    }
+
+    // Shuffle within each team
+    for (const members of teamGroups.values()) {
+      for (let i = members.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [members[i], members[j]] = [members[j], members[i]];
+      }
+    }
+
+    // Pick two teams randomly
+    const teamIds = [...teamGroups.keys()];
+    if (Math.random() < 0.5) {
+      [teamIds[0], teamIds[1]] = [teamIds[1], teamIds[0]];
+    }
+    const teamA = teamGroups.get(teamIds[0])!;
+    const teamB = teamGroups.get(teamIds[1])!;
+
+    // ABBA interleave: [A1, B1, B2, A2]
+    game.turnOrder = [teamA[0], teamB[0], teamB[1], teamA[1]];
+  } else {
+    // Fallback: random shuffle (non-team or empty teams)
+    const ids = [...game.players.keys()];
+    for (let i = ids.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+    }
+    game.turnOrder = ids;
   }
-  game.turnOrder = ids;
+
   game.currentTurnIndex = 0;
   game.phase = 'playing';
   game.lastActivity = Date.now();
@@ -340,6 +419,35 @@ export function advanceTurn(game: Game): void {
 export function checkGameOver(game: Game): GameOverStats | null {
   if (game.phase !== 'playing') return null;
 
+  if (game.teamsEnabled) {
+    // Team mode: check team-level survival
+    const teamIds = new Set(game.teams.values());
+    const aliveTeams: string[] = [];
+    for (const teamId of teamIds) {
+      if (isTeamAlive(game, teamId)) {
+        aliveTeams.push(teamId);
+      }
+    }
+
+    if (aliveTeams.length > 1) return null; // game continues
+
+    game.phase = 'finished';
+    game.lastActivity = Date.now();
+
+    if (aliveTeams.length === 1) {
+      // One team survives — find individual winner (first alive player on winning team)
+      const winnerTeamId = aliveTeams[0];
+      const winnerId = [...game.teams.entries()]
+        .find(([pid, tid]) => tid === winnerTeamId && isPlayerAlive(game.players.get(pid)!))
+        ?.[0] ?? null;
+      return computeGameOverStats(game, winnerId, winnerTeamId);
+    } else {
+      // Both teams eliminated same salvo = draw
+      return computeGameOverStats(game, null, null);
+    }
+  }
+
+  // Non-team mode: existing logic
   const alivePlayers = [...game.players.values()].filter(isPlayerAlive);
 
   if (alivePlayers.length > 1) return null;
@@ -348,10 +456,10 @@ export function checkGameOver(game: Game): GameOverStats | null {
   game.lastActivity = Date.now();
 
   const winnerId = alivePlayers.length === 1 ? alivePlayers[0].id : null;
-  return computeGameOverStats(game, winnerId);
+  return computeGameOverStats(game, winnerId, null);
 }
 
-function computeGameOverStats(game: Game, winnerId: string | null): GameOverStats {
+function computeGameOverStats(game: Game, winnerId: string | null, winnerTeamId: string | null): GameOverStats {
   const playerStats: GameOverStats['playerStats'] = {};
 
   for (const [id, player] of game.players) {
@@ -401,7 +509,40 @@ function computeGameOverStats(game: Game, winnerId: string | null): GameOverStat
     }
   }
 
-  return { winnerId, playerStats, highlights };
+  // Team aggregate highlights (only for team games)
+  if (game.teamsEnabled && game.teams.size > 0) {
+    const teamIds = [...new Set(game.teams.values())];
+    const teamNames: Record<string, string> = { alpha: 'Team Alpha', bravo: 'Team Bravo' };
+
+    for (const teamId of teamIds) {
+      const teamPlayerIds = [...game.teams.entries()]
+        .filter(([, tid]) => tid === teamId)
+        .map(([pid]) => pid);
+
+      // Team accuracy
+      let totalShots = 0;
+      let totalHits = 0;
+      let totalSunk = 0;
+      for (const pid of teamPlayerIds) {
+        const s = playerStats[pid];
+        if (s) {
+          totalShots += s.shotsFired;
+          totalHits += s.hitsLanded;
+          totalSunk += s.shipsSunk;
+        }
+      }
+
+      const label = teamNames[teamId] ?? teamId;
+      if (totalShots > 0) {
+        highlights.push(`${label}: ${Math.round((totalHits / totalShots) * 100)}% accuracy`);
+      }
+      if (totalSunk > 0) {
+        highlights.push(`${label}: ${totalSunk} ships sunk`);
+      }
+    }
+  }
+
+  return { winnerId, winnerTeamId, playerStats, highlights };
 }
 
 // ============================================================
@@ -432,6 +573,8 @@ export function resetForRematch(game: Game): void {
   game.playerStats = new Map();
   game.firstBloodId = null;
 
+  // INVARIANT: game.teams and game.teamsEnabled are NOT cleared — teams persist across rematches.
+
   for (const player of game.players.values()) {
     player.ships = [];
   }
@@ -456,7 +599,7 @@ export function removePlayer(game: Game, playerId: string): void {
 // Serialization — toClientView
 //
 // SECURITY: This is the single chokepoint for all outbound state.
-// Each player only sees their own ship positions.
+// Each player only sees their own ship positions (and teammate's).
 // Other players' ships are visible only as hit/sunk info via ShotResults.
 // ============================================================
 
@@ -489,13 +632,13 @@ function serializeShipForEliminated(_ship: Ship): WireShip {
   };
 }
 
-function serializePlayer(player: Player, isOwner: boolean): WirePlayer {
+function serializePlayer(player: Player, isOwner: boolean, isTeammate: boolean = false): WirePlayer {
   const alive = isPlayerAlive(player);
   return {
     id: player.id,
     name: player.name,
     ships: player.ships.map((s: Ship) =>
-      isOwner ? serializeShipForOwner(s) :
+      (isOwner || isTeammate) ? serializeShipForOwner(s) :
       !alive ? serializeShipForEliminated(s) :
       serializeShipForOthers(s)
     ),
@@ -507,9 +650,18 @@ function serializePlayer(player: Player, isOwner: boolean): WirePlayer {
 }
 
 export function toClientView(game: Game, viewerId: string): WireGame {
+  const viewerTeam = game.teams.get(viewerId);
   const players: Record<string, WirePlayer> = {};
   for (const [id, player] of game.players) {
-    players[id] = serializePlayer(player, id === viewerId);
+    const isOwner = id === viewerId;
+    const isTeammate = !isOwner && viewerTeam != null && game.teams.get(id) === viewerTeam;
+    players[id] = serializePlayer(player, isOwner, isTeammate);
+  }
+
+  // Serialize teams Map to Record
+  const teamsRecord: Record<string, string> = {};
+  for (const [playerId, teamId] of game.teams) {
+    teamsRecord[playerId] = teamId;
   }
 
   return {
@@ -522,5 +674,8 @@ export function toClientView(game: Game, viewerId: string): WireGame {
     gridSize: game.gridSize,
     shots: [...game.shots],
     timerConfig: game.timerConfig,
+    placementTimerConfig: game.placementTimerConfig,
+    teamsEnabled: game.teamsEnabled,
+    teams: teamsRecord,
   };
 }

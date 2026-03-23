@@ -2,8 +2,10 @@ import type { ServerToClientEvents } from '@salvo/shared';
 
 // ============================================================
 // Connection Manager
-// Manages bidirectional playerId ↔ socketId mapping,
-// disconnect timers, and event buffering for reconnection.
+// Manages bidirectional playerId ↔ socketId mapping
+// and event buffering for reconnection.
+// Disconnection is a state marker only — forfeit is handled
+// by the turn timer in index.ts when the player's turn arrives.
 // ============================================================
 
 type BufferedEvent = {
@@ -16,11 +18,8 @@ interface ConnectionState {
   socketId: string;
   gameId: string;
   disconnectedAt: number | null;
-  disconnectTimer: ReturnType<typeof setTimeout> | null;
   bufferedEvents: BufferedEvent[];
 }
-
-const DISCONNECT_TIMEOUT_MS = 60_000;
 
 export class ConnectionManager {
   // playerId → connection state
@@ -34,7 +33,6 @@ export class ConnectionManager {
       socketId,
       gameId,
       disconnectedAt: null,
-      disconnectTimer: null,
       bufferedEvents: [],
     });
     this.socketToPlayer.set(socketId, playerId);
@@ -60,12 +58,12 @@ export class ConnectionManager {
   }
 
   /**
-   * Handle a socket disconnect. Returns the playerId if found,
-   * and starts the forfeit timer.
+   * Handle a socket disconnect. Marks the player as disconnected
+   * and returns the playerId/gameId. Forfeit is handled by the
+   * turn timer in index.ts, not here.
    */
   handleDisconnect(
     socketId: string,
-    onTimeout: (playerId: string, gameId: string) => void,
   ): { playerId: string; gameId: string } | null {
     const playerId = this.socketToPlayer.get(socketId);
     if (!playerId) return null;
@@ -77,16 +75,11 @@ export class ConnectionManager {
     conn.disconnectedAt = Date.now();
     conn.bufferedEvents = [];
 
-    conn.disconnectTimer = setTimeout(() => {
-      onTimeout(playerId, conn.gameId);
-      this.connections.delete(playerId);
-    }, DISCONNECT_TIMEOUT_MS);
-
     return { playerId, gameId: conn.gameId };
   }
 
   /**
-   * Handle a reconnection. Cancels the forfeit timer and returns
+   * Handle a reconnection. Clears disconnect state and returns
    * buffered events to replay.
    */
   handleReconnect(
@@ -96,12 +89,6 @@ export class ConnectionManager {
     const conn = this.connections.get(playerId);
     if (!conn) return null;
     if (conn.disconnectedAt === null) return null; // not disconnected
-
-    // Cancel forfeit timer
-    if (conn.disconnectTimer) {
-      clearTimeout(conn.disconnectTimer);
-      conn.disconnectTimer = null;
-    }
 
     // Update socket mapping
     conn.socketId = newSocketId;
@@ -134,7 +121,7 @@ export class ConnectionManager {
     if (!conn || conn.disconnectedAt === null) return null;
 
     const elapsed = Date.now() - conn.disconnectedAt;
-    const remaining = Math.max(0, DISCONNECT_TIMEOUT_MS - elapsed);
+    const remaining = Math.max(0, 60_000 - elapsed);
     return Math.ceil(remaining / 1000);
   }
 
@@ -144,7 +131,6 @@ export class ConnectionManager {
   remove(playerId: string): void {
     const conn = this.connections.get(playerId);
     if (conn) {
-      if (conn.disconnectTimer) clearTimeout(conn.disconnectTimer);
       this.socketToPlayer.delete(conn.socketId);
       this.connections.delete(playerId);
     }
@@ -156,7 +142,6 @@ export class ConnectionManager {
   removeGame(gameId: string): void {
     for (const [playerId, conn] of this.connections) {
       if (conn.gameId === gameId) {
-        if (conn.disconnectTimer) clearTimeout(conn.disconnectTimer);
         this.socketToPlayer.delete(conn.socketId);
         this.connections.delete(playerId);
       }

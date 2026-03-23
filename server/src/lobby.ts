@@ -101,19 +101,23 @@ export class LobbyManager {
     }
   }
 
-  getActiveGameCounts(searching1v1: number = 0, searchingFfa: number = 0): GameCountData {
+  getActiveGameCounts(searching1v1 = 0, searching2v2 = 0, searchingFfa = 0): GameCountData {
     let oneVsOne = 0;
+    let twoVsTwo = 0;
     let ffa = 0;
     for (const game of this.games.values()) {
       if (game.phase === 'finished') continue;
       if (game.mode === 'quickplay-1v1') oneVsOne++;
+      else if (game.mode === 'quickplay-2v2') twoVsTwo++;
       else if (game.mode === 'quickplay-ffa') ffa++;
     }
     return {
-      total: oneVsOne + ffa,
+      total: oneVsOne + twoVsTwo + ffa,
       oneVsOne,
+      twoVsTwo,
       ffa,
       searching1v1,
+      searching2v2,
       searchingFfa,
     };
   }

@@ -3,6 +3,7 @@ import {
   isShipSunk, isPlayerAlive, playerShotCount,
   SHIP_LENGTHS, GRID_SIZE, ROWS,
 } from '@salvo/shared';
+import { getTeammate } from './game.js';
 
 // ============================================================
 // AI Opponent — Classic Game AI (not LLM)
@@ -44,6 +45,15 @@ function getOwnShipCells(game: Game, botId: string): Set<string> {
   const bot = game.players.get(botId);
   if (!bot) return new Set();
   return new Set(bot.ships.flatMap(s => s.cells));
+}
+
+function getTeammateShipCells(game: Game, botId: string): Set<string> {
+  if (!game.teamsEnabled) return new Set();
+  const teammateId = getTeammate(game, botId);
+  if (!teammateId) return new Set();
+  const teammate = game.players.get(teammateId);
+  if (!teammate) return new Set();
+  return new Set(teammate.ships.flatMap(s => s.cells));
 }
 
 function pickRandom<T>(arr: T[]): T {
@@ -184,7 +194,8 @@ function chooseEasy(game: Game, _botId: string, unshot: string[], count: number)
 
 function chooseMedium(game: Game, botId: string, unshot: string[], count: number): string[] {
   const ownCells = getOwnShipCells(game, botId);
-  const safeUnshot = unshot.filter(c => !ownCells.has(c));
+  const teammateCells = getTeammateShipCells(game, botId);
+  const safeUnshot = unshot.filter(c => !ownCells.has(c) && !teammateCells.has(c));
   const pool = safeUnshot.length > 0 ? safeUnshot : unshot; // fallback if all safe cells shot
 
   const targets: string[] = [];
@@ -222,7 +233,8 @@ function chooseMedium(game: Game, botId: string, unshot: string[], count: number
 
 function chooseHard(game: Game, botId: string, unshot: string[], count: number): string[] {
   const ownCells = getOwnShipCells(game, botId);
-  const safeUnshot = unshot.filter(c => !ownCells.has(c));
+  const teammateCells = getTeammateShipCells(game, botId);
+  const safeUnshot = unshot.filter(c => !ownCells.has(c) && !teammateCells.has(c));
   const pool = safeUnshot.length > 0 ? safeUnshot : unshot;
 
   const targets: string[] = [];
@@ -271,6 +283,7 @@ function chooseHard(game: Game, botId: string, unshot: string[], count: number):
 
 function chooseImpossible(game: Game, botId: string, unshot: string[], count: number): string[] {
   const ownCells = getOwnShipCells(game, botId);
+  const teammateCells = getTeammateShipCells(game, botId);
 
   // Build a map of unshot enemy ship cells, scored by how many players they'd hit
   const cellScores = new Map<string, number>();
@@ -280,8 +293,9 @@ function chooseImpossible(game: Game, botId: string, unshot: string[], count: nu
     for (const ship of player.ships) {
       if (isShipSunk(ship)) continue;
       for (const cell of ship.cells) {
-        if (game.shots.has(cell)) continue; // already shot
-        if (ownCells.has(cell)) continue;   // avoid own ships
+        if (game.shots.has(cell)) continue;    // already shot
+        if (ownCells.has(cell)) continue;      // avoid own ships
+        if (teammateCells.has(cell)) continue;  // avoid teammate ships
         cellScores.set(cell, (cellScores.get(cell) ?? 0) + 1);
       }
     }
@@ -296,7 +310,7 @@ function chooseImpossible(game: Game, botId: string, unshot: string[], count: nu
   // If we don't have enough scored targets (unlikely), fill with random safe unshot
   if (targets.length < count) {
     const used = new Set(targets);
-    const remaining = unshot.filter(c => !used.has(c) && !ownCells.has(c));
+    const remaining = unshot.filter(c => !used.has(c) && !ownCells.has(c) && !teammateCells.has(c));
     for (const c of shuffled(remaining)) {
       if (targets.length >= count) break;
       targets.push(c);
