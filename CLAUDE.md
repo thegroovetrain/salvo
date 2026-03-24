@@ -7,7 +7,7 @@ Salvo is a multiplayer shared-ocean Battleship game. All players' ships occupy t
 ### Commands
 ```
 npm run dev          # Start server (3000) + client (5173)
-npm test -w server   # Run tests (vitest, 141 tests)
+npm test -w server   # Run tests (vitest, 142 tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 ```
@@ -19,7 +19,7 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - **server/src/ai.ts** — AI opponents: 4 tiers (Easy/Medium/Hard/Impossible), ship placement + target selection. Team-aware: excludes teammate from targets (except Easy)
 - **server/src/lobby.ts** — Game lifecycle, join codes (collision-safe), cleanup timer
 - **server/src/index.ts** — Express + socket.io event routing, turn timer management, placement timer, bot auto-play, Quick Play queue (socket.io rooms, 1v1/2v2/FFA), surrender/rejoin handlers, handlePlayerExit() shared helper, team chat routing, swap-team handler, swap-players handler (atomic team swap), placement-preview relay, turn-based forfeit logic
-- **client/src/main.ts** — Single-file vanilla TS client: state management, socket handlers, DOM rendering
+- **client/src/main.ts** — Single-file vanilla TS client: state management, socket handlers, DOM rendering, random name generation (naval-themed adjective+noun), localStorage persistence via saveName()
 - **client/src/style.css** — Full DESIGN.md implementation
 
 ### Key Decisions
