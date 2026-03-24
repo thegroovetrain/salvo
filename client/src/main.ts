@@ -1282,6 +1282,15 @@ function renderGrid(mode: 'placement' | 'battle'): string {
     }
   }
 
+  // Placed ships during placement phase (not yet in wire game)
+  if (mode === 'placement') {
+    for (const ship of state.placedShips) {
+      if (ship.cells.length > 0) {
+        shipHulls.push({ cells: ship.cells, sunk: false });
+      }
+    }
+  }
+
   // Ghost preview ships (placement phase)
   if (mode === 'placement' && state.ghostCells.length > 0) {
     shipHulls.push({ cells: state.ghostCells, sunk: false, ghost: true, ghostValid: state.ghostValid });
