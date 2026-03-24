@@ -871,6 +871,36 @@ io.on('connection', (socket) => {
   });
 
   // ============================================================
+  // Swap Players (lobby phase, host only — atomic team swap)
+  // ============================================================
+
+  socket.on('swap-players', ({ playerA, playerB }: { playerA: string; playerB: string }) => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game) return;
+
+    if (game.phase !== 'lobby') return;
+    if (game.hostId !== playerId) return;
+    if (playerA === playerB) return;
+
+    const pA = game.players.get(playerA);
+    const pB = game.players.get(playerB);
+    if (!pA || !pB) return;
+
+    const teamA = game.teams.get(playerA);
+    const teamB = game.teams.get(playerB);
+    if (!teamA || !teamB || teamA === teamB) return;
+
+    // Atomic swap
+    game.teams.set(playerA, teamB);
+    game.teams.set(playerB, teamA);
+
+    emitGameState(game.id);
+  });
+
+  // ============================================================
   // Placement Preview (team mode)
   // ============================================================
 

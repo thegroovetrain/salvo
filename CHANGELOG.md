@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.2] - 2026-03-23
+
+### Changed
+- **Lobby dropdown menus** — seat cards now have contextual dropdown menus (+ to add AI, ⋮ for player actions) instead of cramped inline buttons. Host can move players, swap players between full teams, or kick bots.
+- **Shot log dialogue format** — each salvo now shows as a multi-line Battleship-style dialogue ("Eric fires: / A3 miss / B5 hit: [Morgan]") with sink lines, replacing the old per-shot entries. Newest entries at bottom with auto-scroll.
+- **Turn indicator** — pulsing amber glow around the grid panel and larger turn text when it's your turn, plus an audio chirp notification
+- **Hover-to-highlight** — hover a shot log entry to see those coordinates highlighted with info blue on the grid
+- **Lobby width** — waiting room widened from 440px to 560px for more breathing room
+- **Fixed-height panels** — shot log and chat panels now have fixed heights to prevent page layout shifts
+
+### Added
+- **Swap players** — host can swap two players between teams even when both teams are full (contextual "Swap with [name]" options in dropdown)
+- **Player name truncation** — long names in the lobby now truncate with ellipsis instead of overflowing the container
+
 ## [0.10.1] - 2026-03-23
 
 ### Changed

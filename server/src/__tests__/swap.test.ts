@@ -1,0 +1,133 @@
+import { describe, it, expect } from 'vitest';
+import { createGame, addPlayer } from '../game.js';
+import type { Game } from '@salvo/shared';
+
+// ============================================================
+// Helpers — mirrors the swap-team and swap-players socket handlers
+// ============================================================
+
+function makeTeamGame(): { game: Game; ids: string[] } {
+  const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 }, 'private', true);
+  addPlayer(game, 'p2', 'Bob');
+  addPlayer(game, 'p3', 'Carol');
+  addPlayer(game, 'p4', 'Dave');
+  game.teams.set('p1', 'alpha');
+  game.teams.set('p2', 'alpha');
+  game.teams.set('p3', 'bravo');
+  game.teams.set('p4', 'bravo');
+  return { game, ids: ['p1', 'p2', 'p3', 'p4'] };
+}
+
+/** Replicate swap-team handler logic */
+function swapTeam(game: Game, requesterId: string, targetPlayerId: string): boolean {
+  if (game.phase !== 'lobby') return false;
+  if (game.hostId !== requesterId && targetPlayerId !== requesterId) return false;
+  const target = game.players.get(targetPlayerId);
+  if (!target) return false;
+
+  const currentTeam = game.teams.get(targetPlayerId);
+  if (!currentTeam) {
+    game.teams.set(targetPlayerId, 'alpha');
+  } else if (currentTeam === 'alpha') {
+    game.teams.set(targetPlayerId, 'bravo');
+  } else {
+    game.teams.set(targetPlayerId, 'alpha');
+  }
+  return true;
+}
+
+/** Replicate swap-players handler logic */
+function swapPlayers(game: Game, requesterId: string, playerA: string, playerB: string): boolean {
+  if (game.phase !== 'lobby') return false;
+  if (game.hostId !== requesterId) return false;
+  if (playerA === playerB) return false;
+
+  const pA = game.players.get(playerA);
+  const pB = game.players.get(playerB);
+  if (!pA || !pB) return false;
+
+  const teamA = game.teams.get(playerA);
+  const teamB = game.teams.get(playerB);
+  if (!teamA || !teamB || teamA === teamB) return false;
+
+  game.teams.set(playerA, teamB);
+  game.teams.set(playerB, teamA);
+  return true;
+}
+
+// ============================================================
+// swap-team tests
+// ============================================================
+
+describe('swap-team', () => {
+  it('host can move a player to the other team', () => {
+    const { game } = makeTeamGame();
+    expect(game.teams.get('p3')).toBe('bravo');
+    const ok = swapTeam(game, 'p1', 'p3');
+    expect(ok).toBe(true);
+    expect(game.teams.get('p3')).toBe('alpha');
+  });
+
+  it('player can move themselves', () => {
+    const { game } = makeTeamGame();
+    expect(game.teams.get('p3')).toBe('bravo');
+    const ok = swapTeam(game, 'p3', 'p3');
+    expect(ok).toBe(true);
+    expect(game.teams.get('p3')).toBe('alpha');
+  });
+
+  it('rejects non-host moving another player', () => {
+    const { game } = makeTeamGame();
+    const ok = swapTeam(game, 'p2', 'p3');
+    expect(ok).toBe(false);
+    expect(game.teams.get('p3')).toBe('bravo');
+  });
+
+  it('rejects swap in non-lobby phase', () => {
+    const { game } = makeTeamGame();
+    game.phase = 'placement';
+    const ok = swapTeam(game, 'p1', 'p3');
+    expect(ok).toBe(false);
+  });
+});
+
+// ============================================================
+// swap-players tests
+// ============================================================
+
+describe('swap-players', () => {
+  it('host can swap two players on different teams', () => {
+    const { game } = makeTeamGame();
+    // p1=alpha, p3=bravo
+    const ok = swapPlayers(game, 'p1', 'p1', 'p3');
+    expect(ok).toBe(true);
+    expect(game.teams.get('p1')).toBe('bravo');
+    expect(game.teams.get('p3')).toBe('alpha');
+  });
+
+  it('rejects non-host caller', () => {
+    const { game } = makeTeamGame();
+    const ok = swapPlayers(game, 'p2', 'p1', 'p3');
+    expect(ok).toBe(false);
+  });
+
+  it('rejects swap in non-lobby phase', () => {
+    const { game } = makeTeamGame();
+    game.phase = 'placement';
+    const ok = swapPlayers(game, 'p1', 'p1', 'p3');
+    expect(ok).toBe(false);
+  });
+
+  it('rejects swapping a player with themselves', () => {
+    const { game } = makeTeamGame();
+    const ok = swapPlayers(game, 'p1', 'p2', 'p2');
+    expect(ok).toBe(false);
+  });
+
+  it('rejects swapping two players on the same team', () => {
+    const { game } = makeTeamGame();
+    // p1 and p2 are both alpha
+    const ok = swapPlayers(game, 'p1', 'p1', 'p2');
+    expect(ok).toBe(false);
+  });
+});

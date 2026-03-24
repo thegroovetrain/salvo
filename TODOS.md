@@ -25,3 +25,17 @@
 **Effort:** M
 **Priority:** P2
 **Depends on:** None (can be done anytime)
+
+## Game Options
+
+### Hide Ship Name Until Sunk
+
+**What:** Add an optional game rule (Battleship variant) where the type of ship hit is not revealed until the ship sinks. Only "hit" or "miss" is communicated — no ship name.
+
+**Why:** Adds strategic depth — you know you hit someone but not whether it's their Scout or Battleship. This is a real Battleship variant rule that some players prefer for the added mystery.
+
+**Context:** Currently `PlayerHit` includes `shipLength` on every hit, which lets the client display the ship name via `SHIP_NAMES[shipLength]`. To implement: strip `shipLength` from non-sunk hits in `toClientView()` when this option is enabled. Would be a game options toggle in the create-game flow. Deferred from v0.10.2 CEO review.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** None
