@@ -826,13 +826,12 @@ function renderLobby(): string {
           <p class="label" style="margin-bottom:8px">Quick Play</p>
           <div style="display:flex;gap:8px">
             <button class="btn btn-amber btn-quickplay" id="btn-qp-1v1" style="flex:1">1v1</button>
-            <button class="btn btn-amber btn-quickplay" id="btn-qp-2v2" style="flex:1" title="Random teammate — coordinate to win">2v2</button>
-            <button class="btn btn-amber btn-quickplay" id="btn-qp-ffa" style="flex:1">FFA</button>
-          </div>
-          <div style="display:flex;gap:8px;margin-top:8px">
-            <button class="btn btn-amber btn-quickplay" id="btn-qp-3v3" style="flex:1">3v3</button>
             <button class="btn btn-amber btn-quickplay" id="btn-qp-3ffa" style="flex:1">3-FFA</button>
             <button class="btn btn-amber btn-quickplay" id="btn-qp-6ffa" style="flex:1">6-FFA</button>
+          </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn btn-amber btn-quickplay" id="btn-qp-2v2" style="flex:1" title="Random teammate — coordinate to win">2v2</button>
+            <button class="btn btn-amber btn-quickplay" id="btn-qp-3v3" style="flex:1">3v3</button>
             <button class="btn btn-amber btn-quickplay" id="btn-qp-2v2v2" style="flex:1">2v2v2</button>
           </div>
         </div>
