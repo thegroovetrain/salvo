@@ -4,10 +4,10 @@
    ============================================================ */
 
 :root {
-  --bg-deepest: #0A0E14;
-  --bg-surface: #1A1F2B;
+  --bg-deepest: #000000;
+  --bg-surface: #111111;
   --bg-elevated: #232937;
-  --bg-hover: #2A3040;
+  --bg-hover: #111111;
   --text-primary: #E2E8F0;
   --text-secondary: #8B95A5;
   --text-muted: #5A6478;
@@ -21,8 +21,10 @@
   --red-bg: rgba(255, 59, 59, 0.1);
   --orange: #FF8C42;
   --orange-bg: rgba(255, 140, 66, 0.1);
-  --sunk: #7F1D1D;
-  --miss: #2A3040;
+  --sunk: #4A0000;
+  --miss: #333333;
+  --grid-stroke: #C0C0C0;
+  --cell-fill: #000000;
   --info: #38BDF8;
   --info-bg: rgba(56, 189, 248, 0.1);
   --radius-sm: 2px;
@@ -592,7 +594,7 @@ html, body {
   gap: 24px;
   align-items: start;
   width: 100%;
-  max-width: 700px;
+  max-width: 800px;
 }
 
 .ship-dock {
@@ -718,8 +720,8 @@ html, body {
 }
 
 .hex-cell {
-  stroke: var(--text-muted);
-  stroke-width: 1;
+  stroke: var(--grid-stroke);
+  stroke-width: 1.5;
   transition: fill 150ms ease-out;
   cursor: pointer;
 }
@@ -731,29 +733,39 @@ html, body {
   pointer-events: none;
 }
 
-/* Cell state fills */
-.cell-empty { fill: var(--bg-elevated); }
-.cell-empty:hover { fill: var(--bg-hover); }
-.cell-ship { fill: rgba(0, 255, 136, 0.08); }
+/* Cell state fills — CIC tactical display */
+.cell-empty { fill: var(--cell-fill); }
+.cell-empty:hover { fill: #111111; }
+.cell-ship { fill: var(--cell-fill); }
 .cell-miss { fill: var(--miss); cursor: default; }
-.cell-hit { fill: var(--red); }
-.cell-ff { fill: var(--orange); }
-.cell-sunk { fill: var(--sunk); }
-.cell-selected { fill: var(--amber); }
+.cell-hit { fill: #8B0000; cursor: default; }
+.cell-ff { fill: #8B0000; cursor: default; }
+.cell-sunk { fill: #8B0000; cursor: default; }
+.cell-selected { fill: #665200; }
+
+/* Crosshair cursor for actionable battle cells — targets the <g> wrapper which now has the cell state class */
+[data-mode="battle"].cell-empty { cursor: crosshair; }
+
+/* Marker text colors per cell state */
+.cell-miss .hex-text { color: #888888; opacity: 0.5; }
+.cell-hit .hex-text { color: #FF6666; opacity: 0.5; }
+.cell-sunk .hex-text { color: #CC4444; opacity: 0.4; }
+.cell-ff .hex-text { color: #FF8C42; opacity: 0.6; }
+.cell-selected .hex-text { color: #FFB800; opacity: 0.7; }
 .cell-ghost { fill: rgba(0, 255, 136, 0.2); stroke: var(--green); stroke-dasharray: 4 2; }
 .cell-invalid { fill: rgba(255, 59, 59, 0.2); stroke: var(--red); stroke-dasharray: 4 2; }
 
-/* Island hexes */
+/* Island hexes — terrain (yellowish fill, bright amber outline for visibility) */
 .hex-island {
-  fill: #3D3520;
-  stroke: #5C4F30;
+  fill: #2A2410;
+  stroke: #8B7520;
   stroke-width: 1.5;
   cursor: default;
   pointer-events: none;
 }
 
 /* Teammate ship cells */
-.cell-teammate-ship { fill: rgba(0, 255, 136, 0.08); }
+.cell-teammate-ship { fill: var(--cell-fill); }
 
 /* Teammate ghost preview during placement */
 .cell-teammate-ghost { fill: rgba(0, 255, 136, 0.15); stroke: rgba(0, 255, 136, 0.3); stroke-dasharray: 3 1; }
@@ -1231,6 +1243,7 @@ html, body {
     max-width: 100%;
   }
   .hex-grid { max-width: 380px; }
+  .hex-cell { stroke-width: 1; }
   .desktop-only { display: none; }
   .mobile-only { display: inline; }
   .chat-toggle { width: 100%; }

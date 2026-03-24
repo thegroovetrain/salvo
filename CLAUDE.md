@@ -20,9 +20,9 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - **server/src/ai.ts** — AI opponents: 4 tiers (Easy/Medium/Hard/Impossible), hex ship placement + target selection. Hex 3-coloring hunt pattern for Hard tier. Team-aware: excludes teammates from targets (except Easy)
 - **server/src/lobby.ts** — Game lifecycle, join codes (collision-safe), cleanup timer, expanded game count tracking for 7 QP modes
 - **server/src/index.ts** — Express + socket.io event routing, turn timer management, bot auto-play, Quick Play queue (socket.io rooms, 1v1/2v2/FFA/3v3/3ffa/6ffa/2v2v2), surrender/rejoin handlers, handlePlayerExit() shared helper, team chat routing (supports 3 teams), swap-team/swap-players handlers, placement-preview relay, update-game-options handler, autoAssignTeam (supports charlie)
-- **client/src/main.ts** — Vanilla TS client: state management, socket handlers, DOM rendering, random name generation (naval-themed adjective+noun), localStorage persistence
-- **client/src/hexGrid.ts** — SVG hex grid renderer: polygon generation, pixel↔hex click detection, ship placement preview, cell state rendering
-- **client/src/style.css** — Full DESIGN.md implementation, hex grid SVG styles, island styling
+- **client/src/main.ts** — Vanilla TS client: state management, socket handlers, DOM rendering, random name generation (naval-themed adjective+noun), localStorage persistence, AudioContext sound system (generic playTone + salvo/placement/game-over sounds), game-over grid with sequential ship reveal
+- **client/src/hexGrid.ts** — SVG hex grid renderer: polygon generation, pixel↔hex click detection, ship placement preview, cell state rendering, hull capsule overlay (cell state class on `<g>` wrapper for CSS marker styling)
+- **client/src/style.css** — Full DESIGN.md implementation, CIC tactical display hex grid (black void, silver strokes, filled states), island styling, marker colors via CSS inheritance
 
 ### Key Decisions
 - Ship.sunk, Player.alive, Player.shotCount are computed getters, not stored state

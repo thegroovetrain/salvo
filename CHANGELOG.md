@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.12.0] - 2026-03-24
+
+### Added
+- **CIC tactical display grid** — black void ocean, silver-white hex outlines, filled hexes for every cell state. The grid now looks like a military Combat Information Center radar screen.
+- **Salvo resolution sound effects** — sonar ping for all-miss, impact tone for hits, alarm warble for sunk ships. Single composite tone per salvo, respects mute toggle.
+- **Placement confirmation flash** — ship hull briefly brightens to full green on lock-in with a subtle confirmation tone.
+- **Game-over battle debrief** — hex grid now visible on game-over screen with sequential ship reveal (100ms stagger per ship) and summary tone. Stats table below the grid.
+- **Generic `playTone()` sound system** — extracted from existing match/turn sounds. All AudioContext tones use one reusable function (DRY).
+
+### Changed
+- **Hit fills desaturated** — dark crimson (`#8B0000`) replaces bright red for hit cell fills. Material Design guidance: desaturated colors reduce visual vibration on black backgrounds.
+- **Unified hit fill** — all hits (enemy, friendly fire, your ship) use the same crimson fill. Hull capsule presence distinguishes friendly damage. Friendly fire marker stays orange `⚠` for colorblind safety.
+- **Miss = searched sector** — visible gray fill (`#333333`) replaces nearly-invisible dot. Reads as "scanned area" on the CIC display.
+- **Islands** — dark yellowish fill with amber outline for clear terrain visibility against black ocean.
+- **Marker text via CSS inheritance** — cell state marker colors/opacities controlled through parent CSS classes, not inline SVG attributes.
+- **Crosshair cursor** — actionable battle cells use crosshair instead of pointer for tactical atmosphere.
+- **Responsive stroke-width** — 1.5px on desktop, 1px on mobile (≤768px) for optimal visibility at each viewport.
+- **Placement screen widened** — max-width 700→800px to match battle layout, consistent grid sizing across all phases.
+
 ## [0.11.2] - 2026-03-24
 
 ### Added

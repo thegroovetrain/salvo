@@ -16,15 +16,15 @@
 
 ### Full Sound Effects Audit
 
-**What:** Comprehensive pass at sound effects across all game modes — not just team events, but placement, shots, hits, sinks, game over, chat notifications, etc.
+**What:** Comprehensive pass at remaining sound effects — team events (teammate eliminated, team chat received), timer warnings, chat notifications. Core salvo/placement/game-over sounds already shipped in v0.12.0.
 
-**Why:** Currently only the Quick Play match-found sound exists. A full sound design pass would make the game feel more alive and provide audio feedback for key moments. Should be done holistically rather than piecemeal.
+**Why:** v0.12.0 added the CIC sound foundation (generic `playTone()`, salvo miss/hit/sunk, placement confirm, game-over summary). Remaining gaps: team-specific events, timer warning tones, chat notification sounds.
 
-**Context:** The existing sound system in main.ts uses simple AudioContext beeps (no sound files). Adding tones for team events (teammate places ships, teammate eliminated, team chat received) plus general events (shot hit, ship sunk, your turn, timer warning) would enhance the experience significantly. Deferred from v0.10.0 CEO review to do as a focused effort.
+**Context:** The `playTone()` generic function now exists in main.ts — adding new tones is trivial (one function call with frequency parameters). The mute toggle already works for all tones. Focus is on which events deserve audio feedback and tuning the frequencies to feel right.
 
-**Effort:** M
-**Priority:** P2
-**Depends on:** None (can be done anytime)
+**Effort:** S (reduced from M — foundation exists)
+**Priority:** P3 (reduced from P2 — core sounds shipped)
+**Depends on:** None
 
 ## Hex Grid
 

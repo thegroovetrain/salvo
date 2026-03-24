@@ -316,6 +316,8 @@ socket.on('shot-results', ({ shooterId, shooterName, shots, game }) => {
   state.game = game;
   state.isMyTurn = false;
   stopTimer();
+  // Play salvo result sound
+  playSalvoSound(shots);
   // Capture scroll state BEFORE render destroys the DOM
   const logEl = document.querySelector('.shot-log');
   const wasNearBottom = !logEl || (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 50);
@@ -359,6 +361,21 @@ socket.on('game-over', (stats) => {
   sessionStorage.removeItem('hullcracker-playerId');
   sessionStorage.removeItem('hullcracker-gameId');
   render();
+  // Sequential ship reveal animation on the game-over grid
+  const hullEls = document.querySelectorAll<SVGPathElement>('.ship-hull');
+  if (hullEls.length > 0) {
+    // Hide all hulls initially, then reveal one at a time
+    hullEls.forEach(el => el.style.opacity = '0');
+    hullEls.forEach((el, i) => {
+      setTimeout(() => {
+        el.style.opacity = el.getAttribute('opacity') || '1';
+      }, 100 * (i + 1));
+    });
+    // Summary tone after all ships revealed (only if still on game-over screen)
+    setTimeout(() => {
+      if (!state.matchSoundMuted && state.screen === 'gameover') playTone(250, 400, 200, 0.5, 0.15);
+    }, 100 * (hullEls.length + 1));
+  }
 });
 
 socket.on('rematch-pending', ({ acceptedIds, totalHumans }) => {
@@ -717,47 +734,72 @@ function getHitCountAtCoord(coord: string): number {
 // Match Sound
 // ============================================================
 
-function playMatchSound(): void {
+let sharedAudioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext | null {
   try {
-    const ctx = new AudioContext();
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+      sharedAudioCtx = new AudioContext();
+    }
+    return sharedAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
+function playTone(
+  freqStart: number, freqMid: number, freqEnd: number,
+  duration: number, volume: number, type: OscillatorType = 'sine'
+): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  try {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
     gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(600, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
-    osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.3);
-    gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
+    osc.type = type;
+    osc.frequency.setValueAtTime(freqStart, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(freqMid, ctx.currentTime + duration * 0.3);
+    osc.frequency.exponentialRampToValueAtTime(freqEnd, ctx.currentTime + duration * 0.7);
+    gain.gain.setValueAtTime(volume, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
     osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.5);
-    osc.onended = () => ctx.close();
+    osc.stop(ctx.currentTime + duration);
   } catch {
     // Audio not supported — silently ignore
   }
 }
 
+function playMatchSound(): void {
+  if (state.matchSoundMuted) return;
+  playTone(600, 1200, 800, 0.5, 0.3);
+}
+
 function playTurnSound(): void {
   if (state.matchSoundMuted) return;
-  try {
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(400, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(800, ctx.currentTime + 0.15);
-    osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.3);
-    gain.gain.setValueAtTime(0.2, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-    osc.start(ctx.currentTime);
-    osc.stop(ctx.currentTime + 0.4);
-    osc.onended = () => ctx.close();
-  } catch {
-    // Audio not supported — silently ignore
+  playTone(400, 800, 600, 0.4, 0.2);
+}
+
+function playSalvoSound(shots: ShotResult[]): void {
+  if (state.matchSoundMuted) return;
+  const hasSunk = shots.some(s => s.hits.some(h => h.sunk));
+  const hasHit = shots.some(s => s.hits.length > 0);
+  if (hasSunk) {
+    // Alarm warble — sunk ship detected
+    playTone(600, 900, 500, 0.6, 0.25);
+  } else if (hasHit) {
+    // Impact — confirmed hit
+    playTone(400, 600, 300, 0.35, 0.25);
+  } else {
+    // Sonar ping — all miss
+    playTone(200, 300, 150, 0.3, 0.15);
   }
+}
+
+function playPlacementSound(): void {
+  if (state.matchSoundMuted) return;
+  playTone(300, 350, 250, 0.15, 0.15);
 }
 
 // ============================================================
@@ -1652,12 +1694,16 @@ function renderGameOver(): string {
     ? `team-win-${winnerTeamId}`
     : winner ? '' : 'draw';
 
+  // Render the final battle grid as a debrief map
+  const gridHtml = renderGrid('battle');
+
   return `
     <div class="screen">
       <div class="game-over">
         <h1 class="${winClass}">${winnerText}</h1>
         <p style="color:var(--text-secondary);margin-bottom:16px">${winnerSubtext}</p>
         ${highlightsHtml}
+        <div class="grid-panel" style="margin-bottom:16px">${gridHtml}</div>
         <div style="overflow-x:auto;width:100%">
         <table class="stats-table">
           <thead>
@@ -2278,11 +2324,22 @@ function handlePlacementClick(coord: string): void {
   if (cells.length === 0) return showError('Ship would go out of bounds');
   if (!preview.valid) return showError('Ships overlap or placed on island');
 
+  // Track hull count before render so we can flash only the new one
+  const hullCountBefore = document.querySelectorAll('.ship-hull').length;
   state.placedShips.push({ length: state.placingShip.length, cells });
   state.placingShip = null;
   state.ghostCells = [];
   render();
   emitPlacementPreview();
+  // Placement confirmation flash + tone — only the newly placed ship's hull
+  playPlacementSound();
+  const allHulls = document.querySelectorAll<SVGPathElement>('.ship-hull');
+  allHulls.forEach((el, i) => {
+    if (i < hullCountBefore) return; // skip previously existing hulls
+    const origFill = el.getAttribute('fill') || '';
+    el.setAttribute('fill', 'rgba(0,255,136,0.8)');
+    setTimeout(() => el.setAttribute('fill', origFill), 200);
+  });
 }
 
 function handleTargetClick(coord: string): void {
