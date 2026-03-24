@@ -11,6 +11,7 @@
 - **Host badge accuracy** — the HOST badge now tracks correctly when host transfers, always showing on the right player.
 
 ### Changed
+- **Rebranded to HULLCRACKER.IO** — new game title, "Multiplayer Naval Warfare" tagline, Dreadnought ship class (was Battleship). Storage keys migrated automatically for existing players.
 - **Game Type semantics simplified** — "2-team" now means "two teams" (Alpha/Bravo), "3-team" means "three teams" (Alpha/Bravo/Charlie). No auto-scaling based on player count. Always 6 slots evenly split across teams.
 - **Keyboard accessibility** — custom dropdowns support Tab, Enter/Space, Arrow keys, Escape. ARIA attributes (listbox, option, aria-selected, aria-expanded) for screen readers.
 
