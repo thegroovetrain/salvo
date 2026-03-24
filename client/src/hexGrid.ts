@@ -85,9 +85,9 @@ function renderShipHull(ship: ShipHullData, hexSize: number): string {
     const path = [
       `M ${(-halfLen).toFixed(2)} ${(-hw).toFixed(2)}`,
       `L ${(halfLen).toFixed(2)} ${(-hw).toFixed(2)}`,
-      `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 0 ${(halfLen).toFixed(2)} ${(hw).toFixed(2)}`,
+      `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${(halfLen).toFixed(2)} ${(hw).toFixed(2)}`,
       `L ${(-halfLen).toFixed(2)} ${(hw).toFixed(2)}`,
-      `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 0 ${(-halfLen).toFixed(2)} ${(-hw).toFixed(2)}`,
+      `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${(-halfLen).toFixed(2)} ${(-hw).toFixed(2)}`,
       'Z',
     ].join(' ');
     return `<path d="${path}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.5" opacity="${opacity}" ${strokeDash} class="ship-hull" pointer-events="none" transform="translate(${c.x.toFixed(2)},${c.y.toFixed(2)})" />`;
