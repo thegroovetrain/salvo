@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.3] - 2026-03-23
+
+### Added
+- **Random default names** — first-time visitors get a naval-themed auto-generated name (e.g. "Swift Torpedo", "Bold Kraken") pre-filled in the name field. A dice button lets you re-randomize anytime.
+- **Name persistence** — player names now persist across page refreshes via localStorage, whether auto-generated or manually typed
+
+### Changed
+- **Vertical lobby layout** — private game lobbies now stack team cards (Alpha on top, Bravo below) vertically instead of side-by-side, giving each card full width for longer names
+
 ## [0.10.2] - 2026-03-23
 
 ### Changed
