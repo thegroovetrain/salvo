@@ -5,7 +5,9 @@ import type {
   ChatMessage, GameOverStats, TimerConfig, AiDifficulty,
   QuickPlayMode, ChatChannel,
 } from '@salvo/shared';
-import { SHIP_LENGTHS, SHIP_NAMES, ROWS, GRID_SIZE } from '@salvo/shared';
+import { SHIP_LENGTHS, SHIP_NAMES } from '@salvo/shared';
+import { renderHexGridSVG, svgClickToHex, getShipPreview, nextDirection, parseHex, hexToString, allHexes, hexLinear, isValidHex, HEX_DIRECTIONS } from './hexGrid.js';
+import type { CellState } from './hexGrid.js';
 import { marked } from 'marked';
 import './style.css';
 
@@ -52,7 +54,7 @@ interface AppState {
   isHost: boolean;
   // Placement
   placedShips: ShipPlacement[];
-  placingShip: { length: number; horizontal: boolean } | null;
+  placingShip: { length: number; dirIndex: number } | null;
   ghostCells: string[];
   ghostValid: boolean;
   shipsSent: boolean;  // true after clicking Ready, waiting for all players
@@ -77,7 +79,6 @@ interface AppState {
   mobileTab: 'fleet' | 'target';
   // UI
   showJoinModal: boolean;
-  showCreateModal: boolean;
   // Saved form values
   savedPlayerName: string;
   // Quick Play
@@ -130,7 +131,6 @@ const state: AppState = {
   changelogHtml: null,
   mobileTab: 'fleet',
   showJoinModal: false,
-  showCreateModal: false,
   savedPlayerName: localStorage.getItem('salvo-player-name') || generateRandomName(),
   queueMode: null,
   queueSize: 0,
@@ -203,10 +203,10 @@ socket.on('placement-phase', ({ game, placementDeadline }) => {
     state.chatChannel = 'team';
   }
   // Start placement timer if configured
-  if (game.placementTimerConfig.enabled) {
+  if (game.timerConfig.enabled) {
     const remaining = placementDeadline
       ? Math.max(1, Math.round((placementDeadline - Date.now()) / 1000))
-      : game.placementTimerConfig.seconds;
+      : game.timerConfig.seconds;
     startPlacementTimer(remaining);
   }
   render();
@@ -240,8 +240,8 @@ socket.on('game-state', ({ game }) => {
   if (game.phase === 'placement' && state.screen !== 'placement') {
     state.screen = 'placement';
     if (game.teamsEnabled) state.chatChannel = 'team';
-    if (game.placementTimerConfig.enabled && !state.placementTimerInterval) {
-      startPlacementTimer(game.placementTimerConfig.seconds);
+    if (game.timerConfig.enabled && !state.placementTimerInterval) {
+      startPlacementTimer(game.timerConfig.seconds);
     }
   } else if (game.phase === 'playing' && state.screen !== 'battle') {
     state.screen = 'battle';
@@ -337,10 +337,10 @@ socket.on('rematch-starting', ({ game, placementDeadline }) => {
   state.rematchPending = null;
   state.teammateGhostShips = [];
   if (game.teamsEnabled) state.chatChannel = 'team';
-  if (game.placementTimerConfig.enabled) {
+  if (game.timerConfig.enabled) {
     const remaining = placementDeadline
       ? Math.max(1, Math.round((placementDeadline - Date.now()) / 1000))
-      : game.placementTimerConfig.seconds;
+      : game.timerConfig.seconds;
     startPlacementTimer(remaining);
   }
   // Re-store session for reconnection (cleared on game-over)
@@ -623,24 +623,6 @@ function showError(message: string): void {
   }, 4000);
 }
 
-// ============================================================
-// Coordinate Helpers
-// ============================================================
-
-function coordToId(row: number, col: number): string {
-  return `${ROWS[row]}${col + 1}`;
-}
-
-function getShipCells(startRow: number, startCol: number, length: number, horizontal: boolean): string[] | null {
-  const cells: string[] = [];
-  for (let i = 0; i < length; i++) {
-    const r = horizontal ? startRow : startRow + i;
-    const c = horizontal ? startCol + i : startCol;
-    if (r >= GRID_SIZE || c >= GRID_SIZE) return null;
-    cells.push(coordToId(r, c));
-  }
-  return cells;
-}
 
 // ============================================================
 // Time Formatting
@@ -826,40 +808,6 @@ function renderLobby(): string {
     </div>
   ` : '';
 
-  const createModalHtml = state.showCreateModal ? `
-    <div class="modal-overlay" id="create-modal-overlay">
-      <div class="modal">
-        <h2 class="label" style="margin-bottom:16px">Game Options</h2>
-        <div class="modal-option">
-          <div class="modal-option-row">
-            <input type="checkbox" id="timer-enabled">
-            <label for="timer-enabled">Turn timer</label>
-            <select id="timer-seconds" class="input" style="margin-bottom:0;width:auto;padding:4px 8px;font-family:var(--font-mono);font-size:12px">
-              <option value="30">30s</option>
-              <option value="60" selected>60s</option>
-            </select>
-          </div>
-        </div>
-        <div class="modal-option" style="margin-top:8px">
-          <div class="modal-option-row">
-            <input type="checkbox" id="placement-timer-enabled">
-            <label for="placement-timer-enabled">Placement timer</label>
-          </div>
-        </div>
-        <div class="modal-option" style="margin-top:8px">
-          <div class="modal-option-row">
-            <input type="checkbox" id="teams-enabled">
-            <label for="teams-enabled">Teams (2v2)</label>
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:16px">
-          <button class="btn btn-primary" id="btn-create-confirm" style="flex:1">Create</button>
-          <button class="btn btn-secondary" id="btn-create-cancel" style="flex:1">Cancel</button>
-        </div>
-      </div>
-    </div>
-  ` : '';
-
   return `
     <div class="screen">
       <h1 class="game-title">SALVO</h1>
@@ -881,6 +829,12 @@ function renderLobby(): string {
             <button class="btn btn-amber btn-quickplay" id="btn-qp-2v2" style="flex:1" title="Random teammate — coordinate to win">2v2</button>
             <button class="btn btn-amber btn-quickplay" id="btn-qp-ffa" style="flex:1">FFA</button>
           </div>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn btn-amber btn-quickplay" id="btn-qp-3v3" style="flex:1">3v3</button>
+            <button class="btn btn-amber btn-quickplay" id="btn-qp-3ffa" style="flex:1">3-FFA</button>
+            <button class="btn btn-amber btn-quickplay" id="btn-qp-6ffa" style="flex:1">6-FFA</button>
+            <button class="btn btn-amber btn-quickplay" id="btn-qp-2v2v2" style="flex:1">2v2v2</button>
+          </div>
         </div>
         <div style="display:flex;gap:8px">
           <button class="btn btn-primary" id="btn-create" style="flex:1">Create Game</button>
@@ -888,7 +842,6 @@ function renderLobby(): string {
         </div>
       </div>
       ${joinModalHtml}
-      ${createModalHtml}
       <div class="lobby-footer">
         <span>v${VERSION}</span>
         <span class="footer-sep">&bull;</span>
@@ -900,9 +853,33 @@ function renderLobby(): string {
 
 function renderQueue(): string {
   const mode = state.queueMode;
-  const target = mode === '1v1' ? 2 : 4;
+  function getTargetSize(m: QuickPlayMode | null): number {
+    switch (m) {
+      case '1v1': return 2;
+      case '2v2': return 4;
+      case 'ffa': return 4;
+      case '3v3': return 6;
+      case '3ffa': return 3;
+      case '6ffa': return 6;
+      case '2v2v2': return 6;
+      default: return 2;
+    }
+  }
+  function getModeLabel(m: QuickPlayMode | null): string {
+    switch (m) {
+      case '1v1': return '1V1';
+      case '2v2': return '2V2 TEAMS';
+      case 'ffa': return 'FFA';
+      case '3v3': return '3V3 TEAMS';
+      case '3ffa': return '3-PLAYER FFA';
+      case '6ffa': return '6-PLAYER FFA';
+      case '2v2v2': return '2V2V2 TEAMS';
+      default: return '';
+    }
+  }
+  const target = getTargetSize(mode);
   const size = state.queueSize;
-  const modeLabel = mode === '1v1' ? '1V1' : mode === '2v2' ? '2V2 TEAMS' : 'FFA';
+  const modeLabel = getModeLabel(mode);
 
   const dots = Array.from({ length: target }, (_, i) =>
     `<span class="queue-dot ${i < size ? 'filled' : ''}">${i < size ? '\u25CF' : '\u25CB'}</span>`
@@ -944,7 +921,7 @@ async function loadChangelog(): Promise<void> {
 }
 
 function renderWaiting(): string {
-  const MAX_PLAYERS = 4;
+  const MAX_PLAYERS = 6;
   const players = state.game ? Object.values(state.game.players) : [];
   const isHost = state.game?.players[state.playerId ?? '']?.id === state.game?.turnOrder[0]
     || state.isHost;
@@ -984,24 +961,30 @@ function renderWaiting(): string {
     const menuItems: string[] = [];
     if (teamsEnabled) {
       const myTeam = teams[p.id];
-      const otherTeam = myTeam === 'alpha' ? 'bravo' : 'alpha';
-      const otherTeamLabel = otherTeam === 'alpha' ? 'Alpha' : 'Bravo';
-      const otherTeamPlayers = players.filter(pl => teams[pl.id] === otherTeam);
-      const maxPerTeam = MAX_PLAYERS / 2;
-      const canMove = otherTeamPlayers.length < maxPerTeam;
+      const allTeamNames = ['alpha', 'bravo', 'charlie'];
+      const allTeamLabels: Record<string, string> = { alpha: 'Alpha', bravo: 'Bravo', charlie: 'Charlie' };
+      const activeTeams = [...new Set(Object.values(teams))];
+      const numTeams = activeTeams.length > 0 ? activeTeams.length : 2;
+      const maxPerTeam = Math.floor(MAX_PLAYERS / numTeams);
+      const otherTeams = allTeamNames.slice(0, numTeams).filter(t => t !== myTeam);
 
-      if (isHost) {
-        if (canMove) {
-          menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}">Move to ${otherTeamLabel}</button>`);
-        } else {
-          // Other team is full — offer swap with each player on the other team
-          for (const op of otherTeamPlayers) {
-            menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="swap" data-player-a="${p.id}" data-player-b="${op.id}">Swap with ${esc(op.name)}</button>`);
+      for (const otherTeam of otherTeams) {
+        const otherTeamLabel = allTeamLabels[otherTeam] ?? otherTeam;
+        const otherTeamPlayers = players.filter(pl => teams[pl.id] === otherTeam);
+        const canMove = otherTeamPlayers.length < maxPerTeam;
+
+        if (isHost) {
+          if (canMove) {
+            menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}" data-move-team="${otherTeam}">Move to ${otherTeamLabel}</button>`);
+          } else {
+            for (const op of otherTeamPlayers) {
+              menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="swap" data-player-a="${p.id}" data-player-b="${op.id}">Swap with ${esc(op.name)}</button>`);
+            }
           }
-        }
-      } else if (isMe && !p.isBot) {
-        if (canMove) {
-          menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}">Move to ${otherTeamLabel}</button>`);
+        } else if (isMe && !p.isBot) {
+          if (canMove) {
+            menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}" data-move-team="${otherTeam}">Move to ${otherTeamLabel}</button>`);
+          }
         }
       }
     }
@@ -1025,42 +1008,78 @@ function renderWaiting(): string {
     </div>`;
   }
 
+  // Unique team IDs for multi-team display
+  const teamIds = [...new Set(Object.values(teams))];
+
+  // Game options panel (visible to all, editable by host)
+  const game = state.game;
+  const gameType = game?.gameType ?? 'ffa';
+  const gameOptionsHtml = game ? `
+    <div class="game-options">
+      <div class="section-label">GAME OPTIONS</div>
+      <div class="option-row">
+        <label>Game Type</label>
+        <select id="opt-game-type" ${!isHost ? 'disabled' : ''}>
+          <option value="ffa" ${gameType === 'ffa' ? 'selected' : ''}>FFA</option>
+          <option value="2-team" ${gameType === '2-team' ? 'selected' : ''}>2-Player Teams</option>
+          <option value="3-team" ${gameType === '3-team' ? 'selected' : ''}>3-Player Teams</option>
+        </select>
+      </div>
+      <div class="option-row">
+        <label>Turn Timer</label>
+        <select id="opt-timer" ${!isHost ? 'disabled' : ''}>
+          <option value="0" ${!game.timerConfig.enabled ? 'selected' : ''}>Off</option>
+          <option value="30" ${game.timerConfig.enabled && game.timerConfig.seconds === 30 ? 'selected' : ''}>30s</option>
+          <option value="60" ${game.timerConfig.enabled && game.timerConfig.seconds === 60 ? 'selected' : ''}>60s</option>
+        </select>
+      </div>
+      <div class="option-row">
+        <label>Grid Size</label>
+        <select id="opt-rings" ${!isHost ? 'disabled' : ''}>
+          <option value="4" ${game.rings === 4 ? 'selected' : ''}>4 rings (61 hexes)</option>
+          <option value="5" ${game.rings === 5 ? 'selected' : ''}>5 rings (91 hexes)</option>
+          <option value="6" ${game.rings === 6 ? 'selected' : ''}>6 rings (127 hexes)</option>
+        </select>
+      </div>
+    </div>
+  ` : '';
+
   let lobbyBody = '';
 
   if (teamsEnabled) {
-    const maxPerTeam = MAX_PLAYERS / 2;
-    const alphaPlayers = players.filter(p => teams[p.id] === 'alpha');
-    const bravoPlayers = players.filter(p => teams[p.id] === 'bravo');
-    const alphaSlots = Math.max(0, maxPerTeam - alphaPlayers.length);
-    const bravoSlots = Math.max(0, maxPerTeam - bravoPlayers.length);
+    // Determine teams and slots per team based on gameType
+    const slotsPerTeam = gameType === '3-team' ? 3 : 2;
+    let activeTeams: string[];
+    if (gameType === '2-team') {
+      activeTeams = players.length > 4 ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'];
+    } else {
+      activeTeams = ['alpha', 'bravo'];
+    }
+    const teamLabels: Record<string, string> = { alpha: 'ALPHA', bravo: 'BRAVO', charlie: 'CHARLIE' };
 
-    const alphaCards = alphaPlayers.map(p => renderSeatCard(p, 'alpha')).join('')
-      + Array(alphaSlots).fill(0).map(() => renderSeatCard(null, 'alpha')).join('');
-    const bravoCards = bravoPlayers.map(p => renderSeatCard(p, 'bravo')).join('')
-      + Array(bravoSlots).fill(0).map(() => renderSeatCard(null, 'bravo')).join('');
+    // Stacked single column: each team section has a header + player slots
+    const sections = activeTeams.map(teamName => {
+      const teamPlayers = players.filter(p => teams[p.id] === teamName);
+      const openCount = Math.max(0, slotsPerTeam - teamPlayers.length);
+      const cards = teamPlayers.map(p => renderSeatCard(p, teamName)).join('')
+        + Array(openCount).fill(0).map(() => renderSeatCard(null, teamName)).join('');
+      return `
+        <div class="team-section">
+          <div class="team-section-header ${teamName}">${teamLabels[teamName]}</div>
+          ${cards}
+        </div>`;
+    }).join('');
 
-    lobbyBody = `
-      <div class="lobby-columns">
-        <div class="lobby-column alpha">
-          <div class="lobby-column-header alpha" role="heading" aria-level="3">ALPHA</div>
-          ${alphaCards}
-        </div>
-        <div class="lobby-column bravo">
-          <div class="lobby-column-header bravo" role="heading" aria-level="3">BRAVO</div>
-          ${bravoCards}
-        </div>
-      </div>`;
+    lobbyBody = `<div class="lobby-stacked">${sections}</div>`;
   } else {
     const openSlots = Math.max(0, MAX_PLAYERS - players.length);
     const playerCards = players.map(p => renderSeatCard(p)).join('');
     const openCards = Array(openSlots).fill(0).map(() => renderSeatCard(null)).join('');
 
     lobbyBody = `
-      <div style="width:100%">
-        <div class="lobby-column-header" role="heading" aria-level="3" style="color:var(--text-muted)">PLAYERS</div>
-        <div class="non-team-grid">
-          ${playerCards}${openCards}
-        </div>
+      <div class="lobby-stacked">
+        <div class="team-section-header" style="color:var(--text-muted)">PLAYERS</div>
+        ${playerCards}${openCards}
       </div>`;
   }
 
@@ -1073,6 +1092,7 @@ function renderWaiting(): string {
         <h2 class="label" style="margin-bottom:12px">Game Created</h2>
         <div class="join-code" id="copy-code" title="Click to copy">${state.joinCode ?? ''}</div>
         <p class="join-code-hint">Click to copy &bull; Share with friends</p>
+        ${gameOptionsHtml}
         ${lobbyBody}
         <p class="player-count">${players.length} of 2\u2013${MAX_PLAYERS} players</p>
         ${isHost ? `<button class="btn btn-amber" id="btn-start" ${canStart ? '' : 'disabled'}>${canStart ? 'Start Game' : 'Need 2+ Players'}</button>` : '<p class="player-count">Waiting for host to start...</p>'}
@@ -1147,26 +1167,13 @@ function renderPlacement(): string {
 }
 
 function renderGrid(mode: 'placement' | 'battle'): string {
-  let html = '<div class="game-grid">';
+  const game = state.game;
+  if (!game) return '';
+  const rings = game.rings;
+  const islands = new Set(game.islands);
+  const hexSize = 24; // pixels per hex
 
-  // Header row
-  html += '<div class="grid-header"></div>';
-  for (let c = 0; c < GRID_SIZE; c++) {
-    html += `<div class="grid-header">${c + 1}</div>`;
-  }
-
-  // Grid rows
-  for (let r = 0; r < GRID_SIZE; r++) {
-    html += `<div class="grid-header">${ROWS[r]}</div>`;
-    for (let c = 0; c < GRID_SIZE; c++) {
-      const coord = coordToId(r, c);
-      const { cssClass, symbol, extraHtml } = getCellState(coord, mode);
-      html += `<div class="grid-cell ${cssClass}" data-coord="${coord}" data-mode="${mode}">${symbol}${extraHtml || ''}</div>`;
-    }
-  }
-
-  html += '</div>';
-  return html;
+  return renderHexGridSVG(rings, hexSize, islands, (coord) => getCellState(coord, mode), mode);
 }
 
 function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: string; symbol: string; extraHtml?: string } {
@@ -1340,10 +1347,14 @@ function renderBattle(): string {
   const teamsEnabled = state.game.teamsEnabled;
   const teams = state.game.teams;
 
-  // Game mode indicator for 2v2
-  const gameModeLabel = teamsEnabled
-    ? `<div class="game-mode-label"><span class="desktop-only">TEAM BATTLE</span><span class="mobile-only">2v2</span> \u2014 <span class="team-badge alpha" style="font-size:inherit;padding:0;background:none">Alpha</span> vs <span class="team-badge bravo" style="font-size:inherit;padding:0;background:none">Bravo</span></div>`
-    : '';
+  // Game mode indicator for team games
+  let gameModeLabel = '';
+  if (teamsEnabled) {
+    const teamIds = [...new Set(Object.values(teams))];
+    const teamLabels = teamIds.map(t => `<span class="team-badge ${t}" style="font-size:inherit;padding:0;background:none">${t.charAt(0).toUpperCase() + t.slice(1)}</span>`);
+    const modeShort = teamIds.length > 2 ? `${teamIds.length}-team` : '2v2';
+    gameModeLabel = `<div class="game-mode-label"><span class="desktop-only">TEAM BATTLE</span><span class="mobile-only">${modeShort}</span> \u2014 ${teamLabels.join(' vs ')}</div>`;
+  }
 
   const playerEntries = Object.entries(state.game.players);
   if (state.game.turnOrder.length > 0) {
@@ -1581,6 +1592,54 @@ function bindEvents(): void {
     render();
   });
 
+  on('btn-qp-3v3', 'click', () => {
+    const name = val('player-name');
+    if (!name) return showError('Enter your name');
+    saveName(name);
+    state.queueMode = '3v3';
+    state.queueSize = 0;
+    state.screen = 'queue';
+    history.pushState({ screen: 'queue' }, '');
+    socket.emit('quickplay-join', { playerName: name, mode: '3v3' });
+    render();
+  });
+
+  on('btn-qp-3ffa', 'click', () => {
+    const name = val('player-name');
+    if (!name) return showError('Enter your name');
+    saveName(name);
+    state.queueMode = '3ffa';
+    state.queueSize = 0;
+    state.screen = 'queue';
+    history.pushState({ screen: 'queue' }, '');
+    socket.emit('quickplay-join', { playerName: name, mode: '3ffa' });
+    render();
+  });
+
+  on('btn-qp-6ffa', 'click', () => {
+    const name = val('player-name');
+    if (!name) return showError('Enter your name');
+    saveName(name);
+    state.queueMode = '6ffa';
+    state.queueSize = 0;
+    state.screen = 'queue';
+    history.pushState({ screen: 'queue' }, '');
+    socket.emit('quickplay-join', { playerName: name, mode: '6ffa' });
+    render();
+  });
+
+  on('btn-qp-2v2v2', 'click', () => {
+    const name = val('player-name');
+    if (!name) return showError('Enter your name');
+    saveName(name);
+    state.queueMode = '2v2v2';
+    state.queueSize = 0;
+    state.screen = 'queue';
+    history.pushState({ screen: 'queue' }, '');
+    socket.emit('quickplay-join', { playerName: name, mode: '2v2v2' });
+    render();
+  });
+
   on('btn-queue-cancel', 'click', () => {
     socket.emit('quickplay-leave');
     state.screen = 'lobby';
@@ -1593,37 +1652,8 @@ function bindEvents(): void {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
     saveName(name);
-    state.showCreateModal = true;
-    render();
-  });
-
-  on('btn-create-confirm', 'click', () => {
-    const name = state.savedPlayerName;
-    if (!name) return showError('Enter your name');
-    const timerEnabled = (document.getElementById('timer-enabled') as HTMLInputElement)?.checked ?? false;
-    const timerSecs = parseInt((document.getElementById('timer-seconds') as HTMLSelectElement)?.value ?? '60', 10);
-    const placementTimerEnabled = (document.getElementById('placement-timer-enabled') as HTMLInputElement)?.checked ?? false;
-    const teamsEnabled = (document.getElementById('teams-enabled') as HTMLInputElement)?.checked ?? false;
     state.isHost = true;
-    state.showCreateModal = false;
-    socket.emit('create-game', {
-      playerName: name,
-      timerConfig: { enabled: timerEnabled, seconds: timerSecs },
-      placementTimerConfig: { enabled: placementTimerEnabled, seconds: timerSecs },
-      teamsEnabled,
-    });
-  });
-
-  on('btn-create-cancel', 'click', () => {
-    state.showCreateModal = false;
-    render();
-  });
-
-  on('create-modal-overlay', 'click', (e?: Event) => {
-    if ((e?.target as HTMLElement)?.id === 'create-modal-overlay') {
-      state.showCreateModal = false;
-      render();
-    }
+    socket.emit('create-game', { playerName: name });
   });
 
   on('btn-show-join', 'click', () => {
@@ -1676,6 +1706,22 @@ function bindEvents(): void {
     const select = document.getElementById('bot-difficulty') as HTMLSelectElement | null;
     const difficulty = (select?.value ?? 'medium') as AiDifficulty;
     socket.emit('add-bot', { difficulty });
+  });
+
+  // Game options (waiting room)
+  on('opt-game-type', 'change', () => {
+    const value = (document.getElementById('opt-game-type') as HTMLSelectElement)?.value;
+    socket.emit('update-game-options', { gameType: value as 'ffa' | '2-team' | '3-team' });
+  });
+
+  on('opt-timer', 'change', () => {
+    const value = parseInt((document.getElementById('opt-timer') as HTMLSelectElement)?.value ?? '60', 10);
+    socket.emit('update-game-options', { timerSeconds: value || null });
+  });
+
+  on('opt-rings', 'change', () => {
+    const value = parseInt((document.getElementById('opt-rings') as HTMLSelectElement)?.value ?? '5', 10);
+    socket.emit('update-game-options', { rings: value });
   });
 
   // Seat dropdown triggers
@@ -1732,8 +1778,9 @@ function bindEvents(): void {
     const coords = coordsAttr.split(',');
 
     el.addEventListener('mouseenter', () => {
+      const svg = document.querySelector('.hex-grid');
       coords.forEach(c => {
-        const cell = document.querySelector(`.grid-cell[data-coord="${c}"]`);
+        const cell = svg?.querySelector(`[data-coord="${c}"]`);
         if (cell) cell.classList.add('cell-highlight');
       });
     });
@@ -1743,11 +1790,12 @@ function bindEvents(): void {
 
     // Mobile: tap to toggle
     el.addEventListener('click', () => {
+      const svg = document.querySelector('.hex-grid');
       const hasHighlight = document.querySelector('.cell-highlight');
       document.querySelectorAll('.cell-highlight').forEach(c => c.classList.remove('cell-highlight'));
-      if (!hasHighlight || !coords.some(c => document.querySelector(`.grid-cell[data-coord="${c}"].cell-highlight`))) {
+      if (!hasHighlight || !coords.some(c => document.querySelector(`[data-coord="${c}"].cell-highlight`))) {
         coords.forEach(c => {
-          const cell = document.querySelector(`.grid-cell[data-coord="${c}"]`);
+          const cell = svg?.querySelector(`[data-coord="${c}"]`);
           if (cell) cell.classList.add('cell-highlight');
         });
       }
@@ -1782,7 +1830,7 @@ function bindEvents(): void {
     el.addEventListener('click', () => {
       const length = parseInt(el.getAttribute('data-ship-length') ?? '0', 10);
       if (state.placedShips.some(s => s.length === length)) return;
-      state.placingShip = { length, horizontal: true };
+      state.placingShip = { length, dirIndex: 0 };
       state.ghostCells = [];
       render();
     });
@@ -1790,7 +1838,7 @@ function bindEvents(): void {
 
   on('btn-rotate', 'click', () => {
     if (state.placingShip) {
-      state.placingShip.horizontal = !state.placingShip.horizontal;
+      state.placingShip.dirIndex = nextDirection(state.placingShip.dirIndex);
       state.ghostCells = [];
       state.ghostValid = false;
       render();
@@ -1815,7 +1863,7 @@ function bindEvents(): void {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'r' || e.key === 'R') {
       if (state.screen === 'placement' && state.placingShip) {
-        state.placingShip.horizontal = !state.placingShip.horizontal;
+        state.placingShip.dirIndex = nextDirection(state.placingShip.dirIndex);
         state.ghostCells = [];
         state.ghostValid = false;
         render();
@@ -1823,44 +1871,49 @@ function bindEvents(): void {
     }
   });
 
-  // Grid cell clicks
-  document.querySelectorAll('.grid-cell').forEach(el => {
-    const coord = el.getAttribute('data-coord');
-    const mode = el.getAttribute('data-mode');
-    if (!coord) return;
+  // Hex grid SVG click handling
+  const svgEl = document.querySelector('.hex-grid') as SVGSVGElement | null;
+  if (svgEl) {
+    const hexSize = parseInt(svgEl.getAttribute('data-hex-size') ?? '24', 10);
+    const rings = parseInt(svgEl.getAttribute('data-rings') ?? '5', 10);
+    const mode = svgEl.querySelector('[data-mode]')?.getAttribute('data-mode') ?? 'battle';
 
-    // Hover for ghost preview (placement)
-    if (mode === 'placement') {
-      el.addEventListener('mouseenter', () => {
-        if (!state.placingShip) return;
-        const row = ROWS.indexOf(coord[0]);
-        const col = parseInt(coord.slice(1), 10) - 1;
-        const cells = getShipCells(row, col, state.placingShip.length, state.placingShip.horizontal);
-        if (cells) {
-          state.ghostCells = cells;
-          // Check validity
-          const occupied = new Set(state.placedShips.flatMap(s => s.cells));
-          state.ghostValid = cells.every(c => !occupied.has(c));
-          render();
-        }
-      });
+    svgEl.addEventListener('mousemove', (e) => {
+      if (mode !== 'placement' || !state.placingShip) return;
+      const coord = svgClickToHex(e, svgEl, hexSize, rings);
+      if (!coord) return;
+      // Don't preview on islands
+      if (state.game?.islands.includes(coord)) return;
+      const h = parseHex(coord);
+      if (!h) return;
+      const occupied = new Set(state.placedShips.flatMap(s => s.cells));
+      const preview = getShipPreview(h.q, h.r, state.placingShip.dirIndex, state.placingShip.length, rings, new Set(state.game?.islands ?? []), occupied);
+      if (preview.cells.length > 0) {
+        state.ghostCells = preview.cells;
+        state.ghostValid = preview.valid;
+        render();
+      }
+    });
 
-      el.addEventListener('mouseleave', () => {
-        if (state.placingShip && state.ghostCells.length > 0) {
-          state.ghostCells = [];
-          render();
-        }
-      });
-    }
+    svgEl.addEventListener('mouseleave', () => {
+      if (state.placingShip && state.ghostCells.length > 0) {
+        state.ghostCells = [];
+        render();
+      }
+    });
 
-    el.addEventListener('click', () => {
+    svgEl.addEventListener('click', (e) => {
+      const coord = svgClickToHex(e, svgEl, hexSize, rings);
+      if (!coord) return;
+      // Don't interact with islands
+      if (state.game?.islands.includes(coord)) return;
       if (mode === 'placement') {
         handlePlacementClick(coord);
       } else if (mode === 'battle') {
         handleTargetClick(coord);
       }
     });
-  });
+  }
 
   on('btn-ready', 'click', () => {
     socket.emit('place-ships', { ships: state.placedShips });
@@ -1898,6 +1951,10 @@ function bindEvents(): void {
         'quickplay-1v1': '1v1',
         'quickplay-2v2': '2v2',
         'quickplay-ffa': 'ffa',
+        'quickplay-3v3': '3v3',
+        'quickplay-3ffa': '3ffa',
+        'quickplay-6ffa': '6ffa',
+        'quickplay-2v2v2': '2v2v2',
       };
       const qpMode = modeMap[state.game.mode] ?? '1v1';
       state.queueMode = qpMode;
@@ -1992,24 +2049,23 @@ function bindEvents(): void {
 }
 
 function randomizePlacement(): void {
+  const rings = state.game?.rings ?? 5;
+  const islands = new Set(state.game?.islands ?? []);
   const occupied = new Set<string>();
   const ships: ShipPlacement[] = [];
-
-  // Place largest ships first (harder to fit)
   const lengths = [...SHIP_LENGTHS].sort((a, b) => b - a);
+  const validHexes = allHexes(rings).filter(c => !islands.has(c));
 
   for (const length of lengths) {
     let placed = false;
     for (let attempt = 0; attempt < 200; attempt++) {
-      const horizontal = Math.random() < 0.5;
-      const maxRow = horizontal ? GRID_SIZE : GRID_SIZE - length;
-      const maxCol = horizontal ? GRID_SIZE - length : GRID_SIZE;
-      const row = Math.floor(Math.random() * maxRow);
-      const col = Math.floor(Math.random() * maxCol);
-
-      const cells = getShipCells(row, col, length, horizontal);
+      const anchor = validHexes[Math.floor(Math.random() * validHexes.length)];
+      const h = parseHex(anchor);
+      if (!h) continue;
+      const dir = Math.floor(Math.random() * 6);
+      const cells = hexLinear(h.q, h.r, dir, length, rings);
       if (!cells) continue;
-      if (cells.some(c => occupied.has(c))) continue;
+      if (cells.some(c => occupied.has(c) || islands.has(c))) continue;
 
       cells.forEach(c => occupied.add(c));
       ships.push({ length, cells });
@@ -2017,7 +2073,6 @@ function randomizePlacement(): void {
       break;
     }
     if (!placed) {
-      // Extremely unlikely on 10x10 with 4 small ships, but handle gracefully
       state.placedShips = [];
       randomizePlacement();
       return;
@@ -2044,14 +2099,15 @@ function handlePlacementClick(coord: string): void {
   // If placing a ship
   if (!state.placingShip) return;
 
-  const row = ROWS.indexOf(coord[0]);
-  const col = parseInt(coord.slice(1), 10) - 1;
-  const cells = getShipCells(row, col, state.placingShip.length, state.placingShip.horizontal);
-  if (!cells) return showError('Ship would go out of bounds');
-
-  // Check overlap
+  const h = parseHex(coord);
+  if (!h) return;
+  const rings = state.game?.rings ?? 5;
+  const islands = new Set(state.game?.islands ?? []);
   const occupied = new Set(state.placedShips.flatMap(s => s.cells));
-  if (cells.some(c => occupied.has(c))) return showError('Ships overlap');
+  const preview = getShipPreview(h.q, h.r, state.placingShip.dirIndex, state.placingShip.length, rings, islands, occupied);
+  const cells = preview.cells;
+  if (cells.length === 0) return showError('Ship would go out of bounds');
+  if (!preview.valid) return showError('Ships overlap or placed on island');
 
   state.placedShips.push({ length: state.placingShip.length, cells });
   state.placingShip = null;

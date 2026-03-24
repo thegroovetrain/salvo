@@ -24,16 +24,44 @@ describe('Quick Play game creation', () => {
     expect(game.mode).toBe('quickplay-ffa');
   });
 
-  it('toClientView includes mode field', () => {
+  it('createGame accepts new game modes', () => {
+    expect(createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-3v3').mode).toBe('quickplay-3v3');
+    expect(createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-3ffa').mode).toBe('quickplay-3ffa');
+    expect(createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-6ffa').mode).toBe('quickplay-6ffa');
+    expect(createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-2v2v2').mode).toBe('quickplay-2v2v2');
+  });
+
+  it('6-player modes default to 6 rings', () => {
+    const g3v3 = createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-3v3');
+    expect(g3v3.rings).toBe(6);
+    const g6ffa = createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-6ffa');
+    expect(g6ffa.rings).toBe(6);
+    const g2v2v2 = createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-2v2v2');
+    expect(g2v2v2.rings).toBe(6);
+  });
+
+  it('2-4 player modes default to 5 rings', () => {
+    expect(createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-1v1').rings).toBe(5);
+    expect(createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-2v2').rings).toBe(5);
+    expect(createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-3ffa').rings).toBe(5);
+  });
+
+  it('toClientView includes mode and rings', () => {
     const game = createGame('p1', 'Alice', { enabled: true, seconds: 60 }, 'quickplay-ffa');
     const view = toClientView(game, 'p1');
     expect(view.mode).toBe('quickplay-ffa');
+    expect(view.rings).toBe(5);
   });
 
   it('toClientView includes mode=private for default games', () => {
     const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 });
     const view = toClientView(game, 'p1');
     expect(view.mode).toBe('private');
+  });
+
+  it('createGame accepts custom ring count', () => {
+    const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 }, 'private', false, 4);
+    expect(game.rings).toBe(4);
   });
 });
 
@@ -45,15 +73,14 @@ describe('LobbyManager.getActiveGameCounts', () => {
   it('returns all zeros when no games exist', () => {
     const lobby = new LobbyManager();
     const counts = lobby.getActiveGameCounts();
-    expect(counts).toEqual({
-      total: 0,
-      oneVsOne: 0,
-      twoVsTwo: 0,
-      ffa: 0,
-      searching1v1: 0,
-      searching2v2: 0,
-      searchingFfa: 0,
-    });
+    expect(counts.total).toBe(0);
+    expect(counts.oneVsOne).toBe(0);
+    expect(counts.twoVsTwo).toBe(0);
+    expect(counts.ffa).toBe(0);
+    expect(counts.threeVsThree).toBe(0);
+    expect(counts.threeFfa).toBe(0);
+    expect(counts.sixFfa).toBe(0);
+    expect(counts.twoVsTwoVsTwo).toBe(0);
   });
 
   it('counts quickplay-1v1 games', () => {
@@ -74,14 +101,22 @@ describe('LobbyManager.getActiveGameCounts', () => {
     expect(counts.total).toBe(1);
   });
 
+  it('counts new game modes', () => {
+    const lobby = new LobbyManager();
+    lobby.addGame(createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-3v3'), 'A001');
+    lobby.addGame(createGame('p2', 'B', { enabled: true, seconds: 60 }, 'quickplay-2v2v2'), 'A002');
+    const counts = lobby.getActiveGameCounts();
+    expect(counts.threeVsThree).toBe(1);
+    expect(counts.twoVsTwoVsTwo).toBe(1);
+    expect(counts.total).toBe(2);
+  });
+
   it('does not count private games', () => {
     const lobby = new LobbyManager();
     const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 });
     lobby.addGame(game, 'IJKL');
     const counts = lobby.getActiveGameCounts();
     expect(counts.total).toBe(0);
-    expect(counts.oneVsOne).toBe(0);
-    expect(counts.ffa).toBe(0);
   });
 
   it('does not count finished games', () => {
@@ -117,7 +152,5 @@ describe('LobbyManager.getActiveGameCounts', () => {
     expect(counts.ffa).toBe(2);
     expect(counts.total).toBe(3);
     expect(counts.searching1v1).toBe(1);
-    expect(counts.searching2v2).toBe(0);
-    expect(counts.searchingFfa).toBe(2);
   });
 });

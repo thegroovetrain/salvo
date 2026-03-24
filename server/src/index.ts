@@ -7,14 +7,13 @@ import type {
   ClientToServerEvents, ServerToClientEvents, ChatMessage,
   TimerConfig, ShipPlacement, AiDifficulty, QuickPlayMode, ChatChannel,
 } from '@salvo/shared';
-import { isPlayerAlive, playerShotCount, toGameMode, toQuickPlayMode } from '@salvo/shared';
+import { isPlayerAlive, playerShotCount, toGameMode, toQuickPlayMode, getTeammates, MODE_RINGS } from '@salvo/shared';
 import {
-  createGame, addPlayer, addBot, removeBot, removePlayer, canStartGame, startGame,
+  createGame, addPlayer, addBot, removeBot, removePlayer, canStartGame, startGame, updateGameOptions,
   placeShips, allShipsPlaced, beginPlaying,
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, forfeitPlayer,
   toClientView, resetForRematch,
-  getTeammate, isTeamAlive,
 } from './game.js';
 import { chooseSalvo, generatePlacement, getBotDelay } from './ai.js';
 import { ConnectionManager } from './connections.js';
@@ -65,8 +64,24 @@ function broadcastOnlineCount(): void {
 }
 
 /** Try to create a match from players in a queue room. Called from join handler and requeue. */
+function getTargetSize(mode: QuickPlayMode): number {
+  switch (mode) {
+    case '1v1': return 2;
+    case '2v2': return 4;
+    case 'ffa': return 4;
+    case '3v3': return 6;
+    case '3ffa': return 3;
+    case '6ffa': return 6;
+    case '2v2v2': return 6;
+  }
+}
+
+function isTeamMode(mode: QuickPlayMode): boolean {
+  return mode === '2v2' || mode === '3v3' || mode === '2v2v2';
+}
+
 function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
-  const target = mode === '1v1' ? 2 : 4;
+  const target = getTargetSize(mode);
   const size = getQueueSize(roomName);
   if (size < target) return;
 
@@ -84,8 +99,8 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
     firstEntry?.playerName ?? 'Player',
     { enabled: true, seconds: 60 },
     gameMode,
-    mode === '2v2',                              // teamsEnabled for 2v2
-    { enabled: true, seconds: 60 },              // placement timer always on for Quick Play
+    isTeamMode(mode),
+    MODE_RINGS[gameMode],
   );
 
   const code = lobby.generateUniqueCode();
@@ -125,26 +140,46 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
     allPlayerIds.push(playerId);
   }
 
-  // For 2v2 matches, assign teams: shuffle player IDs, first 2 → 'alpha', last 2 → 'bravo'
-  if (mode === '2v2') {
-    // Shuffle allPlayerIds
+  // Assign teams for team modes
+  if (isTeamMode(mode)) {
+    // Shuffle allPlayerIds for random team assignment
     for (let i = allPlayerIds.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [allPlayerIds[i], allPlayerIds[j]] = [allPlayerIds[j], allPlayerIds[i]];
     }
     game.teamsEnabled = true;
-    game.teams.set(allPlayerIds[0], 'alpha');
-    game.teams.set(allPlayerIds[1], 'alpha');
-    game.teams.set(allPlayerIds[2], 'bravo');
-    game.teams.set(allPlayerIds[3], 'bravo');
+
+    if (mode === '2v2') {
+      // 2 teams of 2
+      game.teams.set(allPlayerIds[0], 'alpha');
+      game.teams.set(allPlayerIds[1], 'alpha');
+      game.teams.set(allPlayerIds[2], 'bravo');
+      game.teams.set(allPlayerIds[3], 'bravo');
+    } else if (mode === '3v3') {
+      // 2 teams of 3
+      game.teams.set(allPlayerIds[0], 'alpha');
+      game.teams.set(allPlayerIds[1], 'alpha');
+      game.teams.set(allPlayerIds[2], 'alpha');
+      game.teams.set(allPlayerIds[3], 'bravo');
+      game.teams.set(allPlayerIds[4], 'bravo');
+      game.teams.set(allPlayerIds[5], 'bravo');
+    } else if (mode === '2v2v2') {
+      // 3 teams of 2
+      game.teams.set(allPlayerIds[0], 'alpha');
+      game.teams.set(allPlayerIds[1], 'alpha');
+      game.teams.set(allPlayerIds[2], 'bravo');
+      game.teams.set(allPlayerIds[3], 'bravo');
+      game.teams.set(allPlayerIds[4], 'charlie');
+      game.teams.set(allPlayerIds[5], 'charlie');
+    }
   }
 
   // Start the game immediately (skip lobby phase)
   startGame(game);
 
   // Emit placement phase to all players
-  const qpPlacementDeadline = game.placementTimerConfig.enabled
-    ? Date.now() + game.placementTimerConfig.seconds * 1000
+  const qpPlacementDeadline = game.timerConfig.enabled
+    ? Date.now() + game.timerConfig.seconds * 1000
     : undefined;
   for (const pid of game.players.keys()) {
     emitToPlayer(pid, 'placement-phase', { game: toClientView(game, pid), placementDeadline: qpPlacementDeadline });
@@ -161,14 +196,32 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
 // ============================================================
 
 /** Auto-assign a player to the team with fewer members (alpha first, then bravo). */
+/** Assign player to the team with fewest members. Ties break: alpha → bravo → charlie. */
 function autoAssignTeam(game: import('@salvo/shared').Game, playerId: string): void {
-  let alphaCount = 0;
-  let bravoCount = 0;
+  // Determine which teams exist for this game type
+  const teamNames = game.gameType === '3-team'
+    ? ['alpha', 'bravo']
+    : game.gameType === '2-team'
+      ? (game.players.size > 4 ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'])
+      : ['alpha', 'bravo']; // fallback
+
+  const counts = new Map<string, number>();
+  for (const name of teamNames) counts.set(name, 0);
   for (const teamId of game.teams.values()) {
-    if (teamId === 'alpha') alphaCount++;
-    else if (teamId === 'bravo') bravoCount++;
+    if (counts.has(teamId)) counts.set(teamId, counts.get(teamId)! + 1);
   }
-  game.teams.set(playerId, alphaCount <= bravoCount ? 'alpha' : 'bravo');
+
+  // Pick team with fewest players (ties favor earlier in order)
+  let minTeam = teamNames[0];
+  let minCount = counts.get(minTeam) ?? 0;
+  for (const name of teamNames) {
+    const c = counts.get(name) ?? 0;
+    if (c < minCount) {
+      minTeam = name;
+      minCount = c;
+    }
+  }
+  game.teams.set(playerId, minTeam);
 }
 
 function emitToPlayer(playerId: string, event: string, data: unknown): void {
@@ -207,13 +260,13 @@ function broadcastToGame(gameId: string, event: string, data: unknown): void {
 function startPlacementTimer(gameId: string): void {
   const game = lobby.getGame(gameId);
   if (!game) return;
-  if (!game.placementTimerConfig.enabled) return;
+  if (!game.timerConfig.enabled) return;
 
   clearPlacementTimer(gameId);
 
   const timer = setTimeout(() => {
     handlePlacementTimeout(gameId);
-  }, game.placementTimerConfig.seconds * 1000);
+  }, game.timerConfig.seconds * 1000);
 
   placementTimers.set(gameId, timer);
 }
@@ -233,7 +286,7 @@ function handlePlacementTimeout(gameId: string): void {
   // Auto-place ships for all unready players
   for (const player of game.players.values()) {
     if (player.ships.length === 0) {
-      const placement = generatePlacement('easy');
+      const placement = generatePlacement('easy', game.rings, game.islands);
       const err = placeShips(game, player.id, placement);
       if (err) {
         console.warn(`Auto-placement failed for ${player.id}: ${err}`);
@@ -532,20 +585,11 @@ io.on('connection', (socket) => {
   // Broadcast updated online count (nextTick ensures the new socket's listeners are ready)
   process.nextTick(() => broadcastOnlineCount());
 
-  socket.on('create-game', ({ playerName, timerConfig, teamsEnabled, placementTimerConfig }: {
-    playerName: string;
-    timerConfig?: TimerConfig;
-    teamsEnabled?: boolean;
-    placementTimerConfig?: TimerConfig;
-  }) => {
+  socket.on('create-game', ({ playerName }: { playerName: string }) => {
     const playerId = crypto.randomUUID();
-    const timer = timerConfig ?? { enabled: false, seconds: 60 };
-    const placTimer = placementTimerConfig ?? { enabled: false, seconds: 30 };
-    const game = createGame(playerId, playerName, timer, 'private', teamsEnabled ?? false, placTimer);
-    // Auto-assign host to alpha in team games
-    if (game.teamsEnabled) {
-      game.teams.set(playerId, 'alpha');
-    }
+    // Defaults: FFA, 60s timer, 5 rings
+    const game = createGame(playerId, playerName);
+
     const code = lobby.generateUniqueCode();
 
     lobby.addGame(game, code);
@@ -556,6 +600,22 @@ io.on('connection', (socket) => {
     socket.emit('game-created', { code, playerId, gameId: game.id });
     socket.emit('game-state', { game: toClientView(game, playerId) });
     broadcastOnlineCount();
+  });
+
+  socket.on('update-game-options', (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number }) => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game) return;
+
+    const err = updateGameOptions(game, playerId, data);
+    if (err) {
+      socket.emit('error', { message: err });
+      return;
+    }
+
+    emitGameState(game.id);
   });
 
   socket.on('join-game', ({ code, playerName }: { code: string; playerName: string }) => {
@@ -610,7 +670,7 @@ io.on('connection', (socket) => {
     // Auto-assign bot to team in team games
     if (game.teamsEnabled && 'botId' in result) {
       // If a valid team was specified and that team has room, assign there
-      if (team === 'alpha' || team === 'bravo') {
+      if (team === 'alpha' || team === 'bravo' || team === 'charlie') {
         let teamCount = 0;
         for (const t of game.teams.values()) {
           if (t === team) teamCount++;
@@ -677,13 +737,13 @@ io.on('connection', (socket) => {
     // Auto-place ships for all bots
     for (const player of game.players.values()) {
       if (player.isBot && player.aiDifficulty) {
-        const placement = generatePlacement(player.aiDifficulty);
+        const placement = generatePlacement(player.aiDifficulty, game.rings, game.islands);
         placeShips(game, player.id, placement);
       }
     }
 
-    const startPlacementDeadline = game.placementTimerConfig.enabled
-      ? Date.now() + game.placementTimerConfig.seconds * 1000
+    const startPlacementDeadline = game.timerConfig.enabled
+      ? Date.now() + game.timerConfig.seconds * 1000
       : undefined;
     for (const pid of game.players.keys()) {
       if (!game.players.get(pid)?.isBot) {
@@ -692,7 +752,7 @@ io.on('connection', (socket) => {
     }
 
     // Start placement timer if enabled
-    if (game.placementTimerConfig.enabled) {
+    if (game.timerConfig.enabled) {
       startPlacementTimer(game.id);
     }
 
@@ -822,10 +882,9 @@ io.on('connection', (socket) => {
     };
 
     if (channel === 'team' && game.teamsEnabled) {
-      // Team chat: emit to sender + teammate only
+      // Team chat: emit to sender + all teammates
       emitToPlayer(playerId, 'chat-message', message);
-      const teammateId = getTeammate(game, playerId);
-      if (teammateId) {
+      for (const teammateId of getTeammates(game, playerId)) {
         emitToPlayer(teammateId, 'chat-message', message);
       }
     } else {
@@ -917,7 +976,7 @@ io.on('connection', (socket) => {
 
     // Validate preview payload
     if (!Array.isArray(ships) || ships.length > 4) return;
-    const coordPattern = /^[A-J](?:[1-9]|10)$/;
+    const coordPattern = /^-?\d+,-?\d+$/; // hex axial format "q,r"
     for (const ship of ships) {
       if (typeof ship.length !== 'number' || ship.length < 1 || ship.length > 4) return;
       if (!Array.isArray(ship.cells)) return;
@@ -926,8 +985,7 @@ io.on('connection', (socket) => {
       }
     }
 
-    const teammateId = getTeammate(game, playerId);
-    if (teammateId) {
+    for (const teammateId of getTeammates(game, playerId)) {
       emitToPlayer(teammateId, 'teammate-placement-preview', { ships });
     }
   });
@@ -1131,13 +1189,13 @@ io.on('connection', (socket) => {
       // Auto-place bot ships
       for (const p of game.players.values()) {
         if (p.isBot && p.aiDifficulty) {
-          const placement = generatePlacement(p.aiDifficulty);
+          const placement = generatePlacement(p.aiDifficulty, game.rings, game.islands);
           placeShips(game, p.id, placement);
         }
       }
 
-      const rematchPlacementDeadline = game.placementTimerConfig.enabled
-        ? Date.now() + game.placementTimerConfig.seconds * 1000
+      const rematchPlacementDeadline = game.timerConfig.enabled
+        ? Date.now() + game.timerConfig.seconds * 1000
         : undefined;
       for (const pid of game.players.keys()) {
         if (!game.players.get(pid)?.isBot) {
@@ -1146,7 +1204,7 @@ io.on('connection', (socket) => {
       }
 
       // Start placement timer if enabled
-      if (game.placementTimerConfig.enabled) {
+      if (game.timerConfig.enabled) {
         startPlacementTimer(game.id);
       }
 

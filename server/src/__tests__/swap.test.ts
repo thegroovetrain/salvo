@@ -1,22 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { createGame, addPlayer, addBot, removeBot } from '../game.js';
+import { addBot, removeBot } from '../game.js';
+import { makeTeamGame } from './helpers.js';
 import type { Game } from '@salvo/shared';
 
 // ============================================================
 // Helpers — mirrors the swap-team and swap-players socket handlers
 // ============================================================
-
-function makeTeamGame(): { game: Game; ids: string[] } {
-  const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 }, 'private', true);
-  addPlayer(game, 'p2', 'Bob');
-  addPlayer(game, 'p3', 'Carol');
-  addPlayer(game, 'p4', 'Dave');
-  game.teams.set('p1', 'alpha');
-  game.teams.set('p2', 'alpha');
-  game.teams.set('p3', 'bravo');
-  game.teams.set('p4', 'bravo');
-  return { game, ids: ['p1', 'p2', 'p3', 'p4'] };
-}
 
 /** Replicate swap-team handler logic */
 function swapTeam(game: Game, requesterId: string, targetPlayerId: string): boolean {
@@ -61,7 +50,7 @@ function swapPlayers(game: Game, requesterId: string, playerA: string, playerB: 
 
 describe('swap-team', () => {
   it('host can move a player to the other team', () => {
-    const { game } = makeTeamGame();
+    const { game } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     expect(game.teams.get('p3')).toBe('bravo');
     const ok = swapTeam(game, 'p1', 'p3');
     expect(ok).toBe(true);
@@ -69,7 +58,7 @@ describe('swap-team', () => {
   });
 
   it('player can move themselves', () => {
-    const { game } = makeTeamGame();
+    const { game } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     expect(game.teams.get('p3')).toBe('bravo');
     const ok = swapTeam(game, 'p3', 'p3');
     expect(ok).toBe(true);
@@ -77,14 +66,14 @@ describe('swap-team', () => {
   });
 
   it('rejects non-host moving another player', () => {
-    const { game } = makeTeamGame();
+    const { game } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     const ok = swapTeam(game, 'p2', 'p3');
     expect(ok).toBe(false);
     expect(game.teams.get('p3')).toBe('bravo');
   });
 
   it('rejects swap in non-lobby phase', () => {
-    const { game } = makeTeamGame();
+    const { game } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     game.phase = 'placement';
     const ok = swapTeam(game, 'p1', 'p3');
     expect(ok).toBe(false);
@@ -97,7 +86,7 @@ describe('swap-team', () => {
 
 describe('swap-players', () => {
   it('host can swap two players on different teams', () => {
-    const { game } = makeTeamGame();
+    const { game } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     // p1=alpha, p3=bravo
     const ok = swapPlayers(game, 'p1', 'p1', 'p3');
     expect(ok).toBe(true);
@@ -106,26 +95,26 @@ describe('swap-players', () => {
   });
 
   it('rejects non-host caller', () => {
-    const { game } = makeTeamGame();
+    const { game } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     const ok = swapPlayers(game, 'p2', 'p1', 'p3');
     expect(ok).toBe(false);
   });
 
   it('rejects swap in non-lobby phase', () => {
-    const { game } = makeTeamGame();
+    const { game } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     game.phase = 'placement';
     const ok = swapPlayers(game, 'p1', 'p1', 'p3');
     expect(ok).toBe(false);
   });
 
   it('rejects swapping a player with themselves', () => {
-    const { game } = makeTeamGame();
+    const { game } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     const ok = swapPlayers(game, 'p1', 'p2', 'p2');
     expect(ok).toBe(false);
   });
 
   it('rejects swapping two players on the same team', () => {
-    const { game } = makeTeamGame();
+    const { game } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     // p1 and p2 are both alpha
     const ok = swapPlayers(game, 'p1', 'p1', 'p2');
     expect(ok).toBe(false);
@@ -139,8 +128,7 @@ describe('swap-players', () => {
 
 describe('removeBot team cleanup', () => {
   it('removes bot team assignment so the slot is actually freed', () => {
-    const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 }, 'private', true);
-    game.teams.set('p1', 'alpha');
+    const { game } = makeTeamGame(['alpha']);
 
     // Add a bot to alpha
     const result = addBot(game, 'hard');

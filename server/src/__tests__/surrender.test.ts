@@ -7,46 +7,7 @@ import {
 import { ConnectionManager } from '../connections.js';
 import type { Game, ShipPlacement } from '@salvo/shared';
 import { isPlayerAlive } from '@salvo/shared';
-
-// ============================================================
-// Helpers — mirrors game.test.ts patterns
-// ============================================================
-
-function makeGame(playerCount: number = 2): { game: Game; playerIds: string[] } {
-  const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 });
-  const playerIds = ['p1'];
-  for (let i = 2; i <= playerCount; i++) {
-    const id = `p${i}`;
-    addPlayer(game, id, `Player${i}`);
-    playerIds.push(id);
-  }
-  return { game, playerIds };
-}
-
-function placementsForPlayer(playerIndex: number): ShipPlacement[] {
-  const rowBase = (playerIndex % 2) * 4;
-  const colBase = Math.floor(playerIndex / 2) * 5;
-  const rows = 'ABCDEFGHIJ';
-  const r0 = rows[rowBase];
-  const r1 = rows[rowBase + 1];
-  const r2 = rows[rowBase + 2];
-  const r3 = rows[rowBase + 3];
-  const c = colBase + 1;
-  return [
-    { length: 1, cells: [`${r0}${c}`] },
-    { length: 2, cells: [`${r1}${c}`, `${r1}${c + 1}`] },
-    { length: 3, cells: [`${r2}${c}`, `${r2}${c + 1}`, `${r2}${c + 2}`] },
-    { length: 4, cells: [`${r3}${c}`, `${r3}${c + 1}`, `${r3}${c + 2}`, `${r3}${c + 3}`] },
-  ];
-}
-
-function setupBattle(game: Game, playerIds: string[]): void {
-  startGame(game);
-  playerIds.forEach((id, i) => {
-    placeShips(game, id, placementsForPlayer(i));
-  });
-  beginPlaying(game);
-}
+import { makeGame, hexPlacements, allCellsForPlayer, setupBattle } from './helpers.js';
 
 // ============================================================
 // Surrender — Pure Game Logic Integration
@@ -117,6 +78,7 @@ describe('Surrender during placement phase', () => {
   it('removePlayer during placement works cleanly', () => {
     const { game } = makeGame(3);
     startGame(game);
+    game.islands = new Set();
     expect(game.phase).toBe('placement');
 
     removePlayer(game, 'p3');
@@ -127,6 +89,7 @@ describe('Surrender during placement phase', () => {
   it('host reassignment when host surrenders', () => {
     const { game } = makeGame(3);
     startGame(game);
+    game.islands = new Set();
 
     removePlayer(game, 'p1'); // p1 is host
     expect(game.hostId).toBe('p2'); // reassigned to next human

@@ -2,9 +2,12 @@ import {
   type Game, type Player, type Ship, type ShipPlacement,
   type ShotResult, type WireGame, type WirePlayer, type WireShip,
   type TimerConfig, type GameOverStats, type AiDifficulty, type GameMode,
-  isShipSunk, isPlayerAlive, playerShotCount,
-  SHIP_LENGTHS, SHIP_NAMES, GRID_SIZE, ROWS, BOT_NAME_POOLS,
+  isShipSunk, isPlayerAlive, playerShotCount, getTeammates, isTeamAlive,
+  SHIP_LENGTHS, SHIP_NAMES, BOT_NAME_POOLS, MODE_RINGS,
 } from '@salvo/shared';
+import {
+  parseHex, isValidHex, allHexes, hexDistance, hexNeighborsInBounds, hexToString,
+} from '../../shared/src/hex.js';
 import crypto from 'node:crypto';
 
 // ============================================================
@@ -14,10 +17,10 @@ import crypto from 'node:crypto';
 export function createGame(
   hostId: string,
   hostName: string,
-  timerConfig: TimerConfig,
+  timerConfig: TimerConfig = { enabled: true, seconds: 60 },
   mode: GameMode = 'private',
   teamsEnabled: boolean = false,
-  placementTimerConfig: TimerConfig = { enabled: false, seconds: 30 },
+  rings?: number,
 ): Game {
   const player: Player = { id: hostId, name: hostName, ships: [], isBot: false, aiDifficulty: null };
   const players = new Map<string, Player>();
@@ -31,43 +34,77 @@ export function createGame(
     hostId,
     turnOrder: [],
     currentTurnIndex: 0,
-    gridSize: 10,
+    rings: rings ?? MODE_RINGS[mode] ?? 5,
+    islands: new Set(),
     shots: new Set(),
     timerConfig,
-    placementTimerConfig,
     lastActivity: Date.now(),
     rematchAccepted: new Set(),
     playerStats: new Map(),
     firstBloodId: null,
     teams: new Map(),
     teamsEnabled,
+    gameType: teamsEnabled ? '2-team' : 'ffa',
   };
 }
 
 // ============================================================
-// Team Helpers
+// Game Options (lobby-phase updates)
 // ============================================================
 
-/** Returns the teammate's playerId, or null if no teammate found. */
-export function getTeammate(game: Game, playerId: string): string | null {
-  const myTeam = game.teams.get(playerId);
-  if (!myTeam) return null;
+export type GameType = 'ffa' | '2-team' | '3-team';
 
-  for (const [id, teamId] of game.teams) {
-    if (id !== playerId && teamId === myTeam) return id;
-  }
-  return null;
-}
+export function updateGameOptions(
+  game: Game,
+  requesterId: string,
+  options: { gameType?: GameType; timerSeconds?: number | null; rings?: number },
+): string | null {
+  if (game.phase !== 'lobby') return 'Game is not in lobby phase';
+  if (game.hostId !== requesterId) return 'Only the host can change game options';
 
-/** Returns true if any player on the given team has surviving ships. */
-export function isTeamAlive(game: Game, teamId: string): boolean {
-  for (const [playerId, team] of game.teams) {
-    if (team === teamId) {
-      const player = game.players.get(playerId);
-      if (player && isPlayerAlive(player)) return true;
+  if (options.gameType !== undefined) {
+    const teamsEnabled = options.gameType !== 'ffa';
+    game.teamsEnabled = teamsEnabled;
+    game.gameType = options.gameType;
+
+    if (teamsEnabled) {
+      // Determine team names based on game type and player count
+      let teamNames: string[];
+      if (options.gameType === '2-team') {
+        // Teams of 2: 2 teams for ≤4 players, 3 teams for 5-6
+        teamNames = game.players.size > 4 ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'];
+      } else {
+        // Teams of 3: always 2 teams
+        teamNames = ['alpha', 'bravo'];
+      }
+      // Distribute players evenly across teams (round-robin)
+      game.teams.clear();
+      let teamIdx = 0;
+      for (const playerId of game.players.keys()) {
+        game.teams.set(playerId, teamNames[teamIdx % teamNames.length]);
+        teamIdx++;
+      }
+    } else {
+      game.teams.clear();
     }
   }
-  return false;
+
+  if (options.timerSeconds !== undefined) {
+    if (options.timerSeconds === null || options.timerSeconds === 0) {
+      game.timerConfig = { enabled: false, seconds: 60 };
+    } else {
+      game.timerConfig = { enabled: true, seconds: options.timerSeconds };
+    }
+  }
+
+  if (options.rings !== undefined) {
+    if (options.rings >= 4 && options.rings <= 6) {
+      game.rings = options.rings;
+    }
+  }
+
+  game.lastActivity = Date.now();
+  return null;
 }
 
 // ============================================================
@@ -76,26 +113,25 @@ export function isTeamAlive(game: Game, teamId: string): boolean {
 
 export function addPlayer(game: Game, playerId: string, playerName: string): string | null {
   if (game.phase !== 'lobby') return 'Game is not in lobby phase';
-  if (game.players.size >= 4) return 'Game is full (4 players max)';
+  if (game.players.size >= 6) return 'Game is full (6 players max)';
   if (game.players.has(playerId)) return 'Already in this game';
 
   game.players.set(playerId, { id: playerId, name: playerName, ships: [], isBot: false, aiDifficulty: null });
   game.lastActivity = Date.now();
-  return null; // success
+  return null;
 }
 
 export function addBot(game: Game, difficulty: AiDifficulty): { botId: string } | { error: string } {
   if (game.phase !== 'lobby') return { error: 'Game is not in lobby phase' };
-  if (game.players.size >= 4) return { error: 'Game is full (4 players max)' };
+  if (game.players.size >= 6) return { error: 'Game is full (6 players max)' };
 
   const botId = `bot-${crypto.randomUUID().slice(0, 8)}`;
 
-  // Pick a random unique name from the difficulty's pool
   const usedNames = new Set([...game.players.values()].map(p => p.name));
   const pool = BOT_NAME_POOLS[difficulty].filter(n => !usedNames.has(n));
   const name = pool.length > 0
     ? pool[Math.floor(Math.random() * pool.length)]
-    : `Bot ${game.players.size}`; // fallback (shouldn't happen with 10 names and max 3 bots)
+    : `Bot ${game.players.size}`;
 
   game.players.set(botId, { id: botId, name, ships: [], isBot: true, aiDifficulty: difficulty });
   game.lastActivity = Date.now();
@@ -117,22 +153,109 @@ export function canStartGame(game: Game, requesterId: string): string | null {
   if (requesterId !== game.hostId) return 'Only the host can start the game';
   if (game.players.size < 2) return 'Need at least 2 players';
 
-  // Team balance validation: when teams are enabled, require exactly 2 per team
+  // Team balance validation
   if (game.teamsEnabled) {
     const teamCounts = new Map<string, number>();
     for (const teamId of game.teams.values()) {
       teamCounts.set(teamId, (teamCounts.get(teamId) ?? 0) + 1);
     }
     const counts = [...teamCounts.values()];
-    if (counts.length !== 2 || counts.some(c => c !== 2)) {
-      return 'Teams must be balanced — exactly 2 players per team';
+    // All teams must have equal size
+    if (counts.length < 2 || !counts.every(c => c === counts[0])) {
+      return 'Teams must be balanced — equal players per team';
     }
   }
 
   return null;
 }
 
+// ============================================================
+// Island Generation
+// ============================================================
+
+/** Generate random island hexes for the game board. */
+export function generateIslands(rings: number, playerCount: number): Set<string> {
+  // Island count scales inversely with player count
+  let targetCount: number;
+  if (playerCount <= 2) targetCount = 8;
+  else if (playerCount <= 4) targetCount = 6;
+  else targetCount = 4;
+
+  const allCoords = allHexes(rings);
+  // Exclude center rings (0-1) for playability
+  const candidates = allCoords.filter(coord => {
+    const h = parseHex(coord)!;
+    return hexDistance({ q: 0, r: 0 }, h) >= 2;
+  });
+
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const islands = pickRandomIslands(candidates, targetCount);
+
+    // Validate: enough open hexes
+    const openCount = allCoords.length - islands.size;
+    const minOpen = playerCount * 10 + 10;
+    if (openCount < minOpen) {
+      targetCount = Math.max(0, targetCount - 2);
+      continue;
+    }
+
+    // Validate: no isolated regions < 10 hexes
+    if (hasSmallIsolatedRegion(rings, islands)) {
+      continue;
+    }
+
+    return islands;
+  }
+
+  // Fallback: return fewer or no islands
+  return new Set();
+}
+
+function pickRandomIslands(candidates: string[], count: number): Set<string> {
+  const shuffled = [...candidates];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return new Set(shuffled.slice(0, count));
+}
+
+/** BFS to check if any contiguous open region has fewer than 10 hexes */
+function hasSmallIsolatedRegion(rings: number, islands: Set<string>): boolean {
+  const allCoords = allHexes(rings);
+  const open = new Set(allCoords.filter(c => !islands.has(c)));
+  const visited = new Set<string>();
+
+  for (const start of open) {
+    if (visited.has(start)) continue;
+
+    // BFS from this open hex
+    const region: string[] = [];
+    const queue = [start];
+    visited.add(start);
+
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      region.push(current);
+      const h = parseHex(current)!;
+      for (const neighbor of hexNeighborsInBounds(h.q, h.r, rings)) {
+        const nStr = hexToString(neighbor.q, neighbor.r);
+        if (open.has(nStr) && !visited.has(nStr)) {
+          visited.add(nStr);
+          queue.push(nStr);
+        }
+      }
+    }
+
+    if (region.length < 10) return true;
+  }
+
+  return false;
+}
+
 export function startGame(game: Game): void {
+  // Generate islands at lobby→placement transition (before placement begins)
+  game.islands = generateIslands(game.rings, game.players.size);
   game.phase = 'placement';
   game.lastActivity = Date.now();
 }
@@ -141,49 +264,66 @@ export function startGame(game: Game): void {
 // Ship Placement Validation
 // ============================================================
 
-function parseCoord(coord: string): { row: number; col: number } | null {
-  if (coord.length < 2 || coord.length > 3) return null;
-  const rowChar = coord[0].toUpperCase();
-  const rowIndex = ROWS.indexOf(rowChar);
-  if (rowIndex === -1) return null;
-  const col = parseInt(coord.slice(1), 10);
-  if (isNaN(col) || col < 1 || col > GRID_SIZE) return null;
-  return { row: rowIndex, col: col - 1 };
-}
-
-function validateShipCells(cells: string[], expectedLength: number): string | null {
+function validateShipCells(cells: string[], expectedLength: number, rings: number): string | null {
   if (cells.length !== expectedLength) {
     return `Ship should have ${expectedLength} cells, got ${cells.length}`;
   }
 
-  const parsed = cells.map(parseCoord);
+  // Parse all cells
+  const parsed = cells.map(parseHex);
   if (parsed.some(p => p === null)) return 'Invalid coordinate';
+  const hexes = parsed as { q: number; r: number }[];
 
-  const coords = parsed as { row: number; col: number }[];
+  // All cells must be valid
+  if (hexes.some(h => !isValidHex(h.q, h.r, rings))) return 'Coordinate out of bounds';
 
-  // Check if cells form a straight horizontal or vertical line
-  const allSameRow = coords.every(c => c.row === coords[0].row);
-  const allSameCol = coords.every(c => c.col === coords[0].col);
-  if (!allSameRow && !allSameCol) return 'Ship must be horizontal or vertical';
+  // For length 1, just one valid cell is enough
+  if (expectedLength === 1) return null;
 
-  // Check cells are contiguous
-  if (allSameRow) {
-    const cols = coords.map(c => c.col).sort((a, b) => a - b);
-    for (let i = 1; i < cols.length; i++) {
-      if (cols[i] !== cols[i - 1] + 1) return 'Ship cells must be contiguous';
+  // Check if cells form a straight line along one of 6 hex directions
+  const anchor = hexes[0];
+  let foundDirection = false;
+
+  for (let dirIdx = 0; dirIdx < 6; dirIdx++) {
+    // Check if this ship matches this direction from anchor
+    const expected = [];
+    for (let i = 0; i < expectedLength; i++) {
+      const dq = hexes[i].q - anchor.q;
+      const dr = hexes[i].r - anchor.r;
+      expected.push({ dq, dr });
     }
-  } else {
-    const rows = coords.map(c => c.row).sort((a, b) => a - b);
-    for (let i = 1; i < rows.length; i++) {
-      if (rows[i] !== rows[i - 1] + 1) return 'Ship cells must be contiguous';
+
+    // The ship is valid along a direction if each cell is the anchor + i * direction
+    // Try to find the direction vector from the first two cells
+    const dq = hexes[1].q - anchor.q;
+    const dr = hexes[1].r - anchor.r;
+
+    // Check all cells follow this direction
+    let valid = true;
+    for (let i = 0; i < expectedLength; i++) {
+      if (hexes[i].q !== anchor.q + dq * i || hexes[i].r !== anchor.r + dr * i) {
+        valid = false;
+        break;
+      }
+    }
+
+    if (valid) {
+      // Verify the direction vector is one of the 6 hex directions
+      const isHexDir = Math.abs(dq) <= 1 && Math.abs(dr) <= 1 && Math.abs(dq + dr) <= 1
+        && (dq !== 0 || dr !== 0);
+      if (isHexDir) {
+        foundDirection = true;
+        break;
+      }
     }
   }
+
+  if (!foundDirection) return 'Ship must follow a hex axis';
 
   return null;
 }
 
-export function validatePlacement(placements: ShipPlacement[]): string | null {
-  // Must have exactly one ship of each required length
+export function validatePlacement(placements: ShipPlacement[], rings: number, islands: Set<string>): string | null {
   const requiredLengths = [...SHIP_LENGTHS].sort();
   const providedLengths = placements.map(p => p.length).sort();
   if (providedLengths.length !== requiredLengths.length) {
@@ -197,17 +337,17 @@ export function validatePlacement(placements: ShipPlacement[]): string | null {
 
   // Validate each ship's cells
   for (const placement of placements) {
-    const err = validateShipCells(placement.cells, placement.length);
+    const err = validateShipCells(placement.cells, placement.length, rings);
     if (err) return `${SHIP_NAMES[placement.length]}: ${err}`;
   }
 
-  // Check for overlapping cells between player's own ships
+  // Check for overlapping cells and island collisions
   const allCells = new Set<string>();
   for (const placement of placements) {
     for (const cell of placement.cells) {
-      const normalized = cell[0].toUpperCase() + cell.slice(1);
-      if (allCells.has(normalized)) return `Overlapping ships at ${normalized}`;
-      allCells.add(normalized);
+      if (islands.has(cell)) return `Ship placed on island at ${cell}`;
+      if (allCells.has(cell)) return `Overlapping ships at ${cell}`;
+      allCells.add(cell);
     }
   }
 
@@ -220,12 +360,12 @@ export function placeShips(game: Game, playerId: string, placements: ShipPlaceme
   if (!player) return 'Player not in game';
   if (player.ships.length > 0) return 'Ships already placed';
 
-  const err = validatePlacement(placements);
+  const err = validatePlacement(placements, game.rings, game.islands);
   if (err) return err;
 
   player.ships = placements.map((p): Ship => ({
     length: p.length,
-    cells: p.cells.map((c: string) => c[0].toUpperCase() + c.slice(1)),
+    cells: [...p.cells],  // hex coords are already canonical "q,r" format
     hits: new Set<string>(),
   }));
 
@@ -241,9 +381,8 @@ export function allShipsPlaced(game: Game): boolean {
 }
 
 export function beginPlaying(game: Game): void {
-  // Generate turn order
+  // Generate turn order: simple team alternation
   if (game.teamsEnabled && game.teams.size > 0) {
-    // ABBA turn order: group by team, shuffle within each team, interleave [A1, B1, B2, A2]
     const teamGroups = new Map<string, string[]>();
     for (const [playerId, teamId] of game.teams) {
       if (!teamGroups.has(teamId)) teamGroups.set(teamId, []);
@@ -258,18 +397,26 @@ export function beginPlaying(game: Game): void {
       }
     }
 
-    // Pick two teams randomly
+    // Shuffle team order
     const teamIds = [...teamGroups.keys()];
-    if (Math.random() < 0.5) {
-      [teamIds[0], teamIds[1]] = [teamIds[1], teamIds[0]];
+    for (let i = teamIds.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [teamIds[i], teamIds[j]] = [teamIds[j], teamIds[i]];
     }
-    const teamA = teamGroups.get(teamIds[0])!;
-    const teamB = teamGroups.get(teamIds[1])!;
 
-    // ABBA interleave: [A1, B1, B2, A2]
-    game.turnOrder = [teamA[0], teamB[0], teamB[1], teamA[1]];
+    // Alternating: [A1, B1, C1, A2, B2, C2, ...]
+    const teams = teamIds.map(id => teamGroups.get(id)!);
+    const maxSize = Math.max(...teams.map(t => t.length));
+    game.turnOrder = [];
+    for (let slot = 0; slot < maxSize; slot++) {
+      for (const team of teams) {
+        if (slot < team.length) {
+          game.turnOrder.push(team[slot]);
+        }
+      }
+    }
   } else {
-    // Fallback: random shuffle (non-team or empty teams)
+    // FFA / non-team: random shuffle
     const ids = [...game.players.keys()];
     for (let i = ids.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
@@ -322,14 +469,15 @@ export function validateSalvo(game: Game, playerId: string, coords: string[]): s
 
   // Validate each coordinate
   for (const coord of coords) {
-    if (!parseCoord(coord)) return `Invalid coordinate: ${coord}`;
-    const normalized = coord[0].toUpperCase() + coord.slice(1);
-    if (game.shots.has(normalized)) return `Already shot at ${normalized}`;
+    const hex = parseHex(coord);
+    if (!hex) return `Invalid coordinate: ${coord}`;
+    if (!isValidHex(hex.q, hex.r, game.rings)) return `Coordinate out of bounds: ${coord}`;
+    if (game.islands.has(coord)) return `Cannot shoot at island: ${coord}`;
+    if (game.shots.has(coord)) return `Already shot at ${coord}`;
   }
 
   // Check for duplicates within the salvo
-  const normalized = coords.map(c => c[0].toUpperCase() + c.slice(1));
-  if (new Set(normalized).size !== normalized.length) {
+  if (new Set(coords).size !== coords.length) {
     return 'Duplicate coordinates in salvo';
   }
 
@@ -338,10 +486,9 @@ export function validateSalvo(game: Game, playerId: string, coords: string[]): s
 
 export function fireSalvo(game: Game, playerId: string, coords: string[]): ShotResult[] {
   const results: ShotResult[] = [];
-  const normalizedCoords = coords.map(c => c[0].toUpperCase() + c.slice(1));
 
   // Phase 1: Resolve all shots atomically (don't check alive mid-salvo)
-  for (const coord of normalizedCoords) {
+  for (const coord of coords) {
     game.shots.add(coord);
 
     const shotResult: ShotResult = { coord, hits: [], miss: true };
@@ -369,7 +516,7 @@ export function fireSalvo(game: Game, playerId: string, coords: string[]): ShotR
   // Phase 2: Accumulate stats for the shooter
   const shooterStats = game.playerStats.get(playerId);
   if (shooterStats) {
-    shooterStats.shotsFired += normalizedCoords.length;
+    shooterStats.shotsFired += coords.length;
     shooterStats.turnsTaken += 1;
 
     for (const result of results) {
@@ -400,7 +547,6 @@ export function fireSalvo(game: Game, playerId: string, coords: string[]): ShotR
 export function advanceTurn(game: Game): void {
   if (game.phase !== 'playing') return;
 
-  // Find next alive player
   const numPlayers = game.turnOrder.length;
   let nextIndex = (game.currentTurnIndex + 1) % numPlayers;
   let checked = 0;
@@ -421,7 +567,6 @@ export function checkGameOver(game: Game): GameOverStats | null {
   if (game.phase !== 'playing') return null;
 
   if (game.teamsEnabled) {
-    // Team mode: check team-level survival
     const teamIds = new Set(game.teams.values());
     const aliveTeams: string[] = [];
     for (const teamId of teamIds) {
@@ -430,13 +575,12 @@ export function checkGameOver(game: Game): GameOverStats | null {
       }
     }
 
-    if (aliveTeams.length > 1) return null; // game continues
+    if (aliveTeams.length > 1) return null;
 
     game.phase = 'finished';
     game.lastActivity = Date.now();
 
     if (aliveTeams.length === 1) {
-      // One team survives — find individual winner (first alive player on winning team)
       const winnerTeamId = aliveTeams[0];
       const winnerId = [...game.teams.entries()]
         .find(([pid, tid]) => {
@@ -446,14 +590,11 @@ export function checkGameOver(game: Game): GameOverStats | null {
         ?.[0] ?? null;
       return computeGameOverStats(game, winnerId, winnerTeamId);
     } else {
-      // Both teams eliminated same salvo = draw
       return computeGameOverStats(game, null, null);
     }
   }
 
-  // Non-team mode: existing logic
   const alivePlayers = [...game.players.values()].filter(isPlayerAlive);
-
   if (alivePlayers.length > 1) return null;
 
   game.phase = 'finished';
@@ -466,7 +607,7 @@ export function checkGameOver(game: Game): GameOverStats | null {
 function computeGameOverStats(game: Game, winnerId: string | null, winnerTeamId: string | null): GameOverStats {
   const playerStats: GameOverStats['playerStats'] = {};
 
-  for (const [id, player] of game.players) {
+  for (const [id] of game.players) {
     const stats = game.playerStats.get(id);
     const shotsFired = stats?.shotsFired ?? 0;
     const hitsLanded = stats?.hitsLanded ?? 0;
@@ -480,26 +621,25 @@ function computeGameOverStats(game: Game, winnerId: string | null, winnerTeamId:
     };
   }
 
-  // Generate highlights
   const highlights: string[] = [];
   const entries = [...game.players.entries()].map(([id, p]) => ({
     id, name: p.name, ...playerStats[id],
   }));
 
-  // Sharpshooter — highest accuracy (min 3 shots to qualify)
+  // Sharpshooter
   const qualified = entries.filter(e => e.shotsFired >= 3);
   if (qualified.length > 0) {
     const best = qualified.reduce((a, b) => a.accuracy > b.accuracy ? a : b);
     highlights.push(`Sharpshooter: ${best.name} (${Math.round(best.accuracy * 100)}% accuracy)`);
   }
 
-  // Most Destructive — most ships sunk
+  // Most Destructive
   const mostSunk = entries.reduce((a, b) => a.shipsSunk > b.shipsSunk ? a : b);
   if (mostSunk.shipsSunk > 0) {
     highlights.push(`Most Destructive: ${mostSunk.name} (${mostSunk.shipsSunk} ships sunk)`);
   }
 
-  // Friendly Fire Champion — most self-hits (only if someone actually did it)
+  // Friendly Fire Champion
   const mostFF = entries.reduce((a, b) => a.friendlyFireHits > b.friendlyFireHits ? a : b);
   if (mostFF.friendlyFireHits > 0) {
     highlights.push(`Friendly Fire Champion: ${mostFF.name} (${mostFF.friendlyFireHits} self-hits)`);
@@ -513,17 +653,16 @@ function computeGameOverStats(game: Game, winnerId: string | null, winnerTeamId:
     }
   }
 
-  // Team aggregate highlights (only for team games)
+  // Team aggregate highlights
   if (game.teamsEnabled && game.teams.size > 0) {
     const teamIds = [...new Set(game.teams.values())];
-    const teamNames: Record<string, string> = { alpha: 'Team Alpha', bravo: 'Team Bravo' };
+    const teamNames: Record<string, string> = { alpha: 'Team Alpha', bravo: 'Team Bravo', charlie: 'Team Charlie' };
 
     for (const teamId of teamIds) {
       const teamPlayerIds = [...game.teams.entries()]
         .filter(([, tid]) => tid === teamId)
         .map(([pid]) => pid);
 
-      // Team accuracy
       let totalShots = 0;
       let totalHits = 0;
       let totalSunk = 0;
@@ -556,10 +695,7 @@ function computeGameOverStats(game: Game, winnerId: string | null, winnerTeamId:
 export function forfeitPlayer(game: Game, playerId: string): void {
   const player = game.players.get(playerId);
   if (!player) return;
-
-  // Clear ships entirely — silent removal, no hit markers on the shared board
   player.ships = [];
-
   game.lastActivity = Date.now();
 }
 
@@ -570,6 +706,7 @@ export function forfeitPlayer(game: Game, playerId: string): void {
 export function resetForRematch(game: Game): void {
   game.phase = 'placement';
   game.shots = new Set();
+  game.islands = generateIslands(game.rings, game.players.size);
   game.turnOrder = [];
   game.currentTurnIndex = 0;
   game.lastActivity = Date.now();
@@ -589,7 +726,6 @@ export function removePlayer(game: Game, playerId: string): void {
   game.players.delete(playerId);
   game.rematchAccepted.delete(playerId);
   game.teams.delete(playerId);
-  // If host left, reassign to first remaining human
   if (game.hostId === playerId) {
     for (const p of game.players.values()) {
       if (!p.isBot) {
@@ -605,7 +741,6 @@ export function removePlayer(game: Game, playerId: string): void {
 //
 // SECURITY: This is the single chokepoint for all outbound state.
 // Each player only sees their own ship positions (and teammate's).
-// Other players' ships are visible only as hit/sunk info via ShotResults.
 // ============================================================
 
 function serializeShipForOwner(ship: Ship): WireShip {
@@ -620,18 +755,16 @@ function serializeShipForOwner(ship: Ship): WireShip {
 function serializeShipForOthers(ship: Ship): WireShip {
   return {
     length: ship.length,
-    cells: [],     // NEVER reveal positions
-    hits: [],      // hits are communicated via ShotResult events
+    cells: [],
+    hits: [],
     sunk: isShipSunk(ship),
   };
 }
 
 function serializeShipForEliminated(_ship: Ship): WireShip {
-  // Eliminated players' ships: sunk is always true,
-  // cells are known because every cell was hit (and revealed via ShotResults)
   return {
     length: _ship.length,
-    cells: [],     // Still don't leak — clients reconstruct from shot history
+    cells: [],
     hits: [..._ship.hits],
     sunk: true,
   };
@@ -663,7 +796,6 @@ export function toClientView(game: Game, viewerId: string): WireGame {
     players[id] = serializePlayer(player, isOwner, isTeammate);
   }
 
-  // Serialize teams Map to Record
   const teamsRecord: Record<string, string> = {};
   for (const [playerId, teamId] of game.teams) {
     teamsRecord[playerId] = teamId;
@@ -676,11 +808,12 @@ export function toClientView(game: Game, viewerId: string): WireGame {
     players,
     turnOrder: game.turnOrder,
     currentTurnIndex: game.currentTurnIndex,
-    gridSize: game.gridSize,
+    rings: game.rings,
+    islands: [...game.islands],
     shots: [...game.shots],
     timerConfig: game.timerConfig,
-    placementTimerConfig: game.placementTimerConfig,
     teamsEnabled: game.teamsEnabled,
     teams: teamsRecord,
+    gameType: game.gameType,
   };
 }

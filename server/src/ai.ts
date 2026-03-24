@@ -1,9 +1,12 @@
 import {
   type Game, type Player, type Ship, type ShipPlacement, type AiDifficulty,
-  isShipSunk, isPlayerAlive, playerShotCount,
-  SHIP_LENGTHS, GRID_SIZE, ROWS,
+  isShipSunk, isPlayerAlive, playerShotCount, getTeammates,
+  SHIP_LENGTHS,
 } from '@salvo/shared';
-import { getTeammate } from './game.js';
+import {
+  allHexes, parseHex, hexToString, hexNeighborsInBounds, isValidHex,
+  hexLinear, hexDistance, HEX_DIRECTIONS,
+} from '../../shared/src/hex.js';
 
 // ============================================================
 // AI Opponent — Classic Game AI (not LLM)
@@ -11,7 +14,7 @@ import { getTeammate } from './game.js';
 // STRATEGY TIERS:
 //   Easy       — random targeting, CAN hit own ships
 //   Medium     — hunt/target, avoids own ships
-//   Hard       — checkerboard hunt, per-player tracking, probability
+//   Hard       — hex 3-coloring hunt, per-player tracking
 //   Impossible — reads all ship positions (cheats), optimal targeting
 // ============================================================
 
@@ -19,26 +22,8 @@ import { getTeammate } from './game.js';
 // Shared Helpers
 // ============================================================
 
-function coordToId(row: number, col: number): string {
-  return `${ROWS[row]}${col + 1}`;
-}
-
-function parseCoord(coord: string): { row: number; col: number } {
-  return { row: ROWS.indexOf(coord[0]), col: parseInt(coord.slice(1), 10) - 1 };
-}
-
-function allCoords(): string[] {
-  const coords: string[] = [];
-  for (let r = 0; r < GRID_SIZE; r++) {
-    for (let c = 0; c < GRID_SIZE; c++) {
-      coords.push(coordToId(r, c));
-    }
-  }
-  return coords;
-}
-
 function getUnshotCoords(game: Game): string[] {
-  return allCoords().filter(c => !game.shots.has(c));
+  return allHexes(game.rings).filter(c => !game.shots.has(c) && !game.islands.has(c));
 }
 
 function getOwnShipCells(game: Game, botId: string): Set<string> {
@@ -49,11 +34,18 @@ function getOwnShipCells(game: Game, botId: string): Set<string> {
 
 function getTeammateShipCells(game: Game, botId: string): Set<string> {
   if (!game.teamsEnabled) return new Set();
-  const teammateId = getTeammate(game, botId);
-  if (!teammateId) return new Set();
-  const teammate = game.players.get(teammateId);
-  if (!teammate) return new Set();
-  return new Set(teammate.ships.flatMap(s => s.cells));
+  const cells = new Set<string>();
+  for (const teammateId of getTeammates(game, botId)) {
+    const teammate = game.players.get(teammateId);
+    if (teammate) {
+      for (const ship of teammate.ships) {
+        for (const cell of ship.cells) {
+          cells.add(cell);
+        }
+      }
+    }
+  }
+  return cells;
 }
 
 function pickRandom<T>(arr: T[]): T {
@@ -69,14 +61,10 @@ function shuffled<T>(arr: T[]): T[] {
   return copy;
 }
 
-function getAdjacentCoords(coord: string): string[] {
-  const { row, col } = parseCoord(coord);
-  const adj: string[] = [];
-  if (row > 0) adj.push(coordToId(row - 1, col));
-  if (row < GRID_SIZE - 1) adj.push(coordToId(row + 1, col));
-  if (col > 0) adj.push(coordToId(row, col - 1));
-  if (col < GRID_SIZE - 1) adj.push(coordToId(row, col + 1));
-  return adj;
+function getAdjacentCoords(coord: string, rings: number): string[] {
+  const h = parseHex(coord);
+  if (!h) return [];
+  return hexNeighborsInBounds(h.q, h.r, rings).map(n => hexToString(n.q, n.r));
 }
 
 /** Find all hit cells that belong to ships that are NOT yet sunk */
@@ -99,44 +87,32 @@ function getActiveHits(game: Game, excludeBotId: string): string[] {
 // Ship Placement
 // ============================================================
 
-function getShipCells(startRow: number, startCol: number, length: number, horizontal: boolean): string[] | null {
-  const cells: string[] = [];
-  for (let i = 0; i < length; i++) {
-    const r = horizontal ? startRow : startRow + i;
-    const c = horizontal ? startCol + i : startCol;
-    if (r >= GRID_SIZE || c >= GRID_SIZE) return null;
-    cells.push(coordToId(r, c));
-  }
-  return cells;
-}
-
-export function generatePlacement(difficulty: AiDifficulty): ShipPlacement[] {
+export function generatePlacement(difficulty: AiDifficulty, rings: number = 5, islands: Set<string> = new Set()): ShipPlacement[] {
   const occupied = new Set<string>();
   const ships: ShipPlacement[] = [];
   const lengths = [...SHIP_LENGTHS].sort((a, b) => b - a);
 
+  const allValidHexes = allHexes(rings).filter(c => !islands.has(c));
+
   for (const length of lengths) {
     let placed = false;
     for (let attempt = 0; attempt < 200; attempt++) {
-      const horizontal = Math.random() < 0.5;
+      // Pick a random anchor hex
+      const anchor = pickRandom(allValidHexes);
+      const h = parseHex(anchor)!;
 
-      let row: number, col: number;
+      // For hard/impossible: prefer inner rings (closer to center)
       if (difficulty === 'hard' || difficulty === 'impossible') {
-        // Strategic: prefer interior cells, avoid corners/edges
-        row = 1 + Math.floor(Math.random() * (GRID_SIZE - 2));
-        col = 1 + Math.floor(Math.random() * (GRID_SIZE - 2));
-      } else {
-        row = Math.floor(Math.random() * GRID_SIZE);
-        col = Math.floor(Math.random() * GRID_SIZE);
+        const dist = hexDistance({ q: 0, r: 0 }, h);
+        if (dist >= rings - 1 && Math.random() < 0.7) continue; // bias away from outer ring
       }
 
-      const maxRow = horizontal ? GRID_SIZE : GRID_SIZE - length;
-      const maxCol = horizontal ? GRID_SIZE - length : GRID_SIZE;
-      if (row > maxRow || col > maxCol) continue;
+      // Pick a random direction (0-5)
+      const dir = Math.floor(Math.random() * 6);
 
-      const cells = getShipCells(row, col, length, horizontal);
+      const cells = hexLinear(h.q, h.r, dir, length, rings);
       if (!cells) continue;
-      if (cells.some(c => occupied.has(c))) continue;
+      if (cells.some(c => occupied.has(c) || islands.has(c))) continue;
 
       cells.forEach(c => occupied.add(c));
       ships.push({ length, cells });
@@ -145,7 +121,7 @@ export function generatePlacement(difficulty: AiDifficulty): ShipPlacement[] {
     }
     if (!placed) {
       // Fallback: retry entire placement
-      return generatePlacement(difficulty);
+      return generatePlacement(difficulty, rings, islands);
     }
   }
 
@@ -173,18 +149,15 @@ export function chooseSalvo(game: Game, botId: string, difficulty: AiDifficulty)
     case 'impossible': targets = chooseImpossible(game, botId, unshot, shotCount); break;
   }
 
-  // Safety: ensure we never return more targets than available unshot cells
   return targets.slice(0, Math.min(shotCount, unshot.length));
 }
 
 // ============================================================
 // EASY — Random Randy
-// Fires at random cells. CAN hit own ships. No tracking.
 // ============================================================
 
 function chooseEasy(game: Game, _botId: string, unshot: string[], count: number): string[] {
-  const shuffledCells = shuffled(unshot);
-  return shuffledCells.slice(0, count);
+  return shuffled(unshot).slice(0, count);
 }
 
 // ============================================================
@@ -196,16 +169,16 @@ function chooseMedium(game: Game, botId: string, unshot: string[], count: number
   const ownCells = getOwnShipCells(game, botId);
   const teammateCells = getTeammateShipCells(game, botId);
   const safeUnshot = unshot.filter(c => !ownCells.has(c) && !teammateCells.has(c));
-  const pool = safeUnshot.length > 0 ? safeUnshot : unshot; // fallback if all safe cells shot
+  const pool = safeUnshot.length > 0 ? safeUnshot : unshot;
 
   const targets: string[] = [];
   const used = new Set<string>();
 
-  // TARGET mode: look for adjacent cells to active hits
+  // TARGET: look for adjacent cells to active hits
   const activeHits = getActiveHits(game, botId);
   for (const hit of shuffled(activeHits)) {
     if (targets.length >= count) break;
-    const adj = getAdjacentCoords(hit).filter(c => pool.includes(c) && !used.has(c));
+    const adj = getAdjacentCoords(hit, game.rings).filter(c => pool.includes(c) && !used.has(c));
     for (const a of shuffled(adj)) {
       if (targets.length >= count) break;
       targets.push(a);
@@ -213,7 +186,7 @@ function chooseMedium(game: Game, botId: string, unshot: string[], count: number
     }
   }
 
-  // HUNT mode: fill remaining with random
+  // HUNT: fill remaining with random
   if (targets.length < count) {
     const remaining = pool.filter(c => !used.has(c));
     for (const c of shuffled(remaining)) {
@@ -228,7 +201,7 @@ function chooseMedium(game: Game, botId: string, unshot: string[], count: number
 
 // ============================================================
 // HARD — Strategic Sara
-// Checkerboard hunting, per-player tracking, probability-aware.
+// Hex 3-coloring hunt, per-player tracking.
 // ============================================================
 
 function chooseHard(game: Game, botId: string, unshot: string[], count: number): string[] {
@@ -240,13 +213,12 @@ function chooseHard(game: Game, botId: string, unshot: string[], count: number):
   const targets: string[] = [];
   const used = new Set<string>();
 
-  // TARGET mode: probe adjacent to active hits (same as medium but smarter)
+  // TARGET: probe adjacent to active hits
   const activeHits = getActiveHits(game, botId);
   if (activeHits.length > 0) {
-    // Try to extend in the direction of existing hits (if 2+ hits are collinear)
     for (const hit of shuffled(activeHits)) {
       if (targets.length >= count) break;
-      const adj = getAdjacentCoords(hit).filter(c => pool.includes(c) && !used.has(c));
+      const adj = getAdjacentCoords(hit, game.rings).filter(c => pool.includes(c) && !used.has(c));
       for (const a of shuffled(adj)) {
         if (targets.length >= count) break;
         targets.push(a);
@@ -255,16 +227,16 @@ function chooseHard(game: Game, botId: string, unshot: string[], count: number):
     }
   }
 
-  // HUNT mode: checkerboard pattern (every other cell, like a chess board)
-  // This is optimal for finding ships — no ship can hide between checkerboard cells
+  // HUNT: hex 3-coloring — shoot one color group to guarantee hitting any ship of length >= 2
+  // Color = ((q - r) % 3 + 3) % 3
   if (targets.length < count) {
-    const checkerboard = pool.filter(c => {
-      const { row, col } = parseCoord(c);
-      return (row + col) % 2 === 0 && !used.has(c);
+    const coloredCells = pool.filter(c => {
+      const h = parseHex(c);
+      if (!h) return false;
+      return ((h.q - h.r) % 3 + 3) % 3 === 0 && !used.has(c);
     });
 
-    // If checkerboard cells exhausted, fall back to all remaining
-    const huntPool = checkerboard.length > 0 ? checkerboard : pool.filter(c => !used.has(c));
+    const huntPool = coloredCells.length > 0 ? coloredCells : pool.filter(c => !used.has(c));
 
     for (const c of shuffled(huntPool)) {
       if (targets.length >= count) break;
@@ -278,14 +250,12 @@ function chooseHard(game: Game, botId: string, unshot: string[], count: number):
 
 // ============================================================
 // IMPOSSIBLE — Oracle
-// Knows where all ships are. Targets optimally. Still avoids own ships.
 // ============================================================
 
 function chooseImpossible(game: Game, botId: string, unshot: string[], count: number): string[] {
   const ownCells = getOwnShipCells(game, botId);
   const teammateCells = getTeammateShipCells(game, botId);
 
-  // Build a map of unshot enemy ship cells, scored by how many players they'd hit
   const cellScores = new Map<string, number>();
   for (const [pid, player] of game.players) {
     if (pid === botId) continue;
@@ -293,21 +263,19 @@ function chooseImpossible(game: Game, botId: string, unshot: string[], count: nu
     for (const ship of player.ships) {
       if (isShipSunk(ship)) continue;
       for (const cell of ship.cells) {
-        if (game.shots.has(cell)) continue;    // already shot
-        if (ownCells.has(cell)) continue;      // avoid own ships
-        if (teammateCells.has(cell)) continue;  // avoid teammate ships
+        if (game.shots.has(cell)) continue;
+        if (ownCells.has(cell)) continue;
+        if (teammateCells.has(cell)) continue;
         cellScores.set(cell, (cellScores.get(cell) ?? 0) + 1);
       }
     }
   }
 
-  // Sort by score (hit most players first), shuffle first for random tiebreaking
   const scored = shuffled([...cellScores.entries()])
     .sort((a, b) => b[1] - a[1]);
 
   const targets = scored.slice(0, count).map(([coord]) => coord);
 
-  // If we don't have enough scored targets (unlikely), fill with random safe unshot
   if (targets.length < count) {
     const used = new Set(targets);
     const remaining = unshot.filter(c => !used.has(c) && !ownCells.has(c) && !teammateCells.has(c));
@@ -321,14 +289,14 @@ function chooseImpossible(game: Game, botId: string, unshot: string[], count: nu
 }
 
 // ============================================================
-// Firing Delay — variable per difficulty (milliseconds)
+// Firing Delay
 // ============================================================
 
 export function getBotDelay(difficulty: AiDifficulty): number {
   switch (difficulty) {
-    case 'easy':       return 500 + Math.random() * 500;   // 0.5-1s
-    case 'medium':     return 800 + Math.random() * 700;   // 0.8-1.5s
-    case 'hard':       return 1000 + Math.random() * 1000; // 1-2s
-    case 'impossible': return 1200 + Math.random() * 800;  // 1.2-2s
+    case 'easy':       return 500 + Math.random() * 500;
+    case 'medium':     return 800 + Math.random() * 700;
+    case 'hard':       return 1000 + Math.random() * 1000;
+    case 'impossible': return 1200 + Math.random() * 800;
   }
 }
