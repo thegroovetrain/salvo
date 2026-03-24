@@ -1689,7 +1689,7 @@ function renderGameOver(): string {
         <h1 class="${winClass}">${winnerText}</h1>
         <p style="color:var(--text-secondary);margin-bottom:16px">${winnerSubtext}</p>
         ${highlightsHtml}
-        <div style="display:flex;justify-content:center;margin-bottom:16px">${gridHtml}</div>
+        <div class="grid-panel" style="margin-bottom:16px">${gridHtml}</div>
         <div style="overflow-x:auto;width:100%">
         <table class="stats-table">
           <thead>

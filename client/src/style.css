@@ -594,7 +594,7 @@ html, body {
   gap: 24px;
   align-items: start;
   width: 100%;
-  max-width: 700px;
+  max-width: 800px;
 }
 
 .ship-dock {
@@ -755,10 +755,10 @@ html, body {
 .cell-ghost { fill: rgba(0, 255, 136, 0.2); stroke: var(--green); stroke-dasharray: 4 2; }
 .cell-invalid { fill: rgba(255, 59, 59, 0.2); stroke: var(--red); stroke-dasharray: 4 2; }
 
-/* Island hexes — terrain */
+/* Island hexes — terrain (yellowish fill, bright amber outline for visibility) */
 .hex-island {
-  fill: #2A2A1A;
-  stroke: #3A3A2A;
+  fill: #2A2410;
+  stroke: #8B7520;
   stroke-width: 1.5;
   cursor: default;
   pointer-events: none;

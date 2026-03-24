@@ -72,7 +72,7 @@
 | Ghost (invalid) | `rgba(255,59,59,0.25)` + dashed `#FF3B3B` | — | Invalid placement (overlap/OOB) |
 | Teammate Ship | `#000000` + dim green capsule (0.15/0.60) | — | Teammate's ship (team games) |
 | Teammate Ghost | `rgba(0,255,136,0.15)` + dashed border | — | Teammate's placement preview |
-| Island | `#2A2A1A` (dark olive) | — | Terrain / blocked hex |
+| Island | `#2A2410` (dark yellowish) | — | Terrain / blocked hex, stroke `#8B7520` (amber outline) |
 | Multi-Hit | `#8B0000` + badge | `×N` | Hit on N overlapping ships |
 
 ## Spacing
