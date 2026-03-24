@@ -55,7 +55,6 @@ export type GameMode =
   | 'private'
   | 'quickplay-1v1'
   | 'quickplay-2v2'
-  | 'quickplay-ffa'
   | 'quickplay-3v3'
   | 'quickplay-3ffa'
   | 'quickplay-6ffa'
@@ -109,7 +108,6 @@ export const MODE_RINGS: Record<string, number> = {
   'private': 5,
   'quickplay-1v1': 5,
   'quickplay-2v2': 5,
-  'quickplay-ffa': 5,    // 4-player FFA
   'quickplay-3ffa': 5,   // 3-player FFA
   'quickplay-3v3': 6,    // 6 players need bigger grid
   'quickplay-6ffa': 6,
@@ -201,20 +199,18 @@ export interface ShipPlacement {
 
 // --- Socket Events ---
 
-export type QuickPlayMode = '1v1' | '2v2' | 'ffa' | '3v3' | '3ffa' | '6ffa' | '2v2v2';
+export type QuickPlayMode = '1v1' | '2v2' | '3v3' | '3ffa' | '6ffa' | '2v2v2';
 
 export interface GameCountData {
   total: number;
   oneVsOne: number;
   twoVsTwo: number;
-  ffa: number;
   threeVsThree: number;
   threeFfa: number;
   sixFfa: number;
   twoVsTwoVsTwo: number;
   searching1v1: number;
   searching2v2: number;
-  searchingFfa: number;
   searching3v3: number;
   searching3ffa: number;
   searching6ffa: number;
@@ -277,7 +273,6 @@ export function toGameMode(qpMode: QuickPlayMode): GameMode {
   switch (qpMode) {
     case '1v1': return 'quickplay-1v1';
     case '2v2': return 'quickplay-2v2';
-    case 'ffa': return 'quickplay-ffa';
     case '3v3': return 'quickplay-3v3';
     case '3ffa': return 'quickplay-3ffa';
     case '6ffa': return 'quickplay-6ffa';
@@ -290,7 +285,6 @@ export function toQuickPlayMode(gameMode: GameMode): QuickPlayMode | null {
   switch (gameMode) {
     case 'quickplay-1v1': return '1v1';
     case 'quickplay-2v2': return '2v2';
-    case 'quickplay-ffa': return 'ffa';
     case 'quickplay-3v3': return '3v3';
     case 'quickplay-3ffa': return '3ffa';
     case 'quickplay-6ffa': return '6ffa';

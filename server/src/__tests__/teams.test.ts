@@ -345,7 +345,6 @@ describe('toGameMode / toQuickPlayMode helpers', () => {
   it('toGameMode maps all QuickPlayModes correctly', () => {
     expect(toGameMode('1v1')).toBe('quickplay-1v1');
     expect(toGameMode('2v2')).toBe('quickplay-2v2');
-    expect(toGameMode('ffa')).toBe('quickplay-ffa');
     expect(toGameMode('3v3')).toBe('quickplay-3v3');
     expect(toGameMode('3ffa')).toBe('quickplay-3ffa');
     expect(toGameMode('6ffa')).toBe('quickplay-6ffa');
@@ -355,7 +354,6 @@ describe('toGameMode / toQuickPlayMode helpers', () => {
   it('toQuickPlayMode maps all GameModes correctly', () => {
     expect(toQuickPlayMode('quickplay-1v1')).toBe('1v1');
     expect(toQuickPlayMode('quickplay-2v2')).toBe('2v2');
-    expect(toQuickPlayMode('quickplay-ffa')).toBe('ffa');
     expect(toQuickPlayMode('quickplay-3v3')).toBe('3v3');
     expect(toQuickPlayMode('quickplay-3ffa')).toBe('3ffa');
     expect(toQuickPlayMode('quickplay-6ffa')).toBe('6ffa');

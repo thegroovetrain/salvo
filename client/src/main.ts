@@ -856,7 +856,6 @@ function renderQueue(): string {
     switch (m) {
       case '1v1': return 2;
       case '2v2': return 4;
-      case 'ffa': return 4;
       case '3v3': return 6;
       case '3ffa': return 3;
       case '6ffa': return 6;
@@ -868,7 +867,6 @@ function renderQueue(): string {
     switch (m) {
       case '1v1': return '1V1';
       case '2v2': return '2V2 TEAMS';
-      case 'ffa': return 'FFA';
       case '3v3': return '3V3 TEAMS';
       case '3ffa': return '3-PLAYER FFA';
       case '6ffa': return '6-PLAYER FFA';
@@ -1579,18 +1577,6 @@ function bindEvents(): void {
     render();
   });
 
-  on('btn-qp-ffa', 'click', () => {
-    const name = val('player-name');
-    if (!name) return showError('Enter your name');
-    saveName(name);
-    state.queueMode = 'ffa';
-    state.queueSize = 0;
-    state.screen = 'queue';
-    history.pushState({ screen: 'queue' }, '');
-    socket.emit('quickplay-join', { playerName: name, mode: 'ffa' });
-    render();
-  });
-
   on('btn-qp-3v3', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
@@ -1949,7 +1935,6 @@ function bindEvents(): void {
       const modeMap: Record<string, QuickPlayMode> = {
         'quickplay-1v1': '1v1',
         'quickplay-2v2': '2v2',
-        'quickplay-ffa': 'ffa',
         'quickplay-3v3': '3v3',
         'quickplay-3ffa': '3ffa',
         'quickplay-6ffa': '6ffa',

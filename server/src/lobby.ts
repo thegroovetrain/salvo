@@ -97,12 +97,11 @@ export class LobbyManager {
   }
 
   getActiveGameCounts(
-    searching1v1 = 0, searching2v2 = 0, searchingFfa = 0,
+    searching1v1 = 0, searching2v2 = 0,
     searching3v3 = 0, searching3ffa = 0, searching6ffa = 0, searching2v2v2 = 0,
   ): GameCountData {
     let oneVsOne = 0;
     let twoVsTwo = 0;
-    let ffa = 0;
     let threeVsThree = 0;
     let threeFfa = 0;
     let sixFfa = 0;
@@ -113,7 +112,6 @@ export class LobbyManager {
       switch (game.mode) {
         case 'quickplay-1v1': oneVsOne++; break;
         case 'quickplay-2v2': twoVsTwo++; break;
-        case 'quickplay-ffa': ffa++; break;
         case 'quickplay-3v3': threeVsThree++; break;
         case 'quickplay-3ffa': threeFfa++; break;
         case 'quickplay-6ffa': sixFfa++; break;
@@ -122,17 +120,15 @@ export class LobbyManager {
     }
 
     return {
-      total: oneVsOne + twoVsTwo + ffa + threeVsThree + threeFfa + sixFfa + twoVsTwoVsTwo,
+      total: oneVsOne + twoVsTwo + threeVsThree + threeFfa + sixFfa + twoVsTwoVsTwo,
       oneVsOne,
       twoVsTwo,
-      ffa,
       threeVsThree,
       threeFfa,
       sixFfa,
       twoVsTwoVsTwo,
       searching1v1,
       searching2v2,
-      searchingFfa,
       searching3v3,
       searching3ffa,
       searching6ffa,

@@ -19,11 +19,6 @@ describe('Quick Play game creation', () => {
     expect(game.timerConfig).toEqual({ enabled: true, seconds: 60 });
   });
 
-  it('createGame accepts quickplay-ffa mode', () => {
-    const game = createGame('p1', 'Alice', { enabled: true, seconds: 60 }, 'quickplay-ffa');
-    expect(game.mode).toBe('quickplay-ffa');
-  });
-
   it('createGame accepts new game modes', () => {
     expect(createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-3v3').mode).toBe('quickplay-3v3');
     expect(createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-3ffa').mode).toBe('quickplay-3ffa');
@@ -47,9 +42,9 @@ describe('Quick Play game creation', () => {
   });
 
   it('toClientView includes mode and rings', () => {
-    const game = createGame('p1', 'Alice', { enabled: true, seconds: 60 }, 'quickplay-ffa');
+    const game = createGame('p1', 'Alice', { enabled: true, seconds: 60 }, 'quickplay-3ffa');
     const view = toClientView(game, 'p1');
-    expect(view.mode).toBe('quickplay-ffa');
+    expect(view.mode).toBe('quickplay-3ffa');
     expect(view.rings).toBe(5);
   });
 
@@ -76,7 +71,6 @@ describe('LobbyManager.getActiveGameCounts', () => {
     expect(counts.total).toBe(0);
     expect(counts.oneVsOne).toBe(0);
     expect(counts.twoVsTwo).toBe(0);
-    expect(counts.ffa).toBe(0);
     expect(counts.threeVsThree).toBe(0);
     expect(counts.threeFfa).toBe(0);
     expect(counts.sixFfa).toBe(0);
@@ -89,15 +83,6 @@ describe('LobbyManager.getActiveGameCounts', () => {
     lobby.addGame(game, 'ABCD');
     const counts = lobby.getActiveGameCounts();
     expect(counts.oneVsOne).toBe(1);
-    expect(counts.total).toBe(1);
-  });
-
-  it('counts quickplay-ffa games', () => {
-    const lobby = new LobbyManager();
-    const game = createGame('p1', 'Alice', { enabled: true, seconds: 60 }, 'quickplay-ffa');
-    lobby.addGame(game, 'EFGH');
-    const counts = lobby.getActiveGameCounts();
-    expect(counts.ffa).toBe(1);
     expect(counts.total).toBe(1);
   });
 
@@ -133,23 +118,23 @@ describe('LobbyManager.getActiveGameCounts', () => {
     const counts = lobby.getActiveGameCounts(3, 0, 5);
     expect(counts.searching1v1).toBe(3);
     expect(counts.searching2v2).toBe(0);
-    expect(counts.searchingFfa).toBe(5);
+    expect(counts.searching3v3).toBe(5);
   });
 
   it('counts mixed game modes correctly', () => {
     const lobby = new LobbyManager();
     const g1 = createGame('p1', 'A', { enabled: true, seconds: 60 }, 'quickplay-1v1');
-    const g2 = createGame('p2', 'B', { enabled: true, seconds: 60 }, 'quickplay-ffa');
-    const g3 = createGame('p3', 'C', { enabled: true, seconds: 60 }, 'quickplay-ffa');
+    const g2 = createGame('p2', 'B', { enabled: true, seconds: 60 }, 'quickplay-3ffa');
+    const g3 = createGame('p3', 'C', { enabled: true, seconds: 60 }, 'quickplay-3ffa');
     const g4 = createGame('p4', 'D', { enabled: false, seconds: 60 }); // private
     lobby.addGame(g1, 'A001');
     lobby.addGame(g2, 'A002');
     lobby.addGame(g3, 'A003');
     lobby.addGame(g4, 'A004');
-    const counts = lobby.getActiveGameCounts(1, 0, 2);
+    const counts = lobby.getActiveGameCounts(1);
     expect(counts.oneVsOne).toBe(1);
     expect(counts.twoVsTwo).toBe(0);
-    expect(counts.ffa).toBe(2);
+    expect(counts.threeFfa).toBe(2);
     expect(counts.total).toBe(3);
     expect(counts.searching1v1).toBe(1);
   });
