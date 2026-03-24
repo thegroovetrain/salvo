@@ -1,12 +1,12 @@
-# Salvo
+# Hullcracker.io
 
-A browser-based multiplayer Battleship variant where all players share the same ocean. Every shot hits every player's board — including your own. Friendly fire is real.
+A browser-based multiplayer naval combat game where all players share the same ocean. Every shot hits every player's board — including your own. Friendly fire is real.
 
 2-6 players (or solo vs AI). Quick Play matchmaking for instant games, or private lobbies with join codes. No accounts required.
 
 ## What Makes It Different
 
-In classic Battleship, you're searching in the dark. In Salvo, every shot is public and affects everyone:
+In classic naval combat games, you're searching in the dark. In Hullcracker, every shot is public and affects everyone:
 
 - **Friendly fire** — shooting near your own ships risks self-damage
 - **Information compounds** — every shot reveals state for all players
@@ -36,7 +36,7 @@ Open two browser tabs to `http://localhost:5173`. Create a game in one tab, copy
 | Scout | 1 | 1 |
 | Destroyer | 2 | 1 |
 | Cruiser | 3 | 1 |
-| Battleship | 4 | 1 |
+| Dreadnought | 4 | 1 |
 
 You get one shot per surviving ship. Lose a ship, lose a shot.
 

@@ -1,5 +1,5 @@
 /**
- * Shared test helpers for Salvo hex grid tests.
+ * Shared test helpers for Hullcracker hex grid tests.
  * All coordinate strings use axial "q,r" format.
  */
 

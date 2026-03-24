@@ -102,7 +102,7 @@ export const SHIP_NAMES: Record<number, string> = {
   1: 'Scout',
   2: 'Destroyer',
   3: 'Cruiser',
-  4: 'Battleship',
+  4: 'Dreadnought',
 };
 
 /** Default ring counts per game mode */

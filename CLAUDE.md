@@ -2,7 +2,7 @@
 
 ## Project
 
-Salvo is a multiplayer shared-ocean Battleship game. All players' ships occupy the same hex grid — every shot affects everyone.
+Hullcracker.io is a multiplayer naval combat game. All players' ships occupy the same hex grid — every shot affects everyone.
 
 ### Commands
 ```
@@ -26,7 +26,7 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 
 ### Key Decisions
 - Ship.sunk, Player.alive, Player.shotCount are computed getters, not stored state
-- Salvos resolve atomically — all shots land before checking alive status
+- Salvos resolve atomically — all shots land before checking alive status (note: "salvo" is the game mechanic term for a volley of shots, not the old brand name)
 - toClientView() is the single chokepoint for all outbound game state (security tests enforce this)
 - Reconnection buffers events during disconnect; forfeit is turn-based (not wall-clock) — player forfeits when their turn arrives and they're still disconnected
 - Unified single grid — no separate fleet/target grids (shared ocean = one grid)

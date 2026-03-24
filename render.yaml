@@ -1,9 +1,9 @@
 services:
   - type: web
-    name: salvo
+    name: hullcracker
     runtime: node
     buildCommand: npm install --include=dev && npm run build
-    startCommand: echo "[salvo] Checking build artifacts..." && ls server/dist/index.js shared/dist/types.js client/dist/index.html && echo "[salvo] Starting server..." && npm start
+    startCommand: echo "[hullcracker] Checking build artifacts..." && ls server/dist/index.js shared/dist/types.js client/dist/index.html && echo "[hullcracker] Starting server..." && npm start
     envVars:
       - key: NODE_ENV
         value: production

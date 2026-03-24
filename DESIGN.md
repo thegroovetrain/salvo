@@ -1,8 +1,8 @@
-# Design System — Salvo
+# Design System — Hullcracker.io
 
 ## Product Context
-- **What this is:** A browser-based multiplayer Battleship variant with a shared-ocean mechanic — all players' ships occupy the same grid, and every shot affects everyone
-- **Who it's for:** Friends who want a quick strategic game in the browser (2-4 players, private lobbies)
+- **What this is:** A browser-based multiplayer naval combat game with a shared-ocean mechanic — all players' ships occupy the same grid, and every shot affects everyone
+- **Who it's for:** Friends who want a quick strategic game in the browser (2-6 players, private lobbies + Quick Play)
 - **Space/industry:** Casual multiplayer browser games, naval/strategy
 - **Project type:** Real-time multiplayer web app (Vite + TypeScript + socket.io)
 
@@ -58,7 +58,7 @@
 |-------|-------|--------|-------|
 | Empty | `#232937` (elevated) | `·` | Unshot cell, no ship |
 | Your Ship | `#00FF88` (green) | `■` | Your ship position (untouched) |
-| Selected | `#FFB800` (amber) | `◎` | Salvo target selection |
+| Selected | `#FFB800` (amber) | `◎` | Target selection |
 | Miss | `#2A3040` (hover) | `•` | Shot landed, no ship here |
 | Hit (enemy) | `#FF3B3B` (red) | `×` | Hit on another player's ship |
 | Friendly Fire | `#FF8C42` (orange) | `⚠` | You hit YOUR OWN ship |

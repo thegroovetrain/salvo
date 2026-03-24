@@ -15,6 +15,32 @@ declare const __APP_VERSION__: string;
 const VERSION = __APP_VERSION__;
 
 // ============================================================
+// Storage Key Migration (salvo- → hullcracker-)
+// ============================================================
+
+(function migrateStorageKeys() {
+  const migrations = [
+    ['salvo-player-name', 'hullcracker-player-name'],
+    ['salvo-muted', 'hullcracker-muted'],
+    ['salvo-theme', 'hullcracker-theme'],
+    ['salvo-playerId', 'hullcracker-playerId'],
+    ['salvo-gameId', 'hullcracker-gameId'],
+  ];
+  for (const [oldKey, newKey] of migrations) {
+    const lsVal = localStorage.getItem(oldKey);
+    if (lsVal !== null && localStorage.getItem(newKey) === null) {
+      localStorage.setItem(newKey, lsVal);
+      localStorage.removeItem(oldKey);
+    }
+    const ssVal = sessionStorage.getItem(oldKey);
+    if (ssVal !== null && sessionStorage.getItem(newKey) === null) {
+      sessionStorage.setItem(newKey, ssVal);
+      sessionStorage.removeItem(oldKey);
+    }
+  }
+})();
+
+// ============================================================
 // Random Name Generation
 // ============================================================
 
@@ -134,11 +160,11 @@ const state: AppState = {
   changelogHtml: null,
   mobileTab: 'fleet',
   showJoinModal: false,
-  savedPlayerName: localStorage.getItem('salvo-player-name') || generateRandomName(),
+  savedPlayerName: localStorage.getItem('hullcracker-player-name') || generateRandomName(),
   queueMode: null,
   queueSize: 0,
   onlineCount: 0,
-  matchSoundMuted: localStorage.getItem('salvo-muted') === 'true',
+  matchSoundMuted: localStorage.getItem('hullcracker-muted') === 'true',
   openDropdownId: null as string | null,
   showSurrenderModal: false,
   showRejoinModal: false,
@@ -151,13 +177,13 @@ const state: AppState = {
 };
 
 // Persist initial name (covers first-visit generation)
-if (!localStorage.getItem('salvo-player-name')) {
-  localStorage.setItem('salvo-player-name', state.savedPlayerName);
+if (!localStorage.getItem('hullcracker-player-name')) {
+  localStorage.setItem('hullcracker-player-name', state.savedPlayerName);
 }
 
 function saveName(name: string): void {
   state.savedPlayerName = name;
-  localStorage.setItem('salvo-player-name', name);
+  localStorage.setItem('hullcracker-player-name', name);
 }
 
 // ============================================================
@@ -185,8 +211,8 @@ socket.on('game-created', ({ code, playerId, gameId }) => {
   state.joinCode = code;
   state.screen = 'waiting';
   // Store for reconnection
-  sessionStorage.setItem('salvo-playerId', playerId);
-  sessionStorage.setItem('salvo-gameId', gameId);
+  sessionStorage.setItem('hullcracker-playerId', playerId);
+  sessionStorage.setItem('hullcracker-gameId', gameId);
   render();
 });
 
@@ -246,7 +272,7 @@ socket.on('game-state', ({ game }) => {
   }
   // Restore player identity from sessionStorage on rejoin (state is fresh after page refresh)
   if (!state.playerId) {
-    const saved = sessionStorage.getItem('salvo-playerId');
+    const saved = sessionStorage.getItem('hullcracker-playerId');
     if (saved && game.players[saved]) {
       state.playerId = saved;
       state.gameId = game.id;
@@ -330,8 +356,8 @@ socket.on('game-over', (stats) => {
     state.rejoinCountdownInterval = null;
   }
   // Game is over — clear session so page reload goes to lobby, not rejoin modal
-  sessionStorage.removeItem('salvo-playerId');
-  sessionStorage.removeItem('salvo-gameId');
+  sessionStorage.removeItem('hullcracker-playerId');
+  sessionStorage.removeItem('hullcracker-gameId');
   render();
 });
 
@@ -359,8 +385,8 @@ socket.on('rematch-starting', ({ game, placementDeadline }) => {
     startPlacementTimer(remaining);
   }
   // Re-store session for reconnection (cleared on game-over)
-  if (state.playerId) sessionStorage.setItem('salvo-playerId', state.playerId);
-  if (game.id) sessionStorage.setItem('salvo-gameId', game.id);
+  if (state.playerId) sessionStorage.setItem('hullcracker-playerId', state.playerId);
+  if (game.id) sessionStorage.setItem('hullcracker-gameId', game.id);
   render();
 });
 
@@ -432,8 +458,8 @@ socket.on('quickplay-queue-update', ({ size }) => {
     state.game = null;
     state.playerId = null;
     state.gameId = null;
-    sessionStorage.removeItem('salvo-playerId');
-    sessionStorage.removeItem('salvo-gameId');
+    sessionStorage.removeItem('hullcracker-playerId');
+    sessionStorage.removeItem('hullcracker-gameId');
   }
   render();
 });
@@ -444,8 +470,8 @@ socket.on('quickplay-matched', ({ playerId, gameId }) => {
   state.screen = 'placement';
   state.queueMode = null;
   state.queueSize = 0;
-  sessionStorage.setItem('salvo-playerId', playerId);
-  sessionStorage.setItem('salvo-gameId', gameId);
+  sessionStorage.setItem('hullcracker-playerId', playerId);
+  sessionStorage.setItem('hullcracker-gameId', gameId);
   // Clean up the queue history entry so back button doesn't hit a dead state
   history.replaceState(null, '');
   // Play match sound
@@ -463,8 +489,8 @@ socket.on('online-count', ({ count }) => {
 
 // Surrender acknowledgment
 socket.on('surrender-ack', () => {
-  sessionStorage.removeItem('salvo-playerId');
-  sessionStorage.removeItem('salvo-gameId');
+  sessionStorage.removeItem('hullcracker-playerId');
+  sessionStorage.removeItem('hullcracker-gameId');
   state.screen = 'lobby';
   state.game = null;
   state.playerId = null;
@@ -483,8 +509,8 @@ socket.on('surrender-ack', () => {
 
 // Leave game acknowledgment (lobby exit)
 socket.on('left-game', () => {
-  sessionStorage.removeItem('salvo-playerId');
-  sessionStorage.removeItem('salvo-gameId');
+  sessionStorage.removeItem('hullcracker-playerId');
+  sessionStorage.removeItem('hullcracker-gameId');
   state.screen = 'lobby';
   state.game = null;
   state.playerId = null;
@@ -496,11 +522,11 @@ socket.on('left-game', () => {
 
 // Rejoin check response
 socket.on('check-rejoin-response', ({ valid }) => {
-  const savedPlayerId = sessionStorage.getItem('salvo-playerId');
-  const savedGameId = sessionStorage.getItem('salvo-gameId');
+  const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
+  const savedGameId = sessionStorage.getItem('hullcracker-gameId');
   if (!valid || !savedPlayerId || !savedGameId) {
-    sessionStorage.removeItem('salvo-playerId');
-    sessionStorage.removeItem('salvo-gameId');
+    sessionStorage.removeItem('hullcracker-playerId');
+    sessionStorage.removeItem('hullcracker-gameId');
     state.showRejoinModal = false;
     if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
     state.rejoinCountdownInterval = null;
@@ -518,8 +544,8 @@ let isInitialPageLoad = true;
 socket.on('connect', () => {
   if (!isInitialPageLoad) {
     // Socket.io internal reconnect — auto-rejoin silently
-    const savedPlayerId = sessionStorage.getItem('salvo-playerId');
-    const savedGameId = sessionStorage.getItem('salvo-gameId');
+    const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
+    const savedGameId = sessionStorage.getItem('hullcracker-gameId');
     if (savedPlayerId && savedGameId) {
       socket.emit('rejoin', { playerId: savedPlayerId, gameId: savedGameId });
     }
@@ -527,8 +553,8 @@ socket.on('connect', () => {
   }
   isInitialPageLoad = false;
 
-  const savedPlayerId = sessionStorage.getItem('salvo-playerId');
-  const savedGameId = sessionStorage.getItem('salvo-gameId');
+  const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
+  const savedGameId = sessionStorage.getItem('hullcracker-gameId');
   if (savedPlayerId && savedGameId) {
     // Check if rejoin is still valid
     socket.emit('check-rejoin', { playerId: savedPlayerId, gameId: savedGameId });
@@ -840,8 +866,8 @@ function renderLobby(): string {
 
   return `
     <div class="screen">
-      <h1 class="game-title">SALVO</h1>
-      <p class="game-subtitle">Shared-Ocean Battleship</p>
+      <h1 class="game-title">HULLCRACKER.IO</h1>
+      <p class="game-subtitle">Multiplayer Naval Warfare</p>
       <p class="online-count" id="online-count">${state.onlineCount > 0 ? `${state.onlineCount} player${state.onlineCount !== 1 ? 's' : ''} online` : ''}</p>
       ${renderError()}
       <div class="lobby-card" style="max-width:400px;width:100%">
@@ -914,7 +940,7 @@ function renderQueue(): string {
 
   return `
     <div class="screen">
-      <h1 class="game-title" style="font-size:32px">SALVO</h1>
+      <h1 class="game-title" style="font-size:24px">HULLCRACKER.IO</h1>
       <div class="queue-wait">
         <p class="label queue-label">SEARCHING FOR ${modeLabel} MATCH...</p>
         <div class="queue-dots">${dots}</div>
@@ -1138,8 +1164,8 @@ function renderWaiting(): string {
 
   return `
     <div class="screen">
-      <h1 class="game-title">SALVO</h1>
-      <p class="game-subtitle">Shared-Ocean Battleship</p>
+      <h1 class="game-title">HULLCRACKER.IO</h1>
+      <p class="game-subtitle">Multiplayer Naval Warfare</p>
       ${renderError()}
       <div class="waiting-room">
         <h2 class="label" style="margin-bottom:12px">Game Created</h2>
@@ -2043,8 +2069,8 @@ function bindEvents(): void {
 
   on('btn-new-game', 'click', () => {
     socket.emit('rematch-decline');
-    sessionStorage.removeItem('salvo-playerId');
-    sessionStorage.removeItem('salvo-gameId');
+    sessionStorage.removeItem('hullcracker-playerId');
+    sessionStorage.removeItem('hullcracker-gameId');
     state.screen = 'lobby';
     state.playerId = null;
     state.gameId = null;
@@ -2087,8 +2113,8 @@ function bindEvents(): void {
 
   // Rejoin modal
   on('btn-rejoin-yes', 'click', () => {
-    const savedPlayerId = sessionStorage.getItem('salvo-playerId');
-    const savedGameId = sessionStorage.getItem('salvo-gameId');
+    const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
+    const savedGameId = sessionStorage.getItem('hullcracker-gameId');
     if (savedPlayerId && savedGameId) {
       socket.emit('rejoin', { playerId: savedPlayerId, gameId: savedGameId });
     }
@@ -2104,21 +2130,21 @@ function bindEvents(): void {
     setTimeout(() => {
       if (state.showRejoinModal) {
         state.showRejoinModal = false;
-        sessionStorage.removeItem('salvo-playerId');
-        sessionStorage.removeItem('salvo-gameId');
+        sessionStorage.removeItem('hullcracker-playerId');
+        sessionStorage.removeItem('hullcracker-gameId');
         render();
       }
     }, 5000);
   });
 
   on('btn-rejoin-no', 'click', () => {
-    const savedPlayerId = sessionStorage.getItem('salvo-playerId');
-    const savedGameId = sessionStorage.getItem('salvo-gameId');
+    const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
+    const savedGameId = sessionStorage.getItem('hullcracker-gameId');
     if (savedPlayerId && savedGameId) {
       socket.emit('decline-rejoin', { playerId: savedPlayerId, gameId: savedGameId });
     }
-    sessionStorage.removeItem('salvo-playerId');
-    sessionStorage.removeItem('salvo-gameId');
+    sessionStorage.removeItem('hullcracker-playerId');
+    sessionStorage.removeItem('hullcracker-gameId');
     state.showRejoinModal = false;
     if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
     state.rejoinCountdownInterval = null;
@@ -2254,7 +2280,7 @@ function esc(s: string): string {
 // ============================================================
 
 function initTheme(): void {
-  const saved = localStorage.getItem('salvo-theme');
+  const saved = localStorage.getItem('hullcracker-theme');
   if (saved === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
   }
@@ -2267,11 +2293,11 @@ function initTheme(): void {
     const next = current === 'light' ? '' : 'light';
     if (next) {
       document.documentElement.setAttribute('data-theme', 'light');
-      localStorage.setItem('salvo-theme', 'light');
+      localStorage.setItem('hullcracker-theme', 'light');
       btn.textContent = 'DARK';
     } else {
       document.documentElement.removeAttribute('data-theme');
-      localStorage.setItem('salvo-theme', 'dark');
+      localStorage.setItem('hullcracker-theme', 'dark');
       btn.textContent = 'LIGHT';
     }
   });
@@ -2285,7 +2311,7 @@ function initMuteToggle(): void {
   btn.textContent = state.matchSoundMuted ? 'UNMUTE' : 'MUTE';
   btn.addEventListener('click', () => {
     state.matchSoundMuted = !state.matchSoundMuted;
-    localStorage.setItem('salvo-muted', String(state.matchSoundMuted));
+    localStorage.setItem('hullcracker-muted', String(state.matchSoundMuted));
     btn.textContent = state.matchSoundMuted ? 'UNMUTE' : 'MUTE';
   });
   document.body.appendChild(btn);
