@@ -968,7 +968,7 @@ async function loadChangelog(): Promise<void> {
 }
 
 function renderWaiting(): string {
-  const MAX_PLAYERS = 4;
+  const MAX_PLAYERS = 6;
   const players = state.game ? Object.values(state.game.players) : [];
   const isHost = state.game?.players[state.playerId ?? '']?.id === state.game?.turnOrder[0]
     || state.isHost;
