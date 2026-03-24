@@ -1008,27 +1008,21 @@ function renderWaiting(): string {
     </div>`;
   }
 
-  // Compute team size for game options
-  const teamCounts = new Map<string, number>();
-  for (const tid of Object.values(teams)) {
-    teamCounts.set(tid, (teamCounts.get(tid) ?? 0) + 1);
-  }
-  const teamSize = teamCounts.size > 0 ? Math.max(...teamCounts.values()) : 0;
-
   // Unique team IDs for multi-team display
   const teamIds = [...new Set(Object.values(teams))];
 
   // Game options panel (visible to all, editable by host)
   const game = state.game;
+  const gameType = game?.gameType ?? 'ffa';
   const gameOptionsHtml = game ? `
     <div class="game-options">
       <div class="section-label">GAME OPTIONS</div>
       <div class="option-row">
         <label>Game Type</label>
         <select id="opt-game-type" ${!isHost ? 'disabled' : ''}>
-          <option value="ffa" ${!game.teamsEnabled ? 'selected' : ''}>FFA</option>
-          <option value="2-team" ${game.teamsEnabled && teamSize === 2 ? 'selected' : ''}>2-Player Teams</option>
-          <option value="3-team" ${game.teamsEnabled && teamSize === 3 ? 'selected' : ''}>3-Player Teams</option>
+          <option value="ffa" ${gameType === 'ffa' ? 'selected' : ''}>FFA</option>
+          <option value="2-team" ${gameType === '2-team' ? 'selected' : ''}>2-Player Teams</option>
+          <option value="3-team" ${gameType === '3-team' ? 'selected' : ''}>3-Player Teams</option>
         </select>
       </div>
       <div class="option-row">

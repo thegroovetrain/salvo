@@ -44,6 +44,7 @@ export function createGame(
     firstBloodId: null,
     teams: new Map(),
     teamsEnabled,
+    gameType: teamsEnabled ? '2-team' : 'ffa',
   };
 }
 
@@ -64,6 +65,7 @@ export function updateGameOptions(
   if (options.gameType !== undefined) {
     const teamsEnabled = options.gameType !== 'ffa';
     game.teamsEnabled = teamsEnabled;
+    game.gameType = options.gameType;
 
     if (teamsEnabled) {
       // Auto-assign players to teams round-robin
@@ -806,5 +808,6 @@ export function toClientView(game: Game, viewerId: string): WireGame {
     timerConfig: game.timerConfig,
     teamsEnabled: game.teamsEnabled,
     teams: teamsRecord,
+    gameType: game.gameType,
   };
 }

@@ -84,6 +84,8 @@ export interface Game {
   /** Team mode: playerId → teamId ('alpha' | 'bravo' | 'charlie') */
   teams: Map<string, string>;
   teamsEnabled: boolean;
+  /** Private game type for lobby UI: 'ffa' | '2-team' | '3-team' */
+  gameType: 'ffa' | '2-team' | '3-team';
 }
 
 export interface PlayerGameStats {
@@ -165,6 +167,7 @@ export interface WireGame {
   timerConfig: TimerConfig;
   teamsEnabled: boolean;
   teams: Record<string, string>; // playerId → teamId
+  gameType: 'ffa' | '2-team' | '3-team';
 }
 
 export interface ChatMessage {
