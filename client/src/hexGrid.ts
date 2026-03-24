@@ -63,10 +63,10 @@ function renderShipHull(ship: ShipHullData, hexSize: number): string {
     strokeDash = 'stroke-dasharray="4 2"';
     opacity = '0.8';
   } else if (ship.teammate) {
-    fillColor = 'rgba(0,255,136,0.15)';
-    strokeColor = 'rgba(0,255,136,0.5)';
-    strokeDash = 'stroke-dasharray="3 1"';
-    opacity = '0.7';
+    fillColor = 'rgba(0,255,136,0.2)';
+    strokeColor = 'rgba(0,255,136,0.7)';
+    strokeDash = '';
+    opacity = '0.8';
   } else if (ship.sunk) {
     fillColor = '#7F1D1D';
     strokeColor = '#5A1A1A';
