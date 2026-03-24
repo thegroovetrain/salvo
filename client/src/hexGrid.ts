@@ -177,7 +177,7 @@ export function renderHexGridSVG(
     } else {
       const state = getCellState(coord);
       const cls = `hex-cell ${state.cssClass}`.trim();
-      svg += `<g data-coord="${coord}" data-mode="${dataMode}">`;
+      svg += `<g data-coord="${coord}" data-mode="${dataMode}" class="${state.cssClass}">`;
       svg += `<polygon class="${cls}" points="${points}" />`;
       if (state.symbol) {
         const center = hexToPixel(h.q, h.r, hexSize);

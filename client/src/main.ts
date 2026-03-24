@@ -371,9 +371,9 @@ socket.on('game-over', (stats) => {
         el.style.opacity = el.getAttribute('opacity') || '1';
       }, 100 * (i + 1));
     });
-    // Summary tone after all ships revealed
+    // Summary tone after all ships revealed (only if still on game-over screen)
     setTimeout(() => {
-      if (!state.matchSoundMuted) playTone(250, 400, 200, 0.5, 0.15);
+      if (!state.matchSoundMuted && state.screen === 'gameover') playTone(250, 400, 200, 0.5, 0.15);
     }, 100 * (hullEls.length + 1));
   }
 });
@@ -734,12 +734,26 @@ function getHitCountAtCoord(coord: string): number {
 // Match Sound
 // ============================================================
 
+let sharedAudioCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext | null {
+  try {
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+      sharedAudioCtx = new AudioContext();
+    }
+    return sharedAudioCtx;
+  } catch {
+    return null;
+  }
+}
+
 function playTone(
   freqStart: number, freqMid: number, freqEnd: number,
   duration: number, volume: number, type: OscillatorType = 'sine'
 ): void {
+  const ctx = getAudioContext();
+  if (!ctx) return;
   try {
-    const ctx = new AudioContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -752,13 +766,13 @@ function playTone(
     gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + duration);
     osc.start(ctx.currentTime);
     osc.stop(ctx.currentTime + duration);
-    osc.onended = () => ctx.close();
   } catch {
     // Audio not supported — silently ignore
   }
 }
 
 function playMatchSound(): void {
+  if (state.matchSoundMuted) return;
   playTone(600, 1200, 800, 0.5, 0.3);
 }
 
@@ -2310,15 +2324,18 @@ function handlePlacementClick(coord: string): void {
   if (cells.length === 0) return showError('Ship would go out of bounds');
   if (!preview.valid) return showError('Ships overlap or placed on island');
 
+  // Track hull count before render so we can flash only the new one
+  const hullCountBefore = document.querySelectorAll('.ship-hull').length;
   state.placedShips.push({ length: state.placingShip.length, cells });
   state.placingShip = null;
   state.ghostCells = [];
   render();
   emitPlacementPreview();
-  // Placement confirmation flash + tone
+  // Placement confirmation flash + tone — only the newly placed ship's hull
   playPlacementSound();
-  const hulls = document.querySelectorAll<SVGPathElement>('.ship-hull');
-  hulls.forEach(el => {
+  const allHulls = document.querySelectorAll<SVGPathElement>('.ship-hull');
+  allHulls.forEach((el, i) => {
+    if (i < hullCountBefore) return; // skip previously existing hulls
     const origFill = el.getAttribute('fill') || '';
     el.setAttribute('fill', 'rgba(0,255,136,0.8)');
     setTimeout(() => el.setAttribute('fill', origFill), 200);

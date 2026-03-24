@@ -743,8 +743,8 @@ html, body {
 .cell-sunk { fill: #8B0000; cursor: default; }
 .cell-selected { fill: #665200; }
 
-/* Crosshair cursor for actionable battle cells */
-[data-mode="battle"] > .cell-empty { cursor: crosshair; }
+/* Crosshair cursor for actionable battle cells — targets the <g> wrapper which now has the cell state class */
+[data-mode="battle"].cell-empty { cursor: crosshair; }
 
 /* Marker text colors per cell state */
 .cell-miss .hex-text { color: #888888; opacity: 0.5; }
