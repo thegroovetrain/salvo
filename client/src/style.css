@@ -753,7 +753,7 @@ html, body {
 }
 
 /* Teammate ship cells */
-.cell-teammate-ship { fill: rgba(0, 255, 136, 0.5); stroke: var(--green); stroke-dasharray: 3 1; }
+.cell-teammate-ship { fill: rgba(0, 255, 136, 0.08); }
 
 /* Teammate ghost preview during placement */
 .cell-teammate-ghost { fill: rgba(0, 255, 136, 0.15); stroke: rgba(0, 255, 136, 0.3); stroke-dasharray: 3 1; }
