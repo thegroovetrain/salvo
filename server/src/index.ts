@@ -9,7 +9,7 @@ import type {
 } from '@salvo/shared';
 import { isPlayerAlive, playerShotCount, toGameMode, toQuickPlayMode, getTeammates, MODE_RINGS } from '@salvo/shared';
 import {
-  createGame, addPlayer, addBot, removeBot, removePlayer, canStartGame, startGame,
+  createGame, addPlayer, addBot, removeBot, removePlayer, canStartGame, startGame, updateGameOptions,
   placeShips, allShipsPlaced, beginPlaying,
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, forfeitPlayer,
@@ -100,7 +100,6 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
     { enabled: true, seconds: 60 },
     gameMode,
     isTeamMode(mode),
-    { enabled: true, seconds: 60 },
     MODE_RINGS[gameMode],
   );
 
@@ -179,8 +178,8 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
   startGame(game);
 
   // Emit placement phase to all players
-  const qpPlacementDeadline = game.placementTimerConfig.enabled
-    ? Date.now() + game.placementTimerConfig.seconds * 1000
+  const qpPlacementDeadline = game.timerConfig.enabled
+    ? Date.now() + game.timerConfig.seconds * 1000
     : undefined;
   for (const pid of game.players.keys()) {
     emitToPlayer(pid, 'placement-phase', { game: toClientView(game, pid), placementDeadline: qpPlacementDeadline });
@@ -243,13 +242,13 @@ function broadcastToGame(gameId: string, event: string, data: unknown): void {
 function startPlacementTimer(gameId: string): void {
   const game = lobby.getGame(gameId);
   if (!game) return;
-  if (!game.placementTimerConfig.enabled) return;
+  if (!game.timerConfig.enabled) return;
 
   clearPlacementTimer(gameId);
 
   const timer = setTimeout(() => {
     handlePlacementTimeout(gameId);
-  }, game.placementTimerConfig.seconds * 1000);
+  }, game.timerConfig.seconds * 1000);
 
   placementTimers.set(gameId, timer);
 }
@@ -568,20 +567,11 @@ io.on('connection', (socket) => {
   // Broadcast updated online count (nextTick ensures the new socket's listeners are ready)
   process.nextTick(() => broadcastOnlineCount());
 
-  socket.on('create-game', ({ playerName, timerConfig, teamsEnabled, placementTimerConfig }: {
-    playerName: string;
-    timerConfig?: TimerConfig;
-    teamsEnabled?: boolean;
-    placementTimerConfig?: TimerConfig;
-  }) => {
+  socket.on('create-game', ({ playerName }: { playerName: string }) => {
     const playerId = crypto.randomUUID();
-    const timer = timerConfig ?? { enabled: false, seconds: 60 };
-    const placTimer = placementTimerConfig ?? { enabled: false, seconds: 30 };
-    const game = createGame(playerId, playerName, timer, 'private', teamsEnabled ?? false, placTimer);
-    // Auto-assign host to alpha in team games
-    if (game.teamsEnabled) {
-      game.teams.set(playerId, 'alpha');
-    }
+    // Defaults: FFA, 60s timer, 5 rings
+    const game = createGame(playerId, playerName);
+
     const code = lobby.generateUniqueCode();
 
     lobby.addGame(game, code);
@@ -592,6 +582,22 @@ io.on('connection', (socket) => {
     socket.emit('game-created', { code, playerId, gameId: game.id });
     socket.emit('game-state', { game: toClientView(game, playerId) });
     broadcastOnlineCount();
+  });
+
+  socket.on('update-game-options', (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number }) => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game) return;
+
+    const err = updateGameOptions(game, playerId, data);
+    if (err) {
+      socket.emit('error', { message: err });
+      return;
+    }
+
+    emitGameState(game.id);
   });
 
   socket.on('join-game', ({ code, playerName }: { code: string; playerName: string }) => {
@@ -718,8 +724,8 @@ io.on('connection', (socket) => {
       }
     }
 
-    const startPlacementDeadline = game.placementTimerConfig.enabled
-      ? Date.now() + game.placementTimerConfig.seconds * 1000
+    const startPlacementDeadline = game.timerConfig.enabled
+      ? Date.now() + game.timerConfig.seconds * 1000
       : undefined;
     for (const pid of game.players.keys()) {
       if (!game.players.get(pid)?.isBot) {
@@ -728,7 +734,7 @@ io.on('connection', (socket) => {
     }
 
     // Start placement timer if enabled
-    if (game.placementTimerConfig.enabled) {
+    if (game.timerConfig.enabled) {
       startPlacementTimer(game.id);
     }
 
@@ -1170,8 +1176,8 @@ io.on('connection', (socket) => {
         }
       }
 
-      const rematchPlacementDeadline = game.placementTimerConfig.enabled
-        ? Date.now() + game.placementTimerConfig.seconds * 1000
+      const rematchPlacementDeadline = game.timerConfig.enabled
+        ? Date.now() + game.timerConfig.seconds * 1000
         : undefined;
       for (const pid of game.players.keys()) {
         if (!game.players.get(pid)?.isBot) {
@@ -1180,7 +1186,7 @@ io.on('connection', (socket) => {
       }
 
       // Start placement timer if enabled
-      if (game.placementTimerConfig.enabled) {
+      if (game.timerConfig.enabled) {
         startPlacementTimer(game.id);
       }
 

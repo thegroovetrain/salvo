@@ -75,7 +75,6 @@ export interface Game {
   islands: Set<string>;       // "q,r" coordinate strings for blocked hexes
   shots: Set<string>;         // all globally fired coordinates ("q,r" format)
   timerConfig: TimerConfig;
-  placementTimerConfig: TimerConfig;
   lastActivity: number;       // Date.now() for cleanup
   rematchAccepted: Set<string>; // playerIds who accepted rematch
   /** Per-player stats accumulated during gameplay */
@@ -164,7 +163,6 @@ export interface WireGame {
   islands: string[];         // "q,r" strings for blocked hexes
   shots: string[];
   timerConfig: TimerConfig;
-  placementTimerConfig: TimerConfig;
   teamsEnabled: boolean;
   teams: Record<string, string>; // playerId → teamId
 }
@@ -221,7 +219,8 @@ export interface GameCountData {
 }
 
 export interface ClientToServerEvents {
-  'create-game': (data: { playerName: string; timerConfig?: TimerConfig; placementTimerConfig?: TimerConfig; teamsEnabled?: boolean; rings?: number }) => void;
+  'create-game': (data: { playerName: string }) => void;
+  'update-game-options': (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
   'start-game': () => void;
   'add-bot': (data: { difficulty: AiDifficulty; team?: string }) => void;

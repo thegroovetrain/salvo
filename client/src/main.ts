@@ -79,7 +79,6 @@ interface AppState {
   mobileTab: 'fleet' | 'target';
   // UI
   showJoinModal: boolean;
-  showCreateModal: boolean;
   // Saved form values
   savedPlayerName: string;
   // Quick Play
@@ -132,7 +131,6 @@ const state: AppState = {
   changelogHtml: null,
   mobileTab: 'fleet',
   showJoinModal: false,
-  showCreateModal: false,
   savedPlayerName: localStorage.getItem('salvo-player-name') || generateRandomName(),
   queueMode: null,
   queueSize: 0,
@@ -205,10 +203,10 @@ socket.on('placement-phase', ({ game, placementDeadline }) => {
     state.chatChannel = 'team';
   }
   // Start placement timer if configured
-  if (game.placementTimerConfig.enabled) {
+  if (game.timerConfig.enabled) {
     const remaining = placementDeadline
       ? Math.max(1, Math.round((placementDeadline - Date.now()) / 1000))
-      : game.placementTimerConfig.seconds;
+      : game.timerConfig.seconds;
     startPlacementTimer(remaining);
   }
   render();
@@ -242,8 +240,8 @@ socket.on('game-state', ({ game }) => {
   if (game.phase === 'placement' && state.screen !== 'placement') {
     state.screen = 'placement';
     if (game.teamsEnabled) state.chatChannel = 'team';
-    if (game.placementTimerConfig.enabled && !state.placementTimerInterval) {
-      startPlacementTimer(game.placementTimerConfig.seconds);
+    if (game.timerConfig.enabled && !state.placementTimerInterval) {
+      startPlacementTimer(game.timerConfig.seconds);
     }
   } else if (game.phase === 'playing' && state.screen !== 'battle') {
     state.screen = 'battle';
@@ -339,10 +337,10 @@ socket.on('rematch-starting', ({ game, placementDeadline }) => {
   state.rematchPending = null;
   state.teammateGhostShips = [];
   if (game.teamsEnabled) state.chatChannel = 'team';
-  if (game.placementTimerConfig.enabled) {
+  if (game.timerConfig.enabled) {
     const remaining = placementDeadline
       ? Math.max(1, Math.round((placementDeadline - Date.now()) / 1000))
-      : game.placementTimerConfig.seconds;
+      : game.timerConfig.seconds;
     startPlacementTimer(remaining);
   }
   // Re-store session for reconnection (cleared on game-over)
@@ -810,50 +808,6 @@ function renderLobby(): string {
     </div>
   ` : '';
 
-  const createModalHtml = state.showCreateModal ? `
-    <div class="modal-overlay" id="create-modal-overlay">
-      <div class="modal">
-        <h2 class="label" style="margin-bottom:16px">Game Options</h2>
-        <div class="modal-option">
-          <div class="modal-option-row">
-            <input type="checkbox" id="timer-enabled">
-            <label for="timer-enabled">Turn timer</label>
-            <select id="timer-seconds" class="input" style="margin-bottom:0;width:auto;padding:4px 8px;font-family:var(--font-mono);font-size:12px">
-              <option value="30">30s</option>
-              <option value="60" selected>60s</option>
-            </select>
-          </div>
-        </div>
-        <div class="modal-option" style="margin-top:8px">
-          <div class="modal-option-row">
-            <input type="checkbox" id="placement-timer-enabled">
-            <label for="placement-timer-enabled">Placement timer</label>
-          </div>
-        </div>
-        <div class="modal-option" style="margin-top:8px">
-          <div class="modal-option-row">
-            <input type="checkbox" id="teams-enabled">
-            <label for="teams-enabled">Teams</label>
-          </div>
-        </div>
-        <div class="modal-option" style="margin-top:8px">
-          <div class="modal-option-row">
-            <label for="ring-count">Grid Size (Rings)</label>
-            <select id="ring-count" class="input" style="margin-bottom:0;width:auto;padding:4px 8px;font-family:var(--font-mono);font-size:12px">
-              <option value="4">4 rings (61 hexes)</option>
-              <option value="5" selected>5 rings (91 hexes)</option>
-              <option value="6">6 rings (127 hexes)</option>
-            </select>
-          </div>
-        </div>
-        <div style="display:flex;gap:8px;margin-top:16px">
-          <button class="btn btn-primary" id="btn-create-confirm" style="flex:1">Create</button>
-          <button class="btn btn-secondary" id="btn-create-cancel" style="flex:1">Cancel</button>
-        </div>
-      </div>
-    </div>
-  ` : '';
-
   return `
     <div class="screen">
       <h1 class="game-title">SALVO</h1>
@@ -888,7 +842,6 @@ function renderLobby(): string {
         </div>
       </div>
       ${joinModalHtml}
-      ${createModalHtml}
       <div class="lobby-footer">
         <span>v${VERSION}</span>
         <span class="footer-sep">&bull;</span>
@@ -1008,24 +961,30 @@ function renderWaiting(): string {
     const menuItems: string[] = [];
     if (teamsEnabled) {
       const myTeam = teams[p.id];
-      const otherTeam = myTeam === 'alpha' ? 'bravo' : 'alpha';
-      const otherTeamLabel = otherTeam === 'alpha' ? 'Alpha' : 'Bravo';
-      const otherTeamPlayers = players.filter(pl => teams[pl.id] === otherTeam);
-      const maxPerTeam = MAX_PLAYERS / 2;
-      const canMove = otherTeamPlayers.length < maxPerTeam;
+      const allTeamNames = ['alpha', 'bravo', 'charlie'];
+      const allTeamLabels: Record<string, string> = { alpha: 'Alpha', bravo: 'Bravo', charlie: 'Charlie' };
+      const activeTeams = [...new Set(Object.values(teams))];
+      const numTeams = activeTeams.length > 0 ? activeTeams.length : 2;
+      const maxPerTeam = Math.floor(MAX_PLAYERS / numTeams);
+      const otherTeams = allTeamNames.slice(0, numTeams).filter(t => t !== myTeam);
 
-      if (isHost) {
-        if (canMove) {
-          menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}">Move to ${otherTeamLabel}</button>`);
-        } else {
-          // Other team is full — offer swap with each player on the other team
-          for (const op of otherTeamPlayers) {
-            menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="swap" data-player-a="${p.id}" data-player-b="${op.id}">Swap with ${esc(op.name)}</button>`);
+      for (const otherTeam of otherTeams) {
+        const otherTeamLabel = allTeamLabels[otherTeam] ?? otherTeam;
+        const otherTeamPlayers = players.filter(pl => teams[pl.id] === otherTeam);
+        const canMove = otherTeamPlayers.length < maxPerTeam;
+
+        if (isHost) {
+          if (canMove) {
+            menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}" data-move-team="${otherTeam}">Move to ${otherTeamLabel}</button>`);
+          } else {
+            for (const op of otherTeamPlayers) {
+              menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="swap" data-player-a="${p.id}" data-player-b="${op.id}">Swap with ${esc(op.name)}</button>`);
+            }
           }
-        }
-      } else if (isMe && !p.isBot) {
-        if (canMove) {
-          menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}">Move to ${otherTeamLabel}</button>`);
+        } else if (isMe && !p.isBot) {
+          if (canMove) {
+            menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}" data-move-team="${otherTeam}">Move to ${otherTeamLabel}</button>`);
+          }
         }
       }
     }
@@ -1049,31 +1008,69 @@ function renderWaiting(): string {
     </div>`;
   }
 
+  // Compute team size for game options
+  const teamCounts = new Map<string, number>();
+  for (const tid of Object.values(teams)) {
+    teamCounts.set(tid, (teamCounts.get(tid) ?? 0) + 1);
+  }
+  const teamSize = teamCounts.size > 0 ? Math.max(...teamCounts.values()) : 0;
+
+  // Unique team IDs for multi-team display
+  const teamIds = [...new Set(Object.values(teams))];
+
+  // Game options panel (visible to all, editable by host)
+  const game = state.game;
+  const gameOptionsHtml = game ? `
+    <div class="game-options">
+      <div class="section-label">GAME OPTIONS</div>
+      <div class="option-row">
+        <label>Game Type</label>
+        <select id="opt-game-type" ${!isHost ? 'disabled' : ''}>
+          <option value="ffa" ${!game.teamsEnabled ? 'selected' : ''}>FFA</option>
+          <option value="2-team" ${game.teamsEnabled && teamSize === 2 ? 'selected' : ''}>2-Player Teams</option>
+          <option value="3-team" ${game.teamsEnabled && teamSize === 3 ? 'selected' : ''}>3-Player Teams</option>
+        </select>
+      </div>
+      <div class="option-row">
+        <label>Turn Timer</label>
+        <select id="opt-timer" ${!isHost ? 'disabled' : ''}>
+          <option value="0" ${!game.timerConfig.enabled ? 'selected' : ''}>Off</option>
+          <option value="30" ${game.timerConfig.enabled && game.timerConfig.seconds === 30 ? 'selected' : ''}>30s</option>
+          <option value="60" ${game.timerConfig.enabled && game.timerConfig.seconds === 60 ? 'selected' : ''}>60s</option>
+        </select>
+      </div>
+      <div class="option-row">
+        <label>Grid Size</label>
+        <select id="opt-rings" ${!isHost ? 'disabled' : ''}>
+          <option value="4" ${game.rings === 4 ? 'selected' : ''}>4 rings (61 hexes)</option>
+          <option value="5" ${game.rings === 5 ? 'selected' : ''}>5 rings (91 hexes)</option>
+          <option value="6" ${game.rings === 6 ? 'selected' : ''}>6 rings (127 hexes)</option>
+        </select>
+      </div>
+    </div>
+  ` : '';
+
   let lobbyBody = '';
 
   if (teamsEnabled) {
-    const maxPerTeam = MAX_PLAYERS / 2;
-    const alphaPlayers = players.filter(p => teams[p.id] === 'alpha');
-    const bravoPlayers = players.filter(p => teams[p.id] === 'bravo');
-    const alphaSlots = Math.max(0, maxPerTeam - alphaPlayers.length);
-    const bravoSlots = Math.max(0, maxPerTeam - bravoPlayers.length);
+    const teamNames = ['alpha', 'bravo', 'charlie'];
+    const teamLabels = ['ALPHA', 'BRAVO', 'CHARLIE'];
+    const numTeams = teamIds.length > 0 ? teamIds.length : 2;
+    const maxPerTeam = Math.floor(MAX_PLAYERS / numTeams);
 
-    const alphaCards = alphaPlayers.map(p => renderSeatCard(p, 'alpha')).join('')
-      + Array(alphaSlots).fill(0).map(() => renderSeatCard(null, 'alpha')).join('');
-    const bravoCards = bravoPlayers.map(p => renderSeatCard(p, 'bravo')).join('')
-      + Array(bravoSlots).fill(0).map(() => renderSeatCard(null, 'bravo')).join('');
+    const columns = teamNames.slice(0, numTeams).map((teamName, i) => {
+      const teamPlayers = players.filter(p => teams[p.id] === teamName);
+      const slots = Math.max(0, maxPerTeam - teamPlayers.length);
+      const cards = teamPlayers.map(p => renderSeatCard(p, teamName)).join('')
+        + Array(slots).fill(0).map(() => renderSeatCard(null, teamName)).join('');
+      return `
+        <div class="lobby-column ${teamName}">
+          <div class="lobby-column-header ${teamName}" role="heading" aria-level="3">${teamLabels[i]}</div>
+          ${cards}
+        </div>`;
+    }).join('');
 
-    lobbyBody = `
-      <div class="lobby-columns">
-        <div class="lobby-column alpha">
-          <div class="lobby-column-header alpha" role="heading" aria-level="3">ALPHA</div>
-          ${alphaCards}
-        </div>
-        <div class="lobby-column bravo">
-          <div class="lobby-column-header bravo" role="heading" aria-level="3">BRAVO</div>
-          ${bravoCards}
-        </div>
-      </div>`;
+    lobbyBody = `<div class="lobby-columns">${columns}</div>`;
   } else {
     const openSlots = Math.max(0, MAX_PLAYERS - players.length);
     const playerCards = players.map(p => renderSeatCard(p)).join('');
@@ -1097,6 +1094,7 @@ function renderWaiting(): string {
         <h2 class="label" style="margin-bottom:12px">Game Created</h2>
         <div class="join-code" id="copy-code" title="Click to copy">${state.joinCode ?? ''}</div>
         <p class="join-code-hint">Click to copy &bull; Share with friends</p>
+        ${gameOptionsHtml}
         ${lobbyBody}
         <p class="player-count">${players.length} of 2\u2013${MAX_PLAYERS} players</p>
         ${isHost ? `<button class="btn btn-amber" id="btn-start" ${canStart ? '' : 'disabled'}>${canStart ? 'Start Game' : 'Need 2+ Players'}</button>` : '<p class="player-count">Waiting for host to start...</p>'}
@@ -1656,39 +1654,8 @@ function bindEvents(): void {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
     saveName(name);
-    state.showCreateModal = true;
-    render();
-  });
-
-  on('btn-create-confirm', 'click', () => {
-    const name = state.savedPlayerName;
-    if (!name) return showError('Enter your name');
-    const timerEnabled = (document.getElementById('timer-enabled') as HTMLInputElement)?.checked ?? false;
-    const timerSecs = parseInt((document.getElementById('timer-seconds') as HTMLSelectElement)?.value ?? '60', 10);
-    const placementTimerEnabled = (document.getElementById('placement-timer-enabled') as HTMLInputElement)?.checked ?? false;
-    const teamsEnabled = (document.getElementById('teams-enabled') as HTMLInputElement)?.checked ?? false;
-    const ringCount = parseInt((document.getElementById('ring-count') as HTMLSelectElement)?.value ?? '5', 10);
     state.isHost = true;
-    state.showCreateModal = false;
-    socket.emit('create-game', {
-      playerName: name,
-      timerConfig: { enabled: timerEnabled, seconds: timerSecs },
-      placementTimerConfig: { enabled: placementTimerEnabled, seconds: timerSecs },
-      teamsEnabled,
-      rings: ringCount,
-    });
-  });
-
-  on('btn-create-cancel', 'click', () => {
-    state.showCreateModal = false;
-    render();
-  });
-
-  on('create-modal-overlay', 'click', (e?: Event) => {
-    if ((e?.target as HTMLElement)?.id === 'create-modal-overlay') {
-      state.showCreateModal = false;
-      render();
-    }
+    socket.emit('create-game', { playerName: name });
   });
 
   on('btn-show-join', 'click', () => {
@@ -1741,6 +1708,22 @@ function bindEvents(): void {
     const select = document.getElementById('bot-difficulty') as HTMLSelectElement | null;
     const difficulty = (select?.value ?? 'medium') as AiDifficulty;
     socket.emit('add-bot', { difficulty });
+  });
+
+  // Game options (waiting room)
+  on('opt-game-type', 'change', () => {
+    const value = (document.getElementById('opt-game-type') as HTMLSelectElement)?.value;
+    socket.emit('update-game-options', { gameType: value as 'ffa' | '2-team' | '3-team' });
+  });
+
+  on('opt-timer', 'change', () => {
+    const value = parseInt((document.getElementById('opt-timer') as HTMLSelectElement)?.value ?? '60', 10);
+    socket.emit('update-game-options', { timerSeconds: value || null });
+  });
+
+  on('opt-rings', 'change', () => {
+    const value = parseInt((document.getElementById('opt-rings') as HTMLSelectElement)?.value ?? '5', 10);
+    socket.emit('update-game-options', { rings: value });
   });
 
   // Seat dropdown triggers

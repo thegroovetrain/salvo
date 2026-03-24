@@ -17,10 +17,9 @@ import crypto from 'node:crypto';
 export function createGame(
   hostId: string,
   hostName: string,
-  timerConfig: TimerConfig,
+  timerConfig: TimerConfig = { enabled: true, seconds: 60 },
   mode: GameMode = 'private',
   teamsEnabled: boolean = false,
-  placementTimerConfig: TimerConfig = { enabled: false, seconds: 30 },
   rings?: number,
 ): Game {
   const player: Player = { id: hostId, name: hostName, ships: [], isBot: false, aiDifficulty: null };
@@ -39,7 +38,6 @@ export function createGame(
     islands: new Set(),
     shots: new Set(),
     timerConfig,
-    placementTimerConfig,
     lastActivity: Date.now(),
     rematchAccepted: new Set(),
     playerStats: new Map(),
@@ -47,6 +45,58 @@ export function createGame(
     teams: new Map(),
     teamsEnabled,
   };
+}
+
+// ============================================================
+// Game Options (lobby-phase updates)
+// ============================================================
+
+export type GameType = 'ffa' | '2-team' | '3-team';
+
+export function updateGameOptions(
+  game: Game,
+  requesterId: string,
+  options: { gameType?: GameType; timerSeconds?: number | null; rings?: number },
+): string | null {
+  if (game.phase !== 'lobby') return 'Game is not in lobby phase';
+  if (game.hostId !== requesterId) return 'Only the host can change game options';
+
+  if (options.gameType !== undefined) {
+    const teamsEnabled = options.gameType !== 'ffa';
+    game.teamsEnabled = teamsEnabled;
+
+    if (teamsEnabled) {
+      // Auto-assign players to teams round-robin
+      const teamNames = options.gameType === '2-team'
+        ? ['alpha', 'bravo', 'charlie'] // 3 possible teams of 2
+        : ['alpha', 'bravo'];           // 2 possible teams of 3
+      game.teams.clear();
+      let teamIdx = 0;
+      for (const playerId of game.players.keys()) {
+        game.teams.set(playerId, teamNames[teamIdx % teamNames.length]);
+        teamIdx++;
+      }
+    } else {
+      game.teams.clear();
+    }
+  }
+
+  if (options.timerSeconds !== undefined) {
+    if (options.timerSeconds === null || options.timerSeconds === 0) {
+      game.timerConfig = { enabled: false, seconds: 60 };
+    } else {
+      game.timerConfig = { enabled: true, seconds: options.timerSeconds };
+    }
+  }
+
+  if (options.rings !== undefined) {
+    if (options.rings >= 4 && options.rings <= 6) {
+      game.rings = options.rings;
+    }
+  }
+
+  game.lastActivity = Date.now();
+  return null;
 }
 
 // ============================================================
@@ -754,7 +804,6 @@ export function toClientView(game: Game, viewerId: string): WireGame {
     islands: [...game.islands],
     shots: [...game.shots],
     timerConfig: game.timerConfig,
-    placementTimerConfig: game.placementTimerConfig,
     teamsEnabled: game.teamsEnabled,
     teams: teamsRecord,
   };

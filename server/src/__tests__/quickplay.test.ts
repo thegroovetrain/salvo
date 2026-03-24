@@ -60,7 +60,7 @@ describe('Quick Play game creation', () => {
   });
 
   it('createGame accepts custom ring count', () => {
-    const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 }, 'private', false, { enabled: false, seconds: 30 }, 4);
+    const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 }, 'private', false, 4);
     expect(game.rings).toBe(4);
   });
 });

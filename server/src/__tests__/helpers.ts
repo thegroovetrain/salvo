@@ -24,7 +24,7 @@ export function makeGame(
 ): { game: Game; playerIds: string[] } {
   const defaultRings = playerCount <= 3 ? 5 : 6;
   const { rings = defaultRings, teamsEnabled = false, mode = 'private' } = options;
-  const game = createGame('p1', 'Player 1', DEFAULT_TIMER, mode, teamsEnabled, DEFAULT_TIMER, rings);
+  const game = createGame('p1', 'Player 1', DEFAULT_TIMER, mode, teamsEnabled, rings);
   const playerIds = ['p1'];
 
   for (let i = 2; i <= playerCount; i++) {

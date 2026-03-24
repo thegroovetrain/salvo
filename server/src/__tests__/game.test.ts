@@ -28,7 +28,7 @@ describe('Game Creation', () => {
   });
 
   it('creates game with custom ring count', () => {
-    const game = createGame('host', 'Alice', { enabled: false, seconds: 60 }, 'private', false, { enabled: false, seconds: 30 }, 6);
+    const game = createGame('host', 'Alice', { enabled: false, seconds: 60 }, 'private', false, 6);
     expect(game.rings).toBe(6);
   });
 });
