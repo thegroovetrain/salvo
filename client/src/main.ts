@@ -1456,26 +1456,6 @@ function renderGameOver(): string {
 
   const highlightsHtml = stats.highlights.map(h => `<p class="highlight">${esc(h)}</p>`).join('');
 
-  // Team aggregate highlights for 2v2
-  let teamHighlightsHtml = '';
-  if (teamsEnabled) {
-    const teamStats: Record<string, { shots: number; hits: number; sunk: number }> = {};
-    for (const [pid, s] of Object.entries(stats.playerStats)) {
-      const teamId = teams[pid] ?? 'unknown';
-      if (!teamStats[teamId]) teamStats[teamId] = { shots: 0, hits: 0, sunk: 0 };
-      teamStats[teamId].shots += s.shotsFired;
-      teamStats[teamId].hits += s.hitsLanded;
-      teamStats[teamId].sunk += s.shipsSunk;
-    }
-    const teamHighlights: string[] = [];
-    for (const [teamId, ts] of Object.entries(teamStats)) {
-      const acc = ts.shots > 0 ? Math.round((ts.hits / ts.shots) * 100) : 0;
-      const label = teamId === 'alpha' ? 'Alpha' : 'Bravo';
-      teamHighlights.push(`Team ${label} Accuracy: ${acc}%`);
-      teamHighlights.push(`Team ${label} Damage: ${ts.sunk} ships sunk`);
-    }
-    teamHighlightsHtml = teamHighlights.map(h => `<p class="highlight">${esc(h)}</p>`).join('');
-  }
 
   const pending = state.rematchPending;
   const alreadyAccepted = pending?.acceptedIds.includes(state.playerId ?? '') ?? false;
@@ -1487,8 +1467,12 @@ function renderGameOver(): string {
     rematchHtml = `<button class="btn btn-amber" id="btn-rematch" style="max-width:300px;margin:24px auto 0">Play Again</button>`;
   }
 
-  // Stats table
+  // Stats table — sorted by turn order
   const players = state.game ? Object.values(state.game.players) : [];
+  const turnOrder = state.game?.turnOrder ?? [];
+  if (turnOrder.length > 0) {
+    players.sort((a, b) => turnOrder.indexOf(a.id) - turnOrder.indexOf(b.id));
+  }
   const statsRows = players.map(p => {
     const s = stats.playerStats[p.id];
     if (!s) return '';
@@ -1518,7 +1502,6 @@ function renderGameOver(): string {
         <h1 class="${winClass}">${winnerText}</h1>
         <p style="color:var(--text-secondary);margin-bottom:16px">${winnerSubtext}</p>
         ${highlightsHtml}
-        ${teamHighlightsHtml}
         <table class="stats-table">
           <thead>
             <tr>
