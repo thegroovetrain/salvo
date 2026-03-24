@@ -734,7 +734,7 @@ html, body {
 /* Cell state fills */
 .cell-empty { fill: var(--bg-elevated); }
 .cell-empty:hover { fill: var(--bg-hover); }
-.cell-ship { fill: var(--green); }
+.cell-ship { fill: rgba(0, 255, 136, 0.08); }
 .cell-miss { fill: var(--miss); cursor: default; }
 .cell-hit { fill: var(--red); }
 .cell-ff { fill: var(--orange); }

@@ -7,7 +7,7 @@ import type {
 } from '@salvo/shared';
 import { SHIP_LENGTHS, SHIP_NAMES } from '@salvo/shared';
 import { renderHexGridSVG, svgClickToHex, getShipPreview, nextDirection, parseHex, hexToString, allHexes, hexLinear, isValidHex, HEX_DIRECTIONS } from './hexGrid.js';
-import type { CellState } from './hexGrid.js';
+import type { CellState, ShipHullData } from './hexGrid.js';
 import { marked } from 'marked';
 import './style.css';
 
@@ -1255,7 +1255,61 @@ function renderGrid(mode: 'placement' | 'battle'): string {
   const islands = new Set(game.islands);
   const hexSize = 24; // pixels per hex
 
-  return renderHexGridSVG(rings, hexSize, islands, (coord) => getCellState(coord, mode), mode);
+  // Build ship hull data for the overlay layer
+  const shipHulls: ShipHullData[] = [];
+
+  // Own ships (cells are populated for the current player)
+  const me = state.playerId ? game.players[state.playerId] : null;
+  if (me) {
+    for (const ship of me.ships) {
+      if (ship.cells.length > 0) {
+        shipHulls.push({ cells: ship.cells, sunk: ship.sunk });
+      }
+    }
+  }
+
+  // Teammate ships (in team games, cells are visible)
+  if (game.teamsEnabled && state.playerId) {
+    const myTeam = game.teams[state.playerId];
+    for (const [pid, player] of Object.entries(game.players)) {
+      if (pid !== state.playerId && game.teams[pid] === myTeam) {
+        for (const ship of player.ships) {
+          if (ship.cells.length > 0) {
+            shipHulls.push({ cells: ship.cells, sunk: ship.sunk, teammate: true });
+          }
+        }
+      }
+    }
+  }
+
+  // Ghost preview ships (placement phase)
+  if (mode === 'placement' && state.ghostCells.length > 0) {
+    shipHulls.push({ cells: state.ghostCells, sunk: false, ghost: true, ghostValid: state.ghostValid });
+  }
+
+  // Teammate ghost preview
+  if (mode === 'placement' && state.teammateGhostShips.length > 0) {
+    for (const tmShip of state.teammateGhostShips) {
+      if (tmShip.cells.length > 0) {
+        shipHulls.push({ cells: tmShip.cells, sunk: false, teammate: true, ghost: true, ghostValid: true });
+      }
+    }
+  }
+
+  // Sunk enemy ships (cells revealed on sunk)
+  if (mode === 'battle') {
+    for (const [pid, player] of Object.entries(game.players)) {
+      if (pid === state.playerId) continue;
+      if (game.teamsEnabled && game.teams[pid] === game.teams[state.playerId ?? '']) continue;
+      for (const ship of player.ships) {
+        if (ship.sunk && ship.cells.length > 0) {
+          shipHulls.push({ cells: ship.cells, sunk: true });
+        }
+      }
+    }
+  }
+
+  return renderHexGridSVG(rings, hexSize, islands, (coord) => getCellState(coord, mode), mode, shipHulls);
 }
 
 function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: string; symbol: string; extraHtml?: string } {
@@ -1265,20 +1319,20 @@ function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: 
     // Ghost preview (own placement)
     if (state.ghostCells.includes(coord)) {
       return state.ghostValid
-        ? { cssClass: 'cell-ghost', symbol: '\u25A0' }
-        : { cssClass: 'cell-invalid', symbol: '\u25A0' };
+        ? { cssClass: 'cell-ghost', symbol: '' }
+        : { cssClass: 'cell-invalid', symbol: '' };
     }
     // Placed ships
     for (const ship of state.placedShips) {
       if (ship.cells.includes(coord)) {
-        return { cssClass: 'cell-ship', symbol: '\u25A0' };
+        return { cssClass: 'cell-ship', symbol: '' };
       }
     }
     // Teammate ghost preview
     if (state.teammateGhostShips.length > 0) {
       for (const ship of state.teammateGhostShips) {
         if (ship.cells.includes(coord)) {
-          return { cssClass: 'cell-teammate-ghost', symbol: '\u25A0' };
+          return { cssClass: 'cell-teammate-ghost', symbol: '' };
         }
       }
     }
@@ -1354,12 +1408,12 @@ function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: 
 
   // Not shot yet
   if (myShip) {
-    return { cssClass: 'cell-ship', symbol: '\u25A0' };
+    return { cssClass: 'cell-ship', symbol: '' };
   }
 
   // Teammate ship (visible in 2v2, not shot)
   if (teammateShip) {
-    return { cssClass: 'cell-teammate-ship', symbol: '\u25A0' };
+    return { cssClass: 'cell-teammate-ship', symbol: '' };
   }
 
   return { cssClass: 'cell-empty', symbol: '' };
