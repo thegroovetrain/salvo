@@ -670,7 +670,7 @@ io.on('connection', (socket) => {
     // Auto-assign bot to team in team games
     if (game.teamsEnabled && 'botId' in result) {
       // If a valid team was specified and that team has room, assign there
-      if (team === 'alpha' || team === 'bravo') {
+      if (team === 'alpha' || team === 'bravo' || team === 'charlie') {
         let teamCount = 0;
         for (const t of game.teams.values()) {
           if (t === team) teamCount++;
