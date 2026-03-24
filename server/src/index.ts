@@ -68,7 +68,6 @@ function getTargetSize(mode: QuickPlayMode): number {
   switch (mode) {
     case '1v1': return 2;
     case '2v2': return 4;
-    case 'ffa': return 4;
     case '3v3': return 6;
     case '3ffa': return 3;
     case '6ffa': return 6;
@@ -1086,7 +1085,8 @@ io.on('connection', (socket) => {
 
   socket.on('quickplay-join', ({ playerName, mode }: { playerName: string; mode: QuickPlayMode }) => {
     // Validate mode
-    if (mode !== '1v1' && mode !== '2v2' && mode !== 'ffa') return;
+    const validModes: QuickPlayMode[] = ['1v1', '2v2', '3v3', '3ffa', '6ffa', '2v2v2'];
+    if (!validModes.includes(mode)) return;
 
     const trimmedName = playerName?.trim()?.slice(0, 20) ?? '';
     if (!trimmedName) {
