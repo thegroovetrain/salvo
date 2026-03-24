@@ -18,7 +18,7 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - **server/src/connections.ts** — playerId↔socketId mapping, disconnect state tracking, event buffering (forfeit handled by turn timer, not wall-clock)
 - **server/src/ai.ts** — AI opponents: 4 tiers (Easy/Medium/Hard/Impossible), ship placement + target selection. Team-aware: excludes teammate from targets (except Easy)
 - **server/src/lobby.ts** — Game lifecycle, join codes (collision-safe), cleanup timer
-- **server/src/index.ts** — Express + socket.io event routing, turn timer management, placement timer, bot auto-play, Quick Play queue (socket.io rooms, 1v1/2v2/FFA), surrender/rejoin handlers, handlePlayerExit() shared helper, team chat routing, swap-team handler, placement-preview relay, turn-based forfeit logic
+- **server/src/index.ts** — Express + socket.io event routing, turn timer management, placement timer, bot auto-play, Quick Play queue (socket.io rooms, 1v1/2v2/FFA), surrender/rejoin handlers, handlePlayerExit() shared helper, team chat routing, swap-team handler, swap-players handler (atomic team swap), placement-preview relay, turn-based forfeit logic
 - **client/src/main.ts** — Single-file vanilla TS client: state management, socket handlers, DOM rendering
 - **client/src/style.css** — Full DESIGN.md implementation
 
