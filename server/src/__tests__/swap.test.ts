@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { createGame, addPlayer } from '../game.js';
+import { createGame, addPlayer, addBot, removeBot } from '../game.js';
 import type { Game } from '@salvo/shared';
 
 // ============================================================
@@ -129,5 +129,40 @@ describe('swap-players', () => {
     // p1 and p2 are both alpha
     const ok = swapPlayers(game, 'p1', 'p1', 'p2');
     expect(ok).toBe(false);
+  });
+});
+
+// ============================================================
+// Regression: removeBot must clean up team assignment
+// Found by /investigate on 2026-03-23
+// ============================================================
+
+describe('removeBot team cleanup', () => {
+  it('removes bot team assignment so the slot is actually freed', () => {
+    const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 }, 'private', true);
+    game.teams.set('p1', 'alpha');
+
+    // Add a bot to alpha
+    const result = addBot(game, 'hard');
+    expect('botId' in result).toBe(true);
+    const botId = (result as { botId: string }).botId;
+    game.teams.set(botId, 'alpha');
+
+    // Alpha now has 2 members
+    let alphaCount = 0;
+    for (const t of game.teams.values()) if (t === 'alpha') alphaCount++;
+    expect(alphaCount).toBe(2);
+
+    // Kick the bot
+    const err = removeBot(game, botId);
+    expect(err).toBeNull();
+
+    // Alpha should have 1 member — the team entry must be cleaned up
+    alphaCount = 0;
+    for (const t of game.teams.values()) if (t === 'alpha') alphaCount++;
+    expect(alphaCount).toBe(1);
+
+    // The bot should not be in the teams map at all
+    expect(game.teams.has(botId)).toBe(false);
   });
 });

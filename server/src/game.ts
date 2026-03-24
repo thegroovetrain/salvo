@@ -107,6 +107,7 @@ export function removeBot(game: Game, botId: string): string | null {
   const player = game.players.get(botId);
   if (!player || !player.isBot) return 'Player is not a bot';
   game.players.delete(botId);
+  game.teams.delete(botId);
   game.lastActivity = Date.now();
   return null;
 }
