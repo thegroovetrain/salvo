@@ -239,16 +239,19 @@ socket.on('shot-results', ({ shooterId, shooterName, shots, game }) => {
   state.game = game;
   state.isMyTurn = false;
   stopTimer();
+  // Capture scroll state BEFORE render destroys the DOM
+  const logEl = document.querySelector('.shot-log');
+  const wasNearBottom = !logEl || (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 50);
   state.shotLog.push({ shooterId, shooterName, shots });
   state.selectedTargets = [];
   render();
-  // Auto-scroll shot log to bottom (newest) if user is near the bottom
-  setTimeout(() => {
-    const el = document.querySelector('.shot-log');
-    if (el && (el.scrollHeight - el.scrollTop - el.clientHeight < 50)) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, 0);
+  // Auto-scroll shot log to bottom if user was near the bottom (or first salvo)
+  if (wasNearBottom) {
+    setTimeout(() => {
+      const el = document.querySelector('.shot-log');
+      if (el) el.scrollTop = el.scrollHeight;
+    }, 0);
+  }
 });
 
 socket.on('player-eliminated', ({ playerName, reason }) => {
