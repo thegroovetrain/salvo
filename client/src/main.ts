@@ -1586,7 +1586,7 @@ function renderGameOver(): string {
   }).join('');
 
   const winClass = teamsEnabled && winnerTeamId
-    ? (winnerTeamId === 'alpha' ? 'team-win-alpha' : 'team-win-bravo')
+    ? `team-win-${winnerTeamId}`
     : winner ? '' : 'draw';
 
   return `
@@ -1595,19 +1595,21 @@ function renderGameOver(): string {
         <h1 class="${winClass}">${winnerText}</h1>
         <p style="color:var(--text-secondary);margin-bottom:16px">${winnerSubtext}</p>
         ${highlightsHtml}
+        <div style="overflow-x:auto;width:100%">
         <table class="stats-table">
           <thead>
             <tr>
               <th>Player</th>
               <th>Shots</th>
               <th>Hits</th>
-              <th>Accuracy</th>
+              <th>Acc</th>
               <th>Sunk</th>
               <th>FF</th>
             </tr>
           </thead>
           <tbody>${statsRows}</tbody>
         </table>
+        </div>
         ${rematchHtml}
         <button class="btn btn-secondary" id="btn-new-game" style="max-width:300px;margin:12px auto 0">New Game</button>
       </div>

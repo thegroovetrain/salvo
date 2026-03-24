@@ -1169,16 +1169,20 @@ html, body {
 .game-over .draw { color: var(--amber); }
 .game-over .team-win-alpha { color: var(--green); }
 .game-over .team-win-bravo { color: var(--red); }
+.game-over .team-win-charlie { color: var(--info); }
 
 .stats-table {
   margin: 24px auto;
   border-collapse: collapse;
   font-size: 14px;
+  width: 100%;
+  max-width: 600px;
 }
 .stats-table th, .stats-table td {
-  padding: 8px 16px;
+  padding: 8px 12px;
   text-align: left;
   border-bottom: 1px solid var(--bg-hover);
+  white-space: nowrap;
 }
 .stats-table th {
   font-family: var(--font-mono);
@@ -1240,6 +1244,10 @@ html, body {
   .desktop-only { display: none; }
   .mobile-only { display: inline; }
   .chat-toggle { width: 100%; }
+  .game-over { padding: 0 8px; }
+  .stats-table { font-size: 12px; }
+  .stats-table th, .stats-table td { padding: 6px 6px; }
+  .stats-table .team-badge { font-size: 8px; padding: 1px 3px; }
 }
 
 @media (max-width: 400px) {
