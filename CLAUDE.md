@@ -74,3 +74,18 @@ Always read DESIGN.md before making any visual or UI decisions.
 All font choices, colors, spacing, and aesthetic direction are defined there.
 Do not deviate without explicit user approval.
 In QA mode, flag any code that doesn't match DESIGN.md.
+
+## Deploy Configuration (configured by /setup-deploy)
+- Platform: Render
+- Production URL: https://salvo-d3ih.onrender.com/ (temporary — will change at wider release)
+- Deploy workflow: auto-deploy on push to main
+- Deploy status command: HTTP health check
+- Merge method: merge
+- Project type: web app (multiplayer game)
+- Post-deploy health check: https://salvo-d3ih.onrender.com/
+
+### Custom deploy hooks
+- Pre-merge: none
+- Deploy trigger: automatic on push to main (Render auto-deploy)
+- Deploy status: poll production URL
+- Health check: https://salvo-d3ih.onrender.com/

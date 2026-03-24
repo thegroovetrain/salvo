@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.11.0] - 2026-03-24
+
+### Added
+- **Hex grid** — the 10x10 square grid is replaced with a hexagonal grid using axial coordinates (q,r). 5 rings (91 hexes) for 2-4 player modes, 6 rings (127 hexes) for 6-player modes. SVG rendering with pointy-top orientation.
+- **Islands** — random blocked hexes that can't be placed on or shot at. 8 islands for 2p, 6 for 3-4p, 4 for 5-6p. BFS connectivity validation prevents unplayable boards.
+- **6-direction ship placement** — ships now follow 3 hex axes (6 directions) instead of horizontal/vertical. Press R to cycle directions.
+- **New game modes** — 3v3, 3-player FFA, 6-player FFA, and 2v2v2 (3 teams of 2). Max players increased from 4 to 6.
+- **Configurable ring count** — private game host can choose 4, 5, or 6 rings. Quick Play modes auto-select based on player count.
+- **Lobby game options** — host-editable Game Type (FFA / 2-Player Teams / 3-Player Teams), Turn Timer (Off / 30s / 60s), and Grid Size directly in the lobby. Visible to all players.
+- **3-team support** — alpha/bravo/charlie team IDs, `getTeammates()` returns array of 0-2 teammates, 3-team win conditions and shared vision
+- **Shared test helpers** — `server/src/__tests__/helpers.ts` with `makeGame()`, `makeTeamGame()`, `hexPlacements()`, `setupBattle()` for DRY test setup
+
+### Changed
+- **Coordinate format** — all coordinates use axial hex format `"q,r"` (e.g. `"3,-1"`) instead of `"A1"` letter-number format
+- **Turn order** — simplified from ABBA to straight team alternation. FFA uses round-robin.
+- **Lobby flow** — removed create game modal. "Create Game" goes straight to lobby with defaults (FFA, 60s timer, 5 rings). Options adjustable in-lobby.
+- **Placement timer** — removed as separate config, shares the turn timer
+
+### Removed
+- Square grid constants (`GRID_SIZE`, `ROWS`, `COLS`)
+- `placementTimerConfig` (merged into `timerConfig`)
+- `getTeammate()` singular (replaced by `getTeammates()` plural)
+- Create game modal
+
 ## [0.10.3] - 2026-03-23
 
 ### Added
