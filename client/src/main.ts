@@ -1371,12 +1371,8 @@ function renderBattle(): string {
       }
       const nameSpans = shot.hits.map(h => {
         const isSelf = h.playerId === entry.shooterId;
-        const cls = isSelf ? 'ff' : 'hit';
-        return `<span class="${cls}">${esc(h.playerName)}</span>`;
+        return isSelf ? `<span class="ff">${esc(h.playerName)}</span>` : esc(h.playerName);
       });
-      if (nameSpans.length === 1) {
-        return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> ${nameSpans[0]}: hit!</div>`;
-      }
       return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="hit">hit: [${nameSpans.join(', ')}]</span></div>`;
     }).join('');
 
