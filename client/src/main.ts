@@ -1047,35 +1047,39 @@ function renderWaiting(): string {
   let lobbyBody = '';
 
   if (teamsEnabled) {
-    const teamNames = ['alpha', 'bravo', 'charlie'];
-    const teamLabels = ['ALPHA', 'BRAVO', 'CHARLIE'];
-    const numTeams = teamIds.length > 0 ? teamIds.length : 2;
-    const maxPerTeam = Math.floor(MAX_PLAYERS / numTeams);
+    // Determine teams and slots per team based on gameType
+    const slotsPerTeam = gameType === '3-team' ? 3 : 2;
+    let activeTeams: string[];
+    if (gameType === '2-team') {
+      activeTeams = players.length > 4 ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'];
+    } else {
+      activeTeams = ['alpha', 'bravo'];
+    }
+    const teamLabels: Record<string, string> = { alpha: 'ALPHA', bravo: 'BRAVO', charlie: 'CHARLIE' };
 
-    const columns = teamNames.slice(0, numTeams).map((teamName, i) => {
+    // Stacked single column: each team section has a header + player slots
+    const sections = activeTeams.map(teamName => {
       const teamPlayers = players.filter(p => teams[p.id] === teamName);
-      const slots = Math.max(0, maxPerTeam - teamPlayers.length);
+      const openCount = Math.max(0, slotsPerTeam - teamPlayers.length);
       const cards = teamPlayers.map(p => renderSeatCard(p, teamName)).join('')
-        + Array(slots).fill(0).map(() => renderSeatCard(null, teamName)).join('');
+        + Array(openCount).fill(0).map(() => renderSeatCard(null, teamName)).join('');
       return `
-        <div class="lobby-column ${teamName}">
-          <div class="lobby-column-header ${teamName}" role="heading" aria-level="3">${teamLabels[i]}</div>
+        <div class="team-section">
+          <div class="team-section-header ${teamName}">${teamLabels[teamName]}</div>
           ${cards}
         </div>`;
     }).join('');
 
-    lobbyBody = `<div class="lobby-columns">${columns}</div>`;
+    lobbyBody = `<div class="lobby-stacked">${sections}</div>`;
   } else {
     const openSlots = Math.max(0, MAX_PLAYERS - players.length);
     const playerCards = players.map(p => renderSeatCard(p)).join('');
     const openCards = Array(openSlots).fill(0).map(() => renderSeatCard(null)).join('');
 
     lobbyBody = `
-      <div style="width:100%">
-        <div class="lobby-column-header" role="heading" aria-level="3" style="color:var(--text-muted)">PLAYERS</div>
-        <div class="non-team-grid">
-          ${playerCards}${openCards}
-        </div>
+      <div class="lobby-stacked">
+        <div class="team-section-header" style="color:var(--text-muted)">PLAYERS</div>
+        ${playerCards}${openCards}
       </div>`;
   }
 

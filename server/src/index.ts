@@ -196,14 +196,32 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
 // ============================================================
 
 /** Auto-assign a player to the team with fewer members (alpha first, then bravo). */
+/** Assign player to the team with fewest members. Ties break: alpha → bravo → charlie. */
 function autoAssignTeam(game: import('@salvo/shared').Game, playerId: string): void {
-  let alphaCount = 0;
-  let bravoCount = 0;
+  // Determine which teams exist for this game type
+  const teamNames = game.gameType === '3-team'
+    ? ['alpha', 'bravo']
+    : game.gameType === '2-team'
+      ? (game.players.size > 4 ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'])
+      : ['alpha', 'bravo']; // fallback
+
+  const counts = new Map<string, number>();
+  for (const name of teamNames) counts.set(name, 0);
   for (const teamId of game.teams.values()) {
-    if (teamId === 'alpha') alphaCount++;
-    else if (teamId === 'bravo') bravoCount++;
+    if (counts.has(teamId)) counts.set(teamId, counts.get(teamId)! + 1);
   }
-  game.teams.set(playerId, alphaCount <= bravoCount ? 'alpha' : 'bravo');
+
+  // Pick team with fewest players (ties favor earlier in order)
+  let minTeam = teamNames[0];
+  let minCount = counts.get(minTeam) ?? 0;
+  for (const name of teamNames) {
+    const c = counts.get(name) ?? 0;
+    if (c < minCount) {
+      minTeam = name;
+      minCount = c;
+    }
+  }
+  game.teams.set(playerId, minTeam);
 }
 
 function emitToPlayer(playerId: string, event: string, data: unknown): void {

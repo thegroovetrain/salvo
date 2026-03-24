@@ -68,10 +68,16 @@ export function updateGameOptions(
     game.gameType = options.gameType;
 
     if (teamsEnabled) {
-      // Auto-assign players to teams round-robin
-      const teamNames = options.gameType === '2-team'
-        ? ['alpha', 'bravo', 'charlie'] // 3 possible teams of 2
-        : ['alpha', 'bravo'];           // 2 possible teams of 3
+      // Determine team names based on game type and player count
+      let teamNames: string[];
+      if (options.gameType === '2-team') {
+        // Teams of 2: 2 teams for ≤4 players, 3 teams for 5-6
+        teamNames = game.players.size > 4 ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'];
+      } else {
+        // Teams of 3: always 2 teams
+        teamNames = ['alpha', 'bravo'];
+      }
+      // Distribute players evenly across teams (round-robin)
       game.teams.clear();
       let teamIdx = 0;
       for (const playerId of game.players.keys()) {

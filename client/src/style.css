@@ -1267,30 +1267,26 @@ html, body {
    Lobby Columns (Team & Non-Team)
    ============================================================ */
 
-.lobby-columns {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
+.lobby-stacked {
   width: 100%;
 }
 
-.lobby-column {
-  flex: 1;
-  padding: 16px;
-  border-radius: var(--radius-lg);
+.team-section {
+  margin-bottom: 8px;
 }
-.lobby-column.alpha { background: var(--green-bg); }
-.lobby-column.bravo { background: var(--red-bg); }
 
-.lobby-column-header {
+.team-section-header {
   font-family: var(--font-mono);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   font-size: 12px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+  margin-top: 12px;
+  text-align: center;
 }
-.lobby-column-header.alpha { color: var(--green); }
-.lobby-column-header.bravo { color: var(--red); }
+.team-section-header.alpha { color: var(--green); }
+.team-section-header.bravo { color: var(--red); }
+.team-section-header.charlie { color: var(--amber); }
 
 .seat-card {
   background: var(--bg-surface);
@@ -1388,11 +1384,7 @@ html, body {
   color: var(--red);
 }
 
-.non-team-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 8px;
-}
+/* removed: .non-team-grid (replaced by .lobby-stacked) */
 
 @media (max-width: 767px) {
   .seat-menu {
