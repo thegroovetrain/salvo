@@ -703,75 +703,65 @@ html, body {
   margin-bottom: 8px;
 }
 
-.game-grid {
-  display: inline-grid;
-  grid-template-columns: 28px repeat(10, 1fr);
-  gap: 2px;
-  font-family: var(--font-mono);
+/* --- Hex Grid SVG --- */
+
+.hex-grid {
+  width: 100%;
+  max-width: 500px;
+  height: auto;
   touch-action: manipulation;
-}
-
-.grid-header {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-muted);
-  font-size: 10px;
-  height: 28px;
-  width: 28px;
   user-select: none;
 }
 
-.grid-cell {
-  width: 32px; height: 32px;
-  border-radius: var(--radius-sm);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  transition: background-color 150ms ease-out;
+.hex-cell {
+  stroke: var(--text-muted);
+  stroke-width: 1;
+  transition: fill 150ms ease-out;
   cursor: pointer;
-  user-select: none;
-  position: relative;
 }
 
-.cell-empty { background: var(--bg-elevated); }
-.cell-empty:hover { background: var(--bg-hover); }
-.cell-ship { background: var(--green); color: var(--bg-deepest); }
-.cell-miss { background: var(--miss); color: var(--text-muted); cursor: default; }
-.cell-hit { background: var(--red); color: white; }
-.cell-ff { background: var(--orange); color: var(--bg-deepest); }
-.cell-sunk { background: var(--sunk); color: #FCA5A5; }
-.cell-selected { background: var(--amber); color: var(--bg-deepest); }
-.cell-ghost { background: rgba(0, 255, 136, 0.2); border: 1px dashed var(--green); }
-.cell-invalid { background: rgba(255, 59, 59, 0.2); border: 1px dashed var(--red); }
-
-/* Teammate ship cells (2v2) */
-.cell-teammate-ship {
-  background: rgba(0, 255, 136, 0.5);
-  color: var(--bg-deepest);
-  border: 1px dashed var(--green);
+.hex-text {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  fill: currentColor;
+  pointer-events: none;
 }
+
+/* Cell state fills */
+.cell-empty { fill: var(--bg-elevated); }
+.cell-empty:hover { fill: var(--bg-hover); }
+.cell-ship { fill: var(--green); }
+.cell-miss { fill: var(--miss); cursor: default; }
+.cell-hit { fill: var(--red); }
+.cell-ff { fill: var(--orange); }
+.cell-sunk { fill: var(--sunk); }
+.cell-selected { fill: var(--amber); }
+.cell-ghost { fill: rgba(0, 255, 136, 0.2); stroke: var(--green); stroke-dasharray: 4 2; }
+.cell-invalid { fill: rgba(255, 59, 59, 0.2); stroke: var(--red); stroke-dasharray: 4 2; }
+
+/* Island hexes */
+.hex-island {
+  fill: #3D3520;
+  stroke: #5C4F30;
+  stroke-width: 1.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Teammate ship cells */
+.cell-teammate-ship { fill: rgba(0, 255, 136, 0.5); stroke: var(--green); stroke-dasharray: 3 1; }
 
 /* Teammate ghost preview during placement */
-.cell-teammate-ghost {
-  background: rgba(0, 255, 136, 0.15);
-  color: rgba(0, 255, 136, 0.4);
-  border: 1px dashed rgba(0, 255, 136, 0.3);
-}
+.cell-teammate-ghost { fill: rgba(0, 255, 136, 0.15); stroke: rgba(0, 255, 136, 0.3); stroke-dasharray: 3 1; }
 
-/* Hit Count Badge */
+/* Hit highlight flash */
+.cell-highlight polygon { fill: white !important; }
+
+/* Hit Count Badge (SVG text) */
 .hit-count-badge {
-  position: absolute;
-  top: 1px;
-  right: 1px;
   font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--red);
-  background: rgba(0, 0, 0, 0.6);
-  padding: 0 3px;
-  border-radius: 6px;
-  line-height: 14px;
+  font-size: 7px;
+  fill: var(--red);
   pointer-events: none;
 }
 
@@ -1240,18 +1230,14 @@ html, body {
     grid-template-columns: 1fr;
     max-width: 100%;
   }
-  .grid-cell { width: 28px; height: 28px; font-size: 10px; }
-  .grid-header { width: 24px; height: 24px; font-size: 9px; }
-  .game-grid { grid-template-columns: 24px repeat(10, 1fr); }
+  .hex-grid { max-width: 380px; }
   .desktop-only { display: none; }
   .mobile-only { display: inline; }
   .chat-toggle { width: 100%; }
 }
 
 @media (max-width: 400px) {
-  .grid-cell { width: 24px; height: 24px; font-size: 9px; }
-  .grid-header { width: 20px; height: 20px; font-size: 8px; }
-  .game-grid { grid-template-columns: 20px repeat(10, 1fr); }
+  .hex-grid { max-width: 320px; }
 }
 
 /* ============================================================
@@ -1260,9 +1246,7 @@ html, body {
 
 @media (min-width: 1200px) {
   html, body { font-size: 17px; }
-  .grid-cell { width: 36px; height: 36px; font-size: 13px; }
-  .grid-header { width: 32px; height: 32px; font-size: 12px; }
-  .game-grid { grid-template-columns: 32px repeat(10, 1fr); }
+  .hex-grid { max-width: 550px; }
   .player-list li { font-size: 15px; }
   .chat-messages { font-size: 13px; }
   .shot-log-salvo { font-size: 13px; }
@@ -1272,9 +1256,7 @@ html, body {
 @media (min-width: 1440px) {
   html, body { font-size: 18px; }
   .screen { max-width: 1300px; }
-  .grid-cell { width: 40px; height: 40px; font-size: 14px; }
-  .grid-header { width: 34px; height: 34px; font-size: 13px; }
-  .game-grid { grid-template-columns: 34px repeat(10, 1fr); }
+  .hex-grid { max-width: 600px; }
   .battle-layout { max-width: 960px; }
   .player-list li { font-size: 16px; }
   .chat-messages { font-size: 14px; }
