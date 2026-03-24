@@ -7,6 +7,8 @@ import {
 import { chooseSalvo, generatePlacement, getBotDelay } from '../ai.js';
 import type { Game, ShipPlacement } from '@salvo/shared';
 import { isPlayerAlive, playerShotCount, SHIP_LENGTHS } from '@salvo/shared';
+import { allHexes, parseHex, isValidHex } from '../../../shared/src/hex.js';
+import { hexPlacements } from './helpers.js';
 
 // ============================================================
 // Helpers
@@ -23,19 +25,11 @@ function makeGameWithBot(difficulty: 'easy' | 'medium' | 'hard' | 'impossible'):
   return { game, humanId: 'human', botId: result.botId };
 }
 
-function humanPlacements(): ShipPlacement[] {
-  return [
-    { length: 1, cells: ['A1'] },
-    { length: 2, cells: ['B1', 'B2'] },
-    { length: 3, cells: ['C1', 'C2', 'C3'] },
-    { length: 4, cells: ['D1', 'D2', 'D3', 'D4'] },
-  ];
-}
-
-function setupBattle(game: Game, humanId: string, botId: string): void {
+function setupBotBattle(game: Game, humanId: string, botId: string): void {
   startGame(game);
-  placeShips(game, humanId, humanPlacements());
-  const botPlacement = generatePlacement(game.players.get(botId)!.aiDifficulty!);
+  game.islands = new Set(); // clear islands for deterministic placement
+  placeShips(game, humanId, hexPlacements(0));
+  const botPlacement = generatePlacement(game.players.get(botId)!.aiDifficulty!, game.rings, game.islands);
   placeShips(game, botId, botPlacement);
   beginPlaying(game);
 }
@@ -48,7 +42,7 @@ describe('AI Ship Placement', () => {
   it.each(['easy', 'medium', 'hard', 'impossible'] as const)(
     'generates valid placement for %s difficulty',
     (difficulty) => {
-      const placement = generatePlacement(difficulty);
+      const placement = generatePlacement(difficulty, 5, new Set());
       expect(placement.length).toBe(SHIP_LENGTHS.length);
 
       const lengths = placement.map(p => p.length).sort();
@@ -58,35 +52,51 @@ describe('AI Ship Placement', () => {
       const allCells = placement.flatMap(p => p.cells);
       expect(new Set(allCells).size).toBe(allCells.length);
 
-      // All cells within grid
+      // All cells within 5-ring grid
       for (const cell of allCells) {
-        const row = 'ABCDEFGHIJ'.indexOf(cell[0]);
-        const col = parseInt(cell.slice(1), 10);
-        expect(row).toBeGreaterThanOrEqual(0);
-        expect(row).toBeLessThan(10);
-        expect(col).toBeGreaterThanOrEqual(1);
-        expect(col).toBeLessThanOrEqual(10);
+        const h = parseHex(cell);
+        expect(h).not.toBeNull();
+        expect(isValidHex(h!.q, h!.r, 5)).toBe(true);
       }
     }
   );
 
-  it('hard/impossible placement avoids grid edges', () => {
-    // Run multiple times and check that placements tend toward interior
-    let edgeCells = 0;
+  it('placement avoids island hexes', () => {
+    const islands = new Set(['0,0', '1,0', '-1,0', '0,1', '0,-1']);
+    for (let i = 0; i < 20; i++) {
+      const placement = generatePlacement('medium', 5, islands);
+      const allCells = placement.flatMap(p => p.cells);
+      for (const cell of allCells) {
+        expect(islands.has(cell)).toBe(false);
+      }
+    }
+  });
+
+  it('hard/impossible placement biases toward inner rings', () => {
+    let outerRingCells = 0;
     let totalCells = 0;
     for (let i = 0; i < 50; i++) {
-      const placement = generatePlacement('hard');
+      const placement = generatePlacement('hard', 5, new Set());
       for (const ship of placement) {
         for (const cell of ship.cells) {
           totalCells++;
-          const row = 'ABCDEFGHIJ'.indexOf(cell[0]);
-          const col = parseInt(cell.slice(1), 10) - 1;
-          if (row === 0 || row === 9 || col === 0 || col === 9) edgeCells++;
+          const h = parseHex(cell)!;
+          const dist = Math.max(Math.abs(h.q), Math.abs(h.r), Math.abs(h.q + h.r));
+          if (dist >= 4) outerRingCells++;
         }
       }
     }
-    // Hard placement should have fewer edge cells than random (< 50%)
-    expect(edgeCells / totalCells).toBeLessThan(0.5);
+    // Hard placement should have fewer outer ring cells than random
+    expect(outerRingCells / totalCells).toBeLessThan(0.5);
+  });
+
+  it('generates valid placement on 6-ring grid', () => {
+    const placement = generatePlacement('medium', 6, new Set());
+    const allCells = placement.flatMap(p => p.cells);
+    for (const cell of allCells) {
+      const h = parseHex(cell)!;
+      expect(isValidHex(h.q, h.r, 6)).toBe(true);
+    }
   });
 });
 
@@ -99,9 +109,7 @@ describe('AI Salvo Validity', () => {
     '%s produces valid salvos',
     (difficulty) => {
       const { game, humanId, botId } = makeGameWithBot(difficulty);
-      setupBattle(game, humanId, botId);
-
-      // Force bot's turn
+      setupBotBattle(game, humanId, botId);
       game.turnOrder = [botId, humanId];
       game.currentTurnIndex = 0;
 
@@ -111,7 +119,6 @@ describe('AI Salvo Validity', () => {
 
       expect(coords.length).toBe(expectedShots);
 
-      // All coords should pass validation
       const err = validateSalvo(game, botId, coords);
       expect(err).toBeNull();
     }
@@ -121,18 +128,37 @@ describe('AI Salvo Validity', () => {
     '%s never picks already-shot coordinates',
     (difficulty) => {
       const { game, humanId, botId } = makeGameWithBot(difficulty);
-      setupBattle(game, humanId, botId);
+      setupBotBattle(game, humanId, botId);
       game.turnOrder = [botId, humanId];
       game.currentTurnIndex = 0;
 
       // Pre-shoot some cells
-      game.shots.add('A1');
-      game.shots.add('E5');
-      game.shots.add('J10');
+      game.shots.add('0,0');
+      game.shots.add('2,-1');
+      game.shots.add('-3,2');
 
       const coords = chooseSalvo(game, botId, difficulty);
       for (const c of coords) {
         expect(game.shots.has(c)).toBe(false);
+      }
+    }
+  );
+
+  it.each(['easy', 'medium', 'hard', 'impossible'] as const)(
+    '%s never picks island coordinates',
+    (difficulty) => {
+      const { game, humanId, botId } = makeGameWithBot(difficulty);
+      setupBotBattle(game, humanId, botId);
+      game.turnOrder = [botId, humanId];
+      game.currentTurnIndex = 0;
+
+      // Add islands
+      game.islands.add('3,-3');
+      game.islands.add('4,-2');
+
+      const coords = chooseSalvo(game, botId, difficulty);
+      for (const c of coords) {
+        expect(game.islands.has(c)).toBe(false);
       }
     }
   );
@@ -144,9 +170,8 @@ describe('AI Salvo Validity', () => {
 
 describe('Easy AI', () => {
   it('does not avoid own ship positions', () => {
-    // Over many runs, Easy should eventually pick a cell that overlaps its own ships
     const { game, humanId, botId } = makeGameWithBot('easy');
-    setupBattle(game, humanId, botId);
+    setupBotBattle(game, humanId, botId);
     game.turnOrder = [botId, humanId];
     game.currentTurnIndex = 0;
 
@@ -156,7 +181,6 @@ describe('Easy AI', () => {
 
     let hitOwnShip = false;
     for (let i = 0; i < 100; i++) {
-      // Reset shots for each attempt
       game.shots = new Set();
       const coords = chooseSalvo(game, botId, 'easy');
       if (coords.some(c => botShipCells.has(c))) {
@@ -164,8 +188,6 @@ describe('Easy AI', () => {
         break;
       }
     }
-    // With 4 shots out of 100 cells, and 10 own-ship cells, probability of
-    // never hitting own ship in 100 tries is astronomically low
     expect(hitOwnShip).toBe(true);
   });
 });
@@ -177,7 +199,7 @@ describe('Easy AI', () => {
 describe('Medium AI', () => {
   it('avoids own ship positions', () => {
     const { game, humanId, botId } = makeGameWithBot('medium');
-    setupBattle(game, humanId, botId);
+    setupBotBattle(game, humanId, botId);
     game.turnOrder = [botId, humanId];
     game.currentTurnIndex = 0;
 
@@ -196,45 +218,46 @@ describe('Medium AI', () => {
 
   it('targets adjacent cells after a hit', () => {
     const { game, humanId, botId } = makeGameWithBot('medium');
-    setupBattle(game, humanId, botId);
+    setupBotBattle(game, humanId, botId);
     game.turnOrder = [botId, humanId];
     game.currentTurnIndex = 0;
 
-    // Simulate a previous hit on the human's Cruiser at C1
-    const humanShip = game.players.get(humanId)!.ships.find(s => s.cells.includes('C1'))!;
-    humanShip.hits.add('C1');
-    game.shots.add('C1');
-
-    // Adjacent to C1: B1, D1, C2 — at least one should be targeted
-    const adjacent = ['B1', 'D1', 'C2'];
-    const botShipCells = new Set(game.players.get(botId)!.ships.flatMap(s => s.cells));
-    // Filter to adjacent cells the bot wouldn't avoid
-    const validAdj = adjacent.filter(c => !botShipCells.has(c));
-
-    // If all adjacent cells overlap bot's ships, skip this test (extremely unlikely)
-    if (validAdj.length === 0) return;
+    // Simulate a previous hit on one of the human's ship cells
+    const humanShipCell = game.players.get(humanId)!.ships[1].cells[0]; // Destroyer first cell
+    const humanShip = game.players.get(humanId)!.ships.find(s => s.cells.includes(humanShipCell))!;
+    humanShip.hits.add(humanShipCell);
+    game.shots.add(humanShipCell);
 
     let targetedAdjacent = false;
     for (let i = 0; i < 50; i++) {
-      game.shots = new Set(['C1']);
+      game.shots = new Set([humanShipCell]);
       const coords = chooseSalvo(game, botId, 'medium');
-      if (coords.some(c => validAdj.includes(c))) {
-        targetedAdjacent = true;
-        break;
+      // Check if any coord is adjacent to the hit cell
+      const h = parseHex(humanShipCell)!;
+      for (const c of coords) {
+        const ch = parseHex(c);
+        if (ch) {
+          const dist = Math.max(Math.abs(h.q - ch.q), Math.abs(h.r - ch.r), Math.abs((h.q + h.r) - (ch.q + ch.r)));
+          if (dist === 1) {
+            targetedAdjacent = true;
+            break;
+          }
+        }
       }
+      if (targetedAdjacent) break;
     }
     expect(targetedAdjacent).toBe(true);
   });
 });
 
 // ============================================================
-// Hard — Avoids Own Ships + Checkerboard
+// Hard — Hex 3-Coloring Hunt
 // ============================================================
 
 describe('Hard AI', () => {
   it('avoids own ship positions', () => {
     const { game, humanId, botId } = makeGameWithBot('hard');
-    setupBattle(game, humanId, botId);
+    setupBotBattle(game, humanId, botId);
     game.turnOrder = [botId, humanId];
     game.currentTurnIndex = 0;
 
@@ -251,26 +274,25 @@ describe('Hard AI', () => {
     }
   });
 
-  it('uses checkerboard pattern in hunt mode', () => {
+  it('uses hex 3-coloring pattern in hunt mode', () => {
     const { game, humanId, botId } = makeGameWithBot('hard');
-    setupBattle(game, humanId, botId);
+    setupBotBattle(game, humanId, botId);
     game.turnOrder = [botId, humanId];
     game.currentTurnIndex = 0;
 
-    // With no prior hits, hard should use checkerboard
+    // With no prior hits, hard should use 3-coloring
     const coords = chooseSalvo(game, botId, 'hard');
-
-    // Check that selected cells follow checkerboard (row + col is even)
     const botShipCells = new Set(game.players.get(botId)!.ships.flatMap(s => s.cells));
     const nonBotCoords = coords.filter(c => !botShipCells.has(c));
 
-    // At least some should be checkerboard cells
-    const checkerboard = nonBotCoords.filter(c => {
-      const row = 'ABCDEFGHIJ'.indexOf(c[0]);
-      const col = parseInt(c.slice(1), 10) - 1;
-      return (row + col) % 2 === 0;
+    // Check 3-coloring: ((q - r) % 3 + 3) % 3 === 0
+    const coloredCells = nonBotCoords.filter(c => {
+      const h = parseHex(c);
+      if (!h) return false;
+      return ((h.q - h.r) % 3 + 3) % 3 === 0;
     });
-    expect(checkerboard.length).toBeGreaterThan(0);
+    // Most cells should follow the 3-coloring pattern
+    expect(coloredCells.length).toBeGreaterThan(0);
   });
 });
 
@@ -281,7 +303,7 @@ describe('Hard AI', () => {
 describe('Impossible AI', () => {
   it('always hits enemy ships', () => {
     const { game, humanId, botId } = makeGameWithBot('impossible');
-    setupBattle(game, humanId, botId);
+    setupBotBattle(game, humanId, botId);
     game.turnOrder = [botId, humanId];
     game.currentTurnIndex = 0;
 
@@ -290,8 +312,6 @@ describe('Impossible AI', () => {
     );
 
     const coords = chooseSalvo(game, botId, 'impossible');
-
-    // Every shot should hit a human ship cell
     for (const c of coords) {
       expect(humanShipCells.has(c)).toBe(true);
     }
@@ -299,7 +319,7 @@ describe('Impossible AI', () => {
 
   it('avoids own ship positions even with perfect info', () => {
     const { game, humanId, botId } = makeGameWithBot('impossible');
-    setupBattle(game, humanId, botId);
+    setupBotBattle(game, humanId, botId);
     game.turnOrder = [botId, humanId];
     game.currentTurnIndex = 0;
 
@@ -311,26 +331,6 @@ describe('Impossible AI', () => {
     for (const c of coords) {
       expect(botShipCells.has(c)).toBe(false);
     }
-  });
-
-  it('prioritizes cells that hit multiple players', () => {
-    // Simple 2-player + bot setup where one cell is shared
-    const { game, humanId, botId } = makeGameWithBot('impossible');
-    setupBattle(game, humanId, botId);
-    game.turnOrder = [botId, humanId];
-    game.currentTurnIndex = 0;
-
-    // The Impossible bot knows where the human's ships are.
-    // With only 2 players, every human ship cell has score 1.
-    // Just verify the bot always picks actual enemy ship cells.
-    const humanShipCells = new Set(
-      game.players.get(humanId)!.ships.flatMap(s => s.cells)
-    );
-    const coords = chooseSalvo(game, botId, 'impossible');
-    const hitsOnHuman = coords.filter(c => humanShipCells.has(c));
-
-    // Impossible bot should hit enemy ships with every shot
-    expect(hitsOnHuman.length).toBe(coords.length);
   });
 });
 
@@ -360,21 +360,19 @@ describe('Bot Delay', () => {
 describe('AI Edge Cases', () => {
   it('handles nearly-full board (few unshot cells)', () => {
     const { game, humanId, botId } = makeGameWithBot('medium');
-    setupBattle(game, humanId, botId);
+    setupBotBattle(game, humanId, botId);
     game.turnOrder = [botId, humanId];
     game.currentTurnIndex = 0;
 
-    // Shoot almost everything
-    for (let r = 0; r < 10; r++) {
-      for (let c = 0; c < 10; c++) {
-        const coord = `${'ABCDEFGHIJ'[r]}${c + 1}`;
-        if (coord !== 'J9' && coord !== 'J10') {
-          game.shots.add(coord);
-        }
+    // Shoot almost everything except 2 cells
+    const all = allHexes(game.rings);
+    const keep = new Set([all[all.length - 1], all[all.length - 2]]);
+    for (const c of all) {
+      if (!keep.has(c)) {
+        game.shots.add(c);
       }
     }
 
-    // Only 2 cells left, bot has 4 shots — should only return up to 2
     const coords = chooseSalvo(game, botId, 'medium');
     expect(coords.length).toBeLessThanOrEqual(2);
     expect(coords.length).toBeGreaterThan(0);
@@ -382,7 +380,7 @@ describe('AI Edge Cases', () => {
 
   it('bot with 1 surviving ship fires 1 shot', () => {
     const { game, humanId, botId } = makeGameWithBot('hard');
-    setupBattle(game, humanId, botId);
+    setupBotBattle(game, humanId, botId);
     game.turnOrder = [botId, humanId];
     game.currentTurnIndex = 0;
 
@@ -417,7 +415,9 @@ describe('Bot Management', () => {
     addBot(game, 'easy');
     addBot(game, 'medium');
     addBot(game, 'hard');
-    const result = addBot(game, 'impossible');
+    addBot(game, 'impossible');
+    addBot(game, 'easy');
+    const result = addBot(game, 'medium');
     expect('error' in result).toBe(true);
   });
 
@@ -429,7 +429,6 @@ describe('Bot Management', () => {
     const bot = game.players.get(result.botId)!;
     expect(bot.isBot).toBe(true);
     expect(bot.aiDifficulty).toBe('hard');
-    // Name should start with H (Hard difficulty)
     expect(bot.name[0]).toBe('H');
   });
 });

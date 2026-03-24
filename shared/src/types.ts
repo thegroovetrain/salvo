@@ -8,7 +8,7 @@
 
 export interface Ship {
   length: number;
-  cells: string[];         // e.g. ["B3","B4","B5"]
+  cells: string[];         // e.g. ["0,0","1,0","2,0"] (axial hex coords)
   hits: Set<string>;       // subset of cells that have been hit
 }
 
@@ -51,7 +51,15 @@ export interface TimerConfig {
   seconds: number; // 30 or 60
 }
 
-export type GameMode = 'private' | 'quickplay-1v1' | 'quickplay-2v2' | 'quickplay-ffa';
+export type GameMode =
+  | 'private'
+  | 'quickplay-1v1'
+  | 'quickplay-2v2'
+  | 'quickplay-ffa'
+  | 'quickplay-3v3'
+  | 'quickplay-3ffa'
+  | 'quickplay-6ffa'
+  | 'quickplay-2v2v2';
 
 export type ChatChannel = 'team' | 'global';
 
@@ -61,10 +69,11 @@ export interface Game {
   mode: GameMode;
   players: Map<string, Player>;
   hostId: string;
-  turnOrder: string[];        // randomized when all ships placed
+  turnOrder: string[];        // generated when all ships placed
   currentTurnIndex: number;
-  gridSize: 10;
-  shots: Set<string>;         // all globally fired coordinates
+  rings: number;              // hex grid ring count (4-6)
+  islands: Set<string>;       // "q,r" coordinate strings for blocked hexes
+  shots: Set<string>;         // all globally fired coordinates ("q,r" format)
   timerConfig: TimerConfig;
   placementTimerConfig: TimerConfig;
   lastActivity: number;       // Date.now() for cleanup
@@ -73,7 +82,7 @@ export interface Game {
   playerStats: Map<string, PlayerGameStats>;
   /** ID of the player who scored the first hit */
   firstBloodId: string | null;
-  /** Team mode: playerId → teamId ('alpha' | 'bravo') */
+  /** Team mode: playerId → teamId ('alpha' | 'bravo' | 'charlie') */
   teams: Map<string, string>;
   teamsEnabled: boolean;
 }
@@ -93,9 +102,18 @@ export const SHIP_NAMES: Record<number, string> = {
   3: 'Cruiser',
   4: 'Battleship',
 };
-export const GRID_SIZE = 10;
-export const ROWS = 'ABCDEFGHIJ';
-export const COLS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+
+/** Default ring counts per game mode */
+export const MODE_RINGS: Record<string, number> = {
+  'private': 5,
+  'quickplay-1v1': 5,
+  'quickplay-2v2': 5,
+  'quickplay-ffa': 5,    // 4-player FFA
+  'quickplay-3ffa': 5,   // 3-player FFA
+  'quickplay-3v3': 6,    // 6 players need bigger grid
+  'quickplay-6ffa': 6,
+  'quickplay-2v2v2': 6,
+};
 
 // --- Wire types (JSON-serializable, used in socket events) ---
 
@@ -142,7 +160,8 @@ export interface WireGame {
   players: Record<string, WirePlayer>;
   turnOrder: string[];
   currentTurnIndex: number;
-  gridSize: 10;
+  rings: number;
+  islands: string[];         // "q,r" strings for blocked hexes
   shots: string[];
   timerConfig: TimerConfig;
   placementTimerConfig: TimerConfig;
@@ -181,20 +200,28 @@ export interface ShipPlacement {
 
 // --- Socket Events ---
 
-export type QuickPlayMode = '1v1' | '2v2' | 'ffa';
+export type QuickPlayMode = '1v1' | '2v2' | 'ffa' | '3v3' | '3ffa' | '6ffa' | '2v2v2';
 
 export interface GameCountData {
   total: number;
   oneVsOne: number;
   twoVsTwo: number;
   ffa: number;
+  threeVsThree: number;
+  threeFfa: number;
+  sixFfa: number;
+  twoVsTwoVsTwo: number;
   searching1v1: number;
   searching2v2: number;
   searchingFfa: number;
+  searching3v3: number;
+  searching3ffa: number;
+  searching6ffa: number;
+  searching2v2v2: number;
 }
 
 export interface ClientToServerEvents {
-  'create-game': (data: { playerName: string; timerConfig?: TimerConfig; placementTimerConfig?: TimerConfig; teamsEnabled?: boolean }) => void;
+  'create-game': (data: { playerName: string; timerConfig?: TimerConfig; placementTimerConfig?: TimerConfig; teamsEnabled?: boolean; rings?: number }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
   'start-game': () => void;
   'add-bot': (data: { difficulty: AiDifficulty; team?: string }) => void;
@@ -243,12 +270,16 @@ export interface ServerToClientEvents {
 
 // --- Helpers ---
 
-/** Map QuickPlayMode to GameMode (DRY: used in tryMatchRoom, rematch-request, rematch-decline) */
+/** Map QuickPlayMode to GameMode */
 export function toGameMode(qpMode: QuickPlayMode): GameMode {
   switch (qpMode) {
     case '1v1': return 'quickplay-1v1';
     case '2v2': return 'quickplay-2v2';
     case 'ffa': return 'quickplay-ffa';
+    case '3v3': return 'quickplay-3v3';
+    case '3ffa': return 'quickplay-3ffa';
+    case '6ffa': return 'quickplay-6ffa';
+    case '2v2v2': return 'quickplay-2v2v2';
   }
 }
 
@@ -258,6 +289,35 @@ export function toQuickPlayMode(gameMode: GameMode): QuickPlayMode | null {
     case 'quickplay-1v1': return '1v1';
     case 'quickplay-2v2': return '2v2';
     case 'quickplay-ffa': return 'ffa';
+    case 'quickplay-3v3': return '3v3';
+    case 'quickplay-3ffa': return '3ffa';
+    case 'quickplay-6ffa': return '6ffa';
+    case 'quickplay-2v2v2': return '2v2v2';
     default: return null;
   }
+}
+
+/** Get all teammates of a player (excludes self). Returns [] for FFA/non-team games. */
+export function getTeammates(game: Game, playerId: string): string[] {
+  if (!game.teamsEnabled) return [];
+  const myTeam = game.teams.get(playerId);
+  if (!myTeam) return [];
+  const teammates: string[] = [];
+  for (const [pid, tid] of game.teams) {
+    if (pid !== playerId && tid === myTeam) {
+      teammates.push(pid);
+    }
+  }
+  return teammates;
+}
+
+/** Check if any player on the team is still alive */
+export function isTeamAlive(game: Game, teamId: string): boolean {
+  for (const [pid, tid] of game.teams) {
+    if (tid === teamId) {
+      const player = game.players.get(pid);
+      if (player && isPlayerAlive(player)) return true;
+    }
+  }
+  return false;
 }
