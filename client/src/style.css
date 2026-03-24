@@ -806,16 +806,6 @@ html, body {
   animation: turn-pulse-text 2s ease-in-out infinite;
 }
 
-/* Grid glow when it's your turn */
-.grid-panel.your-turn-glow {
-  box-shadow: 0 0 20px rgba(255, 184, 0, 0.3), 0 0 40px rgba(255, 184, 0, 0.1);
-  animation: turn-glow 2s ease-in-out infinite;
-}
-
-@keyframes turn-glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(255, 184, 0, 0.15), 0 0 40px rgba(255, 184, 0, 0.05); }
-  50% { box-shadow: 0 0 20px rgba(255, 184, 0, 0.3), 0 0 40px rgba(255, 184, 0, 0.1); }
-}
 
 @keyframes turn-pulse-text {
   0%, 100% { transform: scale(1); }
