@@ -8,8 +8,8 @@
 
 ## Aesthetic Direction
 - **Direction:** Retro-Futuristic / Tactical Display
-- **Decoration level:** Intentional — subtle scan-line texture on dark backgrounds, faint grid lines evoking radar displays
-- **Mood:** Tense, atmospheric, deliberate. Like a submarine's sonar screen — every blip matters. Not playful, not grim — *focused*.
+- **Decoration level:** Intentional — black void ocean, crisp silver-white grid lines evoking a CIC (Combat Information Center) radar display
+- **Mood:** Tense, atmospheric, deliberate. Like a submarine war room's tactical display — every contact matters. Not playful, not grim — *focused*.
 - **Reference sites:** buddyboardgames.com (dark theme approach), papergames.io (clean lobby UX)
 
 ## Typography
@@ -34,41 +34,46 @@
 - **Primary (Tactical Green):** `#00FF88` — your ships, valid placements, UI accents, success states
 - **Secondary (Amber Alert):** `#FFB800` — selections, salvo targets, turn indicators, action buttons
 - **Neutrals:**
-  - Deepest: `#0A0E14` (page background, input backgrounds)
-  - Surface: `#1A1F2B` (cards, panels)
-  - Elevated: `#232937` (empty grid cells, hover backgrounds)
-  - Hover: `#2A3040` (miss cells, dividers)
+  - Deepest: `#000000` (page background — pure black void)
+  - Surface: `#111111` (cards, panels)
+  - Elevated: `#232937` (non-grid UI backgrounds — modals, dropdowns)
+  - Hover: `#111111` (hover backgrounds)
+  - Grid Stroke: `#C0C0C0` (silver-white hex grid outlines — CIC radar overlay)
+  - Cell Fill: `#000000` (hex cell background — unsearched ocean)
   - Muted text: `#5A6478`
   - Secondary text: `#8B95A5`
   - Primary text: `#E2E8F0`
 - **Semantic:**
-  - Hit (Impact Red): `#FF3B3B` — enemy ship hits
-  - Friendly Fire (Warning Orange): `#FF8C42` — hits on YOUR ships. Distinct from enemy hits. This color IS the game mechanic.
-  - Sunk: `#7F1D1D` — deep dead red, finality
+  - Hit (Dark Crimson): `#8B0000` — cell fill for all hits (enemy, friendly, your ship). Desaturated to avoid visual vibration on black.
+  - Friendly Fire (Warning Orange): `#FF8C42` — marker color only (⚠ symbol). Cell fill is unified crimson. Shape distinguishes from × for colorblind safety.
+  - Sunk: `#4A0000` — deeper crimson for sunk hull capsules and revealed wreckage
   - Info: `#38BDF8` — waiting states, informational messages
-  - Miss: `#2A3040` — barely visible against dark background. Absence, not presence.
+  - Miss: `#333333` — visible gray fill, "searched sector." Reads as scanned area on the CIC display.
+  - Hit markers: `#FF6666` (bright red at 0.5 opacity) — subtle × on crimson fills as secondary info layer
 - **Dark mode:** Default. This IS the dark theme.
 - **Light mode:** Available via toggle. Adjusted palette:
   - Primary green: `#059669`, Amber: `#D97706`, Red: `#DC2626`, Orange: `#EA580C`
   - Backgrounds: `#F8FAFC` / `#FFFFFF` / `#F1F5F9` / `#E2E8F0`
   - Text: `#0F172A` / `#475569` / `#94A3B8`
 
-### Grid Cell States (unified grid — one interactive ocean)
-| State | Color | Symbol | Usage |
-|-------|-------|--------|-------|
-| Empty | `#232937` (elevated) | `·` | Unshot cell, no ship |
-| Your Ship | `#00FF88` (green) | `■` | Your ship position (untouched) |
-| Selected | `#FFB800` (amber) | `◎` | Target selection |
-| Miss | `#2A3040` (hover) | `•` | Shot landed, no ship here |
-| Hit (enemy) | `#FF3B3B` (red) | `×` | Hit on another player's ship |
-| Friendly Fire | `#FF8C42` (orange) | `⚠` | You hit YOUR OWN ship |
-| Your Ship Hit | `#7F1D1D` (sunk) | `×` | Enemy hit YOUR ship |
-| Ghost | `rgba(0,255,136,0.2)` + dashed border | `■` | Ship placement preview |
-| Valid Placement | `rgba(0,255,136,0.2)` green tint | — | Can place ship here |
-| Invalid Placement | `rgba(255,59,59,0.2)` red tint | — | Cannot place here (overlap/OOB) |
-| Teammate Ship | `rgba(0,255,136,0.5)` + dashed border | `■` (dashed) | Teammate's ship position (2v2 only) |
-| Teammate Ghost | `rgba(0,255,136,0.15)` + dashed border | `■` (faint) | Teammate's in-progress placement preview |
-| Multi-Hit | `#FF3B3B` + badge | `×N` | Hit on N overlapping ships (badge in top-right) |
+### Grid Cell States (CIC tactical display — filled hexes + subtle markers)
+| State | Fill | Marker | Usage |
+|-------|------|--------|-------|
+| Empty | `#000000` (black void) | — | Unsearched ocean |
+| Your Ship | `#000000` + green capsule | — | Your ship (capsule IS the visual) |
+| Selected | `#665200` (dark amber) | `◎` (#FFB800/0.7) | Salvo target selection |
+| Miss | `#333333` (dark gray) | `•` (#888/0.5) | Searched sector, no contact |
+| Hit (enemy) | `#8B0000` (dark crimson) | `×` (#FF6666/0.5) | Confirmed hostile contact |
+| Friendly Fire | `#8B0000` (dark crimson) | `⚠` (#FF8C42/0.6) | Hit on friendly — orange ⚠ for colorblind safety |
+| Your Ship Hit | `#8B0000` (dark crimson) + green capsule | `×` (#FF6666/0.5) | Enemy hit YOUR ship (capsule shows it's yours) |
+| Teammate Ship Hit | `#8B0000` + dim green capsule | `×` (#CC4444/0.4) | Teammate ship damaged |
+| Sunk (revealed) | `#4A0000` + `#4A0000` capsule | `×` (#CC4444/0.4) | Destroyed contact wreckage |
+| Ghost (valid) | `rgba(0,255,136,0.25)` + dashed `#00FF88` | — | Valid placement preview |
+| Ghost (invalid) | `rgba(255,59,59,0.25)` + dashed `#FF3B3B` | — | Invalid placement (overlap/OOB) |
+| Teammate Ship | `#000000` + dim green capsule (0.15/0.60) | — | Teammate's ship (team games) |
+| Teammate Ghost | `rgba(0,255,136,0.15)` + dashed border | — | Teammate's placement preview |
+| Island | `#2A2A1A` (dark olive) | — | Terrain / blocked hex |
+| Multi-Hit | `#8B0000` + badge | `×N` | Hit on N overlapping ships |
 
 ## Spacing
 - **Base unit:** 4px
@@ -94,6 +99,22 @@
   - Shot log entry: 200ms slide-in from top
   - Turn indicator pulse: 2s infinite subtle opacity pulse
   - Timer warning (≤10s): color transition to red
+  - Placement confirmation: 200ms flash from 80% to 20% green hull fill (JS-driven, inline SVG)
+  - Game-over reveal: 100ms stagger per ship, sequential hull appearance
+
+## Sound Design
+- **Approach:** CIC-authentic AudioContext tones — minimal, functional, no sound files
+- **Generic function:** `playTone(freqStart, freqMid, freqEnd, duration, volume, type)` — all tones use this
+- **Events:**
+  - Match found: 600→1200→800 Hz, 0.5s (existing)
+  - Your turn: 400→800→600 Hz, 0.4s (existing)
+  - Salvo — all miss: 200→300→150 Hz, 0.3s (sonar ping)
+  - Salvo — hit: 400→600→300 Hz, 0.35s (impact)
+  - Salvo — sunk: 600→900→500 Hz, 0.6s (alarm warble)
+  - Placement confirm: 300→350→250 Hz, 0.15s (subtle lock-in)
+  - Game-over summary: 250→400→200 Hz, 0.5s (debrief)
+- **Muting:** All tones respect `state.matchSoundMuted` (localStorage `hullcracker-muted`)
+- **Error handling:** try/catch around AudioContext — silent fail on unsupported browsers
 
 ## Decisions Log
 | Date | Decision | Rationale |
@@ -105,3 +126,4 @@
 | 2026-03-23 | Quick Play as hero action | 1v1/FFA buttons in amber (action color) above secondary Create/Join. Queue wait screen uses animated green dots with 2s pulse. Match-found sonar ping via Web Audio API with mute toggle. |
 | 2026-03-23 | Muted red for destructive actions (`btn-danger`) | `#8B2020` — dim, desaturated red distinct from bright `#FF3B3B` (Impact Red = enemy hits). Reads as caution/destructive without competing with hit cell color. Used for Surrender button and rejoin "Leave Game" button. |
 | 2026-03-24 | Team colors: Alpha=green, Bravo=red, Charlie=blue | Classic RGΒ trio — maximally distinct, intuitive. Charlie uses `#38BDF8` (Info Blue / `var(--info)`), replacing amber which conflicted with selection/action color. |
+| 2026-03-24 | v0.12.0 CIC grid overhaul | Black void ocean, silver-white grid lines, filled hexes for all states. Desaturated crimson (#8B0000) for hits (Material Design dark mode guidance). Unified hit fill — capsule presence distinguishes friendly damage. Miss = gray filled sector. Sound design: single composite tone per salvo. Sequential game-over ship reveal. |
