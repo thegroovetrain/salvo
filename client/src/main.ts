@@ -1369,23 +1369,21 @@ function renderBattle(): string {
       if (shot.miss) {
         return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="miss-text">miss</span></div>`;
       }
-      return shot.hits.map(hit => {
-        const isSelfHit = hit.playerId === entry.shooterId;
-        const isMyShipHit = hit.playerId === state.playerId;
-        if (isSelfHit) {
-          return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="ff">${esc(entry.shooterName)}: hit!</span></div>`;
-        }
-        if (isMyShipHit) {
-          return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="hit">you: hit!</span></div>`;
-        }
-        return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="hit">${esc(hit.playerName)}: hit!</span></div>`;
-      }).join('');
+      const ffHits = shot.hits.filter(h => h.playerId === entry.shooterId);
+      const enemyHits = shot.hits.filter(h => h.playerId !== entry.shooterId);
+      const names = shot.hits.map(h => h.playerId === entry.shooterId ? esc(entry.shooterName) : esc(h.playerName));
+      const hasFf = ffHits.length > 0;
+      const cls = hasFf ? 'ff' : 'hit';
+      if (names.length === 1) {
+        return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="${cls}">${names[0]}: hit!</span></div>`;
+      }
+      return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="${cls}">hit: [${names.join(', ')}]</span></div>`;
     }).join('');
 
     // Sink/elimination lines after the salvo
     const sinkLines = entry.shots.flatMap(shot =>
       shot.hits.filter(h => h.sunk).map(hit => {
-        const ownerName = hit.playerId === state.playerId ? 'your' : `${esc(hit.playerName)}'s`;
+        const ownerName = `${esc(hit.playerName)}'s`;
         return `<div class="shot-log-sink">\u00D7 ${ownerName} ${SHIP_NAMES[hit.shipLength]} sunk</div>`;
       })
     ).join('');
