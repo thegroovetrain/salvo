@@ -15,6 +15,32 @@ declare const __APP_VERSION__: string;
 const VERSION = __APP_VERSION__;
 
 // ============================================================
+// Storage Key Migration (salvo- → hullcracker-)
+// ============================================================
+
+(function migrateStorageKeys() {
+  const migrations = [
+    ['salvo-player-name', 'hullcracker-player-name'],
+    ['salvo-muted', 'hullcracker-muted'],
+    ['salvo-theme', 'hullcracker-theme'],
+    ['salvo-playerId', 'hullcracker-playerId'],
+    ['salvo-gameId', 'hullcracker-gameId'],
+  ];
+  for (const [oldKey, newKey] of migrations) {
+    const lsVal = localStorage.getItem(oldKey);
+    if (lsVal !== null && localStorage.getItem(newKey) === null) {
+      localStorage.setItem(newKey, lsVal);
+      localStorage.removeItem(oldKey);
+    }
+    const ssVal = sessionStorage.getItem(oldKey);
+    if (ssVal !== null && sessionStorage.getItem(newKey) === null) {
+      sessionStorage.setItem(newKey, ssVal);
+      sessionStorage.removeItem(oldKey);
+    }
+  }
+})();
+
+// ============================================================
 // Random Name Generation
 // ============================================================
 
@@ -96,6 +122,9 @@ interface AppState {
   // Error
   errorMessage: string | null;
   errorTimeout: ReturnType<typeof setTimeout> | null;
+  // Info notification (host transfer etc.)
+  infoMessage: string | null;
+  infoMessageTimeout: ReturnType<typeof setTimeout> | null;
 }
 
 interface ShotLogEntry {
@@ -131,11 +160,11 @@ const state: AppState = {
   changelogHtml: null,
   mobileTab: 'fleet',
   showJoinModal: false,
-  savedPlayerName: localStorage.getItem('salvo-player-name') || generateRandomName(),
+  savedPlayerName: localStorage.getItem('hullcracker-player-name') || generateRandomName(),
   queueMode: null,
   queueSize: 0,
   onlineCount: 0,
-  matchSoundMuted: localStorage.getItem('salvo-muted') === 'true',
+  matchSoundMuted: localStorage.getItem('hullcracker-muted') === 'true',
   openDropdownId: null as string | null,
   showSurrenderModal: false,
   showRejoinModal: false,
@@ -143,16 +172,18 @@ const state: AppState = {
   rejoinCountdownInterval: null,
   errorMessage: null,
   errorTimeout: null,
+  infoMessage: null,
+  infoMessageTimeout: null,
 };
 
 // Persist initial name (covers first-visit generation)
-if (!localStorage.getItem('salvo-player-name')) {
-  localStorage.setItem('salvo-player-name', state.savedPlayerName);
+if (!localStorage.getItem('hullcracker-player-name')) {
+  localStorage.setItem('hullcracker-player-name', state.savedPlayerName);
 }
 
 function saveName(name: string): void {
   state.savedPlayerName = name;
-  localStorage.setItem('salvo-player-name', name);
+  localStorage.setItem('hullcracker-player-name', name);
 }
 
 // ============================================================
@@ -180,8 +211,8 @@ socket.on('game-created', ({ code, playerId, gameId }) => {
   state.joinCode = code;
   state.screen = 'waiting';
   // Store for reconnection
-  sessionStorage.setItem('salvo-playerId', playerId);
-  sessionStorage.setItem('salvo-gameId', gameId);
+  sessionStorage.setItem('hullcracker-playerId', playerId);
+  sessionStorage.setItem('hullcracker-gameId', gameId);
   render();
 });
 
@@ -222,6 +253,16 @@ socket.on('all-ready', ({ game }) => {
 });
 
 socket.on('game-state', ({ game }) => {
+  // Detect host transfer: if hostId changed to me, show notification
+  const prevHostId = state.game?.hostId;
+  if (prevHostId && prevHostId !== game.hostId && game.hostId === state.playerId) {
+    state.isHost = true;
+    state.infoMessage = 'You are now the host';
+    state.infoMessageTimeout = setTimeout(() => {
+      state.infoMessage = null;
+      render();
+    }, 5000);
+  }
   state.game = game;
   // Dismiss rejoin modal on successful rejoin
   if (state.showRejoinModal) {
@@ -231,7 +272,7 @@ socket.on('game-state', ({ game }) => {
   }
   // Restore player identity from sessionStorage on rejoin (state is fresh after page refresh)
   if (!state.playerId) {
-    const saved = sessionStorage.getItem('salvo-playerId');
+    const saved = sessionStorage.getItem('hullcracker-playerId');
     if (saved && game.players[saved]) {
       state.playerId = saved;
       state.gameId = game.id;
@@ -315,8 +356,8 @@ socket.on('game-over', (stats) => {
     state.rejoinCountdownInterval = null;
   }
   // Game is over — clear session so page reload goes to lobby, not rejoin modal
-  sessionStorage.removeItem('salvo-playerId');
-  sessionStorage.removeItem('salvo-gameId');
+  sessionStorage.removeItem('hullcracker-playerId');
+  sessionStorage.removeItem('hullcracker-gameId');
   render();
 });
 
@@ -344,8 +385,8 @@ socket.on('rematch-starting', ({ game, placementDeadline }) => {
     startPlacementTimer(remaining);
   }
   // Re-store session for reconnection (cleared on game-over)
-  if (state.playerId) sessionStorage.setItem('salvo-playerId', state.playerId);
-  if (game.id) sessionStorage.setItem('salvo-gameId', game.id);
+  if (state.playerId) sessionStorage.setItem('hullcracker-playerId', state.playerId);
+  if (game.id) sessionStorage.setItem('hullcracker-gameId', game.id);
   render();
 });
 
@@ -417,8 +458,8 @@ socket.on('quickplay-queue-update', ({ size }) => {
     state.game = null;
     state.playerId = null;
     state.gameId = null;
-    sessionStorage.removeItem('salvo-playerId');
-    sessionStorage.removeItem('salvo-gameId');
+    sessionStorage.removeItem('hullcracker-playerId');
+    sessionStorage.removeItem('hullcracker-gameId');
   }
   render();
 });
@@ -429,8 +470,8 @@ socket.on('quickplay-matched', ({ playerId, gameId }) => {
   state.screen = 'placement';
   state.queueMode = null;
   state.queueSize = 0;
-  sessionStorage.setItem('salvo-playerId', playerId);
-  sessionStorage.setItem('salvo-gameId', gameId);
+  sessionStorage.setItem('hullcracker-playerId', playerId);
+  sessionStorage.setItem('hullcracker-gameId', gameId);
   // Clean up the queue history entry so back button doesn't hit a dead state
   history.replaceState(null, '');
   // Play match sound
@@ -448,8 +489,8 @@ socket.on('online-count', ({ count }) => {
 
 // Surrender acknowledgment
 socket.on('surrender-ack', () => {
-  sessionStorage.removeItem('salvo-playerId');
-  sessionStorage.removeItem('salvo-gameId');
+  sessionStorage.removeItem('hullcracker-playerId');
+  sessionStorage.removeItem('hullcracker-gameId');
   state.screen = 'lobby';
   state.game = null;
   state.playerId = null;
@@ -466,13 +507,26 @@ socket.on('surrender-ack', () => {
   render();
 });
 
+// Leave game acknowledgment (lobby exit)
+socket.on('left-game', () => {
+  sessionStorage.removeItem('hullcracker-playerId');
+  sessionStorage.removeItem('hullcracker-gameId');
+  state.screen = 'lobby';
+  state.game = null;
+  state.playerId = null;
+  state.gameId = null;
+  state.joinCode = null;
+  state.isHost = false;
+  render();
+});
+
 // Rejoin check response
 socket.on('check-rejoin-response', ({ valid }) => {
-  const savedPlayerId = sessionStorage.getItem('salvo-playerId');
-  const savedGameId = sessionStorage.getItem('salvo-gameId');
+  const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
+  const savedGameId = sessionStorage.getItem('hullcracker-gameId');
   if (!valid || !savedPlayerId || !savedGameId) {
-    sessionStorage.removeItem('salvo-playerId');
-    sessionStorage.removeItem('salvo-gameId');
+    sessionStorage.removeItem('hullcracker-playerId');
+    sessionStorage.removeItem('hullcracker-gameId');
     state.showRejoinModal = false;
     if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
     state.rejoinCountdownInterval = null;
@@ -490,8 +544,8 @@ let isInitialPageLoad = true;
 socket.on('connect', () => {
   if (!isInitialPageLoad) {
     // Socket.io internal reconnect — auto-rejoin silently
-    const savedPlayerId = sessionStorage.getItem('salvo-playerId');
-    const savedGameId = sessionStorage.getItem('salvo-gameId');
+    const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
+    const savedGameId = sessionStorage.getItem('hullcracker-gameId');
     if (savedPlayerId && savedGameId) {
       socket.emit('rejoin', { playerId: savedPlayerId, gameId: savedGameId });
     }
@@ -499,8 +553,8 @@ socket.on('connect', () => {
   }
   isInitialPageLoad = false;
 
-  const savedPlayerId = sessionStorage.getItem('salvo-playerId');
-  const savedGameId = sessionStorage.getItem('salvo-gameId');
+  const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
+  const savedGameId = sessionStorage.getItem('hullcracker-gameId');
   if (savedPlayerId && savedGameId) {
     // Check if rejoin is still valid
     socket.emit('check-rejoin', { playerId: savedPlayerId, gameId: savedGameId });
@@ -790,8 +844,10 @@ function render(): void {
 }
 
 function renderError(): string {
-  if (!state.errorMessage) return '';
-  return `<div class="alert alert-error">${esc(state.errorMessage)}</div>`;
+  const parts: string[] = [];
+  if (state.errorMessage) parts.push(`<div class="alert alert-error">${esc(state.errorMessage)}</div>`);
+  if (state.infoMessage) parts.push(`<div class="alert alert-info">${esc(state.infoMessage)}</div>`);
+  return parts.join('');
 }
 
 function renderLobby(): string {
@@ -810,8 +866,8 @@ function renderLobby(): string {
 
   return `
     <div class="screen">
-      <h1 class="game-title">SALVO</h1>
-      <p class="game-subtitle">Shared-Ocean Battleship</p>
+      <h1 class="game-title">HULLCRACKER.IO</h1>
+      <p class="game-subtitle">Multiplayer Naval Warfare</p>
       <p class="online-count" id="online-count">${state.onlineCount > 0 ? `${state.onlineCount} player${state.onlineCount !== 1 ? 's' : ''} online` : ''}</p>
       ${renderError()}
       <div class="lobby-card" style="max-width:400px;width:100%">
@@ -884,7 +940,7 @@ function renderQueue(): string {
 
   return `
     <div class="screen">
-      <h1 class="game-title" style="font-size:32px">SALVO</h1>
+      <h1 class="game-title" style="font-size:24px">HULLCRACKER.IO</h1>
       <div class="queue-wait">
         <p class="label queue-label">SEARCHING FOR ${modeLabel} MATCH...</p>
         <div class="queue-dots">${dots}</div>
@@ -920,8 +976,7 @@ async function loadChangelog(): Promise<void> {
 function renderWaiting(): string {
   const MAX_PLAYERS = 6;
   const players = state.game ? Object.values(state.game.players) : [];
-  const isHost = state.game?.players[state.playerId ?? '']?.id === state.game?.turnOrder[0]
-    || state.isHost;
+  const isHost = state.game?.hostId === state.playerId || state.isHost;
   const canStart = players.length >= 2 && isHost;
   const teamsEnabled = state.game?.teamsEnabled ?? false;
   const teams = state.game?.teams ?? {};
@@ -951,7 +1006,7 @@ function renderWaiting(): string {
 
     // Filled seat
     const isMe = p.id === state.playerId;
-    const hostBadge = p.id === Object.keys(state.game?.players ?? {})[0] ? '<span class="host-badge">HOST</span>' : '';
+    const hostBadge = p.id === state.game?.hostId ? '<span class="host-badge">HOST</span>' : '';
     const botBadge = p.isBot ? `<span class="bot-badge">${esc(p.aiDifficulty ?? 'bot').toUpperCase()}</span>` : '';
 
     // Build dropdown menu items
@@ -1011,50 +1066,75 @@ function renderWaiting(): string {
   // Game options panel (visible to all, editable by host)
   const game = state.game;
   const gameType = game?.gameType ?? 'ffa';
+  const islandCount = game?.islandCount ?? 6;
+
+  // Custom dropdown renderer
+  function renderCustomSelect(
+    id: string,
+    options: { value: string; label: string; desc?: string }[],
+    selected: string,
+  ): string {
+    const selectedOpt = options.find(o => o.value === selected) ?? options[0];
+    const isOpen = state.openDropdownId === id;
+    const disabledClass = !isHost ? ' disabled' : '';
+    const disabledAttr = !isHost ? ' aria-disabled="true"' : '';
+    return `<div class="custom-select${disabledClass}" id="${id}">
+      <div class="custom-select-trigger" tabindex="${isHost ? '0' : '-1'}" role="button" aria-haspopup="listbox" aria-expanded="${isOpen}"${disabledAttr} data-select-id="${id}">
+        <div class="select-value">${esc(selectedOpt.label)}${selectedOpt.desc ? `<span class="select-subtitle">${esc(selectedOpt.desc)}</span>` : ''}</div>
+        ${isHost ? '<span class="select-arrow">▼</span>' : ''}
+      </div>
+      <div class="custom-select-menu${isOpen ? '' : ' hidden'}" role="listbox" data-select-id="${id}">
+        ${options.map(o => `<div class="select-option${o.value === selected ? ' selected' : ''}" role="option" aria-selected="${o.value === selected}" data-value="${o.value}" data-select-id="${id}">
+          <div class="select-option-name">${esc(o.label)}${o.value === selected ? ' <span class="check">✓</span>' : ''}</div>
+          ${o.desc ? `<div class="select-option-desc">${esc(o.desc)}</div>` : ''}
+        </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  const gameTypeOptions = [
+    { value: 'ffa', label: 'Free For All', desc: 'every player for themselves' },
+    { value: '2-team', label: 'Two Teams', desc: 'Alpha vs Bravo' },
+    { value: '3-team', label: 'Three Teams', desc: 'Alpha / Bravo / Charlie' },
+  ];
+  const timerOptions = [
+    { value: '0', label: 'Off' },
+    { value: '30', label: '30s' },
+    { value: '60', label: '60s' },
+  ];
+  const timerSelected = !game?.timerConfig.enabled ? '0' : String(game.timerConfig.seconds);
+  const ringsOptions = [
+    { value: '4', label: '4 rings', desc: '61 hexes' },
+    { value: '5', label: '5 rings', desc: '91 hexes' },
+    { value: '6', label: '6 rings', desc: '127 hexes' },
+  ];
+  const islandOptions = [
+    { value: '0', label: 'None' },
+    { value: '4', label: 'Few' },
+    { value: '6', label: 'Normal' },
+    { value: '8', label: 'Many' },
+  ];
+
   const gameOptionsHtml = game ? `
-    <div class="game-options">
+    <div class="game-options-panel">
       <div class="section-label">GAME OPTIONS</div>
-      <div class="option-row">
-        <label>Game Type</label>
-        <select id="opt-game-type" ${!isHost ? 'disabled' : ''}>
-          <option value="ffa" ${gameType === 'ffa' ? 'selected' : ''}>FFA</option>
-          <option value="2-team" ${gameType === '2-team' ? 'selected' : ''}>2-Player Teams</option>
-          <option value="3-team" ${gameType === '3-team' ? 'selected' : ''}>3-Player Teams</option>
-        </select>
-      </div>
-      <div class="option-row">
-        <label>Turn Timer</label>
-        <select id="opt-timer" ${!isHost ? 'disabled' : ''}>
-          <option value="0" ${!game.timerConfig.enabled ? 'selected' : ''}>Off</option>
-          <option value="30" ${game.timerConfig.enabled && game.timerConfig.seconds === 30 ? 'selected' : ''}>30s</option>
-          <option value="60" ${game.timerConfig.enabled && game.timerConfig.seconds === 60 ? 'selected' : ''}>60s</option>
-        </select>
-      </div>
-      <div class="option-row">
-        <label>Grid Size</label>
-        <select id="opt-rings" ${!isHost ? 'disabled' : ''}>
-          <option value="4" ${game.rings === 4 ? 'selected' : ''}>4 rings (61 hexes)</option>
-          <option value="5" ${game.rings === 5 ? 'selected' : ''}>5 rings (91 hexes)</option>
-          <option value="6" ${game.rings === 6 ? 'selected' : ''}>6 rings (127 hexes)</option>
-        </select>
-      </div>
+      <div class="option-group"><div class="option-label">Game Type</div>${renderCustomSelect('opt-game-type', gameTypeOptions, gameType)}</div>
+      <div class="option-group"><div class="option-label">Turn Timer</div>${renderCustomSelect('opt-timer', timerOptions, timerSelected)}</div>
+      <div class="option-group"><div class="option-label">Grid Size</div>${renderCustomSelect('opt-rings', ringsOptions, String(game.rings))}</div>
+      <div class="option-group"><div class="option-label">Islands</div>${renderCustomSelect('opt-islands', islandOptions, String(islandCount))}</div>
     </div>
   ` : '';
 
-  let lobbyBody = '';
+  let lobbyPlayersHtml = '';
 
   if (teamsEnabled) {
-    // Determine teams and slots per team based on gameType
-    const slotsPerTeam = gameType === '3-team' ? 3 : 2;
-    let activeTeams: string[];
-    if (gameType === '2-team') {
-      activeTeams = players.length > 4 ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'];
-    } else {
-      activeTeams = ['alpha', 'bravo'];
-    }
+    // Deterministic team list from host's game type choice
+    const activeTeams = gameType === '3-team'
+      ? ['alpha', 'bravo', 'charlie']
+      : ['alpha', 'bravo'];
+    const slotsPerTeam = Math.floor(MAX_PLAYERS / activeTeams.length);
     const teamLabels: Record<string, string> = { alpha: 'ALPHA', bravo: 'BRAVO', charlie: 'CHARLIE' };
 
-    // Stacked single column: each team section has a header + player slots
     const sections = activeTeams.map(teamName => {
       const teamPlayers = players.filter(p => teams[p.id] === teamName);
       const openCount = Math.max(0, slotsPerTeam - teamPlayers.length);
@@ -1067,32 +1147,37 @@ function renderWaiting(): string {
         </div>`;
     }).join('');
 
-    lobbyBody = `<div class="lobby-stacked">${sections}</div>`;
+    lobbyPlayersHtml = `<div class="lobby-stacked">${sections}</div>`;
   } else {
     const openSlots = Math.max(0, MAX_PLAYERS - players.length);
     const playerCards = players.map(p => renderSeatCard(p)).join('');
     const openCards = Array(openSlots).fill(0).map(() => renderSeatCard(null)).join('');
 
-    lobbyBody = `
+    lobbyPlayersHtml = `
       <div class="lobby-stacked">
         <div class="team-section-header" style="color:var(--text-muted)">PLAYERS</div>
         ${playerCards}${openCards}
       </div>`;
   }
 
+  const leaveBtn = `<button class="btn leave-btn" id="btn-leave">Leave Game</button>`;
+
   return `
     <div class="screen">
-      <h1 class="game-title">SALVO</h1>
-      <p class="game-subtitle">Shared-Ocean Battleship</p>
+      <h1 class="game-title">HULLCRACKER.IO</h1>
+      <p class="game-subtitle">Multiplayer Naval Warfare</p>
       ${renderError()}
       <div class="waiting-room">
         <h2 class="label" style="margin-bottom:12px">Game Created</h2>
         <div class="join-code" id="copy-code" title="Click to copy">${state.joinCode ?? ''}</div>
         <p class="join-code-hint">Click to copy &bull; Share with friends</p>
-        ${gameOptionsHtml}
-        ${lobbyBody}
+        <div class="lobby-body">
+          <div class="lobby-players">${lobbyPlayersHtml}</div>
+          ${gameOptionsHtml}
+        </div>
         <p class="player-count">${players.length} of 2\u2013${MAX_PLAYERS} players</p>
         ${isHost ? `<button class="btn btn-amber" id="btn-start" ${canStart ? '' : 'disabled'}>${canStart ? 'Start Game' : 'Need 2+ Players'}</button>` : '<p class="player-count">Waiting for host to start...</p>'}
+        ${leaveBtn}
       </div>
     </div>`;
 }
@@ -1693,20 +1778,55 @@ function bindEvents(): void {
     socket.emit('add-bot', { difficulty });
   });
 
-  // Game options (waiting room)
-  on('opt-game-type', 'change', () => {
-    const value = (document.getElementById('opt-game-type') as HTMLSelectElement)?.value;
-    socket.emit('update-game-options', { gameType: value as 'ffa' | '2-team' | '3-team' });
+  // Custom dropdown triggers (game options)
+  document.querySelectorAll('.custom-select-trigger').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const selectId = el.getAttribute('data-select-id');
+      if (!selectId || el.getAttribute('aria-disabled') === 'true') return;
+      state.openDropdownId = state.openDropdownId === selectId ? null : selectId;
+      render();
+    });
+    el.addEventListener('keydown', (e) => {
+      const ke = e as KeyboardEvent;
+      if (ke.key === 'Enter' || ke.key === ' ') {
+        e.preventDefault();
+        (el as HTMLElement).click();
+      } else if (ke.key === 'Escape') {
+        state.openDropdownId = null;
+        render();
+      }
+    });
   });
 
-  on('opt-timer', 'change', () => {
-    const value = parseInt((document.getElementById('opt-timer') as HTMLSelectElement)?.value ?? '60', 10);
-    socket.emit('update-game-options', { timerSeconds: value || null });
+  // Custom dropdown option selection
+  document.querySelectorAll('.select-option').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const selectId = el.getAttribute('data-select-id');
+      const value = el.getAttribute('data-value');
+      if (!selectId || !value) return;
+
+      if (selectId === 'opt-game-type') {
+        socket.emit('update-game-options', { gameType: value as 'ffa' | '2-team' | '3-team' });
+      } else if (selectId === 'opt-timer') {
+        socket.emit('update-game-options', { timerSeconds: parseInt(value, 10) || null });
+      } else if (selectId === 'opt-rings') {
+        socket.emit('update-game-options', { rings: parseInt(value, 10) });
+      } else if (selectId === 'opt-islands') {
+        socket.emit('update-game-options', { islandCount: parseInt(value, 10) });
+      }
+
+      state.openDropdownId = null;
+      render();
+    });
   });
 
-  on('opt-rings', 'change', () => {
-    const value = parseInt((document.getElementById('opt-rings') as HTMLSelectElement)?.value ?? '5', 10);
-    socket.emit('update-game-options', { rings: value });
+  // Leave game button
+  on('btn-leave', 'click', () => {
+    if (confirm('Leave this game?')) {
+      socket.emit('leave-game');
+    }
   });
 
   // Seat dropdown triggers
@@ -1949,8 +2069,8 @@ function bindEvents(): void {
 
   on('btn-new-game', 'click', () => {
     socket.emit('rematch-decline');
-    sessionStorage.removeItem('salvo-playerId');
-    sessionStorage.removeItem('salvo-gameId');
+    sessionStorage.removeItem('hullcracker-playerId');
+    sessionStorage.removeItem('hullcracker-gameId');
     state.screen = 'lobby';
     state.playerId = null;
     state.gameId = null;
@@ -1993,8 +2113,8 @@ function bindEvents(): void {
 
   // Rejoin modal
   on('btn-rejoin-yes', 'click', () => {
-    const savedPlayerId = sessionStorage.getItem('salvo-playerId');
-    const savedGameId = sessionStorage.getItem('salvo-gameId');
+    const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
+    const savedGameId = sessionStorage.getItem('hullcracker-gameId');
     if (savedPlayerId && savedGameId) {
       socket.emit('rejoin', { playerId: savedPlayerId, gameId: savedGameId });
     }
@@ -2010,21 +2130,21 @@ function bindEvents(): void {
     setTimeout(() => {
       if (state.showRejoinModal) {
         state.showRejoinModal = false;
-        sessionStorage.removeItem('salvo-playerId');
-        sessionStorage.removeItem('salvo-gameId');
+        sessionStorage.removeItem('hullcracker-playerId');
+        sessionStorage.removeItem('hullcracker-gameId');
         render();
       }
     }, 5000);
   });
 
   on('btn-rejoin-no', 'click', () => {
-    const savedPlayerId = sessionStorage.getItem('salvo-playerId');
-    const savedGameId = sessionStorage.getItem('salvo-gameId');
+    const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
+    const savedGameId = sessionStorage.getItem('hullcracker-gameId');
     if (savedPlayerId && savedGameId) {
       socket.emit('decline-rejoin', { playerId: savedPlayerId, gameId: savedGameId });
     }
-    sessionStorage.removeItem('salvo-playerId');
-    sessionStorage.removeItem('salvo-gameId');
+    sessionStorage.removeItem('hullcracker-playerId');
+    sessionStorage.removeItem('hullcracker-gameId');
     state.showRejoinModal = false;
     if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
     state.rejoinCountdownInterval = null;
@@ -2160,7 +2280,7 @@ function esc(s: string): string {
 // ============================================================
 
 function initTheme(): void {
-  const saved = localStorage.getItem('salvo-theme');
+  const saved = localStorage.getItem('hullcracker-theme');
   if (saved === 'light') {
     document.documentElement.setAttribute('data-theme', 'light');
   }
@@ -2173,11 +2293,11 @@ function initTheme(): void {
     const next = current === 'light' ? '' : 'light';
     if (next) {
       document.documentElement.setAttribute('data-theme', 'light');
-      localStorage.setItem('salvo-theme', 'light');
+      localStorage.setItem('hullcracker-theme', 'light');
       btn.textContent = 'DARK';
     } else {
       document.documentElement.removeAttribute('data-theme');
-      localStorage.setItem('salvo-theme', 'dark');
+      localStorage.setItem('hullcracker-theme', 'dark');
       btn.textContent = 'LIGHT';
     }
   });
@@ -2191,7 +2311,7 @@ function initMuteToggle(): void {
   btn.textContent = state.matchSoundMuted ? 'UNMUTE' : 'MUTE';
   btn.addEventListener('click', () => {
     state.matchSoundMuted = !state.matchSoundMuted;
-    localStorage.setItem('salvo-muted', String(state.matchSoundMuted));
+    localStorage.setItem('hullcracker-muted', String(state.matchSoundMuted));
     btn.textContent = state.matchSoundMuted ? 'UNMUTE' : 'MUTE';
   });
   document.body.appendChild(btn);

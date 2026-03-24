@@ -5,7 +5,7 @@ import {
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, forfeitPlayer,
   toClientView, validatePlacement, resetForRematch,
-  generateIslands,
+  generateIslands, updateGameOptions, removePlayer,
 } from '../game.js';
 import type { Game, ShipPlacement } from '@salvo/shared';
 import { isPlayerAlive, playerShotCount, isShipSunk } from '@salvo/shared';
@@ -173,26 +173,26 @@ describe('Ship Placement Validation', () => {
 // ============================================================
 
 describe('Island Generation', () => {
-  it('generates correct count for 2 players', () => {
-    const islands = generateIslands(5, 2);
-    expect(islands.size).toBeLessThanOrEqual(8);
+  it('generates requested island count (few)', () => {
+    const islands = generateIslands(5, 4);
+    expect(islands.size).toBeLessThanOrEqual(4);
     expect(islands.size).toBeGreaterThan(0);
   });
 
-  it('generates correct count for 4 players', () => {
-    const islands = generateIslands(5, 4);
+  it('generates requested island count (normal)', () => {
+    const islands = generateIslands(5, 6);
     expect(islands.size).toBeLessThanOrEqual(6);
   });
 
-  it('generates correct count for 6 players', () => {
-    const islands = generateIslands(6, 6);
-    expect(islands.size).toBeLessThanOrEqual(4);
+  it('generates requested island count (many) on large grid', () => {
+    const islands = generateIslands(6, 8);
+    expect(islands.size).toBeLessThanOrEqual(8);
   });
 
   it('excludes center rings (distance < 2)', () => {
     // Run multiple times since it's random
     for (let i = 0; i < 10; i++) {
-      const islands = generateIslands(5, 2);
+      const islands = generateIslands(5, 6);
       for (const coord of islands) {
         const parts = coord.split(',');
         const q = parseInt(parts[0]);
@@ -687,5 +687,144 @@ describe('toClientView', () => {
     const { game } = makeGame(2);
     const view = toClientView(game, 'p1');
     expect(view.rings).toBe(5);
+  });
+
+  it('includes hostId and islandCount in wire game', () => {
+    const { game } = makeGame(2);
+    const view = toClientView(game, 'p1');
+    expect(view.hostId).toBe('p1');
+    expect(view.islandCount).toBe(6);
+  });
+});
+
+// ============================================================
+// Island Count Configuration
+// ============================================================
+
+describe('Island Count Configuration', () => {
+  it('createGame initializes islandCount to 6', () => {
+    const game = createGame('host', 'Alice');
+    expect(game.islandCount).toBe(6);
+  });
+
+  it('updateGameOptions sets valid islandCount', () => {
+    const game = createGame('host', 'Alice');
+    const err = updateGameOptions(game, 'host', { islandCount: 4 });
+    expect(err).toBeNull();
+    expect(game.islandCount).toBe(4);
+  });
+
+  it('updateGameOptions sets islandCount to 0 (None)', () => {
+    const game = createGame('host', 'Alice');
+    const err = updateGameOptions(game, 'host', { islandCount: 0 });
+    expect(err).toBeNull();
+    expect(game.islandCount).toBe(0);
+  });
+
+  it('updateGameOptions rejects negative islandCount', () => {
+    const game = createGame('host', 'Alice');
+    updateGameOptions(game, 'host', { islandCount: -1 });
+    expect(game.islandCount).toBe(6); // unchanged
+  });
+
+  it('updateGameOptions rejects islandCount > 8', () => {
+    const game = createGame('host', 'Alice');
+    updateGameOptions(game, 'host', { islandCount: 100 });
+    expect(game.islandCount).toBe(6); // unchanged
+  });
+
+  it('generateIslands returns empty set for targetCount 0', () => {
+    const islands = generateIslands(5, 0);
+    expect(islands.size).toBe(0);
+  });
+
+  it('startGame uses game.islandCount', () => {
+    const game = createGame('host', 'Alice');
+    addPlayer(game, 'p2', 'Bob');
+    updateGameOptions(game, 'host', { islandCount: 0 });
+    startGame(game);
+    expect(game.islands.size).toBe(0);
+  });
+});
+
+// ============================================================
+// Game Type Team Logic (deterministic)
+// ============================================================
+
+describe('Game Type Team Logic', () => {
+  it('2-team always assigns alpha/bravo even with 6 players', () => {
+    const game = createGame('p1', 'A');
+    addPlayer(game, 'p2', 'B');
+    addPlayer(game, 'p3', 'C');
+    addPlayer(game, 'p4', 'D');
+    addPlayer(game, 'p5', 'E');
+    addPlayer(game, 'p6', 'F');
+    updateGameOptions(game, 'p1', { gameType: '2-team' });
+
+    const teamValues = new Set(game.teams.values());
+    expect(teamValues).toEqual(new Set(['alpha', 'bravo']));
+    // No charlie
+    for (const teamId of game.teams.values()) {
+      expect(teamId).not.toBe('charlie');
+    }
+  });
+
+  it('3-team assigns alpha/bravo/charlie', () => {
+    const game = createGame('p1', 'A');
+    addPlayer(game, 'p2', 'B');
+    addPlayer(game, 'p3', 'C');
+    updateGameOptions(game, 'p1', { gameType: '3-team' });
+
+    const teamValues = new Set(game.teams.values());
+    expect(teamValues).toEqual(new Set(['alpha', 'bravo', 'charlie']));
+  });
+
+  it('ffa clears all teams', () => {
+    const game = createGame('p1', 'A');
+    addPlayer(game, 'p2', 'B');
+    updateGameOptions(game, 'p1', { gameType: '2-team' });
+    expect(game.teams.size).toBe(2);
+
+    updateGameOptions(game, 'p1', { gameType: 'ffa' });
+    expect(game.teams.size).toBe(0);
+    expect(game.teamsEnabled).toBe(false);
+  });
+});
+
+// ============================================================
+// Leave Game / Host Transfer
+// ============================================================
+
+describe('Leave Game / Host Transfer', () => {
+  it('removePlayer transfers host to next human in Map order', () => {
+    const game = createGame('p1', 'Host');
+    addPlayer(game, 'p2', 'Player2');
+    addPlayer(game, 'p3', 'Player3');
+
+    removePlayer(game, 'p1');
+    expect(game.hostId).toBe('p2'); // next in Map insertion order
+    expect(game.players.has('p1')).toBe(false);
+  });
+
+  it('removePlayer clears team assignment', () => {
+    const game = createGame('p1', 'A');
+    addPlayer(game, 'p2', 'B');
+    updateGameOptions(game, 'p1', { gameType: '2-team' });
+    expect(game.teams.has('p2')).toBe(true);
+
+    removePlayer(game, 'p2');
+    expect(game.teams.has('p2')).toBe(false);
+  });
+
+  it('host leaves with only bots remaining — no crash', () => {
+    const game = createGame('p1', 'Host');
+    // Add a bot
+    const botId = 'bot-1';
+    game.players.set(botId, { id: botId, name: 'Bot', ships: [], isBot: true, aiDifficulty: 'easy' });
+
+    removePlayer(game, 'p1');
+    // hostId may still point to p1 since no human found, but no crash
+    expect(game.players.has('p1')).toBe(false);
+    expect(game.players.size).toBe(1);
   });
 });

@@ -197,12 +197,10 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
 /** Auto-assign a player to the team with fewer members (alpha first, then bravo). */
 /** Assign player to the team with fewest members. Ties break: alpha → bravo → charlie. */
 function autoAssignTeam(game: import('@salvo/shared').Game, playerId: string): void {
-  // Determine which teams exist for this game type
+  // Deterministic team names from host's game type choice
   const teamNames = game.gameType === '3-team'
-    ? ['alpha', 'bravo']
-    : game.gameType === '2-team'
-      ? (game.players.size > 4 ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'])
-      : ['alpha', 'bravo']; // fallback
+    ? ['alpha', 'bravo', 'charlie']
+    : ['alpha', 'bravo'];
 
   const counts = new Map<string, number>();
   for (const name of teamNames) counts.set(name, 0);
@@ -1037,6 +1035,22 @@ io.on('connection', (socket) => {
   // ============================================================
   // Surrender & Rejoin
   // ============================================================
+
+  socket.on('leave-game', () => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const gameId = connections.getGameId(playerId);
+    if (!gameId) return;
+
+    const game = lobby.getGame(gameId);
+    if (!game || game.phase !== 'lobby') return;
+
+    connections.remove(playerId);
+    handlePlayerExit(game, playerId, gameId);
+    socket.leave(gameId);
+    socket.emit('left-game');
+  });
 
   socket.on('surrender', () => {
     const playerId = connections.getPlayerIdBySocket(socket.id);

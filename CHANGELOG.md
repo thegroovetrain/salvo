@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.11.1] - 2026-03-24
+
+### Added
+- **Custom dropdown components** — native `<select>` elements replaced with styled dropdowns matching the dark tactical theme. Game Type dropdown shows rich options with subtitles (FFA / Two Teams / Three Teams).
+- **Two-column lobby layout** — players and team sections on the left, game options panel on the right. Collapses to single column on mobile (768px breakpoint).
+- **Leave Game button** — ghost-styled button with confirmation dialog. Host transfers to the longest-tenured human player (Map insertion order).
+- **Host transfer notification** — "You are now the host" info banner with 5-second auto-dismiss when host leaves.
+- **Configurable island count** — None / Few / Normal / Many (maps to 0 / 4 / 6 / 8 islands). Host picks explicitly instead of auto-scaling by player count.
+- **Host badge accuracy** — the HOST badge now tracks correctly when host transfers, always showing on the right player.
+
+### Changed
+- **Rebranded to HULLCRACKER.IO** — new game title, "Multiplayer Naval Warfare" tagline, Dreadnought ship class (was Battleship). Storage keys migrated automatically for existing players.
+- **Game Type semantics simplified** — "2-team" now means "two teams" (Alpha/Bravo), "3-team" means "three teams" (Alpha/Bravo/Charlie). No auto-scaling based on player count. Always 6 slots evenly split across teams.
+- **Keyboard accessibility** — custom dropdowns support Tab, Enter/Space, Arrow keys, Escape. ARIA attributes (listbox, option, aria-selected, aria-expanded) for screen readers.
+
+### Fixed
+- **Missing Charlie team** — selecting "2-Player Teams" with 5+ players no longer silently adds a third team. Host explicitly picks Two Teams or Three Teams.
+
 ## [0.11.0] - 2026-03-24
 
 ### Added

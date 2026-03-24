@@ -177,9 +177,9 @@ html, body {
 
 .game-title {
   font-family: var(--font-mono);
-  font-size: 48px;
+  font-size: clamp(28px, 6vw, 48px);
   font-weight: 700;
-  letter-spacing: 0.2em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--green);
   text-shadow: 0 0 40px rgba(0, 255, 136, 0.2);
@@ -1223,8 +1223,10 @@ html, body {
 }
 
 @media (max-width: 768px) {
-  .game-title { font-size: 32px; }
+  .game-title { font-size: clamp(20px, 5vw, 32px); letter-spacing: 0.08em; }
   .lobby-cards { flex-direction: column; }
+  .lobby-body { flex-direction: column; }
+  .game-options-panel { width: 100%; }
   .placement-screen { flex-direction: column; align-items: center; }
   .battle-layout {
     grid-template-columns: 1fr;
@@ -1261,6 +1263,178 @@ html, body {
   .player-list li { font-size: 16px; }
   .chat-messages { font-size: 14px; }
   .shot-log-salvo { font-size: 14px; }
+}
+
+/* ============================================================
+   Lobby Two-Column Layout
+   ============================================================ */
+
+.lobby-body {
+  display: flex;
+  gap: 16px;
+  text-align: left;
+  margin-top: 20px;
+}
+
+.lobby-players {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ============================================================
+   Game Options Panel (right sidebar)
+   ============================================================ */
+
+.game-options-panel {
+  width: 180px;
+  flex-shrink: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-lg);
+  padding: 16px;
+  align-self: flex-start;
+}
+
+.game-options-panel .section-label {
+  margin-bottom: 16px;
+  text-align: center;
+}
+
+.option-group {
+  margin-bottom: 16px;
+}
+.option-group:last-child {
+  margin-bottom: 0;
+}
+
+.option-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+/* ============================================================
+   Custom Select Dropdown
+   ============================================================ */
+
+.custom-select {
+  position: relative;
+  width: 100%;
+}
+
+.custom-select.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.custom-select-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-deepest);
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-md);
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.custom-select-trigger:hover {
+  border-color: var(--text-muted);
+}
+.custom-select-trigger:focus-visible {
+  outline: 2px solid var(--green);
+  outline-offset: 2px;
+}
+
+.select-value {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+.select-subtitle {
+  display: block;
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.select-arrow {
+  color: var(--text-muted);
+  font-size: 10px;
+  margin-left: 4px;
+}
+
+.custom-select-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg-deepest);
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+}
+.custom-select-menu.hidden {
+  display: none;
+}
+
+.select-option {
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background-color 0.1s;
+  border-bottom: 1px solid var(--bg-hover);
+}
+.select-option:last-child {
+  border-bottom: none;
+}
+.select-option:hover {
+  background: var(--bg-hover);
+}
+.select-option.selected {
+  background: var(--bg-elevated);
+}
+
+.select-option-name {
+  font-size: 13px;
+  color: var(--text-primary);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.select-option-desc {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.check {
+  color: var(--green);
+  font-size: 12px;
+}
+
+/* ============================================================
+   Leave Button
+   ============================================================ */
+
+.leave-btn {
+  background: transparent;
+  border: 1px solid var(--bg-hover);
+  color: var(--text-muted);
+  width: 100%;
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.leave-btn:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-secondary);
 }
 
 /* ============================================================
