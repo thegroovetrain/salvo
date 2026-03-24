@@ -26,6 +26,20 @@
 **Priority:** P2
 **Depends on:** None (can be done anytime)
 
+## Hex Grid
+
+### AI Difficulty Rebalancing for Hex Grid
+
+**What:** Evaluate and rebalance AI difficulty tiers (Easy/Medium/Hard/Impossible) for the hex grid. 6-neighbor adjacency makes Medium's hunt/target more effective, and hex 3-coloring makes Hard's hunt pattern cover 1/3 of cells (vs checkerboard's 1/2 on square grid).
+
+**Why:** The difficulty curve may have shifted with the hex conversion. Medium could feel harder than intended, and Hard's 3-coloring is more efficient at finding ships. Need playtest data from the friend test to confirm.
+
+**Context:** AI was rewritten in v0.11.0 for hex: `getAdjacentCoords()` now returns 6 neighbors (was 4), checkerboard hunt replaced with hex 3-coloring `((q-r) % 3 + 3) % 3`. Interior biasing uses ring distance instead of row/col edges. Impossible still cheats. Easy still random. The balance question is whether Medium and Hard feel right relative to each other and to human play.
+
+**Effort:** S
+**Priority:** P3
+**Depends on:** v0.11.0 hex grid + friend test feedback
+
 ## Game Options
 
 ### Hide Ship Name Until Sunk
