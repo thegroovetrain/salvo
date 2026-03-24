@@ -310,7 +310,7 @@ describe('GameOverStats', () => {
     expect(stats!.winnerTeamId).toBe('alpha');
   });
 
-  it('team aggregate highlights include Team Charlie for 3-team games', () => {
+  it('game-over highlights do not include team aggregate stats', () => {
     const { game, playerIds } = makeTeamGame(
       ['alpha', 'alpha', 'bravo', 'bravo', 'charlie', 'charlie'],
       { rings: 6 },
@@ -331,9 +331,10 @@ describe('GameOverStats', () => {
 
     const stats = checkGameOver(game);
     expect(stats).not.toBeNull();
-    expect(stats!.highlights.length).toBeGreaterThan(0);
-    // Team Alpha should have aggregate highlights
-    expect(stats!.highlights.some(h => h.includes('Team Alpha'))).toBe(true);
+    // Individual highlights (Sharpshooter, etc.) may exist, but no team aggregates
+    for (const h of stats!.highlights) {
+      expect(h).not.toMatch(/^Team (Alpha|Bravo|Charlie):/);
+    }
   });
 });
 

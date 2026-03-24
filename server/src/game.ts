@@ -651,38 +651,6 @@ function computeGameOverStats(game: Game, winnerId: string | null, winnerTeamId:
     }
   }
 
-  // Team aggregate highlights
-  if (game.teamsEnabled && game.teams.size > 0) {
-    const teamIds = [...new Set(game.teams.values())];
-    const teamNames: Record<string, string> = { alpha: 'Team Alpha', bravo: 'Team Bravo', charlie: 'Team Charlie' };
-
-    for (const teamId of teamIds) {
-      const teamPlayerIds = [...game.teams.entries()]
-        .filter(([, tid]) => tid === teamId)
-        .map(([pid]) => pid);
-
-      let totalShots = 0;
-      let totalHits = 0;
-      let totalSunk = 0;
-      for (const pid of teamPlayerIds) {
-        const s = playerStats[pid];
-        if (s) {
-          totalShots += s.shotsFired;
-          totalHits += s.hitsLanded;
-          totalSunk += s.shipsSunk;
-        }
-      }
-
-      const label = teamNames[teamId] ?? teamId;
-      if (totalShots > 0) {
-        highlights.push(`${label}: ${Math.round((totalHits / totalShots) * 100)}% accuracy`);
-      }
-      if (totalSunk > 0) {
-        highlights.push(`${label}: ${totalSunk} ships sunk`);
-      }
-    }
-  }
-
   return { winnerId, winnerTeamId, playerStats, highlights };
 }
 
