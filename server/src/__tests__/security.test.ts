@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
-  createGame, addPlayer, startGame, placeShips,
-  allShipsPlaced, beginPlaying, toClientView,
-  fireSalvo, forfeitPlayer,
+  toClientView, fireSalvo, forfeitPlayer,
 } from '../game.js';
-import type { Game, ShipPlacement, WireGame } from '@salvo/shared';
+import type { WireGame } from '@salvo/shared';
+import { makeGame, hexPlacements, allCellsForPlayer, setupBattle } from './helpers.js';
 
 // ============================================================
 // toClientView Security Tests
@@ -14,28 +13,16 @@ import type { Game, ShipPlacement, WireGame } from '@salvo/shared';
 // positions. Other players' ship cells must NEVER be revealed.
 // ============================================================
 
-function setup2PlayerGame(): { game: Game; p1Ships: ShipPlacement[]; p2Ships: ShipPlacement[] } {
-  const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 });
-  addPlayer(game, 'p2', 'Bob');
-  startGame(game);
+// Player 0 ship cells: '-4,0' (scout), '-3,0'/'-2,0' (patrol), '-1,0'/'0,0'/'1,0' (destroyer), '2,0'/'3,0'/'4,0'/'5,0' (frigate)
+// Player 1 ship cells: '-5,1' (scout), '-4,1'/'-3,1' (patrol), '-2,1'/'-1,1'/'0,1' (destroyer), '1,1'/'2,1'/'3,1'/'4,1' (frigate)
+// Safe empty cells (no ships): '-1,-4', '-2,-3', '-3,-2'
 
-  const p1Ships: ShipPlacement[] = [
-    { length: 1, cells: ['A1'] },
-    { length: 2, cells: ['B1', 'B2'] },
-    { length: 3, cells: ['C1', 'C2', 'C3'] },
-    { length: 4, cells: ['D1', 'D2', 'D3', 'D4'] },
-  ];
+function setup2PlayerGame() {
+  const { game, playerIds } = makeGame(2);
+  setupBattle(game, playerIds);
 
-  const p2Ships: ShipPlacement[] = [
-    { length: 1, cells: ['E5'] },
-    { length: 2, cells: ['F5', 'F6'] },
-    { length: 3, cells: ['G5', 'G6', 'G7'] },
-    { length: 4, cells: ['H5', 'H6', 'H7', 'H8'] },
-  ];
-
-  placeShips(game, 'p1', p1Ships);
-  placeShips(game, 'p2', p2Ships);
-  beginPlaying(game);
+  const p1Ships = hexPlacements(0);
+  const p2Ships = hexPlacements(1);
 
   return { game, p1Ships, p2Ships };
 }
@@ -73,8 +60,8 @@ describe('toClientView Security — Ship Position Leakage', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    // Hit one of p2's ships
-    fireSalvo(game, 'p1', ['E5', 'J1', 'J2', 'J3']);
+    // Hit one of p2's ships (scout at -5,1) + 3 empty cells
+    fireSalvo(game, 'p1', ['-5,1', '-1,-4', '-2,-3', '-3,-2']);
 
     const view = toClientView(game, 'p1');
     const otherShips = view.players['p2'].ships;
@@ -89,8 +76,8 @@ describe('toClientView Security — Ship Position Leakage', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    // Sink p2's Scout (1 cell at E5)
-    fireSalvo(game, 'p1', ['E5', 'J1', 'J2', 'J3']);
+    // Sink p2's Scout (1 cell at -5,1)
+    fireSalvo(game, 'p1', ['-5,1', '-1,-4', '-2,-3', '-3,-2']);
 
     const view = toClientView(game, 'p1');
     const p2Ships = view.players['p2'].ships;
@@ -105,15 +92,15 @@ describe('toClientView Security — Ship Position Leakage', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    fireSalvo(game, 'p1', ['E5', 'J1', 'J2', 'J3']);
+    fireSalvo(game, 'p1', ['-5,1', '-1,-4', '-2,-3', '-3,-2']);
 
     const viewP1 = toClientView(game, 'p1');
     const viewP2 = toClientView(game, 'p2');
 
-    expect(viewP1.shots).toContain('E5');
-    expect(viewP1.shots).toContain('J1');
-    expect(viewP2.shots).toContain('E5');
-    expect(viewP2.shots).toContain('J1');
+    expect(viewP1.shots).toContain('-5,1');
+    expect(viewP1.shots).toContain('-1,-4');
+    expect(viewP2.shots).toContain('-5,1');
+    expect(viewP2.shots).toContain('-1,-4');
   });
 
   it('own ship hit info is visible (friendly fire)', () => {
@@ -121,13 +108,13 @@ describe('toClientView Security — Ship Position Leakage', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    // p1 hits own ship at A1 (self-hit)
-    fireSalvo(game, 'p1', ['A1', 'J1', 'J2', 'J3']);
+    // p1 hits own ship at -4,0 (self-hit scout) + 3 empty cells
+    fireSalvo(game, 'p1', ['-4,0', '-1,-4', '-2,-3', '-3,-2']);
 
     const view = toClientView(game, 'p1');
     const myScout = view.players['p1'].ships[0];
 
-    expect(myScout.hits).toContain('A1');
+    expect(myScout.hits).toContain('-4,0');
     expect(myScout.sunk).toBe(true);
   });
 

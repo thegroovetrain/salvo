@@ -7,14 +7,13 @@ import type {
   ClientToServerEvents, ServerToClientEvents, ChatMessage,
   TimerConfig, ShipPlacement, AiDifficulty, QuickPlayMode, ChatChannel,
 } from '@salvo/shared';
-import { isPlayerAlive, playerShotCount, toGameMode, toQuickPlayMode } from '@salvo/shared';
+import { isPlayerAlive, playerShotCount, toGameMode, toQuickPlayMode, getTeammates, MODE_RINGS } from '@salvo/shared';
 import {
   createGame, addPlayer, addBot, removeBot, removePlayer, canStartGame, startGame,
   placeShips, allShipsPlaced, beginPlaying,
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, forfeitPlayer,
   toClientView, resetForRematch,
-  getTeammate, isTeamAlive,
 } from './game.js';
 import { chooseSalvo, generatePlacement, getBotDelay } from './ai.js';
 import { ConnectionManager } from './connections.js';
@@ -65,8 +64,24 @@ function broadcastOnlineCount(): void {
 }
 
 /** Try to create a match from players in a queue room. Called from join handler and requeue. */
+function getTargetSize(mode: QuickPlayMode): number {
+  switch (mode) {
+    case '1v1': return 2;
+    case '2v2': return 4;
+    case 'ffa': return 4;
+    case '3v3': return 6;
+    case '3ffa': return 3;
+    case '6ffa': return 6;
+    case '2v2v2': return 6;
+  }
+}
+
+function isTeamMode(mode: QuickPlayMode): boolean {
+  return mode === '2v2' || mode === '3v3' || mode === '2v2v2';
+}
+
 function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
-  const target = mode === '1v1' ? 2 : 4;
+  const target = getTargetSize(mode);
   const size = getQueueSize(roomName);
   if (size < target) return;
 
@@ -84,8 +99,9 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
     firstEntry?.playerName ?? 'Player',
     { enabled: true, seconds: 60 },
     gameMode,
-    mode === '2v2',                              // teamsEnabled for 2v2
-    { enabled: true, seconds: 60 },              // placement timer always on for Quick Play
+    isTeamMode(mode),
+    { enabled: true, seconds: 60 },
+    MODE_RINGS[gameMode],
   );
 
   const code = lobby.generateUniqueCode();
@@ -125,18 +141,38 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
     allPlayerIds.push(playerId);
   }
 
-  // For 2v2 matches, assign teams: shuffle player IDs, first 2 → 'alpha', last 2 → 'bravo'
-  if (mode === '2v2') {
-    // Shuffle allPlayerIds
+  // Assign teams for team modes
+  if (isTeamMode(mode)) {
+    // Shuffle allPlayerIds for random team assignment
     for (let i = allPlayerIds.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [allPlayerIds[i], allPlayerIds[j]] = [allPlayerIds[j], allPlayerIds[i]];
     }
     game.teamsEnabled = true;
-    game.teams.set(allPlayerIds[0], 'alpha');
-    game.teams.set(allPlayerIds[1], 'alpha');
-    game.teams.set(allPlayerIds[2], 'bravo');
-    game.teams.set(allPlayerIds[3], 'bravo');
+
+    if (mode === '2v2') {
+      // 2 teams of 2
+      game.teams.set(allPlayerIds[0], 'alpha');
+      game.teams.set(allPlayerIds[1], 'alpha');
+      game.teams.set(allPlayerIds[2], 'bravo');
+      game.teams.set(allPlayerIds[3], 'bravo');
+    } else if (mode === '3v3') {
+      // 2 teams of 3
+      game.teams.set(allPlayerIds[0], 'alpha');
+      game.teams.set(allPlayerIds[1], 'alpha');
+      game.teams.set(allPlayerIds[2], 'alpha');
+      game.teams.set(allPlayerIds[3], 'bravo');
+      game.teams.set(allPlayerIds[4], 'bravo');
+      game.teams.set(allPlayerIds[5], 'bravo');
+    } else if (mode === '2v2v2') {
+      // 3 teams of 2
+      game.teams.set(allPlayerIds[0], 'alpha');
+      game.teams.set(allPlayerIds[1], 'alpha');
+      game.teams.set(allPlayerIds[2], 'bravo');
+      game.teams.set(allPlayerIds[3], 'bravo');
+      game.teams.set(allPlayerIds[4], 'charlie');
+      game.teams.set(allPlayerIds[5], 'charlie');
+    }
   }
 
   // Start the game immediately (skip lobby phase)
@@ -233,7 +269,7 @@ function handlePlacementTimeout(gameId: string): void {
   // Auto-place ships for all unready players
   for (const player of game.players.values()) {
     if (player.ships.length === 0) {
-      const placement = generatePlacement('easy');
+      const placement = generatePlacement('easy', game.rings, game.islands);
       const err = placeShips(game, player.id, placement);
       if (err) {
         console.warn(`Auto-placement failed for ${player.id}: ${err}`);
@@ -677,7 +713,7 @@ io.on('connection', (socket) => {
     // Auto-place ships for all bots
     for (const player of game.players.values()) {
       if (player.isBot && player.aiDifficulty) {
-        const placement = generatePlacement(player.aiDifficulty);
+        const placement = generatePlacement(player.aiDifficulty, game.rings, game.islands);
         placeShips(game, player.id, placement);
       }
     }
@@ -822,10 +858,9 @@ io.on('connection', (socket) => {
     };
 
     if (channel === 'team' && game.teamsEnabled) {
-      // Team chat: emit to sender + teammate only
+      // Team chat: emit to sender + all teammates
       emitToPlayer(playerId, 'chat-message', message);
-      const teammateId = getTeammate(game, playerId);
-      if (teammateId) {
+      for (const teammateId of getTeammates(game, playerId)) {
         emitToPlayer(teammateId, 'chat-message', message);
       }
     } else {
@@ -917,7 +952,7 @@ io.on('connection', (socket) => {
 
     // Validate preview payload
     if (!Array.isArray(ships) || ships.length > 4) return;
-    const coordPattern = /^[A-J](?:[1-9]|10)$/;
+    const coordPattern = /^-?\d+,-?\d+$/; // hex axial format "q,r"
     for (const ship of ships) {
       if (typeof ship.length !== 'number' || ship.length < 1 || ship.length > 4) return;
       if (!Array.isArray(ship.cells)) return;
@@ -926,8 +961,7 @@ io.on('connection', (socket) => {
       }
     }
 
-    const teammateId = getTeammate(game, playerId);
-    if (teammateId) {
+    for (const teammateId of getTeammates(game, playerId)) {
       emitToPlayer(teammateId, 'teammate-placement-preview', { ships });
     }
   });
@@ -1131,7 +1165,7 @@ io.on('connection', (socket) => {
       // Auto-place bot ships
       for (const p of game.players.values()) {
         if (p.isBot && p.aiDifficulty) {
-          const placement = generatePlacement(p.aiDifficulty);
+          const placement = generatePlacement(p.aiDifficulty, game.rings, game.islands);
           placeShips(game, p.id, placement);
         }
       }
