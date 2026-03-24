@@ -45,6 +45,7 @@ export function createGame(
     teams: new Map(),
     teamsEnabled,
     gameType: teamsEnabled ? '2-team' : 'ffa',
+    islandCount: 6,
   };
 }
 
@@ -57,7 +58,7 @@ export type GameType = 'ffa' | '2-team' | '3-team';
 export function updateGameOptions(
   game: Game,
   requesterId: string,
-  options: { gameType?: GameType; timerSeconds?: number | null; rings?: number },
+  options: { gameType?: GameType; timerSeconds?: number | null; rings?: number; islandCount?: number },
 ): string | null {
   if (game.phase !== 'lobby') return 'Game is not in lobby phase';
   if (game.hostId !== requesterId) return 'Only the host can change game options';
@@ -68,15 +69,10 @@ export function updateGameOptions(
     game.gameType = options.gameType;
 
     if (teamsEnabled) {
-      // Determine team names based on game type and player count
-      let teamNames: string[];
-      if (options.gameType === '2-team') {
-        // Teams of 2: 2 teams for ≤4 players, 3 teams for 5-6
-        teamNames = game.players.size > 4 ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'];
-      } else {
-        // Teams of 3: always 2 teams
-        teamNames = ['alpha', 'bravo'];
-      }
+      // Deterministic team names from host's choice
+      const teamNames = options.gameType === '3-team'
+        ? ['alpha', 'bravo', 'charlie']
+        : ['alpha', 'bravo'];
       // Distribute players evenly across teams (round-robin)
       game.teams.clear();
       let teamIdx = 0;
@@ -100,6 +96,12 @@ export function updateGameOptions(
   if (options.rings !== undefined) {
     if (options.rings >= 4 && options.rings <= 6) {
       game.rings = options.rings;
+    }
+  }
+
+  if (options.islandCount !== undefined) {
+    if (options.islandCount >= 0 && options.islandCount <= 8) {
+      game.islandCount = options.islandCount;
     }
   }
 
@@ -174,12 +176,8 @@ export function canStartGame(game: Game, requesterId: string): string | null {
 // ============================================================
 
 /** Generate random island hexes for the game board. */
-export function generateIslands(rings: number, playerCount: number): Set<string> {
-  // Island count scales inversely with player count
-  let targetCount: number;
-  if (playerCount <= 2) targetCount = 8;
-  else if (playerCount <= 4) targetCount = 6;
-  else targetCount = 4;
+export function generateIslands(rings: number, targetCount: number): Set<string> {
+  if (targetCount <= 0) return new Set();
 
   const allCoords = allHexes(rings);
   // Exclude center rings (0-1) for playability
@@ -191,9 +189,9 @@ export function generateIslands(rings: number, playerCount: number): Set<string>
   for (let attempt = 0; attempt < 10; attempt++) {
     const islands = pickRandomIslands(candidates, targetCount);
 
-    // Validate: enough open hexes
+    // Validate: enough open hexes (max 6 players × 10 cells + 10 buffer)
     const openCount = allCoords.length - islands.size;
-    const minOpen = playerCount * 10 + 10;
+    const minOpen = 70;
     if (openCount < minOpen) {
       targetCount = Math.max(0, targetCount - 2);
       continue;
@@ -255,7 +253,7 @@ function hasSmallIsolatedRegion(rings: number, islands: Set<string>): boolean {
 
 export function startGame(game: Game): void {
   // Generate islands at lobby→placement transition (before placement begins)
-  game.islands = generateIslands(game.rings, game.players.size);
+  game.islands = generateIslands(game.rings, game.islandCount);
   game.phase = 'placement';
   game.lastActivity = Date.now();
 }
@@ -706,7 +704,7 @@ export function forfeitPlayer(game: Game, playerId: string): void {
 export function resetForRematch(game: Game): void {
   game.phase = 'placement';
   game.shots = new Set();
-  game.islands = generateIslands(game.rings, game.players.size);
+  game.islands = generateIslands(game.rings, game.islandCount);
   game.turnOrder = [];
   game.currentTurnIndex = 0;
   game.lastActivity = Date.now();
@@ -806,6 +804,7 @@ export function toClientView(game: Game, viewerId: string): WireGame {
     phase: game.phase,
     mode: game.mode,
     players,
+    hostId: game.hostId,
     turnOrder: game.turnOrder,
     currentTurnIndex: game.currentTurnIndex,
     rings: game.rings,
@@ -815,5 +814,6 @@ export function toClientView(game: Game, viewerId: string): WireGame {
     teamsEnabled: game.teamsEnabled,
     teams: teamsRecord,
     gameType: game.gameType,
+    islandCount: game.islandCount,
   };
 }

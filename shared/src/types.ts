@@ -85,6 +85,8 @@ export interface Game {
   teamsEnabled: boolean;
   /** Private game type for lobby UI: 'ffa' | '2-team' | '3-team' */
   gameType: 'ffa' | '2-team' | '3-team';
+  /** Island count for generation (0=none, 4=few, 6=normal, 8=many) */
+  islandCount: number;
 }
 
 export interface PlayerGameStats {
@@ -157,6 +159,7 @@ export interface WireGame {
   phase: GamePhase;
   mode: GameMode;
   players: Record<string, WirePlayer>;
+  hostId: string;
   turnOrder: string[];
   currentTurnIndex: number;
   rings: number;
@@ -166,6 +169,7 @@ export interface WireGame {
   teamsEnabled: boolean;
   teams: Record<string, string>; // playerId → teamId
   gameType: 'ffa' | '2-team' | '3-team';
+  islandCount: number;
 }
 
 export interface ChatMessage {
@@ -219,7 +223,7 @@ export interface GameCountData {
 
 export interface ClientToServerEvents {
   'create-game': (data: { playerName: string }) => void;
-  'update-game-options': (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number }) => void;
+  'update-game-options': (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number; islandCount?: number }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
   'start-game': () => void;
   'add-bot': (data: { difficulty: AiDifficulty; team?: string }) => void;
@@ -236,6 +240,7 @@ export interface ClientToServerEvents {
   'quickplay-join': (data: { playerName: string; mode: QuickPlayMode }) => void;
   'quickplay-leave': () => void;
   'surrender': () => void;
+  'leave-game': () => void;
   'decline-rejoin': (data: { playerId: string; gameId: string }) => void;
   'check-rejoin': (data: { playerId: string; gameId: string }) => void;
 }
@@ -263,6 +268,7 @@ export interface ServerToClientEvents {
   'quickplay-matched': (data: { playerId: string; gameId: string }) => void;
   'online-count': (data: { count: number }) => void;
   'surrender-ack': () => void;
+  'left-game': () => void;
   'check-rejoin-response': (data: { valid: boolean; timeRemaining: number }) => void;
 }
 
