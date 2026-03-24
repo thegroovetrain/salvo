@@ -27,12 +27,119 @@ export type CellStateFn = (coord: string) => CellState;
  * Generate an SVG hex grid element.
  * Returns the full <svg> element as an HTML string.
  */
+/** Ship data for hull rendering */
+export interface ShipHullData {
+  cells: string[];    // hex coordinate strings
+  sunk: boolean;
+  ghost?: boolean;    // placement preview
+  ghostValid?: boolean;
+  teammate?: boolean; // teammate's ship
+}
+
+/**
+ * Render a connected ship hull as an SVG path.
+ * Draws a rounded capsule shape along the ship's axis.
+ */
+function renderShipHull(ship: ShipHullData, hexSize: number): string {
+  if (ship.cells.length === 0) return '';
+
+  // Parse hex centers
+  const centers = ship.cells.map(c => {
+    const h = parseHex(c)!;
+    return hexToPixel(h.q, h.r, hexSize);
+  });
+
+  // Hull width (fraction of hex size)
+  const hullWidth = hexSize * 0.55;
+
+  // Determine ship color/style
+  let fillColor: string;
+  let strokeColor: string;
+  let opacity = '1';
+  let strokeDash = '';
+  if (ship.ghost) {
+    fillColor = ship.ghostValid ? 'rgba(0,255,136,0.25)' : 'rgba(255,59,59,0.25)';
+    strokeColor = ship.ghostValid ? '#00FF88' : '#FF3B3B';
+    strokeDash = 'stroke-dasharray="4 2"';
+    opacity = '0.8';
+  } else if (ship.teammate) {
+    fillColor = 'rgba(0,255,136,0.15)';
+    strokeColor = 'rgba(0,255,136,0.5)';
+    strokeDash = 'stroke-dasharray="3 1"';
+    opacity = '0.7';
+  } else if (ship.sunk) {
+    fillColor = '#7F1D1D';
+    strokeColor = '#5A1A1A';
+    opacity = '0.9';
+  } else {
+    fillColor = 'rgba(0,255,136,0.2)';
+    strokeColor = '#00FF88';
+  }
+
+  if (centers.length === 1) {
+    // Single-cell ship (Scout): draw a small horizontal capsule
+    const c = centers[0];
+    const hw = hullWidth / 2;
+    const halfLen = hexSize * 0.3;
+    const r = hw;
+    const path = [
+      `M ${(-halfLen).toFixed(2)} ${(-hw).toFixed(2)}`,
+      `L ${(halfLen).toFixed(2)} ${(-hw).toFixed(2)}`,
+      `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${(halfLen).toFixed(2)} ${(hw).toFixed(2)}`,
+      `L ${(-halfLen).toFixed(2)} ${(hw).toFixed(2)}`,
+      `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${(-halfLen).toFixed(2)} ${(-hw).toFixed(2)}`,
+      'Z',
+    ].join(' ');
+    return `<path d="${path}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.5" opacity="${opacity}" ${strokeDash} class="ship-hull" pointer-events="none" transform="translate(${c.x.toFixed(2)},${c.y.toFixed(2)})" />`;
+  }
+
+  // Multi-cell ship: compute axis direction and draw rounded capsule
+  const first = centers[0];
+  const last = centers[centers.length - 1];
+
+  // Direction vector along ship axis
+  const dx = last.x - first.x;
+  const dy = last.y - first.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len === 0) return '';
+
+  // Unit vectors: along axis and perpendicular
+  const ax = dx / len;
+  const ay = dy / len;
+  const px = -ay; // perpendicular
+  const py = ax;
+
+  const hw = hullWidth / 2; // half-width
+  const endCap = hexSize * 0.35; // how far past the end centers to extend
+
+  // Extend start/end along axis for rounded ends
+  const startX = first.x - ax * endCap;
+  const startY = first.y - ay * endCap;
+  const endX = last.x + ax * endCap;
+  const endY = last.y + ay * endCap;
+
+  // Build hull path: rounded capsule along the axis
+  // Top edge → front arc (bulges out) → bottom edge → rear arc (bulges out)
+  const r = hw; // radius for end caps — semicircle bulging outward
+  const path = [
+    `M ${(startX + px * hw).toFixed(2)} ${(startY + py * hw).toFixed(2)}`,
+    `L ${(endX + px * hw).toFixed(2)} ${(endY + py * hw).toFixed(2)}`,
+    `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 0 ${(endX - px * hw).toFixed(2)} ${(endY - py * hw).toFixed(2)}`,
+    `L ${(startX - px * hw).toFixed(2)} ${(startY - py * hw).toFixed(2)}`,
+    `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 0 ${(startX + px * hw).toFixed(2)} ${(startY + py * hw).toFixed(2)}`,
+    'Z',
+  ].join(' ');
+
+  return `<path d="${path}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.5" opacity="${opacity}" ${strokeDash} class="ship-hull" pointer-events="none" />`;
+}
+
 export function renderHexGridSVG(
   rings: number,
   hexSize: number,
   islands: Set<string>,
   getCellState: CellStateFn,
   dataMode: 'placement' | 'battle',
+  ships?: ShipHullData[],
 ): string {
   const coords = allHexes(rings);
 
@@ -81,6 +188,15 @@ export function renderHexGridSVG(
       }
       svg += '</g>';
     }
+  }
+
+  // Ship hull overlay layer
+  if (ships && ships.length > 0) {
+    svg += '<g class="ship-hulls">';
+    for (const ship of ships) {
+      svg += renderShipHull(ship, hexSize);
+    }
+    svg += '</g>';
   }
 
   svg += '</svg>';

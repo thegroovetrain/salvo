@@ -394,6 +394,10 @@ html, body {
   color: var(--red);
   background: var(--red-bg);
 }
+.team-badge.charlie {
+  color: var(--info);
+  background: rgba(56, 189, 248, 0.1);
+}
 .team-badge.small {
   font-size: 9px;
   padding: 1px 4px;
@@ -730,7 +734,7 @@ html, body {
 /* Cell state fills */
 .cell-empty { fill: var(--bg-elevated); }
 .cell-empty:hover { fill: var(--bg-hover); }
-.cell-ship { fill: var(--green); }
+.cell-ship { fill: rgba(0, 255, 136, 0.08); }
 .cell-miss { fill: var(--miss); cursor: default; }
 .cell-hit { fill: var(--red); }
 .cell-ff { fill: var(--orange); }
@@ -802,16 +806,6 @@ html, body {
   animation: turn-pulse-text 2s ease-in-out infinite;
 }
 
-/* Grid glow when it's your turn */
-.grid-panel.your-turn-glow {
-  box-shadow: 0 0 20px rgba(255, 184, 0, 0.3), 0 0 40px rgba(255, 184, 0, 0.1);
-  animation: turn-glow 2s ease-in-out infinite;
-}
-
-@keyframes turn-glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(255, 184, 0, 0.15), 0 0 40px rgba(255, 184, 0, 0.05); }
-  50% { box-shadow: 0 0 20px rgba(255, 184, 0, 0.3), 0 0 40px rgba(255, 184, 0, 0.1); }
-}
 
 @keyframes turn-pulse-text {
   0%, 100% { transform: scale(1); }
@@ -1165,16 +1159,20 @@ html, body {
 .game-over .draw { color: var(--amber); }
 .game-over .team-win-alpha { color: var(--green); }
 .game-over .team-win-bravo { color: var(--red); }
+.game-over .team-win-charlie { color: var(--info); }
 
 .stats-table {
   margin: 24px auto;
   border-collapse: collapse;
   font-size: 14px;
+  width: 100%;
+  max-width: 600px;
 }
 .stats-table th, .stats-table td {
-  padding: 8px 16px;
+  padding: 8px 12px;
   text-align: left;
   border-bottom: 1px solid var(--bg-hover);
+  white-space: nowrap;
 }
 .stats-table th {
   font-family: var(--font-mono);
@@ -1236,6 +1234,10 @@ html, body {
   .desktop-only { display: none; }
   .mobile-only { display: inline; }
   .chat-toggle { width: 100%; }
+  .game-over { padding: 0 8px; }
+  .stats-table { font-size: 12px; }
+  .stats-table th, .stats-table td { padding: 6px 6px; }
+  .stats-table .team-badge { font-size: 8px; padding: 1px 3px; }
 }
 
 @media (max-width: 400px) {
@@ -1460,7 +1462,7 @@ html, body {
 }
 .team-section-header.alpha { color: var(--green); }
 .team-section-header.bravo { color: var(--red); }
-.team-section-header.charlie { color: var(--amber); }
+.team-section-header.charlie { color: var(--info); }
 
 .seat-card {
   background: var(--bg-surface);

@@ -7,7 +7,7 @@ Hullcracker.io is a multiplayer naval combat game. All players' ships occupy the
 ### Commands
 ```
 npm run dev          # Start server (3000) + client (5173)
-npm test -w server   # Run tests (vitest, 243 tests)
+npm test -w server   # Run tests (vitest, 243+ tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 ```

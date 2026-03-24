@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.11.2] - 2026-03-24
+
+### Added
+- **Connected ship hull graphics** — ships now render as capsule-shaped silhouettes stretched across hex centers instead of solid-filled hex blobs. Scout is a small horizontal capsule; multi-hex ships are elongated hulls following their placement axis.
+- **Hull capsules during placement** — ship hulls are visible while placing ships, not just in battle.
+
+### Changed
+- **Charlie team color** — changed from amber to blue (`#38BDF8` / Info Blue). Team colors are now the classic green/red/blue trio.
+- **Mobile score table** — responsive sizing with smaller font, tighter padding, and horizontal scroll on very narrow screens. "Accuracy" header shortened to "Acc".
+
+### Fixed
+- **Charlie team badges** — 3 hardcoded alpha/bravo ternaries that showed "BRAVO" for Charlie players now use dynamic team name rendering.
+- **Charlie win banner** — game-over screen now shows blue "TEAM CHARLIE WINS" instead of falling through to bravo styling.
+- **Board turn glow removed** — the pulsing amber box-shadow around the grid was decorative noise. The "YOUR TURN" text indicator is sufficient.
+
 ## [0.11.1] - 2026-03-24
 
 ### Added
