@@ -77,10 +77,23 @@ function renderShipHull(ship: ShipHullData, hexSize: number): string {
   }
 
   if (centers.length === 1) {
-    // Single-cell ship (Scout): draw a circle
+    // Single-cell ship (Scout): draw a small capsule with random rotation
     const c = centers[0];
-    const r = hullWidth * 0.6;
-    return `<circle cx="${c.x.toFixed(2)}" cy="${c.y.toFixed(2)}" r="${r.toFixed(2)}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.5" opacity="${opacity}" ${strokeDash} class="ship-hull" pointer-events="none" />`;
+    const hw = hullWidth / 2;
+    const halfLen = hexSize * 0.3;
+    const r = hw;
+    // Deterministic rotation from coordinate hash so it's stable across re-renders
+    const coordHash = ship.cells[0].split(',').reduce((a, b) => a + parseInt(b), 0);
+    const angle = (coordHash * 60) % 360;
+    const path = [
+      `M ${(-hw).toFixed(2)} ${(-halfLen).toFixed(2)}`,
+      `L ${(-hw).toFixed(2)} ${(halfLen).toFixed(2)}`,
+      `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 0 ${(hw).toFixed(2)} ${(halfLen).toFixed(2)}`,
+      `L ${(hw).toFixed(2)} ${(-halfLen).toFixed(2)}`,
+      `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 0 ${(-hw).toFixed(2)} ${(-halfLen).toFixed(2)}`,
+      'Z',
+    ].join(' ');
+    return `<path d="${path}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.5" opacity="${opacity}" ${strokeDash} class="ship-hull" pointer-events="none" transform="translate(${c.x.toFixed(2)},${c.y.toFixed(2)}) rotate(${angle})" />`;
   }
 
   // Multi-cell ship: compute axis direction and draw rounded capsule
