@@ -394,6 +394,10 @@ html, body {
   color: var(--red);
   background: var(--red-bg);
 }
+.team-badge.charlie {
+  color: var(--info);
+  background: rgba(56, 189, 248, 0.1);
+}
 .team-badge.small {
   font-size: 9px;
   padding: 1px 4px;
@@ -1460,7 +1464,7 @@ html, body {
 }
 .team-section-header.alpha { color: var(--green); }
 .team-section-header.bravo { color: var(--red); }
-.team-section-header.charlie { color: var(--amber); }
+.team-section-header.charlie { color: var(--info); }
 
 .seat-card {
   background: var(--bg-surface);

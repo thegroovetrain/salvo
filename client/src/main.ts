@@ -1382,7 +1382,7 @@ function renderChat(): string {
     const chatPlayer = state.game?.players[m.playerId];
     const chatIcon = chatPlayer ? playerIcon(chatPlayer.isBot) : '';
     const teamBadge = teamsEnabled && state.game?.teams[m.playerId]
-      ? `<span class="team-badge small ${state.game.teams[m.playerId]}">${state.game.teams[m.playerId] === 'alpha' ? 'A' : 'B'}</span>`
+      ? `<span class="team-badge small ${state.game.teams[m.playerId]}">${state.game.teams[m.playerId].charAt(0).toUpperCase()}</span>`
       : '';
     return `<div class="chat-msg chat-msg-player">
       <div class="chat-msg-header">${chatIcon}${teamBadge}<span class="chat-name">${esc(m.playerName)}</span><span class="chat-time">${formatTime(m.timestamp)}</span></div>
@@ -1447,7 +1447,7 @@ function renderBattle(): string {
     const isCurrent = p.id === currentTurnId;
     const nameStyle = p.alive ? '' : 'text-decoration:line-through;color:var(--text-muted)';
     const teamBadge = teamsEnabled && teams[p.id]
-      ? `<span class="team-badge ${teams[p.id]}" aria-label="Team ${teams[p.id] === 'alpha' ? 'Alpha' : 'Bravo'}">${teams[p.id] === 'alpha' ? 'Alpha' : 'Bravo'}</span>`
+      ? `<span class="team-badge ${teams[p.id]}" aria-label="Team ${teams[p.id].charAt(0).toUpperCase() + teams[p.id].slice(1)}">${teams[p.id].charAt(0).toUpperCase() + teams[p.id].slice(1)}</span>`
       : '';
     return `<li>
       ${playerIcon(p.isBot)}
@@ -1573,7 +1573,7 @@ function renderGameOver(): string {
     const isWinner = teamsEnabled ? teams[p.id] === winnerTeamId : p.id === stats.winnerId;
     const rowStyle = isWinner ? 'color:var(--green)' : '';
     const teamBadge = teamsEnabled && teams[p.id]
-      ? `<span class="team-badge ${teams[p.id]}">${teams[p.id] === 'alpha' ? 'Alpha' : 'Bravo'}</span>`
+      ? `<span class="team-badge ${teams[p.id]}">${teams[p.id].charAt(0).toUpperCase() + teams[p.id].slice(1)}</span>`
       : '';
     return `<tr style="${rowStyle}">
       <td>${playerIcon(p.isBot)}${esc(p.name)}${isWinner ? ' \u2605' : ''} ${teamBadge}</td>
