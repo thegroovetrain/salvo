@@ -7,7 +7,7 @@ Salvo is a multiplayer shared-ocean Battleship game. All players' ships occupy t
 ### Commands
 ```
 npm run dev          # Start server (3000) + client (5173)
-npm test -w server   # Run tests (vitest, 231 tests)
+npm test -w server   # Run tests (vitest, 243 tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 ```
@@ -34,11 +34,11 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - Version is single-source from package.json, injected by Vite at build time via `__APP_VERSION__`
 - Game.mode includes 7 quickplay modes ('quickplay-1v1' | '2v2' | 'ffa' | '3v3' | '3ffa' | '6ffa' | '2v2v2') plus 'private'
 - Hex grid: axial coordinates (q,r), configurable 4-6 rings per game. MODE_RINGS maps mode → default ring count (5 for 2-4p, 6 for 6p)
-- Islands: random blocked hexes generated at startGame(). Count scales with player count (8/6/4). BFS validates no isolated regions < 10 hexes.
+- Islands: random blocked hexes generated at startGame(). Count configurable by host (0=None, 4=Few, 6=Normal, 8=Many). BFS validates no isolated regions < 10 hexes.
 - Teams: Game.teams (Map<playerId, teamId>) + Game.teamsEnabled + Game.gameType ('ffa' | '2-team' | '3-team'). Simple alternating turn order. 3-team support (alpha/bravo/charlie). getTeammates() returns array. Teams persist across rematches.
 - Chat: ChatMessage.channel ('team' | 'global'). Team messages route to sender + all teammates. Non-team games default to 'global'.
 - Placement timer shares turn timer (no separate placementTimerConfig). Auto-places ships on timeout via generatePlacement('easy'). Always enabled for Quick Play.
-- Private lobby: no create modal. Host configures Game Type / Turn Timer / Grid Size in-lobby via update-game-options socket event. Defaults: FFA, 60s, 5 rings.
+- Private lobby: no create modal. Host configures Game Type / Turn Timer / Grid Size / Islands in-lobby via update-game-options socket event. Defaults: FFA, 60s, 5 rings, Normal islands. Two-column layout (players left, options panel right). Custom dropdown components with ARIA a11y. Leave button with host transfer.
 - toGameMode/toQuickPlayMode helpers in shared/types.ts eliminate binary ternary duplication
 - Quick Play rematch destroys the game and requeues players (clean game boundaries); private rematch resets in-place
 - Forfeit is silent: `player.ships = []` (no hit markers on shared board — prevents FFA info leakage)
