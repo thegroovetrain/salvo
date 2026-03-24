@@ -2,25 +2,27 @@
 
 ## Project
 
-Salvo is a multiplayer shared-ocean Battleship game. All players' ships occupy the same 10x10 grid — every shot affects everyone.
+Salvo is a multiplayer shared-ocean Battleship game. All players' ships occupy the same hex grid — every shot affects everyone.
 
 ### Commands
 ```
 npm run dev          # Start server (3000) + client (5173)
-npm test -w server   # Run tests (vitest, 142 tests)
+npm test -w server   # Run tests (vitest, 231 tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 ```
 
 ### Architecture
-- **shared/src/types.ts** — All types, socket events, computed getters (isShipSunk, isPlayerAlive, playerShotCount), mode helpers (toGameMode, toQuickPlayMode)
-- **server/src/game.ts** — Pure game logic, no I/O. toClientView() is the security boundary — never leaks ship positions. Team helpers (getTeammate, isTeamAlive), ABBA turn order, team-aware checkGameOver
+- **shared/src/types.ts** — All types, socket events, computed getters (isShipSunk, isPlayerAlive, playerShotCount), mode helpers (toGameMode, toQuickPlayMode), team helpers (getTeammates, isTeamAlive)
+- **shared/src/hex.ts** — Hex coordinate math: axial coordinates (q,r), distance, neighbors, rings, linear paths, pixel↔hex conversion with cube rounding
+- **server/src/game.ts** — Pure game logic, no I/O. toClientView() is the security boundary — never leaks ship positions. Island generation with BFS connectivity validation. updateGameOptions() for lobby-phase config changes. Team-aware checkGameOver (2 or 3 teams)
 - **server/src/connections.ts** — playerId↔socketId mapping, disconnect state tracking, event buffering (forfeit handled by turn timer, not wall-clock)
-- **server/src/ai.ts** — AI opponents: 4 tiers (Easy/Medium/Hard/Impossible), ship placement + target selection. Team-aware: excludes teammate from targets (except Easy)
-- **server/src/lobby.ts** — Game lifecycle, join codes (collision-safe), cleanup timer
-- **server/src/index.ts** — Express + socket.io event routing, turn timer management, placement timer, bot auto-play, Quick Play queue (socket.io rooms, 1v1/2v2/FFA), surrender/rejoin handlers, handlePlayerExit() shared helper, team chat routing, swap-team handler, swap-players handler (atomic team swap), placement-preview relay, turn-based forfeit logic
-- **client/src/main.ts** — Single-file vanilla TS client: state management, socket handlers, DOM rendering, random name generation (naval-themed adjective+noun), localStorage persistence via saveName()
-- **client/src/style.css** — Full DESIGN.md implementation
+- **server/src/ai.ts** — AI opponents: 4 tiers (Easy/Medium/Hard/Impossible), hex ship placement + target selection. Hex 3-coloring hunt pattern for Hard tier. Team-aware: excludes teammates from targets (except Easy)
+- **server/src/lobby.ts** — Game lifecycle, join codes (collision-safe), cleanup timer, expanded game count tracking for 7 QP modes
+- **server/src/index.ts** — Express + socket.io event routing, turn timer management, bot auto-play, Quick Play queue (socket.io rooms, 1v1/2v2/FFA/3v3/3ffa/6ffa/2v2v2), surrender/rejoin handlers, handlePlayerExit() shared helper, team chat routing (supports 3 teams), swap-team/swap-players handlers, placement-preview relay, update-game-options handler, autoAssignTeam (supports charlie)
+- **client/src/main.ts** — Vanilla TS client: state management, socket handlers, DOM rendering, random name generation (naval-themed adjective+noun), localStorage persistence
+- **client/src/hexGrid.ts** — SVG hex grid renderer: polygon generation, pixel↔hex click detection, ship placement preview, cell state rendering
+- **client/src/style.css** — Full DESIGN.md implementation, hex grid SVG styles, island styling
 
 ### Key Decisions
 - Ship.sunk, Player.alive, Player.shotCount are computed getters, not stored state
@@ -30,15 +32,18 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - Unified single grid — no separate fleet/target grids (shared ocean = one grid)
 - Per-player stats (shots, hits, accuracy, FF) accumulated during fireSalvo, computed at game-over
 - Version is single-source from package.json, injected by Vite at build time via `__APP_VERSION__`
-- Game.mode ('private' | 'quickplay-1v1' | 'quickplay-2v2' | 'quickplay-ffa') distinguishes game types for counters and future ranked play
-- Teams: Game.teams (Map<playerId, teamId>) + Game.teamsEnabled. ABBA turn order [A1,B1,B2,A2]. Team win = last team standing. Shared ship vision between teammates via toClientView. Teams persist across rematches.
-- Chat: ChatMessage.channel ('team' | 'global'). Team messages route to sender+teammate only. Non-team games default to 'global'.
-- Placement timer: Game.placementTimerConfig. Auto-places ships on timeout via generatePlacement('easy'). Always enabled for Quick Play.
+- Game.mode includes 7 quickplay modes ('quickplay-1v1' | '2v2' | 'ffa' | '3v3' | '3ffa' | '6ffa' | '2v2v2') plus 'private'
+- Hex grid: axial coordinates (q,r), configurable 4-6 rings per game. MODE_RINGS maps mode → default ring count (5 for 2-4p, 6 for 6p)
+- Islands: random blocked hexes generated at startGame(). Count scales with player count (8/6/4). BFS validates no isolated regions < 10 hexes.
+- Teams: Game.teams (Map<playerId, teamId>) + Game.teamsEnabled + Game.gameType ('ffa' | '2-team' | '3-team'). Simple alternating turn order. 3-team support (alpha/bravo/charlie). getTeammates() returns array. Teams persist across rematches.
+- Chat: ChatMessage.channel ('team' | 'global'). Team messages route to sender + all teammates. Non-team games default to 'global'.
+- Placement timer shares turn timer (no separate placementTimerConfig). Auto-places ships on timeout via generatePlacement('easy'). Always enabled for Quick Play.
+- Private lobby: no create modal. Host configures Game Type / Turn Timer / Grid Size in-lobby via update-game-options socket event. Defaults: FFA, 60s, 5 rings.
 - toGameMode/toQuickPlayMode helpers in shared/types.ts eliminate binary ternary duplication
 - Quick Play rematch destroys the game and requeues players (clean game boundaries); private rematch resets in-place
 - Forfeit is silent: `player.ships = []` (no hit markers on shared board — prevents FFA info leakage)
 - Surrender button available during placement and playing phases; rejoin modal on page reload replaces auto-rejoin
-- Versioning: 0.X.0 = new features, 0.0.X = bugfixes, X.0.0 = major (fundamentally different game)
+- Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision
 
 ## gstack
 
