@@ -12,6 +12,31 @@ declare const __APP_VERSION__: string;
 const VERSION = __APP_VERSION__;
 
 // ============================================================
+// Random Name Generation
+// ============================================================
+
+// Pre-audited: max adjective (9) + space (1) + max noun (9) = 19 ≤ 20
+const ADJECTIVES = [
+  'Swift', 'Bold', 'Silent', 'Iron', 'Crimson',
+  'Brave', 'Shadow', 'Storm', 'Rusty', 'Golden',
+  'Rogue', 'Salty', 'Phantom', 'Fierce', 'Neon',
+  'Ashen', 'Daring', 'Copper', 'Wicked',
+];
+
+const NOUNS = [
+  'Torpedo', 'Kraken', 'Anchor', 'Corsair', 'Falcon',
+  'Marlin', 'Cannon', 'Voyager', 'Riptide', 'Serpent',
+  'Badger', 'Cutlass', 'Frigate', 'Osprey', 'Trident',
+  'Sabre', 'Reef', 'Dagger', 'Tempest',
+];
+
+function generateRandomName(): string {
+  const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+  const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+  return `${adj} ${noun}`;
+}
+
+// ============================================================
 // State
 // ============================================================
 
@@ -105,7 +130,7 @@ const state: AppState = {
   mobileTab: 'fleet',
   showJoinModal: false,
   showCreateModal: false,
-  savedPlayerName: '',
+  savedPlayerName: localStorage.getItem('salvo-player-name') || generateRandomName(),
   queueMode: null,
   queueSize: 0,
   onlineCount: 0,
@@ -118,6 +143,16 @@ const state: AppState = {
   errorMessage: null,
   errorTimeout: null,
 };
+
+// Persist initial name (covers first-visit generation)
+if (!localStorage.getItem('salvo-player-name')) {
+  localStorage.setItem('salvo-player-name', state.savedPlayerName);
+}
+
+function saveName(name: string): void {
+  state.savedPlayerName = name;
+  localStorage.setItem('salvo-player-name', name);
+}
 
 // ============================================================
 // Socket Connection
@@ -816,7 +851,12 @@ function renderLobby(): string {
       ${renderError()}
       <div class="lobby-card" style="max-width:400px;width:100%">
         <label class="input-label">Your Name</label>
-        <input class="input" id="player-name" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off" value="${esc(state.savedPlayerName)}">
+        <div style="display:flex;gap:8px">
+          <input class="input" id="player-name" type="text" placeholder="Enter your name" maxlength="20" autocomplete="off" value="${esc(state.savedPlayerName)}" style="flex:1">
+          <button class="btn-dice" id="btn-randomize" type="button" title="Random name">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="15.5" cy="8.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="8.5" cy="15.5" r="1.5" fill="currentColor" stroke="none"/><circle cx="15.5" cy="15.5" r="1.5" fill="currentColor" stroke="none"/></svg>
+          </button>
+        </div>
         <div class="quickplay-section">
           <p class="label" style="margin-bottom:8px">Quick Play</p>
           <div style="display:flex;gap:8px">
@@ -1538,16 +1578,17 @@ function bindEvents(): void {
     render();
   });
 
-  // Auto-focus name field on first visit
-  if (state.screen === 'lobby' && !state.savedPlayerName) {
-    setTimeout(() => document.getElementById('player-name')?.focus(), 0);
-  }
+  // Randomize name
+  on('btn-randomize', 'click', () => {
+    saveName(generateRandomName());
+    render();
+  });
 
   // Quick Play
   on('btn-qp-1v1', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
-    state.savedPlayerName = name;
+    saveName(name);
     state.queueMode = '1v1';
     state.queueSize = 0;
     state.screen = 'queue';
@@ -1559,7 +1600,7 @@ function bindEvents(): void {
   on('btn-qp-2v2', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
-    state.savedPlayerName = name;
+    saveName(name);
     state.queueMode = '2v2';
     state.queueSize = 0;
     state.screen = 'queue';
@@ -1571,7 +1612,7 @@ function bindEvents(): void {
   on('btn-qp-ffa', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
-    state.savedPlayerName = name;
+    saveName(name);
     state.queueMode = 'ffa';
     state.queueSize = 0;
     state.screen = 'queue';
@@ -1591,7 +1632,7 @@ function bindEvents(): void {
   on('btn-create', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
-    state.savedPlayerName = name;
+    saveName(name);
     state.showCreateModal = true;
     render();
   });
@@ -1628,7 +1669,7 @@ function bindEvents(): void {
   on('btn-show-join', 'click', () => {
     const name = val('player-name');
     if (!name) return showError('Enter your name');
-    state.savedPlayerName = name;
+    saveName(name);
     state.showJoinModal = true;
     render();
     // Focus the code input after render

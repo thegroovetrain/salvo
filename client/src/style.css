@@ -511,6 +511,26 @@ html, body {
   background: var(--green-bg);
 }
 
+.btn-dice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  min-width: 40px;
+  height: 40px;
+  padding: 0;
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  border: 1px solid var(--bg-hover);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-dice:hover {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
 /* Chat send button — team/global variants */
 .btn-chat-team {
   background: var(--green);
@@ -1261,6 +1281,7 @@ html, body {
 
 .lobby-columns {
   display: flex;
+  flex-direction: column;
   gap: 16px;
   width: 100%;
 }
@@ -1381,13 +1402,11 @@ html, body {
 
 .non-team-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 8px;
 }
 
 @media (max-width: 767px) {
-  .lobby-columns { flex-direction: column; }
-  .non-team-grid { grid-template-columns: 1fr; }
   .seat-menu {
     position: relative;
     top: auto;
