@@ -7,7 +7,7 @@ import {
   createGame, addPlayer, startGame, placeShips, allShipsPlaced, beginPlaying,
 } from '../game.js';
 import type { Game, ShipPlacement, TimerConfig, GameMode } from '@salvo/shared';
-import { hexToString } from '../../../shared/src/hex.js';
+import { hexToString } from '@salvo/shared/hex';
 
 const DEFAULT_TIMER: TimerConfig = { enabled: false, seconds: 60 };
 

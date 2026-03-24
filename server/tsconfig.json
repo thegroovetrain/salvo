@@ -3,7 +3,10 @@
   "compilerOptions": {
     "composite": true,
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "paths": {
+      "@salvo/shared/hex": ["../shared/src/hex.ts"]
+    }
   },
   "include": ["src"],
   "references": [

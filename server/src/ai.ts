@@ -6,7 +6,7 @@ import {
 import {
   allHexes, parseHex, hexToString, hexNeighborsInBounds, isValidHex,
   hexLinear, hexDistance, HEX_DIRECTIONS,
-} from '../../shared/src/hex.js';
+} from '@salvo/shared/hex';
 
 // ============================================================
 // AI Opponent — Classic Game AI (not LLM)

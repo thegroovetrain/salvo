@@ -8,8 +8,8 @@ import {
   allHexes, parseHex, hexToPixel, pixelToHex, hexCorners,
   hexToString, hexLinear, isValidHex, hexNeighborsInBounds,
   HEX_DIRECTIONS,
-} from '../../shared/src/hex.js';
-import type { Hex } from '../../shared/src/hex.js';
+} from '@salvo/shared/hex';
+import type { Hex } from '@salvo/shared/hex';
 
 // --- Types ---
 

@@ -10,6 +10,11 @@ export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
   },
+  resolve: {
+    alias: {
+      '@salvo/shared/hex': resolve(__dirname, '../shared/src/hex.ts'),
+    },
+  },
   server: {
     proxy: {
       '/socket.io': {

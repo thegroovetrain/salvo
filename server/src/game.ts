@@ -7,7 +7,7 @@ import {
 } from '@salvo/shared';
 import {
   parseHex, isValidHex, allHexes, hexDistance, hexNeighborsInBounds, hexToString,
-} from '../../shared/src/hex.js';
+} from '@salvo/shared/hex';
 import crypto from 'node:crypto';
 
 // ============================================================

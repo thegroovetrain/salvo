@@ -7,7 +7,7 @@ import {
 import { chooseSalvo, generatePlacement, getBotDelay } from '../ai.js';
 import type { Game, ShipPlacement } from '@salvo/shared';
 import { isPlayerAlive, playerShotCount, SHIP_LENGTHS } from '@salvo/shared';
-import { allHexes, parseHex, isValidHex } from '../../../shared/src/hex.js';
+import { allHexes, parseHex, isValidHex } from '@salvo/shared/hex';
 import { hexPlacements } from './helpers.js';
 
 // ============================================================

@@ -3,8 +3,8 @@ import {
   hexToString, parseHex, hexDistance, hexNeighbors, hexNeighborsInBounds,
   allHexes, hexCount, isValidHex, hexRing, hexLinear,
   hexToPixel, pixelToHex, hexCorners, HEX_DIRECTIONS,
-} from '../../../shared/src/hex.js';
-import type { Hex } from '../../../shared/src/hex.js';
+} from '@salvo/shared/hex';
+import type { Hex } from '@salvo/shared/hex';
 
 // ============================================================
 // hexToString / parseHex

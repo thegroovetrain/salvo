@@ -9,6 +9,10 @@
     ".": {
       "import": "./dist/types.js",
       "types": "./dist/types.d.ts"
+    },
+    "./hex": {
+      "import": "./dist/hex.js",
+      "types": "./dist/hex.d.ts"
     }
   },
   "scripts": {

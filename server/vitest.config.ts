@@ -7,8 +7,9 @@ export default defineConfig({
     environment: 'node',
   },
   resolve: {
-    alias: {
-      '@salvo/shared': path.resolve(__dirname, '../shared/src/types.ts'),
-    },
+    alias: [
+      { find: '@salvo/shared/hex', replacement: path.resolve(__dirname, '../shared/src/hex.ts') },
+      { find: '@salvo/shared', replacement: path.resolve(__dirname, '../shared/src/types.ts') },
+    ],
   },
 });
