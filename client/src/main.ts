@@ -774,6 +774,12 @@ function renderRejoinModal(): string {
 function render(): void {
   const app = document.getElementById('app')!;
 
+  // Capture scroll positions before innerHTML destroys the DOM
+  const shotLog = document.querySelector('.shot-log');
+  const chatMsgs = document.querySelector('.chat-messages');
+  const shotLogScroll = shotLog ? shotLog.scrollTop : null;
+  const chatScroll = chatMsgs ? chatMsgs.scrollTop : null;
+
   switch (state.screen) {
     case 'lobby': app.innerHTML = renderLobby(); break;
     case 'queue': app.innerHTML = renderQueue(); break;
@@ -786,6 +792,16 @@ function render(): void {
 
   // Append modals (surrender confirmation + rejoin prompt)
   app.innerHTML += renderSurrenderModal() + renderRejoinModal();
+
+  // Restore scroll positions after DOM rebuild
+  if (shotLogScroll !== null) {
+    const el = document.querySelector('.shot-log');
+    if (el) el.scrollTop = shotLogScroll;
+  }
+  if (chatScroll !== null) {
+    const el = document.querySelector('.chat-messages');
+    if (el) el.scrollTop = chatScroll;
+  }
 
   bindEvents();
 }
