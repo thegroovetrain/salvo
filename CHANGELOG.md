@@ -8,7 +8,7 @@
 - **Leave Game button** — ghost-styled button with confirmation dialog. Host transfers to the longest-tenured human player (Map insertion order).
 - **Host transfer notification** — "You are now the host" info banner with 5-second auto-dismiss when host leaves.
 - **Configurable island count** — None / Few / Normal / Many (maps to 0 / 4 / 6 / 8 islands). Host picks explicitly instead of auto-scaling by player count.
-- **hostId in WireGame** — client now receives host identity for proper host badge rendering and host transfer detection.
+- **Host badge accuracy** — the HOST badge now tracks correctly when host transfers, always showing on the right player.
 
 ### Changed
 - **Game Type semantics simplified** — "2-team" now means "two teams" (Alpha/Bravo), "3-team" means "three teams" (Alpha/Bravo/Charlie). No auto-scaling based on player count. Always 6 slots evenly split across teams.
