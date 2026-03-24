@@ -1101,57 +1101,63 @@ html, body {
   max-width: 720px;
   width: 100%;
   text-align: left;
+  max-height: 70vh;
+  overflow-y: auto;
 }
 
-.changelog-entry {
-  margin-bottom: 0;
-  padding: 24px 0;
-  border-top: 1px solid var(--bg-elevated);
-  width: 100%;
+.changelog h1 {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--green);
+  margin-bottom: 16px;
 }
-.changelog-entry:first-child { border-top: none; }
 
-.changelog-entry h2 {
+.changelog h2 {
   font-family: var(--font-mono);
   font-size: 16px;
   font-weight: 600;
   color: var(--green);
-  margin-bottom: 4px;
-  text-align: left;
+  margin: 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--bg-elevated);
 }
 
-.changelog-date {
-  font-weight: 400;
-  color: var(--text-muted);
-  font-size: 12px;
-}
+.changelog h2:first-child { border-top: none; padding-top: 0; }
 
-.changelog-entry ul {
-  list-style: none;
-  padding: 0;
-}
-
-.changelog-entry li {
-  padding: 3px 0;
-  padding-left: 16px;
-  color: var(--text-secondary);
-  font-size: 14px;
-  text-align: left;
-}
-.changelog-subsection {
+.changelog h3 {
   font-family: var(--font-mono);
   font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
   margin: 8px 0 4px;
-  text-align: left;
 }
 
-.changelog-entry li::before {
-  content: '\2022';
+.changelog ul {
+  list-style: disc;
+  padding-left: 20px;
+  margin: 4px 0 8px;
+}
+
+.changelog li {
+  padding: 3px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.changelog li::marker {
   color: var(--text-muted);
-  margin-right: 8px;
+}
+
+.changelog p {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin: 4px 0;
+}
+
+.changelog strong {
+  color: var(--text-primary);
 }
 
 /* ============================================================

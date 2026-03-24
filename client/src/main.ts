@@ -6,6 +6,7 @@ import type {
   QuickPlayMode, ChatChannel,
 } from '@salvo/shared';
 import { SHIP_LENGTHS, SHIP_NAMES, ROWS, GRID_SIZE } from '@salvo/shared';
+import { marked } from 'marked';
 import './style.css';
 
 declare const __APP_VERSION__: string;
@@ -925,66 +926,9 @@ function renderChangelog(): string {
   return `
     <div class="screen">
       <h1 class="game-title" style="font-size:32px">CHANGELOG</h1>
+      <button class="btn btn-secondary" id="btn-changelog-back" style="max-width:200px;margin-bottom:16px">Back to Lobby</button>
       <div class="changelog">${content}</div>
-      <button class="btn btn-secondary" id="btn-changelog-back" style="max-width:200px;margin-top:24px">Back to Lobby</button>
     </div>`;
-}
-
-/** Simple markdown-to-HTML for changelog (headings, lists, bold, horizontal rules) */
-function markdownToHtml(md: string): string {
-  const lines = md.split('\n');
-  let html = '';
-  let inList = false;
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-
-    // Skip the top-level "# Changelog" heading
-    if (trimmed.startsWith('# ') && !trimmed.startsWith('## ')) continue;
-
-    // ## [0.4.0] - 2026-03-22 → version entry heading
-    const versionMatch = trimmed.match(/^## \[(.+?)\] - (.+)$/);
-    if (versionMatch) {
-      if (inList) { html += '</ul>'; inList = false; }
-      html += `<div class="changelog-entry"><h2>v${esc(versionMatch[1])} <span class="changelog-date">${esc(versionMatch[2])}</span></h2>`;
-      continue;
-    }
-
-    // ### Added/Changed/Fixed → subsection
-    if (trimmed.startsWith('### ')) {
-      if (inList) { html += '</ul>'; inList = false; }
-      html += `<h3 class="changelog-subsection">${esc(trimmed.slice(4))}</h3>`;
-      continue;
-    }
-
-    // - list item (with **bold** support)
-    if (trimmed.startsWith('- ')) {
-      if (!inList) { html += '<ul>'; inList = true; }
-      let text = esc(trimmed.slice(2));
-      // Convert **bold** to <strong>
-      text = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-      // Convert — to mdash
-      text = text.replace(/ — /g, ' &mdash; ');
-      html += `<li>${text}</li>`;
-      continue;
-    }
-
-    // Empty line — close list and close entry
-    if (trimmed === '') {
-      if (inList) { html += '</ul>'; inList = false; }
-      // Close entry div if we just had content
-      if (html.endsWith('</ul>') || html.endsWith('</h3>')) {
-        html += '</div>';
-      }
-      continue;
-    }
-  }
-
-  if (inList) html += '</ul>';
-  // Close last entry if not closed
-  if (!html.endsWith('</div>')) html += '</div>';
-
-  return html;
 }
 
 async function loadChangelog(): Promise<void> {
@@ -992,7 +936,7 @@ async function loadChangelog(): Promise<void> {
     const resp = await fetch('/CHANGELOG.md');
     if (!resp.ok) throw new Error(`${resp.status}`);
     const md = await resp.text();
-    state.changelogHtml = markdownToHtml(md);
+    state.changelogHtml = marked(md) as string;
   } catch {
     state.changelogHtml = '<p style="color:var(--text-muted)">Could not load changelog.</p>';
   }
