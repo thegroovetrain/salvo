@@ -1369,15 +1369,15 @@ function renderBattle(): string {
       if (shot.miss) {
         return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="miss-text">miss</span></div>`;
       }
-      const ffHits = shot.hits.filter(h => h.playerId === entry.shooterId);
-      const enemyHits = shot.hits.filter(h => h.playerId !== entry.shooterId);
-      const names = shot.hits.map(h => h.playerId === entry.shooterId ? esc(entry.shooterName) : esc(h.playerName));
-      const hasFf = ffHits.length > 0;
-      const cls = hasFf ? 'ff' : 'hit';
-      if (names.length === 1) {
-        return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="${cls}">${names[0]}: hit!</span></div>`;
+      const nameSpans = shot.hits.map(h => {
+        const isSelf = h.playerId === entry.shooterId;
+        const cls = isSelf ? 'ff' : 'hit';
+        return `<span class="${cls}">${esc(h.playerName)}</span>`;
+      });
+      if (nameSpans.length === 1) {
+        return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> ${nameSpans[0]}: hit!</div>`;
       }
-      return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="${cls}">hit: [${names.join(', ')}]</span></div>`;
+      return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="hit">hit: [${nameSpans.join(', ')}]</span></div>`;
     }).join('');
 
     // Sink/elimination lines after the salvo
