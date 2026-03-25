@@ -45,7 +45,7 @@ You get one shot per surviving ship. Lose a ship, lose a shot.
 - **Client:** Vite + TypeScript (vanilla, no framework)
 - **Server:** Express + socket.io
 - **Shared:** TypeScript types shared via npm workspaces
-- **Tests:** Vitest (309 tests — server: game logic, security, AI, matchmaking, surrender, teams, swap, islands, player colors; client: state, helpers, audio, grid, battle, smoke)
+- **Tests:** Vitest (326 tests — server: game logic, security, AI doctrine/gunnery/placement/simulation, matchmaking, surrender, teams, swap, islands, player colors; client: state, helpers, audio, grid, battle, smoke)
 - **Linting:** ESLint with cyclomatic complexity ≤ 10 enforced
 
 ## Project Structure
