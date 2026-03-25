@@ -85,10 +85,10 @@ function renderShipHull(ship: ShipHullData, hexSize: number): string {
     strokeDash = 'stroke-dasharray="4 2"';
     opacity = '0.8';
   } else if (ship.teammate) {
-    fillColor = hexToRgba(baseHex, 0.15);
-    strokeColor = hexToRgba(baseHex, 0.60);
+    // Teammates render at full color — the different player color IS the distinction
+    fillColor = hexToRgba(baseHex, 0.2);
+    strokeColor = baseHex;
     innerStroke = `stroke="#C0C0C0" stroke-width="0.75" stroke-opacity="0.3"`;
-    opacity = '0.8';
   } else if (ship.sunk) {
     fillColor = hexToRgba(baseHex, 0.4);
     strokeColor = hexToRgba(baseHex, 0.6);
