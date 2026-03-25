@@ -1,6 +1,6 @@
 # Changelog
 
-## [0.13.0] - 2026-03-24
+## [0.13.0] - 2026-03-25
 
 ### Added
 - **Per-player colors** — each of 6 player slots gets a unique color (Magenta, Red, Yellow, Green, Cyan, Blue). Ships, player cards, chat names, turn indicators, kill feed, and game-over stats all use player colors.

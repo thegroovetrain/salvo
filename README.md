@@ -45,7 +45,7 @@ You get one shot per surviving ship. Lose a ship, lose a shot.
 - **Client:** Vite + TypeScript (vanilla, no framework)
 - **Server:** Express + socket.io
 - **Shared:** TypeScript types shared via npm workspaces
-- **Tests:** Vitest (243 tests — game logic, security, AI, matchmaking, surrender, teams, swap, islands)
+- **Tests:** Vitest (250 tests — game logic, security, AI, matchmaking, surrender, teams, swap, islands, player colors)
 
 ## Project Structure
 
@@ -84,6 +84,8 @@ npm test -w server   # Run tests
 - **Quick Play matchmaking** — 1v1, 2v2, 3v3, 3-FFA, 6-FFA, and 2v2v2 queues with live game counters and match-found sound
 - **AI opponents** — 4 difficulty tiers (Easy, Medium, Hard, Impossible) — team-aware in 2v2
 - **Unified ocean grid** — your ships and all shot results on one interactive board, with hit count badges for overlapping ships
+- **Player colors** — each player slot has a unique color (Magenta, Red, Yellow, Green, Cyan, Blue) shown on ships, cards, chat, turn indicators, and the game-over battlefield map
+- **Game-over battlefield map** — all ships revealed in player colors when the game ends, with sequential reveal in elimination order
 - **Game-over stats** — accuracy, ships sunk, friendly fire, team aggregate stats, highlights (Sharpshooter, First Blood)
 - **Rematch** — play again with the same lobby (consent-based for multiplayer)
 - **Lobby game options** — custom dropdown UI for Game Type, Turn Timer, Grid Size, and Islands — all configurable by host in a side panel

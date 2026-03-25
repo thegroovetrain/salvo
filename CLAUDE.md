@@ -7,22 +7,22 @@ Hullcracker.io is a multiplayer naval combat game. All players' ships occupy the
 ### Commands
 ```
 npm run dev          # Start server (3000) + client (5173)
-npm test -w server   # Run tests (vitest, 243+ tests)
+npm test -w server   # Run tests (vitest, 250+ tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 ```
 
 ### Architecture
-- **shared/src/types.ts** — All types, socket events, computed getters (isShipSunk, isPlayerAlive, playerShotCount), mode helpers (toGameMode, toQuickPlayMode), team helpers (getTeammates, isTeamAlive)
+- **shared/src/types.ts** — All types, socket events, computed getters (isShipSunk, isPlayerAlive, playerShotCount), mode helpers (toGameMode, toQuickPlayMode), team helpers (getTeammates, isTeamAlive), PlayerColor type, SLOT_COLORS, TEAM_COLOR_POOLS
 - **shared/src/hex.ts** — Hex coordinate math: axial coordinates (q,r), distance, neighbors, rings, linear paths, pixel↔hex conversion with cube rounding
-- **server/src/game.ts** — Pure game logic, no I/O. toClientView() is the security boundary — never leaks ship positions. Island generation with BFS connectivity validation. updateGameOptions() for lobby-phase config changes. Team-aware checkGameOver (2 or 3 teams)
+- **server/src/game.ts** — Pure game logic, no I/O. toClientView() is the security boundary — never leaks ship positions (except phase='finished' reveals all). Island generation with BFS connectivity validation. updateGameOptions() for lobby-phase config changes. Team-aware checkGameOver (2 or 3 teams). assignPlayerColor() for color assignment
 - **server/src/connections.ts** — playerId↔socketId mapping, disconnect state tracking, event buffering (forfeit handled by turn timer, not wall-clock)
 - **server/src/ai.ts** — AI opponents: 4 tiers (Easy/Medium/Hard/Impossible), hex ship placement + target selection. Hex 3-coloring hunt pattern for Hard tier. Team-aware: excludes teammates from targets (except Easy)
 - **server/src/lobby.ts** — Game lifecycle, join codes (collision-safe), cleanup timer, expanded game count tracking for 7 QP modes
-- **server/src/index.ts** — Express + socket.io event routing, turn timer management, bot auto-play, Quick Play queue (socket.io rooms, 1v1/2v2/FFA/3v3/3ffa/6ffa/2v2v2), surrender/rejoin handlers, handlePlayerExit() shared helper, team chat routing (supports 3 teams), swap-team/swap-players handlers, placement-preview relay, update-game-options handler, autoAssignTeam (supports charlie)
+- **server/src/index.ts** — Express + socket.io event routing, turn timer management, bot auto-play, Quick Play queue (socket.io rooms, 1v1/2v2/FFA/3v3/3ffa/6ffa/2v2v2), surrender/rejoin handlers, handlePlayerExit() shared helper, team chat routing (supports 3 teams), swap-team/swap-players handlers, placement-preview relay, update-game-options handler, autoAssignTeam (supports charlie), assignQuickPlayColors (randomized per-team color pools)
 - **client/src/main.ts** — Vanilla TS client: state management, socket handlers, DOM rendering, random name generation (naval-themed adjective+noun), localStorage persistence, AudioContext sound system (generic playTone + salvo/placement/game-over sounds), game-over grid with sequential ship reveal
-- **client/src/hexGrid.ts** — SVG hex grid renderer: polygon generation, pixel↔hex click detection, ship placement preview, cell state rendering, hull capsule overlay (cell state class on `<g>` wrapper for CSS marker styling)
-- **client/src/style.css** — Full DESIGN.md implementation, CIC tactical display hex grid (black void, silver strokes, filled states), island styling, marker colors via CSS inheritance
+- **client/src/hexGrid.ts** — SVG hex grid renderer: polygon generation, pixel↔hex click detection, ship placement preview, cell state rendering, hull capsule overlay (cell state class on `<g>` wrapper for CSS marker styling), per-player color hull rendering (PLAYER_COLOR_HEX, hexToRgba)
+- **client/src/style.css** — Full DESIGN.md implementation, CIC tactical display hex grid (black void, silver strokes, filled states), island styling, marker colors via CSS inheritance, 6 --player-* CSS color variables for player identity
 
 ### Key Decisions
 - Ship.sunk, Player.alive, Player.shotCount are computed getters, not stored state
@@ -41,6 +41,8 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - Private lobby: no create modal. Host configures Game Type / Turn Timer / Grid Size / Islands in-lobby via update-game-options socket event. Defaults: FFA, 60s, 5 rings, Normal islands. Two-column layout (players left, options panel right). Custom dropdown components with ARIA a11y. Leave button with host transfer.
 - toGameMode/toQuickPlayMode helpers in shared/types.ts eliminate binary ternary duplication
 - Quick Play rematch destroys the game and requeues players (clean game boundaries); private rematch resets in-place
+- Player colors: 6 fixed colors (magenta/red/yellow/green/cyan/blue). Private games assign by join order (SLOT_COLORS). Quick Play randomizes: FFA shuffles all 6; team modes use TEAM_COLOR_POOLS (warm/cool split for 2-team, disjoint pairs for 3-team). Lobby renders fixed color slots.
+- Game-over reveal: toClientView() uses serializeShipForGameOver() to expose all ship cells when phase='finished'. Client renders all players' ships in their assigned colors.
 - Forfeit is silent: `player.ships = []` (no hit markers on shared board — prevents FFA info leakage)
 - Surrender button available during placement and playing phases; rejoin modal on page reload replaces auto-rejoin
 - Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision
