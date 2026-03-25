@@ -1184,9 +1184,15 @@ function renderWaiting(): string {
     let globalSlot = 0;
     const sections = activeTeams.map(teamName => {
       const teamPlayers = players.filter(p => teams[p.id] === teamName);
-      const openCount = Math.max(0, slotsPerTeam - teamPlayers.length);
-      const cards = teamPlayers.map(p => { const s = globalSlot++; return renderSeatCard(p, s, teamName); }).join('')
-        + Array(openCount).fill(0).map(() => { const s = globalSlot++; return renderSeatCard(null, s, teamName); }).join('');
+      // Render fixed color slots for this team's range
+      const teamSlotCards: string[] = [];
+      for (let i = 0; i < slotsPerTeam; i++) {
+        const slotIdx = globalSlot++;
+        const slotColor = SLOT_COLORS[slotIdx];
+        const player = teamPlayers.find(p => p.color === slotColor);
+        teamSlotCards.push(renderSeatCard(player ?? null, slotIdx, teamName));
+      }
+      const cards = teamSlotCards.join('');
       return `
         <div class="team-section">
           <div class="team-section-header ${teamName}">${teamLabels[teamName]}</div>
@@ -1196,14 +1202,16 @@ function renderWaiting(): string {
 
     lobbyPlayersHtml = `<div class="lobby-stacked">${sections}</div>`;
   } else {
-    const openSlots = Math.max(0, MAX_PLAYERS - players.length);
-    const playerCards = players.map((p, i) => renderSeatCard(p, i)).join('');
-    const openCards = Array(openSlots).fill(0).map((_, i) => renderSeatCard(null, players.length + i)).join('');
+    // Render all 6 slots in fixed MRYGCB order — players appear in their color's slot
+    const slotCards = SLOT_COLORS.map((slotColor, i) => {
+      const player = players.find(p => p.color === slotColor);
+      return renderSeatCard(player ?? null, i);
+    }).join('');
 
     lobbyPlayersHtml = `
       <div class="lobby-stacked">
         <div class="team-section-header" style="color:var(--text-muted)">PLAYERS</div>
-        ${playerCards}${openCards}
+        ${slotCards}
       </div>`;
   }
 
