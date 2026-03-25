@@ -257,6 +257,7 @@ export interface ClientToServerEvents {
   'chat-message': (data: { text: string; channel?: ChatChannel }) => void;
   'swap-team': (data: { targetPlayerId: string }) => void;
   'swap-players': (data: { playerA: string; playerB: string }) => void;
+  'move-to-slot': (data: { slotIndex: number }) => void;
   'placement-preview': (data: { ships: ShipPlacement[] }) => void;
   'rejoin': (data: { playerId: string; gameId: string }) => void;
   'rematch-request': () => void;

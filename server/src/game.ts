@@ -3,7 +3,7 @@ import {
   type ShotResult, type WireGame, type WirePlayer, type WireShip,
   type TimerConfig, type GameOverStats, type AiDifficulty, type GameMode,
   type PlayerColor,
-  isShipSunk, isPlayerAlive, playerShotCount, getTeammates, isTeamAlive,
+  isShipSunk, isPlayerAlive, playerShotCount, isTeamAlive,
   SHIP_LENGTHS, SHIP_NAMES, BOT_NAME_POOLS, MODE_RINGS, SLOT_COLORS,
 } from '@salvo/shared';
 import {
@@ -56,6 +56,43 @@ export function createGame(
 
 export type GameType = 'ffa' | '2-team' | '3-team';
 
+function applyGameType(game: Game, gameType: GameType): void {
+  const teamsEnabled = gameType !== 'ffa';
+  game.teamsEnabled = teamsEnabled;
+  game.gameType = gameType;
+
+  if (!teamsEnabled) {
+    game.teams.clear();
+    return;
+  }
+
+  const teamNames = gameType === '3-team'
+    ? ['alpha', 'bravo', 'charlie']
+    : ['alpha', 'bravo'];
+  game.teams.clear();
+  let teamIdx = 0;
+  for (const playerId of game.players.keys()) {
+    game.teams.set(playerId, teamNames[teamIdx % teamNames.length]);
+    teamIdx++;
+  }
+}
+
+function applyTimerSeconds(game: Game, timerSeconds: number | null): void {
+  if (timerSeconds === null || timerSeconds === 0) {
+    game.timerConfig = { enabled: false, seconds: 60 };
+  } else {
+    game.timerConfig = { enabled: true, seconds: timerSeconds };
+  }
+}
+
+function isValidRings(rings: number): boolean {
+  return rings >= 4 && rings <= 6;
+}
+
+function isValidIslandCount(count: number): boolean {
+  return count >= 0 && count <= 8;
+}
+
 export function updateGameOptions(
   game: Game,
   requesterId: string,
@@ -64,47 +101,10 @@ export function updateGameOptions(
   if (game.phase !== 'lobby') return 'Game is not in lobby phase';
   if (game.hostId !== requesterId) return 'Only the host can change game options';
 
-  if (options.gameType !== undefined) {
-    const teamsEnabled = options.gameType !== 'ffa';
-    game.teamsEnabled = teamsEnabled;
-    game.gameType = options.gameType;
-
-    if (teamsEnabled) {
-      // Deterministic team names from host's choice
-      const teamNames = options.gameType === '3-team'
-        ? ['alpha', 'bravo', 'charlie']
-        : ['alpha', 'bravo'];
-      // Distribute players evenly across teams (round-robin)
-      game.teams.clear();
-      let teamIdx = 0;
-      for (const playerId of game.players.keys()) {
-        game.teams.set(playerId, teamNames[teamIdx % teamNames.length]);
-        teamIdx++;
-      }
-    } else {
-      game.teams.clear();
-    }
-  }
-
-  if (options.timerSeconds !== undefined) {
-    if (options.timerSeconds === null || options.timerSeconds === 0) {
-      game.timerConfig = { enabled: false, seconds: 60 };
-    } else {
-      game.timerConfig = { enabled: true, seconds: options.timerSeconds };
-    }
-  }
-
-  if (options.rings !== undefined) {
-    if (options.rings >= 4 && options.rings <= 6) {
-      game.rings = options.rings;
-    }
-  }
-
-  if (options.islandCount !== undefined) {
-    if (options.islandCount >= 0 && options.islandCount <= 8) {
-      game.islandCount = options.islandCount;
-    }
-  }
+  if (options.gameType !== undefined) applyGameType(game, options.gameType);
+  if (options.timerSeconds !== undefined) applyTimerSeconds(game, options.timerSeconds);
+  if (options.rings !== undefined && isValidRings(options.rings)) game.rings = options.rings;
+  if (options.islandCount !== undefined && isValidIslandCount(options.islandCount)) game.islandCount = options.islandCount;
 
   game.lastActivity = Date.now();
   return null;
@@ -273,63 +273,45 @@ export function startGame(game: Game): void {
 // Ship Placement Validation
 // ============================================================
 
+function parseAndValidateHexes(cells: string[], rings: number): { q: number; r: number }[] | string {
+  const parsed = cells.map(parseHex);
+  if (parsed.some(p => p === null)) return 'Invalid coordinate';
+  const hexes = parsed as { q: number; r: number }[];
+  if (hexes.some(h => !isValidHex(h.q, h.r, rings))) return 'Coordinate out of bounds';
+  return hexes;
+}
+
+function isValidHexDirection(dq: number, dr: number): boolean {
+  return Math.abs(dq) <= 1 && Math.abs(dr) <= 1 && Math.abs(dq + dr) <= 1
+    && (dq !== 0 || dr !== 0);
+}
+
+function cellsFollowDirection(
+  hexes: { q: number; r: number }[], anchor: { q: number; r: number }, dq: number, dr: number,
+): boolean {
+  return hexes.every((h, i) => h.q === anchor.q + dq * i && h.r === anchor.r + dr * i);
+}
+
 function validateShipCells(cells: string[], expectedLength: number, rings: number): string | null {
   if (cells.length !== expectedLength) {
     return `Ship should have ${expectedLength} cells, got ${cells.length}`;
   }
 
-  // Parse all cells
-  const parsed = cells.map(parseHex);
-  if (parsed.some(p => p === null)) return 'Invalid coordinate';
-  const hexes = parsed as { q: number; r: number }[];
+  const result = parseAndValidateHexes(cells, rings);
+  if (typeof result === 'string') return result;
+  const hexes = result;
 
-  // All cells must be valid
-  if (hexes.some(h => !isValidHex(h.q, h.r, rings))) return 'Coordinate out of bounds';
-
-  // For length 1, just one valid cell is enough
   if (expectedLength === 1) return null;
 
-  // Check if cells form a straight line along one of 6 hex directions
   const anchor = hexes[0];
-  let foundDirection = false;
+  const dq = hexes[1].q - anchor.q;
+  const dr = hexes[1].r - anchor.r;
 
-  for (let dirIdx = 0; dirIdx < 6; dirIdx++) {
-    // Check if this ship matches this direction from anchor
-    const expected = [];
-    for (let i = 0; i < expectedLength; i++) {
-      const dq = hexes[i].q - anchor.q;
-      const dr = hexes[i].r - anchor.r;
-      expected.push({ dq, dr });
-    }
-
-    // The ship is valid along a direction if each cell is the anchor + i * direction
-    // Try to find the direction vector from the first two cells
-    const dq = hexes[1].q - anchor.q;
-    const dr = hexes[1].r - anchor.r;
-
-    // Check all cells follow this direction
-    let valid = true;
-    for (let i = 0; i < expectedLength; i++) {
-      if (hexes[i].q !== anchor.q + dq * i || hexes[i].r !== anchor.r + dr * i) {
-        valid = false;
-        break;
-      }
-    }
-
-    if (valid) {
-      // Verify the direction vector is one of the 6 hex directions
-      const isHexDir = Math.abs(dq) <= 1 && Math.abs(dr) <= 1 && Math.abs(dq + dr) <= 1
-        && (dq !== 0 || dr !== 0);
-      if (isHexDir) {
-        foundDirection = true;
-        break;
-      }
-    }
+  if (isValidHexDirection(dq, dr) && cellsFollowDirection(hexes, anchor, dq, dr)) {
+    return null;
   }
 
-  if (!foundDirection) return 'Ship must follow a hex axis';
-
-  return null;
+  return 'Ship must follow a hex axis';
 }
 
 export function validatePlacement(placements: ShipPlacement[], rings: number, islands: Set<string>): string | null {
@@ -389,56 +371,42 @@ export function allShipsPlaced(game: Game): boolean {
   return true;
 }
 
-export function beginPlaying(game: Game): void {
-  // Generate turn order: simple team alternation
-  if (game.teamsEnabled && game.teams.size > 0) {
-    const teamGroups = new Map<string, string[]>();
-    for (const [playerId, teamId] of game.teams) {
-      if (!teamGroups.has(teamId)) teamGroups.set(teamId, []);
-      teamGroups.get(teamId)!.push(playerId);
-    }
+function shuffleArray<T>(arr: T[]): void {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+}
 
-    // Shuffle within each team
-    for (const members of teamGroups.values()) {
-      for (let i = members.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [members[i], members[j]] = [members[j], members[i]];
-      }
-    }
-
-    // Shuffle team order
-    const teamIds = [...teamGroups.keys()];
-    for (let i = teamIds.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [teamIds[i], teamIds[j]] = [teamIds[j], teamIds[i]];
-    }
-
-    // Alternating: [A1, B1, C1, A2, B2, C2, ...]
-    const teams = teamIds.map(id => teamGroups.get(id)!);
-    const maxSize = Math.max(...teams.map(t => t.length));
-    game.turnOrder = [];
-    for (let slot = 0; slot < maxSize; slot++) {
-      for (const team of teams) {
-        if (slot < team.length) {
-          game.turnOrder.push(team[slot]);
-        }
-      }
-    }
-  } else {
-    // FFA / non-team: random shuffle
-    const ids = [...game.players.keys()];
-    for (let i = ids.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [ids[i], ids[j]] = [ids[j], ids[i]];
-    }
-    game.turnOrder = ids;
+function buildTeamTurnOrder(game: Game): string[] {
+  const teamGroups = new Map<string, string[]>();
+  for (const [playerId, teamId] of game.teams) {
+    if (!teamGroups.has(teamId)) teamGroups.set(teamId, []);
+    teamGroups.get(teamId)!.push(playerId);
   }
 
-  game.currentTurnIndex = 0;
-  game.phase = 'playing';
-  game.lastActivity = Date.now();
+  for (const members of teamGroups.values()) {
+    shuffleArray(members);
+  }
 
-  // Initialize per-player stats
+  const teamIds = [...teamGroups.keys()];
+  shuffleArray(teamIds);
+
+  // Alternating: [A1, B1, C1, A2, B2, C2, ...]
+  const teams = teamIds.map(id => teamGroups.get(id)!);
+  const maxSize = Math.max(...teams.map(t => t.length));
+  const turnOrder: string[] = [];
+  for (let slot = 0; slot < maxSize; slot++) {
+    for (const team of teams) {
+      if (slot < team.length) {
+        turnOrder.push(team[slot]);
+      }
+    }
+  }
+  return turnOrder;
+}
+
+function initPlayerStats(game: Game): void {
   game.playerStats = new Map();
   game.firstBloodId = null;
   for (const id of game.players.keys()) {
@@ -452,6 +420,21 @@ export function beginPlaying(game: Game): void {
   }
 }
 
+export function beginPlaying(game: Game): void {
+  if (game.teamsEnabled && game.teams.size > 0) {
+    game.turnOrder = buildTeamTurnOrder(game);
+  } else {
+    const ids = [...game.players.keys()];
+    shuffleArray(ids);
+    game.turnOrder = ids;
+  }
+
+  game.currentTurnIndex = 0;
+  game.phase = 'playing';
+  game.lastActivity = Date.now();
+  initPlayerStats(game);
+}
+
 // ============================================================
 // Shot Resolution (Atomic)
 // ============================================================
@@ -459,6 +442,15 @@ export function beginPlaying(game: Game): void {
 export function getCurrentTurnPlayerId(game: Game): string | null {
   if (game.phase !== 'playing') return null;
   return game.turnOrder[game.currentTurnIndex] ?? null;
+}
+
+function validateSalvoCoord(coord: string, game: Game): string | null {
+  const hex = parseHex(coord);
+  if (!hex) return `Invalid coordinate: ${coord}`;
+  if (!isValidHex(hex.q, hex.r, game.rings)) return `Coordinate out of bounds: ${coord}`;
+  if (game.islands.has(coord)) return `Cannot shoot at island: ${coord}`;
+  if (game.shots.has(coord)) return `Already shot at ${coord}`;
+  return null;
 }
 
 export function validateSalvo(game: Game, playerId: string, coords: string[]): string | null {
@@ -472,20 +464,18 @@ export function validateSalvo(game: Game, playerId: string, coords: string[]): s
   if (!isPlayerAlive(player)) return 'You are eliminated';
 
   const expectedShots = playerShotCount(player);
-  if (coords.length !== expectedShots) {
-    return `Must fire exactly ${expectedShots} shots, got ${coords.length}`;
+  // Cap at available unshot hexes — late-game boards may have fewer targets than shots
+  const unshotCount = allHexes(game.rings).filter(c => !game.shots.has(c) && !game.islands.has(c)).length;
+  const maxShots = Math.min(expectedShots, unshotCount);
+  if (coords.length < 1 || coords.length > maxShots) {
+    return `Must fire 1\u2013${maxShots} shots, got ${coords.length}`;
   }
 
-  // Validate each coordinate
   for (const coord of coords) {
-    const hex = parseHex(coord);
-    if (!hex) return `Invalid coordinate: ${coord}`;
-    if (!isValidHex(hex.q, hex.r, game.rings)) return `Coordinate out of bounds: ${coord}`;
-    if (game.islands.has(coord)) return `Cannot shoot at island: ${coord}`;
-    if (game.shots.has(coord)) return `Already shot at ${coord}`;
+    const err = validateSalvoCoord(coord, game);
+    if (err) return err;
   }
 
-  // Check for duplicates within the salvo
   if (new Set(coords).size !== coords.length) {
     return 'Duplicate coordinates in salvo';
   }
@@ -493,58 +483,56 @@ export function validateSalvo(game: Game, playerId: string, coords: string[]): s
   return null;
 }
 
-export function fireSalvo(game: Game, playerId: string, coords: string[]): ShotResult[] {
-  const results: ShotResult[] = [];
+function resolveShot(game: Game, coord: string): ShotResult {
+  game.shots.add(coord);
+  const shotResult: ShotResult = { coord, hits: [], miss: true };
 
-  // Phase 1: Resolve all shots atomically (don't check alive mid-salvo)
-  for (const coord of coords) {
-    game.shots.add(coord);
-
-    const shotResult: ShotResult = { coord, hits: [], miss: true };
-
-    for (const player of game.players.values()) {
-      for (const ship of player.ships) {
-        if (ship.cells.includes(coord) && !ship.hits.has(coord)) {
-          ship.hits.add(coord);
-          const sunk = isShipSunk(ship);
-          shotResult.hits.push({
-            playerId: player.id,
-            playerName: player.name,
-            sunk,
-            shipLength: ship.length,
-            sunkShipCells: sunk ? [...ship.cells] : null,
-          });
-          shotResult.miss = false;
-        }
+  for (const player of game.players.values()) {
+    for (const ship of player.ships) {
+      if (ship.cells.includes(coord) && !ship.hits.has(coord)) {
+        ship.hits.add(coord);
+        const sunk = isShipSunk(ship);
+        shotResult.hits.push({
+          playerId: player.id,
+          playerName: player.name,
+          sunk,
+          shipLength: ship.length,
+          sunkShipCells: sunk ? [...ship.cells] : null,
+        });
+        shotResult.miss = false;
       }
     }
-
-    results.push(shotResult);
   }
+  return shotResult;
+}
 
-  // Phase 2: Accumulate stats for the shooter
+function accumulateShooterStats(game: Game, playerId: string, results: ShotResult[], coordCount: number): void {
   const shooterStats = game.playerStats.get(playerId);
-  if (shooterStats) {
-    shooterStats.shotsFired += coords.length;
-    shooterStats.turnsTaken += 1;
+  if (!shooterStats) return;
 
-    for (const result of results) {
-      for (const hit of result.hits) {
-        if (hit.playerId === playerId) {
-          shooterStats.friendlyFireHits += 1;
-        } else {
-          shooterStats.hitsLanded += 1;
-          if (game.firstBloodId === null) {
-            game.firstBloodId = playerId;
-          }
+  shooterStats.shotsFired += coordCount;
+  shooterStats.turnsTaken += 1;
+
+  for (const result of results) {
+    for (const hit of result.hits) {
+      if (hit.playerId === playerId) {
+        shooterStats.friendlyFireHits += 1;
+      } else {
+        shooterStats.hitsLanded += 1;
+        if (game.firstBloodId === null) {
+          game.firstBloodId = playerId;
         }
-        if (hit.sunk && hit.playerId !== playerId) {
-          shooterStats.shipsSunk += 1;
-        }
+      }
+      if (hit.sunk && hit.playerId !== playerId) {
+        shooterStats.shipsSunk += 1;
       }
     }
   }
+}
 
+export function fireSalvo(game: Game, playerId: string, coords: string[]): ShotResult[] {
+  const results = coords.map(coord => resolveShot(game, coord));
+  accumulateShooterStats(game, playerId, results, coords.length);
   game.lastActivity = Date.now();
   return results;
 }
@@ -572,36 +560,36 @@ export function advanceTurn(game: Game): void {
   }
 }
 
+function checkTeamGameOver(game: Game): GameOverStats | null {
+  const teamIds = new Set(game.teams.values());
+  const aliveTeams: string[] = [];
+  for (const teamId of teamIds) {
+    if (isTeamAlive(game, teamId)) {
+      aliveTeams.push(teamId);
+    }
+  }
+
+  if (aliveTeams.length > 1) return null;
+
+  game.phase = 'finished';
+  game.lastActivity = Date.now();
+
+  if (aliveTeams.length !== 1) return computeGameOverStats(game, null, null);
+
+  const winnerTeamId = aliveTeams[0];
+  const winnerId = [...game.teams.entries()]
+    .find(([pid, tid]) => {
+      const player = game.players.get(pid);
+      return player && tid === winnerTeamId && isPlayerAlive(player);
+    })
+    ?.[0] ?? null;
+  return computeGameOverStats(game, winnerId, winnerTeamId);
+}
+
 export function checkGameOver(game: Game): GameOverStats | null {
   if (game.phase !== 'playing') return null;
 
-  if (game.teamsEnabled) {
-    const teamIds = new Set(game.teams.values());
-    const aliveTeams: string[] = [];
-    for (const teamId of teamIds) {
-      if (isTeamAlive(game, teamId)) {
-        aliveTeams.push(teamId);
-      }
-    }
-
-    if (aliveTeams.length > 1) return null;
-
-    game.phase = 'finished';
-    game.lastActivity = Date.now();
-
-    if (aliveTeams.length === 1) {
-      const winnerTeamId = aliveTeams[0];
-      const winnerId = [...game.teams.entries()]
-        .find(([pid, tid]) => {
-          const player = game.players.get(pid);
-          return player && tid === winnerTeamId && isPlayerAlive(player);
-        })
-        ?.[0] ?? null;
-      return computeGameOverStats(game, winnerId, winnerTeamId);
-    } else {
-      return computeGameOverStats(game, null, null);
-    }
-  }
+  if (game.teamsEnabled) return checkTeamGameOver(game);
 
   const alivePlayers = [...game.players.values()].filter(isPlayerAlive);
   if (alivePlayers.length > 1) return null;
@@ -613,48 +601,45 @@ export function checkGameOver(game: Game): GameOverStats | null {
   return computeGameOverStats(game, winnerId, null);
 }
 
-function computeGameOverStats(game: Game, winnerId: string | null, winnerTeamId: string | null): GameOverStats {
+const EMPTY_STATS = { shotsFired: 0, hitsLanded: 0, shipsSunk: 0, friendlyFireHits: 0, turnsTaken: 0 };
+
+function toPlayerStatEntry(stats: typeof EMPTY_STATS): GameOverStats['playerStats'][string] {
+  const { shotsFired, hitsLanded, shipsSunk, friendlyFireHits, turnsTaken } = stats;
+  return {
+    shotsFired, hitsLanded, shipsSunk, friendlyFireHits, turnsTaken,
+    accuracy: shotsFired > 0 ? hitsLanded / shotsFired : 0,
+  };
+}
+
+function buildPlayerStats(game: Game): GameOverStats['playerStats'] {
   const playerStats: GameOverStats['playerStats'] = {};
-
   for (const [id] of game.players) {
-    const stats = game.playerStats.get(id);
-    const shotsFired = stats?.shotsFired ?? 0;
-    const hitsLanded = stats?.hitsLanded ?? 0;
-    playerStats[id] = {
-      shotsFired,
-      hitsLanded,
-      accuracy: shotsFired > 0 ? hitsLanded / shotsFired : 0,
-      shipsSunk: stats?.shipsSunk ?? 0,
-      friendlyFireHits: stats?.friendlyFireHits ?? 0,
-      turnsTaken: stats?.turnsTaken ?? 0,
-    };
+    playerStats[id] = toPlayerStatEntry(game.playerStats.get(id) ?? EMPTY_STATS);
   }
+  return playerStats;
+}
 
+type StatEntry = { id: string; name: string; shotsFired: number; hitsLanded: number; accuracy: number; shipsSunk: number; friendlyFireHits: number; turnsTaken: number };
+
+function buildHighlights(entries: StatEntry[], game: Game): string[] {
   const highlights: string[] = [];
-  const entries = [...game.players.entries()].map(([id, p]) => ({
-    id, name: p.name, ...playerStats[id],
-  }));
 
-  // Sharpshooter
   const qualified = entries.filter(e => e.shotsFired >= 3);
   if (qualified.length > 0) {
     const best = qualified.reduce((a, b) => a.accuracy > b.accuracy ? a : b);
     highlights.push(`Sharpshooter: ${best.name} (${Math.round(best.accuracy * 100)}% accuracy)`);
   }
 
-  // Most Destructive
   const mostSunk = entries.reduce((a, b) => a.shipsSunk > b.shipsSunk ? a : b);
   if (mostSunk.shipsSunk > 0) {
     highlights.push(`Most Destructive: ${mostSunk.name} (${mostSunk.shipsSunk} ships sunk)`);
   }
 
-  // Friendly Fire Champion
   const mostFF = entries.reduce((a, b) => a.friendlyFireHits > b.friendlyFireHits ? a : b);
   if (mostFF.friendlyFireHits > 0) {
     highlights.push(`Friendly Fire Champion: ${mostFF.name} (${mostFF.friendlyFireHits} self-hits)`);
   }
 
-  // First Blood
   if (game.firstBloodId) {
     const fbPlayer = game.players.get(game.firstBloodId);
     if (fbPlayer) {
@@ -662,7 +647,34 @@ function computeGameOverStats(game: Game, winnerId: string | null, winnerTeamId:
     }
   }
 
+  return highlights;
+}
+
+function computeGameOverStats(game: Game, winnerId: string | null, winnerTeamId: string | null): GameOverStats {
+  const playerStats = buildPlayerStats(game);
+
+  const entries = [...game.players.entries()].map(([id, p]) => ({
+    id, name: p.name, ...playerStats[id],
+  }));
+
+  const highlights = buildHighlights(entries, game);
+
   return { winnerId, winnerTeamId, playerStats, highlights };
+}
+
+// ============================================================
+// Elimination Checking
+// ============================================================
+
+/** Returns player IDs that are newly dead (were alive before, now dead). Call after fireSalvo. */
+export function checkNewEliminations(game: Game, alreadyDead: Set<string>): { playerId: string; playerName: string }[] {
+  const newlyDead: { playerId: string; playerName: string }[] = [];
+  for (const player of game.players.values()) {
+    if (!isPlayerAlive(player) && !alreadyDead.has(player.id)) {
+      newlyDead.push({ playerId: player.id, playerName: player.name });
+    }
+  }
+  return newlyDead;
 }
 
 // ============================================================

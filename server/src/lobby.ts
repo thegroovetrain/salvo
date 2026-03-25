@@ -100,39 +100,28 @@ export class LobbyManager {
     searching1v1 = 0, searching2v2 = 0,
     searching3v3 = 0, searching3ffa = 0, searching6ffa = 0, searching2v2v2 = 0,
   ): GameCountData {
-    let oneVsOne = 0;
-    let twoVsTwo = 0;
-    let threeVsThree = 0;
-    let threeFfa = 0;
-    let sixFfa = 0;
-    let twoVsTwoVsTwo = 0;
+    const modeCounts: Record<string, number> = {
+      'quickplay-1v1': 0, 'quickplay-2v2': 0, 'quickplay-3v3': 0,
+      'quickplay-3ffa': 0, 'quickplay-6ffa': 0, 'quickplay-2v2v2': 0,
+    };
 
     for (const game of this.games.values()) {
-      if (game.phase === 'finished') continue;
-      switch (game.mode) {
-        case 'quickplay-1v1': oneVsOne++; break;
-        case 'quickplay-2v2': twoVsTwo++; break;
-        case 'quickplay-3v3': threeVsThree++; break;
-        case 'quickplay-3ffa': threeFfa++; break;
-        case 'quickplay-6ffa': sixFfa++; break;
-        case 'quickplay-2v2v2': twoVsTwoVsTwo++; break;
+      if (game.phase !== 'finished' && game.mode in modeCounts) {
+        modeCounts[game.mode]++;
       }
     }
 
+    const oneVsOne = modeCounts['quickplay-1v1'];
+    const twoVsTwo = modeCounts['quickplay-2v2'];
+    const threeVsThree = modeCounts['quickplay-3v3'];
+    const threeFfa = modeCounts['quickplay-3ffa'];
+    const sixFfa = modeCounts['quickplay-6ffa'];
+    const twoVsTwoVsTwo = modeCounts['quickplay-2v2v2'];
+
     return {
       total: oneVsOne + twoVsTwo + threeVsThree + threeFfa + sixFfa + twoVsTwoVsTwo,
-      oneVsOne,
-      twoVsTwo,
-      threeVsThree,
-      threeFfa,
-      sixFfa,
-      twoVsTwoVsTwo,
-      searching1v1,
-      searching2v2,
-      searching3v3,
-      searching3ffa,
-      searching6ffa,
-      searching2v2v2,
+      oneVsOne, twoVsTwo, threeVsThree, threeFfa, sixFfa, twoVsTwoVsTwo,
+      searching1v1, searching2v2, searching3v3, searching3ffa, searching6ffa, searching2v2v2,
     };
   }
 

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.13.1] - 2026-03-25
+
+### Changed
+- **Modular architecture** — client main.ts (2,497 → 61 LOC) split into 24 domain modules; server index.ts (1,473 → 61 LOC) split into 16 modules. Every file has one job.
+- **ESLint complexity enforcement** — cyclomatic complexity capped at 10 per function. ~30 functions refactored to pass.
+- **Client test suite** — 54 new tests (state, helpers, audio, grid, battle, smoke) using vitest + jsdom. Total test count: 309.
+- **Flexible salvo firing** — fire 1 to N shots per turn (capped at available hexes) instead of requiring exactly N. No more late-game deadlocks on crowded boards.
+- **Move to any open slot** — all players can now click "+" on empty lobby seats to change their color, not just the host.
+
+### Fixed
+- **Game-over ship reveal** — all players' ships now correctly appear on the game-over grid. Server sends updated game state with phase='finished' before the game-over event so clients receive revealed ship cells.
+- **Duplicate elimination checking** — extracted `checkNewEliminations()` helper from duplicated fire/bot code in game.ts.
+- **Dead mobileTab state** — removed unused `mobileTab` state variable left over from the unified grid change.
+- **Quick Play handler deduplication** — 7 copy-pasted QP join handlers consolidated into single `handleQPJoin(mode)` function.
+
 ## [0.13.0] - 2026-03-25
 
 ### Added

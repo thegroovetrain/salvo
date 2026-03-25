@@ -161,7 +161,7 @@ function cubeRound(fq: number, fr: number): Hex {
 
   let q = Math.round(fq);
   let r = Math.round(fr);
-  let s = Math.round(fs);
+  const s = Math.round(fs);
 
   const qDiff = Math.abs(q - fq);
   const rDiff = Math.abs(r - fr);

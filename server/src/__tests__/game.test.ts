@@ -6,9 +6,11 @@ import {
   advanceTurn, checkGameOver, forfeitPlayer,
   toClientView, validatePlacement, resetForRematch,
   generateIslands, updateGameOptions, removePlayer,
+  checkNewEliminations,
 } from '../game.js';
 import type { Game, ShipPlacement } from '@salvo/shared';
 import { isPlayerAlive, playerShotCount, isShipSunk } from '@salvo/shared';
+import { allHexes } from '@salvo/shared/hex';
 import { makeGame, hexPlacements, allCellsForPlayer, setupBattle, defaultPlacements } from './helpers.js';
 
 // ============================================================
@@ -289,12 +291,37 @@ describe('Shot Resolution', () => {
     expect(validateSalvo(game, otherPlayer, ['0,0'])).toBe('Not your turn');
   });
 
-  it('rejects wrong number of shots', () => {
+  it('rejects zero shots', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
     const currentPlayer = getCurrentTurnPlayerId(game)!;
 
-    expect(validateSalvo(game, currentPlayer, ['0,0'])).toContain('Must fire exactly');
+    expect(validateSalvo(game, currentPlayer, [])).toContain('Must fire');
+  });
+
+  it('rejects too many shots', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    const currentPlayer = getCurrentTurnPlayerId(game)!;
+    const shotCount = playerShotCount(game.players.get(currentPlayer)!);
+
+    const coords = Array.from({ length: shotCount + 1 }, (_, i) => `${i - 5},${-i + 5}`);
+    expect(validateSalvo(game, currentPlayer, coords)).toContain('Must fire');
+  });
+
+  it('allows fewer shots when board is nearly full', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    const currentPlayer = getCurrentTurnPlayerId(game)!;
+
+    // Fill most of the board with shots, leaving only 1 unshot hex
+    const available = allHexes(game.rings).filter(c => !game.islands.has(c));
+    for (let i = 0; i < available.length - 1; i++) {
+      game.shots.add(available[i]);
+    }
+    const lastHex = available[available.length - 1];
+
+    expect(validateSalvo(game, currentPlayer, [lastHex])).toBeNull();
   });
 
   it('rejects duplicate shot on already-fired coordinate', () => {
@@ -937,5 +964,48 @@ describe('Player Colors', () => {
 
     const colors = [...game.players.values()].map(p => p.color);
     expect(new Set(colors).size).toBe(6);
+  });
+});
+
+describe('checkNewEliminations', () => {
+  it('returns empty array when no players are newly dead', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    const alreadyDead = new Set<string>();
+    const result = checkNewEliminations(game, alreadyDead);
+    expect(result).toEqual([]);
+  });
+
+  it('returns newly eliminated player after all ships sunk', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    const alreadyDead = new Set<string>();
+    // Sink all of p2's ships by hitting every cell
+    const p2 = game.players.get(playerIds[1])!;
+    for (const ship of p2.ships) {
+      for (const cell of ship.cells) {
+        ship.hits.add(cell);
+      }
+    }
+    const result = checkNewEliminations(game, alreadyDead);
+    expect(result).toHaveLength(1);
+    expect(result[0].playerId).toBe(playerIds[1]);
+  });
+
+  it('excludes players already in the dead set', () => {
+    const { game, playerIds } = makeGame(3);
+    setupBattle(game, playerIds);
+    // Sink p2 and p3
+    for (const pid of [playerIds[1], playerIds[2]]) {
+      const p = game.players.get(pid)!;
+      for (const ship of p.ships) {
+        for (const cell of ship.cells) ship.hits.add(cell);
+      }
+    }
+    // p2 was already dead
+    const alreadyDead = new Set([playerIds[1]]);
+    const result = checkNewEliminations(game, alreadyDead);
+    expect(result).toHaveLength(1);
+    expect(result[0].playerId).toBe(playerIds[2]);
   });
 });

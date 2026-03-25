@@ -7,22 +7,52 @@ Hullcracker.io is a multiplayer naval combat game. All players' ships occupy the
 ### Commands
 ```
 npm run dev          # Start server (3000) + client (5173)
-npm test -w server   # Run tests (vitest, 250+ tests)
+npm run check        # Lint + type-check + test (all workspaces)
+npm run lint         # ESLint (complexity=10 enforced)
+npm test -w server   # Server tests (vitest, 255 tests)
+npm test -w client   # Client tests (vitest + jsdom, 54 tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 ```
 
 ### Architecture
+
+#### Shared
 - **shared/src/types.ts** — All types, socket events, computed getters (isShipSunk, isPlayerAlive, playerShotCount), mode helpers (toGameMode, toQuickPlayMode), team helpers (getTeammates, isTeamAlive), PlayerColor type, SLOT_COLORS, TEAM_COLOR_POOLS
 - **shared/src/hex.ts** — Hex coordinate math: axial coordinates (q,r), distance, neighbors, rings, linear paths, pixel↔hex conversion with cube rounding
-- **server/src/game.ts** — Pure game logic, no I/O. toClientView() is the security boundary — never leaks ship positions (except phase='finished' reveals all). Island generation with BFS connectivity validation. updateGameOptions() for lobby-phase config changes. Team-aware checkGameOver (2 or 3 teams). assignPlayerColor() for color assignment
-- **server/src/connections.ts** — playerId↔socketId mapping, disconnect state tracking, event buffering (forfeit handled by turn timer, not wall-clock)
-- **server/src/ai.ts** — AI opponents: 4 tiers (Easy/Medium/Hard/Impossible), hex ship placement + target selection. Hex 3-coloring hunt pattern for Hard tier. Team-aware: excludes teammates from targets (except Easy)
-- **server/src/lobby.ts** — Game lifecycle, join codes (collision-safe), cleanup timer, expanded game count tracking for 7 QP modes
-- **server/src/index.ts** — Express + socket.io event routing, turn timer management, bot auto-play, Quick Play queue (socket.io rooms, 1v1/2v2/FFA/3v3/3ffa/6ffa/2v2v2), surrender/rejoin handlers, handlePlayerExit() shared helper, team chat routing (supports 3 teams), swap-team/swap-players handlers, placement-preview relay, update-game-options handler, autoAssignTeam (supports charlie), assignQuickPlayColors (randomized per-team color pools)
-- **client/src/main.ts** — Vanilla TS client: state management, socket handlers, DOM rendering, random name generation (naval-themed adjective+noun), localStorage persistence, AudioContext sound system (generic playTone + salvo/placement/game-over sounds), game-over grid with sequential ship reveal
-- **client/src/hexGrid.ts** — SVG hex grid renderer: polygon generation, pixel↔hex click detection, ship placement preview, cell state rendering, hull capsule overlay (cell state class on `<g>` wrapper for CSS marker styling), per-player color hull rendering (PLAYER_COLOR_HEX, hexToRgba)
-- **client/src/style.css** — Full DESIGN.md implementation, CIC tactical display hex grid (black void, silver strokes, filled states), island styling, marker colors via CSS inheritance, 6 --player-* CSS color variables for player identity
+
+#### Server
+- **server/src/index.ts** — Express setup, static file serving, server bootstrap
+- **server/src/socketSetup.ts** — Socket.io connection handler, registers all handler modules
+- **server/src/game.ts** — Pure game logic, no I/O. toClientView() security boundary. checkNewEliminations() for post-salvo elimination detection
+- **server/src/gameFlow.ts** — Turn flow: emitNextTurn, executeBotTurn, handlePlayerExit
+- **server/src/emitters.ts** — Socket emission helpers: emitToPlayer, emitGameState, broadcastToGame
+- **server/src/handlers/** — Socket event handlers by domain: lobby.ts (create/join/start), playing.ts (place-ships/fire), social.ts (chat/swap-team), connection.ts (rejoin/surrender/disconnect), rematch.ts (rematch/quickplay-join)
+- **server/src/timers/** — Timer management: placement.ts, turn.ts, forfeit.ts, index.ts (clearGameTimers orchestrator + timer Maps)
+- **server/src/queue/** — Quick Play matchmaking: queue state, tryMatchRoom, mode helpers
+- **server/src/ai.ts** — AI opponents: 4 tiers (Easy/Medium/Hard/Impossible)
+- **server/src/connections.ts** — playerId↔socketId mapping, disconnect state tracking, event buffering
+- **server/src/lobby.ts** — Game lifecycle, join codes, cleanup timer
+- **server/src/helpers.ts** — autoAssignTeam, shuffle, assignQuickPlayColors
+
+#### Client
+- **client/src/main.ts** — Bootstrap: state init, socket handler registration, initial render
+- **client/src/state.ts** — AppState type + mutable singleton (leaf node, zero app imports)
+- **client/src/socket.ts** — Socket.io client connection
+- **client/src/rendering/** — Screen renderers: lobby.ts, waiting.ts, battle.ts, gameOver.ts, grid.ts (getCellState + battle/placement sub-functions), chat.ts, modals.ts, render.ts (main dispatch)
+- **client/src/handlers/** — Event handling: socketGame.ts, socketLobby.ts, socketSocial.ts (socket event registration), eventBindings.ts (DOM event listeners), placement.ts (ship placement logic), battle.ts (target selection)
+- **client/src/audio/** — AudioContext sound system: playTone, salvo/placement/match/turn sounds
+- **client/src/timers/** — Turn timer + placement timer management
+- **client/src/helpers/** — dom.ts (on/val/esc/playerIcon), format.ts (time formatting, name generation), storage.ts (localStorage migration), team.ts (teammate lookup)
+- **client/src/settings/** — Theme toggle, mute toggle
+- **client/src/errors.ts** — Error display with auto-dismiss
+- **client/src/hexGrid.ts** — SVG hex grid renderer: polygon generation, pixel↔hex click detection, ship hull overlay, per-player color rendering
+- **client/src/style.css** — Full DESIGN.md implementation, CIC tactical display
+
+### Code Quality Conventions
+- **Cyclomatic complexity ≤ 10** — Enforced by ESLint (`complexity: ["error", 10]`). All functions must stay under this limit.
+- **~500 LOC per file** — Soft convention, not enforced. Files may exceed this when the content is cohesive.
+- **Circular dependency rule** — state.ts has zero imports from other client modules. Rendering modules never import from handlers (one-way: handlers → rendering).
 
 ### Key Decisions
 - Ship.sunk, Player.alive, Player.shotCount are computed getters, not stored state
