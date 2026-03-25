@@ -75,6 +75,51 @@ function hexToRgba(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+interface HullStyle {
+  fillColor: string;
+  strokeColor: string;
+  opacity: string;
+  strokeDash: string;
+  innerStroke: string;
+}
+
+function getHullStyle(ship: ShipHullData, baseHex: string): HullStyle {
+  if (ship.ghost) {
+    return {
+      fillColor: ship.ghostValid ? hexToRgba(baseHex, 0.25) : 'rgba(255,59,59,0.25)',
+      strokeColor: ship.ghostValid ? baseHex : '#FF3B3B',
+      strokeDash: 'stroke-dasharray="4 2"',
+      opacity: '0.8',
+      innerStroke: '',
+    };
+  }
+  if (ship.teammate) {
+    return {
+      fillColor: hexToRgba(baseHex, 0.2),
+      strokeColor: baseHex,
+      opacity: '1',
+      strokeDash: '',
+      innerStroke: `stroke="#C0C0C0" stroke-width="0.75" stroke-opacity="0.3"`,
+    };
+  }
+  if (ship.sunk) {
+    return {
+      fillColor: hexToRgba(baseHex, 0.4),
+      strokeColor: hexToRgba(baseHex, 0.6),
+      opacity: '0.9',
+      strokeDash: '',
+      innerStroke: `stroke="#C0C0C0" stroke-width="0.75" stroke-opacity="0.4"`,
+    };
+  }
+  return {
+    fillColor: hexToRgba(baseHex, 0.2),
+    strokeColor: baseHex,
+    opacity: '1',
+    strokeDash: '',
+    innerStroke: `stroke="#C0C0C0" stroke-width="0.75" stroke-opacity="0.3"`,
+  };
+}
+
 /**
  * Render a connected ship hull as an SVG path.
  * Draws a rounded capsule shape along the ship's axis.
@@ -93,31 +138,7 @@ function renderShipHull(ship: ShipHullData, hexSize: number): string {
 
   // Determine ship color/style based on player color
   const baseHex = ship.color ? getPlayerColorHex(ship.color) : '#00FF88';
-  let fillColor: string;
-  let strokeColor: string;
-  let opacity = '1';
-  let strokeDash = '';
-  let innerStroke = ''; // white inner stroke for contrast (red-player fix)
-  if (ship.ghost) {
-    fillColor = ship.ghostValid ? hexToRgba(baseHex, 0.25) : 'rgba(255,59,59,0.25)';
-    strokeColor = ship.ghostValid ? baseHex : '#FF3B3B';
-    strokeDash = 'stroke-dasharray="4 2"';
-    opacity = '0.8';
-  } else if (ship.teammate) {
-    // Teammates render at full color — the different player color IS the distinction
-    fillColor = hexToRgba(baseHex, 0.2);
-    strokeColor = baseHex;
-    innerStroke = `stroke="#C0C0C0" stroke-width="0.75" stroke-opacity="0.3"`;
-  } else if (ship.sunk) {
-    fillColor = hexToRgba(baseHex, 0.4);
-    strokeColor = hexToRgba(baseHex, 0.6);
-    innerStroke = `stroke="#C0C0C0" stroke-width="0.75" stroke-opacity="0.4"`;
-    opacity = '0.9';
-  } else {
-    fillColor = hexToRgba(baseHex, 0.2);
-    strokeColor = baseHex;
-    innerStroke = `stroke="#C0C0C0" stroke-width="0.75" stroke-opacity="0.3"`;
-  }
+  const { fillColor, strokeColor, opacity, strokeDash, innerStroke } = getHullStyle(ship, baseHex);
 
   if (centers.length === 1) {
     // Single-cell ship (Scout): draw a small horizontal capsule

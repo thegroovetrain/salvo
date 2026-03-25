@@ -1,11 +1,11 @@
 import {
-  type Game, type Player, type Ship, type ShipPlacement, type AiDifficulty,
+  type Game, type ShipPlacement, type AiDifficulty,
   isShipSunk, isPlayerAlive, playerShotCount, getTeammates,
   SHIP_LENGTHS,
 } from '@salvo/shared';
 import {
-  allHexes, parseHex, hexToString, hexNeighborsInBounds, isValidHex,
-  hexLinear, hexDistance, HEX_DIRECTIONS,
+  allHexes, parseHex, hexToString, hexNeighborsInBounds,
+  hexLinear, hexDistance,
 } from '@salvo/shared/hex';
 
 // ============================================================
@@ -87,42 +87,45 @@ function getActiveHits(game: Game, excludeBotId: string): string[] {
 // Ship Placement
 // ============================================================
 
+function shouldSkipOuterRing(difficulty: AiDifficulty, q: number, r: number, rings: number): boolean {
+  if (difficulty !== 'hard' && difficulty !== 'impossible') return false;
+  const dist = hexDistance({ q: 0, r: 0 }, { q, r });
+  return dist >= rings - 1 && Math.random() < 0.7;
+}
+
+function tryPlaceShip(
+  length: number, difficulty: AiDifficulty, rings: number,
+  allValidHexes: string[], occupied: Set<string>, islands: Set<string>,
+): ShipPlacement | null {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const anchor = pickRandom(allValidHexes);
+    const h = parseHex(anchor)!;
+
+    if (shouldSkipOuterRing(difficulty, h.q, h.r, rings)) continue;
+
+    const dir = Math.floor(Math.random() * 6);
+    const cells = hexLinear(h.q, h.r, dir, length, rings);
+    if (!cells) continue;
+    if (cells.some(c => occupied.has(c) || islands.has(c))) continue;
+
+    cells.forEach(c => occupied.add(c));
+    return { length, cells };
+  }
+  return null;
+}
+
 export function generatePlacement(difficulty: AiDifficulty, rings: number = 5, islands: Set<string> = new Set()): ShipPlacement[] {
   const occupied = new Set<string>();
   const ships: ShipPlacement[] = [];
   const lengths = [...SHIP_LENGTHS].sort((a, b) => b - a);
-
   const allValidHexes = allHexes(rings).filter(c => !islands.has(c));
 
   for (const length of lengths) {
-    let placed = false;
-    for (let attempt = 0; attempt < 200; attempt++) {
-      // Pick a random anchor hex
-      const anchor = pickRandom(allValidHexes);
-      const h = parseHex(anchor)!;
-
-      // For hard/impossible: prefer inner rings (closer to center)
-      if (difficulty === 'hard' || difficulty === 'impossible') {
-        const dist = hexDistance({ q: 0, r: 0 }, h);
-        if (dist >= rings - 1 && Math.random() < 0.7) continue; // bias away from outer ring
-      }
-
-      // Pick a random direction (0-5)
-      const dir = Math.floor(Math.random() * 6);
-
-      const cells = hexLinear(h.q, h.r, dir, length, rings);
-      if (!cells) continue;
-      if (cells.some(c => occupied.has(c) || islands.has(c))) continue;
-
-      cells.forEach(c => occupied.add(c));
-      ships.push({ length, cells });
-      placed = true;
-      break;
-    }
+    const placed = tryPlaceShip(length, difficulty, rings, allValidHexes, occupied, islands);
     if (!placed) {
-      // Fallback: retry entire placement
       return generatePlacement(difficulty, rings, islands);
     }
+    ships.push(placed);
   }
 
   return ships;
@@ -215,15 +218,13 @@ function chooseHard(game: Game, botId: string, unshot: string[], count: number):
 
   // TARGET: probe adjacent to active hits
   const activeHits = getActiveHits(game, botId);
-  if (activeHits.length > 0) {
-    for (const hit of shuffled(activeHits)) {
+  for (const hit of shuffled(activeHits)) {
+    if (targets.length >= count) break;
+    const adj = getAdjacentCoords(hit, game.rings).filter(c => pool.includes(c) && !used.has(c));
+    for (const a of shuffled(adj)) {
       if (targets.length >= count) break;
-      const adj = getAdjacentCoords(hit, game.rings).filter(c => pool.includes(c) && !used.has(c));
-      for (const a of shuffled(adj)) {
-        if (targets.length >= count) break;
-        targets.push(a);
-        used.add(a);
-      }
+      targets.push(a);
+      used.add(a);
     }
   }
 
@@ -252,10 +253,9 @@ function chooseHard(game: Game, botId: string, unshot: string[], count: number):
 // IMPOSSIBLE — Oracle
 // ============================================================
 
-function chooseImpossible(game: Game, botId: string, unshot: string[], count: number): string[] {
-  const ownCells = getOwnShipCells(game, botId);
-  const teammateCells = getTeammateShipCells(game, botId);
-
+function scoreEnemyShipCells(
+  game: Game, botId: string, excludeCells: Set<string>,
+): Map<string, number> {
   const cellScores = new Map<string, number>();
   for (const [pid, player] of game.players) {
     if (pid === botId) continue;
@@ -263,13 +263,21 @@ function chooseImpossible(game: Game, botId: string, unshot: string[], count: nu
     for (const ship of player.ships) {
       if (isShipSunk(ship)) continue;
       for (const cell of ship.cells) {
-        if (game.shots.has(cell)) continue;
-        if (ownCells.has(cell)) continue;
-        if (teammateCells.has(cell)) continue;
-        cellScores.set(cell, (cellScores.get(cell) ?? 0) + 1);
+        if (!game.shots.has(cell) && !excludeCells.has(cell)) {
+          cellScores.set(cell, (cellScores.get(cell) ?? 0) + 1);
+        }
       }
     }
   }
+  return cellScores;
+}
+
+function chooseImpossible(game: Game, botId: string, unshot: string[], count: number): string[] {
+  const ownCells = getOwnShipCells(game, botId);
+  const teammateCells = getTeammateShipCells(game, botId);
+  const excludeCells = new Set([...ownCells, ...teammateCells]);
+
+  const cellScores = scoreEnemyShipCells(game, botId, excludeCells);
 
   const scored = shuffled([...cellScores.entries()])
     .sort((a, b) => b[1] - a[1]);
@@ -278,7 +286,7 @@ function chooseImpossible(game: Game, botId: string, unshot: string[], count: nu
 
   if (targets.length < count) {
     const used = new Set(targets);
-    const remaining = unshot.filter(c => !used.has(c) && !ownCells.has(c) && !teammateCells.has(c));
+    const remaining = unshot.filter(c => !used.has(c) && !excludeCells.has(c));
     for (const c of shuffled(remaining)) {
       if (targets.length >= count) break;
       targets.push(c);

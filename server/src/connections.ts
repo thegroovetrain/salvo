@@ -1,5 +1,3 @@
-import type { ServerToClientEvents } from '@salvo/shared';
-
 // ============================================================
 // Connection Manager
 // Manages bidirectional playerId ↔ socketId mapping

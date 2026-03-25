@@ -1,0 +1,182 @@
+import type { Game } from '@salvo/shared';
+import { isPlayerAlive, playerShotCount } from '@salvo/shared';
+import { getLobby, getConnections, emitToPlayer, emitGameState, broadcastToGame } from './emitters.js';
+import {
+  getCurrentTurnPlayerId, validateSalvo, fireSalvo,
+  advanceTurn, checkGameOver, forfeitPlayer, removePlayer,
+  toClientView, checkNewEliminations,
+} from './game.js';
+import { chooseSalvo, getBotDelay } from './ai.js';
+import { startTurnTimer, clearTurnTimer, startForfeitTimer, clearForfeitTimer, clearGameTimers } from './timers/index.js';
+import { broadcastOnlineCount } from './queue/index.js';
+
+// ============================================================
+// Turn Emission
+// ============================================================
+
+export function emitNextTurn(gameId: string): void {
+  const game = getLobby().getGame(gameId);
+  if (!game || game.phase !== 'playing') return;
+
+  const currentPlayerId = getCurrentTurnPlayerId(game);
+  if (!currentPlayerId) return;
+
+  const player = game.players.get(currentPlayerId);
+  if (!player) return;
+
+  // Send updated game state to everyone
+  for (const pid of game.players.keys()) {
+    emitToPlayer(pid, 'game-state', { game: toClientView(game, pid) });
+  }
+
+  // If it's a bot's turn, auto-fire after a delay
+  if (player.isBot && player.aiDifficulty) {
+    const delay = getBotDelay(player.aiDifficulty);
+    setTimeout(() => {
+      executeBotTurn(gameId, currentPlayerId);
+    }, delay);
+    return; // don't emit your-turn or start timer for bots
+  }
+
+  // If the current turn player is disconnected, start forfeit timer
+  if (getConnections().isDisconnected(currentPlayerId)) {
+    startForfeitTimer(gameId, currentPlayerId);
+    // Do NOT emit 'your-turn' to the disconnected player
+    return;
+  }
+
+  emitToPlayer(currentPlayerId, 'your-turn', {
+    shotCount: playerShotCount(player),
+    timerSeconds: game.timerConfig.enabled ? game.timerConfig.seconds : null,
+  });
+
+  startTurnTimer(gameId);
+}
+
+// ============================================================
+// Bot Turn Execution
+// ============================================================
+
+function broadcastShotResults(game: Game, gameId: string, shooterId: string, shooterName: string, results: ReturnType<typeof fireSalvo>, alreadyDead: Set<string>): void {
+  for (const pid of game.players.keys()) {
+    emitToPlayer(pid, 'shot-results', {
+      shooterId,
+      shooterName,
+      shots: results,
+      game: toClientView(game, pid),
+    });
+  }
+
+  for (const elim of checkNewEliminations(game, alreadyDead)) {
+    broadcastToGame(gameId, 'player-eliminated', {
+      playerId: elim.playerId,
+      playerName: elim.playerName,
+      reason: 'sunk' as const,
+    });
+  }
+}
+
+export function executeBotTurn(gameId: string, botId: string): void {
+  const game = getLobby().getGame(gameId);
+  if (!game || game.phase !== 'playing') return;
+  if (getCurrentTurnPlayerId(game) !== botId) return;
+
+  const bot = game.players.get(botId);
+  if (!bot || !bot.aiDifficulty) return;
+
+  const coords = chooseSalvo(game, botId, bot.aiDifficulty);
+  if (coords.length === 0) return;
+
+  const err = validateSalvo(game, botId, coords);
+  if (err) {
+    advanceTurn(game);
+    emitNextTurn(gameId);
+    return;
+  }
+
+  const alreadyDead = new Set(
+    [...game.players.values()].filter(p => !isPlayerAlive(p)).map(p => p.id)
+  );
+
+  const results = fireSalvo(game, botId, coords);
+  broadcastShotResults(game, gameId, botId, bot.name, results, alreadyDead);
+
+  const gameOver = checkGameOver(game);
+  if (gameOver) {
+    clearTurnTimer(gameId);
+    emitGameState(gameId);
+    broadcastToGame(gameId, 'game-over', gameOver);
+    broadcastOnlineCount();
+    return;
+  }
+
+  advanceTurn(game);
+  emitNextTurn(gameId);
+}
+
+// ============================================================
+// Shared Player Exit Logic
+// ============================================================
+
+function handleNonPlayingExit(game: Game, playerId: string, gameId: string): void {
+  const lobby = getLobby();
+  const player = game.players.get(playerId);
+  broadcastToGame(gameId, 'player-eliminated', {
+    playerId,
+    playerName: player?.name ?? 'Unknown',
+    reason: 'forfeit' as const,
+  });
+  removePlayer(game, playerId);
+  lobby.registerPlayer(playerId, '');
+
+  const remainingHumans = [...game.players.values()].filter(p => !p.isBot);
+  if (remainingHumans.length === 0) {
+    clearGameTimers(gameId);
+    lobby.removeGame(gameId);
+    broadcastOnlineCount();
+  } else if (remainingHumans.length < 2 && game.phase !== 'finished') {
+    for (const p of remainingHumans) {
+      emitToPlayer(p.id, 'error', { message: 'Game ended — not enough players' });
+    }
+    clearGameTimers(gameId);
+    lobby.removeGame(gameId);
+    broadcastOnlineCount();
+  }
+}
+
+export function handlePlayerExit(game: Game, playerId: string, gameId: string): void {
+  if (game.phase !== 'playing') {
+    handleNonPlayingExit(game, playerId, gameId);
+    return;
+  }
+
+  const wasTurn = getCurrentTurnPlayerId(game) === playerId;
+  if (wasTurn) {
+    clearTurnTimer(gameId);
+    clearForfeitTimer(playerId);
+  }
+
+  forfeitPlayer(game, playerId);
+  const player = game.players.get(playerId);
+
+  broadcastToGame(gameId, 'player-eliminated', {
+    playerId,
+    playerName: player?.name ?? 'Unknown',
+    reason: 'forfeit' as const,
+  });
+
+  const gameOver = checkGameOver(game);
+  if (gameOver) {
+    clearTurnTimer(gameId);
+    clearForfeitTimer(playerId);
+    emitGameState(gameId);
+    broadcastToGame(gameId, 'game-over', gameOver);
+    broadcastOnlineCount();
+    return;
+  }
+
+  if (wasTurn) {
+    advanceTurn(game);
+    emitNextTurn(gameId);
+  }
+}
