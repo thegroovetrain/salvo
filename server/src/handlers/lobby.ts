@@ -6,7 +6,7 @@ import {
   createGame, addPlayer, addBot, removeBot, canStartGame, startGame,
   placeShips, allShipsPlaced, beginPlaying, updateGameOptions, toClientView,
 } from '../game.js';
-import { generatePlacement } from '../ai.js';
+import { generatePlacement } from '../ai/index.js';
 import { autoAssignTeam } from '../helpers.js';
 import { startPlacementTimer, clearPlacementTimer } from '../timers/index.js';
 import { emitNextTurn } from '../gameFlow.js';
