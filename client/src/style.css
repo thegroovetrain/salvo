@@ -1580,7 +1580,7 @@ html, body {
   font-family: inherit;
 }
 .seat-menu-item:hover {
-  background: var(--bg-hover);
+  background: var(--bg-elevated);
 }
 .seat-menu-item-danger:hover {
   color: var(--red);
