@@ -1619,10 +1619,13 @@ html, body {
   font-weight: 500;
 }
 
-/* Empty lobby slot showing assigned color preview — no opacity on parent to avoid z-index stacking context issues with dropdowns */
+/* Empty lobby slot showing assigned color preview */
 .seat-card.seat-empty[data-player-color] {
   border-left: 4px solid;
-  border-color: color-mix(in srgb, currentColor 40%, transparent);
+  border-left-color: inherit;
+}
+.seat-card.seat-empty[data-player-color] > span {
+  opacity: 0.4;
 }
 
 /* Own player card highlight */

@@ -960,14 +960,25 @@ io.on('connection', (socket) => {
     const targetPlayer = game.players.get(targetPlayerId);
     if (!targetPlayer) return;
 
-    // Get their current team and cycle
+    // Get their current team and cycle to the next team
     const currentTeam = game.teams.get(targetPlayerId);
-    if (!currentTeam) {
-      game.teams.set(targetPlayerId, 'alpha');
-    } else if (currentTeam === 'alpha') {
-      game.teams.set(targetPlayerId, 'bravo');
-    } else {
-      game.teams.set(targetPlayerId, 'alpha');
+    const teamNames = game.gameType === '3-team'
+      ? ['alpha', 'bravo', 'charlie']
+      : ['alpha', 'bravo'];
+    const currentIdx = currentTeam ? teamNames.indexOf(currentTeam) : -1;
+    const nextTeam = teamNames[(currentIdx + 1) % teamNames.length];
+    game.teams.set(targetPlayerId, nextTeam);
+
+    // Swap color to an available slot in the new team's range
+    const slotsPerTeam = Math.floor(6 / teamNames.length);
+    const teamStartSlot = teamNames.indexOf(nextTeam) * slotsPerTeam;
+    const usedColors = new Set([...game.players.values()].map(p => p.color));
+    usedColors.delete(targetPlayer.color); // current player's color is being released
+    for (let i = teamStartSlot; i < teamStartSlot + slotsPerTeam; i++) {
+      if (!usedColors.has(SLOT_COLORS[i])) {
+        targetPlayer.color = SLOT_COLORS[i];
+        break;
+      }
     }
 
     // Broadcast updated game state to all players
@@ -997,9 +1008,12 @@ io.on('connection', (socket) => {
     const teamB = game.teams.get(playerB);
     if (!teamA || !teamB || teamA === teamB) return;
 
-    // Atomic swap
+    // Atomic swap — teams AND colors
     game.teams.set(playerA, teamB);
     game.teams.set(playerB, teamA);
+    const colorA = pA.color;
+    pA.color = pB.color;
+    pB.color = colorA;
 
     emitGameState(game.id);
   });

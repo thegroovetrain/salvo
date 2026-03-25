@@ -1056,12 +1056,13 @@ function renderWaiting(): string {
     const menuItems: string[] = [];
     if (teamsEnabled) {
       const myTeam = teams[p.id];
-      const allTeamNames = ['alpha', 'bravo', 'charlie'];
       const allTeamLabels: Record<string, string> = { alpha: 'Alpha', bravo: 'Bravo', charlie: 'Charlie' };
-      const activeTeams = [...new Set(Object.values(teams))];
-      const numTeams = activeTeams.length > 0 ? activeTeams.length : 2;
+      // Use gameType to determine team count — not activeTeams (Bravo may be empty)
+      const gt = state.game?.gameType ?? '2-team';
+      const allTeamNames = gt === '3-team' ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'];
+      const numTeams = allTeamNames.length;
       const maxPerTeam = Math.floor(MAX_PLAYERS / numTeams);
-      const otherTeams = allTeamNames.slice(0, numTeams).filter(t => t !== myTeam);
+      const otherTeams = allTeamNames.filter(t => t !== myTeam);
 
       for (const otherTeam of otherTeams) {
         const otherTeamLabel = allTeamLabels[otherTeam] ?? otherTeam;
@@ -2434,13 +2435,6 @@ function esc(s: string): string {
   return div.innerHTML;
 }
 
-/** Render a player name wrapped in their color class */
-function coloredName(playerId: string): string {
-  const player = state.game?.players[playerId];
-  if (!player) return '';
-  const color = player.color ?? 'green';
-  return `<span class="player-color-${color}">${esc(player.name)}</span>`;
-}
 
 // ============================================================
 // ============================================================

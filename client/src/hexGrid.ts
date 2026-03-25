@@ -28,8 +28,8 @@ export type CellStateFn = (coord: string) => CellState;
  * Generate an SVG hex grid element.
  * Returns the full <svg> element as an HTML string.
  */
-/** Player color → hex value for SVG inline styles */
-export const PLAYER_COLOR_HEX: Record<PlayerColor, string> = {
+/** Player color → hex value for SVG inline styles (dark mode) */
+const PLAYER_COLOR_HEX_DARK: Record<PlayerColor, string> = {
   magenta: '#FF00FF',
   red: '#FF3B3B',
   yellow: '#FFD700',
@@ -37,6 +37,25 @@ export const PLAYER_COLOR_HEX: Record<PlayerColor, string> = {
   cyan: '#00FFFF',
   blue: '#38BDF8',
 };
+
+/** Player color → hex value for SVG inline styles (light mode) */
+const PLAYER_COLOR_HEX_LIGHT: Record<PlayerColor, string> = {
+  magenta: '#C026D3',
+  red: '#DC2626',
+  yellow: '#CA8A04',
+  green: '#059669',
+  cyan: '#0891B2',
+  blue: '#2563EB',
+};
+
+/** Get player color hex value respecting current theme */
+export function getPlayerColorHex(color: PlayerColor): string {
+  const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+  return isLight ? PLAYER_COLOR_HEX_LIGHT[color] : PLAYER_COLOR_HEX_DARK[color];
+}
+
+/** @deprecated Use getPlayerColorHex() instead — this is dark-mode only */
+export const PLAYER_COLOR_HEX = PLAYER_COLOR_HEX_DARK;
 
 /** Ship data for hull rendering */
 export interface ShipHullData {
@@ -73,7 +92,7 @@ function renderShipHull(ship: ShipHullData, hexSize: number): string {
   const hullWidth = hexSize * 0.55;
 
   // Determine ship color/style based on player color
-  const baseHex = ship.color ? PLAYER_COLOR_HEX[ship.color] : '#00FF88';
+  const baseHex = ship.color ? getPlayerColorHex(ship.color) : '#00FF88';
   let fillColor: string;
   let strokeColor: string;
   let opacity = '1';
