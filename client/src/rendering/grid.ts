@@ -88,7 +88,7 @@ export function renderGrid(mode: 'placement' | 'battle'): string {
 
 // --- Cell state for placement mode ---
 
-function getCellStatePlacement(coord: string): { cssClass: string; symbol: string; extraHtml?: string } {
+function getCellStatePlacement(coord: string): { cssClass: string; symbol: string; badgeText?: string } {
   if (state.ghostCells.includes(coord)) {
     return state.ghostValid
       ? { cssClass: 'cell-ghost', symbol: '' }
@@ -107,7 +107,7 @@ function getCellStatePlacement(coord: string): { cssClass: string; symbol: strin
   return { cssClass: 'cell-empty', symbol: '' };
 }
 
-export function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: string; symbol: string; extraHtml?: string } {
+export function getCellState(coord: string, mode: 'placement' | 'battle'): { cssClass: string; symbol: string; badgeText?: string } {
   if (mode === 'placement') return getCellStatePlacement(coord);
   return getCellStateBattle(coord);
 }
@@ -149,26 +149,26 @@ function getShotCellState(
   myShip: { hits: string[] } | undefined,
   teammateShip: { hits: string[] } | undefined,
   game: WireGame,
-): { cssClass: string; symbol: string; extraHtml?: string } {
+): { cssClass: string; symbol: string; badgeText?: string } {
   const hitCount = getHitCountAtCoord(coord);
-  const hitBadgeHtml = hitCount > 1 ? `<span class="hit-count-badge">\u00D7${hitCount}</span>` : '';
+  const badgeText = hitCount > 1 ? `\u00D7${hitCount}` : undefined;
 
   if (myShip && myShip.hits.includes(coord)) {
     return wasSelfHitAtCoord(coord)
-      ? { cssClass: 'cell-ff', symbol: '\u26A0', extraHtml: hitBadgeHtml }
-      : { cssClass: 'cell-sunk', symbol: '\u00D7', extraHtml: hitBadgeHtml };
+      ? { cssClass: 'cell-ff', symbol: '\u26A0', badgeText }
+      : { cssClass: 'cell-sunk', symbol: '\u00D7', badgeText };
   }
 
   if (teammateShip && teammateShip.hits.includes(coord)) {
-    return { cssClass: 'cell-sunk', symbol: '\u00D7', extraHtml: hitBadgeHtml };
+    return { cssClass: 'cell-sunk', symbol: '\u00D7', badgeText };
   }
 
   const wasHit = wasHitInGamePlayers(game, coord) || wasHitInShotLog(coord);
-  if (wasHit) return { cssClass: 'cell-hit', symbol: '\u00D7', extraHtml: hitBadgeHtml };
+  if (wasHit) return { cssClass: 'cell-hit', symbol: '\u00D7', badgeText };
   return { cssClass: 'cell-miss', symbol: '\u2022' };
 }
 
-export function getCellStateBattle(coord: string): { cssClass: string; symbol: string; extraHtml?: string } {
+export function getCellStateBattle(coord: string): { cssClass: string; symbol: string; badgeText?: string } {
   const game = state.game;
   if (!game || !state.playerId) return { cssClass: 'cell-empty', symbol: '' };
 

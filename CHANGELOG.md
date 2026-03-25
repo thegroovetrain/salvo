@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.13.2] - 2026-03-25
+
+### Fixed
+- **Chrome SVG render crash** — hex grid would stop rendering mid-way when a shot hit overlapping ships (two players' ships at the same coordinate). The hit count badge was an HTML `<span>` inside SVG, which Chrome's strict parser rejects. Replaced with a proper SVG `<text>` element. Affects Chrome, Brave, and all Blink-based browsers.
+
 ## [0.13.1] - 2026-03-25
 
 ### Changed
