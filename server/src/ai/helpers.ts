@@ -65,11 +65,14 @@ export function getAdjacentCoords(coord: string, rings: number): string[] {
   return hexNeighborsInBounds(h.q, h.r, rings).map(n => hexToString(n.q, n.r));
 }
 
-/** Find all hit cells on enemy ships that are NOT yet sunk */
+/** Find all hit cells on ENEMY ships that are NOT yet sunk (excludes bot + teammates) */
 export function getActiveHits(game: Game, excludeBotId: string): string[] {
+  const botTeam = game.teamsEnabled ? game.teams.get(excludeBotId) : undefined;
   const hits: string[] = [];
   for (const [pid, player] of game.players) {
     if (pid === excludeBotId) continue;
+    // Skip teammates — only track enemy hits
+    if (botTeam && game.teams.get(pid) === botTeam) continue;
     for (const ship of player.ships) {
       if (ship.cells.some(c => ship.hits.has(c)) && ship.hits.size < ship.cells.length) {
         for (const cell of ship.hits) hits.push(cell);

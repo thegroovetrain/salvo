@@ -56,9 +56,10 @@ function scoreCell(info: CellInfo, weights: WeightConfig, difficulty: AiDifficul
 
 function scoreTeammatePenalty(info: CellInfo, weights: WeightConfig, difficulty: AiDifficulty): number {
   if (!info.hasTeammateShip) return 0;
-  if (difficulty === 'easy' || difficulty === 'medium') return -100;
-  if (info.canSinkWithTeammateDamage && info.canSinkEnemy) return -weights.teammatePenalty;
-  return -weights.teammatePenalty * 5;
+  // Hard filter: only allow teammate damage when kill is confirmed
+  if (difficulty === 'easy' || difficulty === 'medium') return -Infinity;
+  if (info.canSinkEnemy) return -weights.teammatePenalty;
+  return -Infinity; // No kill confirmed = never fire at teammate
 }
 
 // --- Enemy Ship Detection (Impossible only — reads actual positions) ---
