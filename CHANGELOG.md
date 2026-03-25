@@ -13,10 +13,16 @@
 - **Hull contrast stroke** — all hull capsules get a subtle silver inner stroke for visibility against crimson hit cells (solves red-player contrast issue).
 
 ### Changed
-- **Ship hull colors per-player** — hulls render in player color instead of hardcoded green. Own ships: 30% fill / 100% stroke. Teammate ships: 15% fill / 60% stroke. Sunk ships: 40% fill / 60% stroke.
+- **Ship hull colors per-player** — hulls render in player color instead of hardcoded green. Own ships: 20% fill / 100% stroke. Teammate ships: full color (same intensity as own — different color IS the distinction). Sunk ships: 40% fill / 60% stroke.
 - **Placement ghost in player color** — valid placement preview uses player's color (dashed). Invalid remains red.
 - **Winner highlight uses player color** — game-over stats rows and winner text use the winning player's color instead of generic green.
 - **6 new CSS variables** — `--player-magenta`, `--player-red`, `--player-yellow`, `--player-green`, `--player-cyan`, `--player-blue` with light mode variants.
+- **Lobby seats are fixed color slots** — players and bots appear in the slot they were added to, not packed sequentially. Host can add bots to specific color slots.
+
+### Fixed
+- Empty lobby slot opacity no longer breaks dropdown z-index stacking (CSS stacking context issue).
+- Seat menu items now highlight on hover (--bg-hover was same color as --bg-surface).
+- Bots added via "+" button now appear in the correct color slot, not auto-sorted to the next sequential slot.
 
 ## [0.12.0] - 2026-03-24
 
