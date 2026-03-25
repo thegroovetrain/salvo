@@ -17,7 +17,7 @@ import type { PlayerColor } from '@salvo/shared';
 export interface CellState {
   cssClass: string;
   symbol: string;
-  extraHtml?: string;
+  badgeText?: string;
 }
 
 export type CellStateFn = (coord: string) => CellState;
@@ -255,8 +255,9 @@ export function renderHexGridSVG(
         const center = hexToPixel(h.q, h.r, hexSize);
         svg += `<text class="hex-text" x="${center.x.toFixed(2)}" y="${center.y.toFixed(2)}" text-anchor="middle" dominant-baseline="central">${state.symbol}</text>`;
       }
-      if (state.extraHtml) {
-        svg += state.extraHtml;
+      if (state.badgeText) {
+        const center = hexToPixel(h.q, h.r, hexSize);
+        svg += `<text class="hit-count-badge" x="${(center.x + hexSize * 0.45).toFixed(2)}" y="${(center.y - hexSize * 0.35).toFixed(2)}" text-anchor="middle" dominant-baseline="central">${state.badgeText}</text>`;
       }
       svg += '</g>';
     }
