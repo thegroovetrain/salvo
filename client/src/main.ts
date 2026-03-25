@@ -1039,10 +1039,10 @@ function renderWaiting(): string {
         <span style="color:var(--player-${slotColor});opacity:0.4;font-size:12px">Open</span>
         <button class="seat-menu-trigger" data-dropdown-id="${slotId}" aria-haspopup="true" aria-expanded="${isOpen}">+</button>
         <div class="seat-menu${isOpen ? ' open' : ''}" role="menu">
-          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="easy" data-bot-team="${team ?? ''}">Add AI (Easy)</button>
-          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="medium" data-bot-team="${team ?? ''}">Add AI (Medium)</button>
-          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="hard" data-bot-team="${team ?? ''}">Add AI (Hard)</button>
-          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="impossible" data-bot-team="${team ?? ''}">Add AI (Impossible)</button>
+          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="easy" data-bot-team="${team ?? ''}" data-bot-slot="${slotIndex}">Add AI (Easy)</button>
+          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="medium" data-bot-team="${team ?? ''}" data-bot-slot="${slotIndex}">Add AI (Medium)</button>
+          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="hard" data-bot-team="${team ?? ''}" data-bot-slot="${slotIndex}">Add AI (Hard)</button>
+          <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="impossible" data-bot-team="${team ?? ''}" data-bot-slot="${slotIndex}">Add AI (Impossible)</button>
         </div>
       </div>`;
     }
@@ -1987,7 +1987,9 @@ function bindEvents(): void {
       if (action === 'add-bot') {
         const difficulty = el.getAttribute('data-bot-diff') as AiDifficulty;
         const team = el.getAttribute('data-bot-team') || undefined;
-        if (difficulty) socket.emit('add-bot', { difficulty, ...(team ? { team } : {}) });
+        const slotStr = el.getAttribute('data-bot-slot');
+        const slotIndex = slotStr != null ? parseInt(slotStr, 10) : undefined;
+        if (difficulty) socket.emit('add-bot', { difficulty, ...(team ? { team } : {}), ...(slotIndex != null ? { slotIndex } : {}) });
       } else if (action === 'move') {
         const targetId = el.getAttribute('data-target');
         if (targetId) socket.emit('swap-team', { targetPlayerId: targetId });

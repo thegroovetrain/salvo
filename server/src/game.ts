@@ -119,13 +119,14 @@ export function addPlayer(game: Game, playerId: string, playerName: string): str
   if (game.players.size >= 6) return 'Game is full (6 players max)';
   if (game.players.has(playerId)) return 'Already in this game';
 
-  const slotIndex = game.players.size; // size before insert = 0-based slot index for this player
-  game.players.set(playerId, { id: playerId, name: playerName, ships: [], isBot: false, aiDifficulty: null, color: SLOT_COLORS[slotIndex] ?? 'green' });
+  const usedColors = new Set([...game.players.values()].map(p => p.color));
+  const color = SLOT_COLORS.find(c => !usedColors.has(c)) ?? 'green';
+  game.players.set(playerId, { id: playerId, name: playerName, ships: [], isBot: false, aiDifficulty: null, color });
   game.lastActivity = Date.now();
   return null;
 }
 
-export function addBot(game: Game, difficulty: AiDifficulty): { botId: string } | { error: string } {
+export function addBot(game: Game, difficulty: AiDifficulty, requestedSlot?: number): { botId: string } | { error: string } {
   if (game.phase !== 'lobby') return { error: 'Game is not in lobby phase' };
   if (game.players.size >= 6) return { error: 'Game is full (6 players max)' };
 
@@ -137,8 +138,15 @@ export function addBot(game: Game, difficulty: AiDifficulty): { botId: string } 
     ? pool[Math.floor(Math.random() * pool.length)]
     : `Bot ${game.players.size}`;
 
-  const slotIndex = game.players.size;
-  game.players.set(botId, { id: botId, name, ships: [], isBot: true, aiDifficulty: difficulty, color: SLOT_COLORS[slotIndex] ?? 'green' });
+  // Use the requested slot if valid and not already taken, otherwise fall back to next available
+  const usedColors = new Set([...game.players.values()].map(p => p.color));
+  let color: PlayerColor;
+  if (requestedSlot != null && requestedSlot >= 0 && requestedSlot < SLOT_COLORS.length && !usedColors.has(SLOT_COLORS[requestedSlot])) {
+    color = SLOT_COLORS[requestedSlot];
+  } else {
+    color = SLOT_COLORS.find(c => !usedColors.has(c)) ?? 'green';
+  }
+  game.players.set(botId, { id: botId, name, ships: [], isBot: true, aiDifficulty: difficulty, color });
   game.lastActivity = Date.now();
   return { botId };
 }

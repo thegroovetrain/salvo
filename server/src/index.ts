@@ -694,7 +694,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('add-bot', ({ difficulty, team }: { difficulty: AiDifficulty; team?: string }) => {
+  socket.on('add-bot', ({ difficulty, team, slotIndex }: { difficulty: AiDifficulty; team?: string; slotIndex?: number }) => {
     const playerId = connections.getPlayerIdBySocket(socket.id);
     if (!playerId) return;
 
@@ -706,7 +706,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const result = addBot(game, difficulty);
+    const result = addBot(game, difficulty, slotIndex);
     if ('error' in result) {
       socket.emit('error', { message: result.error });
       return;

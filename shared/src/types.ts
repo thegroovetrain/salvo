@@ -250,7 +250,7 @@ export interface ClientToServerEvents {
   'update-game-options': (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number; islandCount?: number }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
   'start-game': () => void;
-  'add-bot': (data: { difficulty: AiDifficulty; team?: string }) => void;
+  'add-bot': (data: { difficulty: AiDifficulty; team?: string; slotIndex?: number }) => void;
   'remove-bot': (data: { botId: string }) => void;
   'place-ships': (data: { ships: ShipPlacement[] }) => void;
   'fire': (data: { coords: string[] }) => void;
