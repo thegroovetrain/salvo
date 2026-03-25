@@ -6,7 +6,7 @@ import {
   removePlayer, placeShips, allShipsPlaced, beginPlaying,
   resetForRematch, toClientView,
 } from '../game.js';
-import { generatePlacement } from '../ai.js';
+import { generatePlacement } from '../ai/index.js';
 import { startPlacementTimer, clearPlacementTimer, clearGameTimers } from '../timers/index.js';
 import { emitNextTurn } from '../gameFlow.js';
 import { queueEntries, getQueueRoomName, getQueueSize, broadcastOnlineCount, tryMatchRoom } from '../queue/index.js';

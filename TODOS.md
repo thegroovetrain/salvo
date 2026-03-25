@@ -26,19 +26,19 @@
 **Priority:** P3 (reduced from P2 — core sounds shipped)
 **Depends on:** None
 
-## Hex Grid
+## AI
 
-### AI Difficulty Rebalancing for Hex Grid
+### Team-Aware Bot Shot Coordination (Simultaneous Mode)
 
-**What:** Evaluate and rebalance AI difficulty tiers (Easy/Medium/Hard/Impossible) for the hex grid. 6-neighbor adjacency makes Medium's hunt/target more effective, and hex 3-coloring makes Hard's hunt pattern cover 1/3 of cells (vs checkerboard's 1/2 on square grid).
+**What:** When multiple bots on the same team fire simultaneously (not current turn-based mode), coordinate their targets to avoid redundant shots on the same cell. Bots partition targets: "I'll finish this ship, you hunt for new ones."
 
-**Why:** The difficulty curve may have shifted with the hex conversion. Medium could feel harder than intended, and Hard's 3-coloring is more efficient at finding ships. Need playtest data from the friend test to confirm.
+**Why:** In the current turn-based system, bots fire sequentially and can't target already-shot cells, so coordination is moot. But if simultaneous mode is implemented (all players fire at once), same-team bots would waste shots firing at the same cells.
 
-**Context:** AI was rewritten in v0.11.0 for hex: `getAdjacentCoords()` now returns 6 neighbors (was 4), checkerboard hunt replaced with hex 3-coloring `((q-r) % 3 + 3) % 3`. Interior biasing uses ring distance instead of row/col edges. Impossible still cheats. Easy still random. The balance question is whether Medium and Hard feel right relative to each other and to human play.
+**Context:** The doctrine + gunnery architecture from the AI overhaul (v0.14.0) provides the foundation — doctrine selection could include a team coordination layer that shares target assignments between same-team bots. Would require passing a "claimed cells" set between bot salvo calculations. Deferred from CEO review of the AI difficulty overhaul.
 
-**Effort:** S
+**Effort:** M
 **Priority:** P3
-**Depends on:** v0.11.0 hex grid + friend test feedback
+**Depends on:** AI difficulty overhaul + simultaneous mode (if implemented)
 
 ## Game Options
 

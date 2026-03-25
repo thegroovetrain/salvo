@@ -6,7 +6,7 @@ import {
   advanceTurn, checkGameOver, forfeitPlayer, removePlayer,
   toClientView, checkNewEliminations,
 } from './game.js';
-import { chooseSalvo, getBotDelay } from './ai.js';
+import { chooseSalvo, getBotDelay } from './ai/index.js';
 import { startTurnTimer, clearTurnTimer, startForfeitTimer, clearForfeitTimer, clearGameTimers } from './timers/index.js';
 import { broadcastOnlineCount } from './queue/index.js';
 

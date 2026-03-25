@@ -2,7 +2,7 @@ import { placementTimers } from './index.js';
 import { getLobby } from '../emitters.js';
 import { emitToPlayer } from '../emitters.js';
 import { placeShips, allShipsPlaced, beginPlaying, toClientView } from '../game.js';
-import { generatePlacement } from '../ai.js';
+import { generatePlacement } from '../ai/index.js';
 import { emitNextTurn } from '../gameFlow.js';
 
 export function startPlacementTimer(gameId: string): void {

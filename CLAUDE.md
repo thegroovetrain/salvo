@@ -30,7 +30,7 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - **server/src/handlers/** — Socket event handlers by domain: lobby.ts (create/join/start), playing.ts (place-ships/fire), social.ts (chat/swap-team), connection.ts (rejoin/surrender/disconnect), rematch.ts (rematch/quickplay-join)
 - **server/src/timers/** — Timer management: placement.ts, turn.ts, forfeit.ts, index.ts (clearGameTimers orchestrator + timer Maps)
 - **server/src/queue/** — Quick Play matchmaking: queue state, tryMatchRoom, mode helpers
-- **server/src/ai.ts** — AI opponents: 4 tiers (Easy/Medium/Hard/Impossible)
+- **server/src/ai/** — AI opponents: doctrine.ts (commander layer: hunt/kill/trade-up/protect-lead/desperation/cleanup), gunnery.ts (shot selection per doctrine), probability.ts (heat-map targeting), placement.ts (ship placement generation), helpers.ts (board analysis utilities), index.ts (public API)
 - **server/src/connections.ts** — playerId↔socketId mapping, disconnect state tracking, event buffering
 - **server/src/lobby.ts** — Game lifecycle, join codes, cleanup timer
 - **server/src/helpers.ts** — autoAssignTeam, shuffle, assignQuickPlayColors
@@ -75,6 +75,7 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - Game-over reveal: toClientView() uses serializeShipForGameOver() to expose all ship cells when phase='finished'. Client renders all players' ships in their assigned colors.
 - Forfeit is silent: `player.ships = []` (no hit markers on shared board — prevents FFA info leakage)
 - Surrender button available during placement and playing phases; rejoin modal on page reload replaces auto-rejoin
+- AI architecture: two-layer doctrine/gunnery system. Commander picks doctrine (hunt/kill/trade-up/protect-lead/desperation/cleanup) based on game state; gunnery executes shot selection per doctrine. Tiers unlock doctrine subsets (Easy=hunt only, Impossible=all). Probability heat-map for hunt targeting.
 - Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision
 
 ## gstack
