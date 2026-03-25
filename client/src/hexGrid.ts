@@ -10,6 +10,7 @@ import {
   HEX_DIRECTIONS,
 } from '@salvo/shared/hex';
 import type { Hex } from '@salvo/shared/hex';
+import type { PlayerColor } from '@salvo/shared';
 
 // --- Types ---
 
@@ -27,6 +28,16 @@ export type CellStateFn = (coord: string) => CellState;
  * Generate an SVG hex grid element.
  * Returns the full <svg> element as an HTML string.
  */
+/** Player color → hex value for SVG inline styles */
+export const PLAYER_COLOR_HEX: Record<PlayerColor, string> = {
+  magenta: '#FF00FF',
+  red: '#FF3B3B',
+  yellow: '#FFD700',
+  green: '#00FF88',
+  cyan: '#00FFFF',
+  blue: '#38BDF8',
+};
+
 /** Ship data for hull rendering */
 export interface ShipHullData {
   cells: string[];    // hex coordinate strings
@@ -34,6 +45,15 @@ export interface ShipHullData {
   ghost?: boolean;    // placement preview
   ghostValid?: boolean;
   teammate?: boolean; // teammate's ship
+  color?: PlayerColor; // player color for hull rendering
+}
+
+/** Convert a hex color like '#FF00FF' to 'rgba(255,0,255,alpha)' */
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return `rgba(${r},${g},${b},${alpha})`;
 }
 
 /**
@@ -52,28 +72,32 @@ function renderShipHull(ship: ShipHullData, hexSize: number): string {
   // Hull width (fraction of hex size)
   const hullWidth = hexSize * 0.55;
 
-  // Determine ship color/style
+  // Determine ship color/style based on player color
+  const baseHex = ship.color ? PLAYER_COLOR_HEX[ship.color] : '#00FF88';
   let fillColor: string;
   let strokeColor: string;
   let opacity = '1';
   let strokeDash = '';
+  let innerStroke = ''; // white inner stroke for contrast (red-player fix)
   if (ship.ghost) {
-    fillColor = ship.ghostValid ? 'rgba(0,255,136,0.25)' : 'rgba(255,59,59,0.25)';
-    strokeColor = ship.ghostValid ? '#00FF88' : '#FF3B3B';
+    fillColor = ship.ghostValid ? hexToRgba(baseHex, 0.25) : 'rgba(255,59,59,0.25)';
+    strokeColor = ship.ghostValid ? baseHex : '#FF3B3B';
     strokeDash = 'stroke-dasharray="4 2"';
     opacity = '0.8';
   } else if (ship.teammate) {
-    fillColor = 'rgba(0,255,136,0.15)';
-    strokeColor = 'rgba(0,255,136,0.60)';
-    strokeDash = '';
+    fillColor = hexToRgba(baseHex, 0.15);
+    strokeColor = hexToRgba(baseHex, 0.60);
+    innerStroke = `stroke="#C0C0C0" stroke-width="0.75" stroke-opacity="0.3"`;
     opacity = '0.8';
   } else if (ship.sunk) {
-    fillColor = '#4A0000';
-    strokeColor = '#5A1A1A';
+    fillColor = hexToRgba(baseHex, 0.4);
+    strokeColor = hexToRgba(baseHex, 0.6);
+    innerStroke = `stroke="#C0C0C0" stroke-width="0.75" stroke-opacity="0.4"`;
     opacity = '0.9';
   } else {
-    fillColor = 'rgba(0,255,136,0.2)';
-    strokeColor = '#00FF88';
+    fillColor = hexToRgba(baseHex, 0.2);
+    strokeColor = baseHex;
+    innerStroke = `stroke="#C0C0C0" stroke-width="0.75" stroke-opacity="0.3"`;
   }
 
   if (centers.length === 1) {
@@ -90,7 +114,11 @@ function renderShipHull(ship: ShipHullData, hexSize: number): string {
       `A ${r.toFixed(2)} ${r.toFixed(2)} 0 0 1 ${(-halfLen).toFixed(2)} ${(-hw).toFixed(2)}`,
       'Z',
     ].join(' ');
-    return `<path d="${path}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.5" opacity="${opacity}" ${strokeDash} class="ship-hull" pointer-events="none" transform="translate(${c.x.toFixed(2)},${c.y.toFixed(2)})" />`;
+    let svg = `<path d="${path}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.5" opacity="${opacity}" ${strokeDash} class="ship-hull" pointer-events="none" transform="translate(${c.x.toFixed(2)},${c.y.toFixed(2)})" />`;
+    if (innerStroke) {
+      svg += `<path d="${path}" fill="none" ${innerStroke} opacity="${opacity}" class="ship-hull-inner" pointer-events="none" transform="translate(${c.x.toFixed(2)},${c.y.toFixed(2)})" />`;
+    }
+    return svg;
   }
 
   // Multi-cell ship: compute axis direction and draw rounded capsule
@@ -130,7 +158,11 @@ function renderShipHull(ship: ShipHullData, hexSize: number): string {
     'Z',
   ].join(' ');
 
-  return `<path d="${path}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.5" opacity="${opacity}" ${strokeDash} class="ship-hull" pointer-events="none" />`;
+  let svg = `<path d="${path}" fill="${fillColor}" stroke="${strokeColor}" stroke-width="1.5" opacity="${opacity}" ${strokeDash} class="ship-hull" pointer-events="none" />`;
+  if (innerStroke) {
+    svg += `<path d="${path}" fill="none" ${innerStroke} opacity="${opacity}" class="ship-hull-inner" pointer-events="none" />`;
+  }
+  return svg;
 }
 
 export function renderHexGridSVG(

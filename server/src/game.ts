@@ -2,8 +2,9 @@ import {
   type Game, type Player, type Ship, type ShipPlacement,
   type ShotResult, type WireGame, type WirePlayer, type WireShip,
   type TimerConfig, type GameOverStats, type AiDifficulty, type GameMode,
+  type PlayerColor,
   isShipSunk, isPlayerAlive, playerShotCount, getTeammates, isTeamAlive,
-  SHIP_LENGTHS, SHIP_NAMES, BOT_NAME_POOLS, MODE_RINGS,
+  SHIP_LENGTHS, SHIP_NAMES, BOT_NAME_POOLS, MODE_RINGS, SLOT_COLORS,
 } from '@salvo/shared';
 import {
   parseHex, isValidHex, allHexes, hexDistance, hexNeighborsInBounds, hexToString,
@@ -22,7 +23,7 @@ export function createGame(
   teamsEnabled: boolean = false,
   rings?: number,
 ): Game {
-  const player: Player = { id: hostId, name: hostName, ships: [], isBot: false, aiDifficulty: null };
+  const player: Player = { id: hostId, name: hostName, ships: [], isBot: false, aiDifficulty: null, color: SLOT_COLORS[0] };
   const players = new Map<string, Player>();
   players.set(hostId, player);
 
@@ -118,7 +119,8 @@ export function addPlayer(game: Game, playerId: string, playerName: string): str
   if (game.players.size >= 6) return 'Game is full (6 players max)';
   if (game.players.has(playerId)) return 'Already in this game';
 
-  game.players.set(playerId, { id: playerId, name: playerName, ships: [], isBot: false, aiDifficulty: null });
+  const slotIndex = game.players.size; // size before insert = 0-based slot index for this player
+  game.players.set(playerId, { id: playerId, name: playerName, ships: [], isBot: false, aiDifficulty: null, color: SLOT_COLORS[slotIndex] ?? 'green' });
   game.lastActivity = Date.now();
   return null;
 }
@@ -135,7 +137,8 @@ export function addBot(game: Game, difficulty: AiDifficulty): { botId: string } 
     ? pool[Math.floor(Math.random() * pool.length)]
     : `Bot ${game.players.size}`;
 
-  game.players.set(botId, { id: botId, name, ships: [], isBot: true, aiDifficulty: difficulty });
+  const slotIndex = game.players.size;
+  game.players.set(botId, { id: botId, name, ships: [], isBot: true, aiDifficulty: difficulty, color: SLOT_COLORS[slotIndex] ?? 'green' });
   game.lastActivity = Date.now();
   return { botId };
 }
@@ -703,6 +706,16 @@ export function removePlayer(game: Game, playerId: string): void {
 }
 
 // ============================================================
+// Player Color Assignment
+// ============================================================
+
+/** Set a player's color directly (used by QP random assignment in index.ts) */
+export function assignPlayerColor(game: Game, playerId: string, color: PlayerColor): void {
+  const player = game.players.get(playerId);
+  if (player) player.color = color;
+}
+
+// ============================================================
 // Serialization — toClientView
 //
 // SECURITY: This is the single chokepoint for all outbound state.
@@ -736,12 +749,23 @@ function serializeShipForEliminated(_ship: Ship): WireShip {
   };
 }
 
-function serializePlayer(player: Player, isOwner: boolean, isTeammate: boolean = false): WirePlayer {
+/** Game-over: reveal all ship cells to all players for the colorful battlefield map */
+function serializeShipForGameOver(ship: Ship): WireShip {
+  return {
+    length: ship.length,
+    cells: [...ship.cells],
+    hits: [...ship.hits],
+    sunk: isShipSunk(ship),
+  };
+}
+
+function serializePlayer(player: Player, isOwner: boolean, isTeammate: boolean = false, gameOver: boolean = false): WirePlayer {
   const alive = isPlayerAlive(player);
   return {
     id: player.id,
     name: player.name,
     ships: player.ships.map((s: Ship) =>
+      gameOver ? serializeShipForGameOver(s) :
       (isOwner || isTeammate) ? serializeShipForOwner(s) :
       !alive ? serializeShipForEliminated(s) :
       serializeShipForOthers(s)
@@ -750,16 +774,18 @@ function serializePlayer(player: Player, isOwner: boolean, isTeammate: boolean =
     shotCount: playerShotCount(player),
     isBot: player.isBot,
     aiDifficulty: player.aiDifficulty,
+    color: player.color,
   };
 }
 
 export function toClientView(game: Game, viewerId: string): WireGame {
   const viewerTeam = game.teams.get(viewerId);
+  const gameOver = game.phase === 'finished';
   const players: Record<string, WirePlayer> = {};
   for (const [id, player] of game.players) {
     const isOwner = id === viewerId;
     const isTeammate = !isOwner && viewerTeam != null && game.teams.get(id) === viewerTeam;
-    players[id] = serializePlayer(player, isOwner, isTeammate);
+    players[id] = serializePlayer(player, isOwner, isTeammate, gameOver);
   }
 
   const teamsRecord: Record<string, string> = {};

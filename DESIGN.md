@@ -116,6 +116,21 @@
 - **Muting:** All tones respect `state.matchSoundMuted` (localStorage `hullcracker-muted`)
 - **Error handling:** try/catch around AudioContext — silent fail on unsupported browsers
 
+## Player Colors
+- **Purpose:** Per-player visual identity — each of 6 player slots has a unique color for ships, cards, chat, and game-over
+- **Slot order:** Magenta, Red, Yellow, Green, Cyan, Blue (MRYGCB) — fixed global order, join order = color
+- **CSS variables:** `--player-magenta`, `--player-red`, `--player-yellow`, `--player-green`, `--player-cyan`, `--player-blue`
+- **Semantic separation:** `--player-*` variables are for player identity. `--primary` (Tactical Green) and `--info` (Info Blue) are functional semantic colors. Even when values overlap (e.g., `--player-green` = `--primary` = `#00FF88`), always use the semantically correct variable.
+- **Dark mode values:** `#FF00FF` (magenta), `#FF3B3B` (red), `#FFD700` (yellow), `#00FF88` (green), `#00FFFF` (cyan), `#38BDF8` (blue)
+- **Light mode values:** `#C026D3`, `#DC2626`, `#CA8A04`, `#059669`, `#0891B2`, `#2563EB`
+- **Color intensity hierarchy:**
+  - Tier 1 (Primary): Hull capsules — fill at 30% opacity, stroke at 100%. Teammate hulls: fill 15%, stroke 60%.
+  - Tier 2 (Secondary): Player name text, card borders, chat names, turn indicator — 100% color.
+  - Tier 3 (Ambient): Own card background tint, winner row highlight — 10% opacity.
+- **Contrast fix:** All hull capsules get a 0.75px `#C0C0C0` inner stroke for contrast against crimson hit cells (solves red-player visibility).
+- **Team mapping:** 2-team: slots 1-3 = Alpha (warm), slots 4-6 = Bravo (cool). 3-team: 1-2 = Alpha, 3-4 = Bravo, 5-6 = Charlie. Team section headers use muted DESIGN.md team colors; player colors dominate.
+- **Quick Play:** Colors randomly assigned from team-appropriate pools (warm/cool split preserved).
+
 ## Decisions Log
 | Date | Decision | Rationale |
 |------|----------|-----------|
@@ -127,3 +142,4 @@
 | 2026-03-23 | Muted red for destructive actions (`btn-danger`) | `#8B2020` — dim, desaturated red distinct from bright `#FF3B3B` (Impact Red = enemy hits). Reads as caution/destructive without competing with hit cell color. Used for Surrender button and rejoin "Leave Game" button. |
 | 2026-03-24 | Team colors: Alpha=green, Bravo=red, Charlie=blue | Classic RGΒ trio — maximally distinct, intuitive. Charlie uses `#38BDF8` (Info Blue / `var(--info)`), replacing amber which conflicted with selection/action color. |
 | 2026-03-24 | v0.12.0 CIC grid overhaul | Black void ocean, silver-white grid lines, filled hexes for all states. Desaturated crimson (#8B0000) for hits (Material Design dark mode guidance). Unified hit fill — capsule presence distinguishes friendly damage. Miss = gray filled sector. Sound design: single composite tone per salvo. Sequential game-over ship reveal. |
+| 2026-03-24 | v0.13.0 Player Colors (MRYGCB) | 6 primary/subtractive colors as fixed slot order. Private lobby: pick seat = pick color. QP: random from team pools. Ships, cards, chat, turn indicator, kill feed all colored. Game-over reveals ALL ships in player colors. White inner stroke on hulls for red-player contrast. |

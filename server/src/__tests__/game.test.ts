@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  createGame, addPlayer, canStartGame, startGame,
+  createGame, addPlayer, addBot, canStartGame, startGame,
   placeShips, allShipsPlaced, beginPlaying,
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, forfeitPlayer,
@@ -820,11 +820,122 @@ describe('Leave Game / Host Transfer', () => {
     const game = createGame('p1', 'Host');
     // Add a bot
     const botId = 'bot-1';
-    game.players.set(botId, { id: botId, name: 'Bot', ships: [], isBot: true, aiDifficulty: 'easy' });
+    game.players.set(botId, { id: botId, name: 'Bot', ships: [], isBot: true, aiDifficulty: 'easy', color: 'red' });
 
     removePlayer(game, 'p1');
     // hostId may still point to p1 since no human found, but no crash
     expect(game.players.has('p1')).toBe(false);
     expect(game.players.size).toBe(1);
+  });
+});
+
+// ============================================================
+// Player Colors
+// ============================================================
+
+describe('Player Colors', () => {
+  it('assigns slot colors in MRYGCB order', () => {
+    const game = createGame('p1', 'Alice');
+    expect(game.players.get('p1')!.color).toBe('magenta'); // slot 0
+    addPlayer(game, 'p2', 'Bob');
+    expect(game.players.get('p2')!.color).toBe('red'); // slot 1
+    addPlayer(game, 'p3', 'Charlie');
+    expect(game.players.get('p3')!.color).toBe('yellow'); // slot 2
+    addPlayer(game, 'p4', 'Diana');
+    expect(game.players.get('p4')!.color).toBe('green'); // slot 3
+    addPlayer(game, 'p5', 'Eve');
+    expect(game.players.get('p5')!.color).toBe('cyan'); // slot 4
+    addPlayer(game, 'p6', 'Frank');
+    expect(game.players.get('p6')!.color).toBe('blue'); // slot 5
+  });
+
+  it('assigns slot colors to bots', () => {
+    const game = createGame('p1', 'Alice');
+    // Host is slot 0 (magenta)
+    addPlayer(game, 'p2', 'Bob'); // slot 1 (red)
+    expect(game.players.get('p2')!.color).toBe('red');
+    const botResult = addBot(game, 'easy');
+    if ('botId' in botResult) {
+      expect(game.players.get(botResult.botId)!.color).toBe('yellow'); // slot 2
+    }
+  });
+
+  it('color persists through team swap', () => {
+    const game = createGame('p1', 'Alice', { enabled: false, seconds: 60 }, 'private', true);
+    addPlayer(game, 'p2', 'Bob');
+    const p1Color = game.players.get('p1')!.color;
+    const p2Color = game.players.get('p2')!.color;
+
+    // Colors should not change on gameType change
+    updateGameOptions(game, 'p1', { gameType: '3-team' });
+    expect(game.players.get('p1')!.color).toBe(p1Color);
+    expect(game.players.get('p2')!.color).toBe(p2Color);
+
+    // Colors should not change back to FFA
+    updateGameOptions(game, 'p1', { gameType: 'ffa' });
+    expect(game.players.get('p1')!.color).toBe(p1Color);
+    expect(game.players.get('p2')!.color).toBe(p2Color);
+  });
+
+  it('color appears in serialized WirePlayer', () => {
+    const game = createGame('p1', 'Alice');
+    addPlayer(game, 'p2', 'Bob');
+    const view = toClientView(game, 'p1');
+    expect(view.players['p1'].color).toBe('magenta');
+    expect(view.players['p2'].color).toBe('red');
+  });
+
+  it('game-over reveals all ship cells to all players', () => {
+    const game = createGame('p1', 'Alice');
+    addPlayer(game, 'p2', 'Bob');
+    game.islandCount = 0; // avoid island conflicts with test placements
+    startGame(game);
+
+    // Place ships for both players
+    const err1 = placeShips(game, 'p1', hexPlacements(0));
+    const err2 = placeShips(game, 'p2', hexPlacements(1));
+    expect(err1).toBeNull();
+    expect(err2).toBeNull();
+    beginPlaying(game);
+
+    // Before game-over: p2's ship cells hidden from p1
+    const viewDuringPlay = toClientView(game, 'p1');
+    const p2ShipsDuringPlay = viewDuringPlay.players['p2'].ships;
+    // p2 is alive, so cells should be empty
+    expect(p2ShipsDuringPlay.every(s => s.cells.length === 0)).toBe(true);
+
+    // Force game-over
+    game.phase = 'finished';
+    const viewAfterGameOver = toClientView(game, 'p1');
+    const p2ShipsAfterGameOver = viewAfterGameOver.players['p2'].ships;
+    // Now all cells should be revealed
+    expect(p2ShipsAfterGameOver.some(s => s.cells.length > 0)).toBe(true);
+  });
+
+  it('game-over does not reveal ship cells during playing phase (regression)', () => {
+    const game = createGame('p1', 'Alice');
+    addPlayer(game, 'p2', 'Bob');
+    game.islandCount = 0;
+    startGame(game);
+    placeShips(game, 'p1', hexPlacements(0));
+    placeShips(game, 'p2', hexPlacements(1));
+    beginPlaying(game);
+
+    // During playing phase, p2's alive ships should be hidden from p1
+    const view = toClientView(game, 'p1');
+    const p2Ships = view.players['p2'].ships;
+    expect(p2Ships.every(s => s.cells.length === 0)).toBe(true);
+  });
+
+  it('all 6 colors are unique', () => {
+    const game = createGame('p1', 'P1');
+    addPlayer(game, 'p2', 'P2');
+    addPlayer(game, 'p3', 'P3');
+    addPlayer(game, 'p4', 'P4');
+    addPlayer(game, 'p5', 'P5');
+    addPlayer(game, 'p6', 'P6');
+
+    const colors = [...game.players.values()].map(p => p.color);
+    expect(new Set(colors).size).toBe(6);
   });
 });

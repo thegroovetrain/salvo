@@ -3,10 +3,10 @@ import type {
   ClientToServerEvents, ServerToClientEvents,
   WireGame, WirePlayer, ShotResult, ShipPlacement,
   ChatMessage, GameOverStats, TimerConfig, AiDifficulty,
-  QuickPlayMode, ChatChannel,
+  QuickPlayMode, ChatChannel, PlayerColor,
 } from '@salvo/shared';
-import { SHIP_LENGTHS, SHIP_NAMES } from '@salvo/shared';
-import { renderHexGridSVG, svgClickToHex, getShipPreview, nextDirection, parseHex, hexToString, allHexes, hexLinear, isValidHex, HEX_DIRECTIONS } from './hexGrid.js';
+import { SHIP_LENGTHS, SHIP_NAMES, SLOT_COLORS } from '@salvo/shared';
+import { renderHexGridSVG, svgClickToHex, getShipPreview, nextDirection, parseHex, hexToString, allHexes, hexLinear, isValidHex, HEX_DIRECTIONS, PLAYER_COLOR_HEX } from './hexGrid.js';
 import type { CellState, ShipHullData } from './hexGrid.js';
 import { marked } from 'marked';
 import './style.css';
@@ -1026,16 +1026,17 @@ function renderWaiting(): string {
   let openSlotCounter = 0;
 
   // Unified seat card rendering — handles all seat states
-  function renderSeatCard(p: WirePlayer | null, team?: string): string {
+  function renderSeatCard(p: WirePlayer | null, slotIndex: number, team?: string): string {
+    const slotColor = SLOT_COLORS[slotIndex] ?? 'green';
     if (!p) {
-      // Open slot
+      // Open slot — show the slot's assigned color preview
       if (!isHost) {
-        return '<div class="seat-card open"><span style="color:var(--text-muted);font-size:12px">Open slot</span></div>';
+        return `<div class="seat-card open seat-empty player-color-${slotColor}" data-player-color="${slotColor}"><span style="color:var(--player-${slotColor});opacity:0.4;font-size:12px">Open</span></div>`;
       }
       const slotId = `open-${team ?? 'any'}-${openSlotCounter++}`;
       const isOpen = state.openDropdownId === slotId;
-      return `<div class="seat-card open">
-        <span style="color:var(--text-muted);font-size:12px">Open slot</span>
+      return `<div class="seat-card open seat-empty player-color-${slotColor}" data-player-color="${slotColor}">
+        <span style="color:var(--player-${slotColor});opacity:0.4;font-size:12px">Open</span>
         <button class="seat-menu-trigger" data-dropdown-id="${slotId}" aria-haspopup="true" aria-expanded="${isOpen}">+</button>
         <div class="seat-menu${isOpen ? ' open' : ''}" role="menu">
           <button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="easy" data-bot-team="${team ?? ''}">Add AI (Easy)</button>
@@ -1097,8 +1098,11 @@ function renderWaiting(): string {
         <div class="seat-menu${isOpen ? ' open' : ''}" role="menu">${menuItems.join('')}</div>`;
     }
 
-    return `<div class="seat-card">
-      ${playerIcon(p.isBot)} <span class="player-name">${esc(p.name)}${isMe ? ' (you)' : ''}</span> ${hostBadge}${botBadge}${dropdownHtml}
+    const colorClass = `player-color-${p.color ?? slotColor}`;
+    const selfClass = isMe ? ' player-card-self' : '';
+    const youBadge = isMe ? `<span class="player-you-badge">YOU</span>` : '';
+    return `<div class="seat-card ${colorClass}${selfClass}" data-player-color="${p.color ?? slotColor}">
+      ${playerIcon(p.isBot)} <span class="player-name">${esc(p.name)}</span> ${youBadge}${hostBadge}${botBadge}${dropdownHtml}
     </div>`;
   }
 
@@ -1177,11 +1181,12 @@ function renderWaiting(): string {
     const slotsPerTeam = Math.floor(MAX_PLAYERS / activeTeams.length);
     const teamLabels: Record<string, string> = { alpha: 'ALPHA', bravo: 'BRAVO', charlie: 'CHARLIE' };
 
+    let globalSlot = 0;
     const sections = activeTeams.map(teamName => {
       const teamPlayers = players.filter(p => teams[p.id] === teamName);
       const openCount = Math.max(0, slotsPerTeam - teamPlayers.length);
-      const cards = teamPlayers.map(p => renderSeatCard(p, teamName)).join('')
-        + Array(openCount).fill(0).map(() => renderSeatCard(null, teamName)).join('');
+      const cards = teamPlayers.map(p => { const s = globalSlot++; return renderSeatCard(p, s, teamName); }).join('')
+        + Array(openCount).fill(0).map(() => { const s = globalSlot++; return renderSeatCard(null, s, teamName); }).join('');
       return `
         <div class="team-section">
           <div class="team-section-header ${teamName}">${teamLabels[teamName]}</div>
@@ -1192,8 +1197,8 @@ function renderWaiting(): string {
     lobbyPlayersHtml = `<div class="lobby-stacked">${sections}</div>`;
   } else {
     const openSlots = Math.max(0, MAX_PLAYERS - players.length);
-    const playerCards = players.map(p => renderSeatCard(p)).join('');
-    const openCards = Array(openSlots).fill(0).map(() => renderSeatCard(null)).join('');
+    const playerCards = players.map((p, i) => renderSeatCard(p, i)).join('');
+    const openCards = Array(openSlots).fill(0).map((_, i) => renderSeatCard(null, players.length + i)).join('');
 
     lobbyPlayersHtml = `
       <div class="lobby-stacked">
@@ -1300,12 +1305,14 @@ function renderGrid(mode: 'placement' | 'battle'): string {
   // Build ship hull data for the overlay layer
   const shipHulls: ShipHullData[] = [];
 
+  const myColor = state.playerId ? game.players[state.playerId]?.color : undefined;
+
   // Own ships (cells are populated for the current player)
   const me = state.playerId ? game.players[state.playerId] : null;
   if (me) {
     for (const ship of me.ships) {
       if (ship.cells.length > 0) {
-        shipHulls.push({ cells: ship.cells, sunk: ship.sunk });
+        shipHulls.push({ cells: ship.cells, sunk: ship.sunk, color: myColor });
       }
     }
   }
@@ -1317,7 +1324,7 @@ function renderGrid(mode: 'placement' | 'battle'): string {
       if (pid !== state.playerId && game.teams[pid] === myTeam) {
         for (const ship of player.ships) {
           if (ship.cells.length > 0) {
-            shipHulls.push({ cells: ship.cells, sunk: ship.sunk, teammate: true });
+            shipHulls.push({ cells: ship.cells, sunk: ship.sunk, teammate: true, color: player.color });
           }
         }
       }
@@ -1328,14 +1335,14 @@ function renderGrid(mode: 'placement' | 'battle'): string {
   if (mode === 'placement') {
     for (const ship of state.placedShips) {
       if (ship.cells.length > 0) {
-        shipHulls.push({ cells: ship.cells, sunk: false });
+        shipHulls.push({ cells: ship.cells, sunk: false, color: myColor });
       }
     }
   }
 
   // Ghost preview ships (placement phase)
   if (mode === 'placement' && state.ghostCells.length > 0) {
-    shipHulls.push({ cells: state.ghostCells, sunk: false, ghost: true, ghostValid: state.ghostValid });
+    shipHulls.push({ cells: state.ghostCells, sunk: false, ghost: true, ghostValid: state.ghostValid, color: myColor });
   }
 
   // Teammate ghost preview
@@ -1347,14 +1354,25 @@ function renderGrid(mode: 'placement' | 'battle'): string {
     }
   }
 
-  // Sunk enemy ships (cells revealed on sunk)
-  if (mode === 'battle') {
+  // Game-over: show ALL players' ships in their colors
+  if (game.phase === 'finished') {
+    for (const [pid, player] of Object.entries(game.players)) {
+      if (pid === state.playerId) continue; // own ships already added above
+      if (game.teamsEnabled && game.teams[pid] === game.teams[state.playerId ?? '']) continue; // teammates already added
+      for (const ship of player.ships) {
+        if (ship.cells.length > 0) {
+          shipHulls.push({ cells: ship.cells, sunk: ship.sunk, color: player.color });
+        }
+      }
+    }
+  } else if (mode === 'battle') {
+    // During battle: sunk enemy ships (cells revealed on sunk) in owner's color
     for (const [pid, player] of Object.entries(game.players)) {
       if (pid === state.playerId) continue;
       if (game.teamsEnabled && game.teams[pid] === game.teams[state.playerId ?? '']) continue;
       for (const ship of player.ships) {
         if (ship.sunk && ship.cells.length > 0) {
-          shipHulls.push({ cells: ship.cells, sunk: true });
+          shipHulls.push({ cells: ship.cells, sunk: true, color: player.color });
         }
       }
     }
@@ -1489,8 +1507,9 @@ function renderChat(): string {
     const teamBadge = teamsEnabled && state.game?.teams[m.playerId]
       ? `<span class="team-badge small ${state.game.teams[m.playerId]}">${state.game.teams[m.playerId].charAt(0).toUpperCase()}</span>`
       : '';
+    const chatColor = chatPlayer?.color ?? 'green';
     return `<div class="chat-msg chat-msg-player">
-      <div class="chat-msg-header">${chatIcon}${teamBadge}<span class="chat-name">${esc(m.playerName)}</span><span class="chat-time">${formatTime(m.timestamp)}</span></div>
+      <div class="chat-msg-header">${chatIcon}${teamBadge}<span class="chat-name player-color-${chatColor}">${esc(m.playerName)}</span><span class="chat-time">${formatTime(m.timestamp)}</span></div>
       <div class="chat-msg-body">${esc(m.text)}</div>
     </div>`;
   }).join('');
@@ -1554,9 +1573,11 @@ function renderBattle(): string {
     const teamBadge = teamsEnabled && teams[p.id]
       ? `<span class="team-badge ${teams[p.id]}" aria-label="Team ${teams[p.id].charAt(0).toUpperCase() + teams[p.id].slice(1)}">${teams[p.id].charAt(0).toUpperCase() + teams[p.id].slice(1)}</span>`
       : '';
-    return `<li>
+    const pColor = p.color ?? 'green';
+    const youBadge = isMe ? '<span class="player-you-badge">YOU</span>' : '';
+    return `<li class="player-color-${pColor}" style="border-left:3px solid var(--player-${pColor});padding-left:6px${!p.alive ? ';opacity:0.5' : ''}">
       ${playerIcon(p.isBot)}
-      <span style="${nameStyle}">${esc(p.name)}${isMe ? ' (you)' : ''}</span>
+      <span class="player-color-${pColor}" style="${nameStyle}">${esc(p.name)}</span>${youBadge}
       ${teamBadge}
       <span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${p.alive ? p.shotCount + ' ships' : 'out'}</span>
       ${isCurrent && p.alive ? '<span style="color:var(--amber);font-size:10px">\u25C0</span>' : ''}
@@ -1565,14 +1586,16 @@ function renderBattle(): string {
 
   const shotLogHtml = state.shotLog.map(entry => {
     const allCoords = entry.shots.map(s => s.coord).join(',');
+    const shooterColor = state.game?.players[entry.shooterId]?.color ?? 'green';
     // Shot lines — multi-line dialogue format
     const shotLines = entry.shots.map(shot => {
       if (shot.miss) {
         return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="miss-text">miss</span></div>`;
       }
       const nameSpans = shot.hits.map(h => {
+        const hitColor = state.game?.players[h.playerId]?.color ?? 'green';
         const isSelf = h.playerId === entry.shooterId;
-        return isSelf ? `<span class="ff">${esc(h.playerName)}</span>` : esc(h.playerName);
+        return isSelf ? `<span class="ff">${esc(h.playerName)}</span>` : `<span class="player-color-${hitColor}">${esc(h.playerName)}</span>`;
       });
       return `<div class="shot-log-line"><span class="coord">${shot.coord}</span> <span class="hit">hit: [${nameSpans.join(', ')}]</span></div>`;
     }).join('');
@@ -1580,21 +1603,24 @@ function renderBattle(): string {
     // Sink/elimination lines after the salvo
     const sinkLines = entry.shots.flatMap(shot =>
       shot.hits.filter(h => h.sunk).map(hit => {
-        const ownerName = `${esc(hit.playerName)}'s`;
+        const hitColor = state.game?.players[hit.playerId]?.color ?? 'green';
+        const ownerName = `<span class="player-color-${hitColor}">${esc(hit.playerName)}</span>'s`;
         return `<div class="shot-log-sink">\u00D7 ${ownerName} ${SHIP_NAMES[hit.shipLength]} sunk</div>`;
       })
     ).join('');
 
     return `<div class="shot-log-salvo" data-coords="${allCoords}">
-      <div class="shot-log-header">${esc(entry.shooterName)} fires:</div>
+      <div class="shot-log-header"><span class="player-color-${shooterColor}">${esc(entry.shooterName)}</span> fires:</div>
       ${shotLines}
       ${sinkLines}
     </div>`;
   }).join('');
 
+  const currentPlayer = state.game.players[currentTurnId];
+  const turnPlayerColor = currentPlayer?.color ?? 'green';
   const turnText = isMyTurn
-    ? `YOUR TURN \u2014 ${expectedShots} shot${expectedShots !== 1 ? 's' : ''}`
-    : `${esc(state.game.players[currentTurnId]?.name ?? '???')}'s turn`;
+    ? `<span class="player-color-${turnPlayerColor}">YOUR TURN</span> \u2014 ${expectedShots} shot${expectedShots !== 1 ? 's' : ''}`
+    : `<span class="player-color-${turnPlayerColor}">${esc(currentPlayer?.name ?? '???')}</span>'s turn`;
 
   const timerHtml = state.timerSeconds !== null
     ? `<div class="turn-timer ${state.timerSeconds <= 10 ? 'warning' : ''}">${Math.floor(state.timerSeconds / 60)}:${(state.timerSeconds % 60).toString().padStart(2, '0')}</div>`
@@ -1645,7 +1671,8 @@ function renderGameOver(): string {
     winnerText = `TEAM ${winnerTeamId.toUpperCase()} WINS!`;
     winnerSubtext = 'The opposing team has been eliminated';
   } else if (winner) {
-    winnerText = `${esc(winner.name)} WINS!`;
+    const winnerColor = winner.color ?? 'green';
+    winnerText = `<span class="player-color-${winnerColor}">${esc(winner.name)}</span> WINS!`;
     winnerSubtext = 'Last player standing';
   } else {
     winnerText = 'DRAW!';
@@ -1676,12 +1703,13 @@ function renderGameOver(): string {
     if (!s) return '';
     const accPct = Math.round(s.accuracy * 100);
     const isWinner = teamsEnabled ? teams[p.id] === winnerTeamId : p.id === stats.winnerId;
-    const rowStyle = isWinner ? 'color:var(--green)' : '';
+    const playerColor = p.color ?? 'green';
+    const rowStyle = isWinner ? `color:var(--player-${playerColor})` : '';
     const teamBadge = teamsEnabled && teams[p.id]
       ? `<span class="team-badge ${teams[p.id]}">${teams[p.id].charAt(0).toUpperCase() + teams[p.id].slice(1)}</span>`
       : '';
     return `<tr style="${rowStyle}">
-      <td>${playerIcon(p.isBot)}${esc(p.name)}${isWinner ? ' \u2605' : ''} ${teamBadge}</td>
+      <td>${playerIcon(p.isBot)}<span class="player-color-${playerColor}">${esc(p.name)}</span>${isWinner ? ' \u2605' : ''} ${teamBadge}</td>
       <td>${s.shotsFired}</td>
       <td>${s.hitsLanded}</td>
       <td>${accPct}%</td>
@@ -2394,6 +2422,14 @@ function esc(s: string): string {
   const div = document.createElement('div');
   div.textContent = s;
   return div.innerHTML;
+}
+
+/** Render a player name wrapped in their color class */
+function coloredName(playerId: string): string {
+  const player = state.game?.players[playerId];
+  if (!player) return '';
+  const color = player.color ?? 'green';
+  return `<span class="player-color-${color}">${esc(player.name)}</span>`;
 }
 
 // ============================================================

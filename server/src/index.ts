@@ -7,13 +7,14 @@ import type {
   ClientToServerEvents, ServerToClientEvents, ChatMessage,
   TimerConfig, ShipPlacement, AiDifficulty, QuickPlayMode, ChatChannel,
 } from '@salvo/shared';
-import { isPlayerAlive, playerShotCount, toGameMode, toQuickPlayMode, getTeammates, MODE_RINGS } from '@salvo/shared';
+import { isPlayerAlive, playerShotCount, toGameMode, toQuickPlayMode, getTeammates, MODE_RINGS, SLOT_COLORS, TEAM_COLOR_POOLS } from '@salvo/shared';
+import type { PlayerColor } from '@salvo/shared';
 import {
   createGame, addPlayer, addBot, removeBot, removePlayer, canStartGame, startGame, updateGameOptions,
   placeShips, allShipsPlaced, beginPlaying,
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, forfeitPlayer,
-  toClientView, resetForRematch,
+  toClientView, resetForRematch, assignPlayerColor,
 } from './game.js';
 import { chooseSalvo, generatePlacement, getBotDelay } from './ai.js';
 import { ConnectionManager } from './connections.js';
@@ -173,6 +174,9 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
     }
   }
 
+  // Assign random player colors for Quick Play
+  assignQuickPlayColors(game, mode);
+
   // Start the game immediately (skip lobby phase)
   startGame(game);
 
@@ -219,6 +223,50 @@ function autoAssignTeam(game: import('@salvo/shared').Game, playerId: string): v
     }
   }
   game.teams.set(playerId, minTeam);
+}
+
+/** Shuffle an array in place (Fisher-Yates) */
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/** Assign random player colors for Quick Play games */
+function assignQuickPlayColors(game: import('@salvo/shared').Game, mode: QuickPlayMode): void {
+  if (!game.teamsEnabled) {
+    // FFA: shuffle all colors and assign by player order
+    const colors = shuffle([...SLOT_COLORS]);
+    let i = 0;
+    for (const player of game.players.values()) {
+      assignPlayerColor(game, player.id, colors[i++]);
+    }
+    return;
+  }
+
+  // Team modes: shuffle within each team's color pool
+  const gameType = game.gameType;
+  const pools = TEAM_COLOR_POOLS[gameType];
+  if (!pools) return;
+
+  // Group players by team
+  const teamPlayers = new Map<string, string[]>();
+  for (const [playerId, teamId] of game.teams) {
+    if (!teamPlayers.has(teamId)) teamPlayers.set(teamId, []);
+    teamPlayers.get(teamId)!.push(playerId);
+  }
+
+  // Assign shuffled colors from each team's pool
+  for (const [teamId, playerIds] of teamPlayers) {
+    const pool = pools[teamId];
+    if (!pool) continue;
+    const shuffled = shuffle([...pool]);
+    for (let i = 0; i < playerIds.length; i++) {
+      assignPlayerColor(game, playerIds[i], shuffled[i % shuffled.length]);
+    }
+  }
 }
 
 function emitToPlayer(playerId: string, event: string, data: unknown): void {
