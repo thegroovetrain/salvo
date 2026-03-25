@@ -45,7 +45,8 @@ You get one shot per surviving ship. Lose a ship, lose a shot.
 - **Client:** Vite + TypeScript (vanilla, no framework)
 - **Server:** Express + socket.io
 - **Shared:** TypeScript types shared via npm workspaces
-- **Tests:** Vitest (250 tests — game logic, security, AI, matchmaking, surrender, teams, swap, islands, player colors)
+- **Tests:** Vitest (309 tests — server: game logic, security, AI, matchmaking, surrender, teams, swap, islands, player colors; client: state, helpers, audio, grid, battle, smoke)
+- **Linting:** ESLint with cyclomatic complexity ≤ 10 enforced
 
 ## Project Structure
 
@@ -55,13 +56,21 @@ salvo/
 │   ├── types.ts              # Shared types, events, computed getters
 │   └── hex.ts                # Hex coordinate math (axial, distance, rings)
 ├── server/src/
+│   ├── index.ts              # Express setup, server bootstrap
+│   ├── socketSetup.ts        # Socket.io handler registration
 │   ├── game.ts               # Pure game logic (no I/O)
+│   ├── gameFlow.ts           # Turn flow, bot execution, player exit
 │   ├── ai.ts                 # AI opponents (4 difficulty tiers)
-│   ├── connections.ts         # Reconnection + event buffering
-│   ├── lobby.ts              # Game management, join codes, cleanup
-│   └── index.ts              # Express + socket.io wiring
+│   ├── handlers/             # Socket event handlers by domain
+│   ├── timers/               # Placement, turn, forfeit timer management
+│   └── queue/                # Quick Play matchmaking
 ├── client/src/
-│   ├── main.ts               # State, socket handlers, rendering
+│   ├── main.ts               # Bootstrap (61 LOC)
+│   ├── state.ts              # AppState type + mutable singleton
+│   ├── rendering/            # Screen renderers (lobby, battle, grid, etc.)
+│   ├── handlers/             # Socket + DOM event handlers
+│   ├── audio/                # Sound system (AudioContext, tones)
+│   ├── helpers/              # DOM utils, formatting, storage, teams
 │   ├── hexGrid.ts            # SVG hex grid renderer
 │   └── style.css             # Design system implementation
 ├── DESIGN.md                 # Visual design system
@@ -74,7 +83,9 @@ salvo/
 npm run dev          # Start both server (3000) and client (5173)
 npm run dev:server   # Server only
 npm run dev:client   # Client only
-npm test -w server   # Run tests
+npm test             # Run all tests (server + client)
+npm run lint         # ESLint (complexity enforced)
+npm run check        # Lint + type-check + test (all workspaces)
 ```
 
 ## Features

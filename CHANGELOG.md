@@ -3,11 +3,11 @@
 ## [0.13.1] - 2026-03-25
 
 ### Changed
-- **Modular architecture** — split client/src/main.ts (2,497 LOC → 61 LOC) into 24 domain modules (audio/, rendering/, handlers/, helpers/, timers/, settings/). Split server/src/index.ts (1,473 LOC → 61 LOC) into 16 modules (handlers/, timers/, queue/, gameFlow, emitters, socketSetup).
-- **ESLint with cyclomatic complexity enforcement** — `complexity: ["error", 10]` rule enforced on all functions. ~30 functions refactored to pass.
-- **Client test suite** — 54 tests across 6 modules (state, helpers, audio, grid, battle, smoke) using vitest + jsdom.
-- **Flexible salvo firing** — players can fire 1 to N shots per turn (capped at available unshot hexes) instead of requiring exactly N. Fixes late-game deadlocks when the board is nearly full.
-- **Any player can move to open lobby slot** — the "+" menu on empty seats now appears for all players (not just host) with a "Move here" option to change your color slot.
+- **Modular architecture** — client main.ts (2,497 → 61 LOC) split into 24 domain modules; server index.ts (1,473 → 61 LOC) split into 16 modules. Every file has one job.
+- **ESLint complexity enforcement** — cyclomatic complexity capped at 10 per function. ~30 functions refactored to pass.
+- **Client test suite** — 54 new tests (state, helpers, audio, grid, battle, smoke) using vitest + jsdom. Total test count: 309.
+- **Flexible salvo firing** — fire 1 to N shots per turn (capped at available hexes) instead of requiring exactly N. No more late-game deadlocks on crowded boards.
+- **Move to any open slot** — all players can now click "+" on empty lobby seats to change their color, not just the host.
 
 ### Fixed
 - **Game-over ship reveal** — all players' ships now correctly appear on the game-over grid. Server sends updated game state with phase='finished' before the game-over event so clients receive revealed ship cells.

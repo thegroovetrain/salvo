@@ -20,7 +20,7 @@
 
 **Why:** v0.12.0 added the CIC sound foundation (generic `playTone()`, salvo miss/hit/sunk, placement confirm, game-over summary). Remaining gaps: team-specific events, timer warning tones, chat notification sounds.
 
-**Context:** The `playTone()` generic function now exists in main.ts — adding new tones is trivial (one function call with frequency parameters). The mute toggle already works for all tones. Focus is on which events deserve audio feedback and tuning the frequencies to feel right.
+**Context:** The `playTone()` generic function now lives in `client/src/audio/index.ts` (extracted in v0.13.1) — adding new tones is trivial (one function call with frequency parameters). The mute toggle already works for all tones. Focus is on which events deserve audio feedback and tuning the frequencies to feel right.
 
 **Effort:** S (reduced from M — foundation exists)
 **Priority:** P3 (reduced from P2 — core sounds shipped)
