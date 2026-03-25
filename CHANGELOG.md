@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.14.0] - 2026-03-25
+
+### Added
+- **Doctrine + gunnery AI architecture** — two-layer system replaces monolithic AI. Commander layer picks doctrine (hunt/kill/trade-up/protect-lead/desperation/cleanup), gunnery layer scores cells and optimizes salvos.
+- **Probability density map** — Hard tier calculates where enemy ships are most likely based on all shots fired and remaining ship lengths.
+- **Greedy salvo optimization** — Impossible tier picks the best shot, simulates the result, re-scores, and repeats for each shot in the salvo.
+- **Kill-confirmed teammate guard** — bots only damage teammates when doing so sinks an enemy ship. Medium never hits teammates.
+- **Smart ship placement** — Hard/Impossible spread ships apart and avoid predictable patterns (center-biased, hunt-pattern-aware).
+- **Seeded RNG** — `createRNG(seed)` for deterministic bot simulations and reproducible testing.
+- **Debug logging** — `DEBUG_AI=1` env var logs doctrine selection and top scored cells per turn.
+- **Bot-vs-bot simulation harness** — test utility runs N games between bot tiers and reports win rates.
+- **No-deadlock stress test** — 200 games across all 4 tiers verify no bot ever gets stuck.
+- **Performance benchmark** — asserts `chooseSalvo()` completes under 50ms on worst-case boards.
+
+### Changed
+- **AI file structure** — `ai.ts` (311 LOC) split into 6 focused modules under `server/src/ai/`: doctrine, gunnery, probability, placement, helpers, index (~575 LOC total).
+- **Self-damage is now a cost-benefit decision** — bots at all tiers accept friendly fire when the scoring math favors it, instead of hard-refusing to shoot their own ships.
+- **Hex 3-coloring is now a soft bonus** — Hard tier prefers color-0 cells but won't refuse to shoot non-color-0 cells when they score higher.
+
+### Fixed
+- **AI deadlock on crowded boards** — Medium, Hard, and Impossible bots would refuse to fire when only their own ship cells remained unshot, causing games to stall. The new cost-benefit scoring system fires at the least-penalized cells instead of deadlocking.
+
 ## [0.13.2] - 2026-03-25
 
 ### Fixed
