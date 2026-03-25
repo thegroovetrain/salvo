@@ -60,7 +60,7 @@ salvo/
 │   ├── socketSetup.ts        # Socket.io handler registration
 │   ├── game.ts               # Pure game logic (no I/O)
 │   ├── gameFlow.ts           # Turn flow, bot execution, player exit
-│   ├── ai.ts                 # AI opponents (4 difficulty tiers)
+│   ├── ai/                   # AI opponents (doctrine/gunnery architecture)
 │   ├── handlers/             # Socket event handlers by domain
 │   ├── timers/               # Placement, turn, forfeit timer management
 │   └── queue/                # Quick Play matchmaking
@@ -93,7 +93,7 @@ npm run check        # Lint + type-check + test (all workspaces)
 - **Team modes** — Two Teams (Alpha vs Bravo) or Three Teams (Alpha/Bravo/Charlie): shared ship vision, private team chat, team win condition, alternating turn order
 - **Hex grid** — hexagonal ocean with axial coordinates, 4-6 configurable rings, islands that block placement and shots
 - **Quick Play matchmaking** — 1v1, 2v2, 3v3, 3-FFA, 6-FFA, and 2v2v2 queues with live game counters and match-found sound
-- **AI opponents** — 4 difficulty tiers (Easy, Medium, Hard, Impossible) — team-aware in 2v2
+- **AI opponents** — 4 difficulty tiers (Easy, Medium, Hard, Impossible) with doctrine/gunnery architecture — team-aware in 2v2
 - **Unified ocean grid** — your ships and all shot results on one interactive board, with hit count badges for overlapping ships
 - **Player colors** — each player slot has a unique color (Magenta, Red, Yellow, Green, Cyan, Blue) shown on ships, cards, chat, turn indicators, and the game-over battlefield map
 - **Game-over battlefield map** — all ships revealed in player colors when the game ends, with sequential reveal in elimination order
