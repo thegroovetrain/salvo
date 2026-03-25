@@ -19,6 +19,28 @@ export function isShipSunk(ship: Ship): boolean {
 
 export type AiDifficulty = 'easy' | 'medium' | 'hard' | 'impossible';
 
+// --- Player Colors ---
+
+export type PlayerColor = 'magenta' | 'red' | 'yellow' | 'green' | 'cyan' | 'blue';
+
+/** Fixed global slot order: join order determines color in private games */
+export const SLOT_COLORS: PlayerColor[] = ['magenta', 'red', 'yellow', 'green', 'cyan', 'blue'];
+
+/** Team color pools for Quick Play random assignment (disjoint per team config) */
+export const TEAM_COLOR_POOLS: Record<string, Record<string, PlayerColor[]>> = {
+  /** 2-team modes (2v2, 3v3): warm vs cool */
+  '2-team': {
+    alpha: ['magenta', 'red', 'yellow'],
+    bravo: ['green', 'cyan', 'blue'],
+  },
+  /** 3-team mode (2v2v2): disjoint pairs */
+  '3-team': {
+    alpha: ['magenta', 'red'],
+    bravo: ['yellow', 'green'],
+    charlie: ['cyan', 'blue'],
+  },
+};
+
 export const BOT_NAME_POOLS: Record<AiDifficulty, string[]> = {
   easy: ['Ethan', 'Emma', 'Eli', 'Eva', 'Eddie', 'Elena', 'Ezra', 'Elise', 'Edgar', 'Emily'],
   medium: ['Marcus', 'Mia', 'Miles', 'Maya', 'Max', 'Meredith', 'Morgan', 'Molly', 'Malcolm', 'Margot'],
@@ -32,6 +54,7 @@ export interface Player {
   ships: Ship[];
   isBot: boolean;
   aiDifficulty: AiDifficulty | null;
+  color: PlayerColor;
 }
 
 /** Computed: has at least one unsunk ship */
@@ -133,6 +156,7 @@ export interface WirePlayer {
   aiDifficulty: AiDifficulty | null;
   alive: boolean;
   shotCount: number;
+  color: PlayerColor;
 }
 
 export interface WireSunkShipInfo {
@@ -226,7 +250,7 @@ export interface ClientToServerEvents {
   'update-game-options': (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number; islandCount?: number }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
   'start-game': () => void;
-  'add-bot': (data: { difficulty: AiDifficulty; team?: string }) => void;
+  'add-bot': (data: { difficulty: AiDifficulty; team?: string; slotIndex?: number }) => void;
   'remove-bot': (data: { botId: string }) => void;
   'place-ships': (data: { ships: ShipPlacement[] }) => void;
   'fire': (data: { coords: string[] }) => void;

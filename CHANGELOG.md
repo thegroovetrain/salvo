@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.13.0] - 2026-03-25
+
+### Added
+- **Per-player colors** — each of 6 player slots gets a unique color (Magenta, Red, Yellow, Green, Cyan, Blue). Ships, player cards, chat names, turn indicators, kill feed, and game-over stats all use player colors.
+- **Fixed slot order (MRYGCB)** — private lobby: pick your seat = pick your color. Quick Play: random assignment from team-appropriate pools (warm Alpha, cool Bravo).
+- **Game-over battlefield map** — all ships revealed to all players in their owner's color when the game ends. Sequential reveal in elimination order, winner's fleet appears last.
+- **Sunk ship hulls visible to all** — when a ship sinks during battle, its colored hull capsule appears on every player's grid.
+- **Colored UI elements** — chat names, shot log/kill feed, turn indicator, first blood highlight, and game-over stats table all show player colors.
+- **"YOU" badge** — player's own card in lobby and sidebar shows a colored "YOU" badge.
+- **Empty slot color preview** — open lobby seats show their assigned color at reduced opacity.
+- **Hull contrast stroke** — all hull capsules get a subtle silver inner stroke for visibility against crimson hit cells (solves red-player contrast issue).
+
+### Changed
+- **Ship hull colors per-player** — hulls render in player color instead of hardcoded green. Own ships: 20% fill / 100% stroke. Teammate ships: full color (same intensity as own — different color IS the distinction). Sunk ships: 40% fill / 60% stroke.
+- **Placement ghost in player color** — valid placement preview uses player's color (dashed). Invalid remains red.
+- **Winner highlight uses player color** — game-over stats rows and winner text use the winning player's color instead of generic green.
+- **6 new CSS variables** — `--player-magenta`, `--player-red`, `--player-yellow`, `--player-green`, `--player-cyan`, `--player-blue` with light mode variants.
+- **Lobby seats are fixed color slots** — players and bots appear in the slot they were added to, not packed sequentially. Host can add bots to specific color slots.
+
+### Fixed
+- Empty lobby slot opacity no longer breaks dropdown z-index stacking (CSS stacking context issue).
+- Seat menu items now highlight on hover (--bg-hover was same color as --bg-surface).
+- Bots added via "+" button now appear in the correct color slot, not auto-sorted to the next sequential slot.
+
 ## [0.12.0] - 2026-03-24
 
 ### Added

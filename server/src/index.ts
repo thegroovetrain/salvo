@@ -7,13 +7,14 @@ import type {
   ClientToServerEvents, ServerToClientEvents, ChatMessage,
   TimerConfig, ShipPlacement, AiDifficulty, QuickPlayMode, ChatChannel,
 } from '@salvo/shared';
-import { isPlayerAlive, playerShotCount, toGameMode, toQuickPlayMode, getTeammates, MODE_RINGS } from '@salvo/shared';
+import { isPlayerAlive, playerShotCount, toGameMode, toQuickPlayMode, getTeammates, MODE_RINGS, SLOT_COLORS, TEAM_COLOR_POOLS } from '@salvo/shared';
+import type { PlayerColor } from '@salvo/shared';
 import {
   createGame, addPlayer, addBot, removeBot, removePlayer, canStartGame, startGame, updateGameOptions,
   placeShips, allShipsPlaced, beginPlaying,
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, forfeitPlayer,
-  toClientView, resetForRematch,
+  toClientView, resetForRematch, assignPlayerColor,
 } from './game.js';
 import { chooseSalvo, generatePlacement, getBotDelay } from './ai.js';
 import { ConnectionManager } from './connections.js';
@@ -173,6 +174,9 @@ function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
     }
   }
 
+  // Assign random player colors for Quick Play
+  assignQuickPlayColors(game, mode);
+
   // Start the game immediately (skip lobby phase)
   startGame(game);
 
@@ -219,6 +223,50 @@ function autoAssignTeam(game: import('@salvo/shared').Game, playerId: string): v
     }
   }
   game.teams.set(playerId, minTeam);
+}
+
+/** Shuffle an array in place (Fisher-Yates) */
+function shuffle<T>(arr: T[]): T[] {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/** Assign random player colors for Quick Play games */
+function assignQuickPlayColors(game: import('@salvo/shared').Game, mode: QuickPlayMode): void {
+  if (!game.teamsEnabled) {
+    // FFA: shuffle all colors and assign by player order
+    const colors = shuffle([...SLOT_COLORS]);
+    let i = 0;
+    for (const player of game.players.values()) {
+      assignPlayerColor(game, player.id, colors[i++]);
+    }
+    return;
+  }
+
+  // Team modes: shuffle within each team's color pool
+  const gameType = game.gameType;
+  const pools = TEAM_COLOR_POOLS[gameType];
+  if (!pools) return;
+
+  // Group players by team
+  const teamPlayers = new Map<string, string[]>();
+  for (const [playerId, teamId] of game.teams) {
+    if (!teamPlayers.has(teamId)) teamPlayers.set(teamId, []);
+    teamPlayers.get(teamId)!.push(playerId);
+  }
+
+  // Assign shuffled colors from each team's pool
+  for (const [teamId, playerIds] of teamPlayers) {
+    const pool = pools[teamId];
+    if (!pool) continue;
+    const shuffled = shuffle([...pool]);
+    for (let i = 0; i < playerIds.length; i++) {
+      assignPlayerColor(game, playerIds[i], shuffled[i % shuffled.length]);
+    }
+  }
 }
 
 function emitToPlayer(playerId: string, event: string, data: unknown): void {
@@ -646,7 +694,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('add-bot', ({ difficulty, team }: { difficulty: AiDifficulty; team?: string }) => {
+  socket.on('add-bot', ({ difficulty, team, slotIndex }: { difficulty: AiDifficulty; team?: string; slotIndex?: number }) => {
     const playerId = connections.getPlayerIdBySocket(socket.id);
     if (!playerId) return;
 
@@ -658,7 +706,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const result = addBot(game, difficulty);
+    const result = addBot(game, difficulty, slotIndex);
     if ('error' in result) {
       socket.emit('error', { message: result.error });
       return;
@@ -912,14 +960,25 @@ io.on('connection', (socket) => {
     const targetPlayer = game.players.get(targetPlayerId);
     if (!targetPlayer) return;
 
-    // Get their current team and cycle
+    // Get their current team and cycle to the next team
     const currentTeam = game.teams.get(targetPlayerId);
-    if (!currentTeam) {
-      game.teams.set(targetPlayerId, 'alpha');
-    } else if (currentTeam === 'alpha') {
-      game.teams.set(targetPlayerId, 'bravo');
-    } else {
-      game.teams.set(targetPlayerId, 'alpha');
+    const teamNames = game.gameType === '3-team'
+      ? ['alpha', 'bravo', 'charlie']
+      : ['alpha', 'bravo'];
+    const currentIdx = currentTeam ? teamNames.indexOf(currentTeam) : -1;
+    const nextTeam = teamNames[(currentIdx + 1) % teamNames.length];
+    game.teams.set(targetPlayerId, nextTeam);
+
+    // Swap color to an available slot in the new team's range
+    const slotsPerTeam = Math.floor(6 / teamNames.length);
+    const teamStartSlot = teamNames.indexOf(nextTeam) * slotsPerTeam;
+    const usedColors = new Set([...game.players.values()].map(p => p.color));
+    usedColors.delete(targetPlayer.color); // current player's color is being released
+    for (let i = teamStartSlot; i < teamStartSlot + slotsPerTeam; i++) {
+      if (!usedColors.has(SLOT_COLORS[i])) {
+        targetPlayer.color = SLOT_COLORS[i];
+        break;
+      }
     }
 
     // Broadcast updated game state to all players
@@ -949,9 +1008,12 @@ io.on('connection', (socket) => {
     const teamB = game.teams.get(playerB);
     if (!teamA || !teamB || teamA === teamB) return;
 
-    // Atomic swap
+    // Atomic swap — teams AND colors
     game.teams.set(playerA, teamB);
     game.teams.set(playerB, teamA);
+    const colorA = pA.color;
+    pA.color = pB.color;
+    pB.color = colorA;
 
     emitGameState(game.id);
   });

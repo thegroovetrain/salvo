@@ -27,6 +27,13 @@
   --cell-fill: #000000;
   --info: #38BDF8;
   --info-bg: rgba(56, 189, 248, 0.1);
+  /* Player identity colors — NOT semantic (see DESIGN.md Player Colors) */
+  --player-magenta: #FF00FF;
+  --player-red: #FF3B3B;
+  --player-yellow: #FFD700;
+  --player-green: #00FF88;
+  --player-cyan: #00FFFF;
+  --player-blue: #38BDF8;
   --radius-sm: 2px;
   --radius-md: 8px;
   --radius-lg: 12px;
@@ -56,6 +63,12 @@
   --miss: #E2E8F0;
   --info: #0284C7;
   --info-bg: rgba(2, 132, 199, 0.08);
+  --player-magenta: #C026D3;
+  --player-red: #DC2626;
+  --player-yellow: #CA8A04;
+  --player-green: #059669;
+  --player-cyan: #0891B2;
+  --player-blue: #2563EB;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -1567,7 +1580,7 @@ html, body {
   font-family: inherit;
 }
 .seat-menu-item:hover {
-  background: var(--bg-hover);
+  background: var(--bg-elevated);
 }
 .seat-menu-item-danger:hover {
   color: var(--red);
@@ -1585,3 +1598,56 @@ html, body {
   }
   .seat-card { flex-wrap: wrap; }
 }
+
+/* ============================================================
+   Player Colors — per-player identity system
+   ============================================================ */
+
+.player-color-magenta { color: var(--player-magenta); border-color: var(--player-magenta); }
+.player-color-red { color: var(--player-red); border-color: var(--player-red); }
+.player-color-yellow { color: var(--player-yellow); border-color: var(--player-yellow); }
+.player-color-green { color: var(--player-green); border-color: var(--player-green); }
+.player-color-cyan { color: var(--player-cyan); border-color: var(--player-cyan); }
+.player-color-blue { color: var(--player-blue); border-color: var(--player-blue); }
+
+/* Seat card with player color accent */
+.seat-card[data-player-color] {
+  border-left: 4px solid;
+  transition: border-color 0.15s ease;
+}
+.seat-card[data-player-color] .seat-name {
+  font-weight: 500;
+}
+
+/* Empty lobby slot showing assigned color preview */
+.seat-card.seat-empty[data-player-color] {
+  border-left: 4px solid;
+  border-left-color: inherit;
+}
+.seat-card.seat-empty[data-player-color] > span {
+  opacity: 0.4;
+}
+
+/* Own player card highlight */
+.seat-card.player-card-self {
+  background: var(--bg-surface);
+  position: relative;
+}
+.player-you-badge {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  color: #000;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.player-color-magenta .player-you-badge { background: var(--player-magenta); }
+.player-color-red .player-you-badge { background: var(--player-red); }
+.player-color-yellow .player-you-badge { background: var(--player-yellow); }
+.player-color-green .player-you-badge { background: var(--player-green); }
+.player-color-cyan .player-you-badge { background: var(--player-cyan); }
+.player-color-blue .player-you-badge { background: var(--player-blue); }
