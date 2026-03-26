@@ -1,6 +1,6 @@
 import type { Game } from '@salvo/shared';
 import { isPlayerAlive, playerShotCount } from '@salvo/shared';
-import { getLobby, getConnections, emitToPlayer, emitGameState, broadcastToGame } from './emitters.js';
+import { getLobby, getConnections, getGuestSessions, emitToPlayer, emitGameState, broadcastToGame } from './emitters.js';
 import {
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
   advanceTurn, checkGameOver, eliminatePlayer, removePlayer,
@@ -112,6 +112,7 @@ export function executeBotTurn(gameId: string, botId: string): void {
   const gameOver = checkGameOver(game);
   if (gameOver) {
     clearTurnTimer(gameId);
+    getGuestSessions().unbindAllFromGame(gameId);
     emitGameState(gameId);
     broadcastToGame(gameId, 'game-over', gameOver);
     broadcastOnlineCount();
@@ -177,6 +178,7 @@ export function handlePlayerExit(game: Game, playerId: string, gameId: string): 
   if (gameOver) {
     clearTurnTimer(gameId);
     clearDisconnectSkipTimer(playerId);
+    getGuestSessions().unbindAllFromGame(gameId);
     emitGameState(gameId);
     broadcastToGame(gameId, 'game-over', gameOver);
     broadcastOnlineCount();
