@@ -9,7 +9,7 @@ Hullcracker.io is a multiplayer naval combat game. All players' ships occupy the
 npm run dev          # Start server (3000) + client (5173)
 npm run check        # Lint + type-check + test (all workspaces)
 npm run lint         # ESLint (complexity=10 enforced)
-npm test -w server   # Server tests (vitest, 293 tests)
+npm test -w server   # Server tests (vitest, 395 tests)
 npm test -w client   # Client tests (vitest + jsdom, 52 tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
@@ -29,7 +29,8 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - **server/src/emitters.ts** — Socket emission helpers: emitToPlayer, emitGameState, broadcastToGame
 - **server/src/handlers/** — Socket event handlers by domain: lobby.ts (create/join/start), playing.ts (place-ships/fire), social.ts (chat/swap-team), connection.ts (rejoin/surrender/disconnect), rematch.ts (rematch/quickplay-join)
 - **server/src/timers/** — Timer management: placement.ts, turn.ts, disconnectSkip.ts (skip disconnected player's turn after grace period), allDisconnected.ts (end game when all humans disconnect), index.ts (clearGameTimers orchestrator + timer Maps)
-- **server/src/queue/** — Quick Play matchmaking: queue state, tryMatchRoom, mode helpers
+- **server/src/queue/** — Ticket-based Quick Play matchmaking: types.ts (QueueTicket/QueuedMember interfaces), adapter.ts (ticket creation, legal mode validation), matcher.ts (greedy FIFO matching, party-aware team assignment), index.ts (orchestrator: ticket Map + guestId→ticketId reverse index, enqueue/dequeue/dissolve, match creation, tab eviction migration)
+- **server/src/party/** — Party system: state.ts (PartyManager: create/join/leave/disband, leader transfer, member DC grace, rate limiting, GC)
 - **server/src/ai/** — AI opponents: doctrine.ts (commander layer: hunt/kill/trade-up/protect-lead/desperation/cleanup), gunnery.ts (shot selection per doctrine), probability.ts (heat-map targeting), placement.ts (ship placement generation), helpers.ts (board analysis utilities), index.ts (public API)
 - **server/src/guestSessions.ts** — GuestSessionManager: persistent guest identity (localStorage guestId via Socket.IO auth), session lifecycle, game binding, multi-tab eviction, GC
 - **server/src/connections.ts** — playerId↔socketId mapping, disconnect state tracking, event buffering
@@ -72,6 +73,10 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - Placement timer shares turn timer (no separate placementTimerConfig). Auto-places ships on timeout via generatePlacement('easy'). Always enabled for Quick Play.
 - Private lobby: no create modal. Host configures Game Type / Turn Timer / Grid Size / Islands in-lobby via update-game-options socket event. Defaults: FFA, 60s, 5 rings, Normal islands. Two-column layout (players left, options panel right). Custom dropdown components with ARIA a11y. Leave button with host transfer.
 - toGameMode/toQuickPlayMode helpers in shared/types.ts eliminate binary ternary duplication
+- Queue uses ticket-based matchmaking: QueueTicket wraps 1+ members (solo=1, party=all). Greedy FIFO matcher sums ticket sizes, skips oversized. Ticket Map is single source of truth; Socket.IO rooms for broadcasting only. guestId→ticketId reverse index for O(1) disconnect/eviction.
+- Legal mode matrix: solo=all 6 modes, party of 2=2v2/2v2v2/3v3, party of 3=3v3 only. No FFA with parties.
+- Party members always on same team. Leader-only queue control (start/cancel). Any party mutation while queued dissolves the ticket.
+- Quick Play rematch stays individual — party members requeue as solo tickets. Party-aware rematch deferred to Sprint 1e.
 - Quick Play rematch destroys the game and requeues players (clean game boundaries); private rematch resets in-place
 - Player colors: 6 fixed colors (magenta/red/yellow/green/cyan/blue). Private games assign by join order (SLOT_COLORS). Quick Play randomizes: FFA shuffles all 6; team modes use TEAM_COLOR_POOLS (warm/cool split for 2-team, disjoint pairs for 3-team). Lobby renders fixed color slots.
 - Game-over reveal: toClientView() uses serializeShipForGameOver() to expose all ship cells when phase='finished'. Client renders all players' ships in their assigned colors.
