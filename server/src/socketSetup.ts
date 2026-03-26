@@ -95,6 +95,10 @@ function autoReattach(io: IO, socket: TypedSocket, playerId: string, gameId: str
   // Cancel all-disconnected timer since someone reconnected
   clearAllDisconnectedTimer(gameId);
 
+  // Restore client identity (new tabs have empty sessionStorage)
+  const code = lobby.getCodeForGame(gameId) ?? '';
+  socket.emit('game-created', { code, playerId, gameId });
+
   // Send current game state (authoritative snapshot)
   socket.emit('game-state', { game: toClientView(game, playerId) });
 
