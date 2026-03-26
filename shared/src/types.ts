@@ -218,6 +218,42 @@ export interface GameOverStats {
   highlights: string[]; // e.g. "Sharpshooter: Eric (78%)"
 }
 
+// --- Party Types ---
+
+export type PartyErrorReason =
+  | 'already-in-party'
+  | 'in-game'
+  | 'party-full'
+  | 'invalid-code'
+  | 'not-leader'
+  | 'members-in-game'
+  | 'rate-limited'
+  | 'not-in-party';
+
+export const PARTY_ERROR_MESSAGES: Record<PartyErrorReason, string> = {
+  'already-in-party': "You're already in a party",
+  'in-game': "Can't join a party while in a game",
+  'party-full': 'Party is full (max 3 players)',
+  'invalid-code': 'Invalid party code',
+  'not-leader': 'Only the party leader can do that',
+  'members-in-game': "Can't disband while members are in a game",
+  'rate-limited': 'Please wait before creating another party',
+  'not-in-party': "You're not in a party",
+};
+
+export interface WirePartyMember {
+  displayId: string;    // opaque per-party ID (NOT guestId — guestId is a credential)
+  name: string | null;
+  joinedAt: number;
+}
+
+export interface PartyStatePayload {
+  partyId: string;
+  code: string;
+  leaderId: string;    // matches a member's displayId
+  members: WirePartyMember[];
+}
+
 // --- Ship placement input ---
 
 export interface ShipPlacement {
@@ -265,6 +301,11 @@ export interface ClientToServerEvents {
   'quickplay-leave': () => void;
   'surrender': () => void;
   'leave-game': () => void;
+  // Party events
+  'create-party': () => void;
+  'join-party': (data: { code: string }) => void;
+  'leave-party': () => void;
+  'disband-party': () => void;
 }
 
 export interface ServerToClientEvents {
@@ -293,6 +334,15 @@ export interface ServerToClientEvents {
   'left-game': () => void;
   'tab-evicted': () => void;
   'guest-id-assigned': (data: { guestId: string }) => void;
+  // Party events
+  'party-created': (data: PartyStatePayload) => void;
+  'party-joined': (data: PartyStatePayload) => void;
+  'party-updated': (data: PartyStatePayload) => void;
+  'party-left': () => void;
+  'party-disbanded': () => void;
+  'party-error': (data: { reason: PartyErrorReason }) => void;
+  'party-leader-disconnected': () => void;
+  'party-leader-reconnected': () => void;
 }
 
 // --- Helpers ---
