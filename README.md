@@ -45,7 +45,7 @@ You get one shot per surviving ship. Lose a ship, lose a shot.
 - **Client:** Vite + TypeScript (vanilla, no framework)
 - **Server:** Express + socket.io
 - **Shared:** TypeScript types shared via npm workspaces
-- **Tests:** Vitest (326 tests — server: game logic, security, AI doctrine/gunnery/placement/simulation, matchmaking, surrender, teams, swap, islands, player colors; client: state, helpers, audio, grid, battle, smoke)
+- **Tests:** Vitest (345 tests — server: game logic, security, AI doctrine/gunnery/placement/simulation, matchmaking, surrender, teams, swap, islands, player colors, guest sessions, disconnect handling; client: state, helpers, audio, grid, battle, smoke)
 - **Linting:** ESLint with cyclomatic complexity ≤ 10 enforced
 
 ## Project Structure
@@ -62,7 +62,7 @@ salvo/
 │   ├── gameFlow.ts           # Turn flow, bot execution, player exit
 │   ├── ai/                   # AI opponents (doctrine/gunnery architecture)
 │   ├── handlers/             # Socket event handlers by domain
-│   ├── timers/               # Placement, turn, forfeit timer management
+│   ├── timers/               # Placement, turn, disconnect-skip timer management
 │   └── queue/                # Quick Play matchmaking
 ├── client/src/
 │   ├── main.ts               # Bootstrap (61 LOC)
@@ -106,7 +106,7 @@ npm run check        # Lint + type-check + test (all workspaces)
 - **Chat** — timestamps, game/chat message separation, team/global channel toggle in 2v2
 - **Light/dark mode** — toggle with localStorage persistence
 - **Surrender** — leave any active game via a "Surrender" button with confirmation modal
-- **Reconnection** — turn-based forfeit window with event buffering; page reload shows a rejoin modal
+- **Reconnection** — auto-reconnect via guest sessions (no accounts); disconnected players get turns skipped, not forfeited
 - **Changelog** — in-app version history accessible from the lobby
 
 ## Design
