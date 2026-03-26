@@ -52,11 +52,8 @@ export interface AppState {
   matchSoundMuted: boolean;
   // Lobby dropdown
   openDropdownId: string | null;
-  // Surrender & Rejoin
+  // Surrender
   showSurrenderModal: boolean;
-  showRejoinModal: boolean;
-  rejoinTimeRemaining: number;
-  rejoinCountdownInterval: ReturnType<typeof setInterval> | null;
   // Error
   errorMessage: string | null;
   errorTimeout: ReturnType<typeof setTimeout> | null;
@@ -100,9 +97,6 @@ export const state: AppState = {
   matchSoundMuted: false,  // initialized in main.ts
   openDropdownId: null as string | null,
   showSurrenderModal: false,
-  showRejoinModal: false,
-  rejoinTimeRemaining: 0,
-  rejoinCountdownInterval: null,
   errorMessage: null,
   errorTimeout: null,
   infoMessage: null,

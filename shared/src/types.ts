@@ -259,15 +259,12 @@ export interface ClientToServerEvents {
   'swap-players': (data: { playerA: string; playerB: string }) => void;
   'move-to-slot': (data: { slotIndex: number }) => void;
   'placement-preview': (data: { ships: ShipPlacement[] }) => void;
-  'rejoin': (data: { playerId: string; gameId: string }) => void;
   'rematch-request': () => void;
   'rematch-decline': () => void;
   'quickplay-join': (data: { playerName: string; mode: QuickPlayMode }) => void;
   'quickplay-leave': () => void;
   'surrender': () => void;
   'leave-game': () => void;
-  'decline-rejoin': (data: { playerId: string; gameId: string }) => void;
-  'check-rejoin': (data: { playerId: string; gameId: string }) => void;
 }
 
 export interface ServerToClientEvents {
@@ -279,7 +276,7 @@ export interface ServerToClientEvents {
   'your-turn': (data: { shotCount: number; timerSeconds: number | null }) => void;
   'turn-timeout': (data: { playerId: string }) => void;
   'shot-results': (data: { shooterId: string; shooterName: string; shots: ShotResult[]; game: WireGame }) => void;
-  'player-eliminated': (data: { playerId: string; playerName: string; reason: 'forfeit' | 'sunk' }) => void;
+  'player-eliminated': (data: { playerId: string; playerName: string; reason: 'surrender' | 'sunk' }) => void;
   'game-over': (data: GameOverStats) => void;
   'game-state': (data: { game: WireGame }) => void; // full state on reconnect
   'chat-message': (data: ChatMessage) => void;
@@ -294,7 +291,8 @@ export interface ServerToClientEvents {
   'online-count': (data: { count: number }) => void;
   'surrender-ack': () => void;
   'left-game': () => void;
-  'check-rejoin-response': (data: { valid: boolean; timeRemaining: number }) => void;
+  'tab-evicted': () => void;
+  'guest-id-assigned': (data: { guestId: string }) => void;
 }
 
 // --- Helpers ---

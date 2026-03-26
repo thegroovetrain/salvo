@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   createGame, addPlayer, startGame, placeShips, beginPlaying,
-  allShipsPlaced, forfeitPlayer, getCurrentTurnPlayerId,
+  allShipsPlaced, eliminatePlayer, getCurrentTurnPlayerId,
   advanceTurn, checkGameOver, removePlayer, toClientView,
 } from '../game.js';
 import { ConnectionManager } from '../connections.js';
@@ -22,7 +22,7 @@ describe('Surrender during playing phase', () => {
     game.currentTurnIndex = 0; // p1's turn
 
     // p2 surrenders (not their turn)
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
     expect(game.players.get('p2')!.ships).toEqual([]);
     expect(isPlayerAlive(game.players.get('p2')!)).toBe(false);
 
@@ -40,7 +40,7 @@ describe('Surrender during playing phase', () => {
     game.currentTurnIndex = 1; // p2's turn
 
     // p2 surrenders on their own turn
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
 
     // Before removing, advanceTurn should skip to p3
     advanceTurn(game);
@@ -55,7 +55,7 @@ describe('Surrender during playing phase', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
     const result = checkGameOver(game);
 
     expect(result).not.toBeNull();
@@ -67,7 +67,7 @@ describe('Surrender during playing phase', () => {
     const { game, playerIds } = makeGame(3);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p3');
+    eliminatePlayer(game, 'p3');
     const result = checkGameOver(game);
     expect(result).toBeNull();
     expect(game.phase).toBe('playing');
@@ -101,7 +101,7 @@ describe('Surrender — toClientView security', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
 
     const view = toClientView(game, 'p1');
     expect(view.players['p2'].ships).toEqual([]);
@@ -113,7 +113,7 @@ describe('Surrender — toClientView security', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p1');
+    eliminatePlayer(game, 'p1');
 
     const view = toClientView(game, 'p1');
     expect(view.players['p1'].ships).toEqual([]);
@@ -125,7 +125,7 @@ describe('Surrender — toClientView security', () => {
     setupBattle(game, playerIds);
 
     const shotsBefore = game.shots.size;
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
     const shotsAfter = game.shots.size;
 
     // Silent forfeit should not add any shots to the global shot set
@@ -148,29 +148,4 @@ describe('ConnectionManager — surrender cleanup', () => {
     expect(cm.getPlayerIdBySocket('socket1')).toBeUndefined();
   });
 
-  it('getDisconnectTimeRemaining returns time for disconnected player', () => {
-    const cm = new ConnectionManager();
-    cm.register('player1', 'socket1', 'game1');
-    cm.handleDisconnect('socket1');
-
-    const remaining = cm.getDisconnectTimeRemaining('player1');
-    expect(remaining).not.toBeNull();
-    expect(remaining!).toBeGreaterThan(0);
-    expect(remaining!).toBeLessThanOrEqual(60);
-
-    // Cleanup
-    cm.remove('player1');
-  });
-
-  it('getDisconnectTimeRemaining returns null for connected player', () => {
-    const cm = new ConnectionManager();
-    cm.register('player1', 'socket1', 'game1');
-
-    expect(cm.getDisconnectTimeRemaining('player1')).toBeNull();
-  });
-
-  it('getDisconnectTimeRemaining returns null for unknown player', () => {
-    const cm = new ConnectionManager();
-    expect(cm.getDisconnectTimeRemaining('nonexistent')).toBeNull();
-  });
 });

@@ -3,17 +3,20 @@ import type { ClientToServerEvents, ServerToClientEvents } from '@salvo/shared';
 import { toClientView } from './game.js';
 import type { ConnectionManager } from './connections.js';
 import type { LobbyManager } from './lobby.js';
+import type { GuestSessionManager } from './guestSessions.js';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 
 let _io: IO;
 let _connections: ConnectionManager;
 let _lobby: LobbyManager;
+let _guestSessions: GuestSessionManager;
 
-export function initEmitters(io: IO, connections: ConnectionManager, lobby: LobbyManager): void {
+export function initEmitters(io: IO, connections: ConnectionManager, lobby: LobbyManager, guestSessions: GuestSessionManager): void {
   _io = io;
   _connections = connections;
   _lobby = lobby;
+  _guestSessions = guestSessions;
 }
 
 export function getIO(): IO {
@@ -26,6 +29,10 @@ export function getConnections(): ConnectionManager {
 
 export function getLobby(): LobbyManager {
   return _lobby;
+}
+
+export function getGuestSessions(): GuestSessionManager {
+  return _guestSessions;
 }
 
 export function emitToPlayer(playerId: string, event: string, data: unknown): void {

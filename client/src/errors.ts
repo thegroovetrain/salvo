@@ -1,14 +1,20 @@
 import { state } from './state.js';
 
-export function showError(message: string): void {
-  state.errorMessage = message;
+type MessageType = 'error' | 'info';
+
+export function showMessage(message: string, type: MessageType = 'error'): void {
+  const className = type === 'info' ? 'alert-info' : 'alert-error';
+
+  if (type === 'error') {
+    state.errorMessage = message;
+  }
   if (state.errorTimeout) clearTimeout(state.errorTimeout);
 
-  // Update error in-place without re-rendering (preserves input values)
-  let errorEl = document.querySelector('.alert-error') as HTMLElement | null;
-  if (errorEl) {
-    errorEl.textContent = message;
-    errorEl.classList.remove('hidden');
+  // Update in-place without re-rendering (preserves input values)
+  let el = document.querySelector(`.${className}`) as HTMLElement | null;
+  if (el) {
+    el.textContent = message;
+    el.classList.remove('hidden');
   } else {
     const screen = document.querySelector('.screen');
     if (screen) {
@@ -17,17 +23,24 @@ export function showError(message: string): void {
       const insertAfter = subtitleEl ?? titleEl;
       if (insertAfter) {
         const div = document.createElement('div');
-        div.className = 'alert alert-error';
+        div.className = `alert ${className}`;
         div.textContent = message;
+        div.setAttribute('role', 'status');
+        div.setAttribute('aria-live', 'polite');
         insertAfter.insertAdjacentElement('afterend', div);
-        errorEl = div;
+        el = div;
       }
     }
   }
 
   state.errorTimeout = setTimeout(() => {
-    state.errorMessage = null;
-    const el = document.querySelector('.alert-error');
-    if (el) el.remove();
-  }, 4000);
+    if (type === 'error') state.errorMessage = null;
+    const toRemove = document.querySelector(`.${className}`);
+    if (toRemove) toRemove.remove();
+  }, type === 'info' ? 5000 : 4000);
+}
+
+/** Convenience wrapper for error messages (backwards compatible). */
+export function showError(message: string): void {
+  showMessage(message, 'error');
 }

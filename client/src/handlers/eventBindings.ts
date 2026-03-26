@@ -32,24 +32,38 @@ function handleAddBot(el: Element): void {
   if (difficulty) socket.emit('add-bot', { difficulty, ...(team ? { team } : {}), ...(slotIndex != null ? { slotIndex } : {}) });
 }
 
+function handleSeatMove(el: Element): void {
+  const targetId = el.getAttribute('data-target');
+  if (targetId) socket.emit('swap-team', { targetPlayerId: targetId });
+}
+
+function handleSeatSwap(el: Element): void {
+  const playerA = el.getAttribute('data-player-a');
+  const playerB = el.getAttribute('data-player-b');
+  if (playerA && playerB) socket.emit('swap-players', { playerA, playerB });
+}
+
+function handleSeatKick(el: Element): void {
+  const botId = el.getAttribute('data-bot-id');
+  if (botId) socket.emit('remove-bot', { botId });
+}
+
+function handleSeatMoveToSlot(el: Element): void {
+  const slotStr = el.getAttribute('data-slot-index');
+  if (slotStr != null) socket.emit('move-to-slot', { slotIndex: parseInt(slotStr, 10) });
+}
+
+const seatActions: Record<string, (el: Element) => void> = {
+  'add-bot': handleAddBot,
+  'move': handleSeatMove,
+  'swap': handleSeatSwap,
+  'kick': handleSeatKick,
+  'move-to-slot': handleSeatMoveToSlot,
+};
+
 function handleSeatMenuAction(el: Element): void {
   const action = el.getAttribute('data-action');
-  if (action === 'add-bot') {
-    handleAddBot(el);
-  } else if (action === 'move') {
-    const targetId = el.getAttribute('data-target');
-    if (targetId) socket.emit('swap-team', { targetPlayerId: targetId });
-  } else if (action === 'swap') {
-    const playerA = el.getAttribute('data-player-a');
-    const playerB = el.getAttribute('data-player-b');
-    if (playerA && playerB) socket.emit('swap-players', { playerA, playerB });
-  } else if (action === 'kick') {
-    const botId = el.getAttribute('data-bot-id');
-    if (botId) socket.emit('remove-bot', { botId });
-  } else if (action === 'move-to-slot') {
-    const slotStr = el.getAttribute('data-slot-index');
-    if (slotStr != null) socket.emit('move-to-slot', { slotIndex: parseInt(slotStr, 10) });
-  }
+  if (action && seatActions[action]) seatActions[action](el);
 }
 
 export function bindEvents(): void {
@@ -465,43 +479,4 @@ export function bindEvents(): void {
     }
   });
 
-  // Rejoin modal
-  on('btn-rejoin-yes', 'click', () => {
-    const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
-    const savedGameId = sessionStorage.getItem('hullcracker-gameId');
-    if (savedPlayerId && savedGameId) {
-      socket.emit('rejoin', { playerId: savedPlayerId, gameId: savedGameId });
-    }
-    // Show loading state — modal stays visible until game-state arrives
-    const btn = document.getElementById('btn-rejoin-yes') as HTMLButtonElement | null;
-    if (btn) {
-      btn.textContent = 'Rejoining...';
-      btn.disabled = true;
-    }
-    if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
-    state.rejoinCountdownInterval = null;
-    // Fallback: dismiss modal after 5s if game-state never arrives
-    setTimeout(() => {
-      if (state.showRejoinModal) {
-        state.showRejoinModal = false;
-        sessionStorage.removeItem('hullcracker-playerId');
-        sessionStorage.removeItem('hullcracker-gameId');
-        render();
-      }
-    }, 5000);
-  });
-
-  on('btn-rejoin-no', 'click', () => {
-    const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
-    const savedGameId = sessionStorage.getItem('hullcracker-gameId');
-    if (savedPlayerId && savedGameId) {
-      socket.emit('decline-rejoin', { playerId: savedPlayerId, gameId: savedGameId });
-    }
-    sessionStorage.removeItem('hullcracker-playerId');
-    sessionStorage.removeItem('hullcracker-gameId');
-    state.showRejoinModal = false;
-    if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
-    state.rejoinCountdownInterval = null;
-    render();
-  });
 }

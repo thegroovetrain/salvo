@@ -3,7 +3,7 @@ import {
   createGame, addPlayer, addBot, canStartGame, startGame,
   placeShips, allShipsPlaced, beginPlaying,
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
-  advanceTurn, checkGameOver, forfeitPlayer,
+  advanceTurn, checkGameOver, eliminatePlayer,
   toClientView, validatePlacement, resetForRematch,
   generateIslands, updateGameOptions, removePlayer,
   checkNewEliminations,
@@ -410,7 +410,7 @@ describe('Turn Management', () => {
     game.turnOrder = ['p1', 'p2', 'p3'];
     game.currentTurnIndex = 0;
 
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
     advanceTurn(game);
     expect(getCurrentTurnPlayerId(game)).toBe('p3');
   });
@@ -425,7 +425,7 @@ describe('Game Over', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
     const result = checkGameOver(game);
 
     expect(result).not.toBeNull();
@@ -437,8 +437,8 @@ describe('Game Over', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p1');
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p1');
+    eliminatePlayer(game, 'p2');
     const result = checkGameOver(game);
 
     expect(result).not.toBeNull();
@@ -449,7 +449,7 @@ describe('Game Over', () => {
     const { game, playerIds } = makeGame(3);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p3');
+    eliminatePlayer(game, 'p3');
     const result = checkGameOver(game);
     expect(result).toBeNull();
     expect(game.phase).toBe('playing');
@@ -465,7 +465,7 @@ describe('Forfeit (silent removal)', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p1');
+    eliminatePlayer(game, 'p1');
     const p1 = game.players.get('p1')!;
     expect(p1.ships).toEqual([]);
     expect(isPlayerAlive(p1)).toBe(false);
@@ -501,7 +501,7 @@ describe('Forfeit (silent removal)', () => {
     game.turnOrder = ['p1', 'p2', 'p3'];
     game.currentTurnIndex = 0;
 
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
     advanceTurn(game);
     expect(getCurrentTurnPlayerId(game)).toBe('p3');
   });
@@ -510,7 +510,7 @@ describe('Forfeit (silent removal)', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
     const result = checkGameOver(game);
     expect(result).not.toBeNull();
     expect(result!.winnerId).toBe('p1');
@@ -635,7 +635,7 @@ describe('Game Stats', () => {
     advanceTurn(game);
     fireSalvo(game, 'p1', p2Cells.slice(shotCount, shotCount * 2));
 
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
     const result = checkGameOver(game);
 
     expect(result).not.toBeNull();

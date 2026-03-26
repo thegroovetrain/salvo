@@ -176,39 +176,70 @@ function renderSurrenderButton(alive: boolean): string {
   return alive ? '<button class="btn btn-danger" id="btn-surrender" style="margin-top:12px;width:100%">Surrender</button>' : '';
 }
 
-export function renderBattle(): string {
-  if (!state.game || !state.playerId) return '';
+/** Count available unshot hexes on the board (for late-game shot capping). */
+function getUnshotCount(rings: number, shots: string[], islands: string[]): number {
+  return allHexes(rings).filter(c => !shots.includes(c) && !islands.includes(c)).length;
+}
+
+interface BattleState {
+  isMyTurn: boolean;
+  maxShots: number;
+  canFire: boolean;
+  currentTurnId: string;
+  currentPlayer: WirePlayer;
+  teamsEnabled: boolean;
+  gameModeLabel: string;
+  isAlive: boolean;
+}
+
+function computeBattleState(): BattleState | null {
+  if (!state.game || !state.playerId) return null;
 
   const myPlayer = state.game.players[state.playerId];
   const currentTurnId = state.game.turnOrder[state.game.currentTurnIndex];
   const isMyTurn = currentTurnId === state.playerId;
   const expectedShots = myPlayer ? myPlayer.shotCount : 0;
-  // Cap shots at available unshot hexes (late-game boards may have fewer targets)
-  const unshotCount = state.game.shots ? allHexes(state.game.rings).filter(c => !state.game!.shots.includes(c) && !state.game!.islands.includes(c)).length : expectedShots;
+  const unshotCount = state.game.shots
+    ? getUnshotCount(state.game.rings, state.game.shots, state.game.islands)
+    : expectedShots;
   const maxShots = Math.min(expectedShots, unshotCount);
   const teamsEnabled = state.game.teamsEnabled;
-  const gameModeLabel = teamsEnabled ? renderGameModeLabel(state.game.teams) : '';
-  const currentPlayer = state.game.players[currentTurnId];
   const canFire = isMyTurn && state.selectedTargets.length >= 1 && state.selectedTargets.length <= maxShots;
+
+  return {
+    isMyTurn,
+    maxShots,
+    canFire,
+    currentTurnId,
+    currentPlayer: state.game.players[currentTurnId],
+    teamsEnabled,
+    gameModeLabel: teamsEnabled ? renderGameModeLabel(state.game.teams) : '',
+    isAlive: myPlayer?.alive ?? false,
+  };
+}
+
+export function renderBattle(): string {
+  const bs = computeBattleState();
+  if (!bs) return '';
 
   return `
     <div class="screen">
       ${renderError()}
-      ${gameModeLabel}
+      ${bs.gameModeLabel}
       <div class="battle-layout battle-layout-unified">
-        <div class="grid-panel${isMyTurn ? ' your-turn-glow' : ''}" id="ocean-panel">
+        <div class="grid-panel${bs.isMyTurn ? ' your-turn-glow' : ''}" id="ocean-panel">
           <h3>Shared Ocean</h3>
           ${renderGrid('battle')}
         </div>
         <div class="side-panel">
-          ${renderTurnIndicator(isMyTurn, currentPlayer, maxShots)}
+          ${renderTurnIndicator(bs.isMyTurn, bs.currentPlayer, bs.maxShots)}
           <h3 class="label" style="margin-bottom:8px">Players</h3>
-          <ul class="player-list" style="margin-bottom:12px">${renderSortedPlayerList(currentTurnId, teamsEnabled, state.game.teams)}</ul>
-          ${isMyTurn ? renderFireControls(canFire, maxShots) : ''}
+          <ul class="player-list" style="margin-bottom:12px">${renderSortedPlayerList(bs.currentTurnId, bs.teamsEnabled, state.game!.teams)}</ul>
+          ${bs.isMyTurn ? renderFireControls(bs.canFire, bs.maxShots) : ''}
           <h3 class="label" style="margin:12px 0 8px">Shot Log</h3>
           ${renderShotLogPanel()}
           ${renderChat()}
-          ${renderSurrenderButton(myPlayer?.alive ?? false)}
+          ${renderSurrenderButton(bs.isAlive)}
         </div>
       </div>
     </div>`;

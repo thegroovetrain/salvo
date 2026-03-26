@@ -1,14 +1,18 @@
 import { socket } from '../socket.js';
 import { state } from '../state.js';
 import { render } from '../rendering/render.js';
-import { showError } from '../errors.js';
+import { showError, showMessage } from '../errors.js';
 import { startPlacementTimer, stopTimer, stopPlacementTimer } from '../timers/index.js';
-
-let isInitialPageLoad = true;
+import { setGuestId } from '../helpers/storage.js';
 
 export function registerLobbyHandlers(): void {
   socket.on('error', ({ message }) => {
-    showError(message);
+    // If reconnecting and game is gone, show info instead of error
+    if (message === 'Game no longer available') {
+      showMessage(message, 'info');
+    } else {
+      showError(message);
+    }
   });
 
   socket.on('game-created', ({ code, playerId, gameId }) => {
@@ -97,43 +101,26 @@ export function registerLobbyHandlers(): void {
     render();
   });
 
-  // Rejoin check response
-  socket.on('check-rejoin-response', ({ valid }) => {
-    const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
-    const savedGameId = sessionStorage.getItem('hullcracker-gameId');
-    if (!valid || !savedPlayerId || !savedGameId) {
-      sessionStorage.removeItem('hullcracker-playerId');
-      sessionStorage.removeItem('hullcracker-gameId');
-      state.showRejoinModal = false;
-      if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
-      state.rejoinCountdownInterval = null;
-      render();
-      return; // stay on lobby
-    }
-    // Show rejoin modal (no countdown — forfeit is turn-based now)
-    state.showRejoinModal = true;
-    state.rejoinTimeRemaining = 0;
+  // Tab eviction — another tab took over this session
+  socket.on('tab-evicted', () => {
+    sessionStorage.removeItem('hullcracker-playerId');
+    sessionStorage.removeItem('hullcracker-gameId');
+    state.screen = 'lobby';
+    state.game = null;
+    state.playerId = null;
+    state.gameId = null;
+    state.joinCode = null;
+    state.isMyTurn = false;
+    stopTimer();
+    stopPlacementTimer();
+    showMessage('Playing in another tab', 'info');
     render();
   });
 
-  // Reconnection handling
-  socket.on('connect', () => {
-    if (!isInitialPageLoad) {
-      // Socket.io internal reconnect — auto-rejoin silently
-      const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
-      const savedGameId = sessionStorage.getItem('hullcracker-gameId');
-      if (savedPlayerId && savedGameId) {
-        socket.emit('rejoin', { playerId: savedPlayerId, gameId: savedGameId });
-      }
-      return;
-    }
-    isInitialPageLoad = false;
-
-    const savedPlayerId = sessionStorage.getItem('hullcracker-playerId');
-    const savedGameId = sessionStorage.getItem('hullcracker-gameId');
-    if (savedPlayerId && savedGameId) {
-      // Check if rejoin is still valid
-      socket.emit('check-rejoin', { playerId: savedPlayerId, gameId: savedGameId });
-    }
+  // Server-assigned guestId (when client didn't have a valid one)
+  socket.on('guest-id-assigned', ({ guestId }) => {
+    setGuestId(guestId);
+    // Update socket auth for future reconnections
+    socket.auth = { guestId };
   });
 }

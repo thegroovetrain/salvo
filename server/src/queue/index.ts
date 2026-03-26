@@ -1,7 +1,8 @@
 import type { QuickPlayMode } from '@salvo/shared';
 import { toGameMode, MODE_RINGS } from '@salvo/shared';
 import crypto from 'node:crypto';
-import { getIO, getLobby, getConnections, emitToPlayer } from '../emitters.js';
+import { getIO, getLobby, getConnections, getGuestSessions, emitToPlayer } from '../emitters.js';
+import type { GuestSessionManager } from '../guestSessions.js';
 import { createGame, addPlayer, startGame, toClientView } from '../game.js';
 import { assignQuickPlayColors } from '../helpers.js';
 import { startPlacementTimer } from '../timers/index.js';
@@ -17,7 +18,12 @@ export function getQueueSize(roomName: string): number {
 }
 
 export function broadcastOnlineCount(): void {
-  getIO().emit('online-count', { count: getIO().sockets.sockets.size });
+  // Deduplicate by guestId — multi-tab users count as 1
+  const guestSessions = getGuestSessions();
+  const count = guestSessions
+    ? guestSessions.getConnectedGuestCount()
+    : getIO().sockets.sockets.size;
+  getIO().emit('online-count', { count });
 }
 
 export function getTargetSize(mode: QuickPlayMode): number {
@@ -47,20 +53,31 @@ function moveSocketToGame(io: IO, socketId: string, roomName: string, gameId: st
   }
 }
 
+function bindGuestToGame(guestSessions: GuestSessionManager, socketId: string, playerId: string, gameId: string, playerName: string): void {
+  const guestId = guestSessions.getGuestIdBySocket(socketId);
+  if (guestId) {
+    guestSessions.bindToGame(guestId, playerId, gameId);
+    guestSessions.setName(guestId, playerName);
+  }
+}
+
 function addMatchedPlayers(
   io: IO, matchedSocketIds: string[], game: Game, roomName: string,
 ): string[] {
   const lobby = getLobby();
   const connections = getConnections();
+  const guestSessions = getGuestSessions();
   const allPlayerIds: string[] = [];
 
   for (let i = 1; i < matchedSocketIds.length; i++) {
     const sid = matchedSocketIds[i];
     const entry = queueEntries.get(sid);
+    const playerName = entry?.playerName ?? 'Player';
     const playerId = crypto.randomUUID();
-    addPlayer(game, playerId, entry?.playerName ?? 'Player');
+    addPlayer(game, playerId, playerName);
     lobby.registerPlayer(playerId, game.id);
     connections.register(playerId, sid, game.id);
+    bindGuestToGame(guestSessions, sid, playerId, game.id, playerName);
     moveSocketToGame(io, sid, roomName, game.id);
     queueEntries.delete(sid);
     io.to(sid).emit('quickplay-matched', { playerId, gameId: game.id });
@@ -110,10 +127,12 @@ export function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
   const matchedSocketIds = [...roomSockets].slice(0, target);
   const gameMode = toGameMode(mode);
 
+  const guestSessions = getGuestSessions();
   const firstEntry = queueEntries.get(matchedSocketIds[0]);
+  const hostName = firstEntry?.playerName ?? 'Player';
   const hostId = crypto.randomUUID();
   const game = createGame(
-    hostId, firstEntry?.playerName ?? 'Player',
+    hostId, hostName,
     { enabled: true, seconds: 60 }, gameMode, isTeamMode(mode), MODE_RINGS[gameMode],
   );
 
@@ -121,6 +140,7 @@ export function tryMatchRoom(roomName: string, mode: QuickPlayMode): void {
   lobby.addGame(game, code);
   lobby.registerPlayer(hostId, game.id);
   connections.register(hostId, matchedSocketIds[0], game.id);
+  bindGuestToGame(guestSessions, matchedSocketIds[0], hostId, game.id, hostName);
   moveSocketToGame(io, matchedSocketIds[0], roomName, game.id);
   queueEntries.delete(matchedSocketIds[0]);
   io.to(matchedSocketIds[0]).emit('quickplay-matched', { playerId: hostId, gameId: game.id });

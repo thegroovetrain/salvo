@@ -15,6 +15,7 @@ interface ConnectionState {
   playerId: string;
   socketId: string;
   gameId: string;
+  guestId: string | null;
   disconnectedAt: number | null;
   bufferedEvents: BufferedEvent[];
 }
@@ -25,11 +26,16 @@ export class ConnectionManager {
   // socketId → playerId (reverse lookup)
   private socketToPlayer = new Map<string, string>();
 
-  register(playerId: string, socketId: string, gameId: string): void {
+  get connectionCount(): number {
+    return this.connections.size;
+  }
+
+  register(playerId: string, socketId: string, gameId: string, guestId?: string): void {
     this.connections.set(playerId, {
       playerId,
       socketId,
       gameId,
+      guestId: guestId ?? null,
       disconnectedAt: null,
       bufferedEvents: [],
     });
@@ -109,18 +115,6 @@ export class ConnectionManager {
 
     conn.bufferedEvents.push({ event, data });
     return true;
-  }
-
-  /**
-   * Get remaining disconnect time in seconds, or null if not disconnected.
-   */
-  getDisconnectTimeRemaining(playerId: string): number | null {
-    const conn = this.connections.get(playerId);
-    if (!conn || conn.disconnectedAt === null) return null;
-
-    const elapsed = Date.now() - conn.disconnectedAt;
-    const remaining = Math.max(0, 60_000 - elapsed);
-    return Math.ceil(remaining / 1000);
   }
 
   /**

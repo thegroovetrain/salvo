@@ -57,6 +57,10 @@ export class LobbyManager {
     this.playerToGame.set(playerId, gameId);
   }
 
+  get gameCount(): number {
+    return this.games.size;
+  }
+
   getGame(gameId: string): Game | undefined {
     return this.games.get(gameId);
   }

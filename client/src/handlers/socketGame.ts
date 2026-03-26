@@ -16,13 +16,6 @@ function handleHostTransfer(game: { hostId: string }): void {
   }
 }
 
-function dismissRejoinModal(): void {
-  if (!state.showRejoinModal) return;
-  state.showRejoinModal = false;
-  if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
-  state.rejoinCountdownInterval = null;
-}
-
 function restorePlayerIdentity(game: { id: string; players: Record<string, unknown> }): void {
   if (state.playerId) return;
   const saved = sessionStorage.getItem('hullcracker-playerId');
@@ -52,7 +45,6 @@ export function registerGameHandlers(): void {
   socket.on('game-state', ({ game }) => {
     handleHostTransfer(game);
     state.game = game;
-    dismissRejoinModal();
     restorePlayerIdentity(game);
     syncScreenToPhase(game);
     render();
@@ -98,7 +90,7 @@ export function registerGameHandlers(): void {
   });
 
   socket.on('player-eliminated', ({ playerName, reason }) => {
-    const reasonText = reason === 'forfeit' ? 'forfeited (disconnected)' : 'eliminated';
+    const reasonText = reason === 'surrender' ? 'surrendered' : 'eliminated';
     state.chatMessages.push({
       playerId: 'system',
       playerName: 'SYSTEM',
@@ -115,13 +107,7 @@ export function registerGameHandlers(): void {
     state.isMyTurn = false;
     stopTimer();
     stopPlacementTimer();
-    // Dismiss rejoin modal if still showing
-    if (state.showRejoinModal) {
-      state.showRejoinModal = false;
-      if (state.rejoinCountdownInterval) clearInterval(state.rejoinCountdownInterval);
-      state.rejoinCountdownInterval = null;
-    }
-    // Game is over — clear session so page reload goes to lobby, not rejoin modal
+    // Game is over — clear session so page reload goes to lobby
     sessionStorage.removeItem('hullcracker-playerId');
     sessionStorage.removeItem('hullcracker-gameId');
     render();

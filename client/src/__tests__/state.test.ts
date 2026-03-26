@@ -28,7 +28,6 @@ describe('AppState', () => {
     expect(state.onlineCount).toBe(0);
     expect(state.openDropdownId).toBeNull();
     expect(state.showSurrenderModal).toBe(false);
-    expect(state.showRejoinModal).toBe(false);
     expect(state.errorMessage).toBeNull();
   });
 
