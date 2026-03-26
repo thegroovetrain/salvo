@@ -20,6 +20,7 @@ import type { PartyErrorReason, WirePartyMember, PartyStatePayload } from '@salv
 
 export interface PartyMember {
   guestId: string;
+  displayId: string;              // opaque per-party ID sent to clients (NOT guestId)
   name: string | null;
   joinedAt: number;
   disconnectedAt: number | null;  // null = connected, timestamp = DC'd
@@ -51,11 +52,18 @@ export class PartyManager {
   private leaderGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private memberDcTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private lastCreateTime = new Map<string, number>();
+  private lastJoinAttempt = new Map<string, number>();
   private gcInterval: ReturnType<typeof setInterval> | null = null;
   private guestSessions: GuestSessionManager | null = null;
+  private onStateChange: ((party: Party, removedGuestIds?: string[]) => void) | null = null;
 
   setGuestSessions(gs: GuestSessionManager): void {
     this.guestSessions = gs;
+  }
+
+  /** Register a callback for timer-driven state changes (leader transfer, member removal). */
+  setOnStateChange(fn: (party: Party, removedGuestIds?: string[]) => void): void {
+    this.onStateChange = fn;
   }
 
   // ── Core Operations ───────────────────────────────
@@ -80,12 +88,15 @@ export class PartyManager {
     const code = this.generateUniqueCode();
     const leaderName = this.guestSessions?.getName(leaderId) ?? null;
 
+    const leaderDisplayId = crypto.randomUUID().slice(0, 8);
+
     const party: Party = {
       partyId,
       code,
       leaderId,
       members: new Map([[leaderId, {
         guestId: leaderId,
+        displayId: leaderDisplayId,
         name: leaderName,
         joinedAt: now,
         disconnectedAt: null,
@@ -103,6 +114,14 @@ export class PartyManager {
   }
 
   joinParty(guestId: string, code: string): PartyResult {
+    // Rate limit join attempts
+    const now = Date.now();
+    const lastJoin = this.lastJoinAttempt.get(guestId);
+    if (lastJoin && (now - lastJoin) < RATE_LIMIT_MS) {
+      return { ok: false, reason: 'rate-limited' };
+    }
+    this.lastJoinAttempt.set(guestId, now);
+
     // Mutual exclusion
     if (this.guestToParty.has(guestId)) {
       return { ok: false, reason: 'already-in-party' };
@@ -129,6 +148,7 @@ export class PartyManager {
 
     party.members.set(guestId, {
       guestId,
+      displayId: crypto.randomUUID().slice(0, 8),
       name,
       joinedAt: Date.now(),
       disconnectedAt: null,
@@ -304,6 +324,18 @@ export class PartyManager {
   sweep(): void {
     const now = Date.now();
 
+    // Prune stale rate limit entries
+    for (const [guestId, ts] of this.lastCreateTime) {
+      if ((now - ts) > RATE_LIMIT_MS) {
+        this.lastCreateTime.delete(guestId);
+      }
+    }
+    for (const [guestId, ts] of this.lastJoinAttempt) {
+      if ((now - ts) > RATE_LIMIT_MS) {
+        this.lastJoinAttempt.delete(guestId);
+      }
+    }
+
     for (const [, party] of this.parties) {
       // Skip if any member is in-game
       if (this.anyMemberInGame(party)) continue;
@@ -327,17 +359,21 @@ export class PartyManager {
 
   toPayload(party: Party): PartyStatePayload {
     const members: WirePartyMember[] = [];
+    let leaderDisplayId = '';
     for (const m of party.members.values()) {
       members.push({
-        guestId: m.guestId,
+        displayId: m.displayId,
         name: m.name,
         joinedAt: m.joinedAt,
       });
+      if (m.guestId === party.leaderId) {
+        leaderDisplayId = m.displayId;
+      }
     }
     return {
       partyId: party.partyId,
       code: party.code,
-      leaderId: party.leaderId,
+      leaderId: leaderDisplayId,
       members,
     };
   }
@@ -437,12 +473,15 @@ export class PartyManager {
       if (this.isInGame(p.leaderId)) return;
 
       // Remove the DC'd leader
-      this.removeMember(p, p.leaderId);
+      const removedId = p.leaderId;
+      this.removeMember(p, removedId);
 
       if (p.members.size === 0) {
         this.destroyParty(p);
+        this.onStateChange?.(p, [removedId]);
       } else {
         this.transferLeadership(p);
+        this.onStateChange?.(p, [removedId]);
       }
     }, LEADER_GRACE_MS);
 
@@ -479,6 +518,7 @@ export class PartyManager {
       if (p.members.size === 0) {
         this.destroyParty(p);
       }
+      this.onStateChange?.(p, [guestId]);
     }, MEMBER_DC_TIMEOUT_MS);
 
     this.memberDcTimers.set(guestId, timer);

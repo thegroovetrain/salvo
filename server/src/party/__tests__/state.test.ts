@@ -544,9 +544,10 @@ describe('PartyManager', () => {
       const payload = pm.toPayload(create.party);
       expect(payload.partyId).toBe(create.party.partyId);
       expect(payload.code).toBe(create.party.code);
-      expect(payload.leaderId).toBe('g1');
+      expect(payload.leaderId).toBe(payload.members[0].displayId); // leader's displayId
       expect(payload.members).toHaveLength(1);
-      expect(payload.members[0].guestId).toBe('g1');
+      expect(payload.members[0].displayId).toBeDefined();
+      expect(payload.members[0].displayId).not.toBe('g1'); // should NOT expose guestId
       expect(payload.members[0].name).toBe('Alice');
     });
   });
