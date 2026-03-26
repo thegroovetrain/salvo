@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.14.1] - 2026-03-26
+
+### Added
+- **Persistent guest ID** — client generates a UUID on first visit, stores in localStorage, sends via Socket.IO auth handshake. Separate from per-game playerId. Foundation for party system.
+- **GuestSessionManager** — server-side module mapping guestId to socket, game, and player name. Handles session lifecycle, game binding, and periodic GC of orphaned sessions.
+- **Auto-reconnect** — page refresh silently restores game state via guestId. No rejoin modal, no user action needed. "RECONNECTING..." label during the 1-2s window.
+- **Multi-tab eviction** — opening a second tab evicts the first (last connection wins). Evicted tab shows "Playing in another tab" info banner.
+- **Disconnect-skip timer** — disconnected players miss turns (fire zero shots) instead of being eliminated. 10s skip timer for untimed games; timed games use the normal turn timer.
+- **All-disconnected timer** — if all human players disconnect, 30s timer ends the game cleanly.
+- **`/health` endpoint** — JSON endpoint returning `{ guests, games, players, uptime }` for server observability.
+- **Info banner system** — `showMessage(text, 'info')` extends `errors.ts` with blue (#38BDF8) auto-dismiss banners. Used for tab eviction, reconnect failure, and future info messages.
+- **`guest-id-assigned` event** — server generates and sends a guestId when client connects without one (cleared localStorage, old client version).
+- **`tab-evicted` event** — notifies evicted tab before disconnect.
+- **24 new GuestSessionManager tests** — session lifecycle, eviction, game binding, GC sweep, name persistence, all-disconnected check.
+
+### Changed
+- **Online count deduplicated by guestId** — multi-tab users count as 1 instead of inflating the number.
+- **Player name persists across games** — stored on GuestSession, auto-available on reconnect.
+- **Queue entry migration on eviction** — opening a new tab while queued preserves queue position (migrates entry before disconnecting old socket).
+- **`forfeitPlayer()` renamed to `eliminatePlayer()`** — only used by surrender now. Disconnect no longer eliminates.
+- **`'forfeit'` reason renamed to `'surrender'`** — in player-eliminated events, reflects that only intentional quit triggers elimination.
+- **`handleSeatMenuAction` refactored** — if/else chain replaced with dispatch map pattern (fixes ESLint complexity error).
+- **`renderBattle` refactored** — extracted `computeBattleState()` helper (fixes ESLint complexity error).
+
+### Removed
+- **Rejoin modal** — replaced by automatic reconnection. No user decision needed on page refresh.
+- **Forfeit timer** — disconnected players are no longer eliminated. `timers/forfeit.ts` replaced by `timers/disconnectSkip.ts`.
+- **`check-rejoin` / `decline-rejoin` events** — removed from client and server. Auto-reconnect handles everything.
+- **`getDisconnectTimeRemaining()`** — dead code after forfeit timer removal.
+
 ## [0.14.0] - 2026-03-25
 
 ### Added
