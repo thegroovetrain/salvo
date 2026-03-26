@@ -254,6 +254,23 @@ export interface PartyStatePayload {
   members: WirePartyMember[];
 }
 
+// --- Queue error reasons ---
+
+export type QueueErrorReason =
+  | 'invalid-mode'
+  | 'not-leader'
+  | 'already-queued'
+  | 'member-disconnected'
+  | 'in-game';
+
+export const QUEUE_ERROR_MESSAGES: Record<QueueErrorReason, string> = {
+  'invalid-mode': 'Your party size cannot queue for this mode',
+  'not-leader': 'Only the party leader can start or cancel matchmaking',
+  'already-queued': "You're already in a queue",
+  'member-disconnected': 'A party member is disconnected',
+  'in-game': "Can't queue while in a game",
+};
+
 // --- Ship placement input ---
 
 export interface ShipPlacement {
@@ -327,8 +344,12 @@ export interface ServerToClientEvents {
   'rematch-pending': (data: { acceptedIds: string[]; totalHumans: number }) => void;
   'rematch-starting': (data: { game: WireGame; placementDeadline?: number }) => void;
   'rematch-declined': (data: { playerName: string; code: string; game: WireGame }) => void;
-  'quickplay-queue-update': (data: { size: number }) => void;
+  'quickplay-queue-update': (data: { size: number; ticketCount: number; target: number; partyMembers?: { name: string; displayId: string }[] }) => void;
   'quickplay-matched': (data: { playerId: string; gameId: string }) => void;
+  'quickplay-ticket-created': (data: { ticketId: string; members: { name: string; displayId: string }[]; mode: QuickPlayMode }) => void;
+  'party-queued': (data: { mode: QuickPlayMode; leaderName: string }) => void;
+  'party-queue-cancelled': () => void;
+  'queue-error': (data: { reason: QueueErrorReason }) => void;
   'online-count': (data: { count: number }) => void;
   'surrender-ack': () => void;
   'left-game': () => void;

@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.14.3] - 2026-03-26
+
+### Added
+- **Ticket-based matchmaking** — queue entries are now `QueueTicket` objects (solo players = ticket of size 1, parties = ticket with all members). Replaces the old individual-socket queue model.
+- **Queue Adapter pattern** — new module split: `queue/types.ts` (ticket interfaces), `queue/adapter.ts` (ticket creation + mode validation), `queue/matcher.ts` (greedy FIFO matching + party-aware team assignment), `queue/index.ts` (orchestrator with ticket Map + reverse index).
+- **Legal mode validation** — party of 2 can queue for 2v2/2v2v2/3v3; party of 3 can only queue for 3v3. FFA modes are solo-only. Server rejects invalid combinations with typed `QUEUE_ERROR_MESSAGES`.
+- **Party-aware team assignment** — party members always land on the same team. Multiple parties in the same match get different teams. Solo players shuffle into remaining slots.
+- **Leader-only queue control** — only the party leader can start or cancel matchmaking. Non-leader attempts are rejected with clear error messages.
+- **`party-queued` / `party-queue-cancelled` events** — server pushes non-leader party members into the queue screen when the leader queues, and returns them to the landing page when the ticket is dissolved.
+- **Auto-dissolve ticket on party mutation** — any leave/join/disband while the party is queued dissolves the ticket and notifies all members. Prevents stale tickets.
+- **Ticket dissolution on disconnect** — any member DC dissolves the entire party ticket. Leader must re-queue after party stabilizes.
+- **Tab eviction ticket migration** — refreshing a tab while queued updates the ticket's socketId seamlessly (same pattern as existing queue migration).
+- **Solo mode switching** — solo players can switch queue modes without explicitly leaving first (old behavior preserved).
+- **Expanded `quickplay-queue-update` payload** — now includes `ticketCount`, `target`, and optional `partyMembers` for future Sprint 1e social queue UI.
+- **`quickplay-ticket-created` event** — data contract reservation emitted to party members on enqueue. Sprint 1e UI can consume without server changes.
+- **Structured queue logging** — ticket creation, enqueue, match, dissolve, and migration events logged with `[queue]` prefix.
+- **Guest name sync on party join** — `GuestSession.name` now persisted when creating or joining a party, ensuring names are fresh for ticket creation.
+- **56 new tests** — queue adapter unit tests (18 mode validation cases), matcher unit tests (FIFO matching, party-aware team assignment), covering all new code paths.
+
 ## [0.14.2] - 2026-03-26
 
 ### Added

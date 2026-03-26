@@ -8,7 +8,7 @@ import {
   startDisconnectSkipTimer, clearDisconnectSkipTimer,
   startAllDisconnectedTimer, clearAllDisconnectedTimer,
 } from './timers/index.js';
-import { queueEntries, getQueueRoomName, getQueueSize, broadcastOnlineCount } from './queue/index.js';
+import { isInQueue, getTicketByGuest, dissolveTicket, migrateTicketSocket, broadcastOnlineCount } from './queue/index.js';
 import {
   registerLobbyHandlers,
   registerPlayingHandlers,
@@ -51,16 +51,10 @@ function handleEviction(io: IO, evictedSocketId: string, newSocketId: string): v
   // from corrupting the new connection's state.
   connections.handleDisconnect(evictedSocketId);
 
-  // Migrate queue entry BEFORE disconnecting old socket (prevents TOCTOU race)
-  const queueEntry = queueEntries.get(evictedSocketId);
-  if (queueEntry) {
-    queueEntries.delete(evictedSocketId);
-    queueEntries.set(newSocketId, queueEntry);
-    const newSocket = io.sockets.sockets.get(newSocketId);
-    const roomName = getQueueRoomName(queueEntry.mode);
-    if (newSocket) {
-      newSocket.join(roomName);
-    }
+  // Migrate queue ticket BEFORE disconnecting old socket (prevents TOCTOU race)
+  const evictedGuestId = getGuestSessions().getGuestIdBySocket(evictedSocketId);
+  if (evictedGuestId && isInQueue(evictedGuestId)) {
+    migrateTicketSocket(evictedGuestId, newSocketId);
   }
 
   if (evictedSocket) {
@@ -249,13 +243,12 @@ export function setupSocket(io: IO): void {
       // Update guest session (keep session, clear socket)
       guestSessions.handleDisconnect(socket.id);
 
-      // Clean up queue state
-      const queueEntry = queueEntries.get(socket.id);
-      if (queueEntry) {
-        const roomName = getQueueRoomName(queueEntry.mode);
-        queueEntries.delete(socket.id);
-        const size = getQueueSize(roomName);
-        io.to(roomName).emit('quickplay-queue-update', { size });
+      // Clean up queue state: dissolve entire ticket on any member DC
+      if (dcGuestId && isInQueue(dcGuestId)) {
+        const ticket = getTicketByGuest(dcGuestId);
+        if (ticket) {
+          dissolveTicket(ticket.id);
+        }
       }
 
       // Game disconnect
