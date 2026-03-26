@@ -40,6 +40,20 @@
 **Priority:** P3
 **Depends on:** AI difficulty overhaul + simultaneous mode (if implemented)
 
+## Party System
+
+### Quick Play vs Bots
+
+**What:** Add a "vs Bots" option in the PLAY modal alongside Quick Play modes and Custom Match. Party instantly enters a game against AI opponents with no matchmaking wait. Bot difficulty selectable (Easy/Medium/Hard/Impossible). Game fills remaining seats with bots to match the selected mode's player count.
+
+**Why:** Parties who don't want to wait for matchmaking (or are testing with friends) can instantly play together. Also useful for solo players who want a quick game without waiting for opponents. The AI doctrine/gunnery system (v0.14.0) is already capable — this just needs a new entry point that bypasses the queue.
+
+**Context:** Currently bots are only available in private lobbies (host manually adds them). This feature would expose bot games as a first-class option from the PLAY modal. Implementation: create a game with the party members + fill remaining seats with bots at selected difficulty, skip queue entirely. Deferred from v0.15.0 design review to keep Phase 1 focused on the party social layer.
+
+**Effort:** S (queue bypass + bot fill logic exists, just needs a new entry point)
+**Priority:** P2
+**Depends on:** Party system (v0.15.0)
+
 ## Game Options
 
 ### Hide Ship Name Until Sunk
