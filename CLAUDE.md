@@ -129,3 +129,6 @@ In QA mode, flag any code that doesn't match DESIGN.md.
 - Deploy trigger: automatic on push to main (Render auto-deploy)
 - Deploy status: poll production URL
 - Health check: https://salvo-d3ih.onrender.com/
+
+### Directives
+- If at any time the linter discovers complexity errors, fix them immediately. Do not worry about when they were from, just fix them.

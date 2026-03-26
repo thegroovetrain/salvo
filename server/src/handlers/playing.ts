@@ -1,7 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents, ShipPlacement } from '@salvo/shared';
 import { isPlayerAlive } from '@salvo/shared';
-import { getLobby, getConnections, emitToPlayer, emitGameState, broadcastToGame } from '../emitters.js';
+import { getLobby, getConnections, getGuestSessions, emitToPlayer, emitGameState, broadcastToGame } from '../emitters.js';
 import {
   placeShips, allShipsPlaced, beginPlaying,
   validateSalvo, fireSalvo, advanceTurn, checkGameOver,
@@ -93,6 +93,7 @@ export function registerPlayingHandlers(io: IO, socket: Socket<ClientToServerEve
     const gameOver = checkGameOver(game);
     if (gameOver) {
       clearTurnTimer(game.id);
+      getGuestSessions().unbindAllFromGame(game.id);
       // Send updated game state with phase='finished' so clients see all ship cells
       emitGameState(game.id);
       broadcastToGame(game.id, 'game-over', gameOver);

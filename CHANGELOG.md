@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.14.2] - 2026-03-26
+
+### Added
+- **Party system (core)** — pre-game social layer for grouping friends before queuing or creating a custom match. Create, join (by code), leave, and disband parties (max 3 members).
+- **PartyManager** — server-side module with Maps for party state, membership, and join codes. Mirrors LobbyManager pattern.
+- **Leadership transfer** — party leader leaves → longest-tenured member becomes leader. Leader disconnects → 30s grace period before transfer. Non-leaders also get 30s DC grace before removal.
+- **Party auto-reconnect** — page refresh while in a party restores party state via snapshot-on-reconnect (same pattern as game auto-reattach).
+- **Multi-tab eviction preserves party** — opening a second tab does not trigger party disconnect logic. Party membership transfers to the new socket seamlessly.
+- **Party socket events** — 4 client-to-server commands (create/join/leave/disband) and 8 server-to-client events (created/joined/updated/left/disbanded/error/leader-disconnected/leader-reconnected).
+- **`PARTY_ERROR_MESSAGES`** — typed error reason codes with user-facing message strings in shared types. Sprint 1e clients can display errors without inventing copy.
+- **Join code extraction** — `generateCode()` moved to `server/src/joinCode.ts`, shared by PartyManager and LobbyManager (DRY).
+- **`emitToGuest()`** — new emitter helper that resolves guestId → socketId for party event emission. No buffering (snapshot-on-reconnect).
+- **Party GC** — 60s sweep destroys abandoned parties (all members DC'd >5min). Skips parties with in-game members. Prunes stale rate limit entries.
+- **Rate limiting** — max 1 party create per 5s and 1 join attempt per 5s per guestId. Prevents brute-force code enumeration.
+- **`/health` party count** — endpoint now includes `parties` field.
+- **`onStateChange` callback** — timer-driven state changes (leader transfer, member removal) emit socket events to remaining members.
+- **`displayId` security** — party payloads use opaque per-party display IDs instead of guestIds (which are authentication credentials).
+
+### Changed
+- **`unbindAllFromGame` on game-over** — guest sessions are now unbound when a game finishes (all 3 game-over paths). Fixes stale `gameId` that would block party creation post-game.
+- **GuestSession GC** — now checks `partyId` before deleting orphaned sessions (sessions with active party membership are preserved).
+
+### Fixed
+- **`showMessage` complexity** — extracted DOM creation logic to reduce cyclomatic complexity below ESLint threshold (pre-existing error, fixed per CLAUDE.md directive).
+
 ## [0.14.1] - 2026-03-26
 
 ### Added

@@ -6,10 +6,10 @@
 //   Client (localStorage)          Server
 //   ──────────────────          ──────
 //   guestId ─── auth ──────▶  GuestSessionManager
-//                                guestId → { socketId, playerId?, gameId?, name?, lastSeenAt }
+//                                guestId → { socketId, playerId?, gameId?, partyId?, name?, lastSeenAt }
 //                                    │
-//                              ConnectionManager (per-game)
-//                                playerId → { socketId, gameId, disconnectedAt, bufferedEvents }
+//                              ConnectionManager (per-game)     PartyManager
+//                                playerId → { socketId, ...}     partyId → { members, leader, code }
 //
 // GuestSessionManager owns:
 //   - Guest identity lifecycle (connect, disconnect, GC)
@@ -25,6 +25,7 @@ export interface GuestSession {
   socketId: string | null;    // null when disconnected
   playerId: string | null;    // null when not in a game
   gameId: string | null;      // null when not in a game
+  partyId: string | null;     // null when not in a party (set/cleared only by PartyManager)
   name: string | null;        // last-used player name
   lastSeenAt: number;         // timestamp for GC
 }
@@ -72,6 +73,7 @@ export class GuestSessionManager {
         socketId,
         playerId: null,
         gameId: null,
+        partyId: null,
         name: null,
         lastSeenAt: Date.now(),
       });
@@ -213,8 +215,8 @@ export class GuestSessionManager {
         continue;
       }
 
-      // Orphaned session: no socket, no game, stale
-      if (session.socketId === null && (now - session.lastSeenAt) > staleThreshold) {
+      // Orphaned session: no socket, no game, no party, stale
+      if (session.socketId === null && session.partyId === null && (now - session.lastSeenAt) > staleThreshold) {
         this.sessions.delete(guestId);
       }
     }

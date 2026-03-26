@@ -1,20 +1,10 @@
 import type { Game, GameCountData } from '@salvo/shared';
+import { generateCode } from './joinCode.js';
 
 // ============================================================
 // Lobby Manager
 // Manages active games, join codes, and cleanup.
 // ============================================================
-
-const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no I,O,0,1 to avoid confusion
-const CODE_LENGTH = 4;
-
-function generateCode(): string {
-  let code = '';
-  for (let i = 0; i < CODE_LENGTH; i++) {
-    code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
-  }
-  return code;
-}
 
 export class LobbyManager {
   // gameId → Game
