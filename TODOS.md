@@ -54,6 +54,34 @@
 **Priority:** P2
 **Depends on:** Party system (v0.15.0)
 
+## Chat
+
+### Emoji-Only Communication System
+
+**What:** Replace free-text chat with a predefined emoji/reaction system. Players pick from a curated set of naval-themed emojis (anchor, skull, wave, thumbs up/down, etc.) instead of typing messages. Applies to both in-game chat and future party chat.
+
+**Why:** Eliminates moderation burden for a public beta. No profanity filters, no report system, no toxicity concerns. Current free-text chat creates abuse potential that requires either moderation infrastructure or community risk.
+
+**Context:** The existing chat system (ChatMessage with team/global channels, rendering in `client/src/rendering/chat.ts`) would need a UI overhaul — replace the text input with an emoji picker grid. Server-side routing stays the same (ChatMessage.text becomes an emoji code). Deferred from Sprint 1b CEO review where the user flagged chat moderation as a concern.
+
+**Effort:** M (human: ~1 week / CC: ~30min)
+**Priority:** P2
+**Depends on:** None (can be done independently, ideally before public beta)
+
+## Replays
+
+### Event-Sourced Game State
+
+**What:** Refactor Game state mutations (fireSalvo, placeShips, startGame, etc.) to append events to an event log. Current state is still derived from direct mutations, but the event log enables replay by replaying the event sequence.
+
+**Why:** Enables replays and spectator mode (both on post-beta roadmap). Game state changes are already well-defined transitions — fireSalvo produces hits/misses, placeShips assigns positions. These map cleanly to events. Also enables post-game analysis tools.
+
+**Context:** Originally considered for party state in Sprint 1b, but two independent AI reviews flagged it as premature for transient in-memory objects. Game state is the right first target because: (1) games are the product — replays have user value, (2) game state transitions are already pure functions in `game.ts`, (3) `toClientView()` security boundary already serializes state — event replay would feed through the same chokepoint.
+
+**Effort:** L (human: ~3 weeks / CC: ~2hrs) — touches core game loop
+**Priority:** P2
+**Depends on:** Game stabilization post-beta
+
 ## Game Options
 
 ### Hide Ship Name Until Sunk
