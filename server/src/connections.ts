@@ -2,8 +2,8 @@
 // Connection Manager
 // Manages bidirectional playerId ↔ socketId mapping
 // and event buffering for reconnection.
-// Disconnection is a state marker only — forfeit is handled
-// by the turn timer in index.ts when the player's turn arrives.
+// Disconnection is a state marker only — disconnected players
+// get their turn skipped (not eliminated) via disconnect-skip timer.
 // ============================================================
 
 type BufferedEvent = {

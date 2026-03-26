@@ -69,7 +69,7 @@ describe('Team Win Condition', () => {
     const { game, playerIds } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     setupBattle(game, playerIds);
 
-    // Kill p3 (bravo, playerIndex=2) via forfeit
+    // Kill p3 (bravo, playerIndex=2) via elimination
     eliminatePlayer(game, 'p3');
 
     expect(isPlayerAlive(game.players.get('p3')!)).toBe(false);

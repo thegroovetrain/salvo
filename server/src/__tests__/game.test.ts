@@ -461,7 +461,7 @@ describe('Game Over', () => {
 // ============================================================
 
 describe('Forfeit (silent removal)', () => {
-  it('clears ships on forfeit', () => {
+  it('clears ships on eliminate', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
 
@@ -506,7 +506,7 @@ describe('Forfeit (silent removal)', () => {
     expect(getCurrentTurnPlayerId(game)).toBe('p3');
   });
 
-  it('checkGameOver detects winner after silent forfeit', () => {
+  it('checkGameOver detects winner after silent eliminate', () => {
     const { game, playerIds } = makeGame(2);
     setupBattle(game, playerIds);
 

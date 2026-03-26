@@ -15,7 +15,7 @@ import { makeGame, hexPlacements, allCellsForPlayer, setupBattle } from './helpe
 // ============================================================
 
 describe('Surrender during playing phase', () => {
-  it('surrender (not their turn) forfeits without advancing turn', () => {
+  it('surrender (not their turn) eliminates without advancing turn', () => {
     const { game, playerIds } = makeGame(3);
     setupBattle(game, playerIds);
     game.turnOrder = ['p1', 'p2', 'p3'];
@@ -128,7 +128,7 @@ describe('Surrender — toClientView security', () => {
     eliminatePlayer(game, 'p2');
     const shotsAfter = game.shots.size;
 
-    // Silent forfeit should not add any shots to the global shot set
+    // Silent elimination should not add any shots to the global shot set
     expect(shotsAfter).toBe(shotsBefore);
   });
 });

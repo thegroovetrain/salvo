@@ -133,7 +133,7 @@ describe('toClientView Security — Ship Position Leakage', () => {
     expect(viewP2.players['p1'].ships[0].cells.length).toBe(0);
   });
 
-  it('forfeited player ships do not leak positions (silent removal)', () => {
+  it('eliminated player ships do not leak positions (silent removal)', () => {
     const { game } = setup2PlayerGame();
 
     eliminatePlayer(game, 'p2');
@@ -141,11 +141,11 @@ describe('toClientView Security — Ship Position Leakage', () => {
     const view = toClientView(game, 'p1');
     const p2Ships = view.players['p2'].ships;
 
-    // After silent forfeit, ships array should be empty — no cells/hits to leak
+    // After silent elimination, ships array should be empty — no cells/hits to leak
     expect(p2Ships).toEqual([]);
   });
 
-  it('toClientView shows forfeited player as not alive with 0 shots', () => {
+  it('toClientView shows eliminated player as not alive with 0 shots', () => {
     const { game } = setup2PlayerGame();
 
     eliminatePlayer(game, 'p2');
