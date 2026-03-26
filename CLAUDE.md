@@ -9,7 +9,7 @@ Hullcracker.io is a multiplayer naval combat game. All players' ships occupy the
 npm run dev          # Start server (3000) + client (5173)
 npm run check        # Lint + type-check + test (all workspaces)
 npm run lint         # ESLint (complexity=10 enforced)
-npm test -w server   # Server tests (vitest, 293 tests)
+npm test -w server   # Server tests (vitest, 339 tests)
 npm test -w client   # Client tests (vitest + jsdom, 52 tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
@@ -18,21 +18,23 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 ### Architecture
 
 #### Shared
-- **shared/src/types.ts** — All types, socket events, computed getters (isShipSunk, isPlayerAlive, playerShotCount), mode helpers (toGameMode, toQuickPlayMode), team helpers (getTeammates, isTeamAlive), PlayerColor type, SLOT_COLORS, TEAM_COLOR_POOLS
+- **shared/src/types.ts** — All types, socket events, computed getters (isShipSunk, isPlayerAlive, playerShotCount), mode helpers (toGameMode, toQuickPlayMode), team helpers (getTeammates, isTeamAlive), PlayerColor type, SLOT_COLORS, TEAM_COLOR_POOLS, party types (PartySnapshot, PARTY_ERROR_MESSAGES)
 - **shared/src/hex.ts** — Hex coordinate math: axial coordinates (q,r), distance, neighbors, rings, linear paths, pixel↔hex conversion with cube rounding
 
 #### Server
-- **server/src/index.ts** — Express setup, static file serving, server bootstrap
+- **server/src/index.ts** — Express setup, static file serving, server bootstrap, /health endpoint
 - **server/src/socketSetup.ts** — Socket.io connection handler, registers all handler modules
 - **server/src/game.ts** — Pure game logic, no I/O. toClientView() security boundary. checkNewEliminations() for post-salvo elimination detection
 - **server/src/gameFlow.ts** — Turn flow: emitNextTurn, executeBotTurn, handlePlayerExit
-- **server/src/emitters.ts** — Socket emission helpers: emitToPlayer, emitGameState, broadcastToGame
-- **server/src/handlers/** — Socket event handlers by domain: lobby.ts (create/join/start), playing.ts (place-ships/fire), social.ts (chat/swap-team), connection.ts (rejoin/surrender/disconnect), rematch.ts (rematch/quickplay-join)
+- **server/src/emitters.ts** — Socket emission helpers: emitToPlayer, emitToGuest, emitGameState, broadcastToGame
+- **server/src/handlers/** — Socket event handlers by domain: lobby.ts (create/join/start), playing.ts (place-ships/fire), social.ts (chat/swap-team), connection.ts (rejoin/surrender/disconnect), rematch.ts (rematch/quickplay-join), party.ts (create/join/leave/disband party)
 - **server/src/timers/** — Timer management: placement.ts, turn.ts, disconnectSkip.ts (skip disconnected player's turn after grace period), allDisconnected.ts (end game when all humans disconnect), index.ts (clearGameTimers orchestrator + timer Maps)
 - **server/src/queue/** — Quick Play matchmaking: queue state, tryMatchRoom, mode helpers
 - **server/src/ai/** — AI opponents: doctrine.ts (commander layer: hunt/kill/trade-up/protect-lead/desperation/cleanup), gunnery.ts (shot selection per doctrine), probability.ts (heat-map targeting), placement.ts (ship placement generation), helpers.ts (board analysis utilities), index.ts (public API)
-- **server/src/guestSessions.ts** — GuestSessionManager: persistent guest identity (localStorage guestId via Socket.IO auth), session lifecycle, game binding, multi-tab eviction, GC
+- **server/src/party/state.ts** — PartyManager: party lifecycle, membership, join codes, leadership transfer, disconnect grace periods, GC sweep, rate limiting, displayId security
+- **server/src/guestSessions.ts** — GuestSessionManager: persistent guest identity (localStorage guestId via Socket.IO auth), session lifecycle, game binding, party binding, multi-tab eviction, GC
 - **server/src/connections.ts** — playerId↔socketId mapping, disconnect state tracking, event buffering
+- **server/src/joinCode.ts** — Shared join code generation (used by LobbyManager and PartyManager)
 - **server/src/lobby.ts** — Game lifecycle, join codes, cleanup timer
 - **server/src/helpers.ts** — autoAssignTeam, shuffle, assignQuickPlayColors
 
@@ -78,6 +80,7 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - Surrender is silent: `player.ships = []` (no hit markers on shared board — prevents FFA info leakage)
 - Surrender button available during placement and playing phases; auto-reconnect on page reload (no modal)
 - AI architecture: two-layer doctrine/gunnery system. Commander picks doctrine (hunt/kill/trade-up/protect-lead/desperation/cleanup) based on game state; gunnery executes shot selection per doctrine. Tiers unlock doctrine subsets (Easy=hunt only, Impossible=all). Probability heat-map for hunt targeting.
+- Party system: pre-game social layer (max 3 members). PartyManager mirrors LobbyManager pattern. Leadership transfers on leader disconnect (30s grace). Snapshot-on-reconnect for auto-reattach. displayId security prevents guestId exposure. unbindAllFromGame on game-over frees sessions for party creation.
 - Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision
 
 ## gstack

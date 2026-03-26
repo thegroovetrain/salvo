@@ -45,7 +45,7 @@ You get one shot per surviving ship. Lose a ship, lose a shot.
 - **Client:** Vite + TypeScript (vanilla, no framework)
 - **Server:** Express + socket.io
 - **Shared:** TypeScript types shared via npm workspaces
-- **Tests:** Vitest (345 tests — server: game logic, security, AI doctrine/gunnery/placement/simulation, matchmaking, surrender, teams, swap, islands, player colors, guest sessions, disconnect handling; client: state, helpers, audio, grid, battle, smoke)
+- **Tests:** Vitest (391 tests — server: game logic, security, AI doctrine/gunnery/placement/simulation, matchmaking, surrender, teams, swap, islands, player colors, guest sessions, disconnect handling, party system; client: state, helpers, audio, grid, battle, smoke)
 - **Linting:** ESLint with cyclomatic complexity ≤ 10 enforced
 
 ## Project Structure
@@ -62,6 +62,7 @@ salvo/
 │   ├── gameFlow.ts           # Turn flow, bot execution, player exit
 │   ├── ai/                   # AI opponents (doctrine/gunnery architecture)
 │   ├── handlers/             # Socket event handlers by domain
+│   ├── party/                # Party system (pre-game groups)
 │   ├── timers/               # Placement, turn, disconnect-skip timer management
 │   └── queue/                # Quick Play matchmaking
 ├── client/src/
