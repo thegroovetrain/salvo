@@ -1,7 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents, QuickPlayMode } from '@salvo/shared';
 import { toQuickPlayMode } from '@salvo/shared';
-import { getLobby, getConnections, getGuestSessions, emitToPlayer } from '../emitters.js';
+import { getLobby, getConnections, getGuestSessions, getPartyManager, emitToGuest, emitToPlayer } from '../emitters.js';
 import {
   removePlayer, placeShips, allShipsPlaced, beginPlaying,
   resetForRematch, toClientView,
@@ -9,43 +9,51 @@ import {
 import { generatePlacement } from '../ai/index.js';
 import { startPlacementTimer, clearPlacementTimer, clearGameTimers } from '../timers/index.js';
 import { emitNextTurn } from '../gameFlow.js';
-import { queueEntries, getQueueRoomName, getQueueSize, broadcastOnlineCount, tryMatchRoom } from '../queue/index.js';
-
-type IO = Server<ClientToServerEvents, ServerToClientEvents>;
+import {
+  enqueue, dequeue, dissolveTicket, attemptMatch, isInQueue, getTicketByGuest,
+  broadcastOnlineCount,
+} from '../queue/index.js';
+import { createSoloTicket, createPartyTicket, validateMode } from '../queue/adapter.js';
 
 import type { Game, Player } from '@salvo/shared';
 
-function requeuePlayersToRoom(
+type IO = Server<ClientToServerEvents, ServerToClientEvents>;
+
+// ── Quick Play Rematch ────────────────────────────────────
+
+function requeuePlayersAsTickets(
   io: IO, humanPlayers: Player[], game: Game, qpMode: QuickPlayMode,
   connections: ReturnType<typeof getConnections>,
 ): void {
-  const roomName = getQueueRoomName(qpMode);
+  const guestSessions = getGuestSessions();
+
   for (const p of humanPlayers) {
     const socketId = connections.getSocketId(p.id);
     if (!socketId) continue;
 
     const playerSocket = io.sockets.sockets.get(socketId);
-    if (playerSocket) {
-      playerSocket.leave(game.id);
-      playerSocket.join(roomName);
-    }
-    queueEntries.set(socketId, { playerName: p.name, mode: qpMode });
+    if (playerSocket) playerSocket.leave(game.id);
+
     connections.remove(p.id);
+
+    // Create solo ticket for each player (rematch stays individual per eng review)
+    const guestId = guestSessions.getGuestIdBySocket(socketId);
+    if (!guestId) continue;
+
+    const ticket = createSoloTicket(guestId, socketId, p.name, qpMode);
+    enqueue(ticket);
   }
 }
 
 function cleanupAndRequeue(
   io: IO, lobby: ReturnType<typeof getLobby>, game: Game, qpMode: QuickPlayMode,
 ): void {
-  const roomName = getQueueRoomName(qpMode);
   getGuestSessions().unbindAllFromGame(game.id);
   clearGameTimers(game.id);
   lobby.removeGame(game.id);
 
-  const size = getQueueSize(roomName);
-  io.to(roomName).emit('quickplay-queue-update', { size });
   broadcastOnlineCount();
-  tryMatchRoom(roomName, qpMode);
+  attemptMatch(qpMode);
 }
 
 function handleQuickPlayRematch(
@@ -56,10 +64,12 @@ function handleQuickPlayRematch(
   const qpMode = toQuickPlayMode(game.mode);
   if (!qpMode) return false;
 
-  requeuePlayersToRoom(io, humanPlayers, game, qpMode, connections);
+  requeuePlayersAsTickets(io, humanPlayers, game, qpMode, connections);
   cleanupAndRequeue(io, lobby, game, qpMode);
   return true;
 }
+
+// ── Private Rematch (unchanged) ───────────────────────────
 
 function autoPlaceBotShips(game: Game): void {
   for (const p of game.players.values()) {
@@ -132,9 +142,68 @@ function handlePrivateDecline(
   game.lastActivity = Date.now();
 }
 
+// ── Quick Play Queue Helpers ──────────────────────────────
+
+function handlePartyQueue(
+  io: IO, socket: Socket<ClientToServerEvents, ServerToClientEvents>,
+  guestId: string, trimmedName: string, mode: QuickPlayMode,
+): void {
+  const guestSessions = getGuestSessions();
+  const partyManager = getPartyManager();
+  const party = partyManager.getPartyByGuest(guestId);
+  if (!party) return;
+
+  if (party.leaderId !== guestId) {
+    socket.emit('queue-error', { reason: 'not-leader' as const });
+    return;
+  }
+
+  if (!validateMode(party.members.size, mode)) {
+    socket.emit('queue-error', { reason: 'invalid-mode' as const });
+    return;
+  }
+
+  const result = createPartyTicket(party, mode, guestSessions, io);
+  if (!result.ok) {
+    socket.emit('queue-error', { reason: result.reason });
+    return;
+  }
+
+  enqueue(result.ticket);
+
+  for (const m of party.members.values()) {
+    if (m.guestId !== guestId) {
+      emitToGuest(m.guestId, 'party-queued', { mode, leaderName: trimmedName });
+    }
+  }
+
+  attemptMatch(mode);
+}
+
+/** Handle queue-switch for a player already in queue. Returns 'proceed' | 'block' | 'duplicate'. */
+function handleQueueSwitch(
+  guestId: string, mode: QuickPlayMode,
+  socket: Socket<ClientToServerEvents, ServerToClientEvents>,
+): 'proceed' | 'block' | 'duplicate' {
+  const existingTicket = isInQueue(guestId) ? getTicketByGuest(guestId) : null;
+  if (!existingTicket) return 'proceed';
+
+  if (existingTicket.partyId) {
+    socket.emit('queue-error', { reason: 'already-queued' as const });
+    return 'block';
+  }
+  if (existingTicket.mode === mode) return 'duplicate';
+  dequeue(existingTicket.id);
+  return 'proceed';
+}
+
+// ── Handler Registration ──────────────────────────────────
+
 export function registerRematchHandlers(io: IO, socket: Socket<ClientToServerEvents, ServerToClientEvents>): void {
   const lobby = getLobby();
   const connections = getConnections();
+
+  // ── Rematch ────────────────────────────────────────────
 
   socket.on('rematch-request', () => {
     const playerId = connections.getPlayerIdBySocket(socket.id);
@@ -179,7 +248,6 @@ export function registerRematchHandlers(io: IO, socket: Socket<ClientToServerEve
     const decliningPlayer = game.players.get(playerId);
     const decliningName = decliningPlayer?.name ?? 'Unknown';
 
-    // Unbind declining player's guest session
     const guestId = getGuestSessions().getGuestIdBySocket(socket.id);
     if (guestId) getGuestSessions().unbindFromGame(guestId);
 
@@ -199,7 +267,7 @@ export function registerRematchHandlers(io: IO, socket: Socket<ClientToServerEve
     if (game.mode !== 'private') {
       const qpMode = toQuickPlayMode(game.mode);
       if (!qpMode) return;
-      requeuePlayersToRoom(io, remainingHumans, game, qpMode, connections);
+      requeuePlayersAsTickets(io, remainingHumans, game, qpMode, connections);
       cleanupAndRequeue(io, lobby, game, qpMode);
       return;
     }
@@ -208,11 +276,10 @@ export function registerRematchHandlers(io: IO, socket: Socket<ClientToServerEve
   });
 
   // ============================================================
-  // Quick Play Queue
+  // Quick Play Queue (ticket-based)
   // ============================================================
 
   socket.on('quickplay-join', ({ playerName, mode }: { playerName: string; mode: QuickPlayMode }) => {
-    // Validate mode
     const validModes: QuickPlayMode[] = ['1v1', '2v2', '3v3', '3ffa', '6ffa', '2v2v2'];
     if (!validModes.includes(mode)) return;
 
@@ -222,40 +289,43 @@ export function registerRematchHandlers(io: IO, socket: Socket<ClientToServerEve
       return;
     }
 
-    // Queue switch: if already in a different queue, leave it first
-    const existing = queueEntries.get(socket.id);
-    if (existing) {
-      if (existing.mode === mode) return; // already in this queue
-      const oldRoom = getQueueRoomName(existing.mode);
-      socket.leave(oldRoom);
-      queueEntries.delete(socket.id);
-      const oldSize = getQueueSize(oldRoom);
-      io.to(oldRoom).emit('quickplay-queue-update', { size: oldSize });
+    const guestSessions = getGuestSessions();
+    const guestId = guestSessions.getGuestIdBySocket(socket.id);
+    if (!guestId) return;
+
+    guestSessions.setName(guestId, trimmedName);
+
+    const switchResult = handleQueueSwitch(guestId, mode, socket);
+    if (switchResult === 'block' || switchResult === 'duplicate') return;
+
+    const partyManager = getPartyManager();
+    if (partyManager.getPartyByGuest(guestId)) {
+      handlePartyQueue(io, socket, guestId, trimmedName, mode);
+    } else {
+      enqueue(createSoloTicket(guestId, socket.id, trimmedName, mode));
+      attemptMatch(mode);
     }
-
-    const roomName = getQueueRoomName(mode);
-    socket.join(roomName);
-    queueEntries.set(socket.id, { playerName: trimmedName, mode });
-
-    // Broadcast queue size to room members
-    const size = getQueueSize(roomName);
-    io.to(roomName).emit('quickplay-queue-update', { size });
-    broadcastOnlineCount();
-
-    // Check if match is ready
-    tryMatchRoom(roomName, mode);
   });
 
   socket.on('quickplay-leave', () => {
-    const entry = queueEntries.get(socket.id);
-    if (!entry) return;
+    const guestSessions = getGuestSessions();
+    const guestId = guestSessions.getGuestIdBySocket(socket.id);
+    if (!guestId) return;
 
-    const roomName = getQueueRoomName(entry.mode);
-    socket.leave(roomName);
-    queueEntries.delete(socket.id);
+    const ticket = getTicketByGuest(guestId);
+    if (!ticket) return;
 
-    const size = getQueueSize(roomName);
-    io.to(roomName).emit('quickplay-queue-update', { size });
-    broadcastOnlineCount();
+    // Party ticket: only leader can cancel
+    if (ticket.partyId) {
+      const partyManager = getPartyManager();
+      const party = partyManager.getPartyByGuest(guestId);
+      if (party && party.leaderId !== guestId) {
+        socket.emit('queue-error', { reason: 'not-leader' as const });
+        return;
+      }
+      dissolveTicket(ticket.id);
+    } else {
+      dequeue(ticket.id);
+    }
   });
 }

@@ -1,6 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@salvo/shared';
 import { getGuestSessions, getPartyManager, emitToGuest } from '../emitters.js';
+import { isInQueue, getTicketByGuest, dissolveTicket } from '../queue/index.js';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
@@ -10,6 +11,16 @@ function broadcastToPartyMembers(party: { members: Map<string, { guestId: string
     if (member.guestId !== excludeGuestId) {
       emitToGuest(member.guestId, event, data);
     }
+  }
+}
+
+/** Dissolve any active queue ticket for a party member's party. */
+function dissolveQueueTicketForParty(guestId: string): void {
+  if (!isInQueue(guestId)) return;
+  const ticket = getTicketByGuest(guestId);
+  if (ticket) {
+    dissolveTicket(ticket.id);
+    console.log(`[queue] party mutation dissolved ticket=${ticket.id}`);
   }
 }
 
@@ -34,6 +45,18 @@ export function registerPartyHandlers(io: IO, socket: TypedSocket): void {
     const guestId = guestSessions.getGuestIdBySocket(socket.id);
     if (!guestId) return;
 
+    // Dissolve the joiner's own queue ticket (if any)
+    dissolveQueueTicketForParty(guestId);
+
+    // Dissolve the TARGET party's queue ticket (party composition is about to change)
+    const targetParty = partyManager.getPartyByCode(code);
+    if (targetParty) {
+      for (const memberId of targetParty.members.keys()) {
+        dissolveQueueTicketForParty(memberId);
+        break; // only need one member to find the party ticket
+      }
+    }
+
     const result = partyManager.joinParty(guestId, code);
     if (!result.ok) {
       socket.emit('party-error', { reason: result.reason });
@@ -52,6 +75,9 @@ export function registerPartyHandlers(io: IO, socket: TypedSocket): void {
   socket.on('leave-party', () => {
     const guestId = guestSessions.getGuestIdBySocket(socket.id);
     if (!guestId) return;
+
+    // Dissolve any active queue ticket (party composition changed)
+    dissolveQueueTicketForParty(guestId);
 
     const result = partyManager.leaveParty(guestId);
     if (!result.ok) {
@@ -72,6 +98,9 @@ export function registerPartyHandlers(io: IO, socket: TypedSocket): void {
   socket.on('disband-party', () => {
     const guestId = guestSessions.getGuestIdBySocket(socket.id);
     if (!guestId) return;
+
+    // Dissolve any active queue ticket before disbanding
+    dissolveQueueTicketForParty(guestId);
 
     const party = partyManager.getPartyByGuest(guestId);
     if (!party) {

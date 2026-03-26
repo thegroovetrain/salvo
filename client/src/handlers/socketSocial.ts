@@ -2,6 +2,9 @@ import { socket } from '../socket.js';
 import { state } from '../state.js';
 import { render } from '../rendering/render.js';
 import { playMatchSound } from '../audio/index.js';
+import { QUEUE_ERROR_MESSAGES } from '@salvo/shared';
+import type { QueueErrorReason } from '@salvo/shared';
+import { showMessage } from '../errors.js';
 
 export function registerSocialHandlers(): void {
   socket.on('chat-message', (msg) => {
@@ -59,6 +62,8 @@ export function registerSocialHandlers(): void {
     render();
   });
 
+  // quickplay-matched works from ANY screen state (handles race where match fires
+  // instantly before party-queued is fully processed by non-leader clients)
   socket.on('quickplay-matched', ({ playerId, gameId }) => {
     state.playerId = playerId;
     state.gameId = gameId;
@@ -74,5 +79,28 @@ export function registerSocialHandlers(): void {
       playMatchSound();
     }
     render();
+  });
+
+  // Party queue: leader queued the party, non-leaders transition to queue screen
+  socket.on('party-queued', ({ mode }) => {
+    state.queueMode = mode;
+    state.queueSize = 0;
+    state.screen = 'queue';
+    render();
+  });
+
+  // Party queue cancelled: ticket dissolved, return to lobby
+  socket.on('party-queue-cancelled', () => {
+    if (state.screen === 'queue' && state.queueMode) {
+      state.queueMode = null;
+      state.queueSize = 0;
+      state.screen = 'lobby';
+      render();
+    }
+  });
+
+  // Queue error: show user-facing message
+  socket.on('queue-error', ({ reason }: { reason: QueueErrorReason }) => {
+    showMessage(QUEUE_ERROR_MESSAGES[reason] ?? 'Queue error');
   });
 }
