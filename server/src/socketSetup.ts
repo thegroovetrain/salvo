@@ -41,13 +41,20 @@ type TypedSocket = Socket<ClientToServerEvents, ServerToClientEvents>;
 
 function handleEviction(io: IO, guestSessions: ReturnType<typeof getGuestSessions>, evictedSocketId: string, newSocketId: string): void {
   const evictedSocket = io.sockets.sockets.get(evictedSocketId);
+  const connections = getConnections();
+
+  // Mark the evicted socket as disconnected in ConnectionManager BEFORE
+  // disconnecting it. This ensures:
+  // 1. handleReconnect() won't hit the "not disconnected" guard
+  // 2. The evicted socket's disconnect handler won't corrupt the new connection
+  //    (socketToPlayer mapping is already cleared)
+  connections.handleDisconnect(evictedSocketId);
 
   // Migrate queue entry BEFORE disconnecting old socket (prevents TOCTOU race)
   const queueEntry = queueEntries.get(evictedSocketId);
   if (queueEntry) {
     queueEntries.delete(evictedSocketId);
     queueEntries.set(newSocketId, queueEntry);
-    // New socket needs to join the queue room
     const newSocket = io.sockets.sockets.get(newSocketId);
     const roomName = getQueueRoomName(queueEntry.mode);
     if (newSocket) {
@@ -88,8 +95,14 @@ function autoReattach(io: IO, socket: TypedSocket, playerId: string, gameId: str
   // Cancel all-disconnected timer since someone reconnected
   clearAllDisconnectedTimer(gameId);
 
-  // Send current game state
+  // Send current game state (authoritative snapshot)
   socket.emit('game-state', { game: toClientView(game, playerId) });
+
+  // Replay buffered events that arrived during disconnect
+  for (const buffered of result.bufferedEvents) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    socket.emit(buffered.event as any, buffered.data as any);
+  }
 
   // Notify others
   const player = game.players.get(playerId);

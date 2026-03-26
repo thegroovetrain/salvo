@@ -1,7 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents, QuickPlayMode } from '@salvo/shared';
 import { toQuickPlayMode } from '@salvo/shared';
-import { getLobby, getConnections, emitToPlayer } from '../emitters.js';
+import { getLobby, getConnections, getGuestSessions, emitToPlayer } from '../emitters.js';
 import {
   removePlayer, placeShips, allShipsPlaced, beginPlaying,
   resetForRematch, toClientView,
@@ -38,6 +38,7 @@ function cleanupAndRequeue(
   io: IO, lobby: ReturnType<typeof getLobby>, game: Game, qpMode: QuickPlayMode,
 ): void {
   const roomName = getQueueRoomName(qpMode);
+  getGuestSessions().unbindAllFromGame(game.id);
   clearGameTimers(game.id);
   lobby.removeGame(game.id);
 
@@ -178,12 +179,17 @@ export function registerRematchHandlers(io: IO, socket: Socket<ClientToServerEve
     const decliningPlayer = game.players.get(playerId);
     const decliningName = decliningPlayer?.name ?? 'Unknown';
 
+    // Unbind declining player's guest session
+    const guestId = getGuestSessions().getGuestIdBySocket(socket.id);
+    if (guestId) getGuestSessions().unbindFromGame(guestId);
+
     removePlayer(game, playerId);
     lobby.registerPlayer(playerId, '');
     connections.remove(playerId);
 
     const remainingHumans = [...game.players.values()].filter(p => !p.isBot);
     if (remainingHumans.length === 0) {
+      getGuestSessions().unbindAllFromGame(game.id);
       clearGameTimers(game.id);
       lobby.removeGame(game.id);
       broadcastOnlineCount();

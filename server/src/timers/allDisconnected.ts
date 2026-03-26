@@ -5,7 +5,7 @@
 // ============================================================
 
 import { allDisconnectedTimers } from './index.js';
-import { getLobby, getGuestSessions } from '../emitters.js';
+import { getLobby, getConnections, getGuestSessions } from '../emitters.js';
 import { clearGameTimers } from './index.js';
 import { broadcastOnlineCount } from '../queue/index.js';
 
@@ -40,6 +40,7 @@ function handleAllDisconnectedTimeout(gameId: string): void {
 
   // End the game — no winner, clean up
   guestSessions.unbindAllFromGame(gameId);
+  getConnections().removeGame(gameId);
   clearGameTimers(gameId);
   lobby.removeGame(gameId);
   broadcastOnlineCount();

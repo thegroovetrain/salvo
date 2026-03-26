@@ -94,7 +94,8 @@ export class ConnectionManager {
     if (!conn) return null;
     if (conn.disconnectedAt === null) return null; // not disconnected
 
-    // Update socket mapping
+    // Update socket mapping (clear old socketId first to prevent ghost mappings)
+    this.socketToPlayer.delete(conn.socketId);
     conn.socketId = newSocketId;
     conn.disconnectedAt = null;
     this.socketToPlayer.set(newSocketId, playerId);
