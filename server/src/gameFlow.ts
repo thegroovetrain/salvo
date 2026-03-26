@@ -3,16 +3,25 @@ import { isPlayerAlive, playerShotCount } from '@salvo/shared';
 import { getLobby, getConnections, emitToPlayer, emitGameState, broadcastToGame } from './emitters.js';
 import {
   getCurrentTurnPlayerId, validateSalvo, fireSalvo,
-  advanceTurn, checkGameOver, forfeitPlayer, removePlayer,
+  advanceTurn, checkGameOver, eliminatePlayer, removePlayer,
   toClientView, checkNewEliminations,
 } from './game.js';
 import { chooseSalvo, getBotDelay } from './ai/index.js';
-import { startTurnTimer, clearTurnTimer, startForfeitTimer, clearForfeitTimer, clearGameTimers } from './timers/index.js';
+import { startTurnTimer, clearTurnTimer, startDisconnectSkipTimer, clearDisconnectSkipTimer, clearGameTimers } from './timers/index.js';
 import { broadcastOnlineCount } from './queue/index.js';
 
 // ============================================================
 // Turn Emission
 // ============================================================
+
+/** Start appropriate timer when it becomes a disconnected player's turn. */
+function startDisconnectedTurnTimer(gameId: string, playerId: string, timerEnabled: boolean): void {
+  if (timerEnabled) {
+    startTurnTimer(gameId);    // normal turn timer fires zero shots
+  } else {
+    startDisconnectSkipTimer(gameId, playerId);  // 10s skip timer
+  }
+}
 
 export function emitNextTurn(gameId: string): void {
   const game = getLobby().getGame(gameId);
@@ -38,10 +47,9 @@ export function emitNextTurn(gameId: string): void {
     return; // don't emit your-turn or start timer for bots
   }
 
-  // If the current turn player is disconnected, start forfeit timer
+  // If the current turn player is disconnected, start appropriate timer
   if (getConnections().isDisconnected(currentPlayerId)) {
-    startForfeitTimer(gameId, currentPlayerId);
-    // Do NOT emit 'your-turn' to the disconnected player
+    startDisconnectedTurnTimer(gameId, currentPlayerId, game.timerConfig.enabled);
     return;
   }
 
@@ -124,7 +132,7 @@ function handleNonPlayingExit(game: Game, playerId: string, gameId: string): voi
   broadcastToGame(gameId, 'player-eliminated', {
     playerId,
     playerName: player?.name ?? 'Unknown',
-    reason: 'forfeit' as const,
+    reason: 'surrender' as const,
   });
   removePlayer(game, playerId);
   lobby.registerPlayer(playerId, '');
@@ -153,22 +161,22 @@ export function handlePlayerExit(game: Game, playerId: string, gameId: string): 
   const wasTurn = getCurrentTurnPlayerId(game) === playerId;
   if (wasTurn) {
     clearTurnTimer(gameId);
-    clearForfeitTimer(playerId);
+    clearDisconnectSkipTimer(playerId);
   }
 
-  forfeitPlayer(game, playerId);
+  eliminatePlayer(game, playerId);
   const player = game.players.get(playerId);
 
   broadcastToGame(gameId, 'player-eliminated', {
     playerId,
     playerName: player?.name ?? 'Unknown',
-    reason: 'forfeit' as const,
+    reason: 'surrender' as const,
   });
 
   const gameOver = checkGameOver(game);
   if (gameOver) {
     clearTurnTimer(gameId);
-    clearForfeitTimer(playerId);
+    clearDisconnectSkipTimer(playerId);
     emitGameState(gameId);
     broadcastToGame(gameId, 'game-over', gameOver);
     broadcastOnlineCount();

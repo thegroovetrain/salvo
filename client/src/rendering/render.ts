@@ -1,5 +1,5 @@
 import { state } from '../state.js';
-import { renderSurrenderModal, renderRejoinModal } from './modals.js';
+import { renderSurrenderModal } from './modals.js';
 import { renderLobby, renderQueue, renderChangelog } from './lobby.js';
 import { renderWaiting } from './waiting.js';
 import { renderPlacement, renderBattle } from './battle.js';
@@ -34,8 +34,8 @@ export function render(): void {
   const renderer = screenRenderers[state.screen];
   if (renderer) app.innerHTML = renderer();
 
-  // Append modals (surrender confirmation + rejoin prompt)
-  app.innerHTML += renderSurrenderModal() + renderRejoinModal();
+  // Append modals (surrender confirmation)
+  app.innerHTML += renderSurrenderModal();
 
   // Restore scroll positions after DOM rebuild
   if (shotLogScroll !== null) {

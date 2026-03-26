@@ -1,7 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents, AiDifficulty } from '@salvo/shared';
 import crypto from 'node:crypto';
-import { getLobby, getConnections, emitToPlayer } from '../emitters.js';
+import { getLobby, getConnections, getGuestSessions, emitToPlayer } from '../emitters.js';
 import {
   createGame, addPlayer, addBot, removeBot, canStartGame, startGame,
   placeShips, allShipsPlaced, beginPlaying, updateGameOptions, toClientView,
@@ -50,6 +50,7 @@ function autoPlaceBotShips(game: ReturnType<typeof createGame>): void {
 export function registerLobbyHandlers(io: IO, socket: Socket<ClientToServerEvents, ServerToClientEvents>): void {
   const lobby = getLobby();
   const connections = getConnections();
+  const guestSessions = getGuestSessions();
 
   socket.on('create-game', ({ playerName }: { playerName: string }) => {
     const playerId = crypto.randomUUID();
@@ -62,6 +63,13 @@ export function registerLobbyHandlers(io: IO, socket: Socket<ClientToServerEvent
     lobby.registerPlayer(playerId, game.id);
     connections.register(playerId, socket.id, game.id);
     socket.join(game.id);
+
+    // Bind guest session to game + persist name
+    const guestId = guestSessions.getGuestIdBySocket(socket.id);
+    if (guestId) {
+      guestSessions.bindToGame(guestId, playerId, game.id);
+      guestSessions.setName(guestId, playerName);
+    }
 
     socket.emit('game-created', { code, playerId, gameId: game.id });
     socket.emit('game-state', { game: toClientView(game, playerId) });
@@ -110,6 +118,13 @@ export function registerLobbyHandlers(io: IO, socket: Socket<ClientToServerEvent
     lobby.registerPlayer(playerId, game.id);
     connections.register(playerId, socket.id, game.id);
     socket.join(game.id);
+
+    // Bind guest session to game + persist name
+    const guestId = guestSessions.getGuestIdBySocket(socket.id);
+    if (guestId) {
+      guestSessions.bindToGame(guestId, playerId, game.id);
+      guestSessions.setName(guestId, playerName);
+    }
 
     socket.emit('game-created', { code: code.toUpperCase(), playerId, gameId: game.id });
 

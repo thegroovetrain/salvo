@@ -9,8 +9,8 @@ Hullcracker.io is a multiplayer naval combat game. All players' ships occupy the
 npm run dev          # Start server (3000) + client (5173)
 npm run check        # Lint + type-check + test (all workspaces)
 npm run lint         # ESLint (complexity=10 enforced)
-npm test -w server   # Server tests (vitest, 255 tests)
-npm test -w client   # Client tests (vitest + jsdom, 54 tests)
+npm test -w server   # Server tests (vitest, 293 tests)
+npm test -w client   # Client tests (vitest + jsdom, 52 tests)
 npx tsc --noEmit -p server/tsconfig.json  # Type-check server
 npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 ```
@@ -28,9 +28,10 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - **server/src/gameFlow.ts** — Turn flow: emitNextTurn, executeBotTurn, handlePlayerExit
 - **server/src/emitters.ts** — Socket emission helpers: emitToPlayer, emitGameState, broadcastToGame
 - **server/src/handlers/** — Socket event handlers by domain: lobby.ts (create/join/start), playing.ts (place-ships/fire), social.ts (chat/swap-team), connection.ts (rejoin/surrender/disconnect), rematch.ts (rematch/quickplay-join)
-- **server/src/timers/** — Timer management: placement.ts, turn.ts, forfeit.ts, index.ts (clearGameTimers orchestrator + timer Maps)
+- **server/src/timers/** — Timer management: placement.ts, turn.ts, disconnectSkip.ts (skip disconnected player's turn after grace period), allDisconnected.ts (end game when all humans disconnect), index.ts (clearGameTimers orchestrator + timer Maps)
 - **server/src/queue/** — Quick Play matchmaking: queue state, tryMatchRoom, mode helpers
 - **server/src/ai/** — AI opponents: doctrine.ts (commander layer: hunt/kill/trade-up/protect-lead/desperation/cleanup), gunnery.ts (shot selection per doctrine), probability.ts (heat-map targeting), placement.ts (ship placement generation), helpers.ts (board analysis utilities), index.ts (public API)
+- **server/src/guestSessions.ts** — GuestSessionManager: persistent guest identity (localStorage guestId via Socket.IO auth), session lifecycle, game binding, multi-tab eviction, GC
 - **server/src/connections.ts** — playerId↔socketId mapping, disconnect state tracking, event buffering
 - **server/src/lobby.ts** — Game lifecycle, join codes, cleanup timer
 - **server/src/helpers.ts** — autoAssignTeam, shuffle, assignQuickPlayColors
@@ -58,7 +59,8 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - Ship.sunk, Player.alive, Player.shotCount are computed getters, not stored state
 - Salvos resolve atomically — all shots land before checking alive status (note: "salvo" is the game mechanic term for a volley of shots, not the old brand name)
 - toClientView() is the single chokepoint for all outbound game state (security tests enforce this)
-- Reconnection buffers events during disconnect; forfeit is turn-based (not wall-clock) — player forfeits when their turn arrives and they're still disconnected
+- Guest identity: persistent guestId (client-generated UUID in localStorage, sent via Socket.IO auth). GuestSessionManager maps guestId → socketId/playerId/gameId. Auto-reconnect on page refresh — no rejoin modal
+- No forfeit on disconnect: disconnected players get their turn skipped (not forfeited) after a grace period. Ships remain on the board. Game ends only if all human players disconnect.
 - Unified single grid — no separate fleet/target grids (shared ocean = one grid)
 - Per-player stats (shots, hits, accuracy, FF) accumulated during fireSalvo, computed at game-over
 - Version is single-source from package.json, injected by Vite at build time via `__APP_VERSION__`
@@ -73,8 +75,8 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - Quick Play rematch destroys the game and requeues players (clean game boundaries); private rematch resets in-place
 - Player colors: 6 fixed colors (magenta/red/yellow/green/cyan/blue). Private games assign by join order (SLOT_COLORS). Quick Play randomizes: FFA shuffles all 6; team modes use TEAM_COLOR_POOLS (warm/cool split for 2-team, disjoint pairs for 3-team). Lobby renders fixed color slots.
 - Game-over reveal: toClientView() uses serializeShipForGameOver() to expose all ship cells when phase='finished'. Client renders all players' ships in their assigned colors.
-- Forfeit is silent: `player.ships = []` (no hit markers on shared board — prevents FFA info leakage)
-- Surrender button available during placement and playing phases; rejoin modal on page reload replaces auto-rejoin
+- Surrender is silent: `player.ships = []` (no hit markers on shared board — prevents FFA info leakage)
+- Surrender button available during placement and playing phases; auto-reconnect on page reload (no modal)
 - AI architecture: two-layer doctrine/gunnery system. Commander picks doctrine (hunt/kill/trade-up/protect-lead/desperation/cleanup) based on game state; gunnery executes shot selection per doctrine. Tiers unlock doctrine subsets (Easy=hunt only, Impossible=all). Probability heat-map for hunt targeting.
 - Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision
 

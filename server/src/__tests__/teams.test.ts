@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   createGame, addPlayer, canStartGame, startGame,
   placeShips, beginPlaying, fireSalvo, advanceTurn,
-  checkGameOver, forfeitPlayer, toClientView,
+  checkGameOver, eliminatePlayer, toClientView,
   resetForRematch,
 } from '../game.js';
 import type { Game, ShipPlacement } from '@salvo/shared';
@@ -69,8 +69,8 @@ describe('Team Win Condition', () => {
     const { game, playerIds } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     setupBattle(game, playerIds);
 
-    // Kill p3 (bravo, playerIndex=2) via forfeit
-    forfeitPlayer(game, 'p3');
+    // Kill p3 (bravo, playerIndex=2) via elimination
+    eliminatePlayer(game, 'p3');
 
     expect(isPlayerAlive(game.players.get('p3')!)).toBe(false);
     expect(isPlayerAlive(game.players.get('p4')!)).toBe(true);
@@ -83,8 +83,8 @@ describe('Team Win Condition', () => {
     const { game, playerIds } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p3');
-    forfeitPlayer(game, 'p4');
+    eliminatePlayer(game, 'p3');
+    eliminatePlayer(game, 'p4');
 
     const result = checkGameOver(game);
     expect(result).not.toBeNull();
@@ -96,7 +96,7 @@ describe('Team Win Condition', () => {
     const { game, playerIds } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p3');
+    eliminatePlayer(game, 'p3');
 
     expect(isPlayerAlive(game.players.get('p3')!)).toBe(false);
     expect(isPlayerAlive(game.players.get('p4')!)).toBe(true);
@@ -109,10 +109,10 @@ describe('Team Win Condition', () => {
     const { game, playerIds } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p1');
-    forfeitPlayer(game, 'p2');
-    forfeitPlayer(game, 'p3');
-    forfeitPlayer(game, 'p4');
+    eliminatePlayer(game, 'p1');
+    eliminatePlayer(game, 'p2');
+    eliminatePlayer(game, 'p3');
+    eliminatePlayer(game, 'p4');
 
     const result = checkGameOver(game);
     expect(result).not.toBeNull();
@@ -128,10 +128,10 @@ describe('Team Win Condition', () => {
     setupBattle(game, playerIds);
 
     // Eliminate alpha and bravo teams
-    forfeitPlayer(game, 'p1');
-    forfeitPlayer(game, 'p2');
-    forfeitPlayer(game, 'p3');
-    forfeitPlayer(game, 'p4');
+    eliminatePlayer(game, 'p1');
+    eliminatePlayer(game, 'p2');
+    eliminatePlayer(game, 'p3');
+    eliminatePlayer(game, 'p4');
 
     const result = checkGameOver(game);
     expect(result).not.toBeNull();
@@ -255,7 +255,7 @@ describe('Team Helpers', () => {
       const { game, playerIds } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
       setupBattle(game, playerIds);
 
-      forfeitPlayer(game, 'p1');
+      eliminatePlayer(game, 'p1');
       expect(isTeamAlive(game, 'alpha')).toBe(true); // p2 still alive
     });
 
@@ -263,8 +263,8 @@ describe('Team Helpers', () => {
       const { game, playerIds } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
       setupBattle(game, playerIds);
 
-      forfeitPlayer(game, 'p1');
-      forfeitPlayer(game, 'p2');
+      eliminatePlayer(game, 'p1');
+      eliminatePlayer(game, 'p2');
       expect(isTeamAlive(game, 'alpha')).toBe(false);
     });
   });
@@ -279,8 +279,8 @@ describe('Rematch', () => {
     const { game, playerIds } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p3');
-    forfeitPlayer(game, 'p4');
+    eliminatePlayer(game, 'p3');
+    eliminatePlayer(game, 'p4');
     checkGameOver(game);
 
     resetForRematch(game);
@@ -302,8 +302,8 @@ describe('GameOverStats', () => {
     const { game, playerIds } = makeTeamGame(['alpha', 'alpha', 'bravo', 'bravo']);
     setupBattle(game, playerIds);
 
-    forfeitPlayer(game, 'p3');
-    forfeitPlayer(game, 'p4');
+    eliminatePlayer(game, 'p3');
+    eliminatePlayer(game, 'p4');
 
     const stats = checkGameOver(game);
     expect(stats).not.toBeNull();
@@ -324,10 +324,10 @@ describe('GameOverStats', () => {
     fireSalvo(game, 'p1', p3Cells.slice(0, 4));
 
     // Eliminate bravo + charlie
-    forfeitPlayer(game, 'p3');
-    forfeitPlayer(game, 'p4');
-    forfeitPlayer(game, 'p5');
-    forfeitPlayer(game, 'p6');
+    eliminatePlayer(game, 'p3');
+    eliminatePlayer(game, 'p4');
+    eliminatePlayer(game, 'p5');
+    eliminatePlayer(game, 'p6');
 
     const stats = checkGameOver(game);
     expect(stats).not.toBeNull();

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  toClientView, fireSalvo, forfeitPlayer,
+  toClientView, fireSalvo, eliminatePlayer,
 } from '../game.js';
 import type { WireGame } from '@salvo/shared';
 import { makeGame, hexPlacements, allCellsForPlayer, setupBattle } from './helpers.js';
@@ -133,22 +133,22 @@ describe('toClientView Security — Ship Position Leakage', () => {
     expect(viewP2.players['p1'].ships[0].cells.length).toBe(0);
   });
 
-  it('forfeited player ships do not leak positions (silent removal)', () => {
+  it('eliminated player ships do not leak positions (silent removal)', () => {
     const { game } = setup2PlayerGame();
 
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
 
     const view = toClientView(game, 'p1');
     const p2Ships = view.players['p2'].ships;
 
-    // After silent forfeit, ships array should be empty — no cells/hits to leak
+    // After silent elimination, ships array should be empty — no cells/hits to leak
     expect(p2Ships).toEqual([]);
   });
 
-  it('toClientView shows forfeited player as not alive with 0 shots', () => {
+  it('toClientView shows eliminated player as not alive with 0 shots', () => {
     const { game } = setup2PlayerGame();
 
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
 
     const view = toClientView(game, 'p1');
     expect(view.players['p2'].alive).toBe(false);
@@ -193,7 +193,7 @@ describe('toClientView — Game State Integrity', () => {
 
   it('reflects eliminated player state', () => {
     const { game } = setup2PlayerGame();
-    forfeitPlayer(game, 'p2');
+    eliminatePlayer(game, 'p2');
 
     const view = toClientView(game, 'p1');
     expect(view.players['p2'].alive).toBe(false);

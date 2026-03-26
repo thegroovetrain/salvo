@@ -26,3 +26,23 @@ export function saveName(name: string): void {
   state.savedPlayerName = name;
   localStorage.setItem('hullcracker-player-name', name);
 }
+
+/**
+ * Get or create a persistent guest ID.
+ * Generated once on first visit, stored in localStorage.
+ * Separate from per-game playerId (sessionStorage).
+ */
+export function getOrCreateGuestId(): string {
+  const key = 'hullcracker-guestId';
+  let guestId = localStorage.getItem(key);
+  if (!guestId) {
+    guestId = crypto.randomUUID();
+    localStorage.setItem(key, guestId);
+  }
+  return guestId;
+}
+
+/** Store a server-assigned guestId (when client didn't have one). */
+export function setGuestId(guestId: string): void {
+  localStorage.setItem('hullcracker-guestId', guestId);
+}

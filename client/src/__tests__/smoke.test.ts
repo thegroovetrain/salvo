@@ -31,7 +31,7 @@ vi.mock('marked', () => ({
 }));
 
 import { renderLobby, renderQueue, renderChangelog, renderError } from '../rendering/lobby.js';
-import { renderSurrenderModal, renderRejoinModal } from '../rendering/modals.js';
+import { renderSurrenderModal } from '../rendering/modals.js';
 
 describe('Smoke Tests — Screen Rendering', () => {
   beforeEach(() => {
@@ -48,7 +48,6 @@ describe('Smoke Tests — Screen Rendering', () => {
     state.queueSize = 0;
     state.changelogHtml = null;
     state.showSurrenderModal = false;
-    state.showRejoinModal = false;
   });
 
   describe('renderLobby', () => {
@@ -143,15 +142,5 @@ describe('Smoke Tests — Screen Rendering', () => {
       expect(html).toContain('btn-surrender-cancel');
     });
 
-    it('renderRejoinModal returns empty when not showing', () => {
-      expect(renderRejoinModal()).toBe('');
-    });
-
-    it('renderRejoinModal renders when showing', () => {
-      state.showRejoinModal = true;
-      const html = renderRejoinModal();
-      expect(html).toContain('btn-rejoin-yes');
-      expect(html).toContain('btn-rejoin-no');
-    });
-  });
+});
 });

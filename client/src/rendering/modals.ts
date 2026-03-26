@@ -14,18 +14,3 @@ export function renderSurrenderModal(): string {
       </div>
     </div>`;
 }
-
-export function renderRejoinModal(): string {
-  if (!state.showRejoinModal) return '';
-  return `
-    <div class="modal-overlay" id="rejoin-modal-overlay">
-      <div class="modal">
-        <h2 class="label" style="margin-bottom:12px">Active Game Found</h2>
-        <p style="margin-bottom:16px;color:var(--text-muted);font-size:14px">You have an active game. Rejoin?</p>
-        <div style="display:flex;gap:8px;justify-content:center">
-          <button class="btn btn-primary" id="btn-rejoin-yes">Rejoin</button>
-          <button class="btn btn-danger" id="btn-rejoin-no">Leave Game</button>
-        </div>
-      </div>
-    </div>`;
-}

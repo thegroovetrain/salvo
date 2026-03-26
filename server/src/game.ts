@@ -678,10 +678,11 @@ export function checkNewEliminations(game: Game, alreadyDead: Set<string>): { pl
 }
 
 // ============================================================
-// Forfeit (silent removal — no info leakage in FFA)
+// Eliminate (silent removal — no info leakage in FFA)
+// Used by surrender. Disconnect does NOT eliminate.
 // ============================================================
 
-export function forfeitPlayer(game: Game, playerId: string): void {
+export function eliminatePlayer(game: Game, playerId: string): void {
   const player = game.players.get(playerId);
   if (!player) return;
   player.ships = [];
