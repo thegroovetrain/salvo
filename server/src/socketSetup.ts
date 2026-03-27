@@ -1,12 +1,14 @@
 import type { Server, Socket } from 'socket.io';
-import type { ClientToServerEvents, ServerToClientEvents } from '@salvo/shared';
+import type { ClientToServerEvents, ServerToClientEvents, Game } from '@salvo/shared';
 import { playerShotCount } from '@salvo/shared';
 import { getCurrentTurnPlayerId, toClientView } from './game.js';
-import { getConnections, getLobby, getGuestSessions, getPartyManager, broadcastToGame, emitToGuest } from './emitters.js';
+import { getLobbyCapabilities } from './capabilities.js';
+import { getConnections, getLobby, getGuestSessions, getPartyManager, broadcastToGame, emitToGuest, emitGameState } from './emitters.js';
 import {
   clearTurnTimer, startTurnTimer,
   startDisconnectSkipTimer, clearDisconnectSkipTimer,
   startAllDisconnectedTimer, clearAllDisconnectedTimer,
+  registerGameCleanup,
 } from './timers/index.js';
 import { isInQueue, getTicketByGuest, dissolveTicket, migrateTicketSocket, broadcastOnlineCount } from './queue/index.js';
 import {
@@ -63,6 +65,18 @@ function handleEviction(io: IO, evictedSocketId: string, newSocketId: string): v
   }
 }
 
+function resumeIfOnTurn(socket: TypedSocket, game: Game, playerId: string): void {
+  if (game.phase !== 'playing' || getCurrentTurnPlayerId(game) !== playerId) return;
+  clearDisconnectSkipTimer(playerId);
+  clearTurnTimer(game.id);
+  const p = game.players.get(playerId)!;
+  socket.emit('your-turn', {
+    shotCount: playerShotCount(p),
+    timerSeconds: game.timerConfig.enabled ? game.timerConfig.seconds : null,
+  });
+  startTurnTimer(game.id);
+}
+
 function autoReattach(io: IO, socket: TypedSocket, playerId: string, gameId: string): void {
   const connections = getConnections();
   const lobby = getLobby();
@@ -84,10 +98,16 @@ function autoReattach(io: IO, socket: TypedSocket, playerId: string, gameId: str
 
   socket.join(gameId);
   clearAllDisconnectedTimer(gameId);
+  // Only cancel host transfer if the reconnecting player IS the host
+  if (game.hostId === playerId) clearHostTransferTimer(gameId);
 
   const code = lobby.getCodeForGame(gameId) ?? '';
   socket.emit('game-created', { code, playerId, gameId });
-  socket.emit('game-state', { game: toClientView(game, playerId) });
+
+  const capabilities = game.phase === 'lobby'
+    ? getLobbyCapabilities(game, playerId)
+    : undefined;
+  socket.emit('game-state', { game: toClientView(game, playerId), capabilities });
 
   for (const buffered of result.bufferedEvents) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -96,22 +116,10 @@ function autoReattach(io: IO, socket: TypedSocket, playerId: string, gameId: str
 
   const player = game.players.get(playerId);
   if (player) {
-    broadcastToGame(gameId, 'player-reconnected', {
-      playerId,
-      playerName: player.name,
-    });
+    broadcastToGame(gameId, 'player-reconnected', { playerId, playerName: player.name });
   }
 
-  if (game.phase === 'playing' && getCurrentTurnPlayerId(game) === playerId) {
-    clearDisconnectSkipTimer(playerId);
-    clearTurnTimer(gameId);
-    const p = game.players.get(playerId)!;
-    socket.emit('your-turn', {
-      shotCount: playerShotCount(p),
-      timerSeconds: game.timerConfig.enabled ? game.timerConfig.seconds : null,
-    });
-    startTurnTimer(gameId);
-  }
+  resumeIfOnTurn(socket, game, playerId);
 }
 
 /** Restore party state on reconnect (snapshot-on-reconnect pattern). */
@@ -164,7 +172,52 @@ function handlePartyDisconnect(socketId: string, guestId: string): void {
   }
 }
 
-/** Handle game disconnect: turn timers, all-disconnected check. */
+// Host transfer timers for lobby disconnect
+const hostTransferTimers = new Map<string, NodeJS.Timeout>();
+
+function scheduleHostTransfer(game: Game, disconnectedHostId: string): void {
+  if (hostTransferTimers.has(game.id)) return;
+
+  const timer = setTimeout(() => {
+    hostTransferTimers.delete(game.id);
+    if (game.hostId !== disconnectedHostId) return; // already transferred
+    if (game.phase !== 'lobby') return;
+
+    // Find longest-tenured human player
+    for (const p of game.players.values()) {
+      if (!p.isBot && p.id !== disconnectedHostId) {
+        game.hostId = p.id;
+        emitGameState(game.id);
+        break;
+      }
+    }
+  }, 10_000);
+
+  hostTransferTimers.set(game.id, timer);
+}
+
+export function clearHostTransferTimer(gameId: string): void {
+  const timer = hostTransferTimers.get(gameId);
+  if (timer) {
+    clearTimeout(timer);
+    hostTransferTimers.delete(gameId);
+  }
+}
+
+// Register host transfer cleanup with game timer system
+registerGameCleanup(clearHostTransferTimer);
+
+function handleTurnDisconnect(game: Game, playerId: string): void {
+  if (game.phase !== 'playing' || getCurrentTurnPlayerId(game) !== playerId) return;
+  clearTurnTimer(game.id);
+  if (game.timerConfig.enabled) {
+    startTurnTimer(game.id);
+  } else {
+    startDisconnectSkipTimer(game.id, playerId);
+  }
+}
+
+/** Handle game disconnect: turn timers, all-disconnected check, host transfer. */
 function handleGameDisconnect(socketId: string): void {
   const connections = getConnections();
   const lobby = getLobby();
@@ -181,14 +234,11 @@ function handleGameDisconnect(socketId: string): void {
     playerName: player?.name ?? 'Unknown',
   });
 
-  if (game.phase === 'playing' && getCurrentTurnPlayerId(game) === result.playerId) {
-    clearTurnTimer(game.id);
-    if (game.timerConfig.enabled) {
-      startTurnTimer(game.id);
-    } else {
-      startDisconnectSkipTimer(game.id, result.playerId);
-    }
+  if (game.phase === 'lobby' && game.hostId === result.playerId) {
+    scheduleHostTransfer(game, result.playerId);
   }
+
+  handleTurnDisconnect(game, result.playerId);
 
   if (guestSessions.areAllDisconnected(game.id)) {
     startAllDisconnectedTimer(game.id);

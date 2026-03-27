@@ -52,7 +52,15 @@ function renderStatsRow(
   </tr>`;
 }
 
-function renderRematchButton(): string {
+function renderPostGameButtons(): string {
+  const isPrivate = state.game?.mode === 'private';
+
+  if (isPrivate) {
+    // Custom games: "Return to Lobby" as primary action
+    return `<button class="btn btn-primary" id="btn-return-lobby" style="max-width:300px;margin:24px auto 0">Return to Lobby</button>`;
+  }
+
+  // Quick play: show rematch (requeue) + new game
   const pending = state.rematchPending;
   const alreadyAccepted = pending?.acceptedIds.includes(state.playerId ?? '') ?? false;
   if (alreadyAccepted && pending) {
@@ -103,8 +111,8 @@ export function renderGameOver(): string {
           <tbody>${statsRows}</tbody>
         </table>
         </div>
-        ${renderRematchButton()}
-        <button class="btn btn-secondary" id="btn-new-game" style="max-width:300px;margin:12px auto 0">New Game</button>
+        ${renderPostGameButtons()}
+        <button class="btn btn-secondary" id="btn-new-game" style="max-width:300px;margin:12px auto 0">${state.game?.mode === 'private' ? 'Leave Game' : 'New Game'}</button>
       </div>
     </div>`;
 }

@@ -2,6 +2,7 @@ import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@salvo/shared';
 import { getLobby, getConnections, getGuestSessions } from '../emitters.js';
 import { handlePlayerExit } from '../gameFlow.js';
+import { clearLobbyCountdown } from './lobby.js';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 
@@ -24,6 +25,7 @@ export function registerConnectionHandlers(io: IO, socket: Socket<ClientToServer
     const guestId = guestSessions.getGuestIdBySocket(socket.id);
     if (guestId) guestSessions.unbindFromGame(guestId);
 
+    clearLobbyCountdown(gameId);
     connections.remove(playerId);
     handlePlayerExit(game, playerId, gameId);
     socket.leave(gameId);

@@ -56,9 +56,15 @@ export class PartyManager {
   private gcInterval: ReturnType<typeof setInterval> | null = null;
   private guestSessions: GuestSessionManager | null = null;
   private onStateChange: ((party: Party, removedGuestIds?: string[]) => void) | null = null;
+  /** Injected global code generator (checks both party + game namespaces) */
+  private globalCodeGen: (() => string) | null = null;
 
   setGuestSessions(gs: GuestSessionManager): void {
     this.guestSessions = gs;
+  }
+
+  setCodeGenerator(fn: () => string): void {
+    this.globalCodeGen = fn;
   }
 
   /** Register a callback for timer-driven state changes (leader transfer, member removal). */
@@ -394,6 +400,8 @@ export class PartyManager {
   }
 
   private generateUniqueCode(): string {
+    if (this.globalCodeGen) return this.globalCodeGen();
+    // Fallback: party-only check (used in tests without full wiring)
     let attempts = 0;
     while (attempts < 100) {
       const code = generateCode();

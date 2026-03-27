@@ -28,6 +28,7 @@ function restorePlayerIdentity(game: { id: string; players: Record<string, unkno
 function syncScreenToPhase(game: { phase: string; teamsEnabled: boolean; timerConfig: { enabled: boolean; seconds: number } }): void {
   if (game.phase === 'placement' && state.screen !== 'placement') {
     state.screen = 'placement';
+    state.pendingSwapRequest = null;
     if (game.teamsEnabled) state.chatChannel = 'team';
     if (game.timerConfig.enabled && !state.placementTimerInterval) {
       startPlacementTimer(game.timerConfig.seconds);
@@ -38,13 +39,15 @@ function syncScreenToPhase(game: { phase: string; teamsEnabled: boolean; timerCo
     stopPlacementTimer();
   } else if (game.phase === 'lobby') {
     state.screen = 'waiting';
+    state.pendingSwapRequest = null;
   }
 }
 
 export function registerGameHandlers(): void {
-  socket.on('game-state', ({ game }) => {
+  socket.on('game-state', ({ game, capabilities }) => {
     handleHostTransfer(game);
     state.game = game;
+    state.capabilities = capabilities ?? null;
     restorePlayerIdentity(game);
     syncScreenToPhase(game);
     render();
@@ -107,9 +110,11 @@ export function registerGameHandlers(): void {
     state.isMyTurn = false;
     stopTimer();
     stopPlacementTimer();
-    // Game is over — clear session so page reload goes to lobby
-    sessionStorage.removeItem('hullcracker-playerId');
-    sessionStorage.removeItem('hullcracker-gameId');
+    // Only clear session for quickplay games — private games persist for return-to-lobby
+    if (state.game?.mode !== 'private') {
+      sessionStorage.removeItem('hullcracker-playerId');
+      sessionStorage.removeItem('hullcracker-gameId');
+    }
     render();
     // Sequential ship reveal animation on the game-over grid
     const hullEls = document.querySelectorAll<SVGPathElement>('.ship-hull');
@@ -173,6 +178,75 @@ export function registerGameHandlers(): void {
       timestamp: Date.now(),
       channel: 'global',
     });
+    render();
+  });
+
+  // ── Sprint 1d: Lobby events ──
+
+  socket.on('swap-requested', ({ requesterId, requesterName }) => {
+    state.pendingSwapRequest = { requesterId, requesterName };
+    render();
+  });
+
+  socket.on('swap-declined', () => {
+    // The swap was declined or auto-declined — no notification needed
+    render();
+  });
+
+  socket.on('player-kicked', () => {
+    state.game = null;
+    state.playerId = null;
+    state.gameId = null;
+    state.joinCode = null;
+    state.screen = 'lobby';
+    state.capabilities = null;
+    state.pendingSwapRequest = null;
+    state.countdownDeadline = null;
+    if (state.countdownInterval) { clearInterval(state.countdownInterval); state.countdownInterval = null; }
+    state.infoMessage = 'You were removed from the game';
+    state.infoMessageTimeout = setTimeout(() => {
+      state.infoMessage = null;
+      render();
+    }, 5000);
+    sessionStorage.removeItem('hullcracker-playerId');
+    sessionStorage.removeItem('hullcracker-gameId');
+    render();
+  });
+
+  socket.on('start-countdown', ({ deadline }) => {
+    state.countdownDeadline = deadline;
+    // Play countdown beeps
+    if (!state.matchSoundMuted) {
+      const now = Date.now();
+      for (let i = 0; i < 5; i++) {
+        const freq = 800 - i * 100; // 800, 700, 600, 500, 400
+        const delay = (deadline - now - 5000) + i * 1000 + 1000;
+        if (delay >= 0) {
+          setTimeout(() => {
+            if (state.countdownDeadline) playTone(freq, freq, freq * 0.8, 0.1, 0.2);
+          }, delay);
+        }
+      }
+    }
+    // Update countdown display
+    if (state.countdownInterval) clearInterval(state.countdownInterval);
+    state.countdownInterval = setInterval(() => {
+      if (!state.countdownDeadline || Date.now() >= state.countdownDeadline) {
+        if (state.countdownInterval) clearInterval(state.countdownInterval);
+        state.countdownInterval = null;
+        state.countdownDeadline = null;
+      }
+      render();
+    }, 200);
+    render();
+  });
+
+  socket.on('start-countdown-cancelled', () => {
+    state.countdownDeadline = null;
+    if (state.countdownInterval) {
+      clearInterval(state.countdownInterval);
+      state.countdownInterval = null;
+    }
     render();
   });
 }

@@ -45,17 +45,19 @@ export function registerPartyHandlers(io: IO, socket: TypedSocket): void {
     const guestId = guestSessions.getGuestIdBySocket(socket.id);
     if (!guestId) return;
 
-    // Dissolve the joiner's own queue ticket (if any)
-    dissolveQueueTicketForParty(guestId);
-
-    // Dissolve the TARGET party's queue ticket (party composition is about to change)
+    // Block join if the TARGET party is currently queued
     const targetParty = partyManager.getPartyByCode(code);
     if (targetParty) {
       for (const memberId of targetParty.members.keys()) {
-        dissolveQueueTicketForParty(memberId);
-        break; // only need one member to find the party ticket
+        if (isInQueue(memberId)) {
+          socket.emit('party-error', { reason: 'target-party-queued' });
+          return;
+        }
       }
     }
+
+    // Dissolve the joiner's own queue ticket (if any)
+    dissolveQueueTicketForParty(guestId);
 
     const result = partyManager.joinParty(guestId, code);
     if (!result.ok) {

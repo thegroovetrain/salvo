@@ -1,29 +1,36 @@
 import { state } from '../state.js';
 import { esc, playerIcon } from '../helpers/dom.js';
 import { SLOT_COLORS } from '@salvo/shared';
-import type { WirePlayer } from '@salvo/shared';
+import type { WirePlayer, LobbyCapabilities } from '@salvo/shared';
 import { renderError } from './lobby.js';
+import { renderChat } from './chat.js';
 
 // --- Seat card helpers ---
 
 function renderOpenSlot(
   slotIndex: number,
   slotColor: string,
-  isHost: boolean,
+  caps: LobbyCapabilities,
   openSlotCounter: { value: number },
   team?: string,
 ): string {
   const menuItems: string[] = [];
 
-  // Any player can move themselves to an open slot
-  menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move-to-slot" data-slot-index="${slotIndex}">Move here</button>`);
+  if (caps.canMoveToSlot) {
+    menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move-to-slot" data-slot-index="${slotIndex}">Move here</button>`);
+  }
 
-  // Only host can add bots
-  if (isHost) {
+  if (caps.canAddBot) {
     menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="easy" data-bot-team="${team ?? ''}" data-bot-slot="${slotIndex}">Add AI (Easy)</button>`);
     menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="medium" data-bot-team="${team ?? ''}" data-bot-slot="${slotIndex}">Add AI (Medium)</button>`);
     menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="hard" data-bot-team="${team ?? ''}" data-bot-slot="${slotIndex}">Add AI (Hard)</button>`);
     menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="add-bot" data-bot-diff="impossible" data-bot-team="${team ?? ''}" data-bot-slot="${slotIndex}">Add AI (Impossible)</button>`);
+  }
+
+  if (menuItems.length === 0) {
+    return `<div class="seat-card open seat-empty player-color-${slotColor}" data-player-color="${slotColor}">
+      <span style="color:var(--player-${slotColor});opacity:0.4;font-size:12px">Open</span>
+    </div>`;
   }
 
   const slotId = `open-${team ?? 'any'}-${openSlotCounter.value++}`;
@@ -37,41 +44,42 @@ function renderOpenSlot(
   </div>`;
 }
 
-function buildTeamMoveItems(
+function buildSeatMenuItems(
   p: WirePlayer,
-  isHost: boolean,
+  caps: LobbyCapabilities,
   isMe: boolean,
+  teamsEnabled: boolean,
   teams: Record<string, string>,
   players: WirePlayer[],
 ): string[] {
   const menuItems: string[] = [];
-  const myTeam = teams[p.id];
-  const allTeamLabels: Record<string, string> = { alpha: 'Alpha', bravo: 'Bravo', charlie: 'Charlie' };
-  const gt = state.game?.gameType ?? '2-team';
-  const allTeamNames = gt === '3-team' ? ['alpha', 'bravo', 'charlie'] : ['alpha', 'bravo'];
-  const MAX_PLAYERS = 6;
-  const numTeams = allTeamNames.length;
-  const maxPerTeam = Math.floor(MAX_PLAYERS / numTeams);
-  const otherTeams = allTeamNames.filter(t => t !== myTeam);
 
-  for (const otherTeam of otherTeams) {
-    const otherTeamLabel = allTeamLabels[otherTeam] ?? otherTeam;
-    const otherTeamPlayers = players.filter(pl => teams[pl.id] === otherTeam);
-    const canMove = otherTeamPlayers.length < maxPerTeam;
-
-    if (isHost) {
-      buildHostTeamActions(menuItems, canMove, p.id, otherTeam, otherTeamLabel, otherTeamPlayers);
-    } else if (isMe && !p.isBot && canMove) {
-      menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}" data-move-team="${otherTeam}">Move to ${otherTeamLabel}</button>`);
-    }
+  if (teamsEnabled) {
+    menuItems.push(...buildTeamMoveItems(p, caps, isMe, teams, players));
   }
+
+  // Swap request (other players only, not self, not bots for non-host)
+  if (!isMe && !p.isBot && caps.canRequestSwap) {
+    menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="request-swap" data-target="${p.id}">Request Swap</button>`);
+  }
+
+  // Kick (host only, not self)
+  if (!isMe && caps.canKick) {
+    menuItems.push(`<button class="seat-menu-item seat-menu-item-danger" role="menuitem" data-action="kick" data-target="${p.id}">Kick</button>`);
+  }
+
+  // Transfer host (host only, human targets only, not self)
+  if (!isMe && !p.isBot && caps.canTransferHost) {
+    menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="transfer-host" data-target="${p.id}">Transfer Host</button>`);
+  }
+
   return menuItems;
 }
 
 function buildHostTeamActions(
   menuItems: string[],
-  canMove: boolean,
   playerId: string,
+  canMove: boolean,
   otherTeam: string,
   otherTeamLabel: string,
   otherTeamPlayers: WirePlayer[],
@@ -85,6 +93,40 @@ function buildHostTeamActions(
   }
 }
 
+function getTeamNames(): string[] {
+  return (state.game?.gameType ?? '2-team') === '3-team'
+    ? ['alpha', 'bravo', 'charlie']
+    : ['alpha', 'bravo'];
+}
+
+function buildTeamMoveItems(
+  p: WirePlayer,
+  caps: LobbyCapabilities,
+  isMe: boolean,
+  teams: Record<string, string>,
+  players: WirePlayer[],
+): string[] {
+  const menuItems: string[] = [];
+  const myTeam = teams[p.id];
+  const labels: Record<string, string> = { alpha: 'Alpha', bravo: 'Bravo', charlie: 'Charlie' };
+  const teamNames = getTeamNames();
+  const maxPerTeam = Math.floor(6 / teamNames.length);
+  const canSelfMove = isMe && !p.isBot && caps.canMoveToSlot;
+
+  for (const otherTeam of teamNames.filter(t => t !== myTeam)) {
+    const label = labels[otherTeam] ?? otherTeam;
+    const otherPlayers = players.filter(pl => teams[pl.id] === otherTeam);
+    const canMove = otherPlayers.length < maxPerTeam;
+
+    if (caps.canKick) {
+      buildHostTeamActions(menuItems, p.id, canMove, otherTeam, label, otherPlayers);
+    } else if (canSelfMove && canMove) {
+      menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="move" data-target="${p.id}" data-move-team="${otherTeam}">Move to ${label}</button>`);
+    }
+  }
+  return menuItems;
+}
+
 function renderSeatDropdown(menuItems: string[], playerId: string): string {
   if (menuItems.length === 0) return '';
   const cardId = `seat-${playerId}`;
@@ -94,49 +136,52 @@ function renderSeatDropdown(menuItems: string[], playerId: string): string {
     <div class="seat-menu${isOpen ? ' open' : ''}" role="menu">${menuItems.join('')}</div>`;
 }
 
-function buildSeatMenuItems(
-  p: WirePlayer,
-  isHost: boolean,
-  isMe: boolean,
-  teamsEnabled: boolean,
-  teams: Record<string, string>,
-  players: WirePlayer[],
-): string[] {
-  const menuItems: string[] = [];
-  if (teamsEnabled) {
-    menuItems.push(...buildTeamMoveItems(p, isHost, isMe, teams, players));
-  }
-  if (p.isBot && isHost) {
-    menuItems.push(`<button class="seat-menu-item seat-menu-item-danger" role="menuitem" data-action="kick" data-bot-id="${p.id}">Kick</button>`);
-  }
-  return menuItems;
+function renderSwapNotification(): string {
+  if (!state.pendingSwapRequest) return '';
+  const req = state.pendingSwapRequest;
+  return `
+    <div class="swap-notification" role="alert" aria-live="assertive">
+      <span><strong style="color:var(--text-primary)">${esc(req.requesterName)}</strong> wants to swap</span>
+      <div class="swap-actions">
+        <button class="btn btn-primary btn-sm seat-menu-item" data-action="accept-swap" data-requester="${req.requesterId}">Accept</button>
+        <button class="btn btn-secondary btn-sm seat-menu-item" data-action="decline-swap" data-requester="${req.requesterId}">Decline</button>
+      </div>
+    </div>`;
+}
+
+function seatBadges(p: WirePlayer, caps: LobbyCapabilities): string {
+  const badges: string[] = [];
+  if (p.id === state.playerId) badges.push('<span class="player-you-badge">YOU</span>');
+  if (!p.isBot && caps.readyStates[p.id]) badges.push('<span class="ready-badge">✓</span>');
+  if (p.id === state.game?.hostId) badges.push('<span class="host-badge">HOST</span>');
+  if (p.isBot) badges.push(`<span class="bot-badge">${esc(p.aiDifficulty ?? 'bot').toUpperCase()}</span>`);
+  return badges.join('');
 }
 
 function renderFilledSeat(
   p: WirePlayer,
   slotColor: string,
-  isHost: boolean,
+  caps: LobbyCapabilities,
   teamsEnabled: boolean,
   teams: Record<string, string>,
   players: WirePlayer[],
 ): string {
   const isMe = p.id === state.playerId;
-  const hostBadge = p.id === state.game?.hostId ? '<span class="host-badge">HOST</span>' : '';
-  const botBadge = p.isBot ? `<span class="bot-badge">${esc(p.aiDifficulty ?? 'bot').toUpperCase()}</span>` : '';
-  const menuItems = buildSeatMenuItems(p, isHost, isMe, teamsEnabled, teams, players);
+  const menuItems = buildSeatMenuItems(p, caps, isMe, teamsEnabled, teams, players);
   const dropdownHtml = renderSeatDropdown(menuItems, p.id);
-  const colorClass = `player-color-${p.color ?? slotColor}`;
+  const color = p.color ?? slotColor;
   const selfClass = isMe ? ' player-card-self' : '';
-  const youBadge = isMe ? `<span class="player-you-badge">YOU</span>` : '';
-  return `<div class="seat-card ${colorClass}${selfClass}" data-player-color="${p.color ?? slotColor}">
-    ${playerIcon(p.isBot)} <span class="player-name">${esc(p.name)}</span> ${youBadge}${hostBadge}${botBadge}${dropdownHtml}
-  </div>`;
+  const swapNotification = isMe ? renderSwapNotification() : '';
+
+  return `<div class="seat-card player-color-${color}${selfClass}" data-player-color="${color}">
+    ${playerIcon(p.isBot)} <span class="player-name">${esc(p.name)}</span> ${seatBadges(p, caps)}${dropdownHtml}
+  </div>${swapNotification}`;
 }
 
 export function renderSeatCard(
   p: WirePlayer | null,
   slotIndex: number,
-  isHost: boolean,
+  caps: LobbyCapabilities,
   teamsEnabled: boolean,
   teams: Record<string, string>,
   players: WirePlayer[],
@@ -145,9 +190,9 @@ export function renderSeatCard(
 ): string {
   const slotColor = SLOT_COLORS[slotIndex] ?? 'green';
   if (!p) {
-    return renderOpenSlot(slotIndex, slotColor, isHost, openSlotCounter, team);
+    return renderOpenSlot(slotIndex, slotColor, caps, openSlotCounter, team);
   }
-  return renderFilledSeat(p, slotColor, isHost, teamsEnabled, teams, players);
+  return renderFilledSeat(p, slotColor, caps, teamsEnabled, teams, players);
 }
 
 export function renderCustomSelect(
@@ -220,7 +265,7 @@ function renderTeamLobby(
   players: WirePlayer[],
   teams: Record<string, string>,
   gameType: string,
-  isHost: boolean,
+  caps: LobbyCapabilities,
   teamsEnabled: boolean,
   openSlotCounter: { value: number },
 ): string {
@@ -239,7 +284,7 @@ function renderTeamLobby(
       const slotIdx = globalSlot++;
       const slotColor = SLOT_COLORS[slotIdx];
       const player = teamPlayers.find(p => p.color === slotColor);
-      teamSlotCards.push(renderSeatCard(player ?? null, slotIdx, isHost, teamsEnabled, teams, players, openSlotCounter, teamName));
+      teamSlotCards.push(renderSeatCard(player ?? null, slotIdx, caps, teamsEnabled, teams, players, openSlotCounter, teamName));
     }
     return `
       <div class="team-section">
@@ -254,13 +299,13 @@ function renderTeamLobby(
 function renderFfaLobby(
   players: WirePlayer[],
   teams: Record<string, string>,
-  isHost: boolean,
+  caps: LobbyCapabilities,
   teamsEnabled: boolean,
   openSlotCounter: { value: number },
 ): string {
   const slotCards = SLOT_COLORS.map((slotColor, i) => {
     const player = players.find(p => p.color === slotColor);
-    return renderSeatCard(player ?? null, i, isHost, teamsEnabled, teams, players, openSlotCounter);
+    return renderSeatCard(player ?? null, i, caps, teamsEnabled, teams, players, openSlotCounter);
   }).join('');
 
   return `
@@ -270,48 +315,134 @@ function renderFfaLobby(
     </div>`;
 }
 
-function renderStartButton(isHost: boolean, canStart: boolean): string {
-  if (!isHost) return '<p class="player-count">Waiting for host to start...</p>';
-  const disabled = canStart ? '' : 'disabled';
-  const label = canStart ? 'Start Game' : 'Need 2+ Players';
-  return `<button class="btn btn-amber" id="btn-start" ${disabled}>${label}</button>`;
+function renderReadyButton(caps: LobbyCapabilities): string {
+  if (!caps.canToggleReady) return '';
+  const readyClass = caps.isReady ? 'btn btn-primary' : 'btn';
+  const readyText = caps.isReady ? 'READY ✓' : 'READY';
+  const readyStyle = caps.isReady ? '' : 'border-color:var(--text-muted)';
+  return `<button class="${readyClass}" id="btn-toggle-ready" role="switch" aria-checked="${caps.isReady}" aria-label="Toggle ready status" style="${readyStyle}">${readyText}</button>`;
 }
 
-function getWaitingRoomState(): { players: WirePlayer[]; isHost: boolean; teamsEnabled: boolean; teams: Record<string, string>; gameType: string } {
-  const players = state.game ? Object.values(state.game.players) : [];
-  const isHost = state.game?.hostId === state.playerId || state.isHost;
-  const teamsEnabled = state.game?.teamsEnabled ?? false;
-  const teams = state.game?.teams ?? {};
-  const gameType = state.game?.gameType ?? 'ffa';
-  return { players, isHost, teamsEnabled, teams, gameType };
+function renderStartButton(caps: LobbyCapabilities, playerCount: number): string {
+  const isHost = caps.canStart || caps.canChangeOptions; // host indicators
+
+  if (!isHost) {
+    if (caps.isReady) {
+      return '<p class="player-count" style="color:var(--text-muted)">Waiting for host to start...</p>';
+    }
+    return '';
+  }
+
+  if (!caps.canStart) {
+    // Host is not ready yet — don't show start button
+    if (playerCount < 2) {
+      return '<p class="player-count">Need 2+ Players</p>';
+    }
+    return '';
+  }
+
+  // Host is ready — show Start button
+  if (caps.allPlayersReady) {
+    return `<button class="btn btn-primary start-pulse" id="btn-start">START GAME</button>`;
+  }
+
+  // Amber path
+  if (state.showAmberConfirm) {
+    return `
+      <div class="amber-confirm">
+        <p style="color:var(--text-secondary);font-size:14px">Not all players are ready. Start anyway?</p>
+        <button class="btn btn-amber btn-sm" id="btn-start-force">Start</button>
+        <button class="btn btn-sm" id="btn-start-cancel" style="border-color:var(--text-muted)">Wait</button>
+      </div>`;
+  }
+
+  return `<button class="btn btn-amber" id="btn-start">START GAME</button>`;
+}
+
+function renderCountdownOverlay(): string {
+  if (!state.countdownDeadline) return '';
+  const remaining = Math.max(0, Math.ceil((state.countdownDeadline - Date.now()) / 1000));
+  return `
+    <div class="countdown-overlay" role="timer" aria-live="assertive">
+      <div class="countdown-number">${remaining}</div>
+      <div class="countdown-subtitle">LAUNCHING...</div>
+    </div>`;
+}
+
+function defaultCapabilities(isHost: boolean): LobbyCapabilities {
+  return {
+    canChangeOptions: isHost,
+    canAddBot: isHost,
+    canKick: isHost,
+    canMoveToSlot: true,
+    canRequestSwap: true,
+    canToggleReady: true,
+    canStart: false,
+    canTransferHost: isHost,
+    allPlayersReady: false,
+    isReady: false,
+    readyStates: {},
+  };
+}
+
+function getWaitingRoomState() {
+  const g = state.game;
+  const isHost = g?.hostId === state.playerId || state.isHost;
+  if (!g) {
+    return {
+      players: [] as WirePlayer[],
+      isHost,
+      teamsEnabled: false,
+      teams: {} as Record<string, string>,
+      gameType: 'ffa',
+      caps: state.capabilities ?? defaultCapabilities(isHost),
+    };
+  }
+  return {
+    players: Object.values(g.players),
+    isHost,
+    teamsEnabled: g.teamsEnabled,
+    teams: g.teams,
+    gameType: g.gameType,
+    caps: state.capabilities ?? defaultCapabilities(isHost),
+  };
 }
 
 export function renderWaiting(): string {
   const MAX_PLAYERS = 6;
-  const { players, isHost, teamsEnabled, teams, gameType } = getWaitingRoomState();
-  const canStart = players.length >= 2 && isHost;
+  const { players, isHost, teamsEnabled, teams, gameType, caps } = getWaitingRoomState();
   const openSlotCounter = { value: 0 };
 
   const lobbyPlayersHtml = teamsEnabled
-    ? renderTeamLobby(players, teams, gameType, isHost, teamsEnabled, openSlotCounter)
-    : renderFfaLobby(players, teams, isHost, teamsEnabled, openSlotCounter);
+    ? renderTeamLobby(players, teams, gameType, caps, teamsEnabled, openSlotCounter)
+    : renderFfaLobby(players, teams, caps, teamsEnabled, openSlotCounter);
 
   return `
     <div class="screen">
       <h1 class="game-title">HULLCRACKER.IO</h1>
       <p class="game-subtitle">Multiplayer Naval Warfare</p>
       ${renderError()}
+      ${renderCountdownOverlay()}
       <div class="waiting-room">
         <h2 class="label" style="margin-bottom:12px">Game Created</h2>
         <div class="join-code" id="copy-code" title="Click to copy">${state.joinCode ?? ''}</div>
         <p class="join-code-hint">Click to copy &bull; Share with friends</p>
         <div class="lobby-body">
-          <div class="lobby-players">${lobbyPlayersHtml}</div>
-          ${renderGameOptionsPanel(isHost)}
+          <div class="lobby-players">
+            ${lobbyPlayersHtml}
+            ${renderReadyButton(caps)}
+            ${renderStartButton(caps, players.length)}
+            <button class="btn leave-btn" id="btn-leave">Leave Game</button>
+          </div>
+          <div class="lobby-right-col">
+            ${renderGameOptionsPanel(isHost)}
+            <div class="lobby-chat-panel">
+              <div class="section-label">CHAT</div>
+              ${renderChat()}
+            </div>
+          </div>
         </div>
         <p class="player-count">${players.length} of 2\u2013${MAX_PLAYERS} players</p>
-        ${renderStartButton(isHost, canStart)}
-        <button class="btn leave-btn" id="btn-leave">Leave Game</button>
       </div>
     </div>`;
 }
