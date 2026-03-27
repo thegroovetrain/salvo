@@ -58,8 +58,8 @@ function buildSeatMenuItems(
     menuItems.push(...buildTeamMoveItems(p, caps, isMe, teams, players));
   }
 
-  // Swap request (other players only, not self, not bots for non-host)
-  if (!isMe && !p.isBot && caps.canRequestSwap) {
+  // Swap request (other players only, not self)
+  if (!isMe && caps.canRequestSwap) {
     menuItems.push(`<button class="seat-menu-item" role="menuitem" data-action="request-swap" data-target="${p.id}">Request Swap</button>`);
   }
 
