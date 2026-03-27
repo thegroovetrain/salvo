@@ -27,7 +27,8 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - **server/src/game.ts** — Pure game logic, no I/O. toClientView() security boundary. checkNewEliminations() for post-salvo elimination detection
 - **server/src/gameFlow.ts** — Turn flow: emitNextTurn, executeBotTurn, handlePlayerExit
 - **server/src/emitters.ts** — Socket emission helpers: emitToPlayer, emitGameState, broadcastToGame
-- **server/src/handlers/** — Socket event handlers by domain: lobby.ts (create/join/start), playing.ts (place-ships/fire), social.ts (chat/swap-team), connection.ts (rejoin/surrender/disconnect), rematch.ts (rematch/quickplay-join)
+- **server/src/capabilities.ts** — `getLobbyCapabilities()`: server-authoritative permission payload for lobby phase (canStart, canKick, canAddBot, canRequestSwap, canToggleReady, canTransferHost, readyStates)
+- **server/src/handlers/** — Socket event handlers by domain: lobby.ts (create/join/start + ready-up/kick/transfer-host/return-to-lobby/countdown), playing.ts (place-ships/fire), social.ts (chat/swap-team/swap-request/respond-swap), connection.ts (leave/surrender/disconnect), rematch.ts (rematch/quickplay-join)
 - **server/src/timers/** — Timer management: placement.ts, turn.ts, disconnectSkip.ts (skip disconnected player's turn after grace period), allDisconnected.ts (end game when all humans disconnect), index.ts (clearGameTimers orchestrator + timer Maps)
 - **server/src/queue/** — Ticket-based Quick Play matchmaking: types.ts (QueueTicket/QueuedMember interfaces), adapter.ts (ticket creation, legal mode validation), matcher.ts (greedy FIFO matching, party-aware team assignment), index.ts (orchestrator: ticket Map + guestId→ticketId reverse index, enqueue/dequeue/dissolve, match creation, tab eviction migration)
 - **server/src/party/** — Party system: state.ts (PartyManager: create/join/leave/disband, leader transfer, member DC grace, rate limiting, GC)
@@ -77,12 +78,19 @@ npx tsc --noEmit -p client/tsconfig.json  # Type-check client
 - Legal mode matrix: solo=all 6 modes, party of 2=2v2/2v2v2/3v3, party of 3=3v3 only. No FFA with parties.
 - Party members always on same team. Leader-only queue control (start/cancel). Any party mutation while queued dissolves the ticket.
 - Quick Play rematch stays individual — party members requeue as solo tickets. Party-aware rematch deferred to Sprint 1e.
-- Quick Play rematch destroys the game and requeues players (clean game boundaries); private rematch resets in-place
+- Quick Play rematch destroys the game and requeues players (clean game boundaries); private games use "Return to Lobby" (resetGameToLobby) instead of rematch
 - Player colors: 6 fixed colors (magenta/red/yellow/green/cyan/blue). Private games assign by join order (SLOT_COLORS). Quick Play randomizes: FFA shuffles all 6; team modes use TEAM_COLOR_POOLS (warm/cool split for 2-team, disjoint pairs for 3-team). Lobby renders fixed color slots.
 - Game-over reveal: toClientView() uses serializeShipForGameOver() to expose all ship cells when phase='finished'. Client renders all players' ships in their assigned colors.
 - Surrender is silent: `player.ships = []` (no hit markers on shared board — prevents FFA info leakage)
 - Surrender button available during placement and playing phases; auto-reconnect on page reload (no modal)
 - AI architecture: two-layer doctrine/gunnery system. Commander picks doctrine (hunt/kill/trade-up/protect-lead/desperation/cleanup) based on game state; gunnery executes shot selection per doctrine. Tiers unlock doctrine subsets (Easy=hunt only, Impossible=all). Probability heat-map for hunt targeting.
+- Lobby capabilities: `LobbyCapabilities` payload emitted with every `game-state` during lobby phase. Server-authoritative permissions (canStart, canKick, canAddBot, canRequestSwap, canToggleReady, canTransferHost). Client renders menus from capabilities, never guesses.
+- Ready-up: `Game.readyStates` (Map<playerId, boolean>). All humans toggle ready. Host ready activates Start. Green path (all ready → 5s countdown), amber path (confirm prompt → immediate start). Countdown cancels on any lobby state change.
+- Swap requests: peer-to-peer with 15s auto-decline timer. Crossed requests auto-accept. Bots instant. `pendingSwaps` Map in social.ts. `clearSwapsForPlayer/Game` for cleanup.
+- Host transfer: manual `transfer-host` event + auto on 10s disconnect grace. Reconnecting host does NOT reclaim. Target must be connected human.
+- Lobby persistence: `resetGameToLobby()` resets finished game to lobby phase. Custom games use "Return to Lobby" instead of rematch. Quick play uses "Return" to homescreen.
+- Unified join codes: `resolveJoinCode()` checks party first, then game. `generateGloballyUniqueCode()` checks both namespaces. Both `PartyManager` and `LobbyManager` accept injected `setCodeGenerator()`.
+- Timer cleanup: `registerGameCleanup()` pattern in timers/index.ts avoids circular imports. Lobby countdown and host transfer timers register via callback.
 - Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision
 
 ## gstack
@@ -113,6 +121,12 @@ Available gstack skills:
 - `/gstack-upgrade`
 
 If gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
+
+## Dev Server
+- **Never start the dev server yourself.** The user manages the dev server manually.
+- Before running `/qa`, `/browse`, or any browser-based skill, check if the dev server is running: `curl -s -o /dev/null -w '%{http_code}' http://localhost:3000 2>/dev/null`
+- If it's not running, ask the user to start it with `npm run dev` and wait.
+- If you find stale node processes on port 3000 or 5173, kill them and tell the user.
 
 ## Design System
 Always read DESIGN.md before making any visual or UI decisions.

@@ -26,9 +26,12 @@ export function registerLobbyHandlers(): void {
     render();
   });
 
-  socket.on('player-joined', ({ game }) => {
+  socket.on('player-joined', ({ game, capabilities }) => {
     state.game = game;
+    if (capabilities) state.capabilities = capabilities;
     state.screen = 'waiting';
+    // Cancel pending swap request on player join (lobby state changed)
+    state.pendingSwapRequest = null;
     render();
   });
 

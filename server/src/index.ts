@@ -10,6 +10,7 @@ import { GuestSessionManager } from './guestSessions.js';
 import { PartyManager } from './party/state.js';
 import { initEmitters } from './emitters.js';
 import { setupSocket } from './socketSetup.js';
+import { generateGloballyUniqueCode } from './joinCode.js';
 
 // ============================================================
 // Core Instances
@@ -31,6 +32,11 @@ guestSessions.setGameExistsCheck((gameId) => lobby.getGame(gameId) !== undefined
 
 // Wire up party manager with guest sessions
 partyManager.setGuestSessions(guestSessions);
+
+// Wire up global code uniqueness (checks both party + game namespaces)
+const globalCodeGen = () => generateGloballyUniqueCode(partyManager, lobby);
+partyManager.setCodeGenerator(globalCodeGen);
+lobby.setCodeGenerator(globalCodeGen);
 
 // Wire up party state change callback for timer-driven events
 partyManager.setOnStateChange((party, removedGuestIds) => {

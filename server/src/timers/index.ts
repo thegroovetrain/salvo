@@ -10,9 +10,14 @@ export const placementTimers = new Map<string, ReturnType<typeof setTimeout>>();
 export const disconnectSkipTimers = new Map<string, ReturnType<typeof setTimeout>>();
 export const allDisconnectedTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+// Extra cleanup callbacks registered at runtime (avoids circular imports)
+const extraCleanup: ((gameId: string) => void)[] = [];
+export function registerGameCleanup(fn: (gameId: string) => void): void { extraCleanup.push(fn); }
+
 export function clearGameTimers(gameId: string): void {
   clearPlacementTimer(gameId);
   clearAllDisconnectedTimer(gameId);
+  for (const fn of extraCleanup) fn(gameId);
   const game = getLobby().getGame(gameId);
   if (game) {
     for (const playerId of game.players.keys()) {

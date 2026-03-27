@@ -44,13 +44,39 @@ function handleSeatSwap(el: Element): void {
 }
 
 function handleSeatKick(el: Element): void {
-  const botId = el.getAttribute('data-bot-id');
-  if (botId) socket.emit('remove-bot', { botId });
+  const targetId = el.getAttribute('data-target');
+  if (targetId) socket.emit('kick-player', { targetPlayerId: targetId });
 }
 
 function handleSeatMoveToSlot(el: Element): void {
   const slotStr = el.getAttribute('data-slot-index');
   if (slotStr != null) socket.emit('move-to-slot', { slotIndex: parseInt(slotStr, 10) });
+}
+
+function handleRequestSwap(el: Element): void {
+  const targetId = el.getAttribute('data-target');
+  if (targetId) socket.emit('request-swap', { targetPlayerId: targetId });
+}
+
+function handleAcceptSwap(el: Element): void {
+  const requesterId = el.getAttribute('data-requester');
+  if (requesterId) {
+    socket.emit('respond-swap', { requesterId, accept: true });
+    state.pendingSwapRequest = null;
+  }
+}
+
+function handleDeclineSwap(el: Element): void {
+  const requesterId = el.getAttribute('data-requester');
+  if (requesterId) {
+    socket.emit('respond-swap', { requesterId, accept: false });
+    state.pendingSwapRequest = null;
+  }
+}
+
+function handleTransferHost(el: Element): void {
+  const targetId = el.getAttribute('data-target');
+  if (targetId) socket.emit('transfer-host', { targetPlayerId: targetId });
 }
 
 const seatActions: Record<string, (el: Element) => void> = {
@@ -59,6 +85,10 @@ const seatActions: Record<string, (el: Element) => void> = {
   'swap': handleSeatSwap,
   'kick': handleSeatKick,
   'move-to-slot': handleSeatMoveToSlot,
+  'request-swap': handleRequestSwap,
+  'accept-swap': handleAcceptSwap,
+  'decline-swap': handleDeclineSwap,
+  'transfer-host': handleTransferHost,
 };
 
 function handleSeatMenuAction(el: Element): void {
@@ -152,7 +182,27 @@ export function bindEvents(): void {
   });
 
   on('btn-start', 'click', () => {
+    // Check if amber path (not all ready) → show confirmation
+    if (state.capabilities && !state.capabilities.allPlayersReady) {
+      state.showAmberConfirm = true;
+      render();
+      return;
+    }
     socket.emit('start-game');
+  });
+
+  on('btn-start-force', 'click', () => {
+    state.showAmberConfirm = false;
+    socket.emit('start-game', { force: true });
+  });
+
+  on('btn-start-cancel', 'click', () => {
+    state.showAmberConfirm = false;
+    render();
+  });
+
+  on('btn-toggle-ready', 'click', () => {
+    socket.emit('toggle-ready');
   });
 
   on('btn-add-bot', 'click', () => {
@@ -453,7 +503,23 @@ export function bindEvents(): void {
     state.rematchPending = null;
     state.queueMode = null;
     state.queueSize = 0;
+    state.capabilities = null;
     render();
+  });
+
+  // Return to Lobby (custom games after game-over)
+  on('btn-return-lobby', 'click', () => {
+    socket.emit('return-to-lobby');
+    state.gameOverStats = null;
+    state.rematchPending = null;
+    state.placedShips = [];
+    state.selectedTargets = [];
+    state.shotLog = [];
+    state.showAmberConfirm = false;
+    state.pendingSwapRequest = null;
+    state.countdownDeadline = null;
+    if (state.countdownInterval) { clearInterval(state.countdownInterval); state.countdownInterval = null; }
+    // Don't clear session — we're staying in the game
   });
 
   // Surrender

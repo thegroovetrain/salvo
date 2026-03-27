@@ -1,6 +1,7 @@
 import type {
   WireGame, ShipPlacement, ChatMessage,
   GameOverStats, QuickPlayMode, ChatChannel, ShotResult,
+  LobbyCapabilities,
 } from '@salvo/shared';
 
 export type Screen = 'lobby' | 'waiting' | 'placement' | 'battle' | 'gameover' | 'changelog' | 'queue';
@@ -50,10 +51,19 @@ export interface AppState {
   queueSize: number;
   onlineCount: number;
   matchSoundMuted: boolean;
+  // Lobby capabilities
+  capabilities: LobbyCapabilities | null;
+  // Swap request
+  pendingSwapRequest: { requesterId: string; requesterName: string } | null;
+  // Countdown
+  countdownDeadline: number | null;
+  countdownInterval: ReturnType<typeof setInterval> | null;
   // Lobby dropdown
   openDropdownId: string | null;
   // Surrender
   showSurrenderModal: boolean;
+  // Amber confirmation
+  showAmberConfirm: boolean;
   // Error
   errorMessage: string | null;
   errorTimeout: ReturnType<typeof setTimeout> | null;
@@ -95,8 +105,13 @@ export const state: AppState = {
   queueSize: 0,
   onlineCount: 0,
   matchSoundMuted: false,  // initialized in main.ts
+  capabilities: null,
+  pendingSwapRequest: null,
+  countdownDeadline: null,
+  countdownInterval: null,
   openDropdownId: null as string | null,
   showSurrenderModal: false,
+  showAmberConfirm: false,
   errorMessage: null,
   errorTimeout: null,
   infoMessage: null,

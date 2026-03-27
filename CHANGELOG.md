@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.14.4] - 2026-03-27
+
+### Added
+- **Capability system** — `LobbyCapabilities` payload emitted with every `game-state` during lobby phase. Server-authoritative permissions: canStart, canAddBot, canKick, canMoveToSlot, canRequestSwap, canToggleReady, canChangeOptions, canTransferHost. Replaces scattered `hostId` checks.
+- **Ready-up system** — all players (including host) toggle ready. Host's ready state activates the Start button. Two-path start: green (all ready → 5s countdown with sound) or amber (not all ready → confirmation prompt).
+- **Swap request system** — any player requests a slot swap with another. 15s server-side auto-decline timer. Crossed requests auto-accept. Bots accept instantly. Inline notification below seat card.
+- **Unified kick** — `kick-player` event replaces `remove-bot`. Host kicks both humans and bots from a single context menu action.
+- **Host transfer** — manual transfer via context menu. Auto-transfer on disconnect (10s grace). Reconnecting host does NOT reclaim (prevents flip-flop).
+- **Party → lobby bridge** — party leader creates custom match → party dissolves → members auto-fill FFA lobby seats. No new client event needed.
+- **Unified join code resolution** — `resolveJoinCode()` checks party codes first, then game codes. Global code uniqueness enforced across both namespaces via `generateGloballyUniqueCode()`.
+- **Block join-party while queued** — `target-party-queued` error reason rejects attempts to join a party in matchmaking. Handler reorder fix from Sprint 1c dissolve-before-check pattern.
+- **Lobby chat** — existing chat system enabled during lobby phase. Server-side guard forces global channel (no team chat in lobby).
+- **Lobby persistence** — after custom game ends, "Return to Lobby" resets game to lobby phase via `resetGameToLobby()`. Replaces rematch system for custom games.
+- **Countdown overlay** — 96px number display with 5 descending beeps (800→400 Hz) via `playTone()`. Cancels on any lobby state change (join/leave/kick/unready/option change/swap).
+- **Client context menus** — seat card menus driven by capabilities payload. Empty slot: Move Here + Add AI. Filled slot: Request Swap + Kick + Transfer Host. Ready badge (✓) on seat cards.
+- **Post-game flow** — custom games show "Return to Lobby" (green), quick play shows "Play Again" (requeue). Session storage preserved for private games.
+- **21 new tests** — capabilities, ready states, resetGameToLobby, resolveJoinCode, generateGloballyUniqueCode, kick/removePlayer, host transfer (468 total).
+
+### Changed
+- `game-state` event now includes optional `capabilities` field (lobby phase only).
+- `player-joined` event now includes optional `capabilities` field.
+- `start-game` event accepts optional `{ force: true }` for amber path.
+- `Game` type gains `readyStates: Map<string, boolean>`.
+- `removePlayer` and `removeBot` now clean up `readyStates`.
+- `executeSwapPlayers` now supports FFA mode (exchanges colors without team entries).
+- `clearGameTimers` now cleans up lobby countdown and host transfer timers via `registerGameCleanup` pattern.
+- `GuestSessionManager` gains `getGuestIdByPlayer()` and `getSocketId()` methods.
+- `LobbyManager` gains `unregisterPlayer()` method.
+- `PartyManager` and `LobbyManager` accept injected `setCodeGenerator()` for cross-namespace uniqueness.
+
 ## [0.14.3] - 2026-03-26
 
 ### Added

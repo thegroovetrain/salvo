@@ -2,6 +2,7 @@ import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents, ChatMessage, ChatChannel, ShipPlacement, Game, Player } from '@salvo/shared';
 import { getTeammates, SLOT_COLORS } from '@salvo/shared';
 import { getLobby, getConnections, emitToPlayer, broadcastToGame, emitGameState } from '../emitters.js';
+import { clearLobbyCountdown, hasLobbyCountdown } from './lobby.js';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
 
@@ -24,6 +25,45 @@ function assignNewTeamColor(game: Game, targetPlayer: Player, nextTeam: string, 
   }
 }
 
+// ============================================================
+// Swap Request State
+// ============================================================
+
+// Key: "requesterId:targetId" → timer for auto-decline
+const pendingSwaps = new Map<string, NodeJS.Timeout>();
+
+function clearPendingSwap(key: string): void {
+  const timer = pendingSwaps.get(key);
+  if (timer) clearTimeout(timer);
+  pendingSwaps.delete(key);
+}
+
+function findPendingSwapForTarget(targetId: string): string | undefined {
+  for (const key of pendingSwaps.keys()) {
+    if (key.endsWith(`:${targetId}`)) return key;
+  }
+  return undefined;
+}
+
+/** Clear all pending swap requests for a game (called on player leave/kick) */
+export function clearSwapsForGame(game: Game): void {
+  for (const key of [...pendingSwaps.keys()]) {
+    const [reqId, tgtId] = key.split(':');
+    if (game.players.has(reqId) || game.players.has(tgtId)) {
+      clearPendingSwap(key);
+    }
+  }
+}
+
+/** Clear all pending swap requests involving a specific player */
+export function clearSwapsForPlayer(playerId: string): void {
+  for (const key of [...pendingSwaps.keys()]) {
+    if (key.startsWith(`${playerId}:`) || key.endsWith(`:${playerId}`)) {
+      clearPendingSwap(key);
+    }
+  }
+}
+
 const COORD_PATTERN = /^-?\d+,-?\d+$/;
 
 function isValidPreviewShip(ship: ShipPlacement): boolean {
@@ -41,6 +81,14 @@ function executeSwapPlayers(game: Game, playerA: string, playerB: string): boole
   const pA = game.players.get(playerA);
   const pB = game.players.get(playerB);
   if (!pA || !pB) return false;
+
+  // FFA: just swap colors (slot positions)
+  if (!game.teamsEnabled) {
+    const colorA = pA.color;
+    pA.color = pB.color;
+    pB.color = colorA;
+    return true;
+  }
 
   const teamA = game.teams.get(playerA);
   const teamB = game.teams.get(playerB);
@@ -73,27 +121,24 @@ export function registerSocialHandlers(io: IO, socket: Socket<ClientToServerEven
     const player = game.players.get(playerId);
     if (!player) return;
 
-    const channel: ChatChannel = rawChannel ?? 'global';
+    // Force global in lobby or when teams disabled
+    const useTeam = rawChannel === 'team' && game.teamsEnabled && game.phase !== 'lobby';
+    const channel: ChatChannel = useTeam ? 'team' : 'global';
 
     const message: ChatMessage = {
       playerId,
       playerName: player.name,
-      text: text.slice(0, 200), // limit message length
+      text: text.slice(0, 200),
       timestamp: Date.now(),
       channel,
     };
 
-    if (channel === 'team' && game.teamsEnabled) {
-      // Team chat: emit to sender + all teammates
+    if (useTeam) {
       emitToPlayer(playerId, 'chat-message', message);
       for (const teammateId of getTeammates(game, playerId)) {
         emitToPlayer(teammateId, 'chat-message', message);
       }
     } else {
-      // Global chat (or team channel with teams disabled — fall back to global)
-      if (channel === 'team' && !game.teamsEnabled) {
-        message.channel = 'global';
-      }
       broadcastToGame(game.id, 'chat-message', message);
     }
   });
@@ -122,6 +167,7 @@ export function registerSocialHandlers(io: IO, socket: Socket<ClientToServerEven
     game.teams.set(targetPlayerId, nextTeam);
 
     assignNewTeamColor(game, targetPlayer, nextTeam, teamNames);
+    if (hasLobbyCountdown(game.id)) clearLobbyCountdown(game.id);
     emitGameState(game.id);
   });
 
@@ -139,6 +185,7 @@ export function registerSocialHandlers(io: IO, socket: Socket<ClientToServerEven
     if (playerA === playerB) return;
 
     if (executeSwapPlayers(game, playerA, playerB)) {
+      if (hasLobbyCountdown(game.id)) clearLobbyCountdown(game.id);
       emitGameState(game.id);
     }
   });
@@ -173,6 +220,7 @@ export function registerSocialHandlers(io: IO, socket: Socket<ClientToServerEven
     }
 
     player.color = targetColor;
+    if (hasLobbyCountdown(game.id)) clearLobbyCountdown(game.id);
     emitGameState(game.id);
   });
 
@@ -191,6 +239,85 @@ export function registerSocialHandlers(io: IO, socket: Socket<ClientToServerEven
 
     for (const teammateId of getTeammates(game, playerId)) {
       emitToPlayer(teammateId, 'teammate-placement-preview', { ships });
+    }
+  });
+
+  // ============================================================
+  // Swap Request System (lobby phase, any player)
+  // ============================================================
+
+  socket.on('request-swap', ({ targetPlayerId }: { targetPlayerId: string }) => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game || game.phase !== 'lobby') return;
+    if (playerId === targetPlayerId) return;
+
+    const requester = game.players.get(playerId);
+    const target = game.players.get(targetPlayerId);
+    if (!requester || !target) return;
+
+    // Bots auto-accept instantly
+    if (target.isBot) {
+      executeSwapPlayers(game, playerId, targetPlayerId);
+      emitGameState(game.id);
+      return;
+    }
+
+    // Check for crossed swap requests (mutual agreement → auto-accept)
+    const crossedKey = `${targetPlayerId}:${playerId}`;
+    if (pendingSwaps.has(crossedKey)) {
+      clearPendingSwap(crossedKey);
+      executeSwapPlayers(game, playerId, targetPlayerId);
+      emitGameState(game.id);
+      return;
+    }
+
+    // One pending request per target
+    const existingKey = findPendingSwapForTarget(targetPlayerId);
+    if (existingKey) {
+      socket.emit('error', { message: 'That player already has a pending swap request' });
+      return;
+    }
+
+    const swapKey = `${playerId}:${targetPlayerId}`;
+
+    // Auto-decline after 15s
+    const timer = setTimeout(() => {
+      pendingSwaps.delete(swapKey);
+      emitToPlayer(playerId, 'swap-declined', { targetId: targetPlayerId, targetName: target.name });
+    }, 15_000);
+
+    pendingSwaps.set(swapKey, timer);
+    emitToPlayer(targetPlayerId, 'swap-requested', { requesterId: playerId, requesterName: requester.name });
+  });
+
+  socket.on('respond-swap', ({ requesterId, accept }: { requesterId: string; accept: boolean }) => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const swapKey = `${requesterId}:${playerId}`;
+    if (!pendingSwaps.has(swapKey)) return; // no pending request
+
+    clearPendingSwap(swapKey);
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game || game.phase !== 'lobby') return;
+
+    if (accept) {
+      executeSwapPlayers(game, requesterId, playerId);
+
+      // Cancel countdown if active (lobby state changed)
+      if (hasLobbyCountdown(game.id)) {
+        clearLobbyCountdown(game.id);
+        broadcastToGame(game.id, 'start-countdown-cancelled', undefined);
+      }
+
+      emitGameState(game.id);
+    } else {
+      const target = game.players.get(playerId);
+      emitToPlayer(requesterId, 'swap-declined', { targetId: playerId, targetName: target?.name ?? 'Player' });
     }
   });
 }

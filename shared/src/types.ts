@@ -110,6 +110,8 @@ export interface Game {
   gameType: 'ffa' | '2-team' | '3-team';
   /** Island count for generation (0=none, 4=few, 6=normal, 8=many) */
   islandCount: number;
+  /** Ready states for lobby: playerId → ready (bots always considered ready) */
+  readyStates: Map<string, boolean>;
 }
 
 export interface PlayerGameStats {
@@ -220,6 +222,22 @@ export interface GameOverStats {
 
 // --- Party Types ---
 
+// --- Lobby Capabilities ---
+
+export interface LobbyCapabilities {
+  canChangeOptions: boolean;
+  canAddBot: boolean;
+  canKick: boolean;
+  canMoveToSlot: boolean;
+  canRequestSwap: boolean;
+  canToggleReady: boolean;
+  canStart: boolean;
+  canTransferHost: boolean;
+  allPlayersReady: boolean;
+  isReady: boolean;
+  readyStates: Record<string, boolean>;
+}
+
 export type PartyErrorReason =
   | 'already-in-party'
   | 'in-game'
@@ -228,7 +246,8 @@ export type PartyErrorReason =
   | 'not-leader'
   | 'members-in-game'
   | 'rate-limited'
-  | 'not-in-party';
+  | 'not-in-party'
+  | 'target-party-queued';
 
 export const PARTY_ERROR_MESSAGES: Record<PartyErrorReason, string> = {
   'already-in-party': "You're already in a party",
@@ -239,6 +258,7 @@ export const PARTY_ERROR_MESSAGES: Record<PartyErrorReason, string> = {
   'members-in-game': "Can't disband while members are in a game",
   'rate-limited': 'Please wait before creating another party',
   'not-in-party': "You're not in a party",
+  'target-party-queued': 'That party is currently in matchmaking',
 };
 
 export interface WirePartyMember {
@@ -302,7 +322,7 @@ export interface ClientToServerEvents {
   'create-game': (data: { playerName: string }) => void;
   'update-game-options': (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number; islandCount?: number }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
-  'start-game': () => void;
+  'start-game': (data?: { force?: boolean }) => void;
   'add-bot': (data: { difficulty: AiDifficulty; team?: string; slotIndex?: number }) => void;
   'remove-bot': (data: { botId: string }) => void;
   'place-ships': (data: { ships: ShipPlacement[] }) => void;
@@ -318,6 +338,13 @@ export interface ClientToServerEvents {
   'quickplay-leave': () => void;
   'surrender': () => void;
   'leave-game': () => void;
+  // Lobby events (Sprint 1d)
+  'toggle-ready': () => void;
+  'request-swap': (data: { targetPlayerId: string }) => void;
+  'respond-swap': (data: { requesterId: string; accept: boolean }) => void;
+  'kick-player': (data: { targetPlayerId: string }) => void;
+  'transfer-host': (data: { targetPlayerId: string }) => void;
+  'return-to-lobby': () => void;
   // Party events
   'create-party': () => void;
   'join-party': (data: { code: string }) => void;
@@ -328,7 +355,7 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   'error': (data: { message: string }) => void;
   'game-created': (data: { code: string; playerId: string; gameId: string }) => void;
-  'player-joined': (data: { game: WireGame }) => void;
+  'player-joined': (data: { game: WireGame; capabilities?: LobbyCapabilities }) => void;
   'placement-phase': (data: { game: WireGame; placementDeadline?: number }) => void;
   'all-ready': (data: { game: WireGame }) => void;
   'your-turn': (data: { shotCount: number; timerSeconds: number | null }) => void;
@@ -336,7 +363,7 @@ export interface ServerToClientEvents {
   'shot-results': (data: { shooterId: string; shooterName: string; shots: ShotResult[]; game: WireGame }) => void;
   'player-eliminated': (data: { playerId: string; playerName: string; reason: 'surrender' | 'sunk' }) => void;
   'game-over': (data: GameOverStats) => void;
-  'game-state': (data: { game: WireGame }) => void; // full state on reconnect
+  'game-state': (data: { game: WireGame; capabilities?: LobbyCapabilities }) => void;
   'chat-message': (data: ChatMessage) => void;
   'player-disconnected': (data: { playerId: string; playerName: string }) => void;
   'teammate-placement-preview': (data: { ships: ShipPlacement[] }) => void;
@@ -355,6 +382,12 @@ export interface ServerToClientEvents {
   'left-game': () => void;
   'tab-evicted': () => void;
   'guest-id-assigned': (data: { guestId: string }) => void;
+  // Lobby events (Sprint 1d)
+  'swap-requested': (data: { requesterId: string; requesterName: string }) => void;
+  'swap-declined': (data: { targetId: string; targetName: string }) => void;
+  'player-kicked': (data: { reason: string }) => void;
+  'start-countdown': (data: { deadline: number }) => void;
+  'start-countdown-cancelled': () => void;
   // Party events
   'party-created': (data: PartyStatePayload) => void;
   'party-joined': (data: PartyStatePayload) => void;
