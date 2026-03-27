@@ -122,6 +122,12 @@ Available gstack skills:
 
 If gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to build the binary and register skills.
 
+## Dev Server
+- **Never start the dev server yourself.** The user manages the dev server manually.
+- Before running `/qa`, `/browse`, or any browser-based skill, check if the dev server is running: `curl -s -o /dev/null -w '%{http_code}' http://localhost:3000 2>/dev/null`
+- If it's not running, ask the user to start it with `npm run dev` and wait.
+- If you find stale node processes on port 3000 or 5173, kill them and tell the user.
+
 ## Design System
 Always read DESIGN.md before making any visual or UI decisions.
 All font choices, colors, spacing, and aesthetic direction are defined there.
