@@ -47,6 +47,7 @@ export function createGame(
     teamsEnabled,
     gameType: teamsEnabled ? '2-team' : 'ffa',
     islandCount: 6,
+    readyStates: new Map(),
   };
 }
 
@@ -157,6 +158,7 @@ export function removeBot(game: Game, botId: string): string | null {
   if (!player || !player.isBot) return 'Player is not a bot';
   game.players.delete(botId);
   game.teams.delete(botId);
+  game.readyStates.delete(botId);
   game.lastActivity = Date.now();
   return null;
 }
@@ -716,6 +718,7 @@ export function removePlayer(game: Game, playerId: string): void {
   game.players.delete(playerId);
   game.rematchAccepted.delete(playerId);
   game.teams.delete(playerId);
+  game.readyStates.delete(playerId);
   if (game.hostId === playerId) {
     for (const p of game.players.values()) {
       if (!p.isBot) {
@@ -723,6 +726,24 @@ export function removePlayer(game: Game, playerId: string): void {
         break;
       }
     }
+  }
+}
+
+/** Reset a finished game back to lobby phase (custom games only) */
+export function resetGameToLobby(game: Game): void {
+  game.phase = 'lobby';
+  game.shots = new Set();
+  game.islands = new Set();
+  game.turnOrder = [];
+  game.currentTurnIndex = 0;
+  game.lastActivity = Date.now();
+  game.rematchAccepted = new Set();
+  game.playerStats = new Map();
+  game.firstBloodId = null;
+  game.readyStates = new Map();
+
+  for (const player of game.players.values()) {
+    player.ships = [];
   }
 }
 

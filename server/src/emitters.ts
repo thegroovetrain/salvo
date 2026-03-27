@@ -1,6 +1,7 @@
 import type { Server } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents } from '@salvo/shared';
 import { toClientView } from './game.js';
+import { getLobbyCapabilities } from './capabilities.js';
 import type { ConnectionManager } from './connections.js';
 import type { LobbyManager } from './lobby.js';
 import type { GuestSessionManager } from './guestSessions.js';
@@ -68,7 +69,10 @@ export function emitGameState(gameId: string): void {
 
   for (const playerId of game.players.keys()) {
     const view = toClientView(game, playerId);
-    emitToPlayer(playerId, 'game-state', { game: view });
+    const capabilities = game.phase === 'lobby'
+      ? getLobbyCapabilities(game, playerId)
+      : undefined;
+    emitToPlayer(playerId, 'game-state', { game: view, capabilities });
   }
 }
 

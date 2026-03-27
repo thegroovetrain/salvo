@@ -140,6 +140,17 @@ export class GuestSessionManager {
     return this.sessions.get(guestId);
   }
 
+  getGuestIdByPlayer(playerId: string): string | undefined {
+    for (const session of this.sessions.values()) {
+      if (session.playerId === playerId) return session.guestId;
+    }
+    return undefined;
+  }
+
+  getSocketId(guestId: string): string | null {
+    return this.sessions.get(guestId)?.socketId ?? null;
+  }
+
   getGuestIdBySocket(socketId: string): string | undefined {
     return this.socketToGuest.get(socketId);
   }

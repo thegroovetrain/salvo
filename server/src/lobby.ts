@@ -13,6 +13,8 @@ export class LobbyManager {
   private codeToGame = new Map<string, string>();
   // playerId → gameId (for quick lookup)
   private playerToGame = new Map<string, string>();
+  /** Injected global code generator (checks both party + game namespaces) */
+  private globalCodeGen: (() => string) | null = null;
 
   private cleanupInterval: ReturnType<typeof setInterval> | null = null;
   private readonly ABANDONED_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
@@ -28,7 +30,13 @@ export class LobbyManager {
     }
   }
 
+  setCodeGenerator(fn: () => string): void {
+    this.globalCodeGen = fn;
+  }
+
   generateUniqueCode(): string {
+    if (this.globalCodeGen) return this.globalCodeGen();
+    // Fallback: game-only check (used in tests without full wiring)
     let attempts = 0;
     while (attempts < 100) {
       const code = generateCode();
@@ -45,6 +53,10 @@ export class LobbyManager {
 
   registerPlayer(playerId: string, gameId: string): void {
     this.playerToGame.set(playerId, gameId);
+  }
+
+  unregisterPlayer(playerId: string): void {
+    this.playerToGame.delete(playerId);
   }
 
   get gameCount(): number {
