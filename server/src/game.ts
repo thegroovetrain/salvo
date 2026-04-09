@@ -974,10 +974,16 @@ function updateShipsSunkStats(game: Game, results: SimultaneousRoundResult[]): v
   for (const entry of results) {
     const stats = game.playerStats.get(entry.shooterId);
     if (!stats) continue;
+    // Track sunk ships by identity to avoid double-counting when multiple cells of the same ship are hit in one round
+    const countedShips = new Set<string>();
     for (const shot of entry.shots) {
       for (const hit of shot.hits) {
         if (hit.sunk && hit.playerId !== entry.shooterId) {
-          stats.shipsSunk++;
+          const shipKey = `${hit.playerId}:${hit.shipLength}:${hit.sunkShipCells?.[0] ?? shot.coord}`;
+          if (!countedShips.has(shipKey)) {
+            countedShips.add(shipKey);
+            stats.shipsSunk++;
+          }
         }
       }
     }

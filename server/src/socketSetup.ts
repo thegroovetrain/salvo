@@ -217,7 +217,20 @@ registerRoundTimerCallbacks({
 });
 
 function handleTurnDisconnect(game: Game, playerId: string): void {
-  if (game.phase !== 'playing' || getCurrentTurnPlayerId(game) !== playerId) return;
+  if (game.phase !== 'playing') return;
+
+  // Simultaneous mode: auto-lock disconnected player with empty salvo
+  if (game.turnMode === 'simultaneous' && game.roundPhase === 'open') {
+    if (!game.lockedSalvos.has(playerId)) {
+      lockPlayerSalvo(game, playerId, []);
+      broadcastToGame(game.id, 'player-locked', { playerId });
+      checkAndResolveRound(game.id);
+    }
+    return;
+  }
+
+  // Sequential mode
+  if (getCurrentTurnPlayerId(game) !== playerId) return;
   clearTurnTimer(game.id);
   if (game.timerConfig.enabled) {
     startTurnTimer(game.id);
