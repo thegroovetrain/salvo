@@ -806,6 +806,9 @@ function validateSimultaneousCoords(game: Game, playerId: string, coords: string
   const maxShots = game.roundShotCounts.get(playerId) ?? 0;
   if (coords.length > maxShots) return `Too many shots (max ${maxShots})`;
   for (const coord of coords) {
+    const hex = parseHex(coord);
+    if (!hex) return `Invalid coordinate: ${coord}`;
+    if (!isValidHex(hex.q, hex.r, game.rings)) return `Coordinate out of bounds: ${coord}`;
     if (game.shots.has(coord)) return `Already shot at ${coord}`;
     if (game.islands.has(coord)) return `${coord} is an island`;
   }
