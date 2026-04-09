@@ -2,7 +2,7 @@ import {
   type Game, type Player, type Ship, type ShipPlacement,
   type ShotResult, type WireGame, type WirePlayer, type WireShip,
   type TimerConfig, type GameOverStats, type AiDifficulty, type GameMode,
-  type PlayerColor, type PlayerGameStats,
+  type PlayerColor, type PlayerGameStats, type PlayerHit,
   isShipSunk, isPlayerAlive, playerShotCount, isTeamAlive,
   SHIP_LENGTHS, SHIP_NAMES, BOT_NAME_POOLS, MODE_RINGS, SLOT_COLORS,
 } from '@salvo/shared';
