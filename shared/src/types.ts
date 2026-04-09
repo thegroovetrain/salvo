@@ -26,20 +26,7 @@ export type PlayerColor = 'magenta' | 'red' | 'yellow' | 'green' | 'cyan' | 'blu
 /** Fixed global slot order: join order determines color in private games */
 export const SLOT_COLORS: PlayerColor[] = ['magenta', 'red', 'yellow', 'green', 'cyan', 'blue'];
 
-/** Team color pools for Quick Play random assignment (disjoint per team config) */
-export const TEAM_COLOR_POOLS: Record<string, Record<string, PlayerColor[]>> = {
-  /** 2-team modes (2v2, 3v3): warm vs cool */
-  '2-team': {
-    alpha: ['magenta', 'red', 'yellow'],
-    bravo: ['green', 'cyan', 'blue'],
-  },
-  /** 3-team mode (2v2v2): disjoint pairs */
-  '3-team': {
-    alpha: ['magenta', 'red'],
-    bravo: ['yellow', 'green'],
-    charlie: ['cyan', 'blue'],
-  },
-};
+/** @deprecated Team color pools removed — QP is FFA only, private teams use SLOT_COLORS by join order */
 
 export const BOT_NAME_POOLS: Record<AiDifficulty, string[]> = {
   easy: ['Ethan', 'Emma', 'Eli', 'Eva', 'Eddie', 'Elena', 'Ezra', 'Elise', 'Edgar', 'Emily'],
@@ -74,14 +61,7 @@ export interface TimerConfig {
   seconds: number; // 30 or 60
 }
 
-export type GameMode =
-  | 'private'
-  | 'quickplay-1v1'
-  | 'quickplay-2v2'
-  | 'quickplay-3v3'
-  | 'quickplay-3ffa'
-  | 'quickplay-6ffa'
-  | 'quickplay-2v2v2';
+export type GameMode = 'private' | 'quickplay';
 
 export type ChatChannel = 'team' | 'global';
 
@@ -112,6 +92,20 @@ export interface Game {
   islandCount: number;
   /** Ready states for lobby: playerId → ready (bots always considered ready) */
   readyStates: Map<string, boolean>;
+  /** Turn mode: sequential (one at a time) or simultaneous (all at once) */
+  turnMode: 'sequential' | 'simultaneous';
+  /** Simultaneous mode: current round number (0 = not started) */
+  roundNumber: number;
+  /** Simultaneous mode: locked salvos per player (playerId → coords) */
+  lockedSalvos: Map<string, string[]>;
+  /** Simultaneous mode: deadline timestamp for current round lock-in */
+  lockDeadline: number | null;
+  /** Simultaneous mode: frozen list of living player IDs at round start */
+  roundParticipants: string[];
+  /** Simultaneous mode: frozen shot counts per player at round start */
+  roundShotCounts: Map<string, number>;
+  /** Simultaneous mode: current round phase */
+  roundPhase: 'open' | 'resolving' | null;
 }
 
 export interface PlayerGameStats {
@@ -122,9 +116,8 @@ export interface PlayerGameStats {
   turnsTaken: number;
 }
 
-export const SHIP_LENGTHS = [1, 2, 3, 4] as const;
+export const SHIP_LENGTHS = [2, 3, 4] as const;
 export const SHIP_NAMES: Record<number, string> = {
-  1: 'Scout',
   2: 'Destroyer',
   3: 'Cruiser',
   4: 'Dreadnought',
@@ -133,12 +126,7 @@ export const SHIP_NAMES: Record<number, string> = {
 /** Default ring counts per game mode */
 export const MODE_RINGS: Record<string, number> = {
   'private': 5,
-  'quickplay-1v1': 5,
-  'quickplay-2v2': 5,
-  'quickplay-3ffa': 5,   // 3-player FFA
-  'quickplay-3v3': 6,    // 6 players need bigger grid
-  'quickplay-6ffa': 6,
-  'quickplay-2v2v2': 6,
+  'quickplay': 6,   // 6-player FFA always uses 6 rings
 };
 
 // --- Wire types (JSON-serializable, used in socket events) ---
@@ -196,6 +184,11 @@ export interface WireGame {
   teams: Record<string, string>; // playerId → teamId
   gameType: 'ffa' | '2-team' | '3-team';
   islandCount: number;
+  turnMode: 'sequential' | 'simultaneous';
+  roundNumber: number;
+  lockedPlayerIds: string[];
+  roundPhase: 'open' | 'resolving' | null;
+  lockDeadline: number | null;
 }
 
 export interface ChatMessage {
@@ -277,18 +270,18 @@ export interface PartyStatePayload {
 // --- Queue error reasons ---
 
 export type QueueErrorReason =
-  | 'invalid-mode'
   | 'not-leader'
   | 'already-queued'
   | 'member-disconnected'
-  | 'in-game';
+  | 'in-game'
+  | 'in-party';
 
 export const QUEUE_ERROR_MESSAGES: Record<QueueErrorReason, string> = {
-  'invalid-mode': 'Your party size cannot queue for this mode',
   'not-leader': 'Only the party leader can start or cancel matchmaking',
   'already-queued': "You're already in a queue",
   'member-disconnected': 'A party member is disconnected',
   'in-game': "Can't queue while in a game",
+  'in-party': 'Parties can only play private games. Create a private game instead.',
 };
 
 // --- Ship placement input ---
@@ -300,27 +293,14 @@ export interface ShipPlacement {
 
 // --- Socket Events ---
 
-export type QuickPlayMode = '1v1' | '2v2' | '3v3' | '3ffa' | '6ffa' | '2v2v2';
-
 export interface GameCountData {
   total: number;
-  oneVsOne: number;
-  twoVsTwo: number;
-  threeVsThree: number;
-  threeFfa: number;
-  sixFfa: number;
-  twoVsTwoVsTwo: number;
-  searching1v1: number;
-  searching2v2: number;
-  searching3v3: number;
-  searching3ffa: number;
-  searching6ffa: number;
-  searching2v2v2: number;
+  searching: number;
 }
 
 export interface ClientToServerEvents {
   'create-game': (data: { playerName: string }) => void;
-  'update-game-options': (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number; islandCount?: number }) => void;
+  'update-game-options': (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number; islandCount?: number; turnMode?: 'sequential' | 'simultaneous' }) => void;
   'join-game': (data: { code: string; playerName: string }) => void;
   'start-game': (data?: { force?: boolean }) => void;
   'add-bot': (data: { difficulty: AiDifficulty; team?: string; slotIndex?: number }) => void;
@@ -334,7 +314,8 @@ export interface ClientToServerEvents {
   'placement-preview': (data: { ships: ShipPlacement[] }) => void;
   'rematch-request': () => void;
   'rematch-decline': () => void;
-  'quickplay-join': (data: { playerName: string; mode: QuickPlayMode }) => void;
+  'quickplay-join': (data: { playerName: string }) => void;
+  'lock-salvo': (data: { coords: string[] }) => void;
   'quickplay-leave': () => void;
   'surrender': () => void;
   'leave-game': () => void;
@@ -371,10 +352,11 @@ export interface ServerToClientEvents {
   'rematch-pending': (data: { acceptedIds: string[]; totalHumans: number }) => void;
   'rematch-starting': (data: { game: WireGame; placementDeadline?: number }) => void;
   'rematch-declined': (data: { playerName: string; code: string; game: WireGame }) => void;
-  'quickplay-queue-update': (data: { size: number; ticketCount: number; target: number; partyMembers?: { name: string; displayId: string }[] }) => void;
+  'quickplay-queue-update': (data: { size: number; ticketCount: number; target: number }) => void;
   'quickplay-matched': (data: { playerId: string; gameId: string }) => void;
-  'quickplay-ticket-created': (data: { ticketId: string; members: { name: string; displayId: string }[]; mode: QuickPlayMode }) => void;
-  'party-queued': (data: { mode: QuickPlayMode; leaderName: string }) => void;
+  'round-start': (data: { roundNumber: number; shotCount: number; timerSeconds: number | null; livingPlayerIds: string[] }) => void;
+  'player-locked': (data: { playerId: string }) => void;
+  'round-results': (data: { salvos: { shooterId: string; shooterName: string; shots: ShotResult[] }[]; game: WireGame }) => void;
   'party-queue-cancelled': () => void;
   'queue-error': (data: { reason: QueueErrorReason }) => void;
   'online-count': (data: { count: number }) => void;
@@ -400,31 +382,6 @@ export interface ServerToClientEvents {
 }
 
 // --- Helpers ---
-
-/** Map QuickPlayMode to GameMode */
-export function toGameMode(qpMode: QuickPlayMode): GameMode {
-  switch (qpMode) {
-    case '1v1': return 'quickplay-1v1';
-    case '2v2': return 'quickplay-2v2';
-    case '3v3': return 'quickplay-3v3';
-    case '3ffa': return 'quickplay-3ffa';
-    case '6ffa': return 'quickplay-6ffa';
-    case '2v2v2': return 'quickplay-2v2v2';
-  }
-}
-
-/** Map GameMode to QuickPlayMode (inverse of toGameMode) */
-export function toQuickPlayMode(gameMode: GameMode): QuickPlayMode | null {
-  switch (gameMode) {
-    case 'quickplay-1v1': return '1v1';
-    case 'quickplay-2v2': return '2v2';
-    case 'quickplay-3v3': return '3v3';
-    case 'quickplay-3ffa': return '3ffa';
-    case 'quickplay-6ffa': return '6ffa';
-    case 'quickplay-2v2v2': return '2v2v2';
-    default: return null;
-  }
-}
 
 /** Get all teammates of a player (excludes self). Returns [] for FFA/non-team games. */
 export function getTeammates(game: Game, playerId: string): string[] {

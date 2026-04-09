@@ -102,33 +102,14 @@ export class LobbyManager {
     }
   }
 
-  getActiveGameCounts(
-    searching1v1 = 0, searching2v2 = 0,
-    searching3v3 = 0, searching3ffa = 0, searching6ffa = 0, searching2v2v2 = 0,
-  ): GameCountData {
-    const modeCounts: Record<string, number> = {
-      'quickplay-1v1': 0, 'quickplay-2v2': 0, 'quickplay-3v3': 0,
-      'quickplay-3ffa': 0, 'quickplay-6ffa': 0, 'quickplay-2v2v2': 0,
-    };
-
+  getActiveGameCounts(searching = 0): GameCountData {
+    let total = 0;
     for (const game of this.games.values()) {
-      if (game.phase !== 'finished' && game.mode in modeCounts) {
-        modeCounts[game.mode]++;
+      if (game.phase !== 'finished' && game.mode === 'quickplay') {
+        total++;
       }
     }
-
-    const oneVsOne = modeCounts['quickplay-1v1'];
-    const twoVsTwo = modeCounts['quickplay-2v2'];
-    const threeVsThree = modeCounts['quickplay-3v3'];
-    const threeFfa = modeCounts['quickplay-3ffa'];
-    const sixFfa = modeCounts['quickplay-6ffa'];
-    const twoVsTwoVsTwo = modeCounts['quickplay-2v2v2'];
-
-    return {
-      total: oneVsOne + twoVsTwo + threeVsThree + threeFfa + sixFfa + twoVsTwoVsTwo,
-      oneVsOne, twoVsTwo, threeVsThree, threeFfa, sixFfa, twoVsTwoVsTwo,
-      searching1v1, searching2v2, searching3v3, searching3ffa, searching6ffa, searching2v2v2,
-    };
+    return { total, searching };
   }
 
   private cleanupAbandoned(): void {

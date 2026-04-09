@@ -3,45 +3,44 @@
 //
 // Single source of truth: tickets Map + guestToTicket reverse index.
 // Socket.IO rooms are used ONLY for event broadcasting.
+// Quick Play is always 6-player FFA.
 //
 //   tickets: Map<ticketId, QueueTicket>
 //   guestToTicket: Map<guestId, ticketId>   (reverse index for O(1) DC/eviction)
-//   modeTickets: Map<mode, ticketId[]>      (per-mode ticket ordering for FIFO)
+//   ticketQueue: string[]                   (FIFO ordering)
 // ============================================================
 
-import type { QuickPlayMode } from '@salvo/shared';
-import { toGameMode, MODE_RINGS } from '@salvo/shared';
+import { MODE_RINGS } from '@salvo/shared';
 import crypto from 'node:crypto';
-import { getIO, getLobby, getConnections, getGuestSessions, emitToPlayer, emitToGuest } from '../emitters.js';
+import { getIO, getLobby, getConnections, getGuestSessions, emitToPlayer } from '../emitters.js';
 import type { GuestSessionManager } from '../guestSessions.js';
 import { createGame, addPlayer, startGame, toClientView } from '../game.js';
 import { assignQuickPlayColors } from '../helpers.js';
 import { startPlacementTimer } from '../timers/index.js';
 import type { QueueTicket } from './types.js';
-import { tryMatch, assignTeams, isTeamMode, getTargetSize } from './matcher.js';
+import { tryMatch, getTargetSize } from './matcher.js';
 
 // ── State ─────────────────────────────────────────────────
 
 const tickets = new Map<string, QueueTicket>();
 const guestToTicket = new Map<string, string>();
-const modeTickets = new Map<QuickPlayMode, string[]>();
+const ticketQueue: string[] = [];
 
 // ── Public API ────────────────────────────────────────────
 
-export { isTeamMode, getTargetSize } from './matcher.js';
+export { getTargetSize } from './matcher.js';
 
-export function getQueueRoomName(mode: QuickPlayMode): string {
-  return `quickplay-${mode}`;
+export function getQueueRoomName(): string {
+  return 'quickplay-queue';
 }
 
-export function getQueueSize(mode: QuickPlayMode): { size: number; ticketCount: number } {
-  const ids = modeTickets.get(mode) ?? [];
+export function getQueueSize(): { size: number; ticketCount: number } {
   let size = 0;
-  for (const id of ids) {
+  for (const id of ticketQueue) {
     const t = tickets.get(id);
     if (t) size += t.members.length;
   }
-  return { size, ticketCount: ids.length };
+  return { size, ticketCount: ticketQueue.length };
 }
 
 export function broadcastOnlineCount(): void {
@@ -68,7 +67,7 @@ export function getTicketByGuest(guestId: string): QueueTicket | undefined {
 
 export function enqueue(ticket: QueueTicket): void {
   const io = getIO();
-  const roomName = getQueueRoomName(ticket.mode);
+  const roomName = getQueueRoomName();
 
   // Store ticket
   tickets.set(ticket.id, ticket);
@@ -76,9 +75,8 @@ export function enqueue(ticket: QueueTicket): void {
     guestToTicket.set(m.guestId, ticket.id);
   }
 
-  // Maintain mode ordering
-  if (!modeTickets.has(ticket.mode)) modeTickets.set(ticket.mode, []);
-  modeTickets.get(ticket.mode)!.push(ticket.id);
+  // Maintain FIFO ordering
+  ticketQueue.push(ticket.id);
 
   // Join all member sockets to the broadcast room
   for (const m of ticket.members) {
@@ -86,21 +84,9 @@ export function enqueue(ticket: QueueTicket): void {
     if (s) s.join(roomName);
   }
 
-  // Emit ticket-created to party members (data contract reservation for Sprint 1e)
-  if (ticket.partyId) {
-    const memberInfo = ticket.members.map(m => ({ name: m.playerName, displayId: crypto.randomUUID().slice(0, 8) }));
-    for (const m of ticket.members) {
-      io.to(m.socketId).emit('quickplay-ticket-created', {
-        ticketId: ticket.id,
-        members: memberInfo,
-        mode: ticket.mode,
-      });
-    }
-  }
+  console.log(`[queue] enqueue ticket=${ticket.id} size=${ticket.members.length}`);
 
-  console.log(`[queue] enqueue ticket=${ticket.id} mode=${ticket.mode} size=${ticket.members.length} party=${ticket.partyId ?? 'solo'}`);
-
-  broadcastQueueUpdate(ticket.mode);
+  broadcastQueueUpdate();
   broadcastOnlineCount();
 }
 
@@ -109,7 +95,7 @@ export function dequeue(ticketId: string): QueueTicket | undefined {
   if (!ticket) return undefined;
 
   const io = getIO();
-  const roomName = getQueueRoomName(ticket.mode);
+  const roomName = getQueueRoomName();
 
   // Remove from state
   tickets.delete(ticketId);
@@ -117,12 +103,9 @@ export function dequeue(ticketId: string): QueueTicket | undefined {
     guestToTicket.delete(m.guestId);
   }
 
-  // Remove from mode ordering
-  const modeList = modeTickets.get(ticket.mode);
-  if (modeList) {
-    const idx = modeList.indexOf(ticketId);
-    if (idx !== -1) modeList.splice(idx, 1);
-  }
+  // Remove from FIFO ordering
+  const idx = ticketQueue.indexOf(ticketId);
+  if (idx !== -1) ticketQueue.splice(idx, 1);
 
   // Leave broadcast room
   for (const m of ticket.members) {
@@ -130,62 +113,50 @@ export function dequeue(ticketId: string): QueueTicket | undefined {
     if (s) s.leave(roomName);
   }
 
-  console.log(`[queue] dequeue ticket=${ticket.id} mode=${ticket.mode} reason=removed`);
+  console.log(`[queue] dequeue ticket=${ticket.id} reason=removed`);
 
-  broadcastQueueUpdate(ticket.mode);
+  broadcastQueueUpdate();
   broadcastOnlineCount();
 
   return ticket;
 }
 
 /**
- * Dissolve a ticket and notify party members.
- * Used when: member DC, party mutation while queued, leader cancel.
+ * Dissolve a ticket (dequeue wrapper for consistency with existing callers).
  */
 export function dissolveTicket(ticketId: string): void {
-  const ticket = dequeue(ticketId);
-  if (!ticket || !ticket.partyId) return;
-
-  // Notify non-leader members that queue was cancelled
-  for (const m of ticket.members) {
-    emitToGuest(m.guestId, 'party-queue-cancelled', undefined);
-  }
-
-  console.log(`[queue] dissolved ticket=${ticketId} party=${ticket.partyId}`);
+  dequeue(ticketId);
 }
 
 // ── Matching ──────────────────────────────────────────────
 
-export function attemptMatch(mode: QuickPlayMode): void {
-  const target = getTargetSize(mode);
-  const modeList = modeTickets.get(mode);
-  if (!modeList || modeList.length === 0) return;
+export function attemptMatch(): void {
+  const target = getTargetSize();
+  if (ticketQueue.length === 0) return;
 
-  // Build ordered ticket array for this mode
-  const modeTicketObjs: QueueTicket[] = [];
-  for (const id of modeList) {
+  // Build ordered ticket array
+  const orderedTickets: QueueTicket[] = [];
+  for (const id of ticketQueue) {
     const t = tickets.get(id);
-    if (t) modeTicketObjs.push(t);
+    if (t) orderedTickets.push(t);
   }
 
-  const matched = tryMatch(modeTicketObjs, target);
+  const matched = tryMatch(orderedTickets, target);
   if (!matched) return;
 
-  createMatchFromTickets(matched, mode);
+  createMatchFromTickets(matched);
 }
 
 function addTicketMembersToGame(
   matchedTickets: QueueTicket[], hostId: string, game: ReturnType<typeof createGame>, roomName: string,
-): Map<string, string[]> {
+): void {
   const io = getIO();
   const lobby = getLobby();
   const connections = getConnections();
   const guestSessions = getGuestSessions();
-  const playerIdsByTicket = new Map<string, string[]>();
   let isFirst = true;
 
   for (const ticket of matchedTickets) {
-    const pids: string[] = [];
     for (const member of ticket.members) {
       const playerId = isFirst ? hostId : crypto.randomUUID();
       isFirst = false;
@@ -197,46 +168,37 @@ function addTicketMembersToGame(
       bindGuestToGame(guestSessions, member.socketId, playerId, game.id, member.playerName);
       moveSocketToGame(io, member.socketId, roomName, game.id);
       io.to(member.socketId).emit('quickplay-matched', { playerId, gameId: game.id });
-      pids.push(playerId);
     }
-    playerIdsByTicket.set(ticket.id, pids);
   }
-  return playerIdsByTicket;
 }
 
-function removeMatchedTickets(matchedTickets: QueueTicket[], mode: QuickPlayMode): void {
+function removeMatchedTickets(matchedTickets: QueueTicket[]): void {
   for (const ticket of matchedTickets) {
     tickets.delete(ticket.id);
     for (const m of ticket.members) guestToTicket.delete(m.guestId);
-    const modeList = modeTickets.get(mode);
-    if (modeList) {
-      const idx = modeList.indexOf(ticket.id);
-      if (idx !== -1) modeList.splice(idx, 1);
-    }
+    const idx = ticketQueue.indexOf(ticket.id);
+    if (idx !== -1) ticketQueue.splice(idx, 1);
   }
 }
 
-function createMatchFromTickets(matchedTickets: QueueTicket[], mode: QuickPlayMode): void {
-  const roomName = getQueueRoomName(mode);
-  const gameMode = toGameMode(mode);
+function createMatchFromTickets(matchedTickets: QueueTicket[]): void {
+  const roomName = getQueueRoomName();
 
   const firstMember = matchedTickets[0].members[0];
   const hostId = crypto.randomUUID();
   const game = createGame(
     hostId, firstMember.playerName,
-    { enabled: true, seconds: 60 }, gameMode, isTeamMode(mode), MODE_RINGS[gameMode],
+    { enabled: true, seconds: 60 }, 'quickplay', false, MODE_RINGS['quickplay'],
   );
 
   const lobby = getLobby();
   const code = lobby.generateUniqueCode();
   lobby.addGame(game, code);
 
-  const playerIdsByTicket = addTicketMembersToGame(matchedTickets, hostId, game, roomName);
-  removeMatchedTickets(matchedTickets, mode);
+  addTicketMembersToGame(matchedTickets, hostId, game, roomName);
+  removeMatchedTickets(matchedTickets);
 
-  // Team assignment (party-aware)
-  assignTeams(game, matchedTickets, playerIdsByTicket, mode);
-  assignQuickPlayColors(game, mode);
+  assignQuickPlayColors(game);
   startGame(game);
 
   const qpPlacementDeadline = game.timerConfig.enabled
@@ -248,9 +210,9 @@ function createMatchFromTickets(matchedTickets: QueueTicket[], mode: QuickPlayMo
 
   startPlacementTimer(game.id);
 
-  console.log(`[queue] match created game=${game.id} mode=${mode} tickets=${matchedTickets.length} players=${game.players.size}`);
+  console.log(`[queue] match created game=${game.id} tickets=${matchedTickets.length} players=${game.players.size}`);
 
-  broadcastQueueUpdate(mode);
+  broadcastQueueUpdate();
   broadcastOnlineCount();
 }
 
@@ -265,7 +227,7 @@ export function migrateTicketSocket(guestId: string, newSocketId: string): void 
   if (!ticket) return;
 
   const io = getIO();
-  const roomName = getQueueRoomName(ticket.mode);
+  const roomName = getQueueRoomName();
 
   for (const m of ticket.members) {
     if (m.guestId === guestId) {
@@ -288,11 +250,11 @@ export function migrateTicketSocket(guestId: string, newSocketId: string): void 
 
 // ── Helpers ───────────────────────────────────────────────
 
-function broadcastQueueUpdate(mode: QuickPlayMode): void {
+function broadcastQueueUpdate(): void {
   const io = getIO();
-  const roomName = getQueueRoomName(mode);
-  const { size, ticketCount } = getQueueSize(mode);
-  const target = getTargetSize(mode);
+  const roomName = getQueueRoomName();
+  const { size, ticketCount } = getQueueSize();
+  const target = getTargetSize();
 
   io.to(roomName).emit('quickplay-queue-update', { size, ticketCount, target });
 }
@@ -317,10 +279,10 @@ function bindGuestToGame(guestSessions: GuestSessionManager, socketId: string, p
 
 export function _getTicketsForTesting(): Map<string, QueueTicket> { return tickets; }
 export function _getGuestToTicketForTesting(): Map<string, string> { return guestToTicket; }
-export function _getModeTicketsForTesting(): Map<QuickPlayMode, string[]> { return modeTickets; }
+export function _getTicketQueueForTesting(): string[] { return ticketQueue; }
 
 export function _clearForTesting(): void {
   tickets.clear();
   guestToTicket.clear();
-  modeTickets.clear();
+  ticketQueue.length = 0;
 }

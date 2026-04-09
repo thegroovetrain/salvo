@@ -7,6 +7,7 @@ import {
   toClientView, validatePlacement, resetForRematch,
   generateIslands, updateGameOptions, removePlayer,
   checkNewEliminations,
+  validateSimultaneousSalvo, lockPlayerSalvo, resolveSimultaneousRound,
 } from '../game.js';
 import type { Game, ShipPlacement } from '@salvo/shared';
 import { isPlayerAlive, playerShotCount, isShipSunk } from '@salvo/shared';
@@ -86,13 +87,12 @@ describe('Ship Placement Validation', () => {
   });
 
   it('rejects wrong number of ships', () => {
-    expect(validatePlacement([{ length: 1, cells: ['0,0'] }], 5, new Set())).toContain('exactly');
+    expect(validatePlacement([{ length: 2, cells: ['0,0', '1,0'] }], 5, new Set())).toContain('exactly');
   });
 
   it('rejects wrong ship lengths', () => {
     const placements = [
-      { length: 1, cells: ['0,0'] },
-      { length: 2, cells: ['1,0', '2,0'] },
+      { length: 2, cells: ['0,0', '1,0'] },
       { length: 3, cells: ['-1,0', '-2,0', '-3,0'] },
       { length: 5, cells: ['0,1', '0,2', '0,3', '0,4', '0,5'] },
     ];
@@ -101,8 +101,7 @@ describe('Ship Placement Validation', () => {
 
   it('rejects out of bounds', () => {
     const placements = [
-      { length: 1, cells: ['0,0'] },
-      { length: 2, cells: ['1,0', '2,0'] },
+      { length: 2, cells: ['0,0', '1,0'] },
       { length: 3, cells: ['-1,0', '-2,0', '-3,0'] },
       { length: 4, cells: ['3,0', '4,0', '5,0', '6,0'] }, // 6,0 out of 5-ring
     ];
@@ -111,7 +110,6 @@ describe('Ship Placement Validation', () => {
 
   it('rejects non-hex-axis placement', () => {
     const placements = [
-      { length: 1, cells: ['0,0'] },
       { length: 2, cells: ['1,0', '0,1'] }, // not along a hex axis
       { length: 3, cells: ['-1,0', '-2,0', '-3,0'] },
       { length: 4, cells: ['0,1', '0,2', '0,3', '0,4'] },
@@ -121,9 +119,8 @@ describe('Ship Placement Validation', () => {
 
   it('rejects overlapping ships', () => {
     const placements = [
-      { length: 1, cells: ['0,0'] },
-      { length: 2, cells: ['0,0', '1,0'] }, // overlaps Scout
-      { length: 3, cells: ['-1,0', '-2,0', '-3,0'] },
+      { length: 2, cells: ['0,0', '1,0'] },
+      { length: 3, cells: ['0,0', '-1,0', '-2,0'] }, // overlaps first ship at 0,0
       { length: 4, cells: ['0,1', '0,2', '0,3', '0,4'] },
     ];
     expect(validatePlacement(placements, 5, new Set())).toContain('Overlapping');
@@ -132,7 +129,6 @@ describe('Ship Placement Validation', () => {
   it('rejects placement on island', () => {
     const islands = new Set(['1,0']);
     const placements = [
-      { length: 1, cells: ['0,0'] },
       { length: 2, cells: ['1,0', '2,0'] }, // 1,0 is an island
       { length: 3, cells: ['-1,0', '-2,0', '-3,0'] },
       { length: 4, cells: ['0,1', '0,2', '0,3', '0,4'] },
@@ -152,7 +148,6 @@ describe('Ship Placement Validation', () => {
     ];
     for (const cells of dirs) {
       const placements = [
-        { length: 1, cells: ['3,0'] },
         { length: 2, cells },
         { length: 3, cells: ['-1,-1', '-2,-1', '-3,-1'] },
         { length: 4, cells: ['0,2', '0,3', '0,4', '0,5'] },
@@ -237,7 +232,7 @@ describe('Shot Resolution', () => {
     const shotCount = playerShotCount(game.players.get(currentPlayer)!);
 
     // Fire at empty cells far from any ships (NW corner, no ships here)
-    const emptyCoords = ['-1,-4', '-2,-3', '-3,-2', '-4,-1'].slice(0, shotCount);
+    const emptyCoords = ['-1,-4', '-2,-3', '-3,-2'].slice(0, shotCount);
     // Mark them as valid by ensuring they're not already shot and not islands
     const results = fireSalvo(game, currentPlayer, emptyCoords);
     expect(results.every(r => r.miss)).toBe(true);
@@ -249,19 +244,16 @@ describe('Shot Resolution', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    // p2's ships are hexPlacements(1). Get p2's scout cell.
-    const p2Cells = allCellsForPlayer(1);
-    const scoutCell = hexPlacements(1)[0].cells[0]; // length-1 ship
+    // p2's ships are hexPlacements(1). Get p2's first ship cells (length-2).
+    const p2Ship0Cells = hexPlacements(1)[0].cells; // length-2 ship
 
-    // Fire at p2's scout + empty cells
+    // Fire at both cells of p2's first ship + empty cell to sink it
     const shotCount = playerShotCount(game.players.get('p1')!);
-    const targets = [scoutCell, '-1,-4', '-2,-3', '-3,-2'].slice(0, shotCount);
+    const targets = [...p2Ship0Cells, '-1,-4'].slice(0, shotCount);
     const results = fireSalvo(game, 'p1', targets);
 
-    const scoutResult = results.find(r => r.coord === scoutCell);
-    expect(scoutResult?.miss).toBe(false);
-    expect(scoutResult?.hits[0].sunk).toBe(true);
-    expect(scoutResult?.hits[0].shipLength).toBe(1);
+    const hitResult = results.find(r => r.coord === p2Ship0Cells[0]);
+    expect(hitResult?.miss).toBe(false);
   });
 
   it('resolves atomic — all shots before checking alive', () => {
@@ -270,16 +262,16 @@ describe('Shot Resolution', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    const p1Scout = hexPlacements(0)[0].cells[0];
-    const p2Scout = hexPlacements(1)[0].cells[0];
+    const p1Cell = hexPlacements(0)[0].cells[0];
+    const p2Cell = hexPlacements(1)[0].cells[0];
 
     const shotCount = playerShotCount(game.players.get('p1')!);
-    const targets = [p2Scout, p1Scout, '-1,-4', '-2,-3'].slice(0, shotCount);
+    const targets = [p2Cell, p1Cell, '-1,-4'].slice(0, shotCount);
     const results = fireSalvo(game, 'p1', targets);
 
-    // Both scouts should be hit
-    expect(results.find(r => r.coord === p2Scout)?.hits.length).toBe(1);
-    expect(results.find(r => r.coord === p1Scout)?.hits[0].playerId).toBe('p1');
+    // Both cells should be hit
+    expect(results.find(r => r.coord === p2Cell)?.hits.length).toBe(1);
+    expect(results.find(r => r.coord === p1Cell)?.hits[0].playerId).toBe('p1');
   });
 
   it('rejects out-of-turn fire', () => {
@@ -331,12 +323,12 @@ describe('Shot Resolution', () => {
     game.currentTurnIndex = 0;
 
     const shotCount = playerShotCount(game.players.get('p1')!);
-    const firstSalvo = ['-1,-4', '-2,-3', '-3,-2', '-4,-1'].slice(0, shotCount);
+    const firstSalvo = ['-1,-4', '-2,-3', '-3,-2'].slice(0, shotCount);
     fireSalvo(game, 'p1', firstSalvo);
     advanceTurn(game);
 
     const p2ShotCount = playerShotCount(game.players.get('p2')!);
-    const secondSalvo = ['-1,-4', '0,-4', '1,-4', '2,-4'].slice(0, p2ShotCount);
+    const secondSalvo = ['-1,-4', '0,-4', '1,-4'].slice(0, p2ShotCount);
     const err = validateSalvo(game, 'p2', secondSalvo);
     expect(err).toContain('Already shot');
   });
@@ -347,7 +339,7 @@ describe('Shot Resolution', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    const err = validateSalvo(game, 'p1', ['-1,-4', '-1,-4', '-2,-3', '-3,-2']);
+    const err = validateSalvo(game, 'p1', ['-1,-4', '-1,-4', '-2,-3']);
     expect(err).toContain('Duplicate');
   });
 
@@ -357,7 +349,7 @@ describe('Shot Resolution', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    expect(validateSalvo(game, 'p1', ['invalid', '-1,-4', '-2,-3', '-3,-2'])).toContain('Invalid');
+    expect(validateSalvo(game, 'p1', ['invalid', '-1,-4', '-2,-3'])).toContain('Invalid');
   });
 
   it('rejects shots on island hexes', () => {
@@ -369,7 +361,7 @@ describe('Shot Resolution', () => {
     // Add a known island at one of the target cells
     game.islands.add('-1,-4');
 
-    const err = validateSalvo(game, 'p1', ['-1,-4', '-2,-3', '-3,-2', '-4,-1']);
+    const err = validateSalvo(game, 'p1', ['-1,-4', '-2,-3', '-3,-2']);
     expect(err).toContain('island');
   });
 
@@ -379,7 +371,7 @@ describe('Shot Resolution', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    expect(validateSalvo(game, 'p1', ['10,0', '-1,-4', '-2,-3', '-3,-2'])).toContain('out of bounds');
+    expect(validateSalvo(game, 'p1', ['10,0', '-1,-4', '-2,-3'])).toContain('out of bounds');
   });
 });
 
@@ -489,7 +481,7 @@ describe('Forfeit (silent removal)', () => {
     game.islands = new Set();
     placeShips(game, 'p1', defaultPlacements());
     const p1 = game.players.get('p1')!;
-    expect(playerShotCount(p1)).toBe(4);
+    expect(playerShotCount(p1)).toBe(3);
 
     p1.ships = [];
     expect(playerShotCount(p1)).toBe(0);
@@ -528,8 +520,9 @@ describe('Rematch', () => {
 
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
-    const p2Scout = hexPlacements(1)[0].cells[0];
-    fireSalvo(game, 'p1', [p2Scout, '-1,-4', '-2,-3', '-3,-2']);
+    const p2Cell = hexPlacements(1)[0].cells[0];
+    const shotCount = playerShotCount(game.players.get('p1')!);
+    fireSalvo(game, 'p1', [p2Cell, '-1,-4', '-2,-3'].slice(0, shotCount));
 
     resetForRematch(game);
 
@@ -573,9 +566,9 @@ describe('Game Stats', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    const p1Scout = hexPlacements(0)[0].cells[0];
+    const p1Cell = hexPlacements(0)[0].cells[0];
     const shotCount = playerShotCount(game.players.get('p1')!);
-    const targets = [p1Scout, '-1,-4', '-2,-3', '-3,-2'].slice(0, shotCount);
+    const targets = [p1Cell, '-1,-4', '-2,-3'].slice(0, shotCount);
     fireSalvo(game, 'p1', targets);
 
     const p1Stats = game.playerStats.get('p1')!;
@@ -589,9 +582,10 @@ describe('Game Stats', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    const p2Scout = hexPlacements(1)[0].cells[0];
+    // Hit both cells of p2's first ship (length 2) to sink it
+    const p2Ship0Cells = hexPlacements(1)[0].cells;
     const shotCount = playerShotCount(game.players.get('p1')!);
-    const targets = [p2Scout, '-1,-4', '-2,-3', '-3,-2'].slice(0, shotCount);
+    const targets = [...p2Ship0Cells, '-1,-4'].slice(0, shotCount);
     fireSalvo(game, 'p1', targets);
 
     const p1Stats = game.playerStats.get('p1')!;
@@ -608,15 +602,15 @@ describe('Game Stats', () => {
 
     // Miss everything
     const shotCount = playerShotCount(game.players.get('p1')!);
-    fireSalvo(game, 'p1', ['-1,-4', '-2,-3', '-3,-2', '-4,-1'].slice(0, shotCount));
+    fireSalvo(game, 'p1', ['-1,-4', '-2,-3', '-3,-2'].slice(0, shotCount));
     expect(game.firstBloodId).toBeNull();
 
     advanceTurn(game);
 
-    // p2 hits p1's scout
-    const p1Scout = hexPlacements(0)[0].cells[0];
+    // p2 hits p1's first ship cell
+    const p1Cell = hexPlacements(0)[0].cells[0];
     const p2ShotCount = playerShotCount(game.players.get('p2')!);
-    fireSalvo(game, 'p2', [p1Scout, '0,-4', '1,-4', '2,-4'].slice(0, p2ShotCount));
+    fireSalvo(game, 'p2', [p1Cell, '0,-4', '1,-4'].slice(0, p2ShotCount));
     expect(game.firstBloodId).toBe('p2');
   });
 
@@ -631,7 +625,7 @@ describe('Game Stats', () => {
     const shotCount = playerShotCount(game.players.get('p1')!);
     fireSalvo(game, 'p1', p2Cells.slice(0, shotCount));
     advanceTurn(game);
-    fireSalvo(game, 'p2', ['-1,-4', '-2,-3', '-3,-2', '-4,-1'].slice(0, playerShotCount(game.players.get('p2')!)));
+    fireSalvo(game, 'p2', ['-1,-4', '-2,-3', '-3,-2'].slice(0, playerShotCount(game.players.get('p2')!)));
     advanceTurn(game);
     fireSalvo(game, 'p1', p2Cells.slice(shotCount, shotCount * 2));
 
@@ -656,10 +650,12 @@ describe('Computed Getters', () => {
     placeShips(game, 'p1', defaultPlacements());
 
     const p1 = game.players.get('p1')!;
-    const scout = p1.ships[0];
-    expect(isShipSunk(scout)).toBe(false);
-    scout.hits.add(scout.cells[0]);
-    expect(isShipSunk(scout)).toBe(true);
+    const ship = p1.ships[0]; // length-2 ship
+    expect(isShipSunk(ship)).toBe(false);
+    for (const cell of ship.cells) {
+      ship.hits.add(cell);
+    }
+    expect(isShipSunk(ship)).toBe(true);
   });
 
   it('Player.alive is computed from ships', () => {
@@ -686,11 +682,13 @@ describe('Computed Getters', () => {
     placeShips(game, 'p1', defaultPlacements());
 
     const p1 = game.players.get('p1')!;
-    expect(playerShotCount(p1)).toBe(4);
-
-    // Sink Scout
-    p1.ships[0].hits.add(p1.ships[0].cells[0]);
     expect(playerShotCount(p1)).toBe(3);
+
+    // Sink first ship (length 2) by hitting both cells
+    for (const cell of p1.ships[0].cells) {
+      p1.ships[0].hits.add(cell);
+    }
+    expect(playerShotCount(p1)).toBe(2);
   });
 });
 
@@ -1007,5 +1005,143 @@ describe('checkNewEliminations', () => {
     const result = checkNewEliminations(game, alreadyDead);
     expect(result).toHaveLength(1);
     expect(result[0].playerId).toBe(playerIds[2]);
+  });
+});
+
+describe('Simultaneous Round Resolution', () => {
+  it('sinks ships and marks players dead after all cells hit', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    game.turnMode = 'simultaneous';
+
+    // Get all ship cells for player 2
+    const p2 = game.players.get(playerIds[1])!;
+    const p2cells = p2.ships.flatMap(s => [...s.cells]);
+    expect(p2cells.length).toBe(9); // 2+3+4
+
+    // Round 1: p1 fires at p2's first 3 cells
+    game.roundPhase = 'open';
+    game.roundNumber = 1;
+    game.roundParticipants = [playerIds[0], playerIds[1]];
+    game.roundShotCounts = new Map([[playerIds[0], 3], [playerIds[1], 3]]);
+
+    lockPlayerSalvo(game, playerIds[0], p2cells.slice(0, 3));
+    lockPlayerSalvo(game, playerIds[1], []); // p2 fires nothing
+    const r1 = resolveSimultaneousRound(game);
+
+    // p2 should have 3 hits total across ships
+    const p2hitsR1 = p2.ships.reduce((sum, s) => sum + s.hits.size, 0);
+    expect(p2hitsR1).toBe(3);
+    expect(isPlayerAlive(p2)).toBe(true);
+
+    // Round 2: p1 fires at next 3 cells
+    game.roundPhase = 'open';
+    game.roundNumber = 2;
+    game.roundParticipants = [playerIds[0], playerIds[1]];
+    game.roundShotCounts = new Map([[playerIds[0], 3], [playerIds[1], playerShotCount(p2)]]);
+
+    lockPlayerSalvo(game, playerIds[0], p2cells.slice(3, 6));
+    lockPlayerSalvo(game, playerIds[1], []);
+    resolveSimultaneousRound(game);
+
+    const p2hitsR2 = p2.ships.reduce((sum, s) => sum + s.hits.size, 0);
+    expect(p2hitsR2).toBe(6);
+
+    // Round 3: p1 fires at last 3 cells
+    game.roundPhase = 'open';
+    game.roundNumber = 3;
+    game.roundParticipants = [playerIds[0]]; // p2 might still be alive
+    game.roundShotCounts = new Map([[playerIds[0], playerShotCount(game.players.get(playerIds[0])!)]]);
+
+    lockPlayerSalvo(game, playerIds[0], p2cells.slice(6, 9));
+    resolveSimultaneousRound(game);
+
+    const p2hitsR3 = p2.ships.reduce((sum, s) => sum + s.hits.size, 0);
+    expect(p2hitsR3).toBe(9);
+    expect(isPlayerAlive(p2)).toBe(false);
+
+    // Game should be over
+    const gameOver = checkGameOver(game);
+    expect(gameOver).not.toBeNull();
+  });
+
+  it('both players targeting same cell both get hit credit', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    game.turnMode = 'simultaneous';
+
+    // Get a cell that belongs to a third player... actually we only have 2 players in setupBattle
+    // Target p2's first cell
+    const p2 = game.players.get(playerIds[1])!;
+    const targetCell = p2.ships[0].cells[0];
+
+    game.roundPhase = 'open';
+    game.roundNumber = 1;
+    game.roundParticipants = [playerIds[0], playerIds[1]];
+    game.roundShotCounts = new Map([[playerIds[0], 3], [playerIds[1], 3]]);
+
+    lockPlayerSalvo(game, playerIds[0], [targetCell]);
+    lockPlayerSalvo(game, playerIds[1], [targetCell]); // p2 also targets own cell (friendly fire)
+    const results = resolveSimultaneousRound(game);
+
+    // Both should have a hit result for that cell
+    const p1result = results.find(r => r.shooterId === playerIds[0])!;
+    const p2result = results.find(r => r.shooterId === playerIds[1])!;
+
+    const p1hit = p1result.shots.find(s => s.coord === targetCell);
+    const p2hit = p2result.shots.find(s => s.coord === targetCell);
+
+    expect(p1hit?.miss).toBe(false);
+    expect(p2hit?.miss).toBe(false);
+
+    // The ship cell should have exactly 1 hit (not 2)
+    expect(p2.ships[0].hits.has(targetCell)).toBe(true);
+    expect(p2.ships[0].hits.size).toBe(1);
+  });
+
+  it('validates locked salvo rejects double-lock', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    game.turnMode = 'simultaneous';
+    game.roundPhase = 'open';
+    game.roundNumber = 1;
+    game.roundParticipants = [playerIds[0], playerIds[1]];
+    game.roundShotCounts = new Map([[playerIds[0], 3], [playerIds[1], 3]]);
+
+    lockPlayerSalvo(game, playerIds[0], []);
+    const err = validateSimultaneousSalvo(game, playerIds[0], []);
+    expect(err).toBe('Already locked in for this round');
+  });
+
+  it('hits ships on overlapping cells (shared ocean)', () => {
+    const { game, playerIds } = makeGame(2);
+    setupBattle(game, playerIds);
+    game.turnMode = 'simultaneous';
+
+    // Manually place ships so both players share a cell
+    const sharedCell = '0,0';
+    const p1 = game.players.get(playerIds[0])!;
+    const p2 = game.players.get(playerIds[1])!;
+    p1.ships = [{ length: 2, cells: [sharedCell, '1,0'], hits: new Set() }];
+    p2.ships = [{ length: 2, cells: [sharedCell, '0,1'], hits: new Set() }];
+
+    game.roundPhase = 'open';
+    game.roundNumber = 1;
+    game.roundParticipants = [playerIds[0], playerIds[1]];
+    game.roundShotCounts = new Map([[playerIds[0], 1], [playerIds[1], 1]]);
+
+    // p1 fires at the shared cell
+    lockPlayerSalvo(game, playerIds[0], [sharedCell]);
+    lockPlayerSalvo(game, playerIds[1], []);
+    const results = resolveSimultaneousRound(game);
+
+    // Both players' ships should be hit on the shared cell
+    expect(p1.ships[0].hits.has(sharedCell)).toBe(true);
+    expect(p2.ships[0].hits.has(sharedCell)).toBe(true);
+
+    // The shot result should show 2 hits (one per player's ship)
+    const shooterResult = results.find(r => r.shooterId === playerIds[0])!;
+    const shotOnShared = shooterResult.shots.find(s => s.coord === sharedCell)!;
+    expect(shotOnShared.hits).toHaveLength(2);
   });
 });

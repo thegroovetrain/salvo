@@ -39,7 +39,6 @@ window.addEventListener('popstate', () => {
   if (state.screen === 'queue') {
     socket.emit('quickplay-leave');
     state.screen = 'lobby';
-    state.queueMode = null;
     state.queueSize = 0;
     render();
   }

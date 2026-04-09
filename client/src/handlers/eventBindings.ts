@@ -9,18 +9,17 @@ import { handlePlacementClick, randomizePlacement } from './placement.js';
 import { handleTargetClick } from './battle.js';
 import { loadChangelog } from '../rendering/lobby.js';
 import { svgClickToHex, nextDirection, parseHex, getShipPreview } from '../hexGrid.js';
-import type { AiDifficulty, QuickPlayMode, ChatChannel } from '@salvo/shared';
+import type { AiDifficulty, ChatChannel } from '@salvo/shared';
 import { stopTimer } from '../timers/index.js';
 
-function handleQPJoin(mode: QuickPlayMode): void {
+function handleQPJoin(): void {
   const name = val('player-name');
   if (!name) return showError('Enter your name');
   saveName(name);
-  state.queueMode = mode;
   state.queueSize = 0;
   state.screen = 'queue';
   history.pushState({ screen: 'queue' }, '');
-  socket.emit('quickplay-join', { playerName: name, mode });
+  socket.emit('quickplay-join', { playerName: name });
   render();
 }
 
@@ -116,17 +115,11 @@ export function bindEvents(): void {
   });
 
   // Quick Play
-  on('btn-qp-1v1', 'click', () => handleQPJoin('1v1'));
-  on('btn-qp-2v2', 'click', () => handleQPJoin('2v2'));
-  on('btn-qp-3v3', 'click', () => handleQPJoin('3v3'));
-  on('btn-qp-3ffa', 'click', () => handleQPJoin('3ffa'));
-  on('btn-qp-6ffa', 'click', () => handleQPJoin('6ffa'));
-  on('btn-qp-2v2v2', 'click', () => handleQPJoin('2v2v2'));
+  on('btn-quickplay', 'click', () => handleQPJoin());
 
   on('btn-queue-cancel', 'click', () => {
     socket.emit('quickplay-leave');
     state.screen = 'lobby';
-    state.queueMode = null;
     state.queueSize = 0;
     render();
   });
@@ -242,6 +235,8 @@ export function bindEvents(): void {
 
       if (selectId === 'opt-game-type') {
         socket.emit('update-game-options', { gameType: value as 'ffa' | '2-team' | '3-team' });
+      } else if (selectId === 'opt-turn-mode') {
+        socket.emit('update-game-options', { turnMode: value as 'sequential' | 'simultaneous' });
       } else if (selectId === 'opt-timer') {
         socket.emit('update-game-options', { timerSeconds: parseInt(value, 10) || null });
       } else if (selectId === 'opt-rings') {
@@ -450,9 +445,15 @@ export function bindEvents(): void {
 
   on('btn-fire', 'click', () => {
     if (state.selectedTargets.length === 0) return;
-    socket.emit('fire', { coords: state.selectedTargets });
-    state.isMyTurn = false;
-    stopTimer();
+    if (state.game?.turnMode === 'simultaneous') {
+      socket.emit('lock-salvo', { coords: state.selectedTargets });
+      state.lockedIn = true;
+      render();
+    } else {
+      socket.emit('fire', { coords: state.selectedTargets });
+      state.isMyTurn = false;
+      stopTimer();
+    }
   });
 
   // Mobile tabs removed — unified grid doesn't need them
@@ -470,16 +471,6 @@ export function bindEvents(): void {
   on('btn-rematch', 'click', () => {
     // For QP games, Play Again means requeue
     if (state.game && state.game.mode !== 'private') {
-      const modeMap: Record<string, QuickPlayMode> = {
-        'quickplay-1v1': '1v1',
-        'quickplay-2v2': '2v2',
-        'quickplay-3v3': '3v3',
-        'quickplay-3ffa': '3ffa',
-        'quickplay-6ffa': '6ffa',
-        'quickplay-2v2v2': '2v2v2',
-      };
-      const qpMode = modeMap[state.game.mode] ?? '1v1';
-      state.queueMode = qpMode;
       state.queueSize = 0;
     }
     socket.emit('rematch-request');
@@ -501,7 +492,6 @@ export function bindEvents(): void {
     state.chatMessages = [];
     state.gameOverStats = null;
     state.rematchPending = null;
-    state.queueMode = null;
     state.queueSize = 0;
     state.capabilities = null;
     render();

@@ -1,5 +1,5 @@
-import type { Game, QuickPlayMode } from '@salvo/shared';
-import { SLOT_COLORS, TEAM_COLOR_POOLS } from '@salvo/shared';
+import type { Game } from '@salvo/shared';
+import { SLOT_COLORS } from '@salvo/shared';
 import { assignPlayerColor } from './game.js';
 
 /** Auto-assign a player to the team with fewest members. Ties break: alpha -> bravo -> charlie. */
@@ -37,37 +37,11 @@ export function shuffle<T>(arr: T[]): T[] {
   return arr;
 }
 
-/** Assign random player colors for Quick Play games */
-export function assignQuickPlayColors(game: Game, _mode: QuickPlayMode): void {
-  if (!game.teamsEnabled) {
-    // FFA: shuffle all colors and assign by player order
-    const colors = shuffle([...SLOT_COLORS]);
-    let i = 0;
-    for (const player of game.players.values()) {
-      assignPlayerColor(game, player.id, colors[i++]);
-    }
-    return;
-  }
-
-  // Team modes: shuffle within each team's color pool
-  const gameType = game.gameType;
-  const pools = TEAM_COLOR_POOLS[gameType];
-  if (!pools) return;
-
-  // Group players by team
-  const teamPlayers = new Map<string, string[]>();
-  for (const [playerId, teamId] of game.teams) {
-    if (!teamPlayers.has(teamId)) teamPlayers.set(teamId, []);
-    teamPlayers.get(teamId)!.push(playerId);
-  }
-
-  // Assign shuffled colors from each team's pool
-  for (const [teamId, playerIds] of teamPlayers) {
-    const pool = pools[teamId];
-    if (!pool) continue;
-    const shuffled = shuffle([...pool]);
-    for (let i = 0; i < playerIds.length; i++) {
-      assignPlayerColor(game, playerIds[i], shuffled[i % shuffled.length]);
-    }
+/** Assign random player colors for Quick Play games (always 6-player FFA). */
+export function assignQuickPlayColors(game: Game): void {
+  const colors = shuffle([...SLOT_COLORS]);
+  let i = 0;
+  for (const player of game.players.values()) {
+    assignPlayerColor(game, player.id, colors[i++]);
   }
 }

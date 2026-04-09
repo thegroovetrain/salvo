@@ -47,9 +47,9 @@ export function registerSocialHandlers(): void {
   // Quick Play handlers
   socket.on('quickplay-queue-update', ({ size }) => {
     state.queueSize = size;
-    // If we receive a queue update and we have a queueMode set (from rematch requeue),
+    // If we receive a queue update while not on queue screen (from rematch requeue),
     // transition to queue screen
-    if (state.queueMode && state.screen !== 'queue') {
+    if (state.screen !== 'queue' && state.screen !== 'lobby') {
       state.screen = 'queue';
       state.gameOverStats = null;
       state.rematchPending = null;
@@ -68,7 +68,6 @@ export function registerSocialHandlers(): void {
     state.playerId = playerId;
     state.gameId = gameId;
     state.screen = 'placement';
-    state.queueMode = null;
     state.queueSize = 0;
     sessionStorage.setItem('hullcracker-playerId', playerId);
     sessionStorage.setItem('hullcracker-gameId', gameId);
@@ -81,18 +80,9 @@ export function registerSocialHandlers(): void {
     render();
   });
 
-  // Party queue: leader queued the party, non-leaders transition to queue screen
-  socket.on('party-queued', ({ mode }) => {
-    state.queueMode = mode;
-    state.queueSize = 0;
-    state.screen = 'queue';
-    render();
-  });
-
   // Party queue cancelled: ticket dissolved, return to lobby
   socket.on('party-queue-cancelled', () => {
-    if (state.screen === 'queue' && state.queueMode) {
-      state.queueMode = null;
+    if (state.screen === 'queue') {
       state.queueSize = 0;
       state.screen = 'lobby';
       render();

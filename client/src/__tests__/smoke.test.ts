@@ -44,7 +44,6 @@ describe('Smoke Tests — Screen Rendering', () => {
     state.showJoinModal = false;
     state.errorMessage = null;
     state.infoMessage = null;
-    state.queueMode = null;
     state.queueSize = 0;
     state.changelogHtml = null;
     state.showSurrenderModal = false;
@@ -61,11 +60,9 @@ describe('Smoke Tests — Screen Rendering', () => {
       expect(html).toContain('id="player-name"');
     });
 
-    it('contains Quick Play buttons', () => {
+    it('contains Quick Play button', () => {
       const html = renderLobby();
-      expect(html).toContain('id="btn-qp-1v1"');
-      expect(html).toContain('id="btn-qp-2v2"');
-      expect(html).toContain('id="btn-qp-3v3"');
+      expect(html).toContain('id="btn-quickplay"');
     });
 
     it('contains Create and Join buttons', () => {
@@ -81,19 +78,17 @@ describe('Smoke Tests — Screen Rendering', () => {
   });
 
   describe('renderQueue', () => {
-    it('renders queue screen for 1v1', () => {
-      state.queueMode = '1v1';
+    it('renders queue screen', () => {
       state.queueSize = 1;
       const html = renderQueue();
-      expect(html).toContain('1V1');
+      expect(html).toContain('SEARCHING FOR MATCH');
       expect(html).toContain('id="btn-queue-cancel"');
     });
 
     it('shows correct player count', () => {
-      state.queueMode = '2v2';
       state.queueSize = 3;
       const html = renderQueue();
-      expect(html).toContain('3 of 4');
+      expect(html).toContain('3 of 6');
     });
   });
 

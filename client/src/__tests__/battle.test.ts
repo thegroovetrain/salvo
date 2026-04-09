@@ -35,6 +35,11 @@ describe('handleTargetClick', () => {
       islands: [],
       timerConfig: { enabled: false, seconds: 60 },
       islandCount: 6,
+      turnMode: 'sequential',
+      roundNumber: 0,
+      lockedPlayerIds: [],
+      roundPhase: null,
+      lockDeadline: null,
     };
   });
 

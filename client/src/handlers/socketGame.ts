@@ -25,6 +25,22 @@ function restorePlayerIdentity(game: { id: string; players: Record<string, unkno
   }
 }
 
+function isSimultaneousRoundOpen(game: { roundPhase: string | null; turnMode: string }): boolean {
+  return game.roundPhase === 'open' && game.turnMode === 'simultaneous';
+}
+
+function restoreSimultaneousState(game: { roundPhase: string | null; turnMode: string; lockedPlayerIds: string[]; roundNumber: number; lockDeadline: number | null; players: Record<string, { alive: boolean }> }): void {
+  if (!isSimultaneousRoundOpen(game)) return;
+  const pid = state.playerId ?? '';
+  state.lockedIn = game.lockedPlayerIds.includes(pid);
+  state.lockedPlayerIds = game.lockedPlayerIds;
+  state.roundNumber = game.roundNumber;
+  if (game.lockDeadline) {
+    startTimer(Math.max(1, Math.round((game.lockDeadline - Date.now()) / 1000)));
+  }
+  state.isMyTurn = !state.lockedIn && (game.players[pid]?.alive ?? false);
+}
+
 function syncScreenToPhase(game: { phase: string; teamsEnabled: boolean; timerConfig: { enabled: boolean; seconds: number } }): void {
   if (game.phase === 'placement' && state.screen !== 'placement') {
     state.screen = 'placement';
@@ -50,6 +66,7 @@ export function registerGameHandlers(): void {
     state.capabilities = capabilities ?? null;
     restorePlayerIdentity(game);
     syncScreenToPhase(game);
+    restoreSimultaneousState(game);
     render();
   });
 
@@ -84,6 +101,51 @@ export function registerGameHandlers(): void {
     state.selectedTargets = [];
     render();
     // Auto-scroll shot log to bottom if user was near the bottom (or first salvo)
+    if (wasNearBottom) {
+      setTimeout(() => {
+        const el = document.querySelector('.shot-log');
+        if (el) el.scrollTop = el.scrollHeight;
+      }, 0);
+    }
+  });
+
+  // ── Simultaneous mode handlers ──
+
+  socket.on('round-start', ({ roundNumber, timerSeconds }) => {
+    state.isMyTurn = true;
+    state.lockedIn = false;
+    state.lockedPlayerIds = [];
+    state.roundNumber = roundNumber;
+    state.selectedTargets = [];
+    if (timerSeconds !== null) {
+      startTimer(timerSeconds);
+    }
+    playTurnSound();
+    render();
+  });
+
+  socket.on('player-locked', ({ playerId }) => {
+    if (!state.lockedPlayerIds.includes(playerId)) {
+      state.lockedPlayerIds.push(playerId);
+    }
+    render();
+  });
+
+  socket.on('round-results', ({ salvos, game }) => {
+    state.game = game;
+    state.isMyTurn = false;
+    state.lockedIn = false;
+    state.lockedPlayerIds = [];
+    stopTimer();
+    // Capture scroll state BEFORE render destroys the DOM
+    const logEl = document.querySelector('.shot-log');
+    const wasNearBottom = !logEl || (logEl.scrollHeight - logEl.scrollTop - logEl.clientHeight < 50);
+    for (const salvo of salvos) {
+      playSalvoSound(salvo.shots);
+      state.shotLog.push({ shooterId: salvo.shooterId, shooterName: salvo.shooterName, shots: salvo.shots });
+    }
+    state.selectedTargets = [];
+    render();
     if (wasNearBottom) {
       setTimeout(() => {
         const el = document.querySelector('.shot-log');

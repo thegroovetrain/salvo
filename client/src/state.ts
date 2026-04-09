@@ -1,6 +1,6 @@
 import type {
   WireGame, ShipPlacement, ChatMessage,
-  GameOverStats, QuickPlayMode, ChatChannel, ShotResult,
+  GameOverStats, ChatChannel, ShotResult,
   LobbyCapabilities,
 } from '@salvo/shared';
 
@@ -47,7 +47,6 @@ export interface AppState {
   // Saved form values
   savedPlayerName: string;
   // Quick Play
-  queueMode: QuickPlayMode | null;
   queueSize: number;
   onlineCount: number;
   matchSoundMuted: boolean;
@@ -60,6 +59,10 @@ export interface AppState {
   countdownInterval: ReturnType<typeof setInterval> | null;
   // Lobby dropdown
   openDropdownId: string | null;
+  // Simultaneous mode
+  lockedIn: boolean;
+  lockedPlayerIds: string[];
+  roundNumber: number;
   // Surrender
   showSurrenderModal: boolean;
   // Amber confirmation
@@ -101,7 +104,6 @@ export const state: AppState = {
   changelogHtml: null,
   showJoinModal: false,
   savedPlayerName: '',  // initialized in main.ts
-  queueMode: null,
   queueSize: 0,
   onlineCount: 0,
   matchSoundMuted: false,  // initialized in main.ts
@@ -110,6 +112,9 @@ export const state: AppState = {
   countdownDeadline: null,
   countdownInterval: null,
   openDropdownId: null as string | null,
+  lockedIn: false,
+  lockedPlayerIds: [],
+  roundNumber: 0,
   showSurrenderModal: false,
   showAmberConfirm: false,
   errorMessage: null,

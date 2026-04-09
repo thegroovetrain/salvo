@@ -2,7 +2,7 @@ import {
   type Game, type Player, type Ship, type ShipPlacement,
   type ShotResult, type WireGame, type WirePlayer, type WireShip,
   type TimerConfig, type GameOverStats, type AiDifficulty, type GameMode,
-  type PlayerColor,
+  type PlayerColor, type PlayerGameStats,
   isShipSunk, isPlayerAlive, playerShotCount, isTeamAlive,
   SHIP_LENGTHS, SHIP_NAMES, BOT_NAME_POOLS, MODE_RINGS, SLOT_COLORS,
 } from '@salvo/shared';
@@ -48,6 +48,13 @@ export function createGame(
     gameType: teamsEnabled ? '2-team' : 'ffa',
     islandCount: 6,
     readyStates: new Map(),
+    turnMode: 'sequential',
+    roundNumber: 0,
+    lockedSalvos: new Map(),
+    lockDeadline: null,
+    roundParticipants: [],
+    roundShotCounts: new Map(),
+    roundPhase: null,
   };
 }
 
@@ -94,18 +101,27 @@ function isValidIslandCount(count: number): boolean {
   return count >= 0 && count <= 8;
 }
 
+function isValidTurnMode(mode: unknown): mode is 'sequential' | 'simultaneous' {
+  return mode === 'sequential' || mode === 'simultaneous';
+}
+
+function applySimpleOptions(game: Game, options: { rings?: number; islandCount?: number; turnMode?: 'sequential' | 'simultaneous' }): void {
+  if (options.rings !== undefined && isValidRings(options.rings)) game.rings = options.rings;
+  if (options.islandCount !== undefined && isValidIslandCount(options.islandCount)) game.islandCount = options.islandCount;
+  if (isValidTurnMode(options.turnMode)) game.turnMode = options.turnMode;
+}
+
 export function updateGameOptions(
   game: Game,
   requesterId: string,
-  options: { gameType?: GameType; timerSeconds?: number | null; rings?: number; islandCount?: number },
+  options: { gameType?: GameType; timerSeconds?: number | null; rings?: number; islandCount?: number; turnMode?: 'sequential' | 'simultaneous' },
 ): string | null {
   if (game.phase !== 'lobby') return 'Game is not in lobby phase';
   if (game.hostId !== requesterId) return 'Only the host can change game options';
 
   if (options.gameType !== undefined) applyGameType(game, options.gameType);
   if (options.timerSeconds !== undefined) applyTimerSeconds(game, options.timerSeconds);
-  if (options.rings !== undefined && isValidRings(options.rings)) game.rings = options.rings;
-  if (options.islandCount !== undefined && isValidIslandCount(options.islandCount)) game.islandCount = options.islandCount;
+  applySimpleOptions(game, options);
 
   game.lastActivity = Date.now();
   return null;
@@ -302,8 +318,6 @@ function validateShipCells(cells: string[], expectedLength: number, rings: numbe
   const result = parseAndValidateHexes(cells, rings);
   if (typeof result === 'string') return result;
   const hexes = result;
-
-  if (expectedLength === 1) return null;
 
   const anchor = hexes[0];
   const dq = hexes[1].q - anchor.q;
@@ -706,6 +720,14 @@ export function resetForRematch(game: Game): void {
   game.playerStats = new Map();
   game.firstBloodId = null;
 
+  // Reset simultaneous round state (turnMode is preserved)
+  game.roundNumber = 0;
+  game.lockedSalvos.clear();
+  game.lockDeadline = null;
+  game.roundParticipants = [];
+  game.roundShotCounts.clear();
+  game.roundPhase = null;
+
   // INVARIANT: game.teams and game.teamsEnabled are NOT cleared — teams persist across rematches.
 
   for (const player of game.players.values()) {
@@ -742,6 +764,14 @@ export function resetGameToLobby(game: Game): void {
   game.firstBloodId = null;
   game.readyStates = new Map();
 
+  // Reset simultaneous round state (turnMode is preserved)
+  game.roundNumber = 0;
+  game.lockedSalvos.clear();
+  game.lockDeadline = null;
+  game.roundParticipants = [];
+  game.roundShotCounts.clear();
+  game.roundPhase = null;
+
   for (const player of game.players.values()) {
     player.ships = [];
   }
@@ -755,6 +785,200 @@ export function resetGameToLobby(game: Game): void {
 export function assignPlayerColor(game: Game, playerId: string, color: PlayerColor): void {
   const player = game.players.get(playerId);
   if (player) player.color = color;
+}
+
+// ============================================================
+// Simultaneous Mode — Validation & Resolution
+// ============================================================
+
+function validateSimultaneousState(game: Game, playerId: string): string | null {
+  if (game.phase !== 'playing') return 'Game is not in playing phase';
+  if (game.turnMode !== 'simultaneous') return 'Game is not in simultaneous mode';
+  if (game.roundPhase !== 'open') return 'No round is currently open';
+  const player = game.players.get(playerId);
+  if (!player) return 'Player not found';
+  if (!isPlayerAlive(player)) return 'Player is eliminated';
+  if (game.lockedSalvos.has(playerId)) return 'Already locked in for this round';
+  return null;
+}
+
+function validateSimultaneousCoords(game: Game, playerId: string, coords: string[]): string | null {
+  const maxShots = game.roundShotCounts.get(playerId) ?? 0;
+  if (coords.length > maxShots) return `Too many shots (max ${maxShots})`;
+  for (const coord of coords) {
+    if (game.shots.has(coord)) return `Already shot at ${coord}`;
+    if (game.islands.has(coord)) return `${coord} is an island`;
+  }
+  if (new Set(coords).size !== coords.length) return 'Duplicate coordinates';
+  return null;
+}
+
+export function validateSimultaneousSalvo(
+  game: Game, playerId: string, coords: string[],
+): string | null {
+  return validateSimultaneousState(game, playerId) ?? validateSimultaneousCoords(game, playerId, coords);
+}
+
+export function lockPlayerSalvo(game: Game, playerId: string, coords: string[]): void {
+  game.lockedSalvos.set(playerId, coords);
+}
+
+/** Snapshot of hittable cells at round start (before resolution) */
+interface ShipCellRef { ownerId: string; shipIdx: number }
+
+interface BoardSnapshot {
+  /** coord → ALL ship refs on that cell (multiple ships can share a hex in shared ocean) */
+  hittableCells: Map<string, ShipCellRef[]>;
+}
+
+function snapshotBoardState(game: Game): BoardSnapshot {
+  const hittableCells = new Map<string, ShipCellRef[]>();
+  for (const [pid, player] of game.players) {
+    for (let i = 0; i < player.ships.length; i++) {
+      const ship = player.ships[i];
+      for (const cell of ship.cells) {
+        if (!ship.hits.has(cell)) {
+          const refs = hittableCells.get(cell);
+          if (refs) { refs.push({ ownerId: pid, shipIdx: i }); }
+          else { hittableCells.set(cell, [{ ownerId: pid, shipIdx: i }]); }
+        }
+      }
+    }
+  }
+  return { hittableCells };
+}
+
+function resolvePlayerSalvo(
+  game: Game,
+  shooterId: string,
+  coords: string[],
+  snapshot: BoardSnapshot,
+  stats: PlayerGameStats,
+): ShotResult[] {
+  const results: ShotResult[] = [];
+  for (const coord of coords) {
+    stats.shotsFired++;
+    const targets = snapshot.hittableCells.get(coord);
+    if (!targets || targets.length === 0) {
+      results.push({ coord, hits: [], miss: true });
+      continue;
+    }
+    const hits: PlayerHit[] = [];
+    for (const target of targets) {
+      const targetPlayer = game.players.get(target.ownerId)!;
+      const targetShip = targetPlayer.ships[target.shipIdx];
+      const isSelf = target.ownerId === shooterId;
+      if (isSelf) { stats.friendlyFireHits++; } else { stats.hitsLanded++; }
+      hits.push({
+        playerId: target.ownerId,
+        playerName: targetPlayer.name,
+        sunk: false,
+        shipLength: targetShip.length,
+        sunkShipCells: null,
+      });
+    }
+    results.push({ coord, hits, miss: false });
+  }
+  stats.turnsTaken++;
+  return results;
+}
+
+/** Batch-apply all hit coords to actual ship state */
+function batchApplyHits(game: Game, allCoords: string[], snapshot: BoardSnapshot): void {
+  for (const coord of allCoords) {
+    game.shots.add(coord);
+    const targets = snapshot.hittableCells.get(coord);
+    if (!targets) continue;
+    for (const target of targets) {
+      const targetPlayer = game.players.get(target.ownerId);
+      if (targetPlayer) {
+        targetPlayer.ships[target.shipIdx].hits.add(coord);
+      }
+    }
+  }
+}
+
+/** Update sunk status in ShotResults after batch apply */
+function updateSunkStatus(game: Game, allResults: { shots: ShotResult[] }[]): void {
+  for (const entry of allResults) {
+    for (const shot of entry.shots) {
+      for (const hit of shot.hits) {
+        const targetPlayer = game.players.get(hit.playerId);
+        if (!targetPlayer) continue;
+        const ship = targetPlayer.ships.find(s => s.cells.includes(shot.coord));
+        if (ship && isShipSunk(ship)) {
+          hit.sunk = true;
+          hit.sunkShipCells = [...ship.cells];
+        }
+      }
+    }
+  }
+}
+
+export interface SimultaneousRoundResult {
+  shooterId: string;
+  shooterName: string;
+  shots: ShotResult[];
+}
+
+export function resolveSimultaneousRound(game: Game): SimultaneousRoundResult[] {
+  const snapshot = snapshotBoardState(game);
+  const results: SimultaneousRoundResult[] = [];
+  const allHitCoords: string[] = [];
+
+  // Resolve each player's salvo against the snapshot
+  for (const [shooterId, coords] of game.lockedSalvos) {
+    const shooter = game.players.get(shooterId);
+    if (!shooter) continue;
+    const stats = game.playerStats.get(shooterId) ?? { ...EMPTY_STATS };
+    game.playerStats.set(shooterId, stats);
+    const shots = resolvePlayerSalvo(game, shooterId, coords, snapshot, stats);
+    results.push({ shooterId, shooterName: shooter.name, shots });
+    // Track first blood
+    for (const shot of shots) {
+      for (const hit of shot.hits) {
+        if (hit.playerId !== shooterId && game.firstBloodId === null) {
+          game.firstBloodId = shooterId;
+        }
+        if (hit.playerId !== shooterId) {
+          const sStats = game.playerStats.get(shooterId);
+          if (sStats) {
+            // shipsSunk updated after batch apply
+          }
+        }
+      }
+    }
+    allHitCoords.push(...coords);
+  }
+
+  // Batch apply all hits
+  batchApplyHits(game, allHitCoords, snapshot);
+
+  // Update sunk status and shipsSunk stats
+  updateSunkStatus(game, results);
+  updateShipsSunkStats(game, results);
+
+  // Clear round state
+  game.lockedSalvos.clear();
+  game.roundPhase = null;
+  game.lockDeadline = null;
+  game.lastActivity = Date.now();
+
+  return results;
+}
+
+function updateShipsSunkStats(game: Game, results: SimultaneousRoundResult[]): void {
+  for (const entry of results) {
+    const stats = game.playerStats.get(entry.shooterId);
+    if (!stats) continue;
+    for (const shot of entry.shots) {
+      for (const hit of shot.hits) {
+        if (hit.sunk && hit.playerId !== entry.shooterId) {
+          stats.shipsSunk++;
+        }
+      }
+    }
+  }
 }
 
 // ============================================================
@@ -851,5 +1075,10 @@ export function toClientView(game: Game, viewerId: string): WireGame {
     teams: teamsRecord,
     gameType: game.gameType,
     islandCount: game.islandCount,
+    turnMode: game.turnMode,
+    roundNumber: game.roundNumber,
+    lockedPlayerIds: [...game.lockedSalvos.keys()],
+    roundPhase: game.roundPhase,
+    lockDeadline: game.lockDeadline,
   };
 }

@@ -6,9 +6,10 @@ import {
   placeShips, allShipsPlaced, beginPlaying,
   validateSalvo, fireSalvo, advanceTurn, checkGameOver,
   toClientView, checkNewEliminations,
+  validateSimultaneousSalvo, lockPlayerSalvo,
 } from '../game.js';
 import { clearPlacementTimer, clearTurnTimer } from '../timers/index.js';
-import { emitNextTurn } from '../gameFlow.js';
+import { emitNextTurn, checkAndResolveRound } from '../gameFlow.js';
 import { broadcastOnlineCount } from '../queue/index.js';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -48,12 +49,35 @@ export function registerPlayingHandlers(io: IO, socket: Socket<ClientToServerEve
     }
   });
 
+  socket.on('lock-salvo', ({ coords }: { coords: string[] }) => {
+    const playerId = connections.getPlayerIdBySocket(socket.id);
+    if (!playerId) return;
+
+    const game = lobby.getGameByPlayer(playerId);
+    if (!game) return;
+
+    const err = validateSimultaneousSalvo(game, playerId, coords);
+    if (err) {
+      socket.emit('error', { message: err });
+      return;
+    }
+
+    lockPlayerSalvo(game, playerId, coords);
+    broadcastToGame(game.id, 'player-locked', { playerId });
+    checkAndResolveRound(game.id);
+  });
+
   socket.on('fire', ({ coords }: { coords: string[] }) => {
     const playerId = connections.getPlayerIdBySocket(socket.id);
     if (!playerId) return;
 
     const game = lobby.getGameByPlayer(playerId);
     if (!game) return;
+
+    if (game.turnMode === 'simultaneous') {
+      socket.emit('error', { message: 'Use lock-salvo in simultaneous mode' });
+      return;
+    }
 
     const err = validateSalvo(game, playerId, coords);
     if (err) {

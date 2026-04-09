@@ -1,7 +1,7 @@
 import type { Server, Socket } from 'socket.io';
 import type { ClientToServerEvents, ServerToClientEvents, Game } from '@salvo/shared';
 import { playerShotCount } from '@salvo/shared';
-import { getCurrentTurnPlayerId, toClientView } from './game.js';
+import { getCurrentTurnPlayerId, toClientView, lockPlayerSalvo } from './game.js';
 import { getLobbyCapabilities } from './capabilities.js';
 import { getConnections, getLobby, getGuestSessions, getPartyManager, broadcastToGame, emitToGuest, emitGameState } from './emitters.js';
 import {
@@ -9,6 +9,7 @@ import {
   startDisconnectSkipTimer, clearDisconnectSkipTimer,
   startAllDisconnectedTimer, clearAllDisconnectedTimer,
   registerGameCleanup,
+  registerRoundTimerCallbacks,
 } from './timers/index.js';
 import { isInQueue, getTicketByGuest, dissolveTicket, migrateTicketSocket, broadcastOnlineCount } from './queue/index.js';
 import {
@@ -20,6 +21,7 @@ import {
   registerPartyHandlers,
 } from './handlers/index.js';
 import { isValidGuestId } from './guestSessions.js';
+import { checkAndResolveRound } from './gameFlow.js';
 import crypto from 'node:crypto';
 
 type IO = Server<ClientToServerEvents, ServerToClientEvents>;
@@ -206,6 +208,13 @@ export function clearHostTransferTimer(gameId: string): void {
 
 // Register host transfer cleanup with game timer system
 registerGameCleanup(clearHostTransferTimer);
+
+// Register round timer callbacks (avoids circular imports)
+registerRoundTimerCallbacks({
+  checkAndResolveRound,
+  getGame: (gameId: string) => getLobby().getGame(gameId),
+  lockPlayerSalvo,
+});
 
 function handleTurnDisconnect(game: Game, playerId: string): void {
   if (game.phase !== 'playing' || getCurrentTurnPlayerId(game) !== playerId) return;

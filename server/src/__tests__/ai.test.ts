@@ -44,19 +44,17 @@ function setupOverlappingBattle(game: Game, humanId: string, botId: string): {
   game.islands = new Set();
   // Human ships on row r=0
   const humanShips: ShipPlacement[] = [
-    { length: 1, cells: ['0,0'] },
-    { length: 2, cells: ['1,0', '2,0'] },
-    { length: 3, cells: ['3,0', '4,0', '-4,0'] },
-    { length: 4, cells: ['-3,0', '-2,0', '-1,0', '-5,0'] },
+    { length: 2, cells: ['0,0', '1,0'] },
+    { length: 3, cells: ['2,0', '3,0', '4,0'] },
+    { length: 4, cells: ['-4,0', '-3,0', '-2,0', '-1,0'] },
   ];
-  // Bot ships on row r=1, but Scout overlaps human's Scout at... wait, we can't
-  // literally set cells to the same coord for two players via placeShips because
-  // each player's placement is validated independently. Let's place then manually set.
+  // Bot ships on row r=1, but first cell overlaps human's first ship at 0,0.
+  // We can't literally set cells to the same coord for two players via placeShips
+  // because each player's placement is validated independently. Let's place then manually set.
   const botShips: ShipPlacement[] = [
-    { length: 1, cells: ['0,0'] }, // overlaps human Scout!
-    { length: 2, cells: ['-5,1', '-4,1'] },
+    { length: 2, cells: ['0,0', '0,1'] }, // overlaps human ship at 0,0!
     { length: 3, cells: ['-3,1', '-2,1', '-1,1'] },
-    { length: 4, cells: ['0,1', '1,1', '2,1', '3,1'] },
+    { length: 4, cells: ['1,1', '2,1', '3,1', '4,1'] },
   ];
   placeShips(game, humanId, humanShips);
   placeShips(game, botId, botShips);
@@ -491,8 +489,8 @@ describe('Doctrine Selection', () => {
     }
     beginPlaying(game);
 
-    // Create active hit on human's Dreadnought (length 4, not sunk by 1 hit)
-    const humanShip = game.players.get('human1')!.ships[3]; // Dreadnought
+    // Create active hit on human's longest ship (length 4, not sunk by 1 hit)
+    const humanShip = game.players.get('human1')!.ships[2]; // length-4 ship
     humanShip.hits.add(humanShip.cells[0]);
     game.shots.add(humanShip.cells[0]);
 
@@ -514,9 +512,9 @@ describe('Doctrine Selection', () => {
     }
     beginPlaying(game);
 
-    // Sink 3 of 4 bot ships
+    // Sink 2 of 3 bot ships (leaving 1 surviving — desperation threshold)
     const bot = game.players.get(botId)!;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       for (const cell of bot.ships[i].cells) bot.ships[i].hits.add(cell);
     }
     expect(selectDoctrine(game, botId, 'hard')).toBe('desperation');
@@ -609,7 +607,7 @@ describe('AI Edge Cases', () => {
     game.currentTurnIndex = 0;
 
     const bot = game.players.get(botId)!;
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 2; i++) {
       for (const cell of bot.ships[i].cells) bot.ships[i].hits.add(cell);
     }
 

@@ -55,7 +55,7 @@ export function makeTeamGame(
 
 /**
  * Non-overlapping hex ship placements for player at given index.
- * Each player's 4 ships (1+2+3+4 = 10 cells) are placed along the E direction
+ * Each player's 3 ships (2+3+4 = 9 cells) are placed along the E direction
  * on a unique r-row.
  *
  * 5-ring grid: supports players 0-2 (r=0, r=1, r=-1)
@@ -86,10 +86,9 @@ export function hexPlacements(playerIndex: number): ShipPlacement[] {
 function makeLinearShips(r: number, startQ: number): ShipPlacement[] {
   const cell = (i: number) => hexToString(startQ + i, r);
   return [
-    { length: 1, cells: [cell(0)] },
-    { length: 2, cells: [cell(1), cell(2)] },
-    { length: 3, cells: [cell(3), cell(4), cell(5)] },
-    { length: 4, cells: [cell(6), cell(7), cell(8), cell(9)] },
+    { length: 2, cells: [cell(0), cell(1)] },
+    { length: 3, cells: [cell(2), cell(3), cell(4)] },
+    { length: 4, cells: [cell(5), cell(6), cell(7), cell(8)] },
   ];
 }
 

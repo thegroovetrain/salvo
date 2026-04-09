@@ -4,15 +4,11 @@
 // Ticket lifecycle:
 //   (none) ──createTicket──▶ QUEUED ──match──▶ MATCHED
 //                              │
-//              ┌───────────────┼───────────────┐
-//              │               │               │
-//        leader cancel    member DC      party mutation
-//              │               │               │
-//              ▼               ▼               ▼
-//                       DISSOLVED
+//                          dequeue/DC
+//                              │
+//                              ▼
+//                           REMOVED
 // ============================================================
-
-import type { QuickPlayMode } from '@salvo/shared';
 
 export interface QueuedMember {
   guestId: string;       // primary identifier (stable across tab eviction)
@@ -23,7 +19,5 @@ export interface QueuedMember {
 export interface QueueTicket {
   id: string;
   members: QueuedMember[];
-  partyId: string | null;  // null = solo player
-  mode: QuickPlayMode;
   createdAt: number;
 }
