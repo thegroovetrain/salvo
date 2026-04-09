@@ -23,7 +23,6 @@ describe('AppState', () => {
     expect(state.gameOverStats).toBeNull();
     expect(state.rematchPending).toBeNull();
     expect(state.showJoinModal).toBe(false);
-    expect(state.queueMode).toBeNull();
     expect(state.queueSize).toBe(0);
     expect(state.onlineCount).toBe(0);
     expect(state.openDropdownId).toBeNull();

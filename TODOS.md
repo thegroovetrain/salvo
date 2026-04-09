@@ -30,15 +30,15 @@
 
 ### Team-Aware Bot Shot Coordination (Simultaneous Mode)
 
-**What:** When multiple bots on the same team fire simultaneously (not current turn-based mode), coordinate their targets to avoid redundant shots on the same cell. Bots partition targets: "I'll finish this ship, you hunt for new ones."
+**What:** When multiple bots on the same team fire simultaneously, coordinate their targets to avoid redundant shots on the same cell. Bots partition targets: "I'll finish this ship, you hunt for new ones."
 
-**Why:** In the current turn-based system, bots fire sequentially and can't target already-shot cells, so coordination is moot. But if simultaneous mode is implemented (all players fire at once), same-team bots would waste shots firing at the same cells.
+**Why:** In simultaneous mode (v0.15.0), same-team bots can waste shots firing at the same cells since all players fire at once.
 
-**Context:** The doctrine + gunnery architecture from the AI overhaul (v0.14.0) provides the foundation — doctrine selection could include a team coordination layer that shares target assignments between same-team bots. Would require passing a "claimed cells" set between bot salvo calculations. Deferred from CEO review of the AI difficulty overhaul.
+**Context:** The doctrine + gunnery architecture from the AI overhaul (v0.14.0) provides the foundation. Simultaneous mode now exists (v0.15.0). Would require passing a "claimed cells" set between bot salvo calculations within `scheduleBotLockIns()`.
 
 **Effort:** M
 **Priority:** P3
-**Depends on:** AI difficulty overhaul + simultaneous mode (if implemented)
+**Depends on:** AI difficulty overhaul (done) + simultaneous mode (done, v0.15.0)
 
 ## Party System
 
@@ -88,7 +88,7 @@
 
 **What:** Add an optional game rule where the type of ship hit is not revealed until the ship sinks. Only "hit" or "miss" is communicated — no ship name.
 
-**Why:** Adds strategic depth — you know you hit someone but not whether it's their Scout or Dreadnought. This is a classic naval combat variant rule that some players prefer for the added mystery.
+**Why:** Adds strategic depth — you know you hit someone but not whether it's their Destroyer or Dreadnought. This is a classic naval combat variant rule that some players prefer for the added mystery.
 
 **Context:** Currently `PlayerHit` includes `shipLength` on every hit, which lets the client display the ship name via `SHIP_NAMES[shipLength]`. To implement: strip `shipLength` from non-sunk hits in `toClientView()` when this option is enabled. Would be a game options toggle in the create-game flow. Deferred from v0.10.2 CEO review.
 

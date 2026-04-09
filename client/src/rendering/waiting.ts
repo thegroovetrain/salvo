@@ -249,11 +249,17 @@ function renderGameOptionsPanel(isHost: boolean): string {
     { value: '6', label: 'Normal' },
     { value: '8', label: 'Many' },
   ];
+  const turnModeOptions = [
+    { value: 'sequential', label: 'Sequential', desc: 'players take turns one at a time' },
+    { value: 'simultaneous', label: 'Simultaneous', desc: 'all players act each round' },
+  ];
+  const turnModeSelected = game.turnMode ?? 'sequential';
 
   return `
     <div class="game-options-panel">
       <div class="section-label">GAME OPTIONS</div>
       <div class="option-group"><div class="option-label">Game Type</div>${renderCustomSelect('opt-game-type', gameTypeOptions, gameType, isHost)}</div>
+      <div class="option-group"><div class="option-label">Turn Mode</div>${renderCustomSelect('opt-turn-mode', turnModeOptions, turnModeSelected, isHost)}</div>
       <div class="option-group"><div class="option-label">Turn Timer</div>${renderCustomSelect('opt-timer', timerOptions, timerSelected, isHost)}</div>
       <div class="option-group"><div class="option-label">Grid Size</div>${renderCustomSelect('opt-rings', ringsOptions, String(game.rings), isHost)}</div>
       <div class="option-group"><div class="option-label">Islands</div>${renderCustomSelect('opt-islands', islandOptions, String(islandCount), isHost)}</div>

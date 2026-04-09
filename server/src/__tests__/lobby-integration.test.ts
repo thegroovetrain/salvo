@@ -136,7 +136,7 @@ describe('resetGameToLobby', () => {
 
   it('clears player ships on reset', () => {
     const { game } = makeGame(2);
-    game.players.get('p1')!.ships = [{ length: 1, cells: ['0,0'], hits: new Set() }];
+    game.players.get('p1')!.ships = [{ length: 2, cells: ['0,0', '1,0'], hits: new Set() }];
     game.phase = 'finished';
     resetGameToLobby(game);
     expect(game.players.get('p1')!.ships).toEqual([]);

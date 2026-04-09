@@ -76,26 +76,45 @@ export function renderPlacement(): string {
 
 // --- Battle screen helpers ---
 
+function renderLockBadge(playerId: string, simultaneous: boolean): string {
+  if (!simultaneous) return '';
+  const locked = state.lockedPlayerIds.includes(playerId);
+  return locked
+    ? '<span style="color:var(--green);font-size:11px;margin-left:4px">\u2713</span>'
+    : '<span style="color:var(--text-muted);font-size:11px;margin-left:4px">\u25CB</span>';
+}
+
+function renderTeamBadge(teamsEnabled: boolean, teams: Record<string, string>, playerId: string): string {
+  if (!teamsEnabled || !teams[playerId]) return '';
+  const teamId = teams[playerId];
+  const label = teamId.charAt(0).toUpperCase() + teamId.slice(1);
+  return `<span class="team-badge ${teamId}" aria-label="Team ${label}">${label}</span>`;
+}
+
+function renderTurnArrow(simultaneous: boolean, isCurrent: boolean, alive: boolean): string {
+  if (simultaneous || !isCurrent || !alive) return '';
+  return '<span style="color:var(--amber);font-size:10px">\u25C0</span>';
+}
+
 function renderPlayerListItem(
   p: WirePlayer,
   currentTurnId: string,
   teamsEnabled: boolean,
   teams: Record<string, string>,
+  simultaneous: boolean,
 ): string {
   const isMe = p.id === state.playerId;
-  const isCurrent = p.id === currentTurnId;
   const nameStyle = p.alive ? '' : 'text-decoration:line-through;color:var(--text-muted)';
-  const teamBadge = teamsEnabled && teams[p.id]
-    ? `<span class="team-badge ${teams[p.id]}" aria-label="Team ${teams[p.id].charAt(0).toUpperCase() + teams[p.id].slice(1)}">${teams[p.id].charAt(0).toUpperCase() + teams[p.id].slice(1)}</span>`
-    : '';
   const pColor = p.color ?? 'green';
   const youBadge = isMe ? '<span class="player-you-badge">YOU</span>' : '';
+  const lockBadge = p.alive ? renderLockBadge(p.id, simultaneous) : '';
+  const statusText = p.alive ? p.shotCount + ' ships' : 'out';
   return `<li class="player-color-${pColor}" style="border-left:3px solid var(--player-${pColor});padding-left:6px${!p.alive ? ';opacity:0.5' : ''}">
     ${playerIcon(p.isBot)}
     <span class="player-color-${pColor}" style="${nameStyle}">${esc(p.name)}</span>${youBadge}
-    ${teamBadge}
-    <span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${p.alive ? p.shotCount + ' ships' : 'out'}</span>
-    ${isCurrent && p.alive ? '<span style="color:var(--amber);font-size:10px">\u25C0</span>' : ''}
+    ${renderTeamBadge(teamsEnabled, teams, p.id)}${lockBadge}
+    <span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-muted)">${statusText}</span>
+    ${renderTurnArrow(simultaneous, p.id === currentTurnId, p.alive)}
   </li>`;
 }
 
@@ -139,32 +158,51 @@ function renderGameModeLabel(teams: Record<string, string>): string {
   return `<div class="game-mode-label"><span class="desktop-only">TEAM BATTLE</span><span class="mobile-only">${modeShort}</span> \u2014 ${teamLabels.join(' vs ')}</div>`;
 }
 
+function renderTimerHtml(): string {
+  if (state.timerSeconds === null) return '';
+  const flash = state.timerSeconds <= 5 ? ' timer-flash' : '';
+  const warn = state.timerSeconds <= 10 ? 'warning' : '';
+  return `<div class="turn-timer ${warn}${flash}">${Math.floor(state.timerSeconds / 60)}:${(state.timerSeconds % 60).toString().padStart(2, '0')}</div>`;
+}
+
 function renderTurnIndicator(isMyTurn: boolean, currentPlayer: WirePlayer | undefined, expectedShots: number): string {
   const turnPlayerColor = currentPlayer?.color ?? 'green';
   const turnText = isMyTurn
     ? `<span class="player-color-${turnPlayerColor}">YOUR TURN</span> \u2014 ${expectedShots} shot${expectedShots !== 1 ? 's' : ''}`
     : `<span class="player-color-${turnPlayerColor}">${esc(currentPlayer?.name ?? '???')}</span>'s turn`;
 
-  const timerHtml = state.timerSeconds !== null
-    ? `<div class="turn-timer ${state.timerSeconds <= 10 ? 'warning' : ''}">${Math.floor(state.timerSeconds / 60)}:${(state.timerSeconds % 60).toString().padStart(2, '0')}</div>`
-    : '';
-
-  return `<div class="turn-indicator ${isMyTurn ? 'your-turn' : 'waiting'}">${turnText}${timerHtml}</div>`;
+  return `<div class="turn-indicator ${isMyTurn ? 'your-turn' : 'waiting'}">${turnText}${renderTimerHtml()}</div>`;
 }
 
-function renderFireControls(canFire: boolean, expectedShots: number): string {
+function renderSimultaneousTurnIndicator(expectedShots: number): string {
+  const roundLabel = `ROUND ${state.roundNumber}`;
+  const statusText = state.lockedIn
+    ? `${roundLabel} \u2014 LOCKED IN \u2014 WAITING FOR OTHERS...`
+    : `${roundLabel} \u2014 SELECT YOUR TARGETS \u2014 ${expectedShots} shot${expectedShots !== 1 ? 's' : ''}`;
+  const activeClass = state.lockedIn ? 'waiting' : 'your-turn';
+  return `<div class="turn-indicator ${activeClass}">${statusText}${renderTimerHtml()}</div>`;
+}
+
+function renderFireControls(canFire: boolean, expectedShots: number, simultaneous: boolean): string {
+  if (simultaneous && state.lockedIn) {
+    return `
+      <button class="btn btn-amber fire-btn" id="btn-fire" disabled>LOCKED</button>
+      <p class="shot-count">${state.selectedTargets.length} of ${expectedShots} targets selected</p>
+    `;
+  }
+  const label = simultaneous ? 'LOCK IN' : 'FIRE SALVO';
   return `
-    <button class="btn btn-amber fire-btn" id="btn-fire" ${canFire ? '' : 'disabled'}>FIRE SALVO</button>
+    <button class="btn btn-amber fire-btn" id="btn-fire" ${canFire ? '' : 'disabled'}>${label}</button>
     <p class="shot-count">${state.selectedTargets.length} of ${expectedShots} targets selected</p>
   `;
 }
 
-function renderSortedPlayerList(currentTurnId: string, teamsEnabled: boolean, teams: Record<string, string>): string {
+function renderSortedPlayerList(currentTurnId: string, teamsEnabled: boolean, teams: Record<string, string>, simultaneous: boolean): string {
   const playerEntries = Object.entries(state.game!.players);
   if (state.game!.turnOrder.length > 0) {
     playerEntries.sort((a, b) => state.game!.turnOrder.indexOf(a[0]) - state.game!.turnOrder.indexOf(b[0]));
   }
-  return playerEntries.map(([, p]) => renderPlayerListItem(p, currentTurnId, teamsEnabled, teams)).join('');
+  return playerEntries.map(([, p]) => renderPlayerListItem(p, currentTurnId, teamsEnabled, teams, simultaneous)).join('');
 }
 
 function renderShotLogPanel(): string {
@@ -190,31 +228,41 @@ interface BattleState {
   teamsEnabled: boolean;
   gameModeLabel: string;
   isAlive: boolean;
+  simultaneous: boolean;
+}
+
+function resolveIsMyTurn(simultaneous: boolean, currentTurnId: string): boolean {
+  return simultaneous ? state.isMyTurn : currentTurnId === state.playerId;
+}
+
+function resolveCanFire(isMyTurn: boolean, maxShots: number): boolean {
+  return isMyTurn && !state.lockedIn && state.selectedTargets.length >= 1 && state.selectedTargets.length <= maxShots;
 }
 
 function computeBattleState(): BattleState | null {
   if (!state.game || !state.playerId) return null;
 
+  const simultaneous = state.game.turnMode === 'simultaneous';
   const myPlayer = state.game.players[state.playerId];
   const currentTurnId = state.game.turnOrder[state.game.currentTurnIndex];
-  const isMyTurn = currentTurnId === state.playerId;
+  const isMyTurn = resolveIsMyTurn(simultaneous, currentTurnId);
   const expectedShots = myPlayer ? myPlayer.shotCount : 0;
   const unshotCount = state.game.shots
     ? getUnshotCount(state.game.rings, state.game.shots, state.game.islands)
     : expectedShots;
   const maxShots = Math.min(expectedShots, unshotCount);
   const teamsEnabled = state.game.teamsEnabled;
-  const canFire = isMyTurn && state.selectedTargets.length >= 1 && state.selectedTargets.length <= maxShots;
 
   return {
     isMyTurn,
     maxShots,
-    canFire,
+    canFire: resolveCanFire(isMyTurn, maxShots),
     currentTurnId,
     currentPlayer: state.game.players[currentTurnId],
     teamsEnabled,
     gameModeLabel: teamsEnabled ? renderGameModeLabel(state.game.teams) : '',
     isAlive: myPlayer?.alive ?? false,
+    simultaneous,
   };
 }
 
@@ -222,20 +270,26 @@ export function renderBattle(): string {
   const bs = computeBattleState();
   if (!bs) return '';
 
+  const gridDimClass = bs.simultaneous && state.lockedIn ? ' locked-overlay' : '';
+  const turnIndicator = bs.simultaneous
+    ? renderSimultaneousTurnIndicator(bs.maxShots)
+    : renderTurnIndicator(bs.isMyTurn, bs.currentPlayer, bs.maxShots);
+  const showFire = bs.simultaneous ? (bs.isMyTurn && bs.isAlive) : bs.isMyTurn;
+
   return `
     <div class="screen">
       ${renderError()}
       ${bs.gameModeLabel}
       <div class="battle-layout battle-layout-unified">
-        <div class="grid-panel${bs.isMyTurn ? ' your-turn-glow' : ''}" id="ocean-panel">
+        <div class="grid-panel${bs.isMyTurn && !state.lockedIn ? ' your-turn-glow' : ''}${gridDimClass}" id="ocean-panel">
           <h3>Shared Ocean</h3>
           ${renderGrid('battle')}
         </div>
         <div class="side-panel">
-          ${renderTurnIndicator(bs.isMyTurn, bs.currentPlayer, bs.maxShots)}
+          ${turnIndicator}
           <h3 class="label" style="margin-bottom:8px">Players</h3>
-          <ul class="player-list" style="margin-bottom:12px">${renderSortedPlayerList(bs.currentTurnId, bs.teamsEnabled, state.game!.teams)}</ul>
-          ${bs.isMyTurn ? renderFireControls(bs.canFire, bs.maxShots) : ''}
+          <ul class="player-list" style="margin-bottom:12px">${renderSortedPlayerList(bs.currentTurnId, bs.teamsEnabled, state.game!.teams, bs.simultaneous)}</ul>
+          ${showFire ? renderFireControls(bs.canFire, bs.maxShots, bs.simultaneous) : ''}
           <h3 class="label" style="margin:12px 0 8px">Shot Log</h3>
           ${renderShotLogPanel()}
           ${renderChat()}

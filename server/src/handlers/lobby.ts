@@ -272,7 +272,7 @@ export function registerLobbyHandlers(io: IO, socket: Socket<ClientToServerEvent
     broadcastOnlineCount();
   });
 
-  socket.on('update-game-options', (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number }) => {
+  socket.on('update-game-options', (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number; turnMode?: 'sequential' | 'simultaneous' }) => {
     const playerId = connections.getPlayerIdBySocket(socket.id);
     if (!playerId) return;
 

@@ -13,8 +13,8 @@ import { makeGame, hexPlacements, allCellsForPlayer, setupBattle } from './helpe
 // positions. Other players' ship cells must NEVER be revealed.
 // ============================================================
 
-// Player 0 ship cells: '-4,0' (scout), '-3,0'/'-2,0' (patrol), '-1,0'/'0,0'/'1,0' (destroyer), '2,0'/'3,0'/'4,0'/'5,0' (frigate)
-// Player 1 ship cells: '-5,1' (scout), '-4,1'/'-3,1' (patrol), '-2,1'/'-1,1'/'0,1' (destroyer), '1,1'/'2,1'/'3,1'/'4,1' (frigate)
+// Player 0 ship cells: '-4,0'/'-3,0' (patrol), '-2,0'/'-1,0'/'0,0' (destroyer), '1,0'/'2,0'/'3,0'/'4,0' (frigate)
+// Player 1 ship cells: '-5,1'/'-4,1' (patrol), '-3,1'/'-2,1'/'-1,1' (destroyer), '0,1'/'1,1'/'2,1'/'3,1' (frigate)
 // Safe empty cells (no ships): '-1,-4', '-2,-3', '-3,-2'
 
 function setup2PlayerGame() {
@@ -33,7 +33,7 @@ describe('toClientView Security — Ship Position Leakage', () => {
     const view = toClientView(game, 'p1');
 
     const myShips = view.players['p1'].ships;
-    expect(myShips.length).toBe(4);
+    expect(myShips.length).toBe(3);
 
     // All cells should be populated for own ships
     for (let i = 0; i < p1Ships.length; i++) {
@@ -46,7 +46,7 @@ describe('toClientView Security — Ship Position Leakage', () => {
     const view = toClientView(game, 'p1');
 
     const otherShips = view.players['p2'].ships;
-    expect(otherShips.length).toBe(4);
+    expect(otherShips.length).toBe(3);
 
     // All cells arrays must be empty — positions hidden
     for (const ship of otherShips) {
@@ -60,8 +60,8 @@ describe('toClientView Security — Ship Position Leakage', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    // Hit one of p2's ships (scout at -5,1) + 3 empty cells
-    fireSalvo(game, 'p1', ['-5,1', '-1,-4', '-2,-3', '-3,-2']);
+    // Hit one of p2's ships (patrol cell at -5,1) + 2 empty cells
+    fireSalvo(game, 'p1', ['-5,1', '-1,-4', '-2,-3']);
 
     const view = toClientView(game, 'p1');
     const otherShips = view.players['p2'].ships;
@@ -76,8 +76,8 @@ describe('toClientView Security — Ship Position Leakage', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    // Sink p2's Scout (1 cell at -5,1)
-    fireSalvo(game, 'p1', ['-5,1', '-1,-4', '-2,-3', '-3,-2']);
+    // Sink p2's patrol (2 cells at -5,1 and -4,1) — need 2 salvos
+    fireSalvo(game, 'p1', ['-5,1', '-4,1', '-1,-4']);
 
     const view = toClientView(game, 'p1');
     const p2Ships = view.players['p2'].ships;
@@ -92,7 +92,7 @@ describe('toClientView Security — Ship Position Leakage', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    fireSalvo(game, 'p1', ['-5,1', '-1,-4', '-2,-3', '-3,-2']);
+    fireSalvo(game, 'p1', ['-5,1', '-1,-4', '-2,-3']);
 
     const viewP1 = toClientView(game, 'p1');
     const viewP2 = toClientView(game, 'p2');
@@ -108,14 +108,14 @@ describe('toClientView Security — Ship Position Leakage', () => {
     game.turnOrder = ['p1', 'p2'];
     game.currentTurnIndex = 0;
 
-    // p1 hits own ship at -4,0 (self-hit scout) + 3 empty cells
-    fireSalvo(game, 'p1', ['-4,0', '-1,-4', '-2,-3', '-3,-2']);
+    // p1 hits own ship at -4,0 and -3,0 (self-hit patrol, both cells to sink) + 1 empty
+    fireSalvo(game, 'p1', ['-4,0', '-3,0', '-1,-4']);
 
     const view = toClientView(game, 'p1');
-    const myScout = view.players['p1'].ships[0];
+    const myPatrol = view.players['p1'].ships[0];
 
-    expect(myScout.hits).toContain('-4,0');
-    expect(myScout.sunk).toBe(true);
+    expect(myPatrol.hits).toContain('-4,0');
+    expect(myPatrol.sunk).toBe(true);
   });
 
   it('view is different per player — each sees only their ships', () => {
@@ -162,7 +162,7 @@ describe('toClientView Security — Ship Position Leakage', () => {
 
     // Other player's ships have length and sunk info even without cells
     const p2Ships = view.players['p2'].ships;
-    expect(p2Ships.map(s => s.length).sort()).toEqual([1, 2, 3, 4]);
+    expect(p2Ships.map(s => s.length).sort()).toEqual([2, 3, 4]);
     expect(p2Ships.every(s => typeof s.sunk === 'boolean')).toBe(true);
   });
 });
@@ -187,7 +187,7 @@ describe('toClientView — Game State Integrity', () => {
 
     for (const player of Object.values(view.players)) {
       expect(player.alive).toBe(true);
-      expect(player.shotCount).toBe(4);
+      expect(player.shotCount).toBe(3);
     }
   });
 

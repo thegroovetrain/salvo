@@ -2,6 +2,7 @@ import { clearPlacementTimer } from './placement.js';
 import { clearTurnTimer } from './turn.js';
 import { clearDisconnectSkipTimer } from './disconnectSkip.js';
 import { clearAllDisconnectedTimer } from './allDisconnected.js';
+import { clearRoundTimer } from './round.js';
 import { getLobby } from '../emitters.js';
 
 // Timer state Maps — shared across all timer modules
@@ -17,6 +18,7 @@ export function registerGameCleanup(fn: (gameId: string) => void): void { extraC
 export function clearGameTimers(gameId: string): void {
   clearPlacementTimer(gameId);
   clearAllDisconnectedTimer(gameId);
+  clearRoundTimer(gameId);
   for (const fn of extraCleanup) fn(gameId);
   const game = getLobby().getGame(gameId);
   if (game) {
@@ -31,3 +33,4 @@ export { startPlacementTimer, clearPlacementTimer, handlePlacementTimeout } from
 export { startTurnTimer, clearTurnTimer, handleTurnTimeout } from './turn.js';
 export { startDisconnectSkipTimer, clearDisconnectSkipTimer, handleDisconnectSkipTimeout } from './disconnectSkip.js';
 export { startAllDisconnectedTimer, clearAllDisconnectedTimer } from './allDisconnected.js';
+export { startRoundTimer, clearRoundTimer, registerRoundTimerCallbacks } from './round.js';

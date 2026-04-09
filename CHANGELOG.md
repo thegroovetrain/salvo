@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.15.0] - 2026-04-08
+
+### Added
+- **Simultaneous turns** — all players select targets and lock in each round. Two-pass resolution resolves shots against a pre-round board snapshot so shared-ocean overlapping ships all get hit correctly. New `turnMode` toggle in private lobby (Sequential / Simultaneous). Quick Play always uses simultaneous with 30s rounds.
+- **Turn mode lobby option** — host can choose Sequential or Simultaneous in the game options panel. Custom dropdown with descriptions.
+- **Round timer** — dedicated timer system for simultaneous rounds with auto-lock on expiry. Disconnected players auto-locked with empty salvos to prevent deadlock.
+
+### Changed
+- **Quick Play simplified to 6-player FFA** — single queue pool replaces 6 separate mode queues. One "Quick Play" button on homepage replaces the mode grid. Parties blocked from Quick Play with error toast.
+- **Fleet reduced to 3 ships** — removed Scout (1-cell ship). Fleet is now Destroyer (2), Cruiser (3), Dreadnought (4). Each player fires 3 shots per salvo.
+- **GameMode type simplified** — collapsed from 7 quickplay variants to `'private' | 'quickplay'`. Removed `QuickPlayMode`, `toGameMode()`, `toQuickPlayMode()`, `TEAM_COLOR_POOLS`.
+
+### Fixed
+- Simultaneous salvo validator now checks hex bounds (parseHex + isValidHex), matching sequential validator security.
+- Simultaneous disconnect no longer deadlocks untimed games (auto-lock on disconnect).
+- `shipsSunk` stat no longer over-counts when multiple cells of the same ship are hit in one round.
+
 ## [0.14.4] - 2026-03-27
 
 ### Added
