@@ -36,7 +36,7 @@ const MATCH_OVERRIDE = { minHumans: 1, countdownMs: 3000, resultsMs: 3000 };
 // Shrink to a tight ring so the dumb drones funnel toward center (they head for
 // center whenever the storm catches them) — giving a human loitering at center
 // reliable true-sight contacts to torpedo. The shrink RATE ((900-90)/50s ≈ 16
-// u/s) is kept below ship maxSpeed (25 u/s) so a ship can actually sail inward
+// u/s) is kept below ship maxSpeed (38 u/s) so a ship can actually sail inward
 // and hold the safe center; a faster ring would strand every hull outside.
 const ZONE_OVERRIDE = { grace: 2000, shrinkDuration: 50000, endRadiusFraction: 0.1 };
 
@@ -192,26 +192,33 @@ function islandAvoid(ctx) {
 
 /**
  * HUNT: loiter at center (the storm funnels the dumb drones inward, into true
- * sight) and lead-fire a torpedo volley at the nearest live contact — both bow
- * tubes on the same lead one-shots a 100hp drone (2x55 = 110 dmg).
+ * sight) and lead-fire torpedoes at the nearest live contact. With the single
+ * bow tube (owner play test) a fish is 55 dmg, so a 100hp drone needs TWO hits
+ * across two ~12s reloads; damage persists (no drone heal/respawn in active), so
+ * hold-to-fire whittles a drone down over the hunting window until it sinks.
  */
 function huntTick(ctx) {
   const inp = { seq: ++ctx.seq, throttle: 1, rudder: 0, aim: 0, fire: false, weapon: 1 };
   if (!ctx.you) return void ctx.room.send('i', inp);
   const target = nearestLive(ctx);
-  // No contact: hold near center (where drones converge). Otherwise face + fire.
-  const aimPt = target ? leadPoint(ctx.you, target) : { x: 0, y: 0 };
+  const fromCenter = Math.hypot(ctx.you.x, ctx.you.y);
+  // Loiter centrally: if we've drifted out toward the storm, steer home rather
+  // than chase (a faster ship over-runs the tightening ring and gets stormed).
+  // Otherwise face the lead point and torpedo it. A single 55-dmg tube needs a
+  // TIGHT solution to reliably land two fish on the same funneling drone, so
+  // fire only when well aligned (loose 0.45rad spray mostly missed 38u/s drones).
+  const chasing = target && fromCenter < 220;
+  const aimPt = chasing ? leadPoint(ctx.you, target) : { x: 0, y: 0 };
   const brg = bearing(ctx.you, aimPt);
   inp.aim = brg;
-  if (target) {
-    inp.rudder = clamp(angleDiff(ctx.you.heading, brg) * 3 + islandAvoid(ctx), -1, 1);
-    inp.throttle = dist(ctx.you, target) > 90 ? 1 : 0; // close, then hold to aim
-    inp.fire = Math.abs(angleDiff(ctx.you.heading, brg)) < 0.45;
+  inp.rudder = clamp(angleDiff(ctx.you.heading, brg) * 3 + islandAvoid(ctx), -1, 1);
+  if (chasing) {
+    // Keep steerage (>steerageSpeed) even when closing so the bow can track a
+    // maneuvering drone — a stalled hull can't turn (rudder scales with speed).
+    inp.throttle = dist(ctx.you, target) > 120 ? 1 : 0.4;
+    inp.fire = Math.abs(angleDiff(ctx.you.heading, brg)) < 0.12;
   } else {
-    // Steer to center (routing around islands) and ease off in the kill zone.
-    const toCenter = bearing(ctx.you, { x: 0, y: 0 });
-    inp.rudder = clamp(angleDiff(ctx.you.heading, toCenter) * 3 + islandAvoid(ctx), -1, 1);
-    inp.throttle = Math.hypot(ctx.you.x, ctx.you.y) > 60 ? 1 : 0;
+    inp.throttle = fromCenter > 60 ? 1 : 0.3; // hold near center, keep steerageway
   }
   ctx.room.send('i', inp);
 }
@@ -263,7 +270,9 @@ async function main() {
     log.push(`activation: filled ${filled} drones (${CONFIG.match.fillTo} hulls total), match stayed active`);
 
     // --- 2/3/4. drones sail, paint blips, never fire; human torpedoes one ----
-    await runUntil(() => huntTick(h), () => h.kills >= 1, 90000, 'human torpedoes a drone');
+    // Single tube => a drone kill needs two 55-dmg fish across two ~12s reloads
+    // (was one two-tube volley); widened window to absorb the extra reload.
+    await runUntil(() => huntTick(h), () => h.kills >= 1, 170000, 'human torpedoes a drone');
     assert(h.blipDroneIds.size >= 1, 'the scope never painted a drone blip');
     assert(h.shellEvents === 0, `saw ${h.shellEvents} gun shells — a drone fired guns`);
     assert(h.enemyMines === 0, `saw ${h.enemyMines} enemy mines — a drone dropped a mine`);

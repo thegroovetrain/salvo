@@ -61,7 +61,7 @@ function makeHeaderRow(): HTMLTableRowElement {
   for (const h of ['#', 'CAPTAIN', 'KILLS', 'DMG']) {
     const th = document.createElement('th');
     th.textContent = h;
-    th.style.cssText = `${CELL_CSS};color:#5A6478;font-size:11px;letter-spacing:2px;text-align:left`;
+    th.style.cssText = `${CELL_CSS};color:#5A6478;font-size:14px;letter-spacing:2px;text-align:left`;
     tr.appendChild(th);
   }
   return tr;

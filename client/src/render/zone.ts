@@ -1,10 +1,11 @@
 // Storm-circle renderer. Two pieces:
 //   1. CHARTED rings (chartRoot, fog-immune): the live safe circle (thin bright
-//      ring), a wide translucent-red storm annulus just outside it, and a dim
-//      dashed target ring at the final radius (shown from grace onward so
-//      players can plan). All are camera-transformed world geometry.
-//   2. SCREEN vignette (hudRoot): a pre-baked red radial-gradient sprite whose
-//      alpha pulses while the own ship is out of the zone.
+//      GREEN ring — the safe side), a wide translucent dimensional-purple storm
+//      annulus just outside it, and a dim dashed purple target ring at the final
+//      radius (shown from grace onward so players can plan). All are
+//      camera-transformed world geometry.
+//   2. SCREEN vignette (hudRoot): a pre-baked dimensional-purple radial-gradient
+//      sprite whose alpha pulses while the own ship is out of the zone.
 //
 // The safe radius is DERIVED on the client from zoneStartT + CONFIG via
 // serverNow() (see ArenaState JSDoc) so it is smooth at 60fps; this module just
@@ -16,9 +17,9 @@ import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { ZonePhase } from '@salvo/shared';
 import { bakeVignetteTexture } from './textures.js';
 
-const SAFE_RING = 0x00ff88; // phosphor-green safe boundary (DESIGN.md)
-const TARGET_RING = 0xffb800; // amber final-radius telegraph
-const STORM = 0xc81818; // hostile red storm band
+const SAFE_RING = 0x00ff88; // phosphor-green safe boundary (DESIGN.md) — stays green
+const TARGET_RING = 0x7b2fbe; // dimensional-purple final-radius telegraph (DESIGN.md #7B2FBE)
+const STORM = 0x7b2fbe; // dimensional-purple storm band (DESIGN.md #7B2FBE)
 const STORM_BAND = 70; // u — annulus width painted outside the safe ring
 const TARGET_DASHES = 48; // dash segments around the target ring
 const REDRAW_EPS = 1; // u — min radius change before re-stroking the rings
@@ -26,8 +27,10 @@ const REDRAW_EPS = 1; // u — min radius change before re-stroking the rings
 /** Zone display state incl. the pre-start `idle` (charted rings hidden). */
 export type ZoneDisplay = 'idle' | ZonePhase;
 
-const VIGNETTE_BASE = 0.22; // mean alpha while outside
-const VIGNETTE_AMP = 0.16; // pulse amplitude (stays > 0 at the trough)
+// Purple reads calmer than the old red, so the out-of-zone vignette leans on
+// alpha (brightness), not saturation, to keep its alarm legibility (DESIGN.md).
+const VIGNETTE_BASE = 0.27; // mean alpha while outside
+const VIGNETTE_AMP = 0.17; // pulse amplitude (stays > 0 at the trough)
 const VIGNETTE_PULSE_HZ = 1.1; // pulses per second
 
 /**
@@ -63,7 +66,7 @@ export class Zone {
     chartLayer.addChild(this.rings);
     chartLayer.addChild(this.target);
     dashedCircle(this.target, this.endRadius, TARGET_DASHES);
-    this.target.stroke({ width: 2, color: TARGET_RING, alpha: 0.35 });
+    this.target.stroke({ width: 2, color: TARGET_RING, alpha: 0.5 });
     this.target.visible = false;
 
     this.vignette = new Sprite(bakeVignetteTexture());
@@ -76,9 +79,10 @@ export class Zone {
   private drawRings(radius: number): void {
     const g = this.rings;
     g.clear();
-    // Wide, low-alpha storm band hugging the outside of the safe ring.
-    g.circle(0, 0, radius + STORM_BAND / 2).stroke({ width: STORM_BAND, color: STORM, alpha: 0.07 });
-    // Thin bright safe boundary.
+    // Wide storm band hugging the outside of the safe ring (purple reads calmer
+    // than red, so a touch more alpha keeps it legible as a hazard).
+    g.circle(0, 0, radius + STORM_BAND / 2).stroke({ width: STORM_BAND, color: STORM, alpha: 0.11 });
+    // Thin bright safe boundary (stays green — the safe side).
     g.circle(0, 0, radius).stroke({ width: 2, color: SAFE_RING, alpha: 0.7 });
   }
 

@@ -83,7 +83,7 @@ function makeTitleBlock(version: string): HTMLElement {
   const sub = document.createElement('div');
   sub.textContent = `RT PROTOTYPE // v${version}`;
   sub.style.cssText =
-    'font:500 11px "Geist Mono", monospace;color:#5A6478;letter-spacing:3px;text-transform:uppercase';
+    'font:500 14px "Geist Mono", monospace;color:#5A6478;letter-spacing:3px;text-transform:uppercase';
   wrap.append(title, sub);
   return wrap;
 }
@@ -116,7 +116,7 @@ export function showMenu(version: string, onPlay: (name: string) => void): MenuH
   button.style.cssText = BUTTON_CSS;
   const status = document.createElement('div');
   status.style.cssText =
-    'min-height:16px;font:400 12px "Geist Mono", monospace;letter-spacing:1.5px;color:#5A6478';
+    'min-height:18px;font:400 14px "Geist Mono", monospace;letter-spacing:1.5px;color:#5A6478';
 
   let busy = false;
   const play = (): void => {

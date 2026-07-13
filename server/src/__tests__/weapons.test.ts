@@ -1,7 +1,7 @@
-// Torpedoes + mines: tube stagger/reload, arc gating, island block, mine arm
+// Torpedoes + mines: single-tube reload, arc gating, island block, mine arm
 // delay, capsule-proximity trigger (not center), owner immunity, oldest-despawn
-// at cap, the cooldowns[] wire array, and the structural guarantee that a
-// torpedo can NEVER be radar-painted (only ships paint).
+// at cap, the per-mount cooldowns[][] wire array, and the structural guarantee
+// that a torpedo can NEVER be radar-painted (only ships paint).
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -48,31 +48,29 @@ const windowAround = (me: ShipRecord, brg: number, h = 0.02): void => {
 };
 const blipsOf = (f: FrameMsg): BlipEvent[] => f.events.filter((e): e is BlipEvent => e.k === 'blip');
 
-describe('torpedoes — tube stagger + reload', () => {
-  it('two consecutive launches consume both tubes, a third is denied', () => {
+describe('torpedoes — single-tube reload', () => {
+  it('one launch consumes the tube; a second is denied until it reloads', () => {
     const w = bareWorld();
     const ship = torpShip(w, 'a', 0, 0, 0); // aim over the bow (heading 0)
     const t1 = fireTorpedo(ship, 0, mkId);
     const t2 = fireTorpedo(ship, 0, mkId);
-    const t3 = fireTorpedo(ship, 0, mkId);
     expect(t1).not.toBeNull();
-    expect(t2).not.toBeNull();
-    expect(t3).toBeNull(); // both tubes now reloading
-    expect(ship.torpedoCooldowns).toEqual([CONFIG.torpedo.reload, CONFIG.torpedo.reload]);
+    expect(t2).toBeNull(); // the single tube is now reloading
+    expect(ship.torpedoCooldowns).toEqual([CONFIG.torpedo.reload]);
     expect(t1!.kind).toBe('torp');
     expect(t1!.damage).toBe(CONFIG.torpedo.damage);
     // Fish leaves the bow at torpedo speed straight ahead (+x).
     expect(t1!.vx).toBeCloseTo(CONFIG.torpedo.speed, 6);
   });
 
-  it('a tube reloads independently and becomes available again', () => {
+  it('the tube becomes available again once its reload elapses', () => {
     const w = bareWorld();
     const ship = torpShip(w, 'a', 0, 0, 0);
-    ship.torpedoCooldowns = [CONFIG.torpedo.reload, 200]; // tube 1 almost ready
-    expect(fireTorpedo(ship, 0, mkId)).toBeNull(); // soonest tube (1) still 200ms out
-    ship.torpedoCooldowns[1] = 0;
-    expect(fireTorpedo(ship, 0, mkId)).not.toBeNull(); // tube 1 now fires
-    expect(ship.torpedoCooldowns).toEqual([CONFIG.torpedo.reload, CONFIG.torpedo.reload]);
+    ship.torpedoCooldowns = [200]; // almost ready
+    expect(fireTorpedo(ship, 0, mkId)).toBeNull(); // still 200ms out
+    ship.torpedoCooldowns[0] = 0;
+    expect(fireTorpedo(ship, 0, mkId)).not.toBeNull(); // now fires
+    expect(ship.torpedoCooldowns).toEqual([CONFIG.torpedo.reload]);
   });
 });
 
@@ -86,7 +84,7 @@ describe('torpedoes — bow arc gating', () => {
     const abeam = torpShip(w, 'b', 0, 0, 0);
     abeam.input = { ...abeam.input, aim: HALF_PI }; // 90° off the bow
     expect(fireTorpedo(abeam, 0, mkId)).toBeNull();
-    expect(abeam.torpedoCooldowns).toEqual([0, 0]); // no tube consumed
+    expect(abeam.torpedoCooldowns).toEqual([0]); // tube not consumed
   });
 });
 
@@ -200,19 +198,17 @@ describe('World — mine drop + trigger end-to-end', () => {
   });
 });
 
-describe('cooldowns wire array', () => {
-  it('is [gun, torpedo, mine] soonest-ready, in ms', () => {
+describe('cooldowns wire array is per-mount number[][]', () => {
+  it('is [[port,stbd], [tube], [mineDrop]] raw remaining-ms', () => {
     const w = bareWorld();
     const ship = w.addShip('a', 'A');
     ship.gunCooldowns = [3000, 1200];
-    ship.torpedoCooldowns = [12000, 6000];
+    ship.torpedoCooldowns = [6000];
     ship.mineCooldown = 8000;
-    expect(weaponCooldowns(ship)).toEqual([1200, 6000, 8000]);
+    expect(weaponCooldowns(ship)).toEqual([[3000, 1200], [6000], [8000]]);
   });
-});
 
-describe('gun cooldowns[0] is aim-aware (disjoint broadside arcs, not a permanent min)', () => {
-  it('surfaces the mount bearing on aim; falls back to the min only when neither bears', () => {
+  it('carries BOTH broadside mounts verbatim (aim-relevant collapse is client-side)', () => {
     const w = bareWorld();
     const ship = w.addShip('a', 'A');
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
@@ -221,28 +217,10 @@ describe('gun cooldowns[0] is aim-aware (disjoint broadside arcs, not a permanen
     w.step(); // fires the port mount only — starboard's arc (-90+/-60) doesn't cover this aim
     expect(ship.gunCooldowns[0]).toBe(CONFIG.gun.reload);
     expect(ship.gunCooldowns[1]).toBe(0);
-
-    // WITHOUT THE FIX, cooldowns[0] = Math.min(port, starboard) = 0 forever (the
-    // off-side starboard mount never bears from this aim, so the indicator never
-    // moves). WITH THE FIX, still aiming port, cooldowns[0] must surface the
-    // reloading PORT mount and tick down as it reloads.
-    ship.input = { ...ship.input, seq: 2, fire: false };
-    const beforeTick = weaponCooldowns(ship)[0];
-    expect(beforeTick).toBe(CONFIG.gun.reload);
-    w.step();
-    const afterTick = weaponCooldowns(ship)[0];
-    expect(afterTick).toBeLessThan(beforeTick);
-    expect(afterTick).toBeGreaterThan(0);
-
-    // Swing aim to starboard (ready): cooldowns[0] now reads the mount that bears.
-    ship.input = { ...ship.input, seq: 3, aim: -HALF_PI };
-    expect(weaponCooldowns(ship)[0]).toBe(0);
-
-    // Aim dead ahead: neither mount's arc covers the bow -> falls back to the min
-    // across mounts (distinct from either single mount's cooldown here).
-    ship.gunCooldowns = [1200, 700];
-    ship.input = { ...ship.input, seq: 4, aim: 0 };
-    expect(weaponCooldowns(ship)[0]).toBe(700);
+    // The wire mirrors the raw per-mount array unchanged — no aim-aware server
+    // logic (that moved client-side, where aim is instant): the reloading port
+    // mount and the ready starboard mount are BOTH present regardless of aim.
+    expect(weaponCooldowns(ship)[WEAPON.gun]).toEqual([CONFIG.gun.reload, 0]);
   });
 });
 

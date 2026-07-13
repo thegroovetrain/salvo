@@ -4,7 +4,6 @@ import {
   clampToArc,
   fireGuns,
   freshGunCooldowns,
-  soonestGunCooldown,
   tickGunCooldowns,
 } from '../game/combat.js';
 import { freshMineCooldown, freshTorpedoCooldowns } from '../game/weapons/index.js';
@@ -55,13 +54,11 @@ describe('clampToArc', () => {
   });
 });
 
-describe('tickGunCooldowns + soonestGunCooldown', () => {
-  it('floors cooldowns at zero and reports the soonest-ready mount', () => {
+describe('tickGunCooldowns', () => {
+  it('floors each mount cooldown at zero', () => {
     const cd = [2500, 500];
     tickGunCooldowns(cd, 600);
     expect(cd).toEqual([1900, 0]);
-    expect(soonestGunCooldown(cd)).toBe(0);
-    expect(soonestGunCooldown([1200, 900])).toBe(900);
   });
 });
 

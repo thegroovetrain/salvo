@@ -25,7 +25,7 @@ import { Mines } from './render/mines.js';
 import { Fog } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
-import { Hud, cooldownReadyFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
+import { Hud, weaponReadyFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isFireDenied, isPressEdgeNotReady, DeniedPulse } from './render/deniedFire.js';
@@ -131,7 +131,7 @@ function ownStatus(g: Game): OwnStatus {
   const eta = g.state.respawnEta;
   return {
     hp: you?.hp ?? CONFIG.ship.hp,
-    cooldowns: you?.cooldowns ?? [0, 0, 0],
+    cooldowns: you?.cooldowns ?? [[0, 0], [0], [0]],
     // Client-selected weapon (immediate), not the server echo — keeps the HUD
     // chip highlight in lockstep with the arcs/denied-flash, which already
     // read g.keyboard.weapon directly. Cooldown VALUES still come from the
@@ -371,21 +371,21 @@ function renderOwn(
   g.camera.update(frameDt, pose);
   g.effects.update(frameDt, pose);
   g.lastOwn = { x: pose.x, y: pose.y };
-  renderFiring(g, pose, status);
+  const cursor = g.camera.screenToWorld(g.mouse.screenPos);
+  const aim = worldAim(pose.x, pose.y, cursor);
+  renderFiring(g, pose, status, aim, cursor);
   g.hud.update(
     pose,
     g.keyboard.axes(),
     status,
     zone,
     match,
+    aim,
     g.stage.app.screen.width,
     g.stage.app.screen.height,
     g.deniedFlash,
   );
 }
-
-/** Reload duration (ms) per weapon, indexed by WeaponId (for the ready fraction). */
-const WEAPON_RELOADS = [CONFIG.gun.reload, CONFIG.torpedo.reload, CONFIG.mine.dropCooldown];
 
 /**
  * Weapon arc/marker + crosshair while alive; hidden once sunk. Also derives
@@ -398,19 +398,17 @@ const WEAPON_RELOADS = [CONFIG.gun.reload, CONFIG.torpedo.reload, CONFIG.mine.dr
  * on that phase alone would red-pulse "denied" while shells visibly leave
  * the tube.
  */
-function renderFiring(g: Game, pose: RenderPose, status: OwnStatus): void {
+function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }): void {
   if (!status.alive) {
     g.firing.hide();
     g.deniedFlash = false;
     g.prevFireHeld = g.mouse.fire;
     return;
   }
-  const cursor = g.camera.screenToWorld(g.mouse.screenPos);
-  const aim = worldAim(pose.x, pose.y, cursor);
-  // Drive the firing UX from the client-selected weapon (immediate), reading its
-  // cooldown from the server-authoritative cooldowns[] for that same slot.
+  // Drive the firing UX from the client-selected weapon (immediate), reading the
+  // aim-relevant mount's cooldown from the server-authoritative per-mount array.
   const weapon = g.keyboard.weapon;
-  const ready = cooldownReadyFraction(status.cooldowns[weapon] ?? 0, WEAPON_RELOADS[weapon]);
+  const ready = weaponReadyFraction(status.cooldowns, weapon, pose.heading, aim);
   const inArc = weaponArcHit(pose.heading, aim, weapon);
   const params = { fireHeld: g.mouse.fire, ready, inArc };
   const denied = isFireDenied(params) || isPressEdgeNotReady(params, g.prevFireHeld);

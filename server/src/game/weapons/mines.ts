@@ -134,8 +134,8 @@ export const mineSystem: WeaponSystem = {
   tick(ship: ShipRecord, dtMs: number): void {
     ship.mineCooldown = Math.max(0, ship.mineCooldown - dtMs);
   },
-  soonest(ship: ShipRecord): number {
-    return ship.mineCooldown;
+  mountCooldowns(ship: ShipRecord): number[] {
+    return [ship.mineCooldown];
   },
   fire(ctx: FireContext): void {
     if (ctx.ship.mineCooldown > 0) return;

@@ -57,7 +57,7 @@ describe('buildFrame — shape and clock', () => {
       hp: CONFIG.ship.hp,
       alive: true,
       weapon: 2,
-      cooldowns: [0, 0, 0],
+      cooldowns: [[0, 0], [0], [0]],
       sweep: ship.sweepAngle,
     });
     expect(f.spec).toBeUndefined();

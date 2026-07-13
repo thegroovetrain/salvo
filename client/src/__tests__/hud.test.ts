@@ -39,22 +39,34 @@ describe('cooldownReadyFraction', () => {
   });
 });
 
-describe('weaponReadyFraction — per-slot cooldown mapping', () => {
-  it('reads cooldowns[weapon] against that weapon’s own reload', () => {
-    // Each slot at half its reload => 0.5, proving the correct reload is used.
-    const cooldowns = [
-      CONFIG.gun.reload / 2,
-      CONFIG.torpedo.reload / 2,
-      CONFIG.mine.dropCooldown / 2,
-    ];
-    expect(weaponReadyFraction(cooldowns, WEAPON.gun)).toBeCloseTo(0.5, 9);
-    expect(weaponReadyFraction(cooldowns, WEAPON.torpedo)).toBeCloseTo(0.5, 9);
-    expect(weaponReadyFraction(cooldowns, WEAPON.mine)).toBeCloseTo(0.5, 9);
+describe('weaponReadyFraction — aim-relevant per-mount cooldown mapping', () => {
+  const HALF_PI = Math.PI / 2;
+
+  it('guns read the mount bearing on aim, against the gun reload', () => {
+    // heading 0: aim to port (+90°) bears on mount 0, starboard (-90°) on mount 1.
+    const cooldowns = [[CONFIG.gun.reload / 2, 0], [0], [0]];
+    expect(weaponReadyFraction(cooldowns, WEAPON.gun, 0, HALF_PI)).toBeCloseTo(0.5, 9); // port, half-reload
+    expect(weaponReadyFraction(cooldowns, WEAPON.gun, 0, -HALF_PI)).toBe(1); // starboard, ready
+  });
+
+  it('guns fall back to the soonest-ready mount when neither broadside bears', () => {
+    // Aim dead ahead (0) over the bow — neither arc covers it -> min(port, stbd).
+    const cooldowns = [[1200, 700], [0], [0]];
+    expect(weaponReadyFraction(cooldowns, WEAPON.gun, 0, 0)).toBeCloseTo(
+      cooldownReadyFraction(700, CONFIG.gun.reload),
+      9,
+    );
+  });
+
+  it('torpedoes/mines read their single mount against their own reload', () => {
+    const cooldowns = [[0, 0], [CONFIG.torpedo.reload / 2], [CONFIG.mine.dropCooldown / 2]];
+    expect(weaponReadyFraction(cooldowns, WEAPON.torpedo, 0, 0)).toBeCloseTo(0.5, 9);
+    expect(weaponReadyFraction(cooldowns, WEAPON.mine, 0, 0)).toBeCloseTo(0.5, 9);
   });
 
   it('is ready (1) at zero remaining and empty at full reload', () => {
-    expect(weaponReadyFraction([0, 0, 0], WEAPON.torpedo)).toBe(1);
-    expect(weaponReadyFraction([0, CONFIG.torpedo.reload, 0], WEAPON.torpedo)).toBe(0);
+    expect(weaponReadyFraction([[0, 0], [0], [0]], WEAPON.torpedo, 0, 0)).toBe(1);
+    expect(weaponReadyFraction([[0, 0], [CONFIG.torpedo.reload], [0]], WEAPON.torpedo, 0, 0)).toBe(0);
   });
 });
 

@@ -6,8 +6,10 @@
 import { describe, it, expect } from 'vitest';
 import { vignetteAlpha } from '../render/zone.js';
 
-const BASE = 0.22;
-const AMP = 0.16;
+// Must track render/zone.ts's VIGNETTE_BASE/AMP (bumped for the purple storm —
+// purple reads calmer than red, so it leans on alpha to keep alarm legibility).
+const BASE = 0.27;
+const AMP = 0.17;
 
 describe('vignetteAlpha — out-of-zone feedback mapping', () => {
   it('is exactly 0 when not in the storm (any time)', () => {

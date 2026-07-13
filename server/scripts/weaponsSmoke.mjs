@@ -1,7 +1,9 @@
 // Weapons smoke: two live colyseus.js clients against a running dev server,
 // exercising torpedoes + mines end to end.
-//   1. Torpedo kill: A faces B (bow-on) and fires torpedoes until B sinks
-//      (2×55 = 110 > 100 HP). Asserts 55-damage hits, the kill on the roster.
+//   1. Torpedo kill: A faces B (bow-on) and holds fire until B sinks. With the
+//      single bow tube (owner play test) that is TWO 55-dmg fish across two ~12s
+//      reloads (2×55 = 110 > 100 HP), not one two-tube volley. Asserts 55-damage
+//      hits, the kill on the roster.
 //   2. Torpedo never blips: B collects every torpedo id it is shown (via `torp`
 //      events entering its sight) and every radar blip id — asserts the sets are
 //      DISJOINT (a torpedo can never appear on the scope).

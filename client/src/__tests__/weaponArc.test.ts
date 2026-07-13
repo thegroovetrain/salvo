@@ -3,7 +3,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, WEAPON } from '@salvo/shared';
-import { weaponArcHit } from '../render/weaponArc.js';
+import { weaponArcHit, bearingGunMount } from '../render/weaponArc.js';
 
 describe('weaponArcHit — mines', () => {
   it('is always true (mines drop astern regardless of aim)', () => {
@@ -55,5 +55,22 @@ describe('weaponArcHit — gun broadside mounts', () => {
   it('rotates with heading — the same relative bearing stays lit', () => {
     const heading = 1.0;
     expect(weaponArcHit(heading, heading + port.offset, WEAPON.gun)).toBe(true);
+  });
+});
+
+describe('bearingGunMount — which mount bears on aim (HUD sub-bar highlight)', () => {
+  it('returns 0 (port) aiming to port, 1 (starboard) aiming starboard', () => {
+    expect(bearingGunMount(0, CONFIG.gun.mounts[0].offset)).toBe(0); // port +90°
+    expect(bearingGunMount(0, CONFIG.gun.mounts[1].offset)).toBe(1); // starboard -90°
+  });
+
+  it('returns -1 when neither broadside bears (aim over the bow/stern)', () => {
+    expect(bearingGunMount(0, 0)).toBe(-1); // dead ahead
+    expect(bearingGunMount(0, Math.PI)).toBe(-1); // dead astern
+  });
+
+  it('rotates with heading', () => {
+    const heading = 1.0;
+    expect(bearingGunMount(heading, heading + CONFIG.gun.mounts[0].offset)).toBe(0);
   });
 });

@@ -116,16 +116,18 @@ export function bakeSweepTexture(): Texture {
 
 /** Baked at this square size, then stretched to the viewport (ellipse edge). */
 export const VIGNETTE_TEXTURE_SIZE = 512;
-/** DESIGN.md hostile red for the out-of-zone edge glow. */
-const VIGNETTE_RGB = '200, 24, 24';
-/** Clear out to this fraction of the radius; red ramps in beyond it. */
+/** DESIGN.md dimensional-purple (#7B2FBE) for the out-of-zone edge glow. */
+const VIGNETTE_RGB = '123, 47, 190';
+/** Clear out to this fraction of the radius; storm purple ramps in beyond it. */
 const VIGNETTE_CLEAR = 0.55;
 
 /**
  * Bake the out-of-zone vignette: a radial gradient, fully transparent through
- * the center and ramping to red at the edges. Screen-space overlay (stretched
- * to the viewport, so the circle reads as an edge-hugging ellipse). Alpha is
- * pulsed at draw time (render/zone.ts) — the texture itself is static.
+ * the center and ramping to dimensional purple at the edges. Screen-space
+ * overlay (stretched to the viewport, so the circle reads as an edge-hugging
+ * ellipse). Alpha is pulsed at draw time (render/zone.ts) — the texture itself
+ * is static. Purple reads calmer than red, so the edge alpha runs a touch hotter
+ * (1.0) to hold its alarm legibility (DESIGN.md storm color note).
  */
 export function bakeVignetteTexture(): Texture {
   const size = VIGNETTE_TEXTURE_SIZE;
@@ -133,7 +135,7 @@ export function bakeVignetteTexture(): Texture {
   const c = size / 2;
   const grad = ctx.createRadialGradient(c, c, c * VIGNETTE_CLEAR, c, c, c);
   grad.addColorStop(0, `rgba(${VIGNETTE_RGB}, 0)`);
-  grad.addColorStop(1, `rgba(${VIGNETTE_RGB}, 0.9)`);
+  grad.addColorStop(1, `rgba(${VIGNETTE_RGB}, 1)`);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   return Texture.from(canvas);

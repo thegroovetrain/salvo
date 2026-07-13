@@ -21,7 +21,7 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     hp: ship.hp,
     alive: ship.alive,
     weapon: ship.input.weapon,
-    // [guns, torpedoes, mines] ms remaining, each the soonest-ready mount/tube.
+    // Per weapon [gun[port,stbd], torp[tube], mine[drop]] raw per-mount ms.
     cooldowns: weaponCooldowns(ship),
     // Post-advance angle == the leading edge of this tick's paint window, so
     // the client wedge visually crosses a contact the moment its blip arrives.

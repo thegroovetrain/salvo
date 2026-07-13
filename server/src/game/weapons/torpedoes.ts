@@ -1,10 +1,13 @@
-// Torpedo fire control — the torpedoes WeaponSystem (WeaponId 1). Two bow tubes,
-// each on an independent 12s reload; a launch consumes the SOONEST-ready tube
-// (both ready => staggered by construction, since firing the min-cooldown tube
-// leaves the other loaded). A torpedo is just a slow, long-legged, hard-hitting
-// ballistic: it reuses the shared stepShell machinery (islands block it,
-// swept-capsule hull hits, owner self-hit grace) via ShellState's weapon-param
-// fields. Bow arc heading±30°; aim clamped into the arc, else no launch.
+// Torpedo fire control — the torpedoes WeaponSystem (WeaponId 1). A single bow
+// tube on a 12s reload (owner play test 2026-07-13: two tubes fired both fish
+// within ~2 ticks of one click, hiding the reload; one fish per click + a real
+// reload is the intended commitment-spike feel). The code stays tube-count
+// generic off CONFIG.torpedo.tubes — a launch consumes the soonest-ready tube —
+// so restoring extra tubes is a one-line config change. A torpedo is just a
+// slow, long-legged, hard-hitting ballistic: it reuses the shared stepShell
+// machinery (islands block it, swept-capsule hull hits, owner self-hit grace)
+// via ShellState's weapon-param fields. Bow arc heading±30°; aim clamped into
+// the arc, else no launch.
 //
 // Torpedoes are NEVER radar-painted — structurally, because perception's paint
 // loop iterates ships only. Their per-observer reveal rides the SAME first-sight
@@ -19,11 +22,6 @@ import { clampToArc } from './guns.js';
 /** Fresh per-tube cooldown state (all tubes loaded). */
 export function freshTorpedoCooldowns(): number[] {
   return new Array<number>(CONFIG.torpedo.tubes).fill(0);
-}
-
-/** Soonest-ready tube cooldown (ms) — surfaced in OwnShip.cooldowns[1]. */
-export function soonestTorpedoCooldown(cooldowns: number[]): number {
-  return cooldowns.length === 0 ? 0 : Math.min(...cooldowns);
 }
 
 // Same muzzle-clear pattern as the guns: spawn the fish ahead of the bow so it
@@ -80,8 +78,8 @@ export const torpedoSystem: WeaponSystem = {
       ship.torpedoCooldowns[i] = Math.max(0, ship.torpedoCooldowns[i] - dtMs);
     }
   },
-  soonest(ship: ShipRecord): number {
-    return soonestTorpedoCooldown(ship.torpedoCooldowns);
+  mountCooldowns(ship: ShipRecord): number[] {
+    return [...ship.torpedoCooldowns];
   },
   fire(ctx: FireContext): void {
     const torp = fireTorpedo(ctx.ship, ctx.now, ctx.mkId);

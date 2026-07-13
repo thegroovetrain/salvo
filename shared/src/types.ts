@@ -55,20 +55,16 @@ export interface InputMsg {
  * Your own ship as seen in a frame — full, unfogged. `sweep` is the current
  * radar angle (rad), used to draw the sweep wedge client-side.
  *
- * `cooldowns` is a 3-element array indexed by WeaponId (ms remaining until that
- * weapon can fire again, 0 = ready to fire now):
- *   [0] guns     — the gun mount currently bearing on your aim (port +90°±60°
- *                  or starboard -90°±60°), else the soonest-ready mount when
- *                  neither bears (aim over the bow/stern). The two broadside
- *                  mounts have DISJOINT arcs, so a plain min across them would
- *                  almost always read the permanently-ready off-side mount;
- *                  reading the mount that would actually fire next is what
- *                  makes the HUD/UX move.
- *   [1] torpedoes — the SOONEST-ready bow tube's remaining reload. Two tubes
- *                  reload independently (12s each) and share one bow arc, so
- *                  the min reads "when can I next launch a fish".
- *   [2] mines     — remaining drop cooldown (8s between drops).
- * Per-mount / per-tube timers stay server-side; the wire carries only these.
+ * `cooldowns` is a number[][] indexed by WeaponId — for each weapon, its raw
+ * per-mount remaining-ms (0 = that mount is ready to fire now):
+ *   [0] guns     — [port, starboard] broadside mounts (each +90°±60° / -90°±60°,
+ *                  DISJOINT arcs). Both are on the wire; the client renders both
+ *                  sub-bars and highlights whichever bears on the current aim
+ *                  (aim is instant client-side, so the aim-relevant selection is
+ *                  a presentation concern that lives there, not on the server).
+ *   [1] torpedoes — [tube…] per-tube reloads (12s each). One tube by default.
+ *   [2] mines     — [drop] remaining drop cooldown (8s between drops).
+ * The whole per-mount state is on the wire (aim-relevant collapsing is client-side).
  */
 export interface OwnShip {
   id: string;
@@ -79,7 +75,7 @@ export interface OwnShip {
   hp: number;
   alive: boolean;
   weapon: WeaponId; // currently selected
-  cooldowns: number[]; // ms remaining, indexed by WeaponId (see above)
+  cooldowns: number[][]; // per weapon: per-mount ms remaining (see above)
   sweep: number; // rad — current radar sweep angle
 }
 

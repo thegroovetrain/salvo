@@ -5,36 +5,43 @@
 
 import { Container, Graphics, Text } from 'pixi.js';
 import type { ShipState, WeaponId } from '@salvo/shared';
-import { CONFIG, wrapPositive } from '@salvo/shared';
+import { CONFIG, WEAPON, wrapPositive } from '@salvo/shared';
 import type { Axes } from '../input/keyboard.js';
 import type { MatchUx } from '../ui/phase.js';
+import { bearingGunMount } from './weaponArc.js';
 
 const GREEN = 0x00ff88;
 const AMBER = 0xffb800;
 const CRIMSON = 0x8b0000;
 const DIM = 0x5a6478;
 const DENIED_RED = 0xff3b3b; // DESIGN.md invalid-placement red — denied-fire chip flash
-const PANEL_W = 150;
-const PANEL_H = 60;
-const MARGIN = 20;
-const BAR_W = 150;
-const BAR_H = 10;
+// Storm = dimensional purple (DESIGN.md #7B2FBE). Text accents use a brightened
+// member of the family so the warning stays alarming on black (bump brightness,
+// not saturation — see DESIGN.md storm color note).
+const STORM_PURPLE = 0xb06ee8;
+// HUD scaled ~1.6× after the 2026-07-13 owner play test ("everything tiny").
+// DESIGN.md type floor is Small = 14px; readouts/labels sit at/above it.
+const PANEL_W = 240;
+const PANEL_H = 96;
+const MARGIN = 24;
+const BAR_W = 240;
+const BAR_H = 16;
 
 // --- engine-order telegraph ladder ------------------------------------------
 const SPINE_X = PANEL_W; // ladder spine at the panel's right edge
-const RUNG_GAP = 8; // vertical px between the nine detents
-const LADDER_BOTTOM = 52; // y of the full-astern rung (index 0)
+const RUNG_GAP = 13; // vertical px between the nine detents
+const LADDER_BOTTOM = 84; // y of the full-astern rung (index 0)
 const LADDER_TOP = LADDER_BOTTOM - 8 * RUNG_GAP; // full-ahead rung (index 8)
-const RUNG_LEN = 6; // half-tick length for a normal detent
+const RUNG_LEN = 10; // half-tick length for a normal detent
 const RUNG_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 8,
+  fontSize: 12,
   fill: DIM,
   letterSpacing: 0.5,
 } as const;
 const CAP_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 8,
+  fontSize: 13,
   fill: DIM,
   letterSpacing: 1,
 } as const;
@@ -74,26 +81,34 @@ export function speedLadderFraction(speed: number): number {
 /** Weapon selector chip labels + reload durations, indexed by WeaponId. */
 const WEAPON_LABELS = ['1 GUNS', '2 TORP', '3 MINE'] as const;
 const WEAPON_RELOADS = [CONFIG.gun.reload, CONFIG.torpedo.reload, CONFIG.mine.dropCooldown];
-const CHIP_GAP = 4;
-const CHIP_H = 12;
+const CHIP_GAP = 6;
+const CHIP_H = 20;
+const SUBBAR_GAP = 2; // px between the port/starboard gun sub-bars
 const CHIP_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 9,
+  fontSize: 14,
   fill: DIM,
   letterSpacing: 1,
+} as const;
+/** Tiny P/S markers on the two gun sub-bars. */
+const SUBBAR_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 10,
+  fill: DIM,
+  letterSpacing: 0.5,
 } as const;
 
 const LABEL_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 11,
+  fontSize: 14,
   fill: DIM,
   letterSpacing: 1.5,
 } as const;
 
-const DATA_STYLE = { fontFamily: 'Geist Mono, monospace', fontSize: 18, fill: GREEN } as const;
+const DATA_STYLE = { fontFamily: 'Geist Mono, monospace', fontSize: 28, fill: GREEN } as const;
 const OVERLAY_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 24,
+  fontSize: 38,
   fill: AMBER,
   letterSpacing: 2,
 } as const;
@@ -101,7 +116,7 @@ const OVERLAY_STYLE = {
 /** Own-ship status the HUD renders beyond raw kinematics. */
 export interface OwnStatus {
   hp: number;
-  cooldowns: number[]; // ms remaining, weapon-indexed
+  cooldowns: number[][]; // per weapon: per-mount ms remaining (OwnShip.cooldowns)
   weapon: WeaponId; // currently-selected weapon (client-local, immediate — not the server echo)
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
@@ -119,37 +134,37 @@ export interface ZoneHud {
 
 const ZONE_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 13,
-  fill: AMBER,
+  fontSize: 20,
+  fill: STORM_PURPLE, // storm readout accent (DESIGN.md dimensional purple)
   letterSpacing: 2,
 } as const;
 const STORM_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 12,
-  fill: CRIMSON,
+  fontSize: 19,
+  fill: STORM_PURPLE, // "IN STORM" alarm — purple family, brightened for legibility
   letterSpacing: 2,
 } as const;
 const MATCH_LINE_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 14,
+  fontSize: 22,
   fill: GREEN,
   letterSpacing: 3,
 } as const;
 const MATCH_TAG_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 10,
+  fontSize: 16,
   fill: DIM,
   letterSpacing: 3,
 } as const;
 const COUNTDOWN_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 72,
+  fontSize: 112,
   fill: GREEN,
   letterSpacing: 4,
 } as const;
 const SPECTATE_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 18,
+  fontSize: 28,
   fill: AMBER,
   letterSpacing: 3,
 } as const;
@@ -180,12 +195,27 @@ function chipTint(selected: boolean, flash: boolean): { border: number; alpha: n
 }
 
 /**
- * Ready fraction for one weapon slot: reads cooldowns[weapon] against THAT
- * weapon's reload (guns 3s / torpedoes 12s / mines 8s). Pure — the chip drawing
- * and any external HUD both share this per-slot mapping.
+ * Ready fraction (0..1) for one weapon's AIM-RELEVANT mount, against that
+ * weapon's reload (guns 3s / torpedoes 12s / mines 8s). For guns the aim-relevant
+ * mount is the one bearing on `aim` (heading-relative); when neither broadside
+ * bears (aim over the bow/stern) it falls back to the soonest-ready of the two.
+ * Torpedoes/mines are single-mount. Pure — the firing UX and denied-fire gate
+ * share this collapse of the per-mount wire array to a single fraction.
  */
-export function weaponReadyFraction(cooldowns: number[], weapon: WeaponId): number {
-  return cooldownReadyFraction(cooldowns[weapon] ?? 0, WEAPON_RELOADS[weapon]);
+export function weaponReadyFraction(
+  cooldowns: number[][],
+  weapon: WeaponId,
+  heading: number,
+  aim: number,
+): number {
+  const mounts = cooldowns[weapon] ?? [];
+  const reload = WEAPON_RELOADS[weapon];
+  if (weapon === WEAPON.gun) {
+    const i = bearingGunMount(heading, aim);
+    const ms = i >= 0 ? mounts[i] : (mounts.length ? Math.min(...mounts) : 0);
+    return cooldownReadyFraction(ms ?? 0, reload);
+  }
+  return cooldownReadyFraction(mounts[0] ?? 0, reload);
 }
 
 export class Hud {
@@ -196,6 +226,8 @@ export class Hud {
   private readonly speedLabel: Text;
   private readonly overlay: Text;
   private readonly chipLabels: Text[];
+  /** P/S markers on the two always-visible gun sub-bars. */
+  private readonly gunSubLabels: Text[];
   private readonly rungLabels: Text[];
   private readonly zoneLine: Text;
   private readonly stormWarn: Text;
@@ -223,9 +255,9 @@ export class Hud {
     this.speedLabel = new Text({ text: '', style: DATA_STYLE });
     const hdgCap = new Text({ text: 'HDG', style: LABEL_STYLE });
     const spdCap = new Text({ text: 'KTS', style: LABEL_STYLE });
-    this.headingLabel.position.set(0, 14);
-    spdCap.position.set(70, 0);
-    this.speedLabel.position.set(70, 14);
+    this.headingLabel.position.set(0, 20);
+    spdCap.position.set(118, 0);
+    this.speedLabel.position.set(118, 20);
     this.root.addChild(hdgCap, this.headingLabel, spdCap, this.speedLabel);
     this.overlay = new Text({ text: '', style: OVERLAY_STYLE });
     this.overlay.anchor.set(0.5);
@@ -233,6 +265,12 @@ export class Hud {
     hudLayer.addChild(this.overlay);
     this.chipLabels = WEAPON_LABELS.map((t) => {
       const label = new Text({ text: t, style: CHIP_STYLE });
+      hudLayer.addChild(label);
+      return label;
+    });
+    this.gunSubLabels = ['P', 'S'].map((t) => {
+      const label = new Text({ text: t, style: SUBBAR_STYLE });
+      label.anchor.set(0, 0.5);
       hudLayer.addChild(label);
       return label;
     });
@@ -290,6 +328,7 @@ export class Hud {
     this.root.visible = visible;
     this.bars.visible = visible;
     for (const chip of this.chipLabels) chip.visible = visible;
+    for (const lbl of this.gunSubLabels) lbl.visible = visible;
   }
 
   /** Top-center storm readout + the "IN STORM" warning above the telegraph. */
@@ -380,13 +419,20 @@ export class Hud {
   }
 
   /** HP bar + the 3-weapon selector chip row, anchored bottom-right (screen space). */
-  private drawBars(status: OwnStatus, screenW: number, screenH: number, deniedFlash: boolean): void {
+  private drawBars(
+    status: OwnStatus,
+    heading: number,
+    aim: number,
+    screenW: number,
+    screenH: number,
+    deniedFlash: boolean,
+  ): void {
     const g = this.bars;
     g.clear();
     const x = screenW - BAR_W - MARGIN;
     const baseY = screenH - MARGIN - PANEL_H;
     this.drawHp(g, x, baseY, status.hp);
-    this.drawWeaponChips(g, status, x, baseY + 18, deniedFlash);
+    this.drawWeaponChips(g, status, x, baseY + BAR_H + 12, heading, aim, deniedFlash);
   }
 
   private drawHp(g: Graphics, x: number, y: number, hp: number): void {
@@ -398,19 +444,55 @@ export class Hud {
 
   /**
    * Three chips [1 GUNS / 2 TORP / 3 MINE]: the selected one is outlined amber;
-   * each fills green→dim by its own cooldown from OwnShip.cooldowns[weapon].
-   * `deniedFlash` briefly reddens the SELECTED chip's border — the HUD half of
-   * the denied-fire feedback (render/deniedFire.ts drives the rate limit).
+   * `deniedFlash` briefly reddens the SELECTED chip's border (the HUD half of the
+   * denied-fire feedback — render/deniedFire.ts drives the rate limit). GUNS
+   * renders TWO always-visible per-mount sub-bars (P/S); torpedoes/mines a single
+   * fill. Each fills green→dim by its own mount cooldown from OwnShip.cooldowns.
    */
-  private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean): void {
+  private drawWeaponChips(
+    g: Graphics,
+    status: OwnStatus,
+    x: number,
+    y: number,
+    heading: number,
+    aim: number,
+    deniedFlash: boolean,
+  ): void {
     const cw = (BAR_W - 2 * CHIP_GAP) / 3;
     for (let i = 0; i < 3; i++) {
       const cx = x + i * (cw + CHIP_GAP);
-      const ready = weaponReadyFraction(status.cooldowns, i as WeaponId);
       const selected = i === status.weapon;
       g.rect(cx, y, cw, CHIP_H).fill({ color: 0x111111, alpha: 0.8 });
-      g.rect(cx, y, cw * ready, CHIP_H).fill({ color: ready >= 1 ? GREEN : DIM, alpha: 0.85 });
+      if (i === WEAPON.gun) this.drawGunSubBars(g, status.cooldowns[WEAPON.gun] ?? [], cx, y, cw, heading, aim);
+      else this.drawSingleBar(g, (status.cooldowns[i] ?? [])[0] ?? 0, WEAPON_RELOADS[i], cx, y, cw);
       this.drawChip(g, this.chipLabels[i], cx, y, cw, selected, selected && deniedFlash);
+    }
+  }
+
+  /** One full-width cooldown fill (torpedo/mine chip). */
+  private drawSingleBar(g: Graphics, ms: number, reload: number, cx: number, y: number, cw: number): void {
+    const ready = cooldownReadyFraction(ms, reload);
+    g.rect(cx, y, cw * ready, CHIP_H).fill({ color: ready >= 1 ? GREEN : DIM, alpha: 0.85 });
+  }
+
+  /**
+   * Two stacked per-mount cooldown sub-bars (port over starboard) inside the gun
+   * chip. The mount whose arc bears on the current aim is highlighted (amber
+   * outline + bright fill + amber P/S marker); the off-side mount stays dim. When
+   * neither bears (aim over bow/stern) neither is highlighted.
+   */
+  private drawGunSubBars(g: Graphics, mounts: number[], cx: number, y: number, cw: number, heading: number, aim: number): void {
+    const bearing = bearingGunMount(heading, aim);
+    const subH = (CHIP_H - SUBBAR_GAP) / 2;
+    for (let m = 0; m < 2; m++) {
+      const sy = y + m * (subH + SUBBAR_GAP);
+      const ready = cooldownReadyFraction(mounts[m] ?? 0, CONFIG.gun.reload);
+      const bears = m === bearing;
+      g.rect(cx, sy, cw * ready, subH).fill({ color: ready >= 1 ? GREEN : DIM, alpha: bears ? 0.95 : 0.45 });
+      if (bears) g.rect(cx, sy, cw, subH).stroke({ width: 1, color: AMBER, alpha: 0.9 });
+      const lbl = this.gunSubLabels[m];
+      lbl.position.set(cx + 3, sy + subH / 2);
+      lbl.style.fill = bears ? AMBER : DIM;
     }
   }
 
@@ -459,6 +541,7 @@ export class Hud {
     status: OwnStatus,
     zone: ZoneHud,
     match: MatchUx,
+    aim: number,
     screenW: number,
     screenH: number,
     deniedFlash = false,
@@ -467,7 +550,7 @@ export class Hud {
     this.spectateBanner.visible = false;
     this.layout(screenH);
     this.updateTelegraph(axes, ship.speed);
-    this.drawBars(status, screenW, screenH, deniedFlash);
+    this.drawBars(status, ship.heading, aim, screenW, screenH, deniedFlash);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);
     this.drawZone(zone, screenW, screenH);

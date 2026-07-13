@@ -20,12 +20,13 @@ export const CONFIG = {
   ship: {
     length: 40, // u — hull long axis (bow-to-stern)
     beam: 12, // u — hull width (used as capsule diameter)
-    maxSpeed: 25, // u/s — full-ahead
-    reverseSpeed: 8, // u/s — full-astern (magnitude)
-    accel: 6, // u/s^2 — throttling up
-    decel: 10, // u/s^2 — throttling down / braking
-    turnRate: 0.6, // rad/s — yaw rate at full rudder authority
-    steerageSpeed: 8, // u/s — speed at which rudder reaches full authority
+    // Feel knobs bumped ~50% after the 2026-07-13 owner play test ("very slow").
+    maxSpeed: 38, // u/s — full-ahead (feel: 25 read as sluggish)
+    reverseSpeed: 12, // u/s — full-astern (magnitude); scaled with maxSpeed
+    accel: 9, // u/s^2 — throttling up (feel: reach the higher top speed briskly)
+    decel: 14, // u/s^2 — throttling down / braking (feel: scaled with accel)
+    turnRate: 0.75, // rad/s — yaw rate at full rudder (feel: 0.6 was too lazy)
+    steerageSpeed: 10, // u/s — speed at which rudder reaches full authority
     hp: 100, // hit points (=> ~15-30s TTK with gun damage)
     respawnDelay: 3000, // ms — delay before respawn (prototype)
     islandSpeedMult: 0.25, // speed multiplier on island grazing push-out
@@ -52,9 +53,12 @@ export const CONFIG = {
     ],
   },
 
-  /** Torpedoes (weapon 1): bow tubes. Never painted by radar. */
+  /** Torpedoes (weapon 1): bow tube. Never painted by radar. */
   torpedo: {
-    tubes: 2, // bow tubes
+    // Single tube (owner play test 2026-07-13): two tubes fired both fish within
+    // ~2 ticks of one click, masking the 12s reload entirely. One fish per click
+    // + a real reload is the intended commitment-spike feel.
+    tubes: 1, // bow tube
     offset: deg(0), // bow-centered
     halfArc: deg(30), // +/-30deg launch arc
     speed: 55, // u/s

@@ -30,8 +30,12 @@ export interface WeaponSystem {
   readonly id: WeaponId;
   /** Tick this weapon's cooldown timers (called for every ship, every tick). */
   tick(ship: ShipRecord, dtMs: number): void;
-  /** Soonest-ready cooldown (ms) for this ship — feeds OwnShip.cooldowns[id]. */
-  soonest(ship: ShipRecord): number;
+  /**
+   * Raw per-mount remaining-ms for this weapon (guns: [port, starboard];
+   * torpedoes: [tube…]; mines: [drop]). Feeds OwnShip.cooldowns[id] verbatim —
+   * the client owns all aim-relevant presentation now (aim is instant there).
+   */
+  mountCooldowns(ship: ShipRecord): number[];
   /** Run fire control when this weapon is selected + fire is held this tick. */
   fire(ctx: FireContext): void;
 }
@@ -39,13 +43,17 @@ export interface WeaponSystem {
 /** Weapon systems indexed by WeaponId (0 guns, 1 torpedoes, 2 mines). */
 export const WEAPON_SYSTEMS: readonly WeaponSystem[] = [gunSystem, torpedoSystem, mineSystem];
 
-/** [gun, torpedo, mine] soonest-ready cooldowns (ms) for OwnShip.cooldowns. */
-export function weaponCooldowns(ship: ShipRecord): number[] {
-  return WEAPON_SYSTEMS.map((sys) => sys.soonest(ship));
+/**
+ * Per-mount cooldowns for OwnShip.cooldowns: a number[][] indexed by WeaponId,
+ * each entry the weapon's raw per-mount remaining-ms — [[port, starboard],
+ * [tube], [mineDrop]]. Aim-relevant selection / highlighting is a client concern.
+ */
+export function weaponCooldowns(ship: ShipRecord): number[][] {
+  return WEAPON_SYSTEMS.map((sys) => sys.mountCooldowns(ship));
 }
 
-export { gunSystem, freshGunCooldowns, soonestGunCooldown } from './guns.js';
-export { torpedoSystem, freshTorpedoCooldowns, soonestTorpedoCooldown, fireTorpedo } from './torpedoes.js';
+export { gunSystem, freshGunCooldowns } from './guns.js';
+export { torpedoSystem, freshTorpedoCooldowns, fireTorpedo } from './torpedoes.js';
 export {
   mineSystem,
   freshMineCooldown,
