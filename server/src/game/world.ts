@@ -19,6 +19,9 @@ import {
   stepShell,
   stepShip,
   wrapPositive,
+  zonePhaseAt,
+  zoneRadiusAt,
+  isOutside,
   type BallisticEvent,
   type GameEvent,
   type GameMap,
@@ -28,6 +31,8 @@ import {
   type ShellOutcome,
   type ShellState,
   type ShipState,
+  type ZonePhase,
+  type ZoneTimeline,
 } from '@salvo/shared';
 import { freshGunCooldowns } from './combat.js';
 import {
@@ -89,15 +94,51 @@ export class World {
   private rng: Rng;
   private shellSeq = 0;
   private mineSeq = 0;
+  /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
+  private readonly zoneCfg: ZoneTimeline;
+  /** Server ms the storm timeline was anchored at; null = idle (not started). */
+  private zoneStartT: number | null = null;
   /** Events queued since the last completed step (joins, sinks, respawns). */
   private pending: GameEvent[] = [];
   /** Events belonging to the most recently completed tick (read by frames). */
   private events: GameEvent[] = [];
 
-  constructor(seed: number, playerCap: number = CONFIG.match.fillTo) {
+  constructor(
+    seed: number,
+    playerCap: number = CONFIG.match.fillTo,
+    zoneCfg: ZoneTimeline = CONFIG.zone,
+  ) {
     this.playerCap = playerCap;
     this.map = generateMap(seed, playerCap);
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
+    this.zoneCfg = zoneCfg;
+  }
+
+  /**
+   * Anchor the storm timeline to server time `t` (default: now). Explicit API,
+   * NOT tied to room creation: step 14's match lifecycle calls this at the
+   * waiting->active transition. Idempotent — a second call is a no-op, so the
+   * interim "start on 2nd ship" wiring in ArenaRoom cannot re-anchor it.
+   */
+  startZone(t: number = this.now): void {
+    if (this.zoneStartT === null) this.zoneStartT = t;
+  }
+
+  /** Server ms the zone was anchored at, or 0 while idle (for the schema). */
+  get zoneStartMs(): number {
+    return this.zoneStartT ?? 0;
+  }
+
+  /** Current safe-zone radius (u). Full map radius while idle. */
+  get zoneRadius(): number {
+    if (this.zoneStartT === null) return this.map.radius;
+    return zoneRadiusAt(this.now, this.zoneStartT, this.map.radius, this.zoneCfg);
+  }
+
+  /** Current zone phase for the public schema. */
+  get zonePhase(): 'idle' | ZonePhase {
+    if (this.zoneStartT === null) return 'idle';
+    return zonePhaseAt(this.now, this.zoneStartT, this.zoneCfg);
   }
 
   /** Events emitted during the last completed step (and joins just before it). */
@@ -173,6 +214,10 @@ export class World {
     this.applyInputs();
     this.stepShips(dt);
     this.resolveCollisions();
+    // Storm: post-move positions decide who is outside the (damage-only) zone.
+    // The physical map boundary stays at mapRadius — ships freely sail into the
+    // storm; the zone only bites HP.
+    this.applyStorm(dt);
     // Ballistics + mines both test against post-move hulls (built once).
     const hulls = this.aliveHulls();
     this.stepShells(dt, hulls);
@@ -216,6 +261,25 @@ export class World {
       if (!ship.alive) continue;
       resolveShipIslands(ship.state, this.map.islands);
       resolveBoundary(ship.state, this.map.radius);
+    }
+  }
+
+  /**
+   * Storm damage: every alive hull outside the current safe radius bleeds
+   * stormDps·dt HP (kept fractional — hp is a float internally). A storm kill
+   * routes through sinkShip with `by` undefined (unattributed). Per RULING this
+   * emits NO per-tick dmg event (that would spam ~20/s); the victim already
+   * receives its live hp every frame via OwnShip.hp, and the client HP bar reads
+   * from you.hp, so it stays accurate. No boom for storm ticks either.
+   */
+  private applyStorm(dt: number): void {
+    if (this.zoneStartT === null) return;
+    const radius = this.zoneRadius;
+    const bite = CONFIG.zone.stormDps * dt;
+    for (const ship of this.ships.values()) {
+      if (!ship.alive || !isOutside(ship.state, radius)) continue;
+      ship.hp -= bite;
+      if (ship.hp <= 0) this.sinkShip(ship.id); // by=undefined — the storm has no killer
     }
   }
 

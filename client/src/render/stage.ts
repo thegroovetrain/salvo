@@ -25,6 +25,8 @@ export interface StageLayers {
   ship: Container;
   // chartRoot children
   map: Container;
+  /** Storm circle (render/zone.ts) — charted, fog-immune; above the base map. */
+  zone: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
   blip: Container;
@@ -32,6 +34,8 @@ export interface StageLayers {
   aim: Container;
   sweep: Container;
   // screen-space
+  /** Out-of-zone red vignette (render/zone.ts) — behind the HUD readouts. */
+  vignette: Container;
   hud: Container;
 }
 
@@ -95,10 +99,12 @@ export async function createStage(): Promise<Stage> {
     mineWorld: child(worldRoot),
     ship: child(worldRoot),
     map: child(chartRoot),
+    zone: child(chartRoot),
     mineChart: child(chartRoot),
     blip: child(chartRoot),
     aim: child(chartRoot),
     sweep: child(chartRoot),
+    vignette: child(hudRoot),
     hud: child(hudRoot),
   };
 

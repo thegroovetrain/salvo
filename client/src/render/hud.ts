@@ -54,6 +54,29 @@ export interface OwnStatus {
   respawnInMs: number; // 0 when alive / unknown
 }
 
+/**
+ * Storm-circle HUD summary. `line` is the compact top-center readout ("STORM
+ * 0:32" during grace, "STORM CLOSING" while shrinking, "" when idle); `inStorm`
+ * flags the own ship outside the safe radius (shows an "IN STORM" warning).
+ */
+export interface ZoneHud {
+  line: string;
+  inStorm: boolean;
+}
+
+const ZONE_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 13,
+  fill: AMBER,
+  letterSpacing: 2,
+} as const;
+const STORM_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 12,
+  fill: CRIMSON,
+  letterSpacing: 2,
+} as const;
+
 function pad3(n: number): string {
   return Math.round(n).toString().padStart(3, '0');
 }
@@ -89,9 +112,12 @@ export class Hud {
   private readonly speedLabel: Text;
   private readonly overlay: Text;
   private readonly chipLabels: Text[];
+  private readonly zoneLine: Text;
+  private readonly stormWarn: Text;
   private lastHeading = '';
   private lastSpeed = '';
   private lastOverlay = '';
+  private lastZoneLine = '';
 
   constructor(private readonly hudLayer: Container) {
     hudLayer.addChild(this.root);
@@ -114,6 +140,24 @@ export class Hud {
       hudLayer.addChild(label);
       return label;
     });
+    this.zoneLine = new Text({ text: '', style: ZONE_STYLE });
+    this.zoneLine.anchor.set(0.5, 0);
+    this.zoneLine.visible = false;
+    this.stormWarn = new Text({ text: 'IN STORM', style: STORM_STYLE });
+    this.stormWarn.visible = false;
+    hudLayer.addChild(this.zoneLine, this.stormWarn);
+  }
+
+  /** Top-center storm readout + the "IN STORM" warning above the telegraph. */
+  private drawZone(zone: ZoneHud, screenW: number, screenH: number): void {
+    if (zone.line !== this.lastZoneLine) {
+      this.zoneLine.text = zone.line;
+      this.lastZoneLine = zone.line;
+    }
+    this.zoneLine.visible = zone.line !== '';
+    this.zoneLine.position.set(screenW / 2, MARGIN);
+    this.stormWarn.visible = zone.inStorm;
+    this.stormWarn.position.set(MARGIN, screenH - PANEL_H - MARGIN - 18);
   }
 
   private layout(screenH: number): void {
@@ -204,11 +248,12 @@ export class Hud {
   }
 
   /** Update all instruments. Call each render frame. */
-  update(ship: ShipState, axes: Axes, status: OwnStatus, screenW: number, screenH: number): void {
+  update(ship: ShipState, axes: Axes, status: OwnStatus, zone: ZoneHud, screenW: number, screenH: number): void {
     this.layout(screenH);
     this.drawGauges(axes);
     this.drawBars(status, screenW, screenH);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);
+    this.drawZone(zone, screenW, screenH);
   }
 }

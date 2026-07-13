@@ -112,6 +112,33 @@ export function bakeSweepTexture(): Texture {
   return Texture.from(canvas);
 }
 
+// --- storm vignette ----------------------------------------------------------
+
+/** Baked at this square size, then stretched to the viewport (ellipse edge). */
+export const VIGNETTE_TEXTURE_SIZE = 512;
+/** DESIGN.md hostile red for the out-of-zone edge glow. */
+const VIGNETTE_RGB = '200, 24, 24';
+/** Clear out to this fraction of the radius; red ramps in beyond it. */
+const VIGNETTE_CLEAR = 0.55;
+
+/**
+ * Bake the out-of-zone vignette: a radial gradient, fully transparent through
+ * the center and ramping to red at the edges. Screen-space overlay (stretched
+ * to the viewport, so the circle reads as an edge-hugging ellipse). Alpha is
+ * pulsed at draw time (render/zone.ts) — the texture itself is static.
+ */
+export function bakeVignetteTexture(): Texture {
+  const size = VIGNETTE_TEXTURE_SIZE;
+  const { canvas, ctx } = makeCanvas(size, size);
+  const c = size / 2;
+  const grad = ctx.createRadialGradient(c, c, c * VIGNETTE_CLEAR, c, c, c);
+  grad.addColorStop(0, `rgba(${VIGNETTE_RGB}, 0)`);
+  grad.addColorStop(1, `rgba(${VIGNETTE_RGB}, 0.9)`);
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  return Texture.from(canvas);
+}
+
 // --- 3. blip soft-dot --------------------------------------------------------
 
 /** Blip texture size (px); scaled down to world units and tinted per blip. */

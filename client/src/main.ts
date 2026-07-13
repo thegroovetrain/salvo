@@ -4,7 +4,8 @@
 // contacts (interp at -100ms) + dead-reckoned shells + combat feel effects.
 
 import type { Container } from 'pixi.js';
-import { CONFIG, type GameMap } from '@salvo/shared';
+import type { Room } from 'colyseus.js';
+import { CONFIG, isOutside, zoneRadiusAt, type GameMap } from '@salvo/shared';
 import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
@@ -18,7 +19,8 @@ import { Effects } from './render/effects.js';
 import { Mines } from './render/mines.js';
 import { Fog } from './render/fog.js';
 import { Radar } from './render/radar.js';
-import { Hud, cooldownReadyFraction, type OwnStatus } from './render/hud.js';
+import { Zone, type ZoneDisplay } from './render/zone.js';
+import { Hud, cooldownReadyFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { KeyboardInput } from './input/keyboard.js';
 import { MouseInput, worldAim } from './input/mouse.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
@@ -50,7 +52,12 @@ interface Game {
   mines: Mines;
   fog: Fog;
   radar: Radar;
+  zone: Zone;
   hud: Hud;
+  /** Colyseus room — polled each frame for the public zone plane (slow state). */
+  room: Room;
+  /** Full map radius (u) — the zone's derived-radius baseline. */
+  mapRadius: number;
   cameraSnapped: boolean;
   lastOwn: { x: number; y: number };
 }
@@ -97,6 +104,45 @@ function ownStatus(g: Game): OwnStatus {
   };
 }
 
+/** Live safe radius + state, derived locally from the schema's zone plane. */
+interface ZoneView {
+  state: ZoneDisplay;
+  radius: number; // u
+  startT: number; // server ms the timeline was anchored at
+}
+
+/** Read the public zone plane off the polled room schema (fail-safe to idle). */
+function zoneView(g: Game, now: number): ZoneView {
+  const s = g.room.state as { zoneState?: string; zoneStartT?: number } | undefined;
+  const state = (s?.zoneState ?? 'idle') as ZoneDisplay;
+  const startT = s?.zoneStartT ?? 0;
+  // Derive the radius locally from CONFIG for a smooth ring (see ArenaState
+  // JSDoc). Real clients never see a zoneOverride, so CONFIG matches the server.
+  const radius = state === 'idle' ? g.mapRadius : zoneRadiusAt(now, startT, g.mapRadius, CONFIG.zone);
+  return { state, radius, startT };
+}
+
+/** M:SS clock for the grace countdown. */
+function fmtClock(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+/** Compact top-center storm readout for the current zone view. */
+function zoneHud(zv: ZoneView, now: number, inStorm: boolean): ZoneHud {
+  let line = '';
+  if (zv.state === 'grace') {
+    const sec = Math.max(0, Math.ceil((CONFIG.zone.grace - (now - zv.startT)) / 1000));
+    line = `STORM ${fmtClock(sec)}`;
+  } else if (zv.state === 'shrinking') {
+    line = 'STORM CLOSING';
+  } else if (zv.state === 'closed') {
+    line = 'STORM CLOSED';
+  }
+  return { line, inStorm };
+}
+
 function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
   const { welcome } = conn;
   const camera = new Camera({
@@ -139,7 +185,10 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld),
     fog: new Fog(stage.fogSprite),
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
+    zone: new Zone(stage.layers.zone, stage.layers.vignette, map.radius, CONFIG.zone.endRadiusFraction),
     hud: new Hud(stage.layers.hud),
+    room: conn.room,
+    mapRadius: map.radius,
     cameraSnapped: false,
     lastOwn: { x: 0, y: 0 },
   };
@@ -149,7 +198,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
   return g;
 }
 
-function renderOwn(g: Game, pose: RenderPose, status: OwnStatus, frameDt: number): void {
+function renderOwn(g: Game, pose: RenderPose, status: OwnStatus, zone: ZoneHud, frameDt: number): void {
   if (!g.cameraSnapped) {
     g.camera.snapTo(pose);
     g.cameraSnapped = true;
@@ -161,7 +210,7 @@ function renderOwn(g: Game, pose: RenderPose, status: OwnStatus, frameDt: number
   g.effects.update(frameDt, pose);
   g.lastOwn = { x: pose.x, y: pose.y };
   renderFiring(g, pose, status);
-  g.hud.update(pose, g.keyboard.axes(), status, g.stage.app.screen.width, g.stage.app.screen.height);
+  g.hud.update(pose, g.keyboard.axes(), status, zone, g.stage.app.screen.width, g.stage.app.screen.height);
 }
 
 /** Reload duration (ms) per weapon, indexed by WeaponId (for the ready fraction). */
@@ -193,8 +242,13 @@ function makeCallbacks(g: Game): LoopCallbacks {
     render: (alpha, frameDt) => {
       const pose = ownPose(g, alpha, frameDt);
       const status = ownStatus(g);
-      if (pose) renderOwn(g, pose, status, frameDt);
       const now = g.clock.serverNow();
+      const zv = zoneView(g, now);
+      const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.radius);
+      if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), frameDt);
+      const w = g.stage.app.screen.width;
+      const h = g.stage.app.screen.height;
+      g.zone.update(zv.radius, zv.state, inStorm, now / 1000, w, h);
       // Own pose feeds the shell sight-bubble cull (shells outside fog vanish).
       g.projectiles.render(now, pose ?? undefined);
       g.contactViews.render(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, now, frameDt * 1000);
