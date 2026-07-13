@@ -387,14 +387,51 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
  * the fog sight hole (rebaked via the same path as a resize). Guessed
  * localStorage config was used until here; this is the desync firewall.
  */
+/** Shallow-compare the six ShipConfig kinematics fields. */
+function sameKinematics(a: EffectiveStats['kinematics'], b: EffectiveStats['kinematics']): boolean {
+  return (
+    a.maxSpeed === b.maxSpeed &&
+    a.reverseSpeed === b.reverseSpeed &&
+    a.accel === b.accel &&
+    a.decel === b.decel &&
+    a.turnRate === b.turnRate &&
+    a.steerageSpeed === b.steerageSpeed
+  );
+}
+
+/** True when any fog/radar/zoom-driving stat differs. */
+function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
+  return (
+    a.sightRange !== b.sightRange ||
+    a.radarRange !== b.radarRange ||
+    a.sweepPeriodMs !== b.sweepPeriodMs
+  );
+}
+
+/**
+ * Recompute + apply the own effective stats. Work is scoped to what actually
+ * changed: a gunReload grant must not hard-snap the predictor or rebake the
+ * fog — those on every kill read as a hitch exactly when the player is
+ * maneuvering. The predictor only SNAPS on a real class change (first-frame
+ * localStorage correction); an upgrade that touches kinematics swaps the
+ * config in place and lets the next reconcile replay pending inputs under it.
+ */
 function applyOwnStats(g: Game, cls: ShipClassId, upg: readonly number[]): void {
+  const classChanged = cls !== g.ownClass;
+  const prev = g.ownStats;
   g.ownClass = cls;
   const spec = CONFIG.shipClasses[cls];
   const stats = effectiveStats(spec, upg);
   g.ownStats = stats;
-  g.predictor.setClassConfig(stats.kinematics, spec.hull.beam / 2);
-  g.ownView.setHull(spec.hull);
-  g.effects.setOwnClass(cls);
+
+  if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
+    g.predictor.setClassConfig(stats.kinematics, spec.hull.beam / 2, classChanged);
+  }
+  if (classChanged) {
+    g.ownView.setHull(spec.hull);
+    g.effects.setOwnClass(cls);
+  }
+  if (!classChanged && !visionChanged(prev, stats)) return;
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
   g.camera.setRadarRange(stats.radarRange);
   g.fog.setSightRange(stats.sightRange);

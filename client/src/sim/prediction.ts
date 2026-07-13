@@ -87,11 +87,18 @@ export class Predictor {
    * own class is authoritative from the first server frame (you.cls), so if the
    * localStorage guess was wrong this re-inits prediction from the next frame —
    * the desync firewall for the physics model.
+   *
+   * `snap` — pass true ONLY for an actual class change (first-frame localStorage
+   * correction): the physics model was materially wrong, so re-init cleanly.
+   * For an upgrade grant (e.g. maxSpeed), pass false: the pending-input ring is
+   * KEPT and the next reconcile replays it under the new kinematics — the small
+   * transient folds into the visual-error smoothing instead of hard-snapping
+   * the hull backward by the full RTT lead on every kill.
    */
-  setClassConfig(kin: ShipConfig, shipRadius: number): void {
+  setClassConfig(kin: ShipConfig, shipRadius: number, snap = true): void {
     this.kin = kin;
     this.shipRadius = shipRadius;
-    this.forceSnap();
+    if (snap) this.forceSnap();
   }
 
   /** False until the first server state initializes the predicted ship. */

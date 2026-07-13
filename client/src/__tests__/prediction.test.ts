@@ -220,9 +220,10 @@ describe('Predictor stats swap mid-flight (upgrade grant)', () => {
       if (seq % 4 === 0) p.onServerState(kin(server), seq);
     }
 
-    // The grant lands: both sides swap to the upgraded kinematics.
-    p.setClassConfig(upgraded, CRUISER.hull.beam / 2);
-    expect(p.isInitialized).toBe(false); // forceSnap: re-init from next frame
+    // The grant lands: both sides swap to the upgraded kinematics. Grants do
+    // NOT snap — the ring is kept and replayed under the new config.
+    p.setClassConfig(upgraded, CRUISER.hull.beam / 2, false);
+    expect(p.isInitialized).toBe(true); // no forceSnap on a grant
     p.onServerState(kin(server), 20);
     expect(p.isInitialized).toBe(true);
 
@@ -240,6 +241,42 @@ describe('Predictor stats swap mid-flight (upgrade grant)', () => {
     // The upgraded top speed was actually reached (the swap took effect).
     expect(p.predicted.speed).toBeCloseTo(upgraded.maxSpeed, 6);
     expect(p.predicted.speed).toBeGreaterThan(CRUISER.kinematics.maxSpeed);
+  });
+
+  it('a non-kinematics grant never moves the predicted pose (no kill-frame hop)', () => {
+    // Gate-2 regression: every grant used to forceSnap, wiping the pending
+    // ring so the next reconcile adopted the raw server pose — a backward hop
+    // by the full RTT lead on every kill. A grant that doesn't change the
+    // kinematics must leave prediction byte-identical to a control predictor.
+    const spawn: ShipState = { x: 200, y: -100, heading: 0.4, speed: 0 };
+    const server: ShipState = { ...spawn };
+    const p = makeInitialized(spawn);
+    const control = makeInitialized(spawn);
+
+    // 20 ticks; ack only up to seq 16 so four inputs stay pending (RTT lead).
+    for (let seq = 1; seq <= 20; seq++) {
+      const inp = input(seq, 1, 0.2);
+      p.localTick(inp);
+      control.localTick(inp);
+      serverStep(server, inp);
+      if (seq === 16) {
+        p.onServerState(kin(server), seq);
+        control.onServerState(kin(server), seq);
+      }
+    }
+    const ack16 = kin(server); // stale-by-4 server state, as a real frame would be
+    expect(p.pendingCount).toBeGreaterThan(0);
+
+    // e.g. a gunReload grant: same kinematics object semantics, snap=false.
+    p.setClassConfig({ ...CRUISER.kinematics }, CRUISER.hull.beam / 2, false);
+    expect(p.isInitialized).toBe(true);
+    expect(p.pendingCount).toBe(control.pendingCount); // ring survives the grant
+
+    p.onServerState(ack16, 16);
+    control.onServerState(ack16, 16);
+    expect(p.predicted.x).toBeCloseTo(control.predicted.x, 9); // no hop
+    expect(p.predicted.y).toBeCloseTo(control.predicted.y, 9);
+    expect(p.visualErrorMagnitude).toBeCloseTo(control.visualErrorMagnitude, 9);
   });
 });
 
