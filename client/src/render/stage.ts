@@ -20,9 +20,13 @@ export interface StageLayers {
   ocean: Container;
   wake: Container;
   projectile: Container;
+  /** Enemy mines (render/mines.ts) — fogged; they only arrive when sighted. */
+  mineWorld: Container;
   ship: Container;
   // chartRoot children
   map: Container;
+  /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
+  mineChart: Container;
   blip: Container;
   /** Crosshair + bearing line (render/firing.ts) — fog-immune, above blips. */
   aim: Container;
@@ -88,8 +92,10 @@ export async function createStage(): Promise<Stage> {
     ocean: child(worldRoot),
     wake: child(worldRoot),
     projectile: child(worldRoot),
+    mineWorld: child(worldRoot),
     ship: child(worldRoot),
     map: child(chartRoot),
+    mineChart: child(chartRoot),
     blip: child(chartRoot),
     aim: child(chartRoot),
     sweep: child(chartRoot),

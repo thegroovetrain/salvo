@@ -1,7 +1,12 @@
-// Keyboard driving input. Tracks the set of held `event.code`s on the window,
-// clears on blur (fixes the classic stuck-key bug when focus is lost), and
-// derives throttle/rudder axes. `axesFrom` is pure and unit-tested; the class
-// is a thin DOM adapter.
+// Keyboard driving + weapon selection input. Tracks the set of held
+// `event.code`s on the window, clears on blur (fixes the classic stuck-key bug
+// when focus is lost), derives throttle/rudder axes, and latches the selected
+// weapon from the number-row keys 1/2/3. `axesFrom` + `weaponFromKey` are pure
+// and unit-tested; the class is a thin DOM adapter. The keyboard OWNS the
+// key→weapon mapping; selection is client state, sent per input and echoed by
+// the server in OwnShip.weapon.
+
+import { WEAPON, type WeaponId } from '@salvo/shared';
 
 /** Driving axes derived from held keys. Both in [-1, 1]. */
 export interface Axes {
@@ -15,6 +20,16 @@ const AHEAD = ['KeyW', 'ArrowUp'];
 const ASTERN = ['KeyS', 'ArrowDown'];
 const LEFT = ['KeyA', 'ArrowLeft'];
 const RIGHT = ['KeyD', 'ArrowRight'];
+
+/** Number-key → weapon selection (top row + numpad). */
+const WEAPON_KEYS: Record<string, WeaponId> = {
+  Digit1: WEAPON.gun,
+  Numpad1: WEAPON.gun,
+  Digit2: WEAPON.torpedo,
+  Numpad2: WEAPON.torpedo,
+  Digit3: WEAPON.mine,
+  Numpad3: WEAPON.mine,
+};
 
 function anyHeld(keys: Set<string>, codes: string[]): boolean {
   return codes.some((c) => keys.has(c));
@@ -31,11 +46,19 @@ export function axesFrom(keys: Set<string>): Axes {
   return { throttle, rudder };
 }
 
+/** Pure: the weapon a key code selects, or null if it isn't a weapon key. */
+export function weaponFromKey(code: string): WeaponId | null {
+  return code in WEAPON_KEYS ? WEAPON_KEYS[code] : null;
+}
+
 export class KeyboardInput {
   readonly keys = new Set<string>();
+  private selectedWeapon: WeaponId = WEAPON.gun;
 
   private readonly onDown = (e: KeyboardEvent): void => {
     this.keys.add(e.code);
+    const w = weaponFromKey(e.code);
+    if (w !== null) this.selectedWeapon = w;
   };
   private readonly onUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
@@ -61,5 +84,10 @@ export class KeyboardInput {
   /** Current driving axes. */
   axes(): Axes {
     return axesFrom(this.keys);
+  }
+
+  /** Currently-selected weapon (latched by the last 1/2/3 press). */
+  get weapon(): WeaponId {
+    return this.selectedWeapon;
   }
 }

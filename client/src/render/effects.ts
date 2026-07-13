@@ -17,7 +17,7 @@ import { CLIENT_CONFIG } from '../config.js';
 const HALF_LEN = 20; // u — stern offset from ship center (matches hull length)
 
 /** Effect kinds routed through spawnEffect(). */
-export type EffectKind = 'wake' | 'muzzle' | 'spark' | 'splash' | 'sink';
+export type EffectKind = 'wake' | 'muzzle' | 'spark' | 'splash' | 'sink' | 'torpwake';
 
 interface OneShotSpec {
   type: 'dot' | 'ring';
@@ -35,6 +35,9 @@ const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
   spark: { type: 'dot', life: 0.2, color: 0xffb800, r0: 7, r1: 1, width: 0, alpha: 1, additive: true },
   splash: { type: 'ring', life: 0.5, color: 0x66ffaa, r0: 3, r1: 22, width: 2, alpha: 0.7, additive: false },
   sink: { type: 'ring', life: 0.9, color: 0x8b0000, r0: 6, r1: 40, width: 3, alpha: 0.9, additive: false },
+  // Torpedo wake: a small dim bubble dropped along the fish's run; fades fast so
+  // the trail reads as a fresh streak, not a persistent line.
+  torpwake: { type: 'dot', life: 0.7, color: 0x9fd8c4, r0: 2, r1: 3.5, width: 0, alpha: 0.4, additive: false },
 };
 
 interface WakeParticle {

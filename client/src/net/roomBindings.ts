@@ -22,6 +22,7 @@ import type { ContactViews } from '../render/contacts.js';
 import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
+import type { Mines } from '../render/mines.js';
 import { showBanner } from '../util/banner.js';
 
 /**
@@ -46,6 +47,7 @@ export interface RoomBindingDeps {
   projectiles: Projectiles;
   effects: Effects;
   radar: Radar;
+  mines: Mines;
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
 }
@@ -77,6 +79,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps): void {
     deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
   }
   deps.contacts.pushFrame(f.t, f.contacts);
+  deps.mines.sync(f.mines); // contact-like: reconcile the mine field every tick
   handleEvents(f, deps);
 }
 
@@ -87,6 +90,7 @@ function handleEvents(f: FrameMsg, deps: RoomBindingDeps): void {
       case 'spawn': handleSpawn(e, deps); break;
       case 'sunk': handleSunk(e, f.t, deps); break;
       case 'shell': handleShell(e, deps); break;
+      case 'torp': deps.projectiles.onShell(e); break; // quiet weapon — no muzzle flash
       case 'blip': deps.radar.onBlip(e); break;
       case 'boom': handleBoom(e, deps); break;
       // 'dmg' resolved via the boom's `hit` flash; kept for future HUD hooks.

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { axesFrom } from '../input/keyboard.js';
+import { WEAPON } from '@salvo/shared';
+import { axesFrom, weaponFromKey } from '../input/keyboard.js';
 
 describe('axesFrom', () => {
   it('is zero with no keys', () => {
@@ -31,5 +32,22 @@ describe('axesFrom', () => {
 
   it('ignores unrelated keys', () => {
     expect(axesFrom(new Set(['Space', 'KeyQ']))).toEqual({ throttle: 0, rudder: 0 });
+  });
+});
+
+describe('weaponFromKey', () => {
+  it('maps 1/2/3 (top row + numpad) to gun/torpedo/mine', () => {
+    expect(weaponFromKey('Digit1')).toBe(WEAPON.gun);
+    expect(weaponFromKey('Digit2')).toBe(WEAPON.torpedo);
+    expect(weaponFromKey('Digit3')).toBe(WEAPON.mine);
+    expect(weaponFromKey('Numpad1')).toBe(WEAPON.gun);
+    expect(weaponFromKey('Numpad2')).toBe(WEAPON.torpedo);
+    expect(weaponFromKey('Numpad3')).toBe(WEAPON.mine);
+  });
+
+  it('returns null for non-weapon keys (so selection is left unchanged)', () => {
+    expect(weaponFromKey('KeyW')).toBeNull();
+    expect(weaponFromKey('Digit4')).toBeNull();
+    expect(weaponFromKey('Space')).toBeNull();
   });
 });

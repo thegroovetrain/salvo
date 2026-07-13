@@ -50,10 +50,12 @@ export interface InputMsg {
  *   [0] guns     — the SOONEST-ready gun mount's remaining reload. Guns have
  *                  two independent broadside mounts; this surfaces the minimum
  *                  of their cooldowns so the HUD/UX reads "when can I next put a
- *                  shell out" regardless of which battery bears. (Per-mount
- *                  timers stay server-side; the wire carries only the min.)
- *   [1] torpedoes — 0 until torpedoes land (step 12).
- *   [2] mines     — 0 until mines land (step 12).
+ *                  shell out" regardless of which battery bears.
+ *   [1] torpedoes — the SOONEST-ready bow tube's remaining reload. Two tubes
+ *                  reload independently (12s each); the min reads "when can I
+ *                  next launch a fish".
+ *   [2] mines     — remaining drop cooldown (8s between drops).
+ * Per-mount / per-tube timers stay server-side; the wire carries only the mins.
  */
 export interface OwnShip {
   id: string;
@@ -156,22 +158,19 @@ export interface SpawnEvent {
 }
 
 /**
- * A mine visible to this viewer. Visibility is resolved per client by the
- * perception chokepoint (owner always; enemies only inside sight range).
- * `mine_owned` = the viewer owns this mine (render it as friendly).
+ * A mine visible to this viewer, synced as CONTACT-LIKE state (not an event):
+ * FrameMsg.mines is recomputed per observer every tick, exactly like contacts.
+ * Owner sees ALL own mines always; others see a mine only when it is within
+ * sight range + island-LOS. Mines never radar-paint. `own` = the viewer owns
+ * this mine (render it friendly). A mine dropping out of the list means it is
+ * gone OR out of sight — the client cannot tell, and that ambiguity is the
+ * point (no event-lifecycle staleness bug is possible for a static entity).
  */
-export interface MineEvent {
-  k: 'mine';
+export interface MineView {
   id: string;
   x: number; // u
   y: number; // u
-  mine_owned: boolean;
-}
-
-/** A previously-seen mine is gone (triggered or despawned). */
-export interface MineGoneEvent {
-  k: 'mineGone';
-  id: string;
+  own: boolean;
 }
 
 /** Per-tick, per-client events. Discriminated union on `k`. */
@@ -181,9 +180,7 @@ export type GameEvent =
   | BoomEvent
   | DamageEvent
   | SunkEvent
-  | SpawnEvent
-  | MineEvent
-  | MineGoneEvent;
+  | SpawnEvent;
 
 /**
  * Server -> client per-tick frame ("f"). Built per client by buildFrame().
@@ -197,6 +194,7 @@ export interface FrameMsg {
   you?: OwnShip; // omitted for spectators
   contacts: Contact[];
   events: GameEvent[];
+  mines: MineView[]; // per-observer mine visibility (contact-like, recomputed per tick)
   spec?: true; // spectator (unfogged) frame
 }
 

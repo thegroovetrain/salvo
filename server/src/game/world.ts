@@ -29,7 +29,16 @@ import {
   type ShellState,
   type ShipState,
 } from '@salvo/shared';
-import { fireGuns, freshGunCooldowns, tickGunCooldowns } from './combat.js';
+import { freshGunCooldowns } from './combat.js';
+import {
+  WEAPON_SYSTEMS,
+  addMine,
+  checkMineTriggers,
+  freshMineCooldown,
+  freshTorpedoCooldowns,
+  type FireContext,
+  type MineState,
+} from './weapons/index.js';
 import { InputStore, neutralInput } from './inputs.js';
 import { pickSpawn } from './spawn.js';
 
@@ -49,13 +58,15 @@ export interface ShipRecord {
   sweepAngle: number; // rad — current (post-advance) radar sweep angle
   prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
   /**
-   * Shell ids this observer has already been sent a `shell` event for.
-   * Perception emits each ballistic exactly once per observer (at launch for
-   * the owner, at first sight for everyone else); entries are forgotten when
-   * the shell is spent (see forgetShell).
+   * Ballistic ids (shells + torpedoes) this observer has already been sent a
+   * one-time event for. Perception emits each ballistic exactly once per
+   * observer (at launch for the owner, at first sight for everyone else);
+   * entries are forgotten when the projectile is spent (see forgetBallistic).
    */
-  seenShells: Set<string>;
+  seenBallistics: Set<string>;
   gunCooldowns: number[]; // ms remaining per broadside mount
+  torpedoCooldowns: number[]; // ms remaining per bow tube
+  mineCooldown: number; // ms remaining until the next mine can be dropped
   kills: number; // hulls this ship has sunk
   deaths: number; // times this ship has been sunk
 }
@@ -64,7 +75,10 @@ export class World {
   readonly map: GameMap;
   readonly playerCap: number;
   readonly ships = new Map<string, ShipRecord>();
+  /** All in-flight ballistics (gun shells AND torpedoes), keyed by id. */
   readonly shells = new Map<string, ShellState>();
+  /** All live dropped mines (static points), in drop order. */
+  readonly mines = new Map<string, MineState>();
   readonly inputs = new InputStore();
 
   /** ms since world creation — the one server clock. */
@@ -74,6 +88,7 @@ export class World {
 
   private rng: Rng;
   private shellSeq = 0;
+  private mineSeq = 0;
   /** Events queued since the last completed step (joins, sinks, respawns). */
   private pending: GameEvent[] = [];
   /** Events belonging to the most recently completed tick (read by frames). */
@@ -111,8 +126,10 @@ export class World {
       respawnAt: 0,
       sweepAngle: 0,
       prevSweepAngle: 0,
-      seenShells: new Set(),
+      seenBallistics: new Set(),
       gunCooldowns: freshGunCooldowns(),
+      torpedoCooldowns: freshTorpedoCooldowns(),
+      mineCooldown: freshMineCooldown(),
       kills: 0,
       deaths: 0,
     };
@@ -156,7 +173,10 @@ export class World {
     this.applyInputs();
     this.stepShips(dt);
     this.resolveCollisions();
-    this.stepShells(dt);
+    // Ballistics + mines both test against post-move hulls (built once).
+    const hulls = this.aliveHulls();
+    this.stepShells(dt, hulls);
+    this.stepMines(hulls);
     this.fireControl(dtMs);
     // Radar: the sweep advances here; the per-observer paint (blips) happens
     // at frame-build time in perception.ts using [prevSweepAngle, sweepAngle).
@@ -211,24 +231,43 @@ export class World {
     return hulls;
   }
 
-  /** Advance every live shell; spent shells emit a boom (+ damage on a hit). */
-  private stepShells(dt: number): void {
-    const hulls = this.aliveHulls();
+  /** Advance every live ballistic; spent ones emit a boom (+ damage on a hit). */
+  private stepShells(dt: number, hulls: HullTarget[]): void {
     for (const [id, shell] of this.shells) {
       const outcome = stepShell(shell, { islands: this.map.islands, hulls, now: this.now, dt });
       if (outcome.kind === 'travel') continue;
       this.shells.delete(id);
-      this.forgetShell(id);
+      this.forgetBallistic(id);
       this.resolveShell(shell, outcome);
     }
   }
 
-  /** Drop a spent shell from every observer's seen-shell set (no leaks, no growth). */
-  private forgetShell(id: string): void {
-    for (const ship of this.ships.values()) ship.seenShells.delete(id);
+  /**
+   * Resolve mines that tripped this tick: boom at the mine point (hit gated by
+   * perception per observer), damage the triggering ship, despawn the mine.
+   */
+  private stepMines(hulls: HullTarget[]): void {
+    for (const { mine, victimId } of checkMineTriggers(this.mines, hulls, this.now)) {
+      this.mines.delete(mine.id);
+      this.pending.push({ k: 'boom', id: mine.id, hit: victimId, x: mine.x, y: mine.y });
+      const victim = this.ships.get(victimId);
+      if (victim && victim.alive) this.hitShip(victim, CONFIG.mine.damage, mine.ownerId);
+    }
   }
 
-  /** Turn a spent shell's outcome into boom (+ dmg/sink) events. */
+  /** Drop a spent ballistic from every observer's seen set (no leaks, no growth). */
+  private forgetBallistic(id: string): void {
+    for (const ship of this.ships.values()) ship.seenBallistics.delete(id);
+  }
+
+  /** Apply damage to a hull, emitting dmg (+ sink on death). */
+  private hitShip(victim: ShipRecord, amount: number, byId: string): void {
+    victim.hp -= amount;
+    this.pending.push({ k: 'dmg', id: victim.id, amount, hp: Math.max(0, victim.hp) });
+    if (victim.hp <= 0) this.sinkShip(victim.id, byId);
+  }
+
+  /** Turn a spent ballistic's outcome into boom (+ dmg/sink) events. */
   private resolveShell(shell: ShellState, outcome: ShellOutcome): void {
     if (outcome.kind === 'travel') return;
     if (outcome.kind !== 'hitShip') {
@@ -238,41 +277,63 @@ export class World {
     this.pending.push({ k: 'boom', id: shell.id, hit: outcome.victimId, x: outcome.x, y: outcome.y });
     const victim = this.ships.get(outcome.victimId);
     if (!victim || !victim.alive) return;
-    victim.hp -= CONFIG.gun.damage;
-    this.pending.push({
-      k: 'dmg',
-      id: victim.id,
-      amount: CONFIG.gun.damage,
-      hp: Math.max(0, victim.hp),
-    });
-    if (victim.hp <= 0) this.sinkShip(victim.id, shell.ownerId);
+    this.hitShip(victim, shell.damage ?? CONFIG.gun.damage, shell.ownerId);
   }
 
-  /** Tick all gun cooldowns, then fire eligible mounts and spawn their shells. */
+  /**
+   * Tick EVERY weapon's cooldowns for every ship (regardless of selection), then
+   * route this tick's fire to the selected weapon system. Systems reach the
+   * World only through the narrow FireContext (spawn ballistics / drop mines).
+   */
   private fireControl(dtMs: number): void {
     for (const ship of this.ships.values()) {
-      tickGunCooldowns(ship.gunCooldowns, dtMs);
-      const shells = fireGuns(ship, this.now, () => this.nextShellId());
-      for (const shell of shells) {
-        this.shells.set(shell.id, shell);
-        this.pending.push(this.shellEvent(shell));
-      }
+      for (const sys of WEAPON_SYSTEMS) sys.tick(ship, dtMs);
+      if (!ship.alive || !ship.input.fire) continue;
+      WEAPON_SYSTEMS[ship.input.weapon].fire(this.fireContext(ship));
     }
   }
 
-  private nextShellId(): string {
+  /** The capabilities a weapon system needs to fire this ship this tick. */
+  private fireContext(ship: ShipRecord): FireContext {
+    return {
+      ship,
+      now: this.now,
+      mkId: () => this.nextBallisticId(),
+      spawnBallistic: (shell) => this.spawnBallistic(shell),
+      dropMine: (x, y) => this.spawnMine(ship.id, x, y),
+    };
+  }
+
+  /** Store a newly-fired ballistic + queue its one-time reveal event. */
+  private spawnBallistic(shell: ShellState): void {
+    this.shells.set(shell.id, shell);
+    this.pending.push(this.ballisticEvent(shell));
+  }
+
+  /** Store a newly-dropped mine (per-player + global caps enforced in addMine). */
+  private spawnMine(ownerId: string, x: number, y: number): void {
+    addMine(this.mines, ownerId, x, y, this.now, this.nextMineId());
+  }
+
+  private nextBallisticId(): string {
     this.shellSeq += 1;
     return `s${this.shellSeq}`;
+  }
+
+  private nextMineId(): string {
+    this.mineSeq += 1;
+    return `m${this.mineSeq}`;
   }
 
   /**
    * One-time ballistic params the client dead-reckons from. NO range-derivable
    * field (no ttl/distLeft) — see BallisticEvent's anti-cheat note. Perception
-   * re-issues this per observer at reveal time; the wire shape stays constant-free.
+   * re-issues this per observer at reveal time; the wire shape stays
+   * constant-free. `k` carries the projectile kind (shell vs torp).
    */
-  private shellEvent(shell: ShellState): BallisticEvent {
+  private ballisticEvent(shell: ShellState): BallisticEvent {
     return {
-      k: 'shell',
+      k: shell.kind ?? 'shell',
       id: shell.id,
       x: shell.x,
       y: shell.y,
@@ -318,6 +379,8 @@ export class World {
     ship.alive = true;
     ship.respawnAt = 0;
     ship.gunCooldowns = freshGunCooldowns();
+    ship.torpedoCooldowns = freshTorpedoCooldowns();
+    ship.mineCooldown = freshMineCooldown();
     this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
   }
 }

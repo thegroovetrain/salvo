@@ -22,6 +22,22 @@ export function pointInCircle(p: Vec2, center: Vec2, r: number): boolean {
 }
 
 /**
+ * Shortest distance from point `p` to segment a->b. Powers mine triggers
+ * (distance from a static mine point to a hull's capsule axis segment): the
+ * mine fires when that distance minus the capsule radius drops within the
+ * trigger radius — a proximity test against the HULL, not the ship's center.
+ * A degenerate segment (a == b) reduces to point-to-point.
+ */
+export function pointSegmentDistance(p: Vec2, a: Vec2, b: Vec2): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 <= EPS) return Math.hypot(p.x - a.x, p.y - a.y);
+  const t = clamp01(((p.x - a.x) * dx + (p.y - a.y) * dy) / len2);
+  return Math.hypot(p.x - (a.x + dx * t), p.y - (a.y + dy * t));
+}
+
+/**
  * Earliest intersection of segment p0->p1 with the circle (center, r),
  * returned as the parameter t in [0, 1] (t=0 at p0, t=1 at p1), or null
  * if the segment never touches the circle. If p0 starts inside the circle,

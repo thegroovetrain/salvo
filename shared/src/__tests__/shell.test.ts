@@ -105,6 +105,45 @@ describe('stepShell — owner self-hit grace', () => {
   });
 });
 
+describe('stepShell — parameterized for torpedoes (no tunnel at torp speed)', () => {
+  const TORP_DT = CONFIG.tick.simDtMs / 1000;
+  function torp(overrides: Partial<ShellState> = {}): ShellState {
+    return shell({
+      vx: CONFIG.torpedo.speed,
+      vy: 0,
+      distLeft: CONFIG.torpedo.range,
+      kind: 'torp',
+      damage: CONFIG.torpedo.damage,
+      hitRadius: CONFIG.gun.shellRadius,
+      ...overrides,
+    });
+  }
+
+  it('a torpedo cannot skip a thin island placed one tick ahead', () => {
+    const travel = CONFIG.torpedo.speed * TORP_DT;
+    const island = { x: travel * 0.5, y: 0, r: 20 };
+    const out = stepShell(torp(), { islands: [island], hulls: [], now: 1000, dt: TORP_DT });
+    expect(out.kind).toBe('hitIsland');
+  });
+
+  it('a torpedo hits a hull it sweeps into, honoring its own collision radius', () => {
+    const h = hullEndpoints(8, 0, Math.PI / 2); // broadside across the run
+    h.id = 'victim';
+    const out = stepShell(torp({ x: 4 }), { islands: [], hulls: [h], now: 1000, dt: TORP_DT });
+    expect(out.kind).toBe('hitShip');
+    if (out.kind === 'hitShip') expect(out.victimId).toBe('victim');
+  });
+
+  it('respects a custom self-hit grace independent of the gun default', () => {
+    const h = hullEndpoints(6, 0, Math.PI / 2);
+    h.id = 'owner';
+    const graced = torp({ bornAt: 0, graceMs: 500 });
+    // Gun grace (100ms) has elapsed at t=200, but this torp's 500ms has not.
+    const out = stepShell(graced, { islands: [], hulls: [h], now: 200, dt: TORP_DT });
+    expect(out.kind).toBe('travel');
+  });
+});
+
 describe('stepShell — earliest hit wins', () => {
   it('an island in front of a hull resolves as the island', () => {
     const island = { x: 4, y: 0, r: 2 };

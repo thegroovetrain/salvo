@@ -14,14 +14,16 @@
 // Pure Pixi adapter (not unit tested); the in-arc test reuses shared inArc.
 
 import { Container, Graphics } from 'pixi.js';
-import { CONFIG, inArc, wrapAngle } from '@salvo/shared';
+import { CONFIG, WEAPON, inArc, wrapAngle, type WeaponId } from '@salvo/shared';
 
 const AMBER = 0xffb800;
+const TORP_TINT = 0x3fbf8f; // cool green — torpedo bow arc
 const DIM = 0x5a6478;
 const ARC_R = 72; // u — sector indicator radius
 const RETICLE_R = 7; // u — crosshair size
 
 const MOUNTS = CONFIG.gun.mounts;
+const MINE_MARKER = CONFIG.ship.length / 2 + CONFIG.mine.triggerRadius; // astern drop point (local -x)
 
 export interface FiringPose {
   x: number;
@@ -49,50 +51,88 @@ export class FiringUX {
   }
 
   /**
-   * Redraw for this frame. `aim` is the world bearing to the cursor, `ready` in
-   * [0,1] is the gun ready fraction (1 = loaded). `cursor` is the world point.
+   * Redraw for this frame. `aim` is the world bearing to the cursor, `weapon` is
+   * the selected weapon (drives which arc/marker shows), `ready` in [0,1] is the
+   * selected weapon's ready fraction (1 = loaded). `cursor` is the world point.
    */
-  update(pose: FiringPose, aim: number, ready: number, cursor: { x: number; y: number }): void {
-    this.drawArcs(pose, aim, ready);
-    this.drawReticle(pose, aim, ready, cursor);
+  update(
+    pose: FiringPose,
+    aim: number,
+    weapon: WeaponId,
+    ready: number,
+    cursor: { x: number; y: number },
+  ): void {
+    this.arcs.clear();
+    this.arcs.position.set(pose.x, pose.y);
+    this.arcs.rotation = pose.heading;
+    if (weapon === WEAPON.gun) this.drawGunArcs(aim, pose.heading, ready);
+    else if (weapon === WEAPON.torpedo) this.drawBowArc(aim, pose.heading, ready);
+    else this.drawMineMarker(ready);
+    this.drawReticle(pose, aim, weapon, ready, cursor);
   }
 
-  private drawArcs(pose: FiringPose, aim: number, ready: number): void {
+  /** One sector fill (+ cooldown sweep-back), in the arcs graphic's local frame. */
+  private sector(offset: number, halfArc: number, color: number, lit: boolean, ready: number): void {
     const g = this.arcs;
-    g.clear();
-    g.position.set(pose.x, pose.y);
-    g.rotation = pose.heading;
-    for (const m of MOUNTS) {
-      const lit = inArc(aim, wrapAngle(pose.heading + m.offset), m.halfArc) && ready >= 1;
-      const alpha = lit ? 0.5 : 0.14;
+    g.moveTo(0, 0);
+    g.arc(0, 0, ARC_R, offset - halfArc, offset + halfArc);
+    g.lineTo(0, 0);
+    g.fill({ color: lit ? color : DIM, alpha: lit ? 0.5 : 0.14 });
+    if (ready < 1) {
       g.moveTo(0, 0);
-      g.arc(0, 0, ARC_R, m.offset - m.halfArc, m.offset + m.halfArc);
+      g.arc(0, 0, ARC_R * 0.5, offset - halfArc, offset + halfArc);
       g.lineTo(0, 0);
-      g.fill({ color: lit ? AMBER : DIM, alpha });
-      // Cooldown sweep-back: an inner wedge that fills toward the full arc.
-      if (ready < 1) {
-        g.moveTo(0, 0);
-        g.arc(0, 0, ARC_R * 0.5, m.offset - m.halfArc, m.offset + m.halfArc);
-        g.lineTo(0, 0);
-        g.fill({ color: DIM, alpha: 0.1 + 0.2 * ready });
-      }
+      g.fill({ color: DIM, alpha: 0.1 + 0.2 * ready });
     }
+  }
+
+  private drawGunArcs(aim: number, heading: number, ready: number): void {
+    for (const m of MOUNTS) {
+      const lit = inArc(aim, wrapAngle(heading + m.offset), m.halfArc) && ready >= 1;
+      this.sector(m.offset, m.halfArc, AMBER, lit, ready);
+    }
+  }
+
+  private drawBowArc(aim: number, heading: number, ready: number): void {
+    const t = CONFIG.torpedo;
+    const lit = inArc(aim, wrapAngle(heading + t.offset), t.halfArc) && ready >= 1;
+    this.sector(t.offset, t.halfArc, TORP_TINT, lit, ready);
+  }
+
+  /** Astern drop indicator (local -x): a small ring where the next mine lands. */
+  private drawMineMarker(ready: number): void {
+    const g = this.arcs;
+    const color = ready >= 1 ? AMBER : DIM;
+    const alpha = ready >= 1 ? 0.8 : 0.3;
+    g.circle(-MINE_MARKER, 0, 6).stroke({ width: 1.5, color, alpha });
+    g.circle(-MINE_MARKER, 0, 2).fill({ color, alpha });
   }
 
   private drawReticle(
     pose: FiringPose,
     aim: number,
+    weapon: WeaponId,
     ready: number,
     cursor: { x: number; y: number },
   ): void {
     const g = this.reticle;
     g.clear();
-    const inAnyArc = MOUNTS.some((m) => inArc(aim, wrapAngle(pose.heading + m.offset), m.halfArc));
-    const color = inAnyArc && ready >= 1 ? AMBER : DIM;
+    if (weapon === WEAPON.mine) return; // mines don't aim — no reticle
+    const color = this.reticleColor(pose.heading, aim, weapon, ready);
     g.moveTo(pose.x, pose.y).lineTo(cursor.x, cursor.y).stroke({ width: 1, color, alpha: 0.25 });
     g.circle(cursor.x, cursor.y, RETICLE_R).stroke({ width: 1.5, color, alpha: 0.8 });
     g.moveTo(cursor.x - RETICLE_R - 3, cursor.y).lineTo(cursor.x + RETICLE_R + 3, cursor.y);
     g.moveTo(cursor.x, cursor.y - RETICLE_R - 3).lineTo(cursor.x, cursor.y + RETICLE_R + 3);
     g.stroke({ width: 1, color, alpha: 0.6 });
+  }
+
+  /** Reticle tint: bright when the aim is in the selected weapon's arc + ready. */
+  private reticleColor(heading: number, aim: number, weapon: WeaponId, ready: number): number {
+    const inAny =
+      weapon === WEAPON.torpedo
+        ? inArc(aim, wrapAngle(heading + CONFIG.torpedo.offset), CONFIG.torpedo.halfArc)
+        : MOUNTS.some((m) => inArc(aim, wrapAngle(heading + m.offset), m.halfArc));
+    if (!(inAny && ready >= 1)) return DIM;
+    return weapon === WEAPON.torpedo ? TORP_TINT : AMBER;
   }
 }

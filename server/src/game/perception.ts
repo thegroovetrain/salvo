@@ -23,9 +23,9 @@
 //             radar — pairScan iterates ships only, by construction.
 //
 // VISIBILITY RULE PER EVENT KIND (documented per the plan):
-//   - shell: emitted per observer, exactly once (ShipRecord.seenShells). The
-//     OWNER always gets it at launch. Everyone else gets it when the shell
-//     FIRST becomes visible (within sight + LOS), with CURRENT position /
+//   - shell/torp: emitted per observer, exactly once (ShipRecord.seenBallistics).
+//     The OWNER always gets it at launch. Everyone else gets it when the
+//     projectile FIRST becomes visible (within sight + LOS), with CURRENT pos /
 //     velocity ONLY — never a range-derivable field (no ttl/distLeft). The
 //     client dead-reckons from there, so a shell fired outside your bubble
 //     materializes at your sight boundary, never at its (hidden) launch point;
@@ -48,8 +48,9 @@
 //   - spawn: visible to the spawner itself, and to anyone who can see the
 //     spawn point (sight + LOS).
 //   - blip:  generated here, per observer (see radar tier above).
-//   - torp/mine/mineGone: not produced yet (step 12); dropped defensively so
-//     a future world emission cannot leak by default.
+//   - mines: NOT events — synced as contact-like per-observer state
+//     (minesForObserver): owner sees all own mines always, others only inside
+//     sight + LOS, never radar. See MineView in the wire contract.
 //
 // OBSERVER MODEL: an observer with a ship record observes from its position,
 // alive or sunk — a fresh wreck keeps seeing its surroundings for the 3s
@@ -67,6 +68,7 @@ import {
   type Circle,
   type Contact,
   type GameEvent,
+  type MineView,
   type SunkEvent,
   type Vec2,
 } from '@salvo/shared';
@@ -81,6 +83,7 @@ const RADAR2 = RADAR * RADAR;
 export interface PerceptionView {
   contacts: Contact[];
   events: GameEvent[];
+  mines: MineView[];
 }
 
 /** True iff the segment a→b crosses no island circle (the one LOS rule). */
@@ -136,22 +139,25 @@ function pairScan(world: World, me: ShipRecord): { contacts: Contact[]; blips: B
 }
 
 /**
- * Per-observer ballistic events: every live shell this observer has not been
- * told about yet, if the owner (always) or first visible (sight + LOS), with
- * CURRENT position/velocity only — NO range-derivable field (no ttl). See the
- * BallisticEvent anti-cheat note: a constant-free wire shape cannot leak the
- * fogged launch point. The client terminates the render itself (boom, a
- * CONFIG-derived per-kind max lifetime, or leaving its own sight bubble).
+ * Per-observer ballistic events (shells AND torpedoes): every live projectile
+ * this observer has not been told about yet, if the owner (always) or first
+ * visible (sight + LOS), with CURRENT position/velocity only — NO range-derivable
+ * field (no ttl). See the BallisticEvent anti-cheat note: a constant-free wire
+ * shape cannot leak the fogged launch point. `k` carries the kind so torpedoes
+ * ride the exact same first-sight reveal as shells (and, being projectiles, are
+ * never radar-painted — pairScan iterates ships only). The client terminates the
+ * render itself (boom, a CONFIG-derived per-kind max lifetime, or leaving its
+ * own sight bubble).
  */
-function shellEvents(world: World, me: ShipRecord): BallisticEvent[] {
+function ballisticEvents(world: World, me: ShipRecord): BallisticEvent[] {
   const out: BallisticEvent[] = [];
   for (const shell of world.shells.values()) {
-    if (me.seenShells.has(shell.id)) continue;
+    if (me.seenBallistics.has(shell.id)) continue;
     const own = shell.ownerId === me.id;
     if (!own && !pointSighted(me.state, shell, world.map.islands)) continue;
-    me.seenShells.add(shell.id);
+    me.seenBallistics.add(shell.id);
     out.push({
-      k: 'shell',
+      k: shell.kind ?? 'shell',
       id: shell.id,
       x: shell.x,
       y: shell.y,
@@ -159,6 +165,27 @@ function shellEvents(world: World, me: ShipRecord): BallisticEvent[] {
       vy: shell.vy,
       t: world.now,
     });
+  }
+  return out;
+}
+
+/**
+ * Per-observer mine visibility — contact-like state (NOT events), recomputed
+ * every tick exactly like contacts. The owner sees ALL its own mines always
+ * (own field awareness, even under fog); everyone else sees a mine only when it
+ * is within sight range + island-LOS. Mines NEVER radar-paint, and arm state
+ * makes no difference to visibility. A static persistent entity synced this way
+ * cannot suffer event-lifecycle staleness (a triggered/despawned mine simply
+ * drops out of the next frame's list).
+ */
+function minesForObserver(world: World, me: ShipRecord): MineView[] {
+  const out: MineView[] = [];
+  for (const mine of world.mines.values()) {
+    if (mine.ownerId === me.id) {
+      out.push({ id: mine.id, x: mine.x, y: mine.y, own: true });
+    } else if (pointSighted(me.state, mine, world.map.islands)) {
+      out.push({ id: mine.id, x: mine.x, y: mine.y, own: false });
+    }
   }
   return out;
 }
@@ -203,8 +230,8 @@ function worldEventForObserver(world: World, me: ShipRecord, e: GameEvent): Game
     case 'spawn':
       return e.id === me.id || pointSighted(me.state, e, world.map.islands) ? e : null;
     default:
-      // shell (re-issued per observer above), torp/mine/mineGone (step 12),
-      // blip (never world-emitted): fail closed.
+      // shell/torp (re-issued per observer above), blip (never world-emitted):
+      // fail closed. Mines are not events (contact-like state).
       return null;
   }
 }
@@ -216,14 +243,14 @@ function worldEventForObserver(world: World, me: ShipRecord, e: GameEvent): Game
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [] };
+  if (!me) return { contacts: [], events: [], mines: [] };
   const { contacts, blips } = pairScan(world, me);
   const events: GameEvent[] = [];
   for (const e of world.tickEvents) {
     const emitted = worldEventForObserver(world, me, e);
     if (emitted) events.push(emitted);
   }
-  events.push(...shellEvents(world, me));
+  events.push(...ballisticEvents(world, me));
   events.push(...blips);
-  return { contacts, events };
+  return { contacts, events, mines: minesForObserver(world, me) };
 }

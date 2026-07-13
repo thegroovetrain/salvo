@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { hpColor, cooldownReadyFraction } from '../render/hud.js';
+import { CONFIG, WEAPON } from '@salvo/shared';
+import { hpColor, cooldownReadyFraction, weaponReadyFraction } from '../render/hud.js';
 
 const GREEN = 0x00ff88;
 const AMBER = 0xffb800;
@@ -27,5 +28,24 @@ describe('cooldownReadyFraction', () => {
     expect(cooldownReadyFraction(9000, 3000)).toBe(0); // over-full remaining
     expect(cooldownReadyFraction(-10, 3000)).toBe(1);
     expect(cooldownReadyFraction(100, 0)).toBe(1); // zero reload is always ready
+  });
+});
+
+describe('weaponReadyFraction — per-slot cooldown mapping', () => {
+  it('reads cooldowns[weapon] against that weapon’s own reload', () => {
+    // Each slot at half its reload => 0.5, proving the correct reload is used.
+    const cooldowns = [
+      CONFIG.gun.reload / 2,
+      CONFIG.torpedo.reload / 2,
+      CONFIG.mine.dropCooldown / 2,
+    ];
+    expect(weaponReadyFraction(cooldowns, WEAPON.gun)).toBeCloseTo(0.5, 9);
+    expect(weaponReadyFraction(cooldowns, WEAPON.torpedo)).toBeCloseTo(0.5, 9);
+    expect(weaponReadyFraction(cooldowns, WEAPON.mine)).toBeCloseTo(0.5, 9);
+  });
+
+  it('is ready (1) at zero remaining and empty at full reload', () => {
+    expect(weaponReadyFraction([0, 0, 0], WEAPON.torpedo)).toBe(1);
+    expect(weaponReadyFraction([0, CONFIG.torpedo.reload, 0], WEAPON.torpedo)).toBe(0);
   });
 });

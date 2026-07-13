@@ -4,7 +4,7 @@
 // Text strings are diffed before assignment (Pixi re-rasterizes on `.text`).
 
 import { Container, Graphics, Text } from 'pixi.js';
-import type { ShipState } from '@salvo/shared';
+import type { ShipState, WeaponId } from '@salvo/shared';
 import { CONFIG, wrapPositive } from '@salvo/shared';
 import type { Axes } from '../input/keyboard.js';
 
@@ -17,6 +17,18 @@ const PANEL_H = 60;
 const MARGIN = 20;
 const BAR_W = 150;
 const BAR_H = 10;
+
+/** Weapon selector chip labels + reload durations, indexed by WeaponId. */
+const WEAPON_LABELS = ['1 GUNS', '2 TORP', '3 MINE'] as const;
+const WEAPON_RELOADS = [CONFIG.gun.reload, CONFIG.torpedo.reload, CONFIG.mine.dropCooldown];
+const CHIP_GAP = 4;
+const CHIP_H = 12;
+const CHIP_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 9,
+  fill: DIM,
+  letterSpacing: 1,
+} as const;
 
 const LABEL_STYLE = {
   fontFamily: 'Geist Mono, monospace',
@@ -37,6 +49,7 @@ const OVERLAY_STYLE = {
 export interface OwnStatus {
   hp: number;
   cooldowns: number[]; // ms remaining, weapon-indexed
+  weapon: WeaponId; // currently-selected weapon (server-echoed)
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
 }
@@ -59,6 +72,15 @@ export function cooldownReadyFraction(ms: number, reload: number): number {
   return f < 0 ? 0 : f > 1 ? 1 : f;
 }
 
+/**
+ * Ready fraction for one weapon slot: reads cooldowns[weapon] against THAT
+ * weapon's reload (guns 3s / torpedoes 12s / mines 8s). Pure — the chip drawing
+ * and any external HUD both share this per-slot mapping.
+ */
+export function weaponReadyFraction(cooldowns: number[], weapon: WeaponId): number {
+  return cooldownReadyFraction(cooldowns[weapon] ?? 0, WEAPON_RELOADS[weapon]);
+}
+
 export class Hud {
   private readonly root = new Container();
   private readonly gauges = new Graphics();
@@ -66,6 +88,7 @@ export class Hud {
   private readonly headingLabel: Text;
   private readonly speedLabel: Text;
   private readonly overlay: Text;
+  private readonly chipLabels: Text[];
   private lastHeading = '';
   private lastSpeed = '';
   private lastOverlay = '';
@@ -86,6 +109,11 @@ export class Hud {
     this.overlay.anchor.set(0.5);
     this.overlay.visible = false;
     hudLayer.addChild(this.overlay);
+    this.chipLabels = WEAPON_LABELS.map((t) => {
+      const label = new Text({ text: t, style: CHIP_STYLE });
+      hudLayer.addChild(label);
+      return label;
+    });
   }
 
   private layout(screenH: number): void {
@@ -111,18 +139,14 @@ export class Hud {
     g.rect(defX - 1.5, ry - 6, 3, 12).fill({ color: GREEN, alpha: 0.9 });
   }
 
-  /** HP bar + two gun cooldown bars, anchored bottom-right (screen space). */
+  /** HP bar + the 3-weapon selector chip row, anchored bottom-right (screen space). */
   private drawBars(status: OwnStatus, screenW: number, screenH: number): void {
     const g = this.bars;
     g.clear();
     const x = screenW - BAR_W - MARGIN;
     const baseY = screenH - MARGIN - PANEL_H;
     this.drawHp(g, x, baseY, status.hp);
-    // Both gun bars reflect OwnShip.cooldowns[0] (soonest-ready mount); the wire
-    // carries the aggregate, not per-mount timers, so port/starboard share it.
-    const ready = cooldownReadyFraction(status.cooldowns[0] ?? 0, CONFIG.gun.reload);
-    this.drawCooldown(g, x, baseY + 18, ready);
-    this.drawCooldown(g, x + BAR_W / 2 + 4, baseY + 18, ready);
+    this.drawWeaponChips(g, status, x, baseY + 18);
   }
 
   private drawHp(g: Graphics, x: number, y: number, hp: number): void {
@@ -132,11 +156,23 @@ export class Hud {
     g.rect(x, y, BAR_W, BAR_H).stroke({ width: 1, color: DIM, alpha: 0.5 });
   }
 
-  private drawCooldown(g: Graphics, x: number, y: number, ready: number): void {
-    const w = BAR_W / 2 - 4;
-    g.rect(x, y, w, BAR_H).fill({ color: 0x111111, alpha: 0.8 });
-    const color = ready >= 1 ? AMBER : DIM;
-    g.rect(x, y, w * ready, BAR_H).fill({ color, alpha: 0.9 });
+  /**
+   * Three chips [1 GUNS / 2 TORP / 3 MINE]: the selected one is outlined amber;
+   * each fills green→dim by its own cooldown from OwnShip.cooldowns[weapon].
+   */
+  private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number): void {
+    const cw = (BAR_W - 2 * CHIP_GAP) / 3;
+    for (let i = 0; i < 3; i++) {
+      const cx = x + i * (cw + CHIP_GAP);
+      const ready = weaponReadyFraction(status.cooldowns, i as WeaponId);
+      const selected = i === status.weapon;
+      g.rect(cx, y, cw, CHIP_H).fill({ color: 0x111111, alpha: 0.8 });
+      g.rect(cx, y, cw * ready, CHIP_H).fill({ color: ready >= 1 ? GREEN : DIM, alpha: 0.85 });
+      g.rect(cx, y, cw, CHIP_H).stroke({ width: selected ? 1.5 : 1, color: selected ? AMBER : DIM, alpha: selected ? 0.9 : 0.4 });
+      const label = this.chipLabels[i];
+      label.position.set(cx + 3, y + CHIP_H + 2);
+      label.style.fill = selected ? AMBER : DIM;
+    }
   }
 
   private updateReadouts(ship: ShipState): void {

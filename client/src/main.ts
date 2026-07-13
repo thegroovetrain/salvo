@@ -15,6 +15,7 @@ import { ContactViews } from './render/contacts.js';
 import { Projectiles } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
 import { Effects } from './render/effects.js';
+import { Mines } from './render/mines.js';
 import { Fog } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Hud, cooldownReadyFraction, type OwnStatus } from './render/hud.js';
@@ -46,6 +47,7 @@ interface Game {
   projectiles: Projectiles;
   firing: FiringUX;
   effects: Effects;
+  mines: Mines;
   fog: Fog;
   radar: Radar;
   hud: Hud;
@@ -89,6 +91,7 @@ function ownStatus(g: Game): OwnStatus {
   return {
     hp: you?.hp ?? CONFIG.ship.hp,
     cooldowns: you?.cooldowns ?? [0, 0, 0],
+    weapon: you?.weapon ?? 0,
     alive: you?.alive ?? true,
     respawnInMs: eta != null ? Math.max(0, eta - g.clock.serverNow()) : 0,
   };
@@ -113,6 +116,10 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
   ownView.gfx.visible = false;
   stage.layers.ship.addChild(ownView.gfx);
 
+  // Effects is built before Projectiles so the torpedo-wake trail can feed the
+  // shared effects pool via a closure.
+  const effects = new Effects(stage.layers.wake, stage.layers.projectile);
+
   const g: Game = {
     stage,
     state: createGameState(welcome.sessionId),
@@ -126,9 +133,10 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
     sampler: new InputSampler((type, msg) => conn.room.send(type, msg)),
     ownView,
     contactViews: new ContactViews(stage.layers.ship),
-    projectiles: new Projectiles(stage.layers.projectile),
+    projectiles: new Projectiles(stage.layers.projectile, (x, y) => effects.spawnEffect('torpwake', x, y)),
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
-    effects: new Effects(stage.layers.wake, stage.layers.projectile),
+    effects,
+    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld),
     fog: new Fog(stage.fogSprite),
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
     hud: new Hud(stage.layers.hud),
@@ -156,7 +164,10 @@ function renderOwn(g: Game, pose: RenderPose, status: OwnStatus, frameDt: number
   g.hud.update(pose, g.keyboard.axes(), status, g.stage.app.screen.width, g.stage.app.screen.height);
 }
 
-/** Gun-arc sectors + crosshair while alive; hidden once sunk. */
+/** Reload duration (ms) per weapon, indexed by WeaponId (for the ready fraction). */
+const WEAPON_RELOADS = [CONFIG.gun.reload, CONFIG.torpedo.reload, CONFIG.mine.dropCooldown];
+
+/** Weapon arc/marker + crosshair while alive; hidden once sunk. */
 function renderFiring(g: Game, pose: RenderPose, status: OwnStatus): void {
   if (!status.alive) {
     g.firing.hide();
@@ -164,8 +175,11 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus): void {
   }
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
-  const ready = cooldownReadyFraction(status.cooldowns[0] ?? 0, CONFIG.gun.reload);
-  g.firing.update(pose, aim, ready, cursor);
+  // Drive the firing UX from the client-selected weapon (immediate), reading its
+  // cooldown from the server-authoritative cooldowns[] for that same slot.
+  const weapon = g.keyboard.weapon;
+  const ready = cooldownReadyFraction(status.cooldowns[weapon] ?? 0, WEAPON_RELOADS[weapon]);
+  g.firing.update(pose, aim, weapon, ready, cursor);
 }
 
 function makeCallbacks(g: Game): LoopCallbacks {
@@ -173,7 +187,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
     simTick: () => {
       const cursor = g.camera.screenToWorld(g.mouse.screenPos);
       const aim = worldAim(g.lastOwn.x, g.lastOwn.y, cursor);
-      const input = g.sampler.sample(g.keyboard.axes(), { aim, fire: g.mouse.fire, weapon: 0 });
+      const input = g.sampler.sample(g.keyboard.axes(), { aim, fire: g.mouse.fire, weapon: g.keyboard.weapon });
       if (g.state.mode === 'predict') g.predictor.localTick(input);
     },
     render: (alpha, frameDt) => {

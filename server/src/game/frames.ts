@@ -7,8 +7,8 @@
 // ever put contacts or events into a frame.
 
 import type { FrameMsg, OwnShip } from '@salvo/shared';
-import { soonestGunCooldown } from './combat.js';
 import { observe } from './perception.js';
+import { weaponCooldowns } from './weapons/index.js';
 import type { ShipRecord, World } from './world.js';
 
 function toOwnShip(ship: ShipRecord): OwnShip {
@@ -21,9 +21,8 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     hp: ship.hp,
     alive: ship.alive,
     weapon: ship.input.weapon,
-    // [guns, torpedoes, mines] ms remaining. Guns = soonest-ready mount;
-    // torpedoes/mines land in step 12 (0 for now).
-    cooldowns: [soonestGunCooldown(ship.gunCooldowns), 0, 0],
+    // [guns, torpedoes, mines] ms remaining, each the soonest-ready mount/tube.
+    cooldowns: weaponCooldowns(ship),
     // Post-advance angle == the leading edge of this tick's paint window, so
     // the client wedge visually crosses a contact the moment its blip arrives.
     sweep: ship.sweepAngle,
@@ -44,5 +43,6 @@ export function buildFrame(world: World, playerId: string): FrameMsg {
     you: ship ? toOwnShip(ship) : undefined,
     contacts: view.contacts,
     events: view.events,
+    mines: view.mines,
   };
 }

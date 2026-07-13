@@ -95,6 +95,11 @@ function injectShell(
   });
 }
 
+/** Drop a mine directly into world state (armed by default). */
+function injectMine(w: World, id: string, ownerId: string, x: number, y: number, armedAt = 0): void {
+  w.mines.set(id, { id, ownerId, x, y, armedAt });
+}
+
 const blipsOf = (f: FrameMsg) => f.events.filter((e): e is BlipEvent => e.k === 'blip');
 const shellsOf = (f: FrameMsg) => f.events.filter((e): e is BallisticEvent => e.k === 'shell');
 const boomsOf = (f: FrameMsg) => f.events.filter((e): e is BoomEvent => e.k === 'boom');
@@ -370,6 +375,47 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
   });
 });
 
+// ---------- directed cases: mine visibility (contact-like) -------------------
+
+describe('perception — mine visibility (owner-always, else sight+LOS, never radar)', () => {
+  it('the owner sees all its own mines everywhere; the enemy never radar-paints them', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'b', 0, 0); // b co-located briefly; we only read its frame's mines
+    injectMine(w, 'm1', 'a', 900, 900); // owner's mine, far outside any range
+    const fa = buildFrame(w, 'a');
+    expect(fa.mines).toEqual([{ id: 'm1', x: 900, y: 900, own: true }]);
+    // b sits at the origin — the mine is 1273u away, far beyond radar(650).
+    expect(buildFrame(w, 'b').mines).toEqual([]);
+  });
+
+  it('an enemy mine is visible inside sight, invisible just outside it', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectMine(w, 'm1', 'b', SIGHT, 0); // exactly at sight — inclusive
+    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: SIGHT, y: 0, own: false }]);
+    w.mines.clear();
+    injectMine(w, 'm2', 'b', SIGHT + 0.01, 0); // a hair beyond sight
+    expect(buildFrame(w, 'a').mines).toEqual([]);
+  });
+
+  it('an enemy mine behind an island is invisible (LOS rule)', () => {
+    const w = bareWorld();
+    w.map.islands.push({ x: 60, y: 0, r: 25 });
+    place(w, 'a', 0, 0);
+    injectMine(w, 'm1', 'b', 120, 0); // inside sight range but behind the rock
+    expect(buildFrame(w, 'a').mines).toEqual([]);
+  });
+
+  it('arm state makes no difference to visibility', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectMine(w, 'armed', 'b', 100, 0, 0);
+    injectMine(w, 'unarmed', 'b', 100, 20, w.now + CONFIG.mine.armDelay);
+    expect(buildFrame(w, 'a').mines.map((m) => m.id).sort()).toEqual(['armed', 'unarmed']);
+  });
+});
+
 // ---------- THE INVARIANT (property-style over random worlds) ----------------
 
 /** Assert one frame leaks nothing beyond the observer's vision. */
@@ -385,6 +431,16 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect({ x: c.x, y: c.y }).toEqual({ x: target.state.x, y: target.state.y });
   }
   for (const e of f.events) verifyEvent(w, me, e);
+  for (const m of f.mines) verifyMine(w, me, m);
+}
+
+/** A mine may reach a frame only if the viewer owns it OR it is sighted. */
+function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean }): void {
+  const mine = w.mines.get(m.id)!;
+  expect(mine).toBeDefined();
+  const own = mine.ownerId === me.id;
+  expect(m.own).toBe(own);
+  if (!own) expect(sighted(w, me, mine)).toBe(true); // never radar, never fogged
 }
 
 function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
@@ -461,6 +517,11 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           rng.float(0, TAU),
           rng.float(20, CONFIG.gun.shellRange),
         );
+      }
+      for (let s = 0; s < rng.int(0, 4); s++) {
+        const ang = rng.float(0, TAU);
+        const r = rng.float(0, w.map.radius * 0.9);
+        injectMine(w, `mine${s}`, ids[rng.int(0, ids.length - 1)], Math.cos(ang) * r, Math.sin(ang) * r);
       }
       for (let tick = 1; tick <= 6; tick++) {
         for (const id of ids) {

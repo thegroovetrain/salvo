@@ -7,6 +7,7 @@ import {
   soonestGunCooldown,
   tickGunCooldowns,
 } from '../game/combat.js';
+import { freshMineCooldown, freshTorpedoCooldowns } from '../game/weapons/index.js';
 import type { ShipRecord } from '../game/world.js';
 import { World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -26,8 +27,10 @@ function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
     respawnAt: 0,
     sweepAngle: 0,
     prevSweepAngle: 0,
-    seenShells: new Set<string>(),
+    seenBallistics: new Set<string>(),
     gunCooldowns: freshGunCooldowns(),
+    torpedoCooldowns: freshTorpedoCooldowns(),
+    mineCooldown: freshMineCooldown(),
     kills: 0,
     deaths: 0,
     ...overrides,

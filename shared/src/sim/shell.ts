@@ -1,30 +1,42 @@
-// Shell (gun projectile) kinematics + swept collision, shared so the wire types
-// and the no-tunneling geometry live in one place. Pure: stepShell advances a
-// shell one fixed tick and returns an OUTCOME; the server owns applying damage,
-// spawning booms, and removing spent shells. Constant velocity, finite range.
+// Ballistic (gun shell / torpedo) kinematics + swept collision, shared so the
+// wire types and the no-tunneling geometry live in one place. Pure: stepShell
+// advances one projectile a fixed tick and returns an OUTCOME; the server owns
+// applying damage, spawning booms, and removing spent projectiles. Constant
+// velocity, finite range. ONE parameterized model serves both weapons — guns
+// and torpedoes differ only in speed/range/damage/collision-radius, all carried
+// on the ShellState (torpedoes are just slow, long-legged, hard-hitting shells).
 //
 // Swept collision (no tunneling even at max closing speed): the tick's travel is
 // a segment p0->p1. Against islands it is seg-vs-circle (segCircleHit → entry
 // fraction t). Against hulls it is seg-vs-capsule: closest approach of the shell
 // segment to the hull axis segment (segSegClosest), a hit iff that gap ≤ hull
-// radius + shell radius, at fraction `s` along the shell segment. Earliest
-// fraction across all obstacles wins. The firer is immune for selfHitGrace ms.
+// radius + projectile radius, at fraction `s` along the shell segment. Earliest
+// fraction across all obstacles wins. The firer is immune for graceMs.
 
 import { CONFIG } from '../constants.js';
 import { segCircleHit, segSegClosest } from '../math/geom.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Circle } from '../types.js';
 
-/** A shell in flight. Server-owned; the wire sends launch params once. */
+/**
+ * A projectile in flight (gun shell or torpedo). Server-owned; the wire sends
+ * launch params once. The optional weapon-specific fields default to gun values
+ * so existing shell construction (and every existing test) needs no change; a
+ * torpedo simply sets kind/damage/hitRadius explicitly.
+ */
 export interface ShellState {
   id: string;
-  ownerId: string; // firer — immune for selfHitGrace ms
+  ownerId: string; // firer — immune for graceMs
   x: number; // u — current position
   y: number; // u
   vx: number; // u/s
   vy: number; // u/s
   distLeft: number; // u — remaining travel before it splashes
   bornAt: number; // ms — server time it was fired
+  kind?: 'shell' | 'torp'; // wire kind (default 'shell')
+  damage?: number; // hp per hull hit (default CONFIG.gun.damage)
+  hitRadius?: number; // collision radius added to the hull capsule (default gun.shellRadius)
+  graceMs?: number; // owner self-hit grace (default gun.selfHitGrace)
 }
 
 /** A hull to test shells against: the capsule's axis segment (stern → bow). */
@@ -52,8 +64,10 @@ export type ShellOutcome =
 /** Half-length of the hull capsule's axis segment (so segment + 2r = length). */
 export const HULL_HALF_AXIS = (CONFIG.ship.length - CONFIG.ship.beam) / 2;
 
-/** Shell-vs-hull hit threshold: capsule radius + shell radius. */
-const HIT_THRESHOLD = CONFIG.ship.beam / 2 + CONFIG.gun.shellRadius;
+/** Projectile-vs-hull hit threshold: capsule radius + this projectile's radius. */
+function hitThreshold(shell: ShellState): number {
+  return CONFIG.ship.beam / 2 + (shell.hitRadius ?? CONFIG.gun.shellRadius);
+}
 
 /** Capsule axis endpoints (stern, bow) for a ship pose. */
 export function hullEndpoints(x: number, y: number, heading: number): HullTarget {
@@ -83,12 +97,13 @@ function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Circle[]): Hit | n
 
 /** Earliest hull hit along p0->p1, honoring owner self-hit grace, or null. */
 function earliestHull(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
-  const graced = ctx.now - shell.bornAt < CONFIG.gun.selfHitGrace;
+  const graced = ctx.now - shell.bornAt < (shell.graceMs ?? CONFIG.gun.selfHitGrace);
+  const threshold = hitThreshold(shell);
   let best: Hit | null = null;
   for (const hull of ctx.hulls) {
     if (hull.id === shell.ownerId && graced) continue;
     const c = segSegClosest(p0, p1, hull.stern, hull.bow);
-    if (c.dist > HIT_THRESHOLD) continue;
+    if (c.dist > threshold) continue;
     if (best === null || c.s < best.frac) best = { frac: c.s, victimId: hull.id };
   }
   return best;
