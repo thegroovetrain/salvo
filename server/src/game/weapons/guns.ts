@@ -45,7 +45,13 @@ export function clampToArc(angle: number, center: number, halfArc: number): numb
   return wrapAngle(angle);
 }
 
-/** Soonest-ready gun cooldown (ms) — the value surfaced in OwnShip.cooldowns[0]. */
+/**
+ * Fallback soonest-ready mount cooldown (ms) across ALL mounts. Used by
+ * gunSystem.soonest() only when the current aim bears on neither mount (aim
+ * dead ahead/astern, over the bow or stern where no broadside covers) — with
+ * disjoint port/starboard arcs, a plain min across mounts is otherwise
+ * misleading the rest of the time (see gunSystem.soonest's comment).
+ */
 export function soonestGunCooldown(cooldowns: number[]): number {
   return cooldowns.length === 0 ? 0 : Math.min(...cooldowns);
 }
@@ -97,7 +103,19 @@ export const gunSystem: WeaponSystem = {
   tick(ship: ShipRecord, dtMs: number): void {
     tickGunCooldowns(ship.gunCooldowns, dtMs);
   },
+  // Aim-aware: the two broadside mounts have DISJOINT arcs (port +90°±60°,
+  // starboard -90°±60°), so a plain min across mounts is permanently the
+  // off-side (always-ready) mount and OwnShip.cooldowns[0] would never move.
+  // Surface the cooldown of whichever mount currently bears on the ship's
+  // aim — the same arc test fireGuns uses, so the HUD tracks the mount that
+  // would actually fire next. When no mount bears (aim over the bow/stern),
+  // fall back to the min across mounts.
   soonest(ship: ShipRecord): number {
+    const aim = ship.input.aim;
+    for (let i = 0; i < MOUNTS.length; i++) {
+      const center = wrapAngle(ship.state.heading + MOUNTS[i].offset);
+      if (inArc(aim, center, MOUNTS[i].halfArc)) return ship.gunCooldowns[i];
+    }
     return soonestGunCooldown(ship.gunCooldowns);
   },
   fire(ctx: FireContext): void {

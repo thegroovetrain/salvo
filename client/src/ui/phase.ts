@@ -22,15 +22,6 @@ export function secondsUntil(deadlineT: number, serverNow: number): number {
 }
 
 /**
- * True during the ready-room phases where the server suppresses all damage
- * ("WEAPONS SAFE" per matchUx's tag below) — mirrors world.ts's damageEnabled
- * gate cosmetically for the denied-fire predicate (render/deniedFire.ts).
- */
-export function isWeaponsSafe(phase: string): boolean {
-  return phase === 'waiting' || phase === 'countdown';
-}
-
-/**
  * Map the public match plane to HUD strings. `humans` is the roster size;
  * `countdownEndT`/`serverNow` are server ms (same clock as frames).
  */

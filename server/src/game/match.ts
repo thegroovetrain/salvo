@@ -2,9 +2,9 @@
 // imports; ArenaRoom is a thin adapter that forwards join/leave/tick and
 // implements the side-effect hooks). Phases:
 //
-//   waiting   — ready room. Ships spawn/drive/aim/FIRE freely, but all damage
-//               is suppressed (World.damageEnabled=false; target practice) and
-//               mine drops are disabled. Respawn works.
+//   waiting   — ready room. Ships spawn/drive/aim/FIRE freely (including mine
+//               drops), but all damage is suppressed (World.damageEnabled=
+//               false; target practice). Respawn works.
 //   countdown — starts the moment ≥ CONFIG.match.minHumans humans are present;
 //               countdownEndT = now + countdown. The room LOCKS (late joiners
 //               land in fresh rooms via joinOrCreate). CANCELS back to waiting
@@ -188,7 +188,6 @@ export class Match {
   private applyPolicy(): void {
     const w = this.world;
     w.damageEnabled = this.phase === 'active';
-    w.minesEnabled = this.phase === 'active';
     w.respawnEnabled = this.phase === 'waiting' || this.phase === 'countdown';
   }
 

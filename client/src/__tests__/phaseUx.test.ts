@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG } from '@salvo/shared';
-import { matchUx, secondsUntil, isWeaponsSafe, spectateBannerText } from '../ui/phase.js';
+import { matchUx, secondsUntil, spectateBannerText } from '../ui/phase.js';
 import { killLine } from '../ui/killFeed.js';
 
 describe('matchUx — phase to HUD strings', () => {
@@ -57,18 +57,6 @@ describe('secondsUntil', () => {
     expect(secondsUntil(15000, 0)).toBe(15);
     expect(secondsUntil(15001, 0)).toBe(16);
     expect(secondsUntil(0, 1)).toBe(0);
-  });
-});
-
-describe('isWeaponsSafe — the denied-fire predicate\'s phase gate', () => {
-  it('is true during the ready-room phases (waiting/countdown)', () => {
-    expect(isWeaponsSafe('waiting')).toBe(true);
-    expect(isWeaponsSafe('countdown')).toBe(true);
-  });
-
-  it('is false once damage is live (active) or the match is over (finished)', () => {
-    expect(isWeaponsSafe('active')).toBe(false);
-    expect(isWeaponsSafe('finished')).toBe(false);
   });
 });
 

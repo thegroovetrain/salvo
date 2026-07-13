@@ -40,7 +40,7 @@ import { Predictor, type RenderPose } from './sim/prediction.js';
 import { InputSampler } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
 import { showMenu, type MenuHandle } from './ui/menu.js';
-import { matchUx, secondsUntil, isWeaponsSafe, spectateBannerText, type MatchUx } from './ui/phase.js';
+import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { showResults } from './ui/results.js';
 import { Audio } from './audio/context.js';
 import { audioCues, stormEnterEdge, telegraphTone, INITIAL_CUE_STATE, type AudioCueState } from './audio/tones.js';
@@ -360,7 +360,6 @@ function renderOwn(
   zone: ZoneHud,
   match: MatchUx,
   frameDt: number,
-  weaponsSafe: boolean,
 ): void {
   if (!g.cameraSnapped) {
     g.camera.snapTo(pose);
@@ -372,7 +371,7 @@ function renderOwn(
   g.camera.update(frameDt, pose);
   g.effects.update(frameDt, pose);
   g.lastOwn = { x: pose.x, y: pose.y };
-  renderFiring(g, pose, status, weaponsSafe);
+  renderFiring(g, pose, status);
   g.hud.update(
     pose,
     g.keyboard.axes(),
@@ -390,13 +389,16 @@ const WEAPON_RELOADS = [CONFIG.gun.reload, CONFIG.torpedo.reload, CONFIG.mine.dr
 
 /**
  * Weapon arc/marker + crosshair while alive; hidden once sunk. Also derives
- * the denied-fire predicate (fire held but weapons-safe / out-of-arc blocks
- * it — a bare cooldown does NOT, see isFireDenied) plus the one-shot
- * press-edge "not ready yet" blip, and feeds their OR into the rate-limited
- * pulse — g.deniedFlash carries this frame's result to hud.update() for the
- * chip flash.
+ * the denied-fire predicate (fire held but out-of-arc blocks it — a bare
+ * cooldown does NOT, see isFireDenied) plus the one-shot press-edge "not
+ * ready yet" blip, and feeds their OR into the rate-limited pulse —
+ * g.deniedFlash carries this frame's result to hud.update() for the chip
+ * flash. NOT gated on the waiting/countdown "weapons safe" phase: the server
+ * fires all weapons there too (only damage is suppressed), so denying fire
+ * on that phase alone would red-pulse "denied" while shells visibly leave
+ * the tube.
  */
-function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, weaponsSafe: boolean): void {
+function renderFiring(g: Game, pose: RenderPose, status: OwnStatus): void {
   if (!status.alive) {
     g.firing.hide();
     g.deniedFlash = false;
@@ -410,7 +412,7 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, weaponsSafe:
   const weapon = g.keyboard.weapon;
   const ready = cooldownReadyFraction(status.cooldowns[weapon] ?? 0, WEAPON_RELOADS[weapon]);
   const inArc = weaponArcHit(pose.heading, aim, weapon);
-  const params = { fireHeld: g.mouse.fire, weaponsSafe, ready, inArc };
+  const params = { fireHeld: g.mouse.fire, ready, inArc };
   const denied = isFireDenied(params) || isPressEdgeNotReady(params, g.prevFireHeld);
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
   g.prevFireHeld = g.mouse.fire;
@@ -423,8 +425,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.radius);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
-  const weaponsSafe = isWeaponsSafe(publicState(g).matchPhase ?? 'waiting');
-  if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt, weaponsSafe);
+  if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt);
   else g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;

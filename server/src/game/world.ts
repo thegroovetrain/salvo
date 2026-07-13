@@ -11,7 +11,6 @@
 
 import {
   CONFIG,
-  WEAPON,
   generateMap,
   hullEndpoints,
   mulberry32,
@@ -100,12 +99,10 @@ export class World {
   // --- Combat policy flags (driven by the match lifecycle, game/match.ts) ---
   // Defaults are permissive so a standalone World (unit tests, sandbox smokes)
   // behaves exactly like the pre-lifecycle simulation; Match imposes phase
-  // policy on top (waiting/countdown: no damage, no mines; active: no respawn).
+  // policy on top (waiting/countdown: no damage; active: no respawn).
 
   /** False = target practice: shells/mines/storm land but deal no damage. */
   damageEnabled = true;
-  /** False = mine drops are ignored (waiting-phase persistent-state pollution). */
-  minesEnabled = true;
   /** False = sinkShip schedules NO respawn (active phase: death → spectate). */
   respawnEnabled = true;
 
@@ -432,9 +429,6 @@ export class World {
     for (const ship of this.ships.values()) {
       for (const sys of WEAPON_SYSTEMS) sys.tick(ship, dtMs);
       if (!ship.alive || !ship.input.fire) continue;
-      // Mine drops are disabled outside the active phase (persistent-state
-      // pollution); skipping BEFORE fire() leaves the drop cooldown untouched.
-      if (ship.input.weapon === WEAPON.mine && !this.minesEnabled) continue;
       WEAPON_SYSTEMS[ship.input.weapon].fire(this.fireContext(ship));
     }
   }

@@ -211,6 +211,41 @@ describe('cooldowns wire array', () => {
   });
 });
 
+describe('gun cooldowns[0] is aim-aware (disjoint broadside arcs, not a permanent min)', () => {
+  it('surfaces the mount bearing on aim; falls back to the min only when neither bears', () => {
+    const w = bareWorld();
+    const ship = w.addShip('a', 'A');
+    ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    const portCenter = HALF_PI; // heading(0) + gun.mounts[0] ('port') offset (+90deg)
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: portCenter, fire: true, weapon: WEAPON.gun };
+    w.step(); // fires the port mount only — starboard's arc (-90+/-60) doesn't cover this aim
+    expect(ship.gunCooldowns[0]).toBe(CONFIG.gun.reload);
+    expect(ship.gunCooldowns[1]).toBe(0);
+
+    // WITHOUT THE FIX, cooldowns[0] = Math.min(port, starboard) = 0 forever (the
+    // off-side starboard mount never bears from this aim, so the indicator never
+    // moves). WITH THE FIX, still aiming port, cooldowns[0] must surface the
+    // reloading PORT mount and tick down as it reloads.
+    ship.input = { ...ship.input, seq: 2, fire: false };
+    const beforeTick = weaponCooldowns(ship)[0];
+    expect(beforeTick).toBe(CONFIG.gun.reload);
+    w.step();
+    const afterTick = weaponCooldowns(ship)[0];
+    expect(afterTick).toBeLessThan(beforeTick);
+    expect(afterTick).toBeGreaterThan(0);
+
+    // Swing aim to starboard (ready): cooldowns[0] now reads the mount that bears.
+    ship.input = { ...ship.input, seq: 3, aim: -HALF_PI };
+    expect(weaponCooldowns(ship)[0]).toBe(0);
+
+    // Aim dead ahead: neither mount's arc covers the bow -> falls back to the min
+    // across mounts (distinct from either single mount's cooldown here).
+    ship.gunCooldowns = [1200, 700];
+    ship.input = { ...ship.input, seq: 4, aim: 0 };
+    expect(weaponCooldowns(ship)[0]).toBe(700);
+  });
+});
+
 describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
   it('a torpedo in the radar annulus produces no blip; a ship there does', () => {
     const w = bareWorld();

@@ -57,15 +57,18 @@ export interface InputMsg {
  *
  * `cooldowns` is a 3-element array indexed by WeaponId (ms remaining until that
  * weapon can fire again, 0 = ready to fire now):
- *   [0] guns     — the SOONEST-ready gun mount's remaining reload. Guns have
- *                  two independent broadside mounts; this surfaces the minimum
- *                  of their cooldowns so the HUD/UX reads "when can I next put a
- *                  shell out" regardless of which battery bears.
+ *   [0] guns     — the gun mount currently bearing on your aim (port +90°±60°
+ *                  or starboard -90°±60°), else the soonest-ready mount when
+ *                  neither bears (aim over the bow/stern). The two broadside
+ *                  mounts have DISJOINT arcs, so a plain min across them would
+ *                  almost always read the permanently-ready off-side mount;
+ *                  reading the mount that would actually fire next is what
+ *                  makes the HUD/UX move.
  *   [1] torpedoes — the SOONEST-ready bow tube's remaining reload. Two tubes
- *                  reload independently (12s each); the min reads "when can I
- *                  next launch a fish".
+ *                  reload independently (12s each) and share one bow arc, so
+ *                  the min reads "when can I next launch a fish".
  *   [2] mines     — remaining drop cooldown (8s between drops).
- * Per-mount / per-tube timers stay server-side; the wire carries only the mins.
+ * Per-mount / per-tube timers stay server-side; the wire carries only these.
  */
 export interface OwnShip {
   id: string;

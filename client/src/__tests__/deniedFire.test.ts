@@ -1,5 +1,8 @@
 // Denied-fire feedback (render/deniedFire.ts): pure predicate covering
-// cooldown / arc / weapons-safe-phase gates, plus the rate-limited pulse.
+// cooldown / arc gates, plus the rate-limited pulse. Deliberately NOT gated on
+// the waiting/countdown "weapons safe" phase — the server fires all weapons
+// in those phases too (only damage is suppressed), so a weapons-safe hold
+// must NOT pulse "denied" while shells are visibly leaving the tube.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -11,28 +14,24 @@ import {
   PULSE_RATE_MS,
 } from '../render/deniedFire.js';
 
-const READY_IN_ARC = { fireHeld: true, weaponsSafe: false, ready: 1, inArc: true };
+const READY_IN_ARC = { fireHeld: true, ready: 1, inArc: true };
 
 describe('isFireDenied', () => {
   it('is never denied when fire is not held, regardless of other gates', () => {
-    expect(isFireDenied({ fireHeld: false, weaponsSafe: true, ready: 0, inArc: false })).toBe(false);
+    expect(isFireDenied({ fireHeld: false, ready: 0, inArc: false })).toBe(false);
   });
 
-  it('is not denied when held, ready, in-arc, and weapons are live', () => {
+  it('is not denied when held, ready, and in-arc', () => {
     expect(isFireDenied(READY_IN_ARC)).toBe(false);
   });
 
-  it('is denied during the weapons-safe phase even if ready + in arc', () => {
-    expect(isFireDenied({ ...READY_IN_ARC, weaponsSafe: true })).toBe(true);
-  });
-
-  it('is NOT denied by a bare cooldown (ready < 1) while in-arc and weapons live — ' +
+  it('is NOT denied by a bare cooldown (ready < 1) while in-arc — ' +
     'this is the sustained hold-to-fire case; the reload bars already communicate it', () => {
     expect(isFireDenied({ ...READY_IN_ARC, ready: 0.99 })).toBe(false);
     expect(isFireDenied({ ...READY_IN_ARC, ready: 0 })).toBe(false);
   });
 
-  it('is denied when aim is outside the selected weapon arc, ready and weapons live', () => {
+  it('is denied when aim is outside the selected weapon arc, even when ready', () => {
     expect(isFireDenied({ ...READY_IN_ARC, inArc: false })).toBe(true);
   });
 
@@ -40,8 +39,9 @@ describe('isFireDenied', () => {
     expect(isFireDenied({ ...READY_IN_ARC, inArc: false, ready: 0.2 })).toBe(true);
   });
 
-  it('weapons-safe gate short-circuits before checking arc', () => {
-    expect(isFireDenied({ fireHeld: true, weaponsSafe: true, ready: 0, inArc: false })).toBe(true);
+  it('a weapons-safe hold (fire held, ready, in-arc) does NOT pulse denied — ' +
+    'the server fires in waiting/countdown too, only damage is suppressed', () => {
+    expect(isFireDenied(READY_IN_ARC)).toBe(false);
   });
 });
 
@@ -55,7 +55,7 @@ describe('firePressEdge', () => {
 });
 
 describe('isPressEdgeNotReady', () => {
-  it('blips once on a fresh press while on cooldown, in-arc, weapons live', () => {
+  it('blips once on a fresh press while on cooldown, in-arc', () => {
     expect(isPressEdgeNotReady({ ...READY_IN_ARC, ready: 0.4 }, false)).toBe(true);
   });
 
@@ -67,8 +67,7 @@ describe('isPressEdgeNotReady', () => {
     expect(isPressEdgeNotReady({ ...READY_IN_ARC, ready: 1 }, false)).toBe(false);
   });
 
-  it('defers to isFireDenied when weapons-safe or out-of-arc (no double signal)', () => {
-    expect(isPressEdgeNotReady({ ...READY_IN_ARC, ready: 0.4, weaponsSafe: true }, false)).toBe(false);
+  it('defers to isFireDenied when out-of-arc (no double signal)', () => {
     expect(isPressEdgeNotReady({ ...READY_IN_ARC, ready: 0.4, inArc: false }, false)).toBe(false);
   });
 });
@@ -77,20 +76,21 @@ describe('isFireDenied + isPressEdgeNotReady together — the sustained-fire sce
   it('holding fire through a full reload cycle in-arc never denies', () => {
     const prevFireHeld = true; // fire was already held before this simulated window
     for (const ready of [1, 0.75, 0.5, 0.25, 0, 0.25, 0.5, 0.75, 1]) {
-      const p = { fireHeld: true, weaponsSafe: false, ready, inArc: true };
+      const p = { fireHeld: true, ready, inArc: true };
       expect(isFireDenied(p) || isPressEdgeNotReady(p, prevFireHeld)).toBe(false);
     }
   });
 
   it('a fresh press while out of arc denies immediately', () => {
-    const p = { fireHeld: true, weaponsSafe: false, ready: 1, inArc: false };
+    const p = { fireHeld: true, ready: 1, inArc: false };
     expect(isFireDenied(p) || isPressEdgeNotReady(p, false)).toBe(true);
   });
 
-  it('holding fire through the weapons-safe phase denies every frame (rate-limited by DeniedPulse)', () => {
+  it('holding fire through the weapons-safe phase (waiting/countdown) never denies — ' +
+    'the server fires there too, so this is not a fire-denial gate', () => {
     const prevFireHeld = true;
-    const p = { fireHeld: true, weaponsSafe: true, ready: 1, inArc: true };
-    expect(isFireDenied(p) || isPressEdgeNotReady(p, prevFireHeld)).toBe(true);
+    const p = { fireHeld: true, ready: 1, inArc: true };
+    expect(isFireDenied(p) || isPressEdgeNotReady(p, prevFireHeld)).toBe(false);
   });
 });
 

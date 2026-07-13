@@ -1,8 +1,9 @@
 // Match lifecycle state machine (game/match.ts): every transition including
 // countdown cancel + relock, the active reset (field cleared, hulls redeployed,
-// zone anchored), waiting-phase damage suppression + mine lockout, disabled
-// respawn in active, placement ordering (sink order, leave-during-match,
-// mutual destruction), the results payload, and the post-results disconnect.
+// zone anchored), waiting-phase damage suppression (mines drop freely but the
+// field is wiped at activation), disabled respawn in active, placement
+// ordering (sink order, leave-during-match, mutual destruction), the results
+// payload, and the post-results disconnect.
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, type ResultsMsg } from '@salvo/shared';
@@ -96,11 +97,10 @@ function stepUntilBoom(ctx: Ctx, maxTicks = 20): void {
 }
 
 describe('match — waiting phase (ready room)', () => {
-  it('starts weapons-safe: damage + mines off, respawn on', () => {
+  it('starts weapons-safe: damage off, respawn on', () => {
     const ctx = setup(['a']);
     expect(ctx.m.phase).toBe('waiting');
     expect(ctx.w.damageEnabled).toBe(false);
-    expect(ctx.w.minesEnabled).toBe(false);
     expect(ctx.w.respawnEnabled).toBe(true);
   });
 
@@ -114,12 +114,25 @@ describe('match — waiting phase (ready room)', () => {
     expect(ctx.w.tickEvents.some((e) => e.k === 'dmg')).toBe(false);
   });
 
-  it('disables mine drops (and does not consume the drop cooldown)', () => {
+  it('allows mine drops (no phase lockout — resetForMatchStart clears the field at activation instead)', () => {
     const ctx = setup(['a']);
     fire(ctx, 'a', 2, 1);
     step(ctx);
-    expect(ctx.w.mines.size).toBe(0);
-    expect(ctx.w.ships.get('a')!.mineCooldown).toBe(0);
+    expect(ctx.w.mines.size).toBe(1);
+    expect(ctx.w.ships.get('a')!.mineCooldown).toBeGreaterThan(0);
+  });
+
+  it('a practice mine deals no damage when triggered (target practice: boom, no hp loss, mine despawns)', () => {
+    const ctx = setup(['a']); // single human — stays in waiting (matches the other tests here)
+    const a = ctx.w.ships.get('a')!;
+    // Drop an already-armed mine (owned by a bystander, like injectShell's 'ghost')
+    // right on top of a — walks a ship onto an armed practice mine in waiting.
+    ctx.w.mines.set('m1', { id: 'm1', ownerId: 'ghost', x: a.state.x, y: a.state.y, armedAt: 0 });
+    step(ctx);
+    expect(ctx.w.mines.size).toBe(0); // triggered + despawned
+    expect(ctx.w.tickEvents.some((e) => e.k === 'boom')).toBe(true);
+    expect(a.hp).toBe(CONFIG.ship.hp); // no hp lost — damage is suppressed
+    expect(a.alive).toBe(true);
   });
 
   it('keeps the respawn loop alive', () => {
@@ -181,7 +194,6 @@ describe('match — countdown', () => {
     expect(ctx.w.zonePhase).not.toBe('idle'); // storm timeline anchored
     expect(ctx.m.countdownEndT).toBe(0);
     expect(ctx.w.damageEnabled).toBe(true);
-    expect(ctx.w.minesEnabled).toBe(true);
     expect(ctx.w.respawnEnabled).toBe(false);
     for (const ship of ctx.w.ships.values()) {
       expect(ship.hp).toBe(CONFIG.ship.hp);
