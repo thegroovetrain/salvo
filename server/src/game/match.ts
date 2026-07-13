@@ -27,6 +27,8 @@ import type { ShipRecord, World } from './world.js';
 export interface MatchTimings {
   countdownMs: number;
   resultsMs: number;
+  /** Humans required to start the countdown. DEV override; defaults to CONFIG. */
+  minHumans?: number;
 }
 
 export function defaultTimings(): MatchTimings {
@@ -53,6 +55,7 @@ export interface MatchHooks {
 /** Snapshot of a participant's identity + tallies (survives their ship's removal). */
 interface Participant {
   name: string;
+  isDrone: boolean;
   kills: number;
   damageDealt: number;
 }
@@ -81,14 +84,19 @@ export class Match {
     this.applyPolicy();
   }
 
+  /** Humans required to start the countdown (DEV override, else CONFIG). */
+  private get minHumans(): number {
+    return this.timings.minHumans ?? CONFIG.match.minHumans;
+  }
+
   /** Call after any join (and after onPlayerLeave): starts/cancels the countdown. */
   notifyRosterChanged(): void {
-    if (this.phase === 'waiting' && this.humanCount() >= CONFIG.match.minHumans) {
+    if (this.phase === 'waiting' && this.humanCount() >= this.minHumans) {
       this.phase = 'countdown';
       this.countdownEndT = this.world.now + this.timings.countdownMs;
       this.applyPolicy();
       this.hooks.lock();
-    } else if (this.phase === 'countdown' && this.humanCount() < CONFIG.match.minHumans) {
+    } else if (this.phase === 'countdown' && this.humanCount() < this.minHumans) {
       this.phase = 'waiting';
       this.countdownEndT = 0;
       this.applyPolicy();
@@ -133,8 +141,11 @@ export class Match {
     this.countdownEndT = 0;
     this.participants.clear();
     this.sinkOrder.length = 0;
+    // Drones ARE participants (kill feed / contacts / results rows include them
+    // and they can hold a placement) — the win + winner logic below is what
+    // keeps a drone from ever winning, not their exclusion from the roster.
     for (const s of this.world.ships.values()) {
-      if (!s.isDrone) this.participants.set(s.id, { name: s.name, kills: 0, damageDealt: 0 });
+      this.participants.set(s.id, { name: s.name, isDrone: s.isDrone, kills: 0, damageDealt: 0 });
     }
     this.applyPolicy();
   }
@@ -143,9 +154,11 @@ export class Match {
     for (const s of this.world.ships.values()) {
       if (this.participants.has(s.id)) this.snapshotStats(s);
     }
-    // RULING: with 0 humans alive (simultaneous mutual destruction) the winner
-    // is the latest-sunk human — the last entry in the sink order.
-    this.winnerId = aliveWinner?.id ?? this.sinkOrder[this.sinkOrder.length - 1] ?? '';
+    // RULING: with 0 humans alive (simultaneous mutual destruction, or the lone
+    // human sinking to the storm while drones survive) the winner is the
+    // latest-sunk HUMAN — drones can never win, so we skip past them in the sink
+    // order rather than taking its last entry blindly.
+    this.winnerId = aliveWinner?.id ?? this.latestSunkHuman() ?? '';
     this.computePlacements();
     this.phase = 'finished';
     this.finishedAt = this.world.now;
@@ -175,11 +188,20 @@ export class Match {
     this.sinkOrder.push(id);
   }
 
-  /** Post-step / post-leave: ≤1 alive human-controlled hull ends the match. */
+  /**
+   * Post-step / post-leave win check. A match with drones aboard cannot finish
+   * on the "≤1 human afloat" rule alone — that is already true at activation (1
+   * human + 5 drones), which would insta-finish. So the match ends only when:
+   *   - no human is alive (all humans sunk — winner = latest-sunk human), OR
+   *   - exactly one human is alive AND no other hull (drone or human) remains
+   *     (the lone human has cleared the field — winner = that human).
+   * A lone human with drones still afloat keeps fighting.
+   */
   private checkWin(): void {
-    const alive = this.aliveHumans();
-    if (alive.length > 1) return;
-    this.finish(alive[0]);
+    const humans = this.aliveHumans();
+    if (humans.length > 1) return;
+    if (humans.length === 1 && this.aliveDroneCount() > 0) return;
+    this.finish(humans[0]);
   }
 
   private maybeDisconnect(): void {
@@ -237,5 +259,20 @@ export class Match {
       if (!s.isDrone && s.alive) out.push(s);
     }
     return out;
+  }
+
+  private aliveDroneCount(): number {
+    let n = 0;
+    for (const s of this.world.ships.values()) if (s.isDrone && s.alive) n += 1;
+    return n;
+  }
+
+  /** Latest-sunk human id (scanning the sink order from the end), or undefined. */
+  private latestSunkHuman(): string | undefined {
+    for (let i = this.sinkOrder.length - 1; i >= 0; i--) {
+      const id = this.sinkOrder[i];
+      if (!this.participants.get(id)?.isDrone) return id;
+    }
+    return undefined;
   }
 }

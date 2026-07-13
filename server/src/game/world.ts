@@ -47,6 +47,7 @@ import {
   type MineState,
 } from './weapons/index.js';
 import { InputStore, neutralInput } from './inputs.js';
+import { DroneController } from './drones.js';
 import { pickSpawn } from './spawn.js';
 
 const TAU = Math.PI * 2;
@@ -88,6 +89,8 @@ export class World {
   /** All live dropped mines (static points), in drop order. */
   readonly mines = new Map<string, MineState>();
   readonly inputs = new InputStore();
+  /** Drives drone hulls through the normal input path (see game/drones.ts). */
+  readonly drones: DroneController;
 
   /** ms since world creation — the one server clock. */
   now = 0;
@@ -127,6 +130,8 @@ export class World {
     this.map = generateMap(seed, playerCap);
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
     this.zoneCfg = zoneCfg;
+    // Drone steering stream, decorrelated again from mapgen + spawn.
+    this.drones = new DroneController(this, (seed ^ 0x85ebca6b) >>> 0);
   }
 
   /**
@@ -191,6 +196,7 @@ export class World {
       damageDealt: 0,
     };
     this.ships.set(id, rec);
+    if (isDrone) this.drones.add(id);
     this.pending.push({ k: 'spawn', id, x: p.x, y: p.y });
     return rec;
   }
@@ -199,6 +205,7 @@ export class World {
   removeShip(id: string): void {
     this.ships.delete(id);
     this.inputs.remove(id);
+    this.drones.remove(id);
   }
 
   /**
@@ -266,6 +273,9 @@ export class World {
     this.now += dtMs;
     const dt = dtMs / 1000;
 
+    // Drones write their inputs through the same store humans use, so they are
+    // picked up by applyInputs exactly like any client this tick.
+    this.drones.tick();
     this.applyInputs();
     this.stepShips(dt);
     this.resolveCollisions();

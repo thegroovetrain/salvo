@@ -31,6 +31,8 @@ interface JoinOptions {
 interface MatchOverride {
   countdownMs?: number;
   resultsMs?: number;
+  /** DEV: humans needed to start the countdown (e.g. 1 for a solo drone smoke). */
+  minHumans?: number;
   sandbox?: boolean;
 }
 
@@ -55,6 +57,7 @@ export class ArenaRoom extends Room<ArenaState> {
   private match: Match | null = null;
   private accumulator = 0;
   private joinCounter = 0;
+  private droneCounter = 0;
 
   onCreate(options: RoomOptions = {}): void {
     const seed = (Math.random() * 0xffffffff) >>> 0;
@@ -84,6 +87,7 @@ export class ArenaRoom extends Room<ArenaState> {
     return {
       countdownMs: override?.countdownMs ?? base.countdownMs,
       resultsMs: override?.resultsMs ?? base.resultsMs,
+      minHumans: override?.minHumans,
     };
   }
 
@@ -92,13 +96,34 @@ export class ArenaRoom extends Room<ArenaState> {
     return {
       lock: () => void this.lock(),
       unlock: () => void this.unlock(),
-      // STEP 15 STUB: the drone-fill seam. DroneController lands here — until
-      // then matches run with however many humans are aboard. Loud on purpose.
-      fillToCapacity: () =>
-        console.warn('[match] fillToCapacity(): STEP 15 STUB — no drones filled'),
+      // Drone-fill seam (step 15): top the roster up to CONFIG.match.fillTo with
+      // weaponless target drones, each a real ship + PlayerMeta so kill feed,
+      // contacts, blips, and results rows all include them.
+      fillToCapacity: () => this.fillToCapacity(),
       broadcastResults: (msg: ResultsMsg) => this.broadcast(MSG.results, msg),
       disconnect: () => void this.disconnect(),
     };
+  }
+
+  /**
+   * Fill the empty slots with target drones at match activation. Each drone is
+   * an ordinary World ship (isDrone=true, driven by the DroneController via the
+   * normal input path) PLUS a public PlayerMeta, so it shows up everywhere a
+   * human does: roster, kill feed, contacts/blips, and the results table. Runs
+   * before resetForMatchStart, which redeploys drones to the spawn ring too.
+   */
+  private fillToCapacity(): void {
+    const need = CONFIG.match.fillTo - this.world.ships.size;
+    for (let i = 0; i < need; i++) {
+      this.droneCounter += 1;
+      const id = `drone-${this.droneCounter}`;
+      const name = `DRONE-${String(this.droneCounter).padStart(2, '0')}`;
+      this.world.addShip(id, name, true);
+      const meta = new PlayerMeta();
+      meta.id = id;
+      meta.name = name;
+      this.state.players.set(id, meta);
+    }
   }
 
   onJoin(client: Client, options: JoinOptions = {}): void {
