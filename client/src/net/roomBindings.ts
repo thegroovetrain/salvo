@@ -9,8 +9,10 @@
 import {
   CONFIG,
   MSG,
+  WEAPON,
   type BallisticEvent,
   type BoomEvent,
+  type DamageEvent,
   type FrameMsg,
   type ResultsMsg,
   type SpawnEvent,
@@ -26,7 +28,9 @@ import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
 import type { Mines } from '../render/mines.js';
+import type { ShakeDriver } from '../render/shake.js';
 import { killLine, pushKillLine } from '../ui/killFeed.js';
+import { fireTone, type ToneId } from '../audio/tones.js';
 
 /**
  * A `shell` event fires a muzzle flash only when it reveals AT a ship we can
@@ -51,6 +55,10 @@ export interface RoomBindingDeps {
   effects: Effects;
   radar: Radar;
   mines: Mines;
+  /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
+  shake: ShakeDriver;
+  /** Tone player (audio/context.ts) — a minimal play-only surface here. */
+  audio: { play: (id: ToneId) => void };
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /** Roster name lookup (public schema) for the kill feed. */
@@ -108,10 +116,10 @@ function handleEvents(f: FrameMsg, deps: RoomBindingDeps): void {
       case 'spawn': handleSpawn(e, deps); break;
       case 'sunk': handleSunk(e, f.t, deps); break;
       case 'shell': handleShell(e, deps); break;
-      case 'torp': deps.projectiles.onShell(e); break; // quiet weapon — no muzzle flash
+      case 'torp': handleTorp(e, deps); break;
       case 'blip': deps.radar.onBlip(e); break;
       case 'boom': handleBoom(e, deps); break;
-      // 'dmg' resolved via the boom's `hit` flash; kept for future HUD hooks.
+      case 'dmg': handleDamage(e, deps); break;
     }
   }
 }
@@ -121,12 +129,29 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   // Muzzle flash only when the reveal sits on a hull we can see (own ship or a
   // sighted contact) — a mid-flight fog-boundary reveal gets no flash.
   if (nearVisibleShip(e.x, e.y, deps)) deps.effects.spawnEffect('muzzle', e.x, e.y);
+  // Own-fire tone: for the shooter, reveal position == launch position == the
+  // shooter's own hull, so "near own ship" is a reliable (if not airtight)
+  // own-shot signal — the same heuristic the muzzle flash above already uses.
+  if (nearOwnShip(e.x, e.y, deps)) deps.audio.play(fireTone(WEAPON.gun));
+}
+
+/** Torpedoes are a "quiet weapon" — no muzzle flash for onlookers (per the
+ *  plan: a fish you can't see coming is the point) — but the shooter still
+ *  gets an own-fire whoosh, using the same near-own-ship heuristic as guns. */
+function handleTorp(e: BallisticEvent, deps: RoomBindingDeps): void {
+  deps.projectiles.onShell(e);
+  if (nearOwnShip(e.x, e.y, deps)) deps.audio.play(fireTone(WEAPON.torpedo));
+}
+
+/** True iff (x,y) is within one hull length of the own ship specifically. */
+function nearOwnShip(x: number, y: number, deps: RoomBindingDeps): boolean {
+  const you = deps.state.net.you;
+  return !!you && near2(x, y, you.x, you.y);
 }
 
 /** True iff (x,y) is within one hull length of the own ship or any live contact. */
 function nearVisibleShip(x: number, y: number, deps: RoomBindingDeps): boolean {
-  const you = deps.state.net.you;
-  if (you && near2(x, y, you.x, you.y)) return true;
+  if (nearOwnShip(x, y, deps)) return true;
   for (const id of deps.contacts.ids()) {
     const p = deps.contacts.get(id)?.newest;
     if (p && near2(x, y, p.x, p.y)) return true;
@@ -154,14 +179,29 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   const pos = sunkPosition(e.id, deps);
   if (pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
   pushKillLine(killLine(deps.names(e.id), e.by ? deps.names(e.by) : null));
-  if (e.id === deps.state.net.sessionId) {
+  const sessionId = deps.state.net.sessionId;
+  if (e.id === sessionId) {
     // In active this ETA is never used (the same frame carries spec:true and
     // spectate mode owns the overlay); in waiting the respawn overlay reads it.
     deps.state.respawnEta = t + CONFIG.ship.respawnDelay;
     deps.state.killerId = e.by ?? null; // follow-your-killer default
+    deps.audio.play('sink');
   } else {
     deps.contactViews.markSunk(e.id);
+    if (e.by === sessionId) deps.audio.play('kill'); // your victim went down
   }
+}
+
+/**
+ * Own-ship damage: shake + a thud. `dmg` is only ever emitted to the victim
+ * itself (perception.ts's worldEventForObserver never forwards another ship's
+ * dmg amount to onlookers), so this always fires for the local player — the
+ * id check is defensive, not load-bearing.
+ */
+function handleDamage(e: DamageEvent, deps: RoomBindingDeps): void {
+  if (e.id !== deps.state.net.sessionId) return;
+  deps.shake.trigger(e.amount);
+  deps.audio.play('damage');
 }
 
 /** Last known world position of a ship that just sank (own or a contact). */

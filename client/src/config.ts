@@ -12,9 +12,11 @@ export const CLIENT_CONFIG = {
     followRate: 5,
     /**
      * Look-ahead time (s). Lead distance = |speed| * leadSeconds, capped at
-     * leadMax. At maxSpeed 25 u/s this reaches ~100u before the cap.
+     * leadMax. At maxSpeed 25 u/s this reaches ~112.5u, past the leadMax cap
+     * (110u @ sight 220) — the cap engages near top speed (step 11 feel-pass
+     * tuning, up from 4s; flagged for playtest).
      */
-    leadSeconds: 4,
+    leadSeconds: 4.5,
     /** Lead distance cap (u) = 0.5 * sight range, per the plan. */
     leadMax: CONFIG.vision.sight * 0.5,
   },
@@ -23,8 +25,9 @@ export const CLIENT_CONFIG = {
   wake: {
     /** Don't spawn wake below this speed magnitude (u/s). */
     minSpeed: 1.5,
-    /** Spawn one dot per this many world-units travelled (spatial density). */
-    spacing: 6,
+    /** Spawn one dot per this many world-units travelled (spatial density).
+     *  Step 11 feel-pass tuning: 6 -> 4 for a richer trail; flagged for playtest. */
+    spacing: 4,
     /** Particle lifetime (s). */
     life: 1.1,
     /** Base radius of a wake dot (u). */

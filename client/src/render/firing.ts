@@ -15,10 +15,12 @@
 
 import { Container, Graphics } from 'pixi.js';
 import { CONFIG, WEAPON, inArc, wrapAngle, type WeaponId } from '@salvo/shared';
+import { weaponArcHit } from './weaponArc.js';
 
 const AMBER = 0xffb800;
 const TORP_TINT = 0x3fbf8f; // cool green — torpedo bow arc
 const DIM = 0x5a6478;
+const DENIED_RED = 0xff3b3b; // DESIGN.md invalid-placement red
 const ARC_R = 72; // u — sector indicator radius
 const RETICLE_R = 7; // u — crosshair size
 
@@ -54,6 +56,8 @@ export class FiringUX {
    * Redraw for this frame. `aim` is the world bearing to the cursor, `weapon` is
    * the selected weapon (drives which arc/marker shows), `ready` in [0,1] is the
    * selected weapon's ready fraction (1 = loaded). `cursor` is the world point.
+   * `denied` (default false) briefly overrides the sector/marker to a red pulse
+   * — driven by render/deniedFire.ts's rate-limited predicate.
    */
   update(
     pose: FiringPose,
@@ -61,13 +65,14 @@ export class FiringUX {
     weapon: WeaponId,
     ready: number,
     cursor: { x: number; y: number },
+    denied = false,
   ): void {
     this.arcs.clear();
     this.arcs.position.set(pose.x, pose.y);
     this.arcs.rotation = pose.heading;
-    if (weapon === WEAPON.gun) this.drawGunArcs(aim, pose.heading, ready);
-    else if (weapon === WEAPON.torpedo) this.drawBowArc(aim, pose.heading, ready);
-    else this.drawMineMarker(ready);
+    if (weapon === WEAPON.gun) this.drawGunArcs(aim, pose.heading, ready, denied);
+    else if (weapon === WEAPON.torpedo) this.drawBowArc(aim, pose.heading, ready, denied);
+    else this.drawMineMarker(ready, denied);
     this.drawReticle(pose, aim, weapon, ready, cursor);
   }
 
@@ -86,24 +91,24 @@ export class FiringUX {
     }
   }
 
-  private drawGunArcs(aim: number, heading: number, ready: number): void {
+  private drawGunArcs(aim: number, heading: number, ready: number, denied: boolean): void {
     for (const m of MOUNTS) {
       const lit = inArc(aim, wrapAngle(heading + m.offset), m.halfArc) && ready >= 1;
-      this.sector(m.offset, m.halfArc, AMBER, lit, ready);
+      this.sector(m.offset, m.halfArc, denied ? DENIED_RED : AMBER, denied || lit, ready);
     }
   }
 
-  private drawBowArc(aim: number, heading: number, ready: number): void {
+  private drawBowArc(aim: number, heading: number, ready: number, denied: boolean): void {
     const t = CONFIG.torpedo;
     const lit = inArc(aim, wrapAngle(heading + t.offset), t.halfArc) && ready >= 1;
-    this.sector(t.offset, t.halfArc, TORP_TINT, lit, ready);
+    this.sector(t.offset, t.halfArc, denied ? DENIED_RED : TORP_TINT, denied || lit, ready);
   }
 
   /** Astern drop indicator (local -x): a small ring where the next mine lands. */
-  private drawMineMarker(ready: number): void {
+  private drawMineMarker(ready: number, denied: boolean): void {
     const g = this.arcs;
-    const color = ready >= 1 ? AMBER : DIM;
-    const alpha = ready >= 1 ? 0.8 : 0.3;
+    const color = denied ? DENIED_RED : ready >= 1 ? AMBER : DIM;
+    const alpha = denied ? 0.9 : ready >= 1 ? 0.8 : 0.3;
     g.circle(-MINE_MARKER, 0, 6).stroke({ width: 1.5, color, alpha });
     g.circle(-MINE_MARKER, 0, 2).fill({ color, alpha });
   }
@@ -128,11 +133,7 @@ export class FiringUX {
 
   /** Reticle tint: bright when the aim is in the selected weapon's arc + ready. */
   private reticleColor(heading: number, aim: number, weapon: WeaponId, ready: number): number {
-    const inAny =
-      weapon === WEAPON.torpedo
-        ? inArc(aim, wrapAngle(heading + CONFIG.torpedo.offset), CONFIG.torpedo.halfArc)
-        : MOUNTS.some((m) => inArc(aim, wrapAngle(heading + m.offset), m.halfArc));
-    if (!(inAny && ready >= 1)) return DIM;
+    if (!(weaponArcHit(heading, aim, weapon) && ready >= 1)) return DIM;
     return weapon === WEAPON.torpedo ? TORP_TINT : AMBER;
   }
 }

@@ -45,10 +45,16 @@ export function reconcileMines(current: ReadonlySet<string>, incoming: readonly 
 export class Mines {
   private readonly sprites = new Map<string, Graphics>();
 
-  /** `ownLayer` = chartRoot (fog-immune); `enemyLayer` = worldRoot. */
+  /**
+   * `ownLayer` = chartRoot (fog-immune); `enemyLayer` = worldRoot.
+   * `onOwnMineSpawn` (optional) fires once per own mine newly added this
+   * sync — the audio own-fire cue hook (mines have no discrete GameEvent of
+   * their own; this reconcile diff is the only "just placed" signal).
+   */
   constructor(
     private readonly ownLayer: Container,
     private readonly enemyLayer: Container,
+    private readonly onOwnMineSpawn?: (m: MineView) => void,
   ) {}
 
   /** Reconcile sprites against this observer's mine list for the tick. */
@@ -63,6 +69,7 @@ export class Mines {
     g.position.set(m.x, m.y);
     (m.own ? this.ownLayer : this.enemyLayer).addChild(g);
     this.sprites.set(m.id, g);
+    if (m.own) this.onOwnMineSpawn?.(m);
   }
 
   private despawn(id: string): void {

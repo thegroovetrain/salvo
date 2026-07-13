@@ -32,3 +32,16 @@ export class Pool<T> {
     return this.createdCount;
   }
 }
+
+/**
+ * Pool-hygiene helper: cap a live list to at most `cap` entries, evicting the
+ * OLDEST (front) first — `list` is mutated in place (splice) and the evicted
+ * entries are returned so the caller can release any pooled resource they
+ * hold (e.g. a Pixi sprite back into its Pool). Used to bound unbounded growth
+ * of long-lived per-tick spawns (radar blips) when network messages keep
+ * arriving faster than the render loop retires them (e.g. a backgrounded tab).
+ */
+export function capOldest<T>(list: T[], cap: number): T[] {
+  const evictCount = list.length - cap;
+  return evictCount > 0 ? list.splice(0, evictCount) : [];
+}

@@ -1,0 +1,109 @@
+// Pure tone map + event->cue edge-detection (no AudioContext import — unit
+// tested). audio/context.ts is the thin AudioContext adapter that consumes
+// this table; kept separate so the mapping/exhaustiveness is testable without
+// a browser audio stack. Envelope shape follows DESIGN.md's carried-forward
+// playTone(freqStart, freqMid, freqEnd, duration, volume, type) approach.
+
+import { WEAPON, type WeaponId } from '@salvo/shared';
+
+/** Every distinct cue the client can play. */
+export type ToneId =
+  | 'fireGun'
+  | 'fireTorp'
+  | 'fireMine'
+  | 'damage'
+  | 'kill'
+  | 'sink'
+  | 'tick'
+  | 'matchStart'
+  | 'stormWarn';
+
+export interface ToneSpec {
+  freqStart: number; // Hz
+  freqMid: number; // Hz — reached at 40% of duration
+  freqEnd: number; // Hz — reached at duration
+  duration: number; // s
+  volume: number; // 0..1 peak gain
+  type: OscillatorType;
+  /** Layer a short filtered noise burst under the tone (cracks/whooshes). */
+  noise?: boolean;
+}
+
+/** Max tone duration (s) — "each ≤ ~150ms except sink (~400ms)" per the plan. */
+export const MAX_TONE_S = 0.15;
+export const MAX_SINK_TONE_S = 0.45;
+
+export const TONES: Record<ToneId, ToneSpec> = {
+  // Guns: sharp crack — fast downward chirp + a noise transient.
+  fireGun: { freqStart: 900, freqMid: 320, freqEnd: 150, duration: 0.09, volume: 0.5, type: 'square', noise: true },
+  // Torpedo: low whoosh, longer than the gun crack but still brief.
+  fireTorp: { freqStart: 180, freqMid: 140, freqEnd: 90, duration: 0.14, volume: 0.4, type: 'sawtooth', noise: true },
+  // Mine: soft low plop, no noise layer (a drop, not a launch).
+  fireMine: { freqStart: 220, freqMid: 150, freqEnd: 90, duration: 0.12, volume: 0.4, type: 'sine' },
+  // Taking damage: dull triangle thud.
+  damage: { freqStart: 220, freqMid: 160, freqEnd: 110, duration: 0.1, volume: 0.45, type: 'triangle' },
+  // Kill confirm: short ascending chime.
+  kill: { freqStart: 500, freqMid: 900, freqEnd: 1200, duration: 0.15, volume: 0.5, type: 'triangle' },
+  // Own sink: the one long tone — alarm warble sliding down into a low boom.
+  sink: { freqStart: 320, freqMid: 180, freqEnd: 60, duration: 0.4, volume: 0.55, type: 'sawtooth' },
+  // Countdown tick (last 5s): short, neutral, clock-like.
+  tick: { freqStart: 700, freqMid: 700, freqEnd: 700, duration: 0.06, volume: 0.3, type: 'square' },
+  // Match start: bright rising-then-settling tone.
+  matchStart: { freqStart: 400, freqMid: 900, freqEnd: 650, duration: 0.14, volume: 0.5, type: 'triangle' },
+  // Storm-enter warning: descending growl.
+  stormWarn: { freqStart: 160, freqMid: 110, freqEnd: 70, duration: 0.15, volume: 0.5, type: 'sawtooth' },
+};
+
+const FIRE_TONE: Record<WeaponId, ToneId> = {
+  [WEAPON.gun]: 'fireGun',
+  [WEAPON.torpedo]: 'fireTorp',
+  [WEAPON.mine]: 'fireMine',
+};
+
+/** Pure: which tone a weapon's own-fire cue plays. */
+export function fireTone(weapon: WeaponId): ToneId {
+  return FIRE_TONE[weapon];
+}
+
+// --- match-phase edge cues (countdown tick + match-start) -------------------
+
+/** Countdown seconds at/under which a tick plays. */
+const TICK_WINDOW_S = 5;
+
+export interface AudioCueState {
+  lastPhase: string;
+  /** Last countdown second a tick fired for (dedupes multiple frames of the
+   *  same second); null when not in the tick window / not counting down. */
+  lastTickSec: number | null;
+}
+
+export const INITIAL_CUE_STATE: AudioCueState = { lastPhase: 'connecting', lastTickSec: null };
+
+export interface AudioCueResult {
+  tick: boolean;
+  matchStart: boolean;
+  state: AudioCueState;
+}
+
+/**
+ * Pure edge-detector: given the previous cue state and this frame's match
+ * phase/countdown deadline, decide whether a tick or match-start cue should
+ * fire THIS frame, and return the updated state to carry into next frame.
+ * `secondsRemaining` is precomputed by the caller (ui/phase.ts's
+ * secondsUntil) so this module stays clock-agnostic.
+ */
+export function audioCues(prev: AudioCueState, phase: string, secondsRemaining: number): AudioCueResult {
+  const inTickWindow = phase === 'countdown' && secondsRemaining <= TICK_WINDOW_S;
+  const tick = inTickWindow && secondsRemaining !== prev.lastTickSec;
+  const matchStart = phase === 'active' && prev.lastPhase !== 'active';
+  return {
+    tick,
+    matchStart,
+    state: { lastPhase: phase, lastTickSec: inTickWindow ? secondsRemaining : null },
+  };
+}
+
+/** Pure: true the instant the own ship crosses from inside to outside the storm. */
+export function stormEnterEdge(prevInStorm: boolean, inStorm: boolean): boolean {
+  return inStorm && !prevInStorm;
+}

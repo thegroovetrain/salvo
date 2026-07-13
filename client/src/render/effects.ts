@@ -102,6 +102,9 @@ export class Effects {
   }
 
   private spawnOneShot(kind: Exclude<EffectKind, 'wake'>, x: number, y: number): void {
+    // Backgrounded tab: skip one-shot spawns entirely rather than let them pile
+    // up in the pool while the render loop that ages/retires them is throttled.
+    if (typeof document !== 'undefined' && document.hidden) return;
     const g = this.shotPool.acquire();
     g.clear();
     g.visible = true;

@@ -17,7 +17,7 @@
 import { Graphics, Sprite } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import { CONFIG, type BlipEvent } from '@salvo/shared';
-import { Pool } from '../util/pool.js';
+import { Pool, capOldest } from '../util/pool.js';
 import { blipAlpha, blipTint, sweepRotation } from './phosphor.js';
 import {
   BLIP_TEXTURE_SIZE,
@@ -28,6 +28,13 @@ import {
 
 /** Rendered blip diameter (world units). */
 const BLIP_DIAMETER_U = 16;
+/**
+ * Hard cap on live (decaying) blips. Radar paints arrive from network
+ * messages regardless of render-loop cadence — a backgrounded tab (rAF
+ * throttled/paused) can otherwise accumulate blips faster than they age out,
+ * growing the pool unbounded. Oldest-inserted is evicted first.
+ */
+const MAX_LIVE_BLIPS = 64;
 const RING_SIGHT_COLOR = 0x00ff88;
 const RING_RADAR_COLOR = 0xc0c0c0;
 
@@ -93,6 +100,10 @@ export class Radar {
     sprite.position.set(e.x, e.y);
     sprite.visible = true;
     this.blips.push({ sprite, t: e.t });
+    for (const evicted of capOldest(this.blips, MAX_LIVE_BLIPS)) {
+      evicted.sprite.visible = false;
+      this.pool.release(evicted.sprite);
+    }
   }
 
   /** Drop every live blip at once (entering spectate: contacts go live/unfogged). */

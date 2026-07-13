@@ -13,6 +13,7 @@ const GREEN = 0x00ff88;
 const AMBER = 0xffb800;
 const CRIMSON = 0x8b0000;
 const DIM = 0x5a6478;
+const DENIED_RED = 0xff3b3b; // DESIGN.md invalid-placement red — denied-fire chip flash
 const PANEL_W = 150;
 const PANEL_H = 60;
 const MARGIN = 20;
@@ -118,6 +119,13 @@ export function cooldownReadyFraction(ms: number, reload: number): number {
   if (reload <= 0) return 1;
   const f = 1 - ms / reload;
   return f < 0 ? 0 : f > 1 ? 1 : f;
+}
+
+/** Weapon-chip border color + alpha: dim/idle, amber/selected, red/denied-flash. */
+function chipTint(selected: boolean, flash: boolean): { border: number; alpha: number } {
+  if (flash) return { border: DENIED_RED, alpha: 1 };
+  if (selected) return { border: AMBER, alpha: 0.9 };
+  return { border: DIM, alpha: 0.4 };
 }
 
 /**
@@ -263,13 +271,13 @@ export class Hud {
   }
 
   /** HP bar + the 3-weapon selector chip row, anchored bottom-right (screen space). */
-  private drawBars(status: OwnStatus, screenW: number, screenH: number): void {
+  private drawBars(status: OwnStatus, screenW: number, screenH: number, deniedFlash: boolean): void {
     const g = this.bars;
     g.clear();
     const x = screenW - BAR_W - MARGIN;
     const baseY = screenH - MARGIN - PANEL_H;
     this.drawHp(g, x, baseY, status.hp);
-    this.drawWeaponChips(g, status, x, baseY + 18);
+    this.drawWeaponChips(g, status, x, baseY + 18, deniedFlash);
   }
 
   private drawHp(g: Graphics, x: number, y: number, hp: number): void {
@@ -282,8 +290,10 @@ export class Hud {
   /**
    * Three chips [1 GUNS / 2 TORP / 3 MINE]: the selected one is outlined amber;
    * each fills green→dim by its own cooldown from OwnShip.cooldowns[weapon].
+   * `deniedFlash` briefly reddens the SELECTED chip's border — the HUD half of
+   * the denied-fire feedback (render/deniedFire.ts drives the rate limit).
    */
-  private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number): void {
+  private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean): void {
     const cw = (BAR_W - 2 * CHIP_GAP) / 3;
     for (let i = 0; i < 3; i++) {
       const cx = x + i * (cw + CHIP_GAP);
@@ -291,11 +301,16 @@ export class Hud {
       const selected = i === status.weapon;
       g.rect(cx, y, cw, CHIP_H).fill({ color: 0x111111, alpha: 0.8 });
       g.rect(cx, y, cw * ready, CHIP_H).fill({ color: ready >= 1 ? GREEN : DIM, alpha: 0.85 });
-      g.rect(cx, y, cw, CHIP_H).stroke({ width: selected ? 1.5 : 1, color: selected ? AMBER : DIM, alpha: selected ? 0.9 : 0.4 });
-      const label = this.chipLabels[i];
-      label.position.set(cx + 3, y + CHIP_H + 2);
-      label.style.fill = selected ? AMBER : DIM;
+      this.drawChip(g, this.chipLabels[i], cx, y, cw, selected, selected && deniedFlash);
     }
+  }
+
+  /** One chip's border + label tint: amber when selected, red while a denied pulse flashes it. */
+  private drawChip(g: Graphics, label: Text, cx: number, y: number, cw: number, selected: boolean, flash: boolean): void {
+    const { border, alpha } = chipTint(selected, flash);
+    g.rect(cx, y, cw, CHIP_H).stroke({ width: selected ? 1.5 : 1, color: border, alpha });
+    label.position.set(cx + 3, y + CHIP_H + 2);
+    label.style.fill = border;
   }
 
   private updateReadouts(ship: ShipState): void {
@@ -326,7 +341,9 @@ export class Hud {
     this.overlay.visible = true;
   }
 
-  /** Update all instruments (conning a live ship). Call each render frame. */
+  /** Update all instruments (conning a live ship). Call each render frame.
+   *  `deniedFlash` is true while the denied-fire pulse (render/deniedFire.ts)
+   *  is active — briefly reddens the selected weapon chip. */
   update(
     ship: ShipState,
     axes: Axes,
@@ -335,12 +352,13 @@ export class Hud {
     match: MatchUx,
     screenW: number,
     screenH: number,
+    deniedFlash = false,
   ): void {
     this.setInstrumentsVisible(true);
     this.spectateBanner.visible = false;
     this.layout(screenH);
     this.drawGauges(axes);
-    this.drawBars(status, screenW, screenH);
+    this.drawBars(status, screenW, screenH, deniedFlash);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);
     this.drawZone(zone, screenW, screenH);

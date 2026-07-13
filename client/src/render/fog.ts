@@ -14,8 +14,12 @@ import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { bakeFogTexture } from './textures.js';
 
-/** Extra bake margin (px) beyond camera lead: shake headroom (step 11) + slack. */
-const EXTRA_MARGIN_PX = 64;
+/**
+ * Extra bake margin (px) beyond camera lead: shake headroom (step 11) + slack.
+ * Exported so render/shake.ts can clamp its peak magnitude to the same budget
+ * — the fog overlay must never expose a screen edge, however hard the hit.
+ */
+export const EXTRA_MARGIN_PX = 64;
 
 export class Fog {
   private readonly sprite: Sprite;

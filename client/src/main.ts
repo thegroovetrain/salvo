@@ -19,6 +19,7 @@ import { ShipView, OWN_STYLE } from './render/ships.js';
 import { ContactViews } from './render/contacts.js';
 import { Projectiles } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
+import { weaponArcHit } from './render/weaponArc.js';
 import { Effects } from './render/effects.js';
 import { Mines } from './render/mines.js';
 import { Fog } from './render/fog.js';
@@ -26,6 +27,8 @@ import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, cooldownReadyFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { spectatePan, wheelZoom, pickSpectateTarget } from './render/spectate.js';
+import { ShakeDriver } from './render/shake.js';
+import { isFireDenied, DeniedPulse } from './render/deniedFire.js';
 import { KeyboardInput } from './input/keyboard.js';
 import { MouseInput, worldAim } from './input/mouse.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
@@ -37,8 +40,10 @@ import { Predictor, type RenderPose } from './sim/prediction.js';
 import { InputSampler } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
 import { showMenu, type MenuHandle } from './ui/menu.js';
-import { matchUx, type MatchUx } from './ui/phase.js';
+import { matchUx, secondsUntil, isWeaponsSafe, type MatchUx } from './ui/phase.js';
 import { showResults } from './ui/results.js';
+import { Audio } from './audio/context.js';
+import { audioCues, stormEnterEdge, INITIAL_CUE_STATE, type AudioCueState } from './audio/tones.js';
 
 /** How long the DISCONNECTED banner shows before surfacing the menu again. */
 const DISCONNECT_MENU_DELAY_MS = 3000;
@@ -75,6 +80,18 @@ interface Game {
   spectate: { freePan: boolean; visualsSet: boolean };
   /** A reload back to the menu is already scheduled/underway. */
   returning: boolean;
+  /** Decaying screen-shake driver (render/shake.ts), triggered on own damage. */
+  shake: ShakeDriver;
+  /** Rate-limited denied-fire pulse (render/deniedFire.ts). */
+  deniedPulse: DeniedPulse;
+  /** This frame's denied-fire pulse state — read by hud.update() for the chip flash. */
+  deniedFlash: boolean;
+  /** Tone player (audio/context.ts). */
+  audio: Audio;
+  /** Countdown-tick / match-start edge-detector state (audio/tones.ts). */
+  audioCueState: AudioCueState;
+  /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
+  wasInStorm: boolean;
 }
 
 /** Push the camera's world transform onto the world + chart containers. */
@@ -161,6 +178,18 @@ function rosterName(g: Game, id: string): string {
   return publicState(g).players?.get(id)?.name ?? id;
 }
 
+/** Countdown-tick (last 5s) + match-start audio cues, edge-detected off the
+ *  public match plane (audio/tones.ts's pure audioCues()). */
+function updateMatchAudioCues(g: Game, now: number): void {
+  const s = publicState(g);
+  const phase = s.matchPhase ?? 'waiting';
+  const sec = secondsUntil(s.countdownEndT ?? 0, now);
+  const result = audioCues(g.audioCueState, phase, sec);
+  g.audioCueState = result.state;
+  if (result.tick) g.audio.play('tick');
+  if (result.matchStart) g.audio.play('matchStart');
+}
+
 /** M:SS clock for the grace countdown. */
 function fmtClock(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -213,8 +242,14 @@ function handleRoomLeave(g: Game): void {
 
 // --- game assembly -------------------------------------------------------------
 
-function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
-  const { welcome } = conn;
+/** Camera + input + own-hull-view/effects setup, factored out of buildGame() to keep it lean. */
+function setupViewport(stage: Stage): {
+  camera: Camera;
+  keyboard: KeyboardInput;
+  mouse: MouseInput;
+  ownView: ShipView;
+  effects: Effects;
+} {
   const camera = new Camera({
     radarRange: CONFIG.vision.radar,
     followRate: CLIENT_CONFIG.camera.followRate,
@@ -236,6 +271,13 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
   // shared effects pool via a closure.
   const effects = new Effects(stage.layers.wake, stage.layers.projectile);
 
+  return { camera, keyboard, mouse, ownView, effects };
+}
+
+function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio): Game {
+  const { welcome } = conn;
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage);
+
   const g: Game = {
     stage,
     state: createGameState(welcome.sessionId),
@@ -252,7 +294,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
     projectiles: new Projectiles(stage.layers.projectile, (x, y) => effects.spawnEffect('torpwake', x, y)),
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     effects,
-    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld),
+    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
     fog: new Fog(stage.fogSprite),
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
     zone: new Zone(stage.layers.zone, stage.layers.vignette, map.radius, CONFIG.zone.endRadiusFraction),
@@ -263,6 +305,12 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
     lastOwn: { x: 0, y: 0 },
     spectate: { freePan: false, visualsSet: false },
     returning: false,
+    shake: new ShakeDriver(),
+    deniedPulse: new DeniedPulse(),
+    deniedFlash: false,
+    audio,
+    audioCueState: INITIAL_CUE_STATE,
+    wasInStorm: false,
   };
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
@@ -284,7 +332,15 @@ function bindGameRoom(g: Game, conn: Connection): void {
 
 // --- alive rendering -----------------------------------------------------------
 
-function renderOwn(g: Game, pose: RenderPose, status: OwnStatus, zone: ZoneHud, match: MatchUx, frameDt: number): void {
+function renderOwn(
+  g: Game,
+  pose: RenderPose,
+  status: OwnStatus,
+  zone: ZoneHud,
+  match: MatchUx,
+  frameDt: number,
+  weaponsSafe: boolean,
+): void {
   if (!g.cameraSnapped) {
     g.camera.snapTo(pose);
     g.cameraSnapped = true;
@@ -295,17 +351,32 @@ function renderOwn(g: Game, pose: RenderPose, status: OwnStatus, zone: ZoneHud, 
   g.camera.update(frameDt, pose);
   g.effects.update(frameDt, pose);
   g.lastOwn = { x: pose.x, y: pose.y };
-  renderFiring(g, pose, status);
-  g.hud.update(pose, g.keyboard.axes(), status, zone, match, g.stage.app.screen.width, g.stage.app.screen.height);
+  renderFiring(g, pose, status, weaponsSafe);
+  g.hud.update(
+    pose,
+    g.keyboard.axes(),
+    status,
+    zone,
+    match,
+    g.stage.app.screen.width,
+    g.stage.app.screen.height,
+    g.deniedFlash,
+  );
 }
 
 /** Reload duration (ms) per weapon, indexed by WeaponId (for the ready fraction). */
 const WEAPON_RELOADS = [CONFIG.gun.reload, CONFIG.torpedo.reload, CONFIG.mine.dropCooldown];
 
-/** Weapon arc/marker + crosshair while alive; hidden once sunk. */
-function renderFiring(g: Game, pose: RenderPose, status: OwnStatus): void {
+/**
+ * Weapon arc/marker + crosshair while alive; hidden once sunk. Also derives
+ * the denied-fire predicate (fire held but weapons-safe / cooldown / arc
+ * blocks it) and feeds the rate-limited pulse — g.deniedFlash carries this
+ * frame's result to hud.update() for the chip flash.
+ */
+function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, weaponsSafe: boolean): void {
   if (!status.alive) {
     g.firing.hide();
+    g.deniedFlash = false;
     return;
   }
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
@@ -314,14 +385,21 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus): void {
   // cooldown from the server-authoritative cooldowns[] for that same slot.
   const weapon = g.keyboard.weapon;
   const ready = cooldownReadyFraction(status.cooldowns[weapon] ?? 0, WEAPON_RELOADS[weapon]);
-  g.firing.update(pose, aim, weapon, ready, cursor);
+  const inArc = weaponArcHit(pose.heading, aim, weapon);
+  const denied = isFireDenied({ fireHeld: g.mouse.fire, weaponsSafe, ready, inArc });
+  g.deniedFlash = g.deniedPulse.update(denied, performance.now());
+  g.firing.update(pose, aim, weapon, ready, cursor, g.deniedFlash);
 }
 
 function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
   const pose = ownPose(g, alpha, frameDt);
   const status = ownStatus(g);
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.radius);
-  if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt);
+  if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
+  g.wasInStorm = inStorm;
+  const weaponsSafe = isWeaponsSafe(publicState(g).matchPhase ?? 'waiting');
+  if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt, weaponsSafe);
+  else g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;
   g.zone.update(zv.radius, zv.state, inStorm, now / 1000, w, h);
@@ -388,6 +466,10 @@ function makeCallbacks(g: Game): LoopCallbacks {
       const now = g.clock.serverNow();
       const zv = zoneView(g, now);
       const mu = matchUxFromRoom(g, now);
+      updateMatchAudioCues(g, now);
+      const shakeOff = g.shake.update(frameDt);
+      g.camera.shake.x = shakeOff.x;
+      g.camera.shake.y = shakeOff.y;
       if (g.state.spectating) renderSpectate(g, frameDt, now, zv, mu);
       else renderAlive(g, alpha, frameDt, now, zv, mu);
       g.contactViews.render(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, now, frameDt * 1000);
@@ -463,7 +545,13 @@ function bindSpectateZoom(game: Game): void {
 
 // --- bootstrap ---------------------------------------------------------------------
 
-async function startGame(stage: Stage, menu: MenuHandle, name: string): Promise<void> {
+/** Toggle master mute (M key), persisted to localStorage by audio/context.ts. */
+function toggleMute(game: Game): void {
+  game.audio.toggleMute();
+  showBanner(game.audio.muted ? 'MUTED' : 'UNMUTED', { autoHideMs: 1200 });
+}
+
+async function startGame(stage: Stage, menu: MenuHandle, name: string, audio: Audio): Promise<void> {
   menu.setBusy(true);
   menu.setStatus('CONNECTING...');
   let conn: Connection;
@@ -482,12 +570,13 @@ async function startGame(stage: Stage, menu: MenuHandle, name: string): Promise<
   const map = mapFromWelcome(conn.welcome);
   buildMap(map, stage.layers);
 
-  const game = buildGame(stage, conn, map);
+  const game = buildGame(stage, conn, map, audio);
   bindResize(stage, game);
   bindVisibility(game);
   bindSpectateZoom(game);
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyP') toggleMode(game);
+    if (e.code === 'KeyM') toggleMute(game);
   });
 
   startLoop(stage.app, makeCallbacks(game));
@@ -497,8 +586,12 @@ async function main(): Promise<void> {
   const stage = await createStage();
   document.getElementById('app')?.replaceChildren(stage.app.canvas);
 
+  const audio = new Audio();
   const version = typeof __APP_VERSION__ === 'undefined' ? 'dev' : __APP_VERSION__;
-  const menu = showMenu(version, (name) => void startGame(stage, menu, name));
+  const menu = showMenu(version, (name) => {
+    audio.resume(); // must happen inside the PLAY click's user-gesture handler
+    void startGame(stage, menu, name, audio);
+  });
 }
 
 main().catch((err) => {
