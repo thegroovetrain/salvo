@@ -5,7 +5,14 @@
 // mutate client state (Colyseus messages are the only push in the one-way
 // flow; everything else pulls).
 
-import { CONFIG, type BoomEvent, type FrameMsg, type SpawnEvent, type SunkEvent } from '@salvo/shared';
+import {
+  CONFIG,
+  type BallisticEvent,
+  type BoomEvent,
+  type FrameMsg,
+  type SpawnEvent,
+  type SunkEvent,
+} from '@salvo/shared';
 import type { GameState } from '../state.js';
 import type { Predictor } from '../sim/prediction.js';
 import type { Connection } from './connection.js';
@@ -17,8 +24,16 @@ import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
 import { showBanner } from '../util/banner.js';
 
-/** Flight time (ms) of a freshly-launched shell (full range remaining). */
-const FULL_SHELL_TTL_MS = (CONFIG.gun.shellRange / CONFIG.gun.shellSpeed) * 1000;
+/**
+ * A `shell` event fires a muzzle flash only when it reveals AT a ship we can
+ * see — the shell wire shape no longer distinguishes a launch from a mid-flight
+ * first-sight reveal (that distinction leaked the muzzle position; see
+ * BallisticEvent's anti-cheat note). A genuine muzzle sits on a hull: our own
+ * ship, or a sighted contact. A shell materializing in open water at our fog
+ * boundary is a mid-flight reveal — no flash. `² of one hull length` as the
+ * "on a ship" threshold (mounts sit within the hull footprint).
+ */
+const MUZZLE_NEAR2 = CONFIG.ship.length * CONFIG.ship.length;
 
 export interface RoomBindingDeps {
   state: GameState;
@@ -71,17 +86,36 @@ function handleEvents(f: FrameMsg, deps: RoomBindingDeps): void {
     switch (e.k) {
       case 'spawn': handleSpawn(e, deps); break;
       case 'sunk': handleSunk(e, f.t, deps); break;
-      case 'shell':
-        deps.projectiles.onShell(e);
-        // A shell event may be a mid-flight first-sight reveal (fog): only a
-        // full-ttl shell was actually launched where the event says it is.
-        if (e.ttl >= FULL_SHELL_TTL_MS - 1) deps.effects.spawnEffect('muzzle', e.x, e.y);
-        break;
+      case 'shell': handleShell(e, deps); break;
       case 'blip': deps.radar.onBlip(e); break;
       case 'boom': handleBoom(e, deps); break;
       // 'dmg' resolved via the boom's `hit` flash; kept for future HUD hooks.
     }
   }
+}
+
+function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
+  deps.projectiles.onShell(e);
+  // Muzzle flash only when the reveal sits on a hull we can see (own ship or a
+  // sighted contact) — a mid-flight fog-boundary reveal gets no flash.
+  if (nearVisibleShip(e.x, e.y, deps)) deps.effects.spawnEffect('muzzle', e.x, e.y);
+}
+
+/** True iff (x,y) is within one hull length of the own ship or any live contact. */
+function nearVisibleShip(x: number, y: number, deps: RoomBindingDeps): boolean {
+  const you = deps.state.net.you;
+  if (you && near2(x, y, you.x, you.y)) return true;
+  for (const id of deps.contacts.ids()) {
+    const p = deps.contacts.get(id)?.newest;
+    if (p && near2(x, y, p.x, p.y)) return true;
+  }
+  return false;
+}
+
+function near2(x: number, y: number, cx: number, cy: number): boolean {
+  const dx = x - cx;
+  const dy = y - cy;
+  return dx * dx + dy * dy <= MUZZLE_NEAR2;
 }
 
 function handleBoom(e: BoomEvent, deps: RoomBindingDeps): void {

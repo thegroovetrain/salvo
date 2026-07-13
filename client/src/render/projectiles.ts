@@ -1,18 +1,46 @@
 // Dead-reckoned shell rendering. The server sends one `shell` event per shot
-// (launch pos + velocity + t0 + ttl); the client extrapolates the flight path
-// locally — pos = p0 + v*(serverNow - t0) — so no per-tick shell sync is needed.
-// A shell is removed on its matching `boom` (id match) or when its ttl elapses.
+// (reveal pos + velocity + t0 — NO range-derivable field; see BallisticEvent's
+// anti-cheat note); the client extrapolates the flight path locally — pos =
+// p0 + v*(serverNow - t0) — so no per-tick shell sync is needed. A shell is
+// removed when ANY of these fire, whichever first:
+//   (a) its matching `boom` arrives (id match) — the true splash;
+//   (b) a CONFIG-derived per-kind MAX LIFETIME elapses (gun = shellRange/
+//       shellSpeed, torp = range/speed) — the longest a projectile of that kind
+//       can possibly fly, computed client-side from the shared CONFIG so the
+//       wire need not carry a lifetime. This bounds a reveal whose boom we never
+//       see (fired at us from fog, then it leaves and detonates unseen);
+//   (c) sight-bubble cull: its dead-reckoned position leaves the own ship's
+//       sight bubble (+ margin). It is invisible under fog out there anyway, and
+//       culling stops a ghost shell from rendering past its true splash point.
+//       Applies to everyone incl. the owner — a shell outrunning the bubble
+//       (gun range 480 > sight 220) fades into fog, which is thematic.
 // Each shell draws as a bright dot with an additive glow, pooled.
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import type { BallisticEvent, BoomEvent } from '@salvo/shared';
+import { CONFIG, type BallisticEvent, type BoomEvent } from '@salvo/shared';
 import { Pool } from '../util/pool.js';
 
 const CORE_COLOR = 0xffe08a; // hot shell core (warm amber-white)
 const GLOW_COLOR = 0xffb800; // DESIGN.md amber, additive glow
 const CORE_R = 2.2; // u
 const GLOW_R = 6; // u
+
+/**
+ * Max flight time (ms) per projectile kind = range / speed, from the shared
+ * CONFIG. The client derives termination locally so the wire carries no
+ * range-derivable field. Keyed by BallisticEvent['k'] so step 12's torpedoes
+ * pick up their lifetime for free.
+ */
+const MAX_LIFETIME_MS: Record<BallisticEvent['k'], number> = {
+  shell: (CONFIG.gun.shellRange / CONFIG.gun.shellSpeed) * 1000,
+  torp: (CONFIG.torpedo.range / CONFIG.torpedo.speed) * 1000,
+};
+
+/** Cull a dead-reckoned shell once it is this far outside the sight bubble (u). */
+const SIGHT_CULL_MARGIN = 40; // u
+const SIGHT_CULL = CONFIG.vision.sight + SIGHT_CULL_MARGIN;
+const SIGHT_CULL2 = SIGHT_CULL * SIGHT_CULL;
 
 /** Pure: dead-reckoned shell position at server time `now` (ms). */
 export function shellPosition(
@@ -23,6 +51,13 @@ export function shellPosition(
 ): { x: number; y: number } {
   const dt = Math.max(0, now - t0) / 1000;
   return { x: p0.x + v.vx * dt, y: p0.y + v.vy * dt };
+}
+
+/** True once `p` is beyond the sight bubble (+ margin) around `origin`. */
+function outsideBubble(p: { x: number; y: number }, origin: { x: number; y: number }): boolean {
+  const dx = p.x - origin.x;
+  const dy = p.y - origin.y;
+  return dx * dx + dy * dy > SIGHT_CULL2;
 }
 
 interface LiveShell {
@@ -65,7 +100,7 @@ export class Projectiles {
       vx: ev.vx,
       vy: ev.vy,
       t0: ev.t,
-      expiresAt: ev.t + ev.ttl,
+      expiresAt: ev.t + MAX_LIFETIME_MS[ev.k],
     });
   }
 
@@ -74,14 +109,22 @@ export class Projectiles {
     if (ev.id) this.remove(ev.id);
   }
 
-  /** Advance all live shells to `serverNow` (ms); retire any past their ttl. */
-  render(serverNow: number): void {
+  /**
+   * Advance all live shells to `serverNow` (ms). Retire any past their per-kind
+   * max lifetime, or (when `ownPos` is known) once their dead-reckoned position
+   * leaves the own ship's sight bubble — invisible under fog there anyway.
+   */
+  render(serverNow: number, ownPos?: { x: number; y: number }): void {
     for (const [id, s] of this.live) {
       if (serverNow >= s.expiresAt) {
         this.remove(id);
         continue;
       }
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
+      if (ownPos && outsideBubble(p, ownPos)) {
+        this.remove(id);
+        continue;
+      }
       s.gfx.position.set(p.x, p.y);
     }
   }

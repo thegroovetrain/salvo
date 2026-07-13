@@ -10,8 +10,8 @@
 //              way, with stale-by-design positions (≈ target pos at paint t).
 //   2 SHELL  — A fires on B from beyond sight: A (owner) gets its shell event
 //              at launch; B gets the SAME shell id only once it enters B's
-//              sight bubble, re-parameterized (later t, nearer pos, smaller
-//              ttl). A never sees the out-of-sight booms at B.
+//              sight bubble, re-parameterized (later t, nearer pos). The wire
+//              carries no ttl/range-derivable field. A never sees B's booms.
 //   3 SIGHT  — A drives inside sight: contact appears both ways, paints stop.
 //   4 ISLAND — both park with an island between them (dist < sight): neither
 //              contact nor blip; then A backs into the radar band still in the
@@ -224,7 +224,7 @@ async function phaseShellReveal(a, b, log) {
     const sa = aShells.find((e) => e.id === sb.id);
     assert(sa, `shell: B saw ${sb.id} that A (owner) never did`);
     assert(sb.t - sa.t >= 1000, `shell: ${sb.id} revealed to B only ${(sb.t - sa.t).toFixed(0)}ms after launch (fired from ~400u)`);
-    assert(sa.ttl - sb.ttl >= 1000, `shell: ${sb.id} ttl not reduced at reveal (${sa.ttl.toFixed(0)} -> ${sb.ttl.toFixed(0)})`);
+    assert(sa.ttl === undefined && sb.ttl === undefined, `shell: ${sb.id} carried a ttl (range-derivable field must not be on the wire)`);
     assert(dist(sb, b.you) <= SIGHT + 60, `shell: ${sb.id} revealed ${dist(sb, b.you).toFixed(0)}u from B (outside sight)`);
   }
   // A must never see its own out-of-sight impacts (no hit confirmation leak).

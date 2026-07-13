@@ -26,14 +26,20 @@
 //   - shell: emitted per observer, exactly once (ShipRecord.seenShells). The
 //     OWNER always gets it at launch. Everyone else gets it when the shell
 //     FIRST becomes visible (within sight + LOS), with CURRENT position /
-//     velocity / remaining ttl — the client dead-reckons from there, so a
-//     shell fired outside your bubble materializes at your sight boundary,
-//     never at its (hidden) launch point. World-emitted shell events are
-//     dropped here and re-issued per observer.
+//     velocity ONLY — never a range-derivable field (no ttl/distLeft). The
+//     client dead-reckons from there, so a shell fired outside your bubble
+//     materializes at your sight boundary, never at its (hidden) launch point;
+//     and a constant-free wire shape cannot be solved back to the muzzle. See
+//     BallisticEvent's anti-cheat note. World-emitted shell events are dropped
+//     here and re-issued per observer.
 //   - boom:  visible iff the boom location is within sight + LOS, OR the boom
 //     struck the observer (`hit === me`). The shell's owner does NOT get an
 //     out-of-sight boom — hit confirmation beyond sight would leak contact
-//     presence; their dead-reckoned shell just expires by ttl.
+//     presence; their dead-reckoned shell just expires by client lifetime.
+//     Even when the boom IS visible, its `hit` (victim id) is stripped unless
+//     the victim's CENTER is itself sighted (boomForObserver) — a hull can
+//     straddle the sight edge with its center in fog, and emitting the id there
+//     would leak the victim's identity.
 //   - dmg:   victim-private (only the damaged ship hears its hp).
 //   - sunk:  visible to the victim itself, and to anyone who can see the
 //     sinking ship's position (wreck position, sight + LOS). Everyone still
@@ -57,10 +63,11 @@ import {
   wrapPositive,
   type BlipEvent,
   type BallisticEvent,
+  type BoomEvent,
   type Circle,
   type Contact,
   type GameEvent,
-  type ShellState,
+  type SunkEvent,
   type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
@@ -128,16 +135,13 @@ function pairScan(world: World, me: ShipRecord): { contacts: Contact[]; blips: B
   return { contacts, blips };
 }
 
-/** Remaining flight time (ms) of a live shell, for first-sight re-emission. */
-function remainingTtl(shell: ShellState): number {
-  const speed = Math.hypot(shell.vx, shell.vy);
-  return speed > 0 ? (shell.distLeft / speed) * 1000 : 0;
-}
-
 /**
  * Per-observer ballistic events: every live shell this observer has not been
  * told about yet, if the owner (always) or first visible (sight + LOS), with
- * CURRENT params — see the header for why launch params must not leak.
+ * CURRENT position/velocity only — NO range-derivable field (no ttl). See the
+ * BallisticEvent anti-cheat note: a constant-free wire shape cannot leak the
+ * fogged launch point. The client terminates the render itself (boom, a
+ * CONFIG-derived per-kind max lifetime, or leaving its own sight bubble).
  */
 function shellEvents(world: World, me: ShipRecord): BallisticEvent[] {
   const out: BallisticEvent[] = [];
@@ -154,31 +158,54 @@ function shellEvents(world: World, me: ShipRecord): BallisticEvent[] {
       vx: shell.vx,
       vy: shell.vy,
       t: world.now,
-      ttl: remainingTtl(shell),
     });
   }
   return out;
 }
 
-/** Apply the per-kind visibility rules (header) to one world-emitted event. */
-function worldEventVisible(world: World, me: ShipRecord, e: GameEvent): boolean {
+/**
+ * A boom for this observer, or null if invisible. Visible iff the impact point
+ * is sighted OR the observer is the victim. The `hit` (victim id) is then kept
+ * ONLY when the victim's CENTER is itself sighted (or the observer IS the
+ * victim): a hull can straddle the sight edge with its center in fog, and
+ * emitting `hit` there would leak the victim's id (reviewer finding 2). A
+ * hit-less boom just plays a generic impact/splash on the client.
+ */
+function boomForObserver(world: World, me: ShipRecord, e: BoomEvent): BoomEvent | null {
   const islands = world.map.islands;
+  if (e.hit !== me.id && !pointSighted(me.state, e, islands)) return null;
+  if (!e.hit || e.hit === me.id) return e;
+  const victim = world.ships.get(e.hit);
+  if (victim && pointSighted(me.state, victim.state, islands)) return e;
+  return { k: 'boom', id: e.id, x: e.x, y: e.y }; // impact visible, victim id stripped
+}
+
+/** A sunk event for this observer, or null: victim itself, or wreck sighted. */
+function sunkForObserver(world: World, me: ShipRecord, e: SunkEvent): SunkEvent | null {
+  if (e.id === me.id) return e;
+  const wreck = world.ships.get(e.id);
+  return wreck !== undefined && pointSighted(me.state, wreck.state, world.map.islands) ? e : null;
+}
+
+/**
+ * Apply the per-kind visibility rules (header) to one world-emitted event,
+ * returning the event to emit to this observer (possibly sanitized) or null if
+ * the observer may not know about it at all.
+ */
+function worldEventForObserver(world: World, me: ShipRecord, e: GameEvent): GameEvent | null {
   switch (e.k) {
     case 'boom':
-      return e.hit === me.id || pointSighted(me.state, e, islands);
+      return boomForObserver(world, me, e);
     case 'dmg':
-      return e.id === me.id;
-    case 'sunk': {
-      if (e.id === me.id) return true;
-      const wreck = world.ships.get(e.id);
-      return wreck !== undefined && pointSighted(me.state, wreck.state, islands);
-    }
+      return e.id === me.id ? e : null;
+    case 'sunk':
+      return sunkForObserver(world, me, e);
     case 'spawn':
-      return e.id === me.id || pointSighted(me.state, e, islands);
+      return e.id === me.id || pointSighted(me.state, e, world.map.islands) ? e : null;
     default:
       // shell (re-issued per observer above), torp/mine/mineGone (step 12),
       // blip (never world-emitted): fail closed.
-      return false;
+      return null;
   }
 }
 
@@ -193,7 +220,8 @@ export function observe(world: World, observerId: string): PerceptionView {
   const { contacts, blips } = pairScan(world, me);
   const events: GameEvent[] = [];
   for (const e of world.tickEvents) {
-    if (worldEventVisible(world, me, e)) events.push(e);
+    const emitted = worldEventForObserver(world, me, e);
+    if (emitted) events.push(emitted);
   }
   events.push(...shellEvents(world, me));
   events.push(...blips);

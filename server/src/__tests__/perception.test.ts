@@ -15,6 +15,7 @@ import {
   wrapPositive,
   type BallisticEvent,
   type BlipEvent,
+  type BoomEvent,
   type Circle,
   type GameEvent,
   type FrameMsg,
@@ -96,6 +97,18 @@ function injectShell(
 
 const blipsOf = (f: FrameMsg) => f.events.filter((e): e is BlipEvent => e.k === 'blip');
 const shellsOf = (f: FrameMsg) => f.events.filter((e): e is BallisticEvent => e.k === 'shell');
+const boomsOf = (f: FrameMsg) => f.events.filter((e): e is BoomEvent => e.k === 'boom');
+
+/**
+ * Structural anti-cheat guard: a ballistic event may carry ONLY these keys. Any
+ * extra field (a returning `ttl`/`distLeft`, or a launch position tag) is
+ * range-derivable and would let a modified client solve back to the fogged
+ * muzzle — so its mere PRESENCE fails the test. See BallisticEvent's note.
+ */
+const BALLISTIC_KEYS = ['id', 'k', 't', 'vx', 'vy', 'x', 'y'];
+function assertBallisticShape(e: BallisticEvent): void {
+  expect(Object.keys(e).sort()).toEqual(BALLISTIC_KEYS);
+}
 
 // ---------- directed cases: sight tier ---------------------------------------
 
@@ -250,7 +263,7 @@ describe('perception — shell events (per-observer, exactly once)', () => {
     expect(ev!.x).toBe(sh.x); // current position, NOT the hidden launch point
     expect(Math.hypot(ev!.x, ev!.y)).toBeLessThanOrEqual(SIGHT);
     expect(ev!.t).toBe(w.now);
-    expect(ev!.ttl).toBeLessThan((480 / CONFIG.gun.shellSpeed) * 1000); // remaining, not full
+    assertBallisticShape(ev!); // no range-derivable field (no ttl) leaks the muzzle
     w.step();
     expect(shellsOf(buildFrame(w, 'a'))).toEqual([]); // never re-sent
   });
@@ -262,6 +275,15 @@ describe('perception — shell events (per-observer, exactly once)', () => {
     place(w, 'b', 600, 0);
     injectShell(w, 's1', 'b', 200, 0, Math.PI / 2, 10); // in range but behind the rock
     expect(shellsOf(buildFrame(w, 'a'))).toEqual([]);
+  });
+
+  it('a shell event carries ONLY {k,id,x,y,vx,vy,t} — no range-derivable field', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectShell(w, 's1', 'a', 10, 0, 0, 300);
+    const ev = shellsOf(buildFrame(w, 'a'))[0];
+    expect(ev).toBeDefined();
+    assertBallisticShape(ev); // fails if `ttl`/`distLeft`/anything extra returns
   });
 });
 
@@ -303,6 +325,34 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
     const fc = buildFrame(w, 'c');
     expect(fc.events.filter((e) => e.k === 'boom' || e.k === 'sunk')).toEqual([]);
+  });
+
+  it('a boom whose victim center is out of sight arrives WITHOUT hit (straddle)', () => {
+    // b's center sits just OUTSIDE a's sight; its hull reaches INSIDE, so a's
+    // shell strikes at a point a can see. a must get the boom (impact sighted)
+    // but never the victim's id (center fogged) — reviewer finding 2.
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    const b = place(w, 'b', SIGHT + 12, 0, 0); // center 232u, hull axis along x
+    b.hp = 100; // survives, so it straddles as a live (but unsighted) hull
+    injectShell(w, 's1', 'a', 205, 0, 0, 40); // a's shell closing on b's near hull edge
+    let boomB: BoomEvent | undefined;
+    for (let i = 0; i < 20 && !boomB; i++) {
+      w.step();
+      boomB = boomsOf(buildFrame(w, 'b')).find((e) => e.id === 's1');
+    }
+    // The straddle actually happened: impact point inside a's sight, center outside.
+    expect(boomB).toBeDefined();
+    expect(dist({ x: 0, y: 0 }, boomB!)).toBeLessThanOrEqual(SIGHT);
+    expect(dist({ x: 0, y: 0 }, b.state)).toBeGreaterThan(SIGHT);
+    // Victim sees its own hit; the far owner sees the impact but NOT the id.
+    expect(boomB!.hit).toBe('b');
+    const boomA = boomsOf(buildFrame(w, 'a')).find((e) => e.id === 's1');
+    expect(boomA).toBeDefined();
+    expect(boomA!.hit).toBeUndefined();
+    expect('hit' in boomA!).toBe(false); // stripped, not just undefined
+    // a is not otherwise leaking b: b never appears as a contact.
+    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).not.toContain('b');
   });
 
   it('spawns are visible to the spawner and to observers who can see the point', () => {
@@ -354,11 +404,17 @@ function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
       const sh = w.shells.get(e.id)!;
       expect(sh).toBeDefined();
       expect({ x: e.x, y: e.y }).toEqual({ x: sh.x, y: sh.y }); // current pos, never launch pos
+      assertBallisticShape(e); // no range-derivable field ever leaks
       if (sh.ownerId !== me.id) expect(sighted(w, me, e)).toBe(true);
       return;
     }
     case 'boom':
       if (e.hit !== me.id) expect(sighted(w, me, e)).toBe(true);
+      // `hit` may name a victim only when that victim's CENTER is sighted (or
+      // the observer is the victim) — a straddling hull must not leak its id.
+      if (e.hit !== undefined && e.hit !== me.id) {
+        expect(sighted(w, me, w.ships.get(e.hit)!.state)).toBe(true);
+      }
       return;
     case 'dmg':
       expect(e.id).toBe(me.id);

@@ -265,10 +265,12 @@ export class World {
     return `s${this.shellSeq}`;
   }
 
-  /** One-time ballistic params the client dead-reckons from. */
+  /**
+   * One-time ballistic params the client dead-reckons from. NO range-derivable
+   * field (no ttl/distLeft) — see BallisticEvent's anti-cheat note. Perception
+   * re-issues this per observer at reveal time; the wire shape stays constant-free.
+   */
   private shellEvent(shell: ShellState): BallisticEvent {
-    const speed = Math.hypot(shell.vx, shell.vy);
-    const ttl = speed > 0 ? (shell.distLeft / speed) * 1000 : 0;
     return {
       k: 'shell',
       id: shell.id,
@@ -277,7 +279,6 @@ export class World {
       vx: shell.vx,
       vy: shell.vy,
       t: shell.bornAt,
-      ttl,
     };
   }
 

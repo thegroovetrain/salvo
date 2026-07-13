@@ -89,26 +89,40 @@ export interface BlipEvent {
 }
 
 /**
- * A ballistic projectile entering your vision, sent once. The client
- * dead-reckons it: pos = (x,y) + (vx,vy) * (serverNow - t), until `ttl`
- * elapses or a matching `boom` arrives. Shared shape for shells and torpedoes.
+ * A ballistic projectile entering your vision, sent once — position and
+ * velocity AT REVEAL TIME (launch for the owner, first-sight for everyone
+ * else). The client dead-reckons it: pos = (x,y) + (vx,vy) * (serverNow - t),
+ * terminating on a matching `boom` OR a client-derived max lifetime (per-kind,
+ * computed from CONFIG range/speed) OR when it leaves the client's own sight
+ * bubble. Shared shape for shells and torpedoes.
+ *
+ * ANTI-CHEAT — no range-derivable field may EVER return to this shape (no
+ * `ttl`, no `distLeft`, no launch position). CONFIG ships shellRange/shellSpeed
+ * to every client, so any remaining-flight quantity on a fogged reveal lets a
+ * modified client solve back to the (hidden) muzzle: traveled = range −
+ * ttl·speed, launch = pos − unit(v)·traveled. A constant-free wire shape
+ * ({id,x,y,vx,vy,t}) cannot encode traveled distance, so it cannot leak a
+ * fogged shooter's position. Termination stays a client concern.
  */
 export interface BallisticEvent {
   k: 'shell' | 'torp';
   id: string; // projectile id (matches a later boom)
-  x: number; // u — launch position
+  x: number; // u — position at reveal time (NOT launch, on a first-sight reveal)
   y: number; // u
   vx: number; // u/s
   vy: number; // u/s
-  t: number; // ms — launch server time
-  ttl: number; // ms — lifetime before it expires
+  t: number; // ms — reveal server time
 }
 
 /**
  * An explosion at a point (shell/torp impact or mine detonation). `id` matches
  * the originating projectile so the client terminates its dead-reckoned render.
- * `hit` is set to the struck ship's id on a ship impact (drives hit spark + hull
- * flash); its absence means a splash (island/range exhaustion → splash ring).
+ * `hit` is the struck ship's id, but ONLY when the victim is a sighted contact
+ * of this observer (or the observer IS the victim) — see perception.ts. It
+ * drives the hit spark + hull flash. Its absence means either a splash
+ * (island/range exhaustion → splash ring) OR an impact whose victim this
+ * observer cannot currently see (anti-cheat: a hull straddling the sight edge
+ * must not leak the victim's id); the client plays a generic impact either way.
  */
 export interface BoomEvent {
   k: 'boom';

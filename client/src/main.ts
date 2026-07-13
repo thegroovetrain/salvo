@@ -181,7 +181,8 @@ function makeCallbacks(g: Game): LoopCallbacks {
       const status = ownStatus(g);
       if (pose) renderOwn(g, pose, status, frameDt);
       const now = g.clock.serverNow();
-      g.projectiles.render(now);
+      // Own pose feeds the shell sight-bubble cull (shells outside fog vanish).
+      g.projectiles.render(now, pose ?? undefined);
       g.contactViews.render(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, now, frameDt * 1000);
       g.radar.render(pose, now);
       // The fog hole tracks the own ship's screen position (post camera update).
