@@ -14,7 +14,7 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(1);
+    expect(PROTOCOL_VERSION).toBe(2);
   });
 
   it('re-exports config, wire tags, and functions', () => {

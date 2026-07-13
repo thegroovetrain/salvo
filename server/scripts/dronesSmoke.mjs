@@ -99,7 +99,7 @@ async function joinClient(name) {
     zoneOverride: ZONE_OVERRIDE,
   });
   const ctx = {
-    name, room, welcome: null, you: null, seq: 0,
+    name, room, welcome: null, you: null, seq: 0, fireSeq: 0,
     frames: 0, blipDroneIds: new Set(), contactDroneIds: new Set(),
     liveContacts: [], // this-frame drone contacts (true-sight, live pos+vel)
     droneTrack: new Map(), // droneId -> [first {x,y}, last {x,y}] to prove motion
@@ -195,10 +195,11 @@ function islandAvoid(ctx) {
  * sight) and lead-fire torpedoes at the nearest live contact. With the single
  * bow tube (owner play test) a fish is 55 dmg, so a 100hp drone needs TWO hits
  * across two ~12s reloads; damage persists (no drone heal/respawn in active), so
- * hold-to-fire whittles a drone down over the hunting window until it sinks.
+ * click-per-tick fire (reload-paced) whittles a drone down over the hunting
+ * window until it sinks.
  */
 function huntTick(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 1, rudder: 0, aim: 0, fire: false, weapon: 1 };
+  const inp = { seq: ++ctx.seq, throttle: 1, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, weapon: 1 };
   if (!ctx.you) return void ctx.room.send('i', inp);
   const target = nearestLive(ctx);
   const fromCenter = Math.hypot(ctx.you.x, ctx.you.y);
@@ -216,7 +217,9 @@ function huntTick(ctx) {
     // Keep steerage (>steerageSpeed) even when closing so the bow can track a
     // maneuvering drone — a stalled hull can't turn (rudder scales with speed).
     inp.throttle = dist(ctx.you, target) > 120 ? 1 : 0.4;
-    inp.fire = Math.abs(angleDiff(ctx.you.heading, brg)) < 0.12;
+    // Click every tick while the solution is tight — the tube reload paces the
+    // actual launches (each click is consumed, fired or not).
+    if (Math.abs(angleDiff(ctx.you.heading, brg)) < 0.12) inp.fireSeq = ++ctx.fireSeq;
   } else {
     inp.throttle = fromCenter > 60 ? 1 : 0.3; // hold near center, keep steerageway
   }
@@ -225,7 +228,7 @@ function huntTick(ctx) {
 
 /** FLEE: sail straight out to the edge and idle there so the storm takes us. */
 function fleeTick(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 1, rudder: 0, aim: 0, fire: false, weapon: 1 };
+  const inp = { seq: ++ctx.seq, throttle: 1, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, weapon: 1 };
   if (ctx.you) {
     const outward = Math.atan2(ctx.you.y, ctx.you.x); // bearing away from center
     inp.rudder = clamp(angleDiff(ctx.you.heading, outward) * 3, -1, 1);

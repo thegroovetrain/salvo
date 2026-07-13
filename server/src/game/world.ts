@@ -61,6 +61,14 @@ export interface ShipRecord {
   alive: boolean;
   input: InputMsg; // latest applied input (validated + clamped)
   lastAckSeq: number; // highest input seq applied to the sim
+  /**
+   * Highest InputMsg.fireSeq fireControl has consumed. A stored value newer
+   * than this is one pending click (= one shot request); consumption happens
+   * EVERY tick — even dead or denied — so clicks are never queued. NEVER reset
+   * on respawn/redeploy: the live input still carries the old counter, and a
+   * reset would make it read as a fresh click (a phantom shot).
+   */
+  lastFireSeq: number;
   respawnAt: number; // ms server time to respawn at; 0 = not pending
   sweepAngle: number; // rad — current (post-advance) radar sweep angle
   prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
@@ -181,6 +189,7 @@ export class World {
       alive: true,
       input: neutralInput(),
       lastAckSeq: 0,
+      lastFireSeq: 0,
       respawnAt: 0,
       sweepAngle: 0,
       prevSweepAngle: 0,
@@ -232,6 +241,8 @@ export class World {
     ship.hp = CONFIG.ship.hp;
     ship.alive = true;
     ship.respawnAt = 0;
+    // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
+    // (the stored input's fireSeq would read as a fresh click on this tick).
     ship.seenBallistics.clear();
     ship.gunCooldowns = freshGunCooldowns();
     ship.torpedoCooldowns = freshTorpedoCooldowns();
@@ -427,14 +438,19 @@ export class World {
   }
 
   /**
-   * Tick EVERY weapon's cooldowns for every ship (regardless of selection), then
-   * route this tick's fire to the selected weapon system. Systems reach the
-   * World only through the narrow FireContext (spawn ballistics / drop mines).
+   * Tick EVERY weapon's cooldowns for every ship (regardless of selection),
+   * then route this tick's click — if any — to the selected weapon system.
+   * One shot per click: a fireSeq newer than lastFireSeq is one pending click,
+   * and it is ALWAYS consumed this tick (even dead or denied-by-cooldown), so
+   * clicks during reload are consumed, not queued. Systems reach the World
+   * only through the narrow FireContext (spawn ballistics / drop mines).
    */
   private fireControl(dtMs: number): void {
     for (const ship of this.ships.values()) {
       for (const sys of WEAPON_SYSTEMS) sys.tick(ship, dtMs);
-      if (!ship.alive || !ship.input.fire) continue;
+      const clicked = ship.input.fireSeq > ship.lastFireSeq;
+      ship.lastFireSeq = Math.max(ship.lastFireSeq, ship.input.fireSeq);
+      if (!ship.alive || !clicked) continue;
       WEAPON_SYSTEMS[ship.input.weapon].fire(this.fireContext(ship));
     }
   }
@@ -524,6 +540,8 @@ export class World {
     ship.hp = CONFIG.ship.hp;
     ship.alive = true;
     ship.respawnAt = 0;
+    // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
+    // (the stored input's fireSeq would read as a fresh click on this tick).
     ship.gunCooldowns = freshGunCooldowns();
     ship.torpedoCooldowns = freshTorpedoCooldowns();
     ship.mineCooldown = freshMineCooldown();

@@ -1,7 +1,8 @@
 // Weapon systems registry + the WeaponSystem interface. Selection is
-// input.weapon (0 guns / 1 torpedoes / 2 mines); the World routes `fire` to the
-// selected system, but EVERY system's cooldowns tick every tick regardless of
-// selection (so a weapon reloads while another is in use). Each system is a
+// input.weapon (0 guns / 1 torpedoes / 2 mines); the World routes each
+// consumed click (one shot per fireSeq increment) to the selected system, but
+// EVERY system's cooldowns tick every tick regardless of selection (so a
+// weapon reloads while another is in use). Each system is a
 // small pure adapter over a ShipRecord's per-weapon cooldown state + the shared
 // ballistic/mine helpers; the World owns storage (shells/mines maps) and event
 // emission, exposed to systems through the narrow FireContext capabilities.
@@ -36,7 +37,7 @@ export interface WeaponSystem {
    * the client owns all aim-relevant presentation now (aim is instant there).
    */
   mountCooldowns(ship: ShipRecord): number[];
-  /** Run fire control when this weapon is selected + fire is held this tick. */
+  /** Run fire control when this weapon is selected and a click landed this tick. */
   fire(ctx: FireContext): void;
 }
 

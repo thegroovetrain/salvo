@@ -88,7 +88,7 @@ async function joinClient(name) {
   const client = new Client(endpoint);
   const room = await client.joinOrCreate('arena', { name, matchOverride: MATCH_OVERRIDE });
   const ctx = {
-    name, room, welcome: null, you: null, seq: 0, fireAt: null,
+    name, room, welcome: null, you: null, seq: 0, fireSeq: 0, fireAt: null,
     frames: 0, specFrames: 0, specWithYou: 0, specContactIds: new Set(),
     specBeforeFinish: 0, seenPeerSunk: false, peerId: null,
     boomsOnMe: 0, readyHpViolations: 0, activated: false, minHpActive: Infinity,
@@ -132,14 +132,15 @@ function onFrame(ctx, f) {
 
 /** Steer toward the peer; torpedoes away when in range/arc and armed=true. */
 function control(ctx, target, armed) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fire: false, weapon: 1 };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, weapon: 1 };
   if (ctx.you && target) {
     const brg = bearing(ctx.you, target);
     inp.rudder = clamp(angleDiff(ctx.you.heading, brg) * 3, -1, 1);
     inp.throttle = 1;
     inp.aim = brg;
     const d = dist(ctx.you, target);
-    inp.fire = armed && d < TORP_RANGE && Math.abs(angleDiff(ctx.you.heading, brg)) < ARC;
+    // Click every tick while the solution holds — the tube reload paces launches.
+    if (armed && d < TORP_RANGE && Math.abs(angleDiff(ctx.you.heading, brg)) < ARC) inp.fireSeq = ++ctx.fireSeq;
   }
   ctx.room.send('i', inp);
 }

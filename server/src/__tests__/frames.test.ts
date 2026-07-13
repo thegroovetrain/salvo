@@ -8,7 +8,8 @@ const input = (seq: number, extra = {}) => ({
   throttle: 1,
   rudder: 0,
   aim: 0,
-  fire: false,
+  fireSeq: 0,
+  aimDist: 0,
   weapon: 0,
   ...extra,
 });

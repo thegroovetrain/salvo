@@ -39,7 +39,7 @@ async function joinClient(name) {
 function sendInputs(ctx, throttle) {
   let seq = 0;
   return setInterval(() => {
-    ctx.room.send('i', { seq: ++seq, throttle, rudder: 0, aim: 0, fire: false, weapon: 0 });
+    ctx.room.send('i', { seq: ++seq, throttle, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 });
     ctx.lastSeq = seq;
   }, 50);
 }

@@ -3,6 +3,7 @@ import {
   InputStore,
   sanitizeInput,
   neutralInput,
+  AIM_DIST_MAX,
   INPUT_RATE_CAP,
   INPUT_RATE_WINDOW_MS,
 } from '../game/inputs.js';
@@ -12,7 +13,8 @@ const valid = (seq = 1) => ({
   throttle: 1,
   rudder: -0.5,
   aim: 0.25,
-  fire: false,
+  fireSeq: 3,
+  aimDist: 240,
   weapon: 0,
 });
 
@@ -30,17 +32,23 @@ describe('sanitizeInput — validation table', () => {
     ['missing throttle', { ...valid(), throttle: undefined }],
     ['missing rudder', { ...valid(), rudder: undefined }],
     ['missing aim', { ...valid(), aim: undefined }],
-    ['missing fire', { ...valid(), fire: undefined }],
+    ['missing fireSeq', { ...valid(), fireSeq: undefined }],
+    ['missing aimDist', { ...valid(), aimDist: undefined }],
     ['missing weapon', { ...valid(), weapon: undefined }],
     ['NaN seq', { ...valid(), seq: NaN }],
     ['NaN throttle', { ...valid(), throttle: NaN }],
     ['NaN rudder', { ...valid(), rudder: NaN }],
     ['NaN aim', { ...valid(), aim: NaN }],
+    ['NaN fireSeq', { ...valid(), fireSeq: NaN }],
+    ['NaN aimDist', { ...valid(), aimDist: NaN }],
     ['Infinity throttle', { ...valid(), throttle: Infinity }],
     ['-Infinity aim', { ...valid(), aim: -Infinity }],
+    ['Infinity fireSeq', { ...valid(), fireSeq: Infinity }],
+    ['Infinity aimDist', { ...valid(), aimDist: Infinity }],
     ['string throttle', { ...valid(), throttle: '1' }],
-    ['string fire', { ...valid(), fire: 'true' }],
-    ['numeric fire', { ...valid(), fire: 1 }],
+    ['string fireSeq', { ...valid(), fireSeq: '3' }],
+    ['boolean fireSeq (old wire shape)', { ...valid(), fireSeq: true }],
+    ['string aimDist', { ...valid(), aimDist: '240' }],
     ['weapon out of range', { ...valid(), weapon: 3 }],
     ['negative weapon', { ...valid(), weapon: -1 }],
     ['fractional weapon', { ...valid(), weapon: 1.5 }],
@@ -53,6 +61,26 @@ describe('sanitizeInput — validation table', () => {
     const out = sanitizeInput({ ...valid(), throttle: 5, rudder: -3 }, 0);
     expect(out?.throttle).toBe(1);
     expect(out?.rudder).toBe(-1);
+  });
+
+  it('floors fireSeq to an integer and clamps negatives to 0', () => {
+    expect(sanitizeInput({ ...valid(), fireSeq: 2.9 }, 0)?.fireSeq).toBe(2);
+    expect(sanitizeInput({ ...valid(), fireSeq: -7 }, 0)?.fireSeq).toBe(0);
+    expect(sanitizeInput({ ...valid(), fireSeq: -0.5 }, 0)?.fireSeq).toBe(0);
+    expect(sanitizeInput({ ...valid(), fireSeq: 0 }, 0)?.fireSeq).toBe(0);
+  });
+
+  it('does NOT enforce fireSeq monotonicity (consumption handles staleness)', () => {
+    // seq 1 with fireSeq 9 accepted, then seq 2 with fireSeq 3 also accepted —
+    // the World's lastFireSeq = max(...) makes the lower value a harmless no-op.
+    expect(sanitizeInput({ ...valid(1), fireSeq: 9 }, 0)?.fireSeq).toBe(9);
+    expect(sanitizeInput({ ...valid(2), fireSeq: 3 }, 1)?.fireSeq).toBe(3);
+  });
+
+  it('clamps aimDist into [0, AIM_DIST_MAX] (map-scale bound)', () => {
+    expect(sanitizeInput({ ...valid(), aimDist: -50 }, 0)?.aimDist).toBe(0);
+    expect(sanitizeInput({ ...valid(), aimDist: AIM_DIST_MAX + 1 }, 0)?.aimDist).toBe(AIM_DIST_MAX);
+    expect(sanitizeInput({ ...valid(), aimDist: 123.5 }, 0)?.aimDist).toBe(123.5);
   });
 
   it('wraps aim into [-pi, pi)', () => {
@@ -118,7 +146,7 @@ describe('InputStore', () => {
 
   it('neutralInput is a fresh zeroed input', () => {
     const a = neutralInput();
-    expect(a).toEqual({ seq: 0, throttle: 0, rudder: 0, aim: 0, fire: false, weapon: 0 });
+    expect(a).toEqual({ seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 });
     expect(neutralInput()).not.toBe(a);
   });
 });

@@ -1,19 +1,30 @@
 // Input validation + latest-input store. The ONLY path player intent enters
 // the simulation (drones will use it too). Malformed messages are silently
 // dropped per the plan: every field finite-checked, numeric axes clamped,
-// aim wrapped, seq must strictly exceed the stored seq, and each client is
-// rate-capped at 40 accepted-or-not messages per second.
+// aim wrapped, fireSeq/aimDist floored/clamped non-negative, seq must
+// strictly exceed the stored seq, and each client is rate-capped at 40
+// accepted-or-not messages per second. fireSeq monotonicity is deliberately
+// NOT enforced here — the World's consumption (lastFireSeq = max(...)) makes
+// a stale or replayed counter value simply read as "no new click".
 
-import { wrapAngle, type InputMsg, type WeaponId } from '@salvo/shared';
+import { CONFIG, wrapAngle, type InputMsg, type WeaponId } from '@salvo/shared';
 
 /** Max input messages per client per rolling window. */
 export const INPUT_RATE_CAP = 40;
 /** Rate-cap window length (ms of server time). */
 export const INPUT_RATE_WINDOW_MS = 1000;
 
+/**
+ * aimDist ceiling: a MAP-scale bound (nothing on a real map is farther than a
+ * few radii away), deliberately NOT derived from CONFIG.gun.shellRange — gun
+ * range becomes upgradeable later, and the sanitize layer must not encode a
+ * weapon stat.
+ */
+export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
+
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {
-  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fire: false, weapon: 0 };
+  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 };
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -35,8 +46,20 @@ function numericFieldsFinite(m: Record<string, unknown>): boolean {
     isFiniteNumber(m.seq) &&
     isFiniteNumber(m.throttle) &&
     isFiniteNumber(m.rudder) &&
-    isFiniteNumber(m.aim)
+    isFiniteNumber(m.aim) &&
+    isFiniteNumber(m.fireSeq) &&
+    isFiniteNumber(m.aimDist)
   );
+}
+
+/** Floor to an integer, clamping negatives to 0 (fireSeq is a click COUNT). */
+function sanitizeFireSeq(v: number): number {
+  return Math.max(0, Math.floor(v));
+}
+
+/** Clamp a distance into [0, AIM_DIST_MAX]. */
+function sanitizeAimDist(v: number): number {
+  return Math.min(Math.max(v, 0), AIM_DIST_MAX);
 }
 
 /**
@@ -48,7 +71,6 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const m = raw as Record<string, unknown>;
   if (!numericFieldsFinite(m)) return null;
-  if (typeof m.fire !== 'boolean') return null;
   if (!isWeaponId(m.weapon)) return null;
   const seq = m.seq as number;
   if (seq <= lastSeq) return null;
@@ -57,7 +79,8 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
     throttle: clampUnit(m.throttle as number),
     rudder: clampUnit(m.rudder as number),
     aim: wrapAngle(m.aim as number),
-    fire: m.fire,
+    fireSeq: sanitizeFireSeq(m.fireSeq as number),
+    aimDist: sanitizeAimDist(m.aimDist as number),
     weapon: m.weapon,
   };
 }

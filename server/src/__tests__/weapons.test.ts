@@ -37,7 +37,7 @@ function bareWorld(seed = 3): World {
 function torpShip(w: World, id: string, x: number, y: number, heading: number): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase());
   rec.state = { x, y, heading, speed: 0 };
-  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fire: true, weapon: WEAPON.torpedo };
+  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, weapon: WEAPON.torpedo };
   rec.input = input;
   return rec;
 }
@@ -103,7 +103,6 @@ describe('torpedoes — island block + ship hit', () => {
     for (let i = 0; i < 60; i++) {
       w.step();
       events.push(...w.tickEvents);
-      a.input = { ...a.input, seq: a.input.seq + 1, fire: false }; // one salvo only
     }
     expect(b.hp).toBe(CONFIG.ship.hp);
     expect(events.some((e) => e.k === 'boom' && e.hit === undefined)).toBe(true);
@@ -115,10 +114,7 @@ describe('torpedoes — island block + ship hit', () => {
     a.input = { ...a.input, aim: HALF_PI };
     const b = w.addShip('b', 'B');
     b.state = { x: 0, y: 150, heading: 0, speed: 0 };
-    for (let i = 0; i < 80 && b.hp === CONFIG.ship.hp; i++) {
-      w.step();
-      a.input = { ...a.input, seq: a.input.seq + 1, fire: false };
-    }
+    for (let i = 0; i < 80 && b.hp === CONFIG.ship.hp; i++) w.step();
     expect(b.hp).toBe(CONFIG.ship.hp - CONFIG.torpedo.damage);
   });
 });
@@ -140,10 +136,7 @@ describe('torpedoes — infinite range + map-edge splash (A3)', () => {
     a.input = { ...a.input, aim: HALF_PI };
     const b = w.addShip('b', 'B');
     b.state = { x: 0, y: 750, heading: 0, speed: 0 }; // 750u away (> old 700 cap)
-    for (let i = 0; i < 400 && b.hp === CONFIG.ship.hp; i++) {
-      w.step();
-      a.input = { ...a.input, seq: a.input.seq + 1, fire: false }; // one salvo only
-    }
+    for (let i = 0; i < 400 && b.hp === CONFIG.ship.hp; i++) w.step();
     expect(b.hp).toBe(CONFIG.ship.hp - CONFIG.torpedo.damage);
   });
 
@@ -156,7 +149,6 @@ describe('torpedoes — infinite range + map-edge splash (A3)', () => {
     for (let i = 0; i < 60; i++) {
       w.step();
       events.push(...w.tickEvents);
-      a.input = { ...a.input, seq: a.input.seq + 1, fire: false };
     }
     const splash = events.find((e) => e.k === 'boom' && e.hit === undefined);
     expect(splash).toBeDefined();
@@ -226,9 +218,8 @@ describe('World — mine drop + trigger end-to-end', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fire: true, weapon: WEAPON.mine };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, weapon: WEAPON.mine };
     w.step(); // drops one mine astern of a (behind -x)
-    a.input = { ...a.input, seq: 2, fire: false };
     expect(w.mines.size).toBe(1);
     const mine = [...w.mines.values()][0];
     // Sail b straight onto the mine after it arms.
@@ -239,6 +230,35 @@ describe('World — mine drop + trigger end-to-end', () => {
     expect(w.mines.size).toBe(0); // detonated + despawned
     expect(b.alive).toBe(false);
     expect(a.kills).toBe(1);
+  });
+});
+
+describe('one shot per click — torpedoes and mines (world level)', () => {
+  it('one click launches exactly one torpedo over 20 ticks of the same input', () => {
+    const w = bareWorld();
+    const a = w.addShip('a', 'A');
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, weapon: WEAPON.torpedo });
+    let torps = 0;
+    for (let i = 0; i < 20; i++) {
+      w.step();
+      torps += w.tickEvents.filter((e) => e.k === 'torp').length;
+    }
+    expect(torps).toBe(1);
+  });
+
+  it('one click drops exactly one mine, even applied past the drop cooldown; a second click drops another', () => {
+    const w = bareWorld();
+    const a = w.addShip('a', 'A');
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, weapon: WEAPON.mine });
+    // Under hold-to-fire this input would re-drop every dropCooldown; a click must not.
+    const ticks = CONFIG.mine.dropCooldown / CONFIG.tick.simDtMs + 20;
+    for (let i = 0; i < ticks; i++) w.step();
+    expect(w.mines.size).toBe(1);
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, weapon: WEAPON.mine });
+    w.step();
+    expect(w.mines.size).toBe(2);
   });
 });
 
@@ -257,7 +277,7 @@ describe('cooldowns wire array is per-mount number[][]', () => {
     const ship = w.addShip('a', 'A');
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const portCenter = HALF_PI; // heading(0) + gun.mounts[0] ('port') offset (+90deg)
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: portCenter, fire: true, weapon: WEAPON.gun };
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: portCenter, fireSeq: 1, aimDist: 1000, weapon: WEAPON.gun };
     w.step(); // fires the port mount only — starboard's arc (-90+/-60) doesn't cover this aim
     expect(ship.gunCooldowns[0]).toBe(CONFIG.gun.reload);
     expect(ship.gunCooldowns[1]).toBe(0);

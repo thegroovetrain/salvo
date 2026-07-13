@@ -11,7 +11,7 @@ const DT = CONFIG.tick.simDtMs / 1000;
 const MAP_R = 900;
 
 function input(seq: number, throttle = 1, rudder = 0): InputMsg {
-  return { seq, throttle, rudder, aim: 0, fire: false, weapon: 0 };
+  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 };
 }
 
 function kin(s: ShipState) {

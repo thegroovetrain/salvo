@@ -276,7 +276,8 @@ describe('THE INVARIANT extension — spec frames only for the dead/finished', (
             throttle: rng.float(-1, 1),
             rudder: rng.float(-1, 1),
             aim: rng.float(-Math.PI, Math.PI),
-            fire: rng.float(0, 1) < 0.4,
+            fireSeq: rng.float(0, 1) < 0.4 ? tick : 0, // ~40% of ticks land a fresh click
+            aimDist: rng.float(0, 900),
             weapon: 0,
           });
         }

@@ -6,9 +6,11 @@
 // World.submitInput / InputStore path a human uses — proving the design goal
 // that inputs are the only interface into the simulation.
 //
-// STRUCTURAL GUARANTEE — the controller has NO fire code path: every InputMsg it
-// emits carries `fire: false, aim: 0, weapon: 0`. Drones can never shoot because
-// there is nowhere in this file that could ever set fire=true.
+// STRUCTURAL GUARANTEE — the controller has NO fire code path: every InputMsg
+// it emits carries `fireSeq: 0, aimDist: 0, aim: 0, weapon: 0`. A constant
+// fireSeq is never newer than the ship's consumed lastFireSeq, so drones can
+// never shoot — there is nowhere in this file that could ever advance the
+// click counter.
 //
 // Steering is deliberately dumb (this is NOT an AI): each drone waypoint-sails
 // to a random point inside the current safe zone at a per-leg throttle, seeded
@@ -116,13 +118,13 @@ export class DroneController {
     }
   }
 
-  /** The sanitized-shape input for one drone this tick. fire is ALWAYS false. */
+  /** The sanitized-shape input for one drone this tick. fireSeq is ALWAYS 0. */
   private buildInput(ship: ShipRecord, mind: DroneMind): InputMsg {
     const brg = this.steerTarget(ship, mind);
     const track = clampUnit(angleDiff(ship.state.heading, brg) * RUDDER_GAIN);
     const rudder = clampUnit(track + this.avoidIslands(ship) + this.boundaryBias(ship));
     mind.seq += 1;
-    return { seq: mind.seq, throttle: mind.throttle, rudder, aim: 0, fire: false, weapon: 0 };
+    return { seq: mind.seq, throttle: mind.throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 };
   }
 
   /** Bearing the drone wants to hold, applying the zone/waypoint overrides. */

@@ -47,7 +47,21 @@ export interface InputMsg {
   throttle: number; // -1..1
   rudder: number; // -1..1
   aim: number; // rad — desired firing bearing (world space)
-  fire: boolean; // fire held this tick
+  /**
+   * Cumulative per-connection click counter (one shot per click). A value
+   * newer than the last one the server consumed requests exactly ONE shot;
+   * clicks during reload are consumed, not queued. A counter (not an edge
+   * flag) survives the server's latest-input-wins coalescing, and a spoofed
+   * jump (`fireSeq += 1000`) gains nothing — the server fires at most one
+   * gated attempt per tick.
+   */
+  fireSeq: number;
+  /**
+   * u — ship→cursor distance at sample time. Guns splash their shell at this
+   * point along the aim bearing (server-clamped to max gun range); torpedoes
+   * and mines ignore it (direction-only).
+   */
+  aimDist: number;
   weapon: WeaponId; // selected weapon
 }
 

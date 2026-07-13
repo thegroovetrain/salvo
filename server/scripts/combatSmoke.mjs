@@ -38,6 +38,7 @@ async function joinClient(name) {
   room.onMessage('f', (m) => onFrame(ctx, m));
   ctx.goal = { mode: 'idle' };
   ctx.seq = 0;
+  ctx.fireSeq = 0;
   return ctx;
 }
 
@@ -52,7 +53,7 @@ function onFrame(ctx, f) {
 
 /** Send one control input for `ctx` derived from its current goal. */
 function control(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fire: false, weapon: 0 };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, weapon: 0 };
   const g = ctx.goal;
   if (g.mode === 'goto') steerToward(ctx, inp, g.target, 1);
   else if (g.mode === 'engage') engage(ctx, inp, g.target, true);
@@ -82,7 +83,9 @@ function engage(ctx, inp, target, fireAllowed) {
   inp.throttle = 0.5;
   inp.aim = brg;
   const off = Math.abs(angleDiff(brg, ctx.you.heading + HALF_PI));
-  inp.fire = fireAllowed && off < CONFIG.gun.mounts[0].halfArc;
+  inp.aimDist = dist(ctx.you, target); // guns fire AT the click point now
+  // Click every tick while the target bears — the mount reload paces shots.
+  if (fireAllowed && off < CONFIG.gun.mounts[0].halfArc) inp.fireSeq = ++ctx.fireSeq;
 }
 
 /** True iff the island lies on the segment from `from` to `to` (blocks LOS). */
@@ -109,7 +112,8 @@ function laneCruise(ctx, inp, g) {
   if (g.target) {
     inp.aim = bearing(ctx.you, g.target);
     const off = Math.abs(angleDiff(inp.aim, ctx.you.heading + HALF_PI));
-    inp.fire = off < CONFIG.gun.mounts[0].halfArc && blockedBy(ctx.you, g.target, g.isle);
+    inp.aimDist = dist(ctx.you, g.target);
+    if (off < CONFIG.gun.mounts[0].halfArc && blockedBy(ctx.you, g.target, g.isle)) inp.fireSeq = ++ctx.fireSeq;
   }
 }
 

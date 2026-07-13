@@ -52,7 +52,7 @@ async function joinClient(name) {
     name, room, welcome: null, you: null, now: 0,
     contacts: [], blips: [], shells: [], booms: [],
     frames: null, // when set, per-frame records are pushed here
-    goal: { mode: 'idle' }, seq: 0, other: null,
+    goal: { mode: 'idle' }, seq: 0, fireSeq: 0, other: null,
   };
   room.onMessage('w', (m) => (ctx.welcome = m));
   room.onMessage('f', (f) => onFrame(ctx, f));
@@ -86,7 +86,7 @@ function blockedBy(from, to, isle) {
 // ---------------------------------------------------------------- piloting ---
 
 function control(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fire: false, weapon: 0 };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, weapon: 0 };
   const g = ctx.goal;
   if (g.mode === 'park') park(ctx, inp, g.target);
   else if (g.mode === 'engage') engage(ctx, inp, g.target, g.fire);
@@ -112,7 +112,9 @@ function engage(ctx, inp, target, fireAllowed) {
   inp.throttle = 0.5;
   inp.aim = brg;
   const off = Math.abs(angleDiff(brg, ctx.you.heading + Math.PI / 2));
-  inp.fire = fireAllowed && off < CONFIG.gun.mounts[0].halfArc;
+  inp.aimDist = dist(ctx.you, target); // guns fire AT the click point now
+  // Click every tick while the target bears — the mount reload paces shots.
+  if (fireAllowed && off < CONFIG.gun.mounts[0].halfArc) inp.fireSeq = ++ctx.fireSeq;
 }
 
 async function pilotUntil(clients, tickFn, done, timeoutMs, label) {

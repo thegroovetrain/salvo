@@ -26,6 +26,12 @@ const RETICLE_R = 7; // u — crosshair size
 
 const MOUNTS = CONFIG.gun.mounts;
 const MINE_MARKER = CONFIG.ship.length / 2 + CONFIG.mine.triggerRadius; // astern drop point (local -x)
+// Farthest point (from ship center) a shell can splash: the muzzle offset the
+// server spawns shells at (hull-clear: half hull + shell radius) plus max gun
+// range. Clicks beyond it get an impact marker at the clamped point so a long
+// click reads as "splashes HERE", not as a silent miss.
+const GUN_SPLASH_MAX = CONFIG.ship.length / 2 + CONFIG.gun.shellRadius + CONFIG.gun.shellRange;
+const IMPACT_R = 4; // u — range-clamped impact marker ring
 
 export interface FiringPose {
   x: number;
@@ -129,6 +135,30 @@ export class FiringUX {
     g.moveTo(cursor.x - RETICLE_R - 3, cursor.y).lineTo(cursor.x + RETICLE_R + 3, cursor.y);
     g.moveTo(cursor.x, cursor.y - RETICLE_R - 3).lineTo(cursor.x, cursor.y + RETICLE_R + 3);
     g.stroke({ width: 1, color, alpha: 0.6 });
+    if (weapon === WEAPON.gun) this.drawRangeClampMarker(pose, aim, cursor, color);
+  }
+
+  /**
+   * Guns splash AT the clicked point, clamped to max range: when the cursor
+   * sits beyond it, mark where the shell will actually land — a small ring +
+   * tick on the aim bearing at the clamped distance. The crosshair stays at
+   * the cursor; this marker is the truth about the splash point.
+   */
+  private drawRangeClampMarker(
+    pose: FiringPose,
+    aim: number,
+    cursor: { x: number; y: number },
+    color: number,
+  ): void {
+    if (Math.hypot(cursor.x - pose.x, cursor.y - pose.y) <= GUN_SPLASH_MAX) return;
+    const g = this.reticle;
+    const ix = pose.x + Math.cos(aim) * GUN_SPLASH_MAX;
+    const iy = pose.y + Math.sin(aim) * GUN_SPLASH_MAX;
+    g.circle(ix, iy, IMPACT_R).stroke({ width: 1.5, color, alpha: 0.9 });
+    // A short cross-bearing tick: "the shell stops on this line".
+    const tx = Math.cos(aim + Math.PI / 2) * (IMPACT_R + 4);
+    const ty = Math.sin(aim + Math.PI / 2) * (IMPACT_R + 4);
+    g.moveTo(ix - tx, iy - ty).lineTo(ix + tx, iy + ty).stroke({ width: 1, color, alpha: 0.6 });
   }
 
   /** Reticle tint: bright when the aim is in the selected weapon's arc + ready. */

@@ -1,7 +1,7 @@
 // Client bootstrap. Builds the Pixi stage immediately, shows the pre-join
 // MENU (DOM) over the canvas, and connects only on PLAY. In-game: rebuilds the
 // server's map from welcome (seed + playerCap), sends one input per 50ms sim
-// tick (keys drive, mouse aims + hold-to-fire), renders own ship (predicted) +
+// tick (keys drive, mouse aims + one shot per click), renders own ship (predicted) +
 // contacts (interp at -100ms) + dead-reckoned shells + combat feel effects,
 // and drives the match-lifecycle UX: waiting/countdown lines, death →
 // spectate (follow-killer camera, WASD pan, wheel zoom-out), results overlay,
@@ -28,9 +28,9 @@ import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, weaponReadyFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
-import { isFireDenied, isPressEdgeNotReady, DeniedPulse } from './render/deniedFire.js';
+import { isClickDenied, DeniedPulse } from './render/deniedFire.js';
 import { KeyboardInput } from './input/keyboard.js';
-import { MouseInput, worldAim } from './input/mouse.js';
+import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { connect, mapFromWelcome, type Connection } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
@@ -92,8 +92,8 @@ interface Game {
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
   wasInStorm: boolean;
-  /** Fire-held last frame, for the denied-fire press-edge blip (render/deniedFire.ts). */
-  prevFireHeld: boolean;
+  /** mouse.clickCount last frame — the denied-click edge (render/deniedFire.ts). */
+  prevClickCount: number;
 }
 
 /** Push the camera's world transform onto the world + chart containers. */
@@ -329,7 +329,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio): 
     audio,
     audioCueState: INITIAL_CUE_STATE,
     wasInStorm: false,
-    prevFireHeld: false,
+    prevClickCount: 0,
   };
   gRef = g;
   g.clock.addSample(welcome.t);
@@ -389,20 +389,21 @@ function renderOwn(
 
 /**
  * Weapon arc/marker + crosshair while alive; hidden once sunk. Also derives
- * the denied-fire predicate (fire held but out-of-arc blocks it — a bare
- * cooldown does NOT, see isFireDenied) plus the one-shot press-edge "not
- * ready yet" blip, and feeds their OR into the rate-limited pulse —
- * g.deniedFlash carries this frame's result to hud.update() for the chip
- * flash. NOT gated on the waiting/countdown "weapons safe" phase: the server
- * fires all weapons there too (only damage is suppressed), so denying fire
- * on that phase alone would red-pulse "denied" while shells visibly leave
- * the tube.
+ * the denied-click predicate — a fresh click (clickCount advanced since last
+ * frame) that is out of arc OR not ready blips red; click-on-cooldown blips
+ * too now that firing is click-to-fire (see render/deniedFire.ts) — and feeds
+ * it into the rate-limited pulse; g.deniedFlash carries this frame's result
+ * to hud.update() for the chip flash. NOT gated on the waiting/countdown
+ * "weapons safe" phase: the server fires all weapons there too (only damage
+ * is suppressed), so denying fire on that phase alone would red-pulse
+ * "denied" while shells visibly leave the tube.
  */
 function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }): void {
+  const clicked = g.mouse.clickCount !== g.prevClickCount;
+  g.prevClickCount = g.mouse.clickCount;
   if (!status.alive) {
     g.firing.hide();
     g.deniedFlash = false;
-    g.prevFireHeld = g.mouse.fire;
     return;
   }
   // Drive the firing UX from the client-selected weapon (immediate), reading the
@@ -410,10 +411,8 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   const weapon = g.keyboard.weapon;
   const ready = weaponReadyFraction(status.cooldowns, weapon, pose.heading, aim);
   const inArc = weaponArcHit(pose.heading, aim, weapon);
-  const params = { fireHeld: g.mouse.fire, ready, inArc };
-  const denied = isFireDenied(params) || isPressEdgeNotReady(params, g.prevFireHeld);
+  const denied = isClickDenied({ clicked, ready: ready >= 1, inArc });
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
-  g.prevFireHeld = g.mouse.fire;
   g.firing.update(pose, aim, weapon, ready, cursor, g.deniedFlash);
 }
 
@@ -495,7 +494,13 @@ function makeCallbacks(g: Game): LoopCallbacks {
       if (g.state.spectating) return;
       const cursor = g.camera.screenToWorld(g.mouse.screenPos);
       const aim = worldAim(g.lastOwn.x, g.lastOwn.y, cursor);
-      const input = g.sampler.sample(g.keyboard.axes(), { aim, fire: g.mouse.fire, weapon: g.keyboard.weapon });
+      const aimDist = worldAimDist(g.lastOwn.x, g.lastOwn.y, cursor);
+      const input = g.sampler.sample(g.keyboard.axes(), {
+        aim,
+        fireSeq: g.mouse.clickCount,
+        aimDist,
+        weapon: g.keyboard.weapon,
+      });
       if (g.state.mode === 'predict') g.predictor.localTick(input);
     },
     render: (alpha, frameDt) => {
@@ -545,15 +550,16 @@ function bindResize(stage: Stage, game: Game): void {
 }
 
 /**
- * Immediately send + locally apply a rudder-neutral, no-fire input that KEEPS
- * the current throttle order. Wired to document visibility + window blur so a
- * backgrounded tab can't leave a stale rudder locked over or the guns firing
- * server-side for the whole time it's hidden (the server keeps applying the
- * latest input it has every tick) — but the throttle is a deliberate engine
- * order, so the ship is meant to keep steaming straight at its set speed while
- * backgrounded. Routes through the sampler so seq stays monotonic with the
- * regular tick cadence, and through the predictor so the pending-input ring
- * (replayed on reconcile) stays consistent with what was actually sent.
+ * Immediately send + locally apply a rudder-neutral input that KEEPS the
+ * current throttle order. Wired to document visibility + window blur so a
+ * backgrounded tab can't leave a stale rudder locked over for the whole time
+ * it's hidden (the server keeps applying the latest input it has every tick)
+ * — but the throttle is a deliberate engine order, so the ship is meant to
+ * keep steaming straight at its set speed while backgrounded. Fire can't
+ * stick: fireSeq is a click counter, and the sampler re-sends the last value
+ * ("no new clicks"). Routes through the sampler so seq stays monotonic with
+ * the regular tick cadence, and through the predictor so the pending-input
+ * ring (replayed on reconcile) stays consistent with what was actually sent.
  */
 function sendNeutralInput(g: Game): void {
   if (g.state.spectating) return; // spectators send nothing at all

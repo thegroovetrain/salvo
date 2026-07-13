@@ -9,7 +9,8 @@ const input = (seq: number, throttle = 1, rudder = 0, extra = {}) => ({
   throttle,
   rudder,
   aim: 0,
-  fire: false,
+  fireSeq: 0,
+  aimDist: 0,
   weapon: 0,
   ...extra,
 });

@@ -35,12 +35,15 @@ function soonestTube(cooldowns: number[]): number {
 }
 
 /**
- * Launch one torpedo from the soonest-ready bow tube this tick, or null if no
- * tube is ready or the aim is out of the bow arc. Resets the firing tube.
- * Exported for tests (tube stagger/reload, arc gating).
+ * Launch one torpedo from the soonest-ready bow tube (the World routes at most
+ * one click here per fireSeq increment), or null if no tube is ready or the
+ * aim is out of the bow arc. Resets the firing tube. Direction-only: a torpedo
+ * runs until impact, so it deliberately never reads input.aimDist. The alive +
+ * weapon guards are kept for direct test callers; the click gate itself lives
+ * in World.fireControl. Exported for tests (tube stagger/reload, arc gating).
  */
 export function fireTorpedo(ship: ShipRecord, now: number, mkId: () => string): ShellState | null {
-  if (!ship.alive || !ship.input.fire || ship.input.weapon !== WEAPON.torpedo) return null;
+  if (!ship.alive || ship.input.weapon !== WEAPON.torpedo) return null;
   const tube = soonestTube(ship.torpedoCooldowns);
   if (ship.torpedoCooldowns[tube] > 0) return null; // no tube loaded
   const center = wrapAngle(ship.state.heading + CONFIG.torpedo.offset); // bow-centered

@@ -84,7 +84,8 @@ function injectShell(ctx: Ctx, id: string, ownerId: string, x: number, y: number
 }
 
 function fire(ctx: Ctx, id: string, weapon: 0 | 1 | 2, seq: number): void {
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fire: true, weapon });
+  // seq doubles as the click counter: every call is one fresh click.
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, weapon });
 }
 
 /** Step until this tick's events contain a boom (shell resolution is 1-4 ticks). */

@@ -54,6 +54,7 @@ async function joinClient(name) {
     torpIds: new Set(),
     blipIds: new Set(),
     seq: 0,
+    fireSeq: 0,
     goal: { mode: 'idle' },
     // Mine-visibility trackers (updated every frame):
     mineLeakBeyondSight: 0, // enemy mine seen at dist > sight (must stay 0)
@@ -95,7 +96,7 @@ function trackEnemyMines(ctx) {
 }
 
 function control(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fire: false, weapon: 0 };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, weapon: 0 };
   const g = ctx.goal;
   if (g.mode === 'goto') steerToward(ctx, inp, g.target, 1);
   else if (g.mode === 'hold') holdAt(ctx, inp, g.target);
@@ -130,7 +131,8 @@ function engageTorp(ctx, inp, target) {
   inp.throttle = range > 110 ? 0.6 : 0.15; // close then keep steerageway
   inp.aim = brg;
   inp.weapon = 1; // torpedoes
-  inp.fire = Math.abs(angleDiff(brg, ctx.you.heading)) < CONFIG.torpedo.halfArc;
+  // Click every tick while the tube bears — the reload paces launches.
+  if (Math.abs(angleDiff(brg, ctx.you.heading)) < CONFIG.torpedo.halfArc) inp.fireSeq = ++ctx.fireSeq;
 }
 
 /** Hold station (heading steady with light steerage) and drop mines astern. */
@@ -138,7 +140,7 @@ function dropMines(ctx, inp) {
   if (!ctx.you) return;
   inp.throttle = 0.12; // just enough steerageway to hold a heading
   inp.weapon = 2; // mines
-  inp.fire = true; // hold-to-drop; the 8s cooldown paces it
+  inp.fireSeq = ++ctx.fireSeq; // click every tick; the 8s drop cooldown paces it
 }
 
 function roster(room, id) {

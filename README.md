@@ -20,7 +20,7 @@ Open http://localhost:5173 in two browser tabs (or one tab — drones fill the m
 | W / S | Throttle ahead / astern |
 | A / D | Rudder port / starboard |
 | Mouse | Aim (within the selected weapon's arc) |
-| Hold left button | Fire |
+| Click left button | Fire one shot (selected weapon) |
 | 1 / 2 / 3 | Select guns / torpedoes / mines |
 | M | Mute |
 | P | Debug: toggle prediction ⇄ interpolation for own ship |
