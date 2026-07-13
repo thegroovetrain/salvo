@@ -9,8 +9,9 @@
 // the observer iff the segment observer→point crosses no island circle
 // (segCircleHit). Sight, radar, shells, booms, spawns, and sinks all use it.
 //
-// THE TWO VISION TIERS:
-//   - Sight:  dist ≤ CONFIG.vision.sight (boundary INCLUSIVE) ∧ LOS-clear.
+// THE TWO VISION TIERS (per-OBSERVER effective ranges — the sightRange /
+// radarRange / sweepSpeed upgrades live on me.stats, base = CONFIG.vision):
+//   - Sight:  dist ≤ me.stats.sightRange (boundary INCLUSIVE) ∧ LOS-clear.
 //             Live contacts — position/heading/speed straight from the sim.
 //   - Radar:  sight < dist ≤ radar (both boundaries as written) ∧ LOS-clear
 //             ∧ the observer's beam crossed the target's bearing this tick:
@@ -41,6 +42,9 @@
 //     straddle the sight edge with its center in fog, and emitting the id there
 //     would leak the victim's identity.
 //   - dmg:   victim-private (only the damaged ship hears its hp).
+//   - upg:   killer-private (only the ship the kill-reward upgrade landed on
+//     hears it — same mechanism as dmg). Enemy builds stay hidden: upgrade
+//     counts ride ONLY on OwnShip.upg, never on contacts/blips/booms.
 //   - sunk:  visible to the victim itself, and to anyone who can see the
 //     sinking ship's position (wreck position, sight + LOS). Everyone still
 //     learns alive/kills/deaths from the public roster schema — sinking is
@@ -61,7 +65,6 @@
 // channel back into the match. observe() itself never relaxes fog.
 
 import {
-  CONFIG,
   bearing,
   segCircleHit,
   wrapPositive,
@@ -77,10 +80,9 @@ import {
 } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 
-const SIGHT = CONFIG.vision.sight;
-const RADAR = CONFIG.vision.radar;
-const SIGHT2 = SIGHT * SIGHT;
-const RADAR2 = RADAR * RADAR;
+// No module-level SIGHT/RADAR constants: vision ranges are PER-OBSERVER
+// effective stats (me.stats.sightRange / radarRange — upgradeable), so every
+// gate below reads them off the observing ShipRecord.
 
 /** Everything one observer may know this tick. */
 export interface PerceptionView {
@@ -97,11 +99,15 @@ export function losClear(a: Vec2, b: Vec2, islands: readonly Circle[]): boolean 
   return true;
 }
 
-/** Sight-tier test for a point: within sight range (inclusive) + LOS-clear. */
-function pointSighted(me: Vec2, p: Vec2, islands: readonly Circle[]): boolean {
-  const dx = p.x - me.x;
-  const dy = p.y - me.y;
-  return dx * dx + dy * dy <= SIGHT2 && losClear(me, p, islands);
+/** Sight-tier test for a point: within the OBSERVER'S effective sight range
+ *  (inclusive) + LOS-clear. Takes the ShipRecord so the sightRange upgrade
+ *  applies to every point-sighted gate (ballistics, mines, booms, wrecks,
+ *  spawns) uniformly. */
+function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Circle[]): boolean {
+  const dx = p.x - me.state.x;
+  const dy = p.y - me.state.y;
+  const sight = me.stats.sightRange;
+  return dx * dx + dy * dy <= sight * sight && losClear(me.state, p, islands);
 }
 
 /**
@@ -123,14 +129,17 @@ function pairScan(world: World, me: ShipRecord): { contacts: Contact[]; blips: B
   const contacts: Contact[] = [];
   const blips: BlipEvent[] = [];
   const my = me.state;
+  // The OBSERVER'S effective ranges gate both tiers (sight/radar upgrades).
+  const sight2 = me.stats.sightRange * me.stats.sightRange;
+  const radar2 = me.stats.radarRange * me.stats.radarRange;
   for (const ship of world.ships.values()) {
     if (ship.id === me.id || !ship.alive) continue;
     const s = ship.state;
     const dx = s.x - my.x;
     const dy = s.y - my.y;
     const d2 = dx * dx + dy * dy;
-    if (d2 > RADAR2) continue;
-    if (d2 <= SIGHT2) {
+    if (d2 > radar2) continue;
+    if (d2 <= sight2) {
       if (losClear(my, s, world.map.islands)) {
         contacts.push({ id: ship.id, x: s.x, y: s.y, heading: s.heading, speed: s.speed, cls: ship.classId });
       }
@@ -157,7 +166,7 @@ function ballisticEvents(world: World, me: ShipRecord): BallisticEvent[] {
   for (const shell of world.shells.values()) {
     if (me.seenBallistics.has(shell.id)) continue;
     const own = shell.ownerId === me.id;
-    if (!own && !pointSighted(me.state, shell, world.map.islands)) continue;
+    if (!own && !pointSighted(me, shell, world.map.islands)) continue;
     me.seenBallistics.add(shell.id);
     out.push({
       k: shell.kind,
@@ -186,7 +195,7 @@ function minesForObserver(world: World, me: ShipRecord): MineView[] {
   for (const mine of world.mines.values()) {
     if (mine.ownerId === me.id) {
       out.push({ id: mine.id, x: mine.x, y: mine.y, own: true });
-    } else if (pointSighted(me.state, mine, world.map.islands)) {
+    } else if (pointSighted(me, mine, world.map.islands)) {
       out.push({ id: mine.id, x: mine.x, y: mine.y, own: false });
     }
   }
@@ -203,10 +212,10 @@ function minesForObserver(world: World, me: ShipRecord): MineView[] {
  */
 function boomForObserver(world: World, me: ShipRecord, e: BoomEvent): BoomEvent | null {
   const islands = world.map.islands;
-  if (e.hit !== me.id && !pointSighted(me.state, e, islands)) return null;
+  if (e.hit !== me.id && !pointSighted(me, e, islands)) return null;
   if (!e.hit || e.hit === me.id) return e;
   const victim = world.ships.get(e.hit);
-  if (victim && pointSighted(me.state, victim.state, islands)) return e;
+  if (victim && pointSighted(me, victim.state, islands)) return e;
   return { k: 'boom', id: e.id, x: e.x, y: e.y }; // impact visible, victim id stripped
 }
 
@@ -214,7 +223,7 @@ function boomForObserver(world: World, me: ShipRecord, e: BoomEvent): BoomEvent 
 function sunkForObserver(world: World, me: ShipRecord, e: SunkEvent): SunkEvent | null {
   if (e.id === me.id) return e;
   const wreck = world.ships.get(e.id);
-  return wreck !== undefined && pointSighted(me.state, wreck.state, world.map.islands) ? e : null;
+  return wreck !== undefined && pointSighted(me, wreck.state, world.map.islands) ? e : null;
 }
 
 /**
@@ -228,10 +237,14 @@ function worldEventForObserver(world: World, me: ShipRecord, e: GameEvent): Game
       return boomForObserver(world, me, e);
     case 'dmg':
       return e.id === me.id ? e : null;
+    case 'upg':
+      // Killer-private, exactly like dmg is victim-private: only the ship the
+      // kill-reward landed on ever hears it (enemy builds stay hidden).
+      return e.id === me.id ? e : null;
     case 'sunk':
       return sunkForObserver(world, me, e);
     case 'spawn':
-      return e.id === me.id || pointSighted(me.state, e, world.map.islands) ? e : null;
+      return e.id === me.id || pointSighted(me, e, world.map.islands) ? e : null;
     default:
       // shell/torp (re-issued per observer above), blip (never world-emitted):
       // fail closed. Mines are not events (contact-like state).
@@ -281,7 +294,12 @@ export function observeSpectator(world: World, observerId: string): PerceptionVi
   }
   const events: GameEvent[] = [];
   for (const e of world.tickEvents) {
-    if (e.k !== 'shell' && e.k !== 'torp') events.push(e);
+    if (e.k === 'shell' || e.k === 'torp') continue; // re-issued exactly-once below
+    // upg stays killer-private even here: a dead-in-active killer (mutual
+    // destruction) still gets its own grant toast, but no other spectator may
+    // learn a living ship's build increment.
+    if (e.k === 'upg' && e.id !== observerId) continue;
+    events.push(e);
   }
   events.push(...spectatorBallistics(world, world.ships.get(observerId)));
   const mines: MineView[] = [];

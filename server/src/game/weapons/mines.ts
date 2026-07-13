@@ -56,7 +56,10 @@ function oldestOwnMine(mines: Map<string, MineState>, ownerId: string): string |
 /**
  * Add a mine to the world store, enforcing the per-player cap (despawn the
  * player's oldest, silently) and the defensive global cap (despawn the globally
- * oldest). Returns the new mine. Exported for tests + the World drop closure.
+ * oldest). `maxLive` is the OWNER'S effective live-mine cap (Stage D: the
+ * maxMines upgrade) — the World threads it in from the owner's cached stats,
+ * so this stays a pure store operation. Returns the new mine. Exported for
+ * tests + the World drop closure.
  */
 export function addMine(
   mines: Map<string, MineState>,
@@ -65,8 +68,9 @@ export function addMine(
   y: number,
   now: number,
   id: string,
+  maxLive: number = CONFIG.mine.maxLive,
 ): MineState {
-  if (ownMineCount(mines, ownerId) >= CONFIG.mine.maxLive) {
+  if (ownMineCount(mines, ownerId) >= maxLive) {
     const oldest = oldestOwnMine(mines, ownerId);
     if (oldest !== undefined) mines.delete(oldest);
   }
@@ -122,16 +126,15 @@ export function hullFor(ship: ShipRecord): HullTarget {
 }
 
 /** The mines weapon system (WeaponId 2). The drop ammo pool is distinct from the
- *  live-mine board cap (maxLive) that addMine enforces. */
+ *  live-mine board cap (stats.mine.maxLive) that addMine enforces. Pool size +
+ *  reload come from the ship's cached effective stats (Stage D upgrades). */
 export const mineSystem: WeaponSystem = {
   id: WEAPON.mine,
-  maxAmmo: CONFIG.mine.maxAmmo,
-  reloadMs: CONFIG.mine.reloadMs,
   tick(ship: ShipRecord, dtMs: number): void {
-    tickReload(ship.ammo[WEAPON.mine], CONFIG.mine.maxAmmo, CONFIG.mine.reloadMs, dtMs);
+    tickReload(ship.ammo[WEAPON.mine], ship.stats.mine.maxAmmo, ship.stats.mine.reloadMs, dtMs);
   },
   fire(ctx: FireContext): void {
-    if (!consume(ctx.ship.ammo[WEAPON.mine], CONFIG.mine.reloadMs)) return; // pool empty
+    if (!consume(ctx.ship.ammo[WEAPON.mine], ctx.ship.stats.mine.reloadMs)) return; // pool empty
     const p = dropPoint(ctx.ship);
     ctx.dropMine(p.x, p.y);
   },

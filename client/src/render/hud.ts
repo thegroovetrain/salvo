@@ -5,8 +5,8 @@
 // (Pixi re-rasterizes on `.text`).
 
 import { Container, Graphics, Text } from 'pixi.js';
-import type { ShipState, WeaponId, ShipClassId, WeaponAmmo } from '@salvo/shared';
-import { CONFIG, wrapPositive } from '@salvo/shared';
+import type { EffectiveStats, ShipState, WeaponId, ShipClassId, WeaponAmmo } from '@salvo/shared';
+import { weaponMaxAmmo, weaponReloadMs, wrapPositive } from '@salvo/shared';
 
 /** Kinematics subset the speed ladder needs (ahead/astern denominators). */
 interface LadderKin {
@@ -86,12 +86,9 @@ export function speedLadderFraction(speed: number, kin: LadderKin): number {
 
 /** Weapon selector chip labels, indexed by WeaponId. */
 const WEAPON_LABELS = ['1 GUNS', '2 TORP', '3 MINE'] as const;
-/** Per-weapon reload durations (ms), indexed by WeaponId — read from CONFIG.
- *  (Stage D: these become effectiveStats(cls, upg) lookups per own ship.) */
-export const WEAPON_RELOADS = [CONFIG.gun.reloadMs, CONFIG.torpedo.reloadMs, CONFIG.mine.reloadMs];
-/** Per-weapon ammo-pool sizes, indexed by WeaponId — read from CONFIG.
- *  (Stage D: these become effectiveStats(cls, upg) lookups per own ship.) */
-export const WEAPON_MAX_AMMO = [CONFIG.gun.maxAmmo, CONFIG.torpedo.maxAmmo, CONFIG.mine.maxAmmo];
+// Per-weapon reload/pool denominators come from OwnStatus.stats (the shared
+// effectiveStats result) via weaponReloadMs/weaponMaxAmmo — no CONFIG lookups
+// here, so upgraded pools/reloads render correctly (Stage D).
 const CHIP_GAP = 6;
 const CHIP_H = 20;
 const SEG_GAP = 1; // px between ammo segments within a chip
@@ -124,7 +121,10 @@ export interface OwnStatus {
   weapon: WeaponId; // currently-selected weapon (client-local, immediate — not the server echo)
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
-  cls: ShipClassId; // own class — drives the speed-ladder denominators + max-hp fraction
+  cls: ShipClassId; // own class — drives hull-length lookups (firing UX)
+  /** Cached effectiveStats(cls, upg) — ALL HUD denominators (max hp, speed
+   *  ladder, ammo pool sizes, reload durations) read from here (Stage D). */
+  stats: EffectiveStats;
 }
 
 /** View model for one ammo chip: pool count, pool size, reload progress [0,1]. */
@@ -407,7 +407,7 @@ export class Hud {
     g.clear();
     const x = screenW - BAR_W - MARGIN;
     const baseY = screenH - MARGIN - PANEL_H;
-    this.drawHp(g, x, baseY, status.hp, CONFIG.shipClasses[status.cls].hp);
+    this.drawHp(g, x, baseY, status.hp, status.stats.maxHp);
     this.drawWeaponChips(g, status, x, baseY + BAR_H + 12, deniedFlash);
   }
 
@@ -423,18 +423,23 @@ export class Hud {
    * `deniedFlash` briefly reddens the SELECTED chip's border (the HUD half of the
    * denied-fire feedback — render/deniedFire.ts drives the rate limit). Every chip
    * renders as a segmented ammo pool + a reload line via drawAmmoChip, reading
-   * OwnShip.ammo with pool sizes/reloads from CONFIG (Stage D: effective stats).
+   * OwnShip.ammo with EFFECTIVE pool sizes/reloads from status.stats (Stage D).
    */
   private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean): void {
     const cw = (BAR_W - 2 * CHIP_GAP) / 3;
     for (let i = 0; i < 3; i++) {
+      const w = i as WeaponId;
       const cx = x + i * (cw + CHIP_GAP);
       const selected = i === status.weapon;
       const a = status.ammo[i] ?? { n: 0, reloadMsLeft: 0 };
       g.rect(cx, y, cw, CHIP_H).fill({ color: 0x111111, alpha: 0.8 });
       this.drawAmmoChip(
         g,
-        { n: a.n, max: WEAPON_MAX_AMMO[i], reloadFrac: reloadFraction(a.reloadMsLeft, WEAPON_RELOADS[i]) },
+        {
+          n: a.n,
+          max: weaponMaxAmmo(status.stats, w),
+          reloadFrac: reloadFraction(a.reloadMsLeft, weaponReloadMs(status.stats, w)),
+        },
         cx,
         y,
         cw,
@@ -516,7 +521,7 @@ export class Hud {
     this.setInstrumentsVisible(true);
     this.spectateBanner.visible = false;
     this.layout(screenH);
-    this.updateTelegraph(axes, ship.speed, CONFIG.shipClasses[status.cls].kinematics);
+    this.updateTelegraph(axes, ship.speed, status.stats.kinematics);
     this.drawBars(status, screenW, screenH, deniedFlash);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);

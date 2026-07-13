@@ -9,7 +9,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  UPGRADE_IDS,
   bearing,
+  effectiveStats,
   mulberry32,
   segCircleHit,
   wrapPositive,
@@ -40,8 +42,18 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
+// Per-observer EFFECTIVE ranges, recomputed here from the raw upgrade counts
+// (deliberately NOT via me.stats / effectiveStats — the reimplementation rule).
+function effSight(me: ShipRecord): number {
+  return SIGHT * CONFIG.upgrades.sightRange.mult ** me.upgrades[UPGRADE_IDS.indexOf('sightRange')];
+}
+
+function effRadar(me: ShipRecord): number {
+  return RADAR * CONFIG.upgrades.radarRange.mult ** me.upgrades[UPGRADE_IDS.indexOf('radarRange')];
+}
+
 function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
-  return dist(me.state, p) <= SIGHT && clearLos(me.state, p, w.map.islands);
+  return dist(me.state, p) <= effSight(me) && clearLos(me.state, p, w.map.islands);
 }
 
 function inPaintWindow(me: ShipRecord, brg: number): boolean {
@@ -425,12 +437,16 @@ describe('perception — mine visibility (owner-always, else sight+LOS, never ra
 /** Assert one frame leaks nothing beyond the observer's vision. */
 function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   const me = w.ships.get(viewerId)!;
+  // Upgrade counts ride ONLY on the observer's own ship — never on a contact.
+  if (f.you) expect(f.you.upg).toEqual(me.upgrades);
   for (const c of f.contacts) {
     const target = w.ships.get(c.id)!;
     expect(target).toBeDefined();
     expect(target.alive).toBe(true);
     expect(c.id).not.toBe(viewerId);
-    expect(dist(me.state, target.state)).toBeLessThanOrEqual(SIGHT);
+    expect('upg' in c).toBe(false); // enemy builds are hidden (anti-cheat)
+    expect('stats' in c).toBe(false);
+    expect(dist(me.state, target.state)).toBeLessThanOrEqual(effSight(me));
     expect(clearLos(me.state, target.state, w.map.islands)).toBe(true);
     expect({ x: c.x, y: c.y }).toEqual({ x: target.state.x, y: target.state.y });
   }
@@ -453,8 +469,8 @@ function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
       const target = w.ships.get(e.id)!;
       expect(target.alive).toBe(true);
       const d = dist(me.state, target.state);
-      expect(d).toBeGreaterThan(SIGHT);
-      expect(d).toBeLessThanOrEqual(RADAR);
+      expect(d).toBeGreaterThan(effSight(me));
+      expect(d).toBeLessThanOrEqual(effRadar(me));
       expect(clearLos(me.state, target.state, w.map.islands)).toBe(true);
       expect(inPaintWindow(me, bearing(me.state, target.state))).toBe(true);
       expect(e.t).toBe(w.now);
@@ -478,6 +494,11 @@ function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
       return;
     case 'dmg':
       expect(e.id).toBe(me.id);
+      return;
+    case 'upg':
+      // Killer-private: an upg event may only ever reach the killer itself.
+      expect(e.id).toBe(me.id);
+      expect(UPGRADE_IDS).toContain(e.type);
       return;
     case 'sunk': {
       if (e.id === me.id) return;
@@ -508,6 +529,14 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const r = rng.float(0, w.map.radius * 0.85);
         const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU));
         rec.sweepAngle = rng.float(0, TAU); // decorrelate paint windows
+        // Random vision upgrades so the invariant is exercised at WIDENED
+        // per-observer radii too. Counts are set directly and the world-side
+        // cache recomputed the way World does (effectiveStats); the CHECKS
+        // recompute ranges independently from the raw counts (effSight/effRadar).
+        rec.upgrades[UPGRADE_IDS.indexOf('sightRange')] = rng.int(0, 2);
+        rec.upgrades[UPGRADE_IDS.indexOf('radarRange')] = rng.int(0, 2);
+        rec.upgrades[UPGRADE_IDS.indexOf('sweepSpeed')] = rng.int(0, 2);
+        rec.stats = effectiveStats(rec.cls, rec.upgrades);
       }
       for (let s = 0; s < rng.int(0, 5); s++) {
         const ang = rng.float(0, TAU);

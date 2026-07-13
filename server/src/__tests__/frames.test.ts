@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, zeroUpgrades } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -65,6 +65,7 @@ describe('buildFrame — shape and clock', () => {
       ],
       sweep: ship.sweepAngle,
       cls: 'cruiser',
+      upg: zeroUpgrades(), // 14 zero counts — no upgrades granted yet
     });
     expect(f.spec).toBeUndefined();
   });
@@ -149,8 +150,11 @@ describe('buildFrame — events (fogged via perception)', () => {
     w.sinkShip('b', 'a');
     w.step();
     const sunk = { k: 'sunk', id: 'b', by: 'a' };
-    expect(buildFrame(w, 'a').events).toEqual([sunk]); // wreck 100u away — visible
-    expect(buildFrame(w, 'b').events).toEqual([sunk]); // victim always told
+    // The killer additionally gets its killer-private kill-reward upg event.
+    const aEvents = buildFrame(w, 'a').events;
+    expect(aEvents.filter((e) => e.k === 'sunk')).toEqual([sunk]); // wreck 100u away — visible
+    expect(aEvents.filter((e) => e.k === 'upg')).toHaveLength(1);
+    expect(buildFrame(w, 'b').events).toEqual([sunk]); // victim always told, never the killer's grant
   });
 
   it('spawn events carry the spawn position', () => {

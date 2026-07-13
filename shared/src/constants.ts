@@ -130,6 +130,30 @@ export const CONFIG = {
     globalCap: 60, // defensive ceiling on total live mines across all players
   },
 
+  /**
+   * Kill-reward upgrade increments (one uniformly-random grant per kill; see
+   * UPGRADE_IDS below for the canonical id order). Multiplicative entries stack
+   * as base * mult^count; additive entries stack linearly. UNCAPPED by design —
+   * per-stat caps are one CONFIG value away if snowballing breaks playtests.
+   * Every number is a tunable.
+   */
+  upgrades: {
+    hullPoints: { add: 20, healOnGrant: true }, // +hp max hp per stack; the grant also heals +add (clamped)
+    radarRange: { mult: 1.15 }, // × radar sweep range (u) per stack
+    sweepSpeed: { periodMult: 0.85 }, // × sweep period (ms) per stack — smaller = faster revolutions
+    sightRange: { mult: 1.12 }, // × true-sight bubble (u) per stack (the fog hole)
+    maxSpeed: { mult: 1.08 }, // × maxSpeed AND reverseSpeed (u/s); accel/turn untouched
+    gunReload: { mult: 0.88 }, // × gun reload (ms) per stack — smaller = faster
+    gunRange: { mult: 1.15 }, // × max shell travel (u) per stack
+    gunAmmo: { add: 1 }, // +rounds in the gun pool per stack (grant also loads +1, clamped)
+    torpedoReload: { mult: 0.88 }, // × torpedo reload (ms) per stack
+    torpedoAmmo: { add: 1 }, // +fish in the tube pool per stack (grant also loads +1, clamped)
+    torpedoSpeed: { mult: 1.12 }, // × torpedo speed (u/s) per stack
+    mineReload: { mult: 0.85 }, // × mine reload (ms) per stack
+    mineAmmo: { add: 1 }, // +drops in the mine pool per stack (grant also loads +1, clamped)
+    maxMines: { add: 1 }, // +max simultaneous LIVE mines on the board per stack
+  },
+
   /** Storm circle / battle-royale zone. */
   zone: {
     grace: 45000, // ms — full radius before shrink begins
@@ -171,6 +195,31 @@ export function sanitizeClassId(raw: unknown): ShipClassId {
     ? (raw as ShipClassId)
     : 'cruiser';
 }
+
+/**
+ * Canonical upgrade id order. Upgrade COUNTS travel as a plain number[] (wire:
+ * OwnShip.upg; server: ShipRecord.upgrades) indexed by THIS array — the order
+ * is part of the wire contract, so append-only. Grants pick uniformly over it.
+ */
+export const UPGRADE_IDS = [
+  'hullPoints',
+  'radarRange',
+  'sweepSpeed',
+  'sightRange',
+  'maxSpeed',
+  'gunReload',
+  'gunRange',
+  'gunAmmo',
+  'torpedoReload',
+  'torpedoAmmo',
+  'torpedoSpeed',
+  'mineReload',
+  'mineAmmo',
+  'maxMines',
+] as const;
+
+/** One of the 14 upgrade type ids (see UPGRADE_IDS / CONFIG.upgrades). */
+export type UpgradeId = (typeof UPGRADE_IDS)[number];
 
 /** Map radius for a given player cap: base * sqrt(cap / capRef). */
 export function mapRadius(playerCap: number): number {

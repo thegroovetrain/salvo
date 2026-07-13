@@ -9,7 +9,17 @@
 
 import type { Container } from 'pixi.js';
 import type { Room } from 'colyseus.js';
-import { CONFIG, isOutside, zoneRadiusAt, type GameMap, type ShipClassId } from '@salvo/shared';
+import {
+  CONFIG,
+  effectiveStats,
+  isOutside,
+  weaponReloadMs,
+  zeroUpgrades,
+  zoneRadiusAt,
+  type EffectiveStats,
+  type GameMap,
+  type ShipClassId,
+} from '@salvo/shared';
 import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
@@ -25,7 +35,7 @@ import { Mines } from './render/mines.js';
 import { Fog } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
-import { Hud, reloadFraction, WEAPON_RELOADS, type OwnStatus, type ZoneHud } from './render/hud.js';
+import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse } from './render/deniedFire.js';
@@ -96,6 +106,13 @@ interface Game {
   prevClickCount: number;
   /** Own ship class — the localStorage guess, corrected by the first server frame. */
   ownClass: ShipClassId;
+  /**
+   * Cached effectiveStats(ownClass, own upgrade counts) — THE client-side stat
+   * source (HUD denominators, predictor kinematics, radar/camera/fog ranges,
+   * firing-arc gun range). Starts at the guessed class with zero upgrades;
+   * applyOwnStats() swaps it whenever you.cls or you.upg changes.
+   */
+  ownStats: EffectiveStats;
 }
 
 /** Push the camera's world transform onto the world + chart containers. */
@@ -132,15 +149,18 @@ function ownStatus(g: Game): OwnStatus {
   const you = g.state.net.you;
   const eta = g.state.respawnEta;
   const cls = you?.cls ?? g.ownClass;
+  const stats = g.ownStats;
   return {
-    hp: you?.hp ?? CONFIG.shipClasses[cls].hp,
-    // Full pools until the first frame arrives (gun 2 / torp 1 / mine 1 from CONFIG).
+    hp: you?.hp ?? stats.maxHp,
+    // Full pools until the first frame arrives (effective sizes ≙ CONFIG at
+    // zero upgrades — g.ownStats starts as the un-upgraded guessed class).
     ammo: you?.ammo ?? [
-      { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
-      { n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 },
-      { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 },
+      { n: stats.gun.maxAmmo, reloadMsLeft: 0 },
+      { n: stats.torpedo.maxAmmo, reloadMsLeft: 0 },
+      { n: stats.mine.maxAmmo, reloadMsLeft: 0 },
     ],
     cls,
+    stats,
     // Client-selected weapon (immediate), not the server echo — keeps the HUD
     // chip highlight in lockstep with the arcs/denied-flash, which already
     // read g.keyboard.weapon directly. Ammo VALUES still come from the
@@ -348,6 +368,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     wasInStorm: false,
     prevClickCount: 0,
     ownClass: cls,
+    ownStats: effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades()),
   };
   gRef = g;
   g.clock.addSample(welcome.t);
@@ -357,17 +378,30 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
 }
 
 /**
- * Adopt the server-authoritative own class (first frame or a change): swap the
- * predictor's kinematics + collision radius (re-inits via forceSnap, absorbed by
- * the next reconcile), the own-hull visual, and the wake stern offset. Guessed
+ * Adopt the server-authoritative own class + upgrade counts (first frame or
+ * any change to either): recompute the cached effective stats and swap every
+ * consumer — the predictor's kinematics (re-inits via forceSnap, absorbed by
+ * the next reconcile; collision radius stays CLASS-based, hull size does not
+ * upgrade), the own-hull visual + wake stern offset, the radar rings/sweep
+ * period, the camera base zoom (radarRange upgrade = "your world grows"), and
+ * the fog sight hole (rebaked via the same path as a resize). Guessed
  * localStorage config was used until here; this is the desync firewall.
  */
-function applyOwnClass(g: Game, cls: ShipClassId): void {
+function applyOwnStats(g: Game, cls: ShipClassId, upg: readonly number[]): void {
   g.ownClass = cls;
   const spec = CONFIG.shipClasses[cls];
-  g.predictor.setClassConfig(spec.kinematics, spec.hull.beam / 2);
+  const stats = effectiveStats(spec, upg);
+  g.ownStats = stats;
+  g.predictor.setClassConfig(stats.kinematics, spec.hull.beam / 2);
   g.ownView.setHull(spec.hull);
   g.effects.setOwnClass(cls);
+  g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
+  g.camera.setRadarRange(stats.radarRange);
+  g.fog.setSightRange(stats.sightRange);
+  g.projectiles.setSightRange(stats.sightRange);
+  // Zoom and/or hole radius may have moved: rebake the fog against the current
+  // viewport at the new zoom (exactly what the resize handler does).
+  g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
 
 /** Wire the room's messages into the game (frames, results, disconnects). */
@@ -375,7 +409,7 @@ function bindGameRoom(g: Game, conn: Connection): void {
   bindRoom(conn, {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
-    onOwnClass: (cls) => applyOwnClass(g, cls),
+    onOwnStats: (cls, upg) => applyOwnStats(g, cls, upg),
     resetThrottle: () => g.keyboard.resetThrottle(),
     names: (id) => rosterName(g, id),
     onSpectate: () => enterSpectateVisuals(g),
@@ -444,12 +478,23 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   const weapon = g.keyboard.weapon;
   const a = status.ammo[weapon] ?? { n: 0, reloadMsLeft: 0 };
   const hasAmmo = a.n > 0;
-  const reloadFrac = reloadFraction(a.reloadMsLeft, WEAPON_RELOADS[weapon]);
+  // EFFECTIVE reload duration (gun/torpedo/mine reload upgrades) — must match
+  // the server's per-ship reload or the sweep-back wedge lies.
+  const reloadFrac = reloadFraction(a.reloadMsLeft, weaponReloadMs(status.stats, weapon));
   const inArc = weaponArcHit(pose.heading, aim, weapon);
   const denied = isClickDenied({ clicked, ready: hasAmmo, inArc });
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
   const hullLength = CONFIG.shipClasses[status.cls].hull.length;
-  g.firing.update(pose, aim, weapon, { hasAmmo, reloadFrac }, cursor, hullLength, g.deniedFlash);
+  g.firing.update(
+    pose,
+    aim,
+    weapon,
+    { hasAmmo, reloadFrac },
+    cursor,
+    hullLength,
+    g.deniedFlash,
+    status.stats.gun.rangeU, // effective splash-max clamp (gunRange upgrade)
+  );
 }
 
 function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {

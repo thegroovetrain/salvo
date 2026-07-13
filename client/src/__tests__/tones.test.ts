@@ -24,6 +24,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireMine',
   'damage',
   'kill',
+  'upgrade',
   'sink',
   'tick',
   'matchStart',
@@ -81,6 +82,14 @@ describe('telegraphTone — detent-click direction', () => {
 
   it('pitches the ahead click above the astern click', () => {
     expect(TONES.telegraphUp.freqStart).toBeGreaterThan(TONES.telegraphDown.freqStart);
+  });
+});
+
+describe('upgrade tone — short rising two-note', () => {
+  it('rises (ends above its start) and stays within the short-tone budget', () => {
+    expect(TONES.upgrade.freqEnd).toBeGreaterThan(TONES.upgrade.freqStart);
+    expect(TONES.upgrade.freqMid).toBeGreaterThan(TONES.upgrade.freqStart); // the second note steps UP
+    expect(TONES.upgrade.duration).toBeLessThanOrEqual(MAX_TONE_S);
   });
 });
 

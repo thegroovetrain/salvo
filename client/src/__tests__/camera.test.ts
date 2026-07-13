@@ -17,6 +17,18 @@ describe('Camera zoom formula', () => {
     cam.setViewport(800, 1200);
     expect(cam.zoom).toBeCloseTo(800 / (2 * 650), 10);
   });
+
+  it('setRadarRange recomputes the base zoom against the current viewport (radar upgrade)', () => {
+    const cam = makeCamera();
+    cam.setViewport(1600, 900);
+    const before = cam.zoom;
+    cam.setRadarRange(650 * 1.15); // one radarRange stack: the world grows
+    expect(cam.zoom).toBeCloseTo(900 / (2 * 650 * 1.15), 10);
+    expect(cam.zoom).toBeLessThan(before); // zoomed OUT
+    // A later resize keeps using the upgraded range.
+    cam.setViewport(800, 1200);
+    expect(cam.zoom).toBeCloseTo(800 / (2 * 650 * 1.15), 10);
+  });
 });
 
 describe('Camera world<->screen roundtrip', () => {

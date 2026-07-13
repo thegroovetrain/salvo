@@ -23,6 +23,9 @@ export const EXTRA_MARGIN_PX = 64;
 
 export class Fog {
   private readonly sprite: Sprite;
+  /** Effective sight radius (u) the hole is baked at — swapped by the
+   *  sightRange upgrade via setSightRange(); base = CONFIG.vision.sight. */
+  private sightRange: number = CONFIG.vision.sight;
 
   constructor(layer: Container) {
     this.sprite = new Sprite(Texture.EMPTY);
@@ -30,11 +33,18 @@ export class Fog {
     layer.addChild(this.sprite);
   }
 
-  /** (Re)bake for a viewport + zoom. Call at boot and on every resize. */
+  /** Adopt a new (effective) sight radius. Callers must rebake() after —
+   *  same path as a resize — so the baked hole matches the server's fog. */
+  setSightRange(sightRange: number): void {
+    this.sightRange = sightRange;
+  }
+
+  /** (Re)bake for a viewport + zoom. Call at boot, on every resize, and after
+   *  a sight/radar (zoom) stat change. */
   rebake(viewW: number, viewH: number, zoom: number): void {
     const old = this.sprite.texture;
     const margin = CLIENT_CONFIG.camera.leadMax * zoom + EXTRA_MARGIN_PX;
-    this.sprite.texture = bakeFogTexture(viewW, viewH, CONFIG.vision.sight * zoom, margin);
+    this.sprite.texture = bakeFogTexture(viewW, viewH, this.sightRange * zoom, margin);
     if (old !== Texture.EMPTY) old.destroy(true);
   }
 

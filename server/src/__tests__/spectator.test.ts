@@ -96,6 +96,11 @@ describe('spectator frames — dead observer in the active phase', () => {
     expect(f.you).toBeUndefined();
     const ids = f.contacts.map((c) => c.id).sort();
     expect(ids).toEqual(['b', 'c']); // unfogged: both far beyond sight
+    // Even unfogged, spectator contacts never carry upgrade data (anti-cheat).
+    for (const c of f.contacts) {
+      expect('upg' in c).toBe(false);
+      expect('stats' in c).toBe(false);
+    }
     const c = w.ships.get('c')!;
     expect(f.contacts.find((x) => x.id === 'c')).toEqual({
       id: 'c',
@@ -136,6 +141,21 @@ describe('spectator frames — dead observer in the active phase', () => {
       amount: CONFIG.gun.damage,
       hp: before - CONFIG.gun.damage,
     });
+  });
+
+  it("filters another ship's killer-private upg out of spec frames; own grants still arrive", () => {
+    const w = deadObserverWorld(); // a is dead (sunk by b)
+    w.sinkShip('c', 'b'); // b's kill → a killer-private upg for b only
+    w.step();
+    const fa = buildFrame(w, 'a', 'active');
+    expect(fa.events.filter((e) => e.k === 'upg')).toEqual([]); // b's build stays hidden
+    // The DEAD killer still gets its own grant (mutual-destruction rule), and
+    // the spec-frame pass-through delivers it to the owning spectator.
+    w.sinkShip('b', 'a');
+    w.step();
+    const upgs = buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'upg');
+    expect(upgs).toHaveLength(1);
+    expect(upgs[0]).toMatchObject({ k: 'upg', id: 'a' });
   });
 
   it('adopts in-flight ballistics exactly once, with CURRENT params', () => {
@@ -248,6 +268,9 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
       return;
     case 'dmg':
       expect(e.id).toBe(me.id);
+      return;
+    case 'upg':
+      expect(e.id).toBe(me.id); // killer-private, even under fog
       return;
     case 'sunk':
       if (e.id !== me.id) expect(sighted(w, me, w.ships.get(e.id)!.state)).toBe(true);

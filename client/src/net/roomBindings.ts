@@ -15,10 +15,12 @@ import {
   type BoomEvent,
   type DamageEvent,
   type FrameMsg,
+  type OwnShip,
   type ResultsMsg,
   type ShipClassId,
   type SpawnEvent,
   type SunkEvent,
+  type UpgradeEvent,
 } from '@salvo/shared';
 import type { GameState } from '../state.js';
 import type { Predictor } from '../sim/prediction.js';
@@ -32,6 +34,7 @@ import type { Radar } from '../render/radar.js';
 import type { Mines } from '../render/mines.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { killLine, pushKillLine } from '../ui/killFeed.js';
+import { pushUpgradeToast, upgradeLabel } from '../ui/upgradeToast.js';
 import { fireTone, type ToneId } from '../audio/tones.js';
 
 /**
@@ -65,11 +68,14 @@ export interface RoomBindingDeps {
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
-   * Fired when the authoritative own class first arrives (or ever changes) on
-   * `you.cls` — the client trusts the server, not the localStorage guess. Swaps
-   * the predictor's kinematics/collision radius + own-hull visuals to match.
+   * Fired when the authoritative own class OR upgrade counts first arrive (or
+   * ever change) on `you` — the client trusts the server, not the localStorage
+   * guess. The handler recomputes effectiveStats(cls, upg) and swaps the
+   * predictor kinematics, own-hull visuals, HUD denominators, radar rings/
+   * sweep period, camera zoom, and fog hole to match (main.applyOwnStats —
+   * the Stage D extension of the old onOwnClass seam).
    */
-  onOwnClass: (cls: ShipClassId) => void;
+  onOwnStats: (cls: ShipClassId, upg: readonly number[]) => void;
   /**
    * Reset the throttle order to neutral. Called on own spawn (respawn + the
    * match-activation teleport) and own sunk, so a set engine order never
@@ -112,9 +118,10 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps): void {
     deps.onSpectate();
   }
   if (f.you) {
-    // Trust the server's class over the localStorage guess: on the first frame
-    // (or any change) swap the predictor config + own-hull visuals to match.
-    if (f.you.cls !== net.you?.cls) deps.onOwnClass(f.you.cls);
+    // Trust the server's class + upgrade counts over any local guess: on the
+    // first frame (or any change to either) recompute the effective stats and
+    // swap every consumer (predictor/HUD/radar/camera/fog) to match.
+    if (ownStatsChanged(f.you, net.you)) deps.onOwnStats(f.you.cls, f.you.upg);
     net.you = f.you;
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
@@ -125,6 +132,20 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps): void {
   deps.contacts.pushFrame(f.t, f.contacts);
   deps.mines.sync(f.mines); // contact-like: reconcile the mine field every tick
   handleEvents(f, deps);
+}
+
+/**
+ * Pure: did the own class or upgrade counts change between frames? Cheap
+ * array-equality (14 numbers) — this gates the (heavier) effective-stats
+ * recompute in deps.onOwnStats, so it runs on change only, not per frame.
+ */
+export function ownStatsChanged(next: OwnShip, prev: OwnShip | null | undefined): boolean {
+  if (!prev || next.cls !== prev.cls) return true;
+  if (next.upg.length !== prev.upg.length) return true;
+  for (let i = 0; i < next.upg.length; i++) {
+    if (next.upg[i] !== prev.upg[i]) return true;
+  }
+  return false;
 }
 
 /** Fan every per-tick event out to the right subsystem. */
@@ -138,8 +159,21 @@ function handleEvents(f: FrameMsg, deps: RoomBindingDeps): void {
       case 'blip': deps.radar.onBlip(e); break;
       case 'boom': handleBoom(e, deps); break;
       case 'dmg': handleDamage(e, deps); break;
+      case 'upg': handleUpgrade(e, deps); break;
     }
   }
+}
+
+/**
+ * Kill-reward upgrade toast + tone. `upg` is only ever emitted to the killer
+ * itself (perception.ts's killer-private rule, mirroring dmg), so this always
+ * fires for the local player — the id check is defensive, not load-bearing.
+ * The authoritative stat change rides OwnShip.upg (onOwnStats); this is UX.
+ */
+function handleUpgrade(e: UpgradeEvent, deps: RoomBindingDeps): void {
+  if (e.id !== deps.state.net.sessionId) return;
+  pushUpgradeToast(upgradeLabel(e.type));
+  deps.audio.play('upgrade');
 }
 
 function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {

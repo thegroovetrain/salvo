@@ -32,10 +32,10 @@ export function fireTorpedo(ship: ShipRecord, now: number, mkId: () => string): 
   if (!ship.alive || ship.input.weapon !== WEAPON.torpedo) return null;
   const center = wrapAngle(ship.state.heading + CONFIG.torpedo.offset); // bow-centered
   if (!inArc(ship.input.aim, center, CONFIG.torpedo.halfArc)) return null;
-  if (!consume(ship.ammo[WEAPON.torpedo], CONFIG.torpedo.reloadMs)) return null; // pool empty
+  if (!consume(ship.ammo[WEAPON.torpedo], ship.stats.torpedo.reloadMs)) return null; // pool empty
   const dir = clampToArc(ship.input.aim, center, CONFIG.torpedo.halfArc);
   return makeBallistic(mkId(), ship, dir, now, {
-    speed: CONFIG.torpedo.speed,
+    speed: ship.stats.torpedo.speed, // effective launch speed (torpedoSpeed upgrade)
     range: Number.POSITIVE_INFINITY, // A3: run until impact / map edge
     damage: CONFIG.torpedo.damage,
     hitRadius: CONFIG.torpedo.hitRadius, // A4: own value, no longer gun.shellRadius
@@ -44,13 +44,12 @@ export function fireTorpedo(ship: ShipRecord, now: number, mkId: () => string): 
   });
 }
 
-/** The torpedoes weapon system (WeaponId 1). */
+/** The torpedoes weapon system (WeaponId 1). Pool size + reload come from the
+ *  ship's cached effective stats (Stage D upgrades). */
 export const torpedoSystem: WeaponSystem = {
   id: WEAPON.torpedo,
-  maxAmmo: CONFIG.torpedo.maxAmmo,
-  reloadMs: CONFIG.torpedo.reloadMs,
   tick(ship: ShipRecord, dtMs: number): void {
-    tickReload(ship.ammo[WEAPON.torpedo], CONFIG.torpedo.maxAmmo, CONFIG.torpedo.reloadMs, dtMs);
+    tickReload(ship.ammo[WEAPON.torpedo], ship.stats.torpedo.maxAmmo, ship.stats.torpedo.reloadMs, dtMs);
   },
   fire(ctx: FireContext): void {
     const torp = fireTorpedo(ctx.ship, ctx.now, ctx.mkId);

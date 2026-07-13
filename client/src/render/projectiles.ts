@@ -61,8 +61,6 @@ export function maxLifetimeMs(mapRadius: number, speed: number): number {
 
 /** Cull a dead-reckoned shell once it is this far outside the sight bubble (u). */
 const SIGHT_CULL_MARGIN = 40; // u
-const SIGHT_CULL = CONFIG.vision.sight + SIGHT_CULL_MARGIN;
-const SIGHT_CULL2 = SIGHT_CULL * SIGHT_CULL;
 
 /** Pure: dead-reckoned shell position at server time `now` (ms). */
 export function shellPosition(
@@ -76,10 +74,14 @@ export function shellPosition(
 }
 
 /** True once `p` is beyond the sight bubble (+ margin) around `origin`. */
-function outsideBubble(p: { x: number; y: number }, origin: { x: number; y: number }): boolean {
+function outsideBubble(
+  p: { x: number; y: number },
+  origin: { x: number; y: number },
+  cull2: number,
+): boolean {
   const dx = p.x - origin.x;
   const dy = p.y - origin.y;
-  return dx * dx + dy * dy > SIGHT_CULL2;
+  return dx * dx + dy * dy > cull2;
 }
 
 interface LiveShell {
@@ -102,12 +104,20 @@ export class Projectiles {
    * `trail` drops a torpedo-wake particle at a world point (wired to the effects
    * pool in main.ts); omitted in tests. Called throttled by travelled distance.
    */
+  /** Squared cull radius — follows the EFFECTIVE sight range (upgradeable). */
+  private cull2 = (CONFIG.vision.sight + SIGHT_CULL_MARGIN) ** 2;
+
   constructor(
     private readonly mapRadius: number,
     private readonly layer: Container,
     private readonly trail?: (x: number, y: number) => void,
   ) {
     this.pool = new Pool<Graphics>(() => this.makeBlank());
+  }
+
+  /** Track the own ship's effective sight range so reveals don't pop early. */
+  setSightRange(sightRange: number): void {
+    this.cull2 = (sightRange + SIGHT_CULL_MARGIN) ** 2;
   }
 
   private makeBlank(): Graphics {
@@ -162,7 +172,7 @@ export class Projectiles {
         continue;
       }
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
-      if (ownPos && outsideBubble(p, ownPos)) {
+      if (ownPos && outsideBubble(p, ownPos, this.cull2)) {
         this.remove(id);
         continue;
       }

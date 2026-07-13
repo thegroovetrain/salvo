@@ -19,7 +19,8 @@ export interface Point {
 }
 
 export interface CameraOptions {
-  /** Radar range (u) that must fit the screen's short axis at this zoom. */
+  /** Radar range (u) that must fit the screen's short axis at this zoom.
+   *  Upgradeable at runtime via setRadarRange() (Stage D radarRange stacks). */
   radarRange: number;
   /** Exponential follow rate (1/s). */
   followRate: number;
@@ -79,7 +80,22 @@ export class Camera {
   setViewport(width: number, height: number): void {
     this.viewW = width;
     this.viewH = height;
-    const shortAxis = Math.min(width, height);
+    this.recomputeBaseZoom();
+  }
+
+  /**
+   * Adopt a new (effective) radar range and recompute the base zoom against the
+   * current viewport — a radarRange upgrade zooms the camera out so the full
+   * radar diameter keeps fitting the short axis ("your world grows"). Callers
+   * must re-bake the fog (fog.rebake) after this, same as the resize path.
+   */
+  setRadarRange(radarRange: number): void {
+    this.opts.radarRange = radarRange;
+    this.recomputeBaseZoom();
+  }
+
+  private recomputeBaseZoom(): void {
+    const shortAxis = Math.min(this.viewW, this.viewH);
     this.baseZoom = shortAxis / (2 * this.opts.radarRange);
   }
 

@@ -5,7 +5,7 @@
 // Messages: "w" welcome (once), "i" input (client->server), "f" frame
 // (server->client, every tick).
 
-import type { GameConfig, ShipClassId } from './constants.js';
+import type { GameConfig, ShipClassId, UpgradeId } from './constants.js';
 
 /** Short message-name tags used on the Colyseus channel. */
 export const MSG = {
@@ -104,6 +104,15 @@ export interface OwnShip {
   ammo: WeaponAmmo[]; // per weapon: pool count + reload timer (see above)
   sweep: number; // rad — current radar sweep angle
   cls: ShipClassId; // ship class (drives hull dims / kinematics / max hp client-side)
+  /**
+   * Upgrade counts, indexed by UPGRADE_IDS order. Self-syncing every frame (no
+   * event-replay problem across match resets); the client feeds (cls, upg)
+   * through the shared effectiveStats() — the desync firewall. ANTI-CHEAT:
+   * upgrade counts appear ONLY here, on your own ship — never on a Contact,
+   * blip, ballistic event, boom, or spectator contact (enemy builds are hidden;
+   * a sighted hull's class size is the only legitimate tell).
+   */
+  upg: number[];
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */
@@ -195,6 +204,20 @@ export interface SpawnEvent {
 }
 
 /**
+ * A kill-reward upgrade grant. KILLER-PRIVATE: `id` is the receiving (killer)
+ * ship's id, and perception forwards the event ONLY to that observer — the
+ * exact mechanism of the victim-private `dmg` rule (see perception.ts). Since
+ * the sole recipient is the killer itself, `id` is always the receiver's own
+ * id and leaks nothing. Purely UX (toast + tone): the authoritative counts
+ * self-sync every frame via OwnShip.upg.
+ */
+export interface UpgradeEvent {
+  k: 'upg';
+  id: string; // the killer (= the only observer this is ever delivered to)
+  type: UpgradeId;
+}
+
+/**
  * A mine visible to this viewer, synced as CONTACT-LIKE state (not an event):
  * FrameMsg.mines is recomputed per observer every tick, exactly like contacts.
  * Owner sees ALL own mines always; others see a mine only when it is within
@@ -217,7 +240,8 @@ export type GameEvent =
   | BoomEvent
   | DamageEvent
   | SunkEvent
-  | SpawnEvent;
+  | SpawnEvent
+  | UpgradeEvent;
 
 /**
  * Server -> client per-tick frame ("f"). Built per client by buildFrame().

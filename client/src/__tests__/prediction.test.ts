@@ -196,6 +196,53 @@ describe('Predictor with a non-cruiser class config', () => {
   });
 });
 
+describe('Predictor stats swap mid-flight (upgrade grant)', () => {
+  it('adopts upgraded maxSpeed kinematics and stays bounded against the server', () => {
+    // Same pattern as the class-swap seam: an in-match maxSpeed grant calls
+    // setClassConfig with the EFFECTIVE kinematics (collision radius stays
+    // class-based). forceSnap re-inits from the next server state; from there
+    // the replay must track a server stepping the upgraded config exactly.
+    const MULT = 1.08 ** 2; // two maxSpeed stacks
+    const upgraded: ShipConfig = {
+      ...CRUISER.kinematics,
+      maxSpeed: CRUISER.kinematics.maxSpeed * MULT,
+      reverseSpeed: CRUISER.kinematics.reverseSpeed * MULT,
+    };
+    const spawn: ShipState = { x: 200, y: -100, heading: 0.4, speed: 0 };
+    const server: ShipState = { ...spawn };
+    const p = makeInitialized(spawn);
+
+    // Cruise 20 ticks at the base config, reconciling along the way.
+    for (let seq = 1; seq <= 20; seq++) {
+      const inp = input(seq, 1, 0.2);
+      p.localTick(inp);
+      serverStep(server, inp);
+      if (seq % 4 === 0) p.onServerState(kin(server), seq);
+    }
+
+    // The grant lands: both sides swap to the upgraded kinematics.
+    p.setClassConfig(upgraded, CRUISER.hull.beam / 2);
+    expect(p.isInitialized).toBe(false); // forceSnap: re-init from next frame
+    p.onServerState(kin(server), 20);
+    expect(p.isInitialized).toBe(true);
+
+    for (let seq = 21; seq <= 160; seq++) {
+      const inp = input(seq, 1, seq % 10 < 5 ? 0.4 : -0.4);
+      p.localTick(inp);
+      serverStep(server, inp, upgraded);
+      if (seq % 4 === 0) {
+        p.onServerState(kin(server), seq);
+        expect(p.visualErrorMagnitude).toBeLessThan(1e-9); // lock-step, no drift
+      }
+    }
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+    expect(p.predicted.y).toBeCloseTo(server.y, 9);
+    // The upgraded top speed was actually reached (the swap took effect).
+    expect(p.predicted.speed).toBeCloseTo(upgraded.maxSpeed, 6);
+    expect(p.predicted.speed).toBeGreaterThan(CRUISER.kinematics.maxSpeed);
+  });
+});
+
 describe('Predictor lifecycle', () => {
   it('is uninitialized until the first server state, and after forceSnap', () => {
     const p = new Predictor({ radius: MAP_R, islands: [] });

@@ -34,12 +34,13 @@ function mineMarkerFor(hullLength: number): number {
 
 /**
  * Farthest point (from ship center) a shell can splash: the muzzle offset the
- * server spawns shells at (hull-clear: half hull + shell radius) plus max gun
- * range. Clicks beyond it get an impact marker at the clamped point so a long
- * click reads as "splashes HERE", not a silent miss. Per own hull length.
+ * server spawns shells at (hull-clear: half hull + shell radius) plus the
+ * EFFECTIVE max gun range (stats.gun.rangeU — the gunRange upgrade; mirrors
+ * the server's shellRangeFor clamp). Clicks beyond it get an impact marker at
+ * the clamped point so a long click reads as "splashes HERE", not a silent miss.
  */
-function gunSplashMaxFor(hullLength: number): number {
-  return hullLength / 2 + CONFIG.gun.shellRadius + CONFIG.gun.shellRange;
+function gunSplashMaxFor(hullLength: number, gunRangeU: number): number {
+  return hullLength / 2 + CONFIG.gun.shellRadius + gunRangeU;
 }
 
 export interface FiringPose {
@@ -63,6 +64,8 @@ export class FiringUX {
   private readonly reticle = new Graphics();
   /** Own hull length (u), fed each frame by update(); default cruiser. */
   private hullLength: number = CONFIG.shipClasses.cruiser.hull.length;
+  /** Effective max gun range (u), fed each frame by update(); base CONFIG. */
+  private gunRangeU: number = CONFIG.gun.shellRange;
 
   /**
    * `shipLayer` (worldRoot's `ship`) hosts the gun-arc sectors; `aimLayer`
@@ -84,7 +87,9 @@ export class FiringUX {
    * the selected weapon (drives which arc/marker shows), `ammo` is the selected
    * weapon's pool state ({hasAmmo, reloadFrac}). `cursor` is the world point.
    * `denied` (default false) briefly overrides the sector/marker to a red pulse
-   * — driven by render/deniedFire.ts's rate-limited predicate.
+   * — driven by render/deniedFire.ts's rate-limited predicate. `gunRangeU` is
+   * the own ship's EFFECTIVE gun range (stats.gun.rangeU) for the splash-max
+   * clamp marker.
    */
   update(
     pose: FiringPose,
@@ -94,8 +99,10 @@ export class FiringUX {
     cursor: { x: number; y: number },
     hullLength: number,
     denied = false,
+    gunRangeU: number = CONFIG.gun.shellRange,
   ): void {
     this.hullLength = hullLength;
+    this.gunRangeU = gunRangeU;
     this.arcs.clear();
     this.arcs.position.set(pose.x, pose.y);
     this.arcs.rotation = pose.heading;
@@ -174,7 +181,7 @@ export class FiringUX {
     cursor: { x: number; y: number },
     color: number,
   ): void {
-    const splashMax = gunSplashMaxFor(this.hullLength);
+    const splashMax = gunSplashMaxFor(this.hullLength, this.gunRangeU);
     if (Math.hypot(cursor.x - pose.x, cursor.y - pose.y) <= splashMax) return;
     const g = this.reticle;
     const ix = pose.x + Math.cos(aim) * splashMax;

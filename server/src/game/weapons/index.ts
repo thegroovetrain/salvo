@@ -7,7 +7,7 @@
 // ballistic/mine helpers; the World owns storage (shells/mines maps) and event
 // emission, exposed to systems through the narrow FireContext capabilities.
 
-import type { WeaponId, WeaponAmmo, ShellState } from '@salvo/shared';
+import { weaponMaxAmmo, type EffectiveStats, type WeaponId, type WeaponAmmo, type ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import { freshAmmo } from './ammo.js';
 import { gunSystem } from './guns.js';
@@ -27,13 +27,12 @@ export interface FireContext {
   dropMine: (x: number, y: number) => void;
 }
 
-/** One hull-mounted weapon: ammo/reload bookkeeping + selection-gated firing. */
+/** One hull-mounted weapon: ammo/reload bookkeeping + selection-gated firing.
+ *  Pool sizes / reloads are NOT on the system — every read goes through the
+ *  ship's cached EFFECTIVE stats (ship.stats, Stage D upgrades), so a stale
+ *  CONFIG lookup cannot desync an upgraded hull. */
 export interface WeaponSystem {
   readonly id: WeaponId;
-  /** Base pool size (Stage D: becomes a per-ship effective stat). */
-  readonly maxAmmo: number;
-  /** Base per-round reload ms (Stage D: becomes a per-ship effective stat). */
-  readonly reloadMs: number;
   /** Tick this weapon's reload timer (called for every ship, every tick). */
   tick(ship: ShipRecord, dtMs: number): void;
   /** Run fire control when this weapon is selected and a click landed this tick. */
@@ -43,9 +42,10 @@ export interface WeaponSystem {
 /** Weapon systems indexed by WeaponId (0 guns, 1 torpedoes, 2 mines). */
 export const WEAPON_SYSTEMS: readonly WeaponSystem[] = [gunSystem, torpedoSystem, mineSystem];
 
-/** A full ammo array (one WeaponAmmo per weapon) for a fresh/redeployed hull. */
-export function freshWeaponAmmo(): WeaponAmmo[] {
-  return WEAPON_SYSTEMS.map((sys) => freshAmmo(sys.maxAmmo));
+/** A full ammo array (one WeaponAmmo per weapon, pools at the ship's EFFECTIVE
+ *  sizes) for a fresh/respawned/redeployed hull. */
+export function freshWeaponAmmo(stats: EffectiveStats): WeaponAmmo[] {
+  return WEAPON_SYSTEMS.map((sys) => freshAmmo(weaponMaxAmmo(stats, sys.id)));
 }
 
 /**

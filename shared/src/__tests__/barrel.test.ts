@@ -3,13 +3,16 @@ import {
   PROTOCOL_VERSION,
   CONFIG,
   MSG,
+  UPGRADE_IDS,
   WEAPON,
+  effectiveStats,
   mapRadius,
   stepShip,
   generateMap,
   wrapAngle,
   mulberry32,
   segCircleHit,
+  zeroUpgrades,
 } from '../index.js';
 
 describe('shared barrel', () => {
@@ -27,5 +30,12 @@ describe('shared barrel', () => {
     expect(typeof wrapAngle).toBe('function');
     expect(typeof mulberry32).toBe('function');
     expect(typeof segCircleHit).toBe('function');
+  });
+
+  it('re-exports the upgrade system (Stage D)', () => {
+    expect(UPGRADE_IDS).toHaveLength(14);
+    expect(typeof effectiveStats).toBe('function');
+    expect(typeof zeroUpgrades).toBe('function');
+    expect(CONFIG.upgrades.gunAmmo.add).toBe(1);
   });
 });

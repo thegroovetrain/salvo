@@ -27,6 +27,10 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     // the client wedge visually crosses a contact the moment its blip arrives.
     sweep: ship.sweepAngle,
     cls: ship.classId,
+    // Upgrade counts (UPGRADE_IDS order), defensive copy. Self-syncing every
+    // frame; the client derives effective stats from (cls, upg). OWN SHIP ONLY
+    // — contacts/spectator payloads never carry upgrade data (anti-cheat).
+    upg: [...ship.upgrades],
   };
 }
 

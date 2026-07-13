@@ -45,11 +45,12 @@ export function clampToArc(angle: number, center: number, halfArc: number): numb
  * Muzzle-relative shell range for a click at `aimDist` from the ship center:
  * the shell spawns hullClearOffset out, so the click distance shrinks by that
  * offset, floored at 0 (click inside the hull = splash at the muzzle) and
- * clamped to max gun range (click beyond it = splash at max range).
+ * clamped to the ship's EFFECTIVE max gun range (stats.gun.rangeU — the
+ * gunRange upgrade; base = CONFIG.gun.shellRange).
  */
 export function shellRangeFor(ship: ShipRecord, aimDist: number): number {
   const muzzleOffset = hullClearOffset(ship, CONFIG.gun.shellRadius);
-  return Math.min(Math.max(aimDist - muzzleOffset, 0), CONFIG.gun.shellRange);
+  return Math.min(Math.max(aimDist - muzzleOffset, 0), ship.stats.gun.rangeU);
 }
 
 /**
@@ -65,7 +66,7 @@ export function fireGuns(ship: ShipRecord, now: number, mkId: () => string): She
   const aim = ship.input.aim;
   const mount = MOUNTS.find((m) => inArc(aim, wrapAngle(ship.state.heading + m.offset), m.halfArc));
   if (!mount) return []; // no broadside bears — no launch, no ammo spent
-  if (!consume(ship.ammo[WEAPON.gun], CONFIG.gun.reloadMs)) return []; // pool empty
+  if (!consume(ship.ammo[WEAPON.gun], ship.stats.gun.reloadMs)) return []; // pool empty
   const dir = clampToArc(aim, wrapAngle(ship.state.heading + mount.offset), mount.halfArc);
   return [
     makeBallistic(mkId(), ship, dir, now, {
@@ -80,13 +81,12 @@ export function fireGuns(ship: ShipRecord, now: number, mkId: () => string): She
 }
 
 /** The guns weapon system (WeaponId 0). Mounts are arc/muzzle definitions only;
- *  the two broadsides share ONE ammo pool + ONE reload (weapons/ammo.ts). */
+ *  the two broadsides share ONE ammo pool + ONE reload (weapons/ammo.ts). Pool
+ *  size + reload come from the ship's cached effective stats (Stage D). */
 export const gunSystem: WeaponSystem = {
   id: WEAPON.gun,
-  maxAmmo: CONFIG.gun.maxAmmo,
-  reloadMs: CONFIG.gun.reloadMs,
   tick(ship: ShipRecord, dtMs: number): void {
-    tickReload(ship.ammo[WEAPON.gun], CONFIG.gun.maxAmmo, CONFIG.gun.reloadMs, dtMs);
+    tickReload(ship.ammo[WEAPON.gun], ship.stats.gun.maxAmmo, ship.stats.gun.reloadMs, dtMs);
   },
   fire(ctx: FireContext): void {
     for (const shell of fireGuns(ctx.ship, ctx.now, ctx.mkId)) ctx.spawnBallistic(shell);

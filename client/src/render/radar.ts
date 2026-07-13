@@ -56,22 +56,46 @@ export class Radar {
   private readonly blipTexture = bakeBlipTexture();
   /** Latest authoritative sweep sample (angle at server time t). */
   private lastSweep: { angle: number; t: number } | null = null;
+  // Effective vision numbers (Stage D upgrades), swapped via setRanges();
+  // bases = CONFIG.vision. sweepPeriodMs drives both the wedge rotation rate
+  // and the blip phosphor decay, so upgraded paints fade on the upgraded beat.
+  private sightRange: number = CONFIG.vision.sight;
+  private radarRange: number = CONFIG.vision.radar;
+  private sweepPeriodMs: number = CONFIG.vision.sweepPeriod;
 
   constructor(blipLayer: Container, sweepLayer: Container) {
     this.pool = new Pool<Sprite>(() => this.makeBlipSprite(blipLayer));
 
     this.rings = new Graphics();
-    this.rings.circle(0, 0, CONFIG.vision.sight).stroke({ width: 2, color: RING_SIGHT_COLOR, alpha: 0.12 });
-    this.rings.circle(0, 0, CONFIG.vision.radar).stroke({ width: 2, color: RING_RADAR_COLOR, alpha: 0.07 });
     this.rings.visible = false;
 
     this.sweep = new Sprite(bakeSweepTexture());
     this.sweep.anchor.set(0.5);
     this.sweep.blendMode = 'add';
-    this.sweep.scale.set(CONFIG.vision.radar / SWEEP_TEXTURE_RADIUS);
     this.sweep.visible = false;
 
     sweepLayer.addChild(this.rings, this.sweep);
+    this.applyRanges();
+  }
+
+  /**
+   * Adopt the observer's effective vision stats (sight/radar range + sweep
+   * period): redraws the range rings and rescales the baked sweep wedge to the
+   * new radar radius. Cheap (one small Graphics redraw), called only when the
+   * own stats actually change.
+   */
+  setRanges(sightRange: number, radarRange: number, sweepPeriodMs: number): void {
+    this.sightRange = sightRange;
+    this.radarRange = radarRange;
+    this.sweepPeriodMs = sweepPeriodMs;
+    this.applyRanges();
+  }
+
+  private applyRanges(): void {
+    this.rings.clear();
+    this.rings.circle(0, 0, this.sightRange).stroke({ width: 2, color: RING_SIGHT_COLOR, alpha: 0.12 });
+    this.rings.circle(0, 0, this.radarRange).stroke({ width: 2, color: RING_RADAR_COLOR, alpha: 0.07 });
+    this.sweep.scale.set(this.radarRange / SWEEP_TEXTURE_RADIUS);
   }
 
   /** How many blips are currently decaying (debug/tests). */
@@ -132,12 +156,12 @@ export class Radar {
       this.lastSweep.angle,
       this.lastSweep.t,
       serverNow,
-      CONFIG.vision.sweepPeriod,
+      this.sweepPeriodMs,
     );
   }
 
   private updateBlips(serverNow: number): void {
-    const period = CONFIG.vision.sweepPeriod;
+    const period = this.sweepPeriodMs;
     for (let i = this.blips.length - 1; i >= 0; i--) {
       const b = this.blips[i];
       const age = serverNow - b.t;

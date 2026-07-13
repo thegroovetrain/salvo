@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  UPGRADE_IDS,
   WEAPON,
+  effectiveStats,
   inArc,
   wrapAngle,
+  zeroUpgrades,
   type BallisticEvent,
   type BoomEvent,
   type GameEvent,
@@ -16,6 +19,8 @@ import { buildFrame } from '../game/frames.js';
 
 const HALF_PI = Math.PI / 2;
 
+const CRUISER_STATS = effectiveStats(CONFIG.shipClasses.cruiser, zeroUpgrades());
+
 function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
   return {
     id: 'a',
@@ -23,6 +28,8 @@ function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
     isDrone: false,
     classId: 'cruiser',
     cls: CONFIG.shipClasses.cruiser,
+    upgrades: zeroUpgrades(),
+    stats: CRUISER_STATS,
     state: { x: 0, y: 0, heading: 0, speed: 0 },
     hp: CONFIG.shipClasses.cruiser.hp,
     alive: true,
@@ -33,7 +40,7 @@ function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
     sweepAngle: 0,
     prevSweepAngle: 0,
     seenBallistics: new Set<string>(),
-    ammo: freshWeaponAmmo(),
+    ammo: freshWeaponAmmo(CRUISER_STATS),
     kills: 0,
     deaths: 0,
     damageDealt: 0,
@@ -121,6 +128,17 @@ describe('fireGuns — shell range is the click distance (aimDist)', () => {
     const ship = rec({ input: gunInput(HALF_PI, 5) });
     const [shell] = fireGuns(ship, 0, mkId);
     expect(shell.distLeft).toBe(0);
+  });
+
+  it('the beyond-max clamp uses the EFFECTIVE range (gunRange upgrade), not CONFIG', () => {
+    const upgrades = zeroUpgrades();
+    upgrades[UPGRADE_IDS.indexOf('gunRange')] = 2; // two stacks
+    const stats = effectiveStats(CONFIG.shipClasses.cruiser, upgrades);
+    const ship = rec({ upgrades, stats, input: gunInput(HALF_PI, 50000) });
+    const [shell] = fireGuns(ship, 0, mkId);
+    const expected = CONFIG.gun.shellRange * CONFIG.upgrades.gunRange.mult ** 2;
+    expect(shell.distLeft).toBeCloseTo(expected, 9);
+    expect(shell.distLeft).toBeGreaterThan(CONFIG.gun.shellRange);
   });
 });
 

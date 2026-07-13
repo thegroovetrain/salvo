@@ -11,6 +11,8 @@
 
 import {
   CONFIG,
+  UPGRADE_IDS,
+  effectiveStats,
   generateMap,
   hullEndpoints,
   mulberry32,
@@ -18,11 +20,14 @@ import {
   resolveShipIslands,
   stepShell,
   stepShip,
+  weaponMaxAmmo,
   wrapPositive,
   zonePhaseAt,
   zoneRadiusAt,
   isOutside,
+  zeroUpgrades,
   type BallisticEvent,
+  type EffectiveStats,
   type GameEvent,
   type GameMap,
   type HullTarget,
@@ -33,8 +38,10 @@ import {
   type ShipClass,
   type ShipClassId,
   type ShipState,
+  type UpgradeId,
   type Vec2,
   type WeaponAmmo,
+  type WeaponId,
   type ZonePhase,
   type ZoneTimeline,
 } from '@salvo/shared';
@@ -61,6 +68,19 @@ export interface ShipRecord {
   classId: ShipClassId;
   /** Cached resolved class (hull + hp + kinematics) for this classId. */
   cls: ShipClass;
+  /**
+   * Kill-reward upgrade counts, indexed by UPGRADE_IDS order. Survive respawn
+   * (waiting-phase deaths keep the build) but NOT redeployShip (fresh match =
+   * fresh build). Mutated only by grantUpgrade(); `stats` is recomputed with it.
+   */
+  upgrades: number[];
+  /**
+   * Cached effective stats for (cls, upgrades) — the shared effectiveStats()
+   * result. Every stat read in the sim (kinematics, vision, weapon pools,
+   * reloads, ranges) goes through this, NEVER raw CONFIG, so upgraded hulls
+   * cannot silently fall back to base numbers. Recomputed on grant/add/redeploy.
+   */
+  stats: EffectiveStats;
   state: ShipState;
   hp: number;
   alive: boolean;
@@ -123,6 +143,12 @@ export class World {
   respawnEnabled = true;
 
   private rng: Rng;
+  /**
+   * Upgrade-grant stream, decorrelated from mapgen/spawn/drone streams so
+   * granting (or not granting) upgrades can never shift spawn/drone
+   * determinism in tests or replays.
+   */
+  private readonly upgradeRng: Rng;
   private shellSeq = 0;
   private mineSeq = 0;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
@@ -142,6 +168,7 @@ export class World {
     this.playerCap = playerCap;
     this.map = generateMap(seed, playerCap);
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
+    this.upgradeRng = mulberry32((seed ^ 0x27d4eb2f) >>> 0); // upgrade grants, own stream
     this.zoneCfg = zoneCfg;
     // Drone steering stream, decorrelated again from mapgen + spawn.
     this.drones = new DroneController(this, (seed ^ 0x85ebca6b) >>> 0);
@@ -189,14 +216,18 @@ export class World {
     const occupied = [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y }));
     const p = pickSpawn(this.map, occupied, this.rng);
     const cls = CONFIG.shipClasses[classId];
+    const upgrades = zeroUpgrades();
+    const stats = effectiveStats(cls, upgrades);
     const rec: ShipRecord = {
       id,
       name,
       isDrone,
       classId,
       cls,
+      upgrades,
+      stats,
       state: { x: p.x, y: p.y, heading: Math.atan2(-p.y, -p.x), speed: 0 },
-      hp: cls.hp,
+      hp: stats.maxHp,
       alive: true,
       input: neutralInput(),
       lastAckSeq: 0,
@@ -205,7 +236,7 @@ export class World {
       sweepAngle: 0,
       prevSweepAngle: 0,
       seenBallistics: new Set(),
-      ammo: freshWeaponAmmo(),
+      ammo: freshWeaponAmmo(stats),
       kills: 0,
       deaths: 0,
       damageDealt: 0,
@@ -239,7 +270,11 @@ export class World {
     for (const ship of this.ships.values()) this.redeployShip(ship, placed);
   }
 
-  /** Fresh-match state for one hull: ring placement, full hp, full ammo pools. */
+  /** Fresh-match state for one hull: ring placement, full hp, full ammo pools.
+   *  UPGRADES ARE WIPED: a redeploy is the countdown→active match boundary, and
+   *  a fresh match means a fresh build — anything farmed in the practice-room
+   *  waiting phase (drone kills) must not carry a head start into the real
+   *  match. (respawn() below, waiting-phase only, PRESERVES the build.) */
   private redeployShip(ship: ShipRecord, placed: Vec2[]): void {
     const p = pickSpawn(this.map, placed, this.rng);
     placed.push(p);
@@ -247,13 +282,15 @@ export class World {
     ship.state.y = p.y;
     ship.state.heading = Math.atan2(-p.y, -p.x);
     ship.state.speed = 0;
-    ship.hp = ship.cls.hp;
+    ship.upgrades = zeroUpgrades();
+    ship.stats = effectiveStats(ship.cls, ship.upgrades);
+    ship.hp = ship.stats.maxHp;
     ship.alive = true;
     ship.respawnAt = 0;
     // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
     // (the stored input's fireSeq would read as a fresh click on this tick).
     ship.seenBallistics.clear();
-    ship.ammo = freshWeaponAmmo();
+    ship.ammo = freshWeaponAmmo(ship.stats);
     ship.kills = 0;
     ship.deaths = 0;
     ship.damageDealt = 0;
@@ -263,8 +300,10 @@ export class World {
   /**
    * Sink a ship: dead, hp 0, respawn scheduled (only while respawnEnabled —
    * in the active match phase the dead transition to spectators instead),
-   * death counted. Attributes a kill to `by` when it names a different
-   * living-or-dead ship. Combat routes damage through here; tests drive it
+   * death counted. Attributes a kill (and a kill-reward upgrade grant) to `by`
+   * when it names a different ship still in the room — a DEAD killer (mutual
+   * destruction) still gets both; storm (`by` undefined) and self-kills grant
+   * nothing by construction. Combat routes damage through here; tests drive it
    * directly.
    */
   sinkShip(id: string, by?: string): void {
@@ -277,9 +316,62 @@ export class World {
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     if (by && by !== id) {
       const killer = this.ships.get(by);
-      if (killer) killer.kills += 1;
+      if (killer) {
+        killer.kills += 1;
+        this.grantUpgrade(killer);
+      }
     }
     this.pending.push({ k: 'sunk', id, by });
+  }
+
+  /**
+   * Kill reward: ONE uniformly-random upgrade type from the decorrelated
+   * upgrade stream.
+   */
+  private grantUpgrade(killer: ShipRecord): void {
+    this.applyUpgrade(killer, this.upgradeRng.pick(UPGRADE_IDS));
+  }
+
+  /**
+   * Apply one SPECIFIC upgrade to a ship: bump the count, recompute the cached
+   * effective stats, apply the grant-time side effects (hull heal / +1 loaded
+   * round), and queue the KILLER-PRIVATE upg event (perception forwards it
+   * only to `id`, exactly like the victim-private dmg rule). Public so
+   * directed tests (and future targeted-grant modes) can grant a known type;
+   * gameplay only ever reaches it through grantUpgrade's random pick.
+   */
+  applyUpgrade(ship: ShipRecord, type: UpgradeId): void {
+    ship.upgrades[UPGRADE_IDS.indexOf(type)] += 1;
+    ship.stats = effectiveStats(ship.cls, ship.upgrades);
+    this.applyGrantEffects(ship, type);
+    this.pending.push({ k: 'upg', id: ship.id, type });
+  }
+
+  /** Which weapon pool an ammo-type upgrade also loads +1 current round into. */
+  private static readonly AMMO_UPGRADE_WEAPON: Partial<Record<UpgradeId, WeaponId>> = {
+    gunAmmo: 0,
+    torpedoAmmo: 1,
+    mineAmmo: 2,
+  };
+
+  /**
+   * Grant-time side effects beyond the stat table: hullPoints heals +add
+   * (clamped to the new maxHp; only a LIVING killer heals — a mutual-
+   * destruction corpse keeps hp 0 and gets full effective hp on respawn
+   * anyway); ammo-type upgrades also load +1 current round (clamped to the new
+   * effective pool size) so the reward is immediately usable.
+   */
+  private applyGrantEffects(killer: ShipRecord, type: UpgradeId): void {
+    if (type === 'hullPoints') {
+      if (killer.alive) {
+        killer.hp = Math.min(killer.hp + CONFIG.upgrades.hullPoints.add, killer.stats.maxHp);
+      }
+      return;
+    }
+    const weapon = World.AMMO_UPGRADE_WEAPON[type];
+    if (weapon === undefined) return;
+    const pool = killer.ammo[weapon];
+    pool.n = Math.min(pool.n + 1, weaponMaxAmmo(killer.stats, weapon));
   }
 
   /** Advance the simulation one fixed step (default SIM_DT = 50ms). */
@@ -324,11 +416,13 @@ export class World {
     }
   }
 
-  /** Kinematics for every living hull (shared stepShip, same as prediction). */
+  /** Kinematics for every living hull (shared stepShip, same as prediction).
+   *  EFFECTIVE kinematics (maxSpeed upgrade); the client predictor steps with
+   *  the same effectiveStats() result, so prediction stays in lockstep. */
   private stepShips(dt: number): void {
     for (const ship of this.ships.values()) {
       if (!ship.alive) continue;
-      stepShip(ship.state, ship.input, ship.cls.kinematics, dt);
+      stepShip(ship.state, ship.input, ship.stats.kinematics, dt);
     }
   }
 
@@ -469,7 +563,7 @@ export class World {
       now: this.now,
       mkId: () => this.nextBallisticId(),
       spawnBallistic: (shell) => this.spawnBallistic(shell),
-      dropMine: (x, y) => this.spawnMine(ship.id, x, y),
+      dropMine: (x, y) => this.spawnMine(ship, x, y),
     };
   }
 
@@ -479,9 +573,10 @@ export class World {
     this.pending.push(this.ballisticEvent(shell));
   }
 
-  /** Store a newly-dropped mine (per-player + global caps enforced in addMine). */
-  private spawnMine(ownerId: string, x: number, y: number): void {
-    addMine(this.mines, ownerId, x, y, this.now, this.nextMineId());
+  /** Store a newly-dropped mine. Per-player cap = the OWNER'S effective
+   *  maxLive (maxMines upgrade); the defensive global cap stays in addMine. */
+  private spawnMine(owner: ShipRecord, x: number, y: number): void {
+    addMine(this.mines, owner.id, x, y, this.now, this.nextMineId(), owner.stats.mine.maxLive);
   }
 
   private nextBallisticId(): string {
@@ -520,8 +615,10 @@ export class World {
    * leading edge of everything painted this tick.
    */
   private advanceSweeps(dtMs: number): void {
-    const delta = (TAU * dtMs) / CONFIG.vision.sweepPeriod;
     for (const ship of this.ships.values()) {
+      // Per-ship EFFECTIVE period (sweepSpeed upgrade) — an upgraded sweep
+      // completes a revolution (and thus paints everything) proportionally faster.
+      const delta = (TAU * dtMs) / ship.stats.sweepPeriodMs;
       ship.prevSweepAngle = ship.sweepAngle;
       ship.sweepAngle = wrapPositive(ship.sweepAngle + delta);
     }
@@ -544,12 +641,15 @@ export class World {
     ship.state.y = p.y;
     ship.state.heading = Math.atan2(-p.y, -p.x);
     ship.state.speed = 0;
-    ship.hp = ship.cls.hp;
+    // Respawn happens only in the waiting phase (active-phase death = spectate),
+    // so the build PERSISTS: full EFFECTIVE hp + effective-size ammo pools.
+    // (redeployShip, the match boundary, is where upgrades get wiped.)
+    ship.hp = ship.stats.maxHp;
     ship.alive = true;
     ship.respawnAt = 0;
     // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
     // (the stored input's fireSeq would read as a fresh click on this tick).
-    ship.ammo = freshWeaponAmmo();
+    ship.ammo = freshWeaponAmmo(ship.stats);
     this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
   }
 }
