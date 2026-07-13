@@ -22,6 +22,10 @@ function shell(overrides: Partial<ShellState> = {}): ShellState {
     vy: 0,
     distLeft: CONFIG.gun.shellRange,
     bornAt: 0,
+    kind: 'shell',
+    damage: CONFIG.gun.damage,
+    hitRadius: CONFIG.gun.shellRadius,
+    graceMs: CONFIG.gun.selfHitGrace,
     ...overrides,
   };
 }
@@ -194,6 +198,33 @@ describe('stepShell — parameterized for torpedoes (no tunnel at torp speed)', 
     expect(out.kind).toBe('hitShip');
     if (out.kind === 'hitShip') expect(out.victimId).toBe('victim');
     expect(t.x).toBeGreaterThan(700); // proves it traveled past the old cap
+  });
+});
+
+describe('hullEndpoints — per-class hull dims', () => {
+  it('defaults to the cruiser hull (radius = beam/2, axis = length−beam)', () => {
+    const cruiser = CONFIG.shipClasses.cruiser.hull;
+    const h = hullEndpoints(0, 0, 0);
+    expect(h.radius).toBeCloseTo(cruiser.beam / 2, 9);
+    expect(Math.hypot(h.bow.x - h.stern.x, h.bow.y - h.stern.y)).toBeCloseTo(
+      cruiser.length - cruiser.beam,
+      9,
+    );
+  });
+
+  it('uses a passed hull for radius + axis (proves per-hull threshold)', () => {
+    const big = { length: 60, beam: 20 };
+    const h = hullEndpoints(0, 0, 0, big);
+    expect(h.radius).toBeCloseTo(10, 9); // beam/2
+    expect(Math.hypot(h.bow.x - h.stern.x, h.bow.y - h.stern.y)).toBeCloseTo(40, 9); // length−beam
+
+    // A shell grazing at radius+hitRadius still hits the wider hull. The big
+    // hull's capsule radius is 10; a cruiser-radius (6) hull would miss here.
+    h.id = 'big';
+    const graze = 10 + CONFIG.gun.shellRadius - 0.5; // just inside the wide threshold
+    const s = shell({ x: -1, y: graze, vx: CONFIG.gun.shellSpeed, vy: 0 });
+    const out = stepShell(s, ctx({ hulls: [h] }));
+    expect(out.kind).toBe('hitShip');
   });
 });
 

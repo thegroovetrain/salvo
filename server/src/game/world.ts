@@ -30,6 +30,8 @@ import {
   type Rng,
   type ShellOutcome,
   type ShellState,
+  type ShipClass,
+  type ShipClassId,
   type ShipState,
   type Vec2,
   type ZonePhase,
@@ -56,6 +58,10 @@ export interface ShipRecord {
   id: string;
   name: string;
   isDrone: boolean;
+  /** Ship class id (chosen pre-queue). Fixed for a hull's whole life. */
+  classId: ShipClassId;
+  /** Cached resolved class (hull + hp + kinematics) for this classId. */
+  cls: ShipClass;
   state: ShipState;
   hp: number;
   alive: boolean;
@@ -177,15 +183,18 @@ export class World {
   }
 
   /** Spawn a new ship on the ring, max-distance from existing ships. */
-  addShip(id: string, name: string, isDrone = false): ShipRecord {
+  addShip(id: string, name: string, isDrone = false, classId: ShipClassId = 'cruiser'): ShipRecord {
     const occupied = [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y }));
     const p = pickSpawn(this.map, occupied, this.rng);
+    const cls = CONFIG.shipClasses[classId];
     const rec: ShipRecord = {
       id,
       name,
       isDrone,
+      classId,
+      cls,
       state: { x: p.x, y: p.y, heading: Math.atan2(-p.y, -p.x), speed: 0 },
-      hp: CONFIG.ship.hp,
+      hp: cls.hp,
       alive: true,
       input: neutralInput(),
       lastAckSeq: 0,
@@ -238,7 +247,7 @@ export class World {
     ship.state.y = p.y;
     ship.state.heading = Math.atan2(-p.y, -p.x);
     ship.state.speed = 0;
-    ship.hp = CONFIG.ship.hp;
+    ship.hp = ship.cls.hp;
     ship.alive = true;
     ship.respawnAt = 0;
     // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
@@ -321,7 +330,7 @@ export class World {
   private stepShips(dt: number): void {
     for (const ship of this.ships.values()) {
       if (!ship.alive) continue;
-      stepShip(ship.state, ship.input, CONFIG.ship, dt);
+      stepShip(ship.state, ship.input, ship.cls.kinematics, dt);
     }
   }
 
@@ -332,7 +341,7 @@ export class World {
   private resolveCollisions(): void {
     for (const ship of this.ships.values()) {
       if (!ship.alive) continue;
-      resolveShipIslands(ship.state, this.map.islands);
+      resolveShipIslands(ship.state, this.map.islands, ship.cls.hull.beam / 2);
       resolveBoundary(ship.state, this.map.radius);
     }
   }
@@ -361,7 +370,7 @@ export class World {
     const hulls: HullTarget[] = [];
     for (const ship of this.ships.values()) {
       if (!ship.alive) continue;
-      const h = hullEndpoints(ship.state.x, ship.state.y, ship.state.heading);
+      const h = hullEndpoints(ship.state.x, ship.state.y, ship.state.heading, ship.cls.hull);
       h.id = ship.id;
       hulls.push(h);
     }
@@ -434,7 +443,7 @@ export class World {
     this.pending.push({ k: 'boom', id: shell.id, hit: outcome.victimId, x: outcome.x, y: outcome.y });
     const victim = this.ships.get(outcome.victimId);
     if (!victim || !victim.alive) return;
-    this.hitShip(victim, shell.damage ?? CONFIG.gun.damage, shell.ownerId);
+    this.hitShip(victim, shell.damage, shell.ownerId);
   }
 
   /**
@@ -495,7 +504,7 @@ export class World {
    */
   private ballisticEvent(shell: ShellState): BallisticEvent {
     return {
-      k: shell.kind ?? 'shell',
+      k: shell.kind,
       id: shell.id,
       x: shell.x,
       y: shell.y,
@@ -537,7 +546,7 @@ export class World {
     ship.state.y = p.y;
     ship.state.heading = Math.atan2(-p.y, -p.x);
     ship.state.speed = 0;
-    ship.hp = CONFIG.ship.hp;
+    ship.hp = ship.cls.hp;
     ship.alive = true;
     ship.respawnAt = 0;
     // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot

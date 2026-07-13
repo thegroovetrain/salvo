@@ -96,7 +96,8 @@ describe('SnapshotBuffer sampling', () => {
 });
 
 describe('ContactStore lifecycle', () => {
-  const contact = (id: string, x = 0) => ({ id, x, y: 0, heading: 0, speed: 0 });
+  const contact = (id: string, x = 0) =>
+    ({ id, x, y: 0, heading: 0, speed: 0, cls: 'cruiser' as const });
 
   it('creates a buffer on first sight and feeds it per frame', () => {
     const store = new ContactStore();
@@ -104,6 +105,14 @@ describe('ContactStore lifecycle', () => {
     store.pushFrame(150, [contact('a', 2), contact('b', 9)]);
     expect([...store.ids()].sort()).toEqual(['a', 'b']);
     expect(store.get('a')!.sampleAt(125)!.x).toBeCloseTo(1.5, 9);
+  });
+
+  it('records each contact class as a static attribute, cleared on prune', () => {
+    const store = new ContactStore();
+    store.pushFrame(100, [{ id: 'a', x: 0, y: 0, heading: 0, speed: 0, cls: 'battleship' }]);
+    expect(store.classOf('a')).toBe('battleship');
+    store.prune(1000, 100); // a is now stale
+    expect(store.classOf('a')).toBeUndefined();
   });
 
   it('prunes contacts unseen past the ttl and reports removals', () => {

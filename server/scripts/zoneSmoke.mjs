@@ -176,7 +176,7 @@ async function main() {
 
     // Grace check: at full radius nobody takes storm damage (zone just started).
     await pilotUntil([a, b], setGoals, () => a.room.state?.zoneState === 'shrinking', 8000, 'grace->shrink');
-    assert(a.minHp === CONFIG.ship.hp && b.minHp === CONFIG.ship.hp, 'storm damage during grace');
+    assert(a.minHp === CONFIG.shipClasses.cruiser.hp && b.minHp === CONFIG.shipClasses.cruiser.hp, 'storm damage during grace');
     log.push(`grace: both full HP until shrink began (state=${a.room.state.zoneState})`);
 
     // Reset outside-sample windows now that the ring is closing; run until A sinks.
@@ -194,7 +194,7 @@ async function main() {
     log.push(`outside: A decayed ${dps.toFixed(2)} HP/s, sunk by=undefined, no kill credited`);
 
     // B: stayed inside the whole time → zero storm damage.
-    assert(b.minHp === CONFIG.ship.hp, `inside ship B lost HP (minHp=${b.minHp})`);
+    assert(b.minHp === CONFIG.shipClasses.cruiser.hp, `inside ship B lost HP (minHp=${b.minHp})`);
     assert(b.outsideSamples.length === 0, `inside ship B was outside the ring ${b.outsideSamples.length}x`);
     log.push(`inside: B held center at full HP (radius end=${(mapR * ZONE_OVERRIDE.endRadiusFraction).toFixed(0)}u)`);
 

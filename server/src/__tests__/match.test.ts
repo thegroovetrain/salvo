@@ -80,6 +80,10 @@ function injectShell(ctx: Ctx, id: string, ownerId: string, x: number, y: number
     vy: 0,
     distLeft: 60,
     bornAt: ctx.w.now,
+    kind: 'shell',
+    damage: CONFIG.gun.damage,
+    hitRadius: CONFIG.gun.shellRadius,
+    graceMs: CONFIG.gun.selfHitGrace,
   });
 }
 
@@ -110,7 +114,7 @@ describe('match — waiting phase (ready room)', () => {
     const a = ctx.w.ships.get('a')!;
     injectShell(ctx, 's1', 'ghost', a.state.x - 20, a.state.y); // point blank on a
     stepUntilBoom(ctx); // impact still visible (boom emitted)...
-    expect(a.hp).toBe(CONFIG.ship.hp); // ...but no hp is lost
+    expect(a.hp).toBe(CONFIG.shipClasses.cruiser.hp); // ...but no hp is lost
     expect(a.alive).toBe(true);
     expect(ctx.w.tickEvents.some((e) => e.k === 'dmg')).toBe(false);
   });
@@ -132,7 +136,7 @@ describe('match — waiting phase (ready room)', () => {
     step(ctx);
     expect(ctx.w.mines.size).toBe(0); // triggered + despawned
     expect(ctx.w.tickEvents.some((e) => e.k === 'boom')).toBe(true);
-    expect(a.hp).toBe(CONFIG.ship.hp); // no hp lost — damage is suppressed
+    expect(a.hp).toBe(CONFIG.shipClasses.cruiser.hp); // no hp lost — damage is suppressed
     expect(a.alive).toBe(true);
   });
 
@@ -197,7 +201,7 @@ describe('match — countdown', () => {
     expect(ctx.w.damageEnabled).toBe(true);
     expect(ctx.w.respawnEnabled).toBe(false);
     for (const ship of ctx.w.ships.values()) {
-      expect(ship.hp).toBe(CONFIG.ship.hp);
+      expect(ship.hp).toBe(CONFIG.shipClasses.cruiser.hp);
       expect(ship.alive).toBe(true);
       expect(Math.hypot(ship.state.x, ship.state.y)).toBeCloseTo(ctx.w.map.spawnRing, 6);
       expect(ship.gunCooldowns.every((c) => c === 0)).toBe(true);
@@ -237,7 +241,7 @@ describe('match — active phase', () => {
     const b = ctx.w.ships.get('b')!;
     injectShell(ctx, 's1', 'a', b.state.x - 20, b.state.y);
     stepUntilBoom(ctx);
-    expect(b.hp).toBe(CONFIG.ship.hp - CONFIG.gun.damage);
+    expect(b.hp).toBe(CONFIG.shipClasses.cruiser.hp - CONFIG.gun.damage);
     expect(ctx.w.ships.get('a')!.damageDealt).toBe(CONFIG.gun.damage);
     expect(b.damageDealt).toBe(0);
   });
@@ -335,7 +339,7 @@ describe('match — finished phase', () => {
     const a = ctx.w.ships.get('a')!;
     injectShell(ctx, 's9', 'ghost', a.state.x - 20, a.state.y);
     step(ctx, Math.ceil(TIMINGS.resultsMs / DT) + 1);
-    expect(a.hp).toBe(CONFIG.ship.hp); // post-match shells cannot rewrite the result
+    expect(a.hp).toBe(CONFIG.shipClasses.cruiser.hp); // post-match shells cannot rewrite the result
     expect(ctx.calls.filter((c) => c === 'disconnect')).toHaveLength(1);
     step(ctx, 10);
     expect(ctx.calls.filter((c) => c === 'disconnect')).toHaveLength(1); // fired once

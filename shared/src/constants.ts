@@ -16,18 +16,56 @@ export const CONFIG = {
     spawnFraction: 0.8, // spawn ring radius as a fraction of map radius
   },
 
-  /** Ship hull + kinematics (one identical hull for every ship). */
+  /**
+   * Per-class hull + kinematics. Three classes trade speed against hull/hp:
+   * Destroyer (fast, light) — Cruiser (balanced) — Battleship (slow, heavy).
+   * The weapon fit is UNIVERSAL (every class shares CONFIG.gun/torpedo/mine);
+   * only hull dims, hp, and kinematics vary. Cruiser is byte-for-byte the
+   * pre-classes single ship (pinned by a balance-identity test), so a refactor
+   * slip can't silently retune the game. Every number a tunable.
+   */
+  shipClasses: {
+    destroyer: {
+      hull: { length: 34, beam: 10 }, // u — long axis (bow-to-stern) / beam (capsule diameter)
+      hp: 80, // hit points
+      kinematics: {
+        maxSpeed: 46, // u/s — full-ahead
+        reverseSpeed: 14, // u/s — full-astern (magnitude); scaled with maxSpeed
+        accel: 11, // u/s^2 — throttling up
+        decel: 17, // u/s^2 — throttling down / braking
+        turnRate: 0.9, // rad/s — yaw rate at full rudder
+        steerageSpeed: 12, // u/s — speed at which rudder reaches full authority
+      },
+    },
+    cruiser: {
+      // ≙ today's ship, byte-for-byte (pinned by test).
+      hull: { length: 40, beam: 12 }, // u
+      hp: 100, // hit points (=> ~15-30s TTK with gun damage)
+      kinematics: {
+        maxSpeed: 38, // u/s — full-ahead
+        reverseSpeed: 12, // u/s — full-astern (magnitude)
+        accel: 9, // u/s^2 — throttling up
+        decel: 14, // u/s^2 — throttling down / braking
+        turnRate: 0.75, // rad/s — yaw rate at full rudder
+        steerageSpeed: 10, // u/s — speed at which rudder reaches full authority
+      },
+    },
+    battleship: {
+      hull: { length: 46, beam: 14 }, // u
+      hp: 120, // hit points
+      kinematics: {
+        maxSpeed: 30, // u/s — full-ahead
+        reverseSpeed: 10, // u/s — full-astern (magnitude)
+        accel: 7, // u/s^2 — throttling up
+        decel: 11, // u/s^2 — throttling down / braking
+        turnRate: 0.6, // rad/s — yaw rate at full rudder
+        steerageSpeed: 8, // u/s — speed at which rudder reaches full authority
+      },
+    },
+  },
+
+  /** True ship globals shared by every class (no per-class variation). */
   ship: {
-    length: 40, // u — hull long axis (bow-to-stern)
-    beam: 12, // u — hull width (used as capsule diameter)
-    // Feel knobs bumped ~50% after the 2026-07-13 owner play test ("very slow").
-    maxSpeed: 38, // u/s — full-ahead (feel: 25 read as sluggish)
-    reverseSpeed: 12, // u/s — full-astern (magnitude); scaled with maxSpeed
-    accel: 9, // u/s^2 — throttling up (feel: reach the higher top speed briskly)
-    decel: 14, // u/s^2 — throttling down / braking (feel: scaled with accel)
-    turnRate: 0.75, // rad/s — yaw rate at full rudder (feel: 0.6 was too lazy)
-    steerageSpeed: 10, // u/s — speed at which rudder reaches full authority
-    hp: 100, // hit points (=> ~15-30s TTK with gun damage)
     respawnDelay: 3000, // ms — delay before respawn (prototype)
     islandSpeedMult: 0.25, // speed multiplier on island grazing push-out
   },
@@ -104,6 +142,22 @@ export const CONFIG = {
 
 /** Static type of the CONFIG tree (used in the wire config snapshot). */
 export type GameConfig = typeof CONFIG;
+
+/** A ship-class key ('destroyer' | 'cruiser' | 'battleship'). */
+export type ShipClassId = keyof typeof CONFIG.shipClasses;
+
+/** The resolved config for one class (hull + hp + kinematics). */
+export type ShipClass = (typeof CONFIG.shipClasses)[ShipClassId];
+
+/** Ordered class ids: menu order, drone round-robin, and the balance table. */
+export const SHIP_CLASS_IDS: readonly ShipClassId[] = ['destroyer', 'cruiser', 'battleship'];
+
+/** Coerce arbitrary (wire/localStorage) input to a valid class id, default 'cruiser'. */
+export function sanitizeClassId(raw: unknown): ShipClassId {
+  return typeof raw === 'string' && (SHIP_CLASS_IDS as readonly string[]).includes(raw)
+    ? (raw as ShipClassId)
+    : 'cruiser';
+}
 
 /** Map radius for a given player cap: base * sqrt(cap / capRef). */
 export function mapRadius(playerCap: number): number {

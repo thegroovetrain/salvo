@@ -34,13 +34,10 @@ export interface MineTrigger {
   victimId: string;
 }
 
-// Drop astern, clear of the hull: stern is half a hull-length back, plus a
-// trigger-radius margin so the dropping ship is never sitting on its own mine
-// (owner is immune anyway, and it is unarmed for armDelay regardless).
-const DROP_OFFSET = hullClearOffset(CONFIG.mine.triggerRadius);
-
-/** Trigger proximity: hull capsule surface within triggerRadius of the mine. */
-const TRIGGER_DIST = CONFIG.mine.triggerRadius + CONFIG.ship.beam / 2;
+// Drop astern, clear of the hull: stern is half the FIRER'S hull-length back
+// (per class), plus a trigger-radius margin so the dropping ship is never
+// sitting on its own mine (owner is immune anyway, and it is unarmed for
+// armDelay regardless). Computed per-ship at drop time (see dropPoint).
 
 /** Fresh mine drop cooldown (ready). */
 export function freshMineCooldown(): number {
@@ -89,9 +86,10 @@ export function addMine(
 /** Where a ship's next mine drops (astern of its stern, with margin). */
 export function dropPoint(ship: ShipRecord): { x: number; y: number } {
   const dir = wrapAngle(ship.state.heading + CONFIG.mine.offset); // astern (heading + π)
+  const dropOffset = hullClearOffset(ship, CONFIG.mine.triggerRadius);
   return {
-    x: ship.state.x + Math.cos(dir) * DROP_OFFSET,
-    y: ship.state.y + Math.sin(dir) * DROP_OFFSET,
+    x: ship.state.x + Math.cos(dir) * dropOffset,
+    y: ship.state.y + Math.sin(dir) * dropOffset,
   };
 }
 
@@ -110,7 +108,8 @@ export function checkMineTriggers(
     if (now < mine.armedAt) continue; // still arming
     for (const hull of hulls) {
       if (hull.id === mine.ownerId) continue; // owner never trips its own mine
-      if (pointSegmentDistance(mine, hull.stern, hull.bow) <= TRIGGER_DIST) {
+      // Per-hull trigger proximity: this hull's capsule radius + trigger radius.
+      if (pointSegmentDistance(mine, hull.stern, hull.bow) <= CONFIG.mine.triggerRadius + hull.radius) {
         triggers.push({ mine, victimId: hull.id });
         break;
       }
@@ -121,7 +120,7 @@ export function checkMineTriggers(
 
 /** Hull capsule for a ship pose (thin re-export so tests need not import shared). */
 export function hullFor(ship: ShipRecord): HullTarget {
-  const h = hullEndpoints(ship.state.x, ship.state.y, ship.state.heading);
+  const h = hullEndpoints(ship.state.x, ship.state.y, ship.state.heading, ship.cls.hull);
   h.id = ship.id;
   return h;
 }

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { stepShip, approach, type ShipState, type ShipInput } from '../sim/ship.js';
 import { CONFIG } from '../constants.js';
 
-const cfg = CONFIG.ship;
+const cfg = CONFIG.shipClasses.cruiser.kinematics;
 const DT = CONFIG.tick.simDtMs / 1000; // 0.05s
 
 function fresh(over: Partial<ShipState> = {}): ShipState {

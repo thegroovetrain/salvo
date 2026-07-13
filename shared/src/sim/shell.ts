@@ -28,9 +28,9 @@ const MAP_CENTER: Vec2 = { x: 0, y: 0 };
 
 /**
  * A projectile in flight (gun shell or torpedo). Server-owned; the wire sends
- * launch params once. The optional weapon-specific fields default to gun values
- * so existing shell construction (and every existing test) needs no change; a
- * torpedo simply sets kind/damage/hitRadius explicitly.
+ * launch params once. Every weapon-specific field is REQUIRED — makeBallistic
+ * (the sole non-test constructor) sets them all explicitly, so nothing silently
+ * borrows gun values (a torpedo carries its own kind/damage/hitRadius/grace).
  */
 export interface ShellState {
   id: string;
@@ -41,17 +41,21 @@ export interface ShellState {
   vy: number; // u/s
   distLeft: number; // u — remaining travel before it splashes
   bornAt: number; // ms — server time it was fired
-  kind?: 'shell' | 'torp'; // wire kind (default 'shell')
-  damage?: number; // hp per hull hit (default CONFIG.gun.damage)
-  hitRadius?: number; // collision radius added to the hull capsule (default gun.shellRadius)
-  graceMs?: number; // owner self-hit grace (default gun.selfHitGrace)
+  kind: 'shell' | 'torp'; // wire kind
+  damage: number; // hp per hull hit
+  hitRadius: number; // collision radius added to the hull capsule
+  graceMs: number; // owner self-hit grace
 }
 
-/** A hull to test shells against: the capsule's axis segment (stern → bow). */
+/**
+ * A hull to test shells against: the capsule's axis segment (stern..bow) plus
+ * its capsule radius (beam/2), which varies per ship class.
+ */
 export interface HullTarget {
   id: string;
   stern: Vec2;
   bow: Vec2;
+  radius: number; // u — capsule radius (hull.beam / 2)
 }
 
 /** Everything stepShell needs about the world this tick. */
@@ -70,22 +74,32 @@ export type ShellOutcome =
   | { kind: 'hitIsland'; x: number; y: number }
   | { kind: 'expired'; x: number; y: number };
 
-/** Half-length of the hull capsule's axis segment (so segment + 2r = length). */
-export const HULL_HALF_AXIS = (CONFIG.ship.length - CONFIG.ship.beam) / 2;
-
-/** Projectile-vs-hull hit threshold: capsule radius + this projectile's radius. */
-function hitThreshold(shell: ShellState): number {
-  return CONFIG.ship.beam / 2 + (shell.hitRadius ?? CONFIG.gun.shellRadius);
+/** Structural subset of a class hull (length + beam) that geometry needs. */
+export interface Hull {
+  length: number; // u — bow-to-stern
+  beam: number; // u — capsule diameter
 }
 
-/** Capsule axis endpoints (stern, bow) for a ship pose. */
-export function hullEndpoints(x: number, y: number, heading: number): HullTarget {
+/**
+ * Capsule axis endpoints (stern, bow) + radius for a ship pose. `hull` defaults
+ * to the cruiser hull so callers that don't yet vary by class stay identical;
+ * per-class callers pass the ship's own hull. The axis segment is length−beam
+ * long (so segment + 2·radius = length), radius = beam/2.
+ */
+export function hullEndpoints(
+  x: number,
+  y: number,
+  heading: number,
+  hull: Hull = CONFIG.shipClasses.cruiser.hull,
+): HullTarget {
+  const halfAxis = (hull.length - hull.beam) / 2;
   const c = Math.cos(heading);
   const s = Math.sin(heading);
   return {
     id: '',
-    stern: { x: x - c * HULL_HALF_AXIS, y: y - s * HULL_HALF_AXIS },
-    bow: { x: x + c * HULL_HALF_AXIS, y: y + s * HULL_HALF_AXIS },
+    stern: { x: x - c * halfAxis, y: y - s * halfAxis },
+    bow: { x: x + c * halfAxis, y: y + s * halfAxis },
+    radius: hull.beam / 2,
   };
 }
 
@@ -107,13 +121,13 @@ function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Circle[]): Hit | n
 
 /** Earliest hull hit along p0->p1, honoring owner self-hit grace, or null. */
 function earliestHull(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
-  const graced = ctx.now - shell.bornAt < (shell.graceMs ?? CONFIG.gun.selfHitGrace);
-  const threshold = hitThreshold(shell);
+  const graced = ctx.now - shell.bornAt < shell.graceMs;
   let best: Hit | null = null;
   for (const hull of ctx.hulls) {
     if (hull.id === shell.ownerId && graced) continue;
+    // Per-hull threshold: this hull's capsule radius + this projectile's radius.
     const c = segSegClosest(p0, p1, hull.stern, hull.bow);
-    if (c.dist > threshold) continue;
+    if (c.dist > hull.radius + shell.hitRadius) continue;
     if (best === null || c.s < best.frac) best = { frac: c.s, victimId: hull.id };
   }
   return best;

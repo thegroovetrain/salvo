@@ -26,6 +26,7 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     // Post-advance angle == the leading edge of this tick's paint window, so
     // the client wedge visually crosses a contact the moment its blip arrives.
     sweep: ship.sweepAngle,
+    cls: ship.classId,
   };
 }
 

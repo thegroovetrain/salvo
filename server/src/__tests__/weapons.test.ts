@@ -104,7 +104,7 @@ describe('torpedoes — island block + ship hit', () => {
       w.step();
       events.push(...w.tickEvents);
     }
-    expect(b.hp).toBe(CONFIG.ship.hp);
+    expect(b.hp).toBe(CONFIG.shipClasses.cruiser.hp);
     expect(events.some((e) => e.k === 'boom' && e.hit === undefined)).toBe(true);
   });
 
@@ -114,8 +114,8 @@ describe('torpedoes — island block + ship hit', () => {
     a.input = { ...a.input, aim: HALF_PI };
     const b = w.addShip('b', 'B');
     b.state = { x: 0, y: 150, heading: 0, speed: 0 };
-    for (let i = 0; i < 80 && b.hp === CONFIG.ship.hp; i++) w.step();
-    expect(b.hp).toBe(CONFIG.ship.hp - CONFIG.torpedo.damage);
+    for (let i = 0; i < 80 && b.hp === CONFIG.shipClasses.cruiser.hp; i++) w.step();
+    expect(b.hp).toBe(CONFIG.shipClasses.cruiser.hp - CONFIG.torpedo.damage);
   });
 });
 
@@ -136,8 +136,8 @@ describe('torpedoes — infinite range + map-edge splash (A3)', () => {
     a.input = { ...a.input, aim: HALF_PI };
     const b = w.addShip('b', 'B');
     b.state = { x: 0, y: 750, heading: 0, speed: 0 }; // 750u away (> old 700 cap)
-    for (let i = 0; i < 400 && b.hp === CONFIG.ship.hp; i++) w.step();
-    expect(b.hp).toBe(CONFIG.ship.hp - CONFIG.torpedo.damage);
+    for (let i = 0; i < 400 && b.hp === CONFIG.shipClasses.cruiser.hp; i++) w.step();
+    expect(b.hp).toBe(CONFIG.shipClasses.cruiser.hp - CONFIG.torpedo.damage);
   });
 
   it('a torpedo with no target splashes at the map edge (boom, no victim)', () => {
@@ -308,6 +308,8 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
       bornAt: w.now,
       kind: 'torp',
       damage: CONFIG.torpedo.damage,
+      hitRadius: CONFIG.torpedo.hitRadius,
+      graceMs: CONFIG.torpedo.selfHitGrace,
     });
     windowAround(a, 0); // beam across bearing 0 (toward x+)
     const blips = blipsOf(buildFrame(w, 'a'));

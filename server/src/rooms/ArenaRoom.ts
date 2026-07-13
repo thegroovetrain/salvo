@@ -5,7 +5,7 @@
 // implements the Match side-effect hooks (lock/unlock/broadcast/disconnect).
 
 import { Room, Client } from 'colyseus';
-import { CONFIG, MSG, type ResultsMsg, type WelcomeMsg } from '@salvo/shared';
+import { CONFIG, MSG, SHIP_CLASS_IDS, sanitizeClassId, type ResultsMsg, type WelcomeMsg } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -105,7 +105,9 @@ export class ArenaRoom extends Room<ArenaState> {
       this.droneCounter += 1;
       const id = `drone-${this.droneCounter}`;
       const name = `DRONE-${String(this.droneCounter).padStart(2, '0')}`;
-      this.world.addShip(id, name, true);
+      // Round-robin the classes so every hull gets free visual coverage.
+      const classId = SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length];
+      this.world.addShip(id, name, true, classId);
       const meta = new PlayerMeta();
       meta.id = id;
       meta.name = name;
@@ -116,8 +118,9 @@ export class ArenaRoom extends Room<ArenaState> {
   onJoin(client: Client, options: JoinOptions = {}): void {
     this.joinCounter += 1;
     const name = options.name?.trim() || `CAPTAIN-${this.joinCounter}`;
+    const classId = sanitizeClassId(options.cls);
 
-    this.world.addShip(client.sessionId, name);
+    this.world.addShip(client.sessionId, name, false, classId);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the

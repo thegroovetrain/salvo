@@ -66,6 +66,10 @@ function injectShell(w: World, id: string, ownerId: string, x: number, y: number
     vy: 0,
     distLeft: 300,
     bornAt: w.now,
+    kind: 'shell',
+    damage: CONFIG.gun.damage,
+    hitRadius: CONFIG.gun.shellRadius,
+    graceMs: CONFIG.gun.selfHitGrace,
   });
 }
 
@@ -99,6 +103,7 @@ describe('spectator frames — dead observer in the active phase', () => {
       y: c.state.y,
       heading: c.state.heading,
       speed: c.state.speed,
+      cls: 'cruiser',
     });
   });
 
@@ -171,7 +176,7 @@ describe('spectator frames — phase gating', () => {
     expect(winner.you).toBeUndefined();
     // The winner's own (alive) hull rides the contact pipeline now.
     expect(winner.contacts).toEqual([
-      { id: 'a', x: a.state.x, y: a.state.y, heading: a.state.heading, speed: a.state.speed },
+      { id: 'a', x: a.state.x, y: a.state.y, heading: a.state.heading, speed: a.state.speed, cls: 'cruiser' },
     ]);
     const loser = buildFrame(w, 'b', 'finished');
     expect(loser.spec).toBe(true);

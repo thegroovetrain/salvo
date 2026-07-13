@@ -19,6 +19,7 @@ import {
   CONFIG,
   type Circle,
   type InputMsg,
+  type ShipConfig,
   type ShipState,
 } from '@salvo/shared';
 import { lerp, lerpAngle } from '../util/math.js';
@@ -35,8 +36,9 @@ export const PENDING_CAPACITY = 64;
 export const IGNORE_EPSILON_U = 0.01;
 /** Heading error below this is ignored alongside the positional epsilon (rad). */
 export const IGNORE_EPSILON_RAD = 1e-3;
-/** Positional error beyond this hard-snaps with no visual smoothing (u). */
-export const HARD_SNAP_U = CONFIG.ship.length * 3;
+/** Positional error beyond this hard-snaps with no visual smoothing (u).
+ *  Sized off the cruiser hull — a class-agnostic teleport threshold. */
+export const HARD_SNAP_U = CONFIG.shipClasses.cruiser.hull.length * 3;
 /** visualError decay constant: error *= exp(-ERROR_DECAY_RATE * dt). */
 export const ERROR_DECAY_RATE = 12;
 
@@ -75,8 +77,22 @@ export class Predictor {
 
   constructor(
     private readonly map: CollisionMap,
+    private kin: ShipConfig = CONFIG.shipClasses.cruiser.kinematics,
+    private shipRadius: number = CONFIG.shipClasses.cruiser.hull.beam / 2,
     private readonly dt: number = CONFIG.tick.simDtMs / 1000,
   ) {}
+
+  /**
+   * Swap in a ship class's kinematics + collision radius and re-initialize. The
+   * own class is authoritative from the first server frame (you.cls), so if the
+   * localStorage guess was wrong this re-inits prediction from the next frame —
+   * the desync firewall for the physics model.
+   */
+  setClassConfig(kin: ShipConfig, shipRadius: number): void {
+    this.kin = kin;
+    this.shipRadius = shipRadius;
+    this.forceSnap();
+  }
 
   /** False until the first server state initializes the predicted ship. */
   get isInitialized(): boolean {
@@ -119,7 +135,7 @@ export class Predictor {
     this.pending.push({ seq: input.seq, throttle: input.throttle, rudder: input.rudder });
     if (this.pending.length > PENDING_CAPACITY) this.pending.shift();
     this.prev = clone(this.curr);
-    stepShip(this.curr, input, CONFIG.ship, this.dt);
+    stepShip(this.curr, input, this.kin, this.dt);
     this.resolveCollisions(this.curr);
   }
 
@@ -162,7 +178,7 @@ export class Predictor {
   private replayFrom(you: ServerKinematics): ShipState {
     const s: ShipState = { x: you.x, y: you.y, heading: you.heading, speed: you.speed };
     for (const p of this.pending) {
-      stepShip(s, { throttle: p.throttle, rudder: p.rudder }, CONFIG.ship, this.dt);
+      stepShip(s, { throttle: p.throttle, rudder: p.rudder }, this.kin, this.dt);
       this.resolveCollisions(s);
     }
     return s;
@@ -206,7 +222,7 @@ export class Predictor {
    * diverges on rocks or the boundary.
    */
   private resolveCollisions(s: ShipState): void {
-    resolveShipIslands(s, this.map.islands);
+    resolveShipIslands(s, this.map.islands, this.shipRadius);
     resolveBoundary(s, this.map.radius);
   }
 }

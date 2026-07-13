@@ -11,8 +11,16 @@ const TAU = Math.PI * 2;
 /** Evenly spaced candidate points sampled on the spawn ring. */
 export const SPAWN_CANDIDATES = 32;
 
-/** Min clearance between a spawn point and any island edge (half hull length). */
-export const SPAWN_ISLAND_CLEARANCE = CONFIG.ship.length / 2;
+// Min clearance between a spawn point and any island edge: half the LARGEST
+// class hull length (battleship), so any class spawns clear of island edges.
+const MAX_HULL_LENGTH = Math.max(
+  ...(Object.keys(CONFIG.shipClasses) as (keyof typeof CONFIG.shipClasses)[]).map(
+    (id) => CONFIG.shipClasses[id].hull.length,
+  ),
+);
+
+/** Min clearance between a spawn point and any island edge (half max hull length). */
+export const SPAWN_ISLAND_CLEARANCE = MAX_HULL_LENGTH / 2;
 
 function clearOfIslands(p: Vec2, islands: readonly Circle[]): boolean {
   return islands.every((c) => dist(p, c) > c.r + SPAWN_ISLAND_CLEARANCE);

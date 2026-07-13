@@ -7,7 +7,7 @@
 // (chartRoot, above the fog) keeps decaying; no coupling needed.
 
 import type { Container } from 'pixi.js';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, sanitizeClassId } from '@salvo/shared';
 import type { ContactStore } from '../net/snapshots.js';
 import { ShipView, CONTACT_STYLE } from './ships.js';
 import { Fader } from './fade.js';
@@ -59,7 +59,7 @@ export class ContactViews {
     // ShipView default (0,0) before real position data exists.
     for (const id of store.ids()) {
       const buf = store.get(id);
-      if (buf && buf.size > 0) this.viewFor(id).fader.show();
+      if (buf && buf.size > 0) this.viewFor(id, store).fader.show();
     }
     for (const [id, fv] of this.views) {
       const s = store.get(id)?.sampleAt(renderTime);
@@ -73,10 +73,12 @@ export class ContactViews {
     }
   }
 
-  private viewFor(id: string): FadingView {
+  private viewFor(id: string, store: ContactStore): FadingView {
     let fv = this.views.get(id);
     if (!fv) {
-      fv = { view: new ShipView(CONTACT_STYLE), fader: new Fader(false) };
+      // A contact's class is static (set on first sighting) — render its true hull.
+      const hull = CONFIG.shipClasses[sanitizeClassId(store.classOf(id))].hull;
+      fv = { view: new ShipView(CONTACT_STYLE, hull), fader: new Fader(false) };
       this.layer.addChild(fv.view.gfx);
       this.views.set(id, fv);
     }

@@ -171,7 +171,7 @@ async function main() {
   // against the server tick grid). Gate loosely at one ship length; the real
   // client reconciles every frame, so what the player sees is maxCorrectionU
   // per frame, absorbed by visualError.
-  assert(prediction.max < CONFIG.ship.length, `prediction divergence too high: ${prediction.max}`);
+  assert(prediction.max < CONFIG.shipClasses.cruiser.hull.length, `prediction divergence too high: ${prediction.max}`);
 
   console.log('PREDICTION SMOKE OK:', {
     room: a.room.roomId,

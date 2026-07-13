@@ -12,8 +12,8 @@ import { CONFIG } from '../constants.js';
 import type { Circle } from '../types.js';
 import type { ShipState } from './ship.js';
 
-/** Ship collision radius (half beam = the hull capsule's radius). */
-export const SHIP_RADIUS = CONFIG.ship.beam / 2;
+/** Default ship collision radius (cruiser half-beam = the hull capsule radius). */
+export const SHIP_RADIUS = CONFIG.shipClasses.cruiser.hull.beam / 2;
 
 const EPS = 1e-9;
 
@@ -37,17 +37,21 @@ export function resolveBoundary(ship: ShipState, radius: number): void {
  * its speed. Iterated in array order (mapgen spaces islands so overlaps between
  * two islands don't occur, making order immaterial in practice).
  */
-export function resolveShipIslands(ship: ShipState, islands: readonly Circle[]): void {
+export function resolveShipIslands(
+  ship: ShipState,
+  islands: readonly Circle[],
+  shipRadius: number = SHIP_RADIUS,
+): void {
   for (const isle of islands) {
-    pushOutOf(ship, isle);
+    pushOutOf(ship, isle, shipRadius);
   }
 }
 
 /** Push `ship` out of a single island circle (positional) and damp its speed. */
-function pushOutOf(ship: ShipState, isle: Circle): void {
+function pushOutOf(ship: ShipState, isle: Circle, shipRadius: number): void {
   const dx = ship.x - isle.x;
   const dy = ship.y - isle.y;
-  const minDist = isle.r + SHIP_RADIUS;
+  const minDist = isle.r + shipRadius;
   const d = Math.hypot(dx, dy);
   if (d >= minDist) return;
   if (d > EPS) {

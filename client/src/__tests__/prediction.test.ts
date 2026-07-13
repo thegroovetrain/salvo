@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG, stepShip, type InputMsg, type ShipState } from '@salvo/shared';
+import { CONFIG, stepShip, type InputMsg, type ShipConfig, type ShipState } from '@salvo/shared';
 import {
   Predictor,
   PENDING_CAPACITY,
@@ -9,6 +9,7 @@ import {
 
 const DT = CONFIG.tick.simDtMs / 1000;
 const MAP_R = 900;
+const CRUISER = CONFIG.shipClasses.cruiser;
 
 function input(seq: number, throttle = 1, rudder = 0): InputMsg {
   return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 };
@@ -18,9 +19,9 @@ function kin(s: ShipState) {
   return { x: s.x, y: s.y, heading: s.heading, speed: s.speed };
 }
 
-/** Reference "server": same shared stepShip + the same boundary clamp. */
-function serverStep(s: ShipState, inp: InputMsg): void {
-  stepShip(s, inp, CONFIG.ship, DT);
+/** Reference "server": shared stepShip with the given class + boundary clamp. */
+function serverStep(s: ShipState, inp: InputMsg, cfg: ShipConfig = CRUISER.kinematics): void {
+  stepShip(s, inp, cfg, DT);
   const d = Math.hypot(s.x, s.y);
   if (d > MAP_R) {
     const k = MAP_R / d;
@@ -153,12 +154,12 @@ describe('Predictor error absorption', () => {
 describe('Predictor boundary clamp (mirror of server world.ts)', () => {
   it('never predicts past the map edge and damps speed there', () => {
     // Start near the edge, full ahead pointing straight out.
-    const spawn: ShipState = { x: MAP_R - 10, y: 0, heading: 0, speed: CONFIG.ship.maxSpeed };
+    const spawn: ShipState = { x: MAP_R - 10, y: 0, heading: 0, speed: CRUISER.kinematics.maxSpeed };
     const p = makeInitialized(spawn);
     for (let seq = 1; seq <= 40; seq++) p.localTick(input(seq, 1, 0));
     const d = Math.hypot(p.predicted.x, p.predicted.y);
     expect(d).toBeLessThanOrEqual(MAP_R + 1e-9);
-    expect(Math.abs(p.predicted.speed)).toBeLessThan(CONFIG.ship.maxSpeed);
+    expect(Math.abs(p.predicted.speed)).toBeLessThan(CRUISER.kinematics.maxSpeed);
   });
 });
 
@@ -172,7 +173,26 @@ describe('Predictor island collision (shared with server world.ts)', () => {
     const s = p.predicted;
     const gap = Math.hypot(s.x - island.x, s.y - island.y);
     // Hull circle radius = beam/2 = 6; must stay outside r + 6, minus float slack.
-    expect(gap).toBeGreaterThanOrEqual(island.r + CONFIG.ship.beam / 2 - 1e-6);
+    expect(gap).toBeGreaterThanOrEqual(island.r + CRUISER.hull.beam / 2 - 1e-6);
+  });
+});
+
+describe('Predictor with a non-cruiser class config', () => {
+  it('replays against a destroyer-stepped server exactly', () => {
+    const DD = CONFIG.shipClasses.destroyer;
+    const spawn: ShipState = { x: 0, y: 0, heading: 0.2, speed: 0 };
+    const server: ShipState = { ...spawn };
+    const p = new Predictor({ radius: MAP_R, islands: [] }, DD.kinematics, DD.hull.beam / 2);
+    p.onServerState(kin(spawn), 0);
+    for (let seq = 1; seq <= 40; seq++) {
+      const inp = input(seq, 1, seq % 10 < 5 ? 0.6 : -0.6);
+      p.localTick(inp);
+      serverStep(server, inp, DD.kinematics);
+      if (seq % 4 === 0) p.onServerState(kin(server), seq);
+    }
+    expect(p.predicted.x).toBeCloseTo(server.x, 6);
+    expect(p.predicted.y).toBeCloseTo(server.y, 6);
+    expect(p.predicted.heading).toBeCloseTo(server.heading, 6);
   });
 });
 

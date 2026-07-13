@@ -4,7 +4,7 @@
 // samples at serverNow() - interpDelay with lerp (shortest-arc heading),
 // dead-reckons up to MAX_EXTRAPOLATION_MS on underrun, then freezes.
 
-import { lerpAngle, type Contact } from '@salvo/shared';
+import { lerpAngle, type Contact, type ShipClassId } from '@salvo/shared';
 import { lerp } from '../util/math.js';
 
 /** One timestamped kinematic sample. `t` is server time (ms). */
@@ -110,6 +110,8 @@ export class SnapshotBuffer {
 export class ContactStore {
   private buffers = new Map<string, SnapshotBuffer>();
   private lastSeen = new Map<string, number>(); // server time (ms)
+  /** Static per-id class (a contact never changes class mid-life). */
+  private classes = new Map<string, ShipClassId>();
 
   /** Ingest one frame's contact list at server time `t`. */
   pushFrame(t: number, contacts: readonly Contact[]): void {
@@ -121,11 +123,17 @@ export class ContactStore {
       }
       buf.push({ t, x: c.x, y: c.y, heading: c.heading, speed: c.speed });
       this.lastSeen.set(c.id, t);
+      this.classes.set(c.id, c.cls);
     }
   }
 
   get(id: string): SnapshotBuffer | undefined {
     return this.buffers.get(id);
+  }
+
+  /** The class of a contact (static, set on first sighting). */
+  classOf(id: string): ShipClassId | undefined {
+    return this.classes.get(id);
   }
 
   ids(): IterableIterator<string> {
@@ -144,6 +152,7 @@ export class ContactStore {
       if (serverNow - seen <= ttlMs) continue;
       this.buffers.delete(id);
       this.lastSeen.delete(id);
+      this.classes.delete(id);
       removed.push(id);
     }
     return removed;

@@ -4,8 +4,14 @@
 // Text strings are diffed before assignment (Pixi re-rasterizes on `.text`).
 
 import { Container, Graphics, Text } from 'pixi.js';
-import type { ShipState, WeaponId } from '@salvo/shared';
+import type { ShipState, WeaponId, ShipClassId } from '@salvo/shared';
 import { CONFIG, WEAPON, wrapPositive } from '@salvo/shared';
+
+/** Kinematics subset the speed ladder needs (ahead/astern denominators). */
+interface LadderKin {
+  maxSpeed: number;
+  reverseSpeed: number;
+}
 import type { Axes } from '../input/keyboard.js';
 import type { MatchUx } from '../ui/phase.js';
 import { bearingGunMount } from './weaponArc.js';
@@ -72,8 +78,8 @@ export function rungY(index: number): number {
  * this needle and the highlighted order rung is the ship converging on the
  * ordered speed (the naval feel: the setting is instant, the hull is not).
  */
-export function speedLadderFraction(speed: number): number {
-  const denom = speed >= 0 ? CONFIG.ship.maxSpeed : CONFIG.ship.reverseSpeed;
+export function speedLadderFraction(speed: number, kin: LadderKin): number {
+  const denom = speed >= 0 ? kin.maxSpeed : kin.reverseSpeed;
   const f = denom > 0 ? speed / denom : 0;
   return f < -1 ? -1 : f > 1 ? 1 : f;
 }
@@ -120,6 +126,7 @@ export interface OwnStatus {
   weapon: WeaponId; // currently-selected weapon (client-local, immediate — not the server echo)
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
+  cls: ShipClassId; // own class — drives the speed-ladder denominators + max-hp fraction
 }
 
 /**
@@ -372,7 +379,7 @@ export class Hud {
    * detent, rudder, or displayed speed changes (see updateTelegraph) — the
    * Graphics is otherwise left untouched so redraws stay cheap.
    */
-  private drawTelegraph(index: number, rudder: number, speed: number): void {
+  private drawTelegraph(index: number, rudder: number, speed: number, kin: LadderKin): void {
     const g = this.gauges;
     g.clear();
     g.moveTo(SPINE_X, LADDER_TOP).lineTo(SPINE_X, LADDER_BOTTOM).stroke({ width: 2, color: DIM, alpha: 0.6 });
@@ -383,7 +390,7 @@ export class Hud {
     }
     const oy = rungY(index); // ordered detent — the bright marker
     g.rect(SPINE_X - RUNG_LEN - 4, oy - 1.5, RUNG_LEN + 8, 3).fill({ color: GREEN, alpha: 0.95 });
-    const ny = LADDER_BOTTOM - ((speedLadderFraction(speed) + 1) / 2) * (8 * RUNG_GAP);
+    const ny = LADDER_BOTTOM - ((speedLadderFraction(speed, kin) + 1) / 2) * (8 * RUNG_GAP);
     g.moveTo(SPINE_X + 8, ny - 3).lineTo(SPINE_X + 2, ny).lineTo(SPINE_X + 8, ny + 3).fill({ color: AMBER, alpha: 0.9 });
     this.drawRudder(rudder);
   }
@@ -404,7 +411,7 @@ export class Hud {
    * ordered rung's label on a detent change. Keeps Pixi Graphics/Text churn off
    * the steady-state frame.
    */
-  private updateTelegraph(axes: Axes, speed: number): void {
+  private updateTelegraph(axes: Axes, speed: number, kin: LadderKin): void {
     const index = detentIndexOf(axes.throttle);
     if (index !== this.lastDetent) {
       for (let i = 0; i < this.rungLabels.length; i++) {
@@ -412,10 +419,10 @@ export class Hud {
       }
       this.lastDetent = index;
     }
-    const sig = `${index}|${axes.rudder}|${speed.toFixed(1)}`;
+    const sig = `${index}|${axes.rudder}|${speed.toFixed(1)}|${kin.maxSpeed}|${kin.reverseSpeed}`;
     if (sig === this.lastGaugeSig) return;
     this.lastGaugeSig = sig;
-    this.drawTelegraph(index, axes.rudder, speed);
+    this.drawTelegraph(index, axes.rudder, speed, kin);
   }
 
   /** HP bar + the 3-weapon selector chip row, anchored bottom-right (screen space). */
@@ -431,12 +438,12 @@ export class Hud {
     g.clear();
     const x = screenW - BAR_W - MARGIN;
     const baseY = screenH - MARGIN - PANEL_H;
-    this.drawHp(g, x, baseY, status.hp);
+    this.drawHp(g, x, baseY, status.hp, CONFIG.shipClasses[status.cls].hp);
     this.drawWeaponChips(g, status, x, baseY + BAR_H + 12, heading, aim, deniedFlash);
   }
 
-  private drawHp(g: Graphics, x: number, y: number, hp: number): void {
-    const frac = Math.max(0, Math.min(1, hp / CONFIG.ship.hp));
+  private drawHp(g: Graphics, x: number, y: number, hp: number, maxHp: number): void {
+    const frac = Math.max(0, Math.min(1, hp / maxHp));
     g.rect(x, y, BAR_W, BAR_H).fill({ color: 0x111111, alpha: 0.8 });
     g.rect(x, y, BAR_W * frac, BAR_H).fill({ color: hpColor(frac), alpha: 0.95 });
     g.rect(x, y, BAR_W, BAR_H).stroke({ width: 1, color: DIM, alpha: 0.5 });
@@ -549,7 +556,7 @@ export class Hud {
     this.setInstrumentsVisible(true);
     this.spectateBanner.visible = false;
     this.layout(screenH);
-    this.updateTelegraph(axes, ship.speed);
+    this.updateTelegraph(axes, ship.speed, CONFIG.shipClasses[status.cls].kinematics);
     this.drawBars(status, ship.heading, aim, screenW, screenH, deniedFlash);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);

@@ -9,12 +9,14 @@
 import {
   CONFIG,
   MSG,
+  SHIP_CLASS_IDS,
   WEAPON,
   type BallisticEvent,
   type BoomEvent,
   type DamageEvent,
   type FrameMsg,
   type ResultsMsg,
+  type ShipClassId,
   type SpawnEvent,
   type SunkEvent,
 } from '@salvo/shared';
@@ -41,7 +43,8 @@ import { fireTone, type ToneId } from '../audio/tones.js';
  * boundary is a mid-flight reveal — no flash. `² of one hull length` as the
  * "on a ship" threshold (mounts sit within the hull footprint).
  */
-const MUZZLE_NEAR2 = CONFIG.ship.length * CONFIG.ship.length;
+const MAX_HULL_LEN = Math.max(...SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id].hull.length));
+const MUZZLE_NEAR2 = MAX_HULL_LEN * MAX_HULL_LEN;
 
 export interface RoomBindingDeps {
   state: GameState;
@@ -61,6 +64,12 @@ export interface RoomBindingDeps {
   audio: { play: (id: ToneId) => void };
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
+  /**
+   * Fired when the authoritative own class first arrives (or ever changes) on
+   * `you.cls` — the client trusts the server, not the localStorage guess. Swaps
+   * the predictor's kinematics/collision radius + own-hull visuals to match.
+   */
+  onOwnClass: (cls: ShipClassId) => void;
   /**
    * Reset the throttle order to neutral. Called on own spawn (respawn + the
    * match-activation teleport) and own sunk, so a set engine order never
@@ -103,6 +112,9 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps): void {
     deps.onSpectate();
   }
   if (f.you) {
+    // Trust the server's class over the localStorage guess: on the first frame
+    // (or any change) swap the predictor config + own-hull visuals to match.
+    if (f.you.cls !== net.you?.cls) deps.onOwnClass(f.you.cls);
     net.you = f.you;
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;

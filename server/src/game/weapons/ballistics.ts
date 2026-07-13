@@ -6,19 +6,19 @@
 // place, per the codebase-cleanliness pass (Stage A4). Stage B re-parameterizes
 // hullClearOffset on the firer's class hull length — a one-line change here.
 
-import { CONFIG, type ShellState } from '@salvo/shared';
+import { type ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 
 /**
- * Hull-clearing spawn offset: half the hull length plus `extra` (the
- * projectile/trigger radius) so the spawned entity starts OUTSIDE the firer's
- * own capsule. The 100ms self-hit grace is far too short (~13u at 130 u/s) to
- * clear a 40u hull on its own, so this offset is what actually prevents a
- * broadside self-detonation; grace remains a backstop against re-collision on
- * the exit tick.
+ * Hull-clearing spawn offset: half the FIRER'S hull length (per class) plus
+ * `extra` (the projectile/trigger radius) so the spawned entity starts OUTSIDE
+ * the firer's own capsule. The 100ms self-hit grace is far too short (~13u at
+ * 130 u/s) to clear a battleship's 46u hull on its own, so this offset is what
+ * actually prevents a broadside self-detonation; grace remains a backstop
+ * against re-collision on the exit tick.
  */
-export function hullClearOffset(extra: number): number {
-  return CONFIG.ship.length / 2 + extra;
+export function hullClearOffset(ship: ShipRecord, extra: number): number {
+  return ship.cls.hull.length / 2 + extra;
 }
 
 /** Params that distinguish a gun shell from a torpedo. */
@@ -43,7 +43,7 @@ export function makeBallistic(
   now: number,
   p: BallisticParams,
 ): ShellState {
-  const off = hullClearOffset(p.hitRadius);
+  const off = hullClearOffset(ship, p.hitRadius);
   return {
     id,
     ownerId: ship.id,

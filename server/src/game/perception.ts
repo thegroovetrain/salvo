@@ -132,7 +132,7 @@ function pairScan(world: World, me: ShipRecord): { contacts: Contact[]; blips: B
     if (d2 > RADAR2) continue;
     if (d2 <= SIGHT2) {
       if (losClear(my, s, world.map.islands)) {
-        contacts.push({ id: ship.id, x: s.x, y: s.y, heading: s.heading, speed: s.speed });
+        contacts.push({ id: ship.id, x: s.x, y: s.y, heading: s.heading, speed: s.speed, cls: ship.classId });
       }
     } else if (sweptThisTick(me, bearing(my, s)) && losClear(my, s, world.map.islands)) {
       blips.push({ k: 'blip', id: ship.id, x: s.x, y: s.y, t: world.now });
@@ -160,7 +160,7 @@ function ballisticEvents(world: World, me: ShipRecord): BallisticEvent[] {
     if (!own && !pointSighted(me.state, shell, world.map.islands)) continue;
     me.seenBallistics.add(shell.id);
     out.push({
-      k: shell.kind ?? 'shell',
+      k: shell.kind,
       id: shell.id,
       x: shell.x,
       y: shell.y,
@@ -277,7 +277,7 @@ export function observeSpectator(world: World, observerId: string): PerceptionVi
   for (const ship of world.ships.values()) {
     if (!ship.alive) continue;
     const s = ship.state;
-    contacts.push({ id: ship.id, x: s.x, y: s.y, heading: s.heading, speed: s.speed });
+    contacts.push({ id: ship.id, x: s.x, y: s.y, heading: s.heading, speed: s.speed, cls: ship.classId });
   }
   const events: GameEvent[] = [];
   for (const e of world.tickEvents) {
@@ -299,7 +299,7 @@ function spectatorBallistics(world: World, me: ShipRecord | undefined): Ballisti
     if (me.seenBallistics.has(shell.id)) continue;
     me.seenBallistics.add(shell.id);
     out.push({
-      k: shell.kind ?? 'shell',
+      k: shell.kind,
       id: shell.id,
       x: shell.x,
       y: shell.y,

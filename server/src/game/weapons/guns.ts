@@ -57,8 +57,8 @@ export function clampToArc(angle: number, center: number, halfArc: number): numb
  * offset, floored at 0 (click inside the hull = splash at the muzzle) and
  * clamped to max gun range (click beyond it = splash at max range).
  */
-export function shellRangeFor(aimDist: number): number {
-  const muzzleOffset = hullClearOffset(CONFIG.gun.shellRadius);
+export function shellRangeFor(ship: ShipRecord, aimDist: number): number {
+  const muzzleOffset = hullClearOffset(ship, CONFIG.gun.shellRadius);
   return Math.min(Math.max(aimDist - muzzleOffset, 0), CONFIG.gun.shellRange);
 }
 
@@ -72,7 +72,7 @@ export function shellRangeFor(aimDist: number): number {
 export function fireGuns(ship: ShipRecord, now: number, mkId: () => string): ShellState[] {
   if (!ship.alive || ship.input.weapon !== WEAPON.gun) return [];
   const aim = ship.input.aim;
-  const range = shellRangeFor(ship.input.aimDist);
+  const range = shellRangeFor(ship, ship.input.aimDist);
   const shells: ShellState[] = [];
   for (let i = 0; i < MOUNTS.length; i++) {
     if (ship.gunCooldowns[i] > 0) continue;

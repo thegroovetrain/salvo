@@ -25,13 +25,22 @@ const ARC_R = 72; // u — sector indicator radius
 const RETICLE_R = 7; // u — crosshair size
 
 const MOUNTS = CONFIG.gun.mounts;
-const MINE_MARKER = CONFIG.ship.length / 2 + CONFIG.mine.triggerRadius; // astern drop point (local -x)
-// Farthest point (from ship center) a shell can splash: the muzzle offset the
-// server spawns shells at (hull-clear: half hull + shell radius) plus max gun
-// range. Clicks beyond it get an impact marker at the clamped point so a long
-// click reads as "splashes HERE", not as a silent miss.
-const GUN_SPLASH_MAX = CONFIG.ship.length / 2 + CONFIG.gun.shellRadius + CONFIG.gun.shellRange;
 const IMPACT_R = 4; // u — range-clamped impact marker ring
+
+/** Astern mine-drop marker distance (local -x) for a given own hull length. */
+function mineMarkerFor(hullLength: number): number {
+  return hullLength / 2 + CONFIG.mine.triggerRadius;
+}
+
+/**
+ * Farthest point (from ship center) a shell can splash: the muzzle offset the
+ * server spawns shells at (hull-clear: half hull + shell radius) plus max gun
+ * range. Clicks beyond it get an impact marker at the clamped point so a long
+ * click reads as "splashes HERE", not a silent miss. Per own hull length.
+ */
+function gunSplashMaxFor(hullLength: number): number {
+  return hullLength / 2 + CONFIG.gun.shellRadius + CONFIG.gun.shellRange;
+}
 
 export interface FiringPose {
   x: number;
@@ -42,6 +51,8 @@ export interface FiringPose {
 export class FiringUX {
   private readonly arcs = new Graphics();
   private readonly reticle = new Graphics();
+  /** Own hull length (u), fed each frame by update(); default cruiser. */
+  private hullLength: number = CONFIG.shipClasses.cruiser.hull.length;
 
   /**
    * `shipLayer` (worldRoot's `ship`) hosts the gun-arc sectors; `aimLayer`
@@ -71,8 +82,10 @@ export class FiringUX {
     weapon: WeaponId,
     ready: number,
     cursor: { x: number; y: number },
+    hullLength: number,
     denied = false,
   ): void {
+    this.hullLength = hullLength;
     this.arcs.clear();
     this.arcs.position.set(pose.x, pose.y);
     this.arcs.rotation = pose.heading;
@@ -115,8 +128,9 @@ export class FiringUX {
     const g = this.arcs;
     const color = denied ? DENIED_RED : ready >= 1 ? AMBER : DIM;
     const alpha = denied ? 0.9 : ready >= 1 ? 0.8 : 0.3;
-    g.circle(-MINE_MARKER, 0, 6).stroke({ width: 1.5, color, alpha });
-    g.circle(-MINE_MARKER, 0, 2).fill({ color, alpha });
+    const marker = mineMarkerFor(this.hullLength);
+    g.circle(-marker, 0, 6).stroke({ width: 1.5, color, alpha });
+    g.circle(-marker, 0, 2).fill({ color, alpha });
   }
 
   private drawReticle(
@@ -150,10 +164,11 @@ export class FiringUX {
     cursor: { x: number; y: number },
     color: number,
   ): void {
-    if (Math.hypot(cursor.x - pose.x, cursor.y - pose.y) <= GUN_SPLASH_MAX) return;
+    const splashMax = gunSplashMaxFor(this.hullLength);
+    if (Math.hypot(cursor.x - pose.x, cursor.y - pose.y) <= splashMax) return;
     const g = this.reticle;
-    const ix = pose.x + Math.cos(aim) * GUN_SPLASH_MAX;
-    const iy = pose.y + Math.sin(aim) * GUN_SPLASH_MAX;
+    const ix = pose.x + Math.cos(aim) * splashMax;
+    const iy = pose.y + Math.sin(aim) * splashMax;
     g.circle(ix, iy, IMPACT_R).stroke({ width: 1.5, color, alpha: 0.9 });
     // A short cross-bearing tick: "the shell stops on this line".
     const tx = Math.cos(aim + Math.PI / 2) * (IMPACT_R + 4);

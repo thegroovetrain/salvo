@@ -118,7 +118,7 @@ function onFrame(ctx, f) {
   if (hasPeerSunk) ctx.seenPeerSunk = true;
   if (f.you) {
     ctx.you = f.you;
-    if (!ctx.activated && f.you.hp < CONFIG.ship.hp) ctx.readyHpViolations += 1;
+    if (!ctx.activated && f.you.hp < CONFIG.shipClasses.cruiser.hp) ctx.readyHpViolations += 1;
     if (ctx.activated) ctx.minHpActive = Math.min(ctx.minHpActive, f.you.hp);
   }
   for (const e of f.events) {
@@ -198,7 +198,7 @@ async function main() {
     await sleep(300); // a few frames of active state
     const ring = a.welcome.mapRadius * CONFIG.map.spawnFraction;
     for (const ctx of [a, b]) {
-      assert(ctx.you.hp === CONFIG.ship.hp, `${ctx.name} not at full hp after reset`);
+      assert(ctx.you.hp === CONFIG.shipClasses.cruiser.hp, `${ctx.name} not at full hp after reset`);
       const r = Math.hypot(ctx.you.x, ctx.you.y);
       assert(Math.abs(r - ring) < 60, `${ctx.name} not on the spawn ring (r=${r.toFixed(0)} vs ${ring.toFixed(0)})`);
     }
@@ -227,7 +227,7 @@ async function main() {
     const rowB = res.rows.find((r) => r.id === b.room.sessionId);
     assert(rowA.placement === 1 && rowB.placement === 2, `placements A=${rowA.placement} B=${rowB.placement}`);
     assert(rowA.kills === 1, `A kills=${rowA.kills}`);
-    assert(rowA.damageDealt >= CONFIG.ship.hp, `A damageDealt=${rowA.damageDealt} < ${CONFIG.ship.hp}`);
+    assert(rowA.damageDealt >= CONFIG.shipClasses.cruiser.hp, `A damageDealt=${rowA.damageDealt} < ${CONFIG.shipClasses.cruiser.hp}`);
     assert(res.rows[0].id === rowA.id, 'rows not sorted by placement');
     log.push(`results: winner=ALPHA, rows A(1st, ${rowA.kills} kill, ${rowA.damageDealt}dmg) B(2nd)`);
 

@@ -9,7 +9,7 @@
 
 import type { Container } from 'pixi.js';
 import type { Room } from 'colyseus.js';
-import { CONFIG, isOutside, zoneRadiusAt, type GameMap } from '@salvo/shared';
+import { CONFIG, isOutside, zoneRadiusAt, type GameMap, type ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
@@ -94,6 +94,8 @@ interface Game {
   wasInStorm: boolean;
   /** mouse.clickCount last frame — the denied-click edge (render/deniedFire.ts). */
   prevClickCount: number;
+  /** Own ship class — the localStorage guess, corrected by the first server frame. */
+  ownClass: ShipClassId;
 }
 
 /** Push the camera's world transform onto the world + chart containers. */
@@ -129,9 +131,11 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
 function ownStatus(g: Game): OwnStatus {
   const you = g.state.net.you;
   const eta = g.state.respawnEta;
+  const cls = you?.cls ?? g.ownClass;
   return {
-    hp: you?.hp ?? CONFIG.ship.hp,
+    hp: you?.hp ?? CONFIG.shipClasses[cls].hp,
     cooldowns: you?.cooldowns ?? [[0, 0], [0], [0]],
+    cls,
     // Client-selected weapon (immediate), not the server echo — keeps the HUD
     // chip highlight in lockstep with the arcs/denied-flash, which already
     // read g.keyboard.weapon directly. Cooldown VALUES still come from the
@@ -250,7 +254,7 @@ function handleRoomLeave(g: Game): void {
 // --- game assembly -------------------------------------------------------------
 
 /** Camera + input + own-hull-view/effects setup, factored out of buildGame() to keep it lean. */
-function setupViewport(stage: Stage, audio: Audio, bellAudible: () => boolean): {
+function setupViewport(stage: Stage, audio: Audio, cls: ShipClassId, bellAudible: () => boolean): {
   camera: Camera;
   keyboard: KeyboardInput;
   mouse: MouseInput;
@@ -276,22 +280,30 @@ function setupViewport(stage: Stage, audio: Audio, bellAudible: () => boolean): 
   const mouse = new MouseInput();
   mouse.attach();
 
-  const ownView = new ShipView(OWN_STYLE);
+  // Guessed-class hull until the first frame confirms/corrects it.
+  const ownView = new ShipView(OWN_STYLE, CONFIG.shipClasses[cls].hull);
   ownView.gfx.visible = false;
   stage.layers.ship.addChild(ownView.gfx);
 
   // Effects is built before Projectiles so the torpedo-wake trail can feed the
   // shared effects pool via a closure.
   const effects = new Effects(stage.layers.wake, stage.layers.projectile);
+  effects.setOwnClass(cls);
 
   return { camera, keyboard, mouse, ownView, effects };
 }
 
-function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio): Game {
+/** Predictor seeded with the guessed class config (first frame confirms/swaps it). */
+function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
+  const spec = CONFIG.shipClasses[cls];
+  return new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, spec.hull.beam / 2);
+}
+
+function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, cls: ShipClassId): Game {
   const { welcome } = conn;
   // Late-bound: the bell predicate needs game state that is assembled just below.
   let gRef: Game | null = null;
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, () => {
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, cls, () => {
     const s = gRef?.state;
     return !s?.spectating && s?.net.you?.alive !== false;
   });
@@ -302,7 +314,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio): 
     clock: new ServerClock(),
     ownBuffer: new SnapshotBuffer(),
     contacts: new ContactStore(),
-    predictor: new Predictor({ radius: map.radius, islands: map.islands }),
+    predictor: makePredictor(map, cls),
     camera,
     keyboard,
     mouse,
@@ -330,6 +342,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio): 
     audioCueState: INITIAL_CUE_STATE,
     wasInStorm: false,
     prevClickCount: 0,
+    ownClass: cls,
   };
   gRef = g;
   g.clock.addSample(welcome.t);
@@ -338,11 +351,26 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio): 
   return g;
 }
 
+/**
+ * Adopt the server-authoritative own class (first frame or a change): swap the
+ * predictor's kinematics + collision radius (re-inits via forceSnap, absorbed by
+ * the next reconcile), the own-hull visual, and the wake stern offset. Guessed
+ * localStorage config was used until here; this is the desync firewall.
+ */
+function applyOwnClass(g: Game, cls: ShipClassId): void {
+  g.ownClass = cls;
+  const spec = CONFIG.shipClasses[cls];
+  g.predictor.setClassConfig(spec.kinematics, spec.hull.beam / 2);
+  g.ownView.setHull(spec.hull);
+  g.effects.setOwnClass(cls);
+}
+
 /** Wire the room's messages into the game (frames, results, disconnects). */
 function bindGameRoom(g: Game, conn: Connection): void {
   bindRoom(conn, {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
+    onOwnClass: (cls) => applyOwnClass(g, cls),
     resetThrottle: () => g.keyboard.resetThrottle(),
     names: (id) => rosterName(g, id),
     onSpectate: () => enterSpectateVisuals(g),
@@ -413,7 +441,8 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   const inArc = weaponArcHit(pose.heading, aim, weapon);
   const denied = isClickDenied({ clicked, ready: ready >= 1, inArc });
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
-  g.firing.update(pose, aim, weapon, ready, cursor, g.deniedFlash);
+  const hullLength = CONFIG.shipClasses[status.cls].hull.length;
+  g.firing.update(pose, aim, weapon, ready, cursor, hullLength, g.deniedFlash);
 }
 
 function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
@@ -595,12 +624,18 @@ function toggleMute(game: Game): void {
   showBanner(game.audio.muted ? 'MUTED' : 'UNMUTED', { autoHideMs: 1200 });
 }
 
-async function startGame(stage: Stage, menu: MenuHandle, name: string, audio: Audio): Promise<void> {
+async function startGame(
+  stage: Stage,
+  menu: MenuHandle,
+  name: string,
+  cls: ShipClassId,
+  audio: Audio,
+): Promise<void> {
   menu.setBusy(true);
   menu.setStatus('CONNECTING...');
   let conn: Connection;
   try {
-    conn = await connect(name || undefined);
+    conn = await connect(name || undefined, cls);
   } catch (err) {
     console.error('[net] connection failed', err);
     menu.setStatus('CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?', true);
@@ -614,7 +649,7 @@ async function startGame(stage: Stage, menu: MenuHandle, name: string, audio: Au
   const map = mapFromWelcome(conn.welcome);
   buildMap(map, stage.layers);
 
-  const game = buildGame(stage, conn, map, audio);
+  const game = buildGame(stage, conn, map, audio, cls);
   bindResize(stage, game);
   bindVisibility(game);
   bindSpectateZoom(game);
@@ -632,9 +667,9 @@ async function main(): Promise<void> {
 
   const audio = new Audio();
   const version = typeof __APP_VERSION__ === 'undefined' ? 'dev' : __APP_VERSION__;
-  const menu = showMenu(version, (name) => {
+  const menu = showMenu(version, (name, cls) => {
     audio.resume(); // must happen inside the PLAY click's user-gesture handler
-    void startGame(stage, menu, name, audio);
+    void startGame(stage, menu, name, cls, audio);
   });
 }
 

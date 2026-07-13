@@ -32,12 +32,44 @@ describe('World clock + lifecycle', () => {
   it('addShip creates a full-hp living ship and removeShip forgets it', () => {
     const w = new World(1);
     const rec = w.addShip('a', 'ALPHA');
-    expect(rec.hp).toBe(CONFIG.ship.hp);
+    expect(rec.hp).toBe(CONFIG.shipClasses.cruiser.hp);
     expect(rec.alive).toBe(true);
     expect(rec.isDrone).toBe(false);
     expect(w.ships.size).toBe(1);
     w.removeShip('a');
     expect(w.ships.size).toBe(0);
+  });
+
+  it('addShip defaults to the cruiser class', () => {
+    const rec = new World(1).addShip('a', 'ALPHA');
+    expect(rec.classId).toBe('cruiser');
+    expect(rec.cls).toBe(CONFIG.shipClasses.cruiser);
+  });
+
+  it('addShip applies the requested class (id, cached cls, and hp)', () => {
+    const w = new World(1);
+    const bb = w.addShip('b', 'BRAVO', false, 'battleship');
+    expect(bb.classId).toBe('battleship');
+    expect(bb.cls).toBe(CONFIG.shipClasses.battleship);
+    expect(bb.hp).toBe(CONFIG.shipClasses.battleship.hp);
+  });
+});
+
+describe('World step — per-class kinematics', () => {
+  it('a destroyer out-accelerates a battleship under full throttle', () => {
+    const w = new World(1);
+    const dd = w.addShip('dd', 'DD', false, 'destroyer');
+    const bb = w.addShip('bb', 'BB', false, 'battleship');
+    // Same fresh pose so only kinematics differ.
+    dd.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    bb.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.submitInput('dd', input(1, 1, 0));
+    w.submitInput('bb', input(1, 1, 0));
+    w.step();
+    // One tick of accel: destroyer accel 11 > battleship accel 7.
+    expect(dd.state.speed).toBeGreaterThan(bb.state.speed);
+    expect(dd.state.speed).toBeCloseTo(CONFIG.shipClasses.destroyer.kinematics.accel * (SIM_DT / 1000), 9);
+    expect(bb.state.speed).toBeCloseTo(CONFIG.shipClasses.battleship.kinematics.accel * (SIM_DT / 1000), 9);
   });
 });
 
@@ -93,13 +125,13 @@ describe('World step — boundary', () => {
     rec.state.x = w.map.radius - 1;
     rec.state.y = 0;
     rec.state.heading = 0;
-    rec.state.speed = CONFIG.ship.maxSpeed;
+    rec.state.speed = CONFIG.shipClasses.cruiser.kinematics.maxSpeed;
     w.submitInput('a', input(1, 1, 0));
     w.step();
     const d = Math.hypot(rec.state.x, rec.state.y);
     expect(d).toBeLessThanOrEqual(w.map.radius + 1e-9);
     expect(d).toBeCloseTo(w.map.radius, 6);
-    expect(rec.state.speed).toBeLessThan(CONFIG.ship.maxSpeed * 0.5);
+    expect(rec.state.speed).toBeLessThan(CONFIG.shipClasses.cruiser.kinematics.maxSpeed * 0.5);
   });
 
   it('never lets a ship escape the map over a long full-throttle run', () => {
@@ -135,7 +167,7 @@ describe('World step — sweep + respawn', () => {
     expect(rec.alive).toBe(false);
     w.step();
     expect(rec.alive).toBe(true);
-    expect(rec.hp).toBe(CONFIG.ship.hp);
+    expect(rec.hp).toBe(CONFIG.shipClasses.cruiser.hp);
     expect(rec.respawnAt).toBe(0);
     expect(Math.hypot(rec.state.x, rec.state.y)).toBeCloseTo(w.map.spawnRing, 6);
   });

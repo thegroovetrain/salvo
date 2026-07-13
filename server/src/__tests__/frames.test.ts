@@ -55,11 +55,12 @@ describe('buildFrame — shape and clock', () => {
       y: ship.state.y,
       heading: ship.state.heading,
       speed: ship.state.speed,
-      hp: CONFIG.ship.hp,
+      hp: CONFIG.shipClasses.cruiser.hp,
       alive: true,
       weapon: 2,
       cooldowns: [[0, 0], [0], [0]],
       sweep: ship.sweepAngle,
+      cls: 'cruiser',
     });
     expect(f.spec).toBeUndefined();
   });
@@ -101,6 +102,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
       y: b.state.y,
       heading: b.state.heading,
       speed: b.state.speed,
+      cls: 'cruiser',
     });
   });
 

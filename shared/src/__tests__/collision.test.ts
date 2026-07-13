@@ -13,15 +13,16 @@ const DAMP = CONFIG.ship.islandSpeedMult;
 const DT = CONFIG.tick.simDtMs / 1000;
 const maxProjSpeed = Math.max(CONFIG.gun.shellSpeed, CONFIG.torpedo.speed);
 const maxTravel = maxProjSpeed * DT; // furthest a projectile moves in one tick
-const hullRadius = CONFIG.ship.beam / 2; // capsule radius
-const hullHalfLen = (CONFIG.ship.length - CONFIG.ship.beam) / 2;
+const CRUISER = CONFIG.shipClasses.cruiser.hull;
+const hullRadius = CRUISER.beam / 2; // capsule radius
+const hullHalfLen = (CRUISER.length - CRUISER.beam) / 2;
 
 describe('swept-shell no tunneling (worst case from CONFIG)', () => {
   it('per-tick travel is smaller than the thinnest obstacle', () => {
     // If a single tick's displacement is smaller than the obstacle thickness,
     // a swept segment test physically cannot skip over it.
     expect(maxTravel).toBeLessThan(2 * MAP_RULES.MIN_R); // thinnest island diameter
-    expect(maxTravel).toBeLessThan(CONFIG.ship.beam); // hull broadside width
+    expect(maxTravel).toBeLessThan(CRUISER.beam); // hull broadside width
   });
 
   it('detects the fastest shell crossing the thinnest island', () => {
@@ -102,7 +103,7 @@ describe('resolveShipIslands', () => {
 });
 
 describe('no-escape property: driving hard into obstacles never penetrates', () => {
-  const cfg = CONFIG.ship;
+  const cfg = CONFIG.shipClasses.cruiser.kinematics;
   const island: Circle = { x: 300, y: 0, r: 60 };
 
   function drive(seed: number): void {

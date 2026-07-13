@@ -9,12 +9,10 @@
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import type { ShipState } from '@salvo/shared';
+import type { ShipState, ShipClassId } from '@salvo/shared';
 import { CONFIG } from '@salvo/shared';
 import { Pool } from '../util/pool.js';
 import { CLIENT_CONFIG } from '../config.js';
-
-const HALF_LEN = 20; // u — stern offset from ship center (matches hull length)
 
 /** Effect kinds routed through spawnEffect(). */
 export type EffectKind = 'wake' | 'muzzle' | 'spark' | 'splash' | 'sink' | 'torpwake';
@@ -61,6 +59,9 @@ export class Effects {
   private readonly wake: WakeParticle[] = [];
   private readonly shots: OneShot[] = [];
   private accumDist = 0;
+  /** Own hull half-length (stern offset) + top speed, per own class. */
+  private ownHalfLen: number = CONFIG.shipClasses.cruiser.hull.length / 2;
+  private ownMaxSpeed: number = CONFIG.shipClasses.cruiser.kinematics.maxSpeed;
 
   constructor(
     private readonly wakeLayer: Container,
@@ -68,6 +69,12 @@ export class Effects {
   ) {
     this.wakePool = new Pool<Graphics>(() => this.makeWakeDot());
     this.shotPool = new Pool<Graphics>(() => this.makeShotGfx());
+  }
+
+  /** Set the own ship's class (drives wake stern offset + intensity scaling). */
+  setOwnClass(cls: ShipClassId): void {
+    this.ownHalfLen = CONFIG.shipClasses[cls].hull.length / 2;
+    this.ownMaxSpeed = CONFIG.shipClasses[cls].kinematics.maxSpeed;
   }
 
   private makeWakeDot(): Graphics {
@@ -129,9 +136,9 @@ export class Effects {
       return;
     }
     this.accumDist += speed * dt;
-    const sternX = ship.x - Math.cos(ship.heading) * HALF_LEN;
-    const sternY = ship.y - Math.sin(ship.heading) * HALF_LEN;
-    const intensity = Math.min(speed / CONFIG.ship.maxSpeed, 1);
+    const sternX = ship.x - Math.cos(ship.heading) * this.ownHalfLen;
+    const sternY = ship.y - Math.sin(ship.heading) * this.ownHalfLen;
+    const intensity = Math.min(speed / this.ownMaxSpeed, 1);
     while (this.accumDist >= CLIENT_CONFIG.wake.spacing) {
       this.accumDist -= CLIENT_CONFIG.wake.spacing;
       this.spawnEffect('wake', sternX, sternY, intensity);

@@ -46,9 +46,12 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
 }
 
 /** Join the arena and complete the welcome handshake. Throws on failure. */
-export async function connect(name?: string): Promise<Connection> {
+export async function connect(name?: string, cls?: string): Promise<Connection> {
   const client = new Client(wsEndpoint());
-  const room = await client.joinOrCreate('arena', name ? { name } : {});
+  const opts: { name?: string; cls?: string } = {};
+  if (name) opts.name = name;
+  if (cls) opts.cls = cls;
+  const room = await client.joinOrCreate('arena', opts);
   const sink: FrameSink = { handler: () => undefined };
   room.onMessage(MSG.frame, (f: FrameMsg) => sink.handler(f));
   try {

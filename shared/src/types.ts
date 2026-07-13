@@ -5,7 +5,7 @@
 // Messages: "w" welcome (once), "i" input (client->server), "f" frame
 // (server->client, every tick).
 
-import type { GameConfig } from './constants.js';
+import type { GameConfig, ShipClassId } from './constants.js';
 
 /** Short message-name tags used on the Colyseus channel. */
 export const MSG = {
@@ -91,6 +91,7 @@ export interface OwnShip {
   weapon: WeaponId; // currently selected
   cooldowns: number[][]; // per weapon: per-mount ms remaining (see above)
   sweep: number; // rad — current radar sweep angle
+  cls: ShipClassId; // ship class (drives hull dims / kinematics / max hp client-side)
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */
@@ -100,6 +101,7 @@ export interface Contact {
   y: number; // u
   heading: number; // rad
   speed: number; // u/s
+  cls: ShipClassId; // ship class — a sighted hull's size is legitimately visible
 }
 
 // --- GameEvent union (discriminated on `k`) --------------------------------
