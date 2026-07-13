@@ -127,7 +127,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
     ownView,
     contactViews: new ContactViews(stage.layers.ship),
     projectiles: new Projectiles(stage.layers.projectile),
-    firing: new FiringUX(stage.layers.ship),
+    firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     effects: new Effects(stage.layers.wake, stage.layers.projectile),
     fog: new Fog(stage.fogSprite),
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
@@ -192,6 +192,58 @@ function makeCallbacks(g: Game): LoopCallbacks {
   };
 }
 
+/** Trailing-edge debounce (ms) for the fog re-bake during drag-resizing. */
+const FOG_REBAKE_DEBOUNCE_MS = 150;
+
+/**
+ * Track viewport + fog across resizes. Hooks the renderer's own 'resize'
+ * event rather than window 'resize': Pixi 8's ResizePlugin defers the actual
+ * renderer.resize() to the next rAF, so a raw window listener reads
+ * stage.app.screen.width/height BEFORE that resize lands and stays one event
+ * behind. The renderer's 'resize' event fires synchronously once the GPU
+ * resize has actually happened (with the fresh width/height as arguments),
+ * so camera.setViewport always sees current dimensions.
+ *
+ * The camera viewport update is cheap and applies immediately; the fog
+ * re-bake is a full-canvas OffscreenCanvas draw, so it's debounced to the
+ * trailing edge of a resize burst (~150ms of quiet) to avoid hitching while
+ * the user drags the window edge.
+ */
+function bindResize(stage: Stage, game: Game): void {
+  let fogRebakeTimer: ReturnType<typeof setTimeout> | null = null;
+  stage.app.renderer.on('resize', (width: number, height: number) => {
+    game.camera.setViewport(width, height);
+    if (fogRebakeTimer !== null) clearTimeout(fogRebakeTimer);
+    fogRebakeTimer = setTimeout(() => {
+      fogRebakeTimer = null;
+      // Zoom derives from the viewport, so resize covers the fog's rebake-on-zoom too.
+      game.fog.rebake(width, height, game.camera.zoom);
+    }, FOG_REBAKE_DEBOUNCE_MS);
+  });
+}
+
+/**
+ * Immediately send + locally apply an all-stop, no-fire input. Wired to
+ * document visibility + window blur so a backgrounded tab can't leave the
+ * last real input (throttle + fire held) running server-side for the whole
+ * time it's hidden — the server keeps applying the latest input it has every
+ * tick. Routes through the sampler so seq stays monotonic with the regular
+ * tick cadence, and through the predictor so the pending-input ring (used to
+ * replay on reconcile) stays consistent with what was actually sent.
+ */
+function sendNeutralInput(g: Game): void {
+  const msg = g.sampler.sendNeutralNow();
+  if (g.state.mode === 'predict') g.predictor.localTick(msg);
+}
+
+/** Neutralize input the moment the tab is hidden or the window loses focus. */
+function bindVisibility(game: Game): void {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) sendNeutralInput(game);
+  });
+  window.addEventListener('blur', () => sendNeutralInput(game));
+}
+
 async function connectOrDie(stage: Stage): Promise<Connection | null> {
   showBanner('CONNECTING...');
   try {
@@ -218,11 +270,8 @@ async function main(): Promise<void> {
   buildMap(map, stage.layers);
 
   const game = buildGame(stage, conn, map);
-  window.addEventListener('resize', () => {
-    game.camera.setViewport(stage.app.screen.width, stage.app.screen.height);
-    // Zoom derives from the viewport, so resize covers the fog's rebake-on-zoom too.
-    game.fog.rebake(stage.app.screen.width, stage.app.screen.height, game.camera.zoom);
-  });
+  bindResize(stage, game);
+  bindVisibility(game);
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyP') toggleMode(game);
   });

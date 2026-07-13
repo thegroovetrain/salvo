@@ -1,9 +1,16 @@
-// Firing UX, world-space (added to the ship layer, above the hull):
-//   - Two gun-arc sectors (port +90°, starboard −90°, each ±60°) drawn around
-//     the own ship, rotating with its heading. The sector the cursor bears into
-//     brightens; a cooldown wedge sweeps back to full as the guns reload.
-//   - A crosshair at the cursor's world point plus a faint bearing line from the
-//     ship — amber when the aim is in a firing arc AND guns are ready, else dim.
+// Firing UX, split across two camera-transformed layers (see render/stage.ts
+// for the full z-order rationale):
+//   - Gun-arc sectors (port +90°, starboard −90°, each ±60°) go in the `ship`
+//     layer (worldRoot, fogged) — they rotate with the own ship and are always
+//     inside the sight bubble, so fog over them is plan-correct. The sector the
+//     cursor bears into brightens; a cooldown wedge sweeps back to full as the
+//     guns reload.
+//   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
+//     because gun range (480u) exceeds sight range (220u): aiming at a radar
+//     blip beyond sight must not put the reticle under the fog. Amber when the
+//     aim is in a firing arc AND guns are ready, else dim. The bearing line still
+//     originates at the own ship's world position — chartRoot shares worldRoot's
+//     camera transform, so it lines up exactly with the hull.
 // Pure Pixi adapter (not unit tested); the in-arc test reuses shared inArc.
 
 import { Container, Graphics } from 'pixi.js';
@@ -26,8 +33,13 @@ export class FiringUX {
   private readonly arcs = new Graphics();
   private readonly reticle = new Graphics();
 
-  constructor(layer: Container) {
-    layer.addChild(this.arcs, this.reticle);
+  /**
+   * `shipLayer` (worldRoot's `ship`) hosts the gun-arc sectors; `aimLayer`
+   * (chartRoot's `aim`, fog-immune) hosts the crosshair + bearing line.
+   */
+  constructor(shipLayer: Container, aimLayer: Container) {
+    shipLayer.addChild(this.arcs);
+    aimLayer.addChild(this.reticle);
   }
 
   /** Clear both graphics (own ship sunk — no arcs/reticle). */

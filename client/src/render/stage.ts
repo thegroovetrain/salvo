@@ -3,11 +3,15 @@
 //
 //   worldRoot   (camera-transformed): ocean, wake, projectile, ship
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
-//   chartRoot   (camera-transformed): map, blip, sweep   (fog-immune: above fog)
+//   chartRoot   (camera-transformed): map, blip, aim, sweep   (fog-immune: above fog)
 //   hudRoot     (screen space)        — telegraph HUD
 //
 // worldRoot and chartRoot share the same camera transform; fogSprite and hudRoot
-// stay in screen space. Fonts are preloaded before any Text is created.
+// stay in screen space. `aim` (crosshair + bearing line) lives in chartRoot rather
+// than worldRoot's `ship` layer because gun range exceeds sight range: aiming at a
+// radar blip would otherwise place the reticle under the fog. The gun-arc sectors
+// stay in `ship` — they're always inside the sight bubble, so fog is plan-correct
+// there. Fonts are preloaded before any Text is created.
 
 import { Application, Container } from 'pixi.js';
 
@@ -20,6 +24,8 @@ export interface StageLayers {
   // chartRoot children
   map: Container;
   blip: Container;
+  /** Crosshair + bearing line (render/firing.ts) — fog-immune, above blips. */
+  aim: Container;
   sweep: Container;
   // screen-space
   hud: Container;
@@ -85,6 +91,7 @@ export async function createStage(): Promise<Stage> {
     ship: child(worldRoot),
     map: child(chartRoot),
     blip: child(chartRoot),
+    aim: child(chartRoot),
     sweep: child(chartRoot),
     hud: child(hudRoot),
   };

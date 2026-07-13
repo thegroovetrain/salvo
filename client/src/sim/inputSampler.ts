@@ -31,6 +31,8 @@ export function buildInput(seq: number, axes: Axes, aiming: Aiming): InputMsg {
 /** Sends one input per sim tick over the given transport with monotonic seq. */
 export class InputSampler {
   private seq = 0;
+  private lastAim = 0;
+  private lastWeapon: WeaponId = 0;
 
   constructor(private readonly send: (type: string, msg: InputMsg) => void) {}
 
@@ -43,6 +45,28 @@ export class InputSampler {
   sample(axes: Axes, aiming: Aiming): InputMsg {
     this.seq += 1;
     const msg = buildInput(this.seq, axes, aiming);
+    this.lastAim = aiming.aim;
+    this.lastWeapon = aiming.weapon;
+    this.send(MSG.input, msg);
+    return msg;
+  }
+
+  /**
+   * Build + send an all-stop, no-fire input outside the normal tick cadence
+   * (used when the tab goes hidden/blurred). The server's latest-input model
+   * would otherwise keep applying the last real input — full throttle, guns
+   * blazing — for the entire time we're backgrounded. Keeps the last aim
+   * bearing + weapon selection (irrelevant while fire=false) and a monotonic
+   * seq shared with sample(), so it slots into local prediction exactly like
+   * a regular tick.
+   */
+  sendNeutralNow(): InputMsg {
+    this.seq += 1;
+    const msg = buildInput(this.seq, { throttle: 0, rudder: 0 }, {
+      aim: this.lastAim,
+      fire: false,
+      weapon: this.lastWeapon,
+    });
     this.send(MSG.input, msg);
     return msg;
   }

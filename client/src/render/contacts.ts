@@ -51,7 +51,16 @@ export class ContactViews {
    */
   render(store: ContactStore, renderTime: number, serverNow: number, dtMs: number): void {
     store.prune(serverNow, CONTACT_STALE_MS);
-    for (const id of store.ids()) this.viewFor(id).fader.show();
+    // Only start/keep a view for ids whose buffer can actually produce a pose.
+    // A respawn's frame-contacts push can land in the same tick as the spawn
+    // event's buffer clear (see net/roomBindings.ts), leaving a briefly empty
+    // buffer for a returning id; skipping view creation here (rather than
+    // relying on push/clear ordering) means we never draw a fresh view at its
+    // ShipView default (0,0) before real position data exists.
+    for (const id of store.ids()) {
+      const buf = store.get(id);
+      if (buf && buf.size > 0) this.viewFor(id).fader.show();
+    }
     for (const [id, fv] of this.views) {
       const s = store.get(id)?.sampleAt(renderTime);
       if (s) fv.view.update(s.x, s.y, s.heading);
