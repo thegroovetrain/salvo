@@ -17,7 +17,10 @@
 // Also asserts B's contacts track A's ship — since fog (step 9) landed this
 // sub-check only sees frames where A is inside B's sight range (fogSmoke.mjs
 // owns visibility verification). Requires a running server
-// (tsx server/src/index.ts) and shared/dist built:
+// (tsx server/src/index.ts) and shared/dist built, with HC_DEV_OPTIONS=1 in
+// ITS env — this smoke's sandbox matchOverride + zoneOverride are otherwise
+// stripped by the room (see server/src/rooms/roomOptions.ts):
+//   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/predictionSmoke.mjs
 
 import { Client } from 'colyseus.js';

@@ -13,7 +13,11 @@
 //   4. Mine ambush: B sails onto a live armed mine — asserts 45 damage + a boom,
 //      and that B first saw that mine only from within sight range.
 //
-// Run against a booted server (tsx server/src/index.ts + shared/dist built):
+// Run against a booted server (tsx server/src/index.ts + shared/dist built),
+// with HC_DEV_OPTIONS=1 in ITS env — this smoke's sandbox matchOverride +
+// zoneOverride are otherwise stripped by the room (see
+// server/src/rooms/roomOptions.ts):
+//   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/weaponsSmoke.mjs
 import { Client } from 'colyseus.js';
 import { CONFIG, bearing, angleDiff } from '@salvo/shared';

@@ -254,6 +254,28 @@ describe('match — active phase', () => {
     expect(msg.rows.find((r) => r.id === 'a')!.name).toBe('A');
   });
 
+  it('FINDING P2 hardening: a participant absent from the snapshot (late join, unreachable via the room lock today) still gets a winner row', () => {
+    const ctx = setup(['a', 'b']);
+    activate(ctx);
+    // participants is snapshotted once at activate(); simulate a ship added
+    // to the World afterward without going through the normal join path (the
+    // room lock makes this unreachable in production, but harden it anyway).
+    ctx.w.addShip('late', 'LATE');
+    expect(ctx.m.phase).toBe('active'); // 3 humans now alive: no insta-finish
+    ctx.w.sinkShip('a', 'late');
+    ctx.w.sinkShip('b', 'late');
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('late');
+    expect(ctx.m.placements.get('late')).toBe(1);
+    const msg = ctx.results[0];
+    expect(msg.winnerId).toBe('late');
+    const row = msg.rows.find((r) => r.id === 'late');
+    expect(row).toBeDefined();
+    expect(row!.name).toBe('LATE');
+    expect(row!.placement).toBe(1);
+  });
+
   it('mutual destruction: the latest-sunk human wins (RULING)', () => {
     const ctx = setup(['a', 'b']);
     activate(ctx);

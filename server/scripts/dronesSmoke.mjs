@@ -55,7 +55,10 @@ function bootServer() {
   const proc = spawn(tsx, ['src/index.ts'], {
     cwd: path.join(REPO, 'server'),
     detached: true, // own process group, so we can kill tsx + its node child
-    env: { ...process.env, NODE_ENV: 'development', PORT: String(PORT) },
+    // HC_DEV_OPTIONS=1 is required for the room to honor matchOverride/
+    // zoneOverride at all (see server/src/rooms/roomOptions.ts) — without it
+    // they're silently stripped and this smoke's assertions would fail.
+    env: { ...process.env, NODE_ENV: 'development', PORT: String(PORT), HC_DEV_OPTIONS: '1' },
     stdio: ['ignore', 'ignore', 'inherit'],
   });
   return proc;

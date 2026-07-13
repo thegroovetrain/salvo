@@ -5,48 +5,21 @@
 // implements the Match side-effect hooks (lock/unlock/broadcast/disconnect).
 
 import { Room, Client } from 'colyseus';
-import { CONFIG, MSG, type ResultsMsg, type WelcomeMsg, type ZoneTimeline } from '@salvo/shared';
+import { CONFIG, MSG, type ResultsMsg, type WelcomeMsg } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { Match, defaultTimings, type MatchHooks, type MatchTimings } from '../game/match.js';
+import {
+  sanitizeRoomOptions,
+  type JoinOptions,
+  type MatchOverride,
+  type RoomOptions,
+} from './roomOptions.js';
 
 const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
 const INTERVAL_MS = 1000 / 60; // setSimulationInterval cadence
 const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
-
-interface JoinOptions {
-  name?: string;
-}
-
-/**
- * DEV TOOL for smokes/tests only — matchmaking / the real client NEVER set it.
- * `countdownMs`/`resultsMs` shrink the lifecycle timers so a full match loop is
- * observable in seconds. `sandbox: true` disables the match lifecycle entirely
- * (no Match constructed): the World keeps its permissive defaults (damage on,
- * respawn on, mines on), frames stay fogged for everyone, and the storm starts
- * when the 2nd ship joins — the pre-step-14 behavior the older standalone
- * smoke scripts (combat/fog/weapons/zone) were written against.
- */
-interface MatchOverride {
-  countdownMs?: number;
-  resultsMs?: number;
-  /** DEV: humans needed to start the countdown (e.g. 1 for a solo drone smoke). */
-  minHumans?: number;
-  sandbox?: boolean;
-}
-
-/**
- * Room-create options. `zoneOverride` is a DEV TOOL for smokes/tests only — it
- * fast-forwards the storm timeline so a shrink is observable in seconds.
- * Matchmaking / the real client NEVER set it (the client derives its ring from
- * CONFIG.zone, so an override desyncs the client's derived radius — acceptable
- * because the only clients that pass it are headless smoke scripts).
- */
-interface RoomOptions extends JoinOptions {
-  zoneOverride?: ZoneTimeline;
-  matchOverride?: MatchOverride;
-}
 
 export class ArenaRoom extends Room<ArenaState> {
   maxClients = CONFIG.map.playerCap;
@@ -60,13 +33,27 @@ export class ArenaRoom extends Room<ArenaState> {
   private droneCounter = 0;
 
   onCreate(options: RoomOptions = {}): void {
+    // SECURITY (findings C1/C2): matchOverride/zoneOverride arrive verbatim
+    // from client-supplied joinOrCreate options. Only honor them when the
+    // server process opts in via HC_DEV_OPTIONS=1 (smokes/tests only) —
+    // otherwise a hostile client could trap joiners in a lifecycle-less
+    // sandbox room, DoS via huge minHumans/countdownMs/resultsMs, or desync
+    // the server's storm from what honest clients render.
+    const devEnabled = process.env.HC_DEV_OPTIONS === '1';
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions(options, devEnabled);
+    if (rejectedKeys.length > 0) {
+      console.warn(
+        `[ArenaRoom] rejected dev-only options (HC_DEV_OPTIONS not set): ${rejectedKeys.join(', ')}`,
+      );
+    }
+
     const seed = (Math.random() * 0xffffffff) >>> 0;
     // mapRadius(6) sizing per plan. zoneOverride (dev-only) fast-forwards the
     // storm timeline for smokes/tests; undefined => shipped CONFIG.zone.
-    this.world = new World(seed, CONFIG.match.fillTo, options.zoneOverride ?? CONFIG.zone);
+    this.world = new World(seed, CONFIG.match.fillTo, sanitized.zoneOverride ?? CONFIG.zone);
 
-    if (!options.matchOverride?.sandbox) {
-      this.match = new Match(this.world, this.timings(options.matchOverride), this.matchHooks());
+    if (!sanitized.matchOverride?.sandbox) {
+      this.match = new Match(this.world, this.timings(sanitized.matchOverride), this.matchHooks());
     }
 
     this.state = new ArenaState();
@@ -207,15 +194,25 @@ export class ArenaRoom extends Room<ArenaState> {
     if (this.state.winnerId !== this.match.winnerId) this.state.winnerId = this.match.winnerId;
   }
 
-  /** Mirror sim liveness + combat tallies onto the public roster. */
+  /**
+   * Mirror sim liveness + combat tallies onto the public roster. damageDealt
+   * is withheld until the match finishes (FINDING P1): mirroring it live
+   * turned the public schema into a "combat is happening somewhere" channel
+   * that the fog otherwise denies — any client could watch a stranger's
+   * damageDealt tick up and infer a fight in progress without sight/radar on
+   * either party. kills/deaths/alive stay live (already implied by kill-feed
+   * events); placement stays finish-only per the existing placements Map,
+   * which is empty until Match.finish() runs.
+   */
   private syncRoster(): void {
+    const revealDamage = !this.match || this.match.phase === 'finished';
     this.state.players.forEach((meta: PlayerMeta, id: string) => {
       const ship = this.world.ships.get(id);
       if (!ship) return;
       if (meta.alive !== ship.alive) meta.alive = ship.alive;
       if (meta.kills !== ship.kills) meta.kills = ship.kills;
       if (meta.deaths !== ship.deaths) meta.deaths = ship.deaths;
-      if (meta.damageDealt !== ship.damageDealt) meta.damageDealt = ship.damageDealt;
+      if (revealDamage && meta.damageDealt !== ship.damageDealt) meta.damageDealt = ship.damageDealt;
       const placement = this.match?.placements.get(id) ?? 0;
       if (meta.placement !== placement) meta.placement = placement;
     });

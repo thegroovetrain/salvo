@@ -8,7 +8,11 @@
 // (step 9) landed, the contact assertion only holds while the ships are within
 // sight range of each other — fresh spawns usually are NOT. Superseded by
 // fogSmoke.mjs; kept for the welcome/frame/ack plumbing checks.
-// Run against a booted server:  node server/scripts/smoke.mjs
+// Run against a booted server, with HC_DEV_OPTIONS=1 in ITS env — this
+// smoke's sandbox matchOverride + zoneOverride are otherwise stripped by the
+// room (see server/src/rooms/roomOptions.ts):
+//   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
+//   node server/scripts/smoke.mjs
 import { Client } from 'colyseus.js';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';

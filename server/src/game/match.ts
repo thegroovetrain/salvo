@@ -154,6 +154,22 @@ export class Match {
     for (const s of this.world.ships.values()) {
       if (this.participants.has(s.id)) this.snapshotStats(s);
     }
+    // FINDING P2 (hardening): participants is snapshotted once at activate();
+    // currently unreachable in practice because the room locks at countdown
+    // (no ship can join mid-match), but if that ever changes a late-joining
+    // winner would be absent from participants and resultsMsg() would silently
+    // drop their row despite winnerId pointing at them. Backfill a minimal
+    // participant record from the ship itself rather than special-casing
+    // resultsMsg()/computePlacements() — simplest option that keeps every
+    // downstream read (snapshotStats, resultsMsg) correct with no other change.
+    if (aliveWinner && !this.participants.has(aliveWinner.id)) {
+      this.participants.set(aliveWinner.id, {
+        name: aliveWinner.name,
+        isDrone: aliveWinner.isDrone,
+        kills: aliveWinner.kills,
+        damageDealt: aliveWinner.damageDealt,
+      });
+    }
     // RULING: with 0 humans alive (simultaneous mutual destruction, or the lone
     // human sinking to the storm while drones survive) the winner is the
     // latest-sunk HUMAN — drones can never win, so we skip past them in the sink

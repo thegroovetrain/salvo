@@ -6,7 +6,11 @@
 //   seeded island (positions computed from the map), A fires through it, and we
 //   assert A's shells splash on the rock and B takes NO damage.
 //
-// Run against a booted server (tsx server/src/index.ts + shared/dist built):
+// Run against a booted server (tsx server/src/index.ts + shared/dist built),
+// with HC_DEV_OPTIONS=1 in ITS env — this smoke's sandbox matchOverride +
+// zoneOverride are otherwise stripped by the room (see
+// server/src/rooms/roomOptions.ts):
+//   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/combatSmoke.mjs
 import { Client } from 'colyseus.js';
 import { CONFIG, generateMap, bearing, angleDiff, segCircleHit } from '@salvo/shared';
