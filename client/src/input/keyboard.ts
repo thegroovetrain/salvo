@@ -64,7 +64,7 @@ export class KeyboardInput {
     this.keys.delete(e.code);
   };
   private readonly onBlur = (): void => {
-    this.keys.clear();
+    this.clearKeys();
   };
 
   /** Attach window listeners. Call once on boot. */
@@ -84,6 +84,19 @@ export class KeyboardInput {
   /** Current driving axes. */
   axes(): Axes {
     return axesFrom(this.keys);
+  }
+
+  /**
+   * Drop all held keys without requiring their keyup events. Used on blur
+   * (stuck-key fix) and, from main.ts, on the death -> spectate transition —
+   * a WASD axis held at the moment of death would otherwise read as nonzero
+   * on the very first spectate frame and permanently engage free-pan,
+   * defeating the follow-your-killer default. Clearing here means a genuinely
+   * held key only re-populates the set on its next OS auto-repeat keydown,
+   * which reads as a fresh press rather than a carried-over hold.
+   */
+  clearKeys(): void {
+    this.keys.clear();
   }
 
   /** Currently-selected weapon (latched by the last 1/2/3 press). */

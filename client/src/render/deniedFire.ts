@@ -18,15 +18,36 @@ export interface DeniedParams {
 }
 
 /**
- * True iff fire is held but the shot can't go out this instant: weapons-safe
- * phase, cooldown not elapsed, or aim outside the selected weapon's arc.
- * Order matters only for readability — all three gates are independent.
+ * True iff fire is held but the shot can't go out for a *sustained* reason:
+ * weapons-safe phase, or aim outside the selected weapon's arc. A bare
+ * cooldown (ready < 1) is deliberately NOT denial here — hold-to-fire means
+ * ready < 1 for the entire gap between shots during normal, correct play, so
+ * gating on it alone would strobe the red pulse roughly once a reload,
+ * forever. The cooldown bars already communicate "reloading"; see
+ * isPressEdgeNotReady for the one-shot "not ready yet" blip on a fresh press.
  */
 export function isFireDenied(p: DeniedParams): boolean {
   if (!p.fireHeld) return false;
-  if (p.weaponsSafe) return true;
-  if (p.ready < 1) return true;
-  return !p.inArc;
+  return p.weaponsSafe || !p.inArc;
+}
+
+/** True on the rising edge of fireHeld — a fresh press, not a sustained hold. */
+export function firePressEdge(prevFireHeld: boolean, fireHeld: boolean): boolean {
+  return fireHeld && !prevFireHeld;
+}
+
+/**
+ * True iff this frame should trigger a single "not ready yet" blip: a fresh
+ * fire press (not a held/repeated fire) while still on cooldown, in arc, with
+ * weapons live. Sustained holds through a reload are excluded — that's
+ * isFireDenied's job (and it deliberately says no). Feed the OR of both
+ * predicates into DeniedPulse so a genuine denial and this one-shot blip
+ * share the same rate limit.
+ */
+export function isPressEdgeNotReady(p: DeniedParams, prevFireHeld: boolean): boolean {
+  if (p.weaponsSafe || !p.inArc) return false; // isFireDenied already covers these
+  if (p.ready >= 1) return false;
+  return firePressEdge(prevFireHeld, p.fireHeld);
 }
 
 /** Pulse duration (ms) once triggered — DESIGN.md-scale "brief" red flash. */

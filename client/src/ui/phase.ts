@@ -56,3 +56,16 @@ export function matchUx(
   }
   return NONE; // active (normal HUD) and finished (results overlay owns the screen)
 }
+
+/**
+ * Spectator banner text. `winnerId` comes straight off the public schema
+ * (ArenaState.winnerId — set once `finished`); per match.ts, "finished" only
+ * happens once alive human hulls <= 1, so a winnerId match is the single
+ * reliable "you didn't sink" signal (works for both an outright survivor and
+ * the posthumous mutual-destruction winner). Dead-in-active (phase not yet
+ * 'finished') always reads as a plain sinking.
+ */
+export function spectateBannerText(phase: string, winnerId: string, sessionId: string): string {
+  if (phase !== 'finished') return 'SUNK — SPECTATING';
+  return winnerId === sessionId ? 'VICTORY — AWAITING RESULTS' : 'MATCH OVER — SPECTATING';
+}

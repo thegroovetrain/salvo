@@ -51,8 +51,16 @@ export async function connect(name?: string): Promise<Connection> {
   const room = await client.joinOrCreate('arena', name ? { name } : {});
   const sink: FrameSink = { handler: () => undefined };
   room.onMessage(MSG.frame, (f: FrameMsg) => sink.handler(f));
-  const welcome = await waitForWelcome(room);
-  return { room, welcome, sink };
+  try {
+    const welcome = await waitForWelcome(room);
+    return { room, welcome, sink };
+  } catch (err) {
+    // Welcome timed out or the room errored — we already joined, so leave to
+    // avoid stranding an occupied room slot the client never uses. Best
+    // effort: swallow any leave() failure and rethrow the original error.
+    void room.leave().catch(() => undefined);
+    throw err;
+  }
 }
 
 /**

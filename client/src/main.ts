@@ -26,9 +26,9 @@ import { Fog } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, cooldownReadyFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
-import { spectatePan, wheelZoom, pickSpectateTarget } from './render/spectate.js';
+import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
-import { isFireDenied, DeniedPulse } from './render/deniedFire.js';
+import { isFireDenied, isPressEdgeNotReady, DeniedPulse } from './render/deniedFire.js';
 import { KeyboardInput } from './input/keyboard.js';
 import { MouseInput, worldAim } from './input/mouse.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
@@ -40,7 +40,7 @@ import { Predictor, type RenderPose } from './sim/prediction.js';
 import { InputSampler } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
 import { showMenu, type MenuHandle } from './ui/menu.js';
-import { matchUx, secondsUntil, isWeaponsSafe, type MatchUx } from './ui/phase.js';
+import { matchUx, secondsUntil, isWeaponsSafe, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { showResults } from './ui/results.js';
 import { Audio } from './audio/context.js';
 import { audioCues, stormEnterEdge, INITIAL_CUE_STATE, type AudioCueState } from './audio/tones.js';
@@ -92,6 +92,8 @@ interface Game {
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
   wasInStorm: boolean;
+  /** Fire-held last frame, for the denied-fire press-edge blip (render/deniedFire.ts). */
+  prevFireHeld: boolean;
 }
 
 /** Push the camera's world transform onto the world + chart containers. */
@@ -130,7 +132,11 @@ function ownStatus(g: Game): OwnStatus {
   return {
     hp: you?.hp ?? CONFIG.ship.hp,
     cooldowns: you?.cooldowns ?? [0, 0, 0],
-    weapon: you?.weapon ?? 0,
+    // Client-selected weapon (immediate), not the server echo — keeps the HUD
+    // chip highlight in lockstep with the arcs/denied-flash, which already
+    // read g.keyboard.weapon directly. Cooldown VALUES still come from the
+    // server-authoritative cooldowns[] above.
+    weapon: g.keyboard.weapon,
     alive: you?.alive ?? true,
     respawnInMs: eta != null ? Math.max(0, eta - g.clock.serverNow()) : 0,
   };
@@ -149,6 +155,7 @@ interface PublicState {
   zoneStartT?: number;
   matchPhase?: string;
   countdownEndT?: number;
+  winnerId?: string;
   players?: { size: number; get(id: string): { name?: string } | undefined };
 }
 
@@ -311,6 +318,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio): 
     audio,
     audioCueState: INITIAL_CUE_STATE,
     wasInStorm: false,
+    prevFireHeld: false,
   };
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
@@ -369,14 +377,17 @@ const WEAPON_RELOADS = [CONFIG.gun.reload, CONFIG.torpedo.reload, CONFIG.mine.dr
 
 /**
  * Weapon arc/marker + crosshair while alive; hidden once sunk. Also derives
- * the denied-fire predicate (fire held but weapons-safe / cooldown / arc
- * blocks it) and feeds the rate-limited pulse — g.deniedFlash carries this
- * frame's result to hud.update() for the chip flash.
+ * the denied-fire predicate (fire held but weapons-safe / out-of-arc blocks
+ * it — a bare cooldown does NOT, see isFireDenied) plus the one-shot
+ * press-edge "not ready yet" blip, and feeds their OR into the rate-limited
+ * pulse — g.deniedFlash carries this frame's result to hud.update() for the
+ * chip flash.
  */
 function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, weaponsSafe: boolean): void {
   if (!status.alive) {
     g.firing.hide();
     g.deniedFlash = false;
+    g.prevFireHeld = g.mouse.fire;
     return;
   }
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
@@ -386,8 +397,10 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, weaponsSafe:
   const weapon = g.keyboard.weapon;
   const ready = cooldownReadyFraction(status.cooldowns[weapon] ?? 0, WEAPON_RELOADS[weapon]);
   const inArc = weaponArcHit(pose.heading, aim, weapon);
-  const denied = isFireDenied({ fireHeld: g.mouse.fire, weaponsSafe, ready, inArc });
+  const params = { fireHeld: g.mouse.fire, weaponsSafe, ready, inArc };
+  const denied = isFireDenied(params) || isPressEdgeNotReady(params, g.prevFireHeld);
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
+  g.prevFireHeld = g.mouse.fire;
   g.firing.update(pose, aim, weapon, ready, cursor, g.deniedFlash);
 }
 
@@ -421,12 +434,16 @@ function enterSpectateVisuals(g: Game): void {
   g.radar.clearBlips();
   g.ownView.gfx.visible = false;
   g.firing.hide();
+  // Drop any WASD held at the moment of death so updateSpectateCamera sees a
+  // clean edge — otherwise steering into your own death instantly (and
+  // permanently) engages free-pan, skipping the follow-your-killer default.
+  g.keyboard.clearKeys();
 }
 
 /** Follow-your-killer by default; any WASD press hands the camera to free pan. */
 function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
   const axes = g.keyboard.axes();
-  if (axes.throttle !== 0 || axes.rudder !== 0) g.spectate.freePan = true;
+  if (shouldEngageFreePan(axes)) g.spectate.freePan = true;
   if (g.spectate.freePan) {
     const d = spectatePan(axes, frameDt, g.camera.zoomFactor);
     g.camera.pan(d.dx, d.dy);
@@ -446,7 +463,9 @@ function renderSpectate(g: Game, frameDt: number, now: number, zv: ZoneView, mu:
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
   g.effects.update(frameDt, null);
   g.radar.render(null, now); // hides the sweep + rings
-  g.hud.updateSpectate(zoneHud(zv, now, false), mu, w, h);
+  const s = publicState(g);
+  const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
+  g.hud.updateSpectate(zoneHud(zv, now, false), mu, w, h, banner);
 }
 
 // --- the loop --------------------------------------------------------------------

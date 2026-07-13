@@ -6,7 +6,9 @@ import {
   pickSpectateTarget,
   spectatePan,
   wheelZoom,
+  shouldEngageFreePan,
 } from '../render/spectate.js';
+import { KeyboardInput } from '../input/keyboard.js';
 import { Camera, SPECTATE_ZOOM_MIN } from '../render/camera.js';
 
 describe('spectatePan', () => {
@@ -46,6 +48,32 @@ describe('pickSpectateTarget', () => {
 
   it('returns null with nobody afloat (camera holds position)', () => {
     expect(pickSpectateTarget('k', [])).toBeNull();
+  });
+});
+
+describe('shouldEngageFreePan', () => {
+  it('latches on any nonzero throttle or rudder axis', () => {
+    expect(shouldEngageFreePan({ throttle: 1, rudder: 0 })).toBe(true);
+    expect(shouldEngageFreePan({ throttle: 0, rudder: -1 })).toBe(true);
+    expect(shouldEngageFreePan({ throttle: 0, rudder: 0 })).toBe(false);
+  });
+
+  it('FINDING 1 regression: keys held at the moment of death read as zero the ' +
+    'frame after KeyboardInput.clearKeys() runs, so the follow-killer camera is ' +
+    'not defeated by steering into your own death', () => {
+    const kb = new KeyboardInput();
+    kb.keys.add('KeyW'); // steering hard when the killing shot lands
+    kb.keys.add('KeyD');
+    expect(shouldEngageFreePan(kb.axes())).toBe(true); // pre-fix: this alone flips freePan forever
+
+    // The onSpectate transition (main.ts's enterSpectateVisuals) clears the
+    // keyboard before the first spectate frame is rendered.
+    kb.clearKeys();
+    expect(shouldEngageFreePan(kb.axes())).toBe(false); // no latch: no fresh press yet
+
+    // A genuine fresh press after death still engages free-pan as normal.
+    kb.keys.add('KeyA');
+    expect(shouldEngageFreePan(kb.axes())).toBe(true);
   });
 });
 

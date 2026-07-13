@@ -2,7 +2,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG } from '@salvo/shared';
-import { matchUx, secondsUntil, isWeaponsSafe } from '../ui/phase.js';
+import { matchUx, secondsUntil, isWeaponsSafe, spectateBannerText } from '../ui/phase.js';
 import { killLine } from '../ui/killFeed.js';
 
 describe('matchUx — phase to HUD strings', () => {
@@ -30,6 +30,25 @@ describe('matchUx — phase to HUD strings', () => {
     for (const phase of ['active', 'finished', 'anything-else']) {
       expect(matchUx(phase, 3, 0, 0)).toEqual({ topLine: '', tag: '', countdown: '' });
     }
+  });
+});
+
+describe('spectateBannerText — FINDING 4', () => {
+  it('reads as a plain sinking while dead-in-active (phase not yet finished)', () => {
+    expect(spectateBannerText('active', '', 'me')).toBe('SUNK — SPECTATING');
+    expect(spectateBannerText('waiting', 'me', 'me')).toBe('SUNK — SPECTATING'); // pre-finish winnerId is meaningless
+  });
+
+  it('shows VICTORY once finished if you are the winner', () => {
+    expect(spectateBannerText('finished', 'me', 'me')).toBe('VICTORY — AWAITING RESULTS');
+  });
+
+  it('shows MATCH OVER once finished if someone else won', () => {
+    expect(spectateBannerText('finished', 'someone-else', 'me')).toBe('MATCH OVER — SPECTATING');
+  });
+
+  it('shows MATCH OVER once finished with no determined winner (empty winnerId)', () => {
+    expect(spectateBannerText('finished', '', 'me')).toBe('MATCH OVER — SPECTATING');
   });
 });
 

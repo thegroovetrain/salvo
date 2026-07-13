@@ -51,7 +51,7 @@ const OVERLAY_STYLE = {
 export interface OwnStatus {
   hp: number;
   cooldowns: number[]; // ms remaining, weapon-indexed
-  weapon: WeaponId; // currently-selected weapon (server-echoed)
+  weapon: WeaponId; // currently-selected weapon (client-local, immediate — not the server echo)
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
 }
@@ -158,6 +158,7 @@ export class Hud {
   private lastMatchLine = '';
   private lastMatchTag = '';
   private lastCountdown = '';
+  private lastSpectateBanner = '';
 
   constructor(private readonly hudLayer: Container) {
     hudLayer.addChild(this.root);
@@ -195,7 +196,7 @@ export class Hud {
     this.countdownBig = new Text({ text: '', style: COUNTDOWN_STYLE });
     this.countdownBig.anchor.set(0.5);
     this.countdownBig.visible = false;
-    this.spectateBanner = new Text({ text: 'SUNK — SPECTATING', style: SPECTATE_STYLE });
+    this.spectateBanner = new Text({ text: '', style: SPECTATE_STYLE });
     this.spectateBanner.anchor.set(0.5, 0);
     this.spectateBanner.visible = false;
     hudLayer.addChild(this.matchLine, this.matchTag, this.countdownBig, this.spectateBanner);
@@ -365,11 +366,20 @@ export class Hud {
     this.drawMatch(match, screenW, screenH);
   }
 
-  /** Spectator frame: instruments hidden, banner + zone/phase lines only. */
-  updateSpectate(zone: ZoneHud, match: MatchUx, screenW: number, screenH: number): void {
+  /**
+   * Spectator frame: instruments hidden, banner + zone/phase lines only.
+   * `bannerText` is computed by ui/phase.ts's spectateBannerText() from the
+   * match phase + winnerId — "SUNK — SPECTATING" for dead-in-active,
+   * "VICTORY — AWAITING RESULTS" / "MATCH OVER — SPECTATING" once finished.
+   */
+  updateSpectate(zone: ZoneHud, match: MatchUx, screenW: number, screenH: number, bannerText: string): void {
     this.setInstrumentsVisible(false);
     this.overlay.visible = false;
     this.stormWarn.visible = false;
+    if (bannerText !== this.lastSpectateBanner) {
+      this.spectateBanner.text = bannerText;
+      this.lastSpectateBanner = bannerText;
+    }
     this.spectateBanner.visible = true;
     this.spectateBanner.position.set(screenW / 2, screenH * 0.16);
     this.drawZone({ line: zone.line, inStorm: false }, screenW, screenH);

@@ -28,6 +28,19 @@ export function wheelZoom(current: number, deltaY: number): number {
 }
 
 /**
+ * Whether this frame's driving axes should latch spectate into free-pan mode.
+ * Callers MUST clear the keyboard's held-key set on the death -> spectate
+ * transition (KeyboardInput.clearKeys, wired from main.ts's onSpectate hook)
+ * before reading axes() here — otherwise WASD held at the moment of death
+ * reads as nonzero on the very first spectate frame and this latches
+ * permanently, defeating the follow-your-killer default (see FINDING 1).
+ * This predicate itself is intentionally dumb: any nonzero axis latches.
+ */
+export function shouldEngageFreePan(axes: Axes): boolean {
+  return axes.throttle !== 0 || axes.rudder !== 0;
+}
+
+/**
  * The ship to follow while spectating: the killer when still afloat (its id
  * comes from the own sunk event's `by`, absent for storm deaths), otherwise
  * any alive ship, otherwise nobody (hold position).

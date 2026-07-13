@@ -2,7 +2,14 @@
 // cooldown / arc / weapons-safe-phase gates, plus the rate-limited pulse.
 
 import { describe, it, expect } from 'vitest';
-import { isFireDenied, DeniedPulse, PULSE_DURATION_MS, PULSE_RATE_MS } from '../render/deniedFire.js';
+import {
+  isFireDenied,
+  firePressEdge,
+  isPressEdgeNotReady,
+  DeniedPulse,
+  PULSE_DURATION_MS,
+  PULSE_RATE_MS,
+} from '../render/deniedFire.js';
 
 const READY_IN_ARC = { fireHeld: true, weaponsSafe: false, ready: 1, inArc: true };
 
@@ -19,19 +26,71 @@ describe('isFireDenied', () => {
     expect(isFireDenied({ ...READY_IN_ARC, weaponsSafe: true })).toBe(true);
   });
 
-  it('is denied while on cooldown (ready < 1), in-arc and weapons live', () => {
-    expect(isFireDenied({ ...READY_IN_ARC, ready: 0.99 })).toBe(true);
-    expect(isFireDenied({ ...READY_IN_ARC, ready: 0 })).toBe(true);
+  it('is NOT denied by a bare cooldown (ready < 1) while in-arc and weapons live — ' +
+    'this is the sustained hold-to-fire case; the reload bars already communicate it', () => {
+    expect(isFireDenied({ ...READY_IN_ARC, ready: 0.99 })).toBe(false);
+    expect(isFireDenied({ ...READY_IN_ARC, ready: 0 })).toBe(false);
   });
 
   it('is denied when aim is outside the selected weapon arc, ready and weapons live', () => {
     expect(isFireDenied({ ...READY_IN_ARC, inArc: false })).toBe(true);
   });
 
-  it('weapons-safe gate short-circuits before checking cooldown/arc', () => {
-    // Even ready=0 AND out-of-arc, weaponsSafe alone determines denial — no
-    // double-counting concern since the predicate is a plain boolean.
+  it('is denied when out of arc even mid-cooldown', () => {
+    expect(isFireDenied({ ...READY_IN_ARC, inArc: false, ready: 0.2 })).toBe(true);
+  });
+
+  it('weapons-safe gate short-circuits before checking arc', () => {
     expect(isFireDenied({ fireHeld: true, weaponsSafe: true, ready: 0, inArc: false })).toBe(true);
+  });
+});
+
+describe('firePressEdge', () => {
+  it('is true only on the off->on transition', () => {
+    expect(firePressEdge(false, true)).toBe(true);
+    expect(firePressEdge(true, true)).toBe(false);
+    expect(firePressEdge(false, false)).toBe(false);
+    expect(firePressEdge(true, false)).toBe(false);
+  });
+});
+
+describe('isPressEdgeNotReady', () => {
+  it('blips once on a fresh press while on cooldown, in-arc, weapons live', () => {
+    expect(isPressEdgeNotReady({ ...READY_IN_ARC, ready: 0.4 }, false)).toBe(true);
+  });
+
+  it('does NOT blip on a sustained hold (no edge) even while on cooldown', () => {
+    expect(isPressEdgeNotReady({ ...READY_IN_ARC, ready: 0.4 }, true)).toBe(false);
+  });
+
+  it('does not blip when already ready — nothing to warn about', () => {
+    expect(isPressEdgeNotReady({ ...READY_IN_ARC, ready: 1 }, false)).toBe(false);
+  });
+
+  it('defers to isFireDenied when weapons-safe or out-of-arc (no double signal)', () => {
+    expect(isPressEdgeNotReady({ ...READY_IN_ARC, ready: 0.4, weaponsSafe: true }, false)).toBe(false);
+    expect(isPressEdgeNotReady({ ...READY_IN_ARC, ready: 0.4, inArc: false }, false)).toBe(false);
+  });
+});
+
+describe('isFireDenied + isPressEdgeNotReady together — the sustained-fire scenario', () => {
+  it('holding fire through a full reload cycle in-arc never denies', () => {
+    const prevFireHeld = true; // fire was already held before this simulated window
+    for (const ready of [1, 0.75, 0.5, 0.25, 0, 0.25, 0.5, 0.75, 1]) {
+      const p = { fireHeld: true, weaponsSafe: false, ready, inArc: true };
+      expect(isFireDenied(p) || isPressEdgeNotReady(p, prevFireHeld)).toBe(false);
+    }
+  });
+
+  it('a fresh press while out of arc denies immediately', () => {
+    const p = { fireHeld: true, weaponsSafe: false, ready: 1, inArc: false };
+    expect(isFireDenied(p) || isPressEdgeNotReady(p, false)).toBe(true);
+  });
+
+  it('holding fire through the weapons-safe phase denies every frame (rate-limited by DeniedPulse)', () => {
+    const prevFireHeld = true;
+    const p = { fireHeld: true, weaponsSafe: true, ready: 1, inArc: true };
+    expect(isFireDenied(p) || isPressEdgeNotReady(p, prevFireHeld)).toBe(true);
   });
 });
 
