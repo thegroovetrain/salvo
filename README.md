@@ -1,113 +1,48 @@
-# Hullcracker.io
+# Hullcracker — Real-Time Prototype
 
-A browser-based multiplayer naval combat game where all players share the same ocean. Every shot hits every player's board — including your own. Friendly fire is real.
+A real-time, gridless naval battle royale in the browser. One ship per player on a large circular ocean with islands. Two-tier fog of war: a true-sight bubble around your hull, and a rotating **radar sweep** that paints contacts as phosphor blips which decay from bright to dark green as the information ages. Guns, torpedoes, and mines — all hull-mounted with real firing arcs, all blocked by terrain. A storm circle shrinks the ocean. Last hull floating wins.
 
-2-6 players (or solo vs AI). Quick Play matchmaking for instant games, or private lobbies with join codes. No accounts required.
+This branch is a full-systems prototype that replaced the previous turn-based game (which lives on `main`).
 
-## What Makes It Different
+## Run it
 
-In classic naval combat games, you're searching in the dark. In Hullcracker, every shot is public and affects everyone:
-
-- **Friendly fire** — shooting near your own ships risks self-damage
-- **Information compounds** — every shot reveals state for all players
-- **Natural catch-up** — the leading player has more ships... and more targets
-- **Multi-shot salvos** — you get one shot per surviving ship per turn
-
-## Quick Start
-
-```bash
+```
 npm install
-npm run dev
+npm run dev        # Colyseus server on :2567 + Vite client on :5173
 ```
 
-Open two browser tabs to `http://localhost:5173`. Create a game in one tab, copy the join code, join in the other.
+Open http://localhost:5173 in two browser tabs (or one tab — drones fill the match). Enter a callsign, hit PLAY. The match countdown arms at 2 human captains; a solo captain can drive around the weapons-safe ready room until someone joins.
 
-## How to Play
+### Controls
 
-1. **Quick Play or Create/Join** — click Quick Play for instant 6-player FFA matchmaking, or create a private game with a join code (add AI bots, pick team mode, configure islands)
-2. **Place Ships** — click a ship in the dock, click the hex grid to place, press R to rotate through 6 directions (or hit Randomize). In team games, you can see your teammate's ships as they place them.
-3. **Fire Salvos** — click targets on the shared ocean grid, then FIRE SALVO
-4. **Win** — last player (or team) with ships afloat wins
-
-### Ships
-
-| Ship | Length | Shots/Turn |
-|------|--------|------------|
-| Destroyer | 2 | 1 |
-| Cruiser | 3 | 1 |
-| Dreadnought | 4 | 1 |
-
-You get one shot per surviving ship. Lose a ship, lose a shot.
-
-## Tech Stack
-
-- **Client:** Vite + TypeScript (vanilla, no framework)
-- **Server:** Express + socket.io
-- **Shared:** TypeScript types shared via npm workspaces
-- **Tests:** Vitest (447 tests — server: game logic, security, AI doctrine/gunnery/placement/simulation, matchmaking, queue adapter/matcher, party, surrender, teams, swap, islands, player colors, guest sessions, disconnect handling; client: state, helpers, audio, grid, battle, smoke)
-- **Linting:** ESLint with cyclomatic complexity ≤ 10 enforced
-
-## Project Structure
-
-```
-salvo/
-├── shared/src/
-│   ├── types.ts              # Shared types, events, computed getters
-│   └── hex.ts                # Hex coordinate math (axial, distance, rings)
-├── server/src/
-│   ├── index.ts              # Express setup, server bootstrap
-│   ├── socketSetup.ts        # Socket.io handler registration
-│   ├── game.ts               # Pure game logic (no I/O)
-│   ├── gameFlow.ts           # Turn flow, bot execution, player exit
-│   ├── ai/                   # AI opponents (doctrine/gunnery architecture)
-│   ├── handlers/             # Socket event handlers by domain
-│   ├── timers/               # Placement, turn, disconnect-skip timer management
-│   └── queue/                # Quick Play matchmaking
-├── client/src/
-│   ├── main.ts               # Bootstrap (61 LOC)
-│   ├── state.ts              # AppState type + mutable singleton
-│   ├── rendering/            # Screen renderers (lobby, battle, grid, etc.)
-│   ├── handlers/             # Socket + DOM event handlers
-│   ├── audio/                # Sound system (AudioContext, tones)
-│   ├── helpers/              # DOM utils, formatting, storage, teams
-│   ├── hexGrid.ts            # SVG hex grid renderer
-│   └── style.css             # Design system implementation
-├── DESIGN.md                 # Visual design system
-└── CLAUDE.md                 # AI assistant instructions
-```
+| Input | Action |
+|---|---|
+| W / S | Throttle ahead / astern |
+| A / D | Rudder port / starboard |
+| Mouse | Aim (within the selected weapon's arc) |
+| Hold left button | Fire |
+| 1 / 2 / 3 | Select guns / torpedoes / mines |
+| M | Mute |
+| P | Debug: toggle prediction ⇄ interpolation for own ship |
+| WASD + wheel | (While spectating) free pan + zoom out |
 
 ## Development
 
-```bash
-npm run dev          # Start both server (3000) and client (5173)
-npm run dev:server   # Server only
-npm run dev:client   # Client only
-npm test             # Run all tests (server + client)
-npm run lint         # ESLint (complexity enforced)
-npm run check        # Lint + type-check + test (all workspaces)
+```
+npm run check          # lint + type-check + all tests (shared/server/client)
+npm test -w shared     # kinematics, geometry, zone timeline, mapgen
+npm test -w server     # world sim, perception/anti-cheat invariants, match state machine, drones
+npm test -w client     # prediction, snapshots, clock, HUD/feel pure logic
 ```
 
-## Features
+- **Tunables** all live in `shared/src/constants.ts` (`CONFIG`) — ship handling, vision/sweep, weapon stats, zone timeline, match flow. Client-only feel knobs in `client/src/config.ts`.
+- **Headless smokes** in `server/scripts/*.mjs` prove full flows over real sockets (combat, fog, weapons, zone, match, drones). Self-booting ones spawn their own server; the rest document their requirements in the header. Smokes use dev-only room options which the server only honors when `HC_DEV_OPTIONS=1` is set in its environment — production clients cannot pass them.
+- **Server must boot from `server/`** (or with `--tsconfig server/tsconfig.json`): Colyseus schema decorators need that tsconfig.
 
-- **Team modes** — Two Teams (Alpha vs Bravo) or Three Teams (Alpha/Bravo/Charlie): shared ship vision, private team chat, team win condition, alternating turn order
-- **Hex grid** — hexagonal ocean with axial coordinates, 4-6 configurable rings, islands that block placement and shots
-- **Quick Play matchmaking** — single 6-player FFA queue with match-found sound
-- **AI opponents** — 4 difficulty tiers (Easy, Medium, Hard, Impossible) with doctrine/gunnery architecture — team-aware in 2v2
-- **Unified ocean grid** — your ships and all shot results on one interactive board, with hit count badges for overlapping ships
-- **Player colors** — each player slot has a unique color (Magenta, Red, Yellow, Green, Cyan, Blue) shown on ships, cards, chat, turn indicators, and the game-over battlefield map
-- **Game-over battlefield map** — all ships revealed in player colors when the game ends, with sequential reveal in elimination order
-- **Game-over stats** — accuracy, ships sunk, friendly fire, team aggregate stats, highlights (Sharpshooter, First Blood)
-- **Rematch** — play again with the same lobby (consent-based for multiplayer)
-- **Lobby game options** — custom dropdown UI for Game Type, Turn Timer, Grid Size, Islands, and Turn Mode (sequential/simultaneous) — all configurable by host in a side panel
-- **Leave game** — exit the lobby cleanly with host auto-transfer to the next player
-- **Turn timer** — optional 30s/60s countdown, configurable by host
-- **Placement timer** — configurable countdown during ship placement, auto-places on timeout
-- **Chat** — timestamps, game/chat message separation, team/global channel toggle in 2v2
-- **Light/dark mode** — toggle with localStorage persistence
-- **Surrender** — leave any active game via a "Surrender" button with confirmation modal
-- **Reconnection** — auto-reconnect via guest sessions (no accounts); disconnected players get turns skipped, not forfeited
-- **Changelog** — in-app version history accessible from the lobby
+## Architecture (short version)
 
-## Design
+- `shared/` — deterministic simulation math used by both sides: ship kinematics (`sim/ship.ts`), swept ballistic collision (`sim/shell.ts`), collision resolution, seeded map generation, zone timeline. All pure functions over plain objects.
+- `server/` — authoritative 20Hz fixed-tick `World` (zero Colyseus imports) wrapped by a thin `ArenaRoom`. All outbound state flows through one per-observer chokepoint (`game/perception.ts` → `game/frames.ts`): clients are never sent what their sight or sweep hasn't legitimately revealed, enforced by property-style invariant tests. Match lifecycle (`game/match.ts`) is a pure state machine; drones drive through the same input pipeline as humans.
+- `client/` — PixiJS 8 renderer with client-side prediction (shared kinematics + reconcile-and-replay), snapshot interpolation for contacts, and a fog composite built entirely from pre-baked textures (dark overlay with a feathered sight hole, conic sweep wedge, timestamp-decayed blips). DOM is used only for menu / results / kill feed.
 
-Dark tactical display theme with light mode toggle — see [DESIGN.md](DESIGN.md) for the full design system.
+The design history and full plan live in the project's plan file; the visual language is `DESIGN.md`.
