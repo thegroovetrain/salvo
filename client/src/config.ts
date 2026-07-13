@@ -35,13 +35,11 @@ export const CLIENT_CONFIG = {
     color: 0x00ff88,
   },
 
-  /**
-   * Remote-entity interpolation delay (ms). Placeholder for the netcode steps;
-   * unused in the offline drive step but declared so the state/render shape is
-   * stable when snapshots arrive.
-   */
-  interpDelayMs: CONFIG.tick.interpDelayMs,
-
-  /** Deterministic map seed for the offline step (no server yet). */
-  mapSeed: 42,
+  /** Netcode render delays (ms behind estimated server time). */
+  net: {
+    /** Remote contacts interpolate this far behind serverNow(). */
+    interpDelayMs: CONFIG.tick.interpDelayMs,
+    /** Own ship in the interp-checkpoint mode renders at -50ms per the plan. */
+    ownDelayMs: 50,
+  },
 } as const;

@@ -1,26 +1,49 @@
-// Client bootstrap for the offline-drive step. No server: the own ship is
-// driven purely by local `stepShip` at the shared fixed dt, the camera follows
-// with lead, wake gives speed feedback, and the telegraph HUD reads out state.
-// This is the "does driving feel like a ship" harness — tune feel here.
+// Client bootstrap for the netcode steps (5-6). Connects to the arena,
+// rebuilds the server's map from welcome.mapSeed, sends one input per 50ms
+// sim tick, and renders:
+//   - own ship: local prediction + reconciliation ('predict', default), or
+//     server frames at -50ms ('interp' — the step-5 checkpoint, toggle: P)
+//   - contacts: snapshot-buffer interpolation at serverNow() - 100ms
+// The offline keepInBounds placeholder is gone — the boundary clamp now lives
+// in the prediction step, mirroring the server's world.ts rule.
 
 import type { Container } from 'pixi.js';
-import { CONFIG, generateMap, stepShip, type ShipState } from '@salvo/shared';
+import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from './config.js';
-import { createGameState } from './state.js';
-import { createStage } from './render/stage.js';
+import { createGameState, type GameState } from './state.js';
+import { createStage, type Stage } from './render/stage.js';
 import { buildMap } from './render/map.js';
 import { Camera } from './render/camera.js';
 import { ShipView, OWN_STYLE } from './render/ships.js';
+import { ContactViews } from './render/contacts.js';
 import { Effects } from './render/effects.js';
 import { Hud } from './render/hud.js';
 import { KeyboardInput } from './input/keyboard.js';
-import { startLoop } from './app/loop.js';
-import { lerp, lerpAngle } from './util/math.js';
+import { startLoop, type LoopCallbacks } from './app/loop.js';
+import { connect, mapFromWelcome, type Connection } from './net/connection.js';
+import { ServerClock } from './net/clock.js';
+import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
+import { bindRoom } from './net/roomBindings.js';
+import { Predictor, type RenderPose } from './sim/prediction.js';
+import { InputSampler } from './sim/inputSampler.js';
+import { showBanner, hideBanner } from './util/banner.js';
 
-const HULL_HALF_LEN = 20; // u — keep the hull inside the boundary (placeholder)
-
-function cloneShip(s: ShipState): ShipState {
-  return { x: s.x, y: s.y, heading: s.heading, speed: s.speed };
+/** Everything the loop closures share, assembled once at boot. */
+interface Game {
+  stage: Stage;
+  state: GameState;
+  clock: ServerClock;
+  ownBuffer: SnapshotBuffer;
+  contacts: ContactStore;
+  predictor: Predictor;
+  camera: Camera;
+  keyboard: KeyboardInput;
+  sampler: InputSampler;
+  ownView: ShipView;
+  contactViews: ContactViews;
+  effects: Effects;
+  hud: Hud;
+  cameraSnapped: boolean;
 }
 
 /** Push the camera's world transform onto the world + chart containers. */
@@ -34,32 +57,29 @@ function applyCamera(camera: Camera, world: Container, chart: Container): void {
   chart.position.set(px, py);
 }
 
-/**
- * Placeholder client-only boundary keep-in so the offline harness stays on the
- * ocean. Real shared ship-boundary collision arrives in build-order step 7;
- * this is intentionally trivial (clamp + damp) and lives only on the client.
- */
-function keepInBounds(s: ShipState, mapRadius: number): void {
-  const maxD = mapRadius - HULL_HALF_LEN;
-  const d = Math.hypot(s.x, s.y);
-  if (d <= maxD) return;
-  s.x = (s.x / d) * maxD;
-  s.y = (s.y / d) * maxD;
-  if (s.speed > 0) s.speed *= 0.5;
+/** Toggle predict <-> interp (A/B comparison per the plan). Key: P. */
+function toggleMode(g: Game): void {
+  g.state.mode = g.state.mode === 'predict' ? 'interp' : 'predict';
+  if (g.state.mode === 'predict') g.predictor.forceSnap(); // re-init from next frame
+  console.log('[net] own-ship render mode ->', g.state.mode);
+  showBanner(`NETCODE: ${g.state.mode.toUpperCase()}`, { autoHideMs: 1500 });
 }
 
-async function main(): Promise<void> {
-  const stage = await createStage();
-  const host = document.getElementById('app');
-  host?.replaceChildren(stage.app.canvas);
+/**
+ * Own-ship pose for this render frame, per the active mode. Null until the
+ * first server frame carrying `you` arrives.
+ */
+function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
+  if (g.state.mode === 'predict') {
+    if (!g.predictor.isInitialized) return null;
+    g.predictor.decayError(frameDt);
+    return g.predictor.renderPose(alpha);
+  }
+  return g.ownBuffer.sampleAt(g.clock.serverNow() - CLIENT_CONFIG.net.ownDelayMs);
+}
 
-  const map = generateMap(CLIENT_CONFIG.mapSeed);
-  buildMap(map, stage.layers);
-
-  // Spawn on the +x spawn ring, facing map center.
-  const spawn: ShipState = { x: map.spawnRing, y: 0, heading: Math.PI, speed: 0 };
-  const state = createGameState(spawn);
-
+function buildGame(stage: Stage, conn: Connection): Game {
+  const { welcome } = conn;
   const camera = new Camera({
     radarRange: CONFIG.vision.radar,
     followRate: CLIENT_CONFIG.camera.followRate,
@@ -67,41 +87,96 @@ async function main(): Promise<void> {
     leadMax: CLIENT_CONFIG.camera.leadMax,
   });
   camera.setViewport(stage.app.screen.width, stage.app.screen.height);
-  camera.snapTo(spawn);
 
   const keyboard = new KeyboardInput();
   keyboard.attach();
 
   const ownView = new ShipView(OWN_STYLE);
+  ownView.gfx.visible = false;
   stage.layers.ship.addChild(ownView.gfx);
-  const effects = new Effects(stage.layers.wake);
-  const hud = new Hud(stage.layers.hud);
 
+  const g: Game = {
+    stage,
+    state: createGameState(welcome.sessionId),
+    clock: new ServerClock(),
+    ownBuffer: new SnapshotBuffer(),
+    contacts: new ContactStore(),
+    predictor: new Predictor(welcome.mapRadius),
+    camera,
+    keyboard,
+    sampler: new InputSampler((type, msg) => conn.room.send(type, msg)),
+    ownView,
+    contactViews: new ContactViews(stage.layers.ship),
+    effects: new Effects(stage.layers.wake),
+    hud: new Hud(stage.layers.hud),
+    cameraSnapped: false,
+  };
+  g.clock.addSample(welcome.t);
+  bindRoom(conn, { ...g, onOwnSpawn: (x, y) => camera.snapTo({ x, y }) });
+  return g;
+}
+
+function renderOwn(g: Game, pose: RenderPose, frameDt: number): void {
+  if (!g.cameraSnapped) {
+    g.camera.snapTo(pose);
+    g.cameraSnapped = true;
+  }
+  g.ownView.gfx.visible = true;
+  g.ownView.update(pose.x, pose.y, pose.heading);
+  g.camera.update(frameDt, pose);
+  g.effects.update(frameDt, pose);
+  g.hud.update(pose, g.keyboard.axes(), g.stage.app.screen.width, g.stage.app.screen.height);
+}
+
+function makeCallbacks(g: Game): LoopCallbacks {
+  return {
+    simTick: () => {
+      const input = g.sampler.sample(g.keyboard.axes());
+      if (g.state.mode === 'predict') g.predictor.localTick(input);
+    },
+    render: (alpha, frameDt) => {
+      const pose = ownPose(g, alpha, frameDt);
+      if (pose) renderOwn(g, pose, frameDt);
+      const now = g.clock.serverNow();
+      g.contactViews.render(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, now);
+      applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
+    },
+  };
+}
+
+async function connectOrDie(stage: Stage): Promise<Connection | null> {
+  showBanner('CONNECTING...');
+  try {
+    const conn = await connect();
+    hideBanner();
+    return conn;
+  } catch (err) {
+    console.error('[net] connection failed', err);
+    showBanner('CONNECTION FAILED - IS THE SERVER RUNNING ON :2567?', { error: true });
+    stage.app.ticker.stop();
+    return null;
+  }
+}
+
+async function main(): Promise<void> {
+  const stage = await createStage();
+  document.getElementById('app')?.replaceChildren(stage.app.canvas);
+
+  const conn = await connectOrDie(stage);
+  if (!conn) return;
+
+  // The server's map, regenerated deterministically from the welcome seed.
+  buildMap(mapFromWelcome(conn.welcome), stage.layers);
+
+  const game = buildGame(stage, conn);
   window.addEventListener('resize', () => {
-    camera.setViewport(stage.app.screen.width, stage.app.screen.height);
+    game.camera.setViewport(stage.app.screen.width, stage.app.screen.height);
+  });
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'KeyP') toggleMode(game);
   });
 
-  const simTick = (dt: number): void => {
-    state.ownShip.prev = cloneShip(state.ownShip.curr);
-    const axes = keyboard.axes();
-    stepShip(state.ownShip.curr, axes, CONFIG.ship, dt);
-    keepInBounds(state.ownShip.curr, map.radius);
-    effects.update(dt, state.ownShip.curr);
-  };
-
-  const render = (alpha: number, frameDt: number): void => {
-    const { prev, curr } = state.ownShip;
-    const ix = lerp(prev.x, curr.x, alpha);
-    const iy = lerp(prev.y, curr.y, alpha);
-    const ih = lerpAngle(prev.heading, curr.heading, alpha);
-    const isp = lerp(prev.speed, curr.speed, alpha);
-    ownView.update(ix, iy, ih);
-    camera.update(frameDt, { x: ix, y: iy, heading: ih, speed: isp });
-    applyCamera(camera, stage.worldRoot, stage.chartRoot);
-    hud.update(curr, keyboard.axes(), stage.app.screen.width, stage.app.screen.height);
-  };
-
-  startLoop(stage.app, { simTick, render });
+  startLoop(stage.app, makeCallbacks(game));
 }
 
 main().catch((err) => {

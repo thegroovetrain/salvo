@@ -1,48 +1,41 @@
-// Mutable client game state. Three plain domains with one-way data flow per the
-// plan: server mirror (net) -> sim state (prediction) -> render views. Only the
-// sim domain exists at the offline-drive step; the net domain (contacts/blips)
-// arrives with the netcode steps. Kept a leaf module: it imports only shared
-// types, never render or input code.
+// Mutable client game state. Three plain domains with one-way data flow per
+// the plan: server mirror (net) -> sim state (prediction) -> render views.
+// The net mirror here is plain data only; the stateful net machinery
+// (SnapshotBuffer/ContactStore/ServerClock) lives in net/ and is composed in
+// main.ts. Kept a leaf module: it imports only shared types, never render,
+// net, or input code.
 
-import type { ShipState } from '@salvo/shared';
+import type { OwnShip } from '@salvo/shared';
 
-/** Coarse client phase. Expands (waiting/countdown/active/spectate) with the
- *  match-lifecycle step; offline drive lives entirely in 'active'. */
-export type Phase = 'offline' | 'active';
+/** Coarse client phase. Expands (waiting/countdown/spectate) in later steps. */
+export type Phase = 'connecting' | 'active';
 
 /**
- * Own ship kept as prev/curr fixed-step snapshots so the render loop can
- * interpolate between the last two sim ticks by the accumulator alpha.
+ * Own-ship render source — the step-5/6 A/B switch (toggled with P):
+ *   'predict' — local prediction + reconciliation (step 6, default)
+ *   'interp'  — own ship drawn from server frames at -50ms (step 5 checkpoint)
  */
-export interface OwnShipDomain {
-  prev: ShipState;
-  curr: ShipState;
-}
+export type NetMode = 'predict' | 'interp';
 
-/** Placeholder for remote contacts (filled from frame `contacts` in net steps). */
-export interface EntityView {
-  x: number;
-  y: number;
-  heading: number;
-  speed: number;
+/** Plain mirror of the latest server frame data for this client. */
+export interface NetState {
+  sessionId: string;
+  tick: number; // latest server tick seen
+  ackSeq: number; // highest input seq the server has applied
+  you: OwnShip | null; // latest authoritative own-ship, null pre-first-frame
 }
 
 export interface GameState {
   phase: Phase;
-  ownShip: OwnShipDomain;
-  /** Remote entities by id — empty until netcode lands. */
-  entities: Map<string, EntityView>;
+  mode: NetMode;
+  net: NetState;
 }
 
-function cloneShip(s: ShipState): ShipState {
-  return { x: s.x, y: s.y, heading: s.heading, speed: s.speed };
-}
-
-/** Build a fresh client state with the own ship seeded at `spawn`. */
-export function createGameState(spawn: ShipState): GameState {
+/** Build a fresh client state for a joined session. */
+export function createGameState(sessionId: string): GameState {
   return {
-    phase: 'active',
-    ownShip: { prev: cloneShip(spawn), curr: cloneShip(spawn) },
-    entities: new Map(),
+    phase: 'connecting',
+    mode: 'predict',
+    net: { sessionId, tick: 0, ackSeq: 0, you: null },
   };
 }
