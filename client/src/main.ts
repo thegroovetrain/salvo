@@ -563,7 +563,7 @@ function bindResize(stage: Stage, game: Game): void {
  */
 function sendNeutralInput(g: Game): void {
   if (g.state.spectating) return; // spectators send nothing at all
-  const msg = g.sampler.sendNeutralNow(g.keyboard.throttle);
+  const msg = g.sampler.sendNeutralNow(g.keyboard.throttle, g.mouse.clickCount);
   if (g.state.mode === 'predict') g.predictor.localTick(msg);
 }
 

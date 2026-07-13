@@ -45,6 +45,16 @@ describe('stepShell — travel + range', () => {
 });
 
 describe('stepShell — map-edge terminator', () => {
+  it('a projectile already outside the disk splashes immediately (rim ship firing outward)', () => {
+    // A rim-clamped ship firing outward spawns hull-clear PAST the edge; with
+    // Infinity range (torpedo) nothing else could ever terminate it.
+    const r = 100;
+    const s = shell({ x: r + 22, y: 0, distLeft: Number.POSITIVE_INFINITY });
+    const out = stepShell(s, ctx({ mapRadius: r }));
+    expect(out.kind).toBe('expired');
+    if (out.kind === 'expired') expect(out.x).toBeCloseTo(r + 22, 6); // splashes where it stands
+  });
+
   it('a shell splashes (expired) exactly where it crosses the water disk', () => {
     const r = 100;
     const s = shell({ x: r - 1, y: 0 }); // one unit inside the edge, heading +x

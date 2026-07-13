@@ -76,7 +76,9 @@ describe('spectator frames — dead observer in the active phase', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     place(w, 'b', 2 * SIGHT, 0); // far outside a fogged observer's sight
-    place(w, 'c', -900, 500, 1.2);
+    // Inside the water disk (r=900) — projectiles outside it splash instantly —
+    // but still far outside a fogged observer's sight bubble.
+    place(w, 'c', -600, 400, 1.2);
     w.respawnEnabled = false; // active-phase policy
     w.sinkShip('a', 'b');
     w.step();
@@ -133,7 +135,7 @@ describe('spectator frames — dead observer in the active phase', () => {
 
   it('adopts in-flight ballistics exactly once, with CURRENT params', () => {
     const w = deadObserverWorld();
-    injectShell(w, 's1', 'b', 700, 700); // launched before death, never sighted by a
+    injectShell(w, 's1', 'b', 500, 300); // in-disk, launched before death, never sighted by a
     w.step();
     const sh = w.shells.get('s1')!;
     const f1 = buildFrame(w, 'a', 'active');

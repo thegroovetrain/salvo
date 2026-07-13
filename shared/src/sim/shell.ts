@@ -149,6 +149,12 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
   const p0: Vec2 = { x: shell.x, y: shell.y };
   if (speed <= 0) return { kind: 'expired', x: p0.x, y: p0.y };
 
+  // Already outside the water disk (a rim-clamped ship firing outward spawns
+  // hull-clear PAST the edge): no obstacle can ever be met out there — islands
+  // and hulls are inside, the edge test only fires on an inside→out crossing,
+  // and a torpedo's Infinity range never runs out. Splash it where it stands.
+  if (Math.hypot(p0.x, p0.y) > ctx.mapRadius) return { kind: 'expired', x: p0.x, y: p0.y };
+
   const moveDist = Math.min(speed * ctx.dt, shell.distLeft);
   const ux = shell.vx / speed;
   const uy = shell.vy / speed;

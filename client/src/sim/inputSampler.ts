@@ -61,14 +61,19 @@ export class InputSampler {
    * NOT stale: it's a deliberate engine-order telegraph setting, and a
    * backgrounded ship is meant to keep steaming straight ahead at its set
    * speed. Fire needs no neutralizing anymore: fireSeq is a click counter, and
-   * with a counter nothing can stick — re-sending the LAST value is the honest
-   * "no new clicks" signal (a 0 would merely be re-consumed harmlessly, but it
-   * would misstate the counter). Keeps the last aim bearing / aim distance /
-   * weapon selection and a monotonic seq shared with sample(), so it slots
-   * into local prediction exactly like a regular tick.
+   * with a counter nothing can stick. `currentFireSeq` is the mouse's live
+   * click count at hide time: a click landing in the ≤1-tick gap since the
+   * last sample would otherwise sit unsent until refocus and fire minutes
+   * later at a stale aim — sending the live count fires it NOW, at an aim at
+   * most one tick old. Guarded with max() so the wire counter never regresses.
+   * Keeps the last aim bearing / aim distance / weapon selection and a
+   * monotonic seq shared with sample(), so it slots into local prediction
+   * exactly like a regular tick.
    */
-  sendNeutralNow(throttle: number): InputMsg {
+  sendNeutralNow(throttle: number, currentFireSeq?: number): InputMsg {
     this.seq += 1;
+    const fireSeq = Math.max(this.lastAiming.fireSeq, currentFireSeq ?? 0);
+    this.lastAiming = { ...this.lastAiming, fireSeq };
     const msg = buildInput(this.seq, { throttle, rudder: 0 }, this.lastAiming);
     this.send(MSG.input, msg);
     return msg;

@@ -79,6 +79,16 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
     expect(msg.aimDist).toBe(120); // last aim distance retained too
   });
 
+  it('sends a click landing in the gap since the last sample (live count wins at hide time)', () => {
+    const sampler = new InputSampler(() => undefined);
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, weapon: 0 });
+    // Click #10 lands after the sample but before visibilitychange fires:
+    const msg = sampler.sendNeutralNow(0, 10);
+    expect(msg.fireSeq).toBe(10); // fires NOW at a ≤1-tick-old aim, not minutes later on refocus
+    // And the counter never regresses if the live count is somehow behind:
+    expect(sampler.sendNeutralNow(0, 3).fireSeq).toBe(10);
+  });
+
   it('clamps the passed throttle into [-1, 1] like any other input', () => {
     const sampler = new InputSampler(() => undefined);
     expect(sampler.sendNeutralNow(5).throttle).toBe(1);
