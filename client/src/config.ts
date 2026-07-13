@@ -38,6 +38,12 @@ export const CLIENT_CONFIG = {
     color: 0x00ff88,
   },
 
+  /** Own/contact ship view feel constants. */
+  ship: {
+    flashMs: 130, // ms — hit-flash duration
+    sunkTint: 0x8b0000, // DESIGN.md dark crimson tint for a sunk hull
+  },
+
   /** Netcode render delays (ms behind estimated server time). */
   net: {
     /** Remote contacts interpolate this far behind serverNow(). */

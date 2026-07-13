@@ -360,7 +360,13 @@ export class World {
   /** Advance every live ballistic; spent ones emit a boom (+ damage on a hit). */
   private stepShells(dt: number, hulls: HullTarget[]): void {
     for (const [id, shell] of this.shells) {
-      const outcome = stepShell(shell, { islands: this.map.islands, hulls, now: this.now, dt });
+      const outcome = stepShell(shell, {
+        islands: this.map.islands,
+        hulls,
+        now: this.now,
+        dt,
+        mapRadius: this.map.radius,
+      });
       if (outcome.kind === 'travel') continue;
       this.shells.delete(id);
       this.forgetBallistic(id);

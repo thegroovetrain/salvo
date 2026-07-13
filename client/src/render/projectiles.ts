@@ -4,11 +4,14 @@
 // p0 + v*(serverNow - t0) — so no per-tick shell sync is needed. A shell is
 // removed when ANY of these fire, whichever first:
 //   (a) its matching `boom` arrives (id match) — the true splash;
-//   (b) a CONFIG-derived per-kind MAX LIFETIME elapses (gun = shellRange/
-//       shellSpeed, torp = range/speed) — the longest a projectile of that kind
-//       can possibly fly, computed client-side from the shared CONFIG so the
-//       wire need not carry a lifetime. This bounds a reveal whose boom we never
-//       see (fired at us from fog, then it leaves and detonates unseen);
+//   (b) a diameter-derived, velocity-scaled backstop elapses —
+//       maxLifetimeMs(mapRadius, eventSpeed) = (2*mapRadius + margin) / speed.
+//       Shells no longer fly a fixed range and torpedoes run until they cross
+//       the map edge, so the bound is the map-crossing time, not range/speed;
+//       deriving it from the event's own velocity keeps it correct for free as
+//       gun range / torpedo speed become upgradeable (Stage D). This bounds a
+//       reveal whose boom we never see (fired at us from fog, then it leaves and
+//       detonates unseen);
 //   (c) sight-bubble cull: its dead-reckoned position leaves the own ship's
 //       sight bubble (+ margin). It is invisible under fog out there anyway, and
 //       culling stops a ghost shell from rendering past its true splash point.
@@ -41,16 +44,20 @@ const LOOKS: Record<Kind, ProjectileLook> = {
 /** Spawn a torpedo wake dot roughly every this many world-units of travel. */
 const TORP_TRAIL_SPACING = 16; // u
 
+/** Extra map crossings' worth of slack on the lifetime backstop (u). */
+const LIFETIME_MARGIN = 100; // u
+
 /**
- * Max flight time (ms) per projectile kind = range / speed, from the shared
- * CONFIG. The client derives termination locally so the wire carries no
- * range-derivable field. Keyed by BallisticEvent['k'] so step 12's torpedoes
- * pick up their lifetime for free.
+ * Diameter-plus-margin backstop: the longest a projectile could fly across the
+ * map before we force-retire it (a leak guard only — booms + bubble-cull do the
+ * real termination). Velocity-derived from the event's own speed so upgraded gun
+ * range / torpedo speed (Stage D) stay correct for free. A zero/negative speed
+ * never self-terminates on time (Infinity) — the bubble-cull still catches it.
  */
-const MAX_LIFETIME_MS: Record<BallisticEvent['k'], number> = {
-  shell: (CONFIG.gun.shellRange / CONFIG.gun.shellSpeed) * 1000,
-  torp: (CONFIG.torpedo.range / CONFIG.torpedo.speed) * 1000,
-};
+export function maxLifetimeMs(mapRadius: number, speed: number): number {
+  if (speed <= 0) return Infinity;
+  return ((2 * mapRadius + LIFETIME_MARGIN) / speed) * 1000;
+}
 
 /** Cull a dead-reckoned shell once it is this far outside the sight bubble (u). */
 const SIGHT_CULL_MARGIN = 40; // u
@@ -96,6 +103,7 @@ export class Projectiles {
    * pool in main.ts); omitted in tests. Called throttled by travelled distance.
    */
   constructor(
+    private readonly mapRadius: number,
     private readonly layer: Container,
     private readonly trail?: (x: number, y: number) => void,
   ) {
@@ -131,7 +139,7 @@ export class Projectiles {
       vx: ev.vx,
       vy: ev.vy,
       t0: ev.t,
-      expiresAt: ev.t + MAX_LIFETIME_MS[ev.k],
+      expiresAt: ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy)),
       trailAt: TORP_TRAIL_SPACING,
     });
   }

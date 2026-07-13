@@ -59,6 +59,9 @@ describe('torpedoes — single-tube reload', () => {
     expect(ship.torpedoCooldowns).toEqual([CONFIG.torpedo.reload]);
     expect(t1!.kind).toBe('torp');
     expect(t1!.damage).toBe(CONFIG.torpedo.damage);
+    expect(t1!.hitRadius).toBe(CONFIG.torpedo.hitRadius); // own value, not gun's
+    expect(t1!.graceMs).toBe(CONFIG.torpedo.selfHitGrace); // own value, not gun's
+    expect(t1!.distLeft).toBe(Number.POSITIVE_INFINITY); // A3: runs until impact
     // Fish leaves the bow at torpedo speed straight ahead (+x).
     expect(t1!.vx).toBeCloseTo(CONFIG.torpedo.speed, 6);
   });
@@ -117,6 +120,47 @@ describe('torpedoes — island block + ship hit', () => {
       a.input = { ...a.input, seq: a.input.seq + 1, fire: false };
     }
     expect(b.hp).toBe(CONFIG.ship.hp - CONFIG.torpedo.damage);
+  });
+});
+
+describe('A4 CONFIG constants', () => {
+  it('torpedoes carry their own collision + grace values (no longer gun-borrowed)', () => {
+    expect(CONFIG.torpedo.hitRadius).toBe(2);
+    expect(CONFIG.torpedo.selfHitGrace).toBe(100);
+  });
+  it('the global mine cap lives on CONFIG.mine', () => {
+    expect(CONFIG.mine.globalCap).toBe(60);
+  });
+});
+
+describe('torpedoes — infinite range + map-edge splash (A3)', () => {
+  it('a torpedo travels past the retired 700u range to strike a distant enemy', () => {
+    const w = bareWorld();
+    const a = torpShip(w, 'a', 0, 0, HALF_PI); // bow +y
+    a.input = { ...a.input, aim: HALF_PI };
+    const b = w.addShip('b', 'B');
+    b.state = { x: 0, y: 750, heading: 0, speed: 0 }; // 750u away (> old 700 cap)
+    for (let i = 0; i < 400 && b.hp === CONFIG.ship.hp; i++) {
+      w.step();
+      a.input = { ...a.input, seq: a.input.seq + 1, fire: false }; // one salvo only
+    }
+    expect(b.hp).toBe(CONFIG.ship.hp - CONFIG.torpedo.damage);
+  });
+
+  it('a torpedo with no target splashes at the map edge (boom, no victim)', () => {
+    const w = bareWorld();
+    const edge = w.map.radius;
+    const a = torpShip(w, 'a', edge - 40, 0, 0); // near the +x edge, bow pointed out
+    a.input = { ...a.input, aim: 0 };
+    const events = [];
+    for (let i = 0; i < 60; i++) {
+      w.step();
+      events.push(...w.tickEvents);
+      a.input = { ...a.input, seq: a.input.seq + 1, fire: false };
+    }
+    const splash = events.find((e) => e.k === 'boom' && e.hit === undefined);
+    expect(splash).toBeDefined();
+    if (splash && splash.k === 'boom') expect(Math.hypot(splash.x, splash.y)).toBeCloseTo(edge, 0);
   });
 });
 
@@ -240,7 +284,7 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
       y: 8,
       vx: 0,
       vy: CONFIG.torpedo.speed,
-      distLeft: CONFIG.torpedo.range,
+      distLeft: Number.POSITIVE_INFINITY,
       bornAt: w.now,
       kind: 'torp',
       damage: CONFIG.torpedo.damage,

@@ -309,7 +309,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio): 
     sampler: new InputSampler((type, msg) => conn.room.send(type, msg)),
     ownView,
     contactViews: new ContactViews(stage.layers.ship),
-    projectiles: new Projectiles(stage.layers.projectile, (x, y) => effects.spawnEffect('torpwake', x, y)),
+    projectiles: new Projectiles(map.radius, stage.layers.projectile, (x, y) => effects.spawnEffect('torpwake', x, y)),
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     effects,
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),

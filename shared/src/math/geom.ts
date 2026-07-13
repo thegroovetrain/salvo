@@ -63,6 +63,31 @@ export function segCircleHit(p0: Vec2, p1: Vec2, center: Vec2, r: number): numbe
   return t;
 }
 
+/**
+ * Fraction t in [0,1] where segment p0->p1 EXITS the circle (center, r): the far
+ * crossing (larger quadratic root). Used to terminate a projectile at the map
+ * edge when it starts inside the water disk. Returns null when the segment never
+ * leaves the circle within its length (stays fully inside), when there is no
+ * intersection, or for a degenerate (point) segment. Assumes p0 is at/inside the
+ * circle (the map case); if p0 is outside it returns the exit of the chord when
+ * one lies in range, else null.
+ */
+export function segCircleExit(p0: Vec2, p1: Vec2, center: Vec2, r: number): number | null {
+  const dx = p1.x - p0.x;
+  const dy = p1.y - p0.y;
+  const a = dx * dx + dy * dy;
+  if (a <= EPS) return null; // degenerate segment (a point)
+  const fx = p0.x - center.x;
+  const fy = p0.y - center.y;
+  const b = 2 * (fx * dx + fy * dy);
+  const c = fx * fx + fy * fy - r * r;
+  const disc = b * b - 4 * a * c;
+  if (disc < 0) return null; // no intersection at all
+  const t = (-b + Math.sqrt(disc)) / (2 * a); // exit root (larger)
+  if (t < 0 || t > 1) return null;
+  return t;
+}
+
 /** Closest distance between two real (non-degenerate) segments. */
 function segSegCore(d1: Vec2, d2: Vec2, r: Vec2, a: number, e: number): [number, number] {
   const b = d1.x * d2.x + d1.y * d2.y;

@@ -17,6 +17,7 @@ import {
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { FireContext, WeaponSystem } from './index.js';
+import { hullClearOffset } from './ballistics.js';
 
 /** A dropped mine. Server-owned; synced to clients as contact-like MineView. */
 export interface MineState {
@@ -33,13 +34,10 @@ export interface MineTrigger {
   victimId: string;
 }
 
-/** Defensive ceiling on total live mines across all players (bounds growth). */
-export const GLOBAL_MINE_CAP = 60;
-
 // Drop astern, clear of the hull: stern is half a hull-length back, plus a
 // trigger-radius margin so the dropping ship is never sitting on its own mine
 // (owner is immune anyway, and it is unarmed for armDelay regardless).
-const DROP_OFFSET = CONFIG.ship.length / 2 + CONFIG.mine.triggerRadius;
+const DROP_OFFSET = hullClearOffset(CONFIG.mine.triggerRadius);
 
 /** Trigger proximity: hull capsule surface within triggerRadius of the mine. */
 const TRIGGER_DIST = CONFIG.mine.triggerRadius + CONFIG.ship.beam / 2;
@@ -79,7 +77,7 @@ export function addMine(
     const oldest = oldestOwnMine(mines, ownerId);
     if (oldest !== undefined) mines.delete(oldest);
   }
-  if (mines.size >= GLOBAL_MINE_CAP) {
+  if (mines.size >= CONFIG.mine.globalCap) {
     const first = mines.keys().next().value;
     if (first !== undefined) mines.delete(first);
   }

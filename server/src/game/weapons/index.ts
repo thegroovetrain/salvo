@@ -61,7 +61,6 @@ export {
   checkMineTriggers,
   dropPoint,
   hullFor,
-  GLOBAL_MINE_CAP,
   type MineState,
   type MineTrigger,
 } from './mines.js';

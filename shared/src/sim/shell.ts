@@ -2,21 +2,29 @@
 // wire types and the no-tunneling geometry live in one place. Pure: stepShell
 // advances one projectile a fixed tick and returns an OUTCOME; the server owns
 // applying damage, spawning booms, and removing spent projectiles. Constant
-// velocity, finite range. ONE parameterized model serves both weapons — guns
-// and torpedoes differ only in speed/range/damage/collision-radius, all carried
-// on the ShellState (torpedoes are just slow, long-legged, hard-hitting shells).
+// velocity; range may be finite (guns) or Infinity (torpedoes run until they
+// hit something / cross the map edge). ONE parameterized model serves both
+// weapons — guns and torpedoes differ only in speed/range/damage/collision-
+// radius, all carried on the ShellState (torpedoes are slow, long-legged,
+// hard-hitting shells).
 //
 // Swept collision (no tunneling even at max closing speed): the tick's travel is
 // a segment p0->p1. Against islands it is seg-vs-circle (segCircleHit → entry
 // fraction t). Against hulls it is seg-vs-capsule: closest approach of the shell
 // segment to the hull axis segment (segSegClosest), a hit iff that gap ≤ hull
-// radius + projectile radius, at fraction `s` along the shell segment. Earliest
-// fraction across all obstacles wins. The firer is immune for graceMs.
+// radius + projectile radius, at fraction `s` along the shell segment. The map
+// edge is a third obstacle: the point where the travel segment exits the water
+// disk (segCircleExit), resolving as a splash (`expired`). Earliest fraction
+// across all obstacles wins — an island/hull short of the edge still takes
+// priority. The firer is immune for graceMs.
 
 import { CONFIG } from '../constants.js';
-import { segCircleHit, segSegClosest } from '../math/geom.js';
+import { segCircleExit, segCircleHit, segSegClosest } from '../math/geom.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Circle } from '../types.js';
+
+/** Map is centered at world origin (resolveBoundary treats origin as center). */
+const MAP_CENTER: Vec2 = { x: 0, y: 0 };
 
 /**
  * A projectile in flight (gun shell or torpedo). Server-owned; the wire sends
@@ -52,6 +60,7 @@ export interface ShellContext {
   hulls: readonly HullTarget[];
   now: number; // ms — server time this tick
   dt: number; // s — fixed step
+  mapRadius: number; // u — water disk radius; a projectile splashes at this edge
 }
 
 /** What happened to a shell this tick. `travel` means it is still flying. */
@@ -83,6 +92,7 @@ export function hullEndpoints(x: number, y: number, heading: number): HullTarget
 interface Hit {
   frac: number; // fraction along the shell segment [0,1]
   victimId?: string; // set for a hull hit
+  edge?: boolean; // set when the map edge is the winning obstacle
 }
 
 /** Earliest island entry along p0->p1, or null. */
@@ -109,11 +119,24 @@ function earliestHull(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext):
   return best;
 }
 
+/** Where p0->p1 crosses OUT of the water disk (map edge), or null (stays in). */
+function earliestEdge(p0: Vec2, p1: Vec2, mapRadius: number): Hit | null {
+  const t = segCircleExit(p0, p1, MAP_CENTER, mapRadius);
+  return t === null ? null : { frac: t, edge: true };
+}
+
 /** Pick the earlier of two candidate hits (null = no hit). */
 function earlier(a: Hit | null, b: Hit | null): Hit | null {
   if (a === null) return b;
   if (b === null) return a;
   return a.frac <= b.frac ? a : b;
+}
+
+/** Classify a resolved impact at (ix, iy): hull hit > map-edge splash > island. */
+function classifyHit(hit: Hit, ix: number, iy: number): ShellOutcome {
+  if (hit.victimId !== undefined) return { kind: 'hitShip', victimId: hit.victimId, x: ix, y: iy };
+  if (hit.edge) return { kind: 'expired', x: ix, y: iy };
+  return { kind: 'hitIsland', x: ix, y: iy };
 }
 
 /**
@@ -131,14 +154,14 @@ export function stepShell(shell: ShellState, ctx: ShellContext): ShellOutcome {
   const uy = shell.vy / speed;
   const p1: Vec2 = { x: p0.x + ux * moveDist, y: p0.y + uy * moveDist };
 
-  const hit = earlier(earliestIsland(p0, p1, ctx.islands), earliestHull(shell, p0, p1, ctx));
+  const obstacle = earlier(earliestIsland(p0, p1, ctx.islands), earliestHull(shell, p0, p1, ctx));
+  const hit = earlier(obstacle, earliestEdge(p0, p1, ctx.mapRadius));
   if (hit) {
     const ix = p0.x + ux * moveDist * hit.frac;
     const iy = p0.y + uy * moveDist * hit.frac;
     shell.x = ix;
     shell.y = iy;
-    if (hit.victimId !== undefined) return { kind: 'hitShip', victimId: hit.victimId, x: ix, y: iy };
-    return { kind: 'hitIsland', x: ix, y: iy };
+    return classifyHit(hit, ix, iy);
   }
 
   shell.x = p1.x;

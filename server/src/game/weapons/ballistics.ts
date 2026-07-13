@@ -1,0 +1,61 @@
+// Unified ballistic construction — one factory + one spawn-offset helper shared
+// by every weapon that launches a ShellState (guns, torpedoes) and the mine
+// drop. Guns and torpedoes differ only in speed/range/damage/collision-radius/
+// grace; this collapses the old per-weapon makeShell/makeTorpedo and the three
+// duplicated offset constants (MUZZLE_OFFSET/TUBE_OFFSET/DROP_OFFSET) into one
+// place, per the codebase-cleanliness pass (Stage A4). Stage B re-parameterizes
+// hullClearOffset on the firer's class hull length — a one-line change here.
+
+import { CONFIG, type ShellState } from '@salvo/shared';
+import type { ShipRecord } from '../world.js';
+
+/**
+ * Hull-clearing spawn offset: half the hull length plus `extra` (the
+ * projectile/trigger radius) so the spawned entity starts OUTSIDE the firer's
+ * own capsule. The 100ms self-hit grace is far too short (~13u at 130 u/s) to
+ * clear a 40u hull on its own, so this offset is what actually prevents a
+ * broadside self-detonation; grace remains a backstop against re-collision on
+ * the exit tick.
+ */
+export function hullClearOffset(extra: number): number {
+  return CONFIG.ship.length / 2 + extra;
+}
+
+/** Params that distinguish a gun shell from a torpedo. */
+export interface BallisticParams {
+  speed: number; // u/s
+  range: number; // u — distLeft (Infinity for run-until-impact torpedoes)
+  damage: number; // hp per hull hit
+  hitRadius: number; // u — collision radius added to the hull capsule
+  graceMs: number; // ms — owner self-hit grace
+  kind: 'shell' | 'torp';
+}
+
+/**
+ * Build a ShellState launched from `ship` along bearing `dir`, spawned clear of
+ * the firer's hull. Sets every ShellState field explicitly (does not lean on
+ * stepShell's optional-field defaults).
+ */
+export function makeBallistic(
+  id: string,
+  ship: ShipRecord,
+  dir: number,
+  now: number,
+  p: BallisticParams,
+): ShellState {
+  const off = hullClearOffset(p.hitRadius);
+  return {
+    id,
+    ownerId: ship.id,
+    x: ship.state.x + Math.cos(dir) * off,
+    y: ship.state.y + Math.sin(dir) * off,
+    vx: Math.cos(dir) * p.speed,
+    vy: Math.sin(dir) * p.speed,
+    distLeft: p.range,
+    bornAt: now,
+    kind: p.kind,
+    damage: p.damage,
+    hitRadius: p.hitRadius,
+    graceMs: p.graceMs,
+  };
+}

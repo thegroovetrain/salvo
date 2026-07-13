@@ -62,9 +62,10 @@ export const CONFIG = {
     offset: deg(0), // bow-centered
     halfArc: deg(30), // +/-30deg launch arc
     speed: 55, // u/s
-    range: 700, // u
     damage: 55, // hp
     reload: 12000, // ms — per tube
+    hitRadius: 2, // u — torpedo collision radius added to the hull capsule
+    selfHitGrace: 100, // ms — a torpedo can't hit its own firer
   },
 
   /** Mines (weapon 2): dropped astern. Never on radar. */
@@ -75,6 +76,7 @@ export const CONFIG = {
     damage: 45, // hp
     dropCooldown: 8000, // ms — between drops
     maxLive: 3, // max simultaneous live mines per player
+    globalCap: 60, // defensive ceiling on total live mines across all players
   },
 
   /** Storm circle / battle-royale zone. */

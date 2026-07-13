@@ -9,6 +9,7 @@
 // axes map straight to screen with no y-flip — see camera.ts).
 
 import { Graphics } from 'pixi.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 const HALF_LEN = 20; // u — bow/stern from center
 const HALF_BEAM = 6; // u — port/starboard from center
@@ -35,9 +36,6 @@ function traceHull(g: Graphics): void {
     .lineTo(6, HALF_BEAM)
     .closePath();
 }
-
-const SUNK_TINT = 0x8b0000; // DESIGN.md dark crimson
-const FLASH_MS = 130;
 
 export class ShipView {
   readonly gfx: Graphics;
@@ -66,7 +64,7 @@ export class ShipView {
 
   /** Brief bright flash (took a hit). */
   flash(): void {
-    this.flashUntil = performance.now() + FLASH_MS;
+    this.flashUntil = performance.now() + CLIENT_CONFIG.ship.flashMs;
   }
 
   /** Sight-fade multiplier [0,1] applied on top of tint/alpha state. */
@@ -87,7 +85,7 @@ export class ShipView {
       this.gfx.tint = 0xffffff;
       this.gfx.alpha = this.fade;
     } else if (this.downed) {
-      this.gfx.tint = SUNK_TINT;
+      this.gfx.tint = CLIENT_CONFIG.ship.sunkTint;
       this.gfx.alpha = 0.4 * this.fade;
     } else {
       this.gfx.tint = 0xffffff;

@@ -16,6 +16,7 @@ import {
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { FireContext, WeaponSystem } from './index.js';
+import { makeBallistic } from './ballistics.js';
 
 const MOUNTS = CONFIG.gun.mounts;
 
@@ -45,27 +46,6 @@ export function clampToArc(angle: number, center: number, halfArc: number): numb
   return wrapAngle(angle);
 }
 
-// Muzzle offset: spawn the shell forward of the hull along its bearing so it
-// starts clear of the firer's own capsule (hull half-length + shell radius). The
-// 100ms self-hit grace is far too short (~13u at 130 u/s) to clear a 40u hull on
-// its own, so the offset is what actually prevents a broadside self-detonation;
-// grace remains a backstop against re-collision on the exit tick.
-const MUZZLE_OFFSET = CONFIG.ship.length / 2 + CONFIG.gun.shellRadius;
-
-function makeShell(id: string, ship: ShipRecord, dir: number, now: number): ShellState {
-  return {
-    id,
-    ownerId: ship.id,
-    x: ship.state.x + Math.cos(dir) * MUZZLE_OFFSET,
-    y: ship.state.y + Math.sin(dir) * MUZZLE_OFFSET,
-    vx: Math.cos(dir) * CONFIG.gun.shellSpeed,
-    vy: Math.sin(dir) * CONFIG.gun.shellSpeed,
-    distLeft: CONFIG.gun.shellRange,
-    bornAt: now,
-    // kind/damage/hitRadius/graceMs default to gun values in stepShell.
-  };
-}
-
 /**
  * Run gun fire control for one ship this tick. Returns the shells fired (0..N,
  * one per bearing mount) and resets each firing mount's cooldown. `mkId` mints a
@@ -80,7 +60,16 @@ export function fireGuns(ship: ShipRecord, now: number, mkId: () => string): She
     const center = wrapAngle(ship.state.heading + MOUNTS[i].offset);
     if (!inArc(aim, center, MOUNTS[i].halfArc)) continue;
     const dir = clampToArc(aim, center, MOUNTS[i].halfArc);
-    shells.push(makeShell(mkId(), ship, dir, now));
+    shells.push(
+      makeBallistic(mkId(), ship, dir, now, {
+        speed: CONFIG.gun.shellSpeed,
+        range: CONFIG.gun.shellRange,
+        damage: CONFIG.gun.damage,
+        hitRadius: CONFIG.gun.shellRadius,
+        graceMs: CONFIG.gun.selfHitGrace,
+        kind: 'shell',
+      }),
+    );
     ship.gunCooldowns[i] = CONFIG.gun.reload;
   }
   return shells;

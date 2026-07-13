@@ -18,31 +18,11 @@ import { CONFIG, WEAPON, inArc, wrapAngle, type ShellState } from '@salvo/shared
 import type { ShipRecord } from '../world.js';
 import type { FireContext, WeaponSystem } from './index.js';
 import { clampToArc } from './guns.js';
+import { makeBallistic } from './ballistics.js';
 
 /** Fresh per-tube cooldown state (all tubes loaded). */
 export function freshTorpedoCooldowns(): number[] {
   return new Array<number>(CONFIG.torpedo.tubes).fill(0);
-}
-
-// Same muzzle-clear pattern as the guns: spawn the fish ahead of the bow so it
-// starts outside the firer's own capsule (hull half-length + collision radius).
-const TUBE_OFFSET = CONFIG.ship.length / 2 + CONFIG.gun.shellRadius;
-
-function makeTorpedo(id: string, ship: ShipRecord, dir: number, now: number): ShellState {
-  return {
-    id,
-    ownerId: ship.id,
-    x: ship.state.x + Math.cos(dir) * TUBE_OFFSET,
-    y: ship.state.y + Math.sin(dir) * TUBE_OFFSET,
-    vx: Math.cos(dir) * CONFIG.torpedo.speed,
-    vy: Math.sin(dir) * CONFIG.torpedo.speed,
-    distLeft: CONFIG.torpedo.range,
-    bornAt: now,
-    kind: 'torp',
-    damage: CONFIG.torpedo.damage,
-    hitRadius: CONFIG.gun.shellRadius,
-    graceMs: CONFIG.gun.selfHitGrace,
-  };
 }
 
 /** Index of the soonest-ready tube (the one a launch consumes). */
@@ -67,7 +47,14 @@ export function fireTorpedo(ship: ShipRecord, now: number, mkId: () => string): 
   if (!inArc(ship.input.aim, center, CONFIG.torpedo.halfArc)) return null;
   const dir = clampToArc(ship.input.aim, center, CONFIG.torpedo.halfArc);
   ship.torpedoCooldowns[tube] = CONFIG.torpedo.reload;
-  return makeTorpedo(mkId(), ship, dir, now);
+  return makeBallistic(mkId(), ship, dir, now, {
+    speed: CONFIG.torpedo.speed,
+    range: Number.POSITIVE_INFINITY, // A3: run until impact / map edge
+    damage: CONFIG.torpedo.damage,
+    hitRadius: CONFIG.torpedo.hitRadius, // A4: own value, no longer gun.shellRadius
+    graceMs: CONFIG.torpedo.selfHitGrace, // A4: own value
+    kind: 'torp',
+  });
 }
 
 /** The torpedoes weapon system (WeaponId 1). */
