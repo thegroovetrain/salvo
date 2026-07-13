@@ -95,6 +95,15 @@ export class Radar {
     this.blips.push({ sprite, t: e.t });
   }
 
+  /** Drop every live blip at once (entering spectate: contacts go live/unfogged). */
+  clearBlips(): void {
+    for (const b of this.blips) {
+      b.sprite.visible = false;
+      this.pool.release(b.sprite);
+    }
+    this.blips.length = 0;
+  }
+
   /** Per-frame: rotate/position the sweep + rings, decay/release blips. */
   render(own: OwnPoint | null, serverNow: number): void {
     this.updateSweep(own, serverNow);

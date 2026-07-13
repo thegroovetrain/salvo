@@ -1,7 +1,11 @@
-// Client bootstrap. Connects to the arena, rebuilds the server's map from
-// welcome (seed + playerCap), sends one input per 50ms sim tick (keys drive,
-// mouse aims + hold-to-fire), and renders own ship (predicted, default) +
-// contacts (interp at -100ms) + dead-reckoned shells + combat feel effects.
+// Client bootstrap. Builds the Pixi stage immediately, shows the pre-join
+// MENU (DOM) over the canvas, and connects only on PLAY. In-game: rebuilds the
+// server's map from welcome (seed + playerCap), sends one input per 50ms sim
+// tick (keys drive, mouse aims + hold-to-fire), renders own ship (predicted) +
+// contacts (interp at -100ms) + dead-reckoned shells + combat feel effects,
+// and drives the match-lifecycle UX: waiting/countdown lines, death →
+// spectate (follow-killer camera, WASD pan, wheel zoom-out), results overlay,
+// return to port (fresh joinOrCreate via reload).
 
 import type { Container } from 'pixi.js';
 import type { Room } from 'colyseus.js';
@@ -21,6 +25,7 @@ import { Fog } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, cooldownReadyFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
+import { spectatePan, wheelZoom, pickSpectateTarget } from './render/spectate.js';
 import { KeyboardInput } from './input/keyboard.js';
 import { MouseInput, worldAim } from './input/mouse.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
@@ -31,8 +36,14 @@ import { bindRoom } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
 import { InputSampler } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
+import { showMenu, type MenuHandle } from './ui/menu.js';
+import { matchUx, type MatchUx } from './ui/phase.js';
+import { showResults } from './ui/results.js';
 
-/** Everything the loop closures share, assembled once at boot. */
+/** How long the DISCONNECTED banner shows before surfacing the menu again. */
+const DISCONNECT_MENU_DELAY_MS = 3000;
+
+/** Everything the loop closures share, assembled once at join. */
 interface Game {
   stage: Stage;
   state: GameState;
@@ -54,12 +65,16 @@ interface Game {
   radar: Radar;
   zone: Zone;
   hud: Hud;
-  /** Colyseus room — polled each frame for the public zone plane (slow state). */
+  /** Colyseus room — polled each frame for the public zone/match plane. */
   room: Room;
   /** Full map radius (u) — the zone's derived-radius baseline. */
   mapRadius: number;
   cameraSnapped: boolean;
   lastOwn: { x: number; y: number };
+  /** Spectate-mode render state (death → spectate, active phase). */
+  spectate: { freePan: boolean; visualsSet: boolean };
+  /** A reload back to the menu is already scheduled/underway. */
+  returning: boolean;
 }
 
 /** Push the camera's world transform onto the world + chart containers. */
@@ -111,15 +126,39 @@ interface ZoneView {
   startT: number; // server ms the timeline was anchored at
 }
 
+/** The public plane fields this client polls off the room schema. */
+interface PublicState {
+  zoneState?: string;
+  zoneStartT?: number;
+  matchPhase?: string;
+  countdownEndT?: number;
+  players?: { size: number; get(id: string): { name?: string } | undefined };
+}
+
+function publicState(g: Game): PublicState {
+  return (g.room.state ?? {}) as PublicState;
+}
+
 /** Read the public zone plane off the polled room schema (fail-safe to idle). */
 function zoneView(g: Game, now: number): ZoneView {
-  const s = g.room.state as { zoneState?: string; zoneStartT?: number } | undefined;
-  const state = (s?.zoneState ?? 'idle') as ZoneDisplay;
-  const startT = s?.zoneStartT ?? 0;
+  const s = publicState(g);
+  const state = (s.zoneState ?? 'idle') as ZoneDisplay;
+  const startT = s.zoneStartT ?? 0;
   // Derive the radius locally from CONFIG for a smooth ring (see ArenaState
   // JSDoc). Real clients never see a zoneOverride, so CONFIG matches the server.
   const radius = state === 'idle' ? g.mapRadius : zoneRadiusAt(now, startT, g.mapRadius, CONFIG.zone);
   return { state, radius, startT };
+}
+
+/** Read the public match plane and map it to HUD strings. */
+function matchUxFromRoom(g: Game, now: number): MatchUx {
+  const s = publicState(g);
+  return matchUx(s.matchPhase ?? 'waiting', s.players?.size ?? 1, s.countdownEndT ?? 0, now);
+}
+
+/** Roster name lookup for the kill feed / results (falls back to the raw id). */
+function rosterName(g: Game, id: string): string {
+  return publicState(g).players?.get(id)?.name ?? id;
 }
 
 /** M:SS clock for the grace countdown. */
@@ -142,6 +181,37 @@ function zoneHud(zv: ZoneView, now: number, inStorm: boolean): ZoneHud {
   }
   return { line, inStorm };
 }
+
+// --- return to port / disconnect ---------------------------------------------
+
+/**
+ * Back to the menu via a full reload: bulletproof teardown of the Pixi scene,
+ * loop, listeners, and net state in one stroke; the next PLAY is a fresh
+ * joinOrCreate. The saved callsign persists in localStorage.
+ */
+function returnToPort(g: Game): void {
+  if (g.returning) return;
+  g.returning = true;
+  void g.room
+    .leave()
+    .catch(() => undefined)
+    .finally(() => location.reload());
+}
+
+/** The room connection ended (server disposal, network death, or own leave). */
+function handleRoomLeave(g: Game): void {
+  if (g.returning) return; // we initiated it; reload is already on its way
+  g.returning = true;
+  if (g.state.matchOver) {
+    // Expected: the server disconnects resultsSeconds after the finish.
+    location.reload();
+    return;
+  }
+  showBanner('DISCONNECTED', { error: true });
+  setTimeout(() => location.reload(), DISCONNECT_MENU_DELAY_MS);
+}
+
+// --- game assembly -------------------------------------------------------------
 
 function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
   const { welcome } = conn;
@@ -191,14 +261,30 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
     mapRadius: map.radius,
     cameraSnapped: false,
     lastOwn: { x: 0, y: 0 },
+    spectate: { freePan: false, visualsSet: false },
+    returning: false,
   };
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
-  bindRoom(conn, { ...g, onOwnSpawn: (x, y) => camera.snapTo({ x, y }) });
+  bindGameRoom(g, conn);
   return g;
 }
 
-function renderOwn(g: Game, pose: RenderPose, status: OwnStatus, zone: ZoneHud, frameDt: number): void {
+/** Wire the room's messages into the game (frames, results, disconnects). */
+function bindGameRoom(g: Game, conn: Connection): void {
+  bindRoom(conn, {
+    ...g,
+    onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
+    names: (id) => rosterName(g, id),
+    onSpectate: () => enterSpectateVisuals(g),
+    onResults: (msg) => showResults(msg, g.state.net.sessionId, () => returnToPort(g)),
+    onRoomLeave: () => handleRoomLeave(g),
+  });
+}
+
+// --- alive rendering -----------------------------------------------------------
+
+function renderOwn(g: Game, pose: RenderPose, status: OwnStatus, zone: ZoneHud, match: MatchUx, frameDt: number): void {
   if (!g.cameraSnapped) {
     g.camera.snapTo(pose);
     g.cameraSnapped = true;
@@ -210,7 +296,7 @@ function renderOwn(g: Game, pose: RenderPose, status: OwnStatus, zone: ZoneHud, 
   g.effects.update(frameDt, pose);
   g.lastOwn = { x: pose.x, y: pose.y };
   renderFiring(g, pose, status);
-  g.hud.update(pose, g.keyboard.axes(), status, zone, g.stage.app.screen.width, g.stage.app.screen.height);
+  g.hud.update(pose, g.keyboard.axes(), status, zone, match, g.stage.app.screen.width, g.stage.app.screen.height);
 }
 
 /** Reload duration (ms) per weapon, indexed by WeaponId (for the ready fraction). */
@@ -231,31 +317,80 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus): void {
   g.firing.update(pose, aim, weapon, ready, cursor);
 }
 
+function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
+  const pose = ownPose(g, alpha, frameDt);
+  const status = ownStatus(g);
+  const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.radius);
+  if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt);
+  const w = g.stage.app.screen.width;
+  const h = g.stage.app.screen.height;
+  g.zone.update(zv.radius, zv.state, inStorm, now / 1000, w, h);
+  // Own pose feeds the shell sight-bubble cull (shells outside fog vanish).
+  g.projectiles.render(now, pose ?? undefined);
+  g.radar.render(pose, now);
+  // The fog hole tracks the own ship's screen position (post camera update).
+  const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
+  g.fog.update(hole.x, hole.y);
+}
+
+// --- spectate rendering ----------------------------------------------------------
+
+/** One-time visual switch into spectate: fog off, sweep/blips gone, hull hidden. */
+function enterSpectateVisuals(g: Game): void {
+  if (g.spectate.visualsSet) return;
+  g.spectate.visualsSet = true;
+  g.fog.setVisible(false);
+  g.radar.clearBlips();
+  g.ownView.gfx.visible = false;
+  g.firing.hide();
+}
+
+/** Follow-your-killer by default; any WASD press hands the camera to free pan. */
+function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
+  const axes = g.keyboard.axes();
+  if (axes.throttle !== 0 || axes.rudder !== 0) g.spectate.freePan = true;
+  if (g.spectate.freePan) {
+    const d = spectatePan(axes, frameDt, g.camera.zoomFactor);
+    g.camera.pan(d.dx, d.dy);
+    return;
+  }
+  const target = pickSpectateTarget(g.state.killerId, [...g.contacts.ids()]);
+  const pose = target ? g.contacts.get(target)?.sampleAt(now - CLIENT_CONFIG.net.interpDelayMs) : null;
+  if (pose) g.camera.update(frameDt, pose);
+}
+
+function renderSpectate(g: Game, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
+  enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
+  updateSpectateCamera(g, frameDt, now);
+  const w = g.stage.app.screen.width;
+  const h = g.stage.app.screen.height;
+  g.zone.update(zv.radius, zv.state, false, now / 1000, w, h);
+  g.projectiles.render(now); // no sight cull: spec frames are unfogged
+  g.effects.update(frameDt, null);
+  g.radar.render(null, now); // hides the sweep + rings
+  g.hud.updateSpectate(zoneHud(zv, now, false), mu, w, h);
+}
+
+// --- the loop --------------------------------------------------------------------
+
 function makeCallbacks(g: Game): LoopCallbacks {
   return {
     simTick: () => {
+      // RULING: a dead (or post-match) client stops sending inputs entirely —
+      // the keyboard drives the spectator camera instead.
+      if (g.state.spectating) return;
       const cursor = g.camera.screenToWorld(g.mouse.screenPos);
       const aim = worldAim(g.lastOwn.x, g.lastOwn.y, cursor);
       const input = g.sampler.sample(g.keyboard.axes(), { aim, fire: g.mouse.fire, weapon: g.keyboard.weapon });
       if (g.state.mode === 'predict') g.predictor.localTick(input);
     },
     render: (alpha, frameDt) => {
-      const pose = ownPose(g, alpha, frameDt);
-      const status = ownStatus(g);
       const now = g.clock.serverNow();
       const zv = zoneView(g, now);
-      const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.radius);
-      if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), frameDt);
-      const w = g.stage.app.screen.width;
-      const h = g.stage.app.screen.height;
-      g.zone.update(zv.radius, zv.state, inStorm, now / 1000, w, h);
-      // Own pose feeds the shell sight-bubble cull (shells outside fog vanish).
-      g.projectiles.render(now, pose ?? undefined);
+      const mu = matchUxFromRoom(g, now);
+      if (g.state.spectating) renderSpectate(g, frameDt, now, zv, mu);
+      else renderAlive(g, alpha, frameDt, now, zv, mu);
       g.contactViews.render(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, now, frameDt * 1000);
-      g.radar.render(pose, now);
-      // The fog hole tracks the own ship's screen position (post camera update).
-      const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
-      g.fog.update(hole.x, hole.y);
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
     },
   };
@@ -301,6 +436,7 @@ function bindResize(stage: Stage, game: Game): void {
  * replay on reconcile) stays consistent with what was actually sent.
  */
 function sendNeutralInput(g: Game): void {
+  if (g.state.spectating) return; // spectators send nothing at all
   const msg = g.sampler.sendNeutralNow();
   if (g.state.mode === 'predict') g.predictor.localTick(msg);
 }
@@ -313,26 +449,34 @@ function bindVisibility(game: Game): void {
   window.addEventListener('blur', () => sendNeutralInput(game));
 }
 
-async function connectOrDie(stage: Stage): Promise<Connection | null> {
-  showBanner('CONNECTING...');
-  try {
-    const conn = await connect();
-    hideBanner();
-    return conn;
-  } catch (err) {
-    console.error('[net] connection failed', err);
-    showBanner('CONNECTION FAILED - IS THE SERVER RUNNING ON :2567?', { error: true });
-    stage.app.ticker.stop();
-    return null;
-  }
+/** Mouse-wheel zoom OUT — a spectator-only privilege, clamped [0.5x, 1x]. */
+function bindSpectateZoom(game: Game): void {
+  window.addEventListener(
+    'wheel',
+    (e: WheelEvent) => {
+      if (!game.state.spectating) return;
+      game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
+    },
+    { passive: true },
+  );
 }
 
-async function main(): Promise<void> {
-  const stage = await createStage();
-  document.getElementById('app')?.replaceChildren(stage.app.canvas);
+// --- bootstrap ---------------------------------------------------------------------
 
-  const conn = await connectOrDie(stage);
-  if (!conn) return;
+async function startGame(stage: Stage, menu: MenuHandle, name: string): Promise<void> {
+  menu.setBusy(true);
+  menu.setStatus('CONNECTING...');
+  let conn: Connection;
+  try {
+    conn = await connect(name || undefined);
+  } catch (err) {
+    console.error('[net] connection failed', err);
+    menu.setStatus('CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?', true);
+    menu.setBusy(false);
+    return;
+  }
+  menu.hide();
+  hideBanner();
 
   // The server's map, regenerated deterministically from the welcome seed + cap.
   const map = mapFromWelcome(conn.welcome);
@@ -341,11 +485,20 @@ async function main(): Promise<void> {
   const game = buildGame(stage, conn, map);
   bindResize(stage, game);
   bindVisibility(game);
+  bindSpectateZoom(game);
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyP') toggleMode(game);
   });
 
   startLoop(stage.app, makeCallbacks(game));
+}
+
+async function main(): Promise<void> {
+  const stage = await createStage();
+  document.getElementById('app')?.replaceChildren(stage.app.canvas);
+
+  const version = typeof __APP_VERSION__ === 'undefined' ? 'dev' : __APP_VERSION__;
+  const menu = showMenu(version, (name) => void startGame(stage, menu, name));
 }
 
 main().catch((err) => {

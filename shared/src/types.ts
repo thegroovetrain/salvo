@@ -12,7 +12,17 @@ export const MSG = {
   welcome: 'w',
   input: 'i',
   frame: 'f',
+  results: 'r',
 } as const;
+
+/**
+ * Match lifecycle phase (public plane — mirrored on the schema as matchPhase).
+ * waiting: ready room, drive/aim/fire freely but ALL damage suppressed.
+ * countdown: ≥ minHumans present, room locked, countdownEndT set.
+ * active: damage live, respawn disabled (death → spectate), storm running.
+ * finished: winner decided; results broadcast; room disposes after the overlay.
+ */
+export type MatchPhase = 'waiting' | 'countdown' | 'active' | 'finished';
 
 /** Weapon selector index. 0 = guns, 1 = torpedoes, 2 = mines. */
 export type WeaponId = 0 | 1 | 2;
@@ -196,6 +206,26 @@ export interface FrameMsg {
   events: GameEvent[];
   mines: MineView[]; // per-observer mine visibility (contact-like, recomputed per tick)
   spec?: true; // spectator (unfogged) frame
+}
+
+/** One player's line in the end-of-match results table. */
+export interface ResultsRow {
+  id: string;
+  name: string;
+  placement: number; // 1 = winner; later sinks place higher (better)
+  kills: number;
+  damageDealt: number; // hp dealt to other hulls (storm damage attributes to nobody)
+}
+
+/**
+ * Server -> client end-of-match results ("r"), broadcast exactly once when the
+ * match finishes. `winnerId` is '' only if no participant could be determined
+ * (mutual destruction resolves to the LATEST-sunk human, so in practice it is
+ * always set). Rows are sorted by placement ascending.
+ */
+export interface ResultsMsg {
+  winnerId: string;
+  rows: ResultsRow[];
 }
 
 /**

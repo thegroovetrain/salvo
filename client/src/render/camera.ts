@@ -29,18 +29,42 @@ export interface CameraOptions {
   leadMax: number;
 }
 
+/** Spectator zoom-out bounds: zoomFactor is clamped to [MIN, MAX]. */
+export const SPECTATE_ZOOM_MIN = 0.5;
+export const SPECTATE_ZOOM_MAX = 1;
+
 export class Camera {
   /** World-space point the camera is centered on. */
   readonly center: Point = { x: 0, y: 0 };
   /** Screen-space shake offset (px), added on top of the transform. */
   readonly shake: Point = { x: 0, y: 0 };
-  /** Pixels per world unit. */
-  zoom = 1;
 
+  private baseZoom = 1;
+  private zoomFactorValue = 1;
   private viewW = 1;
   private viewH = 1;
 
   constructor(private readonly opts: CameraOptions) {}
+
+  /** Pixels per world unit (viewport-derived base × the spectator zoom factor). */
+  get zoom(): number {
+    return this.baseZoom * this.zoomFactorValue;
+  }
+
+  /** Spectator zoom-out multiplier, 1 (normal) down to SPECTATE_ZOOM_MIN. */
+  get zoomFactor(): number {
+    return this.zoomFactorValue;
+  }
+
+  /** Set the spectator zoom factor, clamped to [0.5, 1]. Spectators only. */
+  setZoomFactor(f: number): void {
+    this.zoomFactorValue = Math.min(SPECTATE_ZOOM_MAX, Math.max(SPECTATE_ZOOM_MIN, f));
+  }
+
+  /** Back to normal zoom (respawn / rejoin). */
+  resetZoomFactor(): void {
+    this.zoomFactorValue = 1;
+  }
 
   /** Screen-space center (px). */
   get screenCenter(): Point {
@@ -48,20 +72,27 @@ export class Camera {
   }
 
   /**
-   * Set the viewport size (px) and recompute zoom so the full radar diameter
-   * (2 * radarRange) fits the screen's short axis. Call on init and resize.
+   * Set the viewport size (px) and recompute the base zoom so the full radar
+   * diameter (2 * radarRange) fits the screen's short axis. Call on init and
+   * resize.
    */
   setViewport(width: number, height: number): void {
     this.viewW = width;
     this.viewH = height;
     const shortAxis = Math.min(width, height);
-    this.zoom = shortAxis / (2 * this.opts.radarRange);
+    this.baseZoom = shortAxis / (2 * this.opts.radarRange);
   }
 
   /** Jump the camera center directly to a point (no smoothing). */
   snapTo(p: Point): void {
     this.center.x = p.x;
     this.center.y = p.y;
+  }
+
+  /** Nudge the camera center by a world-space delta (spectator free pan). */
+  pan(dx: number, dy: number): void {
+    this.center.x += dx;
+    this.center.y += dy;
   }
 
   /** World point -> screen point (px), including shake. */

@@ -11,6 +11,7 @@
 
 import {
   CONFIG,
+  WEAPON,
   generateMap,
   hullEndpoints,
   mulberry32,
@@ -31,6 +32,7 @@ import {
   type ShellOutcome,
   type ShellState,
   type ShipState,
+  type Vec2,
   type ZonePhase,
   type ZoneTimeline,
 } from '@salvo/shared';
@@ -74,6 +76,7 @@ export interface ShipRecord {
   mineCooldown: number; // ms remaining until the next mine can be dropped
   kills: number; // hulls this ship has sunk
   deaths: number; // times this ship has been sunk
+  damageDealt: number; // hp dealt to OTHER hulls (self-hits and storm excluded)
 }
 
 export class World {
@@ -90,6 +93,18 @@ export class World {
   now = 0;
   /** Fixed-step counter. */
   tick = 0;
+
+  // --- Combat policy flags (driven by the match lifecycle, game/match.ts) ---
+  // Defaults are permissive so a standalone World (unit tests, sandbox smokes)
+  // behaves exactly like the pre-lifecycle simulation; Match imposes phase
+  // policy on top (waiting/countdown: no damage, no mines; active: no respawn).
+
+  /** False = target practice: shells/mines/storm land but deal no damage. */
+  damageEnabled = true;
+  /** False = mine drops are ignored (waiting-phase persistent-state pollution). */
+  minesEnabled = true;
+  /** False = sinkShip schedules NO respawn (active phase: death → spectate). */
+  respawnEnabled = true;
 
   private rng: Rng;
   private shellSeq = 0;
@@ -173,6 +188,7 @@ export class World {
       mineCooldown: freshMineCooldown(),
       kills: 0,
       deaths: 0,
+      damageDealt: 0,
     };
     this.ships.set(id, rec);
     this.pending.push({ k: 'spawn', id, x: p.x, y: p.y });
@@ -186,9 +202,48 @@ export class World {
   }
 
   /**
-   * Sink a ship: dead, hp 0, respawn scheduled, death counted. Attributes a
-   * kill to `by` when it names a different living-or-dead ship. Combat routes
-   * damage through here; tests drive it directly.
+   * Countdown→active transition (match lifecycle): clear the practice field —
+   * all shells and mines gone, per-observer ballistic memory wiped, queued
+   * events dropped — then redeploy EVERY hull to a fresh spawn-ring placement
+   * with full hp and fresh cooldowns. Inputs are kept (players keep driving
+   * through the transition); each ship emits a spawn event so clients snap
+   * their camera/prediction to the teleport. Roster/welcome state is untouched.
+   */
+  resetForMatchStart(): void {
+    this.shells.clear();
+    this.mines.clear();
+    this.pending = [];
+    const placed: Vec2[] = [];
+    for (const ship of this.ships.values()) this.redeployShip(ship, placed);
+  }
+
+  /** Fresh-match state for one hull: ring placement, full hp, fresh cooldowns. */
+  private redeployShip(ship: ShipRecord, placed: Vec2[]): void {
+    const p = pickSpawn(this.map, placed, this.rng);
+    placed.push(p);
+    ship.state.x = p.x;
+    ship.state.y = p.y;
+    ship.state.heading = Math.atan2(-p.y, -p.x);
+    ship.state.speed = 0;
+    ship.hp = CONFIG.ship.hp;
+    ship.alive = true;
+    ship.respawnAt = 0;
+    ship.seenBallistics.clear();
+    ship.gunCooldowns = freshGunCooldowns();
+    ship.torpedoCooldowns = freshTorpedoCooldowns();
+    ship.mineCooldown = freshMineCooldown();
+    ship.kills = 0;
+    ship.deaths = 0;
+    ship.damageDealt = 0;
+    this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
+  }
+
+  /**
+   * Sink a ship: dead, hp 0, respawn scheduled (only while respawnEnabled —
+   * in the active match phase the dead transition to spectators instead),
+   * death counted. Attributes a kill to `by` when it names a different
+   * living-or-dead ship. Combat routes damage through here; tests drive it
+   * directly.
    */
   sinkShip(id: string, by?: string): void {
     const ship = this.ships.get(id);
@@ -197,7 +252,7 @@ export class World {
     ship.hp = 0;
     ship.state.speed = 0;
     ship.deaths += 1;
-    ship.respawnAt = this.now + CONFIG.ship.respawnDelay;
+    ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     if (by && by !== id) {
       const killer = this.ships.get(by);
       if (killer) killer.kills += 1;
@@ -273,7 +328,7 @@ export class World {
    * from you.hp, so it stays accurate. No boom for storm ticks either.
    */
   private applyStorm(dt: number): void {
-    if (this.zoneStartT === null) return;
+    if (this.zoneStartT === null || !this.damageEnabled) return;
     const radius = this.zoneRadius;
     const bite = CONFIG.zone.stormDps * dt;
     for (const ship of this.ships.values()) {
@@ -324,11 +379,25 @@ export class World {
     for (const ship of this.ships.values()) ship.seenBallistics.delete(id);
   }
 
-  /** Apply damage to a hull, emitting dmg (+ sink on death). */
+  /**
+   * Apply damage to a hull, emitting dmg (+ sink on death). THE phase guard:
+   * while damage is suppressed (waiting/countdown target practice, finished
+   * freeze) impacts still boom but no hp is lost — this early return is the
+   * single choke for shell, torpedo, and mine damage alike.
+   */
   private hitShip(victim: ShipRecord, amount: number, byId: string): void {
+    if (!this.damageEnabled) return;
     victim.hp -= amount;
+    this.creditDamage(byId, victim.id, amount);
     this.pending.push({ k: 'dmg', id: victim.id, amount, hp: Math.max(0, victim.hp) });
     if (victim.hp <= 0) this.sinkShip(victim.id, byId);
+  }
+
+  /** Accumulate damageDealt on the attacker (self-hits excluded; storm never routes here). */
+  private creditDamage(byId: string, victimId: string, amount: number): void {
+    if (byId === victimId) return;
+    const attacker = this.ships.get(byId);
+    if (attacker) attacker.damageDealt += amount;
   }
 
   /** Turn a spent ballistic's outcome into boom (+ dmg/sink) events. */
@@ -353,6 +422,9 @@ export class World {
     for (const ship of this.ships.values()) {
       for (const sys of WEAPON_SYSTEMS) sys.tick(ship, dtMs);
       if (!ship.alive || !ship.input.fire) continue;
+      // Mine drops are disabled outside the active phase (persistent-state
+      // pollution); skipping BEFORE fire() leaves the drop cooldown untouched.
+      if (ship.input.weapon === WEAPON.mine && !this.minesEnabled) continue;
       WEAPON_SYSTEMS[ship.input.weapon].fire(this.fireContext(ship));
     }
   }

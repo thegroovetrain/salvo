@@ -6,8 +6,8 @@
 // invariant stays a unit-testable property of one function. Nothing else may
 // ever put contacts or events into a frame.
 
-import type { FrameMsg, OwnShip } from '@salvo/shared';
-import { observe } from './perception.js';
+import type { FrameMsg, MatchPhase, OwnShip } from '@salvo/shared';
+import { observe, observeSpectator } from './perception.js';
 import { weaponCooldowns } from './weapons/index.js';
 import type { ShipRecord, World } from './world.js';
 
@@ -30,16 +30,39 @@ function toOwnShip(ship: ShipRecord): OwnShip {
 }
 
 /**
- * Build the per-tick frame for one client. Call once per client per tick:
- * observe() marks shells as seen per observer (exactly-once event semantics).
+ * THE spectator gate (anti-cheat sensitive): unfogged frames go ONLY to a
+ * dead observer during the active phase, or to everyone once the match is
+ * finished (no way back into play either way). Every other observer — alive
+ * in active, anyone in waiting/countdown (lobby keeps the one fogged code
+ * path), a fresh wreck awaiting respawn in waiting — stays fully fogged.
  */
-export function buildFrame(world: World, playerId: string): FrameMsg {
+function spectates(phase: MatchPhase, ship: ShipRecord | undefined): boolean {
+  if (phase === 'finished') return true;
+  return phase === 'active' && ship !== undefined && !ship.alive;
+}
+
+/**
+ * Build the per-tick frame for one client. Call once per client per tick:
+ * observe()/observeSpectator() mark ballistics as seen per observer
+ * (exactly-once event semantics). `phase` is the room's match phase; the
+ * 'waiting' default preserves pre-lifecycle behavior for standalone worlds
+ * (unit tests, sandbox smokes) — the room always passes its live phase.
+ */
+export function buildFrame(world: World, playerId: string, phase: MatchPhase = 'waiting'): FrameMsg {
   const ship = world.ships.get(playerId);
-  const view = observe(world, playerId);
-  return {
+  const base = {
     t: world.now,
     tick: world.tick,
     ackSeq: world.inputs.ackFor(playerId),
+  };
+  if (spectates(phase, ship)) {
+    const view = observeSpectator(world, playerId);
+    // spec: true, `you` OMITTED — the client renders purely from contacts.
+    return { ...base, contacts: view.contacts, events: view.events, mines: view.mines, spec: true };
+  }
+  const view = observe(world, playerId);
+  return {
+    ...base,
     you: ship ? toOwnShip(ship) : undefined,
     contacts: view.contacts,
     events: view.events,

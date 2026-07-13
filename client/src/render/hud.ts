@@ -7,6 +7,7 @@ import { Container, Graphics, Text } from 'pixi.js';
 import type { ShipState, WeaponId } from '@salvo/shared';
 import { CONFIG, wrapPositive } from '@salvo/shared';
 import type { Axes } from '../input/keyboard.js';
+import type { MatchUx } from '../ui/phase.js';
 
 const GREEN = 0x00ff88;
 const AMBER = 0xffb800;
@@ -76,6 +77,30 @@ const STORM_STYLE = {
   fill: CRIMSON,
   letterSpacing: 2,
 } as const;
+const MATCH_LINE_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 14,
+  fill: GREEN,
+  letterSpacing: 3,
+} as const;
+const MATCH_TAG_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 10,
+  fill: DIM,
+  letterSpacing: 3,
+} as const;
+const COUNTDOWN_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 72,
+  fill: GREEN,
+  letterSpacing: 4,
+} as const;
+const SPECTATE_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 18,
+  fill: AMBER,
+  letterSpacing: 3,
+} as const;
 
 function pad3(n: number): string {
   return Math.round(n).toString().padStart(3, '0');
@@ -114,10 +139,17 @@ export class Hud {
   private readonly chipLabels: Text[];
   private readonly zoneLine: Text;
   private readonly stormWarn: Text;
+  private readonly matchLine: Text;
+  private readonly matchTag: Text;
+  private readonly countdownBig: Text;
+  private readonly spectateBanner: Text;
   private lastHeading = '';
   private lastSpeed = '';
   private lastOverlay = '';
   private lastZoneLine = '';
+  private lastMatchLine = '';
+  private lastMatchTag = '';
+  private lastCountdown = '';
 
   constructor(private readonly hudLayer: Container) {
     hudLayer.addChild(this.root);
@@ -146,6 +178,53 @@ export class Hud {
     this.stormWarn = new Text({ text: 'IN STORM', style: STORM_STYLE });
     this.stormWarn.visible = false;
     hudLayer.addChild(this.zoneLine, this.stormWarn);
+    this.matchLine = new Text({ text: '', style: MATCH_LINE_STYLE });
+    this.matchLine.anchor.set(0.5, 0);
+    this.matchLine.visible = false;
+    this.matchTag = new Text({ text: '', style: MATCH_TAG_STYLE });
+    this.matchTag.anchor.set(0.5, 0);
+    this.matchTag.visible = false;
+    this.countdownBig = new Text({ text: '', style: COUNTDOWN_STYLE });
+    this.countdownBig.anchor.set(0.5);
+    this.countdownBig.visible = false;
+    this.spectateBanner = new Text({ text: 'SUNK — SPECTATING', style: SPECTATE_STYLE });
+    this.spectateBanner.anchor.set(0.5, 0);
+    this.spectateBanner.visible = false;
+    hudLayer.addChild(this.matchLine, this.matchTag, this.countdownBig, this.spectateBanner);
+  }
+
+  /**
+   * Phase layer: waiting shows "AWAITING CAPTAINS n/2" + "WEAPONS SAFE";
+   * countdown adds the big center number; active/finished show nothing here.
+   * Positioned below the zone line's slot (they never speak simultaneously —
+   * the zone is idle until the match activates — but keep separate slots).
+   */
+  private drawMatch(match: MatchUx, screenW: number, screenH: number): void {
+    if (match.topLine !== this.lastMatchLine) {
+      this.matchLine.text = match.topLine;
+      this.lastMatchLine = match.topLine;
+    }
+    if (match.tag !== this.lastMatchTag) {
+      this.matchTag.text = match.tag;
+      this.lastMatchTag = match.tag;
+    }
+    if (match.countdown !== this.lastCountdown) {
+      this.countdownBig.text = match.countdown;
+      this.lastCountdown = match.countdown;
+    }
+    this.matchLine.visible = match.topLine !== '';
+    this.matchTag.visible = match.tag !== '';
+    this.countdownBig.visible = match.countdown !== '';
+    this.matchLine.position.set(screenW / 2, MARGIN + 24);
+    this.matchTag.position.set(screenW / 2, MARGIN + 46);
+    this.countdownBig.position.set(screenW / 2, screenH * 0.35);
+  }
+
+  /** Hide/show the live-ship instrument cluster (hidden while spectating). */
+  private setInstrumentsVisible(visible: boolean): void {
+    this.root.visible = visible;
+    this.bars.visible = visible;
+    for (const chip of this.chipLabels) chip.visible = visible;
   }
 
   /** Top-center storm readout + the "IN STORM" warning above the telegraph. */
@@ -247,13 +326,35 @@ export class Hud {
     this.overlay.visible = true;
   }
 
-  /** Update all instruments. Call each render frame. */
-  update(ship: ShipState, axes: Axes, status: OwnStatus, zone: ZoneHud, screenW: number, screenH: number): void {
+  /** Update all instruments (conning a live ship). Call each render frame. */
+  update(
+    ship: ShipState,
+    axes: Axes,
+    status: OwnStatus,
+    zone: ZoneHud,
+    match: MatchUx,
+    screenW: number,
+    screenH: number,
+  ): void {
+    this.setInstrumentsVisible(true);
+    this.spectateBanner.visible = false;
     this.layout(screenH);
     this.drawGauges(axes);
     this.drawBars(status, screenW, screenH);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);
     this.drawZone(zone, screenW, screenH);
+    this.drawMatch(match, screenW, screenH);
+  }
+
+  /** Spectator frame: instruments hidden, banner + zone/phase lines only. */
+  updateSpectate(zone: ZoneHud, match: MatchUx, screenW: number, screenH: number): void {
+    this.setInstrumentsVisible(false);
+    this.overlay.visible = false;
+    this.stormWarn.visible = false;
+    this.spectateBanner.visible = true;
+    this.spectateBanner.position.set(screenW / 2, screenH * 0.16);
+    this.drawZone({ line: zone.line, inStorm: false }, screenW, screenH);
+    this.drawMatch(match, screenW, screenH);
   }
 }

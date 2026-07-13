@@ -33,6 +33,7 @@ function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
     mineCooldown: freshMineCooldown(),
     kills: 0,
     deaths: 0,
+    damageDealt: 0,
     ...overrides,
   };
 }

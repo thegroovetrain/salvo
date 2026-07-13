@@ -80,7 +80,7 @@ function killServer(proc) {
 
 async function joinClient(name) {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name, zoneOverride: ZONE_OVERRIDE });
+  const room = await client.joinOrCreate('arena', { name, zoneOverride: ZONE_OVERRIDE, matchOverride: { sandbox: true } });
   const ctx = {
     name, room, welcome: null, you: null, seq: 0,
     goal: { mode: 'idle' },

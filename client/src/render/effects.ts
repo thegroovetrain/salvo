@@ -111,9 +111,10 @@ export class Effects {
     this.shots.push({ gfx: g, spec: SPECS[kind], x, y, age: 0 });
   }
 
-  /** Advance all effects by `dt`; spawn wake behind the own ship first. */
-  update(dt: number, ship: ShipState): void {
-    this.spawnTrail(dt, ship);
+  /** Advance all effects by `dt`; spawn wake behind the own ship first
+   *  (null while spectating — no own hull, no wake, effects still age). */
+  update(dt: number, ship: ShipState | null): void {
+    if (ship) this.spawnTrail(dt, ship);
     this.ageWake(dt);
     this.ageShots(dt);
   }

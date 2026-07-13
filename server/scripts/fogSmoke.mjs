@@ -36,9 +36,14 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // ---------------------------------------------------------------- clients ---
 
+// Sandbox (dev-only): pre-step-14 room behavior — no match lifecycle, permissive
+// combat policy, storm at 2nd join. The long grace keeps that storm harmless
+// for the whole choreography (this smoke predates the zone / match steps).
+const SANDBOX_ZONE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction: 0.15 };
+
 async function joinClient(name) {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name });
+  const room = await client.joinOrCreate('arena', { name, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
   const ctx = {
     name, room, welcome: null, you: null, now: 0,
     contacts: [], blips: [], shells: [], booms: [],

@@ -38,4 +38,9 @@ export class Fog {
   update(holeScreenX: number, holeScreenY: number): void {
     this.sprite.position.set(holeScreenX, holeScreenY);
   }
+
+  /** Hide/show the whole overlay (hidden while spectating — spec frames are unfogged). */
+  setVisible(visible: boolean): void {
+    this.sprite.visible = visible;
+  }
 }

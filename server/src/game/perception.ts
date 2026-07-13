@@ -54,8 +54,11 @@
 //
 // OBSERVER MODEL: an observer with a ship record observes from its position,
 // alive or sunk — a fresh wreck keeps seeing its surroundings for the 3s
-// respawn delay (spectator frames are a later step). A client with no ship at
-// all sees nothing (fail-closed).
+// respawn delay (waiting-phase deaths). A client with no ship at all sees
+// nothing (fail-closed). SPECTATORS (dead-in-active or anyone once the match
+// is finished — gated by frames.ts on the match phase, never here) get the
+// separate observeSpectator() view: unfogged, since a dead player has no
+// channel back into the match. observe() itself never relaxes fog.
 
 import {
   CONFIG,
@@ -237,9 +240,9 @@ function worldEventForObserver(world: World, me: ShipRecord, e: GameEvent): Game
 }
 
 /**
- * Build the full per-observer view for this tick. The ONLY producer of frame
- * contacts/events (frames.ts is its only caller). A viewer with no ship sees
- * nothing — fail-closed until spectator frames land (step 14).
+ * Build the full per-observer view for this tick. The ONLY producer of FOGGED
+ * frame contacts/events (frames.ts is its only caller). A viewer with no ship
+ * sees nothing — fail-closed.
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
@@ -253,4 +256,57 @@ export function observe(world: World, observerId: string): PerceptionView {
   events.push(...ballisticEvents(world, me));
   events.push(...blips);
   return { contacts, events, mines: minesForObserver(world, me) };
+}
+
+/**
+ * The UNFOGGED spectator view: every alive ship as a live contact, every mine
+ * (own = observer owns it), and ALL of this tick's world events unfiltered —
+ * a dead player has no channel back into the match, so nothing here can leak
+ * into play. Ballistic (shell/torp) events are the one exception to "raw
+ * tickEvents": they keep the exactly-once-per-observer reveal semantics via
+ * seenBallistics, so a projectile launched BEFORE the observer died (and never
+ * sighted) still materializes with current params, and this-tick launches are
+ * not double-sent. Blips are pointless (contacts are live) and never emitted.
+ *
+ * ANTI-CHEAT GATE: only frames.ts may call this, and only for a dead-in-active
+ * or finished-phase observer. The invariant test asserts an alive active
+ * observer can never receive this view.
+ */
+export function observeSpectator(world: World, observerId: string): PerceptionView {
+  const contacts: Contact[] = [];
+  for (const ship of world.ships.values()) {
+    if (!ship.alive) continue;
+    const s = ship.state;
+    contacts.push({ id: ship.id, x: s.x, y: s.y, heading: s.heading, speed: s.speed });
+  }
+  const events: GameEvent[] = [];
+  for (const e of world.tickEvents) {
+    if (e.k !== 'shell' && e.k !== 'torp') events.push(e);
+  }
+  events.push(...spectatorBallistics(world, world.ships.get(observerId)));
+  const mines: MineView[] = [];
+  for (const m of world.mines.values()) {
+    mines.push({ id: m.id, x: m.x, y: m.y, own: m.ownerId === observerId });
+  }
+  return { contacts, events, mines };
+}
+
+/** Every live ballistic this spectator hasn't been told about, current params. */
+function spectatorBallistics(world: World, me: ShipRecord | undefined): BallisticEvent[] {
+  if (!me) return []; // no ship record => no reveal memory; fail closed
+  const out: BallisticEvent[] = [];
+  for (const shell of world.shells.values()) {
+    if (me.seenBallistics.has(shell.id)) continue;
+    me.seenBallistics.add(shell.id);
+    out.push({
+      k: shell.kind ?? 'shell',
+      id: shell.id,
+      x: shell.x,
+      y: shell.y,
+      vx: shell.vx,
+      vy: shell.vy,
+      t: world.now,
+    });
+  }
+  return out;
 }

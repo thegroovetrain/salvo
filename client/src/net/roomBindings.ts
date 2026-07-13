@@ -1,15 +1,18 @@
 // Wires incoming frames to the client's net machinery: clock samples, the
 // server mirror in state, own-ship snapshot buffer + predictor reconcile,
 // contact snapshot buffers, and per-tick events (shell/boom/dmg/sunk/spawn +
-// radar blips/sweep -> radar module). This is the only place server messages
-// mutate client state (Colyseus messages are the only push in the one-way
-// flow; everything else pulls).
+// radar blips/sweep -> radar module). Spec frames (dead-in-active / match
+// finished) flip state.spectating and ride the SAME contact pipeline. This is
+// the only place server messages mutate client state (Colyseus messages are
+// the only push in the one-way flow; everything else pulls).
 
 import {
   CONFIG,
+  MSG,
   type BallisticEvent,
   type BoomEvent,
   type FrameMsg,
+  type ResultsMsg,
   type SpawnEvent,
   type SunkEvent,
 } from '@salvo/shared';
@@ -23,7 +26,7 @@ import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
 import type { Mines } from '../render/mines.js';
-import { showBanner } from '../util/banner.js';
+import { killLine, pushKillLine } from '../ui/killFeed.js';
 
 /**
  * A `shell` event fires a muzzle flash only when it reveals AT a ship we can
@@ -50,18 +53,29 @@ export interface RoomBindingDeps {
   mines: Mines;
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
+  /** Roster name lookup (public schema) for the kill feed. */
+  names: (id: string) => string;
+  /** Fired ONCE when the first spec frame arrives (enter spectate mode). */
+  onSpectate: () => void;
+  /** The one end-of-match results broadcast. */
+  onResults: (msg: ResultsMsg) => void;
+  /** The room connection ended (any reason). */
+  onRoomLeave: (code: number) => void;
 }
 
-/** Attach frame/error/leave handling to a completed connection. */
+/** Attach frame/results/error/leave handling to a completed connection. */
 export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
   conn.sink.handler = (f) => handleFrame(f, deps);
+  conn.room.onMessage(MSG.results, (msg: ResultsMsg) => {
+    deps.state.matchOver = true;
+    deps.onResults(msg);
+  });
   conn.room.onError((code, message) => {
     console.error('[net] room error', code, message);
-    showBanner(`ROOM ERROR ${code}`, { error: true });
   });
   conn.room.onLeave((code) => {
     console.warn('[net] left room', code);
-    showBanner('DISCONNECTED', { error: true });
+    deps.onRoomLeave(code);
   });
 }
 
@@ -70,6 +84,10 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps): void {
   const net = deps.state.net;
   net.tick = f.tick;
   net.ackSeq = f.ackSeq;
+  if (f.spec && !deps.state.spectating) {
+    deps.state.spectating = true;
+    deps.onSpectate();
+  }
   if (f.you) {
     net.you = f.you;
     deps.state.phase = 'active';
@@ -135,8 +153,12 @@ function handleBoom(e: BoomEvent, deps: RoomBindingDeps): void {
 function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   const pos = sunkPosition(e.id, deps);
   if (pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
+  pushKillLine(killLine(deps.names(e.id), e.by ? deps.names(e.by) : null));
   if (e.id === deps.state.net.sessionId) {
+    // In active this ETA is never used (the same frame carries spec:true and
+    // spectate mode owns the overlay); in waiting the respawn overlay reads it.
     deps.state.respawnEta = t + CONFIG.ship.respawnDelay;
+    deps.state.killerId = e.by ?? null; // follow-your-killer default
   } else {
     deps.contactViews.markSunk(e.id);
   }

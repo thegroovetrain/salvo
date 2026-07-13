@@ -10,6 +10,10 @@ export class PlayerMeta extends Schema {
   @type('boolean') alive = true;
   @type('uint16') kills = 0;
   @type('uint16') deaths = 0;
+  /** hp dealt to other hulls this match (storm damage attributes to nobody). */
+  @type('float32') damageDealt = 0;
+  /** Final placement (1 = winner); 0 until determined at match end. */
+  @type('uint8') placement = 0;
 }
 
 /**
@@ -39,4 +43,14 @@ export class ArenaState extends Schema {
   /** Live safe-zone radius (u), re-animated every fixed step. Derive-locally on
    *  the client for smoothness; this is the authoritative cross-check. */
   @type('float32') zoneRadius = 0;
+
+  // --- Match lifecycle (public plane — see server/src/game/match.ts) ---
+
+  /** 'waiting' | 'countdown' | 'active' | 'finished' (MatchPhase). */
+  @type('string') matchPhase = 'waiting';
+  /** Server ms the countdown ends at; 0 while no countdown is running. The
+   *  client derives its big center countdown from this via serverNow(). */
+  @type('float64') countdownEndT = 0;
+  /** Winner's session id once finished; '' until then. */
+  @type('string') winnerId = '';
 }

@@ -31,6 +31,12 @@ export interface GameState {
   net: NetState;
   /** Server time (ms) the own ship respawns at while sunk; null when alive. */
   respawnEta: number | null;
+  /** True once spec (unfogged) frames arrive: dead in active, or match finished. */
+  spectating: boolean;
+  /** Killer's id from the own sunk event's `by` (null for storm/unknown). */
+  killerId: string | null;
+  /** True once the results broadcast arrived (drives auto-return on disconnect). */
+  matchOver: boolean;
 }
 
 /** Build a fresh client state for a joined session. */
@@ -40,5 +46,8 @@ export function createGameState(sessionId: string): GameState {
     mode: 'predict',
     net: { sessionId, tick: 0, ackSeq: 0, you: null },
     respawnEta: null,
+    spectating: false,
+    killerId: null,
+    matchOver: false,
   };
 }
