@@ -1,41 +1,83 @@
-// Throwaway schema-sync proof: connect to a running dev server, join 'arena',
-// wait for the first state patch, assert the roster synced (proves the v3
-// decorator wiring). Run against a booted server:  node server/scripts/smoke.mjs
+// Netcode smoke: join two colyseus.js clients to a running dev server, send
+// input messages from both, and assert:
+//   - both receive the "w" welcome (sessionId, mapSeed, mapRadius, config)
+//   - both receive per-tick "f" frames with `you` present
+//   - client A's ship MOVES under a full-throttle input, and frames ack its seq
+//   - each client's frames list the OTHER ship in `contacts`
+// Run against a booted server:  node server/scripts/smoke.mjs
 import { Client } from 'colyseus.js';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
+const FRAME_WAIT_MS = 1500;
+
+function assert(cond, msg) {
+  if (!cond) throw new Error(msg);
+}
+
+async function joinClient(name) {
+  const client = new Client(endpoint);
+  const room = await client.joinOrCreate('arena', { name });
+  const ctx = { name, room, welcome: null, frames: [] };
+  room.onMessage('w', (msg) => (ctx.welcome = msg));
+  room.onMessage('f', (msg) => ctx.frames.push(msg));
+  return ctx;
+}
+
+function sendInputs(ctx, throttle) {
+  let seq = 0;
+  return setInterval(() => {
+    ctx.room.send('i', { seq: ++seq, throttle, rudder: 0, aim: 0, fire: false, weapon: 0 });
+    ctx.lastSeq = seq;
+  }, 50);
+}
+
+function checkClient(ctx, otherId) {
+  const { name, frames, welcome } = ctx;
+  assert(welcome, `${name}: no welcome received`);
+  assert(welcome.sessionId === ctx.room.sessionId, `${name}: welcome sessionId mismatch`);
+  assert(Number.isFinite(welcome.mapSeed), `${name}: welcome missing mapSeed`);
+  assert(welcome.mapRadius > 0, `${name}: welcome missing mapRadius`);
+  assert(welcome.config?.tick?.simDtMs === 50, `${name}: welcome missing CONFIG snapshot`);
+
+  assert(frames.length >= 10, `${name}: expected >=10 frames, got ${frames.length}`);
+  const first = frames.find((f) => f.you);
+  const last = [...frames].reverse().find((f) => f.you);
+  assert(first && last, `${name}: frames missing 'you'`);
+  const moved = Math.hypot(last.you.x - first.you.x, last.you.y - first.you.y);
+  assert(moved > 3, `${name}: ship did not move (moved=${moved.toFixed(2)}u)`);
+  assert(last.ackSeq > 0 && last.ackSeq <= ctx.lastSeq, `${name}: bad ackSeq ${last.ackSeq}`);
+
+  const withContact = frames.filter((f) => f.contacts.some((c) => c.id === otherId));
+  assert(withContact.length > 0, `${name}: never saw ${otherId} in contacts`);
+  return { name, frames: frames.length, moved: moved.toFixed(1), ackSeq: last.ackSeq };
+}
 
 async function main() {
-  const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name: 'SMOKE-01' });
+  const a = await joinClient('SMOKE-A');
+  const b = await joinClient('SMOKE-B');
+  assert(a.room.roomId === b.room.roomId, 'clients joined different rooms');
 
-  const state = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('no state patch within 5s')), 5000);
-    room.onStateChange.once((s) => {
-      clearTimeout(timer);
-      resolve(s);
-    });
+  const timers = [sendInputs(a, 1), sendInputs(b, -0.5)];
+  await new Promise((r) => setTimeout(r, FRAME_WAIT_MS));
+  timers.forEach(clearInterval);
+
+  const resultA = checkClient(a, b.room.sessionId);
+  const resultB = checkClient(b, a.room.sessionId);
+
+  console.log('NETCODE SMOKE OK:', {
+    room: a.room.roomId,
+    mapSeed: a.welcome.mapSeed,
+    mapRadius: a.welcome.mapRadius,
+    a: resultA,
+    b: resultB,
   });
 
-  const players = [...state.players.values()];
-  if (players.length !== 1) {
-    throw new Error(`expected 1 player, got ${players.length}`);
-  }
-  if (players[0].name !== 'SMOKE-01') {
-    throw new Error(`expected name SMOKE-01, got ${players[0].name}`);
-  }
-
-  console.log('SCHEMA SYNC OK:', {
-    mapSeed: state.mapSeed,
-    mapRadius: state.mapRadius,
-    players: players.map((p) => ({ id: p.id, name: p.name, alive: p.alive })),
-  });
-
-  await room.leave();
+  await a.room.leave();
+  await b.room.leave();
   process.exit(0);
 }
 
 main().catch((err) => {
-  console.error('SCHEMA SYNC FAILED:', err.message);
+  console.error('NETCODE SMOKE FAILED:', err.message);
   process.exit(1);
 });
