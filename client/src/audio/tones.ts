@@ -16,7 +16,9 @@ export type ToneId =
   | 'sink'
   | 'tick'
   | 'matchStart'
-  | 'stormWarn';
+  | 'stormWarn'
+  | 'telegraphUp'
+  | 'telegraphDown';
 
 export interface ToneSpec {
   freqStart: number; // Hz
@@ -52,7 +54,17 @@ export const TONES: Record<ToneId, ToneSpec> = {
   matchStart: { freqStart: 400, freqMid: 900, freqEnd: 650, duration: 0.14, volume: 0.5, type: 'triangle' },
   // Storm-enter warning: descending growl.
   stormWarn: { freqStart: 160, freqMid: 110, freqEnd: 70, duration: 0.15, volume: 0.5, type: 'sawtooth' },
+  // Engine-telegraph detent clicks: tiny, dry ticks — a brass bell chime. The
+  // ahead click sits a fifth above the astern click so ringing up vs down the
+  // scale is audibly distinct without reading as a "real" cue.
+  telegraphUp: { freqStart: 1200, freqMid: 1200, freqEnd: 1200, duration: 0.04, volume: 0.28, type: 'square' },
+  telegraphDown: { freqStart: 800, freqMid: 800, freqEnd: 800, duration: 0.04, volume: 0.28, type: 'square' },
 };
+
+/** Pure: the telegraph-click tone for a step direction (+1 ahead / -1 astern). */
+export function telegraphTone(dir: number): ToneId {
+  return dir > 0 ? 'telegraphUp' : 'telegraphDown';
+}
 
 const FIRE_TONE: Record<WeaponId, ToneId> = {
   [WEAPON.gun]: 'fireGun',

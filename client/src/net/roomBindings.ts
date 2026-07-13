@@ -61,6 +61,12 @@ export interface RoomBindingDeps {
   audio: { play: (id: ToneId) => void };
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
+  /**
+   * Reset the throttle order to neutral. Called on own spawn (respawn + the
+   * match-activation teleport) and own sunk, so a set engine order never
+   * carries across a hard state boundary — the captain re-rings the telegraph.
+   */
+  resetThrottle: () => void;
   /** Roster name lookup (public schema) for the kill feed. */
   names: (id: string) => string;
   /** Fired ONCE when the first spec frame arrives (enter spectate mode). */
@@ -185,6 +191,7 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
     // spectate mode owns the overlay); in waiting the respawn overlay reads it.
     deps.state.respawnEta = t + CONFIG.ship.respawnDelay;
     deps.state.killerId = e.by ?? null; // follow-your-killer default
+    deps.resetThrottle(); // a sunk ship's engine order clears — respawn starts at STOP
     deps.audio.play('sink');
   } else {
     deps.contactViews.markSunk(e.id);
@@ -216,6 +223,7 @@ function sunkPosition(id: string, deps: RoomBindingDeps): { x: number; y: number
 function handleSpawn(e: SpawnEvent, deps: RoomBindingDeps): void {
   if (e.id === deps.state.net.sessionId) {
     deps.state.respawnEta = null;
+    deps.resetThrottle(); // spawn/teleport starts stopped — the setting doesn't carry over
     deps.ownBuffer.clear(); // teleport: snap, don't interpolate across the map
     deps.predictor.forceSnap(); // re-init prediction from the next frame
     deps.onOwnSpawn(e.x, e.y);

@@ -43,7 +43,7 @@ import { showMenu, type MenuHandle } from './ui/menu.js';
 import { matchUx, secondsUntil, isWeaponsSafe, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { showResults } from './ui/results.js';
 import { Audio } from './audio/context.js';
-import { audioCues, stormEnterEdge, INITIAL_CUE_STATE, type AudioCueState } from './audio/tones.js';
+import { audioCues, stormEnterEdge, telegraphTone, INITIAL_CUE_STATE, type AudioCueState } from './audio/tones.js';
 
 /** How long the DISCONNECTED banner shows before surfacing the menu again. */
 const DISCONNECT_MENU_DELAY_MS = 3000;
@@ -250,7 +250,7 @@ function handleRoomLeave(g: Game): void {
 // --- game assembly -------------------------------------------------------------
 
 /** Camera + input + own-hull-view/effects setup, factored out of buildGame() to keep it lean. */
-function setupViewport(stage: Stage): {
+function setupViewport(stage: Stage, audio: Audio, bellAudible: () => boolean): {
   camera: Camera;
   keyboard: KeyboardInput;
   mouse: MouseInput;
@@ -265,7 +265,13 @@ function setupViewport(stage: Stage): {
   });
   camera.setViewport(stage.app.screen.width, stage.app.screen.height);
 
-  const keyboard = new KeyboardInput();
+  // Each throttle detent step clicks the telegraph — pitch distinguishes ringing
+  // the engine order up (ahead) from down (astern); an end-stop tap is silent.
+  // Silent while spectating (W/S pans the camera) or dead-awaiting-respawn:
+  // those taps never reach a live engine room, so they get no confirmation bell.
+  const keyboard = new KeyboardInput((dir, changed) => {
+    if (changed && bellAudible()) audio.play(telegraphTone(dir));
+  });
   keyboard.attach();
   const mouse = new MouseInput();
   mouse.attach();
@@ -283,7 +289,12 @@ function setupViewport(stage: Stage): {
 
 function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio): Game {
   const { welcome } = conn;
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage);
+  // Late-bound: the bell predicate needs game state that is assembled just below.
+  let gRef: Game | null = null;
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, () => {
+    const s = gRef?.state;
+    return !s?.spectating && s?.net.you?.alive !== false;
+  });
 
   const g: Game = {
     stage,
@@ -320,6 +331,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio): 
     wasInStorm: false,
     prevFireHeld: false,
   };
+  gRef = g;
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   bindGameRoom(g, conn);
@@ -331,6 +343,7 @@ function bindGameRoom(g: Game, conn: Connection): void {
   bindRoom(conn, {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
+    resetThrottle: () => g.keyboard.resetThrottle(),
     names: (id) => rosterName(g, id),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => showResults(msg, g.state.net.sessionId, () => returnToPort(g)),
@@ -438,11 +451,16 @@ function enterSpectateVisuals(g: Game): void {
   // clean edge — otherwise steering into your own death instantly (and
   // permanently) engages free-pan, skipping the follow-your-killer default.
   g.keyboard.clearKeys();
+  // Clear the engine order too: entering spectate is a hard boundary, and the
+  // order must not survive into the next life (respawn re-rings from STOP).
+  g.keyboard.resetThrottle();
 }
 
 /** Follow-your-killer by default; any WASD press hands the camera to free pan. */
 function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
-  const axes = g.keyboard.axes();
+  // Spectate pan reads the HELD WASD state (panAxes), not the driving axes():
+  // its "throttle" is live W/S for up/down panning, not the (reset) telegraph order.
+  const axes = g.keyboard.panAxes();
   if (shouldEngageFreePan(axes)) g.spectate.freePan = true;
   if (g.spectate.freePan) {
     const d = spectatePan(axes, frameDt, g.camera.zoomFactor);
@@ -528,17 +546,19 @@ function bindResize(stage: Stage, game: Game): void {
 }
 
 /**
- * Immediately send + locally apply an all-stop, no-fire input. Wired to
- * document visibility + window blur so a backgrounded tab can't leave the
- * last real input (throttle + fire held) running server-side for the whole
- * time it's hidden — the server keeps applying the latest input it has every
- * tick. Routes through the sampler so seq stays monotonic with the regular
- * tick cadence, and through the predictor so the pending-input ring (used to
- * replay on reconcile) stays consistent with what was actually sent.
+ * Immediately send + locally apply a rudder-neutral, no-fire input that KEEPS
+ * the current throttle order. Wired to document visibility + window blur so a
+ * backgrounded tab can't leave a stale rudder locked over or the guns firing
+ * server-side for the whole time it's hidden (the server keeps applying the
+ * latest input it has every tick) — but the throttle is a deliberate engine
+ * order, so the ship is meant to keep steaming straight at its set speed while
+ * backgrounded. Routes through the sampler so seq stays monotonic with the
+ * regular tick cadence, and through the predictor so the pending-input ring
+ * (replayed on reconcile) stays consistent with what was actually sent.
  */
 function sendNeutralInput(g: Game): void {
   if (g.state.spectating) return; // spectators send nothing at all
-  const msg = g.sampler.sendNeutralNow();
+  const msg = g.sampler.sendNeutralNow(g.keyboard.throttle);
   if (g.state.mode === 'predict') g.predictor.localTick(msg);
 }
 

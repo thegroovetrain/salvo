@@ -52,17 +52,22 @@ export class InputSampler {
   }
 
   /**
-   * Build + send an all-stop, no-fire input outside the normal tick cadence
-   * (used when the tab goes hidden/blurred). The server's latest-input model
-   * would otherwise keep applying the last real input — full throttle, guns
-   * blazing — for the entire time we're backgrounded. Keeps the last aim
+   * Build + send a rudder-neutral, no-fire input outside the normal tick
+   * cadence (used when the tab goes hidden/blurred), PRESERVING the current
+   * throttle order `throttle`. The server's latest-input model keeps applying
+   * the last input we sent while we're backgrounded, so rudder + fire — the
+   * genuinely dangerous stale inputs (a locked turn, guns blazing at no one) —
+   * are zeroed here. The throttle is NOT stale: it's a deliberate engine-order
+   * telegraph setting, and a backgrounded ship is meant to keep steaming
+   * straight ahead at its set speed. (This deliberately supersedes the old
+   * all-stop behaviour, from when throttle was a held key.) Keeps the last aim
    * bearing + weapon selection (irrelevant while fire=false) and a monotonic
-   * seq shared with sample(), so it slots into local prediction exactly like
-   * a regular tick.
+   * seq shared with sample(), so it slots into local prediction exactly like a
+   * regular tick.
    */
-  sendNeutralNow(): InputMsg {
+  sendNeutralNow(throttle: number): InputMsg {
     this.seq += 1;
-    const msg = buildInput(this.seq, { throttle: 0, rudder: 0 }, {
+    const msg = buildInput(this.seq, { throttle, rudder: 0 }, {
       aim: this.lastAim,
       fire: false,
       weapon: this.lastWeapon,

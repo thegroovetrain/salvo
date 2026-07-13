@@ -20,6 +20,57 @@ const MARGIN = 20;
 const BAR_W = 150;
 const BAR_H = 10;
 
+// --- engine-order telegraph ladder ------------------------------------------
+const SPINE_X = PANEL_W; // ladder spine at the panel's right edge
+const RUNG_GAP = 8; // vertical px between the nine detents
+const LADDER_BOTTOM = 52; // y of the full-astern rung (index 0)
+const LADDER_TOP = LADDER_BOTTOM - 8 * RUNG_GAP; // full-ahead rung (index 8)
+const RUNG_LEN = 6; // half-tick length for a normal detent
+const RUNG_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 8,
+  fill: DIM,
+  letterSpacing: 0.5,
+} as const;
+const CAP_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 8,
+  fill: DIM,
+  letterSpacing: 1,
+} as const;
+
+/** Compact rung labels, index 0 (full astern) → 8 (full ahead). */
+export const DETENT_LABELS = ['FULL', '¾', '½', '¼', 'STOP', '¼', '½', '¾', 'FULL'] as const;
+
+/** Pure: detent index [0,8] for a throttle order value in [-1,1] (0.25 steps, STOP=4). */
+export function detentIndexOf(throttle: number): number {
+  const i = Math.round(throttle * 4) + 4;
+  return i < 0 ? 0 : i > 8 ? 8 : i;
+}
+
+/** Pure: the compact ladder label for a detent index (clamped). */
+export function detentLabel(index: number): string {
+  const i = index < 0 ? 0 : index > 8 ? 8 : index;
+  return DETENT_LABELS[i];
+}
+
+/** Pure: screen y for a detent rung index (0 astern at the bottom, 8 ahead at the top). */
+export function rungY(index: number): number {
+  return LADDER_BOTTOM - index * RUNG_GAP;
+}
+
+/**
+ * Pure: the ship's ACTUAL speed mapped onto the telegraph's [-1,1] axis for the
+ * needle — ahead scales on maxSpeed, astern on reverseSpeed. The gap between
+ * this needle and the highlighted order rung is the ship converging on the
+ * ordered speed (the naval feel: the setting is instant, the hull is not).
+ */
+export function speedLadderFraction(speed: number): number {
+  const denom = speed >= 0 ? CONFIG.ship.maxSpeed : CONFIG.ship.reverseSpeed;
+  const f = denom > 0 ? speed / denom : 0;
+  return f < -1 ? -1 : f > 1 ? 1 : f;
+}
+
 /** Weapon selector chip labels + reload durations, indexed by WeaponId. */
 const WEAPON_LABELS = ['1 GUNS', '2 TORP', '3 MINE'] as const;
 const WEAPON_RELOADS = [CONFIG.gun.reload, CONFIG.torpedo.reload, CONFIG.mine.dropCooldown];
@@ -145,6 +196,7 @@ export class Hud {
   private readonly speedLabel: Text;
   private readonly overlay: Text;
   private readonly chipLabels: Text[];
+  private readonly rungLabels: Text[];
   private readonly zoneLine: Text;
   private readonly stormWarn: Text;
   private readonly matchLine: Text;
@@ -153,6 +205,9 @@ export class Hud {
   private readonly spectateBanner: Text;
   private lastHeading = '';
   private lastSpeed = '';
+  /** Cheap-redraw guards for the telegraph ladder Graphics + label highlight. */
+  private lastGaugeSig = '';
+  private lastDetent = -1;
   private lastOverlay = '';
   private lastZoneLine = '';
   private lastMatchLine = '';
@@ -181,6 +236,7 @@ export class Hud {
       hudLayer.addChild(label);
       return label;
     });
+    this.rungLabels = this.buildLadderLabels();
     this.zoneLine = new Text({ text: '', style: ZONE_STYLE });
     this.zoneLine.anchor.set(0.5, 0);
     this.zoneLine.visible = false;
@@ -252,23 +308,75 @@ export class Hud {
     this.root.position.set(MARGIN, screenH - PANEL_H - MARGIN);
   }
 
-  private drawGauges(axes: Axes): void {
+  /** Nine right-aligned rung labels + static AHEAD/ASTERN captions (created once). */
+  private buildLadderLabels(): Text[] {
+    const labels = DETENT_LABELS.map((t, i) => {
+      const label = new Text({ text: t, style: RUNG_STYLE });
+      label.anchor.set(1, 0.5);
+      label.position.set(SPINE_X - RUNG_LEN - 6, rungY(i));
+      this.root.addChild(label);
+      return label;
+    });
+    const ahead = new Text({ text: 'AHEAD', style: CAP_STYLE });
+    ahead.anchor.set(1, 1);
+    ahead.position.set(SPINE_X, LADDER_TOP - 3);
+    const astern = new Text({ text: 'ASTERN', style: CAP_STYLE });
+    astern.anchor.set(1, 0);
+    astern.position.set(SPINE_X, LADDER_BOTTOM + 3);
+    this.root.addChild(ahead, astern);
+    return labels;
+  }
+
+  /**
+   * Telegraph ladder + rudder gauge. `index` is the ordered detent (highlighted
+   * rung), `speed` drives the amber actual-speed needle. Only called when the
+   * detent, rudder, or displayed speed changes (see updateTelegraph) — the
+   * Graphics is otherwise left untouched so redraws stay cheap.
+   */
+  private drawTelegraph(index: number, rudder: number, speed: number): void {
     const g = this.gauges;
     g.clear();
-    const tx = PANEL_W;
-    const tTop = 0;
-    const tBot = 44;
-    const tMid = (tTop + tBot) / 2;
-    g.moveTo(tx, tTop).lineTo(tx, tBot).stroke({ width: 2, color: DIM, alpha: 0.6 });
-    const notchY = tMid - axes.throttle * (tBot - tMid);
-    g.rect(tx - 7, notchY - 1.5, 14, 3).fill({ color: GREEN, alpha: 0.9 });
-    const ry = 54;
-    const rL = tx - 20;
-    const rR = tx + 20;
-    const rMid = (rL + rR) / 2;
-    g.moveTo(rL, ry).lineTo(rR, ry).stroke({ width: 2, color: DIM, alpha: 0.6 });
-    const defX = rMid + axes.rudder * (rR - rMid);
+    g.moveTo(SPINE_X, LADDER_TOP).lineTo(SPINE_X, LADDER_BOTTOM).stroke({ width: 2, color: DIM, alpha: 0.6 });
+    for (let i = 0; i < 9; i++) {
+      const y = rungY(i);
+      const len = i === 0 || i === 4 || i === 8 ? RUNG_LEN + 3 : RUNG_LEN;
+      g.moveTo(SPINE_X - len, y).lineTo(SPINE_X, y).stroke({ width: 1, color: DIM, alpha: 0.5 });
+    }
+    const oy = rungY(index); // ordered detent — the bright marker
+    g.rect(SPINE_X - RUNG_LEN - 4, oy - 1.5, RUNG_LEN + 8, 3).fill({ color: GREEN, alpha: 0.95 });
+    const ny = LADDER_BOTTOM - ((speedLadderFraction(speed) + 1) / 2) * (8 * RUNG_GAP);
+    g.moveTo(SPINE_X + 8, ny - 3).lineTo(SPINE_X + 2, ny).lineTo(SPINE_X + 8, ny + 3).fill({ color: AMBER, alpha: 0.9 });
+    this.drawRudder(rudder);
+  }
+
+  private drawRudder(rudder: number): void {
+    const g = this.gauges;
+    const rMid = 35;
+    const rHalf = 30;
+    const ry = 52;
+    g.moveTo(rMid - rHalf, ry).lineTo(rMid + rHalf, ry).stroke({ width: 2, color: DIM, alpha: 0.6 });
+    const defX = rMid + rudder * rHalf;
     g.rect(defX - 1.5, ry - 6, 3, 12).fill({ color: GREEN, alpha: 0.9 });
+  }
+
+  /**
+   * Redraw the telegraph only when the ordered detent, rudder, or displayed
+   * speed (0.1kt buckets, matching the KTS readout) changes; brighten the
+   * ordered rung's label on a detent change. Keeps Pixi Graphics/Text churn off
+   * the steady-state frame.
+   */
+  private updateTelegraph(axes: Axes, speed: number): void {
+    const index = detentIndexOf(axes.throttle);
+    if (index !== this.lastDetent) {
+      for (let i = 0; i < this.rungLabels.length; i++) {
+        this.rungLabels[i].style.fill = i === index ? GREEN : DIM;
+      }
+      this.lastDetent = index;
+    }
+    const sig = `${index}|${axes.rudder}|${speed.toFixed(1)}`;
+    if (sig === this.lastGaugeSig) return;
+    this.lastGaugeSig = sig;
+    this.drawTelegraph(index, axes.rudder, speed);
   }
 
   /** HP bar + the 3-weapon selector chip row, anchored bottom-right (screen space). */
@@ -358,7 +466,7 @@ export class Hud {
     this.setInstrumentsVisible(true);
     this.spectateBanner.visible = false;
     this.layout(screenH);
-    this.drawGauges(axes);
+    this.updateTelegraph(axes, ship.speed);
     this.drawBars(status, screenW, screenH, deniedFlash);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);

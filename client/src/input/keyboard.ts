@@ -1,23 +1,32 @@
 // Keyboard driving + weapon selection input. Tracks the set of held
-// `event.code`s on the window, clears on blur (fixes the classic stuck-key bug
-// when focus is lost), derives throttle/rudder axes, and latches the selected
-// weapon from the number-row keys 1/2/3. `axesFrom` + `weaponFromKey` are pure
-// and unit-tested; the class is a thin DOM adapter. The keyboard OWNS the
-// key→weapon mapping; selection is client state, sent per input and echoed by
-// the server in OwnShip.weapon.
+// `event.code`s on the window, clears on blur (fixes the classic stuck-key
+// bug when focus is lost), and latches the selected weapon from the number-row
+// keys 1/2/3. The class is a thin DOM adapter; the pure pieces (`rudderFrom`,
+// `panAxesFrom`, `weaponFromKey`, and the telegraph module) are unit-tested.
+//
+// Throttle is NO LONGER a held axis: W/S (and Up/Down arrows) TAP the engine
+// telegraph (input/telegraph.ts) one detent per keydown edge — a persistent
+// stepped setting the sampler reads each tick. The held-key set still records
+// W/S so spectator free-pan can read all four WASD directions (panAxesFrom);
+// driving reads throttle from the telegraph + rudder from the held set.
 
 import { WEAPON, type WeaponId } from '@salvo/shared';
+import {
+  Telegraph,
+  stepFromKey,
+  THROTTLE_AHEAD,
+  THROTTLE_ASTERN,
+  type Step,
+} from './telegraph.js';
 
-/** Driving axes derived from held keys. Both in [-1, 1]. */
+/** Driving axes: throttle from the telegraph setting, rudder from held A/D. Both [-1, 1]. */
 export interface Axes {
-  /** -1 full astern (S) .. +1 full ahead (W). */
+  /** -1 full astern .. +1 full ahead (telegraph order for driving; held W/S for pan). */
   throttle: number;
   /** -1 full left (A) .. +1 full right (D). */
   rudder: number;
 }
 
-const AHEAD = ['KeyW', 'ArrowUp'];
-const ASTERN = ['KeyS', 'ArrowDown'];
 const LEFT = ['KeyA', 'ArrowLeft'];
 const RIGHT = ['KeyD', 'ArrowRight'];
 
@@ -35,15 +44,24 @@ function anyHeld(keys: Set<string>, codes: string[]): boolean {
   return codes.some((c) => keys.has(c));
 }
 
-/** Pure: map a set of held key codes to throttle/rudder axes. */
-export function axesFrom(keys: Set<string>): Axes {
-  let throttle = 0;
+/** Pure: rudder axis from held keys (A/D or arrows). -1 left .. +1 right. */
+export function rudderFrom(keys: Set<string>): number {
   let rudder = 0;
-  if (anyHeld(keys, AHEAD)) throttle += 1;
-  if (anyHeld(keys, ASTERN)) throttle -= 1;
   if (anyHeld(keys, RIGHT)) rudder += 1;
   if (anyHeld(keys, LEFT)) rudder -= 1;
-  return { throttle, rudder };
+  return rudder;
+}
+
+/**
+ * Pure: held-key WASD axes for SPECTATOR free-pan only — throttle here is the
+ * live held W/S state (up/down pan), NOT the telegraph order. Driving must use
+ * KeyboardInput.axes() instead (telegraph throttle + held rudder).
+ */
+export function panAxesFrom(keys: Set<string>): Axes {
+  let throttle = 0;
+  if (anyHeld(keys, THROTTLE_AHEAD)) throttle += 1;
+  if (anyHeld(keys, THROTTLE_ASTERN)) throttle -= 1;
+  return { throttle, rudder: rudderFrom(keys) };
 }
 
 /** Pure: the weapon a key code selects, or null if it isn't a weapon key. */
@@ -53,9 +71,27 @@ export function weaponFromKey(code: string): WeaponId | null {
 
 export class KeyboardInput {
   readonly keys = new Set<string>();
+  readonly telegraph = new Telegraph();
   private selectedWeapon: WeaponId = WEAPON.gun;
 
+  /**
+   * @param onDetent Called on each throttle keydown edge with the step
+   *   direction and whether the detent actually changed (false at an end stop)
+   *   — main.ts wires this to the telegraph-click tone.
+   */
+  constructor(private readonly onDetent?: (dir: Step, changed: boolean) => void) {}
+
   private readonly onDown = (e: KeyboardEvent): void => {
+    const step = stepFromKey(e.code, e.repeat);
+    if (step !== null) {
+      // Edge-only: OS auto-repeat is filtered by stepFromKey (repeat -> null),
+      // so holding W taps exactly one detent. Still record the held state so
+      // spectator pan (panAxesFrom) can read W/S; keyup clears it.
+      this.keys.add(e.code);
+      const changed = this.telegraph.step(step);
+      this.onDetent?.(step, changed);
+      return;
+    }
     this.keys.add(e.code);
     const w = weaponFromKey(e.code);
     if (w !== null) this.selectedWeapon = w;
@@ -81,19 +117,44 @@ export class KeyboardInput {
     window.removeEventListener('blur', this.onBlur);
   }
 
-  /** Current driving axes. */
+  /** Driving axes: telegraph throttle order + held rudder. */
   axes(): Axes {
-    return axesFrom(this.keys);
+    return { throttle: this.telegraph.throttle, rudder: rudderFrom(this.keys) };
+  }
+
+  /** Spectator free-pan axes: held WASD (throttle = live held W/S, not the order). */
+  panAxes(): Axes {
+    return panAxesFrom(this.keys);
+  }
+
+  /** Current throttle order in [-1, 1] (for the neutral-send that preserves it). */
+  get throttle(): number {
+    return this.telegraph.throttle;
+  }
+
+  /** Current throttle detent index [0, 8] (for the HUD ladder highlight). */
+  get throttleIndex(): number {
+    return this.telegraph.index;
+  }
+
+  /**
+   * Reset the throttle order to neutral (STOP). Wired to own spawn (respawn +
+   * match-activation teleport), own sunk, and entering spectate — a set order
+   * would otherwise carry across those hard state boundaries. NOTE: distinct
+   * from clearKeys(), which drops held keys but deliberately leaves the order
+   * intact (the telegraph is no longer a held key).
+   */
+  resetThrottle(): void {
+    this.telegraph.reset();
   }
 
   /**
    * Drop all held keys without requiring their keyup events. Used on blur
    * (stuck-key fix) and, from main.ts, on the death -> spectate transition —
-   * a WASD axis held at the moment of death would otherwise read as nonzero
-   * on the very first spectate frame and permanently engage free-pan,
-   * defeating the follow-your-killer default. Clearing here means a genuinely
-   * held key only re-populates the set on its next OS auto-repeat keydown,
-   * which reads as a fresh press rather than a carried-over hold.
+   * a WASD key held at the moment of death would otherwise read as nonzero on
+   * the first spectate frame and permanently engage free-pan, defeating the
+   * follow-your-killer default. Does NOT touch the throttle order (that is not
+   * a held key; resetThrottle() owns the order's lifecycle).
    */
   clearKeys(): void {
     this.keys.clear();

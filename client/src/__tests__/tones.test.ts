@@ -8,6 +8,7 @@ import { WEAPON, type WeaponId } from '@salvo/shared';
 import {
   TONES,
   fireTone,
+  telegraphTone,
   MAX_TONE_S,
   MAX_SINK_TONE_S,
   audioCues,
@@ -27,6 +28,8 @@ const ALL_TONE_IDS: ToneId[] = [
   'tick',
   'matchStart',
   'stormWarn',
+  'telegraphUp',
+  'telegraphDown',
 ];
 
 describe('TONES — spec table completeness', () => {
@@ -67,6 +70,17 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
   it('covers all three WeaponId values with no gaps', () => {
     const ids: WeaponId[] = [0, 1, 2];
     for (const w of ids) expect(TONES[fireTone(w)]).toBeDefined();
+  });
+});
+
+describe('telegraphTone — detent-click direction', () => {
+  it('rings up (ahead) vs down (astern) to distinct tones', () => {
+    expect(telegraphTone(1)).toBe('telegraphUp');
+    expect(telegraphTone(-1)).toBe('telegraphDown');
+  });
+
+  it('pitches the ahead click above the astern click', () => {
+    expect(TONES.telegraphUp.freqStart).toBeGreaterThan(TONES.telegraphDown.freqStart);
   });
 });
 

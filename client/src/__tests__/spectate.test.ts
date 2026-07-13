@@ -64,16 +64,17 @@ describe('shouldEngageFreePan', () => {
     const kb = new KeyboardInput();
     kb.keys.add('KeyW'); // steering hard when the killing shot lands
     kb.keys.add('KeyD');
-    expect(shouldEngageFreePan(kb.axes())).toBe(true); // pre-fix: this alone flips freePan forever
+    // Spectate reads panAxes() (held WASD), so W/S held still count here.
+    expect(shouldEngageFreePan(kb.panAxes())).toBe(true); // pre-fix: this alone flips freePan forever
 
     // The onSpectate transition (main.ts's enterSpectateVisuals) clears the
     // keyboard before the first spectate frame is rendered.
     kb.clearKeys();
-    expect(shouldEngageFreePan(kb.axes())).toBe(false); // no latch: no fresh press yet
+    expect(shouldEngageFreePan(kb.panAxes())).toBe(false); // no latch: no fresh press yet
 
     // A genuine fresh press after death still engages free-pan as normal.
     kb.keys.add('KeyA');
-    expect(shouldEngageFreePan(kb.axes())).toBe(true);
+    expect(shouldEngageFreePan(kb.panAxes())).toBe(true);
   });
 });
 
