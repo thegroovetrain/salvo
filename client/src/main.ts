@@ -1,14 +1,10 @@
-// Client bootstrap for the netcode steps (5-6). Connects to the arena,
-// rebuilds the server's map from welcome.mapSeed, sends one input per 50ms
-// sim tick, and renders:
-//   - own ship: local prediction + reconciliation ('predict', default), or
-//     server frames at -50ms ('interp' — the step-5 checkpoint, toggle: P)
-//   - contacts: snapshot-buffer interpolation at serverNow() - 100ms
-// The offline keepInBounds placeholder is gone — the boundary clamp now lives
-// in the prediction step, mirroring the server's world.ts rule.
+// Client bootstrap. Connects to the arena, rebuilds the server's map from
+// welcome (seed + playerCap), sends one input per 50ms sim tick (keys drive,
+// mouse aims + hold-to-fire), and renders own ship (predicted, default) +
+// contacts (interp at -100ms) + dead-reckoned shells + combat feel effects.
 
 import type { Container } from 'pixi.js';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, type GameMap } from '@salvo/shared';
 import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
@@ -16,9 +12,12 @@ import { buildMap } from './render/map.js';
 import { Camera } from './render/camera.js';
 import { ShipView, OWN_STYLE } from './render/ships.js';
 import { ContactViews } from './render/contacts.js';
+import { Projectiles } from './render/projectiles.js';
+import { FiringUX } from './render/firing.js';
 import { Effects } from './render/effects.js';
-import { Hud } from './render/hud.js';
+import { Hud, cooldownReadyFraction, type OwnStatus } from './render/hud.js';
 import { KeyboardInput } from './input/keyboard.js';
+import { MouseInput, worldAim } from './input/mouse.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { connect, mapFromWelcome, type Connection } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
@@ -38,12 +37,16 @@ interface Game {
   predictor: Predictor;
   camera: Camera;
   keyboard: KeyboardInput;
+  mouse: MouseInput;
   sampler: InputSampler;
   ownView: ShipView;
   contactViews: ContactViews;
+  projectiles: Projectiles;
+  firing: FiringUX;
   effects: Effects;
   hud: Hud;
   cameraSnapped: boolean;
+  lastOwn: { x: number; y: number };
 }
 
 /** Push the camera's world transform onto the world + chart containers. */
@@ -65,10 +68,7 @@ function toggleMode(g: Game): void {
   showBanner(`NETCODE: ${g.state.mode.toUpperCase()}`, { autoHideMs: 1500 });
 }
 
-/**
- * Own-ship pose for this render frame, per the active mode. Null until the
- * first server frame carrying `you` arrives.
- */
+/** Own-ship pose for this render frame, per the active mode. */
 function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
   if (g.state.mode === 'predict') {
     if (!g.predictor.isInitialized) return null;
@@ -78,7 +78,19 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
   return g.ownBuffer.sampleAt(g.clock.serverNow() - CLIENT_CONFIG.net.ownDelayMs);
 }
 
-function buildGame(stage: Stage, conn: Connection): Game {
+/** Derive HUD/combat status from the latest server own-ship + respawn ETA. */
+function ownStatus(g: Game): OwnStatus {
+  const you = g.state.net.you;
+  const eta = g.state.respawnEta;
+  return {
+    hp: you?.hp ?? CONFIG.ship.hp,
+    cooldowns: you?.cooldowns ?? [0, 0, 0],
+    alive: you?.alive ?? true,
+    respawnInMs: eta != null ? Math.max(0, eta - g.clock.serverNow()) : 0,
+  };
+}
+
+function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
   const { welcome } = conn;
   const camera = new Camera({
     radarRange: CONFIG.vision.radar,
@@ -90,6 +102,8 @@ function buildGame(stage: Stage, conn: Connection): Game {
 
   const keyboard = new KeyboardInput();
   keyboard.attach();
+  const mouse = new MouseInput();
+  mouse.attach();
 
   const ownView = new ShipView(OWN_STYLE);
   ownView.gfx.visible = false;
@@ -101,43 +115,66 @@ function buildGame(stage: Stage, conn: Connection): Game {
     clock: new ServerClock(),
     ownBuffer: new SnapshotBuffer(),
     contacts: new ContactStore(),
-    predictor: new Predictor(welcome.mapRadius),
+    predictor: new Predictor({ radius: map.radius, islands: map.islands }),
     camera,
     keyboard,
+    mouse,
     sampler: new InputSampler((type, msg) => conn.room.send(type, msg)),
     ownView,
     contactViews: new ContactViews(stage.layers.ship),
-    effects: new Effects(stage.layers.wake),
+    projectiles: new Projectiles(stage.layers.projectile),
+    firing: new FiringUX(stage.layers.ship),
+    effects: new Effects(stage.layers.wake, stage.layers.projectile),
     hud: new Hud(stage.layers.hud),
     cameraSnapped: false,
+    lastOwn: { x: 0, y: 0 },
   };
   g.clock.addSample(welcome.t);
   bindRoom(conn, { ...g, onOwnSpawn: (x, y) => camera.snapTo({ x, y }) });
   return g;
 }
 
-function renderOwn(g: Game, pose: RenderPose, frameDt: number): void {
+function renderOwn(g: Game, pose: RenderPose, status: OwnStatus, frameDt: number): void {
   if (!g.cameraSnapped) {
     g.camera.snapTo(pose);
     g.cameraSnapped = true;
   }
   g.ownView.gfx.visible = true;
+  g.ownView.setDowned(!status.alive);
   g.ownView.update(pose.x, pose.y, pose.heading);
   g.camera.update(frameDt, pose);
   g.effects.update(frameDt, pose);
-  g.hud.update(pose, g.keyboard.axes(), g.stage.app.screen.width, g.stage.app.screen.height);
+  g.lastOwn = { x: pose.x, y: pose.y };
+  renderFiring(g, pose, status);
+  g.hud.update(pose, g.keyboard.axes(), status, g.stage.app.screen.width, g.stage.app.screen.height);
+}
+
+/** Gun-arc sectors + crosshair while alive; hidden once sunk. */
+function renderFiring(g: Game, pose: RenderPose, status: OwnStatus): void {
+  if (!status.alive) {
+    g.firing.hide();
+    return;
+  }
+  const cursor = g.camera.screenToWorld(g.mouse.screenPos);
+  const aim = worldAim(pose.x, pose.y, cursor);
+  const ready = cooldownReadyFraction(status.cooldowns[0] ?? 0, CONFIG.gun.reload);
+  g.firing.update(pose, aim, ready, cursor);
 }
 
 function makeCallbacks(g: Game): LoopCallbacks {
   return {
     simTick: () => {
-      const input = g.sampler.sample(g.keyboard.axes());
+      const cursor = g.camera.screenToWorld(g.mouse.screenPos);
+      const aim = worldAim(g.lastOwn.x, g.lastOwn.y, cursor);
+      const input = g.sampler.sample(g.keyboard.axes(), { aim, fire: g.mouse.fire, weapon: 0 });
       if (g.state.mode === 'predict') g.predictor.localTick(input);
     },
     render: (alpha, frameDt) => {
       const pose = ownPose(g, alpha, frameDt);
-      if (pose) renderOwn(g, pose, frameDt);
+      const status = ownStatus(g);
+      if (pose) renderOwn(g, pose, status, frameDt);
       const now = g.clock.serverNow();
+      g.projectiles.render(now);
       g.contactViews.render(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, now);
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
     },
@@ -165,10 +202,11 @@ async function main(): Promise<void> {
   const conn = await connectOrDie(stage);
   if (!conn) return;
 
-  // The server's map, regenerated deterministically from the welcome seed.
-  buildMap(mapFromWelcome(conn.welcome), stage.layers);
+  // The server's map, regenerated deterministically from the welcome seed + cap.
+  const map = mapFromWelcome(conn.welcome);
+  buildMap(map, stage.layers);
 
-  const game = buildGame(stage, conn);
+  const game = buildGame(stage, conn, map);
   window.addEventListener('resize', () => {
     game.camera.setViewport(stage.app.screen.width, stage.app.screen.height);
   });

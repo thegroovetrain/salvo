@@ -13,6 +13,7 @@
 // ===========================================================================
 
 import type { Contact, FrameMsg, GameEvent, OwnShip } from '@salvo/shared';
+import { soonestGunCooldown } from './combat.js';
 import type { ShipRecord, World } from './world.js';
 
 function toOwnShip(ship: ShipRecord): OwnShip {
@@ -25,7 +26,9 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     hp: ship.hp,
     alive: ship.alive,
     weapon: ship.input.weapon,
-    cooldowns: [0, 0, 0], // real per-weapon cooldowns arrive with combat (step 8)
+    // [guns, torpedoes, mines] ms remaining. Guns = soonest-ready mount;
+    // torpedoes/mines land in step 12 (0 for now).
+    cooldowns: [soonestGunCooldown(ship.gunCooldowns), 0, 0],
     sweep: ship.sweepAngle,
   };
 }

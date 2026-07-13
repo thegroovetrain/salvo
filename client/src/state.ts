@@ -29,6 +29,8 @@ export interface GameState {
   phase: Phase;
   mode: NetMode;
   net: NetState;
+  /** Server time (ms) the own ship respawns at while sunk; null when alive. */
+  respawnEta: number | null;
 }
 
 /** Build a fresh client state for a joined session. */
@@ -37,5 +39,6 @@ export function createGameState(sessionId: string): GameState {
     phase: 'connecting',
     mode: 'predict',
     net: { sessionId, tick: 0, ackSeq: 0, you: null },
+    respawnEta: null,
   };
 }

@@ -1,18 +1,22 @@
-// Telegraph HUD — screen-space instrument readout (hudRoot). Shows throttle
-// notch, rudder deflection, heading, and speed so the driver can read the
-// ship's state at a glance. Geist Mono per DESIGN.md (Label/Data). Text strings
-// are diffed before assignment because Pixi re-rasterizes on every `.text` write.
+// Telegraph HUD — screen-space instrument readout (hudRoot). Throttle/rudder
+// gauges + heading/speed, an HP bar (green→amber→crimson), two gun cooldown
+// bars, and a centered respawn overlay while sunk. Geist Mono per DESIGN.md.
+// Text strings are diffed before assignment (Pixi re-rasterizes on `.text`).
 
 import { Container, Graphics, Text } from 'pixi.js';
 import type { ShipState } from '@salvo/shared';
-import { wrapPositive } from '@salvo/shared';
+import { CONFIG, wrapPositive } from '@salvo/shared';
 import type { Axes } from '../input/keyboard.js';
 
 const GREEN = 0x00ff88;
+const AMBER = 0xffb800;
+const CRIMSON = 0x8b0000;
 const DIM = 0x5a6478;
 const PANEL_W = 150;
 const PANEL_H = 60;
 const MARGIN = 20;
+const BAR_W = 150;
+const BAR_H = 10;
 
 const LABEL_STYLE = {
   fontFamily: 'Geist Mono, monospace',
@@ -21,48 +25,76 @@ const LABEL_STYLE = {
   letterSpacing: 1.5,
 } as const;
 
-const DATA_STYLE = {
+const DATA_STYLE = { fontFamily: 'Geist Mono, monospace', fontSize: 18, fill: GREEN } as const;
+const OVERLAY_STYLE = {
   fontFamily: 'Geist Mono, monospace',
-  fontSize: 18,
-  fill: GREEN,
+  fontSize: 24,
+  fill: AMBER,
+  letterSpacing: 2,
 } as const;
+
+/** Own-ship status the HUD renders beyond raw kinematics. */
+export interface OwnStatus {
+  hp: number;
+  cooldowns: number[]; // ms remaining, weapon-indexed
+  alive: boolean;
+  respawnInMs: number; // 0 when alive / unknown
+}
 
 function pad3(n: number): string {
   return Math.round(n).toString().padStart(3, '0');
 }
 
+/** HP bar color by remaining fraction (DESIGN.md green/amber/crimson). */
+export function hpColor(frac: number): number {
+  if (frac > 0.6) return GREEN;
+  if (frac > 0.3) return AMBER;
+  return CRIMSON;
+}
+
+/** Ready fraction (0 = just fired, 1 = ready) for `ms` remaining of `reload`. */
+export function cooldownReadyFraction(ms: number, reload: number): number {
+  if (reload <= 0) return 1;
+  const f = 1 - ms / reload;
+  return f < 0 ? 0 : f > 1 ? 1 : f;
+}
+
 export class Hud {
   private readonly root = new Container();
   private readonly gauges = new Graphics();
+  private readonly bars = new Graphics();
   private readonly headingLabel: Text;
   private readonly speedLabel: Text;
+  private readonly overlay: Text;
   private lastHeading = '';
   private lastSpeed = '';
+  private lastOverlay = '';
 
-  constructor(hudLayer: Container) {
+  constructor(private readonly hudLayer: Container) {
     hudLayer.addChild(this.root);
     this.root.addChild(this.gauges);
+    hudLayer.addChild(this.bars); // screen-space, positioned absolutely
     this.headingLabel = new Text({ text: '', style: DATA_STYLE });
     this.speedLabel = new Text({ text: '', style: DATA_STYLE });
     const hdgCap = new Text({ text: 'HDG', style: LABEL_STYLE });
     const spdCap = new Text({ text: 'KTS', style: LABEL_STYLE });
-    hdgCap.position.set(0, 0);
     this.headingLabel.position.set(0, 14);
     spdCap.position.set(70, 0);
     this.speedLabel.position.set(70, 14);
     this.root.addChild(hdgCap, this.headingLabel, spdCap, this.speedLabel);
+    this.overlay = new Text({ text: '', style: OVERLAY_STYLE });
+    this.overlay.anchor.set(0.5);
+    this.overlay.visible = false;
+    hudLayer.addChild(this.overlay);
   }
 
-  /** Reposition the panel for the current viewport (bottom-left). */
   private layout(screenH: number): void {
     this.root.position.set(MARGIN, screenH - PANEL_H - MARGIN);
   }
 
-  /** Draw the throttle notch (vertical) + rudder deflection (horizontal). */
   private drawGauges(axes: Axes): void {
     const g = this.gauges;
     g.clear();
-    // Throttle: vertical track at x=150, notch slides -1..1 (bottom..top).
     const tx = PANEL_W;
     const tTop = 0;
     const tBot = 44;
@@ -70,7 +102,6 @@ export class Hud {
     g.moveTo(tx, tTop).lineTo(tx, tBot).stroke({ width: 2, color: DIM, alpha: 0.6 });
     const notchY = tMid - axes.throttle * (tBot - tMid);
     g.rect(tx - 7, notchY - 1.5, 14, 3).fill({ color: GREEN, alpha: 0.9 });
-    // Rudder: horizontal track under the throttle, deflection -1..1.
     const ry = 54;
     const rL = tx - 20;
     const rR = tx + 20;
@@ -80,13 +111,36 @@ export class Hud {
     g.rect(defX - 1.5, ry - 6, 3, 12).fill({ color: GREEN, alpha: 0.9 });
   }
 
-  /** Update all instruments. Call each render frame. */
-  update(ship: ShipState, axes: Axes, _screenW: number, screenH: number): void {
-    this.layout(screenH);
-    this.drawGauges(axes);
+  /** HP bar + two gun cooldown bars, anchored bottom-right (screen space). */
+  private drawBars(status: OwnStatus, screenW: number, screenH: number): void {
+    const g = this.bars;
+    g.clear();
+    const x = screenW - BAR_W - MARGIN;
+    const baseY = screenH - MARGIN - PANEL_H;
+    this.drawHp(g, x, baseY, status.hp);
+    // Both gun bars reflect OwnShip.cooldowns[0] (soonest-ready mount); the wire
+    // carries the aggregate, not per-mount timers, so port/starboard share it.
+    const ready = cooldownReadyFraction(status.cooldowns[0] ?? 0, CONFIG.gun.reload);
+    this.drawCooldown(g, x, baseY + 18, ready);
+    this.drawCooldown(g, x + BAR_W / 2 + 4, baseY + 18, ready);
+  }
 
-    const hdgDeg = (wrapPositive(ship.heading) * 180) / Math.PI;
-    const hdg = pad3(hdgDeg);
+  private drawHp(g: Graphics, x: number, y: number, hp: number): void {
+    const frac = Math.max(0, Math.min(1, hp / CONFIG.ship.hp));
+    g.rect(x, y, BAR_W, BAR_H).fill({ color: 0x111111, alpha: 0.8 });
+    g.rect(x, y, BAR_W * frac, BAR_H).fill({ color: hpColor(frac), alpha: 0.95 });
+    g.rect(x, y, BAR_W, BAR_H).stroke({ width: 1, color: DIM, alpha: 0.5 });
+  }
+
+  private drawCooldown(g: Graphics, x: number, y: number, ready: number): void {
+    const w = BAR_W / 2 - 4;
+    g.rect(x, y, w, BAR_H).fill({ color: 0x111111, alpha: 0.8 });
+    const color = ready >= 1 ? AMBER : DIM;
+    g.rect(x, y, w * ready, BAR_H).fill({ color, alpha: 0.9 });
+  }
+
+  private updateReadouts(ship: ShipState): void {
+    const hdg = pad3((wrapPositive(ship.heading) * 180) / Math.PI);
     if (hdg !== this.lastHeading) {
       this.headingLabel.text = hdg;
       this.lastHeading = hdg;
@@ -96,5 +150,29 @@ export class Hud {
       this.speedLabel.text = spd;
       this.lastSpeed = spd;
     }
+  }
+
+  private updateOverlay(status: OwnStatus, screenW: number, screenH: number): void {
+    if (status.alive) {
+      if (this.overlay.visible) this.overlay.visible = false;
+      return;
+    }
+    const secs = Math.max(0, Math.ceil(status.respawnInMs / 1000));
+    const text = `SUNK — RESPAWNING IN ${secs}s`;
+    if (text !== this.lastOverlay) {
+      this.overlay.text = text;
+      this.lastOverlay = text;
+    }
+    this.overlay.position.set(screenW / 2, screenH / 2);
+    this.overlay.visible = true;
+  }
+
+  /** Update all instruments. Call each render frame. */
+  update(ship: ShipState, axes: Axes, status: OwnStatus, screenW: number, screenH: number): void {
+    this.layout(screenH);
+    this.drawGauges(axes);
+    this.drawBars(status, screenW, screenH);
+    this.updateReadouts(ship);
+    this.updateOverlay(status, screenW, screenH);
   }
 }

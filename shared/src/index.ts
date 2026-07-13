@@ -19,4 +19,6 @@ export * from './math/rng.js';
 
 // Simulation
 export * from './sim/ship.js';
+export * from './sim/collision.js';
+export * from './sim/shell.js';
 export * from './sim/map.js';

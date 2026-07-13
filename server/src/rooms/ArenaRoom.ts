@@ -54,6 +54,7 @@ export class ArenaRoom extends Room<ArenaState> {
       sessionId: client.sessionId,
       mapSeed: this.state.mapSeed,
       mapRadius: this.world.map.radius,
+      playerCap: this.world.playerCap,
       t: this.world.now,
       config: CONFIG,
     };
@@ -82,11 +83,14 @@ export class ArenaRoom extends Room<ArenaState> {
     }
   }
 
-  /** Mirror sim liveness onto the public roster (kills/deaths: combat step). */
+  /** Mirror sim liveness + combat tallies onto the public roster. */
   private syncRoster(): void {
     this.state.players.forEach((meta: PlayerMeta, id: string) => {
       const ship = this.world.ships.get(id);
-      if (ship && meta.alive !== ship.alive) meta.alive = ship.alive;
+      if (!ship) return;
+      if (meta.alive !== ship.alive) meta.alive = ship.alive;
+      if (meta.kills !== ship.kills) meta.kills = ship.kills;
+      if (meta.deaths !== ship.deaths) meta.deaths = ship.deaths;
     });
   }
 }

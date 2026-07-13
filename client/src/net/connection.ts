@@ -4,7 +4,7 @@
 // after the welcome resolves without re-registering message handlers.
 
 import { Client, type Room } from 'colyseus.js';
-import { CONFIG, generateMap, MSG, type FrameMsg, type GameMap, type WelcomeMsg } from '@salvo/shared';
+import { generateMap, MSG, type FrameMsg, type GameMap, type WelcomeMsg } from '@salvo/shared';
 
 const WELCOME_TIMEOUT_MS = 5000;
 
@@ -56,15 +56,13 @@ export async function connect(name?: string): Promise<Connection> {
 }
 
 /**
- * Regenerate the server's map from the welcome. generateMap takes a player
- * cap, not a radius, so invert the radius formula (radius = base *
- * sqrt(cap/capRef)) to recover the cap the server used; the seed then yields
- * an identical island field. Sanity-checked against welcome.mapRadius.
+ * Regenerate the server's map from the welcome. The server sends the exact
+ * `playerCap` it sized the map against, so the client feeds it straight into
+ * generateMap (no radius-formula inversion) for an identical island field.
+ * Sanity-checked against welcome.mapRadius.
  */
 export function mapFromWelcome(welcome: WelcomeMsg): GameMap {
-  const { baseRadius, capRef } = CONFIG.map;
-  const cap = capRef * (welcome.mapRadius / baseRadius) ** 2;
-  const map = generateMap(welcome.mapSeed, cap);
+  const map = generateMap(welcome.mapSeed, welcome.playerCap);
   if (Math.abs(map.radius - welcome.mapRadius) > 1e-6) {
     console.warn(
       `[net] regenerated map radius ${map.radius} != welcome mapRadius ${welcome.mapRadius}`,

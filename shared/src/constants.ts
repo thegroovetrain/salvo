@@ -44,6 +44,7 @@ export const CONFIG = {
     shellRange: 480, // u — max shell travel before expiring
     reload: 3000, // ms — per-mount reload
     damage: 15, // hp per hit
+    shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
     selfHitGrace: 100, // ms — a shell can't hit its own firer
     mounts: [
       { name: 'port', offset: deg(90), halfArc: deg(60) }, // +90deg, +/-60deg

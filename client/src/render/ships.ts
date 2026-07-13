@@ -36,8 +36,13 @@ function traceHull(g: Graphics): void {
     .closePath();
 }
 
+const SUNK_TINT = 0x8b0000; // DESIGN.md dark crimson
+const FLASH_MS = 130;
+
 export class ShipView {
   readonly gfx: Graphics;
+  private downed = false;
+  private flashUntil = 0;
 
   constructor(style: ShipStyle) {
     const g = new Graphics();
@@ -53,10 +58,30 @@ export class ShipView {
     this.gfx = g;
   }
 
-  /** Position + orient the hull from a world pose. */
+  /** Fade + tint the hull as sunk (true) or restore it on (re)spawn (false). */
+  setDowned(v: boolean): void {
+    this.downed = v;
+  }
+
+  /** Brief bright flash (took a hit). */
+  flash(): void {
+    this.flashUntil = performance.now() + FLASH_MS;
+  }
+
+  /** Position + orient the hull from a world pose, applying tint/alpha state. */
   update(x: number, y: number, heading: number): void {
     this.gfx.position.set(x, y);
     this.gfx.rotation = heading;
+    if (performance.now() < this.flashUntil) {
+      this.gfx.tint = 0xffffff;
+      this.gfx.alpha = 1;
+    } else if (this.downed) {
+      this.gfx.tint = SUNK_TINT;
+      this.gfx.alpha = 0.4;
+    } else {
+      this.gfx.tint = 0xffffff;
+      this.gfx.alpha = 1;
+    }
   }
 
   destroy(): void {

@@ -31,7 +31,7 @@ function serverStep(s: ShipState, inp: InputMsg): void {
 }
 
 function makeInitialized(spawn: ShipState): Predictor {
-  const p = new Predictor(MAP_R);
+  const p = new Predictor({ radius: MAP_R, islands: [] });
   p.onServerState(kin(spawn), 0);
   return p;
 }
@@ -162,9 +162,23 @@ describe('Predictor boundary clamp (mirror of server world.ts)', () => {
   });
 });
 
+describe('Predictor island collision (shared with server world.ts)', () => {
+  it('never predicts inside an island it is driven into', () => {
+    const island = { x: 120, y: 0, r: 40 };
+    const p = new Predictor({ radius: MAP_R, islands: [island] });
+    // Spawn just left of the island, pointed straight at it, full ahead.
+    p.onServerState({ x: 40, y: 0, heading: 0, speed: 0 }, 0);
+    for (let seq = 1; seq <= 60; seq++) p.localTick(input(seq, 1, 0));
+    const s = p.predicted;
+    const gap = Math.hypot(s.x - island.x, s.y - island.y);
+    // Hull circle radius = beam/2 = 6; must stay outside r + 6, minus float slack.
+    expect(gap).toBeGreaterThanOrEqual(island.r + CONFIG.ship.beam / 2 - 1e-6);
+  });
+});
+
 describe('Predictor lifecycle', () => {
   it('is uninitialized until the first server state, and after forceSnap', () => {
-    const p = new Predictor(MAP_R);
+    const p = new Predictor({ radius: MAP_R, islands: [] });
     expect(p.isInitialized).toBe(false);
     p.localTick(input(1)); // ignored pre-init
     expect(p.pendingCount).toBe(0);

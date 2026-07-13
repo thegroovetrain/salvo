@@ -1,15 +1,18 @@
 // Wires incoming frames to the client's net machinery: clock samples, the
 // server mirror in state, own-ship snapshot buffer + predictor reconcile,
-// contact snapshot buffers, and the per-tick event queue. This is the only
-// place server messages mutate client state (Colyseus messages are the only
-// push in the one-way flow; everything else pulls).
+// contact snapshot buffers, and per-tick combat events (shell/boom/dmg/sunk/
+// spawn). This is the only place server messages mutate client state (Colyseus
+// messages are the only push in the one-way flow; everything else pulls).
 
-import type { FrameMsg, GameEvent, SpawnEvent } from '@salvo/shared';
+import { CONFIG, type BoomEvent, type FrameMsg, type SpawnEvent, type SunkEvent } from '@salvo/shared';
 import type { GameState } from '../state.js';
 import type { Predictor } from '../sim/prediction.js';
 import type { Connection } from './connection.js';
 import type { ServerClock } from './clock.js';
 import { ContactStore, SnapshotBuffer } from './snapshots.js';
+import type { ContactViews } from '../render/contacts.js';
+import type { Projectiles } from '../render/projectiles.js';
+import type { Effects } from '../render/effects.js';
 import { showBanner } from '../util/banner.js';
 
 export interface RoomBindingDeps {
@@ -18,7 +21,10 @@ export interface RoomBindingDeps {
   /** Own-ship snapshot history (drives the -50ms interp render mode). */
   ownBuffer: SnapshotBuffer;
   contacts: ContactStore;
+  contactViews: ContactViews;
   predictor: Predictor;
+  projectiles: Projectiles;
+  effects: Effects;
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
 }
@@ -44,32 +50,67 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps): void {
   if (f.you) {
     net.you = f.you;
     deps.state.phase = 'active';
+    if (f.you.alive) deps.state.respawnEta = null;
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
     if (deps.state.mode === 'predict') deps.predictor.onServerState(f.you, f.ackSeq);
   }
   deps.contacts.pushFrame(f.t, f.contacts);
-  handleEvents(f.events, deps);
+  handleEvents(f, deps);
 }
 
-/**
- * Minimal event handling for steps 5-6: spawn snaps (no cross-map interp),
- * sunk logs. Combat/fog steps (8-10) consume shell/boom/dmg/blip from here —
- * this switch is the seam they extend.
- */
-function handleEvents(events: readonly GameEvent[], deps: RoomBindingDeps): void {
-  for (const e of events) {
-    if (e.k === 'spawn') handleSpawn(e, deps);
-    else if (e.k === 'sunk') console.log(`[net] sunk: ${e.id}${e.by ? ` by ${e.by}` : ''}`);
+/** Fan every per-tick event out to the right subsystem. */
+function handleEvents(f: FrameMsg, deps: RoomBindingDeps): void {
+  for (const e of f.events) {
+    switch (e.k) {
+      case 'spawn': handleSpawn(e, deps); break;
+      case 'sunk': handleSunk(e, f.t, deps); break;
+      case 'shell':
+        deps.projectiles.onShell(e);
+        deps.effects.spawnEffect('muzzle', e.x, e.y);
+        break;
+      case 'boom': handleBoom(e, deps); break;
+      // 'dmg' resolved via the boom's `hit` flash; kept for future HUD hooks.
+    }
   }
+}
+
+function handleBoom(e: BoomEvent, deps: RoomBindingDeps): void {
+  deps.projectiles.onBoom(e);
+  if (e.hit) {
+    deps.effects.spawnEffect('spark', e.x, e.y);
+    if (e.hit !== deps.state.net.sessionId) deps.contactViews.flash(e.hit);
+  } else {
+    deps.effects.spawnEffect('splash', e.x, e.y);
+  }
+}
+
+function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
+  const pos = sunkPosition(e.id, deps);
+  if (pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
+  if (e.id === deps.state.net.sessionId) {
+    deps.state.respawnEta = t + CONFIG.ship.respawnDelay;
+  } else {
+    deps.contactViews.markSunk(e.id);
+  }
+}
+
+/** Last known world position of a ship that just sank (own or a contact). */
+function sunkPosition(id: string, deps: RoomBindingDeps): { x: number; y: number } | null {
+  if (id === deps.state.net.sessionId) {
+    const you = deps.state.net.you;
+    return you ? { x: you.x, y: you.y } : null;
+  }
+  return deps.contacts.get(id)?.newest ?? null;
 }
 
 function handleSpawn(e: SpawnEvent, deps: RoomBindingDeps): void {
   if (e.id === deps.state.net.sessionId) {
-    console.log(`[net] own ship spawned at (${e.x.toFixed(0)}, ${e.y.toFixed(0)})`);
+    deps.state.respawnEta = null;
     deps.ownBuffer.clear(); // teleport: snap, don't interpolate across the map
     deps.predictor.forceSnap(); // re-init prediction from the next frame
     deps.onOwnSpawn(e.x, e.y);
   } else {
     deps.contacts.clear(e.id); // same snap rule for a respawning contact
+    deps.contactViews.markSpawn(e.id);
   }
 }

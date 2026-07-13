@@ -42,9 +42,18 @@ export interface InputMsg {
 }
 
 /**
- * Your own ship as seen in a frame — full, unfogged. `cooldowns` is indexed by
- * WeaponId (ms remaining, 0 = ready). `sweep` is the current radar angle (rad),
- * used to draw the sweep wedge client-side.
+ * Your own ship as seen in a frame — full, unfogged. `sweep` is the current
+ * radar angle (rad), used to draw the sweep wedge client-side.
+ *
+ * `cooldowns` is a 3-element array indexed by WeaponId (ms remaining until that
+ * weapon can fire again, 0 = ready to fire now):
+ *   [0] guns     — the SOONEST-ready gun mount's remaining reload. Guns have
+ *                  two independent broadside mounts; this surfaces the minimum
+ *                  of their cooldowns so the HUD/UX reads "when can I next put a
+ *                  shell out" regardless of which battery bears. (Per-mount
+ *                  timers stay server-side; the wire carries only the min.)
+ *   [1] torpedoes — 0 until torpedoes land (step 12).
+ *   [2] mines     — 0 until mines land (step 12).
  */
 export interface OwnShip {
   id: string;
@@ -55,7 +64,7 @@ export interface OwnShip {
   hp: number;
   alive: boolean;
   weapon: WeaponId; // currently selected
-  cooldowns: number[]; // ms remaining, indexed by WeaponId
+  cooldowns: number[]; // ms remaining, indexed by WeaponId (see above)
   sweep: number; // rad — current radar sweep angle
 }
 
@@ -95,10 +104,16 @@ export interface BallisticEvent {
   ttl: number; // ms — lifetime before it expires
 }
 
-/** An explosion at a point (shell/torp impact or mine detonation). */
+/**
+ * An explosion at a point (shell/torp impact or mine detonation). `id` matches
+ * the originating projectile so the client terminates its dead-reckoned render.
+ * `hit` is set to the struck ship's id on a ship impact (drives hit spark + hull
+ * flash); its absence means a splash (island/range exhaustion → splash ring).
+ */
 export interface BoomEvent {
   k: 'boom';
   id?: string; // originating projectile/mine id, if any
+  hit?: string; // struck ship id, when this boom is a ship impact
   x: number; // u
   y: number; // u
 }
@@ -180,6 +195,7 @@ export interface WelcomeMsg {
   sessionId: string;
   mapSeed: number;
   mapRadius: number; // u
+  playerCap: number; // the cap the server sized the map against (feeds generateMap)
   t: number; // ms — server time at welcome (seeds the client clock)
   config: GameConfig;
 }

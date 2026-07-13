@@ -22,6 +22,21 @@ export class ContactViews {
     return this.views.size;
   }
 
+  /** Brief hit flash on a contact (no-op if not currently viewed). */
+  flash(id: string): void {
+    this.views.get(id)?.flash();
+  }
+
+  /** Tint a contact as sunk; it fades until the store prunes it. */
+  markSunk(id: string): void {
+    this.views.get(id)?.setDowned(true);
+  }
+
+  /** Restore a contact on (re)spawn. */
+  markSpawn(id: string): void {
+    this.views.get(id)?.setDowned(false);
+  }
+
   /** Sample + draw every contact at `renderTime`; prune + drop stale views. */
   render(store: ContactStore, renderTime: number, serverNow: number): void {
     store.prune(serverNow, CONTACT_STALE_MS);

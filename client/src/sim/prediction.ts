@@ -10,8 +10,24 @@
 //                                 render time only and decays x exp(-12*dt)
 // so authoritative state converges immediately while the picture stays smooth.
 
-import { angleDiff, stepShip, wrapAngle, CONFIG, type InputMsg, type ShipState } from '@salvo/shared';
+import {
+  angleDiff,
+  resolveBoundary,
+  resolveShipIslands,
+  stepShip,
+  wrapAngle,
+  CONFIG,
+  type Circle,
+  type InputMsg,
+  type ShipState,
+} from '@salvo/shared';
 import { lerp, lerpAngle } from '../util/math.js';
+
+/** Collision inputs the predictor shares with the server sim (radius + rocks). */
+export interface CollisionMap {
+  radius: number;
+  islands: readonly Circle[];
+}
 
 /** Pending-input ring capacity (~64 ticks = 3.2s of un-acked input). */
 export const PENDING_CAPACITY = 64;
@@ -58,7 +74,7 @@ export class Predictor {
   private ready = false;
 
   constructor(
-    private readonly mapRadius: number,
+    private readonly map: CollisionMap,
     private readonly dt: number = CONFIG.tick.simDtMs / 1000,
   ) {}
 
@@ -104,7 +120,7 @@ export class Predictor {
     if (this.pending.length > PENDING_CAPACITY) this.pending.shift();
     this.prev = clone(this.curr);
     stepShip(this.curr, input, CONFIG.ship, this.dt);
-    this.clampBoundary(this.curr);
+    this.resolveCollisions(this.curr);
   }
 
   /**
@@ -147,7 +163,7 @@ export class Predictor {
     const s: ShipState = { x: you.x, y: you.y, heading: you.heading, speed: you.speed };
     for (const p of this.pending) {
       stepShip(s, { throttle: p.throttle, rudder: p.rudder }, CONFIG.ship, this.dt);
-      this.clampBoundary(s);
+      this.resolveCollisions(s);
     }
     return s;
   }
@@ -185,17 +201,12 @@ export class Predictor {
   }
 
   /**
-   * Mirror of the server's map-edge rule (server/src/game/world.ts
-   * resolveBoundary): clamp to the map circle, damp speed while pressing out.
-   * STEP 7 SEAM: this belongs in shared/src/sim/collision.ts once ship-island
-   * collision lands — consolidate both sides onto the shared function then.
+   * Ship vs island then vs map edge — the SAME shared collision the server runs
+   * in world.ts (resolveShipIslands + resolveBoundary), so prediction never
+   * diverges on rocks or the boundary.
    */
-  private clampBoundary(s: ShipState): void {
-    const d = Math.hypot(s.x, s.y);
-    if (d <= this.mapRadius) return;
-    const scale = this.mapRadius / d;
-    s.x *= scale;
-    s.y *= scale;
-    s.speed *= CONFIG.ship.islandSpeedMult;
+  private resolveCollisions(s: ShipState): void {
+    resolveShipIslands(s, this.map.islands);
+    resolveBoundary(s, this.map.radius);
   }
 }

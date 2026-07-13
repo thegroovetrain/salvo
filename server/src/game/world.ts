@@ -12,15 +12,24 @@
 import {
   CONFIG,
   generateMap,
+  hullEndpoints,
   mulberry32,
+  resolveBoundary,
+  resolveShipIslands,
+  stepShell,
   stepShip,
   wrapPositive,
+  type BallisticEvent,
   type GameEvent,
   type GameMap,
+  type HullTarget,
   type InputMsg,
   type Rng,
+  type ShellOutcome,
+  type ShellState,
   type ShipState,
 } from '@salvo/shared';
+import { fireGuns, freshGunCooldowns, tickGunCooldowns } from './combat.js';
 import { InputStore, neutralInput } from './inputs.js';
 import { pickSpawn } from './spawn.js';
 
@@ -38,11 +47,16 @@ export interface ShipRecord {
   lastAckSeq: number; // highest input seq applied to the sim
   respawnAt: number; // ms server time to respawn at; 0 = not pending
   sweepAngle: number; // rad — current radar sweep angle
+  gunCooldowns: number[]; // ms remaining per broadside mount
+  kills: number; // hulls this ship has sunk
+  deaths: number; // times this ship has been sunk
 }
 
 export class World {
   readonly map: GameMap;
+  readonly playerCap: number;
   readonly ships = new Map<string, ShipRecord>();
+  readonly shells = new Map<string, ShellState>();
   readonly inputs = new InputStore();
 
   /** ms since world creation — the one server clock. */
@@ -51,12 +65,14 @@ export class World {
   tick = 0;
 
   private rng: Rng;
+  private shellSeq = 0;
   /** Events queued since the last completed step (joins, sinks, respawns). */
   private pending: GameEvent[] = [];
   /** Events belonging to the most recently completed tick (read by frames). */
   private events: GameEvent[] = [];
 
   constructor(seed: number, playerCap: number = CONFIG.match.fillTo) {
+    this.playerCap = playerCap;
     this.map = generateMap(seed, playerCap);
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
   }
@@ -86,6 +102,9 @@ export class World {
       lastAckSeq: 0,
       respawnAt: 0,
       sweepAngle: 0,
+      gunCooldowns: freshGunCooldowns(),
+      kills: 0,
+      deaths: 0,
     };
     this.ships.set(id, rec);
     this.pending.push({ k: 'spawn', id, x: p.x, y: p.y });
@@ -99,7 +118,8 @@ export class World {
   }
 
   /**
-   * Sink a ship: dead, hp 0, respawn scheduled. Combat (step 8) will route
+   * Sink a ship: dead, hp 0, respawn scheduled, death counted. Attributes a
+   * kill to `by` when it names a different living-or-dead ship. Combat routes
    * damage through here; tests drive it directly.
    */
   sinkShip(id: string, by?: string): void {
@@ -108,7 +128,12 @@ export class World {
     ship.alive = false;
     ship.hp = 0;
     ship.state.speed = 0;
+    ship.deaths += 1;
     ship.respawnAt = this.now + CONFIG.ship.respawnDelay;
+    if (by && by !== id) {
+      const killer = this.ships.get(by);
+      if (killer) killer.kills += 1;
+    }
     this.pending.push({ k: 'sunk', id, by });
   }
 
@@ -120,9 +145,9 @@ export class World {
 
     this.applyInputs();
     this.stepShips(dt);
-    this.resolveBoundary();
-    // ---- SEAM (step 7): ship-island collision (push-out + speed damp) ----
-    // ---- SEAM (step 8): shells (swept collision) + fire control ----------
+    this.resolveCollisions();
+    this.stepShells(dt);
+    this.fireControl(dtMs);
     // ---- SEAM (step 10): radar paint window (prev sweep angle -> current) -
     this.advanceSweeps(dtMs);
     this.processRespawns();
@@ -151,19 +176,92 @@ export class World {
     }
   }
 
-  /** Map edge: clamp position to the circle and damp speed while pressing out. */
-  private resolveBoundary(): void {
-    const r = this.map.radius;
+  /**
+   * Ship vs island then vs map edge — both via the shared collision module, so
+   * client prediction resolves rocks and the boundary identically (no divergence).
+   */
+  private resolveCollisions(): void {
     for (const ship of this.ships.values()) {
       if (!ship.alive) continue;
-      const s = ship.state;
-      const d = Math.hypot(s.x, s.y);
-      if (d <= r) continue;
-      const scale = r / d;
-      s.x *= scale;
-      s.y *= scale;
-      s.speed *= CONFIG.ship.islandSpeedMult; // same damp factor as island grazing
+      resolveShipIslands(ship.state, this.map.islands);
+      resolveBoundary(ship.state, this.map.radius);
     }
+  }
+
+  /** Alive hull capsules (post-move) that shells test against this tick. */
+  private aliveHulls(): HullTarget[] {
+    const hulls: HullTarget[] = [];
+    for (const ship of this.ships.values()) {
+      if (!ship.alive) continue;
+      const h = hullEndpoints(ship.state.x, ship.state.y, ship.state.heading);
+      h.id = ship.id;
+      hulls.push(h);
+    }
+    return hulls;
+  }
+
+  /** Advance every live shell; spent shells emit a boom (+ damage on a hit). */
+  private stepShells(dt: number): void {
+    const hulls = this.aliveHulls();
+    for (const [id, shell] of this.shells) {
+      const outcome = stepShell(shell, { islands: this.map.islands, hulls, now: this.now, dt });
+      if (outcome.kind === 'travel') continue;
+      this.shells.delete(id);
+      this.resolveShell(shell, outcome);
+    }
+  }
+
+  /** Turn a spent shell's outcome into boom (+ dmg/sink) events. */
+  private resolveShell(shell: ShellState, outcome: ShellOutcome): void {
+    if (outcome.kind === 'travel') return;
+    if (outcome.kind !== 'hitShip') {
+      this.pending.push({ k: 'boom', id: shell.id, x: outcome.x, y: outcome.y });
+      return;
+    }
+    this.pending.push({ k: 'boom', id: shell.id, hit: outcome.victimId, x: outcome.x, y: outcome.y });
+    const victim = this.ships.get(outcome.victimId);
+    if (!victim || !victim.alive) return;
+    victim.hp -= CONFIG.gun.damage;
+    this.pending.push({
+      k: 'dmg',
+      id: victim.id,
+      amount: CONFIG.gun.damage,
+      hp: Math.max(0, victim.hp),
+    });
+    if (victim.hp <= 0) this.sinkShip(victim.id, shell.ownerId);
+  }
+
+  /** Tick all gun cooldowns, then fire eligible mounts and spawn their shells. */
+  private fireControl(dtMs: number): void {
+    for (const ship of this.ships.values()) {
+      tickGunCooldowns(ship.gunCooldowns, dtMs);
+      const shells = fireGuns(ship, this.now, () => this.nextShellId());
+      for (const shell of shells) {
+        this.shells.set(shell.id, shell);
+        this.pending.push(this.shellEvent(shell));
+      }
+    }
+  }
+
+  private nextShellId(): string {
+    this.shellSeq += 1;
+    return `s${this.shellSeq}`;
+  }
+
+  /** One-time ballistic params the client dead-reckons from. */
+  private shellEvent(shell: ShellState): BallisticEvent {
+    const speed = Math.hypot(shell.vx, shell.vy);
+    const ttl = speed > 0 ? (shell.distLeft / speed) * 1000 : 0;
+    return {
+      k: 'shell',
+      id: shell.id,
+      x: shell.x,
+      y: shell.y,
+      vx: shell.vx,
+      vy: shell.vy,
+      t: shell.bornAt,
+      ttl,
+    };
   }
 
   /**
@@ -197,6 +295,7 @@ export class World {
     ship.hp = CONFIG.ship.hp;
     ship.alive = true;
     ship.respawnAt = 0;
+    ship.gunCooldowns = freshGunCooldowns();
     this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
   }
 }

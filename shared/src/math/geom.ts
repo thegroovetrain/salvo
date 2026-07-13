@@ -65,12 +65,24 @@ function segSegCore(d1: Vec2, d2: Vec2, r: Vec2, a: number, e: number): [number,
   return [s, t];
 }
 
+/** Closest-approach result between two segments: params + distance. */
+export interface SegClosest {
+  /** Closest-point parameter on segment A (a0->a1), in [0, 1]. */
+  s: number;
+  /** Closest-point parameter on segment B (b0->b1), in [0, 1]. */
+  t: number;
+  /** Distance between the closest points. */
+  dist: number;
+}
+
 /**
- * Shortest distance between segment a0->a1 and segment b0->b1.
- * Degenerate segments (endpoints equal) are treated as points.
- * Powers segment-vs-hull-capsule tests: hit iff distance <= beam/2 + shellRadius.
+ * Closest approach between segment a0->a1 and segment b0->b1: the parameter on
+ * each segment plus the gap. `s` (the param on segment A) doubles as the swept
+ * hit fraction for shell-vs-hull: a shell segment A sweeping past a hull segment
+ * B hits at fraction `s` when `dist <= beam/2 + shellRadius`. Degenerate
+ * segments (endpoints equal) are treated as points.
  */
-export function segSegDistance(a0: Vec2, a1: Vec2, b0: Vec2, b1: Vec2): number {
+export function segSegClosest(a0: Vec2, a1: Vec2, b0: Vec2, b1: Vec2): SegClosest {
   const d1 = { x: a1.x - a0.x, y: a1.y - a0.y };
   const d2 = { x: b1.x - b0.x, y: b1.y - b0.y };
   const r = { x: a0.x - b0.x, y: a0.y - b0.y };
@@ -91,5 +103,14 @@ export function segSegDistance(a0: Vec2, a1: Vec2, b0: Vec2, b1: Vec2): number {
 
   const cx = a0.x + d1.x * s - (b0.x + d2.x * t);
   const cy = a0.y + d1.y * s - (b0.y + d2.y * t);
-  return Math.hypot(cx, cy);
+  return { s, t, dist: Math.hypot(cx, cy) };
+}
+
+/**
+ * Shortest distance between segment a0->a1 and segment b0->b1.
+ * Degenerate segments (endpoints equal) are treated as points.
+ * Powers segment-vs-hull-capsule tests: hit iff distance <= beam/2 + shellRadius.
+ */
+export function segSegDistance(a0: Vec2, a1: Vec2, b0: Vec2, b1: Vec2): number {
+  return segSegClosest(a0, a1, b0, b1).dist;
 }
