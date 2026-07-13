@@ -15,6 +15,8 @@ import { ContactViews } from './render/contacts.js';
 import { Projectiles } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
 import { Effects } from './render/effects.js';
+import { Fog } from './render/fog.js';
+import { Radar } from './render/radar.js';
 import { Hud, cooldownReadyFraction, type OwnStatus } from './render/hud.js';
 import { KeyboardInput } from './input/keyboard.js';
 import { MouseInput, worldAim } from './input/mouse.js';
@@ -44,6 +46,8 @@ interface Game {
   projectiles: Projectiles;
   firing: FiringUX;
   effects: Effects;
+  fog: Fog;
+  radar: Radar;
   hud: Hud;
   cameraSnapped: boolean;
   lastOwn: { x: number; y: number };
@@ -125,11 +129,14 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap): Game {
     projectiles: new Projectiles(stage.layers.projectile),
     firing: new FiringUX(stage.layers.ship),
     effects: new Effects(stage.layers.wake, stage.layers.projectile),
+    fog: new Fog(stage.fogSprite),
+    radar: new Radar(stage.layers.blip, stage.layers.sweep),
     hud: new Hud(stage.layers.hud),
     cameraSnapped: false,
     lastOwn: { x: 0, y: 0 },
   };
   g.clock.addSample(welcome.t);
+  g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   bindRoom(conn, { ...g, onOwnSpawn: (x, y) => camera.snapTo({ x, y }) });
   return g;
 }
@@ -175,7 +182,11 @@ function makeCallbacks(g: Game): LoopCallbacks {
       if (pose) renderOwn(g, pose, status, frameDt);
       const now = g.clock.serverNow();
       g.projectiles.render(now);
-      g.contactViews.render(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, now);
+      g.contactViews.render(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, now, frameDt * 1000);
+      g.radar.render(pose, now);
+      // The fog hole tracks the own ship's screen position (post camera update).
+      const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
+      g.fog.update(hole.x, hole.y);
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
     },
   };
@@ -209,6 +220,8 @@ async function main(): Promise<void> {
   const game = buildGame(stage, conn, map);
   window.addEventListener('resize', () => {
     game.camera.setViewport(stage.app.screen.width, stage.app.screen.height);
+    // Zoom derives from the viewport, so resize covers the fog's rebake-on-zoom too.
+    game.fog.rebake(stage.app.screen.width, stage.app.screen.height, game.camera.zoom);
   });
   window.addEventListener('keydown', (e) => {
     if (e.code === 'KeyP') toggleMode(game);

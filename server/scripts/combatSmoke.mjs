@@ -104,9 +104,6 @@ function laneCruise(ctx, inp, g) {
   }
 }
 
-function bPos(a) {
-  return a.contacts.find((c) => c.id) ?? null;
-}
 function roster(room, id) {
   return room.state.players.get(id);
 }
@@ -127,7 +124,9 @@ async function fightScenario(a, b, log) {
   // on the engage/approach switch avoids fire-stopping flip-flop at the edge.
   a.goal = { mode: 'idle' };
   b.goal = { mode: 'idle' };
-  const bContact = () => bPos(a);
+  // Ground-truth target (both clients live in this process): fog (step 9) hides
+  // B from A's contacts beyond sight range, so piloting can't rely on them.
+  const bContact = () => b.you;
   let engaging = false;
   let lastLog = 0;
   await pilotUntil([a, b], () => {

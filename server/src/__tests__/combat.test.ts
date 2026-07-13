@@ -25,6 +25,8 @@ function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
     lastAckSeq: 1,
     respawnAt: 0,
     sweepAngle: 0,
+    prevSweepAngle: 0,
+    seenShells: new Set<string>(),
     gunCooldowns: freshGunCooldowns(),
     kills: 0,
     deaths: 0,

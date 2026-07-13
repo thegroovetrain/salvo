@@ -1,68 +1,76 @@
 // Remote-contact rendering: one hollow amber ShipView per contact id, posed
-// by sampling its SnapshotBuffer at serverNow() - interpDelay. Lifecycle is
-// plain add/remove for now — step 9/11's 150ms fade in/out replaces the
-// instant addChild/destroy here (the store's appear/prune moments are the
-// fade triggers).
+// by sampling its SnapshotBuffer at serverNow() - interpDelay. Lifecycle wears
+// the 150ms sight fade (fade.ts): a view fades IN when its id first appears in
+// the ContactStore and fades OUT (holding its last pose) once the store prunes
+// it, then is destroyed. A contact that drops from sight but was just painted
+// hands off visually for free — the hull fades below the fog while its blip
+// (chartRoot, above the fog) keeps decaying; no coupling needed.
 
 import type { Container } from 'pixi.js';
 import { CONFIG } from '@salvo/shared';
 import type { ContactStore } from '../net/snapshots.js';
 import { ShipView, CONTACT_STYLE } from './ships.js';
+import { Fader } from './fade.js';
 
-/** Drop a contact's view once unseen for this much server time (ms). */
+/** Start a contact's fade-out once unseen for this much server time (ms). */
 export const CONTACT_STALE_MS = CONFIG.tick.interpDelayMs + 300;
 
+interface FadingView {
+  view: ShipView;
+  fader: Fader;
+}
+
 export class ContactViews {
-  private views = new Map<string, ShipView>();
+  private views = new Map<string, FadingView>();
 
   constructor(private readonly layer: Container) {}
 
-  /** How many contact views are live (tests/debug). */
+  /** How many contact views are live, including fading ones (tests/debug). */
   get count(): number {
     return this.views.size;
   }
 
   /** Brief hit flash on a contact (no-op if not currently viewed). */
   flash(id: string): void {
-    this.views.get(id)?.flash();
+    this.views.get(id)?.view.flash();
   }
 
   /** Tint a contact as sunk; it fades until the store prunes it. */
   markSunk(id: string): void {
-    this.views.get(id)?.setDowned(true);
+    this.views.get(id)?.view.setDowned(true);
   }
 
   /** Restore a contact on (re)spawn. */
   markSpawn(id: string): void {
-    this.views.get(id)?.setDowned(false);
+    this.views.get(id)?.view.setDowned(false);
   }
 
-  /** Sample + draw every contact at `renderTime`; prune + drop stale views. */
-  render(store: ContactStore, renderTime: number, serverNow: number): void {
+  /**
+   * Sample + draw every contact at `renderTime`, advance fades by `dtMs`,
+   * destroy views that have fully faded out.
+   */
+  render(store: ContactStore, renderTime: number, serverNow: number, dtMs: number): void {
     store.prune(serverNow, CONTACT_STALE_MS);
-    for (const id of store.ids()) {
+    for (const id of store.ids()) this.viewFor(id).fader.show();
+    for (const [id, fv] of this.views) {
       const s = store.get(id)?.sampleAt(renderTime);
-      if (!s) continue;
-      this.viewFor(id).update(s.x, s.y, s.heading);
+      if (s) fv.view.update(s.x, s.y, s.heading);
+      else if (!store.get(id)) fv.fader.hide(); // pruned: hold last pose, fade out
+      fv.view.setFade(fv.fader.update(dtMs));
+      if (fv.fader.hidden) {
+        fv.view.destroy();
+        this.views.delete(id);
+      }
     }
-    this.removeGone(store);
   }
 
-  private viewFor(id: string): ShipView {
-    let v = this.views.get(id);
-    if (!v) {
-      v = new ShipView(CONTACT_STYLE);
-      this.layer.addChild(v.gfx);
-      this.views.set(id, v);
+  private viewFor(id: string): FadingView {
+    let fv = this.views.get(id);
+    if (!fv) {
+      fv = { view: new ShipView(CONTACT_STYLE), fader: new Fader(false) };
+      this.layer.addChild(fv.view.gfx);
+      this.views.set(id, fv);
     }
-    return v;
-  }
-
-  private removeGone(store: ContactStore): void {
-    for (const [id, v] of this.views) {
-      if (store.get(id)) continue;
-      v.destroy();
-      this.views.delete(id);
-    }
+    return fv;
   }
 }

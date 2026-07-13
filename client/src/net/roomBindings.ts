@@ -1,8 +1,9 @@
 // Wires incoming frames to the client's net machinery: clock samples, the
 // server mirror in state, own-ship snapshot buffer + predictor reconcile,
-// contact snapshot buffers, and per-tick combat events (shell/boom/dmg/sunk/
-// spawn). This is the only place server messages mutate client state (Colyseus
-// messages are the only push in the one-way flow; everything else pulls).
+// contact snapshot buffers, and per-tick events (shell/boom/dmg/sunk/spawn +
+// radar blips/sweep -> radar module). This is the only place server messages
+// mutate client state (Colyseus messages are the only push in the one-way
+// flow; everything else pulls).
 
 import { CONFIG, type BoomEvent, type FrameMsg, type SpawnEvent, type SunkEvent } from '@salvo/shared';
 import type { GameState } from '../state.js';
@@ -13,7 +14,11 @@ import { ContactStore, SnapshotBuffer } from './snapshots.js';
 import type { ContactViews } from '../render/contacts.js';
 import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
+import type { Radar } from '../render/radar.js';
 import { showBanner } from '../util/banner.js';
+
+/** Flight time (ms) of a freshly-launched shell (full range remaining). */
+const FULL_SHELL_TTL_MS = (CONFIG.gun.shellRange / CONFIG.gun.shellSpeed) * 1000;
 
 export interface RoomBindingDeps {
   state: GameState;
@@ -25,6 +30,7 @@ export interface RoomBindingDeps {
   predictor: Predictor;
   projectiles: Projectiles;
   effects: Effects;
+  radar: Radar;
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
 }
@@ -53,6 +59,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps): void {
     if (f.you.alive) deps.state.respawnEta = null;
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
     if (deps.state.mode === 'predict') deps.predictor.onServerState(f.you, f.ackSeq);
+    deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
   }
   deps.contacts.pushFrame(f.t, f.contacts);
   handleEvents(f, deps);
@@ -66,8 +73,11 @@ function handleEvents(f: FrameMsg, deps: RoomBindingDeps): void {
       case 'sunk': handleSunk(e, f.t, deps); break;
       case 'shell':
         deps.projectiles.onShell(e);
-        deps.effects.spawnEffect('muzzle', e.x, e.y);
+        // A shell event may be a mid-flight first-sight reveal (fog): only a
+        // full-ttl shell was actually launched where the event says it is.
+        if (e.ttl >= FULL_SHELL_TTL_MS - 1) deps.effects.spawnEffect('muzzle', e.x, e.y);
         break;
+      case 'blip': deps.radar.onBlip(e); break;
       case 'boom': handleBoom(e, deps); break;
       // 'dmg' resolved via the boom's `hit` flash; kept for future HUD hooks.
     }

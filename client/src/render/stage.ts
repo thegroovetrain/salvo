@@ -2,7 +2,7 @@
 // tested). Builds the layer tree in the exact z-order the plan specifies:
 //
 //   worldRoot   (camera-transformed): ocean, wake, projectile, ship
-//   fogSprite   (screen space)        — placeholder container for now
+//   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
 //   chartRoot   (camera-transformed): map, blip, sweep   (fog-immune: above fog)
 //   hudRoot     (screen space)        — telegraph HUD
 //
@@ -31,7 +31,7 @@ export interface Stage {
   worldRoot: Container;
   /** Camera-transformed charted content (islands, boundary, blips, sweep). */
   chartRoot: Container;
-  /** Screen-space fog overlay (empty placeholder until the fog step). */
+  /** Screen-space fog overlay (render/fog.ts adds its baked sprite here). */
   fogSprite: Container;
   /** Screen-space HUD. */
   hudRoot: Container;
@@ -72,7 +72,7 @@ export async function createStage(): Promise<Stage> {
   });
 
   const worldRoot = new Container();
-  const fogSprite = new Container(); // empty placeholder until the fog step
+  const fogSprite = new Container(); // fog overlay parent (above world, below chart)
   const chartRoot = new Container();
   const hudRoot = new Container();
   // Order added == z-order.

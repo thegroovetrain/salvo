@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG } from '@salvo/shared';
-import { World } from '../game/world.js';
+import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
 const input = (seq: number, extra = {}) => ({
@@ -13,10 +13,22 @@ const input = (seq: number, extra = {}) => ({
   ...extra,
 });
 
+/** Add a ship and teleport it to an exact pose (speed 0). */
+function place(w: World, id: string, x: number, y: number): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase());
+  rec.state.x = x;
+  rec.state.y = y;
+  rec.state.heading = 0;
+  rec.state.speed = 0;
+  return rec;
+}
+
+/** Two ships well inside each other's sight, no islands (fog stays out of the way). */
 function makeWorld(): World {
   const w = new World(42);
-  w.addShip('a', 'ALPHA');
-  w.addShip('b', 'BRAVO');
+  w.map.islands.length = 0;
+  place(w, 'a', 0, 0);
+  place(w, 'b', 100, 0);
   return w;
 }
 
@@ -51,12 +63,13 @@ describe('buildFrame — shape and clock', () => {
     expect(f.spec).toBeUndefined();
   });
 
-  it('omits you for an unknown viewer (spectator seam)', () => {
+  it('omits you for an unknown viewer, who sees nothing (fail-closed)', () => {
     const w = makeWorld();
     w.step();
     const f = buildFrame(w, 'watcher');
     expect(f.you).toBeUndefined();
-    expect(f.contacts.map((c) => c.id).sort()).toEqual(['a', 'b']);
+    expect(f.contacts).toEqual([]);
+    expect(f.events).toEqual([]);
   });
 });
 
@@ -73,10 +86,10 @@ describe('buildFrame — ackSeq', () => {
   });
 });
 
-describe('buildFrame — contacts (STEP 9 SEAM: currently unfogged)', () => {
-  it('excludes self and includes every other living ship', () => {
+describe('buildFrame — contacts (fogged via perception)', () => {
+  it('excludes self and includes other living ships inside sight', () => {
     const w = makeWorld();
-    w.addShip('c', 'CHARLIE');
+    place(w, 'c', 0, 150);
     w.step();
     const f = buildFrame(w, 'a');
     expect(f.contacts.map((c) => c.id).sort()).toEqual(['b', 'c']);
@@ -90,18 +103,30 @@ describe('buildFrame — contacts (STEP 9 SEAM: currently unfogged)', () => {
     });
   });
 
-  it('excludes dead ships until they respawn', () => {
+  it('excludes ships beyond sight range (fog)', () => {
+    const w = makeWorld();
+    place(w, 'far', CONFIG.vision.sight + 50, 0);
+    w.step();
+    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
+  });
+
+  it('excludes dead ships; a respawned ship reappears once back in sight', () => {
     const w = makeWorld();
     w.sinkShip('b');
     w.step();
     expect(buildFrame(w, 'a').contacts).toEqual([]);
     for (let i = 0; i < CONFIG.ship.respawnDelay / CONFIG.tick.simDtMs; i++) w.step();
+    const b = w.ships.get('b')!;
+    expect(b.alive).toBe(true); // respawned on the ring, far outside a's sight
+    expect(buildFrame(w, 'a').contacts).toEqual([]);
+    b.state.x = 100; // steam back into a's bubble
+    b.state.y = 0;
     expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
   });
 });
 
-describe('buildFrame — events', () => {
-  it('emits spawn events on the tick after a join, then goes quiet', () => {
+describe('buildFrame — events (fogged via perception)', () => {
+  it('emits your own spawn event on the tick after a join, then goes quiet', () => {
     const w = new World(7);
     w.addShip('a', 'ALPHA');
     w.step();
@@ -111,14 +136,14 @@ describe('buildFrame — events', () => {
     expect(buildFrame(w, 'a').events).toEqual([]);
   });
 
-  it('emits sunk events to every viewer on the sink tick', () => {
+  it('emits sunk events to the victim and to viewers who can see the wreck', () => {
     const w = makeWorld();
     w.step(); // flush join spawns
     w.sinkShip('b', 'a');
     w.step();
     const sunk = { k: 'sunk', id: 'b', by: 'a' };
-    expect(buildFrame(w, 'a').events).toEqual([sunk]);
-    expect(buildFrame(w, 'b').events).toEqual([sunk]);
+    expect(buildFrame(w, 'a').events).toEqual([sunk]); // wreck 100u away — visible
+    expect(buildFrame(w, 'b').events).toEqual([sunk]); // victim always told
   });
 
   it('spawn events carry the spawn position', () => {

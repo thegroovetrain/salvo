@@ -46,7 +46,15 @@ export interface ShipRecord {
   input: InputMsg; // latest applied input (validated + clamped)
   lastAckSeq: number; // highest input seq applied to the sim
   respawnAt: number; // ms server time to respawn at; 0 = not pending
-  sweepAngle: number; // rad — current radar sweep angle
+  sweepAngle: number; // rad — current (post-advance) radar sweep angle
+  prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
+  /**
+   * Shell ids this observer has already been sent a `shell` event for.
+   * Perception emits each ballistic exactly once per observer (at launch for
+   * the owner, at first sight for everyone else); entries are forgotten when
+   * the shell is spent (see forgetShell).
+   */
+  seenShells: Set<string>;
   gunCooldowns: number[]; // ms remaining per broadside mount
   kills: number; // hulls this ship has sunk
   deaths: number; // times this ship has been sunk
@@ -102,6 +110,8 @@ export class World {
       lastAckSeq: 0,
       respawnAt: 0,
       sweepAngle: 0,
+      prevSweepAngle: 0,
+      seenShells: new Set(),
       gunCooldowns: freshGunCooldowns(),
       kills: 0,
       deaths: 0,
@@ -148,7 +158,8 @@ export class World {
     this.resolveCollisions();
     this.stepShells(dt);
     this.fireControl(dtMs);
-    // ---- SEAM (step 10): radar paint window (prev sweep angle -> current) -
+    // Radar: the sweep advances here; the per-observer paint (blips) happens
+    // at frame-build time in perception.ts using [prevSweepAngle, sweepAngle).
     this.advanceSweeps(dtMs);
     this.processRespawns();
 
@@ -207,8 +218,14 @@ export class World {
       const outcome = stepShell(shell, { islands: this.map.islands, hulls, now: this.now, dt });
       if (outcome.kind === 'travel') continue;
       this.shells.delete(id);
+      this.forgetShell(id);
       this.resolveShell(shell, outcome);
     }
+  }
+
+  /** Drop a spent shell from every observer's seen-shell set (no leaks, no growth). */
+  private forgetShell(id: string): void {
+    for (const ship of this.ships.values()) ship.seenShells.delete(id);
   }
 
   /** Turn a spent shell's outcome into boom (+ dmg/sink) events. */
@@ -265,12 +282,16 @@ export class World {
   }
 
   /**
-   * Advance each radar sweep. STUB: rotation only — the paint window (which
-   * targets the beam crossed this tick) lands in step 10 alongside blips.
+   * Advance each radar sweep, remembering where it started. This tick's paint
+   * window is the half-open arc [prevSweepAngle, sweepAngle) — perception.ts
+   * paints a target iff its bearing fell inside it (wrap-safe). OwnShip.sweep
+   * surfaces the post-advance angle, so the client's wedge sits exactly at the
+   * leading edge of everything painted this tick.
    */
   private advanceSweeps(dtMs: number): void {
     const delta = (TAU * dtMs) / CONFIG.vision.sweepPeriod;
     for (const ship of this.ships.values()) {
+      ship.prevSweepAngle = ship.sweepAngle;
       ship.sweepAngle = wrapPositive(ship.sweepAngle + delta);
     }
   }

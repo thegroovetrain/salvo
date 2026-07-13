@@ -14,7 +14,9 @@
 //     seq. This includes real network jitter (two inputs landing in one
 //     server tick, etc.) — the error visualError must absorb.
 //
-// Also asserts B's contacts track A's ship. Requires a running server
+// Also asserts B's contacts track A's ship — since fog (step 9) landed this
+// sub-check only sees frames where A is inside B's sight range (fogSmoke.mjs
+// owns visibility verification). Requires a running server
 // (tsx server/src/index.ts) and shared/dist built:
 //   node server/scripts/predictionSmoke.mjs
 

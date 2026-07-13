@@ -43,6 +43,7 @@ export class ShipView {
   readonly gfx: Graphics;
   private downed = false;
   private flashUntil = 0;
+  private fade = 1; // sight fade multiplier (contacts fade in/out over 150ms)
 
   constructor(style: ShipStyle) {
     const g = new Graphics();
@@ -68,19 +69,29 @@ export class ShipView {
     this.flashUntil = performance.now() + FLASH_MS;
   }
 
+  /** Sight-fade multiplier [0,1] applied on top of tint/alpha state. */
+  setFade(alpha: number): void {
+    this.fade = alpha;
+    this.applyLook();
+  }
+
   /** Position + orient the hull from a world pose, applying tint/alpha state. */
   update(x: number, y: number, heading: number): void {
     this.gfx.position.set(x, y);
     this.gfx.rotation = heading;
+    this.applyLook();
+  }
+
+  private applyLook(): void {
     if (performance.now() < this.flashUntil) {
       this.gfx.tint = 0xffffff;
-      this.gfx.alpha = 1;
+      this.gfx.alpha = this.fade;
     } else if (this.downed) {
       this.gfx.tint = SUNK_TINT;
-      this.gfx.alpha = 0.4;
+      this.gfx.alpha = 0.4 * this.fade;
     } else {
       this.gfx.tint = 0xffffff;
-      this.gfx.alpha = 1;
+      this.gfx.alpha = this.fade;
     }
   }
 

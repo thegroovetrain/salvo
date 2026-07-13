@@ -4,6 +4,10 @@
 //   - both receive per-tick "f" frames with `you` present
 //   - client A's ship MOVES under a full-throttle input, and frames ack its seq
 //   - each client's frames list the OTHER ship in `contacts`
+// NOTE: this was the step-5 interp checkpoint (unfogged contacts). Since fog
+// (step 9) landed, the contact assertion only holds while the ships are within
+// sight range of each other — fresh spawns usually are NOT. Superseded by
+// fogSmoke.mjs; kept for the welcome/frame/ack plumbing checks.
 // Run against a booted server:  node server/scripts/smoke.mjs
 import { Client } from 'colyseus.js';
 
