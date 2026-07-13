@@ -17,6 +17,7 @@ import {
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { FireContext, WeaponSystem } from './index.js';
+import { consume, tickReload } from './ammo.js';
 import { hullClearOffset } from './ballistics.js';
 
 /** A dropped mine. Server-owned; synced to clients as contact-like MineView. */
@@ -38,11 +39,6 @@ export interface MineTrigger {
 // (per class), plus a trigger-radius margin so the dropping ship is never
 // sitting on its own mine (owner is immune anyway, and it is unarmed for
 // armDelay regardless). Computed per-ship at drop time (see dropPoint).
-
-/** Fresh mine drop cooldown (ready). */
-export function freshMineCooldown(): number {
-  return 0;
-}
 
 /** Count a player's currently-live mines. */
 function ownMineCount(mines: Map<string, MineState>, ownerId: string): number {
@@ -125,19 +121,18 @@ export function hullFor(ship: ShipRecord): HullTarget {
   return h;
 }
 
-/** The mines weapon system (WeaponId 2). */
+/** The mines weapon system (WeaponId 2). The drop ammo pool is distinct from the
+ *  live-mine board cap (maxLive) that addMine enforces. */
 export const mineSystem: WeaponSystem = {
   id: WEAPON.mine,
+  maxAmmo: CONFIG.mine.maxAmmo,
+  reloadMs: CONFIG.mine.reloadMs,
   tick(ship: ShipRecord, dtMs: number): void {
-    ship.mineCooldown = Math.max(0, ship.mineCooldown - dtMs);
-  },
-  mountCooldowns(ship: ShipRecord): number[] {
-    return [ship.mineCooldown];
+    tickReload(ship.ammo[WEAPON.mine], CONFIG.mine.maxAmmo, CONFIG.mine.reloadMs, dtMs);
   },
   fire(ctx: FireContext): void {
-    if (ctx.ship.mineCooldown > 0) return;
+    if (!consume(ctx.ship.ammo[WEAPON.mine], CONFIG.mine.reloadMs)) return; // pool empty
     const p = dropPoint(ctx.ship);
     ctx.dropMine(p.x, p.y);
-    ctx.ship.mineCooldown = CONFIG.mine.dropCooldown;
   },
 };

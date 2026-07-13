@@ -1,14 +1,15 @@
 // Weapon systems registry + the WeaponSystem interface. Selection is
 // input.weapon (0 guns / 1 torpedoes / 2 mines); the World routes each
 // consumed click (one shot per fireSeq increment) to the selected system, but
-// EVERY system's cooldowns tick every tick regardless of selection (so a
-// weapon reloads while another is in use). Each system is a
-// small pure adapter over a ShipRecord's per-weapon cooldown state + the shared
+// EVERY system's reload ticks every tick regardless of selection (so a weapon
+// reloads while another is in use). Each system is a small pure adapter over a
+// ShipRecord's per-weapon ammo pool (weapons/ammo.ts) + the shared
 // ballistic/mine helpers; the World owns storage (shells/mines maps) and event
 // emission, exposed to systems through the narrow FireContext capabilities.
 
-import type { WeaponId, ShellState } from '@salvo/shared';
+import type { WeaponId, WeaponAmmo, ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
+import { freshAmmo } from './ammo.js';
 import { gunSystem } from './guns.js';
 import { torpedoSystem } from './torpedoes.js';
 import { mineSystem } from './mines.js';
@@ -26,17 +27,15 @@ export interface FireContext {
   dropMine: (x: number, y: number) => void;
 }
 
-/** One hull-mounted weapon: cooldown bookkeeping + selection-gated firing. */
+/** One hull-mounted weapon: ammo/reload bookkeeping + selection-gated firing. */
 export interface WeaponSystem {
   readonly id: WeaponId;
-  /** Tick this weapon's cooldown timers (called for every ship, every tick). */
+  /** Base pool size (Stage D: becomes a per-ship effective stat). */
+  readonly maxAmmo: number;
+  /** Base per-round reload ms (Stage D: becomes a per-ship effective stat). */
+  readonly reloadMs: number;
+  /** Tick this weapon's reload timer (called for every ship, every tick). */
   tick(ship: ShipRecord, dtMs: number): void;
-  /**
-   * Raw per-mount remaining-ms for this weapon (guns: [port, starboard];
-   * torpedoes: [tube…]; mines: [drop]). Feeds OwnShip.cooldowns[id] verbatim —
-   * the client owns all aim-relevant presentation now (aim is instant there).
-   */
-  mountCooldowns(ship: ShipRecord): number[];
   /** Run fire control when this weapon is selected and a click landed this tick. */
   fire(ctx: FireContext): void;
 }
@@ -44,20 +43,25 @@ export interface WeaponSystem {
 /** Weapon systems indexed by WeaponId (0 guns, 1 torpedoes, 2 mines). */
 export const WEAPON_SYSTEMS: readonly WeaponSystem[] = [gunSystem, torpedoSystem, mineSystem];
 
-/**
- * Per-mount cooldowns for OwnShip.cooldowns: a number[][] indexed by WeaponId,
- * each entry the weapon's raw per-mount remaining-ms — [[port, starboard],
- * [tube], [mineDrop]]. Aim-relevant selection / highlighting is a client concern.
- */
-export function weaponCooldowns(ship: ShipRecord): number[][] {
-  return WEAPON_SYSTEMS.map((sys) => sys.mountCooldowns(ship));
+/** A full ammo array (one WeaponAmmo per weapon) for a fresh/redeployed hull. */
+export function freshWeaponAmmo(): WeaponAmmo[] {
+  return WEAPON_SYSTEMS.map((sys) => freshAmmo(sys.maxAmmo));
 }
 
-export { gunSystem, freshGunCooldowns } from './guns.js';
-export { torpedoSystem, freshTorpedoCooldowns, fireTorpedo } from './torpedoes.js';
+/**
+ * Per-weapon ammo for OwnShip.ammo: a WeaponAmmo[] indexed by WeaponId, each a
+ * {n, reloadMsLeft} copy of the ship's live pool. maxAmmo/reloadMs are NOT on
+ * the wire — the client reads them from CONFIG (Stage D: from effective stats).
+ */
+export function weaponAmmo(ship: ShipRecord): WeaponAmmo[] {
+  return ship.ammo.map((a) => ({ n: a.n, reloadMsLeft: a.reloadMsLeft }));
+}
+
+export { freshAmmo, tickReload, consume } from './ammo.js';
+export { gunSystem } from './guns.js';
+export { torpedoSystem, fireTorpedo } from './torpedoes.js';
 export {
   mineSystem,
-  freshMineCooldown,
   addMine,
   checkMineTriggers,
   dropPoint,

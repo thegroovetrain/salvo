@@ -43,7 +43,7 @@ describe('buildFrame — shape and clock', () => {
     expect(f.tick).toBe(2);
   });
 
-  it('you is the full own-ship view with stub cooldowns and sweep', () => {
+  it('you is the full own-ship view with full ammo pools and sweep', () => {
     const w = makeWorld();
     w.submitInput('a', input(1, { weapon: 2 }));
     w.step();
@@ -58,7 +58,11 @@ describe('buildFrame — shape and clock', () => {
       hp: CONFIG.shipClasses.cruiser.hp,
       alive: true,
       weapon: 2,
-      cooldowns: [[0, 0], [0], [0]],
+      ammo: [
+        { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
+        { n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 },
+        { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 },
+      ],
       sweep: ship.sweepAngle,
       cls: 'cruiser',
     });

@@ -1,11 +1,12 @@
 // Telegraph HUD — screen-space instrument readout (hudRoot). Throttle/rudder
-// gauges + heading/speed, an HP bar (green→amber→crimson), two gun cooldown
-// bars, and a centered respawn overlay while sunk. Geist Mono per DESIGN.md.
-// Text strings are diffed before assignment (Pixi re-rasterizes on `.text`).
+// gauges + heading/speed, an HP bar (green→amber→crimson), three weapon ammo
+// chips (segmented pool + a reload line), and a centered respawn overlay while
+// sunk. Geist Mono per DESIGN.md. Text strings are diffed before assignment
+// (Pixi re-rasterizes on `.text`).
 
 import { Container, Graphics, Text } from 'pixi.js';
-import type { ShipState, WeaponId, ShipClassId } from '@salvo/shared';
-import { CONFIG, WEAPON, wrapPositive } from '@salvo/shared';
+import type { ShipState, WeaponId, ShipClassId, WeaponAmmo } from '@salvo/shared';
+import { CONFIG, wrapPositive } from '@salvo/shared';
 
 /** Kinematics subset the speed ladder needs (ahead/astern denominators). */
 interface LadderKin {
@@ -14,7 +15,6 @@ interface LadderKin {
 }
 import type { Axes } from '../input/keyboard.js';
 import type { MatchUx } from '../ui/phase.js';
-import { bearingGunMount } from './weaponArc.js';
 
 const GREEN = 0x00ff88;
 const AMBER = 0xffb800;
@@ -84,24 +84,22 @@ export function speedLadderFraction(speed: number, kin: LadderKin): number {
   return f < -1 ? -1 : f > 1 ? 1 : f;
 }
 
-/** Weapon selector chip labels + reload durations, indexed by WeaponId. */
+/** Weapon selector chip labels, indexed by WeaponId. */
 const WEAPON_LABELS = ['1 GUNS', '2 TORP', '3 MINE'] as const;
-const WEAPON_RELOADS = [CONFIG.gun.reload, CONFIG.torpedo.reload, CONFIG.mine.dropCooldown];
+/** Per-weapon reload durations (ms), indexed by WeaponId — read from CONFIG.
+ *  (Stage D: these become effectiveStats(cls, upg) lookups per own ship.) */
+export const WEAPON_RELOADS = [CONFIG.gun.reloadMs, CONFIG.torpedo.reloadMs, CONFIG.mine.reloadMs];
+/** Per-weapon ammo-pool sizes, indexed by WeaponId — read from CONFIG.
+ *  (Stage D: these become effectiveStats(cls, upg) lookups per own ship.) */
+export const WEAPON_MAX_AMMO = [CONFIG.gun.maxAmmo, CONFIG.torpedo.maxAmmo, CONFIG.mine.maxAmmo];
 const CHIP_GAP = 6;
 const CHIP_H = 20;
-const SUBBAR_GAP = 2; // px between the port/starboard gun sub-bars
+const SEG_GAP = 1; // px between ammo segments within a chip
 const CHIP_STYLE = {
   fontFamily: 'Geist Mono, monospace',
   fontSize: 14,
   fill: DIM,
   letterSpacing: 1,
-} as const;
-/** Tiny P/S markers on the two gun sub-bars. */
-const SUBBAR_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
-  fontSize: 10,
-  fill: DIM,
-  letterSpacing: 0.5,
 } as const;
 
 const LABEL_STYLE = {
@@ -122,11 +120,18 @@ const OVERLAY_STYLE = {
 /** Own-ship status the HUD renders beyond raw kinematics. */
 export interface OwnStatus {
   hp: number;
-  cooldowns: number[][]; // per weapon: per-mount ms remaining (OwnShip.cooldowns)
+  ammo: WeaponAmmo[]; // per weapon: pool count + reload timer (OwnShip.ammo)
   weapon: WeaponId; // currently-selected weapon (client-local, immediate — not the server echo)
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
   cls: ShipClassId; // own class — drives the speed-ladder denominators + max-hp fraction
+}
+
+/** View model for one ammo chip: pool count, pool size, reload progress [0,1]. */
+export interface AmmoChipView {
+  n: number;
+  max: number;
+  reloadFrac: number;
 }
 
 /**
@@ -187,10 +192,14 @@ export function hpColor(frac: number): number {
   return CRIMSON;
 }
 
-/** Ready fraction (0 = just fired, 1 = ready) for `ms` remaining of `reload`. */
-export function cooldownReadyFraction(ms: number, reload: number): number {
-  if (reload <= 0) return 1;
-  const f = 1 - ms / reload;
+/**
+ * Reload progress in [0,1] for a weapon with `reloadMsLeft` remaining of a
+ * `reloadMs` cycle: 0 when idle (no reload running) or just started, → 1 as the
+ * next round nears. Shared by the HUD reload line and the firing arc sweep-back.
+ */
+export function reloadFraction(reloadMsLeft: number, reloadMs: number): number {
+  if (reloadMsLeft <= 0 || reloadMs <= 0) return 0;
+  const f = 1 - reloadMsLeft / reloadMs;
   return f < 0 ? 0 : f > 1 ? 1 : f;
 }
 
@@ -201,30 +210,6 @@ function chipTint(selected: boolean, flash: boolean): { border: number; alpha: n
   return { border: DIM, alpha: 0.4 };
 }
 
-/**
- * Ready fraction (0..1) for one weapon's AIM-RELEVANT mount, against that
- * weapon's reload (guns 3s / torpedoes 12s / mines 8s). For guns the aim-relevant
- * mount is the one bearing on `aim` (heading-relative); when neither broadside
- * bears (aim over the bow/stern) it falls back to the soonest-ready of the two.
- * Torpedoes/mines are single-mount. Pure — the firing UX and denied-fire gate
- * share this collapse of the per-mount wire array to a single fraction.
- */
-export function weaponReadyFraction(
-  cooldowns: number[][],
-  weapon: WeaponId,
-  heading: number,
-  aim: number,
-): number {
-  const mounts = cooldowns[weapon] ?? [];
-  const reload = WEAPON_RELOADS[weapon];
-  if (weapon === WEAPON.gun) {
-    const i = bearingGunMount(heading, aim);
-    const ms = i >= 0 ? mounts[i] : (mounts.length ? Math.min(...mounts) : 0);
-    return cooldownReadyFraction(ms ?? 0, reload);
-  }
-  return cooldownReadyFraction(mounts[0] ?? 0, reload);
-}
-
 export class Hud {
   private readonly root = new Container();
   private readonly gauges = new Graphics();
@@ -233,8 +218,6 @@ export class Hud {
   private readonly speedLabel: Text;
   private readonly overlay: Text;
   private readonly chipLabels: Text[];
-  /** P/S markers on the two always-visible gun sub-bars. */
-  private readonly gunSubLabels: Text[];
   private readonly rungLabels: Text[];
   private readonly zoneLine: Text;
   private readonly stormWarn: Text;
@@ -272,12 +255,6 @@ export class Hud {
     hudLayer.addChild(this.overlay);
     this.chipLabels = WEAPON_LABELS.map((t) => {
       const label = new Text({ text: t, style: CHIP_STYLE });
-      hudLayer.addChild(label);
-      return label;
-    });
-    this.gunSubLabels = ['P', 'S'].map((t) => {
-      const label = new Text({ text: t, style: SUBBAR_STYLE });
-      label.anchor.set(0, 0.5);
       hudLayer.addChild(label);
       return label;
     });
@@ -335,7 +312,6 @@ export class Hud {
     this.root.visible = visible;
     this.bars.visible = visible;
     for (const chip of this.chipLabels) chip.visible = visible;
-    for (const lbl of this.gunSubLabels) lbl.visible = visible;
   }
 
   /** Top-center storm readout + the "IN STORM" warning above the telegraph. */
@@ -426,20 +402,13 @@ export class Hud {
   }
 
   /** HP bar + the 3-weapon selector chip row, anchored bottom-right (screen space). */
-  private drawBars(
-    status: OwnStatus,
-    heading: number,
-    aim: number,
-    screenW: number,
-    screenH: number,
-    deniedFlash: boolean,
-  ): void {
+  private drawBars(status: OwnStatus, screenW: number, screenH: number, deniedFlash: boolean): void {
     const g = this.bars;
     g.clear();
     const x = screenW - BAR_W - MARGIN;
     const baseY = screenH - MARGIN - PANEL_H;
     this.drawHp(g, x, baseY, status.hp, CONFIG.shipClasses[status.cls].hp);
-    this.drawWeaponChips(g, status, x, baseY + BAR_H + 12, heading, aim, deniedFlash);
+    this.drawWeaponChips(g, status, x, baseY + BAR_H + 12, deniedFlash);
   }
 
   private drawHp(g: Graphics, x: number, y: number, hp: number, maxHp: number): void {
@@ -452,54 +421,46 @@ export class Hud {
   /**
    * Three chips [1 GUNS / 2 TORP / 3 MINE]: the selected one is outlined amber;
    * `deniedFlash` briefly reddens the SELECTED chip's border (the HUD half of the
-   * denied-fire feedback — render/deniedFire.ts drives the rate limit). GUNS
-   * renders TWO always-visible per-mount sub-bars (P/S); torpedoes/mines a single
-   * fill. Each fills green→dim by its own mount cooldown from OwnShip.cooldowns.
+   * denied-fire feedback — render/deniedFire.ts drives the rate limit). Every chip
+   * renders as a segmented ammo pool + a reload line via drawAmmoChip, reading
+   * OwnShip.ammo with pool sizes/reloads from CONFIG (Stage D: effective stats).
    */
-  private drawWeaponChips(
-    g: Graphics,
-    status: OwnStatus,
-    x: number,
-    y: number,
-    heading: number,
-    aim: number,
-    deniedFlash: boolean,
-  ): void {
+  private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean): void {
     const cw = (BAR_W - 2 * CHIP_GAP) / 3;
     for (let i = 0; i < 3; i++) {
       const cx = x + i * (cw + CHIP_GAP);
       const selected = i === status.weapon;
+      const a = status.ammo[i] ?? { n: 0, reloadMsLeft: 0 };
       g.rect(cx, y, cw, CHIP_H).fill({ color: 0x111111, alpha: 0.8 });
-      if (i === WEAPON.gun) this.drawGunSubBars(g, status.cooldowns[WEAPON.gun] ?? [], cx, y, cw, heading, aim);
-      else this.drawSingleBar(g, (status.cooldowns[i] ?? [])[0] ?? 0, WEAPON_RELOADS[i], cx, y, cw);
+      this.drawAmmoChip(
+        g,
+        { n: a.n, max: WEAPON_MAX_AMMO[i], reloadFrac: reloadFraction(a.reloadMsLeft, WEAPON_RELOADS[i]) },
+        cx,
+        y,
+        cw,
+      );
       this.drawChip(g, this.chipLabels[i], cx, y, cw, selected, selected && deniedFlash);
     }
   }
 
-  /** One full-width cooldown fill (torpedo/mine chip). */
-  private drawSingleBar(g: Graphics, ms: number, reload: number, cx: number, y: number, cw: number): void {
-    const ready = cooldownReadyFraction(ms, reload);
-    g.rect(cx, y, cw * ready, CHIP_H).fill({ color: ready >= 1 ? GREEN : DIM, alpha: 0.85 });
-  }
-
   /**
-   * Two stacked per-mount cooldown sub-bars (port over starboard) inside the gun
-   * chip. The mount whose arc bears on the current aim is highlighted (amber
-   * outline + bright fill + amber P/S marker); the off-side mount stays dim. When
-   * neither bears (aim over bow/stern) neither is highlighted.
+   * One weapon's ammo pool inside its chip: `max` equal-width segments (green
+   * filled for loaded rounds, dim outlines for empty). At n===0 the whole segment
+   * area greys out — the only "dead" signal. While below max a highly visible
+   * amber reload line (2px, full height) sweeps left→right at reloadFrac; it
+   * stays bright even at zero ammo (the one live signal when empty).
    */
-  private drawGunSubBars(g: Graphics, mounts: number[], cx: number, y: number, cw: number, heading: number, aim: number): void {
-    const bearing = bearingGunMount(heading, aim);
-    const subH = (CHIP_H - SUBBAR_GAP) / 2;
-    for (let m = 0; m < 2; m++) {
-      const sy = y + m * (subH + SUBBAR_GAP);
-      const ready = cooldownReadyFraction(mounts[m] ?? 0, CONFIG.gun.reload);
-      const bears = m === bearing;
-      g.rect(cx, sy, cw * ready, subH).fill({ color: ready >= 1 ? GREEN : DIM, alpha: bears ? 0.95 : 0.45 });
-      if (bears) g.rect(cx, sy, cw, subH).stroke({ width: 1, color: AMBER, alpha: 0.9 });
-      const lbl = this.gunSubLabels[m];
-      lbl.position.set(cx + 3, sy + subH / 2);
-      lbl.style.fill = bears ? AMBER : DIM;
+  private drawAmmoChip(g: Graphics, view: AmmoChipView, cx: number, y: number, cw: number): void {
+    const segW = (cw - (view.max - 1) * SEG_GAP) / view.max;
+    for (let i = 0; i < view.max; i++) {
+      const sx = cx + i * (segW + SEG_GAP);
+      if (i < view.n) g.rect(sx, y, segW, CHIP_H).fill({ color: GREEN, alpha: 0.9 });
+      else g.rect(sx, y, segW, CHIP_H).stroke({ width: 1, color: DIM, alpha: 0.4 });
+    }
+    if (view.n === 0) g.rect(cx, y, cw, CHIP_H).fill({ color: DIM, alpha: 0.28 }); // grey ONLY when empty
+    if (view.n < view.max) {
+      const lx = cx + cw * view.reloadFrac;
+      g.rect(lx - 1, y, 2, CHIP_H).fill({ color: AMBER, alpha: 0.95 }); // the reload line stays bright
     }
   }
 
@@ -548,7 +509,6 @@ export class Hud {
     status: OwnStatus,
     zone: ZoneHud,
     match: MatchUx,
-    aim: number,
     screenW: number,
     screenH: number,
     deniedFlash = false,
@@ -557,7 +517,7 @@ export class Hud {
     this.spectateBanner.visible = false;
     this.layout(screenH);
     this.updateTelegraph(axes, ship.speed, CONFIG.shipClasses[status.cls].kinematics);
-    this.drawBars(status, ship.heading, aim, screenW, screenH, deniedFlash);
+    this.drawBars(status, screenW, screenH, deniedFlash);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);
     this.drawZone(zone, screenW, screenH);

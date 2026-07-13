@@ -48,6 +48,16 @@ export interface FiringPose {
   heading: number;
 }
 
+/**
+ * The selected weapon's ammo state for the firing UX: `hasAmmo` gates whether an
+ * arc/marker lights (a round is loadable); `reloadFrac` in [0,1) drives the
+ * reload sweep-back wedge (0 = idle/just-fired, → 1 = round nearly ready).
+ */
+export interface FiringAmmo {
+  hasAmmo: boolean;
+  reloadFrac: number;
+}
+
 export class FiringUX {
   private readonly arcs = new Graphics();
   private readonly reticle = new Graphics();
@@ -71,8 +81,8 @@ export class FiringUX {
 
   /**
    * Redraw for this frame. `aim` is the world bearing to the cursor, `weapon` is
-   * the selected weapon (drives which arc/marker shows), `ready` in [0,1] is the
-   * selected weapon's ready fraction (1 = loaded). `cursor` is the world point.
+   * the selected weapon (drives which arc/marker shows), `ammo` is the selected
+   * weapon's pool state ({hasAmmo, reloadFrac}). `cursor` is the world point.
    * `denied` (default false) briefly overrides the sector/marker to a red pulse
    * — driven by render/deniedFire.ts's rate-limited predicate.
    */
@@ -80,7 +90,7 @@ export class FiringUX {
     pose: FiringPose,
     aim: number,
     weapon: WeaponId,
-    ready: number,
+    ammo: FiringAmmo,
     cursor: { x: number; y: number },
     hullLength: number,
     denied = false,
@@ -89,45 +99,45 @@ export class FiringUX {
     this.arcs.clear();
     this.arcs.position.set(pose.x, pose.y);
     this.arcs.rotation = pose.heading;
-    if (weapon === WEAPON.gun) this.drawGunArcs(aim, pose.heading, ready, denied);
-    else if (weapon === WEAPON.torpedo) this.drawBowArc(aim, pose.heading, ready, denied);
-    else this.drawMineMarker(ready, denied);
-    this.drawReticle(pose, aim, weapon, ready, cursor);
+    if (weapon === WEAPON.gun) this.drawGunArcs(aim, pose.heading, ammo, denied);
+    else if (weapon === WEAPON.torpedo) this.drawBowArc(aim, pose.heading, ammo, denied);
+    else this.drawMineMarker(ammo, denied);
+    this.drawReticle(pose, aim, weapon, ammo.hasAmmo, cursor);
   }
 
-  /** One sector fill (+ cooldown sweep-back), in the arcs graphic's local frame. */
-  private sector(offset: number, halfArc: number, color: number, lit: boolean, ready: number): void {
+  /** One sector fill (+ reload sweep-back), in the arcs graphic's local frame. */
+  private sector(offset: number, halfArc: number, color: number, lit: boolean, reloadFrac: number): void {
     const g = this.arcs;
     g.moveTo(0, 0);
     g.arc(0, 0, ARC_R, offset - halfArc, offset + halfArc);
     g.lineTo(0, 0);
     g.fill({ color: lit ? color : DIM, alpha: lit ? 0.5 : 0.14 });
-    if (ready < 1) {
+    if (reloadFrac > 0 && reloadFrac < 1) {
       g.moveTo(0, 0);
       g.arc(0, 0, ARC_R * 0.5, offset - halfArc, offset + halfArc);
       g.lineTo(0, 0);
-      g.fill({ color: DIM, alpha: 0.1 + 0.2 * ready });
+      g.fill({ color: DIM, alpha: 0.1 + 0.2 * reloadFrac });
     }
   }
 
-  private drawGunArcs(aim: number, heading: number, ready: number, denied: boolean): void {
+  private drawGunArcs(aim: number, heading: number, ammo: FiringAmmo, denied: boolean): void {
     for (const m of MOUNTS) {
-      const lit = inArc(aim, wrapAngle(heading + m.offset), m.halfArc) && ready >= 1;
-      this.sector(m.offset, m.halfArc, denied ? DENIED_RED : AMBER, denied || lit, ready);
+      const lit = inArc(aim, wrapAngle(heading + m.offset), m.halfArc) && ammo.hasAmmo;
+      this.sector(m.offset, m.halfArc, denied ? DENIED_RED : AMBER, denied || lit, ammo.reloadFrac);
     }
   }
 
-  private drawBowArc(aim: number, heading: number, ready: number, denied: boolean): void {
+  private drawBowArc(aim: number, heading: number, ammo: FiringAmmo, denied: boolean): void {
     const t = CONFIG.torpedo;
-    const lit = inArc(aim, wrapAngle(heading + t.offset), t.halfArc) && ready >= 1;
-    this.sector(t.offset, t.halfArc, denied ? DENIED_RED : TORP_TINT, denied || lit, ready);
+    const lit = inArc(aim, wrapAngle(heading + t.offset), t.halfArc) && ammo.hasAmmo;
+    this.sector(t.offset, t.halfArc, denied ? DENIED_RED : TORP_TINT, denied || lit, ammo.reloadFrac);
   }
 
   /** Astern drop indicator (local -x): a small ring where the next mine lands. */
-  private drawMineMarker(ready: number, denied: boolean): void {
+  private drawMineMarker(ammo: FiringAmmo, denied: boolean): void {
     const g = this.arcs;
-    const color = denied ? DENIED_RED : ready >= 1 ? AMBER : DIM;
-    const alpha = denied ? 0.9 : ready >= 1 ? 0.8 : 0.3;
+    const color = denied ? DENIED_RED : ammo.hasAmmo ? AMBER : DIM;
+    const alpha = denied ? 0.9 : ammo.hasAmmo ? 0.8 : 0.3;
     const marker = mineMarkerFor(this.hullLength);
     g.circle(-marker, 0, 6).stroke({ width: 1.5, color, alpha });
     g.circle(-marker, 0, 2).fill({ color, alpha });
@@ -137,13 +147,13 @@ export class FiringUX {
     pose: FiringPose,
     aim: number,
     weapon: WeaponId,
-    ready: number,
+    hasAmmo: boolean,
     cursor: { x: number; y: number },
   ): void {
     const g = this.reticle;
     g.clear();
     if (weapon === WEAPON.mine) return; // mines don't aim — no reticle
-    const color = this.reticleColor(pose.heading, aim, weapon, ready);
+    const color = this.reticleColor(pose.heading, aim, weapon, hasAmmo);
     g.moveTo(pose.x, pose.y).lineTo(cursor.x, cursor.y).stroke({ width: 1, color, alpha: 0.25 });
     g.circle(cursor.x, cursor.y, RETICLE_R).stroke({ width: 1.5, color, alpha: 0.8 });
     g.moveTo(cursor.x - RETICLE_R - 3, cursor.y).lineTo(cursor.x + RETICLE_R + 3, cursor.y);
@@ -176,9 +186,9 @@ export class FiringUX {
     g.moveTo(ix - tx, iy - ty).lineTo(ix + tx, iy + ty).stroke({ width: 1, color, alpha: 0.6 });
   }
 
-  /** Reticle tint: bright when the aim is in the selected weapon's arc + ready. */
-  private reticleColor(heading: number, aim: number, weapon: WeaponId, ready: number): number {
-    if (!(weaponArcHit(heading, aim, weapon) && ready >= 1)) return DIM;
+  /** Reticle tint: bright when the aim is in the selected weapon's arc + has ammo. */
+  private reticleColor(heading: number, aim: number, weapon: WeaponId, hasAmmo: boolean): number {
+    if (!(weaponArcHit(heading, aim, weapon) && hasAmmo)) return DIM;
     return weapon === WEAPON.torpedo ? TORP_TINT : AMBER;
   }
 }

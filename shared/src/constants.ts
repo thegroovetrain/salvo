@@ -77,11 +77,18 @@ export const CONFIG = {
     sweepPeriod: 4000, // ms — one full radar revolution
   },
 
-  /** Guns (weapon 0): broadside batteries. */
+  /**
+   * Guns (weapon 0): broadside batteries. One shared AMMO POOL feeds both
+   * mounts — a click fires the single mount whose arc bears on the aim, drawing
+   * one round from the pool. `maxAmmo` ≈ the old pair of 3s port/starboard
+   * mounts, so the sustained rate is unchanged; the accepted feel change (per
+   * HULLCRACKER_NOTES) is that BOTH rounds can now go out the SAME arc.
+   */
   gun: {
     shellSpeed: 130, // u/s — shell muzzle velocity
     shellRange: 480, // u — max shell travel before expiring
-    reload: 3000, // ms — per-mount reload
+    maxAmmo: 2, // rounds in the shared broadside pool (≈ the old two 3s mounts)
+    reloadMs: 3000, // ms — one round reloads per this interval while below max
     damage: 15, // hp per hit
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
     selfHitGrace: 100, // ms — a shell can't hit its own firer
@@ -91,17 +98,19 @@ export const CONFIG = {
     ],
   },
 
-  /** Torpedoes (weapon 1): bow tube. Never painted by radar. */
+  /**
+   * Torpedoes (weapon 1): bow tube. Never painted by radar. One-deep ammo pool
+   * (owner play test 2026-07-13: two tubes fired both fish within ~2 ticks of
+   * one click, masking the 12s reload; one fish per click + a real reload is
+   * the intended commitment-spike feel). The bow tube is now just the pool.
+   */
   torpedo: {
-    // Single tube (owner play test 2026-07-13): two tubes fired both fish within
-    // ~2 ticks of one click, masking the 12s reload entirely. One fish per click
-    // + a real reload is the intended commitment-spike feel.
-    tubes: 1, // bow tube
     offset: deg(0), // bow-centered
     halfArc: deg(30), // +/-30deg launch arc
     speed: 55, // u/s
     damage: 55, // hp
-    reload: 12000, // ms — per tube
+    maxAmmo: 1, // one fish in the tube pool
+    reloadMs: 12000, // ms — reload between fish (commitment spike)
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
     selfHitGrace: 100, // ms — a torpedo can't hit its own firer
   },
@@ -112,7 +121,11 @@ export const CONFIG = {
     armDelay: 3000, // ms — before it can trigger
     triggerRadius: 25, // u — detonation proximity
     damage: 45, // hp
-    dropCooldown: 8000, // ms — between drops
+    maxAmmo: 1, // stored drops in the ammo pool (one per reload)
+    reloadMs: 8000, // ms — reload between drops
+    // maxLive is DISTINCT from the ammo pool: the drop pool caps how many you
+    // can drop before reloading; maxLive caps how many stay LIVE on the board at
+    // once (oldest evicted past it). Separate stat, separate upgrade later.
     maxLive: 3, // max simultaneous live mines per player
     globalCap: 60, // defensive ceiling on total live mines across all players
   },

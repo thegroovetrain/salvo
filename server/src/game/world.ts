@@ -34,16 +34,15 @@ import {
   type ShipClassId,
   type ShipState,
   type Vec2,
+  type WeaponAmmo,
   type ZonePhase,
   type ZoneTimeline,
 } from '@salvo/shared';
-import { freshGunCooldowns } from './combat.js';
 import {
   WEAPON_SYSTEMS,
   addMine,
   checkMineTriggers,
-  freshMineCooldown,
-  freshTorpedoCooldowns,
+  freshWeaponAmmo,
   type FireContext,
   type MineState,
 } from './weapons/index.js';
@@ -85,9 +84,12 @@ export interface ShipRecord {
    * entries are forgotten when the projectile is spent (see forgetBallistic).
    */
   seenBallistics: Set<string>;
-  gunCooldowns: number[]; // ms remaining per broadside mount
-  torpedoCooldowns: number[]; // ms remaining per bow tube
-  mineCooldown: number; // ms remaining until the next mine can be dropped
+  /**
+   * Per-weapon ammo pool + reload timer, indexed by WeaponId ([gun, torp, mine]).
+   * Replaces the old per-mount cooldown arrays: one pool + one reload per weapon
+   * (see weapons/ammo.ts). Reset to full pools on spawn/respawn/redeploy.
+   */
+  ammo: WeaponAmmo[];
   kills: number; // hulls this ship has sunk
   deaths: number; // times this ship has been sunk
   damageDealt: number; // hp dealt to OTHER hulls (self-hits and storm excluded)
@@ -203,9 +205,7 @@ export class World {
       sweepAngle: 0,
       prevSweepAngle: 0,
       seenBallistics: new Set(),
-      gunCooldowns: freshGunCooldowns(),
-      torpedoCooldowns: freshTorpedoCooldowns(),
-      mineCooldown: freshMineCooldown(),
+      ammo: freshWeaponAmmo(),
       kills: 0,
       deaths: 0,
       damageDealt: 0,
@@ -227,7 +227,7 @@ export class World {
    * Countdown→active transition (match lifecycle): clear the practice field —
    * all shells and mines gone, per-observer ballistic memory wiped, queued
    * events dropped — then redeploy EVERY hull to a fresh spawn-ring placement
-   * with full hp and fresh cooldowns. Inputs are kept (players keep driving
+   * with full hp and full ammo pools. Inputs are kept (players keep driving
    * through the transition); each ship emits a spawn event so clients snap
    * their camera/prediction to the teleport. Roster/welcome state is untouched.
    */
@@ -239,7 +239,7 @@ export class World {
     for (const ship of this.ships.values()) this.redeployShip(ship, placed);
   }
 
-  /** Fresh-match state for one hull: ring placement, full hp, fresh cooldowns. */
+  /** Fresh-match state for one hull: ring placement, full hp, full ammo pools. */
   private redeployShip(ship: ShipRecord, placed: Vec2[]): void {
     const p = pickSpawn(this.map, placed, this.rng);
     placed.push(p);
@@ -253,9 +253,7 @@ export class World {
     // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
     // (the stored input's fireSeq would read as a fresh click on this tick).
     ship.seenBallistics.clear();
-    ship.gunCooldowns = freshGunCooldowns();
-    ship.torpedoCooldowns = freshTorpedoCooldowns();
-    ship.mineCooldown = freshMineCooldown();
+    ship.ammo = freshWeaponAmmo();
     ship.kills = 0;
     ship.deaths = 0;
     ship.damageDealt = 0;
@@ -447,12 +445,12 @@ export class World {
   }
 
   /**
-   * Tick EVERY weapon's cooldowns for every ship (regardless of selection),
-   * then route this tick's click — if any — to the selected weapon system.
-   * One shot per click: a fireSeq newer than lastFireSeq is one pending click,
-   * and it is ALWAYS consumed this tick (even dead or denied-by-cooldown), so
-   * clicks during reload are consumed, not queued. Systems reach the World
-   * only through the narrow FireContext (spawn ballistics / drop mines).
+   * Tick EVERY weapon's reload for every ship (regardless of selection), then
+   * route this tick's click — if any — to the selected weapon system. One shot
+   * per click: a fireSeq newer than lastFireSeq is one pending click, and it is
+   * ALWAYS consumed this tick (even dead or denied-by-empty-pool), so clicks
+   * during reload are consumed, not queued. Systems reach the World only through
+   * the narrow FireContext (spawn ballistics / drop mines).
    */
   private fireControl(dtMs: number): void {
     for (const ship of this.ships.values()) {
@@ -551,9 +549,7 @@ export class World {
     ship.respawnAt = 0;
     // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
     // (the stored input's fireSeq would read as a fresh click on this tick).
-    ship.gunCooldowns = freshGunCooldowns();
-    ship.torpedoCooldowns = freshTorpedoCooldowns();
-    ship.mineCooldown = freshMineCooldown();
+    ship.ammo = freshWeaponAmmo();
     this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
   }
 }

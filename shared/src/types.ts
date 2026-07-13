@@ -66,19 +66,31 @@ export interface InputMsg {
 }
 
 /**
+ * One weapon's ammo pool + reload timer. Replaces the old per-mount cooldown
+ * arrays: each weapon has ONE pool (`n` = rounds ready to fire, 0 = empty) and
+ * ONE reload timer (`reloadMsLeft` = ms until the next round tops up the pool;
+ * 0 = idle, i.e. either full or between-shots with nothing pending). The reload
+ * ticks whenever the pool is below max, adds +1 per fill, and restarts (with
+ * overshoot carry) while still below max — see server weapons/ammo.ts.
+ */
+export interface WeaponAmmo {
+  n: number; // rounds currently loaded (0 = empty)
+  reloadMsLeft: number; // ms until the next round tops up the pool (0 = idle)
+}
+
+/**
  * Your own ship as seen in a frame — full, unfogged. `sweep` is the current
  * radar angle (rad), used to draw the sweep wedge client-side.
  *
- * `cooldowns` is a number[][] indexed by WeaponId — for each weapon, its raw
- * per-mount remaining-ms (0 = that mount is ready to fire now):
- *   [0] guns     — [port, starboard] broadside mounts (each +90°±60° / -90°±60°,
- *                  DISJOINT arcs). Both are on the wire; the client renders both
- *                  sub-bars and highlights whichever bears on the current aim
- *                  (aim is instant client-side, so the aim-relevant selection is
- *                  a presentation concern that lives there, not on the server).
- *   [1] torpedoes — [tube…] per-tube reloads (12s each). One tube by default.
- *   [2] mines     — [drop] remaining drop cooldown (8s between drops).
- * The whole per-mount state is on the wire (aim-relevant collapsing is client-side).
+ * `ammo` is a WeaponAmmo[] indexed by WeaponId — for each weapon, its pool
+ * count + reload timer:
+ *   [0] guns     — shared broadside pool (maxAmmo rounds; a click fires the one
+ *                  mount whose arc bears on the aim).
+ *   [1] torpedoes — bow-tube pool.
+ *   [2] mines     — drop pool (distinct from the live-mine board cap).
+ * maxAmmo / reloadMs are NOT on the wire — the client reads them from CONFIG
+ * (and, after upgrades, from its own effective-stats computation). The client
+ * derives the reload fraction from reloadMsLeft / CONFIG.reloadMs.
  */
 export interface OwnShip {
   id: string;
@@ -89,7 +101,7 @@ export interface OwnShip {
   hp: number;
   alive: boolean;
   weapon: WeaponId; // currently selected
-  cooldowns: number[][]; // per weapon: per-mount ms remaining (see above)
+  ammo: WeaponAmmo[]; // per weapon: pool count + reload timer (see above)
   sweep: number; // rad — current radar sweep angle
   cls: ShipClassId; // ship class (drives hull dims / kinematics / max hp client-side)
 }

@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG, WEAPON } from '@salvo/shared';
+import { CONFIG } from '@salvo/shared';
 import {
   hpColor,
-  cooldownReadyFraction,
-  weaponReadyFraction,
+  reloadFraction,
   detentIndexOf,
   detentLabel,
   speedLadderFraction,
@@ -25,48 +24,21 @@ describe('hpColor thresholds (DESIGN.md green/amber/crimson)', () => {
   });
 });
 
-describe('cooldownReadyFraction', () => {
-  it('maps ms-remaining to a 0..1 ready fraction', () => {
-    expect(cooldownReadyFraction(0, 3000)).toBe(1); // ready
-    expect(cooldownReadyFraction(3000, 3000)).toBe(0); // just fired
-    expect(cooldownReadyFraction(1500, 3000)).toBeCloseTo(0.5, 9);
+describe('reloadFraction — reload progress from reloadMsLeft', () => {
+  it('is 0 when idle (no reload running) and just after firing', () => {
+    expect(reloadFraction(0, CONFIG.gun.reloadMs)).toBe(0); // idle / fully loaded
+    expect(reloadFraction(CONFIG.gun.reloadMs, CONFIG.gun.reloadMs)).toBe(0); // just fired
   });
 
-  it('clamps out-of-range inputs', () => {
-    expect(cooldownReadyFraction(9000, 3000)).toBe(0); // over-full remaining
-    expect(cooldownReadyFraction(-10, 3000)).toBe(1);
-    expect(cooldownReadyFraction(100, 0)).toBe(1); // zero reload is always ready
-  });
-});
-
-describe('weaponReadyFraction — aim-relevant per-mount cooldown mapping', () => {
-  const HALF_PI = Math.PI / 2;
-
-  it('guns read the mount bearing on aim, against the gun reload', () => {
-    // heading 0: aim to port (+90°) bears on mount 0, starboard (-90°) on mount 1.
-    const cooldowns = [[CONFIG.gun.reload / 2, 0], [0], [0]];
-    expect(weaponReadyFraction(cooldowns, WEAPON.gun, 0, HALF_PI)).toBeCloseTo(0.5, 9); // port, half-reload
-    expect(weaponReadyFraction(cooldowns, WEAPON.gun, 0, -HALF_PI)).toBe(1); // starboard, ready
+  it('progresses toward 1 as the reload completes', () => {
+    expect(reloadFraction(CONFIG.gun.reloadMs / 2, CONFIG.gun.reloadMs)).toBeCloseTo(0.5, 9);
+    expect(reloadFraction(300, 3000)).toBeCloseTo(0.9, 9); // nearly ready
   });
 
-  it('guns fall back to the soonest-ready mount when neither broadside bears', () => {
-    // Aim dead ahead (0) over the bow — neither arc covers it -> min(port, stbd).
-    const cooldowns = [[1200, 700], [0], [0]];
-    expect(weaponReadyFraction(cooldowns, WEAPON.gun, 0, 0)).toBeCloseTo(
-      cooldownReadyFraction(700, CONFIG.gun.reload),
-      9,
-    );
-  });
-
-  it('torpedoes/mines read their single mount against their own reload', () => {
-    const cooldowns = [[0, 0], [CONFIG.torpedo.reload / 2], [CONFIG.mine.dropCooldown / 2]];
-    expect(weaponReadyFraction(cooldowns, WEAPON.torpedo, 0, 0)).toBeCloseTo(0.5, 9);
-    expect(weaponReadyFraction(cooldowns, WEAPON.mine, 0, 0)).toBeCloseTo(0.5, 9);
-  });
-
-  it('is ready (1) at zero remaining and empty at full reload', () => {
-    expect(weaponReadyFraction([[0, 0], [0], [0]], WEAPON.torpedo, 0, 0)).toBe(1);
-    expect(weaponReadyFraction([[0, 0], [CONFIG.torpedo.reload], [0]], WEAPON.torpedo, 0, 0)).toBe(0);
+  it('clamps out-of-range inputs and guards a zero reload', () => {
+    expect(reloadFraction(9000, 3000)).toBe(0); // over-full remaining
+    expect(reloadFraction(-10, 3000)).toBe(0); // idle
+    expect(reloadFraction(100, 0)).toBe(0); // zero reload -> no progress bar
   });
 });
 

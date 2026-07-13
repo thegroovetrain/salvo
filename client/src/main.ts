@@ -25,7 +25,7 @@ import { Mines } from './render/mines.js';
 import { Fog } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
-import { Hud, weaponReadyFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
+import { Hud, reloadFraction, WEAPON_RELOADS, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse } from './render/deniedFire.js';
@@ -134,12 +134,17 @@ function ownStatus(g: Game): OwnStatus {
   const cls = you?.cls ?? g.ownClass;
   return {
     hp: you?.hp ?? CONFIG.shipClasses[cls].hp,
-    cooldowns: you?.cooldowns ?? [[0, 0], [0], [0]],
+    // Full pools until the first frame arrives (gun 2 / torp 1 / mine 1 from CONFIG).
+    ammo: you?.ammo ?? [
+      { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
+      { n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 },
+      { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 },
+    ],
     cls,
     // Client-selected weapon (immediate), not the server echo — keeps the HUD
     // chip highlight in lockstep with the arcs/denied-flash, which already
-    // read g.keyboard.weapon directly. Cooldown VALUES still come from the
-    // server-authoritative cooldowns[] above.
+    // read g.keyboard.weapon directly. Ammo VALUES still come from the
+    // server-authoritative ammo[] above.
     weapon: g.keyboard.weapon,
     alive: you?.alive ?? true,
     respawnInMs: eta != null ? Math.max(0, eta - g.clock.serverNow()) : 0,
@@ -408,7 +413,6 @@ function renderOwn(
     status,
     zone,
     match,
-    aim,
     g.stage.app.screen.width,
     g.stage.app.screen.height,
     g.deniedFlash,
@@ -435,14 +439,17 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
     return;
   }
   // Drive the firing UX from the client-selected weapon (immediate), reading the
-  // aim-relevant mount's cooldown from the server-authoritative per-mount array.
+  // pool count + reload from the server-authoritative ammo array. `ready` for the
+  // denied-fire gate is now "pool has a round" (ammo.n > 0).
   const weapon = g.keyboard.weapon;
-  const ready = weaponReadyFraction(status.cooldowns, weapon, pose.heading, aim);
+  const a = status.ammo[weapon] ?? { n: 0, reloadMsLeft: 0 };
+  const hasAmmo = a.n > 0;
+  const reloadFrac = reloadFraction(a.reloadMsLeft, WEAPON_RELOADS[weapon]);
   const inArc = weaponArcHit(pose.heading, aim, weapon);
-  const denied = isClickDenied({ clicked, ready: ready >= 1, inArc });
+  const denied = isClickDenied({ clicked, ready: hasAmmo, inArc });
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
   const hullLength = CONFIG.shipClasses[status.cls].hull.length;
-  g.firing.update(pose, aim, weapon, ready, cursor, hullLength, g.deniedFlash);
+  g.firing.update(pose, aim, weapon, { hasAmmo, reloadFrac }, cursor, hullLength, g.deniedFlash);
 }
 
 function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {

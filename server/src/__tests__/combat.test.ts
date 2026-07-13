@@ -8,13 +8,8 @@ import {
   type BoomEvent,
   type GameEvent,
 } from '@salvo/shared';
-import {
-  clampToArc,
-  fireGuns,
-  freshGunCooldowns,
-  tickGunCooldowns,
-} from '../game/combat.js';
-import { freshMineCooldown, freshTorpedoCooldowns } from '../game/weapons/index.js';
+import { clampToArc, fireGuns } from '../game/combat.js';
+import { freshWeaponAmmo } from '../game/weapons/index.js';
 import type { ShipRecord } from '../game/world.js';
 import { World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -38,9 +33,7 @@ function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
     sweepAngle: 0,
     prevSweepAngle: 0,
     seenBallistics: new Set<string>(),
-    gunCooldowns: freshGunCooldowns(),
-    torpedoCooldowns: freshTorpedoCooldowns(),
-    mineCooldown: freshMineCooldown(),
+    ammo: freshWeaponAmmo(),
     kills: 0,
     deaths: 0,
     damageDealt: 0,
@@ -62,14 +55,6 @@ describe('clampToArc', () => {
     const clamped = clampToArc(HALF_PI + 1, center, halfArc);
     expect(clamped).toBeCloseTo(wrapAngle(center + halfArc), 9);
     expect(inArc(clamped, center, halfArc + 1e-9)).toBe(true);
-  });
-});
-
-describe('tickGunCooldowns', () => {
-  it('floors each mount cooldown at zero', () => {
-    const cd = [2500, 500];
-    tickGunCooldowns(cd, 600);
-    expect(cd).toEqual([1900, 0]);
   });
 });
 
@@ -101,11 +86,13 @@ describe('fireGuns — arc gating', () => {
 });
 
 describe('fireGuns — gating rules', () => {
-  it('does not fire a mount that is still reloading', () => {
+  it('drains the shared ammo pool, then denies once empty', () => {
     const ship = rec();
-    fireGuns(ship, 0, mkId); // fires port, sets its cooldown
-    expect(fireGuns(ship, 0, mkId)).toHaveLength(0);
-    expect(ship.gunCooldowns[0]).toBe(CONFIG.gun.reload);
+    expect(fireGuns(ship, 0, mkId)).toHaveLength(1); // pool 2 -> 1, reload starts
+    expect(fireGuns(ship, 0, mkId)).toHaveLength(1); // pool 1 -> 0 (both out one arc)
+    expect(fireGuns(ship, 0, mkId)).toHaveLength(0); // empty
+    expect(ship.ammo[WEAPON.gun].n).toBe(0);
+    expect(ship.ammo[WEAPON.gun].reloadMsLeft).toBe(CONFIG.gun.reloadMs); // firing mid-reload didn't reset it
   });
 
   it('does not fire when guns are not selected or the ship is dead ' +
@@ -231,10 +218,13 @@ describe('World fire control — one shot per click (fireSeq)', () => {
   it('a click during reload is consumed, not queued (no deferred shot after reload)', () => {
     const { w } = armed();
     w.submitInput('a', gunInput(HALF_PI, 300, 1, 1));
-    stepCollect(w, 10); // shell 1 out; port mount reloading (3s)
-    w.submitInput('a', gunInput(HALF_PI, 300, 2, 2)); // click mid-reload
+    stepCollect(w, 10); // shell 1 out; pool drawn down, reloading (3s)
+    // Drain the remaining pool round so the mid-reload click can't ride it.
+    w.submitInput('a', gunInput(HALF_PI, 300, 2, 2));
+    stepCollect(w, 1); // consumes click 2 -> pool now empty
+    w.submitInput('a', gunInput(HALF_PI, 300, 3, 3)); // click mid-reload, empty pool
     // Step well past the reload end: the mid-reload click must NOT fire late.
-    const events = stepCollect(w, CONFIG.gun.reload / CONFIG.tick.simDtMs + 20);
+    const events = stepCollect(w, CONFIG.gun.reloadMs / CONFIG.tick.simDtMs + 20);
     expect(shellsOf(events)).toHaveLength(0);
   });
 
@@ -246,6 +236,16 @@ describe('World fire control — one shot per click (fireSeq)', () => {
     w.submitInput('a', gunInput(-HALF_PI, 300, 2, 3)); // click 2: starboard arc (ready mount)
     const second = stepCollect(w, 2);
     expect(shellsOf(second)).toHaveLength(1);
+  });
+
+  it('two clicks drain the 2-pool out the SAME arc; a third is denied', () => {
+    const { w } = armed();
+    w.submitInput('a', gunInput(HALF_PI, 300, 1, 1)); // click 1, port arc
+    expect(shellsOf(stepCollect(w, 2))).toHaveLength(1); // pool 2 -> 1
+    w.submitInput('a', gunInput(HALF_PI, 300, 2, 3)); // click 2, SAME port arc
+    expect(shellsOf(stepCollect(w, 2))).toHaveLength(1); // pool 1 -> 0
+    w.submitInput('a', gunInput(HALF_PI, 300, 3, 5)); // click 3, empty pool
+    expect(shellsOf(stepCollect(w, 2))).toHaveLength(0); // denied — nothing spawns
   });
 
   it('a click while dead is consumed — no shot on the respawn tick', () => {
