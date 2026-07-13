@@ -4,9 +4,8 @@
     "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "paths": {
-      "@salvo/shared/hex": ["../shared/src/hex.ts"]
-    }
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false
   },
   "include": ["src"],
   "references": [

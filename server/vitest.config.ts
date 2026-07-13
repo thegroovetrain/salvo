@@ -5,11 +5,11 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
+    passWithNoTests: true,
   },
   resolve: {
     alias: [
-      { find: '@salvo/shared/hex', replacement: path.resolve(__dirname, '../shared/src/hex.ts') },
-      { find: '@salvo/shared', replacement: path.resolve(__dirname, '../shared/src/types.ts') },
+      { find: '@salvo/shared', replacement: path.resolve(__dirname, '../shared/src/index.ts') },
     ],
   },
 });
