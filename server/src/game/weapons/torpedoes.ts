@@ -40,6 +40,7 @@ export function fireTorpedo(ship: ShipRecord, now: number, mkId: () => string): 
     damage: CONFIG.torpedo.damage,
     hitRadius: CONFIG.torpedo.hitRadius, // A4: own value, no longer gun.shellRadius
     graceMs: CONFIG.torpedo.selfHitGrace, // A4: own value
+    spawnClearance: CONFIG.torpedo.spawnClearance, // real spawn margin — self-hit fix
     kind: 'torp',
   });
 }

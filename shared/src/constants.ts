@@ -107,12 +107,22 @@ export const CONFIG = {
   torpedo: {
     offset: deg(0), // bow-centered
     halfArc: deg(30), // +/-30deg launch arc
-    speed: 55, // u/s
+    // u/s — must outrun every ship class (destroyer maxSpeed 46 is the
+    // fastest hull) so a full-speed firer can never re-catch its own fish;
+    // pinned by damageGuardrail.test. Also a deliberate balance change: torps
+    // are harder to dodge now (owner call, 2026-07-14 self-hit fix session).
+    speed: 70, // u/s
     damage: 55, // hp
     maxAmmo: 1, // one fish in the tube pool
     reloadMs: 12000, // ms — reload between fish (commitment spike)
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
-    selfHitGrace: 100, // ms — a torpedo can't hit its own firer
+    // u — extra spawn-offset margin ON TOP of hitRadius (see hullClearOffset)
+    // so the fish spawns genuinely CLEAR of the firer's own hull, not merely
+    // touching it. Root fix for the self-hit bug: the old spawn point landed
+    // exactly on the firer's own collision boundary with zero margin.
+    spawnClearance: 6, // u
+    selfHitGrace: 500, // ms — owner-only backstop against re-collision on the
+    // spawn tick; never affects hitting enemies (grace only exempts the firer).
   },
 
   /** Mines (weapon 2): dropped astern. Never on radar. */

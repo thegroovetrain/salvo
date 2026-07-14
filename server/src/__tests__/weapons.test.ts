@@ -122,7 +122,7 @@ describe('torpedoes — island block + ship hit', () => {
 describe('A4 CONFIG constants', () => {
   it('torpedoes carry their own collision + grace values (no longer gun-borrowed)', () => {
     expect(CONFIG.torpedo.hitRadius).toBe(2);
-    expect(CONFIG.torpedo.selfHitGrace).toBe(100);
+    expect(CONFIG.torpedo.selfHitGrace).toBe(500); // owner-only backstop, bumped for the self-hit fix
   });
   it('the global mine cap lives on CONFIG.mine', () => {
     expect(CONFIG.mine.globalCap).toBe(60);
