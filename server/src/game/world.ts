@@ -39,6 +39,7 @@ import {
   type ShipClassId,
   type ShipState,
   type UpgradeId,
+  type UpgradeOffer,
   type Vec2,
   type WeaponAmmo,
   type WeaponId,
@@ -74,6 +75,15 @@ export interface ShipRecord {
    * fresh build). Mutated only by grantUpgrade(); `stats` is recomputed with it.
    */
   upgrades: number[];
+  /**
+   * FIFO queue of pre-rolled upgrade offers, one per unspent banked point.
+   * points = offers.length — this queue is the SINGLE SOURCE OF TRUTH for the
+   * point count (OwnShip.pts derives from it). Each offer is rolled once at
+   * earn-time (sim/offers.rollOffer) so reopening the spend window can't reroll;
+   * the front offer is the one surfaced on the wire. Wiped by redeployShip (a
+   * fresh match = fresh build), like upgrades.
+   */
+  offers: UpgradeOffer[];
   /**
    * Cached effective stats for (cls, upgrades) — the shared effectiveStats()
    * result. Every stat read in the sim (kinematics, vision, weapon pools,
@@ -225,6 +235,7 @@ export class World {
       classId,
       cls,
       upgrades,
+      offers: [],
       stats,
       state: { x: p.x, y: p.y, heading: Math.atan2(-p.y, -p.x), speed: 0 },
       hp: stats.maxHp,
@@ -283,6 +294,7 @@ export class World {
     ship.state.heading = Math.atan2(-p.y, -p.x);
     ship.state.speed = 0;
     ship.upgrades = zeroUpgrades();
+    ship.offers = [];
     ship.stats = effectiveStats(ship.cls, ship.upgrades);
     ship.hp = ship.stats.maxHp;
     ship.alive = true;

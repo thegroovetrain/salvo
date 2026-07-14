@@ -66,6 +66,8 @@ describe('buildFrame — shape and clock', () => {
       sweep: ship.sweepAngle,
       cls: 'cruiser',
       upg: zeroUpgrades(), // 14 zero counts — no upgrades granted yet
+      pts: 0, // no points banked
+      offer: [], // no offer while pts is 0
     });
     expect(f.spec).toBeUndefined();
   });

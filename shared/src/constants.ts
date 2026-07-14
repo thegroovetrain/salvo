@@ -164,6 +164,15 @@ export const CONFIG = {
     maxMines: { add: 1 }, // +max simultaneous LIVE mines on the board per stack
   },
 
+  /**
+   * Spend economy layered on the kill-reward upgrades. A kill banks ONE point;
+   * each point carries a pre-rolled 3-upgrade offer (see sim/offers.ts) plus the
+   * always-available heal spend below. Heal is alive-only and clamped to maxHp.
+   */
+  upgradePoints: {
+    healHp: 25, // hp restored per point spent on heal (clamped to effective maxHp)
+  },
+
   /** Storm circle / battle-royale zone. */
   zone: {
     grace: 45000, // ms — full radius before shrink begins
@@ -230,6 +239,27 @@ export const UPGRADE_IDS = [
 
 /** One of the 14 upgrade type ids (see UPGRADE_IDS / CONFIG.upgrades). */
 export type UpgradeId = (typeof UPGRADE_IDS)[number];
+
+/** Ordered upgrade CATEGORY ids. Category order feeds the deterministic offer
+ *  roll (see sim/offers.ts), so — like UPGRADE_IDS — this is append-only. */
+export const UPGRADE_CATEGORY_IDS = ['ship', 'intel', 'guns', 'torpedoes', 'mines'] as const;
+
+/** One of the 5 upgrade category ids (see UPGRADE_CATEGORIES). */
+export type UpgradeCategoryId = (typeof UPGRADE_CATEGORY_IDS)[number];
+
+/**
+ * Category → its member upgrade ids. PARTITIONS UPGRADE_IDS EXACTLY: every id
+ * appears in exactly one category and the union is all 14 (guarded by
+ * offers.test.ts, which forces a future 15th upgrade to be categorized). The
+ * per-category id order also feeds the deterministic offer roll — append-only.
+ */
+export const UPGRADE_CATEGORIES: Record<UpgradeCategoryId, readonly UpgradeId[]> = {
+  ship: ['hullPoints', 'maxSpeed'],
+  intel: ['radarRange', 'sweepSpeed', 'sightRange'],
+  guns: ['gunAmmo', 'gunRange', 'gunReload'],
+  torpedoes: ['torpedoAmmo', 'torpedoSpeed', 'torpedoReload'],
+  mines: ['mineAmmo', 'maxMines', 'mineReload'],
+};
 
 /** Map radius for a given player cap: base * sqrt(cap / capRef). */
 export function mapRadius(playerCap: number): number {

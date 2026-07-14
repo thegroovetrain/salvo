@@ -29,6 +29,7 @@ function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
     classId: 'cruiser',
     cls: CONFIG.shipClasses.cruiser,
     upgrades: zeroUpgrades(),
+    offers: [],
     stats: CRUISER_STATS,
     state: { x: 0, y: 0, heading: 0, speed: 0 },
     hp: CONFIG.shipClasses.cruiser.hp,

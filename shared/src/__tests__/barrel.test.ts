@@ -4,8 +4,13 @@ import {
   CONFIG,
   MSG,
   UPGRADE_IDS,
+  UPGRADE_CATEGORY_IDS,
+  UPGRADE_CATEGORIES,
+  HEAL_CHOICE,
   WEAPON,
   effectiveStats,
+  rollOffer,
+  categoryOf,
   mapRadius,
   stepShip,
   generateMap,
@@ -37,5 +42,15 @@ describe('shared barrel', () => {
     expect(typeof effectiveStats).toBe('function');
     expect(typeof zeroUpgrades).toBe('function');
     expect(CONFIG.upgrades.gunAmmo.add).toBe(1);
+  });
+
+  it('re-exports the offer/spend system', () => {
+    expect(UPGRADE_CATEGORY_IDS).toHaveLength(5);
+    expect(Object.keys(UPGRADE_CATEGORIES)).toHaveLength(5);
+    expect(typeof rollOffer).toBe('function');
+    expect(typeof categoryOf).toBe('function');
+    expect(MSG.spend).toBe('u');
+    expect(HEAL_CHOICE).toBe(3);
+    expect(CONFIG.upgradePoints.healHp).toBe(25);
   });
 });

@@ -13,6 +13,7 @@ export const MSG = {
   input: 'i',
   frame: 'f',
   results: 'r',
+  spend: 'u', // client->server: spend one banked point (see SpendMsg)
 } as const;
 
 /**
@@ -66,6 +67,20 @@ export interface InputMsg {
 }
 
 /**
+ * Client -> server spend ("u"): consume one banked point. `choice` is 0..2 for
+ * the current offer's slot (see OwnShip.offer / UpgradeOffer) or HEAL_CHOICE for
+ * the always-available heal. Deliberately a DISCRETE reliable message, NOT a
+ * field on the per-tick InputMsg: the latest-input-wins coalescing there would
+ * silently drop back-to-back spends (two quick kills → two spends).
+ */
+export interface SpendMsg {
+  choice: number; // 0..2 = offer slot, HEAL_CHOICE = heal
+}
+
+/** SpendMsg.choice value that spends a point on healing instead of an upgrade. */
+export const HEAL_CHOICE = 3;
+
+/**
  * One weapon's ammo pool + reload timer. Replaces the old per-mount cooldown
  * arrays: each weapon has ONE pool (`n` = rounds ready to fire, 0 = empty) and
  * ONE reload timer (`reloadMsLeft` = ms until the next round tops up the pool;
@@ -113,6 +128,18 @@ export interface OwnShip {
    * a sighted hull's class size is the only legitimate tell).
    */
   upg: number[];
+  /**
+   * Banked upgrade points not yet spent (one per kill). Like `upg`, this rides
+   * `you` ONLY — self-private by construction, never on a Contact or spectator
+   * payload.
+   */
+  pts: number;
+  /**
+   * The FRONT queued offer, as indices into UPGRADE_IDS (three distinct
+   * categories; see sim/offers.ts). `[]` when pts is 0. Only the front offer is
+   * ever surfaced — the rest of the queue never leaves the server.
+   */
+  offer: number[];
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */
@@ -218,6 +245,28 @@ export interface UpgradeEvent {
 }
 
 /**
+ * A banked point earned (one per kill). SELF-PRIVATE: `id` is the earning ship's
+ * id, and perception forwards it ONLY to that observer — the same mechanism as
+ * the killer-private `upg` event. Purely UX (toast + tone): the authoritative
+ * count self-syncs every frame via OwnShip.pts.
+ */
+export interface PointEvent {
+  k: 'pt';
+  id: string; // the earner (= the only observer this is ever delivered to)
+}
+
+/**
+ * A heal spend was applied. SELF-PRIVATE (forwarded only to `id`, like `pt`).
+ * `amount` is the ACTUAL clamped hp delta (0 at full hp), so the client can toast
+ * the real gain; the authoritative hp self-syncs every frame via OwnShip.hp.
+ */
+export interface HealEvent {
+  k: 'heal';
+  id: string; // the healed ship (= the only observer this is ever delivered to)
+  amount: number; // hp actually restored (clamped delta)
+}
+
+/**
  * A mine visible to this viewer, synced as CONTACT-LIKE state (not an event):
  * FrameMsg.mines is recomputed per observer every tick, exactly like contacts.
  * Owner sees ALL own mines always; others see a mine only when it is within
@@ -241,7 +290,9 @@ export type GameEvent =
   | DamageEvent
   | SunkEvent
   | SpawnEvent
-  | UpgradeEvent;
+  | UpgradeEvent
+  | PointEvent
+  | HealEvent;
 
 /**
  * Server -> client per-tick frame ("f"). Built per client by buildFrame().

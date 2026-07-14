@@ -6,7 +6,7 @@
 // invariant stays a unit-testable property of one function. Nothing else may
 // ever put contacts or events into a frame.
 
-import type { FrameMsg, MatchPhase, OwnShip } from '@salvo/shared';
+import { UPGRADE_IDS, type FrameMsg, type MatchPhase, type OwnShip } from '@salvo/shared';
 import { observe, observeSpectator } from './perception.js';
 import { weaponAmmo } from './weapons/index.js';
 import type { ShipRecord, World } from './world.js';
@@ -31,6 +31,11 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     // frame; the client derives effective stats from (cls, upg). OWN SHIP ONLY
     // — contacts/spectator payloads never carry upgrade data (anti-cheat).
     upg: [...ship.upgrades],
+    // Banked points = the offer queue length (single source of truth). Only the
+    // FRONT offer is surfaced, as UPGRADE_IDS indices; the rest never leaves the
+    // server. Self-private (own ship only), like upg.
+    pts: ship.offers.length,
+    offer: ship.offers.length > 0 ? ship.offers[0].map((t) => UPGRADE_IDS.indexOf(t)) : [],
   };
 }
 
