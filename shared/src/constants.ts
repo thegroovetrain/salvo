@@ -89,7 +89,7 @@ export const CONFIG = {
     shellRange: 480, // u — max shell travel before expiring
     maxAmmo: 2, // rounds in the shared broadside pool (≈ the old two 3s mounts)
     reloadMs: 3000, // ms — one round reloads per this interval while below max
-    damage: 15, // hp per hit
+    damage: 25, // hp per hit — THE gun-damage tunable (pinned by damageGuardrail.test)
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
     selfHitGrace: 100, // ms — a shell can't hit its own firer
     mounts: [
