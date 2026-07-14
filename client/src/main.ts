@@ -87,6 +87,15 @@ interface Game {
   hud: Hud;
   /** The CTRL spend window (ui/upgradeMenu.ts) — DOM, non-blocking. */
   upgradeMenu: UpgradeMenu;
+  /**
+   * FINDING A latch: set the instant a spend is sent, cleared once it visibly
+   * lands (pts drops) or a fallback timeout elapses (the server silently
+   * rejected it — e.g. a heal that raced to full hp — so don't lock the
+   * player out forever). Guards against two rapid spends (CTRL+1 then
+   * CTRL+2, or two row clicks) within one server-tick+RTT both firing against
+   * the SAME (now-stale) front offer — see trySpend()/updateSpendLatch().
+   */
+  spendInFlight: { pts: number; at: number } | null;
   /** Colyseus room — polled each frame for the public zone/match plane. */
   room: Room;
   /** Full map radius (u) — the zone's derived-radius baseline. */
@@ -190,9 +199,47 @@ function ownStatus(g: Game): OwnStatus {
   };
 }
 
+/** How long the spend latch (below) holds before falling back open, in case the
+ *  server silently rejected the spend (e.g. a heal that raced to full hp) —
+ *  well past any real server-tick+RTT round trip, so it never masks a stuck UI. */
+const SPEND_LATCH_TIMEOUT_MS = 1500;
+
+/**
+ * FINDING A: the single entry point for BOTH spend paths (keyboard choose/heal
+ * via handleUpgradeAction, and the UpgradeMenu row-click callback). Ignores a
+ * second spend while one is already in flight — otherwise two rapid spends
+ * within one server-tick+RTT (CTRL+1 then CTRL+2, or two row clicks) both read
+ * the SAME client-side front offer, and the second lands after the server's
+ * FIFO shift and applies an upgrade the client never displayed. Latched by
+ * banked points at send time; cleared by updateSpendLatch() once the bank
+ * visibly shrinks or the fallback timeout elapses.
+ */
+function trySpend(g: Game, choice: number): void {
+  if (g.spendInFlight) return;
+  const pts = g.state.net.you?.pts ?? 0;
+  g.room.send(MSG.spend, { choice });
+  g.spendInFlight = { pts, at: performance.now() };
+}
+
+/**
+ * Clear the spend latch once the spend visibly landed (pts dropped below what
+ * it was when we sent it) or the fallback timeout elapsed (silently rejected —
+ * e.g. heal-at-full-hp — so the player isn't locked out of spending forever).
+ * Called once per render frame, same clock (`performance.now()`) the render
+ * loop already uses for the denied-fire pulse — no new timer.
+ */
+function updateSpendLatch(g: Game): void {
+  const inFlight = g.spendInFlight;
+  if (!inFlight) return;
+  const pts = g.state.net.you?.pts ?? 0;
+  const landed = pts < inFlight.pts;
+  const expired = performance.now() - inFlight.at > SPEND_LATCH_TIMEOUT_MS;
+  if (landed || expired) g.spendInFlight = null;
+}
+
 /** The spend view for THIS frame (null = nothing to show → menu auto-hides). */
 function currentOfferView(g: Game): OfferView | null {
-  return offerView(g.state.net.you, g.ownStats.maxHp, g.state.spectating);
+  return offerView(g.state.net.you, g.ownStats.maxHp, g.state.spectating, g.spendInFlight !== null);
 }
 
 /**
@@ -200,7 +247,7 @@ function currentOfferView(g: Game): OfferView | null {
  * spends an offer slot; CTRL+E heals (gated client-side by canHeal — the server
  * re-validates). Inert when there is nothing to spend (no view). Shortcuts work
  * with the window closed: the offer is stable from earn time, so you commit
- * without reading. Spends are discrete room.send(MSG.spend) messages (FIFO).
+ * without reading. Spends route through trySpend() (FIFO room.send + latch).
  */
 function handleUpgradeAction(g: Game, a: UpgradeAction): void {
   const view = currentOfferView(g);
@@ -213,10 +260,10 @@ function handleUpgradeAction(g: Game, a: UpgradeAction): void {
     return;
   }
   if (a.kind === 'heal') {
-    if (view.canHeal) g.room.send(MSG.spend, { choice: HEAL_CHOICE });
+    if (view.canHeal) trySpend(g, HEAL_CHOICE);
     return;
   }
-  g.room.send(MSG.spend, { choice: a.slot });
+  trySpend(g, a.slot);
 }
 
 /** Live safe radius + state, derived locally from the schema's zone plane. */
@@ -399,6 +446,19 @@ function viewportCallbacks(getG: () => Game | null): {
   };
 }
 
+/**
+ * The UpgradeMenu's row-click callback: same late-binding as viewportCallbacks
+ * (gRef isn't assigned until after the Game object literal below), routed
+ * through trySpend() so a row click shares the FINDING A latch with the
+ * keyboard spend path.
+ */
+function onSpendClick(getG: () => Game | null): (choice: number) => void {
+  return (choice) => {
+    const g = getG();
+    if (g) trySpend(g, choice);
+  };
+}
+
 function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, cls: ShipClassId): Game {
   const { welcome } = conn;
   // Late-bound: the input callbacks need game state that is assembled just below.
@@ -427,7 +487,8 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
     zone: new Zone(stage.layers.zone, stage.layers.vignette, map.radius, CONFIG.zone.endRadiusFraction),
     hud: new Hud(stage.layers.hud),
-    upgradeMenu: new UpgradeMenu((choice) => conn.room.send(MSG.spend, { choice })),
+    upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef)),
+    spendInFlight: null,
     room: conn.room,
     mapRadius: map.radius,
     cameraSnapped: false,
@@ -706,6 +767,9 @@ function makeCallbacks(g: Game): LoopCallbacks {
       g.camera.shake.y = shakeOff.y;
       if (g.state.spectating) renderSpectate(g, frameDt, now, zv, mu);
       else renderAlive(g, alpha, frameDt, now, zv, mu);
+      // Clear the spend latch once it lands (pts dropped) or times out, THEN
+      // read this frame's view — so a just-cleared latch un-dims immediately.
+      updateSpendLatch(g);
       // Live-swap the spend window to the next queued offer after a spend, and
       // auto-close it at 0 pts / on spectate (currentOfferView → null).
       g.upgradeMenu.update(currentOfferView(g));

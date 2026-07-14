@@ -58,9 +58,13 @@ describe('weaponFromKey', () => {
 });
 
 describe('upgradeActionFromKey', () => {
-  it('maps bare Control (either side) to the window toggle', () => {
-    expect(upgradeActionFromKey('ControlLeft', true)).toEqual({ kind: 'toggle' });
-    expect(upgradeActionFromKey('ControlRight', true)).toEqual({ kind: 'toggle' });
+  // FINDING C: the toggle is no longer decodable from a single (code, ctrl)
+  // pair — it fires on Control's keyUp, suppressed if any chord fired during
+  // the hold (see KeyboardInput.handleControlUp). upgradeActionFromKey stays
+  // pure and chord-only; Control itself never classifies here.
+  it('does not classify bare Control — the toggle is Control-keyUp adapter logic', () => {
+    expect(upgradeActionFromKey('ControlLeft', true)).toBeNull();
+    expect(upgradeActionFromKey('ControlRight', true)).toBeNull();
   });
 
   it('maps CTRL+digit (top row + numpad) to offer slots 0/1/2', () => {
@@ -229,14 +233,55 @@ describe('KeyboardInput — CTRL upgrade window', () => {
     expect(kb.weapon).toBe(WEAPON.torpedo);
   });
 
-  it('bare Control toggles; auto-repeat (e.repeat) is ignored (one action per press)', () => {
+  // FINDING C: the toggle moved from Control keyDOWN to Control keyUP, and is
+  // suppressed whenever any other key fires during the hold — this is what
+  // stops CTRL+1 from popping the window open only to immediately close it
+  // before the spend renders, and stops an unrelated browser chord (ctrl+C,
+  // ctrl+T) from toggling the game window at all.
+
+  it('ctrl press+release with nothing else in between: exactly one toggle, fired on release', () => {
+    const actions: UpgradeAction[] = [];
+    kb = new KeyboardInput(undefined, (a) => actions.push(a));
+    kb.attach();
+    pressCtrl('ControlLeft');
+    expect(actions).toEqual([]); // NOT on keydown
+    release('ControlLeft');
+    expect(actions).toEqual([{ kind: 'toggle' }]); // fires on keyup
+  });
+
+  it('repeat Control keydowns while held do not corrupt the toggle state', () => {
     const actions: UpgradeAction[] = [];
     kb = new KeyboardInput(undefined, (a) => actions.push(a));
     kb.attach();
     pressCtrl('ControlLeft');
     pressCtrl('ControlLeft', true); // OS auto-repeat while held
     pressCtrl('ControlLeft', true);
-    expect(actions).toEqual([{ kind: 'toggle' }]);
+    expect(actions).toEqual([]); // still nothing until release
+    release('ControlLeft');
+    expect(actions).toEqual([{ kind: 'toggle' }]); // exactly one, on release
+  });
+
+  it('CTRL+Digit1 fires the choose chord, and suppresses the toggle on the subsequent Control keyup', () => {
+    const actions: UpgradeAction[] = [];
+    kb = new KeyboardInput(undefined, (a) => actions.push(a));
+    kb.attach();
+    pressCtrl('ControlLeft');
+    pressCtrl('Digit1');
+    expect(actions).toEqual([{ kind: 'choose', slot: 0 }]);
+    release('ControlLeft');
+    expect(actions).toEqual([{ kind: 'choose', slot: 0 }]); // no toggle appended
+  });
+
+  it('ctrl+KeyC (not a chord we handle) does not tap the telegraph, and does not toggle on release', () => {
+    const actions: UpgradeAction[] = [];
+    kb = new KeyboardInput(undefined, (a) => actions.push(a));
+    kb.attach();
+    pressCtrl('ControlLeft');
+    pressCtrl('KeyC'); // an unrelated browser chord (e.g. copy) — not a window key
+    expect(actions).toEqual([]);
+    expect(kb.throttle).toBe(0); // and it did not ring the engine up
+    release('ControlLeft');
+    expect(actions).toEqual([]); // still nothing — the chord suppressed the toggle
   });
 
   it('CTRL+KeyW does not tap the telegraph (CTRL is a modifier, never drives)', () => {
@@ -246,5 +291,15 @@ describe('KeyboardInput — CTRL upgrade window', () => {
     pressCtrl('KeyW');
     expect(actions).toEqual([]); // KeyW is not a window key
     expect(kb.throttle).toBe(0); // and it did not ring the engine up
+  });
+
+  it('blur mid-hold clears the hold, so a late/missed Control keyup fires no toggle', () => {
+    const actions: UpgradeAction[] = [];
+    kb = new KeyboardInput(undefined, (a) => actions.push(a));
+    kb.attach();
+    pressCtrl('ControlLeft');
+    window.dispatchEvent(new Event('blur'));
+    release('ControlLeft'); // a keyup that arrives despite the blur (or never would in real browsers)
+    expect(actions).toEqual([]);
   });
 });

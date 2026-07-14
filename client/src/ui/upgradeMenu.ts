@@ -28,22 +28,37 @@ export interface OfferView {
   options: UpgradeId[];
   canHeal: boolean;
   healHp: number;
+  /**
+   * True while a spend is in flight (main.ts's spend latch — see trySpend()):
+   * a second spend within one server-tick+RTT would otherwise reference the
+   * OLD front offer and land on whatever the FIFO shifted in behind it. Rows
+   * render dimmed/inert (same treatment as !canHeal) until the bank visibly
+   * shrinks or the latch's fallback timeout clears it.
+   */
+  locked: boolean;
 }
 
 /**
  * Pure: the current spend view, or null when there is nothing to show — no own
- * ship, spectating, or an empty bank (pts 0). `options` maps the front offer's
- * UPGRADE_IDS indices to ids, skipping any out-of-range index defensively.
+ * ship, spectating, an empty bank (pts 0), OR any offer index out of range of
+ * UPGRADE_IDS. That last case used to be handled by skipping just the bad
+ * entry, which compacts `options` and breaks row->slot alignment (row 1 could
+ * end up sending server slot 2's choice) — unreachable today, but real the
+ * day a 15th upgrade ships against a stale tab that hasn't reloaded. Dropping
+ * the WHOLE view instead keeps the invariant "row k == server slot k" and
+ * goes inert (shortcuts included, since currentOfferView() also returns null)
+ * rather than silently misfiring.
  * `canHeal` is alive-and-below-max (the server re-validates the heal anyway).
  */
-export function offerView(you: OwnShip | null, maxHp: number, spectating: boolean): OfferView | null {
+export function offerView(you: OwnShip | null, maxHp: number, spectating: boolean, locked: boolean): OfferView | null {
   if (!you || spectating || you.pts === 0) return null;
   const options: UpgradeId[] = [];
   for (const idx of you.offer) {
     const id = UPGRADE_IDS[idx];
-    if (id !== undefined) options.push(id);
+    if (id === undefined) return null;
+    options.push(id);
   }
-  return { pts: you.pts, options, canHeal: you.alive && you.hp < maxHp, healHp: CONFIG.upgradePoints.healHp };
+  return { pts: you.pts, options, canHeal: you.alive && you.hp < maxHp, healHp: CONFIG.upgradePoints.healHp, locked };
 }
 
 /** Strip the toast's "⬆ " marker, reusing upgradeToast's label map (e.g. "+GUN AMMO"). */
@@ -151,16 +166,23 @@ export class UpgradeMenu {
   /** Rebuild title + rows only when the meaningful view state changed. */
   private render(view: OfferView): void {
     this.ensurePanel();
-    const sig = `${view.pts}|${view.options.join(',')}|${view.canHeal ? 1 : 0}`;
+    const sig = `${view.pts}|${view.options.join(',')}|${view.canHeal ? 1 : 0}|${view.locked ? 1 : 0}`;
     if (sig === this.sig) return;
     this.sig = sig;
     this.titleEl!.textContent = `SPEND UPGRADE POINT — ${view.pts} BANKED`;
     const rows = this.rowsEl!;
     rows.replaceChildren();
+    // Locked (a spend is in flight — see OfferView.locked) dims/inerts every
+    // row, same treatment as the existing !canHeal heal row, so a second
+    // click/shortcut can't fire against the offer this frame is displaying.
     view.options.forEach((id, i) => {
-      rows.appendChild(this.makeRow(`CTRL+${i + 1} · ${categoryOf(id).toUpperCase()} — ${optionLabel(id)}`, i, true));
+      rows.appendChild(
+        this.makeRow(`CTRL+${i + 1} · ${categoryOf(id).toUpperCase()} — ${optionLabel(id)}`, i, !view.locked),
+      );
     });
-    rows.appendChild(this.makeRow(`CTRL+E · REPAIR HULL +${view.healHp} HP`, HEAL_CHOICE, view.canHeal));
+    rows.appendChild(
+      this.makeRow(`CTRL+E · REPAIR HULL +${view.healHp} HP`, HEAL_CHOICE, view.canHeal && !view.locked),
+    );
   }
 
   /** Bare-CTRL toggle: open with this view, or close if already open. */

@@ -45,6 +45,11 @@ const WEAPON_KEYS: Record<string, WeaponId> = {
  * informational spend window; CTRL+1/2/3 commit one of the front offer's three
  * slots; CTRL+E spends a point on a hull heal. Pure — the KeyboardInput adapter
  * turns these into onUpgradeKey callbacks; main.ts routes them to the menu/net.
+ *
+ * NOTE: `toggle` is never produced by `upgradeActionFromKey` (see below) — it
+ * is emitted by the KeyboardInput adapter on Control **keyUp**, suppressed
+ * when any chord fired during the hold. The variant stays here because it's
+ * still the thing main.ts's onUpgradeKey callback receives and routes.
  */
 export type UpgradeAction = { kind: 'toggle' } | { kind: 'choose'; slot: 0 | 1 | 2 } | { kind: 'heal' };
 
@@ -56,12 +61,14 @@ const SLOT_KEYS: Record<string, 0 | 1 | 2> = {
 };
 
 /**
- * Pure: the upgrade action a key code (with CTRL held) maps to, or null. Bare
- * Control (either side) is the window toggle; CTRL is otherwise required —
- * plain digits still latch weapons, so an unmodified digit yields null here.
+ * Pure: the CHORD upgrade action a key code (with CTRL held) maps to, or null.
+ * Deliberately does NOT classify the Control keys themselves — the bare-CTRL
+ * toggle is Control-keyUp adapter logic (edge-triggered, chord-suppressed; see
+ * KeyboardInput), not a chord decodable from a single (code, ctrl) pair. CTRL
+ * is required for every chord here; plain digits still latch weapons, so an
+ * unmodified digit yields null.
  */
 export function upgradeActionFromKey(code: string, ctrl: boolean): UpgradeAction | null {
-  if (code === 'ControlLeft' || code === 'ControlRight') return { kind: 'toggle' };
   if (!ctrl) return null;
   if (code === 'KeyE') return { kind: 'heal' };
   if (code in SLOT_KEYS) return { kind: 'choose', slot: SLOT_KEYS[code] };
@@ -101,13 +108,25 @@ export class KeyboardInput {
   readonly keys = new Set<string>();
   readonly telegraph = new Telegraph();
   private selectedWeapon: WeaponId = WEAPON.gun;
+  /** Control is currently physically held (set on non-repeat keydown, cleared on keyup/blur). */
+  private ctrlHeld = false;
+  /**
+   * Set on ANY other keydown observed while Control is held — whether or not
+   * it decodes as one of our chords. Suppresses the bare-CTRL toggle on
+   * Control keyUp: this is what stops CTRL+1 (open, then the chord fires) and
+   * CTRL+C/CTRL+T (an unrelated browser chord) from ever toggling the window.
+   */
+  private chordUsed = false;
 
   /**
    * @param onDetent Called on each throttle keydown edge with the step
    *   direction and whether the detent actually changed (false at an end stop)
    *   — main.ts wires this to the telegraph-click tone.
-   * @param onUpgradeKey Called on each CTRL-window keydown edge (bare CTRL /
-   *   CTRL+1/2/3 / CTRL+E) — main.ts routes it to the upgrade menu + spend.
+   * @param onUpgradeKey Called for each upgrade-window action: CTRL+1/2/3/E
+   *   fire on their keydown edge (chord, via upgradeActionFromKey); the bare
+   *   `toggle` fires on Control's keyUp, and only if no chord fired during
+   *   that hold — see handleControlUp(). main.ts routes it to the upgrade
+   *   menu + spend.
    */
   constructor(
     private readonly onDetent?: (dir: Step, changed: boolean) => void,
@@ -115,11 +134,11 @@ export class KeyboardInput {
   ) {}
 
   /**
-   * CTRL-window keys take priority and consume the event: on a match we
+   * CTRL-chord keys take priority and consume the event: on a match we
    * preventDefault (suppresses the browser's ctrl+digit tab-switch where it
    * can) and return true so ctrl+Digit1 never also latches a weapon and
-   * ctrl+W/E never taps the telegraph. Held Control auto-repeats — skip repeats
-   * so the window toggles once per physical press.
+   * ctrl+W/E never taps the telegraph. Repeats are skipped so a held chord
+   * key doesn't re-fire the action every OS auto-repeat tick.
    */
   private tryUpgradeKey(e: KeyboardEvent): boolean {
     if (e.repeat) return false;
@@ -130,7 +149,25 @@ export class KeyboardInput {
     return true;
   }
 
+  /** Non-repeat Control keydown starts a fresh hold: mark held, clear the chord flag. */
+  private handleControlDown(e: KeyboardEvent): void {
+    if (e.repeat) return; // held Control auto-repeats; only the initial edge starts a hold
+    this.ctrlHeld = true;
+    this.chordUsed = false;
+  }
+
+  /** Control keyUp: the toggle fires here (not on keyDown), and only if the hold was chord-free. */
+  private handleControlUp(): void {
+    if (this.ctrlHeld && !this.chordUsed) this.onUpgradeKey?.({ kind: 'toggle' });
+    this.ctrlHeld = false;
+  }
+
   private readonly onDown = (e: KeyboardEvent): void => {
+    if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
+      this.handleControlDown(e);
+      return;
+    }
+    if (this.ctrlHeld) this.chordUsed = true;
     if (this.tryUpgradeKey(e)) return;
     if (e.ctrlKey) return; // CTRL is the upgrade modifier — it never drives/selects
     const step = stepFromKey(e.code, e.repeat);
@@ -149,9 +186,14 @@ export class KeyboardInput {
   };
   private readonly onUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
+    if (e.code === 'ControlLeft' || e.code === 'ControlRight') this.handleControlUp();
   };
   private readonly onBlur = (): void => {
     this.clearKeys();
+    // A backgrounded tab may never deliver the matching Control keyUp — drop
+    // the hold state so a stray/late keyup can't retroactively toggle the window.
+    this.ctrlHeld = false;
+    this.chordUsed = false;
   };
 
   /** Attach window listeners. Call once on boot. */
