@@ -13,6 +13,7 @@ export type ToneId =
   | 'fireMine'
   | 'damage'
   | 'kill'
+  | 'point'
   | 'upgrade'
   | 'sink'
   | 'tick'
@@ -47,9 +48,12 @@ export const TONES: Record<ToneId, ToneSpec> = {
   damage: { freqStart: 220, freqMid: 160, freqEnd: 110, duration: 0.1, volume: 0.45, type: 'triangle' },
   // Kill confirm: short ascending chime.
   kill: { freqStart: 500, freqMid: 900, freqEnd: 1200, duration: 0.15, volume: 0.5, type: 'triangle' },
-  // Upgrade granted: short rising two-note — flat first note, stepping up a
-  // fourth at the 40% mark and holding (reads as "do-mi", distinct from the
-  // kill chime's continuous glide).
+  // Point earned (banked, unspent): one bright continuous rise — a "ping" that
+  // reads as a reward-available prompt, distinct from the upgrade two-note.
+  point: { freqStart: 700, freqMid: 1100, freqEnd: 1500, duration: 0.12, volume: 0.4, type: 'triangle' },
+  // Upgrade granted / point SPENT: short rising two-note — flat first note,
+  // stepping up a fourth at the 40% mark and holding (reads as "do-mi",
+  // distinct from the kill chime's continuous glide and the point ping).
   upgrade: { freqStart: 660, freqMid: 880, freqEnd: 880, duration: 0.14, volume: 0.45, type: 'triangle' },
   // Own sink: the one long tone — alarm warble sliding down into a low boom.
   sink: { freqStart: 320, freqMid: 180, freqEnd: 60, duration: 0.4, volume: 0.55, type: 'sawtooth' },

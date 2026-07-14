@@ -6,6 +6,7 @@ import {
   detentIndexOf,
   detentLabel,
   speedLadderFraction,
+  pointsLine,
   DETENT_LABELS,
 } from '../render/hud.js';
 
@@ -67,6 +68,14 @@ describe('detentLabel — compact rung labels', () => {
   it('clamps an out-of-range index', () => {
     expect(detentLabel(-5)).toBe('FULL');
     expect(detentLabel(99)).toBe('FULL');
+  });
+});
+
+describe('pointsLine — banked-points HUD prompt', () => {
+  it('hides (empty string) at zero and shows "PTS ×N — CTRL" otherwise', () => {
+    expect(pointsLine(0)).toBe('');
+    expect(pointsLine(2)).toBe('PTS ×2 — CTRL');
+    expect(pointsLine(1)).toBe('PTS ×1 — CTRL');
   });
 });
 

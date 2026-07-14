@@ -12,7 +12,7 @@ import {
   zeroUpgrades,
   type OwnShip,
 } from '@salvo/shared';
-import { upgradeLabel } from '../ui/upgradeToast.js';
+import { upgradeLabel, pointToastLine, healToastLine } from '../ui/upgradeToast.js';
 import { ownStatsChanged } from '../net/roomBindings.js';
 import { speedLadderFraction } from '../render/hud.js';
 
@@ -41,6 +41,17 @@ function ownShip(cls: OwnShip['cls'], upg: number[]): OwnShip {
   };
 }
 
+describe('point / heal toast lines — pure formatting', () => {
+  it('pointToastLine is the fixed CTRL prompt', () => {
+    expect(pointToastLine()).toBe('▲ UPGRADE POINT — CTRL TO SPEND');
+  });
+
+  it('healToastLine embeds the clamped delta', () => {
+    expect(healToastLine(25)).toBe('⛨ HULL REPAIRED +25');
+    expect(healToastLine(8)).toBe('⛨ HULL REPAIRED +8');
+  });
+});
+
 describe('ownStatsChanged — the recompute gate', () => {
   it('fires on the first frame (no previous you)', () => {
     expect(ownStatsChanged(ownShip('cruiser', zeroUpgrades()), null)).toBe(true);
@@ -65,6 +76,12 @@ describe('ownStatsChanged — the recompute gate', () => {
 
   it('treats a length mismatch as a change (defensive)', () => {
     expect(ownStatsChanged(ownShip('cruiser', [0, 0]), ownShip('cruiser', zeroUpgrades()))).toBe(true);
+  });
+
+  it('IGNORES pts/offer-only deltas — banking a point must not fire the stats/fog recompute', () => {
+    const prev = { ...ownShip('cruiser', zeroUpgrades()), pts: 0, offer: [] as number[] };
+    const next = { ...ownShip('cruiser', zeroUpgrades()), pts: 2, offer: [3, 6, 10] };
+    expect(ownStatsChanged(next, prev)).toBe(false);
   });
 });
 

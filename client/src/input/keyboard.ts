@@ -40,6 +40,34 @@ const WEAPON_KEYS: Record<string, WeaponId> = {
   Numpad3: WEAPON.mine,
 };
 
+/**
+ * A CTRL-window upgrade intent decoded off the keyboard: bare CTRL toggles the
+ * informational spend window; CTRL+1/2/3 commit one of the front offer's three
+ * slots; CTRL+E spends a point on a hull heal. Pure — the KeyboardInput adapter
+ * turns these into onUpgradeKey callbacks; main.ts routes them to the menu/net.
+ */
+export type UpgradeAction = { kind: 'toggle' } | { kind: 'choose'; slot: 0 | 1 | 2 } | { kind: 'heal' };
+
+/** CTRL+digit (top row + numpad) → offer slot 0/1/2. */
+const SLOT_KEYS: Record<string, 0 | 1 | 2> = {
+  Digit1: 0, Numpad1: 0,
+  Digit2: 1, Numpad2: 1,
+  Digit3: 2, Numpad3: 2,
+};
+
+/**
+ * Pure: the upgrade action a key code (with CTRL held) maps to, or null. Bare
+ * Control (either side) is the window toggle; CTRL is otherwise required —
+ * plain digits still latch weapons, so an unmodified digit yields null here.
+ */
+export function upgradeActionFromKey(code: string, ctrl: boolean): UpgradeAction | null {
+  if (code === 'ControlLeft' || code === 'ControlRight') return { kind: 'toggle' };
+  if (!ctrl) return null;
+  if (code === 'KeyE') return { kind: 'heal' };
+  if (code in SLOT_KEYS) return { kind: 'choose', slot: SLOT_KEYS[code] };
+  return null;
+}
+
 function anyHeld(keys: Set<string>, codes: string[]): boolean {
   return codes.some((c) => keys.has(c));
 }
@@ -78,10 +106,33 @@ export class KeyboardInput {
    * @param onDetent Called on each throttle keydown edge with the step
    *   direction and whether the detent actually changed (false at an end stop)
    *   — main.ts wires this to the telegraph-click tone.
+   * @param onUpgradeKey Called on each CTRL-window keydown edge (bare CTRL /
+   *   CTRL+1/2/3 / CTRL+E) — main.ts routes it to the upgrade menu + spend.
    */
-  constructor(private readonly onDetent?: (dir: Step, changed: boolean) => void) {}
+  constructor(
+    private readonly onDetent?: (dir: Step, changed: boolean) => void,
+    private readonly onUpgradeKey?: (a: UpgradeAction) => void,
+  ) {}
+
+  /**
+   * CTRL-window keys take priority and consume the event: on a match we
+   * preventDefault (suppresses the browser's ctrl+digit tab-switch where it
+   * can) and return true so ctrl+Digit1 never also latches a weapon and
+   * ctrl+W/E never taps the telegraph. Held Control auto-repeats — skip repeats
+   * so the window toggles once per physical press.
+   */
+  private tryUpgradeKey(e: KeyboardEvent): boolean {
+    if (e.repeat) return false;
+    const action = upgradeActionFromKey(e.code, e.ctrlKey);
+    if (action === null) return false;
+    e.preventDefault();
+    this.onUpgradeKey?.(action);
+    return true;
+  }
 
   private readonly onDown = (e: KeyboardEvent): void => {
+    if (this.tryUpgradeKey(e)) return;
+    if (e.ctrlKey) return; // CTRL is the upgrade modifier — it never drives/selects
     const step = stepFromKey(e.code, e.repeat);
     if (step !== null) {
       // Edge-only: OS auto-repeat is filtered by stepFromKey (repeat -> null),

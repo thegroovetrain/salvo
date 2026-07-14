@@ -15,7 +15,10 @@ import {
   type BoomEvent,
   type DamageEvent,
   type FrameMsg,
+  type GameEvent,
+  type HealEvent,
   type OwnShip,
+  type PointEvent,
   type ResultsMsg,
   type ShipClassId,
   type SpawnEvent,
@@ -34,7 +37,7 @@ import type { Radar } from '../render/radar.js';
 import type { Mines } from '../render/mines.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { killLine, pushKillLine } from '../ui/killFeed.js';
-import { pushUpgradeToast, upgradeLabel } from '../ui/upgradeToast.js';
+import { healToastLine, pointToastLine, pushUpgradeToast, upgradeLabel } from '../ui/upgradeToast.js';
 import { fireTone, type ToneId } from '../audio/tones.js';
 
 /**
@@ -150,18 +153,53 @@ export function ownStatsChanged(next: OwnShip, prev: OwnShip | null | undefined)
 
 /** Fan every per-tick event out to the right subsystem. */
 function handleEvents(f: FrameMsg, deps: RoomBindingDeps): void {
-  for (const e of f.events) {
-    switch (e.k) {
-      case 'spawn': handleSpawn(e, deps); break;
-      case 'sunk': handleSunk(e, f.t, deps); break;
-      case 'shell': handleShell(e, deps); break;
-      case 'torp': handleTorp(e, deps); break;
-      case 'blip': deps.radar.onBlip(e); break;
-      case 'boom': handleBoom(e, deps); break;
-      case 'dmg': handleDamage(e, deps); break;
-      case 'upg': handleUpgrade(e, deps); break;
-    }
+  for (const e of f.events) handleEvent(e, f, deps);
+}
+
+/** World/combat events (position + fire + hit); self-private rewards split out. */
+function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
+  switch (e.k) {
+    case 'spawn': handleSpawn(e, deps); return;
+    case 'sunk': handleSunk(e, f.t, deps); return;
+    case 'shell': handleShell(e, deps); return;
+    case 'torp': handleTorp(e, deps); return;
+    case 'blip': deps.radar.onBlip(e); return;
+    case 'boom': handleBoom(e, deps); return;
+    case 'dmg': handleDamage(e, deps); return;
   }
+  handleRewardEvent(e, deps);
+}
+
+/** Killer/self-private reward events: upgrade grant, banked point, heal spend. */
+function handleRewardEvent(e: GameEvent, deps: RoomBindingDeps): void {
+  switch (e.k) {
+    case 'upg': handleUpgrade(e, deps); return;
+    case 'pt': handlePoint(e, deps); return;
+    case 'heal': handleHeal(e, deps); return;
+  }
+}
+
+/**
+ * A kill banked an upgrade point: prompt toast + a bright "point" ping. Like
+ * `upg`/`dmg`, `pt` is self-private (perception.ts forwards it only to the
+ * earner), so the id check is defensive, not load-bearing. The authoritative
+ * bank count rides OwnShip.pts — this is UX only, and must NOT touch the
+ * effectiveStats/fog recompute path (see ownStatsChanged).
+ */
+function handlePoint(e: PointEvent, deps: RoomBindingDeps): void {
+  if (e.id !== deps.state.net.sessionId) return;
+  pushUpgradeToast(pointToastLine());
+  deps.audio.play('point');
+}
+
+/**
+ * A heal spend landed: toast the clamped delta + the "spent" upgrade two-note.
+ * Self-private like `pt`; the authoritative hp rides OwnShip.hp.
+ */
+function handleHeal(e: HealEvent, deps: RoomBindingDeps): void {
+  if (e.id !== deps.state.net.sessionId) return;
+  pushUpgradeToast(healToastLine(e.amount));
+  deps.audio.play('upgrade');
 }
 
 /**

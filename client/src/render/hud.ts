@@ -107,6 +107,13 @@ const LABEL_STYLE = {
 } as const;
 
 const DATA_STYLE = { fontFamily: 'Geist Mono, monospace', fontSize: 28, fill: GREEN } as const;
+// Banked-points prompt — amber (an action is available), above the chip cluster.
+const PTS_STYLE = {
+  fontFamily: 'Geist Mono, monospace',
+  fontSize: 16,
+  fill: AMBER,
+  letterSpacing: 2,
+} as const;
 const OVERLAY_STYLE = {
   fontFamily: 'Geist Mono, monospace',
   fontSize: 38,
@@ -122,9 +129,15 @@ export interface OwnStatus {
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
   cls: ShipClassId; // own class — drives hull-length lookups (firing UX)
+  pts: number; // banked upgrade points (drives the "PTS ×N — CTRL" prompt)
   /** Cached effectiveStats(cls, upg) — ALL HUD denominators (max hp, speed
    *  ladder, ammo pool sizes, reload durations) read from here (Stage D). */
   stats: EffectiveStats;
+}
+
+/** Pure: the banked-points prompt above the weapon chips ('' hides it at 0). */
+export function pointsLine(n: number): string {
+  return n <= 0 ? '' : `PTS ×${n} — CTRL`;
 }
 
 /** View model for one ammo chip: pool count, pool size, reload progress [0,1]. */
@@ -217,6 +230,7 @@ export class Hud {
   private readonly headingLabel: Text;
   private readonly speedLabel: Text;
   private readonly overlay: Text;
+  private readonly ptsLabel: Text;
   private readonly chipLabels: Text[];
   private readonly rungLabels: Text[];
   private readonly zoneLine: Text;
@@ -236,6 +250,7 @@ export class Hud {
   private lastMatchTag = '';
   private lastCountdown = '';
   private lastSpectateBanner = '';
+  private lastPtsLine = '';
 
   constructor(private readonly hudLayer: Container) {
     hudLayer.addChild(this.root);
@@ -253,6 +268,9 @@ export class Hud {
     this.overlay.anchor.set(0.5);
     this.overlay.visible = false;
     hudLayer.addChild(this.overlay);
+    this.ptsLabel = new Text({ text: '', style: PTS_STYLE });
+    this.ptsLabel.visible = false;
+    hudLayer.addChild(this.ptsLabel);
     this.chipLabels = WEAPON_LABELS.map((t) => {
       const label = new Text({ text: t, style: CHIP_STYLE });
       hudLayer.addChild(label);
@@ -312,6 +330,20 @@ export class Hud {
     this.root.visible = visible;
     this.bars.visible = visible;
     for (const chip of this.chipLabels) chip.visible = visible;
+    if (!visible) this.ptsLabel.visible = false; // spectate: no prompt (update() re-shows it when alive)
+  }
+
+  /** Amber "PTS ×N — CTRL" prompt above the bottom-right chip cluster (hidden at 0). */
+  private updatePoints(status: OwnStatus, screenW: number, screenH: number): void {
+    const line = pointsLine(status.pts);
+    if (line !== this.lastPtsLine) {
+      this.ptsLabel.text = line;
+      this.lastPtsLine = line;
+    }
+    this.ptsLabel.visible = line !== '';
+    const x = screenW - BAR_W - MARGIN;
+    const baseY = screenH - MARGIN - PANEL_H;
+    this.ptsLabel.position.set(x, baseY - 24);
   }
 
   /** Top-center storm readout + the "IN STORM" warning above the telegraph. */
@@ -523,6 +555,7 @@ export class Hud {
     this.layout(screenH);
     this.updateTelegraph(axes, ship.speed, status.stats.kinematics);
     this.drawBars(status, screenW, screenH, deniedFlash);
+    this.updatePoints(status, screenW, screenH);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);
     this.drawZone(zone, screenW, screenH);

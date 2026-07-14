@@ -24,6 +24,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireMine',
   'damage',
   'kill',
+  'point',
   'upgrade',
   'sink',
   'tick',
@@ -90,6 +91,20 @@ describe('upgrade tone — short rising two-note', () => {
     expect(TONES.upgrade.freqEnd).toBeGreaterThan(TONES.upgrade.freqStart);
     expect(TONES.upgrade.freqMid).toBeGreaterThan(TONES.upgrade.freqStart); // the second note steps UP
     expect(TONES.upgrade.duration).toBeLessThanOrEqual(MAX_TONE_S);
+  });
+});
+
+describe('point tone — bright single rise (banked-point ping)', () => {
+  it('rises continuously (each stage above the last) and stays in the short budget', () => {
+    expect(TONES.point.freqMid).toBeGreaterThan(TONES.point.freqStart);
+    expect(TONES.point.freqEnd).toBeGreaterThan(TONES.point.freqMid); // single continuous rise
+    expect(TONES.point.duration).toBeLessThanOrEqual(MAX_TONE_S);
+  });
+
+  it('is distinct from the upgrade "spent" two-note (which plateaus)', () => {
+    // upgrade holds its second note (mid === end); point keeps climbing.
+    expect(TONES.point.freqEnd).not.toBe(TONES.point.freqMid);
+    expect(TONES.upgrade.freqEnd).toBe(TONES.upgrade.freqMid);
   });
 });
 

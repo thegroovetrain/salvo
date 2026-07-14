@@ -34,6 +34,16 @@ export function upgradeLabel(type: UpgradeId): string {
   return `⬆ +${LABELS[type]}`;
 }
 
+/** Pure: the toast line for a banked upgrade point (a kill reward, unspent). */
+export function pointToastLine(): string {
+  return '▲ UPGRADE POINT — CTRL TO SPEND';
+}
+
+/** Pure: the toast line for an applied hull heal ({amount} = clamped delta). */
+export function healToastLine(amount: number): string {
+  return `⛨ HULL REPAIRED +${amount}`;
+}
+
 function ensureStack(): HTMLDivElement {
   let el = document.getElementById(TOAST_ID) as HTMLDivElement | null;
   if (!el) {

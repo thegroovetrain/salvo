@@ -11,6 +11,8 @@ import type { Container } from 'pixi.js';
 import type { Room } from 'colyseus.js';
 import {
   CONFIG,
+  HEAL_CHOICE,
+  MSG,
   effectiveStats,
   isOutside,
   weaponReloadMs,
@@ -18,7 +20,9 @@ import {
   zoneRadiusAt,
   type EffectiveStats,
   type GameMap,
+  type OwnShip,
   type ShipClassId,
+  type WeaponAmmo,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
@@ -39,7 +43,8 @@ import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse } from './render/deniedFire.js';
-import { KeyboardInput } from './input/keyboard.js';
+import { KeyboardInput, type UpgradeAction } from './input/keyboard.js';
+import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { connect, mapFromWelcome, type Connection } from './net/connection.js';
@@ -80,6 +85,8 @@ interface Game {
   radar: Radar;
   zone: Zone;
   hud: Hud;
+  /** The CTRL spend window (ui/upgradeMenu.ts) — DOM, non-blocking. */
+  upgradeMenu: UpgradeMenu;
   /** Colyseus room — polled each frame for the public zone/match plane. */
   room: Room;
   /** Full map radius (u) — the zone's derived-radius baseline. */
@@ -144,31 +151,72 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
   return g.ownBuffer.sampleAt(g.clock.serverNow() - CLIENT_CONFIG.net.ownDelayMs);
 }
 
-/** Derive HUD/combat status from the latest server own-ship + respawn ETA. */
-function ownStatus(g: Game): OwnStatus {
-  const you = g.state.net.you;
-  const eta = g.state.respawnEta;
-  const cls = you?.cls ?? g.ownClass;
-  const stats = g.ownStats;
-  return {
-    hp: you?.hp ?? stats.maxHp,
-    // Full pools until the first frame arrives (effective sizes ≙ CONFIG at
-    // zero upgrades — g.ownStats starts as the un-upgraded guessed class).
-    ammo: you?.ammo ?? [
+/**
+ * Full pools until the first frame arrives (effective sizes ≙ CONFIG at zero
+ * upgrades — g.ownStats starts as the un-upgraded guessed class).
+ */
+function ownAmmo(you: OwnShip | null, stats: EffectiveStats): WeaponAmmo[] {
+  return (
+    you?.ammo ?? [
       { n: stats.gun.maxAmmo, reloadMsLeft: 0 },
       { n: stats.torpedo.maxAmmo, reloadMsLeft: 0 },
       { n: stats.mine.maxAmmo, reloadMsLeft: 0 },
-    ],
-    cls,
+    ]
+  );
+}
+
+/** Ms until respawn (0 when alive / eta unknown). */
+function respawnMs(eta: number | null, now: number): number {
+  return eta != null ? Math.max(0, eta - now) : 0;
+}
+
+/** Derive HUD/combat status from the latest server own-ship + respawn ETA. */
+function ownStatus(g: Game): OwnStatus {
+  const you = g.state.net.you;
+  const stats = g.ownStats;
+  return {
+    hp: you?.hp ?? stats.maxHp,
+    ammo: ownAmmo(you, stats),
+    cls: you?.cls ?? g.ownClass,
     stats,
+    pts: you?.pts ?? 0,
     // Client-selected weapon (immediate), not the server echo — keeps the HUD
     // chip highlight in lockstep with the arcs/denied-flash, which already
     // read g.keyboard.weapon directly. Ammo VALUES still come from the
     // server-authoritative ammo[] above.
     weapon: g.keyboard.weapon,
     alive: you?.alive ?? true,
-    respawnInMs: eta != null ? Math.max(0, eta - g.clock.serverNow()) : 0,
+    respawnInMs: respawnMs(g.state.respawnEta, g.clock.serverNow()),
   };
+}
+
+/** The spend view for THIS frame (null = nothing to show → menu auto-hides). */
+function currentOfferView(g: Game): OfferView | null {
+  return offerView(g.state.net.you, g.ownStats.maxHp, g.state.spectating);
+}
+
+/**
+ * Route a decoded CTRL-window action: bare CTRL toggles the window; CTRL+1/2/3
+ * spends an offer slot; CTRL+E heals (gated client-side by canHeal — the server
+ * re-validates). Inert when there is nothing to spend (no view). Shortcuts work
+ * with the window closed: the offer is stable from earn time, so you commit
+ * without reading. Spends are discrete room.send(MSG.spend) messages (FIFO).
+ */
+function handleUpgradeAction(g: Game, a: UpgradeAction): void {
+  const view = currentOfferView(g);
+  if (!view) {
+    g.upgradeMenu.hide();
+    return;
+  }
+  if (a.kind === 'toggle') {
+    g.upgradeMenu.toggle(view);
+    return;
+  }
+  if (a.kind === 'heal') {
+    if (view.canHeal) g.room.send(MSG.spend, { choice: HEAL_CHOICE });
+    return;
+  }
+  g.room.send(MSG.spend, { choice: a.slot });
 }
 
 /** Live safe radius + state, derived locally from the schema's zone plane. */
@@ -279,7 +327,13 @@ function handleRoomLeave(g: Game): void {
 // --- game assembly -------------------------------------------------------------
 
 /** Camera + input + own-hull-view/effects setup, factored out of buildGame() to keep it lean. */
-function setupViewport(stage: Stage, audio: Audio, cls: ShipClassId, bellAudible: () => boolean): {
+function setupViewport(
+  stage: Stage,
+  audio: Audio,
+  cls: ShipClassId,
+  bellAudible: () => boolean,
+  onUpgradeKey: (a: UpgradeAction) => void,
+): {
   camera: Camera;
   keyboard: KeyboardInput;
   mouse: MouseInput;
@@ -300,7 +354,7 @@ function setupViewport(stage: Stage, audio: Audio, cls: ShipClassId, bellAudible
   // those taps never reach a live engine room, so they get no confirmation bell.
   const keyboard = new KeyboardInput((dir, changed) => {
     if (changed && bellAudible()) audio.play(telegraphTone(dir));
-  });
+  }, onUpgradeKey);
   keyboard.attach();
   const mouse = new MouseInput();
   mouse.attach();
@@ -324,14 +378,33 @@ function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
   return new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, spec.hull.beam / 2);
 }
 
+/**
+ * The two keyboard callbacks that need game state assembled later in buildGame:
+ * the telegraph-bell audibility predicate and the CTRL-window action router.
+ * `getG` is the gRef late-binding — null only during the brief construction gap.
+ */
+function viewportCallbacks(getG: () => Game | null): {
+  bellAudible: () => boolean;
+  onUpgradeKey: (a: UpgradeAction) => void;
+} {
+  return {
+    bellAudible: () => {
+      const s = getG()?.state;
+      return !s?.spectating && s?.net.you?.alive !== false;
+    },
+    onUpgradeKey: (a) => {
+      const g = getG();
+      if (g) handleUpgradeAction(g, a);
+    },
+  };
+}
+
 function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, cls: ShipClassId): Game {
   const { welcome } = conn;
-  // Late-bound: the bell predicate needs game state that is assembled just below.
+  // Late-bound: the input callbacks need game state that is assembled just below.
   let gRef: Game | null = null;
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, cls, () => {
-    const s = gRef?.state;
-    return !s?.spectating && s?.net.you?.alive !== false;
-  });
+  const { bellAudible, onUpgradeKey } = viewportCallbacks(() => gRef);
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, cls, bellAudible, onUpgradeKey);
 
   const g: Game = {
     stage,
@@ -354,6 +427,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
     zone: new Zone(stage.layers.zone, stage.layers.vignette, map.radius, CONFIG.zone.endRadiusFraction),
     hud: new Hud(stage.layers.hud),
+    upgradeMenu: new UpgradeMenu((choice) => conn.room.send(MSG.spend, { choice })),
     room: conn.room,
     mapRadius: map.radius,
     cameraSnapped: false,
@@ -563,6 +637,7 @@ function enterSpectateVisuals(g: Game): void {
   g.radar.clearBlips();
   g.ownView.gfx.visible = false;
   g.firing.hide();
+  g.upgradeMenu.hide(); // the spend window never lingers into spectate
   // Drop any WASD held at the moment of death so updateSpectateCamera sees a
   // clean edge — otherwise steering into your own death instantly (and
   // permanently) engages free-pan, skipping the follow-your-killer default.
@@ -631,6 +706,9 @@ function makeCallbacks(g: Game): LoopCallbacks {
       g.camera.shake.y = shakeOff.y;
       if (g.state.spectating) renderSpectate(g, frameDt, now, zv, mu);
       else renderAlive(g, alpha, frameDt, now, zv, mu);
+      // Live-swap the spend window to the next queued offer after a spend, and
+      // auto-close it at 0 pts / on spectate (currentOfferView → null).
+      g.upgradeMenu.update(currentOfferView(g));
       g.contactViews.render(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, now, frameDt * 1000);
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
     },
