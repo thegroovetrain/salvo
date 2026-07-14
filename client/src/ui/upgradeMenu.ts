@@ -75,6 +75,7 @@ const PANEL_CSS = [
   'flex-direction:column',
   'gap:8px',
   'width:340px',
+  'max-width:calc(100vw - 16px)', // never clip against the body's overflow:hidden on narrow viewports
   'padding:16px',
   'background:#111111',
   'border:1px solid #00FF88',
@@ -154,7 +155,10 @@ export class UpgradeMenu {
     btn.type = 'button';
     btn.textContent = text;
     btn.style.cssText = enabled ? ROW_CSS : ROW_INERT_CSS;
-    if (!enabled) return btn;
+    if (!enabled) {
+      btn.disabled = true; // real disabled state, not just opacity — keyboard/AT see it too
+      return btn;
+    }
     btn.addEventListener('mouseenter', () => paintRow(btn, true));
     btn.addEventListener('mouseleave', () => paintRow(btn, false));
     btn.addEventListener('focus', () => paintRow(btn, true));

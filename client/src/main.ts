@@ -95,7 +95,7 @@ interface Game {
    * CTRL+2, or two row clicks) within one server-tick+RTT both firing against
    * the SAME (now-stale) front offer — see trySpend()/updateSpendLatch().
    */
-  spendInFlight: { pts: number; at: number } | null;
+  spendInFlight: { pts: number; offerSig: string; at: number } | null;
   /** Colyseus room — polled each frame for the public zone/match plane. */
   room: Room;
   /** Full map radius (u) — the zone's derived-radius baseline. */
@@ -216,23 +216,29 @@ const SPEND_LATCH_TIMEOUT_MS = 1500;
  */
 function trySpend(g: Game, choice: number): void {
   if (g.spendInFlight) return;
-  const pts = g.state.net.you?.pts ?? 0;
+  const you = g.state.net.you;
   g.room.send(MSG.spend, { choice });
-  g.spendInFlight = { pts, at: performance.now() };
+  g.spendInFlight = { pts: you?.pts ?? 0, offerSig: offerSignature(you), at: performance.now() };
+}
+
+/** Snapshot of the front offer used to detect that the server queue moved. */
+function offerSignature(you: { pts: number; offer: number[] } | null | undefined): string {
+  return you ? `${you.pts}:${you.offer.join(',')}` : '';
 }
 
 /**
- * Clear the spend latch once the spend visibly landed (pts dropped below what
- * it was when we sent it) or the fallback timeout elapsed (silently rejected —
- * e.g. heal-at-full-hp — so the player isn't locked out of spending forever).
- * Called once per render frame, same clock (`performance.now()`) the render
- * loop already uses for the denied-fire pulse — no new timer.
+ * Clear the spend latch once the spend visibly landed — the pts/offer snapshot
+ * changed in ANY way (a pure pts-drop check misses a kill landing mid-flight,
+ * which cancels the drop and would leave the menu locked until the timeout) —
+ * or the fallback timeout elapsed (silently rejected — e.g. heal-at-full-hp —
+ * so the player isn't locked out of spending forever). Called once per render
+ * frame, same clock (`performance.now()`) the render loop already uses for the
+ * denied-fire pulse — no new timer.
  */
 function updateSpendLatch(g: Game): void {
   const inFlight = g.spendInFlight;
   if (!inFlight) return;
-  const pts = g.state.net.you?.pts ?? 0;
-  const landed = pts < inFlight.pts;
+  const landed = offerSignature(g.state.net.you) !== inFlight.offerSig;
   const expired = performance.now() - inFlight.at > SPEND_LATCH_TIMEOUT_MS;
   if (landed || expired) g.spendInFlight = null;
 }

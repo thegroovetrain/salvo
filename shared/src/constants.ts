@@ -40,7 +40,7 @@ export const CONFIG = {
     cruiser: {
       // ≙ today's ship, byte-for-byte (pinned by test).
       hull: { length: 40, beam: 12 }, // u
-      hp: 100, // hit points (=> ~15-30s TTK with gun damage)
+      hp: 100, // hit points (TTK follows gun.damage/reloadMs — see CONFIG.gun)
       kinematics: {
         maxSpeed: 38, // u/s — full-ahead
         reverseSpeed: 12, // u/s — full-astern (magnitude)
