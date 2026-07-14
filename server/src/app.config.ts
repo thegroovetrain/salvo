@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import config from '@colyseus/tools';
 import { monitor } from '@colyseus/monitor';
 import { playground } from '@colyseus/playground';
-import type { Request, Response } from 'express';
+import express, { type Request, type Response } from 'express';
 import { ArenaRoom } from './rooms/ArenaRoom.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -27,6 +27,13 @@ export default config({
     if (!isProd) {
       app.use('/playground', playground());
       app.use('/monitor', monitor());
+    } else {
+      // In production the game server IS the web server: Vite only exists in
+      // dev, so the built client must be served from here or the site 404s.
+      // express.static also serves index.html at '/'; no catch-all route, so
+      // Colyseus's own matchmaking endpoints are never shadowed. The client's
+      // same-origin wss fallback (client connection.ts) pairs with this.
+      app.use(express.static(resolve(__dirname, '../../client/dist')));
     }
   },
 });
