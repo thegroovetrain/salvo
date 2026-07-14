@@ -29,10 +29,22 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const PORT = 2599;
 const endpoint = `ws://localhost:${PORT}`;
 // Countdown long enough for two ring-spawned ships to close to torpedo range
-// and prove damage suppression; results short so the disposal is observable.
-const MATCH_OVERRIDE = { countdownMs: 45000, resultsMs: 3000 };
-const TORP_RANGE = 650; // fire inside this (config range 700)
-const ARC = 0.4; // rad — hold fire until the bow roughly bears
+// and prove damage suppression (with margin for missed passes — drone traffic
+// in the ready room can intercept a fish, and the flyby orbits at current
+// ship speeds mean each 12s reload gets roughly one shot per pass); results
+// short so the disposal is observable.
+const MATCH_OVERRIDE = { countdownMs: 90000, resultsMs: 3000 };
+// The win check is human-gated but drones must still SINK for the match to
+// finish ("last hull floating wins") — with the default 45s grace + 180s
+// shrink the four fill drones outlive the smoke by minutes. Keep the fight
+// storm-free (45s grace covers A's two fish at ~35s), then shrink fast so the
+// storm mops up the drones and results actually broadcast (~2 min in).
+const ZONE_OVERRIDE = { grace: 45000, shrinkDuration: 60000, endRadiusFraction: 0.1 };
+// Fire only from close, well-aimed range: a short lane keeps ready-room drones
+// from wandering into the shot and makes each fish near-certain on a head-on
+// target (fish + closing target ≈ 90 u/s over <4s).
+const TORP_RANGE = 350; // u — click only inside this
+const ARC = 0.15; // rad — hold fire until the bow bears tightly
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -86,7 +98,7 @@ function killServer(proc) {
 
 async function joinClient(name) {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name, matchOverride: MATCH_OVERRIDE });
+  const room = await client.joinOrCreate('arena', { name, matchOverride: MATCH_OVERRIDE, zoneOverride: ZONE_OVERRIDE });
   const ctx = {
     name, room, welcome: null, you: null, seq: 0, fireSeq: 0, fireAt: null,
     frames: 0, specFrames: 0, specWithYou: 0, specContactIds: new Set(),
@@ -136,9 +148,14 @@ function control(ctx, target, armed) {
   if (ctx.you && target) {
     const brg = bearing(ctx.you, target);
     inp.rudder = clamp(angleDiff(ctx.you.heading, brg) * 3, -1, 1);
-    inp.throttle = 1;
     inp.aim = brg;
     const d = dist(ctx.you, target);
+    // Close fast, then stand off around ~150u: driving to point blank puts
+    // the pair in a 3-50u waltz where the bearing swings faster than the bow
+    // can track, so the ARC click gate never reopens and the fight stalls
+    // after the first fish. At standoff the solution is stable and a fish
+    // launches every reload.
+    inp.throttle = d > 300 ? 1 : d > 150 ? 0.4 : 0;
     // Click every tick while the solution holds — the tube reload paces launches.
     if (armed && d < TORP_RANGE && Math.abs(angleDiff(ctx.you.heading, brg)) < ARC) inp.fireSeq = ++ctx.fireSeq;
   }
@@ -181,10 +198,16 @@ async function main() {
     log.push('countdown started at 2nd join; locked room bounced CHARLIE to a fresh room');
 
     // --- 2. weapons-safe ready room (fire torpedoes point blank) ------------
-    // Both steer at each other; A launches fish as soon as they bear.
+    // Both steer at each other until close, then B heaves to as a stationary
+    // target: mutual full-throttle charges produce flyby orbits where the bow
+    // rarely bears (one shot per 12s reload per pass), and ready-room drones
+    // can wander into a long firing lane — a still target at ≤350u makes each
+    // fish near-certain (the geometry weaponsSmoke's torpedo phase relies on).
     const readyTick = () => {
       control(a, b.you, true);
-      control(b, a.you, false);
+      const closing = a.you && b.you && dist(a.you, b.you) > 420;
+      if (closing) control(b, a.you, false);
+      else b.room.send('i', { seq: ++b.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: b.fireSeq, aimDist: 0, weapon: 1 });
     };
     await runUntil(readyTick, () => b.boomsOnMe >= 1 || phase(a) === 'active', 60000, 'suppressed torpedo impact');
     assert(b.boomsOnMe >= 1, 'no torpedo struck B during the ready room');
@@ -220,7 +243,10 @@ async function main() {
     log.push(`B sunk by A; B got ${b.specFrames} spec frames (unfogged, no you); A spec'd only after the finish`);
 
     // --- 5. results ----------------------------------------------------------
-    await runUntil(() => {}, () => a.results !== null && b.results !== null, 5000, 'results broadcast');
+    // The match finishes only when the fill drones sink too (human-gated win,
+    // but every hull must clear) — the overridden storm handles that within
+    // the shrink window.
+    await runUntil(() => {}, () => a.results !== null && b.results !== null, 120000, 'results broadcast');
     const res = a.results;
     assert(res.winnerId === a.room.sessionId, `winnerId=${res.winnerId}, expected A`);
     const rowA = res.rows.find((r) => r.id === a.room.sessionId);

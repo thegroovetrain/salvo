@@ -21,7 +21,7 @@ import { Client } from 'colyseus.js';
 import { CONFIG, bearing, angleDiff, isOutside } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const PORT = 2567;
+const PORT = 2599; // never the dev server's 2567 — this smoke self-boots
 const endpoint = `ws://localhost:${PORT}`;
 // Fast-forward but keep the shrink gentle enough that a ship steering inward
 // comfortably outruns the closing ring (dev-only override): 1s grace, 30s shrink
@@ -183,6 +183,10 @@ async function main() {
     a.outsideSamples = [];
     b.outsideSamples = [];
     await pilotUntil([a, b], setGoals, () => a.sunkSeen, 90000, 'A storm death');
+    // The sunk EVENT rides the frame message; the roster (kills/deaths) rides
+    // the schema patch stream (~50ms cadence). Let the patch land before the
+    // roster asserts below — without this they race and flake.
+    await sleep(300);
 
     // A: decayed at ~stormDps and sank with no killer; nobody scored a kill.
     const dps = measuredDps(a.outsideSamples);

@@ -60,9 +60,12 @@ function checkClient(ctx, otherId) {
   assert(moved > 3, `${name}: ship did not move (moved=${moved.toFixed(2)}u)`);
   assert(last.ackSeq > 0 && last.ackSeq <= ctx.lastSeq, `${name}: bad ackSeq ${last.ackSeq}`);
 
+  // Post-fog this only holds when the ships happen to be inside sight range —
+  // fresh spawns are not (see header: superseded by fogSmoke.mjs; this smoke
+  // is kept for the welcome/frame/ack plumbing checks). Report, don't fail.
   const withContact = frames.filter((f) => f.contacts.some((c) => c.id === otherId));
-  assert(withContact.length > 0, `${name}: never saw ${otherId} in contacts`);
-  return { name, frames: frames.length, moved: moved.toFixed(1), ackSeq: last.ackSeq };
+  const contact = withContact.length > 0 ? `${withContact.length} frames` : 'none (fogged — expected)';
+  return { name, frames: frames.length, moved: moved.toFixed(1), ackSeq: last.ackSeq, contact };
 }
 
 async function main() {

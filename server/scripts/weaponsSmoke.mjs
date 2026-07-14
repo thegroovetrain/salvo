@@ -199,10 +199,12 @@ async function minePhase(a, b, log) {
   b.distinctEnemy.clear();
   b.firstSeenDist.clear();
   // A holds station dropping mines; B loiters within sight, outside trigger.
-  const bLoiter = { x: a.you.x, y: a.you.y + 120 };
+  // B's loiter point TRAILS A (recomputed every tick): even at minimum
+  // steerageway A drifts ~4.6 u/s, so a fixed point drops out of sight range
+  // of the later drops and the distinct-id count stalls below maxLive+1.
   await pilotUntil([a, b], () => {
     a.goal = { mode: 'dropMines' };
-    b.goal = { mode: 'hold', target: bLoiter };
+    b.goal = { mode: 'hold', target: a.you ? { x: a.you.x, y: a.you.y + 120 } : null };
   }, () => b.distinctEnemy.size > CONFIG.mine.maxLive, 90000, 'A drop >maxLive mines');
   log.push(
     `mines: B saw ${b.distinctEnemy.size} distinct A-mines, max ${b.maxConcurrentEnemy} at once, ` +
