@@ -66,6 +66,14 @@ export class ArenaRoom extends Room<ArenaState> {
       this.world.submitInput(client.sessionId, raw);
     });
 
+    // Discrete spend message (NOT on the per-tick InputMsg: latest-wins
+    // coalescing would drop back-to-back spends; WS ordering gives FIFO for
+    // free). All validation lives in spendPoint (fail-closed, unit-testable
+    // without Colyseus); spends are bounded by banked points, so no rate cap.
+    this.onMessage(MSG.spend, (client: Client, raw: unknown) => {
+      this.world.spendPoint(client.sessionId, (raw as { choice?: unknown } | null)?.choice);
+    });
+
     this.setSimulationInterval((dt) => this.update(dt), INTERVAL_MS);
   }
 

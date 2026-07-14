@@ -496,9 +496,17 @@ function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
       expect(e.id).toBe(me.id);
       return;
     case 'upg':
-      // Killer-private: an upg event may only ever reach the killer itself.
+      // Self-private: an upg event may only ever reach the spending ship itself.
       expect(e.id).toBe(me.id);
       expect(UPGRADE_IDS).toContain(e.type);
+      return;
+    case 'pt':
+      // Self-private: a banked-point event may only ever reach the earner.
+      expect(e.id).toBe(me.id);
+      return;
+    case 'heal':
+      // Self-private: a heal event may only ever reach the healed ship.
+      expect(e.id).toBe(me.id);
       return;
     case 'sunk': {
       if (e.id === me.id) return;

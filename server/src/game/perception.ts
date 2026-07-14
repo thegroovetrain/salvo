@@ -42,9 +42,14 @@
 //     straddle the sight edge with its center in fog, and emitting the id there
 //     would leak the victim's identity.
 //   - dmg:   victim-private (only the damaged ship hears its hp).
-//   - upg:   killer-private (only the ship the kill-reward upgrade landed on
-//     hears it — same mechanism as dmg). Enemy builds stay hidden: upgrade
-//     counts ride ONLY on OwnShip.upg, never on contacts/blips/booms.
+//   - upg:   self-private (only the ship the spent upgrade landed on hears it
+//     — same mechanism as dmg). Enemy builds stay hidden: upgrade counts ride
+//     ONLY on OwnShip.upg, never on contacts/blips/booms.
+//   - pt:    self-private, exactly like upg — only the ship that EARNED the
+//     banked point hears it. Enemy point banks stay hidden: pts/offer ride
+//     ONLY on OwnShip, never on contacts/blips/booms.
+//   - heal:  self-private, exactly like dmg — only the healed ship hears its
+//     own clamped hp delta.
 //   - sunk:  visible to the victim itself, and to anyone who can see the
 //     sinking ship's position (wreck position, sight + LOS). Everyone still
 //     learns alive/kills/deaths from the public roster schema — sinking is
@@ -227,20 +232,24 @@ function sunkForObserver(world: World, me: ShipRecord, e: SunkEvent): SunkEvent 
 }
 
 /**
+ * SELF-PRIVATE kinds (see the header's per-kind rules): forwarded ONLY to the
+ * ship the event names — dmg (victim), upg (spender), pt (earner), heal
+ * (healed). Enemy hp, builds, and point banks all stay hidden by this one gate.
+ */
+function isSelfPrivate(e: GameEvent): boolean {
+  return e.k === 'dmg' || e.k === 'upg' || e.k === 'pt' || e.k === 'heal';
+}
+
+/**
  * Apply the per-kind visibility rules (header) to one world-emitted event,
  * returning the event to emit to this observer (possibly sanitized) or null if
  * the observer may not know about it at all.
  */
 function worldEventForObserver(world: World, me: ShipRecord, e: GameEvent): GameEvent | null {
+  if (isSelfPrivate(e)) return e.id === me.id ? e : null;
   switch (e.k) {
     case 'boom':
       return boomForObserver(world, me, e);
-    case 'dmg':
-      return e.id === me.id ? e : null;
-    case 'upg':
-      // Killer-private, exactly like dmg is victim-private: only the ship the
-      // kill-reward landed on ever hears it (enemy builds stay hidden).
-      return e.id === me.id ? e : null;
     case 'sunk':
       return sunkForObserver(world, me, e);
     case 'spawn':
@@ -295,10 +304,7 @@ export function observeSpectator(world: World, observerId: string): PerceptionVi
   const events: GameEvent[] = [];
   for (const e of world.tickEvents) {
     if (e.k === 'shell' || e.k === 'torp') continue; // re-issued exactly-once below
-    // upg stays killer-private even here: a dead-in-active killer (mutual
-    // destruction) still gets its own grant toast, but no other spectator may
-    // learn a living ship's build increment.
-    if (e.k === 'upg' && e.id !== observerId) continue;
+    if (hiddenFromSpectator(e, observerId)) continue;
     events.push(e);
   }
   events.push(...spectatorBallistics(world, world.ships.get(observerId)));
@@ -307,6 +313,17 @@ export function observeSpectator(world: World, observerId: string): PerceptionVi
     mines.push({ id: m.id, x: m.x, y: m.y, own: m.ownerId === observerId });
   }
   return { contacts, events, mines };
+}
+
+/**
+ * upg/pt/heal stay self-private even in UNFOGGED spectator frames: a
+ * dead-in-active killer (mutual destruction) still gets its own point/spend/
+ * heal toasts, but no other spectator may learn a living ship's build
+ * increment, point bank, or heal. dmg alone passes through unfiltered
+ * (spectators may watch a fight's hp — a dead player has no channel back in).
+ */
+function hiddenFromSpectator(e: GameEvent, observerId: string): boolean {
+  return (e.k === 'upg' || e.k === 'pt' || e.k === 'heal') && e.id !== observerId;
 }
 
 /** Every live ballistic this spectator hasn't been told about, current params. */

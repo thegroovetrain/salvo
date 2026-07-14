@@ -11,6 +11,7 @@
 
 import {
   CONFIG,
+  HEAL_CHOICE,
   UPGRADE_IDS,
   effectiveStats,
   generateMap,
@@ -18,6 +19,7 @@ import {
   mulberry32,
   resolveBoundary,
   resolveShipIslands,
+  rollOffer,
   stepShell,
   stepShip,
   weaponMaxAmmo,
@@ -72,7 +74,8 @@ export interface ShipRecord {
   /**
    * Kill-reward upgrade counts, indexed by UPGRADE_IDS order. Survive respawn
    * (waiting-phase deaths keep the build) but NOT redeployShip (fresh match =
-   * fresh build). Mutated only by grantUpgrade(); `stats` is recomputed with it.
+   * fresh build). Mutated only by applyUpgrade() (the spend-application path);
+   * `stats` is recomputed with it.
    */
   upgrades: number[];
   /**
@@ -154,9 +157,9 @@ export class World {
 
   private rng: Rng;
   /**
-   * Upgrade-grant stream, decorrelated from mapgen/spawn/drone streams so
-   * granting (or not granting) upgrades can never shift spawn/drone
-   * determinism in tests or replays.
+   * Upgrade-offer stream, decorrelated from mapgen/spawn/drone streams so
+   * rolling (or not rolling) offers can never shift spawn/drone determinism
+   * in tests or replays.
    */
   private readonly upgradeRng: Rng;
   private shellSeq = 0;
@@ -312,7 +315,7 @@ export class World {
   /**
    * Sink a ship: dead, hp 0, respawn scheduled (only while respawnEnabled —
    * in the active match phase the dead transition to spectators instead),
-   * death counted. Attributes a kill (and a kill-reward upgrade grant) to `by`
+   * death counted. Attributes a kill (and a banked upgrade point) to `by`
    * when it names a different ship still in the room — a DEAD killer (mutual
    * destruction) still gets both; storm (`by` undefined) and self-kills grant
    * nothing by construction. Combat routes damage through here; tests drive it
@@ -330,27 +333,30 @@ export class World {
       const killer = this.ships.get(by);
       if (killer) {
         killer.kills += 1;
-        this.grantUpgrade(killer);
+        this.grantPoint(killer);
       }
     }
     this.pending.push({ k: 'sunk', id, by });
   }
 
   /**
-   * Kill reward: ONE uniformly-random upgrade type from the decorrelated
-   * upgrade stream.
+   * Kill reward: bank ONE upgrade point with a pre-rolled offer. The offer is
+   * rolled at EARN time on the decorrelated upgrade stream, so reopening the
+   * spend window can never reroll it — spendPoint only ever consumes the queue
+   * front. Stats are untouched until the point is spent.
    */
-  private grantUpgrade(killer: ShipRecord): void {
-    this.applyUpgrade(killer, this.upgradeRng.pick(UPGRADE_IDS));
+  private grantPoint(killer: ShipRecord): void {
+    killer.offers.push(rollOffer(this.upgradeRng));
+    this.pending.push({ k: 'pt', id: killer.id });
   }
 
   /**
    * Apply one SPECIFIC upgrade to a ship: bump the count, recompute the cached
    * effective stats, apply the grant-time side effects (hull heal / +1 loaded
-   * round), and queue the KILLER-PRIVATE upg event (perception forwards it
-   * only to `id`, exactly like the victim-private dmg rule). Public so
-   * directed tests (and future targeted-grant modes) can grant a known type;
-   * gameplay only ever reaches it through grantUpgrade's random pick.
+   * round), and queue the SELF-PRIVATE upg event (perception forwards it only
+   * to `id`, exactly like the victim-private dmg rule — the event now reads as
+   * "point spent"). Public so directed tests can grant a known type; gameplay
+   * only ever reaches it through spendPoint's offer-slot choice.
    */
   applyUpgrade(ship: ShipRecord, type: UpgradeId): void {
     ship.upgrades[UPGRADE_IDS.indexOf(type)] += 1;
@@ -384,6 +390,39 @@ export class World {
     if (weapon === undefined) return;
     const pool = killer.ammo[weapon];
     pool.n = Math.min(pool.n + 1, weaponMaxAmmo(killer.stats, weapon));
+  }
+
+  /**
+   * Wire entry point for MSG.spend: consume ONE banked point. Validate-
+   * everything like submitInput, fail-closed — unknown ship, empty bank, or a
+   * malformed choice returns false with the queue untouched. choice 0..2
+   * spends the FRONT offer's slot; upgrades ARE spendable while dead (builds
+   * persist across waiting-phase respawns — same precedent as the dead
+   * killer's reward). HEAL_CHOICE routes to spendHeal.
+   */
+  spendPoint(id: string, rawChoice: unknown): boolean {
+    const ship = this.ships.get(id);
+    if (!ship || ship.offers.length === 0) return false;
+    if (typeof rawChoice !== 'number' || !Number.isInteger(rawChoice)) return false;
+    if (rawChoice === HEAL_CHOICE) return this.spendHeal(ship);
+    if (rawChoice < 0 || rawChoice > 2) return false;
+    this.applyUpgrade(ship, ship.offers.shift()![rawChoice]);
+    return true;
+  }
+
+  /**
+   * Heal spend: alive-only and rejected at full hp — either rejection
+   * PRESERVES the point (a misfired heal must not eat it). Heals
+   * min(healHp, missing hp), consumes the front offer, and emits the
+   * self-private heal event carrying the ACTUAL clamped delta.
+   */
+  private spendHeal(ship: ShipRecord): boolean {
+    if (!ship.alive || ship.hp >= ship.stats.maxHp) return false;
+    const healed = Math.min(CONFIG.upgradePoints.healHp, ship.stats.maxHp - ship.hp);
+    ship.hp += healed;
+    ship.offers.shift();
+    this.pending.push({ k: 'heal', id: ship.id, amount: healed });
+    return true;
   }
 
   /** Advance the simulation one fixed step (default SIM_DT = 50ms). */

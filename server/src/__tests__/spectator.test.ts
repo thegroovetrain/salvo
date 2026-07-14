@@ -11,6 +11,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  HEAL_CHOICE,
   bearing,
   mulberry32,
   segCircleHit,
@@ -143,19 +144,26 @@ describe('spectator frames — dead observer in the active phase', () => {
     });
   });
 
-  it("filters another ship's killer-private upg out of spec frames; own grants still arrive", () => {
+  it("filters another ship's self-private pt/upg/heal out of spec frames; own points still arrive", () => {
     const w = deadObserverWorld(); // a is dead (sunk by b)
-    w.sinkShip('c', 'b'); // b's kill → a killer-private upg for b only
+    place(w, 'd', 600, 0);
+    w.sinkShip('c', 'b'); // b's kills → self-private pt events for b only
+    w.sinkShip('d', 'b');
+    const b = w.ships.get('b')!;
+    b.hp -= 30;
+    expect(w.spendPoint('b', 0)).toBe(true); // upg ("spent") event, b only
+    expect(w.spendPoint('b', HEAL_CHOICE)).toBe(true); // heal event, b only
     w.step();
     const fa = buildFrame(w, 'a', 'active');
-    expect(fa.events.filter((e) => e.k === 'upg')).toEqual([]); // b's build stays hidden
-    // The DEAD killer still gets its own grant (mutual-destruction rule), and
-    // the spec-frame pass-through delivers it to the owning spectator.
+    // b's point bank, build increment, and heal all stay hidden from spectators.
+    expect(fa.events.filter((e) => e.k === 'pt' || e.k === 'upg' || e.k === 'heal')).toEqual([]);
+    // The DEAD killer still banks its own point (mutual-destruction rule), and
+    // the spec-frame pass-through delivers its pt to the owning spectator.
     w.sinkShip('b', 'a');
     w.step();
-    const upgs = buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'upg');
-    expect(upgs).toHaveLength(1);
-    expect(upgs[0]).toMatchObject({ k: 'upg', id: 'a' });
+    expect(buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'pt')).toEqual([
+      { k: 'pt', id: 'a' },
+    ]);
   });
 
   it('adopts in-flight ballistics exactly once, with CURRENT params', () => {
@@ -270,7 +278,9 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
       expect(e.id).toBe(me.id);
       return;
     case 'upg':
-      expect(e.id).toBe(me.id); // killer-private, even under fog
+    case 'pt':
+    case 'heal':
+      expect(e.id).toBe(me.id); // self-private, even under fog
       return;
     case 'sunk':
       if (e.id !== me.id) expect(sighted(w, me, w.ships.get(e.id)!.state)).toBe(true);

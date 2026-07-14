@@ -152,11 +152,11 @@ describe('buildFrame — events (fogged via perception)', () => {
     w.sinkShip('b', 'a');
     w.step();
     const sunk = { k: 'sunk', id: 'b', by: 'a' };
-    // The killer additionally gets its killer-private kill-reward upg event.
+    // The killer additionally gets its self-private banked-point pt event.
     const aEvents = buildFrame(w, 'a').events;
     expect(aEvents.filter((e) => e.k === 'sunk')).toEqual([sunk]); // wreck 100u away — visible
-    expect(aEvents.filter((e) => e.k === 'upg')).toHaveLength(1);
-    expect(buildFrame(w, 'b').events).toEqual([sunk]); // victim always told, never the killer's grant
+    expect(aEvents.filter((e) => e.k === 'pt')).toEqual([{ k: 'pt', id: 'a' }]);
+    expect(buildFrame(w, 'b').events).toEqual([sunk]); // victim always told, never the killer's point
   });
 
   it('spawn events carry the spawn position', () => {
