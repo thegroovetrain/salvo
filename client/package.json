@@ -12,8 +12,8 @@
   },
   "dependencies": {
     "@salvo/shared": "*",
-    "marked": "^17.0.5",
-    "socket.io-client": "^4.8.0"
+    "colyseus.js": "^0.16.0",
+    "pixi.js": "^8.19.0"
   },
   "devDependencies": {
     "jsdom": "^29.0.1",

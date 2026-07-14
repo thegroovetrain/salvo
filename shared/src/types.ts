@@ -1,409 +1,345 @@
-// ============================================================
-// SALVO — Shared Types
-// Server-internal types use Map/Set for convenience.
-// Wire types (sent over socket.io) use JSON-serializable equivalents.
-// ============================================================
+// Wire contract between client and server. Field names are kept short (bytes on
+// the wire) but readable. Two planes per the plan:
+//   - Public plane: Colyseus schema (roster/mapSeed/mapRadius) — not defined here.
+//   - Fogged plane: per-client FrameMsg built by the perception chokepoint.
+// Messages: "w" welcome (once), "i" input (client->server), "f" frame
+// (server->client, every tick).
 
-// --- Server-internal types ---
+import type { GameConfig, ShipClassId, UpgradeId } from './constants.js';
 
-export interface Ship {
-  length: number;
-  cells: string[];         // e.g. ["0,0","1,0","2,0"] (axial hex coords)
-  hits: Set<string>;       // subset of cells that have been hit
+/** Short message-name tags used on the Colyseus channel. */
+export const MSG = {
+  welcome: 'w',
+  input: 'i',
+  frame: 'f',
+  results: 'r',
+  spend: 'u', // client->server: spend one banked point (see SpendMsg)
+} as const;
+
+/**
+ * Match lifecycle phase (public plane — mirrored on the schema as matchPhase).
+ * waiting: ready room, drive/aim/fire freely but ALL damage suppressed.
+ * countdown: ≥ minHumans present, room locked, countdownEndT set.
+ * active: damage live, respawn disabled (death → spectate), storm running.
+ * finished: winner decided; results broadcast; room disposes after the overlay.
+ */
+export type MatchPhase = 'waiting' | 'countdown' | 'active' | 'finished';
+
+/** Weapon selector index. 0 = guns, 1 = torpedoes, 2 = mines. */
+export type WeaponId = 0 | 1 | 2;
+
+/** Named weapon indices (keep in sync with WeaponId). */
+export const WEAPON = { gun: 0, torpedo: 1, mine: 2 } as const;
+
+/** A circle: island obstacle or spawn ring. */
+export interface Circle {
+  x: number; // u
+  y: number; // u
+  r: number; // u
 }
 
-/** Computed: true when all cells have been hit */
-export function isShipSunk(ship: Ship): boolean {
-  return ship.hits.size === ship.cells.length;
+/**
+ * Client -> server input ("i"), sent every tick (~50ms) and on key edges,
+ * rate-capped server-side. Server keeps the latest seq per client and clamps
+ * every field. `seq`/frame `ackSeq` future-proof the wire for v2 reconcile.
+ */
+export interface InputMsg {
+  seq: number; // monotonic per-client sequence
+  throttle: number; // -1..1
+  rudder: number; // -1..1
+  aim: number; // rad — desired firing bearing (world space)
+  /**
+   * Cumulative per-connection click counter (one shot per click). A value
+   * newer than the last one the server consumed requests exactly ONE shot;
+   * clicks during reload are consumed, not queued. A counter (not an edge
+   * flag) survives the server's latest-input-wins coalescing, and a spoofed
+   * jump (`fireSeq += 1000`) gains nothing — the server fires at most one
+   * gated attempt per tick.
+   */
+  fireSeq: number;
+  /**
+   * u — ship→cursor distance at sample time. Guns splash their shell at this
+   * point along the aim bearing (server-clamped to max gun range); torpedoes
+   * and mines ignore it (direction-only).
+   */
+  aimDist: number;
+  weapon: WeaponId; // selected weapon
 }
 
-export type AiDifficulty = 'easy' | 'medium' | 'hard' | 'impossible';
+/**
+ * Client -> server spend ("u"): consume one banked point. `choice` is 0..2 for
+ * the current offer's slot (see OwnShip.offer / UpgradeOffer) or HEAL_CHOICE for
+ * the always-available heal. Deliberately a DISCRETE reliable message, NOT a
+ * field on the per-tick InputMsg: the latest-input-wins coalescing there would
+ * silently drop back-to-back spends (two quick kills → two spends).
+ */
+export interface SpendMsg {
+  choice: number; // 0..2 = offer slot, HEAL_CHOICE = heal
+}
 
-// --- Player Colors ---
+/** SpendMsg.choice value that spends a point on healing instead of an upgrade. */
+export const HEAL_CHOICE = 3;
 
-export type PlayerColor = 'magenta' | 'red' | 'yellow' | 'green' | 'cyan' | 'blue';
+/**
+ * One weapon's ammo pool + reload timer. Replaces the old per-mount cooldown
+ * arrays: each weapon has ONE pool (`n` = rounds ready to fire, 0 = empty) and
+ * ONE reload timer (`reloadMsLeft` = ms until the next round tops up the pool;
+ * 0 = idle, i.e. either full or between-shots with nothing pending). The reload
+ * ticks whenever the pool is below max, adds +1 per fill, and restarts (with
+ * overshoot carry) while still below max — see server weapons/ammo.ts.
+ */
+export interface WeaponAmmo {
+  n: number; // rounds currently loaded (0 = empty)
+  reloadMsLeft: number; // ms until the next round tops up the pool (0 = idle)
+}
 
-/** Fixed global slot order: join order determines color in private games */
-export const SLOT_COLORS: PlayerColor[] = ['magenta', 'red', 'yellow', 'green', 'cyan', 'blue'];
-
-/** @deprecated Team color pools removed — QP is FFA only, private teams use SLOT_COLORS by join order */
-
-export const BOT_NAME_POOLS: Record<AiDifficulty, string[]> = {
-  easy: ['Ethan', 'Emma', 'Eli', 'Eva', 'Eddie', 'Elena', 'Ezra', 'Elise', 'Edgar', 'Emily'],
-  medium: ['Marcus', 'Mia', 'Miles', 'Maya', 'Max', 'Meredith', 'Morgan', 'Molly', 'Malcolm', 'Margot'],
-  hard: ['Helena', 'Hugo', 'Hana', 'Harris', 'Holly', 'Hector', 'Hazel', 'Henry', 'Hope', 'Hans'],
-  impossible: ['Ivan', 'Iris', 'Isaac', 'Isla', 'Ian', 'Ingrid', 'Idris', 'Ivy', 'Igor', 'Imara'],
-};
-
-export interface Player {
+/**
+ * Your own ship as seen in a frame — full, unfogged. `sweep` is the current
+ * radar angle (rad), used to draw the sweep wedge client-side.
+ *
+ * `ammo` is a WeaponAmmo[] indexed by WeaponId — for each weapon, its pool
+ * count + reload timer:
+ *   [0] guns     — shared broadside pool (maxAmmo rounds; a click fires the one
+ *                  mount whose arc bears on the aim).
+ *   [1] torpedoes — bow-tube pool.
+ *   [2] mines     — drop pool (distinct from the live-mine board cap).
+ * maxAmmo / reloadMs are NOT on the wire — the client reads them from CONFIG
+ * (and, after upgrades, from its own effective-stats computation). The client
+ * derives the reload fraction from reloadMsLeft / CONFIG.reloadMs.
+ */
+export interface OwnShip {
   id: string;
-  name: string;
-  ships: Ship[];
-  isBot: boolean;
-  aiDifficulty: AiDifficulty | null;
-  color: PlayerColor;
-}
-
-/** Computed: has at least one unsunk ship */
-export function isPlayerAlive(player: Player): boolean {
-  return player.ships.some(s => !isShipSunk(s));
-}
-
-/** Computed: number of surviving ships = shots per turn */
-export function playerShotCount(player: Player): number {
-  return player.ships.filter(s => !isShipSunk(s)).length;
-}
-
-export type GamePhase = 'lobby' | 'placement' | 'playing' | 'finished';
-
-export interface TimerConfig {
-  enabled: boolean;
-  seconds: number; // 30 or 60
-}
-
-export type GameMode = 'private' | 'quickplay';
-
-export type ChatChannel = 'team' | 'global';
-
-export interface Game {
-  id: string;
-  phase: GamePhase;
-  mode: GameMode;
-  players: Map<string, Player>;
-  hostId: string;
-  turnOrder: string[];        // generated when all ships placed
-  currentTurnIndex: number;
-  rings: number;              // hex grid ring count (4-6)
-  islands: Set<string>;       // "q,r" coordinate strings for blocked hexes
-  shots: Set<string>;         // all globally fired coordinates ("q,r" format)
-  timerConfig: TimerConfig;
-  lastActivity: number;       // Date.now() for cleanup
-  rematchAccepted: Set<string>; // playerIds who accepted rematch
-  /** Per-player stats accumulated during gameplay */
-  playerStats: Map<string, PlayerGameStats>;
-  /** ID of the player who scored the first hit */
-  firstBloodId: string | null;
-  /** Team mode: playerId → teamId ('alpha' | 'bravo' | 'charlie') */
-  teams: Map<string, string>;
-  teamsEnabled: boolean;
-  /** Private game type for lobby UI: 'ffa' | '2-team' | '3-team' */
-  gameType: 'ffa' | '2-team' | '3-team';
-  /** Island count for generation (0=none, 4=few, 6=normal, 8=many) */
-  islandCount: number;
-  /** Ready states for lobby: playerId → ready (bots always considered ready) */
-  readyStates: Map<string, boolean>;
-  /** Turn mode: sequential (one at a time) or simultaneous (all at once) */
-  turnMode: 'sequential' | 'simultaneous';
-  /** Simultaneous mode: current round number (0 = not started) */
-  roundNumber: number;
-  /** Simultaneous mode: locked salvos per player (playerId → coords) */
-  lockedSalvos: Map<string, string[]>;
-  /** Simultaneous mode: deadline timestamp for current round lock-in */
-  lockDeadline: number | null;
-  /** Simultaneous mode: frozen list of living player IDs at round start */
-  roundParticipants: string[];
-  /** Simultaneous mode: frozen shot counts per player at round start */
-  roundShotCounts: Map<string, number>;
-  /** Simultaneous mode: current round phase */
-  roundPhase: 'open' | 'resolving' | null;
-}
-
-export interface PlayerGameStats {
-  shotsFired: number;
-  hitsLanded: number;       // hits on OTHER players' ships
-  shipsSunk: number;        // other players' ships this player sunk
-  friendlyFireHits: number; // hits on OWN ships
-  turnsTaken: number;
-}
-
-export const SHIP_LENGTHS = [2, 3, 4] as const;
-export const SHIP_NAMES: Record<number, string> = {
-  2: 'Destroyer',
-  3: 'Cruiser',
-  4: 'Dreadnought',
-};
-
-/** Default ring counts per game mode */
-export const MODE_RINGS: Record<string, number> = {
-  'private': 5,
-  'quickplay': 6,   // 6-player FFA always uses 6 rings
-};
-
-// --- Wire types (JSON-serializable, used in socket events) ---
-
-export interface WireShip {
-  length: number;
-  cells: string[];
-  hits: string[];
-  sunk: boolean;
-}
-
-export interface WirePlayer {
-  id: string;
-  name: string;
-  ships: WireShip[];  // only YOUR ships have cells populated; others have cells=[]
-  isBot: boolean;
-  aiDifficulty: AiDifficulty | null;
+  x: number; // u
+  y: number; // u
+  heading: number; // rad
+  speed: number; // u/s (signed)
+  hp: number;
   alive: boolean;
-  shotCount: number;
-  color: PlayerColor;
+  weapon: WeaponId; // currently selected
+  ammo: WeaponAmmo[]; // per weapon: pool count + reload timer (see above)
+  sweep: number; // rad — current radar sweep angle
+  cls: ShipClassId; // ship class (drives hull dims / kinematics / max hp client-side)
+  /**
+   * Upgrade counts, indexed by UPGRADE_IDS order. Self-syncing every frame (no
+   * event-replay problem across match resets); the client feeds (cls, upg)
+   * through the shared effectiveStats() — the desync firewall. ANTI-CHEAT:
+   * upgrade counts appear ONLY here, on your own ship — never on a Contact,
+   * blip, ballistic event, boom, or spectator contact (enemy builds are hidden;
+   * a sighted hull's class size is the only legitimate tell).
+   */
+  upg: number[];
+  /**
+   * Banked upgrade points not yet spent (one per kill). Like `upg`, this rides
+   * `you` ONLY — self-private by construction, never on a Contact or spectator
+   * payload.
+   */
+  pts: number;
+  /**
+   * The FRONT queued offer, as indices into UPGRADE_IDS (three distinct
+   * categories; see sim/offers.ts). `[]` when pts is 0. Only the front offer is
+   * ever surfaced — the rest of the queue never leaves the server.
+   */
+  offer: number[];
 }
 
-export interface WireSunkShipInfo {
-  cells: string[];
-  length: number;
-}
-
-export interface PlayerHit {
-  playerId: string;
-  playerName: string;
-  sunk: boolean;
-  shipLength: number;
-  sunkShipCells: string[] | null; // revealed when a ship is sunk
-}
-
-export interface ShotResult {
-  coord: string;
-  hits: PlayerHit[];
-  miss: boolean;
-}
-
-export interface WireGame {
+/** A ship revealed by true-sight this tick (position is live, not stale). */
+export interface Contact {
   id: string;
-  phase: GamePhase;
-  mode: GameMode;
-  players: Record<string, WirePlayer>;
-  hostId: string;
-  turnOrder: string[];
-  currentTurnIndex: number;
-  rings: number;
-  islands: string[];         // "q,r" strings for blocked hexes
-  shots: string[];
-  timerConfig: TimerConfig;
-  teamsEnabled: boolean;
-  teams: Record<string, string>; // playerId → teamId
-  gameType: 'ffa' | '2-team' | '3-team';
-  islandCount: number;
-  turnMode: 'sequential' | 'simultaneous';
-  roundNumber: number;
-  lockedPlayerIds: string[];
-  roundPhase: 'open' | 'resolving' | null;
-  lockDeadline: number | null;
+  x: number; // u
+  y: number; // u
+  heading: number; // rad
+  speed: number; // u/s
+  cls: ShipClassId; // ship class — a sighted hull's size is legitimately visible
 }
 
-export interface ChatMessage {
-  playerId: string;
-  playerName: string;
-  text: string;
-  timestamp: number;
-  channel: ChatChannel;
+// --- GameEvent union (discriminated on `k`) --------------------------------
+
+/** Radar paint: a timestamped stale snapshot of a contact's position. */
+export interface BlipEvent {
+  k: 'blip';
+  id: string;
+  x: number; // u — position at paint time
+  y: number; // u
+  t: number; // ms — server time the blip was painted (drives phosphor decay)
 }
 
-export interface GameOverStats {
-  winnerId: string | null; // null = draw
-  winnerTeamId: string | null; // null = draw or non-team game
-  playerStats: Record<string, {
-    shotsFired: number;
-    hitsLanded: number;
-    accuracy: number;          // hitsLanded / shotsFired (0-1)
-    shipsSunk: number;
-    friendlyFireHits: number;
-    turnsTaken: number;
-  }>;
-  highlights: string[]; // e.g. "Sharpshooter: Eric (78%)"
+/**
+ * A ballistic projectile entering your vision, sent once — position and
+ * velocity AT REVEAL TIME (launch for the owner, first-sight for everyone
+ * else). The client dead-reckons it: pos = (x,y) + (vx,vy) * (serverNow - t),
+ * terminating on a matching `boom` OR a client-derived max lifetime (per-kind,
+ * computed from CONFIG range/speed) OR when it leaves the client's own sight
+ * bubble. Shared shape for shells and torpedoes.
+ *
+ * ANTI-CHEAT — no range-derivable field may EVER return to this shape (no
+ * `ttl`, no `distLeft`, no launch position). CONFIG ships shellRange/shellSpeed
+ * to every client, so any remaining-flight quantity on a fogged reveal lets a
+ * modified client solve back to the (hidden) muzzle: traveled = range −
+ * ttl·speed, launch = pos − unit(v)·traveled. A constant-free wire shape
+ * ({id,x,y,vx,vy,t}) cannot encode traveled distance, so it cannot leak a
+ * fogged shooter's position. Termination stays a client concern.
+ */
+export interface BallisticEvent {
+  k: 'shell' | 'torp';
+  id: string; // projectile id (matches a later boom)
+  x: number; // u — position at reveal time (NOT launch, on a first-sight reveal)
+  y: number; // u
+  vx: number; // u/s
+  vy: number; // u/s
+  t: number; // ms — reveal server time
 }
 
-// --- Party Types ---
-
-// --- Lobby Capabilities ---
-
-export interface LobbyCapabilities {
-  canChangeOptions: boolean;
-  canAddBot: boolean;
-  canKick: boolean;
-  canMoveToSlot: boolean;
-  canRequestSwap: boolean;
-  canToggleReady: boolean;
-  canStart: boolean;
-  canTransferHost: boolean;
-  allPlayersReady: boolean;
-  isReady: boolean;
-  readyStates: Record<string, boolean>;
+/**
+ * An explosion at a point (shell/torp impact or mine detonation). `id` matches
+ * the originating projectile so the client terminates its dead-reckoned render.
+ * `hit` is the struck ship's id, but ONLY when the victim is a sighted contact
+ * of this observer (or the observer IS the victim) — see perception.ts. It
+ * drives the hit spark + hull flash. Its absence means either a splash
+ * (island/range exhaustion → splash ring) OR an impact whose victim this
+ * observer cannot currently see (anti-cheat: a hull straddling the sight edge
+ * must not leak the victim's id); the client plays a generic impact either way.
+ */
+export interface BoomEvent {
+  k: 'boom';
+  id?: string; // originating projectile/mine id, if any
+  hit?: string; // struck ship id, when this boom is a ship impact
+  x: number; // u
+  y: number; // u
 }
 
-export type PartyErrorReason =
-  | 'already-in-party'
-  | 'in-game'
-  | 'party-full'
-  | 'invalid-code'
-  | 'not-leader'
-  | 'members-in-game'
-  | 'rate-limited'
-  | 'not-in-party'
-  | 'target-party-queued';
-
-export const PARTY_ERROR_MESSAGES: Record<PartyErrorReason, string> = {
-  'already-in-party': "You're already in a party",
-  'in-game': "Can't join a party while in a game",
-  'party-full': 'Party is full (max 3 players)',
-  'invalid-code': 'Invalid party code',
-  'not-leader': 'Only the party leader can do that',
-  'members-in-game': "Can't disband while members are in a game",
-  'rate-limited': 'Please wait before creating another party',
-  'not-in-party': "You're not in a party",
-  'target-party-queued': 'That party is currently in matchmaking',
-};
-
-export interface WirePartyMember {
-  displayId: string;    // opaque per-party ID (NOT guestId — guestId is a credential)
-  name: string | null;
-  joinedAt: number;
+/** A ship took damage. `hp` is its resulting hit points. */
+export interface DamageEvent {
+  k: 'dmg';
+  id: string;
+  amount: number; // hp lost
+  hp: number; // hp remaining
 }
 
-export interface PartyStatePayload {
-  partyId: string;
-  code: string;
-  leaderId: string;    // matches a member's displayId
-  members: WirePartyMember[];
+/** A ship sank. `by` is the killer's id, if attributable. */
+export interface SunkEvent {
+  k: 'sunk';
+  id: string;
+  by?: string;
 }
 
-// --- Queue error reasons ---
-
-export type QueueErrorReason =
-  | 'not-leader'
-  | 'already-queued'
-  | 'member-disconnected'
-  | 'in-game'
-  | 'in-party';
-
-export const QUEUE_ERROR_MESSAGES: Record<QueueErrorReason, string> = {
-  'not-leader': 'Only the party leader can start or cancel matchmaking',
-  'already-queued': "You're already in a queue",
-  'member-disconnected': 'A party member is disconnected',
-  'in-game': "Can't queue while in a game",
-  'in-party': 'Parties can only play private games. Create a private game instead.',
-};
-
-// --- Ship placement input ---
-
-export interface ShipPlacement {
-  length: number;
-  cells: string[];
+/** A ship (re)spawned at a position. */
+export interface SpawnEvent {
+  k: 'spawn';
+  id: string;
+  x: number; // u
+  y: number; // u
 }
 
-// --- Socket Events ---
-
-export interface GameCountData {
-  total: number;
-  searching: number;
+/**
+ * A kill-reward upgrade grant. KILLER-PRIVATE: `id` is the receiving (killer)
+ * ship's id, and perception forwards the event ONLY to that observer — the
+ * exact mechanism of the victim-private `dmg` rule (see perception.ts). Since
+ * the sole recipient is the killer itself, `id` is always the receiver's own
+ * id and leaks nothing. Purely UX (toast + tone): the authoritative counts
+ * self-sync every frame via OwnShip.upg.
+ */
+export interface UpgradeEvent {
+  k: 'upg';
+  id: string; // the killer (= the only observer this is ever delivered to)
+  type: UpgradeId;
 }
 
-export interface ClientToServerEvents {
-  'create-game': (data: { playerName: string }) => void;
-  'update-game-options': (data: { gameType?: 'ffa' | '2-team' | '3-team'; timerSeconds?: number | null; rings?: number; islandCount?: number; turnMode?: 'sequential' | 'simultaneous' }) => void;
-  'join-game': (data: { code: string; playerName: string }) => void;
-  'start-game': (data?: { force?: boolean }) => void;
-  'add-bot': (data: { difficulty: AiDifficulty; team?: string; slotIndex?: number }) => void;
-  'remove-bot': (data: { botId: string }) => void;
-  'place-ships': (data: { ships: ShipPlacement[] }) => void;
-  'fire': (data: { coords: string[] }) => void;
-  'chat-message': (data: { text: string; channel?: ChatChannel }) => void;
-  'swap-team': (data: { targetPlayerId: string }) => void;
-  'swap-players': (data: { playerA: string; playerB: string }) => void;
-  'move-to-slot': (data: { slotIndex: number }) => void;
-  'placement-preview': (data: { ships: ShipPlacement[] }) => void;
-  'rematch-request': () => void;
-  'rematch-decline': () => void;
-  'quickplay-join': (data: { playerName: string }) => void;
-  'lock-salvo': (data: { coords: string[] }) => void;
-  'quickplay-leave': () => void;
-  'surrender': () => void;
-  'leave-game': () => void;
-  // Lobby events (Sprint 1d)
-  'toggle-ready': () => void;
-  'request-swap': (data: { targetPlayerId: string }) => void;
-  'respond-swap': (data: { requesterId: string; accept: boolean }) => void;
-  'kick-player': (data: { targetPlayerId: string }) => void;
-  'transfer-host': (data: { targetPlayerId: string }) => void;
-  'return-to-lobby': () => void;
-  // Party events
-  'create-party': () => void;
-  'join-party': (data: { code: string }) => void;
-  'leave-party': () => void;
-  'disband-party': () => void;
+/**
+ * A banked point earned (one per kill). SELF-PRIVATE: `id` is the earning ship's
+ * id, and perception forwards it ONLY to that observer — the same mechanism as
+ * the killer-private `upg` event. Purely UX (toast + tone): the authoritative
+ * count self-syncs every frame via OwnShip.pts.
+ */
+export interface PointEvent {
+  k: 'pt';
+  id: string; // the earner (= the only observer this is ever delivered to)
 }
 
-export interface ServerToClientEvents {
-  'error': (data: { message: string }) => void;
-  'game-created': (data: { code: string; playerId: string; gameId: string }) => void;
-  'player-joined': (data: { game: WireGame; capabilities?: LobbyCapabilities }) => void;
-  'placement-phase': (data: { game: WireGame; placementDeadline?: number }) => void;
-  'all-ready': (data: { game: WireGame }) => void;
-  'your-turn': (data: { shotCount: number; timerSeconds: number | null }) => void;
-  'turn-timeout': (data: { playerId: string }) => void;
-  'shot-results': (data: { shooterId: string; shooterName: string; shots: ShotResult[]; game: WireGame }) => void;
-  'player-eliminated': (data: { playerId: string; playerName: string; reason: 'surrender' | 'sunk' }) => void;
-  'game-over': (data: GameOverStats) => void;
-  'game-state': (data: { game: WireGame; capabilities?: LobbyCapabilities }) => void;
-  'chat-message': (data: ChatMessage) => void;
-  'player-disconnected': (data: { playerId: string; playerName: string }) => void;
-  'teammate-placement-preview': (data: { ships: ShipPlacement[] }) => void;
-  'player-reconnected': (data: { playerId: string; playerName: string }) => void;
-  'rematch-pending': (data: { acceptedIds: string[]; totalHumans: number }) => void;
-  'rematch-starting': (data: { game: WireGame; placementDeadline?: number }) => void;
-  'rematch-declined': (data: { playerName: string; code: string; game: WireGame }) => void;
-  'quickplay-queue-update': (data: { size: number; ticketCount: number; target: number }) => void;
-  'quickplay-matched': (data: { playerId: string; gameId: string }) => void;
-  'round-start': (data: { roundNumber: number; shotCount: number; timerSeconds: number | null; livingPlayerIds: string[] }) => void;
-  'player-locked': (data: { playerId: string }) => void;
-  'round-results': (data: { salvos: { shooterId: string; shooterName: string; shots: ShotResult[] }[]; game: WireGame }) => void;
-  'party-queue-cancelled': () => void;
-  'queue-error': (data: { reason: QueueErrorReason }) => void;
-  'online-count': (data: { count: number }) => void;
-  'surrender-ack': () => void;
-  'left-game': () => void;
-  'tab-evicted': () => void;
-  'guest-id-assigned': (data: { guestId: string }) => void;
-  // Lobby events (Sprint 1d)
-  'swap-requested': (data: { requesterId: string; requesterName: string }) => void;
-  'swap-declined': (data: { targetId: string; targetName: string }) => void;
-  'player-kicked': (data: { reason: string }) => void;
-  'start-countdown': (data: { deadline: number }) => void;
-  'start-countdown-cancelled': () => void;
-  // Party events
-  'party-created': (data: PartyStatePayload) => void;
-  'party-joined': (data: PartyStatePayload) => void;
-  'party-updated': (data: PartyStatePayload) => void;
-  'party-left': () => void;
-  'party-disbanded': () => void;
-  'party-error': (data: { reason: PartyErrorReason }) => void;
-  'party-leader-disconnected': () => void;
-  'party-leader-reconnected': () => void;
+/**
+ * A heal spend was applied. SELF-PRIVATE (forwarded only to `id`, like `pt`).
+ * `amount` is the ACTUAL clamped hp delta (0 at full hp), so the client can toast
+ * the real gain; the authoritative hp self-syncs every frame via OwnShip.hp.
+ */
+export interface HealEvent {
+  k: 'heal';
+  id: string; // the healed ship (= the only observer this is ever delivered to)
+  amount: number; // hp actually restored (clamped delta)
 }
 
-// --- Helpers ---
-
-/** Get all teammates of a player (excludes self). Returns [] for FFA/non-team games. */
-export function getTeammates(game: Game, playerId: string): string[] {
-  if (!game.teamsEnabled) return [];
-  const myTeam = game.teams.get(playerId);
-  if (!myTeam) return [];
-  const teammates: string[] = [];
-  for (const [pid, tid] of game.teams) {
-    if (pid !== playerId && tid === myTeam) {
-      teammates.push(pid);
-    }
-  }
-  return teammates;
+/**
+ * A mine visible to this viewer, synced as CONTACT-LIKE state (not an event):
+ * FrameMsg.mines is recomputed per observer every tick, exactly like contacts.
+ * Owner sees ALL own mines always; others see a mine only when it is within
+ * sight range + island-LOS. Mines never radar-paint. `own` = the viewer owns
+ * this mine (render it friendly). A mine dropping out of the list means it is
+ * gone OR out of sight — the client cannot tell, and that ambiguity is the
+ * point (no event-lifecycle staleness bug is possible for a static entity).
+ */
+export interface MineView {
+  id: string;
+  x: number; // u
+  y: number; // u
+  own: boolean;
 }
 
-/** Check if any player on the team is still alive */
-export function isTeamAlive(game: Game, teamId: string): boolean {
-  for (const [pid, tid] of game.teams) {
-    if (tid === teamId) {
-      const player = game.players.get(pid);
-      if (player && isPlayerAlive(player)) return true;
-    }
-  }
-  return false;
+/** Per-tick, per-client events. Discriminated union on `k`. */
+export type GameEvent =
+  | BlipEvent
+  | BallisticEvent
+  | BoomEvent
+  | DamageEvent
+  | SunkEvent
+  | SpawnEvent
+  | UpgradeEvent
+  | PointEvent
+  | HealEvent;
+
+/**
+ * Server -> client per-tick frame ("f"). Built per client by buildFrame().
+ * Spectator frames set `spec: true`, omit `you`, and carry every ship in
+ * `contacts` unfogged (no blips needed).
+ */
+export interface FrameMsg {
+  t: number; // ms — server time this frame was built
+  tick: number; // server tick counter
+  ackSeq: number; // highest input seq applied for this client
+  you?: OwnShip; // omitted for spectators
+  contacts: Contact[];
+  events: GameEvent[];
+  mines: MineView[]; // per-observer mine visibility (contact-like, recomputed per tick)
+  spec?: true; // spectator (unfogged) frame
+}
+
+/** One player's line in the end-of-match results table. */
+export interface ResultsRow {
+  id: string;
+  name: string;
+  placement: number; // 1 = winner; later sinks place higher (better)
+  kills: number;
+  damageDealt: number; // hp dealt to other hulls (storm damage attributes to nobody)
+}
+
+/**
+ * Server -> client end-of-match results ("r"), broadcast exactly once when the
+ * match finishes. `winnerId` is '' only if no participant could be determined
+ * (mutual destruction resolves to the LATEST-sunk human, so in practice it is
+ * always set). Rows are sorted by placement ascending.
+ */
+export interface ResultsMsg {
+  winnerId: string;
+  rows: ResultsRow[];
+}
+
+/**
+ * Server -> client handshake ("w"), sent once on join. Carries the map seed for
+ * deterministic client-side island generation plus a CONFIG snapshot so the
+ * client shares every tunable.
+ */
+export interface WelcomeMsg {
+  sessionId: string;
+  mapSeed: number;
+  mapRadius: number; // u
+  playerCap: number; // the cap the server sized the map against (feeds generateMap)
+  t: number; // ms — server time at welcome (seeds the client clock)
+  config: GameConfig;
 }

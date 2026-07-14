@@ -1,124 +1,53 @@
-import type {
-  WireGame, ShipPlacement, ChatMessage,
-  GameOverStats, ChatChannel, ShotResult,
-  LobbyCapabilities,
-} from '@salvo/shared';
+// Mutable client game state. Three plain domains with one-way data flow per
+// the plan: server mirror (net) -> sim state (prediction) -> render views.
+// The net mirror here is plain data only; the stateful net machinery
+// (SnapshotBuffer/ContactStore/ServerClock) lives in net/ and is composed in
+// main.ts. Kept a leaf module: it imports only shared types, never render,
+// net, or input code.
 
-export type Screen = 'lobby' | 'waiting' | 'placement' | 'battle' | 'gameover' | 'changelog' | 'queue';
+import type { OwnShip } from '@salvo/shared';
 
-export interface ShotLogEntry {
-  shooterId: string;
-  shooterName: string;
-  shots: ShotResult[];
+/** Coarse client phase. Expands (waiting/countdown/spectate) in later steps. */
+export type Phase = 'connecting' | 'active';
+
+/**
+ * Own-ship render source — the step-5/6 A/B switch (toggled with P):
+ *   'predict' — local prediction + reconciliation (step 6, default)
+ *   'interp'  — own ship drawn from server frames at -50ms (step 5 checkpoint)
+ */
+export type NetMode = 'predict' | 'interp';
+
+/** Plain mirror of the latest server frame data for this client. */
+export interface NetState {
+  sessionId: string;
+  tick: number; // latest server tick seen
+  ackSeq: number; // highest input seq the server has applied
+  you: OwnShip | null; // latest authoritative own-ship, null pre-first-frame
 }
 
-export interface AppState {
-  screen: Screen;
-  playerId: string | null;
-  gameId: string | null;
-  joinCode: string | null;
-  game: WireGame | null;
-  isHost: boolean;
-  // Placement
-  placedShips: ShipPlacement[];
-  placingShip: { length: number; dirIndex: number } | null;
-  ghostCells: string[];
-  ghostValid: boolean;
-  shipsSent: boolean;
-  teammateGhostShips: ShipPlacement[];
-  placementTimerSeconds: number | null;
-  placementTimerInterval: ReturnType<typeof setInterval> | null;
-  // Battle
-  selectedTargets: string[];
-  isMyTurn: boolean;
-  shotLog: ShotLogEntry[];
-  timerSeconds: number | null;
-  timerInterval: ReturnType<typeof setInterval> | null;
-  // Chat
-  chatMessages: ChatMessage[];
-  chatChannel: ChatChannel;
-  // Game over
-  gameOverStats: GameOverStats | null;
-  rematchPending: { acceptedIds: string[]; totalHumans: number } | null;
-  // Changelog
-  changelogHtml: string | null;
-  // UI
-  showJoinModal: boolean;
-  // Saved form values
-  savedPlayerName: string;
-  // Quick Play
-  queueSize: number;
-  onlineCount: number;
-  matchSoundMuted: boolean;
-  // Lobby capabilities
-  capabilities: LobbyCapabilities | null;
-  // Swap request
-  pendingSwapRequest: { requesterId: string; requesterName: string } | null;
-  // Countdown
-  countdownDeadline: number | null;
-  countdownInterval: ReturnType<typeof setInterval> | null;
-  // Lobby dropdown
-  openDropdownId: string | null;
-  // Simultaneous mode
-  lockedIn: boolean;
-  lockedPlayerIds: string[];
-  roundNumber: number;
-  // Surrender
-  showSurrenderModal: boolean;
-  // Amber confirmation
-  showAmberConfirm: boolean;
-  // Error
-  errorMessage: string | null;
-  errorTimeout: ReturnType<typeof setTimeout> | null;
-  // Info notification
-  infoMessage: string | null;
-  infoMessageTimeout: ReturnType<typeof setTimeout> | null;
+export interface GameState {
+  phase: Phase;
+  mode: NetMode;
+  net: NetState;
+  /** Server time (ms) the own ship respawns at while sunk; null when alive. */
+  respawnEta: number | null;
+  /** True once spec (unfogged) frames arrive: dead in active, or match finished. */
+  spectating: boolean;
+  /** Killer's id from the own sunk event's `by` (null for storm/unknown). */
+  killerId: string | null;
+  /** True once the results broadcast arrived (drives auto-return on disconnect). */
+  matchOver: boolean;
 }
 
-// Mutable singleton — all modules import this directly.
-// Dynamic initialization (localStorage, generateRandomName) happens in main.ts.
-export const state: AppState = {
-  screen: 'lobby',
-  playerId: null,
-  gameId: null,
-  joinCode: null,
-  game: null,
-  isHost: false,
-  placedShips: [],
-  placingShip: null,
-  ghostCells: [],
-  ghostValid: false,
-  shipsSent: false,
-  teammateGhostShips: [],
-  placementTimerSeconds: null,
-  placementTimerInterval: null,
-  selectedTargets: [],
-  isMyTurn: false,
-  shotLog: [],
-  timerSeconds: null,
-  timerInterval: null,
-  chatMessages: [],
-  chatChannel: 'global',
-  gameOverStats: null,
-  rematchPending: null,
-  changelogHtml: null,
-  showJoinModal: false,
-  savedPlayerName: '',  // initialized in main.ts
-  queueSize: 0,
-  onlineCount: 0,
-  matchSoundMuted: false,  // initialized in main.ts
-  capabilities: null,
-  pendingSwapRequest: null,
-  countdownDeadline: null,
-  countdownInterval: null,
-  openDropdownId: null as string | null,
-  lockedIn: false,
-  lockedPlayerIds: [],
-  roundNumber: 0,
-  showSurrenderModal: false,
-  showAmberConfirm: false,
-  errorMessage: null,
-  errorTimeout: null,
-  infoMessage: null,
-  infoMessageTimeout: null,
-};
+/** Build a fresh client state for a joined session. */
+export function createGameState(sessionId: string): GameState {
+  return {
+    phase: 'connecting',
+    mode: 'predict',
+    net: { sessionId, tick: 0, ackSeq: 0, you: null },
+    respawnEta: null,
+    spectating: false,
+    killerId: null,
+    matchOver: false,
+  };
+}

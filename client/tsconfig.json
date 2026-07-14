@@ -4,10 +4,7 @@
     "composite": true,
     "outDir": "./dist",
     "rootDir": "./src",
-    "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "paths": {
-      "@salvo/shared/hex": ["../shared/src/hex.ts"]
-    }
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
   "include": ["src"],
   "references": [

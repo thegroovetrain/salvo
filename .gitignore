@@ -4,3 +4,7 @@ dist/
 .env
 .gstack/
 LAUNCH_PLAN.md
+.claude/worktrees/
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.context/

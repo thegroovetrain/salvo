@@ -95,3 +95,41 @@
 **Effort:** S
 **Priority:** P3
 **Depends on:** None
+
+## RT Prototype
+
+### maxSpeed Stacking Can Outrun Torpedoes Again
+
+**What:** Decide how heavy maxSpeed stacking interacts with torpedo speed. At 6+ maxSpeed upgrades a destroyer (46 × 1.08⁶ ≈ 73 u/s) outruns the 70 u/s torpedo and can re-catch its own fish at full throttle — the self-hit returns for that build.
+
+**Why:** Adversarial review reproduced it against the real server sim (own torpedo, 55 damage). Owner design decision required — options include capping effective maxSpeed, diminishing stack returns, or raising torpedo speed; owner ruled torpedo speed must never derive from ship speed.
+
+**Context:** Deferred from the v0.16.0 review gate (2026-07-14). The chase guardrail in damageGuardrail.test.ts pins base speeds only.
+
+**Effort:** S
+**Priority:** P2
+**Depends on:** None
+
+### Dual Control-Key Hold Edge Case
+
+**What:** ctrlHeld/chordUsed in client keyboard input is a single shared flag, so holding both ControlLeft and ControlRight and releasing one can fire the spend-window toggle early.
+
+**Why:** Review finding (low confidence, rare in practice). Fix is per-key tracking.
+
+**Context:** Deferred from the v0.16.0 pre-landing review (2026-07-14).
+
+**Effort:** S
+**Priority:** P4
+**Depends on:** None
+
+### Spectator Point Toast Wording
+
+**What:** A dead-in-active killer (mutual destruction) still receives the "UPGRADE POINT — CTRL TO SPEND" toast while spectating, but the spend window is unavailable while spectating and the point wipes on redeploy.
+
+**Why:** The toast promises an action the player can't take. Cosmetic; either suppress the hint while spectating or reword.
+
+**Context:** Deferred from the v0.16.0 review gate (2026-07-14).
+
+**Effort:** S
+**Priority:** P4
+**Depends on:** None

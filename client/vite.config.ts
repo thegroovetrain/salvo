@@ -12,18 +12,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@salvo/shared/hex': resolve(__dirname, '../shared/src/hex.ts'),
-    },
-  },
-  server: {
-    proxy: {
-      '/socket.io': {
-        target: 'http://localhost:3000',
-        ws: true,
-      },
-      '/CHANGELOG.md': {
-        target: 'http://localhost:3000',
-      },
+      '@salvo/shared': resolve(__dirname, '../shared/src/index.ts'),
     },
   },
 });

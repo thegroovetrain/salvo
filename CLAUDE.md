@@ -2,96 +2,94 @@
 
 ## Project
 
-Hullcracker.io is a multiplayer naval combat game. All players' ships occupy the same hex grid — every shot affects everyone.
+Hullcracker is a real-time, gridless naval battle royale in the browser (RT prototype). One ship per player on a large circular ocean with islands. Everyone fights on the same water in real time: an authoritative 20Hz server simulation with client-side prediction. Two-tier fog of war (a true-sight bubble around your hull plus a rotating radar sweep that paints decaying phosphor blips), guns/torpedoes/mines with real firing arcs, kill-banked upgrade points, and a shrinking storm circle. Last hull floating wins. This branch replaced the previous turn-based hex game (which still lives on `main`); see README.md for the player-facing overview.
+
+Stack: TypeScript monorepo (npm workspaces) — `shared` (pure sim), `server` (Colyseus 0.16), `client` (PixiJS 8 + Vite).
 
 ### Commands
 ```
-npm run dev          # Start server (3000) + client (5173)
-npm run check        # Lint + type-check + test (all workspaces)
+npm run dev          # Colyseus server (:2567) + Vite client (:5173) via concurrently
+npm run check        # lint + type-check (shared/server/client) + all tests (649)
 npm run lint         # ESLint (complexity=10 enforced)
-npm test -w server   # Server tests (vitest, 395 tests)
-npm test -w client   # Client tests (vitest + jsdom, 52 tests)
-npx tsc --noEmit -p server/tsconfig.json  # Type-check server
-npx tsc --noEmit -p client/tsconfig.json  # Type-check client
+npm test -w shared   # Shared sim tests (kinematics, geometry, ballistics, zone, mapgen, stats, offers)
+npm test -w server   # Server tests (world sim, perception/anti-cheat invariants, match state machine, drones)
+npm test -w client   # Client tests (prediction, snapshots, clock, HUD/feel pure logic)
+npm run build        # Build order: shared → client → server
 ```
+
+- The server game process listens on `:2567` (override with `PORT`); the Vite client dev server is `:5173`. Open the client URL in the browser.
+- **Server must boot from `server/`** (or `--tsconfig server/tsconfig.json`): Colyseus schema decorators need that tsconfig.
+- **Headless smokes** in `server/scripts/*.mjs` prove full flows over real sockets. They use dev-only room options the server only honors when `HC_DEV_OPTIONS=1` is set — production clients can never pass them.
 
 ### Architecture
 
-#### Shared
-- **shared/src/types.ts** — All types, socket events, computed getters (isShipSunk, isPlayerAlive, playerShotCount), team helpers (getTeammates, isTeamAlive), PlayerColor type, SLOT_COLORS
-- **shared/src/hex.ts** — Hex coordinate math: axial coordinates (q,r), distance, neighbors, rings, linear paths, pixel↔hex conversion with cube rounding
+Three workspaces with strict layering: `shared` (deterministic pure simulation, imported by both sides) → `server` (authoritative world + Colyseus room) and `client` (prediction + Pixi renderer). Both sides run the SAME shared sim functions, which is what makes client-side prediction match the server.
 
-#### Server
-- **server/src/index.ts** — Express setup, static file serving, server bootstrap
-- **server/src/socketSetup.ts** — Socket.io connection handler, registers all handler modules
-- **server/src/game.ts** — Pure game logic, no I/O. toClientView() security boundary. checkNewEliminations() for post-salvo elimination detection
-- **server/src/gameFlow.ts** — Turn flow: emitNextTurn, executeBotTurn, handlePlayerExit. Simultaneous mode: round orchestration (startRound, processLockedSalvos)
-- **server/src/emitters.ts** — Socket emission helpers: emitToPlayer, emitGameState, broadcastToGame
-- **server/src/capabilities.ts** — `getLobbyCapabilities()`: server-authoritative permission payload for lobby phase (canStart, canKick, canAddBot, canRequestSwap, canToggleReady, canTransferHost, readyStates)
-- **server/src/handlers/** — Socket event handlers by domain: lobby.ts (create/join/start + ready-up/kick/transfer-host/return-to-lobby/countdown), playing.ts (place-ships/fire/lock-salvo), social.ts (chat/swap-team/swap-request/respond-swap), connection.ts (leave/surrender/disconnect), rematch.ts (rematch/quickplay-join)
-- **server/src/timers/** — Timer management: placement.ts, turn.ts, round.ts (simultaneous round lock deadline), disconnectSkip.ts (skip disconnected player's turn after grace period), allDisconnected.ts (end game when all humans disconnect), index.ts (clearGameTimers orchestrator + timer Maps)
-- **server/src/queue/** — Ticket-based Quick Play matchmaking: types.ts (QueueTicket/QueuedMember interfaces), adapter.ts (ticket creation), matcher.ts (greedy FIFO matching for 6-player FFA), index.ts (orchestrator: ticket Map + guestId→ticketId reverse index, enqueue/dequeue/dissolve, match creation, tab eviction migration)
-- **server/src/party/** — Party system: state.ts (PartyManager: create/join/leave/disband, leader transfer, member DC grace, rate limiting, GC)
-- **server/src/ai/** — AI opponents: doctrine.ts (commander layer: hunt/kill/trade-up/protect-lead/desperation/cleanup), gunnery.ts (shot selection per doctrine), probability.ts (heat-map targeting), placement.ts (ship placement generation), helpers.ts (board analysis utilities), index.ts (public API)
-- **server/src/guestSessions.ts** — GuestSessionManager: persistent guest identity (localStorage guestId via Socket.IO auth), session lifecycle, game binding, multi-tab eviction, GC
-- **server/src/connections.ts** — playerId↔socketId mapping, disconnect state tracking, event buffering
-- **server/src/lobby.ts** — Game lifecycle, join codes, cleanup timer
-- **server/src/helpers.ts** — autoAssignTeam, shuffle, assignQuickPlayColors
+#### Shared (`shared/src/`) — deterministic sim, zero I/O, plain objects
+- **index.ts** — single barrel re-export; declares `PROTOCOL_VERSION` (bumped on any wire-contract break).
+- **constants.ts** — `CONFIG`: the single source of truth for every simulation tunable (map, three ship classes, vision/radar/sweep, gun/torpedo/mine, storm zone timeline, upgrade stacking). Also `UPGRADE_IDS`, `UPGRADE_CATEGORIES`, `HEAL_CHOICE`.
+- **types.ts** — the client/server wire contract: `InputMsg`, per-client frames, `OwnShip`, contacts, blips, game events, `MSG` channel names, `WelcomeMsg`/`ResultsMsg`, `WeaponId`.
+- **math/** — vec.ts, angle.ts (`wrapPositive`), geom.ts (`segCircleHit` — the LOS primitive), rng.ts (`mulberry32` seeded RNG).
+- **sim/ship.ts** — ship kinematics (`stepShip`, `ShipConfig`, hull endpoints).
+- **sim/stats.ts** — `effectiveStats()`: THE server/client desync firewall. One pure function turns (ship class + upgrade counts) into every derived number the sim and HUD consume. Both sides MUST call it; nothing re-derives an upgraded stat ad hoc.
+- **sim/offers.ts** — `rollOffer()`: pre-rolled upgrade offers (3 upgrades from 3 distinct categories), deterministic per RNG stream so an offer rolled at earn-time can never reroll.
+- **sim/collision.ts** — boundary + ship-island resolution.
+- **sim/shell.ts** — swept ballistic collision (`stepShell`).
+- **sim/map.ts** — seeded deterministic map generation (`generateMap`); islands never travel on the wire, both sides rebuild from the seed.
+- **sim/zone.ts** — storm circle timeline (`zoneRadiusAt`/`zonePhaseAt`/`isOutside`).
 
-#### Client
-- **client/src/main.ts** — Bootstrap: state init, socket handler registration, initial render
-- **client/src/state.ts** — AppState type + mutable singleton (leaf node, zero app imports)
-- **client/src/socket.ts** — Socket.io client connection
-- **client/src/rendering/** — Screen renderers: lobby.ts, waiting.ts, battle.ts, gameOver.ts, grid.ts (getCellState + battle/placement sub-functions), chat.ts, modals.ts, render.ts (main dispatch)
-- **client/src/handlers/** — Event handling: socketGame.ts (game + round events), socketLobby.ts, socketSocial.ts (socket event registration), eventBindings.ts (DOM event listeners), placement.ts (ship placement logic), battle.ts (target selection + lock-salvo)
-- **client/src/audio/** — AudioContext sound system: playTone, salvo/placement/match/turn sounds
-- **client/src/timers/** — Turn timer + placement timer management
-- **client/src/helpers/** — dom.ts (on/val/esc/playerIcon), format.ts (time formatting, name generation), storage.ts (localStorage migration), team.ts (teammate lookup)
-- **client/src/settings/** — Theme toggle, mute toggle
-- **client/src/errors.ts** — Error display with auto-dismiss
-- **client/src/hexGrid.ts** — SVG hex grid renderer: polygon generation, pixel↔hex click detection, ship hull overlay, per-player color rendering
-- **client/src/style.css** — Full DESIGN.md implementation, CIC tactical display
+#### Server (`server/src/`)
+- **index.ts** — `@colyseus/tools` boot; listens on `PORT` or `:2567`.
+- **app.config.ts** — Colyseus app config; registers the `arena` room.
+- **rooms/ArenaRoom.ts** — thin Colyseus adapter around `World` + `Match`. Bridges joins/leaves → roster schema, raw `"i"` input messages → World's input store, fixed steps → per-client frames. Gates dev room options behind `HC_DEV_OPTIONS`.
+- **rooms/roomOptions.ts** — `sanitizeRoomOptions()`: security gate for client-supplied room options.
+- **rooms/schema/ArenaState.ts** — Colyseus `@type` schema (roster / `PlayerMeta`); only the roster syncs via schema — all spatial state flows through frames instead.
+- **game/world.ts** — the authoritative simulation. Plain TS, ZERO Colyseus imports (fully unit-testable). Owns the single server clock; runs a 20Hz (50ms) fixed tick with a defined step order (inputs → ships → boundary → islands → shells → fire control → radar paint → sweep advance → respawns).
+- **game/perception.ts** — per-observer visibility: the fog-of-war core and anti-cheat boundary (`observe()`). Two vision tiers (sight bubble + radar sweep), island LOS, and per-event visibility rules. Property-style invariant tests enforce that nothing outside sight ∪ this-tick radar paints can appear in any frame.
+- **game/frames.ts** — per-client frame construction; the single chokepoint for everything spatial leaving the server (the `toClientView()` philosophy carried forward). Contacts/events come EXCLUSIVELY from `perception.observe()`.
+- **game/inputs.ts** — input validation + latest-input store; the only path player intent enters the sim. Malformed messages are silently dropped (every field finite-checked, axes clamped).
+- **game/match.ts** — match lifecycle state machine (waiting/countdown/live/results). Pure logic, zero Colyseus imports; the room implements its side-effect hooks.
+- **game/drones.ts** — weaponless target drones that fill empty slots so a solo human still gets a battle royale. A drone is an ordinary ship driven through the same input pipeline; win checks are human-gated.
+- **game/spawn.ts** — spawn-ring placement (max-min distance from existing ships, island-clear).
+- **game/combat.ts** — compatibility re-export of gun fire control (moved into weapons/guns.ts).
+- **game/weapons/** — `WeaponSystem` interface + registry (index.ts): guns.ts, torpedoes.ts, mines.ts, shared ballistics.ts, ammo.ts. Selection is `input.weapon` (0 gun / 1 torpedo / 2 mine); every system's reload ticks every tick regardless of selection.
+
+#### Client (`client/src/`)
+- **main.ts** — bootstrap: build the Pixi stage, show the pre-join MENU (DOM) over the canvas, connect only on PLAY, then run the input→predict→render loop and the match-lifecycle UX (waiting/countdown → death → spectate → results → return to port).
+- **state.ts** — mutable client game state; one-way data flow (server mirror → sim state → render views). Leaf-ish: no heavy app imports.
+- **config.ts** — `CLIENT_CONFIG`: client-only render/feel tunables that never travel on the wire (gameplay-authoritative values stay in shared `CONFIG`).
+- **app/loop.ts** — fixed-step sim + render loop driver.
+- **net/** — connection.ts (`joinOrCreate('arena')`, welcome handshake, deterministic map rebuild from `welcome.mapSeed`), clock.ts (server clock estimate), snapshots.ts (snapshot buffer + contact interpolation), roomBindings.ts (message wiring).
+- **sim/** — prediction.ts (own-ship prediction + reconcile-and-replay via the shared `stepShip` at the same 50ms dt), inputSampler.ts.
+- **input/** — keyboard.ts (driving + upgrade actions), mouse.ts (aim within weapon arc + click-to-fire), telegraph.ts (9-detent set-and-forget engine orders).
+- **render/** — PixiJS renderers: stage, camera, map, ships, contacts, projectiles, mines, fog (pre-baked texture composite), radar, phosphor (blip decay), zone, hud, firing, weaponArc, effects, shake, deniedFire, spectate, textures, fade.
+- **ui/** — DOM overlays (canvas is Pixi; DOM only for chrome): menu, phase, results, killFeed, upgradeMenu (CTRL spend window), upgradeToast.
+- **audio/** — context.ts + tones.ts (WebAudio tone system, mute-aware).
+- **util/** — banner, math, pool (object pooling).
 
 ### Code Quality Conventions
 - **Cyclomatic complexity ≤ 10** — Enforced by ESLint (`complexity: ["error", 10]`). All functions must stay under this limit.
 - **~500 LOC per file** — Soft convention, not enforced. Files may exceed this when the content is cohesive.
-- **Circular dependency rule** — state.ts has zero imports from other client modules. Rendering modules never import from handlers (one-way: handlers → rendering).
+- **One-way client data flow** — server mirror (net) → sim state (prediction) → render views. state.ts is a leaf (no heavy app imports); render modules never drive net/sim.
+- **Sim purity** — `shared/` is pure functions over plain objects (zero I/O); `server/src/game/world.ts` and `game/match.ts` have zero Colyseus imports so they stay unit-testable.
 
 ### Key Decisions
-- Ship.sunk, Player.alive, Player.shotCount are computed getters, not stored state
-- SHIP_LENGTHS = [2, 3, 4] (Destroyer, Cruiser, Battleship). No single-hex Scout.
-- Salvos resolve atomically — all shots land before checking alive status (note: "salvo" is the game mechanic term for a volley of shots, not the old brand name)
-- Turn modes: Game.turnMode is 'sequential' | 'simultaneous'. Private games use sequential (one player per turn). Quick Play uses simultaneous (all players lock salvos within 30s deadline, then all resolve atomically in one round). Simultaneous round state: roundNumber, lockedSalvos, lockDeadline, roundParticipants, roundShotCounts, roundPhase. Socket events: lock-salvo, round-start, player-locked, round-results
-- toClientView() is the single chokepoint for all outbound game state (security tests enforce this)
-- Guest identity: persistent guestId (client-generated UUID in localStorage, sent via Socket.IO auth). GuestSessionManager maps guestId → socketId/playerId/gameId. Auto-reconnect on page refresh — no rejoin modal
-- No forfeit on disconnect: disconnected players get their turn skipped (not forfeited) after a grace period. Ships remain on the board. Game ends only if all human players disconnect.
-- Unified single grid — no separate fleet/target grids (shared ocean = one grid)
-- Per-player stats (shots, hits, accuracy, FF) accumulated during fireSalvo, computed at game-over
-- Version is single-source from package.json, injected by Vite at build time via `__APP_VERSION__`
-- Game.mode is 'private' | 'quickplay'. Quick Play is a single 6-player FFA mode with 30s simultaneous turns
-- Hex grid: axial coordinates (q,r), configurable 4-6 rings per game. MODE_RINGS maps mode → default ring count (private: 5, quickplay: 6)
-- Islands: random blocked hexes generated at startGame(). Count configurable by host (0=None, 4=Few, 6=Normal, 8=Many). BFS validates no isolated regions < 10 hexes.
-- Teams: Game.teams (Map<playerId, teamId>) + Game.teamsEnabled + Game.gameType ('ffa' | '2-team' | '3-team'). Simple alternating turn order. 3-team support (alpha/bravo/charlie). getTeammates() returns array. Teams persist across rematches.
-- Chat: ChatMessage.channel ('team' | 'global'). Team messages route to sender + all teammates. Non-team games default to 'global'.
-- Placement timer shares turn timer (no separate placementTimerConfig). Auto-places ships on timeout via generatePlacement('easy'). Always enabled for Quick Play.
-- Private lobby: no create modal. Host configures Game Type / Turn Timer / Grid Size / Islands in-lobby via update-game-options socket event. Defaults: FFA, 60s, 5 rings, Normal islands. Two-column layout (players left, options panel right). Custom dropdown components with ARIA a11y. Leave button with host transfer.
-- Queue uses ticket-based matchmaking: QueueTicket wraps 1 member (solo only). Greedy FIFO matcher sums ticket sizes to fill 6-player FFA. Ticket Map is single source of truth; Socket.IO rooms for broadcasting only. guestId→ticketId reverse index for O(1) disconnect/eviction.
-- Parties cannot queue for Quick Play (QueueErrorReason: 'in-party'). Party system exists for private games only.
-- Quick Play rematch requeues players as solo tickets.
-- Quick Play rematch destroys the game and requeues players (clean game boundaries); private games use "Return to Lobby" (resetGameToLobby) instead of rematch
-- Player colors: 6 fixed colors (magenta/red/yellow/green/cyan/blue). Private games assign by join order (SLOT_COLORS). Quick Play shuffles all 6. Lobby renders fixed color slots.
-- Game-over reveal: toClientView() uses serializeShipForGameOver() to expose all ship cells when phase='finished'. Client renders all players' ships in their assigned colors.
-- Surrender is silent: `player.ships = []` (no hit markers on shared board — prevents FFA info leakage)
-- Surrender button available during placement and playing phases; auto-reconnect on page reload (no modal)
-- AI architecture: two-layer doctrine/gunnery system. Commander picks doctrine (hunt/kill/trade-up/protect-lead/desperation/cleanup) based on game state; gunnery executes shot selection per doctrine. Tiers unlock doctrine subsets (Easy=hunt only, Impossible=all). Probability heat-map for hunt targeting.
-- Lobby capabilities: `LobbyCapabilities` payload emitted with every `game-state` during lobby phase. Server-authoritative permissions (canStart, canKick, canAddBot, canRequestSwap, canToggleReady, canTransferHost). Client renders menus from capabilities, never guesses.
-- Ready-up: `Game.readyStates` (Map<playerId, boolean>). All humans toggle ready. Host ready activates Start. Green path (all ready → 5s countdown), amber path (confirm prompt → immediate start). Countdown cancels on any lobby state change.
-- Swap requests: peer-to-peer with 15s auto-decline timer. Crossed requests auto-accept. Bots instant. `pendingSwaps` Map in social.ts. `clearSwapsForPlayer/Game` for cleanup.
-- Host transfer: manual `transfer-host` event + auto on 10s disconnect grace. Reconnecting host does NOT reclaim. Target must be connected human.
-- Lobby persistence: `resetGameToLobby()` resets finished game to lobby phase. Custom games use "Return to Lobby" instead of rematch. Quick play uses "Return" to homescreen.
-- Unified join codes: `resolveJoinCode()` checks party first, then game. `generateGloballyUniqueCode()` checks both namespaces. Both `PartyManager` and `LobbyManager` accept injected `setCodeGenerator()`.
-- Timer cleanup: `registerGameCleanup()` pattern in timers/index.ts avoids circular imports. Lobby countdown and host transfer timers register via callback.
-- Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision
+- **CONFIG is the single source of truth** — every gameplay-authoritative tunable lives in `shared/src/constants.ts` (`CONFIG`). Client-only feel knobs live in `client/src/config.ts`; promote a value to shared CONFIG the moment it becomes gameplay-load-bearing.
+- **Deterministic shared simulation** — the same pure functions (`stepShip`, `stepShell`, `generateMap`, zone math) run on server and client. This is what makes client-side prediction agree with the authoritative world. `PROTOCOL_VERSION` (shared/src/index.ts) gates wire-breaking changes.
+- **effectiveStats() is the upgrade desync firewall** — (ship class + upgrade counts) → every derived stat, via one pure function both sides call. Server caches it on grant/spawn; client recomputes from `you.cls` + `you.upg`. Nothing may re-derive an upgraded stat ad hoc.
+- **Upgrade offers are pre-rolled at earn-time** — a banked point carries a fixed offer of 3 upgrades from 3 distinct categories (`rollOffer`), rolled on the server's decorrelated upgrade stream and queued. Reopening the spend window can never reroll. Spend picks one upgrade (CTRL+1/2/3) or heals (CTRL+E, `HEAL_CHOICE`).
+- **Authoritative 20Hz World, zero Colyseus imports** — `game/world.ts` owns the one server clock and runs a fixed 50ms step; `ArenaRoom` is a thin adapter. The room's only synced schema is the roster.
+- **frames.ts is the single spatial chokepoint (anti-cheat)** — everything spatial leaving the server goes through per-client frame construction, and its contacts/events come EXCLUSIVELY from `perception.observe()`. Property-style invariant tests enforce that no contact/event references anything outside sight ∪ this-tick radar paints. Clients are never sent what their sight or sweep hasn't legitimately revealed.
+- **Two vision tiers + one LOS rule** — true-sight bubble (`dist ≤ sightRange`, LOS-clear → live contacts) and radar (sight < dist ≤ radar, LOS-clear, beam crossed the bearing this tick → `blip` events). LOS = the observer→point segment crosses no island circle. Only ships paint on radar; phosphor decay is client render math (server keeps no blip history).
+- **Per-event visibility rules** — shells/torps materialize at the sight boundary with current pos/velocity only (no range-derivable fields, so the wire can't be solved back to the muzzle); a boom's victim id is stripped unless the victim's center is sighted; damage is victim-private; upgrade/point events are self-private (enemy builds and point banks never ride on contacts).
+- **Client prediction + reconciliation** — own ship is stepped locally each 50ms tick with a ring of un-acked inputs; every server frame drops acked inputs and replays the rest. Contacts are snapshot-interpolated (~-100ms). `P` toggles prediction ⇄ raw interpolation for debugging.
+- **Fog is a pre-baked texture composite** — dark overlay with a feathered sight hole, conic sweep wedge, timestamp-decayed blips. DOM is used only for menu / results / kill feed; everything tactical is Pixi.
+- **Match lifecycle is a pure state machine** — `game/match.ts` (waiting/countdown/live/results), zero Colyseus imports. Countdown arms at 2 human captains; a solo captain drives a weapons-safe ready room. Drones fill empty slots through the same input pipeline; the win check is human-gated.
+- **Three ship classes, universal weapon fit** — Destroyer (fast/light), Cruiser (balanced), Battleship (slow/heavy). Only hull dims, hp, and kinematics vary; every class shares CONFIG.gun/torpedo/mine. Cruiser is byte-for-byte the pre-classes single ship, pinned by a balance-identity test.
+- **One WeaponSystem interface** — guns/torpedoes/mines all implement it (`game/weapons/`); each weapon has its own ammo pool + reload timer (reload ticks regardless of which weapon is selected). Torpedoes spawn with real bow clearance + an owner-only grace and outrun every hull so they can't self-hit at base speed.
+- **Storm circle** — a shared, damage-only zone timeline (`sim/zone.ts`) shrinks the ocean; stay inside or take damage.
+- **Dev-only room options gated by `HC_DEV_OPTIONS=1`** — `matchOverride`/`zoneOverride` arrive verbatim from client join options and are only honored when the server process opts in (smokes/tests). Production clients cannot pass them.
+- **Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision** (`VERSION` + package.json, single-sourced into the client at build time by Vite).
 
 ## gstack
 
@@ -124,9 +122,9 @@ If gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to bu
 
 ## Dev Server
 - **Never start the dev server yourself.** The user manages the dev server manually.
-- Before running `/qa`, `/browse`, or any browser-based skill, check if the dev server is running: `curl -s -o /dev/null -w '%{http_code}' http://localhost:3000 2>/dev/null`
+- Before running `/qa`, `/browse`, or any browser-based skill, check if the client is running: `curl -s -o /dev/null -w '%{http_code}' http://localhost:5173 2>/dev/null` (the game server is on `:2567`).
 - If it's not running, ask the user to start it with `npm run dev` and wait.
-- If you find stale node processes on port 3000 or 5173, kill them and tell the user.
+- If you find stale node processes on port 2567 or 5173, kill them and tell the user.
 
 ## Design System
 Always read DESIGN.md before making any visual or UI decisions.

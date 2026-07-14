@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.16.0] - 2026-07-14
+
+### Changed
+- **Complete real-time rebuild (prototype)** — the turn-based hex game is replaced by a real-time naval battle royale: drive your ship on a shared circular ocean at 20Hz, aim with the mouse, and fight until one captain is left. Built on an authoritative server with client prediction, so what you see is smooth and what counts is fair.
+
+### Added
+- **Driving & telegraph** — 9-detent set-and-forget engine orders (W/S taps), rudder steering, wake and camera feel.
+- **Three ship classes** — Destroyer (fast, light), Cruiser (balanced), Battleship (slow, tough). Pick before you queue.
+- **Three weapons, one click each** — broadside guns fire at your cursor, bow torpedoes run until they hit something, mines drop astern and arm after a delay. Ammo pools with visible reload bars replace cooldowns.
+- **Fog of war + radar** — true sight up close, a sweeping radar beam painting stale blips at range. Everything you see is computed per-player on the server, so wallhacks are structurally impossible.
+- **Storm circle** — the ocean shrinks battle-royale style; stay inside or take damage.
+- **Upgrade points with a choice** — every kill banks an upgrade point. Press CTRL to open the spend window: pick one of 3 randomized upgrades from 3 different categories (CTRL+1/2/3) or repair 25 hull (CTRL+E). Offers are rolled the moment you earn the point, so closing and reopening the window can never reroll them. Bank points and spend when it matters.
+- **Match lifecycle** — countdown, live spectating after you sink (fog lifts), results screen, kill feed, and practice drones to fill lobbies.
+- **Sound & feel** — screen shake, denied-fire feedback, telegraph click tones, distinct chimes for earning and spending upgrade points.
+
+### Fixed
+- **Torpedoes no longer hit the ship that fired them** — they spawn with real clearance ahead of your bow, carry a longer owner-only grace, and at 70 u/s outrun every hull. Guardrail tests pin all of it.
+- **Guns hit harder** (damage 15 → 25) and a permanent test guarantees no single weapon can ever one-shot an undamaged ship.
+- Rapid upgrade spends can't apply an upgrade you never saw; the spend window can't be flipped by browser CTRL shortcuts.
+
+### Removed
+- The turn-based hex-grid game (lobbies, quick play queue, teams, AI doctrine) — retired in the scaffold commit that started the prototype.
+
 ## [0.15.0] - 2026-04-08
 
 ### Added
