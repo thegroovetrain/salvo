@@ -71,7 +71,7 @@ The lobby pick is a genuine promise: a different loadout at 0:00, not a skin ove
 *Steers:* class design (class = envelope, build = point inside it; focus, not exclusivity), the pre-rolled offer system, upgrade stacking and named thresholds, anti-snowball tuning.
 
 **4. The Ocean Keeps Getting Smaller**
-The storm closes in legible phases, forcing every hunt to a conclusion. The Endgame Guarantee — a final circle smaller than truesight — converts the deduction game into a gunnery duel at the death. Deduction game first, gunnery duel last; no match ends in mutual avoidance.
+The storm closes in legible phases, forcing every hunt to a conclusion. The Endgame Guarantee — a final ring two truesight diameters across — forces combat while keeping the sensor game alive to the last shot. No match ends in mutual avoidance.
 *Steers:* zone timeline and pacing, map scaling from roster size, endgame tuning, the Rat Covenant (hiding is legal but priced).
 
 ### Core Gameplay Loop
@@ -136,7 +136,7 @@ Backburnered (designed-for but not in beta): one **pickup weapon slot** (a weapo
 
 Upgrade *content* is Hades-style: qualitative, build-defining boons that change how your loadout behaves — not stat multipliers. The prototype's 14 stat-stack upgrades are dead and will be replaced wholesale (new catalog is dedicated design work; this GDD specifies the model). There is **no heal option in the economy** — a design law: self-heal is never a ship feature; healing, if it exists at all, arrives later via consumables.
 
-**The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — design target: phased ring closure totaling ~12:00 (phase split open: 3×4 min vs 4×3 min), replacing the prototype's single 45 s grace + 3-min continuous shrink. Storm never blinds sensors; it only damages (reference 4 hp/s). The **Endgame Guarantee**: the final circle is smaller than truesight — deduction game first, gunnery duel last.
+**The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — design target: phased ring closure totaling ~12:00 (phase split open: 3×4 min vs 4×3 min), replacing the prototype's single 45 s grace + 3-min continuous shrink. Storm never blinds sensors; it only damages (reference 4 hp/s). The **Endgame Guarantee**: the final ring has a diameter of **2 standard truesight diameters** — close enough to force combat, far enough that radar is still needed and close-range hulls hold no clear advantage over long-range ones.
 
 ### Controls and Input
 
@@ -192,7 +192,8 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 **Roving PvE drone fleets — in all BR modes.** Every match (standard and Solo vs Bots) contains a few roving PvE drone fleets that can be hunted and killed for XP:
 
-- Small ships carrying a basic gun on a longer cooldown, used **only to defend themselves** — they never hunt players.
+- Ships carrying a basic gun on a longer cooldown, used **only to defend themselves** — they never hunt players.
+- Three tiers: **common** small ships (1/4 level per kill), **uncommon** medium ships with more HP (1/3 level), **rare** large ships with even more HP (1/2 level).
 - They rove; finding them is part of the sensor game.
 - They are an XP source feeding the upgrade economy, not world density — the forge's rejection of "PvE fleets as mandatory world density" stands; these are bounded, huntable pockets.
 
@@ -215,7 +216,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 Backburnered: supply drops (#23). 
 
-**The storm** (Pillar 4) is the arena's clock: phased closure (~12:00 design target) shrinking to the Endgame Guarantee circle — smaller than truesight, so the last fight is always a seen fight.
+**The storm** (Pillar 4) is the arena's clock: phased closure (~12:00 design target) shrinking to the Endgame Guarantee ring — two truesight diameters across, forcing the final fight without retiring the sensors.
 
 ### Multiplayer Considerations
 
@@ -235,15 +236,39 @@ _TBD — facilitation in progress._
 
 ### Player Progression
 
-_TBD — facilitation in progress._
+**XP and levels.** Passive XP tick of **~1 level per minute** — over a full 12:00 match, ~12 passive levels. This is deliberate generosity: upgrades are fun; players should have them. The tick is also the anti-snowball floor: everyone grows, always.
+
+**Kill bonuses — kill-only, no damage XP:**
+
+| Kill | XP value |
+|---|---|
+| Opponent (match participant) | 1 full level |
+| Common PvE fleet ship (small) | 1/4 level |
+| Uncommon PvE fleet ship (medium, more HP) | 1/3 level |
+| Rare PvE fleet ship (large, even more HP) | 1/2 level |
+
+These values are declared handwaves — the shape (kills accelerate, participation never zeroes out) is the commitment; exact fractions are tunable.
+
+**Spending.** Each level banks a point; each point carries a pre-rolled offer of 3 Hades-style boons from 3 distinct categories (rolled at earn-time, never rerolled). No heal option. The new boon catalog is dedicated design work; its standing requirement is **the build must be felt** — audio, hull visuals, on-water behavior — or promise + growth is a spreadsheet.
+
+**Balance laws:** the Rat Covenant — hiding is legal but priced (a hiding player ticks but never accelerates; the kill-only bonus is exactly the price). The Conservation Law ("every power gain emits a signal") is a *tendency*, not a law — anti-snowball outranks it.
 
 ### Difficulty Curve
 
-_TBD — facilitation in progress._
+The match's tension curve is structural — the ring rhythm *is* the pacing. Three ring groups of ~4 minutes, each with an internal minute rhythm:
+
+- **Minute 1 — clear seas.** Hunt, position, gather.
+- **Minute 2 — supply drops spawn.** *(Backburnered feature; this is its reserved slot in the rhythm.)*
+- **Minute 3 — next ring revealed.** Planning pressure: where you must be is now known.
+- **Minute 4 — the ring closes** down to the next circle.
+
+Three escalating cycles of that rhythm, then the endgame: the final ring is **two standard truesight diameters across** (the Endgame Guarantee) — combat is forced, but radar still earns its keep and no range class gets a free win. Total closure ~12:00; match start-to-results inside ~15:00 (Pillar 2).
 
 ### Economy and Resources
 
-_TBD — facilitation in progress._
+- **XP is the only progression currency.** No loot-scavenging spine (explicitly rejected); nothing on the water outranks playing well.
+- **Ammo is per-weapon and reload-limited**, not scavenged: each fitted system owns its ammo pool and reload timer, always ticking.
+- **Consumables and the pickup weapon slot are backburnered** — the slot grammar reserves them; the beta economy does not include them.
 
 ---
 

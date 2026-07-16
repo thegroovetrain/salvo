@@ -105,6 +105,17 @@ Final beta loadout table (Eric's rows):
 - **Lobby: min 2 humans to start, cap 20 for now.**
 - **Pure quick play** at beta; modes = Solo and Solo vs Bots. No skill matchmaking, no parties, no ranked.
 
+## 2026-07-16 — Endgame Guarantee redefined (decided)
+
+- **Final ring diameter = 2 standard truesight diameters** (Eric), replacing the forge's "final circle smaller than truesight." Rationale: close enough to force combat; far enough that radar is still needed; no clear advantage for close-range ships over long-range ships. Updated in Pillar 4, Primary Mechanics (storm), Arena, and Difficulty Curve.
+
+## 2026-07-16 — Progression numbers (decided)
+
+- **Ring split: 3 groups × 4 minutes** with per-ring minute rhythm (Eric): min 1 clear seas; min 2 supply drops spawn (backburnered — reserved slot); min 3 next ring revealed; min 4 ring closes. Total ~12:00.
+- **Passive tick stays ~1 level/min** — ~12 passive levels accepted ("Upgrades are fun, I want players to have them"). No retune.
+- **Kill bonus: kill-only, no damage XP** (resolves #67's hybrid question). Handwave values (shape committed, fractions tunable): opponent kill = 1 level; PvE common small = 1/4; uncommon medium = 1/3; rare large = 1/2.
+- PvE fleets gain three tiers (common/uncommon/rare, rising HP) — Enemy Design section updated.
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).
