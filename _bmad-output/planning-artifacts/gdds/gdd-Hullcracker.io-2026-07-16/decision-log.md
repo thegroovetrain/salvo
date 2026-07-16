@@ -135,13 +135,14 @@ Final beta loadout table (Eric's rows):
 - Success Metrics written (Eric approved the proposal): tech targets as pass/fail; gameplay = <15:00 matches, immediate re-queue as fun proxy, real pick rates across all four classes, one playtest question per pillar.
 - Out of Scope finalized in three intent tiers: backburnered (Hunter, consumables, supply drops, sonar/ping), post-beta (teams, ranked, accounts, cosmetics, unlockables), design-first (Carrier, subs, mobile).
 
-### Open items carried in from brief/forge (to resolve during facilitation)
+### Open items carried in from brief/forge — final triage (2026-07-16)
 
-1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).
-2. Kill-bonus ratio — "the one number that prices the rat."
-3. XP-tick retune implied by 12:00 closure (~12 passive upgrades vs forge's ~10).
-4. Slot taxonomy + launch class list (Mine Layer candidate; Carrier requires counterplay design first).
-5. Eclipse dial (off-class builds priced by deck weighting) + deck-merge mechanism.
-6. "The Unwitnessed Build" — making ~10 upgrade picks *felt* (audio/visual/on-water behavior).
-7. Exact positioning slogan; stat simplification (#87); minutes-1–3 "Quiet Dread" pacing call.
-8. Constraint from forge: Conservation Law (#42) is a *tendency*, not a law — anti-snowball outranks it; GDD must not silently re-promote it.
+1. Ring-phase split — **RESOLVED**: 3 groups × 4 min with per-ring minute rhythm.
+2. Kill-bonus ratio — **RESOLVED**: kill-only; opponent = 1 level; PvE ¼/⅓/½ by tier (fractions declared tunable handwaves).
+3. XP-tick retune — **RESOLVED**: ~1 level/min stands; ~12 passive levels accepted deliberately.
+4. Slot taxonomy + launch class list — **RESOLVED**: universal gun + two specials (≥1 weapon) + offer-filled extra slot; four classes (Torpedo Boat, Battleship, Mine Layer, Gunboat); Hunter backburnered.
+5. Eclipse dial + deck-merge — **PARTIALLY RESOLVED**: off-class access now exists via boon offers; weighting/pricing = open tuning (E2).
+6. The Unwitnessed Build — **ADDRESSED as a standing requirement**: "the build must be felt" written into the economy section and E2.
+7. Positioning slogan — **OPEN, non-blocking** (marketing). Stat simplification #87 — **SUPERSEDED** by wholesale Hades-style boon replacement. Quiet Dread minutes 1–3 — **PARTIALLY ADDRESSED** by the ring rhythm (minute-1 "clear seas" is now by design); final call remains a playtest question.
+8. Conservation Law demotion — **RESPECTED**: written into Progression as a tendency; anti-snowball outranks it.
+9. Population cold start (brief: "needs a real launch-day answer before public beta") — **OPEN**, tracked under Assumptions and Dependencies; launch work, not GDD-blocking.

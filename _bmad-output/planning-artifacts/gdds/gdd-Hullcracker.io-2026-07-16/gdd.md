@@ -392,4 +392,22 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 
 ## Assumptions and Dependencies
 
-_TBD — assumption index will be compiled at Finalize._
+**Assumption index** (inline `[ASSUMPTION]` tags):
+
+1. AI combatant bots (Solo vs Bots) are driven through the same input pipeline as every ship — per the established architecture principle. *(Enemy Design and AI)*
+
+**Open design notes** (inline `[NOTE FOR DESIGNER]` tags):
+
+1. Gunboat AP-gun form: separate higher-cooldown gun vs. activatable damage/RoF buff. *(Weapon Systems)*
+2. Per-weapon firing-arc geometry, designed alongside the new armory's numbers. *(Aiming and Combat)*
+3. Precision bonus: adopt or drop while tuning the standard gun; whether gun-type specials qualify. *(Aiming and Combat)*
+4. DESIGN.md needs an update pass for the real-time era. *(Art Style; E7)*
+5. Hunter class real name — needed only when it comes off the backburner.
+
+**Dependencies:**
+
+- **Boon catalog v1 is dedicated design work** (E2) — the GDD specifies the model (Hades-style, felt, off-class abilities in the pool), not the contents.
+- **Combat-bot AI is dedicated design/implementation work** (E5), distinct from PvE defensive AI.
+- **Portal technical requirements** (Poki/CrazyGames) constrain bundle size and SDK integration; compliance is a hard launch gate (E7).
+- **Population cold start** needs a real launch-day answer before public beta — launch planning (LAUNCH_PLAN.md), not GDD scope.
+- Exact positioning slogan remains open — marketing, non-blocking.
