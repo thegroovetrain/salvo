@@ -121,6 +121,12 @@ Final beta loadout table (Eric's rows):
 - Eric approved the proposed targets ("Good numbers"): 60 FPS on low-end Chromebook in a full 20-ship match; <~10 s portal-click-to-playable; 20 Hz authoritative sim + prediction, good feel to ~150 ms; structural anti-cheat (sight ∪ sweep chokepoint, server-side lies); desktop browsers (Chrome/Edge/Firefox/Safari), portal compliance as hard constraint; procedural rendering + tone-only audio (no asset pipeline).
 - Art/Audio tone resolved in favor of the newer brief ("Silly Is Sanctioned" wrapper) over DESIGN.md's hex-era "not playful — focused"; DESIGN.md flagged for an RT-era update pass.
 
+## 2026-07-16 — Development Epics (decided)
+
+- Seven-epic structure approved by Eric ("Looks fine to me"): E1 Armory, E2 New Economy, E3 Ring, E4 Living Ocean, E5 Honest Lobbies & Modes, E6 Information Texture, E7 Portal Launch Readiness. Sequence E1→E2→E3→E6→E4→E5→E7.
+- **Keyboard-controls rework added to E2** (Eric's suggestion to merge rather than a separate epic); slot-selection keys coordinate with E1.
+- Detailed breakdown written to epics.md; summary table in gdd.md.
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).

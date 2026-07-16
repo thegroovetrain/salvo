@@ -337,7 +337,19 @@ There is no authored level progression — the storm is the level progression. E
 
 ### Epic Structure
 
-_TBD — summary table will live here; detailed breakdown in `epics.md`._
+Detailed breakdown with stories, scope boundaries, and dependencies: `epics.md`.
+
+| # | Epic | Delivers | Playable outcome |
+|---|---|---|---|
+| E1 | **The Armory** | Slot grammar, universal standard gun, four class loadouts, rethought firing arcs | Pick any of 4 classes; the game feels different at 0:00 |
+| E2 | **The New Economy** | XP tick + kill-only bonuses, pre-rolled boon offers, Hades-style boon catalog v1, felt-build presentation, old upgrades stripped, **new keyboard controls** | Level up mid-match; picks visibly change your ship; controls fit the new game |
+| E3 | **The Ring** | 3×4 phased storm with minute rhythm, Endgame Guarantee ring (2 truesight diameters) | A full match has its designed pacing arc |
+| E4 | **The Living Ocean** | Fog banks, hemisphered whirlpools, roving PvE fleets (3 tiers), sinking window | The water itself creates stories |
+| E5 | **Honest Lobbies & Modes** | No bot-fill, min-2 fill-or-timer, cap 20, roster-scaled maps, Solo vs Bots combat AI | Two real modes with honest matches |
+| E6 | **Information Texture** | Listening ring + torpedo pips, hit call, fall-of-shot, muzzle flash carries, wounded smoke, foghorn | Every fight is legible through the fog |
+| E7 | **Portal Launch Readiness** | Chromebook 60 FPS, <10 s load, portal SDK compliance, how-to-play page | Shippable to Poki/CrazyGames |
+
+**Sequence: E1 → E2 → E3 → E6 → E4 → E5 → E7.** Identity and economy first (the spine everything touches), match shape third, then texture, world, modes, launch.
 
 ---
 
