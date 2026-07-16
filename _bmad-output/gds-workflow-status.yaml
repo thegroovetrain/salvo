@@ -17,7 +17,7 @@ create-game-brief: _bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2
 # --- Phase 2: Design ---
 gdd: _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/gdd.md # complete 2026-07-16 (epics.md + decision-log.md alongside; merged in PR #23)
 create-narrative: false # optional
-ux: false # optional
+ux: _bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md # complete 2026-07-16 (EXPERIENCE.md peer contract + decision log + validation reports + mockups/ alongside; 4-lens reviewer gate passed; GDD corrections flagged: 4-choice offers, heal question, "Solo vs AI" naming)
 prd: false # optional
 
 # --- Phase 3: Technical ---

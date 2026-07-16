@@ -17,7 +17,7 @@
           ocean, camera zoomed out, every remaining hull visible.
           Journey A's climax: "OH. That's where everyone WAS."
      F3 — RESULTS MODAL over the dimmed reveal: kills, placement,
-          re-queue (Enter, dominant), leave (ESC, danger token).
+          one action: RETURN TO PORT (Enter/ESC) — no re-queue from the modal (decided 2026-07-16).
 
    CONTRACTS: DESIGN.md + EXPERIENCE.md (spines win) ·
    .decision-log.md death-flow decision (ledger triage D) ·
@@ -489,7 +489,7 @@ section { margin-top: 60px; }
     stalking Torpedo Boat), authored at 1920×1080 and shown at the same 0.75× scale.
     The design intent is <strong>"losing into learning"</strong>: ~5 s ritardando with guns live →
     the fog drops off the whole ocean and the camera zooms out (<strong>the omniscient reveal IS the death
-    screen</strong>) → a results modal that costs one key (Enter) to re-queue.
+    screen</strong>) → a results modal whose single action returns you to port — SET SAIL there is one more press.
     Frames follow the spine where the HUD composite is superseded: vertical HP Rail, Q/E/R/F key glyphs,
     "HOLD SPACE" copy, four slots, no supply ghost. Amber chips/tags = [PROPOSAL] composition choices;
     blue = PLACEHOLDER copy; grey = spine silences annotated for Eric.
@@ -964,9 +964,9 @@ section { margin-top: 60px; }
   <section>
     <div class="comp-name"><span class="idx">F3 ·</span>RESULTS MODAL — OVER THE DIMMED REVEAL</div>
     <div class="comp-register">
-      Close the loop fast: your kills, your placement, one key to re-queue. Defeat banner = amber
+      Close the loop fast: your kills, your placement, one key back to port. Defeat banner = amber
       (victory would be phosphor). Own name in personal Cyan. Accrued boons + the unspent last offer
-      reviewable. Enter = re-queue (dominant), ESC = leave (danger token). Spectate deliberately absent —
+      reviewable. Enter/ESC = RETURN TO PORT (single action; no re-queue here, decided 2026-07-16). Spectate deliberately absent —
       future planned. "Frantic to Play, Light to Hold": the next match is seconds away.
     </div>
     <div class="scrollwrap">
@@ -1084,12 +1084,8 @@ section { margin-top: 60px; }
 
           <div class="res-actions">
             <div class="btn btn-primary">
-              <span><span class="res-key">⏎</span>SET SAIL AGAIN</span>
-              <span class="sub">DEPLOY AS GUNBOAT · SOLO</span>
-            </div>
-            <div class="btn btn-danger">
-              <span><span class="res-key">ESC</span>RETURN TO PORT</span>
-              <span class="sub">LEAVE MATCH</span>
+              <span><span class="res-key">⏎</span>RETURN TO PORT</span>
+              <span class="sub">SET SAIL IS ONE PRESS AWAY</span>
             </div>
           </div>
         </div>
@@ -1114,20 +1110,20 @@ section { margin-top: 60px; }
         <tr><td class="num">4</td><td class="el">Boons accrued + last offer reviewable<span class="tag place">PLACEHOLDER COPY</span></td>
             <td>DECIDED (cognitive floor): accrued boons + last offer reviewable from the results modal; the unspent banked level is stated plainly — death is the only thing that expires an offer. All boon/category names PLACEHOLDER (Open Q 14). Qualitative Hades-style effect lines, sentence case per microcopy rules.</td>
             <td class="ref">EXPERIENCE · Accessibility Floor · Open Q 14</td></tr>
-        <tr><td class="num prop">5</td><td class="el">Primary action "SET SAIL AGAIN"<span class="tag">PROPOSAL</span></td>
-            <td>DECIDED: Enter = re-queue, the dominant action; one key from sunk to queued ("death costs one click"). Primary Button register: amber outline + glow, never a filled slab; sub-line states exactly what will happen ("DEPLOY AS GUNBOAT · SOLO"). PROPOSAL is the label — "SET SAIL AGAIN" extends the canonical "SET SAIL"; plain "SET SAIL" or "RE-QUEUE" are the alternatives.</td>
+        <tr><td class="num">5</td><td class="el">Single action: "RETURN TO PORT"<span class="tag">DECIDED 2026-07-16</span></td>
+            <td>DECIDED (Eric, final-render triage): NO re-queue from the modal — the modal's single v1 action is LEAVE (Enter or ESC), returning to the home page where SET SAIL re-queues. Original "SET SAIL AGAIN" re-queue proposal rejected; superseded in this mock. Primary Button register: amber outline + glow, sub-line "SET SAIL IS ONE PRESS AWAY".</td>
             <td class="ref">EXPERIENCE · IA (results row) · DESIGN · Primary Button</td></tr>
         <tr><td class="num prop">6</td><td class="el">Leave option at the danger token<span class="tag">PROPOSAL</span></td>
             <td>DECIDED: ESC = leave to port; {colors.danger} is the destructive-action token ("leave match"). PROPOSAL: rendering leave as a danger-outlined secondary button — note the tension that DESIGN's Primary Button section lists "RETURN TO PORT" as an amber example (in the victory/idle context); here leave is the non-dominant path, so it takes the danger register and less width. Needs a taste call.</td>
             <td class="ref">DESIGN · Colors (danger) · EXPERIENCE · Modal keys</td></tr>
         <tr><td class="num silent">7</td><td class="el">Spectate — absent<span class="tag silent">FUTURE-PLANNED</span></td>
-            <td>DECIDED absence: spectate is a future planned option (the current follow-killer spectate is superseded). No dead button, no ghost slot — the modal ships two actions. When spectate lands it becomes a third, non-dominant action here.</td>
+            <td>DECIDED absence: spectate is a future planned option (the current follow-killer spectate is superseded). No dead button, no ghost slot — the modal ships one action. When spectate lands it becomes a second, non-dominant action here.</td>
             <td class="ref">.decision-log (ledger triage D) · EXPERIENCE · IA</td></tr>
       </table>
       <p class="footnotes">
         <b>Sequence contract:</b> F1 → F2 is automatic (~5 s ritardando ends, fog drops, camera zooms out);
-        F2 → F3 is Enter/click (auto-advance timing = spine-silent, F2 legend #8); F3 → next match is Enter.
-        Total cost of death: one key. <b>Voice audit:</b> every visible string on all three frames is uppercase
+        F2 → F3 is Enter/click (auto-advance timing = spine-silent, F2 legend #8); F3 → port is Enter/ESC; SET SAIL on home re-queues.
+        Total cost of death: two presses, zero menus. <b>Voice audit:</b> every visible string on all three frames is uppercase
         mono system register or sentence-case description; zero exclamation points; the only non-canonical
         strings are tagged PLACEHOLDER or [PROPOSAL] above.
       </p>

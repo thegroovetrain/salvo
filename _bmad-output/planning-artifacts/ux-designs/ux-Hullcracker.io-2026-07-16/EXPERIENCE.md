@@ -1,6 +1,6 @@
 ---
 title: EXPERIENCE.md — Hullcracker.io experience spine
-status: draft
+status: final
 project: Hullcracker.io
 created: 2026-07-16
 updated: 2026-07-16
@@ -22,7 +22,7 @@ How the game works, surface by surface. Peer contract: [DESIGN.md](./DESIGN.md) 
 
 - **Platform:** desktop browser (current Chrome, Edge, Firefox, Safari), keyboard + mouse only. Mobile/touch out of scope for beta.
 - **Render split:** PixiJS 8 canvas for everything tactical; DOM only for chrome (home, results, settings, How-to-Play, kill feed, toasts).
-- **Performance floor (UX constraints):** 60 FPS sustained on a low-end school Chromebook in a full 20-ship match; playable from portal click in under ~10 s; feel intact up to ~150 ms latency.
+- **Performance floor (UX constraints):** 60 FPS sustained on a low-end school Chromebook in a full 20-ship match; playable from portal click in under 10 s; feel intact up to ~150 ms latency.
 - **Input fantasy:** "hands describe the fantasy" — left hand helms the ship, right hand fights it.
 - **Visual identity:** DESIGN.md is the reference for every token, component visual, and hard rule cited here.
 
@@ -33,16 +33,16 @@ Journey spine: **home → class select → waiting (weapons-safe) → live → d
 | Surface | Medium | Delivers | Notes |
 |---|---|---|---|
 | Home (at rest) | DOM over live CIC canvas | First 5 seconds must feel **"cool"** — the acquisition hook | Wordmark, callsign field (14-char cap), Class Chip (one glance = what you'll sail), Color Hoist, Primary Button ("SET SAIL" / mode pick Solo · Solo vs AI), How-to-Play link, server status, settings gear |
-| Class-Select Layer | DOM layer over home | "The Hades weapon pick" — a complete playstyle promise | Class Cards side by side on a horizontal scroll rail; ghost card clipped at frame edge = scales past 4; Color Hoist repeated in layer footer; locked as rendered ([home-class-picker-1.html](./.working/home-class-picker-1.html)). Keys: 1–4 / arrows highlight, Enter picks, ESC closes without change |
-| How-to-Play page | DOM | Onboarding surface (coach marks were pared to this) | Static page (standard page chrome; ESC/back returns home); Solo-vs-AI is the live tutorial. Hosts the boon glossary |
+| Class-Select Layer | DOM layer over home | "The Hades weapon pick" — a complete playstyle promise | Class Cards side by side on a horizontal scroll rail; ghost card clipped at frame edge = scales past 4; Color Hoist repeated in layer footer; locked as rendered ([home-class-picker-1.html](./mockups/home-class-picker-1.html)). Keys: 1–4 / arrows highlight, Enter picks, ESC closes without change |
+| How-to-Play page | DOM | Onboarding surface (coach marks were pared to this) | Static page (standard page chrome; ESC/back returns home); Solo vs AI is the live tutorial. Hosts the boon glossary |
 | Settings overlay | DOM | Accessibility + audio + bindings reference | Gear entry on home **and** non-pausing ESC overlay in match — opening mid-fight is the player's own risk (same philosophy as the refit window). Doubles as the in-match binding reference (view-only — bindings are fixed for v1; remapping deferred post-beta, Open Questions) |
 | Waiting / weapons-safe | Pixi HUD text | Lobby honesty | "AWAITING CAPTAINS n/2" + "WEAPONS SAFE" tag; full live HUD already visible; weapons fire, damage suppressed |
 | Countdown | Pixi | Match start | "MATCH STARTING" + big center count |
 | Live HUD | Pixi + DOM feed/toasts | The hunt | Full anatomy in HUD & Diegetic UI below |
 | Refit window | DOM/Pixi overlay, SPACE held | Spend banked levels | Non-blocking, game runs behind; see Component Patterns |
 | Death: sinking → reveal | Pixi | "Losing into learning" | ~5 s ritardando (guns live) → omniscient reveal: map revealed, camera zooms out, you finally see everything |
-| Results modal | DOM Modal | Close the loop fast | Your kills, your placement, leave option; accrued boons + last offer reviewable here; spectate = future planned option (current follow-killer spectate superseded); death costs one click (or Enter) to re-queue |
-| Re-queue | — | "Frantic to Play, Light to Hold" | Next match is seconds away; no account, no grind |
+| Results modal | DOM Modal | Close the loop fast | Your kills, your placement, time afloat; accrued boons + last offer reviewable here. Actions: **LEAVE** (return to home) + **SPECTATE** (planned future option; current follow-killer spectate superseded). **No re-queue from the modal** (Eric, final-render triage) — re-queueing happens from home |
+| Re-queue | — | "Frantic to Play, Light to Hold" | Leave lands on home with SET SAIL one press away; next match is seconds, not menus; no account, no grind |
 
 ## Voice and Tone
 
@@ -57,7 +57,7 @@ Terse naval-command with a playful wink — "Silly Is Sanctioned": the tension i
 
 Behavior only; visuals in DESIGN.md · Components (same names).
 
-- **Hotbar Slot** — four slots, vertical stack bottom-left, keys Q/E/R/F top-to-bottom mapped one-to-one: Q = universal gun, E/R = class specials, F = offer-filled slot. Two interaction classes: **weapons switch-to** (press = becomes selected; mouse aims/fires it), **abilities activate** (press = triggers immediately, no selection state). The chamfer shape marks abilities. Labels: line 1 = weapon/ability NAME (no slot-role line); quick-info line shows DAMAGE and COOLDOWN minimum; accrued boons compress into quick-info as `◆n` (spine call per log — tooltip carries the full list). Reloads tick on every slot regardless of selection; switching is tempo, not penalty.
+- **Hotbar Slot** — four slots, vertical stack bottom-left, keys Q/E/R/F top-to-bottom mapped one-to-one: Q = universal gun, E/R = class specials, F = offer-filled slot. Two interaction classes: **weapons switch-to** (press = becomes selected; mouse aims/fires it), **abilities activate** (press = triggers immediately, no selection state). The chamfer shape marks abilities. Labels: line 1 = weapon/ability NAME (no slot-role line); quick-info line shows DAMAGE and COOLDOWN at minimum; accrued boons compress into quick-info as `◆n` (spine call per log — tooltip carries the full list). Reloads tick on every slot regardless of selection; switching is tempo, not penalty.
 - **Ammo Badge** — appears only on slots whose system stores >1 round; counts down on fire, up on reload.
 - **Slot Tooltip** — on hover: name, interaction class, description, full accrued-boon list with effects (qualitative, Hades-style — this is where the player checks their build).
 - **Banked-Level Chip** — appears at the head of the hotbar stack when ≥1 level is banked; count inside; breathing, never flashing; breathing decays to a static glow after ~10s unspent, re-arming on a new bank or a Space touch. [ASSUMPTION] Chip is hidden at zero banked levels (log silent).
@@ -67,7 +67,7 @@ Behavior only; visuals in DESIGN.md · Components (same names).
 - **Primary Button** — SET SAIL queues immediately in the shown mode with the shown class/color preference; Enter is equivalent; sub-line always states what will happen ("DEPLOY AS GUNBOAT · SOLO"). While connecting it defers to the status line; on failure the status line reports plainly ("CONNECTION FAILED — IS THE SERVER RUNNING?" register).
 - **Kill Feed** — max 5 lines, 6 s TTL, newest on top; names in personal colors (text-safe variants), drones greyscale; long names mid-ellipsize.
 - **Toast** — transient self-events only (level banked, boon fitted, hoist fallback); max 3, 3 s TTL; never carries enemy information.
-- **Modal** — results only (plus settings overlay). Modals never stack; ESC settings overlay does not pause the game. Results keys: Enter = re-queue (primary), ESC = leave to port.
+- **Modal** — results only (plus settings overlay). Modals never stack; ESC settings overlay does not pause the game. Results keys: Enter or ESC = LEAVE to port (the modal's single v1 action); spectate joins post-beta. No re-queue key exists here.
 - **Bounty Bloom** — GDD E6 #47: the current kill leader periodically blooms on **every** player's radar at true position (cadence per GDD) — a sanctioned fog-of-war exception, the one radar paint not born of your own sweep. Feed announces the leader ("BOUNTY: <NAME>" register) when the bounty activates; the bloom has an audio twin in the sound map (Open Questions). Visual: DESIGN · Bounty Bloom.
 - **BR Chrome Bar / Listening Ring / HP Rail / Telegraph Cluster** — see State Patterns and HUD & Diegetic UI.
 
@@ -103,7 +103,7 @@ Corollary (amber overload): only the highest-tier active amber channel pulses; e
 
 **Ring phases** (legible phases are the pillar's word): three ring groups × internal minute rhythm — clear seas → next ring revealed ("where you must be is now known") → ring closes; fully closed ~12:00; final ring = 2 truesight diameters (Endgame Guarantee). BR Chrome ring readout counts down each closure and pulses amber at 1 Hz in the final 10 s. Storm never blinds sensors; it only damages. In-storm: purple vignette pulse + "IN STORM" line.
 
-**Match lifecycle** — waiting (weapons-safe, damage suppressed) → countdown → live → own death (sinking window ~5 s, guns live) → omniscient reveal → results modal → re-queue. **Sinking window inputs:** combat inputs stay live; helm inputs are accepted but decay (the hull slows to a stop regardless). **Omniscient reveal inputs:** none except Enter/click = proceed to results. Disconnect mid-match: banner + return to home (standard page chrome); failed connection surfaces on the home status line, never a dead screen.
+**Match lifecycle** — waiting (weapons-safe, damage suppressed) → countdown → live → own death (sinking window ~5 s, guns live) → omniscient reveal → results modal → leave to home (re-queue from there). **Reveal HUD survivor set (ratified):** BR Chrome Bar + Kill Feed persist through the reveal; hotbar, XP Rail, Banked-Level Chip, own-vitals, and Listening Ring die with the hull. Nameplates appear on ALL revealed ships. **Sinking window inputs:** combat inputs stay live; helm inputs are accepted but decay (the hull slows to a stop regardless). **Omniscient reveal inputs:** none except Enter/click = proceed to results. Disconnect mid-match: banner + return to home (standard page chrome); failed connection surfaces on the home status line, never a dead screen.
 
 **Surface cold states** — home renders over a live ambient CIC canvas (never a blank page); waiting room shows the full HUD so the first match teaches itself; empty kill feed / zero kills render as absence, not placeholders.
 
@@ -121,7 +121,7 @@ Corollary (amber overload): only the highest-tier active amber channel pulses; e
 | **Mouse move** | Aim, constrained to the selected weapon's real firing arc |
 | **Left click** | Fire one shot; denied fire always gives explicit feedback |
 | **ESC** | Closes the topmost open surface; if none is open (home or live), opens the settings overlay (non-pausing). The refit window is Space-governed — it closes on Space release regardless of ESC |
-| **Enter** | Home: same as SET SAIL. Results modal: re-queue. Class layer: picks the highlighted card. Reveal: proceed to results |
+| **Enter** | Home: same as SET SAIL. Results modal: leave to port. Class layer: picks the highlighted card. Reveal: proceed to results |
 | **M** | Master mute (carry-over binding) |
 | **Foghorn emote** | GDD E6 #74 — one-button broadcast honk; **key unbound (Open Questions)**. A honk is a bearing: on every hull in earshot, the listening ring lights an arc sweep along the honk's bearing (intensity grammar — deliberately loud); no feed line (it's an emote) |
 
@@ -157,15 +157,15 @@ Surfaces: gear on home + non-pausing ESC overlay in match; never make in-match t
 
 ## HUD & Diegetic UI
 
-Full composite ratified "pretty good" — [hud-composite-1.html](./.working/hud-composite-1.html); squint-test steady-state load approved. Mock-scale caveat: blip/hull sizes in that mock are artifact, not decision. **The composite now contradicts the spine** (horizontal HP bar, 1/2/E keys, supply ghost, CTRL copy): the pending key-screen re-render — 4 refit cards, vertical HP Rail, Q/E/R/F glyphs, "HOLD SPACE" copy, no supply ghost, centered own ship — is a **blocker for E2/E6 implementation**, not a nice-to-have.
+Full composite ratified — [hud-composite-2.html](./mockups/hud-composite-2.html) (squint-test steady-state load approved on v1; v2 corrects v1's superseded HP bar, keys, supply ghost, CTRL copy, and blip scale — v1 is retained in `.working/` as audit trail only).
 
 | Zone | Element | Content |
 |---|---|---|
 | Bottom-left | XP Rail + Banked-Level Chip + Hotbar (4 slots, Composition 2 vertical stack) | Build, economy, weapons |
-| Bottom-right | Own-vitals cluster: HP Rail + HDG/KTS readouts + rudder gauge + Telegraph Cluster | [ASSUMPTION] HP as a vertical rail on the cluster's **right side**, mirroring the XP rail — facilitator interpretation of Eric's redline, pending re-render confirm (the composite still shows the superseded horizontal bar) |
+| Bottom-right | Own-vitals cluster: HP Rail + HDG/KTS readouts + rudder gauge + Telegraph Cluster | HP as a vertical rail on the cluster's **right side**, mirroring the XP rail — CONFIRMED by Eric on the v2 composite (2026-07-16) |
 | Top-center | BR Chrome Bar | Ships afloat · your kills · up-counting match timer · ring-closing countdown. **No supply-drop reservation** — mechanic wholly parked, zero HUD footprint |
 | Top-right | Kill Feed | Personal-color naval theater (text-safe variants) |
-| Around own ship | Listening Ring | Compass rose; segments light toward noise, intensity ∝ loudness/closeness — the primary torpedo warning channel; pure intensity grammar, deliberately source-ambiguous |
+| Around own ship | Listening Ring | Compass rose; segments light toward noise, brightness ∝ loudness/closeness — the primary torpedo warning channel; pure intensity grammar, deliberately source-ambiguous |
 | World | Firing arcs | Drawn on aim only (carry-over behavior); deliberately absent from steady-state |
 
 **Camera zoom (Z/X + wheel)** makes edge-of-screen radar content player-manageable: zoom out to read the ring and the far radar annulus (radar paints beyond a 16:9 half-height are a real thing at the floor viewport), zoom in for knife fights. Fog stays server-authoritative, so zoom is a viewport choice, never an information exploit. Zoom range/limits = open tuning (Open Questions).
@@ -191,14 +191,14 @@ Added by decision:
 - **Wounded smoke** — hurt ships trail it; hurt = trackable.
 - **Low-HP escalation** — HP Rail threshold colors + accelerating pulse capped at 1.1 Hz (see State Patterns); audio sting pending the RT sound map (Open Question).
 - **Denied input is never silence** — every refused fire/activation gets its pulse + (future) tone, tracked in the sound-map contract table.
-- **Death ritardando** — ~5 s sinking window, hull slows to a stop, guns stay live (go down shooting) → **omniscient reveal**: fog drops, map revealed, camera zooms out to everything → Results modal (kills, placement, leave). The reveal converts losing into learning.
+- **Death ritardando** — ~5 s sinking window, hull slows to a stop, guns stay live (go down shooting) → **omniscient reveal**: fog drops, map revealed, camera zooms out to everything, nameplates on every ship → Results modal (kills, placement, time afloat; LEAVE — no re-queue here). The reveal converts losing into learning. Sequence mock: [death-reveal-results-1.html](./mockups/death-reveal-results-1.html).
 - **The build must be felt** — every boon lands with audio + hull visual + on-water behavior, or promise + growth is a spreadsheet.
 
 **Motion/shake settings override everything in this section** (reveal-zoom exemption = Open Questions).
 
 ## Key Flows
 
-Personas are constructed from the brief's audience sketches (no upstream personas exist). Journey A accepted with Beat 6 corrected; Journey B tentatively accepted (no objections). [ASSUMPTION] Beat prose below reconstructs the accepted skeletons from the log's anchors; wording is not Eric-authored.
+Personas are constructed from the brief's audience sketches (no upstream personas exist). Journey A accepted with Beat 6 corrected; Journey B accepted (no objections through Finalize). [ASSUMPTION] Beat prose below reconstructs the accepted skeletons from the log's anchors; wording is not Eric-authored.
 
 ### Journey A — "Marco" (13, school Chromebook, brand-new)
 
@@ -209,7 +209,7 @@ Personas are constructed from the brief's audience sketches (no upstream persona
 5. He holds SPACE — four cards over the still-running battle; he presses 2; the boon lands on its slot with a visible change. Release, back to the hunt.
 6. **(corrected beat)** Bright pips have been lighting one bearing of his Listening Ring for a long approach — he ignores them. The torpedo becomes visible only at truesight, wake astern, inbound. Too late to helm out.
 7. Sinking ritardando: five seconds, listing, guns live — he fires his last shells at his killer's smoke.
-8. **Climax:** the omniscient reveal — fog gone, whole map, every hull. He sees the torpedo boat that stalked him and the pips he ignored suddenly make sense. "SUNK — 9TH OF 14," two kills, one click, re-queued. **The lesson is "listen."**
+8. **Climax:** the omniscient reveal — fog gone, whole map, every hull named. He sees the torpedo boat that stalked him and the pips he ignored suddenly make sense. "SUNK — 9TH OF 14," two kills; he leaves to port and SET SAILs again — seconds, not menus. **The lesson is "listen."**
 
 Failure path *is* the flow: death is the teaching surface, and it costs one click.
 
@@ -221,9 +221,9 @@ Failure path *is* the flow: death is the teaching surface, and it costs one clic
 4. Ring reveal beat: the next ring is known — the hunt must funnel through her channel. She re-seeds the seam on the funnel line and waits, engines at STOP (quiet on his ring).
 5. He takes the bait: pips flare on her ring as he closes; his blip crosses her seam line.
 6. **Climax:** proximity fuse — Hit Call boom, kill feed in their two colors: "SALT SHAKER SUNK BY DEE'S KETTLE." The trap she authored paid off — the trapper fantasy delivered.
-7. Endgame: final ring two truesight diameters, everything in view; she places 3rd, results modal, re-queues — 12 minutes, zero grind.
+7. Endgame: final ring two truesight diameters, everything in view; she places 3rd, reads her results, leaves to port and re-queues from home — 12 minutes, zero grind.
 
-Failure path: if the Gunboat spots the seam (mines visible ~truesight), the trap converts to a chase — her smoke/decoy specials are the escape line; being killed routes her through the same reveal-and-requeue as Marco.
+Failure path: if the Gunboat spots the seam (mines visible at ~truesight), the trap converts to a chase — her smoke/decoy specials are the escape line; being killed routes her through the same reveal-and-requeue as Marco.
 
 *(Third journey — party/friend-group session — remains open, non-blocking. Until it lands, Dee's beats double as the read for the brief's primary 16–35 "design compass" audience.)*
 
@@ -273,7 +273,7 @@ Rejected upstream, do not reintroduce: "The helm is the star" guardrail; hex-era
 19. **Key remapping** — deferred post-beta: no accounts exist yet, so remaps would mean heavy localStorage; revisit after beta. v1 ships fixed bindings.
 20. **Foghorn key binding** — the emote is specced (ring visual, no feed) but unbound.
 21. **Per-hue text-safe variant table** — exact lightened hexes for personal colors as text (feed, results, nameplates); mechanism is decided (≥4.5:1, storm→storm-readout pattern).
-22. **Nameplate scope** — own-only vs all truesight combatant hulls (the propagation rule names the own nameplate; visual spec exists either way).
+22. ~~Nameplate scope~~ — **RESOLVED 2026-07-16 (Eric): nameplates on ALL** — all truesight combatant hulls in play, and all revealed ships during the omniscient reveal.
 23. **Whirlpools (GDD E4)** — no perception/feel treatment yet.
 24. **PvE drone tiers** — common/uncommon/rare visual language beyond chevron greyscale + size, unowned.
 25. **Reveal-zoom motion exemption** — whether the death-reveal camera zoom is exempt from the motion/shake setting (it's the climax beat).
