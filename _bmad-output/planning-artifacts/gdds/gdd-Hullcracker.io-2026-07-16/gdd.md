@@ -92,7 +92,7 @@ As in any battle royale, matches naturally converge from a long hunt to a forced
 
 ### Win/Loss Conditions
 
-- **Win:** last human-crewed hull afloat. The win check is human-gated — drones fill empty slots but can never win a match.
+- **Win:** last **match participant** afloat. The win check counts participants only, in every mode — PvE ships are never participants, can never win, and never need to be destroyed to claim the win.
 - **Loss:** your hull reaches zero. Damage sources: enemy weapons and the storm.
 - **On death:** the omniscient reveal — dying means finally seeing everything — then spectate or instant re-queue. Death is cheap by design (Pillar 2): the next match is seconds away.
 
@@ -185,7 +185,19 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 ### Enemy Design and AI
 
-_TBD — facilitation in progress._
+**No bot-fill in standard lobbies.** A standard BR match is humans only: minimum 2 human captains, fill-or-timer, and the map scales from the actual roster at countdown. Bots never masquerade as players.
+
+**Solo vs Bots mode.** A dedicated mode that fills the lobby with actual AI combatant bots — real opponents playing the battle royale, not target practice. AI sophistication is its own design/implementation effort. [ASSUMPTION: bots are driven through the same input pipeline as every ship, per the established architecture principle.]
+
+**Roving PvE drone fleets — in all BR modes.** Every match (standard and Solo vs Bots) contains a few roving PvE drone fleets that can be hunted and killed for XP:
+
+- Small ships carrying a basic gun on a longer cooldown, used **only to defend themselves** — they never hunt players.
+- They rove; finding them is part of the sensor game.
+- They are an XP source feeding the upgrade economy, not world density — the forge's rejection of "PvE fleets as mandatory world density" stands; these are bounded, huntable pockets.
+
+**Rules that hold for every non-human ship:** driven through the same input pipeline as human ships (no special code paths) and subject to the same perception rules.
+
+**Win check counts match participants only — in every mode.** Roving PvE fleets are not participants: they never need to be destroyed to claim the win, and they can never win. In a standard match the participants are the human captains; in Solo vs Bots, the human and the AI combatant bots.
 
 ### Arena and Level Design
 

@@ -91,6 +91,13 @@ Final beta loadout table (Eric's rows):
 - **Arcs retained but geometry reopened:** with per-class weapons, arcs should allow use in more situations while rewarding skill (vs. arcs-as-positional-aiming under universal weapons). Exact per-weapon arcs TBD.
 - Flat damage model reaffirmed (no sectional/crits/weak points — compass veto).
 
+## 2026-07-16 — Bots, modes, and PvE fleets (decided)
+
+- **No bot-fill in standard lobbies** (Eric, emphatic). Standard BR = humans only, min 2, fill-or-timer, map scales from actual roster.
+- **NEW MODE — "Solo vs Bots":** fills the lobby with actual AI combatant bots to fight against. Beta scope.
+- **Roving PvE drone fleets IN for beta, in ALL BR modes** (standard + solo-vs-bots): small ships, basic gun on longer cooldown, self-defense only, huntable for XP. "The mechanism is already there" (drone pipeline). Supersedes the forge's narrower "map-marked XP pockets" framing — these rove.
+- **Win check counts match participants only, in every mode** (Eric's clarification): PvE fleets are not participants — never need to be destroyed to win, can never win. Participants = human captains (standard) / human + AI combatant bots (Solo vs Bots).
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).
