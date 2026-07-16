@@ -32,7 +32,7 @@ A real-time naval battle royale in the browser — Battleship's hidden-informati
 1. The only naval battle royale in the browser.
 2. The only browser game whose core loop is sensor deduction — two-tier fog of war (truesight + rotating radar sweep) makes information the primary resource.
 3. **Paint, Not Power** — a structural, not policy, no-pay-to-win guarantee: detection is math, so cosmetics are structurally incapable of being pay-to-win.
-4. A match-identity system (**promise + growth**) no .io competitor attempts: your lobby pick is a genuinely different loadout at 0:00, and your build grows from kill-banked upgrade points during the match.
+4. A match-identity system (**promise + growth**) no .io competitor attempts: your lobby pick is a genuinely different loadout at 0:00, and your build grows through XP levels — a passive tick everyone earns, accelerated by kills — during the match.
 
 ---
 
@@ -49,6 +49,8 @@ A real-time naval battle royale in the browser — Battleship's hidden-informati
 A running prototype exists at v0.16.0 (TypeScript monorepo: authoritative 20Hz server, client prediction, two-tier fog of war, three ship classes, guns/torpedoes/mines with real firing arcs, storm circle, 649 tests). This GDD consolidates the game brief (2026-07-15), the identity-fork forge resolution, and the brainstorming session into the canonical design document for the beta.
 
 Comparables: Mk48.io (closest, maintenance mode), Maelstrom (validated the fantasy, died anyway), Drednot.io, Ships 3D. Reference DNA: Battleship (hidden info), World of Warships (class fantasy, gunnery feel), Hades (promise/RNG contract), Risk of Rain (stackable upgrades, named thresholds), Apex Legends (kits as verb focus, not exclusivity), surviv.io/ZombsRoyale/OpenFront.io (top-down BR structure).
+
+References of the form **#NN** throughout this document cite idea numbers in the brainstorming session (`_bmad-output/brainstorming-session-2026-07-15.md`).
 
 ---
 
@@ -67,7 +69,7 @@ Real-time gunnery with genuine feel — the World of Warships DNA — inside a p
 *Steers:* scope discipline, onboarding (playable within seconds of page load), low-end hardware performance as a distribution feature, and the Paint-Not-Power monetization guarantee.
 
 **3. Promise + Growth**
-The lobby pick is a genuine promise: a different loadout at 0:00, not a skin over sameness. Kill-banked upgrade points grow that promise into a build that is *yours* by the endgame. RNG only governs what was never promised (the Hades contract).
+The lobby pick is a genuine promise: a different loadout at 0:00, not a skin over sameness. XP levels — a passive tick everyone earns, accelerated by kills — grow that promise into a build that is *yours* by the endgame. RNG only governs what was never promised (the Hades contract).
 *Steers:* class design (class = envelope, build = point inside it; focus, not exclusivity), the pre-rolled offer system, upgrade stacking and named thresholds, anti-snowball tuning.
 
 **4. The Ocean Keeps Getting Smaller**
@@ -82,7 +84,7 @@ One cycle, run continuously from spawn to sinking:
 2. **Deduce / position** — turn blips, flashes, and silence into a mental picture; maneuver for the engagement you want. *(Pillar 1)*
 3. **Strike** — commit the weapons your loadout promises, within their real firing arcs. The slot grammar is universal; the contents are not — you strike with what you picked and what you've grown. *(Pillars 2, 3)*
 4. **Survive the reply** — striking reveals you; helm through the answer. *(Pillars 1, 2)*
-5. **Grow** — kills bank upgrade points; spend them to deepen your promise. *(Pillar 3)*
+5. **Grow** — XP levels (passive tick plus kill bonuses) bank upgrade points; spend them to deepen your promise. *(Pillar 3)*
 
 …while **the storm closes in legible phases**, shrinking the water the whole loop happens on — the loop's clock. *(Pillar 4)*
 
@@ -105,7 +107,7 @@ As in any battle royale, matches naturally converge from a long hunt to a forced
 
 > Numbers in this document are **design targets or current-prototype reference values, explicitly tunable** — the prototype's CONFIG values were playtest handwaves and carry no authority. Where a value is settled design intent, it is stated as such.
 
-**Ship classes — the promise (Pillar 3).** The lobby pick is your class, and the class is the Hades weapon pick: a complete playstyle and power fantasy, not a hull-size variant. Five classes at beta:
+**Ship classes — the promise (Pillar 3).** The lobby pick is your class, and the class is the Hades weapon pick: a complete playstyle and power fantasy, not a hull-size variant. Four classes at beta:
 
 | Class | Power fantasy |
 |---|---|
@@ -136,7 +138,7 @@ Backburnered (designed-for but not in beta): **~4 consumable slots**.
 
 Upgrade *content* is Hades-style: qualitative, build-defining boons that change how your loadout behaves — not stat multipliers. The prototype's 14 stat-stack upgrades are dead and will be replaced wholesale (new catalog is dedicated design work; this GDD specifies the model). **Offers can include any class-specific ability in the game** — this is how the extra slot fills, and how a Battleship might grow torpedoes or a Mine Layer a smoke screen. Offer weighting for off-class abilities is open tuning. There is **no heal option in the economy** — a design law: self-heal is never a ship feature; healing, if it exists at all, arrives later via consumables.
 
-**The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — design target: phased ring closure totaling ~12:00 (phase split open: 3×4 min vs 4×3 min), replacing the prototype's single 45 s grace + 3-min continuous shrink. Storm never blinds sensors; it only damages (reference 4 hp/s). The **Endgame Guarantee**: the final ring has a diameter of **2 standard truesight diameters** — close enough to force combat, far enough that radar is still needed and close-range hulls hold no clear advantage over long-range ones.
+**The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — three ring groups of ~4 minutes each with an internal minute rhythm (see Difficulty Curve), totaling ~12:00 closure, replacing the prototype's single 45 s grace + 3-min continuous shrink. Storm never blinds sensors; it only damages (reference 4 hp/s). The **Endgame Guarantee**: the final ring has a diameter of **2 standard truesight diameters** — close enough to force combat, far enough that radar is still needed and close-range hulls hold no clear advantage over long-range ones.
 
 ### Controls and Input
 
@@ -170,6 +172,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 - **Torpedoes outrun every hull** at base speed and spawn with real bow clearance plus a brief owner-only grace — they can never self-hit at base speed. Torpedoes are never painted by radar; hydrophones (the listening ring) are the torpedo warning.
 - **Mines** arm after a delay, trigger by proximity, and are capped per-player (live-mine cap; oldest evicted) and globally.
 - Numbers (damage, reloads, ranges, speeds) are design-target work for the new armory; current prototype values (gun 25 hp/3 s reload, torpedo 55 hp/12 s, mine 45 hp/8 s) are reference only.
+- **Compass vetoes stand for the new armory:** no torpedo variety (one torpedo design per fit), no damage-control parties, no sectional damage — WoWS-creep stays out.
 
 **Weapon feel.** The gunnery-feel package from the brainstorm's information-texture bundle (#90) is design intent: **fall-of-shot spotting** (#21 — your splashes are visible in fog, so misses become information and you can bracket-and-walk fire), **the Hit Call** (#19 — a muffled boom and orange bloom confirm you connected without revealing how badly), and **muzzle flash carries** (#34 — firing lights the fog beyond truesight; shooting is being seen). Together: every trigger pull produces information for someone (Pillar 1).
 
@@ -226,10 +229,6 @@ Backburnered: supply drops (#23).
 - **Balance frame:** class counterplay flows from focus-not-exclusivity (every class carries the same standard gun; specials define the matchup); the passive XP tick is the anti-snowball floor; Paint-Not-Power keeps every purchasable structurally non-competitive.
 - **Post-beta (explicitly out of beta scope):** duos/trios with a ping system, ranked, accounts.
 
-### Multiplayer Considerations
-
-_TBD — facilitation in progress._
-
 ---
 
 ## Progression and Balance
@@ -247,7 +246,7 @@ _TBD — facilitation in progress._
 | Uncommon PvE fleet ship (medium, more HP) | 1/3 level |
 | Rare PvE fleet ship (large, even more HP) | 1/2 level |
 
-These values are declared handwaves — the shape (kills accelerate, participation never zeroes out) is the commitment; exact fractions are tunable.
+These values are declared handwaves — the shape (kills accelerate, participation never zeroes out) is the commitment; exact fractions are tunable. **Tuning method (committed):** batch-simulate the XP tick and kill-bonus outcomes with drone lobbies before human playtests.
 
 **Spending.** Each level banks a point; each point carries a pre-rolled offer of 3 Hades-style boons from 3 distinct categories (rolled at earn-time, never rerolled). No heal option. The new boon catalog is dedicated design work; its standing requirement is **the build must be felt** — audio, hull visuals, on-water behavior — or promise + growth is a spreadsheet.
 
@@ -327,7 +326,7 @@ There is no authored level progression — the storm is the level progression. E
 
 ### Asset Requirements
 
-- Rendering is procedural/vector-discipline (Pixi-drawn hulls, linework, effects) — no heavy texture or model pipeline.
+- Rendering is procedural vector-style linework (hulls and effects drawn in code) — no heavy texture or model pipeline.
 - Audio is synthesized WebAudio tones — zero sound-file assets.
 - Fonts and any static assets stay within portal bundle-size limits.
 
@@ -342,7 +341,7 @@ Detailed breakdown with stories, scope boundaries, and dependencies: `epics.md`.
 | # | Epic | Delivers | Playable outcome |
 |---|---|---|---|
 | E1 | **The Armory** | Slot grammar, universal standard gun, four class loadouts, rethought firing arcs | Pick any of 4 classes; the game feels different at 0:00 |
-| E2 | **The New Economy** | XP tick + kill-only bonuses, pre-rolled boon offers, Hades-style boon catalog v1, felt-build presentation, old upgrades stripped, **new keyboard controls** | Level up mid-match; picks visibly change your ship; controls fit the new game |
+| E2 | **The New Economy (+ New Controls)** | XP tick + kill-only bonuses, pre-rolled boon offers, Hades-style boon catalog v1, felt-build presentation, old upgrades stripped, new keyboard controls | Level up mid-match; picks visibly change your ship; controls fit the new game |
 | E3 | **The Ring** | 3×4 phased storm with minute rhythm, Endgame Guarantee ring (2 truesight diameters) | A full match has its designed pacing arc |
 | E4 | **The Living Ocean** | Fog banks, hemisphered whirlpools, roving PvE fleets (3 tiers), sinking window | The water itself creates stories |
 | E5 | **Honest Lobbies & Modes** | No bot-fill, min-2 fill-or-timer, cap 20, roster-scaled maps, Solo vs Bots combat AI | Two real modes with honest matches |
@@ -380,7 +379,7 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 **Post-beta:**
 
 - Teams (duos/trios + ping system)
-- Ranked, accounts, cosmetics shop, unlockable classes
+- Ranked, accounts, cosmetics shop, unlockable classes (unlocks are **never power** — the Paint-Not-Power guarantee extends to class unlocks), Service Record, Pennants
 
 **Not planned without design-first work:**
 
@@ -402,7 +401,8 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 2. Per-weapon firing-arc geometry, designed alongside the new armory's numbers. *(Aiming and Combat)*
 3. Precision bonus: adopt or drop while tuning the standard gun; whether gun-type specials qualify. *(Aiming and Combat)*
 4. DESIGN.md needs an update pass for the real-time era. *(Art Style; E7)*
-5. Hunter class real name — needed only when it comes off the backburner.
+5. Hunter class real name — tracked in Out of Scope; needed only when it comes off the backburner.
+6. Minutes-1–3 pacing ("Quiet Dread" — protect or fix) is a playtest call; the ring rhythm's minute-1 "clear seas" is the current answer.
 
 **Dependencies:**
 

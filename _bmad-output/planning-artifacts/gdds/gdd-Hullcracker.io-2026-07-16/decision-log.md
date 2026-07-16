@@ -135,6 +135,12 @@ Final beta loadout table (Eric's rows):
 - Success Metrics written (Eric approved the proposal): tech targets as pass/fail; gameplay = <15:00 matches, immediate re-queue as fun proxy, real pick rates across all four classes, one playtest question per pillar.
 - Out of Scope finalized in three intent tiers: backburnered (Hunter, consumables, supply drops, sonar/ping), post-beta (teams, ranked, accounts, cosmetics, unlockables), design-first (Carrier, subs, mobile).
 
+## 2026-07-16 — Finalize: reconciliation + validation autofixes applied
+
+Four subagents ran (brief, brainstorm, forge reconciliation; checklist validation). Mechanical fixes applied without changing any design decision: duplicate Multiplayer stub removed; "Five classes" → four; ring-split wording closed (3×4 decided); stale "kill-banked" wording in USP 4 / Pillar 3 / loop step 5 corrected to XP economy; E2 title aligned; #NN citation note added; compass vetoes (torpedo variety, damage-control parties) recorded as armory guardrails in Weapon Systems + E1; island-stuck bug #64 landed in E1; drone-lobby batch-simulation method restored (Progression + E2); leak-law property-test QA note added to E2; minutes-1–3 pacing open note added to Assumptions; "unlocks never power" law + Service Record/Pennants added to Out of Scope; Pixi wording de-implementation-ized.
+
+Findings requiring Eric's ruling (presented in-conversation): Bounty #47; 10-Minute Covenant #55 vs 15-min contract; custom/private lobbies (forge lock 5); radar fidelity direction (forge lock 7); "Kinetics as Hero" guardrail lines; Rare Pull #84 status; "Sensors First, Fork Later" motto vs epic order; weapon-feel numbers deferral; aim reconciliation under latency (proposed: architecture-phase open question).
+
 ### Open items carried in from brief/forge — final triage (2026-07-16)
 
 1. Ring-phase split — **RESOLVED**: 3 groups × 4 min with per-ring minute rhythm.

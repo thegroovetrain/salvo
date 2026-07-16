@@ -32,6 +32,9 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 6. Mine Layer loadout (proximity mines + decoy buoy) — server-side lies for the decoy.
 7. Gunboat loadout (AP gun form resolved + speed boost).
 8. Per-weapon arc design pass.
+9. Island-stuck collision bug (#64 playtest finding) fixed as part of the hull-envelope/collision work.
+
+**Guardrails (compass vetoes):** no torpedo variety, no damage-control parties, no sectional damage.
 
 ---
 
@@ -60,6 +63,9 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 3. Boon catalog v1 design + implementation.
 4. Felt-build presentation layer.
 5. Keyboard layout rework + denied-input feedback.
+6. Drone-lobby batch-simulation harness for economy tuning (committed method: simulate before human playtests).
+
+**QA note:** the Conservation-Law *tendency* ("power gains tend to emit observable signals") is a property-test candidate, not a design law.
 
 ---
 
