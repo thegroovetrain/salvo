@@ -1,5 +1,9 @@
 # Decision Log — Hullcracker.io GDD
 
+## 2026-07-16 — FINALIZED (v1.0)
+
+All Finalize steps complete: decision-log audit, input reconciliation (brief/brainstorm/forge subagents), validation pass (one blocker + all warnings resolved or explicitly accepted), open-items triage (no phase blockers remain; open notes are indexed in Assumptions and Dependencies), guardrails ratified. The GDD is ready for `gds-game-architecture`.
+
 ## 2026-07-16 — Session start (Create intent)
 
 - **Intent:** Create — no prior GDD exists. Workspace bound to `_bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/`.
@@ -147,7 +151,7 @@ Findings requiring Eric's ruling (presented in-conversation): Bounty #47; 10-Min
 2. **10-Minute Covenant #55 formally retired**: at 12:00 the ring is fully closed; the game continues until there is a winner, ~15:00.
 3. **Custom/private lobbies: post-beta.**
 4. **Radar fidelity IN** (E6), with Eric's design rationale: real radar = distance/speed/size; AIS justifies identification — blips show ship outline + speed/heading so direction of travel is readable.
-5. Kinetics-as-Hero guardrails — Eric asked for a clearer explanation; pending.
+5. Kinetics-as-Hero guardrails — **RESOLVED**: rules 2 and 3 kept as pillar guardrails ("info noise must never bury the hunt"; "fix deduction on the sensing side, not with stats") + E6 warning label. "The helm is the star" rejected — a facilitator invention, not Eric's ("Yes, it's a boat. It drives like a boat.").
 6. **Rare Pull #84 backburnered("-ish")**: boon catalog v1 is basics-first; anything springing from it comes later.
 7. **"Sensors First, Fork Later" motto retired** (fork resolved; epic order runs classes first).
 8. **Weapon-feel numbers deferred to E1**; balance will be adjusted for sure — no table now.

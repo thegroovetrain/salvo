@@ -76,6 +76,11 @@ The lobby pick is a genuine promise: a different loadout at 0:00, not a skin ove
 The storm closes in legible phases, forcing every hunt to a conclusion. The Endgame Guarantee — a final ring two truesight diameters across — forces combat while keeping the sensor game alive to the last shot. No match ends in mutual avoidance.
 *Steers:* zone timeline and pacing, map scaling from roster size, endgame tuning, the Rat Covenant (hiding is legal but priced).
 
+**Pillar guardrails** (carried from the brief):
+
+1. **Information noise must never bury the hunt** — sensor features may not drown the chase-and-shoot game in indicators.
+2. **When deduction stops paying, fix it on the sensing side** — never with stat band-aids.
+
 ### Core Gameplay Loop
 
 One cycle, run continuously from spawn to sinking:

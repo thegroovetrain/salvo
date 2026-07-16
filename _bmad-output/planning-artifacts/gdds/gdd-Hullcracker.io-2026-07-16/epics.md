@@ -108,6 +108,8 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 
 **Out of scope:** sonar as a distinct third sensor tier (#4), active ping (#6 — Hunter material, backburnered with the class).
 
+**Guardrail:** this epic is where information-overload risk lives — noise must never bury the hunt; every feature here must pass a readability check on a busy screen.
+
 **Dependencies:** E1 (weapons emitting the signals are the new armory's).
 
 **Playable deliverable:** fights at radar range are readable, trackable dramas instead of silent HP exchanges.
