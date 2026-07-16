@@ -79,6 +79,18 @@ Final beta loadout table (Eric's rows):
 - Gunnery-feel trio (#19 Hit Call, #21 fall-of-shot, #34 muzzle flash carries) written in as weapon-feel design intent from the #90 bundle.
 - Process correction (Eric): facilitator was proposing from a thin digest instead of the actual brainstorm/forge contents — deep extraction pulled; future proposals must be grounded in the source items (#NN references).
 
+## 2026-07-16 — Universal basic gun (decided)
+
+- **Everyone has the same basic gun, working the same way** (Eric). Class differentiation = special weapon + "other" equipment + hull stats. Loadout table's basic column collapsed to "Standard gun."
+
+## 2026-07-16 — Aiming and combat rules (decided)
+
+- **No dispersion** (Eric: "Shots go where they are aimed. There is travel time to get there.")
+- **No damage falloff.** Flight rules: torpedoes run until impact; shells fly to the click or first hit en route.
+- **Precision bonus — GUNS ONLY, status open (Eric's correction):** idea originated in the universal-guns era (guns barely dealt damage); shell hitting the target at the exact clicked spot = bonus damage; en-route collisions or dodged-click grazes = base damage. Torpedoes never qualify (no range maximum). Its survival is tied to the gun redesign — documented as an open idea, not a settled rule.
+- **Arcs retained but geometry reopened:** with per-class weapons, arcs should allow use in more situations while rewarding skill (vs. arcs-as-positional-aiming under universal weapons). Exact per-weapon arcs TBD.
+- Flat damage model reaffirmed (no sectional/crits/weak points — compass veto).
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).

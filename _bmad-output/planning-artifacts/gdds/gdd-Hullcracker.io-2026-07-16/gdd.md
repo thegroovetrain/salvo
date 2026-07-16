@@ -119,9 +119,11 @@ Each class is a **hull envelope** (size, speed, toughness, turning) carrying a *
 
 **Slot grammar (universal; contents per class).** Every ship fits:
 
-1. **Basic weapon** — short cooldown, basic damage; meant to be available to use most of the time.
+1. **Basic weapon** — universal: every class carries the **same standard gun**, working the same way. Short cooldown, basic damage, available to use most of the time.
 2. **Special weapon** — what makes the class feel unique.
 3. **"Other" ability** — equipment that complements the class fantasy: intel-gathering, an additional weapon, or something else entirely.
+
+Class differentiation lives in the special weapon, the "other" equipment, and the hull envelope stats — never in the basic gun.
 
 Backburnered (designed-for but not in beta): one **pickup weapon slot** (a weapon acquired in-game) and **~4 consumable slots**. The grammar reserves them; the beta does not implement them.
 
@@ -149,14 +151,14 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 ### Weapon Systems
 
-**Fitted loadouts (the promise at 0:00).** Slot roles are universal: the **basic weapon** is on a short cooldown with basic damage, available most of the time; the **special weapon** makes the class feel unique; the **"other" equipment** complements the class fantasy. Per the forge lock, contents are **focus, not exclusivity** — drawn from a shared armory; these are fitted defaults, not hard locks.
+**Fitted loadouts (the promise at 0:00).** The **basic gun is universal** — every class carries the same standard gun, working the same way (short cooldown, basic damage, available most of the time). Class identity comes from the **special weapon** (what makes the class feel unique), the **"other" equipment** (complements the class fantasy), and the hull envelope stats. Per the forge lock, contents are **focus, not exclusivity** — drawn from a shared armory; these are fitted defaults, not hard locks.
 
 | Class | Basic weapon | Special weapon | "Other" ability |
 |---|---|---|---|
-| **Torpedo Boat** | Light quick-firing gun | Torpedo tubes | Smoke screen (#26) |
-| **Battleship** | Deck guns | Long-range cannon (artillery) | Star shells (#12) |
-| **Mine Layer** | Modest gun | Proximity-fused mines (#81) | Decoy buoy (#69) |
-| **Gunboat** | Quick-firing gun battery | Armor-piercing gun — form open: separate higher-cooldown gun, OR an activatable that boosts damage/rate-of-fire for a few seconds | Speed boost — several seconds of raised speed |
+| **Torpedo Boat** | Standard gun | Torpedo tubes | Smoke screen (#26) |
+| **Battleship** | Standard gun | Long-range cannon (artillery) | Star shells (#12) |
+| **Mine Layer** | Standard gun | Proximity-fused mines (#81) | Decoy buoy (#69) |
+| **Gunboat** | Standard gun | Armor-piercing gun — form open: separate higher-cooldown gun, OR an activatable that boosts damage/rate-of-fire for a few seconds | Speed boost — several seconds of raised speed |
 
 [NOTE FOR DESIGNER: Gunboat AP-gun form (separate gun vs. activatable buff) is an open choice; speed boost is Eric's tentative pick.]
 
@@ -172,7 +174,14 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 ### Aiming and Combat Mechanics
 
-_TBD — facilitation in progress._
+- **Top-down mouse aim.** Aim is constrained to the selected weapon's firing arc; click to fire. Denied fire (out of arc, no ammo, reloading) gives explicit feedback, never silence.
+- **Arcs are being rethought for the class era.** Under universal weapons, arcs functioned as positional aiming; with per-class weapons, arcs should let each class use its weapons in more situations while still rewarding skilled play. Exact arc geometry per weapon is open design work. [NOTE FOR DESIGNER: per-weapon arc geometry TBD alongside the new armory's numbers.]
+- **No dispersion.** Shots go exactly where they are aimed; travel time is the skill counterweight. Projectiles, never hitscan — leading the target is the game.
+- **Flight rules:** torpedoes run until they hit something; gun shells fly to the clicked point or the first thing they hit on the way, whichever comes first.
+- **No damage falloff.** Distance never reduces damage.
+- **Precision bonus (guns only — status open).** A shell from the standard gun that strikes the target *at the clicked spot* deals bonus damage; a shell that collides with something en route, or catches an enemy who dodged the click point, deals its base damage. Torpedoes never qualify (they have no range maximum). [NOTE FOR DESIGNER: open idea — adopt or drop when tuning the standard gun; whether gun-type specials (long-range cannon, AP gun) also qualify is undecided.]
+- **Flat damage model.** No sectional damage, no critical hits, no weak points (compass-vetoed as WoWS-creep) — each weapon deals its damage to a single hull pool, modified only by the precision bonus and upgrades.
+- **Combat is sensing (Pillar 1).** Firing produces muzzle flash beyond truesight, splashes visible in fog, and hit calls — every trigger pull is also information, for you and about you.
 
 ### Enemy Design and AI
 
