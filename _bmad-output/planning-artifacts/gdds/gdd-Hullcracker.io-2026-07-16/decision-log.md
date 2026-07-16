@@ -51,6 +51,13 @@ Facilitator flagged that #4 could be read as a mechanism serving #1/#2 rather th
 
 - **Everyone has hull microphones** for passive audio detection (the listening ring) — universal baseline equipment, not slot content. Sensor suite is three-tier on every hull: truesight + radar sweep + passive audio.
 
+## 2026-07-16 — No self-heal as ship feature (decided); class fantasy sharpening
+
+- **Design law (Eric): self-heal must NOT be a ship/class feature** — survivability makes any class holding it far too powerful. Healing, if it exists, is handled through consumables, or possibly a universal cooldown self-heal (Eric unsure he likes that). Open tension: does the current economy's spend-a-point-to-heal option survive this law?
+- **Battleship reframed:** fantasy is "beefy boy with guns" (tank), NOT haymaker damage. Basic = Deck Guns; special = possibly star shells; other = possibly a damage-reduction cooldown. Tentative on special/other.
+- **Gunship reframed:** the DPS pick — damage is its fantasy, contrasting the Battleship's durability.
+- **Hunter:** torpedo as special now uncertain (Eric: "maybe shouldn't. Idk").
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).
