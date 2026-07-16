@@ -43,6 +43,10 @@ Facilitator flagged that #4 could be read as a mechanism serving #1/#2 rather th
 - Game Mechanics section written: class table, slot grammar, movement model, two-tier sensors, upgrade economy, storm (12:00 phased design target vs prototype's 3:45 single shrink), controls.
 - Standing note added to gdd.md: all numbers are design targets / tunable reference values, never inherited commitments.
 
+## 2026-07-16 — Upgrade economy correction (decided)
+
+- **XP-based upgrade system replaces kill-only banking** (Eric): slow passive XP tick (~1 level/min) PLUS kill bonuses. Levels bank points; points carry pre-rolled offers as before. Passive tick = anti-snowball floor. Kill-bonus sizing stays open (prices the rat).
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).
