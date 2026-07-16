@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker — Full HUD Composite v1</title>
+<style>
+/* ============================================================
+   HULLCRACKER — FULL IN-GAME HUD COMPOSITE v1 (1080p LIVE FRAME)
+   ------------------------------------------------------------
+   One live-play frame assembling EVERY decided HUD element from
+   the decision log (ux run 2026-07-16), so total information
+   load can be judged against the GDD guardrail:
+   "information noise must never bury the hunt."
+
+   FRAME: authored at true 1920×1080 (all px values inside the
+   frame are real 1080p values, HUD at the post-playtest ~1.6×
+   register), displayed at transform:scale(0.75) → 1440×810.
+
+   TWO COPIES:
+     A — ANNOTATED: numbered callout chips in the gutter OUTSIDE
+         the 16:9 frame (never on the HUD), mapped to decision-log
+         lines in the legend below. Amber chips = PROPOSAL.
+     B — CLEAN READ: identical frame, zero annotation — the
+         squint test. Judge the noise here.
+
+   FONTS: system stack for offline rendering.
+   PRODUCTION USES: Geist (display/body) + Geist Mono (labels,
+   uppercase, letter-spaced) per DESIGN.md v0.16.
+
+   SHARED TOKENS (carried from hotbar-blend-DB-1 / spend-window-1
+   / class-silhouettes-1):
+     phosphor green   #00FF88   (HUD chrome: ready / success)
+     amber            #FFB800   (selected / action / final-10s pulse)
+     denied red       #FF3B3B   (unused this frame — no denial shown)
+     silver linework  #C0C0C0   (chart rings, neutral chrome)
+     dim slate        #5A6478 · mid slate #8B95A5 · text #E2E8F0
+     storm purple     #7B2FBE  (+ bright readout variant #B06EE8)
+     deep void        #020604 fog base · #050807 page
+   REGATTA HOIST personal colors used this frame:
+     own ship  Cyan    #00D0FF → fill #005E73
+     contact   Magenta #FF4FD8 → fill #732461 (wounded gunboat)
+     blip      Fuchsia #E14DFF (battleship) · Lime #7FE03A (gunboat)
+     kill feed Lemon #FFF04D · Spring #37F2A0 · Rose #FF85B3 ·
+               Cobalt #5468FF
+     drone greyscale  #9AA3B2 → fill #454950
+   Per log L33(C): HUD tint = ACCENTS ONLY — personal color rides
+   the own hull / blips / kill-feed names; ALL HUD chrome stays
+   phosphor-functional.
+
+   WORLD SCALE in frame: ~0.92 px per world-unit. Truesight
+   bubble r=300px · listening rose r=150px · radar hint r=780px.
+   Blips are hull OUTLINES at world scale (log L31: class
+   readable at blip range) + heading vector + decaying paint
+   ghosts (phosphor-decay trail, per-hue under Variant C).
+
+   HOTBAR: Composition 2 (log L35, "hands down") with Eric's
+   label amendments — NO slot-role line; line 1 = weapon/ability
+   NAME; quick info = DAMAGE + COOLDOWN minimum; ammo-count
+   NUMBER BADGE over icons that store >1 (torpedoes ×2 here);
+   accrued boons compressed into quick info as "◆n" (log L36 —
+   compression form is a spine call, shown as one candidate).
+   Slots 54×54, Afterimage register (1px floating outlines, no
+   panel, cooldown = dimmed icon behind 2px conic perimeter).
+
+   BANKED INDICATOR: locked as rendered in spend-window-1 S2 —
+   30px breathing phosphor chip at the head of the stack (L41).
+
+   PROPOSALS in this frame (amber chips, tagged in legend):
+     P1 own-vitals cluster placement — bottom-RIGHT. Current game
+        splits telegraph (bottom-left) from HP (bottom-right);
+        the hotbar now owns bottom-left, so the co-located
+        HP+telegraph cluster (L49) takes the bottom-right corner
+        the HP bar already lives in today.
+     P2 XP/level progress — thin 3px phosphor rail on the hotbar
+        stack's left edge, filling upward toward the next banked
+        level (L52 said "placement to be proposed in composite").
+     P3 supply-drop reserved slot — dashed ghost docked under the
+        top-center match clock (it is a minute-rhythm clock event;
+        feature-flagged, renders only when the mechanic ships).
+     P4 listening-ring treatment — dashed compass rose + arc-pip
+        segments whose brightness ∝ loudness (L51 decided the
+        behavior; this visual register is the proposal).
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #050807;
+  color: #E2E8F0;
+  /* production: Geist */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  padding: 40px 20px 96px;
+}
+.mono {
+  /* production: Geist Mono */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.page { max-width: 1560px; margin: 0 auto; }
+
+h1 { font-size: 30px; font-weight: 700; letter-spacing: .01em; }
+.pagehead-kicker {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+  color: #00FF88; margin-bottom: 10px;
+}
+.pagehead-note { color: #8B95A5; font-size: 14px; max-width: 82ch; margin-top: 10px; }
+.pagehead-note strong { color: #E2E8F0; }
+.binding-warn {
+  display: inline-block; margin-top: 12px; padding: 6px 12px;
+  border: 1px dashed #5A6478; color: #FFB800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+}
+section { margin-top: 56px; }
+.comp-name { font-size: 22px; font-weight: 700; letter-spacing: .02em; }
+.comp-name .idx {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #00FF88; font-weight: 600; font-size: 15px; margin-right: 10px;
+  letter-spacing: .15em;
+}
+.comp-register { color: #8B95A5; font-size: 14px; margin: 4px 0 16px; font-style: italic; }
+.scrollwrap { overflow-x: auto; }
+
+/* ============ BOARD: gutter + scaled 16:9 frame ============ */
+.board {
+  position: relative;
+  width: 1532px;              /* 1440 frame + 2×46 gutter */
+  padding: 46px;
+}
+.scaler { width: 1440px; height: 810px; overflow: hidden; border: 1px solid #1B2621; }
+.frame {
+  position: relative; width: 1920px; height: 1080px;
+  transform: scale(0.75); transform-origin: 0 0;
+  background: #020604; overflow: hidden;
+}
+
+/* callout chips — OUTSIDE the frame, in the gutter only */
+.chip {
+  position: absolute; width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(0,255,136,.6); color: #00FF88;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; background: #050807; z-index: 5;
+}
+.chip.prop { border-color: #FFB800; color: #FFB800; }
+
+/* ============================================================
+   IN-FRAME LAYERS (order = render order, mirrors client layering:
+   water → fogged world → fog composite → sweep → chart/fog-immune
+   → HUD)
+   ============================================================ */
+
+/* L1 — water base: void + faint own-centred chart rings +
+   subtle truesight interior lift. Own ship at (960,540). */
+.water {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 960px 540px, rgba(200,255,235,.028) 0 250px, transparent 300px),
+    repeating-radial-gradient(circle at 960px 540px, transparent 0 148px, rgba(192,192,192,.045) 148px 149px),
+    #020604;
+}
+.wsvg { position: absolute; inset: 0; }
+
+/* L3 — fog composite: feathered hole r≈300 at own ship
+   (render/fog.ts register, rgba(2,10,6,…) family). */
+.fog {
+  position: absolute; inset: 0; pointer-events: none;
+  background: radial-gradient(circle at 960px 540px,
+    rgba(2,10,6,0) 0 258px, rgba(2,10,6,.86) 328px, rgba(2,10,6,.9) 100%);
+}
+
+/* L4 — conic radar sweep, fog-immune, r≈780 (radar tier). */
+.sweep {
+  position: absolute; left: 180px; top: -240px;
+  width: 1560px; height: 1560px; border-radius: 50%;
+  background: conic-gradient(from 150deg at 50% 50%,
+    rgba(0,255,136,.13), rgba(0,255,136,.035) 24deg, transparent 42deg);
+  pointer-events: none;
+}
+
+/* ============ HUD: top-center BR chrome (log L50/L52) ============
+   One restrained row: afloat · kills · up-timer · ring countdown.
+   Ring readout in bright storm purple #B06EE8; in the FINAL 10s
+   it pulses amber #FFB800 (noted — this frame shows 0:47, calm). */
+.brchrome {
+  position: absolute; top: 22px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: baseline; gap: 26px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 16px; letter-spacing: .14em; color: #5A6478;
+  text-transform: uppercase; white-space: nowrap;
+}
+.brchrome .n { color: #E2E8F0; font-weight: 600; }
+.brchrome .n.ph { color: #00FF88; }
+.brchrome .ring { color: #B06EE8; }
+.brchrome .ring .n { color: #B06EE8; }
+.brchrome .sep { color: rgba(90,100,120,.5); }
+
+/* supply-drop reserved ghost — PROPOSAL P3: docked under the
+   match clock. Feature-flagged; dashed, near-invisible. */
+.supply-ghost {
+  position: absolute; top: 52px; left: 50%; transform: translateX(56px);
+  padding: 4px 12px; border: 1px dashed rgba(90,100,120,.4);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+  color: rgba(90,100,120,.55); white-space: nowrap;
+}
+
+/* ============ HUD: kill feed, top-right (log L28/L33/L19) ============
+   Current convention ("X SUNK BY Y" / "X LOST WITH ALL HANDS",
+   extract-current-ui §1) — names tinted in personal colors,
+   connective text dim; drones greyscale. */
+.killfeed {
+  position: absolute; top: 22px; right: 28px; text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px; letter-spacing: .08em; text-transform: uppercase;
+  color: #5A6478; line-height: 1.9;
+}
+.killfeed .kn { font-weight: 600; }
+
+/* ============ HUD: bottom-left hotbar stack ============
+   Composition 2 (log L35) + amended labels. Afterimage slots. */
+.hb-zone { position: absolute; left: 44px; bottom: 26px; }
+/* P2 — XP/level rail: 3px phosphor rail on the stack's left
+   edge, filling upward toward the next banked level (62%). */
+.xp-rail {
+  position: absolute; left: -16px; top: 0; bottom: 16px; width: 3px;
+  background: rgba(0,255,136,.12);
+}
+.xp-fill {
+  position: absolute; left: 0; bottom: 0; width: 100%; height: 62%;
+  background: #00FF88; box-shadow: 0 0 8px rgba(0,255,136,.45);
+}
+.xp-lv {
+  position: absolute; left: -30px; bottom: -4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .1em; color: rgba(0,255,136,.6);
+}
+.hb-stack { display: flex; flex-direction: column; gap: 14px; }
+.hb-row { display: flex; align-items: center; gap: 12px; }
+.hb-key {
+  width: 14px; text-align: center; flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .1em; color: rgba(90,100,120,.85);
+}
+.hb-key.sel { color: #FFB800; }
+.hb-slot {
+  position: relative; width: 54px; height: 54px;
+  border: 1px solid rgba(192,192,192,.28); background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(159,179,168,.85); flex: none;
+}
+.hb-selected {
+  border-color: #FFB800; color: #FFB800;
+  box-shadow: 0 0 16px rgba(255,184,0,.4), inset 0 0 12px rgba(255,184,0,.12);
+}
+.hb-ready {
+  border-color: rgba(0,255,136,.4); color: rgba(0,255,136,.75);
+  box-shadow: 0 0 10px rgba(0,255,136,.15);
+}
+.hb-empty { border: 1px dashed rgba(90,100,120,.45); color: rgba(58,69,64,.9); font-size: 20px; }
+/* ammo-count badge — only on icons that store >1 (amended spec) */
+.hb-badge {
+  position: absolute; top: -7px; right: -7px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  background: #030605; border: 1px solid rgba(0,255,136,.5);
+  color: #00FF88; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; line-height: 14px; text-align: center;
+}
+/* cooldown = dimmed icon behind 2px conic perimeter; ability
+   chrome = chamfered top-right corner (interaction-class mark) */
+.hb-ring {
+  padding: 2px; width: 54px; height: 54px; flex: none;
+  background: conic-gradient(#00FF88 0 58%, rgba(0,255,136,.14) 58% 100%);
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+}
+.hb-ring .hb-slot {
+  width: 100%; height: 100%; border: none; background: #030605;
+  color: rgba(70,85,78,.6);
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+}
+/* amended labels: NO role line — name, then DMG + CD quick info */
+.hb-label { line-height: 1.35; }
+.hb-name { font-size: 13px; font-weight: 600; color: #E2E8F0; letter-spacing: .02em; }
+.hb-name.sel { color: #FFB800; }
+.hb-name.dim { color: #5A6478; font-weight: 400; }
+.hb-info {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .08em; color: #5A6478;
+}
+.hb-info .boon { color: rgba(0,255,136,.7); }
+/* banked-level indicator — locked per spend-window-1 S2 (L41) */
+@keyframes bank-breathe {
+  0%, 100% { box-shadow: 0 0 6px rgba(0,255,136,.18), inset 0 0 6px rgba(0,255,136,.06); }
+  50%      { box-shadow: 0 0 16px rgba(0,255,136,.45), inset 0 0 10px rgba(0,255,136,.14); }
+}
+.bank-line { display: flex; align-items: center; gap: 12px; margin-bottom: 2px; }
+.bank-chip {
+  width: 30px; height: 30px; flex: none;
+  border: 1px solid rgba(0,255,136,.65); background: rgba(3,7,5,.6);
+  display: flex; align-items: center; justify-content: center;
+  animation: bank-breathe 2.4s ease-in-out infinite;
+}
+.bank-chip .n {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; font-weight: 600; color: #00FF88;
+}
+.bank-cue {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+  color: rgba(0,255,136,.75); line-height: 1.55;
+}
+.bank-cue .k { color: #8B95A5; }
+
+/* ============ HUD: own-vitals cluster (log L49) ============
+   PROPOSAL P1: bottom-right. HP bar co-located with the
+   speed/rotation telegraph cluster; telegraph keeps today's
+   9-detent W/S convention, restyled to the Afterimage register
+   (floating linework, no panel). */
+.vitals {
+  position: absolute; right: 28px; bottom: 26px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 14px;
+}
+.hp-head {
+  display: flex; justify-content: space-between; width: 260px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .18em; color: #5A6478;
+  text-transform: uppercase; margin-bottom: 5px;
+}
+.hp-head .val { color: #00FF88; font-weight: 600; }
+.hp-head .val .dim { color: #5A6478; font-weight: 400; }
+.hp-bar {
+  width: 260px; height: 10px;
+  border: 1px solid rgba(192,192,192,.35); background: rgba(3,7,5,.5);
+}
+.hp-fill {
+  height: 100%; background: #00FF88;
+  box-shadow: 0 0 10px rgba(0,255,136,.35);
+}
+.helm { display: flex; align-items: flex-end; gap: 26px; }
+.readouts { text-align: right; }
+.ro-big {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 22px; letter-spacing: .1em; color: #E2E8F0; line-height: 1.4;
+}
+.ro-big .u { font-size: 12px; color: #5A6478; }
+.rudder { margin-top: 10px; }
+.rudder .lab {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .2em; color: #5A6478; text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.rudder .track { position: relative; width: 110px; height: 6px; }
+.rudder .track::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 2.5px; height: 1px;
+  background: rgba(192,192,192,.3);
+}
+.rudder .mid {
+  position: absolute; left: 54px; top: 0; width: 1px; height: 6px;
+  background: rgba(192,192,192,.5);
+}
+.rudder .pos {
+  position: absolute; left: 71px; top: -1px; width: 2px; height: 8px;
+  background: #FFB800; box-shadow: 0 0 6px rgba(255,184,0,.5);
+}
+/* telegraph ladder: 9 detents (FULL…STOP…FULL). Ordered rung =
+   phosphor marker (AHEAD ¾ here); actual speed = amber needle,
+   still accelerating between ¼ and ½. */
+.tg { display: flex; flex-direction: column; align-items: flex-start; }
+.tg-cap {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .22em; color: #5A6478; text-transform: uppercase;
+  padding-left: 2px;
+}
+.tg-ladder { position: relative; margin: 6px 0; }
+.tg-rung { display: flex; align-items: center; gap: 8px; height: 18px; }
+.tg-rung .bar { width: 28px; height: 1px; background: rgba(192,192,192,.35); }
+.tg-rung .lab {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .1em; color: #5A6478;
+}
+.tg-rung.ordered .bar { height: 3px; background: #00FF88; box-shadow: 0 0 8px rgba(0,255,136,.5); }
+.tg-rung.ordered .lab { color: #00FF88; }
+.tg-needle {
+  position: absolute; left: -8px; width: 44px; height: 2px;
+  background: #FFB800; box-shadow: 0 0 8px rgba(255,184,0,.5);
+  top: 62px; /* between ¼ (y=63) and ½ (y=45) rung centers */
+}
+
+/* ============ legend / annotation chrome (outside frames) ============ */
+.legend { margin-top: 26px; width: 1532px; max-width: 100%; }
+.legend table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.legend th, .legend td {
+  text-align: left; padding: 7px 12px; border-bottom: 1px solid #1B2621;
+  vertical-align: top; color: #8B95A5;
+}
+.legend th {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: #5A6478;
+}
+.legend .num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #00FF88; white-space: nowrap;
+}
+.legend .num.prop { color: #FFB800; }
+.legend .el { color: #E2E8F0; font-weight: 600; }
+.legend .ref {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; color: #5A6478; white-space: nowrap;
+}
+.legend .tag {
+  display: inline-block; margin-left: 8px; padding: 1px 7px;
+  border: 1px solid #FFB800; color: #FFB800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .14em;
+}
+.footnotes { margin-top: 16px; color: #5A6478; font-size: 12px; max-width: 110ch;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .03em; line-height: 1.8; }
+.footnotes b { color: #8B95A5; }
+</style>
+</head>
+<body>
+
+<!-- Shared icon + hull symbol set (inline SVG, currentColor / explicit) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="ic-gun" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2c-2.3 2.7-3.6 5.6-3.6 8.7V17h7.2v-6.3C15.6 7.6 14.3 4.7 12 2z"/>
+      <rect fill="currentColor" x="7.2" y="18.4" width="9.6" height="3" rx=".5"/>
+    </symbol>
+    <symbol id="ic-torp" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M6.5 9.5h9c2.9 0 5.5 1.1 5.5 2.5s-2.6 2.5-5.5 2.5h-9c-.8 0-1.5-1.1-1.5-2.5s.7-2.5 1.5-2.5z"/>
+      <path fill="currentColor" d="M5.5 9.8 2.4 6.6v10.8l3.1-3.2z"/>
+      <rect fill="currentColor" x="8" y="7.4" width="1.6" height="2.2"/>
+    </symbol>
+    <symbol id="ic-smoke" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M7 17.5a3.8 3.8 0 0 1-.5-7.57A5.2 5.2 0 0 1 16.6 8.6 4.1 4.1 0 0 1 17.6 17.5z"/>
+      <rect fill="currentColor" x="5" y="19.4" width="14" height="1.6" rx=".8" opacity=".6"/>
+    </symbol>
+    <!-- class hulls (class-silhouettes-1 geometry, bow-up) -->
+    <symbol id="hull-tb" viewBox="0 0 24 100">
+      <path d="M12 2 L15.5 22 L16.5 58 L15.5 90 L12 84 L8.5 90 L7.5 58 L8.5 22 Z"/>
+    </symbol>
+    <symbol id="hull-bb" viewBox="0 0 48 124">
+      <path d="M24 2 L32 20 L34 30 L34 38 L40 44 L40 84 L34 90 L34 106 L30 118 L18 118 L14 106 L14 90 L8 84 L8 44 L14 38 L14 30 L16 20 Z"/>
+    </symbol>
+    <symbol id="hull-ml" viewBox="0 0 36 88">
+      <path d="M18 2 L24 22 L27 50 L28 84 L21.5 84 L21.5 72 L14.5 72 L14.5 84 L8 84 L9 50 L12 22 Z"/>
+    </symbol>
+    <symbol id="hull-gb" viewBox="0 0 30 60">
+      <path d="M15 2 L25 34 L26 50 L23 56 L7 56 L4 50 L5 34 Z"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="page">
+
+  <div class="pagehead-kicker">UX RUN 2026-07-16 · CREATIVE TOOL · HUD-COMPOSITE-1</div>
+  <h1>Full In-Game HUD Composite — One Live Frame, Everything Decided</h1>
+  <p class="pagehead-note">
+    The guardrail screen: <strong>"information noise must never bury the hunt."</strong>
+    Every decided HUD element composed into a single 1080p live-play moment —
+    own Torpedo Boat (personal Cyan) mid-hunt, a torpedo just heard-then-seen at the
+    truesight edge, two colored blips + one drone blip on the radar glass, a wounded
+    contact smoking, the ring closing off-frame right. Copy A is annotated from the
+    gutter (chips never touch the HUD); copy B is the same frame with zero annotation —
+    <strong>judge total load on copy B</strong>. Amber chips = placements I had to propose.
+  </p>
+  <div class="binding-warn">⚠ ALL KEYBINDS SHOWN (1/2 · E · CTRL) ARE PLACEHOLDERS — GDD E2 REWORKS KEYS</div>
+
+  <!-- ══════════════════════ COPY A — ANNOTATED ══════════════════════ -->
+  <section>
+    <div class="comp-name"><span class="idx">A ·</span>ANNOTATED FRAME — CALLOUTS IN THE GUTTER</div>
+    <div class="comp-register">1920×1080 authored, shown at 0.75×. Numbered chips sit outside the 16:9 frame; legend below maps each to its decision-log line. Amber = PROPOSAL.</div>
+    <div class="scrollwrap">
+    <div class="board">
+
+      <!-- gutter callout chips (outside the frame) -->
+      <span class="chip"      style="left:744px;  top:11px;">1</span>
+      <span class="chip prop" style="left:902px;  top:11px;">2</span>
+      <span class="chip"      style="left:1330px; top:11px;">3</span>
+      <span class="chip"      style="left:1496px; top:236px;">4</span>
+      <span class="chip"      style="left:1496px; top:430px;">5</span>
+      <span class="chip prop" style="left:1496px; top:760px;">6</span>
+      <span class="chip prop" style="left:40px;   top:858px;">7</span>
+      <span class="chip"      style="left:112px;  top:858px;">8</span>
+      <span class="chip"      style="left:230px;  top:858px;">9</span>
+      <span class="chip prop" style="left:640px;  top:858px;">10</span>
+      <span class="chip"      style="left:770px;  top:858px;">11</span>
+      <span class="chip"      style="left:912px;  top:858px;">12</span>
+      <span class="chip"      style="left:1000px; top:858px;">13</span>
+      <span class="chip"      style="left:11px;   top:262px;">14</span>
+      <span class="chip"      style="left:11px;   top:352px;">15</span>
+      <span class="chip"      style="left:11px;   top:548px;">16</span>
+
+      <div class="scaler">
+      <div class="frame">
+
+        <!-- ============ L1: water base ============ -->
+        <div class="water"></div>
+
+        <!-- ============ L2: fogged world SVG ============ -->
+        <svg class="wsvg" viewBox="0 0 1920 1080" aria-hidden="true">
+          <!-- island cut into the fog (LOS blocker) — near side sighted,
+               far side dies into the composite -->
+          <polygon points="640,635 675,610 730,618 768,655 775,700 745,740 690,752 645,725 628,685"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1.5" stroke-linejoin="round"/>
+          <polygon points="668,652 706,646 740,672 736,706 700,724 666,704 658,676"
+                   fill="none" stroke="#8B7520" stroke-width="1" opacity=".35"/>
+
+          <!-- wounded contact: Magenta Gunboat, sighted, trailing smoke
+               (enemy damage stays diegetic — no HP bar, log L49) -->
+          <g transform="translate(790 415) rotate(-80) scale(0.9) translate(-15 -30)"
+             style="filter: drop-shadow(0 0 6px rgba(255,79,216,.45))">
+            <use href="#hull-gb" fill="#732461" stroke="#FF4FD8" stroke-width="2" stroke-linejoin="round"/>
+          </g>
+          <!-- smoke puffs drift astern + downwind -->
+          <circle cx="816" cy="404" r="5"  fill="#8B95A5" opacity=".42"/>
+          <circle cx="840" cy="394" r="8"  fill="#8B95A5" opacity=".30"/>
+          <circle cx="866" cy="382" r="11" fill="#8B95A5" opacity=".18"/>
+          <circle cx="893" cy="368" r="14" fill="#8B95A5" opacity=".10"/>
+
+          <!-- OWN SHIP: Torpedo Boat, personal Regatta Cyan —
+               bright outline, darker same-hue fill (log L27/L39) -->
+          <g transform="translate(960 540) rotate(25)">
+            <!-- phosphor wake astern (HUD chrome stays functional) -->
+            <circle cx="0" cy="56"  r="2.4" fill="#00FF88" opacity=".38"/>
+            <circle cx="0" cy="68"  r="2.0" fill="#00FF88" opacity=".22"/>
+            <circle cx="0" cy="81"  r="1.7" fill="#00FF88" opacity=".10"/>
+            <g transform="scale(0.92) translate(-12 -50)"
+               style="filter: drop-shadow(0 0 7px rgba(0,208,255,.5))">
+              <use href="#hull-tb" fill="#005E73" stroke="#00D0FF" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M12 10 L12 82" stroke="#00D0FF" stroke-opacity=".22" stroke-width="1"/>
+              <path d="M9.4 34 L9.4 56 M14.6 34 L14.6 56" stroke="#00D0FF" stroke-opacity=".55" stroke-width="1.6"/>
+            </g>
+          </g>
+        </svg>
+
+        <!-- ============ L3: fog composite ============ -->
+        <div class="fog"></div>
+
+        <!-- ============ L4: radar sweep (fog-immune) ============ -->
+        <div class="sweep"></div>
+
+        <!-- ============ L5: chart layer (fog-immune) ============ -->
+        <svg class="wsvg" viewBox="0 0 1920 1080" aria-hidden="true">
+          <!-- truesight edge r=300 · radar hint r=780 -->
+          <circle cx="960" cy="540" r="300" fill="none" stroke="rgba(0,255,136,.16)" stroke-width="1.5"/>
+          <circle cx="960" cy="540" r="780" fill="none" stroke="rgba(192,192,192,.05)" stroke-width="1"/>
+
+          <!-- STORM RING segment at frame edge (GDD E3, purple only) -->
+          <circle cx="2600" cy="540" r="1322" fill="none" stroke="rgba(123,47,190,.10)" stroke-width="142"/>
+          <circle cx="2600" cy="540" r="1250" fill="none" stroke="rgba(123,47,190,.2)"  stroke-width="12"/>
+          <circle cx="2600" cy="540" r="1250" fill="none" stroke="#7B2FBE" stroke-width="2.5" opacity=".8"/>
+
+          <!-- LISTENING RING compass rose r=150 (log L51, treatment = P4):
+               48 dash-pips + cardinal ticks; segments light toward noise,
+               brightness ∝ loudness -->
+          <circle cx="960" cy="540" r="150" fill="none"
+                  stroke="rgba(0,255,136,.2)" stroke-width="5"
+                  stroke-dasharray="3.2 16.435"/>
+          <path d="M960 368 L960 380 M1120 540 L1132 540 M960 700 L960 712 M788 540 L800 540"
+                stroke="rgba(0,255,136,.3)" stroke-width="1.5"/>
+          <!-- BRIGHT source: torpedo in the water, close, bearing ~45° -->
+          <path d="M1089.9 615.0 A150 150 0 0 1 1035.0 669.9"
+                fill="none" stroke="rgba(216,255,236,.25)" stroke-width="13"/>
+          <path d="M1081.4 628.2 A150 150 0 0 1 1048.2 661.4"
+                fill="none" stroke="#D9FFEE" stroke-width="5"
+                style="filter: drop-shadow(0 0 6px rgba(0,255,136,.8))"/>
+          <!-- FAINT source: distant engines, bearing ~-38° (toward BB blip) -->
+          <path d="M1052.3 421.8 A150 150 0 0 1 1098.1 481.4"
+                fill="none" stroke="rgba(0,255,136,.14)" stroke-width="9"/>
+          <path d="M1064.2 432.1 A150 150 0 0 1 1091.2 467.3"
+                fill="none" stroke="rgba(0,255,136,.4)" stroke-width="4"/>
+
+          <!-- TORPEDO materializing at the truesight boundary, in line
+               with the bright pips (log L47: heard long, seen at edge) -->
+          <g transform="translate(1172 752) rotate(-135)">
+            <circle cx="0" cy="0" r="18" fill="none" stroke="rgba(207,232,221,.22)" stroke-width="1" stroke-dasharray="3 4"/>
+            <circle cx="0" cy="0" r="11" fill="none" stroke="rgba(207,232,221,.45)" stroke-width="1" stroke-dasharray="3 3"/>
+            <rect x="-8" y="-2.5" width="16" height="5" rx="2.5"
+                  fill="#CFE8DD" stroke="#3FBF8F" stroke-width="1"
+                  style="filter: drop-shadow(0 0 5px rgba(63,191,143,.7))"/>
+            <circle cx="-14" cy="0" r="1.8" fill="#3FBF8F" opacity=".5"/>
+            <circle cx="-21" cy="0" r="1.5" fill="#3FBF8F" opacity=".25"/>
+          </g>
+
+          <!-- BLIPS — Variant C personal colors (log L28/L33D): hull
+               OUTLINE at world scale + heading vector + decay ghosts -->
+          <!-- Fuchsia Battleship, NE, beyond truesight -->
+          <g style="filter: drop-shadow(0 0 5px rgba(225,77,255,.5))">
+            <g transform="translate(1310 270) rotate(140) scale(0.9) translate(-24 -62)">
+              <use href="#hull-bb" fill="none" stroke="#E14DFF" stroke-width="2" stroke-linejoin="round" opacity=".85"/>
+            </g>
+          </g>
+          <line x1="1310" y1="270" x2="1349" y2="316" stroke="#E14DFF" stroke-width="1.5" opacity=".5"/>
+          <circle cx="1294" cy="251" r="2.6" fill="#E14DFF" opacity=".30"/>
+          <circle cx="1278" cy="232" r="2.3" fill="#E14DFF" opacity=".17"/>
+          <circle cx="1262" cy="213" r="2.0" fill="#E14DFF" opacity=".08"/>
+
+          <!-- Lime Gunboat, W -->
+          <g style="filter: drop-shadow(0 0 5px rgba(127,224,58,.5))">
+            <g transform="translate(430 700) rotate(35) scale(0.9) translate(-15 -30)">
+              <use href="#hull-gb" fill="none" stroke="#7FE03A" stroke-width="2" stroke-linejoin="round" opacity=".85"/>
+            </g>
+          </g>
+          <line x1="430" y1="700" x2="456" y2="663" stroke="#7FE03A" stroke-width="1.5" opacity=".5"/>
+          <circle cx="415" cy="721" r="2.6" fill="#7FE03A" opacity=".30"/>
+          <circle cx="401" cy="742" r="2.3" fill="#7FE03A" opacity=".17"/>
+          <circle cx="388" cy="762" r="2.0" fill="#7FE03A" opacity=".08"/>
+
+          <!-- Greyscale DRONE (mid-tier hull), S — PvE stays colorless -->
+          <g style="filter: drop-shadow(0 0 4px rgba(154,163,178,.4))">
+            <g transform="translate(1160 880) rotate(-120) scale(0.9) translate(-18 -44)">
+              <use href="#hull-ml" fill="none" stroke="#9AA3B2" stroke-width="2" stroke-linejoin="round" opacity=".75"/>
+            </g>
+          </g>
+          <line x1="1160" y1="880" x2="1118" y2="904" stroke="#9AA3B2" stroke-width="1.5" opacity=".45"/>
+          <circle cx="1181" cy="868" r="2.4" fill="#9AA3B2" opacity=".26"/>
+          <circle cx="1203" cy="855" r="2.1" fill="#9AA3B2" opacity=".14"/>
+          <circle cx="1224" cy="843" r="1.8" fill="#9AA3B2" opacity=".07"/>
+
+          <!-- aim reticle + bearing line (current-game convention;
+               unnumbered — carried context, not a redesign decision) -->
+          <line x1="1006" y1="490" x2="1214" y2="262" stroke="rgba(192,192,192,.18)" stroke-width="1" stroke-dasharray="2 6"/>
+          <g transform="translate(1226 249)" stroke="rgba(192,192,192,.55)" stroke-width="1.5" fill="none">
+            <circle r="10"/>
+            <path d="M0 -16 L0 -7 M0 7 L0 16 M-16 0 L-7 0 M7 0 L16 0"/>
+          </g>
+        </svg>
+
+        <!-- ============ L6: HUD chrome ============ -->
+
+        <!-- 1 · BR chrome, top-center (L50/L52) -->
+        <div class="brchrome">
+          <span><span class="n ph">12</span> AFLOAT</span>
+          <span class="sep">·</span>
+          <span><span class="n ph">2</span> KILLS</span>
+          <span class="sep">·</span>
+          <span>T+<span class="n">04:12</span></span>
+          <span class="sep">·</span>
+          <span class="ring">RING CLOSES <span class="n">0:47</span></span>
+        </div>
+        <!-- 2 · supply-drop reserved ghost (P3, feature-flagged) -->
+        <div class="supply-ghost">SUPPLY DROP</div>
+
+        <!-- 3 · kill feed, top-right — personal-color names -->
+        <div class="killfeed">
+          <div><span class="kn" style="color:#FF85B3">SALT SHAKER</span> SUNK BY <span class="kn" style="color:#37F2A0">KRAKEN'S BANE</span></div>
+          <div><span class="kn" style="color:#9AA3B2">PICKET DRONE 3</span> SUNK BY <span class="kn" style="color:#FFF04D">MARIGOLD</span></div>
+          <div><span class="kn" style="color:#5468FF">IRON KETTLE</span> LOST WITH ALL HANDS</div>
+        </div>
+
+        <!-- 7/8/9 · bottom-left: XP rail + banked chip + hotbar C2 -->
+        <div class="hb-zone">
+          <div class="xp-rail"><div class="xp-fill"></div><span class="xp-lv">LV&nbsp;7</span></div>
+          <div class="hb-stack">
+            <div class="bank-line">
+              <span class="hb-key">&nbsp;</span>
+              <div class="bank-chip"><span class="n">1</span></div>
+              <div class="bank-cue">1 LEVEL BANKED<br><span class="k">HOLD CTRL TO REFIT</span></div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key sel">1</span>
+              <div class="hb-slot hb-selected"><svg width="28" height="28"><use href="#ic-gun"/></svg></div>
+              <div class="hb-label">
+                <div class="hb-name sel">Standard Gun</div>
+                <div class="hb-info">DMG 12 · CD 2.4s</div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key">2</span>
+              <div class="hb-slot hb-ready"><svg width="28" height="28"><use href="#ic-torp"/></svg><span class="hb-badge">2</span></div>
+              <div class="hb-label">
+                <div class="hb-name">Mk-II Torpedoes</div>
+                <div class="hb-info">DMG 45 · CD 9.0s · <span class="boon">◆2</span></div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key">E</span>
+              <div class="hb-ring"><div class="hb-slot"><svg width="28" height="28"><use href="#ic-smoke"/></svg></div></div>
+              <div class="hb-label">
+                <div class="hb-name dim">Smoke Screen</div>
+                <div class="hb-info">CD 6.2s LEFT</div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key">·</span>
+              <div class="hb-slot hb-empty">+</div>
+              <div class="hb-label">
+                <div class="hb-name dim">— awaiting refit —</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6 · own-vitals cluster, bottom-right (P1) -->
+        <div class="vitals">
+          <div>
+            <div class="hp-head"><span>HULL</span><span class="val">72<span class="dim">/100</span></span></div>
+            <div class="hp-bar"><div class="hp-fill" style="width:72%"></div></div>
+          </div>
+          <div class="helm">
+            <div class="readouts">
+              <div class="ro-big">HDG 025</div>
+              <div class="ro-big">14.2 <span class="u">KTS</span></div>
+              <div class="rudder">
+                <div class="lab">Rudder</div>
+                <div class="track"><span class="mid"></span><span class="pos"></span></div>
+              </div>
+            </div>
+            <div class="tg">
+              <div class="tg-cap">Ahead</div>
+              <div class="tg-ladder">
+                <div class="tg-rung"><span class="bar"></span><span class="lab">FULL</span></div>
+                <div class="tg-rung ordered"><span class="bar"></span><span class="lab">¾</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">½</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">¼</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">STOP</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">¼</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">½</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">¾</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">FULL</span></div>
+                <span class="tg-needle"></span>
+              </div>
+              <div class="tg-cap">Astern</div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.frame -->
+      </div><!-- /.scaler -->
+
+    </div><!-- /.board -->
+    </div>
+
+    <!-- ============ LEGEND ============ -->
+    <div class="legend">
+      <table>
+        <tr><th>#</th><th>Element</th><th>What was decided / proposed</th><th>Decision-log ref</th></tr>
+        <tr><td class="num">1</td><td class="el">BR chrome (top-center)</td>
+            <td>Ships-afloat + kills, top center; up-counting match timer; ring-closing countdown. One restrained mono row. Ring readout pulses <b style="color:#FFB800">amber</b> in the final 10s — this frame is calm at 0:47.</td>
+            <td class="ref">L50 · L52</td></tr>
+        <tr><td class="num prop">2</td><td class="el">Supply-drop reserved slot<span class="tag">PROPOSAL</span></td>
+            <td>Dashed ghost docked under the match clock — supply drops are a minute-rhythm clock event, so the reserved slot lives with the clock. Feature-flagged: renders only when the mechanic ships.</td>
+            <td class="ref">L50</td></tr>
+        <tr><td class="num">3</td><td class="el">Kill feed (top-right)</td>
+            <td>3 entries max shown; killer/victim names tinted in their match-consistent personal colors, connective text dim; drone entries greyscale. Format keeps today's convention ("X SUNK BY Y" / "LOST WITH ALL HANDS").</td>
+            <td class="ref">L28 · L33(A,D) · L19/L23</td></tr>
+        <tr><td class="num">4</td><td class="el">Variant C colored blips</td>
+            <td>Radar paints hull OUTLINES at world scale (class readable at blip range) in each combatant's personal color, plus heading vector and phosphor-decay paint ghosts. Fuchsia battleship NE, lime gunboat W. Variant P stays the playtest swap.</td>
+            <td class="ref">L28 · L31 · L33(D)</td></tr>
+        <tr><td class="num">5</td><td class="el">Storm ring segment</td>
+            <td>Purple ring edge + annulus haze entering frame right — legible phase geometry, purple reserved for the storm and nothing else.</td>
+            <td class="ref">GDD E3 · extract-gdd §4</td></tr>
+        <tr><td class="num prop">6</td><td class="el">Own-vitals cluster<span class="tag">PROPOSAL</span></td>
+            <td>HP bar co-located with the speed/rotation telegraph cluster (decided). PROPOSAL is the placement: bottom-right — the current game splits telegraph (bottom-left) from HP (bottom-right); the hotbar now owns bottom-left, so the merged cluster takes the corner the HP bar already lives in. Telegraph keeps today's 9-detent W/S ordered-rung + amber actual-needle convention, restyled to Afterimage linework.</td>
+            <td class="ref">L49 · extract-current-ui §1</td></tr>
+        <tr><td class="num prop">7</td><td class="el">XP / level progress rail<span class="tag">PROPOSAL</span></td>
+            <td>Thin 3px phosphor rail on the hotbar stack's left edge, filling upward toward the next banked level ("LV 7", 62% to LV 8). Adjacent to the banked-level indicator per L52's candidate placement.</td>
+            <td class="ref">L52</td></tr>
+        <tr><td class="num">8</td><td class="el">Banked-level indicator</td>
+            <td>30px breathing phosphor chip + "HOLD CTRL TO REFIT" cue at the head of the stack — locked as rendered in spend-window-1 (S2). Vanishes at zero banked.</td>
+            <td class="ref">L41 · L37</td></tr>
+        <tr><td class="num">9</td><td class="el">Hotbar — Composition 2, amended</td>
+            <td>Bottom-left vertical stack ("hands down"). Amended labels: NO slot-role line; line 1 = weapon/ability name; quick info = DAMAGE + COOLDOWN minimum; ammo-count number badge over icons storing &gt;1 (torpedoes ×2). Accrued boons compressed into quick info as "◆2" (full list in tooltip) — compression form is one candidate for the spine.</td>
+            <td class="ref">L35 · L36</td></tr>
+        <tr><td class="num prop">10</td><td class="el">Listening ring<span class="tag">TREATMENT PROPOSAL</span></td>
+            <td>Compass rose AROUND the ship with segments lighting toward noise, intensity ∝ loudness/closeness (decided behavior). The visual register — 48-pip dashed rose + arc-pip segments, bright near-white phosphor for the close torpedo vs faint phosphor for distant engines — is the proposal.</td>
+            <td class="ref">L51 · L47</td></tr>
+        <tr><td class="num">11</td><td class="el">Torpedo at the truesight boundary</td>
+            <td>Heard long on the ring (bright pips bearing ~045°), SEEN only now — materializing rings at the sight edge, wake astern, inbound. The pips-then-sight sequence is Journey A's corrected lesson: "listen."</td>
+            <td class="ref">L47 · L48</td></tr>
+        <tr><td class="num">12</td><td class="el">Own ship — personal color</td>
+            <td>Torpedo Boat silhouette (accepted "for now", hitbox = silhouette) in personal Regatta Cyan: bright #00D0FF outline, darker same-hue #005E73 fill. HUD chrome around it stays phosphor — personal color is an accent, never the chrome.</td>
+            <td class="ref">L27 · L39 · L44 · L33(C)</td></tr>
+        <tr><td class="num">13</td><td class="el">Greyscale drone blip</td>
+            <td>PvE drone paints a colorless #9AA3B2 outline — instantly separable from every combatant hue.</td>
+            <td class="ref">L19 · L23</td></tr>
+        <tr><td class="num">14</td><td class="el">Two vision tiers + sweep</td>
+            <td>Truesight bubble edge (phosphor ring at r=300), fog composite beyond, rotating conic radar sweep painting the glass. Sensor triad per GDD; HUD chrome phosphor-functional.</td>
+            <td class="ref">extract-gdd §4</td></tr>
+        <tr><td class="num">15</td><td class="el">Wounded-ship smoke</td>
+            <td>Sighted magenta gunboat trails diegetic smoke above the water — enemy damage is smoke, never an HP bar.</td>
+            <td class="ref">L49 · GDD E6 (#20)</td></tr>
+        <tr><td class="num">16</td><td class="el">Island cut into the fog</td>
+            <td>LOS blocker straddling the truesight edge — near shore sighted, far shore dissolving into the composite.</td>
+            <td class="ref">extract-gdd §4 (LOS rule)</td></tr>
+      </table>
+      <p class="footnotes">
+        <b>Unnumbered context carried from the current game:</b> aim reticle + dashed bearing line (silver, NE)
+        — live-play always has a cursor; kept at minimum contrast, not a redesign decision of this run.
+        <b>Not composed (correctly absent):</b> weapon firing arcs render only around the hull when relevant to
+        the selected weapon — omitted here to keep the composite honest about steady-state load; spend window is
+        closed (CTRL not held); no denied-fire state active; settings surface is a menu concern, not in-match chrome.
+        <b>Scale note:</b> all in-frame px are true 1080p values (54px slots, 16px chrome type), displayed at 0.75×.
+      </p>
+    </div>
+  </section>
+
+  <!-- ══════════════════════ COPY B — CLEAN READ ══════════════════════ -->
+  <section>
+    <div class="comp-name"><span class="idx">B ·</span>CLEAN READ — SQUINT TEST, ZERO ANNOTATION</div>
+    <div class="comp-register">Identical frame, nothing added. Judge total information load here: does anything bury the hunt?</div>
+    <div class="scrollwrap">
+    <div class="board">
+      <div class="scaler">
+      <div class="frame">
+
+        <div class="water"></div>
+
+        <svg class="wsvg" viewBox="0 0 1920 1080" aria-hidden="true">
+          <polygon points="640,635 675,610 730,618 768,655 775,700 745,740 690,752 645,725 628,685"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1.5" stroke-linejoin="round"/>
+          <polygon points="668,652 706,646 740,672 736,706 700,724 666,704 658,676"
+                   fill="none" stroke="#8B7520" stroke-width="1" opacity=".35"/>
+          <g transform="translate(790 415) rotate(-80) scale(0.9) translate(-15 -30)"
+             style="filter: drop-shadow(0 0 6px rgba(255,79,216,.45))">
+            <use href="#hull-gb" fill="#732461" stroke="#FF4FD8" stroke-width="2" stroke-linejoin="round"/>
+          </g>
+          <circle cx="816" cy="404" r="5"  fill="#8B95A5" opacity=".42"/>
+          <circle cx="840" cy="394" r="8"  fill="#8B95A5" opacity=".30"/>
+          <circle cx="866" cy="382" r="11" fill="#8B95A5" opacity=".18"/>
+          <circle cx="893" cy="368" r="14" fill="#8B95A5" opacity=".10"/>
+          <g transform="translate(960 540) rotate(25)">
+            <circle cx="0" cy="56"  r="2.4" fill="#00FF88" opacity=".38"/>
+            <circle cx="0" cy="68"  r="2.0" fill="#00FF88" opacity=".22"/>
+            <circle cx="0" cy="81"  r="1.7" fill="#00FF88" opacity=".10"/>
+            <g transform="scale(0.92) translate(-12 -50)"
+               style="filter: drop-shadow(0 0 7px rgba(0,208,255,.5))">
+              <use href="#hull-tb" fill="#005E73" stroke="#00D0FF" stroke-width="2" stroke-linejoin="round"/>
+              <path d="M12 10 L12 82" stroke="#00D0FF" stroke-opacity=".22" stroke-width="1"/>
+              <path d="M9.4 34 L9.4 56 M14.6 34 L14.6 56" stroke="#00D0FF" stroke-opacity=".55" stroke-width="1.6"/>
+            </g>
+          </g>
+        </svg>
+
+        <div class="fog"></div>
+        <div class="sweep"></div>
+
+        <svg class="wsvg" viewBox="0 0 1920 1080" aria-hidden="true">
+          <circle cx="960" cy="540" r="300" fill="none" stroke="rgba(0,255,136,.16)" stroke-width="1.5"/>
+          <circle cx="960" cy="540" r="780" fill="none" stroke="rgba(192,192,192,.05)" stroke-width="1"/>
+          <circle cx="2600" cy="540" r="1322" fill="none" stroke="rgba(123,47,190,.10)" stroke-width="142"/>
+          <circle cx="2600" cy="540" r="1250" fill="none" stroke="rgba(123,47,190,.2)"  stroke-width="12"/>
+          <circle cx="2600" cy="540" r="1250" fill="none" stroke="#7B2FBE" stroke-width="2.5" opacity=".8"/>
+          <circle cx="960" cy="540" r="150" fill="none"
+                  stroke="rgba(0,255,136,.2)" stroke-width="5"
+                  stroke-dasharray="3.2 16.435"/>
+          <path d="M960 368 L960 380 M1120 540 L1132 540 M960 700 L960 712 M788 540 L800 540"
+                stroke="rgba(0,255,136,.3)" stroke-width="1.5"/>
+          <path d="M1089.9 615.0 A150 150 0 0 1 1035.0 669.9"
+                fill="none" stroke="rgba(216,255,236,.25)" stroke-width="13"/>
+          <path d="M1081.4 628.2 A150 150 0 0 1 1048.2 661.4"
+                fill="none" stroke="#D9FFEE" stroke-width="5"
+                style="filter: drop-shadow(0 0 6px rgba(0,255,136,.8))"/>
+          <path d="M1052.3 421.8 A150 150 0 0 1 1098.1 481.4"
+                fill="none" stroke="rgba(0,255,136,.14)" stroke-width="9"/>
+          <path d="M1064.2 432.1 A150 150 0 0 1 1091.2 467.3"
+                fill="none" stroke="rgba(0,255,136,.4)" stroke-width="4"/>
+          <g transform="translate(1172 752) rotate(-135)">
+            <circle cx="0" cy="0" r="18" fill="none" stroke="rgba(207,232,221,.22)" stroke-width="1" stroke-dasharray="3 4"/>
+            <circle cx="0" cy="0" r="11" fill="none" stroke="rgba(207,232,221,.45)" stroke-width="1" stroke-dasharray="3 3"/>
+            <rect x="-8" y="-2.5" width="16" height="5" rx="2.5"
+                  fill="#CFE8DD" stroke="#3FBF8F" stroke-width="1"
+                  style="filter: drop-shadow(0 0 5px rgba(63,191,143,.7))"/>
+            <circle cx="-14" cy="0" r="1.8" fill="#3FBF8F" opacity=".5"/>
+            <circle cx="-21" cy="0" r="1.5" fill="#3FBF8F" opacity=".25"/>
+          </g>
+          <g style="filter: drop-shadow(0 0 5px rgba(225,77,255,.5))">
+            <g transform="translate(1310 270) rotate(140) scale(0.9) translate(-24 -62)">
+              <use href="#hull-bb" fill="none" stroke="#E14DFF" stroke-width="2" stroke-linejoin="round" opacity=".85"/>
+            </g>
+          </g>
+          <line x1="1310" y1="270" x2="1349" y2="316" stroke="#E14DFF" stroke-width="1.5" opacity=".5"/>
+          <circle cx="1294" cy="251" r="2.6" fill="#E14DFF" opacity=".30"/>
+          <circle cx="1278" cy="232" r="2.3" fill="#E14DFF" opacity=".17"/>
+          <circle cx="1262" cy="213" r="2.0" fill="#E14DFF" opacity=".08"/>
+          <g style="filter: drop-shadow(0 0 5px rgba(127,224,58,.5))">
+            <g transform="translate(430 700) rotate(35) scale(0.9) translate(-15 -30)">
+              <use href="#hull-gb" fill="none" stroke="#7FE03A" stroke-width="2" stroke-linejoin="round" opacity=".85"/>
+            </g>
+          </g>
+          <line x1="430" y1="700" x2="456" y2="663" stroke="#7FE03A" stroke-width="1.5" opacity=".5"/>
+          <circle cx="415" cy="721" r="2.6" fill="#7FE03A" opacity=".30"/>
+          <circle cx="401" cy="742" r="2.3" fill="#7FE03A" opacity=".17"/>
+          <circle cx="388" cy="762" r="2.0" fill="#7FE03A" opacity=".08"/>
+          <g style="filter: drop-shadow(0 0 4px rgba(154,163,178,.4))">
+            <g transform="translate(1160 880) rotate(-120) scale(0.9) translate(-18 -44)">
+              <use href="#hull-ml" fill="none" stroke="#9AA3B2" stroke-width="2" stroke-linejoin="round" opacity=".75"/>
+            </g>
+          </g>
+          <line x1="1160" y1="880" x2="1118" y2="904" stroke="#9AA3B2" stroke-width="1.5" opacity=".45"/>
+          <circle cx="1181" cy="868" r="2.4" fill="#9AA3B2" opacity=".26"/>
+          <circle cx="1203" cy="855" r="2.1" fill="#9AA3B2" opacity=".14"/>
+          <circle cx="1224" cy="843" r="1.8" fill="#9AA3B2" opacity=".07"/>
+          <line x1="1006" y1="490" x2="1214" y2="262" stroke="rgba(192,192,192,.18)" stroke-width="1" stroke-dasharray="2 6"/>
+          <g transform="translate(1226 249)" stroke="rgba(192,192,192,.55)" stroke-width="1.5" fill="none">
+            <circle r="10"/>
+            <path d="M0 -16 L0 -7 M0 7 L0 16 M-16 0 L-7 0 M7 0 L16 0"/>
+          </g>
+        </svg>
+
+        <div class="brchrome">
+          <span><span class="n ph">12</span> AFLOAT</span>
+          <span class="sep">·</span>
+          <span><span class="n ph">2</span> KILLS</span>
+          <span class="sep">·</span>
+          <span>T+<span class="n">04:12</span></span>
+          <span class="sep">·</span>
+          <span class="ring">RING CLOSES <span class="n">0:47</span></span>
+        </div>
+        <div class="supply-ghost">SUPPLY DROP</div>
+
+        <div class="killfeed">
+          <div><span class="kn" style="color:#FF85B3">SALT SHAKER</span> SUNK BY <span class="kn" style="color:#37F2A0">KRAKEN'S BANE</span></div>
+          <div><span class="kn" style="color:#9AA3B2">PICKET DRONE 3</span> SUNK BY <span class="kn" style="color:#FFF04D">MARIGOLD</span></div>
+          <div><span class="kn" style="color:#5468FF">IRON KETTLE</span> LOST WITH ALL HANDS</div>
+        </div>
+
+        <div class="hb-zone">
+          <div class="xp-rail"><div class="xp-fill"></div><span class="xp-lv">LV&nbsp;7</span></div>
+          <div class="hb-stack">
+            <div class="bank-line">
+              <span class="hb-key">&nbsp;</span>
+              <div class="bank-chip"><span class="n">1</span></div>
+              <div class="bank-cue">1 LEVEL BANKED<br><span class="k">HOLD CTRL TO REFIT</span></div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key sel">1</span>
+              <div class="hb-slot hb-selected"><svg width="28" height="28"><use href="#ic-gun"/></svg></div>
+              <div class="hb-label">
+                <div class="hb-name sel">Standard Gun</div>
+                <div class="hb-info">DMG 12 · CD 2.4s</div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key">2</span>
+              <div class="hb-slot hb-ready"><svg width="28" height="28"><use href="#ic-torp"/></svg><span class="hb-badge">2</span></div>
+              <div class="hb-label">
+                <div class="hb-name">Mk-II Torpedoes</div>
+                <div class="hb-info">DMG 45 · CD 9.0s · <span class="boon">◆2</span></div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key">E</span>
+              <div class="hb-ring"><div class="hb-slot"><svg width="28" height="28"><use href="#ic-smoke"/></svg></div></div>
+              <div class="hb-label">
+                <div class="hb-name dim">Smoke Screen</div>
+                <div class="hb-info">CD 6.2s LEFT</div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key">·</span>
+              <div class="hb-slot hb-empty">+</div>
+              <div class="hb-label">
+                <div class="hb-name dim">— awaiting refit —</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="vitals">
+          <div>
+            <div class="hp-head"><span>HULL</span><span class="val">72<span class="dim">/100</span></span></div>
+            <div class="hp-bar"><div class="hp-fill" style="width:72%"></div></div>
+          </div>
+          <div class="helm">
+            <div class="readouts">
+              <div class="ro-big">HDG 025</div>
+              <div class="ro-big">14.2 <span class="u">KTS</span></div>
+              <div class="rudder">
+                <div class="lab">Rudder</div>
+                <div class="track"><span class="mid"></span><span class="pos"></span></div>
+              </div>
+            </div>
+            <div class="tg">
+              <div class="tg-cap">Ahead</div>
+              <div class="tg-ladder">
+                <div class="tg-rung"><span class="bar"></span><span class="lab">FULL</span></div>
+                <div class="tg-rung ordered"><span class="bar"></span><span class="lab">¾</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">½</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">¼</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">STOP</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">¼</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">½</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">¾</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">FULL</span></div>
+                <span class="tg-needle"></span>
+              </div>
+              <div class="tg-cap">Astern</div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.frame -->
+      </div><!-- /.scaler -->
+    </div><!-- /.board -->
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

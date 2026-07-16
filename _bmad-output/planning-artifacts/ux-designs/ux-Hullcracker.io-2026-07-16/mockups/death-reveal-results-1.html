@@ -1,0 +1,1135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker — Death Sequence: Sinking → Reveal → Results v1</title>
+<style>
+/* ============================================================
+   HULLCRACKER — DEATH SEQUENCE KEY SCREEN v1 (Finalize phase)
+   ------------------------------------------------------------
+   THE one load-bearing surface with no visual until now:
+   own death, three sequential frames at consistent scale.
+
+     F1 — SINKING WINDOW (~5 s ritardando): 0 HP, guns live,
+          hull slowing, HP Rail empty at the damage register.
+     F2 — OMNISCIENT REVEAL: fog lifted from the whole circular
+          ocean, camera zoomed out, every remaining hull visible.
+          Journey A's climax: "OH. That's where everyone WAS."
+     F3 — RESULTS MODAL over the dimmed reveal: kills, placement,
+          one action: RETURN TO PORT (Enter/ESC) — no re-queue from the modal (decided 2026-07-16).
+
+   CONTRACTS: DESIGN.md + EXPERIENCE.md (spines win) ·
+   .decision-log.md death-flow decision (ledger triage D) ·
+   visual language base: hud-composite-1.html — CORRECTED to the
+   spine where the composite is superseded (vertical HP Rail,
+   Q/E/R/F glyphs, HOLD SPACE copy, no supply ghost, 4 slots).
+
+   FRAMES: authored at true 1920×1080 (all in-frame px are real
+   1080p values, HUD at the ~1.6× register), displayed at
+   transform:scale(0.75) → 1440×810. Same scale on all three.
+
+   FONTS: system stack for offline rendering.
+   PRODUCTION USES: Geist (display/body) + Geist Mono (labels,
+   readouts, uppercase letter-spaced) per DESIGN.md.
+
+   TOKEN HEXES USED (DESIGN.md frontmatter):
+     void #050807 · fog-base #020604 · panel #0A0F0D ·
+     panel-deep #070B0A · card-scrim #030605 (rgba(3,7,5,.9)) ·
+     hairline #1B2621
+     phosphor #00FF88 · phosphor-bright #7FFFC4 · amber #FFB800 ·
+     storm #7B2FBE · storm-readout #B06EE8 · info #38BDF8 ·
+     danger #8B2020 · denied #FF3B3B ·
+     damage #8B0000 · damage-marker #FF6666 ·
+     splash #B8CCC6 · muzzle #E8F2EC · torpedo #CFE8DD ·
+     hit-bloom #FF9D3D · wounded-smoke #7A7168
+     silver #C0C0C0 · text-primary #E2E8F0 ·
+     text-secondary #8B95A5 · text-muted #7A8496
+     island-fill #2A2410 · island-stroke #8B7520 (provisional, OQ6)
+     drone-outline #9AA3B2 · drone-fill #454950
+   REGATTA HOIST hues this scene (outline → ~45%-value fill):
+     own      Cyan    #00D0FF → #005E73  (Journey A register)
+     killer   Iris    #A66BFF → #4B3073  (Torpedo Boat)
+     others   Cobalt  #5468FF → #262F73 · Lemon #FFF04D → #736C23 ·
+              Rose    #FF85B3 → #733C51 · Lime  #7FE03A → #39651A ·
+              Fuchsia #E14DFF → #652373
+     drones   greyscale #9AA3B2 / #454950 (legacy chevron)
+
+   STATUS TAGS used in the legends below every frame:
+     DECIDED      — spine/log-backed, rendered as specced
+     [PROPOSAL]   — composition/treatment choice not in the spines
+     PLACEHOLDER  — copy the spine never specced (marked in-frame)
+     SPINE-SILENT — a question the spines don't answer; annotated,
+                    a defensible default rendered where one is
+                    needed to draw the frame at all
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #050807;                 /* void */
+  color: #E2E8F0;                      /* text-primary */
+  /* production: Geist */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  padding: 40px 20px 96px;
+}
+.mono {
+  /* production: Geist Mono */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.page { max-width: 1560px; margin: 0 auto; }
+
+h1 { font-size: 30px; font-weight: 700; letter-spacing: .01em; }
+.pagehead-kicker {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+  color: #00FF88; margin-bottom: 10px;    /* phosphor */
+}
+.pagehead-note { color: #8B95A5; font-size: 14px; max-width: 84ch; margin-top: 10px; }
+.pagehead-note strong { color: #E2E8F0; }
+section { margin-top: 60px; }
+.comp-name { font-size: 22px; font-weight: 700; letter-spacing: .02em; }
+.comp-name .idx {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #00FF88; font-weight: 600; font-size: 15px; margin-right: 10px;
+  letter-spacing: .15em;
+}
+.comp-register { color: #8B95A5; font-size: 14px; margin: 4px 0 16px; font-style: italic; max-width: 100ch; }
+.scrollwrap { overflow-x: auto; }
+
+/* ============ BOARD: gutter + scaled 16:9 frame ============ */
+.board { position: relative; width: 1532px; padding: 46px; }  /* 1440 + 2×46 gutter */
+.scaler { width: 1440px; height: 810px; overflow: hidden; border: 1px solid #1B2621; }
+.frame {
+  position: relative; width: 1920px; height: 1080px;
+  transform: scale(0.75); transform-origin: 0 0;
+  background: #020604; overflow: hidden;   /* fog-base */
+}
+
+/* gutter callout chips — never on the HUD */
+.chip {
+  position: absolute; width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(0,255,136,.6); color: #00FF88;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; background: #050807; z-index: 5;
+}
+.chip.prop { border-color: #FFB800; color: #FFB800; }        /* amber = PROPOSAL */
+.chip.silent { border-color: #7A8496; color: #7A8496; }      /* grey = SPINE-SILENT */
+
+/* ============ shared HUD chrome (composite register, spine-corrected) ============ */
+.brchrome {
+  position: absolute; top: 22px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: baseline; gap: 26px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 16px; letter-spacing: .14em; color: #7A8496;    /* text-muted (lightened per validation) */
+  text-transform: uppercase; white-space: nowrap;
+}
+.brchrome .n { color: #E2E8F0; font-weight: 600; }
+.brchrome .n.ph { color: #00FF88; }
+.brchrome .ring { color: #B06EE8; }                          /* storm-readout */
+.brchrome .ring .n { color: #B06EE8; }
+.brchrome .sep { color: rgba(122,132,150,.5); }
+
+.killfeed {
+  position: absolute; top: 22px; right: 28px; text-align: right;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 14px; letter-spacing: .08em; text-transform: uppercase;
+  color: #8B95A5; line-height: 1.9;                          /* connective = text-secondary */
+}
+.killfeed .kn { font-weight: 600; }
+
+/* ---- bottom-left hotbar stack (Composition 2, Q/E/R/F per spine) ---- */
+.hb-zone { position: absolute; left: 44px; bottom: 26px; }
+.xp-rail {
+  position: absolute; left: -16px; top: 0; bottom: 16px; width: 3px;
+  background: rgba(0,255,136,.12);
+}
+.xp-fill {
+  position: absolute; left: 0; bottom: 0; width: 100%; height: 41%;
+  background: #00FF88; box-shadow: 0 0 8px rgba(0,255,136,.45);
+}
+.xp-lv {
+  position: absolute; left: -30px; bottom: -4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .1em; color: rgba(0,255,136,.6);
+}
+.hb-stack { display: flex; flex-direction: column; gap: 14px; }
+.hb-row { display: flex; align-items: center; gap: 12px; }
+.hb-key {
+  width: 14px; text-align: center; flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .1em; color: rgba(122,132,150,.85);
+}
+.hb-key.sel { color: #FFB800; }
+.hb-slot {
+  position: relative; width: 54px; height: 54px;
+  border: 1px solid rgba(192,192,192,.28); background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(159,179,168,.85); flex: none;
+}
+.hb-selected {
+  border-color: #FFB800; color: #FFB800;
+  box-shadow: 0 0 16px rgba(255,184,0,.4), inset 0 0 12px rgba(255,184,0,.12);
+}
+/* ready ability = brighter phosphor + chamfered top-right (shape signal) */
+.hb-ability {
+  border-color: rgba(0,255,136,.65); color: rgba(0,255,136,.8);
+  box-shadow: 0 0 14px rgba(0,255,136,.2);
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+}
+.hb-empty { border: 1px dashed rgba(122,132,150,.45); color: rgba(58,69,64,.9); font-size: 20px; }
+/* cooldown = dimmed icon behind 2px conic perimeter (ability → chamfered) */
+.hb-ring {
+  padding: 2px; width: 54px; height: 54px; flex: none;
+  background: conic-gradient(#00FF88 0 34%, rgba(0,255,136,.14) 34% 100%);
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+}
+.hb-ring .hb-slot {
+  width: 100%; height: 100%; border: none; background: #030605;   /* card-scrim */
+  color: rgba(70,85,78,.6);
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+}
+.hb-label { line-height: 1.35; }
+.hb-name { font-size: 13px; font-weight: 600; color: #E2E8F0; letter-spacing: .02em; }
+.hb-name.sel { color: #FFB800; }
+.hb-name.dim { color: #7A8496; font-weight: 400; }
+.hb-info {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .08em; color: #7A8496;
+}
+.hb-info .boon { color: rgba(0,255,136,.7); }
+/* banked chip — STATIC glow here (breathing decayed >10 s unspent, per spine) */
+.bank-line { display: flex; align-items: center; gap: 12px; margin-bottom: 2px; }
+.bank-chip {
+  width: 30px; height: 30px; flex: none;
+  border: 1px solid rgba(0,255,136,.65); background: rgba(3,7,5,.6);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 10px rgba(0,255,136,.28), inset 0 0 8px rgba(0,255,136,.09);
+}
+.bank-chip .n {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; font-weight: 600; color: #00FF88;
+}
+.bank-cue {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+  color: rgba(0,255,136,.75); line-height: 1.55;
+}
+.bank-cue .k { color: #8B95A5; }
+
+/* ---- bottom-right own-vitals cluster — SPINE version: vertical HP Rail ---- */
+.vitals {
+  position: absolute; right: 28px; bottom: 26px;
+  display: flex; align-items: flex-end; gap: 22px;
+}
+.helm { display: flex; align-items: flex-end; gap: 26px; }
+.readouts { text-align: right; }
+.ro-big {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 22px; letter-spacing: .1em; color: #E2E8F0; line-height: 1.4;
+}
+.ro-big .u { font-size: 12px; color: #7A8496; }
+.rudder { margin-top: 10px; }
+.rudder .lab {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .2em; color: #7A8496; text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.rudder .track { position: relative; width: 110px; height: 6px; }
+.rudder .track::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 2.5px; height: 1px;
+  background: rgba(192,192,192,.3);
+}
+.rudder .mid { position: absolute; left: 54px; top: 0; width: 1px; height: 6px; background: rgba(192,192,192,.5); }
+.rudder .pos {
+  position: absolute; left: 53px; top: -1px; width: 2px; height: 8px;
+  background: #FFB800; box-shadow: 0 0 6px rgba(255,184,0,.5);
+}
+.tg { display: flex; flex-direction: column; align-items: flex-start; }
+.tg-cap {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .22em; color: #7A8496; text-transform: uppercase;
+  padding-left: 2px;
+}
+.tg-ladder { position: relative; margin: 6px 0; }
+.tg-rung { display: flex; align-items: center; gap: 8px; height: 18px; }
+.tg-rung .bar { width: 28px; height: 1px; background: rgba(192,192,192,.35); }
+.tg-rung .lab {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .1em; color: #7A8496;
+}
+.tg-rung.ordered .bar { height: 3px; background: #00FF88; box-shadow: 0 0 8px rgba(0,255,136,.5); }
+.tg-rung.ordered .lab { color: #00FF88; }
+.tg-needle {
+  position: absolute; left: -8px; width: 44px; height: 2px;
+  background: #FFB800; box-shadow: 0 0 8px rgba(255,184,0,.5);
+  top: 116px;  /* actual speed decaying toward STOP (¼-astern side of ¼-ahead) */
+}
+/* HP Rail — vertical phosphor rail, right edge of the cluster (spine).
+   Here: 0 HP → empty track at the damage register, pulse capped 1.1 Hz. */
+.hp-rail-col { display: flex; flex-direction: column; align-items: flex-end; }
+.hp-head {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+  color: #7A8496; margin-bottom: 6px; white-space: nowrap;
+}
+.hp-head .val { color: #FF6666; font-weight: 600; }          /* damage-marker at 0 HP */
+.hp-head .val .dim { color: #7A8496; font-weight: 400; }
+@keyframes hp-crit {  /* opacity-breathing at the 1.1 Hz hard cap — never on/off strobing */
+  0%, 100% { box-shadow: 0 0 6px rgba(255,102,102,.25); border-color: rgba(255,102,102,.55); }
+  50%      { box-shadow: 0 0 14px rgba(255,102,102,.55); border-color: rgba(255,102,102,.9); }
+}
+.hp-rail-track {
+  width: 5px; height: 148px;
+  border: 1px solid rgba(255,102,102,.55);
+  background: rgba(139,0,0,.18);                              /* damage, near-empty wash */
+  position: relative;
+  animation: hp-crit 0.909s ease-in-out infinite;             /* 1.1 Hz cap */
+}
+.hp-rail-fill {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+  background: #FF6666; box-shadow: 0 0 8px rgba(255,102,102,.7);
+}
+
+/* ---- F1 sinking microcopy (PLACEHOLDER — unspecced) ---- */
+.sink-copy {
+  position: absolute; top: 300px; left: 50%; transform: translateX(-50%);
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-transform: uppercase; white-space: nowrap;
+}
+.sink-copy .l1 {
+  font-size: 30px; letter-spacing: .3em; color: #FF6666;      /* damage-marker */
+  text-shadow: 0 0 18px rgba(255,102,102,.4);
+}
+.sink-copy .l2 { font-size: 13px; letter-spacing: .26em; color: #8B95A5; margin-top: 10px; }
+.sink-copy .ph-tag {
+  display: inline-block; margin-top: 12px; padding: 2px 8px;
+  border: 1px dashed #FFB800; color: #FFB800; font-size: 9px; letter-spacing: .18em;
+}
+/* damage vignette (own damage is HUD-private; crimson, desaturated) */
+.dmg-vignette {
+  position: absolute; inset: 0; pointer-events: none;
+  box-shadow: inset 0 0 220px 60px rgba(139,0,0,.30);         /* damage #8B0000 */
+}
+
+/* ---- F2 reveal chrome ---- */
+.reveal-line {
+  position: absolute; top: 150px; left: 50%; transform: translateX(-50%);
+  text-align: center; text-transform: uppercase; white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.reveal-line .l1 {
+  font-size: 34px; letter-spacing: .28em; color: #FFB800;     /* defeat register = amber */
+  text-shadow: 0 0 20px rgba(255,184,0,.35);
+}
+.reveal-line .l2 { font-size: 12px; letter-spacing: .3em; color: #7A8496; margin-top: 12px; }
+
+/* ---- F3 results modal (port chrome — soft) ---- */
+.dim { position: absolute; inset: 0; background: rgba(2,6,4,.62); }   /* fullscreen dim behind results only */
+.results {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 620px;
+  background: #0A0F0D;                                        /* panel */
+  border: 1px solid #1B2621;                                  /* hairline */
+  border-radius: 12px;                                        /* rounded.lg */
+  padding: 40px 44px 36px;
+}
+.res-banner {
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-transform: uppercase;
+}
+.res-banner .b1 {
+  font-size: 40px; font-weight: 600; letter-spacing: .3em; color: #FFB800;  /* defeat = amber (victory = phosphor) */
+  text-shadow: 0 0 22px rgba(255,184,0,.3);
+}
+.res-banner .b2 { font-size: 15px; letter-spacing: .26em; color: #E2E8F0; margin-top: 10px; }
+.res-you {
+  margin-top: 18px; text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; letter-spacing: .2em; text-transform: uppercase; color: #7A8496;
+}
+.res-you .name { color: #00D0FF; font-weight: 600; }          /* own personal color (Cyan, text-safe on panel) */
+.res-stats {
+  display: flex; justify-content: center; gap: 56px; margin-top: 26px;
+  text-align: center;
+}
+.res-stat .v {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 30px; font-weight: 600; color: #E2E8F0; font-variant-numeric: tabular-nums;
+}
+.res-stat .v.ph { color: #00FF88; }
+.res-stat .k {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .22em; text-transform: uppercase; color: #7A8496; margin-top: 5px;
+}
+.res-div {
+  margin: 26px 0 0; border: none; border-top: 1px solid #1B2621;
+}
+.res-sec-h {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .24em; text-transform: uppercase; color: #7A8496;
+  margin: 20px 0 10px;
+}
+.res-boons {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; letter-spacing: .06em; color: #8B95A5; line-height: 2;
+}
+.res-boons .bn { color: #00FF88; font-weight: 600; }
+.res-offer { display: flex; gap: 10px; }
+.res-offer .oc {
+  flex: 1; padding: 8px 10px;
+  border: 1px dashed rgba(122,132,150,.45); border-radius: 8px;   /* rounded.md, port chrome */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase;
+  color: #7A8496; text-align: center; line-height: 1.7;
+}
+.res-offer .oc .cat { color: #8B95A5; font-size: 9px; letter-spacing: .18em; display: block; }
+.res-actions { display: flex; gap: 14px; margin-top: 30px; }
+.btn {
+  flex: 1; padding: 14px 10px; text-align: center; border-radius: 8px;  /* rounded.md */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; letter-spacing: .18em; text-transform: uppercase; font-weight: 600;
+  background: transparent;                                    /* never a filled slab */
+}
+.btn .sub { display: block; font-size: 9px; letter-spacing: .22em; font-weight: 400; margin-top: 6px; }
+.btn-primary {
+  color: #FFB800; border: 1px solid #FFB800;
+  box-shadow: 0 0 18px rgba(255,184,0,.28), inset 0 0 14px rgba(255,184,0,.07);
+}
+.btn-primary .sub { color: rgba(255,184,0,.65); }
+.btn-danger {
+  flex: 0 0 200px;
+  color: #C46A6A; border: 1px solid #8B2020;                  /* danger token */
+  box-shadow: inset 0 0 10px rgba(139,32,32,.12);
+}
+.btn-danger .sub { color: rgba(196,106,106,.6); }
+.res-key { display: inline-block; padding: 0 5px; border: 1px solid currentColor; margin-right: 7px; font-size: 10px; }
+
+/* ============ legend chrome (outside frames) ============ */
+.legend { margin-top: 26px; width: 1532px; max-width: 100%; }
+.legend table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+.legend th, .legend td {
+  text-align: left; padding: 7px 12px; border-bottom: 1px solid #1B2621;
+  vertical-align: top; color: #8B95A5;
+}
+.legend th {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .2em; text-transform: uppercase; color: #7A8496;
+}
+.legend .num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #00FF88; white-space: nowrap;
+}
+.legend .num.prop { color: #FFB800; }
+.legend .num.silent { color: #7A8496; }
+.legend .el { color: #E2E8F0; font-weight: 600; }
+.legend .ref {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; color: #7A8496; white-space: nowrap;
+}
+.tag {
+  display: inline-block; margin-left: 8px; padding: 1px 7px;
+  border: 1px solid #FFB800; color: #FFB800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .14em; white-space: nowrap;
+}
+.tag.silent { border-color: #7A8496; color: #7A8496; }
+.tag.place { border-color: #38BDF8; color: #38BDF8; }
+.footnotes { margin-top: 16px; color: #7A8496; font-size: 12px; max-width: 112ch;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; letter-spacing: .03em; line-height: 1.8; }
+.footnotes b { color: #8B95A5; }
+</style>
+</head>
+<body>
+
+<!-- Shared icon + hull symbol set (inline SVG) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="ic-gun" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2c-2.3 2.7-3.6 5.6-3.6 8.7V17h7.2v-6.3C15.6 7.6 14.3 4.7 12 2z"/>
+      <rect fill="currentColor" x="7.2" y="18.4" width="9.6" height="3" rx=".5"/>
+    </symbol>
+    <symbol id="ic-burst" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M13 2 5 13h5l-1.5 9L19 10h-5.5z"/>
+    </symbol>
+    <symbol id="ic-flare" viewBox="0 0 24 24">
+      <circle fill="currentColor" cx="12" cy="12" r="3.4"/>
+      <path fill="currentColor" d="M12 2v5M12 17v5M2 12h5M17 12h5" stroke="currentColor" stroke-width="2.2"/>
+    </symbol>
+    <!-- class hulls (class-silhouettes-1 geometry, bow-up) -->
+    <symbol id="hull-tb" viewBox="0 0 24 100">
+      <path d="M12 2 L15.5 22 L16.5 58 L15.5 90 L12 84 L8.5 90 L7.5 58 L8.5 22 Z"/>
+    </symbol>
+    <symbol id="hull-bb" viewBox="0 0 48 124">
+      <path d="M24 2 L32 20 L34 30 L34 38 L40 44 L40 84 L34 90 L34 106 L30 118 L18 118 L14 106 L14 90 L8 84 L8 44 L14 38 L14 30 L16 20 Z"/>
+    </symbol>
+    <symbol id="hull-ml" viewBox="0 0 36 88">
+      <path d="M18 2 L24 22 L27 50 L28 84 L21.5 84 L21.5 72 L14.5 72 L14.5 84 L8 84 L9 50 L12 22 Z"/>
+    </symbol>
+    <symbol id="hull-gb" viewBox="0 0 30 60">
+      <path d="M15 2 L25 34 L26 50 L23 56 L7 56 L4 50 L5 34 Z"/>
+    </symbol>
+    <!-- legacy chevron — the drone silhouette no player class wears -->
+    <symbol id="hull-drone" viewBox="0 0 30 44">
+      <path d="M15 2 L28 40 L15 31 L2 40 Z"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="page">
+
+  <div class="pagehead-kicker">UX RUN 2026-07-16 · FINALIZE · KEY SCREEN · DEATH-REVEAL-RESULTS-1</div>
+  <h1>Death Sequence — Sinking → Omniscient Reveal → Results Modal</h1>
+  <p class="pagehead-note">
+    Three sequential frames of the same death (Journey A's Marco register: Cyan Gunboat, torpedoed by a
+    stalking Torpedo Boat), authored at 1920×1080 and shown at the same 0.75× scale.
+    The design intent is <strong>"losing into learning"</strong>: ~5 s ritardando with guns live →
+    the fog drops off the whole ocean and the camera zooms out (<strong>the omniscient reveal IS the death
+    screen</strong>) → a results modal whose single action returns you to port — SET SAIL there is one more press.
+    Frames follow the spine where the HUD composite is superseded: vertical HP Rail, Q/E/R/F key glyphs,
+    "HOLD SPACE" copy, four slots, no supply ghost. Amber chips/tags = [PROPOSAL] composition choices;
+    blue = PLACEHOLDER copy; grey = spine silences annotated for Eric.
+  </p>
+
+  <!-- ════════════════ F1 — SINKING WINDOW ════════════════ -->
+  <section>
+    <div class="comp-name"><span class="idx">F1 ·</span>SINKING WINDOW — ~5 s RITARDANDO, GUNS LIVE</div>
+    <div class="comp-register">
+      HULL 0/100. The hull is slowing to a stop no matter what the helm orders; combat inputs stay live —
+      Marco fires his last shells at his killer's smoke beyond the truesight edge. HP Rail empty at the
+      damage register, pulse at the 1.1 Hz cap. The HUD stays fully alive: you are still fighting.
+    </div>
+    <div class="scrollwrap">
+    <div class="board">
+
+      <span class="chip prop"   style="left:744px;  top:11px;">1</span>
+      <span class="chip"        style="left:1330px; top:11px;">2</span>
+      <span class="chip"        style="left:1496px; top:300px;">3</span>
+      <span class="chip"        style="left:1496px; top:520px;">4</span>
+      <span class="chip prop"   style="left:1496px; top:762px;">5</span>
+      <span class="chip silent" style="left:40px;   top:858px;">6</span>
+      <span class="chip"        style="left:230px;  top:858px;">7</span>
+      <span class="chip prop"   style="left:700px;  top:858px;">8</span>
+      <span class="chip"        style="left:11px;   top:430px;">9</span>
+
+      <div class="scaler">
+      <div class="frame">
+
+        <!-- L1: water base — truesight lift around the dying hull -->
+        <div style="position:absolute; inset:0; background:
+          radial-gradient(circle at 960px 540px, rgba(200,255,235,.028) 0 250px, transparent 300px),
+          repeating-radial-gradient(circle at 960px 540px, transparent 0 148px, rgba(192,192,192,.045) 148px 149px),
+          #020604;"></div>
+
+        <!-- L2: fogged world -->
+        <svg style="position:absolute; inset:0;" viewBox="0 0 1920 1080" aria-hidden="true">
+          <!-- killer's wounded smoke beyond truesight, NE — visible above the fog; his hull is not -->
+          <circle cx="1478" cy="238" r="9"  fill="#7A7168" opacity=".30"/>
+          <circle cx="1502" cy="218" r="13" fill="#7A7168" opacity=".22"/>
+          <circle cx="1530" cy="196" r="17" fill="#7A7168" opacity=".14"/>
+          <circle cx="1560" cy="172" r="21" fill="#7A7168" opacity=".08"/>
+
+          <!-- OWN GUNBOAT, personal Cyan, dead in the water: sink rings + own smoke -->
+          <!-- sink ring: expanding desaturated crimson (damage-marker #FF6666) -->
+          <circle cx="960" cy="540" r="44"  fill="none" stroke="#FF6666" stroke-width="2"   opacity=".55"/>
+          <circle cx="960" cy="540" r="78"  fill="none" stroke="#FF6666" stroke-width="1.5" opacity=".30"/>
+          <circle cx="960" cy="540" r="116" fill="none" stroke="#FF6666" stroke-width="1"   opacity=".14"/>
+          <!-- own wounded smoke, heavy, drifting downwind -->
+          <circle cx="938" cy="512" r="7"  fill="#7A7168" opacity=".5"/>
+          <circle cx="916" cy="488" r="11" fill="#7A7168" opacity=".38"/>
+          <circle cx="890" cy="462" r="15" fill="#7A7168" opacity=".26"/>
+          <circle cx="862" cy="434" r="19" fill="#7A7168" opacity=".15"/>
+          <circle cx="832" cy="404" r="23" fill="#7A7168" opacity=".08"/>
+          <g transform="translate(960 540) rotate(35)">
+            <g transform="scale(1.15) translate(-15 -30)"
+               style="filter: drop-shadow(0 0 7px rgba(0,208,255,.45))">
+              <use href="#hull-gb" fill="#005E73" stroke="#00D0FF" stroke-width="2" stroke-linejoin="round"/>
+            </g>
+            <!-- muzzle flash at the bow — going down shooting -->
+            <circle cx="0" cy="-40" r="7" fill="#E8F2EC" opacity=".85"
+                    style="filter: drop-shadow(0 0 10px rgba(232,242,236,.8))"/>
+            <circle cx="0" cy="-40" r="13" fill="none" stroke="#E8F2EC" stroke-width="1.5" opacity=".35"/>
+          </g>
+          <!-- outgoing shell tracer toward the killer's smoke -->
+          <line x1="992" y1="500" x2="1420" y2="272" stroke="#B8CCC6" stroke-width="1.5" opacity=".45" stroke-dasharray="10 14"/>
+        </svg>
+
+        <!-- L3: fog composite -->
+        <div style="position:absolute; inset:0; pointer-events:none; background:
+          radial-gradient(circle at 960px 540px, rgba(2,10,6,0) 0 258px, rgba(2,10,6,.86) 328px, rgba(2,10,6,.9) 100%);"></div>
+
+        <!-- L4: radar sweep — sensors still turning while she goes down (SPINE-SILENT, defensible default) -->
+        <div style="position:absolute; left:180px; top:-240px; width:1560px; height:1560px; border-radius:50%;
+          pointer-events:none; background: conic-gradient(from 220deg at 50% 50%,
+          rgba(0,255,136,.13), rgba(0,255,136,.035) 24deg, transparent 42deg);"></div>
+
+        <!-- L5: chart layer -->
+        <svg style="position:absolute; inset:0;" viewBox="0 0 1920 1080" aria-hidden="true">
+          <circle cx="960" cy="540" r="300" fill="none" stroke="rgba(0,255,136,.16)" stroke-width="1.5"/>
+          <circle cx="960" cy="540" r="780" fill="none" stroke="rgba(192,192,192,.05)" stroke-width="1"/>
+          <!-- listening ring — quiet now; the pips that mattered already went unheeded -->
+          <circle cx="960" cy="540" r="150" fill="none" stroke="rgba(0,255,136,.2)" stroke-width="5"
+                  stroke-dasharray="3.2 16.435"/>
+          <path d="M960 368 L960 380 M1120 540 L1132 540 M960 700 L960 712 M788 540 L800 540"
+                stroke="rgba(0,255,136,.3)" stroke-width="1.5"/>
+          <!-- faint pip arc: killer's engines, NE, opening range -->
+          <path d="M1052.3 421.8 A150 150 0 0 1 1098.1 481.4"
+                fill="none" stroke="rgba(0,255,136,.14)" stroke-width="9"/>
+          <path d="M1064.2 432.1 A150 150 0 0 1 1091.2 467.3"
+                fill="none" stroke="rgba(0,255,136,.4)" stroke-width="4"/>
+          <!-- aim reticle on the smoke (mouse still live) -->
+          <g transform="translate(1436 262)" stroke="rgba(192,192,192,.55)" stroke-width="1.5" fill="none">
+            <circle r="10"/>
+            <path d="M0 -16 L0 -7 M0 7 L0 16 M-16 0 L-7 0 M7 0 L16 0"/>
+          </g>
+        </svg>
+
+        <!-- damage vignette (own damage is HUD-private) -->
+        <div class="dmg-vignette"></div>
+
+        <!-- HUD: BR chrome -->
+        <div class="brchrome">
+          <span><span class="n ph">9</span> AFLOAT</span>
+          <span class="sep">·</span>
+          <span><span class="n ph">2</span> KILLS</span>
+          <span class="sep">·</span>
+          <span>T+<span class="n">06:27</span></span>
+          <span class="sep">·</span>
+          <span class="ring">RING CLOSES <span class="n">1:12</span></span>
+        </div>
+
+        <!-- HUD: kill feed -->
+        <div class="killfeed">
+          <div><span class="kn" style="color:#FFF04D">SALT SHAKER</span> SUNK BY <span class="kn" style="color:#A66BFF">KRAKEN'S BANE</span></div>
+          <div><span class="kn" style="color:#9AA3B2">PICKET DRONE 2</span> SUNK BY <span class="kn" style="color:#5468FF">IRON KETTLE</span></div>
+        </div>
+
+        <!-- sinking microcopy — PLACEHOLDER (spine has no sinking-window line) -->
+        <div class="sink-copy">
+          <div class="l1">GOING DOWN</div>
+          <div class="l2">GUNS LIVE</div>
+          <div class="ph-tag">PLACEHOLDER — MICROCOPY UNSPECCED</div>
+        </div>
+
+        <!-- HUD: bottom-left — XP rail + STATIC bank chip + Q/E/R/F hotbar (spine keys) -->
+        <div class="hb-zone">
+          <div class="xp-rail"><div class="xp-fill"></div><span class="xp-lv">LV&nbsp;3</span></div>
+          <div class="hb-stack">
+            <div class="bank-line">
+              <span class="hb-key">&nbsp;</span>
+              <div class="bank-chip"><span class="n">1</span></div>
+              <div class="bank-cue">1 LEVEL BANKED<br><span class="k">HOLD SPACE TO REFIT</span></div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key sel">Q</span>
+              <div class="hb-slot hb-selected"><svg width="28" height="28"><use href="#ic-gun"/></svg></div>
+              <div class="hb-label">
+                <div class="hb-name sel">Deck Gun</div>
+                <div class="hb-info">DMG 12 · CD 2.4s · <span class="boon">◆1</span></div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key">E</span>
+              <div class="hb-slot hb-ability"><svg width="28" height="28"><use href="#ic-burst"/></svg></div>
+              <div class="hb-label">
+                <div class="hb-name">Speed Burst</div>
+                <div class="hb-info">CD 8.0s · READY</div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key">R</span>
+              <div class="hb-ring"><div class="hb-slot"><svg width="28" height="28"><use href="#ic-flare"/></svg></div></div>
+              <div class="hb-label">
+                <div class="hb-name dim">Star Shell</div>
+                <div class="hb-info">CD 4.6s LEFT</div>
+              </div>
+            </div>
+            <div class="hb-row">
+              <span class="hb-key">F</span>
+              <div class="hb-slot hb-empty">+</div>
+              <div class="hb-label">
+                <div class="hb-name dim">— awaiting refit —</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- HUD: own-vitals cluster, bottom-right — SPINE version: vertical HP Rail on the right edge -->
+        <div class="vitals">
+          <div class="helm">
+            <div class="readouts">
+              <div class="ro-big">HDG 035</div>
+              <div class="ro-big">3.1 <span class="u">KTS</span></div>
+              <div class="rudder">
+                <div class="lab">Rudder</div>
+                <div class="track"><span class="mid"></span><span class="pos"></span></div>
+              </div>
+            </div>
+            <div class="tg">
+              <div class="tg-cap">Ahead</div>
+              <div class="tg-ladder">
+                <div class="tg-rung ordered"><span class="bar"></span><span class="lab">FULL</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">¾</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">½</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">¼</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">STOP</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">¼</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">½</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">¾</span></div>
+                <div class="tg-rung"><span class="bar"></span><span class="lab">FULL</span></div>
+                <span class="tg-needle"></span>
+              </div>
+              <div class="tg-cap">Astern</div>
+            </div>
+          </div>
+          <div class="hp-rail-col">
+            <div class="hp-head">HULL <span class="val">0<span class="dim">/100</span></span></div>
+            <div class="hp-rail-track"><div class="hp-rail-fill"></div></div>
+          </div>
+        </div>
+
+      </div><!-- /.frame -->
+      </div><!-- /.scaler -->
+    </div><!-- /.board -->
+    </div>
+
+    <div class="legend">
+      <table>
+        <tr><th>#</th><th>Element</th><th>Status / notes</th><th>Ref</th></tr>
+        <tr><td class="num prop">1</td><td class="el">Sinking microcopy "GOING DOWN / GUNS LIVE"<span class="tag place">PLACEHOLDER</span><span class="tag">PROPOSAL</span></td>
+            <td>The spine specs the ~5 s window and "guns live" behavior but no on-screen line for it. Both the copy AND the decision to show a center-screen line at all are mine. Register held: dry-naval, no exclamation ("Death register" · Voice and Tone); rendered at {colors.damage-marker} — treatment also [PROPOSAL] (phase text is normally phosphor; death is arguably damage feedback).</td>
+            <td class="ref">EXPERIENCE · Voice and Tone · State Patterns</td></tr>
+        <tr><td class="num">2</td><td class="el">Kill feed — still running</td>
+            <td>DECIDED format ("X SUNK BY Y"); personal-color names at text-safe intent (variant table = Open Q 21 — raw hexes used here where they pass, killer Iris shown raw pending the table). The battle does not stop for your death.</td>
+            <td class="ref">DESIGN · Kill Feed</td></tr>
+        <tr><td class="num">3</td><td class="el">Killer's smoke + last shells</td>
+            <td>DECIDED physics composed into the beat: wounded smoke reads above the fog; muzzle flash carries beyond truesight; Journey A beat 7 — "he fires his last shells at his killer's smoke." Tracer at {colors.splash}-family neutral, muzzle at {colors.muzzle}.</td>
+            <td class="ref">EXPERIENCE · HUD (fog/world reads) · Journey A</td></tr>
+        <tr><td class="num">4</td><td class="el">Sink ring + own smoke</td>
+            <td>DECIDED: crimson expanding sink ring at {colors.damage-marker}, desaturated per the damage rule ("never saturated red vibrating on black"); heavy {colors.wounded-smoke} trail. Hull stays full personal Cyan until gone — silhouette identity holds everywhere a hull appears.</td>
+            <td class="ref">DESIGN · Combat Effects · Do's and Don'ts</td></tr>
+        <tr><td class="num prop">5</td><td class="el">Vitals at zero — HP Rail + decaying telegraph<span class="tag">PROPOSAL</span></td>
+            <td>HP Rail per spine (vertical, right edge of cluster, &lt;25% register, 1.1 Hz cap — at 0 HP the empty track itself breathes at the cap; opacity, never strobe). PROPOSAL: the telegraph dramatizes "helm accepted but decays" — ordered rung stays where Marco slammed it (FULL) while the amber needle falls through the detents toward STOP and KTS bleeds out. The spine specs the input behavior, not this visual.</td>
+            <td class="ref">DESIGN · HP Rail / Telegraph · EXPERIENCE · Match lifecycle</td></tr>
+        <tr><td class="num silent">6</td><td class="el">Refit during sinking?<span class="tag silent">SPINE-SILENT</span></td>
+            <td>Combat inputs are live in the sinking window; whether HOLD SPACE still opens the refit window (and whether a banked level can be spent while going down) is unspecced. Chip rendered in its static-glow state (breathing decayed, &gt;10 s unspent). Needs a call — the unspent level is about to ride into the results modal either way.</td>
+            <td class="ref">EXPERIENCE · Match lifecycle / Refit Card</td></tr>
+        <tr><td class="num">7</td><td class="el">Q/E/R/F hotbar, guns live</td>
+            <td>DECIDED spine keys (composite's 1/2/E superseded). Gun selected (amber, inset wash + filled key chip), ability ready (chamfer), ability cooling (conic + chamfer), F empty. Boon names/copy PLACEHOLDER (Open Q 14).</td>
+            <td class="ref">EXPERIENCE · Component Patterns · Interaction Primitives</td></tr>
+        <tr><td class="num prop">8</td><td class="el">No sinking countdown timer<span class="tag silent">SPINE-SILENT</span></td>
+            <td>The ~5 s window has no specced on-screen countdown; none is rendered (the ritardando should be felt, not read — and a ticking clock would fight the guns-live invitation). Flagging so the absence is a choice Eric sees, not an omission.</td>
+            <td class="ref">EXPERIENCE · Game Feel (death ritardando)</td></tr>
+        <tr><td class="num">9</td><td class="el">Damage vignette + quiet listening ring</td>
+            <td>DECIDED: own damage is HUD-private — desaturated crimson vignette (inset, breathing under the 1.1 Hz cap). The ring shows only the killer's engines fading NE; the bright pips that mattered are minutes past — the reveal will close that loop.</td>
+            <td class="ref">EXPERIENCE · HUD (enemy damage diegetic) · Journey A beat 6</td></tr>
+      </table>
+      <p class="footnotes">
+        <b>Spine corrections applied vs hud-composite-1:</b> vertical HP Rail (horizontal 260×10 bar dead) ·
+        Q/E/R/F glyphs (1/2/E dead) · "HOLD SPACE TO REFIT" (CTRL dead) · four slots · no supply ghost ·
+        text-muted at lightened #7A8496. <b>Also SPINE-SILENT, rendered as defensible defaults:</b> the radar
+        sweep keeps turning while sinking (sensors die with the ship, not before — needs a call);
+        camera stays at combat zoom until the reveal takes it.
+      </p>
+    </div>
+  </section>
+
+  <!-- ════════════════ F2 — OMNISCIENT REVEAL ════════════════ -->
+  <section>
+    <div class="comp-name"><span class="idx">F2 ·</span>OMNISCIENT REVEAL — FOG GONE, WHOLE OCEAN, EVERY HULL</div>
+    <div class="comp-register">
+      Journey A's climax: <em>"OH. That's where everyone WAS."</em> The camera has zoomed out to the whole
+      circular ocean; the fog is lifted; every remaining ship shows in its personal color (drones greyscale
+      chevrons); the storm ring is huge and purple; your wreck is marked. The Iris Torpedo Boat sits exactly
+      on the bearing Marco's pips lit — the lesson is "listen." Only Enter/click advances.
+    </div>
+    <div class="scrollwrap">
+    <div class="board">
+
+      <span class="chip prop"   style="left:744px;  top:11px;">1</span>
+      <span class="chip silent" style="left:1330px; top:11px;">2</span>
+      <span class="chip"        style="left:1496px; top:300px;">3</span>
+      <span class="chip prop"   style="left:1496px; top:560px;">4</span>
+      <span class="chip"        style="left:11px;   top:300px;">5</span>
+      <span class="chip"        style="left:11px;   top:560px;">6</span>
+      <span class="chip prop"   style="left:40px;   top:858px;">7</span>
+      <span class="chip silent" style="left:700px;  top:858px;">8</span>
+
+      <div class="scaler">
+      <div class="frame">
+
+        <!-- water: no fog composite, no truesight hole — the whole chart is lit -->
+        <div style="position:absolute; inset:0; background:
+          radial-gradient(circle at 960px 540px, rgba(200,255,235,.018) 0 460px, transparent 500px),
+          #020604;"></div>
+
+        <svg style="position:absolute; inset:0;" viewBox="0 0 1920 1080" aria-hidden="true">
+          <!-- ocean boundary + chart rings (omniscient chart) -->
+          <circle cx="960" cy="540" r="490" fill="rgba(3,7,5,.5)" stroke="rgba(192,192,192,.35)" stroke-width="1.5"/>
+          <circle cx="960" cy="540" r="360" fill="none" stroke="rgba(192,192,192,.07)" stroke-width="1"/>
+          <circle cx="960" cy="540" r="230" fill="none" stroke="rgba(192,192,192,.07)" stroke-width="1"/>
+          <circle cx="960" cy="540" r="100" fill="none" stroke="rgba(192,192,192,.07)" stroke-width="1"/>
+
+          <!-- STORM: everything between the ocean edge and the safe circle. Fill {colors.storm};
+               edge stroke at {colors.storm-readout} brightness, dashed (Open Q 7 candidate) -->
+          <defs>
+            <mask id="storm-annulus">
+              <circle cx="960" cy="540" r="490" fill="#fff"/>
+              <circle cx="1000" cy="560" r="310" fill="#000"/>
+            </mask>
+          </defs>
+          <circle cx="960" cy="540" r="490" fill="rgba(123,47,190,.16)" mask="url(#storm-annulus)"/>
+          <circle cx="1000" cy="560" r="310" fill="none" stroke="rgba(123,47,190,.45)" stroke-width="10" opacity=".5"/>
+          <circle cx="1000" cy="560" r="310" fill="none" stroke="#B06EE8" stroke-width="2" stroke-dasharray="10 7"
+                  style="filter: drop-shadow(0 0 8px rgba(176,110,232,.5))"/>
+
+          <!-- islands (provisional colors, Open Q 6) -->
+          <polygon points="780,430 815,405 865,415 895,450 900,492 872,525 820,535 782,508 768,468"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1.5" stroke-linejoin="round"/>
+          <polygon points="1120,700 1160,682 1205,696 1222,732 1204,766 1158,776 1122,754 1112,724"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1.5" stroke-linejoin="round"/>
+          <polygon points="1250,320 1288,306 1330,318 1344,350 1324,382 1280,388 1248,364"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1.5" stroke-linejoin="round"/>
+          <polygon points="620,650 660,632 706,644 720,684 698,718 650,724 616,696"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1.5" stroke-linejoin="round"/>
+          <polygon points="560,330 600,314 640,328 650,362 628,392 584,396 554,368"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1" stroke-linejoin="round" opacity=".55"/>
+
+          <!-- ══ EVERY REMAINING SHIP — personal colors, full hulls (fog lifted) ══ -->
+          <!-- KRAKEN'S BANE — Iris Torpedo Boat, the killer, ~NE of the wreck: the bearing the pips lit -->
+          <g style="filter: drop-shadow(0 0 6px rgba(166,107,255,.5))">
+            <g transform="translate(1176 468) rotate(-24) scale(0.62) translate(-12 -50)">
+              <use href="#hull-tb" fill="#4B3073" stroke="#A66BFF" stroke-width="2.4" stroke-linejoin="round"/>
+            </g>
+          </g>
+          <line x1="1176" y1="468" x2="1150" y2="412" stroke="#A66BFF" stroke-width="1.5" opacity=".6"/>
+          <path d="M1150 412 l-6 12 l11 2 z" fill="#A66BFF" opacity=".6"/>
+          <text x="1176" y="440" text-anchor="middle" fill="#C4A3FF" font-family="ui-monospace,Menlo,monospace"
+                font-size="11" letter-spacing="2">KRAKEN'S BANE</text>
+
+          <!-- IRON KETTLE — Cobalt Battleship, W -->
+          <g style="filter: drop-shadow(0 0 6px rgba(84,104,255,.45))">
+            <g transform="translate(830 430) rotate(105) scale(0.6) translate(-24 -62)">
+              <use href="#hull-bb" fill="#262F73" stroke="#5468FF" stroke-width="2.4" stroke-linejoin="round"/>
+            </g>
+          </g>
+          <line x1="830" y1="430" x2="886" y2="446" stroke="#5468FF" stroke-width="1.5" opacity=".6"/>
+          <path d="M886 446 l-13 -3 l3 11 z" fill="#5468FF" opacity=".6"/>
+          <text x="830" y="398" text-anchor="middle" fill="#8B9AFF" font-family="ui-monospace,Menlo,monospace"
+                font-size="11" letter-spacing="2">IRON KETTLE</text>
+
+          <!-- MARIGOLD — Lemon Gunboat, N, running from the ring edge -->
+          <g style="filter: drop-shadow(0 0 6px rgba(255,240,77,.4))">
+            <g transform="translate(1130 380) rotate(-135) scale(0.62) translate(-15 -30)">
+              <use href="#hull-gb" fill="#736C23" stroke="#FFF04D" stroke-width="2.4" stroke-linejoin="round"/>
+            </g>
+          </g>
+          <line x1="1130" y1="380" x2="1090" y2="340" stroke="#FFF04D" stroke-width="1.5" opacity=".55"/>
+          <path d="M1090 340 l3 13 l9 -8 z" fill="#FFF04D" opacity=".55"/>
+          <text x="1130" y="416" text-anchor="middle" fill="#FFF04D" font-family="ui-monospace,Menlo,monospace"
+                font-size="11" letter-spacing="2">MARIGOLD</text>
+
+          <!-- DEE'S KETTLE — Rose Mine Layer, SW, seeding a channel mouth (Journey B cameo) -->
+          <g style="filter: drop-shadow(0 0 6px rgba(255,133,179,.45))">
+            <g transform="translate(850 700) rotate(60) scale(0.62) translate(-18 -44)">
+              <use href="#hull-ml" fill="#733C51" stroke="#FF85B3" stroke-width="2.4" stroke-linejoin="round"/>
+            </g>
+          </g>
+          <line x1="850" y1="700" x2="898" y2="728" stroke="#FF85B3" stroke-width="1.5" opacity=".55"/>
+          <path d="M898 728 l-13 -4 l2 12 z" fill="#FF85B3" opacity=".55"/>
+          <text x="850" y="668" text-anchor="middle" fill="#FF9FC2" font-family="ui-monospace,Menlo,monospace"
+                font-size="11" letter-spacing="2">DEE'S KETTLE</text>
+
+          <!-- LONGSHOT — Lime Gunboat, NW of center -->
+          <g style="filter: drop-shadow(0 0 6px rgba(127,224,58,.4))">
+            <g transform="translate(920 480) rotate(200) scale(0.62) translate(-15 -30)">
+              <use href="#hull-gb" fill="#39651A" stroke="#7FE03A" stroke-width="2.4" stroke-linejoin="round"/>
+            </g>
+          </g>
+          <line x1="920" y1="480" x2="900" y2="533" stroke="#7FE03A" stroke-width="1.5" opacity=".55"/>
+          <path d="M900 533 l0 -13 l-11 5 z" fill="#7FE03A" opacity=".55"/>
+          <text x="920" y="452" text-anchor="middle" fill="#7FE03A" font-family="ui-monospace,Menlo,monospace"
+                font-size="11" letter-spacing="2">LONGSHOT</text>
+
+          <!-- NIGHT HERON — Fuchsia Torpedo Boat, E -->
+          <g style="filter: drop-shadow(0 0 6px rgba(225,77,255,.45))">
+            <g transform="translate(1240 560) rotate(160) scale(0.62) translate(-12 -50)">
+              <use href="#hull-tb" fill="#652373" stroke="#E14DFF" stroke-width="2.4" stroke-linejoin="round"/>
+            </g>
+          </g>
+          <line x1="1240" y1="560" x2="1258" y2="614" stroke="#E14DFF" stroke-width="1.5" opacity=".55"/>
+          <path d="M1258 614 l1 -13 l-12 4 z" fill="#E14DFF" opacity=".55"/>
+          <text x="1240" y="532" text-anchor="middle" fill="#EB80FF" font-family="ui-monospace,Menlo,monospace"
+                font-size="11" letter-spacing="2">NIGHT HERON</text>
+
+          <!-- two DRONES — legacy chevrons, greyscale, tagged -->
+          <g style="filter: drop-shadow(0 0 4px rgba(154,163,178,.35))">
+            <g transform="translate(1000 690) rotate(-80) scale(0.62) translate(-15 -22)">
+              <use href="#hull-drone" fill="#454950" stroke="#9AA3B2" stroke-width="2.2" stroke-linejoin="round"/>
+            </g>
+          </g>
+          <text x="1000" y="722" text-anchor="middle" fill="#9AA3B2" font-family="ui-monospace,Menlo,monospace"
+                font-size="10" letter-spacing="2">DRONE</text>
+          <g style="filter: drop-shadow(0 0 4px rgba(154,163,178,.35))">
+            <g transform="translate(905 585) rotate(30) scale(0.62) translate(-15 -22)">
+              <use href="#hull-drone" fill="#454950" stroke="#9AA3B2" stroke-width="2.2" stroke-linejoin="round"/>
+            </g>
+          </g>
+          <text x="905" y="620" text-anchor="middle" fill="#9AA3B2" font-family="ui-monospace,Menlo,monospace"
+                font-size="10" letter-spacing="2">DRONE</text>
+
+          <!-- ══ YOUR WRECK — dimmed hull, sink rings, own callsign ══ -->
+          <circle cx="1090" cy="640" r="26" fill="none" stroke="#FF6666" stroke-width="2"   opacity=".6"/>
+          <circle cx="1090" cy="640" r="44" fill="none" stroke="#FF6666" stroke-width="1.5" opacity=".32"/>
+          <circle cx="1090" cy="640" r="64" fill="none" stroke="#FF6666" stroke-width="1"   opacity=".15"/>
+          <g opacity=".45">
+            <g transform="translate(1090 640) rotate(35) scale(0.62) translate(-15 -30)">
+              <use href="#hull-gb" fill="#0A2E38" stroke="#00D0FF" stroke-width="2" stroke-linejoin="round"/>
+            </g>
+          </g>
+          <circle cx="1078" cy="626" r="5" fill="#7A7168" opacity=".4"/>
+          <circle cx="1064" cy="610" r="8" fill="#7A7168" opacity=".25"/>
+          <text x="1090" y="602" text-anchor="middle" fill="#00D0FF" font-family="ui-monospace,Menlo,monospace"
+                font-size="11" letter-spacing="2" font-weight="600">TIN SPARROW</text>
+        </svg>
+
+        <!-- surviving HUD chrome: BR chrome + kill feed (PROPOSAL — spine silent on survivors) -->
+        <div class="brchrome">
+          <span><span class="n ph">8</span> AFLOAT</span>
+          <span class="sep">·</span>
+          <span><span class="n ph">2</span> KILLS</span>
+          <span class="sep">·</span>
+          <span>T+<span class="n">06:32</span></span>
+          <span class="sep">·</span>
+          <span class="ring">RING CLOSES <span class="n">1:07</span></span>
+        </div>
+        <div class="killfeed">
+          <div><span class="kn" style="color:#00D0FF">TIN SPARROW</span> SUNK BY <span class="kn" style="color:#A66BFF">KRAKEN'S BANE</span></div>
+          <div><span class="kn" style="color:#FFF04D">SALT SHAKER</span> SUNK BY <span class="kn" style="color:#A66BFF">KRAKEN'S BANE</span></div>
+        </div>
+
+        <!-- death line + proceed prompt -->
+        <div class="reveal-line">
+          <div class="l1">SUNK — 9TH OF 14</div>
+          <div class="l2">ENTER · RESULTS</div>
+        </div>
+
+      </div><!-- /.frame -->
+      </div><!-- /.scaler -->
+    </div><!-- /.board -->
+    </div>
+
+    <div class="legend">
+      <table>
+        <tr><th>#</th><th>Element</th><th>Status / notes</th><th>Ref</th></tr>
+        <tr><td class="num prop">1</td><td class="el">"SUNK — 9TH OF 14" during the reveal + "ENTER · RESULTS" prompt<span class="tag">PROPOSAL</span></td>
+            <td>The line itself is the spine's canonical death register verbatim. PROPOSAL: surfacing it center-top during the reveal (before the modal repeats it), and the muted one-line proceed prompt — the spine specs the input (Enter/click = proceed) but no visible affordance. Prompt wording is mine; register held (uppercase mono, no verbs wasted).</td>
+            <td class="ref">EXPERIENCE · Voice and Tone · Match lifecycle</td></tr>
+        <tr><td class="num silent">2</td><td class="el">Which HUD survives death?<span class="tag silent">SPINE-SILENT</span><span class="tag">PROPOSAL</span></td>
+            <td>The spine never lists surviving chrome. Rendered default: BR chrome (the count just changed because of you — it's the scoreboard of your placement) and the kill feed (your own sinking line tops it) survive; hotbar, XP rail, bank chip, vitals, listening ring are gone with the hull they described. Needs Eric's confirm.</td>
+            <td class="ref">EXPERIENCE · IA row "Death: sinking → reveal"</td></tr>
+        <tr><td class="num">3</td><td class="el">The killer on the bearing — emotional beat</td>
+            <td>DECIDED (Journey A climax): the Iris Torpedo Boat sits NE of the wreck — exactly the bearing Marco's pips lit in F1 and for the long approach before. The reveal converts the ignored ring into a lesson with zero words: <b>"OH. That's where everyone WAS." The lesson is "listen."</b> No line of copy explains it; the geometry does.</td>
+            <td class="ref">Journey A beats 6–8 · .decision-log (ledger triage D)</td></tr>
+        <tr><td class="num prop">4</td><td class="el">Wreck marker treatment<span class="tag">PROPOSAL</span></td>
+            <td>"Your wreck marked" is decided; the treatment is mine: own hull held at 45% opacity in personal Cyan (identity persists in death), sink rings continuing at {colors.damage-marker}, last smoke, callsign plate above. Alternative if too quiet at this zoom: a ring-buoy glyph in Cyan.</td>
+            <td class="ref">.decision-log (death flow) · DESIGN · Combat Effects</td></tr>
+        <tr><td class="num">5</td><td class="el">Storm ring, huge and purple</td>
+            <td>DECIDED: purple belongs to the storm exclusively. Fill at {colors.storm} low alpha across the whole outer annulus; the closing edge reads at {colors.storm-readout} brightness. The DASHED edge stroke is the Open-Q-7 candidate treatment, rendered here as drawn-for-review, not ratified.</td>
+            <td class="ref">DESIGN · Colors (storm) · EXPERIENCE Open Q 7</td></tr>
+        <tr><td class="num">6</td><td class="el">Every hull in personal color · drones greyscale chevrons</td>
+            <td>DECIDED: fog lifted → all six combatants render as full hulls (bright outline + ~45%-value fill) with heading arrowheads; the two drones wear the legacy chevron — the fifth silhouette no player class wears — in {colors.drone-outline}/{colors.drone-fill}, tagged DRONE. Dee's Rose Mine Layer cameos from Journey B.</td>
+            <td class="ref">DESIGN · Regatta Hoist · silhouette language</td></tr>
+        <tr><td class="num prop">7</td><td class="el">Nameplates on ALL revealed ships<span class="tag">PROPOSAL</span></td>
+            <td>Nameplate scope is Open Q 22 (own-only vs all truesight) — and the reveal is a third context the question never covered. Rendered: all plates on, in text-safe-intent personal variants, because the reveal is the learning surface ("who was where" needs "who"). If it reads cluttered, killer + wreck only is the fallback.</td>
+            <td class="ref">EXPERIENCE Open Q 22 · DESIGN · Nameplate</td></tr>
+        <tr><td class="num silent">8</td><td class="el">Reveal timing / auto-advance<span class="tag silent">SPINE-SILENT</span></td>
+            <td>Unspecced: whether the reveal auto-advances to results after N seconds or waits for Enter indefinitely; also whether the reveal camera keeps tracking the live battle (ships shown would keep moving — presumably yes, it's the same world). Also parked here: Open Q 25 — is the reveal zoom exempt from the motion/shake setting (it's the climax beat)?</td>
+            <td class="ref">EXPERIENCE · Match lifecycle · Open Q 25</td></tr>
+      </table>
+      <p class="footnotes">
+        <b>Fog rule note:</b> the omniscient reveal is server-sanctioned — you are dead; the anti-cheat
+        boundary no longer protects anything from you. This is the ONE moment the game shows everything,
+        which is exactly why it teaches. <b>Scale note:</b> hull scale ~0.62 at reveal zoom; nameplates hold
+        screen-space size (hud-micro register, drawn at 10–11px here for mock legibility at 0.75×).
+      </p>
+    </div>
+  </section>
+
+  <!-- ════════════════ F3 — RESULTS MODAL ════════════════ -->
+  <section>
+    <div class="comp-name"><span class="idx">F3 ·</span>RESULTS MODAL — OVER THE DIMMED REVEAL</div>
+    <div class="comp-register">
+      Close the loop fast: your kills, your placement, one key back to port. Defeat banner = amber
+      (victory would be phosphor). Own name in personal Cyan. Accrued boons + the unspent last offer
+      reviewable. Enter/ESC = RETURN TO PORT (single action; no re-queue here, decided 2026-07-16). Spectate deliberately absent —
+      future planned. "Frantic to Play, Light to Hold": the next match is seconds away.
+    </div>
+    <div class="scrollwrap">
+    <div class="board">
+
+      <span class="chip"        style="left:744px;  top:11px;">1</span>
+      <span class="chip"        style="left:1496px; top:330px;">2</span>
+      <span class="chip prop"   style="left:1496px; top:470px;">3</span>
+      <span class="chip"        style="left:11px;   top:470px;">4</span>
+      <span class="chip prop"   style="left:11px;   top:620px;">5</span>
+      <span class="chip prop"   style="left:1496px; top:640px;">6</span>
+      <span class="chip silent" style="left:744px;  top:858px;">7</span>
+
+      <div class="scaler">
+      <div class="frame">
+
+        <!-- the reveal, still back there (dimmed) -->
+        <div style="position:absolute; inset:0; background:
+          radial-gradient(circle at 960px 540px, rgba(200,255,235,.018) 0 460px, transparent 500px),
+          #020604;"></div>
+        <svg style="position:absolute; inset:0;" viewBox="0 0 1920 1080" aria-hidden="true">
+          <circle cx="960" cy="540" r="490" fill="rgba(3,7,5,.5)" stroke="rgba(192,192,192,.35)" stroke-width="1.5"/>
+          <circle cx="960" cy="540" r="360" fill="none" stroke="rgba(192,192,192,.07)" stroke-width="1"/>
+          <circle cx="960" cy="540" r="230" fill="none" stroke="rgba(192,192,192,.07)" stroke-width="1"/>
+          <defs>
+            <mask id="storm-annulus-b">
+              <circle cx="960" cy="540" r="490" fill="#fff"/>
+              <circle cx="1000" cy="560" r="310" fill="#000"/>
+            </mask>
+          </defs>
+          <circle cx="960" cy="540" r="490" fill="rgba(123,47,190,.16)" mask="url(#storm-annulus-b)"/>
+          <circle cx="1000" cy="560" r="310" fill="none" stroke="rgba(123,47,190,.45)" stroke-width="10" opacity=".5"/>
+          <circle cx="1000" cy="560" r="310" fill="none" stroke="#B06EE8" stroke-width="2" stroke-dasharray="10 7"/>
+          <polygon points="780,430 815,405 865,415 895,450 900,492 872,525 820,535 782,508 768,468"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1.5" stroke-linejoin="round"/>
+          <polygon points="1120,700 1160,682 1205,696 1222,732 1204,766 1158,776 1122,754 1112,724"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1.5" stroke-linejoin="round"/>
+          <polygon points="1250,320 1288,306 1330,318 1344,350 1324,382 1280,388 1248,364"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1.5" stroke-linejoin="round"/>
+          <polygon points="620,650 660,632 706,644 720,684 698,718 650,724 616,696"
+                   fill="#2A2410" stroke="#8B7520" stroke-width="1.5" stroke-linejoin="round"/>
+          <g transform="translate(1176 468) rotate(-24) scale(0.62) translate(-12 -50)">
+            <use href="#hull-tb" fill="#4B3073" stroke="#A66BFF" stroke-width="2.4" stroke-linejoin="round"/>
+          </g>
+          <g transform="translate(830 430) rotate(105) scale(0.6) translate(-24 -62)">
+            <use href="#hull-bb" fill="#262F73" stroke="#5468FF" stroke-width="2.4" stroke-linejoin="round"/>
+          </g>
+          <g transform="translate(1130 380) rotate(-135) scale(0.62) translate(-15 -30)">
+            <use href="#hull-gb" fill="#736C23" stroke="#FFF04D" stroke-width="2.4" stroke-linejoin="round"/>
+          </g>
+          <g transform="translate(850 700) rotate(60) scale(0.62) translate(-18 -44)">
+            <use href="#hull-ml" fill="#733C51" stroke="#FF85B3" stroke-width="2.4" stroke-linejoin="round"/>
+          </g>
+          <g transform="translate(920 480) rotate(200) scale(0.62) translate(-15 -30)">
+            <use href="#hull-gb" fill="#39651A" stroke="#7FE03A" stroke-width="2.4" stroke-linejoin="round"/>
+          </g>
+          <g transform="translate(1240 560) rotate(160) scale(0.62) translate(-12 -50)">
+            <use href="#hull-tb" fill="#652373" stroke="#E14DFF" stroke-width="2.4" stroke-linejoin="round"/>
+          </g>
+          <g transform="translate(1000 690) rotate(-80) scale(0.62) translate(-15 -22)">
+            <use href="#hull-drone" fill="#454950" stroke="#9AA3B2" stroke-width="2.2" stroke-linejoin="round"/>
+          </g>
+          <g transform="translate(905 585) rotate(30) scale(0.62) translate(-15 -22)">
+            <use href="#hull-drone" fill="#454950" stroke="#9AA3B2" stroke-width="2.2" stroke-linejoin="round"/>
+          </g>
+          <circle cx="1090" cy="640" r="26" fill="none" stroke="#FF6666" stroke-width="2" opacity=".6"/>
+          <circle cx="1090" cy="640" r="44" fill="none" stroke="#FF6666" stroke-width="1.5" opacity=".32"/>
+          <g opacity=".45">
+            <g transform="translate(1090 640) rotate(35) scale(0.62) translate(-15 -30)">
+              <use href="#hull-gb" fill="#0A2E38" stroke="#00D0FF" stroke-width="2" stroke-linejoin="round"/>
+            </g>
+          </g>
+        </svg>
+
+        <!-- fullscreen dim — sanctioned behind results only -->
+        <div class="dim"></div>
+
+        <!-- THE RESULTS MODAL (DOM port chrome — soft corners return) -->
+        <div class="results">
+          <div class="res-banner">
+            <div class="b1">SUNK</div>
+            <div class="b2">9TH OF 14</div>
+          </div>
+          <div class="res-you"><span class="name">TIN SPARROW</span> · GUNBOAT</div>
+
+          <div class="res-stats">
+            <div class="res-stat">
+              <div class="v ph">2</div>
+              <div class="k">Kills</div>
+            </div>
+            <div class="res-stat">
+              <div class="v">9<span style="color:#7A8496">/14</span></div>
+              <div class="k">Placement</div>
+            </div>
+            <div class="res-stat">
+              <div class="v">6:27</div>
+              <div class="k">Time Afloat</div>
+            </div>
+          </div>
+
+          <hr class="res-div">
+          <div class="res-sec-h">Boons Accrued</div>
+          <div class="res-boons">
+            <span class="bn">◆ DRY POWDER</span> — gun reload noticeably quicker<br>
+            <span class="bn">◆ BOILER TUNE</span> — flank speed arrives sooner
+          </div>
+
+          <div class="res-sec-h">Last Offer — 1 Level Unspent</div>
+          <div class="res-offer">
+            <div class="oc"><span class="cat">GUNNERY</span>HEAVY SHELLS</div>
+            <div class="oc"><span class="cat">ENGINEERING</span>TRIM TABS</div>
+            <div class="oc"><span class="cat">SENSORS</span>WIDE SWEEP</div>
+            <div class="oc"><span class="cat">HULL</span>SPALL LINER</div>
+          </div>
+
+          <div class="res-actions">
+            <div class="btn btn-primary">
+              <span><span class="res-key">⏎</span>RETURN TO PORT</span>
+              <span class="sub">SET SAIL IS ONE PRESS AWAY</span>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /.frame -->
+      </div><!-- /.scaler -->
+    </div><!-- /.board -->
+    </div>
+
+    <div class="legend">
+      <table>
+        <tr><th>#</th><th>Element</th><th>Status / notes</th><th>Ref</th></tr>
+        <tr><td class="num">1</td><td class="el">Modal surface + fullscreen dim</td>
+            <td>DECIDED: {components.modal} — {colors.panel} bed, hairline border, {rounded.lg}; port chrome goes soft again (the tactical register's hard corners stay on the water). Fullscreen dim is sanctioned behind results only. Modals never stack.</td>
+            <td class="ref">DESIGN · Modal / Elevation · EXPERIENCE · Component Patterns</td></tr>
+        <tr><td class="num">2</td><td class="el">Defeat banner, amber — "SUNK / 9TH OF 14"</td>
+            <td>DECIDED: results banner colors are victory phosphor / defeat amber; copy is the spine's death register verbatim — grim facts, no mockery, no exclamation. Own name in personal Cyan (raw #00D0FF passes ≥4.5:1 on panel; darker hues would use their text-safe variants — table = Open Q 21).</td>
+            <td class="ref">DESIGN · Modal / Phase text · EXPERIENCE · Voice and Tone</td></tr>
+        <tr><td class="num prop">3</td><td class="el">TIME AFLOAT stat<span class="tag">PROPOSAL</span></td>
+            <td>The decided stat set is kills + placement. Time afloat added as a third tile: it is the number a 12-minute-match BR player compares between runs, and it costs nothing. Cut without argument if it dilutes the two decided numbers.</td>
+            <td class="ref">.decision-log (ledger triage D)</td></tr>
+        <tr><td class="num">4</td><td class="el">Boons accrued + last offer reviewable<span class="tag place">PLACEHOLDER COPY</span></td>
+            <td>DECIDED (cognitive floor): accrued boons + last offer reviewable from the results modal; the unspent banked level is stated plainly — death is the only thing that expires an offer. All boon/category names PLACEHOLDER (Open Q 14). Qualitative Hades-style effect lines, sentence case per microcopy rules.</td>
+            <td class="ref">EXPERIENCE · Accessibility Floor · Open Q 14</td></tr>
+        <tr><td class="num">5</td><td class="el">Single action: "RETURN TO PORT"<span class="tag">DECIDED 2026-07-16</span></td>
+            <td>DECIDED (Eric, final-render triage): NO re-queue from the modal — the modal's single v1 action is LEAVE (Enter or ESC), returning to the home page where SET SAIL re-queues. Original "SET SAIL AGAIN" re-queue proposal rejected; superseded in this mock. Primary Button register: amber outline + glow, sub-line "SET SAIL IS ONE PRESS AWAY".</td>
+            <td class="ref">EXPERIENCE · IA (results row) · DESIGN · Primary Button</td></tr>
+        <tr><td class="num prop">6</td><td class="el">Leave option at the danger token<span class="tag">PROPOSAL</span></td>
+            <td>DECIDED: ESC = leave to port; {colors.danger} is the destructive-action token ("leave match"). RESOLVED 2026-07-16: with leave as the modal's ONLY action, RETURN TO PORT is the amber Primary Button (as rendered above); the danger register is reserved for abandoning a LIVE match. The earlier danger-secondary treatment applied only while a re-queue primary existed.</td>
+            <td class="ref">DESIGN · Colors (danger) · EXPERIENCE · Modal keys</td></tr>
+        <tr><td class="num silent">7</td><td class="el">Spectate — absent<span class="tag silent">FUTURE-PLANNED</span></td>
+            <td>DECIDED absence: spectate is a future planned option (the current follow-killer spectate is superseded). No dead button, no ghost slot — the modal ships one action. When spectate lands it becomes a second, non-dominant action here.</td>
+            <td class="ref">.decision-log (ledger triage D) · EXPERIENCE · IA</td></tr>
+      </table>
+      <p class="footnotes">
+        <b>Sequence contract:</b> F1 → F2 is automatic (~5 s ritardando ends, fog drops, camera zooms out);
+        F2 → F3 is Enter/click (auto-advance timing = spine-silent, F2 legend #8); F3 → port is Enter/ESC; SET SAIL on home re-queues.
+        Total cost of death: two presses, zero menus. <b>Voice audit:</b> every visible string on all three frames is uppercase
+        mono system register or sentence-case description; zero exclamation points; the only non-canonical
+        strings are tagged PLACEHOLDER or [PROPOSAL] above.
+      </p>
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

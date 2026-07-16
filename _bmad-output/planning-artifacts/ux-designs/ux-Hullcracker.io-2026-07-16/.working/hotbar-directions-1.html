@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker — Hotbar Directions v1</title>
+<style>
+/* ============================================================
+   HULLCRACKER — WEAPON/ABILITY HOTBAR: 4 DESIGN DIRECTIONS
+   ------------------------------------------------------------
+   Aesthetic frame (locked): "CIC Tactical Display, Evolved"
+   — black void, silver-white linework, phosphor accents.
+
+   FONTS: system stack used here for offline rendering.
+   PRODUCTION USES: Geist (display/body) + Geist Mono (labels,
+   uppercase, letter-spaced) per DESIGN.md v0.16.
+
+   SHARED TOKENS (from extract-design-current.md):
+     phosphor green  #00FF88   (own / ready / success)
+     amber           #FFB800   (selected / action)
+     storm purple    #7B2FBE   (zone only — unused on hotbar)
+     denied red      #FF3B3B   (denied-fire flash, shown in legend only)
+     silver linework #C0C0C0
+     dim slate       #5A6478   (muted text)
+     panel           #111111
+     deep void       #000000
+     text primary    #E2E8F0
+
+   INTERACTION GRAMMAR (locked, all variants):
+     SWITCH-TO weapons  — keys 1/2/3, exactly one is SELECTED
+     ACTIVATED abilities — press-to-trigger (Q/E), never "selected";
+                           chamfered top-right corner = ability chrome
+     Cooldown/reload lives INSIDE the icon square (fill / sweep / dim
+     — standalone bars are dead).
+     Empty offer slot = dashed square awaiting an earned boon.
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #050807;
+  color: #E2E8F0;
+  /* production: Geist */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  padding: 40px 20px 96px;
+}
+.mono {
+  /* production: Geist Mono */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.page { max-width: 1020px; margin: 0 auto; }
+
+h1 { font-size: 30px; font-weight: 700; letter-spacing: .01em; }
+.pagehead-kicker {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+  color: #00FF88; margin-bottom: 10px;
+}
+.pagehead-note { color: #8B95A5; font-size: 14px; max-width: 72ch; margin-top: 10px; }
+.pagehead-note strong { color: #E2E8F0; }
+.binding-warn {
+  display: inline-block; margin-top: 12px; padding: 6px 12px;
+  border: 1px dashed #5A6478; color: #FFB800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+}
+
+/* ---- section chrome ---- */
+section { margin-top: 72px; }
+.dir-name {
+  font-size: 22px; font-weight: 700; letter-spacing: .02em;
+}
+.dir-name .idx {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #00FF88; font-weight: 600; font-size: 15px; margin-right: 10px;
+  letter-spacing: .15em;
+}
+.dir-register { color: #8B95A5; font-size: 14px; margin: 4px 0 16px; font-style: italic; }
+.dir-notes {
+  margin-top: 14px; color: #5A6478; font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: .04em;
+}
+.dir-notes b { color: #8B95A5; font-weight: 600; }
+
+/* ---- mock game viewport (shared) ----
+   960×340 crop of the tactical display: black-green void,
+   faint own-centred chart rings (silver a≈.05), phosphor sweep
+   suggestion, small own-ship chevron. Hotbars render at
+   realistic 1080p scale inside it (HUD runs ~1.6× post-playtest). */
+.viewport {
+  position: relative;
+  height: 340px;
+  border: 1px solid #1C2320;
+  overflow: hidden;
+  background:
+    conic-gradient(from 35deg at 50% 46%, rgba(0,255,136,.07), transparent 22%),
+    repeating-radial-gradient(circle at 50% 46%, transparent 0 84px, rgba(192,192,192,.05) 84px 85px),
+    radial-gradient(circle at 50% 46%, rgba(0,255,136,.05), transparent 46%),
+    #020604; /* fog-composite base, matches render/fog.ts rgba(2,10,6,…) family */
+}
+.ship-chevron {
+  position: absolute; left: 50%; top: 46%;
+  transform: translate(-50%, -50%) rotate(18deg);
+  color: #00FF88;
+}
+.vp-tag {
+  position: absolute; top: 10px; left: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .2em; color: rgba(90,100,120,.75);
+  text-transform: uppercase;
+}
+
+/* ---- shared slot internals ---- */
+.icon { display: block; }
+.keychip {
+  position: absolute;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; font-weight: 600; letter-spacing: .06em;
+  color: #8B95A5; line-height: 1;
+}
+.slot { position: relative; }
+
+/* generic cooldown veils (per-variant treatments below) */
+.cd-pct {
+  position: absolute; inset: auto 0 4px 0; text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .08em; color: #8B95A5;
+}
+
+/* legend row under each viewport */
+.legend {
+  display: flex; flex-wrap: wrap; gap: 18px; margin-top: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px; letter-spacing: .08em; color: #5A6478;
+  text-transform: uppercase;
+}
+.legend i {
+  display: inline-block; width: 9px; height: 9px; margin-right: 6px;
+  vertical-align: -1px; font-style: normal;
+}
+
+/* ============================================================
+   DIRECTION A — "GUN LINE"
+   Bottom-center horizontal hotbar (League of Legends register).
+   Slots 56×56px, 8px gap; weapons | 14px rule divider | abilities
+   | offer. Selection = amber frame + corner brackets + 2px lift.
+   Cooldown = bottom-up phosphor-dark FILL (rgba(0,0,0,.72) over
+   dimmed icon) + % readout. Tooltip rendered OPEN on slot 2.
+   Hexes: frame #C0C0C0 @ .35 → selected #FFB800; fill #0B0F0D;
+   ready-ability tick #00FF88.
+   ============================================================ */
+.a-bar {
+  position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%);
+  display: flex; align-items: flex-end; gap: 8px;
+}
+.a-slot {
+  width: 56px; height: 56px;
+  background: rgba(11,15,13,.92);
+  border: 1px solid rgba(192,192,192,.35);
+  display: flex; align-items: center; justify-content: center;
+  color: #9FB3A8;
+}
+.a-slot .keychip { top: 3px; left: 5px; }
+/* selected weapon: amber, lifted, corner brackets */
+.a-selected {
+  border-color: #FFB800;
+  color: #FFB800;
+  transform: translateY(-2px);
+  box-shadow: 0 0 14px rgba(255,184,0,.22), inset 0 0 10px rgba(255,184,0,.08);
+}
+.a-selected .keychip { color: #FFB800; }
+.a-brackets::before, .a-brackets::after {
+  content: ""; position: absolute; width: 8px; height: 8px;
+}
+.a-brackets::before {
+  left: -3px; top: -3px;
+  border-left: 2px solid #FFB800; border-top: 2px solid #FFB800;
+}
+.a-brackets::after {
+  right: -3px; bottom: -3px;
+  border-right: 2px solid #FFB800; border-bottom: 2px solid #FFB800;
+}
+/* cooling: dim icon + bottom-up dark fill at 62% remaining */
+.a-cooling { color: #46554E; }
+.a-cooling .cd-fill {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 62%;
+  background: rgba(0,0,0,.72);
+  border-top: 1px solid rgba(0,255,136,.45); /* reload waterline */
+}
+/* ability chrome: chamfered top-right corner (8px cut) + ready tick */
+.a-ability {
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+}
+.a-ability-ready { border-color: rgba(0,255,136,.55); color: #00FF88; }
+.a-ability-ready .keychip { color: #00FF88; }
+.a-ready-tick {
+  position: absolute; right: 4px; bottom: 3px;
+  width: 5px; height: 5px; background: #00FF88;
+  box-shadow: 0 0 6px rgba(0,255,136,.8);
+}
+.a-divider {
+  width: 1px; height: 40px; margin: 0 4px 8px;
+  background: rgba(192,192,192,.25);
+}
+/* empty offer slot */
+.a-empty {
+  border: 1px dashed rgba(90,100,120,.6); background: rgba(5,8,7,.6);
+  color: #3A4540;
+}
+.a-empty .plus { font-size: 20px; line-height: 1; color: #3A4540; }
+.a-empty .keychip { color: #3A4540; }
+
+/* Direction A tooltip — the ONE open tooltip example on this page.
+   Panel #0A0F0C, 1px silver-dim border, 220px wide; title mono
+   uppercase; accrued stat upgrades listed in phosphor green. */
+.a-tooltip {
+  position: absolute; bottom: 70px; left: 50%; transform: translateX(-116px);
+  width: 220px; padding: 10px 12px 11px;
+  background: rgba(10,15,12,.97);
+  border: 1px solid rgba(192,192,192,.4);
+  box-shadow: 0 6px 24px rgba(0,0,0,.6);
+  font-size: 12px;
+}
+.a-tooltip::after { /* pointer notch */
+  content: ""; position: absolute; left: 22px; bottom: -5px;
+  width: 8px; height: 8px; background: rgba(10,15,12,.97);
+  border-right: 1px solid rgba(192,192,192,.4);
+  border-bottom: 1px solid rgba(192,192,192,.4);
+  transform: rotate(45deg);
+}
+.a-tt-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; font-weight: 600; letter-spacing: .14em; color: #E2E8F0;
+  text-transform: uppercase;
+}
+.a-tt-kind {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .14em; color: #FFB800; text-transform: uppercase;
+  margin-top: 2px;
+}
+.a-tt-desc { color: #8B95A5; font-size: 11.5px; margin-top: 6px; }
+.a-tt-upg {
+  margin-top: 7px; padding-top: 7px; border-top: 1px solid rgba(192,192,192,.15);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10.5px; letter-spacing: .08em; color: #00FF88;
+}
+.a-tt-upg .upg-label { color: #5A6478; display: block; margin-bottom: 3px; letter-spacing: .16em; }
+
+/* ============================================================
+   DIRECTION B — "SHIP'S MANIFEST"
+   Bottom-left vertical stack (Hades boon-slot register): each
+   square carries a text label — slot role (mono, dim) over the
+   equipped item name. Squares 48×48px, 10px gap, labels right.
+   Selection = amber left rail (3px) + amber name. Cooldown =
+   vertical DIM fill drains top-down inside the square + mono
+   timer in label column. Weapons keyed 1/2/3 in chip on square;
+   abilities chamfered + Q/E. Hexes: rail #FFB800; square fill
+   #0B0F0D; role label #5A6478; item name #E2E8F0.
+   ============================================================ */
+.b-stack {
+  position: absolute; left: 18px; bottom: 16px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+.b-row { display: flex; align-items: center; gap: 12px; }
+.b-slot {
+  width: 48px; height: 48px; flex: none;
+  background: rgba(11,15,13,.92);
+  border: 1px solid rgba(192,192,192,.3);
+  display: flex; align-items: center; justify-content: center;
+  color: #9FB3A8;
+}
+.b-slot .keychip { top: 3px; right: 5px; left: auto; }
+.b-selected {
+  border-color: rgba(255,184,0,.85); color: #FFB800;
+  box-shadow: inset 3px 0 0 #FFB800; /* left rail */
+}
+.b-selected .keychip { color: #FFB800; }
+.b-cooling { color: #46554E; }
+.b-cooling .cd-drain { /* 45% elapsed: dark veil drains top-down */
+  position: absolute; left: 0; right: 0; top: 0; height: 55%;
+  background: rgba(0,0,0,.74);
+  border-bottom: 1px solid rgba(0,255,136,.4);
+}
+.b-ability { clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
+.b-ability-ready { border-color: rgba(0,255,136,.5); color: #00FF88; }
+.b-ability-ready .keychip { color: #00FF88; }
+.b-empty {
+  border: 1px dashed rgba(90,100,120,.55); background: rgba(5,8,7,.55); color: #3A4540;
+}
+.b-label { min-width: 150px; }
+.b-role {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .2em; color: #5A6478; text-transform: uppercase;
+}
+.b-item { font-size: 13px; font-weight: 600; color: #E2E8F0; letter-spacing: .02em; }
+.b-item.is-selected { color: #FFB800; }
+.b-item.is-ready { color: #00FF88; }
+.b-item.is-dim { color: #5A6478; font-weight: 400; }
+.b-timer {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; color: #8B95A5; letter-spacing: .08em;
+}
+
+/* ============================================================
+   DIRECTION C — "FIRE CONTROL CONSOLE"
+   Bottom-right cluster beside the radar/minimap region. Naval-
+   instrument register: one etched bezel panel (#111111 fill,
+   double silver inset lines, corner screws), engraved header
+   "WEAPONS / FIRE CONTROL". Slots 50×50px in a tight 6-across
+   rack with etched separators. Selection = recessed amber lamp
+   bar under the slot + amber icon. Cooldown = radar SWEEP wedge
+   (conic dark veil, phosphor leading edge) — instrument-native.
+   Hexes: bezel line rgba(192,192,192,.30/.12); lamp #FFB800;
+   sweep edge rgba(0,255,136,.5).
+   ============================================================ */
+.c-minimap {
+  position: absolute; right: 26px; bottom: 118px;
+  width: 92px; height: 92px; border-radius: 50%;
+  border: 1px solid rgba(192,192,192,.25);
+  background:
+    conic-gradient(from 120deg, rgba(0,255,136,.10), transparent 20%),
+    radial-gradient(circle, rgba(0,255,136,.05), transparent 70%),
+    rgba(4,8,6,.9);
+}
+.c-minimap::after {
+  content: "RADAR"; position: absolute; left: 50%; bottom: -16px;
+  transform: translateX(-50%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8px; letter-spacing: .25em; color: rgba(90,100,120,.6);
+}
+.c-panel {
+  position: absolute; right: 18px; bottom: 14px;
+  padding: 8px 10px 10px;
+  background: #111111;
+  border: 1px solid rgba(192,192,192,.3);
+  box-shadow: inset 0 0 0 3px #0A0C0B, inset 0 0 0 4px rgba(192,192,192,.12);
+}
+.c-screw {
+  position: absolute; width: 5px; height: 5px; border-radius: 50%;
+  background: #1E2422; border: 1px solid rgba(192,192,192,.3);
+}
+.c-screw.tl { top: 3px; left: 3px; } .c-screw.tr { top: 3px; right: 3px; }
+.c-screw.bl { bottom: 3px; left: 3px; } .c-screw.br { bottom: 3px; right: 3px; }
+.c-header {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8.5px; letter-spacing: .3em; color: #5A6478;
+  text-transform: uppercase; text-align: center; margin: 2px 0 7px;
+}
+.c-rack { display: flex; align-items: flex-start; }
+.c-cell { padding: 0 7px; border-right: 1px solid rgba(192,192,192,.12); }
+.c-cell:last-child { border-right: none; }
+.c-slot {
+  width: 50px; height: 50px;
+  background: #0A0E0C;
+  border: 1px solid rgba(192,192,192,.28);
+  box-shadow: inset 0 2px 5px rgba(0,0,0,.7); /* recessed instrument well */
+  display: flex; align-items: center; justify-content: center;
+  color: #9FB3A8;
+}
+.c-slot .keychip { top: 3px; left: 4px; }
+.c-lamp { /* selection lamp bar under slot */
+  height: 3px; margin-top: 5px; background: #1A1E1C;
+  border: 1px solid rgba(192,192,192,.15);
+}
+.c-lamp.lit {
+  background: #FFB800; border-color: #FFB800;
+  box-shadow: 0 0 8px rgba(255,184,0,.55);
+}
+.c-selected { color: #FFB800; border-color: rgba(255,184,0,.7); }
+.c-selected .keychip { color: #FFB800; }
+.c-cooling { color: #46554E; }
+.c-sweep { /* radar-sweep cooldown: 40% swept clear, veil covers rest */
+  position: absolute; inset: 0;
+  background: conic-gradient(from 0deg,
+    transparent 0 40%,
+    rgba(0,255,136,.5) 40% 41.5%,   /* phosphor leading edge */
+    rgba(0,0,0,.75) 41.5% 100%);
+}
+.c-ability { clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%); }
+.c-ability-ready { color: #00FF88; border-color: rgba(0,255,136,.5); }
+.c-ability-ready .keychip { color: #00FF88; }
+.c-empty { border-style: dashed; color: #3A4540; box-shadow: none; background: rgba(5,8,7,.6); }
+.c-sub {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 7.5px; letter-spacing: .18em; color: #3F4A46;
+  text-transform: uppercase; text-align: center; margin-top: 4px;
+}
+
+/* ============================================================
+   DIRECTION D — "AFTERIMAGE"
+   Minimal floating squares, maximum void. No panel, no fills —
+   1px phosphor-glow outlines hovering over the water, wide 18px
+   gaps, keys as faint free-floating glyphs BELOW the squares.
+   Selection = amber outline at full glow + amber icon.
+   Cooldown = icon dimmed to 25% + square-ring conic PROGRESS
+   TRACK (2px, phosphor over ghost track). Slots 54×54px.
+   Hexes: ready outline rgba(0,255,136,.65) + 12px glow;
+   idle outline rgba(192,192,192,.28); void — no fill at all.
+   ============================================================ */
+.d-bar {
+  position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%);
+  display: flex; align-items: flex-start; gap: 18px;
+}
+.d-unit { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.d-slot {
+  width: 54px; height: 54px;
+  border: 1px solid rgba(192,192,192,.28);
+  background: transparent; /* pure void — water shows through */
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(159,179,168,.85);
+}
+.d-selected {
+  border-color: #FFB800; color: #FFB800;
+  box-shadow: 0 0 16px rgba(255,184,0,.4), inset 0 0 12px rgba(255,184,0,.12);
+}
+.d-weapon-ready {
+  border-color: rgba(0,255,136,.4); color: rgba(0,255,136,.75);
+  box-shadow: 0 0 10px rgba(0,255,136,.15);
+}
+/* cooldown: conic progress ring drawn as a 2px square track */
+.d-ring {
+  padding: 2px; width: 54px; height: 54px;
+  background: conic-gradient(#00FF88 0 35%, rgba(0,255,136,.14) 35% 100%);
+}
+.d-ring .d-slot {
+  width: 100%; height: 100%; border: none; background: #030605;
+  color: rgba(70,85,78,.6); /* icon dimmed ~25% while cooling */
+}
+.d-ability {
+  clip-path: polygon(0 0, calc(100% - 9px) 0, 100% 9px, 100% 100%, 0 100%);
+}
+.d-ability-ready {
+  border-color: rgba(0,255,136,.65); color: #00FF88;
+  box-shadow: 0 0 14px rgba(0,255,136,.3), inset 0 0 10px rgba(0,255,136,.08);
+}
+.d-empty { border: 1px dashed rgba(90,100,120,.45); color: rgba(58,69,64,.9); }
+.d-key {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .1em; color: rgba(90,100,120,.85);
+}
+.d-key.sel { color: #FFB800; }
+.d-key.rdy { color: rgba(0,255,136,.8); }
+</style>
+</head>
+<body>
+
+<!-- Shared silhouette icon set (inline SVG symbols, currentColor) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- naval shell + breech: GUN -->
+    <symbol id="ic-gun" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2c-2.3 2.7-3.6 5.6-3.6 8.7V17h7.2v-6.3C15.6 7.6 14.3 4.7 12 2z"/>
+      <rect fill="currentColor" x="7.2" y="18.4" width="9.6" height="3" rx=".5"/>
+    </symbol>
+    <!-- torpedo, nose right, tail fins left -->
+    <symbol id="ic-torp" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M6.5 9.5h9c2.9 0 5.5 1.1 5.5 2.5s-2.6 2.5-5.5 2.5h-9c-.8 0-1.5-1.1-1.5-2.5s.7-2.5 1.5-2.5z"/>
+      <path fill="currentColor" d="M5.5 9.8 2.4 6.6v10.8l3.1-3.2z"/>
+      <rect fill="currentColor" x="8" y="7.4" width="1.6" height="2.2"/>
+    </symbol>
+    <!-- contact mine: sphere + horns -->
+    <symbol id="ic-mine" viewBox="0 0 24 24">
+      <circle fill="currentColor" cx="12" cy="13" r="5.6"/>
+      <g stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M12 3.4v3.2"/>
+        <path d="M4.6 8.4l2.4 2"/>
+        <path d="M19.4 8.4l-2.4 2"/>
+        <path d="M3.4 15h3"/>
+        <path d="M17.6 15h3"/>
+        <path d="M6 20.6l2-2.2"/>
+        <path d="M18 20.6l-2-2.2"/>
+      </g>
+    </symbol>
+    <!-- sonar ping ability: emitter + expanding arcs -->
+    <symbol id="ic-sonar" viewBox="0 0 24 24">
+      <circle fill="currentColor" cx="6.4" cy="12" r="2.4"/>
+      <g fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M11 7.5a6.4 6.4 0 0 1 0 9"/>
+        <path d="M14.8 4.6a11 11 0 0 1 0 14.8"/>
+      </g>
+    </symbol>
+    <!-- smoke screen ability: cloud bank -->
+    <symbol id="ic-smoke" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M7 17.5a3.8 3.8 0 0 1-.5-7.57A5.2 5.2 0 0 1 16.6 8.6 4.1 4.1 0 0 1 17.6 17.5z"/>
+      <rect fill="currentColor" x="5" y="19.4" width="14" height="1.6" rx=".8" opacity=".6"/>
+    </symbol>
+    <!-- own-ship chevron for viewport dressing -->
+    <symbol id="ic-ship" viewBox="0 0 24 24">
+      <path fill="currentColor" fill-opacity=".3" stroke="currentColor" stroke-width="1.4"
+            d="M12 2.5 17 18l-5-3.4L7 18z"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="page">
+
+  <div class="pagehead-kicker">UX RUN 2026-07-16 · CREATIVE TOOL · HOTBAR-DIRECTIONS-1</div>
+  <h1>Weapon / Ability Hotbar — 4 Directions</h1>
+  <p class="pagehead-note">
+    Same slot contents in every variant so only <strong>composition and register</strong> differ:
+    <strong>Main Battery (1, selected)</strong> · <strong>Torpedoes (2, ready)</strong> ·
+    <strong>Mines (3, reloading)</strong> · <strong>Sonar Ping (Q, ready ability)</strong> ·
+    <strong>Smoke Screen (E, cooling ability)</strong> · <strong>empty offer slot</strong>.
+    Weapons are switch-to (one selected); abilities are press-to-trigger and carry a
+    chamfered corner so the two classes never read alike. Cooldown always lives inside the
+    icon square. One tooltip is rendered open (Direction A) as the hover example.
+  </p>
+  <div class="binding-warn">⚠ ALL KEYBINDS SHOWN (1/2/3 · Q/E) ARE PLACEHOLDERS — GDD E2 REWORKS KEYS</div>
+
+  <!-- ================= DIRECTION A ================= -->
+  <section>
+    <div class="dir-name"><span class="idx">A ·</span>GUN LINE</div>
+    <div class="dir-register">Everything under the thumb — arcade-immediate, MOBA muscle memory.</div>
+    <div class="viewport">
+      <span class="vp-tag">TACTICAL DISPLAY — MOCK VIEWPORT 1080p CROP</span>
+      <svg class="ship-chevron" width="26" height="26"><use href="#ic-ship"/></svg>
+
+      <!-- open tooltip example (hover state on slot 2) -->
+      <div class="a-tooltip">
+        <div class="a-tt-title">Torpedo Tubes</div>
+        <div class="a-tt-kind">WEAPON · KEY 2 · SWITCH-TO</div>
+        <div class="a-tt-desc">Bow-arc torpedoes. Slow to arm, hull-cracking on contact.</div>
+        <div class="a-tt-upg">
+          <span class="upg-label">UPGRADES ACCRUED</span>
+          +2 RELOAD &nbsp;·&nbsp; +1 RANGE
+        </div>
+      </div>
+
+      <div class="a-bar">
+        <div class="slot a-slot a-selected a-brackets">
+          <span class="keychip">1</span>
+          <svg class="icon" width="28" height="28"><use href="#ic-gun"/></svg>
+        </div>
+        <div class="slot a-slot">
+          <span class="keychip">2</span>
+          <svg class="icon" width="28" height="28"><use href="#ic-torp"/></svg>
+        </div>
+        <div class="slot a-slot a-cooling">
+          <span class="keychip">3</span>
+          <svg class="icon" width="28" height="28"><use href="#ic-mine"/></svg>
+          <div class="cd-fill"></div>
+          <span class="cd-pct">62%</span>
+        </div>
+        <div class="a-divider"></div>
+        <div class="slot a-slot a-ability a-ability-ready">
+          <span class="keychip">Q</span>
+          <svg class="icon" width="28" height="28"><use href="#ic-sonar"/></svg>
+          <span class="a-ready-tick"></span>
+        </div>
+        <div class="slot a-slot a-ability a-cooling">
+          <span class="keychip">E</span>
+          <svg class="icon" width="28" height="28"><use href="#ic-smoke"/></svg>
+          <div class="cd-fill" style="height:34%"></div>
+          <span class="cd-pct">34%</span>
+        </div>
+        <div class="slot a-slot a-empty">
+          <span class="keychip">·</span>
+          <span class="plus">+</span>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#FFB800"></i>selected weapon (brackets + lift)</span>
+      <span><i style="background:#00FF88"></i>ready ability (chamfer + tick)</span>
+      <span><i style="background:#000;border:1px solid rgba(0,255,136,.45)"></i>cooldown = bottom-up fill</span>
+      <span><i style="border:1px dashed #5A6478"></i>empty offer slot</span>
+    </div>
+    <div class="dir-notes">
+      <b>Composition:</b> bottom-center, weapons | rule | abilities | offer.
+      <b>Cooldown:</b> dark fill rises inside the square, phosphor waterline, % readout.
+      <b>Tooltip:</b> shown open on slot 2 — role, interaction class, accrued upgrades.
+    </div>
+  </section>
+
+  <!-- ================= DIRECTION B ================= -->
+  <section>
+    <div class="dir-name"><span class="idx">B ·</span>SHIP'S MANIFEST</div>
+    <div class="dir-register">Your loadout as identity — read the whole build at a glance, Hades-style.</div>
+    <div class="viewport">
+      <span class="vp-tag">TACTICAL DISPLAY — MOCK VIEWPORT 1080p CROP</span>
+      <svg class="ship-chevron" width="26" height="26" style="left:58%"><use href="#ic-ship"/></svg>
+
+      <div class="b-stack">
+        <div class="b-row">
+          <div class="slot b-slot b-selected">
+            <span class="keychip">1</span>
+            <svg class="icon" width="24" height="24"><use href="#ic-gun"/></svg>
+          </div>
+          <div class="b-label">
+            <div class="b-role">Main Battery</div>
+            <div class="b-item is-selected">120mm Guns — SELECTED</div>
+          </div>
+        </div>
+        <div class="b-row">
+          <div class="slot b-slot">
+            <span class="keychip">2</span>
+            <svg class="icon" width="24" height="24"><use href="#ic-torp"/></svg>
+          </div>
+          <div class="b-label">
+            <div class="b-role">Special · Tubes</div>
+            <div class="b-item">Torpedoes</div>
+          </div>
+        </div>
+        <div class="b-row">
+          <div class="slot b-slot b-cooling">
+            <span class="keychip">3</span>
+            <svg class="icon" width="24" height="24"><use href="#ic-mine"/></svg>
+            <div class="cd-drain"></div>
+          </div>
+          <div class="b-label">
+            <div class="b-role">Special · Stern</div>
+            <div class="b-item is-dim">Mines <span class="b-timer">— RELOAD 3.1s</span></div>
+          </div>
+        </div>
+        <div class="b-row">
+          <div class="slot b-slot b-ability b-ability-ready">
+            <span class="keychip">Q</span>
+            <svg class="icon" width="24" height="24"><use href="#ic-sonar"/></svg>
+          </div>
+          <div class="b-label">
+            <div class="b-role">Ability</div>
+            <div class="b-item is-ready">Sonar Ping — READY</div>
+          </div>
+        </div>
+        <div class="b-row">
+          <div class="slot b-slot b-ability b-cooling">
+            <span class="keychip">E</span>
+            <svg class="icon" width="24" height="24"><use href="#ic-smoke"/></svg>
+            <div class="cd-drain" style="height:78%"></div>
+          </div>
+          <div class="b-label">
+            <div class="b-role">Ability</div>
+            <div class="b-item is-dim">Smoke Screen <span class="b-timer">— 8.4s</span></div>
+          </div>
+        </div>
+        <div class="b-row">
+          <div class="slot b-slot b-empty"><span style="font-size:18px">+</span></div>
+          <div class="b-label">
+            <div class="b-role">Offer Slot</div>
+            <div class="b-item is-dim">Awaiting boon…</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#FFB800"></i>selected = amber left rail + name</span>
+      <span><i style="background:#00FF88"></i>ready ability named in phosphor</span>
+      <span><i style="background:#000;border:1px solid rgba(0,255,136,.4)"></i>cooldown = top-down drain + mono timer</span>
+      <span><i style="border:1px dashed #5A6478"></i>offer slot labeled</span>
+    </div>
+    <div class="dir-notes">
+      <b>Composition:</b> bottom-left vertical stack; every square carries slot-role + equipped-item text.
+      <b>Cooldown:</b> dark veil drains inside the square; exact seconds live in the label column, never a bar.
+      <b>Trade:</b> most informative, widest footprint — labels could collapse to squares-only in combat.
+    </div>
+  </section>
+
+  <!-- ================= DIRECTION C ================= -->
+  <section>
+    <div class="dir-name"><span class="idx">C ·</span>FIRE CONTROL CONSOLE</div>
+    <div class="dir-register">A cast-metal instrument you operate — bezels, etched linework, lamp indicators.</div>
+    <div class="viewport">
+      <span class="vp-tag">TACTICAL DISPLAY — MOCK VIEWPORT 1080p CROP</span>
+      <svg class="ship-chevron" width="26" height="26" style="left:42%"><use href="#ic-ship"/></svg>
+      <div class="c-minimap"></div>
+
+      <div class="c-panel">
+        <span class="c-screw tl"></span><span class="c-screw tr"></span>
+        <span class="c-screw bl"></span><span class="c-screw br"></span>
+        <div class="c-header">Weapons · Fire Control</div>
+        <div class="c-rack">
+          <div class="c-cell">
+            <div class="slot c-slot c-selected">
+              <span class="keychip">1</span>
+              <svg class="icon" width="26" height="26"><use href="#ic-gun"/></svg>
+            </div>
+            <div class="c-lamp lit"></div>
+            <div class="c-sub">BTRY</div>
+          </div>
+          <div class="c-cell">
+            <div class="slot c-slot">
+              <span class="keychip">2</span>
+              <svg class="icon" width="26" height="26"><use href="#ic-torp"/></svg>
+            </div>
+            <div class="c-lamp"></div>
+            <div class="c-sub">TUBE</div>
+          </div>
+          <div class="c-cell">
+            <div class="slot c-slot c-cooling">
+              <span class="keychip">3</span>
+              <svg class="icon" width="26" height="26"><use href="#ic-mine"/></svg>
+              <div class="c-sweep"></div>
+            </div>
+            <div class="c-lamp"></div>
+            <div class="c-sub">MINE</div>
+          </div>
+          <div class="c-cell">
+            <div class="slot c-slot c-ability c-ability-ready">
+              <span class="keychip">Q</span>
+              <svg class="icon" width="26" height="26"><use href="#ic-sonar"/></svg>
+            </div>
+            <div class="c-lamp" style="background:rgba(0,255,136,.7);border-color:rgba(0,255,136,.7);box-shadow:0 0 8px rgba(0,255,136,.45)"></div>
+            <div class="c-sub">PING</div>
+          </div>
+          <div class="c-cell">
+            <div class="slot c-slot c-ability c-cooling">
+              <span class="keychip">E</span>
+              <svg class="icon" width="26" height="26"><use href="#ic-smoke"/></svg>
+              <div class="c-sweep" style="background:conic-gradient(from 0deg, transparent 0 72%, rgba(0,255,136,.5) 72% 73.5%, rgba(0,0,0,.75) 73.5% 100%)"></div>
+            </div>
+            <div class="c-lamp"></div>
+            <div class="c-sub">SMKE</div>
+          </div>
+          <div class="c-cell">
+            <div class="slot c-slot c-empty"><span style="font-size:18px">+</span></div>
+            <div class="c-lamp"></div>
+            <div class="c-sub">AUX</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#FFB800"></i>selected = lit amber lamp under slot</span>
+      <span><i style="background:rgba(0,255,136,.7)"></i>ready ability = phosphor lamp</span>
+      <span><i style="background:conic-gradient(transparent 0 40%, #00FF88 40% 45%, #000 45%)"></i>cooldown = radar-sweep wedge</span>
+      <span><i style="border:1px dashed #5A6478"></i>AUX = empty offer well</span>
+    </div>
+    <div class="dir-notes">
+      <b>Composition:</b> bottom-right bezel panel beside the radar circle; recessed wells, etched separators, engraved header.
+      <b>Cooldown:</b> conic sweep with phosphor leading edge — reload reads like the radar itself.
+      <b>Selection:</b> physical lamp bar, not a frame — instrument register, most "CIC" of the four.
+    </div>
+  </section>
+
+  <!-- ================= DIRECTION D ================= -->
+  <section>
+    <div class="dir-name"><span class="idx">D ·</span>AFTERIMAGE</div>
+    <div class="dir-register">Nothing but light — the HUD is a phosphor ghost over open water, maximum void.</div>
+    <div class="viewport">
+      <span class="vp-tag">TACTICAL DISPLAY — MOCK VIEWPORT 1080p CROP</span>
+      <svg class="ship-chevron" width="26" height="26"><use href="#ic-ship"/></svg>
+
+      <div class="d-bar">
+        <div class="d-unit">
+          <div class="slot d-slot d-selected">
+            <svg class="icon" width="28" height="28"><use href="#ic-gun"/></svg>
+          </div>
+          <span class="d-key sel">1</span>
+        </div>
+        <div class="d-unit">
+          <div class="slot d-slot d-weapon-ready">
+            <svg class="icon" width="28" height="28"><use href="#ic-torp"/></svg>
+          </div>
+          <span class="d-key">2</span>
+        </div>
+        <div class="d-unit">
+          <div class="d-ring">
+            <div class="slot d-slot">
+              <svg class="icon" width="28" height="28"><use href="#ic-mine"/></svg>
+            </div>
+          </div>
+          <span class="d-key">3</span>
+        </div>
+        <div class="d-unit" style="margin-left:14px">
+          <div class="slot d-slot d-ability d-ability-ready">
+            <svg class="icon" width="28" height="28"><use href="#ic-sonar"/></svg>
+          </div>
+          <span class="d-key rdy">Q</span>
+        </div>
+        <div class="d-unit">
+          <div class="d-ring" style="background:conic-gradient(#00FF88 0 68%, rgba(0,255,136,.14) 68% 100%)">
+            <div class="slot d-slot d-ability">
+              <svg class="icon" width="28" height="28"><use href="#ic-smoke"/></svg>
+            </div>
+          </div>
+          <span class="d-key">E</span>
+        </div>
+        <div class="d-unit">
+          <div class="slot d-slot d-empty"><span style="font-size:20px">+</span></div>
+          <span class="d-key">·</span>
+        </div>
+      </div>
+    </div>
+    <div class="legend">
+      <span><i style="background:#FFB800"></i>selected = full amber glow</span>
+      <span><i style="background:#00FF88"></i>ready ability = phosphor glow + chamfer</span>
+      <span><i style="background:conic-gradient(#00FF88 0 35%, rgba(0,255,136,.14) 35%)"></i>cooldown = dim icon + square progress track</span>
+      <span><i style="border:1px dashed #5A6478"></i>empty offer outline</span>
+    </div>
+    <div class="dir-notes">
+      <b>Composition:</b> bottom-center floating squares, no panel, water visible through every slot; wide gaps; keys drift below.
+      <b>Cooldown:</b> icon dims to ~25% while a 2px phosphor track fills the square's perimeter.
+      <b>Trade:</b> most atmospheric, least "chrome" — must prove legibility on a Chromebook at 60 FPS.
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

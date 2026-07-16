@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker — Spend Window v2 (Refit)</title>
+<style>
+/* ============================================================
+   HULLCRACKER — REFIT (SPEND) WINDOW v2
+   SUPERSEDES .working/spend-window-1.html
+   ------------------------------------------------------------
+   Corrected against the finalized spines (DESIGN.md /
+   EXPERIENCE.md, post-triage 2026-07-16). Spines win on
+   conflict with any mock — including v1. What changed:
+
+     1. FOUR cards side by side — offers present 4 upgrade
+        choices (supersedes GDD's 3; GDD correction flagged in
+        Open Questions). Keys 1/2/3/4. The v1 "[OPEN] key 4"
+        footnote is resolved and removed.
+     2. Modifier is SPACE, not CTRL (input-scheme lens: CTRL+W
+        fires close-tab on Chromium/ChromeOS — the core
+        audience platform). HOLD, never toggle — absolute, no
+        toggle option (triage). Release dismisses; spending the
+        last banked level also closes.
+     3. Row placement: [PROPOSAL, per spine] the 4-card row
+        anchors in the BELOW-CENTER band — its top edge below
+        the listening ring's lower extent — so the ring, pips,
+        and own hull are never occluded. The chart layer
+        (ring + pips) renders above the card layer regardless.
+     4. While Space is held, hotbar Q/E/R/F are SUSPENDED —
+        "release Space to get back to the battle" — and the
+        stack dims to 38%. Helm (W/S/A/D) stays live.
+     5. Hotbar context updated to the ratified scheme: four
+        slots, Q/E/R/F top-to-bottom (Q universal gun, E/R
+        class specials, F offer slot), XP rail + banked chip at
+        the stack. The 1/2/E placeholder keys of v1 are dead.
+     6. NEW third state: SPEND FAILURE (spine · State
+        Patterns) — latch dims cards while a spend is in
+        flight; on server reject/timeout the latch releases
+        with the denied pulse register on that card; the level
+        stays banked.
+
+   THREE STATES ON THIS PAGE:
+     S1 — window OPEN (SPACE held): 4 cards, card 2
+          hover-armed, banked counter + queue pips + ghost
+          edge, helper line, listening ring + own hull clear
+          above the row, hotbar suspended.
+     S2 — window CLOSED: Banked-Level Chip breathing at the
+          head of the hotbar stack ("HOLD SPACE TO REFIT").
+     S3 — SPEND FAILURE: latch + denied pulse on the picked
+          card; bank count unchanged.
+
+   FONTS: system stack for offline rendering.
+   PRODUCTION USES: Geist (display/body) + Geist Mono (labels,
+   uppercase, letter-spaced) per DESIGN.md.
+
+   SHARED TOKENS (DESIGN.md frontmatter, 2026-07-16):
+     void            #050807
+     fog-base        #020604
+     card-scrim      #030605  (rendered rgba(3,7,5,.9) dark glass)
+     phosphor        #00FF88  (ready / banked / HUD chrome)
+     amber           #FFB800  (selected / armed / action)
+     denied          #FF3B3B  (denied pulse — the single red)
+     silver          #C0C0C0  (idle linework, rgba .28)
+     text-primary    #E2E8F0
+     text-secondary  #8B95A5  (body copy; card category tag —
+                               promoted off muted, it drives
+                               the 1–4 pick)
+     text-muted      #7A8496  (labels/captions only; lightened
+                               from v1's #5A6478 per validation)
+     player-cyan     #00D0FF → fill #005E73 (own hull, Regatta)
+
+   AFTERIMAGE REGISTER (carried): floating 1px-outline
+   rectangles, {rounded.none}, NO shared panel, no backdrop
+   dim — the water shows through every gap. Card interiors
+   carry the sanctioned near-opaque dark-glass scrim
+   rgba(3,7,5,.9) so boon copy is glanceable mid-combat.
+   Nothing may read as a cheap filled panel.
+
+   BOON COPY = PLACEHOLDER — invented plausible naval boons
+   for layout only ("Long Lanyard" / "Wakeless Running" /
+   "Phosphor Memory" / "Stoked Boilers"). Category names
+   equally placeholder (4 distinct categories shown). NOT
+   CANON (EXPERIENCE · Open Questions 14).
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #050807; /* void */
+  color: #E2E8F0;
+  /* production: Geist */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  padding: 40px 20px 96px;
+}
+.mono {
+  /* production: Geist Mono */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.page { max-width: 1400px; min-width: 1360px; margin: 0 auto; } /* mock never compresses: the 924px card row must stay clear of the hotbar column */
+
+h1 { font-size: 30px; font-weight: 700; letter-spacing: .01em; }
+.pagehead-kicker {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+  color: #00FF88; margin-bottom: 10px;
+}
+.pagehead-note { color: #8B95A5; font-size: 14px; max-width: 84ch; margin-top: 10px; }
+.pagehead-note strong { color: #E2E8F0; }
+.binding-note {
+  display: inline-block; margin-top: 12px; padding: 6px 12px;
+  border: 1px dashed #7A8496; color: #FFB800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+}
+
+/* ---- section chrome ---- */
+section { margin-top: 64px; }
+.comp-name { font-size: 22px; font-weight: 700; letter-spacing: .02em; }
+.comp-name .idx {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #00FF88; font-weight: 600; font-size: 15px; margin-right: 10px;
+  letter-spacing: .15em;
+}
+.comp-register { color: #8B95A5; font-size: 14px; margin: 4px 0 16px; font-style: italic; }
+.comp-notes {
+  margin-top: 14px; color: #7A8496; font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: .04em; max-width: 120ch;
+}
+.comp-notes b { color: #8B95A5; font-weight: 600; }
+
+/* ---- mock game viewport ----
+   Black-green void, faint chart rings (silver @ .05), phosphor
+   sweep suggestion. The game stays visible AROUND the refit
+   window — floating window, never a takeover. Rings centered on
+   OWN SHIP (camera-centered), which sits clear ABOVE the card
+   band in the open state. */
+.viewport {
+  position: relative;
+  height: 620px;
+  border: 1px solid #1B2621; /* hairline */
+  overflow: hidden;
+  background:
+    conic-gradient(from 35deg at 50% 30%, rgba(0,255,136,.07), transparent 22%),
+    repeating-radial-gradient(circle at 50% 30%, transparent 0 84px, rgba(192,192,192,.05) 84px 85px),
+    radial-gradient(circle at 50% 30%, rgba(0,255,136,.05), transparent 46%),
+    #020604; /* fog-base */
+}
+.vp-tag {
+  position: absolute; top: 10px; left: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .2em; color: rgba(122,132,150,.75);
+  text-transform: uppercase;
+}
+/* distant contact + faded blip so "the game is still on" reads */
+.contact-dot {
+  position: absolute; width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(0,255,136,.55); box-shadow: 0 0 8px rgba(0,255,136,.35);
+}
+.blip-fade {
+  position: absolute; width: 4px; height: 4px; border-radius: 50%;
+  background: rgba(0,255,136,.22);
+}
+
+/* ---- own ship + listening ring (chart layer) ----
+   Dashed compass rose ~half truesight radius, 48 dash-pips +
+   cardinal ticks, phosphor; segments light toward noise
+   (intensity grammar). Chart layer renders ABOVE the card
+   layer by z-order rule (DESIGN · Elevation & Depth) — here
+   they never overlap anyway, per the band rule. */
+.chart-layer {
+  position: absolute; left: 50%; top: 30%;
+  transform: translate(-50%, -50%);
+  z-index: 3; /* above .refit (z-index 2) — the ratified z-order */
+  pointer-events: none;
+}
+.own-nameplate {
+  position: absolute; left: 50%; top: calc(30% - 26px);
+  transform: translate(-50%, -100%);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
+  color: #66E4FF; /* cyan text-safe variant [mechanism decided; exact table = Open Question] */
+  z-index: 3;
+}
+
+/* ---- annotation register (amber .6, would never ship) ---- */
+.anno {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8px; letter-spacing: .14em; text-transform: uppercase;
+  color: rgba(255,184,0,.6);
+}
+.anno-band {
+  position: absolute; left: 4%; right: 4%;
+  border-top: 1px dashed rgba(255,184,0,.28);
+  pointer-events: none;
+}
+.anno-band .anno { position: absolute; right: 0; top: 2px; }
+
+/* ============================================================
+   HOTBAR CONTEXT — ratified scheme: bottom-left vertical stack,
+   Q/E/R/F top-to-bottom (Q = universal gun, E/R = class
+   specials, F = offer slot), XP rail on the stack's left edge,
+   Banked-Level Chip at the head. Rendered small/dim here —
+   context dressing, not the deliverable of this page.
+   ============================================================ */
+.hb-wrap {
+  position: absolute; left: 20px; bottom: 18px;
+  display: flex; gap: 10px; align-items: flex-end;
+}
+/* XP rail: 3px vertical phosphor rail, fills upward, LV tag at foot */
+.xp-rail { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.xp-track {
+  width: 3px; height: 208px; background: rgba(0,255,136,.12);
+  position: relative;
+}
+.xp-fill {
+  position: absolute; left: 0; bottom: 0; width: 3px; height: 62%;
+  background: #00FF88; box-shadow: 0 0 6px rgba(0,255,136,.4);
+}
+.xp-tag {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .1em; color: #7A8496;
+}
+.hb-stack { display: flex; flex-direction: column; gap: 12px; }
+.hb-row { display: flex; align-items: center; gap: 10px; }
+.hb-key {
+  width: 14px; height: 14px; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border: 1px solid rgba(192,192,192,.25);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: 0; color: rgba(139,149,165,.85);
+}
+.hb-key.sel { color: #FFB800; border-color: rgba(255,184,0,.6); background: rgba(255,184,0,.12); }
+.hb-slot {
+  position: relative; width: 44px; height: 44px;
+  border: 1px solid rgba(192,192,192,.28); background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(159,179,168,.85); flex: none;
+}
+.hb-selected {
+  border-color: #FFB800; color: #FFB800;
+  box-shadow: 0 0 16px rgba(255,184,0,.4), inset 0 0 12px rgba(255,184,0,.12);
+}
+.hb-ready {
+  border-color: rgba(0,255,136,.4); color: rgba(0,255,136,.75);
+  box-shadow: 0 0 10px rgba(0,255,136,.15);
+}
+/* empty offer slot (F): dashed, awaiting refit */
+.hb-empty {
+  border: 1px dashed rgba(122,132,150,.45); color: rgba(122,132,150,.6);
+  font-size: 16px;
+}
+/* ammo badge: mono count pinned over the square's top-right */
+.hb-badge {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 14px; height: 14px; padding: 0 3px;
+  background: #030605; border: 1px solid rgba(0,255,136,.5);
+  color: #00FF88; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; line-height: 12px; text-align: center; letter-spacing: 0;
+}
+/* cooling ring on an ABILITY slot: conic perimeter + chamfered
+   top-right corner (proportional ~7px on 44px context slots) —
+   the shape mark for press-to-trigger abilities */
+.hb-ring {
+  padding: 2px; width: 44px; height: 44px; flex: none;
+  background: conic-gradient(#00FF88 0 58%, rgba(0,255,136,.14) 58% 100%);
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
+}
+.hb-ring .hb-slot {
+  width: 100%; height: 100%; border: none; background: #030605;
+  color: rgba(70,85,78,.6);
+  clip-path: polygon(0 0, calc(100% - 7px) 0, 100% 7px, 100% 100%, 0 100%);
+}
+.hb-label { line-height: 1.35; }
+.hb-name { font-size: 12px; font-weight: 600; color: #E2E8F0; letter-spacing: .02em; }
+.hb-name.sel { color: #FFB800; }
+.hb-name.dim { color: #7A8496; font-weight: 400; }
+.hb-info {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .08em; color: #7A8496;
+}
+/* SUSPENDED grammar: while Space is held the whole stack dims
+   to 38% and Q/E/R/F are inert — release Space to fight */
+.hb-suspended { opacity: .38; }
+
+/* ============================================================
+   BANKED-LEVEL CHIP (S2) — 30px outlined square at the head of
+   the hotbar stack, mono count inside, 2.4s ease breathing glow
+   (never a flash); breathing decays to a STATIC glow after ~10s
+   unspent, re-arms on a new bank or a Space touch. Hidden at
+   zero banked levels. Tier-3 economy channel: freezes at the
+   dim keyframe while any threat channel is active.
+   ============================================================ */
+@keyframes bank-breathe {
+  0%, 100% { box-shadow: 0 0 6px rgba(0,255,136,.18), inset 0 0 6px rgba(0,255,136,.06); }
+  50%      { box-shadow: 0 0 16px rgba(0,255,136,.45), inset 0 0 10px rgba(0,255,136,.14); }
+}
+.bank-chip {
+  width: 30px; height: 30px; flex: none;
+  border: 1px solid rgba(0,255,136,.65);
+  background: rgba(3,7,5,.6);
+  display: flex; align-items: center; justify-content: center;
+  animation: bank-breathe 2.4s ease-in-out infinite;
+}
+.bank-chip .n {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; font-weight: 600; color: #00FF88; letter-spacing: 0;
+}
+.bank-line { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+.bank-cue {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
+  color: rgba(0,255,136,.75); line-height: 1.6;
+}
+.bank-cue .k { color: #8B95A5; }
+
+/* ============================================================
+   S1 — THE REFIT WINDOW, SPACE HELD.
+   No panel, no backdrop dim: header line + FOUR floating 216px
+   cards (20px water gaps) + helper line. The block anchors in
+   the BELOW-CENTER band [PROPOSAL] — top edge below the
+   listening ring's lower extent — so ring, pips, and own hull
+   stay unoccluded. Cards never wrap: the 1–4 keys map
+   spatially. Battle remains legible in every gap.
+   ============================================================ */
+.refit {
+  position: absolute; left: 50%; top: 51%;
+  transform: translateX(-50%);
+  display: flex; flex-direction: column; align-items: center;
+  z-index: 2; /* below the chart layer (ring + pips) */
+}
+
+/* header: banked counter (left) · title (center) · queue cue (right) */
+.refit-head {
+  display: flex; align-items: baseline; gap: 22px;
+  margin-bottom: 14px;
+}
+.refit-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; font-weight: 600; letter-spacing: .3em;
+  text-transform: uppercase; color: #E2E8F0;
+  text-shadow: 0 0 12px rgba(0,255,136,.25);
+}
+.refit-banked {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+  color: #00FF88;
+}
+/* queue pips (8px squares): filled = the offer on screen,
+   hollow = pre-rolled offers waiting behind it. Banked offers
+   NEVER expire and NEVER reroll — peek, release, fight, re-open. */
+.queue-cue {
+  display: flex; align-items: center; gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+  color: #7A8496;
+}
+.qpip { width: 8px; height: 8px; display: inline-block; }
+.qpip.live { background: #00FF88; box-shadow: 0 0 8px rgba(0,255,136,.5); }
+.qpip.wait { border: 1px solid rgba(0,255,136,.45); background: transparent; }
+
+/* --- card row: FOUR floating cards, 20px water gaps --- */
+.card-row { position: relative; display: flex; gap: 20px; }
+
+/* ghost of the NEXT queued offer: dashed offset edge behind the
+   row, top-right — the deck has another card under it */
+.ghost-offer {
+  position: absolute; top: -7px; right: -7px;
+  width: 216px; height: 40px;
+  border-top: 1px dashed rgba(0,255,136,.25);
+  border-right: 1px dashed rgba(0,255,136,.25);
+  pointer-events: none;
+}
+
+/* card: 216px, 1px outline, dark-glass scrim rgba(3,7,5,.9) */
+.card {
+  position: relative; width: 216px; padding: 14px 16px 16px;
+  border: 1px solid rgba(192,192,192,.28);
+  background: rgba(3,7,5,.9);
+}
+/* armed (hover / about to be picked): amber Afterimage glow */
+.card.armed {
+  border-color: #FFB800;
+  box-shadow: 0 0 16px rgba(255,184,0,.4), inset 0 0 12px rgba(255,184,0,.08);
+}
+/* key chip: 22px outlined square overhanging top-left — same
+   mono key-chip family as Q/E/R/F beside the slots and W/S/A/D
+   at the helm gauges (one glyph system) */
+.card-key {
+  position: absolute; top: -11px; left: 12px;
+  width: 22px; height: 22px;
+  background: #030605; border: 1px solid rgba(192,192,192,.4);
+  display: flex; align-items: center; justify-content: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; color: #8B95A5; letter-spacing: 0;
+}
+.card.armed .card-key {
+  border-color: #FFB800; color: #FFB800;
+  box-shadow: 0 0 10px rgba(255,184,0,.4);
+}
+/* category tag: text-secondary #8B95A5 — PROMOTED off muted per
+   validation (it drives the 1–4 pick, so it's load-bearing) */
+.card-cat {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .22em; text-transform: uppercase;
+  color: #8B95A5; margin-top: 4px;
+}
+.card.armed .card-cat { color: rgba(255,184,0,.75); }
+.card-name {
+  font-size: 15px; font-weight: 600; letter-spacing: .02em;
+  color: #E2E8F0; margin-top: 3px;
+}
+.card.armed .card-name { color: #FFB800; }
+.card-desc { font-size: 11.5px; color: #8B95A5; margin-top: 7px; line-height: 1.45; }
+/* armed affordance line, bottom of the armed card only */
+.card-arm-hint {
+  margin-top: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
+  color: #FFB800;
+}
+
+/* S3 — spend latch + failure grammar */
+.card.latched { opacity: .45; } /* spend in flight: cards dim under the latch */
+.card.denied {
+  border: 2px solid #FF3B3B; padding: 13px 15px 15px; /* 1px→2px edge pulse, peak frame */
+  box-shadow: 0 0 14px rgba(255,59,59,.35), inset 0 0 10px rgba(255,59,59,.08);
+}
+.card.denied .card-key { border-color: #FF3B3B; color: #FF3B3B; top: -12px; left: 11px; }
+.card.denied .card-name { color: #FF3B3B; }
+.card-denied-hint {
+  margin-top: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
+  color: #FF3B3B;
+}
+
+/* helper microcopy line, floating under the row — naval-terse */
+.refit-help {
+  margin-top: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+  color: #7A8496;
+}
+.refit-help b { color: #8B95A5; font-weight: 600; }
+/* placeholder caption — annotation, would not ship */
+.refit-ph {
+  margin-top: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8px; letter-spacing: .14em; text-transform: uppercase;
+  color: rgba(255,184,0,.6);
+}
+</style>
+</head>
+<body>
+
+<!-- Shared icon set (inline SVG symbols, currentColor) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- naval shell + breech: GUN -->
+    <symbol id="ic-gun" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2c-2.3 2.7-3.6 5.6-3.6 8.7V17h7.2v-6.3C15.6 7.6 14.3 4.7 12 2z"/>
+      <rect fill="currentColor" x="7.2" y="18.4" width="9.6" height="3" rx=".5"/>
+    </symbol>
+    <!-- torpedo, nose right, tail fins left -->
+    <symbol id="ic-torp" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M6.5 9.5h9c2.9 0 5.5 1.1 5.5 2.5s-2.6 2.5-5.5 2.5h-9c-.8 0-1.5-1.1-1.5-2.5s.7-2.5 1.5-2.5z"/>
+      <path fill="currentColor" d="M5.5 9.8 2.4 6.6v10.8l3.1-3.2z"/>
+      <rect fill="currentColor" x="8" y="7.4" width="1.6" height="2.2"/>
+    </symbol>
+    <!-- smoke screen ability: cloud bank -->
+    <symbol id="ic-smoke" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M7 17.5a3.8 3.8 0 0 1-.5-7.57A5.2 5.2 0 0 1 16.6 8.6 4.1 4.1 0 0 1 17.6 17.5z"/>
+      <rect fill="currentColor" x="5" y="19.4" width="14" height="1.6" rx=".8" opacity=".6"/>
+    </symbol>
+    <!-- own hull: Gunboat compact flared wedge (~2.3:1), flat
+         transom — Regatta cyan outline #00D0FF / fill #005E73 -->
+    <symbol id="ic-gunboat" viewBox="0 0 24 30">
+      <path d="M12 1.5 L17.5 12 L18.5 26.5 L5.5 26.5 L6.5 12 Z"
+            fill="#005E73" stroke="#00D0FF" stroke-width="1.4" stroke-linejoin="round"/>
+      <rect x="10" y="8.5" width="4" height="4" fill="none" stroke="#00D0FF" stroke-width="1"/>
+    </symbol>
+    <!-- listening ring: 48 dash-pips + cardinal ticks, phosphor;
+         two lit arcs toward a noise bearing (intensity grammar:
+         more/closer = brighter; deliberately source-ambiguous) -->
+    <symbol id="ic-listen-ring" viewBox="0 0 200 200">
+      <!-- 48 pips: r=88, C≈553; dash 4 / gap 7.52 -->
+      <circle cx="100" cy="100" r="88" fill="none"
+              stroke="rgba(0,255,136,.35)" stroke-width="2.5"
+              stroke-dasharray="4 7.52"/>
+      <!-- cardinal ticks N/E/S/W -->
+      <line x1="100" y1="4"   x2="100" y2="12"  stroke="rgba(0,255,136,.55)" stroke-width="1.5"/>
+      <line x1="188" y1="100" x2="196" y2="100" stroke="rgba(0,255,136,.55)" stroke-width="1.5"/>
+      <line x1="100" y1="188" x2="100" y2="196" stroke="rgba(0,255,136,.55)" stroke-width="1.5"/>
+      <line x1="4"   y1="100" x2="12"  y2="100" stroke="rgba(0,255,136,.55)" stroke-width="1.5"/>
+      <!-- lit pip surge toward ~ENE bearing (Tier 1 threat channel) -->
+      <path d="M 176.2 56 A 88 88 0 0 1 187.6 91.2" fill="none"
+            stroke="rgba(0,255,136,.95)" stroke-width="3"
+            stroke-dasharray="4 7.52" style="filter: drop-shadow(0 0 4px rgba(0,255,136,.7))"/>
+      <path d="M 160 41.4 A 88 88 0 0 1 176.2 56" fill="none"
+            stroke="rgba(0,255,136,.6)" stroke-width="2.5"
+            stroke-dasharray="4 7.52"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="page">
+
+  <div class="pagehead-kicker">UX RUN 2026-07-16 · FINALIZE KEY-SCREEN RE-RENDER · SPEND-WINDOW-2 — SUPERSEDES SPEND-WINDOW-1</div>
+  <h1>Refit (Spend) Window — corrected to the spines</h1>
+  <p class="pagehead-note">
+    v1 was locked "as rendered" but now contradicts the finalized spines. This re-render corrects it:
+    <strong>FOUR cards</strong> (offers present 4 upgrade choices, keys <strong>1/2/3/4</strong> — supersedes GDD's 3;
+    the v1 key-4 footnote is resolved), modifier is <strong>HOLD SPACE</strong> (CTRL left the scheme —
+    close-tab hazard on ChromeOS; hold-not-toggle is absolute), the card row anchors in the
+    <strong>below-center band</strong> so the own hull + listening ring stay unoccluded, and while Space is held
+    the hotbar's <strong>Q/E/R/F are suspended</strong> (stack dims to 38% — release Space to fight; helm W/S/A/D
+    stays live). Banked offers <strong>never reroll and never expire</strong>. New third state: the spine's
+    <strong>spend-failure</strong> grammar (latch + denied pulse; level stays banked).
+  </p>
+  <div class="binding-note">Q/E/R/F + HOLD-SPACE SCHEME (RATIFIED) — SUPERSEDES CTRL, THE 1/2/3 WEAPON KEYS, AND ALL V1 PLACEHOLDER KEYS</div>
+
+  <!-- ================= STATE 1 — WINDOW OPEN ================= -->
+  <section>
+    <div class="comp-name"><span class="idx">S1 ·</span>WINDOW OPEN — SPACE HELD, CARD 2 ARMED</div>
+    <div class="comp-register">Four floating cards in the below-center band; own hull + listening ring clear above; hotbar suspended at 38%; one more offer queued behind this one.</div>
+    <div class="viewport">
+      <span class="vp-tag">TACTICAL DISPLAY — MOCK VIEWPORT 1080p CROP · CAMERA CENTERED ON OWN SHIP</span>
+
+      <!-- chart layer: listening ring + pips render ABOVE the card
+           layer (ratified z-order) — and the band rule keeps them
+           spatially clear of the cards anyway -->
+      <div class="own-nameplate">IRONWAKE</div>
+      <div class="chart-layer">
+        <svg width="200" height="200"><use href="#ic-listen-ring"/></svg>
+        <svg width="24" height="30" style="position:absolute; left:50%; top:50%; transform:translate(-50%,-50%) rotate(14deg)"><use href="#ic-gunboat"/></svg>
+      </div>
+
+      <span class="contact-dot" style="top:14%; left:78%"></span>
+      <span class="blip-fade" style="top:22%; left:14%"></span>
+
+      <!-- [PROPOSAL] band guide — annotation, would not ship -->
+      <div class="anno-band" style="top:47.5%">
+        <span class="anno">[PROPOSAL] REFIT-ROW BAND — TOP EDGE BELOW THE LISTENING RING'S LOWER EXTENT; RING · PIPS · OWN HULL NEVER OCCLUDED</span>
+      </div>
+
+      <!-- THE REFIT WINDOW -->
+      <div class="refit">
+        <div class="refit-head">
+          <span class="refit-banked">LEVELS BANKED: 3</span>
+          <span class="refit-title">REFIT</span>
+          <span class="queue-cue">
+            <span class="qpip live"></span><span class="qpip wait"></span><span class="qpip wait"></span>
+            NEXT OFFER QUEUED
+          </span>
+        </div>
+
+        <div class="card-row">
+          <!-- ghost edge of the next pre-rolled offer waiting behind -->
+          <div class="ghost-offer"></div>
+
+          <!-- CARD 1 — idle -->
+          <div class="card">
+            <div class="card-key">1</div>
+            <div class="card-cat">Gunnery</div>
+            <div class="card-name">Long Lanyard</div>
+            <div class="card-desc">Hold the trigger to charge a shot — the delayed round leaves the muzzle heavier and cracks armor.</div>
+          </div>
+
+          <!-- CARD 2 — HOVER / ARMED (amber, about to be picked) -->
+          <div class="card armed">
+            <div class="card-key">2</div>
+            <div class="card-cat">Seamanship</div>
+            <div class="card-name">Wakeless Running</div>
+            <div class="card-desc">At half telegraph or below, your hull runs silent — hull microphones can no longer hear you coming.</div>
+            <div class="card-arm-hint">PRESS 2 — FIT TO HULL</div>
+          </div>
+
+          <!-- CARD 3 — idle -->
+          <div class="card">
+            <div class="card-key">3</div>
+            <div class="card-cat">Sensors</div>
+            <div class="card-name">Phosphor Memory</div>
+            <div class="card-desc">Blips your sweep paints linger far longer before fading — contacts stay on the glass between passes.</div>
+          </div>
+
+          <!-- CARD 4 — idle (4th choice, 4th distinct category) -->
+          <div class="card">
+            <div class="card-key">4</div>
+            <div class="card-cat">Engineering</div>
+            <div class="card-name">Stoked Boilers</div>
+            <div class="card-desc">Boilers answer the telegraph like a launch — the hull reaches every ordered speed markedly faster.</div>
+          </div>
+        </div>
+
+        <div class="refit-help"><b>HOLD SPACE</b> — RELEASE TO DISMISS · <b>1/2/3/4</b> TO REFIT</div>
+        <div class="refit-ph">BOON NAMES + CATEGORIES = PLACEHOLDER — INVENTED FOR LAYOUT, NOT CANON (OPEN QUESTIONS 14)</div>
+      </div>
+
+      <!-- hotbar context: SUSPENDED while Space is held (38%) -->
+      <div class="hb-wrap hb-suspended">
+        <div class="xp-rail">
+          <div class="xp-track"><div class="xp-fill"></div></div>
+          <div class="xp-tag">LV&nbsp;4</div>
+        </div>
+        <div class="hb-stack">
+          <div class="bank-line">
+            <span class="hb-key" style="border-color:transparent">&nbsp;</span>
+            <div class="bank-chip"><span class="n">3</span></div>
+          </div>
+          <div class="hb-row">
+            <span class="hb-key sel">Q</span>
+            <div class="hb-slot hb-selected"><svg width="24" height="24"><use href="#ic-gun"/></svg></div>
+            <div class="hb-label">
+              <div class="hb-name sel">Deck Gun</div>
+              <div class="hb-info">DMG 12 · CD 2.4s</div>
+            </div>
+          </div>
+          <div class="hb-row">
+            <span class="hb-key">E</span>
+            <div class="hb-slot hb-ready"><svg width="24" height="24"><use href="#ic-torp"/></svg><span class="hb-badge">2</span></div>
+            <div class="hb-label">
+              <div class="hb-name">Mk-II Torpedoes</div>
+              <div class="hb-info">DMG 45 · CD 9.0s</div>
+            </div>
+          </div>
+          <div class="hb-row">
+            <span class="hb-key">R</span>
+            <div class="hb-ring"><div class="hb-slot"><svg width="24" height="24"><use href="#ic-smoke"/></svg></div></div>
+            <div class="hb-label">
+              <div class="hb-name dim">Smoke Screen</div>
+              <div class="hb-info">CD 6.2s LEFT</div>
+            </div>
+          </div>
+          <div class="hb-row">
+            <span class="hb-key">F</span>
+            <div class="hb-slot hb-empty">+</div>
+            <div class="hb-label">
+              <div class="hb-name dim">— awaiting refit —</div>
+              <div class="hb-info">OFFER SLOT</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- suspension annotation — would not ship -->
+      <span class="anno" style="position:absolute; right:20px; bottom:40px; width:340px; text-align:right; line-height:1.7">Q/E/R/F SUSPENDED WHILE SPACE HELD (STACK AT LOWER-LEFT DIMS TO 38%) — RELEASE SPACE TO FIGHT · HELM (W/S/A/D) STAYS LIVE</span>
+    </div>
+    <div class="comp-notes">
+      <b>Window:</b> no panel, no screen dim — header line + FOUR 216px cards (20px water gaps) + helper line, anchored in the below-center band [PROPOSAL]; own hull + listening ring ride clear above; the chart layer (ring + pips) renders above the card layer by z-order regardless.
+      <b>Armed card:</b> amber outline + Afterimage glow; key chip lights amber; affordance line appears.
+      <b>Queue cue:</b> filled pip = this offer, hollow pips = 2 more pre-rolled offers waiting; dashed ghost edge behind the row echoes the deck. Banked offers never reroll, never expire.
+      <b>Spend flow:</b> press 2 → card flashes phosphor, next offer's cards slide in, pip advances; bank empty → window closes itself.
+      <b>Release grammar:</b> a number key's meaning is evaluated at its own keydown against Space's state; for ~150–200 ms after Space release, 1–4 resolve as refit-or-NOTHING, never as a consumable.
+      <b>Cards never wrap</b> — the 1–4 keys map spatially at every UI scale.
+    </div>
+  </section>
+
+  <!-- ================= STATE 2 — WINDOW CLOSED, BANKED CHIP ================= -->
+  <section>
+    <div class="comp-name"><span class="idx">S2 ·</span>WINDOW CLOSED — BANKED-LEVEL CHIP</div>
+    <div class="comp-register">How you know there's something to spend: one 30px phosphor square breathing at the head of the hotbar stack.</div>
+    <div class="viewport" style="height:380px; background:
+        conic-gradient(from 35deg at 58% 34%, rgba(0,255,136,.07), transparent 22%),
+        repeating-radial-gradient(circle at 58% 34%, transparent 0 84px, rgba(192,192,192,.05) 84px 85px),
+        radial-gradient(circle at 58% 34%, rgba(0,255,136,.05), transparent 46%),
+        #020604">
+      <span class="vp-tag">TACTICAL DISPLAY — MOCK VIEWPORT 1080p CROP</span>
+      <svg width="24" height="30" style="position:absolute; left:58%; top:34%; transform:translate(-50%,-50%) rotate(24deg)"><use href="#ic-gunboat"/></svg>
+      <span class="contact-dot" style="top:30%; left:80%"></span>
+      <span class="blip-fade" style="top:56%; left:30%"></span>
+
+      <div class="hb-wrap">
+        <div class="xp-rail">
+          <div class="xp-track" style="height:238px"><div class="xp-fill"></div></div>
+          <div class="xp-tag">LV&nbsp;4</div>
+        </div>
+        <div class="hb-stack">
+          <!-- THE CHIP: 30px outlined square, mono count, 2.4s
+               breathing glow; decays to a static glow after ~10s
+               unspent (still reads "banked"); hidden at zero. -->
+          <div class="bank-line">
+            <span class="hb-key" style="border-color:transparent">&nbsp;</span>
+            <div class="bank-chip"><span class="n">3</span></div>
+            <div class="bank-cue">3 LEVELS BANKED<br><span class="k">HOLD SPACE TO REFIT</span></div>
+          </div>
+
+          <div class="hb-row">
+            <span class="hb-key sel">Q</span>
+            <div class="hb-slot hb-selected"><svg width="24" height="24"><use href="#ic-gun"/></svg></div>
+            <div class="hb-label">
+              <div class="hb-name sel">Deck Gun</div>
+              <div class="hb-info">DMG 12 · CD 2.4s</div>
+            </div>
+          </div>
+          <div class="hb-row">
+            <span class="hb-key">E</span>
+            <div class="hb-slot hb-ready"><svg width="24" height="24"><use href="#ic-torp"/></svg><span class="hb-badge">2</span></div>
+            <div class="hb-label">
+              <div class="hb-name">Mk-II Torpedoes</div>
+              <div class="hb-info">DMG 45 · CD 9.0s</div>
+            </div>
+          </div>
+          <div class="hb-row">
+            <span class="hb-key">R</span>
+            <div class="hb-ring"><div class="hb-slot"><svg width="24" height="24"><use href="#ic-smoke"/></svg></div></div>
+            <div class="hb-label">
+              <div class="hb-name dim">Smoke Screen</div>
+              <div class="hb-info">CD 6.2s LEFT</div>
+            </div>
+          </div>
+          <div class="hb-row">
+            <span class="hb-key">F</span>
+            <div class="hb-slot hb-empty">+</div>
+            <div class="hb-label">
+              <div class="hb-name dim">— awaiting refit —</div>
+              <div class="hb-info">OFFER SLOT</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="comp-notes">
+      <b>Chip:</b> 30px phosphor-outlined square, mono count, 2.4s ease breathing glow — never a flash; breathing decays to a STATIC glow after ~10s unspent (a static chip still reads "banked"), re-arming on a new bank or a Space touch. Tier-3 economy channel: freezes at the dim keyframe while any threat channel is active.
+      <b>Placement:</b> head of the bottom-left hotbar stack — the refit changes this manifest, so the cue lives where the result lands.
+      <b>Copy:</b> "3 LEVELS BANKED / HOLD SPACE TO REFIT" — count updates in place; chip hidden entirely at zero [ASSUMPTION, log silent — flagged in spine].
+    </div>
+  </section>
+
+  <!-- ================= STATE 3 — SPEND FAILURE ================= -->
+  <section>
+    <div class="comp-name"><span class="idx">S3 ·</span>SPEND FAILURE — LATCH RELEASES WITH THE DENIED PULSE</div>
+    <div class="comp-register">Spine · State Patterns: the spend latch dims cards while a spend is in flight; on server reject/timeout the latch releases with the denied pulse register on that card — the level stays banked.</div>
+    <div class="viewport" style="height:330px; background:
+        radial-gradient(circle at 50% -40%, rgba(0,255,136,.05), transparent 46%),
+        #020604">
+      <span class="vp-tag">TACTICAL DISPLAY — MOCK VIEWPORT CROP · REFIT ROW DETAIL, SPACE STILL HELD</span>
+
+      <div class="refit" style="top:36px">
+        <div class="refit-head">
+          <span class="refit-banked">LEVELS BANKED: 3</span>
+          <span class="refit-title">REFIT</span>
+          <span class="queue-cue">
+            <span class="qpip live"></span><span class="qpip wait"></span><span class="qpip wait"></span>
+            NEXT OFFER QUEUED
+          </span>
+        </div>
+
+        <div class="card-row">
+          <!-- latch: the un-picked cards dim while the spend is in flight -->
+          <div class="card latched">
+            <div class="card-key">1</div>
+            <div class="card-cat">Gunnery</div>
+            <div class="card-name">Long Lanyard</div>
+            <div class="card-desc">Hold the trigger to charge a shot — the delayed round leaves the muzzle heavier and cracks armor.</div>
+          </div>
+
+          <!-- the picked card: denied pulse register (1px→2px
+               {denied} edge, peak frame of the 80ms one-shot) -->
+          <div class="card denied">
+            <div class="card-key">2</div>
+            <div class="card-cat">Seamanship</div>
+            <div class="card-name">Wakeless Running</div>
+            <div class="card-desc">At half telegraph or below, your hull runs silent — hull microphones can no longer hear you coming.</div>
+            <div class="card-denied-hint">SPEND FAILED — LEVEL STILL BANKED</div>
+          </div>
+
+          <div class="card latched">
+            <div class="card-key">3</div>
+            <div class="card-cat">Sensors</div>
+            <div class="card-name">Phosphor Memory</div>
+            <div class="card-desc">Blips your sweep paints linger far longer before fading — contacts stay on the glass between passes.</div>
+          </div>
+
+          <div class="card latched">
+            <div class="card-key">4</div>
+            <div class="card-cat">Engineering</div>
+            <div class="card-name">Stoked Boilers</div>
+            <div class="card-desc">Boilers answer the telegraph like a launch — the hull reaches every ordered speed markedly faster.</div>
+          </div>
+        </div>
+
+        <div class="refit-help"><b>HOLD SPACE</b> — RELEASE TO DISMISS · <b>1/2/3/4</b> TO REFIT</div>
+        <div class="refit-ph">FAILURE LINE COPY = [PROPOSAL] — SPINE SPECS THE PULSE + LEVEL-STAYS-BANKED BEHAVIOR, NOT THE STRING</div>
+      </div>
+    </div>
+    <div class="comp-notes">
+      <b>Latch:</b> the moment 2 is pressed, all cards dim under the spend latch (in-flight, ~one round trip); a denied press on a latched card is a no-op.
+      <b>Failure:</b> server reject/timeout → latch releases, the picked card fires the denied register (1px→2px {denied} #FF3B3B edge pulse + flash, 80ms one-shot, rate-limited ≥300ms — shown at peak frame) and returns to idle; the banked counter is UNCHANGED. Denied input is never silence; the denied tone rides the sound-map contract table (Open Questions 8).
+      <b>Success (for contrast, not rendered):</b> card flashes phosphor, next offer slides in, pip advances; spending the last banked level closes the window.
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

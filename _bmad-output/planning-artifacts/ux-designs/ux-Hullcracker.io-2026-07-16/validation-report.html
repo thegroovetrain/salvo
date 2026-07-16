@@ -1,0 +1,757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UX Design Validation: Hullcracker.io</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .badge-status-resolved { background: rgba(22, 163, 74, 0.12); color: var(--verdict-strong); }
+  .badge-status-devcall { background: rgba(217, 119, 6, 0.12); color: var(--verdict-thin); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="report-header">
+      <div class="title">
+        <h1>Hullcracker.io — UX Design Validation Report</h1>
+        <div class="subtitle">_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/ — DESIGN.md + EXPERIENCE.md</div>
+      </div>
+    </header>
+
+    <div class="synthesis">
+      <p>A strong, extraction-ready spine pair: every <code>{path.to.token}</code> reference in both files resolves to a defined DESIGN.md frontmatter token, every color carries a hex, component names are byte-identical across the two files, and both journeys from the decision log land with protagonists, numbered beats, climaxes, and failure paths. The one high-severity rubric gap is inheritance: two adopted GDD E6 information-texture features (the Bounty radar bloom, the Foghorn emote) have no UX treatment anywhere — a story-dev implementing E6 from this contract would have to invent or silently drop them. The remaining rubric findings are medium/low: a handful of visual specs referenced behaviorally but never drawn, the HP Rail spec-vs-mock divergence (honestly flagged, but unresolved), and a miss-splash color left token-less after its old hex was retired.</p>
+      <p>The three adversarial lenses shift the picture in four ways. First, an <strong>arbitration layer is missing</strong>: the spec legalizes 10+ simultaneous animated channels with no attention-priority rule, and the primary torpedo warning (the listening-ring pips) is the only threat channel with no pulse grammar at all — economy outshines threat exactly when it matters. Second, <strong>dual-coding breaks at blip scale</strong>: the flagship Variant C identity system rides on hue alone (a critical accessibility violation of the spec's own floor), and two of four class silhouette features are mathematically subpixel at documented blip sizes. Third, a cluster of <strong>contrast repairs</strong> is needed — four Regatta hues fail AA as kill-feed text, <code>text-muted</code> fails everywhere it renders, and the storm stroke misses the 3:1 graphics threshold. Fourth, the input review's shipping-blocker was <strong>already resolved after review</strong>: Eric moved the refit modifier from CTRL to SPACE (hold Space, pick 1–4, release dismisses), which eliminates the uninterceptible CTRL+W close-tab hazard and the CTRL-reach ergonomics cluster; the Sticky-Keys hold-vs-toggle question remains open, since holding Space has the same issue. Post-dedupe, post-Space totals: <strong>3 critical</strong> (1 resolved), <strong>17 high</strong> (1 resolved), <strong>28 medium</strong> (1 resolved), <strong>30 low</strong> (1 resolved) — 11 findings need a developer call.</p>
+    </div>
+
+    <div class="dimension-summary">
+      <div class="dim-card"><div class="dim-name">Flow coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Token completeness</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Component coverage</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div></div>
+      <div class="dim-card"><div class="dim-name">State coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Visual reference coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Bloat &amp; overspecification</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+      <div class="dim-card"><div class="dim-name">Inheritance discipline</div><div class="dim-verdict" style="color: var(--verdict-adequate)">adequate</div></div>
+      <div class="dim-card"><div class="dim-name">Shape fit</div><div class="dim-verdict" style="color: var(--verdict-strong)">strong</div></div>
+    </div>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>1. Flow coverage</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>Both accepted journeys (Marco, Dee) are present with named protagonists, numbered steps, a bolded climax beat, and an explicit failure path. Beat wording is honestly [ASSUMPTION]-tagged as reconstructed, matching the decision log. The open third journey is declared rather than silently missing.</p>
+        </div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">The 16–35 "design compass" audience sketch — the brief's primary — has no journey</h3><span class="finding-location">EXPERIENCE.md · Key Flows</span></header>
+            <div class="finding-note">Marco and Dee cover the Chromebook and WoWS-refugee sketches; the open third slot is earmarked for a party/friend-group session, not the compass player.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Point the open third-journey slot at the compass player, or add a one-line note that Dee's beats double as the compass-player read. <em>Status: OPEN.</em></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>2. Token completeness</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>All 36 <code>{path}</code> references across both files resolve to defined frontmatter tokens. All 40 color tokens carry hexes; contrast targets are stated for the load-bearing combinations, with a ≥3:1 floor for all 20 Regatta hues and a verify-at-implementation note.</p>
+        </div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Miss-splash green has no token; the old splash hex was retired without a replacement</h3><span class="finding-location">DESIGN.md · Colors (blip row); EXPERIENCE.md · Game Feel &amp; Juice</span></header>
+            <div class="finding-note">Game Feel &amp; Juice commits "amber hit spark vs green miss splash" and a "crimson expanding sink ring," but the miss-splash green has no token — and the Colors table explicitly retires <code>#66FFAA</code> from splash rings. HUD-legibility F3 broadens this: muzzle flash, torpedo on-water render, and Hit Call bloom are also untokenized (merged finding).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Mint a combat-effects token row (splash, muzzle, torpedo, hit-bloom) chosen off the combatant wheel, or state which existing token each effect uses. <em>Status: OPEN — merged with HUD F3.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Hotbar Slot cooling state restates <code>#030605</code> raw instead of <code>{colors.card-scrim}</code></h3><span class="finding-location">DESIGN.md · Components, Hotbar Slot row</span></header>
+            <div class="finding-note">Violates the file's own "don't restate tokens ad hoc" rule.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Replace the literal with the token reference. <em>Status: OPEN.</em></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>3. Component coverage</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>All 17 named components have both a DESIGN.md Components row and an EXPERIENCE.md Component Patterns entry with genuine behavioral rules. Four are covered by explicit pointer to State Patterns / HUD &amp; Diegetic UI, and the pointed-to sections carry their behavior. Sub-elements are specced inside their parent rows.</p>
+        </div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">Nameplates carry personal color per the propagation rule but have no visual spec anywhere</h3><span class="finding-location">DESIGN.md · Regatta Hoist · Propagation; absent from Components</span></header>
+            <div class="finding-note">No font, size, offset, or fade rule, and no Components row. Note: nameplates are also option (a) in the accessibility review's critical identity-dual-coding fix (2.1) — a spec here may serve both.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a Nameplate row (likely <code>{typography.hud-micro}</code> register) or fold it into an existing row explicitly. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">HP Rail spec contradicts its only mock; placement rests on an unconfirmed facilitator interpretation</h3><span class="finding-location">DESIGN.md · Components, HP Rail row; EXPERIENCE.md · HUD table</span></header>
+            <div class="finding-note">The composite still shows the superseded horizontal 260×10 bar. HUD-legibility F12 extends this: the composite also shows placeholder keys 1/2/E and the removed supply-drop ghost — three spine contradictions in the only full-HUD visual reference (merged finding). The key-screen re-render should be treated as a blocker for E2/E6 implementation.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Re-render the key screen (4 refit cards, vertical HP rail, Q/E/R/F glyphs, no supply ghost — and now Space-based refit copy) and confirm with Eric before architecture consumes the HUD anatomy. <em>Status: OPEN — merged with HUD F12.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Home "status line" and callsign field have behavioral rules but no visual spec</h3><span class="finding-location">EXPERIENCE.md · IA + Component Patterns; absent from DESIGN.md · Components</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> One row or one sentence each — register, color, placement — or an explicit "as rendered in home-class-picker-1.html" citation. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Countdown and waiting-room "WEAPONS SAFE" tag have no type/color spec</h3><span class="finding-location">EXPERIENCE.md · IA, Countdown/Waiting rows</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> One line naming the register (e.g. mono uppercase, phosphor, size class). <em>Status: OPEN.</em></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>4. State coverage</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>Every IA surface is walked: cold-load, connection failure, disconnect, waiting/weapons-safe, countdown, all seven hotbar states including denied ("never silence"), HP thresholds, banked levels, ring phases, death → reveal → results → re-queue, empty states, resize. Denied/error/empty/cold each have real answers.</p>
+        </div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Color-preference contention has a resolution rule but no feedback moment</h3><span class="finding-location">EXPERIENCE.md · Component Patterns, Color Hoist</span></header>
+            <div class="finding-note">A player who picked Rose and drew nearest-free-hue is never told; they presumably discover it on their own hull.</div>
+            <div class="finding-fix"><strong>Fix:</strong> One line — where (waiting-room nameplate? toast?) the granted color is first surfaced. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Refit spend failure (server rejects or times out mid-flight) is unspecified</h3><span class="finding-location">EXPERIENCE.md · State Patterns, Banked levels</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> State the failure behavior (latch releases + denied pulse register, or declare server-authoritative retry out of UX scope). <em>Status: OPEN.</em></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>5. Visual reference coverage</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>All seven <code>.working/*.html</code> mocks are linked inline at their relevant sections with what each illustrates; superseded and not-chosen mocks are labeled as such. The v0.16 root DESIGN is linked as foundation with the reconciliation ledger cited. Spines-win-on-conflict is stated in each spine's header. No orphan mocks; no unspecific references. No findings.</p>
+        </div></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>6. Bloat &amp; overspecification</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>Both files are dense but nearly every sentence traces to a decision-log entry; assumptions are tagged rather than smuggled. The 15-item Open Questions list earns its place. The hotbar state grammar appears in both files but the split is disciplined: DESIGN carries visual values, EXPERIENCE carries triggers. No speculative systems are specced. No findings.</p>
+        </div></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>7. Inheritance discipline</h2>
+          <span class="verdict-pill verdict-adequate">adequate</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>Pillar/guardrail names are verbatim; class names match the GDD exactly; both known GDD conflicts are flagged as GDD corrections rather than silently diverging. All EXPERIENCE token references resolve to DESIGN. Rejected upstream ideas are listed with a do-not-reintroduce note. The one high finding is real inherited scope going missing.</p>
+        </div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">Two adopted GDD E6 features with UI surfaces are absent: the Bounty radar bloom (#47) and the Foghorn emote (#74)</h3><span class="finding-location">.working/extract-gdd.md §5/E6; no treatment in EXPERIENCE.md</span></header>
+            <div class="finding-note">The Bounty is a fog-of-war exception the sensor-presentation rules as written would forbid; the Foghorn needs a key binding and a listening-ring event. E6 is a "Heavy" UX epic; downstream would invent or drop these. The accessibility review independently flags the Foghorn (3.3): an adopted audio-first mechanic with no visual twin and no binding fails the redundancy floor for deaf players (merged finding, both reviewers credited).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Spec both (bloom rendering + reserved key + ring-visual rule for the honk bearing), or add them as owned Open Questions with an explicit deferral. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Whirlpools (GDD E4) have no perception/feel treatment and no Open Question entry</h3><span class="finding-location">.working/extract-gdd.md §4</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> One Open Question line. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Mode naming drift: GDD "Solo vs Bots" vs spine "Solo vs AI" with no GDD-correction flag</h3><span class="finding-location">EXPERIENCE.md · IA</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Add it to the existing GDD-correction flag or align the name. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">PvE drone tiers (common/uncommon/rare) have no visual language beyond greyscale + size</h3><span class="finding-location">.working/extract-gdd.md §4 PvE</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Candidate Open Question entry. <em>Status: OPEN.</em></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary>
+          <h2>8. Shape fit</h2>
+          <span class="verdict-pill verdict-strong">strong</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>DESIGN.md hits the canonical spec order exactly; frontmatter is spec-complete. EXPERIENCE.md carries all expected defaults; a separate Input Schemes section is correctly collapsed into Interaction Primitives for a KB+M-only title. Invented sections (Inspiration &amp; Anti-patterns, Open Questions) earn their place.</p>
+        </div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">Ship-class silhouette language lives under Colors, though its content is shape/identity</h3><span class="finding-location">DESIGN.md · Colors › Ship-class silhouette language</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> A one-line pointer under Shapes, or relocate the subsection. <em>Status: OPEN.</em></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <!-- ============ Extra reviewers ============ -->
+
+    <section class="reviewer-section">
+      <details>
+        <summary>
+          <h2>HUD Legibility review (adversarial)</h2>
+          <span class="reviewer-source">review-hud-legibility.md</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>Lens: 13-year-old on a 1366×768 low-end Chromebook, 60 FPS, 20-ship match, worst-case screen. "The steady-state frame genuinely honors the guardrail — the composite's squint test passes because it was composed as a calm moment. The spec's failure surface is everything the composite does <em>not</em> show: there is no attention-priority rule among the 10+ animated channels the spec legalizes simultaneously, the floor resolution and both UI-scale options are un-walked (the spec violates its own 9px type floor at 90%), and several blip-scale class claims are mathematically subpixel. All findings are fixable at spec level before implementation; none require abandoning a ratified direction." Counts as filed: 1 critical, 10 high, 11 medium, 3 low.</p>
+        </div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-critical">critical</span><h3 class="finding-title">F1 — No attention-priority hierarchy; the most lethal signal is the least animated</h3><span class="finding-location">absent from both spines; EXPERIENCE.md · Accessibility Floor / State Patterns</span></header>
+            <div class="finding-note">≥10 legal simultaneous animated channels across three corners plus center — and the listening-ring pips, the primary torpedo warning channel, are the only threat channel with no pulse grammar at all. In the worst case every economy/status channel pulses while the thing that kills Marco sits static.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add a one-table attention hierarchy (Tier 1 imminent threat &gt; Tier 2 action state &gt; Tier 3 economy); while Tier 1 is active, Tier 3 breathing freezes at its dim keyframe; give close-torpedo pips a Tier 1 pulse. Which channels outrank which is a developer call; the existence of the table is not. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">F2 — Refit window occludes the listening ring and truesight annulus; placement unspecified in the spines</h3><span class="finding-location">EXPERIENCE.md · Refit Card; DESIGN.md · Components; spend-window-1.html</span></header>
+            <div class="finding-note">4×216 + 3×20 = 924px row centered at 46% covers the top half of the listening ring and most of the truesight annulus — precisely during the strongest temptation to refit. The mock proved 3 cards on a non-centered demo ship. (The modifier change to Space does not move the window; occlusion stands.)</div>
+            <div class="finding-fix"><strong>Fix:</strong> Re-render the key screen with 4 cards over a centered own ship; dock the row clear of the ring, shrink cards, or render ring + pips above the card layer. Whether refit-at-your-own-risk extends to "torpedo channel hidden" is a decision point. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">F8 — UI-scale 90% drives type below DESIGN's own 9px legibility floor (8.1px effective)</h3><span class="finding-location">EXPERIENCE.md · Responsive; DESIGN.md · Typography</span></header>
+            <div class="finding-note">Merged with accessibility 6.3: on an 11.6" 1366×768 Chromebook — the audience's most common hardware — 8.1px letter-spaced uppercase mono is below any comfortable floor, and all-caps + 0.18em tracking further slows young/dyslexic readers.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Clamp the multiplier per-role: geometry scales to 90% but no mono type renders below 9px post-scale. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">F9 — UI-scale 125% at 1366×768: BR chrome and kill feed overlap ~130–150px; no reflow/clamp rules exist</h3><span class="finding-location">EXPERIENCE.md · Responsive; DESIGN.md · BR Chrome Bar / Kill Feed / Refit Card</span></header>
+            <div class="finding-note">Merged with accessibility 7.1: the refit row is 1155px of a 1366px viewport at 125%, "corner anatomy never rearranges" forbids wrapping, and nothing requires anyone to ever render the floor case.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Gate 125% below 1600px width or drop the feed below the chrome line on intersection; mandate a 1366×768@125% key-screen render as an acceptance artifact; define refit-row clamp behavior (cards must not wrap — 1–4 keys map spatially). <em>Status: NEEDS DEVELOPER CALL — both options touch the muscle-memory contract.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">F10 — Callsign length is uncapped; the feed can collide with BR chrome even at 100%</h3><span class="finding-location">EXPERIENCE.md · Kill Feed / home callsign field; DESIGN.md · Kill Feed</span></header>
+            <div class="finding-note">Two 16-char names + " SUNK BY " ≈ 390px at 14px overlaps the BR chrome by ~45–60px at the floor.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Spec a callsign cap (e.g. 12–14 chars) at entry plus mid-ellipsis truncation in the feed. Cap value is a decision point. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><span class="badge badge-status-devcall">dev call</span><h3 class="finding-title">F11 — Radar paints contacts no 16:9 screen can show; floor players lose over half the N/S radar annulus</h3><span class="finding-location">extract-gdd.md (radar 650u); hud-composite-1.html world scale; EXPERIENCE.md · Responsive</span></header>
+            <div class="finding-note">Radar radius exceeds every 16:9 half-height (540px at 1080p, 384px at 768). No world-zoom rule, no off-screen contact treatment. The hunt <em>is</em> radar; a Chromebook player is structurally blinder — an information-fairness hole in a game whose pillar is information.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Decide: fit-height world zoom at the floor, edge-of-screen bearing ticks for off-screen paints, or accept and document the asymmetry. <em>Status: NEEDS DEVELOPER CALL.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">F13 — Battleship step (0.68px) and Mine Layer notch (~1px) are subpixel at documented blip sizes</h3><span class="finding-location">class-silhouettes-1.html; DESIGN.md · silhouette sizes / blip rule</span></header>
+            <div class="finding-note">Class identity collapses to size + aspect ratio at blip scale; the deltas that remain (14 vs 12 vs 9px) are routinely destroyed by decay-ghost dimming, rotation antialiasing, and low-quality panels.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Spec blip-render exaggeration using the sheet's own named levers (larger small-class multiplier, exaggerated GB shoulder flare, 3× ML notch depth in the blip path only). <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">F14 — The 9px Gunboat floor was flagged by its own silhouette sheet and ratified anyway</h3><span class="finding-location">class-silhouettes-1.html; DESIGN.md · silhouette sizes</span></header>
+            <div class="finding-note">On a 1366×768 panel a 9px 1px-outline wedge under phosphor decay is a smudge.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Adopt a blip-scale multiplier floor now (e.g. no class blips below 11px) and let playtest tune down, not up. Developer call only on the number. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><span class="badge badge-status-devcall">dev call</span><h3 class="finding-title">F16 — The phosphor-green band is not reserved; spring/jade/green/aqua blips can impersonate HUD chrome</h3><span class="finding-location">DESIGN.md · reserved bands / Regatta wheel</span></header>
+            <div class="finding-note">Four Regatta hues sit within ~±25° of phosphor <code>#00FF88</code>: a Spring player's blips are near-identical to fresh sweep blips, listening-ring pips, and the own-ship phosphor wake. "HUD chrome stays phosphor-functional" only separates chrome from identity if identity can't wear chrome's color.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Extend the reserved bands to exclude ~±20° around phosphor (the wheel loses ~3 hues). <em>Status: NEEDS DEVELOPER CALL — changes the ratified 20-hue set.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">F19 — Accelerating HP pulse contradicts the ≥2s photosensitivity floor; no rate cap exists</h3><span class="finding-location">EXPERIENCE.md · State Patterns · Own HP; DESIGN.md · HP Rail vs Do's and Don'ts</span></header>
+            <div class="finding-note">Merged with accessibility 5.1: "rate rising continuously" either crosses the 2s-cycle floor and approaches strobe territory at near-death (GAG: avoid &gt;3 flashes/s regardless of area) or is silently capped so tightly "accelerating" stops encoding anything. An internal contradiction, not a tuning detail.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Spec the ramp with a cap (e.g. 0.5 Hz at 49% → capped ~1.1–2 Hz at ≤10%, reusing the storm's ratified exception ceiling); state the pulse is opacity-breathing, not on/off strobing. Exact curve is a decision point; the cap's existence isn't. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">F21 — Four Regatta hues fail 4.5:1 as 14px kill-feed text; the spec's ≥3:1 rule is the wrong threshold for text</h3><span class="finding-location">DESIGN.md · Colors · Contrast + Components · Kill Feed</span></header>
+            <div class="finding-note">Merged with accessibility 4.2: Mulberry 3.08:1, Azure 4.08:1, Orchid 4.27:1, Lagoon 4.37:1; Cobalt marginal at 4.60:1. The player named in Mulberry gets an illegible feed identity all match. Both reviewers converge on the same least-invasive fix.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Define per-hue lightness-floored <em>text variants</em> (the <code>storm</code>→<code>storm-readout</code> pattern already in the system) used wherever a personal color renders as text (feed, results, nameplates). <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">F4 — Blip decay-ghost budget is uncapped (19 contacts × 4s sweep)</h3><span class="finding-location">DESIGN.md · blip rule; EXPERIENCE.md · Sensor presentation</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Spec a hard cap (e.g. ≤3 ghosts/contact, TTL-based) — also a Chromebook perf guard. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">F5 — Amber is five signals at once in the endgame</h3><span class="finding-location">DESIGN.md · amber assignments</span></header>
+            <div class="finding-note">Selected slot, HP 25–50%, ring final-10s pulse, telegraph needle, hit sparks — all simultaneously in three corners. Amber stops meaning "look here" when it's everywhere at the climax.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Covered structurally by F1's hierarchy — only the highest-tier amber channel gets to pulse. <em>Status: OPEN (subsumed by F1).</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">F15 — Rotated Torpedo Boat blip degenerates into a ~1px line — confusable with heading vectors</h3><span class="finding-location">class-silhouettes-1.html; hud-composite-1.html heading vectors</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Differentiate the vector primitive (dashed, or arrowhead terminal) so no hull outline shares its grammar. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">F18 — Variant C tracking is hue-inequitable: adjacent-hue confusion + dark-hue ghost invisibility</h3><span class="finding-location">EXPERIENCE.md · Sensor presentation; Journey B</span></header>
+            <div class="finding-note">20 hues over ~250° averages 12.5° spacing — indistinguishable clusters at small field sizes; and mulberry's decay trail at ghost opacity is ~1.3:1 effective (invisible) while lemon's still reads. Players assigned dark hues are literally harder to grudge-track: a competitive asymmetry.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Floor the blip/ghost rendering luminance per hue; verify the 20 picks at 1px stroke, not swatch size. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">F20 — Bank-chip breathing is a permanent attractor with no quiet state</h3><span class="finding-location">DESIGN.md · Banked-Level Chip; EXPERIENCE.md · State Patterns</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Decay the breathe to a static glow after ~10s unspent; re-arm on new bank / on modifier touch. (Subsumed by F1's tier rule if adopted.) <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><span class="badge badge-status-devcall">dev call</span><h3 class="finding-title">F24 — "Slightly tighter than truesight" torpedo visibility sanctions a pips-vs-water contradiction window</h3><span class="finding-location">EXPERIENCE.md · torpedo visibility; .decision-log.md torpedo-sensing entry</span></header>
+            <div class="finding-note">If the tighter radius ships, there is a band where pips scream near-white while the water shows nothing — exactly inverting Journey A's one-event lesson.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Spec a bridge signal in the gap band; guard wording: "the pips and the sighting must never disagree about existence, only about precision." <em>Status: NEEDS DEVELOPER CALL.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">F6 — Wounded-smoke grey and drone greyscale are near-identical greys</h3><span class="finding-location">hud-composite-1.html smoke; DESIGN.md drone tokens</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Warm or darken the smoke grey a step; one token edit. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">F7 — Kill feed shares the NE quadrant with colored blips, in the same identity hues</h3><span class="finding-location">DESIGN.md · Kill Feed; hud-composite-1.html</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> None required beyond awareness; if playtests confirm confusion, a per-line dark-glass scrim (already permitted) separates feed from glass. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">F25 — The torpedo's materialization treatment exists only in the mock</h3><span class="finding-location">hud-composite-1.html; absent from both spines</span></header>
+            <div class="finding-note">The pale materializing rings + wake are the visual that makes pips→sight legible; the one-event guarantee currently lives in an unratified mock detail.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Promote the materialization treatment (boundary rings at the pip bearing, wake astern) into DESIGN.md · Components. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">F3 / F12 / F17 / F22 / F23 — merged elsewhere</h3><span class="finding-location">see cross-references</span></header>
+            <div class="finding-note">F3 (combat-effect colors untokenized) is merged with the rubric's splash-token finding under Token completeness. F12 (composite contradicts spine ×3) is merged with the rubric's HP Rail finding under Component coverage. F17 (CVD assist cannot preserve 20 identities) is merged into accessibility 1.1. F22 (feed connective text) is merged into accessibility 4.1. F23 (pip brightness conflates torpedo/engine) is merged into accessibility 3.2.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="reviewer-section">
+      <details>
+        <summary>
+          <h2>Accessibility review (adversarial)</h2>
+          <span class="reviewer-source">review-accessibility.md</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>"The accessibility floor is sincerely adopted and unusually well quantified in one place — photosensitivity restraint has real numbers, and the chamfer/silhouette/text dual-coding machinery is genuine design work, not lip service. But two of the seven commitments (colorblind assist, audio-visual redundancy) are promissory notes resting on explicitly undesigned work, and the flagship Regatta/Variant C identity system — the run's biggest new idea — violates the dual-coding floor as written: combatant identity and cross-fog tracking ride on hue alone at blip scale. Fixable before beta, but several load-bearing places currently ship accessibility as intent rather than spec. <strong>Verdict: CONDITIONAL PASS — floor accepted in principle, not yet met in spec.</strong>" Positive findings kept on record: the quantified photosensitivity floor, pre-rolled never-expiring offers as cognitive mitigation, set-and-forget telegraph, cooling-state dual-coding, HP triple-coding, dual settings entry points.</p>
+        </div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-critical">critical</span><span class="badge badge-status-devcall">dev call</span><h3 class="finding-title">2.1 — Combatant identity is color-alone at blip scale; the dual-coding floor is violated by the run's flagship system</h3><span class="finding-location">DESIGN.md · Regatta Hoist; EXPERIENCE.md · Sensor presentation; Journey B beat 3</span></header>
+            <div class="finding-note">The blip outline carries class, not identity. Under Variant C — the default — "who is that" and "is that the same hunter" ride entirely on hue. For the ~8% of the male-heavy 10–15 audience with CVD, the tracking feature the spec "embraces" degrades to guesswork; the palette sheet's own CVD notes list four-plus hue collapses. Names appear only in the kill feed — after someone dies, not while tracking. This is precisely what the floor's own words prohibit.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Pick one or more: (a) nameplate/callsign text on truesight hulls for all combatants; (b) in assist mode, blips gain a 1–2 char identity glyph or numbered pennant; (c) accept Variant P (phosphor-anonymous) as the assist-mode default — cheapest honest option, but must be a stated decision. <em>Status: NEEDS DEVELOPER CALL.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><span class="badge badge-status-devcall">dev call</span><h3 class="finding-title">1.1 — Colorblind assist is committed but wholly undesigned — and cannot deliver 20 distinguishable identities as worded</h3><span class="finding-location">EXPERIENCE.md · Accessibility Floor item 4; DESIGN.md · Regatta Hoist</span></header>
+            <div class="finding-note">Merged with HUD F17: even the mechanism is undecided ("and/or"); no settings entry, no scope, no acceptance criterion. Under deuteranopia/protanopia ~8–10 distinguishable hues is the practical ceiling for small marks — no swap palette can preserve 20 unique identities; the committed option over-promises. The <code>.working</code> CVD analysis never made it into the spine as requirements.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Spec now: scope (blips + feed names + hull outlines minimum), mechanism (boosted outlines <em>and</em> reduced-count high-separation palette, with identity degrading to color-family + hover/nameplate confirmation), default off/persisted, acceptance test under simulated deuteranopia at blip scale. <em>Status: NEEDS DEVELOPER CALL on mechanism/re-scope.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">1.2 / 3.1 — Audio-visual redundancy floor is unverifiable: the sound map does not exist</h3><span class="finding-location">EXPERIENCE.md · Accessibility Floor item 2 vs Open Question #8</span></header>
+            <div class="finding-note">The floor promises "every audio cue has a visual twin," but the RT audio grammar is explicitly undesigned. A commitment whose object doesn't exist can't be audited and won't be honored by accident. The walk of the 13 existing tones passes — lock that in as the template.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Binding rule in the spine: the sound-map deliverable MUST include a two-column event table (audio event ↔ visual twin); no audio event ships without its row. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><span class="badge badge-status-devcall">dev call</span><h3 class="finding-title">3.2 — The listening ring carries no source-type coding: deaf/muted players can't tell torpedo pips from engine pips</h3><span class="finding-location">EXPERIENCE.md · Accessibility Floor / Listening Ring; DESIGN.md · Listening Ring</span></header>
+            <div class="finding-note">Merged with HUD F23: brightness is the only channel and it conflates source-type, loudness, and closeness — a close loud engine produces the same near-white arc as an inbound torpedo, training false positives for everyone and leaving deaf players (and muted school Chromebooks — the primary persona's likely environment) unable to classify the one signal Journey A's lesson depends on.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Dual-code source-type on the pips (torpedo bearings pulse/tick or elongate radially; engine bearings glow steady; foghorn sweeps an arc) — which also gives torpedoes the Tier 1 animation HUD F1 needs. Or ratify that audio carries no type information either, so the twin is honestly equivalent. <em>Status: NEEDS DEVELOPER CALL — this is sensor design, i.e. game design per the GDD.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">4.1 — Kill-feed connective text fails contrast on a WCAG-scoped DOM surface</h3><span class="finding-location">DESIGN.md · kill-feed component ("SUNK BY" in text-muted, 14px)</span></header>
+            <div class="finding-note">Merged with HUD F22: 3.38:1 at 14px normal text vs required 4.5:1 — and the feed renders over variable backgrounds (fog, sweep, blips), which only lowers effective contrast. Also violates DESIGN's own muted-text rule.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Connective text → <code>text-secondary</code> (6.65:1). One token change; a per-line dark-glass scrim is the sanctioned fallback. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><span class="badge badge-status-devcall">dev call</span><h3 class="finding-title">6.1 — Hold-modifier refit breaks under Sticky Keys / Filter Keys; no toggle alternative is permitted by the logged decision</h3><span class="finding-location">EXPERIENCE.md · Refit Card ("HOLD, never toggle"); .decision-log.md; input review 2.3</span></header>
+            <div class="finding-note">Merged with input 2.3. The CTRL-specific hazard (Sticky-latched CTRL feeding CTRL+W to the browser) is gone with the Space change — but <strong>hold-vs-toggle remains open: holding Space has the same Sticky/Filter Keys problem</strong>. Sticky Keys exists precisely for users who cannot hold a modifier while pressing another key; remapping which physical key is the modifier doesn't help someone who can't hold any key. The committed accessibility floor cannot be met while the interaction class itself is unremappable.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Keep HOLD as the default (the design rationale is sound); add a settings option "Refit window: hold / toggle" under accessibility; toggle closes on spend-last, ESC, or re-press; scope-note the decision-log absolute ("hold is the default interaction; toggle exists as an accessibility option"). <em>Status: NEEDS DEVELOPER CALL — contradicts a logged Eric decision.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">1.3 — Motion/shake option scope is vague</h3><span class="finding-location">EXPERIENCE.md · Accessibility Floor option 1</span></header>
+            <div class="finding-note">"Motion effects" is unenumerated: shake, death-reveal zoom, vignette pulse, breathing glows, sweep rotation, conic animation, hull flash? Toggle or tiers? No default stated.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Enumerate: shake (off/reduced/full), camera moves (reveal-zoom exemption is a decision point — it's the climax beat), pulses/flashes tied to the flash budget. Default full, persisted. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><span class="badge badge-status-devcall">dev call</span><h3 class="finding-title">1.4 / 6.2 — Remapping spec doesn't cover the hard cases (merged with input 4.4)</h3><span class="finding-location">EXPERIENCE.md · Interaction Primitives + Accessibility Floor option 2</span></header>
+            <div class="finding-note">Silent on: mouse-button rebinding; remapping the hold-modifier and whether modifier+1..4 chords re-derive from it; chord-vs-single conflict detection; one-handed presets. Input 4.4 adds: modifier remap needs a whitelist of safe hold-keys (Space, Tab, Shift, CapsLock, mouse 4/5), a blacklist (Alt, Meta/Cmd — Alt+F opens menus), <code>code</code>-not-<code>key</code> matching for Shift chords, and conflict detection against a reserved browser/OS chord table. The Space default is now safe; the remap policy still is not.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Spec mouse buttons remappable; modifier remappable against the whitelist with chords following it; chord-aware conflict detection incl. reserved-chord blacklist; ship one left-hand-only preset. <em>Status: NEEDS DEVELOPER CALL on the whitelist/blacklist policy.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">1.5 / 7.2 — UI-scale scope ambiguity: Pixi HUD vs DOM elements</h3><span class="finding-location">DESIGN.md · Typography; EXPERIENCE.md · Responsive</span></header>
+            <div class="finding-note">Kill feed, toasts, refit cards are DOM but functionally HUD. A scale setting that enlarges the hotbar but not the kill feed fails the player it exists for.</div>
+            <div class="finding-fix"><strong>Fix:</strong> State: UI scale applies to Pixi HUD + DOM feed/toasts/refit cards; port chrome follows browser zoom. Default 100%, persisted. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">1.6 — Settings surface has no per-setting spec</h3><span class="finding-location">EXPERIENCE.md · IA settings row</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Add a settings table to EXPERIENCE (setting · values · default · persistence · surface). <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">2.2 — Selected (amber) vs ready (phosphor) slot state is hue + glow only</h3><span class="finding-location">DESIGN.md · Hotbar Slot; EXPERIENCE.md · State Patterns</span></header>
+            <div class="finding-note">Amber and phosphor both collapse toward yellow under deuteranopia with close luminances. The inset wash is a genuine non-color cue but is never named as load-bearing.</div>
+            <div class="finding-fix"><strong>Fix:</strong> One line in DESIGN: "the inset wash + a filled key chip are the selected-state channel; hue is secondary." <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">2.3 — Drone-vs-combatant is a color-alone distinction on the water and on blips</h3><span class="finding-location">DESIGN.md · Regatta Hoist / drone tokens</span></header>
+            <div class="finding-note">Rose and Periwinkle drift toward drone grey-blues under deutan/protan. Mistaking a player for a harmless drone is a lethal misread; only the kill feed labels drones textually.</div>
+            <div class="finding-fix"><strong>Fix:</strong> One non-color marker everywhere drones render: dashed hull outline, ◇ blip glyph, or a DRONE nameplate tag at truesight; consider darkening drone greys to ≤<code>#55606B</code>. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">3.5 — No volume sliders or mono-audio option in a game where audio is a sensor</h3><span class="finding-location">EXPERIENCE.md · IA (settings contents unspecified)</span></header>
+            <div class="finding-note">If positional audio is stereo-panned, players with unilateral hearing loss lose half the bearing field; the listening ring already exists as the visual backstop, so the fix is cheap.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Master/effects volume sliders + mono-audio toggle in the settings table. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">4.3 — <code>text-muted</code> fails 4.5:1 everywhere, and DESIGN's ≈3.6:1 claim is optimistic (actual 3.38:1)</h3><span class="finding-location">DESIGN.md · Colors table + Contrast note</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Lighten the token (≈<code>#7A8496</code> reaches ~4.5:1) or formally restrict to decoration and audit every use; correct the ≈3.6 claim. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">4.4 — The spec violates its own muted-text rule: load-bearing refit category tag at 9px muted</h3><span class="finding-location">DESIGN.md · Refit Card + Banked-Level Chip vs Colors table</span></header>
+            <div class="finding-note">Boon category drives the 1–4 pick under time pressure — it is load-bearing. 9px + 3.38:1 is the worst text in the system.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Category tag → <code>text-secondary</code>; keep 9px only if the UI-scale floor is resolved. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">5.2 — No aggregate flash budget across simultaneous events</h3><span class="finding-location">EXPERIENCE.md · Game Feel &amp; Juice</span></header>
+            <div class="finding-note">Per-event flashes can stack past 3/s in one screen region even though each event is individually compliant.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Global rule: no element or region flashes more than 3×/s; repeated same-source flashes share the 300ms floor; the motion setting's "reduce" tier also halves flash intensity. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">2.4 — Blip age is luminance-only; tie the boosted-outline assist to a decay floor</h3><span class="finding-location">DESIGN.md · Colors (blip ramp)</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Assist mode raises the minimum decayed opacity. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">2.5 — Storm edge on-water treatment undecided, so its dual-coding can't be verified</h3><span class="finding-location">EXPERIENCE.md · Open Question #7</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Ratify "dashed = storm edge" as the shape channel when Open Q #7 closes. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">2.7 — Telegraph ordered-vs-actual should state distinct glyphs, not just colors</h3><span class="finding-location">DESIGN.md · Telegraph Cluster</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> One sentence: "marker = hollow rung outline, needle = solid pointer." <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">3.4 — Denied tone is "(future)": reverse-direction redundancy gap</h3><span class="finding-location">EXPERIENCE.md · Game Feel &amp; Juice</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Track in the sound-map contract table. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">4.6 — Storm ring stroke <code>#7B2FBE</code> at 2.87:1 fails the 3:1 non-text graphics threshold</h3><span class="finding-location">DESIGN.md frontmatter; EXPERIENCE.md Open Q #7</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Spec the on-water edge stroke at readout brightness (<code>#B06EE8</code>, 5.98:1) or add a bright core line; keep <code>#7B2FBE</code> for fill/vignette. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">5.3 — Final-10s BR-chrome amber pulse rate unstated</h3><span class="finding-location">DESIGN.md · BR Chrome Bar</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Presumably 1Hz; say so. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">5.4 — "One-frame phosphor pop" is frame-rate-defined</h3><span class="finding-location">DESIGN.md · Hotbar Slot (Activated flash)</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Spec in ms (≤80ms decay, consistent with the denied grammar). <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">6.4 — State "banked offers never expire" as an explicit guarantee; add a boon glossary</h3><span class="finding-location">EXPERIENCE.md · Refit Card</span></header>
+            <div class="finding-note">The pre-rolled, never-expiring offer is genuinely good cognitive-accessibility design — say so as a guarantee. Residue: make accrued boons reviewable from death/results; boon glossary on How-to-Play.</div>
+            <div class="finding-fix"><strong>Fix:</strong> One guarantee line + glossary note. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><span class="badge badge-status-devcall">dev call</span><h3 class="finding-title">7.3 — 125% may be an insufficient ceiling for low-vision players</h3><span class="finding-location">EXPERIENCE.md · Accessibility Floor option 3</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Post-beta, evaluate a 150% tier (accepting refit-row clamping). <em>Status: NEEDS DEVELOPER CALL — screen-real-estate vs legibility trade at the floor.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">3.3 / 4.2 / 5.1 / 6.3 / 7.1 — merged elsewhere</h3><span class="finding-location">see cross-references</span></header>
+            <div class="finding-note">3.3 (Foghorn missing) is merged into the rubric's Inheritance high finding. 4.2 (Regatta feed-text contrast) is merged into HUD F21. 5.1 (HP pulse cap) is merged into HUD F19. 6.3 (8.1px effective micro text) is merged into HUD F8. 7.1 (no reflow/clamp at 125% floor) is merged into HUD F9.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="reviewer-section">
+      <details>
+        <summary>
+          <h2>Input-scheme review (adversarial)</h2>
+          <span class="reviewer-source">review-input-scheme.md — NOTE: the blocking finding was resolved post-review (refit modifier CTRL → SPACE)</span>
+        </summary>
+        <div class="dim-body"><div class="dim-judgment">
+          <p>"The core split is sound — tap-telegraph W/S plus hold-rudder A/D on the left, mouse aim/fire on the right, Q/E/R/F within left-hand reach — and the set-and-forget telegraph quietly defuses most chording problems. But the scheme has one shipping-blocking flaw: CTRL as a held game modifier makes CTRL+W (close tab) a designed steady state, and CTRL+W cannot be intercepted by a web page in Chromium browsers — on school Chromebooks a player who taps W while browsing refit cards loses the tab and the match." <strong>Post-review resolution (decision log 2026-07-16):</strong> Eric approved moving the refit modifier to SPACE (hold Space, pick 1–4, release dismisses; hold-not-toggle unchanged; CTRL leaves the scheme entirely). This resolves the critical finding and its ergonomics cluster; the browser-interception contract reduces to standard hygiene (context-menu suppression, Space-scroll preventDefault). The Sticky-Keys hold-vs-toggle question remains open — holding Space has the same issue.</p>
+        </div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-critical">critical</span><span class="badge badge-status-resolved">resolved</span><h3 class="finding-title">2.1 — CTRL+W closes the tab and cannot be intercepted; a designed steady state on the target platform</h3><span class="finding-location">EXPERIENCE.md · Interaction Primitives / Refit Card</span></header>
+            <div class="finding-note">The exact sequence the design teaches — hold CTRL to browse cards while the battle continues, tap W to adjust speed — fires the browser's uninterceptible close-tab shortcut on Chrome/Edge/ChromeOS; invisible on the macOS dev machine, fatal on school Chromebooks. The review's recommended mitigation (option 1: move the modifier to Space, the thumb key) was adopted.</div>
+            <div class="finding-fix"><strong>Status: RESOLVED — refit moved to Space (decision log 2026-07-16); Space+anything collides with no browser chord.</strong> Spine edit pass must propagate the change (all CTRL copy, "HOLD CTRL TO REFIT" cue line).</div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><span class="badge badge-status-resolved">resolved</span><h3 class="finding-title">2.2 — No browser-shortcut interception contract exists at all</h3><span class="finding-location">EXPERIENCE.md · Interaction Primitives (absent)</span></header>
+            <div class="finding-note">CTRL+1/2/3/4 (switch tab), CTRL+E/R/F chords, contextmenu on right-click — none specced.</div>
+            <div class="finding-fix"><strong>Status: RESOLVED — refit moved to Space;</strong> with CTRL out of the scheme the contract reduces to standard hygiene per the decision log: preventDefault on bound keys, context-menu suppression on the canvas, Space-scroll preventDefault — still worth one spine subsection, but no longer a chord-hazard contract. </div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-high">high</span><h3 class="finding-title">2.3 — Hold-only modifier breaks Sticky Keys / Filter Keys users</h3><span class="finding-location">EXPERIENCE.md · Refit Card; .decision-log.md</span></header>
+            <div class="finding-note">Merged into accessibility 6.1 — see that entry. NOT resolved by the Space change: holding Space has the same hold-semantics problem under Sticky/Filter Keys. <em>Status: NEEDS DEVELOPER CALL.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><span class="badge badge-status-resolved">resolved</span><h3 class="finding-title">1.1 — Refit vacates the helm entirely (hold-CTRL + number row rotates the left hand off WASD)</h3><span class="finding-location">EXPERIENCE.md · Refit Card / Interaction Primitives</span></header>
+            <div class="finding-note">The finding's own fix — "the modifier must move to a thumb key (Space) so ring/middle stay on A/W/S" — is exactly what was decided.</div>
+            <div class="finding-fix"><strong>Status: RESOLVED — refit moved to Space;</strong> thumb-hold preserves all four helm fingers. The residual "refit trades attention for build progress" statement is still worth one explicit line.</div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><span class="badge badge-status-resolved">resolved</span><h3 class="finding-title">1.2 — CTRL+4 stretch biases small hands against card slot 4</h3><span class="finding-location">EXPERIENCE.md · refit picks</span></header>
+            <div class="finding-fix"><strong>Status: RESOLVED — refit moved to Space</strong> (the finding's own text: "2.1's fix collapses this finding"). Space-thumb + number row is a normal reach.</div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">1.3 — D-column index overload (R/F while D held) — verified genre-normal, accept</h3><span class="finding-location">Interaction Primitives</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> None needed; logged so the review is honest rather than alarmist. <em>Status: OPEN (conscious accept, no action).</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">3.1 — Results modal has no keyboard map</h3><span class="finding-location">EXPERIENCE.md · IA Results row / Match lifecycle</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Spec Enter = re-queue (primary), ESC = leave to port; add to Interaction Primitives. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">3.2 — Sinking window and omniscient-reveal input maps undefined</h3><span class="finding-location">EXPERIENCE.md · Death ritardando / reveal</span></header>
+            <div class="finding-note">During the ~5s sinking window "guns stay live" — is the helm live too? During the reveal: camera pan/zoom, skip key, or fixed-duration cinematic? The superseded spectate's input story was never replaced.</div>
+            <div class="finding-fix"><strong>Fix:</strong> One State Patterns row: sinking = combat inputs live / helm accepted-but-decaying; reveal = no inputs except Enter/click = proceed (or state fixed duration). <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">3.3 — Class-select layer keyboard map undefined, but the ratified card anatomy renders a key glyph</h3><span class="finding-location">DESIGN.md · Class Card; EXPERIENCE.md · IA</span></header>
+            <div class="finding-note">A rendered key glyph with no defined key is a spec contradiction.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Define: 1–4/arrows highlight, Enter picks, ESC closes without change — or delete the key glyph from the anatomy. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">3.4 — ESC needs a stack rule across five surfaces</h3><span class="finding-location">EXPERIENCE.md · Interaction Primitives / "Modals never stack"</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> One line: "ESC closes the topmost open surface; if none is open, ESC opens settings." State the Space-refit + ESC interaction (refit closes on Space release regardless). <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">3.5 — Rebind capture and text inputs inside a non-pausing game</h3><span class="finding-location">EXPERIENCE.md · settings overlay / remapping</span></header>
+            <div class="finding-note">Remapping listens for an arbitrary keypress while the game keeps running underneath; typing "wasd" in the callsign field must not fire handlers (a real current-code bug class).</div>
+            <div class="finding-fix"><strong>Fix:</strong> Add "DOM overlay with focus = keyboard suppressed from sim; sim never pauses" to State Patterns; note text-input focus guards. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">4.1 — 1–4 dual role: modifier-release race between refit pick and future consumable</h3><span class="finding-location">EXPERIENCE.md · Interaction Primitives (1/2/3/4 row)</span></header>
+            <div class="finding-note">Applies unchanged to Space: releasing the modifier a few frames before the number lands fires the wrong irreversible spend.</div>
+            <div class="finding-fix"><strong>Fix:</strong> Number-key meaning evaluated at its own keydown against the modifier's state at that keydown, plus a ~150–200ms grace window in which numbers still resolve as refit picks and never as consumables; explicitly kill the current-code spend-with-window-closed behavior. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><span class="badge badge-status-devcall">dev call</span><h3 class="finding-title">4.2 — Q/E/R/F pressed while the refit modifier is held: game meaning undefined</h3><span class="finding-location">EXPERIENCE.md · Interaction Primitives / Refit Card (non-blocking)</span></header>
+            <div class="finding-note">Applies unchanged to Space. Recommended: combat keys retain their meanings while the modifier is held (the window is a lens, not a mode); if refit swallows them, the "non-blocking" claim needs a caveat.</div>
+            <div class="finding-fix"><strong>Fix:</strong> One sentence in Component Patterns · Refit Card. <em>Status: NEEDS DEVELOPER CALL between the two readings.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">4.4 — Modifier remap semantics + reserved-chord blacklist unspecced</h3><span class="finding-location">EXPERIENCE.md · "All bindings remappable"</span></header>
+            <div class="finding-note">Merged into accessibility 1.4/6.2 — see that entry. <em>Status: NEEDS DEVELOPER CALL.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">medium</span><h3 class="finding-title">5.1 — Nothing on screen points at W/S/A/D; a hold-W misconception threatens Journey A beat 2</h3><span class="finding-location">EXPERIENCE.md · Journey A beat 2; DESIGN.md · Telegraph Cluster</span></header>
+            <div class="finding-note">A newcomer holds W (every other game's forward key), gets exactly +1 detent, concludes the ship is agonizingly slow, and churns before ever seeing FULL AHEAD. The hotbar got key glyphs; the helm — the entire left hand of the input fantasy — got none.</div>
+            <div class="finding-fix"><strong>Fix:</strong> W/S glyphs at the telegraph ladder's ends and A/D at the rudder track's extremes, visible in the weapons-safe room and fading after first successful inputs; or one waiting-room hint line ("W/S ENGINE ORDERS · A/D RUDDER"). <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">3.6 — Fate of `P` (prediction debug) undecided; live-play mouse wheel unspecified</h3><span class="finding-location">extract-current-ui.md §2; EXPERIENCE.md · Interaction Primitives</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> One line each: "P: dev-build only, stripped from production"; "Wheel: no function in live play." <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">3.7 — How-to-Play and disconnect-surface inputs underspecified</h3><span class="finding-location">EXPERIENCE.md · IA</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> "Standard page chrome, ESC/back returns home." <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">4.3 — Denied rule not explicit for cooling-ability / empty-slot presses</h3><span class="finding-location">EXPERIENCE.md · State Patterns Denied row</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Widen the trigger to "Fire or activation attempt while invalid (cooling, no ammo, empty slot, weapons-safe)"; reconcile with the waiting room's "fire, damage suppressed." <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">4.5 — Two key-glyph systems (Q/E/R/F + 1–4) co-visible during refit</h3><span class="finding-location">DESIGN.md · Refit Card chip / hotbar glyphs</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Keep the glyph styles visibly the same family so "keys look like this" reads as one system. <em>Status: OPEN.</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">5.2 — First press of an ability activates it — conscious accept</h3><span class="finding-location">EXPERIENCE.md · weapons switch-to, abilities activate</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> None; LoL/Hades norm, Solo-vs-AI is the sanctioned place to burn exploratory cooldowns. <em>Status: OPEN (conscious accept, no action).</em></div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-low">low</span><h3 class="finding-title">5.3 — Settings overlay should be the in-match binding reference</h3><span class="finding-location">EXPERIENCE.md · settings overlay</span></header>
+            <div class="finding-fix"><strong>Fix:</strong> Make "the settings overlay doubles as the in-match key reference" an explicit line. <em>Status: OPEN.</em></div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <div class="mechanical">
+      <h3>Mechanical notes</h3>
+      <ul>
+        <li>All 36 <code>{path.to.token}</code> references across both spines resolve; all relative links (peer spine, imports/, reconcile ledger, 7 mocks) point at existing files. Component names identical across frontmatter, Components rows, and Component Patterns.</li>
+        <li><strong>CTRL → SPACE propagation is outstanding:</strong> the decision post-dates both spines and all four reviews — every CTRL mention (Interaction Primitives, Refit Card, the "HOLD CTRL TO REFIT" chip cue line, settings-philosophy cross-references) must be edited to Space in the same pass that addresses findings.</li>
+        <li><code>hud-micro</code> frontmatter says 9px while the body table says 9–10px — one word of reconciliation.</li>
+        <li>Both spines are <code>status: draft</code> — flip to final at sign-off.</li>
+        <li>Dedupe arithmetic: 90 raw findings across four reviews → 78 after 12 cross-reviewer merges; 4 subsequently resolved by the Space decision. The accessibility review's own severity totals (1/7/14/8) differ slightly from its table rows (1/7/13/9); this report counts the rows.</li>
+      </ul>
+    </div>
+
+    <footer class="report-footer">
+      <div class="meta">
+        <span>Rubric: review-rubric.md · Extra lenses: review-hud-legibility.md, review-accessibility.md, review-input-scheme.md</span>
+        <span>Generated: 2026-07-16</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>
