@@ -58,6 +58,14 @@ Facilitator flagged that #4 could be read as a mechanism serving #1/#2 rather th
 - **Gunship reframed:** the DPS pick — damage is its fantasy, contrasting the Battleship's durability.
 - **Hunter:** torpedo as special now uncertain (Eric: "maybe shouldn't. Idk").
 
+## 2026-07-16 — Gunboat rename, Battleship refantasy, Hunter backburnered, Hades-style upgrades (decided)
+
+- **"Gunship" → "Gunboat"** (Eric: gunship = aircraft colloquially). Fantasy: small, fast, lightly armored — "speedy boy with some guns." Its "other" ability = another gun.
+- **Battleship refantasy:** massive, heavily armored, long-range artillery dominating the open ocean. Loadout to be adjusted to fit (special likely long-range main battery artillery; exact row pending Eric's confirmation).
+- **Hunter class backburnered** — beta ships FOUR classes: Torpedo Boat, Battleship, Mine Layer, Gunboat.
+- **Heal dropped from the upgrade economy** (consequence of the no-self-heal law).
+- **Upgrade catalog: 100% replacement.** All 14 existing stat-multiplier upgrades will be stripped and redesigned as Hades-like upgrades — qualitative, build-defining boons. New catalog is future design work; the GDD documents the model, not the old contents.
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).

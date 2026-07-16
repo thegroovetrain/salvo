@@ -109,12 +109,11 @@ As in any battle royale, matches naturally converge from a long hunt to a forced
 | Class | Power fantasy |
 |---|---|
 | **Torpedo Boat** | Fast, fragile, the needle-threader: torpedo skill-shots through terrain, orbiting bigger ships, winning on audacity. |
-| **Battleship** | Slow, unkillable-feeling, haymaker guns: you don't dodge the argument, you *are* the argument. |
+| **Battleship** | Massive, heavily armored, long-range artillery: dominates the open ocean from beyond the reply. |
 | **Mine Layer** | The trapper: area denial, reading where prey will flee and having already been there. |
-| **Gunship** | The gun duelist: the flexible gunfighter who wins the fair fight — or picks the wounded one. |
-| **Hunter** *(working name — TBD)* | Sensor-forward: finds everyone first, sees what others can't. Headlines Pillar 1. |
+| **Gunboat** | Small, fast, lightly armored — speedy boy with some guns. The sustained-damage pick. |
 
-[NOTE FOR DESIGNER: fifth class needs its real name.]
+Backburnered (post-beta): a fifth, sensor-forward **Hunter** class (working name TBD) — finds everyone first, sees what others can't.
 
 Each class is a **hull envelope** (size, speed, toughness, turning) carrying a **fitted loadout**. Hull envelopes differentiate feel; loadouts differentiate playstyle.
 
@@ -130,7 +129,9 @@ Backburnered (designed-for but not in beta): one **pickup weapon slot** (a weapo
 
 **Universal sensor suite (Pillar 1).** Three senses on every hull: a **truesight bubble** (live, LOS-clear contacts; reference 220 u), a **rotating radar sweep** (reference 650 u, 4 s revolution) that paints decaying phosphor blips when the beam crosses a LOS-clear ship, and **hull microphones** — a passive listening ring that gives bearing-grade audio detection of nearby noise (engines, torpedoes in the water). One LOS rule everywhere: the observer→point segment must clear all island circles. Only ships paint on radar; projectiles materialize at the sight boundary with no range-derivable fields. Counter-intel law: **lies must live on the server** — deceptions must be indistinguishable on the wire.
 
-**Upgrade economy (Pillar 3).** XP-based leveling: a slow passive XP tick (design target ~1 level per minute) **plus** kill bonuses. Each level banks an upgrade point carrying a **pre-rolled offer** of 3 upgrades from 3 distinct categories (rolled at earn-time, never rerolls); spending picks one, or heals instead (reference: 25 hp/point). Upgrades stack (multiplicative or additive per stat). The passive tick is the anti-snowball floor — everyone grows; kills grow you faster. Kill-bonus sizing is an open balance item (see Progression and Balance).
+**Upgrade economy (Pillar 3).** XP-based leveling: a slow passive XP tick (design target ~1 level per minute) **plus** kill bonuses. Each level banks an upgrade point carrying a **pre-rolled offer** of 3 upgrades from 3 distinct categories (rolled at earn-time, never rerolls). The passive tick is the anti-snowball floor — everyone grows; kills grow you faster. Kill-bonus sizing is an open balance item (see Progression and Balance).
+
+Upgrade *content* is Hades-style: qualitative, build-defining boons that change how your loadout behaves — not stat multipliers. The prototype's 14 stat-stack upgrades are dead and will be replaced wholesale (new catalog is dedicated design work; this GDD specifies the model). There is **no heal option in the economy** — a design law: self-heal is never a ship feature; healing, if it exists at all, arrives later via consumables.
 
 **The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — design target: phased ring closure totaling ~12:00 (phase split open: 3×4 min vs 4×3 min), replacing the prototype's single 45 s grace + 3-min continuous shrink. Storm never blinds sensors; it only damages (reference 4 hp/s). The **Endgame Guarantee**: the final circle is smaller than truesight — deduction game first, gunnery duel last.
 
