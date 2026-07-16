@@ -4,7 +4,7 @@
 # Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
 
 generated: '2026-07-15'
-last_updated: '2026-07-15'
+last_updated: '2026-07-16'
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -15,7 +15,7 @@ domain-research: false # optional
 create-game-brief: _bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/brief.md # complete 2026-07-15 (addendum + decision log alongside)
 
 # --- Phase 2: Design ---
-gdd: false
+gdd: _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/gdd.md # complete 2026-07-16 (epics.md + decision-log.md alongside; merged in PR #23)
 create-narrative: false # optional
 ux: false # optional
 prd: false # optional
@@ -29,4 +29,4 @@ check-implementation-readiness: false # required
 sprint-planning: false # required
 # story cycle (create-story -> dev-story -> code-review) tracked in sprint-status.yaml
 
-next_expected: gdd
+next_expected: game-architecture
