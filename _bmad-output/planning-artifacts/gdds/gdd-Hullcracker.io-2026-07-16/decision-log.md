@@ -116,6 +116,11 @@ Final beta loadout table (Eric's rows):
 - **Kill bonus: kill-only, no damage XP** (resolves #67's hybrid question). Handwave values (shape committed, fractions tunable): opponent kill = 1 level; PvE common small = 1/4; uncommon medium = 1/3; rare large = 1/2.
 - PvE fleets gain three tiers (common/uncommon/rare, rising HP) — Enemy Design section updated.
 
+## 2026-07-16 — Technical Specifications (decided)
+
+- Eric approved the proposed targets ("Good numbers"): 60 FPS on low-end Chromebook in a full 20-ship match; <~10 s portal-click-to-playable; 20 Hz authoritative sim + prediction, good feel to ~150 ms; structural anti-cheat (sight ∪ sweep chokepoint, server-side lies); desktop browsers (Chrome/Edge/Firefox/Safari), portal compliance as hard constraint; procedural rendering + tone-only audio (no asset pipeline).
+- Art/Audio tone resolved in favor of the newer brief ("Silly Is Sanctioned" wrapper) over DESIGN.md's hex-era "not playful — focused"; DESIGN.md flagged for an RT-era update pass.
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).

@@ -314,15 +314,22 @@ There is no authored level progression — the storm is the level progression. E
 
 ### Performance Requirements
 
-_TBD — facilitation in progress._
+- **60 FPS sustained on a low-end school Chromebook** in a full 20-ship match with fog, radar sweep, and effects active. Low-end performance is a distribution feature, not an optimization afterthought (Pillar 2).
+- **Playable from portal click in under ~10 seconds** on that same hardware — no install, no account.
+- **Authoritative 20 Hz server simulation with client prediction**; playable feel at typical residential latencies (up to ~150 ms without degradation).
+- **Structural anti-cheat:** nothing outside a client's sight ∪ radar sweep ever reaches that client; counter-intel lies live on the server and are indistinguishable on the wire.
 
 ### Platform-Specific Details
 
-_TBD — facilitation in progress._
+- Desktop browser: current Chrome, Edge, Firefox, Safari. Keyboard + mouse.
+- Meets Poki / CrazyGames portal technical requirements (bundle size, SDK integration) — the specifics are launch work; compliance is a hard constraint.
+- Mobile/touch: out of scope for beta.
 
 ### Asset Requirements
 
-_TBD — facilitation in progress._
+- Rendering is procedural/vector-discipline (Pixi-drawn hulls, linework, effects) — no heavy texture or model pipeline.
+- Audio is synthesized WebAudio tones — zero sound-file assets.
+- Fonts and any static assets stay within portal bundle-size limits.
 
 ---
 
