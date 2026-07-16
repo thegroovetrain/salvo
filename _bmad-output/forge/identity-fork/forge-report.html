@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Forge Report — The Identity Fork (#86)</title>
+<style>
+  :root { --paper:#f5efe2; --ink:#2b2620; --rule:#c9bda4; --accent:#8b1e1e; --dim:#6b6154; }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#e8e0cf; color:var(--ink); font-family: Georgia, 'Times New Roman', serif; line-height:1.55; padding:2rem 1rem; }
+  .sheet { max-width:820px; margin:0 auto; background:var(--paper); border:1px solid var(--rule); box-shadow:0 6px 30px rgba(43,38,32,.25); padding:3rem 3.2rem; position:relative; }
+  h1 { font-size:1.7rem; letter-spacing:.03em; border-bottom:3px double var(--rule); padding-bottom:.6rem; margin-bottom:.3rem; }
+  .sub { color:var(--dim); font-style:italic; margin-bottom:2rem; }
+  h2 { font-size:1.05rem; text-transform:uppercase; letter-spacing:.12em; color:var(--accent); margin:2rem 0 .7rem; border-bottom:1px solid var(--rule); padding-bottom:.25rem; }
+  ul { list-style:none; }
+  li { padding:.35rem 0 .35rem 1.4rem; position:relative; }
+  li::before { content:"⚓"; position:absolute; left:0; font-size:.8em; color:var(--dim); top:.55rem; }
+  li.kill::before { content:"✕"; color:var(--accent); font-weight:bold; }
+  li.scar::before { content:"⚠"; color:#a05e00; }
+  strong { color:#1e1a15; }
+  .seal { position:absolute; top:2.2rem; right:2.4rem; transform:rotate(8deg); }
+  .verdict { margin:2.2rem 0; padding:1rem 1.4rem; border-left:4px solid var(--accent); background:rgba(139,30,30,.06); font-size:1.05rem; }
+  table { width:100%; border-collapse:collapse; font-size:.92rem; }
+  td { padding:.35rem .5rem; border-bottom:1px solid var(--rule); vertical-align:top; }
+  td:first-child { white-space:nowrap; width:11.5rem; }
+  .voice { color:var(--dim); font-style:italic; }
+  .foot { margin-top:2.5rem; color:var(--dim); font-size:.85rem; border-top:3px double var(--rule); padding-top:.8rem; }
+  @media (max-width:600px){ .sheet{padding:2rem 1.2rem} .seal{position:static; display:block; margin:0 auto 1rem; transform:rotate(0)} td:first-child{width:auto} }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <svg class="seal" width="150" height="150" viewBox="0 0 150 150" aria-label="Wax seal stamped HARDENED">
+    <defs>
+      <radialGradient id="wax" cx="42%" cy="38%" r="70%">
+        <stop offset="0%" stop-color="#b0342c"/><stop offset="55%" stop-color="#8b1e1e"/><stop offset="100%" stop-color="#5e1211"/>
+      </radialGradient>
+    </defs>
+    <path d="M75 6c14-5 26 6 38 8s26 7 28 21-8 22-7 34 9 24 0 35-22 8-32 15-18 17-32 14-16-14-27-19-25-6-29-20 6-22 6-34-8-25 1-35 23-6 33-12 11-4 21-7z" fill="url(#wax)"/>
+    <circle cx="75" cy="75" r="52" fill="none" stroke="#e9c9a8" stroke-width="2.5" opacity=".85"/>
+    <circle cx="75" cy="75" r="44" fill="none" stroke="#e9c9a8" stroke-width="1" opacity=".55"/>
+    <path d="M75 47v34M63 55h24M69 81c0 8 3 12 6 14 3-2 6-6 6-14M55 66c-3 10 2 24 20 29 18-5 23-19 20-29" fill="none" stroke="#e9c9a8" stroke-width="3" stroke-linecap="round" opacity=".9"/>
+    <path id="arcT" d="M75 75 m-36 0 a36 36 0 1 1 72 0" fill="none"/>
+    <text font-family="Georgia,serif" font-size="13.5" fill="#f3ddc2" letter-spacing="3.5" font-weight="bold">
+      <textPath href="#arcT" startOffset="7%">HARDENED</textPath>
+    </text>
+    <text x="75" y="127" text-anchor="middle" font-family="Georgia,serif" font-size="8.5" fill="#e9c9a8" letter-spacing="2">2026-07-15</text>
+  </svg>
+
+  <h1>Forge Report — The Identity Fork</h1>
+  <div class="sub">Brainstorm idea #86 · lobby-picked identity vs match-built identity · Hullcracker.io · forged with Eric, 2026-07-15</div>
+
+  <div class="verdict"><strong>Verdict: HARDENED.</strong> The idea arrived as a binary — "Apex-style lobby kits <em>vs</em> roguelike match-built builds" — and left as an architecture: <strong>a lobby promise that never misses, plus match-built growth that RNG is allowed to govern.</strong> The binary itself was the flaw; both reference games (Hades, Apex) had already split the difference the same way. Ready to feed a Game Brief / GDD.</div>
+
+  <h2>Locked Decisions</h2>
+  <ul>
+    <li><strong>Promise + growth, not promise vs growth.</strong> Lobby pick = a genuinely different loadout live at 0:00; the upgrade deck grows it in-match.</li>
+    <li><strong>Classes differ by loadout, not size.</strong> Verb composition from a shared armory — focus, not exclusivity. Slot taxonomy deliberately unpinned.</li>
+    <li><strong>The Hades contract:</strong> the promise never misses; RNG only touches what was never promised. That line is what separates "lame roll, one more run" from "the menu lied."</li>
+    <li><strong>Class is an envelope; a build is a point inside it.</strong> Two endgame Torpedo Boats: guessable threat range, never identical.</li>
+    <li><strong>Anti-snowball outranks the Conservation Law.</strong> Hiding is a viable strategy by design; the massacre-player must stay challengeable. The passive tick (~1 pick/min, zone closed at 10:00) is the anti-snowball floor — the brainstorm's "session thesis" (#42) is hereby demoted to a tendency.</li>
+    <li><strong>20–30 humans is the lobby target</strong> (6 is far too low); fill-or-timer, never hostage; custom lobbies adopted; bot-fill disfavored.</li>
+    <li><strong>Noise law:</strong> information noise must never obscure the player-vs-player hunt. PvE clusters: small, capped, maybe map-marked.</li>
+    <li><strong>Radar grows shape.</strong> Blip size/shape carries class legibility beyond truesight; radar is a hunting tool.</li>
+  </ul>
+
+  <h2>Killed &amp; Rejected — Cause of Death</h2>
+  <ul>
+    <li class="kill"><strong>The fork as a binary</strong> — both poles dead on contact with the reference games it cited.</li>
+    <li class="kill"><strong>"Everyone has gun/torpedo/mine"</strong> — the universal thing is the slot grammar, not the contents.</li>
+    <li class="kill"><strong>PvE fleets as mandatory density; bot-fill in player lobbies; ambiguity-as-thrill</strong> — killed by the noise law and by Eric declining ownership of the doc's #65 framing.</li>
+  </ul>
+
+  <h2>Weak Points That Survived Scrutiny</h2>
+  <ul>
+    <li class="scar"><strong>The Unwitnessed Build</strong> (accepted openly): ten picks must become <em>felt</em> — seen, heard, feared — or match-built identity is a spreadsheet. Unsolved.</li>
+    <li class="scar"><strong>The kill-bonus ratio</strong> is the single number pricing the rat. Untuned.</li>
+    <li class="scar"><strong>Ghost ocean:</strong> map scales by lobby <em>cap</em>, not actual starting roster (verified in code) — fix by sizing from the roster at countdown end.</li>
+    <li class="scar"><strong>Open by choice:</strong> eclipse dial, deck-merge mechanism, slot taxonomy, class list (the Carrier is the stress test), covenant scaling. All prototype/playtest questions — cheapest experiment: one hand-built Cruiser loadout variant + weighted offers.</li>
+  </ul>
+
+  <h2>The Voices That Held It to the Fire</h2>
+  <table>
+    <tr><td>🎲 <strong>Samus Shepard</strong></td><td class="voice">Game Designer — asked which layer owns the fantasy; found the Hades slot grammar hiding in the codebase.</td></tr>
+    <tr><td>🔬 <strong>Dr. Quinn</strong></td><td class="voice">Master Problem Solver — "a plan you cannot rely on is a hope"; forced promise-vs-bias into the open.</td></tr>
+    <tr><td>🎯 <strong>Rook</strong></td><td class="voice">The one-trick main — wrote the contract: the promise may be outgrown, never withheld.</td></tr>
+    <tr><td>⚡ <strong>Victor</strong></td><td class="voice">Innovation Strategist — showed both reference games had already answered the fork.</td></tr>
+    <tr><td>⚗️ <strong>Nef</strong></td><td class="voice">Boon-system designer — named the Daedalus Hammer in the two-deck idea.</td></tr>
+    <tr><td>🏛️ <strong>Cloud Dragonborn</strong></td><td class="voice">Game Architect — priced the walls: perception at O(n²), a hundred humans vs a hundred ships.</td></tr>
+    <tr><td>🎮 <strong>Indie</strong></td><td class="voice">Solo Dev — sent the bill for every slot-filler; proposed the cast-only cheap rung.</td></tr>
+    <tr><td>🚢 <strong>Dana</strong> &amp; 🌱 <strong>Dr. Fern</strong></td><td class="voice">Pragmatist &amp; playtest scientist — turned eclipse-vs-cap from a switch into a dial with failure signals.</td></tr>
+    <tr><td>🛑 <strong>Killjoy</strong></td><td class="voice">Loop Stopper — called the boundary between talk-questions and playtest-questions.</td></tr>
+    <tr><td>📡 <strong>Marta</strong> &amp; 🎧 <strong>Priya</strong></td><td class="voice">Population analyst &amp; live-ops designer — queue math, and "verbs are expensive."</td></tr>
+    <tr><td>😤 <strong>Grumbal</strong> &amp; 🎣 <strong>Pike</strong></td><td class="voice">The attack round — Ghost Ocean, Silent Rat, Unwitnessed Build, Anonymous Blip. Two rulings and one honest scar came out of it.</td></tr>
+  </table>
+
+  <div class="foot">Session artifacts: <strong>forged-idea.md</strong> (feeds Game Brief / GDD / bmad-spec / bmad-prd) · <strong>.memlog.md</strong> (26 entries, full decision trail) · Facilitated by the BMad idea forge.</div>
+</div>
+</body>
+</html>
