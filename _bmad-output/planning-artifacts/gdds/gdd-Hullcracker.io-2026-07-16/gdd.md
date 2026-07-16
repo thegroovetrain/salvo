@@ -120,13 +120,13 @@ Each class is a **hull envelope** (size, speed, toughness, turning) carrying a *
 
 **Slot grammar (universal; contents per class).** Every ship fits:
 
-1. **Basic weapon** — universal: every class carries the **same standard gun**, working the same way. Short cooldown, basic damage, available to use most of the time.
-2. **Special weapon** — what makes the class feel unique.
-3. **"Other" ability** — equipment that complements the class fantasy: intel-gathering, an additional weapon, or something else entirely.
+1. **The gun** — universal: every class carries the **same standard gun**, working the same way. Short cooldown, basic damage, available to use most of the time.
+2. **Two special abilities** — what makes the class unique; **at least one of the two is a weapon**. (In the beta roster the pair is one signature weapon plus one fantasy-complementing ability.)
+3. **One extra slot, filled mid-match through the upgrade economy** — every class-specific ability in the game can show up in boon offers, so anyone can acquire torpedoes, mines, a smoke screen: the offers decide.
 
-Class differentiation lives in the special weapon, the "other" equipment, and the hull envelope stats — never in the basic gun.
+Class differentiation lives in the two specials and the hull envelope stats — never in the gun.
 
-Backburnered (designed-for but not in beta): one **pickup weapon slot** (a weapon acquired in-game) and **~4 consumable slots**. The grammar reserves them; the beta does not implement them.
+Backburnered (designed-for but not in beta): **~4 consumable slots**.
 
 **Movement — telegraph and helm.** Set-and-forget engine orders (9-detent telegraph) plus rudder; ships have separate acceleration and braking rates, and rudder authority reduces below steerage speed. Kinematics are per-class envelope values (current prototype reference: max speeds 30–46 u/s, turn rates 0.6–0.9 rad/s across hulls — all tunable per the five-class redesign).
 
@@ -134,7 +134,7 @@ Backburnered (designed-for but not in beta): one **pickup weapon slot** (a weapo
 
 **Upgrade economy (Pillar 3).** XP-based leveling: a slow passive XP tick (design target ~1 level per minute) **plus** kill bonuses. Each level banks an upgrade point carrying a **pre-rolled offer** of 3 upgrades from 3 distinct categories (rolled at earn-time, never rerolls). The passive tick is the anti-snowball floor — everyone grows; kills grow you faster. Kill-bonus sizing is an open balance item (see Progression and Balance).
 
-Upgrade *content* is Hades-style: qualitative, build-defining boons that change how your loadout behaves — not stat multipliers. The prototype's 14 stat-stack upgrades are dead and will be replaced wholesale (new catalog is dedicated design work; this GDD specifies the model). There is **no heal option in the economy** — a design law: self-heal is never a ship feature; healing, if it exists at all, arrives later via consumables.
+Upgrade *content* is Hades-style: qualitative, build-defining boons that change how your loadout behaves — not stat multipliers. The prototype's 14 stat-stack upgrades are dead and will be replaced wholesale (new catalog is dedicated design work; this GDD specifies the model). **Offers can include any class-specific ability in the game** — this is how the extra slot fills, and how a Battleship might grow torpedoes or a Mine Layer a smoke screen. Offer weighting for off-class abilities is open tuning. There is **no heal option in the economy** — a design law: self-heal is never a ship feature; healing, if it exists at all, arrives later via consumables.
 
 **The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — design target: phased ring closure totaling ~12:00 (phase split open: 3×4 min vs 4×3 min), replacing the prototype's single 45 s grace + 3-min continuous shrink. Storm never blinds sensors; it only damages (reference 4 hp/s). The **Endgame Guarantee**: the final ring has a diameter of **2 standard truesight diameters** — close enough to force combat, far enough that radar is still needed and close-range hulls hold no clear advantage over long-range ones.
 
@@ -152,9 +152,9 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 ### Weapon Systems
 
-**Fitted loadouts (the promise at 0:00).** The **basic gun is universal** — every class carries the same standard gun, working the same way (short cooldown, basic damage, available most of the time). Class identity comes from the **special weapon** (what makes the class feel unique), the **"other" equipment** (complements the class fantasy), and the hull envelope stats. Per the forge lock, contents are **focus, not exclusivity** — drawn from a shared armory; these are fitted defaults, not hard locks.
+**Fitted loadouts (the promise at 0:00).** The **gun is universal** — every class carries the same standard gun, working the same way (short cooldown, basic damage, available most of the time). Class identity comes from the **two special abilities** — at least one of them a weapon — and the hull envelope stats. Per the forge lock, contents are **focus, not exclusivity**, and the mechanism is the economy: **every class-specific ability can appear in boon offers**, filling the extra slot — anyone might grow into torpedoes, mines, or a smoke screen mid-match.
 
-| Class | Basic weapon | Special weapon | "Other" ability |
+| Class | Gun | Special ability 1 (weapon) | Special ability 2 |
 |---|---|---|---|
 | **Torpedo Boat** | Standard gun | Torpedo tubes | Smoke screen (#26) |
 | **Battleship** | Standard gun | Long-range cannon (artillery) | Star shells (#12) |
@@ -268,7 +268,7 @@ Three escalating cycles of that rhythm, then the endgame: the final ring is **tw
 
 - **XP is the only progression currency.** No loot-scavenging spine (explicitly rejected); nothing on the water outranks playing well.
 - **Ammo is per-weapon and reload-limited**, not scavenged: each fitted system owns its ammo pool and reload timer, always ticking.
-- **Consumables and the pickup weapon slot are backburnered** — the slot grammar reserves them; the beta economy does not include them.
+- **The extra slot fills through offers** — off-class abilities appearing in the boon pool are the "pickup" mechanism; nothing is scavenged off the water. Consumable slots are backburnered.
 
 ---
 
@@ -357,21 +357,35 @@ Detailed breakdown with stories, scope boundaries, and dependencies: `epics.md`.
 
 ### Technical Metrics
 
-_TBD — facilitation in progress._
+The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on a low-end Chromebook in a full 20-ship match; portal click to playable in under ~10 s; feel intact at ~150 ms latency; matches complete without crashes or desyncs.
 
 ### Gameplay Metrics
 
-_TBD — facilitation in progress._
+- Matches complete inside 15:00 (Pillar 2's promise, measured).
+- Players re-queue immediately after death — the fun proxy; if dying doesn't lead to "again," Pillar 2 is failing.
+- All four classes see real pick rates — no class is a dead button (Pillar 3's promise has to be worth promising).
+- One playtest-answerable question per pillar — e.g., for Pillar 1: do players describe finding someone as a *deduction*?
 
 ---
 
 ## Out of Scope
 
-Explicitly not in the beta (from the game brief; to be confirmed during facilitation):
+**Backburnered — designed-for, not built in beta:**
+
+- Hunter class (the sensor-forward fifth class; working name TBD)
+- ~4 consumable slots per ship
+- Supply drops (the ring rhythm reserves their minute-2 slot)
+- Sonar as a distinct sensor tier; active ping (Hunter material)
+
+**Post-beta:**
 
 - Teams (duos/trios + ping system)
-- Carrier class; playable submarines
-- Accounts, cosmetics shop, ranked
+- Ranked, accounts, cosmetics shop, unlockable classes
+
+**Not planned without design-first work:**
+
+- Carrier class (counterplay must be designed before it enters — the historical stress case)
+- Playable submarines
 - Mobile/touch support
 
 ---

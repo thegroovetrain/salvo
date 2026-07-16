@@ -9,7 +9,7 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 **Goal:** replace the playtest classes (hull-size variants, identical weapons) with four classes that each deliver a distinct playstyle and power fantasy through the slot grammar.
 
 **In scope:**
-- Slot grammar: basic weapon / special weapon / "other" ability per ship (pickup + consumable slots reserved, not built).
+- Slot grammar: universal gun + two special abilities (at least one a weapon) + one extra slot filled via the upgrade economy (consumable slots reserved, not built).
 - Universal standard gun (same on every hull; short cooldown, basic damage).
 - Four hull envelopes (size/speed/toughness/turning) for Torpedo Boat, Battleship, Mine Layer, Gunboat.
 - Specials: torpedo tubes; long-range cannon; proximity-fused mines (rework per #81); armor-piercing gun (resolve form: separate gun vs activatable buff).
@@ -17,7 +17,7 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 - Rethought firing arcs (per-class weapons → arcs usable in more situations while rewarding skill).
 - Resolve the precision-bonus open idea while tuning the standard gun.
 
-**Out of scope:** Hunter class (backburnered), consumables, pickup weapons, boon catalog (E2).
+**Out of scope:** Hunter class (backburnered), consumables, boon catalog and off-class-ability offers (E2 — but the extra slot's plumbing lands here).
 
 **Dependencies:** none — first epic.
 
@@ -44,6 +44,7 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 - Levels bank points; pre-rolled offers (3 boons, 3 distinct categories, never reroll). No heal option.
 - Strip all 14 legacy stat upgrades.
 - Boon catalog v1: Hades-style, qualitative, build-defining (dedicated design work inside this epic).
+- **Off-class ability offers:** any class-specific ability can appear in offers, filling the extra slot (anyone can grow torpedoes/mines/smoke). Offer weighting is open tuning.
 - Felt-build presentation: audio, hull visuals, on-water behavior per boon — "the build must be felt."
 - **New keyboard controls:** rework bindings for telegraph, weapon-slot selection (basic/special/other), and the spend window. (Slot-selection keys coordinate with E1's grammar.)
 

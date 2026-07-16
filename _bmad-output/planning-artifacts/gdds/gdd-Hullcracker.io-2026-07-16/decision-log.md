@@ -127,6 +127,14 @@ Final beta loadout table (Eric's rows):
 - **Keyboard-controls rework added to E2** (Eric's suggestion to merge rather than a separate epic); slot-selection keys coordinate with E1.
 - Detailed breakdown written to epics.md; summary table in gdd.md.
 
+## 2026-07-16 — Slot grammar v2 + off-class offers; metrics; out of scope (decided)
+
+- **Slot grammar restated (Eric):** everyone gets the (universal) gun; everyone has TWO special abilities, at least one a weapon; plus one extra slot.
+- **The extra slot fills through the upgrade economy (Eric's idea):** ALL class-specific abilities can appear in boon offers — this is how anyone gets torpedoes/mines/smoke. Un-backburners the pickup slot; realizes focus-not-exclusivity through the economy. Off-class offer weighting = open tuning (subsumes the Eclipse-dial question: off-class access is decided, pricing isn't).
+- Consumable slots remain backburnered.
+- Success Metrics written (Eric approved the proposal): tech targets as pass/fail; gameplay = <15:00 matches, immediate re-queue as fun proxy, real pick rates across all four classes, one playtest question per pillar.
+- Out of Scope finalized in three intent tiers: backburnered (Hunter, consumables, supply drops, sonar/ping), post-beta (teams, ranked, accounts, cosmetics, unlockables), design-first (Carrier, subs, mobile).
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).
