@@ -20,6 +20,14 @@ Eric confirmed all four candidate pillars, as worded from his own source documen
 
 Facilitator flagged that #4 could be read as a mechanism serving #1/#2 rather than a standalone pillar; Eric kept it as a pillar. Recorded as intentional: "the match always ends in a forced confrontation" is load-bearing on its own.
 
+## 2026-07-16 — Core Gameplay Loop + Win/Loss (decided)
+
+- Loop confirmed as: sail/sense → deduce/position → strike → survive the reply → grow, with the storm as clock. All steps map to pillars.
+- **Strike wording corrected by Eric:** must not say "guns, torpedoes, or mines" — universal weapons are dead (forge). The slot grammar is universal; contents come from the loadout promise + growth.
+- **Replayability rationale (Eric):** "You run it again because it's fun — a quick-to-play battle royale with a decent amount of depth." The three mined fantasies (Needle-Threader, Narrow Escape, The Dance) are *potential fun moments*, NOT canonical loop payoffs or tuning targets. Do not elevate them.
+- **Truesight-convergence framing rejected by Eric:** fights converging to close range at the end is normal BR behavior ("you spend the whole match hunting, then you're all forced to a final showdown"), not a loop defect. The GDD must not describe it as a "collapse" or the 0.17 Information-Texture package as a "repair." The package enriches mid-match information texture; it is not fixing a broken loop.
+- Win/loss written from the prototype's settled behavior: last human hull afloat, human-gated win check, omniscient death reveal, cheap death / fast re-queue.
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).

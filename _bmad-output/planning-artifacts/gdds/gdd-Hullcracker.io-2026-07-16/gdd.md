@@ -76,11 +76,25 @@ The storm closes in legible phases, forcing every hunt to a conclusion. The Endg
 
 ### Core Gameplay Loop
 
-_TBD — facilitation in progress._
+One cycle, run continuously from spawn to sinking:
+
+1. **Sail / sense** — work throttle and helm while the truesight bubble and radar sweep feed fragments of the ocean. *(Pillars 1, 4 — the storm dictates where sailing is viable)*
+2. **Deduce / position** — turn blips, flashes, and silence into a mental picture; maneuver for the engagement you want. *(Pillar 1)*
+3. **Strike** — commit the weapons your loadout promises, within their real firing arcs. The slot grammar is universal; the contents are not — you strike with what you picked and what you've grown. *(Pillars 2, 3)*
+4. **Survive the reply** — striking reveals you; helm through the answer. *(Pillars 1, 2)*
+5. **Grow** — kills bank upgrade points; spend them to deepen your promise. *(Pillar 3)*
+
+…while **the storm closes in legible phases**, shrinking the water the whole loop happens on — the loop's clock. *(Pillar 4)*
+
+**Why it replays:** it is fun — a quick-to-play battle royale with a decent amount of depth. Matches are short enough to instantly re-queue and deep enough — sensor deduction, promise + growth builds, class matchups — that no two runs play the same. Moments like threading a torpedo through terrain or helming the one survivable path out of a converging spread are emergent highs the systems make possible, not scripted content.
+
+As in any battle royale, matches naturally converge from a long hunt to a forced final showdown; the Endgame Guarantee (Pillar 4) embraces that convergence rather than fighting it.
 
 ### Win/Loss Conditions
 
-_TBD — facilitation in progress._
+- **Win:** last human-crewed hull afloat. The win check is human-gated — drones fill empty slots but can never win a match.
+- **Loss:** your hull reaches zero. Damage sources: enemy weapons and the storm.
+- **On death:** the omniscient reveal — dying means finally seeing everything — then spectate or instant re-queue. Death is cheap by design (Pillar 2): the next match is seconds away.
 
 ---
 
