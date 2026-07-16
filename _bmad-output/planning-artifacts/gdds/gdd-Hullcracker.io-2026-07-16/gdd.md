@@ -201,7 +201,28 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 ### Arena and Level Design
 
-_TBD — facilitation in progress._
+**The ocean.** One large circular map per match. Islands are procedurally generated from a seed; both sides rebuild the map deterministically from that seed (the map never travels on the wire). Map size scales from the **actual roster at countdown** — no ghost oceans sized for players who never came.
+
+**Islands** are the terrain system: they block line of sight (the LOS rule for every sensor tier), block shells and torpedoes, and impose collision. They are what makes needle-threading a skill shot, radar shadows a hiding place, and positioning a deduction input.
+
+**Spawning.** Participants spawn on an outer ring, placed for maximum mutual distance and island clearance.
+
+**World features (beta):**
+
+- **Fog banks** (#43-r) — the Trade: inside a fog bank your truesight shrinks, but you vanish from others' truesight (radar may still paint you). Blindness bought with blindness.
+- **Rare whirlpools** — rare enough to be an event, not a hazard-course. Exact effect TBD. [NOTE FOR DESIGNER: define what a whirlpool does to a hull that enters it.]
+
+Backburnered: supply drops (#23). 
+
+**The storm** (Pillar 4) is the arena's clock: phased closure (~12:00 design target) shrinking to the Endgame Guarantee circle — smaller than truesight, so the last fight is always a seen fight.
+
+### Multiplayer Considerations
+
+- **Modes at beta:** **Solo** (standard BR — humans only, no bot-fill) and **Solo vs Bots** (lobby filled with AI combatants). Both contain roving PvE drone fleets.
+- **Lobby:** match starts at **2 human captains** (fill-or-timer), capped at **20** for now.
+- **Matchmaking: pure quick play.** Join whatever lobby is filling — no skill matching, no parties, no ranked at beta.
+- **Balance frame:** class counterplay flows from focus-not-exclusivity (every class carries the same standard gun; specials define the matchup); the passive XP tick is the anti-snowball floor; Paint-Not-Power keeps every purchasable structurally non-competitive.
+- **Post-beta (explicitly out of beta scope):** duos/trios with a ping system, ranked, accounts.
 
 ### Multiplayer Considerations
 

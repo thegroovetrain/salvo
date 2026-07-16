@@ -98,6 +98,13 @@ Final beta loadout table (Eric's rows):
 - **Roving PvE drone fleets IN for beta, in ALL BR modes** (standard + solo-vs-bots): small ships, basic gun on longer cooldown, self-defense only, huntable for XP. "The mechanism is already there" (drone pipeline). Supersedes the forge's narrower "map-marked XP pockets" framing — these rove.
 - **Win check counts match participants only, in every mode** (Eric's clarification): PvE fleets are not participants — never need to be destroyed to win, can never win. Participants = human captains (standard) / human + AI combatant bots (Solo vs Bots).
 
+## 2026-07-16 — Arena + Multiplayer (decided)
+
+- **Fog banks IN** (#43-r, the Trade). **Rare whirlpools IN** — effect TBD (open). **Supply drops backburnered.**
+- **Derelicts:** Eric asked what this meant — pending clarification (original brainstorm idea was pared to "short sinking window"; verdict pending).
+- **Lobby: min 2 humans to start, cap 20 for now.**
+- **Pure quick play** at beta; modes = Solo and Solo vs Bots. No skill matchmaking, no parties, no ranked.
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).
