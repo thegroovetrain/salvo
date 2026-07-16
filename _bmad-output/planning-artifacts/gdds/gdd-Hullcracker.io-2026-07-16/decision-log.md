@@ -47,6 +47,10 @@ Facilitator flagged that #4 could be read as a mechanism serving #1/#2 rather th
 
 - **XP-based upgrade system replaces kill-only banking** (Eric): slow passive XP tick (~1 level/min) PLUS kill bonuses. Levels bank points; points carry pre-rolled offers as before. Passive tick = anti-snowball floor. Kill-bonus sizing stays open (prices the rat).
 
+## 2026-07-16 — Universal listening ring (decided)
+
+- **Everyone has hull microphones** for passive audio detection (the listening ring) — universal baseline equipment, not slot content. Sensor suite is three-tier on every hull: truesight + radar sweep + passive audio.
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).
