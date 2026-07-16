@@ -100,7 +100,7 @@ Final beta loadout table (Eric's rows):
 
 ## 2026-07-16 — Arena + Multiplayer (decided)
 
-- **Fog banks IN** (#43-r, the Trade). **Rare whirlpools IN** — effect TBD (open). **Supply drops backburnered.**
+- **Fog banks IN** (#43-r, the Trade). **Rare whirlpools IN** — mechanic defined by Eric: ocean is secretly northern/southern hemisphere (never revealed); spin = CCW north / CW south; crossing ships are carried along the circular current (with-current = faster, against = slower) and their heading rotates with the spin; exit any side, no suction. **Supply drops backburnered.**
 - **Sinking window / Go Down Shooting merged and IN (Eric):** at 0 HP, ~5 s sinking window — hull gradually decelerates to a stop ("like a musical ritard"), guns stay live, chance to kill your attacker. Not a map feature; a death mechanic. Written into Win/Loss Conditions.
 - **Lobby: min 2 humans to start, cap 20 for now.**
 - **Pure quick play** at beta; modes = Solo and Solo vs Bots. No skill matchmaking, no parties, no ranked.

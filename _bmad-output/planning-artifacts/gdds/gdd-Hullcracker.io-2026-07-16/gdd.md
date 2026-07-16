@@ -212,7 +212,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 **World features (beta):**
 
 - **Fog banks** (#43-r) — the Trade: inside a fog bank your truesight shrinks, but you vanish from others' truesight (radar may still paint you). Blindness bought with blindness.
-- **Rare whirlpools** — rare enough to be an event, not a hazard-course. Exact effect TBD. [NOTE FOR DESIGNER: define what a whirlpool does to a hull that enters it.]
+- **Rare whirlpools** — rare enough to be an event, not a hazard-course. Each ocean is randomly in the northern or southern hemisphere (never revealed to players); whirlpools spin counterclockwise in the north, clockwise in the south. A whirlpool's job is to spin: a ship passing over one is carried along its circular current — sailing with the current speeds you up, against it slows you down — and the spin rotates your heading (rudder with the current and you keep your facing relative to the whirlpool). No suction, no trap: you can exit from any side. It just makes captaining more interesting.
 
 Backburnered: supply drops (#23). 
 
@@ -276,11 +276,18 @@ Three escalating cycles of that rhythm, then the endgame: the final ring is **tw
 
 ### Level Types
 
-_TBD — facilitation in progress._
+One arena type: the circular island ocean, procedurally generated per match from a seed (deterministic on both sides; the map never travels on the wire). Variety comes from generation, not authored maps:
+
+- **Islands** — count, size, and placement vary by seed; they are LOS blockers, cover, collision, and the terrain that makes torpedo skill-shots and radar shadows possible.
+- **Fog banks** — truesight-for-truesight trade zones.
+- **Rare whirlpools** — spinning currents that carry and rotate hulls that cross them (see Arena and Level Design).
+- **Map size scales from the actual roster at countdown** — a 4-captain match and a 20-captain match get honestly-sized oceans.
+
+Generation parameters (island density, size distribution, fog-bank frequency, whirlpool rarity) are tuning work, with one fairness rule: spawn placement is maximum-mutual-distance and island-clear.
 
 ### Level Progression
 
-_TBD — facilitation in progress._
+There is no authored level progression — the storm is the level progression. Each match's arena shrinks through three 4-minute ring groups (see Difficulty Curve) down to the Endgame Guarantee ring, so "level design" over time is the same water becoming scarcer, more contested, and finally too small to hide in.
 
 ---
 
@@ -288,11 +295,18 @@ _TBD — facilitation in progress._
 
 ### Art Style
 
-_TBD — "CIC Tactical Display, Evolved" per DESIGN.md; to be consolidated during facilitation._
+**DESIGN.md is the design source of truth**; this section summarizes design *intent* — specific colors, type, and spacing live there.
+
+- **Aesthetic: "CIC Tactical Display, Evolved"** — black void ocean, silver-white radar-display linework, phosphor blips, a rotating sweep. The screen reads as a combat information center that happens to be the game itself.
+- **Restrained functional color** — each color has exactly one job (tactical green = yours, amber = action, dimensional purple = storm). Dark is the identity, not a theme option.
+- **Readability is tactical** — everything on the water is information (Pillar 1), so render clarity is a gameplay feature: blip decay, wounded smoke, muzzle flashes must be readable at a glance on low-end displays.
+- [NOTE FOR DESIGNER: DESIGN.md still documents the hex-grid "2.0" era in places (cell states, planning/resolution choreography); it needs an update pass for the real-time game. The aesthetic direction carries forward unchanged.]
 
 ### Audio and Music
 
-_TBD — WebAudio tones growing toward mood, not orchestration; to be consolidated during facilitation._
+- **WebAudio tones only, no sound files** — CIC-authentic synthesized tones (pings, warbles, rumbles), growing toward *mood, not orchestration*. All audio respects the mute toggle.
+- **Audio is a sensor (Pillar 1):** the listening ring is an audio-first mechanic — engine noise, torpedoes in the water, foghorns, and active pings are heard with bearing. Sound design and game design are the same discipline here.
+- **Tone: naval tension with a playful wrapper** — the "Silly Is Sanctioned" contract: foghorn emotes, named vessels turning the kill feed into naval theater, medals. The tension is real; the wrapper never is.
 
 ---
 
