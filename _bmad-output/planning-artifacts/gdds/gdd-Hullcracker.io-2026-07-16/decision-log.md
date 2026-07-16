@@ -36,6 +36,13 @@ Facilitator flagged that #4 could be read as a mechanism serving #1/#2 rather th
 - **Beta target:** three ship classes, each capturing "I have a unique playstyle and a specific power fantasy," NOT identical loadouts on different hulls.
 - **The brief's MVP "assignments" (e.g. Cruiser-variant experiment) were Fable assumptions, not Eric's decisions.** Treated as examples only; do not build on them without confirmation.
 
+## 2026-07-16 — Five classes + slot grammar v1 (decided)
+
+- **Beta ships FIVE classes** (upgraded from "start with three"): Torpedo Boat, Battleship, Mine Layer, Gunship (Eric's rename of "gun duelist"), and a hunter/intel class (working name "Hunter" — real name TBD, open item).
+- **Slot grammar v1 (Eric):** every ship = basic weapon + special weapon + "other" ability (intel, extra weapon, etc. — class-fantasy dependent). Pickup weapon slot + ~4 consumable slots are **backburnered, not cut** — grammar reserves them; beta doesn't implement them.
+- Game Mechanics section written: class table, slot grammar, movement model, two-tier sensors, upgrade economy, storm (12:00 phased design target vs prototype's 3:45 single shrink), controls.
+- Standing note added to gdd.md: all numbers are design targets / tunable reference values, never inherited commitments.
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).

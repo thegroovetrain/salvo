@@ -102,11 +102,45 @@ As in any battle royale, matches naturally converge from a long hunt to a forced
 
 ### Primary Mechanics
 
-_TBD — facilitation in progress._
+> Numbers in this document are **design targets or current-prototype reference values, explicitly tunable** — the prototype's CONFIG values were playtest handwaves and carry no authority. Where a value is settled design intent, it is stated as such.
+
+**Ship classes — the promise (Pillar 3).** The lobby pick is your class, and the class is the Hades weapon pick: a complete playstyle and power fantasy, not a hull-size variant. Five classes at beta:
+
+| Class | Power fantasy |
+|---|---|
+| **Torpedo Boat** | Fast, fragile, the needle-threader: torpedo skill-shots through terrain, orbiting bigger ships, winning on audacity. |
+| **Battleship** | Slow, unkillable-feeling, haymaker guns: you don't dodge the argument, you *are* the argument. |
+| **Mine Layer** | The trapper: area denial, reading where prey will flee and having already been there. |
+| **Gunship** | The gun duelist: the flexible gunfighter who wins the fair fight — or picks the wounded one. |
+| **Hunter** *(working name — TBD)* | Sensor-forward: finds everyone first, sees what others can't. Headlines Pillar 1. |
+
+[NOTE FOR DESIGNER: fifth class needs its real name.]
+
+Each class is a **hull envelope** (size, speed, toughness, turning) carrying a **fitted loadout**. Hull envelopes differentiate feel; loadouts differentiate playstyle.
+
+**Slot grammar (universal; contents per class).** Every ship fits:
+
+1. **Basic weapon** — the bread-and-butter strike.
+2. **Special weapon** — the fantasy-defining strike.
+3. **"Other" ability** — intel-gathering, an additional weapon, or something else entirely, depending on the class fantasy.
+
+Backburnered (designed-for but not in beta): one **pickup weapon slot** (a weapon acquired in-game) and **~4 consumable slots**. The grammar reserves them; the beta does not implement them.
+
+**Movement — telegraph and helm.** Set-and-forget engine orders (9-detent telegraph) plus rudder; ships have separate acceleration and braking rates, and rudder authority reduces below steerage speed. Kinematics are per-class envelope values (current prototype reference: max speeds 30–46 u/s, turn rates 0.6–0.9 rad/s across hulls — all tunable per the five-class redesign).
+
+**Two-tier sensors (Pillar 1).** A **truesight bubble** (live, LOS-clear contacts; reference 220 u) and a **rotating radar sweep** (reference 650 u, 4 s revolution) that paints decaying phosphor blips when the beam crosses a LOS-clear ship. One LOS rule everywhere: the observer→point segment must clear all island circles. Only ships paint on radar; projectiles materialize at the sight boundary with no range-derivable fields. Counter-intel law: **lies must live on the server** — deceptions must be indistinguishable on the wire.
+
+**Upgrade economy (Pillar 3).** Kills bank upgrade points. Each point carries a **pre-rolled offer** of 3 upgrades from 3 distinct categories (rolled at earn-time, never rerolls); spending picks one, or heals instead (reference: 25 hp/point). Upgrades stack (multiplicative or additive per stat). Passive XP trickle as an anti-snowball floor is a design target (see Progression and Balance).
+
+**The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — design target: phased ring closure totaling ~12:00 (phase split open: 3×4 min vs 4×3 min), replacing the prototype's single 45 s grace + 3-min continuous shrink. Storm never blinds sensors; it only damages (reference 4 hp/s). The **Endgame Guarantee**: the final circle is smaller than truesight — deduction game first, gunnery duel last.
 
 ### Controls and Input
 
-_TBD — facilitation in progress._
+Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left hand helms the ship, right hand fights it.
+
+- **Keyboard:** telegraph detents (set-and-forget engine orders) + rudder; weapon-slot selection (basic / special / other); CTRL opens the spend window (CTRL+1/2/3 pick from the offer, CTRL+E heal).
+- **Mouse:** aim within the selected weapon's real firing arc; click to fire. Denied fire (out of arc, no ammo, reloading) gives explicit feedback rather than silence.
+- Match completes with keyboard + mouse only; no chorded combos required. Touch/mobile input is out of scope for beta.
 
 ---
 
