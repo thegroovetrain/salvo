@@ -66,6 +66,19 @@ Facilitator flagged that #4 could be read as a mechanism serving #1/#2 rather th
 - **Heal dropped from the upgrade economy** (consequence of the no-self-heal law).
 - **Upgrade catalog: 100% replacement.** All 14 existing stat-multiplier upgrades will be stripped and redesigned as Hades-like upgrades — qualitative, build-defining boons. New catalog is future design work; the GDD documents the model, not the old contents.
 
+## 2026-07-16 — Class loadouts locked (decided)
+
+Slot role definitions (Eric): **basic** = short cooldown, basic damage, available most of the time; **special** = what makes the class feel unique; **other** = equipment complementing the class fantasy. No editorial flavor attached to cells.
+
+Final beta loadout table (Eric's rows):
+- **Torpedo Boat:** light quick-firing gun / torpedo tubes / smoke screen.
+- **Battleship:** deck guns / long-range cannon (the artillery) / star shells. Damage-reduction cooldown NOT taken; tank fantasy lives in the hull envelope.
+- **Mine Layer:** modest gun / proximity-fused mines / decoy buoy.
+- **Gunboat:** quick-firing gun battery / armor-piercing gun (form OPEN: separate higher-cooldown gun vs activatable damage/RoF buff) / speed boost (tentative).
+- Focus-not-exclusivity (forge lock) recorded in the section: loadouts are fitted defaults from a shared armory.
+- Gunnery-feel trio (#19 Hit Call, #21 fall-of-shot, #34 muzzle flash carries) written in as weapon-feel design intent from the #90 bundle.
+- Process correction (Eric): facilitator was proposing from a thin digest instead of the actual brainstorm/forge contents — deep extraction pulled; future proposals must be grounded in the source items (#NN references).
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).

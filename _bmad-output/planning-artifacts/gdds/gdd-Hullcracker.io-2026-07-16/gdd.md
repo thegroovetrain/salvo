@@ -119,9 +119,9 @@ Each class is a **hull envelope** (size, speed, toughness, turning) carrying a *
 
 **Slot grammar (universal; contents per class).** Every ship fits:
 
-1. **Basic weapon** — the bread-and-butter strike.
-2. **Special weapon** — the fantasy-defining strike.
-3. **"Other" ability** — intel-gathering, an additional weapon, or something else entirely, depending on the class fantasy.
+1. **Basic weapon** — short cooldown, basic damage; meant to be available to use most of the time.
+2. **Special weapon** — what makes the class feel unique.
+3. **"Other" ability** — equipment that complements the class fantasy: intel-gathering, an additional weapon, or something else entirely.
 
 Backburnered (designed-for but not in beta): one **pickup weapon slot** (a weapon acquired in-game) and **~4 consumable slots**. The grammar reserves them; the beta does not implement them.
 
@@ -149,7 +149,26 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 ### Weapon Systems
 
-_TBD — facilitation in progress._
+**Fitted loadouts (the promise at 0:00).** Slot roles are universal: the **basic weapon** is on a short cooldown with basic damage, available most of the time; the **special weapon** makes the class feel unique; the **"other" equipment** complements the class fantasy. Per the forge lock, contents are **focus, not exclusivity** — drawn from a shared armory; these are fitted defaults, not hard locks.
+
+| Class | Basic weapon | Special weapon | "Other" ability |
+|---|---|---|---|
+| **Torpedo Boat** | Light quick-firing gun | Torpedo tubes | Smoke screen (#26) |
+| **Battleship** | Deck guns | Long-range cannon (artillery) | Star shells (#12) |
+| **Mine Layer** | Modest gun | Proximity-fused mines (#81) | Decoy buoy (#69) |
+| **Gunboat** | Quick-firing gun battery | Armor-piercing gun — form open: separate higher-cooldown gun, OR an activatable that boosts damage/rate-of-fire for a few seconds | Speed boost — several seconds of raised speed |
+
+[NOTE FOR DESIGNER: Gunboat AP-gun form (separate gun vs. activatable buff) is an open choice; speed boost is Eric's tentative pick.]
+
+**Weapon behavior laws (settled):**
+
+- All weapons fire within **real firing arcs**; aim is mouse-constrained to the selected weapon's arc.
+- Every fitted system has its **own ammo pool and reload timer, and every reload ticks every tick** regardless of which weapon is selected — switching weapons is tempo, not penalty.
+- **Torpedoes outrun every hull** at base speed and spawn with real bow clearance plus a brief owner-only grace — they can never self-hit at base speed. Torpedoes are never painted by radar; hydrophones (the listening ring) are the torpedo warning.
+- **Mines** arm after a delay, trigger by proximity, and are capped per-player (live-mine cap; oldest evicted) and globally.
+- Numbers (damage, reloads, ranges, speeds) are design-target work for the new armory; current prototype values (gun 25 hp/3 s reload, torpedo 55 hp/12 s, mine 45 hp/8 s) are reference only.
+
+**Weapon feel.** The gunnery-feel package from the brainstorm's information-texture bundle (#90) is design intent: **fall-of-shot spotting** (#21 — your splashes are visible in fog, so misses become information and you can bracket-and-walk fire), **the Hit Call** (#19 — a muffled boom and orange bloom confirm you connected without revealing how badly), and **muzzle flash carries** (#34 — firing lights the fog beyond truesight; shooting is being seen). Together: every trigger pull produces information for someone (Pillar 1).
 
 ### Aiming and Combat Mechanics
 
