@@ -28,6 +28,14 @@ Facilitator flagged that #4 could be read as a mechanism serving #1/#2 rather th
 - **Truesight-convergence framing rejected by Eric:** fights converging to close range at the end is normal BR behavior ("you spend the whole match hunting, then you're all forced to a final showdown"), not a loop defect. The GDD must not describe it as a "collapse" or the 0.17 Information-Texture package as a "repair." The package enriches mid-match information texture; it is not fixing a broken loop.
 - Win/loss written from the prototype's settled behavior: last human hull afloat, human-gated win check, omniscient death reveal, cheap death / fast re-queue.
 
+## 2026-07-16 — Class identity + slot grammar (partially decided; Eric's corrections)
+
+- **Prototype CONFIG values are handwaves, not commitments.** GDD numbers are design targets; current values cited only as reference. Eric: "I am not married to anything in the current version whatsoever."
+- **Lobby pick = ship class, and class = the Hades weapon pick** — a full playstyle + power fantasy (e.g. "Torpedo Boat," "Mine Layer," "Battleship"), not a hull-size/durability variant. The current three classes were playtest scaffolding.
+- **Slot grammar direction (open):** each class ships with a loadout of ~2–3 weapons / intel abilities / etc., perhaps plus empty slots for additional weapons/equipment/consumables gathered through upgrades or other mechanics. Specifics undecided.
+- **Beta target:** three ship classes, each capturing "I have a unique playstyle and a specific power fantasy," NOT identical loadouts on different hulls.
+- **The brief's MVP "assignments" (e.g. Cruiser-variant experiment) were Fable assumptions, not Eric's decisions.** Treated as examples only; do not build on them without confirmation.
+
 ### Open items carried in from brief/forge (to resolve during facilitation)
 
 1. Ring-phase split: 3 groups × 4 min vs 4 groups × 3 min (12:00 total closure).
