@@ -41,7 +41,7 @@ A real-time naval battle royale in the browser — Battleship's hidden-informati
 ### Project Goals
 
 - Ship a public beta on ads-first browser portals (Poki / CrazyGames) with near-zero budget.
-- Solo developer (30-year engineer) plus AI agents; scope discipline is the survival constraint — "Sensors First, Fork Later."
+- Solo developer (30-year engineer) plus AI agents; scope discipline is the survival constraint.
 - Passion-project pace; LAUNCH_PLAN.md is the delivery source of truth.
 
 ### Background and Rationale
@@ -132,7 +132,9 @@ Backburnered (designed-for but not in beta): **~4 consumable slots**.
 
 **Movement — telegraph and helm.** Set-and-forget engine orders (9-detent telegraph) plus rudder; ships have separate acceleration and braking rates, and rudder authority reduces below steerage speed. Kinematics are per-class envelope values (current prototype reference: max speeds 30–46 u/s, turn rates 0.6–0.9 rad/s across hulls — all tunable per the five-class redesign).
 
-**Universal sensor suite (Pillar 1).** Three senses on every hull: a **truesight bubble** (live, LOS-clear contacts; reference 220 u), a **rotating radar sweep** (reference 650 u, 4 s revolution) that paints decaying phosphor blips when the beam crosses a LOS-clear ship, and **hull microphones** — a passive listening ring that gives bearing-grade audio detection of nearby noise (engines, torpedoes in the water). One LOS rule everywhere: the observer→point segment must clear all island circles. Only ships paint on radar; projectiles materialize at the sight boundary with no range-derivable fields. Counter-intel law: **lies must live on the server** — deceptions must be indistinguishable on the wire.
+**Universal sensor suite (Pillar 1).** Three senses on every hull: a **truesight bubble** (live, LOS-clear contacts; reference 220 u), a **rotating radar sweep** (reference 650 u, 4 s revolution) that paints decaying phosphor blips when the beam crosses a LOS-clear ship, and **hull microphones** — a passive listening ring that gives bearing-grade audio detection of nearby noise (engines, torpedoes in the water).
+
+**Radar returns are class-legible.** Real radar reads distance, speed, and size; AIS-style identification justifies more. A blip carries the ship's **outline** (a battleship paints bigger — class readable at blip range) and its **speed and heading**, so you can see where it's going, not just where it was. One LOS rule everywhere: the observer→point segment must clear all island circles. Only ships paint on radar; projectiles materialize at the sight boundary with no range-derivable fields. Counter-intel law: **lies must live on the server** — deceptions must be indistinguishable on the wire.
 
 **Upgrade economy (Pillar 3).** XP-based leveling: a slow passive XP tick (design target ~1 level per minute) **plus** kill bonuses. Each level banks an upgrade point carrying a **pre-rolled offer** of 3 upgrades from 3 distinct categories (rolled at earn-time, never rerolls). The passive tick is the anti-snowball floor — everyone grows; kills grow you faster. Kill-bonus sizing is an open balance item (see Progression and Balance).
 
@@ -250,7 +252,7 @@ These values are declared handwaves — the shape (kills accelerate, participati
 
 **Spending.** Each level banks a point; each point carries a pre-rolled offer of 3 Hades-style boons from 3 distinct categories (rolled at earn-time, never rerolled). No heal option. The new boon catalog is dedicated design work; its standing requirement is **the build must be felt** — audio, hull visuals, on-water behavior — or promise + growth is a spreadsheet.
 
-**Balance laws:** the Rat Covenant — hiding is legal but priced (a hiding player ticks but never accelerates; the kill-only bonus is exactly the price). The Conservation Law ("every power gain emits a signal") is a *tendency*, not a law — anti-snowball outranks it.
+**Balance laws:** the Rat Covenant — hiding is legal but priced (a hiding player ticks but never accelerates; the kill-only bonus is exactly the price). The Conservation Law ("every power gain emits a signal") is a *tendency*, not a law — anti-snowball outranks it. **The Bounty (#47):** the kill leader periodically blooms on everyone's radar and is worth extra XP — the anti-snowball's teeth: the strongest player is the one player who can't hide.
 
 ### Difficulty Curve
 
@@ -261,7 +263,7 @@ The match's tension curve is structural — the ring rhythm *is* the pacing. Thr
 - **Minute 3 — next ring revealed.** Planning pressure: where you must be is now known.
 - **Minute 4 — the ring closes** down to the next circle.
 
-Three escalating cycles of that rhythm, then the endgame: the final ring is **two standard truesight diameters across** (the Endgame Guarantee) — combat is forced, but radar still earns its keep and no range class gets a free win. Total closure ~12:00; match start-to-results inside ~15:00 (Pillar 2).
+Three escalating cycles of that rhythm, then the endgame: the final ring is **two standard truesight diameters across** (the Endgame Guarantee) — combat is forced, but radar still earns its keep and no range class gets a free win. At 12:00 the ring is fully closed, and the game continues until there is a winner — typically around the ~15-minute mark. Match start-to-results inside ~15:00 (Pillar 2). *(The brainstorm's 10-Minute Covenant is formally retired in favor of this contract.)*
 
 ### Economy and Resources
 
@@ -379,7 +381,9 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 **Post-beta:**
 
 - Teams (duos/trios + ping system)
+- Custom/private lobbies
 - Ranked, accounts, cosmetics shop, unlockable classes (unlocks are **never power** — the Paint-Not-Power guarantee extends to class unlocks), Service Record, Pennants
+- Rare Pull exotic offers (#84) — boon catalog v1 is basics-first; anything springing from it comes later
 
 **Not planned without design-first work:**
 
@@ -409,5 +413,6 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 - **Boon catalog v1 is dedicated design work** (E2) — the GDD specifies the model (Hades-style, felt, off-class abilities in the pool), not the contents.
 - **Combat-bot AI is dedicated design/implementation work** (E5), distinct from PvE defensive AI.
 - **Portal technical requirements** (Poki/CrazyGames) constrain bundle size and SDK integration; compliance is a hard launch gate (E7).
+- **Aim reconciliation under latency** (lag compensation vs shoot-at-server-state) is a feel-defining, expertise-heavy call — explicitly delegated to the architecture phase (`gds-game-architecture`); the design requirement is only "feel intact at ~150 ms."
 - **Population cold start** needs a real launch-day answer before public beta — launch planning (LAUNCH_PLAN.md), not GDD scope.
 - Exact positioning slogan remains open — marketing, non-blocking.

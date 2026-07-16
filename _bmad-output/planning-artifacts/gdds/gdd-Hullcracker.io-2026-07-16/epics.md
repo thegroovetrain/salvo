@@ -51,7 +51,7 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 - Felt-build presentation: audio, hull visuals, on-water behavior per boon — "the build must be felt."
 - **New keyboard controls:** rework bindings for telegraph, weapon-slot selection (basic/special/other), and the spend window. (Slot-selection keys coordinate with E1's grammar.)
 
-**Out of scope:** consumables; named thresholds / weighted decks / rare pulls (post-beta candidates from the brainstorm — not committed).
+**Out of scope:** consumables; named thresholds / weighted decks (post-beta candidates — not committed); rare pulls (#84 — backburnered: catalog v1 is basics-first, anything springing from it comes later).
 
 **Dependencies:** E1 (boons attach to the new armory).
 
@@ -103,6 +103,8 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 - Muzzle flash carries (#34): firing lights the fog beyond truesight.
 - Wounded smoke (#20): damaged ships trail smoke above the fog.
 - Foghorn emote (#74): one button; audible on hull mics — a honk is a bearing.
+- The Bounty (#47): kill leader periodically blooms on everyone's radar, worth extra XP.
+- Class-legible radar returns: blips carry ship outline (a battleship paints bigger) + speed/heading.
 
 **Out of scope:** sonar as a distinct third sensor tier (#4), active ping (#6 — Hunter material, backburnered with the class).
 

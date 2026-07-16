@@ -141,6 +141,18 @@ Four subagents ran (brief, brainstorm, forge reconciliation; checklist validatio
 
 Findings requiring Eric's ruling (presented in-conversation): Bounty #47; 10-Minute Covenant #55 vs 15-min contract; custom/private lobbies (forge lock 5); radar fidelity direction (forge lock 7); "Kinetics as Hero" guardrail lines; Rare Pull #84 status; "Sensors First, Fork Later" motto vs epic order; weapon-feel numbers deferral; aim reconciliation under latency (proposed: architecture-phase open question).
 
+## 2026-07-16 — Finalize rulings (Eric)
+
+1. **Bounty #47 IN** (E6 + Progression balance laws).
+2. **10-Minute Covenant #55 formally retired**: at 12:00 the ring is fully closed; the game continues until there is a winner, ~15:00.
+3. **Custom/private lobbies: post-beta.**
+4. **Radar fidelity IN** (E6), with Eric's design rationale: real radar = distance/speed/size; AIS justifies identification — blips show ship outline + speed/heading so direction of travel is readable.
+5. Kinetics-as-Hero guardrails — Eric asked for a clearer explanation; pending.
+6. **Rare Pull #84 backburnered("-ish")**: boon catalog v1 is basics-first; anything springing from it comes later.
+7. **"Sensors First, Fork Later" motto retired** (fork resolved; epic order runs classes first).
+8. **Weapon-feel numbers deferred to E1**; balance will be adjusted for sure — no table now.
+9. **Aim reconciliation under latency delegated to the architecture phase**; design requirement stays "feel intact at ~150 ms."
+
 ### Open items carried in from brief/forge — final triage (2026-07-16)
 
 1. Ring-phase split — **RESOLVED**: 3 groups × 4 min with per-ring minute rhythm.
