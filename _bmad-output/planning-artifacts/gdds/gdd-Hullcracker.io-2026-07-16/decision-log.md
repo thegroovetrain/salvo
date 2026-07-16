@@ -101,7 +101,7 @@ Final beta loadout table (Eric's rows):
 ## 2026-07-16 — Arena + Multiplayer (decided)
 
 - **Fog banks IN** (#43-r, the Trade). **Rare whirlpools IN** — effect TBD (open). **Supply drops backburnered.**
-- **Derelicts:** Eric asked what this meant — pending clarification (original brainstorm idea was pared to "short sinking window"; verdict pending).
+- **Sinking window / Go Down Shooting merged and IN (Eric):** at 0 HP, ~5 s sinking window — hull gradually decelerates to a stop ("like a musical ritard"), guns stay live, chance to kill your attacker. Not a map feature; a death mechanic. Written into Win/Loss Conditions.
 - **Lobby: min 2 humans to start, cap 20 for now.**
 - **Pure quick play** at beta; modes = Solo and Solo vs Bots. No skill matchmaking, no parties, no ranked.
 

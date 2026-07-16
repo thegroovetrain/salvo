@@ -94,7 +94,8 @@ As in any battle royale, matches naturally converge from a long hunt to a forced
 
 - **Win:** last **match participant** afloat. The win check counts participants only, in every mode — PvE ships are never participants, can never win, and never need to be destroyed to claim the win.
 - **Loss:** your hull reaches zero. Damage sources: enemy weapons and the storm.
-- **On death:** the omniscient reveal — dying means finally seeing everything — then spectate or instant re-queue. Death is cheap by design (Pillar 2): the next match is seconds away.
+- **Sinking — go down shooting.** Reaching zero HP doesn't remove you immediately: you get a short sinking window (~5 s, tunable) in which the hull gradually slows to a stop — a ritardando, not a cut — and your guns stay live. Maybe you take your attacker with you.
+- **After the water closes:** the omniscient reveal — dying means finally seeing everything — then spectate or instant re-queue. Death is cheap by design (Pillar 2): the next match is seconds away.
 
 ---
 
