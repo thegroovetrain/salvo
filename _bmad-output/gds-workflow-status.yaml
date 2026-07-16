@@ -1,0 +1,32 @@
+# GDS Workflow Status
+# Tracks progress through the Game Dev Studio workflow sequence.
+# Each workflow entry is false (not started) or the path to its output artifact.
+# Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
+
+generated: '2026-07-15'
+last_updated: '2026-07-15'
+project: Hullcracker.io
+project_type: 'game'
+project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
+
+# --- Phase 1: Preproduction ---
+brainstorm-game: _bmad-output/brainstorming-session-2026-07-15.md # complete 2026-07-15
+domain-research: false # optional
+create-game-brief: _bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/brief.md # complete 2026-07-15 (addendum + decision log alongside)
+
+# --- Phase 2: Design ---
+gdd: false
+create-narrative: false # optional
+ux: false # optional
+prd: false # optional
+
+# --- Phase 3: Technical ---
+game-architecture: false # required
+create-epics-and-stories: false # required
+check-implementation-readiness: false # required
+
+# --- Phase 4: Production ---
+sprint-planning: false # required
+# story cycle (create-story -> dev-story -> code-review) tracked in sprint-status.yaml
+
+next_expected: gdd
