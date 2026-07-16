@@ -6,8 +6,19 @@
 - **Inputs:** game brief + addendum (2026-07-15), identity-fork forge report, brainstorming session (2026-07-15), running prototype v0.16.0 (649 tests).
 - **Game type:** Shooter (confirmed by Eric). Catalog has no battle-royale/naval category; BR structure and sensor-deduction layer are documented in pillars, core loop, and the Shooter Specific Design section.
 - **Working mode:** Facilitative (confirmed by Eric) — walk pillars, core loop, mechanics, and shooter-specific sections conversationally before drafting.
-- **Workflow:** Artifacts authored on branch `worktree-gds-gdd-hullcracker`, committed per-section and pushed immediately, delivered via draft PR (Eric's preference: PR-able artifacts always go through a branch; never leave work uncommitted in a session).
+- **Workflow:** Artifacts authored on branch `worktree-gds-gdd-hullcracker`, committed per-section and pushed immediately so no work is ever stranded. PR opened only at the END of the task, once the GDD is finalized (Eric's explicit call — no early/draft PRs).
 - **Skeleton pre-populated from brief:** Executive Summary (core fantasy, pitch, emotional contract), Target Audience, USPs, Goals and Context, provisional Out of Scope list.
+
+## 2026-07-16 — Game Pillars (decided)
+
+Eric confirmed all four candidate pillars, as worded from his own source documents ("Keep"):
+
+1. **Hunting with Imperfect Senses** — sensor deduction as the core resource.
+2. **Frantic to Play, Light to Hold** — gunnery feel, zero meta-weight, <15-min match.
+3. **Promise + Growth** — lobby pick is a real promise; kill-banked upgrades grow it.
+4. **The Ocean Keeps Getting Smaller** — legible storm phases + Endgame Guarantee force a conclusion.
+
+Facilitator flagged that #4 could be read as a mechanism serving #1/#2 rather than a standalone pillar; Eric kept it as a pillar. Recorded as intentional: "the match always ends in a forced confrontation" is load-bearing on its own.
 
 ### Open items carried in from brief/forge (to resolve during facilitation)
 

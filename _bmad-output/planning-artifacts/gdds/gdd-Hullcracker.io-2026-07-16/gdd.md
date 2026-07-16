@@ -56,7 +56,23 @@ Comparables: Mk48.io (closest, maintenance mode), Maelstrom (validated the fanta
 
 ### Game Pillars
 
-_TBD — facilitation in progress._
+Every design argument in this document — and downstream in architecture, epics, and balance — gets settled against these four pillars.
+
+**1. Hunting with Imperfect Senses**
+Information is the primary resource. Every contact is a deduction from partial sensor data — the truesight bubble, the rotating radar sweep, decaying phosphor blips. The player is never fully informed, and neither is the enemy.
+*Steers:* sensor and weapon design (everything either feeds or reads the information game), HUD/UI, the server-side perception boundary, counter-intel features ("lies must live on the server"). A feature that neither produces nor consumes imperfect information must justify itself.
+
+**2. Frantic to Play, Light to Hold**
+Real-time gunnery with genuine feel — the World of Warships DNA — inside a package with zero meta-weight: no install, no account, no grind, one complete match inside fifteen minutes.
+*Steers:* scope discipline, onboarding (playable within seconds of page load), low-end hardware performance as a distribution feature, and the Paint-Not-Power monetization guarantee.
+
+**3. Promise + Growth**
+The lobby pick is a genuine promise: a different loadout at 0:00, not a skin over sameness. Kill-banked upgrade points grow that promise into a build that is *yours* by the endgame. RNG only governs what was never promised (the Hades contract).
+*Steers:* class design (class = envelope, build = point inside it; focus, not exclusivity), the pre-rolled offer system, upgrade stacking and named thresholds, anti-snowball tuning.
+
+**4. The Ocean Keeps Getting Smaller**
+The storm closes in legible phases, forcing every hunt to a conclusion. The Endgame Guarantee — a final circle smaller than truesight — converts the deduction game into a gunnery duel at the death. Deduction game first, gunnery duel last; no match ends in mutual avoidance.
+*Steers:* zone timeline and pacing, map scaling from roster size, endgame tuning, the Rat Covenant (hiding is legal but priced).
 
 ### Core Gameplay Loop
 
