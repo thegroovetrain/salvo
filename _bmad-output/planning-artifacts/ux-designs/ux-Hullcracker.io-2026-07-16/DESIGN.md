@@ -7,7 +7,7 @@ created: 2026-07-16
 updated: 2026-07-16
 sources:
   - _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/ (GDD + epics)
-  - briefs/brief-Hullcracker.io-2026-07-15/ (brief + addendum)
+  - _bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/ (brief + addendum)
   - _bmad-output/brainstorming-session-2026-07-15.md
   - imports/DESIGN-v0.16-root.md (v0.16 root DESIGN.md, imported as foundation)
   - .decision-log.md (canonical decisions, this run)
@@ -136,10 +136,10 @@ Functional color is restrained for **HUD chrome only** — the hex-era locked pa
 | Phosphor | `phosphor` | `#00FF88` | HUD chrome accent: ready states, XP rail, banked chip, toasts, sweep | Player identity (retired role) |
 | Phosphor bright | `phosphor-bright` | `#7FFFC4` | Menu/wordmark glow tint, port-chrome phosphor (locked home mock) | Tactical HUD states |
 | Blip fresh/faded | `blip-fresh` / `blip-faded` | `#66FFAA` / `#0A3D20` | Phosphor blip decay ramp (Variant P swap only) | Anything else — splash rings now use `{colors.splash}`, ending the `#66FFAA` double-duty |
-| Amber | `amber` | `#FFB800` | Selected / armed / action / warning: selected slot, PLAY, final-10s ring pulse, <50% HP | Hull colors; decoration |
+| Amber | `amber` | `#FFB800` | Selected / armed / action / warning: selected slot, SET SAIL, final-10s ring pulse, <50% HP | Hull colors; decoration |
 | Storm | `storm` | `#7B2FBE` | The storm zone fill/vignette, exclusively (+ `storm-readout` `#B06EE8` for text **and the on-water edge stroke** — the `#7B2FBE` fill is 2.87:1, below the 3:1 graphics threshold, so the edge must read at readout brightness) | Anything that isn't the storm |
 | Info | `info` | `#38BDF8` | Informational/waiting states (kept semantic) | — |
-| Danger | `danger` | `#8B2020` | Destructive actions (leave match, resets) | — |
+| Danger | `danger` | `#8B2020` | Destructive actions (abandoning a LIVE match from settings, resets). Post-death RETURN TO PORT is NOT destructive — it is the amber Primary Button (resolved 2026-07-16) | — |
 | Denied | `denied` | `#FF3B3B` | Denied-input pulse, the single denied red (consolidates DOM `#FF3B30`) | Persistent chrome |
 | Damage | `damage` / `damage-marker` | `#8B0000` / `#FF6666` | Damage feedback family — deliberately desaturated crimson "to avoid visual vibration on black"; the sink ring uses `damage-marker` | Saturated pure red |
 | Combat effects | `splash`/`muzzle`/`torpedo`/`hit-bloom`/`wounded-smoke` | see frontmatter | Miss splash, muzzle flash, torpedo on-water render, Hit Call bloom, wounded smoke — see Components · Combat Effects. Hue picks [PROPOSAL] | Combatant hues; phosphor-adjacent greens (a phosphor-ish splash is a fake blip) |
@@ -173,7 +173,7 @@ Four launch classes, genuinely distinct top-down silhouettes in the shared linew
 | Torpedo Boat | Knife blade, extreme length-to-beam (~9:1) | "The needle" — long, skinny, hard to hit; balance worry logged | 100 u | 11 px |
 | Battleship | Broadest, stepped outline, armor blisters + turret masses | "The fortress" — paints bigger by rule; largest on the board | 124 u | 14 px |
 | Mine Layer | Hull widens aft, square rail notch in transom | "The stern is the weapon" — business end faces backward | 88 u | 12 px |
-| Gunboat | Compact flared wedge (~2.3:1), flat transom, forward gun mount | "Speedy boy with some guns" — smallest hull | 60 u | 9 px (renders at the 11 px blip floor) |
+| Gunboat | Compact flared wedge (~2.3:1), flat transom, forward gun mount | "Speedy boy with some guns" — smallest hull | 60 u | 11 px (floor-clamped; native scale would be 9 px) |
 | **Drone (PvE)** | **Legacy chevron — the pre-classes hull model, reused verbatim with its existing sizes** | A fifth silhouette no player class wears: drone-vs-combatant reads by shape alone, colorlessly (triage 2026-07-16) | legacy | legacy |
 
 Blip rule: outline only, non-scaling 1px stroke, drawn at every heading — **aspect ratio and size do the discriminating work** at blip scale. Blip-render exaggeration (adopting the silhouette sheet's own levers, per validation): class blips never render below **11 px** [PROPOSAL — playtest tunes down, not up]; the Mine Layer notch cuts at ~3× depth **in the blip path only**; the Gunboat shoulder flare is exaggerated at blip scale. Heading vectors carry an **arrowhead terminal** so no hull outline (especially a rotated Torpedo Boat) shares the vector's line grammar. Decay ghosts: **≤3 per contact, TTL-based** (also the Chromebook perf guard). Blip + ghost luminance is **floored per hue** — dark hues (mulberry, azure, lagoon) render a lightened variant at blip/ghost scale, the `storm`→`storm-readout` pattern — so no player is cheaper to grudge-track than another (per-hue under Variant C).
@@ -240,7 +240,7 @@ Visual specs; behavior lives in EXPERIENCE.md · Component Patterns. Mocks: [hot
 | **Class Card** | {components.class-card}: 356px, `panel-deep`, 10px radius, hairline border. Anatomy: class name (21px/700) + key, fantasy line (italic 12.5px), silhouette box (158px, hull at identity-board geometry), 3 pip scales (SPEED/TOUGHNESS/TURNING — placeholder values), loadout slots, pick button. Selected: personal-color border + glow, name/pips tinted. Unselected silhouettes stay {colors.silver} linework. Ghost card (dashed, "MORE CLASSES IN DEVELOPMENT") clipped at rail edge = scale-past-4 promise. |
 | **Class Chip** | Home-at-rest compact chip: silhouette at 44px + role tag (mono 10px muted) + class name (21px/700 in personal color) + sub-line + "CHANGE" affordance; personal-color border + soft glow. Opens the class layer. |
 | **Color Hoist** | Row of 20px round swatches (the 20 Regatta hues); selected swatch ringed. Caption: "PREFERENCE PICK — YOU GET IT UNLESS CLAIMED, THEN NEAREST FREE HUE." Must not imply claiming/locking. |
-| **Primary Button** | Amber outline + glow register (PLAY/"SET SAIL", RETURN TO PORT): never a filled slab; mono uppercase letter-spaced label, sub-line for context ("DEPLOY AS GUNBOAT · SOLO"). |
+| **Primary Button** | Amber outline + glow register ("SET SAIL", post-death "RETURN TO PORT"): never a filled slab; mono uppercase letter-spaced label, sub-line for context ("DEPLOY AS GUNBOAT · SOLO"). |
 | **Phase / Status Text** | Countdown ("MATCH STARTING" + big center count) and phase tags ("WEAPONS SAFE", "AWAITING CAPTAINS n/2"): {typography.data} uppercase, {colors.phosphor}, center count at display scale. Home status line + callsign field: as rendered in [home-class-picker-1.html](./mockups/home-class-picker-1.html) — {typography.label} register; status reports {colors.info} while waiting/connecting, {colors.denied} on failure. |
 | **Modal** | Port-chrome surface: {colors.panel} bed, hairline border, {rounded.lg}. Results modal banner colors: victory phosphor / defeat amber. Fullscreen dim behind results only. |
 | **Toast** | Top-center transient, phosphor mono 16px, 3s TTL, max 3 stacked; CSS fade. Glyph prefix (▲/⬆). |

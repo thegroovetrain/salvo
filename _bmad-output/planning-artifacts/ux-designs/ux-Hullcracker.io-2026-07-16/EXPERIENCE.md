@@ -7,7 +7,7 @@ updated: 2026-07-16
 design_reference: ./DESIGN.md
 sources:
   - _bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/ (GDD + epics)
-  - briefs/brief-Hullcracker.io-2026-07-15/ (brief + addendum)
+  - _bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/ (brief + addendum)
   - _bmad-output/brainstorming-session-2026-07-15.md
   - imports/DESIGN-v0.16-root.md (via ./reconcile-design-v016.md)
   - .decision-log.md (canonical decisions, this run)
@@ -41,7 +41,7 @@ Journey spine: **home → class select → waiting (weapons-safe) → live → d
 | Live HUD | Pixi + DOM feed/toasts | The hunt | Full anatomy in HUD & Diegetic UI below |
 | Refit window | DOM/Pixi overlay, SPACE held | Spend banked levels | Non-blocking, game runs behind; see Component Patterns |
 | Death: sinking → reveal | Pixi | "Losing into learning" | ~5 s ritardando (guns live) → omniscient reveal: map revealed, camera zooms out, you finally see everything |
-| Results modal | DOM Modal | Close the loop fast | Your kills, your placement, time afloat; accrued boons + last offer reviewable here. Actions: **LEAVE** (return to home) + **SPECTATE** (planned future option; current follow-killer spectate superseded). **No re-queue from the modal** (Eric, final-render triage) — re-queueing happens from home |
+| Results modal | DOM Modal | Close the loop fast | Your kills, your placement, time afloat; accrued boons + last offer reviewable here. Single action: **RETURN TO PORT** (return to home; amber Primary Button). Spectate is a planned future addition — deliberately absent in v1, no dead button (current follow-killer spectate superseded). **No re-queue from the modal** (Eric, final-render triage) — re-queueing happens from home |
 | Re-queue | — | "Frantic to Play, Light to Hold" | Leave lands on home with SET SAIL one press away; next match is seconds, not menus; no account, no grind |
 
 ## Voice and Tone
@@ -67,7 +67,7 @@ Behavior only; visuals in DESIGN.md · Components (same names).
 - **Primary Button** — SET SAIL queues immediately in the shown mode with the shown class/color preference; Enter is equivalent; sub-line always states what will happen ("DEPLOY AS GUNBOAT · SOLO"). While connecting it defers to the status line; on failure the status line reports plainly ("CONNECTION FAILED — IS THE SERVER RUNNING?" register).
 - **Kill Feed** — max 5 lines, 6 s TTL, newest on top; names in personal colors (text-safe variants), drones greyscale; long names mid-ellipsize.
 - **Toast** — transient self-events only (level banked, boon fitted, hoist fallback); max 3, 3 s TTL; never carries enemy information.
-- **Modal** — results only (plus settings overlay). Modals never stack; ESC settings overlay does not pause the game. Results keys: Enter or ESC = LEAVE to port (the modal's single v1 action); spectate joins post-beta. No re-queue key exists here.
+- **Modal** — results only (plus settings overlay). Modals never stack; ESC settings overlay does not pause the game. Results keys: Enter or ESC = RETURN TO PORT (the modal's single v1 action, amber Primary Button); spectate joins post-beta. No re-queue key exists here.
 - **Bounty Bloom** — GDD E6 #47: the current kill leader periodically blooms on **every** player's radar at true position (cadence per GDD) — a sanctioned fog-of-war exception, the one radar paint not born of your own sweep. Feed announces the leader ("BOUNTY: <NAME>" register) when the bounty activates; the bloom has an audio twin in the sound map (Open Questions). Visual: DESIGN · Bounty Bloom.
 - **BR Chrome Bar / Listening Ring / HP Rail / Telegraph Cluster** — see State Patterns and HUD & Diegetic UI.
 
@@ -112,7 +112,7 @@ Corollary (amber overload): only the highest-tier active amber channel pulses; e
 | Input | Action |
 |---|---|
 | **Q / E / R / F** | The four hotbar slots, top-to-bottom: Q universal gun · E/R class specials · F offer slot. Weapons switch-to; abilities activate. **Suspended while Space is held** — release Space to fight |
-| **1 / 2 / 3 / 4** | Refit card pick while SPACE is held; consumables when/if that system ships (future flag). A number key's meaning is evaluated at its own keydown against Space's state at that keydown; for ~150–200 ms after Space release, number keys still resolve as refit-or-**nothing**, never as a consumable (misfiring nothing beats misfiring the wrong spend). Spending with the window closed is a misfire by definition — the current-code closed-window spend behavior dies here |
+| **1 / 2 / 3 / 4** | In match: refit card pick while SPACE is held. Class layer: highlight class card (Enter picks); consumables when/if that system ships (future flag). A number key's meaning is evaluated at its own keydown against Space's state at that keydown; for ~150–200 ms after Space release, number keys still resolve as refit-or-**nothing**, never as a consumable (misfiring nothing beats misfiring the wrong spend). Spending with the window closed is a misfire by definition — the current-code closed-window spend behavior dies here |
 | **SPACE (hold)** | Refit window — hold-not-toggle (absolute; no toggle option); release or last-spend dismisses. While held: Q/E/R/F suspended, helm stays live |
 | **W / S** (tap) | Telegraph engine order ±1 of 9 detents (set-and-forget; hold does not repeat) |
 | **A / D** (hold) | Rudder −1…+1; rudder authority reduces below steerage speed |
@@ -191,7 +191,7 @@ Added by decision:
 - **Wounded smoke** — hurt ships trail it; hurt = trackable.
 - **Low-HP escalation** — HP Rail threshold colors + accelerating pulse capped at 1.1 Hz (see State Patterns); audio sting pending the RT sound map (Open Question).
 - **Denied input is never silence** — every refused fire/activation gets its pulse + (future) tone, tracked in the sound-map contract table.
-- **Death ritardando** — ~5 s sinking window, hull slows to a stop, guns stay live (go down shooting) → **omniscient reveal**: fog drops, map revealed, camera zooms out to everything, nameplates on every ship → Results modal (kills, placement, time afloat; LEAVE — no re-queue here). The reveal converts losing into learning. Sequence mock: [death-reveal-results-1.html](./mockups/death-reveal-results-1.html).
+- **Death ritardando** — ~5 s sinking window, hull slows to a stop, guns stay live (go down shooting) → **omniscient reveal**: fog drops, map revealed, camera zooms out to everything, nameplates on every ship → Results modal (kills, placement, time afloat; RETURN TO PORT — no re-queue here). The reveal converts losing into learning. Sequence mock: [death-reveal-results-1.html](./mockups/death-reveal-results-1.html).
 - **The build must be felt** — every boon lands with audio + hull visual + on-water behavior, or promise + growth is a spreadsheet.
 
 **Motion/shake settings override everything in this section** (reveal-zoom exemption = Open Questions).
@@ -211,7 +211,7 @@ Personas are constructed from the brief's audience sketches (no upstream persona
 7. Sinking ritardando: five seconds, listing, guns live — he fires his last shells at his killer's smoke.
 8. **Climax:** the omniscient reveal — fog gone, whole map, every hull named. He sees the torpedo boat that stalked him and the pips he ignored suddenly make sense. "SUNK — 9TH OF 14," two kills; he leaves to port and SET SAILs again — seconds, not menus. **The lesson is "listen."**
 
-Failure path *is* the flow: death is the teaching surface, and it costs one click.
+Failure path *is* the flow: death is the teaching surface, and it costs two presses, zero menus.
 
 ### Journey B — "Dee" (WoWS refugee, Mine Layer)
 
