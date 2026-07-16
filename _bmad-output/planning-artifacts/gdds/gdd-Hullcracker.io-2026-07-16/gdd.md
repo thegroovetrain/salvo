@@ -138,9 +138,9 @@ Backburnered (designed-for but not in beta): one **pickup weapon slot** (a weapo
 
 Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left hand helms the ship, right hand fights it.
 
-- **Keyboard:** telegraph detents (set-and-forget engine orders) + rudder; weapon-slot selection (basic / special / other); CTRL opens the spend window (CTRL+1/2/3 pick from the offer, CTRL+E heal).
+- **Keyboard:** telegraph detents (set-and-forget engine orders) + rudder; weapon-slot selection (basic / special / other); an in-match spend window for upgrade offers and heal. Specific key bindings are provisional — current bindings (e.g. CTRL-chord spend window) are reference only and planned to change.
 - **Mouse:** aim within the selected weapon's real firing arc; click to fire. Denied fire (out of arc, no ammo, reloading) gives explicit feedback rather than silence.
-- Match completes with keyboard + mouse only; no chorded combos required. Touch/mobile input is out of scope for beta.
+- Match completes with keyboard + mouse only. Touch/mobile input is out of scope for beta.
 
 ---
 
