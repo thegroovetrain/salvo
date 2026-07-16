@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker — Spend Window v1</title>
+<style>
+/* ============================================================
+   HULLCRACKER — UPGRADE SPEND WINDOW v1 ("THE REFIT")
+   ------------------------------------------------------------
+   Redesign of the disliked upgrade menu, built for the NEW
+   economy (GDD E2): XP levels bank pre-rolled offers of 3
+   qualitative Hades-style boons from 3 distinct categories.
+   NO heal option. NO stat percentages.
+
+   LOCKED (decision log 2026-07-16):
+     · CTRL is HOLD, never toggle — hold opens, release closes,
+       spending the last banked level also closes.
+     · Choosing = number key while CTRL held.
+     · Layout = THREE CARDS SIDE BY SIDE (vertical list rejected).
+     · Rejection root cause of old UI = "looks cheap" — nothing
+       here may read as a cheap panel.
+     · [OPEN] keys stated as "1, 2, 3, or 4" but offers are 3
+       boons — key 4 pending Eric's clarification (footnote in
+       the mock).
+
+   TWO STATES ON THIS PAGE:
+     S1 — window OPEN (CTRL held): 3 cards, card 2 hover/armed,
+          banked counter + next-offer-queued cue, helper line.
+     S2 — window CLOSED: passive "banked level available"
+          indicator near the hotbar zone, bottom-left —
+          restrained phosphor pulse + level count.
+
+   FONTS: system stack for offline rendering.
+   PRODUCTION USES: Geist (display/body) + Geist Mono (labels,
+   uppercase, letter-spaced) per DESIGN.md v0.16.
+
+   SHARED TOKENS (lifted from hotbar-blend-DB-1.html):
+     phosphor green  #00FF88   (ready / success / banked)
+     amber           #FFB800   (selected / armed / action)
+     denied red      #FF3B3B   (legend only — unused here)
+     silver linework #C0C0C0
+     dim slate       #5A6478   (muted text / category tags)
+     mid slate       #8B95A5   (body copy)
+     deep void       #000000 / #020604 fog base
+     text primary    #E2E8F0
+
+   AFTERIMAGE REGISTER (Direction D, carried into the window):
+     floating 1px-outline rectangles, NO shared panel — the
+     three cards float independently over the water with wide
+     gaps, exactly like the hotbar squares. Idle outline
+     rgba(192,192,192,.28). Armed = #FFB800 outline,
+     0 0 16px rgba(255,184,0,.4) glow + inset amber wash.
+     Card interior carries a NEAR-OPAQUE void scrim
+     rgba(3,7,5,.9) — the one departure from "water shows
+     through": boon copy must be glanceable mid-combat, so the
+     text bed is dark glass, not open water. The GAPS between
+     cards keep the battle visible (never a full-screen takeover).
+
+   BOON COPY = PLACEHOLDER — invented plausible naval boons for
+   layout only ("Long Lanyard" / "Wakeless Running" / "Phosphor
+   Memory"). Category names equally placeholder. NOT CANON.
+   ============================================================ */
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #050807;
+  color: #E2E8F0;
+  /* production: Geist */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  padding: 40px 20px 96px;
+}
+.mono {
+  /* production: Geist Mono */
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.page { max-width: 1020px; margin: 0 auto; }
+
+h1 { font-size: 30px; font-weight: 700; letter-spacing: .01em; }
+.pagehead-kicker {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+  color: #00FF88; margin-bottom: 10px;
+}
+.pagehead-note { color: #8B95A5; font-size: 14px; max-width: 74ch; margin-top: 10px; }
+.pagehead-note strong { color: #E2E8F0; }
+.binding-warn {
+  display: inline-block; margin-top: 12px; padding: 6px 12px;
+  border: 1px dashed #5A6478; color: #FFB800;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+}
+
+/* ---- section chrome ---- */
+section { margin-top: 64px; }
+.comp-name { font-size: 22px; font-weight: 700; letter-spacing: .02em; }
+.comp-name .idx {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #00FF88; font-weight: 600; font-size: 15px; margin-right: 10px;
+  letter-spacing: .15em;
+}
+.comp-register { color: #8B95A5; font-size: 14px; margin: 4px 0 16px; font-style: italic; }
+.comp-notes {
+  margin-top: 14px; color: #5A6478; font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: .04em;
+}
+.comp-notes b { color: #8B95A5; font-weight: 600; }
+
+/* ---- mock game viewport (same frame as hotbar-blend-DB-1) ----
+   Black-green void, faint own-centred chart rings (silver @ .05),
+   phosphor sweep suggestion, own-ship chevron. The game stays
+   visible AROUND the spend window — floating window, never a
+   takeover. */
+.viewport {
+  position: relative;
+  height: 430px;
+  border: 1px solid #1C2320;
+  overflow: hidden;
+  background:
+    conic-gradient(from 35deg at 50% 40%, rgba(0,255,136,.07), transparent 22%),
+    repeating-radial-gradient(circle at 50% 40%, transparent 0 84px, rgba(192,192,192,.05) 84px 85px),
+    radial-gradient(circle at 50% 40%, rgba(0,255,136,.05), transparent 46%),
+    #020604; /* fog-composite base, matches render/fog.ts rgba(2,10,6,…) family */
+}
+.ship-chevron {
+  position: absolute; left: 50%; top: 40%;
+  transform: translate(-50%, -50%) rotate(18deg);
+  color: #00FF88;
+}
+.vp-tag {
+  position: absolute; top: 10px; left: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .2em; color: rgba(90,100,120,.75);
+  text-transform: uppercase;
+}
+/* a distant contact + blip so "the game is still on" reads */
+.contact-dot {
+  position: absolute; width: 5px; height: 5px; border-radius: 50%;
+  background: rgba(0,255,136,.55); box-shadow: 0 0 8px rgba(0,255,136,.35);
+}
+.blip-fade {
+  position: absolute; width: 4px; height: 4px; border-radius: 50%;
+  background: rgba(0,255,136,.22);
+}
+
+/* ============================================================
+   HOTBAR CONTEXT — Composition 2 (RESOLVED: bottom-left vertical
+   stack), amended label spec: NO slot-role line; line 1 = NAME;
+   quick info = DAMAGE + COOLDOWN minimum; ammo count = NUMBER
+   BADGE over the icon square. Rendered small/dim here — context
+   dressing, not the deliverable of this page.
+   ============================================================ */
+.hb-stack {
+  position: absolute; left: 20px; bottom: 18px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+.hb-row { display: flex; align-items: center; gap: 10px; }
+.hb-key {
+  width: 12px; text-align: center; flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .1em; color: rgba(90,100,120,.85);
+}
+.hb-key.sel { color: #FFB800; }
+.hb-slot {
+  position: relative; width: 44px; height: 44px;
+  border: 1px solid rgba(192,192,192,.28); background: transparent;
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(159,179,168,.85); flex: none;
+}
+.hb-selected {
+  border-color: #FFB800; color: #FFB800;
+  box-shadow: 0 0 16px rgba(255,184,0,.4), inset 0 0 12px rgba(255,184,0,.12);
+}
+.hb-ready {
+  border-color: rgba(0,255,136,.4); color: rgba(0,255,136,.75);
+  box-shadow: 0 0 10px rgba(0,255,136,.15);
+}
+/* ammo badge: mono count pinned over the square's top-right */
+.hb-badge {
+  position: absolute; top: -6px; right: -6px;
+  min-width: 14px; height: 14px; padding: 0 3px;
+  background: #030605; border: 1px solid rgba(0,255,136,.5);
+  color: #00FF88; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; line-height: 12px; text-align: center; letter-spacing: 0;
+}
+/* cooling ring, same conic-perimeter grammar as the hotbar mock */
+.hb-ring {
+  padding: 2px; width: 44px; height: 44px; flex: none;
+  background: conic-gradient(#00FF88 0 58%, rgba(0,255,136,.14) 58% 100%);
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+}
+.hb-ring .hb-slot {
+  width: 100%; height: 100%; border: none; background: #030605;
+  color: rgba(70,85,78,.6);
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 8px, 100% 100%, 0 100%);
+}
+.hb-label { line-height: 1.35; }
+.hb-name { font-size: 12px; font-weight: 600; color: #E2E8F0; letter-spacing: .02em; }
+.hb-name.sel { color: #FFB800; }
+.hb-name.dim { color: #5A6478; font-weight: 400; }
+.hb-info {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .08em; color: #5A6478;
+}
+/* whole stack dims while the spend window is up — focus shifts */
+.hb-dimmed { opacity: .38; }
+
+/* ============================================================
+   S2 — BANKED-LEVEL PASSIVE INDICATOR (window closed).
+   Restrained: ONE small square in the Afterimage register,
+   parked at the TOP of the hotbar stack (the refit happens to
+   this manifest, so the cue lives where the result will land).
+   Phosphor 1px outline, slow 2.4s breathing glow (never a
+   flash — Guardrail 1: noise must not bury the hunt), a mono
+   level count inside, and a one-word affordance beside it.
+   ============================================================ */
+@keyframes bank-breathe {
+  0%, 100% { box-shadow: 0 0 6px rgba(0,255,136,.18), inset 0 0 6px rgba(0,255,136,.06); }
+  50%      { box-shadow: 0 0 16px rgba(0,255,136,.45), inset 0 0 10px rgba(0,255,136,.14); }
+}
+.bank-chip {
+  width: 30px; height: 30px; flex: none;
+  border: 1px solid rgba(0,255,136,.65);
+  background: rgba(3,7,5,.6);
+  display: flex; align-items: center; justify-content: center;
+  animation: bank-breathe 2.4s ease-in-out infinite;
+}
+.bank-chip .n {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px; font-weight: 600; color: #00FF88; letter-spacing: 0;
+}
+.bank-line { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+.bank-cue {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
+  color: rgba(0,255,136,.75); line-height: 1.6;
+}
+.bank-cue .k { color: #8B95A5; }
+
+/* ============================================================
+   S1 — THE SPEND WINDOW ("REFIT"), CTRL HELD.
+   No panel, no backdrop dim rectangle: a header line, three
+   floating cards, a helper line — all hovering mid-viewport,
+   slightly above center so the own-ship chevron stays visible
+   beneath. Battle remains legible in every gap.
+   ============================================================ */
+.refit {
+  position: absolute; left: 50%; top: 46%;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center;
+}
+
+/* header: banked counter (left) · title (center) · queue cue (right) */
+.refit-head {
+  display: flex; align-items: baseline; gap: 22px;
+  margin-bottom: 14px;
+}
+.refit-title {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; font-weight: 600; letter-spacing: .3em;
+  text-transform: uppercase; color: #E2E8F0;
+  text-shadow: 0 0 12px rgba(0,255,136,.25);
+}
+.refit-banked {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+  color: #00FF88;
+}
+/* queue pips: one filled square = the offer on screen, hollow
+   squares = pre-rolled offers waiting behind it. The "next offer
+   queued" cue — a spend consumes pip 1, pip 2 slides in. */
+.queue-cue {
+  display: flex; align-items: center; gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+  color: #5A6478;
+}
+.qpip { width: 8px; height: 8px; display: inline-block; }
+.qpip.live { background: #00FF88; box-shadow: 0 0 8px rgba(0,255,136,.5); }
+.qpip.wait { border: 1px solid rgba(0,255,136,.45); background: transparent; }
+
+/* --- card row: three floating cards, wide 20px gaps (D's gap
+       feel) — water visible between every card --- */
+.card-row { position: relative; display: flex; gap: 20px; }
+
+/* ghost of the NEXT queued offer: a dashed offset edge behind
+   the row, top-right — the deck has another card under it */
+.ghost-offer {
+  position: absolute; top: -7px; right: -7px;
+  width: 216px; height: 40px;
+  border-top: 1px dashed rgba(0,255,136,.25);
+  border-right: 1px dashed rgba(0,255,136,.25);
+  pointer-events: none;
+}
+
+/* card: 216px, 1px outline, dark-glass scrim (see header note) */
+.card {
+  position: relative; width: 216px; padding: 14px 16px 16px;
+  border: 1px solid rgba(192,192,192,.28);
+  background: rgba(3,7,5,.9);
+}
+/* armed (hover / about to be picked): amber, full Afterimage glow */
+.card.armed {
+  border-color: #FFB800;
+  box-shadow: 0 0 16px rgba(255,184,0,.4), inset 0 0 12px rgba(255,184,0,.08);
+}
+/* key chip: small outlined square, top-left — same glyph
+   language as the hotbar key column, promoted to a square */
+.card-key {
+  position: absolute; top: -11px; left: 12px;
+  width: 22px; height: 22px;
+  background: #030605; border: 1px solid rgba(192,192,192,.4);
+  display: flex; align-items: center; justify-content: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px; color: #8B95A5; letter-spacing: 0;
+}
+.card.armed .card-key {
+  border-color: #FFB800; color: #FFB800;
+  box-shadow: 0 0 10px rgba(255,184,0,.4);
+}
+.card-cat {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .22em; text-transform: uppercase;
+  color: #5A6478; margin-top: 4px;
+}
+.card.armed .card-cat { color: rgba(255,184,0,.75); }
+.card-name {
+  font-size: 15px; font-weight: 600; letter-spacing: .02em;
+  color: #E2E8F0; margin-top: 3px;
+}
+.card.armed .card-name { color: #FFB800; }
+.card-desc { font-size: 11.5px; color: #8B95A5; margin-top: 7px; line-height: 1.45; }
+/* armed affordance line, bottom of the armed card only */
+.card-arm-hint {
+  margin-top: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
+  color: #FFB800;
+}
+
+/* helper microcopy line, floating under the row — naval-terse */
+.refit-help {
+  margin-top: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px; letter-spacing: .2em; text-transform: uppercase;
+  color: #5A6478;
+}
+.refit-help b { color: #8B95A5; font-weight: 600; }
+/* [OPEN] footnote — annotation, would not ship */
+.refit-open {
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8px; letter-spacing: .14em; text-transform: uppercase;
+  color: rgba(255,184,0,.6);
+}
+/* placeholder caption — annotation, would not ship */
+.refit-ph {
+  margin-top: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 8px; letter-spacing: .14em; text-transform: uppercase;
+  color: rgba(255,184,0,.6);
+}
+</style>
+</head>
+<body>
+
+<!-- Shared silhouette icon set (inline SVG symbols, currentColor) -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- naval shell + breech: GUN -->
+    <symbol id="ic-gun" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M12 2c-2.3 2.7-3.6 5.6-3.6 8.7V17h7.2v-6.3C15.6 7.6 14.3 4.7 12 2z"/>
+      <rect fill="currentColor" x="7.2" y="18.4" width="9.6" height="3" rx=".5"/>
+    </symbol>
+    <!-- torpedo, nose right, tail fins left -->
+    <symbol id="ic-torp" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M6.5 9.5h9c2.9 0 5.5 1.1 5.5 2.5s-2.6 2.5-5.5 2.5h-9c-.8 0-1.5-1.1-1.5-2.5s.7-2.5 1.5-2.5z"/>
+      <path fill="currentColor" d="M5.5 9.8 2.4 6.6v10.8l3.1-3.2z"/>
+      <rect fill="currentColor" x="8" y="7.4" width="1.6" height="2.2"/>
+    </symbol>
+    <!-- smoke screen ability: cloud bank -->
+    <symbol id="ic-smoke" viewBox="0 0 24 24">
+      <path fill="currentColor" d="M7 17.5a3.8 3.8 0 0 1-.5-7.57A5.2 5.2 0 0 1 16.6 8.6 4.1 4.1 0 0 1 17.6 17.5z"/>
+      <rect fill="currentColor" x="5" y="19.4" width="14" height="1.6" rx=".8" opacity=".6"/>
+    </symbol>
+    <!-- own-ship chevron for viewport dressing -->
+    <symbol id="ic-ship" viewBox="0 0 24 24">
+      <path fill="currentColor" fill-opacity=".3" stroke="currentColor" stroke-width="1.4"
+            d="M12 2.5 17 18l-5-3.4L7 18z"/>
+    </symbol>
+  </defs>
+</svg>
+
+<div class="page">
+
+  <div class="pagehead-kicker">UX RUN 2026-07-16 · CREATIVE TOOL · SPEND-WINDOW-1</div>
+  <h1>Upgrade Spend Window — "The Refit"</h1>
+  <p class="pagehead-note">
+    Designed for the <strong>new economy</strong> (GDD E2): each XP level banks a
+    <strong>pre-rolled offer of 3 boons from 3 distinct categories</strong> — qualitative,
+    Hades-style build-definers, <strong>no heal, no percentages</strong>.
+    Interaction is locked: <strong>HOLD CTRL opens · release dismisses · number key spends</strong> —
+    never a toggle; emptying the bank also closes. Layout is locked:
+    <strong>three cards side by side</strong> (vertical list rejected). Visual register is the
+    hotbar's <strong>Afterimage</strong> language — floating 1px outlines, no shared panel, the
+    battle stays visible between and around the cards.
+  </p>
+  <div class="binding-warn">⚠ CTRL + 1/2/3 SHOWN AS LOCKED INTERACTION — ALL OTHER KEYBINDS PLACEHOLDER (GDD E2 REWORKS KEYS)</div>
+
+  <!-- ================= STATE 1 — WINDOW OPEN ================= -->
+  <section>
+    <div class="comp-name"><span class="idx">S1 ·</span>WINDOW OPEN — CTRL HELD, CARD 2 ARMED</div>
+    <div class="comp-register">Three floating cards over the live water; hotbar dims to yield focus; the deck shows one more offer queued behind this one.</div>
+    <div class="viewport">
+      <span class="vp-tag">TACTICAL DISPLAY — MOCK VIEWPORT 1080p CROP</span>
+      <svg class="ship-chevron" width="26" height="26" style="top:76%; left:63%"><use href="#ic-ship"/></svg>
+      <span class="contact-dot" style="top:24%; left:81%"></span>
+      <span class="blip-fade" style="top:31%; left:12%"></span>
+
+      <!-- THE SPEND WINDOW -->
+      <div class="refit">
+        <div class="refit-head">
+          <span class="refit-banked">LEVELS BANKED: 3</span>
+          <span class="refit-title">REFIT</span>
+          <span class="queue-cue">
+            <span class="qpip live"></span><span class="qpip wait"></span><span class="qpip wait"></span>
+            NEXT OFFER QUEUED
+          </span>
+        </div>
+
+        <div class="card-row">
+          <!-- ghost edge of the next pre-rolled offer waiting behind -->
+          <div class="ghost-offer"></div>
+
+          <!-- CARD 1 — idle -->
+          <div class="card">
+            <div class="card-key">1</div>
+            <div class="card-cat">Gunnery</div>
+            <div class="card-name">Long Lanyard</div>
+            <div class="card-desc">Hold the trigger to charge a shot — the delayed round leaves the muzzle heavier and cracks armor.</div>
+          </div>
+
+          <!-- CARD 2 — HOVER / ARMED (amber, about to be picked) -->
+          <div class="card armed">
+            <div class="card-key">2</div>
+            <div class="card-cat">Seamanship</div>
+            <div class="card-name">Wakeless Running</div>
+            <div class="card-desc">At half telegraph or below, your hull runs silent — hull microphones can no longer hear you coming.</div>
+            <div class="card-arm-hint">PRESS 2 — FIT TO HULL</div>
+          </div>
+
+          <!-- CARD 3 — idle -->
+          <div class="card">
+            <div class="card-key">3</div>
+            <div class="card-cat">Sensors</div>
+            <div class="card-name">Phosphor Memory</div>
+            <div class="card-desc">Blips your sweep paints linger far longer before fading — contacts stay on the glass between passes.</div>
+          </div>
+        </div>
+
+        <div class="refit-help"><b>HOLD CTRL</b> — RELEASE TO DISMISS · <b>1/2/3</b> TO REFIT</div>
+        <div class="refit-open">[OPEN] KEY 4 — PENDING CLARIFICATION (OFFER IS 3 BOONS; ROLE OF A 4TH KEY UNDECIDED)</div>
+        <div class="refit-ph">BOON NAMES + CATEGORIES = PLACEHOLDER — INVENTED FOR LAYOUT, NOT CANON</div>
+      </div>
+
+      <!-- hotbar context, dimmed while the window is up -->
+      <div class="hb-stack hb-dimmed">
+        <div class="hb-row">
+          <span class="hb-key sel">1</span>
+          <div class="hb-slot hb-selected"><svg width="24" height="24"><use href="#ic-gun"/></svg></div>
+          <div class="hb-label">
+            <div class="hb-name sel">Standard Gun</div>
+            <div class="hb-info">DMG 12 · CD 2.4s</div>
+          </div>
+        </div>
+        <div class="hb-row">
+          <span class="hb-key">2</span>
+          <div class="hb-slot hb-ready"><svg width="24" height="24"><use href="#ic-torp"/></svg><span class="hb-badge">2</span></div>
+          <div class="hb-label">
+            <div class="hb-name">Mk-II Torpedoes</div>
+            <div class="hb-info">DMG 45 · CD 9.0s</div>
+          </div>
+        </div>
+        <div class="hb-row">
+          <span class="hb-key">E</span>
+          <div class="hb-ring"><div class="hb-slot"><svg width="24" height="24"><use href="#ic-smoke"/></svg></div></div>
+          <div class="hb-label">
+            <div class="hb-name dim">Smoke Screen</div>
+            <div class="hb-info">CD 6.2s LEFT</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="comp-notes">
+      <b>Window:</b> no panel, no screen dim — header line + three 216px cards (20px water gaps) + helper line, floated above center so own ship stays visible.
+      <b>Armed card:</b> amber outline + Afterimage glow; key chip lights amber; affordance line appears.
+      <b>Queue cue:</b> filled pip = this offer, hollow pips = 2 more pre-rolled offers waiting; dashed ghost edge behind the row echoes the deck.
+      <b>Spend flow:</b> press 2 → card flashes phosphor, next offer's cards slide in, pip advances; bank empty → window closes itself.
+    </div>
+  </section>
+
+  <!-- ================= STATE 2 — WINDOW CLOSED, BANK INDICATOR ================= -->
+  <section>
+    <div class="comp-name"><span class="idx">S2 ·</span>WINDOW CLOSED — BANKED-LEVEL PASSIVE INDICATOR</div>
+    <div class="comp-register">How you know there's something to spend: one small phosphor square breathing at the head of the hotbar stack.</div>
+    <div class="viewport" style="height:340px">
+      <span class="vp-tag">TACTICAL DISPLAY — MOCK VIEWPORT 1080p CROP</span>
+      <svg class="ship-chevron" width="26" height="26"><use href="#ic-ship"/></svg>
+      <span class="contact-dot" style="top:35%; left:72%"></span>
+      <span class="blip-fade" style="top:58%; left:24%"></span>
+
+      <div class="hb-stack">
+        <!-- THE INDICATOR: 30px outlined square, level count inside,
+             2.4s breathing phosphor glow (bank-breathe keyframes).
+             Sits where the refit's result will land — the manifest. -->
+        <div class="bank-line">
+          <span class="hb-key">&nbsp;</span>
+          <div class="bank-chip"><span class="n">3</span></div>
+          <div class="bank-cue">3 LEVELS BANKED<br><span class="k">HOLD CTRL TO REFIT</span></div>
+        </div>
+
+        <div class="hb-row">
+          <span class="hb-key sel">1</span>
+          <div class="hb-slot hb-selected"><svg width="24" height="24"><use href="#ic-gun"/></svg></div>
+          <div class="hb-label">
+            <div class="hb-name sel">Standard Gun</div>
+            <div class="hb-info">DMG 12 · CD 2.4s</div>
+          </div>
+        </div>
+        <div class="hb-row">
+          <span class="hb-key">2</span>
+          <div class="hb-slot hb-ready"><svg width="24" height="24"><use href="#ic-torp"/></svg><span class="hb-badge">2</span></div>
+          <div class="hb-label">
+            <div class="hb-name">Mk-II Torpedoes</div>
+            <div class="hb-info">DMG 45 · CD 9.0s</div>
+          </div>
+        </div>
+        <div class="hb-row">
+          <span class="hb-key">E</span>
+          <div class="hb-ring"><div class="hb-slot"><svg width="24" height="24"><use href="#ic-smoke"/></svg></div></div>
+          <div class="hb-label">
+            <div class="hb-name dim">Smoke Screen</div>
+            <div class="hb-info">CD 6.2s LEFT</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="comp-notes">
+      <b>Indicator:</b> 30px phosphor-outlined square, mono level count, 2.4s ease breathing glow — never a flash (Guardrail 1: information noise must never bury the hunt).
+      <b>Placement:</b> head of the bottom-left hotbar stack — the refit changes this manifest, so the cue lives where the result lands.
+      <b>Copy:</b> "3 LEVELS BANKED / HOLD CTRL TO REFIT" — count updates in place; square vanishes entirely at zero (no dead chrome).
+    </div>
+  </section>
+
+</div>
+</body>
+</html>

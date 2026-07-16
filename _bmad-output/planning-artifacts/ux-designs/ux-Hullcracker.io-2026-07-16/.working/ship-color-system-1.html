@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hullcracker.io — Combatant Color System Options</title>
+<style>
+/* ============================================================
+   HULLCRACKER.IO — COMBATANT COLOR SYSTEM · OPTION SHEET 1
+   Production typography is Geist / Geist Mono; this offline
+   sheet uses the system font stack as a stand-in.
+
+   RESERVED SEMANTICS (never assigned to a combatant):
+     Amber  #FFB800  action / warning
+     Storm  #7B2FBE  zone
+     Red    #8B0000 / #FF6666  damage / denied
+   Drone greyscale: #9AA3B2 (lit) / #626B78 (dim)
+
+   HUE BUDGET NOTE: excluding red (~345–25°), amber approach
+   (~25–52°), and storm violet (~266–286°) leaves ≈ 250° of
+   wheel for 20 ships. All three directions therefore space
+   colors by LIGHTNESS as well as hue, and lean on the shape
+   channel (class-coded silhouettes per GDD) at the extremes.
+
+   ------------------------------------------------------------
+   DIRECTION 1 — REGATTA HOIST (saturated arcade flags)
+     #FFF04D Lemon        #C8E619 Chartreuse   #7A9B0F Olive
+     #7FE03A Lime         #23B123 Green        #37F2A0 Spring
+     #0B9E72 Jade         #40EEE0 Aqua         #00D0FF Cyan
+     #0E7FA0 Lagoon       #6FC7FF Sky          #0F6FD6 Azure
+     #5468FF Cobalt       #96A6FF Periwinkle   #A66BFF Iris
+     #C026D3 Orchid       #E14DFF Fuchsia      #FF4FD8 Magenta
+     #B01772 Mulberry     #FF85B3 Rose
+   ------------------------------------------------------------
+   DIRECTION 2 — SCOPE JEWELS (CRT-emitted jewel tones; the
+     mid-green band is deliberately thin because the radar
+     sweep + phosphor furniture already own green)
+     #F2EFA6 Uranium      #D9E36B Willow       #7FD6A4 Sea Glass
+     #45C08B Beryl        #2E9C77 Malachite    #7FE8DC Glacier
+     #2FC9C9 Turquoise    #148FA3 Petrel       #9CD3F0 Moonstone
+     #4FA8E8 Cerulean     #2E6FD1 Sapphire     #2F55B8 Lapis
+     #AAB4F5 Opal         #7D7BE8 Tanzanite    #B98CE8 Amethyst
+     #D96BE8 Orchid Glow  #B23FA0 Porphyry     #E88CC9 Rose Quartz
+     #E85BA0 Tourmaline   #EFDDA1 Citrine
+   ------------------------------------------------------------
+   DIRECTION 3 — SIGNAL PENNANTS (desaturated naval signal-
+     pennant cloth; luminance boosted so it survives black)
+     #E3D96B Ensign Yellow  #B8C25A Drab Chartreuse  #8FA86B Sage
+     #5E8C5E Fir            #66B87A Jade Drab        #7BC2A0 Celadon
+     #4E9C8C Verdigris      #9CCFCF Mist Teal        #5FA8B8 Slate Cyan
+     #A8C2E0 Powder Blue    #6B8FC2 Steel Blue       #4A6BA8 Ensign Navy
+     #9AA0D6 Heather        #7B74A8 Dusty Violet     #B89CD9 Lilac Ash
+     #C284C2 Faded Orchid   #A85E94 Mauve            #D9A0BE Rose Ash
+     #C2708C Dusty Rose     #D9C2A0 Manila
+   ============================================================ */
+
+:root{
+  --bg:#050807; --panel:#0A0F0D; --line:#1B2621;
+  --txt:#E2E8F0; --txt2:#8B95A5; --txt3:#5A6478;
+  --phos:#9FE8C8; --amber:#FFB800; --storm:#7B2FBE; --red:#FF6666;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  background:var(--bg); color:var(--txt);
+  /* production: Geist / Geist Mono */
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  line-height:1.5; padding:40px 24px 96px;
+}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.wrap{max-width:1060px;margin:0 auto}
+header.page{border-bottom:1px solid var(--line);padding-bottom:24px;margin-bottom:40px}
+h1{font-size:28px;font-weight:700;letter-spacing:.01em}
+.kicker{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--phos);margin-bottom:8px}
+.lede{color:var(--txt2);font-size:14px;max-width:70ch;margin-top:10px}
+.reserved{display:flex;flex-wrap:wrap;gap:14px;margin-top:18px;align-items:center}
+.reserved .tag{display:flex;align-items:center;gap:7px;font-family:ui-monospace,Menlo,Consolas,monospace;
+  font-size:10px;letter-spacing:.08em;color:var(--txt2);text-transform:uppercase}
+.reserved .dot{width:12px;height:12px;border-radius:2px;display:inline-block}
+section.dir{margin-bottom:56px;border:1px solid var(--line);border-radius:12px;
+  background:var(--panel);padding:28px;overflow:hidden}
+.dirhead{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:4px}
+.dirnum{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--txt3);letter-spacing:.14em}
+h2{font-size:20px;font-weight:600}
+.register{color:var(--txt2);font-size:13px;font-style:italic;margin-bottom:20px}
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(94px,1fr));gap:10px;margin-bottom:24px}
+.chip .block{height:42px;border-radius:6px;border:1px solid rgba(192,192,192,.12)}
+.chip .name{font-size:10px;color:var(--txt2);margin-top:5px;letter-spacing:.04em;text-transform:uppercase}
+.chip .hex{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10px;color:var(--txt3)}
+.striplabel{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--txt3);margin-bottom:8px}
+.ctxstrip{background:#050807;border:1px solid var(--line);border-radius:8px;
+  padding:20px 18px 12px;display:flex;flex-wrap:wrap;gap:22px;align-items:flex-end;overflow-x:auto}
+.ctxstrip figure{display:flex;flex-direction:column;align-items:center;gap:6px}
+.ctxstrip figcaption{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:8px;color:var(--txt3)}
+.ctxstrip .div{width:1px;align-self:stretch;background:var(--line)}
+.cbnote{margin-top:20px;border-left:2px solid var(--txt3);padding:2px 0 2px 14px}
+.cbnote h3{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:10px;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--txt2);margin-bottom:6px}
+.cbnote p{font-size:13px;color:var(--txt2);max-width:78ch}
+section.compare{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:28px}
+.scenes{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:24px;margin-top:20px}
+.scene{background:#050807;border:1px solid var(--line);border-radius:8px;padding:12px}
+.scene svg{width:100%;height:auto;display:block}
+.scenehead{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;letter-spacing:.14em;
+  text-transform:uppercase;margin-bottom:10px}
+.scene .cap{font-size:12px;color:var(--txt2);margin-top:10px;line-height:1.55}
+.swapnote{font-size:13px;color:var(--txt2);margin-top:20px;max-width:80ch;
+  border-left:2px solid var(--phos);padding-left:14px}
+footer{margin-top:48px;color:var(--txt3);font-size:11px;font-family:ui-monospace,Menlo,Consolas,monospace;
+  letter-spacing:.08em}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="page">
+  <div class="kicker">Hullcracker.io · UX run 2026-07-16 · Creative tool — Ship Color System · Sheet 1</div>
+  <h1>Combatant Color System — Three Directions</h1>
+  <p class="lede">Every human combatant gets a unique personal color, including you (green=yours is retired).
+     PvE drones render greyscale. Matches hold up to 20 ships, so each direction carries 20 mutually
+     assigned colors, tested here on the true canvas black. Excluding the reserved red, amber, and storm
+     bands leaves ≈250° of hue wheel — all three directions space by lightness as well as hue and lean on
+     the class-coded silhouette channel where hue alone runs out.</p>
+  <div class="reserved">
+    <span class="tag"><span class="dot" style="background:#FFB800"></span>#FFB800 amber — reserved: action/warning</span>
+    <span class="tag"><span class="dot" style="background:#7B2FBE"></span>#7B2FBE storm — reserved: zone</span>
+    <span class="tag"><span class="dot" style="background:#FF6666"></span>red family — reserved: damage/denied</span>
+    <span class="tag"><span class="dot" style="background:#9AA3B2"></span>#9AA3B2 / #626B78 — drones (greyscale)</span>
+  </div>
+</header>
+
+<!-- ============ DIRECTION 1 ============ -->
+<section class="dir">
+  <div class="dirhead"><span class="dirnum">DIRECTION 1</span><h2>Regatta Hoist</h2></div>
+  <p class="register">Saturated arcade regatta flags — loud, festival, every captain flying full colors. Leans into “Silly Is Sanctioned.”</p>
+  <div class="swatches">
+    <div class="chip"><div class="block" style="background:#FFF04D"></div><div class="name">Lemon</div><div class="hex">#FFF04D</div></div>
+    <div class="chip"><div class="block" style="background:#C8E619"></div><div class="name">Chartreuse</div><div class="hex">#C8E619</div></div>
+    <div class="chip"><div class="block" style="background:#7A9B0F"></div><div class="name">Olive</div><div class="hex">#7A9B0F</div></div>
+    <div class="chip"><div class="block" style="background:#7FE03A"></div><div class="name">Lime</div><div class="hex">#7FE03A</div></div>
+    <div class="chip"><div class="block" style="background:#23B123"></div><div class="name">Green</div><div class="hex">#23B123</div></div>
+    <div class="chip"><div class="block" style="background:#37F2A0"></div><div class="name">Spring</div><div class="hex">#37F2A0</div></div>
+    <div class="chip"><div class="block" style="background:#0B9E72"></div><div class="name">Jade</div><div class="hex">#0B9E72</div></div>
+    <div class="chip"><div class="block" style="background:#40EEE0"></div><div class="name">Aqua</div><div class="hex">#40EEE0</div></div>
+    <div class="chip"><div class="block" style="background:#00D0FF"></div><div class="name">Cyan</div><div class="hex">#00D0FF</div></div>
+    <div class="chip"><div class="block" style="background:#0E7FA0"></div><div class="name">Lagoon</div><div class="hex">#0E7FA0</div></div>
+    <div class="chip"><div class="block" style="background:#6FC7FF"></div><div class="name">Sky</div><div class="hex">#6FC7FF</div></div>
+    <div class="chip"><div class="block" style="background:#0F6FD6"></div><div class="name">Azure</div><div class="hex">#0F6FD6</div></div>
+    <div class="chip"><div class="block" style="background:#5468FF"></div><div class="name">Cobalt</div><div class="hex">#5468FF</div></div>
+    <div class="chip"><div class="block" style="background:#96A6FF"></div><div class="name">Periwinkle</div><div class="hex">#96A6FF</div></div>
+    <div class="chip"><div class="block" style="background:#A66BFF"></div><div class="name">Iris</div><div class="hex">#A66BFF</div></div>
+    <div class="chip"><div class="block" style="background:#C026D3"></div><div class="name">Orchid</div><div class="hex">#C026D3</div></div>
+    <div class="chip"><div class="block" style="background:#E14DFF"></div><div class="name">Fuchsia</div><div class="hex">#E14DFF</div></div>
+    <div class="chip"><div class="block" style="background:#FF4FD8"></div><div class="name">Magenta</div><div class="hex">#FF4FD8</div></div>
+    <div class="chip"><div class="block" style="background:#B01772"></div><div class="name">Mulberry</div><div class="hex">#B01772</div></div>
+    <div class="chip"><div class="block" style="background:#FF85B3"></div><div class="name">Rose</div><div class="hex">#FF85B3</div></div>
+  </div>
+  <div class="striplabel">Context — small-sprite scale on canvas black (8 combatants + 2 drones)</div>
+  <div class="ctxstrip">
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#FFF04D" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>FFF04D</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#23B123" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>23B123</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#40EEE0" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>40EEE0</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#0F6FD6" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>0F6FD6</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#96A6FF" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>96A6FF</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#E14DFF" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>E14DFF</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#B01772" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>B01772</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#FF85B3" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>FF85B3</figcaption></figure>
+    <span class="div"></span>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#9AA3B2"/></svg><figcaption>drone</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#626B78"/></svg><figcaption>drone</figcaption></figure>
+  </div>
+  <div class="cbnote">
+    <h3>Colorblind note — Regatta Hoist</h3>
+    <p>Under deuteranopia/protanopia the yellow-green cluster collapses: Lemon / Chartreuse / Lime / Spring
+       converge toward one dirty yellow, and Green / Jade lose their split. Rose and Periwinkle also drift
+       toward similar grey-blues; Iris sits nearest the reserved storm violet and stays lighter/bluer on purpose —
+       watch it in playtests. Compensation: 20 slots span a wide lightness ladder (Olive vs Lemon, Mulberry vs
+       Magenta survive as light/dark even with hue gone), hulls keep the 0.75px silver contrast stroke, and the
+       class-coded silhouette (Destroyer/Cruiser/Battleship, per GDD) plus text name in feed/results means color
+       is never the only channel.</p>
+  </div>
+</section>
+
+<!-- ============ DIRECTION 2 ============ -->
+<section class="dir">
+  <div class="dirhead"><span class="dirnum">DIRECTION 2</span><h2>Scope Jewels</h2></div>
+  <p class="register">Phosphor-tinted CRT jewel tones — colors that feel emitted by the tube, native to a radar scope. The mid-green band is kept thin because the sweep and phosphor furniture already own green.</p>
+  <div class="swatches">
+    <div class="chip"><div class="block" style="background:#F2EFA6"></div><div class="name">Uranium</div><div class="hex">#F2EFA6</div></div>
+    <div class="chip"><div class="block" style="background:#D9E36B"></div><div class="name">Willow</div><div class="hex">#D9E36B</div></div>
+    <div class="chip"><div class="block" style="background:#7FD6A4"></div><div class="name">Sea Glass</div><div class="hex">#7FD6A4</div></div>
+    <div class="chip"><div class="block" style="background:#45C08B"></div><div class="name">Beryl</div><div class="hex">#45C08B</div></div>
+    <div class="chip"><div class="block" style="background:#2E9C77"></div><div class="name">Malachite</div><div class="hex">#2E9C77</div></div>
+    <div class="chip"><div class="block" style="background:#7FE8DC"></div><div class="name">Glacier</div><div class="hex">#7FE8DC</div></div>
+    <div class="chip"><div class="block" style="background:#2FC9C9"></div><div class="name">Turquoise</div><div class="hex">#2FC9C9</div></div>
+    <div class="chip"><div class="block" style="background:#148FA3"></div><div class="name">Petrel</div><div class="hex">#148FA3</div></div>
+    <div class="chip"><div class="block" style="background:#9CD3F0"></div><div class="name">Moonstone</div><div class="hex">#9CD3F0</div></div>
+    <div class="chip"><div class="block" style="background:#4FA8E8"></div><div class="name">Cerulean</div><div class="hex">#4FA8E8</div></div>
+    <div class="chip"><div class="block" style="background:#2E6FD1"></div><div class="name">Sapphire</div><div class="hex">#2E6FD1</div></div>
+    <div class="chip"><div class="block" style="background:#2F55B8"></div><div class="name">Lapis</div><div class="hex">#2F55B8</div></div>
+    <div class="chip"><div class="block" style="background:#AAB4F5"></div><div class="name">Opal</div><div class="hex">#AAB4F5</div></div>
+    <div class="chip"><div class="block" style="background:#7D7BE8"></div><div class="name">Tanzanite</div><div class="hex">#7D7BE8</div></div>
+    <div class="chip"><div class="block" style="background:#B98CE8"></div><div class="name">Amethyst</div><div class="hex">#B98CE8</div></div>
+    <div class="chip"><div class="block" style="background:#D96BE8"></div><div class="name">Orchid Glow</div><div class="hex">#D96BE8</div></div>
+    <div class="chip"><div class="block" style="background:#B23FA0"></div><div class="name">Porphyry</div><div class="hex">#B23FA0</div></div>
+    <div class="chip"><div class="block" style="background:#E88CC9"></div><div class="name">Rose Quartz</div><div class="hex">#E88CC9</div></div>
+    <div class="chip"><div class="block" style="background:#E85BA0"></div><div class="name">Tourmaline</div><div class="hex">#E85BA0</div></div>
+    <div class="chip"><div class="block" style="background:#EFDDA1"></div><div class="name">Citrine</div><div class="hex">#EFDDA1</div></div>
+  </div>
+  <div class="striplabel">Context — small-sprite scale on canvas black (8 combatants + 2 drones)</div>
+  <div class="ctxstrip">
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#F2EFA6" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>F2EFA6</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#45C08B" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>45C08B</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#2FC9C9" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>2FC9C9</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#4FA8E8" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>4FA8E8</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#2F55B8" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>2F55B8</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#7D7BE8" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>7D7BE8</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#D96BE8" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>D96BE8</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#E85BA0" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>E85BA0</figcaption></figure>
+    <span class="div"></span>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#9AA3B2"/></svg><figcaption>drone</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#626B78"/></svg><figcaption>drone</figcaption></figure>
+  </div>
+  <div class="cbnote">
+    <h3>Colorblind note — Scope Jewels</h3>
+    <p>The cyan-blue-magenta spine survives red-green deficiency best of the three directions, which is why it
+       exists. Remaining risks: Willow vs Citrine and Sea Glass vs Uranium merge under deuteranopia; under the
+       (much rarer) tritanopia the Glacier / Turquoise / Moonstone band and Cerulean / Sapphire pair compress.
+       Amethyst and Tanzanite ride closest to storm violet — both are kept lighter and bluer than #7B2FBE, and the
+       storm ring is a huge screen-scale arc, not a sprite, so scale disambiguates. Compensation: deliberate
+       light/dark alternation between hue neighbors (Beryl vs Malachite, Sapphire vs Lapis), silver hull stroke,
+       and the class-coded silhouette channel.</p>
+  </div>
+</section>
+
+<!-- ============ DIRECTION 3 ============ -->
+<section class="dir">
+  <div class="dirhead"><span class="dirnum">DIRECTION 3</span><h2>Signal Pennants</h2></div>
+  <p class="register">Desaturated naval signal-pennant cloth — disciplined, wardroom-muted, faded flag fabric under lamplight. Luminance boosted so it still reads on the void.</p>
+  <div class="swatches">
+    <div class="chip"><div class="block" style="background:#E3D96B"></div><div class="name">Ensign Yellow</div><div class="hex">#E3D96B</div></div>
+    <div class="chip"><div class="block" style="background:#B8C25A"></div><div class="name">Drab Chartreuse</div><div class="hex">#B8C25A</div></div>
+    <div class="chip"><div class="block" style="background:#8FA86B"></div><div class="name">Sage</div><div class="hex">#8FA86B</div></div>
+    <div class="chip"><div class="block" style="background:#5E8C5E"></div><div class="name">Fir</div><div class="hex">#5E8C5E</div></div>
+    <div class="chip"><div class="block" style="background:#66B87A"></div><div class="name">Jade Drab</div><div class="hex">#66B87A</div></div>
+    <div class="chip"><div class="block" style="background:#7BC2A0"></div><div class="name">Celadon</div><div class="hex">#7BC2A0</div></div>
+    <div class="chip"><div class="block" style="background:#4E9C8C"></div><div class="name">Verdigris</div><div class="hex">#4E9C8C</div></div>
+    <div class="chip"><div class="block" style="background:#9CCFCF"></div><div class="name">Mist Teal</div><div class="hex">#9CCFCF</div></div>
+    <div class="chip"><div class="block" style="background:#5FA8B8"></div><div class="name">Slate Cyan</div><div class="hex">#5FA8B8</div></div>
+    <div class="chip"><div class="block" style="background:#A8C2E0"></div><div class="name">Powder Blue</div><div class="hex">#A8C2E0</div></div>
+    <div class="chip"><div class="block" style="background:#6B8FC2"></div><div class="name">Steel Blue</div><div class="hex">#6B8FC2</div></div>
+    <div class="chip"><div class="block" style="background:#4A6BA8"></div><div class="name">Ensign Navy</div><div class="hex">#4A6BA8</div></div>
+    <div class="chip"><div class="block" style="background:#9AA0D6"></div><div class="name">Heather</div><div class="hex">#9AA0D6</div></div>
+    <div class="chip"><div class="block" style="background:#7B74A8"></div><div class="name">Dusty Violet</div><div class="hex">#7B74A8</div></div>
+    <div class="chip"><div class="block" style="background:#B89CD9"></div><div class="name">Lilac Ash</div><div class="hex">#B89CD9</div></div>
+    <div class="chip"><div class="block" style="background:#C284C2"></div><div class="name">Faded Orchid</div><div class="hex">#C284C2</div></div>
+    <div class="chip"><div class="block" style="background:#A85E94"></div><div class="name">Mauve</div><div class="hex">#A85E94</div></div>
+    <div class="chip"><div class="block" style="background:#D9A0BE"></div><div class="name">Rose Ash</div><div class="hex">#D9A0BE</div></div>
+    <div class="chip"><div class="block" style="background:#C2708C"></div><div class="name">Dusty Rose</div><div class="hex">#C2708C</div></div>
+    <div class="chip"><div class="block" style="background:#D9C2A0"></div><div class="name">Manila</div><div class="hex">#D9C2A0</div></div>
+  </div>
+  <div class="striplabel">Context — small-sprite scale on canvas black (8 combatants + 2 drones)</div>
+  <div class="ctxstrip">
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#E3D96B" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>E3D96B</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#5E8C5E" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>5E8C5E</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#9CCFCF" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>9CCFCF</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#4A6BA8" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>4A6BA8</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#9AA0D6" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>9AA0D6</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#C284C2" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>C284C2</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#C2708C" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>C2708C</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#D9C2A0" stroke="#C0C0C0" stroke-opacity=".35" stroke-width=".75"/></svg><figcaption>D9C2A0</figcaption></figure>
+    <span class="div"></span>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#9AA3B2"/></svg><figcaption>drone</figcaption></figure>
+    <figure><svg width="20" height="20" viewBox="0 0 24 24"><path d="M12 1L21 21L12 16L3 21Z" fill="#626B78"/></svg><figcaption>drone</figcaption></figure>
+  </div>
+  <div class="cbnote">
+    <h3>Colorblind note — Signal Pennants</h3>
+    <p>Honest warning: low chroma carries the least hue signal, so this direction is the riskiest under any color
+       deficiency. Under protanopia/deuteranopia Sage, Dusty Rose, and Mauve all drift toward mid-grey — dangerously
+       close to the drone greys — and Manila vs Celadon, plus the Heather / Dusty Violet / Lilac Ash cluster, can
+       merge. If this register wins, the compensation must be structural, not optional: widen the lightness ladder,
+       shift drone greys darker (≤ #55606B) so no faded pennant ever greys into PvE territory, and treat the
+       class-coded silhouette + silver hull stroke + text-name channels as mandatory. Upside: nothing here can ever
+       be mistaken for amber, storm, or damage red.</p>
+  </div>
+</section>
+
+<!-- ============ P vs C COMPARISON ============ -->
+<section class="compare">
+  <div class="dirhead"><span class="dirnum">TACTICAL-LAYER PROPAGATION</span><h2>Variant P vs Variant C — same scene, both ways</h2></div>
+  <p class="register">Deliberately undecided per the decision log: build both as an easy swap and playtest. Illustrated with Direction 1 colors. Hulls carry personal color in BOTH variants — the split is what the radar layer and kill feed do.</p>
+  <div class="scenes">
+
+    <div class="scene">
+      <div class="scenehead" style="color:var(--phos)">Variant P — phosphor-functional</div>
+      <svg viewBox="0 0 460 300" role="img" aria-label="Tactical scene with uniform phosphor blips">
+        <rect width="460" height="300" fill="#050807"/>
+        <!-- range rings -->
+        <circle cx="180" cy="155" r="60" fill="none" stroke="#C0C0C0" stroke-opacity=".06"/>
+        <circle cx="180" cy="155" r="112" fill="none" stroke="#C0C0C0" stroke-opacity=".05"/>
+        <!-- storm edge -->
+        <circle cx="320" cy="330" r="260" fill="none" stroke="#7B2FBE" stroke-opacity=".45" stroke-width="2" stroke-dasharray="6 5"/>
+        <!-- islands -->
+        <circle cx="305" cy="82" r="26" fill="#15150F" stroke="#4A4433" stroke-opacity=".8"/>
+        <circle cx="88" cy="232" r="17" fill="#15150F" stroke="#4A4433" stroke-opacity=".8"/>
+        <!-- radar sweep wedge -->
+        <path d="M180 155 L392 62 A232 232 0 0 1 411 128 Z" fill="#00FF88" fill-opacity=".06"/>
+        <line x1="180" y1="155" x2="392" y2="62" stroke="#00FF88" stroke-opacity=".5"/>
+        <!-- sight bubble -->
+        <circle cx="180" cy="155" r="80" fill="none" stroke="#9FE8C8" stroke-opacity=".16" stroke-width="6"/>
+        <circle cx="180" cy="155" r="80" fill="none" stroke="#9FE8C8" stroke-opacity=".28"/>
+        <!-- own hull: personal color (Cyan) -->
+        <g transform="translate(180 155) rotate(28)"><path d="M0 -11L9 9L0 4L-9 9Z" fill="#00D0FF" stroke="#C0C0C0" stroke-opacity=".4" stroke-width=".75"/></g>
+        <!-- sighted enemy hull: personal color (Fuchsia) -->
+        <g transform="translate(228 118) rotate(140)"><path d="M0 -10L8 8L0 3.5L-8 8Z" fill="#E14DFF" stroke="#C0C0C0" stroke-opacity=".4" stroke-width=".75"/></g>
+        <!-- sighted drone: greyscale -->
+        <g transform="translate(140 200) rotate(-75)"><path d="M0 -9L7.5 7.5L0 3L-7.5 7.5Z" fill="#9AA3B2"/></g>
+        <!-- radar blips: UNIFORM phosphor, decaying -->
+        <circle cx="345" cy="98" r="5.5" fill="#7FFFC4" fill-opacity=".18"/><circle cx="345" cy="98" r="2.6" fill="#B8FFDE"/>
+        <circle cx="382" cy="118" r="5" fill="#7FFFC4" fill-opacity=".12"/><circle cx="382" cy="118" r="2.4" fill="#7FFFC4" fill-opacity=".62"/>
+        <circle cx="300" cy="248" r="4.5" fill="#7FFFC4" fill-opacity=".08"/><circle cx="300" cy="248" r="2.2" fill="#7FFFC4" fill-opacity=".34"/>
+        <circle cx="62" cy="88" r="4.5" fill="#7FFFC4" fill-opacity=".08"/><circle cx="62" cy="88" r="2.2" fill="#7FFFC4" fill-opacity=".3"/>
+        <!-- kill feed: neutral phosphor text -->
+        <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="10" letter-spacing=".08em">
+          <text x="452" y="20" text-anchor="end" fill="#B8FFDE">VANDAL ▸ SANK ▸ KESTREL</text>
+          <text x="452" y="36" text-anchor="end" fill="#7FFFC4" fill-opacity=".7">IRONWAKE ▸ SANK ▸ DRONE-04</text>
+          <text x="452" y="52" text-anchor="end" fill="#7FFFC4" fill-opacity=".45">MOTH ▸ SANK ▸ SALTJAW</text>
+        </g>
+      </svg>
+      <p class="cap">Identity lives on hulls only. Every radar return is anonymous phosphor — a blip is a threat,
+         not a person, until your sight bubble touches it. Kill feed stays neutral scope-text. Cleanest read;
+         preserves radar mystery.</p>
+    </div>
+
+    <div class="scene">
+      <div class="scenehead" style="color:#E14DFF">Variant C — personal-color tactical</div>
+      <svg viewBox="0 0 460 300" role="img" aria-label="Tactical scene with personal-color blips and colored kill feed">
+        <rect width="460" height="300" fill="#050807"/>
+        <circle cx="180" cy="155" r="60" fill="none" stroke="#C0C0C0" stroke-opacity=".06"/>
+        <circle cx="180" cy="155" r="112" fill="none" stroke="#C0C0C0" stroke-opacity=".05"/>
+        <circle cx="320" cy="330" r="260" fill="none" stroke="#7B2FBE" stroke-opacity=".45" stroke-width="2" stroke-dasharray="6 5"/>
+        <circle cx="305" cy="82" r="26" fill="#15150F" stroke="#4A4433" stroke-opacity=".8"/>
+        <circle cx="88" cy="232" r="17" fill="#15150F" stroke="#4A4433" stroke-opacity=".8"/>
+        <path d="M180 155 L392 62 A232 232 0 0 1 411 128 Z" fill="#00FF88" fill-opacity=".06"/>
+        <line x1="180" y1="155" x2="392" y2="62" stroke="#00FF88" stroke-opacity=".5"/>
+        <circle cx="180" cy="155" r="80" fill="none" stroke="#9FE8C8" stroke-opacity=".16" stroke-width="6"/>
+        <circle cx="180" cy="155" r="80" fill="none" stroke="#9FE8C8" stroke-opacity=".28"/>
+        <g transform="translate(180 155) rotate(28)"><path d="M0 -11L9 9L0 4L-9 9Z" fill="#00D0FF" stroke="#C0C0C0" stroke-opacity=".4" stroke-width=".75"/></g>
+        <g transform="translate(228 118) rotate(140)"><path d="M0 -10L8 8L0 3.5L-8 8Z" fill="#E14DFF" stroke="#C0C0C0" stroke-opacity=".4" stroke-width=".75"/></g>
+        <g transform="translate(140 200) rotate(-75)"><path d="M0 -9L7.5 7.5L0 3L-7.5 7.5Z" fill="#9AA3B2"/></g>
+        <!-- radar blips: OWNER personal colors, decaying -->
+        <circle cx="345" cy="98" r="5.5" fill="#FFF04D" fill-opacity=".18"/><circle cx="345" cy="98" r="2.6" fill="#FFF04D"/>
+        <circle cx="382" cy="118" r="5" fill="#37F2A0" fill-opacity=".12"/><circle cx="382" cy="118" r="2.4" fill="#37F2A0" fill-opacity=".62"/>
+        <circle cx="300" cy="248" r="4.5" fill="#0F6FD6" fill-opacity=".1"/><circle cx="300" cy="248" r="2.2" fill="#0F6FD6" fill-opacity=".5"/>
+        <circle cx="62" cy="88" r="4.5" fill="#9AA3B2" fill-opacity=".08"/><circle cx="62" cy="88" r="2.2" fill="#9AA3B2" fill-opacity=".34"/>
+        <!-- kill feed: killer/victim in personal colors -->
+        <g font-family="ui-monospace,Menlo,Consolas,monospace" font-size="10" letter-spacing=".08em">
+          <text x="452" y="20" text-anchor="end"><tspan fill="#E14DFF">VANDAL</tspan><tspan fill="#5A6478"> ▸ SANK ▸ </tspan><tspan fill="#FFF04D">KESTREL</tspan></text>
+          <text x="452" y="36" text-anchor="end" fill-opacity=".8"><tspan fill="#0F6FD6">IRONWAKE</tspan><tspan fill="#5A6478"> ▸ SANK ▸ </tspan><tspan fill="#9AA3B2">DRONE-04</tspan></text>
+          <text x="452" y="52" text-anchor="end" fill-opacity=".55"><tspan fill="#37F2A0">MOTH</tspan><tspan fill="#5A6478"> ▸ SANK ▸ </tspan><tspan fill="#FF85B3">SALTJAW</tspan></text>
+        </g>
+      </svg>
+      <p class="cap">Blips carry their owner's color and the kill feed reads killer ▸ victim in personal colors,
+         so you can track a rival across the whole match (drone blips stay grey). Trade-off visible above: the
+         Spring-green blip nearly camouflages against sweep phosphor — any green-family personal color pays a
+         tax in this variant.</p>
+    </div>
+
+  </div>
+  <p class="swapnote"><strong>Easy swap, playtest both.</strong> The only differences are (1) blip tint source —
+     constant phosphor vs owner color — and (2) kill-feed name tinting. Both are single lookup points in the
+     renderer (phosphor.ts, killFeed.ts), so the toggle can ship as a dev flag and the winner gets ratified after
+     playtests. Note anti-cheat implication for Variant C: a blip's owner color is identity information leaving
+     the server on radar-only contacts — perception.observe() already decides blip emission, so attaching the
+     owner's palette index adds no positional leak, but it does trade radar anonymity away by design.</p>
+</section>
+
+<footer>SHEET 1 · SHIP COLOR SYSTEM · GENERATED 2026-07-16 · PALETTES ARE PROPOSALS — NOT RATIFIED CONFIG</footer>
+</div>
+</body>
+</html>
