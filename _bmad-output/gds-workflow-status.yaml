@@ -4,7 +4,7 @@
 # Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
 
 generated: '2026-07-15'
-last_updated: '2026-07-17'
+last_updated: '2026-07-17'  # game-architecture complete
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -22,7 +22,7 @@ prd: false # optional
 
 # --- Phase 3: Technical ---
 generate-project-context: _bmad-output/project-context.md # complete 2026-07-17 (AI-agent implementation rules; root TODOS.md/DESIGN.md marked deprecated, CLAUDE.md reconciled in same PR)
-game-architecture: false # required
+game-architecture: _bmad-output/game-architecture.md # complete 2026-07-17 (custom TS engine ratified; Colyseus 0.16→0.17 as work-item-#0; 8 decisions, 5 novel patterns; validated PASS)
 create-epics-and-stories: false # required
 check-implementation-readiness: false # required
 
@@ -30,4 +30,4 @@ check-implementation-readiness: false # required
 sprint-planning: false # required
 # story cycle (create-story -> dev-story -> code-review) tracked in sprint-status.yaml
 
-next_expected: game-architecture
+next_expected: create-epics-and-stories
