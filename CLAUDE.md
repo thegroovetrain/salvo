@@ -127,25 +127,27 @@ If gstack skills aren't working, run `cd .claude/skills/gstack && ./setup` to bu
 - If you find stale node processes on port 2567 or 5173, kill them and tell the user.
 
 ## Design System
-Always read DESIGN.md before making any visual or UI decisions.
+The design source of truth is `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md` (with `EXPERIENCE.md` alongside as its peer interaction contract). Always read it before making any visual or UI decisions.
 All font choices, colors, spacing, and aesthetic direction are defined there.
 Do not deviate without explicit user approval.
-In QA mode, flag any code that doesn't match DESIGN.md.
+In QA mode, flag any code that doesn't match that DESIGN.md.
+
+**Deprecated docs:** root `DESIGN.md` and root `TODOS.md` are superseded and must not be treated as current. Gameplay design questions go to the GDD (`_bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/gdd.md`).
 
 ## Deploy Configuration (configured by /setup-deploy)
 - Platform: Render
-- Production URL: https://salvo-d3ih.onrender.com/ (temporary — will change at wider release)
+- Production URL: https://hullcracker.io/
 - Deploy workflow: auto-deploy on push to main
 - Deploy status command: HTTP health check
 - Merge method: merge
 - Project type: web app (multiplayer game)
-- Post-deploy health check: https://salvo-d3ih.onrender.com/
+- Post-deploy health check: https://hullcracker.io/
 
 ### Custom deploy hooks
 - Pre-merge: none
 - Deploy trigger: automatic on push to main (Render auto-deploy)
 - Deploy status: poll production URL
-- Health check: https://salvo-d3ih.onrender.com/
+- Health check: https://hullcracker.io/
 
 ### Directives
 - If at any time the linter discovers complexity errors, fix them immediately. Do not worry about when they were from, just fix them.
