@@ -28,7 +28,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 ## Technology Stack & Versions
 
 - **Engine:** Custom browser engine — no Unity/Unreal/Godot. TypeScript monorepo (npm workspaces), Node v22.
-- **Workspaces (strict layering):** `shared` (pure deterministic sim, zero deps) → `server` (Colyseus 0.16, @colyseus/schema 3.x, @colyseus/tools, Express 4) and `client` (PixiJS 8.19, colyseus.js 0.16, Vite 6).
+- **Workspaces (strict layering):** `shared` (pure deterministic sim, zero deps) → `server` (Colyseus 0.17, @colyseus/schema 4.x, @colyseus/tools, Express 4) and `client` (PixiJS 8.19, @colyseus/sdk 0.17, Vite 6).
 - **Language/tooling:** TypeScript ~5.7, ESLint 10 + typescript-eslint (complexity ≤ 10 enforced), Vitest (2.x shared/server, 4.x client + jsdom), tsx for server dev.
 - **Version:** 0.16.0 (`VERSION` + root package.json; 0.X.0 = features, 0.0.X = bugfixes, X.0.0 = major).
 - **Deploy:** Render, auto-deploy on push to main; production https://hullcracker.io/.
@@ -37,7 +37,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 ### Engine & Architecture Rules
 
-- The "engine" is three strictly layered workspaces: `shared` (pure deterministic sim) → `server` (Colyseus 0.16) and `client` (PixiJS 8). `shared` imports from neither side, ever.
+- The "engine" is three strictly layered workspaces: `shared` (pure deterministic sim) → `server` (Colyseus 0.17) and `client` (PixiJS 8). `shared` imports from neither side, ever.
 - Both sides run the SAME shared sim functions (`stepShip`, `stepShell`, `generateMap`, zone math) at the same fixed 50ms dt. Any behavior change to the simulation goes in `shared/` — never fork logic per side, or prediction desyncs.
 - `effectiveStats()` (`shared/src/sim/stats.ts`) is the ONLY legal path from (ship class + upgrade counts) to any derived stat. Never re-derive an upgraded value ad hoc, on either side.
 - `CONFIG` (`shared/src/constants.ts`) is the single source of truth for every gameplay tunable. Client-only feel knobs live in `CLIENT_CONFIG` (`client/src/config.ts`); promote a value to shared CONFIG the moment it becomes gameplay-load-bearing.

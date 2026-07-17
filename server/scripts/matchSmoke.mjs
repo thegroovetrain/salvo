@@ -1,5 +1,5 @@
 // Match-lifecycle smoke: self-boots the colyseus server on PORT 2599 (never
-// the dev server's 2567), joins two live /sdk client with a DEV
+// the dev server's 2567), joins two live @colyseus/sdk clients with a DEV
 // matchOverride that shrinks the lifecycle timers, and proves the full loop:
 //   1. waiting -> countdown at the 2nd join; the room LOCKS (a 3rd client's
 //      joinOrCreate lands in a fresh room).

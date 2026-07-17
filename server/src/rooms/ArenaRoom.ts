@@ -27,9 +27,10 @@ const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
 export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = CONFIG.map.playerCap;
   autoDispose = true;
-  // Transport-level input flood guard (0.17). CONFIG.net.maxMessagesPerSecond
-  // is the single source of truth; the client's 20Hz input sampler + rare
-  // spends sit far under it (see constants.ts for the 3x-headroom derivation).
+  // Transport-level input flood guard (0.17): breach = forced disconnect.
+  // CONFIG.net.maxMessagesPerSecond is the single source of truth; the budget
+  // is sized for burst DELIVERY after a wifi stall, not just the 20Hz send
+  // cadence (see constants.ts for the arrival-window derivation).
   maxMessagesPerSecond = CONFIG.net.maxMessagesPerSecond;
 
   private world!: World;
@@ -76,7 +77,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // Discrete spend message (NOT on the per-tick InputMsg: latest-wins
     // coalescing would drop back-to-back spends; WS ordering gives FIFO for
     // free). All validation lives in spendPoint (fail-closed, unit-testable
-    // without Colyseus); spends are bounded by banked points, so no rate cap.
+    // without Colyseus); spends are bounded by banked points, so no per-channel
+    // cap — only the room-wide transport guard (maxMessagesPerSecond) applies.
     this.onMessage(MSG.spend, (client: Client, raw: unknown) => {
       this.world.spendPoint(client.sessionId, (raw as { choice?: unknown } | null)?.choice);
     });

@@ -1,4 +1,4 @@
-// Fog + radar smoke: two live /sdk client against a running dev
+// Fog + radar smoke: two live @colyseus/sdk clients against a running dev
 // server, verifying steps 9+10 end to end over the real wire. Both clients
 // live in this process, so piloting/assertions use ground-truth positions
 // while the FRAMES under test stay fogged.

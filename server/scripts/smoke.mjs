@@ -1,4 +1,4 @@
-// Netcode smoke: join two /sdk client to a running dev server, send
+// Netcode smoke: join two @colyseus/sdk clients to a running dev server, send
 // input messages from both, and assert:
 //   - both receive the "w" welcome (sessionId, mapSeed, mapRadius, config)
 //   - both receive per-tick "f" frames with `you` present

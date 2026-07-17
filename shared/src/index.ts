@@ -3,8 +3,10 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  3: Colyseus 0.17 / @colyseus/schema 4.x serializer (schema-4 wire break —
- *  old PROTOCOL_VERSION 2 clients must not talk to the 0.17 server). */
+ *  3: Colyseus 0.17 / @colyseus/schema 4.x serializer wire break. NOTE: this
+ *  constant is documentation, not (yet) a runtime gate — a stale v2 bundle
+ *  fails at schema decode, not with a clean version rejection. A join-time
+ *  version check is deferred work (see reconnection stories). */
 export const PROTOCOL_VERSION = 3;
 
 // Tunables

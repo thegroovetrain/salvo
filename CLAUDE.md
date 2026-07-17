@@ -4,7 +4,7 @@
 
 Hullcracker is a real-time, gridless naval battle royale in the browser (RT prototype). One ship per player on a large circular ocean with islands. Everyone fights on the same water in real time: an authoritative 20Hz server simulation with client-side prediction. Two-tier fog of war (a true-sight bubble around your hull plus a rotating radar sweep that paints decaying phosphor blips), guns/torpedoes/mines with real firing arcs, kill-banked upgrade points, and a shrinking storm circle. Last hull floating wins. This branch replaced the previous turn-based hex game (which still lives on `main`); see README.md for the player-facing overview.
 
-Stack: TypeScript monorepo (npm workspaces) — `shared` (pure sim), `server` (Colyseus 0.16), `client` (PixiJS 8 + Vite).
+Stack: TypeScript monorepo (npm workspaces) — `shared` (pure sim), `server` (Colyseus 0.17), `client` (PixiJS 8 + Vite).
 
 ### Commands
 ```

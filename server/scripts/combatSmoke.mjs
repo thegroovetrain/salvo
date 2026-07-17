@@ -1,4 +1,4 @@
-// Combat smoke: two live /sdk client against a running dev server.
+// Combat smoke: two live @colyseus/sdk clients against a running dev server.
 // Scenario 1 (fight): A pilots itself beam-on to B and holds fire until B sinks,
 //   then respawns. Asserts B's hp drops in frames, booms are seen by BOTH
 //   clients, the kill is booked on the public roster, and B respawns.

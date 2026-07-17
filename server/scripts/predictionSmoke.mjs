@@ -1,5 +1,5 @@
 // Prediction smoke: proves client-side prediction would converge against the
-// live server, headlessly (no browser). Two /sdk client join; client A
+// live server, headlessly (no browser). Two @colyseus/sdk clients join; client A
 // sends a scripted input sequence (one per 50ms, like the client's
 // inputSampler) for ~3s. Then, from A's frame stream, we measure:
 //

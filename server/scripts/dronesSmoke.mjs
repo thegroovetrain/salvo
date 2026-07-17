@@ -1,5 +1,5 @@
 // Target-drone smoke: self-boots the colyseus server on PORT 2599 (never the dev
-// server's 2567), joins ONE live /sdk client with a DEV matchOverride
+// server's 2567), joins ONE live @colyseus/sdk client with a DEV matchOverride
 // that lets a solo human start the countdown (minHumans:1) + a fast storm, and
 // proves the whole drone loop end to end:
 //   1. Solo join -> countdown; at activation the room fills to CONFIG.match.fillTo

@@ -1,5 +1,5 @@
 // Storm-circle smoke: self-boots the colyseus server, joins two live
-// /sdk client with a DEV zoneOverride that fast-forwards the timeline,
+// @colyseus/sdk clients with a DEV zoneOverride that fast-forwards the timeline,
 // and proves the storm end to end:
 //   1. Zone starts when the 2nd ship joins (interim wiring); during grace, at
 //      full radius, neither ship takes storm damage.
