@@ -127,7 +127,7 @@ AR15: Hidden-information placement rules: whirlpool current math lives in shared
 **From GDD — scope guardrails (bind story scope)**
 
 AR16: Compass vetoes for the new armory: no torpedo variety (one torpedo design per fit), no damage-control parties, no sectional damage.
-AR17: Backburnered (designed-for, not built): Hunter class, ~4 consumable slots, supply drops (minute-2 rhythm slot reserved as no-op; zero HUD footprint), sonar tier / active ping. Post-beta: teams/pings, ranked, accounts, cosmetics shop, private lobbies, spectate-others, key remapping, premium colors.
+AR17: Backburnered (designed-for, not built): Hunter class, ~4 consumable slots, supply drops (minute-2 rhythm slot reserved as no-op; zero HUD footprint), sonar tier / active ping, medals (GDD "Silly Is Sanctioned" tone item — backburnered per Eric, 2026-07-17 readiness check). Post-beta: teams/pings, ranked, accounts, cosmetics shop, private lobbies, spectate-others, key remapping, premium colors.
 AR18: Committed tuning method: batch-simulate XP tick and kill-bonus outcomes with drone lobbies before human playtests.
 
 ### UX Design Requirements
@@ -569,7 +569,7 @@ So that one glance tells me what I'll sail and SET SAIL is one press away.
 **Given** the ratified home mock (`home-class-picker-1.html`)
 **When** the DOM chrome is rebuilt
 **Then** home renders over the live ambient CIC canvas with wordmark, callsign field (14-char cap), Class Chip, Color Hoist (20 swatches, preference caption — never implying claim/lock), amber Primary Button with mode/class sub-line, How-to-Play link, server status, settings gear (UX-DR25)
-**And** the class-select layer shows the four Class Cards on a horizontal rail (silhouette box, fantasy line, SPEED/TOUGHNESS/TURNING pips [placeholder values], loadout slots) plus the dashed ghost card; keys 1–4/arrows highlight, Enter picks, ESC closes without change (UX-DR26)
+**And** the class-select layer shows the four Class Cards on a horizontal rail (silhouette box, fantasy line, SPEED/TOUGHNESS/TURNING pips with values derived from Story 1.3's CONFIG envelopes — real numbers, not placeholders; Eric wants pips as a balancing aid (resolves UX open question #13), loadout slots) plus the dashed ghost card; keys 1–4/arrows highlight, Enter picks, ESC closes without change (UX-DR26)
 **And** first-run default class is Gunboat (flagged: unconfirmed proposal — confirm before ship)
 **And** connection failure reports plainly on the status line, never a dead screen.
 
@@ -1202,7 +1202,7 @@ So that the next design decision starts from a document that describes the shipp
 **When** the refresh pass runs (with Eric — it's the design source of truth)
 **Then** remaining hex-grid-era content (cell states, planning/resolution choreography) is replaced or struck; the aesthetic direction carries forward unchanged
 **And** open questions resolved during Epics 1–6 (storm edge, island colors if settled, text-safe variant table, whirlpool treatment, foghorn key, sound map) are written back as decisions
-**And** the GDD's correction flags (4-card offers, "Solo vs AI" naming) are reconciled in the GDD
+**And** the GDD's correction flags (4-card offers, "Solo vs AI" naming, the retired spectate option — GDD and architecture still say "spectate" post-death) are reconciled in the GDD, and EXPERIENCE.md's pre-auto-reconnect disconnect wording ("banner + return home") is updated to the Story 0.2/6.7 resume flow
 **And** `gds-workflow-status.yaml` and CLAUDE.md pointers stay accurate.
 
 ### Story 7.6: The Release Gate

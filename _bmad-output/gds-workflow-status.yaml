@@ -4,7 +4,7 @@
 # Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
 
 generated: '2026-07-15'
-last_updated: '2026-07-17'  # create-epics-and-stories complete
+last_updated: '2026-07-17'  # check-implementation-readiness complete
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -24,10 +24,10 @@ prd: false # optional
 generate-project-context: _bmad-output/project-context.md # complete 2026-07-17 (AI-agent implementation rules; root TODOS.md/DESIGN.md marked deprecated, CLAUDE.md reconciled in same PR)
 game-architecture: _bmad-output/game-architecture.md # complete 2026-07-17 (custom TS engine ratified; Colyseus 0.16→0.17 as work-item-#0; 8 decisions, 5 novel patterns; validated PASS)
 create-epics-and-stories: _bmad-output/planning-artifacts/epics.md # complete 2026-07-17 (8 epics / 59 stories from GDD + architecture + UX; Epic 0 = Colyseus 0.17 work-item-#0; hosting move decoupled to trigger-based; 10 explicit design-decision gates; two party-mode review rounds applied; validated PASS)
-check-implementation-readiness: false # required
+check-implementation-readiness: _bmad-output/planning-artifacts/implementation-readiness-report-2026-07-17.md # complete 2026-07-17 (READY — 0 critical; ~99% FR coverage; 14 non-blocking findings incl. medals trace, Story 6.4 pre-split, listening-ring ruling, 7.5 doc-hygiene batch)
 
 # --- Phase 4: Production ---
 sprint-planning: false # required
 # story cycle (create-story -> dev-story -> code-review) tracked in sprint-status.yaml
 
-next_expected: check-implementation-readiness
+next_expected: sprint-planning
