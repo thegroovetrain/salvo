@@ -141,9 +141,9 @@ Backburnered (designed-for but not in beta): **~4 consumable slots**.
 
 **Radar returns are class-legible.** Real radar reads distance, speed, and size; AIS-style identification justifies more. A blip carries the ship's **outline** (a battleship paints bigger — class readable at blip range) and its **speed and heading**, so you can see where it's going, not just where it was. One LOS rule everywhere: the observer→point segment must clear all island circles. Only ships paint on radar; projectiles materialize at the sight boundary with no range-derivable fields. Counter-intel law: **lies must live on the server** — deceptions must be indistinguishable on the wire.
 
-**Upgrade economy (Pillar 3).** XP-based leveling: a slow passive XP tick (design target ~1 level per minute) **plus** kill bonuses. Each level banks an upgrade point carrying a **pre-rolled offer** of 3 upgrades from 3 distinct categories (rolled at earn-time, never rerolls). The passive tick is the anti-snowball floor — everyone grows; kills grow you faster. Kill-bonus sizing is an open balance item (see Progression and Balance).
+**Upgrade economy (Pillar 3).** XP-based leveling: a slow passive XP tick (design target ~1 level per minute) **plus** kill bonuses. Each level banks an upgrade point carrying a **pre-rolled offer** of 4 upgrades from distinct categories (rolled at earn-time, never rerolls; ratified at 4 choices during the UX phase, 2026-07-16 — supersedes the earlier 3). The passive tick is the anti-snowball floor — everyone grows; kills grow you faster. Kill-bonus sizing is an open balance item (see Progression and Balance).
 
-Upgrade *content* is Hades-style: qualitative, build-defining boons that change how your loadout behaves — not stat multipliers. The prototype's 14 stat-stack upgrades are dead and will be replaced wholesale (new catalog is dedicated design work; this GDD specifies the model). **Offers can include any class-specific ability in the game** — this is how the extra slot fills, and how a Battleship might grow torpedoes or a Mine Layer a smoke screen. Offer weighting for off-class abilities is open tuning. There is **no heal option in the economy** — a design law: self-heal is never a ship feature; healing, if it exists at all, arrives later via consumables.
+Upgrade *content* is Hades-style: qualitative, build-defining boons that change how your loadout behaves — not stat multipliers. The prototype's 14 stat-stack upgrades are dead and will be replaced wholesale (new catalog is dedicated design work; this GDD specifies the model). **Offers can include any class-specific ability in the game** — this is how the extra slot fills, and how a Battleship might grow torpedoes or a Mine Layer a smoke screen. Offer weighting for off-class abilities is open tuning. Healing is an **open design question** (reopened during the UX phase; Eric, 2026-07-17: "genuinely unsure"). The current build ships **no heal option in the economy**, but the earlier design law ("self-heal is never a ship feature") is under reconsideration — Eric wants *some* healing to exist in the game eventually, possibly as an upgrade choice within the 4-card offer, possibly via consumables as originally anticipated. Unresolved: boon-catalog design work must not assume either way.
 
 **The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — three ring groups of ~4 minutes each with an internal minute rhythm (see Difficulty Curve), totaling ~12:00 closure, replacing the prototype's single 45 s grace + 3-min continuous shrink. Storm never blinds sensors; it only damages (reference 4 hp/s). The **Endgame Guarantee**: the final ring has a diameter of **2 standard truesight diameters** — close enough to force combat, far enough that radar is still needed and close-range hulls hold no clear advantage over long-range ones.
 
@@ -198,9 +198,9 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 **No bot-fill in standard lobbies.** A standard BR match is humans only: minimum 2 human captains, fill-or-timer, and the map scales from the actual roster at countdown. Bots never masquerade as players.
 
-**Solo vs Bots mode.** A dedicated mode that fills the lobby with actual AI combatant bots — real opponents playing the battle royale, not target practice. AI sophistication is its own design/implementation effort. [ASSUMPTION: bots are driven through the same input pipeline as every ship, per the established architecture principle.]
+**Solo vs AI mode.** A dedicated mode that fills the lobby with actual AI combatant bots — real opponents playing the battle royale, not target practice. AI sophistication is its own design/implementation effort. [ASSUMPTION: bots are driven through the same input pipeline as every ship, per the established architecture principle.]
 
-**Roving PvE drone fleets — in all BR modes.** Every match (standard and Solo vs Bots) contains a few roving PvE drone fleets that can be hunted and killed for XP:
+**Roving PvE drone fleets — in all BR modes.** Every match (standard and Solo vs AI) contains a few roving PvE drone fleets that can be hunted and killed for XP:
 
 - Ships carrying a basic gun on a longer cooldown, used **only to defend themselves** — they never hunt players.
 - Three tiers: **common** small ships (1/4 level per kill), **uncommon** medium ships with more HP (1/3 level), **rare** large ships with even more HP (1/2 level).
@@ -209,7 +209,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 **Rules that hold for every non-human ship:** driven through the same input pipeline as human ships (no special code paths) and subject to the same perception rules.
 
-**Win check counts match participants only — in every mode.** Roving PvE fleets are not participants: they never need to be destroyed to claim the win, and they can never win. In a standard match the participants are the human captains; in Solo vs Bots, the human and the AI combatant bots.
+**Win check counts match participants only — in every mode.** Roving PvE fleets are not participants: they never need to be destroyed to claim the win, and they can never win. In a standard match the participants are the human captains; in Solo vs AI, the human and the AI combatant bots.
 
 ### Arena and Level Design
 
@@ -230,7 +230,7 @@ Backburnered: supply drops (#23).
 
 ### Multiplayer Considerations
 
-- **Modes at beta:** **Solo** (standard BR — humans only, no bot-fill) and **Solo vs Bots** (lobby filled with AI combatants). Both contain roving PvE drone fleets.
+- **Modes at beta:** **Solo** (standard BR — humans only, no bot-fill) and **Solo vs AI** (lobby filled with AI combatants). Both contain roving PvE drone fleets.
 - **Lobby:** match starts at **2 human captains** (fill-or-timer), capped at **20** for now.
 - **Matchmaking: pure quick play.** Join whatever lobby is filling — no skill matching, no parties, no ranked at beta.
 - **Balance frame:** class counterplay flows from focus-not-exclusivity (every class carries the same standard gun; specials define the matchup); the passive XP tick is the anti-snowball floor; Paint-Not-Power keeps every purchasable structurally non-competitive.
@@ -255,7 +255,7 @@ Backburnered: supply drops (#23).
 
 These values are declared handwaves — the shape (kills accelerate, participation never zeroes out) is the commitment; exact fractions are tunable. **Tuning method (committed):** batch-simulate the XP tick and kill-bonus outcomes with drone lobbies before human playtests.
 
-**Spending.** Each level banks a point; each point carries a pre-rolled offer of 3 Hades-style boons from 3 distinct categories (rolled at earn-time, never rerolled). No heal option. The new boon catalog is dedicated design work; its standing requirement is **the build must be felt** — audio, hull visuals, on-water behavior — or promise + growth is a spreadsheet.
+**Spending.** Each level banks a point; each point carries a pre-rolled offer of 4 Hades-style boons from distinct categories (rolled at earn-time, never rerolled). Heal-as-upgrade: open question (see Upgrade economy). The new boon catalog is dedicated design work; its standing requirement is **the build must be felt** — audio, hull visuals, on-water behavior — or promise + growth is a spreadsheet.
 
 **Balance laws:** the Rat Covenant — hiding is legal but priced (a hiding player ticks but never accelerates; the kill-only bonus is exactly the price). The Conservation Law ("every power gain emits a signal") is a *tendency*, not a law — anti-snowball outranks it. **The Bounty (#47):** the kill leader periodically blooms on everyone's radar and is worth extra XP — the anti-snowball's teeth: the strongest player is the one player who can't hide.
 
@@ -351,7 +351,7 @@ Detailed breakdown with stories, scope boundaries, and dependencies: `epics.md`.
 | E2 | **The New Economy (+ New Controls)** | XP tick + kill-only bonuses, pre-rolled boon offers, Hades-style boon catalog v1, felt-build presentation, old upgrades stripped, new keyboard controls | Level up mid-match; picks visibly change your ship; controls fit the new game |
 | E3 | **The Ring** | 3×4 phased storm with minute rhythm, Endgame Guarantee ring (2 truesight diameters) | A full match has its designed pacing arc |
 | E4 | **The Living Ocean** | Fog banks, hemisphered whirlpools, roving PvE fleets (3 tiers), sinking window | The water itself creates stories |
-| E5 | **Honest Lobbies & Modes** | No bot-fill, min-2 fill-or-timer, cap 20, roster-scaled maps, Solo vs Bots combat AI | Two real modes with honest matches |
+| E5 | **Honest Lobbies & Modes** | No bot-fill, min-2 fill-or-timer, cap 20, roster-scaled maps, Solo vs AI combat AI | Two real modes with honest matches |
 | E6 | **Information Texture** | Listening ring + torpedo pips, hit call, fall-of-shot, muzzle flash carries, wounded smoke, foghorn | Every fight is legible through the fog |
 | E7 | **Portal Launch Readiness** | Chromebook 60 FPS, <10 s load, portal SDK compliance, how-to-play page | Shippable to Poki/CrazyGames |
 
@@ -402,7 +402,7 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 
 **Assumption index** (inline `[ASSUMPTION]` tags):
 
-1. AI combatant bots (Solo vs Bots) are driven through the same input pipeline as every ship — per the established architecture principle. *(Enemy Design and AI)*
+1. AI combatant bots (Solo vs AI) are driven through the same input pipeline as every ship — per the established architecture principle. *(Enemy Design and AI)*
 
 **Open design notes** (inline `[NOTE FOR DESIGNER]` tags):
 

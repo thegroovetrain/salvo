@@ -168,3 +168,11 @@ Findings requiring Eric's ruling (presented in-conversation): Bounty #47; 10-Min
 7. Positioning slogan — **OPEN, non-blocking** (marketing). Stat simplification #87 — **SUPERSEDED** by wholesale Hades-style boon replacement. Quiet Dread minutes 1–3 — **PARTIALLY ADDRESSED** by the ring rhythm (minute-1 "clear seas" is now by design); final call remains a playtest question.
 8. Conservation Law demotion — **RESPECTED**: written into Progression as a tendency; anti-snowball outranks it.
 9. Population cold start (brief: "needs a real launch-day answer before public beta") — **OPEN**, tracked under Assumptions and Dependencies; launch work, not GDD-blocking.
+
+---
+
+## Correction pass — 2026-07-17 (post-UX-phase, gds-gdd Update mode)
+
+- **Offer size: 3 → 4.** Ratified by Eric during the gds-ux run (2026-07-16): offers present 4 upgrade choices at a time (keys 1–4 in the refit window). "3 upgrades from 3 distinct categories" superseded throughout gdd.md + epics.md; distinct-categories rule preserved, category total per offer left unpinned.
+- **Heal design law → open question.** Eric (2026-07-17): "genuinely unsure on how to handle heals in this game right now." The flat "no heal option in the economy — a design law" is softened: current build ships no heal; the law (self-heal never a ship feature) is under reconsideration; candidate routes are heal-as-upgrade-card or consumables. Boon-catalog work must not assume either way.
+- **Mode rename: "Solo vs Bots" → "Solo vs AI."** Ratified during the gds-ux run; renamed in gdd.md (5 sites incl. E5 epic row + AI assumption) and epics.md (2 sites). Mechanics unchanged.
