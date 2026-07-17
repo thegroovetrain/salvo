@@ -127,7 +127,7 @@ AR15: Hidden-information placement rules: whirlpool current math lives in shared
 **From GDD — scope guardrails (bind story scope)**
 
 AR16: Compass vetoes for the new armory: no torpedo variety (one torpedo design per fit), no damage-control parties, no sectional damage.
-AR17: Backburnered (designed-for, not built): Hunter class, ~4 consumable slots, supply drops (minute-2 rhythm slot reserved as no-op; zero HUD footprint), sonar tier / active ping. Post-beta: teams/pings, ranked, accounts, cosmetics shop, private lobbies, spectate-others, key remapping, premium colors.
+AR17: Backburnered (designed-for, not built): Hunter class, ~4 consumable slots, supply drops (minute-2 rhythm slot reserved as no-op; zero HUD footprint), sonar tier / active ping, medals (GDD "Silly Is Sanctioned" tone item — backburnered per Eric, 2026-07-17 readiness check). Post-beta: teams/pings, ranked, accounts, cosmetics shop, private lobbies, spectate-others, key remapping, premium colors.
 AR18: Committed tuning method: batch-simulate XP tick and kill-bonus outcomes with drone lobbies before human playtests.
 
 ### UX Design Requirements

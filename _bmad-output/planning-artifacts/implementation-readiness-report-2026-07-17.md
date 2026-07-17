@@ -338,3 +338,10 @@ This assessment identified **14 findings across 4 categories** (1 partial FR tra
 **Assessor:** Implementation Readiness workflow (gds-check-implementation-readiness), run by Claude as Game Producer / Scrum Master with Eric
 **Date:** 2026-07-17
 **Documents assessed:** gdd.md (2026-07-16) · game-architecture.md v1.0 (2026-07-17) · epics.md (8 epics / 59 stories, 2026-07-17) · DESIGN.md + EXPERIENCE.md (final, 2026-07-16)
+
+## Post-Assessment Decisions (Eric, 2026-07-17)
+
+1. **Medals (FR52 partial): BACKBURNERED.** Added to epics.md AR17's backburner list in this PR — the trace is now a decision, not a leak.
+2. **Story 6.4 sizing: ACCEPTED AS-IS.** No pre-split; implemented as one story.
+3. **Listening-ring asymmetry: RESOLVED — NO CHANGE.** Visual source-ambiguity is an aesthetic choice, not a secrecy rule: audio tones already legitimately reveal source type to hearing players, and the client needs the sound-class field to pick the right tone. Wire contract stays as designed (AR6 / Story 4.1). The ring remains fully useful: bearing + loudness visually, source by ear, sight confirms.
+4. **Doc-hygiene batch (Story 7.5 additions): pending Eric's call.**
