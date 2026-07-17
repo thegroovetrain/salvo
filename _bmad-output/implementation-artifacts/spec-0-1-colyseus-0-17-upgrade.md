@@ -2,8 +2,9 @@
 title: 'Story 0.1: Colyseus 0.17 Upgrade'
 type: 'chore'
 created: '2026-07-17'
-status: 'in-review'
+status: 'done'
 baseline_revision: '1f81f70b4bf1bc4b239bfe3b47559d64eca4fbf8'
+final_revision: '74dbd4c841cfce9e3c096656cf2ef15490819034'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
