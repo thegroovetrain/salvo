@@ -44,7 +44,7 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 
 **In scope:**
 - Passive XP tick (~1 level/min) + kill-only bonuses (opponent 1 level; PvE ¼/⅓/½ by tier — tier hooks land here, fleets themselves in E4).
-- Levels bank points; pre-rolled offers (3 boons, 3 distinct categories, never reroll). No heal option.
+- Levels bank points; pre-rolled offers (4 boons, distinct categories, never reroll — ratified 2026-07-16). Heal: open question.
 - Strip all 14 legacy stat upgrades.
 - Boon catalog v1: Hades-style, qualitative, build-defining (dedicated design work inside this epic).
 - **Off-class ability offers:** any class-specific ability can appear in offers, filling the extra slot (anyone can grow torpedoes/mines/smoke). Offer weighting is open tuning.
@@ -149,7 +149,7 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 **In scope:**
 - Standard BR: min 2 human captains, fill-or-timer, cap 20, zero bot-fill.
 - Map scales from the actual roster at countdown.
-- Solo vs Bots mode: lobby filled with AI combatant bots (they pick classes and fight); PvE fleets present in both modes.
+- Solo vs AI mode: lobby filled with AI combatant bots (they pick classes and fight); PvE fleets present in both modes.
 - Combat-bot AI (a real design/implementation effort — distinct from PvE defensive AI).
 - Pure quick-play join for both modes.
 
@@ -162,7 +162,7 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 **High-level stories:**
 1. Lobby rules rework (min/fill-or-timer/cap, no bot-fill).
 2. Roster-scaled map generation.
-3. Solo vs Bots mode + combat AI.
+3. Solo vs AI mode + combat AI.
 4. Mode selection UX (menu).
 
 ---
