@@ -4,7 +4,7 @@
 # Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
 
 generated: '2026-07-15'
-last_updated: '2026-07-16'
+last_updated: '2026-07-17'
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -21,6 +21,7 @@ ux: _bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESI
 prd: false # optional
 
 # --- Phase 3: Technical ---
+generate-project-context: _bmad-output/project-context.md # complete 2026-07-17 (AI-agent implementation rules; root TODOS.md/DESIGN.md marked deprecated, CLAUDE.md reconciled in same PR)
 game-architecture: false # required
 create-epics-and-stories: false # required
 check-implementation-readiness: false # required
