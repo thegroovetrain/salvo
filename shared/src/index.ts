@@ -2,8 +2,10 @@
 // Wire types, kinematics, geometry, and deterministic mapgen used by both
 // the Colyseus server and the Pixi client (client-side prediction).
 
-/** Bumped on any breaking change to the client/server wire protocol. */
-export const PROTOCOL_VERSION = 2;
+/** Bumped on any breaking change to the client/server wire protocol.
+ *  3: Colyseus 0.17 / @colyseus/schema 4.x serializer (schema-4 wire break —
+ *  old PROTOCOL_VERSION 2 clients must not talk to the 0.17 server). */
+export const PROTOCOL_VERSION = 3;
 
 // Tunables
 export * from './constants.js';

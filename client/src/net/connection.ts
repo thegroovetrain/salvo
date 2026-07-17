@@ -3,7 +3,7 @@
 // wire). Frames are routed through a mutable sink so roomBindings can attach
 // after the welcome resolves without re-registering message handlers.
 
-import { Client, type Room } from 'colyseus.js';
+import { Client, type Room } from '@colyseus/sdk';
 import { generateMap, MSG, type FrameMsg, type GameMap, type WelcomeMsg } from '@salvo/shared';
 
 const WELCOME_TIMEOUT_MS = 5000;

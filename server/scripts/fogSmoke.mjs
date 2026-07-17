@@ -1,4 +1,4 @@
-// Fog + radar smoke: two live colyseus.js clients against a running dev
+// Fog + radar smoke: two live /sdk client against a running dev
 // server, verifying steps 9+10 end to end over the real wire. Both clients
 // live in this process, so piloting/assertions use ground-truth positions
 // while the FRAMES under test stay fogged.
@@ -23,7 +23,7 @@
 // server/src/rooms/roomOptions.ts):
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/fogSmoke.mjs
-import { Client } from 'colyseus.js';
+import { Client } from '@colyseus/sdk';
 import { CONFIG, generateMap, bearing, angleDiff, segCircleHit } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';

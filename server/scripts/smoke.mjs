@@ -1,4 +1,4 @@
-// Netcode smoke: join two colyseus.js clients to a running dev server, send
+// Netcode smoke: join two /sdk client to a running dev server, send
 // input messages from both, and assert:
 //   - both receive the "w" welcome (sessionId, mapSeed, mapRadius, config)
 //   - both receive per-tick "f" frames with `you` present
@@ -13,7 +13,7 @@
 // room (see server/src/rooms/roomOptions.ts):
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/smoke.mjs
-import { Client } from 'colyseus.js';
+import { Client } from '@colyseus/sdk';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const FRAME_WAIT_MS = 1500;

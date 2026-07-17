@@ -194,6 +194,15 @@ export const CONFIG = {
     simDtMs: 50, // ms — simulation step (20 Hz)
     interpDelayMs: 100, // ms — remote-entity render delay (snapshot interp)
   },
+
+  /** Transport-level networking limits (consumed by the Colyseus room). */
+  net: {
+    // Colyseus disconnects a client that exceeds this. The input sampler sends
+    // at the 50ms sim cadence (20 msgs/s); fire rides the input message and
+    // spends are user-initiated and rare — so 60 = 20Hz × 3 headroom lets
+    // held-rudder + rapid-fire play never trip the guard.
+    maxMessagesPerSecond: 60,
+  },
 } as const;
 
 /** Static type of the CONFIG tree (used in the wire config snapshot). */

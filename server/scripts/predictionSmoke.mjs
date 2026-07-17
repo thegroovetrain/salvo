@@ -1,5 +1,5 @@
 // Prediction smoke: proves client-side prediction would converge against the
-// live server, headlessly (no browser). Two colyseus.js clients join; client A
+// live server, headlessly (no browser). Two /sdk client join; client A
 // sends a scripted input sequence (one per 50ms, like the client's
 // inputSampler) for ~3s. Then, from A's frame stream, we measure:
 //
@@ -23,7 +23,7 @@
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/predictionSmoke.mjs
 
-import { Client } from 'colyseus.js';
+import { Client } from '@colyseus/sdk';
 import { CONFIG, stepShip } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';

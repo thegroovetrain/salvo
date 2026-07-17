@@ -1,5 +1,5 @@
 // Match-lifecycle smoke: self-boots the colyseus server on PORT 2599 (never
-// the dev server's 2567), joins two live colyseus.js clients with a DEV
+// the dev server's 2567), joins two live /sdk client with a DEV
 // matchOverride that shrinks the lifecycle timers, and proves the full loop:
 //   1. waiting -> countdown at the 2nd join; the room LOCKS (a 3rd client's
 //      joinOrCreate lands in a fresh room).
@@ -22,7 +22,7 @@ import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { Client } from 'colyseus.js';
+import { Client } from '@colyseus/sdk';
 import { CONFIG, bearing, angleDiff } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');

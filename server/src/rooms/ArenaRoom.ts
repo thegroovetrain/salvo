@@ -4,7 +4,7 @@
 // World's input store, fixed steps -> match update + per-client frames, and
 // implements the Match side-effect hooks (lock/unlock/broadcast/disconnect).
 
-import { Room, Client } from 'colyseus';
+import { Room, type Client } from 'colyseus';
 import { CONFIG, MSG, SHIP_CLASS_IDS, sanitizeClassId, type ResultsMsg, type WelcomeMsg } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World } from '../game/world.js';
@@ -21,9 +21,16 @@ const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
 const INTERVAL_MS = 1000 / 60; // setSimulationInterval cadence
 const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
 
-export class ArenaRoom extends Room<ArenaState> {
+// Colyseus 0.17 changed the Room generic from `Room<State>` to
+// `Room<{ state: State }>` (the parameter is now a RoomOptions bag carrying
+// state/metadata/client types), so `this.state` types as ArenaState again.
+export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = CONFIG.map.playerCap;
   autoDispose = true;
+  // Transport-level input flood guard (0.17). CONFIG.net.maxMessagesPerSecond
+  // is the single source of truth; the client's 20Hz input sampler + rare
+  // spends sit far under it (see constants.ts for the 3x-headroom derivation).
+  maxMessagesPerSecond = CONFIG.net.maxMessagesPerSecond;
 
   private world!: World;
   /** Null only in sandbox mode (dev smokes) — see MatchOverride. */
