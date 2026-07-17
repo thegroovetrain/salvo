@@ -1,0 +1,137 @@
+# generated: 2026-07-17
+# last_updated: 2026-07-17
+# project: Hullcracker.io
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+#
+# Source epics: _bmad-output/planning-artifacts/epics.md (8 epics / 59 stories)
+# Epic sequence per GDD: E0 → E1 → E2 → E3 → E4 (Information Texture) → E5 (Living Ocean) → E6 (Lobbies) → E7 (Portal)
+
+generated: 2026-07-17
+last_updated: 2026-07-17
+project: Hullcracker.io
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+  # epic-0: Stable Ground (Colyseus 0.17 Foundation)
+  epic-0: backlog
+  0-1-colyseus-0-17-upgrade: backlog
+  0-2-reconnect-into-your-own-ship: backlog
+  0-3-server-operability-baseline: backlog
+  0-4-portal-adapter-seam: backlog
+  epic-0-retrospective: optional
+
+  # epic-1: The Armory
+  epic-1: backlog
+  1-1-signal-registry-foundation: backlog
+  1-2-equipment-interface-loadout-slots: backlog
+  1-3-four-hull-envelopes: backlog
+  1-4-universal-standard-gun: backlog
+  1-5-firing-under-latency-latency-harness: backlog
+  1-6-torpedo-boat-loadout: backlog
+  1-7-battleship-loadout: backlog
+  1-8-mine-layer-loadout: backlog
+  1-9-gunboat-loadout: backlog
+  1-10-firing-arcs-for-the-class-era: backlog
+  1-11-design-tokens-typography: backlog
+  1-12-the-regatta-hoist: backlog
+  1-13-class-silhouettes-on-the-water: backlog
+  1-14-home-class-select-chrome: backlog
+  epic-1-retrospective: optional
+
+  # epic-2: The New Economy (+ New Controls)
+  epic-2: backlog
+  2-1-the-new-input-scheme: backlog
+  2-2-the-hotbar: backlog
+  2-3-settings-accessibility-options: backlog
+  2-4-own-vitals-cluster-telegraph-restyle: backlog
+  2-5-boon-effect-engine: backlog
+  2-6-xp-tick-kill-bonuses: backlog
+  2-7-offers-roll-bank-spend: backlog
+  2-8-boon-catalog-v1: backlog
+  2-9-the-build-must-be-felt: backlog
+  2-10-economy-batch-sim-harness: backlog
+  epic-2-retrospective: optional
+
+  # epic-3: The Ring
+  epic-3: backlog
+  3-1-phased-zone-timeline: backlog
+  3-2-ring-reveal-storm-rendering: backlog
+  3-3-br-chrome-bar: backlog
+  3-4-the-endgame-guarantee: backlog
+  epic-3-retrospective: optional
+
+  # epic-4: Information Texture (GDD E6)
+  epic-4: backlog
+  4-1-the-listening-ring: backlog
+  4-2-class-legible-blips: backlog
+  4-3-the-gunnery-conversation: backlog
+  4-4-wounded-smoke: backlog
+  4-5-the-foghorn: backlog
+  4-6-the-bounty: backlog
+  4-7-the-real-time-sound-map: backlog
+  4-8-attention-priority-the-readability-gate: backlog
+  epic-4-retrospective: optional
+
+  # epic-5: The Living Ocean (GDD E4)
+  epic-5: backlog
+  5-1-lifecycle-state-machine-step-order-registry: backlog
+  5-2-the-sinking-window: backlog
+  5-3-omniscient-reveal-results: backlog
+  5-4-fog-banks: backlog
+  5-5-whirlpools: backlog
+  5-6-roving-pve-fleets: backlog
+  epic-5-retrospective: optional
+
+  # epic-6: Honest Lobbies & Modes (GDD E5)
+  epic-6: backlog
+  6-1-queue-based-lobbies: backlog
+  6-2-roster-scaled-oceans: backlog
+  6-3-the-participants-only-win-check: backlog
+  6-4-combat-bot-ai: backlog
+  6-5-solo-vs-ai-mode: backlog
+  6-6-mode-select-queue-liveness: backlog
+  6-7-reconnection-ux: backlog
+  epic-6-retrospective: optional
+
+  # epic-7: Portal Launch Readiness
+  epic-7: backlog
+  7-1-chromebook-performance-pass: backlog
+  7-2-ten-second-load: backlog
+  7-3-portal-sdk-integrations: backlog
+  7-4-how-to-play-page: backlog
+  7-5-design-md-real-time-refresh: backlog
+  7-6-the-release-gate: backlog
+  epic-7-retrospective: optional
