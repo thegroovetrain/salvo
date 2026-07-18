@@ -80,14 +80,14 @@ warnings: ['oversized']
 
 **Execution:**
 
-- [ ] `server/src/log.ts` -- implement structured logger + context helper; unit tests -- the logging substrate everything else consumes
-- [ ] `shared/src/constants.ts` -- add `CONFIG.net.joiningDeadlineSeconds: 10` -- single source of truth
-- [ ] `server/src/game/match.ts` -- `Participant.classId`, `activatedAt`, storm-death tally, pure `endSummary()`; pure tick-error tolerance helper (env-independent: takes tolerance + counter); unit tests -- telemetry truth stays sim-side and testable
-- [ ] `server/src/metrics.ts` -- registry (ring buffer, percentiles, message rates), `matchMaker.stats.local` payload, typed `/metrics` endpoint; unit tests -- operability visibility
-- [ ] `server/src/app.config.ts` -- mount `routes` -- serve the endpoint
-- [ ] `server/src/rooms/ArenaRoom.ts` -- tick-error boundary + counter + dispose path, lifecycle logging with `{roomId, matchId, tick}` context, metrics feeds (tick timing, message counts, register/unregister), matchId generation, `match.end`/`match.abort` emission, JOINING-deadline kick, migrate console.warn; wiring tests via the fake-injection harness -- the adapter glue
-- [ ] `server/scripts/metricsSmoke.mjs` -- real-socket smoke: stdout capture asserts `match.end` fields; `/metrics` fetched and shape-asserted -- the AC proof
-- [ ] Unit-test the I/O matrix rows (tolerance reset, abort-once semantics, deadline kick vs timely join, HC_DEBUG gating)
+- [x] `server/src/log.ts` -- implement structured logger + context helper; unit tests -- the logging substrate everything else consumes
+- [x] `shared/src/constants.ts` -- add `CONFIG.net.joiningDeadlineSeconds: 10` -- single source of truth
+- [x] `server/src/game/match.ts` -- `Participant.classId`, `activatedAt`, storm-death tally, pure `endSummary()`; pure tick-error tolerance helper (env-independent: takes tolerance + counter); unit tests -- telemetry truth stays sim-side and testable
+- [x] `server/src/metrics.ts` -- registry (ring buffer, percentiles, message rates), `matchMaker.stats.local` payload, typed `/metrics` endpoint; unit tests -- operability visibility
+- [x] `server/src/app.config.ts` -- mount `routes` -- serve the endpoint
+- [x] `server/src/rooms/ArenaRoom.ts` -- tick-error boundary + counter + dispose path, lifecycle logging with `{roomId, matchId, tick}` context, metrics feeds (tick timing, message counts, register/unregister), matchId generation, `match.end`/`match.abort` emission, JOINING-deadline kick, migrate console.warn; wiring tests via the fake-injection harness -- the adapter glue
+- [x] `server/scripts/metricsSmoke.mjs` -- real-socket smoke: stdout capture asserts `match.end` fields; `/metrics` fetched and shape-asserted -- the AC proof
+- [x] Unit-test the I/O matrix rows (tolerance reset, abort-once semantics, deadline kick vs timely join, HC_DEBUG gating)
 
 **Acceptance Criteria:**
 
