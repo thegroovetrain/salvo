@@ -2,10 +2,11 @@
 title: 'Story 1.1: Signal Registry Foundation'
 type: 'refactor'
 created: '2026-07-18'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '780567eeac82bd125a32e4f96812ace9dc5314f8'
+final_revision: '3dc0ebc80917d64e6db8ec1a6bbc527e84dc195a'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
@@ -55,11 +56,11 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `server/src/__tests__/goldenFrames.test.ts` -- NEW, written FIRST against the current code: deterministic seeded world (fixed seed, scripted inputs, several ships/shells/mines/sinkings, ≥1 spectator frame, enough ticks to cover every event kind), `JSON.stringify` each built frame and snapshot to a committed fixture -- byte-identity gate for the whole refactor (JSON key order ⇒ msgpack key order).
-- [ ] `server/src/game/signals.ts` -- NEW: `SignalSpec` interface (`eventType`, `visible(ctx)`, `materialize(ctx)`, optional `counterIntel`) + `SIGNAL_REGISTRY` covering all 12 channels; spectator-path variance handled inside rows or via an observer-mode flag in the narrow context -- one declarative home per signal.
-- [ ] `server/src/game/perception.ts` -- refactor `observe()`/`observeSpectator()` to iterate `SIGNAL_REGISTRY`; no other module may call row functions; preserve all ordering/field-order rules from Always -- the AC's "only caller" clause.
-- [ ] `server/src/__tests__/perception.test.ts` -- replace the hardcoded `verifyEvent` switch enumeration with registry-driven iteration: completeness check (every kind ↔ row) + assert every row has a registered invariant case (fail CI if a row lacks one); keep independent oracle predicates -- the AC's "fails CI by construction".
-- [ ] `server/src/__tests__/signals.test.ts` -- NEW: registry unit tests -- row shape, key-ORDER guards per materialized kind (Object.keys order, not sorted), stripped-boom has no `hit` key, shell/torp reveal stamps `world.now`.
+- [x] `server/src/__tests__/goldenFrames.test.ts` -- NEW, written FIRST against the current code: deterministic seeded world (fixed seed, scripted inputs, several ships/shells/mines/sinkings, ≥1 spectator frame, enough ticks to cover every event kind), `JSON.stringify` each built frame and snapshot to a committed fixture -- byte-identity gate for the whole refactor (JSON key order ⇒ msgpack key order).
+- [x] `server/src/game/signals.ts` -- NEW: `SignalSpec` interface (`eventType`, `visible(ctx)`, `materialize(ctx)`, optional `counterIntel`) + `SIGNAL_REGISTRY` covering all 12 channels; spectator-path variance handled inside rows or via an observer-mode flag in the narrow context -- one declarative home per signal.
+- [x] `server/src/game/perception.ts` -- refactor `observe()`/`observeSpectator()` to iterate `SIGNAL_REGISTRY`; no other module may call row functions; preserve all ordering/field-order rules from Always -- the AC's "only caller" clause.
+- [x] `server/src/__tests__/perception.test.ts` -- replace the hardcoded `verifyEvent` switch enumeration with registry-driven iteration: completeness check (every kind ↔ row) + assert every row has a registered invariant case (fail CI if a row lacks one); keep independent oracle predicates -- the AC's "fails CI by construction".
+- [x] `server/src/__tests__/signals.test.ts` -- NEW: registry unit tests -- row shape, key-ORDER guards per materialized kind (Object.keys order, not sorted), stripped-boom has no `hit` key, shell/torp reveal stamps `world.now`.
 
 **Acceptance Criteria:**
 - Given the refactored server, when the golden-frames fixture (recorded pre-refactor) is replayed, then every frame's serialized bytes are identical.
@@ -70,6 +71,24 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-07-18 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 0, medium 4, low 4)
+- defer: 0
+- reject: 9: (high 0, medium 0, low 9)
+- addressed_findings:
+  - `[medium]` `[patch]` Pseudo-rows (`contact`/`mine`) were reachable from world-event dispatch (mine row's spectator branch unconditionally true) — `signalFor` now resolves only the 10 GameEvent kinds, restoring the old `default: return null` structural guarantee.
+  - `[medium]` `[patch]` Ballistic `materialize()` mutated `seenBallistics` on a publicly importable registry (Blind + Codex agreed) — mutation moved to `perception.ballisticScan`; rows are now pure wire-shapers with identical timing (golden fixture unchanged).
+  - `[medium]` `[patch]` Golden fixture blind spots (no island-LOS, no non-owner ballistic reveal, no spectator reveal/dmg/boom variants) — three scenarios appended with 11 self-validating sub-case assertions; existing snapshot entries byte-unchanged.
+  - `[medium]` `[patch]` No CI pressure for a future 11th GameEvent kind — compile-time exhaustiveness type assertion in signals.ts (`tsc` fails if the shared union outgrows the registry; proven by intentional failure).
+  - `[low]` `[patch]` Prototype-chain lookup holes (`'constructor'`/`'toString'`) in `signalFor` and the test verifier map — `Object.hasOwn` guards both.
+  - `[low]` `[patch]` `Object.freeze` was shallow — every row now individually frozen and asserted frozen.
+  - `[low]` `[patch]` JSON-stringify proxy limits (undefined-valued keys, -0) undocumented — fidelity-limits note added to the golden test header (key-presence bugs covered by signals.test key-order guards).
+  - `[low]` `[patch]` Dead `losClear` re-export removed from perception.ts (no consumers; tests deliberately reimplement it).
+
+Rejected as noise (adjudicated by orchestrator against pre-refactor code): "unknown kinds should throw" (pre-refactor behavior was an identical silent fail-closed drop; the test-side hard failure exists); spectator unknown-kind strictness (vacuous — no such kinds exist, direction is safer); AC-wording concerns; test-scaffolding duplication (deliberate suite convention); `ballisticScan` missing-row guard (compile-time enforced); shipScan perf/comment drift; `emitWorldEvent` private-field coupling (test pragmatics); type-erased dispatch cast (localized, shape-guarded by tests); speculative counterIntel API churn.
 
 ## Design Notes
 
@@ -82,3 +101,24 @@ warnings: [oversized]
 **Commands:**
 - `npm test -w server` -- expected: all server tests green, including new goldenFrames + signals suites.
 - `npm run check` -- expected: lint (complexity ≤ 10), tsc for all workspaces, all tests green.
+
+## Auto Run Result
+
+Status: done
+
+**Summary:** Story 1.1 Signal Registry Foundation delivered as a pure refactor with byte-identical wire output. Every spatial signal (10 GameEvent kinds + contact/mine channels) is now one declarative `SignalSpec` row in `server/src/game/signals.ts`; `observe()`/`observeSpectator()` collapse into one registry-driven `view()` with no per-kind branching outside registry dispatch; the invariant suite iterates the registry so a row without a test case fails CI by construction (compile-time exhaustiveness also ties the registry to the shared `GameEvent` union). Implementation was orchestrated per /orchestrate model routing: Opus (golden fixture, invariant suite, patch rounds), Fable (registry + perception refactor — the anti-cheat chokepoint), Sonnet (registry unit tests), with a Fable×2 + Codex cross-model review gate.
+
+**Files changed:**
+- `server/src/game/signals.ts` -- NEW: SignalSpec + deep-frozen 12-row SIGNAL_REGISTRY; `signalFor` (event kinds only, prototype-safe); compile-time exhaustiveness assertion.
+- `server/src/game/perception.ts` -- 347→~150 LOC; registry-driven `view()`; exactly-once ballistic mark owned by `ballisticScan`.
+- `server/src/__tests__/goldenFrames.test.ts` + snapshot -- NEW byte-identity gate: 9 seeded scenarios, 16 frames, 13-channel + 11-sub-case self-validating coverage (island LOS, non-owner/spectator reveals included).
+- `server/src/__tests__/perception.test.ts` -- verifier-map enumeration pinned to registry keys (row without verifier fails CI); registry completeness block; fail-closed shape-guard tests; independent oracle preserved.
+- `server/src/__tests__/signals.test.ts` -- NEW: 20 structural tests (wire key-ORDER guards, pure materialize, exactly-once, fail-closed lookups, deep-freeze).
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` -- story 1-1 marked done.
+- `_bmad-output/implementation-artifacts/epic-1-context.md` -- NEW: compiled Epic 1 planning context.
+
+**Review findings breakdown:** 8 patches applied (4 medium, 4 low — all hardening; zero behavior/leak defects found in the refactor itself), 0 deferred, 9 rejected as noise (each adjudicated against pre-refactor code). Both in-family reviewers and Codex independently confirmed the refactor is semantically faithful; Codex's fix-first verdict rested on the mutating-materialize and silent-drop findings — the first was fixed, the second adjudicated as pre-existing intended behavior (fail-closed drop, unchanged from the old `default: return null`).
+
+**Verification:** `npm run check` green end-to-end after every wave and after the patch round — 796 tests (shared 129, server 375, client 292), 0 lint errors, tsc clean in all three workspaces. Golden fixture recorded pre-refactor (commit 6829733), byte-identical through the refactor and all patches; determinism proven by double runs; the CI-by-construction mechanism proven by intentional mutations (deleted verifier → suite fails; fake GameEvent kind → tsc fails).
+
+**Residual risks:** the golden gate is a JSON proxy for msgpack (documented limits: undefined-valued keys, -0); `counterIntel` is a declared-but-unconsumed API slot whose final signature may still churn when Story 1.8's decoy lands; scan-driven future signals (smoke 1.6, star shells 1.7) will legitimately touch perception.ts scan loops — the "one row + one test" AC holds for event-kind signals.
