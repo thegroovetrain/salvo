@@ -47,7 +47,7 @@ import { KeyboardInput, type UpgradeAction } from './input/keyboard.js';
 import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
-import { connect, mapFromWelcome, type Connection } from './net/connection.js';
+import { connect, connectErrorStatus, mapFromWelcome, type Connection } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom } from './net/roomBindings.js';
@@ -106,6 +106,14 @@ interface Game {
   spectate: { freePan: boolean; visualsSet: boolean };
   /** A reload back to the menu is already scheduled/underway. */
   returning: boolean;
+  /**
+   * True while the SDK is auto-reconnecting the same room (between onDrop and
+   * onReconnect / onRoomLeave). The persistent RECONNECTING banner owns the
+   * single banner slot during this window, so transient toasts (M mute, P
+   * netcode) suppress their banner rather than displace it and auto-hide to
+   * nothing for the rest of a potentially 60s outage. State still toggles.
+   */
+  reconnecting: boolean;
   /** Decaying screen-shake driver (render/shake.ts), triggered on own damage. */
   shake: ShakeDriver;
   /** Rate-limited denied-fire pulse (render/deniedFire.ts). */
@@ -147,7 +155,9 @@ function toggleMode(g: Game): void {
   g.state.mode = g.state.mode === 'predict' ? 'interp' : 'predict';
   if (g.state.mode === 'predict') g.predictor.forceSnap(); // re-init from next frame
   console.log('[net] own-ship render mode ->', g.state.mode);
-  showBanner(`NETCODE: ${g.state.mode.toUpperCase()}`, { autoHideMs: 1500 });
+  // Suppress the transient toast while reconnecting so it can't displace the
+  // persistent RECONNECTING banner (the mode still toggles).
+  if (!g.reconnecting) showBanner(`NETCODE: ${g.state.mode.toUpperCase()}`, { autoHideMs: 1500 });
 }
 
 /** Own-ship pose for this render frame, per the active mode. */
@@ -368,6 +378,7 @@ function returnToPort(g: Game): void {
 function handleRoomLeave(g: Game): void {
   if (g.returning) return; // we initiated it; reload is already on its way
   g.returning = true;
+  g.reconnecting = false; // the reconnect window closed (retries exhausted / fast-fail)
   if (g.state.matchOver) {
     // Expected: the server disconnects resultsSeconds after the finish.
     location.reload();
@@ -500,7 +511,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     cameraSnapped: false,
     lastOwn: { x: 0, y: 0 },
     spectate: { freePan: false, visualsSet: false },
-    returning: false,
+    returning: false, reconnecting: false,
     shake: new ShakeDriver(),
     deniedPulse: new DeniedPulse(),
     deniedFlash: false,
@@ -593,6 +604,18 @@ function bindGameRoom(g: Game, conn: Connection): void {
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => showResults(msg, g.state.net.sessionId, () => returnToPort(g)),
     onRoomLeave: () => handleRoomLeave(g),
+    // Minimal reconnect UX (story 0.2): a persistent RECONNECTING banner while
+    // the SDK retries the same room, cleared the moment it resumes. Richer UX
+    // (countdown, abandon flow) is Epic 6.7. If retries run out, onRoomLeave
+    // fires next and swaps in the DISCONNECTED banner.
+    onDrop: () => {
+      g.reconnecting = true;
+      showBanner('RECONNECTING…');
+    },
+    onReconnect: () => {
+      g.reconnecting = false;
+      hideBanner();
+    },
   });
 }
 
@@ -858,7 +881,9 @@ function bindSpectateZoom(game: Game): void {
 /** Toggle master mute (M key), persisted to localStorage by audio/context.ts. */
 function toggleMute(game: Game): void {
   game.audio.toggleMute();
-  showBanner(game.audio.muted ? 'MUTED' : 'UNMUTED', { autoHideMs: 1200 });
+  // Suppress the transient toast while reconnecting so it can't displace the
+  // persistent RECONNECTING banner (mute still toggles).
+  if (!game.reconnecting) showBanner(game.audio.muted ? 'MUTED' : 'UNMUTED', { autoHideMs: 1200 });
 }
 
 async function startGame(
@@ -875,7 +900,7 @@ async function startGame(
     conn = await connect(name || undefined, cls);
   } catch (err) {
     console.error('[net] connection failed', err);
-    menu.setStatus('CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?', true);
+    menu.setStatus(connectErrorStatus(err), true);
     menu.setBusy(false);
     return;
   }

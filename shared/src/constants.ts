@@ -206,6 +206,14 @@ export const CONFIG = {
     // honest burst is ~8s × 20 + live 20 ≈ 180 msgs in one window. 200 covers
     // that; a real flood (hundreds/s sustained) still trips in one window.
     maxMessagesPerSecond: 200,
+    // Mid-match reconnect grace (seconds): how long a dropped captain's ship
+    // keeps sailing under its last telegraph order before leave teardown runs.
+    // Derivation: the budget is a school-wifi hiccup — an AP roam / DHCP renew
+    // / tab-suspend resume settles in well under 30s; 60s covers that with
+    // margin while keeping the pilotless ghost hull a bounded liability (about
+    // one storm phase). Polished reconnect UX (countdown, abandon flow) is
+    // Epic 6.7 — this is only the mechanism's window.
+    reconnectGraceSeconds: 60,
   },
 } as const;
 

@@ -14,6 +14,7 @@
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/smoke.mjs
 import { Client } from '@colyseus/sdk';
+import { PROTOCOL_VERSION } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const FRAME_WAIT_MS = 1500;
@@ -29,7 +30,7 @@ const SANDBOX_ZONE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction:
 
 async function joinClient(name) {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
+  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
   const ctx = { name, room, welcome: null, frames: [] };
   room.onMessage('w', (msg) => (ctx.welcome = msg));
   room.onMessage('f', (msg) => ctx.frames.push(msg));

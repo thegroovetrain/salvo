@@ -25,7 +25,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, bearing, angleDiff, generateMap } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2599;
@@ -95,6 +95,7 @@ async function joinClient(name) {
   const client = new Client(endpoint);
   const room = await client.joinOrCreate('arena', {
     name,
+    pv: PROTOCOL_VERSION,
     matchOverride: MATCH_OVERRIDE,
     zoneOverride: ZONE_OVERRIDE,
   });

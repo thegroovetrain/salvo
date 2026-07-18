@@ -4,13 +4,14 @@
 // World's input store, fixed steps -> match update + per-client frames, and
 // implements the Match side-effect hooks (lock/unlock/broadcast/disconnect).
 
-import { Room, type Client } from 'colyseus';
+import { ClientState, CloseCode, ErrorCode, Room, ServerError, type Client } from 'colyseus';
 import { CONFIG, MSG, SHIP_CLASS_IDS, sanitizeClassId, type ResultsMsg, type WelcomeMsg } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
-import { Match, defaultTimings, type MatchHooks, type MatchTimings } from '../game/match.js';
+import { Match, defaultTimings, dropPolicy, type MatchHooks, type MatchTimings } from '../game/match.js';
 import {
+  protocolVersionError,
   sanitizeRoomOptions,
   type JoinOptions,
   type MatchOverride,
@@ -20,6 +21,25 @@ import {
 const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
 const INTERVAL_MS = 1000 / 60; // setSimulationInterval cadence
 const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
+
+/**
+ * Close codes that earn the reconnect grace window (story 0.2, finding F1).
+ * EXACTLY the set the @colyseus/sdk itself auto-reconnects on (verified against
+ * @colyseus/sdk 0.17.43 Connection.onclose → handleReconnection) — genuine
+ * abnormal/network drops. Every other code is a punitive or deliberate close
+ * that must tear down immediately: WITH_ERROR 4002 (rate-limit / malformed-
+ * message kick — verified as the code core passes onDrop from
+ * #_forciblyCloseClient in @colyseus/core 0.17.44 Room.ts), SERVER_SHUTDOWN,
+ * FAILED_TO_RECONNECT, etc. (CONSENTED 4000 never reaches onDrop — core routes
+ * it straight to onLeave). Referenced by name off the CloseCode enum re-exported
+ * from 'colyseus'.
+ */
+const RECONNECTABLE_CLOSE_CODES: ReadonlySet<number> = new Set([
+  CloseCode.GOING_AWAY, // 1001
+  CloseCode.NO_STATUS_RECEIVED, // 1005
+  CloseCode.ABNORMAL_CLOSURE, // 1006
+  CloseCode.MAY_TRY_RECONNECT, // 4010
+]);
 
 // Colyseus 0.17 changed the Room generic from `Room<State>` to
 // `Room<{ state: State }>` (the parameter is now a RoomOptions bag carrying
@@ -36,12 +56,36 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   // cap that kicks an honest 20Hz client after ~10s.
   maxMessagesPerSecond = CONFIG.net.maxMessagesPerSecond;
 
+  /**
+   * PROTOCOL_VERSION join gate (story 0.2). Static onAuth runs at matchmake
+   * time — BEFORE room lookup, seat reservation, or any socket work (verified
+   * in @colyseus/core MatchMaker.joinOrCreate → callOnAuth) — so a stale
+   * bundle is rejected with a message the menu renders instead of failing
+   * later at schema decode. matchMaker.reconnect() never calls onAuth, so a
+   * mid-match resume is not re-gated (the reconnection token is the auth).
+   * The thrown ServerError surfaces to the SDK's joinOrCreate promise as a
+   * MatchMakeError carrying this exact message + code.
+   */
+  static async onAuth(_token: string, options?: JoinOptions): Promise<boolean> {
+    const error = protocolVersionError(options?.pv);
+    if (error) throw new ServerError(ErrorCode.AUTH_FAILED, error);
+    return true;
+  }
+
   private world!: World;
   /** Null only in sandbox mode (dev smokes) — see MatchOverride. */
   private match: Match | null = null;
   private accumulator = 0;
   private joinCounter = 0;
   private droneCounter = 0;
+  /**
+   * The one-time end-of-match results broadcast, cached when it fires (finding
+   * F2). At drop time core removes the client from `this.clients`, so a captain
+   * in grace misses the broadcast; if they resume during the results window we
+   * re-send this so their results screen still renders. Null until the match
+   * finishes — a normal mid-match resume then re-sends nothing.
+   */
+  private lastResults: ResultsMsg | null = null;
 
   onCreate(options: RoomOptions = {}): void {
     // SECURITY (findings C1/C2): matchOverride/zoneOverride arrive verbatim
@@ -107,7 +151,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       // weaponless target drones, each a real ship + PlayerMeta so kill feed,
       // contacts, blips, and results rows all include them.
       fillToCapacity: () => this.fillToCapacity(),
-      broadcastResults: (msg: ResultsMsg) => this.broadcast(MSG.results, msg),
+      broadcastResults: (msg: ResultsMsg) => {
+        // Cache before broadcasting (finding F2): a captain in grace isn't in
+        // this.clients, so onDrop's resume handler re-sends this to them.
+        this.lastResults = msg;
+        this.broadcast(MSG.results, msg);
+      },
       disconnect: () => void this.disconnect(),
     };
   }
@@ -165,16 +214,99 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.match?.notifyRosterChanged();
   }
 
-  // STORY 0.2 CAUTION: once an onDrop handler exists, Colyseus routes every
-  // non-consented close (INCLUDING rate-limit kicks) to onDrop first, and
-  // onLeave semantics change — do not assume this method keeps seeing every
-  // departure unchanged when reconnection lands.
+  /**
+   * Reconnect gate (story 0.2). With onDrop defined, Colyseus routes EVERY
+   * non-consented close here first, passing the WebSocket close code as the 2nd
+   * argument. Only GENUINE abnormal/network drops (RECONNECTABLE_CLOSE_CODES —
+   * exactly the set the SDK auto-reconnects on) earn a grace window; PUNITIVE
+   * closes get NO grace (finding F1). A rate-limit / malformed-message kick
+   * closes WITH_ERROR 4002 — since matchMaker.reconnect() bypasses onAuth, a
+   * kicked client still holding its reconnectionToken could otherwise walk
+   * right back in, or stall the endgame as a headless ghost; so 4002 (and
+   * server shutdown, etc.) falls through to immediate teardown. Consented
+   * leaves (room.leave(true) → 4000) skip onDrop entirely and go straight to
+   * onLeave.
+   *
+   * Policy (pure, see game/match.ts dropPolicy): a reconnectable-close,
+   * active-match participant whose hull is still afloat gets a grace window —
+   * the ship keeps sailing under its last stored input (only World.removeShip
+   * clears the input store) as a visible, huntable participant that still
+   * counts in the win check. Everyone else falls through to immediate teardown.
+   *
+   * Teardown ordering, verified against the installed @colyseus/core 0.17
+   * Room.ts (_onLeave → #_onAfterLeave):
+   * - 'teardown': we do NOTHING here — core always invokes onLeave right
+   *   after an onDrop that set up no reconnection.
+   * - 'hold': core defers; on grace expiry / rejection / room dispose it
+   *   invokes onLeave (running the teardown), while a successful resume marks
+   *   the old client RECONNECTED and skips onLeave entirely. Server side of a
+   *   resume is otherwise a no-op: the same-Room client kept its listeners
+   *   and per-tick frames resume via afterStep once the ack lands (state
+   *   JOINED), so no onReconnect hook and no welcome re-send are needed —
+   *   EXCEPT the one-time results broadcast (finding F2), re-sent below to a
+   *   captain who resumes during the results window.
+   * If the ship is sunk DURING the grace window, the pending reconnection is
+   * left untouched — a resuming client lands in the normal post-death flow
+   * (spectator frames), and Match.recordSink's dedupe keeps the real combat
+   * placement when teardown eventually runs.
+   */
+  onDrop(client: Client, code?: number): void {
+    const ship = this.world.ships.get(client.sessionId);
+    const policy = dropPolicy(
+      this.match?.phase === 'active',
+      ship !== undefined,
+      ship?.alive === true,
+      RECONNECTABLE_CLOSE_CODES.has(code ?? -1),
+    );
+    if (policy === 'hold') {
+      this.allowReconnection(client, CONFIG.net.reconnectGraceSeconds)
+        .then((newClient) => {
+          // Finding F2: results fire as a one-shot broadcast the dropped client
+          // missed (not in this.clients). Re-send only if the match finished
+          // while they were away; a normal mid-match resume sends nothing. The
+          // send enqueues on the not-yet-acked client and flushes on ack.
+          if (this.lastResults) newClient.send(MSG.results, this.lastResults);
+        })
+        // Finding F3: defensive — the deferred REJECTS on grace expiry / room
+        // dispose. Core routes that into onLeave → teardown (Room.ts _onLeave,
+        // ~1750), and @colyseus/core 0.17.44 already attaches its own internal
+        // rejection handler, so the installed version never leaks an
+        // unhandledRejection. This catch is belt-and-suspenders against a
+        // future core patch dropping that guarantee, and also swallows the
+        // rejection on the promise reference we retain via .then() above.
+        .catch(() => undefined);
+    }
+  }
+
   onLeave(client: Client): void {
+    this.teardown(client.sessionId);
+  }
+
+  /**
+   * The one leave teardown path (story 0.2): match-recorded removal (or bare
+   * removeShip in sandbox rooms) + roster delete. IDEMPOTENT by presence
+   * guard — with onDrop defined, core can reach onLeave through several
+   * routes (immediate after onDrop, deferred after a failed reconnection,
+   * room dispose), and Match.onPlayerLeave/removeShip on an already-removed
+   * id must stay a no-op. recordSink's dedupe additionally keeps the real
+   * combat placement for a ship sunk during its grace window.
+   *
+   * This OR-shaped guard silently rests on TWO contracts (finding F5):
+   *   1. Match.onPlayerLeave / World.removeShip tolerate a repeat call on an
+   *      id already removed (both are no-ops on a missing id) — so even if a
+   *      race let two teardowns past the guard, no double-record occurs.
+   *   2. Colyseus never reuses a sessionId within one room's lifetime — so a
+   *      stale teardown can never collide with a genuinely new occupant of the
+   *      same id (a resuming client keeps its ORIGINAL sessionId, and core
+   *      generates fresh ids per seat reservation).
+   */
+  private teardown(sessionId: string): void {
+    if (!this.state.players.has(sessionId) && !this.world.ships.has(sessionId)) return;
     // Match owns ship removal so a mid-match departure is recorded for
     // placement (sunk-at-leave-time) before the win check runs.
-    if (this.match) this.match.onPlayerLeave(client.sessionId);
-    else this.world.removeShip(client.sessionId);
-    this.state.players.delete(client.sessionId);
+    if (this.match) this.match.onPlayerLeave(sessionId);
+    else this.world.removeShip(sessionId);
+    this.state.players.delete(sessionId);
   }
 
   /** Fixed-step accumulator: drain whole SIM_DTs, frame out after each step. */
@@ -194,6 +326,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.syncMatch();
     const phase = this.match?.phase ?? 'waiting';
     for (const client of this.clients) {
+      // Skip clients not fully JOINED (initial-join handshake and the
+      // reconnect-ack window): sends to those enqueue into an unbounded
+      // transport buffer instead of the wire, and a resuming client only
+      // needs live frames from its first acked tick onward.
+      if (client.state !== ClientState.JOINED) continue;
       client.send(MSG.frame, buildFrame(this.world, client.sessionId, phase));
     }
   }

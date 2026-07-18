@@ -17,3 +17,15 @@ Append-only log of work items deliberately deferred by bmad-dev-auto runs.
 ## 2026-07-17 — matchSmoke reliability hardening (from Story 0.1)
 
 `server/scripts/matchSmoke.mjs` is timing/physics-flaky on this hardware: A/B testing showed 0/3 clean passes on the 0.16 baseline (`1f81f70`) and the same scattered-timeout taxonomy on 0.17 — torpedo-connect luck (steps 2/4) and the storm's r=90 endgame pocket letting a drone camp past the results timeout (step 5, `server/src/game/match.ts` finish check). The lifecycle itself is proven working (full results broadcast observed on 0.17). Deferred because retuning smoke timing/geometry changes test semantics — out of Story 0.1's upgrade scope. Candidate fixes: deterministic drone seeding for the smoke, longer step budgets, or a zoneOverride whose end radius clears every camping spot. Consider folding into Story 0.3 (operability) or a standalone test-hardening chore.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-2-reconnect-into-your-own-ship.md`
+  summary: Grace chaining is unlimited — a player can cycle drop → 59s ghost → resume-for-a-tick → drop all match, staying functionally absent yet alive for placement; a per-match grace budget (count or cumulative seconds) is a game-design decision for Eric, natural home Epic 6.7 (reconnection UX) alongside the abandon flow.
+  evidence: Blind Hunter traced that nothing counts reconnections per session; CONFIG's "bounded liability" comment is per-incident only. Metrics visibility arrives with Story 0.3.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-2-reconnect-into-your-own-ship.md`
+  summary: Half-resume double-fault — if the socket dies between the server resolving allowReconnection and the client's JOIN_ROOM ack, the rotated reconnection token was never delivered, so the client's retries carry a stale token and fast-fail to DISCONNECTED while the ghost is held for another grace window; consider acking-aware hold policy or token-retry tolerance in Epic 6.7.
+  evidence: Edge Case Hunter traced core's token rotation at reconnection resolve vs SDK token update on JOIN_ROOM ack; consequence is a failed resume degrading to pre-0.2 behavior (no seizure, no crash), hence deferred not patched.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-0-2-reconnect-into-your-own-ship.md`
+  summary: Sunk-while-away resume skips the client's normal death moment — the missed 'sunk' event means no killer-follow spectate target, no sink feedback, no kill-feed line; a resume-into-spectate should synthesize the death-flow entry. Natural home: Epic 6.7 or Epic 5 sinking-window work.
+  evidence: Edge Case Hunter verified spectate entry itself works (spec:true frames drive it) but the event-driven death UX (killerId, telegraph reset, feedback) hangs off a message the dropped client never received.

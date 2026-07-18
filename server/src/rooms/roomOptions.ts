@@ -5,7 +5,7 @@
 // options — see sanitizeRoomOptions for why they must never reach a
 // production room ungated).
 
-import type { ZoneTimeline } from '@salvo/shared';
+import { PROTOCOL_VERSION, type ZoneTimeline } from '@salvo/shared';
 
 export interface JoinOptions {
   name?: string;
@@ -15,6 +15,28 @@ export interface JoinOptions {
    * sanitizeClassId, so any garbage/absent value falls back to 'cruiser'.
    */
   cls?: string;
+  /**
+   * Client bundle's PROTOCOL_VERSION. Validated by ArenaRoom's static onAuth
+   * (via protocolVersionError below) BEFORE any room lookup or seat
+   * reservation — a stale bundle is rejected at matchmake time with a
+   * human-readable "refresh" message instead of failing at schema decode.
+   * Reconnects (matchMaker.reconnect) bypass onAuth by design, so a mid-match
+   * resume is never re-gated.
+   */
+  pv?: number;
+}
+
+/**
+ * PROTOCOL_VERSION join gate (story 0.2). Returns null when the client's `pv`
+ * matches, else the human-readable rejection message the menu status line
+ * renders. A MISSING pv is rejected too — a stale-but-wire-compatible bundle
+ * predates the gate and still needs a refresh (conservative by design). Pure
+ * (zero Colyseus imports) so the accept/reject matrix is unit-testable.
+ */
+export function protocolVersionError(pv: unknown): string | null {
+  return pv === PROTOCOL_VERSION
+    ? null
+    : `version mismatch — please refresh the page (server expects v${PROTOCOL_VERSION})`;
 }
 
 /**

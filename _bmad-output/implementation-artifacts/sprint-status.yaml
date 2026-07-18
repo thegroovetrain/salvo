@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-07-17
+# last_updated: 2026-07-18
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -38,7 +38,7 @@
 # Epic sequence per GDD: E0 → E1 → E2 → E3 → E4 (Information Texture) → E5 (Living Ocean) → E6 (Lobbies) → E7 (Portal)
 
 generated: 2026-07-17
-last_updated: 2026-07-17
+last_updated: 2026-07-18
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -48,7 +48,7 @@ development_status:
   # epic-0: Stable Ground (Colyseus 0.17 Foundation)
   epic-0: in-progress
   0-1-colyseus-0-17-upgrade: done
-  0-2-reconnect-into-your-own-ship: backlog
+  0-2-reconnect-into-your-own-ship: done
   0-3-server-operability-baseline: backlog
   0-4-portal-adapter-seam: backlog
   epic-0-retrospective: optional
