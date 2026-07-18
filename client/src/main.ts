@@ -8,7 +8,7 @@
 // return to port (fresh joinOrCreate via reload).
 
 import type { Container } from 'pixi.js';
-import type { Room } from 'colyseus.js';
+import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
   HEAL_CHOICE,

@@ -4,12 +4,12 @@
 
 Hullcracker is a real-time, gridless naval battle royale in the browser (RT prototype). One ship per player on a large circular ocean with islands. Everyone fights on the same water in real time: an authoritative 20Hz server simulation with client-side prediction. Two-tier fog of war (a true-sight bubble around your hull plus a rotating radar sweep that paints decaying phosphor blips), guns/torpedoes/mines with real firing arcs, kill-banked upgrade points, and a shrinking storm circle. Last hull floating wins. This branch replaced the previous turn-based hex game (which still lives on `main`); see README.md for the player-facing overview.
 
-Stack: TypeScript monorepo (npm workspaces) — `shared` (pure sim), `server` (Colyseus 0.16), `client` (PixiJS 8 + Vite).
+Stack: TypeScript monorepo (npm workspaces) — `shared` (pure sim), `server` (Colyseus 0.17), `client` (PixiJS 8 + Vite).
 
 ### Commands
 ```
 npm run dev          # Colyseus server (:2567) + Vite client (:5173) via concurrently
-npm run check        # lint + type-check (shared/server/client) + all tests (649)
+npm run check        # lint + type-check (shared/server/client) + all tests (653)
 npm run lint         # ESLint (complexity=10 enforced)
 npm test -w shared   # Shared sim tests (kinematics, geometry, ballistics, zone, mapgen, stats, offers)
 npm test -w server   # Server tests (world sim, perception/anti-cheat invariants, match state machine, drones)
@@ -27,7 +27,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 
 #### Shared (`shared/src/`) — deterministic sim, zero I/O, plain objects
 - **index.ts** — single barrel re-export; declares `PROTOCOL_VERSION` (bumped on any wire-contract break).
-- **constants.ts** — `CONFIG`: the single source of truth for every simulation tunable (map, three ship classes, vision/radar/sweep, gun/torpedo/mine, storm zone timeline, upgrade stacking). Also `UPGRADE_IDS`, `UPGRADE_CATEGORIES`, `HEAL_CHOICE`.
+- **constants.ts** — `CONFIG`: the single source of truth for every simulation tunable (map, three ship classes, vision/radar/sweep, gun/torpedo/mine, storm zone timeline, upgrade stacking, transport rate limit under `net`). Also `UPGRADE_IDS`, `UPGRADE_CATEGORIES`, `HEAL_CHOICE`.
 - **types.ts** — the client/server wire contract: `InputMsg`, per-client frames, `OwnShip`, contacts, blips, game events, `MSG` channel names, `WelcomeMsg`/`ResultsMsg`, `WeaponId`.
 - **math/** — vec.ts, angle.ts (`wrapPositive`), geom.ts (`segCircleHit` — the LOS primitive), rng.ts (`mulberry32` seeded RNG).
 - **sim/ship.ts** — ship kinematics (`stepShip`, `ShipConfig`, hull endpoints).
@@ -41,7 +41,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 #### Server (`server/src/`)
 - **index.ts** — `@colyseus/tools` boot; listens on `PORT` or `:2567`.
 - **app.config.ts** — Colyseus app config; registers the `arena` room.
-- **rooms/ArenaRoom.ts** — thin Colyseus adapter around `World` + `Match`. Bridges joins/leaves → roster schema, raw `"i"` input messages → World's input store, fixed steps → per-client frames. Gates dev room options behind `HC_DEV_OPTIONS`.
+- **rooms/ArenaRoom.ts** — thin Colyseus adapter around `World` + `Match`. Bridges joins/leaves → roster schema, raw `"i"` input messages → World's input store, fixed steps → per-client frames. Applies the transport rate limit (`CONFIG.net.maxMessagesPerSecond`). Gates dev room options behind `HC_DEV_OPTIONS`.
 - **rooms/roomOptions.ts** — `sanitizeRoomOptions()`: security gate for client-supplied room options.
 - **rooms/schema/ArenaState.ts** — Colyseus `@type` schema (roster / `PlayerMeta`); only the roster syncs via schema — all spatial state flows through frames instead.
 - **game/world.ts** — the authoritative simulation. Plain TS, ZERO Colyseus imports (fully unit-testable). Owns the single server clock; runs a 20Hz (50ms) fixed tick with a defined step order (inputs → ships → boundary → islands → shells → fire control → radar paint → sweep advance → respawns).
@@ -75,7 +75,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 
 ### Key Decisions
 - **CONFIG is the single source of truth** — every gameplay-authoritative tunable lives in `shared/src/constants.ts` (`CONFIG`). Client-only feel knobs live in `client/src/config.ts`; promote a value to shared CONFIG the moment it becomes gameplay-load-bearing.
-- **Deterministic shared simulation** — the same pure functions (`stepShip`, `stepShell`, `generateMap`, zone math) run on server and client. This is what makes client-side prediction agree with the authoritative world. `PROTOCOL_VERSION` (shared/src/index.ts) gates wire-breaking changes.
+- **Deterministic shared simulation** — the same pure functions (`stepShip`, `stepShell`, `generateMap`, zone math) run on server and client. This is what makes client-side prediction agree with the authoritative world. `PROTOCOL_VERSION` (shared/src/index.ts, currently 3) records wire-breaking changes — it is documentation, not yet a runtime gate (a join-time version check is deferred work; a stale bundle fails at schema decode).
 - **effectiveStats() is the upgrade desync firewall** — (ship class + upgrade counts) → every derived stat, via one pure function both sides call. Server caches it on grant/spawn; client recomputes from `you.cls` + `you.upg`. Nothing may re-derive an upgraded stat ad hoc.
 - **Upgrade offers are pre-rolled at earn-time** — a banked point carries a fixed offer of 3 upgrades from 3 distinct categories (`rollOffer`), rolled on the server's decorrelated upgrade stream and queued. Reopening the spend window can never reroll. Spend picks one upgrade (CTRL+1/2/3) or heals (CTRL+E, `HEAL_CHOICE`).
 - **Authoritative 20Hz World, zero Colyseus imports** — `game/world.ts` owns the one server clock and runs a fixed 50ms step; `ArenaRoom` is a thin adapter. The room's only synced schema is the roster.

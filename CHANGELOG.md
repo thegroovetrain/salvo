@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.17.0] - 2026-07-17
+
+### Changed
+- **New networking foundation (Colyseus 0.17)** — the game now runs on the current, supported version of its networking layer. Matches look and feel the same; under the hood this is the groundwork for what's coming next: rejoining your still-alive ship after a wifi drop, honest lobbies with queues, and ping display. The wire protocol is new (v3), so a stale browser tab from before the update needs a refresh.
+
+### Added
+- **Message-flood protection** — the server now disconnects any client spamming messages far beyond what real play produces. The budget is deliberately generous: even shaky school wifi that stalls for seconds and then releases a burst of queued inputs stays comfortably inside it.
+
+### Fixed
+- **Dropped connections fail fast again** — losing your connection mid-match shows the DISCONNECTED banner immediately, instead of silently retrying for a minute against a server that can't resume your ship yet (real mid-match reconnection arrives in an upcoming release).
+- **A drop during the join handshake** no longer leaves you staring at a black screen until the timeout — it errors immediately so you can retry.
+
 ## [0.16.0] - 2026-07-14
 
 ### Changed

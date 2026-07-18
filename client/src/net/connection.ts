@@ -3,7 +3,7 @@
 // wire). Frames are routed through a mutable sink so roomBindings can attach
 // after the welcome resolves without re-registering message handlers.
 
-import { Client, type Room } from 'colyseus.js';
+import { Client, type Room } from '@colyseus/sdk';
 import { generateMap, MSG, type FrameMsg, type GameMap, type WelcomeMsg } from '@salvo/shared';
 
 const WELCOME_TIMEOUT_MS = 5000;
@@ -42,6 +42,14 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
       clearTimeout(timer);
       reject(new Error(`room error ${code}: ${message ?? ''}`));
     });
+    // A socket close during the handshake would otherwise strand the player
+    // on a black screen until the timeout: bindRoom only attaches its onLeave
+    // after the welcome resolves. Reject immediately instead. (Harmless once
+    // settled — the signal keeps this listener, but the promise is done.)
+    room.onLeave((code) => {
+      clearTimeout(timer);
+      reject(new Error(`connection closed during welcome handshake (code ${code})`));
+    });
   });
 }
 
@@ -52,6 +60,12 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
   const room = await client.joinOrCreate('arena', opts);
+  // The 0.17 SDK auto-reconnects on abnormal closes by default (onDrop + retry
+  // loop), but the server has no reconnection support yet — every retry is dead
+  // air while the player stares at a frozen ocean. Disabling it restores the
+  // 0.16 fail-fast path: abnormal close -> onLeave -> DISCONNECTED banner.
+  // Story 0.2 (token-authenticated resume) re-enables this deliberately.
+  room.reconnection.enabled = false;
   const sink: FrameSink = { handler: () => undefined };
   room.onMessage(MSG.frame, (f: FrameMsg) => sink.handler(f));
   try {

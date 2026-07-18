@@ -1,4 +1,4 @@
-// Weapons smoke: two live colyseus.js clients against a running dev server,
+// Weapons smoke: two live @colyseus/sdk clients against a running dev server,
 // exercising torpedoes + mines end to end.
 //   1. Torpedo kill: A faces B (bow-on) and holds fire until B sinks. With the
 //      single bow tube (owner play test) that is TWO 55-dmg fish across two ~12s
@@ -21,7 +21,7 @@
 // server/src/rooms/roomOptions.ts):
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/weaponsSmoke.mjs
-import { Client } from 'colyseus.js';
+import { Client } from '@colyseus/sdk';
 import { CONFIG, bearing, angleDiff } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';

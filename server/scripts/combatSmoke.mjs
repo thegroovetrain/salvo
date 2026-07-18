@@ -1,4 +1,4 @@
-// Combat smoke: two live colyseus.js clients against a running dev server.
+// Combat smoke: two live @colyseus/sdk clients against a running dev server.
 // Scenario 1 (fight): A pilots itself beam-on to B and holds fire until B sinks,
 //   then respawns. Asserts B's hp drops in frames, booms are seen by BOTH
 //   clients, the kill is booked on the public roster, and B respawns.
@@ -12,7 +12,7 @@
 // server/src/rooms/roomOptions.ts):
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/combatSmoke.mjs
-import { Client } from 'colyseus.js';
+import { Client } from '@colyseus/sdk';
 import { CONFIG, generateMap, bearing, angleDiff, segCircleHit } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';

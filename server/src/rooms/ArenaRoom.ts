@@ -4,7 +4,7 @@
 // World's input store, fixed steps -> match update + per-client frames, and
 // implements the Match side-effect hooks (lock/unlock/broadcast/disconnect).
 
-import { Room, Client } from 'colyseus';
+import { Room, type Client } from 'colyseus';
 import { CONFIG, MSG, SHIP_CLASS_IDS, sanitizeClassId, type ResultsMsg, type WelcomeMsg } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World } from '../game/world.js';
@@ -21,9 +21,20 @@ const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
 const INTERVAL_MS = 1000 / 60; // setSimulationInterval cadence
 const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
 
-export class ArenaRoom extends Room<ArenaState> {
+// Colyseus 0.17 changed the Room generic from `Room<State>` to
+// `Room<{ state: State }>` (the parameter is now a RoomOptions bag carrying
+// state/metadata/client types), so `this.state` types as ArenaState again.
+export class ArenaRoom extends Room<{ state: ArenaState }> {
   maxClients = CONFIG.map.playerCap;
   autoDispose = true;
+  // Transport-level input flood guard (0.17): breach = forced disconnect.
+  // CONFIG.net.maxMessagesPerSecond is the single source of truth; the budget
+  // is sized for burst DELIVERY after a wifi stall, not just the 20Hz send
+  // cadence (see constants.ts for the arrival-window derivation). CAUTION: the
+  // 1s window resets off room.clock, which only advances while the simulation
+  // interval runs — if the sim is ever paused, this degrades into a cumulative
+  // cap that kicks an honest 20Hz client after ~10s.
+  maxMessagesPerSecond = CONFIG.net.maxMessagesPerSecond;
 
   private world!: World;
   /** Null only in sandbox mode (dev smokes) — see MatchOverride. */
@@ -69,7 +80,8 @@ export class ArenaRoom extends Room<ArenaState> {
     // Discrete spend message (NOT on the per-tick InputMsg: latest-wins
     // coalescing would drop back-to-back spends; WS ordering gives FIFO for
     // free). All validation lives in spendPoint (fail-closed, unit-testable
-    // without Colyseus); spends are bounded by banked points, so no rate cap.
+    // without Colyseus); spends are bounded by banked points, so no per-channel
+    // cap — only the room-wide transport guard (maxMessagesPerSecond) applies.
     this.onMessage(MSG.spend, (client: Client, raw: unknown) => {
       this.world.spendPoint(client.sessionId, (raw as { choice?: unknown } | null)?.choice);
     });
@@ -153,6 +165,10 @@ export class ArenaRoom extends Room<ArenaState> {
     this.match?.notifyRosterChanged();
   }
 
+  // STORY 0.2 CAUTION: once an onDrop handler exists, Colyseus routes every
+  // non-consented close (INCLUDING rate-limit kicks) to onDrop first, and
+  // onLeave semantics change — do not assume this method keeps seeing every
+  // departure unchanged when reconnection lands.
   onLeave(client: Client): void {
     // Match owns ship removal so a mid-match departure is recorded for
     // placement (sunk-at-leave-time) before the win check runs.

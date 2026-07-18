@@ -194,6 +194,19 @@ export const CONFIG = {
     simDtMs: 50, // ms — simulation step (20 Hz)
     interpDelayMs: 100, // ms — remote-entity render delay (snapshot interp)
   },
+
+  /** Transport-level networking limits (consumed by the Colyseus room). */
+  net: {
+    // Colyseus force-disconnects a client that exceeds this, counting msgs by
+    // SERVER-SIDE ARRIVAL in 1s windows — so the budget must cover burst
+    // DELIVERY, not just send cadence. The input sampler sends at the 50ms sim
+    // cadence (20 msgs/s; fire rides the input message, spends are rare), but a
+    // TCP stall on flaky wifi flushes every queued input in one arrival window:
+    // Colyseus severs a dead socket after ~8s of failed pings, so the worst
+    // honest burst is ~8s × 20 + live 20 ≈ 180 msgs in one window. 200 covers
+    // that; a real flood (hundreds/s sustained) still trips in one window.
+    maxMessagesPerSecond: 200,
+  },
 } as const;
 
 /** Static type of the CONFIG tree (used in the wire config snapshot). */

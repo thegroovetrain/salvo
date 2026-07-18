@@ -1,5 +1,5 @@
 // Storm-circle smoke: self-boots the colyseus server, joins two live
-// colyseus.js clients with a DEV zoneOverride that fast-forwards the timeline,
+// @colyseus/sdk clients with a DEV zoneOverride that fast-forwards the timeline,
 // and proves the storm end to end:
 //   1. Zone starts when the 2nd ship joins (interim wiring); during grace, at
 //      full radius, neither ship takes storm damage.
@@ -17,7 +17,7 @@ import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { Client } from 'colyseus.js';
+import { Client } from '@colyseus/sdk';
 import { CONFIG, bearing, angleDiff, isOutside } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
@@ -40,7 +40,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 function bootServer() {
   const tsx = path.join(REPO, 'node_modules/.bin/tsx');
   // cwd = server/ so tsx picks up server/tsconfig.json (experimentalDecorators +
-  // useDefineForClassFields:false — required for @colyseus/schema v3), exactly
+  // useDefineForClassFields:false — required for @colyseus/schema v4), exactly
   // like `npm run dev -w server`.
   const proc = spawn(tsx, ['src/index.ts'], {
     cwd: path.join(REPO, 'server'),
