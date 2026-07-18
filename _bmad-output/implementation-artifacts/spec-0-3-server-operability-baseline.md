@@ -2,10 +2,11 @@
 title: 'Story 0.3: Server Operability Baseline'
 type: 'feature'
 created: '2026-07-18'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'f397e84a033d84c746c1cdf23bc8ba864a3b08d4'
+final_revision: '57533ed2a8c95c15ff293d9affeb15662495da7e'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   [
     '{project-root}/_bmad-output/project-context.md',
@@ -100,6 +101,30 @@ warnings: ['oversized']
 
 ## Review Triage Log
 
+### 2026-07-18 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 13: (high 1, medium 3, low 9)
+- defer: 1: (high 0, medium 1, low 0)
+- reject: 1
+- addressed_findings:
+  - `[high]` `[patch]` The containment boundary could itself be escaped: `onTickError` used `String(err)`, which throws on prototype-less values, and the resulting TypeError propagated through `update()` into core's bare setInterval — killing the whole process, the exact outcome the boundary exists to prevent (Edge Case Hunter, CONFIRMED) → `describeError()` (Error → message + stack field, non-Error → guarded String → 'unstringifiable') + belt-and-braces catch around the whole handler that still aborts+disconnects without logging; regression test throws `Object.create(null)` from world.step
+  - `[medium]` `[patch]` The JOINING-deadline kick missed the story-0.2 resume handshake — core's reconnection branch pushes the new client into `this.clients` in JOINING without calling onJoin, so a resumed client that never acks squats indefinitely, reopening the exact vector the feature closes (Blind Hunter AND Edge Case Hunter independently, CONFIRMED in installed core) → deadline now also armed at the `allowReconnection(...).then` resolution; kicked/never-kicked regression tests
+  - `[medium]` `[patch]` "Consecutive" failures counted accumulator-loop iterations, so prod tolerance 3 could be consumed inside one ≥150ms interval fire with zero real time between retries (both hunters) → a caught failure stops the drain and resets the accumulator; one increment max per interval fire, tested
+  - `[medium]` `[patch]` `match.abort {reason:'tick-error'}` fired whenever a Match existed, including waiting/countdown — spec scopes abort to matches that reached active (Edge Case Hunter, CONFIRMED) → emission gated on `phase === 'active'`, tested at waiting/countdown
+  - `[low]` `[patch]` `messages.total` documented "since process start" but shrank to 0 as rooms disposed (both hunters, CONFIRMED) → retired-total fold on unregister; monotonic, tested
+  - `[low]` `[patch]` `ratePerSec` averaged only ACTIVE seconds — a single 300-message burst in an idle minute read as 300/s → rate = window sum / covered seconds (min 60), sparse-burst test
+  - `[low]` `[patch]` Metrics registry entry leaked forever if onCreate threw after registerRoom (dispose listener attaches only post-onCreate) → onCreate remainder wrapped, unregister-on-throw, tested
+  - `[low]` `[patch]` Wall-clock (`Date.now`) bucket keying stalled the rate window and debug summary on NTP backward steps → monotonic performance.now-derived seconds source (test-injectable)
+  - `[low]` `[patch]` `HC_TICK_ERROR_TOLERANCE=1e9` disabled containment and unthrottled tick.error to 20Hz → valid values clamped to [1,100]
+  - `[low]` `[patch]` Non-hold drops and leaves never logged their close code — the datum distinguishing punitive kicks from organic leaves → `code: code ?? null` on client.drop and client.leave lines
+  - `[low]` `[patch]` `match.activate` logged from the transition-start hook, so a mid-activation throw left a false lifecycle line on stdout (Codex) → one-shot post-transition phase observation; nothing claimed if activation throws
+  - `[low]` `[patch]` `createLogger(...).debug` paid merge + dynamic() before the HC_DEBUG gate (comment claimed otherwise) → gate first, then merge; dynamic-spy test; stale comment fixed
+  - `[low]` `[patch]` metricsSmoke's `p50 > 0` assertion was one fast machine away from a false flake (round2 floors <0.005ms) → asserts samples/max > 0 and p95 ≥ p50 ≥ 0
+- Deferred: the `'abandoned'` abort is unreachable through any real flow — every dispose path funnels the leave cascade into `finish()` first, so quit-out matches land in telemetry as `match.end` with a "winner" (live-proven by the smoke's own choreography); how abandonment should be classified in balance data is a game-design decision for Eric → deferred-work.md.
+- Rejected (verified compliant): sessionId in client lifecycle lines (flagged by Blind Hunter and Codex) — the spec's zero-PII constraint explicitly scopes to telemetry lines (`match.end`/`match.abort`, which are clean); sessionIds are ephemeral transport ids required for drop/resume forensics. Ruling: lifecycle lines keep sessionId; telemetry lines never carry it.
+
 ## Design Notes
 
 - **Telemetry split:** Match owns the pure aggregation (`endSummary()`), the room owns identity (`matchId`, `roomId`, `mode`) and emission. This keeps `grep colyseus server/src/game/` empty and the numbers unit-testable without a room.
@@ -117,3 +142,19 @@ warnings: ['oversized']
 - `node server/scripts/reconnectSmoke.mjs` + remaining smokes vs self-owned `HC_DEV_OPTIONS=1` server -- expected: no regressions (matchSmoke keeps its pre-existing flake caveat)
 - `grep -rn "colyseus" server/src/game/` -- expected: no matches
 - `HC_DEBUG=1` boot + short match -- expected: once-per-second tick summaries appear; without it, none
+
+## Auto Run Result
+
+**Status:** done (2026-07-18)
+
+**Summary:** The server is no longer a black box. Every match lifecycle event now emits one structured stdout line (`level event {json}`, all carrying roomId/matchId/tick via `server/src/log.ts`); `match.end` carries the full 8-field telemetry contract ({matchId, mode:'arena', rosterSize, rosterByClass, durationS, winnerClass, killsByClass, stormDeaths} — aggregated purely in Match, identity added room-side) and `match.abort {matchId, reason, tick}` covers tick-error and defensive abandoned disposal. An exception inside the sim step no longer kills the process: the tick boundary catches it, counts consecutive failures per interval fire, and at `HC_TICK_ERROR_TOLERANCE` (clamped [1,100]; default 1 dev / 3 prod) disposes just that room — players land on the existing DISCONNECTED-banner → menu path with zero client changes, and the error handler itself is throw-proof (proven with a prototype-less thrown value). `/metrics` is a Colyseus 0.17 typed route returning room/player counts (`matchMaker.stats.local`), tick-duration p50/p95/max from per-room ring buffers, and monotonic message totals/rates. The deferred-work JOINING-deadline kick shipped riding the same plumbing (`CONFIG.net.joiningDeadlineSeconds = 10`, fire-time JOINED check, punitive 4002 close so no grace) and — after the review gate caught the gap — also covers the story-0.2 resume handshake. HC_DEBUG=1 adds once-per-second tick.summary debug lines; without it a running match logs nothing per tick.
+
+**Files changed:** NEW `server/src/log.ts` (structured logger + context factory), `server/src/metrics.ts` (registry + typed /metrics endpoint), `server/scripts/metricsSmoke.mjs` (real-socket AC proof), `server/src/__tests__/log.test.ts` + `metrics.test.ts` + `matchTelemetry.test.ts` + `operability.test.ts`; MODIFIED `server/src/rooms/ArenaRoom.ts` (tick-error boundary, lifecycle logging, telemetry emission, metrics feeds, matchId, JOINING kick incl. resume path), `server/src/game/match.ts` (Participant.classId, activatedAt, storm-death tally, pure endSummary()/tolerance helpers — still zero Colyseus imports), `server/src/app.config.ts` (routes mount), `shared/src/constants.ts` (CONFIG.net.joiningDeadlineSeconds).
+
+**Review findings breakdown:** three parallel reviewers (Blind Hunter, Edge Case Hunter, Codex cross-model). 13 patches applied (1 high: the containment handler itself could throw and kill the process; 3 medium: JOINING kick missed the 0.2 resume path [flagged independently by both hunters], tolerance consumable in one interval fire, tick-error abort unscoped by phase; 9 low), 1 deferred ('abandoned' abort unreachable — quit-out matches telemetered as match.end with a winner; classification is a design decision for Eric, logged in deferred-work.md), 1 rejected with recorded ruling (sessionId in lifecycle lines is compliant — the zero-PII constraint scopes to telemetry lines, which are clean). No intent gaps, no bad_spec loopbacks. Every patch carries a regression test demonstrated to fail without its fix.
+
+**Verification performed:** `npm run check` exit 0 — 759 tests green (129 shared + 349 server + 281 client; +74 over baseline), lint + tsc clean all workspaces. metricsSmoke passes over real sockets twice pre-fix and again post-fix (idle + live /metrics shapes, one match.end with all 8 fields on captured stdout, lifecycle lines carrying roomId/matchId/tick, zero debug lines with HC_DEBUG unset, no port leaks). HC_DEBUG=1 boot emits `debug tick.summary` with full context. All other smokes green with verified exit codes (smoke, combat, weapons, fog, prediction vs self-owned :2611; zone, drones, reconnect self-booting) — fogSmoke flaked once on "park in radar band" timing, then passed twice consecutively. reconnectSmoke green post-fix with zero false JOINING-kicks on resume. matchSmoke failed twice ("A sinking B" timeout, "suppressed torpedo impact") — the documented pre-existing flake reproduced on pristine baselines during stories 0.1/0.2; not a 0.3 regression signal. `grep -rn colyseus server/src/game/` clean.
+
+**Residual risks:** (1) quit-out matches read as completed matches with winners in match.end until Eric rules on abandonment classification (deferred); (2) prod tolerance 3 rides out only faults transient across interval fires — a persistent fault aborts within ~3 fires by design; (3) matchSmoke remains an unreliable regression signal until hardened (deferred since 0.1); (4) `/metrics` is unauthenticated JSON at beta (no secrets in payload — revisit before public traffic if desired).
+
+**Autonomous rulings for Eric's review:** `mode: 'arena'` constant (no mode concept exists yet); room-generated matchId via colyseus `generateId()`; tick summaries at debug level behind HC_DEBUG with /metrics as the always-on surface; JSON (not Prometheus) payload, unauthenticated at beta; `joiningDeadlineSeconds = 10`; JOINING-deadline kick pulled forward from deferred-work incl. the resume path; sessionId kept in operational lifecycle lines (never in telemetry); tolerance clamped to [1,100]; ratePerSec = window sum / covered seconds.
