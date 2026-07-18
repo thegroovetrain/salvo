@@ -20,7 +20,13 @@
 //               one 'results' broadcast, damage frozen; after resultsMs the
 //               room disconnects (autoDispose). No new matches in this room.
 
-import { CONFIG, type MatchPhase, type ResultsMsg, type ResultsRow } from '@salvo/shared';
+import {
+  CONFIG,
+  type MatchPhase,
+  type ResultsMsg,
+  type ResultsRow,
+  type ShipClassId,
+} from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 
 /** Countdown/results timing. Overridable per-room via the DEV-ONLY matchOverride. */
@@ -82,10 +88,52 @@ export function dropPolicy(
   return matchActive && hasShip && shipAlive && reconnectableClose ? 'hold' : 'teardown';
 }
 
+/**
+ * Effective consecutive-tick-error tolerance before the room aborts. Parsed from
+ * an operator override (a positive integer), clamped to [1, 100] so a fat-finger
+ * value like 1e9 can't effectively disable containment (or unthrottle error
+ * logging). On a missing/invalid override it defaults to 3 in production and 1
+ * elsewhere (dev fails fast, prod rides out a transient blip). Env-independent by
+ * design — the caller reads process.env and the prod flag; this stays pure so the
+ * policy is unit-testable.
+ */
+export function resolveTickErrorTolerance(overrideRaw: string | undefined, isProd: boolean): number {
+  const n = Number(overrideRaw);
+  if (Number.isInteger(n) && n > 0) return Math.min(n, 100);
+  return isProd ? 3 : 1;
+}
+
+/** Abort decision: the room gives up once consecutive failures reach tolerance. */
+export function shouldAbortOnTickError(consecutiveFailures: number, tolerance: number): boolean {
+  return consecutiveFailures >= tolerance;
+}
+
+/**
+ * Pure, room-agnostic telemetry aggregate for a match, assembled sim-side so the
+ * numbers stay unit-testable without a Colyseus room. The room decorates it with
+ * identity (matchId, mode) before emitting `match.end`. Safe to call in any
+ * phase: everything reads zero/empty/null until a match activates and finishes.
+ */
+export interface MatchEndSummary {
+  /** All combatants captured at activation, drones included. */
+  rosterSize: number;
+  /** classId -> combatant count (drones included). */
+  rosterByClass: Record<string, number>;
+  /** (finishedAt - activatedAt) in seconds, rounded to 1 decimal; 0 if unfinished. */
+  durationS: number;
+  /** Winner participant's classId, or null when there is no winner yet. */
+  winnerClass: string | null;
+  /** classId -> summed kills across combatants (drones included). */
+  killsByClass: Record<string, number>;
+  /** Sinks with no attributable killer (storm deaths) observed while active. */
+  stormDeaths: number;
+}
+
 /** Snapshot of a participant's identity + tallies (survives their ship's removal). */
 interface Participant {
   name: string;
   isDrone: boolean;
+  classId: ShipClassId;
   kills: number;
   damageDealt: number;
 }
@@ -96,8 +144,13 @@ export class Match {
   countdownEndT = 0;
   /** Winner's id once finished ('' before). */
   winnerId = '';
+  /** Server ms the match went active (0 before activation). Telemetry duration base. */
+  activatedAt = 0;
   /** placement per participant id, filled when the match finishes. */
   readonly placements = new Map<string, number>();
+
+  /** Killer-less sinks (storm deaths) observed during the active phase. */
+  private stormDeaths = 0;
 
   /** Human ids in sink order (earliest first). Later sink = better placement. */
   private readonly sinkOrder: string[] = [];
@@ -169,13 +222,21 @@ export class Match {
     this.world.startZone(this.world.now);
     this.phase = 'active';
     this.countdownEndT = 0;
+    this.activatedAt = this.world.now;
+    this.stormDeaths = 0;
     this.participants.clear();
     this.sinkOrder.length = 0;
     // Drones ARE participants (kill feed / contacts / results rows include them
     // and they can hold a placement) — the win + winner logic below is what
     // keeps a drone from ever winning, not their exclusion from the roster.
     for (const s of this.world.ships.values()) {
-      this.participants.set(s.id, { name: s.name, isDrone: s.isDrone, kills: 0, damageDealt: 0 });
+      this.participants.set(s.id, {
+        name: s.name,
+        isDrone: s.isDrone,
+        classId: s.classId,
+        kills: 0,
+        damageDealt: 0,
+      });
     }
     this.applyPolicy();
   }
@@ -196,6 +257,7 @@ export class Match {
       this.participants.set(aliveWinner.id, {
         name: aliveWinner.name,
         isDrone: aliveWinner.isDrone,
+        classId: aliveWinner.classId,
         kills: aliveWinner.kills,
         damageDealt: aliveWinner.damageDealt,
       });
@@ -224,7 +286,11 @@ export class Match {
   /** Record this tick's sink events (humans only) into the placement order. */
   private consumeSinks(): void {
     for (const e of this.world.tickEvents) {
-      if (e.k === 'sunk') this.recordSink(e.id);
+      if (e.k !== 'sunk') continue;
+      this.recordSink(e.id);
+      // A sunk event with no killer is a storm death (world.applyStorm) — the
+      // only killer-less sink path. Tallied for match.end telemetry.
+      if (e.by === undefined) this.stormDeaths += 1;
     }
   }
 
@@ -283,6 +349,31 @@ export class Match {
     }
     rows.sort((a, b) => a.placement - b.placement);
     return { winnerId: this.winnerId, rows };
+  }
+
+  /**
+   * Pure end-of-match telemetry aggregate (no identity, no I/O). Reads the
+   * participant snapshot (populated at activate(), stats refreshed at finish()/
+   * leave), so kills reflect the freshest values available at finish time.
+   * Returns zeros/empty/null before activation. The room adds matchId/mode.
+   */
+  endSummary(): MatchEndSummary {
+    const rosterByClass: Record<string, number> = {};
+    const killsByClass: Record<string, number> = {};
+    for (const p of this.participants.values()) {
+      rosterByClass[p.classId] = (rosterByClass[p.classId] ?? 0) + 1;
+      killsByClass[p.classId] = (killsByClass[p.classId] ?? 0) + p.kills;
+    }
+    const finished = this.finishedAt > 0 && this.activatedAt > 0;
+    const durationS = finished ? Math.round((this.finishedAt - this.activatedAt) / 100) / 10 : 0;
+    return {
+      rosterSize: this.participants.size,
+      rosterByClass,
+      durationS,
+      winnerClass: this.participants.get(this.winnerId)?.classId ?? null,
+      killsByClass,
+      stormDeaths: this.stormDeaths,
+    };
   }
 
   private snapshotStats(ship: ShipRecord): void {
