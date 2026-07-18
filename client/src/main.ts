@@ -59,6 +59,9 @@ import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/ph
 import { showResults } from './ui/results.js';
 import { Audio } from './audio/context.js';
 import { audioCues, stormEnterEdge, telegraphTone, INITIAL_CUE_STATE, type AudioCueState } from './audio/tones.js';
+import { createNullAdapter } from './portal/nullAdapter.js';
+import { safeAdapter } from './portal/safeAdapter.js';
+import type { PortalAdapter } from './portal/portalAdapter.js';
 
 /** How long the DISCONNECTED banner shows before surfacing the menu again. */
 const DISCONNECT_MENU_DELAY_MS = 3000;
@@ -122,6 +125,14 @@ interface Game {
   deniedFlash: boolean;
   /** Tone player (audio/context.ts). */
   audio: Audio;
+  /**
+   * Portal SDK seam (portal/portalAdapter.ts), always safeAdapter-wrapped so
+   * every call here is safe to fire and forget. The null adapter today; a real
+   * portal adapter at Epic 7. The game never imports a portal SDK directly.
+   */
+  portal: PortalAdapter;
+  /** Latch: portal.matchEnd() fired — results re-delivery must not re-fire it. */
+  matchEnded: boolean;
   /** Countdown-tick / match-start edge-detector state (audio/tones.ts). */
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
@@ -334,7 +345,10 @@ function updateMatchAudioCues(g: Game, now: number): void {
   const result = audioCues(g.audioCueState, phase, sec);
   g.audioCueState = result.state;
   if (result.tick) g.audio.play('tick');
-  if (result.matchStart) g.audio.play('matchStart');
+  if (result.matchStart) {
+    g.audio.play('matchStart');
+    g.portal.matchStart(); // same once-per-match live edge as the audio cue
+  }
 }
 
 /** M:SS clock for the grace countdown. */
@@ -368,8 +382,13 @@ function zoneHud(zv: ZoneView, now: number, inStorm: boolean): ZoneHud {
 function returnToPort(g: Game): void {
   if (g.returning) return;
   g.returning = true;
-  void g.room
-    .leave()
+  // Give the portal an ad-break moment before teardown. g.portal is
+  // safeAdapter-wrapped, so this always settles (timeout-capped) and never
+  // throws; the extra catch keeps a misbehaving room.leave() from surfacing
+  // an unhandled rejection. Reload runs no matter what.
+  void g.portal
+    .requestAdBreak()
+    .then(() => g.room.leave())
     .catch(() => undefined)
     .finally(() => location.reload());
 }
@@ -476,7 +495,7 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
   };
 }
 
-function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, cls: ShipClassId): Game {
+function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, cls: ShipClassId, portal: PortalAdapter): Game {
   const { welcome } = conn;
   // Late-bound: the input callbacks need game state that is assembled just below.
   let gRef: Game | null = null;
@@ -515,7 +534,8 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     shake: new ShakeDriver(),
     deniedPulse: new DeniedPulse(),
     deniedFlash: false,
-    audio,
+    audio, portal,
+    matchEnded: false,
     audioCueState: INITIAL_CUE_STATE,
     wasInStorm: false,
     prevClickCount: 0,
@@ -602,7 +622,15 @@ function bindGameRoom(g: Game, conn: Connection): void {
     resetThrottle: () => g.keyboard.resetThrottle(),
     names: (id) => rosterName(g, id),
     onSpectate: () => enterSpectateVisuals(g),
-    onResults: (msg) => showResults(msg, g.state.net.sessionId, () => returnToPort(g)),
+    onResults: (msg) => {
+      // Latched: a story-0.2 resume re-delivers the cached results broadcast,
+      // and matchEnd() must fire at most once per match.
+      if (!g.matchEnded) {
+        g.matchEnded = true;
+        g.portal.matchEnd();
+      }
+      showResults(msg, g.state.net.sessionId, () => returnToPort(g));
+    },
     onRoomLeave: () => handleRoomLeave(g),
     // Minimal reconnect UX (story 0.2): a persistent RECONNECTING banner while
     // the SDK retries the same room, cleared the moment it resumes. Richer UX
@@ -892,6 +920,7 @@ async function startGame(
   name: string,
   cls: ShipClassId,
   audio: Audio,
+  portal: PortalAdapter,
 ): Promise<void> {
   menu.setBusy(true);
   menu.setStatus('CONNECTING...');
@@ -911,7 +940,7 @@ async function startGame(
   const map = mapFromWelcome(conn.welcome);
   buildMap(map, stage.layers);
 
-  const game = buildGame(stage, conn, map, audio, cls);
+  const game = buildGame(stage, conn, map, audio, cls, portal);
   bindResize(stage, game);
   bindVisibility(game);
   bindSpectateZoom(game);
@@ -924,14 +953,24 @@ async function startGame(
 }
 
 async function main(): Promise<void> {
+  // Portal seam: a real SDK requires init before any loading/gameplay events, so
+  // encode that ordering now (init → loadingProgress(0) → stage load →
+  // loadingProgress(1) → menu). The null adapter resolves immediately, so boot
+  // timing is unchanged; Epic 7 swaps only the inner adapter here. The
+  // safeAdapter wrap guarantees a misbehaving portal can never block boot or
+  // any later lifecycle moment.
+  const portal = safeAdapter(createNullAdapter());
+  await portal.init();
+  portal.loadingProgress(0);
   const stage = await createStage();
+  portal.loadingProgress(1);
   document.getElementById('app')?.replaceChildren(stage.app.canvas);
 
   const audio = new Audio();
   const version = typeof __APP_VERSION__ === 'undefined' ? 'dev' : __APP_VERSION__;
   const menu = showMenu(version, (name, cls) => {
     audio.resume(); // must happen inside the PLAY click's user-gesture handler
-    void startGame(stage, menu, name, cls, audio);
+    void startGame(stage, menu, name, cls, audio, portal);
   });
 }
 
