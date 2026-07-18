@@ -24,7 +24,7 @@
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/fogSmoke.mjs
 import { Client } from '@colyseus/sdk';
-import { CONFIG, generateMap, bearing, angleDiff, segCircleHit } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, generateMap, bearing, angleDiff, segCircleHit } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const SIGHT = CONFIG.vision.sight;
@@ -47,7 +47,7 @@ const SANDBOX_ZONE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction:
 
 async function joinClient(name) {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
+  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
   const ctx = {
     name, room, welcome: null, you: null, now: 0,
     contacts: [], blips: [], shells: [], booms: [],

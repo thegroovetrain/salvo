@@ -47,7 +47,7 @@ import { KeyboardInput, type UpgradeAction } from './input/keyboard.js';
 import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
-import { connect, mapFromWelcome, type Connection } from './net/connection.js';
+import { connect, connectErrorStatus, mapFromWelcome, type Connection } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom } from './net/roomBindings.js';
@@ -593,6 +593,12 @@ function bindGameRoom(g: Game, conn: Connection): void {
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => showResults(msg, g.state.net.sessionId, () => returnToPort(g)),
     onRoomLeave: () => handleRoomLeave(g),
+    // Minimal reconnect UX (story 0.2): a persistent RECONNECTING banner while
+    // the SDK retries the same room, cleared the moment it resumes. Richer UX
+    // (countdown, abandon flow) is Epic 6.7. If retries run out, onRoomLeave
+    // fires next and swaps in the DISCONNECTED banner.
+    onDrop: () => showBanner('RECONNECTING…'),
+    onReconnect: () => hideBanner(),
   });
 }
 
@@ -875,7 +881,7 @@ async function startGame(
     conn = await connect(name || undefined, cls);
   } catch (err) {
     console.error('[net] connection failed', err);
-    menu.setStatus('CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?', true);
+    menu.setStatus(connectErrorStatus(err), true);
     menu.setBusy(false);
     return;
   }

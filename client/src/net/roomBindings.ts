@@ -93,6 +93,13 @@ export interface RoomBindingDeps {
   onResults: (msg: ResultsMsg) => void;
   /** The room connection ended (any reason). */
   onRoomLeave: (code: number) => void;
+  /**
+   * A non-consented socket drop while the SDK auto-reconnects the same room
+   * (RECONNECTING banner). If retries are exhausted, onRoomLeave fires next.
+   */
+  onDrop: () => void;
+  /** The SDK re-established the same room within grace (clear the banner). */
+  onReconnect: () => void;
 }
 
 /** Attach frame/results/error/leave handling to a completed connection. */
@@ -108,6 +115,24 @@ export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
   conn.room.onLeave((code) => {
     console.warn('[net] left room', code);
     deps.onRoomLeave(code);
+  });
+  // Story 0.2: same-Room auto-reconnect signals. onDrop fires on an abnormal
+  // close while the SDK retries the same room (token-authenticated, listeners
+  // intact); onReconnect fires when a retry re-establishes the room.
+  conn.room.onDrop(() => {
+    console.warn('[net] connection dropped — auto-reconnecting');
+    deps.onDrop();
+  });
+  conn.room.onReconnect(() => {
+    console.info('[net] reconnected — resuming ship');
+    // We missed frames during the gap and the ship kept sailing server-side.
+    // Mirror the spawn snap (handleSpawn): drop the stale own-ship interp
+    // history and re-init prediction (forceSnap clears the pending-input ring)
+    // so the first post-resume frame hard-inits from authoritative truth
+    // instead of replaying stale un-acked inputs against a jumped-forward pose.
+    deps.ownBuffer.clear();
+    deps.predictor.forceSnap();
+    deps.onReconnect();
   });
 }
 

@@ -52,6 +52,22 @@ export interface MatchHooks {
   disconnect(): void;
 }
 
+/** What the room should do with a non-consented disconnect (story 0.2). */
+export type DropPolicy = 'hold' | 'teardown';
+
+/**
+ * Drop policy for a non-consented disconnect: offer the reconnect grace window
+ * ('hold' — the ship keeps sailing under its last stored input) ONLY to an
+ * active-match participant whose hull is still afloat. Everything else —
+ * waiting/countdown/results phases (a ghost must never arm or hold the
+ * countdown), sandbox rooms (no Match), shipless sessions, and dead
+ * spectators — gets today's immediate leave teardown. Pure so the room's
+ * decision logic stays unit-testable without a transport.
+ */
+export function dropPolicy(matchActive: boolean, hasShip: boolean, shipAlive: boolean): DropPolicy {
+  return matchActive && hasShip && shipAlive ? 'hold' : 'teardown';
+}
+
 /** Snapshot of a participant's identity + tallies (survives their ship's removal). */
 interface Participant {
   name: string;

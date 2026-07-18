@@ -18,7 +18,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, bearing, angleDiff, isOutside } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, isOutside } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2599; // never the dev server's 2567 — this smoke self-boots
@@ -83,7 +83,7 @@ function killServer(proc) {
 
 async function joinClient(name) {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name, zoneOverride: ZONE_OVERRIDE, matchOverride: { sandbox: true } });
+  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, zoneOverride: ZONE_OVERRIDE, matchOverride: { sandbox: true } });
   const ctx = {
     name, room, welcome: null, you: null, seq: 0,
     goal: { mode: 'idle' },

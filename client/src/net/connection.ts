@@ -4,9 +4,39 @@
 // after the welcome resolves without re-registering message handlers.
 
 import { Client, type Room } from '@colyseus/sdk';
-import { generateMap, MSG, type FrameMsg, type GameMap, type WelcomeMsg } from '@salvo/shared';
+import {
+  generateMap,
+  MSG,
+  PROTOCOL_VERSION,
+  type FrameMsg,
+  type GameMap,
+  type WelcomeMsg,
+} from '@salvo/shared';
 
 const WELCOME_TIMEOUT_MS = 5000;
+
+/**
+ * How many same-Room auto-reconnect attempts the SDK makes before giving up.
+ *
+ * The server holds a dropped ship for CONFIG.net.reconnectGraceSeconds = 60s
+ * (story 0.2). We want the client's retry span to cover that whole window so a
+ * captain whose network recovers late in the grace still resumes their hull.
+ *
+ * The SDK backoff (Room.ts) is `floor(2^attempt * delay)` with delay=100ms,
+ * clamped to [minDelay 100ms, maxDelay 5000ms]. Cumulative time to the Nth
+ * attempt (seconds): 0.2, 0.6, 1.4, 3.0, 6.2, then +5.0 each →
+ *   attempt 15 ≈ 56.2s, 16 ≈ 61.2s, 17 ≈ 66.2s, 18 ≈ 71.2s.
+ * Attempts 1–15 all fall inside the 60s grace; 18 keeps trying a bit past it so
+ * server-side drop-detection skew can't make us give up while the seat is still
+ * held. Attempts after grace expiry are harmless (server rejects → SDK falls
+ * through to onLeave). The bounded extra RECONNECTING time is acceptable; richer
+ * reconnect UX is Epic 6.7.
+ *
+ * NOTE: the SDK's minUptime default (5000ms) is left in place — a drop within 5s
+ * of joining fires onLeave directly and does NOT auto-resume (accepted
+ * limitation; a fresh captain simply reconnects from the menu).
+ */
+const RECONNECT_MAX_RETRIES = 18;
 
 export interface FrameSink {
   handler: (f: FrameMsg) => void;
@@ -56,16 +86,23 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
 /** Join the arena and complete the welcome handshake. Throws on failure. */
 export async function connect(name?: string, cls?: string): Promise<Connection> {
   const client = new Client(wsEndpoint());
-  const opts: { name?: string; cls?: string } = {};
+  // `pv` is the join-time protocol gate: the server's onAuth rejects a missing
+  // or mismatched PROTOCOL_VERSION with a "version mismatch" ServerError that
+  // startGame() surfaces on the menu status line. Reconnects bypass onAuth, so
+  // they are never re-gated.
+  const opts: { pv: number; name?: string; cls?: string } = { pv: PROTOCOL_VERSION };
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
   const room = await client.joinOrCreate('arena', opts);
-  // The 0.17 SDK auto-reconnects on abnormal closes by default (onDrop + retry
-  // loop), but the server has no reconnection support yet — every retry is dead
-  // air while the player stares at a frozen ocean. Disabling it restores the
-  // 0.16 fail-fast path: abnormal close -> onLeave -> DISCONNECTED banner.
-  // Story 0.2 (token-authenticated resume) re-enables this deliberately.
-  room.reconnection.enabled = false;
+  // Story 0.2 re-enables the 0.17 SDK's same-Room auto-reconnect: on an abnormal
+  // close the SDK fires onDrop and retries the SAME room with the reconnection
+  // token (all onMessage bindings survive), landing on onReconnect. The server
+  // now holds the ship for CONFIG.net.reconnectGraceSeconds, so those retries
+  // reach a seat that is still reserved. maxRetries is sized to span that grace
+  // window (see RECONNECT_MAX_RETRIES). Exhausted retries fall through to
+  // onLeave(FAILED_TO_RECONNECT) → the DISCONNECTED banner, same as a hard drop.
+  room.reconnection.enabled = true;
+  room.reconnection.maxRetries = RECONNECT_MAX_RETRIES;
   const sink: FrameSink = { handler: () => undefined };
   room.onMessage(MSG.frame, (f: FrameMsg) => sink.handler(f));
   try {
@@ -78,6 +115,20 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
     void room.leave().catch(() => undefined);
     throw err;
   }
+}
+
+/**
+ * Map a failed joinOrCreate into a menu status line. The server's join-time
+ * `pv` gate rejects a stale bundle with a "version mismatch" ServerError, which
+ * the SDK surfaces as the thrown error's `.message` (ServerError → MatchMakeError,
+ * message preserved). Detect it and show a clean refresh prompt; every other
+ * failure (server down, timeout) keeps the dev-friendly "is the server running"
+ * hint rather than leaking a raw socket error to the player.
+ */
+export function connectErrorStatus(err: unknown): string {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  if (/version|mismatch/i.test(msg)) return 'VERSION MISMATCH — PLEASE REFRESH THE PAGE';
+  return 'CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?';
 }
 
 /**
