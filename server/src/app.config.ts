@@ -6,6 +6,7 @@ import { monitor } from '@colyseus/monitor';
 import { playground } from '@colyseus/playground';
 import express, { type Request, type Response } from 'express';
 import { ArenaRoom } from './rooms/ArenaRoom.js';
+import { metricsRoutes } from './metrics.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -15,6 +16,10 @@ const pkg = JSON.parse(
 const isProd = process.env.NODE_ENV === 'production';
 
 export default config({
+  // Typed HTTP routes (Colyseus 0.17): served alongside the default
+  // matchmaking routes. `/metrics` returns the process-local ops snapshot.
+  routes: metricsRoutes,
+
   initializeGameServer: (gameServer) => {
     gameServer.define('arena', ArenaRoom);
   },

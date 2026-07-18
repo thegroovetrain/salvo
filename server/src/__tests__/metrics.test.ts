@@ -1,0 +1,259 @@
+// Story 0.3 — unit tests for the process-local metrics registry + payload.
+//
+// The HTTP route is proven over a real socket by metricsSmoke.mjs (a later
+// wave); here we test the pure math, ring-buffer capping, multi-room
+// aggregation, message-bucket windowing/rate, register/unregister lifecycle,
+// the degraded matchMaker payload path, and a direct endpoint-handler shape.
+//
+// `matchMaker.stats.local` is a mutable-let export we cannot reassign from a
+// test, so we mock `colyseus` with importActual + a controllable stats getter
+// (createEndpoint/createRouter still come from the real module so metrics.ts
+// loads its endpoint at import time).
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+const { fakeStats } = vi.hoisted(() => ({
+  fakeStats: { mode: 'ok' as 'ok' | 'throw', local: { roomCount: 0, ccu: 0 } },
+}));
+
+vi.mock('colyseus', async (importActual) => {
+  const actual = await importActual<typeof import('colyseus')>();
+  return {
+    ...actual,
+    matchMaker: {
+      ...actual.matchMaker,
+      stats: {
+        get local() {
+          if (fakeStats.mode === 'throw') throw new Error('matchMaker unavailable');
+          return fakeStats.local;
+        },
+      },
+    },
+  };
+});
+
+import {
+  registerRoom,
+  resetMetrics,
+  metricsPayload,
+  metricsEndpoint,
+  nearestRank,
+  computeTickPercentiles,
+  averageRate,
+  round2,
+} from '../metrics.js';
+
+beforeEach(() => {
+  resetMetrics();
+  fakeStats.mode = 'ok';
+  fakeStats.local = { roomCount: 0, ccu: 0 };
+});
+
+describe('round2', () => {
+  it('rounds to two decimals', () => {
+    expect(round2(1.23456)).toBe(1.23);
+    expect(round2(1.235)).toBe(1.24);
+    expect(round2(4)).toBe(4);
+  });
+});
+
+describe('nearestRank percentiles', () => {
+  it('returns 0 for an empty array', () => {
+    expect(nearestRank([], 50)).toBe(0);
+    expect(nearestRank([], 95)).toBe(0);
+  });
+
+  it('handles a single sample', () => {
+    expect(nearestRank([7], 50)).toBe(7);
+    expect(nearestRank([7], 95)).toBe(7);
+    expect(nearestRank([7], 100)).toBe(7);
+  });
+
+  it('uses nearest-rank on a known distribution 1..10', () => {
+    const sorted = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    // p50: ceil(0.5*10)=5 -> index 4 -> value 5
+    expect(nearestRank(sorted, 50)).toBe(5);
+    // p95: ceil(0.95*10)=10 -> index 9 -> value 10
+    expect(nearestRank(sorted, 95)).toBe(10);
+    // p100 -> value 10
+    expect(nearestRank(sorted, 100)).toBe(10);
+  });
+
+  it('rounds rank up (p50 of 3 samples is the 2nd)', () => {
+    // ceil(0.5*3)=2 -> index 1
+    expect(nearestRank([10, 20, 30], 50)).toBe(20);
+  });
+});
+
+describe('computeTickPercentiles', () => {
+  it('is all zeros with a zero sample count when empty', () => {
+    expect(computeTickPercentiles([])).toEqual({ p50: 0, p95: 0, max: 0, samples: 0 });
+  });
+
+  it('rounds ms to two decimals and reports sample count + max', () => {
+    const out = computeTickPercentiles([1.111, 2.222, 3.333, 4.444]);
+    expect(out.samples).toBe(4);
+    expect(out.max).toBe(4.44);
+    // sorts internally regardless of input order
+    const shuffled = computeTickPercentiles([3.333, 1.111, 4.444, 2.222]);
+    expect(shuffled).toEqual(out);
+  });
+});
+
+describe('averageRate', () => {
+  it('is 0 for no active seconds', () => {
+    expect(averageRate([])).toBe(0);
+  });
+
+  it('averages per-second counts, rounded', () => {
+    expect(averageRate([3, 5])).toBe(4);
+    expect(averageRate([1, 2, 2])).toBe(1.67);
+  });
+});
+
+describe('tick ring buffer', () => {
+  it('caps at 1200 samples, dropping the oldest', () => {
+    const room = registerRoom('r1');
+    for (let i = 1; i <= 1300; i++) room.recordTick(i);
+    const { tick } = metricsPayload();
+    expect(tick.samples).toBe(1200);
+    // oldest 100 (values 1..100) were overwritten; surviving set is 101..1300
+    expect(tick.max).toBe(1300);
+    // p50: ceil(0.5*1200)=600 -> 600th smallest of 101..1300 = 700
+    expect(tick.p50).toBe(700);
+  });
+});
+
+describe('multi-room tick aggregation', () => {
+  it('combines samples across all registered rooms for percentiles', () => {
+    const a = registerRoom('a');
+    const b = registerRoom('b');
+    a.recordTick(10);
+    a.recordTick(20);
+    b.recordTick(30);
+    b.recordTick(40);
+    const { tick } = metricsPayload();
+    expect(tick.samples).toBe(4);
+    expect(tick.max).toBe(40);
+    // combined sorted [10,20,30,40]; p50 ceil(0.5*4)=2 -> value 20
+    expect(tick.p50).toBe(20);
+    // p95 ceil(0.95*4)=4 -> value 40
+    expect(tick.p95).toBe(40);
+  });
+});
+
+describe('message bucket windowing + rate', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('averages per-second counts and tracks total since start', () => {
+    vi.setSystemTime(new Date(1_000_000 * 1000));
+    const room = registerRoom('r');
+    room.recordMessage();
+    room.recordMessage();
+    room.recordMessage(); // 3 in this second
+    vi.setSystemTime(new Date(1_000_001 * 1000));
+    room.recordMessage();
+    room.recordMessage(); // 2 in the next second
+    const { messages } = metricsPayload();
+    expect(messages.total).toBe(5);
+    expect(messages.ratePerSec).toBe(2.5); // avg of [3, 2]
+  });
+
+  it('drops buckets older than the 60s window', () => {
+    vi.setSystemTime(new Date(2_000_000 * 1000));
+    const room = registerRoom('r');
+    room.recordMessage();
+    room.recordMessage(); // 2 messages, then this second falls out of window
+    vi.setSystemTime(new Date((2_000_000 + 61) * 1000));
+    room.recordMessage(); // 1 message, in window
+    const { messages } = metricsPayload();
+    expect(messages.total).toBe(3); // total is since-start, unaffected by window
+    expect(messages.ratePerSec).toBe(1); // only the recent second counts
+  });
+
+  it('aggregates message counts across rooms per second', () => {
+    vi.setSystemTime(new Date(3_000_000 * 1000));
+    const a = registerRoom('a');
+    const b = registerRoom('b');
+    a.recordMessage();
+    a.recordMessage(); // 2
+    b.recordMessage(); // 1  -> same second, combined 3
+    const { messages } = metricsPayload();
+    expect(messages.total).toBe(3);
+    expect(messages.ratePerSec).toBe(3); // single active second summed across rooms
+  });
+});
+
+describe('register / unregister lifecycle', () => {
+  it('removes a room\'s samples on unregister', () => {
+    const a = registerRoom('a');
+    const b = registerRoom('b');
+    a.recordTick(10);
+    b.recordTick(20);
+    a.unregister();
+    const { tick } = metricsPayload();
+    expect(tick.samples).toBe(1);
+    expect(tick.max).toBe(20);
+  });
+
+  it('unregister is a no-op after the id was re-registered', () => {
+    const first = registerRoom('a');
+    first.recordTick(10);
+    const second = registerRoom('a'); // re-register resets samples
+    second.recordTick(99);
+    first.unregister(); // stale handle must not evict the live room
+    const { tick } = metricsPayload();
+    expect(tick.samples).toBe(1);
+    expect(tick.max).toBe(99);
+  });
+});
+
+describe('metricsPayload counts', () => {
+  it('reads rooms/players from matchMaker.stats.local when available', () => {
+    fakeStats.local = { roomCount: 3, ccu: 7 };
+    registerRoom('a'); // registry.size differs from stats to prove the source
+    const payload = metricsPayload();
+    expect(payload.rooms).toBe(3);
+    expect(payload.players).toBe(7);
+  });
+
+  it('degrades to registered-room count and zero players when matchMaker throws', () => {
+    fakeStats.mode = 'throw';
+    registerRoom('a');
+    registerRoom('b');
+    const payload = metricsPayload();
+    expect(payload.rooms).toBe(2);
+    expect(payload.players).toBe(0);
+  });
+
+  it('has the full documented shape when idle', () => {
+    fakeStats.mode = 'throw'; // degraded, no rooms
+    const payload = metricsPayload();
+    expect(payload).toEqual({
+      rooms: 0,
+      players: 0,
+      tick: { p50: 0, p95: 0, max: 0, samples: 0 },
+      messages: { ratePerSec: 0, total: 0 },
+    });
+  });
+});
+
+describe('metricsEndpoint direct invocation', () => {
+  it('resolves to the payload JSON when called as a function', async () => {
+    fakeStats.local = { roomCount: 1, ccu: 2 };
+    const room = registerRoom('a');
+    room.recordTick(5);
+    const body = await metricsEndpoint({});
+    expect(body).toMatchObject({
+      rooms: 1,
+      players: 2,
+      tick: { samples: 1, max: 5 },
+      messages: { total: 0 },
+    });
+  });
+});

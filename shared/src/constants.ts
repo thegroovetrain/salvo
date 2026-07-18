@@ -214,6 +214,12 @@ export const CONFIG = {
     // one storm phase). Polished reconnect UX (countdown, abandon flow) is
     // Epic 6.7 — this is only the mechanism's window.
     reconnectGraceSeconds: 60,
+    // Max seconds a socket may squat in JOINING before the room kicks it,
+    // freeing the roster slot and its unbounded enqueued-message buffer.
+    // Derivation: a real join confirmation lands in ~seconds, so 10s is
+    // generous headroom for a slow-but-honest handshake while staying well
+    // under the 60s reconnect grace (a stuck seat never blocks a room for long).
+    joiningDeadlineSeconds: 10,
   },
 } as const;
 
