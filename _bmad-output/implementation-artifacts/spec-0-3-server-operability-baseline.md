@@ -2,7 +2,7 @@
 title: 'Story 0.3: Server Operability Baseline'
 type: 'feature'
 created: '2026-07-18'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'f397e84a033d84c746c1cdf23bc8ba864a3b08d4'
 review_loop_iteration: 0
 followup_review_recommended: false

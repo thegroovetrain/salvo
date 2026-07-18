@@ -21,7 +21,7 @@ import {
   type MatchHooks,
   type MatchTimings,
 } from '../game/match.js';
-import { createLogger, type Logger } from '../log.js';
+import { createLogger, type LogFields, type Logger } from '../log.js';
 import { registerRoom, type RoomMetricsHandle } from '../metrics.js';
 import {
   protocolVersionError,
@@ -29,6 +29,7 @@ import {
   type JoinOptions,
   type MatchOverride,
   type RoomOptions,
+  type SanitizedRoomOptions,
 } from './roomOptions.js';
 
 const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
@@ -36,6 +37,22 @@ const INTERVAL_MS = 1000 / 60; // setSimulationInterval cadence
 const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
 /** Telemetry mode tag (one room type today) carried on match.end/match.abort. */
 const MODE = 'arena';
+
+/**
+ * Render a thrown value into log fields WITHOUT ever throwing ourselves:
+ * `String(err)` itself throws for prototype-less values (`throw
+ * Object.create(null)`), and a throw here would escape the tick-error
+ * containment straight into core's bare setInterval. Errors keep their
+ * message and a separate stack field for forensics.
+ */
+function describeError(err: unknown): LogFields {
+  if (err instanceof Error) return { error: err.message, stack: err.stack };
+  try {
+    return { error: String(err) };
+  } catch {
+    return { error: 'unstringifiable' };
+  }
+}
 
 /**
  * Close codes that earn the reconnect grace window (story 0.2, finding F1).
@@ -119,6 +136,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private matchEndEmitted = false;
   /** match.abort emitted — at most once, shared by tick-error + abandoned paths. */
   private matchAbortEmitted = false;
+  /** match.activate logged (one-shot, observed AFTER the transition completes). */
+  private matchActivateLogged = false;
   // HC_DEBUG once-per-second tick summary accumulators (cheap scalars only).
   private debugSteps = 0;
   private debugTotalMs = 0;
@@ -142,6 +161,20 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
     this.initOperability(rejectedKeys);
 
+    // Core attaches its dispose handling only after onCreate returns — a
+    // throw below would otherwise strand the metrics registration forever
+    // (no onDispose ever runs for a room that failed to create).
+    try {
+      this.finishCreate(sanitized, seed);
+    } catch (err) {
+      this.metrics?.unregister();
+      this.metrics = null;
+      throw err;
+    }
+  }
+
+  /** The post-operability remainder of room creation (see onCreate's guard). */
+  private finishCreate(sanitized: SanitizedRoomOptions, seed: number): void {
     if (!sanitized.matchOverride?.sandbox) {
       this.match = new Match(this.world, this.timings(sanitized.matchOverride), this.matchHooks());
     }
@@ -217,13 +250,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       unlock: () => void this.unlock(),
       // Drone-fill seam (step 15): top the roster up to CONFIG.match.fillTo with
       // weaponless target drones, each a real ship + PlayerMeta so kill feed,
-      // contacts, blips, and results rows all include them. Match.activate()
-      // invokes this hook exactly once, at the countdown→active transition —
-      // which makes it the natural home for the match.activate lifecycle line.
-      fillToCapacity: () => {
-        this.log.info('match.activate', {});
-        this.fillToCapacity();
-      },
+      // contacts, blips, and results rows all include them. (The match.activate
+      // line is NOT logged here: this hook fires at the START of the transition,
+      // and a throw later in activate() would leave stdout claiming an
+      // activation that never happened — see observeMatchActivation.)
+      fillToCapacity: () => this.fillToCapacity(),
       broadcastResults: (msg: ResultsMsg) => {
         // Cache before broadcasting (finding F2): a captain in grace isn't in
         // this.clients, so onDrop's resume handler re-sends this to them.
@@ -368,7 +399,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       RECONNECTABLE_CLOSE_CODES.has(code ?? -1),
     );
     if (policy === 'hold') {
-      this.log.info('client.drop', { sessionId: client.sessionId, code });
+      // `code ?? null` so the close code ALWAYS survives JSON.stringify —
+      // undefined would silently drop the field and lose the forensics.
+      this.log.info('client.drop', { sessionId: client.sessionId, code: code ?? null });
       this.allowReconnection(client, CONFIG.net.reconnectGraceSeconds)
         .then((newClient) => {
           this.log.info('client.resume', { sessionId: client.sessionId });
@@ -377,6 +410,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
           // while they were away; a normal mid-match resume sends nothing. The
           // send enqueues on the not-yet-acked client and flushes on ack.
           if (this.lastResults) newClient.send(MSG.results, this.lastResults);
+          // The resume path never re-runs onJoin (core's reconnection branch
+          // pushes THIS new client object into this.clients still JOINING and
+          // only flips it JOINED on its ack) — so it needs its own
+          // JOINING-deadline, or a resumed client that never acks squats
+          // forever: roster slot held, ship counted in the win check,
+          // enqueued-message buffer growing. Same fire-time-checked kick.
+          this.armJoiningDeadline(newClient);
         })
         // Finding F3: defensive — the deferred REJECTS on grace expiry / room
         // dispose. Core routes that into onLeave → teardown (Room.ts _onLeave,
@@ -389,12 +429,14 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     }
   }
 
-  onLeave(client: Client): void {
+  onLeave(client: Client, code?: number): void {
     // Log only when the teardown actually removed something: with onDrop
     // defined, core can route one departure into onLeave through several
     // paths, and a repeat must stay silent (one info line per real leave).
+    // The close code (core passes it — Room._onLeave) distinguishes punitive
+    // kicks (4002) from organic leaves on stdout; null when core omits it.
     if (this.teardown(client.sessionId)) {
-      this.log.info('client.leave', { sessionId: client.sessionId });
+      this.log.info('client.leave', { sessionId: client.sessionId, code: code ?? null });
     }
   }
 
@@ -444,35 +486,80 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * body — world.step + match.update + afterStep — is the failure unit. A
    * clean step resets the consecutive-failure counter and feeds the metrics
    * registry; a throw is contained at this boundary so sibling rooms in the
-   * process keep ticking. Returns false once the room is aborting.
+   * process keep ticking. Returns false when the step failed — the caller
+   * stops draining either way (below tolerance the backlog was dropped, at
+   * tolerance the room is aborting).
    */
   private runStep(): boolean {
     const start = performance.now();
     try {
       this.world.step(SIM_DT_MS);
       this.match?.update();
+      this.observeMatchActivation();
       this.afterStep();
     } catch (err) {
-      return this.onTickError(err);
+      this.onTickError(err);
+      // Stop draining this update() call on ANY failure (below tolerance the
+      // accumulator was dropped; at tolerance the room is aborting).
+      return false;
     }
     this.consecutiveTickErrors = 0;
     this.recordStepTiming(performance.now() - start);
     return true;
   }
 
-  /** Returns false when the failure hit tolerance and the room is aborting. */
-  private onTickError(err: unknown): boolean {
-    this.consecutiveTickErrors += 1;
-    this.log.error('tick.error', {
-      error: String(err),
-      consecutive: this.consecutiveTickErrors,
-      tolerance: this.tickErrorTolerance,
-    });
-    if (!shouldAbortOnTickError(this.consecutiveTickErrors, this.tickErrorTolerance)) return true;
+  /**
+   * One-shot, truthful match.activate line: observed AFTER match.update()
+   * returned with the transition complete. If activation throws mid-way, the
+   * step's catch runs instead and nothing is claimed on stdout.
+   */
+  private observeMatchActivation(): void {
+    if (this.matchActivateLogged || this.match?.phase !== 'active') return;
+    this.matchActivateLogged = true;
+    this.log.info('match.activate', {});
+  }
+
+  /**
+   * Contained tick-failure handling. NOTHING may escape this method into
+   * core's bare setInterval — a secondary throw (broken logger, poisoned
+   * error value) still aborts the room, silently.
+   */
+  private onTickError(err: unknown): void {
+    try {
+      this.consecutiveTickErrors += 1;
+      // Drop the backlog: a failed tick's accumulated debt is meaningless,
+      // and re-draining it would let one stalled update() call burn through
+      // the whole tolerance with zero real time between "retries". Each
+      // interval fire contributes at most ONE consecutive failure.
+      this.accumulator = 0;
+      this.log.error('tick.error', {
+        ...describeError(err),
+        consecutive: this.consecutiveTickErrors,
+        tolerance: this.tickErrorTolerance,
+      });
+      if (shouldAbortOnTickError(this.consecutiveTickErrors, this.tickErrorTolerance)) {
+        this.abortOnTickErrors();
+      }
+    } catch {
+      // Belt-and-braces: set the abort state and dispose WITHOUT logging.
+      this.aborting = true;
+      try {
+        void this.disconnect();
+      } catch {
+        // Swallow — core's own dispose paths remain the last resort.
+      }
+    }
+  }
+
+  private abortOnTickErrors(): void {
+    if (this.aborting) return;
     this.aborting = true; // set BEFORE disconnect: guards re-entry from later interval fires
-    if (this.match) this.emitMatchAbort('tick-error');
+    // Spec: match.abort marks a match that REACHED 'active' terminating
+    // without finish() — waiting/countdown tick-error disposes emit only
+    // tick.error + room.dispose. (A finished match is already suppressed by
+    // emitMatchAbort's matchEndEmitted guard.)
+    if (this.match?.phase === 'active') this.emitMatchAbort('tick-error');
     void this.disconnect();
-    return false;
   }
 
   /** Per-step metrics feed + the HC_DEBUG once-per-second tick summary. */
@@ -483,8 +570,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     if (durationMs > this.debugMaxMs) this.debugMaxMs = durationMs;
     const now = Date.now();
     if (now < this.debugWindowStart + 1000) return;
-    // logDebug gates emission on HC_DEBUG=1; field assembly here is three
-    // scalars once per second — cheap enough to build unconditionally.
+    // Field assembly here is three scalars once per second — cheap enough to
+    // build unconditionally; logDebug drops the line when HC_DEBUG !== '1'.
     this.log.debug('tick.summary', {
       steps: this.debugSteps,
       avgMs: Math.round((this.debugTotalMs / this.debugSteps) * 100) / 100,

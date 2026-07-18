@@ -169,6 +169,25 @@ describe('createLogger — bound context + dynamic context', () => {
     logger.debug('tick.summary');
     expect(logSpy).not.toHaveBeenCalled();
   });
+
+  it('does NOT invoke dynamic() for a gated-off debug call (gate before merge)', () => {
+    delete process.env.HC_DEBUG;
+    const dynamic = vi.fn(() => ({ tick: 7 }));
+    const logger = createLogger({ roomId: 'r1' }, dynamic);
+    logger.debug('tick.summary', { p50: 12 });
+    // The gate must short-circuit before merge() runs — no wasted dynamic() call.
+    expect(dynamic).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('DOES invoke dynamic() for a debug call when HC_DEBUG=1', () => {
+    process.env.HC_DEBUG = '1';
+    const dynamic = vi.fn(() => ({ tick: 7 }));
+    const logger = createLogger({ roomId: 'r1' }, dynamic);
+    logger.debug('tick.summary', { p50: 12 });
+    expect(dynamic).toHaveBeenCalledTimes(1);
+    expect(logSpy).toHaveBeenCalledWith('debug tick.summary {"roomId":"r1","tick":7,"p50":12}');
+  });
 });
 
 describe('unserializable fields — the logger never throws', () => {

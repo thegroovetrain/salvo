@@ -10,7 +10,7 @@
 // (createEndpoint/createRouter still come from the real module so metrics.ts
 // loads its endpoint at import time).
 
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 const { fakeStats } = vi.hoisted(() => ({
   fakeStats: { mode: 'ok' as 'ok' | 'throw', local: { roomCount: 0, ccu: 0 } },
@@ -39,12 +39,15 @@ import {
   metricsEndpoint,
   nearestRank,
   computeTickPercentiles,
-  averageRate,
   round2,
+  __setNowSource,
 } from '../metrics.js';
 
 beforeEach(() => {
   resetMetrics();
+  // Default the monotonic clock source back to real time before each test; the
+  // message-rate suite overrides it with a controllable fake in its own setup.
+  __setNowSource(() => performance.now());
   fakeStats.mode = 'ok';
   fakeStats.local = { roomCount: 0, ccu: 0 };
 });
@@ -100,17 +103,6 @@ describe('computeTickPercentiles', () => {
   });
 });
 
-describe('averageRate', () => {
-  it('is 0 for no active seconds', () => {
-    expect(averageRate([])).toBe(0);
-  });
-
-  it('averages per-second counts, rounded', () => {
-    expect(averageRate([3, 5])).toBe(4);
-    expect(averageRate([1, 2, 2])).toBe(1.67);
-  });
-});
-
 describe('tick ring buffer', () => {
   it('caps at 1200 samples, dropping the oldest', () => {
     const room = registerRoom('r1');
@@ -142,50 +134,83 @@ describe('multi-room tick aggregation', () => {
   });
 });
 
-describe('message bucket windowing + rate', () => {
+describe('message rate — windowed sum over covered seconds', () => {
+  // A controllable monotonic clock (ms) so time is fully deterministic without
+  // depending on whether this vitest version fakes performance.now.
+  let clockMs = 0;
+  const atSec = (s: number) => {
+    clockMs = s * 1000;
+  };
+
   beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
+    resetMetrics();
+    clockMs = 0;
+    __setNowSource(() => clockMs);
   });
 
-  it('averages per-second counts and tracks total since start', () => {
-    vi.setSystemTime(new Date(1_000_000 * 1000));
+  it('divides the windowed sum by covered seconds and tracks total since start', () => {
+    atSec(100);
     const room = registerRoom('r');
     room.recordMessage();
     room.recordMessage();
-    room.recordMessage(); // 3 in this second
-    vi.setSystemTime(new Date(1_000_001 * 1000));
+    room.recordMessage(); // 3 in second 100 (also stamps firstRecordSec=100)
+    atSec(101);
     room.recordMessage();
-    room.recordMessage(); // 2 in the next second
+    room.recordMessage(); // 2 in second 101
+    atSec(102); // query 2s after first record
     const { messages } = metricsPayload();
     expect(messages.total).toBe(5);
-    expect(messages.ratePerSec).toBe(2.5); // avg of [3, 2]
+    // covered = 102 - 100 = 2; windowed sum = 5 -> 2.5
+    expect(messages.ratePerSec).toBe(2.5);
   });
 
-  it('drops buckets older than the 60s window', () => {
-    vi.setSystemTime(new Date(2_000_000 * 1000));
+  it('averages a lone burst over the elapsed window, not the single active second', () => {
+    atSec(0);
+    const room = registerRoom('r');
+    for (let i = 0; i < 300; i++) room.recordMessage(); // 300 messages in second 0
+    atSec(30); // 30s later, otherwise idle
+    const { messages } = metricsPayload();
+    expect(messages.total).toBe(300);
+    // OLD (bug): average over active seconds -> 300. NEW: 300 / min(60, 30) = 10.
+    expect(messages.ratePerSec).toBe(10);
+  });
+
+  it('drops buckets older than the 60s window from the rate (total unaffected)', () => {
+    atSec(0);
     const room = registerRoom('r');
     room.recordMessage();
-    room.recordMessage(); // 2 messages, then this second falls out of window
-    vi.setSystemTime(new Date((2_000_000 + 61) * 1000));
-    room.recordMessage(); // 1 message, in window
+    room.recordMessage(); // 2 in second 0
+    atSec(61); // second 0 now outside the 60s window
+    room.recordMessage(); // 1 in second 61
     const { messages } = metricsPayload();
-    expect(messages.total).toBe(3); // total is since-start, unaffected by window
-    expect(messages.ratePerSec).toBe(1); // only the recent second counts
+    expect(messages.total).toBe(3); // since-start total, unaffected by window
+    // windowed sum = 1 (only second 61); covered = min(60, 61) = 60 -> 1/60
+    expect(messages.ratePerSec).toBe(0.02);
   });
 
-  it('aggregates message counts across rooms per second', () => {
-    vi.setSystemTime(new Date(3_000_000 * 1000));
+  it('aggregates message counts across rooms in the windowed sum', () => {
+    atSec(0);
     const a = registerRoom('a');
     const b = registerRoom('b');
     a.recordMessage();
     a.recordMessage(); // 2
-    b.recordMessage(); // 1  -> same second, combined 3
+    b.recordMessage(); // 1 -> combined 3 in second 0
+    atSec(1);
     const { messages } = metricsPayload();
     expect(messages.total).toBe(3);
-    expect(messages.ratePerSec).toBe(3); // single active second summed across rooms
+    // covered = 1; windowed sum 3 -> 3
+    expect(messages.ratePerSec).toBe(3);
+  });
+});
+
+describe('message total — retained across unregister (since process start)', () => {
+  it('keeps a retired room\'s messages in the total after unregister', () => {
+    const room = registerRoom('r');
+    for (let i = 0; i < 5; i++) room.recordMessage();
+    room.unregister();
+    // Without the retiredMessageTotal fold, totalMessages() sums only live rooms
+    // and this reads 0 — the "since process start" total would shrink on dispose.
+    expect(metricsPayload().messages.total).toBe(5);
   });
 });
 

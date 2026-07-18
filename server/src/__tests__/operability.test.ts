@@ -128,7 +128,11 @@ describe('tick-error containment', () => {
     });
     room.update(SIM_DT);
 
-    expect(lines('error tick.error')).toHaveLength(1);
+    const errs = lines('error tick.error');
+    expect(errs).toHaveLength(1);
+    // Error values log their message plus a separate stack field (forensics).
+    expect(fieldsOf(errs[0]).error).toBe('boom');
+    expect(typeof fieldsOf(errs[0]).stack).toBe('string');
     const aborts = lines('info match.abort');
     expect(aborts).toHaveLength(1);
     const f = fieldsOf(aborts[0]);
@@ -168,6 +172,67 @@ describe('tick-error containment', () => {
     expect(lines('info match.abort')).toHaveLength(0);
     expect(room.disconnect).not.toHaveBeenCalled();
     expect(room.aborting).toBe(false);
+  });
+
+  it('a prototype-less thrown value cannot escape containment (String(err) throws)', () => {
+    // String(Object.create(null)) throws TypeError — before the describeError
+    // fix, that secondary throw escaped onTickError through update() into
+    // core's bare setInterval and killed the whole process.
+    const room = opsRoom({
+      tolerance: 1,
+      stepImpl: () => {
+        throw Object.create(null) as Error;
+      },
+    });
+    expect(() => room.update(SIM_DT)).not.toThrow();
+
+    const errs = lines('error tick.error');
+    expect(errs).toHaveLength(1);
+    expect(fieldsOf(errs[0]).error).toBe('unstringifiable');
+    expect(lines('info match.abort')).toHaveLength(1);
+    expect(room.disconnect).toHaveBeenCalledTimes(1);
+    expect(room.aborting).toBe(true);
+  });
+
+  it('one stalled update() burns at most ONE consecutive failure (backlog dropped)', () => {
+    const room = opsRoom({
+      tolerance: 3,
+      stepImpl: () => {
+        throw new Error('persistent');
+      },
+    });
+    // 3 sim-steps of backlog in a single interval fire: before the fix this
+    // consumed the whole prod tolerance with zero real time between retries.
+    room.update(SIM_DT * 3);
+    expect(room.world.step).toHaveBeenCalledTimes(1);
+    expect(room.consecutiveTickErrors).toBe(1);
+    expect(lines('error tick.error')).toHaveLength(1);
+    expect(lines('info match.abort')).toHaveLength(0);
+    expect(room.disconnect).not.toHaveBeenCalled();
+
+    // Retries happen across real interval fires; tolerance still lands at 3.
+    room.update(SIM_DT);
+    room.update(SIM_DT);
+    expect(room.consecutiveTickErrors).toBe(3);
+    expect(lines('info match.abort')).toHaveLength(1);
+    expect(room.disconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it("a tick-error dispose before the match reached 'active' emits NO match.abort", () => {
+    for (const phase of ['waiting', 'countdown']) {
+      const room = opsRoom({
+        tolerance: 1,
+        phase,
+        stepImpl: () => {
+          throw new Error('boom');
+        },
+      });
+      room.update(SIM_DT);
+      expect(room.aborting).toBe(true);
+      expect(room.disconnect).toHaveBeenCalledTimes(1);
+    }
+    expect(lines('error tick.error')).toHaveLength(2);
+    expect(lines('info match.abort')).toHaveLength(0);
   });
 
   it('a sibling room keeps stepping after another room aborts', () => {
@@ -265,6 +330,21 @@ describe('match telemetry', () => {
       room.onDispose();
     }
     expect(lines('info match.abort')).toHaveLength(0);
+  });
+
+  it('match.activate is a one-shot observation AFTER the transition completed', () => {
+    const room = opsRoom({ phase: 'waiting' });
+    room.update(SIM_DT);
+    // No transition yet (and none is claimed if activate() were to throw
+    // mid-way — the step's catch runs instead of the observation).
+    expect(lines('info match.activate')).toHaveLength(0);
+
+    room.match!.phase = 'active'; // match.update() completed the transition
+    room.update(SIM_DT);
+    expect(lines('info match.activate')).toHaveLength(1);
+
+    room.update(SIM_DT * 2); // further active ticks stay silent
+    expect(lines('info match.activate')).toHaveLength(1);
   });
 });
 
@@ -365,6 +445,74 @@ describe('JOINING-deadline kick', () => {
     expect(stuck.leave).toHaveBeenCalledTimes(1);
     expect(timely.leave).not.toHaveBeenCalled();
   });
+
+  it('client.leave lines carry the close code (punitive kicks distinguishable)', () => {
+    const room = joinRoom();
+    const client = joinClient('a');
+    join(room, client);
+    (room as unknown as { onLeave(c: JoinClient, code?: number): void }).onLeave(
+      client,
+      CloseCode.WITH_ERROR,
+    );
+    const leaves = lines('info client.leave');
+    expect(leaves).toHaveLength(1);
+    expect(fieldsOf(leaves[0])).toMatchObject({ sessionId: 'a', code: CloseCode.WITH_ERROR });
+  });
+});
+
+// --- JOINING-deadline kick on the RESUME path (story 0.2 interplay) ----------------
+// Core's reconnection branch pushes the NEW client object into this.clients in
+// JOINING state and never re-runs onJoin — so the resume handler must arm its
+// own fire-time-checked deadline, or a resumed client that never sends its
+// JOIN_ROOM ack squats forever (roster slot, win-check ship, growing buffer).
+
+interface ResumeRoom {
+  world: { ships: Map<string, { alive: boolean }> };
+  match: { phase: string } | null;
+  lastResults: ResultsMsg | null;
+  clients: JoinClient[];
+  clock: { setTimeout: ReturnType<typeof vi.fn> };
+  allowReconnection(client: unknown, seconds: number): Promise<unknown>;
+  onDrop(client: { sessionId: string }, code?: number): void;
+}
+
+async function resumedDeadline(newClient: JoinClient): Promise<() => void> {
+  const room = new ArenaRoom() as unknown as ResumeRoom;
+  room.world = { ships: new Map([['a', { alive: true }]]) };
+  room.match = { phase: 'active' };
+  room.lastResults = null;
+  room.clients = [newClient];
+  room.clock = { setTimeout: vi.fn() };
+  room.allowReconnection = () => Promise.resolve(newClient);
+
+  room.onDrop({ sessionId: 'a' }, CloseCode.ABNORMAL_CLOSURE);
+  await Promise.resolve();
+  await Promise.resolve();
+
+  const calls = room.clock.setTimeout.mock.calls;
+  expect(calls).toHaveLength(1);
+  expect(calls[0][1]).toBe(CONFIG.net.joiningDeadlineSeconds * 1000);
+  return calls[0][0] as () => void;
+}
+
+describe('JOINING-deadline kick after a resume', () => {
+  it('a resumed client stuck in JOINING past the deadline is kicked', async () => {
+    const newClient = joinClient('a'); // resumed object, still JOINING (no ack)
+    const fire = await resumedDeadline(newClient);
+    fire();
+    expect(newClient.leave).toHaveBeenCalledTimes(1);
+    expect(newClient.leave).toHaveBeenCalledWith(CloseCode.WITH_ERROR);
+    expect(lines('warn client.joiningKick')).toHaveLength(1);
+  });
+
+  it('a resumed client that reaches JOINED is never kicked', async () => {
+    const newClient = joinClient('a');
+    const fire = await resumedDeadline(newClient);
+    newClient.state = ClientState.JOINED; // ack landed before the deadline
+    fire();
+    expect(newClient.leave).not.toHaveBeenCalled();
+    expect(lines('warn client.joiningKick')).toHaveLength(0);
+  });
 });
 
 // --- metrics feeds ---------------------------------------------------------------
@@ -425,13 +573,36 @@ describe('metrics feeds', () => {
     room.onDispose();
     expect(metrics.unregister).toHaveBeenCalledTimes(1);
   });
+
+  it('a throw during room creation unregisters the metrics handle before rethrowing', () => {
+    // Core attaches its dispose handling only after onCreate returns — a
+    // registration surviving a failed onCreate would leak forever.
+    const room = new ArenaRoom() as unknown as {
+      metrics: FakeMetrics | null;
+      initOperability(rejectedKeys: string[]): void;
+      finishCreate(): void;
+      onCreate(options?: unknown): void;
+    };
+    const metrics = fakeMetrics();
+    room.initOperability = () => {
+      room.metrics = metrics;
+    };
+    room.finishCreate = () => {
+      throw new Error('create-failed');
+    };
+    expect(() => room.onCreate({})).toThrow('create-failed');
+    expect(metrics.unregister).toHaveBeenCalledTimes(1);
+    expect(room.metrics).toBeNull();
+  });
 });
 
 // --- log hygiene ------------------------------------------------------------------
 
 describe('log hygiene', () => {
   it('plain ticking emits ZERO log lines (info reserved for lifecycle; debug gated off)', () => {
-    const room = opsRoom();
+    // phase 'waiting' so the one-shot match.activate lifecycle line (which is
+    // legitimate) never fires — this asserts pure per-tick silence.
+    const room = opsRoom({ phase: 'waiting' });
     for (let i = 0; i < 45; i++) room.update(SIM_DT); // > 2s of clean 20Hz steps
     expect(room.world.step.mock.calls.length).toBe(45);
     expect(logSpy).not.toHaveBeenCalled();

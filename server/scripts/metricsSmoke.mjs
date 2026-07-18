@@ -292,10 +292,15 @@ async function main() {
     assertMetricsShape(live.body, 'live');
     assert(live.body.rooms >= 1, `live rooms should be >= 1, got ${live.body.rooms}`);
     assert(live.body.players >= 1, `live players should be >= 1, got ${live.body.players}`);
+    // round2 floors sub-0.005ms ticks to 0 on a fast machine, so p50>0 is fragile.
+    // Assert the ordering invariant + a positive max/samples instead.
     assert(live.body.tick.samples > 0, `live tick.samples should be > 0, got ${live.body.tick.samples}`);
-    assert(live.body.tick.p50 > 0, `live tick.p50 should be > 0, got ${live.body.tick.p50}`);
-    assert(live.body.tick.p95 > 0, `live tick.p95 should be > 0, got ${live.body.tick.p95}`);
     assert(live.body.tick.max > 0, `live tick.max should be > 0, got ${live.body.tick.max}`);
+    assert(
+      live.body.tick.p95 >= live.body.tick.p50,
+      `live tick.p95 should be >= p50, got p95=${live.body.tick.p95} p50=${live.body.tick.p50}`,
+    );
+    assert(live.body.tick.p50 >= 0, `live tick.p50 should be >= 0, got ${live.body.tick.p50}`);
     assert(live.body.messages.total > 0, `live messages.total should be > 0, got ${live.body.messages.total}`);
     log.push(
       `live /metrics: rooms=${live.body.rooms} players=${live.body.players} ` +

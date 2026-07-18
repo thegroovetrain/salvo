@@ -86,6 +86,12 @@ export function createLogger(context: LogFields, dynamic?: () => LogFields): Log
     info: (event, fields = {}) => logInfo(event, merge(fields)),
     warn: (event, fields = {}) => logWarn(event, merge(fields)),
     error: (event, fields = {}) => logError(event, merge(fields)),
-    debug: (event, fields = {}) => logDebug(event, merge(fields)),
+    // Gate BEFORE merging so a gated-off debug call pays neither the context
+    // merge nor the dynamic() invocation (both are wasted work when HC_DEBUG is
+    // off). logDebug re-checks the gate; passing it here is the fast path.
+    debug: (event, fields = {}) => {
+      if (process.env.HC_DEBUG !== '1') return;
+      logDebug(event, merge(fields));
+    },
   };
 }

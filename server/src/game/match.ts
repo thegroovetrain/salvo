@@ -90,14 +90,16 @@ export function dropPolicy(
 
 /**
  * Effective consecutive-tick-error tolerance before the room aborts. Parsed from
- * an operator override (a positive integer); on a missing/invalid override it
- * defaults to 3 in production and 1 elsewhere (dev fails fast, prod rides out a
- * transient blip). Env-independent by design — the caller reads process.env and
- * the prod flag; this stays pure so the policy is unit-testable.
+ * an operator override (a positive integer), clamped to [1, 100] so a fat-finger
+ * value like 1e9 can't effectively disable containment (or unthrottle error
+ * logging). On a missing/invalid override it defaults to 3 in production and 1
+ * elsewhere (dev fails fast, prod rides out a transient blip). Env-independent by
+ * design — the caller reads process.env and the prod flag; this stays pure so the
+ * policy is unit-testable.
  */
 export function resolveTickErrorTolerance(overrideRaw: string | undefined, isProd: boolean): number {
   const n = Number(overrideRaw);
-  if (Number.isInteger(n) && n > 0) return n;
+  if (Number.isInteger(n) && n > 0) return Math.min(n, 100);
   return isProd ? 3 : 1;
 }
 

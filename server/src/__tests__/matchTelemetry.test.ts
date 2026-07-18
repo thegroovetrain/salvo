@@ -130,6 +130,14 @@ describe('resolveTickErrorTolerance — override × prod/dev matrix', () => {
       expect(resolveTickErrorTolerance(bad, false)).toBe(1);
     }
   });
+
+  it('clamps oversized valid overrides to 100 (containment + log-throttle guard)', () => {
+    // Without the clamp, 1e9 disables containment and unthrottles error logging.
+    expect(resolveTickErrorTolerance('1000000000', true)).toBe(100);
+    expect(resolveTickErrorTolerance('101', false)).toBe(100);
+    expect(resolveTickErrorTolerance('100', true)).toBe(100); // boundary stays 100
+    expect(resolveTickErrorTolerance('50', false)).toBe(50); // in-range unchanged
+  });
 });
 
 describe('shouldAbortOnTickError — boundary behavior', () => {

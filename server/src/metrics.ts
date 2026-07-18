@@ -1,8 +1,11 @@
 // Story 0.3 — process-local operability metrics + the `/metrics` HTTP surface.
 //
-// This is adapter/ops code, NOT sim code: wall-clock (`Date.now()`) is allowed
-// here for one-second message bucketing (the sim purity rule that bans Date.now
-// applies to `shared/` and `game/`, not this Colyseus-side registry).
+// This is adapter/ops code, NOT sim code. Time comes from a MONOTONIC source
+// (`performance.now()`-derived) so an NTP step backwards can never stall the
+// rate window; the source is swappable via `__setNowSource()` for deterministic
+// tests (the same test-only convention as `resetMetrics()`). The sim purity rule
+// that bans wall-clock reads applies to `shared/` and `game/`, not this
+// Colyseus-side registry.
 //
 // Rooms feed the registry through a per-room handle (tick durations from the
 // room's `update()`, inbound message counts from its `onMessage` handlers) and
@@ -11,8 +14,11 @@
 //     degrading to registered-room count when matchMaker is unavailable.
 //   - tick-duration p50/p95/max (ms) across ALL registered rooms' samples,
 //     nearest-rank, plus a `samples` count so a zero is interpretable.
-//   - inbound message ratePerSec (avg over active one-second buckets in the
-//     last 60s window) and total since process start.
+//   - inbound message ratePerSec = (sum of counts in the 60s window) / (window
+//     seconds actually covered: min(60, seconds since the module first recorded
+//     anything, floor >= 1)), so a lone burst in an idle minute reports its true
+//     per-second average, not the burst size. `total` is since process start and
+//     survives room unregistration (retired rooms' counts are folded forward).
 //
 // No third-party libs, no Prometheus format, no auth — JSON body only.
 
@@ -85,19 +91,30 @@ export function computeTickPercentiles(samples: number[]): MetricsPayload['tick'
   };
 }
 
-/** Average of per-active-second counts, rounded; 0 for no data. */
-export function averageRate(counts: number[]): number {
-  if (counts.length === 0) return 0;
-  const sum = counts.reduce((acc, c) => acc + c, 0);
-  return round2(sum / counts.length);
-}
-
 // --- registry ----------------------------------------------------------------
 
 const registry = new Map<string, RoomMetrics>();
 
+/** Messages from rooms that have since unregistered, kept in the since-start total. */
+let retiredMessageTotal = 0;
+/** Monotonic second the module first recorded anything; null until first record. */
+let firstRecordSec: number | null = null;
+
+/** Monotonic clock source (ms); swappable for deterministic tests. */
+let nowMs: () => number = () => performance.now();
+
+/** Test-only: override the monotonic clock source (mirrors `resetMetrics`). */
+export function __setNowSource(fn: () => number): void {
+  nowMs = fn;
+}
+
 function nowSeconds(): number {
-  return Math.floor(Date.now() / 1000);
+  return Math.floor(nowMs() / 1000);
+}
+
+/** Stamp the module's first-record second once, so the rate window can be covered. */
+function markFirstRecord(): void {
+  if (firstRecordSec === null) firstRecordSec = nowSeconds();
 }
 
 function makeRoomMetrics(): RoomMetrics {
@@ -107,6 +124,7 @@ function makeRoomMetrics(): RoomMetrics {
 }
 
 function pushTick(room: RoomMetrics, durationMs: number): void {
+  markFirstRecord();
   if (room.ticks.length < TICK_RING_CAPACITY) {
     room.ticks.push(durationMs);
     return;
@@ -116,6 +134,7 @@ function pushTick(room: RoomMetrics, durationMs: number): void {
 }
 
 function bumpMessage(room: RoomMetrics): void {
+  markFirstRecord();
   const sec = nowSeconds();
   const bucket = room.buckets[sec % MESSAGE_BUCKET_COUNT];
   if (bucket.second !== sec) {
@@ -137,15 +156,22 @@ export function registerRoom(roomId: string): RoomMetricsHandle {
     recordTick: (durationMs: number) => pushTick(room, durationMs),
     recordMessage: () => bumpMessage(room),
     unregister: () => {
-      // Only delete if this handle's room is still the registered one.
-      if (registry.get(roomId) === room) registry.delete(roomId);
+      // Only delete if this handle's room is still the registered one. Fold its
+      // message count into the retired total so `messages.total` (since process
+      // start) never shrinks when a room disposes.
+      if (registry.get(roomId) === room) {
+        retiredMessageTotal += room.messageTotal;
+        registry.delete(roomId);
+      }
     },
   };
 }
 
-/** Test-only: clear all registered rooms and their samples. */
+/** Test-only: clear all registered rooms, retired totals, and first-record mark. */
 export function resetMetrics(): void {
   registry.clear();
+  retiredMessageTotal = 0;
+  firstRecordSec = null;
 }
 
 function allTickSamples(): number[] {
@@ -160,21 +186,30 @@ function inWindow(second: number, now: number): boolean {
   return second > now - MESSAGE_BUCKET_COUNT && second <= now;
 }
 
-/** Sum message counts across all rooms per second within the last-60s window. */
-function activeSecondCounts(now: number): number[] {
-  const perSecond = new Map<number, number>();
+/** Sum message counts across all rooms within the last-60s window. */
+function windowedMessageSum(now: number): number {
+  let sum = 0;
   for (const room of registry.values()) {
     for (const bucket of room.buckets) {
-      if (bucket.count > 0 && inWindow(bucket.second, now)) {
-        perSecond.set(bucket.second, (perSecond.get(bucket.second) ?? 0) + bucket.count);
-      }
+      if (bucket.count > 0 && inWindow(bucket.second, now)) sum += bucket.count;
     }
   }
-  return [...perSecond.values()];
+  return sum;
+}
+
+/** Seconds the rate window actually covers: min(60, uptime since first record), >= 1. */
+function coveredSeconds(now: number): number {
+  if (firstRecordSec === null) return 1;
+  return Math.max(1, Math.min(MESSAGE_BUCKET_COUNT, now - firstRecordSec));
+}
+
+/** Windowed-sum / covered-seconds inbound message rate, rounded to 2dp. */
+function ratePerSec(now: number): number {
+  return round2(windowedMessageSum(now) / coveredSeconds(now));
 }
 
 function totalMessages(): number {
-  let total = 0;
+  let total = retiredMessageTotal;
   for (const room of registry.values()) total += room.messageTotal;
   return total;
 }
@@ -204,7 +239,7 @@ export function metricsPayload(): MetricsPayload {
     players,
     tick: computeTickPercentiles(allTickSamples()),
     messages: {
-      ratePerSec: averageRate(activeSecondCounts(nowSeconds())),
+      ratePerSec: ratePerSec(nowSeconds()),
       total: totalMessages(),
     },
   };
