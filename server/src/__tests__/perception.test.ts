@@ -21,9 +21,17 @@ import {
   type Circle,
   type GameEvent,
   type FrameMsg,
+  type SpawnEvent,
+  type SunkEvent,
+  type UpgradeEvent,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+// Registry symbols are imported ONLY to ENUMERATE keys/rows for the completeness
+// block below — never as a behavior oracle. Every visibility predicate in this
+// file stays independently reimplemented (see the header), so a perception
+// refactor cannot silently agree with its own bug via a row's own visible().
+import { SIGNAL_REGISTRY } from '../game/signals.js';
 
 const TAU = Math.PI * 2;
 const SIGHT = CONFIG.vision.sight;
@@ -114,6 +122,13 @@ function injectShell(
 /** Drop a mine directly into world state (armed by default). */
 function injectMine(w: World, id: string, ownerId: string, x: number, y: number, armedAt = 0): void {
   w.mines.set(id, { id, ownerId, x, y, armedAt });
+}
+
+/** Push a raw world-emitted event onto the world's tick-event list — the exact
+ *  buffer perception.forwardedEvents() dispatches, reached the same way the
+ *  world's own step does (the field is private only to production callers). */
+function emitWorldEvent(w: World, e: GameEvent): void {
+  (w as unknown as { events: GameEvent[] }).events.push(e);
 }
 
 const blipsOf = (f: FrameMsg) => f.events.filter((e): e is BlipEvent => e.k === 'blip');
@@ -308,6 +323,28 @@ describe('perception — shell events (per-observer, exactly once)', () => {
   });
 });
 
+// ---------- fail-closed shape guards (Wave B) --------------------------------
+
+describe('perception — world-emitted ballistics never forward (fail-closed)', () => {
+  // A ballistic reveal is re-issued PER OBSERVER by the scan over live
+  // world.shells (records that carry ownerId). A raw BallisticEvent riding the
+  // tickEvents forwarding path has the WIRE shape (no ownerId), so the ballistic
+  // row's shape guard (`'ownerId' in shell`) must drop it — otherwise a client
+  // could be fed a projectile the scan never legitimately revealed to it.
+  for (const kind of ['shell', 'torp'] as const) {
+    it(`a world-emitted ${kind} GameEvent (no ownerId) reaches no frame — fogged or spectator`, () => {
+      const w = bareWorld();
+      place(w, 'a', 0, 0); // observer sitting ON the event's location (max exposure)
+      emitWorldEvent(w, { k: kind, id: 'ghost', x: 0, y: 0, vx: 1, vy: 0, t: w.now });
+      // Fogged path: dropped even point-blank on the observer.
+      expect(buildFrame(w, 'a').events.filter((e) => e.k === kind)).toEqual([]);
+      // Unfogged spectator path (finished phase): also dropped — the shape guard
+      // fires before the mode check, so fog relaxation cannot resurrect it.
+      expect(buildFrame(w, 'a', 'finished').events.filter((e) => e.k === kind)).toEqual([]);
+    });
+  }
+});
+
 describe('perception — boom / dmg / sunk / spawn visibility', () => {
   it('an out-of-sight boom is hidden from everyone but the struck ship', () => {
     const w = bareWorld();
@@ -463,64 +500,90 @@ function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean }): 
   if (!own) expect(sighted(w, me, mine)).toBe(true); // never radar, never fogged
 }
 
-function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
-  switch (e.k) {
-    case 'blip': {
-      const target = w.ships.get(e.id)!;
-      expect(target.alive).toBe(true);
-      const d = dist(me.state, target.state);
-      expect(d).toBeGreaterThan(effSight(me));
-      expect(d).toBeLessThanOrEqual(effRadar(me));
-      expect(clearLos(me.state, target.state, w.map.islands)).toBe(true);
-      expect(inPaintWindow(me, bearing(me.state, target.state))).toBe(true);
-      expect(e.t).toBe(w.now);
-      return;
-    }
-    case 'shell': {
-      const sh = w.shells.get(e.id)!;
-      expect(sh).toBeDefined();
-      expect({ x: e.x, y: e.y }).toEqual({ x: sh.x, y: sh.y }); // current pos, never launch pos
-      assertBallisticShape(e); // no range-derivable field ever leaks
-      if (sh.ownerId !== me.id) expect(sighted(w, me, e)).toBe(true);
-      return;
-    }
-    case 'boom':
-      if (e.hit !== me.id) expect(sighted(w, me, e)).toBe(true);
-      // `hit` may name a victim only when that victim's CENTER is sighted (or
-      // the observer is the victim) — a straddling hull must not leak its id.
-      if (e.hit !== undefined && e.hit !== me.id) {
-        expect(sighted(w, me, w.ships.get(e.hit)!.state)).toBe(true);
-      }
-      return;
-    case 'dmg':
-      expect(e.id).toBe(me.id);
-      return;
-    case 'upg':
-      // Self-private: an upg event may only ever reach the spending ship itself.
-      expect(e.id).toBe(me.id);
-      expect(UPGRADE_IDS).toContain(e.type);
-      return;
-    case 'pt':
-      // Self-private: a banked-point event may only ever reach the earner.
-      expect(e.id).toBe(me.id);
-      return;
-    case 'heal':
-      // Self-private: a heal event may only ever reach the healed ship.
-      expect(e.id).toBe(me.id);
-      return;
-    case 'sunk': {
-      if (e.id === me.id) return;
-      const wreck = w.ships.get(e.id)!;
-      expect(wreck).toBeDefined();
-      expect(sighted(w, me, wreck.state)).toBe(true);
-      return;
-    }
-    case 'spawn':
-      if (e.id !== me.id) expect(sighted(w, me, e)).toBe(true);
-      return;
-    default:
-      throw new Error(`unexpected event kind leaked into a frame: ${(e as GameEvent).k}`);
+// ---------- per-kind event verifiers (the independent oracle) ----------------
+//
+// One test-local verifier per GameEvent kind — the deliberately reimplemented
+// visibility oracle (NEVER a row's own visible()/materialize(), per the header).
+// verifyEvent() dispatches through EVENT_VERIFIERS; a kind with no entry throws
+// ("unexpected event kind leaked"). The completeness suite below pins this map's
+// KEY SET to the registry's event-kind rows, so a future registry row without a
+// verifier fails CI by construction (the story's marquee AC).
+
+type EventVerifier = (w: World, me: ShipRecord, e: GameEvent) => void;
+
+function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
+  const ev = e as BlipEvent;
+  const target = w.ships.get(ev.id)!;
+  expect(target.alive).toBe(true);
+  const d = dist(me.state, target.state);
+  expect(d).toBeGreaterThan(effSight(me));
+  expect(d).toBeLessThanOrEqual(effRadar(me));
+  expect(clearLos(me.state, target.state, w.map.islands)).toBe(true);
+  expect(inPaintWindow(me, bearing(me.state, target.state))).toBe(true);
+  expect(ev.t).toBe(w.now);
+}
+
+// shell AND torp share one verifier: torpedoes ride the same first-sight
+// ballistic reveal as shells (both live in world.shells, keyed by projectile id).
+function verifyBallistic(w: World, me: ShipRecord, e: GameEvent): void {
+  const ev = e as BallisticEvent;
+  const sh = w.shells.get(ev.id)!;
+  expect(sh).toBeDefined();
+  expect({ x: ev.x, y: ev.y }).toEqual({ x: sh.x, y: sh.y }); // current pos, never launch pos
+  assertBallisticShape(ev); // no range-derivable field ever leaks
+  if (sh.ownerId !== me.id) expect(sighted(w, me, ev)).toBe(true);
+}
+
+function verifyBoom(w: World, me: ShipRecord, e: GameEvent): void {
+  const ev = e as BoomEvent;
+  if (ev.hit !== me.id) expect(sighted(w, me, ev)).toBe(true);
+  // `hit` may name a victim only when that victim's CENTER is sighted (or the
+  // observer is the victim) — a straddling hull must not leak its id.
+  if (ev.hit !== undefined && ev.hit !== me.id) {
+    expect(sighted(w, me, w.ships.get(ev.hit)!.state)).toBe(true);
   }
+}
+
+function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
+  const ev = e as SunkEvent;
+  if (ev.id === me.id) return;
+  const wreck = w.ships.get(ev.id)!;
+  expect(wreck).toBeDefined();
+  expect(sighted(w, me, wreck.state)).toBe(true);
+}
+
+const EVENT_VERIFIERS: Record<string, EventVerifier> = {
+  blip: verifyBlip,
+  shell: verifyBallistic,
+  torp: verifyBallistic,
+  boom: verifyBoom,
+  sunk: verifySunk,
+  // Self-private kinds: each may only ever reach the ship its `id` names.
+  dmg: (_w, me, e) => expect(e.id).toBe(me.id), // victim-private
+  pt: (_w, me, e) => expect(e.id).toBe(me.id), // earner-private
+  heal: (_w, me, e) => expect(e.id).toBe(me.id), // healed-ship-private
+  upg: (_w, me, e) => {
+    // Self-private, and a valid upgrade id (never a fabricated type).
+    expect(e.id).toBe(me.id);
+    expect(UPGRADE_IDS).toContain((e as UpgradeEvent).type);
+  },
+  spawn: (w, me, e) => {
+    if (e.id !== me.id) expect(sighted(w, me, e as SpawnEvent)).toBe(true);
+  },
+};
+
+function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
+  // OWN-property lookup: a leaked inherited key like 'constructor' must throw
+  // "unexpected event kind leaked", never resolve an inherited Function off the
+  // map's prototype. No verifier == no registry row we recognize: fail-closed,
+  // exactly as the old `default: throw` did. Two ways this fires as a HARD
+  // failure: a kind with no registry row at all, and — because the completeness
+  // suite keeps this map and the registry in lockstep — a kind whose row exists
+  // but lacks a verifier.
+  if (!Object.hasOwn(EVENT_VERIFIERS, e.k)) {
+    throw new Error(`unexpected event kind leaked into a frame: ${(e as GameEvent).k}`);
+  }
+  EVENT_VERIFIERS[e.k](w, me, e);
 }
 
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
@@ -580,6 +643,54 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         // Build each observer's frame exactly once per tick (wire semantics).
         for (const id of ids) verifyFrame(w, id, buildFrame(w, id));
       }
+    }
+  });
+});
+
+// ---------- SIGNAL REGISTRY completeness (CI-by-construction) -----------------
+//
+// These assertions make "a signal without a passing invariant case fails CI by
+// construction" a structural property, not a discipline. SIGNAL_REGISTRY is
+// enumerated here ONLY to compare key sets — never called as a visibility
+// oracle (the reimplemented predicates above stay the sole oracle). A future
+// dev adding a 13th row sees this block fail until they add its verifier.
+
+describe('perception — SIGNAL REGISTRY completeness', () => {
+  // The two contact-like pseudo-rows are verified through the contacts/mines
+  // frame channels (verifyFrame/verifyMine), not through EVENT_VERIFIERS.
+  const CONTACT_LIKE = ['contact', 'mine'];
+  // The 10 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry.
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
+  const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
+
+  it('has exactly the 12 expected channel keys (10 event kinds + contact + mine)', () => {
+    expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(12);
+  });
+
+  it('every row keys itself: row.eventType === its registry key', () => {
+    for (const [key, row] of Object.entries(SIGNAL_REGISTRY)) {
+      expect(row.eventType).toBe(key);
+    }
+  });
+
+  it('the two contact-like pseudo-rows exist (verified via the contacts/mines channels)', () => {
+    expect(SIGNAL_REGISTRY.contact).toBeDefined();
+    expect(SIGNAL_REGISTRY.mine).toBeDefined();
+  });
+
+  it('every event-kind row has a test-local verifier — a row without one FAILS HERE', () => {
+    const rowEventKinds = Object.keys(SIGNAL_REGISTRY).filter((k) => !CONTACT_LIKE.includes(k));
+    // Key-set equality both ways: a registry row lacking a verifier AND a stray
+    // verifier with no row are each a hard failure. THIS is the CI-by-construction
+    // gate — a new 13th event row turns this red until its verifier lands.
+    expect(Object.keys(EVENT_VERIFIERS).sort()).toEqual(rowEventKinds.sort());
+  });
+
+  it('the registry AND every row are frozen (rows are added at authoring time only)', () => {
+    expect(Object.isFrozen(SIGNAL_REGISTRY)).toBe(true);
+    for (const row of Object.values(SIGNAL_REGISTRY)) {
+      expect(Object.isFrozen(row)).toBe(true);
     }
   });
 });
