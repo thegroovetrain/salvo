@@ -30,7 +30,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   // Transport-level input flood guard (0.17): breach = forced disconnect.
   // CONFIG.net.maxMessagesPerSecond is the single source of truth; the budget
   // is sized for burst DELIVERY after a wifi stall, not just the 20Hz send
-  // cadence (see constants.ts for the arrival-window derivation).
+  // cadence (see constants.ts for the arrival-window derivation). CAUTION: the
+  // 1s window resets off room.clock, which only advances while the simulation
+  // interval runs — if the sim is ever paused, this degrades into a cumulative
+  // cap that kicks an honest 20Hz client after ~10s.
   maxMessagesPerSecond = CONFIG.net.maxMessagesPerSecond;
 
   private world!: World;
@@ -162,6 +165,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.match?.notifyRosterChanged();
   }
 
+  // STORY 0.2 CAUTION: once an onDrop handler exists, Colyseus routes every
+  // non-consented close (INCLUDING rate-limit kicks) to onDrop first, and
+  // onLeave semantics change — do not assume this method keeps seeing every
+  // departure unchanged when reconnection lands.
   onLeave(client: Client): void {
     // Match owns ship removal so a mid-match departure is recorded for
     // placement (sunk-at-leave-time) before the win check runs.

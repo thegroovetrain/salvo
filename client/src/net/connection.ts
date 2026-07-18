@@ -42,6 +42,14 @@ function waitForWelcome(room: Room): Promise<WelcomeMsg> {
       clearTimeout(timer);
       reject(new Error(`room error ${code}: ${message ?? ''}`));
     });
+    // A socket close during the handshake would otherwise strand the player
+    // on a black screen until the timeout: bindRoom only attaches its onLeave
+    // after the welcome resolves. Reject immediately instead. (Harmless once
+    // settled — the signal keeps this listener, but the promise is done.)
+    room.onLeave((code) => {
+      clearTimeout(timer);
+      reject(new Error(`connection closed during welcome handshake (code ${code})`));
+    });
   });
 }
 
