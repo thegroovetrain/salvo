@@ -573,15 +573,17 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
 };
 
 function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
-  const verify = EVENT_VERIFIERS[e.k];
-  // No verifier == no registry row we recognize: fail-closed, exactly as the
-  // old `default: throw` did. Two ways this fires as a HARD failure: a kind with
-  // no registry row at all, and — because the completeness suite keeps this map
-  // and the registry in lockstep — a kind whose row exists but lacks a verifier.
-  if (verify === undefined) {
+  // OWN-property lookup: a leaked inherited key like 'constructor' must throw
+  // "unexpected event kind leaked", never resolve an inherited Function off the
+  // map's prototype. No verifier == no registry row we recognize: fail-closed,
+  // exactly as the old `default: throw` did. Two ways this fires as a HARD
+  // failure: a kind with no registry row at all, and — because the completeness
+  // suite keeps this map and the registry in lockstep — a kind whose row exists
+  // but lacks a verifier.
+  if (!Object.hasOwn(EVENT_VERIFIERS, e.k)) {
     throw new Error(`unexpected event kind leaked into a frame: ${(e as GameEvent).k}`);
   }
-  verify(w, me, e);
+  EVENT_VERIFIERS[e.k](w, me, e);
 }
 
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
@@ -685,7 +687,10 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     expect(Object.keys(EVENT_VERIFIERS).sort()).toEqual(rowEventKinds.sort());
   });
 
-  it('the registry is frozen (rows are added at authoring time only)', () => {
+  it('the registry AND every row are frozen (rows are added at authoring time only)', () => {
     expect(Object.isFrozen(SIGNAL_REGISTRY)).toBe(true);
+    for (const row of Object.values(SIGNAL_REGISTRY)) {
+      expect(Object.isFrozen(row)).toBe(true);
+    }
   });
 });

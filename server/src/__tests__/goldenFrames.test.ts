@@ -7,9 +7,26 @@
 // The serialized array is committed as a Vitest snapshot: the later refactor of
 // perception.ts must replay it byte-for-byte identically. NO Date.now() /
 // Math.random() anywhere — every number here is a fixed seed or scripted input.
+//
+// FIDELITY LIMITS (this gate is a PROXY, honest about its blind spots): frames
+// are pinned via JSON.stringify, not the msgpack encoder the wire actually uses,
+// so two shapes of bug slip past a byte-identical JSON string — (1) a key whose
+// VALUE is `undefined` is DROPPED by JSON.stringify but WOULD be encoded by
+// msgpack, and (2) `-0` serializes as `0`. Both are key/negative-zero PRESENCE
+// bugs; they are caught instead by the explicit key-order guards in
+// signals.test.ts (Object.keys equality + `'hit' in wire` presence checks),
+// which assert the materialized object shape directly rather than its JSON text.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, HEAL_CHOICE, type FrameMsg, type MatchPhase } from '@salvo/shared';
+import {
+  CONFIG,
+  HEAL_CHOICE,
+  wrapPositive,
+  type BallisticEvent,
+  type FrameMsg,
+  type GameEvent,
+  type MatchPhase,
+} from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -27,12 +44,32 @@ const EXPECTED_CHANNELS = [
   'pt', 'shell', 'spawn', 'spec', 'sunk', 'torp', 'upg',
 ];
 
+// Targeted sub-cases the APPENDED scenarios (island LOS, non-owner + spectator
+// ballistic reveals) must each prove. Recorded ONLY when the observed fact holds
+// (see prove()), so a regression OR a commented-out scenario drops a tag and
+// fails the sub-case coverage assertion — the "found-style boolean per mandatory
+// sub-case" the straddle-boom check pioneered, generalized across the additions.
+const EXPECTED_SUBCASES = [
+  'island-allows-radar-blip',
+  'island-allows-sight-contact',
+  'island-blocks-radar-blip',
+  'island-blocks-sight-contact',
+  'nonowner-hidden-at-launch',
+  'nonowner-reveal-current-params',
+  'nonowner-reveal-once',
+  'spectator-ballistic-reveal',
+  'spectator-dmg-passthrough',
+  'spectator-raw-boom',
+  'spectator-reveal-once',
+];
+
 // ---------- collector ---------------------------------------------------------
 
-/** The growing golden fixture plus the self-validating channel-coverage set. */
+/** The growing golden fixture plus the self-validating coverage sets. */
 interface Golden {
   frames: string[];
   channels: Set<string>;
+  subcases: Set<string>;
 }
 
 /** Serialize one frame into the fixture and note which channels it exercised. */
@@ -44,6 +81,16 @@ function record(g: Golden, f: FrameMsg): FrameMsg {
   g.frames.push(JSON.stringify(f));
   return f;
 }
+
+/** Record a proven sub-case iff its observed condition held — the strengthened
+ *  coverage gate (a missing tag fails the final sub-case assertion). */
+function prove(g: Golden, tag: string, held: boolean): void {
+  if (held) g.subcases.add(tag);
+}
+
+/** A ballistic reveal event (shell or torp) — the two kinds that ride the
+ *  per-observer first-sight reveal. */
+const isBallistic = (e: GameEvent): boolean => e.k === 'shell' || e.k === 'torp';
 
 /** Build one observer's frame (wire semantics: once per observer per tick). */
 function cap(g: Golden, w: World, id: string, phase?: MatchPhase): FrameMsg {
@@ -188,20 +235,121 @@ function scnStraddleBoom(g: Golden): void {
   expect(found).toBe(true); // the hit-stripped straddle boom actually occurred
 }
 
+/**
+ * Island LOS — the fog GEOMETRY bareWorld() deliberately zeroes. One island
+ * circle sits on the +x axis between observer `a` and two HIDDEN ships: `b`
+ * (inside sight, LOS-blocked -> never a contact) and `r` (in the radar annulus,
+ * LOS-blocked -> never a blip). Positive controls in the SAME frame prove the
+ * island BLOCKS rather than the ocean being empty: `c` (inside sight, LOS-clear)
+ * is a live contact and `p` (in the annulus, LOS-clear, bearing swept) paints a
+ * blip. A wide manual paint window (windowAround-style — set, don't step) exposes
+ * bearings 0 and pi/2 at once, so both radar targets reach the blip row in one
+ * frame; sight wins inside its radius, so b/c never touch the blip row.
+ */
+function scnIslandLos(g: Golden): void {
+  const w = bareWorld(1007);
+  w.map.islands.push({ x: 75, y: 0, r: 30 }); // blocks the +x axis out past sight
+  place(w, 'a', 0, 0);
+  place(w, 'b', 150, 0, 1.5); // inside sight, behind the island -> no contact
+  place(w, 'c', 100, 100); // inside sight, LOS-clear -> contact (sight control)
+  place(w, 'r', 400, 0); // radar annulus, behind the island -> no blip
+  place(w, 'p', 0, 400); // radar annulus, LOS-clear, swept -> blip (radar control)
+  const a = w.ships.get('a')!;
+  a.prevSweepAngle = wrapPositive(-0.05); // window spans bearings 0..pi/2 inclusive
+  a.sweepAngle = Math.PI / 2 + 0.05;
+  const f = cap(g, w, 'a');
+  const contactIds = f.contacts.map((c) => c.id);
+  const blipIds = f.events.filter((e) => e.k === 'blip').map((e) => e.id);
+  prove(g, 'island-blocks-sight-contact', !contactIds.includes('b'));
+  prove(g, 'island-allows-sight-contact', contactIds.includes('c'));
+  prove(g, 'island-blocks-radar-blip', !blipIds.includes('r'));
+  prove(g, 'island-allows-radar-blip', blipIds.includes('p'));
+}
+
+/**
+ * Non-owner ballistic reveal — a shell AND a torpedo fired by phantom owner `a`
+ * OUTSIDE observer `b`'s sight, each closing on b's bubble. At LAUNCH (pre-step)
+ * b's frame carries neither: the reveal is FIRST-SIGHT, never launch-state. The
+ * tick each crosses the sight boundary, b's frame reveals it with CURRENT
+ * pos/velocity and t = reveal tick (ctx.now), not the hidden launch point or
+ * bornAt (=0). The next tick — still in flight — b's frame is empty again:
+ * exactly-once per observer (seenBallistics). Three consecutive b frames pin all
+ * three states (hidden -> revealed -> silent).
+ */
+function scnBallisticReveal(g: Golden): void {
+  const w = bareWorld(1008);
+  place(w, 'b', 0, 0); // the lone observer; `a` is a phantom owner (no ship needed)
+  injectShell(w, 'sh', 'a', SIGHT + 6, 0, Math.PI, 500, 'shell'); // just outside, closing -x
+  injectShell(w, 'tp', 'a', 0, SIGHT + 6, -Math.PI / 2, 500, 'torp'); // just outside, closing -y
+  const pre = cap(g, w, 'b'); // launch tick: neither revealed (both outside sight)
+  prove(g, 'nonowner-hidden-at-launch', !pre.events.some(isBallistic));
+  w.step(); // both cross into b's sight this tick
+  const reveal = cap(g, w, 'b');
+  const sh = reveal.events.find((e) => e.k === 'shell') as BallisticEvent | undefined;
+  const tp = reveal.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
+  const live = w.shells.get('sh')!;
+  prove(
+    g,
+    'nonowner-reveal-current-params',
+    !!sh && !!tp && sh.x === live.x && sh.t === w.now && sh.t !== 0,
+  );
+  w.step(); // still airborne, but already seen
+  const after = cap(g, w, 'b');
+  prove(g, 'nonowner-reveal-once', !after.events.some(isBallistic));
+}
+
+/**
+ * Spectator ballistic reveal — the unfogged spectator variants reviewers found
+ * untested. Projectile `fly` is launched while `c` is alive but never sights it;
+ * c then dies in the active phase and spectates. c's spectator frame reveals
+ * `fly` MID-FLIGHT with current params (the sight gate is skipped, but the
+ * exactly-once seenBallistics memory still holds — the next spectator frame omits
+ * it). The SAME frame also carries a `dmg` for `e` (spectatorPublic passthrough:
+ * a dead player may watch a live fight's hp) and a RAW `boom` (spectators get the
+ * unstripped event). upg/pt/heal would stay self-private even here; this scenario
+ * pins the two self-private exceptions that DO pass to a spectator.
+ */
+function scnSpectatorBallistic(g: Golden): void {
+  const w = bareWorld(1009);
+  place(w, 'c', 0, 0); // the soon-to-be spectator
+  const e = place(w, 'e', 150, 0); // a live fight c will watch from the afterlife
+  e.hp = 100; // survives the hit -> a clean dmg (no sunk)
+  injectShell(w, 'hit', 'd', 130, 0, 0, 100, 'shell'); // point-blank on e -> boom + dmg
+  injectShell(w, 'fly', 'd', 300, 300, Math.PI / 4, 500, 'shell'); // stays airborne (reveal subject)
+  w.respawnEnabled = false; // active-phase policy: the dead stay dead
+  w.sinkShip('c', 'b'); // c dies -> spectates (phantom killer 'b')
+  w.step(); // shell strikes e; fly flies on
+  const spec = cap(g, w, 'c', 'active'); // spectator: fly reveal + dmg(e) + raw boom
+  prove(g, 'spectator-ballistic-reveal', spec.events.some((ev) => ev.k === 'shell' && ev.id === 'fly'));
+  prove(g, 'spectator-dmg-passthrough', spec.events.some((ev) => ev.k === 'dmg' && ev.id === 'e'));
+  prove(g, 'spectator-raw-boom', spec.events.some((ev) => ev.k === 'boom' && ev.id === 'hit') && spec.spec === true);
+  w.step(); // fly still airborne but already revealed
+  const again = cap(g, w, 'c', 'active');
+  prove(g, 'spectator-reveal-once', !again.events.some((ev) => ev.k === 'shell' && ev.id === 'fly'));
+}
+
 // ---------- the fixture -------------------------------------------------------
 
 describe('golden frames — byte-identity gate for the perception refactor', () => {
   it('serializes every signal channel across observers and ticks, deterministically', () => {
-    const g: Golden = { frames: [], channels: new Set() };
+    const g: Golden = { frames: [], channels: new Set(), subcases: new Set() };
     scnSightSpawnBlip(g);
     scnCombat(g);
     scnUpgHealPt(g);
     scnMines(g);
     scnSpectator(g);
     scnStraddleBoom(g);
+    // Appended scenarios (must not disturb the six above or their snapshot rows).
+    scnIslandLos(g);
+    scnBallisticReveal(g);
+    scnSpectatorBallistic(g);
 
     // Self-validating coverage: the fixture can never silently lose a channel.
     expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);
+    // Strengthened coverage: every appended scenario's mandatory sub-cases were
+    // actually OBSERVED (each tag is recorded only when its fact held), so a
+    // regression or a removed scenario fails here.
+    expect([...g.subcases].sort()).toEqual(EXPECTED_SUBCASES);
     // The byte-identity gate itself: the committed snapshot pins every frame's
     // serialized form (JSON key order => msgpack key order on the wire).
     expect(g.frames).toMatchSnapshot();

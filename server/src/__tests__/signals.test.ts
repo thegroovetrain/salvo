@@ -102,7 +102,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 100, 0, 1.2);
     b.state.speed = 12;
-    const row = signalFor('contact')!;
+    const row = SIGNAL_REGISTRY.contact; // pseudo-row: direct access (not signalFor)
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, b)).toBe(true);
     const wire = row.materialize(ctx, b);
@@ -148,7 +148,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const mine = makeMine({ ownerId: 'a', x: 50, y: 0 }); // owner sees it always
-    const row = signalFor('mine')!;
+    const row = SIGNAL_REGISTRY.mine; // pseudo-row: direct access (not signalFor)
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, mine)).toBe(true);
     const wire = row.materialize(ctx, mine);
@@ -212,7 +212,7 @@ describe('SIGNAL_REGISTRY — ballistic reveal timestamps', () => {
 // ---------- exactly-once side effect ------------------------------------------
 
 describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', () => {
-  it('materializing marks the id seen; visible() then reports false for it', () => {
+  it('materialize is PURE (no mutation); marking the id is what flips visible()', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const shell = makeShell({ id: 's1', ownerId: 'a', kind: 'shell' });
@@ -221,7 +221,13 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
     expect(a.seenBallistics.has('s1')).toBe(false);
     expect(row.visible(ctx, shell)).toBe(true);
     row.materialize(ctx, shell);
-    expect(a.seenBallistics.has('s1')).toBe(true);
+    // The reveal mark is the SCAN's job, never materialize: shaping the wire
+    // object must NOT mutate seenBallistics (a mutating materialize on a public
+    // registry would let counter-intel wiring consume reveals by accident).
+    expect(a.seenBallistics.has('s1')).toBe(false);
+    expect(row.visible(ctx, shell)).toBe(true); // still visible — nothing marked
+    // Manually mark the id (what perception.ballisticScan does) => now hidden.
+    a.seenBallistics.add('s1');
     expect(row.visible(ctx, shell)).toBe(false);
   });
 
@@ -233,7 +239,8 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, torp)).toBe(true);
     row.materialize(ctx, torp);
-    expect(a.seenBallistics.has('t1')).toBe(true);
+    expect(a.seenBallistics.has('t1')).toBe(false); // pure — no mutation
+    a.seenBallistics.add('t1'); // the scan marks it
     expect(row.visible(ctx, torp)).toBe(false);
   });
 });
@@ -241,19 +248,43 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
 // ---------- fail-closed lookups -----------------------------------------------
 
 describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
+  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 10 GameEvent
+  // kinds. The two contact/mine pseudo-rows are unreachable from it (a fabricated
+  // k:'mine' world event can never materialize), and inherited prototype keys
+  // resolve to nothing (Object.hasOwn lookup).
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
+
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();
     expect(signalFor('')).toBeUndefined();
     expect(signalFor('CONTACT')).toBeUndefined(); // case-sensitive, not fuzzy
   });
 
-  it('signalFor resolves every one of the 12 known keys to its registry row', () => {
-    for (const key of REGISTRY_KEYS) {
+  it('signalFor resolves exactly the 10 event kinds to their registry rows', () => {
+    for (const key of EVENT_KINDS) {
       expect(signalFor(key)).toBe(SIGNAL_REGISTRY[key as keyof typeof SIGNAL_REGISTRY]);
     }
   });
 
-  it('SIGNAL_REGISTRY is frozen', () => {
+  it('signalFor excludes the contact/mine pseudo-rows (world-event dispatch only)', () => {
+    expect(signalFor('contact')).toBeUndefined();
+    expect(signalFor('mine')).toBeUndefined();
+    // ...but the rows themselves still exist for direct scan-driven access.
+    expect(SIGNAL_REGISTRY.contact).toBeDefined();
+    expect(SIGNAL_REGISTRY.mine).toBeDefined();
+  });
+
+  it('signalFor never resolves an inherited prototype key to a Function', () => {
+    expect(signalFor('constructor')).toBeUndefined();
+    expect(signalFor('toString')).toBeUndefined();
+    expect(signalFor('hasOwnProperty')).toBeUndefined();
+    expect(signalFor('__proto__')).toBeUndefined();
+  });
+
+  it('SIGNAL_REGISTRY AND every row are frozen', () => {
     expect(Object.isFrozen(SIGNAL_REGISTRY)).toBe(true);
+    for (const row of Object.values(SIGNAL_REGISTRY)) {
+      expect(Object.isFrozen(row)).toBe(true);
+    }
   });
 });

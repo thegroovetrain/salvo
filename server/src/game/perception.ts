@@ -30,8 +30,6 @@ import type { BallisticEvent, BlipEvent, Contact, GameEvent, MineView } from '@s
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, signalFor, type SignalContext } from './signals.js';
 
-export { losClear } from './signals.js';
-
 /** Everything one observer may know this tick. */
 export interface PerceptionView {
   contacts: Contact[];
@@ -102,7 +100,13 @@ function ballisticScan(world: World, ctx: SignalContext): BallisticEvent[] {
   const out: BallisticEvent[] = [];
   for (const shell of world.shells.values()) {
     const row = SIGNAL_REGISTRY[shell.kind];
-    if (row.visible(ctx, shell)) out.push(row.materialize(ctx, shell));
+    if (!row.visible(ctx, shell)) continue;
+    out.push(row.materialize(ctx, shell));
+    // The exactly-once reveal mark lives HERE, not in materialize (which is a
+    // pure wire-shaper). visible() guarantees ctx.me exists (fogged: always;
+    // spectator: it fails closed when !me), so mark immediately — same tick and
+    // per-projectile order the old mutating materialize used.
+    ctx.me?.seenBallistics.add(shell.id);
   }
   return out;
 }

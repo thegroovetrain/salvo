@@ -32,6 +32,7 @@ import {
   type Circle,
   type Contact,
   type DamageEvent,
+  type GameEvent,
   type HealEvent,
   type MineView,
   type PointEvent,
@@ -265,11 +266,11 @@ function ballisticSignal(kind: 'shell' | 'torp'): SignalSpec<ShellState, Ballist
       return shell.ownerId === me.id || pointSighted(me, shell, ctx.islands);
     },
     materialize(ctx, shell) {
-      // DELIBERATE SIDE EFFECT during frame build: mark the projectile seen for
-      // this observer (the exactly-once semantics). visible() guarantees `me`
-      // exists and has not seen this id; the guard only keeps the types honest.
-      const me = ctx.me;
-      if (me) me.seenBallistics.add(shell.id);
+      // PURE wire-shaper — no mutation. Marking the projectile seen (the
+      // exactly-once semantics) is the SCAN's job: perception.ballisticScan
+      // marks each revealed id immediately after pushing this shape. A mutating
+      // materialize on a publicly importable registry would let Story 1.8's
+      // counter-intel wiring accidentally consume reveals just by shaping one.
       // `t` is REVEAL time (ctx.now), never the projectile's bornAt.
       return { k: shell.kind, id: shell.id, x: shell.x, y: shell.y, vx: shell.vx, vy: shell.vy, t: ctx.now };
     },
@@ -374,14 +375,25 @@ function selfPrivateSignal<E extends DamageEvent | UpgradeEvent | PointEvent | H
 // The registry: every spatial signal channel, one row each.
 // ---------------------------------------------------------------------------
 
+/** Freeze the registry AND every row inside it. A shallow Object.freeze on the
+ *  map alone would leave the rows mutable (a counter-intel slot could be
+ *  monkey-patched onto a row at runtime); this freezes each row too. Generic
+ *  over the map type so the precise per-key row types survive
+ *  (SIGNAL_REGISTRY.contact stays SignalSpec<ShipRecord, Contact>). */
+const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
+  for (const key of Object.keys(rows) as (keyof T)[]) Object.freeze(rows[key]);
+  return Object.freeze(rows);
+};
+
 /**
  * String-keyed registry of every signal channel — the 10 GameEvent kinds plus
  * the `contact`/`mine` pseudo-types. perception.ts dispatches world events by
  * `e.k` (an emitted kind with no row is a hard fail-closed drop) and drives
- * the contact/blip/ballistic/mine scans through their rows. Frozen: rows are
- * added at authoring time only, each with its required invariant test case.
+ * the contact/blip/ballistic/mine scans through their rows. Deep-frozen: the
+ * map AND every row are frozen — rows are added at authoring time only, each
+ * with its required invariant test case.
  */
-export const SIGNAL_REGISTRY = Object.freeze({
+export const SIGNAL_REGISTRY = deepFreezeRows({
   contact: contactSignal,
   mine: mineSignal,
   blip: blipSignal,
@@ -397,11 +409,30 @@ export const SIGNAL_REGISTRY = Object.freeze({
 });
 
 /**
- * Row lookup for world-event dispatch. Returns undefined for an unknown kind —
- * the caller must drop the event (fail-closed: nothing spatial leaves the
- * server outside a registry row). The widening cast is safe: every row is a
- * SignalSpec, and the caller only sees the erased-subject interface.
+ * COMPILE-TIME EXHAUSTIVENESS (zero runtime cost — types are fully erased):
+ * adding an 11th GameEvent kind in shared/src/types.ts without a matching
+ * registry row makes `MissingEventRows` a non-`never` type, which then fails the
+ * `AssertNever` constraint and breaks `tsc`. The registry MAY hold extra keys
+ * (the contact/mine pseudo-rows); it may never OMIT a GameEvent kind.
+ */
+type MissingEventRows = Exclude<GameEvent['k'], keyof typeof SIGNAL_REGISTRY>;
+type AssertNever<T extends never> = T;
+// Exported only so it counts as "used" — nothing imports it; its sole purpose
+// is that `tsc` evaluates the AssertNever constraint on MissingEventRows here.
+export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
+
+/**
+ * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
+ * ONLY the 10 GameEvent-kind rows. It excludes the contact/mine pseudo-rows so a
+ * fabricated `k:'mine'` world event can never materialize (restoring the old
+ * dispatcher's `default: return null` guarantee), and uses an OWN-property
+ * lookup (Object.hasOwn) so an inherited prototype key ('constructor',
+ * 'toString') resolves to undefined, not a Function. Any unresolved kind fails
+ * closed: the caller drops the event (nothing spatial leaves the server outside
+ * a registry row).
  */
 export function signalFor(kind: string): SignalSpec | undefined {
+  if (kind === 'contact' || kind === 'mine') return undefined; // pseudo-rows never dispatch
+  if (!Object.hasOwn(SIGNAL_REGISTRY, kind)) return undefined; // own-property only
   return (SIGNAL_REGISTRY as Partial<Record<string, SignalSpec>>)[kind];
 }
