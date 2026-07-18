@@ -2,8 +2,9 @@
 title: 'Story 0.2: Reconnect Into Your Own Ship'
 type: 'feature'
 created: '2026-07-18'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'f339c7ad122132fbfd853b02ae9647cc6cab8a06'
+final_revision: '77f4770e69efe8b0bd4c9fa5cc02678cce82b0fe'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
