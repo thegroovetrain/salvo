@@ -2,10 +2,10 @@
 title: 'Story 0.2: Reconnect Into Your Own Ship'
 type: 'feature'
 created: '2026-07-18'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'f339c7ad122132fbfd853b02ae9647cc6cab8a06'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   [
     '{project-root}/_bmad-output/project-context.md',
@@ -82,7 +82,7 @@ warnings: ['oversized']
 - [x] `client/src/net/connection.ts` -- enable auto-reconnect (explicit settings incl. retries; note `minUptime` 5000ms means drops <5s after join don't auto-resume — accepted); send `pv` -- client half of both features
 - [x] `client/src/main.ts` + `client/src/net/roomBindings.ts` -- onDrop/onReconnect wiring (banner, ring clear + forceSnap); version-rejection menu message -- resume must feel seamless, not teleport-y
 - [x] `server/scripts/reconnectSmoke.mjs` -- new smoke covering matrix rows 1-4 over real sockets -- the AC proof
-- [ ] server + client unit tests -- drop-policy decisions, teardown-once semantics, connection.test.ts update, pv gate accept/reject -- regression net for the I/O matrix
+- [x] server + client unit tests -- drop-policy decisions, teardown-once semantics, connection.test.ts update, pv gate accept/reject -- regression net for the I/O matrix
 
 **Acceptance Criteria:**
 
@@ -94,6 +94,28 @@ warnings: ['oversized']
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-07-18 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 1, medium 2, low 8)
+- defer: 3: (high 0, medium 1, low 2)
+- reject: 2
+- addressed_findings:
+  - `[high]` `[patch]` onDrop ignored the close code, so punitive kicks (rate-limit 4002, malformed messages) also earned the 60s grace — and matchMaker.reconnect bypasses onAuth, so a kicked malicious client could token-reconnect back in or stall the endgame as a headless ghost (CONFIRMED independently by Blind Hunter AND Codex) → dropPolicy gained a reconnectableClose dimension; grace now only for the SDK's own auto-reconnect close set {1001, 1005, 1006, 4010}; full 4-D policy matrix + wiring tests added
+  - `[medium]` `[patch]` Match finishing during grace lost the one-shot results broadcast — a captain resuming in the results window got a DISCONNECTED dead end instead of placements → ArenaRoom caches the last ResultsMsg and re-sends it to a successfully resumed client
+  - `[medium]` `[patch]` onReconnect mirrored handleSpawn incompletely (no camera snap) — a 60s-away hull meant a cross-map camera chase → pendingSnap flag consumes the first post-resume own frame and fires onOwnSpawn(x, y); tested
+  - `[low]` `[patch]` connectErrorStatus keyed on a loose /version|mismatch/ regex → now discriminates on MatchMakeError.code === 525 (AUTH_FAILED) with exact-phrase fallback
+  - `[low]` `[patch]` void-ed allowReconnection bet on core internals for rejection handling → .then/.catch chain with version-pinned comment (verified @colyseus/core 0.17.44)
+  - `[low]` `[patch]` RECONNECTING banner displaced by M/P auto-hide toasts (single banner slot) → reconnecting flag suppresses transient toasts during an outage
+  - `[low]` `[patch]` Comments misdescribed the failure route (fast-fail on refused seat vs retry exhaustion) → both routes documented in connection.ts/roomBindings.ts
+  - `[low]` `[patch]` Retry-budget test (>= 16) didn't guard the derivation → test now reproduces the SDK backoff formula and asserts cumulative span ≥ grace + skew
+  - `[low]` `[patch]` Spec's "replayed token" matrix row untested → reconnectSmoke replays the consumed token post-resume and asserts rejection; port-leak check now fails the smoke; SDK-internal ws access annotated
+  - `[low]` `[patch]` onDrop glue untested + teardown OR-guard's silent contracts → wiring tests (hold/punitive/phase/sunk/results-resend) + assumptions comment
+  - `[low]` `[patch]` Prediction keeps applying local input during an outage (diverge-then-snap) → documented as an accepted 0.2 limitation in code and tests; freeze/flag UX belongs to Epic 6.7
+- Deferred: unlimited grace chaining (per-match grace budget is a game-design decision for Eric); half-resume token-rotation double-fault (degrades to pre-0.2 disconnect, no seizure); sunk-while-away client death-flow polish (killer-follow/kill-feed on resume) — all logged in deferred-work.md.
+- Rejected (verified noise): stale contact ghosts after resume (last-seen rendering is the fog-of-war design and self-heals via TTL); reviewer "verified-clean" notes (not defects).
 
 ## Design Notes
 
@@ -110,3 +132,19 @@ warnings: ['oversized']
 - `node server/scripts/reconnectSmoke.mjs` -- expected: drop/hold/resume/forged-token matrix proven over real sockets
 - `node server/scripts/matchSmoke.mjs` + remaining smokes vs self-owned `HC_DEV_OPTIONS=1` server -- expected: consented-leave behavior unchanged (matchSmoke keeps its pre-existing flakiness caveat)
 - `grep -rn "colyseus" server/src/game/` -- expected: no matches
+
+## Auto Run Result
+
+**Status:** done (2026-07-18)
+
+**Summary:** A dropped connection is no longer a death sentence. Non-consented network drops during an active match now route through `ArenaRoom.onDrop` → `allowReconnection(client, CONFIG.net.reconnectGraceSeconds = 60)`: the ship keeps sailing under its last telegraph order as a visible, huntable participant that still counts in the win check, and all leave teardown (sunk-at-leave placement, removeShip, checkWin) is deferred to grace expiry. Resumption is authenticated solely by the Colyseus 0.17 reconnection token (nanoid, server-validated; forged AND replayed tokens proven rejected over real sockets) and lands on the same sessionId/ship with listeners intact via the SDK's same-Room auto-reconnect (re-enabled client-side, 18 retries spanning grace + skew). Grace is offered ONLY for genuine abnormal closes ({1001, 1005, 1006, 4010} — the SDK's own auto-reconnect set); punitive kicks (rate-limit 4002, malformed messages) tear down immediately. Deferred-work pickups shipped alongside: the PROTOCOL_VERSION join gate (static onAuth rejects missing/mismatched `pv` pre-seat with a "please refresh" message the menu renders; reconnects are not re-gated) and the afterStep JOINED guard (frames no longer pile into the unbounded transport buffer during handshake/reconnect-ack windows).
+
+**Files changed:** `shared/src/constants.ts` (CONFIG.net.reconnectGraceSeconds); `server/src/game/match.ts` (pure dropPolicy with close-code dimension); `server/src/rooms/ArenaRoom.ts` (onDrop/teardown/onAuth pv gate/afterStep guard/results re-send on resume); `server/src/rooms/roomOptions.ts` (pv option + protocolVersionError); `client/src/net/connection.ts` (auto-reconnect enabled + retry derivation, pv, connectErrorStatus keyed on code 525); `client/src/net/roomBindings.ts` (onDrop/onReconnect wiring, ring clear + forceSnap + camera snap on first post-resume frame); `client/src/main.ts` (RECONNECTING banner, toast suppression while reconnecting, version-mismatch menu message); `server/scripts/*.mjs` ×8 (pv in join options); NEW `server/scripts/reconnectSmoke.mjs`, `server/src/__tests__/reconnect.test.ts` (23 tests), `client/src/__tests__/roomBindings.test.ts`; updated `client/src/__tests__/connection.test.ts`.
+
+**Review findings breakdown:** three parallel reviewers (Blind Hunter, Edge Case Hunter, Codex cross-model challenge). 11 patches applied (1 high: punitive kicks earned grace + token walk-back — flagged independently by two models; 2 medium: lost results broadcast on resume-during-results, missing camera snap on resume; 8 low), 3 deferred to deferred-work.md (grace-chaining budget [design decision for Eric], half-resume token-rotation double-fault, sunk-while-away death-flow polish), 2 rejected as verified noise. No intent gaps, no bad_spec loopbacks.
+
+**Verification performed:** `npm run check` exit 0 — 685 tests green (129 shared + 275 server + 281 client; +32 over baseline), lint + tsc clean all workspaces. reconnectSmoke passes over real sockets (pv rejection → live match → abnormal drop → 3.5s hold with ship sailing pilotless in the other client's view → forged token rejected → same-sessionId resume with control re-proven → replayed token rejected). All 7 other deterministic smokes pass (smoke, combat, weapons, fog, prediction vs self-owned :2611 server; zone, drones self-booting). matchSmoke failed once on "suppressed torpedo impact" — a documented pre-existing flake reproduced on the pristine baseline commit during this run (not a 0.2 regression). `grep -rn colyseus server/src/game/` clean.
+
+**Residual risks:** (1) mid-match page reload joins as a NEW ship while the old ghost sails out its grace (accepted; real page-reload resume is Epic 6.7); (2) drops within 5s of joining don't auto-resume (SDK minUptime default, accepted); (3) matchSmoke remains an unreliable regression signal until hardened (deferred since 0.1); (4) the three deferred items above.
+
+**Autonomous rulings for Eric's morning review:** grace = 60s (CONFIG-declared); grace only during the active phase; punitive-kick close codes get no grace; pv gate rejects MISSING pv too (stale-but-compatible tabs get "refresh" — conservative); minimal RECONNECTING banner now, full UX in 6.7; PROTOCOL_VERSION gate + afterStep guard pulled forward from deferred-work as spec'd riders on the same join path.

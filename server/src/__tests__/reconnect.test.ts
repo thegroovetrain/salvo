@@ -16,9 +16,9 @@
 //     simulated under its last stored input (only removeShip clears the input
 //     store) and still counts in the win check.
 
-import { describe, it, expect } from 'vitest';
-import { CONFIG, PROTOCOL_VERSION } from '@salvo/shared';
-import { ServerError, ErrorCode } from 'colyseus';
+import { describe, it, expect, vi } from 'vitest';
+import { CONFIG, MSG, PROTOCOL_VERSION, type ResultsMsg } from '@salvo/shared';
+import { CloseCode, ServerError, ErrorCode } from 'colyseus';
 import { World } from '../game/world.js';
 import { Match, dropPolicy, type MatchHooks } from '../game/match.js';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
@@ -92,19 +92,27 @@ function input(seq: number, throttle: number, rudder = 0): unknown {
 // --- dropPolicy --------------------------------------------------------------
 
 describe('dropPolicy', () => {
-  it('holds ONLY an active-match participant whose hull is afloat', () => {
-    expect(dropPolicy(true, true, true)).toBe('hold');
+  it('holds ONLY a reconnectable-close, active-match participant whose hull is afloat', () => {
+    expect(dropPolicy(true, true, true, true)).toBe('hold');
   });
 
-  it('tears down every other combination', () => {
+  it('tears down every other combination (full 4-D matrix)', () => {
     for (const matchActive of [true, false]) {
       for (const hasShip of [true, false]) {
         for (const shipAlive of [true, false]) {
-          if (matchActive && hasShip && shipAlive) continue;
-          expect(dropPolicy(matchActive, hasShip, shipAlive)).toBe('teardown');
+          for (const reconnectable of [true, false]) {
+            if (matchActive && hasShip && shipAlive && reconnectable) continue;
+            expect(dropPolicy(matchActive, hasShip, shipAlive, reconnectable)).toBe('teardown');
+          }
         }
       }
     }
+  });
+
+  it('a punitive close never holds, even for a live afloat participant', () => {
+    // reconnectableClose=false is the room mapping of WITH_ERROR 4002 (kick),
+    // server shutdown, etc. — a kicked client must not earn the grace window.
+    expect(dropPolicy(true, true, true, false)).toBe('teardown');
   });
 });
 
@@ -248,6 +256,119 @@ describe('deferred teardown (grace window)', () => {
     step(h, 40); // 2s of the ghost holding fireSeq=1 — no new launches
     expect(h.w.shells.size).toBeLessThanOrEqual(shellsAfterClick);
     expect(h.w.ships.get('a')!.lastFireSeq).toBe(1);
+  });
+});
+
+// --- onDrop wiring (F4) ------------------------------------------------------
+// The pure hold/teardown decision is covered above; this exercises the GLUE in
+// ArenaRoom.onDrop: close-code -> reconnectable mapping, allowReconnection call
+// (grace seconds), the phase gate, and the F2 results re-send on resume. A bare
+// `new ArenaRoom()` never runs core's __init(), so we inject fakes via `as any`
+// and stub allowReconnection with a spy returning a controllable promise.
+
+interface WiringRoom {
+  world: { ships: Map<string, { alive: boolean }> };
+  match: { phase: string } | null;
+  lastResults: ResultsMsg | null;
+  allowReconnection: (client: unknown, seconds: number) => Promise<unknown>;
+  onDrop(client: { sessionId: string }, code?: number): void;
+}
+
+function wiringRoom(opts: {
+  phase: string;
+  ship?: { alive: boolean };
+  lastResults?: ResultsMsg;
+  reconnectPromise?: Promise<unknown>;
+}): { room: WiringRoom; allow: ReturnType<typeof vi.fn> } {
+  const allow = vi.fn(() => opts.reconnectPromise ?? new Promise<unknown>(() => undefined));
+  const room = new ArenaRoom() as unknown as WiringRoom;
+  const ships = new Map<string, { alive: boolean }>();
+  if (opts.ship) ships.set('a', opts.ship);
+  room.world = { ships };
+  room.match = { phase: opts.phase };
+  room.lastResults = opts.lastResults ?? null;
+  room.allowReconnection = allow as unknown as WiringRoom['allowReconnection'];
+  return { room, allow };
+}
+
+const RESUMABLE = CloseCode.ABNORMAL_CLOSURE; // 1006, in RECONNECTABLE_CLOSE_CODES
+const CLIENT = { sessionId: 'a' };
+
+describe('ArenaRoom.onDrop wiring', () => {
+  it('(a) reconnectable close + active + alive -> allowReconnection(grace)', () => {
+    const { room, allow } = wiringRoom({ phase: 'active', ship: { alive: true } });
+    room.onDrop(CLIENT, RESUMABLE);
+    expect(allow).toHaveBeenCalledTimes(1);
+    expect(allow.mock.calls[0][1]).toBe(CONFIG.net.reconnectGraceSeconds);
+  });
+
+  it('(b) punitive close (WITH_ERROR 4002) -> allowReconnection NOT called', () => {
+    const { room, allow } = wiringRoom({ phase: 'active', ship: { alive: true } });
+    room.onDrop(CLIENT, CloseCode.WITH_ERROR);
+    expect(allow).not.toHaveBeenCalled();
+  });
+
+  it('(b2) undefined / server-shutdown / consented codes -> NOT called', () => {
+    for (const code of [undefined, CloseCode.SERVER_SHUTDOWN, CloseCode.CONSENTED, CloseCode.FAILED_TO_RECONNECT]) {
+      const { room, allow } = wiringRoom({ phase: 'active', ship: { alive: true } });
+      room.onDrop(CLIENT, code);
+      expect(allow).not.toHaveBeenCalled();
+    }
+  });
+
+  it('(c) drop during waiting/countdown -> allowReconnection NOT called', () => {
+    for (const phase of ['waiting', 'countdown', 'finished']) {
+      const { room, allow } = wiringRoom({ phase, ship: { alive: true } });
+      room.onDrop(CLIENT, RESUMABLE);
+      expect(allow).not.toHaveBeenCalled();
+    }
+  });
+
+  it('(c2) reconnectable close but hull already sunk -> NOT called', () => {
+    const { room, allow } = wiringRoom({ phase: 'active', ship: { alive: false } });
+    room.onDrop(CLIENT, RESUMABLE);
+    expect(allow).not.toHaveBeenCalled();
+  });
+
+  it('(d) resume with cached results re-sends MSG.results to the new client', async () => {
+    const results: ResultsMsg = { winnerId: 'a', rows: [] };
+    const newClient = { send: vi.fn() };
+    const { room } = wiringRoom({
+      phase: 'active',
+      ship: { alive: true },
+      lastResults: results,
+      reconnectPromise: Promise.resolve(newClient),
+    });
+    room.onDrop(CLIENT, RESUMABLE);
+    await Promise.resolve(); // flush the .then microtask
+    await Promise.resolve();
+    expect(newClient.send).toHaveBeenCalledWith(MSG.results, results);
+  });
+
+  it('(d2) resume without cached results sends nothing', async () => {
+    const newClient = { send: vi.fn() };
+    const { room } = wiringRoom({
+      phase: 'active',
+      ship: { alive: true },
+      reconnectPromise: Promise.resolve(newClient),
+    });
+    room.onDrop(CLIENT, RESUMABLE);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(newClient.send).not.toHaveBeenCalled();
+  });
+
+  it('(d3) a rejected reconnection promise is swallowed (no unhandled rejection)', async () => {
+    const { room } = wiringRoom({
+      phase: 'active',
+      ship: { alive: true },
+      reconnectPromise: Promise.reject(new Error('grace expired')),
+    });
+    expect(() => room.onDrop(CLIENT, RESUMABLE)).not.toThrow();
+    await Promise.resolve();
+    await Promise.resolve();
+    // If the .catch() were missing, the rejected promise above would surface as
+    // an unhandledRejection and fail the suite.
   });
 });
 

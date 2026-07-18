@@ -57,15 +57,29 @@ export type DropPolicy = 'hold' | 'teardown';
 
 /**
  * Drop policy for a non-consented disconnect: offer the reconnect grace window
- * ('hold' — the ship keeps sailing under its last stored input) ONLY to an
- * active-match participant whose hull is still afloat. Everything else —
- * waiting/countdown/results phases (a ghost must never arm or hold the
- * countdown), sandbox rooms (no Match), shipless sessions, and dead
- * spectators — gets today's immediate leave teardown. Pure so the room's
- * decision logic stays unit-testable without a transport.
+ * ('hold' — the ship keeps sailing under its last stored input) ONLY when ALL
+ * of the following hold:
+ *   - the close was a genuine abnormal/network drop the SDK auto-reconnects on
+ *     (reconnectableClose — the room maps the WebSocket close code; see
+ *     ArenaRoom.RECONNECTABLE_CLOSE_CODES). PUNITIVE closes — rate-limit /
+ *     malformed-message kicks (WITH_ERROR 4002), server shutdown, etc. — are
+ *     NOT reconnectable and must fall through to teardown, or a kicked client
+ *     holding its reconnectionToken could walk right back in (matchMaker.
+ *     reconnect() bypasses onAuth) or stall the endgame as a headless ghost.
+ *   - the match is active (a ghost must never arm or hold the countdown, and
+ *     the results window / sandbox rooms have nothing to hold),
+ *   - the session still owns a ship,
+ *   - that hull is still afloat (a dead spectator has nothing to resume into).
+ * Everything else gets today's immediate leave teardown. Pure so the FULL
+ * matrix stays unit-testable without a transport.
  */
-export function dropPolicy(matchActive: boolean, hasShip: boolean, shipAlive: boolean): DropPolicy {
-  return matchActive && hasShip && shipAlive ? 'hold' : 'teardown';
+export function dropPolicy(
+  matchActive: boolean,
+  hasShip: boolean,
+  shipAlive: boolean,
+  reconnectableClose: boolean,
+): DropPolicy {
+  return matchActive && hasShip && shipAlive && reconnectableClose ? 'hold' : 'teardown';
 }
 
 /** Snapshot of a participant's identity + tallies (survives their ship's removal). */

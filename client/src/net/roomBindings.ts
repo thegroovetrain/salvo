@@ -95,16 +95,29 @@ export interface RoomBindingDeps {
   onRoomLeave: (code: number) => void;
   /**
    * A non-consented socket drop while the SDK auto-reconnects the same room
-   * (RECONNECTING banner). If retries are exhausted, onRoomLeave fires next.
+   * (RECONNECTING banner). Two routes end at onRoomLeave: a fast-fail when the
+   * seat is already gone (first retry refused, ~200ms), or retry exhaustion
+   * against an unreachable server across the grace span.
    */
   onDrop: () => void;
   /** The SDK re-established the same room within grace (clear the banner). */
   onReconnect: () => void;
 }
 
+/**
+ * Cross-callback resume state. A reconnect resumes mid-flight: the ship's
+ * authoritative pose does not ride the onReconnect signal — it arrives on the
+ * NEXT frame's `you`. So we arm a one-shot camera snap here and consume it in
+ * handleFrame, completing the handleSpawn mirror (clear → forceSnap → snap).
+ */
+interface ResumeState {
+  pendingSnap: boolean;
+}
+
 /** Attach frame/results/error/leave handling to a completed connection. */
 export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
-  conn.sink.handler = (f) => handleFrame(f, deps);
+  const resume: ResumeState = { pendingSnap: false };
+  conn.sink.handler = (f) => handleFrame(f, deps, resume);
   conn.room.onMessage(MSG.results, (msg: ResultsMsg) => {
     deps.state.matchOver = true;
     deps.onResults(msg);
@@ -121,22 +134,30 @@ export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
   // intact); onReconnect fires when a retry re-establishes the room.
   conn.room.onDrop(() => {
     console.warn('[net] connection dropped — auto-reconnecting');
+    // ACCEPTED LIMITATION (0.2): prediction keeps sampling + applying local
+    // input through the outage. The SDK buffers only the last 10 sends and the
+    // server holds the LAST RECEIVED input, so the on-screen ship diverges under
+    // un-acked steering until the resume forceSnap corrects it. The richer
+    // freeze/flag UX (visibly park the hull, disable controls) is Epic 6.7.
     deps.onDrop();
   });
   conn.room.onReconnect(() => {
     console.info('[net] reconnected — resuming ship');
     // We missed frames during the gap and the ship kept sailing server-side.
-    // Mirror the spawn snap (handleSpawn): drop the stale own-ship interp
-    // history and re-init prediction (forceSnap clears the pending-input ring)
-    // so the first post-resume frame hard-inits from authoritative truth
-    // instead of replaying stale un-acked inputs against a jumped-forward pose.
+    // Mirror handleSpawn FULLY: drop the stale own-ship interp history, re-init
+    // prediction (forceSnap clears the pending-input ring), and arm the camera
+    // snap for the first resumed frame — after up to 60s pilotless the hull can
+    // be far from where local prediction left it, so without the snap the player
+    // gets a cross-map camera chase. onOwnSpawn fires in handleFrame once the
+    // authoritative pose (you.x/you.y) actually arrives.
     deps.ownBuffer.clear();
     deps.predictor.forceSnap();
+    resume.pendingSnap = true;
     deps.onReconnect();
   });
 }
 
-function handleFrame(f: FrameMsg, deps: RoomBindingDeps): void {
+function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): void {
   deps.clock.addSample(f.t);
   const net = deps.state.net;
   net.tick = f.tick;
@@ -156,6 +177,12 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps): void {
     deps.ownBuffer.push({ t: f.t, x: f.you.x, y: f.you.y, heading: f.you.heading, speed: f.you.speed });
     if (deps.state.mode === 'predict') deps.predictor.onServerState(f.you, f.ackSeq);
     deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
+    // First authoritative pose after a reconnect: snap the camera to the resumed
+    // hull (completes the handleSpawn mirror), consuming the one-shot flag.
+    if (resume.pendingSnap) {
+      resume.pendingSnap = false;
+      deps.onOwnSpawn(f.you.x, f.you.y);
+    }
   }
   deps.contacts.pushFrame(f.t, f.contacts);
   deps.mines.sync(f.mines); // contact-like: reconcile the mine field every tick

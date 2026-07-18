@@ -18,10 +18,14 @@
 //   4. CONTROL: a fresh input (seq continuing past the pre-drop counter —
 //      the input store survived the drop) with hard rudder visibly changes
 //      the ship's heading in subsequent frames.
+//   5. REPLAYED TOKEN: the ORIGINAL token — consumed by step 3's resume (a
+//      resume rotates the token) — is rejected cleanly on replay, so a captured
+//      token can't walk a second client onto the same seat.
 // Grace-EXPIRY teardown is deliberately NOT smoke-tested (60s is too slow for
 // a smoke) — unit tests in server/src/__tests__/reconnect.test.ts cover the
 // teardown/dedup semantics.
-// Then kills its own server process group and verifies port 2601 is free.
+// Then kills its own server process group and verifies port 2601 is free — a
+// leaked listener FAILS the smoke (nonzero exit), it doesn't just warn.
 // Run: node server/scripts/reconnectSmoke.mjs
 import { spawn } from 'node:child_process';
 import net from 'node:net';
@@ -246,10 +250,27 @@ async function proveControl(a2) {
   return `control: post-resume input (seq ${a2.seq}) turned the ship ${turned.toFixed(2)}rad`;
 }
 
+/**
+ * The OLD token (already consumed by the successful resume — a resume rotates
+ * the reconnection token) must be rejected cleanly on replay. Guards against a
+ * captured-token replay walking a second client onto the same seat.
+ */
+async function proveReplayedToken(oldToken) {
+  let rejected = null;
+  try {
+    await new Client(endpoint).reconnect(oldToken);
+  } catch (e) {
+    rejected = e;
+  }
+  assert(rejected, 'REPLAYED (already-consumed) reconnection token was NOT rejected');
+  return `replayed token: consumed token rejected cleanly ("${rejected.message}")`;
+}
+
 async function main() {
   assert(!(await portOpen(PORT)), `port ${PORT} is already in use — refusing to boot (won't touch a foreign listener)`);
   const server = bootServer();
   const log = [];
+  let leaked = false;
   try {
     await waitForServer(15000);
 
@@ -270,6 +291,10 @@ async function main() {
     const realToken = a.room.reconnectionToken;
     assert(typeof realToken === 'string' && realToken.includes(':'), 'no reconnectionToken exposed');
     a.room.reconnection.enabled = false;
+    // UNDOCUMENTED SDK INTERNAL (pinned to @colyseus/sdk 0.17.43): reaching into
+    // room.connection.transport.ws is the only way to simulate an abnormal
+    // socket drop (1006) — room.leave() would be a consented 4000 that skips
+    // onDrop. Revisit if the SDK's transport shape changes on upgrade.
     const ws = a.room.connection.transport.ws;
     if (typeof ws.terminate === 'function') ws.terminate();
     else ws.close();
@@ -280,15 +305,20 @@ async function main() {
     const { a2, line } = await proveResume(a.room.sessionId, realToken, preDropPos, seqAtDrop);
     log.push(line);
     log.push(await proveControl(a2));
+    // realToken was consumed by proveResume's successful reconnect — replaying
+    // it now must be rejected (token rotates on resume).
+    log.push(await proveReplayedToken(realToken));
 
     console.log('RECONNECT SMOKE OK:', { room: b.room.roomId, trace: log });
   } finally {
     killServer(server);
     await sleep(400);
-    const open = await portOpen(PORT);
-    if (open) console.error(`WARNING: port ${PORT} still open after kill`);
+    leaked = await portOpen(PORT);
+    if (leaked) console.error(`ERROR: port ${PORT} still open after kill (leaked listener)`);
   }
-  process.exit(0);
+  // A leaked listener is a real failure (would block the next boot), not a
+  // warning — fail the smoke with a nonzero exit.
+  process.exit(leaked ? 1 : 0);
 }
 
 main().catch((err) => {

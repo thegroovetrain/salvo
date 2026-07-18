@@ -36,7 +36,7 @@ const WELCOME_TIMEOUT_MS = 5000;
  * of joining fires onLeave directly and does NOT auto-resume (accepted
  * limitation; a fresh captain simply reconnects from the menu).
  */
-const RECONNECT_MAX_RETRIES = 18;
+export const RECONNECT_MAX_RETRIES = 18;
 
 export interface FrameSink {
   handler: (f: FrameMsg) => void;
@@ -99,8 +99,13 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
   // token (all onMessage bindings survive), landing on onReconnect. The server
   // now holds the ship for CONFIG.net.reconnectGraceSeconds, so those retries
   // reach a seat that is still reserved. maxRetries is sized to span that grace
-  // window (see RECONNECT_MAX_RETRIES). Exhausted retries fall through to
-  // onLeave(FAILED_TO_RECONNECT) → the DISCONNECTED banner, same as a hard drop.
+  // window (see RECONNECT_MAX_RETRIES). Two failure routes both end at
+  // onLeave(FAILED_TO_RECONNECT) → the DISCONNECTED banner, same as a hard drop:
+  //   (1) fast-fail — when the seat is already gone (a drop during waiting/
+  //       countdown, or a dead spectator whose teardown already ran), the FIRST
+  //       retry is refused by the server and the SDK gives up in ~200ms, no loop;
+  //   (2) exhaustion — against an unreachable server the retries run out across
+  //       the whole grace span before giving up.
   room.reconnection.enabled = true;
   room.reconnection.maxRetries = RECONNECT_MAX_RETRIES;
   const sink: FrameSink = { handler: () => undefined };
@@ -119,15 +124,20 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
 
 /**
  * Map a failed joinOrCreate into a menu status line. The server's join-time
- * `pv` gate rejects a stale bundle with a "version mismatch" ServerError, which
- * the SDK surfaces as the thrown error's `.message` (ServerError → MatchMakeError,
- * message preserved). Detect it and show a clean refresh prompt; every other
- * failure (server down, timeout) keeps the dev-friendly "is the server running"
- * hint rather than leaking a raw socket error to the player.
+ * `pv` gate rejects a stale bundle with `ServerError(AUTH_FAILED, …)`, which the
+ * SDK preserves as a MatchMakeError carrying that exact CODE (525). Discriminate
+ * primarily on the code so a clean refresh prompt shows only for a real version
+ * rejection; an unrelated failure whose text merely contains "version" (a ws
+ * protocol error, a proxy page) must NOT tell the player to refresh futilely.
+ * The exact-phrase fallback covers only errors that carry no code (e.g. a
+ * welcome timeout is a plain Error). Every other failure keeps the dev-friendly
+ * "is the server running" hint rather than leaking a raw socket error.
  */
 export function connectErrorStatus(err: unknown): string {
+  const code = (err as { code?: unknown } | null | undefined)?.code;
   const msg = err instanceof Error ? err.message : String(err ?? '');
-  if (/version|mismatch/i.test(msg)) return 'VERSION MISMATCH — PLEASE REFRESH THE PAGE';
+  const isVersionGate = code === 525 || (code == null && /version mismatch/i.test(msg));
+  if (isVersionGate) return 'VERSION MISMATCH — PLEASE REFRESH THE PAGE';
   return 'CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?';
 }
 

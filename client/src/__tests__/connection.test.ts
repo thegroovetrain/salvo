@@ -45,7 +45,25 @@ vi.mock('@colyseus/sdk', () => ({
   },
 }));
 
-import { connect, connectErrorStatus } from '../net/connection';
+import { connect, connectErrorStatus, RECONNECT_MAX_RETRIES } from '../net/connection';
+
+/**
+ * Reproduce the SDK's reconnection backoff (Room.ts): each attempt waits
+ * min(maxDelay, max(minDelay, floor(2^attempt * delay))) with delay=100,
+ * minDelay=100, maxDelay=5000. Returns the cumulative wall time (ms) spent
+ * across `attempts` retries — the window during which a late-recovering network
+ * can still resume the held ship.
+ */
+function cumulativeBackoffMs(attempts: number): number {
+  let total = 0;
+  for (let n = 1; n <= attempts; n++) {
+    total += Math.min(5000, Math.max(100, Math.floor(Math.pow(2, n) * 100)));
+  }
+  return total;
+}
+
+const GRACE_MS = 60_000; // CONFIG.net.reconnectGraceSeconds
+const DROP_SKEW_MS = 5_000; // server-side drop-detection slack
 
 /** Drive connect() to a resolved connection, firing the welcome it awaits. */
 async function connectAndWelcome(): Promise<Awaited<ReturnType<typeof connect>>> {
@@ -62,9 +80,14 @@ describe('connect', () => {
     room = fakeRoom();
     const conn = await connectAndWelcome();
     expect(conn.room.reconnection.enabled).toBe(true);
-    // Sized to keep retrying across the 60s server grace window (backoff caps at
-    // 5s/attempt, so ~15 attempts land inside 60s; a few more cover drop-skew).
-    expect(conn.room.reconnection.maxRetries).toBeGreaterThanOrEqual(16);
+    expect(conn.room.reconnection.maxRetries).toBe(RECONNECT_MAX_RETRIES);
+    // Assert the DERIVED property, not a hand-picked margin: the cumulative SDK
+    // backoff across RECONNECT_MAX_RETRIES attempts must outlast the 60s server
+    // grace plus drop-detection skew, or a late-recovering network gives up
+    // while the seat is still held. (Guards the retry count from silent erosion.)
+    expect(cumulativeBackoffMs(conn.room.reconnection.maxRetries)).toBeGreaterThanOrEqual(
+      GRACE_MS + DROP_SKEW_MS,
+    );
   });
 
   it('rides the current PROTOCOL_VERSION as `pv` in the join options', async () => {
@@ -84,10 +107,34 @@ describe('connect', () => {
   });
 });
 
+/** A MatchMakeError-shaped error: an Error carrying a numeric `.code`. */
+function codedError(code: number, message: string): Error {
+  const e = new Error(message);
+  (e as unknown as { code: number }).code = code;
+  return e;
+}
+
 describe('connectErrorStatus', () => {
-  it('maps the server version-gate rejection to a refresh prompt', () => {
+  it('maps the server pv-gate rejection (code 525) to a refresh prompt — even without version text', () => {
+    // The SDK surfaces the ServerError(AUTH_FAILED) as MatchMakeError.code = 525;
+    // the code alone is authoritative, regardless of the message wording.
+    expect(connectErrorStatus(codedError(525, 'onAuth failed'))).toMatch(/REFRESH/);
+  });
+
+  it('falls back to the exact "version mismatch" phrase only for a codeless error', () => {
     expect(connectErrorStatus(new Error('version mismatch — please refresh'))).toMatch(/REFRESH/);
-    expect(connectErrorStatus(new Error('protocol version mismatch'))).toMatch(/REFRESH/);
+  });
+
+  it('does NOT mislabel an unrelated codeless failure that merely contains "version"', () => {
+    // A ws protocol error / proxy page can carry "version" without being a stale
+    // bundle — the tightened phrase (exact "version mismatch") must not fire.
+    expect(connectErrorStatus(new Error('websocket protocol version 13 unsupported'))).toMatch(/:2567/);
+  });
+
+  it('does NOT treat a non-525 coded failure as a version rejection', () => {
+    // A different MatchMakeError code is a different failure, even if its text
+    // happens to say "version mismatch" — the code discriminates first.
+    expect(connectErrorStatus(codedError(523, 'version mismatch'))).toMatch(/:2567/);
   });
 
   it('keeps the generic server-down hint for other failures', () => {
