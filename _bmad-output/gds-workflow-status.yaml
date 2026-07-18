@@ -4,7 +4,7 @@
 # Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
 
 generated: '2026-07-15'
-last_updated: '2026-07-17'  # sprint-planning complete
+last_updated: '2026-07-18'  # epic-0 retrospective complete
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -29,5 +29,6 @@ check-implementation-readiness: _bmad-output/planning-artifacts/implementation-r
 # --- Phase 4: Production ---
 sprint-planning: _bmad-output/implementation-artifacts/sprint-status.yaml # complete 2026-07-17 (8 epics / 59 stories / 8 retrospectives; all backlog — no story files exist yet; sequence E0→E1→E2→E3→E4→E5→E6→E7)
 # story cycle (create-story -> dev-story -> code-review) tracked in sprint-status.yaml
+retrospective-epic-0: _bmad-output/implementation-artifacts/epic-0-retro-2026-07-18.md # complete 2026-07-18 (epic-0 done 4/4; no epic-1 plan changes; critical path: matchSmoke hardening chore + Eric's human browser pass; rulings list awaiting Eric's confirm)
 
-next_expected: create-story (0-1-colyseus-0-17-upgrade)
+next_expected: create-story (1-1-signal-registry-foundation) # after critical-path items / Eric's rulings pass

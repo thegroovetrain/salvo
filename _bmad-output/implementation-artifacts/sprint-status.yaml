@@ -46,12 +46,12 @@ story_location: _bmad-output/implementation-artifacts
 
 development_status:
   # epic-0: Stable Ground (Colyseus 0.17 Foundation)
-  epic-0: in-progress
+  epic-0: done
   0-1-colyseus-0-17-upgrade: done
   0-2-reconnect-into-your-own-ship: done
   0-3-server-operability-baseline: done
   0-4-portal-adapter-seam: done
-  epic-0-retrospective: optional
+  epic-0-retrospective: done
 
   # epic-1: The Armory
   epic-1: backlog
