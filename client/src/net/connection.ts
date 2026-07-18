@@ -52,6 +52,12 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
   const room = await client.joinOrCreate('arena', opts);
+  // The 0.17 SDK auto-reconnects on abnormal closes by default (onDrop + retry
+  // loop), but the server has no reconnection support yet — every retry is dead
+  // air while the player stares at a frozen ocean. Disabling it restores the
+  // 0.16 fail-fast path: abnormal close -> onLeave -> DISCONNECTED banner.
+  // Story 0.2 (token-authenticated resume) re-enables this deliberately.
+  room.reconnection.enabled = false;
   const sink: FrameSink = { handler: () => undefined };
   room.onMessage(MSG.frame, (f: FrameMsg) => sink.handler(f));
   try {

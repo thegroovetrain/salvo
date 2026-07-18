@@ -7,11 +7,15 @@ import { CONFIG } from '@salvo/shared';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
 
 describe('transport rate limit', () => {
+  // Colyseus severs a dead socket after ~8s of failed pings; the worst honest
+  // burst is that whole backlog + the live cadence landing in one 1s arrival
+  // window. This constant is THE named home of that assumption — the comments
+  // in constants.ts and ArenaRoom.ts point here rather than restating it.
+  const WORST_STALL_WINDOWS = 9; // ~8s ping-sever backlog + 1 live window
+
   it('sizes CONFIG.net.maxMessagesPerSecond for burst delivery, not just send cadence', () => {
     const sendRate = 1000 / CONFIG.tick.simDtMs; // input sampler cadence (20/s)
-    // Colyseus severs a dead socket after ~8s of failed pings; the worst honest
-    // burst is that whole backlog + the live cadence arriving in one window.
-    expect(CONFIG.net.maxMessagesPerSecond).toBeGreaterThanOrEqual(sendRate * 9);
+    expect(CONFIG.net.maxMessagesPerSecond).toBeGreaterThanOrEqual(sendRate * WORST_STALL_WINDOWS);
     expect(Number.isFinite(CONFIG.net.maxMessagesPerSecond)).toBe(true);
   });
 
