@@ -32,4 +32,4 @@ sprint-planning: _bmad-output/implementation-artifacts/sprint-status.yaml # comp
 # story cycle (create-story -> dev-story -> code-review) tracked in sprint-status.yaml
 retrospective-epic-0: _bmad-output/implementation-artifacts/epic-0-retro-2026-07-18.md # complete 2026-07-18 (epic-0 done 4/4; no epic-1 plan changes; critical path: matchSmoke hardening chore + Eric's human browser pass; rulings list awaiting Eric's confirm)
 
-next_expected: create-story (1-1-signal-registry-foundation) # after critical-path items / Eric's rulings pass
+next_expected: create-story (1-3 hull envelopes — now THREE per 2026-07-19 re-scope) # 1-1/1-2 done; beta roster cut to TB/ML/BS (gunboat deleted, sub/carrier benched) — see brainstorming-session-2026-07-19.md Addendum + sprint-status.yaml banner; amend epics via gds-gdd update + gds-correct-course before creating the story file

@@ -210,3 +210,18 @@ This brainstorming session generated:
 
 Status: Complete
 Steps Completed: [1, 2, 3, 4]
+
+---
+
+## Addendum — Party-Mode Review Rulings (2026-07-19, same day)
+
+A roundtable stress-test of this session against the GDD, epics, and architecture produced **final rulings that supersede the roster sections above**:
+
+1. **Beta ships THREE classes: Torpedo Boat, Mine Layer, Battleship.** The gunboat is cut now; the submarine, carrier, and decoy ship are **deferred, not designed-in** — prove the concept in front of players first, then make it more fun.
+2. **Torpedo boat's beta loadout: torpedoes + speed boost** (inherited from the cut gunboat — fits the "zip around firing torps" fantasy). **Smoke screen is orphaned to the equipment/boon pool** as content.
+3. **First-run class select has no pushed default** — three cards, forced meaningful choice; TB sits pre-focused for keyboard flow ("which ship is selected when the game launches the first time ever" = TB).
+4. **Bench order: Submarine first, then Carrier.** Decoy ship and all other class/weapon/equipment ideas in this document stay **banked ideas** with no commitment.
+5. Story-level fallout identified (for gds-correct-course): 1.9 Gunboat Loadout obsolete; 1.3 = three hull envelopes; 1.6 TB = torps + boost; 1.14 = three cards / no default; 2.8 boon catalog = three kits; 4.2 = three silhouettes.
+6. Review validation worth keeping: the session's "Hades-hammer" model matches what FR19/AR4 already ratify (4-boon offers, `slotReplace` boon homes = weapon variants' natural home), and AR5's signal registry means each deferred class lands as registry rows, not rewrites. **Nothing from this session is wasted; it is sequenced.**
+
+The six-class roster and ability formula above remain the **expansion blueprint** for post-playtest work.
