@@ -176,3 +176,32 @@ Findings requiring Eric's ruling (presented in-conversation): Bounty #47; 10-Min
 - **Offer size: 3 → 4.** Ratified by Eric during the gds-ux run (2026-07-16): offers present 4 upgrade choices at a time (keys 1–4 in the refit window). "3 upgrades from 3 distinct categories" superseded throughout gdd.md + epics.md; distinct-categories rule preserved, category total per offer left unpinned.
 - **Heal design law → open question.** Eric (2026-07-17): "genuinely unsure on how to handle heals in this game right now." The flat "no heal option in the economy — a design law" is softened: current build ships no heal; the law (self-heal never a ship feature) is under reconsideration; candidate routes are heal-as-upgrade-card or consumables. Boon-catalog work must not assume either way.
 - **Mode rename: "Solo vs Bots" → "Solo vs AI."** Ratified during the gds-ux run; renamed in gdd.md (5 sites incl. E5 epic row + AI assumption) and epics.md (2 sites). Mechanics unchanged.
+
+---
+
+## Update pass — 2026-07-19 (supplemental brainstorm + party-mode rulings, gds-gdd Update mode)
+
+Change signal: `_bmad-output/brainstorming-session-2026-07-19.md` (focused session: gunboat replacement, ship classes, weapons, upgrades) plus its same-day party-mode Addendum, whose final rulings supersede the session's roster sections.
+
+**Reversals / re-scopes applied:**
+
+- **Beta roster: four classes → THREE (Torpedo Boat, Battleship, Mine Layer).** The gunboat is cut — reverses the 2026-07-16 "four classes" resolution. Rationale (party-mode ruling): prove the concept in front of players first, then expand.
+- **Torpedo Boat signature ability: smoke screen → speed boost** (inherited from the cut gunboat — fits the "zip around firing torps" fantasy). **Smoke screen orphaned to the equipment/boon pool** as content.
+- **Mine Layer signature ability: decoy buoy → OPEN.** The buoy is under rethink, and **mine mechanics themselves are flagged unsettled** — upstream design work before the ML loadout is specced. Candidate resolutions banked (mine+buoy shared radar signature #34, sonobuoy #42).
+- Gunboat AP-gun open note deleted with the class.
+
+**Additions:**
+
+- **Roster formula ratified:** class = hull envelope + one signature ability (on cooldown) + (sometimes) one signature weapon, on the shared kit. Counterplay lives in abilities-on-cooldown and universal tools — never in classes.
+- **Hades-hammer upgrade model (Eric's model):** 4 choices ~one per slot; slot 4 = equipment (new-from-pool when empty, upgrade-to-owned when filled); some upgrades mutate a weapon into one of 2–3 variants; **variants are upgrades, never starting kit; class identity never depends on them**. Party-mode validated the model against the ratified 4-boon offer structure (FR19/AR4; slotReplace = variants' natural home). Flagged tension (open note): "boons, not stat multipliers" (07-16) vs "most upgrades are stat increases" (07-19) — resolve during boon-catalog design.
+- **First-run class select:** three cards, forced meaningful choice, no pushed default; TB pre-focused for keyboard flow.
+- **Session design laws folded in:** arcade prime directive (pillar guardrail 3); universal counterplay only + no death pings / free information (balance laws); hydrophones are core kit on every hull (sensor suite); six-great-classes quality bar (roster).
+- **Deferred/expansion blueprint recorded in Out of Scope:** Submarine (bench 1, most developed — timed submerge), Carrier (bench 2 — aircraft mechanics TBD), Decoy Ship (banked — flavor TBD); banked weapon-variant / equipment / mechanic ideas listed with a pointer to the session doc. Former Hunter concept linked to the session's tabled Radar Picket (same design space). Torpedo-variety compass veto ruled compatible with variant mutations (they replace the slot's design, never add a second).
+
+**Files touched:** gdd.md (frontmatter → updated 2026-07-19; Background, Ship classes, Slot grammar, Kinematics note, Sensor suite, Upgrade economy, Weapon Systems table + vetoes, Pillar guardrails, Balance laws, E1 summary row, Success Metrics, Out of Scope, Assumptions & open notes), epics.md (E1 re-scoped to three loadouts + class-select story replacing the gunboat story; E2 aligned to the Hades-hammer structure).
+
+**Correction (Eric, 2026-07-19, during this update pass):** the shell-selector concept (AP/HE shell variants) is **REJECTED, not banked** — Eric: "this is not how I want it to work, that's too complicated for this kind of game." It was a facilitator idea, never his; the session doc's "raised, undeveloped" line overstates its status. Removed from the GDD's banked-content list; it does not appear anywhere in the document set.
+
+**Correction (Eric, 2026-07-19, during this update pass):** the extra-slot mechanism is **unchanged** — every class-specific ability in the game can still appear in boon offers to fill the extra slot (the 2026-07-16 resolution stands). The update's initial rewording of that slot as equipment-pool-only, plus a NOTE questioning whether live class abilities remain offerable, was wrong and has been reverted in gdd.md and epics.md. The Hades-hammer slot-4 equipment behavior is captured in the upgrade-economy model alongside — it does not replace off-class ability offers.
+
+**Propagation note:** production-epic/story fallout (1.9 Gunboat Loadout obsolete; 1.3 = three hull envelopes; 1.6 TB = torps + boost; 1.14 = three cards / no default; 2.8 boon catalog = three kits; 4.2 = three silhouettes) is `gds-correct-course` work against `_bmad-output/planning-artifacts/epics.md`, not this document set.

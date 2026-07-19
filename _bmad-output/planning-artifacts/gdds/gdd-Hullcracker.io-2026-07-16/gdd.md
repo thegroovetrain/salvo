@@ -3,7 +3,7 @@ title: Hullcracker.io - Game Design Document
 game_type: shooter
 platforms: [desktop-browser]
 created: 2026-07-16
-updated: 2026-07-16
+updated: 2026-07-19
 ---
 
 # Hullcracker.io - Game Design Document
@@ -46,11 +46,11 @@ A real-time naval battle royale in the browser — Battleship's hidden-informati
 
 ### Background and Rationale
 
-A running prototype exists at v0.16.0 (TypeScript monorepo: authoritative 20Hz server, client prediction, two-tier fog of war, three ship classes, guns/torpedoes/mines with real firing arcs, storm circle, 649 tests). This GDD consolidates the game brief (2026-07-15), the identity-fork forge resolution, and the brainstorming session into the canonical design document for the beta.
+A running prototype exists at v0.16.0 (TypeScript monorepo: authoritative 20Hz server, client prediction, two-tier fog of war, three ship classes, guns/torpedoes/mines with real firing arcs, storm circle, 649 tests). This GDD consolidates the game brief (2026-07-15), the identity-fork forge resolution, and the brainstorming sessions (2026-07-15; supplemental classes/weapons/upgrades session 2026-07-19, including its same-day party-mode review rulings) into the canonical design document for the beta.
 
 Comparables: Mk48.io (closest, maintenance mode), Maelstrom (validated the fantasy, died anyway), Drednot.io, Ships 3D. Reference DNA: Battleship (hidden info), World of Warships (class fantasy, gunnery feel), Hades (promise/RNG contract), Risk of Rain (stackable upgrades, named thresholds), Apex Legends (kits as verb focus, not exclusivity), surviv.io/ZombsRoyale/OpenFront.io (top-down BR structure).
 
-References of the form **#NN** throughout this document cite idea numbers in the brainstorming session (`_bmad-output/brainstorming-session-2026-07-15.md`).
+References of the form **#NN** throughout this document cite idea numbers in the brainstorming session (`_bmad-output/brainstorming-session-2026-07-15.md`). Decisions marked **2026-07-19** come from the supplemental session and its party-mode addendum (`_bmad-output/brainstorming-session-2026-07-19.md`).
 
 ---
 
@@ -80,6 +80,7 @@ The storm closes in legible phases, forcing every hunt to a conclusion. The Endg
 
 1. **Information noise must never bury the hunt** — sensor features may not drown the chase-and-shoot game in indicators.
 2. **When deduction stops paying, fix it on the sensing side** — never with stat band-aids.
+3. **Arcade feel is the prime directive** (2026-07-19 session law) — the complexity budget is precious; no ambient-simulation mechanics (funnel smoke, oil slicks, fire damage states, wreck salvage stay rejected as simulation creep).
 
 ### Core Gameplay Loop
 
@@ -112,38 +113,39 @@ As in any battle royale, matches naturally converge from a long hunt to a forced
 
 > Numbers in this document are **design targets or current-prototype reference values, explicitly tunable** — the prototype's CONFIG values were playtest handwaves and carry no authority. Where a value is settled design intent, it is stated as such.
 
-**Ship classes — the promise (Pillar 3).** The lobby pick is your class, and the class is the Hades weapon pick: a complete playstyle and power fantasy, not a hull-size variant. Four classes at beta:
+**Ship classes — the promise (Pillar 3).** The lobby pick is your class, and the class is the Hades weapon pick: a complete playstyle and power fantasy, not a hull-size variant. **Three classes at beta** (re-scoped 2026-07-19: the gunboat is cut; prove the concept in front of players first, then expand):
 
 | Class | Power fantasy |
 |---|---|
 | **Torpedo Boat** | Fast, fragile, the needle-threader: torpedo skill-shots through terrain, orbiting bigger ships, winning on audacity. |
 | **Battleship** | Massive, heavily armored, long-range artillery: dominates the open ocean from beyond the reply. |
-| **Mine Layer** | The trapper: area denial, reading where prey will flee and having already been there. |
-| **Gunboat** | Small, fast, lightly armored — speedy boy with some guns. The sustained-damage pick. |
+| **Mine Layer** | The trapper: area denial, reading where prey will flee and having already been there — "you died to a decision I made ninety seconds ago." |
 
-Backburnered (post-beta): a fifth, sensor-forward **Hunter** class (working name TBD) — finds everyone first, sees what others can't.
+**The roster formula (ratified 2026-07-19):** every class = a **hull envelope** (size, speed, toughness, turning) + **one signature ability on cooldown** + (sometimes) **one signature weapon**, on top of the shared kit. Nobody counters a class; everybody plays around abilities on cooldown. Quality bar: **six great classes beat eight half-assed ones** — the beta ships three great ones. Hull envelopes differentiate feel; loadouts differentiate playstyle.
 
-Each class is a **hull envelope** (size, speed, toughness, turning) carrying a **fitted loadout**. Hull envelopes differentiate feel; loadouts differentiate playstyle.
+**First-run class select (ruled 2026-07-19):** three cards, forced meaningful choice, **no pushed default**; the Torpedo Boat sits pre-focused for keyboard flow.
+
+**Deferred classes:** the six-class expansion blueprint (Submarine first, then Carrier; Decoy Ship banked) lives in Out of Scope — deferred, not designed-in.
 
 **Slot grammar (universal; contents per class).** Every ship fits:
 
 1. **The gun** — universal: every class carries the **same standard gun**, working the same way. Short cooldown, basic damage, available to use most of the time.
-2. **Two special abilities** — what makes the class unique; **at least one of the two is a weapon**. (In the beta roster the pair is one signature weapon plus one fantasy-complementing ability.)
+2. **Two special abilities** — what makes the class unique; **at least one of the two is a weapon**. In the beta trio the pair is exactly the roster formula's signature weapon + signature ability.
 3. **One extra slot, filled mid-match through the upgrade economy** — every class-specific ability in the game can show up in boon offers, so anyone can acquire torpedoes, mines, a smoke screen: the offers decide.
 
 Class differentiation lives in the two specials and the hull envelope stats — never in the gun.
 
 Backburnered (designed-for but not in beta): **~4 consumable slots**.
 
-**Movement — telegraph and helm.** Set-and-forget engine orders (9-detent telegraph) plus rudder; ships have separate acceleration and braking rates, and rudder authority reduces below steerage speed. Kinematics are per-class envelope values (current prototype reference: max speeds 30–46 u/s, turn rates 0.6–0.9 rad/s across hulls — all tunable per the five-class redesign).
+**Movement — telegraph and helm.** Set-and-forget engine orders (9-detent telegraph) plus rudder; ships have separate acceleration and braking rates, and rudder authority reduces below steerage speed. Kinematics are per-class envelope values (current prototype reference: max speeds 30–46 u/s, turn rates 0.6–0.9 rad/s across hulls — all tunable per the three-class beta redesign).
 
-**Universal sensor suite (Pillar 1).** Three senses on every hull: a **truesight bubble** (live, LOS-clear contacts; reference 220 u), a **rotating radar sweep** (reference 650 u, 4 s revolution) that paints decaying phosphor blips when the beam crosses a LOS-clear ship, and **hull microphones** — a passive listening ring that gives bearing-grade audio detection of nearby noise (engines, torpedoes in the water).
+**Universal sensor suite (Pillar 1).** Three senses on every hull: a **truesight bubble** (live, LOS-clear contacts; reference 220 u), a **rotating radar sweep** (reference 650 u, 4 s revolution) that paints decaying phosphor blips when the beam crosses a LOS-clear ship, and **hydrophones** (hull microphones) — a passive listening ring that gives bearing-grade audio detection of nearby noise (engines, torpedoes in the water). Hydrophones are core kit on every hull — part of the base information layer, never equipment (design law, 2026-07-19).
 
 **Radar returns are class-legible.** Real radar reads distance, speed, and size; AIS-style identification justifies more. A blip carries the ship's **outline** (a battleship paints bigger — class readable at blip range) and its **speed and heading**, so you can see where it's going, not just where it was. One LOS rule everywhere: the observer→point segment must clear all island circles. Only ships paint on radar; projectiles materialize at the sight boundary with no range-derivable fields. Counter-intel law: **lies must live on the server** — deceptions must be indistinguishable on the wire.
 
 **Upgrade economy (Pillar 3).** XP-based leveling: a slow passive XP tick (design target ~1 level per minute) **plus** kill bonuses. Each level banks an upgrade point carrying a **pre-rolled offer** of 4 upgrades from distinct categories (rolled at earn-time, never rerolls; ratified at 4 choices during the UX phase, 2026-07-16 — supersedes the earlier 3). The passive tick is the anti-snowball floor — everyone grows; kills grow you faster. Kill-bonus sizing is an open balance item (see Progression and Balance).
 
-Upgrade *content* is Hades-style: qualitative, build-defining boons that change how your loadout behaves — not stat multipliers. The prototype's 14 stat-stack upgrades are dead and will be replaced wholesale (new catalog is dedicated design work; this GDD specifies the model). **Offers can include any class-specific ability in the game** — this is how the extra slot fills, and how a Battleship might grow torpedoes or a Mine Layer a smoke screen. Offer weighting for off-class abilities is open tuning. Healing is an **open design question** (reopened during the UX phase; Eric, 2026-07-17: "genuinely unsure"). The current build ships **no heal option in the economy**, but the earlier design law ("self-heal is never a ship feature") is under reconsideration — Eric wants *some* healing to exist in the game eventually, possibly as an upgrade choice within the 4-card offer, possibly via consumables as originally anticipated. Unresolved: boon-catalog design work must not assume either way.
+Upgrade *content* follows the **Hades-hammer model** (Eric's model, captured 2026-07-19; party-mode confirmed it matches the already-ratified 4-boon offer structure): most upgrades raise stats, but some **fundamentally mutate a weapon into one of 2–3 variants** — same slot, different behavior. On level-up the 4 choices map **roughly one per slot**; **slot 4 is the equipment slot** — if empty, it offers new equipment from the pool (excluding owned); if filled, an upgrade to that equipment. **Variant weapons are expressly upgrades — no one starts with one; class identity never depends on them** (design law, 2026-07-19). The prototype's 14 stat-stack upgrades are still replaced wholesale (new catalog is dedicated design work; this GDD specifies the model). [NOTE FOR DESIGNER: "qualitative boons, not stat multipliers" (2026-07-16) vs. "most upgrades are stat increases" (2026-07-19 capture) is an unresolved tension — settle during boon-catalog design: are stat lifts the bulk of the catalog or spice around build-defining picks?] **Offers can include any class-specific ability in the game** — this is how the extra slot fills, and how a Battleship might grow torpedoes or a Mine Layer a smoke screen. Offer weighting for off-class abilities is open tuning. Healing is an **open design question** (reopened during the UX phase; Eric, 2026-07-17: "genuinely unsure"). The current build ships **no heal option in the economy**, but the earlier design law ("self-heal is never a ship feature") is under reconsideration — Eric wants *some* healing to exist in the game eventually, possibly as an upgrade choice within the 4-card offer, possibly via consumables as originally anticipated. Unresolved: boon-catalog design work must not assume either way.
 
 **The storm (Pillar 4).** A damage-only zone shrinks the ocean in **legible phases** — three ring groups of ~4 minutes each with an internal minute rhythm (see Difficulty Curve), totaling ~12:00 closure, replacing the prototype's single 45 s grace + 3-min continuous shrink. Storm never blinds sensors; it only damages (reference 4 hp/s). The **Endgame Guarantee**: the final ring has a diameter of **2 standard truesight diameters** — close enough to force combat, far enough that radar is still needed and close-range hulls hold no clear advantage over long-range ones.
 
@@ -163,14 +165,15 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 **Fitted loadouts (the promise at 0:00).** The **gun is universal** — every class carries the same standard gun, working the same way (short cooldown, basic damage, available most of the time). Class identity comes from the **two special abilities** — at least one of them a weapon — and the hull envelope stats. Per the forge lock, contents are **focus, not exclusivity**, and the mechanism is the economy: **every class-specific ability can appear in boon offers**, filling the extra slot — anyone might grow into torpedoes, mines, or a smoke screen mid-match.
 
-| Class | Gun | Special ability 1 (weapon) | Special ability 2 |
+| Class | Gun | Signature weapon | Signature ability |
 |---|---|---|---|
-| **Torpedo Boat** | Standard gun | Torpedo tubes | Smoke screen (#26) |
-| **Battleship** | Standard gun | Long-range cannon (artillery) | Star shells (#12) |
-| **Mine Layer** | Standard gun | Proximity-fused mines (#81) | Decoy buoy (#69) |
-| **Gunboat** | Standard gun | Armor-piercing gun — form open: separate higher-cooldown gun, OR an activatable that boosts damage/rate-of-fire for a few seconds | Speed boost — several seconds of raised speed |
+| **Torpedo Boat** | Standard gun | Torpedo tubes | Speed boost — several seconds of raised speed (inherited from the cut gunboat, ruled 2026-07-19; fits the "zip around firing torps" fantasy) |
+| **Battleship** | Standard gun | Long-range cannon (artillery) | Star shells (#12) — illuminate a region of radar-space to truesight, then hit from distance |
+| **Mine Layer** | Standard gun | Proximity-fused mines (#81) | **OPEN** — the decoy buoy (#69) is under rethink (2026-07-19) |
 
-[NOTE FOR DESIGNER: Gunboat AP-gun form (separate gun vs. activatable buff) is an open choice; speed boost is Eric's tentative pick.]
+**The smoke screen (#26) is orphaned to the equipment/boon pool** as content — no longer any class's ability (2026-07-19).
+
+[NOTE FOR DESIGNER: The Mine Layer's signature ability is the roster's open slot — the decoy-buoy rethink was triggered by the (now-deferred) Decoy Ship concept; candidate resolutions are banked in the 2026-07-19 session (mine+buoy shared radar signature, sonobuoy). Bigger: **how mines fundamentally work is itself flagged unsettled** — upstream design work before the Mine Layer loadout is specced.]
 
 **Weapon behavior laws (settled):**
 
@@ -179,7 +182,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 - **Torpedoes outrun every hull** at base speed and spawn with real bow clearance plus a brief owner-only grace — they can never self-hit at base speed. Torpedoes are never painted by radar; hydrophones (the listening ring) are the torpedo warning.
 - **Mines** arm after a delay, trigger by proximity, and are capped per-player (live-mine cap; oldest evicted) and globally.
 - Numbers (damage, reloads, ranges, speeds) are design-target work for the new armory; current prototype values (gun 25 hp/3 s reload, torpedo 55 hp/12 s, mine 45 hp/8 s) are reference only.
-- **Compass vetoes stand for the new armory:** no torpedo variety (one torpedo design per fit), no damage-control parties, no sectional damage — WoWS-creep stays out.
+- **Compass vetoes stand for the new armory:** no torpedo variety (one torpedo design per fit — Hades-hammer variant mutations *replace* the slot's design rather than adding a second, so the veto holds; ruled compatible 2026-07-19), no damage-control parties, no sectional damage — WoWS-creep stays out.
 
 **Weapon feel.** The gunnery-feel package from the brainstorm's information-texture bundle (#90) is design intent: **fall-of-shot spotting** (#21 — your splashes are visible in fog, so misses become information and you can bracket-and-walk fire), **the Hit Call** (#19 — a muffled boom and orange bloom confirm you connected without revealing how badly), and **muzzle flash carries** (#34 — firing lights the fog beyond truesight; shooting is being seen). Together: every trigger pull produces information for someone (Pillar 1).
 
@@ -257,7 +260,7 @@ These values are declared handwaves — the shape (kills accelerate, participati
 
 **Spending.** Each level banks a point; each point carries a pre-rolled offer of 4 Hades-style boons from distinct categories (rolled at earn-time, never rerolled). Heal-as-upgrade: open question (see Upgrade economy). The new boon catalog is dedicated design work; its standing requirement is **the build must be felt** — audio, hull visuals, on-water behavior — or promise + growth is a spreadsheet.
 
-**Balance laws:** the Rat Covenant — hiding is legal but priced (a hiding player ticks but never accelerates; the kill-only bonus is exactly the price). The Conservation Law ("every power gain emits a signal") is a *tendency*, not a law — anti-snowball outranks it. **The Bounty (#47):** the kill leader periodically blooms on everyone's radar and is worth extra XP — the anti-snowball's teeth: the strongest player is the one player who can't hide.
+**Balance laws:** **Universal counterplay only (2026-07-19)** — tools must counterplay everything, never specific ships or weapons except incidentally; no counter-classes, ever. **No death pings or free information (2026-07-19)** — scouting is the skill; nothing announces a kill or a position for free. The Rat Covenant — hiding is legal but priced (a hiding player ticks but never accelerates; the kill-only bonus is exactly the price). The Conservation Law ("every power gain emits a signal") is a *tendency*, not a law — anti-snowball outranks it. **The Bounty (#47):** the kill leader periodically blooms on everyone's radar and is worth extra XP — the anti-snowball's teeth: the strongest player is the one player who can't hide.
 
 ### Difficulty Curve
 
@@ -347,7 +350,7 @@ Detailed breakdown with stories, scope boundaries, and dependencies: `epics.md`.
 
 | # | Epic | Delivers | Playable outcome |
 |---|---|---|---|
-| E1 | **The Armory** | Slot grammar, universal standard gun, four class loadouts, rethought firing arcs | Pick any of 4 classes; the game feels different at 0:00 |
+| E1 | **The Armory** | Slot grammar, universal standard gun, three class loadouts, rethought firing arcs | Pick any of 3 classes; the game feels different at 0:00 |
 | E2 | **The New Economy (+ New Controls)** | XP tick + kill-only bonuses, pre-rolled boon offers, Hades-style boon catalog v1, felt-build presentation, old upgrades stripped, new keyboard controls | Level up mid-match; picks visibly change your ship; controls fit the new game |
 | E3 | **The Ring** | 3×4 phased storm with minute rhythm, Endgame Guarantee ring (2 truesight diameters) | A full match has its designed pacing arc |
 | E4 | **The Living Ocean** | Fog banks, hemisphered whirlpools, roving PvE fleets (3 tiers), sinking window | The water itself creates stories |
@@ -369,19 +372,27 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 
 - Matches complete inside 15:00 (Pillar 2's promise, measured).
 - Players re-queue immediately after death — the fun proxy; if dying doesn't lead to "again," Pillar 2 is failing.
-- All four classes see real pick rates — no class is a dead button (Pillar 3's promise has to be worth promising).
+- All three classes see real pick rates — no class is a dead button (Pillar 3's promise has to be worth promising).
 - One playtest-answerable question per pillar — e.g., for Pillar 1: do players describe finding someone as a *deduction*?
 
 ---
 
 ## Out of Scope
 
+**Deferred classes — the expansion blueprint (2026-07-19).** The supplemental brainstorm produced a six-class roster and the ability formula as the post-playtest expansion blueprint (`_bmad-output/brainstorming-session-2026-07-19.md`). Party-mode ruling: these are **deferred, not designed-in** — prove the three-class beta in front of players first; each lands later as registry rows, not rewrites. Bench order:
+
+1. **Submarine** (most developed): timed submerge on cooldown — not a persistent state; guns dead underwater, torpedoes live, forced resurface. Radar-dark while under, but the periscope is visible in true sight at roughly torpedo-spotting distance; still trips mines and stays vulnerable to torpedoes; found by hydrophones and active-sonar equipment — counterplay is built into the class itself. Same torpedo as the TB, opposite verb: stalk vs. dash. Open: duration/cooldown numbers, periscope visibility tuning.
+2. **Carrier**: bombers as secondary weapon, recon plane as ability; the captain still drives and fights his own ship — explicitly not an RTS-inside-the-shooter. Aircraft mechanics entirely TBD (counterplay must be designed before it enters); existing drone infrastructure is a plausible base.
+3. **Decoy Ship** (banked, no commitment): cooldown blip burst (~5 radar blips instead of 1) or radar-dark, built on the phosphor system with zero new physics. Flavor, hull identity, and weapon fit undecided — the thinnest slot.
+
+**Banked content (2026-07-19 session — ideas with no commitment):** weapon-variant mutations (quick-firing battery, heavy rifle, shotgun gun; torpedo fan spread, Long Lance, pattern-runner), the equipment-pool draft (searchlight, active sonar, smoke generator, spar torpedo/ram kit, sonobuoy), ramming as a mechanic, the monitor / juggernaut-battleship repositioning, captor and influence mines, and the boost-lays-smoke-trail combo. What triggers reconsidering any parked concept is itself an open question — only the Radar Picket carries a stated return condition (a weapon identity).
+
 **Backburnered — designed-for, not built in beta:**
 
-- Hunter class (the sensor-forward fifth class; working name TBD)
+- Sensor-forward class (formerly "Hunter," working name TBD; the 2026-07-19 session tabled the closely related Radar Picket for lacking a weapon identity — parked until it has one)
 - ~4 consumable slots per ship
 - Supply drops (the ring rhythm reserves their minute-2 slot)
-- Sonar as a distinct sensor tier; active ping (Hunter material)
+- Sonar as a distinct sensor tier; active ping (sensor-class material)
 
 **Post-beta:**
 
@@ -392,9 +403,9 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 
 **Not planned without design-first work:**
 
-- Carrier class (counterplay must be designed before it enters — the historical stress case)
-- Playable submarines
 - Mobile/touch support
+
+*(The Carrier and playable submarines moved from this tier into the sequenced Deferred classes bench above — their design-first requirements stand.)*
 
 ---
 
@@ -406,16 +417,19 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 
 **Open design notes** (inline `[NOTE FOR DESIGNER]` tags):
 
-1. Gunboat AP-gun form: separate higher-cooldown gun vs. activatable damage/RoF buff. *(Weapon Systems)*
-2. Per-weapon firing-arc geometry, designed alongside the new armory's numbers. *(Aiming and Combat)*
-3. Precision bonus: adopt or drop while tuning the standard gun; whether gun-type specials qualify. *(Aiming and Combat)*
-4. DESIGN.md needs an update pass for the real-time era. *(Art Style; E7)*
-5. Hunter class real name — tracked in Out of Scope; needed only when it comes off the backburner.
-6. Minutes-1–3 pacing ("Quiet Dread" — protect or fix) is a playtest call; the ring rhythm's minute-1 "clear seas" is the current answer.
+1. Mine Layer signature ability is OPEN — decoy buoy under rethink; **mine mechanics themselves are flagged unsettled**, upstream design work before the loadout is specced. *(Weapon Systems; 2026-07-19)*
+2. "Boons, not stat multipliers" (2026-07-16) vs. "most upgrades are stat increases" (2026-07-19) — resolve during boon-catalog design. *(Upgrade economy)*
+3. Per-weapon firing-arc geometry, designed alongside the new armory's numbers. *(Aiming and Combat)*
+4. Precision bonus: adopt or drop while tuning the standard gun; whether gun-type specials qualify. *(Aiming and Combat)*
+5. DESIGN.md needs an update pass for the real-time era. *(Art Style; E7)*
+6. Sensor-forward class real name — tracked in Out of Scope; needed only when it comes off the backburner.
+7. Minutes-1–3 pacing ("Quiet Dread" — protect or fix) is a playtest call; the ring rhythm's minute-1 "clear seas" is the current answer.
+
+*(The gunboat AP-gun form note was deleted with the class, 2026-07-19.)*
 
 **Dependencies:**
 
-- **Boon catalog v1 is dedicated design work** (E2) — the GDD specifies the model (Hades-style, felt, off-class abilities in the pool), not the contents.
+- **Boon catalog v1 is dedicated design work** (E2) — the GDD specifies the model (Hades-hammer: 4 choices ~one per slot, slot-4 equipment logic, variant mutations as upgrades never starting kit, felt builds), not the contents.
 - **Combat-bot AI is dedicated design/implementation work** (E5), distinct from PvE defensive AI.
 - **Portal technical requirements** (Poki/CrazyGames) constrain bundle size and SDK integration; compliance is a hard launch gate (E7).
 - **Aim reconciliation under latency** (lag compensation vs shoot-at-server-state) is a feel-defining, expertise-heavy call — explicitly delegated to the architecture phase (`gds-game-architecture`); the design requirement is only "feel intact at ~150 ms."
