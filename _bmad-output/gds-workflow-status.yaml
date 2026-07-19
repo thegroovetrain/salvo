@@ -4,13 +4,14 @@
 # Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
 
 generated: '2026-07-15'
-last_updated: '2026-07-18'  # epic-0 retrospective complete
+last_updated: '2026-07-19'  # supplemental brainstorm (ship classes/weapons/upgrades) complete
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
 
 # --- Phase 1: Preproduction ---
 brainstorm-game: _bmad-output/brainstorming-session-2026-07-15.md # complete 2026-07-15
+brainstorm-game-supplemental: _bmad-output/brainstorming-session-2026-07-19.md # complete 2026-07-19 (focused design loop-back: gunboat replacement → 6-class roster + ability formula + Hades-hammer upgrade model; feeds gds-gdd update + gds-correct-course before story 1-1)
 domain-research: false # optional
 create-game-brief: _bmad-output/planning-artifacts/briefs/brief-Hullcracker.io-2026-07-15/brief.md # complete 2026-07-15 (addendum + decision log alongside)
 
