@@ -69,12 +69,12 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/sim/loadout.ts` -- NEW: `LoadoutSlot`, equipment id type (`'gun' | 'torpedo' | 'mine'` for now), `SLOT_COUNT = 4` + slot-role grammar, default-loadout builder used by all server init sites; barrel-export -- the shared slot spine every later loadout story fills.
-- [ ] `server/src/game/equipment/` -- rename from `weapons/`; `index.ts` defines `Equipment` (`id`, `isWeapon`, `tick`, `activate(ctx) → ActivationResult`), `ActivationResult` with denial reasons, string-keyed frozen `EQUIPMENT` registry; port guns/torpedoes/mines to rows (`fire` → `activate` computing the result from existing outcomes); ammo.ts/ballistics.ts mechanical -- the one grammar for every fitted system.
-- [ ] `server/src/game/world.ts` -- `ShipRecord.loadout`; `fireControl` ticks per-slot and dispatches the selected slot through NEW single sinking-activation gate passthrough; init sites + ammo-upgrade grant rewritten against slot state -- one-structure law + FR5 + the gate AC.
-- [ ] `server/src/game/frames.ts` + `signals.ts` + `combat.ts` -- mechanical import/derivation updates; combat.ts keeps `export *` compat -- wire derivation stays byte-identical.
-- [ ] Existing server tests -- mechanical import-path updates only (six files) -- assertions unweakened.
-- [ ] `server/src/__tests__/equipment.test.ts` -- NEW: registry/interface conformance (every row has id/isWeapon/tick/activate; frozen), denial reasons per system incl. arc-miss-keeps-pool, empty-slot denial safety, deselected-reload FR5 tick test, gate-is-sole-dispatch-path check, loadout init/respawn parity with old `freshWeaponAmmo` values -- pins the new surface.
+- [x] `shared/src/sim/loadout.ts` -- NEW: `LoadoutSlot`, equipment id type (`'gun' | 'torpedo' | 'mine'` for now), `SLOT_COUNT = 4` + slot-role grammar, default-loadout builder used by all server init sites; barrel-export -- the shared slot spine every later loadout story fills.
+- [x] `server/src/game/equipment/` -- rename from `weapons/`; `index.ts` defines `Equipment` (`id`, `isWeapon`, `tick`, `activate(ctx) → ActivationResult`), `ActivationResult` with denial reasons, string-keyed frozen `EQUIPMENT` registry; port guns/torpedoes/mines to rows (`fire` → `activate` computing the result from existing outcomes); ammo.ts/ballistics.ts mechanical -- the one grammar for every fitted system.
+- [x] `server/src/game/world.ts` -- `ShipRecord.loadout`; `fireControl` ticks per-slot and dispatches the selected slot through NEW single sinking-activation gate passthrough; init sites + ammo-upgrade grant rewritten against slot state -- one-structure law + FR5 + the gate AC.
+- [x] `server/src/game/frames.ts` + `signals.ts` + `combat.ts` -- mechanical import/derivation updates; combat.ts keeps `export *` compat -- wire derivation stays byte-identical.
+- [x] Existing server tests -- mechanical import-path updates only (six files, plus match/upgrades/world tests that construct ship ammo state) -- assertions unweakened.
+- [x] `server/src/__tests__/equipment.test.ts` -- NEW: registry/interface conformance (every row has id/isWeapon/tick/activate; frozen), denial reasons per system incl. arc-miss-keeps-pool, empty-slot denial safety, deselected-reload FR5 tick test, gate-is-sole-dispatch-path check, loadout init/respawn parity with old `freshWeaponAmmo` values -- pins the new surface.
 
 **Acceptance Criteria:**
 - Given the refactored server, when the pre-refactor golden-frames fixture replays, then every frame's serialized bytes are identical (fixture file unchanged in git).
