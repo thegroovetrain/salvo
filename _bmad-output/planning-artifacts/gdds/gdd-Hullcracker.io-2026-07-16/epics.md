@@ -6,35 +6,36 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 
 ## E1 — The Armory
 
-**Goal:** replace the playtest classes (hull-size variants, identical weapons) with four classes that each deliver a distinct playstyle and power fantasy through the slot grammar.
+**Goal:** replace the playtest classes (hull-size variants, identical weapons) with three classes (beta roster re-scoped 2026-07-19: Torpedo Boat, Battleship, Mine Layer — gunboat cut) that each deliver a distinct playstyle and power fantasy through the slot grammar.
 
 **In scope:**
 - Slot grammar: universal gun + two special abilities (at least one a weapon) + one extra slot filled via the upgrade economy (consumable slots reserved, not built).
 - Universal standard gun (same on every hull; short cooldown, basic damage).
-- Four hull envelopes (size/speed/toughness/turning) for Torpedo Boat, Battleship, Mine Layer, Gunboat.
-- Specials: torpedo tubes; long-range cannon; proximity-fused mines (rework per #81); armor-piercing gun (resolve form: separate gun vs activatable buff).
-- Others: smoke screen; star shells; decoy buoy; speed boost.
+- Three hull envelopes (size/speed/toughness/turning) for Torpedo Boat, Battleship, Mine Layer.
+- Signature weapons: torpedo tubes; long-range cannon; proximity-fused mines (rework per #81 — **mine mechanics flagged unsettled 2026-07-19; resolve before the Mine Layer loadout is specced**).
+- Signature abilities: speed boost (TB — inherited from the cut gunboat); star shells (BB); Mine Layer's ability OPEN (decoy buoy under rethink).
+- First-run class select: three cards, forced choice, no pushed default, TB pre-focused for keyboard flow (ruled 2026-07-19).
 - Rethought firing arcs (per-class weapons → arcs usable in more situations while rewarding skill).
 - Resolve the precision-bonus open idea while tuning the standard gun.
 
-**Out of scope:** Hunter class (backburnered), consumables, boon catalog and off-class-ability offers (E2 — but the extra slot's plumbing lands here).
+**Out of scope:** deferred classes (Submarine bench-1, Carrier bench-2, Decoy Ship banked — the 2026-07-19 expansion blueprint), sensor-forward class (backburnered), consumables, boon catalog and off-class-ability offers (E2 — but the extra slot's plumbing lands here). The smoke screen ships as E2 boon-pool content, not a class ability (2026-07-19).
 
 **Dependencies:** none — first epic.
 
-**Playable deliverable:** a lobby where picking any of the four classes yields a genuinely different ship at 0:00.
+**Playable deliverable:** a lobby where picking any of the three classes yields a genuinely different ship at 0:00.
 
 **High-level stories:**
 1. Slot grammar + weapon-system registry supports per-class loadouts.
 2. Universal standard gun tuned (numbers + precision-bonus decision).
-3. Hull envelopes for the four classes.
-4. Torpedo Boat loadout (tubes + smoke screen).
+3. Hull envelopes for the three classes.
+4. Torpedo Boat loadout (tubes + speed boost).
 5. Battleship loadout (long-range cannon + star shells).
-6. Mine Layer loadout (proximity mines + decoy buoy) — server-side lies for the decoy.
-7. Gunboat loadout (AP gun form resolved + speed boost).
+6. Mine Layer loadout (proximity mines + signature ability once resolved) — gated on the mine-mechanics/buoy design decision.
+7. First-run class select (three cards, no pushed default, TB pre-focused).
 8. Per-weapon arc design pass.
 9. Island-stuck collision bug (#64 playtest finding) fixed as part of the hull-envelope/collision work.
 
-**Guardrails (compass vetoes):** no torpedo variety, no damage-control parties, no sectional damage.
+**Guardrails (compass vetoes):** no torpedo variety (variant mutations via E2 boons *replace* the slot's design, so the veto holds — 2026-07-19), no damage-control parties, no sectional damage.
 
 ---
 
@@ -44,9 +45,9 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 
 **In scope:**
 - Passive XP tick (~1 level/min) + kill-only bonuses (opponent 1 level; PvE ¼/⅓/½ by tier — tier hooks land here, fleets themselves in E4).
-- Levels bank points; pre-rolled offers (4 boons, distinct categories, never reroll — ratified 2026-07-16). Heal: open question.
+- Levels bank points; pre-rolled offers (4 boons, distinct categories, never reroll — ratified 2026-07-16; **~one choice per slot, slot 4 = equipment**: new-from-pool when empty, upgrade-to-owned when filled — Hades-hammer, 2026-07-19). Heal: open question.
 - Strip all 14 legacy stat upgrades.
-- Boon catalog v1: Hades-style, qualitative, build-defining (dedicated design work inside this epic).
+- Boon catalog v1: Hades-hammer model — stat lifts + weapon-variant mutations (same slot, replaced behavior; **variants are upgrades, never starting kit**) + equipment-pool content incl. the orphaned smoke screen (dedicated design work inside this epic; resolve the stat-lift vs build-defining-boon tension flagged in the GDD).
 - **Off-class ability offers:** any class-specific ability can appear in offers, filling the extra slot (anyone can grow torpedoes/mines/smoke). Offer weighting is open tuning.
 - Felt-build presentation: audio, hull visuals, on-water behavior per boon — "the build must be felt."
 - **New keyboard controls:** rework bindings for telegraph, weapon-slot selection (basic/special/other), and the spend window. (Slot-selection keys coordinate with E1's grammar.)
@@ -106,7 +107,7 @@ Companion to `gdd.md` (which carries the summary table and sequence). Sequence: 
 - The Bounty (#47): kill leader periodically blooms on everyone's radar, worth extra XP.
 - Class-legible radar returns: blips carry ship outline (a battleship paints bigger) + speed/heading.
 
-**Out of scope:** sonar as a distinct third sensor tier (#4), active ping (#6 — Hunter material, backburnered with the class).
+**Out of scope:** sonar as a distinct third sensor tier (#4), active ping (#6 — sensor-class material, backburnered with the class).
 
 **Guardrail:** this epic is where information-overload risk lives — noise must never bury the hunt; every feature here must pass a readability check on a busy screen.
 
