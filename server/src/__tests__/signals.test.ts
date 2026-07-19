@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type ShellState } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
-import type { MineState } from '../game/weapons/index.js';
+import type { MineState } from '../game/equipment/index.js';
 import { SIGNAL_REGISTRY, signalFor, type FoggedSignalContext } from '../game/signals.js';
 
 const SIGHT = CONFIG.vision.sight;

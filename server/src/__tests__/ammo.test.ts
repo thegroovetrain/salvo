@@ -4,7 +4,7 @@
 
 import { describe, it, expect } from 'vitest';
 import type { WeaponAmmo } from '@salvo/shared';
-import { freshAmmo, tickReload, consume } from '../game/weapons/ammo.js';
+import { freshAmmo, tickReload, consume } from '../game/equipment/ammo.js';
 
 const RELOAD = 3000;
 const MAX = 2;

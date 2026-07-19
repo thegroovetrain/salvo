@@ -3,6 +3,7 @@ import {
   CONFIG,
   UPGRADE_IDS,
   WEAPON,
+  defaultLoadout,
   effectiveStats,
   inArc,
   wrapAngle,
@@ -12,7 +13,6 @@ import {
   type GameEvent,
 } from '@salvo/shared';
 import { clampToArc, fireGuns } from '../game/combat.js';
-import { freshWeaponAmmo } from '../game/weapons/index.js';
 import type { ShipRecord } from '../game/world.js';
 import { World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -41,7 +41,7 @@ function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
     sweepAngle: 0,
     prevSweepAngle: 0,
     seenBallistics: new Set<string>(),
-    ammo: freshWeaponAmmo(CRUISER_STATS),
+    loadout: defaultLoadout(CRUISER_STATS),
     kills: 0,
     deaths: 0,
     damageDealt: 0,
@@ -99,8 +99,8 @@ describe('fireGuns — gating rules', () => {
     expect(fireGuns(ship, 0, mkId)).toHaveLength(1); // pool 2 -> 1, reload starts
     expect(fireGuns(ship, 0, mkId)).toHaveLength(1); // pool 1 -> 0 (both out one arc)
     expect(fireGuns(ship, 0, mkId)).toHaveLength(0); // empty
-    expect(ship.ammo[WEAPON.gun].n).toBe(0);
-    expect(ship.ammo[WEAPON.gun].reloadMsLeft).toBe(CONFIG.gun.reloadMs); // firing mid-reload didn't reset it
+    expect(ship.loadout[WEAPON.gun].state!.n).toBe(0);
+    expect(ship.loadout[WEAPON.gun].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs); // firing mid-reload didn't reset it
   });
 
   it('does not fire when guns are not selected or the ship is dead ' +

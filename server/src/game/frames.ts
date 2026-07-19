@@ -8,7 +8,7 @@
 
 import { UPGRADE_IDS, type FrameMsg, type MatchPhase, type OwnShip } from '@salvo/shared';
 import { observe, observeSpectator } from './perception.js';
-import { weaponAmmo } from './weapons/index.js';
+import { weaponAmmo } from './equipment/index.js';
 import type { ShipRecord, World } from './world.js';
 
 function toOwnShip(ship: ShipRecord): OwnShip {
@@ -21,7 +21,8 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     hp: ship.hp,
     alive: ship.alive,
     weapon: ship.input.weapon,
-    // Per weapon [gun, torp, mine] ammo pool + reload timer ({n, reloadMsLeft}).
+    // Per weapon [gun, torp, mine] ammo pool + reload timer ({n, reloadMsLeft}),
+    // derived from loadout slots 0-2 in slot order (equipment/index.ts).
     ammo: weaponAmmo(ship),
     // Post-advance angle == the leading edge of this tick's paint window, so
     // the client wedge visually crosses a contact the moment its blip arrives.

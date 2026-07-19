@@ -13,6 +13,7 @@ import {
   CONFIG,
   HEAL_CHOICE,
   UPGRADE_IDS,
+  defaultLoadout,
   effectiveStats,
   generateMap,
   hullEndpoints,
@@ -34,6 +35,7 @@ import {
   type GameMap,
   type HullTarget,
   type InputMsg,
+  type LoadoutSlot,
   type Rng,
   type ShellOutcome,
   type ShellState,
@@ -43,19 +45,18 @@ import {
   type UpgradeId,
   type UpgradeOffer,
   type Vec2,
-  type WeaponAmmo,
   type WeaponId,
   type ZonePhase,
   type ZoneTimeline,
 } from '@salvo/shared';
 import {
-  WEAPON_SYSTEMS,
+  EQUIPMENT,
   addMine,
   checkMineTriggers,
-  freshWeaponAmmo,
-  type FireContext,
+  type ActivationContext,
+  type ActivationResult,
   type MineState,
-} from './weapons/index.js';
+} from './equipment/index.js';
 import { InputStore, neutralInput } from './inputs.js';
 import { DroneController } from './drones.js';
 import { pickSpawn } from './spawn.js';
@@ -118,11 +119,14 @@ export interface ShipRecord {
    */
   seenBallistics: Set<string>;
   /**
-   * Per-weapon ammo pool + reload timer, indexed by WeaponId ([gun, torp, mine]).
-   * Replaces the old per-mount cooldown arrays: one pool + one reload per weapon
-   * (see weapons/ammo.ts). Reset to full pools on spawn/respawn/redeploy.
+   * The ship's equipment loadout — 4 slots (gun / special / special / extra;
+   * shared/src/sim/loadout.ts), each empty or one equipment id + its runtime
+   * state (pool + reload timer, equipment/ammo.ts). THE one equipment
+   * structure (replaces the old WeaponAmmo[] — no parallel ammo store);
+   * input.weapon (0/1/2) selects by slot index. Reset to the full default
+   * loadout on spawn/respawn/redeploy.
    */
-  ammo: WeaponAmmo[];
+  loadout: LoadoutSlot[];
   kills: number; // hulls this ship has sunk
   deaths: number; // times this ship has been sunk
   damageDealt: number; // hp dealt to OTHER hulls (self-hits and storm excluded)
@@ -250,7 +254,7 @@ export class World {
       sweepAngle: 0,
       prevSweepAngle: 0,
       seenBallistics: new Set(),
-      ammo: freshWeaponAmmo(stats),
+      loadout: defaultLoadout(stats),
       kills: 0,
       deaths: 0,
       damageDealt: 0,
@@ -305,7 +309,7 @@ export class World {
     // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
     // (the stored input's fireSeq would read as a fresh click on this tick).
     ship.seenBallistics.clear();
-    ship.ammo = freshWeaponAmmo(ship.stats);
+    ship.loadout = defaultLoadout(ship.stats);
     ship.kills = 0;
     ship.deaths = 0;
     ship.damageDealt = 0;
@@ -388,7 +392,12 @@ export class World {
     }
     const weapon = World.AMMO_UPGRADE_WEAPON[type];
     if (weapon === undefined) return;
-    const pool = killer.ammo[weapon];
+    // Universal fit: slot index == WeaponId; a fitted weapon slot ALWAYS has
+    // state (the LoadoutSlot invariant: state is null iff equipmentId is null).
+    // Assert it rather than silently skipping on null — a swallowed null would
+    // invisibly rob the player of the earned round, so a broken invariant must
+    // crash loudly (matching the old dense-array semantics).
+    const pool = killer.loadout[weapon].state!;
     pool.n = Math.min(pool.n + 1, weaponMaxAmmo(killer.stats, weapon));
   }
 
@@ -590,25 +599,52 @@ export class World {
   }
 
   /**
-   * Tick EVERY weapon's reload for every ship (regardless of selection), then
-   * route this tick's click — if any — to the selected weapon system. One shot
-   * per click: a fireSeq newer than lastFireSeq is one pending click, and it is
-   * ALWAYS consumed this tick (even dead or denied-by-empty-pool), so clicks
-   * during reload are consumed, not queued. Systems reach the World only through
-   * the narrow FireContext (spawn ballistics / drop mines).
+   * Tick EVERY fitted slot's equipment for every ship (regardless of selection
+   * — a weapon reloads while another is in use; empty slots are skipped), then
+   * route this tick's click — if any — to the SELECTED slot (slot index =
+   * input.weapon) through the single sinking-activation gate. One shot per
+   * click: a fireSeq newer than lastFireSeq is one pending click, and it is
+   * ALWAYS consumed this tick (even dead or denied), so clicks during reload
+   * are consumed, not queued. Equipment reaches the World only through the
+   * narrow ActivationContext (spawn ballistics / drop mines).
    */
   private fireControl(dtMs: number): void {
     for (const ship of this.ships.values()) {
-      for (const sys of WEAPON_SYSTEMS) sys.tick(ship, dtMs);
+      for (const slot of ship.loadout) {
+        if (slot.equipmentId !== null) EQUIPMENT[slot.equipmentId].tick(ship, slot, dtMs);
+      }
       const clicked = ship.input.fireSeq > ship.lastFireSeq;
       ship.lastFireSeq = Math.max(ship.lastFireSeq, ship.input.fireSeq);
       if (!ship.alive || !clicked) continue;
-      WEAPON_SYSTEMS[ship.input.weapon].fire(this.fireContext(ship));
+      this.sinkingActivationGate(ship, ship.input.weapon);
     }
   }
 
-  /** The capabilities a weapon system needs to fire this ship this tick. */
-  private fireContext(ship: ShipRecord): FireContext {
+  /**
+   * THE sinking-activation gate — the ONLY call path to Equipment.activate()
+   * anywhere. Takes the SELECTED slot INDEX and resolves the slot on THIS
+   * ship internally, so a caller can never hand it ship A plus ship B's slot
+   * object (a cross-ship aliasing hazard that would fire from A while draining
+   * B's pool). A dead ship is refused first ('dead') — defense-in-depth on a
+   * public seam (fireControl already skips the dead, but Epic 5's sinking
+   * policy will drive this gate directly). Today otherwise a PASSTHROUGH:
+   * every activation on a fitted slot is allowed. The sinking-state policy
+   * (which equipment a sinking ship may still activate) is deliberately TBD
+   * per D4 — Epic 5 wires the sinking state through here; no policy logic
+   * lands before it. An empty or out-of-range slot is answered here
+   * (empty-slot denial, no dereference) so rows never see one. Public so
+   * directed tests can drive activation and read the ActivationResult (never
+   * on the wire).
+   */
+  sinkingActivationGate(ship: ShipRecord, slotIndex: number): ActivationResult {
+    if (!ship.alive) return { ok: false, reason: 'dead' };
+    const slot = ship.loadout[slotIndex];
+    if (!slot || slot.equipmentId === null) return { ok: false, reason: 'empty-slot' };
+    return EQUIPMENT[slot.equipmentId].activate(this.activationContext(ship), slot);
+  }
+
+  /** The capabilities equipment needs to activate for this ship this tick. */
+  private activationContext(ship: ShipRecord): ActivationContext {
     return {
       ship,
       now: this.now,
@@ -700,7 +736,7 @@ export class World {
     ship.respawnAt = 0;
     // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
     // (the stored input's fireSeq would read as a fresh click on this tick).
-    ship.ammo = freshWeaponAmmo(ship.stats);
+    ship.loadout = defaultLoadout(ship.stats);
     this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
   }
 }

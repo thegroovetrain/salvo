@@ -10,8 +10,8 @@
 // the observer iff the segment observer→point crosses no island circle
 // (segCircleHit). Sight, radar, shells, booms, spawns, and sinks all use it.
 //
-// Rows see a NARROW SignalContext (the FireContext pattern from
-// weapons/index.ts) — the observer's ship record, tick time, islands for LOS,
+// Rows see a NARROW SignalContext (the ActivationContext pattern from
+// equipment/index.ts) — the observer's ship record, tick time, islands for LOS,
 // and the ships map for victim/wreck lookups — never a Colyseus type. The
 // `mode` discriminator lets one row serve both the fogged observe() path and
 // the unfogged observeSpectator() path; fogged rows never relax fog.
@@ -43,10 +43,11 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord } from './world.js';
-import type { MineState } from './weapons/index.js';
+import type { MineState } from './equipment/index.js';
 
 // ---------------------------------------------------------------------------
-// The narrow per-observer context rows receive (imitates weapons' FireContext).
+// The narrow per-observer context rows receive (imitates equipment's
+// ActivationContext).
 // ---------------------------------------------------------------------------
 
 interface SignalContextBase {
