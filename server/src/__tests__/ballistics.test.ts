@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG } from '@salvo/shared';
 import { World } from '../game/world.js';
-import { hullClearOffset, makeBallistic } from '../game/weapons/ballistics.js';
+import { hullClearOffset, makeBallistic } from '../game/equipment/ballistics.js';
 
 describe('hullClearOffset', () => {
   it("is half the FIRER's class hull length plus the projectile/trigger radius", () => {

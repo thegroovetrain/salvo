@@ -124,7 +124,7 @@ describe('match — waiting phase (ready room)', () => {
     fire(ctx, 'a', 2, 1);
     step(ctx);
     expect(ctx.w.mines.size).toBe(1);
-    expect(ctx.w.ships.get('a')!.ammo[2].reloadMsLeft).toBeGreaterThan(0); // drop started the reload
+    expect(ctx.w.ships.get('a')!.loadout[2].state!.reloadMsLeft).toBeGreaterThan(0); // drop started the reload
   });
 
   it('a practice mine deals no damage when triggered (target practice: boom, no hp loss, mine despawns)', () => {
@@ -187,7 +187,7 @@ describe('match — countdown', () => {
     a.hp = 40;
     a.state.x = 5;
     a.state.y = 5;
-    a.ammo[0] = { n: 0, reloadMsLeft: 1000 }; // draw down the gun pool
+    a.loadout[0].state = { n: 0, reloadMsLeft: 1000 }; // draw down the gun pool
     a.seenBallistics.add('s1');
     expect(ctx.w.zonePhase).toBe('idle');
 
@@ -204,7 +204,8 @@ describe('match — countdown', () => {
       expect(ship.hp).toBe(CONFIG.shipClasses.cruiser.hp);
       expect(ship.alive).toBe(true);
       expect(Math.hypot(ship.state.x, ship.state.y)).toBeCloseTo(ctx.w.map.spawnRing, 6);
-      expect(ship.ammo.every((w) => w.n > 0 && w.reloadMsLeft === 0)).toBe(true); // full pools
+      // Full pools on every weapon slot (0-2; slot 3 is the empty extra slot).
+      expect(ship.loadout.slice(0, 3).every((s) => s.state!.n > 0 && s.state!.reloadMsLeft === 0)).toBe(true);
       expect(ship.seenBallistics.size).toBe(0);
     }
     // The redeploy emits spawn events (clients snap camera/prediction).
@@ -221,7 +222,7 @@ describe('match — active phase', () => {
     fire(ctx, 'a', 2, 1);
     step(ctx);
     expect(ctx.w.mines.size).toBe(1);
-    expect(ctx.w.ships.get('a')!.ammo[2].reloadMsLeft).toBeGreaterThan(0); // drop started the reload
+    expect(ctx.w.ships.get('a')!.loadout[2].state!.reloadMsLeft).toBeGreaterThan(0); // drop started the reload
   });
 
   it('leaves sunk ships down: no respawn is ever scheduled', () => {

@@ -21,7 +21,7 @@ import {
   fireTorpedo,
   weaponAmmo,
   type MineState,
-} from '../game/weapons/index.js';
+} from '../game/equipment/index.js';
 
 const HALF_PI = Math.PI / 2;
 let idSeq = 0;
@@ -56,7 +56,7 @@ describe('torpedoes — single-round pool reload', () => {
     const t2 = fireTorpedo(ship, 0, mkId);
     expect(t1).not.toBeNull();
     expect(t2).toBeNull(); // pool empty, now reloading
-    expect(ship.ammo[WEAPON.torpedo]).toEqual({ n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs });
+    expect(ship.loadout[WEAPON.torpedo].state).toEqual({ n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs });
     expect(t1!.kind).toBe('torp');
     expect(t1!.damage).toBe(CONFIG.torpedo.damage);
     expect(t1!.hitRadius).toBe(CONFIG.torpedo.hitRadius); // own value, not gun's
@@ -69,11 +69,11 @@ describe('torpedoes — single-round pool reload', () => {
   it('the pool refills once its reload elapses', () => {
     const w = bareWorld();
     const ship = torpShip(w, 'a', 0, 0, 0);
-    ship.ammo[WEAPON.torpedo] = { n: 0, reloadMsLeft: 200 }; // almost ready, empty
+    ship.loadout[WEAPON.torpedo].state = { n: 0, reloadMsLeft: 200 }; // almost ready, empty
     expect(fireTorpedo(ship, 0, mkId)).toBeNull(); // still empty
-    ship.ammo[WEAPON.torpedo] = { n: 1, reloadMsLeft: 0 }; // reloaded
+    ship.loadout[WEAPON.torpedo].state = { n: 1, reloadMsLeft: 0 }; // reloaded
     expect(fireTorpedo(ship, 0, mkId)).not.toBeNull(); // now fires
-    expect(ship.ammo[WEAPON.torpedo]).toEqual({ n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs });
+    expect(ship.loadout[WEAPON.torpedo].state).toEqual({ n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs });
   });
 });
 
@@ -87,7 +87,7 @@ describe('torpedoes — bow arc gating', () => {
     const abeam = torpShip(w, 'b', 0, 0, 0);
     abeam.input = { ...abeam.input, aim: HALF_PI }; // 90° off the bow
     expect(fireTorpedo(abeam, 0, mkId)).toBeNull();
-    expect(abeam.ammo[WEAPON.torpedo]).toEqual({ n: 1, reloadMsLeft: 0 }); // pool not drained
+    expect(abeam.loadout[WEAPON.torpedo].state).toEqual({ n: 1, reloadMsLeft: 0 }); // pool not drained
   });
 });
 
@@ -266,11 +266,9 @@ describe('ammo wire array is a WeaponAmmo[] {n, reloadMsLeft}', () => {
   it('mirrors the ship pools as a defensive copy', () => {
     const w = bareWorld();
     const ship = w.addShip('a', 'A');
-    ship.ammo = [
-      { n: 1, reloadMsLeft: 1200 },
-      { n: 0, reloadMsLeft: 6000 },
-      { n: 0, reloadMsLeft: 8000 },
-    ];
+    ship.loadout[0].state = { n: 1, reloadMsLeft: 1200 };
+    ship.loadout[1].state = { n: 0, reloadMsLeft: 6000 };
+    ship.loadout[2].state = { n: 0, reloadMsLeft: 8000 };
     const wire = weaponAmmo(ship);
     expect(wire).toEqual([
       { n: 1, reloadMsLeft: 1200 },
@@ -278,7 +276,7 @@ describe('ammo wire array is a WeaponAmmo[] {n, reloadMsLeft}', () => {
       { n: 0, reloadMsLeft: 8000 },
     ]);
     // A copy, not the live pool objects (mutating the wire must not affect state).
-    expect(wire[0]).not.toBe(ship.ammo[0]);
+    expect(wire[0]).not.toBe(ship.loadout[0].state);
   });
 
   it('a fresh hull spawns with full pools; one click draws the gun pool down by one', () => {

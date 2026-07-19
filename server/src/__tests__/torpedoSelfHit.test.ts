@@ -24,7 +24,7 @@ import {
   type UpgradeId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
-import { fireTorpedo } from '../game/weapons/torpedoes.js';
+import { fireTorpedo } from '../game/equipment/torpedoes.js';
 
 function bareWorld(seed = 11): World {
   const w = new World(seed);

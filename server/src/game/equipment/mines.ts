@@ -1,4 +1,4 @@
-// Mine fire control + trigger resolution — the mines WeaponSystem (WeaponId 2).
+// Mine fire control + trigger resolution — the mine Equipment row.
 // A mine is a STATIC point in world state (not a ballistic): dropped astern,
 // arms after armDelay, then triggers when any NON-OWNER live hull capsule comes
 // within triggerRadius of it. On trigger it deals damage to that ship and
@@ -9,14 +9,13 @@
 
 import {
   CONFIG,
-  WEAPON,
   hullEndpoints,
   pointSegmentDistance,
   wrapAngle,
   type HullTarget,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
-import type { FireContext, WeaponSystem } from './index.js';
+import type { Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
 import { hullClearOffset } from './ballistics.js';
 
@@ -125,17 +124,21 @@ export function hullFor(ship: ShipRecord): HullTarget {
   return h;
 }
 
-/** The mines weapon system (WeaponId 2). The drop ammo pool is distinct from the
- *  live-mine board cap (stats.mine.maxLive) that addMine enforces. Pool size +
- *  reload come from the ship's cached effective stats (Stage D upgrades). */
-export const mineSystem: WeaponSystem = {
-  id: WEAPON.mine,
-  tick(ship: ShipRecord, dtMs: number): void {
-    tickReload(ship.ammo[WEAPON.mine], ship.stats.mine.maxAmmo, ship.stats.mine.reloadMs, dtMs);
+/** The mine Equipment row. The drop ammo pool is distinct from the live-mine
+ *  board cap (stats.mine.maxLive) that addMine enforces. Pool size + reload
+ *  come from the ship's cached effective stats (Stage D upgrades). No arc: a
+ *  drop is denied only by an empty pool. Slot state is non-null by the loadout
+ *  invariant (see index.ts). */
+export const mineEquipment: Equipment = {
+  id: 'mine',
+  isWeapon: true,
+  tick(ship, slot, dtMs): void {
+    tickReload(slot.state!, ship.stats.mine.maxAmmo, ship.stats.mine.reloadMs, dtMs);
   },
-  fire(ctx: FireContext): void {
-    if (!consume(ctx.ship.ammo[WEAPON.mine], ctx.ship.stats.mine.reloadMs)) return; // pool empty
+  activate(ctx, slot) {
+    if (!consume(slot.state!, ctx.ship.stats.mine.reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
     const p = dropPoint(ctx.ship);
     ctx.dropMine(p.x, p.y);
+    return { ok: true };
   },
 };
