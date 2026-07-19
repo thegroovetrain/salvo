@@ -11,7 +11,7 @@
 // Harness mirrors reconnect.test.ts: a bare `new ArenaRoom()` never runs
 // @colyseus/core's __init(), so `clients`/`state`/`world`/`match`/`log` stay
 // plain properties we inject directly, fake clients are plain literals with
-// vi.fn() spies, and the private methods are invoked via bracket access.
+// vi.fn() spies, and the private methods are reached through a structural cast.
 
 import { describe, it, expect, vi } from 'vitest';
 import { MSG } from '@salvo/shared';
@@ -114,5 +114,14 @@ describe('ArenaRoom.kickIfStillJoining', () => {
     room.kickIfStillJoining(client);
 
     expect(client.leave).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op for a client that already left the room when the deadline fires', () => {
+    const departed = fakeClient('gone', ClientState.JOINING);
+    const room = bareRoom([]); // deadline outlives the client: not in room.clients
+
+    room.kickIfStillJoining(departed);
+
+    expect(departed.leave).not.toHaveBeenCalled();
   });
 });

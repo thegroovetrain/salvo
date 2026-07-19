@@ -11,8 +11,10 @@
 //      receives spec:true frames (you omitted, unfogged contacts incl. A).
 //      A NEVER receives a spec frame before the frame that reports B's sink
 //      (the finish happens on the sink tick — from then on everyone spectates).
-//   5. results broadcast: winnerId=A, placements A=1/B=2, A's kills=1 and
-//      damageDealt >= B's hull.
+//   5. results broadcast (after the storm clears the fill drones): winnerId=A,
+//      A placed 1st and rows[0]=A, EVERY hull placed >= 1 (no alive stragglers),
+//      B bounded 2..N (its exact rank is a drone-vs-B sink race, not asserted),
+//      A's kills >= 1 and damageDealt >= B's hull.
 //   6. The room disconnects both clients ~resultsMs later (autoDispose).
 // Then kills its own server process group and verifies port 2599 is free.
 //
@@ -42,12 +44,13 @@ const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000 };
 // the endgame an hp race A cannot reliably win: the 120hp battleship fill drone
 // outlasts A's 100hp cruiser at a zero-radius floor no matter how long the shrink
 // (the heal spend is clamped to A's 100 maxHp, so it can't close the gap either).
-// Instead we leave a floor pocket (~25u) that ONLY A can hold: the drone AI never
-// throttles below 0.5 (drones.ts MIN_THROTTLE) so a dumb hull is always moving
-// >=15u/s and cannot loiter inside so tight a circle — it keeps crossing the ring
-// and storm-sinks — while A throttles right down and parks inside it, safe. Too
-// LARGE a pocket and drones camp it forever (the historical 0.1/164u flake); ~25u
-// is well under a dumb hull's minimum turning circle but roomy for A's tight hold.
+// Instead we leave a floor pocket (13.5u — 0.015 of the 900u fillTo-6 map) that
+// ONLY A can hold: the drone AI never throttles below 0.5 (drones.ts
+// MIN_THROTTLE) so a dumb hull is always moving >=15u/s and cannot loiter inside
+// so tight a circle — it keeps crossing the ring and storm-sinks — while A
+// throttles right down and holds inside it, safe. Too LARGE a pocket and drones
+// camp it forever (the historical 0.1/90u flake); 13.5u is well under a dumb
+// hull's minimum turning circle but roomy enough for A's wobbling center hold.
 // So the match finishes with A alive, every drone (and B) placed, A the winner.
 const ZONE_OVERRIDE = { grace: 90000, shrinkDuration: 90000, endRadiusFraction: 0.015 };
 // Fire only from close, well-aimed range: a short lane keeps ready-room drones
@@ -92,12 +95,18 @@ function bootServer() {
   return proc;
 }
 
-function portOpen(port) {
+function portOpenOn(port, host) {
   return new Promise((resolve) => {
-    const sock = net.connect(port, '127.0.0.1');
+    const sock = net.connect(port, host);
     sock.once('connect', () => { sock.destroy(); resolve(true); });
     sock.once('error', () => resolve(false));
   });
+}
+
+/** True if anything listens on the port via IPv4 or IPv6 loopback (the SDK
+ *  dials ws://localhost, which may resolve to either family). */
+async function portOpen(port) {
+  return (await portOpenOn(port, '127.0.0.1')) || portOpenOn(port, '::1');
 }
 
 async function waitForServer(timeoutMs) {
@@ -343,12 +352,18 @@ function huntPeer(a, b, armed) {
 }
 
 /**
- * Drive a ship toward map center (0,0) and hold TIGHT there (throttle floor keeps
- * it looping within ~10u, never parked). Used in the endgame: A parks inside the
- * tiny storm floor pocket (~25u, see ZONE_OVERRIDE) where it is permanently safe,
- * while the dumb drones — which never throttle below 0.5 and so cannot loiter in
- * so tight a circle — keep crossing the ring and storm-sink. A survives, so the
- * match finishes with ALL drones placed and A the winner. Weapons cold here.
+ * Drive a ship toward map center (0,0) and hold TIGHT there. Used in the endgame:
+ * A holds inside the tiny storm floor pocket (13.5u, see ZONE_OVERRIDE) where it
+ * is permanently safe, while the dumb drones — which never throttle below 0.5 and
+ * so cannot loiter in so tight a circle — keep crossing the ring and storm-sink.
+ * Honest mechanics note: the slow hold throttles (0.45/0.2) sit below
+ * unstickInput's stuck threshold (1.5u/tick = 30u/s), so during the hold the
+ * detector periodically fires a ~0.7s astern burst + ~1.2s grace. The observed
+ * behavior is a slow wobble around the origin that stays well inside the pocket
+ * (proven across repeated full-lifecycle gate runs); if this hold ever drifts
+ * out, scope unstickInput to full-throttle legs rather than retuning throttles.
+ * A survives, so the match finishes with ALL drones placed and A the winner.
+ * Weapons cold here.
  */
 function steerToCenter(ctx) {
   if (!ctx.you) return;
@@ -359,11 +374,9 @@ function steerToCenter(ctx) {
   }
   const brg = bearing(ctx.you, ORIGIN);
   const d = Math.hypot(ctx.you.x, ctx.you.y);
-  // Hold TIGHT to the origin: a throttle FLOOR (never 0) keeps the hull looping
-  // through center within ~10u rather than parking, so part of every loop is
-  // spent INSIDE the collapsing ring even near the floor — stretching A's
-  // survival well past the dumb drones, which can only orbit out at waypoint
-  // distance and sit continuously outside once the ring passes them.
+  // Ease throttle down as A closes so it wobbles around the origin (see the
+  // doc comment above for what actually executes here — the slow hold interacts
+  // with unstickInput's astern bursts) instead of overshooting at full speed.
   ctx.room.send('i', {
     seq: ++ctx.seq,
     throttle: d > 200 ? 1 : d > 30 ? 0.45 : 0.2,
@@ -488,14 +501,16 @@ async function main() {
     const endgameTick = () => {
       if (!a.results) steerToCenter(a);
     };
-    // 300s budget: with the 180s shrink the floor lands ~grace+shrink=270s after
-    // go-live and the 120hp battleship drone dies ~6s later; step 5 begins ~55s
-    // in, so it must run ~220s to the finish — 300s leaves comfortable headroom.
+    // 300s budget: with grace 90s + shrink 90s the 13.5u floor lands ~180s after
+    // go-live; drones bleed at 4hp/s as the ring passes them (battleship 120hp
+    // is the tail), so the last sink lands roughly 190-230s after go-live while
+    // step 5 starts ~55s in — 300s leaves comfortable headroom over the tail.
     await runUntil(endgameTick, () => a.results !== null && b.results !== null, 300000, 'results broadcast');
     const res = a.results;
     assert(res.winnerId === a.room.sessionId, `winnerId=${res.winnerId}, expected A`);
     const rowA = res.rows.find((r) => r.id === a.room.sessionId);
     const rowB = res.rows.find((r) => r.id === b.room.sessionId);
+    assert(rowA && rowB, `results rows missing A/B (rows: ${res.rows.map((r) => r.id).join(',')})`);
     assert(rowA.placement === 1, `A placement=${rowA.placement}, expected 1`);
     assert(res.rows[0].id === rowA.id, `rows not sorted / winner not first (rows[0]=${res.rows[0].id})`);
     assert(
