@@ -2,8 +2,9 @@
 title: 'Story 1.2: Equipment Interface & Loadout Slots'
 type: 'refactor'
 created: '2026-07-18'
-status: 'in-review'
+status: 'done'
 baseline_revision: '607eb2f8488b61286cccea30818b5f54da9f9275'
+final_revision: 'bbcbf76e659e54ac75c6bfa0dbbf670f756863b6'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -115,3 +116,24 @@ Rejected as noise (adjudicated by orchestrator): unregistered-EquipmentId runtim
 - `npm test -w server` -- expected: all server tests green including new equipment suite; goldenFrames snapshot unchanged (git diff clean on `__snapshots__/`).
 - `npm test -w shared` -- expected: green, including barrel + shipClasses identity.
 - `npm run check` -- expected: lint (complexity ≤ 10), tsc all workspaces, all tests green.
+
+## Auto Run Result
+
+Status: done
+
+**Summary:** Story 1.2 Equipment Interface & Loadout Slots delivered as a behavior-preserving refactor with byte-identical wire output. `server/src/game/weapons/` is now `equipment/`: one `Equipment` interface (`id`, `isWeapon`, `tick`, `activate → ActivationResult` with denial reasons `no-ammo`/`out-of-arc`/`empty-slot`/`dead`) over a string-keyed deep-frozen `EQUIPMENT` registry. Ships carry the one-structure loadout (`ShipRecord.ammo` replaced by 4-slot `loadout` from NEW shared `sim/loadout.ts`: gun / special / special / empty-capable extra), and every activation flows through `sinkingActivationGate` — the sole `activate()` call path, a passthrough until Epic 5's sinking policy (D4 TBD). Implementation was orchestrated per /orchestrate model routing: Sonnet (shared loadout spine), Fable (equipment port + world/frames — the anti-cheat chokepoint), Opus (equipment test suite + review patch round), with a Fable×2 + Codex cross-model review gate.
+
+**Files changed:**
+- `shared/src/sim/loadout.ts` -- NEW: `LoadoutSlot`/`EquipmentState`/`EquipmentId`, slot grammar (`SLOT_COUNT`/`SLOT_GUN`/`SLOT_EXTRA`/`SLOT_ROLES`), `defaultLoadout(stats)`; barrel-exported; pinned by NEW `shared/src/__tests__/loadout.test.ts`.
+- `server/src/game/equipment/` -- renamed from `weapons/` (history preserved): `index.ts` defines `Equipment`, `ActivationContext` (ex-FireContext), `ActivationResult`, frozen `EQUIPMENT` registry, wire-derivation `weaponAmmo`; guns/torpedoes/mines ported to rows (`fire` → `activate` with denial reasons from existing outcomes); ammo/ballistics mechanical.
+- `server/src/game/world.ts` -- `ShipRecord.loadout`; fireControl ticks every fitted slot every tick (FR5) and dispatches the selected slot through `sinkingActivationGate(ship, slotIndex)` (dead-ship denial first, empty-slot safe); init sites use `defaultLoadout`; ammo-upgrade grant ported crash-loud.
+- `server/src/game/frames.ts`, `signals.ts`, `combat.ts` -- mechanical: wire ammo derived from slots 0–2 (byte-identical), import updates, compat re-export retargeted to `equipment/guns.js`.
+- `server/src/__tests__/equipment.test.ts` -- NEW: 20+ tests — registry conformance, gate denials per system (arc-miss-keeps-pool), empty-slot/out-of-range/dead safety, FR5 deselected reload, alias-proof sole-dispatch source scan, init/respawn parity, fresh-object wire key order.
+- 8 existing server test files -- mechanical import/state-shape updates, assertions unweakened.
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` -- story 1-2 marked done.
+
+**Review findings breakdown:** 5 patches applied (2 medium — public-gate dead-ship guard and slot-index signature closing a Codex-CONFIRMED cross-ship aliasing hazard, both unreachable in production; 3 low — null-state policy unification, test-suite robustness, shared loadout tests), 0 deferred, 10 rejected as noise (each adjudicated; see triage log). All three reviewers — two Fable hunters and Codex — independently confirmed the behavior-preservation core: golden frames byte-identical, wire shapes untouched.
+
+**Verification:** `npm run check` green end-to-end after every wave and after the patch round — 829 tests (shared 135, server 402, client 292), 0 lint errors (the 1 warning is pre-existing in untouched `client/src/main.ts`), tsc clean in all three workspaces. Golden-frames snapshot byte-identical throughout (git diff empty at every gate). Sole-dispatch scan proven to bite via probe dispatch; FR5 test proven via mutation.
+
+**Residual risks:** the sole-dispatch guarantee is a source-scan (now alias-resistant, still lexical — a determined future bypass via exported `fireGuns`/`fireTorpedo` helpers wouldn't be caught, though those retain their own alive guards); slot index == WeaponId coupling is deliberate interregnum debt that Stories 1.6–1.9 must dissolve when per-class loadouts land (`defaultLoadout` will need a class parameter then); `combat.ts` shim now serves only `combat.test.ts` and can be retired whenever that suite migrates.
