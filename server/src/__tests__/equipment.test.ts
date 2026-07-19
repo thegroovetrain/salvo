@@ -67,8 +67,7 @@ describe('EQUIPMENT registry — interface conformance', () => {
   it('every row exposes the Equipment interface with a key-matching id', () => {
     for (const [key, row] of Object.entries(EQUIPMENT)) {
       expect(row.id).toBe(key);
-      expect(typeof row.isWeapon).toBe('boolean');
-      expect(row.isWeapon).toBe(true); // all three current systems launch ordnance
+      expect(typeof row.isWeapon).toBe('boolean'); // structural only — content pinned separately
       expect(typeof row.tick).toBe('function');
       expect(typeof row.activate).toBe('function');
     }
@@ -76,6 +75,12 @@ describe('EQUIPMENT registry — interface conformance', () => {
 
   it('holds exactly gun / torpedo / mine', () => {
     expect(Object.keys(EQUIPMENT).sort()).toEqual(['gun', 'mine', 'torpedo']);
+  });
+
+  // Content-level, NOT conformance: kept separate so Story 1.6's first
+  // non-weapon row (isWeapon:false) doesn't break the structural suite above.
+  it('all three current rows are weapons (isWeapon true)', () => {
+    for (const row of Object.values(EQUIPMENT)) expect(row.isWeapon).toBe(true);
   });
 
   it('the registry itself is frozen — rows cannot be added', () => {
@@ -103,7 +108,7 @@ describe('denial reasons — derived through the gate without changing effects',
     const ship = place(w, 'a');
     setInput(ship, { aim: 0, weapon: WEAPON.gun }); // dead ahead — outside both beam arcs
     const before = { ...ship.loadout[WEAPON.gun].state! };
-    const res = w.sinkingActivationGate(ship, ship.loadout[WEAPON.gun]);
+    const res = w.sinkingActivationGate(ship, WEAPON.gun);
     expect(res).toEqual({ ok: false, reason: 'out-of-arc' });
     expect(ship.loadout[WEAPON.gun].state).toEqual(before); // arc-miss keeps the round
   });
@@ -113,14 +118,14 @@ describe('denial reasons — derived through the gate without changing effects',
     const ship = place(w, 'a');
     setInput(ship, { aim: Math.PI / 2, weapon: WEAPON.gun }); // port beam — in arc
     ship.loadout[WEAPON.gun].state = { n: 0, reloadMsLeft: CONFIG.gun.reloadMs };
-    expect(w.sinkingActivationGate(ship, ship.loadout[WEAPON.gun])).toEqual({ ok: false, reason: 'no-ammo' });
+    expect(w.sinkingActivationGate(ship, WEAPON.gun)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 
   it('torpedo out-of-arc denies and keeps the fish', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
     setInput(ship, { aim: Math.PI / 2, weapon: WEAPON.torpedo }); // abeam — outside the bow arc
-    const res = w.sinkingActivationGate(ship, ship.loadout[WEAPON.torpedo]);
+    const res = w.sinkingActivationGate(ship, WEAPON.torpedo);
     expect(res).toEqual({ ok: false, reason: 'out-of-arc' });
     expect(ship.loadout[WEAPON.torpedo].state).toEqual({ n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 });
   });
@@ -130,7 +135,7 @@ describe('denial reasons — derived through the gate without changing effects',
     const ship = place(w, 'a');
     setInput(ship, { aim: 0, weapon: WEAPON.torpedo }); // over the bow — in arc, but empty
     ship.loadout[WEAPON.torpedo].state = { n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs };
-    expect(w.sinkingActivationGate(ship, ship.loadout[WEAPON.torpedo])).toEqual({
+    expect(w.sinkingActivationGate(ship, WEAPON.torpedo)).toEqual({
       ok: false,
       reason: 'no-ammo',
     });
@@ -141,7 +146,7 @@ describe('denial reasons — derived through the gate without changing effects',
     const ship = place(w, 'a');
     setInput(ship, { weapon: WEAPON.mine });
     ship.loadout[WEAPON.mine].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
-    expect(w.sinkingActivationGate(ship, ship.loadout[WEAPON.mine])).toEqual({ ok: false, reason: 'no-ammo' });
+    expect(w.sinkingActivationGate(ship, WEAPON.mine)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 });
 
@@ -152,16 +157,25 @@ describe('empty-slot safety — the gate answers before any dereference', () => 
     const w = bareWorld();
     const ship = place(w, 'a');
     expect(ship.loadout[SLOT_EXTRA]).toEqual({ equipmentId: null, state: null });
-    expect(w.sinkingActivationGate(ship, ship.loadout[SLOT_EXTRA])).toEqual({
+    expect(w.sinkingActivationGate(ship, SLOT_EXTRA)).toEqual({
       ok: false,
       reason: 'empty-slot',
     });
   });
 
-  it('an out-of-range / undefined slot denies empty-slot without crashing', () => {
+  it('an out-of-range slot index denies empty-slot without crashing', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    expect(w.sinkingActivationGate(ship, ship.loadout[99])).toEqual({ ok: false, reason: 'empty-slot' });
+    expect(w.sinkingActivationGate(ship, 99)).toEqual({ ok: false, reason: 'empty-slot' });
+  });
+
+  it('a dead ship is refused first (dead), before any slot resolution', () => {
+    const w = bareWorld();
+    const ship = place(w, 'a');
+    setInput(ship, { aim: Math.PI / 2, weapon: WEAPON.gun }); // port beam — would be in arc if alive
+    w.sinkShip('a');
+    expect(ship.alive).toBe(false);
+    expect(w.sinkingActivationGate(ship, WEAPON.gun)).toEqual({ ok: false, reason: 'dead' });
   });
 });
 
@@ -180,12 +194,44 @@ describe('FR5 — a deselected slot still reloads every tick', () => {
   });
 });
 
+// ---------- 4b. the empty extra slot is never ticked --------------------------
+
+describe('the empty extra slot is never ticked', () => {
+  it('behavioral: a full-loadout ship steps many ticks with slot 3 empty, world stays healthy while 0–2 reload', () => {
+    const w = bareWorld();
+    const ship = place(w, 'a');
+    setInput(ship, { weapon: WEAPON.gun }); // no click (fireSeq 0)
+    // Drain the three weapon slots so their reload timers must tick down.
+    ship.loadout[WEAPON.gun].state = { n: 0, reloadMsLeft: CONFIG.gun.reloadMs };
+    ship.loadout[WEAPON.torpedo].state = { n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs };
+    ship.loadout[WEAPON.mine].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
+    const N = 5;
+    expect(() => {
+      for (let i = 0; i < N; i++) w.step();
+    }).not.toThrow();
+    // Empty slot untouched — no state materialized, nothing to have ticked.
+    expect(ship.loadout[SLOT_EXTRA]).toEqual({ equipmentId: null, state: null });
+    // The fitted slots DID reload-tick (proves the loop ran, and skips only 3).
+    expect(ship.loadout[WEAPON.gun].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs - N * DT);
+    expect(ship.loadout[WEAPON.torpedo].state!.reloadMsLeft).toBe(CONFIG.torpedo.reloadMs - N * DT);
+    expect(ship.loadout[WEAPON.mine].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - N * DT);
+  });
+
+  it("source: fireControl's per-slot tick loop guards on equipmentId !== null", () => {
+    const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), '../game');
+    const src = readFileSync(resolve(gameDir, 'world.ts'), 'utf8');
+    const fire = src.indexOf('private fireControl(');
+    expect(fire).toBeGreaterThan(-1);
+    const loopBody = src.slice(fire, src.indexOf('sinkingActivationGate(ship', fire));
+    // The tick dispatch runs only for fitted slots.
+    expect(/slot\.equipmentId !== null\)\s*EQUIPMENT\[slot\.equipmentId\]\.tick\(/.test(loopBody)).toBe(true);
+  });
+});
+
 // ---------- 5. the gate is the sole dispatch path -----------------------------
 
 describe('the sinking-activation gate is the sole dispatch path to activate()', () => {
   const gameDir = resolve(dirname(fileURLToPath(import.meta.url)), '../game');
-  // A row dispatch is always `EQUIPMENT[<id>].activate(` — fresh regex per use.
-  const dispatchRe = (): RegExp => /EQUIPMENT\[[^\]]*\]\.activate\(/g;
 
   function gameSourceFiles(): string[] {
     return readdirSync(gameDir, { recursive: true })
@@ -193,23 +239,77 @@ describe('the sinking-activation gate is the sole dispatch path to activate()', 
       .map((f) => join(gameDir, f));
   }
 
-  it('exactly one EQUIPMENT-row activate() call exists across all game sources', () => {
-    let count = 0;
+  /** Line comments, block-comment bodies, and JSDoc lines are not real code. */
+  function isCommentLine(line: string): boolean {
+    const t = line.trim();
+    return t.startsWith('//') || t.startsWith('*') || t.startsWith('/*');
+  }
+
+  /** The source line containing byte offset `at`. */
+  function lineAt(src: string, at: number): string {
+    const start = src.lastIndexOf('\n', at - 1) + 1;
+    const end = src.indexOf('\n', at);
+    return src.slice(start, end === -1 ? undefined : end);
+  }
+
+  /**
+   * Every REAL `activate(` call across game sources, excluding: (i) the
+   * Equipment interface method declaration (no `.` receiver), (ii) match.ts's
+   * unrelated `this.activate()` phase transition, and (iii) comment lines.
+   * Returns each survivor as { file, index } (index = byte offset in file).
+   */
+  function realActivateCalls(): { file: string; index: number }[] {
+    const hits: { file: string; index: number }[] = [];
     for (const file of gameSourceFiles()) {
-      count += (readFileSync(file, 'utf8').match(dispatchRe()) ?? []).length;
+      const src = readFileSync(file, 'utf8');
+      const re = /\bactivate\(/g;
+      for (let m = re.exec(src); m !== null; m = re.exec(src)) {
+        const line = lineAt(src, m.index);
+        if (isCommentLine(line)) continue; // (iii)
+        if (src[m.index - 1] !== '.') continue; // (i) interface decl: no `.` receiver
+        if (/\bthis\.activate\(/.test(line)) continue; // (ii) match.ts phase transition
+        hits.push({ file, index: m.index });
+      }
     }
-    expect(count).toBe(1);
+    return hits;
+  }
+
+  /**
+   * Byte bounds [start,end] of the method `name`'s body in `src`, found by
+   * locating the definition (the occurrence NOT preceded by `.`, i.e. not a
+   * call site) and brace-matching from its opening `{` — never by assuming
+   * which method lexically follows it.
+   */
+  function methodBodyBounds(src: string, name: string): { start: number; end: number } {
+    const needle = name + '(';
+    let defAt = -1;
+    for (let at = src.indexOf(needle); at !== -1; at = src.indexOf(needle, at + needle.length)) {
+      if (src[at - 1] !== '.') { defAt = at; break; } // a def, not `this.<name>(`
+    }
+    expect(defAt).toBeGreaterThan(-1);
+    let depth = 0;
+    let start = -1;
+    for (let i = defAt; i < src.length; i++) {
+      if (src[i] === '{') { if (depth === 0) start = i; depth++; }
+      else if (src[i] === '}' && --depth === 0) return { start, end: i };
+    }
+    throw new Error('unbalanced braces');
+  }
+
+  it('exactly one real activate() call survives across all game sources', () => {
+    const hits = realActivateCalls();
+    expect(hits).toHaveLength(1);
+    expect(hits[0].file.endsWith('world.ts')).toBe(true);
   });
 
-  it('that single dispatch lives inside World.sinkingActivationGate', () => {
-    const src = readFileSync(resolve(gameDir, 'world.ts'), 'utf8');
-    const gateDef = src.indexOf('sinkingActivationGate(ship: ShipRecord'); // method def, not the call site
-    const nextMethod = src.indexOf('activationContext(ship: ShipRecord', gateDef); // method that follows the gate
-    const dispatch = src.search(dispatchRe());
-    expect(gateDef).toBeGreaterThan(-1);
-    expect(nextMethod).toBeGreaterThan(gateDef);
-    expect(dispatch).toBeGreaterThan(gateDef);
-    expect(dispatch).toBeLessThan(nextMethod);
+  it('that single dispatch sits inside World.sinkingActivationGate (brace-matched body)', () => {
+    const worldPath = resolve(gameDir, 'world.ts');
+    const src = readFileSync(worldPath, 'utf8');
+    const body = methodBodyBounds(src, 'sinkingActivationGate');
+    const hit = realActivateCalls().find((h) => h.file === worldPath);
+    expect(hit).toBeDefined();
+    expect(hit!.index).toBeGreaterThan(body.start);
+    expect(hit!.index).toBeLessThan(body.end);
   });
 });
 

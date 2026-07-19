@@ -392,10 +392,12 @@ export class World {
     }
     const weapon = World.AMMO_UPGRADE_WEAPON[type];
     if (weapon === undefined) return;
-    // Universal fit: slot index == WeaponId, and the weapon slots are always
-    // fitted (state set) — the null check just fail-safes the invariant.
-    const pool = killer.loadout[weapon].state;
-    if (!pool) return;
+    // Universal fit: slot index == WeaponId; a fitted weapon slot ALWAYS has
+    // state (the LoadoutSlot invariant: state is null iff equipmentId is null).
+    // Assert it rather than silently skipping on null — a swallowed null would
+    // invisibly rob the player of the earned round, so a broken invariant must
+    // crash loudly (matching the old dense-array semantics).
+    const pool = killer.loadout[weapon].state!;
     pool.n = Math.min(pool.n + 1, weaponMaxAmmo(killer.stats, weapon));
   }
 
@@ -614,21 +616,29 @@ export class World {
       const clicked = ship.input.fireSeq > ship.lastFireSeq;
       ship.lastFireSeq = Math.max(ship.lastFireSeq, ship.input.fireSeq);
       if (!ship.alive || !clicked) continue;
-      this.sinkingActivationGate(ship, ship.loadout[ship.input.weapon]);
+      this.sinkingActivationGate(ship, ship.input.weapon);
     }
   }
 
   /**
    * THE sinking-activation gate — the ONLY call path to Equipment.activate()
-   * anywhere. Today a pure PASSTHROUGH: every activation on a fitted slot is
-   * allowed. The sinking-state policy (which equipment a sinking ship may
-   * still activate) is deliberately TBD per D4 — Epic 5 wires the sinking
-   * state through here; no policy logic lands before it. An empty or
-   * out-of-range slot is answered here (empty-slot denial, no dereference) so
-   * rows never see one. Public so directed tests can drive activation and
-   * read the ActivationResult (never on the wire).
+   * anywhere. Takes the SELECTED slot INDEX and resolves the slot on THIS
+   * ship internally, so a caller can never hand it ship A plus ship B's slot
+   * object (a cross-ship aliasing hazard that would fire from A while draining
+   * B's pool). A dead ship is refused first ('dead') — defense-in-depth on a
+   * public seam (fireControl already skips the dead, but Epic 5's sinking
+   * policy will drive this gate directly). Today otherwise a PASSTHROUGH:
+   * every activation on a fitted slot is allowed. The sinking-state policy
+   * (which equipment a sinking ship may still activate) is deliberately TBD
+   * per D4 — Epic 5 wires the sinking state through here; no policy logic
+   * lands before it. An empty or out-of-range slot is answered here
+   * (empty-slot denial, no dereference) so rows never see one. Public so
+   * directed tests can drive activation and read the ActivationResult (never
+   * on the wire).
    */
-  sinkingActivationGate(ship: ShipRecord, slot: LoadoutSlot | undefined): ActivationResult {
+  sinkingActivationGate(ship: ShipRecord, slotIndex: number): ActivationResult {
+    if (!ship.alive) return { ok: false, reason: 'dead' };
+    const slot = ship.loadout[slotIndex];
     if (!slot || slot.equipmentId === null) return { ok: false, reason: 'empty-slot' };
     return EQUIPMENT[slot.equipmentId].activate(this.activationContext(ship), slot);
   }

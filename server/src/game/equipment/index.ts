@@ -40,8 +40,10 @@ export interface ActivationContext {
 
 /** Why an activation was refused. Derived from the EXISTING internal outcomes
  *  (arc-miss keeps the pool; empty pool denies); consumed only by tests —
- *  never a wire event. 'empty-slot' comes from the gate, never from a row. */
-export type ActivationDenial = 'no-ammo' | 'out-of-arc' | 'empty-slot';
+ *  never a wire event. 'empty-slot' and 'dead' both come from the gate, never
+ *  from a row: the gate refuses a dead ship ('dead') and an empty/out-of-range
+ *  slot ('empty-slot') before any row is dispatched. */
+export type ActivationDenial = 'no-ammo' | 'out-of-arc' | 'empty-slot' | 'dead';
 
 /** Outcome of one activation attempt. */
 export type ActivationResult = { ok: true } | { ok: false; reason: ActivationDenial };
@@ -54,7 +56,11 @@ export type ActivationResult = { ok: true } | { ok: false; reason: ActivationDen
  *  per-class loadouts (1.6–1.9) can fit equipment into any compatible slot.
  *  LOADOUT INVARIANT: a fitted slot always has state (state is null iff
  *  equipmentId is null), and the World never routes an empty slot to a row
- *  (the sinking-activation gate answers 'empty-slot' first). */
+ *  (the sinking-activation gate answers 'empty-slot' first). POLICY: fitted
+ *  slots always have state — the gate's empty-slot check is the single
+ *  boundary, and every downstream reader (weaponAmmo, ammo-upgrade grant,
+ *  rows via slot.state!) asserts non-null. A violation crashes loudly rather
+ *  than improvising a zero pool or silently skipping. */
 export interface Equipment {
   readonly id: EquipmentId;
   /** True for systems that launch ordnance (all three today); non-weapon
@@ -86,13 +92,15 @@ export const EQUIPMENT: Readonly<Record<EquipmentId, Equipment>> = deepFreezeRow
  * from loadout slots 0–2 in slot order (the universal fit keeps slot index ==
  * WeaponId), each a FRESH {n, reloadMsLeft} copy of the slot's live pool.
  * maxAmmo/reloadMs are NOT on the wire — the client reads them from CONFIG
- * (Stage D: from effective stats). An (unreachable-today) empty weapon slot
- * derives as an empty idle pool rather than dereferencing null.
+ * (Stage D: from effective stats). Weapon slots 0–2 are ALWAYS fitted (the
+ * LoadoutSlot invariant: state is null iff equipmentId is null), so state is
+ * asserted non-null rather than fabricating a zero pool — a broken invariant
+ * crashes loudly instead of silently shipping empty ammo to the HUD.
  */
 export function weaponAmmo(ship: ShipRecord): WeaponAmmo[] {
   return ship.loadout
     .slice(0, SLOT_EXTRA)
-    .map((slot) => ({ n: slot.state?.n ?? 0, reloadMsLeft: slot.state?.reloadMsLeft ?? 0 }));
+    .map((slot) => ({ n: slot.state!.n, reloadMsLeft: slot.state!.reloadMsLeft }));
 }
 
 export { freshAmmo, tickReload, consume } from './ammo.js';

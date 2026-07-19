@@ -2,7 +2,7 @@
 title: 'Story 1.2: Equipment Interface & Loadout Slots'
 type: 'refactor'
 created: '2026-07-18'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '607eb2f8488b61286cccea30818b5f54da9f9275'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -86,6 +86,21 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-07-18 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5: (high 0, medium 2, low 3)
+- defer: 0
+- reject: 10: (high 0, medium 0, low 10)
+- addressed_findings:
+  - `[medium]` `[patch]` Public `sinkingActivationGate` lacked the dead-ship guard the old fire helpers carried (all three reviewers; Codex CONFIRMED) — gate now denies `{ ok: false, reason: 'dead' }` first; unreachable from fireControl, pure defense-in-depth on the seam Epic 5's sinking policy will occupy.
+  - `[medium]` `[patch]` Gate's `(ship, slot)` signature allowed a mismatched pair — ship A firing while draining ship B's pool (Codex CONFIRMED aliasing trace) — signature is now `(ship, slotIndex)` with the slot resolved internally; the aliasing class is eliminated.
+  - `[low]` `[patch]` Null-state invariant handled three inconsistent ways (rows crash, upgrade grant silently skipped, `weaponAmmo` fabricated `?? 0`) — unified on crash-loud trust-the-invariant; policy documented once at the Equipment interface JSDoc.
+  - `[low]` `[patch]` Test robustness: sole-dispatch scan was alias-evadable and neighbor-order brittle (rewritten to count every real `.activate(` in game/ with a brace-matched gate body; bite proven by a probe dispatch), `isWeapon === true` moved out of the conformance loop, empty-slot-never-ticked directly pinned, dead-ship gate denial test added.
+  - `[low]` `[patch]` `shared/src/sim/loadout.ts` was the only `sim/` module without a shared test — `loadout.test.ts` added (6 tests: shape, null-iff-null invariant, grammar constants, all three classes).
+
+Rejected as noise (adjudicated by orchestrator): unregistered-EquipmentId runtime guard (compile-time-total `Record`, same adjudication class as 1.1's ballisticScan rejection); "missing class→loadout parameter" (spec-consistent minimalism — Story 1.6 owns that signature change); slot-index==WeaponId positional coupling (the spec-sanctioned interregnum); dead/decorative-export complaints (GUN_MOUNTS pre-existing shape, SLOT_ROLES spec-mandated grammar, freshAmmo/defaultLoadout duplication forced by shared↔server layering and pinned by parity tests); combined out-of-arc+no-ammo priority untested (check order is ruled and documented); production-input-path denial coverage and `weapon: 3` reachability (Edge Hunter itself verified `inputs.ts` clamps to 0|1|2); uncommitted spec status edit (workflow timing artifact, committed at finalize); spec-hygiene notes (`oversized` is the template's intended flag; change log empty because no bad_spec occurred); combat.ts shim debt (spec-mandated retention); loadout-shorter-than-SLOT_COUNT grant crash (construction-guaranteed length 4).
 
 ## Design Notes
 
