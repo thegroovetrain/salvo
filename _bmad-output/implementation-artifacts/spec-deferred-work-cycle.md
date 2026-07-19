@@ -2,8 +2,9 @@
 title: 'Deferred-Work Cycle: triage log, JOINING-guard regression tests, matchSmoke hardening'
 type: 'chore'
 created: '2026-07-18'
-status: 'in-review'
+status: 'done'
 baseline_revision: '39aa2083cca7cb26a70fa5c3534a9627d3ab6e5f'
+final_revision: '52d4a415c4b89ae1832d0c2ec95eda19e6c14eb0'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: ['{project-root}/_bmad-output/project-context.md']
