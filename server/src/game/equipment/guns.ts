@@ -81,7 +81,6 @@ function gunSalvo(
         range: shellRangeFor(ship, ship.input.aimDist),
         damage: CONFIG.gun.damage,
         hitRadius: CONFIG.gun.shellRadius,
-        graceMs: CONFIG.gun.selfHitGrace,
         kind: 'shell',
       }),
     ],

@@ -5,7 +5,7 @@
 // one-deep ammo pool (equipment/ammo.ts) — a launch consumes the round +
 // starts the reload if idle. A torpedo is just a slow, long-legged,
 // hard-hitting ballistic: it reuses the shared stepShell machinery (islands
-// block it, swept-capsule hull hits, owner self-hit grace) via ShellState's
+// block it, swept-silhouette hull hits, permanent owner immunity) via ShellState's
 // weapon-param fields. Bow arc heading±30°; aim clamped into the arc, else no
 // launch.
 //
@@ -43,8 +43,7 @@ function launchTorpedo(
     range: Number.POSITIVE_INFINITY, // A3: run until impact / map edge
     damage: CONFIG.torpedo.damage,
     hitRadius: CONFIG.torpedo.hitRadius, // A4: own value, no longer gun.shellRadius
-    graceMs: CONFIG.torpedo.selfHitGrace, // A4: own value
-    spawnClearance: CONFIG.torpedo.spawnClearance, // real spawn margin — self-hit fix
+    spawnClearance: CONFIG.torpedo.spawnClearance, // real spawn margin (clean spawn geometry)
     kind: 'torp',
   });
   return { torp, denial: null };

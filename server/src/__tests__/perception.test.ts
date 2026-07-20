@@ -115,7 +115,6 @@ function injectShell(
     kind: 'shell',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
-    graceMs: CONFIG.gun.selfHitGrace,
   });
 }
 
@@ -155,7 +154,7 @@ describe('perception — sight tier boundaries (exact)', () => {
     const b = place(w, 'b', SIGHT, 0, 1.5);
     const f = buildFrame(w, 'a');
     expect(f.contacts).toEqual([
-      { id: 'b', x: b.state.x, y: b.state.y, heading: 1.5, speed: 0, cls: 'cruiser' },
+      { id: 'b', x: b.state.x, y: b.state.y, heading: 1.5, speed: 0, cls: 'torpedoBoat' },
     ]);
   });
 

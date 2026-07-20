@@ -19,20 +19,22 @@ import { buildFrame } from '../game/frames.js';
 
 const HALF_PI = Math.PI / 2;
 
-const CRUISER_STATS = effectiveStats(CONFIG.shipClasses.cruiser, zeroUpgrades());
+const TB_STATS = effectiveStats(CONFIG.shipClasses.torpedoBoat, zeroUpgrades());
 
 function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
   return {
     id: 'a',
     name: 'A',
     isDrone: false,
-    classId: 'cruiser',
-    cls: CONFIG.shipClasses.cruiser,
+    hullId: 'torpedoBoat',
+    cls: CONFIG.shipClasses.torpedoBoat,
+    hullPoly: [],
+    prevPose: { x: 0, y: 0, heading: 0, speed: 0 },
     upgrades: zeroUpgrades(),
     offers: [],
-    stats: CRUISER_STATS,
+    stats: TB_STATS,
     state: { x: 0, y: 0, heading: 0, speed: 0 },
-    hp: CONFIG.shipClasses.cruiser.hp,
+    hp: CONFIG.shipClasses.torpedoBoat.hp,
     alive: true,
     input: { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, weapon: WEAPON.gun },
     lastAckSeq: 1,
@@ -41,7 +43,7 @@ function rec(overrides: Partial<ShipRecord> = {}): ShipRecord {
     sweepAngle: 0,
     prevSweepAngle: 0,
     seenBallistics: new Set<string>(),
-    loadout: defaultLoadout(CRUISER_STATS),
+    loadout: defaultLoadout(TB_STATS),
     kills: 0,
     deaths: 0,
     damageDealt: 0,
@@ -111,7 +113,7 @@ describe('fireGuns — gating rules', () => {
 });
 
 describe('fireGuns — shell range is the click distance (aimDist)', () => {
-  const MUZZLE = CONFIG.shipClasses.cruiser.hull.length / 2 + CONFIG.gun.shellRadius;
+  const MUZZLE = CONFIG.shipClasses.torpedoBoat.hull.length / 2 + CONFIG.gun.shellRadius;
 
   it('a click at 200u yields a muzzle-relative range of 200 − muzzleOffset', () => {
     const ship = rec({ input: gunInput(HALF_PI, 200) });
@@ -134,7 +136,7 @@ describe('fireGuns — shell range is the click distance (aimDist)', () => {
   it('the beyond-max clamp uses the EFFECTIVE range (gunRange upgrade), not CONFIG', () => {
     const upgrades = zeroUpgrades();
     upgrades[UPGRADE_IDS.indexOf('gunRange')] = 2; // two stacks
-    const stats = effectiveStats(CONFIG.shipClasses.cruiser, upgrades);
+    const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, upgrades);
     const ship = rec({ upgrades, stats, input: gunInput(HALF_PI, 50000) });
     const [shell] = fireGuns(ship, 0, mkId);
     const expected = CONFIG.gun.shellRange * CONFIG.upgrades.gunRange.mult ** 2;
@@ -177,11 +179,11 @@ describe('World combat integration', () => {
   it('damages the target with a boom(+hit) and dmg event', () => {
     const { w, b } = fight();
     const events = stepCollect(w, 25); // enough for the shell to reach B
-    expect(b.hp).toBe(CONFIG.shipClasses.cruiser.hp - CONFIG.gun.damage);
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage);
     const boom = events.find((e) => e.k === 'boom' && e.hit === 'b');
     const dmg = events.find((e) => e.k === 'dmg' && e.id === 'b');
     expect(boom).toBeTruthy();
-    expect(dmg).toMatchObject({ amount: CONFIG.gun.damage, hp: CONFIG.shipClasses.cruiser.hp - CONFIG.gun.damage });
+    expect(dmg).toMatchObject({ amount: CONFIG.gun.damage, hp: CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage });
   });
 
   it('a killing hit sinks the target and books the kill/death', () => {
@@ -204,7 +206,7 @@ describe('World combat integration', () => {
     (w.map.islands as { x: number; y: number; r: number }[]).push({ x: 0, y: 60, r: 30 });
     w.submitInput('a', gunInput(HALF_PI, 120));
     const events = stepCollect(w, 25);
-    expect(b.hp).toBe(CONFIG.shipClasses.cruiser.hp); // never hit
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // never hit
     expect(events.some((e) => e.k === 'boom' && e.hit === undefined)).toBe(true); // splashed on the rock
     expect(events.some((e) => e.k === 'dmg')).toBe(false);
   });
@@ -292,7 +294,7 @@ describe('World — guns fire AT the click point (aimDist)', () => {
     const { w } = armed();
     w.submitInput('a', gunInput(HALF_PI, 5000));
     const [boom] = boomsOf(stepCollect(w, 120));
-    const muzzle = CONFIG.shipClasses.cruiser.hull.length / 2 + CONFIG.gun.shellRadius;
+    const muzzle = CONFIG.shipClasses.torpedoBoat.hull.length / 2 + CONFIG.gun.shellRadius;
     expect(boom.y).toBeCloseTo(muzzle + CONFIG.gun.shellRange, 4);
   });
 
@@ -303,8 +305,8 @@ describe('World — guns fire AT the click point (aimDist)', () => {
     const booms = boomsOf(events);
     expect(booms).toHaveLength(1);
     expect(booms[0].hit).toBeUndefined(); // 'expired' never routes to hitShip
-    expect(booms[0].y).toBeCloseTo(CONFIG.shipClasses.cruiser.hull.length / 2 + CONFIG.gun.shellRadius, 4);
-    expect(a.hp).toBe(CONFIG.shipClasses.cruiser.hp);
+    expect(booms[0].y).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.hull.length / 2 + CONFIG.gun.shellRadius, 4);
+    expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     expect(events.some((e) => e.k === 'dmg')).toBe(false);
   });
 

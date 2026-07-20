@@ -38,7 +38,7 @@ function ownFrame(x: number, y: number): unknown {
     t: 100,
     tick: 1,
     ackSeq: 0,
-    you: { x, y, heading: 0, speed: 0, cls: 'cruiser', upg: [], alive: true, sweep: 0 },
+    you: { x, y, heading: 0, speed: 0, cls: 'torpedoBoat', upg: [], alive: true, sweep: 0 },
     contacts: [],
     mines: [],
     events: [],

@@ -5,7 +5,7 @@
 // Messages: "w" welcome (once), "i" input (client->server), "f" frame
 // (server->client, every tick).
 
-import type { GameConfig, ShipClassId, UpgradeId } from './constants.js';
+import type { GameConfig, HullId, ShipClassId, UpgradeId } from './constants.js';
 
 /** Short message-name tags used on the Colyseus channel. */
 export const MSG = {
@@ -149,7 +149,12 @@ export interface Contact {
   y: number; // u
   heading: number; // rad
   speed: number; // u/s
-  cls: ShipClassId; // ship class — a sighted hull's size is legitimately visible
+  /**
+   * Hull id — a sighted hull's silhouette is legitimately visible. Wider than
+   * OwnShip.cls: contacts can also be drones (droneSmall/Medium/Large), which
+   * are never a class YOU can be.
+   */
+  cls: HullId;
 }
 
 // --- GameEvent union (discriminated on `k`) --------------------------------

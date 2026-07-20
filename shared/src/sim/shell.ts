@@ -10,20 +10,23 @@
 //
 // Swept collision (no tunneling even at max closing speed): the tick's travel is
 // a segment p0->p1. Against islands it is seg-vs-circle (segCircleHit → entry
-// fraction t). Against hulls it is seg-vs-capsule: closest approach of the shell
-// segment to the hull axis segment (segSegClosest), a hit iff that gap ≤ hull
-// radius + projectile radius, at fraction `s` along the shell segment. The map
-// edge is a third obstacle: the point where the travel segment exits the water
-// disk (segCircleExit), resolving as a splash (`expired`). Earliest fraction
-// across all obstacles wins — an island/hull short of the edge still takes
-// priority. The firer is immune for graceMs.
+// fraction t). Against hulls it is seg-vs-silhouette-polygon (segPolygonHit):
+// a hit iff the travel segment comes within the projectile's radius of any
+// polygon edge (or starts inside), at the closest-approach fraction along the
+// shell segment. Concave-safe — the Torpedo Boat stern notch and Mine Layer
+// transom notch are missable cavities. The map edge is a third obstacle: the
+// point where the travel segment exits the water disk (segCircleExit),
+// resolving as a splash (`expired`). Earliest fraction across all obstacles
+// wins — an island/hull short of the edge still takes priority. The firer is
+// PERMANENTLY immune to its own projectile — own weapons never damage the owner
+// (Eric ruling 2026-07-19); the old timed self-hit grace is retired.
 
-import { CONFIG } from '../constants.js';
-import { segCircleExit, segCircleHit, segSegClosest } from '../math/geom.js';
+import { segCircleExit, segCircleHit } from '../math/geom.js';
+import { segPolygonHit } from './silhouette.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Circle } from '../types.js';
 
-/** Map is centered at world origin (resolveBoundary treats origin as center). */
+/** Map is centered at world origin (the boundary clamp treats origin as center). */
 const MAP_CENTER: Vec2 = { x: 0, y: 0 };
 
 /**
@@ -34,7 +37,7 @@ const MAP_CENTER: Vec2 = { x: 0, y: 0 };
  */
 export interface ShellState {
   id: string;
-  ownerId: string; // firer — immune for graceMs
+  ownerId: string; // firer — NEVER hit by this projectile (permanent owner immunity)
   x: number; // u — current position
   y: number; // u
   vx: number; // u/s
@@ -44,18 +47,16 @@ export interface ShellState {
   kind: 'shell' | 'torp'; // wire kind
   damage: number; // hp per hull hit
   hitRadius: number; // collision radius added to the hull capsule
-  graceMs: number; // owner self-hit grace
 }
 
 /**
- * A hull to test shells against: the capsule's axis segment (stern..bow) plus
- * its capsule radius (beam/2), which varies per ship class.
+ * A hull to test shells against: its silhouette polygon transformed to the
+ * ship's world pose this tick (see silhouette.ts transformPolygon — callers
+ * cache the transformed verts per tick).
  */
 export interface HullTarget {
   id: string;
-  stern: Vec2;
-  bow: Vec2;
-  radius: number; // u — capsule radius (hull.beam / 2)
+  poly: readonly Vec2[]; // world-space silhouette verts
 }
 
 /** Everything stepShell needs about the world this tick. */
@@ -74,35 +75,6 @@ export type ShellOutcome =
   | { kind: 'hitIsland'; x: number; y: number }
   | { kind: 'expired'; x: number; y: number };
 
-/** Structural subset of a class hull (length + beam) that geometry needs. */
-export interface Hull {
-  length: number; // u — bow-to-stern
-  beam: number; // u — capsule diameter
-}
-
-/**
- * Capsule axis endpoints (stern, bow) + radius for a ship pose. `hull` defaults
- * to the cruiser hull so callers that don't yet vary by class stay identical;
- * per-class callers pass the ship's own hull. The axis segment is length−beam
- * long (so segment + 2·radius = length), radius = beam/2.
- */
-export function hullEndpoints(
-  x: number,
-  y: number,
-  heading: number,
-  hull: Hull = CONFIG.shipClasses.cruiser.hull,
-): HullTarget {
-  const halfAxis = (hull.length - hull.beam) / 2;
-  const c = Math.cos(heading);
-  const s = Math.sin(heading);
-  return {
-    id: '',
-    stern: { x: x - c * halfAxis, y: y - s * halfAxis },
-    bow: { x: x + c * halfAxis, y: y + s * halfAxis },
-    radius: hull.beam / 2,
-  };
-}
-
 interface Hit {
   frac: number; // fraction along the shell segment [0,1]
   victimId?: string; // set for a hull hit
@@ -119,16 +91,15 @@ function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Circle[]): Hit | n
   return best;
 }
 
-/** Earliest hull hit along p0->p1, honoring owner self-hit grace, or null. */
+/** Earliest hull hit along p0->p1; the firer is permanently immune, or null. */
 function earliestHull(shell: ShellState, p0: Vec2, p1: Vec2, ctx: ShellContext): Hit | null {
-  const graced = ctx.now - shell.bornAt < shell.graceMs;
   let best: Hit | null = null;
   for (const hull of ctx.hulls) {
-    if (hull.id === shell.ownerId && graced) continue;
-    // Per-hull threshold: this hull's capsule radius + this projectile's radius.
-    const c = segSegClosest(p0, p1, hull.stern, hull.bow);
-    if (c.dist > hull.radius + shell.hitRadius) continue;
-    if (best === null || c.s < best.frac) best = { frac: c.s, victimId: hull.id };
+    if (hull.id === shell.ownerId) continue; // own weapon never damages the owner
+    // Silhouette polygon dilated by this projectile's own radius.
+    const frac = segPolygonHit(p0, p1, hull.poly, shell.hitRadius);
+    if (frac === null) continue;
+    if (best === null || frac < best.frac) best = { frac, victimId: hull.id };
   }
   return best;
 }

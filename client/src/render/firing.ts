@@ -62,8 +62,8 @@ export interface FiringAmmo {
 export class FiringUX {
   private readonly arcs = new Graphics();
   private readonly reticle = new Graphics();
-  /** Own hull length (u), fed each frame by update(); default cruiser. */
-  private hullLength: number = CONFIG.shipClasses.cruiser.hull.length;
+  /** Own hull length (u), fed each frame by update(); default torpedoBoat. */
+  private hullLength: number = CONFIG.shipClasses.torpedoBoat.hull.length;
   /** Effective max gun range (u), fed each frame by update(); base CONFIG. */
   private gunRangeU: number = CONFIG.gun.shellRange;
 

@@ -28,10 +28,10 @@ const SIM_DT = CONFIG.tick.simDtMs;
 
 const SUMMARY: MatchEndSummary = {
   rosterSize: 6,
-  rosterByClass: { cruiser: 4, destroyer: 2 },
+  rosterByClass: { torpedoBoat: 2, battleship: 2, droneSmall: 2 },
   durationS: 42.5,
-  winnerClass: 'cruiser',
-  killsByClass: { cruiser: 5, destroyer: 0 },
+  winnerClass: 'torpedoBoat',
+  killsByClass: { torpedoBoat: 5, battleship: 0, droneSmall: 0 },
   stormDeaths: 1,
 };
 

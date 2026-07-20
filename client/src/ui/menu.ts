@@ -11,11 +11,18 @@ const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
 export const NAME_MAX = 16;
 
+/** Display label per class (spaced two-word names the id can't produce). */
+const CLASS_NAMES: Record<ShipClassId, string> = {
+  torpedoBoat: 'TORPEDO BOAT',
+  battleship: 'BATTLESHIP',
+  mineLayer: 'MINE LAYER',
+};
+
 /** One-line tradeoff caption per class (existing label style). */
 const CLASS_CAPTIONS: Record<ShipClassId, string> = {
-  destroyer: 'FAST · LIGHT',
-  cruiser: 'BALANCED',
-  battleship: 'SLOW · HEAVY',
+  torpedoBoat: 'FAST · FRAGILE',
+  battleship: 'SLOW · ARMORED',
+  mineLayer: 'AREA DENIAL',
 };
 
 /** Trim + cap a callsign; '' means "let the server assign CAPTAIN-n". */
@@ -39,12 +46,13 @@ function saveName(name: string): void {
   }
 }
 
-/** Load the saved ship class (defaults to 'cruiser' via sanitizeClassId). */
+/** Load the saved ship class (defaults to 'torpedoBoat' via sanitizeClassId;
+ *  legacy stored ids like 'cruiser' silently fall back to it). */
 export function loadSavedClass(): ShipClassId {
   try {
     return sanitizeClassId(localStorage.getItem(CLASS_KEY));
   } catch {
-    return 'cruiser';
+    return 'torpedoBoat';
   }
 }
 
@@ -138,7 +146,7 @@ interface ClassPicker {
   selected(): ShipClassId;
 }
 
-/** Three class buttons (destroyer/cruiser/battleship); amber = selected. */
+/** Three class buttons (torpedoBoat/battleship/mineLayer); amber = selected. */
 function makeClassPicker(): ClassPicker {
   const row = document.createElement('div');
   row.style.cssText = CLASS_ROW_CSS;
@@ -158,7 +166,7 @@ function makeClassPicker(): ClassPicker {
     btn.type = 'button';
     btn.style.cssText = CLASS_BTN_CSS;
     const name = document.createElement('span');
-    name.textContent = id.toUpperCase();
+    name.textContent = CLASS_NAMES[id];
     const cap = document.createElement('span');
     cap.textContent = CLASS_CAPTIONS[id];
     cap.style.cssText = 'font-size:10px;letter-spacing:0.5px;opacity:0.8';

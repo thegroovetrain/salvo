@@ -11,7 +11,7 @@ const MAX_HP = 100;
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    weapon: 0, ammo: [], sweep: 0, cls: 'cruiser', upg: [], pts: 1, offer: [0, 1, 2],
+    weapon: 0, ammo: [], sweep: 0, cls: 'torpedoBoat', upg: [], pts: 1, offer: [0, 1, 2],
     ...over,
   };
 }

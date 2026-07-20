@@ -46,7 +46,7 @@ describe('slot-grammar constants', () => {
 
 describe('defaultLoadout — the universal fit', () => {
   it('is 4 slots: gun / torpedo / mine + one empty extra, pools from weaponMaxAmmo', () => {
-    const stats = statsFor('cruiser');
+    const stats = statsFor('battleship');
     const loadout = defaultLoadout(stats);
     expect(loadout).toHaveLength(SLOT_COUNT);
     for (let i = 0; i < SLOT_EXTRA; i++) {
@@ -57,7 +57,7 @@ describe('defaultLoadout — the universal fit', () => {
   });
 
   it('the extra slot is empty (equipmentId null, state null)', () => {
-    const loadout = defaultLoadout(statsFor('destroyer'));
+    const loadout = defaultLoadout(statsFor('torpedoBoat'));
     expect(loadout[SLOT_EXTRA].equipmentId).toBeNull();
     expect(loadout[SLOT_EXTRA].state).toBeNull();
   });

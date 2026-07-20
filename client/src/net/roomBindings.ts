@@ -8,8 +8,9 @@
 
 import {
   CONFIG,
+  HULL_IDS,
   MSG,
-  SHIP_CLASS_IDS,
+  hullEnvelope,
   WEAPON,
   type BallisticEvent,
   type BoomEvent,
@@ -49,7 +50,7 @@ import { fireTone, type ToneId } from '../audio/tones.js';
  * boundary is a mid-flight reveal — no flash. `² of one hull length` as the
  * "on a ship" threshold (mounts sit within the hull footprint).
  */
-const MAX_HULL_LEN = Math.max(...SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id].hull.length));
+const MAX_HULL_LEN = Math.max(...HULL_IDS.map((id) => hullEnvelope(id).hull.length));
 const MUZZLE_NEAR2 = MAX_HULL_LEN * MAX_HULL_LEN;
 
 export interface RoomBindingDeps {

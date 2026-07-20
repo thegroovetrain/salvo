@@ -14,6 +14,7 @@ import {
   HEAL_CHOICE,
   MSG,
   effectiveStats,
+  hullSilhouette,
   isOutside,
   weaponReloadMs,
   zeroUpgrades,
@@ -443,7 +444,7 @@ function setupViewport(
   mouse.attach();
 
   // Guessed-class hull until the first frame confirms/corrects it.
-  const ownView = new ShipView(OWN_STYLE, CONFIG.shipClasses[cls].hull);
+  const ownView = new ShipView(OWN_STYLE, cls);
   ownView.gfx.visible = false;
   stage.layers.ship.addChild(ownView.gfx);
 
@@ -458,7 +459,7 @@ function setupViewport(
 /** Predictor seeded with the guessed class config (first frame confirms/swaps it). */
 function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
   const spec = CONFIG.shipClasses[cls];
-  return new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, spec.hull.beam / 2);
+  return new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, hullSilhouette(cls));
 }
 
 /**
@@ -597,10 +598,10 @@ function applyOwnStats(g: Game, cls: ShipClassId, upg: readonly number[]): void 
   g.ownStats = stats;
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
-    g.predictor.setClassConfig(stats.kinematics, spec.hull.beam / 2, classChanged);
+    g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);
   }
   if (classChanged) {
-    g.ownView.setHull(spec.hull);
+    g.ownView.setHullId(cls);
     g.effects.setOwnClass(cls);
   }
   if (!classChanged && !visionChanged(prev, stats)) return;

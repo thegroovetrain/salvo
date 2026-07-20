@@ -1,19 +1,18 @@
-// Procedural ship hull view. One class, color-parameterized: own ship renders
-// as a filled tactical-green chevron (DESIGN.md tier-1: 30% fill + solid
-// stroke), remote contacts as hollow amber outlines. Only the own ship is
-// instantiated at the offline-drive step; the class is built generic so the
-// netcode step can spawn contacts without new render code.
+// Procedural ship hull view, now driven by the SHARED silhouette polygon
+// (sim/silhouette.ts — the silhouette IS the hitbox). One code path keyed by
+// hull id: the three pickable classes render their ratified board silhouettes;
+// drone hull ids render the legacy chevron (exactly what hullSilhouette returns
+// for a drone id). Own ship renders as a filled tactical-green hull (DESIGN.md
+// tier-1: 30% fill + solid stroke); remote contacts as hollow amber outlines.
 //
-// Geometry is in world units (~40 long x 12 beam), bow at +x. The view is added
-// to a camera-transformed layer, so world heading == sprite rotation (the world
-// axes map straight to screen with no y-flip — see camera.ts).
+// The render polygon is the shared local-frame silhouette VERBATIM (bow at +x,
+// origin-centered, world units) — no independent geometry, so what you see is
+// the collision/hit-test hull. The view is added to a camera-transformed layer,
+// so world heading == sprite rotation (no y-flip — see camera.ts).
 
 import { Graphics } from 'pixi.js';
-import { CONFIG, type Hull } from '@salvo/shared';
+import { hullSilhouette, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-
-/** Default hull dims until the class is known (cruiser, corrected by 1st frame). */
-const DEFAULT_HULL: Hull = CONFIG.shipClasses.cruiser.hull;
 
 export interface ShipStyle {
   /** Hull fill color. */
@@ -27,24 +26,11 @@ export const OWN_STYLE: ShipStyle = { color: 0x00ff88, hollow: false };
 /** Contact style: amber alert, hollow. */
 export const CONTACT_STYLE: ShipStyle = { color: 0xffb800, hollow: true };
 
-/**
- * Chevron/capsule hull outline, bow at +x, centered at origin (world units).
- * The chevron shoulders are proportional fractions of the hull length so every
- * class keeps the same silhouette (visually identical to the old 40×12 cruiser:
- * shoulder at 0.3·halfLen, stern inset 0.1·halfLen).
- */
-function traceHull(g: Graphics, length: number, beam: number): void {
-  const hl = length / 2; // u — bow/stern from center
-  const hb = beam / 2; // u — port/starboard from center
-  const shoulder = hl * 0.3; // where the beam reaches full width, near the bow
-  const stern = -hl + hl * 0.1; // slight stern inset
-  g.moveTo(hl, 0) // bow tip
-    .lineTo(shoulder, -hb)
-    .lineTo(stern, -hb)
-    .lineTo(-hl, 0) // stern center
-    .lineTo(stern, hb)
-    .lineTo(shoulder, hb)
-    .closePath();
+/** Trace the shared silhouette polygon (local frame, bow at +x, closed). */
+function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
+  g.moveTo(poly[0].x, poly[0].y);
+  for (let i = 1; i < poly.length; i++) g.lineTo(poly[i].x, poly[i].y);
+  g.closePath();
 }
 
 export class ShipView {
@@ -52,25 +38,25 @@ export class ShipView {
   private downed = false;
   private flashUntil = 0;
   private fade = 1; // sight fade multiplier (contacts fade in/out over 150ms)
-  private hull: Hull;
+  private hullId: HullId;
 
-  constructor(private readonly style: ShipStyle, hull: Hull = DEFAULT_HULL) {
+  constructor(private readonly style: ShipStyle, hullId: HullId = 'torpedoBoat') {
     this.gfx = new Graphics();
-    this.hull = hull;
+    this.hullId = hullId;
     this.draw();
   }
 
-  /** Re-trace the hull for a new class (own ship only; contacts know their class
-   *  at creation). Preserves position/rotation/tint applied by update(). */
-  setHull(hull: Hull): void {
-    this.hull = hull;
+  /** Re-draw for a new hull id (own ship only; contacts know their hull at
+   *  creation). Preserves position/rotation/tint applied by update(). */
+  setHullId(hullId: HullId): void {
+    this.hullId = hullId;
     this.draw();
   }
 
   private draw(): void {
     const g = this.gfx;
     g.clear();
-    traceHull(g, this.hull.length, this.hull.beam);
+    tracePolygon(g, hullSilhouette(this.hullId));
     if (!this.style.hollow) {
       // DESIGN.md tier-1: 30% fill + full-strength hull stroke + silver inner
       // stroke for contrast against dark ocean / crimson hits.

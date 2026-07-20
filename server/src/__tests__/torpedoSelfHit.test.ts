@@ -1,25 +1,24 @@
-// Torpedo self-hit fix (HULLCRACKER_NOTES "PROBLEMS SO FAR"): a full-speed
-// firer must never re-catch its own fish. Root cause (traced, owner-confirmed):
-// the old spawn point landed EXACTLY on the firer's own collision boundary
-// (hull capsule reach + torpedo hitRadius, zero margin), guarded only by a
-// 100ms/2-tick self-hit grace — and World.step moves ships BEFORE shells are
-// tested, so at full speed the firer closed that margin faster than the
-// fish's edge rebuilt it, deterministically re-contacting it the tick grace
-// expired. The fix is three levers together: CONFIG.torpedo.spawnClearance
-// (real spawn margin baked into makeBallistic's offset), selfHitGrace bumped
-// 100ms -> 500ms (owner-only backstop, never touches hitting enemies), and
-// speed 55 -> 70 (torps now outrun every ship class, pinned separately by
-// damageGuardrail.test). This file pins the spawn geometry directly and
-// reproduces the owner's exact full-throttle bug end to end via the real World.
+// Owner weapon immunity (Eric ruling 2026-07-19): own weapons NEVER damage the
+// owner — gun shells, torpedoes, AND mines. This retires the old timed self-hit
+// grace entirely in favor of permanent owner exclusion in the hit-test path.
+// The original HULLCRACKER_NOTES bug (a full-speed torpedo boat re-catching its
+// own fish, torpedoBoat maxSpeed 50 now stackable past torpedo speed 70 via
+// maxSpeed upgrades) is now impossible BY LAW rather than by margin+grace
+// tuning. spawnClearance and bow/stern-clear spawn offsets are KEPT for clean
+// spawn geometry (they still prevent degenerate spawn overlap with OTHER
+// ships). This file pins the spawn geometry directly and the permanent
+// immunity law end to end across all three weapons via the real World.
 
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   WEAPON,
-  hullEndpoints,
-  pointSegmentDistance,
+  hullSilhouette,
+  pointPolygonDistance,
+  transformPolygon,
   type DamageEvent,
   type GameEvent,
+  type ShellState,
   type ShipClassId,
   type UpgradeId,
 } from '@salvo/shared';
@@ -39,7 +38,7 @@ function place(
   x: number,
   y: number,
   heading: number,
-  classId: ShipClassId = 'destroyer',
+  classId: ShipClassId = 'torpedoBoat',
 ): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), false, classId);
   rec.state = { x, y, heading, speed: 0 };
@@ -57,29 +56,32 @@ const dmgOf = (events: readonly GameEvent[]): DamageEvent[] =>
 // ---------- spawn geometry ---------------------------------------------------
 
 describe('torpedo spawn clearance (root-cause fix)', () => {
-  it('a fresh torpedo spawns outside the firer capsule + hitRadius by at least spawnClearance', () => {
+  it('a fresh torpedo spawns outside the firer silhouette + hitRadius by at least spawnClearance', () => {
     const w = bareWorld();
     const ship = place(w, 'a', 0, 0, 0);
     ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, weapon: WEAPON.torpedo };
     const torp = fireTorpedo(ship, 0, () => 't1');
     expect(torp).not.toBeNull();
-    const hull = hullEndpoints(ship.state.x, ship.state.y, ship.state.heading, ship.cls.hull);
-    const dist = pointSegmentDistance({ x: torp!.x, y: torp!.y }, hull.stern, hull.bow);
-    const margin = dist - hull.radius - torp!.hitRadius;
+    const poly = transformPolygon(hullSilhouette(ship.hullId), ship.state.x, ship.state.y, ship.state.heading);
+    const dist = pointPolygonDistance({ x: torp!.x, y: torp!.y }, poly);
+    const margin = dist - torp!.hitRadius;
     // The old spawn point had margin === 0 exactly; the fix guarantees
-    // margin >= spawnClearance, with a tiny epsilon for float rounding.
+    // margin >= spawnClearance, with a tiny epsilon for float rounding. In the
+    // silhouette geometry the bow tip sits EXACTLY at +length/2, so a bow shot
+    // pins the offset math with no capsule slack.
     expect(margin).toBeGreaterThanOrEqual(CONFIG.torpedo.spawnClearance - 1e-9);
   });
 });
 
 // ---------- integration: the owner's exact full-throttle bug -----------------
 
-describe('torpedo self-hit — full-throttle destroyer end to end', () => {
-  /** Throttle a destroyer to max speed, fire a bow torpedo at `aim`, then run
-   *  5 more seconds and return every dmg event observed. */
+describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
+  /** Throttle a torpedo boat (fastest hull: maxSpeed 50 vs torpedo speed 70)
+   *  to max speed, fire a bow torpedo at `aim`, then run 5 more seconds and
+   *  return every dmg event observed. */
   function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord } {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0, 0); // destroyer, bow points +x (heading 0)
+    const a = place(w, 'a', 0, 0, 0); // torpedoBoat, bow points +x (heading 0)
     if (maxSpeedStacks > 0) stack(w, a, 'maxSpeed', maxSpeedStacks);
 
     const dmgs: DamageEvent[] = [];
@@ -115,9 +117,75 @@ describe('torpedo self-hit — full-throttle destroyer end to end', () => {
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);
   });
 
-  it('straight ahead with 3 maxSpeed upgrade stacks: firer takes no damage', () => {
-    const { dmgs, ship } = runFullThrottleShot(0, 3);
+  it('straight ahead with 5 maxSpeed stacks (hull OUTRUNS the fish) — firer STILL takes no damage', () => {
+    // 50 · 1.08^5 ≈ 73.5 u/s > torpedo speed 70: the boat now overtakes its own
+    // fish, the exact geometry the old margin+grace fix depended on. Permanent
+    // owner immunity makes a self-hit impossible regardless.
+    expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed * 1.08 ** 5).toBeGreaterThan(
+      CONFIG.torpedo.speed,
+    );
+    const { dmgs, ship } = runFullThrottleShot(0, 5);
+    expect(ship.stats.kinematics.maxSpeed).toBeGreaterThan(CONFIG.torpedo.speed);
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);
+  });
+});
+
+// ---------- permanent owner immunity across all three weapons ----------------
+
+describe('own weapons never damage the owner (gun / torpedo / mine)', () => {
+  /** Inject a live shell owned by `owner` sitting on top of `target`. */
+  function injectShell(w: World, target: ShipRecord, ownerId: string, kind: 'shell' | 'torp'): void {
+    const s: ShellState = {
+      id: `x-${ownerId}-${target.id}`,
+      ownerId,
+      x: target.state.x,
+      y: target.state.y,
+      vx: CONFIG.gun.shellSpeed,
+      vy: 0,
+      distLeft: CONFIG.gun.shellRange,
+      bornAt: 0,
+      kind,
+      damage: kind === 'torp' ? CONFIG.torpedo.damage : CONFIG.gun.damage,
+      hitRadius: kind === 'torp' ? CONFIG.torpedo.hitRadius : CONFIG.gun.shellRadius,
+    };
+    w.shells.set(s.id, s);
+  }
+
+  it('a gun shell sitting on its OWN firer deals no damage, but hits an enemy', () => {
+    const w = bareWorld();
+    const owner = place(w, 'a', 0, 0, 0);
+    const enemy = place(w, 'b', 400, 0, 0);
+    injectShell(w, owner, 'a', 'shell'); // owner's shell on the owner
+    injectShell(w, enemy, 'a', 'shell'); // owner's shell on the enemy
+    w.step();
+    expect(owner.hp).toBe(owner.stats.maxHp); // permanent owner immunity
+    expect(enemy.hp).toBeLessThan(enemy.stats.maxHp); // enemies still take gun hits
+  });
+
+  it('a torpedo sitting on its OWN firer deals no damage, but hits an enemy', () => {
+    const w = bareWorld();
+    const owner = place(w, 'a', 0, 0, 0);
+    const enemy = place(w, 'b', 400, 0, 0);
+    injectShell(w, owner, 'a', 'torp');
+    injectShell(w, enemy, 'a', 'torp');
+    w.step();
+    expect(owner.hp).toBe(owner.stats.maxHp);
+    expect(enemy.hp).toBeLessThan(enemy.stats.maxHp); // enemies still take torpedo hits
+  });
+
+  it('an armed mine under its OWN owner never triggers, but triggers under an enemy', () => {
+    const w = bareWorld();
+    const owner = place(w, 'a', 0, 0, 0);
+    w.mines.set('m-own', { id: 'm-own', ownerId: 'a', x: owner.state.x, y: owner.state.y, armedAt: 0 });
+    w.step();
+    expect(owner.hp).toBe(owner.stats.maxHp); // owner never trips its own mine
+    expect(w.mines.has('m-own')).toBe(true); // still live (never triggered)
+
+    const enemy = place(w, 'b', 400, 0, 0);
+    w.mines.set('m-enemy', { id: 'm-enemy', ownerId: 'a', x: enemy.state.x, y: enemy.state.y, armedAt: 0 });
+    w.step();
+    expect(enemy.hp).toBeLessThan(enemy.stats.maxHp); // enemies still trip owner's mine
+    expect(w.mines.has('m-enemy')).toBe(false); // consumed on trigger
   });
 });

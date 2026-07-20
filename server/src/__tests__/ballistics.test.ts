@@ -8,9 +8,9 @@ import { hullClearOffset, makeBallistic } from '../game/equipment/ballistics.js'
 describe('hullClearOffset', () => {
   it("is half the FIRER's class hull length plus the projectile/trigger radius", () => {
     const w = new World(1);
-    const cruiser = w.addShip('a', 'A', false, 'cruiser');
+    const boat = w.addShip('a', 'A', false, 'torpedoBoat');
     const battleship = w.addShip('b', 'B', false, 'battleship');
-    expect(hullClearOffset(cruiser, 2)).toBe(CONFIG.shipClasses.cruiser.hull.length / 2 + 2);
+    expect(hullClearOffset(boat, 2)).toBe(CONFIG.shipClasses.torpedoBoat.hull.length / 2 + 2);
     expect(hullClearOffset(battleship, CONFIG.mine.triggerRadius)).toBe(
       CONFIG.shipClasses.battleship.hull.length / 2 + CONFIG.mine.triggerRadius,
     );
@@ -28,7 +28,6 @@ describe('makeBallistic', () => {
       range: Number.POSITIVE_INFINITY,
       damage: 55,
       hitRadius: 2,
-      graceMs: 100,
       kind: 'torp',
     });
     const off = hullClearOffset(ship, 2);
@@ -42,12 +41,11 @@ describe('makeBallistic', () => {
     expect(s.kind).toBe('torp');
     expect(s.damage).toBe(55);
     expect(s.hitRadius).toBe(2);
-    expect(s.graceMs).toBe(100);
   });
 
   // Root-cause fix (2026-07-14): BallisticParams.spawnClearance pads the spawn
   // offset with real margin ON TOP of hitRadius. torpedoSelfHit.test.ts pins
-  // this end-to-end through fireTorpedo/hullEndpoints distance math; this test
+  // this end-to-end through fireTorpedo/silhouette distance math; this test
   // isolates the arithmetic directly on makeBallistic itself (offset math only,
   // no hull-endpoint geometry), so a future refactor of either call site can't
   // silently drop the `+ spawnClearance` term without failing here first.
@@ -60,7 +58,6 @@ describe('makeBallistic', () => {
       range: Number.POSITIVE_INFINITY,
       damage: 55,
       hitRadius: 2,
-      graceMs: 500,
       kind: 'torp' as const,
     };
     const withoutClearance = makeBallistic('t0', ship, 0, 0, params);
@@ -82,7 +79,6 @@ describe('makeBallistic', () => {
       range: 480,
       damage: CONFIG.gun.damage,
       hitRadius: CONFIG.gun.shellRadius,
-      graceMs: CONFIG.gun.selfHitGrace,
       kind: 'shell' as const,
     };
     const omitted = makeBallistic('s0', ship, 0, 0, params);

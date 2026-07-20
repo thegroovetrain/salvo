@@ -139,7 +139,6 @@ function injectShell(
     kind,
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
-    graceMs: CONFIG.gun.selfHitGrace,
   });
 }
 

@@ -9,8 +9,8 @@
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import type { ShipState, ShipClassId } from '@salvo/shared';
-import { CONFIG } from '@salvo/shared';
+import type { ShipState, HullId } from '@salvo/shared';
+import { hullEnvelope } from '@salvo/shared';
 import { Pool } from '../util/pool.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -59,9 +59,9 @@ export class Effects {
   private readonly wake: WakeParticle[] = [];
   private readonly shots: OneShot[] = [];
   private accumDist = 0;
-  /** Own hull half-length (stern offset) + top speed, per own class. */
-  private ownHalfLen: number = CONFIG.shipClasses.cruiser.hull.length / 2;
-  private ownMaxSpeed: number = CONFIG.shipClasses.cruiser.kinematics.maxSpeed;
+  /** Own hull half-length (stern offset) + top speed, per own hull envelope. */
+  private ownHalfLen: number = hullEnvelope('torpedoBoat').hull.length / 2;
+  private ownMaxSpeed: number = hullEnvelope('torpedoBoat').kinematics.maxSpeed;
 
   constructor(
     private readonly wakeLayer: Container,
@@ -71,10 +71,12 @@ export class Effects {
     this.shotPool = new Pool<Graphics>(() => this.makeShotGfx());
   }
 
-  /** Set the own ship's class (drives wake stern offset + intensity scaling). */
-  setOwnClass(cls: ShipClassId): void {
-    this.ownHalfLen = CONFIG.shipClasses[cls].hull.length / 2;
-    this.ownMaxSpeed = CONFIG.shipClasses[cls].kinematics.maxSpeed;
+  /** Set the own ship's hull id (drives wake stern offset + intensity scaling).
+   *  Accepts any HullId via hullEnvelope so it is drone-safe, though the own
+   *  ship is always one of the three pickable classes. */
+  setOwnClass(cls: HullId): void {
+    this.ownHalfLen = hullEnvelope(cls).hull.length / 2;
+    this.ownMaxSpeed = hullEnvelope(cls).kinematics.maxSpeed;
   }
 
   private makeWakeDot(): Graphics {

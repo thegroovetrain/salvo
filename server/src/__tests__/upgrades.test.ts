@@ -323,7 +323,7 @@ describe('upgrade lifecycle', () => {
     for (let i = 0; i <= CONFIG.ship.respawnDelay / DT; i++) w.step();
     expect(a.alive).toBe(true);
     expect(a.upgrades[UPGRADE_IDS.indexOf('hullPoints')]).toBe(1);
-    expect(a.hp).toBe(CONFIG.shipClasses.cruiser.hp + CONFIG.upgrades.hullPoints.add); // effective max
+    expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp + CONFIG.upgrades.hullPoints.add); // effective max
     expect(a.loadout[WEAPON.gun].state).toEqual({ n: CONFIG.gun.maxAmmo + 1, reloadMsLeft: 0 }); // effective pool
   });
 
@@ -347,7 +347,7 @@ describe('upgrade lifecycle', () => {
     w.resetForMatchStart();
     expect(a.upgrades).toEqual(zeroUpgrades());
     expect(a.stats).toEqual(effectiveStats(a.cls, zeroUpgrades()));
-    expect(a.hp).toBe(CONFIG.shipClasses.cruiser.hp);
+    expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     expect(a.loadout[WEAPON.gun].state).toEqual({ n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 });
   });
 
@@ -367,13 +367,15 @@ describe('spend side effects', () => {
   it('hullPoints heals +add, clamped to the new effective max', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
+    const base = CONFIG.shipClasses.torpedoBoat.hp; // 70 (default class)
+    const add = CONFIG.upgrades.hullPoints.add; // 20
     a.hp = 50;
     w.applyUpgrade(a, 'hullPoints');
-    expect(a.stats.maxHp).toBe(120);
-    expect(a.hp).toBe(70); // 50 + 20
-    a.hp = a.stats.maxHp; // full at 120
-    w.applyUpgrade(a, 'hullPoints'); // max -> 140, heal 120+20 = 140 (clamp exact)
-    expect(a.hp).toBe(140);
+    expect(a.stats.maxHp).toBe(base + add); // 90
+    expect(a.hp).toBe(50 + add); // 70
+    a.hp = a.stats.maxHp; // full at 90
+    w.applyUpgrade(a, 'hullPoints'); // max -> 110, heal 90+20 = 110 (clamp exact)
+    expect(a.hp).toBe(base + 2 * add);
     expect(a.hp).toBeLessThanOrEqual(a.stats.maxHp);
   });
 
@@ -466,7 +468,7 @@ describe('per-observer sight (sightRange upgrade)', () => {
     w.shells.set('s1', {
       id: 's1', ownerId: 'owner', x: target, y: 0, vx: -CONFIG.gun.shellSpeed, vy: 0,
       distLeft: 400, bornAt: w.now, kind: 'shell', damage: CONFIG.gun.damage,
-      hitRadius: CONFIG.gun.shellRadius, graceMs: CONFIG.gun.selfHitGrace,
+      hitRadius: CONFIG.gun.shellRadius,
     });
     expect(ballisticsOf(buildFrame(w, 'up')).map((e) => e.id)).toEqual(['s1']);
     expect(ballisticsOf(buildFrame(w, 'base'))).toEqual([]);
@@ -601,7 +603,7 @@ describe('effective weapon stats in the fire path', () => {
       w.step();
     }
     const f = CONFIG.upgrades.maxSpeed.mult ** 2;
-    expect(w.ships.get('up')!.state.speed).toBeCloseTo(CONFIG.shipClasses.cruiser.kinematics.maxSpeed * f, 6);
-    expect(w.ships.get('base')!.state.speed).toBeCloseTo(CONFIG.shipClasses.cruiser.kinematics.maxSpeed, 6);
+    expect(w.ships.get('up')!.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed * f, 6);
+    expect(w.ships.get('base')!.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed, 6);
   });
 });

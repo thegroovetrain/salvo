@@ -6,12 +6,27 @@
 // invariant stays a unit-testable property of one function. Nothing else may
 // ever put contacts or events into a frame.
 
-import { UPGRADE_IDS, type FrameMsg, type MatchPhase, type OwnShip } from '@salvo/shared';
+import {
+  DRONE_HULL_IDS,
+  UPGRADE_IDS,
+  type FrameMsg,
+  type MatchPhase,
+  type OwnShip,
+  type ShipClassId,
+} from '@salvo/shared';
 import { observe, observeSpectator } from './perception.js';
 import { weaponAmmo } from './equipment/index.js';
 import type { ShipRecord, World } from './world.js';
 
 function toOwnShip(ship: ShipRecord): OwnShip {
+  // Anti-cheat/invariant guard: OwnShip only ever describes a human client's
+  // own ship, whose hullId is ALWAYS a ShipClassId. A drone hull id reaching
+  // here means a drone record was routed to a client frame — an upstream bug,
+  // so fail loud rather than emit a malformed `cls` (OwnShip.cls is narrowed to
+  // ShipClassId on the wire). Contacts carry drone hull ids via signals.ts.
+  if ((DRONE_HULL_IDS as readonly string[]).includes(ship.hullId)) {
+    throw new Error(`toOwnShip: drone hull id '${ship.hullId}' (ship ${ship.id}) must never reach an OwnShip`);
+  }
   return {
     id: ship.id,
     x: ship.state.x,
@@ -27,7 +42,11 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     // Post-advance angle == the leading edge of this tick's paint window, so
     // the client wedge visually crosses a contact the moment its blip arrives.
     sweep: ship.sweepAngle,
-    cls: ship.classId,
+    // OwnShip.cls is a ShipClassId by construction: only human clients receive
+    // an OwnShip, and a player ship's hullId is always its picked class (drone
+    // hull ids exist only on drones, which have no client). Contacts carry the
+    // full HullId instead — that lives in signals.ts's contact row.
+    cls: ship.hullId as ShipClassId,
     // Upgrade counts (UPGRADE_IDS order), defensive copy. Self-syncing every
     // frame; the client derives effective stats from (cls, upg). OWN SHIP ONLY
     // — contacts/spectator payloads never carry upgrade data (anti-cheat).

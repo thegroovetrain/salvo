@@ -97,7 +97,7 @@ describe('SnapshotBuffer sampling', () => {
 
 describe('ContactStore lifecycle', () => {
   const contact = (id: string, x = 0) =>
-    ({ id, x, y: 0, heading: 0, speed: 0, cls: 'cruiser' as const });
+    ({ id, x, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat' as const });
 
   it('creates a buffer on first sight and feeds it per frame', () => {
     const store = new ContactStore();
@@ -113,6 +113,12 @@ describe('ContactStore lifecycle', () => {
     expect(store.classOf('a')).toBe('battleship');
     store.prune(1000, 100); // a is now stale
     expect(store.classOf('a')).toBeUndefined();
+  });
+
+  it('preserves a drone hull id (HullId, not narrowed to a ship class)', () => {
+    const store = new ContactStore();
+    store.pushFrame(100, [{ id: 'd', x: 0, y: 0, heading: 0, speed: 0, cls: 'droneMedium' }]);
+    expect(store.classOf('d')).toBe('droneMedium');
   });
 
   it('prunes contacts unseen past the ttl and reports removals', () => {

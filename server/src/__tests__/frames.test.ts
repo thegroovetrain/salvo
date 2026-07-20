@@ -55,7 +55,7 @@ describe('buildFrame — shape and clock', () => {
       y: ship.state.y,
       heading: ship.state.heading,
       speed: ship.state.speed,
-      hp: CONFIG.shipClasses.cruiser.hp,
+      hp: CONFIG.shipClasses.torpedoBoat.hp,
       alive: true,
       weapon: 2,
       ammo: [
@@ -64,12 +64,20 @@ describe('buildFrame — shape and clock', () => {
         { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 },
       ],
       sweep: ship.sweepAngle,
-      cls: 'cruiser',
+      cls: 'torpedoBoat',
       upg: zeroUpgrades(), // 14 zero counts — no upgrades granted yet
       pts: 0, // no points banked
       offer: [], // no offer while pts is 0
     });
     expect(f.spec).toBeUndefined();
+  });
+
+  it('throws if a drone record is ever routed into an OwnShip (chokepoint guard)', () => {
+    // OwnShip.cls is a ShipClassId by construction; a drone hull id reaching
+    // toOwnShip means a drone was mis-routed to a client frame — fail loud.
+    const w = makeWorld();
+    w.addShip('drone1', 'DRONE', true, 'droneMedium');
+    expect(() => buildFrame(w, 'drone1')).toThrow(/drone hull id/);
   });
 
   it('omits you for an unknown viewer, who sees nothing (fail-closed)', () => {
@@ -109,7 +117,7 @@ describe('buildFrame — contacts (fogged via perception)', () => {
       y: b.state.y,
       heading: b.state.heading,
       speed: b.state.speed,
-      cls: 'cruiser',
+      cls: 'torpedoBoat',
     });
   });
 
@@ -118,6 +126,19 @@ describe('buildFrame — contacts (fogged via perception)', () => {
     place(w, 'far', CONFIG.vision.sight + 50, 0);
     w.step();
     expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
+  });
+
+  it('drone contacts carry their DRONE hull id on the wire (Contact.cls: HullId)', () => {
+    const w = makeWorld();
+    const d = w.addShip('d1', 'DRONE-01', true, 'droneMedium');
+    d.state.x = 0;
+    d.state.y = 120; // inside a's sight bubble
+    d.state.heading = 0;
+    d.state.speed = 0;
+    w.step();
+    const contact = buildFrame(w, 'a').contacts.find((c) => c.id === 'd1');
+    expect(contact).toBeDefined();
+    expect(contact!.cls).toBe('droneMedium'); // never a player class
   });
 
   it('excludes dead ships; a respawned ship reappears once back in sight', () => {

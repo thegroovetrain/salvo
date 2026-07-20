@@ -178,7 +178,8 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
   },
   materialize(_ctx, ship) {
     const s = ship.state;
-    return { id: ship.id, x: s.x, y: s.y, heading: s.heading, speed: s.speed, cls: ship.classId };
+    // `cls` is the full HullId — drone contacts carry droneSmall/Medium/Large.
+    return { id: ship.id, x: s.x, y: s.y, heading: s.heading, speed: s.speed, cls: ship.hullId };
   },
 };
 

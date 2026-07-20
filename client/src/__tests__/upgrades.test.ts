@@ -54,45 +54,45 @@ describe('point / heal toast lines — pure formatting', () => {
 
 describe('ownStatsChanged — the recompute gate', () => {
   it('fires on the first frame (no previous you)', () => {
-    expect(ownStatsChanged(ownShip('cruiser', zeroUpgrades()), null)).toBe(true);
-    expect(ownStatsChanged(ownShip('cruiser', zeroUpgrades()), undefined)).toBe(true);
+    expect(ownStatsChanged(ownShip('torpedoBoat', zeroUpgrades()), null)).toBe(true);
+    expect(ownStatsChanged(ownShip('torpedoBoat', zeroUpgrades()), undefined)).toBe(true);
   });
 
   it('fires on a class change and on any upgrade-count change', () => {
-    const prev = ownShip('cruiser', zeroUpgrades());
-    expect(ownStatsChanged(ownShip('destroyer', zeroUpgrades()), prev)).toBe(true);
+    const prev = ownShip('torpedoBoat', zeroUpgrades());
+    expect(ownStatsChanged(ownShip('battleship', zeroUpgrades()), prev)).toBe(true);
     const upg = zeroUpgrades();
     upg[UPGRADE_IDS.indexOf('gunAmmo')] = 1;
-    expect(ownStatsChanged(ownShip('cruiser', upg), prev)).toBe(true);
+    expect(ownStatsChanged(ownShip('torpedoBoat', upg), prev)).toBe(true);
   });
 
   it('stays quiet when cls and every count are unchanged (per-frame fast path)', () => {
-    const prev = ownShip('cruiser', zeroUpgrades());
-    expect(ownStatsChanged(ownShip('cruiser', zeroUpgrades()), prev)).toBe(false);
+    const prev = ownShip('torpedoBoat', zeroUpgrades());
+    expect(ownStatsChanged(ownShip('torpedoBoat', zeroUpgrades()), prev)).toBe(false);
     const upg = zeroUpgrades();
     upg[3] = 2;
-    expect(ownStatsChanged(ownShip('cruiser', [...upg]), ownShip('cruiser', upg))).toBe(false);
+    expect(ownStatsChanged(ownShip('torpedoBoat', [...upg]), ownShip('torpedoBoat', upg))).toBe(false);
   });
 
   it('treats a length mismatch as a change (defensive)', () => {
-    expect(ownStatsChanged(ownShip('cruiser', [0, 0]), ownShip('cruiser', zeroUpgrades()))).toBe(true);
+    expect(ownStatsChanged(ownShip('torpedoBoat', [0, 0]), ownShip('torpedoBoat', zeroUpgrades()))).toBe(true);
   });
 
   it('IGNORES pts/offer-only deltas — banking a point must not fire the stats/fog recompute', () => {
-    const prev = { ...ownShip('cruiser', zeroUpgrades()), pts: 0, offer: [] as number[] };
-    const next = { ...ownShip('cruiser', zeroUpgrades()), pts: 2, offer: [3, 6, 10] };
+    const prev = { ...ownShip('torpedoBoat', zeroUpgrades()), pts: 0, offer: [] as number[] };
+    const next = { ...ownShip('torpedoBoat', zeroUpgrades()), pts: 2, offer: [3, 6, 10] };
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
 });
 
 describe('HUD denominators react to effective stats', () => {
-  const CRUISER = CONFIG.shipClasses.cruiser;
+  const TB = CONFIG.shipClasses.torpedoBoat;
 
   it('speed ladder: at the same true speed, an upgraded maxSpeed reads a LOWER fraction', () => {
     const upg = zeroUpgrades();
     upg[UPGRADE_IDS.indexOf('maxSpeed')] = 2;
-    const base = effectiveStats(CRUISER, zeroUpgrades()).kinematics;
-    const fast = effectiveStats(CRUISER, upg).kinematics;
+    const base = effectiveStats(TB, zeroUpgrades()).kinematics;
+    const fast = effectiveStats(TB, upg).kinematics;
     expect(speedLadderFraction(30, fast)).toBeLessThan(speedLadderFraction(30, base));
     // Full ahead at the UPGRADED max still pins the needle at exactly 1.
     expect(speedLadderFraction(fast.maxSpeed, fast)).toBe(1);
@@ -103,7 +103,7 @@ describe('HUD denominators react to effective stats', () => {
     const upg = zeroUpgrades();
     upg[UPGRADE_IDS.indexOf('gunAmmo')] = 1;
     upg[UPGRADE_IDS.indexOf('gunReload')] = 1;
-    const stats = effectiveStats(CRUISER, upg);
+    const stats = effectiveStats(TB, upg);
     expect(weaponMaxAmmo(stats, 0)).toBe(CONFIG.gun.maxAmmo + 1); // an extra chip segment
     expect(weaponReloadMs(stats, 0)).toBeCloseTo(CONFIG.gun.reloadMs * CONFIG.upgrades.gunReload.mult, 9);
     expect(weaponMaxAmmo(stats, 1)).toBe(CONFIG.torpedo.maxAmmo); // others untouched
@@ -112,6 +112,6 @@ describe('HUD denominators react to effective stats', () => {
   it('hp bar: the effective maxHp denominator grows with hullPoints stacks', () => {
     const upg = zeroUpgrades();
     upg[UPGRADE_IDS.indexOf('hullPoints')] = 3;
-    expect(effectiveStats(CRUISER, upg).maxHp).toBe(CRUISER.hp + 3 * CONFIG.upgrades.hullPoints.add);
+    expect(effectiveStats(TB, upg).maxHp).toBe(TB.hp + 3 * CONFIG.upgrades.hullPoints.add);
   });
 });

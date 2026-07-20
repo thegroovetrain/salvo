@@ -10,9 +10,10 @@ import { PROTOCOL_VERSION, type ZoneTimeline } from '@salvo/shared';
 export interface JoinOptions {
   name?: string;
   /**
-   * Client-chosen ship class ('destroyer' | 'cruiser' | 'battleship'). A plain
-   * join option (NOT gated by HC_DEV_OPTIONS): onJoin runs it through
-   * sanitizeClassId, so any garbage/absent value falls back to 'cruiser'.
+   * Client-chosen ship class ('torpedoBoat' | 'battleship' | 'mineLayer'). A
+   * plain join option (NOT gated by HC_DEV_OPTIONS): onJoin runs it through
+   * sanitizeClassId, so any garbage/absent/legacy value falls back to
+   * 'torpedoBoat'.
    */
   cls?: string;
   /**

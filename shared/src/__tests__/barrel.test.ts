@@ -18,11 +18,17 @@ import {
   mulberry32,
   segCircleHit,
   zeroUpgrades,
+  HULL_IDS,
+  hullEnvelope,
+  hullSilhouette,
+  transformPolygon,
+  segPolygonHit,
+  polygonMaxRadius,
 } from '../index.js';
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(3);
+    expect(PROTOCOL_VERSION).toBe(4);
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -42,6 +48,16 @@ describe('shared barrel', () => {
     expect(typeof effectiveStats).toBe('function');
     expect(typeof zeroUpgrades).toBe('function');
     expect(CONFIG.upgrades.gunAmmo.add).toBe(1);
+  });
+
+  it('re-exports the silhouette system (Story 1.3)', () => {
+    expect(HULL_IDS).toHaveLength(6);
+    expect(typeof hullEnvelope).toBe('function');
+    expect(typeof hullSilhouette).toBe('function');
+    expect(typeof transformPolygon).toBe('function');
+    expect(typeof segPolygonHit).toBe('function');
+    expect(typeof polygonMaxRadius).toBe('function');
+    expect(CONFIG.drones.medium.hp).toBe(100);
   });
 
   it('re-exports the offer/spend system', () => {

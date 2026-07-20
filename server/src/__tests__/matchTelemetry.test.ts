@@ -61,9 +61,9 @@ describe('Match.endSummary — pre-activation safety', () => {
 
   it('duration stays 0 mid-match (activated but not finished)', () => {
     const ctx = build();
-    ctx.w.addShip('a', 'A', false, 'destroyer');
+    ctx.w.addShip('a', 'A', false, 'torpedoBoat');
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', false, 'cruiser');
+    ctx.w.addShip('b', 'B', false, 'mineLayer');
     ctx.m.notifyRosterChanged();
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
     expect(ctx.m.phase).toBe('active');
@@ -79,11 +79,12 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
     const ctx = build();
     // Two humans of distinct classes (arm the countdown) + one drone (fills a
     // slot; drones never count toward humanCount so this can't start/hold it).
-    ctx.w.addShip('a', 'A', false, 'destroyer');
+    // The drone takes a DRONE hull id — telemetry buckets it under that id.
+    ctx.w.addShip('a', 'A', false, 'torpedoBoat');
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('b', 'B', false, 'cruiser');
+    ctx.w.addShip('b', 'B', false, 'mineLayer');
     ctx.m.notifyRosterChanged();
-    ctx.w.addShip('d1', 'D1', true, 'battleship');
+    ctx.w.addShip('d1', 'D1', true, 'droneLarge');
     ctx.m.notifyRosterChanged();
     // Activate (2 ticks: now 0 -> 100 == countdownEndT).
     for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
@@ -93,7 +94,7 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
     ctx.w.sinkShip('d1');
     step(ctx);
     expect(ctx.m.phase).toBe('active'); // both humans still afloat
-    // 'a' (destroyer) sinks 'b' (cruiser) → win check finishes at a.
+    // 'a' (torpedoBoat) sinks 'b' (mineLayer) → win check finishes at a.
     ctx.w.sinkShip('b', 'a');
     step(ctx);
     expect(ctx.m.phase).toBe('finished');
@@ -104,9 +105,9 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
   it('aggregates roster/kills/winner/storm/duration across all combatants incl. drones', () => {
     const s = run().m.endSummary();
     expect(s.rosterSize).toBe(3); // drone included
-    expect(s.rosterByClass).toEqual({ destroyer: 1, cruiser: 1, battleship: 1 });
-    expect(s.winnerClass).toBe('destroyer');
-    expect(s.killsByClass).toEqual({ destroyer: 1, cruiser: 0, battleship: 0 });
+    expect(s.rosterByClass).toEqual({ torpedoBoat: 1, mineLayer: 1, droneLarge: 1 });
+    expect(s.winnerClass).toBe('torpedoBoat');
+    expect(s.killsByClass).toEqual({ torpedoBoat: 1, mineLayer: 0, droneLarge: 0 });
     expect(s.stormDeaths).toBe(1);
     expect(s.durationS).toBeCloseTo(0.1, 5); // finishedAt 200 - activatedAt 100
   });
