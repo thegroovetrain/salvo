@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { stepShell, hullEndpoints, type ShellState, type HullTarget, type ShellContext } from '../sim/shell.js';
-import { CONFIG } from '../constants.js';
+import { stepShell, type ShellState, type HullTarget, type ShellContext } from '../sim/shell.js';
+import { hullSilhouette, transformPolygon } from '../sim/silhouette.js';
+import { CONFIG, type HullId } from '../constants.js';
 
 const DT = CONFIG.tick.simDtMs / 1000;
 
@@ -10,6 +11,14 @@ const BIG_R = 100000;
 /** Build a ShellContext, defaulting to an empty, effectively-boundless world. */
 function ctx(o: Partial<ShellContext> = {}): ShellContext {
   return { islands: [], hulls: [] as HullTarget[], now: 1000, dt: DT, mapRadius: BIG_R, ...o };
+}
+
+/** A silhouette-polygon hull target at a world pose. droneMedium (100×30
+ *  chevron) by default: at heading π/2 its flat starboard side is the vertical
+ *  segment x = poseX − 15 spanning y ∈ [poseY − 45, poseY + 15] — a clean
+ *  broadside across a +x shell path. */
+function hullAt(x: number, y: number, heading: number, id = 'victim', hullId: HullId = 'droneMedium'): HullTarget {
+  return { id, poly: transformPolygon(hullSilhouette(hullId), x, y, heading) };
 }
 
 function shell(overrides: Partial<ShellState> = {}): ShellState {
@@ -25,7 +34,6 @@ function shell(overrides: Partial<ShellState> = {}): ShellState {
     kind: 'shell',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
-    graceMs: CONFIG.gun.selfHitGrace,
     ...overrides,
   };
 }
@@ -103,46 +111,44 @@ describe('stepShell — swept island collision (no tunnel at max speed)', () => 
   });
 });
 
-describe('stepShell — swept hull collision', () => {
-  const target = (): HullTarget => {
-    const h = hullEndpoints(10, 0, Math.PI / 2); // hull broadside across the shell path
-    h.id = 'victim';
-    return h;
-  };
-
+describe('stepShell — swept hull collision (silhouette polygon)', () => {
   it('hits a hull the shell sweeps into this tick', () => {
-    const s = shell({ x: 6 }); // just short of the hull at x=10
-    const out = stepShell(s, ctx({ hulls: [target()] }));
+    // Broadside at x = 5; one tick of travel (6.5u) crosses it.
+    const s = shell();
+    const out = stepShell(s, ctx({ hulls: [hullAt(20, 0, Math.PI / 2)] }));
     expect(out.kind).toBe('hitShip');
     if (out.kind === 'hitShip') expect(out.victimId).toBe('victim');
   });
 
   it('does not tunnel through a hull at max closing speed', () => {
-    // Shell placed so a full max-speed tick would straddle the hull.
+    // Shell placed so a full max-speed tick would straddle the hull side.
     const travel = CONFIG.gun.shellSpeed * DT;
-    const s = shell({ x: 10 - travel * 0.5 });
-    const out = stepShell(s, ctx({ hulls: [target()] }));
+    const s = shell({ x: 5 - travel * 0.5 });
+    const out = stepShell(s, ctx({ hulls: [hullAt(20, 0, Math.PI / 2)] }));
     expect(out.kind).toBe('hitShip');
   });
 });
 
-describe('stepShell — owner self-hit grace', () => {
-  function ownerHull(): HullTarget {
-    const h = hullEndpoints(6, 0, Math.PI / 2);
-    h.id = 'owner';
-    return h;
-  }
+describe('stepShell — permanent owner immunity (Eric ruling 2026-07-19)', () => {
+  // Owner hull surrounding the shell spawn point (shell starts inside it).
+  const ownerHull = (): HullTarget => hullAt(6, 0, Math.PI / 2, 'owner');
 
-  it('cannot hit its firer within the grace window', () => {
-    const s = shell({ bornAt: 0 });
-    const out = stepShell(s, ctx({ hulls: [ownerHull()], now: CONFIG.gun.selfHitGrace - 1 }));
-    expect(out.kind).toBe('travel');
+  it('never hits its firer — not at spawn, not ever (no timed grace)', () => {
+    // Same overlap the old grace test used, sampled far past any old grace
+    // window: a permanently-immune owner still never registers a hit.
+    for (const now of [0, 100, 5000, 1e9]) {
+      const s = shell({ bornAt: 0 });
+      const out = stepShell(s, ctx({ hulls: [ownerHull()], now }));
+      expect(out.kind).toBe('travel');
+    }
   });
 
-  it('can hit the (former) firer once grace has elapsed', () => {
+  it('still hits a NON-owner hull it overlaps', () => {
     const s = shell({ bornAt: 0 });
-    const out = stepShell(s, ctx({ hulls: [ownerHull()], now: CONFIG.gun.selfHitGrace + 1 }));
+    const enemyHull = hullAt(6, 0, Math.PI / 2, 'enemy');
+    const out = stepShell(s, ctx({ hulls: [enemyHull], now: 5000 }));
     expect(out.kind).toBe('hitShip');
+    if (out.kind === 'hitShip') expect(out.victimId).toBe('enemy');
   });
 });
 
@@ -168,26 +174,21 @@ describe('stepShell — parameterized for torpedoes (no tunnel at torp speed)', 
   });
 
   it('a torpedo hits a hull it sweeps into, honoring its own collision radius', () => {
-    const h = hullEndpoints(8, 0, Math.PI / 2); // broadside across the run
-    h.id = 'victim';
-    const out = stepShell(torp({ x: 4 }), ctx({ hulls: [h], dt: TORP_DT }));
+    // Broadside at x = 7; the torp's tick travel (3.5u from x=4) reaches it.
+    const out = stepShell(torp({ x: 4 }), ctx({ hulls: [hullAt(22, 0, Math.PI / 2)], dt: TORP_DT }));
     expect(out.kind).toBe('hitShip');
     if (out.kind === 'hitShip') expect(out.victimId).toBe('victim');
   });
 
-  it('respects a custom self-hit grace independent of the gun default', () => {
-    const h = hullEndpoints(6, 0, Math.PI / 2);
-    h.id = 'owner';
-    const graced = torp({ bornAt: 0, graceMs: 500 });
-    // Gun grace (100ms) has elapsed at t=200, but this torp's 500ms has not.
-    const out = stepShell(graced, ctx({ hulls: [h], now: 200, dt: TORP_DT }));
+  it('never hits its own firer regardless of elapsed time (permanent immunity)', () => {
+    const own = torp({ bornAt: 0 });
+    const out = stepShell(own, ctx({ hulls: [hullAt(6, 0, Math.PI / 2, 'owner')], now: 1e9, dt: TORP_DT }));
     expect(out.kind).toBe('travel');
   });
 
   it('an infinite-range torpedo flies well past the old 700u before hitting a hull', () => {
     const farX = 1200; // beyond the retired 700u torpedo range
-    const h = hullEndpoints(farX, 0, Math.PI / 2);
-    h.id = 'victim';
+    const h = hullAt(farX, 0, Math.PI / 2);
     const t = torp({ x: 0, y: 0 });
     let out = stepShell(t, ctx({ hulls: [h], dt: TORP_DT }));
     let ticks = 1;
@@ -201,38 +202,46 @@ describe('stepShell — parameterized for torpedoes (no tunnel at torp speed)', 
   });
 });
 
-describe('hullEndpoints — per-class hull dims', () => {
-  it('defaults to the cruiser hull (radius = beam/2, axis = length−beam)', () => {
-    const cruiser = CONFIG.shipClasses.cruiser.hull;
-    const h = hullEndpoints(0, 0, 0);
-    expect(h.radius).toBeCloseTo(cruiser.beam / 2, 9);
-    expect(Math.hypot(h.bow.x - h.stern.x, h.bow.y - h.stern.y)).toBeCloseTo(
-      cruiser.length - cruiser.beam,
-      9,
-    );
+describe('stepShell — per-hull silhouette thresholds', () => {
+  it('a graze that hits the wide battleship misses the narrow torpedoBoat', () => {
+    // Both hulls at the origin, heading 0 (+x). The BB's flat side runs at
+    // y = ±16 (beam 32); the TB never reaches past y = ±4.5 (beam 9). A shell
+    // sweeping parallel at y = 17.5 passes within hitRadius (2) of the BB side
+    // but stays > 10u away from the TB everywhere.
+    const graze = (hullId: HullId, victim: string) =>
+      stepShell(
+        shell({ x: -3, y: 17.5 }),
+        ctx({ hulls: [{ id: victim, poly: transformPolygon(hullSilhouette(hullId), 0, 0, 0) }] }),
+      );
+    const wide = graze('battleship', 'bb');
+    expect(wide.kind).toBe('hitShip');
+    if (wide.kind === 'hitShip') expect(wide.victimId).toBe('bb');
+    expect(graze('torpedoBoat', 'tb').kind).toBe('travel');
   });
 
-  it('uses a passed hull for radius + axis (proves per-hull threshold)', () => {
-    const big = { length: 60, beam: 20 };
-    const h = hullEndpoints(0, 0, 0, big);
-    expect(h.radius).toBeCloseTo(10, 9); // beam/2
-    expect(Math.hypot(h.bow.x - h.stern.x, h.bow.y - h.stern.y)).toBeCloseTo(40, 9); // length−beam
-
-    // A shell grazing at radius+hitRadius still hits the wider hull. The big
-    // hull's capsule radius is 10; a cruiser-radius (6) hull would miss here.
-    h.id = 'big';
-    const graze = 10 + CONFIG.gun.shellRadius - 0.5; // just inside the wide threshold
-    const s = shell({ x: -1, y: graze, vx: CONFIG.gun.shellSpeed, vy: 0 });
-    const out = stepShell(s, ctx({ hulls: [h] }));
-    expect(out.kind).toBe('hitShip');
+  it('CONCAVE MISS: a torpedo up the mineLayer transom notch does not hit', () => {
+    // ML at origin heading 0: the stern cavity opens at x = −44, walls at
+    // y = ±3.5. A torpedo running up the centerline stops between the prongs
+    // without coming within hitRadius of any hull edge.
+    const h: HullTarget = { id: 'ml', poly: transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0) };
+    const t: ShellState = {
+      ...shell({ x: -70, y: 0, vx: CONFIG.torpedo.speed, vy: 0 }),
+      kind: 'torp',
+      damage: CONFIG.torpedo.damage,
+      hitRadius: CONFIG.torpedo.hitRadius,
+      distLeft: 26, // expires at x = −44, in the cavity mouth
+    };
+    let out = stepShell(t, ctx({ hulls: [h] }));
+    while (out.kind === 'travel') out = stepShell(t, ctx({ hulls: [h] }));
+    expect(out.kind).toBe('expired'); // ran out of range INSIDE the notch — no hit
+    if (out.kind === 'expired') expect(out.x).toBeCloseTo(-44, 6);
   });
 });
 
 describe('stepShell — earliest hit wins', () => {
   it('an island in front of a hull resolves as the island', () => {
     const island = { x: 4, y: 0, r: 2 };
-    const h = hullEndpoints(10, 0, Math.PI / 2);
-    h.id = 'victim';
+    const h = hullAt(22, 0, Math.PI / 2); // broadside at x = 7, behind the island
     const s = shell({ x: 0 });
     // Move until something resolves.
     let out = stepShell(s, ctx({ islands: [island], hulls: [h] }));

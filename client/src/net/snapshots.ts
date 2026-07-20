@@ -4,7 +4,7 @@
 // samples at serverNow() - interpDelay with lerp (shortest-arc heading),
 // dead-reckons up to MAX_EXTRAPOLATION_MS on underrun, then freezes.
 
-import { lerpAngle, type Contact, type ShipClassId } from '@salvo/shared';
+import { lerpAngle, type Contact, type HullId } from '@salvo/shared';
 import { lerp } from '../util/math.js';
 
 /** One timestamped kinematic sample. `t` is server time (ms). */
@@ -110,8 +110,9 @@ export class SnapshotBuffer {
 export class ContactStore {
   private buffers = new Map<string, SnapshotBuffer>();
   private lastSeen = new Map<string, number>(); // server time (ms)
-  /** Static per-id class (a contact never changes class mid-life). */
-  private classes = new Map<string, ShipClassId>();
+  /** Static per-id hull id (a contact never changes hull mid-life; may be a
+   *  drone id, so this is HullId, not just a pickable ShipClassId). */
+  private classes = new Map<string, HullId>();
 
   /** Ingest one frame's contact list at server time `t`. */
   pushFrame(t: number, contacts: readonly Contact[]): void {
@@ -131,8 +132,8 @@ export class ContactStore {
     return this.buffers.get(id);
   }
 
-  /** The class of a contact (static, set on first sighting). */
-  classOf(id: string): ShipClassId | undefined {
+  /** The hull id of a contact (static, set on first sighting). */
+  classOf(id: string): HullId | undefined {
     return this.classes.get(id);
   }
 

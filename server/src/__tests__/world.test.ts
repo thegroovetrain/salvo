@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, hullSilhouette, polygonMaxRadius } from '@salvo/shared';
 import { World } from '../game/world.js';
 
 const SIM_DT = CONFIG.tick.simDtMs;
@@ -32,7 +32,7 @@ describe('World clock + lifecycle', () => {
   it('addShip creates a full-hp living ship and removeShip forgets it', () => {
     const w = new World(1);
     const rec = w.addShip('a', 'ALPHA');
-    expect(rec.hp).toBe(CONFIG.shipClasses.cruiser.hp);
+    expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     expect(rec.alive).toBe(true);
     expect(rec.isDrone).toBe(false);
     expect(w.ships.size).toBe(1);
@@ -40,25 +40,36 @@ describe('World clock + lifecycle', () => {
     expect(w.ships.size).toBe(0);
   });
 
-  it('addShip defaults to the cruiser class', () => {
+  it('addShip defaults to the torpedoBoat class', () => {
     const rec = new World(1).addShip('a', 'ALPHA');
-    expect(rec.classId).toBe('cruiser');
-    expect(rec.cls).toBe(CONFIG.shipClasses.cruiser);
+    expect(rec.hullId).toBe('torpedoBoat');
+    expect(rec.cls).toBe(CONFIG.shipClasses.torpedoBoat);
   });
 
   it('addShip applies the requested class (id, cached cls, and hp)', () => {
     const w = new World(1);
     const bb = w.addShip('b', 'BRAVO', false, 'battleship');
-    expect(bb.classId).toBe('battleship');
+    expect(bb.hullId).toBe('battleship');
     expect(bb.cls).toBe(CONFIG.shipClasses.battleship);
     expect(bb.hp).toBe(CONFIG.shipClasses.battleship.hp);
+  });
+
+  it('addShip resolves a drone hull id to its CONFIG.drones envelope', () => {
+    const w = new World(1);
+    const d = w.addShip('d1', 'DRONE-01', true, 'droneMedium');
+    expect(d.hullId).toBe('droneMedium');
+    expect(d.cls).toBe(CONFIG.drones.medium);
+    // effectiveStats accepts the drone envelope: hp/kinematics flow through.
+    expect(d.hp).toBe(CONFIG.drones.medium.hp);
+    expect(d.stats.maxHp).toBe(CONFIG.drones.medium.hp);
+    expect(d.stats.kinematics.maxSpeed).toBe(CONFIG.drones.medium.kinematics.maxSpeed);
   });
 });
 
 describe('World step — per-class kinematics', () => {
-  it('a destroyer out-accelerates a battleship under full throttle', () => {
+  it('a torpedo boat out-accelerates a battleship under full throttle', () => {
     const w = new World(1);
-    const dd = w.addShip('dd', 'DD', false, 'destroyer');
+    const dd = w.addShip('dd', 'DD', false, 'torpedoBoat');
     const bb = w.addShip('bb', 'BB', false, 'battleship');
     // Same fresh pose so only kinematics differ.
     dd.state = { x: 0, y: 0, heading: 0, speed: 0 };
@@ -66,9 +77,9 @@ describe('World step — per-class kinematics', () => {
     w.submitInput('dd', input(1, 1, 0));
     w.submitInput('bb', input(1, 1, 0));
     w.step();
-    // One tick of accel: destroyer accel 11 > battleship accel 7.
+    // One tick of accel: torpedoBoat accel 12 > battleship accel 5.
     expect(dd.state.speed).toBeGreaterThan(bb.state.speed);
-    expect(dd.state.speed).toBeCloseTo(CONFIG.shipClasses.destroyer.kinematics.accel * (SIM_DT / 1000), 9);
+    expect(dd.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.accel * (SIM_DT / 1000), 9);
     expect(bb.state.speed).toBeCloseTo(CONFIG.shipClasses.battleship.kinematics.accel * (SIM_DT / 1000), 9);
   });
 });
@@ -125,13 +136,16 @@ describe('World step — boundary', () => {
     rec.state.x = w.map.radius - 1;
     rec.state.y = 0;
     rec.state.heading = 0;
-    rec.state.speed = CONFIG.shipClasses.cruiser.kinematics.maxSpeed;
+    rec.state.speed = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed;
     w.submitInput('a', input(1, 1, 0));
     w.step();
     const d = Math.hypot(rec.state.x, rec.state.y);
-    expect(d).toBeLessThanOrEqual(w.map.radius + 1e-9);
-    expect(d).toBeCloseTo(w.map.radius, 6);
-    expect(rec.state.speed).toBeLessThan(CONFIG.shipClasses.cruiser.kinematics.maxSpeed * 0.5);
+    // The clamp keeps the whole silhouette inside: center stops at
+    // radius - the hull's bounding-circle radius (silhouette max radius).
+    const limit = w.map.radius - polygonMaxRadius(hullSilhouette('torpedoBoat'));
+    expect(d).toBeLessThanOrEqual(limit + 1e-9);
+    expect(d).toBeCloseTo(limit, 6);
+    expect(rec.state.speed).toBeLessThan(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed * 0.5);
   });
 
   it('never lets a ship escape the map over a long full-throttle run', () => {
@@ -167,7 +181,7 @@ describe('World step — sweep + respawn', () => {
     expect(rec.alive).toBe(false);
     w.step();
     expect(rec.alive).toBe(true);
-    expect(rec.hp).toBe(CONFIG.shipClasses.cruiser.hp);
+    expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     expect(rec.respawnAt).toBe(0);
     expect(Math.hypot(rec.state.x, rec.state.y)).toBeCloseTo(w.map.spawnRing, 6);
   });

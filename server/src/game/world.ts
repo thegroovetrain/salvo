@@ -16,13 +16,14 @@ import {
   defaultLoadout,
   effectiveStats,
   generateMap,
-  hullEndpoints,
+  hullEnvelope,
+  hullSilhouette,
   mulberry32,
-  resolveBoundary,
-  resolveShipIslands,
+  resolveShipPose,
   rollOffer,
   stepShell,
   stepShip,
+  transformPolygon,
   weaponMaxAmmo,
   wrapPositive,
   zonePhaseAt,
@@ -33,14 +34,14 @@ import {
   type EffectiveStats,
   type GameEvent,
   type GameMap,
+  type HullEnvelope,
+  type HullId,
   type HullTarget,
   type InputMsg,
   type LoadoutSlot,
   type Rng,
   type ShellOutcome,
   type ShellState,
-  type ShipClass,
-  type ShipClassId,
   type ShipState,
   type UpgradeId,
   type UpgradeOffer,
@@ -68,10 +69,28 @@ export interface ShipRecord {
   id: string;
   name: string;
   isDrone: boolean;
-  /** Ship class id (chosen pre-queue). Fixed for a hull's whole life. */
-  classId: ShipClassId;
-  /** Cached resolved class (hull + hp + kinematics) for this classId. */
-  cls: ShipClass;
+  /**
+   * Hull identity (fixed for the ship's whole life): a player's picked
+   * ShipClassId, or a drone's drone hull id. THE key into hullSilhouette()/
+   * hullEnvelope(), and the `cls` value contacts carry on the wire. A player
+   * ship's hullId is ALWAYS a ShipClassId (OwnShip.cls narrows on that).
+   */
+  hullId: HullId;
+  /** Cached resolved envelope (hull + hp + kinematics) for this hullId. */
+  cls: HullEnvelope;
+  /**
+   * Per-tick scratch for the world-space silhouette polygon (transformPolygon's
+   * `out` reuse — allocation-light at 20Hz). Server-internal, NEVER on the
+   * wire; valid only for the tick aliveHulls() last wrote it.
+   */
+  hullPoly: Vec2[];
+  /**
+   * Per-tick scratch holding the ship's pose BEFORE this tick's kinematics —
+   * the induction-valid previous pose that resolveShipPose rolls back to when a
+   * candidate pose can't be pushed clear of an island. Written by stepShips,
+   * read by resolveCollisions in the same tick; never on the wire.
+   */
+  prevPose: ShipState;
   /**
    * Kill-reward upgrade counts, indexed by UPGRADE_IDS order. Survive respawn
    * (waiting-phase deaths keep the build) but NOT redeployShip (fresh match =
@@ -228,19 +247,23 @@ export class World {
     return this.inputs.submit(id, raw, this.now);
   }
 
-  /** Spawn a new ship on the ring, max-distance from existing ships. */
-  addShip(id: string, name: string, isDrone = false, classId: ShipClassId = 'cruiser'): ShipRecord {
+  /** Spawn a new ship on the ring, max-distance from existing ships. Players
+   *  pass their picked ShipClassId; drones pass a drone hull id — the envelope
+   *  source (hullEnvelope) is the ONLY thing that differs between them. */
+  addShip(id: string, name: string, isDrone = false, hullId: HullId = 'torpedoBoat'): ShipRecord {
     const occupied = [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y }));
     const p = pickSpawn(this.map, occupied, this.rng);
-    const cls = CONFIG.shipClasses[classId];
+    const cls = hullEnvelope(hullId);
     const upgrades = zeroUpgrades();
     const stats = effectiveStats(cls, upgrades);
     const rec: ShipRecord = {
       id,
       name,
       isDrone,
-      classId,
+      hullId,
       cls,
+      hullPoly: [],
+      prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 },
       upgrades,
       offers: [],
       stats,
@@ -482,19 +505,36 @@ export class World {
   private stepShips(dt: number): void {
     for (const ship of this.ships.values()) {
       if (!ship.alive) continue;
+      // Snapshot the pre-kinematics pose (induction-valid) for resolveShipPose's
+      // rollback branch, then advance.
+      const p = ship.prevPose;
+      p.x = ship.state.x;
+      p.y = ship.state.y;
+      p.heading = ship.state.heading;
       stepShip(ship.state, ship.input, ship.stats.kinematics, dt);
     }
   }
 
   /**
-   * Ship vs island then vs map edge — both via the shared collision module, so
-   * client prediction resolves rocks and the boundary identically (no divergence).
+   * Resolve each candidate pose against islands + the map edge via the shared
+   * pose-validity rollback (sim/collision.ts) — the SAME function the client
+   * Predictor runs, so prediction never diverges on rocks or the boundary.
+   * islandSpeedMult is applied ONCE per tick here (the call site) when the ship
+   * touched an island or pressed the boundary. hullPoly doubles as the transform
+   * scratch (aliveHulls rewrites it for this tick's ballistic/mine tests).
    */
   private resolveCollisions(): void {
     for (const ship of this.ships.values()) {
       if (!ship.alive) continue;
-      resolveShipIslands(ship.state, this.map.islands, ship.cls.hull.beam / 2);
-      resolveBoundary(ship.state, this.map.radius);
+      const { contact } = resolveShipPose(
+        ship.prevPose,
+        ship.state,
+        this.map.islands,
+        this.map.radius,
+        hullSilhouette(ship.hullId),
+        ship.hullPoly,
+      );
+      if (contact) ship.state.speed *= CONFIG.ship.islandSpeedMult;
     }
   }
 
@@ -517,14 +557,17 @@ export class World {
     }
   }
 
-  /** Alive hull capsules (post-move) that shells test against this tick. */
+  /** Alive hull silhouette polygons (post-move) that shells and mines test
+   *  against this tick. Each ship's transformed verts are written into its own
+   *  hullPoly scratch (transformPolygon reuses the array), so the 20Hz loop
+   *  allocates only the small per-tick target list. */
   private aliveHulls(): HullTarget[] {
     const hulls: HullTarget[] = [];
     for (const ship of this.ships.values()) {
       if (!ship.alive) continue;
-      const h = hullEndpoints(ship.state.x, ship.state.y, ship.state.heading, ship.cls.hull);
-      h.id = ship.id;
-      hulls.push(h);
+      const s = ship.state;
+      transformPolygon(hullSilhouette(ship.hullId), s.x, s.y, s.heading, ship.hullPoly);
+      hulls.push({ id: ship.id, poly: ship.hullPoly });
     }
     return hulls;
   }

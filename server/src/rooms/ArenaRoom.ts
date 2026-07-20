@@ -8,7 +8,7 @@
 // and the JOINING-deadline kick — all adapter-side (game/ stays pure).
 
 import { ClientState, CloseCode, ErrorCode, Room, ServerError, generateId, type Client } from 'colyseus';
-import { CONFIG, MSG, SHIP_CLASS_IDS, sanitizeClassId, type ResultsMsg, type WelcomeMsg } from '@salvo/shared';
+import { CONFIG, DRONE_HULL_IDS, MSG, sanitizeClassId, type ResultsMsg, type WelcomeMsg } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -281,9 +281,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.droneCounter += 1;
       const id = `drone-${this.droneCounter}`;
       const name = `DRONE-${String(this.droneCounter).padStart(2, '0')}`;
-      // Round-robin the classes so every hull gets free visual coverage.
-      const classId = SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length];
-      this.world.addShip(id, name, true, classId);
+      // Round-robin the drone hulls (small/medium/large) so every drone
+      // envelope gets free visual coverage. Drones never take player classes.
+      const hullId = DRONE_HULL_IDS[i % DRONE_HULL_IDS.length];
+      this.world.addShip(id, name, true, hullId);
       const meta = new PlayerMeta();
       meta.id = id;
       meta.name = name;

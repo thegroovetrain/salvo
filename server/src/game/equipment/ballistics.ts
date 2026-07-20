@@ -5,26 +5,29 @@
 // duplicated offset constants (MUZZLE_OFFSET/TUBE_OFFSET/DROP_OFFSET) into one
 // place, per the codebase-cleanliness pass (Stage A4). Stage B re-parameterizes
 // hullClearOffset on the firer's class hull length — a one-line change here.
-// Root-cause fix (2026-07-14): the spawn offset used to be EXACTLY the firer's
-// collision boundary (hull reach + projectile radius), zero margin, so a
-// full-speed torpedo firer could re-close that margin before its short grace
-// expired. `BallisticParams.spawnClearance` (torpedoes only) pads the offset
-// with real margin on top of the collision radius; grace remains a backstop.
+// spawnClearance keeps a fresh projectile clear of degenerate overlap with the
+// firer's own hull at spawn: `BallisticParams.spawnClearance` (torpedoes only)
+// pads the offset with real margin on top of the collision radius. Owner
+// immunity is now permanent (Eric ruling 2026-07-19) — own weapons never damage
+// the owner — so clearance is only about clean spawn geometry, not self-hits.
 
 import { type ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 
 /**
- * Hull-clearing spawn offset: half the FIRER'S hull length (per class) plus
- * `extra` so the spawned entity starts OUTSIDE the firer's own capsule.
- * `extra` is normally just the projectile/trigger radius — that alone lands
- * the spawn point EXACTLY on the firer's own collision boundary, zero margin,
- * relying on the self-hit grace as the only backstop. Grace is far too short
- * (~13u at 130 u/s) to clear a battleship's 46u hull on its own, and a
- * fast-moving firer can re-close a zero-margin gap before grace expires (the
- * torpedo self-hit bug) — so callers that need real spawn margin fold it into
- * `extra` themselves (see fireTorpedo's spawnClearance). Grace still backstops
- * re-collision on the exit tick.
+ * Hull-clearing spawn offset: half the FIRER'S hull length (per hull envelope)
+ * plus `extra` so the spawned entity starts OUTSIDE the firer's own silhouette
+ * polygon. length/2 is EXACT at the bow tip (origin-centered, bow along +x),
+ * but it is NOT the maximal hull reach on every bearing: the silhouette's stern
+ * corners exceed length/2 (the battleship reaches ≈62.29u at ~5.5° off dead
+ * astern vs its 62u half-length). That is safe for the CURRENT equipment —
+ * guns cap their arcs off the bow (never near the stern corners) and mines are
+ * owner-immune so a stern-drop that starts a hair inside the transom can never
+ * self-trigger. Stories 1.6–1.8 must NOT lean on length/2 as an all-bearings
+ * clearance for stern-facing equipment; use polygonMaxRadius(hullSilhouette)
+ * there instead. `extra` is normally the projectile/trigger radius; callers
+ * that want genuine margin fold it into `extra` (see fireTorpedo's
+ * spawnClearance). Owner immunity is permanent, so no grace is involved.
  */
 export function hullClearOffset(ship: ShipRecord, extra: number): number {
   return ship.cls.hull.length / 2 + extra;
@@ -36,7 +39,6 @@ export interface BallisticParams {
   range: number; // u — distLeft (Infinity for run-until-impact torpedoes)
   damage: number; // hp per hull hit
   hitRadius: number; // u — collision radius added to the hull capsule
-  graceMs: number; // ms — owner self-hit grace
   kind: 'shell' | 'torp';
   // u — extra spawn-offset margin beyond hitRadius, on top of the firer's own
   // collision boundary. Only fireTorpedo sets this (CONFIG.torpedo.spawnClearance);
@@ -71,6 +73,5 @@ export function makeBallistic(
     kind: p.kind,
     damage: p.damage,
     hitRadius: p.hitRadius,
-    graceMs: p.graceMs,
   };
 }

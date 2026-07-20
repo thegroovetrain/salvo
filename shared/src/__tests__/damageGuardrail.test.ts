@@ -1,30 +1,51 @@
 // Balance guardrails (HULLCRACKER_NOTES "PROBLEMS SO FAR"): no single hit may
-// ever kill an undamaged ship, and a torpedo must always outrun every ship
-// class so a full-speed firer cannot re-catch its own fish. Pure CONFIG pins —
-// they fail the moment a retune drifts across either line.
+// ever kill an undamaged hull, and a torpedo must always outrun every hull —
+// ship classes AND drones. The chase guardrail is now purely a CHASE/DODGE
+// balance pin (targets can't trivially outrun a fish); it is NO LONGER about
+// self-hit safety — own weapons never damage the owner (permanent owner
+// immunity, Eric ruling 2026-07-19). Pure CONFIG pins — they fail the moment a
+// retune drifts across either line.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SHIP_CLASS_IDS } from '../index.js';
+import { CONFIG, DRONE_SIZE_IDS, SHIP_CLASS_IDS } from '../index.js';
 
-const minClassHp = Math.min(...SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hp));
-const maxClassSpeed = Math.max(...SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].kinematics.maxSpeed));
+const classHps = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hp);
+const droneHps = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].hp);
+const minHullHp = Math.min(...classHps, ...droneHps);
 
-describe('one-hit-kill guardrail', () => {
+const classSpeeds = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].kinematics.maxSpeed);
+const droneSpeeds = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].kinematics.maxSpeed);
+const maxHullSpeed = Math.max(...classSpeeds, ...droneSpeeds);
+
+describe('one-hit-kill guardrail (classes AND drones)', () => {
   it('gun damage cannot one-hit the lightest hull', () => {
-    expect(CONFIG.gun.damage).toBeLessThan(minClassHp);
+    expect(CONFIG.gun.damage).toBeLessThan(minHullHp);
   });
 
   it('torpedo damage cannot one-hit the lightest hull', () => {
-    expect(CONFIG.torpedo.damage).toBeLessThan(minClassHp);
+    expect(CONFIG.torpedo.damage).toBeLessThan(minHullHp);
   });
 
   it('mine damage cannot one-hit the lightest hull', () => {
-    expect(CONFIG.mine.damage).toBeLessThan(minClassHp);
+    expect(CONFIG.mine.damage).toBeLessThan(minHullHp);
+  });
+
+  it('the lightest hull is the 70hp torpedoBoat (drones are all heavier)', () => {
+    expect(minHullHp).toBe(70);
+    expect(Math.min(...droneHps)).toBeGreaterThan(CONFIG.torpedo.damage);
   });
 });
 
-describe('torpedo chase guardrail', () => {
-  it('a base torpedo outruns the fastest ship class', () => {
-    expect(CONFIG.torpedo.speed).toBeGreaterThan(maxClassSpeed);
+describe('torpedo chase/dodge guardrail (classes AND drones)', () => {
+  it('a base torpedo outruns the fastest hull', () => {
+    expect(CONFIG.torpedo.speed).toBeGreaterThan(maxHullSpeed);
+  });
+
+  it('a base torpedo outruns every ship class individually', () => {
+    for (const speed of classSpeeds) expect(CONFIG.torpedo.speed).toBeGreaterThan(speed);
+  });
+
+  it('a base torpedo outruns every drone individually', () => {
+    for (const speed of droneSpeeds) expect(CONFIG.torpedo.speed).toBeGreaterThan(speed);
   });
 });

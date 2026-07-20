@@ -17,32 +17,82 @@ export const CONFIG = {
   },
 
   /**
-   * Per-class hull + kinematics. Three classes trade speed against hull/hp:
-   * Destroyer (fast, light) — Cruiser (balanced) — Battleship (slow, heavy).
-   * The weapon fit is UNIVERSAL (every class shares CONFIG.gun/torpedo/mine);
-   * only hull dims, hp, and kinematics vary. Cruiser is byte-for-byte the
-   * pre-classes single ship (pinned by a balance-identity test), so a refactor
-   * slip can't silently retune the game. Every number a tunable.
+   * Per-class hull + kinematics — the ratified beta classes at literal board
+   * scale (Eric-approved 2026-07-19). Three classes trade speed against
+   * hull/hp: Torpedo Boat (fast, fragile) — Battleship (slow, armored) —
+   * Mine Layer (area denial). The weapon fit is
+   * UNIVERSAL for the interregnum (every class shares CONFIG.gun/torpedo/mine;
+   * per-class loadouts arrive in Story 1.6+); only hull dims, hp, and
+   * kinematics vary. Hull dims are the exact bow-to-stern length × max beam of
+   * the shared silhouette polygon (see sim/silhouette.ts — the silhouette IS
+   * the hitbox). Every number is a DESIGN TARGET, tunable.
    */
   shipClasses: {
-    destroyer: {
-      hull: { length: 34, beam: 10 }, // u — long axis (bow-to-stern) / beam (capsule diameter)
+    torpedoBoat: {
+      hull: { length: 100, beam: 9 }, // u — silhouette bow-to-stern / max beam
+      hp: 70, // hit points
+      kinematics: {
+        maxSpeed: 50, // u/s — full-ahead
+        reverseSpeed: 15, // u/s — full-astern (magnitude)
+        accel: 12, // u/s^2 — throttling up
+        decel: 18, // u/s^2 — throttling down / braking
+        turnRate: 0.8, // rad/s — yaw rate at full rudder
+        steerageSpeed: 12, // u/s — speed at which rudder reaches full authority
+      },
+    },
+    battleship: {
+      hull: { length: 124, beam: 32 }, // u
+      hp: 150, // hit points
+      kinematics: {
+        maxSpeed: 28, // u/s — full-ahead
+        reverseSpeed: 9, // u/s — full-astern (magnitude)
+        accel: 5, // u/s^2 — throttling up
+        decel: 9, // u/s^2 — throttling down / braking
+        turnRate: 0.4, // rad/s — yaw rate at full rudder
+        steerageSpeed: 8, // u/s — speed at which rudder reaches full authority
+      },
+    },
+    mineLayer: {
+      hull: { length: 88, beam: 20 }, // u
+      hp: 105, // hit points
+      kinematics: {
+        maxSpeed: 38, // u/s — full-ahead
+        reverseSpeed: 14, // u/s — full-astern (magnitude)
+        accel: 8, // u/s^2 — throttling up
+        decel: 15, // u/s^2 — throttling down / braking
+        turnRate: 0.6, // rad/s — yaw rate at full rudder
+        steerageSpeed: 10, // u/s — speed at which rudder reaches full authority
+      },
+    },
+  },
+
+  /**
+   * Drone envelopes — weaponless target drones in three sizes. NOT ship
+   * classes: never pickable, never upgradeable (they never earn points), never
+   * in SHIP_CLASS_IDS/sanitizeClassId. Same per-entry shape as a ship class
+   * (hull/hp/kinematics) so effectiveStats() accepts either. Kinematics are
+   * byte-for-byte the retired destroyer/cruiser/battleship prototype blocks;
+   * hulls are the legacy chevron trio scaled ~2.5× to board scale. Design
+   * targets, tunable.
+   */
+  drones: {
+    small: {
+      hull: { length: 85, beam: 25 }, // u — legacy 34×10 chevron ×2.5
       hp: 80, // hit points
       kinematics: {
-        maxSpeed: 46, // u/s — full-ahead
-        reverseSpeed: 14, // u/s — full-astern (magnitude); scaled with maxSpeed
+        maxSpeed: 46, // u/s — full-ahead (old destroyer block)
+        reverseSpeed: 14, // u/s — full-astern (magnitude)
         accel: 11, // u/s^2 — throttling up
         decel: 17, // u/s^2 — throttling down / braking
         turnRate: 0.9, // rad/s — yaw rate at full rudder
         steerageSpeed: 12, // u/s — speed at which rudder reaches full authority
       },
     },
-    cruiser: {
-      // ≙ today's ship, byte-for-byte (pinned by test).
-      hull: { length: 40, beam: 12 }, // u
-      hp: 100, // hit points (TTK follows gun.damage/reloadMs — see CONFIG.gun)
+    medium: {
+      hull: { length: 100, beam: 30 }, // u — legacy 40×12 chevron ×2.5
+      hp: 100, // hit points
       kinematics: {
-        maxSpeed: 38, // u/s — full-ahead
+        maxSpeed: 38, // u/s — full-ahead (old cruiser block)
         reverseSpeed: 12, // u/s — full-astern (magnitude)
         accel: 9, // u/s^2 — throttling up
         decel: 14, // u/s^2 — throttling down / braking
@@ -50,11 +100,11 @@ export const CONFIG = {
         steerageSpeed: 10, // u/s — speed at which rudder reaches full authority
       },
     },
-    battleship: {
-      hull: { length: 46, beam: 14 }, // u
+    large: {
+      hull: { length: 115, beam: 35 }, // u — legacy 46×14 chevron ×2.5
       hp: 120, // hit points
       kinematics: {
-        maxSpeed: 30, // u/s — full-ahead
+        maxSpeed: 30, // u/s — full-ahead (old battleship block)
         reverseSpeed: 10, // u/s — full-astern (magnitude)
         accel: 7, // u/s^2 — throttling up
         decel: 11, // u/s^2 — throttling down / braking
@@ -91,7 +141,6 @@ export const CONFIG = {
     reloadMs: 3000, // ms — one round reloads per this interval while below max
     damage: 25, // hp per hit — THE gun-damage tunable (pinned by damageGuardrail.test)
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
-    selfHitGrace: 100, // ms — a shell can't hit its own firer
     mounts: [
       { name: 'port', offset: deg(90), halfArc: deg(60) }, // +90deg, +/-60deg
       { name: 'starboard', offset: deg(-90), halfArc: deg(60) }, // -90deg, +/-60deg
@@ -107,10 +156,10 @@ export const CONFIG = {
   torpedo: {
     offset: deg(0), // bow-centered
     halfArc: deg(30), // +/-30deg launch arc
-    // u/s — must outrun every ship class (destroyer maxSpeed 46 is the
-    // fastest hull) so a full-speed firer can never re-catch its own fish;
-    // pinned by damageGuardrail.test. Also a deliberate balance change: torps
-    // are harder to dodge now (owner call, 2026-07-14 self-hit fix session).
+    // u/s — must outrun every hull, classes AND drones (torpedoBoat maxSpeed
+    // 50 is the fastest) so a full-speed firer can never re-catch its own
+    // fish; pinned by damageGuardrail.test. Also a deliberate balance change:
+    // torps are harder to dodge (owner call, 2026-07-14 self-hit fix session).
     speed: 70, // u/s
     damage: 55, // hp
     maxAmmo: 1, // one fish in the tube pool
@@ -118,11 +167,10 @@ export const CONFIG = {
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
     // u — extra spawn-offset margin ON TOP of hitRadius (see hullClearOffset)
     // so the fish spawns genuinely CLEAR of the firer's own hull, not merely
-    // touching it. Root fix for the self-hit bug: the old spawn point landed
-    // exactly on the firer's own collision boundary with zero margin.
+    // touching it — clean spawn geometry only. Own weapons NEVER damage the
+    // owner (Eric ruling 2026-07-19: permanent owner immunity across gun /
+    // torpedo / mine); the old timed selfHitGrace backstop is retired.
     spawnClearance: 6, // u
-    selfHitGrace: 500, // ms — owner-only backstop against re-collision on the
-    // spawn tick; never affects hitting enemies (grace only exempts the firer).
   },
 
   /** Mines (weapon 2): dropped astern. Never on radar. */
@@ -226,20 +274,83 @@ export const CONFIG = {
 /** Static type of the CONFIG tree (used in the wire config snapshot). */
 export type GameConfig = typeof CONFIG;
 
-/** A ship-class key ('destroyer' | 'cruiser' | 'battleship'). */
+/** Hull dims: bow-to-stern length × max beam of the silhouette polygon. */
+export interface Hull {
+  length: number; // u — bow-to-stern
+  beam: number; // u — max beam (widest point of the silhouette)
+}
+
+/**
+ * One hull envelope: dims + hp + kinematics. STRUCTURAL on purpose — both a
+ * CONFIG.shipClasses entry and a CONFIG.drones entry satisfy it, so
+ * effectiveStats() accepts either (drones are ordinary ships whose envelope
+ * merely comes from a different table).
+ */
+export interface HullEnvelope {
+  hull: Hull;
+  hp: number;
+  kinematics: {
+    maxSpeed: number; // u/s
+    reverseSpeed: number; // u/s (magnitude)
+    accel: number; // u/s^2
+    decel: number; // u/s^2
+    turnRate: number; // rad/s
+    steerageSpeed: number; // u/s
+  };
+}
+
+/** A ship-class key ('torpedoBoat' | 'battleship' | 'mineLayer'). */
 export type ShipClassId = keyof typeof CONFIG.shipClasses;
 
 /** The resolved config for one class (hull + hp + kinematics). */
-export type ShipClass = (typeof CONFIG.shipClasses)[ShipClassId];
+export type ShipClass = HullEnvelope;
 
-/** Ordered class ids: menu order, drone round-robin, and the balance table. */
-export const SHIP_CLASS_IDS: readonly ShipClassId[] = ['destroyer', 'cruiser', 'battleship'];
+/** A drone size key into CONFIG.drones ('small' | 'medium' | 'large'). */
+export type DroneSizeId = keyof typeof CONFIG.drones;
 
-/** Coerce arbitrary (wire/localStorage) input to a valid class id, default 'cruiser'. */
+/** A drone hull id as it appears on the wire (Contact.cls). */
+export type DroneHullId = 'droneSmall' | 'droneMedium' | 'droneLarge';
+
+/**
+ * Every hull id a Contact can carry: the three pickable classes plus the three
+ * drone sizes. OwnShip.cls stays ShipClassId (you can never BE a drone).
+ */
+export type HullId = ShipClassId | DroneHullId;
+
+/** Ordered class ids: menu order and the balance table. */
+export const SHIP_CLASS_IDS: readonly ShipClassId[] = ['torpedoBoat', 'battleship', 'mineLayer'];
+
+/** Ordered drone hull ids (round-robin fill order), aligned with DRONE_SIZE_IDS. */
+export const DRONE_HULL_IDS: readonly DroneHullId[] = ['droneSmall', 'droneMedium', 'droneLarge'];
+
+/** Ordered drone size keys into CONFIG.drones, aligned with DRONE_HULL_IDS. */
+export const DRONE_SIZE_IDS: readonly DroneSizeId[] = ['small', 'medium', 'large'];
+
+/** Every hull id, classes first then drones (silhouette registry order). */
+export const HULL_IDS: readonly HullId[] = [...SHIP_CLASS_IDS, ...DRONE_HULL_IDS];
+
+/**
+ * The envelope (hull/hp/kinematics) behind any hull id — a shipClasses entry
+ * for the pickable classes, a drones entry for the drone sizes.
+ */
+export function hullEnvelope(id: HullId): HullEnvelope {
+  switch (id) {
+    case 'droneSmall':
+      return CONFIG.drones.small;
+    case 'droneMedium':
+      return CONFIG.drones.medium;
+    case 'droneLarge':
+      return CONFIG.drones.large;
+    default:
+      return CONFIG.shipClasses[id];
+  }
+}
+
+/** Coerce arbitrary (wire/localStorage) input to a valid class id, default 'torpedoBoat'. */
 export function sanitizeClassId(raw: unknown): ShipClassId {
   return typeof raw === 'string' && (SHIP_CLASS_IDS as readonly string[]).includes(raw)
     ? (raw as ShipClassId)
-    : 'cruiser';
+    : 'torpedoBoat';
 }
 
 /**

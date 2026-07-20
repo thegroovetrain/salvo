@@ -1,7 +1,7 @@
 // Mine fire control + trigger resolution — the mine Equipment row.
 // A mine is a STATIC point in world state (not a ballistic): dropped astern,
-// arms after armDelay, then triggers when any NON-OWNER live hull capsule comes
-// within triggerRadius of it. On trigger it deals damage to that ship and
+// arms after armDelay, then triggers when any NON-OWNER live hull silhouette
+// comes within triggerRadius of it. On trigger it deals damage to that ship and
 // despawns with a boom at the mine point. Max `maxLive` live mines per player
 // (dropping past the cap despawns that player's OLDEST silently — no boom); a
 // defensive global cap bounds total growth. Mines never radar-paint; their
@@ -9,8 +9,9 @@
 
 import {
   CONFIG,
-  hullEndpoints,
-  pointSegmentDistance,
+  hullSilhouette,
+  pointPolygonDistance,
+  transformPolygon,
   wrapAngle,
   type HullTarget,
 } from '@salvo/shared';
@@ -93,9 +94,10 @@ export function dropPoint(ship: ShipRecord): { x: number; y: number } {
 }
 
 /**
- * Mines that trigger this tick against the given (post-move) hulls: any armed
- * mine whose nearest non-owner hull capsule is within TRIGGER_DIST. One victim
- * per mine (the first ship found). Pure — the World deletes + resolves damage.
+ * Mines that trigger this tick against the given (post-move) hull silhouette
+ * polygons: any armed mine within triggerRadius of a non-owner polygon
+ * (pointPolygonDistance — 0 inside, concave-safe). One victim per mine (the
+ * first ship found). Pure — the World deletes + resolves damage.
  */
 export function checkMineTriggers(
   mines: Map<string, MineState>,
@@ -107,8 +109,7 @@ export function checkMineTriggers(
     if (now < mine.armedAt) continue; // still arming
     for (const hull of hulls) {
       if (hull.id === mine.ownerId) continue; // owner never trips its own mine
-      // Per-hull trigger proximity: this hull's capsule radius + trigger radius.
-      if (pointSegmentDistance(mine, hull.stern, hull.bow) <= CONFIG.mine.triggerRadius + hull.radius) {
+      if (pointPolygonDistance(mine, hull.poly) <= CONFIG.mine.triggerRadius) {
         triggers.push({ mine, victimId: hull.id });
         break;
       }
@@ -117,11 +118,11 @@ export function checkMineTriggers(
   return triggers;
 }
 
-/** Hull capsule for a ship pose (thin re-export so tests need not import shared). */
+/** The world-space hull target for a ship pose (test/inspection convenience —
+ *  the sim itself builds targets in World.aliveHulls with per-ship scratch). */
 export function hullFor(ship: ShipRecord): HullTarget {
-  const h = hullEndpoints(ship.state.x, ship.state.y, ship.state.heading, ship.cls.hull);
-  h.id = ship.id;
-  return h;
+  const s = ship.state;
+  return { id: ship.id, poly: transformPolygon(hullSilhouette(ship.hullId), s.x, s.y, s.heading) };
 }
 
 /** The mine Equipment row. The drop ammo pool is distinct from the live-mine

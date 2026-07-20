@@ -22,10 +22,10 @@
 
 import {
   CONFIG,
+  type HullId,
   type MatchPhase,
   type ResultsMsg,
   type ResultsRow,
-  type ShipClassId,
 } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 
@@ -117,13 +117,14 @@ export function shouldAbortOnTickError(consecutiveFailures: number, tolerance: n
 export interface MatchEndSummary {
   /** All combatants captured at activation, drones included. */
   rosterSize: number;
-  /** classId -> combatant count (drones included). */
+  /** hullId -> combatant count (drones included, under their drone hull ids). */
   rosterByClass: Record<string, number>;
   /** (finishedAt - activatedAt) in seconds, rounded to 1 decimal; 0 if unfinished. */
   durationS: number;
-  /** Winner participant's classId, or null when there is no winner yet. */
+  /** Winner participant's hull id (always a player class — drones never win),
+   *  or null when there is no winner yet. */
   winnerClass: string | null;
-  /** classId -> summed kills across combatants (drones included). */
+  /** hullId -> summed kills across combatants (drones included). */
   killsByClass: Record<string, number>;
   /** Sinks with no attributable killer (storm deaths) observed while active. */
   stormDeaths: number;
@@ -133,7 +134,7 @@ export interface MatchEndSummary {
 interface Participant {
   name: string;
   isDrone: boolean;
-  classId: ShipClassId;
+  hullId: HullId;
   kills: number;
   damageDealt: number;
 }
@@ -233,7 +234,7 @@ export class Match {
       this.participants.set(s.id, {
         name: s.name,
         isDrone: s.isDrone,
-        classId: s.classId,
+        hullId: s.hullId,
         kills: 0,
         damageDealt: 0,
       });
@@ -257,7 +258,7 @@ export class Match {
       this.participants.set(aliveWinner.id, {
         name: aliveWinner.name,
         isDrone: aliveWinner.isDrone,
-        classId: aliveWinner.classId,
+        hullId: aliveWinner.hullId,
         kills: aliveWinner.kills,
         damageDealt: aliveWinner.damageDealt,
       });
@@ -361,8 +362,8 @@ export class Match {
     const rosterByClass: Record<string, number> = {};
     const killsByClass: Record<string, number> = {};
     for (const p of this.participants.values()) {
-      rosterByClass[p.classId] = (rosterByClass[p.classId] ?? 0) + 1;
-      killsByClass[p.classId] = (killsByClass[p.classId] ?? 0) + p.kills;
+      rosterByClass[p.hullId] = (rosterByClass[p.hullId] ?? 0) + 1;
+      killsByClass[p.hullId] = (killsByClass[p.hullId] ?? 0) + p.kills;
     }
     const finished = this.finishedAt > 0 && this.activatedAt > 0;
     const durationS = finished ? Math.round((this.finishedAt - this.activatedAt) / 100) / 10 : 0;
@@ -370,7 +371,7 @@ export class Match {
       rosterSize: this.participants.size,
       rosterByClass,
       durationS,
-      winnerClass: this.participants.get(this.winnerId)?.classId ?? null,
+      winnerClass: this.participants.get(this.winnerId)?.hullId ?? null,
       killsByClass,
       stormDeaths: this.stormDeaths,
     };

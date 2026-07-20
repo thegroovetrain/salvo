@@ -51,7 +51,6 @@ function makeShell(overrides: Partial<ShellState> = {}): ShellState {
     kind: 'shell',
     damage: 10,
     hitRadius: 5,
-    graceMs: 0,
     ...overrides,
   };
 }

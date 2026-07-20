@@ -7,7 +7,7 @@
 // (chartRoot, above the fog) keeps decaying; no coupling needed.
 
 import type { Container } from 'pixi.js';
-import { CONFIG, sanitizeClassId } from '@salvo/shared';
+import { CONFIG } from '@salvo/shared';
 import type { ContactStore } from '../net/snapshots.js';
 import { ShipView, CONTACT_STYLE } from './ships.js';
 import { Fader } from './fade.js';
@@ -76,9 +76,12 @@ export class ContactViews {
   private viewFor(id: string, store: ContactStore): FadingView {
     let fv = this.views.get(id);
     if (!fv) {
-      // A contact's class is static (set on first sighting) — render its true hull.
-      const hull = CONFIG.shipClasses[sanitizeClassId(store.classOf(id))].hull;
-      fv = { view: new ShipView(CONTACT_STYLE, hull), fader: new Fader(false) };
+      // A contact's hull id is static (set on first sighting) — render its true
+      // silhouette. Drone ids (droneSmall/Medium/Large) render the legacy
+      // chevron; classes render their board silhouette. Default guards a
+      // never-sighted id; drone ids must NOT be sanitized to a ship class.
+      const hullId = store.classOf(id) ?? 'torpedoBoat';
+      fv = { view: new ShipView(CONTACT_STYLE, hullId), fader: new Fader(false) };
       this.layer.addChild(fv.view.gfx);
       this.views.set(id, fv);
     }

@@ -1,5 +1,15 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG, stepShip, type InputMsg, type ShipConfig, type ShipState } from '@salvo/shared';
+import {
+  CONFIG,
+  hullSilhouette,
+  resolveShipPose,
+  stepShip,
+  transformPolygon,
+  type InputMsg,
+  type Pose,
+  type ShipConfig,
+  type ShipState,
+} from '@salvo/shared';
 import {
   Predictor,
   PENDING_CAPACITY,
@@ -9,7 +19,10 @@ import {
 
 const DT = CONFIG.tick.simDtMs / 1000;
 const MAP_R = 900;
-const CRUISER = CONFIG.shipClasses.cruiser;
+// The default class the Predictor seeds (torpedoBoat) — reference server steps
+// must use the same kinematics + silhouette to stay lock-step.
+const TB = CONFIG.shipClasses.torpedoBoat;
+const TB_POLY = hullSilhouette('torpedoBoat');
 
 function input(seq: number, throttle = 1, rudder = 0): InputMsg {
   return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 };
@@ -20,7 +33,7 @@ function kin(s: ShipState) {
 }
 
 /** Reference "server": shared stepShip with the given class + boundary clamp. */
-function serverStep(s: ShipState, inp: InputMsg, cfg: ShipConfig = CRUISER.kinematics): void {
+function serverStep(s: ShipState, inp: InputMsg, cfg: ShipConfig = TB.kinematics): void {
   stepShip(s, inp, cfg, DT);
   const d = Math.hypot(s.x, s.y);
   if (d > MAP_R) {
@@ -154,40 +167,69 @@ describe('Predictor error absorption', () => {
 describe('Predictor boundary clamp (mirror of server world.ts)', () => {
   it('never predicts past the map edge and damps speed there', () => {
     // Start near the edge, full ahead pointing straight out.
-    const spawn: ShipState = { x: MAP_R - 10, y: 0, heading: 0, speed: CRUISER.kinematics.maxSpeed };
+    const spawn: ShipState = { x: MAP_R - 10, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
     const p = makeInitialized(spawn);
     for (let seq = 1; seq <= 40; seq++) p.localTick(input(seq, 1, 0));
     const d = Math.hypot(p.predicted.x, p.predicted.y);
     expect(d).toBeLessThanOrEqual(MAP_R + 1e-9);
-    expect(Math.abs(p.predicted.speed)).toBeLessThan(CRUISER.kinematics.maxSpeed);
+    expect(Math.abs(p.predicted.speed)).toBeLessThan(TB.kinematics.maxSpeed);
   });
 });
 
-describe('Predictor island collision (shared with server world.ts)', () => {
-  it('never predicts inside an island it is driven into', () => {
-    const island = { x: 120, y: 0, r: 40 };
+/** Min distance from a posed hull polygon to an island center (negative when
+ *  a vertex is inside the circle) — proves the resolved hull is overlap-free. */
+function hullClearance(s: ShipState, poly: readonly { x: number; y: number }[], isle: { x: number; y: number; r: number }): number {
+  const world = transformPolygon(poly, s.x, s.y, s.heading);
+  let min = Infinity;
+  for (const v of world) min = Math.min(min, Math.hypot(v.x - isle.x, v.y - isle.y) - isle.r);
+  return min;
+}
+
+describe('Predictor island collision (polygon parity with shared collision)', () => {
+  it('matches a server running the SAME resolveShipPose on an island graze', () => {
+    // A parity proof: the predictor uses the shared pose-validity rollback. A
+    // reference "server" runs the identical shared function with identical
+    // arguments (prev pose + poly + map radius) and the same single contact
+    // damp; reconciling only every 3 ticks forces the predictor's own localTick
+    // collision + replay to agree with the server tick-for-tick, which can only
+    // hold if both call the same polygon code.
+    const island = { x: 120, y: 6, r: 40 };
     const p = new Predictor({ radius: MAP_R, islands: [island] });
-    // Spawn just left of the island, pointed straight at it, full ahead.
-    p.onServerState({ x: 40, y: 0, heading: 0, speed: 0 }, 0);
-    for (let seq = 1; seq <= 60; seq++) p.localTick(input(seq, 1, 0));
-    const s = p.predicted;
-    const gap = Math.hypot(s.x - island.x, s.y - island.y);
-    // Hull circle radius = beam/2 = 6; must stay outside r + 6, minus float slack.
-    expect(gap).toBeGreaterThanOrEqual(island.r + CRUISER.hull.beam / 2 - 1e-6);
+    const server: ShipState = { x: 40, y: 0, heading: 0, speed: 0 };
+    p.onServerState(kin(server), 0);
+    let grazed = false;
+    for (let seq = 1; seq <= 80; seq++) {
+      const inp = input(seq, 1, 0.15); // curve past / into the island
+      p.localTick(inp);
+      const prev: Pose = { x: server.x, y: server.y, heading: server.heading };
+      stepShip(server, inp, TB.kinematics, DT);
+      const { contact } = resolveShipPose(prev, server, [island], MAP_R, TB_POLY);
+      if (contact) server.speed *= CONFIG.ship.islandSpeedMult;
+      if (seq % 3 === 0) p.onServerState(kin(server), seq);
+      if (hullClearance(server, TB_POLY, island) < 1) grazed = true;
+    }
+    // Predictor tracks the polygon-collided server exactly (parity by construction).
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+    expect(p.predicted.y).toBeCloseTo(server.y, 9);
+    expect(p.predicted.heading).toBeCloseTo(server.heading, 9);
+    // The path actually engaged the island (non-trivial test)...
+    expect(grazed).toBe(true);
+    // ...and the predicted hull ends overlap-free (no vertex inside the circle).
+    expect(hullClearance(p.predicted, TB_POLY, island)).toBeGreaterThanOrEqual(-1e-6);
   });
 });
 
-describe('Predictor with a non-cruiser class config', () => {
-  it('replays against a destroyer-stepped server exactly', () => {
-    const DD = CONFIG.shipClasses.destroyer;
+describe('Predictor with a non-default class config', () => {
+  it('replays against a battleship-stepped server exactly', () => {
+    const BB = CONFIG.shipClasses.battleship;
     const spawn: ShipState = { x: 0, y: 0, heading: 0.2, speed: 0 };
     const server: ShipState = { ...spawn };
-    const p = new Predictor({ radius: MAP_R, islands: [] }, DD.kinematics, DD.hull.beam / 2);
+    const p = new Predictor({ radius: MAP_R, islands: [] }, BB.kinematics, hullSilhouette('battleship'));
     p.onServerState(kin(spawn), 0);
     for (let seq = 1; seq <= 40; seq++) {
       const inp = input(seq, 1, seq % 10 < 5 ? 0.6 : -0.6);
       p.localTick(inp);
-      serverStep(server, inp, DD.kinematics);
+      serverStep(server, inp, BB.kinematics);
       if (seq % 4 === 0) p.onServerState(kin(server), seq);
     }
     expect(p.predicted.x).toBeCloseTo(server.x, 6);
@@ -204,9 +246,9 @@ describe('Predictor stats swap mid-flight (upgrade grant)', () => {
     // the replay must track a server stepping the upgraded config exactly.
     const MULT = 1.08 ** 2; // two maxSpeed stacks
     const upgraded: ShipConfig = {
-      ...CRUISER.kinematics,
-      maxSpeed: CRUISER.kinematics.maxSpeed * MULT,
-      reverseSpeed: CRUISER.kinematics.reverseSpeed * MULT,
+      ...TB.kinematics,
+      maxSpeed: TB.kinematics.maxSpeed * MULT,
+      reverseSpeed: TB.kinematics.reverseSpeed * MULT,
     };
     const spawn: ShipState = { x: 200, y: -100, heading: 0.4, speed: 0 };
     const server: ShipState = { ...spawn };
@@ -222,7 +264,7 @@ describe('Predictor stats swap mid-flight (upgrade grant)', () => {
 
     // The grant lands: both sides swap to the upgraded kinematics. Grants do
     // NOT snap — the ring is kept and replayed under the new config.
-    p.setClassConfig(upgraded, CRUISER.hull.beam / 2, false);
+    p.setClassConfig(upgraded, TB_POLY, false);
     expect(p.isInitialized).toBe(true); // no forceSnap on a grant
     p.onServerState(kin(server), 20);
     expect(p.isInitialized).toBe(true);
@@ -240,7 +282,7 @@ describe('Predictor stats swap mid-flight (upgrade grant)', () => {
     expect(p.predicted.y).toBeCloseTo(server.y, 9);
     // The upgraded top speed was actually reached (the swap took effect).
     expect(p.predicted.speed).toBeCloseTo(upgraded.maxSpeed, 6);
-    expect(p.predicted.speed).toBeGreaterThan(CRUISER.kinematics.maxSpeed);
+    expect(p.predicted.speed).toBeGreaterThan(TB.kinematics.maxSpeed);
   });
 
   it('a non-kinematics grant never moves the predicted pose (no kill-frame hop)', () => {
@@ -268,7 +310,7 @@ describe('Predictor stats swap mid-flight (upgrade grant)', () => {
     expect(p.pendingCount).toBeGreaterThan(0);
 
     // e.g. a gunReload grant: same kinematics object semantics, snap=false.
-    p.setClassConfig({ ...CRUISER.kinematics }, CRUISER.hull.beam / 2, false);
+    p.setClassConfig({ ...TB.kinematics }, TB_POLY, false);
     expect(p.isInitialized).toBe(true);
     expect(p.pendingCount).toBe(control.pendingCount); // ring survives the grant
 

@@ -30,6 +30,26 @@ function assertConstraints(map: GameMap): void {
   }
 }
 
+describe('island separation vs hull beams (#64 channel guarantee)', () => {
+  it('SEPARATION is 40u — wider than every hull beam, so channels are sailable', () => {
+    expect(MAP_RULES.SEPARATION).toBe(40);
+    const beams = [
+      ...Object.values(CONFIG.shipClasses).map((c) => c.hull.beam),
+      ...Object.values(CONFIG.drones).map((d) => d.hull.beam),
+    ];
+    for (const beam of beams) expect(beam).toBeLessThan(MAP_RULES.SEPARATION);
+  });
+
+  it('SPAWN_MARGIN is 64u — at least the widest hull bounding radius, so spawns clear the ring', () => {
+    // The battleship's stern corners reach ≈62.29u from origin (> length/2 = 62);
+    // SPAWN_MARGIN must cover that so the mapgen ring guarantee holds at board
+    // scale (spawn.ts uses the true silhouette radius for island clearance).
+    expect(MAP_RULES.SPAWN_MARGIN).toBe(64);
+    const maxBoundingRadius = 62.29;
+    expect(MAP_RULES.SPAWN_MARGIN).toBeGreaterThanOrEqual(maxBoundingRadius);
+  });
+});
+
 describe('mapRadius', () => {
   it('scales as base * sqrt(cap / capRef)', () => {
     expect(mapRadius(CONFIG.map.capRef)).toBeCloseTo(CONFIG.map.baseRadius);

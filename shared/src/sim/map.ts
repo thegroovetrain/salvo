@@ -17,8 +17,8 @@ const MIN_CIRCLES = 2;
 const MAX_CIRCLES = 4;
 const MIN_R = 25; // u — smallest island circle
 const MAX_R = 70; // u — largest island circle
-const SEPARATION = 15; // u — min gap between island circles
-const SPAWN_MARGIN = 40; // u — min clearance from the spawn ring
+const SEPARATION = 40; // u — min gap between island circles (widest hull beam 32 must fit channels)
+const SPAWN_MARGIN = 64; // u — min clearance from the spawn ring (>= max hull bounding radius 62.29, so the ring guarantee holds at board scale)
 const INNER_FRACTION = 0.15; // no islands within this fraction of center
 const OUTER_FRACTION = 0.9; // islands stay inside this fraction of radius
 const CLUSTER_SPREAD = 60; // u — jitter of circles around a cluster anchor

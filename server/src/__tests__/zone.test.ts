@@ -17,7 +17,7 @@ function placeClear(world: World, id: string, d: number): void {
     const a = (i * Math.PI) / 180;
     const x = Math.cos(a) * d;
     const y = Math.sin(a) * d;
-    const clear = world.map.islands.every((is) => Math.hypot(x - is.x, y - is.y) > is.r + CONFIG.shipClasses.cruiser.hull.length);
+    const clear = world.map.islands.every((is) => Math.hypot(x - is.x, y - is.y) > is.r + CONFIG.shipClasses.torpedoBoat.hull.length);
     if (clear) {
       ship.state.x = x;
       ship.state.y = y;
@@ -37,7 +37,7 @@ describe('zone lifecycle — starts ONLY via startZone', () => {
     expect(w.zoneStartMs).toBe(0);
     expect(w.zoneRadius).toBe(w.map.radius);
     for (let i = 0; i < 10; i++) w.step();
-    expect(rec.hp).toBe(CONFIG.shipClasses.cruiser.hp); // idle zone deals no storm damage
+    expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // idle zone deals no storm damage
   });
 
   it('startZone anchors the timeline and is idempotent', () => {
@@ -63,9 +63,9 @@ describe('storm damage', () => {
     expect(perTick).toBeCloseTo(0.2, 9);
     w.step();
     expect(isOutside(rec.state, w.zoneRadius)).toBe(true);
-    expect(rec.hp).toBeCloseTo(CONFIG.shipClasses.cruiser.hp - perTick, 6);
+    expect(rec.hp).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.hp - perTick, 6);
     w.step();
-    expect(rec.hp).toBeCloseTo(CONFIG.shipClasses.cruiser.hp - 2 * perTick, 6);
+    expect(rec.hp).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.hp - 2 * perTick, 6);
   });
 
   it('deals NO damage to a ship inside the safe radius', () => {
@@ -75,7 +75,7 @@ describe('storm damage', () => {
     w.startZone();
     for (let i = 0; i < 20; i++) w.step();
     expect(isOutside(rec.state, w.zoneRadius)).toBe(false);
-    expect(rec.hp).toBe(CONFIG.shipClasses.cruiser.hp);
+    expect(rec.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
   });
 
   it('deals NO damage to a ship exactly ON the ring (boundary inclusive-safe)', () => {
@@ -110,7 +110,7 @@ describe('storm damage', () => {
     placeClear(w, 'a', w.map.radius * 0.8);
     w.startZone();
     w.step();
-    expect(rec.hp).toBeLessThan(CONFIG.shipClasses.cruiser.hp); // took storm damage
+    expect(rec.hp).toBeLessThan(CONFIG.shipClasses.torpedoBoat.hp); // took storm damage
     expect(w.tickEvents.some((e) => e.k === 'dmg')).toBe(false); // but emitted no dmg spam
   });
 });

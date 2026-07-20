@@ -1,5 +1,5 @@
 // Torpedoes + mines: single-round pool reload, arc gating, island block, mine
-// arm delay, capsule-proximity trigger (not center), owner immunity, oldest-
+// arm delay, silhouette-proximity trigger (not center), owner immunity, oldest-
 // despawn at cap, the WeaponAmmo[] wire array, and the structural guarantee
 // that a torpedo can NEVER be radar-painted (only ships paint).
 
@@ -7,7 +7,8 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   WEAPON,
-  hullEndpoints,
+  hullSilhouette,
+  transformPolygon,
   type BlipEvent,
   type FrameMsg,
   type InputMsg,
@@ -60,7 +61,6 @@ describe('torpedoes — single-round pool reload', () => {
     expect(t1!.kind).toBe('torp');
     expect(t1!.damage).toBe(CONFIG.torpedo.damage);
     expect(t1!.hitRadius).toBe(CONFIG.torpedo.hitRadius); // own value, not gun's
-    expect(t1!.graceMs).toBe(CONFIG.torpedo.selfHitGrace); // own value, not gun's
     expect(t1!.distLeft).toBe(Number.POSITIVE_INFINITY); // A3: runs until impact
     // Fish leaves the bow at torpedo speed straight ahead (+x).
     expect(t1!.vx).toBeCloseTo(CONFIG.torpedo.speed, 6);
@@ -104,7 +104,7 @@ describe('torpedoes — island block + ship hit', () => {
       w.step();
       events.push(...w.tickEvents);
     }
-    expect(b.hp).toBe(CONFIG.shipClasses.cruiser.hp);
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     expect(events.some((e) => e.k === 'boom' && e.hit === undefined)).toBe(true);
   });
 
@@ -114,15 +114,14 @@ describe('torpedoes — island block + ship hit', () => {
     a.input = { ...a.input, aim: HALF_PI };
     const b = w.addShip('b', 'B');
     b.state = { x: 0, y: 150, heading: 0, speed: 0 };
-    for (let i = 0; i < 80 && b.hp === CONFIG.shipClasses.cruiser.hp; i++) w.step();
-    expect(b.hp).toBe(CONFIG.shipClasses.cruiser.hp - CONFIG.torpedo.damage);
+    for (let i = 0; i < 80 && b.hp === CONFIG.shipClasses.torpedoBoat.hp; i++) w.step();
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.torpedo.damage);
   });
 });
 
 describe('A4 CONFIG constants', () => {
-  it('torpedoes carry their own collision + grace values (no longer gun-borrowed)', () => {
+  it('torpedoes carry their own collision value (no longer gun-borrowed)', () => {
     expect(CONFIG.torpedo.hitRadius).toBe(2);
-    expect(CONFIG.torpedo.selfHitGrace).toBe(500); // owner-only backstop, bumped for the self-hit fix
   });
   it('the global mine cap lives on CONFIG.mine', () => {
     expect(CONFIG.mine.globalCap).toBe(60);
@@ -136,14 +135,17 @@ describe('torpedoes — infinite range + map-edge splash (A3)', () => {
     a.input = { ...a.input, aim: HALF_PI };
     const b = w.addShip('b', 'B');
     b.state = { x: 0, y: 750, heading: 0, speed: 0 }; // 750u away (> old 700 cap)
-    for (let i = 0; i < 400 && b.hp === CONFIG.shipClasses.cruiser.hp; i++) w.step();
-    expect(b.hp).toBe(CONFIG.shipClasses.cruiser.hp - CONFIG.torpedo.damage);
+    for (let i = 0; i < 400 && b.hp === CONFIG.shipClasses.torpedoBoat.hp; i++) w.step();
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.torpedo.damage);
   });
 
   it('a torpedo with no target splashes at the map edge (boom, no victim)', () => {
     const w = bareWorld();
     const edge = w.map.radius;
-    const a = torpShip(w, 'a', edge - 40, 0, 0); // near the +x edge, bow pointed out
+    // Near the +x edge, bow pointed out — far enough in that the boundary
+    // clamp (radius - hull max radius) leaves the pose alone and the fish
+    // spawns inside the water disk (bow clearance is 58u for a torpedoBoat).
+    const a = torpShip(w, 'a', edge - 80, 0, 0);
     a.input = { ...a.input, aim: 0 };
     const events = [];
     for (let i = 0; i < 60; i++) {
@@ -156,11 +158,10 @@ describe('torpedoes — infinite range + map-edge splash (A3)', () => {
   });
 });
 
-describe('mines — arm delay, capsule trigger, owner immunity', () => {
+describe('mines — arm delay, silhouette trigger, owner immunity', () => {
+  // World-posed torpedoBoat silhouette (length 100: bow +50 / stern -50).
   function hull(id: string, x: number, y: number, heading: number): HullTarget {
-    const h = hullEndpoints(x, y, heading);
-    h.id = id;
-    return h;
+    return { id, poly: transformPolygon(hullSilhouette('torpedoBoat'), x, y, heading) };
   }
   function mineAt(ownerId: string, x: number, y: number, armedAt: number): Map<string, MineState> {
     const m = new Map<string, MineState>();
@@ -170,18 +171,20 @@ describe('mines — arm delay, capsule trigger, owner immunity', () => {
 
   it('does not trigger before it arms', () => {
     const mines = mineAt('a', 0, 0, 3000);
-    const enemy = [hull('b', 0, 20, HALF_PI)]; // capsule reaches the mine
+    const enemy = [hull('b', 0, 20, HALF_PI)]; // silhouette covers the mine
     expect(checkMineTriggers(mines, enemy, 2999)).toEqual([]);
     expect(checkMineTriggers(mines, enemy, 3000)).toHaveLength(1);
   });
 
-  it('triggers on the HULL capsule, not the ship center', () => {
+  it('triggers on the HULL silhouette, not the ship center', () => {
     const mines = mineAt('a', 0, 0, 0);
-    // Center 40u away (> triggerRadius+beam/2 = 31) but the stern reaches 26u in.
+    // Center 40u away (> triggerRadius 25) but the stern reaches over the mine
+    // (bow +y: the 100u hull spans y in [-10, 90] — the mine sits inside it).
     const reaching = [hull('b', 0, 40, HALF_PI)];
     const triggers = checkMineTriggers(mines, reaching, 10);
     expect(triggers.map((t) => t.victimId)).toEqual(['b']);
-    // A hull whose whole capsule stays beyond range does not trip it.
+    // A hull whose whole silhouette stays beyond triggerRadius does not trip it
+    // (center 80: stern at y=30, 30 > 25 from the mine).
     const clear = [hull('b', 0, 80, HALF_PI)];
     expect(checkMineTriggers(mineAt('a', 0, 0, 0), clear, 10)).toEqual([]);
   });
@@ -312,7 +315,6 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
       kind: 'torp',
       damage: CONFIG.torpedo.damage,
       hitRadius: CONFIG.torpedo.hitRadius,
-      graceMs: CONFIG.torpedo.selfHitGrace,
     });
     windowAround(a, 0); // beam across bearing 0 (toward x+)
     const blips = blipsOf(buildFrame(w, 'a'));

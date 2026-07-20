@@ -18,7 +18,7 @@ import {
   type UpgradeId,
 } from '../index.js';
 
-const CRUISER = CONFIG.shipClasses.cruiser;
+const BASE = CONFIG.shipClasses.battleship;
 
 /** Counts array with a single upgrade type at `count` stacks. */
 function countsWith(id: UpgradeId, count: number): number[] {
@@ -57,34 +57,34 @@ describe('effectiveStats — zero-counts identity (per class)', () => {
   });
 
   it('an empty counts array reads as all zeros (defensive)', () => {
-    expect(effectiveStats(CRUISER, [])).toEqual(effectiveStats(CRUISER, zeroUpgrades()));
+    expect(effectiveStats(BASE, [])).toEqual(effectiveStats(BASE, zeroUpgrades()));
   });
 });
 
 describe('effectiveStats — stacking rules', () => {
   it('multiplicative: 2 radarRange stacks = base * 1.15^2', () => {
-    const s = effectiveStats(CRUISER, countsWith('radarRange', 2));
+    const s = effectiveStats(BASE, countsWith('radarRange', 2));
     expect(s.radarRange).toBeCloseTo(CONFIG.vision.radar * CONFIG.upgrades.radarRange.mult ** 2, 9);
   });
 
   it('period multipliers shrink: 3 sweepSpeed stacks = period * 0.85^3', () => {
-    const s = effectiveStats(CRUISER, countsWith('sweepSpeed', 3));
+    const s = effectiveStats(BASE, countsWith('sweepSpeed', 3));
     expect(s.sweepPeriodMs).toBeCloseTo(CONFIG.vision.sweepPeriod * CONFIG.upgrades.sweepSpeed.periodMult ** 3, 9);
     expect(s.sweepPeriodMs).toBeLessThan(CONFIG.vision.sweepPeriod);
   });
 
   it('additive: adds stack linearly and are UNCAPPED', () => {
-    expect(effectiveStats(CRUISER, countsWith('hullPoints', 5)).maxHp).toBe(
-      CRUISER.hp + 5 * CONFIG.upgrades.hullPoints.add,
+    expect(effectiveStats(BASE, countsWith('hullPoints', 5)).maxHp).toBe(
+      BASE.hp + 5 * CONFIG.upgrades.hullPoints.add,
     );
-    expect(effectiveStats(CRUISER, countsWith('gunAmmo', 10)).gun.maxAmmo).toBe(CONFIG.gun.maxAmmo + 10);
+    expect(effectiveStats(BASE, countsWith('gunAmmo', 10)).gun.maxAmmo).toBe(CONFIG.gun.maxAmmo + 10);
   });
 
   it('maxSpeed scales maxSpeed AND reverseSpeed by the same factor', () => {
-    const s = effectiveStats(CRUISER, countsWith('maxSpeed', 2));
+    const s = effectiveStats(BASE, countsWith('maxSpeed', 2));
     const f = CONFIG.upgrades.maxSpeed.mult ** 2;
-    expect(s.kinematics.maxSpeed).toBeCloseTo(CRUISER.kinematics.maxSpeed * f, 9);
-    expect(s.kinematics.reverseSpeed).toBeCloseTo(CRUISER.kinematics.reverseSpeed * f, 9);
+    expect(s.kinematics.maxSpeed).toBeCloseTo(BASE.kinematics.maxSpeed * f, 9);
+    expect(s.kinematics.reverseSpeed).toBeCloseTo(BASE.kinematics.reverseSpeed * f, 9);
   });
 });
 
@@ -107,10 +107,10 @@ const AFFECTED: Record<UpgradeId, string[]> = {
 };
 
 describe('effectiveStats — each id moves exactly its stat(s), nothing else', () => {
-  const identity = flatten(effectiveStats(CRUISER, zeroUpgrades()));
+  const identity = flatten(effectiveStats(BASE, zeroUpgrades()));
 
   it.each(UPGRADE_IDS.map((id) => [id] as const))('%s', (id) => {
-    const upgraded = flatten(effectiveStats(CRUISER, countsWith(id, 1)));
+    const upgraded = flatten(effectiveStats(BASE, countsWith(id, 1)));
     expect([...upgraded.keys()]).toEqual([...identity.keys()]); // same shape
     const changed = [...upgraded.keys()].filter((k) => upgraded.get(k) !== identity.get(k));
     expect(changed.sort()).toEqual([...AFFECTED[id]].sort());
@@ -136,7 +136,7 @@ describe('upgrade helpers', () => {
   });
 
   it('weaponMaxAmmo / weaponReloadMs index the per-weapon effective values', () => {
-    const s = effectiveStats(CRUISER, countsWith('mineReload', 1));
+    const s = effectiveStats(BASE, countsWith('mineReload', 1));
     expect(weaponMaxAmmo(s, 0)).toBe(s.gun.maxAmmo);
     expect(weaponMaxAmmo(s, 1)).toBe(s.torpedo.maxAmmo);
     expect(weaponMaxAmmo(s, 2)).toBe(s.mine.maxAmmo);

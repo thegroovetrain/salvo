@@ -80,7 +80,7 @@ describe('pointsLine — banked-points HUD prompt', () => {
 });
 
 describe('speedLadderFraction — ACTUAL speed on the [-1,1] telegraph axis', () => {
-  const KIN = CONFIG.shipClasses.cruiser.kinematics;
+  const KIN = CONFIG.shipClasses.torpedoBoat.kinematics;
 
   it('is 0 at rest, +1 at full ahead, -1 at full astern', () => {
     expect(speedLadderFraction(0, KIN)).toBe(0);

@@ -12,15 +12,18 @@
 
 import {
   angleDiff,
-  resolveBoundary,
-  resolveShipIslands,
+  hullSilhouette,
+  resolveShipPose,
   stepShip,
   wrapAngle,
   CONFIG,
+  SHIP_CLASS_IDS,
   type Circle,
   type InputMsg,
+  type Pose,
   type ShipConfig,
   type ShipState,
+  type Vec2,
 } from '@salvo/shared';
 import { lerp, lerpAngle } from '../util/math.js';
 
@@ -37,8 +40,11 @@ export const IGNORE_EPSILON_U = 0.01;
 /** Heading error below this is ignored alongside the positional epsilon (rad). */
 export const IGNORE_EPSILON_RAD = 1e-3;
 /** Positional error beyond this hard-snaps with no visual smoothing (u).
- *  Sized off the cruiser hull — a class-agnostic teleport threshold. */
-export const HARD_SNAP_U = CONFIG.shipClasses.cruiser.hull.length * 3;
+ *  Derivation: the longest class hull length × 3 — a class-agnostic teleport
+ *  threshold sized off the biggest hull so no legitimate replay for any class
+ *  ever trips it (currently battleship 124 × 3 = 372u). */
+export const HARD_SNAP_U =
+  Math.max(...SHIP_CLASS_IDS.map((id) => CONFIG.shipClasses[id].hull.length)) * 3;
 /** visualError decay constant: error *= exp(-ERROR_DECAY_RATE * dt). */
 export const ERROR_DECAY_RATE = 12;
 
@@ -74,19 +80,24 @@ export class Predictor {
   private pending: PendingInput[] = [];
   private ve = { x: 0, y: 0, heading: 0 }; // render-time-only visual error
   private ready = false;
+  /** Reused transform scratch for resolveShipPose (allocation-light replay). */
+  private readonly scratch: Vec2[] = [];
 
   constructor(
     private readonly map: CollisionMap,
-    private kin: ShipConfig = CONFIG.shipClasses.cruiser.kinematics,
-    private shipRadius: number = CONFIG.shipClasses.cruiser.hull.beam / 2,
+    private kin: ShipConfig = CONFIG.shipClasses.torpedoBoat.kinematics,
+    private localPoly: readonly Vec2[] = hullSilhouette('torpedoBoat'),
     private readonly dt: number = CONFIG.tick.simDtMs / 1000,
   ) {}
 
   /**
-   * Swap in a ship class's kinematics + collision radius and re-initialize. The
-   * own class is authoritative from the first server frame (you.cls), so if the
-   * localStorage guess was wrong this re-inits prediction from the next frame —
-   * the desync firewall for the physics model.
+   * Swap in a ship class's kinematics + silhouette polygon and re-initialize.
+   * The own class is authoritative from the first server frame (you.cls), so if
+   * the localStorage guess was wrong this re-inits prediction from the next
+   * frame — the desync firewall for the physics model.
+   *
+   * `localPoly` is the shared hullSilhouette(cls) — the SAME polygon the server
+   * feeds resolveShipPose, so collision parity holds by construction.
    *
    * `snap` — pass true ONLY for an actual class change (first-frame localStorage
    * correction): the physics model was materially wrong, so re-init cleanly.
@@ -95,9 +106,9 @@ export class Predictor {
    * transient folds into the visual-error smoothing instead of hard-snapping
    * the hull backward by the full RTT lead on every kill.
    */
-  setClassConfig(kin: ShipConfig, shipRadius: number, snap = true): void {
+  setClassConfig(kin: ShipConfig, localPoly: readonly Vec2[], snap = true): void {
     this.kin = kin;
-    this.shipRadius = shipRadius;
+    this.localPoly = localPoly;
     if (snap) this.forceSnap();
   }
 
@@ -141,9 +152,11 @@ export class Predictor {
     if (!this.ready) return;
     this.pending.push({ seq: input.seq, throttle: input.throttle, rudder: input.rudder });
     if (this.pending.length > PENDING_CAPACITY) this.pending.shift();
+    // this.prev is the pre-step (induction-valid) pose — reuse it as the
+    // rollback prev for this tick's collision resolve.
     this.prev = clone(this.curr);
     stepShip(this.curr, input, this.kin, this.dt);
-    this.resolveCollisions(this.curr);
+    this.resolveCollisions(this.curr, this.prev);
   }
 
   /**
@@ -184,9 +197,13 @@ export class Predictor {
   /** Server state + every pending input stepped at the fixed dt. */
   private replayFrom(you: ServerKinematics): ShipState {
     const s: ShipState = { x: you.x, y: you.y, heading: you.heading, speed: you.speed };
+    const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
     for (const p of this.pending) {
+      prev.x = s.x;
+      prev.y = s.y;
+      prev.heading = s.heading;
       stepShip(s, { throttle: p.throttle, rudder: p.rudder }, this.kin, this.dt);
-      this.resolveCollisions(s);
+      this.resolveCollisions(s, prev);
     }
     return s;
   }
@@ -224,12 +241,20 @@ export class Predictor {
   }
 
   /**
-   * Ship vs island then vs map edge — the SAME shared collision the server runs
-   * in world.ts (resolveShipIslands + resolveBoundary), so prediction never
-   * diverges on rocks or the boundary.
+   * Ship vs island + map edge via the SAME shared pose-validity rollback the
+   * server runs in world.ts, with the SAME arguments (prev pose, silhouette
+   * polygon, map radius), so prediction never diverges on rocks or the
+   * boundary. islandSpeedMult is applied once on contact, matching the server.
    */
-  private resolveCollisions(s: ShipState): void {
-    resolveShipIslands(s, this.map.islands, this.shipRadius);
-    resolveBoundary(s, this.map.radius);
+  private resolveCollisions(s: ShipState, prev: Pose): void {
+    const { contact } = resolveShipPose(
+      prev,
+      s,
+      this.map.islands,
+      this.map.radius,
+      this.localPoly,
+      this.scratch,
+    );
+    if (contact) s.speed *= CONFIG.ship.islandSpeedMult;
   }
 }

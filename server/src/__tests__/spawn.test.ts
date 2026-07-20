@@ -58,6 +58,23 @@ describe('pickSpawn — placement constraints across seeds', () => {
       }
     }
   });
+  it('pathological map: fully-blocked spawn ring still yields an island-CLEAR point (never overlapping)', () => {
+    // Hand-built map violating mapgen's ring guarantee: 24 r=120 islands
+    // centered ON the spawn ring fully cover it (and the coarse candidates).
+    // The fallback ladder must walk inward and return a point with true
+    // clearance — an overlapping spawn would poison resolveShipPose's
+    // pose-validity induction (Codex-confirmed review finding).
+    const spawnRing = 720;
+    const islands = Array.from({ length: 24 }, (_, i) => {
+      const a = (i * 2 * Math.PI) / 24;
+      return { x: Math.cos(a) * spawnRing, y: Math.sin(a) * spawnRing, r: 120 };
+    });
+    const map = { radius: 900, spawnRing, islands };
+    const rng = mulberry32(0xdead);
+    const p = pickSpawn(map, [], rng);
+    const clearance = Math.min(...islands.map((c) => dist(p, c) - c.r));
+    expect(clearance).toBeGreaterThan(SPAWN_ISLAND_CLEARANCE);
+  });
 });
 
 describe('World spawn integration', () => {
