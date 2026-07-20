@@ -77,7 +77,7 @@ constraint; this document's job is AI-agent implementation consistency.
 
 | System | Complexity | Source |
 |---|---|---|
-| Slot grammar: universal gun + 2 class specials + 1 economy-filled slot (4 classes) | High | GDD Weapon Systems, E1 |
+| Slot grammar: universal gun + 2 class specials + 1 economy-filled slot (3 classes at beta; re-scoped 2026-07-19) | High | GDD Weapon Systems, E1 |
 | Boon economy: passive XP tick + kill bonuses → pre-rolled 4-boon offers; offer types span numeric slot upgrades, slot fill/replace, and slot behavior changes (catalog undecided; not directly Hades) | High | GDD Upgrade Economy, E2 |
 | Aim reconciliation under latency (lag compensation decision) | High | GDD Dependencies — delegated to architecture |
 | Perception/sensors: truesight + radar sweep + NEW listening ring; class-legible blips | High | GDD Sensor Suite, E6 |
@@ -952,7 +952,7 @@ AI-agent guidance — text, tests, and these two documents are the tooling inves
 
 1. **Work item #0 — Colyseus 0.16 → 0.17 upgrade**, paired with the Track-2 hosting move
    (Colyseus Cloud + static client split). Before E1, before any public playtest.
-2. **E1 — The Armory** (slot grammar, universal gun, four class loadouts) on the stabilized
+2. **E1 — The Armory** (slot grammar, universal gun, three class loadouts) on the stabilized
    0.17 adapter, building the `equipment/`, `loadout.ts`, and boon-slot plumbing.
 3. Then the GDD epic sequence: **E1 → E2 → E3 → E6 → E4 → E5 → E7.**
 4. Recommended gate before E1 code: the **implementation-readiness** check (GDD ↔ Architecture

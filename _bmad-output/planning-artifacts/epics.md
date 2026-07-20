@@ -20,6 +20,7 @@ Conflict-resolution notes carried from the source docs (latest decision wins):
 - The bot mode is named **"Solo vs AI"** (UX naming supersedes GDD's "Solo vs Bots").
 - **Heal-as-upgrade is an open design question** — stories must keep the boon mechanism and ship lifecycle heal-compatible (reversible sinking, `behavior` effect path) without committing either way.
 - Numbers throughout are **design targets or prototype reference values, explicitly tunable** (GDD law); acceptance criteria cite them as targets, not contracts.
+- **Three-class beta re-scope (2026-07-19, party-mode ratified):** the gunboat is cut; beta roster = Torpedo Boat / Battleship / Mine Layer. TB loadout = torpedo tubes + speed boost (inherited from the cut gunboat); the smoke screen is orphaned to the equipment/boon pool; the Mine Layer's signature ability is OPEN (decoy buoy under rethink; mine mechanics flagged unsettled). Deferred bench: Submarine first, then Carrier; decoy ship and the rest stay banked. (Propagated per `sprint-change-proposal-2026-07-19.md`.)
 
 ## Requirements Inventory
 
@@ -27,16 +28,16 @@ Conflict-resolution notes carried from the source docs (latest decision wins):
 
 **Classes & loadouts (the promise)**
 
-FR1: Four playable classes at beta — Torpedo Boat, Battleship, Mine Layer, Gunboat — each a distinct hull envelope (size, speed, toughness, turning) carrying a fitted loadout.
+FR1: Three playable classes at beta — Torpedo Boat, Battleship, Mine Layer — each a distinct hull envelope (size, speed, toughness, turning) carrying a fitted loadout. (Gunboat cut 2026-07-19; Submarine → Carrier bench deferred post-playtest.)
 FR2: Universal slot grammar on every ship: slot 1 = universal standard gun, slots 2–3 = two class specials (at least one a weapon), slot 4 = extra slot filled mid-match through the upgrade economy.
 FR3: The standard gun is identical on every class (short cooldown, basic damage, available most of the time); class differentiation never lives in the gun.
-FR4: Class loadouts per GDD: Torpedo Boat = torpedo tubes + smoke screen; Battleship = long-range cannon + star shells; Mine Layer = proximity-fused mines + decoy buoy; Gunboat = armor-piercing gun (form open: separate gun vs activatable buff) + speed boost.
+FR4: Class loadouts per GDD: Torpedo Boat = torpedo tubes + speed boost (activated: several seconds of raised speed); Battleship = long-range cannon + star shells; Mine Layer = proximity-fused mines + a signature ability that is OPEN (decoy buoy under rethink, 2026-07-19 — resolved with Eric before Story 1.8). The smoke screen is equipment/boon-pool content, no longer any class's ability.
 FR5: Every fitted system implements one Equipment interface (weapon or not) with its own ammo pool and reload/cooldown timer; every timer ticks every tick regardless of selection — switching is tempo, not penalty.
 FR6: All weapons fire within real firing arcs; mouse aim is constrained to the selected weapon's arc; per-weapon arc geometry is redesigned for the class era (arcs usable in more situations while rewarding skill).
 FR7: Torpedoes outrun every hull at base speed, spawn with real bow clearance plus a brief owner-only grace (never self-hit at base speed), run until they hit something, and are never painted by radar — hydrophones are the torpedo warning.
 FR8: Mines arm after a delay, trigger by proximity, and are capped per-player (live-mine cap, oldest evicted) and globally.
 FR9: Projectiles, never hitscan: no dispersion (shots go exactly where aimed), no damage falloff, flat single-pool damage (no sectional damage, no crits, no weak points). Gun shells fly to the clicked point or the first obstacle. Precision bonus (bonus damage for striking at the clicked spot, standard gun) is an open design idea to adopt or drop during gun tuning.
-FR10: The decoy buoy is a real server-side entity whose emitted signals are wire-indistinguishable from a genuine ship's (counter-intel law: lies live on the server).
+FR10: Any deception entity (e.g. the decoy buoy, if the Mine Layer's OPEN signature ability resolves to it) is a real server-side entity whose emitted signals are wire-indistinguishable from a genuine ship's (counter-intel law: lies live on the server). The law binds regardless of which deception feature ships.
 
 **Movement & controls**
 
@@ -145,8 +146,8 @@ UX-DR5: The storm renders in violet exclusively (#7B2FBE fill + #B06EE8 readout 
 UX-DR6: Personal combatant colors: every human gets a unique hue from the 20-hue wheel, server-assigned match-consistently (color index rides the roster); players pick a preference on home (granted unless contended; contention = fair random draw, losers fall to nearest free hue; UI must never imply claiming/locking); a contended-fallback toast + nameplate reveal in the waiting room.
 UX-DR7: Hull treatment: bright personal hue on the outline, same hue at ~45% value as interior fill; propagation = own hull, nameplate, own-blip ring, radar blips + kill-feed names (Variant C default; Variant P phosphor-anonymous build flag kept for playtest swap); ALL HUD chrome stays phosphor-functional; drones always greyscale.
 UX-DR8: Reserved bands — amber, the red family, storm violet, and the phosphor green band are never combatant hues; wherever a personal color renders as text it uses a lightened text-safe variant meeting ≥ 4.5:1 (per-hue variant table is an open question; the mechanism is not).
-UX-DR9: Class silhouette language: four genuinely distinct top-down silhouettes (Torpedo Boat knife ~9:1; Battleship broadest/stepped, 124 u; Mine Layer widened aft + transom notch, 88 u; Gunboat compact flared wedge, 60 u) + the legacy chevron reserved for PvE drones (a fifth silhouette no player wears); the silhouette IS the hitbox (accepted; decoupling is the named fallback); geometry consistent everywhere a hull appears.
-UX-DR10: Blip rendering: outline-only 1px non-scaling stroke at true heading with an arrowhead heading vector; class blips never below 11 px (Battleship 14, Mine Layer 12, boats 11 floor-clamped); Mine Layer notch cut ~3× deep and Gunboat flare exaggerated in the blip path only; ≤ 3 decay ghosts per contact (TTL-based); per-hue luminance floor so dark hues render a lightened variant at blip/ghost scale.
+UX-DR9: Class silhouette language: three genuinely distinct top-down silhouettes (Torpedo Boat knife ~9:1; Battleship broadest/stepped, 124 u; Mine Layer widened aft + transom notch, 88 u) + the legacy chevron reserved for PvE drones (a fourth silhouette no player wears); the silhouette IS the hitbox (accepted; decoupling is the named fallback); geometry consistent everywhere a hull appears.
+UX-DR10: Blip rendering: outline-only 1px non-scaling stroke at true heading with an arrowhead heading vector; class blips never below 11 px (Battleship 14, Mine Layer 12, boats 11 floor-clamped); Mine Layer notch cut ~3× deep in the blip path only; ≤ 3 decay ghosts per contact (TTL-based); per-hue luminance floor so dark hues render a lightened variant at blip/ghost scale.
 
 **HUD components (Pixi)**
 
@@ -168,7 +169,7 @@ UX-DR24: Enemy damage is diegetic only — wounded smoke, no enemy HP bars ever;
 **Port chrome (DOM)**
 
 UX-DR25: Home page over a live ambient CIC canvas (never blank): wordmark (`.io` in phosphor-bright), callsign field (14-char cap), Class Chip (current pick at a glance), Color Hoist (20 swatches + preference caption), amber Primary Button ("SET SAIL" with mode/class sub-line, Enter equivalent, defers to status line while connecting; failures report plainly on the status line), mode pick (Solo · Solo vs AI), How-to-Play link, server status, settings gear.
-UX-DR26: Class-select layer: Class Cards (356 px: name+key, fantasy line, silhouette box, SPEED/TOUGHNESS/TURNING pip scales [placeholder values], loadout slots, pick button; selected = personal-color border/glow) on a horizontal rail with a dashed ghost card ("MORE CLASSES IN DEVELOPMENT") clipped at the edge; keys 1–4/arrows highlight, Enter picks, ESC closes without change; first-run default class Gunboat (unconfirmed proposal).
+UX-DR26: Class-select layer: Class Cards (356 px: name+key, fantasy line, silhouette box, SPEED/TOUGHNESS/TURNING pip scales [placeholder values], loadout slots, pick button; selected = personal-color border/glow) on a horizontal rail with a dashed ghost card ("MORE CLASSES IN DEVELOPMENT") clipped at the edge; keys 1–3/arrows highlight, Enter picks, ESC closes without change; first-run class select pushes no default — three cards, forced meaningful choice, Torpedo Boat pre-focused for keyboard flow (ruled 2026-07-19; closes the old "default Gunboat" proposal).
 UX-DR27: Results modal: kills, placement, time afloat, accrued boons + last offer reviewable; single action RETURN TO PORT (amber Primary Button; Enter or ESC) — no re-queue from the modal, no dead spectate button; victory banner phosphor / defeat amber; fullscreen dim behind results only.
 UX-DR28: Settings overlay: gear on home AND non-pausing ESC overlay in match (opening mid-fight is the player's risk); doubles as the view-only binding reference; modals never stack.
 UX-DR29: How-to-Play page: static DOM page (ESC/back returns home), hosts the boon glossary; Solo vs AI is positioned as the live tutorial; coach marks are pared to this surface.
@@ -197,7 +198,7 @@ UX-DR39: Floor viewport 1366×768; HUD authored at 1920×1080 with corner-anchor
 
 ### FR Coverage Map
 
-FR1: Epic 1 — Four class hull envelopes
+FR1: Epic 1 — Three class hull envelopes
 FR2: Epic 1 — Universal slot grammar (gun + 2 specials + economy slot)
 FR3: Epic 1 — Universal standard gun
 FR4: Epic 1 — Class loadouts (specials + abilities per class)
@@ -206,7 +207,7 @@ FR6: Epic 1 — Real firing arcs, per-weapon arc redesign
 FR7: Epic 1 — Torpedo laws (outrun hulls, bow clearance, owner grace, no radar paint)
 FR8: Epic 1 — Mine arming, proximity trigger, caps
 FR9: Epic 1 — Projectile combat model (no dispersion/falloff, flat damage, precision-bonus decision)
-FR10: Epic 1 — Decoy buoy as wire-indistinguishable server entity
+FR10: Epic 1 — Counter-intel wire-indistinguishability (decoy buoy pending the ML signature-ability resolution)
 FR11: Epic 1 — Telegraph-and-helm movement per class envelope
 FR12: Epic 1 — Keyboard+mouse combat with explicit denied feedback (full new scheme in Epic 2)
 FR13: Epic 4 — Three-tier sensor suite (listening ring is the new tier)
@@ -247,7 +248,7 @@ Players keep their match through a wifi hiccup, and every later epic builds on t
 **FRs covered:** FR38 · **Also:** AR1, AR2, AR11, NFR10, NFR15, NFR16
 
 ### Epic 1: The Armory
-Pick any of four classes and the game feels genuinely different at 0:00 — hull envelope, silhouette, personal color, fitted loadout, and the class-select experience.
+Pick any of three classes and the game feels genuinely different at 0:00 — hull envelope, silhouette, personal color, fitted loadout, and the class-select experience.
 **FRs covered:** FR1–FR12 · **Also:** AR3 (D1 fire-time compensation — gun behavior lands here, gated by the simulated-latency harness from AR12; muzzle-flash masking is an Epic 4 tie-in), AR5-foundation (signal-registry conversion is an early Epic 1 story: stand up signals.ts, port existing signals as rows, invariant tests iterate the registry from day one — the decoy story builds on it; Epic 4 then only adds rows), AR7, AR16, UX-DR1–UX-DR10, UX-DR25–UX-DR26
 **Interregnum note (party-mode ratified 2026-07-17):** between Epic 1 and Epic 2 the legacy 14-upgrade economy limps along on the new classes — new class stat blocks feed effectiveStats(), legacy upgrades keep multiplying them; ugly, functional, deleted in Epic 2. Spend stays enabled.
 
@@ -356,7 +357,7 @@ So that portal SDKs land at Epic 7 behind an existing seam instead of a retrofit
 
 ## Epic 1: The Armory
 
-Pick any of four classes and the game feels genuinely different at 0:00 — hull envelope, silhouette, personal color, fitted loadout, and the class-select experience. Foundations land first: signal registry, equipment interface, hull envelopes, then the gun, D1, four class loadouts, arcs, and visual identity.
+Pick any of three classes and the game feels genuinely different at 0:00 — hull envelope, silhouette, personal color, fitted loadout, and the class-select experience. Foundations land first: signal registry, equipment interface, hull envelopes, then the gun, D1, three class loadouts, arcs, and visual identity.
 
 ### Story 1.1: Signal Registry Foundation
 
@@ -388,18 +389,18 @@ So that guns, torpedoes, mines, and every future ability share one grammar my lo
 **And** slot activation routes through a single sinking-activation gate point (a passthrough until Epic 5 introduces the sinking state; policy value stays TBD per D4)
 **And** the slot grammar supports 4 slots (gun / special / special / extra) with the extra slot empty-capable (FR2 plumbing — contents arrive in later stories).
 
-### Story 1.3: Four Hull Envelopes
+### Story 1.3: Three Hull Envelopes
 
 As a captain,
-I want four classes with genuinely different hulls — size, speed, toughness, turning,
+I want three classes with genuinely different hulls — size, speed, toughness, turning,
 So that my lobby pick changes how the ship feels the moment I sail.
 
 **Acceptance Criteria:**
 
 **Given** CONFIG's current three prototype classes
-**When** Torpedo Boat, Battleship, Mine Layer, and Gunboat envelopes replace them (hull dims per the ratified silhouette board: TB ~9:1 at 100 u, BB 124 u, ML 88 u, GB 60 u; per-class speed/accel/braking/turn/HP as design-target values in CONFIG)
+**When** Torpedo Boat, Battleship, and Mine Layer envelopes replace them (hull dims per the ratified silhouette board: TB ~9:1 at 100 u, BB 124 u, ML 88 u; per-class speed/accel/braking/turn/HP as design-target values in CONFIG)
 **Then** `effectiveStats()` produces a complete stat block for each class and each hull's shared silhouette geometry IS its hitbox (UX-DR9; geometry lives in shared/ so server collision and client render can never disagree)
-**And** all four classes are pickable and sailable end-to-end with the existing menu extended minimally (full class-select chrome arrives in Story 1.14)
+**And** all three classes are pickable and sailable end-to-end with the existing menu extended minimally (full class-select chrome arrives in Story 1.14)
 **And** the legacy 14-upgrade economy keeps functioning against the new class stat blocks (the ratified interregnum — spend stays enabled until Epic 2)
 **And** the island-stuck collision bug (GDD playtest finding #64) is fixed and covered by a regression test
 **And** kinematics remain shared-sim pure (prediction parity holds at the same 50 ms dt).
@@ -412,7 +413,7 @@ So that class identity lives in the specials while I always have a baseline weap
 
 **Acceptance Criteria:**
 
-**Given** the four classes of Story 1.3
+**Given** the three classes of Story 1.3
 **When** the universal gun is tuned (short cooldown, basic damage — design-target numbers into CONFIG)
 **Then** every class fires the byte-identical gun (FR3) — no per-class gun stats anywhere
 **And** shells fly with travel time to the clicked point or first obstacle, with no dispersion and no damage falloff (FR9)
@@ -437,19 +438,20 @@ So that gunnery feels fair at real-world latency and the Narrow Escape is never 
 **When** it drives full matches
 **Then** it reports hit-registration agreement % and prediction-error bounds, and those metrics — not localhost feel — are the acceptance gate (NFR3).
 
-### Story 1.6: Torpedo Boat Loadout
+### Story 1.6: Torpedo Boat Loadout (carries the boost × torpedo ruling)
 
 As a Torpedo Boat captain,
-I want torpedo tubes and a smoke screen,
-So that I can thread skill-shots through terrain and vanish when the answer comes.
+I want torpedo tubes and a speed boost,
+So that I can thread skill-shots through terrain and outrun the answer.
 
 **Acceptance Criteria:**
 
 **Given** the equipment registry
-**When** torpedo tubes (special 1) and smoke screen (special 2, activated ability) are fitted to the Torpedo Boat
+**When** torpedo tubes (special 1) and the speed boost (special 2, activated: several seconds of raised speed — inherited from the cut gunboat, ruled 2026-07-19) are fitted to the Torpedo Boat
 **Then** torpedoes obey all FR7 laws (outrun every hull at base speed, real bow clearance, owner-only grace — a self-hit at base speed is impossible, covered by test) and are never painted by radar
-**And** the smoke screen deploys an area that blocks truesight LOS through it for all observers (server-side perception effect via the Story 1.1 registry), with duration/cooldown as CONFIG design targets
-**And** a solo playtest run confirms the fantasy: tubes + smoke + the 9:1 hull play distinctly from every other class.
+**And** the speed boost implements `Equipment` with its own cooldown, applying through `effectiveStats()`/shared hooks so prediction survives the speed change; boost state is visible to the owner (slot cooling state) and produces no wire field revealing it to enemies beyond observed kinematics
+**And** the boost × torpedo interaction is resolved WITH ERIC during this story (FR7 guarantees no self-hit at *base* speed only — whether a boosted TB can catch its own fish, and the rule if so, is a design decision), with the ruling covered by test
+**And** a solo playtest run confirms the fantasy: tubes + boost + the 9:1 hull play distinctly from every other class.
 
 ### Story 1.7: Battleship Loadout
 
@@ -466,39 +468,27 @@ So that I dominate open water from beyond the reply and can light the dark when 
 **And** the illumination is time-limited and its area/duration are CONFIG design targets
 **And** a solo playtest run confirms the fantasy: long-range artillery + star shells + the fortress hull play distinctly from every other class.
 
-### Story 1.8: Mine Layer Loadout (with the Decoy's Server Lies)
+### Story 1.8: Mine Layer Loadout (carries the signature-ability + mine-mechanics decisions)
 
 As a Mine Layer captain,
-I want proximity mines and a decoy buoy,
+I want proximity mines and a signature ability worthy of the trapper,
 So that I can author traps and lies — and the wire itself can't rat me out.
 
 **Acceptance Criteria:**
 
-**Given** the equipment registry
-**When** proximity-fused mines (special 1) and the decoy buoy (special 2) are fitted to the Mine Layer
-**Then** mines arm after a delay, trigger by proximity, respect the per-player live cap (oldest evicted) and global cap (FR8), and render at ~truesight per UX-DR20
-**And** the decoy buoy is a real World entity whose radar paints reuse the genuine blip signal's `materialize` AND draw from the same RNG/jitter stream (temporal indistinguishability)
-**And** wire-indistinguishability tests prove a serialized decoy blip is identical to a real ship blip field-for-field modulo position (FR10; the registry row is marked `counterIntel`)
-**And** shooting a decoy's position produces no Hit Call — interaction is the sanctioned disambiguation oracle (documented as intended counterplay)
-**And** a solo playtest run confirms the fantasy: mines + decoy + the stern-weapon hull play distinctly from every other class.
-
-### Story 1.9: Gunboat Loadout (carries the AP-gun form decision)
-
-As a Gunboat captain,
-I want an armor-piercing punch and a speed boost,
-So that the speedy boy with some guns wins on sustained damage and audacity.
-
-**Acceptance Criteria:**
-
-**Given** the AP-gun open design choice (separate higher-cooldown gun vs. activatable damage/RoF buff)
+**Given** the Mine Layer's signature ability is OPEN (decoy buoy under rethink; candidates banked in the 2026-07-19 session: mine+buoy shared radar signature, sonobuoy) and mine mechanics are themselves flagged unsettled
 **When** this story begins
-**Then** the form is resolved WITH ERIC before implementation, and the GDD note is closed with the choice
+**Then** both are resolved WITH ERIC before implementation, and the GDD notes are closed with the choices
 
-**Given** the resolved form
-**When** the AP system (special 1) and speed boost (special 2, activated: several seconds of raised speed) are fitted
-**Then** both implement `Equipment` with their own cooldowns; the speed boost applies through `effectiveStats()`/shared hooks so prediction survives the speed change
-**And** boost state is visible to the owner (slot cooling state) and produces no wire field revealing it to enemies beyond observed kinematics
-**And** a solo playtest run confirms the fantasy: AP punch + speed boost + the smallest hull play distinctly from every other class.
+**Given** the equipment registry and the resolved designs
+**When** proximity-fused mines (special 1) and the resolved signature ability (special 2) are fitted to the Mine Layer
+**Then** mines arm after a delay, trigger by proximity, respect the per-player live cap (oldest evicted) and global cap (FR8), and render at ~truesight per UX-DR20
+**And** if the resolution is the decoy buoy: the buoy is a real World entity whose radar paints reuse the genuine blip signal's `materialize` AND draw from the same RNG/jitter stream (temporal indistinguishability); wire-indistinguishability tests prove a serialized decoy blip is identical to a real ship blip field-for-field modulo position (FR10; the registry row is marked `counterIntel`); and shooting a decoy's position produces no Hit Call — interaction is the sanctioned disambiguation oracle (documented as intended counterplay). Any deception alternative binds to the same counter-intel law (FR10)
+**And** a solo playtest run confirms the fantasy: mines + the signature ability + the stern-weapon hull play distinctly from every other class.
+
+### Story 1.9: Gunboat Loadout — REMOVED (2026-07-19 re-scope)
+
+The gunboat is cut from the beta roster (party-mode addendum, 2026-07-19, Eric-ratified). Its speed boost migrated to the Torpedo Boat loadout (Story 1.6); the AP-gun form question was deleted with the class. The story number is retired, not reused — later stories keep their numbers so existing cross-references stay valid.
 
 ### Story 1.10: Firing Arcs for the Class Era
 
@@ -508,7 +498,7 @@ So that I can use my weapons in more situations while positioning still rewards 
 
 **Acceptance Criteria:**
 
-**Given** all eight fitted systems from Stories 1.4–1.9
+**Given** all seven fitted systems from Stories 1.4–1.8
 **When** per-weapon arc geometry is designed (with Eric — arc values are design decisions) and set in CONFIG
 **Then** mouse aim is constrained to the selected weapon's real arc, and every arc renders on aim exactly as the weapon fires it
 **And** denied fire (out of arc, no ammo, cooling) always produces the explicit denied feedback — never silence (FR12; the full new input scheme lands in Epic 2)
@@ -553,8 +543,8 @@ So that class reads by shape alone — on my hull, on enemies, and (come Epic 4)
 
 **Given** the shared silhouette geometry from Story 1.3
 **When** the client renders hulls
-**Then** all four classes draw at identity-board geometry in the shared linework language, consistent everywhere a hull appears (water, class card, results)
-**And** PvE drones keep the legacy chevron verbatim — a fifth silhouette no player class wears (UX-DR9)
+**Then** all three classes draw at identity-board geometry in the shared linework language, consistent everywhere a hull appears (water, class card, results)
+**And** PvE drones keep the legacy chevron verbatim — a fourth silhouette no player class wears (UX-DR9)
 **And** every truesight combatant hull wears its nameplate: callsign in the hud-micro register, personal color as its text-safe variant, drones tagged "DRONE" in drone grey; never on blips or radar paints; fading with truesight resolution (UX-DR22's truesight scope — the reveal scope lands in Story 5.3)
 **And** rendered silhouette and server hitbox derive from the same shared geometry (the "silhouette IS the hitbox" contract holds by construction).
 
@@ -569,8 +559,8 @@ So that one glance tells me what I'll sail and SET SAIL is one press away.
 **Given** the ratified home mock (`home-class-picker-1.html`)
 **When** the DOM chrome is rebuilt
 **Then** home renders over the live ambient CIC canvas with wordmark, callsign field (14-char cap), Class Chip, Color Hoist (20 swatches, preference caption — never implying claim/lock), amber Primary Button with mode/class sub-line, How-to-Play link, server status, settings gear (UX-DR25)
-**And** the class-select layer shows the four Class Cards on a horizontal rail (silhouette box, fantasy line, SPEED/TOUGHNESS/TURNING pips with values derived from Story 1.3's CONFIG envelopes — real numbers, not placeholders; Eric wants pips as a balancing aid (resolves UX open question #13), loadout slots) plus the dashed ghost card; keys 1–4/arrows highlight, Enter picks, ESC closes without change (UX-DR26)
-**And** first-run default class is Gunboat (flagged: unconfirmed proposal — confirm before ship)
+**And** the class-select layer shows the three Class Cards on a horizontal rail (silhouette box, fantasy line, SPEED/TOUGHNESS/TURNING pips with values derived from Story 1.3's CONFIG envelopes — real numbers, not placeholders; Eric wants pips as a balancing aid (resolves UX open question #13), loadout slots) plus the dashed ghost card; keys 1–3/arrows highlight, Enter picks, ESC closes without change (UX-DR26)
+**And** first-run class select pushes no default — three cards, forced meaningful choice, with the Torpedo Boat card pre-focused for keyboard flow (ruled 2026-07-19)
 **And** connection failure reports plainly on the status line, never a dead screen.
 
 ## Epic 2: The New Economy (+ New Controls)
@@ -695,7 +685,7 @@ So that my promise grows into a build that's mine, and the legacy stat-stacks di
 
 **Given** the boon engine (2.5) and offer flow (2.7)
 **When** catalog v1 is designed WITH ERIC (contents are game-design decisions — categories, names, effects, off-class weighting) and implemented as data in `BOON_CATALOG`
-**Then** boons are Hades-style qualitative changes (not stat multipliers), every class-specific ability appears in the offer pool filling/replacing the extra slot (FR21), and off-class weighting is a CONFIG tunable
+**Then** boons are Hades-style qualitative changes (not stat multipliers), every class-specific ability appears in the offer pool filling/replacing the extra slot (FR21) — including the smoke screen, orphaned from the Torpedo Boat as pool content (2026-07-19) — and off-class weighting is a CONFIG tunable; catalog scope covers the three beta kits and follows the GDD's Hades-hammer model (slot-mapped choices, slot-4 equipment logic, variant mutations as upgrades never starting kit; the GDD's stat-vs-qualitative tension is settled during this story)
 **And** the 14 legacy stat upgrades are stripped wholesale — the interregnum ends here (FR20)
 **And** the heal question stays open: the catalog neither includes nor forecloses a heal (the `behavior` path and reversible lifecycle already accommodate one)
 **And** all boon copy is drafted (placeholder copy from mocks is not canon) and the boon glossary content exists for the How-to-Play page (Epic 7 surfaces it).
@@ -824,7 +814,7 @@ So that a paint is a deduction input — what class, going where — not just a 
 **Given** the blip signal row
 **When** a sweep paints a LOS-clear ship
 **Then** the blip carries the ship's class outline, speed, and heading (FR14) — PROTOCOL_VERSION bumped for the wire change
-**And** blips render outline-only (1px non-scaling stroke) at true heading with an arrowhead heading vector; class blips never below 11 px (BB 14 / ML 12 / TB 11 / GB 11 floor-clamped); the ML notch cuts ~3x deep and the GB flare exaggerates in the blip path only (UX-DR10)
+**And** blips render outline-only (1px non-scaling stroke) at true heading with an arrowhead heading vector; class blips never below 11 px (BB 14 / ML 12 / TB 11 floor-clamped); the ML notch cuts ~3x deep in the blip path only (UX-DR10)
 **And** decay ghosts cap at 3 or fewer per contact (TTL-based), and per-hue luminance floors lighten dark hues at blip/ghost scale
 **And** blips fly personal colors (Variant C) with the Variant P phosphor-anonymous build flag kept; drone blips stay greyscale chevrons
 **And** the perception invariants still hold: no blip outside sight or this-tick paints, and the decoy (Story 1.8) automatically carries the new fields indistinguishably.
