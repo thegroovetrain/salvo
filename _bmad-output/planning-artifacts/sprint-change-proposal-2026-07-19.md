@@ -3,7 +3,7 @@ title: 'Sprint Change Proposal — Three-Class Beta Re-Scope Propagation'
 date: '2026-07-19'
 author: 'Eric (facilitated by Developer agent, gds-correct-course)'
 mode: 'Batch'
-status: 'awaiting-approval'
+status: 'approved' # Eric, 2026-07-19; Decision Point 1 = defer DESIGN.md/EXPERIENCE.md to Story 7.5 (recommended option)
 trigger: 'brainstorming-session-2026-07-19.md Addendum (party-mode rulings, Eric-ratified)'
 ---
 
