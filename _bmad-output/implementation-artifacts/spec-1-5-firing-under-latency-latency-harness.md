@@ -2,10 +2,11 @@
 title: 'Story 1.5: Firing Under Latency (D1) + Latency Harness'
 type: 'feature'
 created: '2026-07-21'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '4c18e03ecbc6eda14df09bfd8ac576d3740f66f4'
+final_revision: '9ba5e9c738cc1baad945999adbeb6a78474a26ba'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
@@ -111,6 +112,24 @@ warnings: [multiple-goals, oversized]
 
 ## Review Triage Log
 
+### 2026-07-21 — Review pass (Blind Hunter + Edge Case Hunter, both Fable, parallel + Codex cross-model at the gate; patch round on Fable, orchestrator-verified + Codex re-check clean)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 3, medium 1, low 4)
+- defer: 1: (high 0, medium 0, low 1)
+- reject: 3: (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[high]` `[patch]` The spec's Always-clause interpolation "never earlier than the previous input = previous input's server-APPLY time" capped compensation at ~one input interval (~50ms) for any 50ms-cadence streamer — contradicting AR3's stated purpose (removes the input-delay penalty), this spec's own I/O matrix row 1, and perversely granting input-throttlers more compensation than honest streamers (Blind CONFIRMED; independently measured by the harness's ~70ms A/B band). Adjudicated: AR3 has exactly one coherent reading — the floor binds the claim to the previous input's CARRIED fire-time (monotonic claims, prevFireT), not its apply time. Fixed in clampFireTime; prevInputAt/lastInputAt removed; AR3-purpose test added (honest 150ms streamer gets full min(RTT+jitter, ceiling)). FLAGGED FOR ERIC'S VETO — the intent-contract's Always clause retains the superseded wording (read-only); this entry is the correction of record.
+  - `[high]` `[patch]` Spawn-tick-terminal pre-stepped projectiles were never revealed to any client (all three models CONFIRMED: signals.ts drops ownerless tick shell events; reveal comes only from ballisticScan over live shells) AND pre-step damage inside fireControl made same-tick mutual kills ships-map-iteration-order-dependent (Edge CONFIRMED). Fixed structurally: pre-step stops on any terminal outcome leaving the shell alive; resolution happens next tick through the normal stepShells path against then-live hulls (same one-tick-deferred semantics as 1.4's point-blank precedent). Reveal-before-burst invariant now holds for every shot; wire-real frame tests + mutual-fire order-independence test added.
+  - `[high]` `[patch]` RTT staleness freeze: world.setRtt was only pushed on pong, so a client could bank an inflated windowed-min then stop echoing and keep the allowance forever (all three models). Fixed: every sendPings sweep re-pushes estimator.minMs (empty window → null → zero compensation); silence-collapse test added.
+  - `[medium]` `[patch]` Echo-delay RTT inflation (delay only pongs to present as high-latency; Codex high + both hunters): with the staleness fix the delay must be paid continuously, making it equivalent to genuinely routing through a slow link; bounded by the ratified 150ms ceiling. Documented in sendPings as AR3's accepted envelope — FLAGGED FOR ERIC'S VETO.
+  - `[low]` `[patch]` Harness: sandbox zone grace now scales with the computed pass duration so storm ticks can never contaminate hit-registration at any --shots value.
+  - `[low]` `[patch]` Harness: pass B now hard-asserts a fresh roomId (structural failure on pass-A room reuse).
+  - `[low]` `[patch]` shared/src/index.ts retained a pre-1.4 claim that PROTOCOL_VERSION is "not (yet) a runtime gate" — false since roomOptions.protocolVersionError; corrected minimally.
+  - `[low]` `[patch]` spawnBallistic/preStepShell doc comments and the new D1 tests described/asserted a muzzle event with t=bornAt as the client's render path — that event never reaches the wire. Docs and tests re-pointed to the real mechanism (ballisticScan reveal at current position, t = reveal time; the back-date manifests as the shell revealed further along its flight, per AR3's "materializes slightly ahead of the muzzle"). NOTE: the intent-contract's Wire clause parenthetical describes the superseded mechanism; the constraint it protects (no new wire fields, no range-derivable data) is fully satisfied.
+- deferred (to deferred-work.md): spawnBallistic's pending.push(ballisticEvent) is pre-existing dead code on the wire (signals drops ownerless tick ballistic events; reveals come from ballisticScan) — worth deleting in a hygiene pass.
+- rejected as noise: predicted-hit "tautology" in the harness (clicking the rendered target IS the metric's definition — hit-registration agreement between client render and server outcome; documented in-code); mapSeed junk-strip signaling (consistent with the existing dev-option pattern — matchOverride/zoneOverride junk is also not surfaced in rejectedKeys); golden-frames "regen claim" (fixture is byte-identical under fireT:0 — the deliberate-regen clause is satisfied vacuously; nothing to regenerate).
+
 ## Design Notes
 
 - **Why pre-step instead of spawn-then-fast-forward on next tick:** `fireControl` runs after `stepShells`, so a fresh shell is otherwise first stepped 50 ms later with `bornAt = now` — the compensation must be applied at spawn, through the same outcome handling, or the first sub-tick's collisions are skipped and `BallisticEvent.t` lies to the client's dead-reckoner.
@@ -132,3 +151,20 @@ warnings: [multiple-goals, oversized]
 
 **Manual checks (if no CLI):**
 - With Eric's dev server running (never start it): fire while artificially throttled (browser devtools) — shell should appear back-dated (slightly ahead of muzzle) and burst timing should feel un-delayed; prime torpedo/mine and confirm unchanged behavior.
+## Auto Run Result
+
+Status: done
+
+**Summary:** Story 1.5 lands D1 fire-time compensation and the NFR3 latency harness. Fire clicks now carry `fireT` — the client's server-clock estimate stamped at pointerdown (0 = no-claim sentinel) — and the server clamps the claimed latency to min(claimed, windowed-min measured RTT + 30ms jitter allowance, 150ms hard ceiling), monotone against the previous accepted claim; the shell/torpedo spawns with back-dated bornAt and is pre-stepped along its trajectory through the shared swept-collision step against LIVE hulls/islands/rim (no victim rewind — the Narrow Escape holds, by test), with terminal outcomes deferred one tick so the reveal-before-burst wire invariant holds for every shot; mines arm from the validated fire time. RTT is measured by a new app-level ping channel ('p', 1Hz, nonce echo) because Colyseus 0.17.44 exposes NO room.ping() despite AR2's assumption — mechanism substitution flagged. PROTOCOL_VERSION 5→6. A new HC_DEV_OPTIONS-gated mapSeed room option pins deterministic water (also the ledger's named fix candidate for the combatSmoke flake). `server/scripts/latencyHarness.mjs` (self-booting, seeded latency shim at the SDK boundary: 150ms±30 jitter, 2% loss on coalescable channels, per-channel ordering preserved) drives an A/B (honest fireT vs fireT:0) and reports hit-registration agreement % + prediction-error bounds; thresholds printed are ADVISORY/PROPOSED — Eric owns gate numbers. Implementation via /orchestrate per Eric's directive: Fable (shared wire, server D1 core, harness, review patch round), Opus (client wave, Codex harness runs), Codex cross-model at the review gate and again on the patch diff (clean).
+
+**DECISIONS FLAGGED FOR ERIC'S VETO:** (1) "never earlier than the previous input" adjudicated as monotonic fire-time CLAIMS (prevFireT), not previous-input server-apply time — the apply-time reading caps compensation at ~50ms for every streaming client and rewards input-throttlers (see triage log; the harness measured both behaviors). (2) Echo-delay RTT inflation accepted as bounded envelope (≤150ms ceiling, must be paid continuously — equivalent to a genuinely slow link). (3) PROPOSED CONFIG: fireJitterAllowanceMs 30, pingIntervalMs 1000, rttWindowMs 10000 (ceiling 150 is AR3-ratified). (4) Harness advisory thresholds (agreement ≥90%, A>B) are PROPOSED.
+
+**Files changed (one-liners):** shared — types.ts (fireT + PingMsg/PongMsg + 'p' channel), constants.ts (CONFIG.net D1 tunables), index.ts (PV6 + gate-doc fix); server — inputs.ts (fireT sanitize + pure clampFireTime), world.ts (validated fireT through fireControl/activationContext, back-dated pre-step spawn with next-tick terminal resolution, setRtt, lastFireT monotonicity on success only), equipment index/guns/torpedoes (ctx.fireT → bornAt), mines via dropMine (armedAt = fireT + armDelay), rtt.ts NEW (windowed-min RttEstimator), drones.ts (fireT:0), ArenaRoom.ts (1Hz ping loop, nonce map, staleness push per sweep, mapSeed), roomOptions.ts (dev-gated mapSeed); scripts — latencyHarness.mjs NEW (628 lines) + all 10 smokes fireT:0; client — mouse.ts (pointerdown click-time capture via injected clock thunk), inputSampler.ts (fireT both send paths), main.ts (wiring), connection.ts (ping echo); CLAUDE.md refreshed; tests 960→1008 (shared 216 / server 476 / client 316).
+
+**Review findings breakdown:** 0 intent_gap, 0 bad_spec, 8 patches applied (3 high, 1 medium, 4 low), 1 deferred to the ledger, 3 rejected as noise. Cross-model agreement drove all three highs: the reveal gap was raised independently by both Fable hunters AND Codex; RTT staleness by all three; the clamp-floor adjudication by Blind + the harness's own measurement. Codex re-check of the patch diff: "no real bugs found."
+
+**Verification:** `npm run check` green end-to-end after every wave and after the patch round (1008 tests: shared 216, server 476, client 316; eslint 0 errors, one pre-existing warning); golden frames byte-identical (fireT:0 sentinel → no regen needed); latencyHarness proof runs over real sockets on scratch port 2601 (booted and killed by the run, verified orphan-free): pre-patch A=100%/B=80% twice; post-patch A=95%/B=80% and A=95%/B=70% (A's single miss is the 2% frame-loss floor on victim-private dmg delivery, different shot each run; separation widened exactly as the clamp fix predicted), prediction error mean ~0.4u / p95 2.5u / max ≤5u, all advisory gates PASS, exit 0.
+
+**Residual risks:** the intent-contract's Always clause and Wire parenthetical retain superseded wording (apply-time floor; t=bornAt render path) — the triage log is the correction of record, contract is read-only; a modified client that continuously delays pong echoes can bank up to the ratified 150ms ceiling (accepted envelope, Eric veto flagged); shellSpeed 130 vs 650u range remains untouched and now has a measuring instrument (harness) for Eric's tuning pass; hit-registration agreement is measured on a beam-on orbit scenario — other geometries will differ; muzzle-flash masking of the back-date stays an Epic 4 tie-in.
+
+**Follow-up review recommended: true** — the patch round changed live trust-boundary behavior (clamp floor semantics, RTT staleness) and projectile resolution timing (pre-step deferral), verified by orchestrator + Codex rather than a fresh Fable hunter pass; 8 patched findings including 3 high also clears the volume bar.

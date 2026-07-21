@@ -9,7 +9,7 @@ Stack: TypeScript monorepo (npm workspaces) — `shared` (pure sim), `server` (C
 ### Commands
 ```
 npm run dev          # Colyseus server (:2567) + Vite client (:5173) via concurrently
-npm run check        # lint + type-check (shared/server/client) + all tests (1007)
+npm run check        # lint + type-check (shared/server/client) + all tests (1008)
 npm run lint         # ESLint (complexity=10 enforced)
 npm test -w shared   # Shared sim tests (kinematics, geometry, ballistics, zone, mapgen, stats, offers)
 npm test -w server   # Server tests (world sim, perception/anti-cheat invariants, match state machine, drones)
