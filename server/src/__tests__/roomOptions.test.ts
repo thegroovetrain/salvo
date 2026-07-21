@@ -48,6 +48,12 @@ describe('sanitizeRoomOptions — devEnabled=false (production default)', () => 
     expect(rejectedKeys).toEqual([]);
   });
 
+  it('strips mapSeed and reports it rejected (a production client can never pin a map)', () => {
+    const { sanitized, rejectedKeys } = sanitizeRoomOptions({ mapSeed: 1234 }, false);
+    expect(sanitized.mapSeed).toBeUndefined();
+    expect(rejectedKeys).toEqual(['mapSeed']);
+  });
+
   it('name (a legitimate, non-dev option) is unaffected by gating — sanitizer is scoped to overrides only', () => {
     const options: RoomOptions = { name: 'CAPTAIN' };
     const { rejectedKeys } = sanitizeRoomOptions(options, false);
@@ -80,6 +86,23 @@ describe('sanitizeRoomOptions — devEnabled=true (HC_DEV_OPTIONS=1, smokes/test
     const { sanitized, rejectedKeys } = sanitizeRoomOptions({}, true);
     expect(sanitized.matchOverride).toBeUndefined();
     expect(sanitized.zoneOverride).toBeUndefined();
+    expect(sanitized.mapSeed).toBeUndefined();
     expect(rejectedKeys).toEqual([]);
+  });
+
+  it('passes a non-negative integer mapSeed through (0 is a legal seed)', () => {
+    expect(sanitizeRoomOptions({ mapSeed: 1234 }, true).sanitized.mapSeed).toBe(1234);
+    expect(sanitizeRoomOptions({ mapSeed: 0 }, true).sanitized.mapSeed).toBe(0);
+  });
+
+  it('value-sanitizes mapSeed EVEN under dev: junk is stripped, not honored', () => {
+    const junk: unknown[] = [-1, 1.5, NaN, Infinity, '1234', null, {}, true];
+    for (const v of junk) {
+      const { sanitized, rejectedKeys } = sanitizeRoomOptions(
+        { mapSeed: v as number }, true,
+      );
+      expect(sanitized.mapSeed).toBeUndefined();
+      expect(rejectedKeys).toEqual([]); // stripped silently — dev asked, dev gave junk
+    }
   });
 });

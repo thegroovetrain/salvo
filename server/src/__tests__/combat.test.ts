@@ -46,9 +46,10 @@ describe('clampToArc (kept for the torpedo bow arc)', () => {
   });
 });
 
-/** A gun-click input aimed at `aim` with a click distance of `aimDist`. */
-const gunInput = (aim: number, aimDist = 1000, fireSeq = 1, seq = 1) =>
-  ({ seq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot: SLOT_GUN as 0 });
+/** A gun-click input aimed at `aim` with a click distance of `aimDist`.
+ *  fireT defaults to the no-claim sentinel (zero latency compensation). */
+const gunInput = (aim: number, aimDist = 1000, fireSeq = 1, seq = 1, fireT = 0) =>
+  ({ seq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot: SLOT_GUN as 0, fireT });
 
 /** A bare world (islands cleared) with one ship pinned at the origin. */
 function armed(seed = 5, hullId: HullId = 'torpedoBoat'): { w: World; a: ShipRecord } {
@@ -414,5 +415,163 @@ describe('World fire control — one shot per click (fireSeq), single-shot pool'
     w.step();
     expect(w.tickEvents.some((e) => e.k === 'shell')).toBe(true);
     expect(buildFrame(w, 'b').events.filter((e) => e.k === 'shell')).toHaveLength(1);
+  });
+});
+
+// ---------- D1: back-dated fire (story 1.5 — firing under latency) --------------
+
+const DT_MS = CONFIG.tick.simDtMs;
+const SLOT_TORPEDO = 1;
+const SLOT_MINE = 2;
+
+/** A slot-1/2 click input (torpedo/mine are direction-only; aimDist ignored). */
+const slotInput = (slot: number, fireSeq = 1, seq = 1, fireT = 0) =>
+  ({ seq, throttle: 0, rudder: 0, aim: 0, fireSeq, aimDist: 0, slot, fireT });
+
+describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
+  it('an honored claim pre-advances the shell by comp along its velocity; the reveal event stays at the muzzle with t = bornAt', () => {
+    // Twin worlds, identical except the claim: the sentinel shot pins the
+    // muzzle; the back-dated shot must sit exactly comp further along v.
+    const mk = (fireT: number) => {
+      const { w, a } = armed(7);
+      w.setRtt('a', 80); // allowance = min(80+30, 150) = 110
+      a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+      w.submitInput('a', gunInput(HALF_PI, 400, 1, 1, fireT));
+      w.step(); // fires during this step at now = 50
+      return { w, a, shell: [...w.shells.values()][0] };
+    };
+    const plain = mk(0); // sentinel: zero compensation
+    const back = mk(10); // claimed 40ms ago at now=50 => comp 40 (within allowance)
+    expect(plain.shell.bornAt).toBe(DT_MS); // fired "now"
+    expect(back.shell.bornAt).toBe(10); // honored claim
+    const comp = DT_MS - 10;
+    expect(back.shell.x).toBeCloseTo(plain.shell.x + plain.shell.vx * (comp / 1000), 6);
+    expect(back.shell.y).toBeCloseTo(plain.shell.y + plain.shell.vy * (comp / 1000), 6);
+    // The reveal event reports the MUZZLE (not the pre-stepped position) with
+    // t = bornAt, so the client's dead-reckoning renders the back-date honestly.
+    const ev = shellsOf([...back.w.tickEvents])[0];
+    expect(ev.x).toBeCloseTo(plain.shell.x, 6);
+    expect(ev.y).toBeCloseTo(plain.shell.y, 6);
+    expect(ev.t).toBe(10);
+  });
+
+  it('fireT: 0 (sentinel) with a measured RTT compensates NOTHING — bornAt = now, no pre-step', () => {
+    const { w, a } = armed(7);
+    w.setRtt('a', 120);
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.submitInput('a', gunInput(HALF_PI, 400, 1, 1, 0));
+    w.step();
+    const [shell] = [...w.shells.values()];
+    expect(shell.bornAt).toBe(w.now);
+    const ev = shellsOf([...w.tickEvents])[0];
+    expect({ x: ev.x, y: ev.y }).toEqual({ x: shell.x, y: shell.y }); // still at the muzzle
+  });
+
+  it('no measured RTT (null) => zero compensation even for a plausible claim', () => {
+    const { w, a } = armed(7);
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.submitInput('a', gunInput(HALF_PI, 400, 1, 1, 10)); // claim 40ms ago, but never pinged
+    w.step();
+    expect([...w.shells.values()][0].bornAt).toBe(w.now);
+  });
+
+  it('SPAWN-TICK BURST: a close click whose distance is within comp·shellSpeed bursts on the firing tick', () => {
+    const { w, a } = armed(7);
+    w.setRtt('a', 150); // allowance = min(150+30, 150) = 150 (the ceiling)
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.submitInput('a', { ...slotInput(0, 0, 1), aimDist: 0 }); // no click; just advance time
+    for (let i = 0; i < 4; i++) w.step(); // now = 200
+    // Click 60u off the bow (just past the ~54u muzzle) claiming 150ms ago:
+    // comp 150 => 19.5u of pre-flight >= the ~8u muzzle->target leg.
+    w.submitInput('a', gunInput(0, 60, 1, 2, 100));
+    w.step(); // now = 250, bornAt = 100
+    const events = [...w.tickEvents];
+    expect(shellsOf(events)).toHaveLength(1); // the reveal still goes out first
+    const bursts = burstsOf(events);
+    expect(bursts).toHaveLength(1); // ...and the burst lands the SAME tick
+    expect(bursts[0].x).toBeCloseTo(60, 4);
+    expect(bursts[0].y).toBeCloseTo(0, 4);
+    expect(w.shells.size).toBe(0); // spent on the spawn tick
+  });
+
+  it('NARROW ESCAPE: the pre-step flies through the CURRENT world — an island now in the way stops the shot (no rewind kill)', () => {
+    const { w, a } = armed(7);
+    w.setRtt('a', 150);
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    const b = w.addShip('b', 'B'); // the "escaped" victim, now safely behind a rock
+    b.state = { x: 0, y: 40, heading: 0, speed: 0 };
+    (w.map.islands as { x: number; y: number; r: number }[]).push({ x: 0, y: 15, r: 5 });
+    w.submitInput('a', { ...slotInput(0, 0, 1), aimDist: 0 });
+    for (let i = 0; i < 4; i++) w.step(); // now = 200
+    w.submitInput('a', gunInput(HALF_PI, 40, 1, 2, 100)); // click ON b, back-dated 150ms
+    w.step();
+    const events = [...w.tickEvents];
+    expect(burstsOf(events)).toEqual([]); // no burst — the rock ate it
+    expect(dmgsOf(events)).toEqual([]); // no rewind kill
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    const [boom] = boomsOf(events);
+    expect(boom.hit).toBeUndefined();
+    expect(boom.y).toBeGreaterThan(5); // splashed on the island's near face...
+    expect(boom.y).toBeLessThan(16); // ...well short of b's hull at y≈35+
+    expect(w.shells.size).toBe(0);
+  });
+
+  it('TORPEDO: bornAt back-dates and pre-advances the fish; FR7 owner immunity holds through the pre-step', () => {
+    const mk = (fireT: number) => {
+      const { w, a } = armed(7);
+      w.setRtt('a', 80);
+      a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+      w.submitInput('a', slotInput(SLOT_TORPEDO, 1, 1, fireT));
+      w.step();
+      return { w, a, torp: [...w.shells.values()][0] };
+    };
+    const plain = mk(0);
+    const back = mk(10); // comp 40 at now=50
+    expect(back.torp.kind).toBe('torp');
+    expect(back.torp.bornAt).toBe(10);
+    const comp = DT_MS - 10;
+    expect(back.torp.x).toBeCloseTo(plain.torp.x + plain.torp.vx * (comp / 1000), 6);
+    // FR7: the pre-step ran against CURRENT hulls including the owner's own —
+    // permanent owner immunity means the fish is alive and the owner unhurt.
+    expect(back.w.shells.size).toBe(1);
+    expect(back.a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+  });
+
+  it('MINE: armedAt = validated fire time + armDelay (a back-dated drop arms earlier)', () => {
+    const { w, a } = armed(7);
+    w.setRtt('a', 80);
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.submitInput('a', slotInput(SLOT_MINE, 1, 1, 10)); // comp 40 at now=50
+    w.step();
+    const [mine] = [...w.mines.values()];
+    expect(mine.armedAt).toBe(10 + CONFIG.mine.armDelay);
+  });
+
+  it('MINE without a claim keeps today\'s law: armedAt = now + armDelay', () => {
+    const { w, a } = armed(7);
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.submitInput('a', slotInput(SLOT_MINE, 1, 1, 0));
+    w.step();
+    expect([...w.mines.values()][0].armedAt).toBe(w.now + CONFIG.mine.armDelay);
+  });
+
+  it('lastFireT advances ONLY on a successful activation — denials never consume monotonicity', () => {
+    const { w, a } = armed(7);
+    w.setRtt('a', 80);
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    w.submitInput('a', gunInput(HALF_PI, 400, 1, 1, 10));
+    w.step(); // fires: accepted fire time = 10 (comp 40 at now=50)
+    expect(a.lastFireT).toBe(10);
+    // Click again mid-reload (empty pool): denied — lastFireT must not move.
+    w.submitInput('a', gunInput(HALF_PI, 400, 2, 2, 60));
+    w.step();
+    expect(a.lastFireT).toBe(10);
+    // After the reload a fresh honored click advances it.
+    const ticks = CONFIG.gun.reloadMs / DT_MS + 2;
+    for (let i = 0; i < ticks; i++) w.step();
+    const claim = w.now + DT_MS - 40;
+    w.submitInput('a', gunInput(HALF_PI, 400, 3, 3, claim));
+    w.step();
+    expect(a.lastFireT).toBe(claim);
   });
 });

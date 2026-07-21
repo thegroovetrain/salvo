@@ -12,6 +12,7 @@ const input = (seq: number, throttle = 1, rudder = 0, extra = {}) => ({
   fireSeq: 0,
   aimDist: 0,
   slot: 0,
+  fireT: 0,
   ...extra,
 });
 
@@ -113,6 +114,35 @@ describe('World step — inputs and motion', () => {
       return [a.state, b.state, a.sweepAngle, w.now, w.tick];
     };
     expect(run()).toEqual(run());
+  });
+
+  it('tracks input-arrival marks (D1 floors): a NEW seq advances lastInputAt, a re-applied one does not', () => {
+    const w = new World(11);
+    const rec = w.addShip('a', 'ALPHA');
+    expect(rec.prevInputAt).toBe(0);
+    expect(rec.lastInputAt).toBe(0);
+    w.submitInput('a', input(1));
+    w.step(); // applied at now = 50
+    expect(rec.prevInputAt).toBe(0);
+    expect(rec.lastInputAt).toBe(SIM_DT);
+    w.step(); // the SAME stored input re-applies — marks must not move
+    expect(rec.prevInputAt).toBe(0);
+    expect(rec.lastInputAt).toBe(SIM_DT);
+    w.submitInput('a', input(2));
+    w.step(); // applied at now = 150
+    expect(rec.prevInputAt).toBe(SIM_DT);
+    expect(rec.lastInputAt).toBe(3 * SIM_DT);
+  });
+
+  it('setRtt stores the estimate on the ship (null = never measured); unknown ids are a no-op', () => {
+    const w = new World(11);
+    const rec = w.addShip('a', 'ALPHA');
+    expect(rec.rttMs).toBeNull(); // drones and fresh joins alike start unmeasured
+    w.setRtt('a', 42);
+    expect(rec.rttMs).toBe(42);
+    w.setRtt('a', null);
+    expect(rec.rttMs).toBeNull();
+    expect(() => w.setRtt('ghost', 10)).not.toThrow();
   });
 
   it('dead ships do not move but still ack inputs', () => {

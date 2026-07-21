@@ -11,6 +11,7 @@ const input = (seq: number, extra = {}) => ({
   fireSeq: 0,
   aimDist: 0,
   slot: 0,
+  fireT: 0,
   ...extra,
 });
 

@@ -80,7 +80,9 @@ export const torpedoEquipment: Equipment = {
     tickReload(slot.state!, ship.stats.torpedo.maxAmmo, ship.stats.torpedo.reloadMs, dtMs);
   },
   activate(ctx, slot) {
-    const { torp, denial } = launchTorpedo(ctx.ship, slot.state!, ctx.now, ctx.mkId);
+    // bornAt = the VALIDATED fire time (D1): a back-dated fish is then
+    // pre-stepped by the World to where it belongs this tick.
+    const { torp, denial } = launchTorpedo(ctx.ship, slot.state!, ctx.fireT, ctx.mkId);
     if (torp) ctx.spawnBallistic(torp);
     return denial === null ? { ok: true } : { ok: false, reason: denial };
   },

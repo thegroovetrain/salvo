@@ -28,7 +28,7 @@ export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
 
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {
-  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 };
+  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 };
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -55,7 +55,9 @@ function numericFieldsFinite(m: Record<string, unknown>): boolean {
     isFiniteNumber(m.rudder) &&
     isFiniteNumber(m.aim) &&
     isFiniteNumber(m.fireSeq) &&
-    isFiniteNumber(m.aimDist)
+    isFiniteNumber(m.aimDist) &&
+    isFiniteNumber(m.fireT) &&
+    (m.fireT as number) >= 0
   );
 }
 
@@ -89,7 +91,46 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
     fireSeq: sanitizeFireSeq(m.fireSeq as number),
     aimDist: sanitizeAimDist(m.aimDist as number),
     slot: m.slot,
+    fireT: m.fireT as number,
   };
+}
+
+/** Everything clampFireTime needs to turn a claimed fire time into a safe one. */
+export interface FireTimeClaim {
+  /** ms — the client's claimed fire time (InputMsg.fireT; 0 = no-claim sentinel). */
+  claimed: number;
+  /** ms — server time this tick (World.now). */
+  now: number;
+  /** ms — the windowed-min measured RTT for this client, null if never measured. */
+  rttMs: number | null;
+  /** ms — CONFIG.net.fireJitterAllowanceMs (honest jitter headroom above RTT). */
+  jitterMs: number;
+  /** ms — CONFIG.net.fireBackdateCeilingMs (the hard back-dating cap, AR3). */
+  ceilingMs: number;
+  /** ms — server time the PREVIOUS applied input arrived (monotonicity floor:
+   *  a shot can never be back-dated to before the input that preceded it). */
+  prevInputAt: number;
+  /** ms — the previously ACCEPTED fire time (monotonicity floor: fire times
+   *  never run backwards across shots). */
+  prevFireT: number;
+}
+
+/**
+ * D1 fire-time clamp — THE trust boundary for latency compensation. The server
+ * never takes the client's claim outright: compensation (now - claimed) is
+ * clamped into [0, allowance] where allowance = min(measured RTT + jitter,
+ * ceiling). No measured RTT (never pinged back) => zero compensation. The
+ * sentinel claim (<= 0) means "no claim" => fire at `now`. The result is
+ * floored at both monotonicity marks (previous applied input, previous accepted
+ * fire) and can never exceed `now` (comp >= 0). Pure; unit-tested by table.
+ */
+export function clampFireTime(c: FireTimeClaim): number {
+  if (c.claimed <= 0) return c.now; // sentinel: no claim, zero compensation
+  const floors = Math.max(c.prevInputAt, c.prevFireT);
+  if (c.rttMs === null) return Math.max(c.now, floors); // never measured: zero comp
+  const allowance = Math.min(c.rttMs + c.jitterMs, c.ceilingMs);
+  const comp = Math.min(Math.max(c.now - c.claimed, 0), allowance);
+  return Math.max(c.now - comp, floors);
 }
 
 interface RateWindow {

@@ -2,11 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, SLOT_COUNT } from '@salvo/shared';
 import {
   InputStore,
+  clampFireTime,
   sanitizeInput,
   neutralInput,
   AIM_DIST_MAX,
   INPUT_RATE_CAP,
   INPUT_RATE_WINDOW_MS,
+  type FireTimeClaim,
 } from '../game/inputs.js';
 
 const valid = (seq = 1) => ({
@@ -17,6 +19,7 @@ const valid = (seq = 1) => ({
   fireSeq: 3,
   aimDist: 240,
   slot: 0,
+  fireT: 850,
 });
 
 describe('sanitizeInput — validation table', () => {
@@ -57,6 +60,12 @@ describe('sanitizeInput — validation table', () => {
     ['NaN slot', { ...valid(), slot: NaN }],
     ['Infinity slot', { ...valid(), slot: Infinity }],
     ['string slot', { ...valid(), slot: '1' }],
+    ['missing fireT', { ...valid(), fireT: undefined }],
+    ['NaN fireT', { ...valid(), fireT: NaN }],
+    ['Infinity fireT', { ...valid(), fireT: Infinity }],
+    ['-Infinity fireT', { ...valid(), fireT: -Infinity }],
+    ['string fireT', { ...valid(), fireT: '850' }],
+    ['negative fireT (whole message drops — the sanitize law)', { ...valid(), fireT: -1 }],
   ];
   it.each(rejects)('drops %s', (_label, raw) => {
     expect(sanitizeInput(raw, 0)).toBeNull();
@@ -116,6 +125,74 @@ describe('sanitizeInput — validation table', () => {
     expect(sanitizeInput(valid(4), 5)).toBeNull(); // older = stale
     expect(sanitizeInput(valid(6), 5)).not.toBeNull();
   });
+
+  it('accepts the fireT sentinel (0) and positive claims verbatim', () => {
+    expect(sanitizeInput({ ...valid(), fireT: 0 }, 0)?.fireT).toBe(0);
+    expect(sanitizeInput({ ...valid(), fireT: 123.5 }, 0)?.fireT).toBe(123.5);
+  });
+});
+
+// ---------- clampFireTime — the D1 trust boundary, tested by table ------------
+
+describe('clampFireTime', () => {
+  /** Baseline claim: now=1000, honest 40ms RTT, CONFIG-shaped knobs. */
+  const base = (over: Partial<FireTimeClaim> = {}): FireTimeClaim => ({
+    claimed: 960,
+    now: 1000,
+    rttMs: 40,
+    jitterMs: 30,
+    ceilingMs: 150,
+    prevInputAt: 0,
+    prevFireT: 0,
+    ...over,
+  });
+
+  it('sentinel (claimed 0 or negative) => fire at now, zero compensation', () => {
+    expect(clampFireTime(base({ claimed: 0 }))).toBe(1000);
+    expect(clampFireTime(base({ claimed: -50 }))).toBe(1000);
+  });
+
+  it('honest claim within the allowance is honored in full', () => {
+    // 40ms ago, RTT 40 + jitter 30 allows up to 70 => full 40ms back-date.
+    expect(clampFireTime(base({ claimed: 960 }))).toBe(960);
+  });
+
+  it('jitter allowance grants headroom beyond the raw RTT', () => {
+    // 60ms ago with RTT 40: raw RTT alone would clamp, +30 jitter admits it.
+    expect(clampFireTime(base({ claimed: 940 }))).toBe(940);
+  });
+
+  it('LIAR: claims 150ms ago on a measured 40ms RTT => clamped to RTT+jitter (70)', () => {
+    expect(clampFireTime(base({ claimed: 850 }))).toBe(930);
+  });
+
+  it('a FUTURE claim compensates nothing (comp clamps at 0, result = now)', () => {
+    expect(clampFireTime(base({ claimed: 1200 }))).toBe(1000);
+  });
+
+  it('the hard ceiling caps even a huge measured RTT', () => {
+    // RTT 500 + jitter 30 = 530, ceiling 150 wins; claim 600ms ago => now-150.
+    expect(clampFireTime(base({ claimed: 400, rttMs: 500 }))).toBe(850);
+  });
+
+  it('null RTT (never measured) => zero compensation regardless of the claim', () => {
+    expect(clampFireTime(base({ claimed: 850, rttMs: null }))).toBe(1000);
+  });
+
+  it('never earlier than the previous applied input (monotonicity floor)', () => {
+    // Candidate 930 (the liar clamp) floored up to the 950 input-arrival mark.
+    expect(clampFireTime(base({ claimed: 850, prevInputAt: 950 }))).toBe(950);
+  });
+
+  it('never earlier than the previous accepted fire (monotonicity floor)', () => {
+    expect(clampFireTime(base({ claimed: 850, prevFireT: 940 }))).toBe(940);
+    // Both floors present: the higher one wins.
+    expect(clampFireTime(base({ claimed: 850, prevInputAt: 935, prevFireT: 945 }))).toBe(945);
+  });
+
+  it('floors never push the result past an honest candidate that already clears them', () => {
+    expect(clampFireTime(base({ claimed: 960, prevInputAt: 900, prevFireT: 910 }))).toBe(960);
+  });
 });
 
 describe('InputStore', () => {
@@ -164,9 +241,11 @@ describe('InputStore', () => {
     expect(store.submit('a', valid(1), 0)).toBe(true); // seq counter reset
   });
 
-  it('neutralInput is a fresh zeroed input', () => {
+  it('neutralInput is a fresh zeroed input (fireT 0 = the no-claim sentinel)', () => {
     const a = neutralInput();
-    expect(a).toEqual({ seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
+    expect(a).toEqual({
+      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0,
+    });
     expect(neutralInput()).not.toBe(a);
   });
 });

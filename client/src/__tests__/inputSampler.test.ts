@@ -2,12 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { MSG, type InputMsg } from '@salvo/shared';
 import { InputSampler, buildInput, primeFireable, shouldConsumePrime, type Aiming } from '../sim/inputSampler.js';
 
-const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0 };
+const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234 };
 
 describe('buildInput', () => {
-  it('carries aim/fireSeq/aimDist/slot from the mouse + prime sample', () => {
+  it('carries aim/fireSeq/aimDist/slot/fireT from the mouse + prime sample', () => {
     const msg = buildInput(3, { throttle: 1, rudder: -1 }, AIM);
-    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0 });
+    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234 });
   });
 
   it('carries a primed slot (the click resolves the skillshot on the wire)', () => {
@@ -15,8 +15,13 @@ describe('buildInput', () => {
     expect(msg.slot).toBe(1);
   });
 
+  it('carries the honest fire timestamp (D1 fire-time compensation)', () => {
+    expect(buildInput(3, { throttle: 0, rudder: 0 }, { ...AIM, fireT: 99 }).fireT).toBe(99);
+    expect(buildInput(3, { throttle: 0, rudder: 0 }, { ...AIM, fireT: 0 }).fireT).toBe(0); // no-claim sentinel
+  });
+
   it('clamps axes to [-1, 1]', () => {
-    const msg = buildInput(1, { throttle: 5, rudder: -7 }, { aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
+    const msg = buildInput(1, { throttle: 5, rudder: -7 }, { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 });
     expect(msg.throttle).toBe(1);
     expect(msg.rudder).toBe(-1);
   });
@@ -78,6 +83,11 @@ describe('InputSampler', () => {
     expect(msg.rudder).toBe(1);
     expect(msg.fireSeq).toBe(AIM.fireSeq);
   });
+
+  it('threads the sampled fireT onto the wire input (D1)', () => {
+    const sampler = new InputSampler(() => undefined);
+    expect(sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, fireT: 5000 }).fireT).toBe(5000);
+  });
 });
 
 describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
@@ -94,6 +104,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
       fireSeq: AIM.fireSeq,
       aimDist: AIM.aimDist,
       slot: AIM.slot,
+      fireT: AIM.fireT,
     });
     expect(sent).toHaveLength(2);
     expect(sent[1].type).toBe(MSG.input);
@@ -102,7 +113,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('zeroes the rudder (the dangerous stale input) but keeps the throttle steaming', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 1, rudder: 1 }, { aim: 1.75, fireSeq: 7, aimDist: 300, slot: 2 });
+    sampler.sample({ throttle: 1, rudder: 1 }, { aim: 1.75, fireSeq: 7, aimDist: 300, slot: 2, fireT: 42 });
     const msg = sampler.sendNeutralNow(1);
     expect(msg.throttle).toBe(1); // deliberate engine order preserved
     expect(msg.rudder).toBe(0);
@@ -112,7 +123,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('re-sends the LAST fireSeq — never 0 after clicks — as the honest "no new clicks" signal', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0 });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0 });
     const msg = sampler.sendNeutralNow(0);
     expect(msg.fireSeq).toBe(9); // NOT reset — the counter states "9 clicks so far, none new"
     expect(msg.aimDist).toBe(120); // last aim distance retained too
@@ -120,12 +131,25 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('sends a click landing in the gap since the last sample (live count wins at hide time)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0 });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0 });
     // Click #10 lands after the sample but before visibilitychange fires:
     const msg = sampler.sendNeutralNow(0, 10);
     expect(msg.fireSeq).toBe(10); // fires NOW at a ≤1-tick-old aim, not minutes later on refocus
     // And the counter never regresses if the live count is somehow behind:
     expect(sampler.sendNeutralNow(0, 3).fireSeq).toBe(10);
+  });
+
+  it('carries the passed fireT for a gap-click (D1)', () => {
+    const sampler = new InputSampler(() => undefined);
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000 });
+    // Gap-click at hide time carries its own honest fire instant:
+    expect(sampler.sendNeutralNow(0, 10, 8000).fireT).toBe(8000);
+  });
+
+  it('falls back to the last-sampled fireT when none is passed (no new click)', () => {
+    const sampler = new InputSampler(() => undefined);
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000 });
+    expect(sampler.sendNeutralNow(0).fireT).toBe(7000);
   });
 
   it('clamps the passed throttle into [-1, 1] like any other input', () => {
@@ -144,9 +168,9 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
     expect(seqs).toEqual([1, 2, 3]);
   });
 
-  it('works before any sample() call, defaulting aim/fireSeq/aimDist/slot to zero', () => {
+  it('works before any sample() call, defaulting aim/fireSeq/aimDist/slot/fireT to zero', () => {
     const sampler = new InputSampler(() => undefined);
     const msg = sampler.sendNeutralNow(0);
-    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
+    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 });
   });
 });

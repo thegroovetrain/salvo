@@ -134,7 +134,9 @@ export const gunEquipment: Equipment = {
     tickReload(slot.state!, ship.stats.gun.maxAmmo, ship.stats.gun.reloadMs, dtMs);
   },
   activate(ctx, slot) {
-    const { shell, denial } = fireGunShell(ctx.ship, slot.state!, ctx.now, ctx.mapRadius, ctx.mkId);
+    // bornAt = the VALIDATED fire time (D1): a back-dated shell is then
+    // pre-stepped by the World to where it belongs this tick.
+    const { shell, denial } = fireGunShell(ctx.ship, slot.state!, ctx.fireT, ctx.mapRadius, ctx.mkId);
     if (shell) ctx.spawnBallistic(shell);
     return denial === null ? { ok: true } : { ok: false, reason: denial };
   },

@@ -32,13 +32,28 @@ export function worldAimDist(ox: number, oy: number, target: ScreenPoint): numbe
 export class MouseInput {
   private readonly pos: ScreenPoint = { x: 0, y: 0 };
   private clicks = 0;
+  private clickT = 0;
+
+  /**
+   * Server-clock estimate thunk, injected so this DOM adapter stays pure of the
+   * net layer. Resolved lazily AT pointerdown (never captured), so a MouseInput
+   * built before the clock exists still stamps the live estimate. `ServerClock.
+   * serverNow()` returns 0 until the first sample lands — 0 flows straight
+   * through as InputMsg.fireT's "no claim" sentinel, which is exactly right.
+   */
+  constructor(private readonly nowServer: () => number = () => 0) {}
 
   private readonly onMove = (e: PointerEvent): void => {
     this.pos.x = e.clientX;
     this.pos.y = e.clientY;
   };
   private readonly onDown = (e: PointerEvent): void => {
-    if (e.button === 0) this.clicks += 1;
+    if (e.button === 0) {
+      this.clicks += 1;
+      // Stamp the honest fire instant at pointerdown (not sample time): a click
+      // can sit up to a tick in the sampler before it ships. Feeds InputMsg.fireT.
+      this.clickT = this.nowServer();
+    }
   };
 
   /** Attach window listeners. Call once on boot. */
@@ -61,5 +76,14 @@ export class MouseInput {
   /** Cumulative button-0 clicks since boot (feeds InputMsg.fireSeq). */
   get clickCount(): number {
     return this.clicks;
+  }
+
+  /**
+   * Server-clock estimate captured at the most recent button-0 pointerdown
+   * (feeds InputMsg.fireT for D1 fire-time compensation). 0 before any click —
+   * the "no claim" sentinel.
+   */
+  get lastClickT(): number {
+    return this.clickT;
   }
 }

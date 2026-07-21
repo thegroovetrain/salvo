@@ -200,7 +200,7 @@ function islandAvoid(ctx) {
  * window until it sinks.
  */
 function huntTick(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 1, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1 };
+  const inp = { seq: ++ctx.seq, throttle: 1, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1, fireT: 0 };
   if (!ctx.you) return void ctx.room.send('i', inp);
   const target = nearestLive(ctx);
   const fromCenter = Math.hypot(ctx.you.x, ctx.you.y);
@@ -229,7 +229,7 @@ function huntTick(ctx) {
 
 /** FLEE: sail straight out to the edge and idle there so the storm takes us. */
 function fleeTick(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 1, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1 };
+  const inp = { seq: ++ctx.seq, throttle: 1, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1, fireT: 0 };
   if (ctx.you) {
     const outward = Math.atan2(ctx.you.y, ctx.you.x); // bearing away from center
     inp.rudder = clamp(angleDiff(ctx.you.heading, outward) * 3, -1, 1);

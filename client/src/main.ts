@@ -428,6 +428,7 @@ function setupViewport(
   cls: ShipClassId,
   bellAudible: () => boolean,
   onUpgradeKey: (a: UpgradeAction) => void,
+  nowServer: () => number,
 ): {
   camera: Camera;
   keyboard: KeyboardInput;
@@ -451,7 +452,11 @@ function setupViewport(
     if (changed && bellAudible()) audio.play(telegraphTone(dir));
   }, onUpgradeKey);
   keyboard.attach();
-  const mouse = new MouseInput();
+  // Inject the server-clock estimate so pointerdown can stamp an honest fire
+  // time (D1). Lazy thunk: MouseInput is built before the clock exists, so it
+  // resolves gRef.clock at click time, never captures it (serverNow() returns
+  // 0 pre-ready → the fireT "no claim" sentinel).
+  const mouse = new MouseInput(nowServer);
   mouse.attach();
 
   // Guessed-class hull until the first frame confirms/corrects it.
@@ -512,7 +517,8 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
   // Late-bound: the input callbacks need game state that is assembled just below.
   let gRef: Game | null = null;
   const { bellAudible, onUpgradeKey } = viewportCallbacks(() => gRef);
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, cls, bellAudible, onUpgradeKey);
+  // Final arg is a lazy server-clock thunk for the mouse's pointerdown fire-time stamp (D1); resolved at click time.
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, cls, bellAudible, onUpgradeKey, () => (gRef?.clock ? gRef.clock.serverNow() : 0));
 
   const g: Game = {
     stage,
@@ -863,6 +869,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
         fireSeq: g.mouse.clickCount,
         aimDist,
         slot: primedSlot,
+        fireT: g.mouse.lastClickT, // honest fire instant (server-clock estimate at pointerdown)
       });
       consumePrimeOnFire(g, primedSlot, aim);
       if (g.state.mode === 'predict') g.predictor.localTick(input);
@@ -933,7 +940,7 @@ function bindResize(stage: Stage, game: Game): void {
  */
 function sendNeutralInput(g: Game): void {
   if (g.state.spectating) return; // spectators send nothing at all
-  const msg = g.sampler.sendNeutralNow(g.keyboard.throttle, g.mouse.clickCount);
+  const msg = g.sampler.sendNeutralNow(g.keyboard.throttle, g.mouse.clickCount, g.mouse.lastClickT);
   if (g.state.mode === 'predict') g.predictor.localTick(msg);
 }
 

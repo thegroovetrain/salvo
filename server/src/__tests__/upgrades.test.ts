@@ -572,7 +572,7 @@ describe('effective weapon stats in the fire path', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stack(w, a, 'gunReload', 1);
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 2, fireSeq: 1, aimDist: 300, slot: SLOT_GUN };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 2, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0 };
     w.step();
     expect(a.loadout[SLOT_GUN].state!.n).toBe(CONFIG.gun.maxAmmo - 1);
     // consume() set the timer to the effective reload, then the same tick's
@@ -586,7 +586,7 @@ describe('effective weapon stats in the fire path', () => {
       const a = place(w, 'a', 0, 0);
       if (upgraded) stack(w, a, 'torpedoSpeed', 1);
       w.step(); // flush join spawn + the upg event
-      a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO };
+      a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0 };
       w.step();
       const ev = w.tickEvents.find((e): e is BallisticEvent => e.k === 'torp');
       expect(ev).toBeDefined();
@@ -612,7 +612,7 @@ describe('effective weapon stats in the fire path', () => {
         a.loadout[SLOT_MINE].state = { n: 1, reloadMsLeft: 0 }; // skip the reload wait
         w.submitInput('a', {
           seq: i + 1, throttle: 0, rudder: 0, aim: 0,
-          fireSeq: i + 1, aimDist: 0, slot: SLOT_MINE,
+          fireSeq: i + 1, aimDist: 0, slot: SLOT_MINE, fireT: 0,
         });
         w.step();
       }
@@ -628,8 +628,8 @@ describe('effective weapon stats in the fire path', () => {
     place(w, 'base', 0, 200);
     stack(w, up, 'maxSpeed', 2);
     for (let tick = 1; tick <= 200; tick++) {
-      w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
-      w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
+      w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 });
+      w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 });
       w.step();
     }
     const f = CONFIG.upgrades.maxSpeed.mult ** 2;

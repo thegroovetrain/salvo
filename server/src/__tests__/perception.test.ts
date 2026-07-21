@@ -483,7 +483,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
   it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0 };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0 };
     let burst: GameEvent | undefined;
     for (let i = 0; i < 120 && !burst; i++) {
       w.step();
@@ -719,6 +719,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             aim: rng.float(-Math.PI, Math.PI),
             fireSeq: rng.float(0, 1) < 0.4 ? tick : 0, // ~40% of ticks land a fresh click
             aimDist: rng.float(0, 900),
+            fireT: 0,
             slot: 0,
           });
         }

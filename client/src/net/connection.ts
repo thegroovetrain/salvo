@@ -10,6 +10,7 @@ import {
   PROTOCOL_VERSION,
   type FrameMsg,
   type GameMap,
+  type PingMsg,
   type WelcomeMsg,
 } from '@salvo/shared';
 
@@ -110,6 +111,12 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
   room.reconnection.maxRetries = RECONNECT_MAX_RETRIES;
   const sink: FrameSink = { handler: () => undefined };
   room.onMessage(MSG.frame, (f: FrameMsg) => sink.handler(f));
+  // App-level ping echo (D1 RTT measurement): the server pings on an interval;
+  // echo the nonce back IMMEDIATELY so its round-trip is a clean RTT sample.
+  // Registered here (pre-welcome, alongside the frame handler) so it is live as
+  // early as possible after join and — like every onMessage binding — survives
+  // the SDK's same-room auto-reconnect for the whole session. Stateless.
+  room.onMessage(MSG.ping, (msg: PingMsg) => room.send(MSG.ping, { n: msg.n }));
   try {
     const welcome = await waitForWelcome(room);
     return { room, welcome, sink };

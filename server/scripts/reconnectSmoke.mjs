@@ -112,7 +112,7 @@ async function joinClient(name) {
 
 function sendInput(ctx, { throttle = 0, rudder = 0, aim = 0 }) {
   ctx.room.send('i', {
-    seq: ++ctx.seq, throttle, rudder, aim, fireSeq: 0, aimDist: 0, slot: 0,
+    seq: ++ctx.seq, throttle, rudder, aim, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0,
   });
 }
 
