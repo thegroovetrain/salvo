@@ -2,10 +2,11 @@
 title: 'Story 1.6: Torpedo Boat Loadout'
 type: 'feature'
 created: '2026-07-21'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'e26dac25449834f4a06cfabc071c83df19119142'
+final_revision: '1d9bee8'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
@@ -89,7 +90,7 @@ warnings: [multiple-goals, oversized]
 - [x] `server/src/game/` (equipment/boost + index, world, inputs, frames, drones) + `server/scripts/*.mjs` -- activation control, boosted stepShips, owner-only boostUntil, sanitize, smoke re-keys -- authoritative boost complete against the full I/O matrix, goldenFrames regenerated deliberately.
 - [x] `client/src/` (input/keyboard, sim/inputSampler, sim/prediction, main, net/roomBindings, render/hud) -- instant activation, actSeq threading, boost-aware prediction/replay, loadout-driven HUD chips + denied feedback -- prediction parity and explicit feedback end-to-end.
 - [x] Test sweep -- suites in Code Map + `npm run check` green.
-- [ ] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- `1-6-torpedo-boat-loadout` status transition at completion.
+- [x] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- `1-6-torpedo-boat-loadout` status transition at completion.
 
 **Acceptance Criteria:**
 - Given a TB spawn, when the loadout builds, then it is `[gun, torpedo, speedBoost, empty]` while BB/ML/drones keep `[gun, torpedo, mine, empty]` — and the TB's slot-2 key activates instantly (never primes), with torpedo prime+click untouched.
@@ -103,13 +104,31 @@ warnings: [multiple-goals, oversized]
 
 ## Review Triage Log
 
+### 2026-07-21 — Review pass (Blind Hunter + Edge Case Hunter, both at session capability, parallel + Codex cross-model at the gate; patch round routed back to the wave agents, orchestrator-verified)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 1, medium 1, low 6)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 2: (high 0, medium 0, low 2)
+- addressed_findings:
+  - `[high]` `[patch]` applyGrantEffects still assumed the universal fit: a TB spending a mineAmmo offer crashed with an uncaught TypeError in the spend handler (Edge Hunter CONFIRMED by runtime probe; the spec's "dead pick" wart was supposed to no-op, not crash). Fixed: unfitted ammo-grant pool side-effect is a no-op (count/stats still apply); regression test proven to fail without the guard.
+  - `[medium]` `[patch]` Client boosted the press tick that the server steps un-boosted (activationControl runs after stepShips) — every activation predicted one phantom boosted tick, reconciled back (Codex CONFIRMED + Blind Hunter CONFIRMED). Fixed client-side: optimistic window starts one sim tick after the press; a strict press-seq gate keeps localTick and replayFrom in agreement; parity test now pins press-tick-unboosted against a reference server.
+  - `[low]` `[patch]` fireControl lacked the mirror of activationControl's ability wall — a forged click with slot=2 on a TB activated the boost via the click channel and stamped lastFireT (both hunters). Fixed: click channel dispatches weapons only, shared fittedEquipment helper, forged-click regression test.
+  - `[low]` `[patch]` sinkShip never zeroed boostUntil — a TB killed mid-window kept active-boost HUD chrome while dead (Edge Hunter). Fixed at the instant of death + test through buildFrame's you.
+  - `[low]` `[patch]` Double ability-press within RTT overwrote the pending optimistic window with a later end (Blind Hunter). Fixed: no overwrite while un-acked; test added.
+  - `[low]` `[patch]` HUD keyed cooldown-vs-segments on max===1, silently flipping the TORP chip grammar for every class and mid-match on a torpedoAmmo grant (Blind Hunter). Fixed: chipUsesCooldownGrammar(id) — gun + abilities sweep, weapon pools stay segmented; tests pin the maxAmmo===1 trap.
+  - `[low]` `[patch]` localTick's tickT=0 default was a permanently-boosted footgun for future call sites (Blind Hunter). Made required; call sites/tests updated.
+  - `[low]` `[patch]` Spec Design Notes: FLAGGED-FOR-ERIC list extended with the review-found torpedo-dodge-threshold shift (4 maxSpeed stacks or 2+boost now outrun a 60 u/s fish; unruled, unpinned) and the harness A/B saturation under the rescale.
+- deferred (to deferred-work.md): denial-prediction staleness race at the reload boundary (pre-existing mechanism for weapons, inherited by the ability path; Codex + Edge Hunter agreed it is real, adjudicated pre-existing-in-class); latencyHarness A/B lost discriminating power under the rescale (B=100% at 20 and 30 shots; scenario hardening owed when NFR3 is next consulted).
+- rejected as noise: expiry-edge ~½RTT replay over-boost (explicitly accepted in this spec's Design Notes, folds into visual-error decay); astronomically-large actSeq poisoning lastActSeq (self-harm only, exact parity with the pre-existing fireSeq exposure).
+
 ## Design Notes
 
 - **Why cap-raise (option a):** ratified by Eric this Q&A — natural kinematics (≈1.1s to gain the +10 at TB accel 12, then ~4.9s at 55), cleanest prediction story, decay for free from `stepShip`'s existing speed-toward-target behavior.
 - **Why a separate actSeq instead of reusing fireSeq:** a click fires the PRIMED weapon; an ability press must not steal or race the click within a tick. Two independent monotonic counters keep both semantics, mirror the proven fireSeq gate, and stay drone-inert by the same structural argument (constant 0).
 - **Boost activation is NOT latency-compensated** (ignores `ctx.fireT`): nothing is aimed, so D1's rationale doesn't apply; the client predicts the window at press time and the authoritative `boostUntil` arrives ~½RTT later — worst case a ~2-tick cap mismatch folded into visual-error decay. Revisit only if the harness ever shows it matters.
 - **Boosted TB (55) stays under its fish (60)** by Eric's rescale, and permanent owner immunity covers every faster combination (upgrade stacks × boost) — ruled: no new rule, no new test.
-- **FLAGGED FOR ERIC (not in scope):** (1) droneSmall (46, pinned) now out-paces the fastest player hull (TB 45) — drones only wander, never flee, so impact is flavor-level, but the "TB is the fastest thing afloat" fantasy technically breaks until re-ruled; (2) offers still roll mine-category upgrades for a TB that carries no mines (dead pick; dies with the Epic 2 economy).
+- **FLAGGED FOR ERIC (not in scope):** (1) droneSmall (46, pinned) now out-paces the fastest player hull (TB 45) — drones only wander, never flee, so impact is flavor-level, but the "TB is the fastest thing afloat" fantasy technically breaks until re-ruled; (2) offers still roll mine-category upgrades for a TB that carries no mines (dead pick; dies with the Epic 2 economy); (3) review finding: the torpedo-dodge threshold moved — pre-rescale an enemy hull outran a fish only at 5 maxSpeed stacks (73.5 > 70); now a TB does it at 4 stacks flat (61.2 > 60) or 2 stacks + boost (62.5) — enemy-dodge balance under the unbounded interregnum upgrades was never ruled and no test pins it (damageGuardrail pins base speeds only); (4) the latency harness's A/B comparison lost discriminating power under the rescale (mover at 45 is easy enough that fireT=0 also hits 100%/20 and 100%/30; honest-A stays ≥ 96.7%) — NFR3's advisory gate needs a harder harness scenario when gun feel is next tuned.
 - Eric directive: route implementation-agent model selection via `/orchestrate` (task-complexity-based), as in 1.3/1.4/1.5.
 
 ## Verification
@@ -123,3 +142,17 @@ warnings: [multiple-goals, oversized]
 
 **Manual checks (if no CLI):**
 - With Eric's dev server running (never start it): pick TB, press the slot-2 key — speed climbs to 55 and falls back ~6s later with no rubber-banding; pressing again while cooling gives the denied pulse; BB/ML unchanged (key 3 still primes mine).
+
+## Auto Run Result
+
+**Status:** done (2026-07-21). Branch `worktree-dev-auto-1-6-torpedo-boat-loadout`, baseline e26dac2, final 1d9bee8 (4 commits).
+
+**Summary:** Story 1.6 complete. Speed rescale per Eric's in-run ruling (TB/BS/ML maxSpeed 45/35/40, torpedo 60); per-hull loadouts (TB = [gun, torpedo, speedBoost, empty]; BB/ML/drones keep the universal fit); speedBoost ability (+10 forward cap for 6 s, 18 s cooldown) as the first isWeapon:false Equipment, activated instantly via the new InputMsg actSeq/actSlot channel, owner-only OwnShip.boostUntil, PROTOCOL_VERSION 7 with deliberate goldenFrames regen; client optimistic boost prediction with replay parity (press-tick pinned to server truth), loadout-driven HUD chips; Epic 2 Q/E/R/F control re-ruling recorded in epics.md Story 2.1; boost × torpedo ruling closed (permanent owner immunity, Eric 2026-07-21, no new rule).
+
+**Files changed (highlights):** shared — constants (rescale + CONFIG.speedBoost), types (actSeq/actSlot, boostUntil), loadout.ts (loadoutFor, EQUIPMENT_IS_WEAPON), boost.ts (boostedKinematics), stats.ts (EffectiveBoost), PV7; server — equipment/boost.ts (new row), world.ts (activationControl, boosted stepShips, fireControl weapon wall, dead-pick grant guard, sinkShip reset), inputs/frames/drones, 10 smoke re-keys, goldenFrames regen; client — keyboard (ability press), inputSampler (actSeq both paths), prediction (per-tick boost window, press-seq gate), hud (loadout-driven chips, chipUsesCooldownGrammar), tones type-narrow; docs — epics.md 2.1 re-ruling, sprint-status 1-6 done, gds-status → 1-7, deferred-work +2.
+
+**Review:** Blind Hunter + Edge Case Hunter (session capability) + Codex cross-model, parallel. Triage: 0 intent_gap, 0 bad_spec, 8 patches applied (1 high: TB mineAmmo spend crash; 1 medium: press-tick prediction parity — both cross-confirmed by two reviewers; 6 low), 2 deferred (denial-staleness race pre-existing-in-class; harness A/B saturation), 2 rejected (accepted-by-design transients). Patch round routed back to the wave agents; regression tests added for every code patch, the high-severity one proven to fail without its fix.
+
+**Verification:** `npm run check` exit 0 — lint + tsc ×3 + 1081 tests (shared 229 / server 510 / client 342; was 1008 at baseline). latencyHarness structural PASS at 20 and 30 shots (A ≥ 96.7%; A/B advisory saturated under the rescale — deferred + flagged). goldenFrames diff verified: exactly `boostUntil:0` on `you` payloads, nothing else.
+
+**Residual risks / for Eric (also in Design Notes FLAGGED list):** (1) droneSmall (46) now out-paces TB (45) — flavor-level, drones wander not flee; (2) TB mine-category offers are dead picks (count/stats apply, no pool — dies with Epic 2 economy); (3) torpedo-dodge threshold moved (4 maxSpeed stacks or 2+boost outrun a 60 u/s fish — unruled, unpinned); (4) harness A/B no longer discriminates at the rescaled speeds; (5) denied-feedback boundary race inherited from the weapon path (deferred). Manual feel-check owed when Eric's dev server is next up: TB boost to 55 and natural decay, denied pulse while cooling, BB/ML key 3 still primes mine.
