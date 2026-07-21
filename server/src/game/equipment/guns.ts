@@ -11,7 +11,7 @@
 // ballistics.muzzleSpawn). Pure over a ShipRecord's input + pose + slot pool;
 // the World owns shell storage + event emission.
 
-import { CONFIG, angleDiff, wrapAngle, type EquipmentState, type ShellState, type Vec2 } from '@salvo/shared';
+import { CONFIG, angleDiff, segCircleExit, wrapAngle, type EquipmentState, type ShellState, type Vec2 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
@@ -29,18 +29,65 @@ export function clampToArc(angle: number, center: number, halfArc: number): numb
   return wrapAngle(angle);
 }
 
+/** The water disk is centered at the world origin (the boundary clamp too). */
+const MAP_ORIGIN: Vec2 = { x: 0, y: 0 };
+/** Keep a clamped burst point this far inside the water disk (u) so a rim shot
+ *  bursts at a legitimate in-water point rather than expiring at the map edge. */
+const MAP_EDGE_EPSILON = 1;
+
+/**
+ * Pull `target` back inside the water disk along the ship→target ray: if that
+ * segment exits the map circle, clamp to the exit crossing minus a small
+ * epsilon. Built on the shared segCircleExit primitive — no hand-rolled root
+ * solving. A target already inside the disk is returned unchanged. Guards a rim
+ * ship firing outward: a map-edge crossing must not beat the burst at an
+ * otherwise in-range point (the shell would silently expire at the edge).
+ */
+function clampInsideMap(center: Vec2, target: Vec2, mapRadius: number): Vec2 {
+  const t = segCircleExit(center, target, MAP_ORIGIN, mapRadius);
+  if (t === null) return target; // the ray never leaves the disk
+  // Defense-in-depth (unreachable for a live ship — the boundary clamp keeps
+  // every center polyMax inside the rim): a degenerate exit at the segment
+  // start would collapse the target onto the ship center; keep the range-
+  // clamped target instead (pre-clamp behavior: the shell expires at the edge).
+  if (t <= 0) return target;
+  const len = Math.hypot(target.x - center.x, target.y - center.y);
+  const back = len <= 0 ? 0 : Math.max(0, t - MAP_EDGE_EPSILON / len);
+  return { x: center.x + (target.x - center.x) * back, y: center.y + (target.y - center.y) * back };
+}
+
 /**
  * The clicked burst point: along the aim bearing at the clicked distance
  * (input.aimDist), clamped to the ship's EFFECTIVE max gun range
- * (stats.gun.rangeU — the gunRange upgrade; base = CONFIG.vision.radar).
- * BOTH distances are measured from the ship CENTER. Exported for tests.
+ * (stats.gun.rangeU — the gunRange upgrade; base = CONFIG.vision.radar) AND to
+ * the water disk (an in-range rim shot still bursts in-bounds instead of
+ * expiring at the map edge). BOTH distances are measured from the ship CENTER.
+ * Exported for tests.
  */
-export function gunTarget(ship: ShipRecord): Vec2 {
+export function gunTarget(ship: ShipRecord, mapRadius: number): Vec2 {
   const dist = Math.min(Math.max(ship.input.aimDist, 0), ship.stats.gun.rangeU);
-  return {
+  const target = {
     x: ship.state.x + Math.cos(ship.input.aim) * dist,
     y: ship.state.y + Math.sin(ship.input.aim) * dist,
   };
+  return clampInsideMap(ship.state, target, mapRadius);
+}
+
+/**
+ * Where the shell spawns: normally the hull-silhouette muzzle edge along the
+ * aim bearing (muzzleSpawn — no dead ring). But a point-blank click INSIDE the
+ * muzzle (target no farther from the ship center than the muzzle-spawn distance
+ * + shellRadius) would otherwise spawn the shell PAST its own target, flying
+ * outward to a splash — a new INNER dead ring (up to ~64u on a battleship bow).
+ * Spawn AT the target instead, so next tick's stepShell bursts there
+ * immediately (distToTarget 0). Eric ruling 2026-07-21: no dead ring, inner or
+ * outer.
+ */
+function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2): Vec2 {
+  const muzzle = muzzleSpawn(ship, dir, CONFIG.gun.shellRadius);
+  const targetDist = Math.hypot(target.x - ship.state.x, target.y - ship.state.y);
+  const muzzleDist = Math.hypot(muzzle.x - ship.state.x, muzzle.y - ship.state.y);
+  return targetDist <= muzzleDist + CONFIG.gun.shellRadius ? { x: target.x, y: target.y } : muzzle;
 }
 
 /**
@@ -55,12 +102,13 @@ function fireGunShell(
   ship: ShipRecord,
   pool: EquipmentState,
   now: number,
+  mapRadius: number,
   mkId: () => string,
 ): { shell: ShellState | null; denial: ActivationDenial | null } {
   if (!consume(pool, ship.stats.gun.reloadMs)) return { shell: null, denial: 'no-ammo' }; // pool empty
   const dir = ship.input.aim;
-  const target = gunTarget(ship);
-  const origin = muzzleSpawn(ship, dir, CONFIG.gun.shellRadius);
+  const target = gunTarget(ship, mapRadius);
+  const origin = muzzleOrTarget(ship, dir, target);
   const shell = makeBallistic(mkId(), ship, dir, now, {
     speed: CONFIG.gun.shellSpeed,
     range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.gun.shellRadius,
@@ -86,7 +134,7 @@ export const gunEquipment: Equipment = {
     tickReload(slot.state!, ship.stats.gun.maxAmmo, ship.stats.gun.reloadMs, dtMs);
   },
   activate(ctx, slot) {
-    const { shell, denial } = fireGunShell(ctx.ship, slot.state!, ctx.now, ctx.mkId);
+    const { shell, denial } = fireGunShell(ctx.ship, slot.state!, ctx.now, ctx.mapRadius, ctx.mkId);
     if (shell) ctx.spawnBallistic(shell);
     return denial === null ? { ok: true } : { ok: false, reason: denial };
   },

@@ -86,6 +86,12 @@ export interface RoomBindingDeps {
    * carries across a hard state boundary — the captain re-rings the telegraph.
    */
   resetThrottle: () => void;
+  /**
+   * Revert the primed skillshot back to the gun (slot 0). Called on own sunk so
+   * a torpedo/mine prime never survives death into the next life — state-reset
+   * symmetry with the engine order (resetThrottle) and the server-side pools.
+   */
+  resetPrime: () => void;
   /** Roster name lookup (public schema) for the kill feed. */
   names: (id: string) => string;
   /** Fired ONCE when the first spec frame arrives (enter spectate mode). */
@@ -342,6 +348,7 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
     deps.state.respawnEta = t + CONFIG.ship.respawnDelay;
     deps.state.killerId = e.by ?? null; // follow-your-killer default
     deps.resetThrottle(); // a sunk ship's engine order clears — respawn starts at STOP
+    deps.resetPrime(); // and the primed skillshot reverts to the gun for the next life
     deps.audio.play('sink');
   } else {
     deps.contactViews.markSunk(e.id);

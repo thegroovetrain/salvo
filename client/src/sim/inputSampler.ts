@@ -32,6 +32,22 @@ export function primeFireable(primedSlot: number, loaded: boolean, inArc: boolea
   return primedSlot !== SLOT_GUN && loaded && inArc;
 }
 
+/**
+ * Pure: should a fired click CONSUME the prime this tick? Only when the own ship
+ * is ALIVE and the click predicts fireable (primeFireable). A dead / not-yet-
+ * spawned ship never consumes: death independently reverts the prime to the gun
+ * (roomBindings handleSunk → resetPrime), so consuming here would at best be
+ * redundant and, on the death tick, would act on an already-stale slot.
+ */
+export function shouldConsumePrime(
+  alive: boolean,
+  primedSlot: number,
+  loaded: boolean,
+  inArc: boolean,
+): boolean {
+  return alive && primeFireable(primedSlot, loaded, inArc);
+}
+
 /** Pure: build the wire input for one tick. Exported for tests. */
 export function buildInput(seq: number, axes: Axes, aiming: Aiming): InputMsg {
   return {

@@ -88,8 +88,12 @@ describe('sanitizeInput — validation table', () => {
     expect(sanitizeInput({ ...valid(), aimDist: 123.5 }, 0)?.aimDist).toBe(123.5);
   });
 
-  it('AIM_DIST_MAX admits a radar-range click unclamped (gun range = radar range)', () => {
-    expect(AIM_DIST_MAX).toBe(2 * CONFIG.vision.radar);
+  it('AIM_DIST_MAX is a map-scale transport bound (4× base map radius), NOT a weapon stat', () => {
+    // Map-scale, so stacked gunRange upgrades (which can briefly outrange radar)
+    // never get silently clamped at the transport layer; the real clamp to
+    // effective gun range is per-shot in equipment/guns.ts.
+    expect(AIM_DIST_MAX).toBe(4 * CONFIG.map.baseRadius);
+    expect(AIM_DIST_MAX).toBeGreaterThan(CONFIG.vision.radar); // admits any radar-range click unclamped
     expect(sanitizeInput({ ...valid(), aimDist: CONFIG.vision.radar }, 0)?.aimDist).toBe(CONFIG.vision.radar);
   });
 

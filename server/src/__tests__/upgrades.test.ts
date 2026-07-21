@@ -395,6 +395,20 @@ describe('spend side effects', () => {
     expect(a.loadout[SLOT_GUN].state!.n).toBe(CONFIG.gun.maxAmmo); // clamp holds the pool at 1
   });
 
+  it('gunAmmo mid-cooldown leaves the gun pool UNTOUCHED: no free round bypassing the reload', () => {
+    // The real hazard the guard closes: a spent gun (n=0, reloadMsLeft>0) must
+    // NOT gain a loaded round from a gunAmmo spend — that would hand out a free
+    // shot mid-cooldown. Count increments; the pool (n AND reloadMsLeft) is inert.
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.loadout[SLOT_GUN].state!.n = 0;
+    a.loadout[SLOT_GUN].state!.reloadMsLeft = 1234; // mid-cooldown
+    w.applyUpgrade(a, 'gunAmmo');
+    expect(a.upgrades[UPGRADE_IDS.indexOf('gunAmmo')]).toBe(1); // count still moves
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(0); // NO free round loaded
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(1234); // cooldown untouched
+  });
+
   it('torpedoAmmo grants +1 loaded round, clamped to the new effective pool', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);

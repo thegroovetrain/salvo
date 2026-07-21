@@ -420,6 +420,13 @@ export class World {
     }
     const equipmentId = World.AMMO_UPGRADE_EQUIPMENT[type];
     if (equipmentId === undefined) return;
+    // gunAmmo is a legacy pre-rolled-offer id kept only for wire stability: the
+    // gun is single-shot (maxAmmo pinned to 1), so its pool is a pure cooldown.
+    // Spending gunAmmo increments the upgrade count (applyUpgrade, above) but
+    // must NOT touch the gun pool — topping up `n` mid-cooldown would hand out a
+    // free round that bypasses the 3s reload (spec 1.4: "count increments but no
+    // effect"). Only real ammo pools (torpedo/mine) load the +1 round.
+    if (equipmentId === 'gun') return;
     // Universal fit: all three ammo-upgradeable systems are always fitted, and
     // a fitted slot ALWAYS has state (the LoadoutSlot invariant). Assert both
     // rather than silently skipping — a swallowed miss would invisibly rob the
@@ -724,6 +731,7 @@ export class World {
     return {
       ship,
       now: this.now,
+      mapRadius: this.map.radius,
       mkId: () => this.nextBallisticId(),
       spawnBallistic: (shell) => this.spawnBallistic(shell),
       dropMine: (x, y) => this.spawnMine(ship, x, y),

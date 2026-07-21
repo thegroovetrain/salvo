@@ -13,16 +13,21 @@ import { CONFIG, SLOT_GUN, inArc, wrapAngle } from '@salvo/shared';
 
 /** Interregnum slot index of the bow-tube torpedo (Epic 2 rebuilds the loadout). */
 export const SLOT_TORPEDO = 1;
+/** Interregnum slot index of the astern mine layer. */
+export const SLOT_MINE = 2;
 
 /**
  * Does `aim` (world bearing) fall within the primed slot's firing arc, given
- * the hull's `heading`? The gun is 360° (always true); the torpedo checks its
- * bow arc; mines drop astern regardless (always true).
+ * the hull's `heading`? Explicit per-slot mapping: the gun (0) is 360° (always
+ * true); the torpedo (1) checks its bow arc; mines (2) drop astern regardless
+ * (always true). ANY OTHER slot — the empty slot 3, or an out-of-range index —
+ * is NOT a firing weapon, so it is never "in arc" (false): nothing to fire.
  */
 export function weaponArcHit(heading: number, aim: number, slot: number): boolean {
   if (slot === SLOT_GUN) return true; // 360° — never out of arc
   if (slot === SLOT_TORPEDO) {
     return inArc(aim, wrapAngle(heading + CONFIG.torpedo.offset), CONFIG.torpedo.halfArc);
   }
-  return true; // mine: astern drop, no aim gate
+  if (slot === SLOT_MINE) return true; // astern drop, no aim gate
+  return false; // empty slot 3 / out-of-range: not a weapon, never in arc
 }

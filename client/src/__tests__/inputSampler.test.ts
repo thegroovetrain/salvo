@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { MSG, type InputMsg } from '@salvo/shared';
-import { InputSampler, buildInput, primeFireable, type Aiming } from '../sim/inputSampler.js';
+import { InputSampler, buildInput, primeFireable, shouldConsumePrime, type Aiming } from '../sim/inputSampler.js';
 
 const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0 };
 
@@ -36,6 +36,23 @@ describe('primeFireable — client-predicted prime consumption', () => {
     expect(primeFireable(1, false, true)).toBe(false); // reloading
     expect(primeFireable(1, true, false)).toBe(false); // out of bow arc
     expect(primeFireable(1, false, false)).toBe(false);
+  });
+});
+
+describe('shouldConsumePrime — a dead own ship never consumes the prime', () => {
+  it('consumes only when ALIVE and the click predicts fireable', () => {
+    expect(shouldConsumePrime(true, 1, true, true)).toBe(true); // alive + fireable
+  });
+
+  it('never consumes while not alive, even on an otherwise-fireable click', () => {
+    expect(shouldConsumePrime(false, 1, true, true)).toBe(false); // dead / not spawned
+    expect(shouldConsumePrime(false, 2, true, true)).toBe(false);
+  });
+
+  it('never consumes a non-fireable click regardless of alive (death resets the prime instead)', () => {
+    expect(shouldConsumePrime(true, 0, true, true)).toBe(false); // gun is never a prime
+    expect(shouldConsumePrime(true, 1, false, true)).toBe(false); // reloading
+    expect(shouldConsumePrime(true, 1, true, false)).toBe(false); // out of arc
   });
 });
 

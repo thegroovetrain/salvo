@@ -29,6 +29,9 @@ import { mineEquipment } from './mines.js';
 export interface ActivationContext {
   ship: ShipRecord;
   now: number;
+  /** Water-disk radius (u) — the gun clamps its burst point inside it so a rim
+   *  ship firing outward bursts in-bounds rather than expiring at the edge. */
+  mapRadius: number;
   mkId: () => string;
   spawnBallistic: (shell: ShellState) => void;
   dropMine: (x: number, y: number) => void;

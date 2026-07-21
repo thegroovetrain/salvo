@@ -25,6 +25,14 @@ describe('weaponArcHit — mines', () => {
   });
 });
 
+describe('weaponArcHit — unknown / out-of-range slots', () => {
+  it('is FALSE for the empty slot 3 and any out-of-range index (not a weapon, never in arc)', () => {
+    expect(weaponArcHit(0, 0, 3)).toBe(false); // empty slot 3
+    expect(weaponArcHit(0, 0, 7)).toBe(false); // beyond SLOT_COUNT
+    expect(weaponArcHit(0, 0, -1)).toBe(false); // negative
+  });
+});
+
 describe('weaponArcHit — torpedo bow arc', () => {
   const halfArc = CONFIG.torpedo.halfArc;
 

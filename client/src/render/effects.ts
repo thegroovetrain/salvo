@@ -17,6 +17,18 @@ import { CLIENT_CONFIG } from '../config.js';
 /** Effect kinds routed through spawnEffect(). */
 export type EffectKind = 'wake' | 'muzzle' | 'spark' | 'splash' | 'sink' | 'torpwake' | 'burst';
 
+/**
+ * Pure layer-routing predicate: which one-shot kinds render into the FOG-IMMUNE
+ * chart layer instead of the fogged world. Only the gun-shell `burst` does — a
+ * burst at radar range (well beyond the sight bubble) must read as a detonation
+ * flash above the fog, mirroring the reticle's fog-immunity (render/firing.ts).
+ * Muzzle/spark/splash/sink/torpwake stay in the fogged world (they only ever
+ * occur inside or near your own sight). Unit-tested; no Pixi involved.
+ */
+export function isFogImmuneEffect(kind: EffectKind): boolean {
+  return kind === 'burst';
+}
+
 interface OneShotSpec {
   type: 'dot' | 'ring';
   life: number; // s
@@ -56,11 +68,16 @@ interface OneShot {
   x: number;
   y: number;
   age: number;
+  /** The pool this gfx was acquired from — burst gfx live on the fog-immune
+   *  layer (burstPool), everything else on shotPool; retire returns to its own. */
+  pool: Pool<Graphics>;
 }
 
 export class Effects {
   private readonly wakePool: Pool<Graphics>;
   private readonly shotPool: Pool<Graphics>;
+  /** Fog-immune one-shot pool (bursts) — gfx parented to the chart burst layer. */
+  private readonly burstPool: Pool<Graphics>;
   private readonly wake: WakeParticle[] = [];
   private readonly shots: OneShot[] = [];
   private accumDist = 0;
@@ -71,9 +88,12 @@ export class Effects {
   constructor(
     private readonly wakeLayer: Container,
     private readonly fxLayer: Container = wakeLayer,
+    /** Fog-immune layer for burst rings; defaults to fxLayer for headless tests. */
+    private readonly burstLayer: Container = fxLayer,
   ) {
     this.wakePool = new Pool<Graphics>(() => this.makeWakeDot());
-    this.shotPool = new Pool<Graphics>(() => this.makeShotGfx());
+    this.shotPool = new Pool<Graphics>(() => this.makeShotGfx(this.fxLayer));
+    this.burstPool = new Pool<Graphics>(() => this.makeShotGfx(this.burstLayer));
   }
 
   /** Set the own ship's hull id (drives wake stern offset + intensity scaling).
@@ -92,10 +112,10 @@ export class Effects {
     return g;
   }
 
-  private makeShotGfx(): Graphics {
+  private makeShotGfx(layer: Container): Graphics {
     const g = new Graphics();
     g.visible = false;
-    this.fxLayer.addChild(g);
+    layer.addChild(g);
     return g;
   }
 
@@ -119,13 +139,14 @@ export class Effects {
     // Backgrounded tab: skip one-shot spawns entirely rather than let them pile
     // up in the pool while the render loop that ages/retires them is throttled.
     if (typeof document !== 'undefined' && document.hidden) return;
-    const g = this.shotPool.acquire();
+    const pool = isFogImmuneEffect(kind) ? this.burstPool : this.shotPool;
+    const g = pool.acquire();
     g.clear();
     g.visible = true;
     g.alpha = 1;
     g.scale.set(1);
     g.position.set(x, y);
-    this.shots.push({ gfx: g, spec: SPECS[kind], x, y, age: 0 });
+    this.shots.push({ gfx: g, spec: SPECS[kind], x, y, age: 0, pool });
   }
 
   /** Advance all effects by `dt`; spawn wake behind the own ship first
@@ -173,7 +194,7 @@ export class Effects {
       s.age += dt;
       const k = s.age / s.spec.life;
       if (k >= 1) {
-        this.retire(s.gfx, this.shotPool);
+        this.retire(s.gfx, s.pool);
         this.shots.splice(i, 1);
         continue;
       }

@@ -329,6 +329,14 @@ export interface BurstSubject extends BurstEvent {
  * (sight + LOS, the boom pattern). Damage never rides here — burst victims
  * get their own victim-private dmg events; burstRadius is CONFIG, never on
  * the wire.
+ *
+ * ABSENCE-INFERENCE CHANNEL (accepted by design): the owner ALWAYS sees their
+ * own burst, so the ABSENCE of a burst after a shot leaks one bit — "something
+ * intercepted the shell short of the target." This is deliberately tolerated
+ * because it is subsumed by radar: islands stop shells, so an island-shadowed
+ * hull can never be probed this way, and any LOS-clear hull inside gun range
+ * (gun range = radar range) is painted by the radar sweep within one ~4s
+ * revolution regardless. The owner learns nothing the sweep would not reveal.
  */
 const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
   eventType: 'burst',

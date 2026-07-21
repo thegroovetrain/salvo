@@ -15,14 +15,16 @@ export const INPUT_RATE_CAP = 40;
 export const INPUT_RATE_WINDOW_MS = 1000;
 
 /**
- * aimDist ceiling: a STATIC sanity bound — 2× base radar range comfortably
- * admits any legitimate radar-range click (gun range = radar range, Eric
- * ruling 2026-07-21) plus upgrade headroom, while rejecting nothing a real
- * client sends. Deliberately NOT the per-ship effective gun range: the
- * sanitize layer must not encode an upgradeable weapon stat — the per-shot
- * clamp to effective range lives in equipment/guns.ts.
+ * aimDist ceiling: a STATIC TRANSPORT sanity bound only — 4× the base map
+ * radius spans the whole ocean, so it admits any legitimate click (the gun's
+ * effective range never exceeds the map) with generous headroom, while
+ * rejecting only absurd wire garbage. It is deliberately a MAP-SCALE constant,
+ * NOT a weapon stat: a radar-derived bound (e.g. 2× radar) is silently
+ * overtaken by ~5 stacked gunRange upgrades (650×1.15ⁿ), which would clamp
+ * legitimate long shots short of the client's range marker. The real gameplay
+ * clamp to per-ship effective gun range is applied PER SHOT in equipment/guns.ts.
  */
-export const AIM_DIST_MAX = 2 * CONFIG.vision.radar;
+export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
 
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {

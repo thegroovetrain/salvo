@@ -126,7 +126,7 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
     a.input = gunInput(0, 5000);
     // Base effective range IS radar range (single source, no duplicated 650).
     expect(a.stats.gun.rangeU).toBe(CONFIG.vision.radar);
-    expect(gunTarget(a).x).toBeCloseTo(CONFIG.vision.radar, 9);
+    expect(gunTarget(a, w.map.radius).x).toBeCloseTo(CONFIG.vision.radar, 9);
     w.sinkingActivationGate(a, SLOT_GUN);
     const [shell] = [...w.shells.values()];
     expect(shell.targetX).toBeCloseTo(CONFIG.vision.radar, 9); // center-measured — the muzzle never extends reach
@@ -262,6 +262,56 @@ describe('World combat — burst at the clicked point', () => {
     expect(burstsOf(events)).toHaveLength(1); // it DOES burst at the click point...
     expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp); // ...harmlessly (owner immunity)
     expect(dmgsOf(events)).toEqual([]);
+  });
+
+  it('POINT-BLANK inside the muzzle: a battleship click 40u off the bow still bursts there (no inner dead ring)', () => {
+    // REGRESSION: a click nearer than the ~64u muzzle-spawn distance used to
+    // spawn the (slow, 130u/s) shell PAST the target flying outward → splash,
+    // never bursting — a ~64u inner dead zone. The shell now spawns AT the
+    // click, so the next tick bursts there.
+    const { w, a } = armed(1, 'battleship');
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    const b = w.addShip('b', 'B'); // hull ~10u from the click at (40,0)
+    b.state = { x: 40, y: 14.5, heading: 0, speed: 0 };
+    w.submitInput('a', gunInput(0, 40)); // 40u off the bow — well inside the muzzle
+    const events = stepCollect(w, 5);
+    const bursts = burstsOf(events);
+    expect(bursts).toHaveLength(1);
+    expect(bursts[0].x).toBeCloseTo(40, 3);
+    expect(bursts[0].y).toBeCloseTo(0, 3);
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage); // full burst
+  });
+
+  it('aimDist 0 bursts at the OWN center: owner immune, an adjacent enemy still takes full damage', () => {
+    const { w, a } = armed(1, 'battleship');
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    const b = w.addShip('b', 'B'); // hull ~10u from the origin burst
+    b.state = { x: 0, y: 14.5, heading: 0, speed: 0 };
+    w.submitInput('a', gunInput(HALF_PI, 0)); // aimDist 0 — target = own center
+    const events = stepCollect(w, 5);
+    const bursts = burstsOf(events);
+    expect(bursts).toHaveLength(1);
+    expect(bursts[0].x).toBeCloseTo(0, 3);
+    expect(bursts[0].y).toBeCloseTo(0, 3);
+    expect(a.hp).toBe(CONFIG.shipClasses.battleship.hp); // owner immune to its own burst
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - CONFIG.gun.damage);
+  });
+
+  it('MAP EDGE: a rim ship firing outward at an in-range point bursts at the clamped point, not the rim', () => {
+    // REGRESSION (Fix 4): gunTarget now clamps the click inside the water disk,
+    // so an in-range shot past the rim bursts just inside the edge instead of
+    // the map-edge crossing winning and silently expiring the shell.
+    const { w, a } = armed(1);
+    const R = w.map.radius;
+    a.state = { x: R - 200, y: 0, heading: 0, speed: 0 };
+    expect(R - 200 + 300).toBeGreaterThan(R); // the click WOULD land past the rim
+    expect(a.stats.gun.rangeU).toBeGreaterThan(300); // ...but 300u is within effective range
+    w.submitInput('a', gunInput(0, 300));
+    const events = stepCollect(w, 90);
+    const bursts = burstsOf(events);
+    expect(bursts).toHaveLength(1); // it bursts, not expires
+    expect(Math.hypot(bursts[0].x, bursts[0].y)).toBeLessThanOrEqual(R); // in-bounds
+    expect(bursts[0].x).toBeCloseTo(R - 1, 0); // clamped just inside the rim
   });
 
   it('kill credit flows through the burst path: sunk by the firer, kill + banked point', () => {

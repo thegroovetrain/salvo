@@ -9,7 +9,7 @@ Stack: TypeScript monorepo (npm workspaces) — `shared` (pure sim), `server` (C
 ### Commands
 ```
 npm run dev          # Colyseus server (:2567) + Vite client (:5173) via concurrently
-npm run check        # lint + type-check (shared/server/client) + all tests (653)
+npm run check        # lint + type-check (shared/server/client) + all tests (960)
 npm run lint         # ESLint (complexity=10 enforced)
 npm test -w shared   # Shared sim tests (kinematics, geometry, ballistics, zone, mapgen, stats, offers)
 npm test -w server   # Server tests (world sim, perception/anti-cheat invariants, match state machine, drones)
@@ -51,8 +51,8 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 - **game/match.ts** — match lifecycle state machine (waiting/countdown/live/results). Pure logic, zero Colyseus imports; the room implements its side-effect hooks.
 - **game/drones.ts** — weaponless target drones that fill empty slots so a solo human still gets a battle royale. A drone is an ordinary ship driven through the same input pipeline; win checks are human-gated.
 - **game/spawn.ts** — spawn-ring placement (max-min distance from existing ships, island-clear).
-- **game/combat.ts** — compatibility re-export of gun fire control (moved into weapons/guns.ts).
-- **game/weapons/** — `WeaponSystem` interface + registry (index.ts): guns.ts, torpedoes.ts, mines.ts, shared ballistics.ts, ammo.ts. Selection is `input.weapon` (0 gun / 1 torpedo / 2 mine); every system's reload ticks every tick regardless of selection.
+- **game/combat.ts** — compatibility re-export of gun fire control (moved into equipment/guns.ts).
+- **game/equipment/** — `Equipment` interface + registry (index.ts): guns.ts, torpedoes.ts, mines.ts, shared ballistics.ts, ammo.ts. The gun is the permanently-selected default weapon; torpedo/mine are interim prime-next-shot skillshots. A click carries `input.slot` (0 gun / 1 torpedo / 2 mine — the resolved prime; the server keeps no priming state); every system's reload ticks every tick regardless of which slot is primed.
 
 #### Client (`client/src/`)
 - **main.ts** — bootstrap: build the Pixi stage, show the pre-join MENU (DOM) over the canvas, connect only on PLAY, then run the input→predict→render loop and the match-lifecycle UX (waiting/countdown → death → spectate → results → return to port).
@@ -75,7 +75,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 
 ### Key Decisions
 - **CONFIG is the single source of truth** — every gameplay-authoritative tunable lives in `shared/src/constants.ts` (`CONFIG`). Client-only feel knobs live in `client/src/config.ts`; promote a value to shared CONFIG the moment it becomes gameplay-load-bearing.
-- **Deterministic shared simulation** — the same pure functions (`stepShip`, `stepShell`, `generateMap`, zone math) run on server and client. This is what makes client-side prediction agree with the authoritative world. `PROTOCOL_VERSION` (shared/src/index.ts, currently 3) records wire-breaking changes — it is documentation, not yet a runtime gate (a join-time version check is deferred work; a stale bundle fails at schema decode).
+- **Deterministic shared simulation** — the same pure functions (`stepShip`, `stepShell`, `generateMap`, zone math) run on server and client. This is what makes client-side prediction agree with the authoritative world. `PROTOCOL_VERSION` (shared/src/index.ts, currently 5) records wire-breaking changes and IS a runtime join gate: `server/src/rooms/roomOptions.ts` (`protocolVersionError`) rejects a mismatched-or-missing client `pv` at matchmake time, before any seat is reserved.
 - **effectiveStats() is the upgrade desync firewall** — (ship class + upgrade counts) → every derived stat, via one pure function both sides call. Server caches it on grant/spawn; client recomputes from `you.cls` + `you.upg`. Nothing may re-derive an upgraded stat ad hoc.
 - **Upgrade offers are pre-rolled at earn-time** — a banked point carries a fixed offer of 3 upgrades from 3 distinct categories (`rollOffer`), rolled on the server's decorrelated upgrade stream and queued. Reopening the spend window can never reroll. Spend picks one upgrade (CTRL+1/2/3) or heals (CTRL+E, `HEAL_CHOICE`).
 - **Authoritative 20Hz World, zero Colyseus imports** — `game/world.ts` owns the one server clock and runs a fixed 50ms step; `ArenaRoom` is a thin adapter. The room's only synced schema is the roster.
@@ -85,8 +85,9 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 - **Client prediction + reconciliation** — own ship is stepped locally each 50ms tick with a ring of un-acked inputs; every server frame drops acked inputs and replays the rest. Contacts are snapshot-interpolated (~-100ms). `P` toggles prediction ⇄ raw interpolation for debugging.
 - **Fog is a pre-baked texture composite** — dark overlay with a feathered sight hole, conic sweep wedge, timestamp-decayed blips. DOM is used only for menu / results / kill feed; everything tactical is Pixi.
 - **Match lifecycle is a pure state machine** — `game/match.ts` (waiting/countdown/live/results), zero Colyseus imports. Countdown arms at 2 human captains; a solo captain drives a weapons-safe ready room. Drones fill empty slots through the same input pipeline; the win check is human-gated.
-- **Three ship classes, universal weapon fit** — Destroyer (fast/light), Cruiser (balanced), Battleship (slow/heavy). Only hull dims, hp, and kinematics vary; every class shares CONFIG.gun/torpedo/mine. Cruiser is byte-for-byte the pre-classes single ship, pinned by a balance-identity test.
-- **One WeaponSystem interface** — guns/torpedoes/mines all implement it (`game/weapons/`); each weapon has its own ammo pool + reload timer (reload ticks regardless of which weapon is selected). Torpedoes spawn with real bow clearance + an owner-only grace and outrun every hull so they can't self-hit at base speed.
+- **Three ship classes, universal weapon fit** — Torpedo Boat (fast/light), Battleship (slow/heavy), Mine Layer (mid). Only hull dims, hp, and kinematics vary; every class shares CONFIG.gun/torpedo/mine. (The retired destroyer/cruiser/battleship prototype kinematics now live on as the drone envelopes, byte-for-byte, pinned by a shipClasses identity test.)
+- **The universal standard gun (Eric ruling 2026-07-21)** — the permanently-selected default weapon: 360° (no mounts/arc), a single shot on a 3s reload (a 1-round pool, presented as a pure cooldown), that flies to the CLICKED point and BURSTS there in `burstRadius` (every enemy hull in range takes full damage; an early interceptor takes the smaller `contactDamage` and stops the shell with no burst, unless inside the would-be blast). Base range = radar range. Torpedo/mine are interim prime-next-shot skillshots.
+- **One Equipment interface** — guns/torpedoes/mines all implement it (`game/equipment/`); each has its own ammo pool + reload timer (reload ticks regardless of which slot is primed). Torpedoes spawn with real bow clearance + an owner-only grace and outrun every hull so they can't self-hit at base speed.
 - **Storm circle** — a shared, damage-only zone timeline (`sim/zone.ts`) shrinks the ocean; stay inside or take damage.
 - **Dev-only room options gated by `HC_DEV_OPTIONS=1`** — `matchOverride`/`zoneOverride` arrive verbatim from client join options and are only honored when the server process opts in (smokes/tests). Production clients cannot pass them.
 - **Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision** (`VERSION` + package.json, single-sourced into the client at build time by Vite).

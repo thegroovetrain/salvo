@@ -49,7 +49,7 @@ import { isClickDenied, DeniedPulse } from './render/deniedFire.js';
 import { KeyboardInput, type UpgradeAction } from './input/keyboard.js';
 import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
-import { primeFireable } from './sim/inputSampler.js';
+import { shouldConsumePrime } from './sim/inputSampler.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { connect, connectErrorStatus, mapFromWelcome, type Connection } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
@@ -461,7 +461,7 @@ function setupViewport(
 
   // Effects is built before Projectiles so the torpedo-wake trail can feed the
   // shared effects pool via a closure.
-  const effects = new Effects(stage.layers.wake, stage.layers.projectile);
+  const effects = new Effects(stage.layers.wake, stage.layers.projectile, stage.layers.burstFx);
   effects.setOwnClass(cls);
 
   return { camera, keyboard, mouse, ownView, effects };
@@ -632,6 +632,7 @@ function bindGameRoom(g: Game, conn: Connection): void {
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
     onOwnStats: (cls, upg) => applyOwnStats(g, cls, upg),
     resetThrottle: () => g.keyboard.resetThrottle(),
+    resetPrime: () => g.keyboard.revertToGun(),
     names: (id) => rosterName(g, id),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
@@ -740,12 +741,27 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
 }
 
 /**
+ * The heading the fire-arc gate should use: the CLIENT-PREDICTED heading (the
+ * same source renderFiring's `pose.heading` derives from — predictor.predicted),
+ * NOT the stale server-echo `you.heading`. At click time the predicted hull has
+ * already turned; gating a skillshot on the server echo would deny/consume a
+ * bow-arc torpedo click the player sees as in-arc. Falls back to the server echo
+ * only in raw (non-predict) debug mode or before prediction initializes.
+ */
+function predictedHeading(g: Game): number {
+  if (g.state.mode === 'predict' && g.predictor.isInitialized) return g.predictor.predicted.heading;
+  return g.state.net.you?.heading ?? 0;
+}
+
+/**
  * Client-predicted prime consumption on a fired click (Eric ruling 2026-07-21):
  * a NEW click this sim tick consumes the primed skillshot (reverts to gun) only
  * when the client predicts it FIREABLE — the slot is loaded (own ammo) AND in
- * the weapon's arc. A predicted-denied click (reloading / out of bow arc) KEEPS
- * the prime; the denied pulse (renderFiring) supplies the feedback. Prime state
- * is pure client UX — the wire slot was already sampled at click time.
+ * the weapon's arc (against the PREDICTED heading). A predicted-denied click
+ * (reloading / out of bow arc) KEEPS the prime; the denied pulse (renderFiring)
+ * supplies the feedback. A dead / not-yet-spawned own ship never consumes the
+ * prime (death resets it to gun anyway — handleSunk). Prime state is pure
+ * client UX — the wire slot was already sampled at click time.
  */
 function consumePrimeOnFire(g: Game, primedSlot: number, aim: number): void {
   const newClick = g.mouse.clickCount !== g.lastTickClick;
@@ -754,8 +770,8 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number): void {
   const you = g.state.net.you;
   const a = you?.ammo[primedSlot] ?? null;
   const loaded = !!a && a.n > 0;
-  const inArc = weaponArcHit(you?.heading ?? 0, aim, primedSlot);
-  if (primeFireable(primedSlot, loaded, inArc)) g.keyboard.revertToGun();
+  const inArc = weaponArcHit(predictedHeading(g), aim, primedSlot);
+  if (shouldConsumePrime(you?.alive ?? false, primedSlot, loaded, inArc)) g.keyboard.revertToGun();
 }
 
 function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
