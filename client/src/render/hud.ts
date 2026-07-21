@@ -1,13 +1,21 @@
 // Telegraph HUD — screen-space instrument readout (hudRoot). Throttle/rudder
-// gauges + heading/speed, an HP bar (green→amber→crimson), the weapon chip row
-// (the gun a pure cooldown readout, torpedo/mine segmented pools + a reload
-// line, PRIMED-highlighted), and a centered respawn overlay while sunk. Geist
+// gauges + heading/speed, an HP bar (green→amber→crimson), the LOADOUT-driven
+// chip row (labels/grammar from the own loadout — 1-charge equipment reads as
+// a pure cooldown, pooled weapons as segments + a reload line; PRIMED /
+// boost-active outlined), and a centered respawn overlay while sunk. Geist
 // Mono per DESIGN.md. Text strings are diffed before assignment (Pixi
 // re-rasterizes on `.text`). Epic 2 rebuilds the hotbar — this stays minimal.
 
 import { Container, Graphics, Text } from 'pixi.js';
 import type { EffectiveStats, ShipState, EquipmentId, ShipClassId, WeaponAmmo } from '@salvo/shared';
-import { SLOT_GUN, equipmentMaxAmmo, equipmentReloadMs, wrapPositive } from '@salvo/shared';
+import {
+  EQUIPMENT_IS_WEAPON,
+  SLOT_COUNT,
+  boostedKinematics,
+  equipmentMaxAmmo,
+  equipmentReloadMs,
+  wrapPositive,
+} from '@salvo/shared';
 
 /** Kinematics subset the speed ladder needs (ahead/astern denominators). */
 interface LadderKin {
@@ -85,13 +93,19 @@ export function speedLadderFraction(speed: number, kin: LadderKin): number {
   return f < -1 ? -1 : f > 1 ? 1 : f;
 }
 
-/** Weapon chip labels, indexed by loadout slot (gun / torpedo / mine). */
-const WEAPON_LABELS = ['1 GUNS', '2 TORP', '3 MINE'] as const;
-/** The equipment id each chip slot holds (interregnum universal fit). Chips
- *  iterate this — the empty extra slot (3) is skipped. Pool/reload denominators
- *  come from OwnStatus.stats via equipmentMaxAmmo/equipmentReloadMs (upgraded
- *  values render correctly; no CONFIG lookups here). */
-const CHIP_EQUIPMENT: readonly EquipmentId[] = ['gun', 'torpedo', 'mine'];
+/** Chip label text per equipment id (Story 1.6: the row is LOADOUT-driven —
+ *  labels come from the own loadout, not a hardcoded gun/torpedo/mine trio). */
+const EQUIPMENT_LABEL: Record<EquipmentId, string> = {
+  gun: 'GUNS',
+  torpedo: 'TORP',
+  mine: 'MINE',
+  speedBoost: 'BOOST',
+};
+
+/** Pure: one chip's label — "1 GUNS", "3 BOOST", … (key hint = slot index + 1). */
+export function chipLabel(slot: number, id: EquipmentId): string {
+  return `${slot + 1} ${EQUIPMENT_LABEL[id]}`;
+}
 const CHIP_GAP = 6;
 const CHIP_H = 20;
 const SEG_GAP = 1; // px between ammo segments within a chip
@@ -138,6 +152,13 @@ export interface OwnStatus {
   /** Cached effectiveStats(cls, upg) — ALL HUD denominators (max hp, speed
    *  ladder, ammo pool sizes, reload durations) read from here (Stage D). */
   stats: EffectiveStats;
+  /** Slot-aligned equipment ids of the OWN loadout (loadoutFor(you.cls) —
+   *  Story 1.6): drives chip labels + per-chip grammar; null = empty slot
+   *  (no chip drawn). Ammo VALUES still come from the server via `ammo`. */
+  loadout: readonly (EquipmentId | null)[];
+  /** The own speed boost is currently active (serverNow < boostUntil estimate):
+   *  drives the boost chip's active outline and the boosted speed-needle cap. */
+  boostActive: boolean;
 }
 
 /** Pure: the banked-points prompt above the weapon chips ('' hides it at 0). */
@@ -256,6 +277,8 @@ export class Hud {
   private lastCountdown = '';
   private lastSpectateBanner = '';
   private lastPtsLine = '';
+  /** Per-slot chip label text guard (Pixi re-rasterizes on `.text`). */
+  private readonly lastChipLabels: string[] = [];
 
   constructor(private readonly hudLayer: Container) {
     hudLayer.addChild(this.root);
@@ -276,8 +299,10 @@ export class Hud {
     this.ptsLabel = new Text({ text: '', style: PTS_STYLE });
     this.ptsLabel.visible = false;
     hudLayer.addChild(this.ptsLabel);
-    this.chipLabels = WEAPON_LABELS.map((t) => {
-      const label = new Text({ text: t, style: CHIP_STYLE });
+    // One label per loadout slot (SLOT_COUNT); the text is LOADOUT-driven and
+    // assigned (diffed) in drawWeaponChips — unfitted slots stay hidden.
+    this.chipLabels = Array.from({ length: SLOT_COUNT }, () => {
+      const label = new Text({ text: '', style: CHIP_STYLE });
       hudLayer.addChild(label);
       return label;
     });
@@ -438,14 +463,14 @@ export class Hud {
     this.drawTelegraph(index, axes.rudder, speed, kin);
   }
 
-  /** HP bar + the 3-weapon selector chip row, anchored bottom-right (screen space). */
-  private drawBars(status: OwnStatus, screenW: number, screenH: number, deniedFlash: boolean): void {
+  /** HP bar + the loadout chip row, anchored bottom-right (screen space). */
+  private drawBars(status: OwnStatus, screenW: number, screenH: number, deniedFlash: boolean, abilityFlash: boolean): void {
     const g = this.bars;
     g.clear();
     const x = screenW - BAR_W - MARGIN;
     const baseY = screenH - MARGIN - PANEL_H;
     this.drawHp(g, x, baseY, status.hp, status.stats.maxHp);
-    this.drawWeaponChips(g, status, x, baseY + BAR_H + 12, deniedFlash);
+    this.drawWeaponChips(g, status, x, baseY + BAR_H + 12, deniedFlash, abilityFlash);
   }
 
   private drawHp(g: Graphics, x: number, y: number, hp: number, maxHp: number): void {
@@ -456,28 +481,54 @@ export class Hud {
   }
 
   /**
-   * The chip row [1 GUNS / 2 TORP / 3 MINE]: the PRIMED slot is outlined amber
-   * (gun when nothing is primed — it is the default weapon); `deniedFlash`
-   * briefly reddens the primed chip's border (the HUD half of the denied-fire
-   * feedback — render/deniedFire.ts drives the rate limit). The gun renders as a
-   * pure cooldown readout (no segments — single shot on a 3s cooldown); torpedo/
-   * mine render as segmented ammo pools + a reload line. Denominators are the
-   * EFFECTIVE pool sizes/reloads from status.stats via equipmentMaxAmmo/
-   * equipmentReloadMs (upgraded values render correctly).
+   * The LOADOUT-driven chip row (Story 1.6): one chip per fitted slot of the
+   * own loadout (TB: [1 GUNS / 2 TORP / 3 BOOST], BB/ML: [1 GUNS / 2 TORP /
+   * 3 MINE]). Single-charge equipment (the gun's 1-round pool, the boost's
+   * 1-charge pool) renders the pure cooldown-sweep grammar; pooled weapons
+   * render segmented ammo + a reload line. The PRIMED slot is outlined amber
+   * (gun when nothing is primed); an ABILITY chip borrows that SAME
+   * primed-amber outline while its window is active — interim vocabulary, the
+   * full hotbar grammar is Epic 2 Story 2.2. `deniedFlash` briefly reddens the
+   * primed chip (denied fire click); `abilityFlash` reddens the ability chip
+   * (a predicted-denied activation press). Denominators are the EFFECTIVE pool
+   * sizes/reloads from status.stats via equipmentMaxAmmo/equipmentReloadMs.
    */
-  private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean): void {
-    const cw = (BAR_W - 2 * CHIP_GAP) / CHIP_EQUIPMENT.length;
-    for (let i = 0; i < CHIP_EQUIPMENT.length; i++) {
-      const id = CHIP_EQUIPMENT[i];
-      const cx = x + i * (cw + CHIP_GAP);
-      const primed = i === status.primedSlot;
-      const a = status.ammo[i] ?? { n: 0, reloadMsLeft: 0 };
-      const reloadFrac = reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, id));
-      g.rect(cx, y, cw, CHIP_H).fill({ color: 0x111111, alpha: 0.8 });
-      if (i === SLOT_GUN) this.drawCooldownChip(g, a.n > 0, reloadFrac, cx, y, cw);
-      else this.drawAmmoChip(g, { n: a.n, max: equipmentMaxAmmo(status.stats, id), reloadFrac }, cx, y, cw);
-      this.drawChip(g, this.chipLabels[i], cx, y, cw, primed, primed && deniedFlash);
+  private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean, abilityFlash: boolean): void {
+    const fitted: number[] = [];
+    for (let i = 0; i < status.loadout.length; i++) {
+      if (status.loadout[i] !== null) fitted.push(i);
     }
+    const cw = (BAR_W - (fitted.length - 1) * CHIP_GAP) / fitted.length;
+    for (let k = 0; k < fitted.length; k++) {
+      this.drawOneChip(g, status, fitted[k], k, x + k * (cw + CHIP_GAP), y, cw, deniedFlash, abilityFlash);
+    }
+    for (let k = fitted.length; k < this.chipLabels.length; k++) this.chipLabels[k].visible = false;
+  }
+
+  /** One fitted slot's chip: fill grammar + tinted border + (diffed) label. */
+  private drawOneChip(g: Graphics, status: OwnStatus, slot: number, k: number, cx: number, y: number, cw: number, deniedFlash: boolean, abilityFlash: boolean): void {
+    const id = status.loadout[slot] as EquipmentId; // caller iterates fitted slots only
+    const isAbility = !EQUIPMENT_IS_WEAPON[id];
+    const a = status.ammo[slot] ?? { n: 0, reloadMsLeft: 0 };
+    const reloadFrac = reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, id));
+    const max = equipmentMaxAmmo(status.stats, id);
+    g.rect(cx, y, cw, CHIP_H).fill({ color: 0x111111, alpha: 0.8 });
+    // 1-charge pools (gun, boost) read as a pure cooldown; pools as segments.
+    if (max === 1) this.drawCooldownChip(g, a.n > 0, reloadFrac, cx, y, cw);
+    else this.drawAmmoChip(g, { n: a.n, max, reloadFrac }, cx, y, cw);
+    const primed = slot === status.primedSlot;
+    // Active-window "on" indicator = the primed-amber outline (interim — Epic 2
+    // Story 2.2 owns the real hotbar active grammar).
+    const outlined = primed || (isAbility && status.boostActive);
+    const flash = isAbility ? abilityFlash : primed && deniedFlash;
+    const label = this.chipLabels[k];
+    const text = chipLabel(slot, id);
+    if (this.lastChipLabels[k] !== text) {
+      label.text = text;
+      this.lastChipLabels[k] = text;
+    }
+    label.visible = true;
+    this.drawChip(g, label, cx, y, cw, outlined, flash);
   }
 
   /**
@@ -554,7 +605,8 @@ export class Hud {
 
   /** Update all instruments (conning a live ship). Call each render frame.
    *  `deniedFlash` is true while the denied-fire pulse (render/deniedFire.ts)
-   *  is active — briefly reddens the selected weapon chip. */
+   *  is active — briefly reddens the selected weapon chip. `abilityFlash` is
+   *  its ability-press sibling (Story 1.6) — reddens the ability chip. */
   update(
     ship: ShipState,
     axes: Axes,
@@ -564,12 +616,16 @@ export class Hud {
     screenW: number,
     screenH: number,
     deniedFlash = false,
+    abilityFlash = false,
   ): void {
     this.setInstrumentsVisible(true);
     this.spectateBanner.visible = false;
     this.layout(screenH);
-    this.updateTelegraph(axes, ship.speed, status.stats.kinematics);
-    this.drawBars(status, screenW, screenH, deniedFlash);
+    // Speed-needle denominator: the BOOSTED cap while the boost window is
+    // active — via the one shared speed mutator, never a hand-tweaked maxSpeed.
+    const kin = boostedKinematics(status.stats.kinematics, status.stats.boost.speedBonus, status.boostActive);
+    this.updateTelegraph(axes, ship.speed, kin);
+    this.drawBars(status, screenW, screenH, deniedFlash, abilityFlash);
     this.updatePoints(status, screenW, screenH);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);

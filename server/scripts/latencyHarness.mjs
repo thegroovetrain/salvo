@@ -512,6 +512,10 @@ function buildInput(ctx) {
     // click (re-sent every tick, like the real input sampler). B pass: the
     // explicit no-claim sentinel on every single input.
     fireT: ctx.honest ? ctx.lastClickT : 0,
+    // Story 1.6 ability-activation fields: the harness never activates an
+    // ability, so it rides the inert sentinels on every input.
+    actSeq: 0,
+    actSlot: 0,
   };
 }
 

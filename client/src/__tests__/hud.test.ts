@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, boostedKinematics, effectiveStats, loadoutFor, zeroUpgrades } from '@salvo/shared';
 import {
+  chipLabel,
   hpColor,
   reloadFraction,
   detentIndexOf,
@@ -9,6 +10,8 @@ import {
   pointsLine,
   DETENT_LABELS,
 } from '../render/hud.js';
+import { abilityPressDenied } from '../sim/inputSampler.js';
+import { DeniedPulse } from '../render/deniedFire.js';
 
 const GREEN = 0x00ff88;
 const AMBER = 0xffb800;
@@ -99,5 +102,56 @@ describe('speedLadderFraction — ACTUAL speed on the [-1,1] telegraph axis', ()
     const BB = CONFIG.shipClasses.battleship.kinematics;
     // At the same absolute speed the battleship reads a HIGHER fraction (smaller max).
     expect(speedLadderFraction(20, BB)).toBeGreaterThan(speedLadderFraction(20, KIN));
+  });
+});
+
+// --- Story 1.6: loadout-driven chip labels + boost HUD grammar ---
+
+describe('chipLabel — the LOADOUT-driven chip row', () => {
+  /** The chip labels a hull's loadout produces, in slot order (empty slots skipped). */
+  function labelsFor(cls: 'torpedoBoat' | 'battleship' | 'mineLayer'): string[] {
+    const stats = effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades());
+    return loadoutFor(cls, stats)
+      .map((slot, i) => (slot.equipmentId === null ? null : chipLabel(i, slot.equipmentId)))
+      .filter((t): t is string => t !== null);
+  }
+
+  it('TB shows BOOST in slot 2; BB/ML keep MINE (labels come from the loadout, not a hardcoded trio)', () => {
+    expect(labelsFor('torpedoBoat')).toEqual(['1 GUNS', '2 TORP', '3 BOOST']);
+    expect(labelsFor('battleship')).toEqual(['1 GUNS', '2 TORP', '3 MINE']);
+    expect(labelsFor('mineLayer')).toEqual(['1 GUNS', '2 TORP', '3 MINE']);
+  });
+});
+
+describe('speed needle under boost — the denominator is the boosted cap while active', () => {
+  const KIN = CONFIG.shipClasses.torpedoBoat.kinematics;
+  const BONUS = CONFIG.speedBoost.speedBonus;
+
+  it('at base max speed the boosted ladder reads below full; the boosted cap reads full', () => {
+    const boosted = boostedKinematics(KIN, BONUS, true);
+    expect(speedLadderFraction(KIN.maxSpeed, boosted)).toBeCloseTo(KIN.maxSpeed / (KIN.maxSpeed + BONUS), 9);
+    expect(speedLadderFraction(KIN.maxSpeed + BONUS, boosted)).toBe(1);
+  });
+
+  it('inactive boost leaves the ladder denominators untouched (same kin object)', () => {
+    expect(boostedKinematics(KIN, BONUS, false)).toBe(KIN);
+    expect(speedLadderFraction(KIN.maxSpeed, boostedKinematics(KIN, BONUS, false))).toBe(1);
+  });
+});
+
+describe('ability denied feedback — a cooling press drives the EXISTING pulse grammar', () => {
+  it('a press while the boost is cooling (or while dead) predicts denied and pulses; never silence', () => {
+    expect(abilityPressDenied(true, false)).toBe(true); // cooling: charge consumed
+    expect(abilityPressDenied(false, true)).toBe(true); // dead
+    // The denied press feeds the same rate-limited DeniedPulse vocabulary the
+    // weapon click uses (80ms flash / 300ms floor — render/deniedFire.ts).
+    const pulse = new DeniedPulse();
+    expect(pulse.update(true, 1000)).toBe(true); // flash on
+    expect(pulse.update(false, 1050)).toBe(true); // still inside the 80ms window
+    expect(pulse.update(false, 1100)).toBe(false); // pulse over
+  });
+
+  it('a ready press is not denied (it opens the optimistic window instead)', () => {
+    expect(abilityPressDenied(true, true)).toBe(false);
   });
 });

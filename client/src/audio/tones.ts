@@ -75,14 +75,19 @@ export function telegraphTone(dir: number): ToneId {
   return dir > 0 ? 'telegraphUp' : 'telegraphDown';
 }
 
-const FIRE_TONE: Record<EquipmentId, ToneId> = {
+/** Equipment that FIRES: the weapon subset of EquipmentId. The speedBoost
+ *  ability (EQUIPMENT_IS_WEAPON false) never fires and has no own-fire cue,
+ *  so it is excluded at the type level — an ability id can't reach fireTone. */
+type FiringEquipmentId = Exclude<EquipmentId, 'speedBoost'>;
+
+const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   gun: 'fireGun',
   torpedo: 'fireTorp',
   mine: 'fireMine',
 };
 
-/** Pure: which tone a piece of equipment's own-fire cue plays. */
-export function fireTone(id: EquipmentId): ToneId {
+/** Pure: which tone a weapon's own-fire cue plays. */
+export function fireTone(id: FiringEquipmentId): ToneId {
   return FIRE_TONE[id];
 }
 

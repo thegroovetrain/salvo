@@ -19,6 +19,8 @@ export interface Aiming {
   aimDist: number; // u — own ship → cursor world distance
   slot: number; // primed loadout slot (0 = gun) — the click's wire slot
   fireT: number; // ms — server-clock estimate at the last click (mouse.lastClickT); 0 = no claim
+  actSeq: number; // cumulative ability-activation counter (keyboard.actSeq); 0 = never
+  actSlot: number; // loadout slot of the latest ability activation (0 sentinel)
 }
 
 /**
@@ -49,6 +51,19 @@ export function shouldConsumePrime(
   return alive && primeFireable(primedSlot, loaded, inArc);
 }
 
+/**
+ * Pure: does an ability-activation keypress predict as DENIED (Story 1.6)?
+ * Denied when the own ship is dead or the ability slot has no charge (cooling)
+ * — mirroring the server's sinking gate + charge consume. There is NO arc
+ * component: an ability is not aimed, so a denied press drives ONLY the
+ * denied-pulse chip feedback (never the weapon-arc/reticle denied visuals).
+ * FEEDBACK ONLY — the press already advanced actSeq and still rides the next
+ * input either way; the server stays the sole authority on activation.
+ */
+export function abilityPressDenied(alive: boolean, loaded: boolean): boolean {
+  return !alive || !loaded;
+}
+
 /** Pure: build the wire input for one tick. Exported for tests. */
 export function buildInput(seq: number, axes: Axes, aiming: Aiming): InputMsg {
   return {
@@ -60,13 +75,15 @@ export function buildInput(seq: number, axes: Axes, aiming: Aiming): InputMsg {
     aimDist: aiming.aimDist,
     slot: aiming.slot,
     fireT: aiming.fireT,
+    actSeq: aiming.actSeq,
+    actSlot: aiming.actSlot,
   };
 }
 
 /** Sends one input per sim tick over the given transport with monotonic seq. */
 export class InputSampler {
   private seq = 0;
-  private lastAiming: Aiming = { aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0 };
+  private lastAiming: Aiming = { aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0 };
 
   constructor(private readonly send: (type: string, msg: InputMsg) => void) {}
 
@@ -100,15 +117,30 @@ export class InputSampler {
    * most one tick old. Guarded with max() so the wire counter never regresses.
    * `currentFireT` is the mouse's live click timestamp at hide time, paired
    * with `currentFireSeq` so a gap-click carries its honest fire instant (D1);
-   * falls back to the last-sampled aiming's fireT when omitted. Keeps the last
-   * aim bearing / aim distance / primed slot and a monotonic seq shared with
-   * sample(), so it slots into local prediction exactly like a regular tick.
+   * falls back to the last-sampled aiming's fireT when omitted. The ability
+   * counters mirror fireSeq's treatment exactly (Story 1.6): `currentActSeq` /
+   * `currentActSlot` are the keyboard's live values at hide time, so an
+   * ability press landing in the ≤1-tick gap since the last sample activates
+   * NOW instead of on refocus; the max() guard keeps the wire counter
+   * monotonic, and `actSlot` only adopts the live slot when the live counter
+   * is genuinely newer. Keeps the last aim bearing / aim distance / primed
+   * slot and a monotonic seq shared with sample(), so it slots into local
+   * prediction exactly like a regular tick.
    */
-  sendNeutralNow(throttle: number, currentFireSeq?: number, currentFireT?: number): InputMsg {
+  sendNeutralNow(
+    throttle: number,
+    currentFireSeq?: number,
+    currentFireT?: number,
+    currentActSeq?: number,
+    currentActSlot?: number,
+  ): InputMsg {
     this.seq += 1;
     const fireSeq = Math.max(this.lastAiming.fireSeq, currentFireSeq ?? 0);
     const fireT = currentFireT ?? this.lastAiming.fireT;
-    this.lastAiming = { ...this.lastAiming, fireSeq, fireT };
+    const live = (currentActSeq ?? 0) > this.lastAiming.actSeq; // a gap-press since the last sample
+    const actSeq = live ? (currentActSeq ?? 0) : this.lastAiming.actSeq;
+    const actSlot = live ? (currentActSlot ?? this.lastAiming.actSlot) : this.lastAiming.actSlot;
+    this.lastAiming = { ...this.lastAiming, fireSeq, fireT, actSeq, actSlot };
     const msg = buildInput(this.seq, { throttle, rudder: 0 }, this.lastAiming);
     this.send(MSG.input, msg);
     return msg;

@@ -6,18 +6,22 @@
 // blips later) reads it, so there is exactly one clock.
 //
 // Step order (per plan): inputs -> ships -> boundary -> [islands -> shells ->
-// fire control -> radar paint: later steps, seams marked below] -> sweep
-// advance -> respawns.
+// fire control -> ability activation -> radar paint: later steps, seams marked
+// below] -> sweep advance -> respawns. Ability activation (Story 1.6) sits with
+// fire control — both consume this tick's stored input intent (fireSeq clicks /
+// actSeq presses) through the single sinking-activation gate.
 
 import {
   CONFIG,
+  EQUIPMENT_IS_WEAPON,
   HEAL_CHOICE,
   UPGRADE_IDS,
+  boostedKinematics,
   burstVictims,
-  defaultLoadout,
   effectiveStats,
   equipmentMaxAmmo,
   generateMap,
+  loadoutFor,
   hullEnvelope,
   hullSilhouette,
   mulberry32,
@@ -129,6 +133,24 @@ export interface ShipRecord {
    * reset would make it read as a fresh click (a phantom shot).
    */
   lastFireSeq: number;
+  /**
+   * Highest InputMsg.actSeq the ability-activation control has consumed (the
+   * actSeq sibling of lastFireSeq). A stored value newer than this is one
+   * pending activation; consumption happens EVERY tick (even dead or inert), so
+   * a press is never queued. Like lastFireSeq it is deliberately NOT reset on
+   * respawn/redeploy — the live input still carries the old counter, and a reset
+   * would make it read as a fresh press (a phantom boost activation on the tick
+   * after respawn). Initialized to 0 in addShip only.
+   */
+  lastActSeq: number;
+  /**
+   * ms — server-clock time the active speed-boost window ends (Story 1.6);
+   * 0 = inactive. Written ONLY by the speedBoost Equipment row's activate();
+   * read by stepShips (now < boostUntil => boosted kinematics cap) and mirrored
+   * onto OwnShip.boostUntil (owner-only) by frames.ts. RESET to 0 on spawn/
+   * respawn/redeploy so a fresh life never inherits a still-open window.
+   */
+  boostUntil: number;
   /**
    * ms — windowed-min measured RTT for this client (pushed by the room's ping
    * loop via World.setRtt), or null when never measured. Null => the D1 fire-
@@ -298,13 +320,17 @@ export class World {
       input: neutralInput(),
       lastAckSeq: 0,
       lastFireSeq: 0,
+      lastActSeq: 0,
+      boostUntil: 0,
       rttMs: null,
       lastFireT: 0,
       respawnAt: 0,
       sweepAngle: 0,
       prevSweepAngle: 0,
       seenBallistics: new Set(),
-      loadout: defaultLoadout(stats),
+      // Per-hull loadout (Story 1.6): the Torpedo Boat fits speedBoost in slot 2,
+      // every other hull id (classes + drones) keeps the universal weapon fit.
+      loadout: loadoutFor(hullId, stats),
       kills: 0,
       deaths: 0,
       damageDealt: 0,
@@ -356,10 +382,13 @@ export class World {
     ship.hp = ship.stats.maxHp;
     ship.alive = true;
     ship.respawnAt = 0;
-    // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
-    // (the stored input's fireSeq would read as a fresh click on this tick).
+    // A fresh life never inherits an open boost window.
+    ship.boostUntil = 0;
+    // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a
+    // phantom shot / phantom boost (the stored input's fireSeq/actSeq would read
+    // as a fresh click/press on this tick).
     ship.seenBallistics.clear();
-    ship.loadout = defaultLoadout(ship.stats);
+    ship.loadout = loadoutFor(ship.hullId, ship.stats);
     ship.kills = 0;
     ship.deaths = 0;
     ship.damageDealt = 0;
@@ -514,6 +543,10 @@ export class World {
     this.stepShells(dt, hulls);
     this.stepMines(hulls);
     this.fireControl(dtMs);
+    // Ability activation (Story 1.6): the actSeq sibling of fireControl, resolved
+    // in the same step-order position — both turn this tick's stored input intent
+    // into activations through the single sinking gate.
+    this.activationControl();
     // Radar: the sweep advances here; the per-observer paint (blips) happens
     // at frame-build time in perception.ts using [prevSweepAngle, sweepAngle).
     this.advanceSweeps(dtMs);
@@ -547,7 +580,13 @@ export class World {
       p.x = ship.state.x;
       p.y = ship.state.y;
       p.heading = ship.state.heading;
-      stepShip(ship.state, ship.input, ship.stats.kinematics, dt);
+      // THE one place boost enters kinematics (Story 1.6): while the window is
+      // open (now < boostUntil) the shared helper raises the forward maxSpeed cap
+      // by stats.boost.speedBonus; the hull accelerates toward it at class accel
+      // and decays back at class decel on expiry. Client prediction/replay call
+      // the identical helper, so a boosting hull stays in lockstep.
+      const kin = boostedKinematics(ship.stats.kinematics, ship.stats.boost.speedBonus, this.now < ship.boostUntil);
+      stepShip(ship.state, ship.input, kin, dt);
     }
   }
 
@@ -748,6 +787,31 @@ export class World {
   }
 
   /**
+   * Ability-activation control (Story 1.6) — the actSeq sibling of fireControl,
+   * same monotonic grammar. A stored actSeq newer than lastActSeq is ONE pending
+   * activation; lastActSeq advances EVERY tick (even dead or inert, exactly like
+   * lastFireSeq), so a stale counter never re-reads as a fresh press. It targets
+   * ABILITIES ONLY: the slot named by input.actSlot activates through the single
+   * sinking gate iff it holds non-weapon equipment (EQUIPMENT_IS_WEAPON[id] ===
+   * false). A weapon or empty/out-of-range slot is silently inert — weapons fire
+   * via fireSeq + a click, never actSeq, so the two counters never race within a
+   * tick. Ability activation is NOT latency-compensated: the gate runs at `now`
+   * (the default fireT), so the boost window opens at server apply time.
+   */
+  private activationControl(): void {
+    for (const ship of this.ships.values()) {
+      const activated = ship.input.actSeq > ship.lastActSeq;
+      ship.lastActSeq = Math.max(ship.lastActSeq, ship.input.actSeq);
+      if (!ship.alive || !activated) continue;
+      const slot = ship.loadout[ship.input.actSlot];
+      // actSeq targets abilities only: a weapon or empty slot is a no-op (no
+      // state change), so a forged actSeq on a gun/torpedo slot fires nothing.
+      if (!slot || slot.equipmentId === null || EQUIPMENT_IS_WEAPON[slot.equipmentId]) continue;
+      this.sinkingActivationGate(ship, ship.input.actSlot);
+    }
+  }
+
+  /**
    * THE sinking-activation gate — the ONLY call path to Equipment.activate()
    * anywhere. Takes the SELECTED slot INDEX and resolves the slot on THIS
    * ship internally, so a caller can never hand it ship A plus ship B's slot
@@ -918,9 +982,12 @@ export class World {
     ship.hp = ship.stats.maxHp;
     ship.alive = true;
     ship.respawnAt = 0;
-    // lastFireSeq is deliberately NOT reset — a reset fires a phantom shot
-    // (the stored input's fireSeq would read as a fresh click on this tick).
-    ship.loadout = defaultLoadout(ship.stats);
+    // A fresh life never inherits an open boost window.
+    ship.boostUntil = 0;
+    // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a
+    // phantom shot / phantom boost (the stored input's fireSeq/actSeq would read
+    // as a fresh click/press on this tick).
+    ship.loadout = loadoutFor(ship.hullId, ship.stats);
     this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
   }
 }

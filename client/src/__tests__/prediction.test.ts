@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  boostedKinematics,
   hullSilhouette,
   resolveShipPose,
   stepShip,
@@ -24,8 +25,8 @@ const MAP_R = 900;
 const TB = CONFIG.shipClasses.torpedoBoat;
 const TB_POLY = hullSilhouette('torpedoBoat');
 
-function input(seq: number, throttle = 1, rudder = 0): InputMsg {
-  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 };
+function input(seq: number, throttle = 1, rudder = 0, actSeq = 0): InputMsg {
+  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq, actSlot: actSeq > 0 ? 2 : 0 };
 }
 
 function kin(s: ShipState) {
@@ -333,5 +334,120 @@ describe('Predictor lifecycle', () => {
     p.forceSnap();
     expect(p.isInitialized).toBe(false);
     expect(p.pendingCount).toBe(0);
+  });
+});
+
+// --- Story 1.6: speed boost — per-tick parity with the server's boostedKinematics gate ---
+
+describe('Predictor speed boost (Story 1.6)', () => {
+  const BOOST = CONFIG.speedBoost;
+  const T0 = 500_000; // arbitrary server-clock anchor (ms)
+  const tickT = (seq: number): number => T0 + seq * CONFIG.tick.simDtMs;
+
+  /** Reference server tick: the IDENTICAL per-tick rule world.stepShips applies —
+   *  boostedKinematics(kin, bonus, now < boostUntil), the one shared speed mutator. */
+  function serverBoostStep(s: ShipState, inp: InputMsg, t: number, boostUntil: number): void {
+    stepShip(s, inp, boostedKinematics(TB.kinematics, BOOST.speedBonus, t < boostUntil), DT);
+  }
+
+  it('raises the cap for exactly the in-window ticks; replay across lagged reconciles (incl. expiry mid-replay) matches an uninterrupted sim; expiry decays at class decel', () => {
+    // Window opens at T0 (the first frame already carries boostUntil), so every
+    // tick with t < boostUntil steps boosted; expiry falls mid-run and the
+    // lagged acks force the expiry edge THROUGH replayFrom repeatedly.
+    const boostUntil = T0 + BOOST.durationMs;
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed }; // cruising at base cap
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }]; // server state after applying seq i
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), boostUntil }, 0);
+
+    const expirySeq = BOOST.durationMs / CONFIG.tick.simDtMs; // first tick at t === boostUntil (unboosted)
+    let peak = 0;
+    const total = expirySeq + 40; // window + 2s of decay
+    for (let seq = 1; seq <= total; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverBoostStep(server, inp, tickT(seq), boostUntil);
+      history[seq] = { ...server };
+      peak = Math.max(peak, server.speed);
+      if (seq % 3 === 0 && seq > 4) {
+        // Ack lags 4 ticks: replayFrom must re-make the per-tick boost
+        // decisions (including the expiry edge) from each tick's OWN time.
+        p.onServerState({ ...kin(history[seq - 4]), boostUntil }, seq - 4);
+        expect(p.visualErrorMagnitude).toBeLessThan(1e-9);
+      }
+      if (seq === expirySeq) {
+        // The first tick at t === boostUntil is already OUT of the window
+        // (strict t < boostUntil): the cap is base again and the hull sheds
+        // speed at the CLASS decel (stepShip's own braking — no special decay).
+        const expected = TB.kinematics.maxSpeed + BOOST.speedBonus - TB.kinematics.decel * DT;
+        expect(p.predicted.speed).toBeCloseTo(expected, 9);
+      }
+    }
+    expect(peak).toBeCloseTo(TB.kinematics.maxSpeed + BOOST.speedBonus, 6); // the boosted cap was reached
+    expect(p.predicted.speed).toBeCloseTo(TB.kinematics.maxSpeed, 6); // and decayed back to base
+    expect(p.predicted.x).toBeCloseTo(server.x, 9); // full-run positional parity
+  });
+
+  it('an optimistic activation press boosts from the press tick onward, and the authoritative window takes over seamlessly on ack', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0.3, speed: 20 };
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }];
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState(kin(spawn), 0); // no boostUntil — inactive
+
+    // 10 plain ticks before the press (actSeq 0).
+    for (let seq = 1; seq <= 10; seq++) {
+      const inp = input(seq, 1, 0.2);
+      p.localTick(inp, tickT(seq));
+      serverBoostStep(server, inp, tickT(seq), 0);
+      history[seq] = { ...server };
+    }
+
+    // The press lands between ticks 10 and 11 (predicted-ready): the client
+    // opens the optimistic window at its server-clock estimate; in this
+    // scripted run the server consumes the actSeq advance at the same instant.
+    const pressT = tickT(10);
+    const boostUntil = pressT + BOOST.durationMs;
+    p.predictBoostActivation(pressT, 1);
+    for (let seq = 11; seq <= 60; seq++) {
+      const inp = input(seq, 1, 0.2, 1); // carries actSeq 1 from the press on
+      p.localTick(inp, tickT(seq));
+      serverBoostStep(server, inp, tickT(seq), boostUntil);
+      history[seq] = { ...server };
+    }
+
+    // Reconcile with an ack BEFORE the press input: the frame honestly says
+    // boostUntil 0, but the optimistic window must keep replayed ticks 11+
+    // boosted — and tick 10 (sampled before the press, actSeq 0) unboosted.
+    p.onServerState({ ...kin(history[9]), boostUntil: 0 }, 9);
+    expect(p.visualErrorMagnitude).toBeLessThan(1e-9);
+    expect(p.boostUntilEstimate).toBe(boostUntil); // still the optimistic estimate
+
+    // Ack PAST the press: the optimistic estimate is dropped and the
+    // authoritative you.boostUntil governs — replay stays byte-identical.
+    p.onServerState({ ...kin(history[20]), boostUntil }, 20);
+    expect(p.visualErrorMagnitude).toBeLessThan(1e-9);
+    expect(p.boostUntilEstimate).toBe(boostUntil); // now the authoritative value
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+    expect(p.predicted.speed).toBeGreaterThan(TB.kinematics.maxSpeed); // genuinely boosted
+  });
+
+  it('a denied press (server never activates) reconciles back to unboosted truth through the normal error path', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const server: ShipState = { ...spawn };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState(kin(spawn), 0);
+    p.predictBoostActivation(tickT(0), 1); // optimistic — but the server will deny (e.g. cooling)
+    for (let seq = 1; seq <= 20; seq++) {
+      const inp = input(seq, 1, 0, 1);
+      p.localTick(inp, tickT(seq)); // locally boosted (optimistic)
+      serverBoostStep(server, inp, tickT(seq), 0); // server: never activated
+    }
+    // The ack covers the press: optimistic drops, auth stays 0, and the replay
+    // folds the over-predicted speed into the standard reconcile machinery.
+    p.onServerState(kin(server), 20);
+    expect(p.boostUntilEstimate).toBe(0);
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9); // truth adopted immediately
   });
 });

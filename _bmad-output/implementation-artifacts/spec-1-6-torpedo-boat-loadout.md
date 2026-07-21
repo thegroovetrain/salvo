@@ -69,7 +69,7 @@ warnings: [multiple-goals, oversized]
 - `shared/src/sim/boost.ts` -- NEW pure helper `boostedKinematics(kin, bonus, active): ShipConfig` (forward maxSpeed only) — THE shared hook both sides call.
 - `shared/src/sim/stats.ts` -- `EffectiveStats.boost: EffectiveBoost` pass-through from `CONFIG.speedBoost` (no upgrade touches it).
 - `server/src/game/equipment/boost.ts` -- NEW row: `isWeapon: false`, `tick` = shared reload machinery, `activate` = consume + `ctx.ship.boostUntil = ctx.now + durationMs` (ignores `ctx.fireT`). Register in `equipment/index.ts` (`EQUIPMENT` record forces it).
-- `server/src/game/world.ts` -- `ShipRecord.boostUntil`/`lastActSeq` (reset on spawn/respawn/redeploy); ability-activation control beside `fireControl` (monotonic actSeq gate → sinking gate → `isWeapon:false` check → activate); `stepShips` feeds `boostedKinematics(ship.stats.kinematics, …, now < ship.boostUntil)`; loadout builds via `loadoutFor`.
+- `server/src/game/world.ts` -- `ShipRecord.boostUntil` (reset on spawn/respawn/redeploy) + `lastActSeq` (initialized at addShip, PRESERVED across respawn/redeploy — resetting it would fire a phantom boost from the still-stored input; mirrors the deliberate lastFireSeq precedent; adjudicated during implementation); ability-activation control beside `fireControl` (monotonic actSeq gate → sinking gate → `isWeapon:false` check → activate); `stepShips` feeds `boostedKinematics(ship.stats.kinematics, …, now < ship.boostUntil)`; loadout builds via `loadoutFor`.
 - `server/src/game/inputs.ts` -- sanitize `actSeq` (finite int ≥ 0) + `actSlot` (`isSlotIndex`); `neutralInput` gains both.
 - `server/src/game/frames.ts` -- `toOwnShip` += `boostUntil`.
 - `server/src/game/drones.ts:129` -- `buildInput` += `actSeq: 0, actSlot: 0`.
@@ -85,10 +85,10 @@ warnings: [multiple-goals, oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/` (constants, types, index, sim/loadout, sim/boost, sim/stats) -- rescale + speedBoost config/equipment-id/is-weapon map + per-hull loadout + shared boost hook + PV7 -- the deterministic spine both sides share, unit-tested (incl. deliberate class-table update).
-- [ ] `server/src/game/` (equipment/boost + index, world, inputs, frames, drones) + `server/scripts/*.mjs` -- activation control, boosted stepShips, owner-only boostUntil, sanitize, smoke re-keys -- authoritative boost complete against the full I/O matrix, goldenFrames regenerated deliberately.
-- [ ] `client/src/` (input/keyboard, sim/inputSampler, sim/prediction, main, net/roomBindings, render/hud) -- instant activation, actSeq threading, boost-aware prediction/replay, loadout-driven HUD chips + denied feedback -- prediction parity and explicit feedback end-to-end.
-- [ ] Test sweep -- suites in Code Map + `npm run check` green.
+- [x] `shared/src/` (constants, types, index, sim/loadout, sim/boost, sim/stats) -- rescale + speedBoost config/equipment-id/is-weapon map + per-hull loadout + shared boost hook + PV7 -- the deterministic spine both sides share, unit-tested (incl. deliberate class-table update).
+- [x] `server/src/game/` (equipment/boost + index, world, inputs, frames, drones) + `server/scripts/*.mjs` -- activation control, boosted stepShips, owner-only boostUntil, sanitize, smoke re-keys -- authoritative boost complete against the full I/O matrix, goldenFrames regenerated deliberately.
+- [x] `client/src/` (input/keyboard, sim/inputSampler, sim/prediction, main, net/roomBindings, render/hud) -- instant activation, actSeq threading, boost-aware prediction/replay, loadout-driven HUD chips + denied feedback -- prediction parity and explicit feedback end-to-end.
+- [x] Test sweep -- suites in Code Map + `npm run check` green.
 - [ ] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- `1-6-torpedo-boat-loadout` status transition at completion.
 
 **Acceptance Criteria:**

@@ -42,7 +42,7 @@ function bareWorld(seed = 3): World {
 function torpShip(w: World, id: string, x: number, y: number, heading: number): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase());
   rec.state = { x, y, heading, speed: 0 };
-  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0 };
+  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0 };
   rec.input = input;
   return rec;
 }
@@ -223,9 +223,9 @@ describe('mines — per-player cap despawns the oldest', () => {
 describe('World — mine drop + trigger end-to-end', () => {
   it('a dropped mine arms, then sinks an enemy that sails onto it', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A');
+    const a = w.addShip('a', 'A', false, 'mineLayer'); // mine at slot 2 (TB fits speedBoost there, Story 1.6)
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_MINE, fireT: 0 };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0 };
     w.step(); // drops one mine astern of a (behind -x)
     expect(w.mines.size).toBe(1);
     const mine = [...w.mines.values()][0];
@@ -245,7 +245,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0 });
     let torps = 0;
     for (let i = 0; i < 20; i++) {
       w.step();
@@ -256,14 +256,14 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
 
   it('one click drops exactly one mine, even applied past the drop cooldown; a second click drops another', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A');
+    const a = w.addShip('a', 'A', false, 'mineLayer'); // mine at slot 2 (TB fits speedBoost there, Story 1.6)
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_MINE, fireT: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0 });
     // Under hold-to-fire this input would re-drop every reload; a click must not.
     const ticks = CONFIG.mine.reloadMs / CONFIG.tick.simDtMs + 20;
     for (let i = 0; i < ticks; i++) w.step();
     expect(w.mines.size).toBe(1);
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: SLOT_MINE, fireT: 0 });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0 });
     w.step();
     expect(w.mines.size).toBe(2);
   });
@@ -292,7 +292,7 @@ describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
     const ship = w.addShip('a', 'A');
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
     expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 });
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, slot: SLOT_GUN, fireT: 0 };
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0 };
     w.step(); // one click -> one shell, pool 1 -> 0, the 3s cooldown starts
     expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: CONFIG.gun.maxAmmo - 1, reloadMsLeft: CONFIG.gun.reloadMs });
   });

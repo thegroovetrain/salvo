@@ -19,6 +19,7 @@ import type { ShipRecord } from '../world.js';
 import { gunEquipment } from './guns.js';
 import { torpedoEquipment } from './torpedoes.js';
 import { mineEquipment } from './mines.js';
+import { boostEquipment } from './boost.js';
 
 /**
  * The exact capabilities equipment needs from the World to activate — no more
@@ -92,6 +93,7 @@ export const EQUIPMENT: Readonly<Record<EquipmentId, Equipment>> = deepFreezeRow
   gun: gunEquipment,
   torpedo: torpedoEquipment,
   mine: mineEquipment,
+  speedBoost: boostEquipment, // Story 1.6: the first non-weapon (ability) row
 });
 
 /**
@@ -108,6 +110,7 @@ export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
 }
 
 export { freshAmmo, tickReload, consume } from './ammo.js';
+export { boostEquipment } from './boost.js';
 export { gunEquipment } from './guns.js';
 export { torpedoEquipment, fireTorpedo } from './torpedoes.js';
 export {

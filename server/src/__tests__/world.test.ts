@@ -13,6 +13,8 @@ const input = (seq: number, throttle = 1, rudder = 0, extra = {}) => ({
   aimDist: 0,
   slot: 0,
   fireT: 0,
+  actSeq: 0,
+  actSlot: 0,
   ...extra,
 });
 

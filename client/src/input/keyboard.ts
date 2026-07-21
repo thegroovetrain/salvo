@@ -19,7 +19,7 @@
 // W/S so spectator free-pan can read all four WASD directions (panAxesFrom);
 // driving reads throttle from the telegraph + rudder from the held set.
 
-import { SLOT_GUN } from '@salvo/shared';
+import { EQUIPMENT_IS_WEAPON, SLOT_GUN, type EquipmentId } from '@salvo/shared';
 import {
   Telegraph,
   stepFromKey,
@@ -119,6 +119,20 @@ export function primeSlotFromKey(code: string): number | null {
 }
 
 /**
+ * Pure: does `slot` of the own loadout hold instant-activation ABILITY
+ * equipment (`EQUIPMENT_IS_WEAPON[id] === false` — the TB's speedBoost)?
+ * Weapons and empty/out-of-range slots return false (they prime / do nothing,
+ * exactly as today). The single weapon/ability split source is the shared map;
+ * main.ts closes this over the own loadout (loadoutFor(you.cls)) for the
+ * KeyboardInput predicate — Story 1.6's minimal control extension (Epic 2
+ * owns the Q/E/R/F rebinding).
+ */
+export function slotHoldsAbility(slotIds: readonly (EquipmentId | null)[], slot: number): boolean {
+  const id = slotIds[slot] ?? null;
+  return id !== null && !EQUIPMENT_IS_WEAPON[id];
+}
+
+/**
  * Pure: the primed slot after a number key addressing `keySlot` is pressed,
  * given the `current` primed slot. Pressing 1 (gun) or the SAME key that is
  * already primed reverts to the gun (slot 0); any other slot key primes that
@@ -137,6 +151,12 @@ export class KeyboardInput {
    *  clearKeys like the old weapon latch did. main.ts reverts it to gun on a
    *  predicted-fireable click (revertToGun). */
   private primed = SLOT_GUN;
+  /** Cumulative ability-activation counter (InputMsg.actSeq): 0 = never pressed.
+   *  Monotonic and NEVER reset — the wire counter's whole meaning is "how many
+   *  activation presses ever", mirroring mouse.clickCount for fireSeq. */
+  private actCount = 0;
+  /** Loadout slot of the most recent ability activation (InputMsg.actSlot; 0 sentinel). */
+  private lastActSlot = 0;
   /** Control is currently physically held (set on non-repeat keydown, cleared on keyup/blur). */
   private ctrlHeld = false;
   /**
@@ -156,10 +176,19 @@ export class KeyboardInput {
    *   `toggle` fires on Control's keyUp, and only if no chord fired during
    *   that hold — see handleControlUp(). main.ts routes it to the upgrade
    *   menu + spend.
+   * @param isAbilitySlot Predicate: does this loadout slot hold ability
+   *   (non-weapon) equipment on the OWN ship? main.ts closes it over the own
+   *   loadout (slotHoldsAbility). When true, the slot's number key ACTIVATES
+   *   instead of priming (Story 1.6).
+   * @param onAbility Called on each genuine ability-activation press edge
+   *   (after actSeq has advanced) — main.ts predicts the verdict for feedback
+   *   (denied pulse / optimistic boost window).
    */
   constructor(
     private readonly onDetent?: (dir: Step, changed: boolean) => void,
     private readonly onUpgradeKey?: (a: UpgradeAction) => void,
+    private readonly isAbilitySlot?: (slot: number) => boolean,
+    private readonly onAbility?: (slot: number) => void,
   ) {}
 
   /**
@@ -210,9 +239,39 @@ export class KeyboardInput {
       return;
     }
     this.keys.add(e.code);
-    const slot = primeSlotFromKey(e.code);
-    if (slot !== null) this.primed = nextPrimedSlot(this.primed, slot);
+    this.handleSlotKey(e);
   };
+
+  /** A number key addressing a loadout slot: ability slots ACTIVATE (Story 1.6),
+   *  weapon slots prime exactly as before. */
+  private handleSlotKey(e: KeyboardEvent): void {
+    const slot = primeSlotFromKey(e.code);
+    if (slot === null) return;
+    if (this.isAbilitySlot?.(slot) === true) {
+      // ABILITY slot: instant activation, NEVER a prime — the return here is
+      // what keeps priming/arc code structurally unreachable for ability slots
+      // (nextPrimedSlot below can never see this slot).
+      this.activateAbility(e, slot);
+      return;
+    }
+    this.primed = nextPrimedSlot(this.primed, slot);
+  }
+
+  /**
+   * One ability-activation keypress (Story 1.6 minimal control extension —
+   * Epic 2 owns the Q/E/R/F rebinding): advance the monotonic actSeq and
+   * record the slot, mirroring fireSeq's counter grammar. The SERVER decides —
+   * a press while cooling or dead still counts and still rides the next input;
+   * the onAbility callback only predicts the verdict for feedback. OS
+   * auto-repeat is filtered like every other edge-triggered key, so holding
+   * the key is one activation, not a stream.
+   */
+  private activateAbility(e: KeyboardEvent, slot: number): void {
+    if (e.repeat) return;
+    this.actCount += 1;
+    this.lastActSlot = slot;
+    this.onAbility?.(slot);
+  }
   private readonly onUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
     if (e.code === 'ControlLeft' || e.code === 'ControlRight') this.handleControlUp();
@@ -288,6 +347,20 @@ export class KeyboardInput {
    */
   get primedSlot(): number {
     return this.primed;
+  }
+
+  /**
+   * Cumulative ability-activation counter for the wire (InputMsg.actSeq).
+   * 0 = never pressed (the sentinel every non-ability driver keeps sending).
+   * Sampled by BOTH send paths (inputSampler sample + sendNeutralNow).
+   */
+  get actSeq(): number {
+    return this.actCount;
+  }
+
+  /** Loadout slot of the latest ability activation (InputMsg.actSlot; 0 sentinel). */
+  get actSlot(): number {
+    return this.lastActSlot;
   }
 
   /**

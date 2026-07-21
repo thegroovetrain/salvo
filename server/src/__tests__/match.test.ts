@@ -6,7 +6,7 @@
 // payload, and the post-results disconnect.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type ResultsMsg } from '@salvo/shared';
+import { CONFIG, type ResultsMsg, type ShipClassId } from '@salvo/shared';
 import { World } from '../game/world.js';
 import { Match, type MatchHooks } from '../game/match.js';
 
@@ -43,14 +43,17 @@ interface Ctx extends Recorder {
   m: Match;
 }
 
-/** Bare world (no islands) + match with fast timings; ships joined in order. */
-function setup(ids: string[]): Ctx {
+/** Bare world (no islands) + match with fast timings; ships joined in order.
+ *  `hull` picks the class for every joined ship — default torpedoBoat, but mine
+ *  tests pass 'mineLayer' so slot 2 fits a mine (the TB carries speedBoost there,
+ *  Story 1.6). */
+function setup(ids: string[], hull: ShipClassId = 'torpedoBoat'): Ctx {
   const w = new World(1);
   w.map.islands.length = 0;
   const rec = recorder();
   const m = new Match(w, TIMINGS, rec.hooks);
   for (const id of ids) {
-    w.addShip(id, id.toUpperCase());
+    w.addShip(id, id.toUpperCase(), false, hull);
     m.notifyRosterChanged();
   }
   return { w, m, ...rec };
@@ -92,7 +95,7 @@ function injectShell(ctx: Ctx, id: string, ownerId: string, x: number, y: number
 
 function fire(ctx: Ctx, id: string, slot: 0 | 1 | 2, seq: number): void {
   // seq doubles as the click counter: every call is one fresh click.
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot, fireT: 0 });
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot, fireT: 0, actSeq: 0, actSlot: 0 });
 }
 
 /** Step until this tick's events contain a boom (shell resolution is 1-4 ticks). */
@@ -123,7 +126,7 @@ describe('match — waiting phase (ready room)', () => {
   });
 
   it('allows mine drops (no phase lockout — resetForMatchStart clears the field at activation instead)', () => {
-    const ctx = setup(['a']);
+    const ctx = setup(['a'], 'mineLayer'); // mine at slot 2 (TB fits speedBoost there, Story 1.6)
     fire(ctx, 'a', 2, 1);
     step(ctx);
     expect(ctx.w.mines.size).toBe(1);
@@ -220,7 +223,7 @@ describe('match — countdown', () => {
 
 describe('match — active phase', () => {
   it('re-enables mine drops', () => {
-    const ctx = setup(['a', 'b']);
+    const ctx = setup(['a', 'b'], 'mineLayer'); // mine at slot 2 (TB fits speedBoost there, Story 1.6)
     activate(ctx);
     fire(ctx, 'a', 2, 1);
     step(ctx);

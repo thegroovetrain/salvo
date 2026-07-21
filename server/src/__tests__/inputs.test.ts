@@ -20,6 +20,8 @@ const valid = (seq = 1) => ({
   aimDist: 240,
   slot: 0,
   fireT: 850,
+  actSeq: 5,
+  actSlot: 2,
 });
 
 describe('sanitizeInput — validation table', () => {
@@ -66,6 +68,23 @@ describe('sanitizeInput — validation table', () => {
     ['-Infinity fireT', { ...valid(), fireT: -Infinity }],
     ['string fireT', { ...valid(), fireT: '850' }],
     ['negative fireT (whole message drops — the sanitize law)', { ...valid(), fireT: -1 }],
+    // Story 1.6 ability-activation fields: strict monotonic-counter + slot-index
+    // sanitize, whole message dropped on anything malformed.
+    ['missing actSeq', { ...valid(), actSeq: undefined }],
+    ['NaN actSeq', { ...valid(), actSeq: NaN }],
+    ['Infinity actSeq', { ...valid(), actSeq: Infinity }],
+    ['negative actSeq', { ...valid(), actSeq: -1 }],
+    ['fractional actSeq', { ...valid(), actSeq: 1.5 }],
+    ['string actSeq', { ...valid(), actSeq: '5' }],
+    ['boolean actSeq', { ...valid(), actSeq: true }],
+    ['missing actSlot', { ...valid(), actSlot: undefined }],
+    ['actSlot out of range (7)', { ...valid(), actSlot: 7 }],
+    ['actSlot just past the last index', { ...valid(), actSlot: 4 }],
+    ['negative actSlot', { ...valid(), actSlot: -1 }],
+    ['fractional actSlot', { ...valid(), actSlot: 1.5 }],
+    ['NaN actSlot', { ...valid(), actSlot: NaN }],
+    ['Infinity actSlot', { ...valid(), actSlot: Infinity }],
+    ['string actSlot', { ...valid(), actSlot: '1' }],
   ];
   it.each(rejects)('drops %s', (_label, raw) => {
     expect(sanitizeInput(raw, 0)).toBeNull();
@@ -109,6 +128,14 @@ describe('sanitizeInput — validation table', () => {
   it('accepts every in-range integer slot 0..SLOT_COUNT-1', () => {
     for (let slot = 0; slot < SLOT_COUNT; slot++) {
       expect(sanitizeInput({ ...valid(), slot }, 0)?.slot).toBe(slot);
+    }
+  });
+
+  it('accepts the actSeq sentinel (0) and positive counters verbatim; every in-range actSlot', () => {
+    expect(sanitizeInput({ ...valid(), actSeq: 0 }, 0)?.actSeq).toBe(0);
+    expect(sanitizeInput({ ...valid(), actSeq: 42 }, 0)?.actSeq).toBe(42);
+    for (let actSlot = 0; actSlot < SLOT_COUNT; actSlot++) {
+      expect(sanitizeInput({ ...valid(), actSlot }, 0)?.actSlot).toBe(actSlot);
     }
   });
 
@@ -253,7 +280,7 @@ describe('InputStore', () => {
   it('neutralInput is a fresh zeroed input (fireT 0 = the no-claim sentinel)', () => {
     const a = neutralInput();
     expect(a).toEqual({
-      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0,
+      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0,
     });
     expect(neutralInput()).not.toBe(a);
   });

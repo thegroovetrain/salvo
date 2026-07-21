@@ -9,6 +9,7 @@
 
 import {
   CONFIG,
+  EQUIPMENT_IS_WEAPON,
   hullSilhouette,
   pointPolygonDistance,
   transformPolygon,
@@ -132,7 +133,7 @@ export function hullFor(ship: ShipRecord): HullTarget {
  *  invariant (see index.ts). */
 export const mineEquipment: Equipment = {
   id: 'mine',
-  isWeapon: true,
+  isWeapon: EQUIPMENT_IS_WEAPON.mine, // shared weapon/ability split — single source
   tick(ship, slot, dtMs): void {
     tickReload(slot.state!, ship.stats.mine.maxAmmo, ship.stats.mine.reloadMs, dtMs);
   },

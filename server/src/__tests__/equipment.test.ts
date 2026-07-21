@@ -4,7 +4,7 @@
 // denial vocabulary derived without changing internal effects, empty-slot
 // safety, FR5 (a deselected slot still reloads every tick), the single dispatch
 // path (the sinking-activation gate is the ONLY caller of Equipment.activate),
-// and loadout init/respawn/redeploy parity with the shared defaultLoadout.
+// and loadout init/respawn/redeploy parity with the shared loadoutFor.
 //
 // Denials are driven through World.sinkingActivationGate — the public gate that
 // returns the ActivationResult (never a wire event), mirroring how the World is
@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve, join } from 'node:path';
 import {
   CONFIG,
+  EQUIPMENT_IS_WEAPON,
   SLOT_COUNT,
   SLOT_EXTRA,
   SLOT_GUN,
@@ -41,19 +42,23 @@ function bareWorld(seed = 7): World {
   return w;
 }
 
-/** Add a ship and pin it to the origin at a known heading (speed 0). */
+/** Add a ship and pin it to the origin at a known heading (speed 0). Battleship
+ *  because this suite exercises the UNIVERSAL weapon fit [gun, torpedo, mine,
+ *  empty] — which, post Story 1.6, lives on every hull EXCEPT the Torpedo Boat
+ *  (it fits speedBoost in slot 2). WEAPON_IDS / SLOT_MINE below assume it. */
 function place(w: World, id: string, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+  const rec = w.addShip(id, id.toUpperCase(), false, 'battleship');
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
 }
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, ...patch };
 }
 
-/** Assert a ship carries the fresh universal loadout (matches defaultLoadout). */
+/** Assert a ship carries the fresh universal loadout (matches loadoutFor for a
+ *  non-Torpedo-Boat hull: [gun, torpedo, mine, empty]). */
 function expectFreshLoadout(ship: ShipRecord): void {
   expect(ship.loadout).toHaveLength(SLOT_COUNT);
   for (let i = 0; i < SLOT_EXTRA; i++) {
@@ -75,14 +80,21 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly gun / torpedo / mine', () => {
-    expect(Object.keys(EQUIPMENT).sort()).toEqual(['gun', 'mine', 'torpedo']);
+  it('holds exactly gun / torpedo / mine / speedBoost', () => {
+    expect(Object.keys(EQUIPMENT).sort()).toEqual(['gun', 'mine', 'speedBoost', 'torpedo']);
   });
 
-  // Content-level, NOT conformance: kept separate so Story 1.6's first
-  // non-weapon row (isWeapon:false) doesn't break the structural suite above.
-  it('all three current rows are weapons (isWeapon true)', () => {
-    for (const row of Object.values(EQUIPMENT)) expect(row.isWeapon).toBe(true);
+  // Content-level, NOT conformance: the weapon/ability split rides the shared
+  // EQUIPMENT_IS_WEAPON map (single source) — the three weapons are weapons,
+  // Story 1.6's speedBoost is the first non-weapon (isWeapon:false) ability row.
+  it('each row mirrors the shared EQUIPMENT_IS_WEAPON split', () => {
+    for (const [id, row] of Object.entries(EQUIPMENT)) {
+      expect(row.isWeapon).toBe(EQUIPMENT_IS_WEAPON[id as keyof typeof EQUIPMENT_IS_WEAPON]);
+    }
+    expect(EQUIPMENT.gun.isWeapon).toBe(true);
+    expect(EQUIPMENT.torpedo.isWeapon).toBe(true);
+    expect(EQUIPMENT.mine.isWeapon).toBe(true);
+    expect(EQUIPMENT.speedBoost.isWeapon).toBe(false);
   });
 
   it('the registry itself is frozen — rows cannot be added', () => {

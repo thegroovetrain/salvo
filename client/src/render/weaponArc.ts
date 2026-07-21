@@ -22,6 +22,11 @@ export const SLOT_MINE = 2;
  * true); the torpedo (1) checks its bow arc; mines (2) drop astern regardless
  * (always true). ANY OTHER slot — the empty slot 3, or an out-of-range index —
  * is NOT a firing weapon, so it is never "in arc" (false): nothing to fire.
+ *
+ * ABILITY slots (Story 1.6 — the TB's speedBoost in slot 2) never reach this
+ * function: keyboard.ts's ability path activates WITHOUT priming, and only the
+ * primed slot flows into the arc/firing/prime-consumption code, so the slot-2
+ * mine mapping here only ever applies to hulls whose slot 2 holds the mine.
  */
 export function weaponArcHit(heading: number, aim: number, slot: number): boolean {
   if (slot === SLOT_GUN) return true; // 360° — never out of arc
