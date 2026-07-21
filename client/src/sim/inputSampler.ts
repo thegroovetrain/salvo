@@ -18,6 +18,7 @@ export interface Aiming {
   fireSeq: number; // cumulative click counter (mouse.clickCount)
   aimDist: number; // u — own ship → cursor world distance
   slot: number; // primed loadout slot (0 = gun) — the click's wire slot
+  fireT: number; // ms — server-clock estimate at the last click (mouse.lastClickT); 0 = no claim
 }
 
 /**
@@ -58,13 +59,14 @@ export function buildInput(seq: number, axes: Axes, aiming: Aiming): InputMsg {
     fireSeq: aiming.fireSeq,
     aimDist: aiming.aimDist,
     slot: aiming.slot,
+    fireT: aiming.fireT,
   };
 }
 
 /** Sends one input per sim tick over the given transport with monotonic seq. */
 export class InputSampler {
   private seq = 0;
-  private lastAiming: Aiming = { aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN };
+  private lastAiming: Aiming = { aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0 };
 
   constructor(private readonly send: (type: string, msg: InputMsg) => void) {}
 
@@ -96,14 +98,17 @@ export class InputSampler {
    * last sample would otherwise sit unsent until refocus and fire minutes
    * later at a stale aim — sending the live count fires it NOW, at an aim at
    * most one tick old. Guarded with max() so the wire counter never regresses.
-   * Keeps the last aim bearing / aim distance / primed slot and a
-   * monotonic seq shared with sample(), so it slots into local prediction
-   * exactly like a regular tick.
+   * `currentFireT` is the mouse's live click timestamp at hide time, paired
+   * with `currentFireSeq` so a gap-click carries its honest fire instant (D1);
+   * falls back to the last-sampled aiming's fireT when omitted. Keeps the last
+   * aim bearing / aim distance / primed slot and a monotonic seq shared with
+   * sample(), so it slots into local prediction exactly like a regular tick.
    */
-  sendNeutralNow(throttle: number, currentFireSeq?: number): InputMsg {
+  sendNeutralNow(throttle: number, currentFireSeq?: number, currentFireT?: number): InputMsg {
     this.seq += 1;
     const fireSeq = Math.max(this.lastAiming.fireSeq, currentFireSeq ?? 0);
-    this.lastAiming = { ...this.lastAiming, fireSeq };
+    const fireT = currentFireT ?? this.lastAiming.fireT;
+    this.lastAiming = { ...this.lastAiming, fireSeq, fireT };
     const msg = buildInput(this.seq, { throttle, rudder: 0 }, this.lastAiming);
     this.send(MSG.input, msg);
     return msg;

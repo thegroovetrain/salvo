@@ -12,6 +12,8 @@ interface FakeRoom {
   onError: (cb: (code: number, message?: string) => void) => void;
   onLeave: (cb: (code: number) => void) => void;
   leave: () => Promise<void>;
+  send: (type: string, msg: unknown) => void;
+  sent: Array<{ type: string; msg: unknown }>;
   fire: (type: string, msg: unknown) => void;
   fireLeave: (code: number) => void;
   has: (type: string) => boolean;
@@ -20,6 +22,7 @@ interface FakeRoom {
 function fakeRoom(): FakeRoom {
   const handlers = new Map<string, (msg: unknown) => void>();
   const leaveHandlers: Array<(code: number) => void> = [];
+  const sent: Array<{ type: string; msg: unknown }> = [];
   return {
     // The SDK's shipping defaults — connect() is expected to (re)assert these.
     reconnection: { enabled: true, maxRetries: 15 },
@@ -27,6 +30,8 @@ function fakeRoom(): FakeRoom {
     onError: () => undefined,
     onLeave: (cb) => void leaveHandlers.push(cb),
     leave: () => Promise.resolve(),
+    send: (type, msg) => void sent.push({ type, msg }),
+    sent,
     fire: (type, msg) => handlers.get(type)?.(msg),
     fireLeave: (code) => leaveHandlers.forEach((cb) => cb(code)),
     has: (type) => handlers.has(type),
@@ -104,6 +109,18 @@ describe('connect', () => {
     });
     room.fireLeave(1006);
     await expect(pending).rejects.toThrow(/closed during the welcome handshake|connection closed/);
+  });
+
+  it('echoes the server ping nonce immediately (D1 RTT measurement)', async () => {
+    room = fakeRoom();
+    await connectAndWelcome();
+    // The ping handler is registered pre-welcome (alongside the frame handler).
+    expect(room.has(MSG.ping)).toBe(true);
+    room.fire(MSG.ping, { n: 7, t: 123456 });
+    // Echoes back ONLY the nonce on the same channel — no server send time, no state.
+    expect(room.sent).toEqual([{ type: MSG.ping, msg: { n: 7 } }]);
+    room.fire(MSG.ping, { n: 8, t: 123556 });
+    expect(room.sent[1]).toEqual({ type: MSG.ping, msg: { n: 8 } });
   });
 });
 

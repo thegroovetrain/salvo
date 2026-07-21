@@ -60,7 +60,7 @@ import {
   type MineState,
 } from './equipment/index.js';
 import type { BurstSubject } from './signals.js';
-import { InputStore, neutralInput } from './inputs.js';
+import { InputStore, clampFireTime, neutralInput } from './inputs.js';
 import { DroneController } from './drones.js';
 import { pickSpawn } from './spawn.js';
 
@@ -129,6 +129,19 @@ export interface ShipRecord {
    * reset would make it read as a fresh click (a phantom shot).
    */
   lastFireSeq: number;
+  /**
+   * ms — windowed-min measured RTT for this client (pushed by the room's ping
+   * loop via World.setRtt), or null when never measured. Null => the D1 fire-
+   * time clamp grants ZERO compensation (drones never get an RTT, so a drone
+   * claim — impossible anyway — would compensate nothing).
+   */
+  rttMs: number | null;
+  /**
+   * ms — the last ACCEPTED (activation succeeded) validated fire time. The
+   * second D1 monotonicity floor: fire times never run backwards across shots.
+   * Denials (empty pool etc.) deliberately do NOT advance it.
+   */
+  lastFireT: number;
   respawnAt: number; // ms server time to respawn at; 0 = not pending
   sweepAngle: number; // rad — current (post-advance) radar sweep angle
   prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
@@ -249,6 +262,16 @@ export class World {
     return this.inputs.submit(id, raw, this.now);
   }
 
+  /**
+   * Push a fresh RTT estimate (windowed min, ms) for `id`'s D1 fire-time clamp,
+   * or null when the estimator has no live samples. Called by the room's ping
+   * loop — the I/O adapter measures, the World only stores (Colyseus-free).
+   */
+  setRtt(id: string, ms: number | null): void {
+    const ship = this.ships.get(id);
+    if (ship) ship.rttMs = ms;
+  }
+
   /** Spawn a new ship on the ring, max-distance from existing ships. Players
    *  pass their picked ShipClassId; drones pass a drone hull id — the envelope
    *  source (hullEnvelope) is the ONLY thing that differs between them. */
@@ -275,6 +298,8 @@ export class World {
       input: neutralInput(),
       lastAckSeq: 0,
       lastFireSeq: 0,
+      rttMs: null,
+      lastFireT: 0,
       respawnAt: 0,
       sweepAngle: 0,
       prevSweepAngle: 0,
@@ -583,7 +608,12 @@ export class World {
     return hulls;
   }
 
-  /** Advance every live ballistic; spent ones emit a boom (+ damage on a hit). */
+  /** Advance every live ballistic; spent ones emit a boom (+ damage on a hit).
+   *  THE one spent-shell path: remove it from flight, drop every observer's
+   *  seen-memory, resolve its outcome into events/damage. The D1 back-dated
+   *  spawn pre-step deliberately does NOT resolve outcomes (see preStepShell) —
+   *  every projectile funnels through here, one tick after spawn at the
+   *  earliest, so all shell damage resolves in exactly one place. */
   private stepShells(dt: number, hulls: HullTarget[]): void {
     for (const [id, shell] of this.shells) {
       const outcome = stepShell(shell, {
@@ -699,7 +729,21 @@ export class World {
       const clicked = ship.input.fireSeq > ship.lastFireSeq;
       ship.lastFireSeq = Math.max(ship.lastFireSeq, ship.input.fireSeq);
       if (!ship.alive || !clicked) continue;
-      this.sinkingActivationGate(ship, ship.input.slot);
+      // D1: validate the click's claimed fire time BEFORE activation. The clamp
+      // is the trust boundary (never earlier than now - min(RTT+jitter, ceiling),
+      // never before the previous ACCEPTED fire time).
+      const fireT = clampFireTime({
+        claimed: ship.input.fireT,
+        now: this.now,
+        rttMs: ship.rttMs,
+        jitterMs: CONFIG.net.fireJitterAllowanceMs,
+        ceilingMs: CONFIG.net.fireBackdateCeilingMs,
+        prevFireT: ship.lastFireT,
+      });
+      const result = this.sinkingActivationGate(ship, ship.input.slot, fireT);
+      // Only a SUCCESSFUL activation consumes fire-time monotonicity — a denial
+      // (empty pool, empty slot) must not floor a later honest back-date.
+      if (result.ok) ship.lastFireT = fireT;
     }
   }
 
@@ -719,35 +763,91 @@ export class World {
    * directed tests can drive activation and read the ActivationResult (never
    * on the wire).
    */
-  sinkingActivationGate(ship: ShipRecord, slotIndex: number): ActivationResult {
+  sinkingActivationGate(
+    ship: ShipRecord,
+    slotIndex: number,
+    fireT: number = this.now,
+  ): ActivationResult {
     if (!ship.alive) return { ok: false, reason: 'dead' };
     const slot = ship.loadout[slotIndex];
     if (!slot || slot.equipmentId === null) return { ok: false, reason: 'empty-slot' };
-    return EQUIPMENT[slot.equipmentId].activate(this.activationContext(ship), slot);
+    return EQUIPMENT[slot.equipmentId].activate(this.activationContext(ship, fireT), slot);
   }
 
-  /** The capabilities equipment needs to activate for this ship this tick. */
-  private activationContext(ship: ShipRecord): ActivationContext {
+  /** The capabilities equipment needs to activate for this ship this tick.
+   *  `fireT` is the VALIDATED fire time (clampFireTime — never earlier than
+   *  the allowance permits, defaulting to `now` for directed callers). */
+  private activationContext(ship: ShipRecord, fireT: number = this.now): ActivationContext {
     return {
       ship,
       now: this.now,
+      fireT,
       mapRadius: this.map.radius,
       mkId: () => this.nextBallisticId(),
       spawnBallistic: (shell) => this.spawnBallistic(shell),
-      dropMine: (x, y) => this.spawnMine(ship, x, y),
+      dropMine: (x, y) => this.spawnMine(ship, x, y, fireT),
     };
   }
 
-  /** Store a newly-fired ballistic + queue its one-time reveal event. */
+  /**
+   * Store a newly-fired ballistic + queue its world-tick event. NOTE: the
+   * queued tick event never reaches the wire — signals.ts drops ownerless tick
+   * shell/torp events by design; clients learn of a projectile through
+   * perception.ballisticScan, which reveals each LIVE shell per observer at
+   * its CURRENT position with t = reveal time. D1: a back-dated shot
+   * (bornAt < now) is PRE-STEPPED along its real trajectory this tick (see
+   * preStepShell), so the back-date manifests on the wire as the shell being
+   * revealed further along its flight — exactly AR3's "materializes slightly
+   * ahead of the muzzle".
+   */
   private spawnBallistic(shell: ShellState): void {
     this.shells.set(shell.id, shell);
     this.pending.push(this.ballisticEvent(shell));
+    if (shell.bornAt < this.now) this.preStepShell(shell);
+  }
+
+  /**
+   * Fly a back-dated shell forward by (now − bornAt) on its spawn tick, in
+   * sub-steps of ≤ one sim tick, each through the SAME shared stepShell against
+   * CURRENT alive hulls + islands + map edge (live state — deliberately NO
+   * rewind: a hull that has since ducked behind an island blocks the shot, "the
+   * shooter's claim is honored in time, the world is honored in space").
+   *
+   * A non-travel outcome is NOT resolved here: pre-stepping stops and the
+   * shell is left alive at the position stepShell left it (the terminal
+   * point); the NEXT tick's normal stepShells sweep re-steps it there and
+   * resolves the burst / interception / island stop / expiry against then-live
+   * hulls. Consequences: every projectile survives its spawn tick, so the
+   * perception ballisticScan reveal invariant ("shell event, then burst")
+   * holds for ALL shots including maximally-compensated point-blank ones (the
+   * same one-tick-deferred semantics as the 1.4 muzzleOrTarget point-blank
+   * precedent) — and no damage ever resolves inside fireControl, so same-tick
+   * mutual fire can never depend on ships-map iteration order.
+   */
+  private preStepShell(shell: ShellState): void {
+    const hulls = this.aliveHulls();
+    let remainingMs = this.now - shell.bornAt;
+    while (remainingMs > 0) {
+      const dtMs = Math.min(remainingMs, CONFIG.tick.simDtMs);
+      remainingMs -= dtMs;
+      const outcome = stepShell(shell, {
+        islands: this.map.islands,
+        hulls,
+        now: this.now,
+        dt: dtMs / 1000,
+        mapRadius: this.map.radius,
+      });
+      if (outcome.kind !== 'travel') return; // terminal: defer to next tick's sweep
+    }
   }
 
   /** Store a newly-dropped mine. Per-player cap = the OWNER'S effective
-   *  maxLive (maxMines upgrade); the defensive global cap stays in addMine. */
-  private spawnMine(owner: ShipRecord, x: number, y: number): void {
-    addMine(this.mines, owner.id, x, y, this.now, this.nextMineId(), owner.stats.mine.maxLive);
+   *  maxLive (maxMines upgrade); the defensive global cap stays in addMine.
+   *  `droppedAt` is the validated fire time (D1): a back-dated drop arms
+   *  earlier (armedAt = droppedAt + armDelay), exactly as if the click had
+   *  landed with zero latency. Drop point / caps / eviction untouched. */
+  private spawnMine(owner: ShipRecord, x: number, y: number, droppedAt: number = this.now): void {
+    addMine(this.mines, owner.id, x, y, droppedAt, this.nextMineId(), owner.stats.mine.maxLive);
   }
 
   private nextBallisticId(): string {

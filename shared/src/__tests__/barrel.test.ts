@@ -33,7 +33,7 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(5);
+    expect(PROTOCOL_VERSION).toBe(6);
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -65,6 +65,14 @@ describe('shared barrel', () => {
     // Base gun range is DERIVED from radar range — no gun-range constant exists.
     expect('shellRange' in CONFIG.gun).toBe(false);
     expect('mounts' in CONFIG.gun).toBe(false);
+  });
+
+  it('re-exports the firing-under-latency wire contract (Story 1.5)', () => {
+    expect(MSG.ping).toBe('p');
+    expect(CONFIG.net.fireBackdateCeilingMs).toBe(150); // RATIFIED by AR3
+    expect(CONFIG.net.fireJitterAllowanceMs).toBe(30); // PROPOSED
+    expect(CONFIG.net.pingIntervalMs).toBe(1000); // PROPOSED
+    expect(CONFIG.net.rttWindowMs).toBe(10000); // PROPOSED
   });
 
   it('re-exports the silhouette system (Story 1.3)', () => {

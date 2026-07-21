@@ -12,6 +12,7 @@ const input = (seq: number, throttle = 1, rudder = 0, extra = {}) => ({
   fireSeq: 0,
   aimDist: 0,
   slot: 0,
+  fireT: 0,
   ...extra,
 });
 
@@ -113,6 +114,17 @@ describe('World step — inputs and motion', () => {
       return [a.state, b.state, a.sweepAngle, w.now, w.tick];
     };
     expect(run()).toEqual(run());
+  });
+
+  it('setRtt stores the estimate on the ship (null = never measured); unknown ids are a no-op', () => {
+    const w = new World(11);
+    const rec = w.addShip('a', 'ALPHA');
+    expect(rec.rttMs).toBeNull(); // drones and fresh joins alike start unmeasured
+    w.setRtt('a', 42);
+    expect(rec.rttMs).toBe(42);
+    w.setRtt('a', null);
+    expect(rec.rttMs).toBeNull();
+    expect(() => w.setRtt('ghost', 10)).not.toThrow();
   });
 
   it('dead ships do not move but still ack inputs', () => {

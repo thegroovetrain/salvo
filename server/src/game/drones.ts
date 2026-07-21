@@ -7,7 +7,7 @@
 // that inputs are the only interface into the simulation.
 //
 // STRUCTURAL GUARANTEE — the controller has NO fire code path: every InputMsg
-// it emits carries `fireSeq: 0, aimDist: 0, aim: 0, slot: 0`. A constant
+// it emits carries `fireSeq: 0, aimDist: 0, aim: 0, slot: 0, fireT: 0`. A constant
 // fireSeq is never newer than the ship's consumed lastFireSeq, so drones can
 // never shoot — there is nowhere in this file that could ever advance the
 // click counter.
@@ -124,7 +124,9 @@ export class DroneController {
     const track = clampUnit(angleDiff(ship.state.heading, brg) * RUDDER_GAIN);
     const rudder = clampUnit(track + this.avoidIslands(ship) + this.boundaryBias(ship));
     mind.seq += 1;
-    return { seq: mind.seq, throttle: mind.throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 };
+    // fireT: 0 is the explicit no-claim sentinel — drones (which can never
+    // click anyway) always ride the zero-compensation path.
+    return { seq: mind.seq, throttle: mind.throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 };
   }
 
   /** Bearing the drone wants to hold, applying the zone/waypoint overrides. */

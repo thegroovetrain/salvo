@@ -75,6 +75,60 @@ describe('MouseInput.clickCount — cumulative button-0 clicks', () => {
   });
 });
 
+describe('MouseInput.lastClickT — server-clock stamp at pointerdown (D1)', () => {
+  function pointer(type: string, init: MouseEventInit = {}): MouseEvent {
+    return new MouseEvent(type, init);
+  }
+
+  function withMouse(nowServer: () => number, run: (m: MouseInput) => void): void {
+    const m = new MouseInput(nowServer);
+    m.attach();
+    try {
+      run(m);
+    } finally {
+      m.detach();
+    }
+  }
+
+  it('is 0 before any click (the no-claim sentinel)', () => {
+    withMouse(() => 5000, (m) => {
+      expect(m.lastClickT).toBe(0);
+    });
+  });
+
+  it('stamps the injected server-clock estimate on a button-0 pointerdown', () => {
+    let now = 1000;
+    withMouse(() => now, (m) => {
+      window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+      expect(m.lastClickT).toBe(1000);
+      now = 2500; // a later click re-stamps to the live estimate
+      window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+      expect(m.lastClickT).toBe(2500);
+    });
+  });
+
+  it('defaults the thunk to 0 (no clock injected → always the no-claim sentinel)', () => {
+    const m = new MouseInput();
+    m.attach();
+    try {
+      window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+      expect(m.lastClickT).toBe(0);
+    } finally {
+      m.detach();
+    }
+  });
+
+  it('does not stamp on move, up, or non-primary buttons', () => {
+    withMouse(() => 9999, (m) => {
+      window.dispatchEvent(pointer('pointerup', { button: 0 }));
+      window.dispatchEvent(pointer('pointermove', { clientX: 1, clientY: 2 }));
+      window.dispatchEvent(pointer('pointerdown', { button: 2 })); // right
+      window.dispatchEvent(pointer('pointerdown', { button: 1 })); // middle
+      expect(m.lastClickT).toBe(0); // untouched — no button-0 down occurred
+    });
+  });
+});
+
 describe('mouse aim via camera roundtrip', () => {
   it('screenToWorld inverts worldToScreen so cursor aim is exact', () => {
     const cam = new Camera(opts);

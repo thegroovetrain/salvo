@@ -9,7 +9,7 @@ Stack: TypeScript monorepo (npm workspaces) — `shared` (pure sim), `server` (C
 ### Commands
 ```
 npm run dev          # Colyseus server (:2567) + Vite client (:5173) via concurrently
-npm run check        # lint + type-check (shared/server/client) + all tests (960)
+npm run check        # lint + type-check (shared/server/client) + all tests (1008)
 npm run lint         # ESLint (complexity=10 enforced)
 npm test -w shared   # Shared sim tests (kinematics, geometry, ballistics, zone, mapgen, stats, offers)
 npm test -w server   # Server tests (world sim, perception/anti-cheat invariants, match state machine, drones)
@@ -75,7 +75,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 
 ### Key Decisions
 - **CONFIG is the single source of truth** — every gameplay-authoritative tunable lives in `shared/src/constants.ts` (`CONFIG`). Client-only feel knobs live in `client/src/config.ts`; promote a value to shared CONFIG the moment it becomes gameplay-load-bearing.
-- **Deterministic shared simulation** — the same pure functions (`stepShip`, `stepShell`, `generateMap`, zone math) run on server and client. This is what makes client-side prediction agree with the authoritative world. `PROTOCOL_VERSION` (shared/src/index.ts, currently 5) records wire-breaking changes and IS a runtime join gate: `server/src/rooms/roomOptions.ts` (`protocolVersionError`) rejects a mismatched-or-missing client `pv` at matchmake time, before any seat is reserved.
+- **Deterministic shared simulation** — the same pure functions (`stepShip`, `stepShell`, `generateMap`, zone math) run on server and client. This is what makes client-side prediction agree with the authoritative world. `PROTOCOL_VERSION` (shared/src/index.ts, currently 6) records wire-breaking changes and IS a runtime join gate: `server/src/rooms/roomOptions.ts` (`protocolVersionError`) rejects a mismatched-or-missing client `pv` at matchmake time, before any seat is reserved.
 - **effectiveStats() is the upgrade desync firewall** — (ship class + upgrade counts) → every derived stat, via one pure function both sides call. Server caches it on grant/spawn; client recomputes from `you.cls` + `you.upg`. Nothing may re-derive an upgraded stat ad hoc.
 - **Upgrade offers are pre-rolled at earn-time** — a banked point carries a fixed offer of 3 upgrades from 3 distinct categories (`rollOffer`), rolled on the server's decorrelated upgrade stream and queued. Reopening the spend window can never reroll. Spend picks one upgrade (CTRL+1/2/3) or heals (CTRL+E, `HEAL_CHOICE`).
 - **Authoritative 20Hz World, zero Colyseus imports** — `game/world.ts` owns the one server clock and runs a fixed 50ms step; `ArenaRoom` is a thin adapter. The room's only synced schema is the roster.

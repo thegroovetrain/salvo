@@ -186,7 +186,7 @@ function onFrame(ctx, f) {
 
 /** Steer toward the peer; torpedoes away when in range/arc and armed=true. */
 function control(ctx, target, armed) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1 };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1, fireT: 0 };
   if (ctx.you && target) {
     const brg = bearing(ctx.you, target);
     inp.rudder = clamp(angleDiff(ctx.you.heading, brg) * 3, -1, 1);
@@ -206,12 +206,12 @@ function control(ctx, target, armed) {
 
 /** Send a dead-stop input (throttle/rudder 0, weapons cold). */
 function idle(ctx) {
-  ctx.room.send('i', { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1 });
+  ctx.room.send('i', { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1, fireT: 0 });
 }
 
 /** Full-astern + hard-rudder break-off input for a hull pinned on an island. */
 function backOff(ctx) {
-  return { seq: ++ctx.seq, throttle: -1, rudder: 1, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1 };
+  return { seq: ++ctx.seq, throttle: -1, rudder: 1, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 1, fireT: 0 };
 }
 
 /**
@@ -307,7 +307,7 @@ function strafeFire(shooter, target, armed) {
     shooter.room.send('i', un);
     return;
   }
-  const inp = { seq: ++shooter.seq, throttle: 1, rudder: 0, aim: 0, fireSeq: shooter.fireSeq, aimDist: 0, slot: 1 };
+  const inp = { seq: ++shooter.seq, throttle: 1, rudder: 0, aim: 0, fireSeq: shooter.fireSeq, aimDist: 0, slot: 1, fireT: 0 };
   if (!shooter.you || !target) {
     shooter.room.send('i', inp);
     return;
@@ -385,6 +385,7 @@ function steerToCenter(ctx) {
     fireSeq: ctx.fireSeq,
     aimDist: 0,
     slot: 1,
+    fireT: 0,
   });
 }
 

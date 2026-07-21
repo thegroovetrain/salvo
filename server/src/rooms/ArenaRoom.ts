@@ -23,6 +23,7 @@ import {
 } from '../game/match.js';
 import { createLogger, type LogFields, type Logger } from '../log.js';
 import { registerRoom, type RoomMetricsHandle } from '../metrics.js';
+import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
   sanitizeRoomOptions,
@@ -35,6 +36,13 @@ import {
 const SIM_DT_MS = CONFIG.tick.simDtMs; // 50ms fixed step (20Hz)
 const INTERVAL_MS = 1000 / 60; // setSimulationInterval cadence
 const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
+/**
+ * Cap on unanswered ping nonces retained per client. With one ping per
+ * CONFIG.net.pingIntervalMs and a CONFIG.net.rttWindowMs estimator window,
+ * anything older than the window is useless anyway; 16 comfortably covers the
+ * window at the 1s cadence while bounding a client that simply never echoes.
+ */
+const MAX_OUTSTANDING_PINGS = 16;
 /** Telemetry mode tag (one room type today) carried on match.end/match.abort. */
 const MODE = 'arena';
 
@@ -72,6 +80,21 @@ const RECONNECTABLE_CLOSE_CODES: ReadonlySet<number> = new Set([
   CloseCode.ABNORMAL_CLOSURE, // 1006
   CloseCode.MAY_TRY_RECONNECT, // 4010
 ]);
+
+/**
+ * Per-client RTT measurement state for the D1 ping loop ('p' channel). The
+ * room sends MSG.ping every CONFIG.net.pingIntervalMs; the client echoes the
+ * nonce; the elapsed REAL time (performance.now — this is the I/O adapter, not
+ * the sim, so wall-clock is correct here) is one RTT sample. The estimator's
+ * windowed min feeds World.setRtt after every sample.
+ */
+interface PingState {
+  estimator: RttEstimator;
+  /** Last nonce sent (incrementing per client). */
+  nonce: number;
+  /** Outstanding nonce -> real send time (performance.now ms); bounded. */
+  outstanding: Map<number, number>;
+}
 
 // Colyseus 0.17 changed the Room generic from `Room<State>` to
 // `Room<{ state: State }>` (the parameter is now a RoomOptions bag carrying
@@ -118,6 +141,8 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * finishes — a normal mid-match resume then re-sends nothing.
    */
   private lastResults: ResultsMsg | null = null;
+  /** Per-client D1 ping/RTT state; entries live from first ping to teardown. */
+  private readonly pings = new Map<string, PingState>();
 
   // --- story 0.3 operability state -------------------------------------------
   /** Room-generated match identity (one match per room); '' until onCreate. */
@@ -154,7 +179,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const devEnabled = process.env.HC_DEV_OPTIONS === '1';
     const { sanitized, rejectedKeys } = sanitizeRoomOptions(options, devEnabled);
 
-    const seed = (Math.random() * 0xffffffff) >>> 0;
+    // mapSeed (dev-only, HC_DEV_OPTIONS-gated like the other overrides) pins
+    // the deterministic map for latency-harness smokes; production rooms
+    // always roll a random seed.
+    const seed = sanitized.mapSeed ?? (Math.random() * 0xffffffff) >>> 0;
     // mapRadius(6) sizing per plan. zoneOverride (dev-only) fast-forwards the
     // storm timeline for smokes/tests; undefined => shipped CONFIG.zone.
     this.world = new World(seed, CONFIG.match.fillTo, sanitized.zoneOverride ?? CONFIG.zone);
@@ -187,8 +215,74 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
     this.onMessage(MSG.input, (client: Client, raw: unknown) => this.onInputMessage(client, raw));
     this.onMessage(MSG.spend, (client: Client, raw: unknown) => this.onSpendMessage(client, raw));
+    this.onMessage(MSG.ping, (client: Client, raw: unknown) => this.onPongMessage(client, raw));
 
     this.setSimulationInterval((dt) => this.update(dt), INTERVAL_MS);
+    // D1 RTT loop: ping every connected client on the room clock. The 'p'
+    // channel rides the room-wide transport guard only (never the input store).
+    this.clock.setInterval(() => this.sendPings(), CONFIG.net.pingIntervalMs);
+  }
+
+  /**
+   * One ping sweep: send MSG.ping {n, t: world.now} to every fully-JOINED
+   * client, recording the REAL send time per nonce (RTT is transport latency —
+   * wall clock, not sim clock). The outstanding map is bounded: a client that
+   * never echoes sheds its oldest nonces past MAX_OUTSTANDING_PINGS.
+   *
+   * Every sweep ALSO re-pushes the estimator's windowed min into the World, so
+   * window expiry reaches the D1 clamp even when a client stops echoing
+   * entirely (estimator drains to null => zero compensation) — staleness must
+   * never be gated on the next pong that may never come.
+   *
+   * ACCEPTED RESIDUAL (flagged for Eric): a client that CONTINUOUSLY delays
+   * only its pong echoes can present as a high-latency client and bank
+   * compensation up to the ratified 150ms ceiling — bounded by design (AR3's
+   * accepted envelope; indistinguishable from, and equivalent to, genuinely
+   * routing through a slow link).
+   */
+  private sendPings(): void {
+    for (const client of this.clients) {
+      if (client.state !== ClientState.JOINED) continue;
+      const st = this.pingStateFor(client.sessionId);
+      st.nonce += 1;
+      st.outstanding.set(st.nonce, performance.now());
+      while (st.outstanding.size > MAX_OUTSTANDING_PINGS) {
+        const oldest = st.outstanding.keys().next().value;
+        if (oldest === undefined) break;
+        st.outstanding.delete(oldest);
+      }
+      client.send(MSG.ping, { n: st.nonce, t: this.world.now });
+      // Estimator timestamps ride the sim clock (see onPongMessage's addSample),
+      // so the expiry probe must too.
+      this.world.setRtt(client.sessionId, st.estimator.minMs(this.world.now));
+    }
+  }
+
+  private pingStateFor(sessionId: string): PingState {
+    let st = this.pings.get(sessionId);
+    if (!st) {
+      st = { estimator: new RttEstimator(CONFIG.net.rttWindowMs), nonce: 0, outstanding: new Map() };
+      this.pings.set(sessionId, st);
+    }
+    return st;
+  }
+
+  /**
+   * PongMsg echo ('p'): pair the nonce with its recorded send time for one RTT
+   * sample, then push the estimator's windowed min into the World for the D1
+   * fire-time clamp. Unknown/stale/duplicate nonces (already consumed or
+   * pruned) and malformed payloads are ignored — fail-closed, no state change.
+   */
+  private onPongMessage(client: Client, raw: unknown): void {
+    this.metrics?.recordMessage();
+    const st = this.pings.get(client.sessionId);
+    const n = (raw as { n?: unknown } | null)?.n;
+    if (!st || typeof n !== 'number') return;
+    const sentAt = st.outstanding.get(n);
+    if (sentAt === undefined) return; // unknown or stale nonce
+    st.outstanding.delete(n);
+    st.estimator.addSample(performance.now() - sentAt, this.world.now);
+    this.world.setRtt(client.sessionId, st.estimator.minMs(this.world.now));
   }
 
   /**
@@ -466,6 +560,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     if (this.match) this.match.onPlayerLeave(sessionId);
     else this.world.removeShip(sessionId);
     this.state.players.delete(sessionId);
+    this.pings.delete(sessionId); // D1 ping/RTT state dies with the seat
     return true;
   }
 

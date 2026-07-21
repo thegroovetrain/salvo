@@ -73,11 +73,21 @@ export interface MatchOverride {
 export interface RoomOptions extends JoinOptions {
   zoneOverride?: ZoneTimeline;
   matchOverride?: MatchOverride;
+  /**
+   * DEV TOOL for smokes/tests only (story 1.5 latency harness): pin the room's
+   * map seed so a scripted scenario gets a deterministic map. Gated by
+   * sanitizeRoomOptions exactly like matchOverride/zoneOverride (HC_DEV_OPTIONS=1
+   * only) AND value-sanitized even when dev is enabled: anything but a
+   * non-negative integer is stripped (the room then rolls its normal random
+   * seed). Production clients can never pin a map.
+   */
+  mapSeed?: number;
 }
 
 export interface SanitizedRoomOptions {
   matchOverride?: MatchOverride;
   zoneOverride?: ZoneTimeline;
+  mapSeed?: number;
 }
 
 export interface SanitizeResult {
@@ -98,12 +108,23 @@ export interface SanitizeResult {
 export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): SanitizeResult {
   if (devEnabled) {
     return {
-      sanitized: { matchOverride: options.matchOverride, zoneOverride: options.zoneOverride },
+      sanitized: {
+        matchOverride: options.matchOverride,
+        zoneOverride: options.zoneOverride,
+        mapSeed: sanitizeMapSeed(options.mapSeed),
+      },
       rejectedKeys: [],
     };
   }
   const rejectedKeys: string[] = [];
   if (options.matchOverride !== undefined) rejectedKeys.push('matchOverride');
   if (options.zoneOverride !== undefined) rejectedKeys.push('zoneOverride');
+  if (options.mapSeed !== undefined) rejectedKeys.push('mapSeed');
   return { sanitized: {}, rejectedKeys };
+}
+
+/** Valid pinned map seed: a non-negative integer; anything else is stripped
+ *  (undefined => the room rolls its normal random seed). */
+function sanitizeMapSeed(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : undefined;
 }

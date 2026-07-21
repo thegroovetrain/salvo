@@ -190,7 +190,7 @@ async function joinClient(name) {
 
 /** Send a benign input (weapons-cold, no throttle) — bumps the message counter. */
 function pingInput(ctx) {
-  ctx.room.send('i', { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
+  ctx.room.send('i', { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 });
 }
 
 function phase(ctx) {

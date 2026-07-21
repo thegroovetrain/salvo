@@ -346,7 +346,7 @@ function scnBurst(g: Golden): void {
   place(w, 'a', 0, 0);
   const b = place(w, 'b', 120, 0);
   b.hp = 100; // survives the 25 burst — a clean dmg, no sunk
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 120, slot: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 120, slot: 0, fireT: 0 });
   let burst = false;
   for (let i = 0; i < 30 && !burst; i++) {
     w.step();

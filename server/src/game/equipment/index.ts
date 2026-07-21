@@ -29,6 +29,14 @@ import { mineEquipment } from './mines.js';
 export interface ActivationContext {
   ship: ShipRecord;
   now: number;
+  /**
+   * ms — the VALIDATED fire time for this activation (D1 latency compensation,
+   * clamped by the World via clampFireTime; = `now` when there is no honored
+   * claim). Ballistics take it as bornAt (the World then pre-steps a back-dated
+   * shell to where it belongs this tick); mines arm from it
+   * (armedAt = fireT + armDelay). Never earlier than the clamp allows.
+   */
+  fireT: number;
   /** Water-disk radius (u) — the gun clamps its burst point inside it so a rim
    *  ship firing outward bursts in-bounds rather than expiring at the edge. */
   mapRadius: number;
