@@ -429,7 +429,7 @@ const slotInput = (slot: number, fireSeq = 1, seq = 1, fireT = 0) =>
   ({ seq, throttle: 0, rudder: 0, aim: 0, fireSeq, aimDist: 0, slot, fireT });
 
 describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
-  it('an honored claim pre-advances the shell by comp along its velocity; the reveal event stays at the muzzle with t = bornAt', () => {
+  it('an honored claim pre-advances the shell by comp along its velocity; the WIRE reveal (frames/perception) shows it further along its flight', () => {
     // Twin worlds, identical except the claim: the sentinel shot pins the
     // muzzle; the back-dated shot must sit exactly comp further along v.
     const mk = (fireT: number) => {
@@ -447,12 +447,15 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     const comp = DT_MS - 10;
     expect(back.shell.x).toBeCloseTo(plain.shell.x + plain.shell.vx * (comp / 1000), 6);
     expect(back.shell.y).toBeCloseTo(plain.shell.y + plain.shell.vy * (comp / 1000), 6);
-    // The reveal event reports the MUZZLE (not the pre-stepped position) with
-    // t = bornAt, so the client's dead-reckoning renders the back-date honestly.
-    const ev = shellsOf([...back.w.tickEvents])[0];
-    expect(ev.x).toBeCloseTo(plain.shell.x, 6);
-    expect(ev.y).toBeCloseTo(plain.shell.y, 6);
-    expect(ev.t).toBe(10);
+    // WIRE-REAL reveal: clients learn of the shell via perception.ballisticScan
+    // (the world-tick shell event is dropped by signals.ts — never on the
+    // wire). The reveal carries the shell's CURRENT (pre-stepped) position with
+    // t = reveal time, so the back-date manifests as the shell materializing
+    // further along its flight — AR3's "slightly ahead of the muzzle".
+    const ev = shellsOf(buildFrame(back.w, 'a').events)[0];
+    expect(ev.x).toBeCloseTo(back.shell.x, 6);
+    expect(ev.y).toBeCloseTo(back.shell.y, 6);
+    expect(ev.t).toBe(back.w.now);
   });
 
   it('fireT: 0 (sentinel) with a measured RTT compensates NOTHING — bornAt = now, no pre-step', () => {
@@ -463,8 +466,9 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     w.step();
     const [shell] = [...w.shells.values()];
     expect(shell.bornAt).toBe(w.now);
-    const ev = shellsOf([...w.tickEvents])[0];
-    expect({ x: ev.x, y: ev.y }).toEqual({ x: shell.x, y: shell.y }); // still at the muzzle
+    // Wire reveal via the real frames path: still at the muzzle.
+    const ev = shellsOf(buildFrame(w, 'a').events)[0];
+    expect({ x: ev.x, y: ev.y }).toEqual({ x: shell.x, y: shell.y });
   });
 
   it('no measured RTT (null) => zero compensation even for a plausible claim', () => {
@@ -475,26 +479,41 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     expect([...w.shells.values()][0].bornAt).toBe(w.now);
   });
 
-  it('SPAWN-TICK BURST: a close click whose distance is within comp·shellSpeed bursts on the firing tick', () => {
+  it('SPAWN-TICK TERMINAL: a close click within comp·shellSpeed survives the spawn tick at the target point; the burst resolves NEXT tick', () => {
     const { w, a } = armed(7);
     w.setRtt('a', 150); // allowance = min(150+30, 150) = 150 (the ceiling)
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     w.submitInput('a', { ...slotInput(0, 0, 1), aimDist: 0 }); // no click; just advance time
     for (let i = 0; i < 4; i++) w.step(); // now = 200
     // Click 60u off the bow (just past the ~54u muzzle) claiming 150ms ago:
-    // comp 150 => 19.5u of pre-flight >= the ~8u muzzle->target leg.
+    // comp 150 => 19.5u of pre-flight >= the ~8u muzzle->target leg — the
+    // pre-step reaches the target point ON the spawn tick.
     w.submitInput('a', gunInput(0, 60, 1, 2, 100));
     w.step(); // now = 250, bornAt = 100
-    const events = [...w.tickEvents];
-    expect(shellsOf(events)).toHaveLength(1); // the reveal still goes out first
-    const bursts = burstsOf(events);
-    expect(bursts).toHaveLength(1); // ...and the burst lands the SAME tick
+    // Spawn tick: the shell is left ALIVE at the terminal (target) point — no
+    // burst, no damage resolves inside fireControl.
+    expect(burstsOf([...w.tickEvents])).toEqual([]);
+    expect(w.shells.size).toBe(1);
+    const [shell] = [...w.shells.values()];
+    expect(shell.x).toBeCloseTo(60, 4);
+    expect(shell.y).toBeCloseTo(0, 4);
+    // WIRE-REAL: the reveal reaches a client frame (frames -> perception ->
+    // ballisticScan) after the spawn tick, BEFORE the burst — the invariant
+    // "shell event, then burst" holds even for maximally-compensated
+    // point-blank shots (the 1.4 muzzleOrTarget one-tick-deferred precedent).
+    const revealFrame = buildFrame(w, 'a');
+    expect(shellsOf(revealFrame.events)).toHaveLength(1);
+    expect(burstsOf(revealFrame.events)).toEqual([]);
+    // Next tick: the normal stepShells sweep resolves the burst at the click.
+    w.step();
+    const bursts = burstsOf([...w.tickEvents]);
+    expect(bursts).toHaveLength(1);
     expect(bursts[0].x).toBeCloseTo(60, 4);
     expect(bursts[0].y).toBeCloseTo(0, 4);
-    expect(w.shells.size).toBe(0); // spent on the spawn tick
+    expect(w.shells.size).toBe(0);
   });
 
-  it('NARROW ESCAPE: the pre-step flies through the CURRENT world — an island now in the way stops the shot (no rewind kill)', () => {
+  it('NARROW ESCAPE: the pre-step flies through the CURRENT world — an island now in the way stops the shot NEXT tick (no rewind kill)', () => {
     const { w, a } = armed(7);
     w.setRtt('a', 150);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
@@ -505,6 +524,13 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     for (let i = 0; i < 4; i++) w.step(); // now = 200
     w.submitInput('a', gunInput(HALF_PI, 40, 1, 2, 100)); // click ON b, back-dated 150ms
     w.step();
+    // Spawn tick: pre-step ran into the island and stopped there — the shell
+    // is left alive at the rock's near face, nothing has resolved yet.
+    expect(burstsOf([...w.tickEvents])).toEqual([]);
+    expect(dmgsOf([...w.tickEvents])).toEqual([]);
+    expect(w.shells.size).toBe(1);
+    // Next tick: the sweep resolves the island stop against the live world.
+    w.step();
     const events = [...w.tickEvents];
     expect(burstsOf(events)).toEqual([]); // no burst — the rock ate it
     expect(dmgsOf(events)).toEqual([]); // no rewind kill
@@ -514,6 +540,36 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     expect(boom.y).toBeGreaterThan(5); // splashed on the island's near face...
     expect(boom.y).toBeLessThan(16); // ...well short of b's hull at y≈35+
     expect(w.shells.size).toBe(0);
+  });
+
+  it('SAME-TICK MUTUAL FIRE: both back-dated point-blank shots survive the spawn tick and resolve next tick — a mutual kill cannot depend on ships-map iteration order', () => {
+    const { w, a } = armed(7);
+    a.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    const b = w.addShip('b', 'B');
+    b.state = { x: 0, y: 20, heading: 0, speed: 0 };
+    a.hp = 1; // one burst sinks either hull
+    b.hp = 1;
+    w.setRtt('a', 150);
+    w.setRtt('b', 150);
+    w.submitInput('a', { ...slotInput(0, 0, 1), aimDist: 0 });
+    w.submitInput('b', { ...slotInput(0, 0, 1), aimDist: 0 });
+    for (let i = 0; i < 4; i++) w.step(); // now = 200
+    // Both click the OTHER hull's center with a maximal 150ms back-date: each
+    // pre-step reaches its terminal outcome on the spawn tick.
+    w.submitInput('a', gunInput(HALF_PI, 20, 1, 2, 100));
+    w.submitInput('b', gunInput(-HALF_PI, 20, 1, 2, 100));
+    w.step();
+    // Spawn tick: BOTH shells alive, no damage — had a's pre-step resolved its
+    // burst inside fireControl, b (iterated later) would already be dead and
+    // never fire.
+    expect(w.shells.size).toBe(2);
+    expect(a.alive).toBe(true);
+    expect(b.alive).toBe(true);
+    // Next tick: both resolve against the tick-start hull list — mutual kill.
+    w.step();
+    expect(w.shells.size).toBe(0);
+    expect(a.alive).toBe(false);
+    expect(b.alive).toBe(false);
   });
 
   it('TORPEDO: bornAt back-dates and pre-advances the fish; FR7 owner immunity holds through the pre-step', () => {

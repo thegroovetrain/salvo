@@ -14,9 +14,10 @@
  *  (torpedoBoat/battleship/mineLayer classes; Contact.cls widened to HullId
  *  with droneSmall/droneMedium/droneLarge).
  *  3: Colyseus 0.17 / @colyseus/schema 4.x serializer wire break. NOTE: this
- *  constant is documentation, not (yet) a runtime gate — a stale bundle
- *  fails at schema decode, not with a clean version rejection. A join-time
- *  version check is deferred work (see reconnection stories). */
+ *  constant IS a runtime join gate (since 1.4): the server rejects a
+ *  mismatched-or-missing client `pv` at matchmake time with a clean version
+ *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
+ *  seat is reserved. */
 export const PROTOCOL_VERSION = 6;
 
 // Tunables

@@ -68,9 +68,25 @@ const endpoint = `ws://localhost:${PORT}`;
 // island-free LOS, and both sail-in routes from the 720u spawn ring are clear.
 const MAP_SEED = 140;
 
-// Storm neutered exactly like combatSmoke (sandbox rooms start the zone on the
-// 2nd join): a 10-minute grace outlasts the whole choreography.
-const SANDBOX_ZONE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction: 0.15 };
+// Storm neutered like combatSmoke (sandbox rooms start the zone on the 2nd
+// join), but the grace SCALES with the computed pass duration so zone damage
+// can never contaminate hit registration at ANY --shots value: grace >= server
+// boot + both passes' timeout budget + a fat margin.
+const SERVER_BOOT_TIMEOUT_MS = 15000;
+const ZONE_GRACE_MARGIN_MS = 120000;
+
+/** Worst-case wall-clock budget for one pass (also the runPass timeout). */
+function passTimeoutMs(opts) {
+  return 90000 + opts.shots * 20000;
+}
+
+function sandboxZone(opts) {
+  return {
+    grace: SERVER_BOOT_TIMEOUT_MS + passTimeoutMs(opts) * 2 + ZONE_GRACE_MARGIN_MS,
+    shrinkDuration: 180000,
+    endRadiusFraction: 0.15,
+  };
+}
 
 // Fixed shim RNG seeds (per client), re-seeded identically for each pass so A
 // and B experience the same delay/drop sequence.
@@ -85,14 +101,18 @@ const TARGET_SHIM_SEED = 0xb0b1e;
 const SHOOTER_CLS = 'torpedoBoat';
 const TARGET_CLS = 'torpedoBoat';
 // Empirically centered (tuning runs at rtt=150/jitter=30/loss=2): shots fire
-// at ~177-182u. Measured hit-band edges at this profile: the honest pass stops
-// clipping the hull at ~186u, the uncompensated pass at ~177u — so this range
-// window sits inside the honest pass's band with margin while straddling the
-// uncompensated pass's edge. NOTE the measured A/B band separation (~9u ≈
-// ~70ms of target travel) is SMALLER than the naive rtt-sized expectation:
-// with a client streaming inputs at the 50ms cadence, the D1 clamp's
-// "never earlier than the previous input" floor bounds back-dating near one
-// input interval — an intended property of the ratified law, measured here.
+// at ~177-182u, inside the honest pass's hit band with margin while at/past
+// the uncompensated pass's band edge. Since the clamp-floor correction
+// (adjudicated 2026-07-21: the monotonicity floor is the previous ACCEPTED
+// fire time, not the previous input's apply time), the honest pass receives
+// FULL compensation — the A/B separation reflects the whole granted comp
+// ≈ min(RTT + jitter, ceiling) = 150ms at this profile, no longer bounded
+// near one input interval (the earlier "~70ms / one input interval" note
+// described the pre-correction floor and is obsolete). Measured
+// post-correction (two 20-shot runs): A = 19/20 both runs, the single miss
+// landing on a DIFFERENT shot at the same 180u geometry each time — the ~2%
+// droppable-channel loss floor (a victim-private dmg rides a droppable 'f'
+// frame), not a band edge; B = 16/20 and 14/20 at the identical window.
 const ORBIT_RADIUS_U = 177; // u — target orbit radius around the shooter anchor
 const ORBIT_THROTTLE = 0.8; // ~40 u/s on a torpedoBoat
 const FIRE_MIN_RANGE_U = 60;
@@ -307,7 +327,7 @@ async function joinClient(name, cls, opts, shimSeed, honest) {
     pv: PROTOCOL_VERSION,
     mapSeed: MAP_SEED,
     matchOverride: { sandbox: true },
-    zoneOverride: SANDBOX_ZONE,
+    zoneOverride: sandboxZone(opts),
   });
   const ctx = {
     name,
@@ -538,7 +558,7 @@ async function runPass(label, honest, opts) {
   shooter.trackId = target.room.sessionId;
 
   const pass = { budget: opts.shots, shots: [] };
-  const timeoutMs = 90000 + opts.shots * 20000;
+  const timeoutMs = passTimeoutMs(opts);
   const start = performance.now();
   let lastProgress = start;
   for (;;) {
@@ -558,6 +578,7 @@ async function runPass(label, honest, opts) {
   assert(pass.shots.length > 0, `pass ${label} fired zero shots`);
 
   const metrics = summarize(pass, shooter.pred.samples);
+  metrics.roomId = shooter.room.roomId; // pass-independence check in main()
   await shooter.room.leave();
   await target.room.leave();
   return metrics;
@@ -614,6 +635,10 @@ async function main() {
     // FRESH room from the same pinned seed instead of reusing pass A's world.
     await sleep(1500);
     const b = await runPass('B', false, opts);
+    // HARD independence check: if autoDispose failed and pass B rejoined pass
+    // A's room, its world (upgrades, wrecks, zone anchor) is contaminated —
+    // structural failure, never a comparable measurement.
+    assert(b.roomId !== a.roomId, `pass B reused pass A's room (${a.roomId}) — autoDispose failed, passes are not independent`);
     printReport(opts, a, b);
   } finally {
     cleanup();

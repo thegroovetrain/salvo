@@ -107,11 +107,8 @@ export interface FireTimeClaim {
   jitterMs: number;
   /** ms — CONFIG.net.fireBackdateCeilingMs (the hard back-dating cap, AR3). */
   ceilingMs: number;
-  /** ms — server time the PREVIOUS applied input arrived (monotonicity floor:
-   *  a shot can never be back-dated to before the input that preceded it). */
-  prevInputAt: number;
-  /** ms — the previously ACCEPTED fire time (monotonicity floor: fire times
-   *  never run backwards across shots). */
+  /** ms — the previously ACCEPTED fire time (THE monotonicity floor: fire
+   *  times never run backwards across shots). */
   prevFireT: number;
 }
 
@@ -121,16 +118,25 @@ export interface FireTimeClaim {
  * clamped into [0, allowance] where allowance = min(measured RTT + jitter,
  * ceiling). No measured RTT (never pinged back) => zero compensation. The
  * sentinel claim (<= 0) means "no claim" => fire at `now`. The result is
- * floored at both monotonicity marks (previous applied input, previous accepted
- * fire) and can never exceed `now` (comp >= 0). Pure; unit-tested by table.
+ * floored at the previous ACCEPTED fire time and can never exceed `now`
+ * (comp >= 0). Pure; unit-tested by table.
+ *
+ * AR3's "never earlier than the previous input" binds the claim to the
+ * previous input's carried fire-time — claims are monotone and can never
+ * time-travel behind the client's own input stream (`prevFireT` is exactly
+ * that floor). It is deliberately NOT the previous input's server-APPLY time:
+ * flooring there would cap compensation at ~one input interval (~50ms) for
+ * any client streaming at the 50ms cadence — defeating AR3's stated purpose
+ * (removes the input-delay penalty) and perversely granting input-throttlers
+ * MORE compensation than honest streamers. (Adjudicated 2026-07-21, flagged
+ * for Eric's veto.)
  */
 export function clampFireTime(c: FireTimeClaim): number {
   if (c.claimed <= 0) return c.now; // sentinel: no claim, zero compensation
-  const floors = Math.max(c.prevInputAt, c.prevFireT);
-  if (c.rttMs === null) return Math.max(c.now, floors); // never measured: zero comp
+  if (c.rttMs === null) return Math.max(c.now, c.prevFireT); // never measured: zero comp
   const allowance = Math.min(c.rttMs + c.jitterMs, c.ceilingMs);
   const comp = Math.min(Math.max(c.now - c.claimed, 0), allowance);
-  return Math.max(c.now - comp, floors);
+  return Math.max(c.now - comp, c.prevFireT);
 }
 
 interface RateWindow {

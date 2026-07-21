@@ -2,7 +2,11 @@
 // the D1 fire-time clamp. Pure over (sample, timestamp) pairs; no Colyseus.
 
 import { describe, it, expect } from 'vitest';
+import { ClientState } from 'colyseus';
+import { CONFIG } from '@salvo/shared';
 import { RttEstimator } from '../game/rtt.js';
+import { ArenaRoom } from '../rooms/ArenaRoom.js';
+import { World } from '../game/world.js';
 
 const WINDOW = 10_000;
 
@@ -51,5 +55,50 @@ describe('RttEstimator — windowed minimum', () => {
     // Only samples within the last WINDOW ms of t=99000 can remain.
     expect(e.size).toBeLessThanOrEqual(WINDOW / 1000 + 1);
     expect(e.minMs(99_000)).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Staleness must reach the World even when the client stops echoing: every
+// ping SWEEP re-pushes the windowed min (sendPings), so a drained estimator
+// (null) collapses the D1 allowance to zero without waiting for a pong that
+// will never come. Bare-ArenaRoom pattern (reconnect.test.ts): no transport,
+// privates driven directly.
+// ---------------------------------------------------------------------------
+
+describe('RTT staleness reaches the World (ArenaRoom ping loop)', () => {
+  it('a banked high windowed-min collapses to zero compensation after rttWindowMs of unanswered ping sweeps', () => {
+    const room = new ArenaRoom() as unknown as {
+      world: World;
+      clients: Array<{ sessionId: string; state: ClientState; send: () => void }>;
+      pings: Map<string, { estimator: RttEstimator; nonce: number; outstanding: Map<number, number> }>;
+      sendPings(): void;
+      onPongMessage(client: { sessionId: string }, raw: unknown): void;
+    };
+    const w = new World(1);
+    const ship = w.addShip('a', 'ALPHA');
+    room.world = w;
+    room.clients = [{ sessionId: 'a', state: ClientState.JOINED, send: () => {} }];
+
+    // Sweep 1: ping goes out; back-date its send mark to fake a ~140ms
+    // round-trip, then the echo lands — the client has banked a high min.
+    room.sendPings();
+    const st = room.pings.get('a')!;
+    st.outstanding.set(st.nonce, performance.now() - 140);
+    room.onPongMessage({ sessionId: 'a' }, { n: st.nonce });
+    expect(ship.rttMs).not.toBeNull();
+    expect(ship.rttMs!).toBeGreaterThanOrEqual(140);
+
+    // The client goes SILENT. A sweep still inside the window keeps the bank…
+    w.step();
+    room.sendPings();
+    expect(ship.rttMs).not.toBeNull();
+
+    // …but once the sim clock passes rttWindowMs, the next unanswered sweep
+    // pushes the drained estimator (null) into the World: zero compensation.
+    const ticks = Math.ceil(CONFIG.net.rttWindowMs / CONFIG.tick.simDtMs) + 1;
+    for (let i = 0; i < ticks; i++) w.step();
+    room.sendPings();
+    expect(ship.rttMs).toBeNull();
   });
 });

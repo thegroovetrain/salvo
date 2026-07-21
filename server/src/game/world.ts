@@ -137,15 +137,6 @@ export interface ShipRecord {
    */
   rttMs: number | null;
   /**
-   * ms — server time the input BEFORE the current one was first applied (the
-   * D1 monotonicity floor: a shot is never back-dated to before the input that
-   * preceded the click, so a back-dated shell can't contradict an already-
-   * applied steering change). Maintained by applyInputs on each NEW seq.
-   */
-  prevInputAt: number;
-  /** ms — server time the CURRENT input (lastAckSeq) was first applied. */
-  lastInputAt: number;
-  /**
    * ms — the last ACCEPTED (activation succeeded) validated fire time. The
    * second D1 monotonicity floor: fire times never run backwards across shots.
    * Denials (empty pool etc.) deliberately do NOT advance it.
@@ -308,8 +299,6 @@ export class World {
       lastAckSeq: 0,
       lastFireSeq: 0,
       rttMs: null,
-      prevInputAt: 0,
-      lastInputAt: 0,
       lastFireT: 0,
       respawnAt: 0,
       sweepAngle: 0,
@@ -535,17 +524,11 @@ export class World {
     this.pending = [];
   }
 
-  /** Copy each client's latest stored input onto its ship. A NEW seq also
-   *  advances the D1 input-arrival marks (prevInputAt/lastInputAt) that floor
-   *  fire-time back-dating — a re-applied stale input moves nothing. */
+  /** Copy each client's latest stored input onto its ship. */
   private applyInputs(): void {
     for (const ship of this.ships.values()) {
       const inp = this.inputs.get(ship.id);
       if (inp) {
-        if (inp.seq > ship.lastAckSeq) {
-          ship.prevInputAt = ship.lastInputAt;
-          ship.lastInputAt = this.now;
-        }
         ship.input = inp;
         ship.lastAckSeq = inp.seq;
       }
@@ -625,9 +608,14 @@ export class World {
     return hulls;
   }
 
-  /** Advance every live ballistic; spent ones emit a boom (+ damage on a hit). */
+  /** Advance every live ballistic; spent ones emit a boom (+ damage on a hit).
+   *  THE one spent-shell path: remove it from flight, drop every observer's
+   *  seen-memory, resolve its outcome into events/damage. The D1 back-dated
+   *  spawn pre-step deliberately does NOT resolve outcomes (see preStepShell) —
+   *  every projectile funnels through here, one tick after spawn at the
+   *  earliest, so all shell damage resolves in exactly one place. */
   private stepShells(dt: number, hulls: HullTarget[]): void {
-    for (const [, shell] of this.shells) {
+    for (const [id, shell] of this.shells) {
       const outcome = stepShell(shell, {
         islands: this.map.islands,
         hulls,
@@ -636,20 +624,10 @@ export class World {
         mapRadius: this.map.radius,
       });
       if (outcome.kind === 'travel') continue;
-      this.retireShell(shell, outcome, hulls);
+      this.shells.delete(id);
+      this.forgetBallistic(id);
+      this.resolveShell(shell, outcome, hulls);
     }
-  }
-
-  /**
-   * THE one spent-shell handler: remove it from flight, drop every observer's
-   * seen-memory, and resolve its outcome into events/damage. Shared by the
-   * normal per-tick stepShells sweep AND the D1 back-dated spawn pre-step, so
-   * a spawn-tick burst/interception resolves byte-identically to a flown one.
-   */
-  private retireShell(shell: ShellState, outcome: ShellOutcome, hulls: readonly HullTarget[]): void {
-    this.shells.delete(shell.id);
-    this.forgetBallistic(shell.id);
-    this.resolveShell(shell, outcome, hulls);
   }
 
   /**
@@ -753,14 +731,13 @@ export class World {
       if (!ship.alive || !clicked) continue;
       // D1: validate the click's claimed fire time BEFORE activation. The clamp
       // is the trust boundary (never earlier than now - min(RTT+jitter, ceiling),
-      // never before the previous input or the previous accepted fire).
+      // never before the previous ACCEPTED fire time).
       const fireT = clampFireTime({
         claimed: ship.input.fireT,
         now: this.now,
         rttMs: ship.rttMs,
         jitterMs: CONFIG.net.fireJitterAllowanceMs,
         ceilingMs: CONFIG.net.fireBackdateCeilingMs,
-        prevInputAt: ship.prevInputAt,
         prevFireT: ship.lastFireT,
       });
       const result = this.sinkingActivationGate(ship, ship.input.slot, fireT);
@@ -813,12 +790,15 @@ export class World {
   }
 
   /**
-   * Store a newly-fired ballistic + queue its one-time reveal event. D1: when
-   * the shot was back-dated (bornAt < now), the reveal event goes out FIRST
-   * with the true muzzle x/y and t = bornAt — the client's existing dead-
-   * reckoning (pos + v·(serverNow − t)) then renders the back-date honestly —
-   * and the shell is PRE-STEPPED to where it belongs this tick (see
-   * preStepShell: real flight against current state, never a teleport).
+   * Store a newly-fired ballistic + queue its world-tick event. NOTE: the
+   * queued tick event never reaches the wire — signals.ts drops ownerless tick
+   * shell/torp events by design; clients learn of a projectile through
+   * perception.ballisticScan, which reveals each LIVE shell per observer at
+   * its CURRENT position with t = reveal time. D1: a back-dated shot
+   * (bornAt < now) is PRE-STEPPED along its real trajectory this tick (see
+   * preStepShell), so the back-date manifests on the wire as the shell being
+   * revealed further along its flight — exactly AR3's "materializes slightly
+   * ahead of the muzzle".
    */
   private spawnBallistic(shell: ShellState): void {
     this.shells.set(shell.id, shell);
@@ -831,9 +811,18 @@ export class World {
    * sub-steps of ≤ one sim tick, each through the SAME shared stepShell against
    * CURRENT alive hulls + islands + map edge (live state — deliberately NO
    * rewind: a hull that has since ducked behind an island blocks the shot, "the
-   * shooter's claim is honored in time, the world is honored in space"). Any
-   * non-travel outcome resolves through the one retireShell handler, so a
-   * burst / interception / island stop / expiry can all land on the spawn tick.
+   * shooter's claim is honored in time, the world is honored in space").
+   *
+   * A non-travel outcome is NOT resolved here: pre-stepping stops and the
+   * shell is left alive at the position stepShell left it (the terminal
+   * point); the NEXT tick's normal stepShells sweep re-steps it there and
+   * resolves the burst / interception / island stop / expiry against then-live
+   * hulls. Consequences: every projectile survives its spawn tick, so the
+   * perception ballisticScan reveal invariant ("shell event, then burst")
+   * holds for ALL shots including maximally-compensated point-blank ones (the
+   * same one-tick-deferred semantics as the 1.4 muzzleOrTarget point-blank
+   * precedent) — and no damage ever resolves inside fireControl, so same-tick
+   * mutual fire can never depend on ships-map iteration order.
    */
   private preStepShell(shell: ShellState): void {
     const hulls = this.aliveHulls();
@@ -848,9 +837,7 @@ export class World {
         dt: dtMs / 1000,
         mapRadius: this.map.radius,
       });
-      if (outcome.kind === 'travel') continue;
-      this.retireShell(shell, outcome, hulls);
-      return;
+      if (outcome.kind !== 'travel') return; // terminal: defer to next tick's sweep
     }
   }
 

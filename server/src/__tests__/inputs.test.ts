@@ -142,7 +142,6 @@ describe('clampFireTime', () => {
     rttMs: 40,
     jitterMs: 30,
     ceilingMs: 150,
-    prevInputAt: 0,
     prevFireT: 0,
     ...over,
   });
@@ -179,19 +178,29 @@ describe('clampFireTime', () => {
     expect(clampFireTime(base({ claimed: 850, rttMs: null }))).toBe(1000);
   });
 
-  it('never earlier than the previous applied input (monotonicity floor)', () => {
-    // Candidate 930 (the liar clamp) floored up to the 950 input-arrival mark.
-    expect(clampFireTime(base({ claimed: 850, prevInputAt: 950 }))).toBe(950);
-  });
-
-  it('never earlier than the previous accepted fire (monotonicity floor)', () => {
+  it('never earlier than the previous accepted fire (THE monotonicity floor)', () => {
+    // Candidate 930 (the liar clamp) floored up to the previous accepted fire.
     expect(clampFireTime(base({ claimed: 850, prevFireT: 940 }))).toBe(940);
-    // Both floors present: the higher one wins.
-    expect(clampFireTime(base({ claimed: 850, prevInputAt: 935, prevFireT: 945 }))).toBe(945);
+    // The floor also binds the never-measured and sentinel branches.
+    expect(clampFireTime(base({ claimed: 850, rttMs: null, prevFireT: 1005 }))).toBe(1005);
   });
 
-  it('floors never push the result past an honest candidate that already clears them', () => {
-    expect(clampFireTime(base({ claimed: 960, prevInputAt: 900, prevFireT: 910 }))).toBe(960);
+  it('the floor never pushes the result past an honest candidate that already clears it', () => {
+    expect(clampFireTime(base({ claimed: 960, prevFireT: 910 }))).toBe(960);
+  });
+
+  it('AR3 purpose (removes the input-delay penalty): an honest 150ms client streaming at the 50ms cadence gets FULL min(RTT+jitter, ceiling) compensation', () => {
+    // Adjudicated 2026-07-21: "never earlier than the previous input" binds to
+    // the previous input's carried fire-time (prevFireT), NOT its server-apply
+    // time. A server-apply floor would sit ~50ms behind `now` for any client
+    // streaming inputs every 50ms, capping compensation at ~one input interval
+    // and granting input-throttlers MORE back-dating than honest streamers.
+    // Honest 150ms-RTT streamer: claim is 150ms old, last accepted fire long
+    // ago => full allowance min(150 + 30, 150) = 150 back-dates to now - 150.
+    expect(clampFireTime(base({ claimed: 850, rttMs: 150, prevFireT: 400 }))).toBe(850);
+    // Same client, inputs still streaming (a fresh input applied ~50ms ago
+    // changes NOTHING — no apply-time floor exists to eat the compensation).
+    expect(clampFireTime(base({ claimed: 850, rttMs: 150, prevFireT: 700 }))).toBe(850);
   });
 });
 

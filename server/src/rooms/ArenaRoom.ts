@@ -228,6 +228,17 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
    * client, recording the REAL send time per nonce (RTT is transport latency —
    * wall clock, not sim clock). The outstanding map is bounded: a client that
    * never echoes sheds its oldest nonces past MAX_OUTSTANDING_PINGS.
+   *
+   * Every sweep ALSO re-pushes the estimator's windowed min into the World, so
+   * window expiry reaches the D1 clamp even when a client stops echoing
+   * entirely (estimator drains to null => zero compensation) — staleness must
+   * never be gated on the next pong that may never come.
+   *
+   * ACCEPTED RESIDUAL (flagged for Eric): a client that CONTINUOUSLY delays
+   * only its pong echoes can present as a high-latency client and bank
+   * compensation up to the ratified 150ms ceiling — bounded by design (AR3's
+   * accepted envelope; indistinguishable from, and equivalent to, genuinely
+   * routing through a slow link).
    */
   private sendPings(): void {
     for (const client of this.clients) {
@@ -241,6 +252,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
         st.outstanding.delete(oldest);
       }
       client.send(MSG.ping, { n: st.nonce, t: this.world.now });
+      // Estimator timestamps ride the sim clock (see onPongMessage's addSample),
+      // so the expiry probe must too.
+      this.world.setRtt(client.sessionId, st.estimator.minMs(this.world.now));
     }
   }
 
