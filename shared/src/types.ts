@@ -14,6 +14,7 @@ export const MSG = {
   frame: 'f',
   results: 'r',
   spend: 'u', // client->server: spend one banked point (see SpendMsg)
+  ping: 'p', // server->client PingMsg / client->server PongMsg echo (RTT measurement)
 } as const;
 
 /**
@@ -64,6 +65,35 @@ export interface InputMsg {
    * click's slot IS the resolved prime. Validated server-side like every field.
    */
   slot: number;
+  /**
+   * ms — the client's server-clock estimate captured at pointerdown of the
+   * most recent click (fire-time compensation, D1). `0` is the explicit
+   * "no claim" sentinel meaning zero fire-time compensation. The server never
+   * trusts the claim outright: compensation is clamped to
+   * `min(claimed, measured RTT + jitter allowance)` with a hard ceiling of
+   * `CONFIG.net.fireBackdateCeilingMs`.
+   */
+  fireT: number;
+}
+
+/**
+ * Server -> client ping ("p"): `n` is a nonce, `t` the server send time (ms).
+ * The client echoes PongMsg `{n}` immediately; the round-trip is the server's
+ * RTT measurement feeding the D1 fire-time clamp (Colyseus 0.17 exposes no
+ * room.ping(), so RTT is measured at the app level).
+ */
+export interface PingMsg {
+  n: number; // nonce (matches the echoed PongMsg)
+  t: number; // ms — server time the ping was sent
+}
+
+/**
+ * Client -> server ping echo ("p"): the nonce from the PingMsg, returned
+ * immediately on receipt. The server pairs it with its recorded send time to
+ * compute one RTT sample for the D1 clamp bound.
+ */
+export interface PongMsg {
+  n: number; // nonce being echoed
 }
 
 /**

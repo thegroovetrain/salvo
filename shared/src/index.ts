@@ -3,6 +3,9 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  6: firing under latency (D1) — InputMsg gains required fireT (client
+ *  server-clock fire timestamp, 0 = no claim); new 'p' ping channel
+ *  (PingMsg/PongMsg) for server-side RTT measurement.
  *  5: universal standard gun — InputMsg.weapon (WeaponId) replaced by
  *  InputMsg.slot (loadout slot index); OwnShip.weapon removed; OwnShip.ammo
  *  became slot-aligned (WeaponAmmo | null)[]; new 'burst' GameEvent;
@@ -14,7 +17,7 @@
  *  constant is documentation, not (yet) a runtime gate — a stale bundle
  *  fails at schema decode, not with a clean version rejection. A join-time
  *  version check is deferred work (see reconnection stories). */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 // Tunables
 export * from './constants.js';

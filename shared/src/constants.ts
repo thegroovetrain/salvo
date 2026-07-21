@@ -272,6 +272,21 @@ export const CONFIG = {
     // generous headroom for a slow-but-honest handshake while staying well
     // under the 60s reconnect grace (a stuck seat never blocks a room for long).
     joiningDeadlineSeconds: 10,
+    // Hard ceiling (ms) on fire-time back-dating (D1): however large the
+    // client's claimed latency or the measured RTT, a shot is never back-dated
+    // further than this. RATIFIED by AR3.
+    fireBackdateCeilingMs: 150,
+    // ms added to the measured RTT when clamping a fire-time claim, so honest
+    // network jitter doesn't cost compensation. PROPOSED design target,
+    // tunable, flagged for Eric.
+    fireJitterAllowanceMs: 30,
+    // ms between server->client pings ('p' channel) driving RTT measurement.
+    // PROPOSED design target, tunable, flagged for Eric.
+    pingIntervalMs: 1000,
+    // ms — sliding window over which the RTT estimator keeps samples (the
+    // windowed-min is the clamp bound). PROPOSED design target, tunable,
+    // flagged for Eric.
+    rttWindowMs: 10000,
   },
 } as const;
 
