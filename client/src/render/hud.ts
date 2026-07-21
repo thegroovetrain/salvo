@@ -106,6 +106,18 @@ const EQUIPMENT_LABEL: Record<EquipmentId, string> = {
 export function chipLabel(slot: number, id: EquipmentId): string {
   return `${slot + 1} ${EQUIPMENT_LABEL[id]}`;
 }
+
+/**
+ * Pure: does this equipment's chip use the cooldown-sweep grammar (vs the
+ * segmented ammo pool)? Keyed on EQUIPMENT IDENTITY, never on pool size: the
+ * gun's single shot and ability charges (the boost) read as pure cooldowns,
+ * while WEAPON pools (torpedo/mine) keep the segmented-pool + reload-line
+ * grammar even at maxAmmo 1 — a 1-fish tube is still a pool, and it grows
+ * mid-match on an ammo grant without the chip flipping vocabulary.
+ */
+export function chipUsesCooldownGrammar(id: EquipmentId): boolean {
+  return id === 'gun' || !EQUIPMENT_IS_WEAPON[id];
+}
 const CHIP_GAP = 6;
 const CHIP_H = 20;
 const SEG_GAP = 1; // px between ammo segments within a chip
@@ -483,9 +495,10 @@ export class Hud {
   /**
    * The LOADOUT-driven chip row (Story 1.6): one chip per fitted slot of the
    * own loadout (TB: [1 GUNS / 2 TORP / 3 BOOST], BB/ML: [1 GUNS / 2 TORP /
-   * 3 MINE]). Single-charge equipment (the gun's 1-round pool, the boost's
-   * 1-charge pool) renders the pure cooldown-sweep grammar; pooled weapons
-   * render segmented ammo + a reload line. The PRIMED slot is outlined amber
+   * 3 MINE]). The gun and abilities (boost) render the pure cooldown-sweep
+   * grammar; WEAPON pools (torpedo/mine) render segmented ammo + a reload
+   * line — keyed on equipment identity, never on pool size (a 1-fish tube is
+   * still a segmented pool). The PRIMED slot is outlined amber
    * (gun when nothing is primed); an ABILITY chip borrows that SAME
    * primed-amber outline while its window is active — interim vocabulary, the
    * full hotbar grammar is Epic 2 Story 2.2. `deniedFlash` briefly reddens the
@@ -511,11 +524,11 @@ export class Hud {
     const isAbility = !EQUIPMENT_IS_WEAPON[id];
     const a = status.ammo[slot] ?? { n: 0, reloadMsLeft: 0 };
     const reloadFrac = reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, id));
-    const max = equipmentMaxAmmo(status.stats, id);
     g.rect(cx, y, cw, CHIP_H).fill({ color: 0x111111, alpha: 0.8 });
-    // 1-charge pools (gun, boost) read as a pure cooldown; pools as segments.
-    if (max === 1) this.drawCooldownChip(g, a.n > 0, reloadFrac, cx, y, cw);
-    else this.drawAmmoChip(g, { n: a.n, max, reloadFrac }, cx, y, cw);
+    // Grammar keyed on equipment IDENTITY (gun/ability = cooldown sweep,
+    // weapon pools = segments) — never on pool size (see chipUsesCooldownGrammar).
+    if (chipUsesCooldownGrammar(id)) this.drawCooldownChip(g, a.n > 0, reloadFrac, cx, y, cw);
+    else this.drawAmmoChip(g, { n: a.n, max: equipmentMaxAmmo(status.stats, id), reloadFrac }, cx, y, cw);
     const primed = slot === status.primedSlot;
     // Active-window "on" indicator = the primed-amber outline (interim — Epic 2
     // Story 2.2 owns the real hotbar active grammar).

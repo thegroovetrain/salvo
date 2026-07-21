@@ -564,6 +564,8 @@ function viewportCallbacks(getG: () => Game | null): {
  *  - predicted READY → open the predictor's optimistic boost window at the
  *    current server-clock estimate, so the speed-up doesn't wait a round trip
  *    (the authoritative you.boostUntil overwrites it once the press is acked).
+ *    The predictor itself ignores a second press while a window is pending, so
+ *    a stale-ammo double press within RTT can never extend the estimate.
  */
 function handleAbilityPress(g: Game, slot: number): void {
   const you = g.state.net.you;

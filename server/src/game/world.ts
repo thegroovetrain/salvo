@@ -70,6 +70,15 @@ import { pickSpawn } from './spawn.js';
 
 const TAU = Math.PI * 2;
 
+/** The equipment id fitted in `loadout[slotIndex]`, or null when the slot is
+ *  empty or the index is out of range. Shared by the two dispatch channels so
+ *  each routes only its OWN equipment kind: fireControl (clicks) dispatches
+ *  weapons, activationControl (actSeq) dispatches abilities. */
+function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): EquipmentId | null {
+  const slot = loadout[slotIndex];
+  return slot ? slot.equipmentId : null;
+}
+
 /** Everything the server tracks per ship, on top of the shared kinematic state. */
 export interface ShipRecord {
   id: string;
@@ -410,6 +419,10 @@ export class World {
     ship.alive = false;
     ship.hp = 0;
     ship.state.speed = 0;
+    // Close any open speed-boost window at the instant of death (Story 1.6): a
+    // future boostUntil must not ride the owner's frames through the death gap,
+    // where it would paint active-boost HUD chrome on a dead ship.
+    ship.boostUntil = 0;
     ship.deaths += 1;
     ship.respawnAt = this.respawnEnabled ? this.now + CONFIG.ship.respawnDelay : 0;
     if (by && by !== id) {
@@ -481,11 +494,16 @@ export class World {
     // free round that bypasses the 3s reload (spec 1.4: "count increments but no
     // effect"). Only real ammo pools (torpedo/mine) load the +1 round.
     if (equipmentId === 'gun') return;
-    // Universal fit: all three ammo-upgradeable systems are always fitted, and
-    // a fitted slot ALWAYS has state (the LoadoutSlot invariant). Assert both
-    // rather than silently skipping — a swallowed miss would invisibly rob the
-    // player of the earned round, so a broken invariant must crash loudly.
-    const pool = killer.loadout.find((s) => s.equipmentId === equipmentId)!.state!;
+    // Per-hull loadout (Story 1.6): the ammo-upgradeable system may NOT be
+    // fitted on this hull — a Torpedo Boat carries no mine, so a `mineAmmo`
+    // offer is a DEAD PICK (the spec's documented interregnum wart, dying with
+    // the Epic 2 economy). The upgrade count + effective stats still apply
+    // upstream (applyUpgrade); only the pool side-effect is skipped, as a NO-OP,
+    // when the slot is absent — never a crash. A fitted slot ALWAYS has state
+    // (the LoadoutSlot invariant), so the load itself stays assertive.
+    const slot = killer.loadout.find((s) => s.equipmentId === equipmentId);
+    if (slot === undefined) return;
+    const pool = slot.state!;
     pool.n = Math.min(pool.n + 1, equipmentMaxAmmo(killer.stats, equipmentId));
   }
 
@@ -768,6 +786,15 @@ export class World {
       const clicked = ship.input.fireSeq > ship.lastFireSeq;
       ship.lastFireSeq = Math.max(ship.lastFireSeq, ship.input.fireSeq);
       if (!ship.alive || !clicked) continue;
+      // The CLICK channel dispatches WEAPONS ONLY — the mirror of
+      // activationControl's ability wall (Story 1.6). A forged click naming an
+      // ability or empty slot (e.g. a TB's speedBoost in slot 2) is silently
+      // inert: abilities activate via actSeq, and letting a click reach
+      // boostEquipment.activate would burn the charge AND stamp lastFireT off
+      // the wrong channel. An out-of-range/empty slot is inert here too (it was
+      // an 'empty-slot' gate denial before — same no-op, no lastFireT).
+      const id = fittedEquipment(ship.loadout, ship.input.slot);
+      if (id === null || !EQUIPMENT_IS_WEAPON[id]) continue;
       // D1: validate the click's claimed fire time BEFORE activation. The clamp
       // is the trust boundary (never earlier than now - min(RTT+jitter, ceiling),
       // never before the previous ACCEPTED fire time).
@@ -803,10 +830,11 @@ export class World {
       const activated = ship.input.actSeq > ship.lastActSeq;
       ship.lastActSeq = Math.max(ship.lastActSeq, ship.input.actSeq);
       if (!ship.alive || !activated) continue;
-      const slot = ship.loadout[ship.input.actSlot];
-      // actSeq targets abilities only: a weapon or empty slot is a no-op (no
-      // state change), so a forged actSeq on a gun/torpedo slot fires nothing.
-      if (!slot || slot.equipmentId === null || EQUIPMENT_IS_WEAPON[slot.equipmentId]) continue;
+      // actSeq targets ABILITIES only: a weapon or empty slot is a no-op (no
+      // state change), so a forged actSeq on a gun/torpedo slot fires nothing —
+      // the mirror of fireControl's weapon-only wall.
+      const id = fittedEquipment(ship.loadout, ship.input.actSlot);
+      if (id === null || EQUIPMENT_IS_WEAPON[id]) continue;
       this.sinkingActivationGate(ship, ship.input.actSlot);
     }
   }

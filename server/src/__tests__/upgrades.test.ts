@@ -421,6 +421,20 @@ describe('spend side effects', () => {
     expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(1); // immediately usable
   });
 
+  it('mineAmmo on a Torpedo Boat is a DEAD PICK (Story 1.6): no throw, count + stats move, loadout untouched', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0); // torpedoBoat — carries NO mine (slot 2 = speedBoost)
+    expect(a.loadout[SLOT_MINE].equipmentId).toBe('speedBoost');
+    const before = a.loadout.map((s) => (s.state ? { ...s.state } : null));
+    // The review-caught crash: applyGrantEffects used to `.find(mine)!.state!` an
+    // absent slot. It must now be a pure no-op when the equipment is not fitted.
+    expect(() => w.applyUpgrade(a, 'mineAmmo')).not.toThrow();
+    expect(a.upgrades[UPGRADE_IDS.indexOf('mineAmmo')]).toBe(1); // count still increments
+    expect(a.stats.mine.maxAmmo).toBe(CONFIG.mine.maxAmmo + 1); // stats still apply
+    // No mine pool exists to load — the loadout is byte-identical (pure no-op).
+    expect(a.loadout.map((s) => (s.state ? { ...s.state } : null))).toEqual(before);
+  });
+
   it('non-hull, non-ammo spends leave hp and loaded rounds untouched', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);

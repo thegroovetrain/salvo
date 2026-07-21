@@ -243,6 +243,41 @@ describe('the actSeq gate is monotonic', () => {
   });
 });
 
+// ---------- the click channel dispatches weapons ONLY ------------------------
+
+describe('a click never activates an ability (fireControl weapon wall)', () => {
+  it('a forged click on the boost slot (TB slot 2) is inert: no activation, charge intact, no lastFireT', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    // A click (fireSeq advance) naming the ability slot — abilities activate via
+    // actSeq, NEVER a click. Without the wall this would reach boostEquipment
+    // and burn the charge + stamp lastFireT off the wrong channel.
+    w.submitInput('a', makeInput({ seq: 1, fireSeq: 1, slot: SLOT_BOOST, fireT: 0 }));
+    w.step();
+    expect(a.boostUntil).toBe(0); // NOT activated off the click channel
+    expect(a.loadout[SLOT_BOOST].state).toEqual({ n: BOOST.maxAmmo, reloadMsLeft: 0 }); // charge intact
+    expect(a.lastFireT).toBe(0); // no fire-time stamp for an inert slot
+    expect(a.lastFireSeq).toBe(1); // the click counter still advanced (consumed)
+  });
+});
+
+// ---------- death during boost closes the window at the instant of death ------
+
+describe('death during boost resets the window (Story 1.6)', () => {
+  it('sinkShip zeroes boostUntil immediately, so the death gap shows no active-boost chrome', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    pressActivate(w, 'a', 1, 1, SLOT_BOOST);
+    w.step();
+    expect(a.boostUntil).toBeGreaterThan(w.now); // mid-window
+    w.sinkShip('a'); // killed while boosting
+    expect(a.alive).toBe(false);
+    expect(a.boostUntil).toBe(0); // window closed AT death, not deferred to respawn
+    // The owner's frame no longer advertises an active window during the gap.
+    expect(buildFrame(w, 'a').you!.boostUntil).toBe(0);
+  });
+});
+
 // ---------- owner-only: boostUntil rides `you` and NOTHING else ---------------
 
 describe('boostUntil is owner-only (anti-cheat)', () => {

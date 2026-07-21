@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, boostedKinematics, effectiveStats, loadoutFor, zeroUpgrades } from '@salvo/shared';
 import {
   chipLabel,
+  chipUsesCooldownGrammar,
   hpColor,
   reloadFraction,
   detentIndexOf,
@@ -120,6 +121,22 @@ describe('chipLabel — the LOADOUT-driven chip row', () => {
     expect(labelsFor('torpedoBoat')).toEqual(['1 GUNS', '2 TORP', '3 BOOST']);
     expect(labelsFor('battleship')).toEqual(['1 GUNS', '2 TORP', '3 MINE']);
     expect(labelsFor('mineLayer')).toEqual(['1 GUNS', '2 TORP', '3 MINE']);
+  });
+});
+
+describe('chip grammar — cooldown sweep vs segmented pool, keyed on equipment identity', () => {
+  it('the gun and the boost ability read as pure cooldowns', () => {
+    expect(chipUsesCooldownGrammar('gun')).toBe(true);
+    expect(chipUsesCooldownGrammar('speedBoost')).toBe(true); // ability charge
+  });
+
+  it('WEAPON pools keep the segmented-pool grammar regardless of pool size', () => {
+    // The torpedo pool is maxAmmo 1 at base and grows on a torpedoAmmo grant:
+    // its chip must stay a segmented pool (pre-story grammar), never flip to
+    // the cooldown sweep — grammar keys on identity, not on pool size.
+    expect(CONFIG.torpedo.maxAmmo).toBe(1); // the trap this pins against
+    expect(chipUsesCooldownGrammar('torpedo')).toBe(false);
+    expect(chipUsesCooldownGrammar('mine')).toBe(false);
   });
 });
 
