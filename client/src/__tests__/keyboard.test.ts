@@ -1,13 +1,17 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { WEAPON } from '@salvo/shared';
+import { SLOT_GUN } from '@salvo/shared';
 import {
   rudderFrom,
   panAxesFrom,
-  weaponFromKey,
+  primeSlotFromKey,
+  nextPrimedSlot,
   upgradeActionFromKey,
   KeyboardInput,
   type UpgradeAction,
 } from '../input/keyboard.js';
+
+const TORP = 1;
+const MINE = 2;
 
 describe('rudderFrom (held A/D)', () => {
   it('is zero with no keys', () => {
@@ -40,20 +44,43 @@ describe('panAxesFrom (spectator held-WASD, both axes)', () => {
   });
 });
 
-describe('weaponFromKey', () => {
-  it('maps 1/2/3 (top row + numpad) to gun/torpedo/mine', () => {
-    expect(weaponFromKey('Digit1')).toBe(WEAPON.gun);
-    expect(weaponFromKey('Digit2')).toBe(WEAPON.torpedo);
-    expect(weaponFromKey('Digit3')).toBe(WEAPON.mine);
-    expect(weaponFromKey('Numpad1')).toBe(WEAPON.gun);
-    expect(weaponFromKey('Numpad2')).toBe(WEAPON.torpedo);
-    expect(weaponFromKey('Numpad3')).toBe(WEAPON.mine);
+describe('primeSlotFromKey', () => {
+  it('maps 1/2/3 (top row + numpad) to slots gun(0)/torpedo(1)/mine(2)', () => {
+    expect(primeSlotFromKey('Digit1')).toBe(SLOT_GUN);
+    expect(primeSlotFromKey('Digit2')).toBe(TORP);
+    expect(primeSlotFromKey('Digit3')).toBe(MINE);
+    expect(primeSlotFromKey('Numpad1')).toBe(SLOT_GUN);
+    expect(primeSlotFromKey('Numpad2')).toBe(TORP);
+    expect(primeSlotFromKey('Numpad3')).toBe(MINE);
   });
 
-  it('returns null for non-weapon keys (so selection is left unchanged)', () => {
-    expect(weaponFromKey('KeyW')).toBeNull();
-    expect(weaponFromKey('Digit4')).toBeNull();
-    expect(weaponFromKey('Space')).toBeNull();
+  it('returns null for non-number keys (so the prime is left unchanged)', () => {
+    expect(primeSlotFromKey('KeyW')).toBeNull();
+    expect(primeSlotFromKey('Digit4')).toBeNull();
+    expect(primeSlotFromKey('Space')).toBeNull();
+  });
+});
+
+describe('nextPrimedSlot — set / cancel / revert', () => {
+  it('priming a fresh slot from the gun sets that slot', () => {
+    expect(nextPrimedSlot(SLOT_GUN, TORP)).toBe(TORP);
+    expect(nextPrimedSlot(SLOT_GUN, MINE)).toBe(MINE);
+  });
+
+  it('pressing the SAME primed key again cancels back to the gun', () => {
+    expect(nextPrimedSlot(TORP, TORP)).toBe(SLOT_GUN);
+    expect(nextPrimedSlot(MINE, MINE)).toBe(SLOT_GUN);
+  });
+
+  it('pressing 1 (gun) always reverts to the gun, whatever was primed', () => {
+    expect(nextPrimedSlot(TORP, SLOT_GUN)).toBe(SLOT_GUN);
+    expect(nextPrimedSlot(MINE, SLOT_GUN)).toBe(SLOT_GUN);
+    expect(nextPrimedSlot(SLOT_GUN, SLOT_GUN)).toBe(SLOT_GUN);
+  });
+
+  it('switching directly between two primed slots swaps (no intermediate cancel)', () => {
+    expect(nextPrimedSlot(TORP, MINE)).toBe(MINE);
+    expect(nextPrimedSlot(MINE, TORP)).toBe(TORP);
   });
 });
 
@@ -190,14 +217,36 @@ describe('KeyboardInput — telegraph driving', () => {
     expect(kb.throttle).toBe(0.25);
   });
 
-  it('latches the weapon from 1/2/3 and keeps it across clearKeys', () => {
+  it('primes a slot from 2/3 and keeps the prime across clearKeys', () => {
     kb = new KeyboardInput();
     kb.attach();
-    expect(kb.weapon).toBe(WEAPON.gun);
+    expect(kb.primedSlot).toBe(SLOT_GUN);
     press('Digit2');
-    expect(kb.weapon).toBe(WEAPON.torpedo);
+    expect(kb.primedSlot).toBe(TORP);
     kb.clearKeys();
-    expect(kb.weapon).toBe(WEAPON.torpedo);
+    expect(kb.primedSlot).toBe(TORP); // prime survives clearKeys, like the old latch
+  });
+
+  it('the same prime key again cancels back to the gun; Digit1 also reverts', () => {
+    kb = new KeyboardInput();
+    kb.attach();
+    press('Digit3'); // prime mine
+    expect(kb.primedSlot).toBe(MINE);
+    press('Digit3'); // same key cancels
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+    press('Digit2'); // prime torpedo
+    expect(kb.primedSlot).toBe(TORP);
+    press('Digit1'); // explicit revert to gun
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+  });
+
+  it('revertToGun() clears the prime (called by main.ts on a fireable click)', () => {
+    kb = new KeyboardInput();
+    kb.attach();
+    press('Digit2');
+    expect(kb.primedSlot).toBe(TORP);
+    kb.revertToGun();
+    expect(kb.primedSlot).toBe(SLOT_GUN);
   });
 
   it('held W/S still populate the pan axes (for spectator free-pan)', () => {
@@ -214,23 +263,23 @@ describe('KeyboardInput — CTRL upgrade window', () => {
   let kb: KeyboardInput | undefined;
   afterEach(() => kb?.detach());
 
-  it('CTRL+Digit1 fires the action, preventDefaults, and does NOT latch a weapon', () => {
+  it('CTRL+Digit2 fires the upgrade chord, preventDefaults, and does NOT prime a slot', () => {
     const actions: UpgradeAction[] = [];
     kb = new KeyboardInput(undefined, (a) => actions.push(a));
     kb.attach();
-    const prevented = pressCtrl('Digit1');
-    expect(actions).toEqual([{ kind: 'choose', slot: 0 }]);
+    const prevented = pressCtrl('Digit2');
+    expect(actions).toEqual([{ kind: 'choose', slot: 1 }]);
     expect(prevented).toBe(true);
-    expect(kb.weapon).toBe(WEAPON.gun); // unchanged: gun was already selected, torp/mine never latched
+    expect(kb.primedSlot).toBe(SLOT_GUN); // CTRL short-circuits before the prime logic
   });
 
-  it('a plain Digit2 still selects a weapon (no CTRL → not an upgrade key)', () => {
+  it('a plain Digit2 still primes a slot (no CTRL → not an upgrade key)', () => {
     const actions: UpgradeAction[] = [];
     kb = new KeyboardInput(undefined, (a) => actions.push(a));
     kb.attach();
     press('Digit2');
     expect(actions).toEqual([]);
-    expect(kb.weapon).toBe(WEAPON.torpedo);
+    expect(kb.primedSlot).toBe(TORP);
   });
 
   // FINDING C: the toggle moved from Control keyDOWN to Control keyUP, and is

@@ -10,12 +10,12 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { ShipState, HullId } from '@salvo/shared';
-import { hullEnvelope } from '@salvo/shared';
+import { CONFIG, hullEnvelope } from '@salvo/shared';
 import { Pool } from '../util/pool.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** Effect kinds routed through spawnEffect(). */
-export type EffectKind = 'wake' | 'muzzle' | 'spark' | 'splash' | 'sink' | 'torpwake';
+export type EffectKind = 'wake' | 'muzzle' | 'spark' | 'splash' | 'sink' | 'torpwake' | 'burst';
 
 interface OneShotSpec {
   type: 'dot' | 'ring';
@@ -32,6 +32,11 @@ const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
   muzzle: { type: 'dot', life: 0.12, color: 0xffe08a, r0: 5, r1: 1, width: 0, alpha: 0.9, additive: true },
   spark: { type: 'dot', life: 0.2, color: 0xffb800, r0: 7, r1: 1, width: 0, alpha: 1, additive: true },
   splash: { type: 'ring', life: 0.5, color: 0x66ffaa, r0: 3, r1: 22, width: 2, alpha: 0.7, additive: false },
+  // Gun-shell burst at the clicked point: a bright amber ring expanding to the
+  // CONFIG burst radius (the area every enemy hull in it takes full damage),
+  // additive so it reads as a detonation flash. Sized from shared CONFIG (the
+  // radius never travels on the wire — see BurstEvent).
+  burst: { type: 'ring', life: 0.35, color: 0xffb800, r0: 4, r1: CONFIG.gun.burstRadius, width: 3, alpha: 0.95, additive: true },
   sink: { type: 'ring', life: 0.9, color: 0x8b0000, r0: 6, r1: 40, width: 3, alpha: 0.9, additive: false },
   // Torpedo wake: a small dim bubble dropped along the fish's run; fades fast so
   // the trail reads as a fresh streak, not a persistent line.

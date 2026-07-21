@@ -7,8 +7,8 @@ import {
   CONFIG,
   UPGRADE_IDS,
   effectiveStats,
-  weaponMaxAmmo,
-  weaponReloadMs,
+  equipmentMaxAmmo,
+  equipmentReloadMs,
   zeroUpgrades,
   type OwnShip,
 } from '@salvo/shared';
@@ -37,7 +37,7 @@ describe('upgradeLabel — pure toast formatting', () => {
 function ownShip(cls: OwnShip['cls'], upg: number[]): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 100, alive: true,
-    weapon: 0, ammo: [], sweep: 0, cls, upg, pts: 0, offer: [],
+    ammo: [], sweep: 0, cls, upg, pts: 0, offer: [],
   };
 }
 
@@ -99,14 +99,17 @@ describe('HUD denominators react to effective stats', () => {
     expect(speedLadderFraction(-fast.reverseSpeed, fast)).toBe(-1);
   });
 
-  it('ammo chips: pool size and reload denominators come from effective stats', () => {
+  it('chip denominators come from effective stats; the gun pool stays pinned at 1', () => {
     const upg = zeroUpgrades();
-    upg[UPGRADE_IDS.indexOf('gunAmmo')] = 1;
+    upg[UPGRADE_IDS.indexOf('gunAmmo')] = 1; // interregnum: neutralized, no effect on the pool
     upg[UPGRADE_IDS.indexOf('gunReload')] = 1;
     const stats = effectiveStats(TB, upg);
-    expect(weaponMaxAmmo(stats, 0)).toBe(CONFIG.gun.maxAmmo + 1); // an extra chip segment
-    expect(weaponReloadMs(stats, 0)).toBeCloseTo(CONFIG.gun.reloadMs * CONFIG.upgrades.gunReload.mult, 9);
-    expect(weaponMaxAmmo(stats, 1)).toBe(CONFIG.torpedo.maxAmmo); // others untouched
+    // Single-shot gun: maxAmmo is PINNED to 1 regardless of a stacked gunAmmo
+    // (the id survives on the wire but is neutralized in effectiveStats).
+    expect(equipmentMaxAmmo(stats, 'gun')).toBe(CONFIG.gun.maxAmmo);
+    expect(equipmentMaxAmmo(stats, 'gun')).toBe(1);
+    expect(equipmentReloadMs(stats, 'gun')).toBeCloseTo(CONFIG.gun.reloadMs * CONFIG.upgrades.gunReload.mult, 9);
+    expect(equipmentMaxAmmo(stats, 'torpedo')).toBe(CONFIG.torpedo.maxAmmo); // others untouched
   });
 
   it('hp bar: the effective maxHp denominator grows with hullPoints stacks', () => {

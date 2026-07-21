@@ -4,7 +4,7 @@
 // untested adapter per convention — this file covers everything pure.
 
 import { describe, it, expect } from 'vitest';
-import { WEAPON, type WeaponId } from '@salvo/shared';
+import type { EquipmentId } from '@salvo/shared';
 import {
   TONES,
   fireTone,
@@ -62,16 +62,16 @@ describe('TONES — spec table completeness', () => {
   });
 });
 
-describe('fireTone — weapon -> own-fire tone mapping', () => {
-  it('maps every WeaponId to its distinct tone', () => {
-    expect(fireTone(WEAPON.gun)).toBe('fireGun');
-    expect(fireTone(WEAPON.torpedo)).toBe('fireTorp');
-    expect(fireTone(WEAPON.mine)).toBe('fireMine');
+describe('fireTone — equipment -> own-fire tone mapping', () => {
+  it('maps every EquipmentId to its distinct tone', () => {
+    expect(fireTone('gun')).toBe('fireGun');
+    expect(fireTone('torpedo')).toBe('fireTorp');
+    expect(fireTone('mine')).toBe('fireMine');
   });
 
-  it('covers all three WeaponId values with no gaps', () => {
-    const ids: WeaponId[] = [0, 1, 2];
-    for (const w of ids) expect(TONES[fireTone(w)]).toBeDefined();
+  it('covers all three equipment ids with no gaps', () => {
+    const ids: EquipmentId[] = ['gun', 'torpedo', 'mine'];
+    for (const id of ids) expect(TONES[fireTone(id)]).toBeDefined();
   });
 });
 

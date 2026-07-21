@@ -1,19 +1,41 @@
 import { describe, it, expect } from 'vitest';
 import { MSG, type InputMsg } from '@salvo/shared';
-import { InputSampler, buildInput, type Aiming } from '../sim/inputSampler.js';
+import { InputSampler, buildInput, primeFireable, type Aiming } from '../sim/inputSampler.js';
 
-const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, weapon: 0 };
+const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0 };
 
 describe('buildInput', () => {
-  it('carries aim/fireSeq/aimDist/weapon from the mouse sample', () => {
+  it('carries aim/fireSeq/aimDist/slot from the mouse + prime sample', () => {
     const msg = buildInput(3, { throttle: 1, rudder: -1 }, AIM);
-    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, weapon: 0 });
+    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0 });
+  });
+
+  it('carries a primed slot (the click resolves the skillshot on the wire)', () => {
+    const msg = buildInput(3, { throttle: 0, rudder: 0 }, { ...AIM, slot: 1 });
+    expect(msg.slot).toBe(1);
   });
 
   it('clamps axes to [-1, 1]', () => {
-    const msg = buildInput(1, { throttle: 5, rudder: -7 }, { aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 });
+    const msg = buildInput(1, { throttle: 5, rudder: -7 }, { aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
     expect(msg.throttle).toBe(1);
     expect(msg.rudder).toBe(-1);
+  });
+});
+
+describe('primeFireable — client-predicted prime consumption', () => {
+  it('is false for the gun (slot 0) — nothing to consume, gun is the default', () => {
+    expect(primeFireable(0, true, true)).toBe(false);
+  });
+
+  it('is true for a primed skillshot that is loaded AND in arc (consumes → gun)', () => {
+    expect(primeFireable(1, true, true)).toBe(true);
+    expect(primeFireable(2, true, true)).toBe(true);
+  });
+
+  it('keeps the prime when reloading (not loaded) or out of arc', () => {
+    expect(primeFireable(1, false, true)).toBe(false); // reloading
+    expect(primeFireable(1, true, false)).toBe(false); // out of bow arc
+    expect(primeFireable(1, false, false)).toBe(false);
   });
 });
 
@@ -54,7 +76,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
       aim: AIM.aim,
       fireSeq: AIM.fireSeq,
       aimDist: AIM.aimDist,
-      weapon: AIM.weapon,
+      slot: AIM.slot,
     });
     expect(sent).toHaveLength(2);
     expect(sent[1].type).toBe(MSG.input);
@@ -63,17 +85,17 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('zeroes the rudder (the dangerous stale input) but keeps the throttle steaming', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 1, rudder: 1 }, { aim: 1.75, fireSeq: 7, aimDist: 300, weapon: 2 });
+    sampler.sample({ throttle: 1, rudder: 1 }, { aim: 1.75, fireSeq: 7, aimDist: 300, slot: 2 });
     const msg = sampler.sendNeutralNow(1);
     expect(msg.throttle).toBe(1); // deliberate engine order preserved
     expect(msg.rudder).toBe(0);
-    expect(msg.aim).toBe(1.75); // last aim + weapon retained
-    expect(msg.weapon).toBe(2);
+    expect(msg.aim).toBe(1.75); // last aim + slot retained
+    expect(msg.slot).toBe(2);
   });
 
   it('re-sends the LAST fireSeq — never 0 after clicks — as the honest "no new clicks" signal', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, weapon: 0 });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0 });
     const msg = sampler.sendNeutralNow(0);
     expect(msg.fireSeq).toBe(9); // NOT reset — the counter states "9 clicks so far, none new"
     expect(msg.aimDist).toBe(120); // last aim distance retained too
@@ -81,7 +103,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('sends a click landing in the gap since the last sample (live count wins at hide time)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, weapon: 0 });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0 });
     // Click #10 lands after the sample but before visibilitychange fires:
     const msg = sampler.sendNeutralNow(0, 10);
     expect(msg.fireSeq).toBe(10); // fires NOW at a ≤1-tick-old aim, not minutes later on refocus
@@ -105,9 +127,9 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
     expect(seqs).toEqual([1, 2, 3]);
   });
 
-  it('works before any sample() call, defaulting aim/fireSeq/aimDist/weapon to zero', () => {
+  it('works before any sample() call, defaulting aim/fireSeq/aimDist/slot to zero', () => {
     const sampler = new InputSampler(() => undefined);
     const msg = sampler.sendNeutralNow(0);
-    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 });
+    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
   });
 });

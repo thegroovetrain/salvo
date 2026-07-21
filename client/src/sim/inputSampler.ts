@@ -1,21 +1,35 @@
 // Per-tick input sampling. Exactly one InputMsg per 50ms sim tick (matching
 // the server's latest-input model — one send per tick means one application
-// per tick), with a monotonic seq. Aim/clicks/weapon come from the mouse: aim
-// is a world-space bearing from the own ship to the cursor's world point,
-// aimDist that distance (guns splash at the clicked point), fireSeq the
-// cumulative click counter (one shot per click — the server consumes each new
-// value as one shot request), weapon the current selection.
+// per tick), with a monotonic seq. Aim/clicks/slot come from the mouse +
+// keyboard prime: aim is a world-space bearing from the own ship to the
+// cursor's world point, aimDist that distance (the gun bursts at the clicked
+// point), fireSeq the cumulative click counter (one shot per click — the server
+// consumes each new value as one shot request), slot the primed loadout slot at
+// click time (0 = gun default; the server keeps no priming state, so the click's
+// slot IS the resolved prime).
 
-import { MSG, type InputMsg, type WeaponId } from '@salvo/shared';
+import { MSG, SLOT_GUN, type InputMsg } from '@salvo/shared';
 import type { Axes } from '../input/keyboard.js';
 import { clamp } from '../util/math.js';
 
-/** The weapon-facing fields sampled from the mouse each tick. */
+/** The fire-facing fields sampled from mouse + keyboard prime each tick. */
 export interface Aiming {
   aim: number; // rad — world-space bearing
   fireSeq: number; // cumulative click counter (mouse.clickCount)
   aimDist: number; // u — own ship → cursor world distance
-  weapon: WeaponId;
+  slot: number; // primed loadout slot (0 = gun) — the click's wire slot
+}
+
+/**
+ * Pure: does a click on the primed skillshot slot predict as FIREABLE, so the
+ * client consumes the prime (reverts to gun)? A predicted-denied click
+ * (reloading / out of the weapon's arc) KEEPS the prime and pulses denied
+ * feedback (render/deniedFire.ts) instead. The gun (slot 0) is never a prime to
+ * consume. The wire slot per click is the truth regardless — this only decides
+ * the pure-UX prime state (Eric ruling / design note 2026-07-21).
+ */
+export function primeFireable(primedSlot: number, loaded: boolean, inArc: boolean): boolean {
+  return primedSlot !== SLOT_GUN && loaded && inArc;
 }
 
 /** Pure: build the wire input for one tick. Exported for tests. */
@@ -27,14 +41,14 @@ export function buildInput(seq: number, axes: Axes, aiming: Aiming): InputMsg {
     aim: aiming.aim,
     fireSeq: aiming.fireSeq,
     aimDist: aiming.aimDist,
-    weapon: aiming.weapon,
+    slot: aiming.slot,
   };
 }
 
 /** Sends one input per sim tick over the given transport with monotonic seq. */
 export class InputSampler {
   private seq = 0;
-  private lastAiming: Aiming = { aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 };
+  private lastAiming: Aiming = { aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN };
 
   constructor(private readonly send: (type: string, msg: InputMsg) => void) {}
 
@@ -66,7 +80,7 @@ export class InputSampler {
    * last sample would otherwise sit unsent until refocus and fire minutes
    * later at a stale aim — sending the live count fires it NOW, at an aim at
    * most one tick old. Guarded with max() so the wire counter never regresses.
-   * Keeps the last aim bearing / aim distance / weapon selection and a
+   * Keeps the last aim bearing / aim distance / primed slot and a
    * monotonic seq shared with sample(), so it slots into local prediction
    * exactly like a regular tick.
    */

@@ -14,12 +14,14 @@ import {
   HEAL_CHOICE,
   MSG,
   effectiveStats,
+  equipmentMaxAmmo,
+  equipmentReloadMs,
   hullSilhouette,
   isOutside,
-  weaponReloadMs,
   zeroUpgrades,
   zoneRadiusAt,
   type EffectiveStats,
+  type EquipmentId,
   type GameMap,
   type OwnShip,
   type ShipClassId,
@@ -47,6 +49,7 @@ import { isClickDenied, DeniedPulse } from './render/deniedFire.js';
 import { KeyboardInput, type UpgradeAction } from './input/keyboard.js';
 import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
+import { primeFireable } from './sim/inputSampler.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { connect, connectErrorStatus, mapFromWelcome, type Connection } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
@@ -140,6 +143,9 @@ interface Game {
   wasInStorm: boolean;
   /** mouse.clickCount last frame — the denied-click edge (render/deniedFire.ts). */
   prevClickCount: number;
+  /** mouse.clickCount at the last SIM TICK — the new-click edge that consumes a
+   *  primed skillshot (distinct from prevClickCount, which the render loop owns). */
+  lastTickClick: number;
   /** Own ship class — the localStorage guess, corrected by the first server frame. */
   ownClass: ShipClassId;
   /**
@@ -182,16 +188,21 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
   return g.ownBuffer.sampleAt(g.clock.serverNow() - CLIENT_CONFIG.net.ownDelayMs);
 }
 
+/** The equipment id fitted in each loadout slot today (interregnum universal
+ *  fit); slots 0/1/2 = gun/torpedo/mine, slot 3 empty. */
+const EQUIPMENT_BY_SLOT: readonly EquipmentId[] = ['gun', 'torpedo', 'mine'];
+
 /**
- * Full pools until the first frame arrives (effective sizes ≙ CONFIG at zero
- * upgrades — g.ownStats starts as the un-upgraded guessed class).
+ * Slot-aligned own ammo (OwnShip.ammo): length SLOT_COUNT, null for an empty
+ * slot. Full pools until the first frame arrives (effective sizes ≙ CONFIG at
+ * zero upgrades — g.ownStats starts as the un-upgraded guessed class); the
+ * empty extra slot (3) is null.
  */
-function ownAmmo(you: OwnShip | null, stats: EffectiveStats): WeaponAmmo[] {
+function ownAmmo(you: OwnShip | null, stats: EffectiveStats): (WeaponAmmo | null)[] {
   return (
     you?.ammo ?? [
-      { n: stats.gun.maxAmmo, reloadMsLeft: 0 },
-      { n: stats.torpedo.maxAmmo, reloadMsLeft: 0 },
-      { n: stats.mine.maxAmmo, reloadMsLeft: 0 },
+      ...EQUIPMENT_BY_SLOT.map((id) => ({ n: equipmentMaxAmmo(stats, id), reloadMsLeft: 0 })),
+      null,
     ]
   );
 }
@@ -211,11 +222,11 @@ function ownStatus(g: Game): OwnStatus {
     cls: you?.cls ?? g.ownClass,
     stats,
     pts: you?.pts ?? 0,
-    // Client-selected weapon (immediate), not the server echo — keeps the HUD
-    // chip highlight in lockstep with the arcs/denied-flash, which already
-    // read g.keyboard.weapon directly. Ammo VALUES still come from the
-    // server-authoritative ammo[] above.
-    weapon: g.keyboard.weapon,
+    // Client-primed slot (immediate), not a server echo — the server keeps no
+    // priming state. Keeps the HUD chip highlight in lockstep with the arcs/
+    // denied-flash, which read g.keyboard.primedSlot directly. Ammo VALUES still
+    // come from the server-authoritative ammo[] above.
+    primedSlot: g.keyboard.primedSlot,
     alive: you?.alive ?? true,
     respawnInMs: respawnMs(g.state.respawnEta, g.clock.serverNow()),
   };
@@ -539,7 +550,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     matchEnded: false,
     audioCueState: INITIAL_CUE_STATE,
     wasInStorm: false,
-    prevClickCount: 0,
+    prevClickCount: 0, lastTickClick: 0,
     ownClass: cls,
     ownStats: effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades()),
   };
@@ -702,29 +713,49 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
     g.deniedFlash = false;
     return;
   }
-  // Drive the firing UX from the client-selected weapon (immediate), reading the
-  // pool count + reload from the server-authoritative ammo array. `ready` for the
-  // denied-fire gate is now "pool has a round" (ammo.n > 0).
-  const weapon = g.keyboard.weapon;
-  const a = status.ammo[weapon] ?? { n: 0, reloadMsLeft: 0 };
-  const hasAmmo = a.n > 0;
+  // Drive the firing UX from the client-primed slot (immediate), reading the
+  // pool count + reload from the server-authoritative slot-aligned ammo array.
+  // `ready` for the denied-fire gate is "the slot has a round" (ammo.n > 0);
+  // the gun (slot 0) is 360° so weaponArcHit is always true for it.
+  const slot = g.keyboard.primedSlot;
+  const a = status.ammo[slot] ?? null;
+  const hasAmmo = !!a && a.n > 0;
   // EFFECTIVE reload duration (gun/torpedo/mine reload upgrades) — must match
   // the server's per-ship reload or the sweep-back wedge lies.
-  const reloadFrac = reloadFraction(a.reloadMsLeft, weaponReloadMs(status.stats, weapon));
-  const inArc = weaponArcHit(pose.heading, aim, weapon);
+  const reloadFrac = a ? reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, EQUIPMENT_BY_SLOT[slot])) : 0;
+  const inArc = weaponArcHit(pose.heading, aim, slot);
   const denied = isClickDenied({ clicked, ready: hasAmmo, inArc });
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
   const hullLength = CONFIG.shipClasses[status.cls].hull.length;
   g.firing.update(
     pose,
     aim,
-    weapon,
+    slot,
     { hasAmmo, reloadFrac },
     cursor,
     hullLength,
     g.deniedFlash,
-    status.stats.gun.rangeU, // effective splash-max clamp (gunRange upgrade)
+    status.stats.gun.rangeU, // effective range-clamp marker (gunRange upgrade)
   );
+}
+
+/**
+ * Client-predicted prime consumption on a fired click (Eric ruling 2026-07-21):
+ * a NEW click this sim tick consumes the primed skillshot (reverts to gun) only
+ * when the client predicts it FIREABLE — the slot is loaded (own ammo) AND in
+ * the weapon's arc. A predicted-denied click (reloading / out of bow arc) KEEPS
+ * the prime; the denied pulse (renderFiring) supplies the feedback. Prime state
+ * is pure client UX — the wire slot was already sampled at click time.
+ */
+function consumePrimeOnFire(g: Game, primedSlot: number, aim: number): void {
+  const newClick = g.mouse.clickCount !== g.lastTickClick;
+  g.lastTickClick = g.mouse.clickCount;
+  if (!newClick) return;
+  const you = g.state.net.you;
+  const a = you?.ammo[primedSlot] ?? null;
+  const loaded = !!a && a.n > 0;
+  const inArc = weaponArcHit(you?.heading ?? 0, aim, primedSlot);
+  if (primeFireable(primedSlot, loaded, inArc)) g.keyboard.revertToGun();
 }
 
 function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
@@ -807,12 +838,17 @@ function makeCallbacks(g: Game): LoopCallbacks {
       const cursor = g.camera.screenToWorld(g.mouse.screenPos);
       const aim = worldAim(g.lastOwn.x, g.lastOwn.y, cursor);
       const aimDist = worldAimDist(g.lastOwn.x, g.lastOwn.y, cursor);
+      // The wire slot is the primed slot AT click time — sample it before any
+      // prime consumption below, so a fireable skillshot click still sends its
+      // slot even if this same tick reverts the prime back to the gun.
+      const primedSlot = g.keyboard.primedSlot;
       const input = g.sampler.sample(g.keyboard.axes(), {
         aim,
         fireSeq: g.mouse.clickCount,
         aimDist,
-        weapon: g.keyboard.weapon,
+        slot: primedSlot,
       });
+      consumePrimeOnFire(g, primedSlot, aim);
       if (g.state.mode === 'predict') g.predictor.localTick(input);
     },
     render: (alpha, frameDt) => {

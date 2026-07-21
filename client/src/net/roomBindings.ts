@@ -11,9 +11,9 @@ import {
   HULL_IDS,
   MSG,
   hullEnvelope,
-  WEAPON,
   type BallisticEvent,
   type BoomEvent,
+  type BurstEvent,
   type DamageEvent,
   type FrameMsg,
   type GameEvent,
@@ -218,6 +218,7 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
     case 'torp': handleTorp(e, deps); return;
     case 'blip': deps.radar.onBlip(e); return;
     case 'boom': handleBoom(e, deps); return;
+    case 'burst': handleBurst(e, deps); return;
     case 'dmg': handleDamage(e, deps); return;
   }
   handleRewardEvent(e, deps);
@@ -275,7 +276,7 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   // Own-fire tone: for the shooter, reveal position == launch position == the
   // shooter's own hull, so "near own ship" is a reliable (if not airtight)
   // own-shot signal — the same heuristic the muzzle flash above already uses.
-  if (nearOwnShip(e.x, e.y, deps)) deps.audio.play(fireTone(WEAPON.gun));
+  if (nearOwnShip(e.x, e.y, deps)) deps.audio.play(fireTone('gun'));
 }
 
 /** Torpedoes are a "quiet weapon" — no muzzle flash for onlookers (per the
@@ -283,7 +284,7 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
  *  gets an own-fire whoosh, using the same near-own-ship heuristic as guns. */
 function handleTorp(e: BallisticEvent, deps: RoomBindingDeps): void {
   deps.projectiles.onShell(e);
-  if (nearOwnShip(e.x, e.y, deps)) deps.audio.play(fireTone(WEAPON.torpedo));
+  if (nearOwnShip(e.x, e.y, deps)) deps.audio.play(fireTone('torpedo'));
 }
 
 /** True iff (x,y) is within one hull length of the own ship specifically. */
@@ -316,6 +317,18 @@ function handleBoom(e: BoomEvent, deps: RoomBindingDeps): void {
   } else {
     deps.effects.spawnEffect('splash', e.x, e.y);
   }
+}
+
+/**
+ * A gun shell burst at its target point: spawn the burst ring (sized to
+ * CONFIG.gun.burstRadius) and terminate the dead-reckoned shell render (same
+ * removal semantics as a boom). Damage arrives separately as victim-private
+ * `dmg` events; an early-intercept detonation stays on the `boom` spark/splash
+ * branch (handleBoom above).
+ */
+function handleBurst(e: BurstEvent, deps: RoomBindingDeps): void {
+  deps.projectiles.onBurst(e);
+  deps.effects.spawnEffect('burst', e.x, e.y);
 }
 
 function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
