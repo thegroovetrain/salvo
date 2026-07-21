@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { CONFIG, SLOT_COUNT } from '@salvo/shared';
 import {
   InputStore,
   sanitizeInput,
@@ -15,7 +16,7 @@ const valid = (seq = 1) => ({
   aim: 0.25,
   fireSeq: 3,
   aimDist: 240,
-  weapon: 0,
+  slot: 0,
 });
 
 describe('sanitizeInput — validation table', () => {
@@ -34,7 +35,7 @@ describe('sanitizeInput — validation table', () => {
     ['missing aim', { ...valid(), aim: undefined }],
     ['missing fireSeq', { ...valid(), fireSeq: undefined }],
     ['missing aimDist', { ...valid(), aimDist: undefined }],
-    ['missing weapon', { ...valid(), weapon: undefined }],
+    ['missing slot', { ...valid(), slot: undefined }],
     ['NaN seq', { ...valid(), seq: NaN }],
     ['NaN throttle', { ...valid(), throttle: NaN }],
     ['NaN rudder', { ...valid(), rudder: NaN }],
@@ -49,9 +50,13 @@ describe('sanitizeInput — validation table', () => {
     ['string fireSeq', { ...valid(), fireSeq: '3' }],
     ['boolean fireSeq (old wire shape)', { ...valid(), fireSeq: true }],
     ['string aimDist', { ...valid(), aimDist: '240' }],
-    ['weapon out of range', { ...valid(), weapon: 3 }],
-    ['negative weapon', { ...valid(), weapon: -1 }],
-    ['fractional weapon', { ...valid(), weapon: 1.5 }],
+    ['slot out of range (7)', { ...valid(), slot: 7 }],
+    ['slot just past the last index', { ...valid(), slot: 4 }],
+    ['negative slot', { ...valid(), slot: -1 }],
+    ['fractional slot', { ...valid(), slot: 1.5 }],
+    ['NaN slot', { ...valid(), slot: NaN }],
+    ['Infinity slot', { ...valid(), slot: Infinity }],
+    ['string slot', { ...valid(), slot: '1' }],
   ];
   it.each(rejects)('drops %s', (_label, raw) => {
     expect(sanitizeInput(raw, 0)).toBeNull();
@@ -77,10 +82,21 @@ describe('sanitizeInput — validation table', () => {
     expect(sanitizeInput({ ...valid(2), fireSeq: 3 }, 1)?.fireSeq).toBe(3);
   });
 
-  it('clamps aimDist into [0, AIM_DIST_MAX] (map-scale bound)', () => {
+  it('clamps aimDist into [0, AIM_DIST_MAX] (static sanity bound)', () => {
     expect(sanitizeInput({ ...valid(), aimDist: -50 }, 0)?.aimDist).toBe(0);
     expect(sanitizeInput({ ...valid(), aimDist: AIM_DIST_MAX + 1 }, 0)?.aimDist).toBe(AIM_DIST_MAX);
     expect(sanitizeInput({ ...valid(), aimDist: 123.5 }, 0)?.aimDist).toBe(123.5);
+  });
+
+  it('AIM_DIST_MAX admits a radar-range click unclamped (gun range = radar range)', () => {
+    expect(AIM_DIST_MAX).toBe(2 * CONFIG.vision.radar);
+    expect(sanitizeInput({ ...valid(), aimDist: CONFIG.vision.radar }, 0)?.aimDist).toBe(CONFIG.vision.radar);
+  });
+
+  it('accepts every in-range integer slot 0..SLOT_COUNT-1', () => {
+    for (let slot = 0; slot < SLOT_COUNT; slot++) {
+      expect(sanitizeInput({ ...valid(), slot }, 0)?.slot).toBe(slot);
+    }
   });
 
   it('wraps aim into [-pi, pi)', () => {
@@ -146,7 +162,7 @@ describe('InputStore', () => {
 
   it('neutralInput is a fresh zeroed input', () => {
     const a = neutralInput();
-    expect(a).toEqual({ seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 });
+    expect(a).toEqual({ seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
     expect(neutralInput()).not.toBe(a);
   });
 });

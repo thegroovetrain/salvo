@@ -11,7 +11,7 @@ const input = (seq: number, throttle = 1, rudder = 0, extra = {}) => ({
   aim: 0,
   fireSeq: 0,
   aimDist: 0,
-  weapon: 0,
+  slot: 0,
   ...extra,
 });
 

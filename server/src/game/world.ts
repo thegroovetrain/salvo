@@ -13,8 +13,10 @@ import {
   CONFIG,
   HEAL_CHOICE,
   UPGRADE_IDS,
+  burstVictims,
   defaultLoadout,
   effectiveStats,
+  equipmentMaxAmmo,
   generateMap,
   hullEnvelope,
   hullSilhouette,
@@ -24,7 +26,6 @@ import {
   stepShell,
   stepShip,
   transformPolygon,
-  weaponMaxAmmo,
   wrapPositive,
   zonePhaseAt,
   zoneRadiusAt,
@@ -32,6 +33,7 @@ import {
   zeroUpgrades,
   type BallisticEvent,
   type EffectiveStats,
+  type EquipmentId,
   type GameEvent,
   type GameMap,
   type HullEnvelope,
@@ -46,7 +48,6 @@ import {
   type UpgradeId,
   type UpgradeOffer,
   type Vec2,
-  type WeaponId,
   type ZonePhase,
   type ZoneTimeline,
 } from '@salvo/shared';
@@ -58,6 +59,7 @@ import {
   type ActivationResult,
   type MineState,
 } from './equipment/index.js';
+import type { BurstSubject } from './signals.js';
 import { InputStore, neutralInput } from './inputs.js';
 import { DroneController } from './drones.js';
 import { pickSpawn } from './spawn.js';
@@ -142,7 +144,7 @@ export interface ShipRecord {
    * shared/src/sim/loadout.ts), each empty or one equipment id + its runtime
    * state (pool + reload timer, equipment/ammo.ts). THE one equipment
    * structure (replaces the old WeaponAmmo[] — no parallel ammo store);
-   * input.weapon (0/1/2) selects by slot index. Reset to the full default
+   * input.slot names the slot a click activates. Reset to the full default
    * loadout on spawn/respawn/redeploy.
    */
   loadout: LoadoutSlot[];
@@ -392,11 +394,14 @@ export class World {
     this.pending.push({ k: 'upg', id: ship.id, type });
   }
 
-  /** Which weapon pool an ammo-type upgrade also loads +1 current round into. */
-  private static readonly AMMO_UPGRADE_WEAPON: Partial<Record<UpgradeId, WeaponId>> = {
-    gunAmmo: 0,
-    torpedoAmmo: 1,
-    mineAmmo: 2,
+  /** Which equipment's pool an ammo-type upgrade also loads +1 current round
+   *  into (re-keyed from the retired WeaponId to EquipmentId). gunAmmo still
+   *  routes here for wire stability, but the effective gun pool is pinned to 1
+   *  (single-shot), so the clamp makes the load a no-op at a full pool. */
+  private static readonly AMMO_UPGRADE_EQUIPMENT: Partial<Record<UpgradeId, EquipmentId>> = {
+    gunAmmo: 'gun',
+    torpedoAmmo: 'torpedo',
+    mineAmmo: 'mine',
   };
 
   /**
@@ -413,15 +418,14 @@ export class World {
       }
       return;
     }
-    const weapon = World.AMMO_UPGRADE_WEAPON[type];
-    if (weapon === undefined) return;
-    // Universal fit: slot index == WeaponId; a fitted weapon slot ALWAYS has
-    // state (the LoadoutSlot invariant: state is null iff equipmentId is null).
-    // Assert it rather than silently skipping on null — a swallowed null would
-    // invisibly rob the player of the earned round, so a broken invariant must
-    // crash loudly (matching the old dense-array semantics).
-    const pool = killer.loadout[weapon].state!;
-    pool.n = Math.min(pool.n + 1, weaponMaxAmmo(killer.stats, weapon));
+    const equipmentId = World.AMMO_UPGRADE_EQUIPMENT[type];
+    if (equipmentId === undefined) return;
+    // Universal fit: all three ammo-upgradeable systems are always fitted, and
+    // a fitted slot ALWAYS has state (the LoadoutSlot invariant). Assert both
+    // rather than silently skipping — a swallowed miss would invisibly rob the
+    // player of the earned round, so a broken invariant must crash loudly.
+    const pool = killer.loadout.find((s) => s.equipmentId === equipmentId)!.state!;
+    pool.n = Math.min(pool.n + 1, equipmentMaxAmmo(killer.stats, equipmentId));
   }
 
   /**
@@ -585,7 +589,7 @@ export class World {
       if (outcome.kind === 'travel') continue;
       this.shells.delete(id);
       this.forgetBallistic(id);
-      this.resolveShell(shell, outcome);
+      this.resolveShell(shell, outcome, hulls);
     }
   }
 
@@ -628,9 +632,17 @@ export class World {
     if (attacker) attacker.damageDealt += amount;
   }
 
-  /** Turn a spent ballistic's outcome into boom (+ dmg/sink) events. */
-  private resolveShell(shell: ShellState, outcome: ShellOutcome): void {
+  /** Turn a spent ballistic's outcome into its events, per the projectile's
+   *  OWN hit rule (Story 1.4 seam): `burst` detonates at the target point;
+   *  `hitShip` is an early interception OUTSIDE the blast — the interceptor
+   *  takes the smaller contactDamage (torpedoes set contactDamage = damage, so
+   *  their behavior is unchanged); everything else is a plain splash boom. */
+  private resolveShell(shell: ShellState, outcome: ShellOutcome, hulls: readonly HullTarget[]): void {
     if (outcome.kind === 'travel') return;
+    if (outcome.kind === 'burst') {
+      this.resolveBurst(shell, outcome, hulls);
+      return;
+    }
     if (outcome.kind !== 'hitShip') {
       this.pending.push({ k: 'boom', id: shell.id, x: outcome.x, y: outcome.y });
       return;
@@ -638,14 +650,35 @@ export class World {
     this.pending.push({ k: 'boom', id: shell.id, hit: outcome.victimId, x: outcome.x, y: outcome.y });
     const victim = this.ships.get(outcome.victimId);
     if (!victim || !victim.alive) return;
-    this.hitShip(victim, shell.damage, shell.ownerId);
+    this.hitShip(victim, shell.contactDamage, shell.ownerId);
+  }
+
+  /**
+   * Detonate a burst at the shell's target point: ONE burst event (the
+   * server-internal `own` field drives owner-visibility in signals.ts and is
+   * ALWAYS stripped by its materialize), then the shared burstVictims()
+   * resolves every hull silhouette within the blast (owner excluded —
+   * permanent owner immunity) and each victim takes the shell's full damage
+   * through the hitShip choke: one victim-private dmg event per victim, kill
+   * credit through the normal path, no contact-damage double-dipping (a burst
+   * outcome never also reports an interceptor).
+   */
+  private resolveBurst(shell: ShellState, at: Vec2, hulls: readonly HullTarget[]): void {
+    const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
+    this.pending.push(burst);
+    for (const victimId of burstVictims(at, shell.burstRadius, hulls, shell.ownerId)) {
+      const victim = this.ships.get(victimId);
+      if (victim && victim.alive) this.hitShip(victim, shell.damage, shell.ownerId);
+    }
   }
 
   /**
    * Tick EVERY fitted slot's equipment for every ship (regardless of selection
    * — a weapon reloads while another is in use; empty slots are skipped), then
-   * route this tick's click — if any — to the SELECTED slot (slot index =
-   * input.weapon) through the single sinking-activation gate. One shot per
+   * route this tick's click — if any — to the slot the click names
+   * (input.slot; 0 = the gun, the permanently-selected default — a primed
+   * skillshot click carries its slot) through the single sinking-activation
+   * gate. One shot per
    * click: a fireSeq newer than lastFireSeq is one pending click, and it is
    * ALWAYS consumed this tick (even dead or denied), so clicks during reload
    * are consumed, not queued. Equipment reaches the World only through the
@@ -659,7 +692,7 @@ export class World {
       const clicked = ship.input.fireSeq > ship.lastFireSeq;
       ship.lastFireSeq = Math.max(ship.lastFireSeq, ship.input.fireSeq);
       if (!ship.alive || !clicked) continue;
-      this.sinkingActivationGate(ship, ship.input.weapon);
+      this.sinkingActivationGate(ship, ship.input.slot);
     }
   }
 

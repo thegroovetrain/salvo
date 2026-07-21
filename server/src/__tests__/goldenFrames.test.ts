@@ -1,7 +1,7 @@
 // GOLDEN FRAMES — the byte-identity gate for the perception refactor (Story
 // 1.1). A deterministic seeded scenario drives world.step() through every
-// signal channel — all 10 GameEvent kinds (blip, shell, torp, boom, dmg, sunk,
-// spawn, upg, pt, heal) plus the contact and mine channels and a spectator
+// signal channel — all 11 GameEvent kinds (blip, shell, torp, boom, burst,
+// dmg, sunk, spawn, upg, pt, heal) plus the contact and mine channels and a spectator
 // frame — and JSON.stringify's each frame buildFrame() produces (JSON key
 // insertion order == msgpack key order, which is load-bearing on the wire).
 // The serialized array is committed as a Vitest snapshot: the later refactor of
@@ -37,10 +37,10 @@ const SIGHT = CONFIG.vision.sight;
 // by the first post-step window [0, δ).
 const SWEEP_DELTA = (TAU * DT) / CONFIG.vision.sweepPeriod;
 
-// The full set of channels the fixture MUST exercise: the 10 GameEvent kinds
+// The full set of channels the fixture MUST exercise: the 11 GameEvent kinds
 // plus the two contact-like channels (contact/mine) and the spectator frame.
 const EXPECTED_CHANNELS = [
-  'blip', 'boom', 'contact', 'dmg', 'heal', 'mine',
+  'blip', 'boom', 'burst', 'contact', 'dmg', 'heal', 'mine',
   'pt', 'shell', 'spawn', 'spec', 'sunk', 'torp', 'upg',
 ];
 
@@ -139,6 +139,13 @@ function injectShell(
     kind,
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
+    // Contact-only injection (legacy hit rule): full damage on interception,
+    // no burst point — keeps the pre-1.4 scenario events byte-stable. The
+    // burst channel is exercised by scnBurst through the REAL gun.
+    targetX: null,
+    targetY: null,
+    burstRadius: 0,
+    contactDamage: CONFIG.gun.damage,
   });
 }
 
@@ -327,6 +334,29 @@ function scnSpectatorBallistic(g: Golden): void {
   prove(g, 'spectator-reveal-once', !again.events.some((ev) => ev.k === 'shell' && ev.id === 'fly'));
 }
 
+/**
+ * burst channel (Story 1.4) — a REAL gun click: the shell spawns at a's hull
+ * silhouette edge, flies to the clicked point (b's position, 120u out), and
+ * bursts there via the proximity rule (b's hull contains the target point).
+ * b takes the full burst damage as a victim-private dmg; both observers see
+ * the burst event as the bare {k,id,x,y} shape.
+ */
+function scnBurst(g: Golden): void {
+  const w = bareWorld(1010);
+  place(w, 'a', 0, 0);
+  const b = place(w, 'b', 120, 0);
+  b.hp = 100; // survives the 25 burst — a clean dmg, no sunk
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 120, slot: 0 });
+  let burst = false;
+  for (let i = 0; i < 30 && !burst; i++) {
+    w.step();
+    const fa = cap(g, w, 'a');
+    cap(g, w, 'b');
+    burst = fa.events.some((e) => e.k === 'burst');
+  }
+  expect(burst).toBe(true); // the burst actually landed in the fixture
+}
+
 // ---------- the fixture -------------------------------------------------------
 
 describe('golden frames — byte-identity gate for the perception refactor', () => {
@@ -342,6 +372,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     scnIslandLos(g);
     scnBallisticReveal(g);
     scnSpectatorBallistic(g);
+    scnBurst(g);
 
     // Self-validating coverage: the fixture can never silently lose a channel.
     expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);

@@ -15,7 +15,7 @@ import {
   type ShipClassId,
 } from '@salvo/shared';
 import { observe, observeSpectator } from './perception.js';
-import { weaponAmmo } from './equipment/index.js';
+import { slotAmmo } from './equipment/index.js';
 import type { ShipRecord, World } from './world.js';
 
 function toOwnShip(ship: ShipRecord): OwnShip {
@@ -35,10 +35,9 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     speed: ship.state.speed,
     hp: ship.hp,
     alive: ship.alive,
-    weapon: ship.input.weapon,
-    // Per weapon [gun, torp, mine] ammo pool + reload timer ({n, reloadMsLeft}),
-    // derived from loadout slots 0-2 in slot order (equipment/index.ts).
-    ammo: weaponAmmo(ship),
+    // Slot-aligned ammo (length SLOT_COUNT, null = empty slot): pool count +
+    // reload timer per loadout slot in slot order (equipment/index.ts).
+    ammo: slotAmmo(ship),
     // Post-advance angle == the leading edge of this tick's paint window, so
     // the client wedge visually crosses a contact the moment its blip arrives.
     sweep: ship.sweepAngle,

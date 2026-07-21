@@ -86,7 +86,7 @@ function blockedBy(from, to, isle) {
 // ---------------------------------------------------------------- piloting ---
 
 function control(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, weapon: 0 };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 0 };
   const g = ctx.goal;
   if (g.mode === 'park') park(ctx, inp, g.target);
   else if (g.mode === 'engage') engage(ctx, inp, g.target, g.fire);
@@ -111,10 +111,10 @@ function engage(ctx, inp, target, fireAllowed) {
   inp.rudder = clamp(angleDiff(ctx.you.heading, brg - Math.PI / 2) * 3, -1, 1);
   inp.throttle = 0.5;
   inp.aim = brg;
-  const off = Math.abs(angleDiff(brg, ctx.you.heading + Math.PI / 2));
-  inp.aimDist = dist(ctx.you, target); // guns fire AT the click point now
-  // Click every tick while the target bears — the mount reload paces shots.
-  if (fireAllowed && off < CONFIG.gun.mounts[0].halfArc) inp.fireSeq = ++ctx.fireSeq;
+  inp.aimDist = dist(ctx.you, target); // the shell bursts AT the click point
+  // 360° gun (Story 1.4): never out-of-arc — click every tick while allowed;
+  // the single-shot reload paces shots.
+  if (fireAllowed) inp.fireSeq = ++ctx.fireSeq;
 }
 
 async function pilotUntil(clients, tickFn, done, timeoutMs, label) {

@@ -7,7 +7,7 @@
 // NOT enforced here — the World's consumption (lastFireSeq = max(...)) makes
 // a stale or replayed counter value simply read as "no new click".
 
-import { CONFIG, wrapAngle, type InputMsg, type WeaponId } from '@salvo/shared';
+import { CONFIG, SLOT_COUNT, wrapAngle, type InputMsg } from '@salvo/shared';
 
 /** Max input messages per client per rolling window. */
 export const INPUT_RATE_CAP = 40;
@@ -15,16 +15,18 @@ export const INPUT_RATE_CAP = 40;
 export const INPUT_RATE_WINDOW_MS = 1000;
 
 /**
- * aimDist ceiling: a MAP-scale bound (nothing on a real map is farther than a
- * few radii away), deliberately NOT derived from CONFIG.gun.shellRange — gun
- * range becomes upgradeable later, and the sanitize layer must not encode a
- * weapon stat.
+ * aimDist ceiling: a STATIC sanity bound — 2× base radar range comfortably
+ * admits any legitimate radar-range click (gun range = radar range, Eric
+ * ruling 2026-07-21) plus upgrade headroom, while rejecting nothing a real
+ * client sends. Deliberately NOT the per-ship effective gun range: the
+ * sanitize layer must not encode an upgradeable weapon stat — the per-shot
+ * clamp to effective range lives in equipment/guns.ts.
  */
-export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
+export const AIM_DIST_MAX = 2 * CONFIG.vision.radar;
 
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {
-  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 };
+  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 };
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -37,8 +39,11 @@ function clampUnit(v: number): number {
   return v;
 }
 
-function isWeaponId(v: unknown): v is WeaponId {
-  return v === 0 || v === 1 || v === 2;
+/** Valid loadout slot index: an INTEGER in [0, SLOT_COUNT). Anything else
+ *  (7, 1.5, NaN, negatives, non-numbers) drops the WHOLE message — the
+ *  existing sanitize law: malformed input never partially applies. */
+function isSlotIndex(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < SLOT_COUNT;
 }
 
 function numericFieldsFinite(m: Record<string, unknown>): boolean {
@@ -71,7 +76,7 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const m = raw as Record<string, unknown>;
   if (!numericFieldsFinite(m)) return null;
-  if (!isWeaponId(m.weapon)) return null;
+  if (!isSlotIndex(m.slot)) return null;
   const seq = m.seq as number;
   if (seq <= lastSeq) return null;
   return {
@@ -81,7 +86,7 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
     aim: wrapAngle(m.aim as number),
     fireSeq: sanitizeFireSeq(m.fireSeq as number),
     aimDist: sanitizeAimDist(m.aimDist as number),
-    weapon: m.weapon,
+    slot: m.slot,
   };
 }
 

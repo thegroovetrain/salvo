@@ -29,7 +29,7 @@ function centerDist(s: ShipRecord): number {
 }
 
 describe('drones — inputs are the only interface', () => {
-  it('never emits a click (fireSeq stays 0), always aim=0 / aimDist=0 / weapon=0, over 1000 ticks', () => {
+  it('never emits a click (fireSeq stays 0), always aim=0 / aimDist=0 / slot=0, over 1000 ticks', () => {
     const w = bareWorld(7);
     const ids = ['d1', 'd2', 'd3'];
     for (const id of ids) addDrone(w, id);
@@ -41,7 +41,7 @@ describe('drones — inputs are the only interface', () => {
         expect(inp!.fireSeq).toBe(0);
         expect(inp!.aimDist).toBe(0);
         expect(inp!.aim).toBe(0);
-        expect(inp!.weapon).toBe(0);
+        expect(inp!.slot).toBe(0);
       }
     }
     // Structural corollary: with no human firing, no drone ever spawns ordnance.

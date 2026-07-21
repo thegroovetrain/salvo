@@ -13,8 +13,8 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   HEAL_CHOICE,
+  SLOT_GUN,
   UPGRADE_IDS,
-  WEAPON,
   effectiveStats,
   zeroUpgrades,
   type BallisticEvent,
@@ -30,6 +30,9 @@ const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
 const DT = CONFIG.tick.simDtMs;
 const HEAL = CONFIG.upgradePoints.healHp;
+/** Torpedo / mine slot indices under the universal fit. */
+const SLOT_TORPEDO = 1;
+const SLOT_MINE = 2;
 
 function bareWorld(seed = 1): World {
   const w = new World(seed);
@@ -318,13 +321,13 @@ describe('upgrade lifecycle', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stack(w, a, 'hullPoints', 1);
-    stack(w, a, 'gunAmmo', 1);
+    stack(w, a, 'torpedoAmmo', 1); // gunAmmo is neutralized (pinned pool) — torpedo pins the effective-pool rebuild
     w.sinkShip('a');
     for (let i = 0; i <= CONFIG.ship.respawnDelay / DT; i++) w.step();
     expect(a.alive).toBe(true);
     expect(a.upgrades[UPGRADE_IDS.indexOf('hullPoints')]).toBe(1);
     expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp + CONFIG.upgrades.hullPoints.add); // effective max
-    expect(a.loadout[WEAPON.gun].state).toEqual({ n: CONFIG.gun.maxAmmo + 1, reloadMsLeft: 0 }); // effective pool
+    expect(a.loadout[SLOT_TORPEDO].state).toEqual({ n: CONFIG.torpedo.maxAmmo + 1, reloadMsLeft: 0 }); // effective pool
   });
 
   it('respawn (waiting phase) PRESERVES banked offers, contents intact', () => {
@@ -348,7 +351,7 @@ describe('upgrade lifecycle', () => {
     expect(a.upgrades).toEqual(zeroUpgrades());
     expect(a.stats).toEqual(effectiveStats(a.cls, zeroUpgrades()));
     expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
-    expect(a.loadout[WEAPON.gun].state).toEqual({ n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 });
+    expect(a.loadout[SLOT_GUN].state).toEqual({ n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 });
   });
 
   it('redeployShip (match start) WIPES banked offers too — no head start into the match', () => {
@@ -379,16 +382,28 @@ describe('spend side effects', () => {
     expect(a.hp).toBeLessThanOrEqual(a.stats.maxHp);
   });
 
-  it('gunAmmo grants +1 loaded round, clamped to the new effective pool', () => {
+  it('gunAmmo is NEUTRALIZED (interregnum): count moves, but the single-shot pool stays pinned at 1', () => {
+    // Eric ruling 2026-07-21: the id stays spendable for wire stability (a
+    // pre-rolled legacy offer may still name it) but effectiveStats pins the
+    // gun pool to 1, so the grant's +1 load clamps to a full pool — no effect.
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    expect(a.loadout[WEAPON.gun].state!.n).toBe(CONFIG.gun.maxAmmo);
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(CONFIG.gun.maxAmmo);
     w.applyUpgrade(a, 'gunAmmo');
-    expect(a.stats.gun.maxAmmo).toBe(CONFIG.gun.maxAmmo + 1);
-    expect(a.loadout[WEAPON.gun].state!.n).toBe(CONFIG.gun.maxAmmo + 1); // +1 current, at the new cap
-    a.loadout[WEAPON.torpedo].state!.n = 0; // empty tube mid-reload
+    expect(a.upgrades[UPGRADE_IDS.indexOf('gunAmmo')]).toBe(1); // the count DID increment
+    expect(a.stats.gun.maxAmmo).toBe(CONFIG.gun.maxAmmo); // pinned: still the 1-round pool
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(CONFIG.gun.maxAmmo); // clamp holds the pool at 1
+  });
+
+  it('torpedoAmmo grants +1 loaded round, clamped to the new effective pool', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
     w.applyUpgrade(a, 'torpedoAmmo');
-    expect(a.loadout[WEAPON.torpedo].state!.n).toBe(1); // immediately usable
+    expect(a.stats.torpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 1);
+    expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(CONFIG.torpedo.maxAmmo + 1); // +1 current, at the new cap
+    a.loadout[SLOT_TORPEDO].state!.n = 0; // empty tube mid-reload
+    w.applyUpgrade(a, 'torpedoAmmo');
+    expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(1); // immediately usable
   });
 
   it('non-hull, non-ammo spends leave hp and loaded rounds untouched', () => {
@@ -469,6 +484,7 @@ describe('per-observer sight (sightRange upgrade)', () => {
       id: 's1', ownerId: 'owner', x: target, y: 0, vx: -CONFIG.gun.shellSpeed, vy: 0,
       distLeft: 400, bornAt: w.now, kind: 'shell', damage: CONFIG.gun.damage,
       hitRadius: CONFIG.gun.shellRadius,
+      targetX: null, targetY: null, burstRadius: 0, contactDamage: CONFIG.gun.contactDamage,
     });
     expect(ballisticsOf(buildFrame(w, 'up')).map((e) => e.id)).toEqual(['s1']);
     expect(ballisticsOf(buildFrame(w, 'base'))).toEqual([]);
@@ -542,12 +558,12 @@ describe('effective weapon stats in the fire path', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stack(w, a, 'gunReload', 1);
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 2, fireSeq: 1, aimDist: 300, weapon: WEAPON.gun };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 2, fireSeq: 1, aimDist: 300, slot: SLOT_GUN };
     w.step();
-    expect(a.loadout[WEAPON.gun].state!.n).toBe(CONFIG.gun.maxAmmo - 1);
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(CONFIG.gun.maxAmmo - 1);
     // consume() set the timer to the effective reload, then the same tick's
     // fireControl had already run tickReload BEFORE the click (full pool, 0).
-    expect(a.loadout[WEAPON.gun].state!.reloadMsLeft).toBeCloseTo(CONFIG.gun.reloadMs * CONFIG.upgrades.gunReload.mult, 9);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeCloseTo(CONFIG.gun.reloadMs * CONFIG.upgrades.gunReload.mult, 9);
   });
 
   it('torpedoSpeed: the launched fish is faster, and ONLY vx/vy change on the wire event', () => {
@@ -556,7 +572,7 @@ describe('effective weapon stats in the fire path', () => {
       const a = place(w, 'a', 0, 0);
       if (upgraded) stack(w, a, 'torpedoSpeed', 1);
       w.step(); // flush join spawn + the upg event
-      a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, weapon: WEAPON.torpedo };
+      a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO };
       w.step();
       const ev = w.tickEvents.find((e): e is BallisticEvent => e.k === 'torp');
       expect(ev).toBeDefined();
@@ -579,10 +595,10 @@ describe('effective weapon stats in the fire path', () => {
       if (upgraded) stack(w, a, 'maxMines', 1);
       w.step();
       for (let i = 0; i < drops; i++) {
-        a.loadout[WEAPON.mine].state = { n: 1, reloadMsLeft: 0 }; // skip the reload wait
+        a.loadout[SLOT_MINE].state = { n: 1, reloadMsLeft: 0 }; // skip the reload wait
         w.submitInput('a', {
           seq: i + 1, throttle: 0, rudder: 0, aim: 0,
-          fireSeq: i + 1, aimDist: 0, weapon: WEAPON.mine,
+          fireSeq: i + 1, aimDist: 0, slot: SLOT_MINE,
         });
         w.step();
       }
@@ -598,8 +614,8 @@ describe('effective weapon stats in the fire path', () => {
     place(w, 'base', 0, 200);
     stack(w, up, 'maxSpeed', 2);
     for (let tick = 1; tick <= 200; tick++) {
-      w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 });
-      w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 });
+      w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
+      w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 });
       w.step();
     }
     const f = CONFIG.upgrades.maxSpeed.mult ** 2;

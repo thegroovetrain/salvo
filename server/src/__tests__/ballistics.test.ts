@@ -1,9 +1,10 @@
-// Unit coverage for the unified ballistic factory + spawn-offset helper (A4).
+// Unit coverage for the unified ballistic factory + spawn-offset helpers (A4;
+// Story 1.4 added muzzleSpawn — the hull-silhouette-edge gun spawn).
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, hullSilhouette, pointPolygonDistance, transformPolygon } from '@salvo/shared';
 import { World } from '../game/world.js';
-import { hullClearOffset, makeBallistic } from '../game/equipment/ballistics.js';
+import { hullClearOffset, makeBallistic, muzzleSpawn } from '../game/equipment/ballistics.js';
 
 describe('hullClearOffset', () => {
   it("is half the FIRER's class hull length plus the projectile/trigger radius", () => {
@@ -29,6 +30,10 @@ describe('makeBallistic', () => {
       damage: 55,
       hitRadius: 2,
       kind: 'torp',
+      targetX: null,
+      targetY: null,
+      burstRadius: 0,
+      contactDamage: 55,
     });
     const off = hullClearOffset(ship, 2);
     expect(s.ownerId).toBe('a');
@@ -41,6 +46,10 @@ describe('makeBallistic', () => {
     expect(s.kind).toBe('torp');
     expect(s.damage).toBe(55);
     expect(s.hitRadius).toBe(2);
+    expect(s.targetX).toBeNull(); // contact-only projectile: no burst point
+    expect(s.targetY).toBeNull();
+    expect(s.burstRadius).toBe(0);
+    expect(s.contactDamage).toBe(55);
   });
 
   // Root-cause fix (2026-07-14): BallisticParams.spawnClearance pads the spawn
@@ -59,6 +68,10 @@ describe('makeBallistic', () => {
       damage: 55,
       hitRadius: 2,
       kind: 'torp' as const,
+      targetX: null,
+      targetY: null,
+      burstRadius: 0,
+      contactDamage: 55,
     };
     const withoutClearance = makeBallistic('t0', ship, 0, 0, params);
     const withClearance = makeBallistic('t1', ship, 0, 0, { ...params, spawnClearance: 6 });
@@ -80,10 +93,58 @@ describe('makeBallistic', () => {
       damage: CONFIG.gun.damage,
       hitRadius: CONFIG.gun.shellRadius,
       kind: 'shell' as const,
+      targetX: null,
+      targetY: null,
+      burstRadius: 0,
+      contactDamage: CONFIG.gun.contactDamage,
     };
     const omitted = makeBallistic('s0', ship, 0, 0, params);
     const explicitZero = makeBallistic('s1', ship, 0, 0, { ...params, spawnClearance: 0 });
     expect(omitted.x).toBeCloseTo(explicitZero.x, 9);
     expect(omitted.y).toBeCloseTo(explicitZero.y, 9);
+  });
+});
+
+describe('muzzleSpawn — hull-silhouette-edge spawn (no dead ring)', () => {
+  const CLEAR = CONFIG.gun.shellRadius;
+
+  it('spawns strictly outside the own silhouette, hugging the boundary, on every bearing', () => {
+    const w = new World(1);
+    const ship = w.addShip('a', 'A', false, 'battleship');
+    ship.state = { x: 40, y: -25, heading: 0.7, speed: 0 };
+    const poly = transformPolygon(hullSilhouette('battleship'), 40, -25, 0.7);
+    for (let i = 0; i < 16; i++) {
+      const dir = (i / 16) * 2 * Math.PI;
+      const p = muzzleSpawn(ship, dir, CLEAR);
+      const d = pointPolygonDistance(p, poly);
+      expect(d).toBeGreaterThan(0); // outside the hull...
+      expect(d).toBeLessThanOrEqual(2 * CLEAR + 1); // ...but never a dead ring
+    }
+  });
+
+  it('a concave bearing (mineLayer transom notch, dead astern) spawns in the OPEN cavity, outside the hull', () => {
+    const w = new World(1);
+    const ship = w.addShip('a', 'A', false, 'mineLayer');
+    ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    const poly = transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0);
+    const p = muzzleSpawn(ship, Math.PI, CLEAR); // straight astern, through the notch cavity
+    // The notch is an OPEN cavity wide enough for the shell: the boundary
+    // crossing on this bearing is the cavity's inner wall, so the shell spawns
+    // inside the notch — outside the silhouette polygon — and exits astern.
+    expect(pointPolygonDistance(p, poly)).toBeGreaterThan(0); // never inside the hull
+    expect(p.y).toBeCloseTo(0, 6); // dead on the astern bearing
+    expect(p.x).toBeLessThan(-CONFIG.shipClasses.mineLayer.hull.length / 4); // well aft of center
+    expect(p.x).toBeGreaterThan(-CONFIG.shipClasses.mineLayer.hull.length / 2 - 3 * CLEAR); // no dead ring astern either
+  });
+
+  it('follows the ship pose: spawn point rotates and translates with the hull', () => {
+    const w = new World(1);
+    const ship = w.addShip('a', 'A');
+    ship.state = { x: 100, y: 200, heading: Math.PI / 2, speed: 0 };
+    const p = muzzleSpawn(ship, Math.PI / 2, CLEAR); // over the bow (heading +y)
+    expect(p.x).toBeCloseTo(100, 4); // bow line stays on the ship's x
+    // Bow tip sits length/2 up the +y axis; spawn is just beyond it.
+    expect(p.y).toBeGreaterThan(200 + CONFIG.shipClasses.torpedoBoat.hull.length / 2);
+    expect(p.y).toBeLessThan(200 + CONFIG.shipClasses.torpedoBoat.hull.length / 2 + 3 * CLEAR + 1);
   });
 });

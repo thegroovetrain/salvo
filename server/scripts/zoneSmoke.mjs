@@ -117,7 +117,7 @@ function onFrame(ctx, f) {
 }
 
 function control(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 };
   const g = ctx.goal;
   if (g.mode === 'goto') steerToward(ctx, inp, g.target, 1);
   ctx.room.send('i', inp);

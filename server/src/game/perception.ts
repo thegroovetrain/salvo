@@ -6,7 +6,7 @@
 // reference anything outside sight ∪ (this-tick radar paints).
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 10 GameEvent kinds plus the contact/mine frame channels — is one
+// the 11 GameEvent kinds plus the contact/mine frame channels — is one
 // declarative SignalSpec row (visible + materialize), and observe()/
 // observeSpectator() below are the ONLY callers of row logic. Adding a signal
 // means adding a row (plus its invariant test case), never editing a

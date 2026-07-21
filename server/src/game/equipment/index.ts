@@ -1,24 +1,20 @@
 // Equipment registry + the Equipment interface (Story 1.2). Every fitted
 // system — the three weapons today (guns / torpedoes / mines), non-weapon
 // specials from stories 1.6+ — implements one interface over a ship's loadout
-// SLOT. Selection is input.weapon (0/1/2 → slot index); the World routes each
-// consumed click (one activation per fireSeq increment) to the SELECTED slot's
-// row through the single sinking-activation gate (world.ts), but EVERY fitted
-// slot's equipment ticks every tick regardless of selection (so a weapon
-// reloads while another is in use). Rows are slot-position-independent (the
-// slot is passed in), string-keyed by EquipmentId, and deep-frozen — mirroring
-// signals.ts's SIGNAL_REGISTRY discipline. Each row is a small pure adapter
-// over its slot's EquipmentState pool (equipment/ammo.ts) + the shared
-// ballistic/mine helpers; the World owns storage (shells/mines maps) and event
-// emission, exposed to rows through the narrow ActivationContext capabilities.
+// SLOT. The click's InputMsg.slot names the slot it activates (0 = the gun,
+// the permanently-selected default; a primed skillshot click carries its
+// slot — the server keeps NO priming state); the World routes each consumed
+// click (one activation per fireSeq increment) to that slot's row through the
+// single sinking-activation gate (world.ts), but EVERY fitted slot's equipment
+// ticks every tick regardless of selection (so a weapon reloads while another
+// is in use). Rows are slot-position-independent (the slot is passed in),
+// string-keyed by EquipmentId, and deep-frozen — mirroring signals.ts's
+// SIGNAL_REGISTRY discipline. Each row is a small pure adapter over its
+// slot's EquipmentState pool (equipment/ammo.ts) + the shared ballistic/mine
+// helpers; the World owns storage (shells/mines maps) and event emission,
+// exposed to rows through the narrow ActivationContext capabilities.
 
-import {
-  SLOT_EXTRA,
-  type EquipmentId,
-  type LoadoutSlot,
-  type ShellState,
-  type WeaponAmmo,
-} from '@salvo/shared';
+import { type EquipmentId, type LoadoutSlot, type ShellState, type WeaponAmmo } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import { gunEquipment } from './guns.js';
 import { torpedoEquipment } from './torpedoes.js';
@@ -58,7 +54,7 @@ export type ActivationResult = { ok: true } | { ok: false; reason: ActivationDen
  *  equipmentId is null), and the World never routes an empty slot to a row
  *  (the sinking-activation gate answers 'empty-slot' first). POLICY: fitted
  *  slots always have state — the gate's empty-slot check is the single
- *  boundary, and every downstream reader (weaponAmmo, ammo-upgrade grant,
+ *  boundary, and every downstream reader (slotAmmo, ammo-upgrade grant,
  *  rows via slot.state!) asserts non-null. A violation crashes loudly rather
  *  than improvising a zero pool or silently skipping. */
 export interface Equipment {
@@ -88,19 +84,16 @@ export const EQUIPMENT: Readonly<Record<EquipmentId, Equipment>> = deepFreezeRow
 });
 
 /**
- * Per-weapon ammo for OwnShip.ammo: a WeaponAmmo[] indexed by WeaponId, derived
- * from loadout slots 0–2 in slot order (the universal fit keeps slot index ==
- * WeaponId), each a FRESH {n, reloadMsLeft} copy of the slot's live pool.
- * maxAmmo/reloadMs are NOT on the wire — the client reads them from CONFIG
- * (Stage D: from effective stats). Weapon slots 0–2 are ALWAYS fitted (the
- * LoadoutSlot invariant: state is null iff equipmentId is null), so state is
- * asserted non-null rather than fabricating a zero pool — a broken invariant
- * crashes loudly instead of silently shipping empty ammo to the HUD.
+ * SLOT-ALIGNED ammo for OwnShip.ammo: length SLOT_COUNT, one entry per loadout
+ * slot in slot order — null iff that slot is empty (mirrors the LoadoutSlot
+ * invariant: state is null iff equipmentId is null), else a FRESH
+ * {n, reloadMsLeft} copy of the slot's live pool. maxAmmo/reloadMs are NOT on
+ * the wire — the client derives them from its own effective-stats computation.
  */
-export function weaponAmmo(ship: ShipRecord): WeaponAmmo[] {
-  return ship.loadout
-    .slice(0, SLOT_EXTRA)
-    .map((slot) => ({ n: slot.state!.n, reloadMsLeft: slot.state!.reloadMsLeft }));
+export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
+  return ship.loadout.map((slot) =>
+    slot.state === null ? null : { n: slot.state.n, reloadMsLeft: slot.state.reloadMsLeft },
+  );
 }
 
 export { freshAmmo, tickReload, consume } from './ammo.js';

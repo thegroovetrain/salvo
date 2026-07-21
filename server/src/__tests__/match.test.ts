@@ -83,12 +83,16 @@ function injectShell(ctx: Ctx, id: string, ownerId: string, x: number, y: number
     kind: 'shell',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
+    targetX: null,
+    targetY: null,
+    burstRadius: 0,
+    contactDamage: CONFIG.gun.damage, // contact-only injection: legacy full-damage hit
   });
 }
 
-function fire(ctx: Ctx, id: string, weapon: 0 | 1 | 2, seq: number): void {
+function fire(ctx: Ctx, id: string, slot: 0 | 1 | 2, seq: number): void {
   // seq doubles as the click counter: every call is one fresh click.
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, weapon });
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot });
 }
 
 /** Step until this tick's events contain a boom (shell resolution is 1-4 ticks). */

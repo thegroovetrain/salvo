@@ -12,7 +12,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  WEAPON,
   hullSilhouette,
   pointPolygonDistance,
   transformPolygon,
@@ -23,6 +22,9 @@ import {
   type UpgradeId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+
+/** Torpedo slot index under the universal fit (loadout slot 1). */
+const SLOT_TORPEDO = 1;
 import { fireTorpedo } from '../game/equipment/torpedoes.js';
 
 function bareWorld(seed = 11): World {
@@ -59,7 +61,7 @@ describe('torpedo spawn clearance (root-cause fix)', () => {
   it('a fresh torpedo spawns outside the firer silhouette + hitRadius by at least spawnClearance', () => {
     const w = bareWorld();
     const ship = place(w, 'a', 0, 0, 0);
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, weapon: WEAPON.torpedo };
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO };
     const torp = fireTorpedo(ship, 0, () => 't1');
     expect(torp).not.toBeNull();
     const poly = transformPolygon(hullSilhouette(ship.hullId), ship.state.x, ship.state.y, ship.state.heading);
@@ -87,7 +89,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     const dmgs: DamageEvent[] = [];
 
     // Full ahead, aimed at the bow, weapon selected but not fired yet.
-    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: WEAPON.torpedo });
+    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_TORPEDO });
     const accelTicks = Math.ceil(a.stats.kinematics.maxSpeed / a.stats.kinematics.accel / (CONFIG.tick.simDtMs / 1000)) + 20;
     for (let i = 0; i < accelTicks; i++) {
       w.step();
@@ -96,7 +98,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     expect(a.state.speed).toBeCloseTo(a.stats.kinematics.maxSpeed, 1); // confirmed at full speed
 
     // Fire the bow torpedo (one click: fireSeq bumps).
-    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: 0, weapon: WEAPON.torpedo });
+    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO });
     const fireTicks = 5000 / CONFIG.tick.simDtMs;
     for (let i = 0; i < fireTicks; i++) {
       w.step();
@@ -143,11 +145,17 @@ describe('own weapons never damage the owner (gun / torpedo / mine)', () => {
       y: target.state.y,
       vx: CONFIG.gun.shellSpeed,
       vy: 0,
-      distLeft: CONFIG.gun.shellRange,
+      distLeft: CONFIG.vision.radar,
       bornAt: 0,
       kind,
       damage: kind === 'torp' ? CONFIG.torpedo.damage : CONFIG.gun.damage,
       hitRadius: kind === 'torp' ? CONFIG.torpedo.hitRadius : CONFIG.gun.shellRadius,
+      // Contact-only hit rule: immunity must hold on the plain interception
+      // path (the burst path's owner immunity is pinned in combat.test.ts).
+      targetX: null,
+      targetY: null,
+      burstRadius: 0,
+      contactDamage: kind === 'torp' ? CONFIG.torpedo.damage : CONFIG.gun.contactDamage,
     };
     w.shells.set(s.id, s);
   }
