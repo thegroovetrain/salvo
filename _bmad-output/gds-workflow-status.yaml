@@ -4,7 +4,7 @@
 # Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
 
 generated: '2026-07-15'
-last_updated: '2026-07-19'  # gds-correct-course complete: three-class re-scope propagated into production epics/stories
+last_updated: '2026-07-21'  # story 1-3 (Three Hull Envelopes) done: landed PR #43 2026-07-20, deployed to hullcracker.io; sprint-status.yaml is the per-story source of truth
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -33,4 +33,4 @@ sprint-planning: _bmad-output/implementation-artifacts/sprint-status.yaml # comp
 retrospective-epic-0: _bmad-output/implementation-artifacts/epic-0-retro-2026-07-18.md # complete 2026-07-18 (epic-0 done 4/4; no epic-1 plan changes; critical path: matchSmoke hardening chore + Eric's human browser pass; rulings list awaiting Eric's confirm)
 correct-course: _bmad-output/planning-artifacts/sprint-change-proposal-2026-07-19.md # complete 2026-07-19, Eric-approved (three-class re-scope propagated: 1.9 tombstoned; 1.3/1.6/1.8/1.10/1.13/1.14/2.8/4.2 amended; FR1/FR4/FR10 + UX-DR9/10/26 recast; Epic 1 = 13 stories / 58 total; two new design gates carried in 1.6 (boost × torpedo) and 1.8 (ML ability + mine mechanics); DESIGN.md/EXPERIENCE.md reconciliation deferred to story 7.5 per Decision Point 1)
 
-next_expected: create-story 1-3 (Three Hull Envelopes) # re-scope propagation complete; story cycle resumes
+next_expected: create-story 1-4 (Universal Standard Gun) # 1-3 done (PR #43, deployed); 1-4 carries the precision-bonus Eric gate + the deferred gun-dead-ring finding (see deferred-work.md)
