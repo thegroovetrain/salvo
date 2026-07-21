@@ -2,10 +2,11 @@
 title: 'Story 1.4: Universal Standard Gun'
 type: 'feature'
 created: '2026-07-21'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '226a4273aa83a29e3a5aca3e5ab5b480c69cba08'
+final_revision: '1286a1de166317f649d020acc0ca8574f8214159'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
@@ -99,11 +100,11 @@ warnings: [multiple-goals, oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/` (constants, types, index, sim/shell, sim/stats, sim/loadout, sim/offers) -- new gun CONFIG + burst mechanic in stepShell + slot wire contract + PV5 + interregnum upgrade neutralization, with shell-mechanic unit tests covering the full I/O matrix -- the deterministic core both sides share.
-- [ ] `server/src/game/` (inputs, world, equipment/*, signals, frames) + smokes -- slot-routed fire control, hull-edge spawn, burst resolution + registry row, slot-aligned frames -- authoritative side complete, invariants green.
-- [ ] `client/src/` (input, sim sampler, main, render hud/weaponArc/firing/effects, net/roomBindings) -- prime-next-shot UX, cooldown gun chip, burst visual, denial feedback -- playable end-to-end.
-- [ ] Test sweep -- rewrite/extend named suites, golden-frames regen with PV5 same commit, all smokes updated -- `npm run check` green.
-- [ ] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- `1-4-universal-standard-gun` status transition at completion.
+- [x] `shared/src/` (constants, types, index, sim/shell, sim/stats, sim/loadout, sim/offers) -- new gun CONFIG + burst mechanic in stepShell + slot wire contract + PV5 + interregnum upgrade neutralization, with shell-mechanic unit tests covering the full I/O matrix -- the deterministic core both sides share.
+- [x] `server/src/game/` (inputs, world, equipment/*, signals, frames) + smokes -- slot-routed fire control, hull-edge spawn, burst resolution + registry row, slot-aligned frames -- authoritative side complete, invariants green.
+- [x] `client/src/` (input, sim sampler, main, render hud/weaponArc/firing/effects, net/roomBindings) -- prime-next-shot UX, cooldown gun chip, burst visual, denial feedback -- playable end-to-end.
+- [x] Test sweep -- rewrite/extend named suites, golden-frames regen with PV5 same commit, all smokes updated -- `npm run check` green.
+- [x] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- `1-4-universal-standard-gun` status transition at completion.
 
 **Acceptance Criteria:**
 - Given any class, when it fires the gun, then behavior is byte-identical across classes (FR3) — no per-class gun stat anywhere.
@@ -115,6 +116,28 @@ warnings: [multiple-goals, oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-07-21 — Review pass (Blind Hunter + Edge Case Hunter, both Fable, parallel + Codex cross-model at the gate; patch round on Opus, orchestrator-verified + Codex re-check)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 12: (high 2, medium 3, low 7)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 3: (high 0, medium 0, low 3)
+- addressed_findings:
+  - `[high]` `[patch]` Burst visual rendered under the 85% fog overlay — invisible at exactly the radar ranges the story enables (Blind CONFIRMED, precedent already in firing.ts). Fixed: burst effects route to a fog-immune chart layer (`burstFx`); routing test added.
+  - `[high]` `[patch]` Point-blank inner dead ring: clicks closer than the muzzle-spawn distance spawned the shell past its target flying outward — up to ~64u dead zone on a battleship bow, recreating what ruling 6 eliminated (both hunters CONFIRMED). Fixed: `muzzleOrTarget` spawns AT the target for inside-muzzle clicks → next-tick burst; BB-bow + aimDist-0 regression tests.
+  - `[medium]` `[patch]` `AIM_DIST_MAX = 2×radar` (my wave-2 ruling) silently capped 5+ gunRange stacks and made the client range marker lie (both hunters CONFIRMED). Fixed: restored map-scale bound `4 × CONFIG.map.baseRadius` (transport sanity bound only).
+  - `[medium]` `[patch]` Map edge beat the proximity burst — in-range rim shots silently expired (Blind CONFIRMED). Fixed: `gunTarget` clamps into the water disk via shared `segCircleExit`; rim regression test.
+  - `[medium]` `[patch]` Prime consumption predicted from stale server-echo heading/ammo while the denied pulse used the predicted pose — lost shots / contradictory feedback at tick boundaries (Codex + both hunters). Fixed: `shouldConsumePrime` uses the same predicted heading as renderFiring.
+  - `[low]` `[patch]` Click while dead consumed the prime silently. Fixed: not-alive guard, no consume.
+  - `[low]` `[patch]` Prime survived death/respawn. Fixed: own-sunk resets prime to gun (state-reset symmetry).
+  - `[low]` `[patch]` Spending a legacy pre-rolled `gunAmmo` offer topped up the gun pool mid-cooldown, contradicting the neutralization clause (Edge PLAUSIBLE, verified). Fixed: spend guard; mid-cooldown pin.
+  - `[low]` `[patch]` `weaponArcHit` fall-through treated unknown/empty slots as in-arc. Fixed: explicit slot mapping, unknown → false.
+  - `[low]` `[patch]` CLAUDE.md still described the retired selector/mounts model, PV 3, and a nonexistent-runtime-gate claim. Fixed: minimal targeted refresh (+ test count 653→960 by orchestrator).
+  - `[low]` `[patch]` Burst absence-inference channel (no burst ⇒ something intercepted) — Codex + Blind, adjudicated by orchestrator as ACCEPTED DESIGN: islands stop shells (island-shadowed hulls can't be probed) and any LOS-clear hull inside gun range is painted by the radar sweep within one 4s revolution, so the channel is subsumed by radar. Documented in signals.ts; flagged for Eric's veto in the run report.
+  - `[low]` `[patch]` Rim-degeneracy in `clampInsideMap` (Codex re-check; unreachable for a live ship — boundary clamp keeps centers polyMax inside the rim). Fixed: one-line t≤0 guard, orchestrator-applied and verified.
+- deferred (to deferred-work.md): projectile spawn island-blindness (pre-existing class, benign — muzzleSpawn parity with hullClearOffset); combatSmoke seed-dependent pilot flake (~2/24, naive goto pilot vs 1.3 fully-blocking islands).
+- rejected as noise: golden-frames regen landed one commit after the PV5 bump (same PR — the clause's purpose holds at merge granularity; force-pushing history is forbidden); no burst audio cue (parity — booms have none); empty-offer-category runtime guard (hypothetical future config error, current partition pinned by tests).
 
 ## Design Notes
 
@@ -136,3 +159,19 @@ warnings: [multiple-goals, oversized]
 
 **Manual checks (if no CLI):**
 - With Eric's dev server running (never start it): fire 360° at radar-range blips, watch bursts; bodyblock with a drone; prime/cancel/fire torpedo and mine; confirm gun cooldown chip reads clean.
+
+## Auto Run Result
+
+Status: done
+
+**Summary:** Story 1.4 delivered under Eric's 2026-07-21 rulings (captured live in this run): the gun is now the permanently-selected default weapon — the `input.weapon` selector is retired and fire clicks carry a loadout `slot` (PROTOCOL_VERSION 5); torpedo/mine became interim prime-next-shot skillshots (Digit2/3 prime, same-key cancel, Digit1 reverts, denial keeps the prime); the gun fires 360° (mounts retired) to anywhere in radar range (base range derived from CONFIG.vision.radar = 650, single-sourced), single shot on a 3s reload (1-round pool, HUD renders a pure cooldown); and the new per-weapon hit-rule seam lands with the gun's burst mechanic — the shell flies to the clicked point and bursts in burstRadius 15 (full 25 to every hull in radius, owner immune), an early bodyblocker takes contactDamage 10 with no burst, and an interceptor already inside the would-be blast triggers the full burst anyway (torpedoes ride the same ShellState contact-only, byte-for-byte legacy). No dead ring, inner or outer: shells spawn at the silhouette edge, and inside-muzzle clicks burst at the click. gunAmmo is neutralized and unofferable; gunReload/gunRange keep multiplying (interregnum). PROPOSED numbers awaiting Eric's tuning veto: burstRadius 15u, contactDamage 10 (damage 25 unchanged). Implementation via /orchestrate routing per Eric's directive: Fable (shared core; server/anti-cheat wave), Opus (client wave; review patch round), Codex cross-model at the review gate and again on the patch diff.
+
+**Files changed (one-liners):** shared — types.ts (slot wire contract, BurstEvent, WeaponId retired), constants.ts (gun block rework), shell.ts (per-projectile hit rules: target/burst/contact + burstVictims), stats.ts (maxAmmo pin, radar-derived range), loadout.ts (equipment-keyed helpers), offers.ts (gunAmmo unofferable), index.ts (PV5); server — inputs.ts (slot validation, AIM_DIST_MAX map-scale), world.ts (slot-routed fireControl, burst resolution through the hitShip choke, gunAmmo spend guard), equipment/* (360° guns with target clamp + muzzleOrTarget, silhouette-edge muzzleSpawn, slot-keyed torpedoes/mines/registry), signals.ts (burst row + absence-channel doc), frames.ts (slot-aligned nullable ammo), golden frames deliberately regenerated, 10 smokes re-keyed; client — keyboard.ts (prime model), inputSampler.ts (slot + shouldConsumePrime), main.ts (prime/cooldown wiring, predicted-pose consumption), hud.ts (cooldown gun chip, primed highlight), weaponArc.ts (explicit slot arcs), firing.ts (center-measured range, wedges deleted), effects.ts + stage.ts (fog-immune burst layer), roomBindings.ts (burst handling, prime reset on death), tones.ts (equipment-keyed); CLAUDE.md refreshed; tests 892→960 (shared 215 / server 438 / client 307).
+
+**Review findings breakdown:** 0 intent_gap, 0 bad_spec, 12 patches applied (2 high, 3 medium, 7 low — incl. one accepted-design adjudication documented rather than changed, and one unreachable-degeneracy guard), 2 deferred to the ledger, 3 rejected as noise. Cross-model agreement drove the top two: both Fable hunters confirmed the point-blank dead ring and the AIM_DIST_MAX cap; Codex + Blind independently raised the burst absence-inference channel (adjudicated: subsumed by radar, Eric veto flagged); Codex re-check of the patch round found one unreachable rim degeneracy (guarded) and cleared the spawn-at-target math.
+
+**Follow-up review recommended: true** — the patch round changed live behavior in two high-severity areas (burst visibility layering, point-blank spawn semantics) plus client prediction plumbing, and ran on Opus with orchestrator + Codex verification rather than a fresh Fable hunter pass; volume (12 patched findings) also clears the bar.
+
+**Verification:** `npm run check` green end-to-end after every wave and after the patch round (960 tests: shared 215, server 438, client 307; eslint 0 errors — one pre-existing warning at baseline; tsc clean ×3); headless smokes over real sockets on a scratch port (:2599, booted and killed by the run): weaponsSmoke and dronesSmoke pass, combatSmoke passed 22/24 runs (2 early failures root-caused to the pre-existing seed-dependent pilot-vs-island flake — ledger entry filed; damage flow was correct in every observed in-range engagement); golden frames byte-stable except the deliberate PV5 regen (eyeballed: weapon field removal, slot-aligned ammo, burst events, new spawn positions only).
+
+**Residual risks:** shellSpeed 130 is unchanged while range grew 480→650 — a max-range shot now flies ~5s, untouched by ruling and flagged for Eric's tuning pass (1.5's latency harness will measure real hit rates); the burst absence-inference channel is accepted design pending Eric's veto; prime/denial client prediction can still disagree with the server inside one 50ms tick at reload/arc boundaries (inherent to prediction, narrowed by the patch); hull-aware perception remains deferred (booms/bursts on seemingly empty water when a big hull pokes into sight); interregnum artifacts stand (gunRange stacks can outrange radar; slot-index==equipment coupling until 1.6).
