@@ -7,12 +7,12 @@
 // the authoritative sim.
 //
 // Bases: the ship class for hull-ish stats (hp, kinematics); CONFIG.vision for
-// radar/sweep/sight; CONFIG.gun/torpedo/mine for weapons. Stacking per
+// radar/sweep/sight; CONFIG.gun/torpedo/mine for weapons (gun RANGE bases on
+// CONFIG.vision.radar — range = radar range, Eric ruling 2026-07-21). Stacking per
 // CONFIG.upgrades: multiplicative entries compound (base * mult^count), adds
 // are linear. Uncapped by design (caps are a CONFIG tweak away).
 
 import { CONFIG, UPGRADE_IDS, type ShipClass, type UpgradeId } from '../constants.js';
-import type { WeaponId } from '../types.js';
 import type { ShipConfig } from './ship.js';
 
 /** UpgradeId -> index into a counts array (UPGRADE_IDS order). */
@@ -32,9 +32,9 @@ function stack(base: number, mult: number, count: number): number {
 
 /** One weapon's effective numbers (per-weapon extras live beside these). */
 export interface EffectiveGun {
-  reloadMs: number; // ms per round
-  maxAmmo: number; // pool size
-  rangeU: number; // u — max shell travel (aimDist clamp)
+  reloadMs: number; // ms per shot (the gun cooldown)
+  maxAmmo: number; // pool size — ALWAYS 1 (single-shot; gunAmmo neutralized)
+  rangeU: number; // u — max shell travel / aimDist clamp (base = CONFIG.vision.radar)
 }
 
 export interface EffectiveTorpedo {
@@ -85,8 +85,16 @@ export function effectiveStats(cls: ShipClass, counts: readonly number[]): Effec
     sightRange: stack(CONFIG.vision.sight, u.sightRange.mult, countOf(counts, 'sightRange')),
     gun: {
       reloadMs: stack(CONFIG.gun.reloadMs, u.gunReload.mult, countOf(counts, 'gunReload')),
-      maxAmmo: CONFIG.gun.maxAmmo + u.gunAmmo.add * countOf(counts, 'gunAmmo'),
-      rangeU: stack(CONFIG.gun.shellRange, u.gunRange.mult, countOf(counts, 'gunRange')),
+      // Single-shot gun: PINNED to the CONFIG pool size (1) regardless of any
+      // gunAmmo count — the id survives on the wire (append-only UPGRADE_IDS)
+      // but is neutralized here AND excluded from offers (interregnum, dies in
+      // Epic 2). A pre-rolled legacy offer spent on gunAmmo increments the
+      // count with zero effect.
+      maxAmmo: CONFIG.gun.maxAmmo,
+      // Base gun range IS radar range (Eric ruling 2026-07-21) — derived, never
+      // duplicated. gunRange stacks can briefly outrange an unupgraded radar
+      // (known-ugly interregnum artifact, dies in Epic 2).
+      rangeU: stack(CONFIG.vision.radar, u.gunRange.mult, countOf(counts, 'gunRange')),
     },
     torpedo: {
       reloadMs: stack(CONFIG.torpedo.reloadMs, u.torpedoReload.mult, countOf(counts, 'torpedoReload')),
@@ -106,12 +114,6 @@ export function zeroUpgrades(): number[] {
   return new Array<number>(UPGRADE_IDS.length).fill(0);
 }
 
-/** The effective pool size for a weapon index (0 gun / 1 torpedo / 2 mine). */
-export function weaponMaxAmmo(stats: EffectiveStats, weapon: WeaponId): number {
-  return [stats.gun.maxAmmo, stats.torpedo.maxAmmo, stats.mine.maxAmmo][weapon];
-}
-
-/** The effective reload (ms) for a weapon index (0 gun / 1 torpedo / 2 mine). */
-export function weaponReloadMs(stats: EffectiveStats, weapon: WeaponId): number {
-  return [stats.gun.reloadMs, stats.torpedo.reloadMs, stats.mine.reloadMs][weapon];
-}
+// The per-equipment pool/reload lookups (equipmentMaxAmmo / equipmentReloadMs)
+// live in sim/loadout.ts beside EquipmentId — the WeaponId-indexed
+// weaponMaxAmmo/weaponReloadMs helpers are retired with the weapon selector.

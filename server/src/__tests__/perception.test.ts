@@ -18,6 +18,7 @@ import {
   type BallisticEvent,
   type BlipEvent,
   type BoomEvent,
+  type BurstEvent,
   type Circle,
   type GameEvent,
   type FrameMsg,
@@ -102,6 +103,7 @@ function injectShell(
   y: number,
   dir: number,
   distLeft: number,
+  targeted = false,
 ): void {
   w.shells.set(id, {
     id,
@@ -115,6 +117,13 @@ function injectShell(
     kind: 'shell',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
+    // `targeted` mirrors the real gun: a burst point distLeft along the
+    // bearing, so the invariant worlds exercise burst events too. Untargeted
+    // is the contact-only legacy shape.
+    targetX: targeted ? x + Math.cos(dir) * distLeft : null,
+    targetY: targeted ? y + Math.sin(dir) * distLeft : null,
+    burstRadius: targeted ? CONFIG.gun.burstRadius : 0,
+    contactDamage: targeted ? CONFIG.gun.contactDamage : CONFIG.gun.damage,
   });
 }
 
@@ -429,6 +438,63 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
 
 // ---------- directed cases: mine visibility (contact-like) -------------------
 
+describe('perception — burst visibility (owner always, else burst point sighted)', () => {
+  /** Route an internal burst subject through the real pending-events choke,
+   *  the way World.resolveBurst emits it (wire BurstEvent + internal `own`). */
+  function emitBurst(w: World, id: string, own: string, x: number, y: number): void {
+    interface Pendable { pending: GameEvent[] }
+    (w as unknown as Pendable).pending.push({ k: 'burst', id, x, y, own } as GameEvent);
+    w.step();
+  }
+
+  it('the OWNER gets its burst even far beyond sight (the point is its own click)', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    emitBurst(w, 'b1', 'a', 600, 0); // 600u away — far outside a's 220u sight
+    const bursts = buildFrame(w, 'a').events.filter((e) => e.k === 'burst');
+    expect(bursts).toEqual([{ k: 'burst', id: 'b1', x: 600, y: 0 }]); // bare shape, no `own`
+  });
+
+  it('a non-owner outside sight of the burst point NEVER receives it (fogged)', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'c', -900, 0); // 1500u from the burst point
+    emitBurst(w, 'b1', 'a', 600, 0);
+    expect(buildFrame(w, 'c').events.filter((e) => e.k === 'burst')).toEqual([]);
+  });
+
+  it('a non-owner WITH the burst point sighted receives the bare event', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'c', 580, 0); // 20u from the burst point — sighted
+    emitBurst(w, 'b1', 'a', 600, 0);
+    const bursts = buildFrame(w, 'c').events.filter((e) => e.k === 'burst');
+    expect(bursts).toEqual([{ k: 'burst', id: 'b1', x: 600, y: 0 }]);
+  });
+
+  it('a non-owner behind an island never receives it (LOS rule)', () => {
+    const w = bareWorld();
+    w.map.islands.push({ x: 100, y: 0, r: 40 });
+    place(w, 'c', 0, 0);
+    emitBurst(w, 'b1', 'a', 200, 0); // inside sight range but behind the rock
+    expect(buildFrame(w, 'c').events.filter((e) => e.k === 'burst')).toEqual([]);
+  });
+
+  it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0 };
+    let burst: GameEvent | undefined;
+    for (let i = 0; i < 120 && !burst; i++) {
+      w.step();
+      burst = buildFrame(w, 'a').events.find((e) => e.k === 'burst');
+    }
+    expect(burst).toBeDefined(); // owner-visible at 600u — nearly 3× sight range
+    expect(Object.keys(burst!).sort()).toEqual(['id', 'k', 'x', 'y']); // no own/radius/range field
+    expect((burst as BurstEvent).x).toBeCloseTo(600, 4); // bursts AT the clicked point
+  });
+});
+
 describe('perception — mine visibility (owner-always, else sight+LOS, never radar)', () => {
   it('the owner sees all its own mines everywhere; the enemy never radar-paints them', () => {
     const w = bareWorld();
@@ -543,6 +609,22 @@ function verifyBoom(w: World, me: ShipRecord, e: GameEvent): void {
   }
 }
 
+// A burst may reach an observer ONLY when it fired the shell (the point is its
+// own click) or the burst point is sighted; and the wire shape is exactly
+// {k,id,x,y} — the server-internal owner field (and any radius/range field)
+// must never ride it. The owner is recovered INDEPENDENTLY from the world's
+// internal tick-event buffer (where `own` legitimately lives), never from the
+// registry row.
+function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
+  const ev = e as BurstEvent;
+  expect(Object.keys(ev).sort()).toEqual(['id', 'k', 'x', 'y']);
+  const src = w.tickEvents.find((t) => t.k === 'burst' && t.id === ev.id) as
+    | (BurstEvent & { own?: string })
+    | undefined;
+  expect(src).toBeDefined();
+  if (src!.own !== me.id) expect(sighted(w, me, ev)).toBe(true);
+}
+
 function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as SunkEvent;
   if (ev.id === me.id) return;
@@ -556,6 +638,7 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   shell: verifyBallistic,
   torp: verifyBallistic,
   boom: verifyBoom,
+  burst: verifyBurst,
   sunk: verifySunk,
   // Self-private kinds: each may only ever reach the ship its `id` names.
   dmg: (_w, me, e) => expect(e.id).toBe(me.id), // victim-private
@@ -618,7 +701,8 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
           Math.cos(ang) * r,
           Math.sin(ang) * r,
           rng.float(0, TAU),
-          rng.float(20, CONFIG.gun.shellRange),
+          rng.float(20, CONFIG.vision.radar), // gun range base = radar range (shellRange retired)
+          rng.float(0, 1) < 0.5, // half the shells are targeted bursters (real gun shape)
         );
       }
       for (let s = 0; s < rng.int(0, 4); s++) {
@@ -635,7 +719,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             aim: rng.float(-Math.PI, Math.PI),
             fireSeq: rng.float(0, 1) < 0.4 ? tick : 0, // ~40% of ticks land a fresh click
             aimDist: rng.float(0, 900),
-            weapon: 0,
+            slot: 0,
           });
         }
         w.step();
@@ -658,13 +742,13 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // The two contact-like pseudo-rows are verified through the contacts/mines
   // frame channels (verifyFrame/verifyMine), not through EVENT_VERIFIERS.
   const CONTACT_LIKE = ['contact', 'mine'];
-  // The 10 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry.
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
+  // The 11 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry.
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 12 expected channel keys (10 event kinds + contact + mine)', () => {
+  it('has exactly the 13 expected channel keys (11 event kinds + contact + mine)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(12);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(13);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {

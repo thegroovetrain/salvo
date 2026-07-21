@@ -25,7 +25,7 @@ const TB = CONFIG.shipClasses.torpedoBoat;
 const TB_POLY = hullSilhouette('torpedoBoat');
 
 function input(seq: number, throttle = 1, rudder = 0): InputMsg {
-  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 };
+  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 };
 }
 
 function kin(s: ShipState) {

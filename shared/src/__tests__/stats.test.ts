@@ -11,8 +11,8 @@ import {
   SHIP_CLASS_IDS,
   UPGRADE_IDS,
   effectiveStats,
-  weaponMaxAmmo,
-  weaponReloadMs,
+  equipmentMaxAmmo,
+  equipmentReloadMs,
   zeroUpgrades,
   type EffectiveStats,
   type UpgradeId,
@@ -50,7 +50,7 @@ describe('effectiveStats — zero-counts identity (per class)', () => {
       radarRange: CONFIG.vision.radar,
       sweepPeriodMs: CONFIG.vision.sweepPeriod,
       sightRange: CONFIG.vision.sight,
-      gun: { reloadMs: CONFIG.gun.reloadMs, maxAmmo: CONFIG.gun.maxAmmo, rangeU: CONFIG.gun.shellRange },
+      gun: { reloadMs: CONFIG.gun.reloadMs, maxAmmo: CONFIG.gun.maxAmmo, rangeU: CONFIG.vision.radar },
       torpedo: { reloadMs: CONFIG.torpedo.reloadMs, maxAmmo: CONFIG.torpedo.maxAmmo, speed: CONFIG.torpedo.speed },
       mine: { reloadMs: CONFIG.mine.reloadMs, maxAmmo: CONFIG.mine.maxAmmo, maxLive: CONFIG.mine.maxLive },
     });
@@ -77,7 +77,24 @@ describe('effectiveStats — stacking rules', () => {
     expect(effectiveStats(BASE, countsWith('hullPoints', 5)).maxHp).toBe(
       BASE.hp + 5 * CONFIG.upgrades.hullPoints.add,
     );
-    expect(effectiveStats(BASE, countsWith('gunAmmo', 10)).gun.maxAmmo).toBe(CONFIG.gun.maxAmmo + 10);
+    expect(effectiveStats(BASE, countsWith('torpedoAmmo', 10)).torpedo.maxAmmo).toBe(
+      CONFIG.torpedo.maxAmmo + 10,
+    );
+  });
+
+  it('gunAmmo is NEUTRALIZED: gun maxAmmo pinned to 1 at any stack count (single-shot gun)', () => {
+    for (const count of [0, 1, 5, 100]) {
+      expect(effectiveStats(BASE, countsWith('gunAmmo', count)).gun.maxAmmo).toBe(1);
+    }
+    expect(CONFIG.gun.maxAmmo).toBe(1);
+  });
+
+  it('gun range bases on CONFIG.vision.radar (range = radar range) and gunRange multiplies it', () => {
+    expect(effectiveStats(BASE, zeroUpgrades()).gun.rangeU).toBe(CONFIG.vision.radar);
+    const s = effectiveStats(BASE, countsWith('gunRange', 2));
+    expect(s.gun.rangeU).toBeCloseTo(CONFIG.vision.radar * CONFIG.upgrades.gunRange.mult ** 2, 9);
+    // gunRange stacks move ONLY the gun range — radar itself is untouched.
+    expect(s.radarRange).toBe(CONFIG.vision.radar);
   });
 
   it('maxSpeed scales maxSpeed AND reverseSpeed by the same factor', () => {
@@ -97,7 +114,7 @@ const AFFECTED: Record<UpgradeId, string[]> = {
   maxSpeed: ['kinematics.maxSpeed', 'kinematics.reverseSpeed'], // by design (accel/turn untouched)
   gunReload: ['gun.reloadMs'],
   gunRange: ['gun.rangeU'],
-  gunAmmo: ['gun.maxAmmo'],
+  gunAmmo: [], // NEUTRALIZED (Story 1.4): single-shot gun pins maxAmmo to 1 — moves nothing
   torpedoReload: ['torpedo.reloadMs'],
   torpedoAmmo: ['torpedo.maxAmmo'],
   torpedoSpeed: ['torpedo.speed'],
@@ -135,14 +152,14 @@ describe('upgrade helpers', () => {
     expect(zeroUpgrades()).not.toBe(z);
   });
 
-  it('weaponMaxAmmo / weaponReloadMs index the per-weapon effective values', () => {
+  it('equipmentMaxAmmo / equipmentReloadMs look up the per-equipment effective values', () => {
     const s = effectiveStats(BASE, countsWith('mineReload', 1));
-    expect(weaponMaxAmmo(s, 0)).toBe(s.gun.maxAmmo);
-    expect(weaponMaxAmmo(s, 1)).toBe(s.torpedo.maxAmmo);
-    expect(weaponMaxAmmo(s, 2)).toBe(s.mine.maxAmmo);
-    expect(weaponReloadMs(s, 0)).toBe(s.gun.reloadMs);
-    expect(weaponReloadMs(s, 1)).toBe(s.torpedo.reloadMs);
-    expect(weaponReloadMs(s, 2)).toBe(s.mine.reloadMs);
+    expect(equipmentMaxAmmo(s, 'gun')).toBe(s.gun.maxAmmo);
+    expect(equipmentMaxAmmo(s, 'torpedo')).toBe(s.torpedo.maxAmmo);
+    expect(equipmentMaxAmmo(s, 'mine')).toBe(s.mine.maxAmmo);
+    expect(equipmentReloadMs(s, 'gun')).toBe(s.gun.reloadMs);
+    expect(equipmentReloadMs(s, 'torpedo')).toBe(s.torpedo.reloadMs);
+    expect(equipmentReloadMs(s, 'mine')).toBe(s.mine.reloadMs);
   });
 
   it('CONFIG.upgrades keys are exactly UPGRADE_IDS (table and order stay in sync)', () => {

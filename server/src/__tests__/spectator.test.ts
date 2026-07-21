@@ -70,6 +70,10 @@ function injectShell(w: World, id: string, ownerId: string, x: number, y: number
     kind: 'shell',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
+    targetX: null,
+    targetY: null,
+    burstRadius: 0,
+    contactDamage: CONFIG.gun.damage, // contact-only injection: legacy full-damage hit
   });
 }
 
@@ -317,7 +321,7 @@ describe('THE INVARIANT extension — spec frames only for the dead/finished', (
             aim: rng.float(-Math.PI, Math.PI),
             fireSeq: rng.float(0, 1) < 0.4 ? tick : 0, // ~40% of ticks land a fresh click
             aimDist: rng.float(0, 900),
-            weapon: 0,
+            slot: 0,
           });
         }
         w.step();

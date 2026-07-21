@@ -1,6 +1,6 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 10 GameEvent kinds plus the two contact-like frame channels
+// row here: the 11 GameEvent kinds plus the two contact-like frame channels
 // (`contact` and `mine`, pseudo event types — they are not GameEvents, but the
 // invariant suite iterates them like everything else). perception.ts's
 // observe()/observeSpectator() are the ONLY callers of a row's visible()/
@@ -29,6 +29,7 @@ import {
   type BallisticEvent,
   type BlipEvent,
   type BoomEvent,
+  type BurstEvent,
   type Circle,
   type Contact,
   type DamageEvent,
@@ -311,6 +312,46 @@ const boomSignal: SignalSpec<BoomEvent, BoomEvent> = {
 };
 
 /**
+ * Server-INTERNAL burst subject: the wire BurstEvent plus the firing shell's
+ * ownerId, carried only inside World.tickEvents for the owner-visibility rule
+ * below. `own` NEVER reaches the wire — materialize() always rebuilds the
+ * bare {k,id,x,y} shape, on BOTH the fogged and spectator paths.
+ */
+export interface BurstSubject extends BurstEvent {
+  own: string;
+}
+
+/**
+ * `burst` — a gun shell detonating at its target point. Visible to the shell
+ * OWNER (the burst centers on the point they clicked, so it reveals nothing
+ * they didn't author — unlike boom, whose owner-suppression rule guards
+ * against hit-confirmation leaks) or to anyone with the burst point sighted
+ * (sight + LOS, the boom pattern). Damage never rides here — burst victims
+ * get their own victim-private dmg events; burstRadius is CONFIG, never on
+ * the wire.
+ *
+ * ABSENCE-INFERENCE CHANNEL (accepted by design): the owner ALWAYS sees their
+ * own burst, so the ABSENCE of a burst after a shot leaks one bit — "something
+ * intercepted the shell short of the target." This is deliberately tolerated
+ * because it is subsumed by radar: islands stop shells, so an island-shadowed
+ * hull can never be probed this way, and any LOS-clear hull inside gun range
+ * (gun range = radar range) is painted by the radar sweep within one ~4s
+ * revolution regardless. The owner learns nothing the sweep would not reveal.
+ */
+const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
+  eventType: 'burst',
+  visible(ctx, e) {
+    if (ctx.mode === 'spectator') return true;
+    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx.islands);
+  },
+  materialize(_ctx, e) {
+    // ALWAYS a fresh bare object — never `e` verbatim, which would leak the
+    // server-internal `own` field (spectator path included).
+    return { k: 'burst', id: e.id, x: e.x, y: e.y };
+  },
+};
+
+/**
  * `sunk` — visible to the victim itself, and to anyone who can see the sinking
  * ship's position (wreck position, sight + LOS). Everyone still learns
  * alive/kills/deaths from the public roster schema — sinking is public
@@ -388,7 +429,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 };
 
 /**
- * String-keyed registry of every signal channel — the 10 GameEvent kinds plus
+ * String-keyed registry of every signal channel — the 11 GameEvent kinds plus
  * the `contact`/`mine` pseudo-types. perception.ts dispatches world events by
  * `e.k` (an emitted kind with no row is a hard fail-closed drop) and drives
  * the contact/blip/ballistic/mine scans through their rows. Deep-frozen: the
@@ -402,6 +443,7 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   shell: ballisticSignal('shell'),
   torp: ballisticSignal('torp'),
   boom: boomSignal,
+  burst: burstSignal,
   sunk: sunkSignal,
   spawn: spawnSignal,
   dmg: selfPrivateSignal<DamageEvent>('dmg', true),
@@ -425,7 +467,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 10 GameEvent-kind rows. It excludes the contact/mine pseudo-rows so a
+ * ONLY the 11 GameEvent-kind rows. It excludes the contact/mine pseudo-rows so a
  * fabricated `k:'mine'` world event can never materialize (restoring the old
  * dispatcher's `default: return null` guarantee), and uses an OWN-property
  * lookup (Object.hasOwn) so an inherited prototype key ('constructor',

@@ -7,7 +7,7 @@
 // NOT enforced here — the World's consumption (lastFireSeq = max(...)) makes
 // a stale or replayed counter value simply read as "no new click".
 
-import { CONFIG, wrapAngle, type InputMsg, type WeaponId } from '@salvo/shared';
+import { CONFIG, SLOT_COUNT, wrapAngle, type InputMsg } from '@salvo/shared';
 
 /** Max input messages per client per rolling window. */
 export const INPUT_RATE_CAP = 40;
@@ -15,16 +15,20 @@ export const INPUT_RATE_CAP = 40;
 export const INPUT_RATE_WINDOW_MS = 1000;
 
 /**
- * aimDist ceiling: a MAP-scale bound (nothing on a real map is farther than a
- * few radii away), deliberately NOT derived from CONFIG.gun.shellRange — gun
- * range becomes upgradeable later, and the sanitize layer must not encode a
- * weapon stat.
+ * aimDist ceiling: a STATIC TRANSPORT sanity bound only — 4× the base map
+ * radius spans the whole ocean, so it admits any legitimate click (the gun's
+ * effective range never exceeds the map) with generous headroom, while
+ * rejecting only absurd wire garbage. It is deliberately a MAP-SCALE constant,
+ * NOT a weapon stat: a radar-derived bound (e.g. 2× radar) is silently
+ * overtaken by ~5 stacked gunRange upgrades (650×1.15ⁿ), which would clamp
+ * legitimate long shots short of the client's range marker. The real gameplay
+ * clamp to per-ship effective gun range is applied PER SHOT in equipment/guns.ts.
  */
 export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
 
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {
-  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0 };
+  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0 };
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -37,8 +41,11 @@ function clampUnit(v: number): number {
   return v;
 }
 
-function isWeaponId(v: unknown): v is WeaponId {
-  return v === 0 || v === 1 || v === 2;
+/** Valid loadout slot index: an INTEGER in [0, SLOT_COUNT). Anything else
+ *  (7, 1.5, NaN, negatives, non-numbers) drops the WHOLE message — the
+ *  existing sanitize law: malformed input never partially applies. */
+function isSlotIndex(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < SLOT_COUNT;
 }
 
 function numericFieldsFinite(m: Record<string, unknown>): boolean {
@@ -71,7 +78,7 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const m = raw as Record<string, unknown>;
   if (!numericFieldsFinite(m)) return null;
-  if (!isWeaponId(m.weapon)) return null;
+  if (!isSlotIndex(m.slot)) return null;
   const seq = m.seq as number;
   if (seq <= lastSeq) return null;
   return {
@@ -81,7 +88,7 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
     aim: wrapAngle(m.aim as number),
     fireSeq: sanitizeFireSeq(m.fireSeq as number),
     aimDist: sanitizeAimDist(m.aimDist as number),
-    weapon: m.weapon,
+    slot: m.slot,
   };
 }
 

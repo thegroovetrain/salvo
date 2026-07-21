@@ -14,7 +14,7 @@
 // ballistic machinery as shells (sight + LOS), so a torpedo materializes at your
 // fog boundary, never at its launch point (see perception.ts / BallisticEvent).
 
-import { CONFIG, WEAPON, inArc, wrapAngle, type EquipmentState, type ShellState } from '@salvo/shared';
+import { CONFIG, inArc, wrapAngle, type EquipmentState, type ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
 import { clampToArc } from './guns.js';
@@ -45,6 +45,12 @@ function launchTorpedo(
     hitRadius: CONFIG.torpedo.hitRadius, // A4: own value, no longer gun.shellRadius
     spawnClearance: CONFIG.torpedo.spawnClearance, // real spawn margin (clean spawn geometry)
     kind: 'torp',
+    // Contact-only hit rule, byte-for-byte legacy behavior: no target point,
+    // no blast, an interceptor takes the full torpedo damage.
+    targetX: null,
+    targetY: null,
+    burstRadius: 0,
+    contactDamage: CONFIG.torpedo.damage,
   });
   return { torp, denial: null };
 }
@@ -52,15 +58,16 @@ function launchTorpedo(
 /**
  * Launch one torpedo from the bow tube (the World routes at most one click here
  * per fireSeq increment) against the torpedo slot's pool, or null if the pool
- * is empty or the aim is out of the bow arc. The alive + weapon guards are kept
- * for direct test callers; the click gate itself lives in World.fireControl.
- * Exported for tests (pool reload, arc gating).
+ * is empty or the aim is out of the bow arc. The alive + selected-slot guards
+ * are kept for direct test callers (re-keyed from the retired WEAPON selector
+ * to the loadout slot fitting 'torpedo'); the click gate itself lives in
+ * World.fireControl. Exported for tests (pool reload, arc gating).
  */
 export function fireTorpedo(ship: ShipRecord, now: number, mkId: () => string): ShellState | null {
-  if (!ship.alive || ship.input.weapon !== WEAPON.torpedo) return null;
-  // Loadout invariant: the torpedo slot (index == WEAPON.torpedo today) is
-  // always fitted, so state is set.
-  return launchTorpedo(ship, ship.loadout[WEAPON.torpedo].state!, now, mkId).torp;
+  const slotIndex = ship.loadout.findIndex((s) => s.equipmentId === 'torpedo');
+  if (!ship.alive || slotIndex < 0 || ship.input.slot !== slotIndex) return null;
+  // Loadout invariant: a fitted slot always has state.
+  return launchTorpedo(ship, ship.loadout[slotIndex].state!, now, mkId).torp;
 }
 
 /** The torpedo Equipment row. Pool size + reload come from the ship's cached

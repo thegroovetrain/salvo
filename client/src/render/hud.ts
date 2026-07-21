@@ -1,12 +1,13 @@
 // Telegraph HUD — screen-space instrument readout (hudRoot). Throttle/rudder
-// gauges + heading/speed, an HP bar (green→amber→crimson), three weapon ammo
-// chips (segmented pool + a reload line), and a centered respawn overlay while
-// sunk. Geist Mono per DESIGN.md. Text strings are diffed before assignment
-// (Pixi re-rasterizes on `.text`).
+// gauges + heading/speed, an HP bar (green→amber→crimson), the weapon chip row
+// (the gun a pure cooldown readout, torpedo/mine segmented pools + a reload
+// line, PRIMED-highlighted), and a centered respawn overlay while sunk. Geist
+// Mono per DESIGN.md. Text strings are diffed before assignment (Pixi
+// re-rasterizes on `.text`). Epic 2 rebuilds the hotbar — this stays minimal.
 
 import { Container, Graphics, Text } from 'pixi.js';
-import type { EffectiveStats, ShipState, WeaponId, ShipClassId, WeaponAmmo } from '@salvo/shared';
-import { weaponMaxAmmo, weaponReloadMs, wrapPositive } from '@salvo/shared';
+import type { EffectiveStats, ShipState, EquipmentId, ShipClassId, WeaponAmmo } from '@salvo/shared';
+import { SLOT_GUN, equipmentMaxAmmo, equipmentReloadMs, wrapPositive } from '@salvo/shared';
 
 /** Kinematics subset the speed ladder needs (ahead/astern denominators). */
 interface LadderKin {
@@ -84,11 +85,13 @@ export function speedLadderFraction(speed: number, kin: LadderKin): number {
   return f < -1 ? -1 : f > 1 ? 1 : f;
 }
 
-/** Weapon selector chip labels, indexed by WeaponId. */
+/** Weapon chip labels, indexed by loadout slot (gun / torpedo / mine). */
 const WEAPON_LABELS = ['1 GUNS', '2 TORP', '3 MINE'] as const;
-// Per-weapon reload/pool denominators come from OwnStatus.stats (the shared
-// effectiveStats result) via weaponReloadMs/weaponMaxAmmo — no CONFIG lookups
-// here, so upgraded pools/reloads render correctly (Stage D).
+/** The equipment id each chip slot holds (interregnum universal fit). Chips
+ *  iterate this — the empty extra slot (3) is skipped. Pool/reload denominators
+ *  come from OwnStatus.stats via equipmentMaxAmmo/equipmentReloadMs (upgraded
+ *  values render correctly; no CONFIG lookups here). */
+const CHIP_EQUIPMENT: readonly EquipmentId[] = ['gun', 'torpedo', 'mine'];
 const CHIP_GAP = 6;
 const CHIP_H = 20;
 const SEG_GAP = 1; // px between ammo segments within a chip
@@ -124,8 +127,10 @@ const OVERLAY_STYLE = {
 /** Own-ship status the HUD renders beyond raw kinematics. */
 export interface OwnStatus {
   hp: number;
-  ammo: WeaponAmmo[]; // per weapon: pool count + reload timer (OwnShip.ammo)
-  weapon: WeaponId; // currently-selected weapon (client-local, immediate — not the server echo)
+  // Slot-aligned pool count + reload timer (OwnShip.ammo): length SLOT_COUNT,
+  // null for an empty slot (the extra slot 3 today).
+  ammo: (WeaponAmmo | null)[];
+  primedSlot: number; // primed loadout slot (0 = gun) — client-local, immediate
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
   cls: ShipClassId; // own class — drives hull-length lookups (firing UX)
@@ -216,10 +221,10 @@ export function reloadFraction(reloadMsLeft: number, reloadMs: number): number {
   return f < 0 ? 0 : f > 1 ? 1 : f;
 }
 
-/** Weapon-chip border color + alpha: dim/idle, amber/selected, red/denied-flash. */
-function chipTint(selected: boolean, flash: boolean): { border: number; alpha: number } {
+/** Weapon-chip border color + alpha: dim/idle, amber/primed, red/denied-flash. */
+function chipTint(primed: boolean, flash: boolean): { border: number; alpha: number } {
   if (flash) return { border: DENIED_RED, alpha: 1 };
-  if (selected) return { border: AMBER, alpha: 0.9 };
+  if (primed) return { border: AMBER, alpha: 0.9 };
   return { border: DIM, alpha: 0.4 };
 }
 
@@ -451,33 +456,43 @@ export class Hud {
   }
 
   /**
-   * Three chips [1 GUNS / 2 TORP / 3 MINE]: the selected one is outlined amber;
-   * `deniedFlash` briefly reddens the SELECTED chip's border (the HUD half of the
-   * denied-fire feedback — render/deniedFire.ts drives the rate limit). Every chip
-   * renders as a segmented ammo pool + a reload line via drawAmmoChip, reading
-   * OwnShip.ammo with EFFECTIVE pool sizes/reloads from status.stats (Stage D).
+   * The chip row [1 GUNS / 2 TORP / 3 MINE]: the PRIMED slot is outlined amber
+   * (gun when nothing is primed — it is the default weapon); `deniedFlash`
+   * briefly reddens the primed chip's border (the HUD half of the denied-fire
+   * feedback — render/deniedFire.ts drives the rate limit). The gun renders as a
+   * pure cooldown readout (no segments — single shot on a 3s cooldown); torpedo/
+   * mine render as segmented ammo pools + a reload line. Denominators are the
+   * EFFECTIVE pool sizes/reloads from status.stats via equipmentMaxAmmo/
+   * equipmentReloadMs (upgraded values render correctly).
    */
   private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean): void {
-    const cw = (BAR_W - 2 * CHIP_GAP) / 3;
-    for (let i = 0; i < 3; i++) {
-      const w = i as WeaponId;
+    const cw = (BAR_W - 2 * CHIP_GAP) / CHIP_EQUIPMENT.length;
+    for (let i = 0; i < CHIP_EQUIPMENT.length; i++) {
+      const id = CHIP_EQUIPMENT[i];
       const cx = x + i * (cw + CHIP_GAP);
-      const selected = i === status.weapon;
+      const primed = i === status.primedSlot;
       const a = status.ammo[i] ?? { n: 0, reloadMsLeft: 0 };
+      const reloadFrac = reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, id));
       g.rect(cx, y, cw, CHIP_H).fill({ color: 0x111111, alpha: 0.8 });
-      this.drawAmmoChip(
-        g,
-        {
-          n: a.n,
-          max: weaponMaxAmmo(status.stats, w),
-          reloadFrac: reloadFraction(a.reloadMsLeft, weaponReloadMs(status.stats, w)),
-        },
-        cx,
-        y,
-        cw,
-      );
-      this.drawChip(g, this.chipLabels[i], cx, y, cw, selected, selected && deniedFlash);
+      if (i === SLOT_GUN) this.drawCooldownChip(g, a.n > 0, reloadFrac, cx, y, cw);
+      else this.drawAmmoChip(g, { n: a.n, max: equipmentMaxAmmo(status.stats, id), reloadFrac }, cx, y, cw);
+      this.drawChip(g, this.chipLabels[i], cx, y, cw, primed, primed && deniedFlash);
     }
+  }
+
+  /**
+   * The gun's single-shot cooldown chip (no ammo segments): when ready the chip
+   * fills green; while cooling an amber bar fills left→right at reloadFrac with a
+   * bright sweep line at its leading edge — reads as one shot on a 3s cooldown.
+   */
+  private drawCooldownChip(g: Graphics, ready: boolean, reloadFrac: number, cx: number, y: number, cw: number): void {
+    if (ready) {
+      g.rect(cx, y, cw, CHIP_H).fill({ color: GREEN, alpha: 0.9 });
+      return;
+    }
+    g.rect(cx, y, cw, CHIP_H).fill({ color: DIM, alpha: 0.28 }); // grey while on cooldown
+    g.rect(cx, y, cw * reloadFrac, CHIP_H).fill({ color: AMBER, alpha: 0.45 }); // cooldown fill
+    g.rect(cx + cw * reloadFrac - 1, y, 2, CHIP_H).fill({ color: AMBER, alpha: 0.95 }); // bright sweep edge
   }
 
   /**
@@ -501,10 +516,10 @@ export class Hud {
     }
   }
 
-  /** One chip's border + label tint: amber when selected, red while a denied pulse flashes it. */
-  private drawChip(g: Graphics, label: Text, cx: number, y: number, cw: number, selected: boolean, flash: boolean): void {
-    const { border, alpha } = chipTint(selected, flash);
-    g.rect(cx, y, cw, CHIP_H).stroke({ width: selected ? 1.5 : 1, color: border, alpha });
+  /** One chip's border + label tint: amber when primed, red while a denied pulse flashes it. */
+  private drawChip(g: Graphics, label: Text, cx: number, y: number, cw: number, primed: boolean, flash: boolean): void {
+    const { border, alpha } = chipTint(primed, flash);
+    g.rect(cx, y, cw, CHIP_H).stroke({ width: primed ? 1.5 : 1, color: border, alpha });
     label.position.set(cx + 3, y + CHIP_H + 2);
     label.style.fill = border;
   }

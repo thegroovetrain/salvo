@@ -4,7 +4,7 @@
 // a browser audio stack. Envelope shape follows DESIGN.md's carried-forward
 // playTone(freqStart, freqMid, freqEnd, duration, volume, type) approach.
 
-import { WEAPON, type WeaponId } from '@salvo/shared';
+import type { EquipmentId } from '@salvo/shared';
 
 /** Every distinct cue the client can play. */
 export type ToneId =
@@ -75,15 +75,15 @@ export function telegraphTone(dir: number): ToneId {
   return dir > 0 ? 'telegraphUp' : 'telegraphDown';
 }
 
-const FIRE_TONE: Record<WeaponId, ToneId> = {
-  [WEAPON.gun]: 'fireGun',
-  [WEAPON.torpedo]: 'fireTorp',
-  [WEAPON.mine]: 'fireMine',
+const FIRE_TONE: Record<EquipmentId, ToneId> = {
+  gun: 'fireGun',
+  torpedo: 'fireTorp',
+  mine: 'fireMine',
 };
 
-/** Pure: which tone a weapon's own-fire cue plays. */
-export function fireTone(weapon: WeaponId): ToneId {
-  return FIRE_TONE[weapon];
+/** Pure: which tone a piece of equipment's own-fire cue plays. */
+export function fireTone(id: EquipmentId): ToneId {
+  return FIRE_TONE[id];
 }
 
 // --- match-phase edge cues (countdown tick + match-start) -------------------

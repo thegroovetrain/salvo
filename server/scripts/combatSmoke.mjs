@@ -46,14 +46,16 @@ function onFrame(ctx, f) {
   if (f.you) ctx.you = f.you;
   ctx.contacts = f.contacts;
   for (const e of f.events) {
-    if (e.k === 'boom') ctx.booms.push(e);
+    // Story 1.4: a gun hit detonates as a `burst` at the click point (an early
+    // interception or island stop still booms) — count both as detonations.
+    if (e.k === 'boom' || e.k === 'burst') ctx.booms.push(e);
     if (e.k === 'shell') ctx.shells += 1;
   }
 }
 
 /** Send one control input for `ctx` derived from its current goal. */
 function control(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, weapon: 0 };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 0 };
   const g = ctx.goal;
   if (g.mode === 'goto') steerToward(ctx, inp, g.target, 1);
   else if (g.mode === 'engage') engage(ctx, inp, g.target, true);
@@ -82,10 +84,10 @@ function engage(ctx, inp, target, fireAllowed) {
   inp.rudder = clamp(angleDiff(ctx.you.heading, wantHeading) * 3, -1, 1);
   inp.throttle = 0.5;
   inp.aim = brg;
-  const off = Math.abs(angleDiff(brg, ctx.you.heading + HALF_PI));
-  inp.aimDist = dist(ctx.you, target); // guns fire AT the click point now
-  // Click every tick while the target bears — the mount reload paces shots.
-  if (fireAllowed && off < CONFIG.gun.mounts[0].halfArc) inp.fireSeq = ++ctx.fireSeq;
+  inp.aimDist = dist(ctx.you, target); // the shell bursts AT the click point
+  // 360° gun (Story 1.4): never out-of-arc — click every tick while allowed;
+  // the single-shot reload paces shots.
+  if (fireAllowed) inp.fireSeq = ++ctx.fireSeq;
 }
 
 /** True iff the island lies on the segment from `from` to `to` (blocks LOS). */
@@ -111,9 +113,9 @@ function laneCruise(ctx, inp, g) {
   inp.throttle = 0.55;
   if (g.target) {
     inp.aim = bearing(ctx.you, g.target);
-    const off = Math.abs(angleDiff(inp.aim, ctx.you.heading + HALF_PI));
     inp.aimDist = dist(ctx.you, g.target);
-    if (off < CONFIG.gun.mounts[0].halfArc && blockedBy(ctx.you, g.target, g.isle)) inp.fireSeq = ++ctx.fireSeq;
+    // 360° gun: fire ONLY while the island blocks the shot (the cover test).
+    if (blockedBy(ctx.you, g.target, g.isle)) inp.fireSeq = ++ctx.fireSeq;
   }
 }
 

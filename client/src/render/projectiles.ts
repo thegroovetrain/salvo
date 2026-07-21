@@ -21,7 +21,7 @@
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import { CONFIG, type BallisticEvent, type BoomEvent } from '@salvo/shared';
+import { CONFIG, type BallisticEvent, type BoomEvent, type BurstEvent } from '@salvo/shared';
 import { Pool } from '../util/pool.js';
 
 type Kind = BallisticEvent['k'];
@@ -157,6 +157,11 @@ export class Projectiles {
   /** Terminate the projectile that produced this boom (if we were tracking it). */
   onBoom(ev: BoomEvent): void {
     if (ev.id) this.remove(ev.id);
+  }
+
+  /** Terminate the shell that burst at its target point (same removal as boom). */
+  onBurst(ev: BurstEvent): void {
+    this.remove(ev.id);
   }
 
   /**

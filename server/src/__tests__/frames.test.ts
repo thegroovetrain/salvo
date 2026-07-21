@@ -10,7 +10,7 @@ const input = (seq: number, extra = {}) => ({
   aim: 0,
   fireSeq: 0,
   aimDist: 0,
-  weapon: 0,
+  slot: 0,
   ...extra,
 });
 
@@ -45,7 +45,7 @@ describe('buildFrame — shape and clock', () => {
 
   it('you is the full own-ship view with full ammo pools and sweep', () => {
     const w = makeWorld();
-    w.submitInput('a', input(1, { weapon: 2 }));
+    w.submitInput('a', input(1, { slot: 2 }));
     w.step();
     const f = buildFrame(w, 'a');
     const ship = w.ships.get('a')!;
@@ -57,11 +57,12 @@ describe('buildFrame — shape and clock', () => {
       speed: ship.state.speed,
       hp: CONFIG.shipClasses.torpedoBoat.hp,
       alive: true,
-      weapon: 2,
+      // Slot-aligned ammo: length SLOT_COUNT, null for the empty extra slot.
       ammo: [
         { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
         { n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 },
         { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 },
+        null,
       ],
       sweep: ship.sweepAngle,
       cls: 'torpedoBoat',

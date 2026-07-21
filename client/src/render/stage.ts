@@ -3,7 +3,7 @@
 //
 //   worldRoot   (camera-transformed): ocean, wake, projectile, ship
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
-//   chartRoot   (camera-transformed): map, blip, aim, sweep   (fog-immune: above fog)
+//   chartRoot   (camera-transformed): map, blip, aim, burstFx, sweep   (fog-immune: above fog)
 //   hudRoot     (screen space)        — telegraph HUD
 //
 // worldRoot and chartRoot share the same camera transform; fogSprite and hudRoot
@@ -32,6 +32,11 @@ export interface StageLayers {
   blip: Container;
   /** Crosshair + bearing line (render/firing.ts) — fog-immune, above blips. */
   aim: Container;
+  /** Gun-shell burst rings (render/effects.ts) — fog-immune so a burst at radar
+   *  range (the story's headline capability) is not ~85% eaten by the fog, the
+   *  same reason the reticle lives above the fog. Only `burst`-kind effects
+   *  route here; muzzle/spark/splash/sink/wake stay in the fogged world. */
+  burstFx: Container;
   sweep: Container;
   // screen-space
   /** Out-of-zone red vignette (render/zone.ts) — behind the HUD readouts. */
@@ -103,6 +108,7 @@ export async function createStage(): Promise<Stage> {
     mineChart: child(chartRoot),
     blip: child(chartRoot),
     aim: child(chartRoot),
+    burstFx: child(chartRoot),
     sweep: child(chartRoot),
     vignette: child(hudRoot),
     hud: child(hudRoot),

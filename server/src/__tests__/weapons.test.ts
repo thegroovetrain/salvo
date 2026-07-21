@@ -6,7 +6,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  WEAPON,
   hullSilhouette,
   transformPolygon,
   type BlipEvent,
@@ -20,9 +19,14 @@ import {
   addMine,
   checkMineTriggers,
   fireTorpedo,
-  weaponAmmo,
+  slotAmmo,
   type MineState,
 } from '../game/equipment/index.js';
+
+// Slot indices under the universal fit (loadout order: gun / torpedo / mine).
+const SLOT_GUN = 0;
+const SLOT_TORPEDO = 1;
+const SLOT_MINE = 2;
 
 const HALF_PI = Math.PI / 2;
 let idSeq = 0;
@@ -38,7 +42,7 @@ function bareWorld(seed = 3): World {
 function torpShip(w: World, id: string, x: number, y: number, heading: number): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase());
   rec.state = { x, y, heading, speed: 0 };
-  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, weapon: WEAPON.torpedo };
+  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO };
   rec.input = input;
   return rec;
 }
@@ -57,7 +61,7 @@ describe('torpedoes — single-round pool reload', () => {
     const t2 = fireTorpedo(ship, 0, mkId);
     expect(t1).not.toBeNull();
     expect(t2).toBeNull(); // pool empty, now reloading
-    expect(ship.loadout[WEAPON.torpedo].state).toEqual({ n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs });
+    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs });
     expect(t1!.kind).toBe('torp');
     expect(t1!.damage).toBe(CONFIG.torpedo.damage);
     expect(t1!.hitRadius).toBe(CONFIG.torpedo.hitRadius); // own value, not gun's
@@ -69,11 +73,11 @@ describe('torpedoes — single-round pool reload', () => {
   it('the pool refills once its reload elapses', () => {
     const w = bareWorld();
     const ship = torpShip(w, 'a', 0, 0, 0);
-    ship.loadout[WEAPON.torpedo].state = { n: 0, reloadMsLeft: 200 }; // almost ready, empty
+    ship.loadout[SLOT_TORPEDO].state = { n: 0, reloadMsLeft: 200 }; // almost ready, empty
     expect(fireTorpedo(ship, 0, mkId)).toBeNull(); // still empty
-    ship.loadout[WEAPON.torpedo].state = { n: 1, reloadMsLeft: 0 }; // reloaded
+    ship.loadout[SLOT_TORPEDO].state = { n: 1, reloadMsLeft: 0 }; // reloaded
     expect(fireTorpedo(ship, 0, mkId)).not.toBeNull(); // now fires
-    expect(ship.loadout[WEAPON.torpedo].state).toEqual({ n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs });
+    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs });
   });
 });
 
@@ -87,7 +91,7 @@ describe('torpedoes — bow arc gating', () => {
     const abeam = torpShip(w, 'b', 0, 0, 0);
     abeam.input = { ...abeam.input, aim: HALF_PI }; // 90° off the bow
     expect(fireTorpedo(abeam, 0, mkId)).toBeNull();
-    expect(abeam.loadout[WEAPON.torpedo].state).toEqual({ n: 1, reloadMsLeft: 0 }); // pool not drained
+    expect(abeam.loadout[SLOT_TORPEDO].state).toEqual({ n: 1, reloadMsLeft: 0 }); // pool not drained
   });
 });
 
@@ -221,7 +225,7 @@ describe('World — mine drop + trigger end-to-end', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, weapon: WEAPON.mine };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_MINE };
     w.step(); // drops one mine astern of a (behind -x)
     expect(w.mines.size).toBe(1);
     const mine = [...w.mines.values()][0];
@@ -241,7 +245,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, weapon: WEAPON.torpedo });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO });
     let torps = 0;
     for (let i = 0; i < 20; i++) {
       w.step();
@@ -254,43 +258,43 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, weapon: WEAPON.mine });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_MINE });
     // Under hold-to-fire this input would re-drop every reload; a click must not.
     const ticks = CONFIG.mine.reloadMs / CONFIG.tick.simDtMs + 20;
     for (let i = 0; i < ticks; i++) w.step();
     expect(w.mines.size).toBe(1);
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, weapon: WEAPON.mine });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: SLOT_MINE });
     w.step();
     expect(w.mines.size).toBe(2);
   });
 });
 
-describe('ammo wire array is a WeaponAmmo[] {n, reloadMsLeft}', () => {
-  it('mirrors the ship pools as a defensive copy', () => {
+describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
+  it('mirrors the ship pools as a defensive copy, null for the empty extra slot', () => {
     const w = bareWorld();
     const ship = w.addShip('a', 'A');
     ship.loadout[0].state = { n: 1, reloadMsLeft: 1200 };
     ship.loadout[1].state = { n: 0, reloadMsLeft: 6000 };
     ship.loadout[2].state = { n: 0, reloadMsLeft: 8000 };
-    const wire = weaponAmmo(ship);
+    const wire = slotAmmo(ship);
     expect(wire).toEqual([
       { n: 1, reloadMsLeft: 1200 },
       { n: 0, reloadMsLeft: 6000 },
       { n: 0, reloadMsLeft: 8000 },
+      null, // empty extra slot rides the wire as null (slot alignment)
     ]);
     // A copy, not the live pool objects (mutating the wire must not affect state).
     expect(wire[0]).not.toBe(ship.loadout[0].state);
   });
 
-  it('a fresh hull spawns with full pools; one click draws the gun pool down by one', () => {
+  it('a fresh hull spawns with full pools; one click empties the single-shot gun pool', () => {
     const w = bareWorld();
     const ship = w.addShip('a', 'A');
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    expect(weaponAmmo(ship)[WEAPON.gun]).toEqual({ n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 });
-    const portCenter = HALF_PI; // heading(0) + gun.mounts[0] ('port') offset (+90deg)
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: portCenter, fireSeq: 1, aimDist: 1000, weapon: WEAPON.gun };
-    w.step(); // one click -> one shell out the bearing mount, pool 2 -> 1, reload started
-    expect(weaponAmmo(ship)[WEAPON.gun]).toEqual({ n: CONFIG.gun.maxAmmo - 1, reloadMsLeft: CONFIG.gun.reloadMs });
+    expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 });
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, slot: SLOT_GUN };
+    w.step(); // one click -> one shell, pool 1 -> 0, the 3s cooldown starts
+    expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: CONFIG.gun.maxAmmo - 1, reloadMsLeft: CONFIG.gun.reloadMs });
   });
 });
 
@@ -315,6 +319,10 @@ describe('torpedoes are NEVER radar-painted (only ships paint)', () => {
       kind: 'torp',
       damage: CONFIG.torpedo.damage,
       hitRadius: CONFIG.torpedo.hitRadius,
+      targetX: null,
+      targetY: null,
+      burstRadius: 0,
+      contactDamage: CONFIG.torpedo.damage,
     });
     windowAround(a, 0); // beam across bearing 0 (toward x+)
     const blips = blipsOf(buildFrame(w, 'a'));

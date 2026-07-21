@@ -10,12 +10,24 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { ShipState, HullId } from '@salvo/shared';
-import { hullEnvelope } from '@salvo/shared';
+import { CONFIG, hullEnvelope } from '@salvo/shared';
 import { Pool } from '../util/pool.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** Effect kinds routed through spawnEffect(). */
-export type EffectKind = 'wake' | 'muzzle' | 'spark' | 'splash' | 'sink' | 'torpwake';
+export type EffectKind = 'wake' | 'muzzle' | 'spark' | 'splash' | 'sink' | 'torpwake' | 'burst';
+
+/**
+ * Pure layer-routing predicate: which one-shot kinds render into the FOG-IMMUNE
+ * chart layer instead of the fogged world. Only the gun-shell `burst` does — a
+ * burst at radar range (well beyond the sight bubble) must read as a detonation
+ * flash above the fog, mirroring the reticle's fog-immunity (render/firing.ts).
+ * Muzzle/spark/splash/sink/torpwake stay in the fogged world (they only ever
+ * occur inside or near your own sight). Unit-tested; no Pixi involved.
+ */
+export function isFogImmuneEffect(kind: EffectKind): boolean {
+  return kind === 'burst';
+}
 
 interface OneShotSpec {
   type: 'dot' | 'ring';
@@ -32,6 +44,11 @@ const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
   muzzle: { type: 'dot', life: 0.12, color: 0xffe08a, r0: 5, r1: 1, width: 0, alpha: 0.9, additive: true },
   spark: { type: 'dot', life: 0.2, color: 0xffb800, r0: 7, r1: 1, width: 0, alpha: 1, additive: true },
   splash: { type: 'ring', life: 0.5, color: 0x66ffaa, r0: 3, r1: 22, width: 2, alpha: 0.7, additive: false },
+  // Gun-shell burst at the clicked point: a bright amber ring expanding to the
+  // CONFIG burst radius (the area every enemy hull in it takes full damage),
+  // additive so it reads as a detonation flash. Sized from shared CONFIG (the
+  // radius never travels on the wire — see BurstEvent).
+  burst: { type: 'ring', life: 0.35, color: 0xffb800, r0: 4, r1: CONFIG.gun.burstRadius, width: 3, alpha: 0.95, additive: true },
   sink: { type: 'ring', life: 0.9, color: 0x8b0000, r0: 6, r1: 40, width: 3, alpha: 0.9, additive: false },
   // Torpedo wake: a small dim bubble dropped along the fish's run; fades fast so
   // the trail reads as a fresh streak, not a persistent line.
@@ -51,11 +68,16 @@ interface OneShot {
   x: number;
   y: number;
   age: number;
+  /** The pool this gfx was acquired from — burst gfx live on the fog-immune
+   *  layer (burstPool), everything else on shotPool; retire returns to its own. */
+  pool: Pool<Graphics>;
 }
 
 export class Effects {
   private readonly wakePool: Pool<Graphics>;
   private readonly shotPool: Pool<Graphics>;
+  /** Fog-immune one-shot pool (bursts) — gfx parented to the chart burst layer. */
+  private readonly burstPool: Pool<Graphics>;
   private readonly wake: WakeParticle[] = [];
   private readonly shots: OneShot[] = [];
   private accumDist = 0;
@@ -66,9 +88,12 @@ export class Effects {
   constructor(
     private readonly wakeLayer: Container,
     private readonly fxLayer: Container = wakeLayer,
+    /** Fog-immune layer for burst rings; defaults to fxLayer for headless tests. */
+    private readonly burstLayer: Container = fxLayer,
   ) {
     this.wakePool = new Pool<Graphics>(() => this.makeWakeDot());
-    this.shotPool = new Pool<Graphics>(() => this.makeShotGfx());
+    this.shotPool = new Pool<Graphics>(() => this.makeShotGfx(this.fxLayer));
+    this.burstPool = new Pool<Graphics>(() => this.makeShotGfx(this.burstLayer));
   }
 
   /** Set the own ship's hull id (drives wake stern offset + intensity scaling).
@@ -87,10 +112,10 @@ export class Effects {
     return g;
   }
 
-  private makeShotGfx(): Graphics {
+  private makeShotGfx(layer: Container): Graphics {
     const g = new Graphics();
     g.visible = false;
-    this.fxLayer.addChild(g);
+    layer.addChild(g);
     return g;
   }
 
@@ -114,13 +139,14 @@ export class Effects {
     // Backgrounded tab: skip one-shot spawns entirely rather than let them pile
     // up in the pool while the render loop that ages/retires them is throttled.
     if (typeof document !== 'undefined' && document.hidden) return;
-    const g = this.shotPool.acquire();
+    const pool = isFogImmuneEffect(kind) ? this.burstPool : this.shotPool;
+    const g = pool.acquire();
     g.clear();
     g.visible = true;
     g.alpha = 1;
     g.scale.set(1);
     g.position.set(x, y);
-    this.shots.push({ gfx: g, spec: SPECS[kind], x, y, age: 0 });
+    this.shots.push({ gfx: g, spec: SPECS[kind], x, y, age: 0, pool });
   }
 
   /** Advance all effects by `dt`; spawn wake behind the own ship first
@@ -168,7 +194,7 @@ export class Effects {
       s.age += dt;
       const k = s.age / s.spec.life;
       if (k >= 1) {
-        this.retire(s.gfx, this.shotPool);
+        this.retire(s.gfx, s.pool);
         this.shots.splice(i, 1);
         continue;
       }

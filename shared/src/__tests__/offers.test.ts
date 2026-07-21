@@ -6,11 +6,13 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  OFFER_EXCLUDED_IDS,
   UPGRADE_CATEGORIES,
   UPGRADE_CATEGORY_IDS,
   UPGRADE_IDS,
   categoryOf,
   mulberry32,
+  offerableIds,
   rollOffer,
 } from '../index.js';
 
@@ -27,6 +29,30 @@ describe('UPGRADE_CATEGORIES — exact partition of UPGRADE_IDS', () => {
   });
 });
 
+describe('offer-candidate exclusion (Story 1.4 interregnum)', () => {
+  it('gunAmmo is the only excluded id — kept on the wire, never offered', () => {
+    expect(OFFER_EXCLUDED_IDS).toEqual(['gunAmmo']);
+    expect(UPGRADE_IDS).toContain('gunAmmo'); // wire-order append-only: the id survives
+  });
+
+  it('the guns category offers exactly gunRange + gunReload', () => {
+    expect(offerableIds('guns')).toEqual(['gunRange', 'gunReload']);
+  });
+
+  it('every other category offers its full membership', () => {
+    for (const cat of UPGRADE_CATEGORY_IDS) {
+      if (cat === 'guns') continue;
+      expect(offerableIds(cat)).toEqual(UPGRADE_CATEGORIES[cat]);
+    }
+  });
+
+  it('every category still has at least one offerable id', () => {
+    for (const cat of UPGRADE_CATEGORY_IDS) {
+      expect(offerableIds(cat).length).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe('rollOffer', () => {
   it('returns 3 ids from 3 distinct categories (~200 seeds)', () => {
     for (let seed = 0; seed < 200; seed += 1) {
@@ -38,13 +64,21 @@ describe('rollOffer', () => {
     }
   });
 
+  it('never offers an excluded id (gunAmmo) — ~200 seeds', () => {
+    for (let seed = 0; seed < 200; seed += 1) {
+      for (const id of rollOffer(mulberry32(seed))) {
+        expect(OFFER_EXCLUDED_IDS).not.toContain(id);
+      }
+    }
+  });
+
   it('is deterministic — same seed yields the same offer', () => {
     for (let seed = 0; seed < 50; seed += 1) {
       expect(rollOffer(mulberry32(seed))).toEqual(rollOffer(mulberry32(seed)));
     }
   });
 
-  it('covers every category and every id over a long single stream', () => {
+  it('covers every category and every OFFERABLE id over a long single stream', () => {
     const rng = mulberry32(12345);
     const cats = new Set<string>();
     const ids = new Set<string>();
@@ -55,7 +89,8 @@ describe('rollOffer', () => {
       }
     }
     expect(cats.size).toBe(UPGRADE_CATEGORY_IDS.length); // all 5 categories
-    expect(ids.size).toBe(UPGRADE_IDS.length); // all 14 ids
+    expect(ids.size).toBe(UPGRADE_IDS.length - OFFER_EXCLUDED_IDS.length); // all 13 offerable ids
+    expect(ids.has('gunAmmo')).toBe(false); // the excluded id never shows up
   });
 });
 

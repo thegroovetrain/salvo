@@ -108,3 +108,71 @@ describe('bindRoom reconnect signals', () => {
     expect(onOwnSpawn).toHaveBeenCalledTimes(1);
   });
 });
+
+// --- burst event handling (Story 1.4) ---------------------------------------
+
+/** A spectator-style frame (no `you`) carrying a single event. */
+function eventFrame(event: unknown): unknown {
+  return { t: 200, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [event] };
+}
+
+function setupEvents() {
+  const room = fakeRoom();
+  const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const onBurst = vi.fn();
+  const spawnEffect = vi.fn();
+  const onBoom = vi.fn();
+  const deps = {
+    state: { net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 }, spectating: true, phase: '', respawnEta: null, mode: 'interp' },
+    clock: { addSample: vi.fn() },
+    contacts: { pushFrame: vi.fn() },
+    mines: { sync: vi.fn() },
+    projectiles: { onBurst, onBoom },
+    effects: { spawnEffect },
+    onSpectate: vi.fn(),
+  } as unknown as RoomBindingDeps;
+  bindRoom(conn, deps);
+  return { sink, onBurst, spawnEffect };
+}
+
+describe('bindRoom burst events', () => {
+  it('spawns the burst effect and terminates the shell render on a burst event', () => {
+    const { sink, onBurst, spawnEffect } = setupEvents();
+    sink.handler(eventFrame({ k: 'burst', id: 'shell-7', x: 300, y: -120 }));
+    expect(onBurst).toHaveBeenCalledTimes(1);
+    expect(onBurst).toHaveBeenCalledWith({ k: 'burst', id: 'shell-7', x: 300, y: -120 });
+    expect(spawnEffect).toHaveBeenCalledWith('burst', 300, -120);
+  });
+});
+
+// --- own sunk resets transient captain state (Story 1.4) --------------------
+
+describe('bindRoom own sunk', () => {
+  it('reverts BOTH the engine order and the primed skillshot to the gun for the next life', () => {
+    const room = fakeRoom();
+    const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const resetThrottle = vi.fn();
+    const resetPrime = vi.fn();
+    const deps = {
+      state: {
+        net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 },
+        spectating: false, phase: '', respawnEta: null, killerId: null, mode: 'interp',
+      },
+      clock: { addSample: vi.fn() },
+      contacts: { pushFrame: vi.fn() },
+      mines: { sync: vi.fn() },
+      effects: { spawnEffect: vi.fn() },
+      audio: { play: vi.fn() },
+      names: (id: string) => id,
+      resetThrottle,
+      resetPrime,
+    } as unknown as RoomBindingDeps;
+    bindRoom(conn, deps);
+    // Own-ship sunk event (id === sessionId) drives the own-death branch.
+    sink.handler({ t: 200, tick: 2, ackSeq: 0, contacts: [], mines: [], events: [{ k: 'sunk', id: 'me', by: null }] });
+    expect(resetThrottle).toHaveBeenCalledTimes(1);
+    expect(resetPrime).toHaveBeenCalledTimes(1); // the primed skillshot never survives death
+  });
+});

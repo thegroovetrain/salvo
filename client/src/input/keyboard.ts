@@ -1,8 +1,17 @@
-// Keyboard driving + weapon selection input. Tracks the set of held
+// Keyboard driving + skillshot priming input. Tracks the set of held
 // `event.code`s on the window, clears on blur (fixes the classic stuck-key
-// bug when focus is lost), and latches the selected weapon from the number-row
-// keys 1/2/3. The class is a thin DOM adapter; the pure pieces (`rudderFrom`,
-// `panAxesFrom`, `weaponFromKey`, and the telegraph module) are unit-tested.
+// bug when focus is lost), and tracks the PRIMED loadout slot from the
+// number-row keys 1/2/3. The class is a thin DOM adapter; the pure pieces
+// (`rudderFrom`, `panAxesFrom`, `primeSlotFromKey`, `nextPrimedSlot`, and the
+// telegraph module) are unit-tested.
+//
+// Prime model (Eric ruling 2026-07-21): the gun (slot 0) is the permanently
+// selected default. 2/3 PRIME the torpedo (slot 1) / mine (slot 2) skillshot —
+// the next shot fires that instead, then the gun is the weapon again. Pressing
+// the same key again CANCELS the prime; 1 explicitly reverts to gun; there is
+// no timeout. Priming is pure client UX — the wire slot per click is the truth,
+// and main.ts consumes the prime (back to gun) only on a predicted-fireable
+// click (sim/inputSampler.primeFireable).
 //
 // Throttle is NO LONGER a held axis: W/S (and Up/Down arrows) TAP the engine
 // telegraph (input/telegraph.ts) one detent per keydown edge — a persistent
@@ -10,7 +19,7 @@
 // W/S so spectator free-pan can read all four WASD directions (panAxesFrom);
 // driving reads throttle from the telegraph + rudder from the held set.
 
-import { WEAPON, type WeaponId } from '@salvo/shared';
+import { SLOT_GUN } from '@salvo/shared';
 import {
   Telegraph,
   stepFromKey,
@@ -30,14 +39,19 @@ export interface Axes {
 const LEFT = ['KeyA', 'ArrowLeft'];
 const RIGHT = ['KeyD', 'ArrowRight'];
 
-/** Number-key → weapon selection (top row + numpad). */
-const WEAPON_KEYS: Record<string, WeaponId> = {
-  Digit1: WEAPON.gun,
-  Numpad1: WEAPON.gun,
-  Digit2: WEAPON.torpedo,
-  Numpad2: WEAPON.torpedo,
-  Digit3: WEAPON.mine,
-  Numpad3: WEAPON.mine,
+/**
+ * Number-key → the loadout slot it addresses (top row + numpad). 1 = gun
+ * (slot 0, the default), 2 = torpedo (slot 1), 3 = mine (slot 2). The slot-index
+ * == interregnum-equipment coupling (dies in Epic 2) lives here and in
+ * render/weaponArc.ts; both read the same slot numbers.
+ */
+const PRIME_KEYS: Record<string, number> = {
+  Digit1: SLOT_GUN,
+  Numpad1: SLOT_GUN,
+  Digit2: 1,
+  Numpad2: 1,
+  Digit3: 2,
+  Numpad3: 2,
 };
 
 /**
@@ -99,15 +113,30 @@ export function panAxesFrom(keys: Set<string>): Axes {
   return { throttle, rudder: rudderFrom(keys) };
 }
 
-/** Pure: the weapon a key code selects, or null if it isn't a weapon key. */
-export function weaponFromKey(code: string): WeaponId | null {
-  return code in WEAPON_KEYS ? WEAPON_KEYS[code] : null;
+/** Pure: the loadout slot a number key addresses, or null if it isn't one. */
+export function primeSlotFromKey(code: string): number | null {
+  return code in PRIME_KEYS ? PRIME_KEYS[code] : null;
+}
+
+/**
+ * Pure: the primed slot after a number key addressing `keySlot` is pressed,
+ * given the `current` primed slot. Pressing 1 (gun) or the SAME key that is
+ * already primed reverts to the gun (slot 0); any other slot key primes that
+ * slot. No timeout — priming is a set-and-hold state.
+ */
+export function nextPrimedSlot(current: number, keySlot: number): number {
+  if (keySlot === SLOT_GUN) return SLOT_GUN;
+  if (keySlot === current) return SLOT_GUN; // same key again cancels
+  return keySlot;
 }
 
 export class KeyboardInput {
   readonly keys = new Set<string>();
   readonly telegraph = new Telegraph();
-  private selectedWeapon: WeaponId = WEAPON.gun;
+  /** The primed skillshot slot (0 = gun/unprimed). Pure client UX; survives
+   *  clearKeys like the old weapon latch did. main.ts reverts it to gun on a
+   *  predicted-fireable click (revertToGun). */
+  private primed = SLOT_GUN;
   /** Control is currently physically held (set on non-repeat keydown, cleared on keyup/blur). */
   private ctrlHeld = false;
   /**
@@ -181,8 +210,8 @@ export class KeyboardInput {
       return;
     }
     this.keys.add(e.code);
-    const w = weaponFromKey(e.code);
-    if (w !== null) this.selectedWeapon = w;
+    const slot = primeSlotFromKey(e.code);
+    if (slot !== null) this.primed = nextPrimedSlot(this.primed, slot);
   };
   private readonly onUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
@@ -253,8 +282,21 @@ export class KeyboardInput {
     this.keys.clear();
   }
 
-  /** Currently-selected weapon (latched by the last 1/2/3 press). */
-  get weapon(): WeaponId {
-    return this.selectedWeapon;
+  /**
+   * The primed loadout slot (0 = gun/unprimed) — the slot the next click fires.
+   * Set by the last 2/3 prime (or 1/same-key cancel); survives clearKeys.
+   */
+  get primedSlot(): number {
+    return this.primed;
+  }
+
+  /**
+   * Revert the prime to the gun (slot 0). main.ts calls this on a
+   * predicted-fireable skillshot click — the special fires once, then the gun
+   * is the weapon again (Eric ruling 2026-07-21). A predicted-DENIED click
+   * keeps the prime instead (the caller simply doesn't call this).
+   */
+  revertToGun(): void {
+    this.primed = SLOT_GUN;
   }
 }

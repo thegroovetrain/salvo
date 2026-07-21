@@ -6,10 +6,16 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type ShellState } from '@salvo/shared';
+import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type ShellState } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
-import { SIGNAL_REGISTRY, signalFor, type FoggedSignalContext } from '../game/signals.js';
+import {
+  SIGNAL_REGISTRY,
+  signalFor,
+  type BurstSubject,
+  type FoggedSignalContext,
+  type SpectatorSignalContext,
+} from '../game/signals.js';
 
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
@@ -51,6 +57,10 @@ function makeShell(overrides: Partial<ShellState> = {}): ShellState {
     kind: 'shell',
     damage: 10,
     hitRadius: 5,
+    targetX: null,
+    targetY: null,
+    burstRadius: 0,
+    contactDamage: 10,
     ...overrides,
   };
 }
@@ -66,6 +76,7 @@ const REGISTRY_KEYS = [
   'shell',
   'torp',
   'boom',
+  'burst',
   'sunk',
   'spawn',
   'dmg',
@@ -77,7 +88,7 @@ const REGISTRY_KEYS = [
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 12 known channels', () => {
+  it('has exactly the 13 known channels', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
   });
 
@@ -178,6 +189,44 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const wire = row.materialize(ctx, e) as BoomEvent;
     expect(wire.hit).toBe('b');
   });
+
+  it("burst row: [k,id,x,y] — the server-internal `own` field NEVER materializes (fogged)", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const e: BurstSubject = { k: 'burst', id: 's1', x: 500, y: 0, own: 'a' };
+    const row = signalFor('burst')!;
+    const ctx = foggedCtx(w, a);
+    expect(row.visible(ctx, e)).toBe(true); // owner-visible far beyond sight
+    const wire = row.materialize(ctx, e) as BurstEvent;
+    expect(Object.keys(wire)).toEqual(['k', 'id', 'x', 'y']);
+    expect('own' in wire).toBe(false); // never on the wire
+  });
+
+  it('burst row: spectator materialize ALSO rebuilds the bare shape (no `own` leak unfogged)', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    const e: BurstSubject = { k: 'burst', id: 's1', x: 500, y: 0, own: 'a' };
+    const row = signalFor('burst')!;
+    const ctx: SpectatorSignalContext = {
+      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, me: undefined,
+    };
+    expect(row.visible(ctx, e)).toBe(true);
+    const wire = row.materialize(ctx, e) as BurstEvent;
+    expect(Object.keys(wire)).toEqual(['k', 'id', 'x', 'y']);
+    expect('own' in wire).toBe(false);
+  });
+
+  it('burst row visibility: owner anywhere; non-owner needs the burst point sighted', () => {
+    const w = bareWorld();
+    const owner = place(w, 'a', 0, 0);
+    const near = place(w, 'b', 480, 0); // burst point 20u away — sighted
+    const far = place(w, 'c', -900, 0); // burst point 1400u away — fogged
+    const e: BurstSubject = { k: 'burst', id: 's1', x: 500, y: 0, own: 'a' };
+    const row = signalFor('burst')!;
+    expect(row.visible(foggedCtx(w, owner), e)).toBe(true); // the firer authored the point
+    expect(row.visible(foggedCtx(w, near), e)).toBe(true); // point sighted
+    expect(row.visible(foggedCtx(w, far), e)).toBe(false); // fogged — never delivered
+  });
 });
 
 // ---------- reveal timestamps -------------------------------------------------
@@ -247,11 +296,11 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
 // ---------- fail-closed lookups -----------------------------------------------
 
 describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
-  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 10 GameEvent
+  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 11 GameEvent
   // kinds. The two contact/mine pseudo-rows are unreachable from it (a fabricated
   // k:'mine' world event can never materialize), and inherited prototype keys
   // resolve to nothing (Object.hasOwn lookup).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
 
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();
@@ -259,7 +308,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(signalFor('CONTACT')).toBeUndefined(); // case-sensitive, not fuzzy
   });
 
-  it('signalFor resolves exactly the 10 event kinds to their registry rows', () => {
+  it('signalFor resolves exactly the 11 event kinds to their registry rows', () => {
     for (const key of EVENT_KINDS) {
       expect(signalFor(key)).toBe(SIGNAL_REGISTRY[key as keyof typeof SIGNAL_REGISTRY]);
     }

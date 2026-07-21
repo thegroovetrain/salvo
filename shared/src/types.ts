@@ -25,12 +25,6 @@ export const MSG = {
  */
 export type MatchPhase = 'waiting' | 'countdown' | 'active' | 'finished';
 
-/** Weapon selector index. 0 = guns, 1 = torpedoes, 2 = mines. */
-export type WeaponId = 0 | 1 | 2;
-
-/** Named weapon indices (keep in sync with WeaponId). */
-export const WEAPON = { gun: 0, torpedo: 1, mine: 2 } as const;
-
 /** A circle: island obstacle or spawn ring. */
 export interface Circle {
   x: number; // u
@@ -58,12 +52,18 @@ export interface InputMsg {
    */
   fireSeq: number;
   /**
-   * u — ship→cursor distance at sample time. Guns splash their shell at this
-   * point along the aim bearing (server-clamped to max gun range); torpedoes
-   * and mines ignore it (direction-only).
+   * u — ship→cursor distance at sample time. The gun bursts its shell at this
+   * point along the aim bearing (server-clamped to effective gun range);
+   * torpedoes and mines ignore it (direction-only).
    */
   aimDist: number;
-  weapon: WeaponId; // selected weapon
+  /**
+   * Loadout slot this click activates (int 0..SLOT_COUNT-1; see sim/loadout.ts).
+   * 0 (the gun, the permanently-selected default) unless the client resolved a
+   * primed skillshot at click time — the server keeps NO priming state; the
+   * click's slot IS the resolved prime. Validated server-side like every field.
+   */
+  slot: number;
 }
 
 /**
@@ -81,12 +81,13 @@ export interface SpendMsg {
 export const HEAL_CHOICE = 3;
 
 /**
- * One weapon's ammo pool + reload timer. Replaces the old per-mount cooldown
- * arrays: each weapon has ONE pool (`n` = rounds ready to fire, 0 = empty) and
- * ONE reload timer (`reloadMsLeft` = ms until the next round tops up the pool;
- * 0 = idle, i.e. either full or between-shots with nothing pending). The reload
- * ticks whenever the pool is below max, adds +1 per fill, and restarts (with
- * overshoot carry) while still below max — see server weapons/ammo.ts.
+ * One equipment slot's ammo pool + reload timer: ONE pool (`n` = rounds ready
+ * to fire, 0 = empty) and ONE reload timer (`reloadMsLeft` = ms until the next
+ * round tops up the pool; 0 = idle, i.e. either full or between-shots with
+ * nothing pending). The reload ticks whenever the pool is below max, adds +1
+ * per fill, and restarts (with overshoot carry) while still below max — see
+ * server equipment/ammo.ts. The single-shot gun is a 1-round pool: the client
+ * renders it as a pure cooldown.
  */
 export interface WeaponAmmo {
   n: number; // rounds currently loaded (0 = empty)
@@ -97,15 +98,12 @@ export interface WeaponAmmo {
  * Your own ship as seen in a frame — full, unfogged. `sweep` is the current
  * radar angle (rad), used to draw the sweep wedge client-side.
  *
- * `ammo` is a WeaponAmmo[] indexed by WeaponId — for each weapon, its pool
- * count + reload timer:
- *   [0] guns     — shared broadside pool (maxAmmo rounds; a click fires the one
- *                  mount whose arc bears on the aim).
- *   [1] torpedoes — bow-tube pool.
- *   [2] mines     — drop pool (distinct from the live-mine board cap).
- * maxAmmo / reloadMs are NOT on the wire — the client reads them from CONFIG
- * (and, after upgrades, from its own effective-stats computation). The client
- * derives the reload fraction from reloadMsLeft / CONFIG.reloadMs.
+ * `ammo` is SLOT-ALIGNED: length SLOT_COUNT (see sim/loadout.ts), one entry
+ * per loadout slot — null iff that slot is empty (mirrors the loadout
+ * invariant: an empty slot carries no state). Under the universal fit that is
+ * [gun, torpedo, mine, null]. maxAmmo / reloadMs are NOT on the wire — the
+ * client reads them from CONFIG (and, after upgrades, from its own
+ * effective-stats computation) and derives reload fractions from reloadMsLeft.
  */
 export interface OwnShip {
   id: string;
@@ -115,8 +113,7 @@ export interface OwnShip {
   speed: number; // u/s (signed)
   hp: number;
   alive: boolean;
-  weapon: WeaponId; // currently selected
-  ammo: WeaponAmmo[]; // per weapon: pool count + reload timer (see above)
+  ammo: (WeaponAmmo | null)[]; // per slot: pool count + reload timer, null = empty slot
   sweep: number; // rad — current radar sweep angle
   cls: ShipClassId; // ship class (drives hull dims / kinematics / max hp client-side)
   /**
@@ -177,9 +174,10 @@ export interface BlipEvent {
  * bubble. Shared shape for shells and torpedoes.
  *
  * ANTI-CHEAT — no range-derivable field may EVER return to this shape (no
- * `ttl`, no `distLeft`, no launch position). CONFIG ships shellRange/shellSpeed
- * to every client, so any remaining-flight quantity on a fogged reveal lets a
- * modified client solve back to the (hidden) muzzle: traveled = range −
+ * `ttl`, no `distLeft`, no launch position, no target point). CONFIG ships
+ * gun range (CONFIG.vision.radar-derived) and shellSpeed to every client, so
+ * any remaining-flight quantity on a fogged reveal lets a modified client
+ * solve back to the (hidden) muzzle: traveled = range −
  * ttl·speed, launch = pos − unit(v)·traveled. A constant-free wire shape
  * ({id,x,y,vx,vy,t}) cannot encode traveled distance, so it cannot leak a
  * fogged shooter's position. Termination stays a client concern.
@@ -209,6 +207,23 @@ export interface BoomEvent {
   id?: string; // originating projectile/mine id, if any
   hit?: string; // struck ship id, when this boom is a ship impact
   x: number; // u
+  y: number; // u
+}
+
+/**
+ * A gun shell BURST at its target point (reached it un-intercepted, or was
+ * intercepted inside the would-be blast — see sim/shell.ts). `id` matches the
+ * originating shell so the client terminates its dead-reckoned render; x/y is
+ * the burst center (= the firer's clicked point, so it reveals nothing beyond
+ * the visible detonation). ANTI-CHEAT: no radius, range, or origin-derivable
+ * field may EVER be added here (burstRadius ships in CONFIG; the BallisticEvent
+ * rationale applies unchanged). Damage still arrives ONLY as victim-private
+ * `dmg` events — a multi-victim burst emits one `dmg` per victim.
+ */
+export interface BurstEvent {
+  k: 'burst';
+  id: string; // originating shell id
+  x: number; // u — burst center (the target point)
   y: number; // u
 }
 
@@ -292,6 +307,7 @@ export type GameEvent =
   | BlipEvent
   | BallisticEvent
   | BoomEvent
+  | BurstEvent
   | DamageEvent
   | SunkEvent
   | SpawnEvent

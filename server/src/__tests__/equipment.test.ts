@@ -18,17 +18,19 @@ import {
   CONFIG,
   SLOT_COUNT,
   SLOT_EXTRA,
-  WEAPON,
-  weaponMaxAmmo,
+  SLOT_GUN,
+  equipmentMaxAmmo,
   type InputMsg,
-  type WeaponId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
-import { EQUIPMENT, weaponAmmo, type Equipment } from '../game/equipment/index.js';
+import { EQUIPMENT, slotAmmo, type Equipment } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
 /** Slot index -> equipment id under today's universal fit (slot 0/1/2). */
 const WEAPON_IDS = ['gun', 'torpedo', 'mine'] as const;
+/** Torpedo / mine slot indices under the universal fit. */
+const SLOT_TORPEDO = 1;
+const SLOT_MINE = 2;
 
 // ---------- construction helpers ---------------------------------------------
 
@@ -48,7 +50,7 @@ function place(w: World, id: string, heading = 0): ShipRecord {
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, weapon: 0, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, ...patch };
 }
 
 /** Assert a ship carries the fresh universal loadout (matches defaultLoadout). */
@@ -56,7 +58,7 @@ function expectFreshLoadout(ship: ShipRecord): void {
   expect(ship.loadout).toHaveLength(SLOT_COUNT);
   for (let i = 0; i < SLOT_EXTRA; i++) {
     expect(ship.loadout[i].equipmentId).toBe(WEAPON_IDS[i]);
-    expect(ship.loadout[i].state).toEqual({ n: weaponMaxAmmo(ship.stats, i as WeaponId), reloadMsLeft: 0 });
+    expect(ship.loadout[i].state).toEqual({ n: equipmentMaxAmmo(ship.stats, WEAPON_IDS[i]), reloadMsLeft: 0 });
   }
   expect(ship.loadout[SLOT_EXTRA]).toEqual({ equipmentId: null, state: null });
 }
@@ -103,39 +105,37 @@ describe('EQUIPMENT registry — interface conformance', () => {
 // ---------- 2. denial reasons, derived without effect changes -----------------
 
 describe('denial reasons — derived through the gate without changing effects', () => {
-  it('gun arc-miss denies out-of-arc and does NOT drain the pool', () => {
+  it('the gun is NEVER out-of-arc (360°): a dead-ahead activation fires and spends the round', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    setInput(ship, { aim: 0, weapon: WEAPON.gun }); // dead ahead — outside both beam arcs
-    const before = { ...ship.loadout[WEAPON.gun].state! };
-    const res = w.sinkingActivationGate(ship, WEAPON.gun);
-    expect(res).toEqual({ ok: false, reason: 'out-of-arc' });
-    expect(ship.loadout[WEAPON.gun].state).toEqual(before); // arc-miss keeps the round
+    setInput(ship, { aim: 0, aimDist: 300, slot: SLOT_GUN }); // dead ahead — the old mounts refused this
+    expect(w.sinkingActivationGate(ship, SLOT_GUN)).toEqual({ ok: true });
+    expect(ship.loadout[SLOT_GUN].state!.n).toBe(0); // single-shot pool spent
   });
 
-  it('gun empty pool denies no-ammo', () => {
+  it('gun empty pool denies no-ammo (the shot cooldown — its ONLY denial)', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    setInput(ship, { aim: Math.PI / 2, weapon: WEAPON.gun }); // port beam — in arc
-    ship.loadout[WEAPON.gun].state = { n: 0, reloadMsLeft: CONFIG.gun.reloadMs };
-    expect(w.sinkingActivationGate(ship, WEAPON.gun)).toEqual({ ok: false, reason: 'no-ammo' });
+    setInput(ship, { aim: Math.PI / 2, aimDist: 300, slot: SLOT_GUN });
+    ship.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: CONFIG.gun.reloadMs };
+    expect(w.sinkingActivationGate(ship, SLOT_GUN)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 
   it('torpedo out-of-arc denies and keeps the fish', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    setInput(ship, { aim: Math.PI / 2, weapon: WEAPON.torpedo }); // abeam — outside the bow arc
-    const res = w.sinkingActivationGate(ship, WEAPON.torpedo);
+    setInput(ship, { aim: Math.PI / 2, slot: SLOT_TORPEDO }); // abeam — outside the bow arc
+    const res = w.sinkingActivationGate(ship, SLOT_TORPEDO);
     expect(res).toEqual({ ok: false, reason: 'out-of-arc' });
-    expect(ship.loadout[WEAPON.torpedo].state).toEqual({ n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 });
+    expect(ship.loadout[SLOT_TORPEDO].state).toEqual({ n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 });
   });
 
   it('torpedo empty pool denies no-ammo', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    setInput(ship, { aim: 0, weapon: WEAPON.torpedo }); // over the bow — in arc, but empty
-    ship.loadout[WEAPON.torpedo].state = { n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs };
-    expect(w.sinkingActivationGate(ship, WEAPON.torpedo)).toEqual({
+    setInput(ship, { aim: 0, slot: SLOT_TORPEDO }); // over the bow — in arc, but empty
+    ship.loadout[SLOT_TORPEDO].state = { n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs };
+    expect(w.sinkingActivationGate(ship, SLOT_TORPEDO)).toEqual({
       ok: false,
       reason: 'no-ammo',
     });
@@ -144,9 +144,9 @@ describe('denial reasons — derived through the gate without changing effects',
   it('mine empty pool denies no-ammo (mines have no arc)', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    setInput(ship, { weapon: WEAPON.mine });
-    ship.loadout[WEAPON.mine].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
-    expect(w.sinkingActivationGate(ship, WEAPON.mine)).toEqual({ ok: false, reason: 'no-ammo' });
+    setInput(ship, { slot: SLOT_MINE });
+    ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
+    expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: false, reason: 'no-ammo' });
   });
 });
 
@@ -172,10 +172,10 @@ describe('empty-slot safety — the gate answers before any dereference', () => 
   it('a dead ship is refused first (dead), before any slot resolution', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    setInput(ship, { aim: Math.PI / 2, weapon: WEAPON.gun }); // port beam — would be in arc if alive
+    setInput(ship, { aim: Math.PI / 2, aimDist: 300, slot: SLOT_GUN }); // would fire if alive
     w.sinkShip('a');
     expect(ship.alive).toBe(false);
-    expect(w.sinkingActivationGate(ship, WEAPON.gun)).toEqual({ ok: false, reason: 'dead' });
+    expect(w.sinkingActivationGate(ship, SLOT_GUN)).toEqual({ ok: false, reason: 'dead' });
   });
 });
 
@@ -185,12 +185,12 @@ describe('FR5 — a deselected slot still reloads every tick', () => {
   it('with the gun selected, reloading torpedo AND mine slots advance', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    setInput(ship, { weapon: WEAPON.gun }); // gun selected; fireSeq 0 => no activation
-    ship.loadout[WEAPON.torpedo].state = { n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs };
-    ship.loadout[WEAPON.mine].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
+    setInput(ship, { slot: SLOT_GUN }); // gun slot named; fireSeq 0 => no activation
+    ship.loadout[SLOT_TORPEDO].state = { n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs };
+    ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
     w.step();
-    expect(ship.loadout[WEAPON.torpedo].state!.reloadMsLeft).toBe(CONFIG.torpedo.reloadMs - DT);
-    expect(ship.loadout[WEAPON.mine].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - DT);
+    expect(ship.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(CONFIG.torpedo.reloadMs - DT);
+    expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - DT);
   });
 });
 
@@ -200,11 +200,11 @@ describe('the empty extra slot is never ticked', () => {
   it('behavioral: a full-loadout ship steps many ticks with slot 3 empty, world stays healthy while 0–2 reload', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    setInput(ship, { weapon: WEAPON.gun }); // no click (fireSeq 0)
+    setInput(ship, { slot: SLOT_GUN }); // no click (fireSeq 0)
     // Drain the three weapon slots so their reload timers must tick down.
-    ship.loadout[WEAPON.gun].state = { n: 0, reloadMsLeft: CONFIG.gun.reloadMs };
-    ship.loadout[WEAPON.torpedo].state = { n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs };
-    ship.loadout[WEAPON.mine].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
+    ship.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: CONFIG.gun.reloadMs };
+    ship.loadout[SLOT_TORPEDO].state = { n: 0, reloadMsLeft: CONFIG.torpedo.reloadMs };
+    ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
     const N = 5;
     expect(() => {
       for (let i = 0; i < N; i++) w.step();
@@ -212,9 +212,9 @@ describe('the empty extra slot is never ticked', () => {
     // Empty slot untouched — no state materialized, nothing to have ticked.
     expect(ship.loadout[SLOT_EXTRA]).toEqual({ equipmentId: null, state: null });
     // The fitted slots DID reload-tick (proves the loop ran, and skips only 3).
-    expect(ship.loadout[WEAPON.gun].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs - N * DT);
-    expect(ship.loadout[WEAPON.torpedo].state!.reloadMsLeft).toBe(CONFIG.torpedo.reloadMs - N * DT);
-    expect(ship.loadout[WEAPON.mine].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - N * DT);
+    expect(ship.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs - N * DT);
+    expect(ship.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(CONFIG.torpedo.reloadMs - N * DT);
+    expect(ship.loadout[SLOT_MINE].state!.reloadMsLeft).toBe(CONFIG.mine.reloadMs - N * DT);
   });
 
   it("source: fireControl's per-slot tick loop guards on equipmentId !== null", () => {
@@ -316,7 +316,7 @@ describe('the sinking-activation gate is the sole dispatch path to activate()', 
 // ---------- 6. loadout init / respawn / redeploy parity -----------------------
 
 describe('loadout init parity — addShip / respawn / redeploy', () => {
-  it('addShip produces a full idle loadout matching weaponMaxAmmo, slot 3 empty', () => {
+  it('addShip produces a full idle loadout matching equipmentMaxAmmo, slot 3 empty', () => {
     const w = bareWorld();
     expectFreshLoadout(place(w, 'a'));
   });
@@ -324,7 +324,7 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
   it('respawn (waiting-phase) rebuilds the full loadout from stats', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    ship.loadout[WEAPON.gun].state = { n: 0, reloadMsLeft: 999 }; // dirty it, prove the rebuild
+    ship.loadout[SLOT_GUN].state = { n: 0, reloadMsLeft: 999 }; // dirty it, prove the rebuild
     w.sinkShip('a');
     const steps = Math.ceil(CONFIG.ship.respawnDelay / DT) + 2;
     for (let i = 0; i < steps; i++) w.step();
@@ -335,22 +335,23 @@ describe('loadout init parity — addShip / respawn / redeploy', () => {
   it('redeploy (resetForMatchStart) rebuilds the full loadout from stats', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    ship.loadout[WEAPON.torpedo].state = { n: 0, reloadMsLeft: 500 }; // dirty it, prove the rebuild
+    ship.loadout[SLOT_TORPEDO].state = { n: 0, reloadMsLeft: 500 }; // dirty it, prove the rebuild
     w.resetForMatchStart();
     expectFreshLoadout(ship);
   });
 });
 
-describe('weaponAmmo — fresh wire copies, not live pool references', () => {
-  it('returns 3 fresh {n, reloadMsLeft} objects decoupled from slot state', () => {
+describe('slotAmmo — slot-aligned fresh wire copies, not live pool references', () => {
+  it('returns SLOT_COUNT entries: fresh {n, reloadMsLeft} per fitted slot, null for empty', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    const wire = weaponAmmo(ship);
-    expect(wire).toHaveLength(SLOT_EXTRA); // slots 0..2 only
+    const wire = slotAmmo(ship);
+    expect(wire).toHaveLength(SLOT_COUNT); // slot-aligned: one entry per loadout slot
     for (let i = 0; i < SLOT_EXTRA; i++) {
       expect(wire[i]).not.toBe(ship.loadout[i].state); // a fresh copy, not the live pool object
-      expect(Object.keys(wire[i])).toEqual(['n', 'reloadMsLeft']); // key order pinned for the wire
+      expect(Object.keys(wire[i]!)).toEqual(['n', 'reloadMsLeft']); // key order pinned for the wire
       expect(wire[i]).toEqual(ship.loadout[i].state); // same values
     }
+    expect(wire[SLOT_EXTRA]).toBeNull(); // empty slot => null (never a zero pool)
   });
 });
