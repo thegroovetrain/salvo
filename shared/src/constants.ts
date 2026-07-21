@@ -128,27 +128,31 @@ export const CONFIG = {
   },
 
   /**
-   * Guns (weapon 0): broadside batteries. One shared AMMO POOL feeds both
-   * mounts — a click fires the single mount whose arc bears on the aim, drawing
-   * one round from the pool. `maxAmmo` ≈ the old pair of 3s port/starboard
-   * mounts, so the sustained rate is unchanged; the accepted feel change (per
-   * HULLCRACKER_NOTES) is that BOTH rounds can now go out the SAME arc.
+   * The universal standard gun (Eric rulings 2026-07-21): the permanently
+   * selected default weapon, byte-identical on every class. 360° — no mounts,
+   * no arcs, never out-of-arc. Single shot on a pure cooldown, implemented as
+   * a 1-round pool @ reloadMs (identical semantics, minimal ammo-machinery
+   * churn; the HUD presents it as a cooldown sweep). The shell flies to the
+   * CLICKED POINT (aim + aimDist, clamped to effective range) and BURSTS there
+   * in `burstRadius` — every enemy hull in the radius takes full `damage`. An
+   * early interceptor takes the smaller `contactDamage` and stops the shell
+   * (no burst) — unless it is already inside the would-be blast radius around
+   * the target point, in which case the shell bursts for full damage anyway
+   * (see sim/shell.ts). Base gun range is DERIVED from CONFIG.vision.radar —
+   * you can shoot anywhere in radar range; no duplicated range constant exists.
    */
   gun: {
     shellSpeed: 130, // u/s — shell muzzle velocity
-    shellRange: 480, // u — max shell travel before expiring
-    maxAmmo: 2, // rounds in the shared broadside pool (≈ the old two 3s mounts)
-    reloadMs: 3000, // ms — one round reloads per this interval while below max
-    damage: 25, // hp per hit — THE gun-damage tunable (pinned by damageGuardrail.test)
+    maxAmmo: 1, // single shot — pinned to 1 in effectiveStats (gunAmmo neutralized)
+    reloadMs: 3000, // ms — cooldown between shots
+    damage: 25, // hp per burst victim — THE gun-damage tunable (pinned by damageGuardrail.test)
+    contactDamage: 10, // hp to an early interceptor outside the blast (bodyblock)
+    burstRadius: 15, // u — blast radius around the clicked point
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
-    mounts: [
-      { name: 'port', offset: deg(90), halfArc: deg(60) }, // +90deg, +/-60deg
-      { name: 'starboard', offset: deg(-90), halfArc: deg(60) }, // -90deg, +/-60deg
-    ],
   },
 
   /**
-   * Torpedoes (weapon 1): bow tube. Never painted by radar. One-deep ammo pool
+   * Torpedoes (slot 1): bow tube. Never painted by radar. One-deep ammo pool
    * (owner play test 2026-07-13: two tubes fired both fish within ~2 ticks of
    * one click, masking the 12s reload; one fish per click + a real reload is
    * the intended commitment-spike feel). The bow tube is now just the pool.
@@ -173,7 +177,7 @@ export const CONFIG = {
     spawnClearance: 6, // u
   },
 
-  /** Mines (weapon 2): dropped astern. Never on radar. */
+  /** Mines (slot 2): dropped astern. Never on radar. */
   mine: {
     offset: deg(180), // astern
     armDelay: 3000, // ms — before it can trigger

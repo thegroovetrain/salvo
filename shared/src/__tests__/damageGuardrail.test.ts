@@ -18,8 +18,16 @@ const droneSpeeds = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].kinematics.maxSpe
 const maxHullSpeed = Math.max(...classSpeeds, ...droneSpeeds);
 
 describe('one-hit-kill guardrail (classes AND drones)', () => {
-  it('gun damage cannot one-hit the lightest hull', () => {
+  it('gun BURST damage cannot one-hit the lightest hull', () => {
     expect(CONFIG.gun.damage).toBeLessThan(minHullHp);
+  });
+
+  it('gun CONTACT (bodyblock) damage cannot one-hit the lightest hull', () => {
+    expect(CONFIG.gun.contactDamage).toBeLessThan(minHullHp);
+  });
+
+  it('bodyblocking is the lighter outcome: contactDamage does not exceed burst damage', () => {
+    expect(CONFIG.gun.contactDamage).toBeLessThanOrEqual(CONFIG.gun.damage);
   });
 
   it('torpedo damage cannot one-hit the lightest hull', () => {

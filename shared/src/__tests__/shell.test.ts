@@ -1,9 +1,18 @@
 import { describe, it, expect } from 'vitest';
-import { stepShell, type ShellState, type HullTarget, type ShellContext } from '../sim/shell.js';
+import {
+  burstVictims,
+  stepShell,
+  type ShellState,
+  type HullTarget,
+  type ShellContext,
+} from '../sim/shell.js';
 import { hullSilhouette, transformPolygon } from '../sim/silhouette.js';
 import { CONFIG, type HullId } from '../constants.js';
 
 const DT = CONFIG.tick.simDtMs / 1000;
+
+// Base gun range is DERIVED from radar range (Eric ruling 2026-07-21).
+const GUN_RANGE = CONFIG.vision.radar;
 
 // Large map so existing edge-agnostic cases are never terminated by the edge.
 const BIG_R = 100000;
@@ -21,6 +30,10 @@ function hullAt(x: number, y: number, heading: number, id = 'victim', hullId: Hu
   return { id, poly: transformPolygon(hullSilhouette(hullId), x, y, heading) };
 }
 
+/**
+ * A CONTACT-ONLY shell (no target point, burstRadius 0): the legacy first-
+ * contact behavior, still exactly what point-less projectiles (torpedoes) use.
+ */
 function shell(overrides: Partial<ShellState> = {}): ShellState {
   return {
     id: 's1',
@@ -29,13 +42,40 @@ function shell(overrides: Partial<ShellState> = {}): ShellState {
     y: 0,
     vx: CONFIG.gun.shellSpeed,
     vy: 0,
-    distLeft: CONFIG.gun.shellRange,
+    distLeft: GUN_RANGE,
     bornAt: 0,
     kind: 'shell',
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
+    targetX: null,
+    targetY: null,
+    burstRadius: 0,
+    contactDamage: CONFIG.gun.damage,
     ...overrides,
   };
+}
+
+/** A gun shell with the universal-standard-gun hit rule: flies +x to (tx, 0) and bursts. */
+function gunShell(tx: number, overrides: Partial<ShellState> = {}): ShellState {
+  return shell({
+    targetX: tx,
+    targetY: 0,
+    distLeft: GUN_RANGE,
+    burstRadius: CONFIG.gun.burstRadius,
+    contactDamage: CONFIG.gun.contactDamage,
+    ...overrides,
+  });
+}
+
+/** Step a shell until it resolves (non-travel), with a tick safety cap. */
+function stepToOutcome(s: ShellState, c: ShellContext, cap = 500): ReturnType<typeof stepShell> {
+  let out = stepShell(s, c);
+  let ticks = 1;
+  while (out.kind === 'travel' && ticks < cap) {
+    out = stepShell(s, c);
+    ticks++;
+  }
+  return out;
 }
 
 describe('stepShell — travel + range', () => {
@@ -44,7 +84,7 @@ describe('stepShell — travel + range', () => {
     const out = stepShell(s, ctx());
     expect(out.kind).toBe('travel');
     expect(s.x).toBeCloseTo(CONFIG.gun.shellSpeed * DT, 9);
-    expect(s.distLeft).toBeCloseTo(CONFIG.gun.shellRange - CONFIG.gun.shellSpeed * DT, 6);
+    expect(s.distLeft).toBeCloseTo(GUN_RANGE - CONFIG.gun.shellSpeed * DT, 6);
   });
 
   it('expires (splash) when it runs out of range', () => {
@@ -162,6 +202,7 @@ describe('stepShell — parameterized for torpedoes (no tunnel at torp speed)', 
       kind: 'torp',
       damage: CONFIG.torpedo.damage,
       hitRadius: CONFIG.torpedo.hitRadius,
+      contactDamage: CONFIG.torpedo.damage, // contact-only: contact IS the full hit
       ...overrides,
     });
   }
@@ -247,5 +288,139 @@ describe('stepShell — earliest hit wins', () => {
     let out = stepShell(s, ctx({ islands: [island], hulls: [h] }));
     while (out.kind === 'travel') out = stepShell(s, ctx({ islands: [island], hulls: [h] }));
     expect(out.kind).toBe('hitIsland');
+  });
+});
+
+// --- Universal standard gun: targeted burst hit rule (Story 1.4) ------------
+// droneMedium at heading π/2 (see hullAt): near flat side at x = poseX − 15
+// spanning y ∈ [poseY − 45, poseY + 15]; hull body x ∈ [poseX − 15, poseX + 15].
+
+describe('stepShell — targeted shell bursts at the clicked point', () => {
+  it('flies to the target and bursts exactly there when nothing intercepts', () => {
+    const s = gunShell(300);
+    const out = stepToOutcome(s, ctx());
+    expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
+    expect(s.x).toBe(300); // snapped to the exact target point
+    expect(s.y).toBe(0);
+  });
+
+  it('STOPS at the target — never overflies it despite range left', () => {
+    const s = gunShell(300); // distLeft = GUN_RANGE (650) >> 300
+    let out = stepShell(s, ctx());
+    while (out.kind === 'travel') {
+      expect(s.x).toBeLessThanOrEqual(300);
+      out = stepShell(s, ctx());
+    }
+    expect(out.kind).toBe('burst');
+    expect(s.x).toBe(300);
+  });
+
+  it('bursts (not splashes) when distLeft exactly equals the target distance', () => {
+    const out = stepToOutcome(gunShell(300, { distLeft: 300 }), ctx());
+    expect(out.kind).toBe('burst');
+  });
+
+  it('a point-less (contact-only) shell sails PAST that same point and splashes at range', () => {
+    const s = shell(); // no target, burstRadius 0 — legacy behavior byte-for-byte
+    const out = stepToOutcome(s, ctx(), 200);
+    expect(out.kind).toBe('expired');
+    if (out.kind === 'expired') expect(out.x).toBeCloseTo(GUN_RANGE, 6);
+  });
+});
+
+describe('stepShell — bodyblock (early interception) vs proximity exception', () => {
+  it('an interceptor FAR from the target takes a contact hit — no burst, shell stops', () => {
+    const blocker = hullAt(150, 0, Math.PI / 2, 'blocker'); // near side x = 135, target 300
+    const out = stepToOutcome(gunShell(300), ctx({ hulls: [blocker] }));
+    expect(out.kind).toBe('hitShip');
+    if (out.kind === 'hitShip') {
+      expect(out.victimId).toBe('blocker');
+      expect(out.x).toBeLessThan(140); // stopped at the interception, nowhere near the target
+    }
+  });
+
+  it('an interceptor already INSIDE the would-be blast = full burst, centered on the TARGET', () => {
+    // Hull at (310, 0): its near side (x = 295) intercepts the shell early, and
+    // the target (300, 0) lies INSIDE the hull → burst membership → full burst.
+    const out = stepToOutcome(gunShell(300), ctx({ hulls: [hullAt(310, 0, Math.PI / 2, 'blocker')] }));
+    expect(out).toEqual({ kind: 'burst', x: 300, y: 0 }); // NOT the impact point (~293)
+  });
+
+  it('an interceptor whose silhouette is within burstRadius of the target (not containing it) also bursts', () => {
+    // droneMedium at (260, 16) heading 0: its flat underside (y = 1, x ∈
+    // [215, 275]) grazes the shell path (hitRadius 2) → intercepts near
+    // x ≈ 213, far from the target — but its bow edge passes ~10.8u from
+    // (300, 0), INSIDE the 15u blast, and the target itself is outside the
+    // polygon. Blast membership is about the ENTITY, not the impact point.
+    const out = stepToOutcome(gunShell(300), ctx({ hulls: [hullAt(260, 16, 0, 'blocker')] }));
+    expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
+  });
+
+  it('the SAME grazing shape shifted outside the blast radius takes the contact hit instead', () => {
+    // Same construction at (240, 16): closest silhouette point to the target
+    // is the bow shoulder region ~18.9u away — outside the 15u blast.
+    const out = stepToOutcome(gunShell(300), ctx({ hulls: [hullAt(240, 16, 0, 'blocker')] }));
+    expect(out.kind).toBe('hitShip');
+    if (out.kind === 'hitShip') {
+      expect(out.victimId).toBe('blocker');
+      expect(out.x).toBeLessThan(260); // stopped at the graze, no burst
+    }
+  });
+
+  it('the owner hull never intercepts its own targeted shell (permanent immunity)', () => {
+    const out = stepToOutcome(gunShell(300), ctx({ hulls: [hullAt(150, 0, Math.PI / 2, 'owner')] }));
+    expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
+  });
+});
+
+describe('stepShell — island interception of a targeted shell', () => {
+  it('an island far from the target stops the shell dead — no damage, no burst', () => {
+    const island = { x: 150, y: 0, r: 20 }; // surface 130u from the target
+    const out = stepToOutcome(gunShell(300), ctx({ islands: [island] }));
+    expect(out.kind).toBe('hitIsland');
+    if (out.kind === 'hitIsland') expect(out.x).toBeLessThan(135);
+  });
+
+  it('an island whose surface is within burstRadius of the target bursts anyway', () => {
+    const island = { x: 280, y: 0, r: 10 }; // surface 10u from (300,0) — inside the 15u blast
+    const out = stepToOutcome(gunShell(300), ctx({ islands: [island] }));
+    expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
+  });
+
+  it('a target point ON an island bursts on early island contact (plain radius query, no LOS)', () => {
+    const island = { x: 300, y: 0, r: 30 }; // the target sits inside the island circle
+    const out = stepToOutcome(gunShell(300), ctx({ islands: [island] }));
+    expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
+  });
+});
+
+describe('burstVictims — blast membership (silhouette within burstRadius, owner excluded)', () => {
+  const R = CONFIG.gun.burstRadius;
+  const center = { x: 300, y: 0 };
+
+  it('includes hulls containing or grazing the blast, excludes hulls beyond it', () => {
+    const inside = hullAt(310, 0, Math.PI / 2, 'inside'); // center lies inside this hull
+    const grazing = hullAt(328, 0, Math.PI / 2, 'grazing'); // silhouette 13u away (< 15)
+    const outside = hullAt(400, 0, Math.PI / 2, 'outside'); // far beyond the blast
+    expect(burstVictims(center, R, [inside, grazing, outside], 'owner')).toEqual([
+      'inside',
+      'grazing',
+    ]);
+  });
+
+  it('NEVER includes the owner, even standing on the burst center (owner immunity)', () => {
+    const ownHull = hullAt(300, 0, Math.PI / 2, 'owner');
+    const enemy = hullAt(310, 0, Math.PI / 2, 'enemy');
+    expect(burstVictims(center, R, [ownHull, enemy], 'owner')).toEqual(['enemy']);
+  });
+
+  it('radius 0 catches only hulls the center point is actually inside', () => {
+    const containing = hullAt(310, 0, Math.PI / 2, 'containing');
+    const nearby = hullAt(328, 0, Math.PI / 2, 'nearby'); // 13u away — misses at radius 0
+    expect(burstVictims(center, 0, [containing, nearby], 'owner')).toEqual(['containing']);
+  });
+
+  it('returns empty over open water', () => {
+    expect(burstVictims(center, R, [], 'owner')).toEqual([]);
   });
 });

@@ -3,6 +3,10 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  5: universal standard gun — InputMsg.weapon (WeaponId) replaced by
+ *  InputMsg.slot (loadout slot index); OwnShip.weapon removed; OwnShip.ammo
+ *  became slot-aligned (WeaponAmmo | null)[]; new 'burst' GameEvent;
+ *  WeaponId/WEAPON retired from the wire contract.
  *  4: three-hull-envelopes re-scope — the `cls` values on the wire changed
  *  (torpedoBoat/battleship/mineLayer classes; Contact.cls widened to HullId
  *  with droneSmall/droneMedium/droneLarge).
@@ -10,7 +14,7 @@
  *  constant is documentation, not (yet) a runtime gate — a stale bundle
  *  fails at schema decode, not with a clean version rejection. A join-time
  *  version check is deferred work (see reconnection stories). */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 // Tunables
 export * from './constants.js';

@@ -14,11 +14,11 @@ import {
   SLOT_ROLES,
   defaultLoadout,
   effectiveStats,
-  weaponMaxAmmo,
+  equipmentMaxAmmo,
   zeroUpgrades,
   type EffectiveStats,
+  type EquipmentId,
   type LoadoutSlot,
-  type WeaponId,
 } from '../index.js';
 
 /** Fresh effective stats for a ship class at zero upgrades. */
@@ -27,7 +27,7 @@ function statsFor(classId: (typeof SHIP_CLASS_IDS)[number]): EffectiveStats {
 }
 
 /** Slot index (0/1/2) -> equipment id under today's universal fit. */
-const WEAPON_IDS = ['gun', 'torpedo', 'mine'] as const;
+const EQUIPMENT_IDS: readonly EquipmentId[] = ['gun', 'torpedo', 'mine'];
 
 describe('slot-grammar constants', () => {
   it('SLOT_COUNT is 4, SLOT_GUN 0, SLOT_EXTRA 3', () => {
@@ -45,15 +45,23 @@ describe('slot-grammar constants', () => {
 });
 
 describe('defaultLoadout — the universal fit', () => {
-  it('is 4 slots: gun / torpedo / mine + one empty extra, pools from weaponMaxAmmo', () => {
+  it('is 4 slots: gun / torpedo / mine + one empty extra, pools from equipmentMaxAmmo', () => {
     const stats = statsFor('battleship');
     const loadout = defaultLoadout(stats);
     expect(loadout).toHaveLength(SLOT_COUNT);
     for (let i = 0; i < SLOT_EXTRA; i++) {
-      expect(loadout[i].equipmentId).toBe(WEAPON_IDS[i]);
-      expect(loadout[i].state).toEqual({ n: weaponMaxAmmo(stats, i as WeaponId), reloadMsLeft: 0 });
+      expect(loadout[i].equipmentId).toBe(EQUIPMENT_IDS[i]);
+      expect(loadout[i].state).toEqual({ n: equipmentMaxAmmo(stats, EQUIPMENT_IDS[i]), reloadMsLeft: 0 });
     }
     expect(loadout[SLOT_EXTRA]).toEqual({ equipmentId: null, state: null });
+  });
+
+  it('the gun slot is a single-shot 1-round pool on every class (universal standard gun)', () => {
+    for (const classId of SHIP_CLASS_IDS) {
+      const loadout = defaultLoadout(statsFor(classId));
+      expect(loadout[SLOT_GUN].equipmentId).toBe('gun');
+      expect(loadout[SLOT_GUN].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    }
   });
 
   it('the extra slot is empty (equipmentId null, state null)', () => {
@@ -68,7 +76,7 @@ describe('defaultLoadout — the universal fit', () => {
       const loadout = defaultLoadout(stats);
       expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'mine', null]);
       for (let i = 0; i < SLOT_EXTRA; i++) {
-        expect(loadout[i].state!.n).toBe(weaponMaxAmmo(stats, i as WeaponId));
+        expect(loadout[i].state!.n).toBe(equipmentMaxAmmo(stats, EQUIPMENT_IDS[i]));
       }
     }
   });
