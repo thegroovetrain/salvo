@@ -92,11 +92,11 @@ warnings: [multiple-goals, oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/` (types, index, constants) -- fireT + ping channel + PV6 + CONFIG.net tunables -- the wire contract both sides share.
-- [ ] `server/src/game/` (inputs, world, equipment/*, rtt, drones) + `rooms/` (ArenaRoom, roomOptions) -- clamp law, RTT measurement, back-dated pre-step spawn through live-state resolve, mapSeed dev option -- authoritative D1 complete, unit-tested against the full I/O matrix.
-- [ ] `client/src/` (input/mouse, sim/inputSampler, main, net/roomBindings|connection) -- click-time capture on the server-clock estimate, fireT on both send paths, ping echo -- honest timestamps end-to-end.
-- [ ] `server/scripts/latencyHarness.mjs` + 10 smoke re-keys -- the NFR3 harness with A/B + metrics -- the story's acceptance gate exists and runs.
-- [ ] Test sweep -- suites above + golden-frames regen (same PR as PV6) -- `npm run check` green.
+- [x] `shared/src/` (types, index, constants) -- fireT + ping channel + PV6 + CONFIG.net tunables -- the wire contract both sides share.
+- [x] `server/src/game/` (inputs, world, equipment/*, rtt, drones) + `rooms/` (ArenaRoom, roomOptions) -- clamp law, RTT measurement, back-dated pre-step spawn through live-state resolve, mapSeed dev option -- authoritative D1 complete, unit-tested against the full I/O matrix.
+- [x] `client/src/` (input/mouse, sim/inputSampler, main, net/roomBindings|connection) -- click-time capture on the server-clock estimate, fireT on both send paths, ping echo -- honest timestamps end-to-end.
+- [x] `server/scripts/latencyHarness.mjs` + 10 smoke re-keys -- the NFR3 harness with A/B + metrics -- the story's acceptance gate exists and runs.
+- [x] Test sweep -- suites above + golden-frames regen (same PR as PV6) -- `npm run check` green.
 - [ ] `_bmad-output/implementation-artifacts/sprint-status.yaml` -- `1-5-firing-under-latency-latency-harness` status transition at completion.
 
 **Acceptance Criteria:**
