@@ -74,6 +74,24 @@ export interface InputMsg {
    * `CONFIG.net.fireBackdateCeilingMs`.
    */
   fireT: number;
+  /**
+   * Client-side monotonic ability-ACTIVATION counter, mirroring fireSeq's
+   * grammar (Story 1.6). A value newer than the last the server consumed
+   * requests exactly ONE instant activation of the slot named by `actSlot`;
+   * `0` is the explicit "never activated" sentinel, so every existing driver
+   * (and every drone) that never touches an ability keeps sending 0 and never
+   * activates. Abilities are NOT aimed and NEVER prime — the activation is an
+   * instant key-press effect, independent of the click that fires the primed
+   * weapon. Validated server-side like every field (finite int ≥ 0, monotonic).
+   */
+  actSeq: number;
+  /**
+   * Loadout slot index the current activation targets (int 0..SLOT_COUNT-1; see
+   * sim/loadout.ts). Only a slot holding non-weapon (`EQUIPMENT_IS_WEAPON:false`)
+   * equipment can activate; an actSeq advance against a weapon or empty slot is
+   * structurally inert. Validated server-side like every field.
+   */
+  actSlot: number;
 }
 
 /**
@@ -167,6 +185,16 @@ export interface OwnShip {
    * ever surfaced — the rest of the queue never leaves the server.
    */
   offer: number[];
+  /**
+   * ms — server-clock time the active speed-boost window ends (Story 1.6);
+   * `0` = inactive. The boost is live while `serverNow < boostUntil`, driving
+   * the client's boosted-cap prediction and the HUD boost chip. OWNER-ONLY by
+   * construction: this field rides `you` and NOTHING else — it never appears on
+   * a Contact, blip, ballistic event, boom, or spectator payload. An enemy
+   * observer reads a boosting hull ONLY through its observed kinematics (a
+   * faster-moving contact); the boost's timing and existence stay self-private.
+   */
+  boostUntil: number;
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */

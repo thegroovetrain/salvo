@@ -53,6 +53,12 @@ describe('effectiveStats — zero-counts identity (per class)', () => {
       gun: { reloadMs: CONFIG.gun.reloadMs, maxAmmo: CONFIG.gun.maxAmmo, rangeU: CONFIG.vision.radar },
       torpedo: { reloadMs: CONFIG.torpedo.reloadMs, maxAmmo: CONFIG.torpedo.maxAmmo, speed: CONFIG.torpedo.speed },
       mine: { reloadMs: CONFIG.mine.reloadMs, maxAmmo: CONFIG.mine.maxAmmo, maxLive: CONFIG.mine.maxLive },
+      boost: {
+        speedBonus: CONFIG.speedBoost.speedBonus,
+        durationMs: CONFIG.speedBoost.durationMs,
+        maxAmmo: CONFIG.speedBoost.maxAmmo,
+        reloadMs: CONFIG.speedBoost.reloadMs,
+      },
     });
   });
 
@@ -102,6 +108,34 @@ describe('effectiveStats — stacking rules', () => {
     const f = CONFIG.upgrades.maxSpeed.mult ** 2;
     expect(s.kinematics.maxSpeed).toBeCloseTo(BASE.kinematics.maxSpeed * f, 9);
     expect(s.kinematics.reverseSpeed).toBeCloseTo(BASE.kinematics.reverseSpeed * f, 9);
+  });
+
+  it('maxSpeed multiplies the BASE cap only — the boost bonus never rides the multiplier', () => {
+    const s = effectiveStats(BASE, countsWith('maxSpeed', 3));
+    // The additive speed-boost bonus is a per-tick step (sim/boost.ts), NOT part
+    // of effectiveStats — so no upgrade count ever multiplies it.
+    expect(s.boost.speedBonus).toBe(CONFIG.speedBoost.speedBonus);
+    expect(s.kinematics.maxSpeed).toBeCloseTo(BASE.kinematics.maxSpeed * CONFIG.upgrades.maxSpeed.mult ** 3, 9);
+  });
+});
+
+describe('effectiveStats — boost block is a pure CONFIG.speedBoost pass-through', () => {
+  it('equals CONFIG.speedBoost for every class at zero upgrades', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      expect(effectiveStats(CONFIG.shipClasses[id], zeroUpgrades()).boost).toEqual({
+        speedBonus: CONFIG.speedBoost.speedBonus,
+        durationMs: CONFIG.speedBoost.durationMs,
+        maxAmmo: CONFIG.speedBoost.maxAmmo,
+        reloadMs: CONFIG.speedBoost.reloadMs,
+      });
+    }
+  });
+
+  it('no upgrade id moves any boost field', () => {
+    const base = effectiveStats(BASE, zeroUpgrades()).boost;
+    for (const id of UPGRADE_IDS) {
+      expect(effectiveStats(BASE, countsWith(id, 4)).boost).toEqual(base);
+    }
   });
 });
 
@@ -157,9 +191,11 @@ describe('upgrade helpers', () => {
     expect(equipmentMaxAmmo(s, 'gun')).toBe(s.gun.maxAmmo);
     expect(equipmentMaxAmmo(s, 'torpedo')).toBe(s.torpedo.maxAmmo);
     expect(equipmentMaxAmmo(s, 'mine')).toBe(s.mine.maxAmmo);
+    expect(equipmentMaxAmmo(s, 'speedBoost')).toBe(s.boost.maxAmmo);
     expect(equipmentReloadMs(s, 'gun')).toBe(s.gun.reloadMs);
     expect(equipmentReloadMs(s, 'torpedo')).toBe(s.torpedo.reloadMs);
     expect(equipmentReloadMs(s, 'mine')).toBe(s.mine.reloadMs);
+    expect(equipmentReloadMs(s, 'speedBoost')).toBe(s.boost.reloadMs);
   });
 
   it('CONFIG.upgrades keys are exactly UPGRADE_IDS (table and order stay in sync)', () => {

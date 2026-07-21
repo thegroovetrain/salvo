@@ -1,14 +1,31 @@
 // Slot-based equipment loadout — the shared spine every fitted system builds
 // on (Story 1.2). A ship's loadout IS its equipment runtime: 4 slots (gun,
 // two specials, one extra), each either empty or holding one equipment id +
-// its state. Today every class gets the same universal fit — [gun, torpedo,
-// mine, empty]; per-class variation and non-weapon specials arrive in
-// stories 1.6-1.9. Pure, zero I/O.
+// its state. The fit is now per-hull (Story 1.6): the Torpedo Boat carries
+// [gun, torpedo, speedBoost, empty], while every other hull — Battleship,
+// Mine Layer, and all drones — keeps the universal fit [gun, torpedo, mine,
+// empty] until Stories 1.7/1.8. speedBoost is the first non-weapon special.
+// Pure, zero I/O.
 
+import type { HullId } from '../constants.js';
 import type { EffectiveStats } from './stats.js';
 
-/** Equipment ids fittable into a loadout slot (weapons only, for now). */
-export type EquipmentId = 'gun' | 'torpedo' | 'mine';
+/** Equipment ids fittable into a loadout slot (weapons + the speed-boost ability). */
+export type EquipmentId = 'gun' | 'torpedo' | 'mine' | 'speedBoost';
+
+/**
+ * THE single source of the weapon/ability split: true iff a piece of equipment
+ * is a weapon (aimed, primed, fired at a target). A `false` entry is an
+ * instant-activation ABILITY that emits nothing spatial. Server equipment rows
+ * and the client activation path both read this map — nothing re-derives the
+ * split ad hoc. Compile-forced to cover every EquipmentId.
+ */
+export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
+  gun: true,
+  torpedo: true,
+  mine: true,
+  speedBoost: false,
+};
 
 /**
  * One piece of equipment's runtime state: a pool of `n` charges/rounds and a
@@ -52,29 +69,46 @@ export const SLOT_ROLES: readonly [SlotRole, SlotRole, SlotRole, SlotRole] = [
 
 /** The effective pool size for a piece of equipment. */
 export function equipmentMaxAmmo(stats: EffectiveStats, id: EquipmentId): number {
-  return { gun: stats.gun.maxAmmo, torpedo: stats.torpedo.maxAmmo, mine: stats.mine.maxAmmo }[id];
+  return {
+    gun: stats.gun.maxAmmo,
+    torpedo: stats.torpedo.maxAmmo,
+    mine: stats.mine.maxAmmo,
+    speedBoost: stats.boost.maxAmmo,
+  }[id];
 }
 
 /** The effective reload (ms) for a piece of equipment. */
 export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): number {
-  return { gun: stats.gun.reloadMs, torpedo: stats.torpedo.reloadMs, mine: stats.mine.reloadMs }[id];
+  return {
+    gun: stats.gun.reloadMs,
+    torpedo: stats.torpedo.reloadMs,
+    mine: stats.mine.reloadMs,
+    speedBoost: stats.boost.reloadMs,
+  }[id];
+}
+
+/** The slot-2 special each hull id fits: speedBoost for the Torpedo Boat, mine for all others. */
+function slotTwoEquipment(hullId: HullId): EquipmentId {
+  return hullId === 'torpedoBoat' ? 'speedBoost' : 'mine';
 }
 
 /**
- * The universal loadout every ship class gets today: gun / torpedo / mine /
- * empty extra. Weapon slots start with a full pool and an idle reload timer —
- * exactly matching server `freshAmmo(equipmentMaxAmmo(stats, id))` semantics.
- * Per-class variation is deferred to stories 1.6-1.9.
+ * The loadout a given hull id spawns with (Story 1.6, per-hull). The Torpedo
+ * Boat fits [gun, torpedo, speedBoost, empty]; every other hull id — Battleship,
+ * Mine Layer, and all drone sizes — keeps the universal fit
+ * [gun, torpedo, mine, empty]. Fitted slots start with a full pool and an idle
+ * reload timer — exactly matching server `freshAmmo(equipmentMaxAmmo(stats, id))`
+ * semantics. Further per-class variation is deferred to Stories 1.7-1.9.
  */
-export function defaultLoadout(stats: EffectiveStats): LoadoutSlot[] {
-  const weaponSlot = (equipmentId: EquipmentId): LoadoutSlot => ({
+export function loadoutFor(hullId: HullId, stats: EffectiveStats): LoadoutSlot[] {
+  const fittedSlot = (equipmentId: EquipmentId): LoadoutSlot => ({
     equipmentId,
     state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 },
   });
   return [
-    weaponSlot('gun'),
-    weaponSlot('torpedo'),
-    weaponSlot('mine'),
+    fittedSlot('gun'),
+    fittedSlot('torpedo'),
+    fittedSlot(slotTwoEquipment(hullId)),
     { equipmentId: null, state: null },
   ];
 }

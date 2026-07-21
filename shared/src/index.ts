@@ -3,6 +3,9 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  7: torpedo-boat loadout (Story 1.6) — InputMsg gains required actSeq/actSlot
+ *  (instant ability activation); OwnShip gains required owner-only boostUntil
+ *  (active speed-boost window end, server-clock ms).
  *  6: firing under latency (D1) — InputMsg gains required fireT (client
  *  server-clock fire timestamp, 0 = no claim); new 'p' ping channel
  *  (PingMsg/PongMsg) for server-side RTT measurement.
@@ -18,7 +21,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 // Tunables
 export * from './constants.js';
@@ -36,6 +39,7 @@ export * from './math/rng.js';
 export * from './sim/ship.js';
 export * from './sim/stats.js';
 export * from './sim/loadout.js';
+export * from './sim/boost.js';
 export * from './sim/offers.js';
 export * from './sim/collision.js';
 export * from './sim/silhouette.js';
