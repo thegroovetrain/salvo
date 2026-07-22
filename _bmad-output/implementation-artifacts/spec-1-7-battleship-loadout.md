@@ -88,10 +88,10 @@ warnings: [multiple-goals, oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/` (constants, types, index, sim/loadout, sim/stats) -- CONFIG blocks, LitZoneView + litZones channel, PV8, BB loadout, pass-through stats -- the deterministic spine, unit-tested.
-- [ ] `server/src/game/` (equipment/cannon + starShells + index, world, perception, signals, frames) -- two weapon rows, lit-zone entity lifecycle, firer truesight-parity + radar-gated litzone row, invariant + signals + goldenFrames extensions -- authoritative loadout complete against the full I/O matrix.
-- [ ] `client/src/` (render/weaponArc, render/firing, sim/inputSampler, net/roomBindings, render/litZones NEW, render/hud) -- equipment-id-aware aim UX, lit-circle overlay with by-tint, chips -- firer feel end-to-end with ML/TB byte-identical.
-- [ ] Test sweep -- suites in Code Map + `npm run check` green.
+- [x] `shared/src/` (constants, types, index, sim/loadout, sim/stats) -- CONFIG blocks, LitZoneView + litZones channel, PV8, BB loadout, pass-through stats -- the deterministic spine, unit-tested.
+- [x] `server/src/game/` (equipment/cannon + starShells + index, world, perception, signals, frames) -- two weapon rows, lit-zone entity lifecycle, firer truesight-parity + radar-gated litzone row, invariant + signals + goldenFrames extensions -- authoritative loadout complete against the full I/O matrix.
+- [x] `client/src/` (render/weaponArc, render/firing, sim/inputSampler, net/roomBindings, render/litZones NEW, render/hud) -- equipment-id-aware aim UX, lit-circle overlay with by-tint, chips -- firer feel end-to-end with ML/TB byte-identical.
+- [x] Test sweep -- suites in Code Map + `npm run check` green (exit 0; 240/552/365 = 1157 tests, was 1081 at baseline).
 - [ ] `sprint-status.yaml` -- status transition.
 
 **Acceptance Criteria:**
