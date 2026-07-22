@@ -36,7 +36,7 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(7);
+    expect(PROTOCOL_VERSION).toBe(8);
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -91,8 +91,40 @@ describe('shared barrel', () => {
   it('re-exports the torpedo-boat loadout system (Story 1.6)', () => {
     expect(typeof loadoutFor).toBe('function');
     expect(typeof boostedKinematics).toBe('function');
-    expect(EQUIPMENT_IS_WEAPON).toEqual({ gun: true, torpedo: true, mine: true, speedBoost: false });
     expect(CONFIG.speedBoost).toEqual({ speedBonus: 10, durationMs: 6000, maxAmmo: 1, reloadMs: 18000 });
+  });
+
+  it('re-exports the battleship loadout system (Story 1.7)', () => {
+    expect(EQUIPMENT_IS_WEAPON).toEqual({
+      gun: true,
+      torpedo: true,
+      mine: true,
+      speedBoost: false,
+      cannon: true,
+      starShells: true,
+    });
+    expect(CONFIG.cannon).toEqual({
+      shellSpeed: 200,
+      maxAmmo: 1,
+      reloadMs: 15000,
+      damage: 50,
+      contactDamage: 20,
+      burstRadius: 30,
+      shellRadius: 2,
+    });
+    expect(CONFIG.starShells).toEqual({
+      shellSpeed: 130,
+      maxAmmo: 1,
+      reloadMs: 20000,
+      damage: 10,
+      litRadius: 110,
+      litDurationMs: 10000,
+      shellRadius: 2,
+    });
+    // NO range fields: both ranges derive from CONFIG.vision.radar in
+    // effectiveStats() (gun base parity — never a duplicated constant).
+    expect('rangeU' in CONFIG.cannon).toBe(false);
+    expect('rangeU' in CONFIG.starShells).toBe(false);
   });
 
   it('re-exports the offer/spend system', () => {

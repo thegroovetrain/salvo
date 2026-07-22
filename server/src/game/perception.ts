@@ -26,7 +26,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import type { BallisticEvent, BlipEvent, Contact, GameEvent, MineView } from '@salvo/shared';
+import type { BallisticEvent, BlipEvent, Contact, GameEvent, LitZoneView, MineView } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, signalFor, type SignalContext } from './signals.js';
 
@@ -35,12 +35,21 @@ export interface PerceptionView {
   contacts: Contact[];
   events: GameEvent[];
   mines: MineView[];
+  litZones: LitZoneView[];
 }
 
 /** The narrow row context for the FOGGED path (observe() fail-closes before
  *  this when the observer has no ship, so rows always get a real `me`). */
 function foggedContext(world: World, me: ShipRecord): SignalContext {
-  return { mode: 'fogged', me, observerId: me.id, now: world.now, islands: world.map.islands, ships: world.ships };
+  return {
+    mode: 'fogged',
+    me,
+    observerId: me.id,
+    now: world.now,
+    islands: world.map.islands,
+    ships: world.ships,
+    litZones: world.litZones,
+  };
 }
 
 /** The narrow row context for the UNFOGGED spectator path (`me` may be
@@ -53,6 +62,7 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     now: world.now,
     islands: world.map.islands,
     ships: world.ships,
+    litZones: world.litZones,
   };
 }
 
@@ -122,6 +132,20 @@ function mineScan(world: World, ctx: SignalContext): MineView[] {
   return out;
 }
 
+/** Per-observer lit-zone visibility (Story 1.7) — contact-like state exactly
+ *  like mines, recomputed every tick through the litzone row, in Map-insertion
+ *  (burst) order. Only the radar-gated circle rides here; the firer's
+ *  truesight parity inside a zone flows through the contact/mine/ballistic
+ *  rows (signals.ownZoneCovers). */
+function litZoneScan(world: World, ctx: SignalContext): LitZoneView[] {
+  const out: LitZoneView[] = [];
+  const row = SIGNAL_REGISTRY.litzone;
+  for (const zone of world.litZones.values()) {
+    if (row.visible(ctx, zone)) out.push(row.materialize(ctx, zone));
+  }
+  return out;
+}
+
 /** One registry-driven view build — both observer modes share it; the ctx mode
  *  is the ONLY thing that differs. Emission order per the header: forwarded
  *  world events → ballistic reveals → blips (spectator blips are none by rule:
@@ -131,7 +155,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
   const events = forwardedEvents(world, ctx);
   events.push(...ballisticScan(world, ctx));
   events.push(...blips);
-  return { contacts, events, mines: mineScan(world, ctx) };
+  return { contacts, events, mines: mineScan(world, ctx), litZones: litZoneScan(world, ctx) };
 }
 
 /**
@@ -141,7 +165,7 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [] };
   return view(world, foggedContext(world, me));
 }
 

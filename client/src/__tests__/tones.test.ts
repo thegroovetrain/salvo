@@ -21,6 +21,8 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireGun',
   'fireTorp',
   'fireMine',
+  'fireCannon',
+  'fireStarShells',
   'damage',
   'kill',
   'point',
@@ -68,11 +70,18 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
     expect(fireTone('gun')).toBe('fireGun');
     expect(fireTone('torpedo')).toBe('fireTorp');
     expect(fireTone('mine')).toBe('fireMine');
+    expect(fireTone('cannon')).toBe('fireCannon'); // Story 1.7: BB heavy report
+    expect(fireTone('starShells')).toBe('fireStarShells'); // Story 1.7: BB flare pop
   });
 
-  it('covers all three weapon ids with no gaps', () => {
-    const ids = ['gun', 'torpedo', 'mine'] as const;
+  it('covers all five weapon ids with no gaps', () => {
+    const ids = ['gun', 'torpedo', 'mine', 'cannon', 'starShells'] as const;
     for (const id of ids) expect(TONES[fireTone(id)]).toBeDefined();
+  });
+
+  it('the cannon report is heavier (lower start) than the gun crack; the flare is a distinct rise', () => {
+    expect(TONES.fireCannon.freqStart).toBeLessThan(TONES.fireGun.freqStart); // heavier
+    expect(TONES.fireStarShells.freqEnd).toBeGreaterThan(TONES.fireStarShells.freqStart); // rising pop
   });
 });
 

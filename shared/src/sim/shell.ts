@@ -69,6 +69,14 @@ export interface ShellState {
   targetY: number | null; // u
   burstRadius: number; // u — blast radius around the target point (0 = contact-only)
   contactDamage: number; // hp to an early interceptor outside the blast (= damage for contact-only)
+  /**
+   * SERVER-INTERNAL star-shell tag (Story 1.7): when set, a BURST of this
+   * shell also spawns a lit zone of `radius` for `durationMs` (World.
+   * resolveBurst). Absent on every other projectile; stepShell never reads it.
+   * NEVER on the wire — the ballistic wire shape stays {k,id,x,y,vx,vy,t}
+   * (BallisticEvent), and the perception shape guards pin that.
+   */
+  lit?: { radius: number; durationMs: number };
 }
 
 /**

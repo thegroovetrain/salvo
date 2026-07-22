@@ -5,7 +5,7 @@
 // main.ts. Kept a leaf module: it imports only shared types, never render,
 // net, or input code.
 
-import type { OwnShip } from '@salvo/shared';
+import type { LitZoneView, OwnShip } from '@salvo/shared';
 
 /** Coarse client phase. Expands (waiting/countdown/spectate) in later steps. */
 export type Phase = 'connecting' | 'active';
@@ -23,6 +23,10 @@ export interface NetState {
   tick: number; // latest server tick seen
   ackSeq: number; // highest input seq the server has applied
   you: OwnShip | null; // latest authoritative own-ship, null pre-first-frame
+  /** Latest per-observer lit-zone list (mirrors FrameMsg.litZones; [] when the
+   *  observer sees none). Read by the render loop to derive the own ACTIVE zones
+   *  that keep beyond-sight shells (projectiles) and clear the own fog (fog). */
+  litZones: LitZoneView[];
 }
 
 export interface GameState {
@@ -44,7 +48,7 @@ export function createGameState(sessionId: string): GameState {
   return {
     phase: 'connecting',
     mode: 'predict',
-    net: { sessionId, tick: 0, ackSeq: 0, you: null },
+    net: { sessionId, tick: 0, ackSeq: 0, you: null, litZones: [] },
     respawnEta: null,
     spectating: false,
     killerId: null,

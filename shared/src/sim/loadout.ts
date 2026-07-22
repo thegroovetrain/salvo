@@ -1,17 +1,17 @@
 // Slot-based equipment loadout — the shared spine every fitted system builds
 // on (Story 1.2). A ship's loadout IS its equipment runtime: 4 slots (gun,
 // two specials, one extra), each either empty or holding one equipment id +
-// its state. The fit is now per-hull (Story 1.6): the Torpedo Boat carries
-// [gun, torpedo, speedBoost, empty], while every other hull — Battleship,
-// Mine Layer, and all drones — keeps the universal fit [gun, torpedo, mine,
-// empty] until Stories 1.7/1.8. speedBoost is the first non-weapon special.
-// Pure, zero I/O.
+// its state. The fit is per-hull (Stories 1.6–1.7): the Torpedo Boat carries
+// [gun, torpedo, speedBoost, empty], the Battleship carries
+// [gun, cannon, starShells, empty], while every other hull — Mine Layer and
+// all drones — keeps the universal fit [gun, torpedo, mine, empty] until
+// Story 1.8. speedBoost is the first non-weapon special. Pure, zero I/O.
 
 import type { HullId } from '../constants.js';
 import type { EffectiveStats } from './stats.js';
 
 /** Equipment ids fittable into a loadout slot (weapons + the speed-boost ability). */
-export type EquipmentId = 'gun' | 'torpedo' | 'mine' | 'speedBoost';
+export type EquipmentId = 'gun' | 'torpedo' | 'mine' | 'speedBoost' | 'cannon' | 'starShells';
 
 /**
  * THE single source of the weapon/ability split: true iff a piece of equipment
@@ -25,6 +25,8 @@ export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   torpedo: true,
   mine: true,
   speedBoost: false,
+  cannon: true, // Story 1.7: prime-then-click burst skillshot (gun pattern)
+  starShells: true, // Story 1.7: prime-then-click skillshot (spawns a lit zone at burst)
 };
 
 /**
@@ -74,6 +76,8 @@ export function equipmentMaxAmmo(stats: EffectiveStats, id: EquipmentId): number
     torpedo: stats.torpedo.maxAmmo,
     mine: stats.mine.maxAmmo,
     speedBoost: stats.boost.maxAmmo,
+    cannon: stats.cannon.maxAmmo,
+    starShells: stats.starShells.maxAmmo,
   }[id];
 }
 
@@ -84,31 +88,39 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
     torpedo: stats.torpedo.reloadMs,
     mine: stats.mine.reloadMs,
     speedBoost: stats.boost.reloadMs,
+    cannon: stats.cannon.reloadMs,
+    starShells: stats.starShells.reloadMs,
   }[id];
 }
 
-/** The slot-2 special each hull id fits: speedBoost for the Torpedo Boat, mine for all others. */
-function slotTwoEquipment(hullId: HullId): EquipmentId {
-  return hullId === 'torpedoBoat' ? 'speedBoost' : 'mine';
+/** The two specials (slots 1–2) each hull id fits: torpedo + speedBoost for the
+ *  Torpedo Boat (1.6), cannon + starShells for the Battleship (1.7), the
+ *  universal torpedo + mine for everyone else (Mine Layer + all drones). */
+function specialsFor(hullId: HullId): [EquipmentId, EquipmentId] {
+  if (hullId === 'torpedoBoat') return ['torpedo', 'speedBoost'];
+  if (hullId === 'battleship') return ['cannon', 'starShells'];
+  return ['torpedo', 'mine'];
 }
 
 /**
- * The loadout a given hull id spawns with (Story 1.6, per-hull). The Torpedo
- * Boat fits [gun, torpedo, speedBoost, empty]; every other hull id — Battleship,
- * Mine Layer, and all drone sizes — keeps the universal fit
- * [gun, torpedo, mine, empty]. Fitted slots start with a full pool and an idle
- * reload timer — exactly matching server `freshAmmo(equipmentMaxAmmo(stats, id))`
- * semantics. Further per-class variation is deferred to Stories 1.7-1.9.
+ * The loadout a given hull id spawns with (per-hull, Stories 1.6–1.7). The
+ * Torpedo Boat fits [gun, torpedo, speedBoost, empty]; the Battleship fits
+ * [gun, cannon, starShells, empty]; every other hull id — Mine Layer and all
+ * drone sizes — keeps the universal fit [gun, torpedo, mine, empty]. Fitted
+ * slots start with a full pool and an idle reload timer — exactly matching
+ * server `freshAmmo(equipmentMaxAmmo(stats, id))` semantics. The Mine Layer's
+ * fitted loadout is deferred to Story 1.8.
  */
 export function loadoutFor(hullId: HullId, stats: EffectiveStats): LoadoutSlot[] {
   const fittedSlot = (equipmentId: EquipmentId): LoadoutSlot => ({
     equipmentId,
     state: { n: equipmentMaxAmmo(stats, equipmentId), reloadMsLeft: 0 },
   });
+  const [slotOne, slotTwo] = specialsFor(hullId);
   return [
     fittedSlot('gun'),
-    fittedSlot('torpedo'),
-    fittedSlot(slotTwoEquipment(hullId)),
+    fittedSlot(slotOne),
+    fittedSlot(slotTwo),
     { equipmentId: null, state: null },
   ];
 }

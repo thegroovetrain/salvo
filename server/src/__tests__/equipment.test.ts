@@ -42,12 +42,14 @@ function bareWorld(seed = 7): World {
   return w;
 }
 
-/** Add a ship and pin it to the origin at a known heading (speed 0). Battleship
- *  because this suite exercises the UNIVERSAL weapon fit [gun, torpedo, mine,
- *  empty] — which, post Story 1.6, lives on every hull EXCEPT the Torpedo Boat
- *  (it fits speedBoost in slot 2). WEAPON_IDS / SLOT_MINE below assume it. */
+/** Add a ship and pin it to the origin at a known heading (speed 0). Mine
+ *  Layer because this suite exercises the UNIVERSAL weapon fit [gun, torpedo,
+ *  mine, empty] — which, post Stories 1.6/1.7, lives on every hull EXCEPT the
+ *  Torpedo Boat (speedBoost in slot 2) and the Battleship
+ *  ([gun, cannon, starShells, empty] — see cannon/starShells suites).
+ *  WEAPON_IDS / SLOT_MINE below assume it. */
 function place(w: World, id: string, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), false, 'battleship');
+  const rec = w.addShip(id, id.toUpperCase(), false, 'mineLayer');
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
 }
@@ -80,12 +82,19 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly gun / torpedo / mine / speedBoost', () => {
-    expect(Object.keys(EQUIPMENT).sort()).toEqual(['gun', 'mine', 'speedBoost', 'torpedo']);
+  it('holds exactly gun / torpedo / mine / speedBoost / cannon / starShells', () => {
+    expect(Object.keys(EQUIPMENT).sort()).toEqual([
+      'cannon',
+      'gun',
+      'mine',
+      'speedBoost',
+      'starShells',
+      'torpedo',
+    ]);
   });
 
   // Content-level, NOT conformance: the weapon/ability split rides the shared
-  // EQUIPMENT_IS_WEAPON map (single source) — the three weapons are weapons,
+  // EQUIPMENT_IS_WEAPON map (single source) — the five weapons are weapons,
   // Story 1.6's speedBoost is the first non-weapon (isWeapon:false) ability row.
   it('each row mirrors the shared EQUIPMENT_IS_WEAPON split', () => {
     for (const [id, row] of Object.entries(EQUIPMENT)) {
@@ -95,6 +104,8 @@ describe('EQUIPMENT registry — interface conformance', () => {
     expect(EQUIPMENT.torpedo.isWeapon).toBe(true);
     expect(EQUIPMENT.mine.isWeapon).toBe(true);
     expect(EQUIPMENT.speedBoost.isWeapon).toBe(false);
+    expect(EQUIPMENT.cannon.isWeapon).toBe(true); // Story 1.7
+    expect(EQUIPMENT.starShells.isWeapon).toBe(true); // Story 1.7
   });
 
   it('the registry itself is frozen — rows cannot be added', () => {

@@ -117,9 +117,9 @@ describe('chipLabel — the LOADOUT-driven chip row', () => {
       .filter((t): t is string => t !== null);
   }
 
-  it('TB shows BOOST in slot 2; BB/ML keep MINE (labels come from the loadout, not a hardcoded trio)', () => {
+  it('each hull labels its own fit: TB boost, BB cannon/flare, ML the universal mine', () => {
     expect(labelsFor('torpedoBoat')).toEqual(['1 GUNS', '2 TORP', '3 BOOST']);
-    expect(labelsFor('battleship')).toEqual(['1 GUNS', '2 TORP', '3 MINE']);
+    expect(labelsFor('battleship')).toEqual(['1 GUNS', '2 CANNON', '3 FLARE']); // Story 1.7
     expect(labelsFor('mineLayer')).toEqual(['1 GUNS', '2 TORP', '3 MINE']);
   });
 });
@@ -128,6 +128,13 @@ describe('chip grammar — cooldown sweep vs segmented pool, keyed on equipment 
   it('the gun and the boost ability read as pure cooldowns', () => {
     expect(chipUsesCooldownGrammar('gun')).toBe(true);
     expect(chipUsesCooldownGrammar('speedBoost')).toBe(true); // ability charge
+  });
+
+  it('the Battleship cannon + star shells read as pure cooldowns (Story 1.7: 1-round skillshots)', () => {
+    // Gun-style 1-round long-cooldown skillshots that no ammo grant grows —
+    // cooldown grammar, unlike the growable torpedo/mine pools below.
+    expect(chipUsesCooldownGrammar('cannon')).toBe(true);
+    expect(chipUsesCooldownGrammar('starShells')).toBe(true);
   });
 
   it('WEAPON pools keep the segmented-pool grammar regardless of pool size', () => {

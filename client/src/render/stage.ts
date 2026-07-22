@@ -27,6 +27,9 @@ export interface StageLayers {
   map: Container;
   /** Storm circle (render/zone.ts) — charted, fog-immune; above the base map. */
   zone: Container;
+  /** Star-shell lit zones (render/litZones.ts) — a fog-immune additive glow,
+   *  beneath the tactical markers so blips/mines/reticle stay readable on top. */
+  litZone: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
   blip: Container;
@@ -105,6 +108,7 @@ export async function createStage(): Promise<Stage> {
     ship: child(worldRoot),
     map: child(chartRoot),
     zone: child(chartRoot),
+    litZone: child(chartRoot),
     mineChart: child(chartRoot),
     blip: child(chartRoot),
     aim: child(chartRoot),

@@ -23,6 +23,7 @@ import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import { CONFIG, type BallisticEvent, type BoomEvent, type BurstEvent } from '@salvo/shared';
 import { Pool } from '../util/pool.js';
+import { insideAnyZone, type OwnZone } from './litZones.js';
 
 type Kind = BallisticEvent['k'];
 
@@ -84,6 +85,24 @@ function outsideBubble(
   return dx * dx + dy * dy > cull2;
 }
 
+/**
+ * Pure: should a dead-reckoned projectile at `p` be culled this frame? Culled
+ * once it leaves the sight bubble (+ margin) UNLESS it lies inside one of the
+ * own ship's active lit zones — a star-shell zone grants truesight parity, so
+ * the server keeps revealing an enemy shell/torpedo inside it and (crucially)
+ * NEVER re-sends after a cull destroys the local track (exactly-once reveal).
+ * `keepZones` is the own ACTIVE zones (litZones.ownActiveZones); empty for a
+ * hull that fired no flare, restoring the pre-1.7 bubble-only cull exactly.
+ */
+export function shellCulledBeyondSight(
+  p: { x: number; y: number },
+  origin: { x: number; y: number },
+  cull2: number,
+  keepZones: readonly OwnZone[],
+): boolean {
+  return outsideBubble(p, origin, cull2) && !insideAnyZone(p, keepZones);
+}
+
 interface LiveShell {
   gfx: Graphics;
   kind: Kind;
@@ -118,6 +137,11 @@ export class Projectiles {
   /** Track the own ship's effective sight range so reveals don't pop early. */
   setSightRange(sightRange: number): void {
     this.cull2 = (sightRange + SIGHT_CULL_MARGIN) ** 2;
+  }
+
+  /** Number of projectiles currently tracked (test/diagnostic observability). */
+  get liveCount(): number {
+    return this.live.size;
   }
 
   private makeBlank(): Graphics {
@@ -168,16 +192,19 @@ export class Projectiles {
    * Advance all live projectiles to `serverNow` (ms). Retire any past their
    * per-kind max lifetime, or (when `ownPos` is known) once their dead-reckoned
    * position leaves the own ship's sight bubble — invisible under fog there
-   * anyway. Torpedoes drop a throttled wake trail along their dead-reckoned path.
+   * anyway — UNLESS it lies inside an own active lit zone (`keepZones`, Story
+   * 1.7: truesight parity keeps revealing it; culling would blind the firer
+   * permanently, the reveal is exactly-once). Torpedoes drop a throttled wake
+   * trail along their dead-reckoned path.
    */
-  render(serverNow: number, ownPos?: { x: number; y: number }): void {
+  render(serverNow: number, ownPos?: { x: number; y: number }, keepZones: readonly OwnZone[] = []): void {
     for (const [id, s] of this.live) {
       if (serverNow >= s.expiresAt) {
         this.remove(id);
         continue;
       }
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
-      if (ownPos && outsideBubble(p, ownPos, this.cull2)) {
+      if (ownPos && shellCulledBeyondSight(p, ownPos, this.cull2, keepZones)) {
         this.remove(id);
         continue;
       }

@@ -100,6 +100,8 @@ const EQUIPMENT_LABEL: Record<EquipmentId, string> = {
   torpedo: 'TORP',
   mine: 'MINE',
   speedBoost: 'BOOST',
+  cannon: 'CANNON', // Story 1.7: the Battleship's long-range burst skillshot
+  starShells: 'FLARE', // Story 1.7: the Battleship's lit-zone star shell
 };
 
 /** Pure: one chip's label — "1 GUNS", "3 BOOST", … (key hint = slot index + 1). */
@@ -110,13 +112,15 @@ export function chipLabel(slot: number, id: EquipmentId): string {
 /**
  * Pure: does this equipment's chip use the cooldown-sweep grammar (vs the
  * segmented ammo pool)? Keyed on EQUIPMENT IDENTITY, never on pool size: the
- * gun's single shot and ability charges (the boost) read as pure cooldowns,
- * while WEAPON pools (torpedo/mine) keep the segmented-pool + reload-line
- * grammar even at maxAmmo 1 — a 1-fish tube is still a pool, and it grows
- * mid-match on an ammo grant without the chip flipping vocabulary.
+ * gun's single shot, the cannon and star shells (1-round long-cooldown gun-style
+ * skillshots, Story 1.7 — no ammo grant grows them), and ability charges (the
+ * boost) all read as pure cooldowns, while GROWABLE weapon pools (torpedo/mine)
+ * keep the segmented-pool + reload-line grammar even at maxAmmo 1 — a 1-fish
+ * tube is still a pool, and it grows mid-match on an ammo grant without the chip
+ * flipping vocabulary.
  */
 export function chipUsesCooldownGrammar(id: EquipmentId): boolean {
-  return id === 'gun' || !EQUIPMENT_IS_WEAPON[id];
+  return id === 'gun' || id === 'cannon' || id === 'starShells' || !EQUIPMENT_IS_WEAPON[id];
 }
 const CHIP_GAP = 6;
 const CHIP_H = 20;

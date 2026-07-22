@@ -11,6 +11,8 @@ export type ToneId =
   | 'fireGun'
   | 'fireTorp'
   | 'fireMine'
+  | 'fireCannon'
+  | 'fireStarShells'
   | 'damage'
   | 'kill'
   | 'point'
@@ -44,6 +46,12 @@ export const TONES: Record<ToneId, ToneSpec> = {
   fireTorp: { freqStart: 180, freqMid: 140, freqEnd: 90, duration: 0.14, volume: 0.4, type: 'sawtooth', noise: true },
   // Mine: soft low plop, no noise layer (a drop, not a launch).
   fireMine: { freqStart: 220, freqMid: 150, freqEnd: 90, duration: 0.12, volume: 0.4, type: 'sine' },
+  // Cannon (Story 1.7): a HEAVIER gun report — lower + more body than the gun
+  // crack, with a bigger noise transient (the Battleship's big shell).
+  fireCannon: { freqStart: 520, freqMid: 200, freqEnd: 80, duration: 0.14, volume: 0.55, type: 'square', noise: true },
+  // Star shell (Story 1.7): a distinct utility POP — a bright airy rising whistle
+  // (a flare climbing into the sky), no heavy noise: not a gun, not a fish.
+  fireStarShells: { freqStart: 360, freqMid: 640, freqEnd: 900, duration: 0.13, volume: 0.4, type: 'triangle' },
   // Taking damage: dull triangle thud.
   damage: { freqStart: 220, freqMid: 160, freqEnd: 110, duration: 0.1, volume: 0.45, type: 'triangle' },
   // Kill confirm: short ascending chime.
@@ -84,6 +92,8 @@ const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   gun: 'fireGun',
   torpedo: 'fireTorp',
   mine: 'fireMine',
+  cannon: 'fireCannon',
+  starShells: 'fireStarShells',
 };
 
 /** Pure: which tone a weapon's own-fire cue plays. */

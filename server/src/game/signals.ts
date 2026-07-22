@@ -1,8 +1,8 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 11 GameEvent kinds plus the two contact-like frame channels
-// (`contact` and `mine`, pseudo event types — they are not GameEvents, but the
-// invariant suite iterates them like everything else). perception.ts's
+// row here: the 11 GameEvent kinds plus the three contact-like frame channels
+// (`contact`, `mine`, and `litzone` — pseudo event types: not GameEvents, but
+// the invariant suite iterates them like everything else). perception.ts's
 // observe()/observeSpectator() are the ONLY callers of a row's visible()/
 // materialize(); nothing spatial leaves the server outside a row.
 //
@@ -20,7 +20,8 @@
 // msgpack key order follows object insertion order. Every materialize() below
 // builds its wire object in the exact historical field order (Contact:
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
-// k,id,x,y; MineView: id,x,y,own). Do not reorder keys.
+// k,id,x,y; MineView: id,x,y,own; LitZoneView: id,x,y,r,until,by). Do not
+// reorder keys.
 
 import {
   bearing,
@@ -35,6 +36,7 @@ import {
   type DamageEvent,
   type GameEvent,
   type HealEvent,
+  type LitZoneView,
   type MineView,
   type PointEvent,
   type ShellState,
@@ -43,7 +45,7 @@ import {
   type UpgradeEvent,
   type Vec2,
 } from '@salvo/shared';
-import type { ShipRecord } from './world.js';
+import type { LitZone, ShipRecord } from './world.js';
 import type { MineState } from './equipment/index.js';
 
 // ---------------------------------------------------------------------------
@@ -60,6 +62,9 @@ interface SignalContextBase {
   islands: readonly Circle[];
   /** Ship records by id — victim/wreck lookups (boom stripping, sunk gating). */
   ships: ReadonlyMap<string, ShipRecord>;
+  /** All ACTIVE star-shell lit zones (Story 1.7) — the owned-zone truesight
+   *  source (ownZoneCovers) and the litzone row's scan subjects. */
+  litZones: ReadonlyMap<string, LitZone>;
 }
 
 /** The fogged observe() path: rows apply full fog-of-war. observe() fail-closes
@@ -133,6 +138,28 @@ function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Circle[]): bool
 }
 
 /**
+ * True iff a lit zone OWNED by this observer covers point `p` (Story 1.7):
+ * dist(p, zone center) ≤ zone radius, boundary INCLUSIVE. "Lit from above" —
+ * deliberately NO island-LOS term on any zone path (an island between the
+ * observer and a lit point never blocks the reveal; the flare hangs over the
+ * water). FIRER-ONLY by construction: only zones whose ownerId is the
+ * observer count, so a non-owner NEVER gains contacts/mines/ballistics from
+ * someone else's zone. Feeds the contact/mine/ballistic rows as an OR beside
+ * their sight gates.
+ */
+export function ownZoneCovers(ctx: SignalContext, p: Vec2): boolean {
+  const me = ctx.me;
+  if (!me) return false;
+  for (const zone of ctx.litZones.values()) {
+    if (zone.ownerId !== me.id) continue;
+    const dx = p.x - zone.x;
+    const dy = p.y - zone.y;
+    if (dx * dx + dy * dy <= zone.r * zone.r) return true;
+  }
+  return false;
+}
+
+/**
  * True iff the observer's beam crossed `brg` this tick: the half-open window
  * [prevSweepAngle, sweepAngle), wrap-safe. Start-inclusive + strict `<` at the
  * end means each bearing is painted exactly once per revolution.
@@ -161,9 +188,11 @@ function inRadarAnnulus(me: ShipRecord, target: ShipRecord): boolean {
 
 /**
  * `contact` — true-sight tier: another live hull within the observer's
- * effective sight range (boundary INCLUSIVE) + LOS-clear. Live position/
- * heading/speed straight from the sim. Spectators (unfogged) see every alive
- * hull — including, in the finished phase, their own.
+ * effective sight range (boundary INCLUSIVE) + LOS-clear, OR the hull's
+ * CENTER inside a lit zone the observer OWNS (Story 1.7 — firer-only
+ * truesight parity, "lit from above": no LOS term on the zone path). Live
+ * position/heading/speed straight from the sim. Spectators (unfogged) see
+ * every alive hull — including, in the finished phase, their own.
  */
 const contactSignal: SignalSpec<ShipRecord, Contact> = {
   eventType: 'contact',
@@ -175,7 +204,10 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     const dx = ship.state.x - me.state.x;
     const dy = ship.state.y - me.state.y;
     const sight = me.stats.sightRange;
-    return dx * dx + dy * dy <= sight * sight && losClear(me.state, ship.state, ctx.islands);
+    return (
+      (dx * dx + dy * dy <= sight * sight && losClear(me.state, ship.state, ctx.islands)) ||
+      ownZoneCovers(ctx, ship.state)
+    );
   },
   materialize(_ctx, ship) {
     const s = ship.state;
@@ -188,19 +220,53 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
  * `mine` — contact-like state (NOT events), recomputed every tick exactly like
  * contacts. The owner sees ALL its own mines always (own field awareness, even
  * under fog); everyone else sees a mine only when it is within sight range +
- * island-LOS. Mines NEVER radar-paint, and arm state makes no difference to
- * visibility. A static persistent entity synced this way cannot suffer
- * event-lifecycle staleness (a triggered/despawned mine simply drops out of
- * the next frame's list). Spectators see every mine.
+ * island-LOS — OR inside a lit zone the observer OWNS (Story 1.7 truesight
+ * parity, no LOS on the zone path). Mines NEVER radar-paint, and arm state
+ * makes no difference to visibility. A static persistent entity synced this
+ * way cannot suffer event-lifecycle staleness (a triggered/despawned mine
+ * simply drops out of the next frame's list). Spectators see every mine.
  */
 const mineSignal: SignalSpec<MineState, MineView> = {
   eventType: 'mine',
   visible(ctx, mine) {
     if (ctx.mode === 'spectator') return true;
-    return mine.ownerId === ctx.me.id || pointSighted(ctx.me, mine, ctx.islands);
+    return (
+      mine.ownerId === ctx.me.id ||
+      pointSighted(ctx.me, mine, ctx.islands) ||
+      ownZoneCovers(ctx, mine)
+    );
   },
   materialize(ctx, mine) {
     return { id: mine.id, x: mine.x, y: mine.y, own: mine.ownerId === ctx.observerId };
+  },
+};
+
+/**
+ * `litzone` — contact-like state (NOT events), recomputed every tick exactly
+ * like mines (Story 1.7). The OWNER (firer) always sees its own zones; any
+ * other fogged observer sees a zone iff its CENTER is within the observer's
+ * effective radar range — deliberately NO island LOS and NO sweep gate (a
+ * 10s flare in the sky, not a hull paint; zone-CENTER distance, not
+ * circle-edge, keeps the rule one comparison). Invisible beyond radar range.
+ * Spectators see all. ONLY the circle rides this row — the firer's truesight
+ * parity inside it flows through the contact/mine/ballistic rows
+ * (ownZoneCovers), never here. `by` is the firer's ship id
+ * (roster-resolvable — the 1.12 personal-hue hook).
+ */
+const litZoneSignal: SignalSpec<LitZone, LitZoneView> = {
+  eventType: 'litzone',
+  visible(ctx, zone) {
+    if (ctx.mode === 'spectator') return true;
+    const me = ctx.me;
+    if (zone.ownerId === me.id) return true;
+    const dx = zone.x - me.state.x;
+    const dy = zone.y - me.state.y;
+    const radar = me.stats.radarRange;
+    return dx * dx + dy * dy <= radar * radar; // no LOS, no sweep gate
+  },
+  materialize(_ctx, zone) {
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,until,by.
+    return { id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId };
   },
 };
 
@@ -215,7 +281,10 @@ const mineSignal: SignalSpec<MineState, MineView> = {
  * once per revolution). Paints carry position-at-paint-time; the server keeps
  * no blip history (phosphor decay is client render math). ONLY SHIPS PAINT —
  * torpedoes and mines never appear on radar (the ship scan iterates ships
- * only, by construction). Spectators get live contacts instead, never blips.
+ * only, by construction). A ship inside a lit zone the observer OWNS never
+ * blips: it is already a FULL contact (Story 1.7), and the row stays
+ * self-contained rather than leaning on the scan's contact-first ordering.
+ * Spectators get live contacts instead, never blips.
  */
 const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
   eventType: 'blip',
@@ -226,6 +295,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
     if (ctx.mode !== 'fogged') return false;
     const me = ctx.me;
     if (!target.alive || target.id === me.id) return false;
+    if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
     return (
       inRadarAnnulus(me, target) &&
       sweptThisTick(me, bearing(me.state, target.state)) &&
@@ -266,7 +336,14 @@ function ballisticSignal(kind: 'shell' | 'torp'): SignalSpec<ShellState, Ballist
       const me = ctx.me;
       if (!me || me.seenBallistics.has(shell.id)) return false;
       if (ctx.mode === 'spectator') return true;
-      return shell.ownerId === me.id || pointSighted(me, shell, ctx.islands);
+      // First-sight OR inside an OWNED lit zone (Story 1.7 truesight parity):
+      // the exactly-once seenBallistics machinery is untouched — a zone reveal
+      // marks the id like any other, so the projectile is never re-sent.
+      return (
+        shell.ownerId === me.id ||
+        pointSighted(me, shell, ctx.islands) ||
+        ownZoneCovers(ctx, shell)
+      );
     },
     materialize(ctx, shell) {
       // PURE wire-shaper — no mutation. Marking the projectile seen (the
@@ -285,28 +362,32 @@ function ballisticSignal(kind: 'shell' | 'torp'): SignalSpec<ShellState, Ballist
 // ---------------------------------------------------------------------------
 
 /**
- * `boom` — visible iff the boom location is within sight + LOS, OR the boom
- * struck the observer (`hit === me`). The shell's owner does NOT get an
- * out-of-sight boom — hit confirmation beyond sight would leak contact
- * presence; their dead-reckoned shell just expires by client lifetime. Even
- * when the boom IS visible, its `hit` (victim id) is stripped unless the
- * victim's CENTER is itself sighted (or the observer IS the victim): a hull
- * can straddle the sight edge with its center in fog, and emitting the id
- * there would leak the victim's identity. A hit-less boom just plays a generic
- * impact/splash on the client. Spectators get the raw event.
+ * `boom` — visible iff the boom location is within sight + LOS, inside a lit
+ * zone the observer OWNS (Story 1.7 truesight parity — everything a firer's
+ * zone reveals can also visibly explode), OR the boom struck the observer
+ * (`hit === me`). The shell's owner does NOT get an out-of-sight boom — hit
+ * confirmation beyond sight would leak contact presence; their dead-reckoned
+ * shell just expires by client lifetime. Even when the boom IS visible, its
+ * `hit` (victim id) is stripped unless the victim's CENTER is itself sighted
+ * or zone-covered (or the observer IS the victim): a hull can straddle the
+ * sight edge with its center in fog, and emitting the id there would leak the
+ * victim's identity. A hit-less boom just plays a generic impact/splash on
+ * the client. Spectators get the raw event.
  */
 const boomSignal: SignalSpec<BoomEvent, BoomEvent> = {
   eventType: 'boom',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx.islands);
+    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx.islands) || ownZoneCovers(ctx, e);
   },
   materialize(ctx, e) {
     if (ctx.mode === 'spectator') return e;
     const me = ctx.me;
     if (!e.hit || e.hit === me.id) return e;
     const victim = ctx.ships.get(e.hit);
-    if (victim && pointSighted(me, victim.state, ctx.islands)) return e;
+    if (victim && (pointSighted(me, victim.state, ctx.islands) || ownZoneCovers(ctx, victim.state))) {
+      return e;
+    }
     return { k: 'boom', id: e.id, x: e.x, y: e.y }; // impact visible, victim id stripped
   },
 };
@@ -325,8 +406,9 @@ export interface BurstSubject extends BurstEvent {
  * `burst` — a gun shell detonating at its target point. Visible to the shell
  * OWNER (the burst centers on the point they clicked, so it reveals nothing
  * they didn't author — unlike boom, whose owner-suppression rule guards
- * against hit-confirmation leaks) or to anyone with the burst point sighted
- * (sight + LOS, the boom pattern). Damage never rides here — burst victims
+ * against hit-confirmation leaks), to anyone with the burst point sighted
+ * (sight + LOS, the boom pattern), or with the point inside a lit zone the
+ * observer OWNS (Story 1.7). Damage never rides here — burst victims
  * get their own victim-private dmg events; burstRadius is CONFIG, never on
  * the wire.
  *
@@ -342,7 +424,7 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
   eventType: 'burst',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx.islands);
+    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx.islands) || ownZoneCovers(ctx, e);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object — never `e` verbatim, which would leak the
@@ -353,7 +435,9 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
 
 /**
  * `sunk` — visible to the victim itself, and to anyone who can see the sinking
- * ship's position (wreck position, sight + LOS). Everyone still learns
+ * ship's position (wreck position: sight + LOS, or inside a lit zone the
+ * observer OWNS — Story 1.7 truesight parity, so a firer watches a
+ * zone-revealed hull actually go down). Everyone still learns
  * alive/kills/deaths from the public roster schema — sinking is public
  * knowledge, its LOCATION is not. Spectators get the raw event.
  */
@@ -363,7 +447,8 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
     if (ctx.mode === 'spectator') return true;
     if (e.id === ctx.me.id) return true;
     const wreck = ctx.ships.get(e.id);
-    return wreck !== undefined && pointSighted(ctx.me, wreck.state, ctx.islands);
+    if (wreck === undefined) return false;
+    return pointSighted(ctx.me, wreck.state, ctx.islands) || ownZoneCovers(ctx, wreck.state);
   },
   materialize(_ctx, e) {
     return e;
@@ -372,13 +457,14 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
 
 /**
  * `spawn` — visible to the spawner itself, and to anyone who can see the spawn
- * point (sight + LOS). Spectators get the raw event.
+ * point (sight + LOS, or inside a lit zone the observer OWNS — Story 1.7).
+ * Spectators get the raw event.
  */
 const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
   eventType: 'spawn',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.id === ctx.me.id || pointSighted(ctx.me, e, ctx.islands);
+    return e.id === ctx.me.id || pointSighted(ctx.me, e, ctx.islands) || ownZoneCovers(ctx, e);
   },
   materialize(_ctx, e) {
     return e;
@@ -430,15 +516,16 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 
 /**
  * String-keyed registry of every signal channel — the 11 GameEvent kinds plus
- * the `contact`/`mine` pseudo-types. perception.ts dispatches world events by
- * `e.k` (an emitted kind with no row is a hard fail-closed drop) and drives
- * the contact/blip/ballistic/mine scans through their rows. Deep-frozen: the
- * map AND every row are frozen — rows are added at authoring time only, each
- * with its required invariant test case.
+ * the `contact`/`mine`/`litzone` pseudo-types. perception.ts dispatches world
+ * events by `e.k` (an emitted kind with no row is a hard fail-closed drop)
+ * and drives the contact/blip/ballistic/mine/litzone scans through their
+ * rows. Deep-frozen: the map AND every row are frozen — rows are added at
+ * authoring time only, each with its required invariant test case.
  */
 export const SIGNAL_REGISTRY = deepFreezeRows({
   contact: contactSignal,
   mine: mineSignal,
+  litzone: litZoneSignal,
   blip: blipSignal,
   shell: ballisticSignal('shell'),
   torp: ballisticSignal('torp'),
@@ -467,16 +554,16 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 11 GameEvent-kind rows. It excludes the contact/mine pseudo-rows so a
- * fabricated `k:'mine'` world event can never materialize (restoring the old
- * dispatcher's `default: return null` guarantee), and uses an OWN-property
- * lookup (Object.hasOwn) so an inherited prototype key ('constructor',
- * 'toString') resolves to undefined, not a Function. Any unresolved kind fails
- * closed: the caller drops the event (nothing spatial leaves the server outside
- * a registry row).
+ * ONLY the 11 GameEvent-kind rows. It excludes the contact/mine/litzone
+ * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`) world event can
+ * never materialize (restoring the old dispatcher's `default: return null`
+ * guarantee), and uses an OWN-property lookup (Object.hasOwn) so an inherited
+ * prototype key ('constructor', 'toString') resolves to undefined, not a
+ * Function. Any unresolved kind fails closed: the caller drops the event
+ * (nothing spatial leaves the server outside a registry row).
  */
 export function signalFor(kind: string): SignalSpec | undefined {
-  if (kind === 'contact' || kind === 'mine') return undefined; // pseudo-rows never dispatch
+  if (kind === 'contact' || kind === 'mine' || kind === 'litzone') return undefined; // pseudo-rows never dispatch
   if (!Object.hasOwn(SIGNAL_REGISTRY, kind)) return undefined; // own-property only
   return (SIGNAL_REGISTRY as Partial<Record<string, SignalSpec>>)[kind];
 }

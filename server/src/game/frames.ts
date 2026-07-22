@@ -92,7 +92,17 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
   if (spectates(phase, ship)) {
     const view = observeSpectator(world, playerId);
     // spec: true, `you` OMITTED — the client renders purely from contacts.
-    return { ...base, contacts: view.contacts, events: view.events, mines: view.mines, spec: true };
+    return {
+      ...base,
+      contacts: view.contacts,
+      events: view.events,
+      mines: view.mines,
+      // litZones is OPTIONAL on the wire: omitted (not an empty array) when
+      // this observer sees none, so zone-free frames stay byte-identical to
+      // pre-1.7 frames (same rule on both paths).
+      ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
+      spec: true,
+    };
   }
   const view = observe(world, playerId);
   return {
@@ -101,5 +111,6 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,
+    ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
   };
 }

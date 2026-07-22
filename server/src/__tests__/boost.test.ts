@@ -16,7 +16,8 @@ const BOOST = CONFIG.speedBoost;
 const TB_MAX = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed; // 45
 /** Slot the Torpedo Boat fits speedBoost into (Story 1.6). */
 const SLOT_BOOST = 2;
-/** Slot a universal-fit hull (BB/ML) fits its mine (a WEAPON) into. */
+/** Slot a universal-fit hull (the Mine Layer, post-1.7 — the Battleship now
+ *  fits starShells there) fits its mine (a WEAPON) into. */
 const SLOT_MINE = 2;
 
 // ---------- construction helpers ---------------------------------------------
@@ -132,9 +133,9 @@ describe('a dead ship cannot activate', () => {
 // ---------- actSeq targets abilities ONLY (weapon / empty slots inert) --------
 
 describe('actSeq is inert on a weapon or empty slot', () => {
-  it('a weapon slot (Battleship slot 2 = mine): actSeq advance drops NO mine and opens NO window', () => {
+  it('a weapon slot (Mine Layer slot 2 = mine): actSeq advance drops NO mine and opens NO window', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 'battleship');
+    const a = place(w, 'a', 'mineLayer');
     expect(a.loadout[SLOT_MINE].equipmentId).toBe('mine');
     pressActivate(w, 'a', 1, 1, SLOT_MINE); // actSeq on a WEAPON slot
     w.step();

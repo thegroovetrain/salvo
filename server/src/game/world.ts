@@ -79,6 +79,23 @@ function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): EquipmentId
   return slot ? slot.equipmentId : null;
 }
 
+/**
+ * A live star-shell lit zone (Story 1.7): a static circle spawned where a star
+ * shell BURST, granting the FIRER truesight parity inside it until `until`
+ * (the reveal rules live in signals.ts — "lit from above", no island LOS).
+ * Server-owned, NO per-ship state — a zone survives its owner's death and
+ * dies only by natural expiry (expireLitZones). The wire shape is LitZoneView
+ * ({id,x,y,r,until,by}), materialized per observer by the litzone signal row.
+ */
+export interface LitZone {
+  id: string;
+  ownerId: string; // the firer — the ONLY observer the zone reveals for
+  x: number; // u — zone center (the burst point)
+  y: number; // u
+  r: number; // u — lit radius
+  until: number; // ms — server time the zone expires
+}
+
 /** Everything the server tracks per ship, on top of the shared kinematic state. */
 export interface ShipRecord {
   id: string;
@@ -205,6 +222,8 @@ export class World {
   readonly shells = new Map<string, ShellState>();
   /** All live dropped mines (static points), in drop order. */
   readonly mines = new Map<string, MineState>();
+  /** All live star-shell lit zones (static circles), in burst order (Story 1.7). */
+  readonly litZones = new Map<string, LitZone>();
   readonly inputs = new InputStore();
   /** Drives drone hulls through the normal input path (see game/drones.ts). */
   readonly drones: DroneController;
@@ -233,6 +252,7 @@ export class World {
   private readonly upgradeRng: Rng;
   private shellSeq = 0;
   private mineSeq = 0;
+  private litZoneSeq = 0;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
@@ -368,6 +388,7 @@ export class World {
   resetForMatchStart(): void {
     this.shells.clear();
     this.mines.clear();
+    this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
     this.pending = [];
     const placed: Vec2[] = [];
     for (const ship of this.ships.values()) this.redeployShip(ship, placed);
@@ -560,6 +581,11 @@ export class World {
     const hulls = this.aliveHulls();
     this.stepShells(dt, hulls);
     this.stepMines(hulls);
+    // Lit zones (Story 1.7): natural-expiry sweep, positioned with the other
+    // static-entity resolution (the mines precedent). Zones are SPAWNED inside
+    // stepShells (resolveBurst on a star shell) and deliberately survive their
+    // owner's death — expiry is the only way out.
+    this.expireLitZones();
     this.fireControl(dtMs);
     // Ability activation (Story 1.6): the actSeq sibling of fireControl, resolved
     // in the same step-order position — both turn this tick's stored input intent
@@ -760,9 +786,35 @@ export class World {
   private resolveBurst(shell: ShellState, at: Vec2, hulls: readonly HullTarget[]): void {
     const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
     this.pending.push(burst);
+    // A star shell's burst also lights its zone (Story 1.7): the server-
+    // internal `lit` tag rides only star shells, so every other burster is
+    // untouched. The burst-flash wire event above is the SAME 'burst' row —
+    // no new GameEvent kind; the zone itself syncs contact-like as litZones.
+    if (shell.lit) this.spawnLitZone(shell, at);
     for (const victimId of burstVictims(at, shell.burstRadius, hulls, shell.ownerId)) {
       const victim = this.ships.get(victimId);
       if (victim && victim.alive) this.hitShip(victim, shell.damage, shell.ownerId);
+    }
+  }
+
+  /** Spawn a lit zone at a star shell's burst point (resolveBurst only). */
+  private spawnLitZone(shell: ShellState, at: Vec2): void {
+    const id = this.nextLitZoneId();
+    this.litZones.set(id, {
+      id,
+      ownerId: shell.ownerId,
+      x: at.x,
+      y: at.y,
+      r: shell.lit!.radius,
+      until: this.now + shell.lit!.durationMs,
+    });
+  }
+
+  /** Drop every lit zone whose lifetime has elapsed (natural expiry — the ONLY
+   *  way a zone dies: no per-ship state, owner death never clears it). */
+  private expireLitZones(): void {
+    for (const [id, zone] of this.litZones) {
+      if (this.now >= zone.until) this.litZones.delete(id);
     }
   }
 
@@ -950,6 +1002,11 @@ export class World {
   private nextMineId(): string {
     this.mineSeq += 1;
     return `m${this.mineSeq}`;
+  }
+
+  private nextLitZoneId(): string {
+    this.litZoneSeq += 1;
+    return `z${this.litZoneSeq}`;
   }
 
   /**
