@@ -2,10 +2,11 @@
 title: 'Story 1.7: Battleship Loadout'
 type: 'feature'
 created: '2026-07-21'
-status: 'in-review'
+status: 'done'
 baseline_revision: '23c9f88e12dac5653e050a7af66cbfc7a6789346'
+final_revision: 'ff3bc86'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
@@ -92,7 +93,7 @@ warnings: [multiple-goals, oversized]
 - [x] `server/src/game/` (equipment/cannon + starShells + index, world, perception, signals, frames) -- two weapon rows, lit-zone entity lifecycle, firer truesight-parity + radar-gated litzone row, invariant + signals + goldenFrames extensions -- authoritative loadout complete against the full I/O matrix.
 - [x] `client/src/` (render/weaponArc, render/firing, sim/inputSampler, net/roomBindings, render/litZones NEW, render/hud) -- equipment-id-aware aim UX, lit-circle overlay with by-tint, chips -- firer feel end-to-end with ML/TB byte-identical.
 - [x] Test sweep -- suites in Code Map + `npm run check` green (exit 0; 240/552/365 = 1157 tests, was 1081 at baseline).
-- [ ] `sprint-status.yaml` -- status transition.
+- [x] `sprint-status.yaml` -- status transition (`1-7-battleship-loadout: done`; gds-workflow-status advanced to create-story 1-8 in the same PR).
 
 **Acceptance Criteria:**
 - Given a BB spawn, when the loadout builds, then it is `[gun, cannon, starShells, empty]` while TB/ML/drones are byte-identical to 1.6, and keys 2/3 prime the new skillshots (click fires with D1 compensation).
@@ -104,6 +105,25 @@ warnings: [multiple-goals, oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-07-22 — Review pass (Blind Hunter + Edge Case Hunter, both at session capability, parallel; patch rounds routed back to the wave agents, orchestrator-verified)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 2, medium 2, low 6)
+- defer: 0
+- reject: 4: (low 4)
+- addressed_findings:
+  - `[high]` `[patch]` Zone-revealed ballistics were culled client-side: projectiles.ts removed any dead-reckoned shell beyond the sight bubble, and the server's exactly-once seenBallistics reveal was already consumed — the firer went permanently blind to every projectile its flare revealed (both hunters, cross-confirmed). Fixed: cull keeps shells inside OWN active lit zones (pure `shellCulledBeyondSight` + `ownActiveZones`, one-way threading net → main → render); matrix + integration tests.
+  - `[high]` `[patch]` Zone-revealed contacts/mines rendered beneath the 85%-opaque fog overlay — the headline intel was barely visible despite correct frames (both hunters). Fixed: fog punches real holes over own zones via a Pixi inverse geometry mask (no render-target/fog rearchitecture; enemy zones never clear fog), hole radius closing with `litZoneFade`; fog.ts's stale "server culls everything" header corrected.
+  - `[medium]` `[patch]` "Truesight parity" stopped at contacts/mines/ballistics: sunk/boom/burst/spawn stayed pointSighted-only, so a revealed ship died invisibly inside the firer's own light (both hunters; Eric's "as if you had truesight on it" has exactly one consistent reading). Fixed: all four rows OR `ownZoneCovers`, boom victim id kept when the victim's center is zone-covered; oracle + signals + goldenFrames (`scnZoneKill`, subcases 17) extended. Flagged for Eric in the result as an inferred extension of the Q&A ruling.
+  - `[medium]` `[patch]` The epic-1-context regen dropped binding constraints (frame-budget NFR, photosensitivity floor, smoke-screen/boon-pool ownership). Restored minimally; register rules and mono-floor had survived.
+  - `[low]` `[patch]` Contact + blip double-emission for a zone-covered ship in the swept radar annulus. Fixed: blipSignal refuses zone-covered ships; oracle taught.
+  - `[low]` `[patch]` Star shell borrowed CONFIG.gun.shellRadius (cross-block coupling). Fixed: own `CONFIG.starShells.shellRadius: 2` (plumbing parity with cannon, same value), pinned in tests.
+  - `[low]` `[patch]` Nothing pinned `litRadius < vision.radar`, the invariant behind "the radar-visible circle IS the tell". Fixed: guardrail assertion with rationale.
+  - `[low]` `[patch]` Dead scaffolding (`void h;` / `void b;`) in goldenFrames/perception scenarios. Removed.
+  - `[low]` `[patch]` `weaponRangeU` silently returned the gun's range for non-gun-like ids. Fixed: fail-loud CONTRACT doc (gunLike-only; gate on `fireArcKind`).
+  - `[low]` `[patch]` Sprint/GDS status transitions outstanding at review time. Completed in the finalize commit (same PR).
+- rejected as noise: shared `ShellState.lit` tag placement (spec-sanctioned mechanism, wire-shape-defended, sim never reads it); test scaffolding duplication across new suites (style; suites green and readable); lit-zone tint computed at spawn (benign until 1.12, which restructures tinting anyway); duplicate LitZoneView id orphaning a Graphics (unreachable from the authoritative server's unique id stream; mirrors mines).
 
 ## Design Notes
 
@@ -125,3 +145,17 @@ warnings: [multiple-goals, oversized]
 
 **Manual checks (if no CLI):**
 - With Eric's dev server running (never start it): pick BB — key 2 + click lobs the heavy shell (big burst), key 3 + click pops a flare that lights a fog circle for 10 s, paints hidden ships/mines as live intel, and shows the glow to anyone whose radar reaches it; TB/ML play exactly as before.
+
+## Auto Run Result
+
+**Status:** done (2026-07-22). Branch `worktree-dev-auto-1-7-battleship-loadout`, baseline 23c9f88, final ff3bc86 (4 code/docs commits + finalize).
+
+**Summary:** Story 1.7 complete. Battleship loadout `[gun, cannon, starShells, empty]` per Eric's Q/E ruling. Cannon: gun-pattern burst skillshot (damage 50 / contact 20 / burst 30 u / shell 200 u/s / 15 s reload, range = gun's radar base — all Eric-ruled pre-implementation). Star shells: skillshot bursting into a 110 u lit zone for 10 s (20 s reload, 10 burst damage) granting the firer full truesight parity inside it (contacts, mines, ballistic reveals, and — review-extended — boom/burst/sunk/spawn events); the zone circle is visible to any observer whose radar reaches its center, carrying the firer's id (`by`) for the 1.12 hue hook; PROTOCOL_VERSION 8 with deliberate goldenFrames regen. Client: slot-index coupling in aim/firing UX replaced by an equipment-id classifier (TB/ML regression-pinned byte-identical), new litZones render module, real fog holes over own zones (inverse geometry mask), beyond-sight projectile cull keeps zone-revealed shells, CANNON/FLARE HUD chips, new fire tones. Every design question was surfaced to Eric BEFORE implementation and ruled 2026-07-21 (recorded in Design Notes).
+
+**Files changed (highlights):** shared — constants (CONFIG.cannon/.starShells), types (LitZoneView, FrameMsg.litZones), PV8, loadout (BB fit, is-weapon map), stats (pass-through blocks), shell (server-internal lit tag); server — equipment/cannon.ts + starShells.ts (new rows via parameterized gun fire flow), world (litZones lifecycle), signals (ownZoneCovers + litzone row + zone-parity ORs + blip dedup), perception/frames (litZoneScan, channel threading), goldenFrames (+2 scenarios, subcases 17); client — weaponArc/firing (fireArcKind id classifier), litZones.ts (new), fog (inverse-mask holes), projectiles (zone-aware cull), roomBindings/state/main threading, hud chips, tones; docs — spec, epic-1-context regen (+ restored dropped constraints), sprint-status 1-7 done, gds-status → 1-8.
+
+**Review:** Blind Hunter + Edge Case Hunter (session capability), parallel. Triage: 0 intent_gap, 0 bad_spec, 10 patches applied (2 high: zone-revealed ballistics permanently culled client-side, zone intel buried under fog — both cross-confirmed by the two hunters; 2 medium: event-tier zone parity, epic-context constraint loss; 6 low), 0 deferred, 4 rejected (sanctioned/unreachable/style). Patch rounds routed back to the original wave agents, orchestrator-verified.
+
+**Verification:** `npm run check` exit 0 — lint (complexity ≤ 10) + tsc ×3 + 1179 tests (shared 241 / server 562 / client 376; was 1081 at baseline). goldenFrames regens inspected: wave 1 exactly +5 appended rows, patch round exactly +1 appended row, zero modifications to pre-existing rows (omit-when-empty litZones keeps zone-free frames byte-identical). Perception invariant oracle independently reimplements the zone rules (14 channels).
+
+**Residual risks / for Eric:** (1) zone parity was review-extended to boom/burst/sunk/spawn events (a revealed ship now dies visibly inside your light) — this is an inferred but single-consistent-reading extension of your "as if you had truesight on it" ruling; say the word if you wanted the narrow contacts/mines/ballistics version. (2) An upgraded gun (gunRange stacks) can out-range the cannon — interregnum quirk, pinned in tests, dies with Epic 2. (3) Torpedo/mine-category offers are dead picks on BB (existing 1.6 no-op guard; count/stats still apply). (4) The fog-hole mask wiring (thin Pixi adapter) is the one under-tested seam — pure logic is covered; the visual is not. Manual feel-check owed when your dev server is next up: BB key 2 heavy shell + big burst; key 3 flare → fog hole + revealed hulls/mines + kill visible inside the light; third ship sees the amber circle at radar range; TB/ML byte-identical.
