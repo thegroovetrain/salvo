@@ -36,7 +36,7 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(8);
+    expect(PROTOCOL_VERSION).toBe(9);
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -98,10 +98,11 @@ describe('shared barrel', () => {
     expect(EQUIPMENT_IS_WEAPON).toEqual({
       gun: true,
       torpedo: true,
-      mine: true,
+      mine: false, // flipped to activateable in Story 1.8
       speedBoost: false,
       cannon: true,
       starShells: true,
+      decoyBuoy: false, // added in Story 1.8
     });
     expect(CONFIG.cannon).toEqual({
       shellSpeed: 200,
@@ -125,6 +126,17 @@ describe('shared barrel', () => {
     // effectiveStats() (gun base parity — never a duplicated constant).
     expect('rangeU' in CONFIG.cannon).toBe(false);
     expect('rangeU' in CONFIG.starShells).toBe(false);
+  });
+
+  it('re-exports the mine-layer loadout system (Story 1.8)', () => {
+    // Mine rework: bigger detection + a strictly-larger blast, deeper live cap.
+    expect(CONFIG.mine.triggerRadius).toBe(32);
+    expect(CONFIG.mine.blastRadius).toBe(48);
+    expect(CONFIG.mine.blastRadius).toBeGreaterThan(CONFIG.mine.triggerRadius);
+    expect(CONFIG.mine.maxLive).toBe(5);
+    expect(CONFIG.mine.damage).toBe(45); // unchanged reference value
+    // The decoy buoy: a pure-pass-through ability block on the wire config.
+    expect(CONFIG.decoyBuoy).toEqual({ durationMs: 30000, reloadMs: 20000, maxAmmo: 1 });
   });
 
   it('re-exports the offer/spend system', () => {

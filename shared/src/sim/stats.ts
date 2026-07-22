@@ -88,6 +88,18 @@ export interface EffectiveStarShells {
   rangeU: number; // u — max shell travel / aimDist clamp (= CONFIG.vision.radar, un-stacked)
 }
 
+/**
+ * The decoy buoy's effective numbers (Story 1.8) — a pure pass-through of
+ * CONFIG.decoyBuoy (the boost precedent). NO upgrade touches any of these: the
+ * decoy is a fixed-cost signature ability, and no legacy upgrade category
+ * covers it.
+ */
+export interface EffectiveDecoy {
+  reloadMs: number; // ms — cooldown between placements
+  maxAmmo: number; // charge pool size (one live per owner)
+  durationMs: number; // ms — buoy lifetime before natural expiry
+}
+
 /** Everything (class, upgrades) resolves to. See effectiveStats(). */
 export interface EffectiveStats {
   kinematics: ShipConfig;
@@ -101,6 +113,41 @@ export interface EffectiveStats {
   boost: EffectiveBoost;
   cannon: EffectiveCannon;
   starShells: EffectiveStarShells;
+  decoyBuoy: EffectiveDecoy;
+}
+
+/**
+ * The count-independent activated-ability + skillshot blocks — pure CONFIG
+ * pass-throughs that NO upgrade touches (boost precedent). rangeU on the
+ * cannon/star shells is the gun's BASE range (CONFIG.vision.radar), deliberately
+ * WITHOUT the gunRange stack: gun-category upgrades apply to the standard gun
+ * only, so an upgraded gun can out-range the cannon (a known interregnum quirk,
+ * dies with Epic 2). Split out of effectiveStats so that function stays lean.
+ */
+function passThroughEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'starShells' | 'decoyBuoy'> {
+  return {
+    boost: {
+      speedBonus: CONFIG.speedBoost.speedBonus,
+      durationMs: CONFIG.speedBoost.durationMs,
+      maxAmmo: CONFIG.speedBoost.maxAmmo,
+      reloadMs: CONFIG.speedBoost.reloadMs,
+    },
+    cannon: {
+      reloadMs: CONFIG.cannon.reloadMs,
+      maxAmmo: CONFIG.cannon.maxAmmo,
+      rangeU: CONFIG.vision.radar,
+    },
+    starShells: {
+      reloadMs: CONFIG.starShells.reloadMs,
+      maxAmmo: CONFIG.starShells.maxAmmo,
+      rangeU: CONFIG.vision.radar,
+    },
+    decoyBuoy: {
+      reloadMs: CONFIG.decoyBuoy.reloadMs,
+      maxAmmo: CONFIG.decoyBuoy.maxAmmo,
+      durationMs: CONFIG.decoyBuoy.durationMs,
+    },
+  };
 }
 
 /**
@@ -148,28 +195,9 @@ export function effectiveStats(cls: ShipClass, counts: readonly number[]): Effec
       maxAmmo: CONFIG.mine.maxAmmo + u.mineAmmo.add * countOf(counts, 'mineAmmo'),
       maxLive: CONFIG.mine.maxLive + u.maxMines.add * countOf(counts, 'maxMines'),
     },
-    // Pure pass-through of CONFIG.speedBoost — no upgrade multiplies the boost.
-    boost: {
-      speedBonus: CONFIG.speedBoost.speedBonus,
-      durationMs: CONFIG.speedBoost.durationMs,
-      maxAmmo: CONFIG.speedBoost.maxAmmo,
-      reloadMs: CONFIG.speedBoost.reloadMs,
-    },
-    // Pure pass-throughs (Story 1.7, boost precedent) — NO upgrade multiplies
-    // the cannon or the star shells. rangeU is the gun's BASE range
-    // (CONFIG.vision.radar), deliberately WITHOUT the gunRange stack: gun-
-    // category upgrades apply to the standard gun only, so an upgraded gun can
-    // out-range the cannon (known interregnum quirk, dies with Epic 2).
-    cannon: {
-      reloadMs: CONFIG.cannon.reloadMs,
-      maxAmmo: CONFIG.cannon.maxAmmo,
-      rangeU: CONFIG.vision.radar,
-    },
-    starShells: {
-      reloadMs: CONFIG.starShells.reloadMs,
-      maxAmmo: CONFIG.starShells.maxAmmo,
-      rangeU: CONFIG.vision.radar,
-    },
+    // The count-independent ability/skillshot pass-throughs (boost, cannon,
+    // star shells, decoy) — see passThroughEquipment().
+    ...passThroughEquipment(),
   };
 }
 

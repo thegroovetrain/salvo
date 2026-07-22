@@ -181,18 +181,30 @@ export const CONFIG = {
     spawnClearance: 6, // u
   },
 
-  /** Mines (slot 2): dropped astern. Never on radar. */
+  /**
+   * Mines (Mine Layer slot 1, Story 1.8): dropped astern, never on radar, now
+   * an ACTIVATEABLE (instant, non-aimed — rides the actSeq ability channel, not
+   * a click skillshot). Arms after `armDelay`; an enemy silhouette within
+   * `triggerRadius` trips it, BLASTING every non-owner hull within the larger
+   * `blastRadius` for full `damage` (owner excluded — the gun/starShells
+   * owner-excluded AoE precedent). The owner's own gun bursts detonate own
+   * ARMED mines early (full blast); no chain detonations. Every number is a
+   * DESIGN TARGET, tunable.
+   */
   mine: {
     offset: deg(180), // astern
     armDelay: 3000, // ms — before it can trigger
-    triggerRadius: 25, // u — detonation proximity
+    triggerRadius: 32, // u — detonation proximity (enemy pass-over trips it)
+    // u — full damage to every non-owner hull within it; > triggerRadius by
+    // design (the trip is the detection ring; the blast reaches farther).
+    blastRadius: 48,
     damage: 45, // hp
     maxAmmo: 1, // stored drops in the ammo pool (one per reload)
     reloadMs: 8000, // ms — reload between drops
     // maxLive is DISTINCT from the ammo pool: the drop pool caps how many you
     // can drop before reloading; maxLive caps how many stay LIVE on the board at
     // once (oldest evicted past it). Separate stat, separate upgrade later.
-    maxLive: 3, // max simultaneous live mines per player
+    maxLive: 5, // max simultaneous live mines per player
     globalCap: 60, // defensive ceiling on total live mines across all players
   },
 
@@ -256,6 +268,24 @@ export const CONFIG = {
     // u — flare collision radius. Own field (cannon plumbing parity) so a gun
     // retune can never silently change flare interception; same value today.
     shellRadius: 2,
+  },
+
+  /**
+   * Decoy buoy (Mine Layer slot 2, Story 1.8): an ACTIVATED ABILITY (Eric
+   * ruling 2026-07-22) — a stationary server entity dropped astern that
+   * radar-doubles the owner. To any fogged non-owner it paints on radar EXACTLY
+   * like the owner's own ship (same blip gate + materialize, id = the owner's
+   * ship id — wire-indistinguishable per FR10/counterIntel); one live per owner
+   * (a new placement silently replaces the old); persists to natural expiry
+   * (`durationMs`) even past owner death. Never blips to its owner, never a
+   * collision subject (shells/bursts pass through with no Hit Call), never trips
+   * mines. No legacy upgrade touches it. Every number is a DESIGN TARGET,
+   * tunable.
+   */
+  decoyBuoy: {
+    durationMs: 30000, // ms — lifetime before natural expiry
+    reloadMs: 20000, // ms — cooldown between placements
+    maxAmmo: 1, // single charge in the pool (one live per owner)
   },
 
   /**

@@ -38,6 +38,13 @@ describe('one-hit-kill guardrail (classes AND drones)', () => {
     expect(CONFIG.mine.damage).toBeLessThan(minHullHp);
   });
 
+  it('mine BLAST damage (every non-owner hull in blastRadius) cannot one-hit the lightest hull (Story 1.8)', () => {
+    // The 1.8 trip-to-blast rework deals full `damage` to every non-owner hull
+    // inside blastRadius — each victim's hit is still one flat `mine.damage`,
+    // so the same guardrail binds it.
+    expect(CONFIG.mine.damage).toBeLessThan(minHullHp);
+  });
+
   it('cannon BURST damage cannot one-hit the lightest hull (Story 1.7)', () => {
     expect(CONFIG.cannon.damage).toBeLessThan(minHullHp);
   });
@@ -59,6 +66,19 @@ describe('one-hit-kill guardrail (classes AND drones)', () => {
   it('the lightest hull is the 70hp torpedoBoat (drones are all heavier)', () => {
     expect(minHullHp).toBe(70);
     expect(Math.min(...droneHps)).toBeGreaterThan(CONFIG.torpedo.damage);
+  });
+});
+
+describe('mine blast geometry guardrail (Story 1.8)', () => {
+  it('blastRadius is strictly larger than triggerRadius (blast reaches past detection)', () => {
+    // Eric mid-run ruling 2026-07-22: the blast is strictly larger than the
+    // detection ring — an enemy trips the mine at triggerRadius but the
+    // explosion reaches farther, catching nearby hulls too.
+    expect(CONFIG.mine.blastRadius).toBeGreaterThan(CONFIG.mine.triggerRadius);
+  });
+
+  it('mine damage is unchanged at the 45 reference value (the rework retunes geometry, not damage)', () => {
+    expect(CONFIG.mine.damage).toBe(45);
   });
 });
 
