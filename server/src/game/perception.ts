@@ -6,17 +6,20 @@
 // reference anything outside sight ∪ (this-tick radar paints).
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 11 GameEvent kinds plus the contact/mine frame channels — is one
-// declarative SignalSpec row (visible + materialize), and observe()/
-// observeSpectator() below are the ONLY callers of row logic. Adding a signal
-// means adding a row (plus its invariant test case), never editing a
-// dispatcher here: the loops below contain no per-kind branching outside
-// registry dispatch.
+// the 11 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —
+// is one declarative SignalSpec row (visible + materialize + counterIntel),
+// and observe()/observeSpectator() below are the ONLY callers of row logic.
+// Adding a signal means adding a row (plus its invariant test case), never
+// editing a dispatcher here: the loops below contain no per-kind branching
+// outside registry dispatch.
 //
 // ORDER IS SACRED (byte-identity on the wire): world-emitted events are
 // dispatched in world-emission order (never bucketed or re-sorted by type),
-// then per-observer ballistic reveals, then radar blips; contacts and mines
-// keep their Map-insertion iteration order in their own frame channels.
+// then per-observer ballistic reveals, then radar blips (genuine ship paints
+// in ships-map order, then decoy counter-intel paints in decoys-map order —
+// both this-tick sweep paints, indistinguishable on the wire); contacts,
+// mines, lit zones, and decoys keep their Map-insertion iteration order in
+// their own frame channels.
 //
 // OBSERVER MODEL: an observer with a ship record observes from its position,
 // alive or sunk — a fresh wreck keeps seeing its surroundings for the 3s
@@ -26,7 +29,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import type { BallisticEvent, BlipEvent, Contact, GameEvent, LitZoneView, MineView } from '@salvo/shared';
+import type { BallisticEvent, BlipEvent, Contact, DecoyView, GameEvent, LitZoneView, MineView } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, signalFor, type SignalContext } from './signals.js';
 
@@ -36,6 +39,7 @@ export interface PerceptionView {
   events: GameEvent[];
   mines: MineView[];
   litZones: LitZoneView[];
+  decoys: DecoyView[];
 }
 
 /** The narrow row context for the FOGGED path (observe() fail-closes before
@@ -49,6 +53,7 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     islands: world.map.islands,
     ships: world.ships,
     litZones: world.litZones,
+    decoys: world.decoys,
   };
 }
 
@@ -63,6 +68,7 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     islands: world.map.islands,
     ships: world.ships,
     litZones: world.litZones,
+    decoys: world.decoys,
   };
 }
 
@@ -146,16 +152,54 @@ function litZoneScan(world: World, ctx: SignalContext): LitZoneView[] {
   return out;
 }
 
+/** Per-observer decoy-buoy TRUTH visibility (Story 1.8) — contact-like state
+ *  exactly like mines, recomputed every tick through the decoy row, in
+ *  Map-insertion (drop) order. Owner always / truesighted enemies /
+ *  spectators; the DECEPTION never rides here (see decoyBlips below). */
+function decoyScan(world: World, ctx: SignalContext): DecoyView[] {
+  const out: DecoyView[] = [];
+  const row = SIGNAL_REGISTRY.decoy;
+  for (const decoy of world.decoys.values()) {
+    if (row.visible(ctx, decoy)) out.push(row.materialize(ctx, decoy));
+  }
+  return out;
+}
+
+/** Counter-intel radar paints (Story 1.8, FR10): every live decoy is offered
+ *  to the BLIP row's counterIntel, which applies the EXACT ship-blip gate to
+ *  the buoy position and emits the genuine blip shape with the OWNER's ship
+ *  id — or null (owner / unfogged / unswept / out of the annulus / LOS-
+ *  blocked / zone-truesighted). This scan is the ONLY counterIntel call site,
+ *  keeping observe() the single scan surface and frames.ts the sole spatial
+ *  exit. */
+function decoyBlips(world: World, ctx: SignalContext): BlipEvent[] {
+  const out: BlipEvent[] = [];
+  const row = SIGNAL_REGISTRY.blip;
+  for (const decoy of world.decoys.values()) {
+    const lie = row.counterIntel!(ctx, decoy);
+    if (lie !== null) out.push(lie);
+  }
+  return out;
+}
+
 /** One registry-driven view build — both observer modes share it; the ctx mode
  *  is the ONLY thing that differs. Emission order per the header: forwarded
- *  world events → ballistic reveals → blips (spectator blips are none by rule:
- *  the blip row never fires unfogged). */
+ *  world events → ballistic reveals → blips — genuine ship paints first, then
+ *  decoy counter-intel paints (spectator blips are none by rule: neither the
+ *  blip row nor its counterIntel ever fires unfogged). */
 function view(world: World, ctx: SignalContext): PerceptionView {
   const { contacts, blips } = shipScan(world, ctx);
   const events = forwardedEvents(world, ctx);
   events.push(...ballisticScan(world, ctx));
   events.push(...blips);
-  return { contacts, events, mines: mineScan(world, ctx), litZones: litZoneScan(world, ctx) };
+  events.push(...decoyBlips(world, ctx));
+  return {
+    contacts,
+    events,
+    mines: mineScan(world, ctx),
+    litZones: litZoneScan(world, ctx),
+    decoys: decoyScan(world, ctx),
+  };
 }
 
 /**
@@ -165,16 +209,17 @@ function view(world: World, ctx: SignalContext): PerceptionView {
  */
 export function observe(world: World, observerId: string): PerceptionView {
   const me = world.ships.get(observerId);
-  if (!me) return { contacts: [], events: [], mines: [], litZones: [] };
+  if (!me) return { contacts: [], events: [], mines: [], litZones: [], decoys: [] };
   return view(world, foggedContext(world, me));
 }
 
 /**
  * The UNFOGGED spectator view: every alive ship as a live contact, every mine
- * (own = observer owns it), and this tick's world events with only the rows'
- * spectator rules applied (upg/pt/heal stay self-private; shell/torp world
- * events defer to the exactly-once ballistic reveal; blips are pointless —
- * contacts are live — and never emitted).
+ * (own = observer owns it), every lit zone and decoy buoy (the truth — a
+ * spectator is never lied to), and this tick's world events with only the
+ * rows' spectator rules applied (upg/pt/heal stay self-private; shell/torp
+ * world events defer to the exactly-once ballistic reveal; blips — genuine or
+ * counter-intel — are pointless with live contacts and never emitted).
  *
  * ANTI-CHEAT GATE: only frames.ts may call this, and only for a dead-in-active
  * or finished-phase observer. The invariant test asserts an alive active

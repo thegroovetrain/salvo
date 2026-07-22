@@ -38,10 +38,10 @@ const SIGHT = CONFIG.vision.sight;
 const SWEEP_DELTA = (TAU * DT) / CONFIG.vision.sweepPeriod;
 
 // The full set of channels the fixture MUST exercise: the 11 GameEvent kinds
-// plus the three contact-like channels (contact/mine/litzone) and the
+// plus the four contact-like channels (contact/mine/litzone/decoy) and the
 // spectator frame.
 const EXPECTED_CHANNELS = [
-  'blip', 'boom', 'burst', 'contact', 'dmg', 'heal', 'litzone', 'mine',
+  'blip', 'boom', 'burst', 'contact', 'decoy', 'dmg', 'heal', 'litzone', 'mine',
   'pt', 'shell', 'spawn', 'spec', 'sunk', 'torp', 'upg',
 ];
 
@@ -51,6 +51,10 @@ const EXPECTED_CHANNELS = [
 // fails the sub-case coverage assertion — the "found-style boolean per mandatory
 // sub-case" the straddle-boom check pioneered, generalized across the additions.
 const EXPECTED_SUBCASES = [
+  'decoy-expiry',
+  'decoy-owner-truth-view',
+  'decoy-thirdparty-swept-blip',
+  'decoy-truesight-view',
   'island-allows-radar-blip',
   'island-allows-sight-contact',
   'island-blocks-radar-blip',
@@ -61,6 +65,8 @@ const EXPECTED_SUBCASES = [
   'litzone-firer-reveal',
   'litzone-sunk-reveal',
   'litzone-thirdparty-radar-circle',
+  'mine-burst-detonation',
+  'mine-trip-blast-multivictim',
   'nonowner-hidden-at-launch',
   'nonowner-reveal-current-params',
   'nonowner-reveal-once',
@@ -85,6 +91,7 @@ function record(g: Golden, f: FrameMsg): FrameMsg {
   if (f.contacts.length > 0) g.channels.add('contact');
   if (f.mines.length > 0) g.channels.add('mine');
   if (f.litZones !== undefined && f.litZones.length > 0) g.channels.add('litzone');
+  if (f.decoys !== undefined && f.decoys.length > 0) g.channels.add('decoy');
   if (f.spec) g.channels.add('spec');
   g.frames.push(JSON.stringify(f));
   return f;
@@ -116,8 +123,8 @@ function bareWorld(seed: number): World {
 
 /** Add a ship and teleport it to an exact pose (speed 0). `hull` defaults to
  *  the torpedoBoat every pre-1.7 scenario was built on; scnStarShell places a
- *  battleship (the star-shell carrier). */
-function place(w: World, id: string, x: number, y: number, heading = 0, hull: 'torpedoBoat' | 'battleship' = 'torpedoBoat'): ShipRecord {
+ *  battleship (the star-shell carrier); the 1.8 scenarios place a mineLayer. */
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: 'torpedoBoat' | 'battleship' | 'mineLayer' = 'torpedoBoat'): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase(), false, hull);
   rec.state.x = x;
   rec.state.y = y;
@@ -446,6 +453,114 @@ function scnZoneKill(g: Golden): void {
   );
 }
 
+/**
+ * Mine Layer trip blast (Story 1.8) — a REAL ability drop through the actSeq
+ * channel: ML `a` drops a mine astern; enemies `b` (the tripper) and `c` sit
+ * so the armed mine's 48u BLAST covers both hulls while `a`'s own hull is
+ * inside the radius too (owner-excluded by rule). At the trip: ONE boom at the
+ * mine with `hit` = the tripper, full damage to b AND c (each victim-private),
+ * none to a. Captures pin the post-drop own-mine frame and the blast tick for
+ * both the owner and the tripping victim.
+ */
+function scnMineBlast(g: Golden): void {
+  const w = bareWorld(1013);
+  const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+  const b = place(w, 'b', -76, 10); // hull over the future drop point — trips it
+  const c = place(w, 'c', -76, -40); // second victim: hull within the 48u blast
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 1 });
+  w.step(); // the press drops the mine astern (ability channel)
+  expect(w.mines.size).toBe(1);
+  cap(g, w, 'a'); // own mine view + spawns/contacts
+  let boom = false;
+  for (let i = 0; i < 80 && !boom; i++) {
+    w.step(); // arm delay runs out, then the pass-over trips the blast
+    boom = w.tickEvents.some((e) => e.k === 'boom');
+  }
+  expect(boom).toBe(true);
+  cap(g, w, 'a'); // blast tick, owner's view: boom with hit (victim sighted)
+  cap(g, w, 'b'); // blast tick, tripper's view: boom + its own dmg
+  const full = CONFIG.shipClasses.torpedoBoat.hp;
+  prove(
+    g,
+    'mine-trip-blast-multivictim',
+    w.mines.size === 0 &&
+      b.hp === full - CONFIG.mine.damage &&
+      c.hp === full - CONFIG.mine.damage &&
+      a.hp === a.stats.maxHp,
+  );
+}
+
+/**
+ * Owner gun-burst mine detonation (Story 1.8) — ML `a` clicks its own ARMED
+ * mine (injected, mines precedent): the burst detonates it as a plain blast at
+ * the MINE's position whose boom carries NO victim id (no tripping ship).
+ */
+function scnMineBurstDetonation(g: Golden): void {
+  const w = bareWorld(1014);
+  const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+  injectMine(w, 'om', 'a', 300, 0); // a's own armed mine, up-range
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+  let detonated = false;
+  for (let i = 0; i < 60 && !detonated; i++) {
+    w.step();
+    detonated = w.tickEvents.some((e) => e.k === 'boom' && e.id === 'om');
+    cap(g, w, 'a'); // flight frames (shell reveal + own mine view), then the detonation tick
+  }
+  const boom = w.tickEvents.find((e) => e.k === 'boom' && e.id === 'om');
+  prove(
+    g,
+    'mine-burst-detonation',
+    detonated && w.mines.size === 0 && boom !== undefined && !('hit' in boom) && a.hp === a.stats.maxHp,
+  );
+}
+
+/**
+ * Decoy buoy lifecycle (Story 1.8) — a REAL placement through the actSeq
+ * channel: ML `a` drops the buoy astern; the OWNER's frame carries the truth
+ * (decoys channel); a swept third party `c` receives the counterIntel blip
+ * (id = a's ship id at the BUOY's position — a itself is outside c's beam
+ * window); a truesighted enemy `e` receives the DecoyView; after the 30s
+ * expiry the owner's frame is byte-free of the channel again.
+ */
+function scnDecoy(g: Golden): void {
+  const w = bareWorld(1015);
+  const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+  const e = place(w, 'e', -76, 60); // truesight enemy: 60u from the drop point
+  const c = place(w, 'c', 0, -400); // third party: buoy at ~407u — radar annulus
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 2 });
+  w.step(); // the press drops the buoy astern at (-76, 0)
+  expect(w.decoys.size).toBe(1);
+  const buoy = [...w.decoys.values()][0];
+  const fa = cap(g, w, 'a'); // owner truth view
+  prove(g, 'decoy-owner-truth-view', (fa.decoys ?? []).some((d) => d.id === buoy.id));
+  // Third party: beam window around the BUOY's bearing only (a's own bearing
+  // from c stays outside it, so the only 'a' signal is the lie).
+  const brg = Math.atan2(0 - c.state.y, buoy.x - c.state.x);
+  c.prevSweepAngle = wrapPositive(brg - 0.02);
+  c.sweepAngle = wrapPositive(brg + 0.02);
+  const fc = cap(g, w, 'c');
+  prove(
+    g,
+    'decoy-thirdparty-swept-blip',
+    fc.events.some((ev) => ev.k === 'blip' && ev.id === 'a' && ev.x === buoy.x && ev.y === buoy.y) &&
+      (fc.decoys ?? []).length === 0,
+  );
+  // Truesight enemy: the buoy view (the lie unmasked), no blip.
+  e.prevSweepAngle = Math.PI; // park the beam away from everything relevant
+  e.sweepAngle = Math.PI + 0.0001;
+  const fe = cap(g, w, 'e');
+  prove(
+    g,
+    'decoy-truesight-view',
+    (fe.decoys ?? []).some((d) => d.id === buoy.id) && !fe.events.some((ev) => ev.k === 'blip' && ev.id === 'a'),
+  );
+  // Natural expiry: run out the 30s lifetime — the owner's channel goes silent.
+  const steps = Math.ceil(CONFIG.decoyBuoy.durationMs / DT) + 1;
+  for (let i = 0; i < steps; i++) w.step();
+  const after = cap(g, w, 'a');
+  prove(g, 'decoy-expiry', w.decoys.size === 0 && !('decoys' in after));
+}
+
 // ---------- the fixture -------------------------------------------------------
 
 describe('golden frames — byte-identity gate for the perception refactor', () => {
@@ -464,6 +579,9 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     scnBurst(g);
     scnStarShell(g);
     scnZoneKill(g);
+    scnMineBlast(g);
+    scnMineBurstDetonation(g);
+    scnDecoy(g);
 
     // Self-validating coverage: the fixture can never silently lose a channel.
     expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);

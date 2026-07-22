@@ -98,6 +98,12 @@ function fire(ctx: Ctx, id: string, slot: 0 | 1 | 2, seq: number): void {
   ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot, fireT: 0, actSeq: 0, actSlot: 0 });
 }
 
+/** One fresh ability press (actSeq advance) on `actSlot` — the channel mines
+ *  ride as of Story 1.8. seq doubles as the press counter. */
+function press(ctx: Ctx, id: string, actSlot: 0 | 1 | 2, seq: number): void {
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: seq, actSlot });
+}
+
 /** Step until this tick's events contain a boom (shell resolution is 1-4 ticks). */
 function stepUntilBoom(ctx: Ctx, maxTicks = 20): void {
   for (let i = 0; i < maxTicks; i++) {
@@ -126,11 +132,11 @@ describe('match — waiting phase (ready room)', () => {
   });
 
   it('allows mine drops (no phase lockout — resetForMatchStart clears the field at activation instead)', () => {
-    const ctx = setup(['a'], 'mineLayer'); // mine at slot 2 (TB fits speedBoost there, Story 1.6)
-    fire(ctx, 'a', 2, 1);
+    const ctx = setup(['a'], 'mineLayer'); // mine at slot 1 (Story 1.8: [gun, mine, decoyBuoy])
+    press(ctx, 'a', 1, 1); // mines are an ability now — a press, not a click
     step(ctx);
     expect(ctx.w.mines.size).toBe(1);
-    expect(ctx.w.ships.get('a')!.loadout[2].state!.reloadMsLeft).toBeGreaterThan(0); // drop started the reload
+    expect(ctx.w.ships.get('a')!.loadout[1].state!.reloadMsLeft).toBeGreaterThan(0); // drop started the reload
   });
 
   it('a practice mine deals no damage when triggered (target practice: boom, no hp loss, mine despawns)', () => {
@@ -223,12 +229,12 @@ describe('match — countdown', () => {
 
 describe('match — active phase', () => {
   it('re-enables mine drops', () => {
-    const ctx = setup(['a', 'b'], 'mineLayer'); // mine at slot 2 (TB fits speedBoost there, Story 1.6)
+    const ctx = setup(['a', 'b'], 'mineLayer'); // mine at slot 1 (Story 1.8: [gun, mine, decoyBuoy])
     activate(ctx);
-    fire(ctx, 'a', 2, 1);
+    press(ctx, 'a', 1, 1); // mines are an ability now — a press, not a click
     step(ctx);
     expect(ctx.w.mines.size).toBe(1);
-    expect(ctx.w.ships.get('a')!.loadout[2].state!.reloadMsLeft).toBeGreaterThan(0); // drop started the reload
+    expect(ctx.w.ships.get('a')!.loadout[1].state!.reloadMsLeft).toBeGreaterThan(0); // drop started the reload
   });
 
   it('leaves sunk ships down: no respawn is ever scheduled', () => {

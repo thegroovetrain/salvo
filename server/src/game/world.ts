@@ -59,6 +59,7 @@ import {
   EQUIPMENT,
   addMine,
   checkMineTriggers,
+  mineBlastVictims,
   type ActivationContext,
   type ActivationResult,
   type MineState,
@@ -94,6 +95,25 @@ export interface LitZone {
   y: number; // u
   r: number; // u — lit radius
   until: number; // ms — server time the zone expires
+}
+
+/**
+ * A live decoy buoy (Story 1.8): a STATIONARY server entity dropped astern of
+ * its Mine Layer owner. To any fogged non-owner it radar-paints EXACTLY like
+ * the owner's own ship (the blip row's counterIntel in signals.ts — same gate,
+ * same wire shape, id = the OWNER's ship id); the truth (the buoy for what it
+ * is) travels as the contact-like `decoys` frame channel (DecoyView) to the
+ * owner / truesighted enemies / spectators. ONE live per owner (spawnDecoy
+ * silently replaces); survives its owner's death (litZone precedent) and dies
+ * only by natural expiry (expireDecoys). NEVER a collision subject: shells and
+ * bursts pass through it, it never trips mines, the storm ignores it.
+ */
+export interface Decoy {
+  id: string;
+  ownerId: string; // the Mine Layer that dropped it — the ship id its blips impersonate
+  x: number; // u — fixed drop point (stationary forever after)
+  y: number; // u
+  until: number; // ms — server time the buoy expires
 }
 
 /** Everything the server tracks per ship, on top of the shared kinematic state. */
@@ -224,6 +244,9 @@ export class World {
   readonly mines = new Map<string, MineState>();
   /** All live star-shell lit zones (static circles), in burst order (Story 1.7). */
   readonly litZones = new Map<string, LitZone>();
+  /** All live decoy buoys (static points), in drop order — max one per owner
+   *  (spawnDecoy evicts the owner's previous buoy) (Story 1.8). */
+  readonly decoys = new Map<string, Decoy>();
   readonly inputs = new InputStore();
   /** Drives drone hulls through the normal input path (see game/drones.ts). */
   readonly drones: DroneController;
@@ -253,6 +276,7 @@ export class World {
   private shellSeq = 0;
   private mineSeq = 0;
   private litZoneSeq = 0;
+  private decoySeq = 0;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
@@ -389,6 +413,7 @@ export class World {
     this.shells.clear();
     this.mines.clear();
     this.litZones.clear(); // practice-field zones never light the real match (mines precedent)
+    this.decoys.clear(); // practice-field buoys never lie into the real match (Story 1.8)
     this.pending = [];
     const placed: Vec2[] = [];
     for (const ship of this.ships.values()) this.redeployShip(ship, placed);
@@ -586,6 +611,11 @@ export class World {
     // stepShells (resolveBurst on a star shell) and deliberately survive their
     // owner's death — expiry is the only way out.
     this.expireLitZones();
+    // Decoy buoys (Story 1.8): the same natural-expiry law, swept beside the
+    // zones. Buoys are SPAWNED by the decoy ability row (activationControl) and
+    // survive their owner's death — expiry (or owner replacement) is the only
+    // way out.
+    this.expireDecoys();
     this.fireControl(dtMs);
     // Ability activation (Story 1.6): the actSeq sibling of fireControl, resolved
     // in the same step-order position — both turn this tick's stored input intent
@@ -714,13 +744,37 @@ export class World {
   }
 
   /**
-   * Resolve mines that tripped this tick: boom at the mine point (hit gated by
-   * perception per observer), damage the triggering ship, despawn the mine.
+   * Resolve mines that tripped this tick (Story 1.8 blast rework): each trip
+   * detonates as a BLAST — despawn, one boom at the mine point (hit = the
+   * tripping ship, gated per observer by perception), full damage to EVERY
+   * non-owner hull whose silhouette is within blastRadius.
    */
   private stepMines(hulls: HullTarget[]): void {
     for (const { mine, victimId } of checkMineTriggers(this.mines, hulls, this.now)) {
-      this.mines.delete(mine.id);
-      this.pending.push({ k: 'boom', id: mine.id, hit: victimId, x: mine.x, y: mine.y });
+      this.detonateMine(mine, hulls, victimId);
+    }
+  }
+
+  /**
+   * Detonate ONE mine (Story 1.8): despawn it, emit a single boom at the mine
+   * point (`hit` = the tripping ship when a pass-over tripped it; a gun-shot
+   * detonation has no tripping ship, so the boom carries NO victim id — the
+   * splash-boom convention, per-observer victim stripping stays with the boom
+   * row), then the BLAST: every non-owner hull (enemies AND drones) whose
+   * silhouette lies within CONFIG.mine.blastRadius takes full damage through
+   * the hitShip choke (victim-private dmg, kill credit; OWNER EXCLUDED — the
+   * universal AoE convention). NO CHAIN DETONATIONS: a mine blast never
+   * detonates other mines (only the owner's shell bursts do, and those resolve
+   * each detonation as a plain blast right here).
+   */
+  private detonateMine(mine: MineState, hulls: readonly HullTarget[], trippedBy?: string): void {
+    this.mines.delete(mine.id);
+    this.pending.push(
+      trippedBy !== undefined
+        ? { k: 'boom', id: mine.id, hit: trippedBy, x: mine.x, y: mine.y }
+        : { k: 'boom', id: mine.id, x: mine.x, y: mine.y },
+    );
+    for (const victimId of mineBlastVictims(mine, hulls)) {
       const victim = this.ships.get(victimId);
       if (victim && victim.alive) this.hitShip(victim, CONFIG.mine.damage, mine.ownerId);
     }
@@ -795,6 +849,30 @@ export class World {
       const victim = this.ships.get(victimId);
       if (victim && victim.alive) this.hitShip(victim, shell.damage, shell.ownerId);
     }
+    this.detonateMinesInBurst(shell, at, hulls);
+  }
+
+  /**
+   * Click-your-own-minefield (Story 1.8, Eric ruling 2026-07-22): a shell
+   * burst detonates the shell OWNER's own ARMED mines whose CENTER lies within
+   * the burst radius — each resolving as a normal mine blast at the MINE's
+   * position (owner-excluded damage, no-victim boom). Three hard gates, in
+   * order: OWNER-ONLY (an enemy's burst never touches your field), ARMED-ONLY
+   * (armDelay keeps its anti-instant-bomb role — an unarmed mine is immune),
+   * and NO CASCADE (the detonation set is snapshotted from the SHELL burst
+   * alone before any blast resolves, and mine blasts never detonate mines, so
+   * one burst can never ripple across a field).
+   */
+  private detonateMinesInBurst(shell: ShellState, at: Vec2, hulls: readonly HullTarget[]): void {
+    const detonating: MineState[] = [];
+    const r2 = shell.burstRadius * shell.burstRadius;
+    for (const mine of this.mines.values()) {
+      if (mine.ownerId !== shell.ownerId || this.now < mine.armedAt) continue;
+      const dx = mine.x - at.x;
+      const dy = mine.y - at.y;
+      if (dx * dx + dy * dy <= r2) detonating.push(mine);
+    }
+    for (const mine of detonating) this.detonateMine(mine, hulls);
   }
 
   /** Spawn a lit zone at a star shell's burst point (resolveBurst only). */
@@ -816,6 +894,29 @@ export class World {
     for (const [id, zone] of this.litZones) {
       if (this.now >= zone.until) this.litZones.delete(id);
     }
+  }
+
+  /** Drop every decoy buoy whose lifetime has elapsed (Story 1.8 — the litZone
+   *  expiry law: no per-ship state, owner death never clears it; the only other
+   *  way out is owner replacement in spawnDecoy). */
+  private expireDecoys(): void {
+    for (const [id, decoy] of this.decoys) {
+      if (this.now >= decoy.until) this.decoys.delete(id);
+    }
+  }
+
+  /**
+   * Store a newly-dropped decoy buoy (Story 1.8). ONE live per owner: placing
+   * a second SILENTLY deletes the first (no boom, no event — the mines
+   * oldest-eviction precedent). Lifetime comes from the owner's effective
+   * stats (a pure CONFIG.decoyBuoy pass-through today).
+   */
+  private spawnDecoy(owner: ShipRecord, x: number, y: number): void {
+    for (const [id, decoy] of this.decoys) {
+      if (decoy.ownerId === owner.id) this.decoys.delete(id);
+    }
+    const id = this.nextDecoyId();
+    this.decoys.set(id, { id, ownerId: owner.id, x, y, until: this.now + owner.stats.decoyBuoy.durationMs });
   }
 
   /**
@@ -930,6 +1031,7 @@ export class World {
       mkId: () => this.nextBallisticId(),
       spawnBallistic: (shell) => this.spawnBallistic(shell),
       dropMine: (x, y) => this.spawnMine(ship, x, y, fireT),
+      dropDecoy: (x, y) => this.spawnDecoy(ship, x, y),
     };
   }
 
@@ -987,9 +1089,11 @@ export class World {
 
   /** Store a newly-dropped mine. Per-player cap = the OWNER'S effective
    *  maxLive (maxMines upgrade); the defensive global cap stays in addMine.
-   *  `droppedAt` is the validated fire time (D1): a back-dated drop arms
-   *  earlier (armedAt = droppedAt + armDelay), exactly as if the click had
-   *  landed with zero latency. Drop point / caps / eviction untouched. */
+   *  Story 1.8: mines are an ABILITY (actSeq channel) — activation runs at
+   *  `now` with no fireT compensation, so `droppedAt` is always the server
+   *  apply time and armedAt = now + armDelay (the 3s arm delay dwarfs any
+   *  latency skew a claim could have shaved). Drop point / caps / eviction
+   *  untouched. */
   private spawnMine(owner: ShipRecord, x: number, y: number, droppedAt: number = this.now): void {
     addMine(this.mines, owner.id, x, y, droppedAt, this.nextMineId(), owner.stats.mine.maxLive);
   }
@@ -1007,6 +1111,11 @@ export class World {
   private nextLitZoneId(): string {
     this.litZoneSeq += 1;
     return `z${this.litZoneSeq}`;
+  }
+
+  private nextDecoyId(): string {
+    this.decoySeq += 1;
+    return `d${this.decoySeq}`;
   }
 
   /**

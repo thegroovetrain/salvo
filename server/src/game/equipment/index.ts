@@ -22,6 +22,7 @@ import { mineEquipment } from './mines.js';
 import { boostEquipment } from './boost.js';
 import { cannonEquipment } from './cannon.js';
 import { starShellsEquipment } from './starShells.js';
+import { decoyEquipment } from './decoy.js';
 
 /**
  * The exact capabilities equipment needs from the World to activate — no more
@@ -46,6 +47,9 @@ export interface ActivationContext {
   mkId: () => string;
   spawnBallistic: (shell: ShellState) => void;
   dropMine: (x: number, y: number) => void;
+  /** Drop a stationary decoy buoy (Story 1.8) — the World owns the store (one
+   *  live per owner, replacement eviction, natural expiry). */
+  dropDecoy: (x: number, y: number) => void;
 }
 
 /** Why an activation was refused. Derived from the EXISTING internal outcomes
@@ -94,10 +98,11 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 export const EQUIPMENT: Readonly<Record<EquipmentId, Equipment>> = deepFreezeRows({
   gun: gunEquipment,
   torpedo: torpedoEquipment,
-  mine: mineEquipment,
+  mine: mineEquipment, // Story 1.8: flipped to a non-weapon (instant drop-astern ability)
   speedBoost: boostEquipment, // Story 1.6: the first non-weapon (ability) row
   cannon: cannonEquipment, // Story 1.7: the Battleship's long-range burst skillshot
   starShells: starShellsEquipment, // Story 1.7: the Battleship's lit-zone flare
+  decoyBuoy: decoyEquipment, // Story 1.8: the Mine Layer's stationary radar-double ability
 });
 
 /**
@@ -115,6 +120,7 @@ export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
 
 export { freshAmmo, tickReload, consume } from './ammo.js';
 export { boostEquipment } from './boost.js';
+export { decoyEquipment } from './decoy.js';
 export { cannonEquipment } from './cannon.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';
@@ -125,6 +131,7 @@ export {
   checkMineTriggers,
   dropPoint,
   hullFor,
+  mineBlastVictims,
   type MineState,
   type MineTrigger,
 } from './mines.js';

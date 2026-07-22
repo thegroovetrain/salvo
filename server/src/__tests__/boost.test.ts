@@ -16,9 +16,9 @@ const BOOST = CONFIG.speedBoost;
 const TB_MAX = CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed; // 45
 /** Slot the Torpedo Boat fits speedBoost into (Story 1.6). */
 const SLOT_BOOST = 2;
-/** Slot a universal-fit hull (the Mine Layer, post-1.7 — the Battleship now
- *  fits starShells there) fits its mine (a WEAPON) into. */
-const SLOT_MINE = 2;
+/** Slot the Torpedo Boat fits its torpedo (a WEAPON) into — the actSeq
+ *  weapon-wall subject (mines flipped to the ability channel in Story 1.8). */
+const SLOT_TORPEDO = 1;
 
 // ---------- construction helpers ---------------------------------------------
 
@@ -133,14 +133,14 @@ describe('a dead ship cannot activate', () => {
 // ---------- actSeq targets abilities ONLY (weapon / empty slots inert) --------
 
 describe('actSeq is inert on a weapon or empty slot', () => {
-  it('a weapon slot (Mine Layer slot 2 = mine): actSeq advance drops NO mine and opens NO window', () => {
+  it('a weapon slot (TB slot 1 = torpedo): actSeq advance launches NO fish and opens NO window', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 'mineLayer');
-    expect(a.loadout[SLOT_MINE].equipmentId).toBe('mine');
-    pressActivate(w, 'a', 1, 1, SLOT_MINE); // actSeq on a WEAPON slot
+    const a = place(w, 'a');
+    expect(a.loadout[SLOT_TORPEDO].equipmentId).toBe('torpedo');
+    pressActivate(w, 'a', 1, 1, SLOT_TORPEDO); // actSeq on a WEAPON slot
     w.step();
     expect(a.boostUntil).toBe(0);
-    expect(w.mines.size).toBe(0); // a click (fireSeq) drops mines — actSeq never does
+    expect(w.shells.size).toBe(0); // a click (fireSeq) fires weapons — actSeq never does
     expect(a.lastActSeq).toBe(1); // counter still advanced (consumed, then inert)
   });
 

@@ -618,23 +618,26 @@ describe('effective weapon stats in the fire path', () => {
   });
 
   it("mine maxLive comes from the OWNER's stats: an upgraded owner keeps one more mine live", () => {
+    const SLOT_MINE_ML = 1; // Story 1.8 fit: [gun, mine, decoyBuoy, empty]
     const dropMines = (upgraded: boolean, drops: number): number => {
       const w = bareWorld();
-      const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // mine at slot 2 (TB fits speedBoost there, Story 1.6)
+      const a = place(w, 'a', 0, 0, 0, 'mineLayer');
       if (upgraded) stack(w, a, 'maxMines', 1);
       w.step();
       for (let i = 0; i < drops; i++) {
-        a.loadout[SLOT_MINE].state = { n: 1, reloadMsLeft: 0 }; // skip the reload wait
+        a.loadout[SLOT_MINE_ML].state = { n: 1, reloadMsLeft: 0 }; // skip the reload wait
+        // Mines are an ABILITY (Story 1.8): each drop is one actSeq press.
         w.submitInput('a', {
           seq: i + 1, throttle: 0, rudder: 0, aim: 0,
-          fireSeq: i + 1, aimDist: 0, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0,
+          fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: i + 1, actSlot: SLOT_MINE_ML,
         });
         w.step();
       }
       return w.mines.size;
     };
-    expect(dropMines(false, 5)).toBe(CONFIG.mine.maxLive); // base cap: oldest evicted
-    expect(dropMines(true, 5)).toBe(CONFIG.mine.maxLive + 1); // upgraded owner's cap
+    const drops = CONFIG.mine.maxLive + 2; // enough to overflow BOTH caps
+    expect(dropMines(false, drops)).toBe(CONFIG.mine.maxLive); // base cap: oldest evicted
+    expect(dropMines(true, drops)).toBe(CONFIG.mine.maxLive + 1); // upgraded owner's cap
   });
 
   it('maxSpeed: an upgraded hull out-runs an identical un-upgraded twin', () => {

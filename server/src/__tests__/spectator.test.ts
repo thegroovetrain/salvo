@@ -127,6 +127,14 @@ describe('spectator frames — dead observer in the active phase', () => {
     ]);
   });
 
+  it('carries every decoy buoy (the truth — a spectator is never lied to, so no blips either)', () => {
+    const w = deadObserverWorld();
+    w.decoys.set('d1', { id: 'd1', ownerId: 'b', x: 700, y: -700, until: 42_000 });
+    const f = buildFrame(w, 'a', 'active');
+    expect(f.decoys).toEqual([{ id: 'd1', x: 700, y: -700, until: 42_000 }]); // DecoyView, decoy's own id
+    expect(f.events.filter((e) => e.k === 'blip')).toEqual([]); // counterIntel never fires unfogged
+  });
+
   it("passes this tick's events unfiltered (even another ship's private dmg)", () => {
     // dmg is victim-private in fogged frames; a spectator hears it anyway,
     // even when the victim is far outside the wreck's old sight bubble.

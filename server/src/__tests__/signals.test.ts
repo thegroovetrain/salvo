@@ -39,9 +39,9 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
   return rec;
 }
 
-/** A fogged SignalContext for `me`, reading time/islands/ships/zones off the world. */
+/** A fogged SignalContext for `me`, reading time/islands/ships/zones/decoys off the world. */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
-  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, me };
+  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me };
 }
 
 /** Drop a lit zone directly into world state (Story 1.7). */
@@ -78,6 +78,7 @@ const REGISTRY_KEYS = [
   'contact',
   'mine',
   'litzone',
+  'decoy',
   'blip',
   'shell',
   'torp',
@@ -94,18 +95,20 @@ const REGISTRY_KEYS = [
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 14 known channels', () => {
+  it('has exactly the 15 known channels', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(15);
   });
 
-  it('every row: eventType matches its registry key, visible/materialize are callable, counterIntel is not yet implemented', () => {
+  it('every row: eventType matches its registry key, visible/materialize are callable; counterIntel lives ONLY on the blip row (Story 1.8)', () => {
     for (const [key, row] of Object.entries(SIGNAL_REGISTRY)) {
       expect(row.eventType).toBe(key);
       expect(typeof row.visible).toBe('function');
       expect(typeof row.materialize).toBe('function');
-      // First counterIntel row arrives in Story 1.8 — the slot exists but no
-      // row implements it yet.
-      expect(row.counterIntel).toBeUndefined();
+      // Story 1.8 lands the FIRST counterIntel implementation — the blip row's
+      // decoy radar-double. Every other row keeps the slot empty.
+      if (key === 'blip') expect(typeof row.counterIntel).toBe('function');
+      else expect(row.counterIntel).toBeUndefined();
     }
   });
 });
@@ -171,6 +174,33 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'own']);
   });
 
+  it('decoy row: [id,x,y,until] — the DECOY\'s own id, never the owner\'s ship id', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 40, y: 0, until: 30_000 }); // owner sees it always
+    const row = SIGNAL_REGISTRY.decoy; // pseudo-row: direct access (not signalFor)
+    const ctx = foggedCtx(w, a);
+    const decoy = w.decoys.get('d1')!;
+    expect(row.visible(ctx, decoy)).toBe(true);
+    const wire = row.materialize(ctx, decoy);
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'until']);
+    expect(wire).toEqual({ id: 'd1', x: 40, y: 0, until: 30_000 });
+    expect('ownerId' in (wire as object)).toBe(false); // the owner id rides ONLY the counterIntel blip
+  });
+
+  it('blip row counterIntel: the SAME [k,id,x,y,t] shape, id = the OWNER\'s ship id at the BUOY\'s position', () => {
+    const w = bareWorld();
+    const b = place(w, 'b', 0, 0); // fogged non-owner observer
+    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 400, y: 0, until: 999_999 }); // radar annulus, bearing 0
+    b.prevSweepAngle = wrapPositive(-0.02);
+    b.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
+    const row = SIGNAL_REGISTRY.blip;
+    const lie = row.counterIntel!(foggedCtx(w, b), w.decoys.get('d1')!);
+    expect(lie).not.toBeNull();
+    expect(Object.keys(lie as object)).toEqual(['k', 'id', 'x', 'y', 't']); // byte-identical to a real paint
+    expect(lie).toEqual({ k: 'blip', id: 'a', x: 400, y: 0, t: w.now });
+  });
+
   it('litzone row: [id,x,y,r,until,by] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -228,7 +258,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const e: BurstSubject = { k: 'burst', id: 's1', x: 500, y: 0, own: 'a' };
     const row = signalFor('burst')!;
     const ctx: SpectatorSignalContext = {
-      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, me: undefined,
+      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
     };
     expect(row.visible(ctx, e)).toBe(true);
     const wire = row.materialize(ctx, e) as BurstEvent;
@@ -290,7 +320,7 @@ describe('SIGNAL_REGISTRY — litzone row visibility (owner always, else radar-g
     const w = bareWorld();
     injectZone(w, 'z1', 'a', 9_000, 9_000); // absurdly far from everything
     const ctx: SpectatorSignalContext = {
-      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, me: undefined,
+      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
     };
     expect(SIGNAL_REGISTRY.litzone.visible(ctx, w.litZones.get('z1')!)).toBe(true);
   });
@@ -441,9 +471,9 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
 
 describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
   // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 11 GameEvent
-  // kinds. The three contact/mine/litzone pseudo-rows are unreachable from it
-  // (a fabricated k:'mine' or k:'litzone' world event can never materialize),
-  // and inherited prototype keys resolve to nothing (Object.hasOwn lookup).
+  // kinds. The four contact/mine/litzone/decoy pseudo-rows are unreachable from
+  // it (a fabricated k:'mine'/'litzone'/'decoy' world event can never
+  // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
   const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
 
   it('signalFor returns undefined for an unknown kind', () => {
@@ -458,14 +488,16 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     }
   });
 
-  it('signalFor excludes the contact/mine/litzone pseudo-rows (world-event dispatch only)', () => {
+  it('signalFor excludes the contact/mine/litzone/decoy pseudo-rows (world-event dispatch only)', () => {
     expect(signalFor('contact')).toBeUndefined();
     expect(signalFor('mine')).toBeUndefined();
     expect(signalFor('litzone')).toBeUndefined();
+    expect(signalFor('decoy')).toBeUndefined();
     // ...but the rows themselves still exist for direct scan-driven access.
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
     expect(SIGNAL_REGISTRY.litzone).toBeDefined();
+    expect(SIGNAL_REGISTRY.decoy).toBeDefined();
   });
 
   it('signalFor never resolves an inherited prototype key to a Function', () => {

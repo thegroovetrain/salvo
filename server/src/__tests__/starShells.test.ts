@@ -187,15 +187,16 @@ describe('star shells — denials', () => {
     expect(w.sinkingActivationGate(bb, SLOT_STAR)).toEqual({ ok: false, reason: 'dead' });
   });
 
-  it('ML slot-2 clicks keep dropping mines (byte-identical universal fit — never a flare)', () => {
+  it('ML slot-2 is the decoyBuoy ABILITY (Story 1.8) — activation drops a buoy, never a flare', () => {
     const w = bareWorld();
     const ml = place(w, 'ml', 'mineLayer', 0, 0);
-    expect(ml.loadout[SLOT_STAR].equipmentId).toBe('mine');
+    expect(ml.loadout[SLOT_STAR].equipmentId).toBe('decoyBuoy');
     setInput(ml, { slot: SLOT_STAR });
     expect(w.sinkingActivationGate(ml, SLOT_STAR)).toEqual({ ok: true });
-    expect(w.mines.size).toBe(1);
+    expect(w.decoys.size).toBe(1);
     expect(w.shells.size).toBe(0);
     expect(w.litZones.size).toBe(0);
+    expect(w.mines.size).toBe(0);
   });
 
   it('TB slot-2 stays the speedBoost ABILITY: a forged click is inert through the weapon-only wall', () => {

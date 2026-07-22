@@ -158,6 +158,11 @@ function injectZone(
   w.litZones.set(id, { id, ownerId, x, y, r, until });
 }
 
+/** Drop a decoy buoy directly into world state (Story 1.8; far-future expiry). */
+function injectDecoy(w: World, id: string, ownerId: string, x: number, y: number, until = 999_999): void {
+  w.decoys.set(id, { id, ownerId, x, y, until });
+}
+
 /** Push a raw world-emitted event onto the world's tick-event list — the exact
  *  buffer perception.forwardedEvents() dispatches, reached the same way the
  *  world's own step does (the field is private only to production callers). */
@@ -766,6 +771,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const e of f.events) verifyEvent(w, me, e);
   for (const m of f.mines) verifyMine(w, me, m);
   for (const z of f.litZones ?? []) verifyLitZone(w, me, z);
+  for (const d of f.decoys ?? []) verifyDecoy(w, me, d);
 }
 
 /** A mine may reach a frame only if the viewer owns it, it is sighted, OR it
@@ -776,6 +782,27 @@ function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean }): 
   const own = mine.ownerId === me.id;
   expect(m.own).toBe(own);
   if (!own) expect(sighted(w, me, mine) || zoneCovers(w, me, mine)).toBe(true); // never radar, never fogged
+}
+
+/** The Story 1.8 decoys-channel oracle: a buoy VIEW may reach a fogged frame
+ *  ONLY when the viewer owns it, its point is sighted (sight + island LOS), or
+ *  it sits inside a lit zone the viewer OWNS — nothing else (radar range alone
+ *  NEVER delivers the truth channel; it only ever produces the counterIntel
+ *  blip, verified in verifyBlip). Wire shape is exactly {id,x,y,until}; the
+ *  buoy must be live and unexpired. */
+function verifyDecoy(
+  w: World,
+  me: ShipRecord,
+  d: { id: string; x: number; y: number; until: number },
+): void {
+  const decoy = w.decoys.get(d.id)!;
+  expect(decoy).toBeDefined();
+  expect(w.now).toBeLessThan(decoy.until); // expired buoys never materialize
+  expect(Object.keys(d).sort()).toEqual(['id', 'until', 'x', 'y']);
+  expect(d).toEqual({ id: decoy.id, x: decoy.x, y: decoy.y, until: decoy.until });
+  if (decoy.ownerId !== me.id) {
+    expect(sighted(w, me, decoy) || zoneCovers(w, me, decoy)).toBe(true);
+  }
 }
 
 /** A lit-zone circle may reach a frame only if the viewer OWNS the zone or the
@@ -806,18 +833,54 @@ function verifyLitZone(
 
 type EventVerifier = (w: World, me: ShipRecord, e: GameEvent) => void;
 
+/** The ship-blip predicate at a POINT, reimplemented test-locally: annulus
+ *  (sight < d ≤ radar), island LOS, this-tick paint window, and never inside a
+ *  zone the viewer owns (contact/truth tier there). One function because the
+ *  decoy deception is DEFINED as this exact predicate at the buoy's position
+ *  (Story 1.8 / FR10). */
+function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
+  const d = dist(me.state, p);
+  return (
+    d > effSight(me) &&
+    d <= effRadar(me) &&
+    clearLos(me.state, p, w.map.islands) &&
+    inPaintWindow(me, bearing(me.state, p)) &&
+    !zoneCovers(w, me, p)
+  );
+}
+
+/** True iff `ev` is a legitimate GENUINE ship paint: a live non-self ship at
+ *  exactly the blip position passing the ship-blip predicate. */
+function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+  const target = w.ships.get(ev.id);
+  if (!target || !target.alive || target.id === me.id) return false;
+  if (target.state.x !== ev.x || target.state.y !== ev.y) return false;
+  return blipPredicate(w, me, target.state);
+}
+
+/** True iff `ev` is a legitimate DECOY counter-intel paint (Story 1.8): a live
+ *  unexpired buoy OWNED by the ship the blip impersonates sits at exactly the
+ *  blip position, the observer is NOT the owner (a buoy never lies to its
+ *  owner), and the ship-blip predicate holds at the BUOY's position. */
+function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+  for (const decoy of w.decoys.values()) {
+    if (decoy.ownerId !== ev.id || decoy.x !== ev.x || decoy.y !== ev.y) continue;
+    if (w.now >= decoy.until) continue;
+    if (decoy.ownerId === me.id) continue;
+    if (blipPredicate(w, me, decoy)) return true;
+  }
+  return false;
+}
+
 function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BlipEvent;
-  const target = w.ships.get(ev.id)!;
-  expect(target.alive).toBe(true);
-  const d = dist(me.state, target.state);
-  expect(d).toBeGreaterThan(effSight(me));
-  expect(d).toBeLessThanOrEqual(effRadar(me));
-  expect(clearLos(me.state, target.state, w.map.islands)).toBe(true);
-  expect(inPaintWindow(me, bearing(me.state, target.state))).toBe(true);
-  // A zone-covered ship is a FULL contact — it may never double as a blip.
-  expect(zoneCovers(w, me, target.state)).toBe(false);
   expect(ev.t).toBe(w.now);
+  // Every blip in a frame must be JUSTIFIED as exactly one of the two legal
+  // sources: a genuine ship paint, or a decoy counter-intel paint whose owner
+  // id it carries. Anything else — a fabricated id, a wrong position, an
+  // unswept bearing, an out-of-annulus point — fails both and the invariant.
+  if (blipMatchesShip(w, me, ev)) return;
+  expect(blipMatchesDecoy(w, me, ev)).toBe(true);
 }
 
 // shell AND torp share one verifier: torpedoes ride the same first-sight
@@ -957,6 +1020,15 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const r = rng.float(0, w.map.radius * 0.9);
         injectZone(w, `zone${z}`, ids[rng.int(0, ids.length - 1)], Math.cos(ang) * r, Math.sin(ang) * r);
       }
+      // Random decoy buoys (Story 1.8) so the invariant exercises BOTH decoy
+      // channels in the same frames: the truth (decoys view — owner/sighted/
+      // own-zone only) and the lie (counter-intel blips through the ship-blip
+      // predicate with owner-id substitution).
+      for (let d = 0; d < rng.int(0, 3); d++) {
+        const ang = rng.float(0, TAU);
+        const r = rng.float(0, w.map.radius * 0.9);
+        injectDecoy(w, `decoy${d}`, ids[rng.int(0, ids.length - 1)], Math.cos(ang) * r, Math.sin(ang) * r);
+      }
       for (let tick = 1; tick <= 6; tick++) {
         for (const id of ids) {
           w.submitInput(id, {
@@ -989,17 +1061,17 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
 // dev adding a 13th row sees this block fail until they add its verifier.
 
 describe('perception — SIGNAL REGISTRY completeness', () => {
-  // The three contact-like pseudo-rows are verified through the contacts/
-  // mines/litZones frame channels (verifyFrame/verifyMine/verifyLitZone), not
-  // through EVENT_VERIFIERS.
-  const CONTACT_LIKE = ['contact', 'mine', 'litzone'];
+  // The four contact-like pseudo-rows are verified through the contacts/mines/
+  // litZones/decoys frame channels (verifyFrame/verifyMine/verifyLitZone/
+  // verifyDecoy), not through EVENT_VERIFIERS.
+  const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
   // The 11 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry.
   const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 14 expected channel keys (11 event kinds + contact + mine + litzone)', () => {
+  it('has exactly the 15 expected channel keys (11 event kinds + contact + mine + litzone + decoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(14);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(15);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {
@@ -1008,10 +1080,11 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     }
   });
 
-  it('the three contact-like pseudo-rows exist (verified via the contacts/mines/litZones channels)', () => {
+  it('the four contact-like pseudo-rows exist (verified via the contacts/mines/litZones/decoys channels)', () => {
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
     expect(SIGNAL_REGISTRY.litzone).toBeDefined();
+    expect(SIGNAL_REGISTRY.decoy).toBeDefined();
   });
 
   it('every event-kind row has a test-local verifier — a row without one FAILS HERE', () => {
