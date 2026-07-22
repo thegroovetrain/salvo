@@ -1,10 +1,12 @@
 // Firing UX, split across two camera-transformed layers (see render/stage.ts
 // for the full z-order rationale):
-//   - The torpedo bow arc / mine astern marker go in the `ship` layer
-//     (worldRoot, fogged) — they rotate with the own ship and sit inside the
-//     sight bubble, so fog over them is plan-correct. The gun FAMILY (gun /
-//     cannon / star shells) draws NO arc sector: it is 360° and fires to the
-//     clicked point (Eric ruling 2026-07-21), so a broadside wedge would lie.
+//   - The torpedo bow arc goes in the `ship` layer (worldRoot, fogged) — it
+//     rotates with the own ship and sits inside the sight bubble, so fog over it
+//     is plan-correct. The gun FAMILY (gun / cannon / star shells) draws NO arc
+//     sector: it is 360° and fires to the clicked point (Eric ruling
+//     2026-07-21), so a broadside wedge would lie. Instant abilities (speedBoost,
+//     and — Story 1.8 — the Mine Layer's mine + decoyBuoy) never prime and draw
+//     no marker at all: the torpedo is the one aim-gated skillshot left here.
 //   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
 //     because gun range (radar range, 650u) exceeds sight range (220u): aiming
 //     at a radar blip beyond sight must not put the reticle under the fog. Amber
@@ -27,11 +29,6 @@ const ARC_R = 72; // u — sector indicator radius
 const RETICLE_R = 7; // u — crosshair size
 const IMPACT_R = 4; // u — range-clamped impact marker ring
 
-/** Astern mine-drop marker distance (local -x) for a given own hull length. */
-function mineMarkerFor(hullLength: number): number {
-  return hullLength / 2 + CONFIG.mine.triggerRadius;
-}
-
 export interface FiringPose {
   x: number;
   y: number;
@@ -52,8 +49,6 @@ export interface FiringAmmo {
 export class FiringUX {
   private readonly arcs = new Graphics();
   private readonly reticle = new Graphics();
-  /** Own hull length (u), fed each frame by update(); default torpedoBoat. */
-  private hullLength: number = CONFIG.shipClasses.torpedoBoat.hull.length;
   /** Effective max range (u) of the primed weapon, fed each frame by update();
    *  base = radar range. Drives the gun-family range-clamp burst marker. */
   private rangeU: number = CONFIG.vision.radar;
@@ -88,19 +83,17 @@ export class FiringUX {
     id: EquipmentId | null,
     ammo: FiringAmmo,
     cursor: { x: number; y: number },
-    hullLength: number,
     denied = false,
     rangeU: number = CONFIG.vision.radar,
   ): void {
-    this.hullLength = hullLength;
     this.rangeU = rangeU;
     const kind = fireArcKind(id);
     this.arcs.clear();
     this.arcs.position.set(pose.x, pose.y);
     this.arcs.rotation = pose.heading;
+    // Only the torpedo draws an arc sector; the gun family is 360° (no wedge)
+    // and instant abilities (speedBoost / mine / decoyBuoy) draw no marker.
     if (kind === 'torpedo') this.drawBowArc(aim, pose.heading, ammo, denied);
-    else if (kind === 'mine') this.drawMineMarker(ammo, denied);
-    // The gun family (gunLike) draws no arc sector — it is 360°.
     this.drawReticle(pose, aim, id, ammo.hasAmmo, cursor);
   }
 
@@ -123,16 +116,6 @@ export class FiringUX {
       g.lineTo(0, 0);
       g.fill({ color: DIM, alpha: 0.1 + 0.2 * reloadFrac });
     }
-  }
-
-  /** Astern drop indicator (local -x): a small ring where the next mine lands. */
-  private drawMineMarker(ammo: FiringAmmo, denied: boolean): void {
-    const g = this.arcs;
-    const color = denied ? DENIED_RED : ammo.hasAmmo ? AMBER : DIM;
-    const alpha = denied ? 0.9 : ammo.hasAmmo ? 0.8 : 0.3;
-    const marker = mineMarkerFor(this.hullLength);
-    g.circle(-marker, 0, 6).stroke({ width: 1.5, color, alpha });
-    g.circle(-marker, 0, 2).fill({ color, alpha });
   }
 
   private drawReticle(

@@ -169,18 +169,21 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 |---|---|---|---|
 | **Torpedo Boat** | Standard gun | Torpedo tubes | Speed boost — several seconds of raised speed (inherited from the cut gunboat, ruled 2026-07-19; fits the "zip around firing torps" fantasy) |
 | **Battleship** | Standard gun | Long-range cannon (artillery) | Star shells (#12) — illuminate a region of radar-space to truesight, then hit from distance |
-| **Mine Layer** | Standard gun | Proximity-fused mines (#81) | **OPEN** — the decoy buoy (#69) is under rethink (2026-07-19) |
+| **Mine Layer** | Standard gun | Proximity-fused mines (#81) | Decoy buoy (#69) — a stationary radar-double (resolved 2026-07-22) |
 
 **The smoke screen (#26) is orphaned to the equipment/boon pool** as content — no longer any class's ability (2026-07-19).
 
-[NOTE FOR DESIGNER: The Mine Layer's signature ability is the roster's open slot — the decoy-buoy rethink was triggered by the (now-deferred) Decoy Ship concept; candidate resolutions are banked in the 2026-07-19 session (mine+buoy shared radar signature, sonobuoy). Bigger: **how mines fundamentally work is itself flagged unsettled** — upstream design work before the Mine Layer loadout is specced.]
+**Mine Layer signature ability + mine mechanics — RESOLVED (Eric ruling 2026-07-22):** the open slot is the **Decoy Buoy** (#69), and the **Naval Mines** are reworked into an activateable ability.
+
+- **Naval Mines:** activateable (drop astern, arm after a delay); an enemy pass-over trips a **blast** damaging every non-owner hull within the blast radius (blast radius > trigger radius); the owner's own gunfire **shoots armed mines to detonate them early** (full blast); **live cap 5**, oldest silently evicted; **no expiry** (persist until detonated).
+- **Decoy Buoy:** a stationary buoy that **radar-paints to other players as the owner's own ship** (wire-indistinguishable radar-double); **one live per owner** (a new drop replaces the old); **30 s lifetime**; shooting it produces no Hit Call.
 
 **Weapon behavior laws (settled):**
 
 - All weapons fire within **real firing arcs**; aim is mouse-constrained to the selected weapon's arc.
 - Every fitted system has its **own ammo pool and reload timer, and every reload ticks every tick** regardless of which weapon is selected — switching weapons is tempo, not penalty.
 - **Torpedoes outrun every hull** at base speed and spawn with real bow clearance plus a brief owner-only grace — they can never self-hit at base speed. Torpedoes are never painted by radar; hydrophones (the listening ring) are the torpedo warning.
-- **Mines** arm after a delay, trigger by proximity, and are capped per-player (live-mine cap; oldest evicted) and globally.
+- **Mines** arm after a delay, trigger by proximity, and are capped per-player (live-mine cap; oldest evicted) and globally. On trigger they **blast** — every non-owner hull within the blast radius (larger than the trigger radius) takes full damage; the owner's own gunfire **detonates its own armed mines early**; mines **persist until detonated (no expiry)** (Eric ruling 2026-07-22).
 - Numbers (damage, reloads, ranges, speeds) are design-target work for the new armory; current prototype values (gun 25 hp/3 s reload, torpedo 55 hp/12 s, mine 45 hp/8 s) are reference only.
 - **Compass vetoes stand for the new armory:** no torpedo variety (one torpedo design per fit — Hades-hammer variant mutations *replace* the slot's design rather than adding a second, so the veto holds; ruled compatible 2026-07-19), no damage-control parties, no sectional damage — WoWS-creep stays out.
 
@@ -417,7 +420,7 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 
 **Open design notes** (inline `[NOTE FOR DESIGNER]` tags):
 
-1. Mine Layer signature ability is OPEN — decoy buoy under rethink; **mine mechanics themselves are flagged unsettled**, upstream design work before the loadout is specced. *(Weapon Systems; 2026-07-19)*
+1. **RESOLVED (2026-07-22, Eric):** Mine Layer signature ability = the **Decoy Buoy** (#69); the **Naval Mines** are reworked into an activateable blast ability — see Weapon Systems. *(Weapon Systems; 2026-07-19 → resolved 2026-07-22)*
 2. "Boons, not stat multipliers" (2026-07-16) vs. "most upgrades are stat increases" (2026-07-19) — resolve during boon-catalog design. *(Upgrade economy)*
 3. Per-weapon firing-arc geometry, designed alongside the new armory's numbers. *(Aiming and Combat)*
 4. Precision bonus: adopt or drop while tuning the standard gun; whether gun-type specials qualify. *(Aiming and Combat)*

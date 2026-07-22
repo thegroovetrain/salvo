@@ -13,6 +13,7 @@ export type ToneId =
   | 'fireMine'
   | 'fireCannon'
   | 'fireStarShells'
+  | 'placeDecoy'
   | 'damage'
   | 'kill'
   | 'point'
@@ -52,6 +53,10 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // Star shell (Story 1.7): a distinct utility POP — a bright airy rising whistle
   // (a flare climbing into the sky), no heavy noise: not a gun, not a fish.
   fireStarShells: { freqStart: 360, freqMid: 640, freqEnd: 900, duration: 0.13, volume: 0.4, type: 'triangle' },
+  // Decoy buoy placement (Story 1.8): a hollow water "bloop" — same soft sine
+  // drop family as the mine plop but pitched a touch higher + brighter so
+  // seeding a buoy is audibly distinct from dropping a mine.
+  placeDecoy: { freqStart: 340, freqMid: 260, freqEnd: 160, duration: 0.13, volume: 0.38, type: 'sine' },
   // Taking damage: dull triangle thud.
   damage: { freqStart: 220, freqMid: 160, freqEnd: 110, duration: 0.1, volume: 0.45, type: 'triangle' },
   // Kill confirm: short ascending chime.
@@ -83,10 +88,13 @@ export function telegraphTone(dir: number): ToneId {
   return dir > 0 ? 'telegraphUp' : 'telegraphDown';
 }
 
-/** Equipment that FIRES: the weapon subset of EquipmentId. The speedBoost
- *  ability (EQUIPMENT_IS_WEAPON false) never fires and has no own-fire cue,
- *  so it is excluded at the type level — an ability id can't reach fireTone. */
-type FiringEquipmentId = Exclude<EquipmentId, 'speedBoost'>;
+/** Equipment with a discrete own-fire/placement cue routed through fireTone. The
+ *  instant abilities that have NO such cue here are excluded at the type level:
+ *  speedBoost (a pure speed window) and decoyBuoy (its placement cue is played
+ *  directly as 'placeDecoy' from the key-press path, not via fireTone). The MINE
+ *  stays included even though it is now an ability (Story 1.8) — its 'fireMine'
+ *  drop cue still fires, via the Mines reconcile own-spawn hook (main.ts). */
+type FiringEquipmentId = Exclude<EquipmentId, 'speedBoost' | 'decoyBuoy'>;
 
 const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
   gun: 'fireGun',

@@ -16,8 +16,8 @@ import type { MineView } from '@salvo/shared';
 
 const OWN_COLOR = 0x2f7d5a; // dim tactical green (your own ordnance)
 const ENEMY_COLOR = 0xffb800; // DESIGN.md amber warning
-const RING_R = 7; // u
-const DOT_R = 2.4; // u
+const RING_R = 10; // u (Eric 2026-07-22: the mine graphic read a bit small)
+const DOT_R = 3.5; // u
 
 /** What changed between the sprites we hold and the incoming mine list. */
 export interface MineDiff {

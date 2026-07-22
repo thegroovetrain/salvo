@@ -5,9 +5,12 @@
 // branch would light the wrong marker. The gun family (gun/cannon/starShells) is
 // 360°; the torpedo has a bow arc; the mine drops astern regardless of aim.
 //
-// The TB/ML torpedo + mine cases are the byte-identical regression pins: their
-// behavior must NOT drift now that the branch is id-driven. loadoutFor is the
-// authoritative id→slot map, so we derive the ids the same way main.ts does.
+// The TB torpedo case is the byte-identical regression pin: its bow-arc behavior
+// must NOT drift now that the branch is id-driven. Story 1.8 flipped the mine to
+// an instant ABILITY (no aim, never primed) and fitted the Mine Layer with
+// [gun, mine, decoyBuoy, empty], so both ML specials classify as `none` — never
+// in arc. loadoutFor is the authoritative id→slot map, so we derive the ids the
+// same way main.ts does.
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, UPGRADE_IDS, effectiveStats, loadoutFor, zeroUpgrades } from '@salvo/shared';
@@ -27,13 +30,14 @@ describe('fireArcKind — equipment-id → firing-arc class', () => {
     expect(fireArcKind('starShells')).toBe('gunLike');
   });
 
-  it('classes the torpedo (bow arc) and mine (astern) distinctly', () => {
+  it('classes the torpedo (bow arc) distinctly', () => {
     expect(fireArcKind('torpedo')).toBe('torpedo');
-    expect(fireArcKind('mine')).toBe('mine');
   });
 
-  it('classes abilities + the empty slot as none (not an aimed weapon)', () => {
+  it('classes every instant ability + the empty slot as none (not an aimed weapon)', () => {
     expect(fireArcKind('speedBoost')).toBe('none');
+    expect(fireArcKind('mine')).toBe('none'); // Story 1.8: mine is an ability now, no aim
+    expect(fireArcKind('decoyBuoy')).toBe('none'); // Story 1.8: the ML radar-double buoy
     expect(fireArcKind(null)).toBe('none');
   });
 });
@@ -58,16 +62,12 @@ describe('weaponArcHit — gun family (360°)', () => {
   });
 });
 
-describe('weaponArcHit — mines (astern, no aim gate)', () => {
-  it('is always true (mines drop astern regardless of aim)', () => {
-    expect(weaponArcHit(0, 0, 'mine')).toBe(true);
-    expect(weaponArcHit(1.2, -2.9, 'mine')).toBe(true);
-  });
-});
-
-describe('weaponArcHit — abilities / empty slot', () => {
-  it('is FALSE for the boost ability and the empty slot (not a weapon, never in arc)', () => {
+describe('weaponArcHit — instant abilities / empty slot', () => {
+  it('is FALSE for every ability and the empty slot (not a weapon, never in arc)', () => {
     expect(weaponArcHit(0, 0, 'speedBoost')).toBe(false);
+    expect(weaponArcHit(0, 0, 'mine')).toBe(false); // Story 1.8: mine no longer aims
+    expect(weaponArcHit(1.2, -2.9, 'mine')).toBe(false);
+    expect(weaponArcHit(0, 0, 'decoyBuoy')).toBe(false);
     expect(weaponArcHit(0, 0, null)).toBe(false); // empty slot 3 / defensive null
   });
 });
@@ -95,33 +95,35 @@ describe('weaponArcHit — torpedo bow arc', () => {
   });
 });
 
-describe('weaponArcHit — TB/ML torpedo + mine byte-identical regression', () => {
-  // The id-driven branch must reproduce the pre-1.7 slot-driven behavior for
-  // every hull that still carries the torpedo/mine (TB slot 1 = torpedo; ML
-  // slots 1/2 = torpedo/mine). We drive weaponArcHit through the REAL fitted ids.
+describe('weaponArcHit — TB torpedo regression + ML ability fit (Story 1.8)', () => {
+  // The id-driven branch must reproduce the TB's bow-arc torpedo behavior
+  // (TB slot 1 = torpedo). The Mine Layer now fits [gun, mine, decoyBuoy, empty]
+  // — both specials are instant abilities (never aimed), so slots 1/2 read as
+  // `none` and are never in arc. We drive weaponArcHit through the REAL fitted ids.
   const halfArc = CONFIG.torpedo.halfArc;
 
-  it('TB slot 1 is the torpedo bow arc; ML slots 1/2 are torpedo + mine', () => {
+  it('TB slot 1 is the torpedo; ML slots 1/2 are the mine + decoyBuoy abilities', () => {
     expect(idAt('torpedoBoat', 1)).toBe('torpedo');
-    expect(idAt('mineLayer', 1)).toBe('torpedo');
-    expect(idAt('mineLayer', 2)).toBe('mine');
+    expect(idAt('mineLayer', 1)).toBe('mine');
+    expect(idAt('mineLayer', 2)).toBe('decoyBuoy');
   });
 
-  it('a torpedo fitted at any slot gates on the identical bow arc', () => {
-    for (const cls of ['torpedoBoat', 'mineLayer'] as const) {
-      const torp = idAt(cls, 1); // torpedo on both
-      expect(weaponArcHit(0, 0, torp)).toBe(true);
-      expect(weaponArcHit(0, halfArc, torp)).toBe(true);
-      expect(weaponArcHit(0, halfArc + 0.01, torp)).toBe(false);
-      expect(weaponArcHit(0, Math.PI, torp)).toBe(false); // astern
+  it('the TB torpedo gates on the bow arc exactly as before', () => {
+    const torp = idAt('torpedoBoat', 1);
+    expect(weaponArcHit(0, 0, torp)).toBe(true);
+    expect(weaponArcHit(0, halfArc, torp)).toBe(true);
+    expect(weaponArcHit(0, halfArc + 0.01, torp)).toBe(false);
+    expect(weaponArcHit(0, Math.PI, torp)).toBe(false); // astern
+  });
+
+  it('both ML specials are instant abilities: never in arc, no aim gate', () => {
+    for (const slot of [1, 2]) {
+      const id = idAt('mineLayer', slot);
+      expect(fireArcKind(id)).toBe('none');
+      expect(weaponArcHit(0, 0, id)).toBe(false);
+      expect(weaponArcHit(1.2, -2.9, id)).toBe(false);
+      expect(weaponArcHit(0, Math.PI, id)).toBe(false);
     }
-  });
-
-  it('the ML mine drops astern regardless of aim (always in arc)', () => {
-    const mine = idAt('mineLayer', 2);
-    expect(weaponArcHit(0, 0, mine)).toBe(true);
-    expect(weaponArcHit(1.2, -2.9, mine)).toBe(true);
-    expect(weaponArcHit(0, Math.PI, mine)).toBe(true);
   });
 });
 

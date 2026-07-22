@@ -19,6 +19,7 @@ import {
   hullSilhouette,
   isOutside,
   loadoutFor,
+  SLOT_COUNT,
   zeroUpgrades,
   zoneRadiusAt,
   type EffectiveStats,
@@ -40,6 +41,7 @@ import { FiringUX } from './render/firing.js';
 import { weaponArcHit, weaponRangeU } from './render/weaponArc.js';
 import { Effects } from './render/effects.js';
 import { Mines } from './render/mines.js';
+import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
@@ -90,6 +92,9 @@ interface Game {
   firing: FiringUX;
   effects: Effects;
   mines: Mines;
+  /** Decoy-buoy markers (render/decoys.ts) — synced from FrameMsg.decoys, the
+   *  mines precedent (Story 1.8). */
+  decoys: Decoys;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -132,16 +137,20 @@ interface Game {
   deniedPulse: DeniedPulse;
   /** This frame's denied-fire pulse state — read by hud.update() for the chip flash. */
   deniedFlash: boolean;
-  /** One-shot latch: an ability press predicted DENIED (cooling/dead) since the
-   *  last render frame — consumed into abilityPulse (Story 1.6, never silence). */
-  abilityDeniedPress: boolean;
-  /** Rate-limited denied pulse for ability presses — the SAME deniedFire
-   *  grammar (80ms flash / 300ms floor), a separate driver so a weapon click
-   *  and an ability press don't share one rate window. Chips-only: an ability
-   *  press never drives the weapon-arc/reticle denied visuals (nothing is aimed). */
-  abilityPulse: DeniedPulse;
-  /** This frame's ability denied-flash — read by hud.update() for the ability chip border. */
-  abilityFlash: boolean;
+  /** One-shot latch PER LOADOUT SLOT: an ability press on that slot predicted
+   *  DENIED (cooling/dead) since the last render frame — consumed into the
+   *  matching abilityPulse (Story 1.6, never silence). Per-slot since Story 1.8:
+   *  the ML fits TWO ability slots (mine + decoyBuoy), so a denied mine press
+   *  must not flash the decoy chip. Indexed by loadout slot (length SLOT_COUNT). */
+  abilityDeniedPress: boolean[];
+  /** Rate-limited denied pulse PER LOADOUT SLOT — the SAME deniedFire grammar
+   *  (80ms flash / 300ms floor), one driver per slot so two ability slots (and
+   *  the weapon click) don't share a rate window. Chips-only: an ability press
+   *  never drives the weapon-arc/reticle denied visuals (nothing is aimed). */
+  abilityPulse: DeniedPulse[];
+  /** This frame's ability denied-flash PER LOADOUT SLOT — read by hud.update()
+   *  for each ability chip's border (index = loadout slot). */
+  abilityFlash: boolean[];
   /** Tone player (audio/context.ts). */
   audio: Audio;
   /**
@@ -559,27 +568,35 @@ function viewportCallbacks(getG: () => Game | null): {
 }
 
 /**
- * An ability-activation keypress landed (the TB's speed boost): the keyboard
- * has ALREADY advanced actSeq, and the press rides the next input either way —
- * the server decides. Here the client only predicts the verdict:
- *  - predicted DENIED (slot cooling / own ship dead) → latch the denied pulse
- *    (the existing deniedFire grammar, chips-only — never silence, never the
- *    weapon-arc/reticle visuals: nothing is aimed);
- *  - predicted READY → open the predictor's optimistic boost window at the
- *    current server-clock estimate, so the speed-up doesn't wait a round trip
- *    (the authoritative you.boostUntil overwrites it once the press is acked).
- *    The predictor itself ignores a second press while a window is pending, so
- *    a stale-ammo double press within RTT can never extend the estimate.
+ * An ability-activation keypress landed (the TB's speed boost, or — Story 1.8 —
+ * the Mine Layer's mine / decoyBuoy): the keyboard has ALREADY advanced actSeq,
+ * and the press rides the next input either way — the server decides. Here the
+ * client only predicts the verdict:
+ *  - predicted DENIED (slot cooling / own ship dead) → latch the pressed SLOT's
+ *    denied pulse (the existing deniedFire grammar, chips-only — never silence,
+ *    never the weapon-arc/reticle visuals: nothing is aimed). Per-slot so a
+ *    denied mine press never flashes the decoy chip (the ML fits two abilities);
+ *  - predicted READY → per equipment: speedBoost opens the predictor's optimistic
+ *    boost window at the current server-clock estimate so the speed-up doesn't
+ *    wait a round trip (the authoritative you.boostUntil overwrites it once
+ *    acked; the predictor ignores a second press while pending, so a stale-ammo
+ *    double press within RTT can't extend it); the decoyBuoy plays its placement
+ *    cue immediately (the owner's own action — this is the buoy's own-fire cue,
+ *    driven from the press rather than a reconcile hook because DecoyView carries
+ *    no owner id to gate it, see render/decoys.ts). The mine drop needs no client
+ *    prediction — its own cue rides the Mines reconcile own-spawn hook.
  */
 function handleAbilityPress(g: Game, slot: number): void {
   const you = g.state.net.you;
   const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
   const loaded = !!a && a.n > 0;
   if (abilityPressDenied(you?.alive ?? true, loaded)) {
-    g.abilityDeniedPress = true;
+    g.abilityDeniedPress[slot] = true;
     return;
   }
-  g.predictor.predictBoostActivation(g.clock.serverNow(), g.keyboard.actSeq);
+  const id = g.ownSlots[slot];
+  if (id === 'speedBoost') g.predictor.predictBoostActivation(g.clock.serverNow(), g.keyboard.actSeq);
+  else if (id === 'decoyBuoy') g.audio.play('placeDecoy');
 }
 
 /**
@@ -592,6 +609,17 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
   return (choice) => {
     const g = getG();
     if (g) trySpend(g, choice);
+  };
+}
+
+/** Fresh per-slot ability denied-feedback state (Story 1.6/1.8): one latch +
+ *  rate-limited pulse + flash per loadout slot, so two ability slots (the ML's
+ *  mine + decoyBuoy) never share a pulse/flash. */
+function abilityFeedbackState(): Pick<Game, 'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash'> {
+  return {
+    abilityDeniedPress: Array.from({ length: SLOT_COUNT }, () => false),
+    abilityPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
+    abilityFlash: Array.from({ length: SLOT_COUNT }, () => false),
   };
 }
 
@@ -621,6 +649,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     effects,
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
+    decoys: new Decoys(stage.layers.decoyChart),
     litZones: new LitZones(stage.layers.litZone),
     fog: new Fog(stage.fogSprite),
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
@@ -634,10 +663,9 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     returning: false, reconnecting: false,
     shake: new ShakeDriver(),
     deniedPulse: new DeniedPulse(), deniedFlash: false,
-    abilityDeniedPress: false, abilityPulse: new DeniedPulse(), abilityFlash: false,
+    ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, audioCueState: INITIAL_CUE_STATE,
-    wasInStorm: false,
+    matchEnded: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
     ownClass: cls,
     ownStats: stats, ownSlots: slotIdsFor(cls, stats),
@@ -803,12 +831,16 @@ function renderOwn(
 function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }): void {
   const clicked = g.mouse.clickCount !== g.prevClickCount;
   g.prevClickCount = g.mouse.clickCount;
-  // Ability denied pulse (Story 1.6): consume the one-shot press latch into
-  // the rate-limited pulse. Chips-only feedback — deliberately OUTSIDE the
-  // alive gate below (a dead press is denied too and must still pulse) and
-  // never fed into the weapon-arc/reticle denied visuals (nothing is aimed).
-  g.abilityFlash = g.abilityPulse.update(g.abilityDeniedPress, performance.now());
-  g.abilityDeniedPress = false;
+  // Ability denied pulse (Story 1.6): consume each slot's one-shot press latch
+  // into its rate-limited pulse (per-slot since Story 1.8 — the ML fits two
+  // ability slots). Chips-only feedback — deliberately OUTSIDE the alive gate
+  // below (a dead press is denied too and must still pulse) and never fed into
+  // the weapon-arc/reticle denied visuals (nothing is aimed).
+  const nowMs = performance.now();
+  for (let s = 0; s < g.abilityPulse.length; s++) {
+    g.abilityFlash[s] = g.abilityPulse[s].update(g.abilityDeniedPress[s], nowMs);
+    g.abilityDeniedPress[s] = false;
+  }
   if (!status.alive) {
     g.firing.hide();
     g.deniedFlash = false;
@@ -830,14 +862,12 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   const inArc = weaponArcHit(pose.heading, aim, primedId);
   const denied = isClickDenied({ clicked, ready: hasAmmo, inArc });
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
-  const hullLength = CONFIG.shipClasses[status.cls].hull.length;
   g.firing.update(
     pose,
     aim,
     primedId,
     { hasAmmo, reloadFrac },
     cursor,
-    hullLength,
     g.deniedFlash,
     weaponRangeU(status.stats, primedId), // per-weapon range-clamp marker (gun stacks; cannon/flare base)
   );

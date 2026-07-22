@@ -357,14 +357,22 @@ describe('KeyboardInput — CTRL upgrade window', () => {
 // --- Story 1.6: ability slot — the slot-2 key activates on the TB, primes on BB/ML ---
 
 describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
-  const TB_SLOTS = ['gun', 'torpedo', 'speedBoost', null] as const; // loadoutFor('torpedoBoat') ids
-  const BB_SLOTS = ['gun', 'torpedo', 'mine', null] as const; // universal fit (BB/ML/drones)
+  const TB_SLOTS = ['gun', 'torpedo', 'speedBoost', null] as const; // Torpedo Boat
+  const BB_SLOTS = ['gun', 'cannon', 'starShells', null] as const; // Battleship (both specials weapons)
+  const ML_SLOTS = ['gun', 'mine', 'decoyBuoy', null] as const; // Mine Layer (both specials abilities, Story 1.8)
 
   it('is true only for a slot holding EQUIPMENT_IS_WEAPON:false equipment', () => {
     expect(slotHoldsAbility(TB_SLOTS, 2)).toBe(true); // speedBoost
     expect(slotHoldsAbility(TB_SLOTS, 0)).toBe(false); // gun
     expect(slotHoldsAbility(TB_SLOTS, 1)).toBe(false); // torpedo
-    expect(slotHoldsAbility(BB_SLOTS, 2)).toBe(false); // mine is a weapon
+    expect(slotHoldsAbility(BB_SLOTS, 1)).toBe(false); // cannon is a weapon
+    expect(slotHoldsAbility(BB_SLOTS, 2)).toBe(false); // star shells is a weapon
+  });
+
+  it('the Mine Layer answers true for BOTH specials — mine (slot 1) + decoyBuoy (slot 2)', () => {
+    expect(slotHoldsAbility(ML_SLOTS, 1)).toBe(true); // Story 1.8: mine is activateable now
+    expect(slotHoldsAbility(ML_SLOTS, 2)).toBe(true); // decoyBuoy
+    expect(slotHoldsAbility(ML_SLOTS, 0)).toBe(false); // gun stays a weapon
   });
 
   it('is false for empty and out-of-range slots', () => {
@@ -373,7 +381,7 @@ describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
   });
 });
 
-describe('KeyboardInput — ability activation (TB slot 2) vs prime (BB/ML slot 2)', () => {
+describe('KeyboardInput — ability activation (TB/ML) vs prime (BB weapon special)', () => {
   let kb: KeyboardInput | undefined;
   afterEach(() => kb?.detach());
 
@@ -425,11 +433,32 @@ describe('KeyboardInput — ability activation (TB slot 2) vs prime (BB/ML slot 
     expect(presses).toEqual([2, 2]);
   });
 
-  it('on a weapon loadout (BB/ML) the same key PRIMES exactly as today and actSeq stays 0', () => {
-    kb = new KeyboardInput(undefined, undefined, (slot) => slotHoldsAbility(['gun', 'torpedo', 'mine', null], slot));
+  it('the Mine Layer activates BOTH specials — slot 1 (mine) + slot 2 (decoy), never primes', () => {
+    // Story 1.8: the ML fit is [gun, mine, decoyBuoy, empty] and both specials
+    // are instant abilities — keys 2 AND 3 route through actSeq, prime untouched.
+    const presses: number[] = [];
+    kb = new KeyboardInput(
+      undefined,
+      undefined,
+      (slot) => slotHoldsAbility(['gun', 'mine', 'decoyBuoy', null], slot),
+      (slot) => presses.push(slot),
+    );
+    kb.attach();
+    press('Digit2'); // mine — slot 1
+    press('Digit3'); // decoy — slot 2
+    expect(kb.actSeq).toBe(2);
+    expect(kb.actSlot).toBe(2); // the latest press's slot
+    expect(presses).toEqual([1, 2]);
+    expect(kb.primedSlot).toBe(SLOT_GUN); // neither special ever primes
+  });
+
+  it('on a WEAPON-special loadout (BB) the same key PRIMES exactly as today and actSeq stays 0', () => {
+    // The Battleship's specials (cannon, star shells) are weapons — key 3 primes
+    // slot 2 exactly as the interregnum mine used to, no ability routing.
+    kb = new KeyboardInput(undefined, undefined, (slot) => slotHoldsAbility(['gun', 'cannon', 'starShells', null], slot));
     kb.attach();
     press('Digit3');
-    expect(kb.primedSlot).toBe(MINE); // primes the mine, as before
+    expect(kb.primedSlot).toBe(MINE); // slot 2 (star shells) — primes like a weapon
     expect(kb.actSeq).toBe(0); // the sentinel never advances
     expect(kb.actSlot).toBe(0);
   });

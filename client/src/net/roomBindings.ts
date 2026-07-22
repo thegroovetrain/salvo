@@ -37,6 +37,7 @@ import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
 import type { Mines } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
+import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { killLine, pushKillLine } from '../ui/killFeed.js';
 import { healToastLine, pointToastLine, pushUpgradeToast, upgradeLabel } from '../ui/upgradeToast.js';
@@ -69,6 +70,9 @@ export interface RoomBindingDeps {
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
    *  from FrameMsg.litZones every tick, exactly like mines. */
   litZones: LitZones;
+  /** Decoy-buoy markers (render/decoys.ts) — synced contact-like from
+   *  FrameMsg.decoys every tick, exactly like mines/litZones (Story 1.8). */
+  decoys: Decoys;
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. */
@@ -202,6 +206,11 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
   // own ship id tints own (green) vs enemy (amber) zones (render/litZones.ts).
   const litZones = f.litZones ?? [];
   deps.litZones.sync(litZones, deps.state.net.sessionId);
+  // Decoy buoys, same contact-like reconcile. Frames OMIT the key when the
+  // observer sees no buoys, so treat a missing key as an empty list. No own/enemy
+  // split (DecoyView carries no owner id — see render/decoys.ts) and no state
+  // mirror needed (buoys are chart markers; nothing derives from them per-frame).
+  deps.decoys.sync(f.decoys ?? []);
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).

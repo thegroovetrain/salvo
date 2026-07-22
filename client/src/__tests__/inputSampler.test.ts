@@ -249,4 +249,15 @@ describe('abilityPressDenied — predicted activation verdict (feedback only)', 
   it('is allowed when alive with a ready charge', () => {
     expect(abilityPressDenied(true, true)).toBe(false);
   });
+
+  it('is slot-agnostic — the ML fits two abilities and main.ts applies it PER SLOT', () => {
+    // Story 1.8: the predicate has no slot term (alive + this slot's charge only),
+    // so both ML specials (mine slot 1, decoyBuoy slot 2) gate identically; the
+    // per-slot latch/pulse that keeps a denied mine press from flashing the decoy
+    // chip lives in main.ts, keyed by the pressed slot's own loaded state.
+    const mineLoaded = true;
+    const decoyCooling = false;
+    expect(abilityPressDenied(true, mineLoaded)).toBe(false); // mine ready → allowed
+    expect(abilityPressDenied(true, decoyCooling)).toBe(true); // decoy cooling → denied
+  });
 });

@@ -32,6 +32,9 @@ export interface StageLayers {
   litZone: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
+  /** Decoy buoys (render/decoys.ts) — fog-immune chart markers (own always, and
+   *  any enemy buoy the observer legitimately truesights), above the base map. */
+  decoyChart: Container;
   blip: Container;
   /** Crosshair + bearing line (render/firing.ts) — fog-immune, above blips. */
   aim: Container;
@@ -110,6 +113,7 @@ export async function createStage(): Promise<Stage> {
     zone: child(chartRoot),
     litZone: child(chartRoot),
     mineChart: child(chartRoot),
+    decoyChart: child(chartRoot),
     blip: child(chartRoot),
     aim: child(chartRoot),
     burstFx: child(chartRoot),

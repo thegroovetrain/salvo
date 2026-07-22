@@ -8,8 +8,10 @@
 // the cannon, TB slot 1 is the torpedo), so a slot-number branch would light the
 // wrong marker. The gun FAMILY (gun / cannon / star shells) is 360° — always in
 // arc, never denied for bearing, aimed to the clicked point. The torpedo fires in
-// a bow arc; the mine drops astern regardless of aim (always "in arc"). Callers
-// derive the id from the own loadout (main.ts's slotIdsFor / shared loadoutFor).
+// a bow arc. Instant ABILITIES (the TB's speedBoost, and — Story 1.8 — the Mine
+// Layer's mine + decoyBuoy) never prime and never aim, so they classify as
+// `none`. Callers derive the id from the own loadout (main.ts's slotIdsFor /
+// shared loadoutFor).
 
 import { CONFIG, inArc, wrapAngle, type EffectiveStats, type EquipmentId } from '@salvo/shared';
 
@@ -19,29 +21,28 @@ import { CONFIG, inArc, wrapAngle, type EffectiveStats, type EquipmentId } from 
  * - `gunLike` — the gun, the cannon, and the star shells: 360°, aimed to the
  *   clicked point, range-clamped, no arc sector drawn.
  * - `torpedo` — a bow-arc skillshot (the one aim-gated marker).
- * - `mine`    — an astern drop: no aim gate, no reticle.
- * - `none`    — an ability (speedBoost) or the empty slot: not an aimed weapon.
+ * - `none`    — an instant ability (speedBoost, and Story 1.8's mine +
+ *   decoyBuoy) or the empty slot: not an aimed weapon, no marker, no reticle.
  */
-export type FireArcKind = 'gunLike' | 'torpedo' | 'mine' | 'none';
+export type FireArcKind = 'gunLike' | 'torpedo' | 'none';
 
 /** Pure: classify a fitted equipment id (or null empty slot) by firing-arc kind. */
 export function fireArcKind(id: EquipmentId | null): FireArcKind {
   if (id === 'gun' || id === 'cannon' || id === 'starShells') return 'gunLike';
   if (id === 'torpedo') return 'torpedo';
-  if (id === 'mine') return 'mine';
-  return 'none'; // speedBoost / empty slot 3 — not an aimed weapon
+  return 'none'; // speedBoost / mine / decoyBuoy (abilities) / empty slot 3
 }
 
 /**
  * Does `aim` (world bearing) fall within the fitted weapon `id`'s firing arc,
  * given the hull's `heading`? The gun family (360°) is always true; the torpedo
- * checks its bow arc; the mine drops astern regardless (always true). An ability
- * or the empty slot is NOT a firing weapon, so it is never "in arc" (false).
+ * checks its bow arc. An instant ability (speedBoost / mine / decoyBuoy) or the
+ * empty slot is NOT a firing weapon, so it is never "in arc" (false).
  *
- * ABILITY ids (Story 1.6 — the TB's speedBoost) never reach this function:
- * keyboard.ts's ability path activates WITHOUT priming, and only the primed slot
- * flows into the arc/firing/prime-consumption code, so the `none` result here
- * only ever applies to the empty slot / a defensive null.
+ * ABILITY ids (Story 1.6's speedBoost; Story 1.8's mine + decoyBuoy) never reach
+ * this function: keyboard.ts's ability path activates WITHOUT priming, and only
+ * the primed slot flows into the arc/firing/prime-consumption code, so the `none`
+ * result here only ever applies to the empty slot / a defensive null.
  */
 export function weaponArcHit(heading: number, aim: number, id: EquipmentId | null): boolean {
   const kind = fireArcKind(id);
@@ -49,7 +50,6 @@ export function weaponArcHit(heading: number, aim: number, id: EquipmentId | nul
   if (kind === 'torpedo') {
     return inArc(aim, wrapAngle(heading + CONFIG.torpedo.offset), CONFIG.torpedo.halfArc);
   }
-  if (kind === 'mine') return true; // astern drop, no aim gate
   return false; // ability / empty slot: not a weapon, never in arc
 }
 

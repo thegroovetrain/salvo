@@ -6,12 +6,14 @@
 // telegraph module) are unit-tested.
 //
 // Prime model (Eric ruling 2026-07-21): the gun (slot 0) is the permanently
-// selected default. 2/3 PRIME the torpedo (slot 1) / mine (slot 2) skillshot —
-// the next shot fires that instead, then the gun is the weapon again. Pressing
-// the same key again CANCELS the prime; 1 explicitly reverts to gun; there is
-// no timeout. Priming is pure client UX — the wire slot per click is the truth,
-// and main.ts consumes the prime (back to gun) only on a predicted-fireable
-// click (sim/inputSampler.primeFireable).
+// selected default. 2/3 PRIME the slot's WEAPON skillshot (a torpedo bow-arc
+// shot, a Battleship cannon/star shell) — the next shot fires that instead, then
+// the gun is the weapon again. Pressing the same key again CANCELS the prime; 1
+// explicitly reverts to gun; there is no timeout. If a slot holds an instant
+// ABILITY instead (the TB's speedBoost, or — Story 1.8 — the Mine Layer's mine +
+// decoyBuoy), 2/3 ACTIVATE it immediately (actSeq) and never prime. Priming is
+// pure client UX — the wire slot per click is the truth, and main.ts consumes the
+// prime (back to gun) only on a predicted-fireable click (primeFireable).
 //
 // Throttle is NO LONGER a held axis: W/S (and Up/Down arrows) TAP the engine
 // telegraph (input/telegraph.ts) one detent per keydown edge — a persistent
@@ -120,12 +122,13 @@ export function primeSlotFromKey(code: string): number | null {
 
 /**
  * Pure: does `slot` of the own loadout hold instant-activation ABILITY
- * equipment (`EQUIPMENT_IS_WEAPON[id] === false` — the TB's speedBoost)?
- * Weapons and empty/out-of-range slots return false (they prime / do nothing,
- * exactly as today). The single weapon/ability split source is the shared map;
- * main.ts closes this over the own loadout (loadoutFor(you.cls)) for the
- * KeyboardInput predicate — Story 1.6's minimal control extension (Epic 2
- * owns the Q/E/R/F rebinding).
+ * equipment (`EQUIPMENT_IS_WEAPON[id] === false`)? Those are the TB's
+ * speedBoost and — Story 1.8 — the Mine Layer's BOTH specials (mine + decoyBuoy,
+ * so an ML answers true for slots 1 AND 2). Weapons and empty/out-of-range slots
+ * return false (they prime / do nothing, exactly as today). The single
+ * weapon/ability split source is the shared map; main.ts closes this over the
+ * own loadout (loadoutFor(you.cls)) for the KeyboardInput predicate — Story 1.6's
+ * minimal control extension (Epic 2 owns the Q/E/R/F rebinding).
  */
 export function slotHoldsAbility(slotIds: readonly (EquipmentId | null)[], slot: number): boolean {
   const id = slotIds[slot] ?? null;

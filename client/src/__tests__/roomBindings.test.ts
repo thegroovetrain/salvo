@@ -64,6 +64,7 @@ function setup() {
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
     litZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
     onOwnStats: vi.fn(),
     onOwnSpawn,
     onDrop,
@@ -110,6 +111,43 @@ describe('bindRoom reconnect signals', () => {
   });
 });
 
+// --- decoy channel (Story 1.8) ----------------------------------------------
+
+/** A minimal deps whose contact-like channel spies are exposed for assertions. */
+function setupChannels() {
+  const room = fakeRoom();
+  const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const decoysSync = vi.fn();
+  const deps = {
+    // spectating:true so a spec frame's onSpectate branch is skipped (the
+    // existing spectator-frame tests use the same shortcut).
+    state: { net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 }, spectating: true, phase: '', respawnEta: null, mode: 'interp' },
+    clock: { addSample: vi.fn() },
+    contacts: { pushFrame: vi.fn() },
+    mines: { sync: vi.fn() },
+    litZones: { sync: vi.fn() },
+    decoys: { sync: decoysSync },
+  } as unknown as RoomBindingDeps;
+  bindRoom(conn, deps);
+  return { sink, decoysSync };
+}
+
+describe('bindRoom decoy channel', () => {
+  it('syncs the decoy list contact-like every frame (the mines/litZones precedent)', () => {
+    const { sink, decoysSync } = setupChannels();
+    const decoys = [{ id: 'd1', x: 10, y: 20, until: 5000 }];
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], decoys });
+    expect(decoysSync).toHaveBeenCalledWith(decoys);
+  });
+
+  it('treats an omitted decoys key as an empty list (frames omit it when none)', () => {
+    const { sink, decoysSync } = setupChannels();
+    sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
+    expect(decoysSync).toHaveBeenCalledWith([]);
+  });
+});
+
 // --- burst event handling (Story 1.4) ---------------------------------------
 
 /** A spectator-style frame (no `you`) carrying a single event. */
@@ -130,6 +168,7 @@ function setupEvents() {
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
     litZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
     projectiles: { onBurst, onBoom },
     effects: { spawnEffect },
     onSpectate: vi.fn(),
@@ -166,6 +205,7 @@ describe('bindRoom own sunk', () => {
       contacts: { pushFrame: vi.fn() },
       mines: { sync: vi.fn() },
     litZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
