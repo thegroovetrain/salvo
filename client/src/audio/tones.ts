@@ -91,9 +91,10 @@ export function telegraphTone(dir: number): ToneId {
 /** Equipment with a discrete own-fire/placement cue routed through fireTone. The
  *  instant abilities that have NO such cue here are excluded at the type level:
  *  speedBoost (a pure speed window) and decoyBuoy (its placement cue is played
- *  directly as 'placeDecoy' from the key-press path, not via fireTone). The MINE
- *  stays included even though it is now an ability (Story 1.8) — its 'fireMine'
- *  drop cue still fires, via the Mines reconcile own-spawn hook (main.ts). */
+ *  as 'placeDecoy' from the Decoys reconcile own-spawn hook, not via fireTone).
+ *  The MINE stays included even though it is now an ability (Story 1.8) — its
+ *  'fireMine' drop cue still fires, via the Mines reconcile own-spawn hook
+ *  (main.ts); the decoy's cue rides the same hook shape on Decoys. */
 type FiringEquipmentId = Exclude<EquipmentId, 'speedBoost' | 'decoyBuoy'>;
 
 const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {

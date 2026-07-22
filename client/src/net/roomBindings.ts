@@ -207,9 +207,10 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
   const litZones = f.litZones ?? [];
   deps.litZones.sync(litZones, deps.state.net.sessionId);
   // Decoy buoys, same contact-like reconcile. Frames OMIT the key when the
-  // observer sees no buoys, so treat a missing key as an empty list. No own/enemy
-  // split (DecoyView carries no owner id — see render/decoys.ts) and no state
-  // mirror needed (buoys are chart markers; nothing derives from them per-frame).
+  // observer sees no buoys, so treat a missing key as an empty list. The
+  // own/enemy split rides DecoyView.own inside the Decoys renderer (own → chart,
+  // enemy → world; render/decoys.ts), so no sessionId is threaded here; no state
+  // mirror needed either (buoys are chart markers; nothing derives per-frame).
   deps.decoys.sync(f.decoys ?? []);
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive

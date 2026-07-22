@@ -22,7 +22,7 @@
 // builds its wire object in the exact historical field order (Contact:
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
 // k,id,x,y; MineView: id,x,y,own; LitZoneView: id,x,y,r,until,by; DecoyView:
-// id,x,y,until). Do not reorder keys.
+// id,x,y,until,own). Do not reorder keys.
 
 import {
   bearing,
@@ -322,10 +322,13 @@ const decoySignal: SignalSpec<Decoy, DecoyView> = {
       ownZoneCovers(ctx, decoy)
     );
   },
-  materialize(_ctx, decoy) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,until. `id` is the DECOY's
-    // own id — the owner's ship id rides ONLY the counterIntel blip.
-    return { id: decoy.id, x: decoy.x, y: decoy.y, until: decoy.until };
+  materialize(ctx, decoy) {
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,until,own. `id` is the DECOY's
+    // own id — the owner's ship id rides ONLY the counterIntel blip. `own`
+    // mirrors mineSignal (ctx.observerId): true iff the receiver owns the buoy,
+    // so the client renders own = fog-immune chart green, enemy truesight =
+    // world-layer amber. Spectators (observerId ≠ ownerId) read false.
+    return { id: decoy.id, x: decoy.x, y: decoy.y, until: decoy.until, own: decoy.ownerId === ctx.observerId };
   },
 };
 

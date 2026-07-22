@@ -136,7 +136,7 @@ function setupChannels() {
 describe('bindRoom decoy channel', () => {
   it('syncs the decoy list contact-like every frame (the mines/litZones precedent)', () => {
     const { sink, decoysSync } = setupChannels();
-    const decoys = [{ id: 'd1', x: 10, y: 20, until: 5000 }];
+    const decoys = [{ id: 'd1', x: 10, y: 20, until: 5000, own: true }];
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], decoys });
     expect(decoysSync).toHaveBeenCalledWith(decoys);
   });

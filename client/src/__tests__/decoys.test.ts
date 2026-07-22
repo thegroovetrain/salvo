@@ -1,19 +1,21 @@
-// Decoy-buoy reconcile (render/decoys.ts) — the pure list -> sprite lifecycle
-// diff, the mines/litZones precedent (Story 1.8). A buoy is a static point, so
-// reconcile is a plain id-set diff: ids only in the incoming list are added, ids
-// only in the held set are removed, ids in both are left untouched.
+// Decoy-buoy reconcile + render (render/decoys.ts) — the pure list -> sprite
+// lifecycle diff plus the own/enemy layer split and own-spawn cue hook, the
+// mines.ts precedent (Story 1.8). A buoy is a static point, so reconcile is a
+// plain id-set diff: ids only in the incoming list are added, ids only in the
+// held set are removed, ids in both are left untouched.
 //
-// NOTE: there is deliberately NO own/enemy split test — DecoyView is
-// `{id,x,y,until}` with no owner discriminator (unlike MineView's `own`), so the
-// renderer cannot and does not distinguish own from enemy buoys. That gap is
-// reported to the orchestrator; if a split is wanted, DecoyView needs an `own`
-// field mirroring mineSignal.materialize.
+// The OWN/ENEMY split rides DecoyView.own (added to mirror MineView.own): an OWN
+// buoy draws in the fog-immune chart layer, a truesighted ENEMY buoy in the
+// fogged world layer — without it a truesighted enemy buoy would have read as
+// YOURS. The own-spawn hook fires ONLY for newly-added OWN buoys (the audio
+// placement cue), so it can never misfire on an enemy buoy we truesight.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { Container } from 'pixi.js';
 import type { DecoyView } from '@salvo/shared';
-import { reconcileDecoys } from '../render/decoys.js';
+import { reconcileDecoys, Decoys } from '../render/decoys.js';
 
-const decoy = (id: string, until = 5000): DecoyView => ({ id, x: 0, y: 0, until });
+const decoy = (id: string, own = false, until = 5000): DecoyView => ({ id, x: 0, y: 0, until, own });
 
 describe('reconcileDecoys — decoy list → sprite lifecycle diff', () => {
   it('adds every buoy when starting from nothing', () => {
@@ -46,5 +48,52 @@ describe('reconcileDecoys — decoy list → sprite lifecycle diff', () => {
     const { add, remove } = reconcileDecoys(new Set(['a', 'b']), []);
     expect(add).toEqual([]);
     expect(remove.sort()).toEqual(['a', 'b']);
+  });
+
+  it('the add list carries `own` through (the split data for the renderer)', () => {
+    const { add } = reconcileDecoys(new Set(), [decoy('mine', true), decoy('theirs', false)]);
+    expect(add.map((d) => ({ id: d.id, own: d.own }))).toEqual([
+      { id: 'mine', own: true },
+      { id: 'theirs', own: false },
+    ]);
+  });
+});
+
+describe('Decoys — own/enemy layer split + own-spawn cue hook (mines precedent)', () => {
+  function harness() {
+    const ownLayer = new Container();
+    const enemyLayer = new Container();
+    const onOwnDecoySpawn = vi.fn();
+    const decoys = new Decoys(ownLayer, enemyLayer, onOwnDecoySpawn);
+    return { ownLayer, enemyLayer, onOwnDecoySpawn, decoys };
+  }
+
+  it('routes an OWN buoy to the chart layer and an ENEMY buoy to the world layer', () => {
+    const { ownLayer, enemyLayer, decoys } = harness();
+    decoys.sync([decoy('mine', true), decoy('theirs', false)]);
+    expect(ownLayer.children).toHaveLength(1);
+    expect(enemyLayer.children).toHaveLength(1);
+  });
+
+  it('fires the own-spawn hook ONLY for newly-added OWN buoys (never for enemy)', () => {
+    const { onOwnDecoySpawn, decoys } = harness();
+    decoys.sync([decoy('mine', true), decoy('theirs', false)]);
+    expect(onOwnDecoySpawn).toHaveBeenCalledTimes(1);
+    expect(onOwnDecoySpawn.mock.calls[0][0].id).toBe('mine');
+  });
+
+  it('fires the hook once per placement, not every tick a buoy persists', () => {
+    const { onOwnDecoySpawn, decoys } = harness();
+    decoys.sync([decoy('mine', true)]);
+    decoys.sync([decoy('mine', true)]); // still present — no re-add, no re-cue
+    expect(onOwnDecoySpawn).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears both layers when the incoming list empties', () => {
+    const { ownLayer, enemyLayer, decoys } = harness();
+    decoys.sync([decoy('mine', true), decoy('theirs', false)]);
+    decoys.sync([]);
+    expect(ownLayer.children).toHaveLength(0);
+    expect(enemyLayer.children).toHaveLength(0);
   });
 });

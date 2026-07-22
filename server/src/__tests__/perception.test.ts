@@ -788,18 +788,19 @@ function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean }): 
  *  ONLY when the viewer owns it, its point is sighted (sight + island LOS), or
  *  it sits inside a lit zone the viewer OWNS — nothing else (radar range alone
  *  NEVER delivers the truth channel; it only ever produces the counterIntel
- *  blip, verified in verifyBlip). Wire shape is exactly {id,x,y,until}; the
- *  buoy must be live and unexpired. */
+ *  blip, verified in verifyBlip). Wire shape is exactly {id,x,y,until,own} with
+ *  `own` true iff the viewer owns the buoy (mines precedent); the buoy must be
+ *  live and unexpired. */
 function verifyDecoy(
   w: World,
   me: ShipRecord,
-  d: { id: string; x: number; y: number; until: number },
+  d: { id: string; x: number; y: number; until: number; own: boolean },
 ): void {
   const decoy = w.decoys.get(d.id)!;
   expect(decoy).toBeDefined();
   expect(w.now).toBeLessThan(decoy.until); // expired buoys never materialize
-  expect(Object.keys(d).sort()).toEqual(['id', 'until', 'x', 'y']);
-  expect(d).toEqual({ id: decoy.id, x: decoy.x, y: decoy.y, until: decoy.until });
+  expect(Object.keys(d).sort()).toEqual(['id', 'own', 'until', 'x', 'y']);
+  expect(d).toEqual({ id: decoy.id, x: decoy.x, y: decoy.y, until: decoy.until, own: decoy.ownerId === me.id });
   if (decoy.ownerId !== me.id) {
     expect(sighted(w, me, decoy) || zoneCovers(w, me, decoy)).toBe(true);
   }

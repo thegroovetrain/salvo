@@ -131,7 +131,8 @@ describe('spectator frames — dead observer in the active phase', () => {
     const w = deadObserverWorld();
     w.decoys.set('d1', { id: 'd1', ownerId: 'b', x: 700, y: -700, until: 42_000 });
     const f = buildFrame(w, 'a', 'active');
-    expect(f.decoys).toEqual([{ id: 'd1', x: 700, y: -700, until: 42_000 }]); // DecoyView, decoy's own id
+    // DecoyView carries the decoy's own id; own:false — spectator 'a' does not own 'b's buoy.
+    expect(f.decoys).toEqual([{ id: 'd1', x: 700, y: -700, until: 42_000, own: false }]);
     expect(f.events.filter((e) => e.k === 'blip')).toEqual([]); // counterIntel never fires unfogged
   });
 

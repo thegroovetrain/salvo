@@ -174,7 +174,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'own']);
   });
 
-  it('decoy row: [id,x,y,until] — the DECOY\'s own id, never the owner\'s ship id', () => {
+  it('decoy row: [id,x,y,until,own] — the DECOY\'s own id, never the owner\'s ship id; own = observer owns it', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 40, y: 0, until: 30_000 }); // owner sees it always
@@ -183,8 +183,8 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const decoy = w.decoys.get('d1')!;
     expect(row.visible(ctx, decoy)).toBe(true);
     const wire = row.materialize(ctx, decoy);
-    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'until']);
-    expect(wire).toEqual({ id: 'd1', x: 40, y: 0, until: 30_000 });
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'until', 'own']);
+    expect(wire).toEqual({ id: 'd1', x: 40, y: 0, until: 30_000, own: true }); // the observer (a) owns it
     expect('ownerId' in (wire as object)).toBe(false); // the owner id rides ONLY the counterIntel blip
   });
 

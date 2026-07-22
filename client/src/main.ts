@@ -580,11 +580,10 @@ function viewportCallbacks(getG: () => Game | null): {
  *    boost window at the current server-clock estimate so the speed-up doesn't
  *    wait a round trip (the authoritative you.boostUntil overwrites it once
  *    acked; the predictor ignores a second press while pending, so a stale-ammo
- *    double press within RTT can't extend it); the decoyBuoy plays its placement
- *    cue immediately (the owner's own action — this is the buoy's own-fire cue,
- *    driven from the press rather than a reconcile hook because DecoyView carries
- *    no owner id to gate it, see render/decoys.ts). The mine drop needs no client
- *    prediction — its own cue rides the Mines reconcile own-spawn hook.
+ *    double press within RTT can't extend it). The decoyBuoy and mine drops need
+ *    no press-time cue: their placement tones ride the Decoys / Mines reconcile
+ *    own-spawn hooks (fired on the confirmed OWN buoy/mine, gated by DecoyView/
+ *    MineView `own` so they never misfire on a truesighted enemy piece).
  */
 function handleAbilityPress(g: Game, slot: number): void {
   const you = g.state.net.you;
@@ -596,7 +595,9 @@ function handleAbilityPress(g: Game, slot: number): void {
   }
   const id = g.ownSlots[slot];
   if (id === 'speedBoost') g.predictor.predictBoostActivation(g.clock.serverNow(), g.keyboard.actSeq);
-  else if (id === 'decoyBuoy') g.audio.play('placeDecoy');
+  // decoyBuoy has no press-time cue: its placement tone rides the Decoys
+  // reconcile own-spawn hook (the mine precedent), so it fires on the confirmed
+  // OWN buoy and never on a truesighted enemy buoy.
 }
 
 /**
@@ -649,7 +650,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     effects,
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
-    decoys: new Decoys(stage.layers.decoyChart),
+    decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, () => audio.play('placeDecoy')),
     litZones: new LitZones(stage.layers.litZone),
     fog: new Fog(stage.fogSprite),
     radar: new Radar(stage.layers.blip, stage.layers.sweep),

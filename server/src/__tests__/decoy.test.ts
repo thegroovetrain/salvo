@@ -331,7 +331,7 @@ describe('decoy buoy — decoys channel tiers (the truth)', () => {
     place(w, 'far', 0, -2000); // non-owner, buoy far outside sight AND radar
     injectDecoy(w, 'd1', 'a', 1500, 0, 42_000);
     const fa = buildFrame(w, 'a');
-    expect(fa.decoys).toEqual([{ id: 'd1', x: 1500, y: 0, until: 42_000 }]);
+    expect(fa.decoys).toEqual([{ id: 'd1', x: 1500, y: 0, until: 42_000, own: true }]);
     // Byte-free for the fogged non-owner: the key is ABSENT, not [].
     expect('decoys' in buildFrame(w, 'far')).toBe(false);
   });
@@ -342,7 +342,7 @@ describe('decoy buoy — decoys channel tiers (the truth)', () => {
     const e = place(w, 'e', 0, 0);
     windowAround(e, Math.PI); // park the beam away — isolate the truth channel
     injectDecoy(w, 'd1', 'a', SIGHT, 0, 42_000); // exactly at sight — inclusive
-    expect(buildFrame(w, 'e').decoys).toEqual([{ id: 'd1', x: SIGHT, y: 0, until: 42_000 }]);
+    expect(buildFrame(w, 'e').decoys).toEqual([{ id: 'd1', x: SIGHT, y: 0, until: 42_000, own: false }]);
     w.decoys.get('d1')!.x = SIGHT + 0.01; // a hair beyond
     expect('decoys' in buildFrame(w, 'e')).toBe(false);
   });
@@ -364,7 +364,8 @@ describe('decoy buoy — decoys channel tiers (the truth)', () => {
     w.respawnEnabled = false;
     w.sinkShip('b', 'a'); // b spectates in the active phase
     w.step();
-    expect(buildFrame(w, 'b', 'active').decoys).toEqual([{ id: 'd1', x: 5_000, y: 5_000, until: 42_000 }]);
-    expect(buildFrame(w, 'a', 'finished').decoys).toEqual([{ id: 'd1', x: 5_000, y: 5_000, until: 42_000 }]);
+    // spectator 'b' does not own it (own: false); owner 'a' still reads own: true even as a finished-phase spectator.
+    expect(buildFrame(w, 'b', 'active').decoys).toEqual([{ id: 'd1', x: 5_000, y: 5_000, until: 42_000, own: false }]);
+    expect(buildFrame(w, 'a', 'finished').decoys).toEqual([{ id: 'd1', x: 5_000, y: 5_000, until: 42_000, own: true }]);
   });
 });

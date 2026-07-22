@@ -402,6 +402,7 @@ export interface DecoyView {
   x: number; // u
   y: number; // u
   until: number; // ms — server time the buoy expires
+  own: boolean; // true iff the receiving observer OWNS this buoy (per-observer, the mines precedent)
 }
 
 /** Per-tick, per-client events. Discriminated union on `k`. */

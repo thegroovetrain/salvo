@@ -6,18 +6,13 @@
 // on radar) never rides here — it arrives as an ordinary `blip` event and is
 // rendered by the phosphor/radar path with zero changes.
 //
-// Buoys draw in chartRoot's decoy layer (fog-immune, like own mines): every
-// DecoyView that reaches us is one we are entitled to see (the server gates
-// visibility), so a fog-immune chart marker is always plan-correct and lets you
-// read your own buoy under fog beyond sight range.
-//
-// CONTRACT GAP (reported to the orchestrator): DecoyView is `{id,x,y,until}` with
-// NO owner discriminator (unlike MineView's `own`), so the client CANNOT split
-// own vs enemy buoys — every buoy renders in one style, and the owner's
-// placement cue is played from the key-press path (main.handleAbilityPress), not
-// from a reconcile hook, so it can never misfire on an enemy buoy we truesight.
-// If an own-green / enemy-amber split is wanted, DecoyView needs an `own` field
-// mirroring mineSignal.materialize.
+// OWN vs ENEMY split (mirrors mines.ts, driven by DecoyView.own): OWN buoys draw
+// in chartRoot's decoy layer (fog-immune, dim own-green) so you always read your
+// own buoy even when it lies under fog beyond sight range; a truesighted ENEMY
+// buoy draws in worldRoot's decoy layer (amber warning marker) and only ever
+// arrives while sighted, so fog over it is a non-issue — exactly the mine
+// convention. Without the split a truesighted enemy buoy would have read as
+// YOURS; `own` is the per-observer discriminator that prevents that.
 //
 // A buoy is a static point (its position is fixed at spawn) so a sprite's
 // position is set once, exactly like a mine; reconcile() is the pure
@@ -29,7 +24,8 @@ import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { DecoyView } from '@salvo/shared';
 
-const COLOR = 0x2f7d5a; // dim tactical green — own-ordnance family (mines convention)
+const OWN_COLOR = 0x2f7d5a; // dim tactical green — own-ordnance family (mines convention)
+const ENEMY_COLOR = 0xffb800; // DESIGN.md amber warning (the enemy-mine convention)
 const OUTER_R = 13; // u — slightly larger than a mine (10u ring): a buoy, not a mine
 const INNER_R = 5; // u — inner ring
 const MAST = 6; // u — short topmark mast so the buoy reads distinct from a mine's ring+dot
@@ -63,8 +59,19 @@ export function reconcileDecoys(current: ReadonlySet<string>, incoming: readonly
 export class Decoys {
   private readonly sprites = new Map<string, Graphics>();
 
-  /** `layer` = chartRoot's decoy layer (fog-immune, above the base map). */
-  constructor(private readonly layer: Container) {}
+  /**
+   * `ownLayer` = chartRoot's decoy layer (fog-immune); `enemyLayer` = worldRoot's
+   * decoy layer (fogged). `onOwnDecoySpawn` (optional) fires once per OWN buoy
+   * newly added this sync — the buoy's own-placement audio cue hook (a decoy has
+   * no discrete GameEvent of its own; this reconcile diff is the only "just
+   * placed" signal, and gating on `own` means it can never misfire on a
+   * truesighted enemy buoy — the Mines onOwnMineSpawn precedent).
+   */
+  constructor(
+    private readonly ownLayer: Container,
+    private readonly enemyLayer: Container,
+    private readonly onOwnDecoySpawn?: (d: DecoyView) => void,
+  ) {}
 
   /**
    * Reconcile sprites against this observer's decoy list for the tick. Treats a
@@ -80,10 +87,11 @@ export class Decoys {
   }
 
   private spawn(d: DecoyView): void {
-    const g = this.marker();
+    const g = this.marker(d.own);
     g.position.set(d.x, d.y);
-    this.layer.addChild(g);
+    (d.own ? this.ownLayer : this.enemyLayer).addChild(g);
     this.sprites.set(d.id, g);
+    if (d.own) this.onOwnDecoySpawn?.(d);
   }
 
   private despawn(id: string): void {
@@ -93,12 +101,17 @@ export class Decoys {
     this.sprites.delete(id);
   }
 
-  /** A buoy topmark: two concentric rings + a short mast — distinct from a mine. */
-  private marker(): Graphics {
+  /** A buoy topmark: two concentric rings + a short mast — distinct from a mine.
+   *  Own = dim green (fog-immune chart marker); enemy = amber warning (the mines
+   *  own/enemy tint convention). */
+  private marker(own: boolean): Graphics {
+    const color = own ? OWN_COLOR : ENEMY_COLOR;
+    const ringAlpha = own ? 0.7 : 0.9;
+    const innerAlpha = own ? 0.9 : 1;
     const g = new Graphics();
-    g.circle(0, 0, OUTER_R).stroke({ width: 1.5, color: COLOR, alpha: 0.7 });
-    g.circle(0, 0, INNER_R).stroke({ width: 1.5, color: COLOR, alpha: 0.9 });
-    g.moveTo(0, -OUTER_R).lineTo(0, -OUTER_R - MAST).stroke({ width: 1.5, color: COLOR, alpha: 0.9 });
+    g.circle(0, 0, OUTER_R).stroke({ width: 1.5, color, alpha: ringAlpha });
+    g.circle(0, 0, INNER_R).stroke({ width: 1.5, color, alpha: innerAlpha });
+    g.moveTo(0, -OUTER_R).lineTo(0, -OUTER_R - MAST).stroke({ width: 1.5, color, alpha: innerAlpha });
     return g;
   }
 }

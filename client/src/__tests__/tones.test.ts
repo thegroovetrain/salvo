@@ -88,10 +88,10 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
 
 describe('placeDecoy tone (Story 1.8) — buoy placement cue', () => {
   // The decoy is an instant ability, not a firing weapon, so it is NOT in the
-  // fireTone map (decoyBuoy is excluded at the type level); its cue plays
-  // directly as 'placeDecoy' from the key-press path. It shares the soft sine
-  // "drop" family with the mine plop but is pitched a touch higher so seeding a
-  // buoy is audibly distinct from dropping a mine.
+  // fireTone map (decoyBuoy is excluded at the type level); its cue plays as
+  // 'placeDecoy' from the Decoys reconcile own-spawn hook (the mine precedent).
+  // It shares the soft sine "drop" family with the mine plop but is pitched a
+  // touch higher so seeding a buoy is audibly distinct from dropping a mine.
   it('is a soft sine drop, within the short-tone budget, pitched above the mine plop', () => {
     expect(TONES.placeDecoy.type).toBe('sine');
     expect(TONES.placeDecoy.duration).toBeLessThanOrEqual(MAX_TONE_S);

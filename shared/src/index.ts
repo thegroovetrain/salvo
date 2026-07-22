@@ -5,7 +5,7 @@
 /** Bumped on any breaking change to the client/server wire protocol.
  *  9: mine-layer loadout (Story 1.8) — the mineLayer fit becomes
  *  [gun, mine, decoyBuoy, empty]; mine flips to the ability (actSeq) channel;
- *  FrameMsg gains optional decoys (DecoyView {id,x,y,until}); CONFIG.mine gains
+ *  FrameMsg gains optional decoys (DecoyView {id,x,y,until,own}); CONFIG.mine gains
  *  blastRadius + a trigger/maxLive retune; CONFIG gains a decoyBuoy block (all
  *  ride the welcome config snapshot).
  *  8: battleship loadout (Story 1.7) — FrameMsg gains optional litZones
