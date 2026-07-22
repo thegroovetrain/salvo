@@ -28,7 +28,7 @@ export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
 
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {
-  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 };
+  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 };
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -46,6 +46,15 @@ function clampUnit(v: number): number {
  *  existing sanitize law: malformed input never partially applies. */
 function isSlotIndex(v: unknown): v is number {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < SLOT_COUNT;
+}
+
+/** Valid ability-activation counter (Story 1.6): a finite INTEGER >= 0. Like
+ *  the slot index it drops the WHOLE message on anything else (non-finite,
+ *  negative, fractional) — the same sanitize law. A clean monotonic counter,
+ *  the actSeq sibling of the slot check; the World's lastActSeq = max(...)
+ *  consumption makes any accepted-but-stale value read as "no new activation". */
+function isActSeq(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0;
 }
 
 function numericFieldsFinite(m: Record<string, unknown>): boolean {
@@ -81,6 +90,11 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   const m = raw as Record<string, unknown>;
   if (!numericFieldsFinite(m)) return null;
   if (!isSlotIndex(m.slot)) return null;
+  // Story 1.6 ability-activation fields, validated like their precedents
+  // (actSeq the fireSeq-style counter, actSlot the slot-index): malformed
+  // drops the whole message, never partially applying.
+  if (!isActSeq(m.actSeq)) return null;
+  if (!isSlotIndex(m.actSlot)) return null;
   const seq = m.seq as number;
   if (seq <= lastSeq) return null;
   return {
@@ -92,6 +106,8 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
     aimDist: sanitizeAimDist(m.aimDist as number),
     slot: m.slot,
     fireT: m.fireT as number,
+    actSeq: m.actSeq,
+    actSlot: m.actSlot,
   };
 }
 

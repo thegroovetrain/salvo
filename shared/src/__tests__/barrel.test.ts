@@ -29,11 +29,14 @@ import {
   transformPolygon,
   segPolygonHit,
   polygonMaxRadius,
+  loadoutFor,
+  boostedKinematics,
+  EQUIPMENT_IS_WEAPON,
 } from '../index.js';
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(6);
+    expect(PROTOCOL_VERSION).toBe(7);
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -83,6 +86,13 @@ describe('shared barrel', () => {
     expect(typeof segPolygonHit).toBe('function');
     expect(typeof polygonMaxRadius).toBe('function');
     expect(CONFIG.drones.medium.hp).toBe(100);
+  });
+
+  it('re-exports the torpedo-boat loadout system (Story 1.6)', () => {
+    expect(typeof loadoutFor).toBe('function');
+    expect(typeof boostedKinematics).toBe('function');
+    expect(EQUIPMENT_IS_WEAPON).toEqual({ gun: true, torpedo: true, mine: true, speedBoost: false });
+    expect(CONFIG.speedBoost).toEqual({ speedBonus: 10, durationMs: 6000, maxAmmo: 1, reloadMs: 18000 });
   });
 
   it('re-exports the offer/spend system', () => {

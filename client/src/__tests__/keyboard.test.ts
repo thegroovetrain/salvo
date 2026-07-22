@@ -5,6 +5,7 @@ import {
   panAxesFrom,
   primeSlotFromKey,
   nextPrimedSlot,
+  slotHoldsAbility,
   upgradeActionFromKey,
   KeyboardInput,
   type UpgradeAction,
@@ -350,5 +351,94 @@ describe('KeyboardInput — CTRL upgrade window', () => {
     window.dispatchEvent(new Event('blur'));
     release('ControlLeft'); // a keyup that arrives despite the blur (or never would in real browsers)
     expect(actions).toEqual([]);
+  });
+});
+
+// --- Story 1.6: ability slot — the slot-2 key activates on the TB, primes on BB/ML ---
+
+describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
+  const TB_SLOTS = ['gun', 'torpedo', 'speedBoost', null] as const; // loadoutFor('torpedoBoat') ids
+  const BB_SLOTS = ['gun', 'torpedo', 'mine', null] as const; // universal fit (BB/ML/drones)
+
+  it('is true only for a slot holding EQUIPMENT_IS_WEAPON:false equipment', () => {
+    expect(slotHoldsAbility(TB_SLOTS, 2)).toBe(true); // speedBoost
+    expect(slotHoldsAbility(TB_SLOTS, 0)).toBe(false); // gun
+    expect(slotHoldsAbility(TB_SLOTS, 1)).toBe(false); // torpedo
+    expect(slotHoldsAbility(BB_SLOTS, 2)).toBe(false); // mine is a weapon
+  });
+
+  it('is false for empty and out-of-range slots', () => {
+    expect(slotHoldsAbility(TB_SLOTS, 3)).toBe(false); // empty extra slot
+    expect(slotHoldsAbility(TB_SLOTS, 7)).toBe(false); // out of range
+  });
+});
+
+describe('KeyboardInput — ability activation (TB slot 2) vs prime (BB/ML slot 2)', () => {
+  let kb: KeyboardInput | undefined;
+  afterEach(() => kb?.detach());
+
+  /** A TB-shaped predicate: slot 2 holds the speedBoost ability. */
+  const tbAbilitySlot = (slot: number): boolean => slot === 2;
+
+  it('slot-2 press ACTIVATES on an ability loadout: actSeq++, actSlot 2, prime untouched', () => {
+    const presses: number[] = [];
+    kb = new KeyboardInput(undefined, undefined, tbAbilitySlot, (slot) => presses.push(slot));
+    kb.attach();
+    expect(kb.actSeq).toBe(0); // the 0 sentinel before any press
+    press('Digit3');
+    expect(kb.actSeq).toBe(1);
+    expect(kb.actSlot).toBe(2);
+    expect(kb.primedSlot).toBe(SLOT_GUN); // NEVER primes
+    expect(presses).toEqual([2]);
+  });
+
+  it('repeated presses are strictly monotonic; OS auto-repeat does not count', () => {
+    kb = new KeyboardInput(undefined, undefined, tbAbilitySlot);
+    kb.attach();
+    press('Digit3');
+    press('Digit3', true); // held-key auto-repeat — filtered
+    press('Numpad3');
+    press('Digit3');
+    expect(kb.actSeq).toBe(3); // 3 genuine edges, monotonic
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+  });
+
+  it('an activation press never disturbs an existing prime (torpedo stays primed)', () => {
+    kb = new KeyboardInput(undefined, undefined, tbAbilitySlot);
+    kb.attach();
+    press('Digit2'); // prime the torpedo
+    expect(kb.primedSlot).toBe(TORP);
+    press('Digit3'); // boost activation — instant, independent of the prime
+    expect(kb.primedSlot).toBe(TORP); // prime untouched
+    expect(kb.actSeq).toBe(1);
+  });
+
+  it('a cooling/dead press still increments and still fires the callback (the server decides)', () => {
+    // The keyboard has no denial concept at all — main.ts predicts the verdict
+    // for feedback only; every genuine press edge counts and rides the wire.
+    const presses: number[] = [];
+    kb = new KeyboardInput(undefined, undefined, tbAbilitySlot, (slot) => presses.push(slot));
+    kb.attach();
+    press('Digit3');
+    press('Digit3');
+    expect(kb.actSeq).toBe(2);
+    expect(presses).toEqual([2, 2]);
+  });
+
+  it('on a weapon loadout (BB/ML) the same key PRIMES exactly as today and actSeq stays 0', () => {
+    kb = new KeyboardInput(undefined, undefined, (slot) => slotHoldsAbility(['gun', 'torpedo', 'mine', null], slot));
+    kb.attach();
+    press('Digit3');
+    expect(kb.primedSlot).toBe(MINE); // primes the mine, as before
+    expect(kb.actSeq).toBe(0); // the sentinel never advances
+    expect(kb.actSlot).toBe(0);
+  });
+
+  it('without a predicate at all (legacy construction) every slot key primes', () => {
+    kb = new KeyboardInput();
+    kb.attach();
+    press('Digit3');
+    expect(kb.primedSlot).toBe(MINE);
+    expect(kb.actSeq).toBe(0);
   });
 });

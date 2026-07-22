@@ -11,7 +11,7 @@
 // ballistics.muzzleSpawn). Pure over a ShipRecord's input + pose + slot pool;
 // the World owns shell storage + event emission.
 
-import { CONFIG, angleDiff, segCircleExit, wrapAngle, type EquipmentState, type ShellState, type Vec2 } from '@salvo/shared';
+import { CONFIG, EQUIPMENT_IS_WEAPON, angleDiff, segCircleExit, wrapAngle, type EquipmentState, type ShellState, type Vec2 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
@@ -129,7 +129,7 @@ function fireGunShell(
  *  Slot state is non-null by the loadout invariant (see index.ts). */
 export const gunEquipment: Equipment = {
   id: 'gun',
-  isWeapon: true,
+  isWeapon: EQUIPMENT_IS_WEAPON.gun, // shared weapon/ability split — single source
   tick(ship, slot, dtMs): void {
     tickReload(slot.state!, ship.stats.gun.maxAmmo, ship.stats.gun.reloadMs, dtMs);
   },

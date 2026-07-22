@@ -1,13 +1,20 @@
 import { describe, it, expect } from 'vitest';
 import { MSG, type InputMsg } from '@salvo/shared';
-import { InputSampler, buildInput, primeFireable, shouldConsumePrime, type Aiming } from '../sim/inputSampler.js';
+import {
+  InputSampler,
+  abilityPressDenied,
+  buildInput,
+  primeFireable,
+  shouldConsumePrime,
+  type Aiming,
+} from '../sim/inputSampler.js';
 
-const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234 };
+const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0 };
 
 describe('buildInput', () => {
   it('carries aim/fireSeq/aimDist/slot/fireT from the mouse + prime sample', () => {
     const msg = buildInput(3, { throttle: 1, rudder: -1 }, AIM);
-    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234 });
+    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0 });
   });
 
   it('carries a primed slot (the click resolves the skillshot on the wire)', () => {
@@ -20,8 +27,17 @@ describe('buildInput', () => {
     expect(buildInput(3, { throttle: 0, rudder: 0 }, { ...AIM, fireT: 0 }).fireT).toBe(0); // no-claim sentinel
   });
 
+  it('carries the ability-activation counters (Story 1.6: actSeq/actSlot, 0-sentinel default)', () => {
+    const on = buildInput(3, { throttle: 0, rudder: 0 }, { ...AIM, actSeq: 2, actSlot: 2 });
+    expect(on.actSeq).toBe(2);
+    expect(on.actSlot).toBe(2);
+    const off = buildInput(4, { throttle: 0, rudder: 0 }, AIM);
+    expect(off.actSeq).toBe(0); // never pressed -> the explicit sentinel
+    expect(off.actSlot).toBe(0);
+  });
+
   it('clamps axes to [-1, 1]', () => {
-    const msg = buildInput(1, { throttle: 5, rudder: -7 }, { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 });
+    const msg = buildInput(1, { throttle: 5, rudder: -7 }, { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
     expect(msg.throttle).toBe(1);
     expect(msg.rudder).toBe(-1);
   });
@@ -88,6 +104,13 @@ describe('InputSampler', () => {
     const sampler = new InputSampler(() => undefined);
     expect(sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, fireT: 5000 }).fireT).toBe(5000);
   });
+
+  it('threads the sampled actSeq/actSlot onto the wire input (Story 1.6)', () => {
+    const sampler = new InputSampler(() => undefined);
+    const msg = sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, actSeq: 3, actSlot: 2 });
+    expect(msg.actSeq).toBe(3);
+    expect(msg.actSlot).toBe(2);
+  });
 });
 
 describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
@@ -105,6 +128,8 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
       aimDist: AIM.aimDist,
       slot: AIM.slot,
       fireT: AIM.fireT,
+      actSeq: AIM.actSeq,
+      actSlot: AIM.actSlot,
     });
     expect(sent).toHaveLength(2);
     expect(sent[1].type).toBe(MSG.input);
@@ -113,7 +138,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('zeroes the rudder (the dangerous stale input) but keeps the throttle steaming', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 1, rudder: 1 }, { aim: 1.75, fireSeq: 7, aimDist: 300, slot: 2, fireT: 42 });
+    sampler.sample({ throttle: 1, rudder: 1 }, { aim: 1.75, fireSeq: 7, aimDist: 300, slot: 2, fireT: 42, actSeq: 0, actSlot: 0 });
     const msg = sampler.sendNeutralNow(1);
     expect(msg.throttle).toBe(1); // deliberate engine order preserved
     expect(msg.rudder).toBe(0);
@@ -123,7 +148,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('re-sends the LAST fireSeq — never 0 after clicks — as the honest "no new clicks" signal', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0 });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
     const msg = sampler.sendNeutralNow(0);
     expect(msg.fireSeq).toBe(9); // NOT reset — the counter states "9 clicks so far, none new"
     expect(msg.aimDist).toBe(120); // last aim distance retained too
@@ -131,7 +156,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('sends a click landing in the gap since the last sample (live count wins at hide time)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0 });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
     // Click #10 lands after the sample but before visibilitychange fires:
     const msg = sampler.sendNeutralNow(0, 10);
     expect(msg.fireSeq).toBe(10); // fires NOW at a ≤1-tick-old aim, not minutes later on refocus
@@ -141,14 +166,14 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
 
   it('carries the passed fireT for a gap-click (D1)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000 });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000, actSeq: 0, actSlot: 0 });
     // Gap-click at hide time carries its own honest fire instant:
     expect(sampler.sendNeutralNow(0, 10, 8000).fireT).toBe(8000);
   });
 
   it('falls back to the last-sampled fireT when none is passed (no new click)', () => {
     const sampler = new InputSampler(() => undefined);
-    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000 });
+    sampler.sample({ throttle: 0, rudder: 0 }, { aim: 0, fireSeq: 9, aimDist: 120, slot: 0, fireT: 7000, actSeq: 0, actSlot: 0 });
     expect(sampler.sendNeutralNow(0).fireT).toBe(7000);
   });
 
@@ -171,6 +196,47 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
   it('works before any sample() call, defaulting aim/fireSeq/aimDist/slot/fireT to zero', () => {
     const sampler = new InputSampler(() => undefined);
     const msg = sampler.sendNeutralNow(0);
-    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 });
+    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+  });
+});
+
+describe('InputSampler.sendNeutralNow — ability counters (Story 1.6, mirrors fireSeq)', () => {
+  it('re-sends the LAST actSeq/actSlot as the honest "no new presses" signal', () => {
+    const sampler = new InputSampler(() => undefined);
+    sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, actSeq: 4, actSlot: 2 });
+    const msg = sampler.sendNeutralNow(0);
+    expect(msg.actSeq).toBe(4); // NOT reset — the counter states "4 presses so far, none new"
+    expect(msg.actSlot).toBe(2);
+  });
+
+  it('sends a press landing in the gap since the last sample (live counter wins at hide time)', () => {
+    const sampler = new InputSampler(() => undefined);
+    sampler.sample({ throttle: 0, rudder: 0 }, { ...AIM, actSeq: 4, actSlot: 2 });
+    // Press #5 lands after the sample but before visibilitychange fires:
+    const msg = sampler.sendNeutralNow(0, undefined, undefined, 5, 2);
+    expect(msg.actSeq).toBe(5); // activates NOW, not minutes later on refocus
+    expect(msg.actSlot).toBe(2);
+    // And the wire counter never regresses if the live count is somehow behind:
+    expect(sampler.sendNeutralNow(0, undefined, undefined, 3, 1).actSeq).toBe(5);
+    expect(sampler.sendNeutralNow(0).actSlot).toBe(2); // stale live slot never adopted
+  });
+
+  it('defaults both counters to the 0 sentinel before any sample or press', () => {
+    const sampler = new InputSampler(() => undefined);
+    const msg = sampler.sendNeutralNow(0);
+    expect(msg.actSeq).toBe(0);
+    expect(msg.actSlot).toBe(0);
+  });
+});
+
+describe('abilityPressDenied — predicted activation verdict (feedback only)', () => {
+  it('is denied while dead or while the slot is cooling (no charge)', () => {
+    expect(abilityPressDenied(false, true)).toBe(true); // dead
+    expect(abilityPressDenied(true, false)).toBe(true); // cooling (charge consumed)
+    expect(abilityPressDenied(false, false)).toBe(true);
+  });
+
+  it('is allowed when alive with a ready charge', () => {
+    expect(abilityPressDenied(true, true)).toBe(false);
   });
 });

@@ -55,6 +55,11 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     // server. Self-private (own ship only), like upg.
     pts: ship.offers.length,
     offer: ship.offers.length > 0 ? ship.offers[0].map((t) => UPGRADE_IDS.indexOf(t)) : [],
+    // ms — active speed-boost window end (0 = inactive). OWNER-ONLY by
+    // construction (Story 1.6): boostUntil rides `you` and NOTHING else — never
+    // a Contact, blip, ballistic event, boom, or spectator payload. An enemy
+    // observer reads a boosting hull only through its observed kinematics.
+    boostUntil: ship.boostUntil,
   };
 }
 

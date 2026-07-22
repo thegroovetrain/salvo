@@ -49,6 +49,20 @@ export interface EffectiveMine {
   maxLive: number; // max simultaneous live mines on the board
 }
 
+/**
+ * The activated speed boost's effective numbers — a pure pass-through of
+ * CONFIG.speedBoost. NO upgrade multiplies any of these: the legacy maxSpeed
+ * upgrade multiplies the BASE kinematics cap (kinematics.maxSpeed above) BEFORE
+ * this additive `speedBonus` is layered on, and that additive step happens
+ * elsewhere, per-tick, via sim/boost.ts boostedKinematics — never here.
+ */
+export interface EffectiveBoost {
+  speedBonus: number; // u/s added to the forward maxSpeed cap while active
+  durationMs: number; // ms — active window per activation
+  maxAmmo: number; // charge pool size
+  reloadMs: number; // ms — cooldown between activations
+}
+
 /** Everything (class, upgrades) resolves to. See effectiveStats(). */
 export interface EffectiveStats {
   kinematics: ShipConfig;
@@ -59,6 +73,7 @@ export interface EffectiveStats {
   gun: EffectiveGun;
   torpedo: EffectiveTorpedo;
   mine: EffectiveMine;
+  boost: EffectiveBoost;
 }
 
 /**
@@ -105,6 +120,13 @@ export function effectiveStats(cls: ShipClass, counts: readonly number[]): Effec
       reloadMs: stack(CONFIG.mine.reloadMs, u.mineReload.mult, countOf(counts, 'mineReload')),
       maxAmmo: CONFIG.mine.maxAmmo + u.mineAmmo.add * countOf(counts, 'mineAmmo'),
       maxLive: CONFIG.mine.maxLive + u.maxMines.add * countOf(counts, 'maxMines'),
+    },
+    // Pure pass-through of CONFIG.speedBoost — no upgrade multiplies the boost.
+    boost: {
+      speedBonus: CONFIG.speedBoost.speedBonus,
+      durationMs: CONFIG.speedBoost.durationMs,
+      maxAmmo: CONFIG.speedBoost.maxAmmo,
+      reloadMs: CONFIG.speedBoost.reloadMs,
     },
   };
 }

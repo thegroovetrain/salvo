@@ -14,7 +14,7 @@
 // ballistic machinery as shells (sight + LOS), so a torpedo materializes at your
 // fog boundary, never at its launch point (see perception.ts / BallisticEvent).
 
-import { CONFIG, inArc, wrapAngle, type EquipmentState, type ShellState } from '@salvo/shared';
+import { CONFIG, EQUIPMENT_IS_WEAPON, inArc, wrapAngle, type EquipmentState, type ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
 import { clampToArc } from './guns.js';
@@ -75,7 +75,7 @@ export function fireTorpedo(ship: ShipRecord, now: number, mkId: () => string): 
  *  invariant (see index.ts). */
 export const torpedoEquipment: Equipment = {
   id: 'torpedo',
-  isWeapon: true,
+  isWeapon: EQUIPMENT_IS_WEAPON.torpedo, // shared weapon/ability split — single source
   tick(ship, slot, dtMs): void {
     tickReload(slot.state!, ship.stats.torpedo.maxAmmo, ship.stats.torpedo.reloadMs, dtMs);
   },

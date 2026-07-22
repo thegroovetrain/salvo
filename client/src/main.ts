@@ -18,6 +18,7 @@ import {
   equipmentReloadMs,
   hullSilhouette,
   isOutside,
+  loadoutFor,
   zeroUpgrades,
   zoneRadiusAt,
   type EffectiveStats,
@@ -46,10 +47,10 @@ import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse } from './render/deniedFire.js';
-import { KeyboardInput, type UpgradeAction } from './input/keyboard.js';
+import { KeyboardInput, slotHoldsAbility, type UpgradeAction } from './input/keyboard.js';
 import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
-import { shouldConsumePrime } from './sim/inputSampler.js';
+import { abilityPressDenied, shouldConsumePrime } from './sim/inputSampler.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { connect, connectErrorStatus, mapFromWelcome, type Connection } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
@@ -127,6 +128,16 @@ interface Game {
   deniedPulse: DeniedPulse;
   /** This frame's denied-fire pulse state — read by hud.update() for the chip flash. */
   deniedFlash: boolean;
+  /** One-shot latch: an ability press predicted DENIED (cooling/dead) since the
+   *  last render frame — consumed into abilityPulse (Story 1.6, never silence). */
+  abilityDeniedPress: boolean;
+  /** Rate-limited denied pulse for ability presses — the SAME deniedFire
+   *  grammar (80ms flash / 300ms floor), a separate driver so a weapon click
+   *  and an ability press don't share one rate window. Chips-only: an ability
+   *  press never drives the weapon-arc/reticle denied visuals (nothing is aimed). */
+  abilityPulse: DeniedPulse;
+  /** This frame's ability denied-flash — read by hud.update() for the ability chip border. */
+  abilityFlash: boolean;
   /** Tone player (audio/context.ts). */
   audio: Audio;
   /**
@@ -155,6 +166,13 @@ interface Game {
    * applyOwnStats() swaps it whenever you.cls or you.upg changes.
    */
   ownStats: EffectiveStats;
+  /**
+   * Slot-aligned equipment ids of the OWN loadout — loadoutFor(you.cls),
+   * client-side and read-only (Story 1.6). Drives the slot-2 activate-vs-prime
+   * split (slotHoldsAbility), the HUD chip row, and the pre-frame ammo
+   * fallback. Recomputed with ownStats on the ownStatsChanged seam.
+   */
+  ownSlots: readonly (EquipmentId | null)[];
 }
 
 /** Push the camera's world transform onto the world + chart containers. */
@@ -188,22 +206,26 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
   return g.ownBuffer.sampleAt(g.clock.serverNow() - CLIENT_CONFIG.net.ownDelayMs);
 }
 
-/** The equipment id fitted in each loadout slot today (interregnum universal
- *  fit); slots 0/1/2 = gun/torpedo/mine, slot 3 empty. */
-const EQUIPMENT_BY_SLOT: readonly EquipmentId[] = ['gun', 'torpedo', 'mine'];
+/** Slot-aligned equipment ids of a hull's loadout — the client-side, read-only
+ *  view of loadoutFor (Story 1.6): TB [gun, torpedo, speedBoost, null], every
+ *  other hull the universal [gun, torpedo, mine, null]. */
+function slotIdsFor(cls: ShipClassId, stats: EffectiveStats): (EquipmentId | null)[] {
+  return loadoutFor(cls, stats).map((s) => s.equipmentId);
+}
 
 /**
  * Slot-aligned own ammo (OwnShip.ammo): length SLOT_COUNT, null for an empty
  * slot. Full pools until the first frame arrives (effective sizes ≙ CONFIG at
- * zero upgrades — g.ownStats starts as the un-upgraded guessed class); the
- * empty extra slot (3) is null.
+ * zero upgrades — g.ownStats starts as the un-upgraded guessed class), built
+ * from the own loadout's slot ids (empty slots stay null).
  */
-function ownAmmo(you: OwnShip | null, stats: EffectiveStats): (WeaponAmmo | null)[] {
+function ownAmmo(
+  you: OwnShip | null,
+  stats: EffectiveStats,
+  slots: readonly (EquipmentId | null)[],
+): (WeaponAmmo | null)[] {
   return (
-    you?.ammo ?? [
-      ...EQUIPMENT_BY_SLOT.map((id) => ({ n: equipmentMaxAmmo(stats, id), reloadMsLeft: 0 })),
-      null,
-    ]
+    you?.ammo ?? slots.map((id) => (id === null ? null : { n: equipmentMaxAmmo(stats, id), reloadMsLeft: 0 }))
   );
 }
 
@@ -212,13 +234,23 @@ function respawnMs(eta: number | null, now: number): number {
   return eta != null ? Math.max(0, eta - now) : 0;
 }
 
+/**
+ * ms — the own boost window's current end estimate: the predictor's
+ * (optimistic-aware) value in predict mode, the raw server echo in interp/
+ * debug mode or before prediction initializes. 0 = inactive.
+ */
+function boostUntilNow(g: Game): number {
+  if (g.state.mode === 'predict' && g.predictor.isInitialized) return g.predictor.boostUntilEstimate;
+  return g.state.net.you?.boostUntil ?? 0;
+}
+
 /** Derive HUD/combat status from the latest server own-ship + respawn ETA. */
 function ownStatus(g: Game): OwnStatus {
   const you = g.state.net.you;
   const stats = g.ownStats;
   return {
     hp: you?.hp ?? stats.maxHp,
-    ammo: ownAmmo(you, stats),
+    ammo: ownAmmo(you, stats, g.ownSlots),
     cls: you?.cls ?? g.ownClass,
     stats,
     pts: you?.pts ?? 0,
@@ -229,6 +261,8 @@ function ownStatus(g: Game): OwnStatus {
     primedSlot: g.keyboard.primedSlot,
     alive: you?.alive ?? true,
     respawnInMs: respawnMs(g.state.respawnEta, g.clock.serverNow()),
+    loadout: g.ownSlots,
+    boostActive: g.clock.serverNow() < boostUntilNow(g),
   };
 }
 
@@ -428,6 +462,8 @@ function setupViewport(
   cls: ShipClassId,
   bellAudible: () => boolean,
   onUpgradeKey: (a: UpgradeAction) => void,
+  isAbilitySlot: (slot: number) => boolean,
+  onAbility: (slot: number) => void,
   nowServer: () => number,
 ): {
   camera: Camera;
@@ -448,9 +484,14 @@ function setupViewport(
   // the engine order up (ahead) from down (astern); an end-stop tap is silent.
   // Silent while spectating (W/S pans the camera) or dead-awaiting-respawn:
   // those taps never reach a live engine room, so they get no confirmation bell.
-  const keyboard = new KeyboardInput((dir, changed) => {
-    if (changed && bellAudible()) audio.play(telegraphTone(dir));
-  }, onUpgradeKey);
+  const keyboard = new KeyboardInput(
+    (dir, changed) => {
+      if (changed && bellAudible()) audio.play(telegraphTone(dir));
+    },
+    onUpgradeKey,
+    isAbilitySlot,
+    onAbility,
+  );
   keyboard.attach();
   // Inject the server-clock estimate so pointerdown can stamp an honest fire
   // time (D1). Lazy thunk: MouseInput is built before the clock exists, so it
@@ -479,13 +520,17 @@ function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
 }
 
 /**
- * The two keyboard callbacks that need game state assembled later in buildGame:
- * the telegraph-bell audibility predicate and the CTRL-window action router.
- * `getG` is the gRef late-binding — null only during the brief construction gap.
+ * The keyboard callbacks that need game state assembled later in buildGame:
+ * the telegraph-bell audibility predicate, the CTRL-window action router, and
+ * the Story 1.6 ability pair (the own-loadout slot predicate + the activation
+ * press handler). `getG` is the gRef late-binding — null only during the brief
+ * construction gap.
  */
 function viewportCallbacks(getG: () => Game | null): {
   bellAudible: () => boolean;
   onUpgradeKey: (a: UpgradeAction) => void;
+  isAbilitySlot: (slot: number) => boolean;
+  onAbility: (slot: number) => void;
 } {
   return {
     bellAudible: () => {
@@ -496,7 +541,41 @@ function viewportCallbacks(getG: () => Game | null): {
       const g = getG();
       if (g) handleUpgradeAction(g, a);
     },
+    // The slot-2 key consults the OWN loadout: ability equipment activates
+    // (never primes); a weapon (BB/ML's mine) primes exactly as today.
+    isAbilitySlot: (slot) => {
+      const g = getG();
+      return g !== null && slotHoldsAbility(g.ownSlots, slot);
+    },
+    onAbility: (slot) => {
+      const g = getG();
+      if (g) handleAbilityPress(g, slot);
+    },
   };
+}
+
+/**
+ * An ability-activation keypress landed (the TB's speed boost): the keyboard
+ * has ALREADY advanced actSeq, and the press rides the next input either way —
+ * the server decides. Here the client only predicts the verdict:
+ *  - predicted DENIED (slot cooling / own ship dead) → latch the denied pulse
+ *    (the existing deniedFire grammar, chips-only — never silence, never the
+ *    weapon-arc/reticle visuals: nothing is aimed);
+ *  - predicted READY → open the predictor's optimistic boost window at the
+ *    current server-clock estimate, so the speed-up doesn't wait a round trip
+ *    (the authoritative you.boostUntil overwrites it once the press is acked).
+ *    The predictor itself ignores a second press while a window is pending, so
+ *    a stale-ammo double press within RTT can never extend the estimate.
+ */
+function handleAbilityPress(g: Game, slot: number): void {
+  const you = g.state.net.you;
+  const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
+  const loaded = !!a && a.n > 0;
+  if (abilityPressDenied(you?.alive ?? true, loaded)) {
+    g.abilityDeniedPress = true;
+    return;
+  }
+  g.predictor.predictBoostActivation(g.clock.serverNow(), g.keyboard.actSeq);
 }
 
 /**
@@ -516,9 +595,10 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
   const { welcome } = conn;
   // Late-bound: the input callbacks need game state that is assembled just below.
   let gRef: Game | null = null;
-  const { bellAudible, onUpgradeKey } = viewportCallbacks(() => gRef);
+  const { bellAudible, onUpgradeKey, isAbilitySlot, onAbility } = viewportCallbacks(() => gRef);
   // Final arg is a lazy server-clock thunk for the mouse's pointerdown fire-time stamp (D1); resolved at click time.
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, cls, bellAudible, onUpgradeKey, () => (gRef?.clock ? gRef.clock.serverNow() : 0));
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, cls, bellAudible, onUpgradeKey, isAbilitySlot, onAbility, () => (gRef?.clock ? gRef.clock.serverNow() : 0));
+  const stats = effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades());
 
   const g: Game = {
     stage,
@@ -543,22 +623,20 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     hud: new Hud(stage.layers.hud),
     upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef)),
     spendInFlight: null,
-    room: conn.room,
-    mapRadius: map.radius,
-    cameraSnapped: false,
-    lastOwn: { x: 0, y: 0 },
+    room: conn.room, mapRadius: map.radius,
+    cameraSnapped: false, lastOwn: { x: 0, y: 0 },
     spectate: { freePan: false, visualsSet: false },
     returning: false, reconnecting: false,
     shake: new ShakeDriver(),
-    deniedPulse: new DeniedPulse(),
-    deniedFlash: false,
+    deniedPulse: new DeniedPulse(), deniedFlash: false,
+    abilityDeniedPress: false, abilityPulse: new DeniedPulse(), abilityFlash: false,
     audio, portal,
     matchEnded: false,
     audioCueState: INITIAL_CUE_STATE,
     wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
     ownClass: cls,
-    ownStats: effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades()),
+    ownStats: stats, ownSlots: slotIdsFor(cls, stats),
   };
   gRef = g;
   g.clock.addSample(welcome.t);
@@ -613,6 +691,11 @@ function applyOwnStats(g: Game, cls: ShipClassId, upg: readonly number[]): void 
   const spec = CONFIG.shipClasses[cls];
   const stats = effectiveStats(spec, upg);
   g.ownStats = stats;
+  // Own loadout follows the authoritative class (Story 1.6): the slot-2
+  // activate-vs-prime split, HUD chips, and ammo fallback all read from here.
+  g.ownSlots = slotIdsFor(cls, stats);
+  // Boost numbers ride the same stats swap (CONFIG pass-through today).
+  g.predictor.setBoostStats(stats.boost.speedBonus, stats.boost.durationMs);
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
     g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);
@@ -698,6 +781,7 @@ function renderOwn(
     g.stage.app.screen.width,
     g.stage.app.screen.height,
     g.deniedFlash,
+    g.abilityFlash,
   );
 }
 
@@ -715,6 +799,12 @@ function renderOwn(
 function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }): void {
   const clicked = g.mouse.clickCount !== g.prevClickCount;
   g.prevClickCount = g.mouse.clickCount;
+  // Ability denied pulse (Story 1.6): consume the one-shot press latch into
+  // the rate-limited pulse. Chips-only feedback — deliberately OUTSIDE the
+  // alive gate below (a dead press is denied too and must still pulse) and
+  // never fed into the weapon-arc/reticle denied visuals (nothing is aimed).
+  g.abilityFlash = g.abilityPulse.update(g.abilityDeniedPress, performance.now());
+  g.abilityDeniedPress = false;
   if (!status.alive) {
     g.firing.hide();
     g.deniedFlash = false;
@@ -727,9 +817,11 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   const slot = g.keyboard.primedSlot;
   const a = status.ammo[slot] ?? null;
   const hasAmmo = !!a && a.n > 0;
-  // EFFECTIVE reload duration (gun/torpedo/mine reload upgrades) — must match
-  // the server's per-ship reload or the sweep-back wedge lies.
-  const reloadFrac = a ? reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, EQUIPMENT_BY_SLOT[slot])) : 0;
+  // EFFECTIVE reload duration (per-weapon reload upgrades) from the OWN
+  // loadout's slot id — a primed slot always holds a weapon (the ability path
+  // never primes), so the null branch is defensive only.
+  const primedId = status.loadout[slot] ?? null;
+  const reloadFrac = a && primedId !== null ? reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, primedId)) : 0;
   const inArc = weaponArcHit(pose.heading, aim, slot);
   const denied = isClickDenied({ clicked, ready: hasAmmo, inArc });
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
@@ -870,9 +962,13 @@ function makeCallbacks(g: Game): LoopCallbacks {
         aimDist,
         slot: primedSlot,
         fireT: g.mouse.lastClickT, // honest fire instant (server-clock estimate at pointerdown)
+        actSeq: g.keyboard.actSeq, // ability-activation counter (0-sentinel; the keyboard owns it)
+        actSlot: g.keyboard.actSlot,
       });
       consumePrimeOnFire(g, primedSlot, aim);
-      if (g.state.mode === 'predict') g.predictor.localTick(input);
+      // This tick's server-time estimate rides into the pending ring so a later
+      // replay re-evaluates the boost gate at the identical per-tick time.
+      if (g.state.mode === 'predict') g.predictor.localTick(input, g.clock.serverNow());
     },
     render: (alpha, frameDt) => {
       const now = g.clock.serverNow();
@@ -940,8 +1036,14 @@ function bindResize(stage: Stage, game: Game): void {
  */
 function sendNeutralInput(g: Game): void {
   if (g.state.spectating) return; // spectators send nothing at all
-  const msg = g.sampler.sendNeutralNow(g.keyboard.throttle, g.mouse.clickCount, g.mouse.lastClickT);
-  if (g.state.mode === 'predict') g.predictor.localTick(msg);
+  const msg = g.sampler.sendNeutralNow(
+    g.keyboard.throttle,
+    g.mouse.clickCount,
+    g.mouse.lastClickT,
+    g.keyboard.actSeq, // a gap-press activates NOW, not on refocus (mirrors fireSeq)
+    g.keyboard.actSlot,
+  );
+  if (g.state.mode === 'predict') g.predictor.localTick(msg, g.clock.serverNow());
 }
 
 /** Neutralize input the moment the tab is hidden or the window loses focus. */

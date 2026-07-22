@@ -2,7 +2,7 @@
 // owner — gun shells, torpedoes, AND mines. This retires the old timed self-hit
 // grace entirely in favor of permanent owner exclusion in the hit-test path.
 // The original HULLCRACKER_NOTES bug (a full-speed torpedo boat re-catching its
-// own fish, torpedoBoat maxSpeed 50 now stackable past torpedo speed 70 via
+// own fish, torpedoBoat maxSpeed 45 now stackable past torpedo speed 60 via
 // maxSpeed upgrades) is now impossible BY LAW rather than by margin+grace
 // tuning. spawnClearance and bow/stern-clear spawn offsets are KEPT for clean
 // spawn geometry (they still prevent degenerate spawn overlap with OTHER
@@ -61,7 +61,7 @@ describe('torpedo spawn clearance (root-cause fix)', () => {
   it('a fresh torpedo spawns outside the firer silhouette + hitRadius by at least spawnClearance', () => {
     const w = bareWorld();
     const ship = place(w, 'a', 0, 0, 0);
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0 };
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0 };
     const torp = fireTorpedo(ship, 0, () => 't1');
     expect(torp).not.toBeNull();
     const poly = transformPolygon(hullSilhouette(ship.hullId), ship.state.x, ship.state.y, ship.state.heading);
@@ -78,7 +78,7 @@ describe('torpedo spawn clearance (root-cause fix)', () => {
 // ---------- integration: the owner's exact full-throttle bug -----------------
 
 describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
-  /** Throttle a torpedo boat (fastest hull: maxSpeed 50 vs torpedo speed 70)
+  /** Throttle a torpedo boat (fastest class: maxSpeed 45 vs torpedo speed 60)
    *  to max speed, fire a bow torpedo at `aim`, then run 5 more seconds and
    *  return every dmg event observed. */
   function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord } {
@@ -89,7 +89,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     const dmgs: DamageEvent[] = [];
 
     // Full ahead, aimed at the bow, weapon selected but not fired yet.
-    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0 });
+    w.submitInput('a', { seq: 1, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0 });
     const accelTicks = Math.ceil(a.stats.kinematics.maxSpeed / a.stats.kinematics.accel / (CONFIG.tick.simDtMs / 1000)) + 20;
     for (let i = 0; i < accelTicks; i++) {
       w.step();
@@ -98,7 +98,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     expect(a.state.speed).toBeCloseTo(a.stats.kinematics.maxSpeed, 1); // confirmed at full speed
 
     // Fire the bow torpedo (one click: fireSeq bumps).
-    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0 });
+    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0 });
     const fireTicks = 5000 / CONFIG.tick.simDtMs;
     for (let i = 0; i < fireTicks; i++) {
       w.step();
@@ -120,7 +120,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
   });
 
   it('straight ahead with 5 maxSpeed stacks (hull OUTRUNS the fish) — firer STILL takes no damage', () => {
-    // 50 · 1.08^5 ≈ 73.5 u/s > torpedo speed 70: the boat now overtakes its own
+    // 45 · 1.08^5 ≈ 66.1 u/s > torpedo speed 60: the boat now overtakes its own
     // fish, the exact geometry the old margin+grace fix depended on. Permanent
     // owner immunity makes a self-hit impossible regardless.
     expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed * 1.08 ** 5).toBeGreaterThan(

@@ -1,8 +1,9 @@
-// Pins the ratified beta class table (Story 1.3, Eric-approved 2026-07-19)
-// and the drone envelope table. The old Cruiser byte-identity pin is
-// deliberately retired: its guard purpose — catching an accidental retune
-// during the classes refactor — is fulfilled; this story IS the deliberate
-// retune. These pins fail the moment any envelope value drifts from the
+// Pins the ratified beta class table and the drone envelope table. The class
+// maxSpeeds are the Eric knot-realistic rescale (2026-07-21, Story 1.6): TB 45
+// / ML 40 / BS 35 — a DELIBERATE pin update from the 50/38/28 of Story 1.3.
+// Every other class field (reverseSpeed/accel/decel/turnRate/steerageSpeed,
+// hull dims, hp) and the entire drone table are UNCHANGED and byte-for-byte
+// pinned. These pins fail the moment any envelope value drifts from the
 // approved table without a matching test change.
 
 import { describe, it, expect } from 'vitest';
@@ -22,7 +23,7 @@ describe('ratified class table (exact Eric-approved values)', () => {
       hull: { length: 100, beam: 9 },
       hp: 70,
       kinematics: {
-        maxSpeed: 50,
+        maxSpeed: 45,
         reverseSpeed: 15,
         accel: 12,
         decel: 18,
@@ -37,7 +38,7 @@ describe('ratified class table (exact Eric-approved values)', () => {
       hull: { length: 124, beam: 32 },
       hp: 150,
       kinematics: {
-        maxSpeed: 28,
+        maxSpeed: 35,
         reverseSpeed: 9,
         accel: 5,
         decel: 9,
@@ -52,7 +53,7 @@ describe('ratified class table (exact Eric-approved values)', () => {
       hull: { length: 88, beam: 20 },
       hp: 105,
       kinematics: {
-        maxSpeed: 38,
+        maxSpeed: 40,
         reverseSpeed: 14,
         accel: 8,
         decel: 15,

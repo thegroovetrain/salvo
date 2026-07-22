@@ -20,9 +20,10 @@ export const CONFIG = {
    * Per-class hull + kinematics — the ratified beta classes at literal board
    * scale (Eric-approved 2026-07-19). Three classes trade speed against
    * hull/hp: Torpedo Boat (fast, fragile) — Battleship (slow, armored) —
-   * Mine Layer (area denial). The weapon fit is
-   * UNIVERSAL for the interregnum (every class shares CONFIG.gun/torpedo/mine;
-   * per-class loadouts arrive in Story 1.6+); only hull dims, hp, and
+   * Mine Layer (area denial). Per-class loadouts are now landing: as of Story
+   * 1.6 the Torpedo Boat carries its fitted loadout (gun / torpedo / speed
+   * boost); Battleship and Mine Layer keep the universal fit
+   * (CONFIG.gun/torpedo/mine) until Stories 1.7/1.8. Only hull dims, hp, and
    * kinematics vary. Hull dims are the exact bow-to-stern length × max beam of
    * the shared silhouette polygon (see sim/silhouette.ts — the silhouette IS
    * the hitbox). Every number is a DESIGN TARGET, tunable.
@@ -32,7 +33,7 @@ export const CONFIG = {
       hull: { length: 100, beam: 9 }, // u — silhouette bow-to-stern / max beam
       hp: 70, // hit points
       kinematics: {
-        maxSpeed: 50, // u/s — full-ahead
+        maxSpeed: 45, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 15, // u/s — full-astern (magnitude)
         accel: 12, // u/s^2 — throttling up
         decel: 18, // u/s^2 — throttling down / braking
@@ -44,7 +45,7 @@ export const CONFIG = {
       hull: { length: 124, beam: 32 }, // u
       hp: 150, // hit points
       kinematics: {
-        maxSpeed: 28, // u/s — full-ahead
+        maxSpeed: 35, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 9, // u/s — full-astern (magnitude)
         accel: 5, // u/s^2 — throttling up
         decel: 9, // u/s^2 — throttling down / braking
@@ -56,7 +57,7 @@ export const CONFIG = {
       hull: { length: 88, beam: 20 }, // u
       hp: 105, // hit points
       kinematics: {
-        maxSpeed: 38, // u/s — full-ahead
+        maxSpeed: 40, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 14, // u/s — full-astern (magnitude)
         accel: 8, // u/s^2 — throttling up
         decel: 15, // u/s^2 — throttling down / braking
@@ -160,11 +161,13 @@ export const CONFIG = {
   torpedo: {
     offset: deg(0), // bow-centered
     halfArc: deg(30), // +/-30deg launch arc
-    // u/s — must outrun every hull, classes AND drones (torpedoBoat maxSpeed
-    // 50 is the fastest) so a full-speed firer can never re-catch its own
-    // fish; pinned by damageGuardrail.test. Also a deliberate balance change:
-    // torps are harder to dodge (owner call, 2026-07-14 self-hit fix session).
-    speed: 70, // u/s
+    // u/s — must outrun every hull, classes AND drones (after Eric's 2026-07-21
+    // rescale droneSmall at 46 is the fastest afloat, and a boosted Torpedo Boat
+    // tops out at 55 = 45 + CONFIG.speedBoost.speedBonus) so a full-speed firer
+    // can never re-catch its own fish; pinned by damageGuardrail.test. Also a
+    // deliberate balance change: torps are harder to dodge (owner call,
+    // 2026-07-14 self-hit fix session).
+    speed: 60, // u/s
     damage: 55, // hp
     maxAmmo: 1, // one fish in the tube pool
     reloadMs: 12000, // ms — reload between fish (commitment spike)
@@ -190,6 +193,24 @@ export const CONFIG = {
     // once (oldest evicted past it). Separate stat, separate upgrade later.
     maxLive: 3, // max simultaneous live mines per player
     globalCap: 60, // defensive ceiling on total live mines across all players
+  },
+
+  /**
+   * Speed boost (Torpedo Boat slot 2, Story 1.6): an ACTIVATED ABILITY, not a
+   * weapon — it fires nothing and emits nothing spatial. One press consumes its
+   * single charge and opens a `durationMs` window during which the FORWARD
+   * maxSpeed cap rises by `speedBonus` (reverseSpeed untouched); the hull
+   * accelerates toward the raised cap at class accel and decays back at class
+   * decel on expiry (see sim/boost.ts). `reloadMs` ≥ `durationMs` by design, so
+   * an active window always implies a cooling pool — re-activation while active
+   * is impossible by construction. No legacy upgrade touches it. Every number
+   * is a DESIGN TARGET, tunable.
+   */
+  speedBoost: {
+    speedBonus: 10, // u/s added to forward maxSpeed cap while active
+    durationMs: 6000, // ms — active window opened by one activation
+    maxAmmo: 1, // single charge in the pool
+    reloadMs: 18000, // ms — cooldown between activations
   },
 
   /**

@@ -577,7 +577,7 @@ So that my left hand helms, my right hand fights, and no keypress ever betrays m
 
 **Given** the current 1/2/3 weapon keys and CTRL spend chord
 **When** the fixed v1 bindings replace them
-**Then** Q/E/R/F map to the four slots top-to-bottom (weapons switch-to, abilities activate immediately), W/S taps step the telegraph ±1 detent (hold does not repeat), A/D holds the rudder, Z/X + wheel zoom the camera, ESC closes the topmost surface (else opens settings), Enter confirms contextually, M mutes (UX-DR31)
+**Then** Q/E/R map to the loadout slots — Q/E = the two class-special slots, R = the pickup/extra slot (inert while empty; what fills it determines how it operates) — with weapons switch-to and abilities activate-immediately, while F is reserved for a future feature, not a slot key (re-ruled by Eric 2026-07-21 during Story 1.6; supersedes the earlier Q/E/R/F four-slots-top-to-bottom mapping), W/S taps step the telegraph ±1 detent (hold does not repeat), A/D holds the rudder, Z/X + wheel zoom the camera, ESC closes the topmost surface (else opens settings), Enter confirms contextually, M mutes (UX-DR31)
 **And** SPACE-hold governs the refit window (hold opens, release dismisses — no toggle option exists); while held, Q/E/R/F are suspended and the helm stays live
 **And** a number key's meaning is evaluated against Space's state at its own keydown; for ~150–200 ms after Space release, number keys resolve as refit-or-nothing — the closed-window spend behavior is deleted
 **And** every bound key is preventDefault-ed at a single keydown chokepoint (including Space page-scroll), contextmenu is suppressed on the canvas, and a focused DOM overlay or text input suppresses keyboard from the sim while the sim never pauses (typing "wasd" in the callsign field steers nothing) (UX-DR32)
@@ -1005,6 +1005,8 @@ So that finding prey is part of the sensor game and my XP has a second faucet.
 **And** fleets rove the ocean (waypoint drift as a STEP_ORDER step), render as greyscale legacy chevrons at hull and blip scale, and tier reads by size (richer tier language stays an open question — noted, not blocking)
 **And** drones are never participants: the win check ignores them entirely (formal multi-mode coverage lands in Epic 6)
 **And** the perf budget holds with full fleets present (they're part of the reference scenario).
+
+> **Drone rescale/rebalance (Eric, 2026-07-21, ruled during Story 1.6):** the pinned drone envelopes (small 46 / medium 38 / large 30 — byte-for-byte the retired prototype blocks) predate the 1.6 hull-speed rescale (TB 45 / ML 40 / BS 35), leaving droneSmall the fastest hull afloat. Rescale and rebalance the drone kinematics/HP against the new class envelopes in this story (design targets resolved WITH ERIC; the shipClasses identity test's drone table updates deliberately with it).
 
 ## Epic 6: Honest Lobbies & Modes (GDD E5)
 

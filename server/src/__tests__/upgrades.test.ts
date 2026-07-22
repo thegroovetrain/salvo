@@ -21,6 +21,7 @@ import {
   type BlipEvent,
   type FrameMsg,
   type GameEvent,
+  type ShipClassId,
   type UpgradeId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
@@ -40,8 +41,8 @@ function bareWorld(seed = 1): World {
   return w;
 }
 
-function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: ShipClassId = 'torpedoBoat'): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), false, hull);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -420,6 +421,20 @@ describe('spend side effects', () => {
     expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(1); // immediately usable
   });
 
+  it('mineAmmo on a Torpedo Boat is a DEAD PICK (Story 1.6): no throw, count + stats move, loadout untouched', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0); // torpedoBoat — carries NO mine (slot 2 = speedBoost)
+    expect(a.loadout[SLOT_MINE].equipmentId).toBe('speedBoost');
+    const before = a.loadout.map((s) => (s.state ? { ...s.state } : null));
+    // The review-caught crash: applyGrantEffects used to `.find(mine)!.state!` an
+    // absent slot. It must now be a pure no-op when the equipment is not fitted.
+    expect(() => w.applyUpgrade(a, 'mineAmmo')).not.toThrow();
+    expect(a.upgrades[UPGRADE_IDS.indexOf('mineAmmo')]).toBe(1); // count still increments
+    expect(a.stats.mine.maxAmmo).toBe(CONFIG.mine.maxAmmo + 1); // stats still apply
+    // No mine pool exists to load — the loadout is byte-identical (pure no-op).
+    expect(a.loadout.map((s) => (s.state ? { ...s.state } : null))).toEqual(before);
+  });
+
   it('non-hull, non-ammo spends leave hp and loaded rounds untouched', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -572,7 +587,7 @@ describe('effective weapon stats in the fire path', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stack(w, a, 'gunReload', 1);
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 2, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0 };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 2, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0 };
     w.step();
     expect(a.loadout[SLOT_GUN].state!.n).toBe(CONFIG.gun.maxAmmo - 1);
     // consume() set the timer to the effective reload, then the same tick's
@@ -586,7 +601,7 @@ describe('effective weapon stats in the fire path', () => {
       const a = place(w, 'a', 0, 0);
       if (upgraded) stack(w, a, 'torpedoSpeed', 1);
       w.step(); // flush join spawn + the upg event
-      a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0 };
+      a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0 };
       w.step();
       const ev = w.tickEvents.find((e): e is BallisticEvent => e.k === 'torp');
       expect(ev).toBeDefined();
@@ -605,14 +620,14 @@ describe('effective weapon stats in the fire path', () => {
   it("mine maxLive comes from the OWNER's stats: an upgraded owner keeps one more mine live", () => {
     const dropMines = (upgraded: boolean, drops: number): number => {
       const w = bareWorld();
-      const a = place(w, 'a', 0, 0);
+      const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // mine at slot 2 (TB fits speedBoost there, Story 1.6)
       if (upgraded) stack(w, a, 'maxMines', 1);
       w.step();
       for (let i = 0; i < drops; i++) {
         a.loadout[SLOT_MINE].state = { n: 1, reloadMsLeft: 0 }; // skip the reload wait
         w.submitInput('a', {
           seq: i + 1, throttle: 0, rudder: 0, aim: 0,
-          fireSeq: i + 1, aimDist: 0, slot: SLOT_MINE, fireT: 0,
+          fireSeq: i + 1, aimDist: 0, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0,
         });
         w.step();
       }
@@ -628,8 +643,8 @@ describe('effective weapon stats in the fire path', () => {
     place(w, 'base', 0, 200);
     stack(w, up, 'maxSpeed', 2);
     for (let tick = 1; tick <= 200; tick++) {
-      w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 });
-      w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 });
+      w.submitInput('up', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+      w.submitInput('base', { seq: tick, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
       w.step();
     }
     const f = CONFIG.upgrades.maxSpeed.mult ** 2;

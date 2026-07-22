@@ -7,10 +7,12 @@
 // that inputs are the only interface into the simulation.
 //
 // STRUCTURAL GUARANTEE — the controller has NO fire code path: every InputMsg
-// it emits carries `fireSeq: 0, aimDist: 0, aim: 0, slot: 0, fireT: 0`. A constant
-// fireSeq is never newer than the ship's consumed lastFireSeq, so drones can
-// never shoot — there is nowhere in this file that could ever advance the
-// click counter.
+// it emits carries `fireSeq: 0, aimDist: 0, aim: 0, slot: 0, fireT: 0` and
+// `actSeq: 0, actSlot: 0`. A constant fireSeq is never newer than the ship's
+// consumed lastFireSeq, so drones can never shoot; a constant actSeq (0) is
+// never newer than lastActSeq, so drones can never activate an ability either
+// (Story 1.6) — there is nowhere in this file that could ever advance the
+// click or activation counter.
 //
 // Steering is deliberately dumb (this is NOT an AI): each drone waypoint-sails
 // to a random point inside the current safe zone at a per-leg throttle, seeded
@@ -125,8 +127,10 @@ export class DroneController {
     const rudder = clampUnit(track + this.avoidIslands(ship) + this.boundaryBias(ship));
     mind.seq += 1;
     // fireT: 0 is the explicit no-claim sentinel — drones (which can never
-    // click anyway) always ride the zero-compensation path.
-    return { seq: mind.seq, throttle: mind.throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 };
+    // click anyway) always ride the zero-compensation path. actSeq: 0 is the
+    // never-activated sentinel (Story 1.6): structurally inert, same argument as
+    // fireSeq: 0 — a constant counter can never out-run the ship's consumed one.
+    return { seq: mind.seq, throttle: mind.throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 };
   }
 
   /** Bearing the drone wants to hold, applying the zone/waypoint overrides. */

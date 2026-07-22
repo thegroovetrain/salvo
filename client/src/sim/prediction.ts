@@ -9,9 +9,17 @@
 //                                 into a visualError offset that is added at
 //                                 render time only and decays x exp(-12*dt)
 // so authoritative state converges immediately while the picture stays smooth.
+//
+// Speed boost (Story 1.6): every tick — local AND replayed — derives its
+// kinematics through the shared boostedKinematics(kin, bonus, active) hook,
+// the identical per-tick rule the server's stepShips applies. Each pending
+// input records its own server-time estimate + actSeq, so replays re-make the
+// exact boost decisions the original ticks made; see boostActiveAt for the
+// optimistic-press vs authoritative-window regimes.
 
 import {
   angleDiff,
+  boostedKinematics,
   hullSilhouette,
   resolveShipPose,
   stepShip,
@@ -54,12 +62,26 @@ export interface ServerKinematics {
   y: number;
   heading: number;
   speed: number;
+  /**
+   * ms — server-clock time the active speed-boost window ends (OwnShip.boostUntil,
+   * Story 1.6); 0/omitted = inactive. Optional so pure-kinematics callers (tests,
+   * interp mode) need not fabricate it; a real frame's `you` always carries it.
+   */
+  boostUntil?: number;
 }
 
 interface PendingInput {
   seq: number;
   throttle: number;
   rudder: number;
+  /** InputMsg.actSeq this tick carried — lets onServerState detect when an ack
+   *  covers the optimistic press (the replay gate itself keys on seq/pressSeq). */
+  actSeq: number;
+  /** ms — THIS tick's own server-time estimate (clock.serverNow at localTick).
+   *  Each replayed tick re-evaluates boost-active at its own recorded time, so
+   *  a replay reproduces exactly the per-tick decisions the original local
+   *  ticks made (self-consistent by construction — never one frozen "now"). */
+  t: number;
 }
 
 /** What the renderer draws: predicted pose + decaying visual error. */
@@ -82,6 +104,27 @@ export class Predictor {
   private ready = false;
   /** Reused transform scratch for resolveShipPose (allocation-light replay). */
   private readonly scratch: Vec2[] = [];
+  /** Effective boost numbers (effectiveStats().boost pass-through; CONFIG at zero upgrades). */
+  private boost: { bonus: number; durationMs: number } = {
+    bonus: CONFIG.speedBoost.speedBonus,
+    durationMs: CONFIG.speedBoost.durationMs,
+  };
+  /** Authoritative boost-window end (you.boostUntil from the latest server frame; 0 = inactive). */
+  private authBoostUntil = 0;
+  /**
+   * Optimistic boost window opened at a predicted-ready activation press
+   * (predictBoostActivation), so the speed-up doesn't wait a round trip.
+   * `actSeq` is the counter value the press rides on the wire; `pressSeq` is
+   * the input seq of the FIRST tick that carried it (recorded by localTick).
+   * PRESS-TICK SEMANTICS (server truth — activationControl runs AFTER
+   * stepShips): the tick that carries the new actSeq itself steps UNBOOSTED
+   * and the window opens for the following tick, so the gate is `seq >
+   * pressSeq` (never `>=`) and `until` is shifted one sim tick past the press
+   * estimate. Cleared the moment a frame's ack covers `actSeq` — from then on
+   * the authoritative you.boostUntil governs, and any mismatch (denied press,
+   * ~½RTT window offset) folds into that reconcile's visual-error decay.
+   */
+  private optimisticBoost: { until: number; actSeq: number; pressSeq: number | null } | null = null;
 
   constructor(
     private readonly map: CollisionMap,
@@ -110,6 +153,44 @@ export class Predictor {
     this.kin = kin;
     this.localPoly = localPoly;
     if (snap) this.forceSnap();
+  }
+
+  /** Swap the effective boost numbers alongside setClassConfig (applyOwnStats seam). */
+  setBoostStats(bonus: number, durationMs: number): void {
+    this.boost = { bonus, durationMs };
+  }
+
+  /**
+   * Open the optimistic boost window for a predicted-ready ability press:
+   * `atServerT` is the press's server-clock estimate (clock.serverNow — never
+   * wall clock), `actSeq` the keyboard counter value the press will ride.
+   * The window END is shifted ONE SIM TICK past the press estimate, mirroring
+   * the server's step order (the tick that consumes the actSeq advance steps
+   * BEFORE activation applies, so its boostUntil ≈ pressT + tick + duration);
+   * the window START is gated per tick by pressSeq (see boostActiveAt), so the
+   * press input's tick steps unboosted and the boost begins the tick after.
+   * While an un-acked optimistic window is already pending, a new press is
+   * IGNORED — a double-press within RTT (predicted-ready off stale ammo) must
+   * not extend the estimate the server will never honor. The authoritative
+   * you.boostUntil takes over once the press's input is acked (onServerState).
+   */
+  predictBoostActivation(atServerT: number, actSeq: number): void {
+    if (this.optimisticBoost !== null) return; // pending window: never overwrite/extend
+    this.optimisticBoost = {
+      until: atServerT + CONFIG.tick.simDtMs + this.boost.durationMs,
+      actSeq,
+      pressSeq: null,
+    };
+  }
+
+  /**
+   * ms — the current best estimate of the boost window's end (0 = inactive):
+   * the optimistic press-time window until the activation is acked, the
+   * authoritative you.boostUntil after. Drives the HUD's active-chip outline
+   * and boosted speed-needle cap; compare against clock.serverNow().
+   */
+  get boostUntilEstimate(): number {
+    return this.optimisticBoost?.until ?? this.authBoostUntil;
   }
 
   /** False until the first server state initializes the predicted ship. */
@@ -142,20 +223,40 @@ export class Predictor {
     this.ve.x = 0;
     this.ve.y = 0;
     this.ve.heading = 0;
+    // A hard re-init (respawn / reconnect / class swap) drops any un-acked
+    // optimistic boost window; the authoritative you.boostUntil re-seeds the
+    // window on the very next frame (death resets it to 0 server-side).
+    this.optimisticBoost = null;
   }
 
   /**
    * Advance the local prediction one fixed sim tick with the input that was
    * just sent to the server. Call exactly once per 50ms tick, after sending.
+   * `tickT` is THIS tick's server-time estimate (clock.serverNow()) —
+   * REQUIRED, so no call site can silently freeze the boost gate at 0 — and is
+   * recorded on the pending entry so a later replay of this tick re-evaluates
+   * the boost gate at the identical time (never wall clock, never a frozen
+   * shared "now").
    */
-  localTick(input: InputMsg): void {
+  localTick(input: InputMsg, tickT: number): void {
     if (!this.ready) return;
-    this.pending.push({ seq: input.seq, throttle: input.throttle, rudder: input.rudder });
+    // First tick carrying the pending press's actSeq: pin it as the press
+    // tick. It steps UNBOOSTED (the server's activationControl runs after
+    // stepShips); every later tick gates on `seq > pressSeq`.
+    const o = this.optimisticBoost;
+    if (o !== null && o.pressSeq === null && input.actSeq >= o.actSeq) o.pressSeq = input.seq;
+    this.pending.push({
+      seq: input.seq,
+      throttle: input.throttle,
+      rudder: input.rudder,
+      actSeq: input.actSeq,
+      t: tickT,
+    });
     if (this.pending.length > PENDING_CAPACITY) this.pending.shift();
     // this.prev is the pre-step (induction-valid) pose — reuse it as the
     // rollback prev for this tick's collision resolve.
     this.prev = clone(this.curr);
-    stepShip(this.curr, input, this.kin, this.dt);
+    stepShip(this.curr, input, this.tickKin(tickT, input.seq), this.dt);
     this.resolveCollisions(this.curr, this.prev);
   }
 
@@ -164,9 +265,19 @@ export class Predictor {
    * up to `ackSeq`. Drops acked inputs, replays the rest, folds the error.
    */
   onServerState(you: ServerKinematics, ackSeq: number): void {
+    let ackedActSeq = -1;
     while (this.pending.length > 0 && this.pending[0].seq <= ackSeq) {
+      ackedActSeq = this.pending[0].actSeq; // actSeq is monotonic — the last shifted wins
       this.pending.shift();
     }
+    // Once the frame's ack covers the optimistic press's actSeq, you.boostUntil
+    // reflects the server's verdict (activated or denied) — drop the estimate
+    // and let the authoritative window govern from here. A mismatch folds into
+    // this same reconcile's replay+visual-error path.
+    if (this.optimisticBoost !== null && ackedActSeq >= this.optimisticBoost.actSeq) {
+      this.optimisticBoost = null;
+    }
+    this.authBoostUntil = you.boostUntil ?? 0;
     const replayed = this.replayFrom(you);
     if (!this.ready) {
       this.adopt(replayed);
@@ -194,7 +305,9 @@ export class Predictor {
     };
   }
 
-  /** Server state + every pending input stepped at the fixed dt. */
+  /** Server state + every pending input stepped at the fixed dt, each tick
+   *  re-deriving its kinematics from the boost gate at ITS OWN recorded time
+   *  (the identical per-tick rule localTick applied — see tickKin). */
   private replayFrom(you: ServerKinematics): ShipState {
     const s: ShipState = { x: you.x, y: you.y, heading: you.heading, speed: you.speed };
     const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
@@ -202,10 +315,40 @@ export class Predictor {
       prev.x = s.x;
       prev.y = s.y;
       prev.heading = s.heading;
-      stepShip(s, { throttle: p.throttle, rudder: p.rudder }, this.kin, this.dt);
+      stepShip(s, { throttle: p.throttle, rudder: p.rudder }, this.tickKin(p.t, p.seq), this.dt);
       this.resolveCollisions(s, prev);
     }
     return s;
+  }
+
+  /**
+   * Per-tick kinematics for the tick with input `seq` at server-time estimate
+   * `t`: the shared boostedKinematics is the ONLY speed mutator — the exact
+   * per-tick rule the server's stepShips applies
+   * (boostedKinematics(stats.kinematics, bonus, now < boostUntil)).
+   */
+  private tickKin(t: number, seq: number): ShipConfig {
+    return boostedKinematics(this.kin, this.boost.bonus, this.boostActiveAt(t, seq));
+  }
+
+  /**
+   * The boost gate for one tick. Two regimes:
+   *  - An un-acked activation press (optimisticBoost set): the press's window
+   *    governs, gated STRICTLY past the press tick (`seq > pressSeq`) — the
+   *    press input's tick itself steps UNBOOSTED, mirroring the server's
+   *    activationControl-after-stepShips order, and ticks sampled before the
+   *    press stay unboosted too. Per-tick fidelity across the activation edge,
+   *    identical in localTick and replayFrom (both pass the tick's own seq).
+   *  - Otherwise: the authoritative `t < you.boostUntil`, the server's own
+   *    rule. No lower bound is needed: every pending tick is applied by the
+   *    server AFTER the frame that carried boostUntil, hence after the
+   *    activation itself; and the same comparison handles the expiry edge
+   *    (ticks recorded past the window decay at class decel via the base kin).
+   */
+  private boostActiveAt(t: number, seq: number): boolean {
+    const o = this.optimisticBoost;
+    if (o !== null) return o.pressSeq !== null && seq > o.pressSeq && t < o.until;
+    return t < this.authBoostUntil;
   }
 
   private reconcile(replayed: ShipState): void {

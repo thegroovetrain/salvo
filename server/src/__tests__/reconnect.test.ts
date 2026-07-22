@@ -86,7 +86,7 @@ function activate(h: Harness): void {
 }
 
 function input(seq: number, throttle: number, rudder = 0): unknown {
-  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0 };
+  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 };
 }
 
 // --- dropPolicy --------------------------------------------------------------
@@ -249,7 +249,7 @@ describe('deferred teardown (grace window)', () => {
     activate(h);
     // One click (fireSeq 1) fires once; the SAME held value must not fire again.
     expect(
-      h.w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 0, fireT: 0 }),
+      h.w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 }),
     ).toBe(true);
     step(h); // click consumed this tick (lastFireSeq catches up)
     const shellsAfterClick = h.w.shells.size;

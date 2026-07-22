@@ -86,7 +86,7 @@ function blockedBy(from, to, isle) {
 // ---------------------------------------------------------------- piloting ---
 
 function control(ctx) {
-  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 0, fireT: 0 };
+  const inp = { seq: ++ctx.seq, throttle: 0, rudder: 0, aim: 0, fireSeq: ctx.fireSeq, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 };
   const g = ctx.goal;
   if (g.mode === 'park') park(ctx, inp, g.target);
   else if (g.mode === 'engage') engage(ctx, inp, g.target, g.fire);

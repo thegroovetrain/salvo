@@ -12,6 +12,8 @@ const input = (seq: number, extra = {}) => ({
   aimDist: 0,
   slot: 0,
   fireT: 0,
+  actSeq: 0,
+  actSlot: 0,
   ...extra,
 });
 
@@ -59,10 +61,11 @@ describe('buildFrame — shape and clock', () => {
       hp: CONFIG.shipClasses.torpedoBoat.hp,
       alive: true,
       // Slot-aligned ammo: length SLOT_COUNT, null for the empty extra slot.
+      // The Torpedo Boat fits speedBoost (not mine) in slot 2 (Story 1.6).
       ammo: [
         { n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 },
         { n: CONFIG.torpedo.maxAmmo, reloadMsLeft: 0 },
-        { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 },
+        { n: CONFIG.speedBoost.maxAmmo, reloadMsLeft: 0 },
         null,
       ],
       sweep: ship.sweepAngle,
@@ -70,6 +73,7 @@ describe('buildFrame — shape and clock', () => {
       upg: zeroUpgrades(), // 14 zero counts — no upgrades granted yet
       pts: 0, // no points banked
       offer: [], // no offer while pts is 0
+      boostUntil: 0, // owner-only speed-boost window end; inactive
     });
     expect(f.spec).toBeUndefined();
   });

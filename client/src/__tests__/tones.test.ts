@@ -4,7 +4,6 @@
 // untested adapter per convention — this file covers everything pure.
 
 import { describe, it, expect } from 'vitest';
-import type { EquipmentId } from '@salvo/shared';
 import {
   TONES,
   fireTone,
@@ -62,15 +61,17 @@ describe('TONES — spec table completeness', () => {
   });
 });
 
-describe('fireTone — equipment -> own-fire tone mapping', () => {
-  it('maps every EquipmentId to its distinct tone', () => {
+describe('fireTone — weapon -> own-fire tone mapping', () => {
+  // The speedBoost ability never fires: fireTone is typed to the weapon subset
+  // of EquipmentId (Story 1.6), so an ability id can't even reach it.
+  it('maps every firing weapon to its distinct tone', () => {
     expect(fireTone('gun')).toBe('fireGun');
     expect(fireTone('torpedo')).toBe('fireTorp');
     expect(fireTone('mine')).toBe('fireMine');
   });
 
-  it('covers all three equipment ids with no gaps', () => {
-    const ids: EquipmentId[] = ['gun', 'torpedo', 'mine'];
+  it('covers all three weapon ids with no gaps', () => {
+    const ids = ['gun', 'torpedo', 'mine'] as const;
     for (const id of ids) expect(TONES[fireTone(id)]).toBeDefined();
   });
 });
