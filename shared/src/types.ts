@@ -360,6 +360,30 @@ export interface MineView {
   own: boolean;
 }
 
+/**
+ * A star-shell lit zone visible to this viewer, synced as CONTACT-LIKE state
+ * (not an event): FrameMsg.litZones is recomputed per observer every tick,
+ * exactly like mines. The OWNER (firer) always sees its own zones; any other
+ * observer sees a zone iff its CENTER is within the observer's effective radar
+ * range — deliberately no island LOS and no sweep gate (a flare in the sky,
+ * not a hull paint); invisible beyond radar range; spectators see all. `by` is
+ * the FIRER'S ship id (roster-resolvable — renders in the firer's personal hue
+ * come 1.12; until then the own-green / enemy-amber tint convention). The
+ * firer's truesight parity INSIDE the zone never rides this shape — revealed
+ * ships/mines/ballistics arrive through their own channels (perception.ts).
+ * `until` is the server-clock expiry (drives the client's fade); a zone
+ * dropping out of the list means expired OR out of radar range — the client
+ * cannot tell, and that ambiguity is the point (the mines precedent).
+ */
+export interface LitZoneView {
+  id: string;
+  x: number; // u — zone center
+  y: number; // u
+  r: number; // u — lit radius
+  until: number; // ms — server time the zone expires
+  by: string; // the firer's ship id
+}
+
 /** Per-tick, per-client events. Discriminated union on `k`. */
 export type GameEvent =
   | BlipEvent
@@ -386,6 +410,7 @@ export interface FrameMsg {
   contacts: Contact[];
   events: GameEvent[];
   mines: MineView[]; // per-observer mine visibility (contact-like, recomputed per tick)
+  litZones?: LitZoneView[]; // per-observer lit-zone visibility (contact-like; omitted when none)
   spec?: true; // spectator (unfogged) frame
 }
 

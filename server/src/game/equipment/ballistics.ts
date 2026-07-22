@@ -96,6 +96,9 @@ export interface BallisticParams {
   targetY: number | null; // u
   burstRadius: number; // u — blast radius around the target point (0 = contact-only)
   contactDamage: number; // hp to an early interceptor outside the blast
+  /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
+   *  zone (see ShellState.lit). Only fireStarShell sets it; never on the wire. */
+  lit?: { radius: number; durationMs: number };
 }
 
 /**
@@ -112,7 +115,7 @@ export function makeBallistic(
   p: BallisticParams,
 ): ShellState {
   const off = hullClearOffset(ship, p.hitRadius + (p.spawnClearance ?? 0));
-  return {
+  const shell: ShellState = {
     id,
     ownerId: ship.id,
     x: p.origin ? p.origin.x : ship.state.x + Math.cos(dir) * off,
@@ -129,4 +132,8 @@ export function makeBallistic(
     burstRadius: p.burstRadius,
     contactDamage: p.contactDamage,
   };
+  // The star-shell tag is set only when the caller carries one (never an
+  // explicit `lit: undefined` key — the shape stays clean for non-flares).
+  if (p.lit) shell.lit = p.lit;
+  return shell;
 }

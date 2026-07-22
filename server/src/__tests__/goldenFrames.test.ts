@@ -38,9 +38,10 @@ const SIGHT = CONFIG.vision.sight;
 const SWEEP_DELTA = (TAU * DT) / CONFIG.vision.sweepPeriod;
 
 // The full set of channels the fixture MUST exercise: the 11 GameEvent kinds
-// plus the two contact-like channels (contact/mine) and the spectator frame.
+// plus the three contact-like channels (contact/mine/litzone) and the
+// spectator frame.
 const EXPECTED_CHANNELS = [
-  'blip', 'boom', 'burst', 'contact', 'dmg', 'heal', 'mine',
+  'blip', 'boom', 'burst', 'contact', 'dmg', 'heal', 'litzone', 'mine',
   'pt', 'shell', 'spawn', 'spec', 'sunk', 'torp', 'upg',
 ];
 
@@ -54,6 +55,10 @@ const EXPECTED_SUBCASES = [
   'island-allows-sight-contact',
   'island-blocks-radar-blip',
   'island-blocks-sight-contact',
+  'litzone-beyond-radar-silent',
+  'litzone-expiry',
+  'litzone-firer-reveal',
+  'litzone-thirdparty-radar-circle',
   'nonowner-hidden-at-launch',
   'nonowner-reveal-current-params',
   'nonowner-reveal-once',
@@ -77,6 +82,7 @@ function record(g: Golden, f: FrameMsg): FrameMsg {
   for (const e of f.events) g.channels.add(e.k);
   if (f.contacts.length > 0) g.channels.add('contact');
   if (f.mines.length > 0) g.channels.add('mine');
+  if (f.litZones !== undefined && f.litZones.length > 0) g.channels.add('litzone');
   if (f.spec) g.channels.add('spec');
   g.frames.push(JSON.stringify(f));
   return f;
@@ -106,9 +112,11 @@ function bareWorld(seed: number): World {
   return w;
 }
 
-/** Add a ship and teleport it to an exact pose (speed 0). */
-function place(w: World, id: string, x: number, y: number, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase());
+/** Add a ship and teleport it to an exact pose (speed 0). `hull` defaults to
+ *  the torpedoBoat every pre-1.7 scenario was built on; scnStarShell places a
+ *  battleship (the star-shell carrier). */
+function place(w: World, id: string, x: number, y: number, heading = 0, hull: 'torpedoBoat' | 'battleship' = 'torpedoBoat'): ShipRecord {
+  const rec = w.addShip(id, id.toUpperCase(), false, hull);
   rec.state.x = x;
   rec.state.y = y;
   rec.state.heading = heading;
@@ -357,6 +365,60 @@ function scnBurst(g: Golden): void {
   expect(burst).toBe(true); // the burst actually landed in the fixture
 }
 
+/**
+ * Star-shell lit zone (Story 1.7) — a REAL battleship flare fired via the
+ * input channel: the shell flies to the clicked point (300u out — beyond the
+ * firer's 220u sight) and bursts, spawning the 110u/10s zone. Captures pin
+ * all four zone views in one deterministic pass: the FIRER's frame (zone
+ * circle + the hidden hull `h` revealed as a full contact by owned-zone
+ * truesight parity), a third party `c` sitting EXACTLY at radar range of the
+ * zone center (the tagged {id,x,y,r,until,by} circle — boundary-inclusive —
+ * and NO contact for `h`), a beyond-radar observer `d` whose frame stays
+ * byte-free of the zone, and the FIRER again after natural expiry (zone gone,
+ * `h` fogged once more). Intermediate flight ticks are stepped without frame
+ * builds — the fixture pins the launch tick, the burst tick, and expiry.
+ */
+function scnStarShell(g: Golden): void {
+  const w = bareWorld(1011);
+  place(w, 'a', 0, 0, 0, 'battleship'); // the firer
+  const h = place(w, 'h', 300, 40, 1.1); // inside the future zone, beyond a's sight
+  place(w, 'c', -330, -160); // dist to zone center (300,0) = 650 exactly — at radar range
+  place(w, 'd', -400, 0); // dist to zone center = 700 — beyond radar
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.step(); // consumes the click; the flare spawns and starts flying
+  cap(g, w, 'a'); // launch tick: own shell reveal, no zone yet
+  let zoneUp = false;
+  for (let i = 0; i < 80 && !zoneUp; i++) {
+    w.step();
+    zoneUp = w.litZones.size > 0;
+  }
+  expect(zoneUp).toBe(true); // the flare actually burst in the fixture
+  const fa = cap(g, w, 'a'); // burst tick: burst event + zone + h revealed
+  prove(
+    g,
+    'litzone-firer-reveal',
+    fa.contacts.some((x) => x.id === 'h') && (fa.litZones ?? []).some((z) => z.by === 'a'),
+  );
+  const fc = cap(g, w, 'c'); // radar-range third party: circle only
+  prove(
+    g,
+    'litzone-thirdparty-radar-circle',
+    (fc.litZones ?? []).some((z) => z.by === 'a') && !fc.contacts.some((x) => x.id === 'h'),
+  );
+  const fd = cap(g, w, 'd'); // beyond radar: byte-free of the zone
+  prove(g, 'litzone-beyond-radar-silent', !('litZones' in fd));
+  // Natural expiry: run out the 10s lifetime, then the firer is fogged again.
+  const steps = Math.ceil(CONFIG.starShells.litDurationMs / DT) + 1;
+  for (let i = 0; i < steps; i++) w.step();
+  const after = cap(g, w, 'a');
+  prove(
+    g,
+    'litzone-expiry',
+    w.litZones.size === 0 && !('litZones' in after) && !after.contacts.some((x) => x.id === 'h'),
+  );
+  void h;
+}
+
 // ---------- the fixture -------------------------------------------------------
 
 describe('golden frames — byte-identity gate for the perception refactor', () => {
@@ -373,6 +435,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     scnBallisticReveal(g);
     scnSpectatorBallistic(g);
     scnBurst(g);
+    scnStarShell(g);
 
     // Self-validating coverage: the fixture can never silently lose a channel.
     expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);

@@ -59,6 +59,12 @@ describe('effectiveStats — zero-counts identity (per class)', () => {
         maxAmmo: CONFIG.speedBoost.maxAmmo,
         reloadMs: CONFIG.speedBoost.reloadMs,
       },
+      cannon: { reloadMs: CONFIG.cannon.reloadMs, maxAmmo: CONFIG.cannon.maxAmmo, rangeU: CONFIG.vision.radar },
+      starShells: {
+        reloadMs: CONFIG.starShells.reloadMs,
+        maxAmmo: CONFIG.starShells.maxAmmo,
+        rangeU: CONFIG.vision.radar,
+      },
     });
   });
 
@@ -136,6 +142,45 @@ describe('effectiveStats — boost block is a pure CONFIG.speedBoost pass-throug
     for (const id of UPGRADE_IDS) {
       expect(effectiveStats(BASE, countsWith(id, 4)).boost).toEqual(base);
     }
+  });
+});
+
+describe('effectiveStats — cannon/starShells are pure pass-throughs (Story 1.7)', () => {
+  it('equal their CONFIG blocks + the radar-derived range for every class at zero upgrades', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      const s = effectiveStats(CONFIG.shipClasses[id], zeroUpgrades());
+      expect(s.cannon).toEqual({
+        reloadMs: CONFIG.cannon.reloadMs,
+        maxAmmo: CONFIG.cannon.maxAmmo,
+        rangeU: CONFIG.vision.radar,
+      });
+      expect(s.starShells).toEqual({
+        reloadMs: CONFIG.starShells.reloadMs,
+        maxAmmo: CONFIG.starShells.maxAmmo,
+        rangeU: CONFIG.vision.radar,
+      });
+    }
+  });
+
+  it('rangeU is the gun BASE range (radar parity) on both — never a new constant', () => {
+    const s = effectiveStats(BASE, zeroUpgrades());
+    expect(s.cannon.rangeU).toBe(CONFIG.vision.radar);
+    expect(s.starShells.rangeU).toBe(CONFIG.vision.radar);
+    expect(s.cannon.rangeU).toBe(s.gun.rangeU); // = the un-upgraded gun's range exactly
+    expect(s.starShells.rangeU).toBe(s.gun.rangeU);
+  });
+
+  it('no upgrade id moves any cannon or starShells field (gunRange/gunReload apply to the gun ONLY)', () => {
+    const base = effectiveStats(BASE, zeroUpgrades());
+    for (const id of UPGRADE_IDS) {
+      const s = effectiveStats(BASE, countsWith(id, 4));
+      expect(s.cannon).toEqual(base.cannon);
+      expect(s.starShells).toEqual(base.starShells);
+    }
+    // The documented interregnum quirk, pinned: a gunRange-stacked standard gun
+    // out-ranges the un-stacked cannon.
+    const stacked = effectiveStats(BASE, countsWith('gunRange', 2));
+    expect(stacked.gun.rangeU).toBeGreaterThan(stacked.cannon.rangeU);
   });
 });
 

@@ -38,6 +38,24 @@ describe('one-hit-kill guardrail (classes AND drones)', () => {
     expect(CONFIG.mine.damage).toBeLessThan(minHullHp);
   });
 
+  it('cannon BURST damage cannot one-hit the lightest hull (Story 1.7)', () => {
+    expect(CONFIG.cannon.damage).toBeLessThan(minHullHp);
+  });
+
+  it('cannon CONTACT (bodyblock) damage cannot one-hit the lightest hull', () => {
+    expect(CONFIG.cannon.contactDamage).toBeLessThan(minHullHp);
+  });
+
+  it('cannon bodyblocking is the lighter outcome: contactDamage does not exceed burst damage', () => {
+    expect(CONFIG.cannon.contactDamage).toBeLessThanOrEqual(CONFIG.cannon.damage);
+  });
+
+  it('star-shell damage is minor: cannot one-hit the lightest hull, and stays below every other burster', () => {
+    expect(CONFIG.starShells.damage).toBeLessThan(minHullHp);
+    expect(CONFIG.starShells.damage).toBeLessThanOrEqual(CONFIG.gun.damage);
+    expect(CONFIG.starShells.damage).toBeLessThanOrEqual(CONFIG.cannon.damage);
+  });
+
   it('the lightest hull is the 70hp torpedoBoat (drones are all heavier)', () => {
     expect(minHullHp).toBe(70);
     expect(Math.min(...droneHps)).toBeGreaterThan(CONFIG.torpedo.damage);

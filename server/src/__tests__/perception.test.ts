@@ -1,10 +1,12 @@
 // THE ANTI-CHEAT INVARIANT (the plan's marquee test), property-style, plus
 // directed boundary/LOS/paint-window cases. The property: for every observer,
 // in every frame, every contact and every event references ONLY what that
-// observer's sight bubble ∪ this-tick radar paints (plus the self-directed
-// events: own dmg/sunk/spawn, own shells). The checks below are a deliberate
-// test-local reimplementation of the visibility predicates so a refactor of
-// perception.ts cannot silently agree with its own bug.
+// observer's sight bubble ∪ this-tick radar paints ∪ lit zones the observer
+// OWNS (Story 1.7 — plus the self-directed events: own dmg/sunk/spawn, own
+// shells; the lit-zone CIRCLE itself is owner-always / radar-gated). The
+// checks below are a deliberate test-local reimplementation of the visibility
+// predicates so a refactor of perception.ts cannot silently agree with its
+// own bug.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -63,6 +65,17 @@ function effRadar(me: ShipRecord): number {
 
 function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
   return dist(me.state, p) <= effSight(me) && clearLos(me.state, p, w.map.islands);
+}
+
+// The Story 1.7 owned-zone reveal source, reimplemented test-locally (NEVER
+// the production ownZoneCovers): a lit zone OWNED by the observer covers `p`
+// iff dist(p, center) ≤ r — deliberately NO island-LOS term ("lit from above")
+// and NEVER anyone else's zone.
+function zoneCovers(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
+  for (const zone of w.litZones.values()) {
+    if (zone.ownerId === me.id && dist(zone, p) <= zone.r) return true;
+  }
+  return false;
 }
 
 function inPaintWindow(me: ShipRecord, brg: number): boolean {
@@ -130,6 +143,19 @@ function injectShell(
 /** Drop a mine directly into world state (armed by default). */
 function injectMine(w: World, id: string, ownerId: string, x: number, y: number, armedAt = 0): void {
   w.mines.set(id, { id, ownerId, x, y, armedAt });
+}
+
+/** Drop a lit zone directly into world state (Story 1.7; far-future expiry). */
+function injectZone(
+  w: World,
+  id: string,
+  ownerId: string,
+  x: number,
+  y: number,
+  r = CONFIG.starShells.litRadius,
+  until = 999_999,
+): void {
+  w.litZones.set(id, { id, ownerId, x, y, r, until });
 }
 
 /** Push a raw world-emitted event onto the world's tick-event list — the exact
@@ -534,6 +560,149 @@ describe('perception — mine visibility (owner-always, else sight+LOS, never ra
   });
 });
 
+// ---------- directed cases: lit zones (Story 1.7) -----------------------------
+
+describe('perception — lit zones: firer-only truesight parity ("lit from above")', () => {
+  const LIT_R = CONFIG.starShells.litRadius;
+
+  it('the FIRER gains a full contact for a ship inside its zone, far beyond sight and radar', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    const b = place(w, 'b', 900, 0, 2.1); // way outside sight (220) AND radar (650)
+    injectZone(w, 'z1', 'a', 900, 0);
+    expect(buildFrame(w, 'a').contacts).toEqual([
+      { id: 'b', x: 900, y: 0, heading: 2.1, speed: 0, cls: 'torpedoBoat' },
+    ]);
+    // Zone expiry/removal drops the contact again (revealed only while lit).
+    w.litZones.clear();
+    expect(buildFrame(w, 'a').contacts).toEqual([]);
+    void b;
+  });
+
+  it('a ship BEHIND AN ISLAND inside the zone is still revealed to the firer (no LOS term)', () => {
+    const w = bareWorld();
+    w.map.islands.push({ x: 400, y: 0, r: 60 }); // squarely between a and b
+    place(w, 'a', 0, 0);
+    place(w, 'b', 800, 0);
+    injectZone(w, 'z1', 'a', 800, 0);
+    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
+  });
+
+  it('a ship outside the zone edge is NEVER revealed by it (boundary exact)', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'b', 900 + LIT_R, 0); // center exactly ON the edge — inclusive
+    injectZone(w, 'z1', 'a', 900, 0);
+    expect(buildFrame(w, 'a').contacts.map((c) => c.id)).toEqual(['b']);
+    w.ships.get('b')!.state.x = 900 + LIT_R + 0.01; // a hair outside
+    expect(buildFrame(w, 'a').contacts).toEqual([]);
+  });
+
+  it("a NON-OWNER never gains contacts from someone else's zone — only the radar-gated circle", () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0); // the firer (owns the zone)
+    place(w, 'b', 500, 0); // hidden inside the zone (beyond c's sight, unswept)
+    const c = place(w, 'c', 100, 0); // third party: zone center 400u away — within radar
+    c.prevSweepAngle = Math.PI; // beam nowhere near b's bearing — no blip either
+    c.sweepAngle = Math.PI + 0.001;
+    injectZone(w, 'z1', 'a', 500, 0);
+    const fc = buildFrame(w, 'c');
+    // b stays hidden from c (a, 100u away, is c's ordinary sight contact).
+    expect(fc.contacts.map((x) => x.id)).toEqual(['a']);
+    expect(fc.litZones).toEqual([{ id: 'z1', x: 500, y: 0, r: LIT_R, until: 999_999, by: 'a' }]);
+  });
+
+  it("an enemy mine inside the firer's zone becomes a mine view (mines never radar-paint otherwise)", () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectMine(w, 'm1', 'b', 890, 0); // inside the zone, far beyond a's sight
+    injectMine(w, 'm2', 'b', 900 + LIT_R + 1, 0); // outside the zone edge — stays hidden
+    injectZone(w, 'z1', 'a', 900, 0);
+    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: 890, y: 0, own: false }]);
+  });
+
+  it("an unseen ballistic inside the firer's zone materializes exactly once, with current params", () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectShell(w, 's1', 'b', 880, 0, Math.PI / 2, 400); // b's shell, deep inside the zone
+    injectZone(w, 'z1', 'a', 900, 0);
+    const ev = shellsOf(buildFrame(w, 'a'))[0];
+    expect(ev).toBeDefined();
+    const sh = w.shells.get('s1')!;
+    expect({ x: ev.x, y: ev.y }).toEqual({ x: sh.x, y: sh.y }); // current pos, never the launch point
+    assertBallisticShape(ev); // constant-free wire shape holds on the zone path too
+    expect(shellsOf(buildFrame(w, 'a'))).toEqual([]); // exactly-once memory unchanged
+  });
+
+  it("a ballistic inside someone ELSE's zone stays hidden from a non-owner", () => {
+    const w = bareWorld();
+    place(w, 'c', 0, 0); // non-owner, shell far outside its sight
+    injectShell(w, 's1', 'b', 880, 0, Math.PI / 2, 400);
+    injectZone(w, 'z1', 'a', 900, 0); // a's zone, not c's
+    expect(shellsOf(buildFrame(w, 'c'))).toEqual([]);
+  });
+});
+
+describe('perception — litZones channel (owner always, else radar-gated; frames omit when empty)', () => {
+  it('the owner always receives its zone circle; a frame with no visible zones omits the key', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'far', 5_000, 0); // hypothetical far observer (outside radar of everything)
+    injectZone(w, 'z1', 'a', RADAR + 500, 0, CONFIG.starShells.litRadius, 42_000);
+    const fa = buildFrame(w, 'a');
+    expect(fa.litZones).toEqual([
+      { id: 'z1', x: RADAR + 500, y: 0, r: CONFIG.starShells.litRadius, until: 42_000, by: 'a' },
+    ]);
+    // Beyond-radar third party: byte-free — the litZones key is ABSENT, not [].
+    const ffar = buildFrame(w, 'far');
+    expect('litZones' in ffar).toBe(false);
+  });
+
+  it('a third party sees the circle at dist == radar (inclusive), loses it just beyond', () => {
+    const w = bareWorld();
+    place(w, 'c', 0, 0);
+    injectZone(w, 'z1', 'a', RADAR, 0);
+    expect(buildFrame(w, 'c').litZones?.map((z) => z.id)).toEqual(['z1']);
+    w.litZones.get('z1')!.x = RADAR + 0.01;
+    expect('litZones' in buildFrame(w, 'c')).toBe(false);
+  });
+
+  it('no LOS and no sweep gate on the circle (a flare in the sky)', () => {
+    const w = bareWorld();
+    w.map.islands.push({ x: 200, y: 0, r: 40 }); // blocks sight AND radar paint on the axis
+    const c = place(w, 'c', 0, 0);
+    c.prevSweepAngle = Math.PI; // beam on the far side — never crossed bearing 0
+    c.sweepAngle = Math.PI + 0.001;
+    injectZone(w, 'z1', 'a', 400, 0);
+    expect(buildFrame(w, 'c').litZones?.map((z) => z.id)).toEqual(['z1']);
+  });
+
+  it('spectators see every zone', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectZone(w, 'z1', 'b', 9_000, 9_000);
+    expect(buildFrame(w, 'a', 'finished').litZones?.map((z) => z.id)).toEqual(['z1']);
+  });
+
+  it("a dead firer's zone persists and keeps revealing nothing to others (natural expiry only)", () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    place(w, 'c', 100, 0);
+    injectZone(w, 'z1', 'a', 500, 0, CONFIG.starShells.litRadius, w.now + CONFIG.starShells.litDurationMs);
+    w.respawnEnabled = false; // active-phase policy
+    w.sinkShip('a', 'c');
+    w.step();
+    expect(w.litZones.has('z1')).toBe(true); // owner death never clears it
+    // c still sees only the circle (never a's reveal privileges).
+    expect(buildFrame(w, 'c').litZones?.map((z) => z.id)).toEqual(['z1']);
+    // ...and it dies by natural expiry.
+    const steps = Math.ceil(CONFIG.starShells.litDurationMs / DT) + 2;
+    for (let i = 0; i < steps; i++) w.step();
+    expect(w.litZones.size).toBe(0);
+    expect('litZones' in buildFrame(w, 'c')).toBe(false);
+  });
+});
+
 // ---------- THE INVARIANT (property-style over random worlds) ----------------
 
 /** Assert one frame leaks nothing beyond the observer's vision. */
@@ -548,21 +717,41 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect(c.id).not.toBe(viewerId);
     expect('upg' in c).toBe(false); // enemy builds are hidden (anti-cheat)
     expect('stats' in c).toBe(false);
-    expect(dist(me.state, target.state)).toBeLessThanOrEqual(effSight(me));
-    expect(clearLos(me.state, target.state, w.map.islands)).toBe(true);
+    // Sight tier (dist + LOS) OR the ship's CENTER inside a zone the viewer
+    // OWNS (Story 1.7 firer-only truesight parity) — nothing else.
+    expect(sighted(w, me, target.state) || zoneCovers(w, me, target.state)).toBe(true);
     expect({ x: c.x, y: c.y }).toEqual({ x: target.state.x, y: target.state.y });
   }
   for (const e of f.events) verifyEvent(w, me, e);
   for (const m of f.mines) verifyMine(w, me, m);
+  for (const z of f.litZones ?? []) verifyLitZone(w, me, z);
 }
 
-/** A mine may reach a frame only if the viewer owns it OR it is sighted. */
+/** A mine may reach a frame only if the viewer owns it, it is sighted, OR it
+ *  sits inside a lit zone the viewer OWNS (Story 1.7). */
 function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean }): void {
   const mine = w.mines.get(m.id)!;
   expect(mine).toBeDefined();
   const own = mine.ownerId === me.id;
   expect(m.own).toBe(own);
-  if (!own) expect(sighted(w, me, mine)).toBe(true); // never radar, never fogged
+  if (!own) expect(sighted(w, me, mine) || zoneCovers(w, me, mine)).toBe(true); // never radar, never fogged
+}
+
+/** A lit-zone circle may reach a frame only if the viewer OWNS the zone or the
+ *  zone CENTER is within the viewer's effective radar range — no LOS term, no
+ *  sweep term (Story 1.7). Wire shape is exactly {id,x,y,r,until,by} with `by`
+ *  naming the owner; the zone must be live (in the world map, unexpired). */
+function verifyLitZone(
+  w: World,
+  me: ShipRecord,
+  z: { id: string; x: number; y: number; r: number; until: number; by: string },
+): void {
+  const zone = w.litZones.get(z.id)!;
+  expect(zone).toBeDefined();
+  expect(w.now).toBeLessThan(zone.until); // expired zones never materialize
+  expect(Object.keys(z).sort()).toEqual(['by', 'id', 'r', 'until', 'x', 'y']);
+  expect(z).toEqual({ id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId });
+  if (zone.ownerId !== me.id) expect(dist(me.state, zone)).toBeLessThanOrEqual(effRadar(me));
 }
 
 // ---------- per-kind event verifiers (the independent oracle) ----------------
@@ -596,7 +785,8 @@ function verifyBallistic(w: World, me: ShipRecord, e: GameEvent): void {
   expect(sh).toBeDefined();
   expect({ x: ev.x, y: ev.y }).toEqual({ x: sh.x, y: sh.y }); // current pos, never launch pos
   assertBallisticShape(ev); // no range-derivable field ever leaks
-  if (sh.ownerId !== me.id) expect(sighted(w, me, ev)).toBe(true);
+  // First-sight OR inside an OWNED lit zone (Story 1.7) — never anyone else's.
+  if (sh.ownerId !== me.id) expect(sighted(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
 }
 
 function verifyBoom(w: World, me: ShipRecord, e: GameEvent): void {
@@ -710,6 +900,13 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const r = rng.float(0, w.map.radius * 0.9);
         injectMine(w, `mine${s}`, ids[rng.int(0, ids.length - 1)], Math.cos(ang) * r, Math.sin(ang) * r);
       }
+      // Random lit zones (Story 1.7) so the invariant exercises the owned-zone
+      // reveal source AND the radar-gated litZones channel in the same frames.
+      for (let z = 0; z < rng.int(0, 3); z++) {
+        const ang = rng.float(0, TAU);
+        const r = rng.float(0, w.map.radius * 0.9);
+        injectZone(w, `zone${z}`, ids[rng.int(0, ids.length - 1)], Math.cos(ang) * r, Math.sin(ang) * r);
+      }
       for (let tick = 1; tick <= 6; tick++) {
         for (const id of ids) {
           w.submitInput(id, {
@@ -742,16 +939,17 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
 // dev adding a 13th row sees this block fail until they add its verifier.
 
 describe('perception — SIGNAL REGISTRY completeness', () => {
-  // The two contact-like pseudo-rows are verified through the contacts/mines
-  // frame channels (verifyFrame/verifyMine), not through EVENT_VERIFIERS.
-  const CONTACT_LIKE = ['contact', 'mine'];
+  // The three contact-like pseudo-rows are verified through the contacts/
+  // mines/litZones frame channels (verifyFrame/verifyMine/verifyLitZone), not
+  // through EVENT_VERIFIERS.
+  const CONTACT_LIKE = ['contact', 'mine', 'litzone'];
   // The 11 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry.
   const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 13 expected channel keys (11 event kinds + contact + mine)', () => {
+  it('has exactly the 14 expected channel keys (11 event kinds + contact + mine + litzone)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(13);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(14);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {
@@ -760,9 +958,10 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     }
   });
 
-  it('the two contact-like pseudo-rows exist (verified via the contacts/mines channels)', () => {
+  it('the three contact-like pseudo-rows exist (verified via the contacts/mines/litZones channels)', () => {
     expect(SIGNAL_REGISTRY.contact).toBeDefined();
     expect(SIGNAL_REGISTRY.mine).toBeDefined();
+    expect(SIGNAL_REGISTRY.litzone).toBeDefined();
   });
 
   it('every event-kind row has a test-local verifier — a row without one FAILS HERE', () => {

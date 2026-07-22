@@ -63,6 +63,31 @@ export interface EffectiveBoost {
   reloadMs: number; // ms — cooldown between activations
 }
 
+/**
+ * The long-range cannon's effective numbers (Story 1.7) — a pure pass-through
+ * of CONFIG.cannon plus the radar-DERIVED base range. NO upgrade multiplies
+ * any of these (the boost precedent): the legacy gun-category upgrades keep
+ * applying to the standard gun ONLY, so a gunRange-stacked standard gun can
+ * out-range the cannon — a known interregnum quirk that dies with the Epic 2
+ * economy.
+ */
+export interface EffectiveCannon {
+  reloadMs: number; // ms per shot (the cannon cooldown)
+  maxAmmo: number; // pool size — always 1 (single-shot)
+  rangeU: number; // u — max shell travel / aimDist clamp (= CONFIG.vision.radar, un-stacked)
+}
+
+/**
+ * The star shells' effective numbers (Story 1.7) — a pure pass-through of
+ * CONFIG.starShells plus the radar-DERIVED base range. NO upgrade multiplies
+ * any of these (see EffectiveCannon's interregnum note — same rule).
+ */
+export interface EffectiveStarShells {
+  reloadMs: number; // ms per flare (the star-shell cooldown)
+  maxAmmo: number; // pool size — always 1 (single-shot)
+  rangeU: number; // u — max shell travel / aimDist clamp (= CONFIG.vision.radar, un-stacked)
+}
+
 /** Everything (class, upgrades) resolves to. See effectiveStats(). */
 export interface EffectiveStats {
   kinematics: ShipConfig;
@@ -74,6 +99,8 @@ export interface EffectiveStats {
   torpedo: EffectiveTorpedo;
   mine: EffectiveMine;
   boost: EffectiveBoost;
+  cannon: EffectiveCannon;
+  starShells: EffectiveStarShells;
 }
 
 /**
@@ -127,6 +154,21 @@ export function effectiveStats(cls: ShipClass, counts: readonly number[]): Effec
       durationMs: CONFIG.speedBoost.durationMs,
       maxAmmo: CONFIG.speedBoost.maxAmmo,
       reloadMs: CONFIG.speedBoost.reloadMs,
+    },
+    // Pure pass-throughs (Story 1.7, boost precedent) — NO upgrade multiplies
+    // the cannon or the star shells. rangeU is the gun's BASE range
+    // (CONFIG.vision.radar), deliberately WITHOUT the gunRange stack: gun-
+    // category upgrades apply to the standard gun only, so an upgraded gun can
+    // out-range the cannon (known interregnum quirk, dies with Epic 2).
+    cannon: {
+      reloadMs: CONFIG.cannon.reloadMs,
+      maxAmmo: CONFIG.cannon.maxAmmo,
+      rangeU: CONFIG.vision.radar,
+    },
+    starShells: {
+      reloadMs: CONFIG.starShells.reloadMs,
+      maxAmmo: CONFIG.starShells.maxAmmo,
+      rangeU: CONFIG.vision.radar,
     },
   };
 }

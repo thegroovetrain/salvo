@@ -57,20 +57,29 @@ function clampInsideMap(center: Vec2, target: Vec2, mapRadius: number): Vec2 {
 }
 
 /**
- * The clicked burst point: along the aim bearing at the clicked distance
- * (input.aimDist), clamped to the ship's EFFECTIVE max gun range
- * (stats.gun.rangeU — the gunRange upgrade; base = CONFIG.vision.radar) AND to
- * the water disk (an in-range rim shot still bursts in-bounds instead of
- * expiring at the map edge). BOTH distances are measured from the ship CENTER.
- * Exported for tests.
+ * The clicked burst point for ANY point-burst system (gun / cannon / star
+ * shells — the Story 1.7 rows reuse the gun's exact flow): along the aim
+ * bearing at the clicked distance (input.aimDist), clamped to the system's
+ * EFFECTIVE max range `rangeU` AND to the water disk (an in-range rim shot
+ * still bursts in-bounds instead of expiring at the map edge). BOTH distances
+ * are measured from the ship CENTER.
  */
-export function gunTarget(ship: ShipRecord, mapRadius: number): Vec2 {
-  const dist = Math.min(Math.max(ship.input.aimDist, 0), ship.stats.gun.rangeU);
+export function burstPoint(ship: ShipRecord, mapRadius: number, rangeU: number): Vec2 {
+  const dist = Math.min(Math.max(ship.input.aimDist, 0), rangeU);
   const target = {
     x: ship.state.x + Math.cos(ship.input.aim) * dist,
     y: ship.state.y + Math.sin(ship.input.aim) * dist,
   };
   return clampInsideMap(ship.state, target, mapRadius);
+}
+
+/**
+ * The gun's clicked burst point: burstPoint at the ship's EFFECTIVE max gun
+ * range (stats.gun.rangeU — the gunRange upgrade; base = CONFIG.vision.radar).
+ * Exported for tests.
+ */
+export function gunTarget(ship: ShipRecord, mapRadius: number): Vec2 {
+  return burstPoint(ship, mapRadius, ship.stats.gun.rangeU);
 }
 
 /**
@@ -81,13 +90,14 @@ export function gunTarget(ship: ShipRecord, mapRadius: number): Vec2 {
  * outward to a splash — a new INNER dead ring (up to ~64u on a battleship bow).
  * Spawn AT the target instead, so next tick's stepShell bursts there
  * immediately (distToTarget 0). Eric ruling 2026-07-21: no dead ring, inner or
- * outer.
+ * outer. `shellRadius` is the firing system's collision radius (shared with
+ * the cannon/star-shell rows, Story 1.7).
  */
-function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2): Vec2 {
-  const muzzle = muzzleSpawn(ship, dir, CONFIG.gun.shellRadius);
+export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shellRadius: number): Vec2 {
+  const muzzle = muzzleSpawn(ship, dir, shellRadius);
   const targetDist = Math.hypot(target.x - ship.state.x, target.y - ship.state.y);
   const muzzleDist = Math.hypot(muzzle.x - ship.state.x, muzzle.y - ship.state.y);
-  return targetDist <= muzzleDist + CONFIG.gun.shellRadius ? { x: target.x, y: target.y } : muzzle;
+  return targetDist <= muzzleDist + shellRadius ? { x: target.x, y: target.y } : muzzle;
 }
 
 /**
@@ -108,7 +118,7 @@ function fireGunShell(
   if (!consume(pool, ship.stats.gun.reloadMs)) return { shell: null, denial: 'no-ammo' }; // pool empty
   const dir = ship.input.aim;
   const target = gunTarget(ship, mapRadius);
-  const origin = muzzleOrTarget(ship, dir, target);
+  const origin = muzzleOrTarget(ship, dir, target, CONFIG.gun.shellRadius);
   const shell = makeBallistic(mkId(), ship, dir, now, {
     speed: CONFIG.gun.shellSpeed,
     range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.gun.shellRadius,

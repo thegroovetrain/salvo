@@ -22,8 +22,9 @@ export const CONFIG = {
    * hull/hp: Torpedo Boat (fast, fragile) — Battleship (slow, armored) —
    * Mine Layer (area denial). Per-class loadouts are now landing: as of Story
    * 1.6 the Torpedo Boat carries its fitted loadout (gun / torpedo / speed
-   * boost); Battleship and Mine Layer keep the universal fit
-   * (CONFIG.gun/torpedo/mine) until Stories 1.7/1.8. Only hull dims, hp, and
+   * boost); as of Story 1.7 the Battleship carries gun / cannon / star shells;
+   * Mine Layer keeps the universal fit (CONFIG.gun/torpedo/mine) until Story
+   * 1.8. Only hull dims, hp, and
    * kinematics vary. Hull dims are the exact bow-to-stern length × max beam of
    * the shared silhouette polygon (see sim/silhouette.ts — the silhouette IS
    * the hitbox). Every number is a DESIGN TARGET, tunable.
@@ -211,6 +212,47 @@ export const CONFIG = {
     durationMs: 6000, // ms — active window opened by one activation
     maxAmmo: 1, // single charge in the pool
     reloadMs: 18000, // ms — cooldown between activations
+  },
+
+  /**
+   * Long-range cannon (Battleship slot 1, Story 1.7): a gun-pattern burst
+   * skillshot with bigger numbers (Eric Q&A 2026-07-21) — same fire flow as
+   * the standard gun (flies to the clicked point, bursts there, early
+   * interceptor takes the smaller contactDamage unless inside the would-be
+   * blast), its own CONFIG block. NO range field: cannon range is DERIVED from
+   * CONFIG.vision.radar in effectiveStats() (= the gun's BASE range — not
+   * extended, and NO upgrade stacks on it). Every number is a DESIGN TARGET,
+   * tunable.
+   */
+  cannon: {
+    shellSpeed: 200, // u/s — shell muzzle velocity (fastest projectile afloat)
+    maxAmmo: 1, // single shot — a 1-round pool presented as a pure cooldown
+    reloadMs: 15000, // ms — cooldown between shots (the commitment spike)
+    damage: 50, // hp per burst victim (pinned by damageGuardrail.test)
+    contactDamage: 20, // hp to an early interceptor outside the blast (bodyblock)
+    burstRadius: 30, // u — blast radius around the clicked point
+    shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
+  },
+
+  /**
+   * Star shells (Battleship slot 2, Story 1.7): a gun-pattern skillshot whose
+   * burst deals minor `damage` once across the FULL lit circle (owner excluded,
+   * burst radius = litRadius) AND spawns a server-side LIT ZONE at the burst
+   * point: for `litDurationMs` the FIRER — and only the firer — gains full
+   * truesight parity inside it ("lit from above", no island LOS: ships as
+   * contacts, mines, ballistic reveals). The zone CIRCLE itself is visible to
+   * any observer whose effective radar range reaches its center (no LOS, no
+   * sweep gate — a flare in the sky), tagged with the firer's id. NO range
+   * field: range is DERIVED from CONFIG.vision.radar in effectiveStats() (gun
+   * base parity, un-stacked). Every number is a DESIGN TARGET, tunable.
+   */
+  starShells: {
+    shellSpeed: 130, // u/s — shell muzzle velocity (= the standard gun's)
+    maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
+    reloadMs: 20000, // ms — cooldown between flares
+    damage: 10, // hp per burst victim — minor, once, at burst (full lit circle)
+    litRadius: 110, // u — lit-zone radius (~half the 220u truesight bubble)
+    litDurationMs: 10000, // ms — lit-zone lifetime (natural expiry only)
   },
 
   /**

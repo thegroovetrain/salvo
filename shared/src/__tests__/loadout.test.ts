@@ -1,8 +1,9 @@
 // Pins the shared loadout spine: the slot grammar constants, the
-// state-null-iff-equipmentId-null invariant, and the per-hull fit (Story 1.6).
-// loadoutFor builds from a REAL effectiveStats() so pool sizes match what the
-// server writes on spawn/respawn/redeploy: the Torpedo Boat fits
-// [gun, torpedo, speedBoost, empty]; every other hull id keeps the universal
+// state-null-iff-equipmentId-null invariant, and the per-hull fit (Stories
+// 1.6–1.7). loadoutFor builds from a REAL effectiveStats() so pool sizes match
+// what the server writes on spawn/respawn/redeploy: the Torpedo Boat fits
+// [gun, torpedo, speedBoost, empty]; the Battleship fits
+// [gun, cannon, starShells, empty]; every other hull id keeps the universal
 // [gun, torpedo, mine, empty]. Also pins the EQUIPMENT_IS_WEAPON split — the
 // single source server rows and the client activation path read. Pure, zero I/O.
 
@@ -33,9 +34,11 @@ function statsFor(id: HullId): EffectiveStats {
   return effectiveStats(hullEnvelope(id), zeroUpgrades());
 }
 
-/** The slot-2 special each hull id fits under the Story 1.6 per-hull rule. */
-function expectedSlotTwo(id: HullId): EquipmentId {
-  return id === 'torpedoBoat' ? 'speedBoost' : 'mine';
+/** The two specials each hull id fits under the per-hull rule (1.6–1.7). */
+function expectedSpecials(id: HullId): [EquipmentId, EquipmentId] {
+  if (id === 'torpedoBoat') return ['torpedo', 'speedBoost'];
+  if (id === 'battleship') return ['cannon', 'starShells'];
+  return ['torpedo', 'mine'];
 }
 
 describe('slot-grammar constants', () => {
@@ -54,12 +57,14 @@ describe('slot-grammar constants', () => {
 });
 
 describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
-  it('marks the three weapons true and the speed boost false', () => {
+  it('marks the five weapons true and the speed boost false', () => {
     expect(EQUIPMENT_IS_WEAPON).toEqual({
       gun: true,
       torpedo: true,
       mine: true,
       speedBoost: false,
+      cannon: true, // Story 1.7: prime-then-click burst skillshot
+      starShells: true, // Story 1.7: prime-then-click lit-zone flare
     });
   });
 
@@ -70,7 +75,7 @@ describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
   });
 });
 
-describe('loadoutFor — the per-hull fit (Story 1.6)', () => {
+describe('loadoutFor — the per-hull fit (Stories 1.6–1.7)', () => {
   it('the Torpedo Boat fits [gun, torpedo, speedBoost, empty]', () => {
     const stats = statsFor('torpedoBoat');
     const loadout = loadoutFor('torpedoBoat', stats);
@@ -79,19 +84,31 @@ describe('loadoutFor — the per-hull fit (Story 1.6)', () => {
     expect(loadout[2].state).toEqual({ n: CONFIG.speedBoost.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('every non-TB hull id (BB / ML / drones) keeps the universal [gun, torpedo, mine, empty]', () => {
+  it('the Battleship fits [gun, cannon, starShells, empty] (Story 1.7)', () => {
+    const stats = statsFor('battleship');
+    const loadout = loadoutFor('battleship', stats);
+    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'cannon', 'starShells', null]);
+    expect(loadout[1].state).toEqual({ n: equipmentMaxAmmo(stats, 'cannon'), reloadMsLeft: 0 });
+    expect(loadout[1].state).toEqual({ n: CONFIG.cannon.maxAmmo, reloadMsLeft: 0 });
+    expect(loadout[2].state).toEqual({ n: equipmentMaxAmmo(stats, 'starShells'), reloadMsLeft: 0 });
+    expect(loadout[2].state).toEqual({ n: CONFIG.starShells.maxAmmo, reloadMsLeft: 0 });
+  });
+
+  it('every other hull id (ML + all drones) keeps the universal [gun, torpedo, mine, empty]', () => {
     for (const id of HULL_IDS) {
-      if (id === 'torpedoBoat') continue;
+      if (id === 'torpedoBoat' || id === 'battleship') continue;
       const loadout = loadoutFor(id, statsFor(id));
       expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'mine', null]);
     }
   });
 
-  it('slot 2 is speedBoost for the TB, mine for everyone else — with class-correct pools', () => {
+  it('the specials match the per-hull rule on every hull id — with class-correct pools', () => {
     for (const id of HULL_IDS) {
       const stats = statsFor(id);
       const loadout = loadoutFor(id, stats);
-      const slotTwo = expectedSlotTwo(id);
+      const [slotOne, slotTwo] = expectedSpecials(id);
+      expect(loadout[1].equipmentId).toBe(slotOne);
+      expect(loadout[1].state!.n).toBe(equipmentMaxAmmo(stats, slotOne));
       expect(loadout[2].equipmentId).toBe(slotTwo);
       expect(loadout[2].state!.n).toBe(equipmentMaxAmmo(stats, slotTwo));
     }
@@ -127,6 +144,24 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover speedBoost (from stats.boos
     expect(equipmentMaxAmmo(stats, 'speedBoost')).toBe(CONFIG.speedBoost.maxAmmo);
     expect(equipmentReloadMs(stats, 'speedBoost')).toBe(stats.boost.reloadMs);
     expect(equipmentReloadMs(stats, 'speedBoost')).toBe(CONFIG.speedBoost.reloadMs);
+  });
+});
+
+describe('equipmentMaxAmmo / equipmentReloadMs cover cannon + starShells (Story 1.7)', () => {
+  it('cannon pool + reload come from CONFIG.cannon (via stats.cannon)', () => {
+    const stats = statsFor('battleship');
+    expect(equipmentMaxAmmo(stats, 'cannon')).toBe(stats.cannon.maxAmmo);
+    expect(equipmentMaxAmmo(stats, 'cannon')).toBe(CONFIG.cannon.maxAmmo);
+    expect(equipmentReloadMs(stats, 'cannon')).toBe(stats.cannon.reloadMs);
+    expect(equipmentReloadMs(stats, 'cannon')).toBe(CONFIG.cannon.reloadMs);
+  });
+
+  it('starShells pool + reload come from CONFIG.starShells (via stats.starShells)', () => {
+    const stats = statsFor('battleship');
+    expect(equipmentMaxAmmo(stats, 'starShells')).toBe(stats.starShells.maxAmmo);
+    expect(equipmentMaxAmmo(stats, 'starShells')).toBe(CONFIG.starShells.maxAmmo);
+    expect(equipmentReloadMs(stats, 'starShells')).toBe(stats.starShells.reloadMs);
+    expect(equipmentReloadMs(stats, 'starShells')).toBe(CONFIG.starShells.reloadMs);
   });
 });
 
