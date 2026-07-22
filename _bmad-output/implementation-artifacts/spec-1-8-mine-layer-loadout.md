@@ -2,10 +2,11 @@
 title: 'Story 1.8: Mine Layer Loadout'
 type: 'feature'
 created: '2026-07-22'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'aee5cca'
+final_revision: '9f65049'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/project-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-1-context.md'
@@ -95,11 +96,11 @@ warnings: [multiple-goals, oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/` (constants, types, index, sim/loadout, sim/stats) -- CONFIG deltas + decoyBuoy block, DecoyView + decoys channel, PV9, ML fit + flag flips, stats blocks -- the deterministic spine, unit-tested.
-- [ ] `server/src/game/` (equipment/mines + decoy + index, world, perception, signals, frames) -- blast resolution, burst-detonation, decoy lifecycle + counterIntel blips + decoys channel, oracle/signals/goldenFrames extensions -- authoritative loadout complete against the full I/O matrix.
-- [ ] `client/src/` (render/mines, render/decoys NEW, render/weaponArc, render/firing, input/keyboard, sim/inputSampler, net/roomBindings, state, main, render/hud, audio/tones) -- bigger mine markers, buoy markers, ability-routed ML keys, DECOY chip with cooldown grammar, id-driven chip grammar -- trapper feel end-to-end with TB/BB/drones byte-identical.
-- [ ] Test sweep -- suites in Code Map + `npm run check` green (baseline 1179 = 241/562/376).
-- [ ] Docs & status -- minimal GDD close-out, sprint-status, gds-workflow-status, epic-1-context refresh -- same PR.
+- [x] `shared/src/` (constants, types, index, sim/loadout, sim/stats) -- CONFIG deltas + decoyBuoy block, DecoyView + decoys channel, PV9, ML fit + flag flips, stats blocks -- the deterministic spine, unit-tested. (DecoyView carries `own` — mines precedent, added post-wave.)
+- [x] `server/src/game/` (equipment/mines + decoy + index, world, perception, signals, frames) -- blast resolution, burst-detonation, decoy lifecycle + counterIntel blips + decoys channel, oracle/signals/goldenFrames extensions -- authoritative loadout complete against the full I/O matrix.
+- [x] `client/src/` (render/mines, render/decoys NEW, render/weaponArc, render/firing, input/keyboard, sim/inputSampler, net/roomBindings, state, main, render/hud, audio/tones) -- bigger mine markers, own/enemy buoy markers, ability-routed ML keys with per-slot denial feedback, DECOY chip, id-driven chip grammar (mine keeps segments) -- trapper feel end-to-end with TB/BB/drones byte-identical. (state.ts needed no mirror — decoys feed nothing cross-frame.)
+- [x] Test sweep -- suites in Code Map + `npm run check` green (exit 0; 251/600/391 = 1242 tests, was 1179 at baseline).
+- [x] Docs & status -- minimal GDD close-out, sprint-status `1-8: done`, gds-workflow-status → create-story 1-10, epic-1-context refresh (mtime-last) -- same PR.
 
 **Acceptance Criteria:**
 - Given an ML spawn, when the loadout builds, then it is `[gun, mine, decoyBuoy, empty]` while TB/BB/drones are byte-identical to 1.7, and keys 2/3 activate instantly through the ability channel (no priming, no click).
@@ -111,6 +112,19 @@ warnings: [multiple-goals, oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-07-22 — Review pass (Blind Hunter + Edge Case Hunter, both at session capability, parallel; patch fixes routed back to the wave agents, orchestrator-verified)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 3, low 1)
+- defer: 5: (medium 2, low 3)
+- reject: 0
+- addressed_findings:
+  - `[high]` `[patch]` Dual-ability press collapse (both hunters, cross-confirmed): one cumulative actSeq/actSlot pair per 50 ms sample meant an ML pressing keys 2+3 in one window silently lost the first press (no drop, no denial pulse, no tone — violates the never-silence law); same-slot double-tap on an upgraded pool dropped one mine, not two. Fixed client-only, no wire growth: keyboard FIFO activation queue (cap SLOT_COUNT), exactly one consume per built input, second press rides the next sample ≤50 ms later; queue clears on sunk/spectate/reconnect; TB single-press boost byte-identical (regression-pinned); +7 tests.
+  - `[high]` `[patch]` Contact+blip coexistence tell (Edge Case Hunter, CONFIRMED): counterIntel never consulted the OWNER's visibility, so a buoy in an observer's swept annulus while its owner was a full contact produced contact('a') AND blip('a') in one frame — impossible for genuine ships, a definitive wire unmask. Fixed: counterIntel returns null while the contact row's exact visible() predicate holds for the owner; independent oracle now rejects any coexistence frame; +4 server tests.
+  - `[high]` `[patch]` Blip ordering tell (Edge Case Hunter, CONFIRMED; Blind Hunter concurring): genuine paints always serialized before counterIntel paints, so the first same-id blip was provably the real hull. Fixed: the blip subsequence is sorted by public payload only (x, y, t, id) — order is now a pure function of fields the observer receives anyway; oracle verifies the ordering on every frame; golden snapshot byte-identical (no committed frame carries 2+ blips).
+  - `[low]` `[patch]` DecoyView.until doc promised a client fade that does not exist. Doc corrected (until is informational; fade is a possible future use).
+- deferred to ledger: weaponsSmoke.mjs mine phases dead since 1.6 (flip finalized the rot; convert to cls:'mineLayer' + actSeq); dropPoint island-blindness now has a higher-stakes decoy consumer (existing 1-4 island-clearance family); dead-owner decoy blips are a roster-cross-reference tell (spec-ruled 30 s persistence — needs Eric: despawn-on-death vs accept); owner feedback for remote minefield detonation at gun range is nearly nil (feel gap, Eric's call); within-RTT ability double-press stays silent (pre-existing boost-era staleness pattern, see 1-6 entry).
 
 ## Design Notes
 
@@ -131,3 +145,17 @@ warnings: [multiple-goals, oversized]
 
 **Manual checks (if no CLI):**
 - With Eric's dev server running (never start it): pick ML — key 2 instantly lays a (bigger) mine astern; sail an enemy over an armed one → area blast hits everything nearby but you; shoot your own field → armed mines pop; key 3 drops a buoy that paints an enemy's radar as you for 30 s while you slip away; TB/BB play exactly as before.
+
+## Auto Run Result
+
+**Status:** done (2026-07-22). Branch `dev-auto-1-8-mine-layer-loadout`, baseline aee5cca, 6 commits (3 waves + own-flag fix + review patches + finalize). Non-draft PR opened at completion.
+
+**Summary:** Story 1.8 complete. Mine Layer loadout `[gun, mine, decoyBuoy, empty]` per Eric's Q/E ruling (2026-07-22 invocation — both GDD Eric-gates resolved there). Naval Mines reworked: activateable (instant key-2 drop astern, actSeq ability channel — no aim, no click), enemy pass-over trips an owner-excluded blast (trigger 32 u < blast 48 u, full 45 to every non-owner hull, no chains), the owner's own gun bursts detonate ARMED mines early (armDelay keeps its anti-instant-bomb role), live cap 5 with silent oldest eviction, no expiry; mine chip keeps segmented ammo grammar and the marker grew (ring 7→10 u). Decoy Buoy: stern-dropped stationary entity, one live per owner (replace), 30 s; radar-paints TO OTHERS through the genuine blip row's gate + shape with the OWNER's ship id (the pre-built counterIntel seam, first lying signal — FR10 wire-indistinguishable, never to its owner); truth view (`decoys` channel, own flag) for owner/truesight/zones/spectators; non-collidable — no Hit Call is the sanctioned disambiguation. PROTOCOL_VERSION 9, goldenFrames deliberately regenerated (pre-1.8 rows byte-identical). GDD open notes closed minimally; sprint-status 1-8 done; gds-workflow-status → create-story 1-10; epic-1-context refreshed (mtime-last).
+
+**Files changed (highlights):** shared — constants (mine retune + decoyBuoy block), types (DecoyView incl. own, FrameMsg.decoys), PV9, loadout (ML fit, mine/decoy ability flips), stats (decoy pass-through, passThroughEquipment extraction); server — equipment/decoy.ts NEW + mines blast rework, world (decoy lifecycle, burst-detonation, activation routing), signals (blipGate/blipShape extraction, counterIntel implementation + coexistence guard, decoy row), perception (decoyScan, counterIntel call site, public-payload blip ordering, 5-channel view), frames; client — decoys.ts NEW (own/enemy split, reconcile tone hook), mines (bigger markers), weaponArc/firing (mine prime path retired), keyboard/main (FIFO activation queue, per-slot denial), hud (DECOY chip, id-driven grammar), tones; docs — GDD close-out, sprint/gds status, epic-1-context, 5 deferred-work entries.
+
+**Review:** Blind Hunter + Edge Case Hunter (session capability), parallel; patches routed back to the wave agents, orchestrator-verified. Triage: 0 intent_gap, 0 bad_spec, 4 patches applied (3 high — dual-ability press collapse, contact+blip coexistence tell, blip ordering tell; 1 low doc), 5 deferred, 0 rejected.
+
+**Verification:** `npm run check` exit 0 — lint (complexity ≤ 10) + tsc ×3 + 1253 tests (shared 251 / server 604 / client 398; was 1179 at baseline). goldenFrames regens inspected at each step: wave 2 purely appended (+48/−0), own-flag fix touched only the two 1.8 decoy rows, review patches zero snapshot diff. Perception oracle independently reimplements every decoy rule (coexistence rejection + ordering verified on every frame; registry 15 rows, 5 channels).
+
+**Residual risks / for Eric (your veto points):** (1) Design targets I set within your rulings: trigger 32 / blast 48 / maxLive 5 / decoy 30 s life / 20 s reload / stern drop — all CONFIG one-liners to retune. (2) Mine blasts EXCLUDE the owner ("anything within it" read against the universal owner-excluded AoE convention + the self-hit guardrail suite) — say the word for self-damage risk. (3) Only ARMED mines pop to your gunfire; enemy fire never detonates your field. (4) A decoy persisting past your death is a wire-level tell (dead ships never genuinely blip; kill feed is public) — ledgered, needs your ruling: despawn-on-death vs accept. (5) Shooting your field at gun range gives you little confirmation beyond markers vanishing (fog-law-consistent; ledgered feel gap). (6) In truesight, enemies see the buoy for what it is — the lie is radar-only. (7) The mine smoke script has been dead since 1.6; ledgered for a smoke-hygiene pass. Manual feel-check owed when your dev server is next up: ML key 2 bigger mine astern → enemy trip = area blast sparing you; click your own field → armed mines pop; key 3 buoy → second ship's radar paints you at the buoy; 2+3 mashed together now lands both.
