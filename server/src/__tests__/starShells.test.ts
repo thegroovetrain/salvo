@@ -62,6 +62,7 @@ describe('star shells — shell construction', () => {
     expect(shell.damage).toBe(CONFIG.starShells.damage);
     expect(shell.contactDamage).toBe(CONFIG.starShells.damage); // minor either way (torpedo precedent)
     expect(shell.burstRadius).toBe(LIT_R); // the burst IS the lit circle
+    expect(shell.hitRadius).toBe(CONFIG.starShells.shellRadius); // own field — never the gun's
     expect(shell.kind).toBe('shell'); // rides the existing ballistic wire kind
     expect(shell.lit).toEqual({ radius: LIT_R, durationMs: CONFIG.starShells.litDurationMs });
     // Single-shot pool spent, 20s reload started.

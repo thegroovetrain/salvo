@@ -2,7 +2,7 @@
 title: 'Story 1.7: Battleship Loadout'
 type: 'feature'
 created: '2026-07-21'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '23c9f88e12dac5653e050a7af66cbfc7a6789346'
 review_loop_iteration: 0
 followup_review_recommended: false

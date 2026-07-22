@@ -57,8 +57,13 @@ export function weaponArcHit(heading: number, aim: number, id: EquipmentId | nul
  * The effective range (u) at which a gun-family weapon's shell bursts / clamps —
  * each gun-like id reads its OWN stats block: the gun stacks gunRange upgrades,
  * while the cannon / star shells stay pinned at the radar-derived base (Story
- * 1.7 — no upgrade multiplies them). Non-gun-like ids draw no range ring, so the
- * gun's range is returned as a harmless default (never rendered for them).
+ * 1.7 — no upgrade multiplies them).
+ *
+ * CONTRACT — MEANINGFUL FOR `gunLike` IDS ONLY. For a torpedo / mine / ability /
+ * empty slot there is NO range ring, and this returns `stats.gun.rangeU` purely
+ * as a non-crashing fallback — it is NOT that weapon's range (a torpedo runs to
+ * the map edge; a mine has none). Do NOT consult this for a non-gun-like id; gate
+ * on `fireArcKind(id) === 'gunLike'` first (firing.ts's range-clamp marker does).
  */
 export function weaponRangeU(stats: EffectiveStats, id: EquipmentId | null): number {
   if (id === 'cannon') return stats.cannon.rangeU;

@@ -296,6 +296,83 @@ describe('SIGNAL_REGISTRY — litzone row visibility (owner always, else radar-g
   });
 });
 
+// ---------- owned-zone parity on the point-gated event rows (Story 1.7) ------
+
+describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into an OWNED zone', () => {
+  /** Observer `a` owning a zone at (900,0) — far beyond its 220u sight. */
+  function zoneWorld(): { w: World; a: ShipRecord } {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+    return { w, a };
+  }
+
+  it('boom: visible at a zone-covered point, and the victim id is KEPT when the victim center is zone-covered', () => {
+    const { w, a } = zoneWorld();
+    place(w, 'b', 900, 0); // victim center inside the zone
+    const e: BoomEvent = { k: 'boom', id: 's1', hit: 'b', x: 890, y: 0 };
+    const row = signalFor('boom')!;
+    const ctx = foggedCtx(w, a);
+    expect(row.visible(ctx, e)).toBe(true); // pre-1.7 this was invisible (out of sight)
+    expect((row.materialize(ctx, e) as BoomEvent).hit).toBe('b'); // un-stripped under the zone
+  });
+
+  it('boom: still STRIPPED when the impact is zone-covered but the victim center is outside the zone', () => {
+    const { w, a } = zoneWorld();
+    place(w, 'b', 900 + CONFIG.starShells.litRadius + 10, 0); // center past the zone edge
+    const e: BoomEvent = { k: 'boom', id: 's1', hit: 'b', x: 990, y: 0 }; // impact inside the zone
+    const row = signalFor('boom')!;
+    const ctx = foggedCtx(w, a);
+    expect(row.visible(ctx, e)).toBe(true);
+    const wire = row.materialize(ctx, e) as BoomEvent;
+    expect(Object.keys(wire)).toEqual(['k', 'id', 'x', 'y']);
+    expect('hit' in wire).toBe(false);
+  });
+
+  it('burst: a non-shell-owner whose OWN zone covers the point receives it', () => {
+    const { w, a } = zoneWorld();
+    const e: BurstSubject = { k: 'burst', id: 's1', x: 900, y: 0, own: 'x' }; // someone else's shell
+    expect(signalFor('burst')!.visible(foggedCtx(w, a), e)).toBe(true);
+  });
+
+  it('sunk: a wreck inside the owned zone is visible', () => {
+    const { w, a } = zoneWorld();
+    place(w, 'b', 900, 0);
+    w.sinkShip('b');
+    expect(signalFor('sunk')!.visible(foggedCtx(w, a), { k: 'sunk', id: 'b' })).toBe(true);
+  });
+
+  it('spawn: a spawn point inside the owned zone is visible', () => {
+    const { w, a } = zoneWorld();
+    const e = { k: 'spawn', id: 'b', x: 890, y: 0 } as const;
+    expect(signalFor('spawn')!.visible(foggedCtx(w, a), e)).toBe(true);
+  });
+
+  it("NON-owners gain none of it from someone else's zone (all four rows)", () => {
+    const { w } = zoneWorld(); // the zone belongs to 'a'
+    const c = place(w, 'c', 0, 300); // never the owner
+    place(w, 'b', 900, 0);
+    w.sinkShip('b');
+    const ctx = foggedCtx(w, c);
+    expect(signalFor('boom')!.visible(ctx, { k: 'boom', id: 's1', hit: 'b', x: 890, y: 0 })).toBe(false);
+    expect(signalFor('burst')!.visible(ctx, { k: 'burst', id: 's1', x: 900, y: 0, own: 'a' } as BurstSubject)).toBe(false);
+    expect(signalFor('sunk')!.visible(ctx, { k: 'sunk', id: 'b' })).toBe(false);
+    expect(signalFor('spawn')!.visible(ctx, { k: 'spawn', id: 'b', x: 890, y: 0 })).toBe(false);
+  });
+
+  it('blip: a zone-covered annulus ship fails the blip row even when swept (already a full contact)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 400, 0); // radar annulus, bearing 0
+    a.prevSweepAngle = wrapPositive(-0.02);
+    a.sweepAngle = wrapPositive(0.02); // beam crossing bearing 0 this tick
+    const row = signalFor('blip')!;
+    expect(row.visible(foggedCtx(w, a), b)).toBe(true); // sanity: paints without a zone
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+    expect(row.visible(foggedCtx(w, a), b)).toBe(false); // contact tier now — never a blip
+  });
+});
+
 // ---------- reveal timestamps -------------------------------------------------
 
 describe('SIGNAL_REGISTRY — ballistic reveal timestamps', () => {

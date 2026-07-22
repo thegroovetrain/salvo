@@ -21,12 +21,6 @@ import { consume, tickReload } from './ammo.js';
 import { makeBallistic } from './ballistics.js';
 import { burstPoint, muzzleOrTarget } from './guns.js';
 
-/** u — the flare's collision radius. Eric's ruled CONFIG.starShells block
- *  defines no bespoke radius, so the flare deliberately rides the standard
- *  shell's collision radius (CONFIG.gun.shellRadius) rather than inventing a
- *  new tunable. */
-const FLARE_RADIUS = CONFIG.gun.shellRadius;
-
 /**
  * Star-shell fire control against one slot pool: 0 or 1 flare. The ONLY
  * denial is an empty pool ('no-ammo' — the 20s cooldown); there is no arc.
@@ -44,12 +38,12 @@ function fireStarShell(
   if (!consume(pool, ship.stats.starShells.reloadMs)) return { shell: null, denial: 'no-ammo' }; // pool empty
   const dir = ship.input.aim;
   const target = burstPoint(ship, mapRadius, ship.stats.starShells.rangeU);
-  const origin = muzzleOrTarget(ship, dir, target, FLARE_RADIUS);
+  const origin = muzzleOrTarget(ship, dir, target, CONFIG.starShells.shellRadius);
   const shell = makeBallistic(mkId(), ship, dir, now, {
     speed: CONFIG.starShells.shellSpeed,
-    range: Math.hypot(target.x - origin.x, target.y - origin.y) + FLARE_RADIUS,
+    range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.starShells.shellRadius,
     damage: CONFIG.starShells.damage,
-    hitRadius: FLARE_RADIUS,
+    hitRadius: CONFIG.starShells.shellRadius,
     kind: 'shell', // rides the existing shell wire kind (first-sight reveal, constant-free shape)
     origin,
     targetX: target.x,

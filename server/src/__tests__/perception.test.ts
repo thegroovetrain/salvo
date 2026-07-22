@@ -568,7 +568,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
   it('the FIRER gains a full contact for a ship inside its zone, far beyond sight and radar', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    const b = place(w, 'b', 900, 0, 2.1); // way outside sight (220) AND radar (650)
+    place(w, 'b', 900, 0, 2.1); // way outside sight (220) AND radar (650)
     injectZone(w, 'z1', 'a', 900, 0);
     expect(buildFrame(w, 'a').contacts).toEqual([
       { id: 'b', x: 900, y: 0, heading: 2.1, speed: 0, cls: 'torpedoBoat' },
@@ -576,7 +576,48 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     // Zone expiry/removal drops the contact again (revealed only while lit).
     w.litZones.clear();
     expect(buildFrame(w, 'a').contacts).toEqual([]);
-    void b;
+  });
+
+  it('a zone-revealed ship in the radar annulus is a contact ONLY — never doubled as a blip', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 400, 0); // radar annulus (sight < 400 ≤ radar)
+    injectZone(w, 'z1', 'a', 400, 0);
+    windowAround(a, 0); // the beam crosses b's bearing this very tick
+    const f = buildFrame(w, 'a');
+    expect(f.contacts.map((c) => c.id)).toEqual(['b']);
+    expect(blipsOf(f)).toEqual([]); // the blip row itself refuses zone-covered ships
+  });
+
+  it('the firer watches a zone-revealed ship die: boom (victim id KEPT) + sunk arrive', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    const b = place(w, 'b', 900, 0); // far outside a's sight — pre-1.7 the owner got NO boom here
+    b.hp = 15; // the next hit sinks it
+    injectZone(w, 'z1', 'a', 900, 0);
+    injectShell(w, 's1', 'a', 880, 0, 0, 100); // a's shell, point-blank on b
+    w.step();
+    const fa = buildFrame(w, 'a');
+    // Boom point zone-covered => visible; victim center zone-covered => hit un-stripped.
+    expect(fa.events.filter((e) => e.k === 'boom')).toEqual([
+      { k: 'boom', id: 's1', hit: 'b', x: expect.any(Number), y: expect.any(Number) },
+    ]);
+    // Wreck inside the owned zone => the sunk arrives too.
+    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
+    // dmg stays victim-private even under the zone (truesight parity, not omniscience).
+    expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
+  });
+
+  it("a kill inside someone ELSE's zone stays hidden (boom/sunk never leak to non-owners)", () => {
+    const w = bareWorld();
+    place(w, 'c', 0, 0); // non-owner observer
+    const b = place(w, 'b', 900, 0);
+    b.hp = 15;
+    injectZone(w, 'z1', 'a', 900, 0); // a's zone — c gains nothing from it
+    injectShell(w, 's1', 'a', 880, 0, 0, 100);
+    w.step();
+    const fc = buildFrame(w, 'c');
+    expect(fc.events.filter((e) => e.k === 'boom' || e.k === 'sunk')).toEqual([]);
   });
 
   it('a ship BEHIND AN ISLAND inside the zone is still revealed to the firer (no LOS term)', () => {
@@ -774,6 +815,8 @@ function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   expect(d).toBeLessThanOrEqual(effRadar(me));
   expect(clearLos(me.state, target.state, w.map.islands)).toBe(true);
   expect(inPaintWindow(me, bearing(me.state, target.state))).toBe(true);
+  // A zone-covered ship is a FULL contact — it may never double as a blip.
+  expect(zoneCovers(w, me, target.state)).toBe(false);
   expect(ev.t).toBe(w.now);
 }
 
@@ -791,11 +834,14 @@ function verifyBallistic(w: World, me: ShipRecord, e: GameEvent): void {
 
 function verifyBoom(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BoomEvent;
-  if (ev.hit !== me.id) expect(sighted(w, me, ev)).toBe(true);
-  // `hit` may name a victim only when that victim's CENTER is sighted (or the
-  // observer is the victim) — a straddling hull must not leak its id.
+  // Boom point: sighted OR inside a zone the observer OWNS (Story 1.7 parity).
+  if (ev.hit !== me.id) expect(sighted(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
+  // `hit` may name a victim only when that victim's CENTER is sighted or
+  // zone-covered (or the observer is the victim) — a straddling hull must not
+  // leak its id.
   if (ev.hit !== undefined && ev.hit !== me.id) {
-    expect(sighted(w, me, w.ships.get(ev.hit)!.state)).toBe(true);
+    const victim = w.ships.get(ev.hit)!.state;
+    expect(sighted(w, me, victim) || zoneCovers(w, me, victim)).toBe(true);
   }
 }
 
@@ -812,7 +858,8 @@ function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
     | (BurstEvent & { own?: string })
     | undefined;
   expect(src).toBeDefined();
-  if (src!.own !== me.id) expect(sighted(w, me, ev)).toBe(true);
+  // Burst point: sighted OR inside a zone the observer OWNS (Story 1.7 parity).
+  if (src!.own !== me.id) expect(sighted(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
 }
 
 function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
@@ -820,7 +867,8 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   if (ev.id === me.id) return;
   const wreck = w.ships.get(ev.id)!;
   expect(wreck).toBeDefined();
-  expect(sighted(w, me, wreck.state)).toBe(true);
+  // Wreck position: sighted OR inside a zone the observer OWNS (Story 1.7).
+  expect(sighted(w, me, wreck.state) || zoneCovers(w, me, wreck.state)).toBe(true);
 }
 
 const EVENT_VERIFIERS: Record<string, EventVerifier> = {
@@ -840,7 +888,9 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     expect(UPGRADE_IDS).toContain((e as UpgradeEvent).type);
   },
   spawn: (w, me, e) => {
-    if (e.id !== me.id) expect(sighted(w, me, e as SpawnEvent)).toBe(true);
+    // Spawn point: sighted OR inside a zone the observer OWNS (Story 1.7).
+    const p = e as SpawnEvent;
+    if (e.id !== me.id) expect(sighted(w, me, p) || zoneCovers(w, me, p)).toBe(true);
   },
 };
 

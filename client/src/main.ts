@@ -40,8 +40,8 @@ import { FiringUX } from './render/firing.js';
 import { weaponArcHit, weaponRangeU } from './render/weaponArc.js';
 import { Effects } from './render/effects.js';
 import { Mines } from './render/mines.js';
-import { LitZones } from './render/litZones.js';
-import { Fog } from './render/fog.js';
+import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
+import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
@@ -877,9 +877,22 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number): void {
   if (shouldConsumePrime(you?.alive ?? false, primedSlot, loaded, inArc)) g.keyboard.revertToGun();
 }
 
+/** SCREEN-space fog holes for the own ACTIVE lit zones — center via the camera,
+ *  radius = world radius × zoom × the zone's fade (a closing hole as it dies).
+ *  Only owned zones reach here; enemy zones never clear the own fog. */
+function ownZoneFogHoles(g: Game, zones: readonly OwnZone[], now: number): FogHole[] {
+  return zones.map((z) => {
+    const s = g.camera.worldToScreen({ x: z.x, y: z.y });
+    return { sx: s.x, sy: s.y, sr: z.r * g.camera.zoom * litZoneFade(z.until - now) };
+  });
+}
+
 function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
   const pose = ownPose(g, alpha, frameDt);
   const status = ownStatus(g);
+  // Own ACTIVE star-shell zones (net → state → render): keep beyond-sight shells
+  // revealed by our flare (projectiles) and clear our own fog over them (fog).
+  const ownZones = ownActiveZones(g.state.net.litZones, g.state.net.sessionId, now);
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.radius);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
@@ -888,13 +901,15 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;
   g.zone.update(zv.radius, zv.state, inStorm, now / 1000, w, h);
-  // Own pose feeds the shell sight-bubble cull (shells outside fog vanish).
-  g.projectiles.render(now, pose ?? undefined);
+  // Own pose feeds the shell sight-bubble cull; own active zones keep a shell
+  // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
+  g.projectiles.render(now, pose ?? undefined, ownZones);
   g.radar.render(pose, now);
   g.litZones.render(now); // fade each lit-zone glow by its timestamp expiry
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
+  g.fog.updateHoles(ownZoneFogHoles(g, ownZones, now)); // clear fog over owned lit zones
 }
 
 // --- spectate rendering ----------------------------------------------------------

@@ -47,6 +47,50 @@ export function litZoneFade(remainingMs: number, fadeMs = LIT_FADE_MS): number {
   return remainingMs / fadeMs;
 }
 
+/** World-space geometry of one OWN active lit zone (`until` drives the fog-hole
+ *  fade; x/y/r are the truesight-parity circle). Shared by the projectile
+ *  beyond-sight cull-keep (P1) and the fog-clearing holes (P2). */
+export interface OwnZone {
+  x: number;
+  y: number;
+  r: number;
+  until: number; // server-clock expiry
+}
+
+/**
+ * Pure: the OWN ship's active lit zones (firer id `by === ownId`, not yet
+ * expired vs serverNow). These are the ONLY zones that grant the local player
+ * anything beyond the amber marker circle — the server reveals enemy
+ * ships/mines/ballistics inside them (truesight parity), so the client must (a)
+ * NOT cull a beyond-sight projectile that lies inside one (it will never be
+ * re-sent — projectiles.ts) and (b) clear its own fog over them (fog.ts).
+ * Enemy-owned and expired zones return nothing here (they stay marker-only).
+ */
+export function ownActiveZones(
+  zones: readonly LitZoneView[],
+  ownId: string | undefined,
+  serverNow: number,
+): OwnZone[] {
+  const out: OwnZone[] = [];
+  for (const z of zones) {
+    if (z.by === ownId && z.until > serverNow) out.push({ x: z.x, y: z.y, r: z.r, until: z.until });
+  }
+  return out;
+}
+
+/** Pure: is world point `p` inside any of the given zone circles (center/radius)? */
+export function insideAnyZone(
+  p: { x: number; y: number },
+  zones: readonly { x: number; y: number; r: number }[],
+): boolean {
+  for (const z of zones) {
+    const dx = p.x - z.x;
+    const dy = p.y - z.y;
+    if (dx * dx + dy * dy <= z.r * z.r) return true;
+  }
+  return false;
+}
+
 /** What changed between the sprites we hold and the incoming zone list. */
 export interface LitZoneDiff {
   add: LitZoneView[];

@@ -119,6 +119,7 @@ describe('shared barrel', () => {
       damage: 10,
       litRadius: 110,
       litDurationMs: 10000,
+      shellRadius: 2,
     });
     // NO range fields: both ranges derive from CONFIG.vision.radar in
     // effectiveStats() (gun base parity — never a duplicated constant).

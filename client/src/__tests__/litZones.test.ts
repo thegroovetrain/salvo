@@ -4,7 +4,14 @@
 
 import { describe, it, expect } from 'vitest';
 import type { LitZoneView } from '@salvo/shared';
-import { litZoneFade, litZoneTint, reconcileLitZones, LIT_FADE_MS } from '../render/litZones.js';
+import {
+  insideAnyZone,
+  litZoneFade,
+  litZoneTint,
+  ownActiveZones,
+  reconcileLitZones,
+  LIT_FADE_MS,
+} from '../render/litZones.js';
 
 const zone = (id: string, by = 'enemy', until = 10_000): LitZoneView => ({
   id,
@@ -76,5 +83,53 @@ describe('litZoneFade — timestamp glow fade (until - serverNow)', () => {
   it('honors a custom fade window', () => {
     expect(litZoneFade(500, 1000)).toBeCloseTo(0.5, 9);
     expect(litZoneFade(1000, 1000)).toBe(1);
+  });
+});
+
+describe('ownActiveZones — the fog-hole / cull-keep participation decision', () => {
+  // The ONLY zones that grant the local player anything beyond the amber marker:
+  // their own, still-active zones. Enemy zones and expired zones must NOT clear
+  // fog or keep beyond-sight shells (P1/P2 review findings).
+  const zones = (): LitZoneView[] => [
+    { id: 'own-live', x: 100, y: 0, r: 110, until: 10_000, by: 'me' },
+    { id: 'own-dead', x: 200, y: 0, r: 110, until: 4_000, by: 'me' },
+    { id: 'enemy-live', x: 300, y: 0, r: 110, until: 10_000, by: 'foe' },
+  ];
+
+  it('keeps only the OWN, still-active zones (enemy + expired dropped)', () => {
+    const active = ownActiveZones(zones(), 'me', 5_000);
+    expect(active.map((z) => z.x)).toEqual([100]); // own-live only
+    expect(active[0]).toEqual({ x: 100, y: 0, r: 110, until: 10_000 });
+  });
+
+  it('drops an own zone the instant it expires (until <= serverNow)', () => {
+    expect(ownActiveZones(zones(), 'me', 10_000)).toEqual([]); // own-live now expired
+  });
+
+  it('with no own id (spectator / pre-session) participates in nothing', () => {
+    expect(ownActiveZones(zones(), undefined, 5_000)).toEqual([]);
+  });
+});
+
+describe('insideAnyZone — point-in-zone-circle test', () => {
+  const zones = [{ x: 0, y: 0, r: 110, until: 0 }];
+
+  it('is true inside the circle (incl. exactly on the edge) and false outside', () => {
+    expect(insideAnyZone({ x: 0, y: 0 }, zones)).toBe(true); // center
+    expect(insideAnyZone({ x: 110, y: 0 }, zones)).toBe(true); // on the edge
+    expect(insideAnyZone({ x: 111, y: 0 }, zones)).toBe(false); // just outside
+  });
+
+  it('is false against an empty zone list (hull fired no flare)', () => {
+    expect(insideAnyZone({ x: 0, y: 0 }, [])).toBe(false);
+  });
+
+  it('matches ANY of several zones', () => {
+    const many = [
+      { x: 0, y: 0, r: 50, until: 0 },
+      { x: 500, y: 0, r: 60, until: 0 },
+    ];
+    expect(insideAnyZone({ x: 500, y: 40 }, many)).toBe(true); // inside the second
+    expect(insideAnyZone({ x: 250, y: 0 }, many)).toBe(false); // between both
   });
 });

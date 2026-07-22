@@ -62,6 +62,18 @@ describe('one-hit-kill guardrail (classes AND drones)', () => {
   });
 });
 
+describe('star-shell tell guardrail (Story 1.7)', () => {
+  it('litRadius stays inside base radar range, so a lit ship always has the circle on its radar', () => {
+    // Eric ruling: there is NO literal "you are lit" victim message — the
+    // radar-visible zone circle IS the tell. That only holds while
+    // litRadius < vision.radar: a ship inside a zone sits ≤ litRadius from
+    // its center, so the center is within even a base (un-upgraded) radar and
+    // the circle is guaranteed visible to the victim. A retune pushing
+    // litRadius past radar would silently create lit-but-blind victims.
+    expect(CONFIG.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
+  });
+});
+
 describe('torpedo chase/dodge guardrail (classes AND drones)', () => {
   it('a base torpedo outruns the fastest hull', () => {
     expect(CONFIG.torpedo.speed).toBeGreaterThan(maxHullSpeed);

@@ -253,6 +253,9 @@ export const CONFIG = {
     damage: 10, // hp per burst victim — minor, once, at burst (full lit circle)
     litRadius: 110, // u — lit-zone radius (~half the 220u truesight bubble)
     litDurationMs: 10000, // ms — lit-zone lifetime (natural expiry only)
+    // u — flare collision radius. Own field (cannon plumbing parity) so a gun
+    // retune can never silently change flare interception; same value today.
+    shellRadius: 2,
   },
 
   /**

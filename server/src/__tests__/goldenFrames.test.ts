@@ -56,8 +56,10 @@ const EXPECTED_SUBCASES = [
   'island-blocks-radar-blip',
   'island-blocks-sight-contact',
   'litzone-beyond-radar-silent',
+  'litzone-boom-victim-id',
   'litzone-expiry',
   'litzone-firer-reveal',
+  'litzone-sunk-reveal',
   'litzone-thirdparty-radar-circle',
   'nonowner-hidden-at-launch',
   'nonowner-reveal-current-params',
@@ -381,7 +383,7 @@ function scnBurst(g: Golden): void {
 function scnStarShell(g: Golden): void {
   const w = bareWorld(1011);
   place(w, 'a', 0, 0, 0, 'battleship'); // the firer
-  const h = place(w, 'h', 300, 40, 1.1); // inside the future zone, beyond a's sight
+  place(w, 'h', 300, 40, 1.1); // inside the future zone, beyond a's sight
   place(w, 'c', -330, -160); // dist to zone center (300,0) = 650 exactly — at radar range
   place(w, 'd', -400, 0); // dist to zone center = 700 — beyond radar
   w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, actSlot: 0 });
@@ -416,7 +418,32 @@ function scnStarShell(g: Golden): void {
     'litzone-expiry',
     w.litZones.size === 0 && !('litZones' in after) && !after.contacts.some((x) => x.id === 'h'),
   );
-  void h;
+}
+
+/**
+ * A kill INSIDE an owned lit zone (Story 1.7 zone event parity) — the zone and
+ * the killing shell are injected directly (mines precedent; the real flare
+ * flow is scnStarShell's job). Observer `a` owns a zone far beyond its sight;
+ * its shell strikes `b` inside the zone. Pre-parity, a's frame carried NO boom
+ * (owner hit-confirmation suppression) and NO sunk; under the owned zone the
+ * boom arrives WITH the victim id (center zone-covered) and the sunk arrives
+ * too — while dmg stays victim-private even here.
+ */
+function scnZoneKill(g: Golden): void {
+  const w = bareWorld(1012);
+  place(w, 'a', 0, 0);
+  const b = place(w, 'b', 500, 0);
+  b.hp = 15; // the next hit sinks it
+  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 500, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+  injectShell(w, 'ks', 'a', 480, 0, 0, 100); // a's shell, point-blank on b, far outside a's sight
+  w.step(); // strikes b -> boom + dmg (victim-private) + sunk + pt
+  const fa = cap(g, w, 'a');
+  prove(g, 'litzone-boom-victim-id', fa.events.some((e) => e.k === 'boom' && e.hit === 'b'));
+  prove(
+    g,
+    'litzone-sunk-reveal',
+    fa.events.some((e) => e.k === 'sunk' && e.id === 'b') && !fa.events.some((e) => e.k === 'dmg'),
+  );
 }
 
 // ---------- the fixture -------------------------------------------------------
@@ -436,6 +463,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     scnSpectatorBallistic(g);
     scnBurst(g);
     scnStarShell(g);
+    scnZoneKill(g);
 
     // Self-validating coverage: the fixture can never silently lose a channel.
     expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);

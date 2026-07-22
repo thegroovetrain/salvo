@@ -281,7 +281,10 @@ const litZoneSignal: SignalSpec<LitZone, LitZoneView> = {
  * once per revolution). Paints carry position-at-paint-time; the server keeps
  * no blip history (phosphor decay is client render math). ONLY SHIPS PAINT —
  * torpedoes and mines never appear on radar (the ship scan iterates ships
- * only, by construction). Spectators get live contacts instead, never blips.
+ * only, by construction). A ship inside a lit zone the observer OWNS never
+ * blips: it is already a FULL contact (Story 1.7), and the row stays
+ * self-contained rather than leaning on the scan's contact-first ordering.
+ * Spectators get live contacts instead, never blips.
  */
 const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
   eventType: 'blip',
@@ -292,6 +295,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent> = {
     if (ctx.mode !== 'fogged') return false;
     const me = ctx.me;
     if (!target.alive || target.id === me.id) return false;
+    if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
     return (
       inRadarAnnulus(me, target) &&
       sweptThisTick(me, bearing(me.state, target.state)) &&
@@ -358,28 +362,32 @@ function ballisticSignal(kind: 'shell' | 'torp'): SignalSpec<ShellState, Ballist
 // ---------------------------------------------------------------------------
 
 /**
- * `boom` — visible iff the boom location is within sight + LOS, OR the boom
- * struck the observer (`hit === me`). The shell's owner does NOT get an
- * out-of-sight boom — hit confirmation beyond sight would leak contact
- * presence; their dead-reckoned shell just expires by client lifetime. Even
- * when the boom IS visible, its `hit` (victim id) is stripped unless the
- * victim's CENTER is itself sighted (or the observer IS the victim): a hull
- * can straddle the sight edge with its center in fog, and emitting the id
- * there would leak the victim's identity. A hit-less boom just plays a generic
- * impact/splash on the client. Spectators get the raw event.
+ * `boom` — visible iff the boom location is within sight + LOS, inside a lit
+ * zone the observer OWNS (Story 1.7 truesight parity — everything a firer's
+ * zone reveals can also visibly explode), OR the boom struck the observer
+ * (`hit === me`). The shell's owner does NOT get an out-of-sight boom — hit
+ * confirmation beyond sight would leak contact presence; their dead-reckoned
+ * shell just expires by client lifetime. Even when the boom IS visible, its
+ * `hit` (victim id) is stripped unless the victim's CENTER is itself sighted
+ * or zone-covered (or the observer IS the victim): a hull can straddle the
+ * sight edge with its center in fog, and emitting the id there would leak the
+ * victim's identity. A hit-less boom just plays a generic impact/splash on
+ * the client. Spectators get the raw event.
  */
 const boomSignal: SignalSpec<BoomEvent, BoomEvent> = {
   eventType: 'boom',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx.islands);
+    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx.islands) || ownZoneCovers(ctx, e);
   },
   materialize(ctx, e) {
     if (ctx.mode === 'spectator') return e;
     const me = ctx.me;
     if (!e.hit || e.hit === me.id) return e;
     const victim = ctx.ships.get(e.hit);
-    if (victim && pointSighted(me, victim.state, ctx.islands)) return e;
+    if (victim && (pointSighted(me, victim.state, ctx.islands) || ownZoneCovers(ctx, victim.state))) {
+      return e;
+    }
     return { k: 'boom', id: e.id, x: e.x, y: e.y }; // impact visible, victim id stripped
   },
 };
@@ -398,8 +406,9 @@ export interface BurstSubject extends BurstEvent {
  * `burst` — a gun shell detonating at its target point. Visible to the shell
  * OWNER (the burst centers on the point they clicked, so it reveals nothing
  * they didn't author — unlike boom, whose owner-suppression rule guards
- * against hit-confirmation leaks) or to anyone with the burst point sighted
- * (sight + LOS, the boom pattern). Damage never rides here — burst victims
+ * against hit-confirmation leaks), to anyone with the burst point sighted
+ * (sight + LOS, the boom pattern), or with the point inside a lit zone the
+ * observer OWNS (Story 1.7). Damage never rides here — burst victims
  * get their own victim-private dmg events; burstRadius is CONFIG, never on
  * the wire.
  *
@@ -415,7 +424,7 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
   eventType: 'burst',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx.islands);
+    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx.islands) || ownZoneCovers(ctx, e);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object — never `e` verbatim, which would leak the
@@ -426,7 +435,9 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
 
 /**
  * `sunk` — visible to the victim itself, and to anyone who can see the sinking
- * ship's position (wreck position, sight + LOS). Everyone still learns
+ * ship's position (wreck position: sight + LOS, or inside a lit zone the
+ * observer OWNS — Story 1.7 truesight parity, so a firer watches a
+ * zone-revealed hull actually go down). Everyone still learns
  * alive/kills/deaths from the public roster schema — sinking is public
  * knowledge, its LOCATION is not. Spectators get the raw event.
  */
@@ -436,7 +447,8 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
     if (ctx.mode === 'spectator') return true;
     if (e.id === ctx.me.id) return true;
     const wreck = ctx.ships.get(e.id);
-    return wreck !== undefined && pointSighted(ctx.me, wreck.state, ctx.islands);
+    if (wreck === undefined) return false;
+    return pointSighted(ctx.me, wreck.state, ctx.islands) || ownZoneCovers(ctx, wreck.state);
   },
   materialize(_ctx, e) {
     return e;
@@ -445,13 +457,14 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
 
 /**
  * `spawn` — visible to the spawner itself, and to anyone who can see the spawn
- * point (sight + LOS). Spectators get the raw event.
+ * point (sight + LOS, or inside a lit zone the observer OWNS — Story 1.7).
+ * Spectators get the raw event.
  */
 const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
   eventType: 'spawn',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.id === ctx.me.id || pointSighted(ctx.me, e, ctx.islands);
+    return e.id === ctx.me.id || pointSighted(ctx.me, e, ctx.islands) || ownZoneCovers(ctx, e);
   },
   materialize(_ctx, e) {
     return e;

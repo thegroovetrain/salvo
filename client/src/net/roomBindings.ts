@@ -200,7 +200,12 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
   // Star-shell lit zones, same contact-like reconcile. Frames OMIT the key when
   // the observer sees no zones, so treat a missing key as an empty list; the
   // own ship id tints own (green) vs enemy (amber) zones (render/litZones.ts).
-  deps.litZones.sync(f.litZones ?? [], deps.state.net.sessionId);
+  const litZones = f.litZones ?? [];
+  deps.litZones.sync(litZones, deps.state.net.sessionId);
+  // Mirror the raw list into state (net → state → render): the render loop
+  // derives the own ACTIVE zones from it to keep beyond-sight shells alive
+  // (projectiles) and clear the own fog over them (fog).
+  net.litZones = litZones;
   handleEvents(f, deps);
 }
 
