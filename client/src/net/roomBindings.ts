@@ -36,6 +36,7 @@ import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
 import type { Mines } from '../render/mines.js';
+import type { LitZones } from '../render/litZones.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { killLine, pushKillLine } from '../ui/killFeed.js';
 import { healToastLine, pointToastLine, pushUpgradeToast, upgradeLabel } from '../ui/upgradeToast.js';
@@ -65,6 +66,9 @@ export interface RoomBindingDeps {
   effects: Effects;
   radar: Radar;
   mines: Mines;
+  /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
+   *  from FrameMsg.litZones every tick, exactly like mines. */
+  litZones: LitZones;
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. */
@@ -193,6 +197,10 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
   }
   deps.contacts.pushFrame(f.t, f.contacts);
   deps.mines.sync(f.mines); // contact-like: reconcile the mine field every tick
+  // Star-shell lit zones, same contact-like reconcile. Frames OMIT the key when
+  // the observer sees no zones, so treat a missing key as an empty list; the
+  // own ship id tints own (green) vs enemy (amber) zones (render/litZones.ts).
+  deps.litZones.sync(f.litZones ?? [], deps.state.net.sessionId);
   handleEvents(f, deps);
 }
 

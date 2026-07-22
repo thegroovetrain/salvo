@@ -37,9 +37,10 @@ import { ShipView, OWN_STYLE } from './render/ships.js';
 import { ContactViews } from './render/contacts.js';
 import { Projectiles } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
-import { weaponArcHit } from './render/weaponArc.js';
+import { weaponArcHit, weaponRangeU } from './render/weaponArc.js';
 import { Effects } from './render/effects.js';
 import { Mines } from './render/mines.js';
+import { LitZones } from './render/litZones.js';
 import { Fog } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
@@ -89,6 +90,9 @@ interface Game {
   firing: FiringUX;
   effects: Effects;
   mines: Mines;
+  /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
+   *  FrameMsg.litZones, faded per render frame by serverNow. */
+  litZones: LitZones;
   fog: Fog;
   radar: Radar;
   zone: Zone;
@@ -617,6 +621,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     effects,
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
+    litZones: new LitZones(stage.layers.litZone),
     fog: new Fog(stage.fogSprite),
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
     zone: new Zone(stage.layers.zone, stage.layers.vignette, map.radius, CONFIG.zone.endRadiusFraction),
@@ -631,8 +636,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     deniedPulse: new DeniedPulse(), deniedFlash: false,
     abilityDeniedPress: false, abilityPulse: new DeniedPulse(), abilityFlash: false,
     audio, portal,
-    matchEnded: false,
-    audioCueState: INITIAL_CUE_STATE,
+    matchEnded: false, audioCueState: INITIAL_CUE_STATE,
     wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
     ownClass: cls,
@@ -812,8 +816,9 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   }
   // Drive the firing UX from the client-primed slot (immediate), reading the
   // pool count + reload from the server-authoritative slot-aligned ammo array.
-  // `ready` for the denied-fire gate is "the slot has a round" (ammo.n > 0);
-  // the gun (slot 0) is 360° so weaponArcHit is always true for it.
+  // `ready` for the denied-fire gate is "the slot has a round" (ammo.n > 0); the
+  // firing behavior keys off the fitted equipment ID (gun-family is 360° so
+  // weaponArcHit is always true for it), never on a slot-index literal.
   const slot = g.keyboard.primedSlot;
   const a = status.ammo[slot] ?? null;
   const hasAmmo = !!a && a.n > 0;
@@ -822,19 +827,19 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   // never primes), so the null branch is defensive only.
   const primedId = status.loadout[slot] ?? null;
   const reloadFrac = a && primedId !== null ? reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, primedId)) : 0;
-  const inArc = weaponArcHit(pose.heading, aim, slot);
+  const inArc = weaponArcHit(pose.heading, aim, primedId);
   const denied = isClickDenied({ clicked, ready: hasAmmo, inArc });
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
   const hullLength = CONFIG.shipClasses[status.cls].hull.length;
   g.firing.update(
     pose,
     aim,
-    slot,
+    primedId,
     { hasAmmo, reloadFrac },
     cursor,
     hullLength,
     g.deniedFlash,
-    status.stats.gun.rangeU, // effective range-clamp marker (gunRange upgrade)
+    weaponRangeU(status.stats, primedId), // per-weapon range-clamp marker (gun stacks; cannon/flare base)
   );
 }
 
@@ -868,7 +873,7 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number): void {
   const you = g.state.net.you;
   const a = you?.ammo[primedSlot] ?? null;
   const loaded = !!a && a.n > 0;
-  const inArc = weaponArcHit(predictedHeading(g), aim, primedSlot);
+  const inArc = weaponArcHit(predictedHeading(g), aim, g.ownSlots[primedSlot] ?? null);
   if (shouldConsumePrime(you?.alive ?? false, primedSlot, loaded, inArc)) g.keyboard.revertToGun();
 }
 
@@ -886,6 +891,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   // Own pose feeds the shell sight-bubble cull (shells outside fog vanish).
   g.projectiles.render(now, pose ?? undefined);
   g.radar.render(pose, now);
+  g.litZones.render(now); // fade each lit-zone glow by its timestamp expiry
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -936,6 +942,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, zv: ZoneView, mu:
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
   g.effects.update(frameDt, null);
   g.radar.render(null, now); // hides the sweep + rings
+  g.litZones.render(now); // spectators see all zones; fade them by expiry too
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   g.hud.updateSpectate(zoneHud(zv, now, false), mu, w, h, banner);

@@ -58,6 +58,16 @@ describe('primeFireable — client-predicted prime consumption', () => {
     expect(primeFireable(1, true, false)).toBe(false); // out of bow arc
     expect(primeFireable(1, false, false)).toBe(false);
   });
+
+  it('consumes the Battleship cannon (slot 1) + star shells (slot 2) primes (Story 1.7)', () => {
+    // The gun is universally slot 0, so the slot-0 gun exemption holds on every
+    // hull; the BB's two skillshots live at slots 1 & 2 and consume when fired.
+    // Their in-arc gate is 360° (fed by weaponArcHit(id) at the call site), so a
+    // loaded fire always reads fireable regardless of bearing.
+    expect(primeFireable(0, true, true)).toBe(false); // BB gun — never a prime
+    expect(primeFireable(1, true, true)).toBe(true); // cannon fires → revert to gun
+    expect(primeFireable(2, true, true)).toBe(true); // star shells fire → revert to gun
+  });
 });
 
 describe('shouldConsumePrime — a dead own ship never consumes the prime', () => {
