@@ -15,9 +15,12 @@
 //
 // ORDER IS SACRED (byte-identity on the wire): world-emitted events are
 // dispatched in world-emission order (never bucketed or re-sorted by type),
-// then per-observer ballistic reveals, then radar blips (genuine ship paints
-// in ships-map order, then decoy counter-intel paints in decoys-map order —
-// both this-tick sweep paints, indistinguishable on the wire); contacts,
+// then per-observer ballistic reveals, then radar blips. The blip SUBSEQUENCE
+// alone is sorted by PUBLIC payload only — (x, y, t, id), fields the observer
+// receives anyway — because genuine ship paints and decoy counter-intel
+// paints merge into it (Story 1.8/FR10): any source-derived order (ships-map
+// first, decoys-map second) would let array position de-anonymize the
+// deception whenever a hull and its buoy paint the same tick. Contacts,
 // mines, lit zones, and decoys keep their Map-insertion iteration order in
 // their own frame channels.
 //
@@ -182,17 +185,35 @@ function decoyBlips(world: World, ctx: SignalContext): BlipEvent[] {
   return out;
 }
 
+/**
+ * The blip-subsequence order (FR10 anti-tell): a total order over PUBLIC
+ * payload fields only — (x, then y, then t, then id) — so a frame's blip
+ * ordering is a pure function of what the observer receives and carries ZERO
+ * information about which paints are genuine hulls and which are decoy
+ * counter-intel. Appending genuine-then-decoy (source order) would make "first
+ * same-id blip = the real ship" a wire-readable de-anonymizer.
+ */
+function blipOrder(a: BlipEvent, b: BlipEvent): number {
+  if (a.x !== b.x) return a.x - b.x;
+  if (a.y !== b.y) return a.y - b.y;
+  if (a.t !== b.t) return a.t - b.t;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
 /** One registry-driven view build — both observer modes share it; the ctx mode
  *  is the ONLY thing that differs. Emission order per the header: forwarded
- *  world events → ballistic reveals → blips — genuine ship paints first, then
- *  decoy counter-intel paints (spectator blips are none by rule: neither the
- *  blip row nor its counterIntel ever fires unfogged). */
+ *  world events → ballistic reveals → the blip subsequence, which merges
+ *  genuine ship paints and decoy counter-intel paints and is sorted by
+ *  blipOrder (public payload only — never source order; spectator blips are
+ *  none by rule: neither the blip row nor its counterIntel ever fires
+ *  unfogged). Only the blip subsequence is sorted; its position relative to
+ *  every other event kind is unchanged. */
 function view(world: World, ctx: SignalContext): PerceptionView {
   const { contacts, blips } = shipScan(world, ctx);
   const events = forwardedEvents(world, ctx);
   events.push(...ballisticScan(world, ctx));
-  events.push(...blips);
-  events.push(...decoyBlips(world, ctx));
+  blips.push(...decoyBlips(world, ctx));
+  events.push(...blips.sort(blipOrder));
   return {
     contacts,
     events,

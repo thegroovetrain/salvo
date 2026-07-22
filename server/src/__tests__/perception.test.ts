@@ -772,6 +772,24 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const m of f.mines) verifyMine(w, me, m);
   for (const z of f.litZones ?? []) verifyLitZone(w, me, z);
   for (const d of f.decoys ?? []) verifyDecoy(w, me, d);
+  verifyBlipOrdering(f);
+}
+
+/** FR10 anti-tell (Story 1.8): the frame's blip SUBSEQUENCE must be ordered by
+ *  PUBLIC payload only — (x, then y, then t, then id) — never by source
+ *  (genuine ship scan vs decoy counter-intel), or array position would
+ *  de-anonymize the deception whenever a hull and its buoy paint the same
+ *  tick. Reimplemented test-locally, applied to EVERY verified frame. */
+function verifyBlipOrdering(f: FrameMsg): void {
+  const blips = f.events.filter((e): e is BlipEvent => e.k === 'blip');
+  for (let i = 1; i < blips.length; i++) {
+    const a = blips[i - 1];
+    const b = blips[i];
+    const ordered =
+      a.x < b.x ||
+      (a.x === b.x && (a.y < b.y || (a.y === b.y && (a.t < b.t || (a.t === b.t && a.id <= b.id)))));
+    expect(ordered).toBe(true);
+  }
 }
 
 /** A mine may reach a frame only if the viewer owns it, it is sighted, OR it
@@ -859,15 +877,29 @@ function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   return blipPredicate(w, me, target.state);
 }
 
+/** True iff the decoy's OWNER is currently contact-visible to `me` — the
+ *  test-local reimplementation of the contact tier (alive ∧ not-self ∧
+ *  (sighted ∨ own-zone-covered)). While this holds, a decoy blip is FORBIDDEN
+ *  (FR10 coexistence guard): contact('a') + blip('a') in one frame is
+ *  impossible for genuine ships and would unmask the buoy on the wire. */
+function ownerContactVisible(w: World, me: ShipRecord, ownerId: string): boolean {
+  const owner = w.ships.get(ownerId);
+  if (!owner || !owner.alive || owner.id === me.id) return false;
+  return sighted(w, me, owner.state) || zoneCovers(w, me, owner.state);
+}
+
 /** True iff `ev` is a legitimate DECOY counter-intel paint (Story 1.8): a live
  *  unexpired buoy OWNED by the ship the blip impersonates sits at exactly the
  *  blip position, the observer is NOT the owner (a buoy never lies to its
- *  owner), and the ship-blip predicate holds at the BUOY's position. */
+ *  owner), the OWNER is NOT simultaneously a contact for the observer (the
+ *  coexistence guard above), and the ship-blip predicate holds at the BUOY's
+ *  position. */
 function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   for (const decoy of w.decoys.values()) {
     if (decoy.ownerId !== ev.id || decoy.x !== ev.x || decoy.y !== ev.y) continue;
     if (w.now >= decoy.until) continue;
     if (decoy.ownerId === me.id) continue;
+    if (ownerContactVisible(w, me, decoy.ownerId)) continue;
     if (blipPredicate(w, me, decoy)) return true;
   }
   return false;

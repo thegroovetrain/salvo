@@ -201,6 +201,23 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(lie).toEqual({ k: 'blip', id: 'a', x: 400, y: 0, t: w.now });
   });
 
+  it('blip row counterIntel: SUPPRESSED while the owner is contact-visible (the FR10 coexistence guard)', () => {
+    const w = bareWorld();
+    const b = place(w, 'b', 0, 0);
+    const a = place(w, 'a', 100, 0); // the owner, inside b's sight — a live contact
+    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 400, y: 0, until: 999_999 }); // swept annulus
+    b.prevSweepAngle = wrapPositive(-0.02);
+    b.sweepAngle = wrapPositive(0.02);
+    const row = SIGNAL_REGISTRY.blip;
+    const ctx = foggedCtx(w, b);
+    expect(SIGNAL_REGISTRY.contact.visible(ctx, a)).toBe(true); // the exact predicate the guard reuses
+    expect(row.counterIntel!(ctx, w.decoys.get('d1')!)).toBeNull(); // contact(a) + blip(a) can never coexist
+    // Owner out of contact reach: the same call lies again (control).
+    a.state.x = -400; // annulus, bearing π — invisible to the window around 0
+    expect(SIGNAL_REGISTRY.contact.visible(ctx, a)).toBe(false);
+    expect(row.counterIntel!(ctx, w.decoys.get('d1')!)).toEqual({ k: 'blip', id: 'a', x: 400, y: 0, t: w.now });
+  });
+
   it('litzone row: [id,x,y,r,until,by] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);

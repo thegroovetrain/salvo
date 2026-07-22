@@ -476,7 +476,7 @@ function setupViewport(
   bellAudible: () => boolean,
   onUpgradeKey: (a: UpgradeAction) => void,
   isAbilitySlot: (slot: number) => boolean,
-  onAbility: (slot: number) => void,
+  onAbility: (slot: number, actSeq: number) => void,
   nowServer: () => number,
 ): {
   camera: Camera;
@@ -543,7 +543,7 @@ function viewportCallbacks(getG: () => Game | null): {
   bellAudible: () => boolean;
   onUpgradeKey: (a: UpgradeAction) => void;
   isAbilitySlot: (slot: number) => boolean;
-  onAbility: (slot: number) => void;
+  onAbility: (slot: number, actSeq: number) => void;
 } {
   return {
     bellAudible: () => {
@@ -560,18 +560,19 @@ function viewportCallbacks(getG: () => Game | null): {
       const g = getG();
       return g !== null && slotHoldsAbility(g.ownSlots, slot);
     },
-    onAbility: (slot) => {
+    onAbility: (slot, actSeq) => {
       const g = getG();
-      if (g) handleAbilityPress(g, slot);
+      if (g) handleAbilityPress(g, slot, actSeq);
     },
   };
 }
 
 /**
  * An ability-activation keypress landed (the TB's speed boost, or — Story 1.8 —
- * the Mine Layer's mine / decoyBuoy): the keyboard has ALREADY advanced actSeq,
- * and the press rides the next input either way — the server decides. Here the
- * client only predicts the verdict:
+ * the Mine Layer's mine / decoyBuoy): the keyboard has QUEUED the press (it rides
+ * a later input, drained one-per-tick so the server's one-ability-per-tick gate
+ * fires each in turn) — the server decides. Here the client only predicts the
+ * verdict, at PRESS time, keyed on the pressed slot:
  *  - predicted DENIED (slot cooling / own ship dead) → latch the pressed SLOT's
  *    denied pulse (the existing deniedFire grammar, chips-only — never silence,
  *    never the weapon-arc/reticle visuals: nothing is aimed). Per-slot so a
@@ -585,7 +586,7 @@ function viewportCallbacks(getG: () => Game | null): {
  *    own-spawn hooks (fired on the confirmed OWN buoy/mine, gated by DecoyView/
  *    MineView `own` so they never misfire on a truesighted enemy piece).
  */
-function handleAbilityPress(g: Game, slot: number): void {
+function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   const you = g.state.net.you;
   const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
   const loaded = !!a && a.n > 0;
@@ -594,7 +595,10 @@ function handleAbilityPress(g: Game, slot: number): void {
     return;
   }
   const id = g.ownSlots[slot];
-  if (id === 'speedBoost') g.predictor.predictBoostActivation(g.clock.serverNow(), g.keyboard.actSeq);
+  // `actSeq` is the value THIS press will ride once the keyboard drains it onto
+  // an input (it may sit behind other queued presses); the optimistic boost
+  // window keys its clear-on-ack on exactly that counter, not the live count.
+  if (id === 'speedBoost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
   // decoyBuoy has no press-time cue: its placement tone rides the Decoys
   // reconcile own-spawn hook (the mine precedent), so it fires on the confirmed
   // OWN buoy and never on a truesighted enemy buoy.
@@ -753,7 +757,15 @@ function bindGameRoom(g: Game, conn: Connection): void {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
     onOwnStats: (cls, upg) => applyOwnStats(g, cls, upg),
-    resetThrottle: () => g.keyboard.resetThrottle(),
+    // resetThrottle fires on own spawn AND own sunk — the hard state boundaries.
+    // Drop any queued-but-unconsumed ability press there too (FINDING A), so a
+    // press queued in one life (or mashed while dead/spectating) never fires
+    // into the next. Consumed counters stay monotonic (clearActivations leaves
+    // them), mirroring the server's un-reset lastActSeq.
+    resetThrottle: () => {
+      g.keyboard.resetThrottle();
+      g.keyboard.clearActivations();
+    },
     resetPrime: () => g.keyboard.revertToGun(),
     names: (id) => rosterName(g, id),
     onSpectate: () => enterSpectateVisuals(g),
@@ -778,6 +790,7 @@ function bindGameRoom(g: Game, conn: Connection): void {
     onReconnect: () => {
       g.reconnecting = false;
       hideBanner();
+      g.keyboard.clearActivations(); // drop presses queued during the outage (FINDING A)
     },
   });
 }
@@ -961,6 +974,10 @@ function enterSpectateVisuals(g: Game): void {
   // Clear the engine order too: entering spectate is a hard boundary, and the
   // order must not survive into the next life (respawn re-rings from STOP).
   g.keyboard.resetThrottle();
+  // Same for any queued ability press (FINDING A) — dropped so a press mashed at
+  // the moment of death can't fire on respawn (respawn's resetThrottle also
+  // clears, this is the belt-and-braces at spectate entry).
+  g.keyboard.clearActivations();
 }
 
 /** Follow-your-killer by default; any WASD press hands the camera to free pan. */
@@ -1009,13 +1026,18 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // prime consumption below, so a fireable skillshot click still sends its
       // slot even if this same tick reverts the prime back to the gun.
       const primedSlot = g.keyboard.primedSlot;
+      // Drain exactly ONE queued ability press onto this tick's wire counters
+      // (FINDING A): the server fires one ability per tick, so multiple presses
+      // in one 50ms window must ride successive inputs — consume before reading
+      // actSeq/actSlot so this input carries the drained press (if any).
+      g.keyboard.consumeActivation();
       const input = g.sampler.sample(g.keyboard.axes(), {
         aim,
         fireSeq: g.mouse.clickCount,
         aimDist,
         slot: primedSlot,
         fireT: g.mouse.lastClickT, // honest fire instant (server-clock estimate at pointerdown)
-        actSeq: g.keyboard.actSeq, // ability-activation counter (0-sentinel; the keyboard owns it)
+        actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
         actSlot: g.keyboard.actSlot,
       });
       consumePrimeOnFire(g, primedSlot, aim);
@@ -1089,6 +1111,10 @@ function bindResize(stage: Stage, game: Game): void {
  */
 function sendNeutralInput(g: Game): void {
   if (g.state.spectating) return; // spectators send nothing at all
+  // Drain one queued press onto this neutral input too (FINDING A), so a
+  // gap-press landing right at tab-hide activates NOW instead of waiting for
+  // refocus (mirrors the fireSeq gap-handling).
+  g.keyboard.consumeActivation();
   const msg = g.sampler.sendNeutralNow(
     g.keyboard.throttle,
     g.mouse.clickCount,

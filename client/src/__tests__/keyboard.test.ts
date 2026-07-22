@@ -388,26 +388,43 @@ describe('KeyboardInput — ability activation (TB/ML) vs prime (BB weapon speci
   /** A TB-shaped predicate: slot 2 holds the speedBoost ability. */
   const tbAbilitySlot = (slot: number): boolean => slot === 2;
 
-  it('slot-2 press ACTIVATES on an ability loadout: actSeq++, actSlot 2, prime untouched', () => {
+  it('slot-2 press QUEUES; the wire counter advances only on consumeActivation', () => {
     const presses: number[] = [];
     kb = new KeyboardInput(undefined, undefined, tbAbilitySlot, (slot) => presses.push(slot));
     kb.attach();
     expect(kb.actSeq).toBe(0); // the 0 sentinel before any press
     press('Digit3');
+    // Press feedback (onAbility) is immediate, but the wire counter does NOT
+    // advance at press time — the press is queued.
+    expect(presses).toEqual([2]);
+    expect(kb.pendingActivationCount).toBe(1);
+    expect(kb.actSeq).toBe(0);
+    kb.consumeActivation(); // one input built → drain one press
     expect(kb.actSeq).toBe(1);
     expect(kb.actSlot).toBe(2);
+    expect(kb.pendingActivationCount).toBe(0);
     expect(kb.primedSlot).toBe(SLOT_GUN); // NEVER primes
-    expect(presses).toEqual([2]);
   });
 
-  it('repeated presses are strictly monotonic; OS auto-repeat does not count', () => {
+  it('onAbility carries the actSeq the press WILL ride (consumedCount + queue depth)', () => {
+    const rides: number[] = [];
+    kb = new KeyboardInput(undefined, undefined, tbAbilitySlot, (_slot, actSeq) => rides.push(actSeq));
+    kb.attach();
+    press('Digit3'); // first queued → will ride actSeq 1
+    press('Digit3'); // second queued behind it → will ride actSeq 2
+    expect(rides).toEqual([1, 2]);
+  });
+
+  it('repeated presses are strictly monotonic once drained; OS auto-repeat does not count', () => {
     kb = new KeyboardInput(undefined, undefined, tbAbilitySlot);
     kb.attach();
     press('Digit3');
     press('Digit3', true); // held-key auto-repeat — filtered
     press('Numpad3');
     press('Digit3');
-    expect(kb.actSeq).toBe(3); // 3 genuine edges, monotonic
+    expect(kb.pendingActivationCount).toBe(3); // 3 genuine edges queued
+    for (let i = 0; i < 3; i++) kb.consumeActivation();
+    expect(kb.actSeq).toBe(3); // monotonic, one per drained press
     expect(kb.primedSlot).toBe(SLOT_GUN);
   });
 
@@ -416,26 +433,33 @@ describe('KeyboardInput — ability activation (TB/ML) vs prime (BB weapon speci
     kb.attach();
     press('Digit2'); // prime the torpedo
     expect(kb.primedSlot).toBe(TORP);
-    press('Digit3'); // boost activation — instant, independent of the prime
+    press('Digit3'); // boost activation — queued, independent of the prime
     expect(kb.primedSlot).toBe(TORP); // prime untouched
+    kb.consumeActivation();
     expect(kb.actSeq).toBe(1);
   });
 
-  it('a cooling/dead press still increments and still fires the callback (the server decides)', () => {
+  it('a cooling/dead press still queues + fires the callback (the server decides)', () => {
     // The keyboard has no denial concept at all — main.ts predicts the verdict
-    // for feedback only; every genuine press edge counts and rides the wire.
+    // for feedback only; every genuine press edge queues and rides an input.
     const presses: number[] = [];
     kb = new KeyboardInput(undefined, undefined, tbAbilitySlot, (slot) => presses.push(slot));
     kb.attach();
     press('Digit3');
     press('Digit3');
-    expect(kb.actSeq).toBe(2);
     expect(presses).toEqual([2, 2]);
+    kb.consumeActivation();
+    kb.consumeActivation();
+    expect(kb.actSeq).toBe(2);
   });
 
-  it('the Mine Layer activates BOTH specials — slot 1 (mine) + slot 2 (decoy), never primes', () => {
+  // --- FINDING A: two abilities in one 50ms window must NOT collapse ----------
+
+  it('the Mine Layer activates BOTH specials — two different-slot presses ride SUCCESSIVE inputs', () => {
     // Story 1.8: the ML fit is [gun, mine, decoyBuoy, empty] and both specials
-    // are instant abilities — keys 2 AND 3 route through actSeq, prime untouched.
+    // are instant abilities. FINDING A: pressing 2 then 3 inside one sample
+    // window must not overwrite the slot — draining ONE per input rides the mine
+    // this input and the decoy the next, so neither is lost.
     const presses: number[] = [];
     kb = new KeyboardInput(
       undefined,
@@ -445,11 +469,70 @@ describe('KeyboardInput — ability activation (TB/ML) vs prime (BB weapon speci
     );
     kb.attach();
     press('Digit2'); // mine — slot 1
-    press('Digit3'); // decoy — slot 2
+    press('Digit3'); // decoy — slot 2, same window
+    expect(presses).toEqual([1, 2]); // both press callbacks fired
+    expect(kb.pendingActivationCount).toBe(2);
+    expect(kb.actSeq).toBe(0); // nothing consumed yet
+    kb.consumeActivation(); // this input
+    expect(kb.actSeq).toBe(1);
+    expect(kb.actSlot).toBe(1); // the FIRST press (mine) — NOT lost
+    kb.consumeActivation(); // next input
     expect(kb.actSeq).toBe(2);
-    expect(kb.actSlot).toBe(2); // the latest press's slot
-    expect(presses).toEqual([1, 2]);
+    expect(kb.actSlot).toBe(2); // the second press (decoy)
     expect(kb.primedSlot).toBe(SLOT_GUN); // neither special ever primes
+  });
+
+  it('same-slot double-tap in one window drains as TWO consecutive activations (upgraded pool)', () => {
+    // A mineAmmo-upgraded pool double-tapped within 50ms must drop TWO mines, not
+    // one — each tap rides its own input, actSeq +1 each, actSlot the same slot.
+    kb = new KeyboardInput(undefined, undefined, tbAbilitySlot);
+    kb.attach();
+    press('Digit3');
+    press('Digit3');
+    expect(kb.pendingActivationCount).toBe(2);
+    kb.consumeActivation();
+    expect(kb.actSeq).toBe(1);
+    expect(kb.actSlot).toBe(2);
+    kb.consumeActivation();
+    expect(kb.actSeq).toBe(2); // the second tap is NOT dropped
+    expect(kb.actSlot).toBe(2);
+  });
+
+  it('consumeActivation is a no-op with an empty queue (repeats the counters — the "no new press" signal)', () => {
+    kb = new KeyboardInput(undefined, undefined, tbAbilitySlot);
+    kb.attach();
+    press('Digit3');
+    kb.consumeActivation();
+    expect(kb.actSeq).toBe(1);
+    kb.consumeActivation(); // nothing queued
+    expect(kb.actSeq).toBe(1); // unchanged
+    expect(kb.actSlot).toBe(2);
+  });
+
+  it('the queue caps at SLOT_COUNT (4) — pathological mashing drops silently', () => {
+    const presses: number[] = [];
+    kb = new KeyboardInput(undefined, undefined, tbAbilitySlot, (slot) => presses.push(slot));
+    kb.attach();
+    for (let i = 0; i < 7; i++) press('Digit3'); // 7 presses in one window
+    expect(kb.pendingActivationCount).toBe(4); // capped
+    expect(presses).toHaveLength(4); // over-cap presses never reach onAbility either
+  });
+
+  it('clearActivations drops the pending queue but LEAVES the consumed counters monotonic', () => {
+    kb = new KeyboardInput(undefined, undefined, tbAbilitySlot);
+    kb.attach();
+    press('Digit3');
+    kb.consumeActivation(); // actSeq 1
+    press('Digit3'); // queue a second (would ride actSeq 2)
+    press('Digit3'); // and a third
+    expect(kb.pendingActivationCount).toBe(2);
+    kb.clearActivations(); // death / respawn / reconnect boundary
+    expect(kb.pendingActivationCount).toBe(0);
+    expect(kb.actSeq).toBe(1); // NOT reset — mirrors the server's un-reset lastActSeq
+    // A fresh press after the clear rides the next counter value, not a stale one.
+    press('Digit3');
+    kb.consumeActivation();
+    expect(kb.actSeq).toBe(2);
   });
 
   it('on a WEAPON-special loadout (BB) the same key PRIMES exactly as today and actSeq stays 0', () => {

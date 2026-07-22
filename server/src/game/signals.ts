@@ -384,6 +384,16 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     // covers the buoy already truesights it (the decoys channel) — never
     // doubled as a blip, exactly like a zone-covered ship.
     if (ownZoneCovers(ctx, decoy)) return null;
+    // CONTACT-COEXISTENCE GUARD (FR10): never lie about an owner the observer
+    // can currently SEE. A genuine ship can never be a contact AND a blip in
+    // the same frame (the annulus excludes sight; zone-covered ships are
+    // blip-excluded), so contact('a') + blip('a') coexisting would be a wire
+    // tell that unmasks the buoy. The gate reuses the contact row's EXACT
+    // visibility predicate on the OWNER's hull — never a hand-rolled variant —
+    // and the deception is worthless in that state anyway (the observer has
+    // the real hull in truesight).
+    const owner = ctx.ships.get(decoy.ownerId);
+    if (owner !== undefined && contactSignal.visible(ctx, owner)) return null;
     if (!blipGate(me, decoy, ctx.islands)) return null;
     // The lie: the genuine blip shape with the OWNER's ship id at the buoy's
     // position. `t` = ctx.now, like every real paint.

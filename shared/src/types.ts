@@ -393,9 +393,10 @@ export interface LitZoneView {
  * buoy painting as the owner's ship — never rides this shape: it travels as an
  * ordinary `blip` event carrying the owner's ship id (perception.ts /
  * signals.ts counterIntel), wire-indistinguishable from a real ship blip.
- * `until` is the server-clock expiry (drives the client's fade); a decoy
- * dropping out of the list means expired OR out of view — the client cannot
- * tell (the mines/litZones precedent).
+ * `until` is the server-clock expiry (informational — the current client
+ * renders a static marker and removes it on despawn; a near-expiry fade is a
+ * possible future use). A decoy dropping out of the list means expired OR out
+ * of view — the client cannot tell (the mines/litZones precedent).
  */
 export interface DecoyView {
   id: string; // the decoy's own id (NOT the owner's ship id the blip lie carries)

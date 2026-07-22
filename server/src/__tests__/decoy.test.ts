@@ -254,6 +254,51 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
     expect(JSON.stringify(lie)).toBe(JSON.stringify({ k: 'blip', id: 'a', x: 0, y: 400, t: w.now }));
   });
 
+  it('COEXISTENCE GUARD (FR10): no decoy blip while the OWNER is a contact — contact(a) + blip(a) never share a frame', () => {
+    const w = bareWorld(42);
+    place(w, 'a', 100, 0, 0, 'mineLayer'); // the owner, INSIDE b's sight — a live contact
+    const b = place(w, 'b', 0, 0);
+    injectDecoy(w, 'd1', 'a', 400, 0); // buoy in b's swept annulus
+    windowAround(b, 0);
+    const f = buildFrame(w, 'b');
+    expect(f.contacts.map((c) => c.id)).toEqual(['a']); // the real hull is visible...
+    expect(blipsOf(f)).toEqual([]); // ...so the lie is suppressed (no impossible pair)
+    // Move the owner out of sight (annulus, unswept bearing): the lie returns.
+    w.ships.get('a')!.state.x = -400; // bearing π — outside the window around 0
+    windowAround(b, 0);
+    const f2 = buildFrame(w, 'b');
+    expect(f2.contacts).toEqual([]);
+    expect(blipsOf(f2)).toEqual([{ k: 'blip', id: 'a', x: 400, y: 0, t: w.now }]);
+  });
+
+  it("COEXISTENCE GUARD zone tier: an observer whose OWN zone covers the owner's hull gets no decoy blip", () => {
+    const w = bareWorld(43);
+    place(w, 'a', 900, 0, 0, 'mineLayer'); // far beyond b's sight AND radar
+    const b = place(w, 'b', 0, 0);
+    w.litZones.set('z1', { id: 'z1', ownerId: 'b', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+    injectDecoy(w, 'd1', 'a', 400, 0); // buoy in b's swept annulus
+    windowAround(b, 0);
+    const f = buildFrame(w, 'b');
+    expect(f.contacts.map((c) => c.id)).toEqual(['a']); // zone-covered owner = full contact
+    expect(blipsOf(f)).toEqual([]); // the same guard, through the same contact predicate
+  });
+
+  it('ORDERING (FR10): same-id real + decoy blips in one frame sort by (x,y,t,id) — never by source', () => {
+    const w = bareWorld(44);
+    const a = place(w, 'a', 400, 0, 0, 'mineLayer'); // the real hull: annulus, bearing 0
+    const b = place(w, 'b', 0, 0);
+    injectDecoy(w, 'd1', 'a', 0, 400); // the buoy: annulus, bearing π/2
+    b.prevSweepAngle = wrapPositive(-0.05); // one window spanning both bearings
+    b.sweepAngle = Math.PI / 2 + 0.05;
+    const blips = blipsOf(buildFrame(w, 'b'));
+    // Both paint, same id — and the DECOY (x=0) precedes the REAL hull (x=400)
+    // because the order is the public payload key, not genuine-first.
+    expect(blips).toEqual([
+      { k: 'blip', id: 'a', x: 0, y: 400, t: w.now },
+      { k: 'blip', id: 'a', x: a.state.x, y: a.state.y, t: w.now },
+    ]);
+  });
+
   it('an expired buoy stops painting the moment the sweep drops it', () => {
     const { w, b } = observed();
     injectDecoy(w, 'd1', 'a', 400, 0, w.now + DT); // expires after one step
