@@ -1006,6 +1006,8 @@ So that finding prey is part of the sensor game and my XP has a second faucet.
 **And** drones are never participants: the win check ignores them entirely (formal multi-mode coverage lands in Epic 6)
 **And** the perf budget holds with full fleets present (they're part of the reference scenario).
 
+> **Drone rescale/rebalance (Eric, 2026-07-21, ruled during Story 1.6):** the pinned drone envelopes (small 46 / medium 38 / large 30 — byte-for-byte the retired prototype blocks) predate the 1.6 hull-speed rescale (TB 45 / ML 40 / BS 35), leaving droneSmall the fastest hull afloat. Rescale and rebalance the drone kinematics/HP against the new class envelopes in this story (design targets resolved WITH ERIC; the shipClasses identity test's drone table updates deliberately with it).
+
 ## Epic 6: Honest Lobbies & Modes (GDD E5)
 
 Two real modes with honest matches: no bot-fill, min-2 fill-or-timer, cap 20, roster-scaled maps, Solo vs AI with real combat bots, queue-liveness menu, reconnection UX. Architecture stake: Solo vs AI is the launch-day first match for most players — bot quality sits on the retention critical path, never fallback filler.
