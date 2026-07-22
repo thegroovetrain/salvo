@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  9: mine-layer loadout (Story 1.8) — the mineLayer fit becomes
+ *  [gun, mine, decoyBuoy, empty]; mine flips to the ability (actSeq) channel;
+ *  FrameMsg gains optional decoys (DecoyView {id,x,y,until,own}); CONFIG.mine gains
+ *  blastRadius + a trigger/maxLive retune; CONFIG gains a decoyBuoy block (all
+ *  ride the welcome config snapshot).
  *  8: battleship loadout (Story 1.7) — FrameMsg gains optional litZones
  *  (LitZoneView {id,x,y,r,until,by}: star-shell lit zones, owner-always /
  *  radar-gated circle); CONFIG gains cannon + starShells blocks (rides the
@@ -26,7 +31,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 // Tunables
 export * from './constants.js';

@@ -8,6 +8,7 @@ import {
   shouldConsumePrime,
   type Aiming,
 } from '../sim/inputSampler.js';
+import { KeyboardInput } from '../input/keyboard.js';
 
 const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0 };
 
@@ -248,5 +249,60 @@ describe('abilityPressDenied — predicted activation verdict (feedback only)', 
 
   it('is allowed when alive with a ready charge', () => {
     expect(abilityPressDenied(true, true)).toBe(false);
+  });
+
+  it('is slot-agnostic — the ML fits two abilities and main.ts applies it PER SLOT', () => {
+
+    // Story 1.8: the predicate has no slot term (alive + this slot's charge only),
+    // so both ML specials (mine slot 1, decoyBuoy slot 2) gate identically; the
+    // per-slot latch/pulse that keeps a denied mine press from flashing the decoy
+    // chip lives in main.ts, keyed by the pressed slot's own loaded state.
+    const mineLoaded = true;
+    const decoyCooling = false;
+    expect(abilityPressDenied(true, mineLoaded)).toBe(false); // mine ready → allowed
+    expect(abilityPressDenied(true, decoyCooling)).toBe(true); // decoy cooling → denied
+  });
+});
+
+// --- FINDING A: keyboard queue → sampler wire stream (dual-ability, no collapse) ---
+
+describe('ability activation reaches the wire one-per-input (KeyboardInput + InputSampler)', () => {
+  const press = (code: string): void =>
+    void window.dispatchEvent(new KeyboardEvent('keydown', { code }));
+
+  /** One sim-tick: main.ts's order — drain one queued press, THEN sample. */
+  function tick(kb: KeyboardInput, sampler: InputSampler): InputMsg {
+    kb.consumeActivation();
+    return sampler.sample(
+      { throttle: 0, rudder: 0 },
+      { aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: kb.actSeq, actSlot: kb.actSlot },
+    );
+  }
+
+  it('two different-slot presses in ONE window ride SUCCESSIVE inputs, neither lost', () => {
+    const kb = new KeyboardInput(undefined, undefined, () => true); // every slot is an ability
+    kb.attach();
+    const sampler = new InputSampler(() => undefined);
+    press('Digit2'); // slot 1 (mine)
+    press('Digit3'); // slot 2 (decoy) — same 50ms window, before any sample
+    const a = tick(kb, sampler);
+    const b = tick(kb, sampler);
+    const c = tick(kb, sampler);
+    expect([a.actSeq, a.actSlot]).toEqual([1, 1]); // first press this input
+    expect([b.actSeq, b.actSlot]).toEqual([2, 2]); // second press the next input — NOT collapsed
+    expect([c.actSeq, c.actSlot]).toEqual([2, 2]); // nothing new — the counter simply repeats
+    kb.detach();
+  });
+
+  it('actSeq climbs by AT MOST 1 per input (the server fires one ability per tick)', () => {
+    const kb = new KeyboardInput(undefined, undefined, () => true);
+    kb.attach();
+    const sampler = new InputSampler(() => undefined);
+    press('Digit3');
+    press('Digit3');
+    press('Digit3'); // three in one window
+    const seqs = [tick(kb, sampler).actSeq, tick(kb, sampler).actSeq, tick(kb, sampler).actSeq];
+    expect(seqs).toEqual([1, 2, 3]); // strictly +1 each, never a jump
+    kb.detach();
   });
 });

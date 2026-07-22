@@ -1,15 +1,20 @@
-// Mine fire control + trigger resolution — the mine Equipment row.
-// A mine is a STATIC point in world state (not a ballistic): dropped astern,
-// arms after armDelay, then triggers when any NON-OWNER live hull silhouette
-// comes within triggerRadius of it. On trigger it deals damage to that ship and
-// despawns with a boom at the mine point. Max `maxLive` live mines per player
-// (dropping past the cap despawns that player's OLDEST silently — no boom); a
-// defensive global cap bounds total growth. Mines never radar-paint; their
-// per-observer visibility is contact-like (see perception.minesForObserver).
+// Mine activation + trigger resolution — the mine Equipment row.
+// A mine is a STATIC point in world state (not a ballistic): dropped astern by
+// an INSTANT ability activation (Story 1.8 — the actSeq channel, no aim, no
+// click), arms after armDelay, then TRIPS when any NON-OWNER live hull
+// silhouette comes within triggerRadius of it. A trip detonates as a BLAST
+// (Eric ruling 2026-07-22): every non-owner hull silhouette within blastRadius
+// takes full damage (mineBlastVictims below — the owner is ALWAYS excluded,
+// the universal AoE convention), with one boom at the mine point. Max
+// `maxLive` live mines per player (dropping past the cap despawns that
+// player's OLDEST silently — no boom); a defensive global cap bounds total
+// growth. Mines never radar-paint; their per-observer visibility is
+// contact-like (the `mine` signal row).
 
 import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
+  burstVictims,
   hullSilhouette,
   pointPolygonDistance,
   transformPolygon,
@@ -119,6 +124,19 @@ export function checkMineTriggers(
   return triggers;
 }
 
+/**
+ * The BLAST membership for one detonating mine (Story 1.8): every hull whose
+ * silhouette lies within CONFIG.mine.blastRadius of the mine point — OWNER
+ * EXCLUDED, enemies AND drones alike, full damage each (the World applies it).
+ * Reuses the shared burstVictims silhouette-in-radius rule (the gun/starShells
+ * AoE precedent), so mine blasts and shell bursts can never diverge on what
+ * "inside the blast" means. Pure — the World deletes the mine and resolves
+ * damage/booms.
+ */
+export function mineBlastVictims(mine: MineState, hulls: readonly HullTarget[]): string[] {
+  return burstVictims(mine, CONFIG.mine.blastRadius, hulls, mine.ownerId);
+}
+
 /** The world-space hull target for a ship pose (test/inspection convenience —
  *  the sim itself builds targets in World.aliveHulls with per-ship scratch). */
 export function hullFor(ship: ShipRecord): HullTarget {
@@ -126,11 +144,13 @@ export function hullFor(ship: ShipRecord): HullTarget {
   return { id: ship.id, poly: transformPolygon(hullSilhouette(ship.hullId), s.x, s.y, s.heading) };
 }
 
-/** The mine Equipment row. The drop ammo pool is distinct from the live-mine
- *  board cap (stats.mine.maxLive) that addMine enforces. Pool size + reload
- *  come from the ship's cached effective stats (Stage D upgrades). No arc: a
- *  drop is denied only by an empty pool. Slot state is non-null by the loadout
- *  invariant (see index.ts). */
+/** The mine Equipment row — an ABILITY as of Story 1.8 (isWeapon false via the
+ *  shared flag): activation rides the actSeq channel, instant and non-aimed
+ *  (no fireT compensation — the gate runs at `now`). The drop ammo pool is
+ *  distinct from the live-mine board cap (stats.mine.maxLive) that addMine
+ *  enforces. Pool size + reload come from the ship's cached effective stats
+ *  (Stage D upgrades). No arc, no aim: a drop is denied only by an empty pool.
+ *  Slot state is non-null by the loadout invariant (see index.ts). */
 export const mineEquipment: Equipment = {
   id: 'mine',
   isWeapon: EQUIPMENT_IS_WEAPON.mine, // shared weapon/ability split — single source

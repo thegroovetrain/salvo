@@ -65,6 +65,11 @@ describe('effectiveStats — zero-counts identity (per class)', () => {
         maxAmmo: CONFIG.starShells.maxAmmo,
         rangeU: CONFIG.vision.radar,
       },
+      decoyBuoy: {
+        reloadMs: CONFIG.decoyBuoy.reloadMs,
+        maxAmmo: CONFIG.decoyBuoy.maxAmmo,
+        durationMs: CONFIG.decoyBuoy.durationMs,
+      },
     });
   });
 
@@ -184,6 +189,44 @@ describe('effectiveStats — cannon/starShells are pure pass-throughs (Story 1.7
   });
 });
 
+describe('effectiveStats — mine.maxLive base + maxMines stacking (Story 1.8)', () => {
+  it('maxLive base is CONFIG.mine.maxLive (5) at zero upgrades on every class', () => {
+    expect(CONFIG.mine.maxLive).toBe(5);
+    for (const id of SHIP_CLASS_IDS) {
+      expect(effectiveStats(CONFIG.shipClasses[id], zeroUpgrades()).mine.maxLive).toBe(5);
+    }
+  });
+
+  it('maxMines stacks linearly on the base 5 (add per stack), leaving other mine fields untouched', () => {
+    const base = effectiveStats(BASE, zeroUpgrades()).mine;
+    for (const count of [1, 3, 7]) {
+      const mine = effectiveStats(BASE, countsWith('maxMines', count)).mine;
+      expect(mine.maxLive).toBe(CONFIG.mine.maxLive + CONFIG.upgrades.maxMines.add * count);
+      expect(mine.reloadMs).toBe(base.reloadMs);
+      expect(mine.maxAmmo).toBe(base.maxAmmo);
+    }
+  });
+});
+
+describe('effectiveStats — decoyBuoy block is a pure CONFIG.decoyBuoy pass-through (Story 1.8)', () => {
+  it('equals CONFIG.decoyBuoy for every class at zero upgrades', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      expect(effectiveStats(CONFIG.shipClasses[id], zeroUpgrades()).decoyBuoy).toEqual({
+        reloadMs: CONFIG.decoyBuoy.reloadMs,
+        maxAmmo: CONFIG.decoyBuoy.maxAmmo,
+        durationMs: CONFIG.decoyBuoy.durationMs,
+      });
+    }
+  });
+
+  it('no upgrade id moves any decoyBuoy field', () => {
+    const base = effectiveStats(BASE, zeroUpgrades()).decoyBuoy;
+    for (const id of UPGRADE_IDS) {
+      expect(effectiveStats(BASE, countsWith(id, 4)).decoyBuoy).toEqual(base);
+    }
+  });
+});
+
 /** Exactly which flattened fields each upgrade id may move. */
 const AFFECTED: Record<UpgradeId, string[]> = {
   hullPoints: ['maxHp'],
@@ -237,10 +280,12 @@ describe('upgrade helpers', () => {
     expect(equipmentMaxAmmo(s, 'torpedo')).toBe(s.torpedo.maxAmmo);
     expect(equipmentMaxAmmo(s, 'mine')).toBe(s.mine.maxAmmo);
     expect(equipmentMaxAmmo(s, 'speedBoost')).toBe(s.boost.maxAmmo);
+    expect(equipmentMaxAmmo(s, 'decoyBuoy')).toBe(s.decoyBuoy.maxAmmo);
     expect(equipmentReloadMs(s, 'gun')).toBe(s.gun.reloadMs);
     expect(equipmentReloadMs(s, 'torpedo')).toBe(s.torpedo.reloadMs);
     expect(equipmentReloadMs(s, 'mine')).toBe(s.mine.reloadMs);
     expect(equipmentReloadMs(s, 'speedBoost')).toBe(s.boost.reloadMs);
+    expect(equipmentReloadMs(s, 'decoyBuoy')).toBe(s.decoyBuoy.reloadMs);
   });
 
   it('CONFIG.upgrades keys are exactly UPGRADE_IDS (table and order stay in sync)', () => {

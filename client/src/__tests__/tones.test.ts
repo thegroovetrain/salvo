@@ -23,6 +23,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireMine',
   'fireCannon',
   'fireStarShells',
+  'placeDecoy',
   'damage',
   'kill',
   'point',
@@ -82,6 +83,20 @@ describe('fireTone — weapon -> own-fire tone mapping', () => {
   it('the cannon report is heavier (lower start) than the gun crack; the flare is a distinct rise', () => {
     expect(TONES.fireCannon.freqStart).toBeLessThan(TONES.fireGun.freqStart); // heavier
     expect(TONES.fireStarShells.freqEnd).toBeGreaterThan(TONES.fireStarShells.freqStart); // rising pop
+  });
+});
+
+describe('placeDecoy tone (Story 1.8) — buoy placement cue', () => {
+  // The decoy is an instant ability, not a firing weapon, so it is NOT in the
+  // fireTone map (decoyBuoy is excluded at the type level); its cue plays as
+  // 'placeDecoy' from the Decoys reconcile own-spawn hook (the mine precedent).
+  // It shares the soft sine "drop" family with the mine plop but is pitched a
+  // touch higher so seeding a buoy is audibly distinct from dropping a mine.
+  it('is a soft sine drop, within the short-tone budget, pitched above the mine plop', () => {
+    expect(TONES.placeDecoy.type).toBe('sine');
+    expect(TONES.placeDecoy.duration).toBeLessThanOrEqual(MAX_TONE_S);
+    expect(TONES.placeDecoy.freqStart).toBeGreaterThan(TONES.fireMine.freqStart); // brighter than the mine
+    expect(TONES.placeDecoy.freqEnd).toBeLessThan(TONES.placeDecoy.freqStart); // a downward drop
   });
 });
 

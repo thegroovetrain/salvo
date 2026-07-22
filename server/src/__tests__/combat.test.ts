@@ -422,7 +422,8 @@ describe('World fire control — one shot per click (fireSeq), single-shot pool'
 
 const DT_MS = CONFIG.tick.simDtMs;
 const SLOT_TORPEDO = 1;
-const SLOT_MINE = 2;
+/** The Mine Layer's mine slot (Story 1.8 fit: [gun, mine, decoyBuoy, empty]). */
+const SLOT_MINE_ML = 1;
 
 /** A slot-1/2 click input (torpedo/mine are direction-only; aimDist ignored). */
 const slotInput = (slot: number, fireSeq = 1, seq = 1, fireT = 0) =>
@@ -593,20 +594,23 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     expect(back.a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
   });
 
-  it('MINE: armedAt = validated fire time + armDelay (a back-dated drop arms earlier)', () => {
-    const { w, a } = armed(7, 'mineLayer'); // slot 2 = mine (the TB fits speedBoost there, Story 1.6)
+  it('MINE (Story 1.8 ability): NO fireT compensation — a back-dated claim still arms at now + armDelay', () => {
+    // Mines left the click channel: they activate via actSeq at server apply
+    // time (the 3s arm delay dwarfs any latency skew), so even a plausible
+    // fireT claim with a measured RTT compensates NOTHING.
+    const { w, a } = armed(7, 'mineLayer'); // slot 1 = mine (Story 1.8: [gun, mine, decoyBuoy])
     w.setRtt('a', 80);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', slotInput(SLOT_MINE, 1, 1, 10)); // comp 40 at now=50
+    w.submitInput('a', { ...slotInput(0, 0, 1, 10), actSeq: 1, actSlot: SLOT_MINE_ML }); // press + a fireT claim
     w.step();
     const [mine] = [...w.mines.values()];
-    expect(mine.armedAt).toBe(10 + CONFIG.mine.armDelay);
+    expect(mine.armedAt).toBe(w.now + CONFIG.mine.armDelay); // never 10 + armDelay
   });
 
-  it('MINE without a claim keeps today\'s law: armedAt = now + armDelay', () => {
-    const { w, a } = armed(7, 'mineLayer'); // slot 2 = mine (the TB fits speedBoost there, Story 1.6)
+  it('MINE without a claim: armedAt = now + armDelay (the ability baseline)', () => {
+    const { w, a } = armed(7, 'mineLayer'); // slot 1 = mine (Story 1.8: [gun, mine, decoyBuoy])
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', slotInput(SLOT_MINE, 1, 1, 0));
+    w.submitInput('a', { ...slotInput(0, 0, 1, 0), actSeq: 1, actSlot: SLOT_MINE_ML });
     w.step();
     expect([...w.mines.values()][0].armedAt).toBe(w.now + CONFIG.mine.armDelay);
   });

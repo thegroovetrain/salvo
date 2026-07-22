@@ -384,6 +384,28 @@ export interface LitZoneView {
   by: string; // the firer's ship id
 }
 
+/**
+ * A decoy buoy visible to this viewer, synced as CONTACT-LIKE state (not an
+ * event): FrameMsg.decoys is recomputed per observer every tick, exactly like
+ * mines. This carries the TRUTH — the buoy for what it is — and is delivered
+ * only to the OWNER (always sees own buoy), to enemies whose sight/lit-zone
+ * covers it (truesight reveals the lie), and to spectators. The DECEPTION — the
+ * buoy painting as the owner's ship — never rides this shape: it travels as an
+ * ordinary `blip` event carrying the owner's ship id (perception.ts /
+ * signals.ts counterIntel), wire-indistinguishable from a real ship blip.
+ * `until` is the server-clock expiry (informational — the current client
+ * renders a static marker and removes it on despawn; a near-expiry fade is a
+ * possible future use). A decoy dropping out of the list means expired OR out
+ * of view — the client cannot tell (the mines/litZones precedent).
+ */
+export interface DecoyView {
+  id: string; // the decoy's own id (NOT the owner's ship id the blip lie carries)
+  x: number; // u
+  y: number; // u
+  until: number; // ms — server time the buoy expires
+  own: boolean; // true iff the receiving observer OWNS this buoy (per-observer, the mines precedent)
+}
+
 /** Per-tick, per-client events. Discriminated union on `k`. */
 export type GameEvent =
   | BlipEvent
@@ -411,6 +433,7 @@ export interface FrameMsg {
   events: GameEvent[];
   mines: MineView[]; // per-observer mine visibility (contact-like, recomputed per tick)
   litZones?: LitZoneView[]; // per-observer lit-zone visibility (contact-like; omitted when none)
+  decoys?: DecoyView[]; // per-observer decoy-buoy visibility (contact-like; omitted when none)
   spec?: true; // spectator (unfogged) frame
 }
 

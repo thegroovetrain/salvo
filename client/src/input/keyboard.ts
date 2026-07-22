@@ -6,12 +6,14 @@
 // telegraph module) are unit-tested.
 //
 // Prime model (Eric ruling 2026-07-21): the gun (slot 0) is the permanently
-// selected default. 2/3 PRIME the torpedo (slot 1) / mine (slot 2) skillshot —
-// the next shot fires that instead, then the gun is the weapon again. Pressing
-// the same key again CANCELS the prime; 1 explicitly reverts to gun; there is
-// no timeout. Priming is pure client UX — the wire slot per click is the truth,
-// and main.ts consumes the prime (back to gun) only on a predicted-fireable
-// click (sim/inputSampler.primeFireable).
+// selected default. 2/3 PRIME the slot's WEAPON skillshot (a torpedo bow-arc
+// shot, a Battleship cannon/star shell) — the next shot fires that instead, then
+// the gun is the weapon again. Pressing the same key again CANCELS the prime; 1
+// explicitly reverts to gun; there is no timeout. If a slot holds an instant
+// ABILITY instead (the TB's speedBoost, or — Story 1.8 — the Mine Layer's mine +
+// decoyBuoy), 2/3 ACTIVATE it immediately (actSeq) and never prime. Priming is
+// pure client UX — the wire slot per click is the truth, and main.ts consumes the
+// prime (back to gun) only on a predicted-fireable click (primeFireable).
 //
 // Throttle is NO LONGER a held axis: W/S (and Up/Down arrows) TAP the engine
 // telegraph (input/telegraph.ts) one detent per keydown edge — a persistent
@@ -19,7 +21,7 @@
 // W/S so spectator free-pan can read all four WASD directions (panAxesFrom);
 // driving reads throttle from the telegraph + rudder from the held set.
 
-import { EQUIPMENT_IS_WEAPON, SLOT_GUN, type EquipmentId } from '@salvo/shared';
+import { EQUIPMENT_IS_WEAPON, SLOT_COUNT, SLOT_GUN, type EquipmentId } from '@salvo/shared';
 import {
   Telegraph,
   stepFromKey,
@@ -120,12 +122,13 @@ export function primeSlotFromKey(code: string): number | null {
 
 /**
  * Pure: does `slot` of the own loadout hold instant-activation ABILITY
- * equipment (`EQUIPMENT_IS_WEAPON[id] === false` — the TB's speedBoost)?
- * Weapons and empty/out-of-range slots return false (they prime / do nothing,
- * exactly as today). The single weapon/ability split source is the shared map;
- * main.ts closes this over the own loadout (loadoutFor(you.cls)) for the
- * KeyboardInput predicate — Story 1.6's minimal control extension (Epic 2
- * owns the Q/E/R/F rebinding).
+ * equipment (`EQUIPMENT_IS_WEAPON[id] === false`)? Those are the TB's
+ * speedBoost and — Story 1.8 — the Mine Layer's BOTH specials (mine + decoyBuoy,
+ * so an ML answers true for slots 1 AND 2). Weapons and empty/out-of-range slots
+ * return false (they prime / do nothing, exactly as today). The single
+ * weapon/ability split source is the shared map; main.ts closes this over the
+ * own loadout (loadoutFor(you.cls)) for the KeyboardInput predicate — Story 1.6's
+ * minimal control extension (Epic 2 owns the Q/E/R/F rebinding).
  */
 export function slotHoldsAbility(slotIds: readonly (EquipmentId | null)[], slot: number): boolean {
   const id = slotIds[slot] ?? null;
@@ -151,11 +154,25 @@ export class KeyboardInput {
    *  clearKeys like the old weapon latch did. main.ts reverts it to gun on a
    *  predicted-fireable click (revertToGun). */
   private primed = SLOT_GUN;
-  /** Cumulative ability-activation counter (InputMsg.actSeq): 0 = never pressed.
-   *  Monotonic and NEVER reset — the wire counter's whole meaning is "how many
-   *  activation presses ever", mirroring mouse.clickCount for fireSeq. */
+  /**
+   * FIFO queue of accepted ability-activation slots awaiting consumption onto
+   * the wire. The server activates AT MOST ONE ability per tick
+   * (World.activationControl: `actSeq > lastActSeq` fires once on actSlot), so
+   * multiple presses inside one 50ms sample window MUST be spread across
+   * successive inputs — consumeActivation() drains exactly one per built input.
+   * Without this, two different-slot presses in one window collapse (actSeq
+   * jumps by 2, the server fires only the last slot once, the first press is
+   * lost silently — the Mine Layer is the first hull with two ability slots).
+   * Capped at SLOT_COUNT to bound mashing; cleared on the hard state boundaries
+   * (death / respawn / spectate / reconnect) so a queued press never fires into
+   * the next life. */
+  private readonly pendingActs: number[] = [];
+  /** Cumulative CONSUMED ability-activation count (InputMsg.actSeq): 0 = never
+   *  consumed. Monotonic and NEVER reset (mirrors the server's lastActSeq, which
+   *  also survives death) — advanced by exactly 1 per consumeActivation() that
+   *  drains a queued press, mirroring mouse.clickCount for fireSeq. */
   private actCount = 0;
-  /** Loadout slot of the most recent ability activation (InputMsg.actSlot; 0 sentinel). */
+  /** Loadout slot of the most recently CONSUMED activation (InputMsg.actSlot; 0 sentinel). */
   private lastActSlot = 0;
   /** Control is currently physically held (set on non-repeat keydown, cleared on keyup/blur). */
   private ctrlHeld = false;
@@ -180,15 +197,17 @@ export class KeyboardInput {
    *   (non-weapon) equipment on the OWN ship? main.ts closes it over the own
    *   loadout (slotHoldsAbility). When true, the slot's number key ACTIVATES
    *   instead of priming (Story 1.6).
-   * @param onAbility Called on each genuine ability-activation press edge
-   *   (after actSeq has advanced) — main.ts predicts the verdict for feedback
-   *   (denied pulse / optimistic boost window).
+   * @param onAbility Called on each genuine ability-activation press edge (at
+   *   PRESS time — the press is queued, not yet consumed) with the slot and the
+   *   actSeq value that press WILL ride once consumed (consumedCount + its queue
+   *   depth). main.ts predicts the verdict for feedback (denied pulse / optimistic
+   *   boost window keyed on that ride-actSeq).
    */
   constructor(
     private readonly onDetent?: (dir: Step, changed: boolean) => void,
     private readonly onUpgradeKey?: (a: UpgradeAction) => void,
     private readonly isAbilitySlot?: (slot: number) => boolean,
-    private readonly onAbility?: (slot: number) => void,
+    private readonly onAbility?: (slot: number, actSeq: number) => void,
   ) {}
 
   /**
@@ -258,19 +277,53 @@ export class KeyboardInput {
   }
 
   /**
-   * One ability-activation keypress (Story 1.6 minimal control extension —
-   * Epic 2 owns the Q/E/R/F rebinding): advance the monotonic actSeq and
-   * record the slot, mirroring fireSeq's counter grammar. The SERVER decides —
-   * a press while cooling or dead still counts and still rides the next input;
-   * the onAbility callback only predicts the verdict for feedback. OS
-   * auto-repeat is filtered like every other edge-triggered key, so holding
-   * the key is one activation, not a stream.
+   * One ability-activation keypress (Story 1.6 control extension; Story 1.8's
+   * two-ability Mine Layer made the queue load-bearing): QUEUE the slot rather
+   * than bumping the wire counter directly, so the sampler can drain exactly one
+   * press per input (the server fires one ability per tick). The SERVER decides —
+   * a press while cooling or dead still queues and still rides an input; the
+   * onAbility callback only predicts the verdict for feedback. OS auto-repeat is
+   * filtered like every other edge-triggered key (one activation, not a stream),
+   * and the queue is capped at SLOT_COUNT so pathological mashing (>4 presses in
+   * one 50ms window) drops silently instead of growing unbounded.
    */
   private activateAbility(e: KeyboardEvent, slot: number): void {
     if (e.repeat) return;
+    if (this.pendingActs.length >= SLOT_COUNT) return; // bound mashing
+    this.pendingActs.push(slot);
+    // Pass the actSeq this press WILL ride once consumed: consumedCount + its
+    // queue depth (it is last in line, so it drains after all currently pending).
+    // The boost optimistic-window predictor keys its clear-on-ack on this value,
+    // so it stays correct even when other presses queue ahead of it.
+    this.onAbility?.(slot, this.actCount + this.pendingActs.length);
+  }
+
+  /**
+   * Drain EXACTLY ONE queued activation onto the wire counters, if any: advance
+   * the cumulative consumed count (InputMsg.actSeq) by one and record its slot
+   * (InputMsg.actSlot). main.ts calls this once per BUILT INPUT (the sample +
+   * neutral-send sites) so multiple presses in one 50ms window ride successive
+   * inputs and the server (one ability per tick) fires each in turn. A no-op
+   * when the queue is empty — the counters simply repeat, the honest "no new
+   * press" signal every non-pressing tick sends.
+   */
+  consumeActivation(): void {
+    const slot = this.pendingActs.shift();
+    if (slot === undefined) return;
     this.actCount += 1;
     this.lastActSlot = slot;
-    this.onAbility?.(slot);
+  }
+
+  /**
+   * Drop every queued-but-unconsumed activation press. Wired to the hard state
+   * boundaries (own sunk / respawn / spectate-enter / reconnect) so a press
+   * queued in one life — or mashed while dead/spectating — never fires into the
+   * next. Deliberately LEAVES the consumed counters intact: actSeq must stay
+   * monotonic (the server's lastActSeq is not reset on death either), or a
+   * post-death press would read as stale and silently never activate.
+   */
+  clearActivations(): void {
+    this.pendingActs.length = 0;
   }
   private readonly onUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
@@ -350,17 +403,24 @@ export class KeyboardInput {
   }
 
   /**
-   * Cumulative ability-activation counter for the wire (InputMsg.actSeq).
-   * 0 = never pressed (the sentinel every non-ability driver keeps sending).
-   * Sampled by BOTH send paths (inputSampler sample + sendNeutralNow).
+   * Cumulative CONSUMED ability-activation counter for the wire (InputMsg.actSeq).
+   * 0 = never consumed (the sentinel every non-ability driver keeps sending).
+   * Advances only via consumeActivation() (one per built input), NOT at press
+   * time — presses queue first. Sampled by BOTH send paths (inputSampler sample
+   * + sendNeutralNow), each of which consumes exactly one queued press first.
    */
   get actSeq(): number {
     return this.actCount;
   }
 
-  /** Loadout slot of the latest ability activation (InputMsg.actSlot; 0 sentinel). */
+  /** Loadout slot of the latest CONSUMED ability activation (InputMsg.actSlot; 0 sentinel). */
   get actSlot(): number {
     return this.lastActSlot;
+  }
+
+  /** Queued-but-unconsumed activation presses (tests/debug). */
+  get pendingActivationCount(): number {
+    return this.pendingActs.length;
   }
 
   /**

@@ -4,7 +4,7 @@
 # Created manually (workflow-init not shipped in this GDS install) — 2026-07-15
 
 generated: '2026-07-15'
-last_updated: '2026-07-22'  # story 1-7 (Battleship Loadout) done: cannon (50 dmg/30 burst/200 speed/15s, range = gun base) + star shells (10 dmg, 110u lit zone 10s/20s, full truesight parity for firer, radar-visible circle with firer id) via new litZones channel + litzone registry row, PV8; all numbers Eric-ruled in pre-implementation Q&A 2026-07-21; sprint-status.yaml is the per-story source of truth
+last_updated: '2026-07-22'  # story 1-8 (Mine Layer Loadout) done: fit [gun, mine, decoyBuoy, empty]; mine reworked to an activateable blast ability (trigger 32 / blast 48 > trigger, owner-excluded, owner-gun early-detonation of armed mines, live cap 5 oldest-evicted, no expiry) + new Decoy Buoy ability (stationary radar-double via counterIntel blip = owner ship id, one live/replace, 30s life, 20s reload) on a new decoys frame channel + decoy registry row, PV9; both 1.8 Eric-gates (ML signature ability + mine mechanics) resolved WITH ERIC 2026-07-22; sprint-status.yaml is the per-story source of truth
 project: Hullcracker.io
 project_type: 'game'
 project_context: brownfield # existing playable RT prototype (v0.16.0); new ideation cycle
@@ -33,4 +33,4 @@ sprint-planning: _bmad-output/implementation-artifacts/sprint-status.yaml # comp
 retrospective-epic-0: _bmad-output/implementation-artifacts/epic-0-retro-2026-07-18.md # complete 2026-07-18 (epic-0 done 4/4; no epic-1 plan changes; critical path: matchSmoke hardening chore + Eric's human browser pass; rulings list awaiting Eric's confirm)
 correct-course: _bmad-output/planning-artifacts/sprint-change-proposal-2026-07-19.md # complete 2026-07-19, Eric-approved (three-class re-scope propagated: 1.9 tombstoned; 1.3/1.6/1.8/1.10/1.13/1.14/2.8/4.2 amended; FR1/FR4/FR10 + UX-DR9/10/26 recast; Epic 1 = 13 stories / 58 total; two new design gates carried in 1.6 (boost × torpedo) and 1.8 (ML ability + mine mechanics); DESIGN.md/EXPERIENCE.md reconciliation deferred to story 7.5 per Decision Point 1)
 
-next_expected: create-story 1-8 (Mine Layer Loadout) # 1-7 done (all Q/E numbers + illumination semantics ruled WITH ERIC 2026-07-21 pre-implementation; NOTE 1.8 opens with TWO Eric gates: ML signature ability + mine mechanics both resolve WITH ERIC before implementation; 1 item flagged for Eric in the 1-7 spec: zone parity extended to boom/burst/sunk/spawn events as the single consistent reading of the truesight ruling)
+next_expected: create-story 1-10 (Firing Arcs for the Class Era) # 1-8 done (both 1.8 Eric-gates — ML signature ability + mine mechanics — resolved WITH ERIC 2026-07-22: Decoy Buoy + activateable blast mines; PV9, decoys frame channel + decoy registry row + counterIntel blip lie); story 1-9 (gunboat loadout) retired — gunboat cut 2026-07-19, number not reused

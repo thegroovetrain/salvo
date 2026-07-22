@@ -101,6 +101,9 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
       // this observer sees none, so zone-free frames stay byte-identical to
       // pre-1.7 frames (same rule on both paths).
       ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
+      // decoys is OPTIONAL the same way (Story 1.8): omitted when none, so
+      // buoy-free frames stay byte-identical to pre-1.8 frames.
+      ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
       spec: true,
     };
   }
@@ -112,5 +115,6 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     events: view.events,
     mines: view.mines,
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
+    ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
   };
 }

@@ -22,6 +22,9 @@ export interface StageLayers {
   projectile: Container;
   /** Enemy mines (render/mines.ts) — fogged; they only arrive when sighted. */
   mineWorld: Container;
+  /** Truesighted enemy decoy buoys (render/decoys.ts) — fogged; they only
+   *  arrive when the observer legitimately sees them (mineWorld precedent). */
+  decoyWorld: Container;
   ship: Container;
   // chartRoot children
   map: Container;
@@ -32,6 +35,9 @@ export interface StageLayers {
   litZone: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
+  /** OWN decoy buoys (render/decoys.ts) — fog-immune chart markers so your own
+   *  buoy is always readable; a truesighted enemy buoy goes to decoyWorld. */
+  decoyChart: Container;
   blip: Container;
   /** Crosshair + bearing line (render/firing.ts) — fog-immune, above blips. */
   aim: Container;
@@ -105,11 +111,13 @@ export async function createStage(): Promise<Stage> {
     wake: child(worldRoot),
     projectile: child(worldRoot),
     mineWorld: child(worldRoot),
+    decoyWorld: child(worldRoot),
     ship: child(worldRoot),
     map: child(chartRoot),
     zone: child(chartRoot),
     litZone: child(chartRoot),
     mineChart: child(chartRoot),
+    decoyChart: child(chartRoot),
     blip: child(chartRoot),
     aim: child(chartRoot),
     burstFx: child(chartRoot),

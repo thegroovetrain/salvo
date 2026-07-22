@@ -1,9 +1,10 @@
 // Pins the shared loadout spine: the slot grammar constants, the
 // state-null-iff-equipmentId-null invariant, and the per-hull fit (Stories
-// 1.6–1.7). loadoutFor builds from a REAL effectiveStats() so pool sizes match
+// 1.6–1.8). loadoutFor builds from a REAL effectiveStats() so pool sizes match
 // what the server writes on spawn/respawn/redeploy: the Torpedo Boat fits
 // [gun, torpedo, speedBoost, empty]; the Battleship fits
-// [gun, cannon, starShells, empty]; every other hull id keeps the universal
+// [gun, cannon, starShells, empty]; the Mine Layer fits
+// [gun, mine, decoyBuoy, empty] (Story 1.8); every drone keeps the universal
 // [gun, torpedo, mine, empty]. Also pins the EQUIPMENT_IS_WEAPON split — the
 // single source server rows and the client activation path read. Pure, zero I/O.
 
@@ -34,10 +35,11 @@ function statsFor(id: HullId): EffectiveStats {
   return effectiveStats(hullEnvelope(id), zeroUpgrades());
 }
 
-/** The two specials each hull id fits under the per-hull rule (1.6–1.7). */
+/** The two specials each hull id fits under the per-hull rule (1.6–1.8). */
 function expectedSpecials(id: HullId): [EquipmentId, EquipmentId] {
   if (id === 'torpedoBoat') return ['torpedo', 'speedBoost'];
   if (id === 'battleship') return ['cannon', 'starShells'];
+  if (id === 'mineLayer') return ['mine', 'decoyBuoy'];
   return ['torpedo', 'mine'];
 }
 
@@ -57,14 +59,15 @@ describe('slot-grammar constants', () => {
 });
 
 describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
-  it('marks the five weapons true and the speed boost false', () => {
+  it('marks the aimed-click weapons true; mine, speedBoost, decoyBuoy false (Story 1.8 flip)', () => {
     expect(EQUIPMENT_IS_WEAPON).toEqual({
       gun: true,
       torpedo: true,
-      mine: true,
+      mine: false, // Story 1.8: activateable (drop astern), not a click skillshot — still deals damage
       speedBoost: false,
       cannon: true, // Story 1.7: prime-then-click burst skillshot
       starShells: true, // Story 1.7: prime-then-click lit-zone flare
+      decoyBuoy: false, // Story 1.8: activated ability (stationary radar-double)
     });
   });
 
@@ -94,9 +97,19 @@ describe('loadoutFor — the per-hull fit (Stories 1.6–1.7)', () => {
     expect(loadout[2].state).toEqual({ n: CONFIG.starShells.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('every other hull id (ML + all drones) keeps the universal [gun, torpedo, mine, empty]', () => {
+  it('the Mine Layer fits [gun, mine, decoyBuoy, empty] (Story 1.8)', () => {
+    const stats = statsFor('mineLayer');
+    const loadout = loadoutFor('mineLayer', stats);
+    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'mine', 'decoyBuoy', null]);
+    expect(loadout[1].state).toEqual({ n: equipmentMaxAmmo(stats, 'mine'), reloadMsLeft: 0 });
+    expect(loadout[1].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
+    expect(loadout[2].state).toEqual({ n: equipmentMaxAmmo(stats, 'decoyBuoy'), reloadMsLeft: 0 });
+    expect(loadout[2].state).toEqual({ n: CONFIG.decoyBuoy.maxAmmo, reloadMsLeft: 0 });
+  });
+
+  it('every drone keeps the universal [gun, torpedo, mine, empty] (unchanged by 1.8)', () => {
     for (const id of HULL_IDS) {
-      if (id === 'torpedoBoat' || id === 'battleship') continue;
+      if (id === 'torpedoBoat' || id === 'battleship' || id === 'mineLayer') continue;
       const loadout = loadoutFor(id, statsFor(id));
       expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'mine', null]);
     }
@@ -162,6 +175,16 @@ describe('equipmentMaxAmmo / equipmentReloadMs cover cannon + starShells (Story 
     expect(equipmentMaxAmmo(stats, 'starShells')).toBe(CONFIG.starShells.maxAmmo);
     expect(equipmentReloadMs(stats, 'starShells')).toBe(stats.starShells.reloadMs);
     expect(equipmentReloadMs(stats, 'starShells')).toBe(CONFIG.starShells.reloadMs);
+  });
+});
+
+describe('equipmentMaxAmmo / equipmentReloadMs cover decoyBuoy (Story 1.8)', () => {
+  it('decoyBuoy pool + reload come from CONFIG.decoyBuoy (via stats.decoyBuoy)', () => {
+    const stats = statsFor('mineLayer');
+    expect(equipmentMaxAmmo(stats, 'decoyBuoy')).toBe(stats.decoyBuoy.maxAmmo);
+    expect(equipmentMaxAmmo(stats, 'decoyBuoy')).toBe(CONFIG.decoyBuoy.maxAmmo);
+    expect(equipmentReloadMs(stats, 'decoyBuoy')).toBe(stats.decoyBuoy.reloadMs);
+    expect(equipmentReloadMs(stats, 'decoyBuoy')).toBe(CONFIG.decoyBuoy.reloadMs);
   });
 });
 

@@ -176,16 +176,22 @@ describe('cannon — denials + cross-hull parity', () => {
     expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBe(CONFIG.cannon.reloadMs - DT);
   });
 
-  it('TB/ML slot-1 clicks keep firing their own fit (torpedo) — no cannon anywhere else', () => {
+  it('TB slot-1 clicks keep firing the torpedo; ML slot-1 is now the mine ABILITY (click inert) — no cannon anywhere else', () => {
     const w = bareWorld();
     const tb = place(w, 'tb', 'torpedoBoat', 0, 0);
+    expect(tb.loadout[1].equipmentId).toBe('torpedo');
+    setInput(tb, { aim: tb.state.heading, slot: 1 }); // over the bow — in arc
+    expect(w.sinkingActivationGate(tb, 1)).toEqual({ ok: true });
+    const kinds = [...w.shells.values()].map((s) => s.kind);
+    expect(kinds).toEqual(['torp']); // byte-identical 1.6 behavior, never a cannon shell
+    // ML slot 1 fits the mine (Story 1.8) — an ability: through the REAL click
+    // channel the weapon-only wall keeps it inert (no shell, no mine, no drain).
     const ml = place(w, 'ml', 'mineLayer', 0, 300);
-    for (const ship of [tb, ml]) {
-      expect(ship.loadout[1].equipmentId).toBe('torpedo');
-      setInput(ship, { aim: ship.state.heading, slot: 1 }); // over the bow — in arc
-      expect(w.sinkingActivationGate(ship, 1)).toEqual({ ok: true });
-    }
-    const kinds = [...w.shells.values()].map((s) => s.kind).sort();
-    expect(kinds).toEqual(['torp', 'torp']); // byte-identical 1.6 behavior, never a cannon shell
+    expect(ml.loadout[1].equipmentId).toBe('mine');
+    w.submitInput('ml', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.step();
+    expect(w.mines.size).toBe(0);
+    expect([...w.shells.values()].some((s) => s.kind !== 'torp')).toBe(false); // still never a cannon shell
+    expect(ml.loadout[1].state!.n).toBe(CONFIG.mine.maxAmmo); // charge intact
   });
 });

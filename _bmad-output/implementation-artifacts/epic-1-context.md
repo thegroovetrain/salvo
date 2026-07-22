@@ -15,7 +15,7 @@ Epic 1 makes the class choice matter the instant a captain sails: three genuinel
 - Story 1.5: Firing Under Latency (D1) + Latency Harness
 - Story 1.6: Torpedo Boat Loadout (torpedo tubes + speed boost)
 - Story 1.7: Battleship Loadout (long-range cannon + star shells)
-- Story 1.8: Mine Layer Loadout (mines + OPEN signature ability)
+- Story 1.8: Mine Layer Loadout (activateable blast mines + Decoy Buoy — resolved WITH ERIC 2026-07-22)
 - Story 1.9: REMOVED — gunboat cut (number retired, not reused)
 - Story 1.10: Firing Arcs for the Class Era
 - Story 1.11: Design Tokens & Typography
@@ -26,7 +26,7 @@ Epic 1 makes the class choice matter the instant a captain sails: three genuinel
 ## Requirements & Constraints
 
 - Three playable classes at beta, each a distinct hull envelope carrying a fitted loadout. Universal slot grammar on every ship: slot 1 = universal standard gun, slots 2–3 = two class specials (at least one a weapon), slot 4 = extra slot filled mid-match by the economy (Epic 1 only plumbs the empty extra slot).
-- The standard gun is byte-identical on every class (short cooldown, basic damage); class differentiation never lives in the gun. Loadouts: Torpedo Boat = torpedo tubes + speed boost (activated, several seconds of raised speed); Battleship = long-range cannon + star shells; Mine Layer = proximity mines + a signature ability that is OPEN (decoy buoy under rethink — resolve WITH ERIC before Story 1.8).
+- The standard gun is byte-identical on every class (short cooldown, basic damage); class differentiation never lives in the gun. Loadouts: Torpedo Boat = torpedo tubes + speed boost (activated, several seconds of raised speed); Battleship = long-range cannon + star shells; Mine Layer = activateable blast mines + the Decoy Buoy (both resolved WITH ERIC 2026-07-22: mines rework to an activateable pass-over blast; the Decoy Buoy is a stationary radar-double).
 - Projectile combat model: no hitscan, no dispersion (shots go exactly where aimed), no damage falloff, flat single-pool damage (no sectional damage, no crits, no weak points). Compass vetoes: one torpedo design per fit, no damage-control parties, no sectional damage. The precision-bonus idea (bonus damage at the exact clicked spot) is an open decision resolved with Eric during the gun story.
 - Torpedo laws (FR7): outrun every hull at base speed, spawn with real bow clearance + brief owner-only grace (self-hit at base speed impossible, test-covered), run until they hit something, never painted by radar. Mines arm after a delay, trigger by proximity, capped per-player (oldest evicted) and globally.
 - All weapons fire within real firing arcs; mouse aim constrained to the selected weapon's arc; per-weapon arc geometry is redesigned for the class era (arc values are Eric design decisions). Denied fire/activation (out of arc, no ammo, cooling, empty slot) always gives explicit feedback, never silence.
@@ -59,5 +59,5 @@ Epic 1 makes the class choice matter the instant a captain sails: three genuinel
 - 1.4–1.8 all register systems into the equipment registry from 1.2; 1.10 tunes arcs across all systems from 1.4–1.8.
 - 1.5 (latency harness) is depended on by the gun/D1 acceptance gate and reused by later epics.
 - 1.11 (tokens) precedes 1.12 (Regatta) and 1.13 (silhouettes); 1.3's shared silhouette geometry precedes 1.13's rendering.
-- Open decisions to resolve WITH ERIC inside their stories: precision-bonus (1.4), boost × torpedo self-hit rule (1.6), Mine Layer signature ability + mine mechanics (1.8), per-weapon arc values (1.10).
+- Open decisions to resolve WITH ERIC inside their stories: precision-bonus (1.4), boost × torpedo self-hit rule (1.6), Mine Layer signature ability + mine mechanics (1.8 — RESOLVED 2026-07-22: Decoy Buoy + activateable blast mines), per-weapon arc values (1.10).
 - Deferred to later epics: full Q/E/R/F + Space-hold input scheme and settings overlay (Epic 2); boon economy that fills the extra slot and replaces the legacy upgrades (Epic 2); muzzle-flash masking and blip class-legibility (Epic 4); omniscient-reveal nameplate scope (Epic 5); class-select mode-pick queue liveness (Epic 6).

@@ -27,7 +27,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { EQUIPMENT, slotAmmo, type Equipment } from '../game/equipment/index.js';
 
 const DT = CONFIG.tick.simDtMs;
-/** Slot index -> equipment id under today's universal fit (slot 0/1/2). */
+/** Slot index -> equipment id under the universal fit (slot 0/1/2). */
 const WEAPON_IDS = ['gun', 'torpedo', 'mine'] as const;
 /** Torpedo / mine slot indices under the universal fit. */
 const SLOT_TORPEDO = 1;
@@ -42,14 +42,15 @@ function bareWorld(seed = 7): World {
   return w;
 }
 
-/** Add a ship and pin it to the origin at a known heading (speed 0). Mine
- *  Layer because this suite exercises the UNIVERSAL weapon fit [gun, torpedo,
- *  mine, empty] — which, post Stories 1.6/1.7, lives on every hull EXCEPT the
- *  Torpedo Boat (speedBoost in slot 2) and the Battleship
- *  ([gun, cannon, starShells, empty] — see cannon/starShells suites).
- *  WEAPON_IDS / SLOT_MINE below assume it. */
+/** Add a ship and pin it to the origin at a known heading (speed 0). A DRONE
+ *  hull, because this suite exercises the UNIVERSAL weapon fit [gun, torpedo,
+ *  mine, empty] — which, post Story 1.8, lives ONLY on drones (TB:
+ *  [gun, torpedo, speedBoost], BB: [gun, cannon, starShells], ML:
+ *  [gun, mine, decoyBuoy] — see their suites). isDrone stays FALSE so the
+ *  DroneController never overwrites the scripted inputs; only the hull id
+ *  (and thus the loadout) is drone-issue. WEAPON_IDS / SLOT_MINE assume it. */
 function place(w: World, id: string, heading = 0): ShipRecord {
-  const rec = w.addShip(id, id.toUpperCase(), false, 'mineLayer');
+  const rec = w.addShip(id, id.toUpperCase(), false, 'droneMedium');
   rec.state = { x: 0, y: 0, heading, speed: 0 };
   return rec;
 }
@@ -60,7 +61,7 @@ function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
 }
 
 /** Assert a ship carries the fresh universal loadout (matches loadoutFor for a
- *  non-Torpedo-Boat hull: [gun, torpedo, mine, empty]). */
+ *  drone hull: [gun, torpedo, mine, empty] — the interregnum fit, Story 1.8). */
 function expectFreshLoadout(ship: ShipRecord): void {
   expect(ship.loadout).toHaveLength(SLOT_COUNT);
   for (let i = 0; i < SLOT_EXTRA; i++) {
@@ -82,9 +83,10 @@ describe('EQUIPMENT registry — interface conformance', () => {
     }
   });
 
-  it('holds exactly gun / torpedo / mine / speedBoost / cannon / starShells', () => {
+  it('holds exactly gun / torpedo / mine / speedBoost / cannon / starShells / decoyBuoy', () => {
     expect(Object.keys(EQUIPMENT).sort()).toEqual([
       'cannon',
+      'decoyBuoy',
       'gun',
       'mine',
       'speedBoost',
@@ -94,18 +96,20 @@ describe('EQUIPMENT registry — interface conformance', () => {
   });
 
   // Content-level, NOT conformance: the weapon/ability split rides the shared
-  // EQUIPMENT_IS_WEAPON map (single source) — the five weapons are weapons,
-  // Story 1.6's speedBoost is the first non-weapon (isWeapon:false) ability row.
+  // EQUIPMENT_IS_WEAPON map (single source) — gun/torpedo/cannon/starShells
+  // are aimed-click weapons; speedBoost (1.6), mine (flipped in 1.8), and
+  // decoyBuoy (1.8) are instant-activation abilities (isWeapon:false).
   it('each row mirrors the shared EQUIPMENT_IS_WEAPON split', () => {
     for (const [id, row] of Object.entries(EQUIPMENT)) {
       expect(row.isWeapon).toBe(EQUIPMENT_IS_WEAPON[id as keyof typeof EQUIPMENT_IS_WEAPON]);
     }
     expect(EQUIPMENT.gun.isWeapon).toBe(true);
     expect(EQUIPMENT.torpedo.isWeapon).toBe(true);
-    expect(EQUIPMENT.mine.isWeapon).toBe(true);
+    expect(EQUIPMENT.mine.isWeapon).toBe(false); // Story 1.8: drop-astern ability, not a click
     expect(EQUIPMENT.speedBoost.isWeapon).toBe(false);
     expect(EQUIPMENT.cannon.isWeapon).toBe(true); // Story 1.7
     expect(EQUIPMENT.starShells.isWeapon).toBe(true); // Story 1.7
+    expect(EQUIPMENT.decoyBuoy.isWeapon).toBe(false); // Story 1.8: the ML's radar-double ability
   });
 
   it('the registry itself is frozen — rows cannot be added', () => {
@@ -170,6 +174,35 @@ describe('denial reasons — derived through the gate without changing effects',
     setInput(ship, { slot: SLOT_MINE });
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
     expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: false, reason: 'no-ammo' });
+  });
+
+  it('decoy empty pool denies no-ammo (its only row denial — nothing aimed, no arc)', () => {
+    const w = bareWorld();
+    const ml = w.addShip('ml', 'ML', false, 'mineLayer');
+    ml.state = { x: 0, y: 0, heading: 0, speed: 0 };
+    expect(ml.loadout[2].equipmentId).toBe('decoyBuoy'); // ML slot 2 (Story 1.8)
+    ml.loadout[2].state = { n: 0, reloadMsLeft: CONFIG.decoyBuoy.reloadMs };
+    expect(w.sinkingActivationGate(ml, 2)).toEqual({ ok: false, reason: 'no-ammo' });
+    expect(w.decoys.size).toBe(0);
+  });
+});
+
+// ---------- 2b. mine dispatch channel (Story 1.8: ability, not fire control) --
+
+describe('mine dispatch — the activation (actSeq) channel, never fire control', () => {
+  it('an actSeq press on the mine slot drops a mine; a fireSeq click on it is inert', () => {
+    const w = bareWorld();
+    const ship = place(w, 'a'); // universal fit: mine at slot 2
+    // PRESS (ability channel): drops.
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE });
+    w.step();
+    expect(w.mines.size).toBe(1);
+    // CLICK (weapon channel) with a reloaded pool: refused by the weapon wall.
+    ship.loadout[SLOT_MINE].state = { n: 1, reloadMsLeft: 0 };
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_MINE, fireT: 0, actSeq: 1, actSlot: SLOT_MINE });
+    w.step();
+    expect(w.mines.size).toBe(1); // no second mine — clicks never reach an ability
+    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: 1, reloadMsLeft: 0 }); // charge intact
   });
 });
 

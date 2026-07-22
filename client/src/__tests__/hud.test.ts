@@ -117,17 +117,18 @@ describe('chipLabel — the LOADOUT-driven chip row', () => {
       .filter((t): t is string => t !== null);
   }
 
-  it('each hull labels its own fit: TB boost, BB cannon/flare, ML the universal mine', () => {
+  it('each hull labels its own fit: TB boost, BB cannon/flare, ML mine/decoy', () => {
     expect(labelsFor('torpedoBoat')).toEqual(['1 GUNS', '2 TORP', '3 BOOST']);
     expect(labelsFor('battleship')).toEqual(['1 GUNS', '2 CANNON', '3 FLARE']); // Story 1.7
-    expect(labelsFor('mineLayer')).toEqual(['1 GUNS', '2 TORP', '3 MINE']);
+    expect(labelsFor('mineLayer')).toEqual(['1 GUNS', '2 MINE', '3 DECOY']); // Story 1.8
   });
 });
 
 describe('chip grammar — cooldown sweep vs segmented pool, keyed on equipment identity', () => {
-  it('the gun and the boost ability read as pure cooldowns', () => {
+  it('the gun and the pure-cooldown abilities (boost, decoy) read as cooldowns', () => {
     expect(chipUsesCooldownGrammar('gun')).toBe(true);
     expect(chipUsesCooldownGrammar('speedBoost')).toBe(true); // ability charge
+    expect(chipUsesCooldownGrammar('decoyBuoy')).toBe(true); // Story 1.8: single-charge ability
   });
 
   it('the Battleship cannon + star shells read as pure cooldowns (Story 1.7: 1-round skillshots)', () => {
@@ -137,13 +138,15 @@ describe('chip grammar — cooldown sweep vs segmented pool, keyed on equipment 
     expect(chipUsesCooldownGrammar('starShells')).toBe(true);
   });
 
-  it('WEAPON pools keep the segmented-pool grammar regardless of pool size', () => {
-    // The torpedo pool is maxAmmo 1 at base and grows on a torpedoAmmo grant:
-    // its chip must stay a segmented pool (pre-story grammar), never flip to
-    // the cooldown sweep — grammar keys on identity, not on pool size.
+  it('GROWABLE pools keep the segmented-pool grammar regardless of pool size', () => {
+    // The torpedo pool is maxAmmo 1 at base and grows on a torpedoAmmo grant;
+    // the mine pool likewise grows on a mineAmmo grant. Both must stay segmented
+    // pools, never flip to the cooldown sweep — grammar keys on identity, not on
+    // pool size, and NOT on the weapon/ability flag: the mine is now an instant
+    // ability (Story 1.8) yet keeps segments because its pool still grows.
     expect(CONFIG.torpedo.maxAmmo).toBe(1); // the trap this pins against
     expect(chipUsesCooldownGrammar('torpedo')).toBe(false);
-    expect(chipUsesCooldownGrammar('mine')).toBe(false);
+    expect(chipUsesCooldownGrammar('mine')).toBe(false); // segmented despite being an ability
   });
 });
 

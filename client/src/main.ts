@@ -19,6 +19,7 @@ import {
   hullSilhouette,
   isOutside,
   loadoutFor,
+  SLOT_COUNT,
   zeroUpgrades,
   zoneRadiusAt,
   type EffectiveStats,
@@ -40,6 +41,7 @@ import { FiringUX } from './render/firing.js';
 import { weaponArcHit, weaponRangeU } from './render/weaponArc.js';
 import { Effects } from './render/effects.js';
 import { Mines } from './render/mines.js';
+import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
@@ -90,6 +92,9 @@ interface Game {
   firing: FiringUX;
   effects: Effects;
   mines: Mines;
+  /** Decoy-buoy markers (render/decoys.ts) — synced from FrameMsg.decoys, the
+   *  mines precedent (Story 1.8). */
+  decoys: Decoys;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced from
    *  FrameMsg.litZones, faded per render frame by serverNow. */
   litZones: LitZones;
@@ -132,16 +137,20 @@ interface Game {
   deniedPulse: DeniedPulse;
   /** This frame's denied-fire pulse state — read by hud.update() for the chip flash. */
   deniedFlash: boolean;
-  /** One-shot latch: an ability press predicted DENIED (cooling/dead) since the
-   *  last render frame — consumed into abilityPulse (Story 1.6, never silence). */
-  abilityDeniedPress: boolean;
-  /** Rate-limited denied pulse for ability presses — the SAME deniedFire
-   *  grammar (80ms flash / 300ms floor), a separate driver so a weapon click
-   *  and an ability press don't share one rate window. Chips-only: an ability
-   *  press never drives the weapon-arc/reticle denied visuals (nothing is aimed). */
-  abilityPulse: DeniedPulse;
-  /** This frame's ability denied-flash — read by hud.update() for the ability chip border. */
-  abilityFlash: boolean;
+  /** One-shot latch PER LOADOUT SLOT: an ability press on that slot predicted
+   *  DENIED (cooling/dead) since the last render frame — consumed into the
+   *  matching abilityPulse (Story 1.6, never silence). Per-slot since Story 1.8:
+   *  the ML fits TWO ability slots (mine + decoyBuoy), so a denied mine press
+   *  must not flash the decoy chip. Indexed by loadout slot (length SLOT_COUNT). */
+  abilityDeniedPress: boolean[];
+  /** Rate-limited denied pulse PER LOADOUT SLOT — the SAME deniedFire grammar
+   *  (80ms flash / 300ms floor), one driver per slot so two ability slots (and
+   *  the weapon click) don't share a rate window. Chips-only: an ability press
+   *  never drives the weapon-arc/reticle denied visuals (nothing is aimed). */
+  abilityPulse: DeniedPulse[];
+  /** This frame's ability denied-flash PER LOADOUT SLOT — read by hud.update()
+   *  for each ability chip's border (index = loadout slot). */
+  abilityFlash: boolean[];
   /** Tone player (audio/context.ts). */
   audio: Audio;
   /**
@@ -467,7 +476,7 @@ function setupViewport(
   bellAudible: () => boolean,
   onUpgradeKey: (a: UpgradeAction) => void,
   isAbilitySlot: (slot: number) => boolean,
-  onAbility: (slot: number) => void,
+  onAbility: (slot: number, actSeq: number) => void,
   nowServer: () => number,
 ): {
   camera: Camera;
@@ -534,7 +543,7 @@ function viewportCallbacks(getG: () => Game | null): {
   bellAudible: () => boolean;
   onUpgradeKey: (a: UpgradeAction) => void;
   isAbilitySlot: (slot: number) => boolean;
-  onAbility: (slot: number) => void;
+  onAbility: (slot: number, actSeq: number) => void;
 } {
   return {
     bellAudible: () => {
@@ -551,35 +560,48 @@ function viewportCallbacks(getG: () => Game | null): {
       const g = getG();
       return g !== null && slotHoldsAbility(g.ownSlots, slot);
     },
-    onAbility: (slot) => {
+    onAbility: (slot, actSeq) => {
       const g = getG();
-      if (g) handleAbilityPress(g, slot);
+      if (g) handleAbilityPress(g, slot, actSeq);
     },
   };
 }
 
 /**
- * An ability-activation keypress landed (the TB's speed boost): the keyboard
- * has ALREADY advanced actSeq, and the press rides the next input either way —
- * the server decides. Here the client only predicts the verdict:
- *  - predicted DENIED (slot cooling / own ship dead) → latch the denied pulse
- *    (the existing deniedFire grammar, chips-only — never silence, never the
- *    weapon-arc/reticle visuals: nothing is aimed);
- *  - predicted READY → open the predictor's optimistic boost window at the
- *    current server-clock estimate, so the speed-up doesn't wait a round trip
- *    (the authoritative you.boostUntil overwrites it once the press is acked).
- *    The predictor itself ignores a second press while a window is pending, so
- *    a stale-ammo double press within RTT can never extend the estimate.
+ * An ability-activation keypress landed (the TB's speed boost, or — Story 1.8 —
+ * the Mine Layer's mine / decoyBuoy): the keyboard has QUEUED the press (it rides
+ * a later input, drained one-per-tick so the server's one-ability-per-tick gate
+ * fires each in turn) — the server decides. Here the client only predicts the
+ * verdict, at PRESS time, keyed on the pressed slot:
+ *  - predicted DENIED (slot cooling / own ship dead) → latch the pressed SLOT's
+ *    denied pulse (the existing deniedFire grammar, chips-only — never silence,
+ *    never the weapon-arc/reticle visuals: nothing is aimed). Per-slot so a
+ *    denied mine press never flashes the decoy chip (the ML fits two abilities);
+ *  - predicted READY → per equipment: speedBoost opens the predictor's optimistic
+ *    boost window at the current server-clock estimate so the speed-up doesn't
+ *    wait a round trip (the authoritative you.boostUntil overwrites it once
+ *    acked; the predictor ignores a second press while pending, so a stale-ammo
+ *    double press within RTT can't extend it). The decoyBuoy and mine drops need
+ *    no press-time cue: their placement tones ride the Decoys / Mines reconcile
+ *    own-spawn hooks (fired on the confirmed OWN buoy/mine, gated by DecoyView/
+ *    MineView `own` so they never misfire on a truesighted enemy piece).
  */
-function handleAbilityPress(g: Game, slot: number): void {
+function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   const you = g.state.net.you;
   const a = ownAmmo(you, g.ownStats, g.ownSlots)[slot];
   const loaded = !!a && a.n > 0;
   if (abilityPressDenied(you?.alive ?? true, loaded)) {
-    g.abilityDeniedPress = true;
+    g.abilityDeniedPress[slot] = true;
     return;
   }
-  g.predictor.predictBoostActivation(g.clock.serverNow(), g.keyboard.actSeq);
+  const id = g.ownSlots[slot];
+  // `actSeq` is the value THIS press will ride once the keyboard drains it onto
+  // an input (it may sit behind other queued presses); the optimistic boost
+  // window keys its clear-on-ack on exactly that counter, not the live count.
+  if (id === 'speedBoost') g.predictor.predictBoostActivation(g.clock.serverNow(), actSeq);
+  // decoyBuoy has no press-time cue: its placement tone rides the Decoys
+  // reconcile own-spawn hook (the mine precedent), so it fires on the confirmed
+  // OWN buoy and never on a truesighted enemy buoy.
 }
 
 /**
@@ -592,6 +614,17 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
   return (choice) => {
     const g = getG();
     if (g) trySpend(g, choice);
+  };
+}
+
+/** Fresh per-slot ability denied-feedback state (Story 1.6/1.8): one latch +
+ *  rate-limited pulse + flash per loadout slot, so two ability slots (the ML's
+ *  mine + decoyBuoy) never share a pulse/flash. */
+function abilityFeedbackState(): Pick<Game, 'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash'> {
+  return {
+    abilityDeniedPress: Array.from({ length: SLOT_COUNT }, () => false),
+    abilityPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
+    abilityFlash: Array.from({ length: SLOT_COUNT }, () => false),
   };
 }
 
@@ -621,6 +654,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     effects,
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
+    decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, () => audio.play('placeDecoy')),
     litZones: new LitZones(stage.layers.litZone),
     fog: new Fog(stage.fogSprite),
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
@@ -634,10 +668,9 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     returning: false, reconnecting: false,
     shake: new ShakeDriver(),
     deniedPulse: new DeniedPulse(), deniedFlash: false,
-    abilityDeniedPress: false, abilityPulse: new DeniedPulse(), abilityFlash: false,
+    ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, audioCueState: INITIAL_CUE_STATE,
-    wasInStorm: false,
+    matchEnded: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
     ownClass: cls,
     ownStats: stats, ownSlots: slotIdsFor(cls, stats),
@@ -724,7 +757,15 @@ function bindGameRoom(g: Game, conn: Connection): void {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
     onOwnStats: (cls, upg) => applyOwnStats(g, cls, upg),
-    resetThrottle: () => g.keyboard.resetThrottle(),
+    // resetThrottle fires on own spawn AND own sunk — the hard state boundaries.
+    // Drop any queued-but-unconsumed ability press there too (FINDING A), so a
+    // press queued in one life (or mashed while dead/spectating) never fires
+    // into the next. Consumed counters stay monotonic (clearActivations leaves
+    // them), mirroring the server's un-reset lastActSeq.
+    resetThrottle: () => {
+      g.keyboard.resetThrottle();
+      g.keyboard.clearActivations();
+    },
     resetPrime: () => g.keyboard.revertToGun(),
     names: (id) => rosterName(g, id),
     onSpectate: () => enterSpectateVisuals(g),
@@ -749,6 +790,7 @@ function bindGameRoom(g: Game, conn: Connection): void {
     onReconnect: () => {
       g.reconnecting = false;
       hideBanner();
+      g.keyboard.clearActivations(); // drop presses queued during the outage (FINDING A)
     },
   });
 }
@@ -803,12 +845,16 @@ function renderOwn(
 function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }): void {
   const clicked = g.mouse.clickCount !== g.prevClickCount;
   g.prevClickCount = g.mouse.clickCount;
-  // Ability denied pulse (Story 1.6): consume the one-shot press latch into
-  // the rate-limited pulse. Chips-only feedback — deliberately OUTSIDE the
-  // alive gate below (a dead press is denied too and must still pulse) and
-  // never fed into the weapon-arc/reticle denied visuals (nothing is aimed).
-  g.abilityFlash = g.abilityPulse.update(g.abilityDeniedPress, performance.now());
-  g.abilityDeniedPress = false;
+  // Ability denied pulse (Story 1.6): consume each slot's one-shot press latch
+  // into its rate-limited pulse (per-slot since Story 1.8 — the ML fits two
+  // ability slots). Chips-only feedback — deliberately OUTSIDE the alive gate
+  // below (a dead press is denied too and must still pulse) and never fed into
+  // the weapon-arc/reticle denied visuals (nothing is aimed).
+  const nowMs = performance.now();
+  for (let s = 0; s < g.abilityPulse.length; s++) {
+    g.abilityFlash[s] = g.abilityPulse[s].update(g.abilityDeniedPress[s], nowMs);
+    g.abilityDeniedPress[s] = false;
+  }
   if (!status.alive) {
     g.firing.hide();
     g.deniedFlash = false;
@@ -830,14 +876,12 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   const inArc = weaponArcHit(pose.heading, aim, primedId);
   const denied = isClickDenied({ clicked, ready: hasAmmo, inArc });
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
-  const hullLength = CONFIG.shipClasses[status.cls].hull.length;
   g.firing.update(
     pose,
     aim,
     primedId,
     { hasAmmo, reloadFrac },
     cursor,
-    hullLength,
     g.deniedFlash,
     weaponRangeU(status.stats, primedId), // per-weapon range-clamp marker (gun stacks; cannon/flare base)
   );
@@ -930,6 +974,10 @@ function enterSpectateVisuals(g: Game): void {
   // Clear the engine order too: entering spectate is a hard boundary, and the
   // order must not survive into the next life (respawn re-rings from STOP).
   g.keyboard.resetThrottle();
+  // Same for any queued ability press (FINDING A) — dropped so a press mashed at
+  // the moment of death can't fire on respawn (respawn's resetThrottle also
+  // clears, this is the belt-and-braces at spectate entry).
+  g.keyboard.clearActivations();
 }
 
 /** Follow-your-killer by default; any WASD press hands the camera to free pan. */
@@ -978,13 +1026,18 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // prime consumption below, so a fireable skillshot click still sends its
       // slot even if this same tick reverts the prime back to the gun.
       const primedSlot = g.keyboard.primedSlot;
+      // Drain exactly ONE queued ability press onto this tick's wire counters
+      // (FINDING A): the server fires one ability per tick, so multiple presses
+      // in one 50ms window must ride successive inputs — consume before reading
+      // actSeq/actSlot so this input carries the drained press (if any).
+      g.keyboard.consumeActivation();
       const input = g.sampler.sample(g.keyboard.axes(), {
         aim,
         fireSeq: g.mouse.clickCount,
         aimDist,
         slot: primedSlot,
         fireT: g.mouse.lastClickT, // honest fire instant (server-clock estimate at pointerdown)
-        actSeq: g.keyboard.actSeq, // ability-activation counter (0-sentinel; the keyboard owns it)
+        actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
         actSlot: g.keyboard.actSlot,
       });
       consumePrimeOnFire(g, primedSlot, aim);
@@ -1058,6 +1111,10 @@ function bindResize(stage: Stage, game: Game): void {
  */
 function sendNeutralInput(g: Game): void {
   if (g.state.spectating) return; // spectators send nothing at all
+  // Drain one queued press onto this neutral input too (FINDING A), so a
+  // gap-press landing right at tab-hide activates NOW instead of waiting for
+  // refocus (mirrors the fireSeq gap-handling).
+  g.keyboard.consumeActivation();
   const msg = g.sampler.sendNeutralNow(
     g.keyboard.throttle,
     g.mouse.clickCount,

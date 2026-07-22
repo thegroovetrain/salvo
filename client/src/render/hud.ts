@@ -102,6 +102,7 @@ const EQUIPMENT_LABEL: Record<EquipmentId, string> = {
   speedBoost: 'BOOST',
   cannon: 'CANNON', // Story 1.7: the Battleship's long-range burst skillshot
   starShells: 'FLARE', // Story 1.7: the Battleship's lit-zone star shell
+  decoyBuoy: 'DECOY', // Story 1.8: the Mine Layer's radar-double buoy ability
 };
 
 /** Pure: one chip's label — "1 GUNS", "3 BOOST", … (key hint = slot index + 1). */
@@ -111,16 +112,19 @@ export function chipLabel(slot: number, id: EquipmentId): string {
 
 /**
  * Pure: does this equipment's chip use the cooldown-sweep grammar (vs the
- * segmented ammo pool)? Keyed on EQUIPMENT IDENTITY, never on pool size: the
- * gun's single shot, the cannon and star shells (1-round long-cooldown gun-style
- * skillshots, Story 1.7 — no ammo grant grows them), and ability charges (the
- * boost) all read as pure cooldowns, while GROWABLE weapon pools (torpedo/mine)
- * keep the segmented-pool + reload-line grammar even at maxAmmo 1 — a 1-fish
- * tube is still a pool, and it grows mid-match on an ammo grant without the chip
- * flipping vocabulary.
+ * segmented ammo pool)? Keyed on EQUIPMENT IDENTITY, never on pool size and NOT
+ * on the weapon/ability flag: the gun's single shot, the cannon and star shells
+ * (1-round long-cooldown gun-style skillshots, Story 1.7 — no ammo grant grows
+ * them), and the pure-cooldown abilities (speedBoost, and Story 1.8's decoyBuoy)
+ * all read as cooldowns, while the GROWABLE pools — torpedo AND mine — keep the
+ * segmented-pool + reload-line grammar even at maxAmmo 1. A 1-fish tube (and a
+ * 1-mine pool) is still a pool, and it grows mid-match on an ammo grant
+ * (torpedoAmmo / mineAmmo) without the chip flipping vocabulary. Note mine is now
+ * an instant ability (Story 1.8) yet KEEPS segmented grammar — the grammar can't
+ * follow EQUIPMENT_IS_WEAPON, so it is a bare id list.
  */
 export function chipUsesCooldownGrammar(id: EquipmentId): boolean {
-  return id === 'gun' || id === 'cannon' || id === 'starShells' || !EQUIPMENT_IS_WEAPON[id];
+  return id !== 'torpedo' && id !== 'mine';
 }
 const CHIP_GAP = 6;
 const CHIP_H = 20;
@@ -480,7 +484,7 @@ export class Hud {
   }
 
   /** HP bar + the loadout chip row, anchored bottom-right (screen space). */
-  private drawBars(status: OwnStatus, screenW: number, screenH: number, deniedFlash: boolean, abilityFlash: boolean): void {
+  private drawBars(status: OwnStatus, screenW: number, screenH: number, deniedFlash: boolean, abilityFlash: readonly boolean[]): void {
     const g = this.bars;
     g.clear();
     const x = screenW - BAR_W - MARGIN;
@@ -506,11 +510,13 @@ export class Hud {
    * (gun when nothing is primed); an ABILITY chip borrows that SAME
    * primed-amber outline while its window is active — interim vocabulary, the
    * full hotbar grammar is Epic 2 Story 2.2. `deniedFlash` briefly reddens the
-   * primed chip (denied fire click); `abilityFlash` reddens the ability chip
-   * (a predicted-denied activation press). Denominators are the EFFECTIVE pool
+   * primed chip (denied fire click); `abilityFlash` is PER-SLOT (an ML now fits
+   * TWO ability slots — mine + decoyBuoy — so a denied mine press must not flash
+   * the decoy chip) and reddens only the pressed ability slot's chip (a
+   * predicted-denied activation press). Denominators are the EFFECTIVE pool
    * sizes/reloads from status.stats via equipmentMaxAmmo/equipmentReloadMs.
    */
-  private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean, abilityFlash: boolean): void {
+  private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean, abilityFlash: readonly boolean[]): void {
     const fitted: number[] = [];
     for (let i = 0; i < status.loadout.length; i++) {
       if (status.loadout[i] !== null) fitted.push(i);
@@ -523,7 +529,7 @@ export class Hud {
   }
 
   /** One fitted slot's chip: fill grammar + tinted border + (diffed) label. */
-  private drawOneChip(g: Graphics, status: OwnStatus, slot: number, k: number, cx: number, y: number, cw: number, deniedFlash: boolean, abilityFlash: boolean): void {
+  private drawOneChip(g: Graphics, status: OwnStatus, slot: number, k: number, cx: number, y: number, cw: number, deniedFlash: boolean, abilityFlash: readonly boolean[]): void {
     const id = status.loadout[slot] as EquipmentId; // caller iterates fitted slots only
     const isAbility = !EQUIPMENT_IS_WEAPON[id];
     const a = status.ammo[slot] ?? { n: 0, reloadMsLeft: 0 };
@@ -537,7 +543,7 @@ export class Hud {
     // Active-window "on" indicator = the primed-amber outline (interim — Epic 2
     // Story 2.2 owns the real hotbar active grammar).
     const outlined = primed || (isAbility && status.boostActive);
-    const flash = isAbility ? abilityFlash : primed && deniedFlash;
+    const flash = isAbility ? (abilityFlash[slot] ?? false) : primed && deniedFlash;
     const label = this.chipLabels[k];
     const text = chipLabel(slot, id);
     if (this.lastChipLabels[k] !== text) {
@@ -623,7 +629,8 @@ export class Hud {
   /** Update all instruments (conning a live ship). Call each render frame.
    *  `deniedFlash` is true while the denied-fire pulse (render/deniedFire.ts)
    *  is active — briefly reddens the selected weapon chip. `abilityFlash` is
-   *  its ability-press sibling (Story 1.6) — reddens the ability chip. */
+   *  its ability-press sibling (Story 1.6), PER-SLOT since Story 1.8 (the ML
+   *  fits two ability slots) — index i reddens the chip for loadout slot i. */
   update(
     ship: ShipState,
     axes: Axes,
@@ -633,7 +640,7 @@ export class Hud {
     screenW: number,
     screenH: number,
     deniedFlash = false,
-    abilityFlash = false,
+    abilityFlash: readonly boolean[] = [],
   ): void {
     this.setInstrumentsVisible(true);
     this.spectateBanner.visible = false;

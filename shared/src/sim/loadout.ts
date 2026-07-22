@@ -1,32 +1,46 @@
 // Slot-based equipment loadout — the shared spine every fitted system builds
 // on (Story 1.2). A ship's loadout IS its equipment runtime: 4 slots (gun,
 // two specials, one extra), each either empty or holding one equipment id +
-// its state. The fit is per-hull (Stories 1.6–1.7): the Torpedo Boat carries
+// its state. The fit is per-hull (Stories 1.6–1.8): the Torpedo Boat carries
 // [gun, torpedo, speedBoost, empty], the Battleship carries
-// [gun, cannon, starShells, empty], while every other hull — Mine Layer and
-// all drones — keeps the universal fit [gun, torpedo, mine, empty] until
-// Story 1.8. speedBoost is the first non-weapon special. Pure, zero I/O.
+// [gun, cannon, starShells, empty], the Mine Layer carries
+// [gun, mine, decoyBuoy, empty] (Story 1.8), while every drone keeps the
+// universal fit [gun, torpedo, mine, empty]. speedBoost, mine (as of 1.8), and
+// decoyBuoy are the non-weapon (instant-activation) specials. Pure, zero I/O.
 
 import type { HullId } from '../constants.js';
 import type { EffectiveStats } from './stats.js';
 
-/** Equipment ids fittable into a loadout slot (weapons + the speed-boost ability). */
-export type EquipmentId = 'gun' | 'torpedo' | 'mine' | 'speedBoost' | 'cannon' | 'starShells';
+/** Equipment ids fittable into a loadout slot (weapons + activated abilities). */
+export type EquipmentId =
+  | 'gun'
+  | 'torpedo'
+  | 'mine'
+  | 'speedBoost'
+  | 'cannon'
+  | 'starShells'
+  | 'decoyBuoy';
 
 /**
  * THE single source of the weapon/ability split: true iff a piece of equipment
- * is a weapon (aimed, primed, fired at a target). A `false` entry is an
- * instant-activation ABILITY that emits nothing spatial. Server equipment rows
- * and the client activation path both read this map — nothing re-derives the
- * split ad hoc. Compile-forced to cover every EquipmentId.
+ * is a WEAPON in the mechanical sense — aimed, primed, fired at a clicked
+ * target. A `false` entry is an instant, non-aimed ACTIVATION (boost precedent)
+ * that rides the actSeq ability channel. This is the mechanical aimed-click vs
+ * instant split, NOT the design notion of "weapon": mines still DEAL DAMAGE
+ * (Eric ruling 2026-07-22: mines are activateable, not a skillshot — drop
+ * astern, arm, enemy pass-over trips a blast), they just no longer fly to a
+ * click. Server equipment rows and the client activation path both read this
+ * map — nothing re-derives the split ad hoc. Compile-forced to cover every
+ * EquipmentId.
  */
 export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   gun: true,
   torpedo: true,
-  mine: true,
+  mine: false, // Story 1.8: activateable (drop astern, no aim), not a click skillshot
   speedBoost: false,
   cannon: true, // Story 1.7: prime-then-click burst skillshot (gun pattern)
   starShells: true, // Story 1.7: prime-then-click skillshot (spawns a lit zone at burst)
+  decoyBuoy: false, // Story 1.8: activated ability — drops a stationary radar-double
 };
 
 /**
@@ -78,6 +92,7 @@ export function equipmentMaxAmmo(stats: EffectiveStats, id: EquipmentId): number
     speedBoost: stats.boost.maxAmmo,
     cannon: stats.cannon.maxAmmo,
     starShells: stats.starShells.maxAmmo,
+    decoyBuoy: stats.decoyBuoy.maxAmmo,
   }[id];
 }
 
@@ -90,26 +105,29 @@ export function equipmentReloadMs(stats: EffectiveStats, id: EquipmentId): numbe
     speedBoost: stats.boost.reloadMs,
     cannon: stats.cannon.reloadMs,
     starShells: stats.starShells.reloadMs,
+    decoyBuoy: stats.decoyBuoy.reloadMs,
   }[id];
 }
 
 /** The two specials (slots 1–2) each hull id fits: torpedo + speedBoost for the
- *  Torpedo Boat (1.6), cannon + starShells for the Battleship (1.7), the
- *  universal torpedo + mine for everyone else (Mine Layer + all drones). */
+ *  Torpedo Boat (1.6), cannon + starShells for the Battleship (1.7), mine +
+ *  decoyBuoy for the Mine Layer (1.8); every drone keeps the universal
+ *  torpedo + mine (the interregnum fit, unchanged). */
 function specialsFor(hullId: HullId): [EquipmentId, EquipmentId] {
   if (hullId === 'torpedoBoat') return ['torpedo', 'speedBoost'];
   if (hullId === 'battleship') return ['cannon', 'starShells'];
+  if (hullId === 'mineLayer') return ['mine', 'decoyBuoy'];
   return ['torpedo', 'mine'];
 }
 
 /**
- * The loadout a given hull id spawns with (per-hull, Stories 1.6–1.7). The
+ * The loadout a given hull id spawns with (per-hull, Stories 1.6–1.8). The
  * Torpedo Boat fits [gun, torpedo, speedBoost, empty]; the Battleship fits
- * [gun, cannon, starShells, empty]; every other hull id — Mine Layer and all
- * drone sizes — keeps the universal fit [gun, torpedo, mine, empty]. Fitted
- * slots start with a full pool and an idle reload timer — exactly matching
- * server `freshAmmo(equipmentMaxAmmo(stats, id))` semantics. The Mine Layer's
- * fitted loadout is deferred to Story 1.8.
+ * [gun, cannon, starShells, empty]; the Mine Layer fits
+ * [gun, mine, decoyBuoy, empty] (Story 1.8); every drone size keeps the
+ * universal fit [gun, torpedo, mine, empty]. Fitted slots start with a full
+ * pool and an idle reload timer — exactly matching server
+ * `freshAmmo(equipmentMaxAmmo(stats, id))` semantics.
  */
 export function loadoutFor(hullId: HullId, stats: EffectiveStats): LoadoutSlot[] {
   const fittedSlot = (equipmentId: EquipmentId): LoadoutSlot => ({
