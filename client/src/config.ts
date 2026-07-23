@@ -18,7 +18,7 @@ import { CONFIG } from '@salvo/shared';
  * are NOT ratified roles, kept only so no color literal escapes the token source.
  */
 const COLORS = {
-  // surfaces (locked mocks; supersede v0.16's #111111/#232937 family)
+  // surfaces (locked mocks; supersede the deprecated v0.16 surface family)
   void: 0x050807,
   fogBase: 0x020604,
   panel: 0x0a0f0d,
@@ -29,7 +29,7 @@ const COLORS = {
   silver: 0xc0c0c0,
   textPrimary: 0xe2e8f0,
   textSecondary: 0x8b95a5,
-  textMuted: 0x7a8496, // lightened from #5A6478 per validation (≈4.5:1 on void)
+  textMuted: 0x7a8496, // lightened from the v0.16 slate per validation (≈4.5:1 on void)
   // functional (HUD chrome)
   phosphor: 0x00ff88,
   phosphorBright: 0x7fffc4,
@@ -40,7 +40,7 @@ const COLORS = {
   stormReadout: 0xb06ee8,
   info: 0x38bdf8,
   danger: 0x8b2020,
-  denied: 0xff3b3b, // the single denied red (consolidates DOM #FF3B30)
+  denied: 0xff3b3b, // the single denied red (consolidates the legacy DOM red)
   damage: 0x8b0000,
   damageMarker: 0xff6666,
   islandFill: 0x2a2410,
@@ -98,10 +98,36 @@ const COLORS = {
  * source both Pixi TextStyles and DOM chrome consume: display/body → Geist,
  * mono → Geist Mono. Google Fonts loads the ratified weights (index.html); the
  * stacks graceful-degrade to system faces if the CDN is unreachable.
+ *
+ * `displayFamily`/`monoFamily` are the concrete primary faces (no fallback
+ * stack) — the head of each stack above AND what `FontFaceSet.load` needs in
+ * render/stage.ts (it wants a single family, not a comma stack).
+ *
+ * `registers` is the DESIGN.md type ramp AS DATA (the documented Role → Face /
+ * Size / Weight / tracking table). ui/theme.ts's `registerCss(name)` projects a
+ * register into a cssText `font:` fragment so DOM chrome consumes the ramp
+ * instead of hand-writing the same numbers. `family` names the stack token
+ * ('display' | 'mono'); size/weight are px/CSS numeric; `tracking` is em
+ * letter-spacing; `upper` maps to text-transform:uppercase; `tabular` flags the
+ * `data` readout register (tabular-nums, size varies by context).
  */
 const TYPE = {
   display: 'Geist, system-ui, sans-serif',
   mono: "'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace",
+  displayFamily: 'Geist',
+  monoFamily: 'Geist Mono',
+  registers: {
+    hero: { family: 'display', size: 56, weight: 700 },
+    h1: { family: 'display', size: 36, weight: 700 },
+    h2: { family: 'display', size: 20, weight: 600 },
+    body: { family: 'display', size: 16, weight: 400 },
+    small: { family: 'display', size: 14, weight: 400 },
+    caption: { family: 'display', size: 12, weight: 400 },
+    label: { family: 'mono', size: 11, weight: 500, tracking: '0.1em', upper: true },
+    hudReadout: { family: 'mono', size: 22 },
+    hudMicro: { family: 'mono', size: 9, tracking: '0.18em', upper: true },
+    data: { family: 'mono', tabular: true },
+  },
 } as const;
 
 export const CLIENT_CONFIG = {

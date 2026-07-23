@@ -5,6 +5,7 @@
 // unit-tested; the rest is a thin DOM adapter.
 
 import { SHIP_CLASS_IDS, sanitizeClassId, type ShipClassId } from '@salvo/shared';
+import { registerCss } from './theme.js';
 
 const MENU_ID = 'main-menu';
 const NAME_KEY = 'hullcracker.name';
@@ -113,8 +114,9 @@ function makeTitleBlock(version: string): HTMLElement {
   wrap.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;margin-bottom:8px';
   const title = document.createElement('div');
   title.textContent = 'HULLCRACKER';
-  title.style.cssText =
-    'font:700 56px var(--hc-font-display);color:var(--hc-phosphor);letter-spacing:6px';
+  // The 56px/700 title IS the DESIGN.md `hero` register — consume it for the
+  // font shorthand; the mock-tuned 6px tracking stays a hand-tuned append.
+  title.style.cssText = `${registerCss('hero')};color:var(--hc-phosphor);letter-spacing:6px`;
   const sub = document.createElement('div');
   sub.textContent = `RT PROTOTYPE // v${version}`;
   sub.style.cssText =

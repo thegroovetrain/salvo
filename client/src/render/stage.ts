@@ -69,10 +69,14 @@ export interface Stage {
 
 /** Preload Geist Mono so the first Pixi Text rasterizes with the right face. */
 async function preloadFonts(): Promise<void> {
+  // FontFaceSet.load wants a concrete family (not a fallback stack), so we take
+  // the primary-face token rather than the comma stack. Quote it — the family
+  // has a space.
+  const mono = `"${CLIENT_CONFIG.type.monoFamily}"`;
   try {
     await Promise.all([
-      document.fonts.load('600 16px "Geist Mono"'),
-      document.fonts.load('400 12px "Geist Mono"'),
+      document.fonts.load(`600 16px ${mono}`),
+      document.fonts.load(`400 12px ${mono}`),
     ]);
     await document.fonts.ready;
   } catch {
