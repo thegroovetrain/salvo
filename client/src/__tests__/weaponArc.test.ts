@@ -13,7 +13,7 @@
 // same way main.ts does.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, UPGRADE_IDS, effectiveStats, loadoutFor, zeroUpgrades } from '@salvo/shared';
+import { CONFIG, UPGRADE_IDS, arcFor, effectiveStats, loadoutFor, zeroUpgrades } from '@salvo/shared';
 import type { EquipmentId } from '@salvo/shared';
 import { fireArcKind, weaponArcHit, weaponRangeU } from '../render/weaponArc.js';
 
@@ -151,5 +151,29 @@ describe('weaponRangeU — per-weapon burst/clamp range', () => {
     const up = effectiveStats(CONFIG.shipClasses.battleship, upg);
     expect(weaponRangeU(up, 'gun')).toBeGreaterThan(weaponRangeU(up, 'cannon'));
     expect(weaponRangeU(up, 'cannon')).toBe(CONFIG.vision.radar); // cannon un-stacked
+  });
+});
+
+// --- Story 1.10: classification derives from the shared arcFor descriptor ----
+
+describe('weaponArc — arcFor single-source (Story 1.10)', () => {
+  const ALL_IDS: EquipmentId[] = ['gun', 'torpedo', 'mine', 'speedBoost', 'cannon', 'starShells', 'decoyBuoy'];
+
+  it('fireArcKind is a straight projection of the shared descriptor for every id', () => {
+    for (const id of ALL_IDS) {
+      const arc = arcFor(id);
+      const expected = arc.kind === 'full' ? 'gunLike' : arc.kind === 'sector' ? 'torpedo' : 'none';
+      expect(fireArcKind(id)).toBe(expected);
+    }
+  });
+
+  it('the torpedo aim gate is EXACTLY the descriptor sector (boundary-inclusive)', () => {
+    const arc = arcFor('torpedo');
+    if (arc.kind !== 'sector') throw new Error('torpedo must declare a sector');
+    // Heading 0: the sector edge is in-arc (shared inArc is boundary-inclusive)…
+    expect(weaponArcHit(0, arc.offset + arc.halfArc, 'torpedo')).toBe(true);
+    expect(weaponArcHit(0, arc.offset - arc.halfArc, 'torpedo')).toBe(true);
+    // …and a hair beyond it is denied — the exact server gate, same primitives.
+    expect(weaponArcHit(0, arc.offset + arc.halfArc + 0.001, 'torpedo')).toBe(false);
   });
 });

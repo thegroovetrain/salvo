@@ -11,6 +11,7 @@ import type { Container } from 'pixi.js';
 import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
+  EQUIPMENT_IS_WEAPON,
   HEAL_CHOICE,
   MSG,
   effectiveStats,
@@ -22,6 +23,7 @@ import {
   SLOT_COUNT,
   zeroUpgrades,
   zoneRadiusAt,
+  type DeniedView,
   type EffectiveStats,
   type EquipmentId,
   type GameMap,
@@ -49,7 +51,7 @@ import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
-import { isClickDenied, DeniedPulse } from './render/deniedFire.js';
+import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
 import { KeyboardInput, slotHoldsAbility, type UpgradeAction } from './input/keyboard.js';
 import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
@@ -137,11 +139,21 @@ interface Game {
   deniedPulse: DeniedPulse;
   /** This frame's denied-fire pulse state — read by hud.update() for the chip flash. */
   deniedFlash: boolean;
-  /** One-shot latch PER LOADOUT SLOT: an ability press on that slot predicted
-   *  DENIED (cooling/dead) since the last render frame — consumed into the
-   *  matching abilityPulse (Story 1.6, never silence). Per-slot since Story 1.8:
-   *  the ML fits TWO ability slots (mine + decoyBuoy), so a denied mine press
-   *  must not flash the decoy chip. Indexed by loadout slot (length SLOT_COUNT). */
+  /** Exactly-one-feedback dedup for denied presses, keyed (slot, seq) —
+   *  Story 1.10: predicted denials mark their key; a matching server denial
+   *  is suppressed; an unmatched one fires the feedback late-but-explicit. */
+  denialDedup: DenialDedup;
+  /** One-shot latch: an UNMATCHED server denial landed on a WEAPON slot since
+   *  the last render frame — consumed by renderFiring into the full denied
+   *  pulse (arc/reticle red), the same visual a predicted denied click drives. */
+  serverDeniedClick: boolean;
+  /** One-shot latch PER LOADOUT SLOT: a denial landed on that slot since the
+   *  last render frame — an ability press predicted DENIED (cooling/dead,
+   *  Story 1.6) or, as of Story 1.10, an UNMATCHED server denial on ANY slot
+   *  (weapon chips flash per-slot too) — consumed into the matching
+   *  abilityPulse (never silence). Per-slot since Story 1.8: the ML fits TWO
+   *  ability slots (mine + decoyBuoy), so a denied mine press must not flash
+   *  the decoy chip. Indexed by loadout slot (length SLOT_COUNT). */
   abilityDeniedPress: boolean[];
   /** Rate-limited denied pulse PER LOADOUT SLOT — the SAME deniedFire grammar
    *  (80ms flash / 300ms floor), one driver per slot so two ability slots (and
@@ -592,6 +604,11 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   const loaded = !!a && a.n > 0;
   if (abilityPressDenied(you?.alive ?? true, loaded)) {
     g.abilityDeniedPress[slot] = true;
+    // Story 1.10 exactly-one-feedback: this predicted denial IS the feedback
+    // (chip flash above + the denial tone) — mark its (slot, actSeq) key so
+    // the server's matching denial echo is suppressed, never doubled.
+    g.denialDedup.markPredicted(slot, actSeq);
+    g.audio.play('denied');
     return;
   }
   const id = g.ownSlots[slot];
@@ -667,7 +684,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     spectate: { freePan: false, visualsSet: false },
     returning: false, reconnecting: false,
     shake: new ShakeDriver(),
-    deniedPulse: new DeniedPulse(), deniedFlash: false,
+    deniedPulse: new DeniedPulse(), deniedFlash: false, denialDedup: new DenialDedup(), serverDeniedClick: false,
     ...abilityFeedbackState(),
     audio, portal,
     matchEnded: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
@@ -757,6 +774,9 @@ function bindGameRoom(g: Game, conn: Connection): void {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
     onOwnStats: (cls, upg) => applyOwnStats(g, cls, upg),
+    // Story 1.10: self-private server denials route through the
+    // exactly-one-feedback dedup (predicted-first suppresses the echo).
+    onDenied: (d) => handleServerDenial(g, d),
     // resetThrottle fires on own spawn AND own sunk — the hard state boundaries.
     // Drop any queued-but-unconsumed ability press there too (FINDING A), so a
     // press queued in one life (or mashed while dead/spectating) never fires
@@ -858,6 +878,7 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   if (!status.alive) {
     g.firing.hide();
     g.deniedFlash = false;
+    g.serverDeniedClick = false; // a denial landing on the death frame has no arc to pulse
     return;
   }
   // Drive the firing UX from the client-primed slot (immediate), reading the
@@ -874,7 +895,11 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   const primedId = status.loadout[slot] ?? null;
   const reloadFrac = a && primedId !== null ? reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, primedId)) : 0;
   const inArc = weaponArcHit(pose.heading, aim, primedId);
-  const denied = isClickDenied({ clicked, ready: hasAmmo, inArc });
+  // Predicted denial (a fresh click that can't fire) OR an unmatched SERVER
+  // weapon denial (Story 1.10 one-shot latch, consumed here) drives the same
+  // rate-limited red pulse — the late server case replaces total silence.
+  const denied = isClickDenied({ clicked, ready: hasAmmo, inArc }) || g.serverDeniedClick;
+  g.serverDeniedClick = false;
   g.deniedFlash = g.deniedPulse.update(denied, performance.now());
   g.firing.update(
     pose,
@@ -910,15 +935,58 @@ function predictedHeading(g: Game): number {
  * prime (death resets it to gun anyway — handleSunk). Prime state is pure
  * client UX — the wire slot was already sampled at click time.
  */
-function consumePrimeOnFire(g: Game, primedSlot: number, aim: number): void {
+/** Predicted fireability of a click on `primedSlot` this tick — the same
+ *  (deliberately stale-frame) reads the denied-pulse predicate uses. */
+function clickPrediction(
+  g: Game,
+  primedSlot: number,
+  aim: number,
+): { alive: boolean; loaded: boolean; inArc: boolean } {
+  const you = g.state.net.you;
+  const a = you?.ammo[primedSlot] ?? null;
+  return {
+    alive: you?.alive ?? false,
+    loaded: !!a && a.n > 0,
+    inArc: weaponArcHit(predictedHeading(g), aim, g.ownSlots[primedSlot] ?? null),
+  };
+}
+
+function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, fireSeq: number): void {
   const newClick = g.mouse.clickCount !== g.lastTickClick;
   g.lastTickClick = g.mouse.clickCount;
   if (!newClick) return;
-  const you = g.state.net.you;
-  const a = you?.ammo[primedSlot] ?? null;
-  const loaded = !!a && a.n > 0;
-  const inArc = weaponArcHit(predictedHeading(g), aim, g.ownSlots[primedSlot] ?? null);
-  if (shouldConsumePrime(you?.alive ?? false, primedSlot, loaded, inArc)) g.keyboard.revertToGun();
+  const p = clickPrediction(g, primedSlot, aim);
+  if (shouldConsumePrime(p.alive, primedSlot, p.loaded, p.inArc)) g.keyboard.revertToGun();
+  // Story 1.10 exactly-one-feedback (weapon clicks): a click predicted DENIED
+  // (reloading / out of the bow arc) fires its feedback NOW — the denial tone
+  // here plus renderFiring's existing red pulse — and marks its
+  // (slot, fireSeq) key, so the server's matching denial echo is suppressed.
+  // `fireSeq` is THIS click's wire counter (the input just sampled), so the
+  // key aligns exactly with the DeniedView the server would send. A click
+  // predicted FIREABLE marks nothing — if the server still refuses (stale-ammo
+  // race), that unmatched denial triggers the feedback late-but-explicit.
+  if (p.alive && !(p.loaded && p.inArc)) {
+    g.denialDedup.markPredicted(primedSlot, fireSeq);
+    g.audio.play('denied');
+  }
+}
+
+/**
+ * A SELF-PRIVATE server denial arrived (Story 1.10 — FrameMsg.denied via
+ * roomBindings). Route it through the exactly-one-feedback dedup: a predicted
+ * denial already fed back suppresses this echo; an UNMATCHED denial — the
+ * previously-silent cases (within-RTT double press, reload-boundary race,
+ * blocked stern drop) — fires the full feedback late-but-explicit: the denial
+ * tone, the denied slot's chip flash (per-slot, weapon or ability), and — for
+ * a weapon slot — the arc/reticle red pulse a predicted denied click drives.
+ */
+function handleServerDenial(g: Game, d: DeniedView): void {
+  if (g.state.spectating) return; // no live conning UI to feed back into
+  if (!g.denialDedup.serverDenied(d.slot, d.seq)) return; // predicted echo — already fed back
+  g.audio.play('denied');
+  g.abilityDeniedPress[d.slot] = true; // per-slot chip flash (any slot as of 1.10)
+  const id = g.ownSlots[d.slot] ?? null;
+  if (id !== null && EQUIPMENT_IS_WEAPON[id]) g.serverDeniedClick = true;
 }
 
 /** SCREEN-space fog holes for the own ACTIVE lit zones — center via the camera,
@@ -1040,7 +1108,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
         actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
         actSlot: g.keyboard.actSlot,
       });
-      consumePrimeOnFire(g, primedSlot, aim);
+      consumePrimeOnFire(g, primedSlot, aim, input.fireSeq);
       // This tick's server-time estimate rides into the pending ring so a later
       // replay re-evaluates the boost gate at the identical per-tick time.
       if (g.state.mode === 'predict') g.predictor.localTick(input, g.clock.serverNow());

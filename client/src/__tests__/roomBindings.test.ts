@@ -54,6 +54,7 @@ function setup() {
   const onDrop = vi.fn();
   const onReconnect = vi.fn();
   const onOwnSpawn = vi.fn();
+  const onDenied = vi.fn();
   const deps = {
     // handleFrame surface (enough for an own-ship frame to flow through).
     state: { net: { you: null, tick: 0, ackSeq: 0 }, spectating: false, phase: '', respawnEta: null, mode: 'interp' },
@@ -69,9 +70,10 @@ function setup() {
     onOwnSpawn,
     onDrop,
     onReconnect,
+    onDenied,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { room, sink, ownBufferClear, forceSnap, onDrop, onReconnect, onOwnSpawn };
+  return { room, sink, ownBufferClear, forceSnap, onDrop, onReconnect, onOwnSpawn, onDenied };
 }
 
 describe('bindRoom reconnect signals', () => {
@@ -217,5 +219,26 @@ describe('bindRoom own sunk', () => {
     sink.handler({ t: 200, tick: 2, ackSeq: 0, contacts: [], mines: [], events: [{ k: 'sunk', id: 'me', by: null }] });
     expect(resetThrottle).toHaveBeenCalledTimes(1);
     expect(resetPrime).toHaveBeenCalledTimes(1); // the primed skillshot never survives death
+  });
+});
+
+describe('bindRoom denial channel (Story 1.10)', () => {
+  it('routes each self-private denied entry to deps.onDenied, in wire order', () => {
+    const { sink, onDenied } = setup();
+    const f = ownFrame(0, 0) as Record<string, unknown>;
+    f.denied = [
+      { slot: 1, reason: 'out-of-arc', seq: 4 },
+      { slot: 2, reason: 'no-ammo', seq: 7 },
+    ];
+    sink.handler(f);
+    expect(onDenied).toHaveBeenCalledTimes(2);
+    expect(onDenied).toHaveBeenNthCalledWith(1, { slot: 1, reason: 'out-of-arc', seq: 4 });
+    expect(onDenied).toHaveBeenNthCalledWith(2, { slot: 2, reason: 'no-ammo', seq: 7 });
+  });
+
+  it('a frame WITHOUT the denied key routes nothing (omitted = none)', () => {
+    const { sink, onDenied } = setup();
+    sink.handler(ownFrame(0, 0));
+    expect(onDenied).not.toHaveBeenCalled();
   });
 });

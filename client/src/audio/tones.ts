@@ -14,6 +14,7 @@ export type ToneId =
   | 'fireCannon'
   | 'fireStarShells'
   | 'placeDecoy'
+  | 'denied'
   | 'damage'
   | 'kill'
   | 'point'
@@ -57,6 +58,13 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // drop family as the mine plop but pitched a touch higher + brighter so
   // seeding a buoy is audibly distinct from dropping a mine.
   placeDecoy: { freqStart: 340, freqMid: 260, freqEnd: 160, duration: 0.13, volume: 0.38, type: 'sine' },
+  // Denied press (Story 1.10 — FR12 "never silence"): a curt low square BLAT,
+  // pitched fast downward with no noise layer — reads as a refusal, distinct
+  // from every success cue (the gun family cracks start ≥520Hz with noise, the
+  // ability drops are soft sines, damage is a triangle thud). Fired ONLY via
+  // the exactly-one-feedback path (predicted denial OR an unmatched server
+  // denial — weapons AND abilities), mute-aware like every tone (Audio.play).
+  denied: { freqStart: 240, freqMid: 110, freqEnd: 80, duration: 0.09, volume: 0.42, type: 'square' },
   // Taking damage: dull triangle thud.
   damage: { freqStart: 220, freqMid: 160, freqEnd: 110, duration: 0.1, volume: 0.45, type: 'triangle' },
   // Kill confirm: short ascending chime.

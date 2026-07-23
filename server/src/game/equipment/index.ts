@@ -14,7 +14,7 @@
 // helpers; the World owns storage (shells/mines maps) and event emission,
 // exposed to rows through the narrow ActivationContext capabilities.
 
-import { type EquipmentId, type LoadoutSlot, type ShellState, type WeaponAmmo } from '@salvo/shared';
+import { type Circle, type EquipmentId, type LoadoutSlot, type ShellState, type WeaponAmmo } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import { gunEquipment } from './guns.js';
 import { torpedoEquipment } from './torpedoes.js';
@@ -42,8 +42,13 @@ export interface ActivationContext {
    */
   fireT: number;
   /** Water-disk radius (u) — the gun clamps its burst point inside it so a rim
-   *  ship firing outward bursts in-bounds rather than expiring at the edge. */
+   *  ship firing outward bursts in-bounds rather than expiring at the edge;
+   *  the stern rack refuses a drop point outside it (Story 1.10 'blocked'). */
   mapRadius: number;
+  /** Island circles — the stern rack (mine/decoy) refuses a drop point inside
+   *  one (Story 1.10 'blocked'); no other row reads them (gun/cannon muzzle
+   *  island-blindness stays deliberately out of scope — see the ledger). */
+  islands: readonly Circle[];
   mkId: () => string;
   spawnBallistic: (shell: ShellState) => void;
   dropMine: (x: number, y: number) => void;
@@ -52,12 +57,15 @@ export interface ActivationContext {
   dropDecoy: (x: number, y: number) => void;
 }
 
-/** Why an activation was refused. Derived from the EXISTING internal outcomes
- *  (arc-miss keeps the pool; empty pool denies); consumed only by tests —
- *  never a wire event. 'empty-slot' and 'dead' both come from the gate, never
- *  from a row: the gate refuses a dead ship ('dead') and an empty/out-of-range
- *  slot ('empty-slot') before any row is dispatched. */
-export type ActivationDenial = 'no-ammo' | 'out-of-arc' | 'empty-slot' | 'dead';
+/** Why an activation was refused. Derived from the internal outcomes
+ *  (arc-miss keeps the pool; empty pool denies; a blocked stern drop keeps
+ *  charge AND reload — Story 1.10). As of 1.10 the World maps row denials
+ *  onto the SELF-PRIVATE wire denial channel (FrameMsg.denied) so denied
+ *  presses are never silent; 'empty-slot' and 'dead' both come from the
+ *  gate, never from a row, and never reach the wire: the gate refuses a dead
+ *  ship ('dead') and an empty/out-of-range slot ('empty-slot') before any
+ *  row is dispatched. */
+export type ActivationDenial = 'no-ammo' | 'out-of-arc' | 'blocked' | 'empty-slot' | 'dead';
 
 /** Outcome of one activation attempt. */
 export type ActivationResult = { ok: true } | { ok: false; reason: ActivationDenial };
@@ -129,6 +137,7 @@ export {
   mineEquipment,
   addMine,
   checkMineTriggers,
+  dropBlocked,
   dropPoint,
   hullFor,
   mineBlastVictims,

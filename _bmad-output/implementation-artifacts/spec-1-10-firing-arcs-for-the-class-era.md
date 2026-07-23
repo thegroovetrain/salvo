@@ -62,11 +62,11 @@ warnings: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/` (constants, sim/arcs NEW, types, index, + tests) -- arc declaration + `arcFor` + DeniedView/seq + PV10 -- deterministic spine first.
-- [ ] `server/src/game/` (inputs, equipment/mines+decoy+torpedoes, world, frames, perception, + tests) -- denial queue → owner-only frames, blocked drops, arcFor-driven torpedo check, invariants extended.
-- [ ] `client/src/` (render/weaponArc, net/roomBindings, state, main, render/deniedFire, render/hud, audio/tones, + tests) -- CONFIG-driven arc classification, denial dedup, denial tone.
-- [ ] Ledger + docs sweep -- deferred-work resolutions, GDD close-out, sprint-status, gds-workflow-status, epic-1-context mtime-last.
-- [ ] `npm run check` green at end (baseline 1242 tests; count grows).
+- [x] `shared/src/` (constants, sim/arcs NEW, types, index, + tests) -- arc declaration + `arcFor` + DeniedView/seq + PV10 -- deterministic spine first.
+- [x] `server/src/game/` (inputs, equipment/mines+decoy+torpedoes, world, frames, perception, + tests) -- denial queue → owner-only frames, blocked drops, arcFor-driven torpedo check, invariants extended.
+- [x] `client/src/` (render/weaponArc, net/roomBindings, state, main, render/deniedFire, render/hud, audio/tones, + tests) -- CONFIG-driven arc classification, denial dedup, denial tone.
+- [x] Ledger + docs sweep -- deferred-work resolutions, GDD close-out, sprint-status, gds-workflow-status, epic-1-context mtime-last.
+- [x] `npm run check` green at end (baseline 1242 tests; count grows).
 
 **Acceptance Criteria:**
 - Given the ratified geometry, when `arcFor` drives server checks and client gate/render, then every weapon's aim gate, enforcement, and rendered arc agree byte-for-byte with pre-change behavior (regression-pinned) and every arc shape traces to CONFIG.

@@ -108,6 +108,12 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     };
   }
   const view = observe(world, playerId);
+  // This client's OWN denied presses (Story 1.10) — SELF-PRIVATE by
+  // construction: read keyed by the frame's own playerId (the boostUntil /
+  // own-ship-data precedent — nothing spatial, so not a perception channel),
+  // and OPTIONAL on the wire (omitted, not [], when none — the litZones
+  // rule). Spectator frames never carry it: a dead ship cannot press.
+  const denied = world.denialsFor(playerId);
   return {
     ...base,
     you: ship ? toOwnShip(ship) : undefined,
@@ -116,5 +122,6 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
     mines: view.mines,
     ...(view.litZones.length > 0 ? { litZones: view.litZones } : {}),
     ...(view.decoys.length > 0 ? { decoys: view.decoys } : {}),
+    ...(denied !== undefined && denied.length > 0 ? { denied: [...denied] } : {}),
   };
 }

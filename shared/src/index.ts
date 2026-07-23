@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  10: firing arcs for the class era (Story 1.10) — FrameMsg gains optional
+ *  self-private `denied` (DeniedView {slot,reason,seq}: the server's denial
+ *  signal, reasons 'out-of-arc'|'no-ammo'|'cooling'|'blocked'); CONFIG's
+ *  gun/cannon/starShells blocks gain the ratified `arc: 'full'` declaration
+ *  (rides the welcome config snapshot); new shared sim/arcs.ts (arcFor).
  *  9: mine-layer loadout (Story 1.8) — the mineLayer fit becomes
  *  [gun, mine, decoyBuoy, empty]; mine flips to the ability (actSeq) channel;
  *  FrameMsg gains optional decoys (DecoyView {id,x,y,until,own}); CONFIG.mine gains
@@ -31,7 +36,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 // Tunables
 export * from './constants.js';
@@ -49,6 +54,7 @@ export * from './math/rng.js';
 export * from './sim/ship.js';
 export * from './sim/stats.js';
 export * from './sim/loadout.js';
+export * from './sim/arcs.js';
 export * from './sim/boost.js';
 export * from './sim/offers.js';
 export * from './sim/collision.js';

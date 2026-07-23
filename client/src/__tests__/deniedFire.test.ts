@@ -10,6 +10,8 @@ import { describe, it, expect } from 'vitest';
 import {
   isClickDenied,
   DeniedPulse,
+  DenialDedup,
+  DEDUP_KEY_CAP,
   PULSE_DURATION_MS,
   PULSE_RATE_MS,
 } from '../render/deniedFire.js';
@@ -77,5 +79,52 @@ describe('DeniedPulse', () => {
     p.update(true, 0);
     p.update(false, 50); // no denied click mid-window
     expect(p.update(true, 100)).toBe(false); // still within PULSE_RATE_MS of the last trigger
+  });
+});
+
+describe('DenialDedup — exactly one feedback per denied press (Story 1.10)', () => {
+  it('a predicted denial suppresses the matching server echo (never two)', () => {
+    const d = new DenialDedup();
+    d.markPredicted(1, 4); // predicted denial fed back instantly at press time
+    expect(d.serverDenied(1, 4)).toBe(false); // the ~RTT-later echo is silent
+  });
+
+  it('an UNPREDICTED server denial fires the feedback (never zero — the silent cases)', () => {
+    const d = new DenialDedup();
+    expect(d.serverDenied(2, 7)).toBe(true); // within-RTT double press / staleness race
+    // …and even a duplicate server denial for the same press cannot double it.
+    expect(d.serverDenied(2, 7)).toBe(false);
+  });
+
+  it('keys are (slot, seq) — same seq on another slot is a DIFFERENT press', () => {
+    const d = new DenialDedup();
+    d.markPredicted(0, 3);
+    expect(d.serverDenied(1, 3)).toBe(true); // different slot: unpredicted
+    expect(d.serverDenied(0, 3)).toBe(false); // the predicted one stays suppressed
+  });
+
+  it('weapon fireSeq and ability actSeq streams coexist without collisions across slots', () => {
+    const d = new DenialDedup();
+    d.markPredicted(1, 5); // torpedo click, fireSeq 5
+    d.markPredicted(2, 5); // boost press, actSeq 5 — same number, different slot
+    expect(d.serverDenied(1, 5)).toBe(false);
+    expect(d.serverDenied(2, 5)).toBe(false);
+  });
+
+  it('evicts FIFO past DEDUP_KEY_CAP (bounded memory, oldest keys forgotten)', () => {
+    const d = new DenialDedup();
+    d.markPredicted(0, 0); // the key that will be evicted
+    for (let i = 1; i <= DEDUP_KEY_CAP; i++) d.markPredicted(0, i);
+    // Key (0,0) fell off the FIFO — a server denial for it would fire again
+    // (harmless: real echoes land within ~RTT, ages before 64 newer presses).
+    expect(d.serverDenied(0, 0)).toBe(true);
+    // The newest keys are all still present.
+    expect(d.serverDenied(0, DEDUP_KEY_CAP)).toBe(false);
+  });
+
+  it('marking the same predicted key twice does not grow the FIFO (idempotent)', () => {
+    const d = new DenialDedup();
+    for (let i = 0; i < 10; i++) d.markPredicted(3, 9);
+    expect(d.serverDenied(3, 9)).toBe(false);
   });
 });

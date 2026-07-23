@@ -772,7 +772,22 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const m of f.mines) verifyMine(w, me, m);
   for (const z of f.litZones ?? []) verifyLitZone(w, me, z);
   for (const d of f.decoys ?? []) verifyDecoy(w, me, d);
+  for (const d of f.denied ?? []) verifyDenied(me, d);
   verifyBlipOrdering(f);
+}
+
+/** The Story 1.10 denial oracle: a denial in a frame must be the OBSERVER'S
+ *  OWN press this tick — its (slot, seq) identity matches the observer's
+ *  stored input on exactly one channel grammar (weapon click ↔ fireSeq on
+ *  input.slot; ability press ↔ actSeq on input.actSlot) with a legal wire
+ *  reason. Anything else — another ship's denial, a fabricated slot/seq, a
+ *  server-internal reason ('dead'/'empty-slot') — fails the invariant:
+ *  denials are owner-only by construction. */
+function verifyDenied(me: ShipRecord, d: { slot: number; reason: string; seq: number }): void {
+  expect(['out-of-arc', 'no-ammo', 'cooling', 'blocked']).toContain(d.reason);
+  const weaponPress = d.slot === me.input.slot && d.seq === me.input.fireSeq;
+  const abilityPress = d.slot === me.input.actSlot && d.seq === me.input.actSeq;
+  expect(weaponPress || abilityPress).toBe(true);
 }
 
 /** FR10 anti-tell (Story 1.8): the frame's blip SUBSEQUENCE must be ordered by
@@ -1072,9 +1087,15 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             fireSeq: rng.float(0, 1) < 0.4 ? tick : 0, // ~40% of ticks land a fresh click
             aimDist: rng.float(0, 900),
             fireT: 0,
-            slot: 0,
-            actSeq: 0,
-            actSlot: 0,
+            // Half the clicks target the torpedo slot with a RANDOM aim, so the
+            // invariant worlds also exercise Story 1.10 denials (out-of-arc /
+            // cooling) alongside genuine launches — verifyDenied proves every
+            // one is owner-only with a legal reason.
+            slot: rng.float(0, 1) < 0.5 ? 1 : 0,
+            // ~30% of ticks also press the ability slot (TB boost in slot 2):
+            // repeated presses drain the 1-charge pool into no-ammo denials.
+            actSeq: rng.float(0, 1) < 0.3 ? tick : 0,
+            actSlot: 2,
           });
         }
         w.step();

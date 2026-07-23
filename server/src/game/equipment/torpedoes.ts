@@ -14,12 +14,20 @@
 // ballistic machinery as shells (sight + LOS), so a torpedo materializes at your
 // fog boundary, never at its launch point (see perception.ts / BallisticEvent).
 
-import { CONFIG, EQUIPMENT_IS_WEAPON, inArc, wrapAngle, type EquipmentState, type ShellState } from '@salvo/shared';
+import { CONFIG, EQUIPMENT_IS_WEAPON, inArc, sectorArcFor, wrapAngle, type EquipmentState, type ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
 import { clampToArc } from './guns.js';
 import { consume, tickReload } from './ammo.js';
 import { makeBallistic } from './ballistics.js';
+
+// The bow sector's ratified shape (Story 1.10): the shared arcFor family is
+// the single arc-shape source — the same descriptor the client's weaponArc
+// classification renders, so the enforced arc and the drawn arc can never
+// diverge (byte-identical to CONFIG.torpedo.offset/halfArc). Resolved at
+// module load; a non-sector torpedo arc is an authoring error, failed loudly
+// (sectorArcFor throws), never mid-tick.
+const BOW_SECTOR = sectorArcFor('torpedo');
 
 /**
  * Torpedo launch against one slot pool, checks in TODAY'S order: bow arc first
@@ -34,10 +42,10 @@ function launchTorpedo(
   now: number,
   mkId: () => string,
 ): { torp: ShellState | null; denial: ActivationDenial | null } {
-  const center = wrapAngle(ship.state.heading + CONFIG.torpedo.offset); // bow-centered
-  if (!inArc(ship.input.aim, center, CONFIG.torpedo.halfArc)) return { torp: null, denial: 'out-of-arc' };
+  const center = wrapAngle(ship.state.heading + BOW_SECTOR.offset); // bow-centered
+  if (!inArc(ship.input.aim, center, BOW_SECTOR.halfArc)) return { torp: null, denial: 'out-of-arc' };
   if (!consume(pool, ship.stats.torpedo.reloadMs)) return { torp: null, denial: 'no-ammo' }; // pool empty
-  const dir = clampToArc(ship.input.aim, center, CONFIG.torpedo.halfArc);
+  const dir = clampToArc(ship.input.aim, center, BOW_SECTOR.halfArc);
   const torp = makeBallistic(mkId(), ship, dir, now, {
     speed: ship.stats.torpedo.speed, // effective launch speed (torpedoSpeed upgrade)
     range: Number.POSITIVE_INFINITY, // A3: run until impact / map edge

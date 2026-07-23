@@ -6,49 +6,57 @@
 // Keyed by the fitted EQUIPMENT ID (Story 1.7), NOT the loadout slot index: the
 // slot-index == equipment coupling died when the fit went per-hull (BB slot 1 is
 // the cannon, TB slot 1 is the torpedo), so a slot-number branch would light the
-// wrong marker. The gun FAMILY (gun / cannon / star shells) is 360° — always in
-// arc, never denied for bearing, aimed to the clicked point. The torpedo fires in
-// a bow arc. Instant ABILITIES (the TB's speedBoost, and — Story 1.8 — the Mine
-// Layer's mine + decoyBuoy) never prime and never aim, so they classify as
-// `none`. Callers derive the id from the own loadout (main.ts's slotIdsFor /
-// shared loadoutFor).
+// wrong marker. As of Story 1.10 the classification DERIVES from the shared
+// arcFor descriptor (sim/arcs.ts — the single arc-shape source both sides
+// consume), so the rendered arc and the server's enforced arc can never
+// diverge: the gun FAMILY (gun / cannon / star shells) declares `full` (360° —
+// always in arc, never denied for bearing, aimed to the clicked point); the
+// torpedo declares its bow `sector`; the stern drops (mine / decoyBuoy) and the
+// speedBoost aim nothing (`stern-drop`/`none` → not an aimed weapon). Callers
+// derive the id from the own loadout (main.ts's slotIdsFor / shared loadoutFor).
 
-import { CONFIG, inArc, wrapAngle, type EffectiveStats, type EquipmentId } from '@salvo/shared';
+import { arcFor, inArc, wrapAngle, type EffectiveStats, type EquipmentId } from '@salvo/shared';
 
 /**
  * The firing-arc behavior class of a fitted equipment id. Drives every id-keyed
  * branch in firing.ts's marker/reticle rendering and weaponArcHit below:
- * - `gunLike` — the gun, the cannon, and the star shells: 360°, aimed to the
- *   clicked point, range-clamped, no arc sector drawn.
- * - `torpedo` — a bow-arc skillshot (the one aim-gated marker).
- * - `none`    — an instant ability (speedBoost, and Story 1.8's mine +
- *   decoyBuoy) or the empty slot: not an aimed weapon, no marker, no reticle.
+ * - `gunLike` — a `full` (360°) descriptor: aimed to the clicked point,
+ *   range-clamped, no arc sector drawn.
+ * - `torpedo` — a `sector` descriptor: the bow-arc skillshot (the one
+ *   aim-gated marker).
+ * - `none`    — `stern-drop`/`none` descriptors (abilities) or the empty
+ *   slot: not an aimed weapon, no marker, no reticle.
  */
 export type FireArcKind = 'gunLike' | 'torpedo' | 'none';
 
-/** Pure: classify a fitted equipment id (or null empty slot) by firing-arc kind. */
+/** Pure: classify a fitted equipment id (or null empty slot) by firing-arc
+ *  kind — a straight projection of the shared arcFor descriptor. */
 export function fireArcKind(id: EquipmentId | null): FireArcKind {
-  if (id === 'gun' || id === 'cannon' || id === 'starShells') return 'gunLike';
-  if (id === 'torpedo') return 'torpedo';
-  return 'none'; // speedBoost / mine / decoyBuoy (abilities) / empty slot 3
+  if (id === null) return 'none'; // empty slot 3 / defensive null
+  const arc = arcFor(id);
+  if (arc.kind === 'full') return 'gunLike'; // gun / cannon / starShells
+  if (arc.kind === 'sector') return 'torpedo';
+  return 'none'; // stern-drop (mine / decoyBuoy) + none (speedBoost)
 }
 
 /**
  * Does `aim` (world bearing) fall within the fitted weapon `id`'s firing arc,
- * given the hull's `heading`? The gun family (360°) is always true; the torpedo
- * checks its bow arc. An instant ability (speedBoost / mine / decoyBuoy) or the
- * empty slot is NOT a firing weapon, so it is never "in arc" (false).
+ * given the hull's `heading`? Driven by the shared arcFor descriptor: a `full`
+ * arc is always true; a `sector` checks heading + offset ± halfArc via shared
+ * `inArc` (the exact server gate). An instant ability (stern-drop / none) or
+ * the empty slot is NOT a firing weapon, so it is never "in arc" (false).
  *
  * ABILITY ids (Story 1.6's speedBoost; Story 1.8's mine + decoyBuoy) never reach
  * this function: keyboard.ts's ability path activates WITHOUT priming, and only
- * the primed slot flows into the arc/firing/prime-consumption code, so the `none`
+ * the primed slot flows into the arc/firing/prime-consumption code, so the false
  * result here only ever applies to the empty slot / a defensive null.
  */
 export function weaponArcHit(heading: number, aim: number, id: EquipmentId | null): boolean {
-  const kind = fireArcKind(id);
-  if (kind === 'gunLike') return true; // 360° — never out of arc
-  if (kind === 'torpedo') {
-    return inArc(aim, wrapAngle(heading + CONFIG.torpedo.offset), CONFIG.torpedo.halfArc);
+  if (id === null) return false;
+  const arc = arcFor(id);
+  if (arc.kind === 'full') return true; // 360° — never out of arc
+  if (arc.kind === 'sector') {
+    return inArc(aim, wrapAngle(heading + arc.offset), arc.halfArc);
   }
   return false; // ability / empty slot: not a weapon, never in arc
 }

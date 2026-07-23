@@ -36,6 +36,8 @@ import {
   isOutside,
   zeroUpgrades,
   type BallisticEvent,
+  type DeniedView,
+  type DenialReason,
   type EffectiveStats,
   type EquipmentId,
   type GameEvent,
@@ -61,6 +63,7 @@ import {
   checkMineTriggers,
   mineBlastVictims,
   type ActivationContext,
+  type ActivationDenial,
   type ActivationResult,
   type MineState,
 } from './equipment/index.js';
@@ -285,6 +288,14 @@ export class World {
   private pending: GameEvent[] = [];
   /** Events belonging to the most recently completed tick (read by frames). */
   private events: GameEvent[] = [];
+  /** Denied presses queued during the current step, keyed by the pressing
+   *  ship's id (Story 1.10). SELF-PRIVATE by construction: frames read ONLY
+   *  the requesting client's own entry (denialsFor), so a denial can never
+   *  ride another observer's frame — the boostUntil/own-ship-data precedent,
+   *  not a perception channel (nothing here is spatial). */
+  private pendingDenials = new Map<string, DeniedView[]>();
+  /** Denials belonging to the most recently completed tick (read by frames). */
+  private tickDenials = new Map<string, DeniedView[]>();
 
   constructor(
     seed: number,
@@ -330,6 +341,12 @@ export class World {
   /** Events emitted during the last completed step (and joins just before it). */
   get tickEvents(): readonly GameEvent[] {
     return this.events;
+  }
+
+  /** The last completed step's denied presses for ONE client — the only read
+   *  path (frames.ts, for the frame's own client). Undefined = none. */
+  denialsFor(id: string): readonly DeniedView[] | undefined {
+    return this.tickDenials.get(id);
   }
 
   /** Wire entry point: validate/store a raw input message for `id`. */
@@ -629,6 +646,46 @@ export class World {
     // Publish this tick's events (including joins/sinks queued between steps).
     this.events = this.pending;
     this.pending = [];
+    // Publish this tick's denied presses (Story 1.10) — same swap discipline.
+    this.tickDenials = this.pendingDenials;
+    this.pendingDenials = new Map();
+  }
+
+  /**
+   * Queue a SELF-PRIVATE wire denial for one refused press (Story 1.10 —
+   * FR12's "denied fire is never silent"). Maps the row's internal denial
+   * onto the wire vocabulary per channel: 'out-of-arc' and 'blocked' pass
+   * through; an empty pool reads 'cooling' on the WEAPON click channel (the
+   * round is reloading — with the shared ammo machine an empty weapon pool
+   * always has its reload running) and 'no-ammo' on the ABILITY channel (no
+   * charge). The gate's 'dead'/'empty-slot' refusals never reach the wire
+   * (client-predictable / honest-client-unreachable). Drones have no client,
+   * so their denials are never queued. `seq` is the press identity the
+   * client dedups on (fireSeq for clicks, actSeq for ability presses).
+   */
+  private queueDenial(
+    ship: ShipRecord,
+    slot: number,
+    seq: number,
+    denial: ActivationDenial,
+    channel: 'weapon' | 'ability',
+  ): void {
+    if (ship.isDrone) return;
+    const reason = World.wireDenialReason(denial, channel);
+    if (reason === null) return;
+    const queue = this.pendingDenials.get(ship.id) ?? [];
+    queue.push({ slot, reason, seq });
+    this.pendingDenials.set(ship.id, queue);
+  }
+
+  /** The wire reason for an internal denial, or null when it never travels. */
+  private static wireDenialReason(
+    denial: ActivationDenial,
+    channel: 'weapon' | 'ability',
+  ): DenialReason | null {
+    if (denial === 'out-of-arc' || denial === 'blocked') return denial;
+    if (denial === 'no-ammo') return channel === 'weapon' ? 'cooling' : 'no-ammo';
+    return null; // 'dead' / 'empty-slot' — gate refusals stay server-internal
   }
 
   /** Copy each client's latest stored input onto its ship. */
@@ -963,6 +1020,11 @@ export class World {
       // Only a SUCCESSFUL activation consumes fire-time monotonicity — a denial
       // (empty pool, empty slot) must not floor a later honest back-date.
       if (result.ok) ship.lastFireT = fireT;
+      // A refused click becomes a SELF-PRIVATE wire denial (Story 1.10): the
+      // press identity is the click's fireSeq, so the client's predicted
+      // denial (if any) dedups the echo and a stale-ammo race is surfaced
+      // late-but-explicit instead of silently swallowed.
+      else this.queueDenial(ship, ship.input.slot, ship.input.fireSeq, result.reason, 'weapon');
     }
   }
 
@@ -988,7 +1050,11 @@ export class World {
       // the mirror of fireControl's weapon-only wall.
       const id = fittedEquipment(ship.loadout, ship.input.actSlot);
       if (id === null || EQUIPMENT_IS_WEAPON[id]) continue;
-      this.sinkingActivationGate(ship, ship.input.actSlot);
+      const result = this.sinkingActivationGate(ship, ship.input.actSlot);
+      // A refused press becomes a SELF-PRIVATE wire denial (Story 1.10) keyed
+      // on the press's actSeq — this is what makes the within-RTT double
+      // press (stale client predicts READY, server refuses) audible at last.
+      if (!result.ok) this.queueDenial(ship, ship.input.actSlot, ship.input.actSeq, result.reason, 'ability');
     }
   }
 
@@ -1028,6 +1094,7 @@ export class World {
       now: this.now,
       fireT,
       mapRadius: this.map.radius,
+      islands: this.map.islands,
       mkId: () => this.nextBallisticId(),
       spawnBallistic: (shell) => this.spawnBallistic(shell),
       dropMine: (x, y) => this.spawnMine(ship, x, y, fireT),

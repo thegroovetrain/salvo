@@ -18,7 +18,7 @@
 // tested); the id classification + in-arc test reuse render/weaponArc.ts.
 
 import { Container, Graphics } from 'pixi.js';
-import { CONFIG, inArc, wrapAngle, type EquipmentId } from '@salvo/shared';
+import { CONFIG, arcFor, inArc, wrapAngle, type EquipmentId } from '@salvo/shared';
 import { fireArcKind, weaponArcHit } from './weaponArc.js';
 
 const AMBER = 0xffb800;
@@ -98,7 +98,10 @@ export class FiringUX {
   }
 
   private drawBowArc(aim: number, heading: number, ammo: FiringAmmo, denied: boolean): void {
-    const t = CONFIG.torpedo;
+    // The wedge geometry comes from the shared arcFor descriptor (Story 1.10 —
+    // the single arc-shape source), so the drawn sector IS the enforced one.
+    const t = arcFor('torpedo');
+    if (t.kind !== 'sector') return; // descriptor law: only a sector draws a wedge
     const lit = inArc(aim, wrapAngle(heading + t.offset), t.halfArc) && ammo.hasAmmo;
     this.sector(t.offset, t.halfArc, denied ? DENIED_RED : TORP_TINT, denied || lit, ammo.reloadFrac);
   }

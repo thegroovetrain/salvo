@@ -15,6 +15,7 @@ import {
   type BoomEvent,
   type BurstEvent,
   type DamageEvent,
+  type DeniedView,
   type FrameMsg,
   type GameEvent,
   type HealEvent,
@@ -102,6 +103,14 @@ export interface RoomBindingDeps {
   resetPrime: () => void;
   /** Roster name lookup (public schema) for the kill feed. */
   names: (id: string) => string;
+  /**
+   * A SELF-PRIVATE server denial arrived on the frame (Story 1.10 —
+   * FrameMsg.denied, one call per entry). main.ts routes it through the
+   * (slot, seq) exactly-one-feedback dedup: a client-predicted denial already
+   * fed back suppresses the echo; an unpredicted one (the stale-ammo races)
+   * triggers the full pulse + chip flash + denial tone late-but-explicit.
+   */
+  onDenied: (d: DeniedView) => void;
   /** Fired ONCE when the first spec frame arrives (enter spectate mode). */
   onSpectate: () => void;
   /** The one end-of-match results broadcast. */
@@ -216,7 +225,15 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
   net.litZones = litZones;
+  routeDenials(f, deps);
   handleEvents(f, deps);
+}
+
+/** Self-private denied presses (Story 1.10): frames OMIT the key when none,
+ *  so a missing key is an empty list. Each entry routes through main.ts's
+ *  exactly-one-feedback dedup (predicted-first suppresses the echo). */
+function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
+  for (const d of f.denied ?? []) deps.onDenied(d);
 }
 
 /**

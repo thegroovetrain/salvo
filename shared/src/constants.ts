@@ -144,6 +144,7 @@ export const CONFIG = {
    * you can shoot anywhere in radar range; no duplicated range constant exists.
    */
   gun: {
+    arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
     shellSpeed: 130, // u/s — shell muzzle velocity
     maxAmmo: 1, // single shot — pinned to 1 in effectiveStats (gunAmmo neutralized)
     reloadMs: 3000, // ms — cooldown between shots
@@ -160,7 +161,7 @@ export const CONFIG = {
    * the intended commitment-spike feel). The bow tube is now just the pool.
    */
   torpedo: {
-    offset: deg(0), // bow-centered
+    offset: deg(0), // bow-centered — RATIFIED class-era sector (Eric 2026-07-23; see sim/arcs.ts)
     halfArc: deg(30), // +/-30deg launch arc
     // u/s — must outrun every hull, classes AND drones (after Eric's 2026-07-21
     // rescale droneSmall at 46 is the fastest afloat, and a boosted Torpedo Boat
@@ -192,7 +193,9 @@ export const CONFIG = {
    * DESIGN TARGET, tunable.
    */
   mine: {
-    offset: deg(180), // astern
+    // astern — RATIFIED class-era stern rack (Eric 2026-07-23; see sim/arcs.ts).
+    // The decoyBuoy shares THIS offset (one stern-drop rule for both ML specials).
+    offset: deg(180),
     armDelay: 3000, // ms — before it can trigger
     triggerRadius: 32, // u — detonation proximity (enemy pass-over trips it)
     // u — full damage to every non-owner hull within it; > triggerRadius by
@@ -237,6 +240,7 @@ export const CONFIG = {
    * tunable.
    */
   cannon: {
+    arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
     shellSpeed: 200, // u/s — shell muzzle velocity (fastest projectile afloat)
     maxAmmo: 1, // single shot — a 1-round pool presented as a pure cooldown
     reloadMs: 15000, // ms — cooldown between shots (the commitment spike)
@@ -259,6 +263,7 @@ export const CONFIG = {
    * base parity, un-stacked). Every number is a DESIGN TARGET, tunable.
    */
   starShells: {
+    arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
     shellSpeed: 130, // u/s — shell muzzle velocity (= the standard gun's)
     maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between flares
