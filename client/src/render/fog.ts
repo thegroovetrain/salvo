@@ -86,7 +86,7 @@ export class Fog {
   updateHoles(holes: readonly FogHole[]): void {
     const g = this.holeMask;
     g.clear();
-    for (const h of holes) g.circle(h.sx, h.sy, h.sr).fill({ color: 0xffffff, alpha: 1 });
+    for (const h of holes) g.circle(h.sx, h.sy, h.sr).fill({ color: CLIENT_CONFIG.colors.white, alpha: 1 });
     const want = holes.length > 0;
     if (want !== this.holesActive) {
       this.sprite.setMask(want ? { mask: g, inverse: true } : { mask: null });

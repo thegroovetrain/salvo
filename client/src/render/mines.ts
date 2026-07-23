@@ -13,9 +13,10 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { MineView } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 
-const OWN_COLOR = 0x2f7d5a; // dim tactical green (your own ordnance)
-const ENEMY_COLOR = 0xffb800; // DESIGN.md amber warning
+const OWN_COLOR = CLIENT_CONFIG.colors.legacy.ownAssetGreen; // dim own-ordnance green (→ 1.12)
+const ENEMY_COLOR = CLIENT_CONFIG.colors.amber; // amber warning marker
 const RING_R = 10; // u (Eric 2026-07-22: the mine graphic read a bit small)
 const DOT_R = 3.5; // u
 

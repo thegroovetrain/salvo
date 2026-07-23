@@ -21,10 +21,10 @@ export interface ShipStyle {
   hollow: boolean;
 }
 
-/** Own-ship style: tactical green, filled. */
-export const OWN_STYLE: ShipStyle = { color: 0x00ff88, hollow: false };
-/** Contact style: amber alert, hollow. */
-export const CONTACT_STYLE: ShipStyle = { color: 0xffb800, hollow: true };
+/** Own-ship style: tactical green, filled (legacy own-hull → 1.12 Regatta hue). */
+export const OWN_STYLE: ShipStyle = { color: CLIENT_CONFIG.colors.legacy.ownHull, hollow: false };
+/** Contact style: amber alert, hollow (legacy enemy-hull → 1.12 Regatta hue). */
+export const CONTACT_STYLE: ShipStyle = { color: CLIENT_CONFIG.colors.legacy.enemyHull, hollow: true };
 
 /** Trace the shared silhouette polygon (local frame, bow at +x, closed). */
 function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
@@ -92,13 +92,13 @@ export class ShipView {
 
   private applyLook(): void {
     if (performance.now() < this.flashUntil) {
-      this.gfx.tint = 0xffffff;
+      this.gfx.tint = CLIENT_CONFIG.colors.white;
       this.gfx.alpha = this.fade;
     } else if (this.downed) {
       this.gfx.tint = CLIENT_CONFIG.ship.sunkTint;
       this.gfx.alpha = 0.4 * this.fade;
     } else {
-      this.gfx.tint = 0xffffff;
+      this.gfx.tint = CLIENT_CONFIG.colors.white;
       this.gfx.alpha = this.fade;
     }
   }

@@ -13,10 +13,13 @@ import {
 } from '../render/hud.js';
 import { abilityPressDenied } from '../sim/inputSampler.js';
 import { DeniedPulse } from '../render/deniedFire.js';
+import { CLIENT_CONFIG } from '../config.js';
 
-const GREEN = 0x00ff88;
-const AMBER = 0xffb800;
-const CRIMSON = 0x8b0000;
+// hpColor bands read from the design tokens (values unchanged): phosphor / amber /
+// damage. The third band keeps `damage` (the HP-rail redesign is a later story).
+const GREEN = CLIENT_CONFIG.colors.phosphor;
+const AMBER = CLIENT_CONFIG.colors.amber;
+const CRIMSON = CLIENT_CONFIG.colors.damage;
 
 describe('hpColor thresholds (DESIGN.md green/amber/crimson)', () => {
   it('is green above 60%, amber 30-60%, crimson below 30%', () => {

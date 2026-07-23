@@ -17,9 +17,10 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { LitZoneView } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 
-const OWN_COLOR = 0x2f7d5a; // dim tactical green — your own flare (own-mine convention)
-const ENEMY_COLOR = 0xffb800; // DESIGN.md amber — an enemy's flare (enemy-mine convention)
+const OWN_COLOR = CLIENT_CONFIG.colors.legacy.ownAssetGreen; // dim own-ordnance green — your own flare (→ 1.12)
+const ENEMY_COLOR = CLIENT_CONFIG.colors.amber; // amber warning — an enemy's flare
 const PEAK_FILL_ALPHA = 0.12; // soft additive fill at full brightness
 const RING_ALPHA = 0.38; // the zone edge, a touch brighter than the fill
 const RING_W = 2; // u — edge stroke width

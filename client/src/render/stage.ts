@@ -14,6 +14,7 @@
 // there. Fonts are preloaded before any Text is created.
 
 import { Application, Container } from 'pixi.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 export interface StageLayers {
   // worldRoot children
@@ -68,10 +69,14 @@ export interface Stage {
 
 /** Preload Geist Mono so the first Pixi Text rasterizes with the right face. */
 async function preloadFonts(): Promise<void> {
+  // FontFaceSet.load wants a concrete family (not a fallback stack), so we take
+  // the primary-face token rather than the comma stack. Quote it — the family
+  // has a space.
+  const mono = `"${CLIENT_CONFIG.type.monoFamily}"`;
   try {
     await Promise.all([
-      document.fonts.load('600 16px "Geist Mono"'),
-      document.fonts.load('400 12px "Geist Mono"'),
+      document.fonts.load(`600 16px ${mono}`),
+      document.fonts.load(`400 12px ${mono}`),
     ]);
     await document.fonts.ready;
   } catch {
@@ -92,7 +97,7 @@ export async function createStage(): Promise<Stage> {
   const app = new Application();
   await app.init({
     resizeTo: window,
-    background: 0x000000,
+    background: CLIENT_CONFIG.colors.void, // black void ocean base (behind the ocean disc)
     antialias: true,
     autoDensity: true,
     resolution: Math.min(window.devicePixelRatio || 1, 2),

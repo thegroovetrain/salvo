@@ -25,9 +25,9 @@ function ensureFeed(): HTMLDivElement {
       'flex-direction:column',
       'align-items:flex-end',
       'gap:4px',
-      'font:400 14px "Geist Mono", monospace', // >= DESIGN.md 14px floor (owner legibility pass)
+      'font:400 14px var(--hc-font-mono)', // >= DESIGN.md 14px floor (owner legibility pass)
       'letter-spacing:1px',
-      'color:#FFB800',
+      'color:var(--hc-amber)',
       'text-align:right',
       'z-index:900',
       'pointer-events:none',

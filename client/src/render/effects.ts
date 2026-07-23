@@ -40,19 +40,24 @@ interface OneShotSpec {
   additive: boolean;
 }
 
+const C = CLIENT_CONFIG.colors;
+
 const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
-  muzzle: { type: 'dot', life: 0.12, color: 0xffe08a, r0: 5, r1: 1, width: 0, alpha: 0.9, additive: true },
-  spark: { type: 'dot', life: 0.2, color: 0xffb800, r0: 7, r1: 1, width: 0, alpha: 1, additive: true },
-  splash: { type: 'ring', life: 0.5, color: 0x66ffaa, r0: 3, r1: 22, width: 2, alpha: 0.7, additive: false },
+  muzzle: { type: 'dot', life: 0.12, color: C.muzzle, r0: 5, r1: 1, width: 0, alpha: 0.9, additive: true },
+  // spark = the hit flash at a shell-vs-ship impact → Hit Call bloom.
+  spark: { type: 'dot', life: 0.2, color: C.hitBloom, r0: 7, r1: 1, width: 0, alpha: 1, additive: true },
+  // Miss splash ring (replaces the retired blip-green double-duty — see DESIGN.md).
+  splash: { type: 'ring', life: 0.5, color: C.splash, r0: 3, r1: 22, width: 2, alpha: 0.7, additive: false },
   // Gun-shell burst at the clicked point: a bright amber ring expanding to the
-  // CONFIG burst radius (the area every enemy hull in it takes full damage),
-  // additive so it reads as a detonation flash. Sized from shared CONFIG (the
-  // radius never travels on the wire — see BurstEvent).
-  burst: { type: 'ring', life: 0.35, color: 0xffb800, r0: 4, r1: CONFIG.gun.burstRadius, width: 3, alpha: 0.95, additive: true },
-  sink: { type: 'ring', life: 0.9, color: 0x8b0000, r0: 6, r1: 40, width: 3, alpha: 0.9, additive: false },
+  // CONFIG burst radius (the area every enemy hull in it takes full damage) —
+  // the gun's own action detonation, additive so it reads as a flash. Sized from
+  // shared CONFIG (the radius never travels on the wire — see BurstEvent).
+  burst: { type: 'ring', life: 0.35, color: C.amber, r0: 4, r1: CONFIG.gun.burstRadius, width: 3, alpha: 0.95, additive: true },
+  // Sink ring where a hull went down → damage-marker (DESIGN.md Combat Effects).
+  sink: { type: 'ring', life: 0.9, color: C.damageMarker, r0: 6, r1: 40, width: 3, alpha: 0.9, additive: false },
   // Torpedo wake: a small dim bubble dropped along the fish's run; fades fast so
-  // the trail reads as a fresh streak, not a persistent line.
-  torpwake: { type: 'dot', life: 0.7, color: 0x9fd8c4, r0: 2, r1: 3.5, width: 0, alpha: 0.4, additive: false },
+  // the trail reads as a fresh streak, not a persistent line (legacy torp tone).
+  torpwake: { type: 'dot', life: 0.7, color: C.legacy.torpWake, r0: 2, r1: 3.5, width: 0, alpha: 0.4, additive: false },
 };
 
 interface WakeParticle {

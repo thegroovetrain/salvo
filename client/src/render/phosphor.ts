@@ -7,14 +7,15 @@
 // 20Hz frames keep it snapped to the authoritative angle.
 
 import { wrapPositive } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 import { clamp01 } from '../util/math.js';
 
 const TAU = Math.PI * 2;
 
-/** Fresh-paint phosphor color. */
-export const BLIP_BRIGHT = 0x66ffaa;
+/** Fresh-paint phosphor color (blip decay ramp). */
+export const BLIP_BRIGHT = CLIENT_CONFIG.colors.blipFresh;
 /** Fully-cooled phosphor color (still faintly readable until alpha hits 0). */
-export const BLIP_DARK = 0x0a3d20;
+export const BLIP_DARK = CLIENT_CONFIG.colors.blipFaded;
 /** Fraction of a sweep period over which the tint cools bright → dark. */
 export const TINT_FADE_FRACTION = 0.3;
 

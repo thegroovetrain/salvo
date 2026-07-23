@@ -108,3 +108,6 @@ Story 1.10 (spec-1-10-firing-arcs-for-the-class-era.md) made denial authoritativ
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-10-firing-arcs-for-the-class-era.md`
   summary: Keyboard ability FIFO cap (SLOT_COUNT) silently drops a further same-window press — it never queues, never reaches the wire, and produces no denial feedback (pre-existing from the 1.8 dual-press queue).
   evidence: Edge Case Hunter traced activateAbility's early return at pendingActs.length >= SLOT_COUNT (client/src/input/keyboard.ts); requires mashing 5+ ability presses inside one 50 ms sample — extreme edge, but formally violates never-silence.
+- source_spec: `_bmad-output/implementation-artifacts/spec-1-11-design-tokens-typography.md`
+  summary: DESIGN.md frontmatter carries a self-inconsistent card-scrim annotation — hex '#030605' (rgb 3,6,5) vs its inline comment "rendered as rgba(3,7,5,.9)" — needing Eric's one-character doc ruling (hex was treated as authoritative and shipped verbatim).
+  evidence: Both review hunters independently flagged it; #030605 decodes to rgb(3,6,5), so the comment's 7 is a typo in one direction or the hex in the other; client tokens pin 0x030605 until the doc rules.

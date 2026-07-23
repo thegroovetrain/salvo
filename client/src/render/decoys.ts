@@ -23,9 +23,10 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { DecoyView } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 
-const OWN_COLOR = 0x2f7d5a; // dim tactical green — own-ordnance family (mines convention)
-const ENEMY_COLOR = 0xffb800; // DESIGN.md amber warning (the enemy-mine convention)
+const OWN_COLOR = CLIENT_CONFIG.colors.legacy.ownAssetGreen; // dim own-ordnance green (→ 1.12)
+const ENEMY_COLOR = CLIENT_CONFIG.colors.amber; // amber warning marker
 const OUTER_R = 13; // u — slightly larger than a mine (10u ring): a buoy, not a mine
 const INNER_R = 5; // u — inner ring
 const MAST = 6; // u — short topmark mast so the buoy reads distinct from a mine's ring+dot

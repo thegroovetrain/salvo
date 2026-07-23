@@ -65,6 +65,7 @@ import { Predictor, type RenderPose } from './sim/prediction.js';
 import { InputSampler } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
 import { showMenu, type MenuHandle } from './ui/menu.js';
+import { injectTheme } from './ui/theme.js';
 import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { showResults } from './ui/results.js';
 import { Audio } from './audio/context.js';
@@ -1288,6 +1289,10 @@ async function startGame(
 }
 
 async function main(): Promise<void> {
+  // Design tokens first: inject the --hc-* CSS custom properties + type registers
+  // before any DOM chrome (the menu below) builds, so every overlay resolves its
+  // colors/fonts from the single token source (Story 1.11).
+  injectTheme();
   // Portal seam: a real SDK requires init before any loading/gameplay events, so
   // encode that ordering now (init → loadingProgress(0) → stage load →
   // loadingProgress(1) → menu). The null adapter resolves immediately, so boot

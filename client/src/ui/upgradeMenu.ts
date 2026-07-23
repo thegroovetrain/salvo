@@ -19,8 +19,8 @@ import {
 import { upgradeLabel } from './upgradeToast.js';
 
 const PANEL_ID = 'upgrade-menu';
-const DIM = '#5A6478';
-const AMBER = '#FFB800';
+const DIM = 'var(--hc-text-muted)';
+const AMBER = 'var(--hc-amber)';
 
 /** The spendable state the panel renders — derived purely from `you`. */
 export interface OfferView {
@@ -77,13 +77,13 @@ const PANEL_CSS = [
   'width:340px',
   'max-width:calc(100vw - 16px)', // never clip against the body's overflow:hidden on narrow viewports
   'padding:16px',
-  'background:#111111',
-  'border:1px solid #00FF88',
+  'background:var(--hc-panel)',
+  'border:1px solid var(--hc-phosphor)',
   'z-index:1000',
 ].join(';');
 
 const TITLE_CSS = [
-  'font:600 13px "Geist Mono", monospace',
+  'font:600 13px var(--hc-font-mono)',
   'letter-spacing:2px',
   'text-transform:uppercase',
   'color:' + DIM,
@@ -97,10 +97,10 @@ const ROWS_CSS = ['display:flex', 'flex-direction:column', 'gap:6px'].join(';');
 const ROW_CSS = [
   'width:100%',
   'padding:10px 12px',
-  'background:#111111',
+  'background:var(--hc-panel)',
   'border:1px solid ' + DIM,
   'color:' + DIM,
-  'font:600 13px "Geist Mono", monospace',
+  'font:600 13px var(--hc-font-mono)',
   'letter-spacing:1px',
   'text-transform:uppercase',
   'text-align:left',

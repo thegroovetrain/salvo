@@ -6,13 +6,15 @@
 import { Graphics } from 'pixi.js';
 import type { GameMap } from '@salvo/shared';
 import type { StageLayers } from './stage.js';
+import { CLIENT_CONFIG } from '../config.js';
 
-// DESIGN.md CIC palette.
-const OCEAN_FILL = 0x010604; // near-black void ocean (plan-specified)
-const BOUNDARY = 0xc0c0c0; // silver-white CIC boundary
-const RING = 0xc0c0c0; // faint silver range rings
-const ISLAND_FILL = 0x2a2410; // dark yellowish terrain
-const ISLAND_STROKE = 0x8b7520;
+// DESIGN.md CIC palette (tokens).
+const C = CLIENT_CONFIG.colors;
+const OCEAN_FILL = C.void; // black void ocean (surfaces role: page/canvas base)
+const BOUNDARY = C.silver; // silver-white CIC boundary
+const RING = C.silver; // faint silver range rings
+const ISLAND_FILL = C.islandFill; // dark yellowish terrain
+const ISLAND_STROKE = C.islandStroke;
 
 const RANGE_RINGS = 4; // concentric range rings inside the boundary
 

@@ -15,11 +15,16 @@
 
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { ZonePhase } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 import { bakeVignetteTexture } from './textures.js';
 
-const SAFE_RING = 0x00ff88; // phosphor-green safe boundary (DESIGN.md) — stays green
-const TARGET_RING = 0x7b2fbe; // dimensional-purple final-radius telegraph (DESIGN.md #7B2FBE)
-const STORM = 0x7b2fbe; // dimensional-purple storm band (DESIGN.md #7B2FBE)
+const SAFE_RING = CLIENT_CONFIG.colors.phosphor; // phosphor-green safe boundary — the safe side
+// The wide storm band is the storm FILL (`storm`); the thin dashed final-radius
+// ring is a graphic on-water edge stroke, so it reads at readout brightness
+// (`storm-readout`) — the `storm` fill at 2.87:1 is below the 3:1 graphic
+// threshold (DESIGN.md storm color note).
+const TARGET_RING = CLIENT_CONFIG.colors.stormReadout; // on-water final-radius edge telegraph
+const STORM = CLIENT_CONFIG.colors.storm; // storm band fill
 const STORM_BAND = 70; // u — annulus width painted outside the safe ring
 const TARGET_DASHES = 48; // dash segments around the target ring
 const REDRAW_EPS = 1; // u — min radius change before re-stroking the rings

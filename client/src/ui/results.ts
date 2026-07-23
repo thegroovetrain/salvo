@@ -4,6 +4,8 @@
 // fmtDamage() are pure and unit-tested; the rest is a thin DOM adapter.
 
 import type { ResultsMsg, ResultsRow } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
+import { cssRgba } from '../util/color.js';
 
 const RESULTS_ID = 'results-overlay';
 
@@ -30,7 +32,7 @@ const OVERLAY_CSS = [
   'display:flex',
   'align-items:center',
   'justify-content:center',
-  'background:rgba(0,0,0,0.88)',
+  'background:' + cssRgba(CLIENT_CONFIG.colors.black, 0.88), // fullscreen dim, behind results only
   'z-index:1000',
 ].join(';');
 
@@ -40,18 +42,18 @@ const PANEL_CSS = [
   'align-items:center',
   'gap:20px',
   'padding:32px 40px',
-  'background:#111111',
-  'border:1px solid #00FF88',
-  'font-family:"Geist Mono", monospace',
+  'background:var(--hc-panel)',
+  'border:1px solid var(--hc-phosphor)',
+  'font-family:var(--hc-font-mono)',
 ].join(';');
 
-const CELL_CSS = 'padding:4px 14px;font:400 14px "Geist Mono", monospace;letter-spacing:1px';
+const CELL_CSS = 'padding:4px 14px;font:400 14px var(--hc-font-mono);letter-spacing:1px';
 
 function makeBanner(text: string, isVictory: boolean): HTMLElement {
   const el = document.createElement('div');
   el.textContent = text;
-  el.style.cssText = `font:700 32px Geist, "Geist Mono", monospace;letter-spacing:5px;color:${
-    isVictory ? '#00FF88' : '#FFB800'
+  el.style.cssText = `font:700 32px var(--hc-font-display);letter-spacing:5px;color:${
+    isVictory ? 'var(--hc-phosphor)' : 'var(--hc-amber)'
   }`;
   return el;
 }
@@ -61,7 +63,7 @@ function makeHeaderRow(): HTMLTableRowElement {
   for (const h of ['#', 'CAPTAIN', 'KILLS', 'DMG']) {
     const th = document.createElement('th');
     th.textContent = h;
-    th.style.cssText = `${CELL_CSS};color:#5A6478;font-size:14px;letter-spacing:2px;text-align:left`;
+    th.style.cssText = `${CELL_CSS};color:var(--hc-text-muted);font-size:14px;letter-spacing:2px;text-align:left`;
     tr.appendChild(th);
   }
   return tr;
@@ -69,8 +71,8 @@ function makeHeaderRow(): HTMLTableRowElement {
 
 function makeRow(r: ResultsRow, own: boolean): HTMLTableRowElement {
   const tr = document.createElement('tr');
-  const color = own ? '#00FF88' : '#E2E8F0';
-  if (own) tr.style.background = 'rgba(0,255,136,0.1)';
+  const color = own ? 'var(--hc-phosphor)' : 'var(--hc-text-primary)';
+  if (own) tr.style.background = cssRgba(CLIENT_CONFIG.colors.phosphor, 0.1);
   for (const cell of [String(r.placement), r.name, String(r.kills), fmtDamage(r.damageDealt)]) {
     const td = document.createElement('td');
     td.textContent = cell;
@@ -85,10 +87,10 @@ function makeReturnButton(onReturn: () => void): HTMLButtonElement {
   btn.textContent = 'RETURN TO PORT';
   btn.style.cssText = [
     'padding:10px 28px',
-    'background:#111111',
-    'border:1px solid #FFB800',
-    'color:#FFB800',
-    'font:600 14px "Geist Mono", monospace',
+    'background:var(--hc-panel)',
+    'border:1px solid var(--hc-amber)',
+    'color:var(--hc-amber)',
+    'font:600 14px var(--hc-font-mono)',
     'letter-spacing:3px',
     'cursor:pointer',
   ].join(';');

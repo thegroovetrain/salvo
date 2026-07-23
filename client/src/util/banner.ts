@@ -2,6 +2,9 @@
 // Connection errors and mode toggles surface here; a real UI layer arrives
 // with the menu step (14).
 
+import { CLIENT_CONFIG } from '../config.js';
+import { cssRgba } from './color.js';
+
 const ID = 'net-banner';
 let hideTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -16,10 +19,10 @@ function ensureEl(): HTMLDivElement {
       'left:50%',
       'transform:translateX(-50%)',
       'padding:6px 14px',
-      'font:600 13px "Geist Mono", monospace',
+      'font:600 13px var(--hc-font-mono)',
       'letter-spacing:1.5px',
       'border:1px solid',
-      'background:rgba(1,6,4,0.9)',
+      'background:' + cssRgba(CLIENT_CONFIG.colors.cardScrim, 0.9), // dark-glass bed
       'z-index:1000',
       'pointer-events:none',
     ].join(';');
@@ -36,7 +39,7 @@ export interface BannerOptions {
 /** Show (or replace) the banner text. */
 export function showBanner(text: string, opts: BannerOptions = {}): void {
   const el = ensureEl();
-  const color = opts.error ? '#ff3b30' : '#00ff88';
+  const color = opts.error ? 'var(--hc-denied)' : 'var(--hc-phosphor)';
   el.style.color = color;
   el.style.borderColor = color;
   el.textContent = text;
