@@ -19,12 +19,13 @@
 
 import { Container, Graphics } from 'pixi.js';
 import { CONFIG, arcFor, inArc, wrapAngle, type EquipmentId } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 import { fireArcKind, weaponArcHit } from './weaponArc.js';
 
-const AMBER = 0xffb800;
-const TORP_TINT = 0x3fbf8f; // cool green — torpedo bow arc
-const DIM = 0x5a6478;
-const DENIED_RED = 0xff3b3b; // DESIGN.md invalid-placement red
+const AMBER = CLIENT_CONFIG.colors.amber;
+const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torpedo bow arc (legacy tone)
+const DIM = CLIENT_CONFIG.colors.textMuted;
+const DENIED_RED = CLIENT_CONFIG.colors.denied; // the single denied red
 const ARC_R = 72; // u — sector indicator radius
 const RETICLE_R = 7; // u — crosshair size
 const IMPACT_R = 4; // u — range-clamped impact marker ring

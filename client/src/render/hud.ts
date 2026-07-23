@@ -16,6 +16,7 @@ import {
   equipmentReloadMs,
   wrapPositive,
 } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 
 /** Kinematics subset the speed ladder needs (ahead/astern denominators). */
 interface LadderKin {
@@ -25,15 +26,20 @@ interface LadderKin {
 import type { Axes } from '../input/keyboard.js';
 import type { MatchUx } from '../ui/phase.js';
 
-const GREEN = 0x00ff88;
-const AMBER = 0xffb800;
-const CRIMSON = 0x8b0000;
-const DIM = 0x5a6478;
-const DENIED_RED = 0xff3b3b; // DESIGN.md invalid-placement red — denied-fire chip flash
-// Storm = dimensional purple (DESIGN.md #7B2FBE). Text accents use a brightened
-// member of the family so the warning stays alarming on black (bump brightness,
-// not saturation — see DESIGN.md storm color note).
-const STORM_PURPLE = 0xb06ee8;
+const C = CLIENT_CONFIG.colors;
+const GREEN = C.phosphor;
+const AMBER = C.amber;
+const CRIMSON = C.damage; // HP-rail third band keeps `damage` (HP-rail redesign is a later story)
+const DIM = C.textMuted;
+const DENIED_RED = C.denied; // the single denied red — denied-fire chip flash
+// Storm readout accent: the `storm` fill is below the graphic-contrast
+// threshold, so text/readout uses `storm-readout` (brighter, not more saturated —
+// DESIGN.md storm color note).
+const STORM_PURPLE = C.stormReadout;
+const PANEL = C.panel; // HP bar / chip backings
+// Geist Mono per DESIGN.md — the single mono stack (sizes unchanged: they already
+// embed the post-playtest ~1.6× register).
+const MONO = CLIENT_CONFIG.type.mono;
 // HUD scaled ~1.6× after the 2026-07-13 owner play test ("everything tiny").
 // DESIGN.md type floor is Small = 14px; readouts/labels sit at/above it.
 const PANEL_W = 240;
@@ -49,13 +55,13 @@ const LADDER_BOTTOM = 84; // y of the full-astern rung (index 0)
 const LADDER_TOP = LADDER_BOTTOM - 8 * RUNG_GAP; // full-ahead rung (index 8)
 const RUNG_LEN = 10; // half-tick length for a normal detent
 const RUNG_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 12,
   fill: DIM,
   letterSpacing: 0.5,
 } as const;
 const CAP_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 13,
   fill: DIM,
   letterSpacing: 1,
@@ -130,29 +136,29 @@ const CHIP_GAP = 6;
 const CHIP_H = 20;
 const SEG_GAP = 1; // px between ammo segments within a chip
 const CHIP_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 14,
   fill: DIM,
   letterSpacing: 1,
 } as const;
 
 const LABEL_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 14,
   fill: DIM,
   letterSpacing: 1.5,
 } as const;
 
-const DATA_STYLE = { fontFamily: 'Geist Mono, monospace', fontSize: 28, fill: GREEN } as const;
+const DATA_STYLE = { fontFamily: MONO, fontSize: 28, fill: GREEN } as const;
 // Banked-points prompt — amber (an action is available), above the chip cluster.
 const PTS_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 16,
   fill: AMBER,
   letterSpacing: 2,
 } as const;
 const OVERLAY_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 38,
   fill: AMBER,
   letterSpacing: 2,
@@ -204,37 +210,37 @@ export interface ZoneHud {
 }
 
 const ZONE_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 20,
   fill: STORM_PURPLE, // storm readout accent (DESIGN.md dimensional purple)
   letterSpacing: 2,
 } as const;
 const STORM_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 19,
   fill: STORM_PURPLE, // "IN STORM" alarm — purple family, brightened for legibility
   letterSpacing: 2,
 } as const;
 const MATCH_LINE_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 22,
   fill: GREEN,
   letterSpacing: 3,
 } as const;
 const MATCH_TAG_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 16,
   fill: DIM,
   letterSpacing: 3,
 } as const;
 const COUNTDOWN_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 112,
   fill: GREEN,
   letterSpacing: 4,
 } as const;
 const SPECTATE_STYLE = {
-  fontFamily: 'Geist Mono, monospace',
+  fontFamily: MONO,
   fontSize: 28,
   fill: AMBER,
   letterSpacing: 3,
@@ -495,7 +501,7 @@ export class Hud {
 
   private drawHp(g: Graphics, x: number, y: number, hp: number, maxHp: number): void {
     const frac = Math.max(0, Math.min(1, hp / maxHp));
-    g.rect(x, y, BAR_W, BAR_H).fill({ color: 0x111111, alpha: 0.8 });
+    g.rect(x, y, BAR_W, BAR_H).fill({ color: PANEL, alpha: 0.8 });
     g.rect(x, y, BAR_W * frac, BAR_H).fill({ color: hpColor(frac), alpha: 0.95 });
     g.rect(x, y, BAR_W, BAR_H).stroke({ width: 1, color: DIM, alpha: 0.5 });
   }
@@ -535,7 +541,7 @@ export class Hud {
     const isAbility = !EQUIPMENT_IS_WEAPON[id];
     const a = status.ammo[slot] ?? { n: 0, reloadMsLeft: 0 };
     const reloadFrac = reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, id));
-    g.rect(cx, y, cw, CHIP_H).fill({ color: 0x111111, alpha: 0.8 });
+    g.rect(cx, y, cw, CHIP_H).fill({ color: PANEL, alpha: 0.8 });
     // Grammar keyed on equipment IDENTITY (gun/ability = cooldown sweep,
     // weapon pools = segments) — never on pool size (see chipUsesCooldownGrammar).
     if (chipUsesCooldownGrammar(id)) this.drawCooldownChip(g, a.n > 0, reloadFrac, cx, y, cw);

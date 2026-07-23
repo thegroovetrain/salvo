@@ -80,17 +80,17 @@ const OVERLAY_CSS = [
   'align-items:center',
   'justify-content:center',
   'gap:16px',
-  'background:#000000',
+  'background:var(--hc-void)',
   'z-index:1100',
 ].join(';');
 
 const INPUT_CSS = [
   'width:240px',
   'padding:10px 12px',
-  'background:#111111',
-  'border:1px solid #00FF88',
-  'color:#E2E8F0',
-  'font:500 16px "Geist Mono", monospace',
+  'background:var(--hc-panel)',
+  'border:1px solid var(--hc-phosphor)',
+  'color:var(--hc-text-primary)',
+  'font:500 16px var(--hc-font-mono)',
   'letter-spacing:2px',
   'text-align:center',
   'text-transform:uppercase',
@@ -100,10 +100,10 @@ const INPUT_CSS = [
 const BUTTON_CSS = [
   'width:266px',
   'padding:12px 0',
-  'background:#111111',
-  'border:1px solid #FFB800',
-  'color:#FFB800',
-  'font:600 16px "Geist Mono", monospace',
+  'background:var(--hc-panel)',
+  'border:1px solid var(--hc-amber)',
+  'color:var(--hc-amber)',
+  'font:600 16px var(--hc-font-mono)',
   'letter-spacing:4px',
   'cursor:pointer',
 ].join(';');
@@ -114,11 +114,11 @@ function makeTitleBlock(version: string): HTMLElement {
   const title = document.createElement('div');
   title.textContent = 'HULLCRACKER';
   title.style.cssText =
-    'font:700 56px Geist, "Geist Mono", monospace;color:#00FF88;letter-spacing:6px';
+    'font:700 56px var(--hc-font-display);color:var(--hc-phosphor);letter-spacing:6px';
   const sub = document.createElement('div');
   sub.textContent = `RT PROTOTYPE // v${version}`;
   sub.style.cssText =
-    'font:500 14px "Geist Mono", monospace;color:#5A6478;letter-spacing:3px;text-transform:uppercase';
+    'font:500 14px var(--hc-font-mono);color:var(--hc-text-muted);letter-spacing:3px;text-transform:uppercase';
   wrap.append(title, sub);
   return wrap;
 }
@@ -129,10 +129,10 @@ const CLASS_ROW_CSS = ['display:flex', 'gap:8px', 'width:266px'].join(';');
 const CLASS_BTN_CSS = [
   'flex:1',
   'padding:8px 0',
-  'background:#111111',
-  'border:1px solid #5A6478',
-  'color:#5A6478',
-  'font:600 13px "Geist Mono", monospace',
+  'background:var(--hc-panel)',
+  'border:1px solid var(--hc-text-muted)',
+  'color:var(--hc-text-muted)',
+  'font:600 13px var(--hc-font-mono)',
   'letter-spacing:1px',
   'cursor:pointer',
   'display:flex',
@@ -156,8 +156,8 @@ function makeClassPicker(): ClassPicker {
   const paint = (): void => {
     for (const [id, btn] of buttons) {
       const on = id === current;
-      btn.style.borderColor = on ? '#FFB800' : '#5A6478';
-      btn.style.color = on ? '#FFB800' : '#5A6478';
+      btn.style.borderColor = on ? 'var(--hc-amber)' : 'var(--hc-text-muted)';
+      btn.style.color = on ? 'var(--hc-amber)' : 'var(--hc-text-muted)';
     }
   };
 
@@ -215,7 +215,7 @@ export function showMenu(
   button.style.cssText = BUTTON_CSS;
   const status = document.createElement('div');
   status.style.cssText =
-    'min-height:18px;font:400 14px "Geist Mono", monospace;letter-spacing:1.5px;color:#5A6478';
+    'min-height:18px;font:400 14px var(--hc-font-mono);letter-spacing:1.5px;color:var(--hc-text-muted)';
 
   let busy = false;
   const play = (): void => {
@@ -236,7 +236,7 @@ export function showMenu(
   return {
     setStatus(text: string, error = false): void {
       status.textContent = text;
-      status.style.color = error ? '#FF3B30' : '#5A6478';
+      status.style.color = error ? 'var(--hc-denied)' : 'var(--hc-text-muted)';
     },
     setBusy(b: boolean): void {
       busy = b;

@@ -8,6 +8,10 @@
 // Thin Pixi adapter (not unit tested).
 
 import { Texture } from 'pixi.js';
+import { CLIENT_CONFIG } from '../config.js';
+import { cssRgba } from '../util/color.js';
+
+const C = CLIENT_CONFIG.colors;
 
 type BakeCanvas = OffscreenCanvas | HTMLCanvasElement;
 type BakeCtx = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
@@ -24,8 +28,8 @@ function makeCanvas(w: number, h: number): { canvas: BakeCanvas; ctx: BakeCtx } 
 
 // --- 1. fog + sight hole -----------------------------------------------------
 
-/** DESIGN.md fogged-ocean overlay color. */
-const FOG_FILL = 'rgba(2, 10, 6, 0.85)';
+/** DESIGN.md fogged-ocean overlay color (fog-base token @ 0.85). */
+const FOG_FILL = cssRgba(C.fogBase, 0.85);
 /** Hole feather: fully clear to 0.75×sight, fading to full fog at 1.0×sight. */
 const HOLE_FEATHER_START = 0.75;
 
@@ -46,8 +50,8 @@ export function bakeFogTexture(viewW: number, viewH: number, sightPx: number, ma
   const cx = w / 2;
   const cy = h / 2;
   const hole = ctx.createRadialGradient(cx, cy, sightPx * HOLE_FEATHER_START, cx, cy, sightPx);
-  hole.addColorStop(0, 'rgba(0, 0, 0, 1)');
-  hole.addColorStop(1, 'rgba(0, 0, 0, 0)');
+  hole.addColorStop(0, cssRgba(C.black, 1));
+  hole.addColorStop(1, cssRgba(C.black, 0));
   ctx.fillStyle = hole;
   ctx.beginPath();
   ctx.arc(cx, cy, sightPx, 0, Math.PI * 2);
@@ -62,16 +66,15 @@ export const SWEEP_TEXTURE_RADIUS = 512;
 /** Angular width (rad) of the trailing fade behind the leading edge. */
 const TAIL_RAD = (40 * Math.PI) / 180;
 const TAU = Math.PI * 2;
-const SWEEP_RGB = '0, 255, 136'; // #00FF88 leading edge (DESIGN.md phosphor)
 
 function paintWedgeTail(ctx: BakeCtx, c: number, r: number): void {
   // Conic gradient runs clockwise from the tail start (−40°) up to the
-  // leading edge at 0 rad (+x): transparent → wedge green, then cut off.
+  // leading edge at 0 rad (+x): transparent → phosphor wedge, then cut off.
   const grad = ctx.createConicGradient(-TAIL_RAD, c, c);
   const edge = TAIL_RAD / TAU;
-  grad.addColorStop(0, `rgba(${SWEEP_RGB}, 0)`);
-  grad.addColorStop(edge, `rgba(${SWEEP_RGB}, 0.26)`);
-  grad.addColorStop(Math.min(1, edge + 0.002), `rgba(${SWEEP_RGB}, 0)`);
+  grad.addColorStop(0, cssRgba(C.phosphor, 0));
+  grad.addColorStop(edge, cssRgba(C.phosphor, 0.26));
+  grad.addColorStop(Math.min(1, edge + 0.002), cssRgba(C.phosphor, 0));
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.moveTo(c, c);
@@ -89,7 +92,7 @@ function paintLeadingEdge(ctx: BakeCtx, c: number, r: number): void {
   ];
   ctx.lineCap = 'round';
   for (const [width, alpha] of layers) {
-    ctx.strokeStyle = `rgba(${SWEEP_RGB}, ${alpha})`;
+    ctx.strokeStyle = cssRgba(C.phosphor, alpha);
     ctx.lineWidth = width;
     ctx.beginPath();
     ctx.moveTo(c, c);
@@ -116,8 +119,6 @@ export function bakeSweepTexture(): Texture {
 
 /** Baked at this square size, then stretched to the viewport (ellipse edge). */
 export const VIGNETTE_TEXTURE_SIZE = 512;
-/** DESIGN.md dimensional-purple (#7B2FBE) for the out-of-zone edge glow. */
-const VIGNETTE_RGB = '123, 47, 190';
 /** Clear out to this fraction of the radius; storm purple ramps in beyond it. */
 const VIGNETTE_CLEAR = 0.55;
 
@@ -134,8 +135,8 @@ export function bakeVignetteTexture(): Texture {
   const { canvas, ctx } = makeCanvas(size, size);
   const c = size / 2;
   const grad = ctx.createRadialGradient(c, c, c * VIGNETTE_CLEAR, c, c, c);
-  grad.addColorStop(0, `rgba(${VIGNETTE_RGB}, 0)`);
-  grad.addColorStop(1, `rgba(${VIGNETTE_RGB}, 1)`);
+  grad.addColorStop(0, cssRgba(C.storm, 0)); // storm fill/vignette (DESIGN.md)
+  grad.addColorStop(1, cssRgba(C.storm, 1));
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, size, size);
   return Texture.from(canvas);
@@ -152,9 +153,9 @@ export function bakeBlipTexture(): Texture {
   const { canvas, ctx } = makeCanvas(size, size);
   const c = size / 2;
   const grad = ctx.createRadialGradient(c, c, 0, c, c, c);
-  grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-  grad.addColorStop(0.3, 'rgba(255, 255, 255, 0.85)');
-  grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  grad.addColorStop(0, cssRgba(C.white, 1)); // tint supplies the blip color
+  grad.addColorStop(0.3, cssRgba(C.white, 0.85));
+  grad.addColorStop(1, cssRgba(C.white, 0));
   ctx.fillStyle = grad;
   ctx.beginPath();
   ctx.arc(c, c, c, 0, Math.PI * 2);

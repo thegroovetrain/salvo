@@ -58,9 +58,9 @@ function ensureStack(): HTMLDivElement {
       'flex-direction:column',
       'align-items:center',
       'gap:4px',
-      'font:400 16px "Geist Mono", monospace', // >= DESIGN.md 14px floor
+      'font:400 16px var(--hc-font-mono)', // >= DESIGN.md 14px floor
       'letter-spacing:2px',
-      'color:#00FF88', // phosphor green — a reward, not a warning
+      'color:var(--hc-phosphor)', // phosphor green — a reward, not a warning
       'text-align:center',
       'z-index:900',
       'pointer-events:none',

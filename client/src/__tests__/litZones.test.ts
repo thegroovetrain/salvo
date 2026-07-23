@@ -22,8 +22,12 @@ const zone = (id: string, by = 'enemy', until = 10_000): LitZoneView => ({
   by,
 });
 
-const OWN_GREEN = 0x2f7d5a;
-const ENEMY_AMBER = 0xffb800;
+import { CLIENT_CONFIG } from '../config.js';
+
+// Ownership tint from the tokens (values unchanged): own = the legacy own-ordnance
+// green carry-over (→ 1.12); enemy = the amber warning marker.
+const OWN_GREEN = CLIENT_CONFIG.colors.legacy.ownAssetGreen;
+const ENEMY_AMBER = CLIENT_CONFIG.colors.amber;
 
 describe('reconcileLitZones — zone list → sprite lifecycle diff', () => {
   it('adds every zone when starting from nothing', () => {

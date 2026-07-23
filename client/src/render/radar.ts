@@ -17,6 +17,7 @@
 import { Graphics, Sprite } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import { CONFIG, type BlipEvent } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 import { Pool, capOldest } from '../util/pool.js';
 import { blipAlpha, blipTint, sweepRotation } from './phosphor.js';
 import {
@@ -35,8 +36,8 @@ const BLIP_DIAMETER_U = 16;
  * growing the pool unbounded. Oldest-inserted is evicted first.
  */
 const MAX_LIVE_BLIPS = 64;
-const RING_SIGHT_COLOR = 0x00ff88;
-const RING_RADAR_COLOR = 0xc0c0c0;
+const RING_SIGHT_COLOR = CLIENT_CONFIG.colors.phosphor; // sight ring — HUD chart chrome
+const RING_RADAR_COLOR = CLIENT_CONFIG.colors.silver; // radar ring — neutral linework
 
 interface LiveBlip {
   sprite: Sprite;

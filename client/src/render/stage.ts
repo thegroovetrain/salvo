@@ -14,6 +14,7 @@
 // there. Fonts are preloaded before any Text is created.
 
 import { Application, Container } from 'pixi.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 export interface StageLayers {
   // worldRoot children
@@ -92,7 +93,7 @@ export async function createStage(): Promise<Stage> {
   const app = new Application();
   await app.init({
     resizeTo: window,
-    background: 0x000000,
+    background: CLIENT_CONFIG.colors.void, // black void ocean base (behind the ocean disc)
     antialias: true,
     autoDensity: true,
     resolution: Math.min(window.devicePixelRatio || 1, 2),

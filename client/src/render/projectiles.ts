@@ -22,7 +22,10 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import { CONFIG, type BallisticEvent, type BoomEvent, type BurstEvent } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 import { Pool } from '../util/pool.js';
+
+const C = CLIENT_CONFIG.colors;
 import { insideAnyZone, type OwnZone } from './litZones.js';
 
 type Kind = BallisticEvent['k'];
@@ -37,9 +40,11 @@ interface ProjectileLook {
 }
 
 const LOOKS: Record<Kind, ProjectileLook> = {
-  shell: { core: 0xffe08a, glow: 0xffb800, coreR: 2.2, glowR: 6, glowAlpha: 0.25 },
-  // Torpedo: fatter, cool steel-green core so a fish reads distinct from a shell.
-  torp: { core: 0xcfe8dd, glow: 0x3fbf8f, coreR: 3.4, glowR: 8, glowAlpha: 0.22 },
+  // core = legacy shell tone; glow = amber (the gun's warning glow).
+  shell: { core: C.legacy.shellCore, glow: C.amber, coreR: 2.2, glowR: 6, glowAlpha: 0.25 },
+  // Torpedo: fatter, cool steel-green core (torpedo on-water render) so a fish
+  // reads distinct from a shell; glow = legacy torpedo secondary tone.
+  torp: { core: C.torpedo, glow: C.legacy.torpGlow, coreR: 3.4, glowR: 8, glowAlpha: 0.22 },
 };
 
 /** Spawn a torpedo wake dot roughly every this many world-units of travel. */
