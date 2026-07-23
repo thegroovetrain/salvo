@@ -2,8 +2,9 @@
 title: 'Firing Arcs for the Class Era'
 type: 'feature'
 created: '2026-07-23'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'f7c6ec39299c65acd749223d43993964fef2b84e'
+final_revision: '93a46e97e42a5fcd8e624549980ee3e0535702ae'
 review_loop_iteration: 0
 followup_review_recommended: true
 context: []
@@ -110,3 +111,17 @@ warnings: []
 
 **Manual checks (if no CLI):**
 - With Eric's dev server running (never start it): TB out-of-arc torpedo click → red pulse + new denial tone, round kept; hammer an ability key twice fast → second press audibly denied; back an ML's stern against an island → key 2/3 denied, charge kept; all arcs/reticles look and fire exactly as before.
+
+## Auto Run Result
+
+**Status:** done (2026-07-23). Branch `worktree-dev-auto-1-10-firing-arcs`, baseline f7c6ec3, final code revision 93a46e9 (spec + 2 waves: implementation, review patches). Non-draft PR opened at completion.
+
+**Summary:** Eric's four pre-implementation rulings (surfaced per invocation directive, answered 2026-07-23): geometry ratified as-is; deny-gate kept (no cursor clamp); full FR12 hardening; blocked stern drops become denials. Implemented: shared `arcFor()` descriptor (every arc shape traces to CONFIG; gun/cannon/starShells declare `arc:'full'`), PV 9→10, self-private `FrameMsg.denied` channel (out-of-arc/no-ammo/cooling/blocked; owner-only, invariant-tested), client exactly-one-feedback dedup keyed (slot, seq) + new denial tone, island/boundary-blocked mine/decoy drops deny without consuming. Golden frames deliberately regenerated (pure append). Ledger: 3 entries resolved (1 partially — transport-coalescing variant remains), 2 new deferred.
+
+**Files:** shared (constants, sim/arcs NEW, types, index, tests) — descriptor spine + wire; server (world, frames, equipment/mines+decoy+torpedoes+index, tests incl. denials.test.ts NEW) — denial queue → owner frames, blocked drops; client (weaponArc, firing, deniedFire, hud, tones, roomBindings, main, keyboard, tests) — CONFIG-driven arc classification, dedup + tone; docs (GDD close-out, sprint-status 1-10 done, gds-workflow-status → create-story 1-11, epic-1-context corrected, deferred-work).
+
+**Review:** Blind Hunter + Edge Case Hunter (session capability, parallel): 0 intent_gap, 0 bad_spec, 10 patches applied (1 high — dedup-key reuse silently swallowing denials at respawn/reconnect boundaries; 3 medium; 6 low), 2 deferred, 3 rejected. `followup_review_recommended: true` (patch volume + a high-severity fix inside the story's core mechanism).
+
+**Verification:** `npm run check` exit 0 independently re-run after each wave — lint (complexity ≤ 10) + tsc ×3 + tests 261/616/411 = 1288 (true baseline 1253, +35).
+
+**Residual risks:** transport-coalescing press swallow and keyboard-FIFO cap drop remain (deferred, evidence in ledger); predicted-DENIED-but-server-ACCEPTS half of the staleness race is accepted behavior (no "accepted" signal exists); GDD lines still phrase aim as "mouse-constrained to the arc" — settled text mildly conflicting with the ratified deny-gate, left per minimal-edits law, flagged for Eric.
