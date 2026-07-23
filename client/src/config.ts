@@ -91,9 +91,12 @@ const COLORS = {
   //     lemon/lime/spring/aqua/cyan/azure/cobalt/iris/orchid/fuchsia/magenta/rose.
   //   • 8 RULE-DERIVED literals (chartreuse/olive/green/jade/lagoon/sky/
   //     periwinkle/mulberry) — no documented hex exists, so each is the outline at
-  //     HSV value ×0.45 (hue/saturation preserved), which for a linear-light RGB
-  //     model is exactly Math.round(channel × 0.45) per channel. Authored as
-  //     literals here; tokens.test.ts recomputes them from that rule to catch a typo.
+  //     HSV value ×0.45 (hue/saturation preserved). Scaling the gamma-encoded sRGB
+  //     channels uniformly IS exactly an HSV V-scale (V = max channel; scaling all
+  //     channels by k scales V by k and leaves H/S untouched) — Math.round(channel
+  //     × 0.45) per channel. NOTE: this operates on the stored sRGB bytes, NOT
+  //     linear-light values. Authored as literals here; tokens.test.ts recomputes
+  //     them from that rule to catch a typo.
   playerFills: {
     lemon: 0x736c23, // DESIGN
     chartreuse: 0x5a680b, // rule-derived (0xc8e619 ×0.45)

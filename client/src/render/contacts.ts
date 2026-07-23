@@ -13,9 +13,9 @@
 // (the `colored` latch avoids a per-frame redraw).
 
 import type { Container } from 'pixi.js';
-import { CONFIG, type HullId } from '@salvo/shared';
+import { CONFIG } from '@salvo/shared';
 import type { ContactStore } from '../net/snapshots.js';
-import { ShipView, contactStyle, isDroneHull, type ShipStyle } from './ships.js';
+import { ShipView, contactStyle, isDroneHull } from './ships.js';
 import { Fader } from './fade.js';
 
 /** Start a contact's fade-out once unseen for this much server time (ms). */
@@ -100,7 +100,7 @@ export class ContactViews {
   private tryRecolor(id: string, fv: FadingView, store: ContactStore, rosterIndex: RosterIndex): void {
     const idx = rosterIndex(id);
     if (idx === null) return; // still unresolved — keep the fallback, retry next frame
-    const style = hullStyleFor(store.classOf(id) ?? 'torpedoBoat', idx);
+    const style = contactStyle(store.classOf(id) ?? 'torpedoBoat', idx);
     fv.view.setColors(style.stroke, style.fill);
     fv.colored = true;
   }
@@ -114,7 +114,7 @@ export class ContactViews {
       // never-sighted id; drone ids must NOT be sanitized to a ship class.
       const hullId = store.classOf(id) ?? 'torpedoBoat';
       const idx = rosterIndex(id);
-      const style = hullStyleFor(hullId, idx);
+      const style = contactStyle(hullId, idx);
       // Colored already iff a drone (greys) or the personal hue resolved now;
       // a still-null human hue leaves the amber fallback for tryRecolor to fix.
       fv = { view: new ShipView(style, hullId), fader: new Fader(false), colored: isDroneHull(hullId) || idx !== null };
@@ -123,10 +123,4 @@ export class ContactViews {
     }
     return fv;
   }
-}
-
-/** The style for a contact hull + resolved index (drone greys win; else the
- *  personal-hue style or amber fallback). Thin wrapper over ships.contactStyle. */
-function hullStyleFor(hullId: HullId, index: number | null): ShipStyle {
-  return contactStyle(hullId, index);
 }

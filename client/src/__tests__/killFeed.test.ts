@@ -6,8 +6,10 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { killLine, ellipsizeName, pushKillLine } from '../ui/killFeed.js';
+import { CLIENT_CONFIG } from '../config.js';
+import { cssHex } from '../util/color.js';
 
-describe('ellipsizeName — mid-ellipsize > 14 chars to exactly 14', () => {
+describe('ellipsizeName — mid-ellipsize > 14 code points to exactly 14', () => {
   it('leaves names of 14 chars or fewer untouched', () => {
     expect(ellipsizeName('SHORT')).toBe('SHORT');
     expect(ellipsizeName('EXACTLY14CHARS')).toBe('EXACTLY14CHARS'); // 14 chars
@@ -16,6 +18,19 @@ describe('ellipsizeName — mid-ellipsize > 14 chars to exactly 14', () => {
   it('mid-ellipsizes to 7 head + … + 6 tail (14 total)', () => {
     expect(ellipsizeName('ABCDEFGHIJKLMNOPQRSTUVWXYZ')).toBe('ABCDEFG…UVWXYZ');
     expect(ellipsizeName('ABCDEFG…UVWXYZ')).toHaveLength(14);
+  });
+
+  it('slices on CODE POINTS — an emoji-bearing long name never yields a lone surrogate', () => {
+    // 16 ship emoji: >14 code points (and 32 UTF-16 units). A UTF-16 slice would
+    // split a surrogate pair mid-glyph; the code-point slice must not.
+    const name = '🚢'.repeat(16);
+    const out = ellipsizeName(name);
+    expect([...out].length).toBe(14); // 7 head + … + 6 tail, counted in code points
+    // No LONE surrogate (a UTF-16 slice would split a pair mid-glyph) — equivalent
+    // to String.prototype.isWellFormed(), without needing the es2024 lib.
+    const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    expect(loneSurrogate.test(out)).toBe(false);
+    expect(out).not.toContain('�'); // no replacement char when rendered
   });
 });
 
@@ -57,6 +72,18 @@ describe('pushKillLine — DOM span building', () => {
     expect(spans[1].style.fontWeight).toBe(''); // ' SUNK BY ' connective
     expect(spans[1].style.color).toBe('');
     expect(spans[2].style.fontWeight).toBe('600'); // killer name
+  });
+
+  it('pins a DRONE name to the droneOutline token VERBATIM (never run through textSafe)', () => {
+    const droneOutline = CLIENT_CONFIG.colors.droneOutline;
+    pushKillLine(killLine({ name: 'DRONE-01', id: 'd' }, null), () => droneOutline);
+    const span = feed().firstChild!.firstChild as HTMLSpanElement;
+    // jsdom normalizes color strings, so compare against a reference span set to
+    // the raw token — the drone name must render the token itself, un-lightened.
+    const ref = document.createElement('span');
+    ref.style.color = cssHex(droneOutline);
+    expect(span.style.color).toBe(ref.style.color);
+    expect(span.style.fontWeight).toBe('600');
   });
 
   it('leaves a roster-miss name (color null) uncolored — inherits text-secondary', () => {

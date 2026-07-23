@@ -437,7 +437,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // Regatta Hoist (Story 1.12): assign a unique personal hue FCFS at join.
     // `used` is every hue the roster already holds — drones carry the 255 sentinel
     // and are excluded by construction, so they never occupy a wheel index.
-    meta.color = assignHue(this.usedHues(), sanitizeColorPref(options.colorPref), this.hueRng);
+    // `joinCounter` feeds ONLY assignHue's defensive exhaustion fallback (wheel
+    // full → joinOrder % 20); at cap 20 the wheel always has a free hue first.
+    meta.color = assignHue(this.usedHues(), sanitizeColorPref(options.colorPref), this.hueRng, this.joinCounter);
     this.state.players.set(client.sessionId, meta);
 
     const welcome: WelcomeMsg = {

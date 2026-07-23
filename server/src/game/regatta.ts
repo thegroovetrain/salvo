@@ -44,20 +44,34 @@ function nearestFree(pref: number, used: ReadonlySet<number>): number {
   return pref;
 }
 
+/** Range-guard a preference to a real wheel index (0..19 integer) or undefined,
+ *  so a caller that skips sanitization can never grant an out-of-range hue. */
+function safePref(pref: number | undefined): number | undefined {
+  return pref !== undefined && Number.isInteger(pref) && pref >= 0 && pref < WHEEL ? pref : undefined;
+}
+
 /**
  * Assign a hue index for a joining human. `used` is the set of hue indices the
  * roster already holds (drones/no-hue carry the 255 sentinel and are NOT in it),
- * `pref` the sanitized preference (0..19 or undefined), `rng` the room's
- * decorrelated hue stream (seeded mulberry32 — no Math.random). Deterministic
- * given (used, pref, rng state). The wheel cap equals the player cap, so the
- * exhausted branch is defensive only — it returns `pref ?? 0` rather than throw
- * (joinOrder is not available to this pure function).
+ * `pref` the preference (range-guarded here to 0..19 or undefined — safe even if
+ * the caller skipped sanitizeColorPref), `rng` the room's decorrelated hue stream
+ * (seeded mulberry32 — no Math.random), `joinOrder` the caller's monotonic join
+ * counter used ONLY by the exhaustion fallback. Deterministic given (used, pref,
+ * rng state, joinOrder). The wheel cap equals the player cap, so the exhausted
+ * branch is defensive only — it returns `joinOrder % WHEEL` (the spec's rule to
+ * spread unavoidable duplicates), or 0 when joinOrder is absent, never a throw.
  */
-export function assignHue(used: ReadonlySet<number>, pref: number | undefined, rng: Rng): number {
+export function assignHue(
+  used: ReadonlySet<number>,
+  pref: number | undefined,
+  rng: Rng,
+  joinOrder?: number,
+): number {
   const free = freeHues(used);
-  if (free.length === 0) return pref ?? 0; // defensive: wheel exhausted (unreachable at cap 20)
-  if (pref !== undefined) {
-    return used.has(pref) ? nearestFree(pref, used) : pref;
+  if (free.length === 0) return joinOrder === undefined ? 0 : joinOrder % WHEEL;
+  const p = safePref(pref);
+  if (p !== undefined) {
+    return used.has(p) ? nearestFree(p, used) : p;
   }
   return rng.pick(free);
 }

@@ -24,10 +24,9 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { DecoyView } from '@salvo/shared';
+import { resolveHue, retryHue, type HueFor } from './hueLatch.js';
 
-/** Resolve an owner ship id (`by`) → the buoy's personal hue (Story 1.12); amber
- *  when the owner has left the roster. */
-export type HueFor = (by: string) => number;
+export type { HueFor };
 
 const OUTER_R = 13; // u — slightly larger than a mine (10u ring): a buoy, not a mine
 const INNER_R = 5; // u — inner ring
@@ -59,8 +58,17 @@ export function reconcileDecoys(current: ReadonlySet<string>, incoming: readonly
   return { add, remove };
 }
 
+/** A live buoy sprite + its firer-hue latch (retryHue recolors it once the
+ *  owner's roster hue syncs). `own` drives only brightness on redraw. */
+interface DecoySprite {
+  g: Graphics;
+  by: string;
+  own: boolean;
+  colored: boolean;
+}
+
 export class Decoys {
-  private readonly sprites = new Map<string, Graphics>();
+  private readonly sprites = new Map<string, DecoySprite>();
 
   /**
    * `ownLayer` = chartRoot's decoy layer (fog-immune); `enemyLayer` = worldRoot's
@@ -87,34 +95,39 @@ export class Decoys {
     const { add, remove } = reconcileDecoys(new Set(this.sprites.keys()), decoys);
     for (const id of remove) this.despawn(id);
     for (const d of add) this.spawn(d, hueFor);
+    // Story 1.12: recolor any buoy that booted on the amber fallback (owner hue
+    // not yet synced at spawn) once its personal hue lands — the mines precedent.
+    for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => this.drawMarker(s.g, s.own, color));
   }
 
   private spawn(d: DecoyView, hueFor: HueFor): void {
-    const g = this.marker(d.own, hueFor(d.by));
+    const g = new Graphics();
+    const { color, colored } = resolveHue(d.by, hueFor);
+    this.drawMarker(g, d.own, color);
     g.position.set(d.x, d.y);
     (d.own ? this.ownLayer : this.enemyLayer).addChild(g);
-    this.sprites.set(d.id, g);
+    this.sprites.set(d.id, { g, by: d.by, own: d.own, colored });
     if (d.own) this.onOwnDecoySpawn?.(d);
   }
 
   private despawn(id: string): void {
-    const g = this.sprites.get(id);
-    if (!g) return;
-    g.destroy();
+    const s = this.sprites.get(id);
+    if (!s) return;
+    s.g.destroy();
     this.sprites.delete(id);
   }
 
-  /** A buoy topmark: two concentric rings + a short mast — distinct from a mine.
-   *  `color` = the owner's personal hue (same for all observers, Story 1.12);
-   *  `own` drives only the brightness (dim on your own chart, brighter as an
-   *  enemy warning). */
-  private marker(own: boolean, color: number): Graphics {
+  /** Draw a buoy topmark onto `g` (clearing prior geometry — the recolor path
+   *  redraws in place): two concentric rings + a short mast, distinct from a
+   *  mine. `color` = the owner's personal hue (same for all observers, Story
+   *  1.12); `own` drives only the brightness (dim on your own chart, brighter as
+   *  an enemy warning). */
+  private drawMarker(g: Graphics, own: boolean, color: number): void {
     const ringAlpha = own ? 0.7 : 0.9;
     const innerAlpha = own ? 0.9 : 1;
-    const g = new Graphics();
+    g.clear();
     g.circle(0, 0, OUTER_R).stroke({ width: 1.5, color, alpha: ringAlpha });
     g.circle(0, 0, INNER_R).stroke({ width: 1.5, color, alpha: innerAlpha });
     g.moveTo(0, -OUTER_R).lineTo(0, -OUTER_R - MAST).stroke({ width: 1.5, color, alpha: innerAlpha });
-    return g;
   }
 }

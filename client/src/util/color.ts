@@ -82,6 +82,13 @@ function mixTowardWhite(n: number, t: number): number {
  * hues), else the hue lightened toward white in small uniform steps until it does.
  * Pure — the kill feed (and tokens.test.ts) call it; the outline hues stay the raw
  * graphic values in config.ts, only their TEXT rendering runs through here.
+ *
+ * CONTRACT: lightening toward white only raises contrast against a DARK background
+ * (the void family — the feed's actual backdrop). It is NOT a general contrast
+ * fixer; against a light bg it would move the wrong way. If 4.5:1 is somehow
+ * unreachable within MAX_LIGHTEN_STEPS, this returns the final (lightest) step's
+ * color rather than looping forever — but against the void every hue passes long
+ * before the cap, so that path is termination-safety only.
  */
 export function textSafe(rgb: number, bg: number = CLIENT_CONFIG.colors.void): number {
   let c = (rgb >>> 0) & 0xffffff;

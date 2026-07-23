@@ -19,10 +19,9 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { MineView } from '@salvo/shared';
+import { resolveHue, retryHue, type HueFor } from './hueLatch.js';
 
-/** Resolve a dropper ship id (`by`) → the marker's personal hue (Story 1.12);
- *  amber when the dropper has left the roster. */
-export type HueFor = (by: string) => number;
+export type { HueFor };
 
 const RING_R = 10; // u (Eric 2026-07-22: the mine graphic read a bit small)
 const DOT_R = 3.5; // u
@@ -50,8 +49,17 @@ export function reconcileMines(current: ReadonlySet<string>, incoming: readonly 
   return { add, remove };
 }
 
+/** A live mine sprite + its firer-hue latch (retryHue recolors it once the
+ *  dropper's roster hue syncs). `own` drives only brightness on redraw. */
+interface MineSprite {
+  g: Graphics;
+  by: string;
+  own: boolean;
+  colored: boolean;
+}
+
 export class Mines {
-  private readonly sprites = new Map<string, Graphics>();
+  private readonly sprites = new Map<string, MineSprite>();
 
   /**
    * `ownLayer` = chartRoot (fog-immune); `enemyLayer` = worldRoot.
@@ -66,34 +74,40 @@ export class Mines {
   ) {}
 
   /** Reconcile sprites against this observer's mine list for the tick. `hueFor`
-   *  resolves each mine's dropper id (`by`) → its personal hue (Story 1.12). */
+   *  resolves each mine's dropper id (`by`) → its personal hue (Story 1.12), or
+   *  null while the roster hasn't synced — those markers boot on the amber
+   *  fallback and recolor here on a later tick once the hue lands. */
   sync(mines: readonly MineView[], hueFor: HueFor): void {
     const { add, remove } = reconcileMines(new Set(this.sprites.keys()), mines);
     for (const id of remove) this.despawn(id);
     for (const m of add) this.spawn(m, hueFor);
+    for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => this.drawMarker(s.g, s.own, color));
   }
 
   private spawn(m: MineView, hueFor: HueFor): void {
-    const g = this.marker(m.own, hueFor(m.by));
+    const g = new Graphics();
+    const { color, colored } = resolveHue(m.by, hueFor);
+    this.drawMarker(g, m.own, color);
     g.position.set(m.x, m.y);
     (m.own ? this.ownLayer : this.enemyLayer).addChild(g);
-    this.sprites.set(m.id, g);
+    this.sprites.set(m.id, { g, by: m.by, own: m.own, colored });
     if (m.own) this.onOwnMineSpawn?.(m);
   }
 
   private despawn(id: string): void {
-    const g = this.sprites.get(id);
-    if (!g) return;
-    g.destroy();
+    const s = this.sprites.get(id);
+    if (!s) return;
+    s.g.destroy();
     this.sprites.delete(id);
   }
 
-  /** `color` = the dropper's personal hue (same for all observers); `own` drives
-   *  only the brightness (dim on your own chart, brighter as an enemy warning). */
-  private marker(own: boolean, color: number): Graphics {
-    const g = new Graphics();
+  /** Draw the mine marker onto `g` (clearing any prior geometry — the recolor
+   *  path redraws in place). `color` = the dropper's personal hue (same for all
+   *  observers); `own` drives only the brightness (dim on your own chart,
+   *  brighter as an enemy warning). */
+  private drawMarker(g: Graphics, own: boolean, color: number): void {
+    g.clear();
     g.circle(0, 0, RING_R).stroke({ width: 1.5, color, alpha: own ? 0.7 : 0.9 });
     g.circle(0, 0, DOT_R).fill({ color, alpha: own ? 0.8 : 1 });
-    return g;
   }
 }

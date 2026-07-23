@@ -27,10 +27,13 @@ const COLOR_PREF_KEY = 'hullcracker.color';
  * no UI writes the key yet (the Color Hoist picker is Story 1.14). The server
  * re-sanitizes the value (sanitizeColorPref) regardless.
  */
-function loadColorPref(): number | undefined {
+export function loadColorPref(): number | undefined {
   try {
     const raw = localStorage.getItem(COLOR_PREF_KEY);
-    if (raw === null) return undefined;
+    // Reject absent AND empty/whitespace-only BEFORE Number(): Number('') and
+    // Number('   ') both coerce to 0, which would silently forward a bogus
+    // colorPref: 0 for a never-written key rather than the no-preference path.
+    if (raw === null || raw.trim() === '') return undefined;
     const n = Number(raw);
     return Number.isInteger(n) && n >= 0 && n < REGATTA_HUES.length ? n : undefined;
   } catch {

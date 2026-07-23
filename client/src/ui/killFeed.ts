@@ -7,6 +7,7 @@
 // stack is a thin adapter. Lines expire after a few seconds; the stack is capped
 // so a bloodbath cannot fill the screen.
 
+import { CLIENT_CONFIG } from '../config.js';
 import { cssHex, textSafe } from '../util/color.js';
 
 const FEED_ID = 'kill-feed';
@@ -29,14 +30,17 @@ export interface KillSegment {
 }
 
 /**
- * Mid-ellipsize a callsign longer than NAME_MAX to EXACTLY NAME_MAX chars,
- * including the single '…' — 7 head + '…' + 6 tail (= 14). Shorter names pass
- * through unchanged. Callsigns are capped at entry too (menu), so this only
- * catches legacy over-length names.
+ * Mid-ellipsize a callsign longer than NAME_MAX to EXACTLY NAME_MAX code points,
+ * including the single '…' — 7 head + '…' + 6 tail (= 14). Slices on CODE POINTS
+ * (Array.from), not UTF-16 units, so an emoji or other astral-plane glyph is
+ * never split into a lone surrogate. Shorter names pass through unchanged.
+ * Callsigns are capped at entry too (menu), so this only catches legacy
+ * over-length names.
  */
 export function ellipsizeName(name: string): string {
-  if (name.length <= NAME_MAX) return name;
-  return name.slice(0, 7) + '…' + name.slice(name.length - 6);
+  const cps = [...name];
+  if (cps.length <= NAME_MAX) return name;
+  return cps.slice(0, 7).join('') + '…' + cps.slice(-6).join('');
 }
 
 /**
@@ -85,7 +89,11 @@ function renderSegments(line: HTMLDivElement, segments: KillSegment[], colorFor:
     if (seg.id !== undefined) {
       const color = colorFor(seg.id);
       if (color !== null) {
-        span.style.color = cssHex(textSafe(color));
+        // A drone name is pinned to the droneOutline token VERBATIM — the spec
+        // forbids running the drone grey through textSafe. Only human personal
+        // hues get the WCAG lighten-toward-void pass.
+        const isDrone = color === CLIENT_CONFIG.colors.droneOutline;
+        span.style.color = cssHex(isDrone ? color : textSafe(color));
         span.style.fontWeight = '600';
       }
     }

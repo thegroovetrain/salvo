@@ -248,7 +248,9 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
 
   it('derives the 8 undocumented fills by the HSV value ×0.45 rule (round per channel)', () => {
     // The 12 DESIGN pairs sit at ~0.451 (NOT recomputable); only these 8 follow the
-    // exact V×0.45 rule, which for linear-light RGB is Math.round(channel × 0.45).
+    // exact V×0.45 rule. Scaling all gamma-encoded sRGB channels by 0.45 IS an HSV
+    // V-scale (H/S preserved) — Math.round(channel × 0.45) on the stored sRGB
+    // bytes, NOT on linear-light values.
     const scale045 = (hex: number): number => {
       const ch = (shift: number): number => Math.round(((hex >> shift) & 0xff) * 0.45);
       return (ch(16) << 16) | (ch(8) << 8) | ch(0);

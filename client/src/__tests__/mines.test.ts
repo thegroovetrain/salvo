@@ -58,4 +58,19 @@ describe('Mines — firer-hue tint (Story 1.12) + own/enemy layer split', () => 
     expect(ownLayer.children).toHaveLength(1);
     expect(enemyLayer.children).toHaveLength(1);
   });
+
+  it('recolors a mine that booted on the amber fallback once its firer hue later resolves, then latches', () => {
+    const { mines } = harness();
+    // hueFor returns null at spawn (roster hue not yet synced) → amber fallback.
+    const hueFor = vi.fn((_by: string) => null as number | null);
+    mines.sync([mine('m1', true, 'late')], hueFor);
+    expect(hueFor).toHaveBeenCalled(); // probed at spawn + retry, still unresolved
+    // The roster hue lands: the next sync's retry resolves + redraws once.
+    hueFor.mockReturnValue(0x00ff00);
+    mines.sync([mine('m1', true, 'late')], hueFor);
+    const afterResolve = hueFor.mock.calls.length;
+    // Latched now — a further sync must NOT probe the resolved marker again.
+    mines.sync([mine('m1', true, 'late')], hueFor);
+    expect(hueFor.mock.calls.length).toBe(afterResolve);
+  });
 });

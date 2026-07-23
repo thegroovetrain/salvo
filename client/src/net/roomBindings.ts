@@ -111,10 +111,11 @@ export interface RoomBindingDeps {
   colors: (id: string) => number | null;
   /**
    * Ordnance-marker tint (Story 1.12): a mine/decoy/lit-zone firer id (`by`) →
-   * that pilot's BRIGHT personal hue — the SAME hue for every observer — falling
-   * back to amber when the firer has left the roster.
+   * that pilot's BRIGHT personal hue (the SAME hue for every observer), or null
+   * while the roster hasn't synced the firer (or the firer left). The renderer
+   * paints the amber fallback for a null and retries per frame until it resolves.
    */
-  ordnanceHue: (by: string) => number;
+  ordnanceHue: (by: string) => number | null;
   /**
    * A SELF-PRIVATE server denial arrived on the frame (Story 1.10 —
    * FrameMsg.denied, one call per entry). main.ts routes it through the

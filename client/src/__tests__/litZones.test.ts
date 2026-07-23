@@ -55,10 +55,22 @@ describe('LitZones.sync — firer-hue tint (Story 1.12)', () => {
   it('resolves each new zone’s tint from its firer id (`by`) via hueFor', () => {
     const layer = new Container();
     const litZones = new LitZones(layer);
-    const hueFor = vi.fn((_by: string) => 0x123456);
+    const hueFor = vi.fn((_by: string) => 0x123456 as number | null);
     litZones.sync([zone('z1', 'alice'), zone('z2', 'bob')], hueFor);
     expect(hueFor.mock.calls.map((c) => c[0]).sort()).toEqual(['alice', 'bob']);
     expect(layer.children).toHaveLength(2);
+  });
+
+  it('recolors a glow that booted on the amber fallback once its firer hue later resolves, then latches', () => {
+    const litZones = new LitZones(new Container());
+    const hueFor = vi.fn((_by: string) => null as number | null);
+    litZones.sync([zone('z1', 'late')], hueFor);
+    expect(hueFor).toHaveBeenCalled(); // unresolved at spawn → amber fallback
+    hueFor.mockReturnValue(0x00ff00);
+    litZones.sync([zone('z1', 'late')], hueFor); // retry resolves + redraws
+    const afterResolve = hueFor.mock.calls.length;
+    litZones.sync([zone('z1', 'late')], hueFor); // latched — no more probes
+    expect(hueFor.mock.calls.length).toBe(afterResolve);
   });
 });
 

@@ -17,6 +17,7 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { LitZoneView } from '@salvo/shared';
+import { resolveHue, retryHue, type HueFor } from './hueLatch.js';
 
 const PEAK_FILL_ALPHA = 0.12; // soft additive fill at full brightness
 const RING_ALPHA = 0.38; // the zone edge, a touch brighter than the fill
@@ -24,9 +25,7 @@ const RING_W = 2; // u — edge stroke width
 /** Fade the glow out over the last FADE_MS before expiry (a dying flare). */
 export const LIT_FADE_MS = 1500;
 
-/** Resolve a firer ship id `by` → the flare's tint (Story 1.12: the firer's bright
- *  personal hue for EVERY observer; amber when the firer left the roster). */
-export type HueFor = (by: string) => number;
+export type { HueFor };
 
 /**
  * Pure: the glow's alpha multiplier in [0,1] at `remainingMs` (= until -
@@ -115,6 +114,9 @@ export function reconcileLitZones(
 interface ZoneSprite {
   g: Graphics;
   until: number; // server-clock expiry — drives the render() fade
+  r: number; // zone radius (u) — needed to redraw on a firer-hue recolor
+  by: string; // firer id — retried until its personal hue syncs
+  colored: boolean; // true once the real firer hue is latched (stop retrying)
 }
 
 export class LitZones {
@@ -134,6 +136,9 @@ export class LitZones {
     const { add, remove } = reconcileLitZones(new Set(this.sprites.keys()), zones);
     for (const id of remove) this.despawn(id);
     for (const z of add) this.spawn(z, hueFor);
+    // Story 1.12: recolor any glow that booted on the amber fallback (firer hue
+    // not yet synced at spawn) once its personal hue lands — the mines precedent.
+    for (const s of this.sprites.values()) retryHue(s, hueFor, (color) => this.drawGlow(s.g, s.r, color));
   }
 
   /** Per render frame: fade each glow by its timestamp (until - serverNow). */
@@ -142,14 +147,21 @@ export class LitZones {
   }
 
   private spawn(z: LitZoneView, hueFor: HueFor): void {
-    const color = hueFor(z.by);
+    const { color, colored } = resolveHue(z.by, hueFor);
     const g = new Graphics();
-    g.blendMode = 'add'; // additive: illuminated water, not an opaque disc
-    g.circle(0, 0, z.r).fill({ color, alpha: PEAK_FILL_ALPHA });
-    g.circle(0, 0, z.r).stroke({ width: RING_W, color, alpha: RING_ALPHA });
+    this.drawGlow(g, z.r, color);
     g.position.set(z.x, z.y);
     this.layer.addChild(g);
-    this.sprites.set(z.id, { g, until: z.until });
+    this.sprites.set(z.id, { g, until: z.until, r: z.r, by: z.by, colored });
+  }
+
+  /** Draw the additive glow onto `g` (clearing prior geometry — the recolor path
+   *  redraws in place; the per-frame fade lives on `g.alpha`, untouched here). */
+  private drawGlow(g: Graphics, r: number, color: number): void {
+    g.clear();
+    g.blendMode = 'add'; // additive: illuminated water, not an opaque disc
+    g.circle(0, 0, r).fill({ color, alpha: PEAK_FILL_ALPHA });
+    g.circle(0, 0, r).stroke({ width: RING_W, color, alpha: RING_ALPHA });
   }
 
   private despawn(id: string): void {

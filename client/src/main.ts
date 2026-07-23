@@ -422,7 +422,10 @@ function rosterName(g: Game, id: string): string {
  */
 function rosterColor(g: Game, id: string): number | null {
   const c = publicState(g).players?.get(id)?.color;
-  return typeof c === 'number' && c !== REGATTA_NO_HUE ? c : null;
+  // The single chokepoint: ANY value outside a real wheel index (0..19) — the 255
+  // drone sentinel, a malformed schema byte, a not-yet-synced entry — resolves to
+  // null, which keeps every downstream PLAYER_HUES[idx] lookup in range.
+  return typeof c === 'number' && Number.isInteger(c) && c >= 0 && c < PLAYER_HUES.length ? c : null;
 }
 
 /** Kill-feed name color for a vessel id: the bright personal hue for a human,
@@ -436,10 +439,14 @@ function feedColor(g: Game, id: string): number | null {
 }
 
 /** Ordnance-marker tint for a firer id (mine/decoy/lit-zone `by`): the pilot's
- *  bright personal hue for every observer; amber when the firer left the roster. */
-function ordnanceHue(g: Game, by: string): number {
+ *  bright personal hue for every observer, or null while the roster hasn't synced
+ *  it (or the firer left) — the renderer paints the amber fallback and retries
+ *  per frame until the hue resolves (render/hueLatch.ts). The `?? amber` on the
+ *  resolved branch is belt-and-braces: rosterColor already guarantees idx is in
+ *  range, so PLAYER_HUES[idx] is never undefined here. */
+function ordnanceHue(g: Game, by: string): number | null {
   const idx = rosterColor(g, by);
-  return idx === null ? CLIENT_CONFIG.colors.amber : PLAYER_HUES[idx];
+  return idx === null ? null : PLAYER_HUES[idx] ?? CLIENT_CONFIG.colors.amber;
 }
 
 /**
@@ -454,7 +461,9 @@ function updateOwnColor(g: Game): void {
   g.ownHueIndex = idx;
   const style = hullStyle(idx);
   g.ownView.setColors(style.stroke, style.fill);
-  g.effects.setWakeColor(idx === null ? CLIENT_CONFIG.colors.amber : PLAYER_HUES[idx]);
+  // `?? amber` guards the array lookup so setWakeColor can never receive undefined
+  // (rosterColor already keeps idx in range; this is belt-and-braces).
+  g.effects.setWakeColor(idx === null ? CLIENT_CONFIG.colors.amber : PLAYER_HUES[idx] ?? CLIENT_CONFIG.colors.amber);
 }
 
 /** Countdown-tick (last 5s) + match-start audio cues, edge-detected off the

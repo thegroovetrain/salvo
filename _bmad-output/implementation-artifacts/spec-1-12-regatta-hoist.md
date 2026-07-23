@@ -2,10 +2,10 @@
 title: 'The Regatta Hoist'
 type: 'feature'
 created: '2026-07-23'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '037d05305cfdbf5f48a0a2ab040b3a74c52ed796'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   [
     '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md',
@@ -95,6 +95,20 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-07-23 — Review pass (Blind Hunter + Edge Case Hunter, both at session capability, parallel; patch fixes routed per /orchestrate, orchestrator-verified)
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 13: (high 0, medium 3, low 10)
+- defer: 0
+- reject: 1
+- addressed_findings:
+  - `[medium]` `[patch]` Ordnance markers latched their tint at spawn — a marker rendered before the firer's roster entry synced kept the amber fallback for its whole visible life (the exact race contacts.ts already mitigates). Fixed: shared `render/hueLatch.ts` retry latch; mines/decoys/litZones re-probe `hueFor(by)` per sync and redraw once resolved; `HueFor` now returns `number | null` so the fallback is renderer-owned; per-renderer recolor tests added.
+  - `[medium]` `[patch]` `loadColorPref` turned a stored empty/whitespace string into hue-0 preference (`Number('') === 0`), violating the invalid-pref matrix row. Fixed: null/empty/whitespace rejected before parse; 10-case parse test added.
+  - `[medium]` `[patch]` Join-time assignment wiring had zero integration coverage (pure-fn uniqueness test was tautological; `meta.color`, drone sentinel, `usedHues` sentinel-exclusion, and colorPref plumbing unpinned). Fixed: room-layer test block (valid hue on join, same-pref FCFS, drones keep 255, sentinel excluded from used set, invalid pref → no-pref path); decoys.test now asserts `hueFor` receives the `by` ids.
+  - `[low]` `[patch]` ×10: wheel-exhaustion fallback aligned to the spec's `joinOrder % 20` (assignHue gains optional joinOrder; ArenaRoom passes its join counter) and assignHue range-guards pref itself; `rosterColor` now rejects any index outside 0..19 at the single chokepoint with `?? amber` guards at both raw `PLAYER_HUES[idx]` consumers (wake + ordnance); drone kill-feed names render the `droneOutline` token verbatim instead of surviving `textSafe` by numeric accident (pinned); `ellipsizeName` slices code points, never shearing surrogate pairs (emoji test); the two "linear-light RGB" comments corrected (uniform sRGB-byte ×0.45 = HSV V-scaling, not linear-light); dead `hullStyleFor` wrapper inlined; `textSafe` dark-background contract + termination behavior documented.
+- rejected: committed spec frontmatter `in-progress` vs sprint-status `done` mid-run — workflow-inherent (status advances at finalize, same class rejected in 1.11).
+
 ## Design Notes
 
 - **Eric rulings (2026-07-23, this run):** FCFS-at-join supersedes UX-DR6's "match start + fair random draw" (doc-sync deferred); wake = personal hue; ordnance = firer hue for ALL observers WITH new wire attribution (`MineView.by`/`DecoyView.by` — deliberate intel grant); derived fills + text-safe variants computed, subject to his visual pass. The AskUserQuestion answers are the authority for these four.
@@ -114,3 +128,17 @@ warnings: [oversized]
 
 **Manual checks (if no CLI):**
 - With Eric's dev server running (never start it): two browser tabs — each hull flies a distinct hue with darker interior; wake matches own hue; drones grey; mines/zones/decoys wear the firer's hue; kill feed names colored, readable, ellipsized when long.
+
+## Auto Run Result
+
+**Summary:** The Regatta Hoist landed. Server assigns each human a unique 20-wheel hue index at join (Eric-ruled FCFS 2026-07-23: preference if free → nearest free by circular distance, clockwise on tie → seeded-random free when unstated; drones ride the 255 sentinel) via new pure `server/src/game/regatta.ts` and a decorrelated per-room `mulberry32` stream. The index rides the roster (`PlayerMeta.color`, uint8) so every screen agrees. Client: hulls (own + contacts) draw bright-hue outline + exact ~45%-value interior fill (12 DESIGN-verbatim + 8 rule-derived), own wake follows the hue, ordnance (mines/lit-zones/decoys) flies the firer's hue for ALL observers via the Eric-granted `MineView.by`/`DecoyView.by` wire attribution, kill feed restyled to UX-DR17 (600-weight text-safe ≥4.5:1 name spans, drone grey verbatim, connective text-secondary, code-point mid-ellipsis >14, newest on top, 5 lines/6 s). `colorPref` join option plumbed (localStorage-read, no UI until 1.14). PV 10 → 11.
+
+**Files changed:** shared: `constants.ts` (REGATTA_HUES + sentinel), `types.ts` (MineView/DecoyView `by`), `index.ts` (PV 11). server: NEW `game/regatta.ts`; `game/signals.ts` (`by` appended, key order preserved); `rooms/schema/ArenaState.ts` (color field); `rooms/roomOptions.ts` (colorPref sanitize); `rooms/ArenaRoom.ts` (assignment at onJoin). client: `config.ts` (playerFills 12+8, legacy shrink); NEW `util/color.ts` textSafe/contrastRatio, NEW `render/hueLatch.ts`; `render/ships|contacts|effects|litZones|mines|decoys.ts` (recolor system); `ui/killFeed.ts` (UX-DR17); `net/connection|roomBindings.ts` + `main.ts` (rosterColor/colorPref plumbing). Tests: NEW `regatta.test.ts` (pure + room-layer), `killFeed.test.ts`, `ships.test.ts`; perception invariants extended for `by`; tokens/mines/decoys/litZones/phaseUx/roomBindings/goldenFrames updated. Docs: `sprint-status.yaml` (1-12 done), `gds-workflow-status.yaml` (next_expected → 1-13), `deferred-work.md` (+2 doc-sync entries: UX-DR6 FCFS ruling, UX-DR7 ordnance-attribution intel grant).
+
+**Review findings:** 13 patches applied (3 medium, 10 low — see Review Triage Log), 0 deferred by review (2 doc-sync entries logged at implementation time), 1 rejected.
+
+**Follow-up review recommended: true** — the patch pass added a cross-cutting render retry mechanism (hueLatch across three renderers with a redraw refactor) plus a pure-function signature change and new integration seams; volume and breadth merit an independent look.
+
+**Verification:** `npm run check` exit 0 after both implementation and patch passes (lint incl. complexity ≤ 10, tsc ×3; tests grew 1302 → 1348: shared 261 / server 633 / client 454). Orchestrator independently re-ran the gate both times and spot-verified: PV = 11, `PlayerMeta.color` uint8 default 255, `by` appended LAST in mine/decoy materialize with counterIntel blip row untouched, golden-frame regen limited to appended `by` fields, no Math.random/Date.now in new server logic, guard scan green.
+
+**Residual risks:** All 20 hue/fill/text-safe renders unseen in a browser this run (dev server is Eric-managed) — the 8 rule-derived fills and computed text variants await his visual pass per his ruling. The FCFS + ordnance-attribution rulings intentionally supersede UX-DR6/UX-DR7 wording — DESIGN.md/epics/GDD sync deferred to Eric (deferred-work entries). Wake recolor propagates as the dot pool cycles (~1 s), accepted by spec note.
