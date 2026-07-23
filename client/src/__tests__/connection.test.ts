@@ -50,7 +50,7 @@ vi.mock('@colyseus/sdk', () => ({
   },
 }));
 
-import { connect, connectErrorStatus, RECONNECT_MAX_RETRIES } from '../net/connection';
+import { connect, connectErrorStatus, loadColorPref, RECONNECT_MAX_RETRIES } from '../net/connection';
 
 /**
  * Reproduce the SDK's reconnection backoff (Room.ts): each attempt waits
@@ -157,5 +157,39 @@ describe('connectErrorStatus', () => {
   it('keeps the generic server-down hint for other failures', () => {
     expect(connectErrorStatus(new Error('timed out waiting for welcome'))).toMatch(/:2567/);
     expect(connectErrorStatus(undefined)).toMatch(/:2567/);
+  });
+});
+
+describe('loadColorPref — persisted Regatta preference (Story 1.12)', () => {
+  const KEY = 'hullcracker.color'; // COLOR_PREF_KEY (connection.ts)
+
+  function withStored(value: string | null): number | undefined {
+    if (value === null) localStorage.removeItem(KEY);
+    else localStorage.setItem(KEY, value);
+    return loadColorPref();
+  }
+
+  it('returns undefined for an absent key (no preference written)', () => {
+    expect(withStored(null)).toBeUndefined();
+  });
+
+  it('returns undefined for an empty / whitespace-only value (NOT the Number("") = 0 trap)', () => {
+    // The regression this fix closes: Number('') and Number('   ') both coerce to
+    // 0, which would forward a bogus colorPref: 0 for a never-set key.
+    expect(withStored('')).toBeUndefined();
+    expect(withStored('   ')).toBeUndefined();
+  });
+
+  it('accepts a valid in-range wheel index, including the boundaries 0 and 19', () => {
+    expect(withStored('7')).toBe(7);
+    expect(withStored('0')).toBe(0);
+    expect(withStored('19')).toBe(19);
+  });
+
+  it('rejects out-of-range / fractional / non-numeric values', () => {
+    expect(withStored('20')).toBeUndefined();
+    expect(withStored('-1')).toBeUndefined();
+    expect(withStored('3.5')).toBeUndefined();
+    expect(withStored('x')).toBeUndefined();
   });
 });

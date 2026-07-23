@@ -8,6 +8,7 @@ import {
   generateMap,
   MSG,
   PROTOCOL_VERSION,
+  REGATTA_HUES,
   type FrameMsg,
   type GameMap,
   type PingMsg,
@@ -15,6 +16,30 @@ import {
 } from '@salvo/shared';
 
 const WELCOME_TIMEOUT_MS = 5000;
+
+/** localStorage key for the persisted Regatta color preference — same
+ *  `hullcracker.*` family the menu uses for name/class (menu.ts). */
+const COLOR_PREF_KEY = 'hullcracker.color';
+
+/**
+ * The persisted Regatta hue PREFERENCE (0..19) if a valid one is stored, else
+ * undefined (the no-preference path). Story 1.12 only PLUMBS this join option —
+ * no UI writes the key yet (the Color Hoist picker is Story 1.14). The server
+ * re-sanitizes the value (sanitizeColorPref) regardless.
+ */
+export function loadColorPref(): number | undefined {
+  try {
+    const raw = localStorage.getItem(COLOR_PREF_KEY);
+    // Reject absent AND empty/whitespace-only BEFORE Number(): Number('') and
+    // Number('   ') both coerce to 0, which would silently forward a bogus
+    // colorPref: 0 for a never-written key rather than the no-preference path.
+    if (raw === null || raw.trim() === '') return undefined;
+    const n = Number(raw);
+    return Number.isInteger(n) && n >= 0 && n < REGATTA_HUES.length ? n : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * How many same-Room auto-reconnect attempts the SDK makes before giving up.
@@ -91,9 +116,13 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
   // or mismatched PROTOCOL_VERSION with a "version mismatch" ServerError that
   // startGame() surfaces on the menu status line. Reconnects bypass onAuth, so
   // they are never re-gated.
-  const opts: { pv: number; name?: string; cls?: string } = { pv: PROTOCOL_VERSION };
+  const opts: { pv: number; name?: string; cls?: string; colorPref?: number } = { pv: PROTOCOL_VERSION };
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
+  // Story 1.12: forward a persisted color preference when one exists (no UI writes
+  // it yet — the picker is 1.14); the server assigns FCFS and re-sanitizes.
+  const colorPref = loadColorPref();
+  if (colorPref !== undefined) opts.colorPref = colorPref;
   const room = await client.joinOrCreate('arena', opts);
   // Story 0.2 re-enables the 0.17 SDK's same-Room auto-reconnect: on an abnormal
   // close the SDK fires onDrop and retries the SAME room with the reconnection

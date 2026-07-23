@@ -1,15 +1,16 @@
 // Star-shell lit-zone render logic (render/litZones.ts) — the pure reconcile
-// diff (mines precedent), the ownership tint, and the timestamp fade. The Pixi
-// wiring (LitZones class) is a thin adapter around these; not unit tested.
+// diff (mines precedent), the firer-hue tint (Story 1.12), and the timestamp
+// fade. The Pixi wiring (LitZones class) is a thin adapter around these.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+import { Container } from 'pixi.js';
 import type { LitZoneView } from '@salvo/shared';
 import {
   insideAnyZone,
   litZoneFade,
-  litZoneTint,
   ownActiveZones,
   reconcileLitZones,
+  LitZones,
   LIT_FADE_MS,
 } from '../render/litZones.js';
 
@@ -21,13 +22,6 @@ const zone = (id: string, by = 'enemy', until = 10_000): LitZoneView => ({
   until,
   by,
 });
-
-import { CLIENT_CONFIG } from '../config.js';
-
-// Ownership tint from the tokens (values unchanged): own = the legacy own-ordnance
-// green carry-over (→ 1.12); enemy = the amber warning marker.
-const OWN_GREEN = CLIENT_CONFIG.colors.legacy.ownAssetGreen;
-const ENEMY_AMBER = CLIENT_CONFIG.colors.amber;
 
 describe('reconcileLitZones — zone list → sprite lifecycle diff', () => {
   it('adds every zone when starting from nothing', () => {
@@ -57,14 +51,26 @@ describe('reconcileLitZones — zone list → sprite lifecycle diff', () => {
   });
 });
 
-describe('litZoneTint — own-green vs enemy-amber by firer id', () => {
-  it('tints the own ship’s own zone green and everyone else’s amber', () => {
-    expect(litZoneTint('me', 'me')).toBe(OWN_GREEN);
-    expect(litZoneTint('someoneElse', 'me')).toBe(ENEMY_AMBER);
+describe('LitZones.sync — firer-hue tint (Story 1.12)', () => {
+  it('resolves each new zone’s tint from its firer id (`by`) via hueFor', () => {
+    const layer = new Container();
+    const litZones = new LitZones(layer);
+    const hueFor = vi.fn((_by: string) => 0x123456 as number | null);
+    litZones.sync([zone('z1', 'alice'), zone('z2', 'bob')], hueFor);
+    expect(hueFor.mock.calls.map((c) => c[0]).sort()).toEqual(['alice', 'bob']);
+    expect(layer.children).toHaveLength(2);
   });
 
-  it('with no own id (pre-session / spectator) every zone reads as enemy amber', () => {
-    expect(litZoneTint('anyone', undefined)).toBe(ENEMY_AMBER);
+  it('recolors a glow that booted on the amber fallback once its firer hue later resolves, then latches', () => {
+    const litZones = new LitZones(new Container());
+    const hueFor = vi.fn((_by: string) => null as number | null);
+    litZones.sync([zone('z1', 'late')], hueFor);
+    expect(hueFor).toHaveBeenCalled(); // unresolved at spawn → amber fallback
+    hueFor.mockReturnValue(0x00ff00);
+    litZones.sync([zone('z1', 'late')], hueFor); // retry resolves + redraws
+    const afterResolve = hueFor.mock.calls.length;
+    litZones.sync([zone('z1', 'late')], hueFor); // latched — no more probes
+    expect(hueFor.mock.calls.length).toBe(afterResolve);
   });
 });
 

@@ -523,3 +523,48 @@ export const UPGRADE_CATEGORIES: Record<UpgradeCategoryId, readonly UpgradeId[]>
 export function mapRadius(playerCap: number): number {
   return CONFIG.map.baseRadius * Math.sqrt(playerCap / CONFIG.map.capRef);
 }
+
+/**
+ * The Regatta wheel — 20 personal-combatant hue NAMES in ratified wheel order
+ * (Story 1.12; = the existing CLIENT_CONFIG.colors.players key order verbatim).
+ * This ORDER is the single source of truth both sides share: the server assigns a
+ * hue INDEX (0–19) into this array at join, the index rides the roster
+ * (PlayerMeta.color), and the client maps that index → its hex through the
+ * same-ordered CLIENT_CONFIG.colors.players / .playerFills tables. Only the ORDER
+ * is promoted to shared (nearest-free assignment + index→hex must agree); the hex
+ * VALUES stay client tokens so DESIGN.md remains the styling authority. The
+ * reserved bands (amber / red / storm-violet / phosphor-green) are excluded by
+ * wheel construction — the wheel is the ONLY assignment source.
+ */
+export const REGATTA_HUES = [
+  'lemon',
+  'chartreuse',
+  'olive',
+  'lime',
+  'green',
+  'spring',
+  'jade',
+  'aqua',
+  'cyan',
+  'lagoon',
+  'sky',
+  'azure',
+  'cobalt',
+  'periwinkle',
+  'iris',
+  'orchid',
+  'fuchsia',
+  'magenta',
+  'mulberry',
+  'rose',
+] as const;
+
+/**
+ * Sentinel PlayerMeta.color value = "no personal hue": drones always, and any
+ * roster entry before assignment lands. Renders the drone greys everywhere; it is
+ * NEVER a wheel index (the wheel is 0..19). uint8-safe.
+ */
+export const REGATTA_NO_HUE = 255;
+
+/** A Regatta hue name — one of the 20 wheel entries (REGATTA_HUES order). */
+export type RegattaHue = (typeof REGATTA_HUES)[number];
