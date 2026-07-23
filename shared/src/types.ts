@@ -406,6 +406,38 @@ export interface DecoyView {
   own: boolean; // true iff the receiving observer OWNS this buoy (per-observer, the mines precedent)
 }
 
+/**
+ * Why the server refused a press, on the wire (Story 1.10 — FR12's "denied
+ * fire is never silent"). The four wire reasons:
+ *   'out-of-arc' — an aimed weapon click outside its launch sector (torpedo).
+ *   'cooling'    — a WEAPON click against an empty pool (the round is
+ *                  reloading; the weapon channel's empty-pool vocabulary).
+ *   'no-ammo'    — an ABILITY press against an empty pool (no charge).
+ *   'blocked'    — a stern drop (mine/decoyBuoy) whose drop point lands
+ *                  inside an island or outside the water — nothing consumed.
+ * The gate's 'dead'/'empty-slot' refusals never ride the wire: they are
+ * either perfectly client-predictable (dead) or unreachable for an honest
+ * client (empty-slot), and both spend nothing.
+ */
+export type DenialReason = 'out-of-arc' | 'no-ammo' | 'cooling' | 'blocked';
+
+/**
+ * One denied press, SELF-PRIVATE on the per-client frame (FrameMsg.denied —
+ * a sibling of `you`, NEVER a contact-visible event): only the pressing
+ * client ever receives it, so a denial can never leak another ship's
+ * loadout/reload state. `seq` is the press identity the client deduplicates
+ * feedback on — the click's InputMsg.fireSeq for weapons, the press's
+ * InputMsg.actSeq for abilities — keyed (slot, seq): a client-predicted
+ * denial suppresses the matching server echo; an unpredicted server denial
+ * (stale-ammo races) triggers the feedback late-but-explicit. Never zero
+ * feedbacks, never two. Denied presses spend NOTHING (round/charge kept).
+ */
+export interface DeniedView {
+  slot: number; // loadout slot the press targeted (InputMsg.slot / actSlot)
+  reason: DenialReason;
+  seq: number; // press identity: fireSeq (weapon click) or actSeq (ability)
+}
+
 /** Per-tick, per-client events. Discriminated union on `k`. */
 export type GameEvent =
   | BlipEvent
@@ -434,6 +466,10 @@ export interface FrameMsg {
   mines: MineView[]; // per-observer mine visibility (contact-like, recomputed per tick)
   litZones?: LitZoneView[]; // per-observer lit-zone visibility (contact-like; omitted when none)
   decoys?: DecoyView[]; // per-observer decoy-buoy visibility (contact-like; omitted when none)
+  /** This tick's denied presses — SELF-PRIVATE (rides like `you`, only ever
+   *  the receiving client's own denials; omitted when none, never on
+   *  spectator frames — a dead ship cannot press). See DeniedView. */
+  denied?: DeniedView[];
   spec?: true; // spectator (unfogged) frame
 }
 

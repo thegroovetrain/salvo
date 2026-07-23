@@ -24,6 +24,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'fireCannon',
   'fireStarShells',
   'placeDecoy',
+  'denied',
   'damage',
   'kill',
   'point',
@@ -97,6 +98,29 @@ describe('placeDecoy tone (Story 1.8) — buoy placement cue', () => {
     expect(TONES.placeDecoy.duration).toBeLessThanOrEqual(MAX_TONE_S);
     expect(TONES.placeDecoy.freqStart).toBeGreaterThan(TONES.fireMine.freqStart); // brighter than the mine
     expect(TONES.placeDecoy.freqEnd).toBeLessThan(TONES.placeDecoy.freqStart); // a downward drop
+  });
+});
+
+describe('denied tone (Story 1.10) — the exactly-one-feedback refusal cue', () => {
+  // Fired only via the exactly-one-feedback path (predicted denial OR an
+  // unmatched server denial — weapons AND abilities); mute-awareness rides
+  // Audio.play like every tone. The character contract: a curt downward BLAT,
+  // clearly distinct from every success cue.
+  it('is short, noise-free, and a downward refusal (never a rising success shape)', () => {
+    expect(TONES.denied.duration).toBeLessThanOrEqual(MAX_TONE_S);
+    expect(TONES.denied.noise).toBeUndefined(); // no gun-crack noise layer
+    expect(TONES.denied.freqEnd).toBeLessThan(TONES.denied.freqStart); // downward blat
+  });
+
+  it('is distinct from every fire/placement success cue and the damage thud', () => {
+    // Starts well BELOW every gun-family crack (fireGun 900 / fireCannon 520)…
+    expect(TONES.denied.freqStart).toBeLessThan(TONES.fireCannon.freqStart);
+    expect(TONES.denied.freqStart).toBeLessThan(TONES.fireGun.freqStart);
+    // …is not a soft sine drop (the mine/decoy placement family)…
+    expect(TONES.denied.type).not.toBe(TONES.fireMine.type);
+    expect(TONES.denied.type).not.toBe(TONES.placeDecoy.type);
+    // …and is a different waveform family from the damage thud.
+    expect(TONES.denied.type).not.toBe(TONES.damage.type);
   });
 });
 

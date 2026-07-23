@@ -41,7 +41,7 @@ const SWEEP_DELTA = (TAU * DT) / CONFIG.vision.sweepPeriod;
 // plus the four contact-like channels (contact/mine/litzone/decoy) and the
 // spectator frame.
 const EXPECTED_CHANNELS = [
-  'blip', 'boom', 'burst', 'contact', 'decoy', 'dmg', 'heal', 'litzone', 'mine',
+  'blip', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'heal', 'litzone', 'mine',
   'pt', 'shell', 'spawn', 'spec', 'sunk', 'torp', 'upg',
 ];
 
@@ -55,6 +55,10 @@ const EXPECTED_SUBCASES = [
   'decoy-owner-truth-view',
   'decoy-thirdparty-swept-blip',
   'decoy-truesight-view',
+  'denied-blocked-stern-drop',
+  'denied-cooling-weapon',
+  'denied-noammo-ability',
+  'denied-out-of-arc-owner-only',
   'island-allows-radar-blip',
   'island-allows-sight-contact',
   'island-blocks-radar-blip',
@@ -92,6 +96,7 @@ function record(g: Golden, f: FrameMsg): FrameMsg {
   if (f.mines.length > 0) g.channels.add('mine');
   if (f.litZones !== undefined && f.litZones.length > 0) g.channels.add('litzone');
   if (f.decoys !== undefined && f.decoys.length > 0) g.channels.add('decoy');
+  if (f.denied !== undefined && f.denied.length > 0) g.channels.add('denied');
   if (f.spec) g.channels.add('spec');
   g.frames.push(JSON.stringify(f));
   return f;
@@ -561,6 +566,48 @@ function scnDecoy(g: Golden): void {
   prove(g, 'decoy-expiry', w.decoys.size === 0 && !('decoys' in after));
 }
 
+/**
+ * Denial channel (Story 1.10) — every wire reason through the REAL input
+ * path, pinned byte-for-byte in the fixture: an astern torpedo click
+ * ('out-of-arc'), a gun click mid-cooldown ('cooling'), an ability double
+ * press ('no-ammo'), and an island-backed ML stern drop ('blocked'). Denials
+ * are SELF-PRIVATE: sighted observer `b` captures the same tick byte-free of
+ * the channel. When a weapon click AND an ability press deny on the same
+ * tick, the weapon denial rides first (fireControl runs before
+ * activationControl — the step order is the wire order).
+ */
+function scnDenied(g: Golden): void {
+  const w = bareWorld(1016);
+  place(w, 'a', 0, 0, 0); // TB: gun / torpedo / speedBoost
+  place(w, 'b', 120, 0); // sighted second captain — proves owner-only
+  const m = place(w, 'm', 400, 0, 0, 'mineLayer'); // stern rack drops at (324, 0)
+  w.map.islands.push({ x: 324, y: 0, r: 20 }); // the rock behind m's stern
+  // Tick 1: a clicks the torpedo dead astern; m presses its mine into the rock.
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 1 });
+  w.step();
+  const fa1 = cap(g, w, 'a');
+  const fm1 = cap(g, w, 'm');
+  const fb1 = cap(g, w, 'b');
+  prove(
+    g,
+    'denied-out-of-arc-owner-only',
+    (fa1.denied ?? []).some((d) => d.reason === 'out-of-arc' && d.slot === 1 && d.seq === 1) &&
+      !('denied' in fb1),
+  );
+  prove(g, 'denied-blocked-stern-drop', (fm1.denied ?? []).some((d) => d.reason === 'blocked') && w.mines.size === 0);
+  // Tick 2: a fires the gun (spends the round) + activates the boost (spends the charge).
+  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, actSlot: 2 });
+  w.step();
+  cap(g, w, 'a'); // no denial: the shell reveal + a clean frame
+  // Tick 3: both channels re-press against their empty pools.
+  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 3, aimDist: 100, slot: 0, fireT: 0, actSeq: 2, actSlot: 2 });
+  w.step();
+  const fa3 = cap(g, w, 'a');
+  prove(g, 'denied-cooling-weapon', (fa3.denied ?? [])[0]?.reason === 'cooling' && (fa3.denied ?? [])[0]?.seq === 3);
+  prove(g, 'denied-noammo-ability', (fa3.denied ?? [])[1]?.reason === 'no-ammo' && (fa3.denied ?? [])[1]?.slot === 2);
+}
+
 // ---------- the fixture -------------------------------------------------------
 
 describe('golden frames — byte-identity gate for the perception refactor', () => {
@@ -582,6 +629,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     scnMineBlast(g);
     scnMineBurstDetonation(g);
     scnDecoy(g);
+    scnDenied(g);
 
     // Self-validating coverage: the fixture can never silently lose a channel.
     expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);

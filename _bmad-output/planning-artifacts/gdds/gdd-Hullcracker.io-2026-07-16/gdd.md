@@ -192,7 +192,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 ### Aiming and Combat Mechanics
 
 - **Top-down mouse aim.** Aim is constrained to the selected weapon's firing arc; click to fire. Denied fire (out of arc, no ammo, reloading) gives explicit feedback, never silence.
-- **Arcs are being rethought for the class era.** Under universal weapons, arcs functioned as positional aiming; with per-class weapons, arcs should let each class use its weapons in more situations while still rewarding skilled play. Exact arc geometry per weapon is open design work. [NOTE FOR DESIGNER: per-weapon arc geometry TBD alongside the new armory's numbers.]
+- **Arcs — RATIFIED for the class era (Eric ruling 2026-07-23, Story 1.10).** The de facto geometry is the design: the **gun family** (standard gun / long-range cannon / star shells) fires **360°** — no mounts, no arc; **torpedoes** launch in a **bow sector of heading ±30°**; the Mine Layer's **stern rack** (mines + decoy buoy) places dead astern regardless of aim; the speed boost aims nothing. Denied fire is now authoritative as well as predicted: the server sends a self-private denial signal (out-of-arc / no-ammo / cooling / blocked stern drop) so denial feedback is never silent — including island/boundary-blocked stern drops, which are refused without spending the charge.
 - **No dispersion.** Shots go exactly where they are aimed; travel time is the skill counterweight. Projectiles, never hitscan — leading the target is the game.
 - **Flight rules:** torpedoes run until they hit something; gun shells fly to the clicked point or the first thing they hit on the way, whichever comes first.
 - **No damage falloff.** Distance never reduces damage.
@@ -422,7 +422,7 @@ The Technical Specifications targets, treated as pass/fail: 60 FPS sustained on 
 
 1. **RESOLVED (2026-07-22, Eric):** Mine Layer signature ability = the **Decoy Buoy** (#69); the **Naval Mines** are reworked into an activateable blast ability — see Weapon Systems. *(Weapon Systems; 2026-07-19 → resolved 2026-07-22)*
 2. "Boons, not stat multipliers" (2026-07-16) vs. "most upgrades are stat increases" (2026-07-19) — resolve during boon-catalog design. *(Upgrade economy)*
-3. Per-weapon firing-arc geometry, designed alongside the new armory's numbers. *(Aiming and Combat)*
+3. **RESOLVED (2026-07-23, Eric):** per-weapon firing-arc geometry ratified as-is for the class era — gun family 360°, torpedo bow ±30°, mine/decoy stern drop — see Aiming and Combat Mechanics (Story 1.10). *(Aiming and Combat)*
 4. Precision bonus: adopt or drop while tuning the standard gun; whether gun-type specials qualify. *(Aiming and Combat)*
 5. DESIGN.md needs an update pass for the real-time era. *(Art Style; E7)*
 6. Sensor-forward class real name — tracked in Out of Scope; needed only when it comes off the backburner.

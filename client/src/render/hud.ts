@@ -512,8 +512,9 @@ export class Hud {
    * full hotbar grammar is Epic 2 Story 2.2. `deniedFlash` briefly reddens the
    * primed chip (denied fire click); `abilityFlash` is PER-SLOT (an ML now fits
    * TWO ability slots — mine + decoyBuoy — so a denied mine press must not flash
-   * the decoy chip) and reddens only the pressed ability slot's chip (a
-   * predicted-denied activation press). Denominators are the EFFECTIVE pool
+   * the decoy chip) and reddens exactly the denied slot's chip: a
+   * predicted-denied ability press, or — Story 1.10 — an unmatched SERVER
+   * denial on ANY slot (weapon chips included). Denominators are the EFFECTIVE pool
    * sizes/reloads from status.stats via equipmentMaxAmmo/equipmentReloadMs.
    */
   private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean, abilityFlash: readonly boolean[]): void {
@@ -543,7 +544,10 @@ export class Hud {
     // Active-window "on" indicator = the primed-amber outline (interim — Epic 2
     // Story 2.2 owns the real hotbar active grammar).
     const outlined = primed || (isAbility && status.boostActive);
-    const flash = isAbility ? (abilityFlash[slot] ?? false) : primed && deniedFlash;
+    // Per-slot denial flash applies to ANY slot (Story 1.10: an unmatched
+    // SERVER denial flashes the exact denied slot's chip, weapon or ability);
+    // the predicted weapon-click flash keeps riding the primed chip.
+    const flash = (abilityFlash[slot] ?? false) || (!isAbility && primed && deniedFlash);
     const label = this.chipLabels[k];
     const text = chipLabel(slot, id);
     if (this.lastChipLabels[k] !== text) {
@@ -629,8 +633,10 @@ export class Hud {
   /** Update all instruments (conning a live ship). Call each render frame.
    *  `deniedFlash` is true while the denied-fire pulse (render/deniedFire.ts)
    *  is active — briefly reddens the selected weapon chip. `abilityFlash` is
-   *  its ability-press sibling (Story 1.6), PER-SLOT since Story 1.8 (the ML
-   *  fits two ability slots) — index i reddens the chip for loadout slot i. */
+   *  the PER-SLOT denial-feedback array (index i reddens the chip for loadout
+   *  slot i): fed by predicted ability-press denials (Story 1.6, per-slot since
+   *  Story 1.8's two-ability ML) AND — Story 1.10 — by unmatched SERVER denials
+   *  on ANY slot, weapon or ability. */
   update(
     ship: ShipState,
     axes: Axes,

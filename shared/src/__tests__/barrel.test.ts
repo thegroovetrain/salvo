@@ -36,7 +36,7 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(9);
+    expect(PROTOCOL_VERSION).toBe(10);
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -105,6 +105,7 @@ describe('shared barrel', () => {
       decoyBuoy: false, // added in Story 1.8
     });
     expect(CONFIG.cannon).toEqual({
+      arc: 'full', // Story 1.10: ratified 360° declaration (sim/arcs.ts)
       shellSpeed: 200,
       maxAmmo: 1,
       reloadMs: 15000,
@@ -114,6 +115,7 @@ describe('shared barrel', () => {
       shellRadius: 2,
     });
     expect(CONFIG.starShells).toEqual({
+      arc: 'full', // Story 1.10: ratified 360° declaration (sim/arcs.ts)
       shellSpeed: 130,
       maxAmmo: 1,
       reloadMs: 20000,

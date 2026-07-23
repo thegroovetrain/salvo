@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-07-21
+# last_updated: 2026-07-23
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -42,7 +42,7 @@
 # Story 1.9 tombstoned (number retired, not reused); later stories keep their numbers.
 
 generated: 2026-07-17
-last_updated: 2026-07-21
+last_updated: 2026-07-23
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -68,7 +68,7 @@ development_status:
   1-7-battleship-loadout: done
   1-8-mine-layer-loadout: done
   # 1-9-gunboat-loadout removed — gunboat cut 2026-07-19; number retired (sprint-change-proposal-2026-07-19.md)
-  1-10-firing-arcs-for-the-class-era: backlog
+  1-10-firing-arcs-for-the-class-era: done
   1-11-design-tokens-typography: backlog
   1-12-the-regatta-hoist: backlog
   1-13-class-silhouettes-on-the-water: backlog

@@ -16,12 +16,14 @@ import { EQUIPMENT_IS_WEAPON, type LoadoutSlot } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { dropPoint } from './mines.js';
+import { dropBlocked, dropPoint } from './mines.js';
 
 /** The decoy-buoy Equipment row. Pool size (1 charge) + reload come from the
- *  ship's cached effective stats. Denial = no-ammo only (plus the gate's
- *  dead/empty-slot answers — no arc, nothing aimed). Slot state is non-null by
- *  the loadout invariant (see index.ts). */
+ *  ship's cached effective stats. Denial = a BLOCKED drop point (island/
+ *  boundary — checked FIRST so nothing is consumed; Story 1.10, shared with
+ *  the mine rack) or no-ammo (plus the gate's dead/empty-slot answers — no
+ *  arc, nothing aimed). Slot state is non-null by the loadout invariant
+ *  (see index.ts). */
 export const decoyEquipment: Equipment = {
   id: 'decoyBuoy',
   // Read the shared weapon/ability split — the single source (sim/loadout.ts),
@@ -31,12 +33,15 @@ export const decoyEquipment: Equipment = {
     tickReload(slot.state!, ship.stats.decoyBuoy.maxAmmo, ship.stats.decoyBuoy.reloadMs, dtMs);
   },
   activate(ctx: ActivationContext, slot: LoadoutSlot): ActivationResult {
-    if (!consume(slot.state!, ctx.ship.stats.decoyBuoy.reloadMs)) return { ok: false, reason: 'no-ammo' };
     // Drop astern off the SAME stern rack as the mines (dropPoint: heading + π,
     // hull-clear with the mine trigger-radius margin) — one stern-drop rule for
     // both Mine Layer specials, so a hull retune can never split them. The buoy
-    // is stationary forever after (the World stores a fixed point).
+    // is stationary forever after (the World stores a fixed point). A drop
+    // point inside a rock / off the water is refused BEFORE the pool (Story
+    // 1.10 'blocked') — charge + reload untouched, never a silent waste.
     const p = dropPoint(ctx.ship);
+    if (dropBlocked(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' };
+    if (!consume(slot.state!, ctx.ship.stats.decoyBuoy.reloadMs)) return { ok: false, reason: 'no-ammo' };
     ctx.dropDecoy(p.x, p.y);
     return { ok: true };
   },

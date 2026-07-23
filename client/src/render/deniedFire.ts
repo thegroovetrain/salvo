@@ -64,3 +64,61 @@ export class DeniedPulse {
     return nowMs < this.activeUntil;
   }
 }
+
+/** Cap on remembered predicted-denial keys (FIFO evicted past it) — bounds
+ *  memory over a long session; far larger than anything in flight over an RTT. */
+export const DEDUP_KEY_CAP = 64;
+
+/**
+ * Exactly-one-feedback dedup for denied presses (Story 1.10), keyed by
+ * (slot, seq) — the press identity shared with the server's self-private
+ * denial channel (DeniedView: fireSeq for weapon clicks, actSeq for ability
+ * presses). Contract: feedback = predicted ∪ server-signal —
+ *   - a PREDICTED denial fires its feedback instantly and marks the key;
+ *   - the matching server denial (~RTT later) is then SUPPRESSED (the echo);
+ *   - an UNPREDICTED server denial (the previously-silent stale-ammo races:
+ *     within-RTT double press, reload-boundary race, blocked stern drop)
+ *     fires the full feedback late-but-explicit.
+ * Never zero, never two. Keys are remembered FIFO up to DEDUP_KEY_CAP (a
+ * server echo lands within ~RTT, so eviction can never realistically race a
+ * live key); serverDenied() also marks, so a duplicate server denial for the
+ * same press could never double-fire either.
+ */
+export class DenialDedup {
+  private readonly order: string[] = [];
+  private readonly seen = new Set<string>();
+
+  private mark(key: string): void {
+    if (this.seen.has(key)) return;
+    this.seen.add(key);
+    this.order.push(key);
+    if (this.order.length > DEDUP_KEY_CAP) this.seen.delete(this.order.shift()!);
+  }
+
+  /** A client-side prediction denied this press (feedback already firing). */
+  markPredicted(slot: number, seq: number): void {
+    this.mark(`${slot}:${seq}`);
+  }
+
+  /** A server denial arrived: true iff feedback should fire NOW (the press
+   *  was NOT predicted-denied — the previously-silent case). */
+  serverDenied(slot: number, seq: number): boolean {
+    const key = `${slot}:${seq}`;
+    if (this.seen.has(key)) return false; // predicted already fed back — suppress the echo
+    this.mark(key);
+    return true;
+  }
+
+  /**
+   * Forget every remembered key. MUST fire at the same hard boundaries that
+   * clear the keyboard's activation queue (own sunk / respawn / spectate /
+   * reconnect): clearActivations() drops queued presses WITHOUT advancing
+   * actCount, so the next press reuses an actSeq a stale key might already
+   * hold — a later genuine server denial for that (slot, seq) would then be
+   * suppressed as an echo (silent denial) unless the memory is reset here too.
+   */
+  clear(): void {
+    this.order.length = 0;
+    this.seen.clear();
+  }
+}

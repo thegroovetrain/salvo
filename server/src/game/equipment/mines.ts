@@ -16,10 +16,14 @@ import {
   EQUIPMENT_IS_WEAPON,
   burstVictims,
   hullSilhouette,
+  pointInCircle,
   pointPolygonDistance,
+  sternDropArcFor,
   transformPolygon,
   wrapAngle,
+  type Circle,
   type HullTarget,
+  type Vec2,
 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { Equipment } from './index.js';
@@ -89,14 +93,38 @@ export function addMine(
   return mine;
 }
 
+// The stern rack's ratified arc shape (Story 1.10): the shared arcFor family
+// is the single arc-shape source, so the drop bearing can never drift from
+// what the client classifies. Resolved at module load — a non-stern-drop mine
+// arc is a CONFIG/arcs authoring error, failed loudly at boot (sternDropArcFor
+// throws), never mid-tick.
+const STERN_RACK = sternDropArcFor('mine');
+
 /** Where a ship's next mine drops (astern of its stern, with margin). */
 export function dropPoint(ship: ShipRecord): { x: number; y: number } {
-  const dir = wrapAngle(ship.state.heading + CONFIG.mine.offset); // astern (heading + π)
+  const dir = wrapAngle(ship.state.heading + STERN_RACK.offset); // astern (heading + π)
   const dropOffset = hullClearOffset(ship, CONFIG.mine.triggerRadius);
   return {
     x: ship.state.x + Math.cos(dir) * dropOffset,
     y: ship.state.y + Math.sin(dir) * dropOffset,
   };
+}
+
+/**
+ * Is a stern-rack drop point ILLEGAL water (Story 1.10 'blocked')? True when
+ * the point lands inside any island circle or outside the water disk — the
+ * ML backed its stern against a rock or the map rim. Server-only (the client
+ * cannot cheaply predict it); the mine AND decoy rows both refuse a blocked
+ * drop WITHOUT consuming anything (charge + reload kept), so the previously
+ * silent wasted-charge failure becomes an explicit 'blocked' denial. Built on
+ * the shared circle primitives — never hand-rolled geometry.
+ */
+export function dropBlocked(p: Vec2, islands: readonly Circle[], mapRadius: number): boolean {
+  if (!pointInCircle(p, { x: 0, y: 0 }, mapRadius)) return true; // off the water disk
+  for (const isle of islands) {
+    if (pointInCircle(p, isle, isle.r)) return true; // inside a rock
+  }
+  return false;
 }
 
 /**
@@ -149,7 +177,9 @@ export function hullFor(ship: ShipRecord): HullTarget {
  *  (no fireT compensation — the gate runs at `now`). The drop ammo pool is
  *  distinct from the live-mine board cap (stats.mine.maxLive) that addMine
  *  enforces. Pool size + reload come from the ship's cached effective stats
- *  (Stage D upgrades). No arc, no aim: a drop is denied only by an empty pool.
+ *  (Stage D upgrades). No arc, no aim: a drop is denied by a BLOCKED drop
+ *  point (island/boundary — checked FIRST, before the pool, so nothing is
+ *  consumed; Story 1.10, the torpedo's arc-first precedent) or an empty pool.
  *  Slot state is non-null by the loadout invariant (see index.ts). */
 export const mineEquipment: Equipment = {
   id: 'mine',
@@ -158,8 +188,9 @@ export const mineEquipment: Equipment = {
     tickReload(slot.state!, ship.stats.mine.maxAmmo, ship.stats.mine.reloadMs, dtMs);
   },
   activate(ctx, slot) {
-    if (!consume(slot.state!, ctx.ship.stats.mine.reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
     const p = dropPoint(ctx.ship);
+    if (dropBlocked(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' }; // nothing consumed
+    if (!consume(slot.state!, ctx.ship.stats.mine.reloadMs)) return { ok: false, reason: 'no-ammo' }; // pool empty
     ctx.dropMine(p.x, p.y);
     return { ok: true };
   },
