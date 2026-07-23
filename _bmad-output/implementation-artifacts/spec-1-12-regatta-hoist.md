@@ -2,8 +2,9 @@
 title: 'The Regatta Hoist'
 type: 'feature'
 created: '2026-07-23'
-status: 'in-review'
+status: 'done'
 baseline_revision: '037d05305cfdbf5f48a0a2ab040b3a74c52ed796'
+final_revision: '4aa7ed5bd008acf0cc6ad8d9c2ca8533253eed05'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
