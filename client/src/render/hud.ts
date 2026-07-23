@@ -633,8 +633,10 @@ export class Hud {
   /** Update all instruments (conning a live ship). Call each render frame.
    *  `deniedFlash` is true while the denied-fire pulse (render/deniedFire.ts)
    *  is active — briefly reddens the selected weapon chip. `abilityFlash` is
-   *  its ability-press sibling (Story 1.6), PER-SLOT since Story 1.8 (the ML
-   *  fits two ability slots) — index i reddens the chip for loadout slot i. */
+   *  the PER-SLOT denial-feedback array (index i reddens the chip for loadout
+   *  slot i): fed by predicted ability-press denials (Story 1.6, per-slot since
+   *  Story 1.8's two-ability ML) AND — Story 1.10 — by unmatched SERVER denials
+   *  on ANY slot, weapon or ability. */
   update(
     ship: ShipState,
     axes: Axes,

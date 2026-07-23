@@ -6,7 +6,7 @@
 // not derivations.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, arcFor, type EquipmentId } from '../index.js';
+import { CONFIG, arcFor, sectorArcFor, sternDropArcFor, type EquipmentId } from '../index.js';
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
@@ -54,5 +54,37 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
   it('is pure and deterministic (same descriptor object shape every call)', () => {
     expect(arcFor('torpedo')).toEqual(arcFor('torpedo'));
     expect(arcFor('gun')).toEqual(arcFor('gun'));
+  });
+});
+
+describe('sectorArcFor — narrow-or-throw (the torpedo sector accessor)', () => {
+  it('narrows the torpedo to its sector descriptor (offset/halfArc from CONFIG)', () => {
+    expect(sectorArcFor('torpedo')).toEqual({
+      kind: 'sector',
+      offset: CONFIG.torpedo.offset,
+      halfArc: CONFIG.torpedo.halfArc,
+    });
+  });
+
+  it('THROWS on any non-sector id (a CONFIG/arcs authoring error, loud at load)', () => {
+    // The gun family (full), the stern rack (stern-drop), and the aimless boost
+    // (none) are every other shape — each must be rejected, never coerced.
+    for (const id of ['gun', 'cannon', 'starShells', 'mine', 'decoyBuoy', 'speedBoost'] as const) {
+      expect(() => sectorArcFor(id)).toThrow(/must be a sector/);
+    }
+  });
+});
+
+describe('sternDropArcFor — narrow-or-throw (the mine/decoy stern-rack accessor)', () => {
+  it('narrows mine AND decoyBuoy to the shared stern-drop descriptor', () => {
+    const drop = { kind: 'stern-drop', offset: CONFIG.mine.offset };
+    expect(sternDropArcFor('mine')).toEqual(drop);
+    expect(sternDropArcFor('decoyBuoy')).toEqual(drop); // one rack, both specials
+  });
+
+  it('THROWS on any non-stern-drop id (same authoring-error law)', () => {
+    for (const id of ['gun', 'cannon', 'starShells', 'torpedo', 'speedBoost'] as const) {
+      expect(() => sternDropArcFor(id)).toThrow(/must be a stern-drop/);
+    }
   });
 });

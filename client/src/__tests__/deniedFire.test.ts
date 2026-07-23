@@ -127,4 +127,15 @@ describe('DenialDedup — exactly one feedback per denied press (Story 1.10)', (
     for (let i = 0; i < 10; i++) d.markPredicted(3, 9);
     expect(d.serverDenied(3, 9)).toBe(false);
   });
+
+  it('clear() at an activation-clear boundary lets a reused (slot, seq) fire again', () => {
+    // The activation queue drops queued presses WITHOUT advancing actCount, so
+    // the next press reuses an actSeq. Without a paired clear() the stale mark
+    // would suppress a genuine later server denial as an echo (silent denial).
+    const d = new DenialDedup();
+    d.markPredicted(2, 3); // a press marked in the prior life
+    d.clear(); // own sunk / respawn / spectate / reconnect boundary
+    // The reused (2, 3) is now a fresh press: a server denial for it MUST fire.
+    expect(d.serverDenied(2, 3)).toBe(true);
+  });
 });

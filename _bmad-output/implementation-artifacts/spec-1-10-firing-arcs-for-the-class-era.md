@@ -2,10 +2,10 @@
 title: 'Firing Arcs for the Class Era'
 type: 'feature'
 created: '2026-07-23'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'f7c6ec39299c65acd749223d43993964fef2b84e'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context: []
 warnings: []
 ---
@@ -46,7 +46,7 @@ warnings: []
 - `shared/src/sim/arcs.ts` -- NEW pure `arcFor(equipmentId)` → `{kind:'full'} | {kind:'sector', offset, halfArc} | {kind:'stern-drop', offset} | {kind:'none'}` derived from CONFIG; the single arc-shape source both sides consume.
 - `shared/src/types.ts` -- self-private denial on the wire: `DeniedView { slot, reason: 'out-of-arc'|'no-ammo'|'cooling'|'blocked', seq }` in the per-client frame (sibling of other self-private channels); press identity = `actSeq` for abilities, and add a client-incremented fire/click seq to `InputMsg` if none exists (wire already breaking).
 - `shared/src/index.ts` -- PROTOCOL_VERSION 10 + changelog line; barrel export arcs.ts.
-- `server/src/game/inputs.ts` -- validate the new seq field (finite-check, clamp).
+- `server/src/game/inputs.ts` -- validate the new seq field (finite-check, clamp). — no-op: fireSeq already existed with full validation; no new field was needed here.
 - `server/src/game/equipment/mines.ts` + `decoy.ts` -- `dropPoint` island/boundary check (existing circle math/`segCircleHit` family) → return `'blocked'` without consuming.
 - `server/src/game/equipment/torpedoes.ts` -- arc check reads `arcFor` (behavior byte-identical).
 - `server/src/game/world.ts` -- fireControl/activationControl denial results queue per-owner denial entries (today they're test-only return values); expose to frames.
@@ -78,6 +78,19 @@ warnings: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-07-23 — Review pass (Blind Hunter + Edge Case Hunter, both at session capability, parallel; patch fixes routed per /orchestrate, orchestrator-verified)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 1, medium 3, low 6)
+- defer: 2: (medium 1, low 1)
+- reject: 3
+- addressed_findings:
+  - `[high]` `[patch]` Dedup key reuse across activation-clear boundaries (both hunters, cross-confirmed): clearActivations() (sunk/respawn/spectate/reconnect) dropped queued presses without advancing actCount, so a marked (slot, seq) dedup key could be reused and a later genuine server denial (e.g. unpredictable 'blocked') suppressed as an echo — a silent denial inside the very mechanism built to end them. Fixed: DenialDedup.clear() paired with every clearActivations() site; +1 test failing without the fix.
+  - `[medium]` `[patch]` Wrong-slot red pulse on ~RTT-late weapon denials: global serverDeniedClick latch pulsed whatever slot was primed at render time. Fixed: latch set only when the denied slot is the currently-primed slot (chip flash + tone stay per-slot).
+  - `[medium]` `[patch]` Heading-source mismatch at the torpedo sector edge: render arc-gate read interpolated pose.heading while the dedup/tone predicate read predicted heading — boundary clicks while turning could pulse-without-mark (later double-pulse) or tone-without-pulse. Fixed: both predicates read predictedHeading.
+  - `[medium]` `[patch]` epic-1-context.md recompile contradicted the same-PR GDD close-out (arcs "still TBD"), regressed the ML signature-ability decision to "open", and dropped standing constraints. Fixed: arcs marked ratified (Eric 2026-07-23), ML marked resolved (1.8), restored smoke-screen→Epic-2 note, frame-budget + photosensitivity NFRs, CONFIG single-source line.
+  - `[low]` `[patch]` ×6: ledger resolution re-scoped (transport-coalescing variant stays open); spec Code Map inputs.ts line annotated as verified no-op; sectorArcFor/sternDropArcFor narrowing + throw paths directly tested (+4 tests); stale "ability-only" doc comments updated to the per-slot any-slot contract; dead-frame denial path now fully suppressed (audio matched to the visual rule); perception-fuzz comment scoped ('blocked' pinned by directed tests only).
 
 ## Design Notes
 

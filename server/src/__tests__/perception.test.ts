@@ -1088,9 +1088,13 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             aimDist: rng.float(0, 900),
             fireT: 0,
             // Half the clicks target the torpedo slot with a RANDOM aim, so the
-            // invariant worlds also exercise Story 1.10 denials (out-of-arc /
-            // cooling) alongside genuine launches — verifyDenied proves every
-            // one is owner-only with a legal reason.
+            // invariant worlds exercise the out-of-arc / cooling / no-ammo
+            // denials alongside genuine launches — verifyDenied proves every
+            // one is owner-only with a legal reason. NOTE: these worlds place
+            // only default-hull torpedo boats (place → addShip), so the 'blocked'
+            // reason (mineLayer stern-drop obstruction) is structurally
+            // unreachable HERE; its owner-only privacy is pinned by the directed
+            // tests in denials.test.ts, not by this fuzz.
             slot: rng.float(0, 1) < 0.5 ? 1 : 0,
             // ~30% of ticks also press the ability slot (TB boost in slot 2):
             // repeated presses drain the 1-charge pool into no-ammo denials.

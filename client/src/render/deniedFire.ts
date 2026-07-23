@@ -108,4 +108,17 @@ export class DenialDedup {
     this.mark(key);
     return true;
   }
+
+  /**
+   * Forget every remembered key. MUST fire at the same hard boundaries that
+   * clear the keyboard's activation queue (own sunk / respawn / spectate /
+   * reconnect): clearActivations() drops queued presses WITHOUT advancing
+   * actCount, so the next press reuses an actSeq a stale key might already
+   * hold — a later genuine server denial for that (slot, seq) would then be
+   * suppressed as an echo (silent denial) unless the memory is reset here too.
+   */
+  clear(): void {
+    this.order.length = 0;
+    this.seen.clear();
+  }
 }

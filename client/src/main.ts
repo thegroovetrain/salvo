@@ -160,8 +160,10 @@ interface Game {
    *  the weapon click) don't share a rate window. Chips-only: an ability press
    *  never drives the weapon-arc/reticle denied visuals (nothing is aimed). */
   abilityPulse: DeniedPulse[];
-  /** This frame's ability denied-flash PER LOADOUT SLOT — read by hud.update()
-   *  for each ability chip's border (index = loadout slot). */
+  /** This frame's denied-flash PER LOADOUT SLOT — read by hud.update() for each
+   *  chip's border (index = loadout slot). Covers ANY slot as of Story 1.10:
+   *  predicted ability-press denials AND unmatched server denials on weapon or
+   *  ability slots alike (the name predates the weapon-slot extension). */
   abilityFlash: boolean[];
   /** Tone player (audio/context.ts). */
   audio: Audio;
@@ -634,9 +636,11 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
   };
 }
 
-/** Fresh per-slot ability denied-feedback state (Story 1.6/1.8): one latch +
+/** Fresh per-slot denied-feedback state (Story 1.6/1.8): one latch +
  *  rate-limited pulse + flash per loadout slot, so two ability slots (the ML's
- *  mine + decoyBuoy) never share a pulse/flash. */
+ *  mine + decoyBuoy) never share a pulse/flash. Fed by predicted ability-press
+ *  denials and — Story 1.10 — by unmatched server denials on any slot (the
+ *  `ability` naming predates the weapon-slot extension). */
 function abilityFeedbackState(): Pick<Game, 'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash'> {
   return {
     abilityDeniedPress: Array.from({ length: SLOT_COUNT }, () => false),
@@ -785,6 +789,11 @@ function bindGameRoom(g: Game, conn: Connection): void {
     resetThrottle: () => {
       g.keyboard.resetThrottle();
       g.keyboard.clearActivations();
+      // Reset the denial dedup at the SAME boundary (Story 1.10): dropping
+      // queued presses without advancing actCount would otherwise let the next
+      // press reuse a still-marked (slot, seq), suppressing a genuine later
+      // server denial as an echo.
+      g.denialDedup.clear();
     },
     resetPrime: () => g.keyboard.revertToGun(),
     names: (id) => rosterName(g, id),
@@ -811,6 +820,7 @@ function bindGameRoom(g: Game, conn: Connection): void {
       g.reconnecting = false;
       hideBanner();
       g.keyboard.clearActivations(); // drop presses queued during the outage (FINDING A)
+      g.denialDedup.clear(); // paired with the queue drop — no reused (slot, seq)
     },
   });
 }
@@ -894,7 +904,11 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   // never primes), so the null branch is defensive only.
   const primedId = status.loadout[slot] ?? null;
   const reloadFrac = a && primedId !== null ? reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, primedId)) : 0;
-  const inArc = weaponArcHit(pose.heading, aim, primedId);
+  // Gate on the PREDICTED heading, the same source clickPrediction/consumePrimeOnFire
+  // read — NOT the alpha-interpolated pose.heading. At a sector boundary while
+  // turning the two disagree, so a render pulse could fire without the sim-tick
+  // dedup marking (→ later server denial double-pulses), or vice versa.
+  const inArc = weaponArcHit(predictedHeading(g), aim, primedId);
   // Predicted denial (a fresh click that can't fire) OR an unmatched SERVER
   // weapon denial (Story 1.10 one-shot latch, consumed here) drives the same
   // rate-limited red pulse — the late server case replaces total silence.
@@ -982,11 +996,20 @@ function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, fireSeq: n
  */
 function handleServerDenial(g: Game, d: DeniedView): void {
   if (g.state.spectating) return; // no live conning UI to feed back into
+  // A denial for a pre-death press is moot once sunk: renderFiring discards
+  // serverDeniedClick on a dead frame, so play the whole path only while alive
+  // (otherwise the tone + chip latch fire with no matching arc pulse).
+  if (g.state.net.you?.alive === false) return;
   if (!g.denialDedup.serverDenied(d.slot, d.seq)) return; // predicted echo — already fed back
   g.audio.play('denied');
   g.abilityDeniedPress[d.slot] = true; // per-slot chip flash (any slot as of 1.10)
   const id = g.ownSlots[d.slot] ?? null;
-  if (id !== null && EQUIPMENT_IS_WEAPON[id]) g.serverDeniedClick = true;
+  // Only pulse the arc/reticle when the DENIED slot is the one currently primed
+  // — renderFiring pulses whatever slot is primed at render time, so a torpedo
+  // denial arriving ~RTT late (prime already consumed, reverted to gun) would
+  // otherwise flash the GUN's reticle. The per-slot chip flash + tone above are
+  // already slot-correct; the arc pulse is the only slot-sensitive piece.
+  if (id !== null && EQUIPMENT_IS_WEAPON[id] && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
 }
 
 /** SCREEN-space fog holes for the own ACTIVE lit zones — center via the camera,
@@ -1046,6 +1069,9 @@ function enterSpectateVisuals(g: Game): void {
   // the moment of death can't fire on respawn (respawn's resetThrottle also
   // clears, this is the belt-and-braces at spectate entry).
   g.keyboard.clearActivations();
+  // Reset the denial dedup with the queue drop (Story 1.10): a dropped press
+  // must not leave a marked (slot, seq) the next life's press can reuse.
+  g.denialDedup.clear();
 }
 
 /** Follow-your-killer by default; any WASD press hands the camera to free pan. */
