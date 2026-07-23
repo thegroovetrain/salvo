@@ -17,24 +17,16 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { LitZoneView } from '@salvo/shared';
-import { CLIENT_CONFIG } from '../config.js';
 
-const OWN_COLOR = CLIENT_CONFIG.colors.legacy.ownAssetGreen; // dim own-ordnance green — your own flare (→ 1.12)
-const ENEMY_COLOR = CLIENT_CONFIG.colors.amber; // amber warning — an enemy's flare
 const PEAK_FILL_ALPHA = 0.12; // soft additive fill at full brightness
 const RING_ALPHA = 0.38; // the zone edge, a touch brighter than the fill
 const RING_W = 2; // u — edge stroke width
 /** Fade the glow out over the last FADE_MS before expiry (a dying flare). */
 export const LIT_FADE_MS = 1500;
 
-/**
- * Pure: own-green vs enemy-amber tint for a zone, by its firer id `by`. Story
- * 1.12 swaps this for the firer's personal roster hue; until then the interim
- * own/enemy palette convention (matching render/mines.ts).
- */
-export function litZoneTint(by: string, ownId: string | undefined): number {
-  return by === ownId ? OWN_COLOR : ENEMY_COLOR;
-}
+/** Resolve a firer ship id `by` → the flare's tint (Story 1.12: the firer's bright
+ *  personal hue for EVERY observer; amber when the firer left the roster). */
+export type HueFor = (by: string) => number;
 
 /**
  * Pure: the glow's alpha multiplier in [0,1] at `remainingMs` (= until -
@@ -132,15 +124,16 @@ export class LitZones {
   constructor(private readonly layer: Container) {}
 
   /**
-   * Reconcile sprites against this observer's zone list for the tick. `ownId`
-   * (own ship id) tints own vs enemy zones. Treats a missing frame key as an
-   * empty list — the caller passes `f.litZones ?? []` (frames omit the key when
-   * the observer sees no zones).
+   * Reconcile sprites against this observer's zone list for the tick. `hueFor`
+   * resolves each zone's firer id (`by`) to its personal hue (Story 1.12) — the
+   * SAME tint for every observer. Treats a missing frame key as an empty list —
+   * the caller passes `f.litZones ?? []` (frames omit the key when the observer
+   * sees no zones).
    */
-  sync(zones: readonly LitZoneView[], ownId: string | undefined): void {
+  sync(zones: readonly LitZoneView[], hueFor: HueFor): void {
     const { add, remove } = reconcileLitZones(new Set(this.sprites.keys()), zones);
     for (const id of remove) this.despawn(id);
-    for (const z of add) this.spawn(z, ownId);
+    for (const z of add) this.spawn(z, hueFor);
   }
 
   /** Per render frame: fade each glow by its timestamp (until - serverNow). */
@@ -148,8 +141,8 @@ export class LitZones {
     for (const { g, until } of this.sprites.values()) g.alpha = litZoneFade(until - serverNow);
   }
 
-  private spawn(z: LitZoneView, ownId: string | undefined): void {
-    const color = litZoneTint(z.by, ownId);
+  private spawn(z: LitZoneView, hueFor: HueFor): void {
+    const color = hueFor(z.by);
     const g = new Graphics();
     g.blendMode = 'add'; // additive: illuminated water, not an opaque disc
     g.circle(0, 0, z.r).fill({ color, alpha: PEAK_FILL_ALPHA });

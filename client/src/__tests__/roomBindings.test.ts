@@ -71,6 +71,8 @@ function setup() {
     onDrop,
     onReconnect,
     onDenied,
+    colors: vi.fn(() => null),
+    ordnanceHue: vi.fn(() => 0),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
   return { room, sink, ownBufferClear, forceSnap, onDrop, onReconnect, onOwnSpawn, onDenied };
@@ -130,6 +132,8 @@ function setupChannels() {
     mines: { sync: vi.fn() },
     litZones: { sync: vi.fn() },
     decoys: { sync: decoysSync },
+    colors: vi.fn(() => null),
+    ordnanceHue: vi.fn(() => 0),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
   return { sink, decoysSync };
@@ -138,15 +142,15 @@ function setupChannels() {
 describe('bindRoom decoy channel', () => {
   it('syncs the decoy list contact-like every frame (the mines/litZones precedent)', () => {
     const { sink, decoysSync } = setupChannels();
-    const decoys = [{ id: 'd1', x: 10, y: 20, until: 5000, own: true }];
+    const decoys = [{ id: 'd1', x: 10, y: 20, until: 5000, own: true, by: 'p1' }];
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [], decoys });
-    expect(decoysSync).toHaveBeenCalledWith(decoys);
+    expect(decoysSync).toHaveBeenCalledWith(decoys, expect.any(Function)); // + firer-hue resolver (Story 1.12)
   });
 
   it('treats an omitted decoys key as an empty list (frames omit it when none)', () => {
     const { sink, decoysSync } = setupChannels();
     sink.handler({ t: 100, tick: 1, ackSeq: 0, spec: true, contacts: [], mines: [], events: [] });
-    expect(decoysSync).toHaveBeenCalledWith([]);
+    expect(decoysSync).toHaveBeenCalledWith([], expect.any(Function));
   });
 });
 
@@ -174,6 +178,8 @@ function setupEvents() {
     projectiles: { onBurst, onBoom },
     effects: { spawnEffect },
     onSpectate: vi.fn(),
+    colors: vi.fn(() => null),
+    ordnanceHue: vi.fn(() => 0),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
   return { sink, onBurst, spawnEffect };
@@ -211,6 +217,8 @@ describe('bindRoom own sunk', () => {
       effects: { spawnEffect: vi.fn() },
       audio: { play: vi.fn() },
       names: (id: string) => id,
+      colors: () => null,
+      ordnanceHue: () => 0,
       resetThrottle,
       resetPrime,
     } as unknown as RoomBindingDeps;

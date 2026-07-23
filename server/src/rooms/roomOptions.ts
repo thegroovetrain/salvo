@@ -5,7 +5,7 @@
 // options — see sanitizeRoomOptions for why they must never reach a
 // production room ungated).
 
-import { PROTOCOL_VERSION, type ZoneTimeline } from '@salvo/shared';
+import { PROTOCOL_VERSION, REGATTA_HUES, type ZoneTimeline } from '@salvo/shared';
 
 export interface JoinOptions {
   name?: string;
@@ -16,6 +16,15 @@ export interface JoinOptions {
    * 'torpedoBoat'.
    */
   cls?: string;
+  /**
+   * Regatta Hoist personal-hue PREFERENCE (Story 1.12): an integer hue index
+   * 0..19 into the shared REGATTA_HUES wheel. A plain join option (NOT gated by
+   * HC_DEV_OPTIONS, like `cls`): onJoin runs it through sanitizeColorPref, so any
+   * out-of-range / non-integer / absent value falls back to undefined (the
+   * no-preference path — a seeded-random free hue). This story only PLUMBS the
+   * option (connection.ts forwards a persisted value); no UI writes it yet (1.14).
+   */
+  colorPref?: number;
   /**
    * Client bundle's PROTOCOL_VERSION. Validated by ArenaRoom's static onAuth
    * (via protocolVersionError below) BEFORE any room lookup or seat
@@ -127,4 +136,15 @@ export function sanitizeRoomOptions(options: RoomOptions, devEnabled: boolean): 
  *  (undefined => the room rolls its normal random seed). */
 function sanitizeMapSeed(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : undefined;
+}
+
+/**
+ * Sanitize a client-supplied Regatta hue PREFERENCE (Story 1.12): a valid pick is
+ * an integer in [0, REGATTA_HUES.length) — anything else (out of range, fractional,
+ * NaN, non-number, absent) becomes undefined, the no-preference path. Pure +
+ * unit-testable; NEVER dev-gated (a plain join option like `cls`). Called from
+ * onJoin, not sanitizeRoomOptions — preference is not a privileged dev override.
+ */
+export function sanitizeColorPref(v: unknown): number | undefined {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < REGATTA_HUES.length ? v : undefined;
 }

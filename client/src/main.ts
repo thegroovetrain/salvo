@@ -20,6 +20,7 @@ import {
   hullSilhouette,
   isOutside,
   loadoutFor,
+  REGATTA_NO_HUE,
   SLOT_COUNT,
   zeroUpgrades,
   zoneRadiusAt,
@@ -36,7 +37,7 @@ import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
 import { buildMap } from './render/map.js';
 import { Camera } from './render/camera.js';
-import { ShipView, OWN_STYLE } from './render/ships.js';
+import { ShipView, FALLBACK_STYLE, PLAYER_HUES, hullStyle } from './render/ships.js';
 import { ContactViews } from './render/contacts.js';
 import { Projectiles } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
@@ -187,6 +188,10 @@ interface Game {
   lastTickClick: number;
   /** Own ship class — the localStorage guess, corrected by the first server frame. */
   ownClass: ShipClassId;
+  /** Own personal-hue INDEX last applied to the hull/wake (Story 1.12): null until
+   *  the roster syncs (the amber-hollow fallback the hull boots on). updateOwnColor
+   *  recolors when this changes. */
+  ownHueIndex: number | null;
   /**
    * Cached effectiveStats(ownClass, own upgrade counts) — THE client-side stat
    * source (HUD denominators, predictor kinematics, radar/camera/fog ranges,
@@ -381,7 +386,7 @@ interface PublicState {
   matchPhase?: string;
   countdownEndT?: number;
   winnerId?: string;
-  players?: { size: number; get(id: string): { name?: string } | undefined };
+  players?: { size: number; get(id: string): { name?: string; color?: number } | undefined };
 }
 
 function publicState(g: Game): PublicState {
@@ -408,6 +413,48 @@ function matchUxFromRoom(g: Game, now: number): MatchUx {
 /** Roster name lookup for the kill feed / results (falls back to the raw id). */
 function rosterName(g: Game, id: string): string {
   return publicState(g).players?.get(id)?.name ?? id;
+}
+
+/**
+ * Personal-hue INDEX (0..19) for a roster id (Story 1.12), or null for the drone
+ * sentinel (255), a roster miss, or a not-yet-synced entry. The source of truth
+ * for own + contact hull colors and the ordnance-marker tint.
+ */
+function rosterColor(g: Game, id: string): number | null {
+  const c = publicState(g).players?.get(id)?.color;
+  return typeof c === 'number' && c !== REGATTA_NO_HUE ? c : null;
+}
+
+/** Kill-feed name color for a vessel id: the bright personal hue for a human,
+ *  drone-outline for a drone (sentinel 255), null for a roster miss (the feed
+ *  leaves the name in text-secondary). */
+function feedColor(g: Game, id: string): number | null {
+  const c = publicState(g).players?.get(id)?.color;
+  if (typeof c !== 'number') return null; // roster miss
+  if (c === REGATTA_NO_HUE) return CLIENT_CONFIG.colors.droneOutline; // drone grey
+  return PLAYER_HUES[c] ?? null; // human personal hue
+}
+
+/** Ordnance-marker tint for a firer id (mine/decoy/lit-zone `by`): the pilot's
+ *  bright personal hue for every observer; amber when the firer left the roster. */
+function ordnanceHue(g: Game, by: string): number {
+  const idx = rosterColor(g, by);
+  return idx === null ? CLIENT_CONFIG.colors.amber : PLAYER_HUES[idx];
+}
+
+/**
+ * Recolor the own hull + wake the moment the own roster hue is first known
+ * (Story 1.12): the roster schema can sync AFTER the first rendered frame, so the
+ * hull/wake boot on the amber fallback and swap to the personal hue here. Cheap
+ * idempotent poll — redraws only when the resolved index actually changes.
+ */
+function updateOwnColor(g: Game): void {
+  const idx = rosterColor(g, g.state.net.sessionId);
+  if (idx === g.ownHueIndex) return;
+  g.ownHueIndex = idx;
+  const style = hullStyle(idx);
+  g.ownView.setColors(style.stroke, style.fill);
+  g.effects.setWakeColor(idx === null ? CLIENT_CONFIG.colors.amber : PLAYER_HUES[idx]);
 }
 
 /** Countdown-tick (last 5s) + match-start audio cues, edge-detected off the
@@ -528,8 +575,10 @@ function setupViewport(
   const mouse = new MouseInput(nowServer);
   mouse.attach();
 
-  // Guessed-class hull until the first frame confirms/corrects it.
-  const ownView = new ShipView(OWN_STYLE, cls);
+  // Guessed-class hull until the first frame confirms/corrects it; boots on the
+  // amber-hollow fallback and recolors to the own personal hue once the roster
+  // syncs (Story 1.12 — see updateOwnColor).
+  const ownView = new ShipView(FALLBACK_STYLE, cls);
   ownView.gfx.visible = false;
   stage.layers.ship.addChild(ownView.gfx);
 
@@ -694,7 +743,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     audio, portal,
     matchEnded: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
-    ownClass: cls,
+    ownClass: cls, ownHueIndex: null, // ownHueIndex: amber fallback until the roster hue syncs (Story 1.12)
     ownStats: stats, ownSlots: slotIdsFor(cls, stats),
   };
   gRef = g;
@@ -798,6 +847,10 @@ function bindGameRoom(g: Game, conn: Connection): void {
     },
     resetPrime: () => g.keyboard.revertToGun(),
     names: (id) => rosterName(g, id),
+    // Story 1.12 personal-hue resolvers (roster-driven): kill-feed name color +
+    // ordnance-marker firer tint.
+    colors: (id) => feedColor(g, id),
+    ordnanceHue: (by) => ordnanceHue(g, by),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
       // Latched: a story-0.2 resume re-delivers the cached results broadcast,
@@ -1148,6 +1201,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       const shakeOff = g.shake.update(frameDt);
       g.camera.shake.x = shakeOff.x;
       g.camera.shake.y = shakeOff.y;
+      updateOwnColor(g); // recolor own hull/wake once the roster hue syncs (Story 1.12)
       if (g.state.spectating) renderSpectate(g, frameDt, now, zv, mu);
       else renderAlive(g, alpha, frameDt, now, zv, mu);
       // Clear the spend latch once it lands (pts dropped) or times out, THEN
@@ -1156,7 +1210,13 @@ function makeCallbacks(g: Game): LoopCallbacks {
       // Live-swap the spend window to the next queued offer after a spend, and
       // auto-close it at 0 pts / on spectate (currentOfferView → null).
       g.upgradeMenu.update(currentOfferView(g));
-      g.contactViews.render(g.contacts, now - CLIENT_CONFIG.net.interpDelayMs, now, frameDt * 1000);
+      g.contactViews.render(
+        g.contacts,
+        now - CLIENT_CONFIG.net.interpDelayMs,
+        now,
+        frameDt * 1000,
+        (id) => rosterColor(g, id), // Story 1.12: per-contact personal hue
+      );
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
     },
   };

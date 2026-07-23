@@ -1,9 +1,9 @@
-// Phase → HUD UX mapping (ui/phase.ts) + the kill-feed line builder.
+// Phase → HUD UX mapping (ui/phase.ts). The kill-feed line builder moved to its
+// own suite (killFeed.test.ts) when it grew colored segments (Story 1.12).
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG } from '@salvo/shared';
 import { matchUx, secondsUntil, spectateBannerText } from '../ui/phase.js';
-import { killLine } from '../ui/killFeed.js';
 
 describe('matchUx — phase to HUD strings', () => {
   it('waiting: AWAITING CAPTAINS n/min + WEAPONS SAFE, no countdown', () => {
@@ -60,9 +60,3 @@ describe('secondsUntil', () => {
   });
 });
 
-describe('killLine', () => {
-  it('names the killer when attributable, otherwise reports a loss', () => {
-    expect(killLine('ALPHA', 'BRAVO')).toBe('ALPHA SUNK BY BRAVO');
-    expect(killLine('ALPHA', null)).toBe('ALPHA LOST WITH ALL HANDS');
-  });
-});

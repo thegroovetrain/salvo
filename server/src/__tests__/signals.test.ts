@@ -163,7 +163,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 'vx', 'vy', 't']);
   });
 
-  it('mine row: [id,x,y,own]', () => {
+  it('mine row: [id,x,y,own,by] — `by` (dropper id) appended LAST (Story 1.12)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     const mine = makeMine({ ownerId: 'a', x: 50, y: 0 }); // owner sees it always
@@ -171,10 +171,11 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, mine)).toBe(true);
     const wire = row.materialize(ctx, mine);
-    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'own']);
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'own', 'by']);
+    expect((wire as { by: string }).by).toBe('a'); // the dropper's ship id
   });
 
-  it('decoy row: [id,x,y,until,own] — the DECOY\'s own id, never the owner\'s ship id; own = observer owns it', () => {
+  it('decoy row: [id,x,y,until,own,by] — DECOY id, `by` = owner ship id appended LAST (Story 1.12)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 40, y: 0, until: 30_000 }); // owner sees it always
@@ -183,9 +184,10 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const decoy = w.decoys.get('d1')!;
     expect(row.visible(ctx, decoy)).toBe(true);
     const wire = row.materialize(ctx, decoy);
-    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'until', 'own']);
-    expect(wire).toEqual({ id: 'd1', x: 40, y: 0, until: 30_000, own: true }); // the observer (a) owns it
-    expect('ownerId' in (wire as object)).toBe(false); // the owner id rides ONLY the counterIntel blip
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'until', 'own', 'by']);
+    // `id` is the DECOY's own id; `by` is the OWNER's ship id (the personal-hue +
+    // roster attribution hook — the deceiving blip carries the owner id separately).
+    expect(wire).toEqual({ id: 'd1', x: 40, y: 0, until: 30_000, own: true, by: 'a' });
   });
 
   it('blip row counterIntel: the SAME [k,id,x,y,t] shape, id = the OWNER\'s ship id at the BUOY\'s position', () => {

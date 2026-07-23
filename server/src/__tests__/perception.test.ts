@@ -533,7 +533,7 @@ describe('perception — mine visibility (owner-always, else sight+LOS, never ra
     place(w, 'b', 0, 0); // b co-located briefly; we only read its frame's mines
     injectMine(w, 'm1', 'a', 900, 900); // owner's mine, far outside any range
     const fa = buildFrame(w, 'a');
-    expect(fa.mines).toEqual([{ id: 'm1', x: 900, y: 900, own: true }]);
+    expect(fa.mines).toEqual([{ id: 'm1', x: 900, y: 900, own: true, by: 'a' }]);
     // b sits at the origin — the mine is 1273u away, far beyond radar(650).
     expect(buildFrame(w, 'b').mines).toEqual([]);
   });
@@ -542,7 +542,7 @@ describe('perception — mine visibility (owner-always, else sight+LOS, never ra
     const w = bareWorld();
     place(w, 'a', 0, 0);
     injectMine(w, 'm1', 'b', SIGHT, 0); // exactly at sight — inclusive
-    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: SIGHT, y: 0, own: false }]);
+    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: SIGHT, y: 0, own: false, by: 'b' }]);
     w.mines.clear();
     injectMine(w, 'm2', 'b', SIGHT + 0.01, 0); // a hair beyond sight
     expect(buildFrame(w, 'a').mines).toEqual([]);
@@ -664,7 +664,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     injectMine(w, 'm1', 'b', 890, 0); // inside the zone, far beyond a's sight
     injectMine(w, 'm2', 'b', 900 + LIT_R + 1, 0); // outside the zone edge — stays hidden
     injectZone(w, 'z1', 'a', 900, 0);
-    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: 890, y: 0, own: false }]);
+    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: 890, y: 0, own: false, by: 'b' }]);
   });
 
   it("an unseen ballistic inside the firer's zone materializes exactly once, with current params", () => {
@@ -809,11 +809,12 @@ function verifyBlipOrdering(f: FrameMsg): void {
 
 /** A mine may reach a frame only if the viewer owns it, it is sighted, OR it
  *  sits inside a lit zone the viewer OWNS (Story 1.7). */
-function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean }): void {
+function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean; by: string }): void {
   const mine = w.mines.get(m.id)!;
   expect(mine).toBeDefined();
   const own = mine.ownerId === me.id;
   expect(m.own).toBe(own);
+  expect(m.by).toBe(mine.ownerId); // Story 1.12: every visible mine carries its dropper id (personal hue)
   if (!own) expect(sighted(w, me, mine) || zoneCovers(w, me, mine)).toBe(true); // never radar, never fogged
 }
 
@@ -827,13 +828,13 @@ function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean }): 
 function verifyDecoy(
   w: World,
   me: ShipRecord,
-  d: { id: string; x: number; y: number; until: number; own: boolean },
+  d: { id: string; x: number; y: number; until: number; own: boolean; by: string },
 ): void {
   const decoy = w.decoys.get(d.id)!;
   expect(decoy).toBeDefined();
   expect(w.now).toBeLessThan(decoy.until); // expired buoys never materialize
-  expect(Object.keys(d).sort()).toEqual(['id', 'own', 'until', 'x', 'y']);
-  expect(d).toEqual({ id: decoy.id, x: decoy.x, y: decoy.y, until: decoy.until, own: decoy.ownerId === me.id });
+  expect(Object.keys(d).sort()).toEqual(['by', 'id', 'own', 'until', 'x', 'y']);
+  expect(d).toEqual({ id: decoy.id, x: decoy.x, y: decoy.y, until: decoy.until, own: decoy.ownerId === me.id, by: decoy.ownerId });
   if (decoy.ownerId !== me.id) {
     expect(sighted(w, me, decoy) || zoneCovers(w, me, decoy)).toBe(true);
   }

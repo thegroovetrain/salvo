@@ -15,7 +15,10 @@ import { Container } from 'pixi.js';
 import type { DecoyView } from '@salvo/shared';
 import { reconcileDecoys, Decoys } from '../render/decoys.js';
 
-const decoy = (id: string, own = false, until = 5000): DecoyView => ({ id, x: 0, y: 0, until, own });
+const decoy = (id: string, own = false, until = 5000, by = 'p1'): DecoyView => ({ id, x: 0, y: 0, until, own, by });
+
+/** Stub firer-hue resolver for the render harness (Story 1.12). */
+const HUE = (): number => 0x123456;
 
 describe('reconcileDecoys — decoy list → sprite lifecycle diff', () => {
   it('adds every buoy when starting from nothing', () => {
@@ -70,29 +73,29 @@ describe('Decoys — own/enemy layer split + own-spawn cue hook (mines precedent
 
   it('routes an OWN buoy to the chart layer and an ENEMY buoy to the world layer', () => {
     const { ownLayer, enemyLayer, decoys } = harness();
-    decoys.sync([decoy('mine', true), decoy('theirs', false)]);
+    decoys.sync([decoy('mine', true), decoy('theirs', false)], HUE);
     expect(ownLayer.children).toHaveLength(1);
     expect(enemyLayer.children).toHaveLength(1);
   });
 
   it('fires the own-spawn hook ONLY for newly-added OWN buoys (never for enemy)', () => {
     const { onOwnDecoySpawn, decoys } = harness();
-    decoys.sync([decoy('mine', true), decoy('theirs', false)]);
+    decoys.sync([decoy('mine', true), decoy('theirs', false)], HUE);
     expect(onOwnDecoySpawn).toHaveBeenCalledTimes(1);
     expect(onOwnDecoySpawn.mock.calls[0][0].id).toBe('mine');
   });
 
   it('fires the hook once per placement, not every tick a buoy persists', () => {
     const { onOwnDecoySpawn, decoys } = harness();
-    decoys.sync([decoy('mine', true)]);
-    decoys.sync([decoy('mine', true)]); // still present — no re-add, no re-cue
+    decoys.sync([decoy('mine', true)], HUE);
+    decoys.sync([decoy('mine', true)], HUE); // still present — no re-add, no re-cue
     expect(onOwnDecoySpawn).toHaveBeenCalledTimes(1);
   });
 
   it('clears both layers when the incoming list empties', () => {
     const { ownLayer, enemyLayer, decoys } = harness();
-    decoys.sync([decoy('mine', true), decoy('theirs', false)]);
-    decoys.sync([]);
+    decoys.sync([decoy('mine', true), decoy('theirs', false)], HUE);
+    decoys.sync([], HUE);
     expect(ownLayer.children).toHaveLength(0);
     expect(enemyLayer.children).toHaveLength(0);
   });

@@ -89,6 +89,10 @@ export class Effects {
   /** Own hull half-length (stern offset) + top speed, per own hull envelope. */
   private ownHalfLen: number = hullEnvelope('torpedoBoat').hull.length / 2;
   private ownMaxSpeed: number = hullEnvelope('torpedoBoat').kinematics.maxSpeed;
+  /** Wake tint (Story 1.12): the OWN personal hue, set by setWakeColor once the
+   *  own roster color is known; amber is the pre-roster fallback. Wake dots are
+   *  drawn white and tinted, so a recolor is a pool-tint swap, not a redraw. */
+  private wakeColor: number = CLIENT_CONFIG.colors.amber;
 
   constructor(
     private readonly wakeLayer: Container,
@@ -109,9 +113,17 @@ export class Effects {
     this.ownMaxSpeed = hullEnvelope(cls).kinematics.maxSpeed;
   }
 
+  /** Set the own wake tint to the pilot's personal hue (Story 1.12), applied to
+   *  every wake dot spawned from here on (short-lived, so it takes over in ~1s). */
+  setWakeColor(color: number): void {
+    this.wakeColor = color;
+  }
+
   private makeWakeDot(): Graphics {
     const g = new Graphics();
-    g.circle(0, 0, CLIENT_CONFIG.wake.radius).fill({ color: CLIENT_CONFIG.wake.color, alpha: 1 });
+    // Drawn WHITE + tinted per spawn (setWakeColor), so a personal-hue recolor is
+    // a cheap tint swap on the pool rather than a redraw.
+    g.circle(0, 0, CLIENT_CONFIG.wake.radius).fill({ color: CLIENT_CONFIG.colors.white, alpha: 1 });
     g.visible = false;
     this.wakeLayer.addChild(g);
     return g;
@@ -134,6 +146,7 @@ export class Effects {
     const g = this.wakePool.acquire();
     g.position.set(x, y);
     g.scale.set(1);
+    g.tint = this.wakeColor; // personal-hue wake (Story 1.12); amber pre-roster
     g.visible = true;
     const baseAlpha = CLIENT_CONFIG.wake.alpha * intensity;
     g.alpha = baseAlpha;

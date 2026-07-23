@@ -352,12 +352,16 @@ export interface HealEvent {
  * this mine (render it friendly). A mine dropping out of the list means it is
  * gone OR out of sight — the client cannot tell, and that ambiguity is the
  * point (no event-lifecycle staleness bug is possible for a static entity).
+ * `by` is the DROPPER'S ship id (roster-resolvable — the marker renders in the
+ * dropper's personal hue for EVERY observer come Story 1.12, a deliberate intel
+ * grant, Eric 2026-07-23; amber only when the dropper has left the roster).
  */
 export interface MineView {
   id: string;
   x: number; // u
   y: number; // u
   own: boolean;
+  by: string; // the dropper's ship id (personal-hue + roster attribution)
 }
 
 /**
@@ -397,6 +401,11 @@ export interface LitZoneView {
  * renders a static marker and removes it on despawn; a near-expiry fade is a
  * possible future use). A decoy dropping out of the list means expired OR out
  * of view — the client cannot tell (the mines/litZones precedent).
+ * `by` is the OWNER'S ship id (roster-resolvable — the truth marker renders in
+ * the owner's personal hue for EVERY observer come Story 1.12, a deliberate intel
+ * grant, Eric 2026-07-23; amber only when the owner has left the roster). This
+ * rides ONLY the truesight truth channel — the deceiving radar blip still carries
+ * the owner's id through its own path (counterIntel), unchanged.
  */
 export interface DecoyView {
   id: string; // the decoy's own id (NOT the owner's ship id the blip lie carries)
@@ -404,6 +413,7 @@ export interface DecoyView {
   y: number; // u
   until: number; // ms — server time the buoy expires
   own: boolean; // true iff the receiving observer OWNS this buoy (per-observer, the mines precedent)
+  by: string; // the owner's ship id (personal-hue + roster attribution)
 }
 
 /**

@@ -6,13 +6,14 @@
 // on radar) never rides here — it arrives as an ordinary `blip` event and is
 // rendered by the phosphor/radar path with zero changes.
 //
-// OWN vs ENEMY split (mirrors mines.ts, driven by DecoyView.own): OWN buoys draw
-// in chartRoot's decoy layer (fog-immune, dim own-green) so you always read your
-// own buoy even when it lies under fog beyond sight range; a truesighted ENEMY
-// buoy draws in worldRoot's decoy layer (amber warning marker) and only ever
-// arrives while sighted, so fog over it is a non-issue — exactly the mine
-// convention. Without the split a truesighted enemy buoy would have read as
-// YOURS; `own` is the per-observer discriminator that prevents that.
+// OWN vs ENEMY LAYER split (mirrors mines.ts, driven by DecoyView.own): OWN buoys
+// draw in chartRoot's decoy layer (fog-immune) so you always read your own buoy
+// even when it lies under fog beyond sight range; a truesighted ENEMY buoy draws
+// in worldRoot's decoy layer and only ever arrives while sighted, so fog over it
+// is a non-issue — exactly the mine convention. The MARKER COLOR, as of Story
+// 1.12, is the OWNER's personal hue (DecoyView.by → hueFor) — the SAME hue for
+// every observer, not an own-green / enemy-amber split (amber survives only as
+// the roster-miss fallback); `own` now drives only the layer + brightness.
 //
 // A buoy is a static point (its position is fixed at spawn) so a sprite's
 // position is set once, exactly like a mine; reconcile() is the pure
@@ -23,10 +24,11 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { DecoyView } from '@salvo/shared';
-import { CLIENT_CONFIG } from '../config.js';
 
-const OWN_COLOR = CLIENT_CONFIG.colors.legacy.ownAssetGreen; // dim own-ordnance green (→ 1.12)
-const ENEMY_COLOR = CLIENT_CONFIG.colors.amber; // amber warning marker
+/** Resolve an owner ship id (`by`) → the buoy's personal hue (Story 1.12); amber
+ *  when the owner has left the roster. */
+export type HueFor = (by: string) => number;
+
 const OUTER_R = 13; // u — slightly larger than a mine (10u ring): a buoy, not a mine
 const INNER_R = 5; // u — inner ring
 const MAST = 6; // u — short topmark mast so the buoy reads distinct from a mine's ring+dot
@@ -81,14 +83,14 @@ export class Decoys {
    * every sprite, which is how a match reset / despawn-all lands (the mines
    * precedent).
    */
-  sync(decoys: readonly DecoyView[]): void {
+  sync(decoys: readonly DecoyView[], hueFor: HueFor): void {
     const { add, remove } = reconcileDecoys(new Set(this.sprites.keys()), decoys);
     for (const id of remove) this.despawn(id);
-    for (const d of add) this.spawn(d);
+    for (const d of add) this.spawn(d, hueFor);
   }
 
-  private spawn(d: DecoyView): void {
-    const g = this.marker(d.own);
+  private spawn(d: DecoyView, hueFor: HueFor): void {
+    const g = this.marker(d.own, hueFor(d.by));
     g.position.set(d.x, d.y);
     (d.own ? this.ownLayer : this.enemyLayer).addChild(g);
     this.sprites.set(d.id, g);
@@ -103,10 +105,10 @@ export class Decoys {
   }
 
   /** A buoy topmark: two concentric rings + a short mast — distinct from a mine.
-   *  Own = dim green (fog-immune chart marker); enemy = amber warning (the mines
-   *  own/enemy tint convention). */
-  private marker(own: boolean): Graphics {
-    const color = own ? OWN_COLOR : ENEMY_COLOR;
+   *  `color` = the owner's personal hue (same for all observers, Story 1.12);
+   *  `own` drives only the brightness (dim on your own chart, brighter as an
+   *  enemy warning). */
+  private marker(own: boolean, color: number): Graphics {
     const ringAlpha = own ? 0.7 : 0.9;
     const innerAlpha = own ? 0.9 : 1;
     const g = new Graphics();

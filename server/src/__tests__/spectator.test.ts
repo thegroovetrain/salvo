@@ -122,8 +122,8 @@ describe('spectator frames — dead observer in the active phase', () => {
     w.mines.set('m2', { id: 'm2', ownerId: 'b', x: -800, y: -800, armedAt: 0 });
     const f = buildFrame(w, 'a', 'active');
     expect(f.mines.sort((x, y) => x.id.localeCompare(y.id))).toEqual([
-      { id: 'm1', x: 800, y: 800, own: true },
-      { id: 'm2', x: -800, y: -800, own: false },
+      { id: 'm1', x: 800, y: 800, own: true, by: 'a' },
+      { id: 'm2', x: -800, y: -800, own: false, by: 'b' },
     ]);
   });
 
@@ -132,7 +132,7 @@ describe('spectator frames — dead observer in the active phase', () => {
     w.decoys.set('d1', { id: 'd1', ownerId: 'b', x: 700, y: -700, until: 42_000 });
     const f = buildFrame(w, 'a', 'active');
     // DecoyView carries the decoy's own id; own:false — spectator 'a' does not own 'b's buoy.
-    expect(f.decoys).toEqual([{ id: 'd1', x: 700, y: -700, until: 42_000, own: false }]);
+    expect(f.decoys).toEqual([{ id: 'd1', x: 700, y: -700, until: 42_000, own: false, by: 'b' }]);
     expect(f.events.filter((e) => e.k === 'blip')).toEqual([]); // counterIntel never fires unfogged
   });
 

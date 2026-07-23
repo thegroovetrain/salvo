@@ -58,7 +58,10 @@ const COLORS = {
   // fog inverse mask). Never a design surface/text color.
   black: 0x000000,
   white: 0xffffff,
-  // Regatta Hoist personal combatant colors (20 hues; outline values)
+  // Regatta Hoist personal combatant colors (20 hues; bright OUTLINE values —
+  // the hull stroke, wake, ordnance-marker tint, and kill-feed name source).
+  // Key order = the ratified wheel order (shared REGATTA_HUES): index i → this
+  // table's i-th entry. VERBATIM from DESIGN.md frontmatter.
   players: {
     lemon: 0xfff04d,
     chartreuse: 0xc8e619,
@@ -81,12 +84,43 @@ const COLORS = {
     mulberry: 0xb01772,
     rose: 0xff85b3,
   },
+  // Regatta Hoist interior FILL values (20 hues; ~45%-value darker shade of the
+  // outline — the SOLID hull interior). SAME key order as `players`. Two origins:
+  //   • 12 DESIGN.md-documented pairs — used VERBATIM, never recomputed (they sit
+  //     at ~0.451 value, not a naive 0.45, so recomputing would drift):
+  //     lemon/lime/spring/aqua/cyan/azure/cobalt/iris/orchid/fuchsia/magenta/rose.
+  //   • 8 RULE-DERIVED literals (chartreuse/olive/green/jade/lagoon/sky/
+  //     periwinkle/mulberry) — no documented hex exists, so each is the outline at
+  //     HSV value ×0.45 (hue/saturation preserved), which for a linear-light RGB
+  //     model is exactly Math.round(channel × 0.45) per channel. Authored as
+  //     literals here; tokens.test.ts recomputes them from that rule to catch a typo.
+  playerFills: {
+    lemon: 0x736c23, // DESIGN
+    chartreuse: 0x5a680b, // rule-derived (0xc8e619 ×0.45)
+    olive: 0x374607, // rule-derived (0x7a9b0f ×0.45)
+    lime: 0x39651a, // DESIGN
+    green: 0x105010, // rule-derived (0x23b123 ×0.45)
+    spring: 0x196d61, // DESIGN
+    jade: 0x054740, // rule-derived (0x0b9e8f ×0.45)
+    aqua: 0x1d676b, // DESIGN
+    cyan: 0x005e73, // DESIGN
+    lagoon: 0x063948, // rule-derived (0x0e7fa0 ×0.45)
+    sky: 0x325a73, // rule-derived (0x6fc7ff ×0.45)
+    azure: 0x073261, // DESIGN
+    cobalt: 0x262f73, // DESIGN
+    periwinkle: 0x444b73, // rule-derived (0x96a6ff ×0.45)
+    iris: 0x4b3073, // DESIGN
+    orchid: 0x56115f, // DESIGN
+    fuchsia: 0x652373, // DESIGN
+    magenta: 0x732461, // DESIGN
+    mulberry: 0x4f0a33, // rule-derived (0xb01772 ×0.45)
+    rose: 0x733c51, // DESIGN
+  },
   // legacy carry-overs — byte-identical to pre-1.11 literals, owned by a later
   // story (deleted when that story lands its real color). NOT ratified roles.
+  // (ownHull/enemyHull/ownAssetGreen retired by Story 1.12 — hulls, wake, and
+  // ordnance markers now read personal hues / fallbacks, not these.)
   legacy: {
-    ownHull: 0x00ff88, // own hull + own wake → 1.12 Regatta personal hue
-    enemyHull: 0xffb800, // enemy hull outline → 1.12 Regatta personal hue
-    ownAssetGreen: 0x2f7d5a, // own mine/lit-zone/decoy marker (own-ordnance family)
     shellCore: 0xffe08a, // gun-shell dead-reckon core (projectile secondary tone)
     torpGlow: 0x3fbf8f, // torpedo glow + bow-arc tint (projectile secondary tone)
     torpWake: 0x9fd8c4, // torpedo wake bubble (projectile secondary tone)
@@ -163,9 +197,9 @@ export const CLIENT_CONFIG = {
     radius: 2.6,
     /** Peak alpha at spawn (scaled by speed fraction). */
     alpha: 0.28,
-    /** Wake color — trails the own hull, so it carries the own-hull identity
-     *  (legacy carry-over → 1.12 Regatta personal hue). */
-    color: COLORS.legacy.ownHull,
+    // Wake color is DYNAMIC as of Story 1.12 — it trails the own hull, so it
+    // carries the OWN personal hue (Effects.setWakeColor, driven by the own roster
+    // color); no static token here. Amber is the pre-roster fallback (in effects.ts).
   },
 
   /** Own/contact ship view feel constants. */

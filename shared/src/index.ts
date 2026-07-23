@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  11: Regatta Hoist personal colors (Story 1.12) — the roster schema gains
+ *  PlayerMeta.color (uint8 hue index 0–19, 255 = drone/no-hue sentinel);
+ *  join options gain optional colorPref (0–19); MineView + DecoyView each gain a
+ *  trailing `by` (owner ship id) so ordnance markers render in the firer's
+ *  personal hue for every observer (a deliberate intel grant, Eric 2026-07-23).
  *  10: firing arcs for the class era (Story 1.10) — FrameMsg gains optional
  *  self-private `denied` (DeniedView {slot,reason,seq}: the server's denial
  *  signal, reasons 'out-of-arc'|'no-ammo'|'cooling'|'blocked'); CONFIG's
@@ -36,7 +41,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 11;
 
 // Tunables
 export * from './constants.js';

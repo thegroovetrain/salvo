@@ -8,9 +8,20 @@
 // and the JOINING-deadline kick — all adapter-side (game/ stays pure).
 
 import { ClientState, CloseCode, ErrorCode, Room, ServerError, generateId, type Client } from 'colyseus';
-import { CONFIG, DRONE_HULL_IDS, MSG, sanitizeClassId, type ResultsMsg, type WelcomeMsg } from '@salvo/shared';
+import {
+  CONFIG,
+  DRONE_HULL_IDS,
+  MSG,
+  REGATTA_NO_HUE,
+  mulberry32,
+  sanitizeClassId,
+  type ResultsMsg,
+  type Rng,
+  type WelcomeMsg,
+} from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
 import { World } from '../game/world.js';
+import { assignHue } from '../game/regatta.js';
 import { buildFrame } from '../game/frames.js';
 import {
   Match,
@@ -26,6 +37,7 @@ import { registerRoom, type RoomMetricsHandle } from '../metrics.js';
 import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
+  sanitizeColorPref,
   sanitizeRoomOptions,
   type JoinOptions,
   type MatchOverride,
@@ -128,6 +140,13 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   private world!: World;
+  /**
+   * The room's Regatta hue RNG stream (Story 1.12) — seeded ONCE per room from
+   * mapSeed decorrelated by a fresh mixing constant (distinct from world.ts's
+   * spawn/upgrade/drone streams). Drives the no-preference assignment path
+   * (assignHue) so hue picks are deterministic + seeded, never Math.random.
+   */
+  private hueRng!: Rng;
   /** Null only in sandbox mode (dev smokes) — see MatchOverride. */
   private match: Match | null = null;
   private accumulator = 0;
@@ -203,6 +222,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
   /** The post-operability remainder of room creation (see onCreate's guard). */
   private finishCreate(sanitized: SanitizedRoomOptions, seed: number): void {
+    // Regatta hue stream (Story 1.12): one mulberry32 per room, decorrelated from
+    // mapgen/spawn/upgrade/drone streams by a fresh mixing constant.
+    this.hueRng = mulberry32((seed ^ 0xc2b2ae35) >>> 0);
     if (!sanitized.matchOverride?.sandbox) {
       this.match = new Match(this.world, this.timings(sanitized.matchOverride), this.matchHooks());
     }
@@ -386,6 +408,17 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     }
   }
 
+  /** The hue indices the roster currently holds (Story 1.12) — the `used` set for
+   *  assignHue. Skips the 255 sentinel, so drones and any not-yet-assigned entry
+   *  never reserve a wheel index. */
+  private usedHues(): Set<number> {
+    const used = new Set<number>();
+    this.state.players.forEach((meta: PlayerMeta) => {
+      if (meta.color !== REGATTA_NO_HUE) used.add(meta.color);
+    });
+    return used;
+  }
+
   onJoin(client: Client, options: JoinOptions = {}): void {
     this.joinCounter += 1;
     const name = options.name?.trim() || `CAPTAIN-${this.joinCounter}`;
@@ -401,6 +434,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     const meta = new PlayerMeta();
     meta.id = client.sessionId;
     meta.name = name;
+    // Regatta Hoist (Story 1.12): assign a unique personal hue FCFS at join.
+    // `used` is every hue the roster already holds — drones carry the 255 sentinel
+    // and are excluded by construction, so they never occupy a wheel index.
+    meta.color = assignHue(this.usedHues(), sanitizeColorPref(options.colorPref), this.hueRng);
     this.state.players.set(client.sessionId, meta);
 
     const welcome: WelcomeMsg = {

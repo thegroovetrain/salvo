@@ -21,8 +21,9 @@
 // msgpack key order follows object insertion order. Every materialize() below
 // builds its wire object in the exact historical field order (Contact:
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
-// k,id,x,y; MineView: id,x,y,own; LitZoneView: id,x,y,r,until,by; DecoyView:
-// id,x,y,until,own). Do not reorder keys.
+// k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by; DecoyView:
+// id,x,y,until,own,by). Do not reorder keys — `by` (Story 1.12) is appended LAST
+// on mine/decoy so the historical prefix stays byte-stable.
 
 import {
   bearing,
@@ -267,7 +268,10 @@ const mineSignal: SignalSpec<MineState, MineView> = {
     );
   },
   materialize(ctx, mine) {
-    return { id: mine.id, x: mine.x, y: mine.y, own: mine.ownerId === ctx.observerId };
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,own,by. `by` (Story 1.12) is
+    // the dropper's ship id — roster-resolved to the dropper's personal hue for
+    // every observer (a deliberate intel grant, Eric 2026-07-23), appended LAST.
+    return { id: mine.id, x: mine.x, y: mine.y, own: mine.ownerId === ctx.observerId, by: mine.ownerId };
   },
 };
 
@@ -323,12 +327,13 @@ const decoySignal: SignalSpec<Decoy, DecoyView> = {
     );
   },
   materialize(ctx, decoy) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,until,own. `id` is the DECOY's
-    // own id — the owner's ship id rides ONLY the counterIntel blip. `own`
-    // mirrors mineSignal (ctx.observerId): true iff the receiver owns the buoy,
-    // so the client renders own = fog-immune chart green, enemy truesight =
-    // world-layer amber. Spectators (observerId ≠ ownerId) read false.
-    return { id: decoy.id, x: decoy.x, y: decoy.y, until: decoy.until, own: decoy.ownerId === ctx.observerId };
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,until,own,by. `id` is the
+    // DECOY's own id — the owner's ship id rides the counterIntel blip AND, as of
+    // Story 1.12, the trailing `by` here (roster-resolved to the owner's personal
+    // hue for every observer of the TRUTH marker; the deceiving blip is unchanged).
+    // `own` mirrors mineSignal (ctx.observerId): true iff the receiver owns the
+    // buoy. Spectators (observerId ≠ ownerId) read own=false. `by` appended LAST.
+    return { id: decoy.id, x: decoy.x, y: decoy.y, until: decoy.until, own: decoy.ownerId === ctx.observerId, by: decoy.ownerId };
   },
 };
 

@@ -24,7 +24,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { CLIENT_CONFIG } from '../config.js';
-import { cssHex, cssRgba } from '../util/color.js';
+import { cssHex, cssRgba, contrastRatio, textSafe } from '../util/color.js';
 
 // vitest's root is the client workspace dir, so process.cwd() === client/.
 const CWD = process.cwd();
@@ -206,15 +206,57 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     expect(new Set(values).size).toBe(20);
   });
 
-  it('keeps the legacy carry-overs byte-identical to the pre-1.11 literals', () => {
+  it('keeps the surviving legacy carry-overs byte-identical (1.12 retired the hull/ordnance trio)', () => {
+    // ownHull / enemyHull / ownAssetGreen were consumed + deleted by Story 1.12
+    // (hulls, wake, and ordnance markers now read personal hues / fallbacks).
     expect(C.legacy).toEqual({
-      ownHull: 0x00ff88,
-      enemyHull: 0xffb800,
-      ownAssetGreen: 0x2f7d5a,
       shellCore: 0xffe08a,
       torpGlow: 0x3fbf8f,
       torpWake: 0x9fd8c4,
     });
+  });
+
+  it('pins playerFills — 12 DESIGN-verbatim + 8 rule-derived, in wheel order', () => {
+    expect(C.playerFills).toEqual({
+      lemon: 0x736c23,
+      chartreuse: 0x5a680b,
+      olive: 0x374607,
+      lime: 0x39651a,
+      green: 0x105010,
+      spring: 0x196d61,
+      jade: 0x054740,
+      aqua: 0x1d676b,
+      cyan: 0x005e73,
+      lagoon: 0x063948,
+      sky: 0x325a73,
+      azure: 0x073261,
+      cobalt: 0x262f73,
+      periwinkle: 0x444b73,
+      iris: 0x4b3073,
+      orchid: 0x56115f,
+      fuchsia: 0x652373,
+      magenta: 0x732461,
+      mulberry: 0x4f0a33,
+      rose: 0x733c51,
+    });
+    const values = Object.values(C.playerFills);
+    expect(values).toHaveLength(20);
+    expect(new Set(values).size).toBe(20);
+    // Same key order as the bright wheel (index i → same pilot).
+    expect(Object.keys(C.playerFills)).toEqual(Object.keys(C.players));
+  });
+
+  it('derives the 8 undocumented fills by the HSV value ×0.45 rule (round per channel)', () => {
+    // The 12 DESIGN pairs sit at ~0.451 (NOT recomputable); only these 8 follow the
+    // exact V×0.45 rule, which for linear-light RGB is Math.round(channel × 0.45).
+    const scale045 = (hex: number): number => {
+      const ch = (shift: number): number => Math.round(((hex >> shift) & 0xff) * 0.45);
+      return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+    };
+    const derived = ['chartreuse', 'olive', 'green', 'jade', 'lagoon', 'sky', 'periwinkle', 'mulberry'] as const;
+    for (const name of derived) {
+      expect(C.playerFills[name], name).toBe(scale045(C.players[name]));
+    }
   });
 
   it('pins the DESIGN.md type ramp registers', () => {
@@ -224,6 +266,25 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     expect(R.label.tracking).toBe('0.1em');
     expect(R.hudMicro.size).toBe(9);
     expect(R.hudMicro.tracking).toBe('0.18em');
+  });
+});
+
+describe('(e) textSafe — WCAG 4.5:1 text variants of the Regatta wheel', () => {
+  const VOID = CLIENT_CONFIG.colors.void;
+  const hues = Object.values(CLIENT_CONFIG.colors.players);
+
+  it('lifts every one of the 20 hues to ≥ 4.5:1 against the void as text', () => {
+    for (const hue of hues) {
+      expect(contrastRatio(textSafe(hue), VOID), cssHex(hue)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+
+  it('is idempotent — an already-passing hue returns unchanged, and a lifted variant re-passes unchanged', () => {
+    for (const hue of hues) {
+      const safe = textSafe(hue);
+      if (contrastRatio(hue, VOID) >= 4.5) expect(safe, cssHex(hue)).toBe(hue);
+      expect(textSafe(safe), cssHex(safe)).toBe(safe); // the text-safe variant already clears the bar
+    }
   });
 });
 

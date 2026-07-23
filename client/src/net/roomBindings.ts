@@ -104,6 +104,18 @@ export interface RoomBindingDeps {
   /** Roster name lookup (public schema) for the kill feed. */
   names: (id: string) => string;
   /**
+   * Kill-feed name color (Story 1.12): a vessel id → the CSS-ready personal hue
+   * for its feed span (bright hue for a human, drone-outline for a drone), or null
+   * for a roster miss (the name inherits text-secondary). The feed text-safes it.
+   */
+  colors: (id: string) => number | null;
+  /**
+   * Ordnance-marker tint (Story 1.12): a mine/decoy/lit-zone firer id (`by`) →
+   * that pilot's BRIGHT personal hue — the SAME hue for every observer — falling
+   * back to amber when the firer has left the roster.
+   */
+  ordnanceHue: (by: string) => number;
+  /**
    * A SELF-PRIVATE server denial arrived on the frame (Story 1.10 —
    * FrameMsg.denied, one call per entry). main.ts routes it through the
    * (slot, seq) exactly-one-feedback dedup: a client-predicted denial already
@@ -209,18 +221,18 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
     }
   }
   deps.contacts.pushFrame(f.t, f.contacts);
-  deps.mines.sync(f.mines); // contact-like: reconcile the mine field every tick
-  // Star-shell lit zones, same contact-like reconcile. Frames OMIT the key when
-  // the observer sees no zones, so treat a missing key as an empty list; the
-  // own ship id tints own (green) vs enemy (amber) zones (render/litZones.ts).
+  // Contact-like reconciles. Story 1.12: the marker tint is the FIRER's personal
+  // hue (MineView/DecoyView/LitZoneView `by` → deps.ordnanceHue), the same hue for
+  // every observer; the own/enemy discriminator (`own`) now only drives the fog
+  // layer + brightness inside each renderer.
+  deps.mines.sync(f.mines, deps.ordnanceHue); // reconcile the mine field every tick
+  // Star-shell lit zones, same reconcile. Frames OMIT the key when the observer
+  // sees no zones, so treat a missing key as an empty list.
   const litZones = f.litZones ?? [];
-  deps.litZones.sync(litZones, deps.state.net.sessionId);
-  // Decoy buoys, same contact-like reconcile. Frames OMIT the key when the
-  // observer sees no buoys, so treat a missing key as an empty list. The
-  // own/enemy split rides DecoyView.own inside the Decoys renderer (own → chart,
-  // enemy → world; render/decoys.ts), so no sessionId is threaded here; no state
-  // mirror needed either (buoys are chart markers; nothing derives per-frame).
-  deps.decoys.sync(f.decoys ?? []);
+  deps.litZones.sync(litZones, deps.ordnanceHue);
+  // Decoy buoys, same reconcile. Frames OMIT the key when the observer sees no
+  // buoys, so treat a missing key as an empty list.
+  deps.decoys.sync(f.decoys ?? [], deps.ordnanceHue);
   // Mirror the raw list into state (net → state → render): the render loop
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
@@ -380,7 +392,8 @@ function handleBurst(e: BurstEvent, deps: RoomBindingDeps): void {
 function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   const pos = sunkPosition(e.id, deps);
   if (pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
-  pushKillLine(killLine(deps.names(e.id), e.by ? deps.names(e.by) : null));
+  const killer = e.by ? { name: deps.names(e.by), id: e.by } : null;
+  pushKillLine(killLine({ name: deps.names(e.id), id: e.id }, killer), deps.colors);
   const sessionId = deps.state.net.sessionId;
   if (e.id === sessionId) {
     // In active this ETA is never used (the same frame carries spec:true and

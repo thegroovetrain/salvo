@@ -18,7 +18,7 @@
 //     plain ticking (lifecycle events only).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { CONFIG, MSG, type ResultsMsg } from '@salvo/shared';
+import { CONFIG, MSG, mulberry32, type ResultsMsg, type Rng } from '@salvo/shared';
 import { ClientState, CloseCode } from 'colyseus';
 import { World } from '../game/world.js';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
@@ -363,6 +363,7 @@ interface JoinRoom {
   state: { players: Map<string, unknown>; mapSeed: number; mapRadius: number };
   clients: JoinClient[];
   clock: { setTimeout: ReturnType<typeof vi.fn> };
+  hueRng: Rng;
   onJoin(client: JoinClient, options?: unknown): void;
 }
 
@@ -380,6 +381,7 @@ function joinRoom(): JoinRoom {
   room.state = { players: new Map(), mapSeed: 1, mapRadius: w.map.radius };
   room.clients = [];
   room.clock = { setTimeout: vi.fn() };
+  room.hueRng = mulberry32(1); // Story 1.12: onJoin assigns a personal hue off this stream
   return room;
 }
 
