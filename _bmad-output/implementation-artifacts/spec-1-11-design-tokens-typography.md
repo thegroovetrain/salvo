@@ -2,8 +2,9 @@
 title: 'Design Tokens & Typography'
 type: 'feature'
 created: '2026-07-23'
-status: 'in-review'
+status: 'done'
 baseline_revision: '0260f7015894a4aeb46b23cd0d21f4502ef39d41'
+final_revision: '4ea6f79f7f68624a6239543431d5d75d94f97000'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
