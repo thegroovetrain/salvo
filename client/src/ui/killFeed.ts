@@ -9,12 +9,16 @@
 
 import { CLIENT_CONFIG } from '../config.js';
 import { cssHex, textSafe } from '../util/color.js';
+// Display cap + surrogate-safe mid-ellipsis hoisted to the shared util (Story
+// 1.13) so the feed and the on-water nameplates share one cap source. Re-exported
+// here so existing feed consumers/tests keep importing ellipsizeName unchanged.
+import { ellipsizeName } from '../util/text.js';
+
+export { ellipsizeName };
 
 const FEED_ID = 'kill-feed';
 const LINE_TTL_MS = 6000;
 const MAX_LINES = 5;
-/** Callsign display cap (chars). Longer names mid-ellipsize to exactly this. */
-const NAME_MAX = 14;
 
 /** A vessel reference in a feed line — its display name + roster id (for color). */
 export interface NameRef {
@@ -27,20 +31,6 @@ export interface NameRef {
 export interface KillSegment {
   text: string;
   id?: string;
-}
-
-/**
- * Mid-ellipsize a callsign longer than NAME_MAX to EXACTLY NAME_MAX code points,
- * including the single '…' — 7 head + '…' + 6 tail (= 14). Slices on CODE POINTS
- * (Array.from), not UTF-16 units, so an emoji or other astral-plane glyph is
- * never split into a lone surrogate. Shorter names pass through unchanged.
- * Callsigns are capped at entry too (menu), so this only catches legacy
- * over-length names.
- */
-export function ellipsizeName(name: string): string {
-  const cps = [...name];
-  if (cps.length <= NAME_MAX) return name;
-  return cps.slice(0, 7).join('') + '…' + cps.slice(-6).join('');
 }
 
 /**

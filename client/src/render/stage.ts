@@ -2,12 +2,15 @@
 // tested). Builds the layer tree in the exact z-order the plan specifies:
 //
 //   worldRoot   (camera-transformed): ocean, wake, projectile, ship
+//   plateRoot   (screen space)        — truesight nameplates (render/nameplates.ts)
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
 //   chartRoot   (camera-transformed): map, blip, aim, burstFx, sweep   (fog-immune: above fog)
 //   hudRoot     (screen space)        — telegraph HUD
 //
-// worldRoot and chartRoot share the same camera transform; fogSprite and hudRoot
-// stay in screen space. `aim` (crosshair + bearing line) lives in chartRoot rather
+// worldRoot and chartRoot share the same camera transform; plateRoot, fogSprite,
+// and hudRoot stay in screen space. plateRoot sits BELOW the fog composite so the
+// plates dim/occlude with the fog exactly like the hulls they label (DESIGN:
+// nameplates fade with truesight resolution). `aim` (crosshair + bearing line) lives in chartRoot rather
 // than worldRoot's `ship` layer because gun range exceeds sight range: aiming at a
 // radar blip would otherwise place the reticle under the fog. The gun-arc sectors
 // stay in `ship` — they're always inside the sight bubble, so fog is plan-correct
@@ -62,6 +65,9 @@ export interface Stage {
   chartRoot: Container;
   /** Screen-space fog overlay (render/fog.ts adds its baked sprite here). */
   fogSprite: Container;
+  /** Screen-space truesight nameplate container (render/nameplates.ts) — above
+   *  the world, below fog — plates inherit fog occlusion like the hulls they label. */
+  plateRoot: Container;
   /** Screen-space HUD. */
   hudRoot: Container;
   layers: StageLayers;
@@ -77,6 +83,7 @@ async function preloadFonts(): Promise<void> {
     await Promise.all([
       document.fonts.load(`600 16px ${mono}`),
       document.fonts.load(`400 12px ${mono}`),
+      document.fonts.load(`400 9px ${mono}`), // nameplates (hud-micro, Story 1.13)
     ]);
     await document.fonts.ready;
   } catch {
@@ -105,11 +112,12 @@ export async function createStage(): Promise<Stage> {
   });
 
   const worldRoot = new Container();
-  const fogSprite = new Container(); // fog overlay parent (above world, below chart)
+  const plateRoot = new Container(); // screen-space nameplates (above world, below fog)
+  const fogSprite = new Container(); // fog overlay parent (above world + plates, below chart)
   const chartRoot = new Container();
   const hudRoot = new Container();
   // Order added == z-order.
-  app.stage.addChild(worldRoot, fogSprite, chartRoot, hudRoot);
+  app.stage.addChild(worldRoot, plateRoot, fogSprite, chartRoot, hudRoot);
 
   const layers: StageLayers = {
     ocean: child(worldRoot),
@@ -131,5 +139,5 @@ export async function createStage(): Promise<Stage> {
     hud: child(hudRoot),
   };
 
-  return { app, worldRoot, chartRoot, fogSprite, hudRoot, layers };
+  return { app, worldRoot, chartRoot, fogSprite, plateRoot, hudRoot, layers };
 }

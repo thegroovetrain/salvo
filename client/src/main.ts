@@ -38,7 +38,8 @@ import { createStage, type Stage } from './render/stage.js';
 import { buildMap } from './render/map.js';
 import { Camera } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, hullStyle } from './render/ships.js';
-import { ContactViews } from './render/contacts.js';
+import { ContactViews, type PlateFrame } from './render/contacts.js';
+import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
 import { weaponArcHit, weaponRangeU } from './render/weaponArc.js';
@@ -92,6 +93,10 @@ interface Game {
   sampler: InputSampler;
   ownView: ShipView;
   contactViews: ContactViews;
+  /** Screen-space truesight nameplates (render/nameplates.ts) — own hull + every
+   *  contact. Contacts drive theirs through contactViews; the own plate is driven
+   *  in renderOwn (keyed by sessionId). */
+  nameplates: NameplateLayer;
   projectiles: Projectiles;
   firing: FiringUX;
   effects: Effects;
@@ -192,6 +197,10 @@ interface Game {
    *  the roster syncs (the amber-hollow fallback the hull boots on). updateOwnColor
    *  recolors when this changes. */
   ownHueIndex: number | null;
+  /** Story 1.13: true once the OWN nameplate's text/color have resolved + been
+   *  set (latched, mirroring ownHueIndex) — the plate persists thereafter and is
+   *  only positioned/alpha'd per frame. */
+  ownPlated: boolean;
   /**
    * Cached effectiveStats(ownClass, own upgrade counts) — THE client-side stat
    * source (HUD denominators, predictor kinematics, radar/camera/fog ranges,
@@ -415,6 +424,13 @@ function rosterName(g: Game, id: string): string {
   return publicState(g).players?.get(id)?.name ?? id;
 }
 
+/** Roster name lookup for nameplates (Story 1.13): the synced callsign or null —
+ *  NEVER the id fallback, so an unresolved human hull shows no plate rather than
+ *  a session id (rosterName's fallback would leak the id onto the water). */
+function rosterNameOrNull(g: Game, id: string): string | null {
+  return publicState(g).players?.get(id)?.name ?? null;
+}
+
 /**
  * Personal-hue INDEX (0..19) for a roster id (Story 1.12), or null for the drone
  * sentinel (255), a roster miss, or a not-yet-synced entry. The source of truth
@@ -464,6 +480,25 @@ function updateOwnColor(g: Game): void {
   // `?? amber` guards the array lookup so setWakeColor can never receive undefined
   // (rosterColor already keeps idx in range; this is belt-and-braces).
   g.effects.setWakeColor(idx === null ? CLIENT_CONFIG.colors.amber : PLAYER_HUES[idx] ?? CLIENT_CONFIG.colors.amber);
+}
+
+/**
+ * Own truesight nameplate (Story 1.13): resolve + latch the own callsign plate
+ * once the roster syncs the own name + hue (the SAME roster source as the hull
+ * color — own callsign comes from the roster, never localStorage), then float it
+ * above the own hull at screen space, full alpha. Own is never a drone. The
+ * caller (renderOwn) runs this after camera.update so the projection matches the
+ * hull; the plate hides whenever the hull hides (spectate / forceSnap gap).
+ */
+function updateOwnPlate(g: Game, pose: RenderPose): void {
+  const id = g.state.net.sessionId;
+  if (!g.ownPlated) {
+    const r = latchPlate(false, rosterNameOrNull(g, id), rosterColor(g, id), false);
+    if (r.plate) g.nameplates.set(id, r.plate.text, r.plate.color);
+    g.ownPlated = r.latched;
+  }
+  const sc = g.camera.worldToScreen(pose);
+  g.nameplates.place(id, sc.x, plateScreenY(sc.y, g.ownClass, g.camera.zoom, CLIENT_CONFIG.nameplate.padPx), 1);
 }
 
 /** Countdown-tick (last 5s) + match-start audio cues, edge-detected off the
@@ -716,6 +751,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
   // Final arg is a lazy server-clock thunk for the mouse's pointerdown fire-time stamp (D1); resolved at click time.
   const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, cls, bellAudible, onUpgradeKey, isAbilitySlot, onAbility, () => (gRef?.clock ? gRef.clock.serverNow() : 0));
   const stats = effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades());
+  const nameplates = new NameplateLayer(stage.plateRoot); // screen-space plates: own hull + contacts
 
   const g: Game = {
     stage,
@@ -729,7 +765,8 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     mouse,
     sampler: new InputSampler((type, msg) => conn.room.send(type, msg)),
     ownView,
-    contactViews: new ContactViews(stage.layers.ship),
+    contactViews: new ContactViews(stage.layers.ship, nameplates),
+    nameplates,
     projectiles: new Projectiles(map.radius, stage.layers.projectile, (x, y) => effects.spawnEffect('torpwake', x, y)),
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     effects,
@@ -752,7 +789,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     audio, portal,
     matchEnded: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
-    ownClass: cls, ownHueIndex: null, // ownHueIndex: amber fallback until the roster hue syncs (Story 1.12)
+    ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownStats: stats, ownSlots: slotIdsFor(cls, stats),
   };
   gRef = g;
@@ -906,6 +943,7 @@ function renderOwn(
   g.ownView.setDowned(!status.alive);
   g.ownView.update(pose.x, pose.y, pose.heading);
   g.camera.update(frameDt, pose);
+  updateOwnPlate(g, pose); // own callsign plate above the hull (post camera update)
   g.effects.update(frameDt, pose);
   g.lastOwn = { x: pose.x, y: pose.y };
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
@@ -1095,7 +1133,10 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
   if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt);
-  else g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
+  else {
+    g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
+    g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
+  }
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;
   g.zone.update(zv.radius, zv.state, inStorm, now / 1000, w, h);
@@ -1119,6 +1160,7 @@ function enterSpectateVisuals(g: Game): void {
   g.fog.setVisible(false);
   g.radar.clearBlips();
   g.ownView.gfx.visible = false;
+  g.nameplates.hide(g.state.net.sessionId); // own plate hidden while spectating (hull hidden)
   g.firing.hide();
   g.upgradeMenu.hide(); // the spend window never lingers into spectate
   // Drop any WASD held at the moment of death so updateSpectateCamera sees a
@@ -1171,6 +1213,10 @@ function renderSpectate(g: Game, frameDt: number, now: number, zv: ZoneView, mu:
 // --- the loop --------------------------------------------------------------------
 
 function makeCallbacks(g: Game): LoopCallbacks {
+  // Story 1.13: hoist the per-contact nameplate frame — camera + pad are stable
+  // and nameOf closes over g, so build it ONCE and reuse it every render frame
+  // (no per-frame object/closure allocation in the render hot path).
+  const plateFrame: PlateFrame = { nameOf: (id) => rosterNameOrNull(g, id), camera: g.camera, pad: CLIENT_CONFIG.nameplate.padPx };
   return {
     simTick: () => {
       // RULING: a dead (or post-match) client stops sending inputs entirely —
@@ -1225,6 +1271,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
         now,
         frameDt * 1000,
         (id) => rosterColor(g, id), // Story 1.12: per-contact personal hue
+        plateFrame, // Story 1.13: per-contact truesight nameplate (hoisted, reused)
       );
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
     },

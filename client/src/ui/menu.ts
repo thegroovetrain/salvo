@@ -6,11 +6,16 @@
 
 import { SHIP_CLASS_IDS, sanitizeClassId, type ShipClassId } from '@salvo/shared';
 import { registerCss } from './theme.js';
+// Entry cap = the shared display cap (Story 1.13, Eric ruling 2026-07-23:
+// tighten 16 → 14 to match the kill feed + nameplates). Re-exported so existing
+// menu consumers/tests keep importing NAME_MAX from here.
+import { NAME_MAX } from '../util/text.js';
+
+export { NAME_MAX };
 
 const MENU_ID = 'main-menu';
 const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
-export const NAME_MAX = 16;
 
 /** Display label per class (spaced two-word names the id can't produce). */
 const CLASS_NAMES: Record<ShipClassId, string> = {
@@ -26,9 +31,12 @@ const CLASS_CAPTIONS: Record<ShipClassId, string> = {
   mineLayer: 'AREA DENIAL',
 };
 
-/** Trim + cap a callsign; '' means "let the server assign CAPTAIN-n". */
+/** Trim + cap a callsign; '' means "let the server assign CAPTAIN-n". Slices on
+ *  CODE POINTS (not UTF-16 units) so an astral glyph (emoji) can never be split
+ *  into a lone surrogate — matching util/text.ts's code-point ellipsis. The
+ *  input.maxLength UTF-16 cap stays as-is (it's merely stricter for astral text). */
 export function sanitizeName(raw: string): string {
-  return raw.trim().slice(0, NAME_MAX);
+  return [...raw.trim()].slice(0, NAME_MAX).join('');
 }
 
 export function loadSavedName(): string {

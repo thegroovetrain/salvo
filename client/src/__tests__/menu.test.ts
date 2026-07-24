@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { sanitizeName, loadSavedName, loadSavedClass, showMenu } from '../ui/menu.js';
+import { sanitizeName, loadSavedName, loadSavedClass, showMenu, NAME_MAX } from '../ui/menu.js';
 
 describe('sanitizeName', () => {
-  it('trims + caps at NAME_MAX', () => {
+  it('trims + caps at NAME_MAX (14 — Eric ruling 2026-07-23, matches the kill feed)', () => {
     expect(sanitizeName('  hi  ')).toBe('hi');
-    expect(sanitizeName('X'.repeat(40))).toHaveLength(16);
+    expect(NAME_MAX).toBe(14);
+    expect(sanitizeName('X'.repeat(40))).toHaveLength(14);
   });
 });
 
@@ -56,5 +57,25 @@ describe('loadSavedName', () => {
   it('returns the persisted callsign', () => {
     localStorage.setItem('hullcracker.name', 'AHAB');
     expect(loadSavedName()).toBe('AHAB');
+  });
+
+  it('re-slices a legacy stored 16-char name to the tightened 14 cap on load', () => {
+    // A name saved before the 14-cap (up to the old maxLength 16) must be
+    // re-sliced when loaded — sanitizeName runs on the stored value.
+    localStorage.setItem('hullcracker.name', 'ABCDEFGHIJKLMNOP'); // 16 chars
+    expect(loadSavedName()).toBe('ABCDEFGHIJKLMN'); // sliced to 14
+    expect(loadSavedName()).toHaveLength(14);
+  });
+
+  it('re-slices a stored legacy name of 8 astral emoji without a lone surrogate', () => {
+    // 8 astral emoji = 8 code points but 16 UTF-16 units. A UTF-16 slice(0,14)
+    // would cut mid-pair and leave a lone surrogate; sanitizeName slices on CODE
+    // POINTS, so an 8-cp name (≤ 14) round-trips every code point intact.
+    const emoji = '🚀'.repeat(8);
+    localStorage.setItem('hullcracker.name', emoji);
+    const out = loadSavedName();
+    const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    expect(loneSurrogate.test(out)).toBe(false);
+    expect([...out]).toEqual([...emoji]); // every code point survives
   });
 });
