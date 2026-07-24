@@ -38,7 +38,7 @@ import { createStage, type Stage } from './render/stage.js';
 import { buildMap } from './render/map.js';
 import { Camera } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, hullStyle } from './render/ships.js';
-import { ContactViews } from './render/contacts.js';
+import { ContactViews, type PlateFrame } from './render/contacts.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
@@ -1213,6 +1213,10 @@ function renderSpectate(g: Game, frameDt: number, now: number, zv: ZoneView, mu:
 // --- the loop --------------------------------------------------------------------
 
 function makeCallbacks(g: Game): LoopCallbacks {
+  // Story 1.13: hoist the per-contact nameplate frame — camera + pad are stable
+  // and nameOf closes over g, so build it ONCE and reuse it every render frame
+  // (no per-frame object/closure allocation in the render hot path).
+  const plateFrame: PlateFrame = { nameOf: (id) => rosterNameOrNull(g, id), camera: g.camera, pad: CLIENT_CONFIG.nameplate.padPx };
   return {
     simTick: () => {
       // RULING: a dead (or post-match) client stops sending inputs entirely —
@@ -1267,13 +1271,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
         now,
         frameDt * 1000,
         (id) => rosterColor(g, id), // Story 1.12: per-contact personal hue
-        {
-          // Story 1.13: per-contact truesight nameplate — roster name-or-null (no
-          // id fallback), the live camera transform, and the screen-px pad.
-          nameOf: (id) => rosterNameOrNull(g, id),
-          camera: g.camera,
-          pad: CLIENT_CONFIG.nameplate.padPx,
-        },
+        plateFrame, // Story 1.13: per-contact truesight nameplate (hoisted, reused)
       );
       applyCamera(g.camera, g.stage.worldRoot, g.stage.chartRoot);
     },

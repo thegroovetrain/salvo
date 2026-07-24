@@ -49,6 +49,12 @@ export interface PlateFrame {
 interface FadingView {
   view: ShipView;
   fader: Fader;
+  /** The contact's hull id, cached at creation (a contact never changes hull
+   *  mid-life). Used for the plate offset instead of re-reading store.classOf()
+   *  per frame: once the store prunes the contact its class entry is DELETED, so
+   *  a live re-read falls back to 'torpedoBoat' during the fade-out and pops the
+   *  plate to the wrong (smaller) hull radius. */
+  hull: HullId;
   /** True once a non-fallback style (drone greys or a resolved personal hue) has
    *  been applied — stops the per-frame recolor probe. */
   colored: boolean;
@@ -132,12 +138,11 @@ export class ContactViews {
     plates: PlateFrame,
   ): boolean {
     if (!fv.colored) this.tryRecolor(id, fv, store, rosterIndex);
-    const cls = store.classOf(id) ?? 'torpedoBoat';
     const s = store.get(id)?.sampleAt(renderTime);
     if (s) fv.view.update(s.x, s.y, s.heading);
     else if (!store.get(id)) fv.fader.hide(); // pruned: hold last pose, fade out
     fv.view.setFade(fv.fader.update(dtMs));
-    this.drivePlate(id, fv, cls, rosterIndex, plates);
+    this.drivePlate(id, fv, rosterIndex, plates);
     return fv.fader.hidden;
   }
 
@@ -145,15 +150,15 @@ export class ContactViews {
    *  Placement rides the hull view's last-applied WORLD pose (gfx.position) — the
    *  SAME snapshot sample the hull drew — projected to screen; alpha = the fader
    *  value (holds through the fade-out on prune). */
-  private drivePlate(id: string, fv: FadingView, cls: HullId, rosterIndex: RosterIndex, plates: PlateFrame): void {
+  private drivePlate(id: string, fv: FadingView, rosterIndex: RosterIndex, plates: PlateFrame): void {
     if (!fv.plated) {
-      const r = latchPlate(false, plates.nameOf(id), rosterIndex(id), isDroneHull(cls));
+      const r = latchPlate(false, plates.nameOf(id), rosterIndex(id), isDroneHull(fv.hull));
       if (r.plate) this.nameplates.set(id, r.plate.text, r.plate.color);
       fv.plated = r.latched;
     }
     const gp = fv.view.gfx.position;
     const sc = plates.camera.worldToScreen({ x: gp.x, y: gp.y });
-    this.nameplates.place(id, sc.x, plateScreenY(sc.y, cls, plates.camera.zoom, plates.pad), fv.fader.alpha);
+    this.nameplates.place(id, sc.x, plateScreenY(sc.y, fv.hull, plates.camera.zoom, plates.pad), fv.fader.alpha);
   }
 
   /** A contact booted on the amber fallback because its roster hue had not synced
@@ -178,7 +183,7 @@ export class ContactViews {
       const style = contactStyle(hullId, idx);
       // Colored already iff a drone (greys) or the personal hue resolved now;
       // a still-null human hue leaves the amber fallback for tryRecolor to fix.
-      fv = { view: new ShipView(style, hullId), fader: new Fader(false), colored: isDroneHull(hullId) || idx !== null, plated: false };
+      fv = { view: new ShipView(style, hullId), fader: new Fader(false), hull: hullId, colored: isDroneHull(hullId) || idx !== null, plated: false };
       this.layer.addChild(fv.view.gfx);
       this.views.set(id, fv);
     }

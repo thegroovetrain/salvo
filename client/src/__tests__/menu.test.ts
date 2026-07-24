@@ -66,4 +66,16 @@ describe('loadSavedName', () => {
     expect(loadSavedName()).toBe('ABCDEFGHIJKLMN'); // sliced to 14
     expect(loadSavedName()).toHaveLength(14);
   });
+
+  it('re-slices a stored legacy name of 8 astral emoji without a lone surrogate', () => {
+    // 8 astral emoji = 8 code points but 16 UTF-16 units. A UTF-16 slice(0,14)
+    // would cut mid-pair and leave a lone surrogate; sanitizeName slices on CODE
+    // POINTS, so an 8-cp name (≤ 14) round-trips every code point intact.
+    const emoji = '🚀'.repeat(8);
+    localStorage.setItem('hullcracker.name', emoji);
+    const out = loadSavedName();
+    const loneSurrogate = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/;
+    expect(loneSurrogate.test(out)).toBe(false);
+    expect([...out]).toEqual([...emoji]); // every code point survives
+  });
 });

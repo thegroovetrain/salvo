@@ -15,10 +15,10 @@
 // re-rasterizes Text on .text assignment, so the driver only calls set() once).
 
 import { Container, Text } from 'pixi.js';
-import { hullSilhouette, polygonMaxRadius, type HullId } from '@salvo/shared';
+import { hullSilhouette, polygonMaxRadius, HULL_IDS, type HullId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { textSafe } from '../util/color.js';
-import { ellipsizeName } from '../util/text.js';
+import { ellipsizeName, NAME_MAX } from '../util/text.js';
 import { PLAYER_HUES } from './ships.js';
 
 const C = CLIENT_CONFIG.colors;
@@ -33,21 +33,26 @@ export const PLATE_FONT_PX = 9;
 const PLATE_STYLE = {
   fontFamily: CLIENT_CONFIG.type.mono,
   fontSize: PLATE_FONT_PX,
-  letterSpacing: 1.62,
+  letterSpacing: PLATE_FONT_PX * 0.18, // hud-micro 0.18em tracking (= 9 × 0.18 = 1.62px)
 } as const;
 
 /** Display text for a callsign: mid-ellipsized to the shared cap on the RAW name
  *  first, THEN uppercased — so the kill feed and the plate agree on which
- *  characters survive the ellipsis (the feed ellipsizes the same raw name). */
+ *  characters survive the ellipsis (the feed ellipsizes the same raw name).
+ *  toUpperCase() can EXPAND code points ('ß'→'SS', 'ﬁ'→'FI'), so if the
+ *  uppercased result overruns NAME_MAX we re-ellipsize the uppercased string. */
 export function plateText(name: string): string {
-  return ellipsizeName(name).toUpperCase();
+  const up = ellipsizeName(name).toUpperCase();
+  return [...up].length > NAME_MAX ? ellipsizeName(up) : up;
 }
 
 /** Plate text color: a drone is the `droneOutline` grey VERBATIM (never through
  *  textSafe); a human is its personal hue's text-safe (≥4.5:1) variant. The
  *  caller only passes a human `hueIndex` once it has resolved (non-null). */
 export function plateColor(hueIndex: number, isDrone: boolean): number {
-  return isDrone ? C.droneOutline : textSafe(PLAYER_HUES[hueIndex]);
+  // `?? amber` guards an out-of-range index so textSafe never gets undefined —
+  // belt-and-braces like the 1.12 siblings (amber is the roster-miss fallback).
+  return isDrone ? C.droneOutline : textSafe(PLAYER_HUES[hueIndex] ?? C.amber);
 }
 
 /** The plate a hull should show, or null when it cannot yet resolve (the latch
@@ -60,7 +65,13 @@ export function resolvePlate(
 ): { text: string; color: number } | null {
   if (isDrone) return { text: 'DRONE', color: plateColor(0, true) };
   if (name === null || hueIndex === null) return null;
-  return { text: plateText(name), color: plateColor(hueIndex, false) };
+  // Strip control chars only (a newline must never reach Pixi as a multi-line
+  // plate) — KEEP format chars (\p{Cf}) so emoji ZWJ sequences survive intact.
+  // A name that is empty or ALL whitespace/format chars can't latch a blank
+  // plate: treat as unresolved (null) so the driver keeps retrying.
+  const stripped = name.replace(/\p{Cc}/gu, '');
+  if ([...stripped].every((ch) => /[\s\p{Cf}]/u.test(ch))) return null;
+  return { text: plateText(stripped), color: plateColor(hueIndex, false) };
 }
 
 /** One latch step for a plate driver: given the current latch flag + resolver
@@ -78,11 +89,19 @@ export function latchPlate(
   return { plate, latched: plate !== null };
 }
 
+/** Plate offset radius (world u) per hull id — each hull's silhouette
+ *  bounding-circle radius, computed ONCE at module load (HULL_IDS covers the
+ *  three classes + the three drone ids) so plateScreenY runs no per-frame
+ *  polygon scan in the render hot path. */
+const PLATE_OFFSET_R: Readonly<Record<HullId, number>> = Object.fromEntries(
+  HULL_IDS.map((id) => [id, polygonMaxRadius(hullSilhouette(id))]),
+) as Record<HullId, number>;
+
 /** Bottom-edge screen-y for a plate floated above a hull: above the hull's
  *  bounding circle (world radius × zoom) plus a constant screen-space pad. The
  *  offset scales with zoom (the hull shrinks) while the font size does not. */
 export function plateScreenY(shipScreenY: number, hullId: HullId, zoom: number, pad: number): number {
-  return shipScreenY - polygonMaxRadius(hullSilhouette(hullId)) * zoom - pad;
+  return shipScreenY - PLATE_OFFSET_R[hullId] * zoom - pad;
 }
 
 /**

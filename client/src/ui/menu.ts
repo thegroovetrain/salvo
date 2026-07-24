@@ -31,9 +31,12 @@ const CLASS_CAPTIONS: Record<ShipClassId, string> = {
   mineLayer: 'AREA DENIAL',
 };
 
-/** Trim + cap a callsign; '' means "let the server assign CAPTAIN-n". */
+/** Trim + cap a callsign; '' means "let the server assign CAPTAIN-n". Slices on
+ *  CODE POINTS (not UTF-16 units) so an astral glyph (emoji) can never be split
+ *  into a lone surrogate — matching util/text.ts's code-point ellipsis. The
+ *  input.maxLength UTF-16 cap stays as-is (it's merely stricter for astral text). */
 export function sanitizeName(raw: string): string {
-  return raw.trim().slice(0, NAME_MAX);
+  return [...raw.trim()].slice(0, NAME_MAX).join('');
 }
 
 export function loadSavedName(): string {

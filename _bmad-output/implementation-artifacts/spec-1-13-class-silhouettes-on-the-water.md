@@ -2,7 +2,7 @@
 title: 'Class Silhouettes on the Water'
 type: 'feature'
 created: '2026-07-23'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '30720e6324d0a0cb8193c77dcfb7e6d7c3ed0988'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -81,6 +81,20 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-07-23 — Review pass (Blind Hunter + Edge Case Hunter, both at session capability, parallel; patch fixes routed per /orchestrate, orchestrator-verified)
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 0, medium 2, low 9)
+- defer: 2
+- reject: 3
+- addressed_findings:
+  - `[medium]` `[patch]` Step-01's epic-context recompile (required by the stale-cache rule) regenerated `epic-1-context.md` purely from planning artifacts and ERASED the 1.8/1.10 ratified-ruling records that lived only in that file's review-patched corrections. Fixed: restored the baseline version verbatim (`git checkout 30720e6 -- …`); the structural hazard is logged to deferred-work.
+  - `[medium]` `[patch]` Plates escaped the fog — `plateRoot` sat above the fog composite, so a full-alpha callsign floated on solid fog for ~0.5 s (stale window + fade) after its hull was occluded, contradicting "fades with truesight resolution". Fixed: `plateRoot` moved below `fogSprite` (worldRoot → plateRoot → fog → chart → hud); plates now inherit fog occlusion exactly like the hulls they label.
+  - `[low]` `[patch]` ×9: pruned-contact plate offset popped to the torpedoBoat radius mid-fade (`classOf` deleted at prune) — hull id now cached on `FadingView` with a fade-after-prune pin; `plateText` re-ellipsizes after uppercase ('ß'→'SS' could exceed the 14-code-point cap; pinned); `sanitizeName` slices code points, never splitting surrogate pairs (8-emoji round-trip pinned); degenerate names (controls/zero-width-only) never latch a blank or multi-line plate while emoji-ZWJ sequences survive (pinned); `plateColor` gains the 1.12-style `?? amber` bounds guard; per-frame budget honored (module-scope per-hull offset radii replace the per-frame polygon scan; PlateFrame hoisted out of the render callback); `letterSpacing` derives from `PLATE_FONT_PX * 0.18`; ships.test upgraded from constructor smoke to a rendered-geometry pin (silhouette span == CONFIG length/beam, bounds enclose hull, stroke-invariant width−height identity, ×4 hulls); NameplateLayer state machine covered via a mocked-Text suite (create-once/diff-before-assign, no-op place, hide→place re-show pinned with the own-plate discipline note, remove/recreate).
+- deferred: server `options.name` has neither type nor length validation (non-string join option throws in onJoin; pre-existing, server-side); step-01 compile-epic-context regeneration hazard (erases context-file-only correction records — needs Eric doc-sync or compiler preservation).
+- rejected: spec frontmatter `in-progress` vs sprint-status `done` mid-run (workflow-inherent, same class rejected in 1.11/1.12); own plate visible over the downed-but-still-visible own hull (matches the spec's "hidden exactly when hull hidden"); own/contact latch-driver duplication (architecture preference, both sites have genuinely different lifecycles).
+
 ## Design Notes
 
 - **Eric rulings (2026-07-23, this run):** entry cap 14 NOW (supersedes menu's 16; DESIGN's [PROPOSAL] tag ratified); contested-hoist toast REJECTED outright ("most pointless toast imaginable" — color is assigned at join, first-come). AskUserQuestion answers are the authority.
@@ -98,3 +112,17 @@ warnings: [oversized]
 
 **Manual checks (if no CLI):**
 - With Eric's dev server running (never start it): two tabs — each hull floats its uppercase callsign in its lightened hue above the bow at constant size; drones say DRONE in grey; plates fade with contacts at sight edge; no plates on radar blips; spectate zoom-out keeps plates 9 px.
+
+## Auto Run Result
+
+**Summary:** Story 1.13 landed. Recon proved the silhouette half already held by construction since Story 1.3 (`shared/src/sim/silhouette.ts` is the sole geometry source feeding server collision, shells/mines, prediction AND the client hull render — "silhouette IS the hitbox" verified via existing pins plus a new rendered-geometry pin). Net-new: the truesight nameplate system — every truesight combatant hull floats its callsign in the hud-micro register (mono 9 px, 0.18 em tracking, uppercase) at CONSTANT screen size in a dedicated screen-space layer BELOW the fog (plates inherit fog occlusion exactly like hulls), colored with the owner's ≥ 4.5:1 text-safe personal variant, latching on roster resolve (an unresolved human shows no plate — never a session id; a latched plate survives roster leave), alpha riding the contact Fader so plates fade with truesight; drones show literal "DRONE" in drone-outline grey verbatim; own hull plated from the same roster source. Eric rulings 2026-07-23: callsign entry cap tightened 16 → 14 (code-point-safe slice; `ellipsizeName` hoisted to `util/text.ts`); the EXPERIENCE.md contested-hoist toast REJECTED outright — never built, logged for doc-sync. Client-only: PV untouched, zero shared/server edits.
+
+**Files changed:** client: NEW `util/text.ts` (NAME_MAX 14 + ellipsizeName, single cap source), NEW `render/nameplates.ts` (NameplateLayer + pure latch/resolve/text/color/offset helpers, per-hull offset radii precomputed), `render/stage.ts` (screen-space plateRoot below fog; 9 px mono font warm), `render/contacts.ts` (plate driving off the existing sample/Fader; hull id cached on FadingView), `main.ts` (rosterNameOrNull, own-plate latch + placement, hoisted PlateFrame), `ui/killFeed.ts` (imports hoisted util, byte-identical), `ui/menu.ts` (entry cap 14, code-point slice, stored-name re-slice), `config.ts` (`nameplate.padPx = 8`). Tests: NEW `nameplates.test.ts` (25 incl. matrix, latch, degenerate input, state machine via mocked Text), `menu.test.ts` (+cap/surrogate cases), `ships.test.ts` (rendered-geometry silhouette pin ×4 hulls). Docs: `sprint-status.yaml` (1-13 → done), `gds-workflow-status.yaml` (next_expected → 1-14), `deferred-work.md` (+5 entries), `epic-1-context.md` restored to baseline after the recompile regression.
+
+**Review findings:** 11 patches applied (2 medium, 9 low — see Review Triage Log), 2 deferred, 3 rejected.
+
+**Follow-up review recommended: false** — patch volume was moderate but every fix is localized hygiene (z-order move, caching, string safety, guards, test hardening); the nameplate mechanism itself survived review structurally intact, and nothing touched wire, server, or cross-cutting seams.
+
+**Verification:** `npm run check` exit 0 after both implementation and patch passes (lint 0 errors incl. complexity ≤ 10; tsc ×3; tests 1348 → 1379: shared 261 / server 633 / client 485). Orchestrator independently re-ran the gate both times and spot-verified: zero shared/server diffs, plateRoot z-order below fog, code-point-safe sanitizeName, plateText re-ellipsis, tokens guard scan green, epic-1-context ratified-ruling records restored.
+
+**Residual risks:** Nameplate visuals unseen in a browser this run (dev server is Eric-managed) — plate legibility over fog-adjacent water, the 8 px pad, and 9 px mono rasterization await his visual pass. The fog z-order ruling (plates occlude with fog) is design-faithful but unmocked — if Eric prefers plates readable through the feathered fog edge, it's a one-line z-order swap. Kill-feed/plate ellipsis agree on surviving characters except for case-expanding exotic names (plate re-ellipsizes post-uppercase; feed uppercases via CSS without re-ellipsis — width may differ by a glyph on adversarial names only).
