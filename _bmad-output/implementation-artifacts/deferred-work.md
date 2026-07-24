@@ -166,3 +166,14 @@ Eric ruled the full batch via the retro's doc-sync proposal (`doc-sync-proposal-
 Also filed-and-closed at birth (previously unledgered): **GDD aim-clamp wording** (spec-1-10 flagged it; never ledgered) — three clamp-language sentences (gdd.md Controls/Mouse, Weapon behavior laws, Aiming and Combat) rewritten to the deny-gate per the 2026-07-23 Story 1.10 ruling; the adjacent-line contradiction with the ratified arcs bullet is gone.
 
 Deliberately NOT swept (Eric Q3 ruling): the broader gunboat-era text (DESIGN "Four launch classes" + Gunboat silhouette row + flare lever, "fifth silhouette" drone wording, Journey A/B Gunboat cameos) stays homed at Story 7.5.
+
+## 2026-07-24 — Epic 1 retro Action #1: epic-context recompile hazard CLOSED
+
+**Workflow hazard — step-01 epic-context regeneration erasing review-patched corrections** (spec-1-13, entry above) — RESOLVED via team customization override `_bmad/custom/bmad-dev-auto.toml` (the ledger entry's own "detect and preserve" option, made durable):
+
+- **Durable home:** ratified corrections (Eric rulings, review patches, adjudicated contradictions) must now be recorded in `{implementation_artifacts}/epic-<N>-context-amendments.md` — never only in the regenerable `epic-<N>-context.md`.
+- **Salvage before overwrite:** step-01 may not overwrite an existing epic context without first sweeping it for ratified content missing from the amendments file.
+- **Re-apply after compile:** every compile re-applies the amendments (amendment wins on conflict) under a `## Ratified Amendments` section; compiled-context verification FAILS if a non-empty amendments file exists and that section is absent.
+- **Amendments are never tool-regenerated;** the file is loaded as a persistent fact every run (`persistent_facts` glob), so ratified truth is in context even before any compile.
+
+Verified with `resolve_customization.py` (three-layer merge: protocol appends to activation steps; amendments glob appends to persistent_facts). Satisfies the retro's success criteria: regenerating epic-2-context cannot erase a ratified correction; this closes the 1.13 ledger entry. Epic-1's ratified bullets already round-trip from the doc-sync'd planning docs (Action #3), and the salvage rule protects them besides.
