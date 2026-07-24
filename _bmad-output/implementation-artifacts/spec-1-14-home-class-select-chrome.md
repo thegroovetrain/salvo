@@ -2,10 +2,11 @@
 title: 'Home & Class-Select Chrome (+ truesight 330 / star-shell ½-sight rulings)'
 type: 'feature'
 created: '2026-07-24'
-status: 'in-review'
+status: 'done'
 baseline_revision: '116e082'
+final_revision: '8b38e09'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   [
     '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md',
@@ -93,6 +94,20 @@ warnings: [multiple-goals, oversized]
 
 ## Review Triage Log
 
+### 2026-07-24 — Review pass (Blind Hunter + Edge Case Hunter at session capability, parallel + Codex cross-model review per /orchestrate; fixes routed to one Opus patch agent, orchestrator-verified)
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 16: (high 1, medium 6, low 9)
+- defer: 1
+- reject: 1
+- addressed_findings:
+  - `[high]` `[patch]` First-run Enter in the callsign field insta-picked Torpedo Boat — the opening Enter keydown was still mid-bubble when the layer attached its window listener and blurred the input, so the SAME keystroke picked the pre-focused card, violating the "no default ever pushed" AC. Fixed both ends: input handler stopPropagation + layer ignores events with timeStamp ≤ openedAt; regression pin dispatches Enter on the input and proves no pick (FAILS without fix).
+  - `[medium]` `[patch]` ×6: status-line ownership (boot probe could overwrite CONNECTING…/failure copy with SERVER: READY — flagged by BOTH hunters AND Codex; home now locks the line once any connect state writes; pinned); footer hoist listener leak per layer open/close (all three reviewers; makeHoistRow returns a disposer, close() releases; listenerCount pinned); Enter from a re-focused input deployed behind the open layer (layerOpen guard); hide() orphaned a live layer whose keydown could write hullcracker.class mid-match (home tracks the handle, hide() closes it; pinned); ambient laid out against stale renderer size on resize (Pixi ResizePlugin defers to rAF — relayout deferred accordingly); keyboard dead-end after pick (Codex-confirmed — focus never restored to the callsign input; refocus on every layer exit).
+  - `[low]` `[patch]` ×9: chip mid-connect open guard (busy); stale-layer half-teardown → module-tracked current?.close(); Enter on a focused layer button now activates the button (native wins) instead of picking; chip + gear keyboard-accessible (tabindex + Enter/Space); rail fade/chevron hidden when nothing overflows (re-evaluated on resize); COLOR_PREF_KEY exported from connection.ts, magic-string duplicate deleted; scrimCenterYFrac 0.46 promoted to CLIENT_CONFIG.home.ambient (mock-distinct from the 0.54 ring center); blipTierAlpha empty-array guard (was undefined → g.alpha); test hygiene (menu.test.ts → homePersistence.test.ts, ambient self-copy change-detector replaced with behavioral assertions) + busy SET SAIL now re-asserts CONNECTING… (never-silence) + dimmer-dismiss test added.
+- deferred: server-status probe fidelity — no-cors fetch cannot distinguish a healthy server from a proxy 502 (false READY), and the single boot probe never re-runs (stale UNREACHABLE); an honest health signal needs a server-side endpoint/CORS decision the spec's "no new server endpoint" ruling forbade this story.
+- rejected: leadMax 110→165 flagged as an unreviewed feel change — explicitly ACCEPTED in this spec's Design Notes (formula `sight × 0.5` deliberately kept per blast-radius ruling).
+
 ## Design Notes
 
 - **Eric rulings (2026-07-23/24 AskUserQuestion, this run):** truesight base 330; star-shell lit radius = ½ BASE truesight, structurally derived (`SIGHT / 2`), independent of sight upgrades; burst damage circle stays COUPLED to lit (165 — "the burst IS the lit circle" survives the retune); pips on ABSOLUTE anchors speed 60 u/s / hp 200 / turn 1.0 rad/s (fills: TB 4/2/4, BS 3/4/2, ML 3/3/3); NO mode selector (sub-line "· SOLO" until Epic 6); settings gear ships INERT now.
@@ -111,3 +126,17 @@ warnings: [multiple-goals, oversized]
 
 **Manual checks (if no CLI):**
 - With Eric's dev server running (never start it): fresh profile → ambient CIC breathes behind home; forced class choice on first PLAY; keys 1–3/arrows/Enter/ESC per contract; hoist swatch → hull sails in that hue; star shell lights a visibly larger circle (165u) and its burst tags ships across all of it; truesight fog hole visibly larger (330u).
+
+## Auto Run Result
+
+**Summary:** Story 1.14 landed — Epic 1 (The Armory) is COMPLETE (13/13 live stories). Two Eric config rulings shipped first: truesight base 220→330 and `starShells.litRadius` now STRUCTURALLY `SIGHT / 2` (165 — burst damage circle deliberately stays coupled per ruling; lit radius provably never scales with sight upgrades; ratio pinned in barrel.test; golden frames regenerated and audited line-by-line, three test scenarios re-derived from SIGHT so they hold under future retunes). Then the ratified pre-join chrome: home renders over a NEW live ambient CIC Pixi scene (range rings, rotating sweep, decaying blips, island masses, radial scrim — the canvas breathes before connect, never blank) with wordmark/.IO, 14-cap callsign, Class Chip, the Color Hoist (20 round swatches — the missing colorPref WRITER; `connect()` join-option code untouched), amber OUTLINE+GLOW primary (DESIGN spine over the mock's filled slab), inert gear + How-to-Play (quiet "LATER REFIT" note pattern — no dead clicks), and a probed server-status line (CHECKING/READY/UNREACHABLE + connect states with ownership lock). The class-select layer ships 3×356px cards + a dashed ghost on a scroll rail: verbatim fantasy lines, long-form loadout rows, REAL-value pips on Eric's absolute anchors (speed 60 / hp 200 / turn 1.0 → TB 4/2/4, BS 3/4/2, ML 3/3/3), keys 1–3/arrows/Enter/ESC, footer SET SAIL picks+deploys. First-run pushes NO default (TB pre-focused; forced choice). menu.ts deleted. Client + shared-tunables only; PV unchanged (11).
+
+**Files changed:** shared: `constants.ts` (SIGHT=330 module const, vision.sight, litRadius=SIGHT/2), `barrel.test.ts` (165 + ratio pin). server tests only: golden snapshot regenerated + `goldenFrames/perception/starShells/upgrades` scenario geometry/comments re-derived from SIGHT. client: NEW `render/ambient.ts`, `ui/home.ts`, `ui/classSelect.ts`, `util/silhouetteSvg.ts`, `util/pips.ts`; `config.ts` (+`home` knobs: pip anchors, ambient geometry incl. scrimCenterYFrac); `main.ts` (pre-join ambient lifecycle, first-run routing, status wiring); `net/connection.ts` (+`probeServer`, +`COLOR_PREF_KEY` export only); `ui/menu.ts` DELETED; tests: NEW `home.test.ts`, `classSelect.test.ts`, `silhouetteSvg.test.ts`, `ambient.test.ts`; `menu.test.ts` → `homePersistence.test.ts`; `results.test.ts` import touch. Docs: sprint-status (1-14 + epic-1 done), gds-workflow-status (next_expected → epic-1 retro / 2-1), deferred-work (+5 entries).
+
+**Review findings:** 16 patches applied (1 high, 6 medium, 9 low — see Review Triage Log), 1 deferred, 1 rejected. Cross-model picture: both hunter families AND Codex independently flagged the probe/status overwrite and the hoist listener leak (fixed, pinned); Codex alone confirmed the post-pick keyboard dead-end (fixed); Blind Hunter alone caught the high-severity first-run Enter insta-pick (verified mid-bubble trace, fixed both ends, regression-pinned).
+
+**Follow-up review recommended: true** — the patch volume (16, incl. one high-severity AC violation and six mediums across the story's headline first-run/keyboard/status flows) is significant by both volume and consequence; the fixes are all localized UI state-machine/lifecycle work with regression pins, but an independent pass over the patched chrome would de-risk the epic close-out.
+
+**Verification:** `npm run check` exit 0 after implementation AND after the patch pass (lint 0 errors incl. complexity ≤ 10; tsc ×3; tests shared 261 / server 633 / client 550 = 1444). Orchestrator independently re-ran the gate at every wave, audited the golden-frame diff (13 rows, every change sight/lit-derived), spot-verified the patched fixes on disk after the fix agent's mid-task revert scare, and confirmed PV=11 untouched with zero orphan 220/110 constants (remaining hits are audio frequencies).
+
+**Residual risks:** Chrome visuals unseen in a browser this run (dev server is Eric-managed) — wordmark scale, outline+glow button weight, ambient scene feel, card/rail geometry at non-1080p viewports await his visual pass. Server-status probe is best-effort by construction (deferred entry). The two soft max-lines warnings (`buildGame` pre-existing, `openClassSelect` +7) are non-blocking. Star-shell burst now damages a 165u circle — ruled, but worth feeling in a real fight.
