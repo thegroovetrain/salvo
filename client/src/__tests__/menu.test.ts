@@ -1,10 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { sanitizeName, loadSavedName, loadSavedClass, showMenu } from '../ui/menu.js';
+import { sanitizeName, loadSavedName, loadSavedClass, showMenu, NAME_MAX } from '../ui/menu.js';
 
 describe('sanitizeName', () => {
-  it('trims + caps at NAME_MAX', () => {
+  it('trims + caps at NAME_MAX (14 — Eric ruling 2026-07-23, matches the kill feed)', () => {
     expect(sanitizeName('  hi  ')).toBe('hi');
-    expect(sanitizeName('X'.repeat(40))).toHaveLength(16);
+    expect(NAME_MAX).toBe(14);
+    expect(sanitizeName('X'.repeat(40))).toHaveLength(14);
   });
 });
 
@@ -56,5 +57,13 @@ describe('loadSavedName', () => {
   it('returns the persisted callsign', () => {
     localStorage.setItem('hullcracker.name', 'AHAB');
     expect(loadSavedName()).toBe('AHAB');
+  });
+
+  it('re-slices a legacy stored 16-char name to the tightened 14 cap on load', () => {
+    // A name saved before the 14-cap (up to the old maxLength 16) must be
+    // re-sliced when loaded — sanitizeName runs on the stored value.
+    localStorage.setItem('hullcracker.name', 'ABCDEFGHIJKLMNOP'); // 16 chars
+    expect(loadSavedName()).toBe('ABCDEFGHIJKLMN'); // sliced to 14
+    expect(loadSavedName()).toHaveLength(14);
   });
 });

@@ -211,6 +211,16 @@ export const CLIENT_CONFIG = {
     sunkTint: COLORS.damage, // DESIGN.md dark crimson tint for a sunk hull
   },
 
+  /** Truesight nameplates (Story 1.13) — screen-space callsign labels floated
+   *  above each hull (render/nameplates.ts). The text renders at a constant
+   *  screen size (hud-micro 9px) at any zoom; only this gap scales with zoom. */
+  nameplate: {
+    /** Gap (screen px) between the hull's projected bounding circle and the
+     *  plate's bottom edge. ~mid of the 6–10px range floated the plate clear of
+     *  the largest hull's bow arc without drifting off it at spectate zoom. */
+    padPx: 8,
+  },
+
   /** Netcode render delays (ms behind estimated server time). */
   net: {
     /** Remote contacts interpolate this far behind serverNow(). */

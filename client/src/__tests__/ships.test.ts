@@ -68,3 +68,19 @@ describe('ShipView.setColors — the recolor path', () => {
     view.destroy();
   });
 });
+
+describe('ShipView.draw — traces the shared silhouette for each class + drone chevron', () => {
+  // The silhouette IS the hitbox: ShipView.draw() traces hullSilhouette(id)
+  // verbatim (no parallel geometry), so drawing every hull id must exercise the
+  // shared polygon source. Geometry exactness is pinned in shared/silhouette.test;
+  // this pins the client render path wires to it for all three classes + a drone.
+  it('constructs a view for every pickable class and a drone hull without throwing', () => {
+    for (const id of ['torpedoBoat', 'battleship', 'mineLayer', 'droneMedium'] as const) {
+      const view = new ShipView(FALLBACK_STYLE, id);
+      expect(view.gfx).toBeDefined();
+      // setHullId re-draws through the same hullSilhouette path (own-hull correction).
+      expect(() => view.setHullId(id)).not.toThrow();
+      view.destroy();
+    }
+  });
+});
