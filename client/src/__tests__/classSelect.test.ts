@@ -17,7 +17,7 @@ import { loadColorPref } from '../net/connection.js';
 
 // --- card view-model ---------------------------------------------------------
 
-describe('cardViewModel — pips, keys, fantasy, loadout', () => {
+describe('cardViewModel — pips, keys, loadout', () => {
   it('pins Eric-ruled pip fills (TB 4/2/4 · BS 3/4/2 · ML 3/3/3)', () => {
     expect(cardViewModel('torpedoBoat').pips.map((p) => p.filled)).toEqual([4, 2, 4]);
     expect(cardViewModel('battleship').pips.map((p) => p.filled)).toEqual([3, 4, 2]);
@@ -34,22 +34,23 @@ describe('cardViewModel — pips, keys, fantasy, loadout', () => {
     expect(cardViewModel('mineLayer').key).toBe('03');
   });
 
-  it('carries the verbatim fantasy lines', () => {
-    expect(cardViewModel('torpedoBoat').fantasy).toBe('fast, fragile, the needle-threader');
-    expect(cardViewModel('battleship').fantasy).toBe('massive, heavily armored, long-range artillery');
-    expect(cardViewModel('mineLayer').fantasy).toBe('the trapper');
+  it('carries NO fantasy tagline (Eric ruling 2026-07-24 — mock-era content, rejected)', () => {
+    expect('fantasy' in cardViewModel('torpedoBoat')).toBe(false);
   });
 
-  it('carries the long-form loadout rows (GUN universal + two specials)', () => {
+  it('carries the two special-slot rows labeled by their future keys Q/E — no GUN row (Eric rulings 2026-07-24)', () => {
     expect(cardViewModel('torpedoBoat').loadout).toEqual([
-      { key: 'GUN', value: 'STANDARD GUN — UNIVERSAL' },
-      { key: 'SPECIAL 1', value: 'TORPEDO TUBES' },
-      { key: 'SPECIAL 2', value: 'SPEED BOOST' },
+      { key: 'Q', value: 'TORPEDO TUBES' },
+      { key: 'E', value: 'SPEED BOOST' },
     ]);
-    expect(cardViewModel('battleship').loadout[1].value).toBe('LONG-RANGE CANNON');
-    expect(cardViewModel('battleship').loadout[2].value).toBe('STAR SHELLS');
-    expect(cardViewModel('mineLayer').loadout[1].value).toBe('PROXIMITY MINES');
-    expect(cardViewModel('mineLayer').loadout[2].value).toBe('DECOY BUOY');
+    expect(cardViewModel('battleship').loadout).toEqual([
+      { key: 'Q', value: 'LONG-RANGE CANNON' },
+      { key: 'E', value: 'STAR SHELLS' },
+    ]);
+    expect(cardViewModel('mineLayer').loadout).toEqual([
+      { key: 'Q', value: 'PROXIMITY MINES' },
+      { key: 'E', value: 'DECOY BUOY' },
+    ]);
   });
 
   it('names classes with their two-word display labels', () => {

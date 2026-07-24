@@ -3,8 +3,8 @@
 // (home-class-picker-1.html `.layer`). Three class cards (356px) + a dashed
 // ghost card on a horizontal scroll rail, each card carrying the four
 // differences that matter: hull silhouette (the shared polygon via
-// util/silhouetteSvg), the GDD fantasy line, three real-value pip scales
-// (util/pips against absolute anchors), and the fitted loadout. A footer
+// util/silhouetteSvg), three real-value pip scales (util/pips against
+// absolute anchors), and the two special-slot loadout rows. A footer
 // repeats the Color Hoist and carries SET SAIL (pick + deploy in one press).
 //
 // Keyboard: 1/2/3 + arrows move the highlight, Enter picks it, ESC closes
@@ -34,34 +34,30 @@ export const CLASS_DISPLAY_NAMES: Record<ShipClassId, string> = {
   mineLayer: 'MINE LAYER',
 };
 
-/** GDD power-fantasy line per class (verbatim from the mock). */
-const FANTASY: Record<ShipClassId, string> = {
-  torpedoBoat: 'fast, fragile, the needle-threader',
-  battleship: 'massive, heavily armored, long-range artillery',
-  mineLayer: 'the trapper',
-};
-
 interface LoadoutRow {
   key: string;
   value: string;
 }
 
-/** Long-form loadout rows (GUN universal + two class specials), verbatim. */
+/**
+ * Long-form loadout rows — the two class specials only. Eric ruling
+ * 2026-07-24: NO fantasy tagline and NO universal-GUN row on the cards (both
+ * were mock-era content he rejected); the gun is a given on every hull, the
+ * card sells what differs. Row labels are the slots' future keys Q/E (the
+ * ruled Epic-2 mapping: Q/E = the two class-special slots).
+ */
 const LOADOUT: Record<ShipClassId, readonly LoadoutRow[]> = {
   torpedoBoat: [
-    { key: 'GUN', value: 'STANDARD GUN — UNIVERSAL' },
-    { key: 'SPECIAL 1', value: 'TORPEDO TUBES' },
-    { key: 'SPECIAL 2', value: 'SPEED BOOST' },
+    { key: 'Q', value: 'TORPEDO TUBES' },
+    { key: 'E', value: 'SPEED BOOST' },
   ],
   battleship: [
-    { key: 'GUN', value: 'STANDARD GUN — UNIVERSAL' },
-    { key: 'SPECIAL 1', value: 'LONG-RANGE CANNON' },
-    { key: 'SPECIAL 2', value: 'STAR SHELLS' },
+    { key: 'Q', value: 'LONG-RANGE CANNON' },
+    { key: 'E', value: 'STAR SHELLS' },
   ],
   mineLayer: [
-    { key: 'GUN', value: 'STANDARD GUN — UNIVERSAL' },
-    { key: 'SPECIAL 1', value: 'PROXIMITY MINES' },
-    { key: 'SPECIAL 2', value: 'DECOY BUOY' },
+    { key: 'Q', value: 'PROXIMITY MINES' },
+    { key: 'E', value: 'DECOY BUOY' },
   ],
 };
 
@@ -79,16 +75,15 @@ export interface CardViewModel {
   name: string;
   /** DISPLAYED zero-padded card key ('01'/'02'/'03'). */
   key: string;
-  fantasy: string;
   pips: PipRow[];
   loadout: readonly LoadoutRow[];
 }
 
 /**
- * The card's data per class: name, zero-padded key (index+1), fantasy line, the
- * three real-value pips (util/pips against the absolute anchors — TB 4/2/4,
- * BS 3/4/2, ML 3/3/3), and the loadout rows. Pure — the DOM builder + tests
- * consume it.
+ * The card's data per class: name, zero-padded key (index+1), the three
+ * real-value pips (util/pips against the absolute anchors — TB 4/2/4,
+ * BS 3/4/2, ML 3/3/3), and the two special-slot loadout rows. Pure — the DOM
+ * builder + tests consume it.
  */
 export function cardViewModel(cls: ShipClassId): CardViewModel {
   const spec = CONFIG.shipClasses[cls];
@@ -97,7 +92,6 @@ export function cardViewModel(cls: ShipClassId): CardViewModel {
     cls,
     name: CLASS_DISPLAY_NAMES[cls],
     key: String(SHIP_CLASS_IDS.indexOf(cls) + 1).padStart(2, '0'),
-    fantasy: FANTASY[cls],
     pips: [
       { label: 'SPEED', filled: pipFill(spec.kinematics.maxSpeed, anchors.speedMax) },
       { label: 'TOUGHNESS', filled: pipFill(spec.hp, anchors.hpMax) },
@@ -110,7 +104,7 @@ export function cardViewModel(cls: ShipClassId): CardViewModel {
 /** Compact loadout line for the home Class Chip sub-line (gun + two specials). */
 export function chipLoadoutLine(cls: ShipClassId): string {
   const rows = LOADOUT[cls];
-  return ['STD GUN', rows[1].value, rows[2].value].join(' · ');
+  return ['STD GUN', rows[0].value, rows[1].value].join(' · ');
 }
 
 export type LayerAction =
@@ -320,15 +314,6 @@ function buildCardHead(vm: CardViewModel): HTMLElement {
   return head;
 }
 
-function buildFantasy(vm: CardViewModel): HTMLElement {
-  const f = document.createElement('div');
-  f.textContent = `“${vm.fantasy}”`;
-  f.style.cssText =
-    'font:400 12.5px var(--hc-font-display);font-style:italic;color:var(--hc-text-secondary);' +
-    'margin-top:2px;min-height:34px';
-  return f;
-}
-
 function buildSilbox(): HTMLElement {
   const box = document.createElement('div');
   box.style.cssText =
@@ -408,7 +393,7 @@ function buildCard(vm: CardViewModel, onPick: (cls: ShipClassId) => void): CardE
   const head = buildCardHead(vm);
   const pips = buildPips(vm);
   const pickRow = buildPickButton();
-  root.append(head, buildFantasy(vm), silbox, pips.el, buildLoadout(vm), pickRow);
+  root.append(head, silbox, pips.el, buildLoadout(vm), pickRow);
   root.addEventListener('click', () => onPick(vm.cls));
   return {
     cls: vm.cls,
