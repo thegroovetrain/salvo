@@ -488,7 +488,7 @@ describe('wire privacy — banked points never leak', () => {
 // ---------- perception: per-observer effective vision --------------------------
 
 describe('per-observer sight (sightRange upgrade)', () => {
-  const target = SIGHT + 20; // between base sight and one-stack sight (220*1.12=246.4)
+  const target = SIGHT + 20; // between base sight and one-stack sight (330*1.12=369.6)
 
   it('a sight-upgraded observer sees a CONTACT at a distance an un-upgraded one does not', () => {
     // Two observer/target pairs at the IDENTICAL offset (sight+20), pairs far

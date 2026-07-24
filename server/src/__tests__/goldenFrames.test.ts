@@ -250,9 +250,9 @@ function scnSpectator(g: Golden): void {
 function scnStraddleBoom(g: Golden): void {
   const w = bareWorld(1006);
   place(w, 'a', 0, 0);
-  const b = place(w, 'b', SIGHT + 12, 0, 0); // center at 232u, hull along +x
+  const b = place(w, 'b', SIGHT + 12, 0, 0); // center at SIGHT+12u, hull along +x
   b.hp = 100; // survives, so it straddles as a live but unsighted hull
-  injectShell(w, 'st', 'a', 205, 0, 0, 40); // closing on b's near hull edge
+  injectShell(w, 'st', 'a', SIGHT - 15, 0, 0, 40); // striking b's near hull, just inside sight
   let found = false;
   for (let i = 0; i < 20 && !found; i++) {
     w.step();
@@ -381,24 +381,26 @@ function scnBurst(g: Golden): void {
 
 /**
  * Star-shell lit zone (Story 1.7) — a REAL battleship flare fired via the
- * input channel: the shell flies to the clicked point (300u out — beyond the
- * firer's 220u sight) and bursts, spawning the 110u/10s zone. Captures pin
- * all four zone views in one deterministic pass: the FIRER's frame (zone
- * circle + the hidden hull `h` revealed as a full contact by owned-zone
- * truesight parity), a third party `c` sitting EXACTLY at radar range of the
- * zone center (the tagged {id,x,y,r,until,by} circle — boundary-inclusive —
- * and NO contact for `h`), a beyond-radar observer `d` whose frame stays
- * byte-free of the zone, and the FIRER again after natural expiry (zone gone,
- * `h` fogged once more). Intermediate flight ticks are stepped without frame
- * builds — the fixture pins the launch tick, the burst tick, and expiry.
+ * input channel: the shell flies to the clicked point (SIGHT+80 out —
+ * comfortably beyond the firer's sight bubble) and bursts, spawning the
+ * (SIGHT/2)u/10s zone. Captures pin all four zone views in one deterministic
+ * pass: the FIRER's frame (zone circle + the hidden hull `h` revealed as a
+ * full contact by owned-zone truesight parity), a third party `c` sitting
+ * EXACTLY at radar range of the zone center (the tagged {id,x,y,r,until,by}
+ * circle — boundary-inclusive — and NO contact for `h`), a beyond-radar
+ * observer `d` whose frame stays byte-free of the zone, and the FIRER again
+ * after natural expiry (zone gone, `h` fogged once more). Intermediate flight
+ * ticks are stepped without frame builds — the fixture pins the launch tick,
+ * the burst tick, and expiry.
  */
 function scnStarShell(g: Golden): void {
   const w = bareWorld(1011);
+  const flareDist = SIGHT + 80; // clicked burst point, comfortably beyond a's sight bubble
   place(w, 'a', 0, 0, 0, 'battleship'); // the firer
-  place(w, 'h', 300, 40, 1.1); // inside the future zone, beyond a's sight
-  place(w, 'c', -330, -160); // dist to zone center (300,0) = 650 exactly — at radar range
-  place(w, 'd', -400, 0); // dist to zone center = 700 — beyond radar
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: 2, fireT: 0, actSeq: 0, actSlot: 0 });
+  place(w, 'h', flareDist, 40, 1.1); // inside the future zone, beyond a's sight
+  place(w, 'c', flareDist, -CONFIG.vision.radar); // dist to zone center = radar exactly — at radar range
+  place(w, 'd', -400, 0); // dist to zone center (flareDist,0) = 810 — beyond radar
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: flareDist, slot: 2, fireT: 0, actSeq: 0, actSlot: 0 });
   w.step(); // consumes the click; the flare spawns and starts flying
   cap(g, w, 'a'); // launch tick: own shell reveal, no zone yet
   let zoneUp = false;
