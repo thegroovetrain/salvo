@@ -150,3 +150,19 @@ Story 1.10 (spec-1-10-firing-arcs-for-the-class-era.md) made denial authoritativ
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-14-home-class-select-chrome.md`
   summary: Class-card content ruling (Eric 2026-07-24, post-merge feedback) — the fantasy tagline under the class name ("fast, fragile, the needle-threader" etc.) and the universal GUN loadout row are REJECTED and removed from the class cards ("I never wanted that"); cards show name/key, silhouette, pips, and the two special rows only, labeled by their future keys Q/E (ruled Epic-2 mapping) instead of SPECIAL 1/2. The ratified mock home-class-picker-1.html and DESIGN.md Class Card anatomy still describe both — doc-sync is Eric's call, and no future run may resurrect them from the mock.
   evidence: Direct Eric instruction in the 1-14 follow-up session; enforced by classSelect.test.ts pins (no `fantasy` field on the card view-model; loadout rows = the two specials exactly, keyed Q/E). Chip sub-line ("STD GUN · …") untouched — the ruling named the cards only.
+
+## 2026-07-24 — Doc-sync batch resolutions (Epic 1 retro Action #3, Eric-ruled)
+
+Eric ruled the full batch via the retro's doc-sync proposal (`doc-sync-proposal-2026-07-24.md`: Q1 comment-is-the-typo, Q2 stamp-superseded, Q3 leave-broader-sweep-for-7.5, R1–R7 approved as proposed). Seven entries above resolve; no existing entry was edited.
+
+1. **DESIGN.md card-scrim annotation** (spec-1-11) — RESOLVED: Eric ruled the rgba comment was the typo; comment + refit-card fixed to `rgba(3,6,5,.9)`, hex `#030605` stays authoritative, client tokens untouched.
+2. **UX-DR6 doc-sync** (spec-1-12) — RESOLVED: FCFS-at-join wording now in DESIGN.md (Regatta Hoist), EXPERIENCE.md (Component Patterns), and epics.md UX-DR6, each citing the 2026-07-23 ruling.
+3. **UX-DR7 doc-sync** (spec-1-12) — RESOLVED: ordnance truth-markers in the firer's hue for all observers (intel grant + counter-intel caveat) documented in DESIGN.md Propagation + Torpedo/mine row and epics.md UX-DR7.
+4. **Contested-hoist toast** (spec-1-13) — RESOLVED: EXPERIENCE.md State Patterns entry rewritten as REJECTED/do-not-build; "hoist fallback" removed from the Toast pattern; epics.md UX-DR6 toast clause removed.
+5. **14-char cap [PROPOSAL] tags** (spec-1-13) — RESOLVED: both DESIGN.md tags (Nameplate, Kill Feed rows) replaced with "ratified 2026-07-23, Story 1.13". (The two server `options.name` hardening entries above remain OPEN — code work, not doc-sync.)
+6. **Home mock/DESIGN doc-sync batch** (spec-1-14) — RESOLVED: DESIGN.md Primary Button sub-line, key chips 1–3, EXPERIENCE.md home/class-select rows, first-run forced choice, and Open Questions 13/15 all synced; mock `home-class-picker-1.html` stamped SUPERSEDED (banner + title) per Eric's Q2 ruling — kept as layout-register audit trail, never content-authoritative.
+7. **Class-card content ruling doc-sync** (spec-1-14) — RESOLVED: DESIGN.md Class Card anatomy rewritten (no fantasy line, no GUN row, real-value pips, two specials keyed Q/E, do-not-resurrect note); EXPERIENCE.md card contents synced.
+
+Also filed-and-closed at birth (previously unledgered): **GDD aim-clamp wording** (spec-1-10 flagged it; never ledgered) — three clamp-language sentences (gdd.md Controls/Mouse, Weapon behavior laws, Aiming and Combat) rewritten to the deny-gate per the 2026-07-23 Story 1.10 ruling; the adjacent-line contradiction with the ratified arcs bullet is gone.
+
+Deliberately NOT swept (Eric Q3 ruling): the broader gunboat-era text (DESIGN "Four launch classes" + Gunboat silhouette row + flare lever, "fifth silhouette" drone wording, Journey A/B Gunboat cameos) stays homed at Story 7.5.

@@ -1,6 +1,6 @@
 # Doc-Sync Proposal — Epic 1 Shipped Reality (Step 1 of Retro Action #3)
 
-**Date:** 2026-07-24 · **Status:** AWAITING ERIC'S RULINGS — no doc has been edited
+**Date:** 2026-07-24 · **Status:** RULED & APPLIED 2026-07-24 — Eric: Q1 comment-is-typo, Q2 stamp-superseded, Q3 leave-for-7.5, R1–R7 approved as proposed; edits landed in this same PR, ledger entries closed (deferred-work.md 2026-07-24 resolutions section)
 **Scope law:** minimal edits only — each row traces to a specific ruling; nothing settled nearby gets reworded. The full DESIGN.md refresh stays homed at Story 7.5 (correct-course Decision Point 1); this batch clears only ruled/shipped-and-reversed deltas so Epic 2 specs compile from truthful inputs.
 
 Files: `DESIGN.md` / `EXPERIENCE.md` = `_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/`; `gdd.md` = `_bmad-output/planning-artifacts/gdds/gdd-Hullcracker.io-2026-07-16/`; `epics.md` = `_bmad-output/planning-artifacts/`; mock = `ux-.../mockups/home-class-picker-1.html`.
