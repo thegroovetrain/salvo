@@ -120,7 +120,7 @@ describe('shared barrel', () => {
       maxAmmo: 1,
       reloadMs: 20000,
       damage: 10,
-      litRadius: 110,
+      litRadius: 165,
       litDurationMs: 10000,
       shellRadius: 2,
     });
@@ -128,6 +128,10 @@ describe('shared barrel', () => {
     // effectiveStats() (gun base parity — never a duplicated constant).
     expect('rangeU' in CONFIG.cannon).toBe(false);
     expect('rangeU' in CONFIG.starShells).toBe(false);
+    // Eric ruling 2026-07-23: star shells always light exactly half the BASE
+    // truesight range, structurally — independent of any sightRange upgrade
+    // stacks. This must hold even if SIGHT is retuned again.
+    expect(CONFIG.starShells.litRadius).toBe(CONFIG.vision.sight / 2);
   });
 
   it('re-exports the mine-layer loadout system (Story 1.8)', () => {

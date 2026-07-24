@@ -18,8 +18,9 @@ import {
 const WELCOME_TIMEOUT_MS = 5000;
 
 /** localStorage key for the persisted Regatta color preference — same
- *  `hullcracker.*` family the menu uses for name/class (menu.ts). */
-const COLOR_PREF_KEY = 'hullcracker.color';
+ *  `hullcracker.*` family the home uses for name/class (home.ts). Exported so the
+ *  Color Hoist writer (classSelect.ts) and this reader share ONE literal. */
+export const COLOR_PREF_KEY = 'hullcracker.color';
 
 /**
  * The persisted Regatta hue PREFERENCE (0..19) if a valid one is stored, else
@@ -73,6 +74,30 @@ export interface Connection {
   welcome: WelcomeMsg;
   /** Every "f" frame flows through sink.handler — set by bindRoom(). */
   sink: FrameSink;
+}
+
+/**
+ * Client-only server health probe (Story 1.14) for the home status line — NOT a
+ * new server endpoint (Eric ruling: probe the existing HTTP surface). Fires a
+ * best-effort request at the server's HTTP origin, derived from the SAME
+ * env/origin logic `connect()` uses (`wsEndpoint()`, ws→http / wss→https), with
+ * a short abort timeout. Resolves `true` if the origin answered at all (a CORS-
+ * opaque `no-cors` response still resolves = reachable), `false` on any network
+ * failure or timeout. Never throws — a rejected fetch is caught. Independent of
+ * the actual matchmake attempt, which still governs CONNECTING / failure copy.
+ */
+export async function probeServer(timeoutMs = 4000): Promise<boolean> {
+  const url = wsEndpoint().replace(/^ws/, 'http'); // ws→http, wss→https
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    await fetch(url, { method: 'GET', mode: 'no-cors', signal: ctrl.signal });
+    return true;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** WS endpoint: VITE_WS_URL override > dev default :2567 > same origin. */

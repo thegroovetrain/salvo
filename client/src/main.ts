@@ -7,7 +7,7 @@
 // spectate (follow-killer camera, WASD pan, wheel zoom-out), results overlay,
 // return to port (fresh joinOrCreate via reload).
 
-import type { Container } from 'pixi.js';
+import type { Container, Ticker } from 'pixi.js';
 import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
@@ -59,14 +59,15 @@ import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
 import { abilityPressDenied, shouldConsumePrime } from './sim/inputSampler.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
-import { connect, connectErrorStatus, mapFromWelcome, type Connection } from './net/connection.js';
+import { connect, connectErrorStatus, mapFromWelcome, probeServer, type Connection } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom } from './net/roomBindings.js';
 import { Predictor, type RenderPose } from './sim/prediction.js';
 import { InputSampler } from './sim/inputSampler.js';
 import { showBanner, hideBanner } from './util/banner.js';
-import { showMenu, type MenuHandle } from './ui/menu.js';
+import { showHome, type HomeHandle } from './ui/home.js';
+import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
 import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
 import { showResults } from './ui/results.js';
@@ -1368,24 +1369,26 @@ function toggleMute(game: Game): void {
 
 async function startGame(
   stage: Stage,
-  menu: MenuHandle,
+  home: HomeHandle,
+  stopAmbient: () => void,
   name: string,
   cls: ShipClassId,
   audio: Audio,
   portal: PortalAdapter,
 ): Promise<void> {
-  menu.setBusy(true);
-  menu.setStatus('CONNECTING...');
+  home.setBusy(true);
+  home.setStatus('CONNECTING…', 'info');
   let conn: Connection;
   try {
     conn = await connect(name || undefined, cls);
   } catch (err) {
     console.error('[net] connection failed', err);
-    menu.setStatus(connectErrorStatus(err), true);
-    menu.setBusy(false);
-    return;
+    home.setStatus(connectErrorStatus(err), 'denied');
+    home.setBusy(false);
+    return; // the ambient keeps breathing behind the still-live home
   }
-  menu.hide();
+  home.hide();
+  stopAmbient(); // tear down the pre-join CIC scene now that we're joining
   hideBanner();
 
   // The server's map, regenerated deterministically from the welcome seed + cap.
@@ -1424,10 +1427,26 @@ async function main(): Promise<void> {
 
   const audio = new Audio();
   const version = typeof __APP_VERSION__ === 'undefined' ? 'dev' : __APP_VERSION__;
-  const menu = showMenu(version, (name, cls) => {
+
+  // The live ambient CIC scene (UX-DR25): the game "breathing" behind the DOM
+  // home. It renders into stage.worldRoot (empty + identity-transformed pre-join)
+  // and animates off its OWN ticker callback — the game loop (startLoop) only
+  // spins up post-connect. Torn down the moment we deploy (see startGame), so the
+  // scene never fights the real world for the same worldRoot.
+  const ambient = new AmbientScene(stage.app, stage.worldRoot);
+  const ambientTick = (t: Ticker): void => ambient.update(t.deltaMS);
+  stage.app.ticker.add(ambientTick);
+  const stopAmbient = (): void => {
+    stage.app.ticker.remove(ambientTick);
+    ambient.destroy();
+  };
+
+  const home = showHome(version, (name, cls) => {
     audio.resume(); // must happen inside the PLAY click's user-gesture handler
-    void startGame(stage, menu, name, cls, audio, portal);
+    void startGame(stage, home, stopAmbient, name, cls, audio, portal);
   });
+  // Client-side server-health probe → the status line (probing → ready/unreachable).
+  void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
 }
 
 main().catch((err) => {

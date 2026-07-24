@@ -430,9 +430,9 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     // but never the victim's id (center fogged) — reviewer finding 2.
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    const b = place(w, 'b', SIGHT + 12, 0, 0); // center 232u, hull axis along x
+    const b = place(w, 'b', SIGHT + 12, 0, 0); // center SIGHT+12u, hull axis along x
     b.hp = 100; // survives, so it straddles as a live (but unsighted) hull
-    injectShell(w, 's1', 'a', 205, 0, 0, 40); // a's shell closing on b's near hull edge
+    injectShell(w, 's1', 'a', SIGHT - 15, 0, 0, 40); // a's shell striking b's near hull, just inside a's sight
     let boomB: BoomEvent | undefined;
     for (let i = 0; i < 20 && !boomB; i++) {
       w.step();
@@ -481,7 +481,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
   it('the OWNER gets its burst even far beyond sight (the point is its own click)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    emitBurst(w, 'b1', 'a', 600, 0); // 600u away — far outside a's 220u sight
+    emitBurst(w, 'b1', 'a', 600, 0); // 600u away — far outside a's 330u sight
     const bursts = buildFrame(w, 'a').events.filter((e) => e.k === 'burst');
     expect(bursts).toEqual([{ k: 'burst', id: 'b1', x: 600, y: 0 }]); // bare shape, no `own`
   });
@@ -573,7 +573,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
   it('the FIRER gains a full contact for a ship inside its zone, far beyond sight and radar', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    place(w, 'b', 900, 0, 2.1); // way outside sight (220) AND radar (650)
+    place(w, 'b', 900, 0, 2.1); // way outside sight (330) AND radar (650)
     injectZone(w, 'z1', 'a', 900, 0);
     expect(buildFrame(w, 'a').contacts).toEqual([
       { id: 'b', x: 900, y: 0, heading: 2.1, speed: 0, cls: 'torpedoBoat' },

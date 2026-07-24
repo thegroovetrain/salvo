@@ -82,10 +82,10 @@ describe('star shells — shell construction', () => {
 });
 
 describe('star shells — burst damage + zone spawn (end-to-end)', () => {
-  it('bursts for ≤10 across the full 110u circle (owner excluded) and spawns the zone there', () => {
+  it('bursts for ≤10 across the full 165u circle (owner excluded) and spawns the zone there', () => {
     const w = bareWorld();
     const a = place(w, 'a', 'battleship', 0, 0);
-    const near = place(w, 'near', 'battleship', 480, 80); // hull within 110 of the click point
+    const near = place(w, 'near', 'battleship', 480, 80); // hull within 165 of the click point
     const far = place(w, 'far', 'battleship', 480, 400); // well outside the circle
     const { seen, at } = fireAndResolve(w, 'a', { aim: 0, aimDist: 500 });
     expect(seen).toContain('burst'); // the flash reuses the EXISTING burst event kind
@@ -148,7 +148,7 @@ describe('star shells — the lit intel, end-to-end through the real weapon', ()
     }
     const { seen, at } = fireAndResolve(w, 'a', { aim: 0, aimDist: 500 });
     expect(seen).toContain('burst');
-    // FIRER: full contact for the hull inside the zone (far beyond its 220u
+    // FIRER: full contact for the hull inside the zone (far beyond its 330u
     // sight; c, 141u away, is an ordinary sight contact riding along).
     const fa = buildFrame(w, 'a');
     expect(fa.contacts.find((x) => x.id === 'e')).toEqual({

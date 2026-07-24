@@ -3,7 +3,7 @@
 import { describe, it, expect } from 'vitest';
 import type { ResultsMsg, ResultsRow } from '@salvo/shared';
 import { fmtDamage, sortRows, winnerBanner } from '../ui/results.js';
-import { sanitizeName, NAME_MAX } from '../ui/menu.js';
+import { sanitizeName, NAME_MAX } from '../ui/home.js';
 
 function row(id: string, placement: number): ResultsRow {
   return { id, name: id.toUpperCase(), placement, kills: 0, damageDealt: 0 };

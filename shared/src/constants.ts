@@ -7,6 +7,11 @@
 
 const deg = (d: number): number => (d * Math.PI) / 180;
 
+// u — base true-sight radius (Eric ruling 2026-07-23). Star shells derive
+// their lit-zone radius from this as a structural ratio (SIGHT / 2) so the
+// two retune together; see CONFIG.vision.sight and CONFIG.starShells.litRadius.
+const SIGHT = 330;
+
 export const CONFIG = {
   /** Circular water map. radius = base * sqrt(playerCap / capRef). */
   map: {
@@ -124,7 +129,7 @@ export const CONFIG = {
 
   /** Vision + radar (fog-of-war ranges). */
   vision: {
-    sight: 220, // u — true-sight bubble (actual ships visible)
+    sight: SIGHT, // u — true-sight bubble (actual ships visible; Eric ruling 2026-07-23, was 220)
     radar: 650, // u — radar sweep range (paints stale blips)
     sweepPeriod: 4000, // ms — one full radar revolution
   },
@@ -268,7 +273,12 @@ export const CONFIG = {
     maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between flares
     damage: 10, // hp per burst victim — minor, once, at burst (full lit circle)
-    litRadius: 110, // u — lit-zone radius (~half the 220u truesight bubble)
+    // u — lit-zone radius, STRUCTURALLY half of base truesight (Eric ruling
+    // 2026-07-23: star shells always light exactly half the BASE sight range,
+    // independent of any player's sightRange upgrade stacks). Keep this as a
+    // literal derivation, never a re-tuned constant, so the ratio holds
+    // whenever SIGHT changes.
+    litRadius: SIGHT / 2, // u — 165 at SIGHT=330
     litDurationMs: 10000, // ms — lit-zone lifetime (natural expiry only)
     // u — flare collision radius. Own field (cannon plumbing parity) so a gun
     // retune can never silently change flare interception; same value today.
