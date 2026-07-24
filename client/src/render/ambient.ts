@@ -167,10 +167,17 @@ export class AmbientScene {
   private drawSweep(scale: number): void {
     const r = A.ringRadii[A.ringRadii.length - 1] * scale;
     this.sweep.clear();
-    this.sweep
-      .moveTo(0, 0)
-      .arc(0, 0, r, 0, A.sweepWidth)
-      .fill({ color: C.phosphorBright, alpha: A.sweepAlpha });
+    // Leading wedge at full sweepAlpha plus a phosphor decay trail behind it —
+    // each trail segment one sweepWidth further back, alpha × sweepTrailDecay.
+    let alpha = A.sweepAlpha;
+    for (let i = 0; i <= A.sweepTrailSegments; i++) {
+      const lead = -i * A.sweepWidth;
+      this.sweep
+        .moveTo(0, 0)
+        .arc(0, 0, r, lead - A.sweepWidth, lead)
+        .fill({ color: C.phosphorBright, alpha });
+      alpha *= A.sweepTrailDecay;
+    }
   }
 
   private drawScrim(w: number, h: number): void {
