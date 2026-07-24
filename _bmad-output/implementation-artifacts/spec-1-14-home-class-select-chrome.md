@@ -2,7 +2,7 @@
 title: 'Home & Class-Select Chrome (+ truesight 330 / star-shell ½-sight rulings)'
 type: 'feature'
 created: '2026-07-24'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '116e082'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -70,15 +70,15 @@ warnings: [multiple-goals, oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` + `barrel.test.ts` + golden regen + comment refresh -- Goal A landed and pinned first (independent of chrome).
-- [ ] `client/src/config.ts` -- home knobs (pip anchors, ambient values) -- tunables before UI.
-- [ ] `client/src/render/ambient.ts` + `main.ts` pre-join lifecycle -- the canvas is alive before the DOM lands on it.
-- [ ] `client/src/util/silhouetteSvg.ts` -- shared-geometry SVG helper -- cards/chip trace the one true polygon.
-- [ ] `client/src/ui/home.ts` -- home chrome per contract -- replaces menu.ts.
-- [ ] `client/src/ui/classSelect.ts` -- the layer -- cards, pips, keyboard, footer.
-- [ ] `client/src/main.ts` + `connection.ts` probe -- wiring, first-run routing, status states.
-- [ ] Tests (home/classSelect new; menu rewritten; tokens/goldens verified) -- pin the matrix.
-- [ ] Docs sweep + `npm run check` green.
+- [x] `shared/src/constants.ts` + `barrel.test.ts` + golden regen + comment refresh -- Goal A landed and pinned first (independent of chrome).
+- [x] `client/src/config.ts` -- home knobs (pip anchors, ambient values) -- tunables before UI.
+- [x] `client/src/render/ambient.ts` + `main.ts` pre-join lifecycle -- the canvas is alive before the DOM lands on it.
+- [x] `client/src/util/silhouetteSvg.ts` -- shared-geometry SVG helper -- cards/chip trace the one true polygon.
+- [x] `client/src/ui/home.ts` -- home chrome per contract -- replaces menu.ts.
+- [x] `client/src/ui/classSelect.ts` -- the layer -- cards, pips, keyboard, footer.
+- [x] `client/src/main.ts` + `connection.ts` probe -- wiring, first-run routing, status states.
+- [x] Tests (home/classSelect new; menu rewritten; tokens/goldens verified) -- pin the matrix.
+- [x] Docs sweep + `npm run check` green.
 
 **Acceptance Criteria:**
 - Given the new CONFIG, when `npm run check` runs, then sight=330 and litRadius=165 hold everywhere via CONFIG (no orphan 220/110), the ratio test pins litRadius = sight/2, golden frames show ONLY derived-number diffs, and `damageGuardrail`/`shipClasses` pins stay green untouched.
