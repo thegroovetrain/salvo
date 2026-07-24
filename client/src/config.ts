@@ -247,6 +247,9 @@ export const CLIENT_CONFIG = {
      *  islands with Math.random — the seeded-RNG law binds sim code only.
      *  Photosensitivity: everything here is slow/continuous. */
     ambient: {
+      /** Master scene dimmer — root-container alpha over the whole picture
+       *  (Eric 2026-07-24: the idle radar reads at half strength on the menu). */
+      sceneAlpha: 0.5,
       /** Scene center as a fraction of viewport height (mock: `top:54%`). */
       centerYFrac: 0.54,
       /** Reference viewport height the ring radii were authored against (mock

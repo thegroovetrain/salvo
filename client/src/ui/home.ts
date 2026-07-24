@@ -244,7 +244,7 @@ function makePlayButton(onPlay: () => void): { root: HTMLButtonElement; sub: HTM
   const root = document.createElement('button');
   root.type = 'button';
   root.style.cssText =
-    'margin-top:26px;width:480px;max-width:calc(100vw - 48px);height:86px;background:transparent;' +
+    'margin-top:26px;width:480px;max-width:calc(100vw - 48px);height:86px;background:var(--hc-panel-deep);' +
     'border:1px solid var(--hc-amber);border-radius:8px;display:flex;flex-direction:column;align-items:center;' +
     `justify-content:center;cursor:pointer;box-shadow:0 0 44px ${cssRgba(CLIENT_CONFIG.colors.amber, 0.28)}`;
   const big = document.createElement('span');

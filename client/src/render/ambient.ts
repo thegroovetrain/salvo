@@ -115,6 +115,7 @@ export class AmbientScene {
     private readonly app: Application,
     parent: Container,
   ) {
+    this.root.alpha = A.sceneAlpha; // master menu-page dimmer
     this.sweep = new Sprite(bakeSweepTexture());
     this.sweep.anchor.set(0.5);
     this.sweep.blendMode = 'add';
