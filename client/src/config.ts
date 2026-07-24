@@ -257,29 +257,33 @@ export const CLIENT_CONFIG = {
       ringRadii: [130, 290, 460, 640, 830],
       /** Per-ring stroke alpha (mock: .10 phosphor inner, then .07/.06/.05/.045
        *  silver outers). Same length/order as ringRadii. */
-      ringAlphas: [0.1, 0.07, 0.06, 0.05, 0.045],
+      ringAlphas: [0.5, 0.32, 0.26, 0.22, 0.18],
       /** Ring hairline stroke width (px). */
-      ringWidth: 1,
+      ringWidth: 1.5,
       /** One conic sweep wedge, slow continuous full revolution (photosensitivity:
        *  a steady sweep, never a flash). Period of one rotation (ms). */
       sweepPeriodMs: 8000,
       /** Sweep wedge angular width (rad) — mock conic phosphor band ≈ 34deg. */
       sweepWidth: 0.6,
       /** Sweep wedge fill alpha at its bright leading edge (mock: .11). */
-      sweepAlpha: 0.11,
+      sweepAlpha: 0.3,
+      /** Phosphor decay trail behind the leading wedge: segment count and the
+       *  per-segment alpha decay factor (each trail wedge is sweepWidth wide). */
+      sweepTrailSegments: 3,
+      sweepTrailDecay: 0.55,
       /** Phosphor blips: how many idle on screen at once, each blip's lifetime,
        *  and the discrete alpha tiers it steps down through before respawning
        *  elsewhere (mock: fresh .55 / dim .35 / dimmer .16). */
       blipCount: 5,
       blipLifeMs: 9000,
-      blipTierAlphas: [0.55, 0.35, 0.16],
+      blipTierAlphas: [0.85, 0.55, 0.28],
       /** Blip dot radius (px) — mock 7px diameter. */
-      blipRadius: 3.5,
+      blipRadius: 4.5,
       /** Faint island masses scattered in the picture (count + fill/stroke alpha,
        *  mock: fill .5, stroke .34). Radii range in px @ reference height. */
       islandCount: 3,
-      islandFillAlpha: 0.5,
-      islandStrokeAlpha: 0.34,
+      islandFillAlpha: 0.7,
+      islandStrokeAlpha: 0.55,
       islandMinR: 40,
       islandMaxR: 95,
       /** Radial legibility scrim over the scene (mock `.scrim`: void at .42 in the
@@ -288,9 +292,9 @@ export const CLIENT_CONFIG = {
        *  distinct from the ring center (centerYFrac 0.54): the mock's `.scrim` is
        *  a radial-gradient authored `at 50% 46%`, higher than the ring stack. */
       scrimCenterYFrac: 0.46,
-      scrimInnerAlpha: 0.42,
-      scrimMidAlpha: 0.78,
-      scrimOuterAlpha: 0.94,
+      scrimInnerAlpha: 0.18,
+      scrimMidAlpha: 0.38,
+      scrimOuterAlpha: 0.6,
     },
   },
 
