@@ -1,0 +1,27 @@
+# Team override for bmad-dev-auto (committed — policy).
+#
+# Epic 1 retro Action #1 (2026-07-24): step-01's epic-context recompile
+# rebuilds epic-<N>-context.md PURELY from planning artifacts, silently
+# erasing review-patched ratified corrections recorded only in that file.
+# Bit three times in Epic 1 (stories 1.10, 1.11, 1.13; deferred-work.md
+# ledger entry from spec-1-13).
+#
+# Fix: ratified corrections get a durable home in a per-epic amendments
+# file that every recompile must salvage into and re-apply. Merge rules:
+# lists append to the skill's defaults (customize.toml), so these entries
+# ADD to the default persistent_facts/activation steps.
+
+[workflow]
+
+activation_steps_append = [
+  """EPIC-CONTEXT AMENDMENTS PROTOCOL (Epic 1 retro Action #1 — recompile-hazard fix). Governs every read, compile, and write of {implementation_artifacts}/epic-<N>-context.md, in step-01 and everywhere else:
+1. DURABLE HOME. Any ratified correction to epic context (an Eric ruling, a review patch, an adjudicated contradiction) MUST be recorded as a dated, source-attributed entry in {implementation_artifacts}/epic-<N>-context-amendments.md. Recording it only inside epic-<N>-context.md is FORBIDDEN — that file is regenerable, and anything living only there will be erased. If you patch epic context mid-run, write the matching amendments entry in the same edit.
+2. SALVAGE BEFORE OVERWRITE. Never let a compile overwrite an existing epic-<N>-context.md without first reading the existing file and checking for ratified corrections or decision records (e.g. lines marked RATIFIED, Eric rulings, review-patched blocks) that are absent from the amendments file. Append any such content to the amendments file BEFORE compiling.
+3. RE-APPLY AFTER COMPILE. After any epic-context compile, if a non-empty epic-<N>-context-amendments.md exists: rewrite any compiled statement the amendments contradict, and append the amendment entries under a final section titled '## Ratified Amendments (durable — survives recompiles)'. On any conflict between an amendment and planning-artifact-derived content, the amendment WINS.
+4. VERIFY. Step-01's compiled-context verification additionally FAILS (HALT with blocking condition 'context compilation verification failed') when a non-empty epic-<N>-context-amendments.md exists but the compiled epic-<N>-context.md lacks the '## Ratified Amendments' section.
+5. NEVER REGENERATE AMENDMENTS. epic-<N>-context-amendments.md is append/deliberate-edit only — no tooling step may regenerate, prune, or rewrite it.""",
+]
+
+persistent_facts = [
+  "file:{project-root}/_bmad-output/implementation-artifacts/epic-*-context-amendments.md",
+]
