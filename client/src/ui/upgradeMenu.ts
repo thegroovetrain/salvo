@@ -1,6 +1,6 @@
 // The CTRL spend window — a plain DOM panel over the Pixi canvas, styled per
-// DESIGN.md (phosphor surface, Geist Mono, amber-on-hover rows, mirroring
-// ui/menu.ts's makeClassPicker). It is informational + clickable but NEVER
+// DESIGN.md (phosphor surface, Geist Mono, amber-on-hover rows). It is
+// informational + clickable but NEVER
 // pauses or blocks the game: it is a small fixed panel with pointer-events only
 // on itself, so the ocean keeps running behind it and clicks off it pass through
 // to the canvas. offerView() is pure (unit-tested); the class is a thin adapter.
