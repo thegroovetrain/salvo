@@ -2,7 +2,8 @@
 title: 'Home & Class-Select Chrome (+ truesight 330 / star-shell ½-sight rulings)'
 type: 'feature'
 created: '2026-07-24'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '116e082'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
