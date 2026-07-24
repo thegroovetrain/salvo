@@ -238,12 +238,14 @@ export const CLIENT_CONFIG = {
     },
 
     /** Ambient pre-join CIC scene (render/ambient.ts) — the game "breathing"
-     *  behind the DOM menu (UX-DR25). All geometry values below are lifted from
-     *  the ratified mock's `.cic` CSS (home-class-picker-1.html): a 1700px-wide
-     *  ring stack centered at screen (50%, 54%), one slow conic sweep, phosphor
-     *  blips that decay + respawn, faint islands, and a legibility scrim. Client
-     *  render MAY place blips/islands with Math.random — the seeded-RNG law binds
-     *  sim code only. Photosensitivity: everything here is slow/continuous. */
+     *  behind the DOM menu (UX-DR25). Ring/island/scrim geometry is lifted from
+     *  the ratified mock's `.cic` CSS (home-class-picker-1.html); the RADAR
+     *  behavior is the game's own (Eric ruling 2026-07-24): the in-game sweep
+     *  texture rotating at CONFIG.vision.sweepPeriod, and blips that light only
+     *  when the beam crosses them, then decay via render/phosphor's blipAlpha/
+     *  blipTint — no independent timers. Client render MAY place contacts/
+     *  islands with Math.random — the seeded-RNG law binds sim code only.
+     *  Photosensitivity: everything here is slow/continuous. */
     ambient: {
       /** Scene center as a fraction of viewport height (mock: `top:54%`). */
       centerYFrac: 0.54,
@@ -260,25 +262,18 @@ export const CLIENT_CONFIG = {
       ringAlphas: [0.5, 0.32, 0.26, 0.22, 0.18],
       /** Ring hairline stroke width (px). */
       ringWidth: 1.5,
-      /** One conic sweep wedge, slow continuous full revolution (photosensitivity:
-       *  a steady sweep, never a flash). Period of one rotation (ms). */
-      sweepPeriodMs: 8000,
-      /** Sweep wedge angular width (rad) — mock conic phosphor band ≈ 34deg. */
-      sweepWidth: 0.6,
-      /** Sweep wedge fill alpha at its bright leading edge (mock: .11). */
-      sweepAlpha: 0.3,
-      /** Phosphor decay trail behind the leading wedge: segment count and the
-       *  per-segment alpha decay factor (each trail wedge is sweepWidth wide). */
-      sweepTrailSegments: 3,
-      sweepTrailDecay: 0.55,
-      /** Phosphor blips: how many idle on screen at once, each blip's lifetime,
-       *  and the discrete alpha tiers it steps down through before respawning
-       *  elsewhere (mock: fresh .55 / dim .35 / dimmer .16). */
-      blipCount: 5,
-      blipLifeMs: 9000,
-      blipTierAlphas: [0.85, 0.55, 0.28],
-      /** Blip dot radius (px) — mock 7px diameter. */
-      blipRadius: 4.5,
+      /** Sweep sprite alpha — the wedge is the in-game baked texture
+       *  (render/textures.bakeSweepTexture) rotating at the game's real
+       *  CONFIG.vision.sweepPeriod; this only blends it against the scrim. */
+      sweepAlpha: 0.9,
+      /** Fake drifting contacts the idle radar paints (blips light ONLY on a
+       *  beam crossing, then phosphor-decay over exactly one sweep period). */
+      contactCount: 5,
+      /** Contact drift speed, in fractions of min(viewport) per second. */
+      contactDriftFrac: 0.012,
+      /** Painted blip diameter (px) — the in-game blip sprite (bakeBlipTexture)
+       *  scaled to roughly its in-game on-screen size (BLIP_DIAMETER_U at ~1×). */
+      blipDiameterPx: 16,
       /** Faint island masses scattered in the picture (count + fill/stroke alpha,
        *  mock: fill .5, stroke .34). Radii range in px @ reference height. */
       islandCount: 3,
