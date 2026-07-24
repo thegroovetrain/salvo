@@ -2,8 +2,9 @@
 title: 'Class Silhouettes on the Water'
 type: 'feature'
 created: '2026-07-23'
-status: 'in-review'
+status: 'done'
 baseline_revision: '30720e6324d0a0cb8193c77dcfb7e6d7c3ed0988'
+final_revision: 'ccff028c5a1430b73e29b994f125fcfb3ffc33e5'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
