@@ -1,8 +1,8 @@
-// Migrated from the retired ui/menu.ts: the callsign sanitize + name/class
-// persistence pins now live against ui/home.ts (Story 1.14). The class pin
-// splits into the nullable (first-run) + defaulting (in-game) pair; the stale
-// class-picker caption assertions are dropped (the new chrome is exercised in
-// home.test.ts / classSelect.test.ts).
+// home.ts persistence pins — the callsign sanitize + name/class load helpers
+// (Story 1.14; migrated off the retired ui/menu.ts, which no longer exists —
+// file renamed from menu.test.ts to match its subject). The class pin splits
+// into the nullable (first-run) + defaulting (in-game) pair; the DOM chrome
+// itself is exercised in home.test.ts / classSelect.test.ts.
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import {

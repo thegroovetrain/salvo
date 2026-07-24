@@ -42,6 +42,25 @@ function playButton(): HTMLButtonElement {
   return [...home().querySelectorAll('button')].find((b) => b.textContent?.includes('PLAY')) as HTMLButtonElement;
 }
 
+function nameInput(): HTMLInputElement {
+  return home().querySelector('input') as HTMLInputElement;
+}
+
+function chip(): HTMLElement {
+  return home().querySelector('[title="Open the class-select layer"]') as HTMLElement;
+}
+
+/** Dispatch a keydown on the window (the layer's own listener target). */
+function press(key: string): void {
+  window.dispatchEvent(new KeyboardEvent('keydown', { key }));
+}
+
+/** Dispatch a BUBBLING keydown on an element (models a real key event traveling
+ *  up to any window listener — the vector for the insta-pick regression). */
+function pressOn(el: HTMLElement, key: string): void {
+  el.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+}
+
 describe('showHome — first-run vs returning routing', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => {
@@ -84,6 +103,54 @@ describe('showHome — first-run vs returning routing', () => {
     expect(text).toContain('BATTLESHIP');
     expect(text).toContain('DEPLOY AS BATTLESHIP · SOLO');
     expect(localStorage.getItem('hullcracker.class')).toBe('battleship'); // persisted
+  });
+});
+
+describe('showHome — layer interaction guards (Story 1.14 review fixes)', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    home()?.remove();
+    document.getElementById('hc-class-select')?.remove();
+  });
+
+  it('first-run Enter on the callsign field OPENS the layer without insta-picking (bubble guard)', () => {
+    const onDeploy = vi.fn();
+    showHome('0.0.0-test', onDeploy);
+    const input = nameInput();
+    input.focus();
+    pressOn(input, 'Enter'); // the SAME keystroke that opens the layer must not reach it
+    expect(document.getElementById('hc-class-select')).not.toBeNull(); // layer opened
+    expect(localStorage.getItem('hullcracker.class')).toBeNull(); // ...and no card was picked
+    expect(onDeploy).not.toHaveBeenCalled();
+  });
+
+  it('Enter in the callsign field does NOT deploy while the layer is open (fix 4)', () => {
+    localStorage.setItem('hullcracker.class', 'battleship'); // returning: Enter would normally deploy
+    const onDeploy = vi.fn();
+    showHome('0.0.0-test', onDeploy);
+    chip().click(); // open the layer
+    expect(document.getElementById('hc-class-select')).not.toBeNull();
+    const input = nameInput();
+    input.focus();
+    pressOn(input, 'Enter');
+    expect(onDeploy).not.toHaveBeenCalled();
+  });
+
+  it('hide() tears down an open layer — no orphaned window listener into the game (fix 6)', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    const handle = showHome('0.0.0-test', vi.fn());
+    chip().click();
+    expect(document.getElementById('hc-class-select')).not.toBeNull();
+    handle.hide();
+    expect(document.getElementById('hc-class-select')).toBeNull(); // closed alongside the home
+  });
+
+  it('refocuses the callsign field after a layer pick so Enter=PLAY lives again (fix 8)', () => {
+    showHome('0.0.0-test', vi.fn());
+    playButton().click(); // first-run: opens the layer (blurs the input)
+    press('2'); // highlight battleship
+    press('Enter'); // pick it → layer closes
+    expect(document.activeElement).toBe(nameInput());
   });
 });
 
@@ -132,6 +199,14 @@ describe('showHome — status-line states via the handle', () => {
     expect(home().textContent).toContain('SERVER: UNREACHABLE');
     handle.setStatus('CONNECTING…', 'info');
     expect(home().textContent).toContain('CONNECTING…');
+  });
+
+  it('a connect-flow status write locks out a late server-probe resolution (fix 2)', () => {
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setStatus('LINK REFUSED', 'denied'); // a connect failure claims the line
+    handle.setServerProbe('ready'); // ...a probe that resolves afterward
+    expect(home().textContent).toContain('LINK REFUSED'); // is ignored — error stays visible
+    expect(home().textContent).not.toContain('SERVER: READY');
   });
 
   it('setBusy dims + un-dims the PLAY button', () => {

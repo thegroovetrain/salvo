@@ -20,7 +20,7 @@ import { cssHex, cssRgba } from '../util/color.js';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
 import { pipFill } from '../util/pips.js';
 import { PLAYER_HUES, PLAYER_FILLS } from '../render/ships.js';
-import { loadColorPref } from '../net/connection.js';
+import { loadColorPref, COLOR_PREF_KEY } from '../net/connection.js';
 import { registerCss } from './theme.js';
 
 const C = CLIENT_CONFIG.colors;
@@ -66,7 +66,6 @@ const LOADOUT: Record<ShipClassId, readonly LoadoutRow[]> = {
 };
 
 const HOIST_CAPTION = 'PREFERENCE PICK — YOU GET IT UNLESS CLAIMED, THEN NEAREST FREE HUE';
-const COLOR_KEY = 'hullcracker.color';
 
 // --- pure view-model + input helpers (tested) --------------------------------
 
@@ -159,7 +158,7 @@ function accentFillColor(idx: number | null): string {
 
 function saveColorPref(idx: number): void {
   try {
-    localStorage.setItem(COLOR_KEY, String(idx));
+    localStorage.setItem(COLOR_PREF_KEY, String(idx));
   } catch {
     // storage unavailable — the preference just won't persist
   }
@@ -193,6 +192,11 @@ export class ColorHoist {
   /** Personal interior fill CSS color, or 'none' when no preference is set. */
   get accentFill(): string {
     return accentFillColor(this.index);
+  }
+
+  /** Live subscriber count (test-only hook: proves layer open/close balances). */
+  get listenerCount(): number {
+    return this.listeners.length;
   }
 
   /** Register a repaint fired on every pick; returns an unsubscribe. */
@@ -230,12 +234,20 @@ function makeSwatch(hoist: ColorHoist, idx: number): HTMLButtonElement {
   return sw;
 }
 
+export interface HoistRow {
+  el: HTMLElement;
+  /** Release the row's `hoist.onChange` subscription (call on layer/home teardown). */
+  off: () => void;
+}
+
 /**
  * A Color Hoist row (20 round swatches + caption), wired to the shared `hoist`.
  * `direction` lays the caption below ('column', home) or the row is inline
  * ('row', layer footer). Repaints its selected ring on every hoist change.
+ * Returns the element AND an `off` disposer so the caller releases the
+ * subscription when its container tears down (the hoist outlives both rows).
  */
-export function makeHoistRow(hoist: ColorHoist, direction: 'column' | 'row'): HTMLElement {
+export function makeHoistRow(hoist: ColorHoist, direction: 'column' | 'row'): HoistRow {
   const wrap = document.createElement('div');
   wrap.style.cssText =
     direction === 'column'
@@ -264,10 +276,10 @@ export function makeHoistRow(hoist: ColorHoist, direction: 'column' | 'row'): HT
     });
   };
   paintRing();
-  hoist.onChange(paintRing);
+  const off = hoist.onChange(paintRing);
 
   wrap.append(row, cap);
-  return wrap;
+  return { el: wrap, off };
 }
 
 // --- card DOM ----------------------------------------------------------------
@@ -511,7 +523,14 @@ function buildHeader(): HTMLElement {
   return head;
 }
 
-function buildRail(cards: CardEls[]): HTMLElement {
+interface RailEls {
+  el: HTMLElement;
+  /** Show the fade + chevron only when the rail actually overflows; call after
+   *  mount (layout available) and on every resize while the layer is open. */
+  evaluateOverflow: () => void;
+}
+
+function buildRail(cards: CardEls[]): RailEls {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'position:relative';
   const rail = document.createElement('div');
@@ -527,7 +546,12 @@ function buildRail(cards: CardEls[]): HTMLElement {
   chevron.style.cssText =
     'position:absolute;right:20px;top:44%;font:400 30px var(--hc-font-display);color:var(--hc-phosphor);pointer-events:none';
   wrap.append(rail, fade, chevron);
-  return wrap;
+  const evaluateOverflow = (): void => {
+    const overflow = rail.scrollWidth > rail.clientWidth;
+    fade.style.display = overflow ? '' : 'none';
+    chevron.style.display = overflow ? '' : 'none';
+  };
+  return { el: wrap, evaluateOverflow };
 }
 
 /** Amber outline+glow primary button (DESIGN spine — never a filled slab). */
@@ -543,12 +567,13 @@ function buildSetSail(onSetSail: () => void): HTMLElement {
   return btn;
 }
 
-function buildFooter(hoist: ColorHoist, onSetSail: () => void): HTMLElement {
+function buildFooter(hoist: ColorHoist, onSetSail: () => void): HoistRow {
   const foot = document.createElement('div');
   foot.style.cssText =
     'display:flex;align-items:center;gap:30px;padding:18px 42px 0;border-top:1px solid var(--hc-hairline);margin-top:4px';
-  foot.append(makeHoistRow(hoist, 'row'), buildSetSail(onSetSail));
-  return foot;
+  const hoistRow = makeHoistRow(hoist, 'row');
+  foot.append(hoistRow.el, buildSetSail(onSetSail));
+  return { el: foot, off: hoistRow.off };
 }
 
 // --- open / lifecycle --------------------------------------------------------
@@ -579,6 +604,45 @@ function isTextInput(el: Element | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable === true;
 }
 
+/** A layer button holds keyboard focus (Tab): native Enter/Space activation wins,
+ *  so the layer's shortcut handler must NOT preventDefault + steal the keystroke. */
+function isLayerButton(el: Element | null, container: HTMLElement): boolean {
+  return !!el && el.tagName === 'BUTTON' && container.contains(el);
+}
+
+/** The single live layer, if any — so a re-open fully tears the prior one down
+ *  (window listener + hoist subscriptions), never just its DOM (fix: half-teardown). */
+let current: { close(): void } | null = null;
+
+interface LayerWiring {
+  container: HTMLElement;
+  dimmer: HTMLElement;
+  blurTarget: HTMLElement;
+  hoist: ColorHoist;
+  onKey: (e: KeyboardEvent) => void;
+  onResize: () => void;
+  dismiss: () => void;
+  repaint: () => void;
+  evaluateOverflow: () => void;
+}
+
+/** Attach the layer's listeners, blur the home, mount it, and paint — returns the
+ *  hoist unsubscribe. Split out of openClassSelect to keep that function lean. */
+function activateLayer(w: LayerWiring): () => void {
+  w.dimmer.addEventListener('click', w.dismiss);
+  const unsubHoist = w.hoist.onChange(w.repaint);
+  window.addEventListener('keydown', w.onKey);
+  window.addEventListener('resize', w.onResize);
+  // Hand keyboard control to the layer: drop callsign focus (typing-isolation guard).
+  if (isTextInput(document.activeElement)) (document.activeElement as HTMLElement).blur();
+  w.blurTarget.style.filter = 'blur(2px)';
+  w.blurTarget.style.opacity = '0.5';
+  document.body.appendChild(w.container);
+  w.evaluateOverflow(); // now that the rail is laid out, hide fade/chevron if it fits
+  w.repaint();
+  return unsubHoist;
+}
+
 /**
  * Open the class-select layer over the home. Returns a handle whose `close()`
  * tears everything down (removes the DOM, restores the home blur, detaches the
@@ -602,14 +666,20 @@ function makeLayerShell(): { container: HTMLElement; dimmer: HTMLElement; panel:
 }
 
 export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
-  document.getElementById(LAYER_ID)?.remove();
+  current?.close(); // full teardown of any prior layer (listener + subscriptions), not just DOM
   const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), pick));
   let highlight = Math.max(0, SHIP_CLASS_IDS.indexOf(opts.initial));
 
   const { container, dimmer, panel } = makeLayerShell();
-  panel.append(buildHeader(), buildRail(cards), buildFooter(opts.hoist, setSail));
+  const rail = buildRail(cards);
+  const footer = buildFooter(opts.hoist, setSail);
+  panel.append(buildHeader(), rail.el, footer.el);
 
-  let unsubHoist = (): void => undefined;
+  // Ignore any keydown dispatched at/before this instant — the very keystroke
+  // (Enter on the callsign field / chip) that opened us is still bubbling and
+  // would otherwise reach the freshly-attached window listener and insta-pick.
+  const openedAt = performance.now();
+  const onResize = (): void => rail.evaluateOverflow();
   function repaint(): void {
     paintCards(cards, highlight, opts.hoist);
   }
@@ -627,7 +697,9 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
     opts.onClose();
   }
   function onKey(e: KeyboardEvent): void {
+    if (e.timeStamp <= openedAt) return; // the opening keystroke — never ours to act on
     if (isTextInput(document.activeElement)) return;
+    if (isLayerButton(document.activeElement, container)) return; // let native button activation win
     const action = keyAction(e.key, cards.length);
     if (!action) return;
     e.preventDefault();
@@ -639,20 +711,19 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   }
   function close(): void {
     window.removeEventListener('keydown', onKey);
+    window.removeEventListener('resize', onResize);
     unsubHoist();
+    footer.off();
     container.remove();
     opts.blurTarget.style.filter = '';
     opts.blurTarget.style.opacity = '';
+    if (current === handle) current = null;
   }
-
-  dimmer.addEventListener('click', dismiss);
-  unsubHoist = opts.hoist.onChange(repaint);
-  window.addEventListener('keydown', onKey);
-  // Hand keyboard control to the layer: drop callsign focus (typing-isolation guard).
-  if (isTextInput(document.activeElement)) (document.activeElement as HTMLElement).blur();
-  opts.blurTarget.style.filter = 'blur(2px)';
-  opts.blurTarget.style.opacity = '0.5';
-  document.body.appendChild(container);
-  repaint();
-  return { close };
+  const handle: ClassSelectHandle = { close };
+  const unsubHoist = activateLayer({
+    container, dimmer, blurTarget: opts.blurTarget, hoist: opts.hoist,
+    onKey, onResize, dismiss, repaint, evaluateOverflow: rail.evaluateOverflow,
+  });
+  current = handle;
+  return handle;
 }

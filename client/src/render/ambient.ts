@@ -60,12 +60,15 @@ export function blipTierIndex(ageMs: number, lifeMs: number, tierCount: number):
   return Math.min(tierCount - 1, Math.floor((ageMs / lifeMs) * tierCount));
 }
 
-/** A blip's alpha at `ageMs` — the tier alphas indexed by `blipTierIndex`. */
+/** A blip's alpha at `ageMs` — the tier alphas indexed by `blipTierIndex`.
+ *  An empty tier array yields a fully-transparent (0) blip rather than
+ *  `undefined` (which would poison Graphics.alpha). */
 export function blipTierAlpha(
   ageMs: number,
   lifeMs: number,
   tierAlphas: readonly number[],
 ): number {
+  if (tierAlphas.length === 0) return 0;
   return tierAlphas[blipTierIndex(ageMs, lifeMs, tierAlphas.length)];
 }
 
@@ -171,11 +174,12 @@ export class AmbientScene {
   }
 
   private drawScrim(w: number, h: number): void {
+    const cyFrac = A.scrimCenterYFrac;
     const grad = new FillGradient({
       type: 'radial',
-      center: { x: 0.5, y: 0.46 },
+      center: { x: 0.5, y: cyFrac },
       innerRadius: 0,
-      outerCenter: { x: 0.5, y: 0.46 },
+      outerCenter: { x: 0.5, y: cyFrac },
       outerRadius: 0.75,
       textureSpace: 'local',
       colorStops: [

@@ -88,7 +88,17 @@ describe('blipTierAlpha — the config tier alphas indexed by decay', () => {
     expect(blipTierAlpha(8000, 9000, tiers)).toBe(tiers[2]);
   });
 
-  it('uses the mock tier values (fresh .55 / dim .35 / dimmer .16)', () => {
-    expect(tiers).toEqual([0.55, 0.35, 0.16]);
+  it('the configured tiers form a valid decay ramp (strictly dimming, all visible)', () => {
+    expect(tiers.length).toBeGreaterThanOrEqual(1);
+    for (const a of tiers) {
+      expect(a).toBeGreaterThan(0);
+      expect(a).toBeLessThanOrEqual(1);
+    }
+    for (let i = 1; i < tiers.length; i++) expect(tiers[i]).toBeLessThan(tiers[i - 1]);
+  });
+
+  it('returns a fully-transparent 0 for an empty tier array (no undefined into alpha)', () => {
+    expect(blipTierAlpha(0, 9000, [])).toBe(0);
+    expect(blipTierAlpha(4000, 9000, [])).toBe(0);
   });
 });

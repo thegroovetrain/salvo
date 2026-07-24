@@ -236,4 +236,63 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(onPick).not.toHaveBeenCalled();
     input.remove();
   });
+
+  it('a dimmer click dismisses (onClose) without changing the pick', () => {
+    const { onClose, onPick, onSetSail } = open();
+    const dimmer = document.getElementById('hc-class-select')!.firstElementChild as HTMLElement;
+    dimmer.click();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onSetSail).not.toHaveBeenCalled();
+    expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
+  it('Enter is ignored when a layer button holds focus (native activation wins)', () => {
+    const { onPick } = open();
+    const setSail = [...document.querySelectorAll('#hc-class-select button')].find(
+      (b) => b.textContent === 'SET SAIL',
+    ) as HTMLButtonElement;
+    setSail.focus();
+    press('Enter');
+    expect(onPick).not.toHaveBeenCalled(); // the window shortcut did NOT steal Enter
+  });
+});
+
+describe('openClassSelect — teardown balances hoist subscriptions (no leak)', () => {
+  let blurTarget: HTMLElement;
+  beforeEach(() => {
+    localStorage.clear();
+    blurTarget = document.createElement('div');
+    document.body.appendChild(blurTarget);
+  });
+  afterEach(() => {
+    document.getElementById('hc-class-select')?.remove();
+    blurTarget.remove();
+  });
+
+  it('a close() releases EVERY subscription the layer added (footer row included)', () => {
+    const hoist = new ColorHoist();
+    const before = hoist.listenerCount;
+    const handle = openClassSelect({
+      initial: 'torpedoBoat',
+      hoist,
+      blurTarget,
+      onPick: vi.fn(),
+      onSetSail: vi.fn(),
+      onClose: vi.fn(),
+    });
+    expect(hoist.listenerCount).toBeGreaterThan(before); // layer added subscriptions
+    handle.close();
+    expect(hoist.listenerCount).toBe(before); // ...and released all of them
+  });
+
+  it('re-opening fully tears the prior layer down (one live layer, balanced subs)', () => {
+    const hoist = new ColorHoist();
+    const before = hoist.listenerCount;
+    openClassSelect({ initial: 'torpedoBoat', hoist, blurTarget, onPick: vi.fn(), onSetSail: vi.fn(), onClose: vi.fn() });
+    const afterFirst = hoist.listenerCount;
+    openClassSelect({ initial: 'battleship', hoist, blurTarget, onPick: vi.fn(), onSetSail: vi.fn(), onClose: vi.fn() });
+    expect(hoist.listenerCount).toBe(afterFirst); // prior layer's subs freed, not stacked
+    expect(document.querySelectorAll('#hc-class-select').length).toBe(1);
+  });
 });

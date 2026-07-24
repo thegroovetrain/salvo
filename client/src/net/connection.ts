@@ -18,8 +18,9 @@ import {
 const WELCOME_TIMEOUT_MS = 5000;
 
 /** localStorage key for the persisted Regatta color preference — same
- *  `hullcracker.*` family the menu uses for name/class (menu.ts). */
-const COLOR_PREF_KEY = 'hullcracker.color';
+ *  `hullcracker.*` family the home uses for name/class (home.ts). Exported so the
+ *  Color Hoist writer (classSelect.ts) and this reader share ONE literal. */
+export const COLOR_PREF_KEY = 'hullcracker.color';
 
 /**
  * The persisted Regatta hue PREFERENCE (0..19) if a valid one is stored, else

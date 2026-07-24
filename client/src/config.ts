@@ -284,6 +284,10 @@ export const CLIENT_CONFIG = {
       islandMaxR: 95,
       /** Radial legibility scrim over the scene (mock `.scrim`: void at .42 in the
        *  center → .78 mid → .94 at the edge, so DOM text stays readable). */
+      /** Scrim gradient center as a fraction of viewport height. Genuinely
+       *  distinct from the ring center (centerYFrac 0.54): the mock's `.scrim` is
+       *  a radial-gradient authored `at 50% 46%`, higher than the ring stack. */
+      scrimCenterYFrac: 0.46,
       scrimInnerAlpha: 0.42,
       scrimMidAlpha: 0.78,
       scrimOuterAlpha: 0.94,

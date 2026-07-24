@@ -25,6 +25,7 @@ import {
   openClassSelect,
   chipLoadoutLine,
   CLASS_DISPLAY_NAMES,
+  type ClassSelectHandle,
 } from './classSelect.js';
 // Entry cap = the shared display cap (Story 1.13). Re-exported so existing
 // consumers/tests keep importing NAME_MAX from the home module.
@@ -38,6 +39,7 @@ const CLASS_KEY = 'hullcracker.class';
 
 const NOTE_SETTINGS = 'SETTINGS ARRIVE IN A LATER REFIT';
 const NOTE_HOWTO = 'FIELD MANUAL ARRIVES IN A LATER REFIT';
+const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY/SET SAIL is pressed mid-connect
 
 // --- pure name / class persistence (tested) ----------------------------------
 
@@ -210,6 +212,7 @@ function makeChip(onOpen: () => void): ChipEls {
     'border-radius:8px;padding:12px 22px 12px 16px;cursor:pointer;margin-top:22px';
   root.setAttribute('role', 'button');
   root.setAttribute('title', 'Open the class-select layer');
+  root.tabIndex = 0;
   const sil = document.createElement('span');
   sil.style.cssText = 'display:flex;align-items:center;justify-content:center;width:44px;min-height:44px';
   const meta = document.createElement('span');
@@ -228,6 +231,12 @@ function makeChip(onOpen: () => void): ChipEls {
     'border-left:1px solid var(--hc-hairline);padding-left:18px';
   root.append(sil, meta, change);
   root.addEventListener('click', onOpen);
+  root.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    e.stopPropagation(); // don't let the Enter reach the layer's window listener (insta-pick)
+    onOpen();
+  });
   return { root, sil, role, name, sub };
 }
 
@@ -272,10 +281,16 @@ function makeGear(onClick: () => void): HTMLElement {
   gear.textContent = '⚙';
   gear.setAttribute('role', 'button');
   gear.setAttribute('title', 'Settings');
+  gear.tabIndex = 0;
   gear.style.cssText =
     'position:absolute;top:22px;right:26px;font-size:24px;line-height:1;color:var(--hc-text-muted);' +
     'cursor:pointer;opacity:0.7';
   gear.addEventListener('click', onClick);
+  gear.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    onClick();
+  });
   return gear;
 }
 
@@ -293,6 +308,14 @@ interface Home {
   currentClass: ShipClassId | null;
   layerOpen: boolean;
   busy: boolean;
+  /** The live class-select layer, if open — so hide() can tear it down instead of
+   *  orphaning its window listener (which could write hullcracker.class in-game). */
+  layer: ClassSelectHandle | null;
+  /** True once the connect flow has written the status line (CONNECTING / error):
+   *  a late server-probe resolution must NOT overwrite it (status state machine). */
+  statusLocked: boolean;
+  /** Teardown for subscriptions/listeners created at mount (run by hide()). */
+  disposers: Array<() => void>;
 }
 
 function paintStatus(h: Home, text: string, tone: StatusTone): void {
@@ -332,36 +355,49 @@ function setClass(h: Home, cls: ShipClassId): void {
 }
 
 function deploy(h: Home): void {
-  if (h.busy || h.currentClass === null) return;
+  // Never-silence: a press mid-connect re-asserts CONNECTING… rather than dying.
+  if (h.busy) return paintStatus(h, NOTE_CONNECTING, 'info');
+  if (h.currentClass === null) return;
   const name = sanitizeName(h.input.value);
   saveName(name);
   h.onDeploy(name, h.currentClass);
 }
 
 function onPlay(h: Home): void {
-  if (h.busy) return;
-  if (h.currentClass === null) openLayer(h);
-  else deploy(h);
+  if (h.currentClass === null) return openLayer(h);
+  deploy(h);
+}
+
+/** Refocus the callsign field after any layer exit, so Enter=PLAY lives again —
+ *  but only while the home is still on screen (a SET SAIL deploy tears it down). */
+function refocusInput(h: Home): void {
+  if (document.body.contains(h.overlay)) h.input.focus();
 }
 
 function openLayer(h: Home): void {
-  if (h.layerOpen) return;
+  if (h.busy || h.layerOpen) return;
   h.layerOpen = true;
-  openClassSelect({
+  h.layer = openClassSelect({
     initial: h.currentClass ?? 'torpedoBoat',
     hoist: h.hoist,
     blurTarget: h.overlay,
     onPick: (cls) => {
       h.layerOpen = false;
+      h.layer = null;
       setClass(h, cls);
+      refocusInput(h);
     },
     onSetSail: (cls) => {
       h.layerOpen = false;
+      h.layer = null;
       setClass(h, cls);
       deploy(h);
+      refocusInput(h);
     },
     onClose: () => {
       h.layerOpen = false;
+      h.layer = null;
+      refocusInput(h);
     },
   });
 }
@@ -371,18 +407,24 @@ function openLayer(h: Home): void {
 function mountHome(h: Home, playBtn: HTMLButtonElement, version: string): (e: KeyboardEvent) => void {
   const console_ = document.createElement('div');
   console_.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:22px';
+  const hoistRow = makeHoistRow(h.hoist, 'column');
   console_.append(
     makeCallsignRow(h.input),
     h.chip.root,
-    makeHoistRow(h.hoist, 'column'),
+    hoistRow.el,
     playBtn,
     makeUnderplay(h.statusEl, () => paintStatus(h, NOTE_HOWTO, 'tertiary')),
   );
   h.overlay.append(makeWordmark(version), console_, makeGear(() => paintStatus(h, NOTE_SETTINGS, 'tertiary')));
   h.input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') onPlay(h);
+    if (e.key !== 'Enter') return;
+    // Stop the SAME keystroke from bubbling to the layer's window listener (which
+    // the click may attach mid-dispatch → insta-pick). Never deploy behind an open layer.
+    e.stopPropagation();
+    if (h.layerOpen) return;
+    onPlay(h);
   });
-  h.hoist.onChange(() => repaintChip(h));
+  h.disposers.push(hoistRow.off, h.hoist.onChange(() => repaintChip(h)));
   repaintChip(h);
   updateSubline(h);
   paintStatus(h, ...statusTuple(serverStatusLine('probing')));
@@ -433,23 +475,40 @@ export function showHome(
     currentClass: loadSavedClassOrNull(),
     layerOpen: false,
     busy: false,
+    layer: null,
+    statusLocked: false,
+    disposers: [],
   };
 
   const keyHandler = mountHome(h, play.root, version);
   document.body.appendChild(overlay);
   input.focus();
+  return makeHandle(h, keyHandler);
+}
 
+/** Build the HomeHandle main.ts drives — status state machine, busy dimming, and
+ *  a hide() that tears down the layer + all mount-time subscriptions. */
+function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle {
   return {
-    setStatus: (text, tone = 'tertiary') => paintStatus(h, text, tone),
-    setServerProbe: (state) => paintStatus(h, ...statusTuple(serverStatusLine(state))),
+    setStatus: (text, tone = 'tertiary') => {
+      h.statusLocked = true; // the connect flow owns the line now; late probes yield
+      paintStatus(h, text, tone);
+    },
+    setServerProbe: (state) => {
+      if (h.statusLocked) return; // a connect attempt already claimed the line
+      paintStatus(h, ...statusTuple(serverStatusLine(state)));
+    },
     setBusy: (busy) => {
       h.busy = busy;
       h.playBtn.style.opacity = busy ? '0.4' : '1';
       h.playBtn.style.cursor = busy ? 'default' : 'pointer';
     },
     hide: () => {
+      h.layer?.close(); // never orphan a live layer's window listener into the game
+      h.layer = null;
+      for (const off of h.disposers.splice(0)) off();
       window.removeEventListener('keydown', keyHandler);
-      overlay.remove();
+      h.overlay.remove();
     },
   };
 }
