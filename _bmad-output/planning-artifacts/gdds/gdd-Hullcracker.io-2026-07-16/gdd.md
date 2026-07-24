@@ -154,7 +154,7 @@ Upgrade *content* follows the **Hades-hammer model** (Eric's model, captured 202
 Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left hand helms the ship, right hand fights it.
 
 - **Keyboard:** telegraph detents (set-and-forget engine orders) + rudder; weapon-slot selection (basic / special / other); an in-match spend window for upgrade offers and heal. Specific key bindings are provisional — current bindings (e.g. CTRL-chord spend window) are reference only and planned to change.
-- **Mouse:** aim within the selected weapon's real firing arc; click to fire. Denied fire (out of arc, no ammo, reloading) gives explicit feedback rather than silence.
+- **Mouse:** aim freely — weapons fire only within their real firing arc; click to fire. Denied fire (out of arc, no ammo, reloading) gives explicit feedback rather than silence.
 - Match completes with keyboard + mouse only. Touch/mobile input is out of scope for beta.
 
 ---
@@ -180,7 +180,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 **Weapon behavior laws (settled):**
 
-- All weapons fire within **real firing arcs**; aim is mouse-constrained to the selected weapon's arc.
+- All weapons fire within **real firing arcs**; aim is never clamped — the arc gates firing, and out-of-arc clicks are denied with explicit feedback (deny-gate, Eric ruling 2026-07-23, Story 1.10).
 - Every fitted system has its **own ammo pool and reload timer, and every reload ticks every tick** regardless of which weapon is selected — switching weapons is tempo, not penalty.
 - **Torpedoes outrun every hull** at base speed and spawn with real bow clearance plus a brief owner-only grace — they can never self-hit at base speed. Torpedoes are never painted by radar; hydrophones (the listening ring) are the torpedo warning.
 - **Mines** arm after a delay, trigger by proximity, and are capped per-player (live-mine cap; oldest evicted) and globally. On trigger they **blast** — every non-owner hull within the blast radius (larger than the trigger radius) takes full damage; the owner's own gunfire **detonates its own armed mines early**; mines **persist until detonated (no expiry)** (Eric ruling 2026-07-22).
@@ -191,7 +191,7 @@ Desktop keyboard + mouse. Design intent: **hands describe the fantasy** — left
 
 ### Aiming and Combat Mechanics
 
-- **Top-down mouse aim.** Aim is constrained to the selected weapon's firing arc; click to fire. Denied fire (out of arc, no ammo, reloading) gives explicit feedback, never silence.
+- **Top-down mouse aim.** Aim is free; the arc gates firing, not the cursor — click to fire. Denied fire (out of arc, no ammo, reloading) gives explicit feedback, never silence.
 - **Arcs — RATIFIED for the class era (Eric ruling 2026-07-23, Story 1.10).** The de facto geometry is the design: the **gun family** (standard gun / long-range cannon / star shells) fires **360°** — no mounts, no arc; **torpedoes** launch in a **bow sector of heading ±30°**; the Mine Layer's **stern rack** (mines + decoy buoy) places dead astern regardless of aim; the speed boost aims nothing. Denied fire is now authoritative as well as predicted: the server sends a self-private denial signal (out-of-arc / no-ammo / cooling / blocked stern drop) so denial feedback is never silent — including island/boundary-blocked stern drops, which are refused without spending the charge.
 - **No dispersion.** Shots go exactly where they are aimed; travel time is the skill counterweight. Projectiles, never hitscan — leading the target is the game.
 - **Flight rules:** torpedoes run until they hit something; gun shells fly to the clicked point or the first thing they hit on the way, whichever comes first.
