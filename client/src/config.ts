@@ -221,6 +221,75 @@ export const CLIENT_CONFIG = {
     padPx: 8,
   },
 
+  /** Pre-join home chrome + class-select (Story 1.14). Two groups: absolute pip
+   *  scale anchors (gameplay-adjacent DISPLAY knobs — they map a raw stat to a
+   *  1..5 filled-pip count, they do NOT change the sim) and the ambient CIC scene
+   *  feel knobs (render/ambient.ts). Colors are NOT here — the scene reads
+   *  CLIENT_CONFIG.colors tokens (void/phosphorBright/silver/island*). */
+  home: {
+    /** Pip scale anchors (Eric ruling 2026-07-24) — ABSOLUTE maxima against which
+     *  a class stat resolves to a filled-pip count via util/pips.ts's pipFill:
+     *  round(value / anchorMax * 5), clamped 1..5. Fixed anchors (not per-batch
+     *  relative) so a hull's pips never shift when the class roster changes. */
+    pip: {
+      speedMax: 60, // u/s — top of the speed pip scale
+      hpMax: 200, // hull hp — top of the toughness pip scale
+      turnMax: 1.0, // rad/s — top of the turning pip scale
+    },
+
+    /** Ambient pre-join CIC scene (render/ambient.ts) — the game "breathing"
+     *  behind the DOM menu (UX-DR25). All geometry values below are lifted from
+     *  the ratified mock's `.cic` CSS (home-class-picker-1.html): a 1700px-wide
+     *  ring stack centered at screen (50%, 54%), one slow conic sweep, phosphor
+     *  blips that decay + respawn, faint islands, and a legibility scrim. Client
+     *  render MAY place blips/islands with Math.random — the seeded-RNG law binds
+     *  sim code only. Photosensitivity: everything here is slow/continuous. */
+    ambient: {
+      /** Scene center as a fraction of viewport height (mock: `top:54%`). */
+      centerYFrac: 0.54,
+      /** Reference viewport height the ring radii were authored against (mock
+       *  frame is 1080 tall); the scene scales by screenH/this so it fills any
+       *  viewport (see render/ambient.ts `ambientScale`). */
+      refHeight: 1080,
+      /** Range-ring radii (px @ the reference height). Innermost is the phosphor
+       *  hairline, the rest silver — mock radial-gradient stops 130/290/460/640/
+       *  830 on the 850px-radius (1700px) ring disc. */
+      ringRadii: [130, 290, 460, 640, 830],
+      /** Per-ring stroke alpha (mock: .10 phosphor inner, then .07/.06/.05/.045
+       *  silver outers). Same length/order as ringRadii. */
+      ringAlphas: [0.1, 0.07, 0.06, 0.05, 0.045],
+      /** Ring hairline stroke width (px). */
+      ringWidth: 1,
+      /** One conic sweep wedge, slow continuous full revolution (photosensitivity:
+       *  a steady sweep, never a flash). Period of one rotation (ms). */
+      sweepPeriodMs: 8000,
+      /** Sweep wedge angular width (rad) — mock conic phosphor band ≈ 34deg. */
+      sweepWidth: 0.6,
+      /** Sweep wedge fill alpha at its bright leading edge (mock: .11). */
+      sweepAlpha: 0.11,
+      /** Phosphor blips: how many idle on screen at once, each blip's lifetime,
+       *  and the discrete alpha tiers it steps down through before respawning
+       *  elsewhere (mock: fresh .55 / dim .35 / dimmer .16). */
+      blipCount: 5,
+      blipLifeMs: 9000,
+      blipTierAlphas: [0.55, 0.35, 0.16],
+      /** Blip dot radius (px) — mock 7px diameter. */
+      blipRadius: 3.5,
+      /** Faint island masses scattered in the picture (count + fill/stroke alpha,
+       *  mock: fill .5, stroke .34). Radii range in px @ reference height. */
+      islandCount: 3,
+      islandFillAlpha: 0.5,
+      islandStrokeAlpha: 0.34,
+      islandMinR: 40,
+      islandMaxR: 95,
+      /** Radial legibility scrim over the scene (mock `.scrim`: void at .42 in the
+       *  center → .78 mid → .94 at the edge, so DOM text stays readable). */
+      scrimInnerAlpha: 0.42,
+      scrimMidAlpha: 0.78,
+      scrimOuterAlpha: 0.94,
+    },
+  },
+
   /** Netcode render delays (ms behind estimated server time). */
   net: {
     /** Remote contacts interpolate this far behind serverNow(). */
