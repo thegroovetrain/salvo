@@ -1,18 +1,16 @@
-// Story 1.14 — the ambient CIC scene's pure layout/decay math. The Pixi shell
-// (AmbientScene) is a thin adapter left to visual QA; only these exported helpers
-// are unit-tested (the repo pattern).
+// Story 1.14 — the ambient CIC scene's pure layout/crossing math. The Pixi
+// shell (AmbientScene) is a thin adapter left to visual QA; only these exported
+// helpers are unit-tested (the repo pattern). The ambient's radar RULES are the
+// game's own (Eric ruling 2026-07-24): the beam runs at CONFIG.vision.sweepPeriod
+// and blips light only on a beam crossing, then decay via render/phosphor —
+// blipAlpha/blipTint already carry their own pins in phosphor.test.ts.
 
 import { describe, it, expect } from 'vitest';
-import {
-  ambientScale,
-  ringLayout,
-  sweepAngleAt,
-  blipTierIndex,
-  blipTierAlpha,
-} from '../render/ambient.js';
+import { ambientScale, ringLayout, sweepAngleAt, sweepCrossed } from '../render/ambient.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const A = CLIENT_CONFIG.home.ambient;
+const TAU = Math.PI * 2;
 
 describe('ambientScale — fit ring geometry to viewport height, clamped', () => {
   it('is 1 at the reference height', () => {
@@ -58,47 +56,40 @@ describe('sweepAngleAt — continuous full revolution', () => {
   });
 });
 
-describe('blipTierIndex — discrete decay windows', () => {
-  it('splits life into equal tier windows (freshest = 0)', () => {
-    expect(blipTierIndex(0, 9000, 3)).toBe(0);
-    expect(blipTierIndex(2999, 9000, 3)).toBe(0);
-    expect(blipTierIndex(3000, 9000, 3)).toBe(1);
-    expect(blipTierIndex(5999, 9000, 3)).toBe(1);
-    expect(blipTierIndex(6000, 9000, 3)).toBe(2);
+describe('sweepCrossed — the paint rule: light ONLY when the beam crosses', () => {
+  it('paints a bearing inside the advanced interval', () => {
+    expect(sweepCrossed(0.1, 0.3, 0.2)).toBe(true);
   });
 
-  it('pins to the dimmest tier at/after full life', () => {
-    expect(blipTierIndex(9000, 9000, 3)).toBe(2);
-    expect(blipTierIndex(99999, 9000, 3)).toBe(2);
+  it('does not paint a bearing ahead of or behind the interval', () => {
+    expect(sweepCrossed(0.1, 0.3, 0.5)).toBe(false); // beam hasn't reached it
+    expect(sweepCrossed(0.1, 0.3, 0.05)).toBe(false); // beam already passed it
   });
 
-  it('guards negatives / single tier / degenerate life', () => {
-    expect(blipTierIndex(-100, 9000, 3)).toBe(0);
-    expect(blipTierIndex(4000, 9000, 1)).toBe(0);
-    expect(blipTierIndex(4000, 0, 3)).toBe(0);
-  });
-});
-
-describe('blipTierAlpha — the config tier alphas indexed by decay', () => {
-  const tiers = A.blipTierAlphas;
-
-  it('returns the fresh/dim/dimmer alphas across the lifetime', () => {
-    expect(blipTierAlpha(0, 9000, tiers)).toBe(tiers[0]);
-    expect(blipTierAlpha(4000, 9000, tiers)).toBe(tiers[1]);
-    expect(blipTierAlpha(8000, 9000, tiers)).toBe(tiers[2]);
+  it('is half-open (prev, cur]: exactly-at-new-beam paints, exactly-at-prev does not', () => {
+    expect(sweepCrossed(0.1, 0.3, 0.3)).toBe(true);
+    expect(sweepCrossed(0.1, 0.3, 0.1)).toBe(false);
   });
 
-  it('the configured tiers form a valid decay ramp (strictly dimming, all visible)', () => {
-    expect(tiers.length).toBeGreaterThanOrEqual(1);
-    for (const a of tiers) {
-      expect(a).toBeGreaterThan(0);
-      expect(a).toBeLessThanOrEqual(1);
+  it('handles the 2π wrap (beam passing through zero)', () => {
+    expect(sweepCrossed(TAU - 0.1, 0.1, 0.0)).toBe(true);
+    expect(sweepCrossed(TAU - 0.1, 0.1, TAU - 0.05)).toBe(true);
+    expect(sweepCrossed(TAU - 0.1, 0.1, 0.2)).toBe(false);
+  });
+
+  it('a stationary beam never paints', () => {
+    expect(sweepCrossed(1.0, 1.0, 1.0)).toBe(false);
+    expect(sweepCrossed(1.0, 1.0, 2.0)).toBe(false);
+  });
+
+  it('one revolution paints each bearing exactly once (no double-paint across steps)', () => {
+    // Walk a full revolution in uneven steps; a fixed bearing must paint once.
+    const bearing = 4.0;
+    const steps = [0, 0.9, 1.7, 2.6, 3.4, 4.4, 5.1, 6.0, TAU];
+    let paints = 0;
+    for (let i = 1; i < steps.length; i++) {
+      if (sweepCrossed(steps[i - 1] % TAU, steps[i] % TAU, bearing)) paints++;
     }
-    for (let i = 1; i < tiers.length; i++) expect(tiers[i]).toBeLessThan(tiers[i - 1]);
-  });
-
-  it('returns a fully-transparent 0 for an empty tier array (no undefined into alpha)', () => {
-    expect(blipTierAlpha(0, 9000, [])).toBe(0);
-    expect(blipTierAlpha(4000, 9000, [])).toBe(0);
+    expect(paints).toBe(1);
   });
 });
