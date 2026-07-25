@@ -190,6 +190,10 @@ interface Game {
   portal: PortalAdapter;
   /** Latch: portal.matchEnd() fired — results re-delivery must not re-fire it. */
   matchEnded: boolean;
+  /** performance.now() when the results overlay was shown (Infinity until it
+   *  is). Results-phase ESC/Enter arm only after CLIENT_CONFIG.results.keyGraceMs
+   *  has elapsed, so a key aimed at the refit modal can't instantly return. */
+  resultsShownAt: number;
   /** Countdown-tick / match-start edge-detector state (audio/tones.ts). */
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
@@ -396,15 +400,27 @@ function handleRefitPick(g: Game, choice: number): void {
 }
 
 /**
+ * True once the results overlay has been up for the arming grace
+ * (CLIENT_CONFIG.results.keyGraceMs). Before that, an ESC/Enter the player
+ * aimed at the refit modal would land on the just-shown results screen and
+ * instantly tear the match down. False while resultsShownAt is Infinity (no
+ * results yet), so the keys can never fire early.
+ */
+function resultsKeysArmed(g: Game): boolean {
+  return performance.now() - g.resultsShownAt >= CLIENT_CONFIG.results.keyGraceMs;
+}
+
+/**
  * ESC — close the topmost surface. Once the results overlay is up (the match
  * finished and its broadcast landed) the topmost surface IS the results screen,
  * and ESC returns to port — the ratified UX-DR27 keyboard path, the exact same
  * chain the RETURN TO PORT button drives. While alive that is the refit modal
  * (untouched); with nothing open, nothing happens (the settings overlay arrives
- * in Story 2.3).
+ * in Story 2.3). Inside the arming grace ESC falls through to the (harmless)
+ * modal hide instead.
  */
 function handleEscape(g: Game): void {
-  if (g.state.matchOver) {
+  if (g.state.matchOver && resultsKeysArmed(g)) {
     returnToPort(g);
     return;
   }
@@ -412,9 +428,10 @@ function handleEscape(g: Game): void {
 }
 
 /** ENTER — confirm the topmost surface. Today only the results overlay listens
- *  (UX-DR27: Enter and ESC both = RETURN TO PORT); inert in-match. */
+ *  (UX-DR27: Enter and ESC both = RETURN TO PORT); inert in-match, and inert
+ *  inside the results arming grace. */
 function handleConfirm(g: Game): void {
-  if (g.state.matchOver) returnToPort(g);
+  if (g.state.matchOver && resultsKeysArmed(g)) returnToPort(g);
 }
 
 /** Live safe radius + state, derived locally from the schema's zone plane. */
@@ -861,7 +878,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     deniedPulse: new DeniedPulse(), deniedFlash: false, denialDedup: new DenialDedup(), serverDeniedClick: false,
     ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    matchEnded: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownStats: stats, ownSlots: slotIdsFor(cls, stats),
@@ -979,6 +996,11 @@ function bindGameRoom(g: Game, conn: Connection): void {
         g.matchEnded = true;
         g.portal.matchEnd();
       }
+      // Results arrival hygiene: a refit modal open at the finish must not stay
+      // painted (and clickable) over the results screen, and the results-key
+      // arming grace starts now (see CLIENT_CONFIG.results.keyGraceMs).
+      g.upgradeMenu.hide();
+      g.resultsShownAt = performance.now();
       showResults(msg, g.state.net.sessionId, () => returnToPort(g));
     },
     onRoomLeave: () => handleRoomLeave(g),

@@ -45,9 +45,9 @@ describe('showResults — RETURN TO PORT wiring', () => {
 
   afterEach(() => document.body.replaceChildren());
 
-  /** The overlay's action button (the only <button> in the panel). */
+  /** The overlay's action button, by its stable id (never "the only button"). */
   function returnButton(): HTMLButtonElement | null {
-    return document.querySelector('#results-overlay button');
+    return document.querySelector('#results-return');
   }
 
   it('fires the return callback exactly once per click', () => {

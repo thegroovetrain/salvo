@@ -18,8 +18,6 @@ interface Harness {
   deps: ReturnToPortDeps;
   calls: string[];
   reloads: number;
-  /** Resolve the pending ad break (only for the deferred-ad harness). */
-  settleAd: () => void;
 }
 
 /** Build deps + call log; `leaveRoom` and `requestAdBreak` are overridable. */
@@ -28,7 +26,6 @@ function harness(over: Partial<ReturnToPortDeps> = {}): Harness {
   const h: Harness = {
     calls,
     reloads: 0,
-    settleAd: () => undefined,
     deps: {
       requestAdBreak: () => {
         calls.push('adBreak');
@@ -182,6 +179,24 @@ describe('makeReturnToPort — the chain always settles to a reload', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(a.reloads).toBe(1);
     expect(b.reloads).toBe(1);
+  });
+
+  // onStart runs AFTER the latch is set, so an unguarded throw there would
+  // escape with the latch stuck on and no chain behind it — permanently
+  // stranded, exactly what the "never throws; always exactly one reload"
+  // contract forbids.
+  it('onStart throws: the chain still runs to exactly one reload', async () => {
+    const h = harness({
+      onStart: () => {
+        h.calls.push('start');
+        throw new Error('teardown hygiene exploded');
+      },
+    });
+    const go = makeReturnToPort(h.deps);
+    expect(() => go()).not.toThrow();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.calls).toEqual(['start', 'adBreak', 'leave', 'reload']);
+    expect(h.reloads).toBe(1);
   });
 
   it('runs without an onStart hook', async () => {

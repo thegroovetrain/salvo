@@ -2,7 +2,7 @@
 title: 'Gun-family shell speed standardization + Return to Port fix'
 type: 'bugfix'
 created: '2026-07-25'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '7df936ae4bf2031c91d242252ea3ecdaa8bed347'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -83,6 +83,23 @@ warnings: [multiple-goals, oversized]
 
 ## Review Triage Log
 
+### 2026-07-25 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 2, low 5)
+- defer: 1: (high 0, medium 0, low 1)
+- reject: 4
+- addressed_findings:
+  - `[medium]` `[patch]` Refit modal never hidden at match end (stayed painted/interactive over results, digit picks still sent spends) — onResults now hides it before showResults (main.ts).
+  - `[medium]` `[patch]` ESC flips meaning the instant results land (a press aimed at the refit modal could instantly tear down to reload) — 400ms arming grace `CLIENT_CONFIG.results.keyGraceMs` gates results-phase ESC/Enter; button click ungated.
+  - `[low]` `[patch]` `returnToPort.ts` latch set before unguarded `onStart()` — a sync throw would strand permanently; wrapped in try/catch + regression test.
+  - `[low]` `[patch]` Rewritten collision broadside test asserted a speed floor (spurious failure if speed retuned < ~260 u/s) — crossing half-length now `Math.max(maxTravel/2, beam/2 + radius + 1)`, floor assertion deleted.
+  - `[low]` `[patch]` Focused results BUTTON suppresses the keyboard chokepoint (`textEntryFocused` matches BUTTON; mousedown-drag-off left ESC dead) — mousedown preventDefault on the button (the 2-1 ledger's recommended convention).
+  - `[low]` `[patch]` Results test pinned "first button in overlay" — button got stable id `results-return`, test selects by id.
+  - `[low]` `[patch]` Dead `settleAd` scaffolding in returnToPort.test.ts — deleted.
+
+Rejected (4): outer deadline around the ad break (safeAdapter invariant holds at its single construction site); dual-latch future-caller hazard (speculative — all callers route through `returnToPort(g)`); 1s leave race → transient ghost seat (self-mitigated: room disposes seconds later); version-bump classification (orchestrator ruling 0.17.1 stands, surfaced to Eric in the run report). Deferred (1): RETURN TO PORT activation feedback → deferred-work.md. Cross-model picture: Codex — no findings, build-on-it; both Fable hunters — zero CONFIRMED player-facing defects; all patches were hardening-tier.
+
 ## Design Notes
 
 Speed ruling rationale (for Eric's veto): 300 u/s = 6.7× fastest hull (45); flight 650u→2.17s (max range stays dodgeable: TB displaces ~98u ≫ 15u burst), 330u→1.1s (lead rewarded; BB displaces 38u — class identity), 150u→0.5s. Real-world early-era scale (~20×) was flagged by Eric as likely too fast; 300 sits mid-band of the 250–400 counterplay window. Cannon identity survives via damage 50 / burst 30 / reload 15s. Swept collision (`sim/shell.ts` segment tests) is speed-safe to ~6600 u/s (perception skip bound), so 300 is deep in safe territory.
@@ -92,3 +109,30 @@ Speed ruling rationale (for Eric's veto): 300 u/s = 6.7× fastest hull (45); fli
 **Commands:**
 - `npm run check` -- expected: lint + tsc ×3 + full suite green (was 1474+ tests; count grows with new client tests)
 - `npm test -w client -- returnToPort` -- expected: new suite green; hang-case test demonstrably fails if the race is removed
+
+## Auto Run Result
+
+**Summary:** Standardized the gun-family muzzle velocity (standard gun 130 / battleship cannon 200 / star shells 130 → one shared 300 u/s; max-range flight 5.0s → 2.2s) and fixed the RETURN TO PORT dead-end (room.leave() raced vs 1000ms so the chain always reaches location.reload(); Enter/ESC on results per UX-DR27 with a 400ms arming grace; refit modal hidden at match end). v0.17.0 → 0.17.1.
+
+**Files changed:**
+- `shared/src/constants.ts` — three shellSpeed literals → 300 + standardized comments
+- `shared/src/__tests__/barrel.test.ts` — literal pins re-pinned to 300
+- `shared/src/__tests__/collision.test.ts` — worst-case sweep now covers the whole gun family; obsolete per-tick-travel<beam ceiling replaced with swept-detection proofs (grazing chord, thinnest-hull broadside), speed-floor-safe
+- `server/src/__tests__/{cannon,starShells,combat}.test.ts` — stale speed prose refreshed (comments only)
+- `server/src/__tests__/__snapshots__/goldenFrames.test.ts.snap` — regenerated (speed-derived velocities / flight-tick counts only, audited)
+- `client/src/app/returnToPort.ts` — NEW: latched, always-settling return chain (ad break → bounded leave → reload), onStart throw-safe
+- `client/src/main.ts` — chain wired via makeGameReturnToPort; results-phase Enter/ESC handlers with arming grace; modal hidden + resultsShownAt stamped on results arrival
+- `client/src/input/keyboard.ts` — Enter/NumpadEnter bound into the chokepoint (onConfirm hook)
+- `client/src/ui/results.ts` — stable `results-return` button id; mousedown preventDefault (keeps chokepoint alive)
+- `client/src/config.ts` — CLIENT_CONFIG.results.keyGraceMs = 400
+- `client/src/__tests__/{returnToPort,results,keyboard}.test.ts` — 12 new returnToPort chain tests (incl. the never-settles regression pin), DOM wiring pins, Enter chokepoint pins
+- `VERSION` + `package.json` — 0.17.1; `_bmad-output/gds-workflow-status.yaml` — cycle note
+
+**Review breakdown:** 2 Fable hunters + Codex cross-model (Codex: no findings, build-on-it). 7 patches applied (2 medium, 5 low — all hardening-tier, zero confirmed player-facing defects), 1 deferred (RETURN TO PORT activation feedback — design surface, Eric's call), 4 rejected.
+
+**Verification:** `npm run check` EXIT=0 — lint 0 errors (2 pre-existing max-lines warnings), tsc ×3 clean, tests 261 + 647 + 581 = 1489 (was 1474). Regression pin proven: reload not called before the 1000ms race, called after.
+
+**Residual risks / for Eric's veto:**
+- The 300 u/s value is a Fable ruling under Eric's delegation (rationale in Design Notes; the constant is a one-line retune).
+- Version classification: 0.17.1 treats this as bugfix+tuning; if Eric counts a balance retune as a feature, it should have been 0.18.0.
+- Feel of 400ms results-key grace and the 1000ms leave race are CLIENT_CONFIG/exported constants, both trivially tunable.

@@ -69,7 +69,14 @@ export function makeReturnToPort(deps: ReturnToPortDeps): () => void {
   return () => {
     if (returning) return; // second activation: the first chain owns the reload
     returning = true;
-    deps.onStart?.();
+    // The latch is already set, so a synchronous throw here would escape with
+    // no chain behind it and strand the player permanently — swallow it and
+    // keep the "always exactly one reload" contract.
+    try {
+      deps.onStart?.();
+    } catch {
+      /* teardown hygiene is best-effort; the reload is the real teardown */
+    }
     void settle(() => deps.requestAdBreak())
       .then(() => Promise.race([settle(() => deps.leaveRoom()), delay(leaveMs)]))
       .finally(() => deps.reload());

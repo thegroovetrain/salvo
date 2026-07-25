@@ -312,6 +312,19 @@ export const CLIENT_CONFIG = {
     wheelRate: 0.0008,
   },
 
+  /** End-of-match results overlay feel. */
+  results: {
+    /**
+     * ms — arming grace before results-phase ESC/Enter drive RETURN TO PORT.
+     * The refit modal can be open the instant results land; an ESC/Enter the
+     * player aimed at THAT modal would otherwise land on the freshly-shown
+     * results screen and instantly tear the match down before they read it.
+     * The button click path has no grace (a click can't be aimed at a modal
+     * that is already gone).
+     */
+    keyGraceMs: 400,
+  },
+
   /** Netcode render delays (ms behind estimated server time). */
   net: {
     /** Remote contacts interpolate this far behind serverNow(). */

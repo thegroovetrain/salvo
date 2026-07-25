@@ -150,11 +150,15 @@ describe('swept-shell no tunneling (worst case from CONFIG)', () => {
     // one side and ends clear on the other within a single tick's travel.
     const widest = poly.reduce((a, p) => (Math.abs(p.y) > Math.abs(a.y) ? p : a), poly[0]);
     const world = transformPolygon(poly, 0, 0, 0); // heading 0 → local frame
-    const p0 = { x: widest.x, y: -maxTravel / 2 };
-    const p1 = { x: widest.x, y: maxTravel / 2 };
+    // Demo length — the swept proof must be constructable at ANY CONFIG speed,
+    // so it uses the real per-tick travel whenever that is the larger of the
+    // two (a future speed retune below the hull's beam must not fail this
+    // test's precondition; the sweep behavior under test is unchanged).
+    const half = Math.max(maxTravel / 2, beam / 2 + radius + 1);
+    const p0 = { x: widest.x, y: -half };
+    const p1 = { x: widest.x, y: half };
     // Genuinely swept-only: neither endpoint is inside or within the shell's own
     // radius of the hull, yet the segment passes clean through the beam.
-    expect(maxTravel / 2).toBeGreaterThan(beam / 2 + radius);
     for (const p of [p0, p1]) {
       expect(pointInPolygon(p, world)).toBe(false);
       expect(pointPolygonDistance(p, world)).toBeGreaterThan(radius);
