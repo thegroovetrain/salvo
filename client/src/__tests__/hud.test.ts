@@ -1,9 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG, boostedKinematics, effectiveStats, loadoutFor, zeroUpgrades } from '@salvo/shared';
+import { CONFIG, boostedKinematics } from '@salvo/shared';
 import {
-  chipLabel,
-  chipUsesCooldownGrammar,
   hpColor,
+  vitalsLayout,
   reloadFraction,
   detentIndexOf,
   detentLabel,
@@ -109,54 +108,6 @@ describe('speedLadderFraction — ACTUAL speed on the [-1,1] telegraph axis', ()
   });
 });
 
-// --- Story 1.6: loadout-driven chip labels + boost HUD grammar ---
-
-describe('chipLabel — the LOADOUT-driven chip row', () => {
-  /** The chip labels a hull's loadout produces, in slot order (empty slots skipped). */
-  function labelsFor(cls: 'torpedoBoat' | 'battleship' | 'mineLayer'): string[] {
-    const stats = effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades());
-    return loadoutFor(cls, stats)
-      .map((slot, i) => (slot.equipmentId === null ? null : chipLabel(i, slot.equipmentId)))
-      .filter((t): t is string => t !== null);
-  }
-
-  it('each hull labels its own fit with the v1 key glyphs: keyless gun, Q/E specials (Story 2.1)', () => {
-    expect(labelsFor('torpedoBoat')).toEqual(['GUNS', 'Q TORP', 'E BOOST']);
-    expect(labelsFor('battleship')).toEqual(['GUNS', 'Q CANNON', 'E FLARE']);
-    expect(labelsFor('mineLayer')).toEqual(['GUNS', 'Q MINE', 'E DECOY']);
-  });
-
-  it('a fitted extra slot would carry the R glyph (slot 3 — inert-while-empty today)', () => {
-    expect(chipLabel(3, 'torpedo')).toBe('R TORP');
-  });
-});
-
-describe('chip grammar — cooldown sweep vs segmented pool, keyed on equipment identity', () => {
-  it('the gun and the pure-cooldown abilities (boost, decoy) read as cooldowns', () => {
-    expect(chipUsesCooldownGrammar('gun')).toBe(true);
-    expect(chipUsesCooldownGrammar('speedBoost')).toBe(true); // ability charge
-    expect(chipUsesCooldownGrammar('decoyBuoy')).toBe(true); // Story 1.8: single-charge ability
-  });
-
-  it('the Battleship cannon + star shells read as pure cooldowns (Story 1.7: 1-round skillshots)', () => {
-    // Gun-style 1-round long-cooldown skillshots that no ammo grant grows —
-    // cooldown grammar, unlike the growable torpedo/mine pools below.
-    expect(chipUsesCooldownGrammar('cannon')).toBe(true);
-    expect(chipUsesCooldownGrammar('starShells')).toBe(true);
-  });
-
-  it('GROWABLE pools keep the segmented-pool grammar regardless of pool size', () => {
-    // The torpedo pool is maxAmmo 1 at base and grows on a torpedoAmmo grant;
-    // the mine pool likewise grows on a mineAmmo grant. Both must stay segmented
-    // pools, never flip to the cooldown sweep — grammar keys on identity, not on
-    // pool size, and NOT on the weapon/ability flag: the mine is now an instant
-    // ability (Story 1.8) yet keeps segments because its pool still grows.
-    expect(CONFIG.torpedo.maxAmmo).toBe(1); // the trap this pins against
-    expect(chipUsesCooldownGrammar('torpedo')).toBe(false);
-    expect(chipUsesCooldownGrammar('mine')).toBe(false); // segmented despite being an ability
-  });
-});
-
 describe('speed needle under boost — the denominator is the boosted cap while active', () => {
   const KIN = CONFIG.shipClasses.torpedoBoat.kinematics;
   const BONUS = CONFIG.speedBoost.speedBonus;
@@ -187,5 +138,48 @@ describe('ability denied feedback — a cooling press drives the EXISTING pulse 
 
   it('a ready press is not denied (it opens the optimistic window instead)', () => {
     expect(abilityPressDenied(true, true)).toBe(false);
+  });
+});
+
+// --- Story 2.2: the own-vitals cluster moved bottom-LEFT -> bottom-RIGHT ---
+// (amendment 12 — relocation only, freeing the ratified hotbar corner). The
+// stack is laid out bottom-up: HP bar, telegraph cluster, PTS prompt, IN STORM.
+
+describe('vitalsLayout — the bottom-right own-vitals stack (amendment 12)', () => {
+  const FLOOR = { w: 1366, h: 768 }; // the supported viewport floor
+
+  it('anchors every element in the RIGHT half of the viewport', () => {
+    const L = vitalsLayout(FLOOR.w, FLOOR.h);
+    for (const x of [L.hp.x, L.cluster.x, L.pts.x, L.storm.x]) {
+      expect(x).toBeGreaterThan(FLOOR.w / 2);
+    }
+    // ...and nothing runs off the right edge.
+    expect(L.hp.x + L.hp.w).toBeLessThanOrEqual(FLOOR.w);
+    expect(L.cluster.x + L.cluster.w).toBeLessThanOrEqual(FLOOR.w);
+  });
+
+  it('stacks HP bar / cluster / PTS / IN STORM bottom-up with NO overlap', () => {
+    const L = vitalsLayout(FLOOR.w, FLOOR.h);
+    expect(L.hp.y + L.hp.h).toBeLessThanOrEqual(FLOOR.h); // inside the viewport
+    expect(L.cluster.y + L.cluster.h).toBeLessThan(L.hp.y); // cluster clears the bar
+    expect(L.pts.y).toBeLessThan(L.cluster.y); // prompt above the cluster
+    expect(L.storm.y).toBeLessThan(L.pts.y); // warning above the prompt
+    expect(L.storm.y).toBeGreaterThan(0);
+  });
+
+  it('keeps the whole stack clear of the bottom-LEFT hotbar corner at the floor viewport', () => {
+    const L = vitalsLayout(FLOOR.w, FLOOR.h);
+    const hb = CLIENT_CONFIG.hotbar;
+    // Widest the hotbar zone can get: gutter + key chip + gap + slot + label column.
+    const hotbarRight = hb.left + hb.keyChip + hb.keyGap + hb.slot + hb.labelGap + 200;
+    expect(Math.min(L.hp.x, L.cluster.x, L.pts.x, L.storm.x)).toBeGreaterThan(hotbarRight);
+  });
+
+  it('tracks the viewport (a taller/wider screen moves the whole stack with it)', () => {
+    const a = vitalsLayout(1366, 768);
+    const b = vitalsLayout(1920, 1080);
+    expect(b.hp.x - a.hp.x).toBe(1920 - 1366);
+    expect(b.hp.y - a.hp.y).toBe(1080 - 768);
+    expect(b.cluster.y - a.cluster.y).toBe(1080 - 768);
   });
 });

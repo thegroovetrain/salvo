@@ -642,3 +642,79 @@ describe('KeyboardInput — chokepoint hygiene', () => {
     expect(textEntryFocused()).toBe(true);
   });
 });
+
+// --- Story 2.2: slotAction — the key-equivalent entry hotbar CLICKS reuse ---
+// Amendment 11: a click on a slot IS its key. Same suspension, same fail-closed
+// fitted check, same FIFO (cap feedback included) — plus the one slot no key
+// addresses: the keyless gun.
+
+describe('KeyboardInput.slotAction — hotbar clicks reuse the EXACT key semantics', () => {
+  let kb: KeyboardInput | undefined;
+  afterEach(() => kb?.detach());
+
+  const tbAbilitySlot = (slot: number): boolean => slot === BOOST;
+
+  it('a weapon slot toggles the prime, exactly like its key', () => {
+    kb = new KeyboardInput({ isSlotFitted: ALL_FITTED });
+    kb.slotAction(TORP);
+    expect(kb.primedSlot).toBe(TORP);
+    kb.slotAction(TORP); // same slot again reverts to the gun
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+  });
+
+  it('the GUN slot (which no key addresses) selects the gun', () => {
+    kb = new KeyboardInput({ isSlotFitted: (slot) => slot <= 3 });
+    kb.slotAction(TORP);
+    expect(kb.primedSlot).toBe(TORP);
+    kb.slotAction(SLOT_GUN);
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+  });
+
+  it('an ability slot activates through the SAME FIFO (never primes)', () => {
+    const presses: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: ALL_FITTED,
+      isAbilitySlot: tbAbilitySlot,
+      onAbility: (slot) => presses.push(slot),
+    });
+    kb.slotAction(BOOST);
+    expect(presses).toEqual([BOOST]);
+    expect(kb.pendingActivationCount).toBe(1);
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+  });
+
+  it('a press against the FULL queue is dropped WITH the capped feedback (never silence)', () => {
+    const capped: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: ALL_FITTED,
+      isAbilitySlot: tbAbilitySlot,
+      onAbilityCapped: (slot) => capped.push(slot),
+    });
+    for (let i = 0; i < 5; i++) kb.slotAction(BOOST); // SLOT_COUNT (4) fit, the 5th is capped
+    expect(kb.pendingActivationCount).toBe(4);
+    expect(capped).toEqual([BOOST]);
+  });
+
+  it('is SUSPENDED while the refit modal is open (clicks are dead, like the keys)', () => {
+    const presses: number[] = [];
+    kb = new KeyboardInput({
+      isSlotFitted: ALL_FITTED,
+      isAbilitySlot: tbAbilitySlot,
+      isModalOpen: () => true,
+      onAbility: (slot) => presses.push(slot),
+    });
+    kb.slotAction(TORP);
+    kb.slotAction(BOOST);
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+    expect(presses).toEqual([]);
+  });
+
+  it('is inert on an unfitted slot, and FAILS CLOSED with no fitted hook wired', () => {
+    kb = new KeyboardInput({ isSlotFitted: (slot) => slot !== 3 });
+    kb.slotAction(3); // the empty extra slot
+    expect(kb.primedSlot).toBe(SLOT_GUN);
+    const bare = new KeyboardInput();
+    bare.slotAction(TORP);
+    expect(bare.primedSlot).toBe(SLOT_GUN);
+  });
+});

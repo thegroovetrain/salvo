@@ -37,10 +37,11 @@ function withMouse(
   run: (m: MouseInput, canvas: HTMLElement) => void,
   nowServer?: () => number,
   isLocked?: () => boolean,
+  onSlotPress?: (p: { x: number; y: number }) => boolean,
 ): void {
   const canvas = document.createElement('canvas');
   document.body.appendChild(canvas);
-  const m = new MouseInput(nowServer, isLocked);
+  const m = new MouseInput(nowServer, isLocked, onSlotPress);
   m.attach(canvas);
   try {
     run(m, canvas);
@@ -185,5 +186,119 @@ describe('mouse aim via camera roundtrip', () => {
     const ship = cam.center;
     const aim = worldAim(ship.x, ship.y, cam.screenToWorld(screen));
     expect(aim).toBeCloseTo(Math.atan2(target.y - ship.y, target.x - ship.x), 9);
+  });
+});
+
+// --- Story 2.2: the hotbar gate (amendment 11) -------------------------------
+// A canvas pointerdown over a hotbar SLOT is that slot's key-equivalent action
+// and is SWALLOWED — it must never reach the fire path. Pixi doesn't retarget
+// events, so the hotbar's clicks arrive with the canvas as their target; this
+// injected predicate is the only thing standing between them and the gun.
+
+describe('MouseInput — the injected hotbar gate', () => {
+  it('swallows a canvas press the hotbar claims (no click counted, no fire stamp)', () => {
+    withMouse(
+      (m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 0, clientX: 60, clientY: 600 });
+        expect(m.clickCount).toBe(0); // the gun never fires at the water beneath
+        expect(m.lastClickT).toBe(0);
+      },
+      () => 4242,
+      undefined,
+      () => true,
+    );
+  });
+
+  it('lets a press the hotbar does NOT claim fire exactly as before', () => {
+    withMouse(
+      (m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 0, clientX: 800, clientY: 400 });
+        expect(m.clickCount).toBe(1);
+      },
+      undefined,
+      undefined,
+      () => false,
+    );
+  });
+
+  it('hands the gate the pointerdown position (not a stale move position)', () => {
+    const seen: { x: number; y: number }[] = [];
+    withMouse(
+      (_m, canvas) => {
+        fire(canvas, 'pointermove', { clientX: 5, clientY: 5 });
+        fire(canvas, 'pointerdown', { button: 0, clientX: 71, clientY: 604 });
+        expect(seen).toEqual([{ x: 71, y: 604 }]);
+      },
+      undefined,
+      undefined,
+      (p) => {
+        seen.push({ x: p.x, y: p.y });
+        return false;
+      },
+    );
+  });
+
+  it('is never consulted while the refit modal holds the lockout (both suspended)', () => {
+    let consulted = 0;
+    withMouse(
+      (m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 0, clientX: 60, clientY: 600 });
+        expect(consulted).toBe(0);
+        expect(m.clickCount).toBe(0);
+      },
+      undefined,
+      () => true,
+      () => {
+        consulted += 1;
+        return true;
+      },
+    );
+  });
+
+  it('defaults to no gate (a bare MouseInput fires on every canvas press)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0 });
+      expect(m.clickCount).toBe(1);
+    });
+  });
+});
+
+// --- Story 2.2: pointer PRESENCE (hover-only, never the aim path) -------------
+
+describe('MouseInput.pointerInside — hover presence for the hotbar tooltip', () => {
+  it('starts false and turns true on the first pointermove', () => {
+    withMouse((m, canvas) => {
+      expect(m.pointerInside).toBe(false);
+      fire(canvas, 'pointermove', { clientX: 10, clientY: 10 });
+      expect(m.pointerInside).toBe(true);
+    });
+  });
+
+  it('clears when the pointer leaves the WINDOW (pointerout with no relatedTarget)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointermove', { clientX: 10, clientY: 10 });
+      window.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })); // relatedTarget null
+      expect(m.pointerInside).toBe(false);
+    });
+  });
+
+  it('survives a pointerout INTO another element (that is not leaving the window)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointermove', { clientX: 10, clientY: 10 });
+      const other = document.createElement('div');
+      document.body.appendChild(other);
+      canvas.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: other }));
+      expect(m.pointerInside).toBe(true);
+      other.remove();
+    });
+  });
+
+  it('clears on window blur, and NEVER disturbs screenPos (aim keeps the last position)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointermove', { clientX: 123, clientY: 45 });
+      window.dispatchEvent(new Event('blur'));
+      expect(m.pointerInside).toBe(false);
+      expect(m.screenPos).toEqual({ x: 123, y: 45 }); // the aim path is untouched
+    });
   });
 });
