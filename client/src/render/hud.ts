@@ -111,9 +111,17 @@ const EQUIPMENT_LABEL: Record<EquipmentId, string> = {
   decoyBuoy: 'DECOY', // Story 1.8: the Mine Layer's radar-double buoy ability
 };
 
-/** Pure: one chip's label — "1 GUNS", "3 BOOST", … (key hint = slot index + 1). */
+/** Slot → bound key glyph under the fixed v1 scheme (Story 2.1): the gun
+ *  (slot 0) is keyless — always selected, no key of its own — Q/E are the two
+ *  class specials, R the pickup/extra slot. One mono key-chip family: these
+ *  glyphs render in the same mono treatment as the refit modal's digit chips
+ *  and the PTS prompt. */
+const SLOT_KEY_GLYPHS = ['', 'Q', 'E', 'R'] as const;
+
+/** Pure: one chip's label — "GUNS" (keyless gun), "Q TORP", "E BOOST", … */
 export function chipLabel(slot: number, id: EquipmentId): string {
-  return `${slot + 1} ${EQUIPMENT_LABEL[id]}`;
+  const key = SLOT_KEY_GLYPHS[slot] ?? '';
+  return key === '' ? EQUIPMENT_LABEL[id] : `${key} ${EQUIPMENT_LABEL[id]}`;
 }
 
 /**
@@ -174,7 +182,7 @@ export interface OwnStatus {
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
   cls: ShipClassId; // own class — drives hull-length lookups (firing UX)
-  pts: number; // banked upgrade points (drives the "PTS ×N — CTRL" prompt)
+  pts: number; // banked upgrade points (drives the "PTS ×N — TAB" prompt)
   /** Cached effectiveStats(cls, upg) — ALL HUD denominators (max hp, speed
    *  ladder, ammo pool sizes, reload durations) read from here (Stage D). */
   stats: EffectiveStats;
@@ -187,9 +195,10 @@ export interface OwnStatus {
   boostActive: boolean;
 }
 
-/** Pure: the banked-points prompt above the weapon chips ('' hides it at 0). */
+/** Pure: the banked-points prompt above the weapon chips ('' hides it at 0).
+ *  TAB is the refit-modal toggle (Story 2.1 — supersedes the CTRL window). */
 export function pointsLine(n: number): string {
-  return n <= 0 ? '' : `PTS ×${n} — CTRL`;
+  return n <= 0 ? '' : `PTS ×${n} — TAB`;
 }
 
 /** View model for one ammo chip: pool count, pool size, reload progress [0,1]. */
@@ -389,7 +398,7 @@ export class Hud {
     if (!visible) this.ptsLabel.visible = false; // spectate: no prompt (update() re-shows it when alive)
   }
 
-  /** Amber "PTS ×N — CTRL" prompt above the bottom-right chip cluster (hidden at 0). */
+  /** Amber "PTS ×N — TAB" prompt above the bottom-right chip cluster (hidden at 0). */
   private updatePoints(status: OwnStatus, screenW: number, screenH: number): void {
     const line = pointsLine(status.pts);
     if (line !== this.lastPtsLine) {

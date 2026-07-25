@@ -14,7 +14,6 @@
 import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
-  HEAL_CHOICE,
   UPGRADE_IDS,
   boostedKinematics,
   burstVictims,
@@ -173,6 +172,19 @@ export interface ShipRecord {
   hp: number;
   alive: boolean;
   input: InputMsg; // latest applied input (validated + clamped)
+  /**
+   * EVERY input accepted for this ship since the previous tick, in seq order
+   * (Story 2.1 — the transport-coalescing press-swallow fix). Drained from the
+   * InputStore by applyInputs each tick; fireControl / activationControl
+   * evaluate each entry's fire/act intent so two presses landing inside one
+   * 50ms tick BOTH fire or get a wire denial (kinematics stay latest-wins via
+   * `input`). Bounded by INTENT_QUEUE_CAP — which EQUALS the fixed-window rate
+   * cap (INPUT_RATE_CAP), because that window admits a burst of up to
+   * INPUT_RATE_CAP accepted inputs inside a single tick, so the queue must be
+   * able to hold every one of them (an average-sized cap would silently swallow
+   * the middle of a jitter flush).
+   */
+  tickIntents: InputMsg[];
   lastAckSeq: number; // highest input seq applied to the sim
   /**
    * Highest InputMsg.fireSeq fireControl has consumed. A stored value newer
@@ -388,6 +400,7 @@ export class World {
       hp: stats.maxHp,
       alive: true,
       input: neutralInput(),
+      tickIntents: [],
       lastAckSeq: 0,
       lastFireSeq: 0,
       lastActSeq: 0,
@@ -576,30 +589,16 @@ export class World {
    * malformed choice returns false with the queue untouched. choice 0..2
    * spends the FRONT offer's slot; upgrades ARE spendable while dead (builds
    * persist across waiting-phase respawns — same precedent as the dead
-   * killer's reward). HEAL_CHOICE routes to spendHeal.
+   * killer's reward). The interregnum REPAIR/heal spend (choice 3) was deleted
+   * in Story 2.1 (Eric ruling 2026-07-24) — any out-of-range choice, the old
+   * HEAL_CHOICE included, is rejected with the point untouched.
    */
   spendPoint(id: string, rawChoice: unknown): boolean {
     const ship = this.ships.get(id);
     if (!ship || ship.offers.length === 0) return false;
     if (typeof rawChoice !== 'number' || !Number.isInteger(rawChoice)) return false;
-    if (rawChoice === HEAL_CHOICE) return this.spendHeal(ship);
     if (rawChoice < 0 || rawChoice > 2) return false;
     this.applyUpgrade(ship, ship.offers.shift()![rawChoice]);
-    return true;
-  }
-
-  /**
-   * Heal spend: alive-only and rejected at full hp — either rejection
-   * PRESERVES the point (a misfired heal must not eat it). Heals
-   * min(healHp, missing hp), consumes the front offer, and emits the
-   * self-private heal event carrying the ACTUAL clamped delta.
-   */
-  private spendHeal(ship: ShipRecord): boolean {
-    if (!ship.alive || ship.hp >= ship.stats.maxHp) return false;
-    const healed = Math.min(CONFIG.upgradePoints.healHp, ship.stats.maxHp - ship.hp);
-    ship.hp += healed;
-    ship.offers.shift();
-    this.pending.push({ k: 'heal', id: ship.id, amount: healed });
     return true;
   }
 
@@ -688,9 +687,12 @@ export class World {
     return null; // 'dead' / 'empty-slot' — gate refusals stay server-internal
   }
 
-  /** Copy each client's latest stored input onto its ship. */
+  /** Copy each client's latest stored input onto its ship (kinematics stay
+   *  latest-wins) and drain this tick's accepted-intent queue (Story 2.1) so
+   *  fireControl / activationControl can evaluate EVERY accepted press. */
   private applyInputs(): void {
     for (const ship of this.ships.values()) {
+      ship.tickIntents = this.inputs.drainIntents(ship.id);
       const inp = this.inputs.get(ship.id);
       if (inp) {
         ship.input = inp;
@@ -979,52 +981,85 @@ export class World {
   /**
    * Tick EVERY fitted slot's equipment for every ship (regardless of selection
    * — a weapon reloads while another is in use; empty slots are skipped), then
-   * route this tick's click — if any — to the slot the click names
-   * (input.slot; 0 = the gun, the permanently-selected default — a primed
-   * skillshot click carries its slot) through the single sinking-activation
-   * gate. One shot per
-   * click: a fireSeq newer than lastFireSeq is one pending click, and it is
-   * ALWAYS consumed this tick (even dead or denied), so clicks during reload
-   * are consumed, not queued. Equipment reaches the World only through the
-   * narrow ActivationContext (spawn ballistics / drop mines).
+   * route this tick's clicks to the slot each click names (input.slot; 0 = the
+   * gun, the permanently-selected default — a primed skillshot click carries
+   * its slot) through the single sinking-activation gate. One shot per click:
+   * a fireSeq newer than lastFireSeq is one pending click, and it is ALWAYS
+   * consumed this tick (even dead or denied), so clicks during reload are
+   * consumed, not queued. Story 2.1: EVERY accepted input's click intent is
+   * evaluated, in seq order, from the drained tickIntents queue — two clicks
+   * landing inside one tick both fire (or get their own wire denial) with each
+   * click's OWN aim/aimDist/fireT, instead of latest-wins swallowing the older
+   * press. The queue holds EVERY accepted input (INTENT_QUEUE_CAP ===
+   * INPUT_RATE_CAP, so a jitter burst can never overflow it); the trailing
+   * latest-input pass remains ONLY for the direct-assignment (test) path that
+   * writes ship.input without going through the store, and the lastFireSeq
+   * max-advance keeps it a no-op whenever the queue already covered the press.
+   * Equipment reaches the World only through the narrow
+   * ActivationContext (spawn ballistics / drop mines).
    */
   private fireControl(dtMs: number): void {
     for (const ship of this.ships.values()) {
       for (const slot of ship.loadout) {
         if (slot.equipmentId !== null) EQUIPMENT[slot.equipmentId].tick(ship, slot, dtMs);
       }
-      const clicked = ship.input.fireSeq > ship.lastFireSeq;
-      ship.lastFireSeq = Math.max(ship.lastFireSeq, ship.input.fireSeq);
-      if (!ship.alive || !clicked) continue;
-      // The CLICK channel dispatches WEAPONS ONLY — the mirror of
-      // activationControl's ability wall (Story 1.6). A forged click naming an
-      // ability or empty slot (e.g. a TB's speedBoost in slot 2) is silently
-      // inert: abilities activate via actSeq, and letting a click reach
-      // boostEquipment.activate would burn the charge AND stamp lastFireT off
-      // the wrong channel. An out-of-range/empty slot is inert here too (it was
-      // an 'empty-slot' gate denial before — same no-op, no lastFireT).
-      const id = fittedEquipment(ship.loadout, ship.input.slot);
-      if (id === null || !EQUIPMENT_IS_WEAPON[id]) continue;
-      // D1: validate the click's claimed fire time BEFORE activation. The clamp
-      // is the trust boundary (never earlier than now - min(RTT+jitter, ceiling),
-      // never before the previous ACCEPTED fire time).
-      const fireT = clampFireTime({
-        claimed: ship.input.fireT,
-        now: this.now,
-        rttMs: ship.rttMs,
-        jitterMs: CONFIG.net.fireJitterAllowanceMs,
-        ceilingMs: CONFIG.net.fireBackdateCeilingMs,
-        prevFireT: ship.lastFireT,
-      });
-      const result = this.sinkingActivationGate(ship, ship.input.slot, fireT);
-      // Only a SUCCESSFUL activation consumes fire-time monotonicity — a denial
-      // (empty pool, empty slot) must not floor a later honest back-date.
-      if (result.ok) ship.lastFireT = fireT;
-      // A refused click becomes a SELF-PRIVATE wire denial (Story 1.10): the
-      // press identity is the click's fireSeq, so the client's predicted
-      // denial (if any) dedups the echo and a stale-ammo race is surfaced
-      // late-but-explicit instead of silently swallowed.
-      else this.queueDenial(ship, ship.input.slot, ship.input.fireSeq, result.reason, 'weapon');
+      for (const intent of ship.tickIntents) this.consumeClick(ship, intent);
+      this.consumeClick(ship, ship.input);
+    }
+  }
+
+  /**
+   * Evaluate ONE accepted input's click intent (fireSeq monotonic grammar).
+   * Consumption is unconditional — lastFireSeq advances even dead or denied —
+   * and each press is evaluated at most once (a later duplicate reads stale).
+   */
+  private consumeClick(ship: ShipRecord, input: InputMsg): void {
+    const clicked = input.fireSeq > ship.lastFireSeq;
+    ship.lastFireSeq = Math.max(ship.lastFireSeq, input.fireSeq);
+    if (!ship.alive || !clicked) return;
+    // The CLICK channel dispatches WEAPONS ONLY — the mirror of
+    // activationControl's ability wall (Story 1.6). A forged click naming an
+    // ability or empty slot (e.g. a TB's speedBoost in slot 2) is silently
+    // inert: abilities activate via actSeq, and letting a click reach
+    // boostEquipment.activate would burn the charge AND stamp lastFireT off
+    // the wrong channel. An out-of-range/empty slot is inert here too (it was
+    // an 'empty-slot' gate denial before — same no-op, no lastFireT).
+    const id = fittedEquipment(ship.loadout, input.slot);
+    if (id === null || !EQUIPMENT_IS_WEAPON[id]) return;
+    // D1: validate the click's claimed fire time BEFORE activation. The clamp
+    // is the trust boundary (never earlier than now - min(RTT+jitter, ceiling),
+    // never before the previous ACCEPTED fire time).
+    const fireT = clampFireTime({
+      claimed: input.fireT,
+      now: this.now,
+      rttMs: ship.rttMs,
+      jitterMs: CONFIG.net.fireJitterAllowanceMs,
+      ceilingMs: CONFIG.net.fireBackdateCeilingMs,
+      prevFireT: ship.lastFireT,
+    });
+    // Equipment rows read aim/aimDist/slot off ship.input — evaluate this
+    // press under ITS OWN input so an older click keeps its own aim point.
+    const result = this.withInput(ship, input, () => this.sinkingActivationGate(ship, input.slot, fireT));
+    // Only a SUCCESSFUL activation consumes fire-time monotonicity — a denial
+    // (empty pool, empty slot) must not floor a later honest back-date.
+    if (result.ok) ship.lastFireT = fireT;
+    // A refused click becomes a SELF-PRIVATE wire denial (Story 1.10): the
+    // press identity is the click's fireSeq, so the client's predicted
+    // denial (if any) dedups the echo and a stale-ammo race is surfaced
+    // late-but-explicit instead of silently swallowed.
+    else this.queueDenial(ship, input.slot, input.fireSeq, result.reason, 'weapon');
+  }
+
+  /** Run `fn` with `input` temporarily installed as the ship's live input
+   *  (equipment rows read aim fields off ship.input); always restores the
+   *  latest input so kinematics stay latest-wins after fire control. */
+  private withInput<T>(ship: ShipRecord, input: InputMsg, fn: () => T): T {
+    const latest = ship.input;
+    ship.input = input;
+    try {
+      return fn();
+    } finally {
+      ship.input = latest;
     }
   }
 
@@ -1039,23 +1074,37 @@ export class World {
    * via fireSeq + a click, never actSeq, so the two counters never race within a
    * tick. Ability activation is NOT latency-compensated: the gate runs at `now`
    * (the default fireT), so the boost window opens at server apply time.
+   * Story 2.1: every accepted input's press intent is evaluated in seq order
+   * (tickIntents), so two presses coalescing into one tick both activate or
+   * get their own wire denial; the queue holds every accepted input
+   * (INTENT_QUEUE_CAP === INPUT_RATE_CAP — no overflow), so the trailing
+   * latest-input pass is the direct-assignment (test) backstop only, a no-op
+   * when the queue already covered the press.
    */
   private activationControl(): void {
     for (const ship of this.ships.values()) {
-      const activated = ship.input.actSeq > ship.lastActSeq;
-      ship.lastActSeq = Math.max(ship.lastActSeq, ship.input.actSeq);
-      if (!ship.alive || !activated) continue;
-      // actSeq targets ABILITIES only: a weapon or empty slot is a no-op (no
-      // state change), so a forged actSeq on a gun/torpedo slot fires nothing —
-      // the mirror of fireControl's weapon-only wall.
-      const id = fittedEquipment(ship.loadout, ship.input.actSlot);
-      if (id === null || EQUIPMENT_IS_WEAPON[id]) continue;
-      const result = this.sinkingActivationGate(ship, ship.input.actSlot);
-      // A refused press becomes a SELF-PRIVATE wire denial (Story 1.10) keyed
-      // on the press's actSeq — this is what makes the within-RTT double
-      // press (stale client predicts READY, server refuses) audible at last.
-      if (!result.ok) this.queueDenial(ship, ship.input.actSlot, ship.input.actSeq, result.reason, 'ability');
+      for (const intent of ship.tickIntents) this.consumePress(ship, intent);
+      this.consumePress(ship, ship.input);
     }
+  }
+
+  /** Evaluate ONE accepted input's ability-press intent (actSeq grammar) —
+   *  the consumeClick sibling; same unconditional consumption + at-most-once
+   *  evaluation. */
+  private consumePress(ship: ShipRecord, input: InputMsg): void {
+    const activated = input.actSeq > ship.lastActSeq;
+    ship.lastActSeq = Math.max(ship.lastActSeq, input.actSeq);
+    if (!ship.alive || !activated) return;
+    // actSeq targets ABILITIES only: a weapon or empty slot is a no-op (no
+    // state change), so a forged actSeq on a gun/torpedo slot fires nothing —
+    // the mirror of fireControl's weapon-only wall.
+    const id = fittedEquipment(ship.loadout, input.actSlot);
+    if (id === null || EQUIPMENT_IS_WEAPON[id]) return;
+    const result = this.withInput(ship, input, () => this.sinkingActivationGate(ship, input.actSlot));
+    // A refused press becomes a SELF-PRIVATE wire denial (Story 1.10) keyed
+    // on the press's actSeq — this is what makes the within-RTT double
+    // press (stale client predicts READY, server refuses) audible at last.
+    if (!result.ok) this.queueDenial(ship, input.actSlot, input.actSeq, result.reason, 'ability');
   }
 
   /**

@@ -1,7 +1,7 @@
 // GOLDEN FRAMES — the byte-identity gate for the perception refactor (Story
 // 1.1). A deterministic seeded scenario drives world.step() through every
-// signal channel — all 11 GameEvent kinds (blip, shell, torp, boom, burst,
-// dmg, sunk, spawn, upg, pt, heal) plus the contact and mine channels and a spectator
+// signal channel — all 10 GameEvent kinds (blip, shell, torp, boom, burst,
+// dmg, sunk, spawn, upg, pt) plus the contact and mine channels and a spectator
 // frame — and JSON.stringify's each frame buildFrame() produces (JSON key
 // insertion order == msgpack key order, which is load-bearing on the wire).
 // The serialized array is committed as a Vitest snapshot: the later refactor of
@@ -20,7 +20,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  HEAL_CHOICE,
   wrapPositive,
   type BallisticEvent,
   type FrameMsg,
@@ -37,11 +36,11 @@ const SIGHT = CONFIG.vision.sight;
 // by the first post-step window [0, δ).
 const SWEEP_DELTA = (TAU * DT) / CONFIG.vision.sweepPeriod;
 
-// The full set of channels the fixture MUST exercise: the 11 GameEvent kinds
-// plus the four contact-like channels (contact/mine/litzone/decoy) and the
-// spectator frame.
+// The full set of channels the fixture MUST exercise: the 10 GameEvent kinds
+// (Story 2.1 deleted 'heal' from the wire with the REPAIR spend) plus the four
+// contact-like channels (contact/mine/litzone/decoy) and the spectator frame.
 const EXPECTED_CHANNELS = [
-  'blip', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'heal', 'litzone', 'mine',
+  'blip', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'litzone', 'mine',
   'pt', 'shell', 'spawn', 'spec', 'sunk', 'torp', 'upg',
 ];
 
@@ -204,17 +203,20 @@ function scnCombat(g: Golden): void {
   cap(g, w, 'b'); // boom + dmg + sunk (victim)
 }
 
-/** upg + pt + heal — all self-private, delivered only to the acting ship. */
-function scnUpgHealPt(g: Golden): void {
+/** upg + pt — both self-private, delivered only to the acting ship. (The
+ *  'heal' event left the wire with the REPAIR spend — Story 2.1, PV 12; a
+ *  hostile {choice: 3} is pinned rejected here so the fixture proves the
+ *  post-heal wire.) */
+function scnUpgPt(g: Golden): void {
   const w = bareWorld(1003);
   const a = place(w, 'a', 0, 0);
   place(w, 'b', 400, 0); // far (out of a's sight); sunk to bank a a point
   w.sinkShip('b', 'a'); // sunk(b) + pt(a)
-  a.hp -= 30; // leave room for a heal
+  a.hp -= 30; // damaged — the old heal would have been acceptable here
   w.applyUpgrade(a, 'radarRange'); // upg(a)
-  expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true); // heal(a)
+  expect(w.spendPoint('a', 3)).toBe(false); // the deleted HEAL_CHOICE — rejected, nothing emitted
   w.step();
-  cap(g, w, 'a'); // spawn(a) + pt + upg + heal (b's spawn/sunk are out of sight)
+  cap(g, w, 'a'); // spawn(a) + pt + upg (b's spawn/sunk are out of sight)
 }
 
 /** mine channel: own mine always, enemy mine in sight, enemy mine in fog hidden. */
@@ -617,7 +619,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     const g: Golden = { frames: [], channels: new Set(), subcases: new Set() };
     scnSightSpawnBlip(g);
     scnCombat(g);
-    scnUpgHealPt(g);
+    scnUpgPt(g);
     scnMines(g);
     scnSpectator(g);
     scnStraddleBoom(g);

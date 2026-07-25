@@ -6,7 +6,6 @@ import {
   UPGRADE_IDS,
   UPGRADE_CATEGORY_IDS,
   UPGRADE_CATEGORIES,
-  HEAL_CHOICE,
   SLOT_COUNT,
   effectiveStats,
   equipmentMaxAmmo,
@@ -36,7 +35,7 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(11);
+    expect(PROTOCOL_VERSION).toBe(12); // Story 2.1: heal left the wire (SpendMsg 0..2, no 'heal' event)
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -153,7 +152,7 @@ describe('shared barrel', () => {
     expect(typeof offerableIds).toBe('function');
     expect(OFFER_EXCLUDED_IDS).toEqual(['gunAmmo']);
     expect(MSG.spend).toBe('u');
-    expect(HEAL_CHOICE).toBe(3);
-    expect(CONFIG.upgradePoints.healHp).toBe(25);
+    // Story 2.1: the REPAIR/heal spend is gone — no HEAL_CHOICE, no upgradePoints block.
+    expect('upgradePoints' in CONFIG).toBe(false);
   });
 });

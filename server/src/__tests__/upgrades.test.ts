@@ -1,10 +1,10 @@
 // Upgrade-point economy. Covers the earn hook in sinkShip (who banks a point,
 // who never does, determinism of the pre-rolled offers off the decorrelated
 // rng stream), the FIFO offer queue (front-on-the-wire, reroll-proof),
-// spendPoint's fail-closed validation table, the heal spend (clamp, alive-only,
-// full-hp rejection with the point preserved), the lifecycle rules (respawn
-// preserves offers, redeployShip wipes them), wire privacy (pts/offer/pt/heal
-// are self-private), the spend-time side effects (hull heal, +1 loaded round),
+// spendPoint's fail-closed validation table (incl. the deleted Story 2.1
+// REPAIR/heal choice rejecting), the lifecycle rules (respawn
+// preserves offers, redeployShip wipes them), wire privacy (pts/offer/pt/upg
+// are self-private), the spend-time side effects (hullPoints heal, +1 round),
 // and every stat consumer: per-observer sight/radar/sweep in perception,
 // effective gun reload, torpedo launch speed on the wire, mine maxLive threaded
 // from the owner's stats, and maxSpeed kinematics in stepShips.
@@ -12,7 +12,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  HEAL_CHOICE,
   SLOT_GUN,
   UPGRADE_IDS,
   effectiveStats,
@@ -30,7 +29,6 @@ import { buildFrame } from '../game/frames.js';
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
 const DT = CONFIG.tick.simDtMs;
-const HEAL = CONFIG.upgradePoints.healHp;
 /** Torpedo / mine slot indices under the universal fit. */
 const SLOT_TORPEDO = 1;
 const SLOT_MINE = 2;
@@ -73,7 +71,6 @@ function bank(w: World, killer: ShipRecord, n: number): void {
 
 const upgsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'upg');
 const ptsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'pt');
-const healsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'heal');
 const blipsOf = (f: FrameMsg) => f.events.filter((e): e is BlipEvent => e.k === 'blip');
 const ballisticsOf = (f: FrameMsg) =>
   f.events.filter((e): e is BallisticEvent => e.k === 'shell' || e.k === 'torp');
@@ -260,58 +257,35 @@ describe('spendPoint — validation table', () => {
   });
 });
 
-// ---------- the heal spend -------------------------------------------------------
+// ---------- the deleted heal spend (Story 2.1: "1-4 cards, no repair") -----------
 
-describe('spendPoint — heal (HEAL_CHOICE)', () => {
-  it('heals exactly healHp on a damaged hull, consuming the front offer', () => {
+describe('spendPoint — the old HEAL_CHOICE (3) is rejected end-to-end', () => {
+  it('a hostile/stale {choice: 3} returns false with the point, hp, and events untouched', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);
     w.step();
     bank(w, a, 1);
+    a.hp = a.stats.maxHp - 60; // damaged — the old heal would have fired here
+    expect(w.spendPoint('a', 3)).toBe(false); // the pre-2.1 HEAL_CHOICE wire value
+    expect(a.hp).toBe(a.stats.maxHp - 60); // no heal applied
+    expect(a.offers).toHaveLength(1); // point PRESERVED (client latch releases via its 1500ms fallback)
     w.step();
-    a.hp = a.stats.maxHp - 60;
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    expect(a.hp).toBe(a.stats.maxHp - 60 + HEAL);
-    expect(a.offers).toEqual([]);
-    w.step();
-    // The heal event carries the ACTUAL delta and is self-private.
-    expect(healsOf(buildFrame(w, 'a').events)).toEqual([{ k: 'heal', id: 'a', amount: HEAL }]);
-    expect(healsOf(buildFrame(w, 'b').events)).toEqual([]);
+    // No 'heal' event kind exists on the wire anymore — no frame ever carries one.
+    expect(buildFrame(w, 'a').events.some((e) => (e.k as string) === 'heal')).toBe(false);
+    expect(buildFrame(w, 'b').events.some((e) => (e.k as string) === 'heal')).toBe(false);
   });
 
-  it('clamps to the missing hp near full — the event carries the clamped remainder', () => {
+  it('every out-of-range choice (3, 4, -1, 2.5, NaN) is rejected alike', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.step();
     bank(w, a, 1);
-    a.hp = a.stats.maxHp - 10;
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    expect(a.hp).toBe(a.stats.maxHp);
-    w.step();
-    expect(healsOf(w.tickEvents)).toEqual([{ k: 'heal', id: 'a', amount: 10 }]);
-  });
-
-  it('rejects a heal while dead — the point is PRESERVED', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.step();
-    bank(w, a, 1);
-    w.sinkShip('a');
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
+    for (const bad of [3, 4, -1, 2.5, NaN, '1', null, undefined]) {
+      expect(w.spendPoint('a', bad)).toBe(false);
+    }
     expect(a.offers).toHaveLength(1);
-  });
-
-  it('rejects a heal at full hp — the point is PRESERVED', () => {
-    const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    w.step();
-    bank(w, a, 1);
-    expect(a.hp).toBe(a.stats.maxHp);
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
-    expect(a.offers).toHaveLength(1);
-    w.step();
-    expect(healsOf(w.tickEvents)).toEqual([]);
+    expect(w.spendPoint('a', 2)).toBe(true); // 0..2 stays live
   });
 });
 
@@ -466,18 +440,17 @@ describe('wire privacy — banked points never leak', () => {
     expect(f.you!.offer.map((i) => UPGRADE_IDS[i])).toEqual([...a.offers[0]]);
   });
 
-  it("another ship's frame carries no pt/heal events, and its contacts carry no pts/offer", () => {
+  it("another ship's frame carries no pt/upg events, and its contacts carry no pts/offer", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0); // inside a's AND b's sight — b sees a as a contact
     w.step();
     bank(w, a, 2);
-    a.hp = a.stats.maxHp - 30;
-    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
-    w.step(); // pt (earn) + heal (spend) events flush this tick
+    expect(w.spendPoint('a', 0)).toBe(true);
+    w.step(); // pt (earn) + upg (spend) events flush this tick
     const fb = buildFrame(w, 'b');
     expect(ptsOf(fb.events)).toEqual([]);
-    expect(healsOf(fb.events)).toEqual([]);
+    expect(upgsOf(fb.events)).toEqual([]);
     const contact = fb.contacts.find((c) => c.id === 'a')!;
     expect(contact).toBeDefined();
     expect('pts' in contact).toBe(false);

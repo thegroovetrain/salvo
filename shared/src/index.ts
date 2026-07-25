@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  12: the new input scheme (Story 2.1) — the interregnum REPAIR/heal spend is
+ *  deleted end-to-end (Eric ruling 2026-07-24 "1-4 cards, no repair"):
+ *  HEAL_CHOICE and the self-private 'heal' GameEvent leave the wire contract
+ *  (SpendMsg.choice is 0..2 only); CONFIG.upgradePoints (healHp) is removed
+ *  from the welcome config snapshot.
  *  11: Regatta Hoist personal colors (Story 1.12) — the roster schema gains
  *  PlayerMeta.color (uint8 hue index 0–19, 255 = drone/no-hue sentinel);
  *  join options gain optional colorPref (0–19); MineView + DecoyView each gain a
@@ -41,7 +46,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 11;
+export const PROTOCOL_VERSION = 12;
 
 // Tunables
 export * from './constants.js';

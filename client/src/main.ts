@@ -12,7 +12,6 @@ import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
-  HEAL_CHOICE,
   MSG,
   effectiveStats,
   equipmentMaxAmmo,
@@ -36,7 +35,7 @@ import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
 import { buildMap } from './render/map.js';
-import { Camera } from './render/camera.js';
+import { Camera, canUserZoom } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, hullStyle } from './render/ships.js';
 import { ContactViews, type PlateFrame } from './render/contacts.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
@@ -54,7 +53,7 @@ import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
-import { KeyboardInput, slotHoldsAbility, type UpgradeAction } from './input/keyboard.js';
+import { KeyboardInput, slotHoldsAbility, type KeyboardHooks } from './input/keyboard.js';
 import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
 import { abilityPressDenied, shouldConsumePrime } from './sim/inputSampler.js';
@@ -112,17 +111,21 @@ interface Game {
   radar: Radar;
   zone: Zone;
   hud: Hud;
-  /** The CTRL spend window (ui/upgradeMenu.ts) — DOM, non-blocking. */
+  /** The TAB-toggled refit modal (ui/upgradeMenu.ts) — DOM; while open the
+   *  game is under full combat lockout (Story 2.1) but the sim never pauses. */
   upgradeMenu: UpgradeMenu;
   /**
    * FINDING A latch: set the instant a spend is sent, cleared once it visibly
    * lands (pts drops) or a fallback timeout elapses (the server silently
-   * rejected it — e.g. a heal that raced to full hp — so don't lock the
-   * player out forever). Guards against two rapid spends (CTRL+1 then
-   * CTRL+2, or two row clicks) within one server-tick+RTT both firing against
-   * the SAME (now-stale) front offer — see trySpend()/updateSpendLatch().
+   * rejected it — so don't lock the player out forever). Guards against two
+   * rapid spends (digit 1 then digit 2, or two card clicks) within one
+   * server-tick+RTT both firing against the SAME (now-stale) front offer —
+   * see trySpend()/updateSpendLatch().
    */
   spendInFlight: { pts: number; offerSig: string; at: number } | null;
+  /** Trailing-edge debounce handle for the fog re-bake after a user-zoom
+   *  change (X/Z/wheel) — the zoom sibling of bindResize's local timer. */
+  fogZoomTimer: ReturnType<typeof setTimeout> | null;
   /** Colyseus room — polled each frame for the public zone/match plane. */
   room: Room;
   /** Full map radius (u) — the zone's derived-radius baseline. */
@@ -315,14 +318,14 @@ function ownStatus(g: Game): OwnStatus {
 const SPEND_LATCH_TIMEOUT_MS = 1500;
 
 /**
- * FINDING A: the single entry point for BOTH spend paths (keyboard choose/heal
- * via handleUpgradeAction, and the UpgradeMenu row-click callback). Ignores a
+ * FINDING A: the single entry point for BOTH spend paths (digit picks via
+ * handleRefitPick, and the UpgradeMenu card-click callback). Ignores a
  * second spend while one is already in flight — otherwise two rapid spends
- * within one server-tick+RTT (CTRL+1 then CTRL+2, or two row clicks) both read
- * the SAME client-side front offer, and the second lands after the server's
- * FIFO shift and applies an upgrade the client never displayed. Latched by
- * banked points at send time; cleared by updateSpendLatch() once the bank
- * visibly shrinks or the fallback timeout elapses.
+ * within one server-tick+RTT (digit 1 then digit 2, or two card clicks) both
+ * read the SAME client-side front offer, and the second lands after the
+ * server's FIFO shift and applies an upgrade the client never displayed.
+ * Latched by banked points at send time; cleared by updateSpendLatch() once
+ * the bank visibly shrinks or the fallback timeout elapses.
  */
 function trySpend(g: Game, choice: number): void {
   if (g.spendInFlight) return;
@@ -355,31 +358,43 @@ function updateSpendLatch(g: Game): void {
 
 /** The spend view for THIS frame (null = nothing to show → menu auto-hides). */
 function currentOfferView(g: Game): OfferView | null {
-  return offerView(g.state.net.you, g.ownStats.maxHp, g.state.spectating, g.spendInFlight !== null);
+  return offerView(g.state.net.you, g.state.spectating, g.spendInFlight !== null);
 }
 
 /**
- * Route a decoded CTRL-window action: bare CTRL toggles the window; CTRL+1/2/3
- * spends an offer slot; CTRL+E heals (gated client-side by canHeal — the server
- * re-validates). Inert when there is nothing to spend (no view). Shortcuts work
- * with the window closed: the offer is stable from earn time, so you commit
- * without reading. Spends route through trySpend() (FIFO room.send + latch).
+ * TAB — toggle the refit modal (Story 2.1, amendment 1). Opens ONLY when a
+ * banked point exists (the existing visibility rule: currentOfferView is null
+ * at 0 pts / while spectating — at 0 pts nothing happens); TAB again closes
+ * without choosing. Digit picks route through handleRefitPick below.
  */
-function handleUpgradeAction(g: Game, a: UpgradeAction): void {
+function handleRefitToggle(g: Game): void {
   const view = currentOfferView(g);
   if (!view) {
     g.upgradeMenu.hide();
     return;
   }
-  if (a.kind === 'toggle') {
-    g.upgradeMenu.toggle(view);
-    return;
-  }
-  if (a.kind === 'heal') {
-    if (view.canHeal) trySpend(g, HEAL_CHOICE);
-    return;
-  }
-  trySpend(g, a.slot);
+  g.upgradeMenu.toggle(view);
+}
+
+/**
+ * A digit 1–4 pressed WHILE the modal is open (the chokepoint enforces the
+ * refit-or-nothing rule; digit meaning was evaluated against modal state at
+ * its own keydown): pick card `choice`, spend, and close (amendment 2 — a pick
+ * closes the modal). Digit 4 against today's 3-card offer falls off the end →
+ * nothing. A locked view (spend in flight) is inert, exactly like the rows.
+ */
+function handleRefitPick(g: Game, choice: number): void {
+  if (!g.upgradeMenu.visible) return;
+  const view = currentOfferView(g);
+  if (!view || view.locked || choice >= view.options.length) return;
+  trySpend(g, choice);
+  g.upgradeMenu.hide();
+}
+
+/** ESC — close the topmost surface. In-match that is the refit modal; with
+ *  nothing open, nothing happens (the settings overlay arrives in Story 2.3). */
+function handleEscape(g: Game): void {
+  g.upgradeMenu.hide();
 }
 
 /** Live safe radius + state, derived locally from the schema's zone plane. */
@@ -548,6 +563,7 @@ function zoneHud(zv: ZoneView, now: number, inStorm: boolean): ZoneHud {
 function returnToPort(g: Game): void {
   if (g.returning) return;
   g.returning = true;
+  cancelZoomFogRebake(g); // no trailing re-bake against a torn-down stage
   // Give the portal an ad-break moment before teardown. g.portal is
   // safeAdapter-wrapped, so this always settles (timeout-capped) and never
   // throws; the extra catch keeps a misbehaving room.leave() from surfacing
@@ -564,6 +580,7 @@ function handleRoomLeave(g: Game): void {
   if (g.returning) return; // we initiated it; reload is already on its way
   g.returning = true;
   g.reconnecting = false; // the reconnect window closed (retries exhausted / fast-fail)
+  cancelZoomFogRebake(g); // same teardown hygiene as returnToPort
   if (g.state.matchOver) {
     // Expected: the server disconnects resultsSeconds after the finish.
     location.reload();
@@ -578,13 +595,10 @@ function handleRoomLeave(g: Game): void {
 /** Camera + input + own-hull-view/effects setup, factored out of buildGame() to keep it lean. */
 function setupViewport(
   stage: Stage,
-  audio: Audio,
   cls: ShipClassId,
-  bellAudible: () => boolean,
-  onUpgradeKey: (a: UpgradeAction) => void,
-  isAbilitySlot: (slot: number) => boolean,
-  onAbility: (slot: number, actSeq: number) => void,
+  hooks: KeyboardHooks,
   nowServer: () => number,
+  fireLocked: () => boolean,
 ): {
   camera: Camera;
   keyboard: KeyboardInput;
@@ -600,25 +614,19 @@ function setupViewport(
   });
   camera.setViewport(stage.app.screen.width, stage.app.screen.height);
 
-  // Each throttle detent step clicks the telegraph — pitch distinguishes ringing
-  // the engine order up (ahead) from down (astern); an end-stop tap is silent.
-  // Silent while spectating (W/S pans the camera) or dead-awaiting-respawn:
-  // those taps never reach a live engine room, so they get no confirmation bell.
-  const keyboard = new KeyboardInput(
-    (dir, changed) => {
-      if (changed && bellAudible()) audio.play(telegraphTone(dir));
-    },
-    onUpgradeKey,
-    isAbilitySlot,
-    onAbility,
-  );
+  // THE in-match keyboard chokepoint (Story 2.1): one keydown listener owns
+  // every sim key through the hooks built in keyboardHooks() below.
+  const keyboard = new KeyboardInput(hooks);
   keyboard.attach();
   // Inject the server-clock estimate so pointerdown can stamp an honest fire
   // time (D1). Lazy thunk: MouseInput is built before the clock exists, so it
   // resolves gRef.clock at click time, never captures it (serverNow() returns
-  // 0 pre-ready → the fireT "no claim" sentinel).
-  const mouse = new MouseInput(nowServer);
-  mouse.attach();
+  // 0 pre-ready → the fireT "no claim" sentinel). `fireLocked` is the refit
+  // modal's full combat lockout; attach() takes the game canvas so ONLY
+  // canvas-target pointerdowns ever fire (DOM chrome clicks never do) and the
+  // canvas contextmenu is suppressed.
+  const mouse = new MouseInput(nowServer, fireLocked);
+  mouse.attach(stage.app.canvas);
 
   // Guessed-class hull until the first frame confirms/corrects it; boots on the
   // amber-hollow fallback and recolors to the own personal hue once the roster
@@ -641,38 +649,65 @@ function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
   return new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, hullSilhouette(cls));
 }
 
+/** The telegraph bell is audible only while conning a live ship: silent while
+ *  spectating (W/S pans the camera) or dead-awaiting-respawn — those taps
+ *  never reach a live engine room, so they get no confirmation bell. */
+function bellAudible(g: Game | null): boolean {
+  const s = g?.state;
+  return !s?.spectating && s?.net.you?.alive !== false;
+}
+
 /**
- * The keyboard callbacks that need game state assembled later in buildGame:
- * the telegraph-bell audibility predicate, the CTRL-window action router, and
- * the Story 1.6 ability pair (the own-loadout slot predicate + the activation
- * press handler). `getG` is the gRef late-binding — null only during the brief
- * construction gap.
+ * THE chokepoint's hook table (Story 2.1) — every in-match key action routed
+ * over the late-bound Game (`getG` is the gRef late-binding — null only during
+ * the brief construction gap). P and M fold in here (the old ad-hoc window
+ * listener is gone); TAB/ESC/digits drive the refit modal; X/Z step the alive
+ * zoom; Q/E/R consult the own loadout (weapon-vs-ability via
+ * EQUIPMENT_IS_WEAPON only) and R stays inert while slot 3 is empty.
  */
-function viewportCallbacks(getG: () => Game | null): {
-  bellAudible: () => boolean;
-  onUpgradeKey: (a: UpgradeAction) => void;
-  isAbilitySlot: (slot: number) => boolean;
-  onAbility: (slot: number, actSeq: number) => void;
-} {
+function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
+  const withG = (fn: (g: Game) => void) => (): void => {
+    const g = getG();
+    if (g) fn(g);
+  };
   return {
-    bellAudible: () => {
-      const s = getG()?.state;
-      return !s?.spectating && s?.net.you?.alive !== false;
+    // Each throttle detent step clicks the telegraph — pitch distinguishes
+    // ringing up (ahead) from down (astern); an end-stop tap is silent.
+    onDetent: (dir, changed) => {
+      if (changed && bellAudible(getG())) audio.play(telegraphTone(dir));
     },
-    onUpgradeKey: (a) => {
-      const g = getG();
-      if (g) handleUpgradeAction(g, a);
-    },
-    // The slot-2 key consults the OWN loadout: ability equipment activates
-    // (never primes); a weapon (BB/ML's mine) primes exactly as today.
     isAbilitySlot: (slot) => {
       const g = getG();
       return g !== null && slotHoldsAbility(g.ownSlots, slot);
     },
+    isSlotFitted: (slot) => (getG()?.ownSlots[slot] ?? null) !== null,
     onAbility: (slot, actSeq) => {
       const g = getG();
       if (g) handleAbilityPress(g, slot, actSeq);
     },
+    // A press against the full FIFO is DROPPED WITH FEEDBACK (Story 2.1 closes
+    // the silent-drop debt): the pressed slot's denied chip flash + the denial
+    // tone — the same grammar as a predicted denial. No dedup marking: the
+    // press never rides an input, so no server echo can ever arrive for it.
+    onAbilityCapped: (slot) => {
+      const g = getG();
+      if (!g) return;
+      g.abilityDeniedPress[slot] = true;
+      g.audio.play('denied');
+    },
+    isModalOpen: () => getG()?.upgradeMenu.visible === true,
+    onRefitToggle: withG(handleRefitToggle),
+    onRefitPick: (choice) => {
+      const g = getG();
+      if (g) handleRefitPick(g, choice);
+    },
+    onEscape: withG(handleEscape),
+    onZoom: (dir) => {
+      const g = getG();
+      if (g) handleZoomStep(g, dir);
+    },
+    onMute: withG(toggleMute),
+    onNetDebug: withG(toggleMode),
   };
 }
 
@@ -719,15 +754,19 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
 }
 
 /**
- * The UpgradeMenu's row-click callback: same late-binding as viewportCallbacks
+ * The UpgradeMenu's card-click callback: same late-binding as keyboardHooks
  * (gRef isn't assigned until after the Game object literal below), routed
- * through trySpend() so a row click shares the FINDING A latch with the
- * keyboard spend path.
+ * through trySpend() so a card click shares the FINDING A latch with the
+ * digit-pick path — and, like a digit pick, a card click spends AND closes
+ * the modal (amendment 2; the gun can never fire off it — MouseInput only
+ * counts canvas-target clicks, and the modal lockout holds besides).
  */
 function onSpendClick(getG: () => Game | null): (choice: number) => void {
   return (choice) => {
     const g = getG();
-    if (g) trySpend(g, choice);
+    if (!g) return;
+    trySpend(g, choice);
+    g.upgradeMenu.hide();
   };
 }
 
@@ -748,9 +787,9 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
   const { welcome } = conn;
   // Late-bound: the input callbacks need game state that is assembled just below.
   let gRef: Game | null = null;
-  const { bellAudible, onUpgradeKey, isAbilitySlot, onAbility } = viewportCallbacks(() => gRef);
-  // Final arg is a lazy server-clock thunk for the mouse's pointerdown fire-time stamp (D1); resolved at click time.
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, audio, cls, bellAudible, onUpgradeKey, isAbilitySlot, onAbility, () => (gRef?.clock ? gRef.clock.serverNow() : 0));
+  // setupViewport args: the chokepoint hooks, the lazy server-clock thunk for the mouse's
+  // pointerdown fire-time stamp (D1, resolved at click time), and the refit-modal lockout.
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => gRef?.upgradeMenu.visible === true);
   const stats = effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades());
   const nameplates = new NameplateLayer(stage.plateRoot); // screen-space plates: own hull + contacts
 
@@ -780,6 +819,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     hud: new Hud(stage.layers.hud),
     upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef)),
     spendInFlight: null,
+    fogZoomTimer: null,
     room: conn.room, mapRadius: map.radius,
     cameraSnapped: false, lastOwn: { x: 0, y: 0 },
     spectate: { freePan: false, visualsSet: false },
@@ -1163,7 +1203,12 @@ function enterSpectateVisuals(g: Game): void {
   g.ownView.gfx.visible = false;
   g.nameplates.hide(g.state.net.sessionId); // own plate hidden while spectating (hull hidden)
   g.firing.hide();
-  g.upgradeMenu.hide(); // the spend window never lingers into spectate
+  g.upgradeMenu.hide(); // the refit modal never lingers into spectate
+  // Hand the zoom to the spectate factor: the alive user zoom resets to the
+  // base framing so the spectate wheel path behaves exactly as it always has.
+  // Any debounced zoom re-bake still in flight dies with it (fog is off here).
+  g.camera.resetUserZoom();
+  cancelZoomFogRebake(g);
   // Drop any WASD held at the moment of death so updateSpectateCamera sees a
   // clean edge — otherwise steering into your own death instantly (and
   // permanently) engages free-pan, skipping the follow-your-killer default.
@@ -1345,13 +1390,70 @@ function bindVisibility(game: Game): void {
   window.addEventListener('blur', () => sendNeutralInput(game));
 }
 
-/** Mouse-wheel zoom OUT — a spectator-only privilege, clamped [0.5x, 1x]. */
-function bindSpectateZoom(game: Game): void {
+// --- camera zoom (Story 2.1, Eric ruling 2026-07-24) --------------------------
+
+/**
+ * Apply an alive user-zoom target (clamped [0.5, 1.5] over the base radar-fit
+ * framing by Camera.setUserZoom) and schedule the fog re-bake the new zoom
+ * needs. ALIVE-ONLY (canUserZoom): inert while spectating (the spectate wheel
+ * path below owns zoom there), while sunk-awaiting-respawn, AND before the
+ * first frame ever lands (no `you` yet = not alive). Client-render-only — fog
+ * visibility stays server-authoritative, so zoom is never an information
+ * exploit (the fog hole scales with the zoom; what is revealed does not).
+ */
+function applyUserZoom(g: Game, next: number): void {
+  if (!canUserZoom(g.state.spectating, g.state.net.you?.alive)) return;
+  const before = g.camera.userZoom;
+  g.camera.setUserZoom(next);
+  if (g.camera.userZoom === before) return;
+  scheduleZoomFogRebake(g);
+}
+
+/** X (+1, in) / Z (-1, out) keyboard zoom step (chokepoint onZoom hook). */
+function handleZoomStep(g: Game, dir: 1 | -1): void {
+  applyUserZoom(g, g.camera.userZoom + dir * CLIENT_CONFIG.zoom.keyStep);
+}
+
+/**
+ * The fog's sight hole is baked at a pixel radius derived from the zoom, so a
+ * zoom change needs a re-bake — a full-canvas OffscreenCanvas draw, debounced
+ * to the trailing edge of a zoom burst (wheel spins / held X/Z) exactly like
+ * the resize path, so smooth zooming never hitches on per-event bakes.
+ */
+function scheduleZoomFogRebake(g: Game): void {
+  cancelZoomFogRebake(g);
+  g.fogZoomTimer = setTimeout(() => {
+    g.fogZoomTimer = null;
+    g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
+  }, FOG_REBAKE_DEBOUNCE_MS);
+}
+
+/**
+ * Drop any pending debounced zoom re-bake. Called at every hard boundary that
+ * ends the alive zoom's life — spectate entry, return to port, room leave — so
+ * a trailing-edge bake can never fire against a torn-down stage.
+ */
+function cancelZoomFogRebake(g: Game): void {
+  if (g.fogZoomTimer === null) return;
+  clearTimeout(g.fogZoomTimer);
+  g.fogZoomTimer = null;
+}
+
+/**
+ * The one wheel listener: while SPECTATING it is the untouched spectator
+ * zoom-out (wheel-only, clamped [0.5x, 1x] — render/spectate.ts wheelZoom,
+ * byte-identical behavior); while ALIVE it drives the smooth user zoom
+ * (clamped [0.5x, 1.5x] — Story 2.1).
+ */
+function bindWheelZoom(game: Game): void {
   window.addEventListener(
     'wheel',
     (e: WheelEvent) => {
-      if (!game.state.spectating) return;
-      game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
+      if (game.state.spectating) {
+        game.camera.setZoomFactor(wheelZoom(game.camera.zoomFactor, e.deltaY));
+        return;
+      }
+      applyUserZoom(game, game.camera.userZoom - e.deltaY * CLIENT_CONFIG.zoom.wheelRate);
     },
     { passive: true },
   );
@@ -1398,11 +1500,9 @@ async function startGame(
   const game = buildGame(stage, conn, map, audio, cls, portal);
   bindResize(stage, game);
   bindVisibility(game);
-  bindSpectateZoom(game);
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyP') toggleMode(game);
-    if (e.code === 'KeyM') toggleMute(game);
-  });
+  // P (netcode debug) and M (mute) ride the keyboard chokepoint now — the old
+  // ad-hoc window keydown listener is gone (Story 2.1 single-chokepoint rule).
+  bindWheelZoom(game);
 
   startLoop(stage.app, makeCallbacks(game));
 }

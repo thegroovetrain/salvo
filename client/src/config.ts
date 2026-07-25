@@ -296,6 +296,22 @@ export const CLIENT_CONFIG = {
     },
   },
 
+  /** Alive camera user-zoom (Story 2.1, Eric ruling 2026-07-24): a render-only
+   *  multiplier over the base radar-fit framing — X steps in, Z steps out, the
+   *  wheel zooms smoothly. Client-only by design: fog stays server-
+   *  authoritative, so zoom is never an information exploit. The spectate zoom
+   *  path (render/spectate.ts, 0.5–1.0 wheel-only) is separate and unchanged. */
+  zoom: {
+    /** Minimum user factor (zoomed fully OUT — 0.5× the base framing). */
+    min: 0.5,
+    /** Maximum user factor (zoomed fully IN — 1.5× the base framing). */
+    max: 1.5,
+    /** Factor step per X/Z keydown (auto-repeat allowed — hold to zoom). */
+    keyStep: 0.1,
+    /** Factor per wheel deltaY unit (matches spectate's 0.0008 feel). */
+    wheelRate: 0.0008,
+  },
+
   /** Netcode render delays (ms behind estimated server time). */
   net: {
     /** Remote contacts interpolate this far behind serverNow(). */

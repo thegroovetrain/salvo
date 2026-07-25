@@ -12,7 +12,7 @@ import {
   zeroUpgrades,
   type OwnShip,
 } from '@salvo/shared';
-import { upgradeLabel, pointToastLine, healToastLine } from '../ui/upgradeToast.js';
+import { upgradeLabel, pointToastLine } from '../ui/upgradeToast.js';
 import { ownStatsChanged } from '../net/roomBindings.js';
 import { speedLadderFraction } from '../render/hud.js';
 
@@ -41,14 +41,9 @@ function ownShip(cls: OwnShip['cls'], upg: number[]): OwnShip {
   };
 }
 
-describe('point / heal toast lines — pure formatting', () => {
-  it('pointToastLine is the fixed CTRL prompt', () => {
-    expect(pointToastLine()).toBe('▲ UPGRADE POINT — CTRL TO SPEND');
-  });
-
-  it('healToastLine embeds the clamped delta', () => {
-    expect(healToastLine(25)).toBe('⛨ HULL REPAIRED +25');
-    expect(healToastLine(8)).toBe('⛨ HULL REPAIRED +8');
+describe('point toast line — pure formatting', () => {
+  it('pointToastLine is the fixed TAB refit prompt (Story 2.1 — heal toast deleted with REPAIR)', () => {
+    expect(pointToastLine()).toBe('▲ UPGRADE POINT — TAB TO REFIT');
   });
 });
 

@@ -89,15 +89,14 @@ const REGISTRY_KEYS = [
   'dmg',
   'upg',
   'pt',
-  'heal',
 ];
 
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 15 known channels', () => {
+  it('has exactly the 14 known channels (Story 2.1: the heal row left with the REPAIR spend)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(15);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(14);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; counterIntel lives ONLY on the blip row (Story 1.8)', () => {
@@ -489,11 +488,11 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
 // ---------- fail-closed lookups -----------------------------------------------
 
 describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
-  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 11 GameEvent
+  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 10 GameEvent
   // kinds. The four contact/mine/litzone/decoy pseudo-rows are unreachable from
   // it (a fabricated k:'mine'/'litzone'/'decoy' world event can never
   // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt'];
 
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();
@@ -501,7 +500,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(signalFor('CONTACT')).toBeUndefined(); // case-sensitive, not fuzzy
   });
 
-  it('signalFor resolves exactly the 11 event kinds to their registry rows', () => {
+  it('signalFor resolves exactly the 10 event kinds to their registry rows', () => {
     for (const key of EVENT_KINDS) {
       expect(signalFor(key)).toBe(SIGNAL_REGISTRY[key as keyof typeof SIGNAL_REGISTRY]);
     }

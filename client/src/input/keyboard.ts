@@ -1,25 +1,35 @@
-// Keyboard driving + skillshot priming input. Tracks the set of held
-// `event.code`s on the window, clears on blur (fixes the classic stuck-key
-// bug when focus is lost), and tracks the PRIMED loadout slot from the
-// number-row keys 1/2/3. The class is a thin DOM adapter; the pure pieces
-// (`rudderFrom`, `panAxesFrom`, `primeSlotFromKey`, `nextPrimedSlot`, and the
-// telegraph module) are unit-tested.
+// THE in-match keyboard chokepoint (Story 2.1 — the fixed v1 scheme). One
+// window keydown listener owns every sim key: a declarative binding table
+// (code → handler) evaluated in one dispatcher with full browser hygiene —
+// every bound key preventDefault-ed (TAB focus-cycle and Space page-scroll
+// included), modifier chords (CTRL/META/ALT) left native, and a focused text
+// input or DOM button suppressing ALL sim keys while the sim keeps running.
+// Pre-join surfaces (ui/home.ts, ui/classSelect.ts) keep their own scoped,
+// guarded handlers — this class is attached post-join only.
 //
-// Prime model (Eric ruling 2026-07-21): the gun (slot 0) is the permanently
-// selected default. 2/3 PRIME the slot's WEAPON skillshot (a torpedo bow-arc
-// shot, a Battleship cannon/star shell) — the next shot fires that instead, then
-// the gun is the weapon again. Pressing the same key again CANCELS the prime; 1
-// explicitly reverts to gun; there is no timeout. If a slot holds an instant
-// ABILITY instead (the TB's speedBoost, or — Story 1.8 — the Mine Layer's mine +
-// decoyBuoy), 2/3 ACTIVATE it immediately (actSeq) and never prime. Priming is
-// pure client UX — the wire slot per click is the truth, and main.ts consumes the
-// prime (back to gun) only on a predicted-fireable click (primeFireable).
+// The fixed v1 bindings (Eric rulings 2026-07-24, epic-2-context-amendments
+// entries 1–9):
+//   W/S (+arrows)  telegraph ±1 detent, edge-only (input/telegraph.ts)
+//   A/D (+arrows)  held rudder
+//   Q / E / R      loadout slots 1 / 2 / 3 — weapons switch-to (prime toggle),
+//                  abilities activate immediately; R inert while slot 3 is
+//                  empty; ALL suspended while the refit modal is open
+//   F              reserved for the Foghorn — fully inert, still prevented
+//   TAB            toggles the refit modal (main.ts owns open/close policy)
+//   1–4            pick a refit card ONLY while the modal is open
+//                  (refit-or-nothing; meaning evaluated at its own keydown)
+//   ESC            closes the topmost surface (the modal; settings at 2.3)
+//   X / Z          camera zoom in / out (alive-only — main.ts gates)
+//   M / P          mute / prediction-debug toggle
+//   Space / CTRL   unbound; Space keydown still prevented (page scroll)
 //
-// Throttle is NO LONGER a held axis: W/S (and Up/Down arrows) TAP the engine
-// telegraph (input/telegraph.ts) one detent per keydown edge — a persistent
-// stepped setting the sampler reads each tick. The held-key set still records
-// W/S so spectator free-pan can read all four WASD directions (panAxesFrom);
-// driving reads throttle from the telegraph + rudder from the held set.
+// Prime model (Eric rulings 2026-07-21 + 2026-07-24): the gun (slot 0) is the
+// permanently selected default with NO key of its own. A weapon slot key
+// switches to (primes) that slot; the same key again reverts to the gun;
+// firing auto-reverts (main.ts consumePrimeOnFire — a predicted-denied click
+// keeps the prime). Ability slots activate instantly through the actSeq FIFO
+// queue and never prime. Weapon-vs-ability comes ONLY from EQUIPMENT_IS_WEAPON
+// (the isAbilitySlot hook), never a slot literal or hull id.
 
 import { EQUIPMENT_IS_WEAPON, SLOT_COUNT, SLOT_GUN, type EquipmentId } from '@salvo/shared';
 import {
@@ -41,55 +51,23 @@ export interface Axes {
 const LEFT = ['KeyA', 'ArrowLeft'];
 const RIGHT = ['KeyD', 'ArrowRight'];
 
-/**
- * Number-key → the loadout slot it addresses (top row + numpad). 1 = gun
- * (slot 0, the default), 2 = torpedo (slot 1), 3 = mine (slot 2). The slot-index
- * == interregnum-equipment coupling (dies in Epic 2) lives here and in
- * render/weaponArc.ts; both read the same slot numbers.
- */
-const PRIME_KEYS: Record<string, number> = {
-  Digit1: SLOT_GUN,
-  Numpad1: SLOT_GUN,
-  Digit2: 1,
-  Numpad2: 1,
-  Digit3: 2,
-  Numpad3: 2,
+/** Slot key → the loadout slot it addresses (the ratified Q/E/R scheme):
+ *  Q/E = the two class-special slots, R = the pickup/extra slot. The gun
+ *  (slot 0) has NO key — it is the always-selected default. */
+export const SLOT_KEY_CODES: Record<string, number> = {
+  KeyQ: 1,
+  KeyE: 2,
+  KeyR: 3,
 };
 
-/**
- * A CTRL-window upgrade intent decoded off the keyboard: bare CTRL toggles the
- * informational spend window; CTRL+1/2/3 commit one of the front offer's three
- * slots; CTRL+E spends a point on a hull heal. Pure — the KeyboardInput adapter
- * turns these into onUpgradeKey callbacks; main.ts routes them to the menu/net.
- *
- * NOTE: `toggle` is never produced by `upgradeActionFromKey` (see below) — it
- * is emitted by the KeyboardInput adapter on Control **keyUp**, suppressed
- * when any chord fired during the hold. The variant stays here because it's
- * still the thing main.ts's onUpgradeKey callback receives and routes.
- */
-export type UpgradeAction = { kind: 'toggle' } | { kind: 'choose'; slot: 0 | 1 | 2 } | { kind: 'heal' };
-
-/** CTRL+digit (top row + numpad) → offer slot 0/1/2. */
-const SLOT_KEYS: Record<string, 0 | 1 | 2> = {
+/** Digit key → refit-card index 0..3 (top row + numpad). Digits mean a card
+ *  pick ONLY while the refit modal is open; refit-or-nothing otherwise. */
+export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit1: 0, Numpad1: 0,
   Digit2: 1, Numpad2: 1,
   Digit3: 2, Numpad3: 2,
+  Digit4: 3, Numpad4: 3,
 };
-
-/**
- * Pure: the CHORD upgrade action a key code (with CTRL held) maps to, or null.
- * Deliberately does NOT classify the Control keys themselves — the bare-CTRL
- * toggle is Control-keyUp adapter logic (edge-triggered, chord-suppressed; see
- * KeyboardInput), not a chord decodable from a single (code, ctrl) pair. CTRL
- * is required for every chord here; plain digits still latch weapons, so an
- * unmodified digit yields null.
- */
-export function upgradeActionFromKey(code: string, ctrl: boolean): UpgradeAction | null {
-  if (!ctrl) return null;
-  if (code === 'KeyE') return { kind: 'heal' };
-  if (code in SLOT_KEYS) return { kind: 'choose', slot: SLOT_KEYS[code] };
-  return null;
-}
 
 function anyHeld(keys: Set<string>, codes: string[]): boolean {
   return codes.some((c) => keys.has(c));
@@ -115,20 +93,13 @@ export function panAxesFrom(keys: Set<string>): Axes {
   return { throttle, rudder: rudderFrom(keys) };
 }
 
-/** Pure: the loadout slot a number key addresses, or null if it isn't one. */
-export function primeSlotFromKey(code: string): number | null {
-  return code in PRIME_KEYS ? PRIME_KEYS[code] : null;
-}
-
 /**
  * Pure: does `slot` of the own loadout hold instant-activation ABILITY
- * equipment (`EQUIPMENT_IS_WEAPON[id] === false`)? Those are the TB's
- * speedBoost and — Story 1.8 — the Mine Layer's BOTH specials (mine + decoyBuoy,
- * so an ML answers true for slots 1 AND 2). Weapons and empty/out-of-range slots
- * return false (they prime / do nothing, exactly as today). The single
+ * equipment (`EQUIPMENT_IS_WEAPON[id] === false`)? The TB's speedBoost and the
+ * Mine Layer's BOTH specials (mine + decoyBuoy) answer true. Weapons and
+ * empty/out-of-range slots return false (they prime / do nothing). The single
  * weapon/ability split source is the shared map; main.ts closes this over the
- * own loadout (loadoutFor(you.cls)) for the KeyboardInput predicate — Story 1.6's
- * minimal control extension (Epic 2 owns the Q/E/R/F rebinding).
+ * own loadout (loadoutFor(you.cls)) for the isAbilitySlot hook.
  */
 export function slotHoldsAbility(slotIds: readonly (EquipmentId | null)[], slot: number): boolean {
   const id = slotIds[slot] ?? null;
@@ -136,166 +107,224 @@ export function slotHoldsAbility(slotIds: readonly (EquipmentId | null)[], slot:
 }
 
 /**
- * Pure: the primed slot after a number key addressing `keySlot` is pressed,
- * given the `current` primed slot. Pressing 1 (gun) or the SAME key that is
- * already primed reverts to the gun (slot 0); any other slot key primes that
- * slot. No timeout — priming is a set-and-hold state.
+ * Pure: the primed slot after a slot key addressing `keySlot` is pressed,
+ * given the `current` primed slot. Pressing the key of the ALREADY-primed slot
+ * reverts to the gun (slot 0 — "switch back", amendment 5); any other weapon
+ * slot key primes that slot. No timeout — priming is a set-and-hold state.
+ * (The keySlot === SLOT_GUN branch is unreachable under Q/E/R — no key maps to
+ * the gun — kept so the pure contract stays total.)
  */
 export function nextPrimedSlot(current: number, keySlot: number): number {
   if (keySlot === SLOT_GUN) return SLOT_GUN;
-  if (keySlot === current) return SLOT_GUN; // same key again cancels
+  if (keySlot === current) return SLOT_GUN; // same key again reverts to gun
   return keySlot;
+}
+
+/**
+ * Pure: is the currently-focused element a text-entry surface or DOM button?
+ * While one owns focus the chokepoint suppresses ALL sim keys (no handling,
+ * no preventDefault — typing "wasd" in the callsign field must steer nothing
+ * and still type). The sim itself never pauses.
+ */
+export function textEntryFocused(doc: Document = document): boolean {
+  const el = doc.activeElement;
+  if (!(el instanceof HTMLElement)) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON';
+}
+
+/**
+ * The chokepoint's callbacks into the app (main.ts wires them over the late-
+ * bound Game). Every hook is optional so pure-driving tests stay terse.
+ */
+export interface KeyboardHooks {
+  /** A throttle keydown edge: step direction + whether the detent changed
+   *  (false at an end stop) — wired to the telegraph-click tone. */
+  onDetent?: (dir: Step, changed: boolean) => void;
+  /** Does this loadout slot hold ability (non-weapon) equipment on the OWN
+   *  ship? True → the slot key ACTIVATES instead of priming. */
+  isAbilitySlot?: (slot: number) => boolean;
+  /** Is this loadout slot fitted at all? An unfitted slot's key (R while
+   *  slot 3 is empty) is inert — no prime, no queue, no feedback. FAILS CLOSED:
+   *  with the hook absent NO slot beyond the gun counts as fitted, so a
+   *  construction site that forgets to wire it gets inert slot keys rather than
+   *  resurrecting the ruled-away "R primes an empty slot" behavior. */
+  isSlotFitted?: (slot: number) => boolean;
+  /** A genuine ability-activation press edge was QUEUED (not yet consumed),
+   *  with the actSeq it WILL ride once drained — main.ts predicts the verdict
+   *  for feedback. */
+  onAbility?: (slot: number, actSeq: number) => void;
+  /** A press hit the full FIFO (pendingActs at SLOT_COUNT): the press is
+   *  dropped and this fires INSTEAD — denied feedback, never silence. */
+  onAbilityCapped?: (slot: number) => void;
+  /** Is the refit modal open? While true: Q/E/R/F are suspended and digits
+   *  pick cards; helm/zoom/M/P stay live. */
+  isModalOpen?: () => boolean;
+  /** TAB — toggle the refit modal (main.ts owns the only-with-a-banked-point
+   *  open rule and pick/TAB/ESC close rules). */
+  onRefitToggle?: () => void;
+  /** Digit 1–4 while the modal is open — pick card `choice` (0-based). */
+  onRefitPick?: (choice: number) => void;
+  /** ESC — close the topmost surface (in-match: the refit modal). */
+  onEscape?: () => void;
+  /** X (+1, in) / Z (-1, out) camera zoom step. OS auto-repeat is deliberately
+   *  allowed — holding the key zooms smoothly, mirroring the wheel. */
+  onZoom?: (dir: 1 | -1) => void;
+  /** M — master mute toggle. */
+  onMute?: () => void;
+  /** P — prediction ⇄ interpolation netcode debug toggle. */
+  onNetDebug?: () => void;
 }
 
 export class KeyboardInput {
   readonly keys = new Set<string>();
   readonly telegraph = new Telegraph();
   /** The primed skillshot slot (0 = gun/unprimed). Pure client UX; survives
-   *  clearKeys like the old weapon latch did. main.ts reverts it to gun on a
-   *  predicted-fireable click (revertToGun). */
+   *  clearKeys. main.ts reverts it to gun on a predicted-fireable click. */
   private primed = SLOT_GUN;
   /**
    * FIFO queue of accepted ability-activation slots awaiting consumption onto
-   * the wire. The server activates AT MOST ONE ability per tick
-   * (World.activationControl: `actSeq > lastActSeq` fires once on actSlot), so
-   * multiple presses inside one 50ms sample window MUST be spread across
-   * successive inputs — consumeActivation() drains exactly one per built input.
-   * Without this, two different-slot presses in one window collapse (actSeq
-   * jumps by 2, the server fires only the last slot once, the first press is
-   * lost silently — the Mine Layer is the first hull with two ability slots).
-   * Capped at SLOT_COUNT to bound mashing; cleared on the hard state boundaries
-   * (death / respawn / spectate / reconnect) so a queued press never fires into
-   * the next life. */
+   * the wire. The server activates each press through its per-input intent
+   * evaluation, but the WIRE carries at most one press per input — multiple
+   * presses inside one 50ms sample window MUST be spread across successive
+   * inputs; consumeActivation() drains exactly one per built input. Capped at
+   * SLOT_COUNT; a press against a full queue fires onAbilityCapped (denied
+   * feedback — Story 2.1 closes the silent-drop debt). Cleared on the hard
+   * state boundaries (death / respawn / spectate / reconnect) so a queued
+   * press never fires into the next life.
+   */
   private readonly pendingActs: number[] = [];
   /** Cumulative CONSUMED ability-activation count (InputMsg.actSeq): 0 = never
-   *  consumed. Monotonic and NEVER reset (mirrors the server's lastActSeq, which
-   *  also survives death) — advanced by exactly 1 per consumeActivation() that
-   *  drains a queued press, mirroring mouse.clickCount for fireSeq. */
+   *  consumed. Monotonic and NEVER reset (mirrors the server's lastActSeq) —
+   *  advanced by exactly 1 per consumeActivation() that drains a queued press. */
   private actCount = 0;
   /** Loadout slot of the most recently CONSUMED activation (InputMsg.actSlot; 0 sentinel). */
   private lastActSlot = 0;
-  /** Control is currently physically held (set on non-repeat keydown, cleared on keyup/blur). */
-  private ctrlHeld = false;
-  /**
-   * Set on ANY other keydown observed while Control is held — whether or not
-   * it decodes as one of our chords. Suppresses the bare-CTRL toggle on
-   * Control keyUp: this is what stops CTRL+1 (open, then the chord fires) and
-   * CTRL+C/CTRL+T (an unrelated browser chord) from ever toggling the window.
-   */
-  private chordUsed = false;
+  /** The binding table: code → handler. Built once; onDown dispatches through
+   *  it (a hit is preventDefault-ed, a miss is left native). */
+  private readonly bindings: ReadonlyMap<string, (e: KeyboardEvent) => void>;
 
-  /**
-   * @param onDetent Called on each throttle keydown edge with the step
-   *   direction and whether the detent actually changed (false at an end stop)
-   *   — main.ts wires this to the telegraph-click tone.
-   * @param onUpgradeKey Called for each upgrade-window action: CTRL+1/2/3/E
-   *   fire on their keydown edge (chord, via upgradeActionFromKey); the bare
-   *   `toggle` fires on Control's keyUp, and only if no chord fired during
-   *   that hold — see handleControlUp(). main.ts routes it to the upgrade
-   *   menu + spend.
-   * @param isAbilitySlot Predicate: does this loadout slot hold ability
-   *   (non-weapon) equipment on the OWN ship? main.ts closes it over the own
-   *   loadout (slotHoldsAbility). When true, the slot's number key ACTIVATES
-   *   instead of priming (Story 1.6).
-   * @param onAbility Called on each genuine ability-activation press edge (at
-   *   PRESS time — the press is queued, not yet consumed) with the slot and the
-   *   actSeq value that press WILL ride once consumed (consumedCount + its queue
-   *   depth). main.ts predicts the verdict for feedback (denied pulse / optimistic
-   *   boost window keyed on that ride-actSeq).
-   */
-  constructor(
-    private readonly onDetent?: (dir: Step, changed: boolean) => void,
-    private readonly onUpgradeKey?: (a: UpgradeAction) => void,
-    private readonly isAbilitySlot?: (slot: number) => boolean,
-    private readonly onAbility?: (slot: number, actSeq: number) => void,
-  ) {}
-
-  /**
-   * CTRL-chord keys take priority and consume the event: on a match we
-   * preventDefault (suppresses the browser's ctrl+digit tab-switch where it
-   * can) and return true so ctrl+Digit1 never also latches a weapon and
-   * ctrl+W/E never taps the telegraph. Repeats are skipped so a held chord
-   * key doesn't re-fire the action every OS auto-repeat tick.
-   */
-  private tryUpgradeKey(e: KeyboardEvent): boolean {
-    if (e.repeat) return false;
-    const action = upgradeActionFromKey(e.code, e.ctrlKey);
-    if (action === null) return false;
-    e.preventDefault();
-    this.onUpgradeKey?.(action);
-    return true;
+  constructor(private readonly hooks: KeyboardHooks = {}) {
+    this.bindings = this.buildBindings();
   }
 
-  /** Non-repeat Control keydown starts a fresh hold: mark held, clear the chord flag. */
-  private handleControlDown(e: KeyboardEvent): void {
-    if (e.repeat) return; // held Control auto-repeats; only the initial edge starts a hold
-    this.ctrlHeld = true;
-    this.chordUsed = false;
+  /** The declarative binding table — one row per bound key. */
+  private buildBindings(): ReadonlyMap<string, (e: KeyboardEvent) => void> {
+    const b = new Map<string, (e: KeyboardEvent) => void>();
+    const bind = (codes: string[], fn: (e: KeyboardEvent) => void): void => {
+      for (const code of codes) b.set(code, fn);
+    };
+    bind([...THROTTLE_AHEAD, ...THROTTLE_ASTERN], this.handleThrottleKey);
+    bind([...LEFT, ...RIGHT], this.handleRudderKey);
+    bind(Object.keys(SLOT_KEY_CODES), this.handleSlotKey);
+    bind(Object.keys(REFIT_DIGIT_CODES), this.handleDigitKey);
+    // F (Foghorn-reserved) and Space are BOUND-INERT: prevented, no action.
+    bind(['KeyF', 'Space'], () => undefined);
+    bind(['Tab'], this.edge(() => this.hooks.onRefitToggle?.()));
+    bind(['Escape'], this.edge(() => this.hooks.onEscape?.()));
+    // Zoom allows OS auto-repeat (hold-to-zoom) — deliberately NOT edge().
+    bind(['KeyX'], () => this.hooks.onZoom?.(1));
+    bind(['KeyZ'], () => this.hooks.onZoom?.(-1));
+    bind(['KeyM'], this.edge(() => this.hooks.onMute?.()));
+    bind(['KeyP'], this.edge(() => this.hooks.onNetDebug?.()));
+    return b;
   }
 
-  /** Control keyUp: the toggle fires here (not on keyDown), and only if the hold was chord-free. */
-  private handleControlUp(): void {
-    if (this.ctrlHeld && !this.chordUsed) this.onUpgradeKey?.({ kind: 'toggle' });
-    this.ctrlHeld = false;
+  /** Wrap a handler so OS auto-repeat never re-fires it (one action per
+   *  physical press edge). */
+  private edge(fn: () => void): (e: KeyboardEvent) => void {
+    return (e) => {
+      if (!e.repeat) fn();
+    };
   }
 
+  /**
+   * THE dispatcher. Modifier chords (CTRL/META/ALT) are left entirely native —
+   * CTRL is unbound in the v1 scheme and browser shortcuts must keep working.
+   * A focused text input / button suppresses everything (and preventDefaults
+   * nothing — typing must still type). Every bound key is preventDefault-ed
+   * (TAB focus-cycle and Space scroll included); unbound keys stay native.
+   *
+   * SHIFT is deliberately NOT a native-chord modifier (shifted letters must
+   * still steer), with ONE exception: SHIFT+TAB is the browser's REVERSE
+   * focus-cycle, not a refit toggle — it is prevented (focus must not escape
+   * the canvas) but takes no action.
+   */
   private readonly onDown = (e: KeyboardEvent): void => {
-    if (e.code === 'ControlLeft' || e.code === 'ControlRight') {
-      this.handleControlDown(e);
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (textEntryFocused()) return;
+    if (e.shiftKey && e.code === 'Tab') {
+      e.preventDefault();
       return;
     }
-    if (this.ctrlHeld) this.chordUsed = true;
-    if (this.tryUpgradeKey(e)) return;
-    if (e.ctrlKey) return; // CTRL is the upgrade modifier — it never drives/selects
-    const step = stepFromKey(e.code, e.repeat);
-    if (step !== null) {
-      // Edge-only: OS auto-repeat is filtered by stepFromKey (repeat -> null),
-      // so holding W taps exactly one detent. Still record the held state so
-      // spectator pan (panAxesFrom) can read W/S; keyup clears it.
-      this.keys.add(e.code);
-      const changed = this.telegraph.step(step);
-      this.onDetent?.(step, changed);
-      return;
-    }
-    this.keys.add(e.code);
-    this.handleSlotKey(e);
+    const handler = this.bindings.get(e.code);
+    if (handler === undefined) return;
+    e.preventDefault();
+    handler(e);
   };
 
-  /** A number key addressing a loadout slot: ability slots ACTIVATE (Story 1.6),
-   *  weapon slots prime exactly as before. */
-  private handleSlotKey(e: KeyboardEvent): void {
-    const slot = primeSlotFromKey(e.code);
-    if (slot === null) return;
-    if (this.isAbilitySlot?.(slot) === true) {
-      // ABILITY slot: instant activation, NEVER a prime — the return here is
-      // what keeps priming/arc code structurally unreachable for ability slots
-      // (nextPrimedSlot below can never see this slot).
-      this.activateAbility(e, slot);
+  /** W/S (+arrows): record the held state (spectator pan reads it) and step
+   *  the telegraph one detent per keydown EDGE (repeat → stepFromKey null). */
+  private readonly handleThrottleKey = (e: KeyboardEvent): void => {
+    this.keys.add(e.code);
+    const step = stepFromKey(e.code, e.repeat);
+    if (step === null) return;
+    const changed = this.telegraph.step(step);
+    this.hooks.onDetent?.(step, changed);
+  };
+
+  /** A/D (+arrows): held rudder — state only, read by axes()/panAxes(). */
+  private readonly handleRudderKey = (e: KeyboardEvent): void => {
+    this.keys.add(e.code);
+  };
+
+  /**
+   * Q/E/R: the slot keys. Suspended (prevented-inert) while the refit modal is
+   * open — full combat lockout. An unfitted slot is inert (no feedback — the
+   * ruled R-while-empty behavior), and the fitted check FAILS CLOSED: no hook
+   * means no fitted slots. Ability slots ACTIVATE through the FIFO; weapon
+   * slots toggle the prime (switch-to / same-key-reverts).
+   */
+  private readonly handleSlotKey = (e: KeyboardEvent): void => {
+    if (e.repeat) return;
+    if (this.hooks.isModalOpen?.() === true) return;
+    const slot = SLOT_KEY_CODES[e.code];
+    if (this.hooks.isSlotFitted?.(slot) !== true) return;
+    if (this.hooks.isAbilitySlot?.(slot) === true) {
+      this.activateAbility(slot);
       return;
     }
     this.primed = nextPrimedSlot(this.primed, slot);
-  }
+  };
+
+  /** Digits 1–4: a refit-card pick while the modal is open; refit-or-nothing
+   *  otherwise (the old digit slot-priming and closed-window spend are dead —
+   *  amendment 3). Meaning is evaluated against modal state at THIS keydown. */
+  private readonly handleDigitKey = (e: KeyboardEvent): void => {
+    if (e.repeat) return;
+    if (this.hooks.isModalOpen?.() !== true) return;
+    this.hooks.onRefitPick?.(REFIT_DIGIT_CODES[e.code]);
+  };
 
   /**
-   * One ability-activation keypress (Story 1.6 control extension; Story 1.8's
-   * two-ability Mine Layer made the queue load-bearing): QUEUE the slot rather
-   * than bumping the wire counter directly, so the sampler can drain exactly one
-   * press per input (the server fires one ability per tick). The SERVER decides —
-   * a press while cooling or dead still queues and still rides an input; the
-   * onAbility callback only predicts the verdict for feedback. OS auto-repeat is
-   * filtered like every other edge-triggered key (one activation, not a stream),
-   * and the queue is capped at SLOT_COUNT so pathological mashing (>4 presses in
-   * one 50ms window) drops silently instead of growing unbounded.
+   * One ability-activation keypress: QUEUE the slot rather than bumping the
+   * wire counter directly, so the sampler can drain exactly one press per
+   * input. The SERVER decides the verdict — a press while cooling or dead
+   * still queues and rides an input; onAbility only predicts for feedback. A
+   * press against a FULL queue is dropped WITH feedback (onAbilityCapped →
+   * denied pulse/tone — never silence; Story 2.1).
    */
-  private activateAbility(e: KeyboardEvent, slot: number): void {
-    if (e.repeat) return;
-    if (this.pendingActs.length >= SLOT_COUNT) return; // bound mashing
+  private activateAbility(slot: number): void {
+    if (this.pendingActs.length >= SLOT_COUNT) {
+      this.hooks.onAbilityCapped?.(slot);
+      return;
+    }
     this.pendingActs.push(slot);
     // Pass the actSeq this press WILL ride once consumed: consumedCount + its
-    // queue depth (it is last in line, so it drains after all currently pending).
-    // The boost optimistic-window predictor keys its clear-on-ack on this value,
-    // so it stays correct even when other presses queue ahead of it.
-    this.onAbility?.(slot, this.actCount + this.pendingActs.length);
+    // queue depth (it is last in line, so it drains after all currently
+    // pending). The boost optimistic-window predictor keys on this value.
+    this.hooks.onAbility?.(slot, this.actCount + this.pendingActs.length);
   }
 
   /**
@@ -303,9 +332,8 @@ export class KeyboardInput {
    * the cumulative consumed count (InputMsg.actSeq) by one and record its slot
    * (InputMsg.actSlot). main.ts calls this once per BUILT INPUT (the sample +
    * neutral-send sites) so multiple presses in one 50ms window ride successive
-   * inputs and the server (one ability per tick) fires each in turn. A no-op
-   * when the queue is empty — the counters simply repeat, the honest "no new
-   * press" signal every non-pressing tick sends.
+   * inputs. A no-op when the queue is empty — the counters simply repeat, the
+   * honest "no new press" signal every non-pressing tick sends.
    */
   consumeActivation(): void {
     const slot = this.pendingActs.shift();
@@ -325,16 +353,13 @@ export class KeyboardInput {
   clearActivations(): void {
     this.pendingActs.length = 0;
   }
+
   private readonly onUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
-    if (e.code === 'ControlLeft' || e.code === 'ControlRight') this.handleControlUp();
   };
+
   private readonly onBlur = (): void => {
     this.clearKeys();
-    // A backgrounded tab may never deliver the matching Control keyUp — drop
-    // the hold state so a stray/late keyup can't retroactively toggle the window.
-    this.ctrlHeld = false;
-    this.chordUsed = false;
   };
 
   /** Attach window listeners. Call once on boot. */
@@ -396,7 +421,7 @@ export class KeyboardInput {
 
   /**
    * The primed loadout slot (0 = gun/unprimed) — the slot the next click fires.
-   * Set by the last 2/3 prime (or 1/same-key cancel); survives clearKeys.
+   * Set by the last weapon slot key (or same-key revert); survives clearKeys.
    */
   get primedSlot(): number {
     return this.primed;
@@ -426,8 +451,9 @@ export class KeyboardInput {
   /**
    * Revert the prime to the gun (slot 0). main.ts calls this on a
    * predicted-fireable skillshot click — the special fires once, then the gun
-   * is the weapon again (Eric ruling 2026-07-21). A predicted-DENIED click
-   * keeps the prime instead (the caller simply doesn't call this).
+   * is the weapon again (Eric ruling 2026-07-21, re-ratified 2026-07-24). A
+   * predicted-DENIED click keeps the prime instead (the caller simply doesn't
+   * call this).
    */
   revertToGun(): void {
     this.primed = SLOT_GUN;

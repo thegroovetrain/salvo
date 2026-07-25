@@ -13,6 +13,24 @@ import { CONFIG, SLOT_COUNT, wrapAngle, type InputMsg } from '@salvo/shared';
 export const INPUT_RATE_CAP = 40;
 /** Rate-cap window length (ms of server time). */
 export const INPUT_RATE_WINDOW_MS = 1000;
+/**
+ * Hard cap on the accepted-intent queue per client (Story 2.1 — the
+ * transport-coalescing press-swallow fix). Every ACCEPTED input is also queued
+ * so the World can evaluate each one's fire/act intent in seq order once per
+ * tick — two clicks landing in one 50ms tick both get a shot attempt (or a
+ * wire denial) instead of latest-wins silently swallowing the older press.
+ *
+ * The cap IS the rate cap, deliberately. `allowRate` is a FIXED 1000ms window,
+ * not a smooth 2-per-tick throttle: a network-jitter flush can deliver the
+ * whole remaining window allowance inside ONE 50ms tick, so arrivals per tick
+ * are bounded only by INPUT_RATE_CAP. Setting the queue bound to that same
+ * number makes overflow impossible for accepted inputs — every accepted press
+ * fires or gets its own wire denial, which is exactly the swallow class this
+ * story closes. (An "average" bound like 4 silently drops burst presses: the
+ * World's trailing latest-input pass only re-evaluates the ONE stored latest
+ * input, so the middle of a dropped burst is neither fired nor denied.)
+ */
+export const INTENT_QUEUE_CAP = INPUT_RATE_CAP;
 
 /**
  * aimDist ceiling: a STATIC TRANSPORT sanity bound only — 4× the base map
@@ -161,13 +179,21 @@ interface RateWindow {
 }
 
 /**
- * Latest-input-per-client store (highest seq wins; no replay queue at tracer
- * stage). The world reads the stored input every tick; frames echo the stored
- * seq as ackSeq.
+ * Latest-input-per-client store (highest seq wins for the kinematics the sim
+ * steps every tick) PLUS a per-client accepted-intent queue (Story 2.1):
+ * every accepted input is also queued (bounded by INTENT_QUEUE_CAP, which is
+ * the rate cap itself, so no accepted input is ever dropped) so the World
+ * can evaluate EACH accepted input's fire/act intent in seq order once per
+ * tick — transport coalescing can no longer swallow the older of two presses
+ * landing in one tick. The world reads the stored latest input every tick;
+ * frames echo the stored seq as ackSeq.
  */
 export class InputStore {
   private latest = new Map<string, InputMsg>();
   private windows = new Map<string, RateWindow>();
+  /** Accepted inputs awaiting their once-per-tick intent evaluation, in
+   *  accept (= strictly increasing seq) order. Cleared by drainIntents(). */
+  private intents = new Map<string, InputMsg[]>();
 
   /**
    * Submit a raw wire message for `id` at server time `now` (ms).
@@ -178,12 +204,27 @@ export class InputStore {
     const msg = sanitizeInput(raw, this.ackFor(id));
     if (!msg) return false;
     this.latest.set(id, msg);
+    this.queueIntent(id, msg);
     return true;
   }
 
   /** Latest accepted input for `id`, if any. */
   get(id: string): InputMsg | undefined {
     return this.latest.get(id);
+  }
+
+  /**
+   * Take (and clear) every accepted-but-unevaluated input for `id`, in seq
+   * order. Called by the World exactly once per tick per ship; fireControl /
+   * activationControl evaluate each entry's press intent so an older press
+   * fires or is denied on the wire, never silently swallowed. Empty between
+   * arrivals — kinematics stay latest-wins via get().
+   */
+  drainIntents(id: string): InputMsg[] {
+    const queue = this.intents.get(id);
+    if (queue === undefined) return [];
+    this.intents.delete(id);
+    return queue;
   }
 
   /** Highest accepted seq for `id` (0 before any input). Frames echo this. */
@@ -195,6 +236,18 @@ export class InputStore {
   remove(id: string): void {
     this.latest.delete(id);
     this.windows.delete(id);
+    this.intents.delete(id);
+  }
+
+  /** Queue an accepted input for intent evaluation. INTENT_QUEUE_CAP equals
+   *  INPUT_RATE_CAP, and the rate cap admits at most INPUT_RATE_CAP accepted
+   *  messages per window (however they burst inside a tick), so this bound is
+   *  unreachable for accepted inputs — it exists only as a memory guard. */
+  private queueIntent(id: string, msg: InputMsg): void {
+    const queue = this.intents.get(id) ?? [];
+    if (queue.length >= INTENT_QUEUE_CAP) return;
+    queue.push(msg);
+    this.intents.set(id, queue);
   }
 
   /** Fixed-window rate cap: at most INPUT_RATE_CAP messages per window. */

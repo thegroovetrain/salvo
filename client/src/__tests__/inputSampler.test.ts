@@ -280,11 +280,12 @@ describe('ability activation reaches the wire one-per-input (KeyboardInput + Inp
   }
 
   it('two different-slot presses in ONE window ride SUCCESSIVE inputs, neither lost', () => {
-    const kb = new KeyboardInput(undefined, undefined, () => true); // every slot is an ability
+    // every slot fitted + an ability (isSlotFitted fails closed — it must be wired)
+    const kb = new KeyboardInput({ isSlotFitted: () => true, isAbilitySlot: () => true });
     kb.attach();
     const sampler = new InputSampler(() => undefined);
-    press('Digit2'); // slot 1 (mine)
-    press('Digit3'); // slot 2 (decoy) — same 50ms window, before any sample
+    press('KeyQ'); // slot 1 (mine)
+    press('KeyE'); // slot 2 (decoy) — same 50ms window, before any sample
     const a = tick(kb, sampler);
     const b = tick(kb, sampler);
     const c = tick(kb, sampler);
@@ -294,13 +295,13 @@ describe('ability activation reaches the wire one-per-input (KeyboardInput + Inp
     kb.detach();
   });
 
-  it('actSeq climbs by AT MOST 1 per input (the server fires one ability per tick)', () => {
-    const kb = new KeyboardInput(undefined, undefined, () => true);
+  it('actSeq climbs by AT MOST 1 per input (the wire carries one press per input)', () => {
+    const kb = new KeyboardInput({ isSlotFitted: () => true, isAbilitySlot: () => true });
     kb.attach();
     const sampler = new InputSampler(() => undefined);
-    press('Digit3');
-    press('Digit3');
-    press('Digit3'); // three in one window
+    press('KeyE');
+    press('KeyE');
+    press('KeyE'); // three in one window
     const seqs = [tick(kb, sampler).actSeq, tick(kb, sampler).actSeq, tick(kb, sampler).actSeq];
     expect(seqs).toEqual([1, 2, 3]); // strictly +1 each, never a jump
     kb.detach();

@@ -11,7 +11,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  HEAL_CHOICE,
   bearing,
   mulberry32,
   segCircleHit,
@@ -156,7 +155,7 @@ describe('spectator frames — dead observer in the active phase', () => {
     });
   });
 
-  it("filters another ship's self-private pt/upg/heal out of spec frames; own points still arrive", () => {
+  it("filters another ship's self-private pt/upg out of spec frames; own points still arrive", () => {
     const w = deadObserverWorld(); // a is dead (sunk by b)
     place(w, 'd', 600, 0);
     w.sinkShip('c', 'b'); // b's kills → self-private pt events for b only
@@ -164,11 +163,11 @@ describe('spectator frames — dead observer in the active phase', () => {
     const b = w.ships.get('b')!;
     b.hp -= 30;
     expect(w.spendPoint('b', 0)).toBe(true); // upg ("spent") event, b only
-    expect(w.spendPoint('b', HEAL_CHOICE)).toBe(true); // heal event, b only
+    expect(w.spendPoint('b', 1)).toBe(true); // a second spend — still b only
     w.step();
     const fa = buildFrame(w, 'a', 'active');
-    // b's point bank, build increment, and heal all stay hidden from spectators.
-    expect(fa.events.filter((e) => e.k === 'pt' || e.k === 'upg' || e.k === 'heal')).toEqual([]);
+    // b's point bank and build increments all stay hidden from spectators.
+    expect(fa.events.filter((e) => e.k === 'pt' || e.k === 'upg')).toEqual([]);
     // The DEAD killer still banks its own point (mutual-destruction rule), and
     // the spec-frame pass-through delivers its pt to the owning spectator.
     w.sinkShip('b', 'a');
@@ -291,7 +290,6 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
       return;
     case 'upg':
     case 'pt':
-    case 'heal':
       expect(e.id).toBe(me.id); // self-private, even under fog
       return;
     case 'sunk':

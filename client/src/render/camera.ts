@@ -34,6 +34,25 @@ export interface CameraOptions {
 export const SPECTATE_ZOOM_MIN = 0.5;
 export const SPECTATE_ZOOM_MAX = 1;
 
+/** Alive user-zoom bounds (Story 2.1, Eric ruling 2026-07-24): the userZoom
+ *  factor over the base radar-fit framing is clamped to [MIN, MAX]. Values
+ *  mirror CLIENT_CONFIG.zoom.min/max (authored there; pinned here so this
+ *  module stays pure math with zero imports beyond util/math). */
+export const USER_ZOOM_MIN = 0.5;
+export const USER_ZOOM_MAX = 1.5;
+
+/**
+ * THE alive-only gate for user zoom (X/Z + wheel), pure so it is testable apart
+ * from main.ts's bootstrap glue. Zoom applies ONLY to a genuinely-alive captain:
+ * spectators use the separate spectate zoom-out path, and a MISSING own ship
+ * (`alive` undefined — pre-join, pre-first-frame, between lives) is treated as
+ * NOT alive. Checking `alive === false` instead would let zoom (and the fog
+ * re-bake it schedules) run before the first frame ever arrives.
+ */
+export function canUserZoom(spectating: boolean, alive: boolean | undefined): boolean {
+  return !spectating && alive === true;
+}
+
 export class Camera {
   /** World-space point the camera is centered on. */
   readonly center: Point = { x: 0, y: 0 };
@@ -42,14 +61,17 @@ export class Camera {
 
   private baseZoom = 1;
   private zoomFactorValue = 1;
+  private userZoomValue = 1;
   private viewW = 1;
   private viewH = 1;
 
   constructor(private readonly opts: CameraOptions) {}
 
-  /** Pixels per world unit (viewport-derived base × the spectator zoom factor). */
+  /** Pixels per world unit: viewport-derived base × the spectator zoom factor
+   *  × the alive user-zoom factor. The two factors never overlap in practice —
+   *  userZoom is reset to 1 on spectate entry and zoomFactor is 1 while alive. */
   get zoom(): number {
-    return this.baseZoom * this.zoomFactorValue;
+    return this.baseZoom * this.zoomFactorValue * this.userZoomValue;
   }
 
   /** Spectator zoom-out multiplier, 1 (normal) down to SPECTATE_ZOOM_MIN. */
@@ -65,6 +87,27 @@ export class Camera {
   /** Back to normal zoom (respawn / rejoin). */
   resetZoomFactor(): void {
     this.zoomFactorValue = 1;
+  }
+
+  /** Alive user-zoom factor over the base framing, clamped [0.5, 1.5]. */
+  get userZoom(): number {
+    return this.userZoomValue;
+  }
+
+  /** Set the alive user-zoom factor (X/Z keys + wheel), clamped [0.5, 1.5].
+   *  Callers that change the zoom must re-bake the fog (main.ts debounces).
+   *  A non-finite input is IGNORED: Math.min/max pass NaN straight through, and
+   *  a NaN factor would permanently poison the composed zoom (every later
+   *  clamp of NaN is NaN) — a rogue wheel deltaY must not brick the camera. */
+  setUserZoom(f: number): void {
+    if (!Number.isFinite(f)) return;
+    this.userZoomValue = Math.min(USER_ZOOM_MAX, Math.max(USER_ZOOM_MIN, f));
+  }
+
+  /** Back to the base framing (spectate entry — the spectate factor owns the
+   *  zoom there; the spectate code path itself is untouched by user zoom). */
+  resetUserZoom(): void {
+    this.userZoomValue = 1;
   }
 
   /** Screen-space center (px). */

@@ -993,7 +993,6 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   // Self-private kinds: each may only ever reach the ship its `id` names.
   dmg: (_w, me, e) => expect(e.id).toBe(me.id), // victim-private
   pt: (_w, me, e) => expect(e.id).toBe(me.id), // earner-private
-  heal: (_w, me, e) => expect(e.id).toBe(me.id), // healed-ship-private
   upg: (_w, me, e) => {
     // Self-private, and a valid upgrade id (never a fabricated type).
     expect(e.id).toBe(me.id);
@@ -1124,13 +1123,14 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // litZones/decoys frame channels (verifyFrame/verifyMine/verifyLitZone/
   // verifyDecoy), not through EVENT_VERIFIERS.
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
-  // The 11 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry.
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'heal'];
+  // The 10 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
+  // 2.1 deleted 'heal' from the wire with the REPAIR spend).
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 15 expected channel keys (11 event kinds + contact + mine + litzone + decoy)', () => {
+  it('has exactly the 14 expected channel keys (10 event kinds + contact + mine + litzone + decoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(15);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(14);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {

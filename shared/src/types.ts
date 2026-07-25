@@ -116,17 +116,16 @@ export interface PongMsg {
 
 /**
  * Client -> server spend ("u"): consume one banked point. `choice` is 0..2 for
- * the current offer's slot (see OwnShip.offer / UpgradeOffer) or HEAL_CHOICE for
- * the always-available heal. Deliberately a DISCRETE reliable message, NOT a
- * field on the per-tick InputMsg: the latest-input-wins coalescing there would
- * silently drop back-to-back spends (two quick kills → two spends).
+ * the current offer's slot (see OwnShip.offer / UpgradeOffer). Deliberately a
+ * DISCRETE reliable message, NOT a field on the per-tick InputMsg: the
+ * latest-input-wins coalescing there would silently drop back-to-back spends
+ * (two quick kills → two spends). The interregnum REPAIR/heal spend
+ * (HEAL_CHOICE = 3) was deleted end-to-end in Story 2.1 (Eric ruling
+ * 2026-07-24, "1-4 cards, no repair"); any out-of-range choice is rejected.
  */
 export interface SpendMsg {
-  choice: number; // 0..2 = offer slot, HEAL_CHOICE = heal
+  choice: number; // 0..2 = offer slot
 }
-
-/** SpendMsg.choice value that spends a point on healing instead of an upgrade. */
-export const HEAL_CHOICE = 3;
 
 /**
  * One equipment slot's ammo pool + reload timer: ONE pool (`n` = rounds ready
@@ -334,17 +333,6 @@ export interface PointEvent {
 }
 
 /**
- * A heal spend was applied. SELF-PRIVATE (forwarded only to `id`, like `pt`).
- * `amount` is the ACTUAL clamped hp delta (0 at full hp), so the client can toast
- * the real gain; the authoritative hp self-syncs every frame via OwnShip.hp.
- */
-export interface HealEvent {
-  k: 'heal';
-  id: string; // the healed ship (= the only observer this is ever delivered to)
-  amount: number; // hp actually restored (clamped delta)
-}
-
-/**
  * A mine visible to this viewer, synced as CONTACT-LIKE state (not an event):
  * FrameMsg.mines is recomputed per observer every tick, exactly like contacts.
  * Owner sees ALL own mines always; others see a mine only when it is within
@@ -458,8 +446,7 @@ export type GameEvent =
   | SunkEvent
   | SpawnEvent
   | UpgradeEvent
-  | PointEvent
-  | HealEvent;
+  | PointEvent;
 
 /**
  * Server -> client per-tick frame ("f"). Built per client by buildFrame().
