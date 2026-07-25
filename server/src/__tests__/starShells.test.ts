@@ -52,7 +52,7 @@ function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTi
 }
 
 describe('star shells — shell construction', () => {
-  it('firing spawns a CONFIG.starShells flare: speed 130, damage 10, burst = lit radius, lit tag set', () => {
+  it('firing spawns a CONFIG.starShells flare: speed 300, damage 10, burst = lit radius, lit tag set', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     setInput(bb, { aim: 0, aimDist: 400, slot: SLOT_STAR });

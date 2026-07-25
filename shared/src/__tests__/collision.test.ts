@@ -9,6 +9,7 @@ import {
   pointInPolygon,
   pointPolygonDistance,
   polygonMaxRadius,
+  segPolygonHit,
   transformPolygon,
 } from '../sim/silhouette.js';
 import { stepShip } from '../sim/ship.js';
@@ -20,7 +21,15 @@ import type { Vec2 } from '../math/vec.js';
 const DAMP = CONFIG.ship.islandSpeedMult;
 const DT = CONFIG.tick.simDtMs / 1000;
 const BIG_MAP = 100000; // effectively boundless for island-only cases
-const maxProjSpeed = Math.max(CONFIG.gun.shellSpeed, CONFIG.torpedo.speed);
+// THE worst case from CONFIG: the whole gun family (gun / cannon / star shells)
+// plus the torpedo — the previous max() omitted cannon and star shells, so a
+// faster sibling could raise the real worst case without this file noticing.
+const maxProjSpeed = Math.max(
+  CONFIG.gun.shellSpeed,
+  CONFIG.cannon.shellSpeed,
+  CONFIG.starShells.shellSpeed,
+  CONFIG.torpedo.speed,
+);
 const maxTravel = maxProjSpeed * DT;
 
 type HullId = Parameters<typeof hullSilhouette>[0];
@@ -97,20 +106,63 @@ function oldResolve(s: ShipState, isles: readonly Circle[], hullId: HullId, mapR
   if (contacted) s.speed *= DAMP;
 }
 
+// Collision is SWEPT (sim/shell.ts tests the whole tick's travel segment against
+// every obstacle), so the old "per-tick travel < the thinnest obstacle" margin was
+// never the guarantee — it was a proxy that silently excluded the cannon. The
+// proof that actually matters: at the worst-case per-tick travel from CONFIG, the
+// same primitives shell.ts uses still DETECT an obstacle the segment crosses even
+// when neither endpoint is touching it (exactly what a point sample would miss).
 describe('swept-shell no tunneling (worst case from CONFIG)', () => {
-  it('per-tick travel is smaller than the thinnest obstacle', () => {
-    expect(maxTravel).toBeLessThan(2 * MAP_RULES.MIN_R);
+  /** The thinnest hull afloat (smallest beam) — the worst case for a hull sweep. */
+  function thinnestHull(): { id: HullId; beam: number } {
+    let best = { id: HULL_IDS[0], beam: hullEnvelope(HULL_IDS[0]).hull.beam };
     for (const id of HULL_IDS) {
-      expect(maxTravel).toBeLessThan(hullEnvelope(id).hull.beam);
+      const beam = hullEnvelope(id).hull.beam;
+      if (beam < best.beam) best = { id, beam };
     }
-  });
+    return best;
+  }
 
-  it('detects the fastest shell crossing the thinnest island', () => {
+  it('detects the fastest projectile crossing the thinnest island', () => {
     const island = { x: 0, y: 0 };
     const r = MAP_RULES.MIN_R;
-    const p0 = { x: -maxTravel / 2, y: 0 };
-    const p1 = { x: maxTravel / 2, y: 0 };
-    expect(segCircleHit(p0, p1, island, r)).not.toBeNull();
+    // Head-on through the center.
+    expect(segCircleHit({ x: -maxTravel / 2, y: 0 }, { x: maxTravel / 2, y: 0 }, island, r)).not.toBeNull();
+    // The case a point sample misses: a grazing chord whose BOTH endpoints sit
+    // outside the island while the middle of the travel is inside it.
+    const offset = r - 0.1;
+    const g0 = { x: -maxTravel / 2, y: offset };
+    const g1 = { x: maxTravel / 2, y: offset };
+    expect(Math.hypot(g0.x, g0.y)).toBeGreaterThan(r); // start clear
+    expect(Math.hypot(g1.x, g1.y)).toBeGreaterThan(r); // end clear
+    const t = segCircleHit(g0, g1, island, r);
+    expect(t).not.toBeNull();
+    expect(t!).toBeGreaterThan(0);
+    expect(t!).toBeLessThan(1);
+  });
+
+  it('detects the fastest projectile crossing the thinnest hull broadside', () => {
+    const { id, beam } = thinnestHull();
+    const radius = CONFIG.gun.shellRadius;
+    const poly = hullSilhouette(id);
+    // Broadside at the hull's WIDEST station (max |y| vert), the crossing a
+    // point sample is most likely to skip over: the projectile starts clear on
+    // one side and ends clear on the other within a single tick's travel.
+    const widest = poly.reduce((a, p) => (Math.abs(p.y) > Math.abs(a.y) ? p : a), poly[0]);
+    const world = transformPolygon(poly, 0, 0, 0); // heading 0 → local frame
+    const p0 = { x: widest.x, y: -maxTravel / 2 };
+    const p1 = { x: widest.x, y: maxTravel / 2 };
+    // Genuinely swept-only: neither endpoint is inside or within the shell's own
+    // radius of the hull, yet the segment passes clean through the beam.
+    expect(maxTravel / 2).toBeGreaterThan(beam / 2 + radius);
+    for (const p of [p0, p1]) {
+      expect(pointInPolygon(p, world)).toBe(false);
+      expect(pointPolygonDistance(p, world)).toBeGreaterThan(radius);
+    }
+    const frac = segPolygonHit(p0, p1, world, radius);
+    expect(frac).not.toBeNull();
+    expect(frac!).toBeGreaterThan(0);
+    expect(frac!).toBeLessThan(1);
   });
 });
 
