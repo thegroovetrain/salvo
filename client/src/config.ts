@@ -241,7 +241,7 @@ export const CLIENT_CONFIG = {
      *  behind the DOM menu (UX-DR25). Ring/island/scrim geometry is lifted from
      *  the ratified mock's `.cic` CSS (home-class-picker-1.html); the RADAR
      *  behavior is the game's own (Eric ruling 2026-07-24): the in-game sweep
-     *  texture rotating at CONFIG.vision.sweepPeriod, and blips that light only
+     *  texture rotating at the base CONFIG.vision.sweepRpm, and blips that light only
      *  when the beam crosses them, then decay via render/phosphor's blipAlpha/
      *  blipTint — no independent timers. Client render MAY place contacts/
      *  islands with Math.random — the seeded-RNG law binds sim code only.
@@ -267,7 +267,7 @@ export const CLIENT_CONFIG = {
       ringWidth: 1.5,
       /** Sweep sprite alpha — the wedge is the in-game baked texture
        *  (render/textures.bakeSweepTexture) rotating at the game's real
-       *  CONFIG.vision.sweepPeriod; this only blends it against the scrim. */
+       *  base rate (CONFIG.vision.sweepRpm); this only blends it against the scrim. */
       sweepAlpha: 0.9,
       /** Fake drifting contacts the idle radar paints (blips light ONLY on a
        *  beam crossing, then phosphor-decay over exactly one sweep period). */

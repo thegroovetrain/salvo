@@ -7,7 +7,8 @@
 // This is the GAME's radar, idling (Eric ruling 2026-07-24 — the ambient must
 // not be "its own thing with its own rules"):
 //   • the sweep is the in-game wedge texture (render/textures.bakeSweepTexture)
-//     rotating at exactly 2π / CONFIG.vision.sweepPeriod — the real period;
+//     rotating at the game's base rate (CONFIG.vision.sweepRpm — the real,
+//     un-upgraded revolution);
 //   • blips are the in-game blip sprite (bakeBlipTexture) and only LIGHT when
 //     the beam actually crosses a contact's bearing; they then decay via the
 //     game's own phosphor math (render/phosphor.blipAlpha/blipTint), dying
@@ -140,7 +141,8 @@ export class AmbientScene {
    *  game's real period, paint any contact the beam crossed, phosphor-decay. */
   update(dtMs: number): void {
     this.elapsedMs += dtMs;
-    const period = CONFIG.vision.sweepPeriod;
+    // Base (un-upgraded) revolution — no observer exists on the menu.
+    const period = 60000 / CONFIG.vision.sweepRpm;
     const prev = this.sweepAngle;
     const cur = sweepAngleAt(this.elapsedMs, period);
     this.sweep.rotation = cur;

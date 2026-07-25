@@ -1,7 +1,7 @@
 // Story 1.14 — the ambient CIC scene's pure layout/crossing math. The Pixi
 // shell (AmbientScene) is a thin adapter left to visual QA; only these exported
 // helpers are unit-tested (the repo pattern). The ambient's radar RULES are the
-// game's own (Eric ruling 2026-07-24): the beam runs at CONFIG.vision.sweepPeriod
+// game's own (Eric ruling 2026-07-24): the beam runs at the base CONFIG.vision.sweepRpm rate
 // and blips light only on a beam crossing, then decay via render/phosphor —
 // blipAlpha/blipTint already carry their own pins in phosphor.test.ts.
 

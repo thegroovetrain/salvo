@@ -10,7 +10,8 @@
 // radar/sweep/sight; CONFIG.gun/torpedo/mine for weapons (gun RANGE bases on
 // CONFIG.vision.radar — range = radar range, Eric ruling 2026-07-21). Stacking per
 // CONFIG.upgrades: multiplicative entries compound (base * mult^count), adds
-// are linear. Uncapped by design (caps are a CONFIG tweak away).
+// are linear. Uncapped unless the CONFIG entry carries a ceiling — sweepSpeed
+// is the only capped stat today (maxRpm), and that clamp lives HERE alone.
 
 import { CONFIG, UPGRADE_IDS, type ShipClass, type UpgradeId } from '../constants.js';
 import type { ShipConfig } from './ship.js';
@@ -24,6 +25,11 @@ const UPGRADE_INDEX: Readonly<Record<UpgradeId, number>> = Object.fromEntries(
 function countOf(counts: readonly number[], id: UpgradeId): number {
   return counts[UPGRADE_INDEX[id]] ?? 0;
 }
+
+/** ms per minute — the rpm -> period conversion for effective (upgraded) stats.
+ *  Render-side BASE defaults (radar.ts, ambient.ts) derive 60000/CONFIG rpm at
+ *  their own edges; only THIS conversion ever sees upgrade counts. */
+const MS_PER_MINUTE = 60000;
 
 /** base * mult^count — the multiplicative stacking rule. */
 function stack(base: number, mult: number, count: number): number {
@@ -105,7 +111,8 @@ export interface EffectiveStats {
   kinematics: ShipConfig;
   maxHp: number;
   radarRange: number; // u
-  sweepPeriodMs: number; // ms per radar revolution
+  sweepRpm: number; // rev/min — THE tracked radar rotation rate (capped at maxRpm)
+  sweepPeriodMs: number; // ms per radar revolution — DERIVED: 60000 / sweepRpm
   sightRange: number; // u — true-sight bubble
   gun: EffectiveGun;
   torpedo: EffectiveTorpedo;
@@ -159,6 +166,12 @@ export function effectiveStats(cls: ShipClass, counts: readonly number[]): Effec
   const u = CONFIG.upgrades;
   const speedMult = Math.pow(u.maxSpeed.mult, countOf(counts, 'maxSpeed'));
   const k = cls.kinematics;
+  // Radar rotation is tracked in RPM (additive, hard-capped); sim consumers
+  // read the derived period, and no upgraded rpm is ever converted elsewhere.
+  const sweepRpm = Math.min(
+    CONFIG.vision.sweepRpm + u.sweepSpeed.addRpm * countOf(counts, 'sweepSpeed'),
+    u.sweepSpeed.maxRpm,
+  );
   return {
     kinematics: {
       maxSpeed: k.maxSpeed * speedMult,
@@ -170,7 +183,8 @@ export function effectiveStats(cls: ShipClass, counts: readonly number[]): Effec
     },
     maxHp: cls.hp + u.hullPoints.add * countOf(counts, 'hullPoints'),
     radarRange: stack(CONFIG.vision.radar, u.radarRange.mult, countOf(counts, 'radarRange')),
-    sweepPeriodMs: stack(CONFIG.vision.sweepPeriod, u.sweepSpeed.periodMult, countOf(counts, 'sweepSpeed')),
+    sweepRpm,
+    sweepPeriodMs: MS_PER_MINUTE / sweepRpm,
     sightRange: stack(CONFIG.vision.sight, u.sightRange.mult, countOf(counts, 'sightRange')),
     gun: {
       reloadMs: stack(CONFIG.gun.reloadMs, u.gunReload.mult, countOf(counts, 'gunReload')),

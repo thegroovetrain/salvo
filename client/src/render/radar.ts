@@ -62,7 +62,7 @@ export class Radar {
   // and the blip phosphor decay, so upgraded paints fade on the upgraded beat.
   private sightRange: number = CONFIG.vision.sight;
   private radarRange: number = CONFIG.vision.radar;
-  private sweepPeriodMs: number = CONFIG.vision.sweepPeriod;
+  private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
 
   constructor(blipLayer: Container, sweepLayer: Container) {
     this.pool = new Pool<Sprite>(() => this.makeBlipSprite(blipLayer));
