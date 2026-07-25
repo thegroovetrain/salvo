@@ -2,8 +2,9 @@
 title: 'Story 2.1: The New Input Scheme'
 type: 'feature'
 created: '2026-07-24'
-status: 'in-review'
+status: 'done'
 baseline_revision: '02e8ed51e9b121287d90335e2f8ef20777e74778'
+final_revision: '718da8e6d385e96cb6948fb89259d46e43a0888e'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
