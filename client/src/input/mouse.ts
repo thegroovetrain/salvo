@@ -14,6 +14,11 @@
 // suppressed (right-click must not pop a browser menu over a knife fight),
 // and an injected lockout predicate (the refit modal — full combat lockout,
 // Eric ruling 2026-07-24) drops even canvas clicks while it holds.
+//
+// Story 2.2 adds a second injected gate on the same listener: a pointerdown
+// whose position lands on a HOTBAR SLOT is that slot's key-equivalent action
+// and is swallowed here, so a click on the hotbar can never fire the gun at the
+// water beneath it (amendment 11).
 
 /** A screen-space point (px). */
 export interface ScreenPoint {
@@ -52,10 +57,19 @@ export class MouseInput {
    * @param isLocked Combat-lockout predicate (the refit modal): while true, NO
    *   pointerdown counts a click — even on the canvas. Feedback-free by design
    *   (the modal owns the player's attention; a swallowed click is the ruling).
+   * @param onSlotPress Hotbar gate (Story 2.2, amendment 11): given the
+   *   pointerdown's screen position, returns true iff the press landed on a
+   *   hotbar slot — in which case it is routed to that slot's key-equivalent
+   *   action by the injector and SWALLOWED here (the gun never fires at the
+   *   water beneath the hotbar). Pixi does not retarget events, so a click over
+   *   the Pixi hotbar has the canvas as its target and would otherwise fire;
+   *   this predicate is that gate, and it keeps the hit-test pure (no Pixi
+   *   eventMode / interactivity system).
    */
   constructor(
     private readonly nowServer: () => number = () => 0,
     private readonly isLocked: () => boolean = () => false,
+    private readonly onSlotPress: (p: ScreenPoint) => boolean = () => false,
   ) {}
 
   private readonly onMove = (e: PointerEvent): void => {
@@ -67,6 +81,10 @@ export class MouseInput {
     if (e.button !== 0) return;
     if (e.target !== this.canvas) return; // canvas-target-only: DOM chrome never fires
     if (this.isLocked()) return; // refit modal — full combat lockout
+    // Hotbar first: a press over a slot IS that slot's action and never a shot
+    // (amendment 11). Suspended-while-modal is already handled above — a locked
+    // click reaches neither the hotbar nor the tube.
+    if (this.onSlotPress({ x: e.clientX, y: e.clientY })) return;
     this.clicks += 1;
     // Stamp the honest fire instant at pointerdown (not sample time): a click
     // can sit up to a tick in the sampler before it ships. Feeds InputMsg.fireT.

@@ -1,0 +1,340 @@
+// The hotbar's PURE CORE (Story 2.2) — the whole ratified contract, tested
+// without instantiating Pixi (the class is a thin shell over these functions):
+// slot order Gun–Q–E–R, the seven-state grammar and its precedence, the ability
+// chamfer, the >1-pool ammo badge, quick-info strings (incl. the live cooling
+// countdown), the hit-test that both hover and the click gate consult, the
+// key-equivalent click routing (amendment 11), the tooltip model (keyless gun
+// line, boons rendered as ABSENCE) and its viewport-safe placement.
+
+import { describe, it, expect } from 'vitest';
+import {
+  CONFIG,
+  UPGRADE_IDS,
+  effectiveStats,
+  loadoutFor,
+  zeroUpgrades,
+  type EffectiveStats,
+  type EquipmentId,
+  type ShipClassId,
+  type WeaponAmmo,
+} from '@salvo/shared';
+import {
+  EMPTY_SLOT_LABEL,
+  NO_HOVER,
+  fmtRemaining,
+  fmtSeconds,
+  hotbarLayout,
+  hoverReady,
+  nextHover,
+  quickInfoLine,
+  slotAtPoint,
+  slotClickAction,
+  slotSkin,
+  slotState,
+  slotViewModels,
+  tooltipModel,
+  tooltipPlacement,
+  type HotbarView,
+} from '../render/hotbar.js';
+import { equipmentInfo, interactionLine, SLOT_KEY_GLYPHS } from '../render/equipmentInfo.js';
+import { CLIENT_CONFIG } from '../config.js';
+
+const H = CLIENT_CONFIG.hotbar;
+const C = CLIENT_CONFIG.colors;
+
+function statsFor(cls: ShipClassId, upgrades: Partial<Record<string, number>> = {}): EffectiveStats {
+  const counts = zeroUpgrades();
+  for (const [id, n] of Object.entries(upgrades)) counts[UPGRADE_IDS.indexOf(id as never)] = n ?? 0;
+  return effectiveStats(CONFIG.shipClasses[cls], counts);
+}
+
+function idsFor(cls: ShipClassId, stats: EffectiveStats): (EquipmentId | null)[] {
+  return loadoutFor(cls, stats).map((s) => s.equipmentId);
+}
+
+/** A live hotbar view: full pools, nothing cooling, gun selected, no flags. */
+function viewFor(cls: ShipClassId, over: Partial<HotbarView> = {}): HotbarView {
+  const stats = statsFor(cls);
+  const loadout = idsFor(cls, stats);
+  const ammo: (WeaponAmmo | null)[] = loadout.map((id) =>
+    id === null ? null : { n: equipmentInfo(stats, id).maxAmmo, reloadMsLeft: 0 },
+  );
+  return {
+    loadout,
+    ammo,
+    stats,
+    primedSlot: 0,
+    denied: [false, false, false, false],
+    activated: [false, false, false, false],
+    dim: false,
+    ...over,
+  };
+}
+
+describe('slot order — Gun (keyless) / Q / E / R, top to bottom (amendment 10)', () => {
+  it('is four slots with the gun on top and no key of its own', () => {
+    expect(SLOT_KEY_GLYPHS).toEqual(['', 'Q', 'E', 'R']);
+    const rows = slotViewModels(viewFor('torpedoBoat'));
+    expect(rows.map((r) => r.keyGlyph)).toEqual(['', 'Q', 'E', 'R']);
+    expect(rows.map((r) => r.id)).toEqual(['gun', 'torpedo', 'speedBoost', null]);
+  });
+
+  it('names each hull its own fit; slot 3 reads the awaiting-refit label', () => {
+    expect(slotViewModels(viewFor('battleship')).map((r) => r.name)).toEqual([
+      'Standard Gun',
+      'Heavy Cannon',
+      'Star Shells',
+      EMPTY_SLOT_LABEL,
+    ]);
+    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.id)).toEqual(['gun', 'mine', 'decoyBuoy', null]);
+  });
+});
+
+describe('the seven-state grammar + its precedence', () => {
+  const NONE = { denied: false, activated: false };
+
+  it('maps every state', () => {
+    expect(slotState(null, NONE, 0, false, false)).toBe('empty');
+    expect(slotState('torpedo', { ...NONE, denied: true }, 0, false, true)).toBe('denied');
+    expect(slotState('speedBoost', { ...NONE, activated: true }, 0, false, false)).toBe('activated');
+    expect(slotState('torpedo', NONE, 500, false, true)).toBe('cooling');
+    expect(slotState('gun', NONE, 0, true, true)).toBe('selected');
+    expect(slotState('torpedo', NONE, 0, false, true)).toBe('readyWeapon');
+    expect(slotState('speedBoost', NONE, 0, false, false)).toBe('readyAbility');
+  });
+
+  it('resolves denied > activated > cooling > selected > ready', () => {
+    const all = { denied: true, activated: true };
+    expect(slotState('gun', all, 900, true, true)).toBe('denied');
+    expect(slotState('gun', { denied: false, activated: true }, 900, true, true)).toBe('activated');
+    expect(slotState('gun', NONE, 900, true, true)).toBe('cooling');
+    expect(slotState('gun', NONE, 0, true, true)).toBe('selected');
+  });
+
+  it('an UNFITTED slot short-circuits everything (R is inert — no flag can reach it)', () => {
+    expect(slotState(null, { denied: true, activated: true }, 5000, true, true)).toBe('empty');
+  });
+
+  it('keeps SELECTED as its own channel so a selected+cooling slot still reads selected', () => {
+    const rows = slotViewModels(
+      viewFor('torpedoBoat', { primedSlot: 0, ammo: [{ n: 0, reloadMsLeft: 1200 }, null, null, null] }),
+    );
+    expect(rows[0].state).toBe('cooling'); // the box shows the conic track
+    expect(rows[0].selected).toBe(true); // ...and the chip/name stay amber (dual-coding)
+  });
+
+  it('drives each state from a distinct DESIGN.md token recipe (no literals)', () => {
+    expect(slotSkin('denied').border).toBe(C.denied);
+    expect(slotSkin('selected').border).toBe(C.amber);
+    expect(slotSkin('selected').washAlpha).toBeGreaterThan(0); // the inset wash channel
+    expect(slotSkin('readyWeapon').border).toBe(C.phosphor);
+    expect(slotSkin('readyAbility').borderAlpha).toBeGreaterThan(slotSkin('readyWeapon').borderAlpha);
+    expect(slotSkin('readyAbility').glowPx).toBeGreaterThan(slotSkin('readyWeapon').glowPx);
+    expect(slotSkin('activated').glowPx).toBeGreaterThan(slotSkin('selected').glowPx);
+    expect(slotSkin('cooling').scrim).toBe(true);
+    expect(slotSkin('empty').dashed).toBe(true);
+  });
+});
+
+describe('the chamfer is an ABILITY shape mark — weapons never carry it', () => {
+  it('cuts only the ability rows of each hull', () => {
+    expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.chamfer)).toEqual([false, false, true, false]);
+    expect(slotViewModels(viewFor('battleship')).map((r) => r.chamfer)).toEqual([false, false, false, false]);
+    // Mine Layer fits TWO abilities (mine + decoy).
+    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.chamfer)).toEqual([false, true, true, false]);
+  });
+});
+
+describe('ammo badge — only on pools LARGER than one round', () => {
+  it('shows nothing at base (gun 1, torpedo 1, boost 1)', () => {
+    expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.badge)).toEqual([null, null, null, null]);
+  });
+
+  it('appears once torpedoAmmo grows the tube, and counts the LIVE pool', () => {
+    const stats = statsFor('torpedoBoat', { torpedoAmmo: 1 });
+    const loadout = idsFor('torpedoBoat', stats);
+    const view: HotbarView = {
+      ...viewFor('torpedoBoat'),
+      stats,
+      loadout,
+      ammo: [{ n: 1, reloadMsLeft: 0 }, { n: 2, reloadMsLeft: 0 }, { n: 1, reloadMsLeft: 0 }, null],
+    };
+    expect(equipmentInfo(stats, 'torpedo').maxAmmo).toBe(2); // the upgrade landed
+    expect(slotViewModels(view).map((r) => r.badge)).toEqual([null, '2', null, null]);
+    const fired = slotViewModels({ ...view, ammo: [view.ammo[0], { n: 1, reloadMsLeft: 4000 }, view.ammo[2], null] });
+    expect(fired[1].badge).toBe('1'); // counts down on fire, back up on reload completion
+  });
+});
+
+describe('quick-info line (amendment 13) — real values, live countdown', () => {
+  const stats = statsFor('torpedoBoat');
+
+  it('reads DMG · CD for damage-dealing equipment and CD alone for the rest', () => {
+    expect(quickInfoLine(equipmentInfo(stats, 'gun'), 0)).toBe(`DMG ${CONFIG.gun.damage} · CD 3s`);
+    expect(quickInfoLine(equipmentInfo(stats, 'torpedo'), 0)).toBe(
+      `DMG ${CONFIG.torpedo.damage} · CD ${fmtSeconds(CONFIG.torpedo.reloadMs)}`,
+    );
+    expect(quickInfoLine(equipmentInfo(stats, 'cannon'), 0)).toContain(`DMG ${CONFIG.cannon.damage}`);
+    expect(quickInfoLine(equipmentInfo(stats, 'starShells'), 0)).toContain(`DMG ${CONFIG.starShells.damage}`);
+    expect(quickInfoLine(equipmentInfo(stats, 'mine'), 0)).toContain(`DMG ${CONFIG.mine.damage}`);
+    expect(quickInfoLine(equipmentInfo(stats, 'speedBoost'), 0)).toBe(`CD ${fmtSeconds(CONFIG.speedBoost.reloadMs)}`);
+    expect(quickInfoLine(equipmentInfo(stats, 'decoyBuoy'), 0)).toBe(`CD ${fmtSeconds(CONFIG.decoyBuoy.reloadMs)}`);
+  });
+
+  it('counts the REMAINING seconds down while cooling', () => {
+    expect(quickInfoLine(equipmentInfo(stats, 'gun'), 1440)).toBe(`DMG ${CONFIG.gun.damage} · CD 1.5s`);
+    expect(quickInfoLine(equipmentInfo(stats, 'speedBoost'), 6200)).toBe('CD 6.2s');
+  });
+
+  it('trims whole seconds and never reads 0s while still cooling', () => {
+    expect(fmtSeconds(3000)).toBe('3s');
+    expect(fmtSeconds(12000)).toBe('12s');
+    expect(fmtSeconds(4500)).toBe('4.5s');
+    expect(fmtRemaining(20)).toBe('0.1s');
+    expect(fmtRemaining(0)).toBe('0s');
+  });
+
+  it('ticks on EVERY slot regardless of which one is selected', () => {
+    const rows = slotViewModels(
+      viewFor('torpedoBoat', {
+        primedSlot: 0, // the GUN is selected...
+        ammo: [{ n: 1, reloadMsLeft: 0 }, { n: 0, reloadMsLeft: 11900 }, { n: 1, reloadMsLeft: 0 }, null],
+      }),
+    );
+    expect(rows[1].state).toBe('cooling'); // ...the unselected torpedo still cools
+    expect(rows[1].quickInfo).toContain('CD 11.9s');
+    expect(rows[1].coolFrac).toBeGreaterThan(0);
+    expect(rows[1].coolFrac).toBeLessThan(1);
+  });
+});
+
+describe('layout + slotAtPoint — the hit-test behind hover AND the click gate', () => {
+  const layout = hotbarLayout(768);
+
+  it('stacks four 54px slots bottom-left with the ratified gaps and gutter', () => {
+    expect(layout.rows).toHaveLength(4);
+    expect(layout.stackHeight).toBe(4 * H.slot + 3 * H.gap);
+    expect(layout.stackTop + layout.stackHeight).toBe(768 - H.bottom);
+    expect(layout.rows[0].keyX).toBe(H.left);
+    expect(layout.rows[0].box.x).toBe(H.left + H.keyChip + H.keyGap);
+    expect(layout.rows[1].box.y - layout.rows[0].box.y).toBe(H.slot + H.gap);
+    expect(layout.gutterX).toBe(H.left - H.gutter); // reserved dead space (2.6's XP rail)
+  });
+
+  it('hits each slot square and misses everything else', () => {
+    for (const row of layout.rows) {
+      const c = { x: row.box.x + row.box.size / 2, y: row.box.y + row.box.size / 2 };
+      expect(slotAtPoint(c, layout)).toBe(row.slot);
+    }
+    const first = layout.rows[0].box;
+    expect(slotAtPoint({ x: first.x - 1, y: first.y + 10 }, layout)).toBeNull(); // key-chip column
+    expect(slotAtPoint({ x: layout.gutterX + 2, y: first.y + 10 }, layout)).toBeNull(); // reserved gutter
+    expect(slotAtPoint({ x: first.x + 10, y: first.y - 1 }, layout)).toBeNull(); // above the stack
+    expect(slotAtPoint({ x: first.x + first.size + 20, y: first.y + 10 }, layout)).toBeNull(); // label column
+    expect(slotAtPoint({ x: 900, y: 400 }, layout)).toBeNull(); // open water
+  });
+
+  it('lands in the gap BETWEEN two rows as a miss', () => {
+    const gapY = layout.rows[0].box.y + H.slot + H.gap / 2;
+    expect(slotAtPoint({ x: layout.rows[0].box.x + 5, y: gapY }, layout)).toBeNull();
+  });
+});
+
+describe('click routing — key-EQUIVALENT slot actions (amendment 11)', () => {
+  const stats = statsFor('torpedoBoat');
+  const TB = idsFor('torpedoBoat', stats);
+  const isAbility = (slot: number): boolean => TB[slot] === 'speedBoost';
+
+  it('gun slot selects the gun; weapon slot toggles the prime; ability slot activates', () => {
+    expect(slotClickAction(0, TB, isAbility, false)).toBe('selectGun');
+    expect(slotClickAction(1, TB, isAbility, false)).toBe('primeToggle');
+    expect(slotClickAction(2, TB, isAbility, false)).toBe('activate');
+  });
+
+  it('an unfitted slot is inert (R while empty)', () => {
+    expect(slotClickAction(3, TB, isAbility, false)).toBe('none');
+  });
+
+  it('EVERY slot is suspended while the refit modal is open', () => {
+    for (const slot of [0, 1, 2, 3]) expect(slotClickAction(slot, TB, isAbility, true)).toBe('none');
+  });
+
+  it('reads the weapon/ability split from the loadout, never a slot literal', () => {
+    const mlStats = statsFor('mineLayer');
+    const ML = idsFor('mineLayer', mlStats);
+    const mlAbility = (slot: number): boolean => ML[slot] === 'mine' || ML[slot] === 'decoyBuoy';
+    expect(slotClickAction(1, ML, mlAbility, false)).toBe('activate'); // the mine ACTIVATES
+    expect(slotClickAction(2, ML, mlAbility, false)).toBe('activate');
+  });
+});
+
+describe('hover dwell — the tooltip waits out a short delay', () => {
+  it('restarts the clock whenever the hovered slot changes', () => {
+    let h = nextHover(NO_HOVER, 1, 1000);
+    expect(hoverReady(h, 1000)).toBe(false);
+    expect(hoverReady(h, 1000 + H.tooltip.delayMs)).toBe(true);
+    h = nextHover(h, 2, 1200); // moved to another slot
+    expect(hoverReady(h, 1400)).toBe(false);
+    expect(hoverReady(h, 1200 + H.tooltip.delayMs)).toBe(true);
+  });
+
+  it('never shows with nothing hovered', () => {
+    expect(hoverReady(nextHover(NO_HOVER, null, 5000), 99999)).toBe(false);
+  });
+});
+
+describe('tooltip model — name, interaction class, description, and NO boons', () => {
+  const stats = statsFor('torpedoBoat');
+
+  it('gives the keyless gun its always-selected interaction line', () => {
+    const t = tooltipModel(0, 'gun', stats);
+    expect(t).not.toBeNull();
+    expect(t?.name).toBe('STANDARD GUN');
+    expect(t?.interaction).toBe('WEAPON · ALWAYS SELECTED');
+    expect(t?.description.length).toBeGreaterThan(20);
+  });
+
+  it('labels a weapon slot SWITCH-TO and an ability slot ACTIVATES, with its key', () => {
+    expect(tooltipModel(1, 'torpedo', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
+    expect(tooltipModel(2, 'speedBoost', stats)?.interaction).toBe('ABILITY · E · ACTIVATES');
+    expect(interactionLine(3, 'mine')).toBe('ABILITY · R · ACTIVATES');
+  });
+
+  it('renders boons as ABSENCE — the list is empty, so no divider and no rows are drawn', () => {
+    for (const id of ['gun', 'torpedo', 'mine', 'speedBoost', 'cannon', 'starShells', 'decoyBuoy'] as const) {
+      expect(tooltipModel(1, id, stats)?.boons).toEqual([]);
+    }
+  });
+
+  it('has nothing to describe for an unfitted slot', () => {
+    expect(tooltipModel(3, null, stats)).toBeNull();
+  });
+});
+
+describe('tooltip placement — flanks the stack and never leaves the viewport', () => {
+  const layout = hotbarLayout(768);
+
+  it('flanks RIGHT of the slot by default, vertically centered on it', () => {
+    const row = layout.rows[1];
+    const p = tooltipPlacement(row, 120, 1366, 768);
+    expect(p.notchLeft).toBe(true); // notch on the panel's left edge = panel is to the right
+    expect(p.x).toBe(row.box.x + row.box.size + H.tooltip.gap);
+    expect(p.y + 60).toBeCloseTo(row.box.y + row.box.size / 2, 6);
+  });
+
+  it('flips to the LEFT flank when the panel would run off the right edge', () => {
+    const row = layout.rows[0];
+    const narrow = row.box.x + row.box.size + H.tooltip.gap + H.tooltip.width; // exactly one px too tight
+    const p = tooltipPlacement(row, 120, narrow - 1, 768);
+    expect(p.notchLeft).toBe(false);
+    expect(p.x).toBeLessThan(row.box.x);
+  });
+
+  it('clamps a tall panel inside the top and bottom edges', () => {
+    const p = tooltipPlacement(layout.rows[3], 700, 1366, 768);
+    expect(p.y).toBeGreaterThanOrEqual(H.tooltip.margin);
+    expect(p.y + 700).toBeLessThanOrEqual(768 - H.tooltip.margin + 1);
+    expect(p.notchY).toBeGreaterThanOrEqual(p.y);
+    expect(p.notchY).toBeLessThanOrEqual(p.y + 700);
+  });
+});

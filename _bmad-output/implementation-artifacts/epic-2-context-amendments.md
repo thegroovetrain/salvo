@@ -20,3 +20,17 @@ Source: Eric, direct answers to the four surfaced questions.
 7. **Digits 1–4 pick cards only; REPAIR is removed.** Eric verbatim: "1-4 cards, no repair." The interregnum REPAIR HULL spend option (CTRL+E / HEAL_CHOICE) is deleted from the spend flow — client UI, bindings, and server acceptance. Today's offers carry 3 cards (digits 1–3); digit 4 becomes live when offers carry 4 cards (Story 2.7). This does NOT foreclose a future heal boon — the epic's "heal stays an open question" constraint refers to the boon catalog, not the interregnum repair row.
 8. **Camera zoom ruling:** X zooms in, Z zooms out, wheel zooms smoothly; alive range 0.5×–1.5× of the base radar-fit framing; spectate zoom stays as-is (0.5×–1.0×, wheel only). Client-render-only; fog remains server-authoritative.
 9. **Both input-pipeline ledger debts land in Story 2.1:** the server transport-coalescing press swallow (evaluate every received input's fire/act intent via a small per-tick queue; rate cap already bounds it) and the client keyboard FIFO cap drop (denied feedback instead of silence).
+
+## 2026-07-25 — Eric ruling, Story 2.2 invocation (bmad-dev-auto 2-2)
+
+Source: Eric, verbatim invocation arguments to the Story 2.2 dev-auto run.
+
+10. **Hotbar contains the Gun at the very top, keyless; order top-to-bottom is Gun – Q – E – R.** The Gun keeps its hotbar slot even though it no longer has (nor requires) a hotkey, because its stats and reload status must still be displayed. This settles the seam flagged in epic context ("how the always-selected standard gun is presented in a four-slot hotbar under the new mapping"): four slots, Gun (no key chip) on top, then Q and E (class specials), then R (pickup/extra) at the bottom.
+
+## 2026-07-25 — Eric rulings, Story 2.2 pre-implementation questions (AskUserQuestion, this run)
+
+Source: Eric, direct answers to the three surfaced questions.
+
+11. **Hotbar slots are clickable, key-equivalent; clicks over the hotbar never fire the gun.** Clicking a weapon slot primes it (same semantics as its slot key, including revert-to-gun on re-click); clicking an ability slot activates it; clicking the gun slot selects the gun. A click over any hotbar slot is swallowed — it never falls through to fire at the water beneath. (Chosen over display-only and fire-through options.)
+12. **Own-vitals interim move lands in Story 2.2.** The telegraph ladder, rudder gauge, and HDG/KTS readouts move from bottom-left to bottom-right (joining the HP bar) in their current visual style, freeing the ratified bottom-left corner for the hotbar. Story 2.4 restyles the cluster in place.
+13. **Quick-info line: weapons show `DMG n · CD ns`, abilities show `CD ns`.** Real values from effectiveStats/CONFIG, updating live with upgrades. All equipment names/descriptions written for the tooltip are draft placeholder copy (like boon copy — Open Question 14's rule), canon later.
