@@ -2,8 +2,9 @@
 title: 'Radar sweep stat tracked in RPM (base 15, +3/stack, cap 30)'
 type: 'feature'
 created: '2026-07-25'
-status: 'in-review'
+status: 'done'
 baseline_revision: '7df936ae4bf2031c91d242252ea3ecdaa8bed347'
+final_revision: '1190ec272c3d4168c125bd1111143310bc6dec42'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: []
