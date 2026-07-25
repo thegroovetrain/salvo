@@ -43,7 +43,7 @@ describe('cannon — server loadout + shell construction', () => {
     expect(bb.loadout[SLOT_CANNON].state).toEqual({ n: CONFIG.cannon.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('firing spawns a CONFIG.cannon shell: speed 200, damage 50, burst 30, contact 20, no lit tag', () => {
+  it('firing spawns a CONFIG.cannon shell: speed 500, damage 50, burst 30, contact 20, no lit tag', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     setInput(bb, { aim: 0, aimDist: 400, slot: SLOT_CANNON });

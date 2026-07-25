@@ -18,7 +18,10 @@
 //   TAB            toggles the refit modal (main.ts owns open/close policy)
 //   1–4            pick a refit card ONLY while the modal is open
 //                  (refit-or-nothing; meaning evaluated at its own keydown)
-//   ESC            closes the topmost surface (the modal; settings at 2.3)
+//   ESC            closes the topmost surface (the modal; settings at 2.3) —
+//                  on the results screen it returns to port (UX-DR27)
+//   ENTER          confirms the topmost surface — results screen: return to
+//                  port (UX-DR27); inert in-match
 //   X / Z          camera zoom in / out (alive-only — main.ts gates)
 //   M / P          mute / prediction-debug toggle
 //   Space / CTRL   unbound; Space keydown still prevented (page scroll)
@@ -166,8 +169,12 @@ export interface KeyboardHooks {
   onRefitToggle?: () => void;
   /** Digit 1–4 while the modal is open — pick card `choice` (0-based). */
   onRefitPick?: (choice: number) => void;
-  /** ESC — close the topmost surface (in-match: the refit modal). */
+  /** ESC — close the topmost surface (in-match: the refit modal; on the results
+   *  screen main.ts routes it to RETURN TO PORT — UX-DR27). */
   onEscape?: () => void;
+  /** ENTER — confirm the topmost surface. Inert in-match; on the results screen
+   *  main.ts routes it to RETURN TO PORT (UX-DR27), the same path as ESC. */
+  onConfirm?: () => void;
   /** X (+1, in) / Z (-1, out) camera zoom step. OS auto-repeat is deliberately
    *  allowed — holding the key zooms smoothly, mirroring the wheel. */
   onZoom?: (dir: 1 | -1) => void;
@@ -223,6 +230,10 @@ export class KeyboardInput {
     bind(['KeyF', 'Space'], () => undefined);
     bind(['Tab'], this.edge(() => this.hooks.onRefitToggle?.()));
     bind(['Escape'], this.edge(() => this.hooks.onEscape?.()));
+    // ENTER (both keys): confirm the topmost surface — the results screen's
+    // RETURN TO PORT (UX-DR27). Bound-inert in-match, and prevented like every
+    // other bound key so it can never activate a focus-adjacent DOM control.
+    bind(['Enter', 'NumpadEnter'], this.edge(() => this.hooks.onConfirm?.()));
     // Zoom allows OS auto-repeat (hold-to-zoom) — deliberately NOT edge().
     bind(['KeyX'], () => this.hooks.onZoom?.(1));
     bind(['KeyZ'], () => this.hooks.onZoom?.(-1));

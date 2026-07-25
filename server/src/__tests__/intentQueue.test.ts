@@ -195,7 +195,10 @@ describe('intent-queue lifecycle discipline', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0);
     w.step();
-    w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aimDist: 100, actSeq: 1, actSlot: 2 }));
+    // aimDist far enough that the shell is still IN FLIGHT over the extra ticks
+    // below (at 500 u/s it covers 25u per tick from the ~60u bow spawn) — this
+    // pin distinguishes "no phantom re-fire" from a legitimate burst removal.
+    w.submitInput('a', input(1, { fireSeq: 1, slot: 0, aimDist: 400, actSeq: 1, actSlot: 2 }));
     w.step();
     expect(w.shells.size).toBe(1);
     expect(a.boostUntil).toBeGreaterThan(0);

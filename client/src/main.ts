@@ -59,6 +59,7 @@ import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
 import { abilityPressDenied, shouldConsumePrime } from './sim/inputSampler.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
+import { makeReturnToPort } from './app/returnToPort.js';
 import { connect, connectErrorStatus, mapFromWelcome, probeServer, type Connection } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
@@ -141,6 +142,9 @@ interface Game {
   spectate: { freePan: boolean; visualsSet: boolean };
   /** A reload back to the menu is already scheduled/underway. */
   returning: boolean;
+  /** THE return-to-port chain (app/returnToPort.ts), latched + always settling
+   *  to a reload. Shared by the results button and results-phase Enter/ESC. */
+  returnToPort: () => void;
   /**
    * True while the SDK is auto-reconnecting the same room (between onDrop and
    * onReconnect / onRoomLeave). The persistent RECONNECTING banner owns the
@@ -200,6 +204,10 @@ interface Game {
   portal: PortalAdapter;
   /** Latch: portal.matchEnd() fired — results re-delivery must not re-fire it. */
   matchEnded: boolean;
+  /** performance.now() when the results overlay was shown (Infinity until it
+   *  is). Results-phase ESC/Enter arm only after CLIENT_CONFIG.results.keyGraceMs
+   *  has elapsed, so a key aimed at the refit modal can't instantly return. */
+  resultsShownAt: number;
   /** Countdown-tick / match-start edge-detector state (audio/tones.ts). */
   audioCueState: AudioCueState;
   /** Own-ship storm-membership last frame, for the storm-enter warning edge. */
@@ -405,10 +413,39 @@ function handleRefitPick(g: Game, choice: number): void {
   g.upgradeMenu.hide();
 }
 
-/** ESC — close the topmost surface. In-match that is the refit modal; with
- *  nothing open, nothing happens (the settings overlay arrives in Story 2.3). */
+/**
+ * True once the results overlay has been up for the arming grace
+ * (CLIENT_CONFIG.results.keyGraceMs). Before that, an ESC/Enter the player
+ * aimed at the refit modal would land on the just-shown results screen and
+ * instantly tear the match down. False while resultsShownAt is Infinity (no
+ * results yet), so the keys can never fire early.
+ */
+function resultsKeysArmed(g: Game): boolean {
+  return performance.now() - g.resultsShownAt >= CLIENT_CONFIG.results.keyGraceMs;
+}
+
+/**
+ * ESC — close the topmost surface. Once the results overlay is up (the match
+ * finished and its broadcast landed) the topmost surface IS the results screen,
+ * and ESC returns to port — the ratified UX-DR27 keyboard path, the exact same
+ * chain the RETURN TO PORT button drives. While alive that is the refit modal
+ * (untouched); with nothing open, nothing happens (the settings overlay arrives
+ * in Story 2.3). Inside the arming grace ESC falls through to the (harmless)
+ * modal hide instead.
+ */
 function handleEscape(g: Game): void {
+  if (g.state.matchOver && resultsKeysArmed(g)) {
+    returnToPort(g);
+    return;
+  }
   g.upgradeMenu.hide();
+}
+
+/** ENTER — confirm the topmost surface. Today only the results overlay listens
+ *  (UX-DR27: Enter and ESC both = RETURN TO PORT); inert in-match, and inert
+ *  inside the results arming grace. */
+function handleConfirm(g: Game): void {
+  if (g.state.matchOver && resultsKeysArmed(g)) returnToPort(g);
 }
 
 /** Live safe radius + state, derived locally from the schema's zone plane. */
@@ -570,23 +607,35 @@ function zoneHud(zv: ZoneView, now: number, inStorm: boolean): ZoneHud {
 // --- return to port / disconnect ---------------------------------------------
 
 /**
+ * The Game's return-to-port action (app/returnToPort.ts owns the chain and the
+ * latch): ad break → leave() raced against a timeout → reload, so a socket the
+ * server already disposed can never strand the player on the results screen.
+ * Late-bound over gRef exactly like onSpendClick — the deps are read at
+ * activation time, never captured at construction.
+ */
+function makeGameReturnToPort(getG: () => Game | null): () => void {
+  return makeReturnToPort({
+    requestAdBreak: () => getG()?.portal.requestAdBreak() ?? Promise.resolve(),
+    leaveRoom: () => getG()?.room.leave() ?? Promise.resolve(),
+    reload: () => location.reload(),
+    onStart: () => {
+      const g = getG();
+      if (!g) return;
+      g.returning = true; // handleRoomLeave: the reload is already on its way
+      cancelZoomFogRebake(g); // no trailing re-bake against a torn-down stage
+    },
+  });
+}
+
+/**
  * Back to the menu via a full reload: bulletproof teardown of the Pixi scene,
  * loop, listeners, and net state in one stroke; the next PLAY is a fresh
- * joinOrCreate. The saved callsign persists in localStorage.
+ * joinOrCreate. The saved callsign persists in localStorage. Reached from the
+ * results button AND from results-phase Enter/ESC (UX-DR27) — one path.
  */
 function returnToPort(g: Game): void {
-  if (g.returning) return;
-  g.returning = true;
-  cancelZoomFogRebake(g); // no trailing re-bake against a torn-down stage
-  // Give the portal an ad-break moment before teardown. g.portal is
-  // safeAdapter-wrapped, so this always settles (timeout-capped) and never
-  // throws; the extra catch keeps a misbehaving room.leave() from surfacing
-  // an unhandled rejection. Reload runs no matter what.
-  void g.portal
-    .requestAdBreak()
-    .then(() => g.room.leave())
-    .catch(() => undefined)
-    .finally(() => location.reload());
+  if (g.returning) return; // handleRoomLeave latched first — its reload is underway
+  g.returnToPort();
 }
 
 /** The room connection ended (server disposal, network death, or own leave). */
@@ -719,6 +768,7 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       if (g) handleRefitPick(g, choice);
     },
     onEscape: withG(handleEscape),
+    onConfirm: withG(handleConfirm),
     onZoom: (dir) => {
       const g = getG();
       if (g) handleZoomStep(g, dir);
@@ -853,12 +903,12 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     room: conn.room, mapRadius: map.radius,
     cameraSnapped: false, lastOwn: { x: 0, y: 0 },
     spectate: { freePan: false, visualsSet: false },
-    returning: false, reconnecting: false,
+    returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
     shake: new ShakeDriver(),
     deniedPulse: new DeniedPulse(), deniedFlash: false, denialDedup: new DenialDedup(), serverDeniedClick: false,
     ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    matchEnded: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownStats: stats, ownSlots: slotIdsFor(cls, stats),
@@ -976,6 +1026,11 @@ function bindGameRoom(g: Game, conn: Connection): void {
         g.matchEnded = true;
         g.portal.matchEnd();
       }
+      // Results arrival hygiene: a refit modal open at the finish must not stay
+      // painted (and clickable) over the results screen, and the results-key
+      // arming grace starts now (see CLIENT_CONFIG.results.keyGraceMs).
+      g.upgradeMenu.hide();
+      g.resultsShownAt = performance.now();
       showResults(msg, g.state.net.sessionId, () => returnToPort(g));
     },
     onRoomLeave: () => handleRoomLeave(g),

@@ -555,13 +555,13 @@ describe('KeyboardInput — chokepoint hygiene', () => {
     document.body.replaceChildren(); // drop any focused fixture
   });
 
-  it('preventDefaults EVERY bound key — W/A/S/D, arrows, Q/E/R, F, Space, digits, TAB, ESC, Z/X/M/P', () => {
+  it('preventDefaults EVERY bound key — W/A/S/D, arrows, Q/E/R, F, Space, digits, TAB, ESC, ENTER, Z/X/M/P', () => {
     kb = new KeyboardInput();
     kb.attach();
     for (const code of [
       'KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight',
       'KeyQ', 'KeyE', 'KeyR', 'KeyF', 'Space', 'Digit1', 'Digit4', 'Numpad2',
-      'Tab', 'Escape', 'KeyZ', 'KeyX', 'KeyM', 'KeyP',
+      'Tab', 'Escape', 'Enter', 'NumpadEnter', 'KeyZ', 'KeyX', 'KeyM', 'KeyP',
     ]) {
       expect(press(code), code).toBe(true);
     }
@@ -583,8 +583,19 @@ describe('KeyboardInput — chokepoint hygiene', () => {
     kb = new KeyboardInput();
     kb.attach();
     expect(press('KeyC')).toBe(false);
-    expect(press('Enter')).toBe(false);
+    expect(press('Backquote')).toBe(false);
     expect(press('ControlLeft')).toBe(false); // CTRL is unbound in the v1 scheme
+  });
+
+  it('ENTER fires onConfirm once per press edge (never on auto-repeat)', () => {
+    let confirms = 0;
+    kb = new KeyboardInput({ onConfirm: () => (confirms += 1) });
+    kb.attach();
+    press('Enter');
+    press('Enter', { repeat: true }); // held ENTER never machine-guns the surface
+    expect(confirms).toBe(1);
+    press('NumpadEnter');
+    expect(confirms).toBe(2);
   });
 
   it('modifier chords stay native: CTRL/META/ALT + a bound key does nothing and prevents nothing', () => {

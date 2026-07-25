@@ -8,6 +8,9 @@ import { CLIENT_CONFIG } from '../config.js';
 import { cssRgba } from '../util/color.js';
 
 const RESULTS_ID = 'results-overlay';
+/** Stable id for the player's only path home — pinned by results.test.ts, so a
+ *  future second button in the panel can't silently repoint that pin. */
+const RETURN_BUTTON_ID = 'results-return';
 
 /** Pure: rows by placement ascending (winner first); input is not mutated. */
 export function sortRows(rows: readonly ResultsRow[]): ResultsRow[] {
@@ -84,6 +87,7 @@ function makeRow(r: ResultsRow, own: boolean): HTMLTableRowElement {
 
 function makeReturnButton(onReturn: () => void): HTMLButtonElement {
   const btn = document.createElement('button');
+  btn.id = RETURN_BUTTON_ID;
   btn.textContent = 'RETURN TO PORT';
   btn.style.cssText = [
     'padding:10px 28px',
@@ -94,6 +98,10 @@ function makeReturnButton(onReturn: () => void): HTMLButtonElement {
     'letter-spacing:3px',
     'cursor:pointer',
   ].join(';');
+  // Keeps focus off the button — a focused BUTTON suppresses the keyboard
+  // chokepoint (input/keyboard.ts textEntryFocused), which would kill
+  // results-phase ESC/Enter after a mousedown-then-drag-off.
+  btn.addEventListener('mousedown', (e) => e.preventDefault());
   btn.addEventListener('click', onReturn);
   return btn;
 }
