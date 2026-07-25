@@ -79,11 +79,18 @@ async function preloadFonts(): Promise<void> {
   // the primary-face token rather than the comma stack. Quote it — the family
   // has a space.
   const mono = `"${CLIENT_CONFIG.type.monoFamily}"`;
+  const display = `"${CLIENT_CONFIG.type.displayFamily}"`;
   try {
     await Promise.all([
       document.fonts.load(`600 16px ${mono}`),
       document.fonts.load(`400 12px ${mono}`),
       document.fonts.load(`400 9px ${mono}`), // nameplates (hud-micro, Story 1.13)
+      // Story 2.2 hotbar: key chips + quick-info + tooltip head (mono), and the
+      // slot name / tooltip description (display).
+      document.fonts.load(`400 10px ${mono}`),
+      document.fonts.load(`400 11px ${mono}`),
+      document.fonts.load(`600 13px ${display}`),
+      document.fonts.load(`400 12px ${display}`),
     ]);
     await document.fonts.ready;
   } catch {

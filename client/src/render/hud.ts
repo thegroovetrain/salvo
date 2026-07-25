@@ -1,21 +1,20 @@
-// Telegraph HUD — screen-space instrument readout (hudRoot). Throttle/rudder
-// gauges + heading/speed, an HP bar (green→amber→crimson), the LOADOUT-driven
-// chip row (labels/grammar from the own loadout — 1-charge equipment reads as
-// a pure cooldown, pooled weapons as segments + a reload line; PRIMED /
-// boost-active outlined), and a centered respawn overlay while sunk. Geist
+// Own-vitals HUD — screen-space instrument readout (hudRoot). Throttle/rudder
+// gauges + heading/speed, an HP bar (green→amber→crimson), the banked-points
+// prompt, the storm readouts, and a centered respawn overlay while sunk. Geist
 // Mono per DESIGN.md. Text strings are diffed before assignment (Pixi
-// re-rasterizes on `.text`). Epic 2 rebuilds the hotbar — this stays minimal.
+// re-rasterizes on `.text`).
+//
+// Story 2.2: the interim loadout CHIP ROW is gone — render/hotbar.ts owns the
+// loadout surface now (the ratified bottom-left hotbar), and the whole vitals
+// cluster (telegraph ladder, rudder gauge, HDG/KTS, IN STORM) moved from
+// bottom-LEFT to bottom-RIGHT to free that corner (amendment 12). This is a
+// RELOCATION only, in the current visual style; Story 2.4 restyles the cluster
+// in place. Vertical order in the corner, bottom-up: HP bar, telegraph
+// cluster, PTS prompt, IN STORM.
 
 import { Container, Graphics, Text } from 'pixi.js';
 import type { EffectiveStats, ShipState, EquipmentId, ShipClassId, WeaponAmmo } from '@salvo/shared';
-import {
-  EQUIPMENT_IS_WEAPON,
-  SLOT_COUNT,
-  boostedKinematics,
-  equipmentMaxAmmo,
-  equipmentReloadMs,
-  wrapPositive,
-} from '@salvo/shared';
+import { boostedKinematics, wrapPositive } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 /** Kinematics subset the speed ladder needs (ahead/astern denominators). */
@@ -31,19 +30,17 @@ const GREEN = C.phosphor;
 const AMBER = C.amber;
 const CRIMSON = C.damage; // HP-rail third band keeps `damage` (HP-rail redesign is a later story)
 const DIM = C.textMuted;
-const DENIED_RED = C.denied; // the single denied red — denied-fire chip flash
 // Storm readout accent: the `storm` fill is below the graphic-contrast
 // threshold, so text/readout uses `storm-readout` (brighter, not more saturated —
 // DESIGN.md storm color note).
 const STORM_PURPLE = C.stormReadout;
-const PANEL = C.panel; // HP bar / chip backings
+const PANEL = C.panel; // HP bar backing
 // Geist Mono per DESIGN.md — the single mono stack (sizes unchanged: they already
 // embed the post-playtest ~1.6× register).
 const MONO = CLIENT_CONFIG.type.mono;
 // HUD scaled ~1.6× after the 2026-07-13 owner play test ("everything tiny").
 // DESIGN.md type floor is Small = 14px; readouts/labels sit at/above it.
 const PANEL_W = 240;
-const PANEL_H = 96;
 const MARGIN = 24;
 const BAR_W = 240;
 const BAR_H = 16;
@@ -99,57 +96,6 @@ export function speedLadderFraction(speed: number, kin: LadderKin): number {
   return f < -1 ? -1 : f > 1 ? 1 : f;
 }
 
-/** Chip label text per equipment id (Story 1.6: the row is LOADOUT-driven —
- *  labels come from the own loadout, not a hardcoded gun/torpedo/mine trio). */
-const EQUIPMENT_LABEL: Record<EquipmentId, string> = {
-  gun: 'GUNS',
-  torpedo: 'TORP',
-  mine: 'MINE',
-  speedBoost: 'BOOST',
-  cannon: 'CANNON', // Story 1.7: the Battleship's long-range burst skillshot
-  starShells: 'FLARE', // Story 1.7: the Battleship's lit-zone star shell
-  decoyBuoy: 'DECOY', // Story 1.8: the Mine Layer's radar-double buoy ability
-};
-
-/** Slot → bound key glyph under the fixed v1 scheme (Story 2.1): the gun
- *  (slot 0) is keyless — always selected, no key of its own — Q/E are the two
- *  class specials, R the pickup/extra slot. One mono key-chip family: these
- *  glyphs render in the same mono treatment as the refit modal's digit chips
- *  and the PTS prompt. */
-const SLOT_KEY_GLYPHS = ['', 'Q', 'E', 'R'] as const;
-
-/** Pure: one chip's label — "GUNS" (keyless gun), "Q TORP", "E BOOST", … */
-export function chipLabel(slot: number, id: EquipmentId): string {
-  const key = SLOT_KEY_GLYPHS[slot] ?? '';
-  return key === '' ? EQUIPMENT_LABEL[id] : `${key} ${EQUIPMENT_LABEL[id]}`;
-}
-
-/**
- * Pure: does this equipment's chip use the cooldown-sweep grammar (vs the
- * segmented ammo pool)? Keyed on EQUIPMENT IDENTITY, never on pool size and NOT
- * on the weapon/ability flag: the gun's single shot, the cannon and star shells
- * (1-round long-cooldown gun-style skillshots, Story 1.7 — no ammo grant grows
- * them), and the pure-cooldown abilities (speedBoost, and Story 1.8's decoyBuoy)
- * all read as cooldowns, while the GROWABLE pools — torpedo AND mine — keep the
- * segmented-pool + reload-line grammar even at maxAmmo 1. A 1-fish tube (and a
- * 1-mine pool) is still a pool, and it grows mid-match on an ammo grant
- * (torpedoAmmo / mineAmmo) without the chip flipping vocabulary. Note mine is now
- * an instant ability (Story 1.8) yet KEEPS segmented grammar — the grammar can't
- * follow EQUIPMENT_IS_WEAPON, so it is a bare id list.
- */
-export function chipUsesCooldownGrammar(id: EquipmentId): boolean {
-  return id !== 'torpedo' && id !== 'mine';
-}
-const CHIP_GAP = 6;
-const CHIP_H = 20;
-const SEG_GAP = 1; // px between ammo segments within a chip
-const CHIP_STYLE = {
-  fontFamily: MONO,
-  fontSize: 14,
-  fill: DIM,
-  letterSpacing: 1,
-} as const;
-
 const LABEL_STYLE = {
   fontFamily: MONO,
   fontSize: 14,
@@ -158,7 +104,7 @@ const LABEL_STYLE = {
 } as const;
 
 const DATA_STYLE = { fontFamily: MONO, fontSize: 28, fill: GREEN } as const;
-// Banked-points prompt — amber (an action is available), above the chip cluster.
+// Banked-points prompt — amber (an action is available), above the vitals cluster.
 const PTS_STYLE = {
   fontFamily: MONO,
   fontSize: 16,
@@ -187,25 +133,19 @@ export interface OwnStatus {
    *  ladder, ammo pool sizes, reload durations) read from here (Stage D). */
   stats: EffectiveStats;
   /** Slot-aligned equipment ids of the OWN loadout (loadoutFor(you.cls) —
-   *  Story 1.6): drives chip labels + per-chip grammar; null = empty slot
-   *  (no chip drawn). Ammo VALUES still come from the server via `ammo`. */
+   *  Story 1.6); null = an unfitted slot. Read by the firing UX and passed
+   *  through to the HOTBAR (render/hotbar.ts owns the loadout surface as of
+   *  Story 2.2). Ammo VALUES still come from the server via `ammo`. */
   loadout: readonly (EquipmentId | null)[];
   /** The own speed boost is currently active (serverNow < boostUntil estimate):
-   *  drives the boost chip's active outline and the boosted speed-needle cap. */
+   *  drives the boosted speed-needle cap on the telegraph ladder. */
   boostActive: boolean;
 }
 
-/** Pure: the banked-points prompt above the weapon chips ('' hides it at 0).
+/** Pure: the banked-points prompt above the vitals cluster ('' hides it at 0).
  *  TAB is the refit-modal toggle (Story 2.1 — supersedes the CTRL window). */
 export function pointsLine(n: number): string {
   return n <= 0 ? '' : `PTS ×${n} — TAB`;
-}
-
-/** View model for one ammo chip: pool count, pool size, reload progress [0,1]. */
-export interface AmmoChipView {
-  n: number;
-  max: number;
-  reloadFrac: number;
 }
 
 /**
@@ -277,11 +217,57 @@ export function reloadFraction(reloadMsLeft: number, reloadMs: number): number {
   return f < 0 ? 0 : f > 1 ? 1 : f;
 }
 
-/** Weapon-chip border color + alpha: dim/idle, amber/primed, red/denied-flash. */
-function chipTint(primed: boolean, flash: boolean): { border: number; alpha: number } {
-  if (flash) return { border: DENIED_RED, alpha: 1 };
-  if (primed) return { border: AMBER, alpha: 0.9 };
-  return { border: DIM, alpha: 0.4 };
+// --- bottom-right own-vitals stack (amendment 12) ------------------------------
+// The corner is laid out BOTTOM-UP from the viewport's bottom-right, so the
+// cluster can never collide with the HP bar at the 1366×768 floor:
+//   HP bar        h - MARGIN - BAR_H
+//   telegraph     the gauge root, CLUSTER_BELOW px of clearance under it
+//   PTS prompt    above the cluster's top edge
+//   IN STORM      above the PTS prompt
+// Local extremes of the gauge root's content: y ∈ [-38, 102] (AHEAD caption to
+// ASTERN caption), x ∈ [0, ~250] (HDG readout to the speed needle).
+const CLUSTER_TOP = 38; // px of root-local content ABOVE the root origin
+const CLUSTER_BOTTOM = 102; // px of root-local content BELOW the root origin
+const CLUSTER_W = 250; // px of root-local content RIGHT of the root origin
+const CLUSTER_BELOW = 12; // clearance between the cluster's foot and the HP bar
+const PTS_ABOVE = 24; // PTS prompt baseline above the cluster's top edge
+const STORM_ABOVE = 50; // IN STORM baseline above the cluster's top edge
+
+/** A screen-space box (px). */
+interface HudBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The whole bottom-right own-vitals stack, as pure geometry. */
+export interface VitalsLayout {
+  hp: HudBox;
+  /** Origin of the gauges' local frame (the telegraph/rudder/readout root). */
+  root: { x: number; y: number };
+  /** The gauge cluster's screen bounding box (root-local content resolved). */
+  cluster: HudBox;
+  pts: { x: number; y: number };
+  storm: { x: number; y: number };
+}
+
+/**
+ * Pure: the bottom-right vitals stack for a viewport (amendment 12). Laid out
+ * bottom-up so the cluster can never collide with the HP bar — pinned by
+ * hud.test.ts at the 1366×768 floor.
+ */
+export function vitalsLayout(screenW: number, screenH: number): VitalsLayout {
+  const hp = { x: screenW - BAR_W - MARGIN, y: screenH - MARGIN - BAR_H, w: BAR_W, h: BAR_H };
+  const root = { x: screenW - MARGIN - CLUSTER_W, y: hp.y - CLUSTER_BELOW - CLUSTER_BOTTOM };
+  const cluster = { x: root.x, y: root.y - CLUSTER_TOP, w: CLUSTER_W, h: CLUSTER_TOP + CLUSTER_BOTTOM };
+  return {
+    hp,
+    root,
+    cluster,
+    pts: { x: root.x, y: cluster.y - PTS_ABOVE },
+    storm: { x: root.x, y: cluster.y - STORM_ABOVE },
+  };
 }
 
 export class Hud {
@@ -292,7 +278,6 @@ export class Hud {
   private readonly speedLabel: Text;
   private readonly overlay: Text;
   private readonly ptsLabel: Text;
-  private readonly chipLabels: Text[];
   private readonly rungLabels: Text[];
   private readonly zoneLine: Text;
   private readonly stormWarn: Text;
@@ -312,8 +297,6 @@ export class Hud {
   private lastCountdown = '';
   private lastSpectateBanner = '';
   private lastPtsLine = '';
-  /** Per-slot chip label text guard (Pixi re-rasterizes on `.text`). */
-  private readonly lastChipLabels: string[] = [];
 
   constructor(private readonly hudLayer: Container) {
     hudLayer.addChild(this.root);
@@ -334,13 +317,6 @@ export class Hud {
     this.ptsLabel = new Text({ text: '', style: PTS_STYLE });
     this.ptsLabel.visible = false;
     hudLayer.addChild(this.ptsLabel);
-    // One label per loadout slot (SLOT_COUNT); the text is LOADOUT-driven and
-    // assigned (diffed) in drawWeaponChips — unfitted slots stay hidden.
-    this.chipLabels = Array.from({ length: SLOT_COUNT }, () => {
-      const label = new Text({ text: '', style: CHIP_STYLE });
-      hudLayer.addChild(label);
-      return label;
-    });
     this.rungLabels = this.buildLadderLabels();
     this.zoneLine = new Text({ text: '', style: ZONE_STYLE });
     this.zoneLine.anchor.set(0.5, 0);
@@ -394,11 +370,10 @@ export class Hud {
   private setInstrumentsVisible(visible: boolean): void {
     this.root.visible = visible;
     this.bars.visible = visible;
-    for (const chip of this.chipLabels) chip.visible = visible;
     if (!visible) this.ptsLabel.visible = false; // spectate: no prompt (update() re-shows it when alive)
   }
 
-  /** Amber "PTS ×N — TAB" prompt above the bottom-right chip cluster (hidden at 0). */
+  /** Amber "PTS ×N — TAB" prompt, above the bottom-right vitals cluster (hidden at 0). */
   private updatePoints(status: OwnStatus, screenW: number, screenH: number): void {
     const line = pointsLine(status.pts);
     if (line !== this.lastPtsLine) {
@@ -406,12 +381,12 @@ export class Hud {
       this.lastPtsLine = line;
     }
     this.ptsLabel.visible = line !== '';
-    const x = screenW - BAR_W - MARGIN;
-    const baseY = screenH - MARGIN - PANEL_H;
-    this.ptsLabel.position.set(x, baseY - 24);
+    const pts = vitalsLayout(screenW, screenH).pts;
+    this.ptsLabel.position.set(pts.x, pts.y);
   }
 
-  /** Top-center storm readout + the "IN STORM" warning above the telegraph. */
+  /** Top-center storm readout + the "IN STORM" warning, now at the head of the
+   *  bottom-RIGHT vitals stack (amendment 12 — it moved with the cluster). */
   private drawZone(zone: ZoneHud, screenW: number, screenH: number): void {
     if (zone.line !== this.lastZoneLine) {
       this.zoneLine.text = zone.line;
@@ -420,11 +395,13 @@ export class Hud {
     this.zoneLine.visible = zone.line !== '';
     this.zoneLine.position.set(screenW / 2, MARGIN);
     this.stormWarn.visible = zone.inStorm;
-    this.stormWarn.position.set(MARGIN, screenH - PANEL_H - MARGIN - 18);
+    const storm = vitalsLayout(screenW, screenH).storm;
+    this.stormWarn.position.set(storm.x, storm.y);
   }
 
-  private layout(screenH: number): void {
-    this.root.position.set(MARGIN, screenH - PANEL_H - MARGIN);
+  private layout(screenW: number, screenH: number): void {
+    const root = vitalsLayout(screenW, screenH).root;
+    this.root.position.set(root.x, root.y);
   }
 
   /** Nine right-aligned rung labels + static AHEAD/ASTERN captions (created once). */
@@ -498,14 +475,12 @@ export class Hud {
     this.drawTelegraph(index, axes.rudder, speed, kin);
   }
 
-  /** HP bar + the loadout chip row, anchored bottom-right (screen space). */
-  private drawBars(status: OwnStatus, screenW: number, screenH: number, deniedFlash: boolean, abilityFlash: readonly boolean[]): void {
+  /** HP bar — the foot of the bottom-right vitals stack (screen space). */
+  private drawBars(status: OwnStatus, screenW: number, screenH: number): void {
     const g = this.bars;
     g.clear();
-    const x = screenW - BAR_W - MARGIN;
-    const baseY = screenH - MARGIN - PANEL_H;
-    this.drawHp(g, x, baseY, status.hp, status.stats.maxHp);
-    this.drawWeaponChips(g, status, x, baseY + BAR_H + 12, deniedFlash, abilityFlash);
+    const hp = vitalsLayout(screenW, screenH).hp;
+    this.drawHp(g, hp.x, hp.y, status.hp, status.stats.maxHp);
   }
 
   private drawHp(g: Graphics, x: number, y: number, hp: number, maxHp: number): void {
@@ -513,108 +488,6 @@ export class Hud {
     g.rect(x, y, BAR_W, BAR_H).fill({ color: PANEL, alpha: 0.8 });
     g.rect(x, y, BAR_W * frac, BAR_H).fill({ color: hpColor(frac), alpha: 0.95 });
     g.rect(x, y, BAR_W, BAR_H).stroke({ width: 1, color: DIM, alpha: 0.5 });
-  }
-
-  /**
-   * The LOADOUT-driven chip row (Story 1.6): one chip per fitted slot of the
-   * own loadout (TB: [1 GUNS / 2 TORP / 3 BOOST], BB/ML: [1 GUNS / 2 TORP /
-   * 3 MINE]). The gun and abilities (boost) render the pure cooldown-sweep
-   * grammar; WEAPON pools (torpedo/mine) render segmented ammo + a reload
-   * line — keyed on equipment identity, never on pool size (a 1-fish tube is
-   * still a segmented pool). The PRIMED slot is outlined amber
-   * (gun when nothing is primed); an ABILITY chip borrows that SAME
-   * primed-amber outline while its window is active — interim vocabulary, the
-   * full hotbar grammar is Epic 2 Story 2.2. `deniedFlash` briefly reddens the
-   * primed chip (denied fire click); `abilityFlash` is PER-SLOT (an ML now fits
-   * TWO ability slots — mine + decoyBuoy — so a denied mine press must not flash
-   * the decoy chip) and reddens exactly the denied slot's chip: a
-   * predicted-denied ability press, or — Story 1.10 — an unmatched SERVER
-   * denial on ANY slot (weapon chips included). Denominators are the EFFECTIVE pool
-   * sizes/reloads from status.stats via equipmentMaxAmmo/equipmentReloadMs.
-   */
-  private drawWeaponChips(g: Graphics, status: OwnStatus, x: number, y: number, deniedFlash: boolean, abilityFlash: readonly boolean[]): void {
-    const fitted: number[] = [];
-    for (let i = 0; i < status.loadout.length; i++) {
-      if (status.loadout[i] !== null) fitted.push(i);
-    }
-    const cw = (BAR_W - (fitted.length - 1) * CHIP_GAP) / fitted.length;
-    for (let k = 0; k < fitted.length; k++) {
-      this.drawOneChip(g, status, fitted[k], k, x + k * (cw + CHIP_GAP), y, cw, deniedFlash, abilityFlash);
-    }
-    for (let k = fitted.length; k < this.chipLabels.length; k++) this.chipLabels[k].visible = false;
-  }
-
-  /** One fitted slot's chip: fill grammar + tinted border + (diffed) label. */
-  private drawOneChip(g: Graphics, status: OwnStatus, slot: number, k: number, cx: number, y: number, cw: number, deniedFlash: boolean, abilityFlash: readonly boolean[]): void {
-    const id = status.loadout[slot] as EquipmentId; // caller iterates fitted slots only
-    const isAbility = !EQUIPMENT_IS_WEAPON[id];
-    const a = status.ammo[slot] ?? { n: 0, reloadMsLeft: 0 };
-    const reloadFrac = reloadFraction(a.reloadMsLeft, equipmentReloadMs(status.stats, id));
-    g.rect(cx, y, cw, CHIP_H).fill({ color: PANEL, alpha: 0.8 });
-    // Grammar keyed on equipment IDENTITY (gun/ability = cooldown sweep,
-    // weapon pools = segments) — never on pool size (see chipUsesCooldownGrammar).
-    if (chipUsesCooldownGrammar(id)) this.drawCooldownChip(g, a.n > 0, reloadFrac, cx, y, cw);
-    else this.drawAmmoChip(g, { n: a.n, max: equipmentMaxAmmo(status.stats, id), reloadFrac }, cx, y, cw);
-    const primed = slot === status.primedSlot;
-    // Active-window "on" indicator = the primed-amber outline (interim — Epic 2
-    // Story 2.2 owns the real hotbar active grammar).
-    const outlined = primed || (isAbility && status.boostActive);
-    // Per-slot denial flash applies to ANY slot (Story 1.10: an unmatched
-    // SERVER denial flashes the exact denied slot's chip, weapon or ability);
-    // the predicted weapon-click flash keeps riding the primed chip.
-    const flash = (abilityFlash[slot] ?? false) || (!isAbility && primed && deniedFlash);
-    const label = this.chipLabels[k];
-    const text = chipLabel(slot, id);
-    if (this.lastChipLabels[k] !== text) {
-      label.text = text;
-      this.lastChipLabels[k] = text;
-    }
-    label.visible = true;
-    this.drawChip(g, label, cx, y, cw, outlined, flash);
-  }
-
-  /**
-   * The gun's single-shot cooldown chip (no ammo segments): when ready the chip
-   * fills green; while cooling an amber bar fills left→right at reloadFrac with a
-   * bright sweep line at its leading edge — reads as one shot on a 3s cooldown.
-   */
-  private drawCooldownChip(g: Graphics, ready: boolean, reloadFrac: number, cx: number, y: number, cw: number): void {
-    if (ready) {
-      g.rect(cx, y, cw, CHIP_H).fill({ color: GREEN, alpha: 0.9 });
-      return;
-    }
-    g.rect(cx, y, cw, CHIP_H).fill({ color: DIM, alpha: 0.28 }); // grey while on cooldown
-    g.rect(cx, y, cw * reloadFrac, CHIP_H).fill({ color: AMBER, alpha: 0.45 }); // cooldown fill
-    g.rect(cx + cw * reloadFrac - 1, y, 2, CHIP_H).fill({ color: AMBER, alpha: 0.95 }); // bright sweep edge
-  }
-
-  /**
-   * One weapon's ammo pool inside its chip: `max` equal-width segments (green
-   * filled for loaded rounds, dim outlines for empty). At n===0 the whole segment
-   * area greys out — the only "dead" signal. While below max a highly visible
-   * amber reload line (2px, full height) sweeps left→right at reloadFrac; it
-   * stays bright even at zero ammo (the one live signal when empty).
-   */
-  private drawAmmoChip(g: Graphics, view: AmmoChipView, cx: number, y: number, cw: number): void {
-    const segW = (cw - (view.max - 1) * SEG_GAP) / view.max;
-    for (let i = 0; i < view.max; i++) {
-      const sx = cx + i * (segW + SEG_GAP);
-      if (i < view.n) g.rect(sx, y, segW, CHIP_H).fill({ color: GREEN, alpha: 0.9 });
-      else g.rect(sx, y, segW, CHIP_H).stroke({ width: 1, color: DIM, alpha: 0.4 });
-    }
-    if (view.n === 0) g.rect(cx, y, cw, CHIP_H).fill({ color: DIM, alpha: 0.28 }); // grey ONLY when empty
-    if (view.n < view.max) {
-      const lx = cx + cw * view.reloadFrac;
-      g.rect(lx - 1, y, 2, CHIP_H).fill({ color: AMBER, alpha: 0.95 }); // the reload line stays bright
-    }
-  }
-
-  /** One chip's border + label tint: amber when primed, red while a denied pulse flashes it. */
-  private drawChip(g: Graphics, label: Text, cx: number, y: number, cw: number, primed: boolean, flash: boolean): void {
-    const { border, alpha } = chipTint(primed, flash);
-    g.rect(cx, y, cw, CHIP_H).stroke({ width: primed ? 1.5 : 1, color: border, alpha });
-    label.position.set(cx + 3, y + CHIP_H + 2);
-    label.style.fill = border;
   }
 
   private updateReadouts(ship: ShipState): void {
@@ -646,12 +519,8 @@ export class Hud {
   }
 
   /** Update all instruments (conning a live ship). Call each render frame.
-   *  `deniedFlash` is true while the denied-fire pulse (render/deniedFire.ts)
-   *  is active — briefly reddens the selected weapon chip. `abilityFlash` is
-   *  the PER-SLOT denial-feedback array (index i reddens the chip for loadout
-   *  slot i): fed by predicted ability-press denials (Story 1.6, per-slot since
-   *  Story 1.8's two-ability ML) AND — Story 1.10 — by unmatched SERVER denials
-   *  on ANY slot, weapon or ability. */
+   *  Per-slot denied/activated feedback lives on the HOTBAR now
+   *  (render/hotbar.ts) — this surface owns the vitals only. */
   update(
     ship: ShipState,
     axes: Axes,
@@ -660,17 +529,15 @@ export class Hud {
     match: MatchUx,
     screenW: number,
     screenH: number,
-    deniedFlash = false,
-    abilityFlash: readonly boolean[] = [],
   ): void {
     this.setInstrumentsVisible(true);
     this.spectateBanner.visible = false;
-    this.layout(screenH);
+    this.layout(screenW, screenH);
     // Speed-needle denominator: the BOOSTED cap while the boost window is
     // active — via the one shared speed mutator, never a hand-tweaked maxSpeed.
     const kin = boostedKinematics(status.stats.kinematics, status.stats.boost.speedBonus, status.boostActive);
     this.updateTelegraph(axes, ship.speed, kin);
-    this.drawBars(status, screenW, screenH, deniedFlash, abilityFlash);
+    this.drawBars(status, screenW, screenH);
     this.updatePoints(status, screenW, screenH);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);

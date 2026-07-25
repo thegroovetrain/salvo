@@ -137,3 +137,9 @@ Speed ruling rationale (for Eric's veto): 300 u/s = 6.7× fastest hull (45); fli
 - The 300 u/s value is a Fable ruling under Eric's delegation (rationale in Design Notes; the constant is a one-line retune).
 - Version classification: 0.17.1 treats this as bugfix+tuning; if Eric counts a balance retune as a feature, it should have been 0.18.0.
 - Feel of 400ms results-key grace and the 1000ms leave race are CLIENT_CONFIG/exported constants, both trivially tunable.
+
+### Post-run Eric rulings (2026-07-25, pre-merge)
+
+- **Speed retuned 300 → 500 u/s** (max-range 650u flight ≈ 1.3s). Constants, barrel.test pins, prose refreshed; intentQueue's no-phantom-refire pin given flight-time headroom (aimDist 100 → 400 — at 500 u/s the shell legitimately burst inside the old observation window); golden frames regenerated.
+- **No version bump** — VERSION/package.json stay 0.17.0 (reverting this spec's 0.17.1 task).
+- **Reconciled with main**: this was the third of three concurrent agents; radar-sweep-rpm (PR #64) and story 2-2 The Hotbar merged first. origin/main merged into the branch (conflicts: config.ts results+hotbar blocks kept side-by-side; deferred-work + gds-workflow-status entries combined).

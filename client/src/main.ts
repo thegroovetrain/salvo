@@ -50,12 +50,13 @@ import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
+import { Hotbar, type HotbarView } from './render/hotbar.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
 import { KeyboardInput, slotHoldsAbility, type KeyboardHooks } from './input/keyboard.js';
 import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
-import { MouseInput, worldAim, worldAimDist } from './input/mouse.js';
+import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
 import { abilityPressDenied, shouldConsumePrime } from './sim/inputSampler.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
@@ -112,6 +113,10 @@ interface Game {
   radar: Radar;
   zone: Zone;
   hud: Hud;
+  /** The bottom-left hotbar (render/hotbar.ts, Story 2.2) — the loadout surface:
+   *  four slots (Gun / Q / E / R), the full state grammar, hover tooltip, and
+   *  key-equivalent slot clicks. Rendered only while alive in-match. */
+  hotbar: Hotbar;
   /** The TAB-toggled refit modal (ui/upgradeMenu.ts) — DOM; while open the
    *  game is under full combat lockout (Story 2.1) but the sim never pauses. */
   upgradeMenu: UpgradeMenu;
@@ -180,6 +185,15 @@ interface Game {
    *  predicted ability-press denials AND unmatched server denials on weapon or
    *  ability slots alike (the name predates the weapon-slot extension). */
   abilityFlash: boolean[];
+  /** One-shot latch PER LOADOUT SLOT: an ability press was predicted READY on
+   *  the optimistic press edge (the boost-prediction precedent) — consumed into
+   *  the matching activatedPulse for the hotbar's ≤80ms ACTIVATED pop. */
+  abilityActivatedPress: boolean[];
+  /** Rate-limited ACTIVATED pop per loadout slot — the same 80ms/300ms register
+   *  as the denied pulse (DESIGN.md specs the flash in ms, not frames). */
+  activatedPulse: DeniedPulse[];
+  /** This frame's activated-pop state per loadout slot (read by the hotbar). */
+  activatedFlash: boolean[];
   /** Tone player (audio/context.ts). */
   audio: Audio;
   /**
@@ -648,6 +662,7 @@ function setupViewport(
   hooks: KeyboardHooks,
   nowServer: () => number,
   fireLocked: () => boolean,
+  onSlotPress: (p: ScreenPoint) => boolean,
 ): {
   camera: Camera;
   keyboard: KeyboardInput;
@@ -674,7 +689,9 @@ function setupViewport(
   // modal's full combat lockout; attach() takes the game canvas so ONLY
   // canvas-target pointerdowns ever fire (DOM chrome clicks never do) and the
   // canvas contextmenu is suppressed.
-  const mouse = new MouseInput(nowServer, fireLocked);
+  // `onSlotPress` is the hotbar gate (Story 2.2): a canvas press over a slot is
+  // that slot's key-equivalent action and is swallowed, never a shot.
+  const mouse = new MouseInput(nowServer, fireLocked, onSlotPress);
   mouse.attach(stage.app.canvas);
 
   // Guessed-class hull until the first frame confirms/corrects it; boots on the
@@ -793,6 +810,10 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
     g.audio.play('denied');
     return;
   }
+  // Predicted READY: fire the hotbar's ACTIVATED pop on this optimistic press
+  // edge (the boost-prediction precedent — the slot must acknowledge the press
+  // now, not a round trip later). It decays straight into the cooling grammar.
+  g.abilityActivatedPress[slot] = true;
   const id = g.ownSlots[slot];
   // `actSeq` is the value THIS press will ride once the keyboard drains it onto
   // an input (it may sit behind other queued presses); the optimistic boost
@@ -825,11 +846,19 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
  *  mine + decoyBuoy) never share a pulse/flash. Fed by predicted ability-press
  *  denials and — Story 1.10 — by unmatched server denials on any slot (the
  *  `ability` naming predates the weapon-slot extension). */
-function abilityFeedbackState(): Pick<Game, 'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash'> {
+function abilityFeedbackState(): Pick<
+  Game,
+  'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityActivatedPress' | 'activatedPulse' | 'activatedFlash'
+> {
   return {
     abilityDeniedPress: Array.from({ length: SLOT_COUNT }, () => false),
     abilityPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
     abilityFlash: Array.from({ length: SLOT_COUNT }, () => false),
+    // Story 2.2: the mirror-image ACTIVATED channel (per-slot latch + pulse +
+    // this-frame flag), driven off the optimistic ability-press edge.
+    abilityActivatedPress: Array.from({ length: SLOT_COUNT }, () => false),
+    activatedPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
+    activatedFlash: Array.from({ length: SLOT_COUNT }, () => false),
   };
 }
 
@@ -839,7 +868,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
   let gRef: Game | null = null;
   // setupViewport args: the chokepoint hooks, the lazy server-clock thunk for the mouse's
   // pointerdown fire-time stamp (D1, resolved at click time), and the refit-modal lockout.
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => gRef?.upgradeMenu.visible === true);
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => gRef?.upgradeMenu.visible === true, (p) => handleHotbarPress(gRef, p));
   const stats = effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades());
   const nameplates = new NameplateLayer(stage.plateRoot); // screen-space plates: own hull + contacts
 
@@ -867,6 +896,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
     zone: new Zone(stage.layers.zone, stage.layers.vignette, map.radius, CONFIG.zone.endRadiusFraction),
     hud: new Hud(stage.layers.hud),
+    hotbar: new Hotbar(stage.layers.hud),
     upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef)),
     spendInFlight: null,
     fogZoomTimer: null,
@@ -1045,17 +1075,65 @@ function renderOwn(
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
   renderFiring(g, pose, status, aim, cursor);
-  g.hud.update(
-    pose,
-    g.keyboard.axes(),
-    status,
-    zone,
-    match,
-    g.stage.app.screen.width,
-    g.stage.app.screen.height,
-    g.deniedFlash,
-    g.abilityFlash,
-  );
+  g.hud.update(pose, g.keyboard.axes(), status, zone, match, g.stage.app.screen.width, g.stage.app.screen.height);
+  updateHotbar(g, status);
+}
+
+/**
+ * Per-slot denied state for the hotbar: the per-slot latch (predicted ability
+ * denials + unmatched SERVER denials on any slot — Story 1.10) OR, for the
+ * SELECTED weapon, this frame's denied-fire click pulse. Same wiring the
+ * retired chip row used, re-pointed at the hotbar's denied grammar.
+ */
+function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
+  return g.abilityFlash.map((flash, slot) => {
+    const id = status.loadout[slot] ?? null;
+    const isWeapon = id !== null && EQUIPMENT_IS_WEAPON[id];
+    return flash || (isWeapon && slot === status.primedSlot && g.deniedFlash);
+  });
+}
+
+/**
+ * The hotbar renders ONLY while alive in-match (the weapons-safe waiting room
+ * included) — it dies with the hull (death / spectate / reveal) and on return
+ * to port. Called after renderFiring so this frame's denied pulse is resolved.
+ */
+function updateHotbar(g: Game, status: OwnStatus): void {
+  if (!status.alive) {
+    g.hotbar.hide();
+    return;
+  }
+  const view: HotbarView = {
+    loadout: status.loadout,
+    ammo: status.ammo,
+    stats: status.stats,
+    primedSlot: status.primedSlot,
+    denied: hotbarDenied(g, status),
+    activated: g.activatedFlash,
+    dim: g.upgradeMenu.visible, // refit modal: dim to 38%, keys AND clicks suspended
+  };
+  // Hover reads the pointer ONLY while it is inside the window (the aim path
+  // keeps using the last known position regardless — see MouseInput).
+  const cursor = g.mouse.pointerInside ? g.mouse.screenPos : null;
+  g.hotbar.update(view, g.stage.app.screen.width, g.stage.app.screen.height, cursor, performance.now());
+}
+
+/**
+ * A pointerdown landed somewhere on the canvas (input/mouse.ts's injected
+ * hotbar gate, amendment 11). If it fell on a hotbar ROW, hand it to the SAME
+ * keyboard slot-action entry the slot keys use — ONE decision path: that method
+ * already owns the modal suspension, the fail-closed fitted check, the ability
+ * FIFO (cap feedback included), and the weapon prime toggle, so a click cannot
+ * drift from its key. The press is reported SWALLOWED either way — over the
+ * hotbar is never a shot, even when the action turns out inert (unfitted slot,
+ * modal open). A press anywhere else returns false and fires as ever.
+ */
+function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
+  if (!g) return false;
+  const slot = g.hotbar.slotAt(p);
+  if (slot === null) return false;
+  g.keyboard.slotAction(slot);
+  return true;
 }
 
 /**
@@ -1081,6 +1159,9 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   for (let s = 0; s < g.abilityPulse.length; s++) {
     g.abilityFlash[s] = g.abilityPulse[s].update(g.abilityDeniedPress[s], nowMs);
     g.abilityDeniedPress[s] = false;
+    // The ACTIVATED pop rides the identical register (Story 2.2).
+    g.activatedFlash[s] = g.activatedPulse[s].update(g.abilityActivatedPress[s], nowMs);
+    g.abilityActivatedPress[s] = false;
   }
   if (!status.alive) {
     g.firing.hide();
@@ -1232,6 +1313,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   else {
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
+    g.hotbar.hide(); // no frame renders here — the hotbar must not linger, nor route clicks
   }
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;
@@ -1258,6 +1340,7 @@ function enterSpectateVisuals(g: Game): void {
   g.ownView.gfx.visible = false;
   g.nameplates.hide(g.state.net.sessionId); // own plate hidden while spectating (hull hidden)
   g.firing.hide();
+  g.hotbar.hide(); // the loadout surface dies with the hull (Story 2.2)
   g.upgradeMenu.hide(); // the refit modal never lingers into spectate
   // Hand the zoom to the spectate factor: the alive user zoom resets to the
   // base framing so the spectate wheel path behaves exactly as it always has.

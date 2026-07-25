@@ -547,9 +547,11 @@ describe('per-observer sweep (sweepSpeed upgrade)', () => {
     stack(w, up, 'sweepSpeed', 1);
     const ticks = 20; // 1s — well inside the first (shorter) revolution
     for (let i = 0; i < ticks; i++) w.step();
-    const factor = CONFIG.upgrades.sweepSpeed.periodMult;
-    expect(base.sweepAngle).toBeCloseTo((2 * Math.PI * ticks * DT) / CONFIG.vision.sweepPeriod, 9);
-    expect(up.sweepAngle).toBeCloseTo(base.sweepAngle / factor, 9);
+    // Expected values read the effectiveStats contract (the desync firewall)
+    // rather than re-deriving the rpm math — retunes/clamps can't split them.
+    const factor = base.stats.sweepPeriodMs / up.stats.sweepPeriodMs; // 18/15 today
+    expect(base.sweepAngle).toBeCloseTo((2 * Math.PI * ticks * DT) / base.stats.sweepPeriodMs, 9);
+    expect(up.sweepAngle).toBeCloseTo(base.sweepAngle * factor, 9);
   });
 });
 

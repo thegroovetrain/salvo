@@ -2,7 +2,7 @@
 // timestamp math against serverNow(), fully decoupled from the sweep graphic:
 // alpha runs 1 → 0 across one sweep period (the blip dies exactly as the beam
 // comes back around), and the tint cools bright → dark phosphor green over the
-// first ~30% of that life. The sweep wedge rotates at exactly 2π/sweepPeriod,
+// first ~30% of that life. The sweep wedge rotates at exactly 2π/sweepPeriodMs,
 // extrapolated from the latest server frame so it is smooth at 60fps while
 // 20Hz frames keep it snapped to the authoritative angle.
 

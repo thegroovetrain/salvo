@@ -40,8 +40,9 @@ const TAU = Math.PI * 2;
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
 const DT = CONFIG.tick.simDtMs;
-const SWEEP_DELTA = (TAU * DT) / CONFIG.vision.sweepPeriod;
-const TICKS_PER_REV = Math.round(CONFIG.vision.sweepPeriod / DT);
+const SWEEP_PERIOD = 60000 / CONFIG.vision.sweepRpm; // ms per base revolution
+const SWEEP_DELTA = (TAU * DT) / SWEEP_PERIOD;
+const TICKS_PER_REV = Math.round(SWEEP_PERIOD / DT);
 
 // ---------- test-local visibility reimplementation --------------------------
 
@@ -1039,7 +1040,7 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         // recompute ranges independently from the raw counts (effSight/effRadar).
         rec.upgrades[UPGRADE_IDS.indexOf('sightRange')] = rng.int(0, 2);
         rec.upgrades[UPGRADE_IDS.indexOf('radarRange')] = rng.int(0, 2);
-        rec.upgrades[UPGRADE_IDS.indexOf('sweepSpeed')] = rng.int(0, 2);
+        rec.upgrades[UPGRADE_IDS.indexOf('sweepSpeed')] = rng.int(0, 5); // up to the rpm cap
         rec.stats = effectiveStats(rec.cls, rec.upgrades);
       }
       for (let s = 0; s < rng.int(0, 5); s++) {

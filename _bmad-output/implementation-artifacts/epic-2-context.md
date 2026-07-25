@@ -82,3 +82,13 @@ From `epic-2-context-amendments.md` (2026-07-24, Eric, Story 2.1 pre-implementat
 7. Digits 1–4 pick cards only; the interregnum REPAIR HULL spend option (CTRL+E / HEAL_CHOICE) is deleted from the spend flow — client and server. Does not foreclose a future heal boon.
 8. Camera zoom: X in, Z out, wheel smooth; alive range 0.5×–1.5× of base framing; spectate zoom unchanged. Client-render-only.
 9. Both input-pipeline ledger debts (server transport-coalescing press swallow; client keyboard FIFO cap drop) land in Story 2.1.
+
+From `epic-2-context-amendments.md` (2026-07-25, Eric, Story 2.2 invocation):
+
+10. Hotbar contains the Gun at the very top, keyless (stats + reload status must still display); order top-to-bottom is Gun – Q – E – R. This settles the gun-presentation seam flagged in the stale-doc warning above.
+
+From `epic-2-context-amendments.md` (2026-07-25, Eric, Story 2.2 pre-implementation questions):
+
+11. Hotbar slots are clickable, key-equivalent (weapon click primes / re-click reverts to gun; ability click activates; gun click selects gun); clicks over the hotbar never fire the gun.
+12. The own-vitals interim move (telegraph/rudder/HDG/KTS to bottom-right, current style) lands in Story 2.2; Story 2.4 restyles in place.
+13. Quick-info: weapons `DMG n · CD ns`, abilities `CD ns`; tooltip names/descriptions are draft placeholder copy, canon later.

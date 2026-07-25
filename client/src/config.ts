@@ -241,7 +241,7 @@ export const CLIENT_CONFIG = {
      *  behind the DOM menu (UX-DR25). Ring/island/scrim geometry is lifted from
      *  the ratified mock's `.cic` CSS (home-class-picker-1.html); the RADAR
      *  behavior is the game's own (Eric ruling 2026-07-24): the in-game sweep
-     *  texture rotating at CONFIG.vision.sweepPeriod, and blips that light only
+     *  texture rotating at the base CONFIG.vision.sweepRpm, and blips that light only
      *  when the beam crosses them, then decay via render/phosphor's blipAlpha/
      *  blipTint — no independent timers. Client render MAY place contacts/
      *  islands with Math.random — the seeded-RNG law binds sim code only.
@@ -267,7 +267,7 @@ export const CLIENT_CONFIG = {
       ringWidth: 1.5,
       /** Sweep sprite alpha — the wedge is the in-game baked texture
        *  (render/textures.bakeSweepTexture) rotating at the game's real
-       *  CONFIG.vision.sweepPeriod; this only blends it against the scrim. */
+       *  base rate (CONFIG.vision.sweepRpm); this only blends it against the scrim. */
       sweepAlpha: 0.9,
       /** Fake drifting contacts the idle radar paints (blips light ONLY on a
        *  beam crossing, then phosphor-decay over exactly one sweep period). */
@@ -323,6 +323,64 @@ export const CLIENT_CONFIG = {
      * that is already gone).
      */
     keyGraceMs: 400,
+  },
+
+  /**
+   * The bottom-left hotbar (Story 2.2) — geometry + behavior knobs for the four
+   * slot rows (Gun / Q / E / R, top-to-bottom). Values come from the ratified
+   * register: DESIGN.md Components · Hotbar Slot / Ammo Badge / Slot Tooltip and
+   * the hud-composite-2 mock's `.hb-*` rules (54px slot, 16px key chip, 12px
+   * gaps, 14px stack gap, zone at left 44 / bottom 26). Colors are NOT here —
+   * every stroke/fill reads a CLIENT_CONFIG.colors token.
+   */
+  hotbar: {
+    /** Slot square (px) — {components.hotbar-slot}.size. */
+    slot: 54,
+    /** Vertical gap between slot rows (mock `.hb-stack` gap). */
+    gap: 14,
+    /** Zone anchor: px from the viewport's left edge to the KEY CHIP column. */
+    left: 44,
+    /** Zone anchor: px from the viewport's bottom edge to the stack's foot. */
+    bottom: 26,
+    /** Dead space reserved to the LEFT of the stack for Story 2.6's XP rail /
+     *  banked-level chip (mock `.xp-rail { left: -16px }`). Nothing is drawn in
+     *  it this story — it only keeps the zone anchor honest. */
+    gutter: 16,
+    /** Mono key-chip square (px) — one family with the refit digits / helm keys. */
+    keyChip: 16,
+    /** Gap between key chip and slot, and between slot and the label column. */
+    keyGap: 12,
+    labelGap: 12,
+    /** Label column width (px) — the name / quick-info block. It is part of the
+     *  ROW's clickable footprint (amendment 11: the whole row is the control),
+     *  so this is a hit-region knob, not just a text budget. */
+    labelWidth: 168,
+    /** Top-right chamfer cut (px) — the ABILITY shape mark (weapons never cut). */
+    chamfer: 9,
+    /** Conic cooldown perimeter track width (px). */
+    trackWidth: 2,
+    /** Icon linework box (px), centered in the slot. */
+    icon: 28,
+    /** Ammo badge square (px) + its top-right overhang (px on both axes). */
+    badge: 16,
+    badgeOverhang: 7,
+    /** Alpha the whole hotbar (tooltip included) dims to while the refit modal
+     *  is open — slot keys AND slot clicks are suspended in that window. */
+    dimAlpha: 0.38,
+    /** Slot tooltip (DESIGN.md Components · Slot Tooltip). */
+    tooltip: {
+      /** Hover dwell (ms) before the panel appears. */
+      delayMs: 250,
+      /** Panel width (px) — {components.slot-tooltip}.width. */
+      width: 236,
+      /** Inner padding (px) and gap between the panel and the hovered slot. */
+      pad: 12,
+      gap: 14,
+      /** Pointer-notch half-height (px). */
+      notch: 7,
+      /** Minimum px between the panel and any viewport edge. */
+      margin: 8,
+    },
   },
 
   /** Netcode render delays (ms behind estimated server time). */

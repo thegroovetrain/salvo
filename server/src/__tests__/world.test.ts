@@ -172,10 +172,10 @@ describe('World step — boundary', () => {
 });
 
 describe('World step — sweep + respawn', () => {
-  it('advances the radar sweep one revolution per sweepPeriod', () => {
+  it('advances the radar sweep one revolution per sweep period (60000/rpm)', () => {
     const w = new World(6);
     const rec = w.addShip('a', 'ALPHA');
-    const ticksPerRev = CONFIG.vision.sweepPeriod / SIM_DT;
+    const ticksPerRev = Math.round(60000 / CONFIG.vision.sweepRpm / SIM_DT);
     stepN(w, ticksPerRev);
     expect(rec.sweepAngle).toBeCloseTo(0, 6); // full 2*pi wrap back to start
     stepN(w, ticksPerRev / 2);

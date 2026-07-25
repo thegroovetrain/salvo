@@ -299,15 +299,27 @@ export class KeyboardInput {
    */
   private readonly handleSlotKey = (e: KeyboardEvent): void => {
     if (e.repeat) return;
+    this.slotAction(SLOT_KEY_CODES[e.code]);
+  };
+
+  /**
+   * THE slot-action entry point — everything a slot key does, addressable by
+   * slot index. Story 2.2 (amendment 11) routes hotbar CLICKS through here so a
+   * click is key-EQUIVALENT by construction: the same modal suspension, the
+   * same fail-closed fitted check, the same ability FIFO (including the
+   * capped-press denied feedback), the same weapon prime toggle. Clicks reach
+   * one slot the keys never do — the keyless GUN (slot 0), which nextPrimedSlot
+   * resolves to "select the gun" (its total-contract branch, live at last).
+   */
+  slotAction(slot: number): void {
     if (this.hooks.isModalOpen?.() === true) return;
-    const slot = SLOT_KEY_CODES[e.code];
     if (this.hooks.isSlotFitted?.(slot) !== true) return;
     if (this.hooks.isAbilitySlot?.(slot) === true) {
       this.activateAbility(slot);
       return;
     }
     this.primed = nextPrimedSlot(this.primed, slot);
-  };
+  }
 
   /** Digits 1–4: a refit-card pick while the modal is open; refit-or-nothing
    *  otherwise (the old digit slot-priming and closed-window spend are dead —
