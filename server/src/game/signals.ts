@@ -1,6 +1,6 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 11 GameEvent kinds plus the four contact-like frame channels
+// row here: the 10 GameEvent kinds plus the four contact-like frame channels
 // (`contact`, `mine`, `litzone`, and `decoy` — pseudo event types: not
 // GameEvents, but the invariant suite iterates them like everything else).
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
@@ -38,7 +38,6 @@ import {
   type DamageEvent,
   type DecoyView,
   type GameEvent,
-  type HealEvent,
   type LitZoneView,
   type MineView,
   type PointEvent,
@@ -571,18 +570,19 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
 
 /**
  * SELF-PRIVATE kinds: forwarded ONLY to the ship the event names — dmg
- * (victim), upg (spender), pt (earner), heal (healed). Enemy hp, builds, and
+ * (victim), upg (spender), pt (earner). Enemy hp, builds, and
  * point banks all stay hidden by this one gate (upgrade counts / points ride
  * ONLY on OwnShip, never on contacts/blips/booms).
  *
  * `spectatorPublic`: dmg alone passes through unfiltered to spectators (they
  * may watch a fight's hp — a dead player has no channel back into the match).
- * upg/pt/heal stay self-private even in UNFOGGED spectator frames: a
- * dead-in-active killer (mutual destruction) still gets its own point/spend/
- * heal toasts, but no other spectator may learn a living ship's build
- * increment, point bank, or heal.
+ * upg/pt stay self-private even in UNFOGGED spectator frames: a
+ * dead-in-active killer (mutual destruction) still gets its own point/spend
+ * toasts, but no other spectator may learn a living ship's build
+ * increment or point bank. (The 'heal' row left with the REPAIR spend —
+ * Story 2.1, Eric ruling 2026-07-24.)
  */
-function selfPrivateSignal<E extends DamageEvent | UpgradeEvent | PointEvent | HealEvent>(
+function selfPrivateSignal<E extends DamageEvent | UpgradeEvent | PointEvent>(
   kind: E['k'],
   spectatorPublic: boolean,
 ): SignalSpec<E, E> {
@@ -613,7 +613,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 };
 
 /**
- * String-keyed registry of every signal channel — the 11 GameEvent kinds plus
+ * String-keyed registry of every signal channel — the 10 GameEvent kinds plus
  * the `contact`/`mine`/`litzone`/`decoy` pseudo-types. perception.ts
  * dispatches world events by `e.k` (an emitted kind with no row is a hard
  * fail-closed drop) and drives the contact/blip/ballistic/mine/litzone/decoy
@@ -636,12 +636,11 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   dmg: selfPrivateSignal<DamageEvent>('dmg', true),
   upg: selfPrivateSignal<UpgradeEvent>('upg', false),
   pt: selfPrivateSignal<PointEvent>('pt', false),
-  heal: selfPrivateSignal<HealEvent>('heal', false),
 });
 
 /**
  * COMPILE-TIME EXHAUSTIVENESS (zero runtime cost — types are fully erased):
- * adding an 11th GameEvent kind in shared/src/types.ts without a matching
+ * adding a new GameEvent kind in shared/src/types.ts without a matching
  * registry row makes `MissingEventRows` a non-`never` type, which then fails the
  * `AssertNever` constraint and breaks `tsc`. The registry MAY hold extra keys
  * (the contact/mine pseudo-rows); it may never OMIT a GameEvent kind.
@@ -654,7 +653,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 11 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
+ * ONLY the 10 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
  * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`/`k:'decoy'`) world
  * event can never materialize (restoring the old dispatcher's
  * `default: return null` guarantee), and uses an OWN-property lookup

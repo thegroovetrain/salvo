@@ -1,3 +1,9 @@
+// MouseInput (Story 2.1 hygiene): canvas-target-only click counting, the refit
+// modal's full combat lockout, contextmenu suppression on the canvas, and the
+// original counter/stamp semantics. jsdom (MouseEvent stands in for
+// PointerEvent; `bubbles: true` dispatched ON an element gives the window
+// listener a real e.target, exactly like a browser).
+
 import { describe, it, expect } from 'vitest';
 import { MouseInput, worldAim, worldAimDist } from '../input/mouse.js';
 import { Camera } from '../render/camera.js';
@@ -21,111 +27,145 @@ describe('worldAimDist', () => {
   });
 });
 
-describe('MouseInput.clickCount — cumulative button-0 clicks', () => {
-  function pointer(type: string, init: MouseEventInit = {}): MouseEvent {
-    // jsdom has no PointerEvent constructor; MouseEvent carries `button` fine.
-    return new MouseEvent(type, init);
-  }
+/** Dispatch a pointer-ish event ON `el` (bubbles to the window listener with
+ *  e.target === el — the browser's canvas-click shape). */
+function fire(el: EventTarget, type: string, init: MouseEventInit = {}): void {
+  el.dispatchEvent(new MouseEvent(type, { bubbles: true, ...init }));
+}
 
-  function withMouse(run: (m: MouseInput) => void): void {
-    const m = new MouseInput();
-    m.attach();
-    try {
-      run(m);
-    } finally {
-      m.detach();
-    }
+function withMouse(
+  run: (m: MouseInput, canvas: HTMLElement) => void,
+  nowServer?: () => number,
+  isLocked?: () => boolean,
+): void {
+  const canvas = document.createElement('canvas');
+  document.body.appendChild(canvas);
+  const m = new MouseInput(nowServer, isLocked);
+  m.attach(canvas);
+  try {
+    run(m, canvas);
+  } finally {
+    m.detach();
+    canvas.remove();
   }
+}
 
-  it('increments on button-0 pointerdown only', () => {
-    withMouse((m) => {
+describe('MouseInput.clickCount — cumulative button-0 CANVAS clicks', () => {
+  it('increments on button-0 pointerdown targeting the canvas only', () => {
+    withMouse((m, canvas) => {
       expect(m.clickCount).toBe(0);
-      window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+      fire(canvas, 'pointerdown', { button: 0 });
       expect(m.clickCount).toBe(1);
-      window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+      fire(canvas, 'pointerdown', { button: 0 });
       expect(m.clickCount).toBe(2);
     });
   });
 
-  it('ignores pointerup, pointermove, and non-primary buttons', () => {
+  it('a pointerdown on DOM chrome (a non-canvas target) NEVER counts — a card click cannot fire', () => {
     withMouse((m) => {
-      window.dispatchEvent(pointer('pointerup', { button: 0 }));
-      window.dispatchEvent(pointer('pointermove', { clientX: 5, clientY: 6 }));
-      window.dispatchEvent(pointer('pointerdown', { button: 2 })); // right
-      window.dispatchEvent(pointer('pointerdown', { button: 1 })); // middle
+      const card = document.createElement('button'); // e.g. a refit card
+      document.body.appendChild(card);
+      fire(card, 'pointerdown', { button: 0 });
+      fire(document.body, 'pointerdown', { button: 0 });
+      expect(m.clickCount).toBe(0);
+      card.remove();
+    });
+  });
+
+  it('while the lockout predicate holds (refit modal open), even canvas clicks are dropped', () => {
+    let locked = true;
+    withMouse(
+      (m, canvas) => {
+        fire(canvas, 'pointerdown', { button: 0 });
+        expect(m.clickCount).toBe(0); // full combat lockout
+        locked = false; // modal closed
+        fire(canvas, 'pointerdown', { button: 0 });
+        expect(m.clickCount).toBe(1);
+      },
+      undefined,
+      () => locked,
+    );
+  });
+
+  it('ignores pointerup, pointermove, and non-primary buttons', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerup', { button: 0 });
+      fire(canvas, 'pointermove', { clientX: 5, clientY: 6 });
+      fire(canvas, 'pointerdown', { button: 2 }); // right
+      fire(canvas, 'pointerdown', { button: 1 }); // middle
       expect(m.clickCount).toBe(0);
     });
   });
 
+  it('suppresses the canvas contextmenu (right-click never pops a browser menu)', () => {
+    withMouse((_m, canvas) => {
+      const e = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
+      const notPrevented = canvas.dispatchEvent(e);
+      expect(notPrevented).toBe(false); // preventDefault was called
+    });
+  });
+
   it('survives blur — a counter has no held state to clear', () => {
-    withMouse((m) => {
-      window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0 });
       window.dispatchEvent(new Event('blur'));
       expect(m.clickCount).toBe(1);
     });
   });
 
   it('stops counting after detach', () => {
+    const canvas = document.createElement('canvas');
+    document.body.appendChild(canvas);
     const m = new MouseInput();
-    m.attach();
-    window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+    m.attach(canvas);
+    fire(canvas, 'pointerdown', { button: 0 });
     m.detach();
-    window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+    fire(canvas, 'pointerdown', { button: 0 });
     expect(m.clickCount).toBe(1);
+    canvas.remove();
   });
 });
 
 describe('MouseInput.lastClickT — server-clock stamp at pointerdown (D1)', () => {
-  function pointer(type: string, init: MouseEventInit = {}): MouseEvent {
-    return new MouseEvent(type, init);
-  }
-
-  function withMouse(nowServer: () => number, run: (m: MouseInput) => void): void {
-    const m = new MouseInput(nowServer);
-    m.attach();
-    try {
-      run(m);
-    } finally {
-      m.detach();
-    }
-  }
-
   it('is 0 before any click (the no-claim sentinel)', () => {
-    withMouse(() => 5000, (m) => {
+    withMouse((m) => {
       expect(m.lastClickT).toBe(0);
-    });
+    }, () => 5000);
   });
 
-  it('stamps the injected server-clock estimate on a button-0 pointerdown', () => {
+  it('stamps the injected server-clock estimate on a counted button-0 pointerdown', () => {
     let now = 1000;
-    withMouse(() => now, (m) => {
-      window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0 });
       expect(m.lastClickT).toBe(1000);
       now = 2500; // a later click re-stamps to the live estimate
-      window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+      fire(canvas, 'pointerdown', { button: 0 });
       expect(m.lastClickT).toBe(2500);
-    });
+    }, () => now);
   });
 
   it('defaults the thunk to 0 (no clock injected → always the no-claim sentinel)', () => {
-    const m = new MouseInput();
-    m.attach();
-    try {
-      window.dispatchEvent(pointer('pointerdown', { button: 0 }));
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointerdown', { button: 0 });
       expect(m.lastClickT).toBe(0);
-    } finally {
-      m.detach();
-    }
+    });
   });
 
-  it('does not stamp on move, up, or non-primary buttons', () => {
-    withMouse(() => 9999, (m) => {
-      window.dispatchEvent(pointer('pointerup', { button: 0 }));
-      window.dispatchEvent(pointer('pointermove', { clientX: 1, clientY: 2 }));
-      window.dispatchEvent(pointer('pointerdown', { button: 2 })); // right
-      window.dispatchEvent(pointer('pointerdown', { button: 1 })); // middle
-      expect(m.lastClickT).toBe(0); // untouched — no button-0 down occurred
-    });
+  it('does not stamp on move, up, non-primary buttons, or off-canvas/locked downs', () => {
+    let locked = false;
+    withMouse(
+      (m, canvas) => {
+        fire(canvas, 'pointerup', { button: 0 });
+        fire(canvas, 'pointermove', { clientX: 1, clientY: 2 });
+        fire(canvas, 'pointerdown', { button: 2 }); // right
+        fire(document.body, 'pointerdown', { button: 0 }); // off-canvas
+        locked = true;
+        fire(canvas, 'pointerdown', { button: 0 }); // locked out
+        expect(m.lastClickT).toBe(0); // untouched — no counted click occurred
+      },
+      () => 9999,
+      () => locked,
+    );
   });
 });
 

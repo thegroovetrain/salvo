@@ -18,7 +18,6 @@ import {
   type DeniedView,
   type FrameMsg,
   type GameEvent,
-  type HealEvent,
   type OwnShip,
   type PointEvent,
   type ResultsMsg,
@@ -41,7 +40,7 @@ import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { killLine, pushKillLine } from '../ui/killFeed.js';
-import { healToastLine, pointToastLine, pushUpgradeToast, upgradeLabel } from '../ui/upgradeToast.js';
+import { pointToastLine, pushUpgradeToast, upgradeLabel } from '../ui/upgradeToast.js';
 import { fireTone, type ToneId } from '../audio/tones.js';
 
 /**
@@ -99,6 +98,9 @@ export interface RoomBindingDeps {
    * Revert the primed skillshot back to the gun (slot 0). Called on own sunk so
    * a torpedo/mine prime never survives death into the next life — state-reset
    * symmetry with the engine order (resetThrottle) and the server-side pools.
+   * Also called on RECONNECT: a resume is the same kind of hard boundary, and a
+   * prime left standing from before the outage would fire the wrong weapon on
+   * the player's first click back (they expect the default gun).
    */
   resetPrime: () => void;
   /** Roster name lookup (public schema) for the kill feed. */
@@ -190,6 +192,10 @@ export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
     deps.ownBuffer.clear();
     deps.predictor.forceSnap();
     resume.pendingSnap = true;
+    // The prime is client-only UX and does NOT survive the gap: revert to the
+    // gun exactly as the sunk path does, so the first click back never fires a
+    // stale torpedo/mine the player forgot they had primed.
+    deps.resetPrime();
     deps.onReconnect();
   });
 }
@@ -283,12 +289,12 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   handleRewardEvent(e, deps);
 }
 
-/** Killer/self-private reward events: upgrade grant, banked point, heal spend. */
+/** Killer/self-private reward events: upgrade grant, banked point. (The
+ *  'heal' event left the wire with the REPAIR spend — Story 2.1, PV 12.) */
 function handleRewardEvent(e: GameEvent, deps: RoomBindingDeps): void {
   switch (e.k) {
     case 'upg': handleUpgrade(e, deps); return;
     case 'pt': handlePoint(e, deps); return;
-    case 'heal': handleHeal(e, deps); return;
   }
 }
 
@@ -303,16 +309,6 @@ function handlePoint(e: PointEvent, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
   pushUpgradeToast(pointToastLine());
   deps.audio.play('point');
-}
-
-/**
- * A heal spend landed: toast the clamped delta + the "spent" upgrade two-note.
- * Self-private like `pt`; the authoritative hp rides OwnShip.hp.
- */
-function handleHeal(e: HealEvent, deps: RoomBindingDeps): void {
-  if (e.id !== deps.state.net.sessionId) return;
-  pushUpgradeToast(healToastLine(e.amount));
-  deps.audio.play('upgrade');
 }
 
 /**

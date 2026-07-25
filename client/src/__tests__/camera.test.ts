@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { Camera } from '../render/camera.js';
+import { Camera, canUserZoom, USER_ZOOM_MIN, USER_ZOOM_MAX } from '../render/camera.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 function makeCamera() {
   return new Camera({ radarRange: 650, followRate: 5, leadSeconds: 4, leadMax: 110 });
@@ -28,6 +29,89 @@ describe('Camera zoom formula', () => {
     // A later resize keeps using the upgraded range.
     cam.setViewport(800, 1200);
     expect(cam.zoom).toBeCloseTo(800 / (2 * 650 * 1.15), 10);
+  });
+});
+
+describe('Camera alive user-zoom (Story 2.1 — X/Z + wheel, ruled 0.5×–1.5×)', () => {
+  it('multiplies the base radar-fit zoom by the user factor', () => {
+    const cam = makeCamera();
+    cam.setViewport(1600, 900);
+    const base = cam.zoom;
+    cam.setUserZoom(1.25);
+    expect(cam.userZoom).toBe(1.25);
+    expect(cam.zoom).toBeCloseTo(base * 1.25, 10);
+    cam.setUserZoom(0.75);
+    expect(cam.zoom).toBeCloseTo(base * 0.75, 10);
+  });
+
+  it('clamps to the ruled [0.5, 1.5] range', () => {
+    const cam = makeCamera();
+    cam.setUserZoom(0.1);
+    expect(cam.userZoom).toBe(0.5);
+    cam.setUserZoom(99);
+    expect(cam.userZoom).toBe(1.5);
+  });
+
+  it('the camera bounds mirror CLIENT_CONFIG.zoom (one ruling, two homes)', () => {
+    expect(USER_ZOOM_MIN).toBe(CLIENT_CONFIG.zoom.min);
+    expect(USER_ZOOM_MAX).toBe(CLIENT_CONFIG.zoom.max);
+  });
+
+  it('IGNORES a non-finite factor — NaN can never poison the composed zoom', () => {
+    const cam = makeCamera();
+    cam.setViewport(1600, 900);
+    const base = cam.zoom;
+    cam.setUserZoom(1.25);
+    // Math.min/max pass NaN straight through, so an unguarded setter would
+    // latch NaN forever (every later clamp of NaN is NaN).
+    cam.setUserZoom(NaN);
+    expect(cam.userZoom).toBe(1.25); // unchanged
+    expect(cam.zoom).toBeCloseTo(base * 1.25, 10);
+    cam.setUserZoom(Infinity);
+    expect(cam.userZoom).toBe(1.25);
+    // …and the camera still takes a real value afterwards.
+    cam.setUserZoom(0.8);
+    expect(cam.userZoom).toBe(0.8);
+  });
+
+  it('resetUserZoom returns to the base framing (spectate entry)', () => {
+    const cam = makeCamera();
+    cam.setViewport(1600, 900);
+    const base = cam.zoom;
+    cam.setUserZoom(1.5);
+    cam.resetUserZoom();
+    expect(cam.userZoom).toBe(1);
+    expect(cam.zoom).toBeCloseTo(base, 10);
+  });
+
+  it('is independent of the spectate factor — the spectate clamp stays [0.5, 1]', () => {
+    const cam = makeCamera();
+    cam.setViewport(1600, 900);
+    // The spectate path is untouched: same setter, same clamp as ever.
+    cam.setZoomFactor(0.2);
+    expect(cam.zoomFactor).toBe(0.5);
+    cam.setZoomFactor(1.4);
+    expect(cam.zoomFactor).toBe(1);
+    // resetUserZoom on spectate entry keeps the composed zoom the pure
+    // spectate product (base × factor), byte-identical to the pre-2.1 path.
+    cam.resetUserZoom();
+    cam.setZoomFactor(0.6);
+    expect(cam.zoom).toBeCloseTo((900 / (2 * 650)) * 0.6, 10);
+  });
+});
+
+describe('canUserZoom — the alive-only gate for X/Z + wheel zoom', () => {
+  it('allows zoom ONLY for a live captain who is not spectating', () => {
+    expect(canUserZoom(false, true)).toBe(true);
+    expect(canUserZoom(true, true)).toBe(false); // spectate owns zoom there
+    expect(canUserZoom(false, false)).toBe(false); // sunk, awaiting respawn
+  });
+
+  it('treats a MISSING own ship as NOT alive (pre-join / before the first frame)', () => {
+    // `you` is null until the first frame lands; an `alive === false` gate would
+    // let zoom (and its debounced fog re-bake) run against an unstarted match.
+    expect(canUserZoom(false, undefined)).toBe(false);
+    expect(canUserZoom(true, undefined)).toBe(false);
   });
 });
 

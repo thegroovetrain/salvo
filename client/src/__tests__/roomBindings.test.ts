@@ -3,7 +3,9 @@
 // resets the own-ship interp buffer + predictor (so the resumed ship hard-inits
 // from authoritative truth instead of replaying stale un-acked inputs) and then
 // delegates to deps.onReconnect (banner cleared). It ALSO arms a one-shot camera
-// snap consumed on the first resumed frame — completing the handleSpawn mirror.
+// snap consumed on the first resumed frame — completing the handleSpawn mirror —
+// and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
+// a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
 import { bindRoom, type RoomBindingDeps } from '../net/roomBindings';
 import type { Connection } from '../net/connection';
@@ -55,6 +57,7 @@ function setup() {
   const onReconnect = vi.fn();
   const onOwnSpawn = vi.fn();
   const onDenied = vi.fn();
+  const resetPrime = vi.fn();
   const deps = {
     // handleFrame surface (enough for an own-ship frame to flow through).
     state: { net: { you: null, tick: 0, ackSeq: 0 }, spectating: false, phase: '', respawnEta: null, mode: 'interp' },
@@ -71,11 +74,12 @@ function setup() {
     onDrop,
     onReconnect,
     onDenied,
+    resetPrime,
     colors: vi.fn(() => null),
     ordnanceHue: vi.fn(() => 0),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { room, sink, ownBufferClear, forceSnap, onDrop, onReconnect, onOwnSpawn, onDenied };
+  return { room, sink, ownBufferClear, forceSnap, onDrop, onReconnect, onOwnSpawn, onDenied, resetPrime };
 }
 
 describe('bindRoom reconnect signals', () => {
@@ -97,6 +101,18 @@ describe('bindRoom reconnect signals', () => {
     expect(ownBufferClear).toHaveBeenCalledTimes(1);
     expect(forceSnap).toHaveBeenCalledTimes(1);
     expect(onReconnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('reverts the primed weapon to the gun on reconnect (the sunk-path symmetry)', () => {
+    const { room, resetPrime } = setup();
+    // A drop alone must NOT disturb the prime — the player is still sailing the
+    // same hull and the SDK is only retrying the socket.
+    room.fireDrop();
+    expect(resetPrime).not.toHaveBeenCalled();
+    // The resume IS a hard boundary: a torpedo/mine primed before the outage
+    // must not fire on the first click back.
+    room.fireReconnect();
+    expect(resetPrime).toHaveBeenCalledTimes(1);
   });
 
   it('snaps the camera to the resumed hull on the FIRST own frame after a reconnect only', () => {

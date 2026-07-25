@@ -34,14 +34,10 @@ export function upgradeLabel(type: UpgradeId): string {
   return `⬆ +${LABELS[type]}`;
 }
 
-/** Pure: the toast line for a banked upgrade point (a kill reward, unspent). */
+/** Pure: the toast line for a banked upgrade point (a kill reward, unspent).
+ *  TAB is the refit-modal toggle (Story 2.1 — supersedes the CTRL window). */
 export function pointToastLine(): string {
-  return '▲ UPGRADE POINT — CTRL TO SPEND';
-}
-
-/** Pure: the toast line for an applied hull heal ({amount} = clamped delta). */
-export function healToastLine(amount: number): string {
-  return `⛨ HULL REPAIRED +${amount}`;
+  return '▲ UPGRADE POINT — TAB TO REFIT';
 }
 
 function ensureStack(): HTMLDivElement {

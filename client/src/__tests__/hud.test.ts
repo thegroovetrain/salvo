@@ -79,10 +79,10 @@ describe('detentLabel — compact rung labels', () => {
 });
 
 describe('pointsLine — banked-points HUD prompt', () => {
-  it('hides (empty string) at zero and shows "PTS ×N — CTRL" otherwise', () => {
+  it('hides (empty string) at zero and shows "PTS ×N — TAB" otherwise (Story 2.1: TAB is the refit key)', () => {
     expect(pointsLine(0)).toBe('');
-    expect(pointsLine(2)).toBe('PTS ×2 — CTRL');
-    expect(pointsLine(1)).toBe('PTS ×1 — CTRL');
+    expect(pointsLine(2)).toBe('PTS ×2 — TAB');
+    expect(pointsLine(1)).toBe('PTS ×1 — TAB');
   });
 });
 
@@ -120,10 +120,14 @@ describe('chipLabel — the LOADOUT-driven chip row', () => {
       .filter((t): t is string => t !== null);
   }
 
-  it('each hull labels its own fit: TB boost, BB cannon/flare, ML mine/decoy', () => {
-    expect(labelsFor('torpedoBoat')).toEqual(['1 GUNS', '2 TORP', '3 BOOST']);
-    expect(labelsFor('battleship')).toEqual(['1 GUNS', '2 CANNON', '3 FLARE']); // Story 1.7
-    expect(labelsFor('mineLayer')).toEqual(['1 GUNS', '2 MINE', '3 DECOY']); // Story 1.8
+  it('each hull labels its own fit with the v1 key glyphs: keyless gun, Q/E specials (Story 2.1)', () => {
+    expect(labelsFor('torpedoBoat')).toEqual(['GUNS', 'Q TORP', 'E BOOST']);
+    expect(labelsFor('battleship')).toEqual(['GUNS', 'Q CANNON', 'E FLARE']);
+    expect(labelsFor('mineLayer')).toEqual(['GUNS', 'Q MINE', 'E DECOY']);
+  });
+
+  it('a fitted extra slot would carry the R glyph (slot 3 — inert-while-empty today)', () => {
+    expect(chipLabel(3, 'torpedo')).toBe('R TORP');
   });
 });
 

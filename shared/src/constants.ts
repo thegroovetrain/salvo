@@ -327,15 +327,6 @@ export const CONFIG = {
     maxMines: { add: 1 }, // +max simultaneous LIVE mines on the board per stack
   },
 
-  /**
-   * Spend economy layered on the kill-reward upgrades. A kill banks ONE point;
-   * each point carries a pre-rolled 3-upgrade offer (see sim/offers.ts) plus the
-   * always-available heal spend below. Heal is alive-only and clamped to maxHp.
-   */
-  upgradePoints: {
-    healHp: 25, // hp restored per point spent on heal (clamped to effective maxHp)
-  },
-
   /** Storm circle / battle-royale zone. */
   zone: {
     grace: 45000, // ms — full radius before shrink begins

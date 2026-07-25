@@ -1,7 +1,9 @@
 // Screen-space fog overlay. The pre-baked fog texture (dark fill + feathered
 // sight hole at its center) is positioned every frame so the hole tracks the
-// own ship's SCREEN position; it is re-baked only on resize (zoom is derived
-// from the viewport, so resize covers zoom too). Fog is cosmetic and MOSTLY
+// own ship's SCREEN position; it is re-baked whenever the baked hole radius
+// goes stale — on resize, and (Story 2.1) on an alive USER ZOOM change, since
+// the hole radius is derived from the composed zoom. main.ts debounces both to
+// the trailing edge of a burst. Fog is cosmetic and MOSTLY
 // redundant — the server culls almost everything outside sight — it just sells
 // the reveal. The ONE exception (Story 1.7): the server reveals enemy
 // ships/mines/ballistics inside the firer's own star-shell lit zones (truesight

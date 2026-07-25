@@ -1,21 +1,25 @@
-// The CTRL spend window — a plain DOM panel over the Pixi canvas, styled per
-// DESIGN.md (phosphor surface, Geist Mono, amber-on-hover rows). It is
-// informational + clickable but NEVER
-// pauses or blocks the game: it is a small fixed panel with pointer-events only
-// on itself, so the ocean keeps running behind it and clicks off it pass through
-// to the canvas. offerView() is pure (unit-tested); the class is a thin adapter.
+// The TAB-toggled refit modal (Story 2.1 — re-ruled from the interregnum CTRL
+// window, Eric 2026-07-24) — a plain DOM panel over the Pixi canvas, styled per
+// DESIGN.md (phosphor surface, Geist Mono, amber-on-hover rows). It NEVER
+// pauses or blocks the simulation: a small fixed panel with pointer-events only
+// on itself, so the ocean keeps running behind it — but while it is OPEN the
+// game is under FULL COMBAT LOCKOUT (mouse fire suppressed by MouseInput's
+// lockout predicate + canvas-target filter; Q/E/R/F suspended at the keyboard
+// chokepoint; helm stays live). It closes ONLY via a pick (digit 1–4 or card
+// click), TAB, or ESC — plus the existing auto-close when there is nothing to
+// spend (offerView → null: zero points, death into spectate). REPAIR/heal is
+// deleted end-to-end ("1-4 cards, no repair").
+//
+// Click hygiene: a card click spends AND closes and must never fire the gun
+// (MouseInput only counts canvas-target clicks; the card is DOM) — and never
+// retains focus (mousedown preventDefault + post-click blur), so a later
+// Space/Enter can't re-trigger the button and a focused button can't trip the
+// chokepoint's text-entry guard.
 //
 // z-index sits at 1000 — below the pre-join menu (1100) and above the toast
 // stacks (900) so a spend confirmation toast never hides behind the panel.
 
-import {
-  CONFIG,
-  HEAL_CHOICE,
-  UPGRADE_IDS,
-  categoryOf,
-  type OwnShip,
-  type UpgradeId,
-} from '@salvo/shared';
+import { UPGRADE_IDS, categoryOf, type OwnShip, type UpgradeId } from '@salvo/shared';
 import { upgradeLabel } from './upgradeToast.js';
 
 const PANEL_ID = 'upgrade-menu';
@@ -26,14 +30,12 @@ const AMBER = 'var(--hc-amber)';
 export interface OfferView {
   pts: number;
   options: UpgradeId[];
-  canHeal: boolean;
-  healHp: number;
   /**
    * True while a spend is in flight (main.ts's spend latch — see trySpend()):
    * a second spend within one server-tick+RTT would otherwise reference the
    * OLD front offer and land on whatever the FIFO shifted in behind it. Rows
-   * render dimmed/inert (same treatment as !canHeal) until the bank visibly
-   * shrinks or the latch's fallback timeout clears it.
+   * render dimmed/inert until the bank visibly shrinks or the latch's
+   * fallback timeout clears it; digit picks are gated on the same flag.
    */
   locked: boolean;
 }
@@ -46,11 +48,10 @@ export interface OfferView {
  * end up sending server slot 2's choice) — unreachable today, but real the
  * day a 15th upgrade ships against a stale tab that hasn't reloaded. Dropping
  * the WHOLE view instead keeps the invariant "row k == server slot k" and
- * goes inert (shortcuts included, since currentOfferView() also returns null)
- * rather than silently misfiring.
- * `canHeal` is alive-and-below-max (the server re-validates the heal anyway).
+ * goes inert (digit picks included, since currentOfferView() also returns
+ * null) rather than silently misfiring.
  */
-export function offerView(you: OwnShip | null, maxHp: number, spectating: boolean, locked: boolean): OfferView | null {
+export function offerView(you: OwnShip | null, spectating: boolean, locked: boolean): OfferView | null {
   if (!you || spectating || you.pts === 0) return null;
   const options: UpgradeId[] = [];
   for (const idx of you.offer) {
@@ -58,7 +59,7 @@ export function offerView(you: OwnShip | null, maxHp: number, spectating: boolea
     if (id === undefined) return null;
     options.push(id);
   }
-  return { pts: you.pts, options, canHeal: you.alive && you.hp < maxHp, healHp: CONFIG.upgradePoints.healHp, locked };
+  return { pts: you.pts, options, locked };
 }
 
 /** Strip the toast's "⬆ " marker, reusing upgradeToast's label map (e.g. "+GUN AMMO"). */
@@ -105,10 +106,26 @@ const ROW_CSS = [
   'text-transform:uppercase',
   'text-align:left',
   'cursor:pointer',
+  'display:flex',
+  'align-items:center',
+  'gap:10px',
 ].join(';');
 
-/** Greyed, inert row (heal when !canHeal): no hover, no click. */
+/** Greyed, inert row (spend-latch lock): no hover, no click. */
 const ROW_INERT_CSS = ROW_CSS + ';opacity:0.4;cursor:default';
+
+/** The mono key-chip glyph (the ONE key-chip family — HUD chips and the PTS
+ *  prompt render the same mono treatment on the Pixi side): a small bordered
+ *  digit riding currentColor so the row's dim/amber state cascades into it. */
+const KEY_CHIP_CSS = [
+  'display:inline-block',
+  'min-width:14px',
+  'padding:1px 5px',
+  'border:1px solid currentColor',
+  'text-align:center',
+  'font:inherit',
+  'flex:none',
+].join(';');
 
 function paintRow(btn: HTMLButtonElement, on: boolean): void {
   btn.style.borderColor = on ? AMBER : DIM;
@@ -116,9 +133,11 @@ function paintRow(btn: HTMLButtonElement, on: boolean): void {
 }
 
 /**
- * The spend window. Shortcuts (CTRL+1/2/3/E) work whether or not this is open;
- * bare CTRL toggle()s it. Rows re-render only when the view signature changes
- * (pts + option ids + canHeal) so live per-frame update()s stay cheap.
+ * The refit modal. TAB toggle()s it (main.ts gates open on a banked point);
+ * digits 1–4 pick via main.ts's onRefitPick while it is open; a card click
+ * picks too. A pick spends AND closes (main.ts hides after routing the spend).
+ * Rows re-render only when the view signature changes (pts + option ids +
+ * locked) so live per-frame update()s stay cheap.
  */
 export class UpgradeMenu {
   private panel: HTMLDivElement | null = null;
@@ -150,11 +169,19 @@ export class UpgradeMenu {
     return panel;
   }
 
-  private makeRow(text: string, choice: number, enabled: boolean): HTMLButtonElement {
+  /** One card row: mono digit key-chip + "CATEGORY — LABEL". */
+  private makeRow(chip: string, text: string, choice: number, enabled: boolean): HTMLButtonElement {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.textContent = text;
+    const key = document.createElement('span');
+    key.style.cssText = KEY_CHIP_CSS;
+    key.textContent = chip;
+    btn.append(key, document.createTextNode(text));
     btn.style.cssText = enabled ? ROW_CSS : ROW_INERT_CSS;
+    // Focus hygiene (full-lockout modal): never acquire focus on click —
+    // a focus-retaining card would (a) let Space/Enter re-trigger the spend
+    // and (b) trip the keyboard chokepoint's text-entry guard mid-battle.
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
     if (!enabled) {
       btn.disabled = true; // real disabled state, not just opacity — keyboard/AT see it too
       return btn;
@@ -163,33 +190,34 @@ export class UpgradeMenu {
     btn.addEventListener('mouseleave', () => paintRow(btn, false));
     btn.addEventListener('focus', () => paintRow(btn, true));
     btn.addEventListener('blur', () => paintRow(btn, false));
-    btn.addEventListener('click', () => this.onSpend(choice));
+    btn.addEventListener('click', () => {
+      btn.blur(); // belt-and-braces with the mousedown preventDefault above
+      this.onSpend(choice);
+    });
     return btn;
   }
 
   /** Rebuild title + rows only when the meaningful view state changed. */
   private render(view: OfferView): void {
     this.ensurePanel();
-    const sig = `${view.pts}|${view.options.join(',')}|${view.canHeal ? 1 : 0}|${view.locked ? 1 : 0}`;
+    const sig = `${view.pts}|${view.options.join(',')}|${view.locked ? 1 : 0}`;
     if (sig === this.sig) return;
     this.sig = sig;
     this.titleEl!.textContent = `SPEND UPGRADE POINT — ${view.pts} BANKED`;
     const rows = this.rowsEl!;
     rows.replaceChildren();
     // Locked (a spend is in flight — see OfferView.locked) dims/inerts every
-    // row, same treatment as the existing !canHeal heal row, so a second
-    // click/shortcut can't fire against the offer this frame is displaying.
+    // row so a second click/digit can't fire against the offer this frame is
+    // displaying. Digit glyphs 1..N map row-for-row (digit 4 goes live when
+    // offers carry 4 cards — Story 2.7; with 3 cards it is simply never built).
     view.options.forEach((id, i) => {
       rows.appendChild(
-        this.makeRow(`CTRL+${i + 1} · ${categoryOf(id).toUpperCase()} — ${optionLabel(id)}`, i, !view.locked),
+        this.makeRow(`${i + 1}`, `${categoryOf(id).toUpperCase()} — ${optionLabel(id)}`, i, !view.locked),
       );
     });
-    rows.appendChild(
-      this.makeRow(`CTRL+E · REPAIR HULL +${view.healHp} HP`, HEAL_CHOICE, view.canHeal && !view.locked),
-    );
   }
 
-  /** Bare-CTRL toggle: open with this view, or close if already open. */
+  /** TAB toggle: open with this view, or close if already open. */
   toggle(view: OfferView): void {
     if (this.shown) {
       this.hide();
@@ -203,7 +231,7 @@ export class UpgradeMenu {
   /**
    * Per-frame refresh: null force-hides (spend emptied the bank, or spectate);
    * a fresh view live-swaps the rows to the next queued offer, but never OPENS a
-   * closed window (only bare CTRL does that).
+   * closed window (only the TAB toggle does).
    */
   update(view: OfferView | null): void {
     if (!view) {
