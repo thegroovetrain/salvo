@@ -21,14 +21,17 @@ import {
 import {
   EMPTY_SLOT_LABEL,
   NO_HOVER,
+  badgeText,
+  coolFraction,
   fmtRemaining,
   fmtSeconds,
   hotbarLayout,
   hoverReady,
+  isCooling,
   nextHover,
   quickInfoLine,
+  shouldShowTooltip,
   slotAtPoint,
-  slotClickAction,
   slotSkin,
   slotState,
   slotViewModels,
@@ -94,25 +97,25 @@ describe('the seven-state grammar + its precedence', () => {
   const NONE = { denied: false, activated: false };
 
   it('maps every state', () => {
-    expect(slotState(null, NONE, 0, false, false)).toBe('empty');
-    expect(slotState('torpedo', { ...NONE, denied: true }, 0, false, true)).toBe('denied');
-    expect(slotState('speedBoost', { ...NONE, activated: true }, 0, false, false)).toBe('activated');
-    expect(slotState('torpedo', NONE, 500, false, true)).toBe('cooling');
-    expect(slotState('gun', NONE, 0, true, true)).toBe('selected');
-    expect(slotState('torpedo', NONE, 0, false, true)).toBe('readyWeapon');
-    expect(slotState('speedBoost', NONE, 0, false, false)).toBe('readyAbility');
+    expect(slotState(null, NONE, false, false, false)).toBe('empty');
+    expect(slotState('torpedo', { ...NONE, denied: true }, false, false, true)).toBe('denied');
+    expect(slotState('speedBoost', { ...NONE, activated: true }, false, false, false)).toBe('activated');
+    expect(slotState('torpedo', NONE, true, false, true)).toBe('cooling');
+    expect(slotState('gun', NONE, false, true, true)).toBe('selected');
+    expect(slotState('torpedo', NONE, false, false, true)).toBe('readyWeapon');
+    expect(slotState('speedBoost', NONE, false, false, false)).toBe('readyAbility');
   });
 
   it('resolves denied > activated > cooling > selected > ready', () => {
     const all = { denied: true, activated: true };
-    expect(slotState('gun', all, 900, true, true)).toBe('denied');
-    expect(slotState('gun', { denied: false, activated: true }, 900, true, true)).toBe('activated');
-    expect(slotState('gun', NONE, 900, true, true)).toBe('cooling');
-    expect(slotState('gun', NONE, 0, true, true)).toBe('selected');
+    expect(slotState('gun', all, true, true, true)).toBe('denied');
+    expect(slotState('gun', { denied: false, activated: true }, true, true, true)).toBe('activated');
+    expect(slotState('gun', NONE, true, true, true)).toBe('cooling');
+    expect(slotState('gun', NONE, false, true, true)).toBe('selected');
   });
 
   it('an UNFITTED slot short-circuits everything (R is inert — no flag can reach it)', () => {
-    expect(slotState(null, { denied: true, activated: true }, 5000, true, true)).toBe('empty');
+    expect(slotState(null, { denied: true, activated: true }, true, true, true)).toBe('empty');
   });
 
   it('keeps SELECTED as its own channel so a selected+cooling slot still reads selected', () => {
@@ -121,6 +124,26 @@ describe('the seven-state grammar + its precedence', () => {
     );
     expect(rows[0].state).toBe('cooling'); // the box shows the conic track
     expect(rows[0].selected).toBe(true); // ...and the chip/name stay amber (dual-coding)
+  });
+
+  it('COOLING is availability, not timer state — a pool with a round left reads READY', () => {
+    // Fired 1 of an upgraded 2-fish tube: the reload runs for the NEXT fish, but
+    // the slot is still fireable, so it must not dim (and the track stays off).
+    expect(isCooling({ n: 1, reloadMsLeft: 4000 })).toBe(false);
+    expect(isCooling({ n: 0, reloadMsLeft: 4000 })).toBe(true);
+    expect(isCooling({ n: 0, reloadMsLeft: 0 })).toBe(false); // dry with no reload running
+    expect(isCooling(null)).toBe(false);
+    const stats = statsFor('torpedoBoat', { torpedoAmmo: 1 });
+    const rows = slotViewModels({
+      ...viewFor('torpedoBoat'),
+      stats,
+      loadout: idsFor('torpedoBoat', stats),
+      ammo: [{ n: 1, reloadMsLeft: 0 }, { n: 1, reloadMsLeft: 4000 }, { n: 1, reloadMsLeft: 0 }, null],
+    });
+    expect(rows[1].state).toBe('readyWeapon');
+    expect(rows[1].coolFrac).toBe(0); // no conic track while a round is available
+    expect(rows[1].badge).toBe('1'); // the badge carries the availability instead
+    expect(rows[1].quickInfo).toContain(`CD ${fmtSeconds(CONFIG.torpedo.reloadMs)}`); // full CD, not a countdown
   });
 
   it('drives each state from a distinct DESIGN.md token recipe (no literals)', () => {
@@ -132,6 +155,8 @@ describe('the seven-state grammar + its precedence', () => {
     expect(slotSkin('readyAbility').glowPx).toBeGreaterThan(slotSkin('readyWeapon').glowPx);
     expect(slotSkin('activated').glowPx).toBeGreaterThan(slotSkin('selected').glowPx);
     expect(slotSkin('cooling').scrim).toBe(true);
+    expect(slotSkin('cooling').border).toBe(C.silver); // the DESIGN idle recipe, silver .28
+    expect(slotSkin('cooling').borderAlpha).toBe(0.28);
     expect(slotSkin('empty').dashed).toBe(true);
   });
 });
@@ -164,19 +189,29 @@ describe('ammo badge — only on pools LARGER than one round', () => {
     const fired = slotViewModels({ ...view, ammo: [view.ammo[0], { n: 1, reloadMsLeft: 4000 }, view.ammo[2], null] });
     expect(fired[1].badge).toBe('1'); // counts down on fire, back up on reload completion
   });
+
+  it('renders NO badge when the ammo entry is missing (never a fabricated "0")', () => {
+    const stats = statsFor('torpedoBoat', { torpedoAmmo: 1 });
+    expect(badgeText(equipmentInfo(stats, 'torpedo'), null)).toBeNull();
+    expect(badgeText(equipmentInfo(stats, 'torpedo'), { n: 0, reloadMsLeft: 1 })).toBe('0'); // a REAL empty pool does read 0
+    const rows = slotViewModels({ ...viewFor('torpedoBoat'), stats, loadout: idsFor('torpedoBoat', stats), ammo: [null, null, null, null] });
+    expect(rows.map((r) => r.badge)).toEqual([null, null, null, null]);
+  });
 });
 
 describe('quick-info line (amendment 13) — real values, live countdown', () => {
   const stats = statsFor('torpedoBoat');
 
-  it('reads DMG · CD for damage-dealing equipment and CD alone for the rest', () => {
+  it('reads DMG · CD for WEAPONS and CD alone for ABILITIES (amendment 13, literal)', () => {
     expect(quickInfoLine(equipmentInfo(stats, 'gun'), 0)).toBe(`DMG ${CONFIG.gun.damage} · CD 3s`);
     expect(quickInfoLine(equipmentInfo(stats, 'torpedo'), 0)).toBe(
       `DMG ${CONFIG.torpedo.damage} · CD ${fmtSeconds(CONFIG.torpedo.reloadMs)}`,
     );
     expect(quickInfoLine(equipmentInfo(stats, 'cannon'), 0)).toContain(`DMG ${CONFIG.cannon.damage}`);
     expect(quickInfoLine(equipmentInfo(stats, 'starShells'), 0)).toContain(`DMG ${CONFIG.starShells.damage}`);
-    expect(quickInfoLine(equipmentInfo(stats, 'mine'), 0)).toContain(`DMG ${CONFIG.mine.damage}`);
+    // The mine DEALS damage but is an ABILITY (EQUIPMENT_IS_WEAPON) — CD only.
+    expect(quickInfoLine(equipmentInfo(stats, 'mine'), 0)).toBe(`CD ${fmtSeconds(CONFIG.mine.reloadMs)}`);
+    expect(quickInfoLine(equipmentInfo(stats, 'mine'), 0)).not.toContain('DMG');
     expect(quickInfoLine(equipmentInfo(stats, 'speedBoost'), 0)).toBe(`CD ${fmtSeconds(CONFIG.speedBoost.reloadMs)}`);
     expect(quickInfoLine(equipmentInfo(stats, 'decoyBuoy'), 0)).toBe(`CD ${fmtSeconds(CONFIG.decoyBuoy.reloadMs)}`);
   });
@@ -191,7 +226,18 @@ describe('quick-info line (amendment 13) — real values, live countdown', () =>
     expect(fmtSeconds(12000)).toBe('12s');
     expect(fmtSeconds(4500)).toBe('4.5s');
     expect(fmtRemaining(20)).toBe('0.1s');
-    expect(fmtRemaining(0)).toBe('0s');
+    expect(fmtRemaining(0)).toBe('0.1s'); // floored — a cooling slot never reads 0s
+  });
+
+  it('clamps the conic fraction, so a mid-reload reload UPGRADE cannot invert the track', () => {
+    expect(coolFraction(5000, 3000)).toBe(0); // reloadMsLeft >= the (new, shorter) reloadMs
+    expect(coolFraction(0, 3000)).toBe(0);
+    expect(coolFraction(1500, 3000)).toBeCloseTo(0.5, 9);
+    const rows = slotViewModels(
+      viewFor('torpedoBoat', { ammo: [{ n: 0, reloadMsLeft: 9000 }, null, null, null] }),
+    );
+    expect(rows[0].state).toBe('cooling'); // ...still cooling, so the dim ring is still drawn
+    expect(rows[0].coolFrac).toBe(0);
   });
 
   it('ticks on EVERY slot regardless of which one is selected', () => {
@@ -221,50 +267,39 @@ describe('layout + slotAtPoint — the hit-test behind hover AND the click gate'
     expect(layout.gutterX).toBe(H.left - H.gutter); // reserved dead space (2.6's XP rail)
   });
 
-  it('hits each slot square and misses everything else', () => {
+  it('hits the WHOLE row — key chip, slot square, badge overhang, label column', () => {
     for (const row of layout.rows) {
       const c = { x: row.box.x + row.box.size / 2, y: row.box.y + row.box.size / 2 };
-      expect(slotAtPoint(c, layout)).toBe(row.slot);
+      expect(slotAtPoint(c, layout)).toBe(row.slot); // the slot square
+      expect(slotAtPoint({ x: row.keyX + 2, y: row.keyY + 2 }, layout)).toBe(row.slot); // key chip
+      expect(slotAtPoint({ x: row.labelX + 4, y: row.nameY + 2 }, layout)).toBe(row.slot); // name
+      expect(slotAtPoint({ x: row.labelX + 4, y: row.infoY + 2 }, layout)).toBe(row.slot); // quick-info
+      // the ammo badge overhangs the slot's top-right by badgeOverhang px
+      const badge = { x: row.box.x + row.box.size + H.badgeOverhang - 2, y: row.box.y - H.badgeOverhang + 2 };
+      expect(slotAtPoint(badge, layout)).toBe(row.slot);
     }
-    const first = layout.rows[0].box;
-    expect(slotAtPoint({ x: first.x - 1, y: first.y + 10 }, layout)).toBeNull(); // key-chip column
-    expect(slotAtPoint({ x: layout.gutterX + 2, y: first.y + 10 }, layout)).toBeNull(); // reserved gutter
-    expect(slotAtPoint({ x: first.x + 10, y: first.y - 1 }, layout)).toBeNull(); // above the stack
-    expect(slotAtPoint({ x: first.x + first.size + 20, y: first.y + 10 }, layout)).toBeNull(); // label column
+  });
+
+  it('leaves the reserved gutter, the inter-row gaps, and open water as WATER', () => {
+    const first = layout.rows[0];
+    expect(slotAtPoint({ x: layout.gutterX + 2, y: first.box.y + 10 }, layout)).toBeNull(); // 2.6's XP rail
+    expect(slotAtPoint({ x: first.keyX - 1, y: first.box.y + 10 }, layout)).toBeNull(); // left of the row
+    expect(slotAtPoint({ x: first.row.x + first.row.w + 1, y: first.box.y + 10 }, layout)).toBeNull(); // past the label
+    expect(slotAtPoint({ x: first.box.x + 10, y: first.row.y - 1 }, layout)).toBeNull(); // above the stack
     expect(slotAtPoint({ x: 900, y: 400 }, layout)).toBeNull(); // open water
   });
 
-  it('lands in the gap BETWEEN two rows as a miss', () => {
-    const gapY = layout.rows[0].box.y + H.slot + H.gap / 2;
+  it('lands in the gap BETWEEN two rows as a miss (only real rows swallow)', () => {
+    // The badge overhang eats the top 7px of each gap; the rest stays water.
+    const gapY = layout.rows[0].box.y + H.slot + (H.gap - H.badgeOverhang) / 2;
     expect(slotAtPoint({ x: layout.rows[0].box.x + 5, y: gapY }, layout)).toBeNull();
-  });
-});
-
-describe('click routing — key-EQUIVALENT slot actions (amendment 11)', () => {
-  const stats = statsFor('torpedoBoat');
-  const TB = idsFor('torpedoBoat', stats);
-  const isAbility = (slot: number): boolean => TB[slot] === 'speedBoost';
-
-  it('gun slot selects the gun; weapon slot toggles the prime; ability slot activates', () => {
-    expect(slotClickAction(0, TB, isAbility, false)).toBe('selectGun');
-    expect(slotClickAction(1, TB, isAbility, false)).toBe('primeToggle');
-    expect(slotClickAction(2, TB, isAbility, false)).toBe('activate');
+    expect(slotAtPoint({ x: layout.rows[0].keyX + 2, y: gapY }, layout)).toBeNull();
   });
 
-  it('an unfitted slot is inert (R while empty)', () => {
-    expect(slotClickAction(3, TB, isAbility, false)).toBe('none');
-  });
-
-  it('EVERY slot is suspended while the refit modal is open', () => {
-    for (const slot of [0, 1, 2, 3]) expect(slotClickAction(slot, TB, isAbility, true)).toBe('none');
-  });
-
-  it('reads the weapon/ability split from the loadout, never a slot literal', () => {
-    const mlStats = statsFor('mineLayer');
-    const ML = idsFor('mineLayer', mlStats);
-    const mlAbility = (slot: number): boolean => ML[slot] === 'mine' || ML[slot] === 'decoyBuoy';
-    expect(slotClickAction(1, ML, mlAbility, false)).toBe('activate'); // the mine ACTIVATES
-    expect(slotClickAction(2, ML, mlAbility, false)).toBe('activate');
+  it('a HIDDEN hotbar (null layout) routes nothing — every press falls through', () => {
+    const c = { x: layout.rows[0].box.x + 5, y: layout.rows[0].box.y + 5 };
+    expect(slotAtPoint(c, layout)).toBe(0);
+    expect(slotAtPoint(c, null)).toBeNull();
   });
 });
 
@@ -280,6 +315,28 @@ describe('hover dwell — the tooltip waits out a short delay', () => {
 
   it('never shows with nothing hovered', () => {
     expect(hoverReady(nextHover(NO_HOVER, null, 5000), 99999)).toBe(false);
+  });
+});
+
+describe('tooltip gating — dwell, pointer presence, and the modal lockout', () => {
+  const dwelled = nextHover(NO_HOVER, 1, 0);
+
+  it('shows only once the dwell elapsed, with a model to show', () => {
+    expect(shouldShowTooltip(dwelled, H.tooltip.delayMs, false, true)).toBe(true);
+    expect(shouldShowTooltip(dwelled, H.tooltip.delayMs - 1, false, true)).toBe(false);
+    expect(shouldShowTooltip(dwelled, H.tooltip.delayMs, false, false)).toBe(false); // unfitted slot
+  });
+
+  it('never shows while the refit modal holds the lockout (no ghost under the modal)', () => {
+    expect(shouldShowTooltip(dwelled, H.tooltip.delayMs, true, true)).toBe(false);
+  });
+
+  it('never shows with the pointer OUT of the window (a null cursor hovers nothing)', () => {
+    // main.ts feeds the hotbar `mouse.pointerInside ? screenPos : null`, and a
+    // null cursor resolves the hover to "no slot" — which can never be ready.
+    const gone = nextHover(dwelled, null, 10);
+    expect(hoverReady(gone, 99999)).toBe(false);
+    expect(shouldShowTooltip(gone, 99999, false, true)).toBe(false);
   });
 });
 

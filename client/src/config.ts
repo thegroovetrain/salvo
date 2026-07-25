@@ -338,6 +338,10 @@ export const CLIENT_CONFIG = {
     /** Gap between key chip and slot, and between slot and the label column. */
     keyGap: 12,
     labelGap: 12,
+    /** Label column width (px) — the name / quick-info block. It is part of the
+     *  ROW's clickable footprint (amendment 11: the whole row is the control),
+     *  so this is a hit-region knob, not just a text budget. */
+    labelWidth: 168,
     /** Top-right chamfer cut (px) — the ABILITY shape mark (weapons never cut). */
     chamfer: 9,
     /** Conic cooldown perimeter track width (px). */

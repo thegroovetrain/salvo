@@ -34,13 +34,13 @@
 import { Container, Graphics, Text } from 'pixi.js';
 import {
   SLOT_COUNT,
-  SLOT_GUN,
   type EffectiveStats,
   type EquipmentId,
   type WeaponAmmo,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import type { ScreenPoint } from '../input/mouse.js';
+import { tracePerimeter, traceDashed } from '../util/poly.js';
 import { drawEquipmentIcon, drawPlusGlyph } from './equipmentIcons.js';
 import {
   SLOT_KEY_GLYPHS,
@@ -82,20 +82,30 @@ export interface SlotFlags {
  * denied > activated > cooling > selected > ready — an empty slot short-
  * circuits everything (it holds nothing to deny, cool, or select; R is inert
  * while unfitted, so no flag can ever reach it).
+ *
+ * COOLING IS AVAILABILITY, NOT TIMER STATE: a pool with a round still in it
+ * (`n > 0`) reads READY even while the reload timer runs for the NEXT round —
+ * an upgraded 2-fish tube with one fish left is fireable, and dimming it would
+ * lie. Only an empty pool (`n <= 0`) with a running timer cools.
  */
 export function slotState(
   id: EquipmentId | null,
   flags: SlotFlags,
-  reloadMsLeft: number,
+  cooling: boolean,
   selected: boolean,
   isWeapon: boolean,
 ): SlotState {
   if (id === null) return 'empty';
   if (flags.denied) return 'denied';
   if (flags.activated) return 'activated';
-  if (reloadMsLeft > 0) return 'cooling';
+  if (cooling) return 'cooling';
   if (selected) return 'selected';
   return isWeapon ? 'readyWeapon' : 'readyAbility';
+}
+
+/** Pure: is this slot COOLING — no round available and a reload running? */
+export function isCooling(ammo: WeaponAmmo | null): boolean {
+  return ammo !== null && ammo.n <= 0 && ammo.reloadMsLeft > 0;
 }
 
 /** Pure: trimmed seconds for a duration in ms — "3s", "4.5s", "12s". */
@@ -104,27 +114,25 @@ export function fmtSeconds(ms: number): string {
   return `${Number.isInteger(tenths) ? tenths.toFixed(0) : tenths.toFixed(1)}s`;
 }
 
-/** Pure: the LIVE remaining seconds while cooling — rounded UP to a tenth so a
- *  still-cooling slot never reads "0s". */
+/** Pure: the LIVE remaining seconds while cooling — rounded UP to a tenth and
+ *  FLOORED at one tenth, so a still-cooling slot never reads "0s" (the last
+ *  frame before the round lands shows "0.1s", then the state leaves cooling). */
 export function fmtRemaining(ms: number): string {
-  const tenths = Math.ceil(Math.max(0, ms) / 100) / 10;
+  const tenths = Math.max(1, Math.ceil(Math.max(0, ms) / 100)) / 10;
   return `${Number.isInteger(tenths) ? tenths.toFixed(0) : tenths.toFixed(1)}s`;
 }
 
 /**
- * Pure: the quick-info line under a slot's name (amendment 13). Equipment that
- * DEALS damage reads `DMG n · CD ns`, damage-less abilities read `CD ns`. While
- * the slot is cooling the CD figure is the live remaining time, counting down
- * whether or not the slot is selected.
- *
- * (Amendment 13 words the split as "weapons / abilities"; keying it on "has a
- * damage number" is the same partition for every weapon and only differs for
- * the mine — an ABILITY that is the Mine Layer's primary damage tool. Hiding
- * its DMG would be a worse read than the literal wording.)
+ * Pure: the quick-info line under a slot's name (amendment 13, literal): a
+ * WEAPON reads `DMG n · CD ns`, an ABILITY reads `CD ns` — the split is
+ * EQUIPMENT_IS_WEAPON, nothing else (so the mine, an ability that happens to
+ * deal damage, shows CD only; its damage lives in the tooltip description).
+ * While the slot is cooling the CD figure is the live remaining time, counting
+ * down whether or not the slot is selected.
  */
 export function quickInfoLine(info: EquipmentInfo, reloadMsLeft: number): string {
   const cd = reloadMsLeft > 0 ? fmtRemaining(reloadMsLeft) : fmtSeconds(info.reloadMs);
-  return info.damage === null ? `CD ${cd}` : `DMG ${info.damage} · CD ${cd}`;
+  return info.isWeapon && info.damage !== null ? `DMG ${info.damage} · CD ${cd}` : `CD ${cd}`;
 }
 
 /** Everything one rendered slot row needs — the pure view model. */
@@ -170,10 +178,11 @@ export function slotViewModels(view: HotbarView): SlotViewModel[] {
   return Array.from({ length: SLOT_COUNT }, (_, slot) => slotViewModel(view, slot));
 }
 
-/** Pure: the badge text for a slot — null unless the effective pool holds >1. */
-function badgeText(info: EquipmentInfo, ammo: WeaponAmmo | null): string | null {
-  if (info.maxAmmo <= 1) return null;
-  return String(ammo?.n ?? 0);
+/** Pure: the badge text for a slot — null unless the effective pool holds >1
+ *  AND a real ammo entry exists (a missing entry shows NO badge, never "0"). */
+export function badgeText(info: EquipmentInfo, ammo: WeaponAmmo | null): string | null {
+  if (info.maxAmmo <= 1 || ammo === null) return null;
+  return String(ammo.n);
 }
 
 /** Pure: the conic track's elapsed fraction in [0,1] (0 = not cooling). */
@@ -193,13 +202,16 @@ function slotViewModel(view: HotbarView, slot: number): SlotViewModel {
   if (id === null) return emptySlotModel(slot, keyGlyph);
   const info = equipmentInfo(view.stats, id);
   const a = view.ammo[slot] ?? null;
-  const left = a?.reloadMsLeft ?? 0;
+  const cooling = isCooling(a);
+  // The countdown + conic track belong to the COOLING read: a slot that still
+  // has a round shows its full CD, not the timer for the next one.
+  const left = cooling ? (a?.reloadMsLeft ?? 0) : 0;
   const flags: SlotFlags = { denied: view.denied[slot] ?? false, activated: view.activated[slot] ?? false };
   const selected = slot === view.primedSlot;
   return {
     slot,
     id,
-    state: slotState(id, flags, left, selected, info.isWeapon),
+    state: slotState(id, flags, cooling, selected, info.isWeapon),
     selected,
     chamfer: !info.isWeapon,
     keyGlyph,
@@ -236,7 +248,7 @@ const SKINS: Record<SlotState, SlotSkin> = {
   readyWeapon: { border: C.phosphor, borderAlpha: 0.4, borderWidth: 1, glowPx: 10, glowAlpha: 0.15, wash: C.void, washAlpha: 0, icon: C.phosphor, iconAlpha: 0.75, dashed: false, scrim: false },
   readyAbility: { border: C.phosphor, borderAlpha: 0.65, borderWidth: 1, glowPx: 14, glowAlpha: 0.18, wash: C.void, washAlpha: 0, icon: C.phosphor, iconAlpha: 0.85, dashed: false, scrim: false },
   selected: { border: C.amber, borderAlpha: 1, borderWidth: 1.5, glowPx: 16, glowAlpha: 0.22, wash: C.amber, washAlpha: 0.12, icon: C.amber, iconAlpha: 0.95, dashed: false, scrim: false },
-  cooling: { border: C.silver, borderAlpha: 0.18, borderWidth: 1, glowPx: 0, glowAlpha: 0, wash: C.void, washAlpha: 0, icon: C.textMuted, iconAlpha: 0.55, dashed: false, scrim: true },
+  cooling: { border: C.silver, borderAlpha: 0.28, borderWidth: 1, glowPx: 0, glowAlpha: 0, wash: C.void, washAlpha: 0, icon: C.textMuted, iconAlpha: 0.55, dashed: false, scrim: true },
   activated: { border: C.phosphor, borderAlpha: 1, borderWidth: 1.5, glowPx: 22, glowAlpha: 0.3, wash: C.phosphor, washAlpha: 0.2, icon: C.phosphorBright, iconAlpha: 1, dashed: false, scrim: false },
   denied: { border: C.denied, borderAlpha: 1, borderWidth: 2, glowPx: 8, glowAlpha: 0.25, wash: C.void, washAlpha: 0, icon: C.denied, iconAlpha: 1, dashed: false, scrim: false },
 };
@@ -266,6 +278,22 @@ export interface HotbarRow {
   labelX: number;
   nameY: number;
   infoY: number;
+  /**
+   * THE control's footprint: key chip → slot → label column, including the
+   * ammo badge's top-right overhang. The whole ROW is the control (amendment
+   * 11) — a press anywhere in here is that slot's action and is swallowed, so
+   * clicking a key chip or a name can never fire the gun at the water beneath.
+   * The 14px stack gaps deliberately stay water (only real rows swallow).
+   */
+  row: HudRect;
+}
+
+/** A screen-space rect (px). */
+export interface HudRect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 
 export interface HotbarLayout {
@@ -287,55 +315,43 @@ export function hotbarLayout(screenH: number): HotbarLayout {
   const boxX = H.left + H.keyChip + H.keyGap;
   const rows = Array.from({ length: SLOT_COUNT }, (_, slot) => {
     const top = stackTop + slot * (H.slot + H.gap);
+    const labelX = boxX + H.slot + H.labelGap;
     return {
       slot,
       keyX: H.left,
       keyY: top + (H.slot - H.keyChip) / 2,
       box: { x: boxX, y: top, size: H.slot },
-      labelX: boxX + H.slot + H.labelGap,
+      labelX,
       nameY: top + 11,
       infoY: top + 30,
+      row: {
+        x: H.left,
+        y: top - H.badgeOverhang, // the badge overhangs the slot's top-right
+        w: labelX + H.labelWidth - H.left,
+        h: H.slot + H.badgeOverhang,
+      },
     };
   });
   return { rows, gutterX: H.left - H.gutter, stackTop, stackHeight };
 }
 
 /**
- * Pure: the slot whose 54×54 square contains a screen point, or null. THE
- * hit-test behind both the hover tooltip and the click gate (amendment 11) —
- * the key chip, the label column, and the reserved left gutter are all misses,
- * so a click there falls through to the water like any other.
+ * Pure: the slot whose ROW FOOTPRINT contains a screen point, or null. THE
+ * hit-test behind both the hover tooltip and the click gate (amendment 11):
+ * the whole row is the control — key chip, slot square (badge overhang
+ * included), and label column all hit. The reserved left gutter (2.6's XP
+ * rail), the 14px gaps between rows, and everything outside stay WATER, so a
+ * press there falls through and fires exactly as before.
+ *
+ * A null layout (the hotbar is hidden — death, spectate, the forceSnap pose
+ * gap) hits nothing: a hidden hotbar routes no clicks.
  */
-export function slotAtPoint(p: ScreenPoint, layout: HotbarLayout): number | null {
-  for (const row of layout.rows) {
-    const b = row.box;
-    if (p.x >= b.x && p.x <= b.x + b.size && p.y >= b.y && p.y <= b.y + b.size) return row.slot;
+export function slotAtPoint(p: ScreenPoint, layout: HotbarLayout | null): number | null {
+  if (layout === null) return null;
+  for (const { slot, row } of layout.rows) {
+    if (p.x >= row.x && p.x <= row.x + row.w && p.y >= row.y && p.y <= row.y + row.h) return slot;
   }
   return null;
-}
-
-// --- pure core: click routing ---------------------------------------------------
-
-/** What a click on a slot resolves to — key-EQUIVALENT semantics (amendment 11). */
-export type SlotAction = 'none' | 'selectGun' | 'primeToggle' | 'activate';
-
-/**
- * Pure: the action a click on `slot` performs. Mirrors the key path exactly:
- * an ability activates, a weapon toggles its prime (re-click reverts to gun),
- * the gun slot selects the gun, an unfitted slot is inert, and EVERYTHING is
- * suspended while the refit modal is open (the click is still swallowed —
- * the caller never lets it reach the fire path).
- */
-export function slotClickAction(
-  slot: number,
-  loadout: readonly (EquipmentId | null)[],
-  isAbility: (slot: number) => boolean,
-  modalOpen: boolean,
-): SlotAction {
-  if (modalOpen) return 'none';
-  if ((loadout[slot] ?? null) === null) return 'none';
-  if (slot === SLOT_GUN) return 'selectGun';
-  return isAbility(slot) ? 'activate' : 'primeToggle';
 }
 
 // --- pure core: hover + tooltip -------------------------------------------------
@@ -357,6 +373,16 @@ export function nextHover(prev: HoverState, slot: number | null, nowMs: number):
 /** Pure: has the hover dwelled long enough to show the tooltip? */
 export function hoverReady(state: HoverState, nowMs: number, delayMs = H.tooltip.delayMs): boolean {
   return state.slot !== null && nowMs - state.since >= delayMs;
+}
+
+/**
+ * Pure: should the tooltip panel be on screen this frame? Never while the
+ * refit modal holds the lockout (`dim`) — a ghost tooltip floating under the
+ * modal contradicts the full-lockout ruling — never without a model (an
+ * unfitted slot describes nothing), and never before the dwell elapses.
+ */
+export function shouldShowTooltip(hover: HoverState, nowMs: number, dim: boolean, hasModel: boolean): boolean {
+  return !dim && hasModel && hoverReady(hover, nowMs);
 }
 
 /**
@@ -449,75 +475,6 @@ function inflate(pts: ScreenPoint[], b: SlotRect, px: number): ScreenPoint[] {
   return pts.map((p) => ({ x: cx + (p.x - cx) * k, y: cy + (p.y - cy) * k }));
 }
 
-/** Cumulative segment lengths of a closed polygon (last entry = perimeter). */
-function polyLengths(pts: ScreenPoint[]): number[] {
-  const acc: number[] = [];
-  let total = 0;
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i];
-    const b = pts[(i + 1) % pts.length];
-    total += Math.hypot(b.x - a.x, b.y - a.y);
-    acc.push(total);
-  }
-  return acc;
-}
-
-/** Point at arc-length `d` along the closed polygon. */
-function polyPointAt(pts: ScreenPoint[], acc: number[], d: number): ScreenPoint {
-  for (let i = 0; i < pts.length; i++) {
-    const start = i === 0 ? 0 : acc[i - 1];
-    if (d <= acc[i] || i === pts.length - 1) {
-      const a = pts[i];
-      const b = pts[(i + 1) % pts.length];
-      const segLen = acc[i] - start;
-      const t = segLen > 0 ? Math.min(1, Math.max(0, (d - start) / segLen)) : 0;
-      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
-    }
-  }
-  return pts[0];
-}
-
-/**
- * Trace the [t0, t1] fraction of a closed polygon's perimeter into `g` — the
- * "conic" cooldown track's elapsed and remaining arcs. Corners are emitted
- * EXACTLY (the walk stops at each vertex), so a chamfered ability slot keeps
- * its cut while it cools.
- */
-function tracePerimeter(g: Graphics, pts: ScreenPoint[], t0: number, t1: number): void {
-  if (t1 <= t0) return;
-  const acc = polyLengths(pts);
-  const total = acc[acc.length - 1];
-  const from = t0 * total;
-  const to = t1 * total;
-  const start = polyPointAt(pts, acc, from);
-  g.moveTo(start.x, start.y);
-  for (let i = 0; i < pts.length; i++) {
-    if (acc[i] <= from) continue;
-    if (acc[i] >= to) break;
-    const corner = pts[(i + 1) % pts.length];
-    g.lineTo(corner.x, corner.y);
-  }
-  const end = polyPointAt(pts, acc, to);
-  g.lineTo(end.x, end.y);
-}
-
-/** Trace a closed polygon as a ~50%-duty dashed outline (the empty slot),
- *  dashed PER EDGE so the corners stay crisp. */
-function traceDashed(g: Graphics, pts: ScreenPoint[]): void {
-  const pitch = 8;
-  for (let i = 0; i < pts.length; i++) {
-    const a = pts[i];
-    const b = pts[(i + 1) % pts.length];
-    const n = Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y) / pitch));
-    for (let k = 0; k < n; k++) {
-      const at = (t: number): ScreenPoint => ({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t });
-      const s = at(k / n);
-      const e = at((k + 0.5) / n);
-      g.moveTo(s.x, s.y).lineTo(e.x, e.y);
-    }
-  }
-}
-
 /** One row's Pixi text objects (created once, diffed on assignment). */
 interface RowText {
   key: Text;
@@ -564,25 +521,32 @@ export class Hotbar {
 
   /** The layout this frame used — null while hidden (hit-tests must miss). */
   get layout(): HotbarLayout | null {
-    return this.root.visible ? this.cachedLayout : null;
+    return this.cachedLayout;
   }
 
   /** The slot under a screen point, or null while the hotbar isn't rendering. */
   slotAt(p: ScreenPoint): number | null {
-    const layout = this.layout;
-    return layout === null ? null : slotAtPoint(p, layout);
+    return slotAtPoint(p, this.cachedLayout);
   }
 
-  /** Hide the whole hotbar (death / spectate / reveal / return to port). */
+  /**
+   * Hide the whole hotbar (death / spectate / reveal / return to port — and the
+   * forceSnap pose gap after a reconnect or a P toggle, where no frame renders
+   * at all). DROPS the cached layout, so a hidden hotbar routes no clicks: the
+   * gate misses and the press falls through to the water exactly as it would
+   * with no hotbar on screen.
+   */
   hide(): void {
     this.root.visible = false;
     this.tipRoot.visible = false;
     this.hover = NO_HOVER;
+    this.cachedLayout = null;
   }
 
-  /** Render one frame. `cursor` drives the hover tooltip; `nowMs` is a monotonic
-   *  clock (performance.now) for the dwell delay. */
-  update(view: HotbarView, screenW: number, screenH: number, cursor: ScreenPoint, nowMs: number): void {
+  /** Render one frame. `cursor` is the pointer position, or null when the
+   *  pointer has left the window (no hover then); `nowMs` is a monotonic clock
+   *  (performance.now) for the dwell delay. */
+  update(view: HotbarView, screenW: number, screenH: number, cursor: ScreenPoint | null, nowMs: number): void {
     this.root.visible = true;
     this.root.alpha = view.dim ? H.dimAlpha : 1;
     const layout = hotbarLayout(screenH);
@@ -612,7 +576,11 @@ export class Hotbar {
     else g.poly(flat);
     g.stroke({ width: skin.borderWidth, color: skin.border, alpha: skin.borderAlpha });
     this.drawGlow(pts, box, skin);
-    if (m.coolFrac > 0) this.drawCoolTrack(pts, m.coolFrac);
+    // The track belongs to the STATE, not to the fraction: at frac 0 (the frame
+    // the reload starts, or a mid-reload reload upgrade that leaves
+    // reloadMsLeft >= the new reloadMs) the dim remaining ring must still be
+    // there — an empty perimeter would read as "no cooldown running".
+    if (m.state === 'cooling') this.drawCoolTrack(pts, m.coolFrac);
   }
 
   /** Layered low-alpha rings approximating the DESIGN.md box glow. */
@@ -656,7 +624,7 @@ export class Hotbar {
       this.gfx.rect(row.keyX, row.keyY, s, s).stroke({ width: 1, color: C.textMuted, alpha: 0.55 });
     }
     t.visible = m.keyGlyph !== '';
-    t.style.fill = m.selected ? C.void : C.textMuted;
+    this.setFill(t, m.selected ? C.void : C.textMuted);
     t.position.set(row.keyX + s / 2, row.keyY + s / 2);
     this.setText(t, m.keyGlyph, m.slot * 4);
   }
@@ -680,7 +648,7 @@ export class Hotbar {
     const { name, info } = this.rowText[m.slot];
     name.position.set(row.labelX, row.nameY);
     info.position.set(row.labelX, row.infoY);
-    name.style.fill = m.selected ? C.amber : m.state === 'cooling' || m.id === null ? C.textMuted : C.textPrimary;
+    this.setFill(name, m.selected ? C.amber : m.state === 'cooling' || m.id === null ? C.textMuted : C.textPrimary);
     info.visible = m.quickInfo !== '';
     this.setText(name, m.name, m.slot * 4 + 2);
     this.setText(info, m.quickInfo, m.slot * 4 + 3);
@@ -693,19 +661,27 @@ export class Hotbar {
     t.text = value;
   }
 
+  /** Same guard for the tint: a style write invalidates the rasterized text. */
+  private setFill(t: Text, color: number): void {
+    if (t.style.fill === color) return;
+    t.style.fill = color;
+  }
+
   private updateTooltip(
     view: HotbarView,
     layout: HotbarLayout,
     models: SlotViewModel[],
-    cursor: ScreenPoint,
+    cursor: ScreenPoint | null,
     screenW: number,
     screenH: number,
     nowMs: number,
   ): void {
-    this.hover = nextHover(this.hover, slotAtPoint(cursor, layout), nowMs);
+    // A null cursor is "the pointer isn't in the window" (input/mouse.ts's
+    // presence flag): the last known position must not keep a tooltip alive.
+    this.hover = nextHover(this.hover, cursor === null ? null : slotAtPoint(cursor, layout), nowMs);
     const slot = this.hover.slot;
     const model = slot === null ? null : tooltipModel(slot, models[slot].id, view.stats);
-    if (slot === null || model === null || !hoverReady(this.hover, nowMs)) {
+    if (!shouldShowTooltip(this.hover, nowMs, view.dim, model !== null) || slot === null || model === null) {
       this.tipRoot.visible = false;
       return;
     }

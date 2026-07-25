@@ -48,6 +48,14 @@ export class MouseInput {
   private clicks = 0;
   private clickT = 0;
   private canvas: EventTarget | null = null;
+  /**
+   * Is the pointer currently INSIDE the window? Deliberately separate from
+   * `pos`: the aim path must keep using the last known position (a ship keeps
+   * aiming where you left the cursor), while hover-only UI — the hotbar
+   * tooltip — must not hang open after the pointer leaves the window entirely.
+   * Consumed ONLY by the hotbar's hover; nothing else reads it.
+   */
+  private inside = false;
 
   /**
    * @param nowServer Server-clock estimate thunk, injected so this DOM adapter
@@ -75,6 +83,17 @@ export class MouseInput {
   private readonly onMove = (e: PointerEvent): void => {
     this.pos.x = e.clientX;
     this.pos.y = e.clientY;
+    this.inside = true;
+  };
+
+  /** The pointer left the WINDOW (a null relatedTarget — leaving for another
+   *  element inside the page keeps presence). */
+  private readonly onOut = (e: PointerEvent): void => {
+    if (e.relatedTarget === null) this.inside = false;
+  };
+
+  private readonly onBlur = (): void => {
+    this.inside = false;
   };
 
   private readonly onDown = (e: PointerEvent): void => {
@@ -84,6 +103,7 @@ export class MouseInput {
     // Hotbar first: a press over a slot IS that slot's action and never a shot
     // (amendment 11). Suspended-while-modal is already handled above — a locked
     // click reaches neither the hotbar nor the tube.
+    this.inside = true;
     if (this.onSlotPress({ x: e.clientX, y: e.clientY })) return;
     this.clicks += 1;
     // Stamp the honest fire instant at pointerdown (not sample time): a click
@@ -103,6 +123,8 @@ export class MouseInput {
     this.canvas = canvas;
     window.addEventListener('pointermove', this.onMove);
     window.addEventListener('pointerdown', this.onDown);
+    window.addEventListener('pointerout', this.onOut);
+    window.addEventListener('blur', this.onBlur);
     canvas.addEventListener('contextmenu', this.onContextMenu);
   }
 
@@ -110,13 +132,21 @@ export class MouseInput {
   detach(): void {
     window.removeEventListener('pointermove', this.onMove);
     window.removeEventListener('pointerdown', this.onDown);
+    window.removeEventListener('pointerout', this.onOut);
+    window.removeEventListener('blur', this.onBlur);
     this.canvas?.removeEventListener('contextmenu', this.onContextMenu);
     this.canvas = null;
   }
 
-  /** Current cursor screen position (px). */
+  /** Current cursor screen position (px) — the aim source; NEVER cleared. */
   get screenPos(): ScreenPoint {
     return this.pos;
+  }
+
+  /** Is the pointer inside the window? Hover-only UI (the hotbar tooltip) reads
+   *  this so it can't hang open once the pointer leaves; aiming ignores it. */
+  get pointerInside(): boolean {
+    return this.inside;
   }
 
   /** Cumulative button-0 canvas clicks since boot (feeds InputMsg.fireSeq). */

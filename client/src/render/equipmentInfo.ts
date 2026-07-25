@@ -43,7 +43,7 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
 export const EQUIPMENT_DESCRIPTION: Record<EquipmentId, string> = {
   gun: 'The deck gun you always have. It flies to the clicked point and bursts there, hitting every hull inside the blast.',
   torpedo: 'A bow-launched fish that runs flat and straight until it finds a hull. Slow to reload, brutal on contact.',
-  mine: 'Drops an armed mine off your stern. It waits, silent, until an enemy hull passes over it.',
+  mine: `Drops an armed mine off your stern. It waits, silent, until an enemy hull passes over it, then takes ${CONFIG.mine.damage} hull points out of whoever found it.`,
   speedBoost: 'Opens the throttle past its stops for a short burst of extra speed. Nothing else changes — you just leave sooner.',
   cannon: 'A main-battery shell for long work. It bursts at the aimed point and hits hard enough to be worth the wait.',
   starShells: 'An illumination round. Where it bursts, a wide circle of ocean lights up for everyone — including the hulls in it.',

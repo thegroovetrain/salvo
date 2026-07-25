@@ -2,10 +2,10 @@
 title: 'Story 2.2: The Hotbar'
 type: 'feature'
 created: '2026-07-25'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '7df936ae4bf2031c91d242252ea3ecdaa8bed347'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context-amendments.md'
@@ -103,6 +103,21 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-07-25 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 14: (high 2, medium 3, low 9)
+- defer: 1: (high 0, medium 1, low 0)
+- reject: 6
+- addressed_findings:
+  - `[high]` `[patch]` Square-only hit test (flagged by Blind Hunter AND Codex): clicking the key chip, label column, or ammo-badge overhang fell through and fired the gun — amendment 11 violation. Hit region expanded to the full row footprint (chip → slot → labels, badge overhang included); full row swallows and acts; inter-row gaps deliberately stay water. Pinned by hit/miss tests.
+  - `[high]` `[patch]` Per-PR bookkeeping: sprint-status.yaml `2-2-the-hotbar: done`; gds-workflow-status.yaml `last_updated` 2026-07-25 + story 2-2 summary + `next_expected: create-story 2-3`.
+  - `[medium]` `[patch]` Mine (ability) showed `DMG 45 · CD …` — unilateral deviation from amendment 13 (flagged by Blind Hunter AND Codex, plus the implementer's own note). `quickInfoLine` now keys on `EQUIPMENT_IS_WEAPON`; mine reads `CD 8s`, damage moved to tooltip description draft copy.
+  - `[medium]` `[patch]` Multi-round availability (Edge Case Hunter): a partially-loaded reloading pool (upgraded torpedo/mine, n ≥ 1) read `cooling`, misreporting a fireable slot. State now derives from `n <= 0 && reloadMsLeft > 0`; pinned.
+  - `[medium]` `[patch]` Reconnect/null-pose gap (Codex): stale hotbar stayed visible and click-routable while `ownPose()` was null after forceSnap. Null-pose branch hides the hotbar; `hide()` clears the cached layout so `slotAtPoint` misses; pinned.
+  - `[low]` `[patch]` ×9: click-gating de-duplicated onto the one `keyboard.slotAction` path (decorative `slotClickAction` deleted); null-ammo badge no longer fabricates "0"; cooling track drawn at coolFrac 0 incl. `reloadMsLeft ≥ reloadMs` clamp; tooltip requires pointer-inside-window (aim path untouched); tooltip fully suppressed under the refit modal; cooling border uses the DESIGN silver .28 recipe; `fmtRemaining` floors at 0.1s matching its doc; per-frame `style.fill` writes equality-guarded; polygon tracers extracted to `util/poly.ts` (+6 tests).
+- Rejected as noise: coordinate-space assumption (architectural fullscreen canvas, same as the aim path), denied 1→2px pulse (the 80 ms 2px window IS the pulse), vitals hand-measured constants (interim; 2.4 restyles), VERSION bump (release chore, separate from story PRs per repo history), activated-pop 300 ms rate floor (that floor is the ratified accessibility rule), workflow bookkeeping-in-progress note.
+
 ## Design Notes
 
 - All design decisions are Eric-ruled: amendments 10–13 (hotbar order + keyless gun, clickable key-equivalent slots, interim vitals move, quick-info shape). Visual grammar is DESIGN.md Components · Hotbar Slot / Ammo Badge / Slot Tooltip + hud-composite-2 register; the mocks' key mapping (Q-on-gun, F slot) is stale — amendments win.
@@ -110,6 +125,20 @@ warnings: [oversized]
 - Hover/hit-test uses `mouse.screenPos` + pure `slotAtPoint` — no Pixi eventMode; this also gives the click gate for free and keeps the module testable without Pixi.
 - Bank-chip/XP-rail gutter is reserved dead space this story; 2.6 fills it.
 - The 2-1 review's text-entry-guard convention note doesn't bite: the hotbar is Pixi, no new focusable DOM chrome ships here.
+
+## Auto Run Result
+
+**Status:** done — implemented, adversarially reviewed (2 Fable hunters + Codex cross-model), 14 patches applied, gate green.
+
+**Summary:** The ratified Afterimage hotbar is live: four 54 px slots bottom-left, top-to-bottom Gun (keyless, ghost chip) – Q – E – R per amendment 10, with the full 7-state grammar (ready weapon / ready ability+chamfer / selected amber+filled chip / cooling with conic perimeter track + live countdown / ≤80 ms activated pop / dashed "— awaiting refit —" empty / denied red pulse — never silence), ammo badge on >1-round pools, and a hover tooltip (name, interaction line, draft description; boons render as absence). Slot clicks are key-equivalent through the one `keyboard.slotAction` chokepoint and are swallowed across the full row footprint — a click over the hotbar can never fire the gun (amendment 11). Quick-info follows amendment 13 (weapons `DMG n · CD ns`, abilities `CD ns`, live with upgrades). The telegraph/rudder/HDG-KTS cluster + IN STORM warning moved bottom-right beside the HP bar in current style (amendment 12; 2.4 restyles). Old chip row deleted. Client-only; no wire change, PV stays 12. Tests 1474 → 1528.
+
+**Files changed:** client (NEW render/hotbar.ts + render/equipmentInfo.ts + render/equipmentIcons.ts + util/poly.ts; hud.ts chip-row deletion + vitals relocation; main.ts hotbar lifecycle/click routing/activated channel; input/keyboard.ts slotAction entry; input/mouse.ts slot-press gate + pointer-presence flag; config.ts CLIENT_CONFIG.hotbar; stage.ts font preloads; NEW __tests__/hotbar.test.ts + poly.test.ts, updated hud/mouse/keyboard tests), bookkeeping (sprint-status.yaml 2-2 done; gds-workflow-status.yaml advanced to create-story 2-3; epic-2-context.md + epic-2-context-amendments.md — amendments 10–13 recorded durably).
+
+**Review breakdown:** 14 patches applied (2 high — full-row hit-test swallow flagged by two reviewers independently, per-PR bookkeeping; 3 medium — amendment-13 conformance, multi-round availability state, reconnect stale-hotbar lifecycle; 9 low), 1 deferred to the ledger (active-ability-window state absent from the ratified grammar — Eric ruling needed, likely 2.9), 6 rejected as noise. 0 intent gaps, 0 bad-spec loopbacks.
+
+**Verification:** `npm run check` run independently by the orchestrator after implementation AND after the patch round — lint 0 errors (2 pre-existing warnings), shared 261 / server 647 / client 620 all green. Input-path diffs (mouse gate ordering vs modal lockout, slotAction suspension/fail-closed semantics, null-pose hide) hand-reviewed.
+
+**Residual risks / notes for Eric:** (1) No browser eyeball pass — the Pixi rendering is pinned by pure-logic tests only; worth a look when you next run the worktree (dev server untouched per standing rule). (2) The mine's 45 damage now lives only in its tooltip description per the literal amendment 13 — say the word if you want ability damage surfaced differently. (3) A running speed-boost/decoy window has no persistent hotbar indication (ledger entry; the ratified grammar has no such state — your call, likely at 2.9). (4) Equipment names/descriptions are draft placeholder copy per amendment 13. (5) Inter-row gaps (14 px minus badge overhang) deliberately stay live water for clicks; the row rects themselves swallow.
 
 ## Verification
 

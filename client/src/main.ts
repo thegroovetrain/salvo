@@ -50,7 +50,7 @@ import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
-import { Hotbar, slotClickAction, type HotbarView } from './render/hotbar.js';
+import { Hotbar, type HotbarView } from './render/hotbar.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
@@ -1057,29 +1057,28 @@ function updateHotbar(g: Game, status: OwnStatus): void {
     activated: g.activatedFlash,
     dim: g.upgradeMenu.visible, // refit modal: dim to 38%, keys AND clicks suspended
   };
-  g.hotbar.update(view, g.stage.app.screen.width, g.stage.app.screen.height, g.mouse.screenPos, performance.now());
+  // Hover reads the pointer ONLY while it is inside the window (the aim path
+  // keeps using the last known position regardless — see MouseInput).
+  const cursor = g.mouse.pointerInside ? g.mouse.screenPos : null;
+  g.hotbar.update(view, g.stage.app.screen.width, g.stage.app.screen.height, cursor, performance.now());
 }
 
 /**
  * A pointerdown landed somewhere on the canvas (input/mouse.ts's injected
- * hotbar gate, amendment 11). If it fell on a hotbar slot, route it through the
- * SAME keyboard slot-action path the slot keys use — prime toggle for a weapon,
- * FIFO activation (with cap-denied feedback) for an ability, gun-select for the
- * gun row, nothing for an unfitted slot — and report it SWALLOWED so it never
- * reaches the fire path. A press anywhere else returns false and fires as ever.
+ * hotbar gate, amendment 11). If it fell on a hotbar ROW, hand it to the SAME
+ * keyboard slot-action entry the slot keys use — ONE decision path: that method
+ * already owns the modal suspension, the fail-closed fitted check, the ability
+ * FIFO (cap feedback included), and the weapon prime toggle, so a click cannot
+ * drift from its key. The press is reported SWALLOWED either way — over the
+ * hotbar is never a shot, even when the action turns out inert (unfitted slot,
+ * modal open). A press anywhere else returns false and fires as ever.
  */
 function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
   if (!g) return false;
   const slot = g.hotbar.slotAt(p);
   if (slot === null) return false;
-  const action = slotClickAction(
-    slot,
-    g.ownSlots,
-    (s) => slotHoldsAbility(g.ownSlots, s),
-    g.upgradeMenu.visible,
-  );
-  if (action !== 'none') g.keyboard.slotAction(slot);
-  return true; // over a slot = never a shot, even when the action is inert
+  g.keyboard.slotAction(slot);
+  return true;
 }
 
 /**
@@ -1259,6 +1258,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   else {
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
+    g.hotbar.hide(); // no frame renders here — the hotbar must not linger, nor route clicks
   }
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;

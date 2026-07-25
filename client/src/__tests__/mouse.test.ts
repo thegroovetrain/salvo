@@ -262,3 +262,43 @@ describe('MouseInput — the injected hotbar gate', () => {
     });
   });
 });
+
+// --- Story 2.2: pointer PRESENCE (hover-only, never the aim path) -------------
+
+describe('MouseInput.pointerInside — hover presence for the hotbar tooltip', () => {
+  it('starts false and turns true on the first pointermove', () => {
+    withMouse((m, canvas) => {
+      expect(m.pointerInside).toBe(false);
+      fire(canvas, 'pointermove', { clientX: 10, clientY: 10 });
+      expect(m.pointerInside).toBe(true);
+    });
+  });
+
+  it('clears when the pointer leaves the WINDOW (pointerout with no relatedTarget)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointermove', { clientX: 10, clientY: 10 });
+      window.dispatchEvent(new MouseEvent('pointerout', { bubbles: true })); // relatedTarget null
+      expect(m.pointerInside).toBe(false);
+    });
+  });
+
+  it('survives a pointerout INTO another element (that is not leaving the window)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointermove', { clientX: 10, clientY: 10 });
+      const other = document.createElement('div');
+      document.body.appendChild(other);
+      canvas.dispatchEvent(new MouseEvent('pointerout', { bubbles: true, relatedTarget: other }));
+      expect(m.pointerInside).toBe(true);
+      other.remove();
+    });
+  });
+
+  it('clears on window blur, and NEVER disturbs screenPos (aim keeps the last position)', () => {
+    withMouse((m, canvas) => {
+      fire(canvas, 'pointermove', { clientX: 123, clientY: 45 });
+      window.dispatchEvent(new Event('blur'));
+      expect(m.pointerInside).toBe(false);
+      expect(m.screenPos).toEqual({ x: 123, y: 45 }); // the aim path is untouched
+    });
+  });
+});
