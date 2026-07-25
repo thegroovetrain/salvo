@@ -34,7 +34,7 @@ const DT = CONFIG.tick.simDtMs;
 const SIGHT = CONFIG.vision.sight;
 // One tick's radar paint window width (rad) — a target at bearing δ/2 is painted
 // by the first post-step window [0, δ).
-const SWEEP_DELTA = (TAU * DT) / CONFIG.vision.sweepPeriod;
+const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 
 // The full set of channels the fixture MUST exercise: the 10 GameEvent kinds
 // (Story 2.1 deleted 'heal' from the wire with the REPAIR spend) plus the four

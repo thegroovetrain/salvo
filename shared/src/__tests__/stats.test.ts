@@ -48,7 +48,8 @@ describe('effectiveStats — zero-counts identity (per class)', () => {
       kinematics: { ...cls.kinematics },
       maxHp: cls.hp,
       radarRange: CONFIG.vision.radar,
-      sweepPeriodMs: CONFIG.vision.sweepPeriod,
+      sweepRpm: CONFIG.vision.sweepRpm,
+      sweepPeriodMs: 60000 / CONFIG.vision.sweepRpm,
       sightRange: CONFIG.vision.sight,
       gun: { reloadMs: CONFIG.gun.reloadMs, maxAmmo: CONFIG.gun.maxAmmo, rangeU: CONFIG.vision.radar },
       torpedo: { reloadMs: CONFIG.torpedo.reloadMs, maxAmmo: CONFIG.torpedo.maxAmmo, speed: CONFIG.torpedo.speed },
@@ -73,6 +74,12 @@ describe('effectiveStats — zero-counts identity (per class)', () => {
     });
   });
 
+  it('the base radar sweep is 15 rpm = exactly 4000 ms per revolution', () => {
+    const s = effectiveStats(BASE, zeroUpgrades());
+    expect(s.sweepRpm).toBe(15);
+    expect(s.sweepPeriodMs).toBe(4000); // 60000/15 — exact, no float dust
+  });
+
   it('an empty counts array reads as all zeros (defensive)', () => {
     expect(effectiveStats(BASE, [])).toEqual(effectiveStats(BASE, zeroUpgrades()));
   });
@@ -84,10 +91,20 @@ describe('effectiveStats — stacking rules', () => {
     expect(s.radarRange).toBeCloseTo(CONFIG.vision.radar * CONFIG.upgrades.radarRange.mult ** 2, 9);
   });
 
-  it('period multipliers shrink: 3 sweepSpeed stacks = period * 0.85^3', () => {
+  it('sweepSpeed adds rpm: 3 stacks = 15 + 3*3 rpm, period = 60000/rpm', () => {
     const s = effectiveStats(BASE, countsWith('sweepSpeed', 3));
-    expect(s.sweepPeriodMs).toBeCloseTo(CONFIG.vision.sweepPeriod * CONFIG.upgrades.sweepSpeed.periodMult ** 3, 9);
-    expect(s.sweepPeriodMs).toBeLessThan(CONFIG.vision.sweepPeriod);
+    expect(s.sweepRpm).toBe(CONFIG.vision.sweepRpm + CONFIG.upgrades.sweepSpeed.addRpm * 3); // 24
+    expect(s.sweepPeriodMs).toBeCloseTo(60000 / s.sweepRpm, 9); // 2500 ms
+    expect(s.sweepPeriodMs).toBeLessThan(effectiveStats(BASE, zeroUpgrades()).sweepPeriodMs);
+  });
+
+  it('sweepSpeed is CAPPED at maxRpm: 6+ stacks read identical to 5', () => {
+    const capped = effectiveStats(BASE, countsWith('sweepSpeed', 5));
+    expect(capped.sweepRpm).toBe(CONFIG.upgrades.sweepSpeed.maxRpm); // 15 + 5*3 = 30
+    expect(capped.sweepPeriodMs).toBe(2000);
+    for (const count of [6, 20, 100]) {
+      expect(effectiveStats(BASE, countsWith('sweepSpeed', count))).toEqual(capped);
+    }
   });
 
   it('additive: adds stack linearly and are UNCAPPED', () => {
@@ -231,7 +248,7 @@ describe('effectiveStats — decoyBuoy block is a pure CONFIG.decoyBuoy pass-thr
 const AFFECTED: Record<UpgradeId, string[]> = {
   hullPoints: ['maxHp'],
   radarRange: ['radarRange'],
-  sweepSpeed: ['sweepPeriodMs'],
+  sweepSpeed: ['sweepRpm', 'sweepPeriodMs'], // rpm is tracked, period derived from it
   sightRange: ['sightRange'],
   maxSpeed: ['kinematics.maxSpeed', 'kinematics.reverseSpeed'], // by design (accel/turn untouched)
   gunReload: ['gun.reloadMs'],
@@ -253,9 +270,10 @@ describe('effectiveStats — each id moves exactly its stat(s), nothing else', (
     expect([...upgraded.keys()]).toEqual([...identity.keys()]); // same shape
     const changed = [...upgraded.keys()].filter((k) => upgraded.get(k) !== identity.get(k));
     expect(changed.sort()).toEqual([...AFFECTED[id]].sort());
-    // Direction sanity: reload/period multipliers shrink, everything else grows.
-    const shrinking = id === 'sweepSpeed' || id.endsWith('Reload');
+    // Direction sanity per FIELD: periods/reloads shrink (faster), the rest
+    // grows — sweepSpeed moves both (rpm up, its derived period down).
     for (const k of changed) {
+      const shrinking = k === 'sweepPeriodMs' || k.endsWith('reloadMs');
       if (shrinking) expect(upgraded.get(k)!).toBeLessThan(identity.get(k)!);
       else expect(upgraded.get(k)!).toBeGreaterThan(identity.get(k)!);
     }

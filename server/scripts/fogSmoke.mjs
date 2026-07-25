@@ -6,7 +6,7 @@
 // Phases:
 //   0 FAR    — fresh spawns (dist > radar): NO contacts, NO blips.
 //   1 BAND   — A parks in the radar annulus (sight < dist ≤ radar, LOS clear):
-//              still no contacts, but blip events ≈ once per sweepPeriod each
+//              still no contacts, but blip events ≈ once per sweep revolution each
 //              way, with stale-by-design positions (≈ target pos at paint t).
 //   2 SHELL  — A fires on B from beyond sight: A (owner) gets its shell event
 //              at launch; B gets the SAME shell id only once it enters B's
@@ -29,7 +29,7 @@ import { CONFIG, PROTOCOL_VERSION, generateMap, bearing, angleDiff, segCircleHit
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
-const PERIOD = CONFIG.vision.sweepPeriod;
+const PERIOD = 60000 / CONFIG.vision.sweepRpm; // ms per base radar revolution
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);

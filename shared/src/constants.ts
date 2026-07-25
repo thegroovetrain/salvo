@@ -131,7 +131,7 @@ export const CONFIG = {
   vision: {
     sight: SIGHT, // u — true-sight bubble (actual ships visible; Eric ruling 2026-07-23, was 220)
     radar: 650, // u — radar sweep range (paints stale blips)
-    sweepPeriod: 4000, // ms — one full radar revolution
+    sweepRpm: 15, // rev/min — radar rotation rate (15 rpm = one 4 s revolution); keep ≤ upgrades.sweepSpeed.maxRpm — the effectiveStats clamp caps the TOTAL
   },
 
   /**
@@ -306,14 +306,14 @@ export const CONFIG = {
   /**
    * Kill-reward upgrade increments (one uniformly-random grant per kill; see
    * UPGRADE_IDS below for the canonical id order). Multiplicative entries stack
-   * as base * mult^count; additive entries stack linearly. UNCAPPED by design —
-   * per-stat caps are one CONFIG value away if snowballing breaks playtests.
-   * Every number is a tunable.
+   * as base * mult^count; additive entries stack linearly. Uncapped unless the
+   * entry carries its own ceiling (sweepSpeed is the only capped stat today —
+   * the clamp lives in effectiveStats). Every number is a tunable.
    */
   upgrades: {
     hullPoints: { add: 20, healOnGrant: true }, // +hp max hp per stack; the grant also heals +add (clamped)
     radarRange: { mult: 1.15 }, // × radar sweep range (u) per stack
-    sweepSpeed: { periodMult: 0.85 }, // × sweep period (ms) per stack — smaller = faster revolutions
+    sweepSpeed: { addRpm: 3, maxRpm: 30 }, // +rpm of radar rotation per stack, hard-capped at maxRpm
     sightRange: { mult: 1.12 }, // × true-sight bubble (u) per stack (the fog hole)
     maxSpeed: { mult: 1.08 }, // × maxSpeed AND reverseSpeed (u/s); accel/turn untouched
     gunReload: { mult: 0.88 }, // × gun reload (ms) per stack — smaller = faster
