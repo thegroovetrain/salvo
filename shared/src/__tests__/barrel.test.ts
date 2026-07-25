@@ -105,7 +105,7 @@ describe('shared barrel', () => {
     });
     expect(CONFIG.cannon).toEqual({
       arc: 'full', // Story 1.10: ratified 360° declaration (sim/arcs.ts)
-      shellSpeed: 300, // standardized gun-family muzzle velocity (Eric ruling 2026-07-25)
+      shellSpeed: 500, // standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500)
       maxAmmo: 1,
       reloadMs: 15000,
       damage: 50,
@@ -115,7 +115,7 @@ describe('shared barrel', () => {
     });
     expect(CONFIG.starShells).toEqual({
       arc: 'full', // Story 1.10: ratified 360° declaration (sim/arcs.ts)
-      shellSpeed: 300, // standardized gun-family muzzle velocity (Eric ruling 2026-07-25)
+      shellSpeed: 500, // standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500)
       maxAmmo: 1,
       reloadMs: 20000,
       damage: 10,

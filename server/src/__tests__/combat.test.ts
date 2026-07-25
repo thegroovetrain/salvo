@@ -270,7 +270,7 @@ describe('World combat — burst at the clicked point', () => {
     // spawn the shell PAST the target flying outward → splash, never bursting —
     // a ~64u inner dead zone. The shell now spawns AT the click, so the next
     // tick bursts there (independent of muzzle velocity, standardized at
-    // 300 u/s for the whole gun family — Eric ruling 2026-07-25).
+    // 500 u/s for the whole gun family — Eric ruling 2026-07-25).
     const { w, a } = armed(1, 'battleship');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B'); // hull ~10u from the click at (40,0)

@@ -150,7 +150,7 @@ export const CONFIG = {
    */
   gun: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
-    shellSpeed: 300, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25)
+    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     maxAmmo: 1, // single shot — pinned to 1 in effectiveStats (gunAmmo neutralized)
     reloadMs: 3000, // ms — cooldown between shots
     damage: 25, // hp per burst victim — THE gun-damage tunable (pinned by damageGuardrail.test)
@@ -246,7 +246,7 @@ export const CONFIG = {
    */
   cannon: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
-    shellSpeed: 300, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25)
+    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     maxAmmo: 1, // single shot — a 1-round pool presented as a pure cooldown
     reloadMs: 15000, // ms — cooldown between shots (the commitment spike)
     damage: 50, // hp per burst victim (pinned by damageGuardrail.test)
@@ -269,7 +269,7 @@ export const CONFIG = {
    */
   starShells: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
-    shellSpeed: 300, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25)
+    shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between flares
     damage: 10, // hp per burst victim — minor, once, at burst (full lit circle)
