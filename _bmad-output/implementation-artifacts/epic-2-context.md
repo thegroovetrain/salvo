@@ -92,3 +92,19 @@ From `epic-2-context-amendments.md` (2026-07-25, Eric, Story 2.2 pre-implementat
 11. Hotbar slots are clickable, key-equivalent (weapon click primes / re-click reverts to gun; ability click activates; gun click selects gun); clicks over the hotbar never fire the gun.
 12. The own-vitals interim move (telegraph/rudder/HDG/KTS to bottom-right, current style) lands in Story 2.2; Story 2.4 restyles in place.
 13. Quick-info: weapons `DMG n · CD ns`, abilities `CD ns`; tooltip names/descriptions are draft placeholder copy, canon later.
+
+From `epic-2-context-amendments.md` (2026-07-26, Eric, Story 2.3 invocation):
+
+14. The legibility complaint (main-page + hotbar text VERY SMALL; grey text borderline invisible) is ratified Story 2.3 scope — mandatory work, not polish.
+
+From `epic-2-context-amendments.md` (2026-07-26, Eric, Story 2.3 pre-implementation questions):
+
+15. Micro-type lift = the HUD-match ~1.6× treatment: 9→14, 10→16, 11→17, 12→18, 13→20 px; `hudMicro`/`label` ramp registers move with it (DESIGN.md 9px hud-micro pin superseded; doc-sync separately).
+16. Hotbar de-grey: phosphor data (key chips, quick-info, countdown) + white names; cooling/empty dim the same colors (~0.7 alpha) — grey text dies.
+17. Scope = ALL surfaces shipping micro/grey text (home, class bay, hotbar, results headers, kill feed, upgrade cards, banners, nameplates); grey retired for load-bearing text everywhere.
+18. CVD assist palette (8-family regroup + blip outline + decayed-blip opacity floor) is implementer-drafted, draft-copy rule; acceptance = deuteranopia-distinguishable at blip scale.
+19. ABANDON MATCH (danger-styled, confirm-gated, live-match-only → return to port) and RESET SETTINGS both ship in the 2.3 settings overlay.
+20. "Standard Gun" → "Deck Gun" in all player-facing copy.
+21. ESC toggles the settings overlay open/closed in-game (no other surface open); refit modal ESC closes refit. (Results-ESC clause superseded by 22.)
+22. ESC never returns to port. Elimination immediately opens the results modal (SPECTATE closes it → spectate, live-match only; RETURN TO PORT leaves) replacing silent auto-spectate; leaving = modal's RETURN TO PORT or settings' ABANDON MATCH; game-end modal keeps RETURN TO PORT, Enter still confirms. (Settings-over-results clause superseded by 23.)
+23. ESC is strictly topmost-close: it closes the topmost open surface (refit, results, settings); only when nothing is open does it toggle settings — settings never stacks over anything. ESC on the elimination modal = SPECTATE. Results modal content = personal score: upgrades acquired, kill count, list of contestant-controlled ships personally sunk, elimination placement — or a winner indication (never eliminated / first).
