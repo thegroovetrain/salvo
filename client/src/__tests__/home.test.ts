@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   deploySubline,
+  homeYieldStyle,
   serverStatusLine,
   showHome,
 } from '../ui/home.js';
@@ -193,6 +194,49 @@ describe('showHome — the settings gear (Story 2.3: the inert note is gone)', (
     nameInput().focus();
     press('Escape');
     expect(onSettings).not.toHaveBeenCalled();
+  });
+
+  // --- REGRESSION (Story 2.3 review gate): the home must YIELD --------------
+  // The ratified z register puts the settings overlay (1050) UNDER this
+  // fullscreen home (1100), which hit-tests every pixel — so from the gear the
+  // panel was both obscured AND unclickable (every click landed on the home).
+
+  it('homeYieldStyle: hidden + inert while settings is open, restored when it closes', () => {
+    expect(homeYieldStyle(true)).toEqual({ visibility: 'hidden', pointerEvents: 'none' });
+    expect(homeYieldStyle(false)).toEqual({ visibility: 'visible', pointerEvents: 'auto' });
+  });
+
+  it('setYielded takes the whole home surface out of hit-testing, and puts it back', () => {
+    const handle = showHome('0.0.0-test', vi.fn(), vi.fn());
+    handle.setYielded(true);
+    expect(home().style.visibility).toBe('hidden');
+    expect(home().style.pointerEvents).toBe('none');
+    handle.setYielded(false);
+    expect(home().style.visibility).toBe('visible');
+    expect(home().style.pointerEvents).toBe('auto');
+  });
+
+  it('reverse stacking holds: PLAY and the class chip are unreachable while yielded', () => {
+    const onDeploy = vi.fn();
+    const handle = showHome('0.0.0-test', onDeploy, vi.fn());
+    handle.setYielded(true);
+    // `pointer-events: none` is what makes this true in a real browser; the
+    // style IS the contract (jsdom dispatches clicks regardless of hit-testing).
+    expect(home().style.pointerEvents).toBe('none');
+    expect(home().style.visibility).toBe('hidden');
+    expect(onDeploy).not.toHaveBeenCalled();
+  });
+
+  it('a focused VOLUME SLIDER does not swallow home ESC (only text fields do)', () => {
+    const onSettings = vi.fn();
+    showHome('0.0.0-test', vi.fn(), onSettings);
+    const range = document.createElement('input');
+    range.type = 'range';
+    document.body.appendChild(range);
+    range.focus();
+    press('Escape');
+    expect(onSettings).toHaveBeenCalledTimes(1);
+    range.remove();
   });
 
   it('HOW TO PLAY still shows the field-manual note (out of 2.3 scope)', () => {

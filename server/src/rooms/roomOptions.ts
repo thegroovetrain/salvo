@@ -159,22 +159,36 @@ export function sanitizeColorPref(v: unknown): number | undefined {
 }
 
 /**
+ * Unicode category C — control (Cc), format (Cf, which includes the zero-width
+ * joiner/non-joiner AND the bidi overrides U+202A–202E / U+2066–2069),
+ * surrogate (Cs), private-use (Co) and unassigned (Cn) code points. NONE of
+ * these are legitimate callsign characters, and every one of them is an
+ * identity-spoofing tool: a zero-width-only name renders as a BLANK captain on
+ * every plate/feed/results row, and a bidi override mangles the display order
+ * of everything painted after it. Stripped outright (see sanitizeName).
+ */
+const CONTROL_OR_FORMAT = /\p{C}/gu;
+
+/**
  * Sanitize a client-supplied callsign (Story 2.3 — deferred-work 127/130).
  * `options.name` arrives verbatim from joinOrCreate, so it is neither a string
- * nor bounded until it passes through here:
+ * nor bounded nor renderable until it passes through here:
  *   • anything that is not a string (a number, an object, absent) → undefined,
  *     which the caller resolves to the `CAPTAIN-n` fallback. The old
  *     `options.name?.trim()` would THROW on a non-string.
- *   • otherwise: trimmed, then capped at NAME_MAX CODE POINTS — the same cap
- *     the client's entry field enforces — using Array.from so a surrogate pair
- *     or a combining sequence is never split mid-character. An all-whitespace
- *     name trims to '' and falls back too.
+ *   • otherwise: every control/format code point is STRIPPED FIRST (see
+ *     CONTROL_OR_FORMAT — a zero-width or bidi-override callsign would
+ *     otherwise survive trim+cap and spoof a blank or mangled identity), then
+ *     trimmed, then capped at NAME_MAX CODE POINTS — the same cap the client's
+ *     entry field enforces — using Array.from so a surrogate pair or a
+ *     combining sequence is never split mid-character. A name that is empty,
+ *     all-whitespace, or all-invisible after the strip falls back too.
  * Pure + unit-tested; NEVER dev-gated (a plain join option like `cls`). Mirrors
  * sanitizeClassId / sanitizeColorPref: fail to the safe default, never throw.
  */
 export function sanitizeName(v: unknown): string | undefined {
   if (typeof v !== 'string') return undefined;
-  const trimmed = v.trim();
+  const trimmed = v.replace(CONTROL_OR_FORMAT, '').trim();
   if (trimmed === '') return undefined;
   return Array.from(trimmed).slice(0, NAME_MAX).join('');
 }

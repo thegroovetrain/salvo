@@ -144,4 +144,36 @@ describe('sanitizeName — options.name is client-supplied and untrusted', () =>
   it('leaves a name already inside the cap byte-identical', () => {
     expect(sanitizeName('CAPTAIN-9')).toBe('CAPTAIN-9');
   });
+
+  // --- REGRESSION (Story 2.3 review gate): identity spoofing ----------------
+  // Control/format code points survived trim + cap, so a callsign could render
+  // as a BLANK captain on every plate/feed/results row, or reverse the display
+  // order of everything painted after it.
+
+  it('a ZERO-WIDTH-ONLY callsign falls back to CAPTAIN-n, never a blank identity', () => {
+    expect(sanitizeName('\u200b\u200b\u200b')).toBeUndefined(); // ZWSP
+    expect(sanitizeName('\u200d\u2060\ufeff')).toBeUndefined(); // ZWJ / word-joiner / BOM
+    expect(sanitizeName('\u200b   \u200b')).toBeUndefined(); // invisibles + whitespace
+  });
+
+  it('strips an embedded BIDI OVERRIDE instead of letting it mangle the roster', () => {
+    expect(sanitizeName('AB\u202eCD')).toBe('ABCD'); // RIGHT-TO-LEFT OVERRIDE
+    expect(sanitizeName('\u2066HORNET\u2069')).toBe('HORNET'); // isolates
+  });
+
+  it('strips control characters (a newline must never reach a rendered plate)', () => {
+    expect(sanitizeName('OLD\nSALT')).toBe('OLDSALT');
+    expect(sanitizeName('OLD\u0000SALT')).toBe('OLDSALT');
+    expect(sanitizeName('\u0007')).toBeUndefined();
+  });
+
+  it('strips BEFORE the cap, so invisibles can never eat visible characters', () => {
+    expect(sanitizeName('\u200b'.repeat(20) + 'HORNET')).toBe('HORNET');
+    expect(sanitizeName('\u200b'.repeat(20) + 'X'.repeat(40))).toHaveLength(NAME_MAX);
+  });
+
+  it('leaves ordinary names — including emoji — untouched', () => {
+    expect(sanitizeName('SALTY DOG')).toBe('SALTY DOG');
+    expect(sanitizeName('🚢 AHOY')).toBe('🚢 AHOY'); // a paired surrogate is one code point
+  });
 });

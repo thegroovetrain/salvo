@@ -17,6 +17,8 @@ import {
   hueRevision,
   setColorblindAssist,
 } from '../render/ships.js';
+import { relatchForHueSwap } from '../render/contacts.js';
+import { retryHue } from '../render/hueLatch.js';
 
 const C = CLIENT_CONFIG.colors;
 const FAMILIES = Object.values(C.cvd);
@@ -136,5 +138,54 @@ describe('blip legibility levers', () => {
 
   it('the assist blip outline is a real stroke width', () => {
     expect(CLIENT_CONFIG.blip.outlineWidthPx).toBeGreaterThan(0);
+  });
+});
+
+// --- REGRESSION (Story 2.3 review gate): the assist must be LIVE --------------
+// Every recolor consumer LATCHES (contact hulls, nameplates, ordnance markers)
+// so it stops probing the roster each frame. Only the own hull re-resolved on a
+// revision bump, so toggling the assist mid-match left every visible contact,
+// plate and mine wearing the OLD hue until it died and re-appeared.
+
+describe('hue-revision propagation to the latched consumers', () => {
+  it('relatchForHueSwap drops the hull-color and plate latches (drones keep theirs)', () => {
+    // A human contact must re-resolve BOTH its hull style and its plate color.
+    expect(relatchForHueSwap(false)).toEqual({ colored: false, plated: false });
+    // A drone wears the greys, which live outside the personal-hue table and
+    // never move — so its hull latch stands and only the plate re-resolves.
+    expect(relatchForHueSwap(true)).toEqual({ colored: true, plated: false });
+  });
+
+  it('retryHue repaints an ALREADY-LATCHED ordnance marker on a revision bump', () => {
+    const painted: number[] = [];
+    const hueFor = (): number => PLAYER_HUES[3];
+    const state = { by: 'someone', colored: false, rev: hueRevision() };
+
+    retryHue(state, hueFor, (c) => painted.push(c));
+    expect(state.colored).toBe(true);
+    expect(painted).toHaveLength(1);
+
+    // Latched: the per-frame probe is a single int compare and does nothing.
+    retryHue(state, hueFor, (c) => painted.push(c));
+    expect(painted).toHaveLength(1);
+
+    // The assist toggle swaps the table under it — it must repaint.
+    const before = colorblindAssist();
+    setColorblindAssist(!before);
+    try {
+      retryHue(state, hueFor, (c) => painted.push(c));
+      expect(painted).toHaveLength(2);
+      expect(painted[1]).toBe(PLAYER_HUES[3]); // the NEW family hue
+      expect(painted[1]).not.toBe(painted[0]);
+      expect(state.rev).toBe(hueRevision());
+    } finally {
+      setColorblindAssist(before);
+    }
+  });
+
+  it('an unresolved marker keeps probing across a revision bump', () => {
+    const state = { by: 'ghost', colored: false, rev: hueRevision() };
+    retryHue(state, () => null, () => expect.unreachable('nothing to paint'));
+    expect(state.colored).toBe(false); // still amber, still retrying
   });
 });

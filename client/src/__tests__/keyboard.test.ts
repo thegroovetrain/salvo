@@ -549,7 +549,7 @@ describe('KeyboardInput — the FOCUSED-OVERLAY rule (Story 2.3)', () => {
   it('suppresses ALL sim keys — helm INCLUDED, unlike the refit modal', () => {
     const { kb: k, log } = overlayKb();
     kb = k;
-    for (const code of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'Tab', 'Digit1', 'KeyX', 'KeyZ', 'KeyM', 'KeyP']) {
+    for (const code of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'Digit1', 'KeyX', 'KeyZ', 'KeyP']) {
       expect(press(code), code).toBe(true); // still preventDefault-ed: focus can't escape
     }
     expect(log).toEqual([]);
@@ -557,12 +557,24 @@ describe('KeyboardInput — the FOCUSED-OVERLAY rule (Story 2.3)', () => {
     expect(k.primedSlot).toBe(SLOT_GUN);
   });
 
-  it('still routes ESC and ENTER — the two keys that dismiss the surface', () => {
+  it('leaves TAB NATIVE so keyboard focus can reach the overlay controls', () => {
+    const { kb: k, log } = overlayKb();
+    kb = k;
+    // NOT prevented: TAB must traverse focus into the overlay's own buttons.
+    expect(press('Tab')).toBe(false);
+    expect(press('Tab', { shiftKey: true })).toBe(false);
+    expect(log).toEqual([]); // and it certainly must not toggle the refit modal
+  });
+
+  it('still routes ESC, ENTER and M — dismiss, confirm, and the audio meta-action', () => {
     const { kb: k, log } = overlayKb();
     kb = k;
     press('Escape');
     press('Enter');
-    expect(log).toEqual(['esc', 'enter']);
+    // M is advertised BY the overlay ("MUTE (M)") and mirrored in its own row —
+    // swallowing it would make the overlay lie about its own binding.
+    expect(press('KeyM')).toBe(true);
+    expect(log).toEqual(['esc', 'enter', 'mute']);
   });
 
   it('with the overlay CLOSED the same keys work exactly as before', () => {
@@ -698,6 +710,77 @@ describe('KeyboardInput — chokepoint hygiene', () => {
     expect(press('Space')).toBe(false);
     expect(press('KeyQ')).toBe(false);
     expect(kb.primedSlot).toBe(SLOT_GUN);
+  });
+
+  // --- REGRESSION (Story 2.3 review gate): a focused VOLUME SLIDER ------------
+  // The overlay's range inputs are <input>s but not text fields. Treating them
+  // as text entry made ESC/Enter dead for as long as one held focus — and, since
+  // ranges never blurred, that was forever once you touched a volume.
+
+  it('a focused RANGE slider still routes ESC / Enter / M, and leaves the rest native', () => {
+    const log: string[] = [];
+    kb = new KeyboardInput({
+      isOverlayFocused: () => true,
+      onEscape: () => log.push('esc'),
+      onConfirm: () => log.push('enter'),
+      onMute: () => log.push('mute'),
+      onDetent: () => log.push('detent'),
+    });
+    kb.attach();
+    const range = document.createElement('input');
+    range.type = 'range';
+    document.body.appendChild(range);
+    range.focus();
+    expect(textEntryFocused()).toBe(false); // NOT a text field
+
+    // The overlay's dismiss/confirm keys still reach the app...
+    expect(press('Escape')).toBe(true);
+    expect(press('Enter')).toBe(true);
+    expect(press('KeyM')).toBe(true);
+    expect(log).toEqual(['esc', 'enter', 'mute']);
+
+    // ...while the ARROWS stay NATIVE so the slider can still be nudged (they
+    // are the rudder binding, and preventDefault-ing them froze the control).
+    for (const code of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'KeyW']) {
+      expect(press(code), code).toBe(false);
+    }
+    expect(log).toEqual(['esc', 'enter', 'mute']); // and steer nothing
+    expect(kb.throttle).toBe(0);
+    range.remove();
+  });
+
+  it('a focused overlay leaves TAB native (focus can reach the overlay controls)', () => {
+    const log: string[] = [];
+    kb = new KeyboardInput({ isOverlayFocused: () => true, onRefitToggle: () => log.push('refit') });
+    kb.attach();
+    expect(press('Tab')).toBe(false);
+    expect(log).toEqual([]);
+    // With no overlay up, TAB is the refit toggle and IS prevented as ever.
+    const other = new KeyboardInput({ isOverlayFocused: () => false, onRefitToggle: () => log.push('refit') });
+    kb.detach();
+    kb = other;
+    other.attach();
+    expect(press('Tab')).toBe(true);
+    expect(log).toEqual(['refit']);
+  });
+
+  it('the HELM reads dead while a focused overlay is up, even with a rudder key HELD', () => {
+    // The suppression is keydown-only and axes() reads the LATCHED key set, so a
+    // rudder key held when the overlay opened kept steering the never-paused ship.
+    let overlay = false;
+    kb = new KeyboardInput({ isOverlayFocused: () => overlay });
+    kb.attach();
+    press('KeyD');
+    expect(kb.axes().rudder).toBe(1);
+    press('KeyW'); // an engine order, set before the overlay opened
+    expect(kb.axes().throttle).toBe(0.25);
+    overlay = true;
+    expect(kb.axes().rudder).toBe(0);
+    expect(kb.axes().throttle).toBe(0.25); // the ORDER survives — it is not a held key
+    // clearKeys (what main.ts calls on the open edge) makes it stick.
+    kb.clearKeys();
+    overlay = false;
+    expect(kb.axes().rudder).toBe(0);
   });
 
   it('textEntryFocused: false for body focus, true for textarea/select', () => {

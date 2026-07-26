@@ -132,6 +132,25 @@ export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces):
   return !Object.entries(open).some(([k, v]) => v && k !== surface);
 }
 
+/**
+ * Pure: may ABANDON MATCH be offered right now? Amendment 19 renders it "only
+ * while in a live match", and the previous predicate (`joined && !returning`)
+ * was true in states where the button is meaningless or actively wrong:
+ *   • `finished` / matchOver — the match is over and the results modal's RETURN
+ *     TO PORT is the one way home; a second, `danger`-styled leave button next
+ *     to it just invites a mis-click into an identical outcome;
+ *   • `returning` — the leave is already in flight.
+ *
+ * `waiting` and `countdown` DO keep it, deliberately: the weapons-safe ready
+ * room is where a solo captain can sit indefinitely (the countdown needs two
+ * humans), and the spec's leaving law is "the modal's RETURN TO PORT or
+ * settings' ABANDON MATCH — never ESC, never a page refresh". Hiding it there
+ * would leave a ready-room captain with no sanctioned way back to port at all.
+ */
+export function canAbandon(phase: string, matchOver: boolean, returning: boolean): boolean {
+  return !returning && !matchOver && phase !== 'finished';
+}
+
 /** The two confirm-gated danger actions (amendment 19). */
 export type DangerAction = 'abandon' | 'reset';
 
@@ -281,7 +300,20 @@ function makeChoiceRow<T>(
   return row;
 }
 
-/** A 0–100 slider row with a live numeric readout. */
+/**
+ * A 0–100 slider row with a live numeric readout.
+ *
+ * The row updates ITSELF on `input` — readout text only — and the caller writes
+ * through to the store WITHOUT repainting the panel. Rebuilding the panel on
+ * every input event (the old behavior) destroyed the very `<input>` the pointer
+ * was dragging, so a drag moved the value one step and then died; the same
+ * rebuild stole focus back from a keyboard user between arrow presses.
+ *
+ * `pointerup` blurs the slider — the same focus hygiene the buttons have — so a
+ * mouse user doesn't leave a focused control behind. Keyboard focus is
+ * deliberately LEFT alone (arrows must keep nudging); the chokepoint's
+ * range-input fallthrough is what keeps ESC alive in that state.
+ */
 function makeSliderRow(label: string, value: number, onInput: (v: number) => void): HTMLElement {
   const row = document.createElement('div');
   row.style.cssText = ROW_CSS;
@@ -300,6 +332,7 @@ function makeSliderRow(label: string, value: number, onInput: (v: number) => voi
     readout.textContent = String(v);
     onInput(v);
   });
+  input.addEventListener('pointerup', () => input.blur());
   row.append(makeLabel(label), input, readout);
   return row;
 }
@@ -340,6 +373,13 @@ export interface SettingsOverlayDeps {
   onAbandon: () => void;
   /** Current viewport width (drives the 125% UI-scale gate). */
   viewportWidth: () => number;
+  /**
+   * Fired on EVERY open/close, however it was triggered (gear, ESC, the CLOSE
+   * button, abandon). The home chrome subscribes so it can yield while the
+   * overlay is up — the ratified z register puts this overlay UNDER the home
+   * (1050 < 1100), so without the yield the home swallows every click.
+   */
+  onVisibility?: (visible: boolean) => void;
 }
 
 /**
@@ -355,6 +395,14 @@ export class SettingsOverlay {
   private shown = false;
   private armed: DangerAction | null = null;
   private unsubscribe: (() => void) | null = null;
+  /**
+   * True while THIS overlay is the one writing to the store. The store's own
+   * subscription repaints the panel so an external writer (the M key) is
+   * reflected live — but a repaint triggered by our own slider drag would
+   * destroy the `<input>` under the pointer, so our writes suppress it and the
+   * writer decides whether a repaint is warranted.
+   */
+  private writing = false;
 
   constructor(private readonly deps: SettingsOverlayDeps) {}
 
@@ -371,8 +419,13 @@ export class SettingsOverlay {
     // Live-refresh while open: an M-key mute (or any other writer) must be
     // reflected in the overlay's own controls — one persisted value, one truth.
     this.unsubscribe ??= this.deps.store.subscribe(() => {
-      if (this.shown) this.render();
+      if (this.shown && !this.writing) this.render();
     });
+    // The 125% tier's gate is a VIEWPORT predicate: a window resized while the
+    // overlay is open must re-evaluate it, or the row keeps advertising a stale
+    // enabled/disabled state and note.
+    window.addEventListener('resize', this.onResize);
+    this.deps.onVisibility?.(true);
   }
 
   close(): void {
@@ -382,6 +435,26 @@ export class SettingsOverlay {
     if (this.overlay) this.overlay.style.display = 'none';
     this.unsubscribe?.();
     this.unsubscribe = null;
+    window.removeEventListener('resize', this.onResize);
+    this.deps.onVisibility?.(false);
+  }
+
+  /** Re-evaluate the viewport-dependent rows (the 125% gate) on a live resize. */
+  private readonly onResize = (): void => {
+    if (this.shown) this.render();
+  };
+
+  /**
+   * ENTER while this overlay is the topmost surface: fire the ARMED danger
+   * action, if any. Amendment 19 rules the confirm as "second click OR Enter",
+   * and the danger buttons never keep focus, so the key has to route through the
+   * chokepoint's confirm hook rather than a native button activation. Returns
+   * true when it consumed the key.
+   */
+  confirmArmed(): boolean {
+    if (this.armed === null) return false;
+    this.press(this.armed); // armed === pressed ⇒ nextArmed fires it
+    return true;
   }
 
   toggle(): void {
@@ -421,8 +494,10 @@ export class SettingsOverlay {
       makeSection('DISPLAY', this.makeScaleRow(s), makeToggleRow('COLORBLIND ASSIST', s.colorblind, (v) => this.set({ colorblind: v }))),
       makeSection(
         'AUDIO',
-        makeSliderRow('MASTER VOLUME', s.masterVolume, (v) => this.set({ masterVolume: v })),
-        makeSliderRow('EFFECTS VOLUME', s.effectsVolume, (v) => this.set({ effectsVolume: v })),
+        // Sliders write through WITHOUT a repaint (they own their readout) —
+        // rebuilding mid-drag would destroy the input under the pointer.
+        makeSliderRow('MASTER VOLUME', s.masterVolume, (v) => this.set({ masterVolume: v }, false)),
+        makeSliderRow('EFFECTS VOLUME', s.effectsVolume, (v) => this.set({ effectsVolume: v }, false)),
         makeToggleRow('MONO AUDIO', s.monoAudio, (v) => this.set({ monoAudio: v })),
         makeToggleRow('MUTE (M)', s.muted, (v) => this.set({ muted: v })),
       ),
@@ -466,20 +541,38 @@ export class SettingsOverlay {
       return;
     }
     if (action === 'reset') {
-      this.deps.store.reset();
-      this.render(); // subscribe() also fires, but reset must repaint even if nothing changed
+      this.writing = true; // own the repaint (the subscription would double it)
+      try {
+        this.deps.store.reset();
+      } finally {
+        this.writing = false;
+      }
+      this.render(); // reset must repaint even if nothing actually changed
       return;
     }
     this.close();
     this.deps.onAbandon();
   }
 
-  /** A control changed: write through the store (persisted + live) and repaint
-   *  so the segmented selection follows. Any armed danger action disarms — the
-   *  player's attention moved. */
-  private set(patch: Partial<Settings>): void {
+  /**
+   * A control changed: write through the store (persisted + live) and repaint so
+   * the segmented selection follows. Any armed danger action disarms — the
+   * player's attention moved — and that alone forces a repaint even for a
+   * `repaint: false` writer, since the confirm label must stop lying.
+   *
+   * `repaint = false` is the SLIDER path: it has already updated its own
+   * readout, nothing else on the panel depends on a volume, and rebuilding would
+   * destroy the control being dragged (or steal focus between arrow presses).
+   */
+  private set(patch: Partial<Settings>, repaint = true): void {
+    const wasArmed = this.armed !== null;
     this.armed = null;
-    this.deps.store.set(patch);
-    this.render();
+    this.writing = true;
+    try {
+      this.deps.store.set(patch);
+    } finally {
+      this.writing = false;
+    }
+    if (repaint || wasArmed) this.render();
   }
 }

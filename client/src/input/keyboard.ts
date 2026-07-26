@@ -77,9 +77,15 @@ export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit4: 3, Numpad4: 3,
 };
 
-/** The only keys that still act while a focused overlay is up (Story 2.3): the
- *  two that dismiss the topmost surface. Everything else is swallowed. */
-const OVERLAY_KEYS = new Set(['Escape', 'Enter', 'NumpadEnter']);
+/**
+ * The only keys that still act while a focused overlay is up (Story 2.3): the
+ * two that dismiss/confirm the topmost surface, plus M. M is an AUDIO
+ * META-ACTION, not sim input — the overlay itself advertises "MUTE (M)" in its
+ * own control list and mirrors the toggle live through the store subscription,
+ * so swallowing it would make the overlay lie about its own binding.
+ * Everything else is swallowed.
+ */
+const OVERLAY_KEYS = new Set(['Escape', 'Enter', 'NumpadEnter', 'KeyM']);
 
 function anyHeld(keys: Set<string>, codes: string[]): boolean {
   return codes.some((c) => keys.has(c));
@@ -133,15 +139,43 @@ export function nextPrimedSlot(current: number, keySlot: number): number {
 }
 
 /**
+ * Pure: is this element a RANGE SLIDER (the settings overlay's volume controls)?
+ * A range is an `<input>` but NOT a text field: it types nothing, so it must
+ * never trip the text-entry suppression that would kill the ESC closing the
+ * overlay it lives in. It gets its own, narrower rule — see onDown.
+ */
+export function rangeElement(el: Element | null): boolean {
+  return el !== null && el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'range';
+}
+
+/**
+ * Pure: is this element a TEXT-entry field? Used by the pre-join surfaces
+ * (ui/home.ts) as well as the chokepoint, so a player mid-callsign isn't yanked
+ * into a modal — while a focused volume slider still lets ESC through.
+ */
+export function textFieldElement(el: Element | null): boolean {
+  if (el === null) return false;
+  if (el instanceof HTMLElement && el.isContentEditable) return true;
+  if (rangeElement(el)) return false;
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+}
+
+/**
  * Pure: is the currently-focused element a text-entry surface or DOM button?
  * While one owns focus the chokepoint suppresses ALL sim keys (no handling,
  * no preventDefault — typing "wasd" in the callsign field must steer nothing
  * and still type). The sim itself never pauses.
+ *
+ * A focused RANGE slider is deliberately NOT one of these: it would otherwise
+ * swallow ESC/Enter for as long as a volume slider held focus (which, before
+ * the sliders learned to blur, was forever — the overlay became unclosable by
+ * keyboard the moment you touched a volume).
  */
 export function textEntryFocused(doc: Document = document): boolean {
   const el = doc.activeElement;
   if (!(el instanceof HTMLElement)) return false;
   if (el.isContentEditable) return true;
+  if (rangeElement(el)) return false;
   const tag = el.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON';
 }
@@ -280,8 +314,7 @@ export class KeyboardInput {
    * the canvas) but takes no action.
    */
   private readonly onDown = (e: KeyboardEvent): void => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (textEntryFocused()) return;
+    if (this.nativeKey(e)) return;
     if (e.shiftKey && e.code === 'Tab') {
       e.preventDefault();
       return;
@@ -294,9 +327,28 @@ export class KeyboardInput {
   };
 
   /**
+   * Leave this keydown ENTIRELY NATIVE — no handling, no preventDefault:
+   *  • a modifier chord (CTRL/META/ALT are unbound; browser shortcuts must work);
+   *  • a focused text field (typing "wasd" must type, and steer nothing);
+   *  • a focused VOLUME SLIDER taking anything but a surface key — the arrows
+   *    above all, which must keep nudging the slider instead of being eaten as
+   *    rudder input (ESC/Enter/M still route, so the overlay stays closable);
+   *  • TAB while a FOCUSED OVERLAY owns the screen — native focus traversal is
+   *    the only way a keyboard user reaches the overlay's own controls, and
+   *    there is no refit modal to toggle behind it anyway.
+   */
+  private nativeKey(e: KeyboardEvent): boolean {
+    if (e.ctrlKey || e.metaKey || e.altKey) return true;
+    if (textEntryFocused()) return true;
+    if (rangeElement(document.activeElement)) return !OVERLAY_KEYS.has(e.code);
+    return e.code === 'Tab' && this.hooks.isOverlayFocused?.() === true;
+  }
+
+  /**
    * Focused-overlay rule (Story 2.3): with the settings overlay or the results
-   * modal up, every BOUND key is swallowed except the two that dismiss the
-   * surface (ESC / Enter). The key is still preventDefault-ed by the caller, so
+   * modal up, every BOUND key is swallowed except the ones that dismiss/confirm
+   * the surface (ESC / Enter) or toggle mute (M — an audio meta-action the
+   * overlay itself advertises). The key is still preventDefault-ed by the caller, so
    * focus can never escape the canvas — and the sim keeps running behind it:
    * this suppresses INPUT, not time.
    */
@@ -428,9 +480,22 @@ export class KeyboardInput {
     window.removeEventListener('blur', this.onBlur);
   }
 
-  /** Driving axes: telegraph throttle order + held rudder. */
+  /**
+   * Driving axes: telegraph throttle order + held rudder.
+   *
+   * While a FOCUSED OVERLAY owns the input the rudder reads DEAD, whatever is
+   * still latched in `keys`. The overlay suppression is keydown-only and this
+   * reads the latched set, so a rudder key held at the moment the overlay opened
+   * would otherwise keep steering the (deliberately never-paused) ship for as
+   * long as the player kept holding it — the committed AC's "ALL sim keys
+   * suppressed, helm included". main.ts also clears the held set on the open
+   * edge; this is the invariant that holds even if a future open site forgets.
+   * The THROTTLE is untouched: the telegraph is a set-and-forget ORDER, not a
+   * held key, and an engine order must survive a settings visit.
+   */
   axes(): Axes {
-    return { throttle: this.telegraph.throttle, rudder: rudderFrom(this.keys) };
+    const suppressed = this.hooks.isOverlayFocused?.() === true;
+    return { throttle: this.telegraph.throttle, rudder: suppressed ? 0 : rudderFrom(this.keys) };
   }
 
   /** Spectator free-pan axes: held WASD (throttle = live held W/S, not the order). */

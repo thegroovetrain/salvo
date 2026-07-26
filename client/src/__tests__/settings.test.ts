@@ -25,9 +25,11 @@ import {
 } from '../settings/store.js';
 import {
   ABANDON_BUTTON_ID,
+  CLOSE_BUTTON_ID,
   RESET_BUTTON_ID,
   SettingsOverlay,
   bindingRows,
+  canAbandon,
   canOpenSurface,
   dangerLabel,
   escapeAction,
@@ -97,11 +99,23 @@ describe('legacy hullcracker-muted migration (read-once fallback)', () => {
     expect(loadSettings().muted).toBe(false);
   });
 
-  it('a corrupt payload falls back to defaults but still honors the legacy mute', () => {
+  it('a corrupt payload falls back to defaults but STILL honors the legacy mute', () => {
     localStorage.setItem(S.legacyMuteKey, '1');
     localStorage.setItem(S.storeKey, '{not json');
-    // The new key EXISTS, so the legacy fallback is not consulted — defaults win.
-    expect(loadSettings()).toEqual(DEFAULT_SETTINGS);
+    // A truncated write told us nothing, exactly like an absent key — so the
+    // legacy flag still has a say. (Consulting it only on ABSENCE let one bad
+    // write silently un-mute a player who had muted pre-2.3.)
+    expect(loadSettings()).toEqual({ ...DEFAULT_SETTINGS, muted: true });
+  });
+
+  it('WRITES the migrated value immediately, so the new key is authoritative from this boot', () => {
+    localStorage.setItem(S.legacyMuteKey, '1');
+    const loaded = loadSettings(); // no saveSettings() by the caller
+    expect(loaded.muted).toBe(true);
+    expect(JSON.parse(localStorage.getItem(S.storeKey) ?? 'null')).toEqual({ ...DEFAULT_SETTINGS, muted: true });
+    // And a later legacy flip can never re-migrate: the new key now exists.
+    localStorage.setItem(S.legacyMuteKey, '0');
+    expect(loadSettings().muted).toBe(true);
   });
 });
 
@@ -305,17 +319,22 @@ describe('SettingsOverlay — DOM shell', () => {
   let store: SettingsStore;
   let inMatch: boolean;
   let abandons: number;
+  let viewportW: number;
+  let visibility: boolean[];
 
   beforeEach(() => {
     localStorage.clear();
     inMatch = false;
     abandons = 0;
+    viewportW = 1920;
+    visibility = [];
     store = new SettingsStore({ ...DEFAULT_SETTINGS });
     overlay = new SettingsOverlay({
       store,
       inMatch: () => inMatch,
       onAbandon: () => (abandons += 1),
-      viewportWidth: () => 1920,
+      viewportWidth: () => viewportW,
+      onVisibility: (v) => visibility.push(v),
     });
   });
   afterEach(() => overlay.destroy());
@@ -396,5 +415,99 @@ describe('SettingsOverlay — DOM shell', () => {
     off?.click();
     expect((document.getElementById(ABANDON_BUTTON_ID) as HTMLButtonElement).textContent).not.toContain('CONFIRM');
     expect(abandons).toBe(0);
+  });
+
+  // --- REGRESSIONS (Story 2.3 review gate) ------------------------------------
+
+  function sliders(): HTMLInputElement[] {
+    return [...document.querySelectorAll<HTMLInputElement>('#hc-settings input[type=range]')];
+  }
+
+  it('a volume drag updates in place — the dragged input SURVIVES every input event', () => {
+    overlay.open();
+    const input = sliders()[0];
+    expect(input).toBeDefined();
+    // A full panel rebuild per input event destroyed the very element the
+    // pointer was dragging, so a drag moved one step and then died.
+    for (const v of ['70', '40', '15']) {
+      input.value = v;
+      input.dispatchEvent(new Event('input'));
+      expect(sliders()[0], `after ${v}`).toBe(input); // same node, still in the DOM
+      expect(document.body.contains(input)).toBe(true);
+    }
+    expect(store.current.masterVolume).toBe(15);
+    expect(loadSettings().masterVolume).toBe(15); // persisted all the same
+    // The readout tracked it without a rebuild.
+    expect(document.getElementById('hc-settings')?.textContent).toContain('15');
+  });
+
+  it('the slider blurs on pointerup (mouse focus hygiene) but never mid-input', () => {
+    overlay.open();
+    const input = sliders()[0];
+    input.focus();
+    input.value = '50';
+    input.dispatchEvent(new Event('input'));
+    expect(document.activeElement).toBe(input); // keyboard arrows keep working
+    input.dispatchEvent(new Event('pointerup'));
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it('re-evaluates the 125% gate on a LIVE resize while open', () => {
+    const tier125 = (): HTMLButtonElement | undefined =>
+      [...document.querySelectorAll<HTMLButtonElement>('#hc-settings button')].find((b) => b.dataset.value === '125');
+    overlay.open();
+    expect(tier125()?.disabled).toBe(false); // 1920px: selectable
+    viewportW = 1400;
+    window.dispatchEvent(new Event('resize'));
+    expect(tier125()?.disabled).toBe(true);
+    expect(document.getElementById('hc-settings')?.textContent).toContain('1600px');
+  });
+
+  it('ENTER fires an ARMED danger action (amendment 19: second click OR Enter)', () => {
+    inMatch = true;
+    overlay.open();
+    expect(overlay.confirmArmed()).toBe(false); // nothing armed: the key is not consumed
+    (document.getElementById(ABANDON_BUTTON_ID) as HTMLButtonElement).click(); // arm
+    expect(abandons).toBe(0);
+    expect(overlay.confirmArmed()).toBe(true);
+    expect(abandons).toBe(1);
+  });
+
+  it('ENTER confirms an armed RESET too, and disarms with it', () => {
+    store.set({ motion: 'off' });
+    overlay.open();
+    (document.getElementById(RESET_BUTTON_ID) as HTMLButtonElement).click(); // arm
+    expect(store.current.motion).toBe('off');
+    expect(overlay.confirmArmed()).toBe(true);
+    expect(store.current).toEqual(DEFAULT_SETTINGS);
+    expect(overlay.confirmArmed()).toBe(false); // no longer armed
+  });
+
+  it('reports EVERY open/close so the home chrome can yield under it', () => {
+    overlay.open();
+    overlay.close();
+    overlay.toggle();
+    expect(visibility).toEqual([true, false, true]);
+    // Including the panel's own CLOSE button — the path that left the home
+    // permanently swallowing clicks when it was the only unreported close.
+    (document.getElementById(CLOSE_BUTTON_ID) as HTMLButtonElement).click();
+    expect(visibility).toEqual([true, false, true, false]);
+  });
+});
+
+describe('canAbandon — where the leave button belongs (amendment 19)', () => {
+  it('offers it while the match can still be abandoned', () => {
+    for (const phase of ['waiting', 'countdown', 'active']) {
+      expect(canAbandon(phase, false, false), phase).toBe(true);
+    }
+  });
+
+  it('drops it once the match is FINISHED — RETURN TO PORT is the one way home', () => {
+    expect(canAbandon('finished', false, false)).toBe(false);
+    expect(canAbandon('active', true, false)).toBe(false); // matchOver latched client-side
+  });
+
+  it('drops it once a leave is already in flight', () => {
+    expect(canAbandon('active', false, true)).toBe(false);
   });
 });

@@ -13,9 +13,11 @@ import {
   placementLine,
   resultsVisible,
   scoreRows,
+  scoreSignature,
   showResults,
   sortRows,
   sunkLines,
+  updateResultsScore,
   winnerBanner,
   type ResultsView,
 } from '../ui/results.js';
@@ -188,5 +190,68 @@ describe('sanitizeName', () => {
     expect(sanitizeName('  SALTY DOG  ')).toBe('SALTY DOG');
     expect(sanitizeName('X'.repeat(40))).toHaveLength(NAME_MAX);
     expect(sanitizeName('   ')).toBe('');
+  });
+
+  // REGRESSION (Story 2.3 review gate): the client entry sanitizer must strip
+  // exactly what the server strips, or what you type is not what anyone sees.
+  it('strips control / format code points before trimming and capping', () => {
+    expect(sanitizeName('\u200b\u200b\u200b')).toBe(''); // zero-width only ⇒ server assigns
+    expect(sanitizeName('AB\u202eCD')).toBe('ABCD'); // bidi override removed
+    expect(sanitizeName('OLD\u0000SALT')).toBe('OLDSALT');
+    // The strip runs BEFORE the cap, so invisibles can't eat visible characters.
+    expect(sanitizeName('\u200b'.repeat(20) + 'HORNET')).toBe('HORNET');
+  });
+});
+
+// --- REGRESSION: the open modal converges on server truth ---------------------
+
+describe('updateResultsScore — an open elimination modal re-renders in place', () => {
+  afterEach(() => {
+    hideResults();
+    document.body.replaceChildren();
+  });
+
+  function text(): string {
+    return document.getElementById('results-overlay')?.textContent ?? '';
+  }
+
+  it('is a no-op when nothing is open', () => {
+    expect(() => updateResultsScore(score())).not.toThrow();
+    expect(resultsVisible()).toBe(false);
+  });
+
+  it('refreshes placement, kills and the sunk roll as the roster catches up', () => {
+    showResults(view(), { onSpectate: () => undefined, onReturn: () => undefined });
+    expect(text()).toContain('PLACE #4');
+    // The roster applied the same-tick deaths and the mutual-kill credit.
+    updateResultsScore(score({ placement: 2, kills: 4, sunkContestants: ['RIVAL', 'HORNET'] }));
+    expect(text()).toContain('PLACE #2');
+    expect(text()).not.toContain('PLACE #4');
+    expect(text()).toContain('HORNET');
+  });
+
+  it('leaves the ACTIONS alone — the only paths out survive a refresh', () => {
+    let spectates = 0;
+    showResults(view(), { onSpectate: () => (spectates += 1), onReturn: () => undefined });
+    const spectate = document.querySelector<HTMLButtonElement>('#results-spectate');
+    updateResultsScore(score({ placement: 1 }));
+    expect(document.querySelector('#results-spectate')).toBe(spectate); // same node
+    spectate?.click();
+    expect(spectates).toBe(1);
+  });
+
+  it('touches nothing when the numbers have not moved (signature guard)', () => {
+    showResults(view(), { onSpectate: () => undefined, onReturn: () => undefined });
+    const card = document.getElementById('results-overlay')?.children[0]?.children[2];
+    updateResultsScore(score()); // identical score
+    expect(document.getElementById('results-overlay')?.children[0]?.children[2]).toBe(card);
+    expect(scoreSignature(score())).toBe(scoreSignature(score()));
+  });
+
+  it('a closed modal drops its mount — a later refresh cannot resurrect it', () => {
+    showResults(view(), { onSpectate: () => undefined, onReturn: () => undefined });
+    hideResults();
+    updateResultsScore(score({ placement: 1 }));
+    expect(resultsVisible()).toBe(false);
   });
 });

@@ -2,10 +2,10 @@
 title: 'Story 2.3: Settings & Accessibility Options (+ Legibility Pass)'
 type: 'feature'
 created: '2026-07-26'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '2dc6a78'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context-amendments.md'
@@ -132,6 +132,28 @@ warnings: [multiple-goals, oversized]
 
 ## Review Triage Log
 
+### 2026-07-26 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 21: (high 7, medium 7, low 7)
+- defer: 1: (high 0, medium 1, low 0)
+- reject: 0
+- addressed_findings:
+  - `[high]` `[patch]` Home entry point dead (both hunters): settings overlay (z 1050) rendered under the fullscreen home overlay (z 1100) — panel obscured, every click landed on home. Fixed without touching the ruled z register: home console yields (`homeYieldStyle` — visibility hidden + pointer-events none) on every settings open/close; reverse-stacking pinned.
+  - `[high]` `[patch]` Slider focus killed the ESC law (both hunters AND Codex): a focused volume slider hit `textEntryFocused`'s any-INPUT bail before the overlay path — ESC/Enter dead until an incidental blur. Fixed both layers: range inputs are no longer text entry (ESC/Enter/M route, other keys stay native so arrows work) + sliders blur on pointerup; home handler mirrored.
+  - `[high]` `[patch]` Volume drag self-destructed: every `input` event full-re-rendered the panel, destroying the dragged slider after one step. In-place readout update while the overlay is the writer; repaint deferred.
+  - `[high]` `[patch]` Winner race (both hunters AND Codex): game-end modal derived winner/placement from the patch-lagged schema while ResultsMsg arrives first — winner saw "ELIMINATED" under a VICTORY banner. `personalScoreFromResults()` derives from the message, never the schema.
+  - `[high]` `[patch]` Final-victim replacement: winner's killing shot ordered results-before-sunk with schema still 'active' — elimination modal replaced the game-end table with a live SPECTATE into a finished match. `canOpenElimination()` ordering law + `resultsFinal` latch.
+  - `[high]` `[patch]` Placement counted drones: "PLACE #8" with one human afloat. `isLiveRival()` filters to human contestants (no-hue sentinel).
+  - `[high]` `[patch]` CVD assist not live for latched consumers (both hunters AND Codex): contacts, nameplates, and hueLatch'd ordnance kept old hues after toggle (only own hull re-resolved). `hueRevision()` propagated to all four latch sites; drones keep grey.
+  - `[medium]` `[patch]` Elimination-modal staleness vs patch-lagged roster (multi-death tick inflated placement; mutual-destruction kill undercount): open modal now converges in place (`refinePlacement` + `updateResultsScore` behind a signature guard, settling once the roster reflects own sinking).
+  - `[medium]` `[patch]` Reconnect wiped the latched placement/eliminated (and re-armed the modal): `scoreAfterReconnect()` preserves the latch, drops only the observed-kill roll.
+  - `[medium]` `[patch]` Held rudder kept steering under the "all sim keys suppressed" overlay: `clearKeys()` on overlay open + `axes()` reads dead under a focused overlay (structural enforcement).
+  - `[medium]` `[patch]` Enter never confirmed an armed danger action (amendment 19 says second click/Enter): `confirmArmed()` routed from handleConfirm.
+  - `[medium]` `[patch]` ABANDON MATCH rendered post-match/while returning: `canAbandon()` gates it. Deliberate deviation, accepted: it stays in waiting/countdown — hiding it would strand a solo ready-room captain with no sanctioned exit (Eric's veto invited).
+  - `[medium]` `[patch]` `sanitizeName` passed control/format characters (Codex top-ranked; hunters concur): zero-width-only/bidi callsigns spoofed blank or mangled identities. `\p{C}` stripped before trim/cap server-side, mirrored client-side; empty-after-strip → CAPTAIN-n.
+  - `[low]` `[patch]` ×7: legacy mute key now persisted immediately on migration; corrupt settings JSON consults legacy mute too; departed victim resolves name at observation or is omitted from the list (never a session id); 125% gate re-evaluates on live resize while open; M routes under the overlay (advertised there); TAB performs native focus traversal under a focused overlay (accessibility); reduced motion halves hit-flash STRENGTH not duration (`hullLook`).
+
 ## Design Notes
 
 - All design decisions are Eric-ruled (amendments 14–23); the settings enumeration/gating comes verbatim from Story 2.3's ACs + EXPERIENCE's defaults table. The overlay has no mock by ratified choice ("spine-only") — layout is implementer's call within the port-chrome register.
@@ -139,6 +161,20 @@ warnings: [multiple-goals, oversized]
 - The ESC/settings interplay extends `handleEscape` (main.ts:436) and the `isModalOpen` predicate — the exact seams Story 2.1 built. Reviewer focus per epic posture: client UI state machines (open/close/suppression lifecycle, reset-on-death/port edges).
 - Mono-audio is audibly vacuous today (nothing panned) — shipped per committed AC as bus plumbing, noted for when stereo bearing audio lands.
 - The sunk-ships list is best-effort by construction: `sunk` events are LOS-gated by perception, so unsighted kills (mine, blind torpedo) raise the roster-derived kill tally but can't contribute a name. Exhaustive listing needs a self-private wire addition (PV bump) — ledgered for Eric.
+
+## Auto Run Result
+
+**Status:** done — implemented, plan-mode reviewed by Eric pre-implementation, adversarially reviewed (2 Fable hunters + Codex cross-model), 21 patches applied, gate green.
+
+**Summary:** The committed v1 settings surface is live: a DOM settings overlay (gear on home + non-pausing in-match, port-chrome register, view-only binding reference from amendments 1–13) over a new `hullcracker.settings` store (legacy mute key migrated). Motion full/reduced/off, UI scale 90/100/125% (gated <1600px, 9px post-scale mono floor), colorblind assist (drafted 8-family palette, deuteranopia-tested, blip outlines + opacity floor), master/effects volume, mono-audio, and mute (shared with M) all take effect live and persist. ABANDON MATCH (danger, confirm-gated) + RESET SETTINGS ship per amendment 19. The uniform ESC law (amendments 21/23): ESC closes the topmost surface, else toggles settings, never returns to port, settings never stacks. Elimination now immediately opens the results modal with the personal score (upgrades, kills incl. drones, sighted sunk-contestant list, humans-only placement) or winner state, with SPECTATE + RETURN TO PORT (amendments 22/23) — silent auto-spectate deleted. The ratified legibility pass (amendments 14–17): micro type lifted ~1.6× (hudMicro 9→14, label 11→17, 10→16/12→18/13→20) across home, class bay, hotbar, HUD ladder, results, kill feed, refit cards, toasts, banners, nameplates, with grown geometry; hotbar de-greyed to phosphor data + white names; textMuted/textSecondary retired for load-bearing text. "Standard Gun" → "Deck Gun" (amendment 20). Server `sanitizeName()` (type guard, \p{C} strip, 14-code-point cap) closes ledger 127/130. Client + server-sanitizer only; NO wire change, PV unchanged, no version bump. Tests 1545 → 1688.
+
+**Files changed:** client — NEW settings/store.ts, ui/settings.ts, score.ts, util/cvd.ts (+ settings/cvd/score/motion test suites); config.ts (ramp lift, CVD tokens, settings group), main.ts (ESC law, overlay + elimination lifecycle, UI-scale seam, score wiring), input/keyboard.ts (focused-overlay rule, range/Tab/M routing), net/roomBindings.ts (sunk observation), audio/context.ts (gain buses, mono, store mute), render/{ships,shake,effects,zone,phosphor,textures,radar,hotbar,hud,nameplates,stage,equipmentInfo,contacts,mines}.ts (motion gating, CVD revision, legibility, Deck Gun), ui/{home,classSelect,results,killFeed,upgradeMenu,upgradeToast,theme}.ts + util/banner.ts (lift/de-grey, gear wiring, personal-score modal, home yield); server — rooms/roomOptions.ts + ArenaRoom.ts (sanitizeName); 10 existing suites re-pinned; bookkeeping — sprint-status 2-3 done, gds-workflow-status → create-story 2-4, deferred-work closures (127/130/142 + 2-1 guard convention addressed) + 2 new entries, amendments 14–23 recorded durably.
+
+**Review breakdown:** 21 patches (7 high — home stacking, slider-focus ESC kill, slider drag destruction, winner race, final-victim modal replacement, drone-counted placement, CVD latch liveness; 7 medium; 7 low), 1 deferred (game-end results ESC-close has no reopen path — design question), 0 rejected, 0 intent gaps, 0 bad-spec loopbacks. Cross-model agreement: winner race, slider ESC kill, and CVD liveness were flagged independently by both Fable hunters AND Codex; Codex alone top-ranked the control-character name spoofing, confirmed and fixed.
+
+**Verification:** `npm run check` run independently by the orchestrator after implementation AND after the patch round — lint 0 errors (2 pre-existing warnings), shared 263 / server 657 / client 768 = 1688 green. Security/input diffs (sanitizeName, focused-overlay suppression, ESC routing) hand-reviewed.
+
+**Residual risks / notes for Eric:** (1) No browser eyeball pass — Pixi/DOM behavior is pinned by pure-logic tests only; the legibility lift especially deserves your eyes. (2) ABANDON MATCH deliberately stays available in the waiting/countdown ready room (else a solo captain has no sanctioned exit) — veto if you want it active-only. (3) The sunk-ships list is best-effort: kills you never sighted (mine, blind torpedo) count in the tally but can't contribute a name without a wire change (ledgered). (4) Game-end results, once ESC-closed, has no reopen path (ledgered — say the word and a later story adds one). (5) The CVD 8-family palette and settings layout are drafts within your "just make it happen" grant. (6) DESIGN.md still documents the old 9px/grey typography — doc-sync proposal ledgered, no design docs edited per standing rule.
 
 ## Verification
 

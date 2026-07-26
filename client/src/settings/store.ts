@@ -160,7 +160,28 @@ function loadLegacyMuted(): boolean {
   }
 }
 
-/** Load + migrate the persisted settings (defaults when storage is unavailable). */
+/** Pure-ish: parse the stored payload. `usable` is false when the new key is
+ *  ABSENT *or* CORRUPT — both mean "the new key told us nothing", which is
+ *  exactly when the legacy mute flag still has a say. */
+function parseStored(raw: string | null): { parsed: unknown; usable: boolean } {
+  if (raw === null) return { parsed: null, usable: false };
+  try {
+    return { parsed: JSON.parse(raw), usable: true };
+  } catch {
+    return { parsed: null, usable: false }; // truncated/hand-edited write
+  }
+}
+
+/**
+ * Load + migrate the persisted settings (defaults when storage is unavailable).
+ *
+ * The legacy `hullcracker-muted` flag is consulted whenever the new key yields
+ * nothing usable — absent OR corrupt. (Consulting it only on absence let a
+ * single truncated write silently un-mute a player who had muted pre-2.3.)
+ * When it IS consulted the migrated value is written back IMMEDIATELY, so the
+ * new key is authoritative from this boot rather than from whenever the player
+ * next happens to change a setting.
+ */
 export function loadSettings(): Settings {
   let raw: string | null = null;
   try {
@@ -168,15 +189,10 @@ export function loadSettings(): Settings {
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
-  // Read-once legacy fallback: only consulted when the new key is absent.
-  const legacy = raw === null ? loadLegacyMuted() : false;
-  let parsed: unknown = null;
-  try {
-    parsed = raw === null ? null : JSON.parse(raw);
-  } catch {
-    parsed = null; // corrupt write — fall back to defaults, keep the legacy mute
-  }
-  return sanitizeSettings(parsed, legacy);
+  const { parsed, usable } = parseStored(raw);
+  const migrated = sanitizeSettings(parsed, usable ? false : loadLegacyMuted());
+  if (!usable) saveSettings(migrated);
+  return migrated;
 }
 
 /** Best-effort persist (storage may be unavailable / full). */

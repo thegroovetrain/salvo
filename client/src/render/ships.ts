@@ -19,7 +19,7 @@
 import { Graphics } from 'pixi.js';
 import { REGATTA_HUES, hullSilhouette, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { motionScaled, settings } from '../settings/store.js';
+import { motionIntensity, settings } from '../settings/store.js';
 
 const C = CLIENT_CONFIG.colors;
 
@@ -113,6 +113,37 @@ export function isDroneHull(hullId: HullId): boolean {
   return hullId === 'droneSmall' || hullId === 'droneMedium' || hullId === 'droneLarge';
 }
 
+/** Pure: per-channel linear blend of two packed 0xRRGGBB colors (t=0 → a, 1 → b). */
+function mixColor(a: number, b: number, t: number): number {
+  const ch = (shift: number): number =>
+    Math.round(((a >> shift) & 0xff) + (((b >> shift) & 0xff) - ((a >> shift) & 0xff)) * t) << shift;
+  return ch(16) | ch(8) | ch(0);
+}
+
+/** A hull's rendered tint + alpha for one frame. */
+export interface HullLook {
+  tint: number;
+  alpha: number;
+}
+
+/**
+ * Pure: the hull look for a frame. `flash` is the hit-flash INTENSITY in [0,1],
+ * NOT a duration — Story 2.3 / amendment: `reduced` motion halves the flash's
+ * STRENGTH while keeping its full duration (a shorter flash is easier to MISS,
+ * which is the opposite of an accessibility affordance), and `off` passes 0 so
+ * no flash is applied at all. The hp bar, damage markers and kill feed carry the
+ * information statically at every level.
+ */
+export function hullLook(flash: number, downed: boolean, fade: number): HullLook {
+  const baseTint = downed ? CLIENT_CONFIG.ship.sunkTint : C.white;
+  const baseAlpha = downed ? 0.4 : 1;
+  const t = Math.min(1, Math.max(0, flash));
+  return {
+    tint: t <= 0 ? baseTint : mixColor(baseTint, C.white, t),
+    alpha: (baseAlpha + (1 - baseAlpha) * t) * fade,
+  };
+}
+
 /** Trace the shared silhouette polygon (local frame, bow at +x, closed). */
 function tracePolygon(g: Graphics, poly: readonly Vec2[]): void {
   g.moveTo(poly[0].x, poly[0].y);
@@ -124,6 +155,9 @@ export class ShipView {
   readonly gfx: Graphics;
   private downed = false;
   private flashUntil = 0;
+  /** Hit-flash INTENSITY in [0,1] for the window ending at flashUntil (the
+   *  motion level's multiplier — `reduced` = a half-strength flash, full length). */
+  private flashAmount = 1;
   private fade = 1; // sight fade multiplier (contacts fade in/out over 150ms)
   private hullId: HullId;
   private style: ShipStyle;
@@ -166,13 +200,15 @@ export class ShipView {
 
   /**
    * Brief bright flash (took a hit). MOTION-GATED (Story 2.3): `reduced` halves
-   * the flash duration, `off` suppresses it entirely — the hp bar, damage
-   * markers and kill feed still carry the information statically.
+   * the flash's INTENSITY — never its duration, which stays the full flashMs so
+   * the cue is just as easy to CATCH — and `off` suppresses it entirely. The hp
+   * bar, damage markers and kill feed still carry the information statically.
    */
   flash(): void {
-    const ms = motionScaled(CLIENT_CONFIG.ship.flashMs, settings.current.motion);
-    if (ms <= 0) return;
-    this.flashUntil = performance.now() + ms;
+    const amount = motionIntensity(settings.current.motion);
+    if (amount <= 0) return;
+    this.flashAmount = amount;
+    this.flashUntil = performance.now() + CLIENT_CONFIG.ship.flashMs;
   }
 
   /** Sight-fade multiplier [0,1] applied on top of tint/alpha state. */
@@ -189,16 +225,10 @@ export class ShipView {
   }
 
   private applyLook(): void {
-    if (performance.now() < this.flashUntil) {
-      this.gfx.tint = CLIENT_CONFIG.colors.white;
-      this.gfx.alpha = this.fade;
-    } else if (this.downed) {
-      this.gfx.tint = CLIENT_CONFIG.ship.sunkTint;
-      this.gfx.alpha = 0.4 * this.fade;
-    } else {
-      this.gfx.tint = CLIENT_CONFIG.colors.white;
-      this.gfx.alpha = this.fade;
-    }
+    const flash = performance.now() < this.flashUntil ? this.flashAmount : 0;
+    const look = hullLook(flash, this.downed, this.fade);
+    this.gfx.tint = look.tint;
+    this.gfx.alpha = look.alpha;
   }
 
   destroy(): void {

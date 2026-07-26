@@ -24,7 +24,7 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { DecoyView } from '@salvo/shared';
-import { resolveHue, retryHue, type HueFor } from './hueLatch.js';
+import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 
 export type { HueFor };
 
@@ -60,11 +60,9 @@ export function reconcileDecoys(current: ReadonlySet<string>, incoming: readonly
 
 /** A live buoy sprite + its firer-hue latch (retryHue recolors it once the
  *  owner's roster hue syncs). `own` drives only brightness on redraw. */
-interface DecoySprite {
+interface DecoySprite extends HueState {
   g: Graphics;
-  by: string;
   own: boolean;
-  colored: boolean;
 }
 
 export class Decoys {
@@ -102,11 +100,11 @@ export class Decoys {
 
   private spawn(d: DecoyView, hueFor: HueFor): void {
     const g = new Graphics();
-    const { color, colored } = resolveHue(d.by, hueFor);
+    const { color, colored, rev } = resolveHue(d.by, hueFor);
     this.drawMarker(g, d.own, color);
     g.position.set(d.x, d.y);
     (d.own ? this.ownLayer : this.enemyLayer).addChild(g);
-    this.sprites.set(d.id, { g, by: d.by, own: d.own, colored });
+    this.sprites.set(d.id, { g, by: d.by, own: d.own, colored, rev });
     if (d.own) this.onOwnDecoySpawn?.(d);
   }
 

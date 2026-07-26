@@ -8,6 +8,8 @@ import { vignetteAlpha } from '../render/zone.js';
 import { effectPeakAlpha, isJuiceEffect } from '../render/effects.js';
 import { slotFlags, slotSkin, type HotbarView } from '../render/hotbar.js';
 import { motionIntensity } from '../settings/store.js';
+import { hullLook } from '../render/ships.js';
+import { CLIENT_CONFIG } from '../config.js';
 import { CONFIG, effectiveStats, zeroUpgrades } from '@salvo/shared';
 
 /** A deterministic rng so the shake offset is a pure function of magnitude. */
@@ -109,5 +111,51 @@ describe('hotbar — the ACTIVATED pop is juice; DENIED never is', () => {
     const denied = slotSkin('denied', 0);
     expect(denied.border).toBe(slotSkin('denied').border);
     expect(denied.borderWidth).toBe(slotSkin('denied').borderWidth);
+  });
+});
+
+// --- REGRESSION (Story 2.3 review gate): reduced halves INTENSITY -------------
+// The first cut scaled the hit-flash DURATION, which makes the cue HARDER to
+// catch at reduced — the opposite of an accessibility affordance. The spec and
+// amendment both say intensity: full length, half strength.
+
+describe('hull hit-flash — reduced halves the STRENGTH, never the duration', () => {
+  const SUNK = CLIENT_CONFIG.ship.sunkTint;
+  const WHITE = CLIENT_CONFIG.colors.white;
+
+  it('the flash is a blend toward white, and reduced lands exactly halfway', () => {
+    const full = hullLook(motionIntensity('full'), true, 1);
+    const half = hullLook(motionIntensity('reduced'), true, 1);
+    const none = hullLook(motionIntensity('off'), true, 1);
+
+    expect(full.tint).toBe(WHITE);
+    expect(full.alpha).toBe(1);
+    // off = no flash at all: the plain sunk look.
+    expect(none.tint).toBe(SUNK);
+    expect(none.alpha).toBeCloseTo(0.4, 9);
+    // reduced sits halfway between them on BOTH channels.
+    expect(half.alpha).toBeCloseTo((0.4 + 1) / 2, 9);
+    for (const shift of [16, 8, 0]) {
+      const ch = (c: number): number => (c >> shift) & 0xff;
+      expect(ch(half.tint), `channel ${shift}`).toBe(Math.round((ch(SUNK) + ch(WHITE)) / 2));
+    }
+  });
+
+  it('the DURATION is the same at every level (it is the strength that scales)', () => {
+    // The flash window is CLIENT_CONFIG.ship.flashMs verbatim now — no motion
+    // multiplier — so the cue is exactly as easy to catch at reduced as at full.
+    expect(CLIENT_CONFIG.ship.flashMs).toBeGreaterThan(0);
+    expect(motionIntensity('reduced')).toBe(0.5);
+    expect(motionIntensity('off')).toBe(0); // and ShipView.flash() bails at 0
+  });
+
+  it('the sight FADE still multiplies through, at every flash strength', () => {
+    expect(hullLook(1, false, 0.5).alpha).toBeCloseTo(0.5, 9);
+    expect(hullLook(0, false, 0.25).alpha).toBeCloseTo(0.25, 9);
+  });
+
+  it('clamps a nonsense intensity instead of producing an out-of-range color', () => {
+    expect(hullLook(5, true, 1).tint).toBe(WHITE);
+    expect(hullLook(-1, true, 1).tint).toBe(SUNK);
   });
 });

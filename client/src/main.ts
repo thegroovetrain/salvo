@@ -72,15 +72,28 @@ import { showHome, type HomeHandle } from './ui/home.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
 import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
-import { closeResultsAsSpectate, hideResults, resultsVisible, showResults, winnerBanner, type ResultsView } from './ui/results.js';
-import { SettingsOverlay, canOpenSurface, escapeAction } from './ui/settings.js';
+import {
+  closeResultsAsSpectate,
+  hideResults,
+  resultsVisible,
+  showResults,
+  updateResultsScore,
+  winnerBanner,
+  type ResultsView,
+} from './ui/results.js';
+import { SettingsOverlay, canAbandon, canOpenSurface, escapeAction } from './ui/settings.js';
 import { effectiveScale, scaleFactor, settings } from './settings/store.js';
 import { setUiScaleVar } from './ui/theme.js';
 import {
+  canOpenElimination,
   freshScore,
+  isLiveRival,
   personalScore,
+  personalScoreFromResults,
   recordElimination,
   recordSunk,
+  refinePlacement,
+  scoreAfterReconnect,
   type PersonalScore,
   type ScoreState,
 } from './score.js';
@@ -231,6 +244,13 @@ interface Game {
   portal: PortalAdapter;
   /** Latch: portal.matchEnd() fired — results re-delivery must not re-fire it. */
   matchEnded: boolean;
+  /**
+   * True once the GAME-END results have been presented. From that moment the
+   * debrief is final: a late own-`sunk` (the winner's own killing blow race)
+   * must not replace the placement table with a live elimination modal, and the
+   * modal's numbers stop being re-derived from the roster.
+   */
+  resultsFinal: boolean;
   /** performance.now() when the results overlay was shown (Infinity until it
    *  is). Results-phase ESC/Enter arm only after CLIENT_CONFIG.results.keyGraceMs
    *  has elapsed, so a key aimed at the refit modal can't instantly return. */
@@ -479,17 +499,37 @@ function handleEscape(g: Game): void {
   }
   if (action === 'closeRefit') g.upgradeMenu.hide();
   else if (action === 'closeSettings') g.settingsOverlay.close();
-  else g.settingsOverlay.open();
+  else openSettingsOverlay(g);
+}
+
+/**
+ * Open the settings overlay from inside a match. Opening it is a FOCUSED-overlay
+ * edge, so every held helm key is dropped the way entering spectate drops them:
+ * the chokepoint's suppression is keydown-only while `axes()` reads the LATCHED
+ * key set, so a rudder key held as the overlay opened would keep steering the
+ * (never-paused) ship until a keyup that the suppression swallows. The telegraph
+ * order is deliberately untouched — it is a set-and-forget order, not a held key.
+ */
+function openSettingsOverlay(g: Game): void {
+  g.settingsOverlay.open();
+  g.keyboard.clearKeys();
 }
 
 /**
  * ENTER — confirm the topmost surface. On the GAME-END results screen that is
  * RETURN TO PORT (UX-DR27, kept by amendment 22); on an elimination modal
- * mid-match there is nothing to confirm (leaving is the explicit button), and it
- * is inert in-match and inside the results arming grace.
+ * mid-match there is nothing to confirm (leaving is the explicit button). On the
+ * settings overlay it fires an ARMED danger action — amendment 19 rules the
+ * confirm as "second click OR Enter", and the danger buttons never keep focus,
+ * so the key has to arrive through this hook. Inert otherwise, and inside the
+ * results arming grace.
  */
 function handleConfirm(g: Game): void {
-  if (g.state.matchOver && resultsVisible() && resultsKeysArmed(g)) returnToPort(g);
+  if (resultsVisible()) {
+    if (g.state.matchOver && resultsKeysArmed(g)) returnToPort(g);
+    return;
+  }
+  if (g.settingsOverlay.visible) g.settingsOverlay.confirmArmed();
 }
 
 
@@ -510,8 +550,9 @@ interface PublicState {
   players?: {
     size: number;
     get(id: string): { name?: string; color?: number; kills?: number; alive?: boolean } | undefined;
-    /** MapSchema iteration (roster scans: live-contestant count for placement). */
-    forEach(fn: (meta: { id?: string; alive?: boolean }) => void): void;
+    /** MapSchema iteration (roster scans: live-contestant count for placement).
+     *  `color` carries the drone sentinel, so placement can exclude drones. */
+    forEach(fn: (meta: { id?: string; alive?: boolean; color?: number }) => void): void;
   };
 }
 
@@ -607,6 +648,10 @@ function updateOwnColor(g: Game): void {
   // unchanged — the revision counter is that edge.
   const rev = hueRevision();
   if (idx === g.ownHueIndex && rev === g.hueRev) return;
+  // A hue-table swap also invalidates the LATCHED own nameplate (its text color
+  // is the personal hue's text-safe variant), so drop the latch and let
+  // updateOwnPlate re-resolve it on this same frame.
+  if (rev !== g.hueRev) g.ownPlated = false;
   g.ownHueIndex = idx;
   g.hueRev = rev;
   const style = hullStyle(idx);
@@ -673,16 +718,29 @@ function zoneHud(zv: ZoneView, now: number, inStorm: boolean): ZoneHud {
 
 // --- personal score + the results modal (amendments 22/23) ---------------------
 
-/** Live contestant count EXCLUDING the local player — the placement input
- *  (k rivals still floating ⇒ you place k+1). Read off the public roster. */
+/**
+ * Live CONTESTANT count excluding the local player — the placement input
+ * (k rivals still floating ⇒ you place k+1). Read off the public roster, and
+ * DRONES ARE NOT CONTESTANTS: they fill empty slots so a solo captain still
+ * gets a battle royale, the win check is human-gated, and the results table
+ * lists humans only — so a placement counting them reported a number that
+ * matched nothing else the player is shown.
+ */
 function othersAlive(g: Game): number {
   const players = publicState(g).players;
   if (!players) return 0;
   let n = 0;
-  players.forEach((meta: { id?: string; alive?: boolean }) => {
-    if (meta.alive === true && meta.id !== g.state.net.sessionId) n += 1;
+  players.forEach((meta: { id?: string; alive?: boolean; color?: number }) => {
+    if (isLiveRival(meta, g.state.net.sessionId, REGATTA_NO_HUE)) n += 1;
   });
   return n;
+}
+
+/** Has the ROSTER caught up with our own sinking? While it hasn't, the alive
+ *  count it reports is a patch-lagged snapshot and the placement derived from
+ *  it is provisional (see score.ts refinePlacement). */
+function ownRosterSettled(g: Game): boolean {
+  return publicState(g).players?.get(g.state.net.sessionId)?.alive === false;
 }
 
 /** The own roster kill tally (server-authoritative, public, drones included). */
@@ -715,11 +773,18 @@ function ownScore(g: Game): PersonalScore {
 function handleSunkObserved(g: Game, victimId: string, killerId: string | null): void {
   g.score = recordSunk(
     g.score,
-    { victimId, victimName: rosterName(g, victimId), killerId, victimIsDrone: isDroneId(g, victimId) },
+    // rosterNameOrNull, never rosterName: a victim who has already LEFT the
+    // roster has no callsign, and the id fallback would print a session id into
+    // "SHIPS YOU SANK". A nameless kill still counts in the roster tally.
+    { victimId, victimName: rosterNameOrNull(g, victimId), killerId, victimIsDrone: isDroneId(g, victimId) },
     g.state.net.sessionId,
   );
   if (victimId !== g.state.net.sessionId) return;
-  if (publicState(g).matchPhase !== 'active') return; // waiting-room death = a respawn, not an elimination
+  // The three ways an own-sinking is NOT an elimination-modal moment: a
+  // ready-room respawn, an own-`sunk` racing in behind the game-end results
+  // broadcast, and a duplicate of a sinking already latched. See
+  // score.ts canOpenElimination for the full reasoning on each.
+  if (!canOpenElimination(publicState(g).matchPhase ?? 'waiting', g.resultsFinal, g.score.eliminated)) return;
   g.score = recordElimination(g.score, othersAlive(g));
   showEliminationResults(g);
 }
@@ -729,9 +794,16 @@ function showEliminationResults(g: Game): void {
   presentResults(g, { banner: 'ELIMINATED', victory: false, score: ownScore(g), rows: null, ownId: g.state.net.sessionId, canSpectate: true });
 }
 
-/** The game-end modal: the same score card plus the full placement table. */
+/**
+ * The game-end modal: the same score card plus the full placement table.
+ *
+ * Winner, placement and kills come from the RESULTS MESSAGE, never from the
+ * polled schema: the broadcast lands before the patch that sets `winnerId`, so
+ * a schema-derived victory flag made the actual winner read "ELIMINATED —
+ * PLACE #n" under a VICTORY banner until the patch caught up.
+ */
 function showMatchResults(g: Game, msg: ResultsMsg): void {
-  const score = ownScore(g);
+  const score = personalScoreFromResults(g.score, g.state.net.you?.upg, msg, g.state.net.sessionId, ownKills(g));
   presentResults(g, {
     banner: winnerBanner(msg, g.state.net.sessionId),
     victory: score.winner,
@@ -745,14 +817,31 @@ function showMatchResults(g: Game, msg: ResultsMsg): void {
 /**
  * One entry point for both modal moments: the refit modal never stays painted
  * under it (no stacking, either direction), the settings overlay closes for the
- * same reason, and the key-arming grace restarts so a keypress aimed at whatever
- * was on screen a frame ago can't instantly dismiss it.
+ * same reason, held helm keys are dropped (a focused overlay owns the input, and
+ * axes() reads LATCHED keys the keydown-only suppression never sees released),
+ * and the key-arming grace restarts so a keypress aimed at whatever was on
+ * screen a frame ago can't instantly dismiss it.
  */
 function presentResults(g: Game, view: ResultsView): void {
   g.upgradeMenu.hide();
   g.settingsOverlay.close();
+  g.keyboard.clearKeys();
   g.resultsShownAt = performance.now();
   showResults(view, { onSpectate: () => undefined, onReturn: () => returnToPort(g) });
+}
+
+/**
+ * Converge the OPEN elimination modal on server truth as roster patches land
+ * (fixes both the multi-death-tick placement inflation and the mutual-kill
+ * tally race). Cheap by construction: the pure refine is a no-op once the
+ * roster has applied our own sinking, and updateResultsScore compares a
+ * signature before it touches the DOM. The game-end table is never re-derived
+ * here — its numbers came from the results message, which is already final.
+ */
+function updateOpenResults(g: Game): void {
+  if (g.resultsFinal || !g.score.eliminated || !resultsVisible()) return;
+  g.score = refinePlacement(g.score, othersAlive(g), ownRosterSettled(g));
+  updateResultsScore(ownScore(g));
 }
 
 // --- return to port / disconnect ---------------------------------------------
@@ -1091,7 +1180,7 @@ function buildGame(
     deniedPulse: new DeniedPulse(), deniedFlash: false, denialDedup: new DenialDedup(), serverDeniedClick: false,
     ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownStats: stats, ownSlots: slotIdsFor(cls, stats),
@@ -1212,6 +1301,10 @@ function bindGameRoom(g: Game, conn: Connection): void {
         g.matchEnded = true;
         g.portal.matchEnd();
       }
+      // Latch BEFORE presenting: from here the game-end table is the final
+      // debrief, and a `sunk` event still in flight behind this broadcast must
+      // not replace it (see handleSunkObserved).
+      g.resultsFinal = true;
       // Results arrival hygiene lives in presentResults(): any open refit modal
       // or settings overlay is dropped (no stacking) and the results-key arming
       // grace restarts (see CLIENT_CONFIG.results.keyGraceMs).
@@ -1231,7 +1324,10 @@ function bindGameRoom(g: Game, conn: Connection): void {
       hideBanner();
       // The outage may have swallowed sunk events, so the observed-kill roll can
       // no longer be trusted: start it clean rather than report a wrong list.
-      g.score = freshScore();
+      // The elimination LATCH and its placement survive, though — they were
+      // derived before the drop, and dropping them un-eliminated a finished
+      // player (letting a duplicate `sunk` re-open the modal).
+      g.score = scoreAfterReconnect(g.score);
       g.keyboard.clearActivations(); // drop presses queued during the outage (FINDING A)
       g.denialDedup.clear(); // paired with the queue drop — no reused (slot, seq)
     },
@@ -1665,6 +1761,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       const zv = zoneView(g, now);
       const mu = matchUxFromRoom(g, now);
       updateScoreEpoch(g); // the ready room's sinkings are not match score
+      updateOpenResults(g); // converge an open elimination modal on roster truth
       updateMatchAudioCues(g, now);
       const shakeOff = g.shake.update(frameDt);
       g.camera.shake.x = shakeOff.x;
@@ -1835,9 +1932,12 @@ function bindWheelZoom(game: Game): void {
  */
 let gameRef: Game | null = null;
 
-/** Is the player in a live match? (Gates ABANDON MATCH in the overlay.) */
+/** Is the player in a match that can still be ABANDONED? (Gates the overlay's
+ *  danger button — see ui/settings.ts canAbandon for the ruled phase set.) */
 function inLiveMatch(): boolean {
-  return gameRef !== null && !gameRef.returning;
+  const g = gameRef;
+  if (g === null) return false;
+  return canAbandon(publicState(g).matchPhase ?? 'waiting', g.state.matchOver, g.returning);
 }
 
 /**
@@ -1947,11 +2047,19 @@ async function main(): Promise<void> {
 
   // The settings overlay outlives the join: the home gear and home ESC open it
   // pre-connect, and the same instance is the in-match ESC surface.
+  //
+  // `onVisibility` is how the PRE-JOIN entry point works at all: the ratified z
+  // register puts this overlay (1050) UNDER the fullscreen home (1100), so the
+  // home has to yield — stop painting, stop hit-testing — for as long as the
+  // overlay is up, whichever way it was opened or closed (gear, home ESC, the
+  // panel's own CLOSE button, a confirmed RESET). See ui/home.ts homeYieldStyle.
+  let homeRef: HomeHandle | null = null;
   const settingsOverlay = new SettingsOverlay({
     store: settings,
     inMatch: inLiveMatch,
     onAbandon: abandonMatch,
     viewportWidth: () => stage.app.screen.width,
+    onVisibility: (visible) => homeRef?.setYielded(visible),
   });
   // Live effect: every stored setting is applied at boot and re-applied on every
   // change, so a reload restores exactly what the player left (the AC's
@@ -1968,6 +2076,7 @@ async function main(): Promise<void> {
     },
     () => settingsOverlay.toggle(),
   );
+  homeRef = home;
   // Client-side server-health probe → the status line (probing → ready/unreachable).
   void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
 }

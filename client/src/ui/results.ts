@@ -124,6 +124,11 @@ const CELL_CSS = 'padding:5px 16px;font:400 16px var(--hc-font-mono);letter-spac
 
 let handlers: ResultsHandlers | null = null;
 
+/** The live score block of the open modal, so later roster patches can refresh
+ *  it IN PLACE instead of leaving a stale snapshot on screen (see
+ *  updateResultsScore). Null whenever no modal is up. */
+let mounted: { placement: HTMLElement; card: HTMLElement; signature: string } | null = null;
+
 /** Is the results modal currently on screen? (The uniform ESC law reads this.) */
 export function resultsVisible(): boolean {
   return document.getElementById(RESULTS_ID) !== null;
@@ -133,6 +138,37 @@ export function resultsVisible(): boolean {
 export function hideResults(): void {
   document.getElementById(RESULTS_ID)?.remove();
   handlers = null;
+  mounted = null;
+}
+
+/**
+ * Pure: a cheap change signature for the personal-score block. The elimination
+ * modal is driven off a roster that is still settling (see score.ts
+ * refinePlacement), so it is re-derived every frame — this keeps that from
+ * touching the DOM unless a number actually moved.
+ */
+export function scoreSignature(score: PersonalScore): string {
+  return [score.upgrades, score.kills, score.placement, score.winner, score.sunkContestants.join('')].join('|');
+}
+
+/**
+ * Refresh the OPEN modal's placement line + score card in place, converging on
+ * server truth as roster patches land after an elimination (multi-death ticks
+ * and patch lag both inflate the placement derived at the instant of the sunk
+ * event, and a mutual kill can credit the last kill a beat later). The actions
+ * and the placement table are untouched — only the personal block re-renders,
+ * so nothing under the player's cursor is rebuilt. No-op when no modal is up or
+ * nothing changed.
+ */
+export function updateResultsScore(score: PersonalScore): void {
+  if (mounted === null) return;
+  const sig = scoreSignature(score);
+  if (sig === mounted.signature) return;
+  mounted.signature = sig;
+  mounted.placement.textContent = placementLine(score);
+  const card = makeScoreCard(score);
+  mounted.card.replaceWith(card);
+  mounted.card = card;
 }
 
 /** ESC on the modal = SPECTATE (amendment 23). No-op when it isn't open. */
@@ -283,10 +319,13 @@ export function showResults(view: ResultsView, h: ResultsHandlers): void {
 
   const panel = document.createElement('div');
   panel.style.cssText = PANEL_CSS;
-  panel.append(makeBanner(view.banner, view.victory), makePlacement(view.score), makeScoreCard(view.score));
+  const placement = makePlacement(view.score);
+  const card = makeScoreCard(view.score);
+  panel.append(makeBanner(view.banner, view.victory), placement, card);
   if (view.rows !== null) panel.appendChild(makeTable(view.rows, view.ownId));
   panel.appendChild(makeActions(view, h));
 
   overlay.appendChild(panel);
   document.body.appendChild(overlay);
+  mounted = { placement, card, signature: scoreSignature(view.score) };
 }

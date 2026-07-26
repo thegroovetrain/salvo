@@ -17,6 +17,7 @@
 
 import { sanitizeClassId, type ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
 import { registerCss } from './theme.js';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
@@ -43,9 +44,19 @@ const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY/SET SAIL is pr
 
 // --- pure name / class persistence (tested) ----------------------------------
 
-/** Trim + cap a callsign to NAME_MAX CODE POINTS ('' = server assigns). */
+/**
+ * Unicode category C — control / format (zero-width joiners, bidi overrides) /
+ * surrogate / private-use / unassigned. Stripped so what you TYPE is what the
+ * server keeps: the server's `sanitizeName` strips exactly this set, and a
+ * client that let them through would show the player a callsign (blank, or
+ * reversed by a bidi override) that no one else ever sees.
+ */
+const CONTROL_OR_FORMAT = /\p{C}/gu;
+
+/** Strip control/format code points, then trim + cap a callsign to NAME_MAX
+ *  CODE POINTS ('' = server assigns). Mirrors server roomOptions.sanitizeName. */
 export function sanitizeName(raw: string): string {
-  return [...raw.trim()].slice(0, NAME_MAX).join('');
+  return [...raw.replace(CONTROL_OR_FORMAT, '').trim()].slice(0, NAME_MAX).join('');
 }
 
 export function loadSavedName(): string {
@@ -135,7 +146,37 @@ export interface HomeHandle {
   setServerProbe(state: ProbeState): void;
   /** Disable/enable PLAY while a join is in flight. */
   setBusy(busy: boolean): void;
+  /** YIELD the whole home surface while the settings overlay is open (see
+   *  `homeYieldStyle`). Idempotent; restored with `false`. */
+  setYielded(yielded: boolean): void;
   hide(): void;
+}
+
+/** The two style properties the home root takes to yield / come back. */
+export interface YieldStyle {
+  visibility: 'hidden' | 'visible';
+  pointerEvents: 'none' | 'auto';
+}
+
+/**
+ * Pure: how the HOME chrome must behave while the settings overlay is open.
+ *
+ * The z register is RATIFIED — settings sits at 1050, between the refit modal
+ * (1000) and this home (1100) — so the overlay legitimately renders UNDER a
+ * fullscreen home that hit-tests every pixel. Re-cutting the register to fix
+ * that would break the ruled ordering; instead the home YIELDS: it stops
+ * painting and stops hit-testing for as long as settings is up, and comes back
+ * unchanged when it closes.
+ *
+ * Reverse stacking falls out of the same rule rather than needing its own
+ * guard: a yielded home cannot be clicked, so PLAY, the class chip and the
+ * colour hoist are all unreachable while the overlay is open — which is exactly
+ * the "never stack, in either direction" law the in-match surfaces obey.
+ */
+export function homeYieldStyle(settingsOpen: boolean): YieldStyle {
+  return settingsOpen
+    ? { visibility: 'hidden', pointerEvents: 'none' }
+    : { visibility: 'visible', pointerEvents: 'auto' };
 }
 
 // --- DOM builders ------------------------------------------------------------
@@ -445,8 +486,10 @@ function mountHome(h: Home, playBtn: HTMLButtonElement, version: string): (e: Ke
 function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
   const handler = (e: KeyboardEvent): void => {
     if (e.key !== 'Escape' || h.layerOpen) return;
-    const el = document.activeElement;
-    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+    // The callsign field keeps ESC to itself — but a focused VOLUME SLIDER
+    // inside the overlay must NOT (textFieldElement excludes ranges), or ESC
+    // dies the moment the player touches a volume from the home gear.
+    if (textFieldElement(document.activeElement)) return;
     h.onSettings();
   };
   window.addEventListener('keydown', handler);
@@ -515,6 +558,11 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
       h.busy = busy;
       h.playBtn.style.opacity = busy ? '0.4' : '1';
       h.playBtn.style.cursor = busy ? 'default' : 'pointer';
+    },
+    setYielded: (yielded) => {
+      const style = homeYieldStyle(yielded);
+      h.overlay.style.visibility = style.visibility;
+      h.overlay.style.pointerEvents = style.pointerEvents;
     },
     hide: () => {
       h.layer?.close(); // never orphan a live layer's window listener into the game

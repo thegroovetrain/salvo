@@ -19,7 +19,7 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { MineView } from '@salvo/shared';
-import { resolveHue, retryHue, type HueFor } from './hueLatch.js';
+import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 
 export type { HueFor };
 
@@ -51,11 +51,9 @@ export function reconcileMines(current: ReadonlySet<string>, incoming: readonly 
 
 /** A live mine sprite + its firer-hue latch (retryHue recolors it once the
  *  dropper's roster hue syncs). `own` drives only brightness on redraw. */
-interface MineSprite {
+interface MineSprite extends HueState {
   g: Graphics;
-  by: string;
   own: boolean;
-  colored: boolean;
 }
 
 export class Mines {
@@ -86,11 +84,11 @@ export class Mines {
 
   private spawn(m: MineView, hueFor: HueFor): void {
     const g = new Graphics();
-    const { color, colored } = resolveHue(m.by, hueFor);
+    const { color, colored, rev } = resolveHue(m.by, hueFor);
     this.drawMarker(g, m.own, color);
     g.position.set(m.x, m.y);
     (m.own ? this.ownLayer : this.enemyLayer).addChild(g);
-    this.sprites.set(m.id, { g, by: m.by, own: m.own, colored });
+    this.sprites.set(m.id, { g, by: m.by, own: m.own, colored, rev });
     if (m.own) this.onOwnMineSpawn?.(m);
   }
 
