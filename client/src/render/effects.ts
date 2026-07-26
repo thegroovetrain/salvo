@@ -13,9 +13,27 @@ import type { ShipState, HullId } from '@salvo/shared';
 import { CONFIG, hullEnvelope } from '@salvo/shared';
 import { Pool } from '../util/pool.js';
 import { CLIENT_CONFIG } from '../config.js';
+import { motionIntensity, settings } from '../settings/store.js';
 
 /** Effect kinds routed through spawnEffect(). */
 export type EffectKind = 'wake' | 'muzzle' | 'spark' | 'splash' | 'sink' | 'torpwake' | 'burst';
+
+/**
+ * Pure: is this one-shot pure JUICE (a decorative flash) rather than a marker
+ * that carries information? Only the muzzle flash and the impact spark are —
+ * splash / sink / burst rings say WHERE something happened and the torpedo wake
+ * says where a fish ran, so they survive every motion level. The juice kinds'
+ * peak alpha is scaled by the accessibility motion level (Story 2.3): halved at
+ * `reduced`, suppressed at `off`.
+ */
+export function isJuiceEffect(kind: EffectKind): boolean {
+  return kind === 'muzzle' || kind === 'spark';
+}
+
+/** Pure: the peak alpha a one-shot renders at, after the motion gate. */
+export function effectPeakAlpha(kind: EffectKind, baseAlpha: number, intensity: number): number {
+  return isJuiceEffect(kind) ? baseAlpha * intensity : baseAlpha;
+}
 
 /**
  * Pure layer-routing predicate: which one-shot kinds render into the FOG-IMMUNE
@@ -70,6 +88,8 @@ interface WakeParticle {
 interface OneShot {
   gfx: Graphics;
   spec: OneShotSpec;
+  /** Peak alpha AFTER the motion gate (resolved once, at spawn). */
+  peakAlpha: number;
   x: number;
   y: number;
   age: number;
@@ -157,6 +177,9 @@ export class Effects {
     // Backgrounded tab: skip one-shot spawns entirely rather than let them pile
     // up in the pool while the render loop that ages/retires them is throttled.
     if (typeof document !== 'undefined' && document.hidden) return;
+    const spec = SPECS[kind];
+    const peakAlpha = effectPeakAlpha(kind, spec.alpha, motionIntensity(settings.current.motion));
+    if (peakAlpha <= 0) return; // motion off: the juice flashes simply don't spawn
     const pool = isFogImmuneEffect(kind) ? this.burstPool : this.shotPool;
     const g = pool.acquire();
     g.clear();
@@ -164,7 +187,7 @@ export class Effects {
     g.alpha = 1;
     g.scale.set(1);
     g.position.set(x, y);
-    this.shots.push({ gfx: g, spec: SPECS[kind], x, y, age: 0, pool });
+    this.shots.push({ gfx: g, spec, peakAlpha, x, y, age: 0, pool });
   }
 
   /** Advance all effects by `dt`; spawn wake behind the own ship first
@@ -223,7 +246,7 @@ export class Effects {
   private drawShot(s: OneShot, k: number): void {
     const spec = s.spec;
     const r = spec.r0 + (spec.r1 - spec.r0) * k;
-    const a = spec.alpha * (1 - k);
+    const a = s.peakAlpha * (1 - k);
     const g = s.gfx;
     g.clear();
     if (spec.type === 'dot') g.circle(0, 0, r).fill({ color: spec.color, alpha: a });

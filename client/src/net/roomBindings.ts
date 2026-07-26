@@ -126,6 +126,14 @@ export interface RoomBindingDeps {
    * triggers the full pulse + chip flash + denial tone late-but-explicit.
    */
   onDenied: (d: DeniedView) => void;
+  /**
+   * EVERY observed sinking (Story 2.3): the victim id + the credited killer id
+   * (null for a storm / unattributed death). main.ts folds it into the personal
+   * score accumulator and, when the victim is US in a live match, opens the
+   * elimination results modal. Fired for our own sinking too, so the accumulator
+   * and the modal share one edge.
+   */
+  onSunkObserved: (victimId: string, killerId: string | null) => void;
   /** Fired ONCE when the first spec frame arrives (enter spectate mode). */
   onSpectate: () => void;
   /** The one end-of-match results broadcast. */
@@ -392,6 +400,9 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   const killer = e.by ? { name: deps.names(e.by), id: e.by } : null;
   pushKillLine(killLine({ name: deps.names(e.id), id: e.id }, killer), deps.colors);
   const sessionId = deps.state.net.sessionId;
+  // Story 2.3: the personal-score accumulator + the elimination modal ride the
+  // SAME observed sinking the kill feed does — no new wire data.
+  deps.onSunkObserved(e.id, e.by ?? null);
   if (e.id === sessionId) {
     // In active this ETA is never used (the same frame carries spec:true and
     // spectate mode owns the overlay); in waiting the respawn overlay reads it.

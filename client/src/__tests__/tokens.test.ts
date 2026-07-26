@@ -261,13 +261,47 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     }
   });
 
-  it('pins the DESIGN.md type ramp registers', () => {
+  it('pins the type ramp registers AT THE STORY 2.3 LIFT (amendment 15)', () => {
+    // The ratified ~1.6x micro lift moves the two micro registers: label 11 -> 17
+    // and hudMicro 9 -> 14. This supersedes DESIGN.md's 9px `hud-micro` pin
+    // (recorded for doc-sync; DESIGN.md is not edited in-story).
     const R = CLIENT_CONFIG.type.registers;
-    expect(R.label.size).toBe(11);
+    expect(R.label.size).toBe(17);
     expect(R.label.weight).toBe(500);
     expect(R.label.tracking).toBe('0.1em');
-    expect(R.hudMicro.size).toBe(9);
+    expect(R.hudMicro.size).toBe(14);
     expect(R.hudMicro.tracking).toBe('0.18em');
+    // No MONO register ships below the 14px micro floor. (`data` carries no
+    // fixed size — context sizes it — so it is skipped by construction; the
+    // DISPLAY registers are body copy, not micro type, and keep their scale.)
+    for (const [name, r] of Object.entries(R)) {
+      if (!('size' in r) || r.family !== 'mono') continue;
+      expect(r.size, name).toBeGreaterThanOrEqual(14);
+    }
+  });
+
+  it('pins the drafted colorblind-assist families (Story 2.3, amendment 18)', () => {
+    expect(C.cvd).toEqual({
+      teal: 0x3f838c,
+      citron: 0xe1ff00,
+      cobalt: 0x266fff,
+      forest: 0x008c05,
+      azure: 0x00bbff,
+      mint: 0x8cff73,
+      ice: 0x73ffff,
+      rose: 0xff4d8e,
+    });
+    expect(C.cvdFills).toEqual({
+      teal: 0x1c3b3f,
+      citron: 0x657300,
+      cobalt: 0x113273,
+      forest: 0x003f02,
+      azure: 0x005473,
+      mint: 0x3f7334,
+      ice: 0x347373,
+      rose: 0x732340,
+    });
+    expect(new Set(Object.values(C.cvd)).size).toBe(8);
   });
 });
 

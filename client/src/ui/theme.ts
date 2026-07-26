@@ -39,6 +39,20 @@ export function registerCss(name: Exclude<RegisterName, 'data'>): string {
   return parts.join(';');
 }
 
+/**
+ * The UI-scale custom property (Story 2.3). HUD-TIER DOM chrome — kill feed,
+ * upgrade toasts, refit cards, the status banner — reads it as a `scale()`
+ * factor so the accessibility UI scale reaches DOM and Pixi alike. PORT chrome
+ * (home, class bay, results, this overlay itself) deliberately does NOT read it:
+ * per the committed AC that tier follows the browser's own zoom.
+ */
+export const UI_SCALE_VAR = '--hc-ui-scale';
+
+/** Write the UI-scale factor (1 = 100%). Live: a CSS var change re-lays-out. */
+export function setUiScaleVar(factor: number, root: HTMLElement = document.documentElement): void {
+  root.style.setProperty(UI_SCALE_VAR, String(factor));
+}
+
 const TABULAR_STYLE_ID = 'hc-tabular-nums';
 
 /**
@@ -71,6 +85,7 @@ export function injectTheme(root: HTMLElement = document.documentElement): void 
   }
   root.style.setProperty('--hc-font-display', CLIENT_CONFIG.type.display);
   root.style.setProperty('--hc-font-mono', CLIENT_CONFIG.type.mono);
+  setUiScaleVar(1, root); // 100% until the settings store applies its stored tier
   // Every DOM number sits still (tabular-nums inherits to all chrome).
   root.style.fontVariantNumeric = 'tabular-nums';
   injectTabularStylesheet(root.ownerDocument ?? document);

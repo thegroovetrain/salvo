@@ -221,7 +221,7 @@ describe('plateScreenY — floats above the hull, constant screen font at any zo
     expect(100 - half - pad).toBeCloseTo((100 - full - pad) / 2, 9);
     // The screen font size is a constant, independent of zoom — plates live in
     // screen space, so 0.5× spectate zoom never shrinks the text.
-    expect(PLATE_FONT_PX).toBe(9);
+    expect(PLATE_FONT_PX).toBe(14); // Story 2.3 lift: hud-micro 9 -> 14 (amendment 15)
   });
 
   it('uses each hull id\'s own silhouette radius (per-class offset)', () => {

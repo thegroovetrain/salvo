@@ -23,7 +23,9 @@ import { UPGRADE_IDS, categoryOf, type OwnShip, type UpgradeId } from '@salvo/sh
 import { upgradeLabel } from './upgradeToast.js';
 
 const PANEL_ID = 'upgrade-menu';
-const DIM = 'var(--hc-text-muted)';
+// Story 2.3 (amendment 17): the refit card's resting state is bright white
+// content, not grey — hover/focus still flips it to amber.
+const REST = 'var(--hc-text-primary)';
 const AMBER = 'var(--hc-amber)';
 
 /** The spendable state the panel renders — derived purely from `you`. */
@@ -71,23 +73,26 @@ const PANEL_CSS = [
   'position:fixed',
   'top:30%',
   'left:50%',
-  'transform:translateX(-50%)',
   'display:none', // toggled to 'flex' when shown
   'flex-direction:column',
   'gap:8px',
-  'width:340px',
+  'width:420px',
   'max-width:calc(100vw - 16px)', // never clip against the body's overflow:hidden on narrow viewports
   'padding:16px',
   'background:var(--hc-panel)',
   'border:1px solid var(--hc-phosphor)',
   'z-index:1000',
+  // HUD-tier DOM chrome scales with the accessibility UI scale (Story 2.3); the
+  // centering translate composes with it.
+  'transform-origin:top center',
+  'transform:translateX(-50%) scale(var(--hc-ui-scale, 1))',
 ].join(';');
 
 const TITLE_CSS = [
-  'font:600 13px var(--hc-font-mono)',
+  'font:600 20px var(--hc-font-mono)',
   'letter-spacing:2px',
   'text-transform:uppercase',
-  'color:' + DIM,
+  'color:var(--hc-phosphor)',
   'text-align:center',
   'margin-bottom:4px',
 ].join(';');
@@ -99,9 +104,9 @@ const ROW_CSS = [
   'width:100%',
   'padding:10px 12px',
   'background:var(--hc-panel)',
-  'border:1px solid ' + DIM,
-  'color:' + DIM,
-  'font:600 13px var(--hc-font-mono)',
+  'border:1px solid var(--hc-hairline)',
+  'color:' + REST,
+  'font:600 20px var(--hc-font-mono)',
   'letter-spacing:1px',
   'text-transform:uppercase',
   'text-align:left',
@@ -119,7 +124,7 @@ const ROW_INERT_CSS = ROW_CSS + ';opacity:0.4;cursor:default';
  *  digit riding currentColor so the row's dim/amber state cascades into it. */
 const KEY_CHIP_CSS = [
   'display:inline-block',
-  'min-width:14px',
+  'min-width:20px',
   'padding:1px 5px',
   'border:1px solid currentColor',
   'text-align:center',
@@ -128,8 +133,8 @@ const KEY_CHIP_CSS = [
 ].join(';');
 
 function paintRow(btn: HTMLButtonElement, on: boolean): void {
-  btn.style.borderColor = on ? AMBER : DIM;
-  btn.style.color = on ? AMBER : DIM;
+  btn.style.borderColor = on ? AMBER : 'var(--hc-hairline)';
+  btn.style.color = on ? AMBER : REST;
 }
 
 /**

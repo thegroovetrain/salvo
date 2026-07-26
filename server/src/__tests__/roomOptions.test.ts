@@ -3,7 +3,7 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { sanitizeRoomOptions, type RoomOptions } from '../rooms/roomOptions.js';
+import { NAME_MAX, sanitizeName, sanitizeRoomOptions, type RoomOptions } from '../rooms/roomOptions.js';
 
 const MATCH_OVERRIDE = { sandbox: true, minHumans: 1, countdownMs: 1, resultsMs: 1 };
 const ZONE_OVERRIDE = { grace: 1, shrinkDuration: 1, endRadiusFraction: 0.1 };
@@ -104,5 +104,76 @@ describe('sanitizeRoomOptions — devEnabled=true (HC_DEV_OPTIONS=1, smokes/test
       expect(sanitized.mapSeed).toBeUndefined();
       expect(rejectedKeys).toEqual([]); // stripped silently — dev asked, dev gave junk
     }
+  });
+});
+
+
+// --- callsign hardening (Story 2.3 — deferred-work 127/130) ------------------
+
+describe('sanitizeName — options.name is client-supplied and untrusted', () => {
+  it('type-guards a NON-STRING to undefined instead of throwing on .trim()', () => {
+    // The pre-2.3 call site was `options.name?.trim()`, which THREW on a number
+    // or an object. undefined ⇒ the caller falls back to CAPTAIN-n.
+    expect(sanitizeName(123)).toBeUndefined();
+    expect(sanitizeName({ toString: () => 'HAX' })).toBeUndefined();
+    expect(sanitizeName([])).toBeUndefined();
+    expect(sanitizeName(null)).toBeUndefined();
+    expect(sanitizeName(undefined)).toBeUndefined();
+    expect(sanitizeName(true)).toBeUndefined();
+  });
+
+  it('trims, and treats an empty / all-whitespace name as absent', () => {
+    expect(sanitizeName('  SALTY DOG  ')).toBe('SALTY DOG');
+    expect(sanitizeName('')).toBeUndefined();
+    expect(sanitizeName('    ')).toBeUndefined();
+  });
+
+  it('caps at NAME_MAX CODE POINTS (the client entry cap)', () => {
+    const long = 'X'.repeat(40);
+    expect(sanitizeName(long)).toHaveLength(NAME_MAX);
+    expect(NAME_MAX).toBe(14);
+  });
+
+  it('counts CODE POINTS, never UTF-16 units — a surrogate pair is not split', () => {
+    const emoji = '🚢'.repeat(20); // 20 code points, 40 UTF-16 units
+    const capped = sanitizeName(emoji) ?? '';
+    expect([...capped]).toHaveLength(NAME_MAX);
+    expect(capped).toBe('🚢'.repeat(NAME_MAX)); // no lone surrogate at the tail
+  });
+
+  it('leaves a name already inside the cap byte-identical', () => {
+    expect(sanitizeName('CAPTAIN-9')).toBe('CAPTAIN-9');
+  });
+
+  // --- REGRESSION (Story 2.3 review gate): identity spoofing ----------------
+  // Control/format code points survived trim + cap, so a callsign could render
+  // as a BLANK captain on every plate/feed/results row, or reverse the display
+  // order of everything painted after it.
+
+  it('a ZERO-WIDTH-ONLY callsign falls back to CAPTAIN-n, never a blank identity', () => {
+    expect(sanitizeName('\u200b\u200b\u200b')).toBeUndefined(); // ZWSP
+    expect(sanitizeName('\u200d\u2060\ufeff')).toBeUndefined(); // ZWJ / word-joiner / BOM
+    expect(sanitizeName('\u200b   \u200b')).toBeUndefined(); // invisibles + whitespace
+  });
+
+  it('strips an embedded BIDI OVERRIDE instead of letting it mangle the roster', () => {
+    expect(sanitizeName('AB\u202eCD')).toBe('ABCD'); // RIGHT-TO-LEFT OVERRIDE
+    expect(sanitizeName('\u2066HORNET\u2069')).toBe('HORNET'); // isolates
+  });
+
+  it('strips control characters (a newline must never reach a rendered plate)', () => {
+    expect(sanitizeName('OLD\nSALT')).toBe('OLDSALT');
+    expect(sanitizeName('OLD\u0000SALT')).toBe('OLDSALT');
+    expect(sanitizeName('\u0007')).toBeUndefined();
+  });
+
+  it('strips BEFORE the cap, so invisibles can never eat visible characters', () => {
+    expect(sanitizeName('\u200b'.repeat(20) + 'HORNET')).toBe('HORNET');
+    expect(sanitizeName('\u200b'.repeat(20) + 'X'.repeat(40))).toHaveLength(NAME_MAX);
+  });
+
+  it('leaves ordinary names — including emoji — untouched', () => {
+    expect(sanitizeName('SALTY DOG')).toBe('SALTY DOG');
+    expect(sanitizeName('🚢 AHOY')).toBe('🚢 AHOY'); // a paired surrogate is one code point
   });
 });

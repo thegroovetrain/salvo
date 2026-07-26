@@ -16,6 +16,7 @@
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { ZonePhase } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { motionScaled, settings } from '../settings/store.js';
 import { bakeVignetteTexture } from './textures.js';
 
 const SAFE_RING = CLIENT_CONFIG.colors.phosphor; // phosphor-green safe boundary — the safe side
@@ -42,10 +43,14 @@ const VIGNETTE_PULSE_HZ = 1.1; // pulses per second
  * Out-of-zone vignette alpha (pure). 0 when safely inside; otherwise a gentle
  * sinusoidal pulse in [base−amp, base+amp] driven by wall-clock seconds. Kept
  * pure so the state→alpha mapping is unit-tested without Pixi.
+ *
+ * MOTION-GATED (Story 2.3): `amp` is the motion-scaled pulse amplitude — halved
+ * at `reduced`, zero at `off`, where the vignette holds its steady base alpha.
+ * The hazard stays fully visible at every level; only the pulse is motion.
  */
-export function vignetteAlpha(inStorm: boolean, tSec: number): number {
+export function vignetteAlpha(inStorm: boolean, tSec: number, amp: number = VIGNETTE_AMP): number {
   if (!inStorm) return 0;
-  return VIGNETTE_BASE + VIGNETTE_AMP * Math.sin(tSec * VIGNETTE_PULSE_HZ * Math.PI * 2);
+  return VIGNETTE_BASE + amp * Math.sin(tSec * VIGNETTE_PULSE_HZ * Math.PI * 2);
 }
 
 /** Draw a dashed circle (50% duty) into `g` as many arc subpaths; caller strokes. */
@@ -112,7 +117,9 @@ export class Zone {
     this.vignette.position.set(screenW / 2, screenH / 2);
     this.vignette.width = screenW;
     this.vignette.height = screenH;
-    this.vignette.alpha = active ? vignetteAlpha(inStorm, nowSec) : 0;
+    this.vignette.alpha = active
+      ? vignetteAlpha(inStorm, nowSec, motionScaled(VIGNETTE_AMP, settings.current.motion))
+      : 0;
   }
 
   destroy(): void {

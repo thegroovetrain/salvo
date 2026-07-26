@@ -1,5 +1,8 @@
-// THE hotbar (Story 2.2) — four 54px slots stacked bottom-left, top-to-bottom
+// THE hotbar (Story 2.2) — four square slots stacked bottom-left, top-to-bottom
 // Gun (keyless) – Q – E – R (amendment 10), rendered in Pixi over the water.
+// Story 2.3 grew the geometry (slot / key chip / label column / tooltip) to fit
+// the ratified ~1.6x type lift, de-greyed the row text to phosphor data + white
+// names, and gated the ACTIVATED pop + glow amplitude on the motion setting.
 //
 // Shape: a PURE CORE (state mapping, layout, hit-test, quick-info strings,
 // tooltip model + placement, hover dwell, click routing) with a thin Pixi shell
@@ -39,6 +42,7 @@ import {
   type WeaponAmmo,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { motionAllowed, motionIntensity, settings, type MotionLevel } from '../settings/store.js';
 import type { ScreenPoint } from '../input/mouse.js';
 import { tracePerimeter, traceDashed } from '../util/poly.js';
 import { drawEquipmentIcon, drawPlusGlyph } from './equipmentIcons.js';
@@ -171,6 +175,9 @@ export interface HotbarView {
   activated: readonly boolean[];
   /** The refit modal is open: dim to 38%, slot keys AND clicks suspended. */
   dim: boolean;
+  /** Accessibility motion level (Story 2.3) — gates the ACTIVATED pop and the
+   *  glow amplitude. Defaults to 'full' so existing callers/tests are unchanged. */
+  motion?: MotionLevel;
 }
 
 /** Pure: the four row view models, in slot order (Gun – Q – E – R). */
@@ -196,6 +203,19 @@ function emptySlotModel(slot: number, keyGlyph: string): SlotViewModel {
   return { slot, id: null, state: 'empty', selected: false, chamfer: false, keyGlyph, name: EMPTY_SLOT_LABEL, quickInfo: '', badge: null, coolFrac: 0 };
 }
 
+/**
+ * Pure: this frame's feedback latches for a slot. The ACTIVATED pop is pure
+ * juice — the cooling track that follows it carries the same information
+ * statically — so the accessibility motion level suppresses it at `off`. The
+ * DENIED latch is never gated: it is the denial's only visual channel.
+ */
+export function slotFlags(view: HotbarView, slot: number): SlotFlags {
+  return {
+    denied: view.denied[slot] ?? false,
+    activated: (view.activated[slot] ?? false) && motionAllowed(view.motion ?? 'full'),
+  };
+}
+
 function slotViewModel(view: HotbarView, slot: number): SlotViewModel {
   const id = view.loadout[slot] ?? null;
   const keyGlyph = SLOT_KEY_GLYPHS[slot] ?? '';
@@ -206,7 +226,7 @@ function slotViewModel(view: HotbarView, slot: number): SlotViewModel {
   // The countdown + conic track belong to the COOLING read: a slot that still
   // has a round shows its full CD, not the timer for the next one.
   const left = cooling ? (a?.reloadMsLeft ?? 0) : 0;
-  const flags: SlotFlags = { denied: view.denied[slot] ?? false, activated: view.activated[slot] ?? false };
+  const flags = slotFlags(view, slot);
   const selected = slot === view.primedSlot;
   return {
     slot,
@@ -248,14 +268,32 @@ const SKINS: Record<SlotState, SlotSkin> = {
   readyWeapon: { border: C.phosphor, borderAlpha: 0.4, borderWidth: 1, glowPx: 10, glowAlpha: 0.15, wash: C.void, washAlpha: 0, icon: C.phosphor, iconAlpha: 0.75, dashed: false, scrim: false },
   readyAbility: { border: C.phosphor, borderAlpha: 0.65, borderWidth: 1, glowPx: 14, glowAlpha: 0.18, wash: C.void, washAlpha: 0, icon: C.phosphor, iconAlpha: 0.85, dashed: false, scrim: false },
   selected: { border: C.amber, borderAlpha: 1, borderWidth: 1.5, glowPx: 16, glowAlpha: 0.22, wash: C.amber, washAlpha: 0.12, icon: C.amber, iconAlpha: 0.95, dashed: false, scrim: false },
-  cooling: { border: C.silver, borderAlpha: 0.28, borderWidth: 1, glowPx: 0, glowAlpha: 0, wash: C.void, washAlpha: 0, icon: C.textMuted, iconAlpha: 0.55, dashed: false, scrim: true },
+  // Cooling DIMS the phosphor icon (amendment 16 — dim the same color, never
+  // swap in grey); the silver box edge is decorative linework and stays.
+  cooling: { border: C.silver, borderAlpha: 0.28, borderWidth: 1, glowPx: 0, glowAlpha: 0, wash: C.void, washAlpha: 0, icon: C.phosphor, iconAlpha: 0.55, dashed: false, scrim: true },
   activated: { border: C.phosphor, borderAlpha: 1, borderWidth: 1.5, glowPx: 22, glowAlpha: 0.3, wash: C.phosphor, washAlpha: 0.2, icon: C.phosphorBright, iconAlpha: 1, dashed: false, scrim: false },
   denied: { border: C.denied, borderAlpha: 1, borderWidth: 2, glowPx: 8, glowAlpha: 0.25, wash: C.void, washAlpha: 0, icon: C.denied, iconAlpha: 1, dashed: false, scrim: false },
 };
 
-/** Pure: the skin for a slot state. */
-export function slotSkin(state: SlotState): SlotSkin {
-  return SKINS[state];
+/**
+ * Pure: the alpha a row's TEXT renders at. Amendment 16's dim-not-grey rule: a
+ * cooling or empty slot dims the phosphor/white it already uses instead of
+ * swapping in a grey, so the state grammar reads without any grey text.
+ */
+export function dimAlphaFor(m: Pick<SlotViewModel, 'state' | 'id'>): number {
+  return m.state === 'cooling' || m.id === null ? DIM_TEXT_ALPHA : 1;
+}
+
+/**
+ * Pure: the skin for a slot state, with the accessibility motion level applied
+ * to the GLOW amplitude only (Story 2.3). The border/icon/wash colors — the
+ * channels that carry the STATE information, denied red included — are never
+ * touched: `off` removes the bloom, never the meaning.
+ */
+export function slotSkin(state: SlotState, motionIntensity = 1): SlotSkin {
+  const skin = SKINS[state];
+  if (motionIntensity >= 1) return skin;
+  return { ...skin, glowPx: skin.glowPx * motionIntensity, glowAlpha: skin.glowAlpha * motionIntensity };
 }
 
 // --- pure core: layout + hit-test ----------------------------------------------
@@ -322,8 +360,8 @@ export function hotbarLayout(screenH: number): HotbarLayout {
       keyY: top + (H.slot - H.keyChip) / 2,
       box: { x: boxX, y: top, size: H.slot },
       labelX,
-      nameY: top + 11,
-      infoY: top + 30,
+      nameY: top + H.nameTop,
+      infoY: top + H.infoTop,
       row: {
         x: H.left,
         y: top - H.badgeOverhang, // the badge overhangs the slot's top-right
@@ -439,20 +477,30 @@ export function tooltipPlacement(row: HotbarRow, panelH: number, screenW: number
 
 // --- Pixi shell -----------------------------------------------------------------
 
-const KEY_STYLE = { fontFamily: MONO, fontSize: 9, fill: C.textMuted, letterSpacing: 0 } as const;
-const NAME_STYLE = { fontFamily: DISPLAY, fontSize: 13, fontWeight: '600', fill: C.textPrimary, letterSpacing: 0.3 } as const;
-const INFO_STYLE = { fontFamily: MONO, fontSize: 10, fill: C.textMuted, letterSpacing: 0.8 } as const;
-const BADGE_STYLE = { fontFamily: MONO, fontSize: 10, fill: C.phosphor, letterSpacing: 0 } as const;
-const TIP_NAME_STYLE = { fontFamily: MONO, fontSize: 11, fill: C.textPrimary, letterSpacing: 1.1 } as const;
-const TIP_INTERACTION_STYLE = { fontFamily: MONO, fontSize: 9, fill: C.amber, letterSpacing: 1.6 } as const;
+// Story 2.3 (amendments 15/16): every size carries the ratified ~1.6x lift
+// (9->14, 10->16, 11->17, 12->18, 13->20) and the hotbar de-grey — key chips,
+// quick-info and the reload countdown render CIC PHOSPHOR, slot names render
+// bright white. Grey text is gone from this surface entirely; the cooling/empty
+// states DIM these same colors (DIM_ALPHA) instead of switching to grey, so the
+// state grammar survives the de-grey.
+const KEY_STYLE = { fontFamily: MONO, fontSize: 14, fill: C.phosphor, letterSpacing: 0 } as const;
+const NAME_STYLE = { fontFamily: DISPLAY, fontSize: 20, fontWeight: '600', fill: C.textPrimary, letterSpacing: 0.3 } as const;
+const INFO_STYLE = { fontFamily: MONO, fontSize: 16, fill: C.phosphor, letterSpacing: 0.8 } as const;
+const BADGE_STYLE = { fontFamily: MONO, fontSize: 16, fill: C.phosphor, letterSpacing: 0 } as const;
+const TIP_NAME_STYLE = { fontFamily: MONO, fontSize: 17, fill: C.textPrimary, letterSpacing: 1.1 } as const;
+const TIP_INTERACTION_STYLE = { fontFamily: MONO, fontSize: 14, fill: C.amber, letterSpacing: 1.6 } as const;
 const TIP_DESC_STYLE = {
   fontFamily: DISPLAY,
-  fontSize: 12,
-  fill: C.textSecondary,
+  fontSize: 18,
+  fill: C.textPrimary,
   wordWrap: true,
   wordWrapWidth: H.tooltip.width - H.tooltip.pad * 2,
-  lineHeight: 17,
+  lineHeight: 26,
 } as const;
+
+/** Alpha the phosphor/white row text dims to in the cooling + empty states
+ *  (amendment 16: "dim these same colors, never grey"). */
+export const DIM_TEXT_ALPHA = 0.7;
 
 /** The outline path of a slot square, with an optional top-right chamfer cut. */
 function slotOutline(b: SlotRect, cut: number): ScreenPoint[] {
@@ -558,7 +606,7 @@ export class Hotbar {
   }
 
   private drawRow(m: SlotViewModel, row: HotbarRow): void {
-    const skin = slotSkin(m.state);
+    const skin = slotSkin(m.state, motionIntensity(settings.current.motion));
     this.drawBox(m, row.box, skin);
     this.drawIcon(m, row.box, skin);
     this.drawKeyChip(m, row);
@@ -621,10 +669,13 @@ export class Hotbar {
       this.gfx.rect(row.keyX, row.keyY, s, s).fill({ color: C.amber, alpha: 1 });
       this.gfx.rect(row.keyX, row.keyY, s, s).stroke({ width: 1, color: C.amber, alpha: 1 });
     } else if (m.keyGlyph !== '') {
-      this.gfx.rect(row.keyX, row.keyY, s, s).stroke({ width: 1, color: C.textMuted, alpha: 0.55 });
+      this.gfx.rect(row.keyX, row.keyY, s, s).stroke({ width: 1, color: C.phosphor, alpha: 0.55 });
     }
     t.visible = m.keyGlyph !== '';
-    this.setFill(t, m.selected ? C.void : C.textMuted);
+    // Key chips are PHOSPHOR (amendment 16); the SELECTED chip fills amber and
+    // knocks its glyph out in void. Cooling/empty dim the phosphor, never grey.
+    this.setFill(t, m.selected ? C.void : C.phosphor);
+    t.alpha = m.selected ? 1 : dimAlphaFor(m);
     t.position.set(row.keyX + s / 2, row.keyY + s / 2);
     this.setText(t, m.keyGlyph, m.slot * 4);
   }
@@ -640,15 +691,21 @@ export class Hotbar {
     const y = box.y - H.badgeOverhang;
     this.gfx.rect(x, y, s, s).fill({ color: C.cardScrim, alpha: 0.95 });
     this.gfx.rect(x, y, s, s).stroke({ width: 1, color: C.phosphor, alpha: 0.5 });
+    t.alpha = dimAlphaFor(m);
     t.position.set(x + s / 2, y + s / 2);
     this.setText(t, m.badge, m.slot * 4 + 1);
   }
 
   private updateRowText(m: SlotViewModel, row: HotbarRow): void {
     const { name, info } = this.rowText[m.slot];
+    const dim = dimAlphaFor(m);
     name.position.set(row.labelX, row.nameY);
     info.position.set(row.labelX, row.infoY);
-    this.setFill(name, m.selected ? C.amber : m.state === 'cooling' || m.id === null ? C.textMuted : C.textPrimary);
+    // Names: bright white, amber while selected. Cooling/empty DIM the same
+    // color rather than switching to grey (amendment 16).
+    this.setFill(name, m.selected ? C.amber : C.textPrimary);
+    name.alpha = dim;
+    info.alpha = dim;
     info.visible = m.quickInfo !== '';
     this.setText(name, m.name, m.slot * 4 + 2);
     this.setText(info, m.quickInfo, m.slot * 4 + 3);

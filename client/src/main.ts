@@ -28,6 +28,7 @@ import {
   type EquipmentId,
   type GameMap,
   type OwnShip,
+  type ResultsMsg,
   type ShipClassId,
   type WeaponAmmo,
 } from '@salvo/shared';
@@ -36,7 +37,7 @@ import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
 import { buildMap } from './render/map.js';
 import { Camera, canUserZoom } from './render/camera.js';
-import { ShipView, FALLBACK_STYLE, PLAYER_HUES, hullStyle } from './render/ships.js';
+import { ShipView, FALLBACK_STYLE, PLAYER_HUES, hullStyle, hueRevision, setColorblindAssist } from './render/ships.js';
 import { ContactViews, type PlateFrame } from './render/contacts.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles } from './render/projectiles.js';
@@ -71,7 +72,31 @@ import { showHome, type HomeHandle } from './ui/home.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
 import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
-import { showResults } from './ui/results.js';
+import {
+  closeResultsAsSpectate,
+  hideResults,
+  resultsVisible,
+  showResults,
+  updateResultsScore,
+  winnerBanner,
+  type ResultsView,
+} from './ui/results.js';
+import { SettingsOverlay, canAbandon, canOpenSurface, escapeAction } from './ui/settings.js';
+import { effectiveScale, scaleFactor, settings } from './settings/store.js';
+import { setUiScaleVar } from './ui/theme.js';
+import {
+  canOpenElimination,
+  freshScore,
+  isLiveRival,
+  personalScore,
+  personalScoreFromResults,
+  recordElimination,
+  recordSunk,
+  refinePlacement,
+  scoreAfterReconnect,
+  type PersonalScore,
+  type ScoreState,
+} from './score.js';
 import { Audio } from './audio/context.js';
 import { audioCues, stormEnterEdge, telegraphTone, INITIAL_CUE_STATE, type AudioCueState } from './audio/tones.js';
 import { createNullAdapter } from './portal/nullAdapter.js';
@@ -120,6 +145,21 @@ interface Game {
   /** The TAB-toggled refit modal (ui/upgradeMenu.ts) — DOM; while open the
    *  game is under full combat lockout (Story 2.1) but the sim never pauses. */
   upgradeMenu: UpgradeMenu;
+  /** The ESC-toggled settings overlay (ui/settings.ts, Story 2.3). A FOCUSED
+   *  overlay: while it is open every sim key and canvas click is suppressed —
+   *  and the simulation still never pauses. */
+  settingsOverlay: SettingsOverlay;
+  /** The own personal-score accumulator (score.ts) — reset at every hard
+   *  boundary (match start, return to port, reconnect). */
+  score: ScoreState;
+  /** The match phase the accumulator's epoch was last synced to (see
+   *  updateScoreEpoch — the ready room's sinkings are not match score). */
+  scorePhase: string;
+  /** render/ships.ts hue-table revision last applied to the own hull, so a live
+   *  colorblind-assist toggle forces the latched own color to re-resolve. */
+  hueRev: number;
+  /** The UI-scale FACTOR currently applied to the Pixi HUD root + the DOM var. */
+  uiScale: number;
   /**
    * FINDING A latch: set the instant a spend is sent, cleared once it visibly
    * lands (pts drops) or a fallback timeout elapses (the server silently
@@ -204,6 +244,13 @@ interface Game {
   portal: PortalAdapter;
   /** Latch: portal.matchEnd() fired — results re-delivery must not re-fire it. */
   matchEnded: boolean;
+  /**
+   * True once the GAME-END results have been presented. From that moment the
+   * debrief is final: a late own-`sunk` (the winner's own killing blow race)
+   * must not replace the placement table with a live elimination modal, and the
+   * modal's numbers stop being re-derived from the roster.
+   */
+  resultsFinal: boolean;
   /** performance.now() when the results overlay was shown (Infinity until it
    *  is). Results-phase ESC/Enter arm only after CLIENT_CONFIG.results.keyGraceMs
    *  has elapsed, so a key aimed at the refit modal can't instantly return. */
@@ -390,6 +437,10 @@ function currentOfferView(g: Game): OfferView | null {
  * without choosing. Digit picks route through handleRefitPick below.
  */
 function handleRefitToggle(g: Game): void {
+  // No stacking, either direction (amendment 23): the refit modal never opens
+  // over the settings overlay or the results screen. (The chokepoint already
+  // swallows TAB under a focused overlay; this is the policy-side guard.)
+  if (!g.upgradeMenu.visible && !canOpenSurface('refit', openSurfaces(g))) return;
   const view = currentOfferView(g);
   if (!view) {
     g.upgradeMenu.hide();
@@ -424,29 +475,63 @@ function resultsKeysArmed(g: Game): boolean {
   return performance.now() - g.resultsShownAt >= CLIENT_CONFIG.results.keyGraceMs;
 }
 
-/**
- * ESC — close the topmost surface. Once the results overlay is up (the match
- * finished and its broadcast landed) the topmost surface IS the results screen,
- * and ESC returns to port — the ratified UX-DR27 keyboard path, the exact same
- * chain the RETURN TO PORT button drives. While alive that is the refit modal
- * (untouched); with nothing open, nothing happens (the settings overlay arrives
- * in Story 2.3). Inside the arming grace ESC falls through to the (harmless)
- * modal hide instead.
- */
-function handleEscape(g: Game): void {
-  if (g.state.matchOver && resultsKeysArmed(g)) {
-    returnToPort(g);
-    return;
-  }
-  g.upgradeMenu.hide();
+/** The surfaces the uniform ESC law arbitrates between, topmost-first. */
+function openSurfaces(g: Game): { results: boolean; refit: boolean; settings: boolean } {
+  return { results: resultsVisible(), refit: g.upgradeMenu.visible, settings: g.settingsOverlay.visible };
 }
 
-/** ENTER — confirm the topmost surface. Today only the results overlay listens
- *  (UX-DR27: Enter and ESC both = RETURN TO PORT); inert in-match, and inert
- *  inside the results arming grace. */
-function handleConfirm(g: Game): void {
-  if (g.state.matchOver && resultsKeysArmed(g)) returnToPort(g);
+/**
+ * ESC — THE uniform topmost-close law (amendment 23; the decision itself is the
+ * pure `escapeAction`). It closes the topmost open surface — results modal
+ * (identically to pressing SPECTATE), then the refit modal, then the settings
+ * overlay — and only when NOTHING is open does it toggle settings on. ESC never
+ * returns to port and settings never stacks over another surface.
+ *
+ * The results arming grace still binds: inside it an ESC the player aimed at the
+ * refit modal must not dismiss the just-shown results screen, so the close is
+ * simply skipped (the modal stays up and the next ESC lands honestly).
+ */
+function handleEscape(g: Game): void {
+  const action = escapeAction(openSurfaces(g));
+  if (action === 'closeResults') {
+    if (resultsKeysArmed(g)) closeResultsAsSpectate();
+    return;
+  }
+  if (action === 'closeRefit') g.upgradeMenu.hide();
+  else if (action === 'closeSettings') g.settingsOverlay.close();
+  else openSettingsOverlay(g);
 }
+
+/**
+ * Open the settings overlay from inside a match. Opening it is a FOCUSED-overlay
+ * edge, so every held helm key is dropped the way entering spectate drops them:
+ * the chokepoint's suppression is keydown-only while `axes()` reads the LATCHED
+ * key set, so a rudder key held as the overlay opened would keep steering the
+ * (never-paused) ship until a keyup that the suppression swallows. The telegraph
+ * order is deliberately untouched — it is a set-and-forget order, not a held key.
+ */
+function openSettingsOverlay(g: Game): void {
+  g.settingsOverlay.open();
+  g.keyboard.clearKeys();
+}
+
+/**
+ * ENTER — confirm the topmost surface. On the GAME-END results screen that is
+ * RETURN TO PORT (UX-DR27, kept by amendment 22); on an elimination modal
+ * mid-match there is nothing to confirm (leaving is the explicit button). On the
+ * settings overlay it fires an ARMED danger action — amendment 19 rules the
+ * confirm as "second click OR Enter", and the danger buttons never keep focus,
+ * so the key has to arrive through this hook. Inert otherwise, and inside the
+ * results arming grace.
+ */
+function handleConfirm(g: Game): void {
+  if (resultsVisible()) {
+    if (g.state.matchOver && resultsKeysArmed(g)) returnToPort(g);
+    return;
+  }
+  if (g.settingsOverlay.visible) g.settingsOverlay.confirmArmed();
+}
+
 
 /** Live safe radius + state, derived locally from the schema's zone plane. */
 interface ZoneView {
@@ -462,7 +547,13 @@ interface PublicState {
   matchPhase?: string;
   countdownEndT?: number;
   winnerId?: string;
-  players?: { size: number; get(id: string): { name?: string; color?: number } | undefined };
+  players?: {
+    size: number;
+    get(id: string): { name?: string; color?: number; kills?: number; alive?: boolean } | undefined;
+    /** MapSchema iteration (roster scans: live-contestant count for placement).
+     *  `color` carries the drone sentinel, so placement can exclude drones. */
+    forEach(fn: (meta: { id?: string; alive?: boolean; color?: number }) => void): void;
+  };
 }
 
 function publicState(g: Game): PublicState {
@@ -484,6 +575,18 @@ function zoneView(g: Game, now: number): ZoneView {
 function matchUxFromRoom(g: Game, now: number): MatchUx {
   const s = publicState(g);
   return matchUx(s.matchPhase ?? 'waiting', s.players?.size ?? 1, s.countdownEndT ?? 0, now);
+}
+
+/**
+ * Reset the personal-score accumulator on the waiting/countdown → ACTIVE edge.
+ * The weapons-safe ready room lets hulls sink and respawn freely; none of that
+ * is match score, and a ready-room death is a respawn, never an elimination.
+ */
+function updateScoreEpoch(g: Game): void {
+  const phase = publicState(g).matchPhase ?? 'waiting';
+  if (phase === g.scorePhase) return;
+  g.scorePhase = phase;
+  if (phase === 'active') g.score = freshScore();
 }
 
 /** Roster name lookup for the kill feed / results (falls back to the raw id). */
@@ -540,8 +643,17 @@ function ordnanceHue(g: Game, by: string): number | null {
  */
 function updateOwnColor(g: Game): void {
   const idx = rosterColor(g, g.state.net.sessionId);
-  if (idx === g.ownHueIndex) return;
+  // Story 2.3: a colorblind-assist toggle swaps the whole hue table, so the
+  // LATCHED own color has to re-resolve even though the roster index is
+  // unchanged — the revision counter is that edge.
+  const rev = hueRevision();
+  if (idx === g.ownHueIndex && rev === g.hueRev) return;
+  // A hue-table swap also invalidates the LATCHED own nameplate (its text color
+  // is the personal hue's text-safe variant), so drop the latch and let
+  // updateOwnPlate re-resolve it on this same frame.
+  if (rev !== g.hueRev) g.ownPlated = false;
   g.ownHueIndex = idx;
+  g.hueRev = rev;
   const style = hullStyle(idx);
   g.ownView.setColors(style.stroke, style.fill);
   // `?? amber` guards the array lookup so setWakeColor can never receive undefined
@@ -602,6 +714,134 @@ function zoneHud(zv: ZoneView, now: number, inStorm: boolean): ZoneHud {
     line = 'STORM CLOSED';
   }
   return { line, inStorm };
+}
+
+// --- personal score + the results modal (amendments 22/23) ---------------------
+
+/**
+ * Live CONTESTANT count excluding the local player — the placement input
+ * (k rivals still floating ⇒ you place k+1). Read off the public roster, and
+ * DRONES ARE NOT CONTESTANTS: they fill empty slots so a solo captain still
+ * gets a battle royale, the win check is human-gated, and the results table
+ * lists humans only — so a placement counting them reported a number that
+ * matched nothing else the player is shown.
+ */
+function othersAlive(g: Game): number {
+  const players = publicState(g).players;
+  if (!players) return 0;
+  let n = 0;
+  players.forEach((meta: { id?: string; alive?: boolean; color?: number }) => {
+    if (isLiveRival(meta, g.state.net.sessionId, REGATTA_NO_HUE)) n += 1;
+  });
+  return n;
+}
+
+/** Has the ROSTER caught up with our own sinking? While it hasn't, the alive
+ *  count it reports is a patch-lagged snapshot and the placement derived from
+ *  it is provisional (see score.ts refinePlacement). */
+function ownRosterSettled(g: Game): boolean {
+  return publicState(g).players?.get(g.state.net.sessionId)?.alive === false;
+}
+
+/** The own roster kill tally (server-authoritative, public, drones included). */
+function ownKills(g: Game): number {
+  return publicState(g).players?.get(g.state.net.sessionId)?.kills ?? 0;
+}
+
+/** True iff `id` is a DRONE (the roster's 255 hue sentinel). */
+function isDroneId(g: Game, id: string): boolean {
+  return publicState(g).players?.get(id)?.color === REGATTA_NO_HUE;
+}
+
+/** Did the local player win? (Public match plane, once finished.) */
+function isWinner(g: Game): boolean {
+  return publicState(g).winnerId === g.state.net.sessionId;
+}
+
+/** Assemble the modal's personal-score block from the accumulator + roster. */
+function ownScore(g: Game): PersonalScore {
+  return personalScore(g.score, g.state.net.you?.upg, ownKills(g), isWinner(g));
+}
+
+/**
+ * EVERY observed sinking (own included) folds into the score accumulator: a kill
+ * credited to us adds the victim to the sunk-contestant roll (drones excluded),
+ * and OUR OWN sinking during a LIVE match latches the elimination placement and
+ * opens the results modal immediately — the ratified replacement for the old
+ * silent auto-spectate.
+ */
+function handleSunkObserved(g: Game, victimId: string, killerId: string | null): void {
+  g.score = recordSunk(
+    g.score,
+    // rosterNameOrNull, never rosterName: a victim who has already LEFT the
+    // roster has no callsign, and the id fallback would print a session id into
+    // "SHIPS YOU SANK". A nameless kill still counts in the roster tally.
+    { victimId, victimName: rosterNameOrNull(g, victimId), killerId, victimIsDrone: isDroneId(g, victimId) },
+    g.state.net.sessionId,
+  );
+  if (victimId !== g.state.net.sessionId) return;
+  // The three ways an own-sinking is NOT an elimination-modal moment: a
+  // ready-room respawn, an own-`sunk` racing in behind the game-end results
+  // broadcast, and a duplicate of a sinking already latched. See
+  // score.ts canOpenElimination for the full reasoning on each.
+  if (!canOpenElimination(publicState(g).matchPhase ?? 'waiting', g.resultsFinal, g.score.eliminated)) return;
+  g.score = recordElimination(g.score, othersAlive(g));
+  showEliminationResults(g);
+}
+
+/** The elimination modal: personal score + placement, SPECTATE + RETURN TO PORT. */
+function showEliminationResults(g: Game): void {
+  presentResults(g, { banner: 'ELIMINATED', victory: false, score: ownScore(g), rows: null, ownId: g.state.net.sessionId, canSpectate: true });
+}
+
+/**
+ * The game-end modal: the same score card plus the full placement table.
+ *
+ * Winner, placement and kills come from the RESULTS MESSAGE, never from the
+ * polled schema: the broadcast lands before the patch that sets `winnerId`, so
+ * a schema-derived victory flag made the actual winner read "ELIMINATED —
+ * PLACE #n" under a VICTORY banner until the patch caught up.
+ */
+function showMatchResults(g: Game, msg: ResultsMsg): void {
+  const score = personalScoreFromResults(g.score, g.state.net.you?.upg, msg, g.state.net.sessionId, ownKills(g));
+  presentResults(g, {
+    banner: winnerBanner(msg, g.state.net.sessionId),
+    victory: score.winner,
+    score,
+    rows: msg.rows,
+    ownId: g.state.net.sessionId,
+    canSpectate: false, // nothing left to watch
+  });
+}
+
+/**
+ * One entry point for both modal moments: the refit modal never stays painted
+ * under it (no stacking, either direction), the settings overlay closes for the
+ * same reason, held helm keys are dropped (a focused overlay owns the input, and
+ * axes() reads LATCHED keys the keydown-only suppression never sees released),
+ * and the key-arming grace restarts so a keypress aimed at whatever was on
+ * screen a frame ago can't instantly dismiss it.
+ */
+function presentResults(g: Game, view: ResultsView): void {
+  g.upgradeMenu.hide();
+  g.settingsOverlay.close();
+  g.keyboard.clearKeys();
+  g.resultsShownAt = performance.now();
+  showResults(view, { onSpectate: () => undefined, onReturn: () => returnToPort(g) });
+}
+
+/**
+ * Converge the OPEN elimination modal on server truth as roster patches land
+ * (fixes both the multi-death-tick placement inflation and the mutual-kill
+ * tally race). Cheap by construction: the pure refine is a no-op once the
+ * roster has applied our own sinking, and updateResultsScore compares a
+ * signature before it touches the DOM. The game-end table is never re-derived
+ * here — its numbers came from the results message, which is already final.
+ */
+function updateOpenResults(g: Game): void {
+  if (g.resultsFinal || !g.score.eliminated || !resultsVisible()) return;
+  g.score = refinePlacement(g.score, othersAlive(g), ownRosterSettled(g));
+  updateResultsScore(ownScore(g));
 }
 
 // --- return to port / disconnect ---------------------------------------------
@@ -761,7 +1001,14 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       g.abilityDeniedPress[slot] = true;
       g.audio.play('denied');
     },
-    isModalOpen: () => getG()?.upgradeMenu.visible === true,
+    // Slot keys / clicks AND the refit digits suspend under ANY open surface —
+    // the refit modal as ever, plus (Story 2.3) the settings overlay and the
+    // results modal, which are focused overlays.
+    isModalOpen: () => modalOpen(getG()),
+    // Focused-overlay rule (amendment 21 + the committed AC): while the settings
+    // overlay or the results modal is up EVERY sim key is suppressed — helm
+    // included, unlike the refit modal — and only ESC/Enter still route.
+    isOverlayFocused: () => overlayFocused(getG()),
     onRefitToggle: withG(handleRefitToggle),
     onRefitPick: (choice) => {
       const g = getG();
@@ -776,6 +1023,16 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     onMute: withG(toggleMute),
     onNetDebug: withG(toggleMode),
   };
+}
+
+/** True while ANY surface that suspends slot keys/clicks is open. */
+function modalOpen(g: Game | null): boolean {
+  return g !== null && (g.upgradeMenu.visible || overlayFocused(g));
+}
+
+/** True while a FOCUSED overlay (settings / results) owns the input. */
+function overlayFocused(g: Game | null): boolean {
+  return g !== null && (g.settingsOverlay.visible || resultsVisible());
 }
 
 /**
@@ -862,13 +1119,23 @@ function abilityFeedbackState(): Pick<
   };
 }
 
-function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, cls: ShipClassId, portal: PortalAdapter): Game {
+function buildGame(
+  stage: Stage,
+  conn: Connection,
+  map: GameMap,
+  audio: Audio,
+  cls: ShipClassId,
+  portal: PortalAdapter,
+  settingsOverlay: SettingsOverlay,
+): Game {
   const { welcome } = conn;
   // Late-bound: the input callbacks need game state that is assembled just below.
   let gRef: Game | null = null;
   // setupViewport args: the chokepoint hooks, the lazy server-clock thunk for the mouse's
   // pointerdown fire-time stamp (D1, resolved at click time), and the refit-modal lockout.
-  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => gRef?.upgradeMenu.visible === true, (p) => handleHotbarPress(gRef, p));
+  // The mouse's fire lockout covers EVERY suspending surface (Story 2.3): the
+  // refit modal as ever, plus the settings overlay and the results modal.
+  const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => modalOpen(gRef), (p) => handleHotbarPress(gRef, p));
   const stats = effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades());
   const nameplates = new NameplateLayer(stage.plateRoot); // screen-space plates: own hull + contacts
 
@@ -898,6 +1165,11 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     hud: new Hud(stage.layers.hud),
     hotbar: new Hotbar(stage.layers.hud),
     upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef)),
+    settingsOverlay,
+    score: freshScore(),
+    scorePhase: 'waiting',
+    hueRev: hueRevision(),
+    uiScale: 1,
     spendInFlight: null,
     fogZoomTimer: null,
     room: conn.room, mapRadius: map.radius,
@@ -908,7 +1180,7 @@ function buildGame(stage: Stage, conn: Connection, map: GameMap, audio: Audio, c
     deniedPulse: new DeniedPulse(), deniedFlash: false, denialDedup: new DenialDedup(), serverDeniedClick: false,
     ...abilityFeedbackState(),
     audio, portal,
-    matchEnded: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
+    matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownStats: stats, ownSlots: slotIdsFor(cls, stats),
@@ -1018,6 +1290,9 @@ function bindGameRoom(g: Game, conn: Connection): void {
     // ordnance-marker firer tint.
     colors: (id) => feedColor(g, id),
     ordnanceHue: (by) => ordnanceHue(g, by),
+    // Every observed sinking feeds the personal-score accumulator; our own
+    // sinking in a live match opens the elimination modal (amendments 22/23).
+    onSunkObserved: (victimId, killerId) => handleSunkObserved(g, victimId, killerId),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
       // Latched: a story-0.2 resume re-delivers the cached results broadcast,
@@ -1026,12 +1301,14 @@ function bindGameRoom(g: Game, conn: Connection): void {
         g.matchEnded = true;
         g.portal.matchEnd();
       }
-      // Results arrival hygiene: a refit modal open at the finish must not stay
-      // painted (and clickable) over the results screen, and the results-key
-      // arming grace starts now (see CLIENT_CONFIG.results.keyGraceMs).
-      g.upgradeMenu.hide();
-      g.resultsShownAt = performance.now();
-      showResults(msg, g.state.net.sessionId, () => returnToPort(g));
+      // Latch BEFORE presenting: from here the game-end table is the final
+      // debrief, and a `sunk` event still in flight behind this broadcast must
+      // not replace it (see handleSunkObserved).
+      g.resultsFinal = true;
+      // Results arrival hygiene lives in presentResults(): any open refit modal
+      // or settings overlay is dropped (no stacking) and the results-key arming
+      // grace restarts (see CLIENT_CONFIG.results.keyGraceMs).
+      showMatchResults(g, msg);
     },
     onRoomLeave: () => handleRoomLeave(g),
     // Minimal reconnect UX (story 0.2): a persistent RECONNECTING banner while
@@ -1045,6 +1322,12 @@ function bindGameRoom(g: Game, conn: Connection): void {
     onReconnect: () => {
       g.reconnecting = false;
       hideBanner();
+      // The outage may have swallowed sunk events, so the observed-kill roll can
+      // no longer be trusted: start it clean rather than report a wrong list.
+      // The elimination LATCH and its placement survive, though — they were
+      // derived before the drop, and dropping them un-eliminated a finished
+      // player (letting a duplicate `sunk` re-open the modal).
+      g.score = scoreAfterReconnect(g.score);
       g.keyboard.clearActivations(); // drop presses queued during the outage (FINDING A)
       g.denialDedup.clear(); // paired with the queue drop — no reused (slot, seq)
     },
@@ -1075,7 +1358,7 @@ function renderOwn(
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
   renderFiring(g, pose, status, aim, cursor);
-  g.hud.update(pose, g.keyboard.axes(), status, zone, match, g.stage.app.screen.width, g.stage.app.screen.height);
+  g.hud.update(pose, g.keyboard.axes(), status, zone, match, hudWidth(g), hudHeight(g));
   updateHotbar(g, status);
 }
 
@@ -1110,12 +1393,15 @@ function updateHotbar(g: Game, status: OwnStatus): void {
     primedSlot: status.primedSlot,
     denied: hotbarDenied(g, status),
     activated: g.activatedFlash,
-    dim: g.upgradeMenu.visible, // refit modal: dim to 38%, keys AND clicks suspended
+    dim: modalOpen(g), // any suspending surface: dim to 38%, keys AND clicks off
+    motion: settings.current.motion, // gates the ACTIVATED pop + glow amplitude
   };
   // Hover reads the pointer ONLY while it is inside the window (the aim path
   // keeps using the last known position regardless — see MouseInput).
-  const cursor = g.mouse.pointerInside ? g.mouse.screenPos : null;
-  g.hotbar.update(view, g.stage.app.screen.width, g.stage.app.screen.height, cursor, performance.now());
+  // Hover + hit-test run in the HUD's own (scaled) coordinate space, so the raw
+  // screen cursor is divided by the same factor the root container multiplies by.
+  const cursor = g.mouse.pointerInside ? hudPoint(g, g.mouse.screenPos) : null;
+  g.hotbar.update(view, hudWidth(g), hudHeight(g), cursor, performance.now());
 }
 
 /**
@@ -1130,7 +1416,7 @@ function updateHotbar(g: Game, status: OwnStatus): void {
  */
 function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
   if (!g) return false;
-  const slot = g.hotbar.slotAt(p);
+  const slot = g.hotbar.slotAt(hudPoint(g, p));
   if (slot === null) return false;
   g.keyboard.slotAction(slot);
   return true;
@@ -1391,7 +1677,44 @@ function renderSpectate(g: Game, frameDt: number, now: number, zv: ZoneView, mu:
   g.litZones.render(now); // spectators see all zones; fade them by expiry too
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
-  g.hud.updateSpectate(zoneHud(zv, now, false), mu, w, h, banner);
+  g.hud.updateSpectate(zoneHud(zv, now, false), mu, hudWidth(g), hudHeight(g), banner);
+}
+
+// --- UI scale (Story 2.3) -----------------------------------------------------
+
+/**
+ * THE UI-scale seam. The accessibility scale multiplies the Pixi HUD ROOT
+ * (`stage.layers.hud` — the vitals + hotbar container) and divides the layout
+ * inputs fed to it, so every screen-space HUD element grows/shrinks together
+ * while staying anchored to the real viewport corners. It must NEVER touch
+ * `app.stage`: the WORLD is not chrome, and scaling it would change how much
+ * ocean a player can see — a fog/vision exploit.
+ *
+ * The fullscreen out-of-zone vignette (`layers.vignette`) is deliberately its
+ * own sibling layer and is left alone: it is a full-viewport wash, not chrome.
+ * DOM HUD-tier chrome follows through the `--hc-ui-scale` var (ui/theme.ts).
+ */
+function applyUiScale(g: Game): void {
+  const factor = scaleFactor(effectiveScale(settings.current, g.stage.app.screen.width));
+  if (factor === g.uiScale) return;
+  g.uiScale = factor;
+  g.stage.layers.hud.scale.set(factor);
+  setUiScaleVar(factor);
+}
+
+/** Viewport width in the (possibly scaled) HUD's own coordinate space. */
+function hudWidth(g: Game): number {
+  return g.stage.app.screen.width / g.uiScale;
+}
+
+/** Viewport height in the (possibly scaled) HUD's own coordinate space. */
+function hudHeight(g: Game): number {
+  return g.stage.app.screen.height / g.uiScale;
+}
+
+/** A raw screen point projected into the HUD's coordinate space (hover/hit-test). */
+function hudPoint(g: Game, p: ScreenPoint): ScreenPoint {
+  return g.uiScale === 1 ? p : { x: p.x / g.uiScale, y: p.y / g.uiScale };
 }
 
 // --- the loop --------------------------------------------------------------------
@@ -1433,9 +1756,12 @@ function makeCallbacks(g: Game): LoopCallbacks {
       if (g.state.mode === 'predict') g.predictor.localTick(input, g.clock.serverNow());
     },
     render: (alpha, frameDt) => {
+      applyUiScale(g); // no-op unless the stored tier or the viewport gate moved
       const now = g.clock.serverNow();
       const zv = zoneView(g, now);
       const mu = matchUxFromRoom(g, now);
+      updateScoreEpoch(g); // the ready room's sinkings are not match score
+      updateOpenResults(g); // converge an open elimination modal on roster truth
       updateMatchAudioCues(g, now);
       const shakeOff = g.shake.update(frameDt);
       g.camera.shake.x = shakeOff.x;
@@ -1599,7 +1925,45 @@ function bindWheelZoom(game: Game): void {
 
 // --- bootstrap ---------------------------------------------------------------------
 
-/** Toggle master mute (M key), persisted to localStorage by audio/context.ts. */
+/**
+ * The live Game, or null pre-join. The settings overlay is built BEFORE any
+ * connection (the home gear opens it), so its `inMatch` / `onAbandon` deps read
+ * the game through this late binding rather than capturing it.
+ */
+let gameRef: Game | null = null;
+
+/** Is the player in a match that can still be ABANDONED? (Gates the overlay's
+ *  danger button — see ui/settings.ts canAbandon for the ruled phase set.) */
+function inLiveMatch(): boolean {
+  const g = gameRef;
+  if (g === null) return false;
+  return canAbandon(publicState(g).matchPhase ?? 'waiting', g.state.matchOver, g.returning);
+}
+
+/**
+ * ABANDON MATCH (amendment 19) — confirmed inside the settings overlay. Leaves
+ * through the EXISTING return-to-port chain (ad break → leave() raced against a
+ * timeout → reload), so the room sees a clean leave, other clients get the
+ * roster update, and no reconnect is attempted. Never a page refresh.
+ */
+function abandonMatch(): void {
+  const g = gameRef;
+  if (!g) return;
+  hideResults(); // an elimination modal must not survive the teardown
+  returnToPort(g);
+}
+
+/**
+ * Push the settings that RENDER code can't read per-frame onto their consumers.
+ * Volumes/mute reach audio through its own store subscription; motion and UI
+ * scale are read live at their callsites; the colorblind remap is a table swap
+ * at the render/ships.ts chokepoint, so it lands here.
+ */
+function applyRenderSettings(): void {
+  setColorblindAssist(settings.current.colorblind);
+}
+
+/** Toggle master mute (M key), persisted through the settings store. */
 function toggleMute(game: Game): void {
   game.audio.toggleMute();
   // Suppress the transient toast while reconnecting so it can't displace the
@@ -1615,6 +1979,7 @@ async function startGame(
   cls: ShipClassId,
   audio: Audio,
   portal: PortalAdapter,
+  settingsOverlay: SettingsOverlay,
 ): Promise<void> {
   home.setBusy(true);
   home.setStatus('CONNECTING…', 'info');
@@ -1635,7 +2000,8 @@ async function startGame(
   const map = mapFromWelcome(conn.welcome);
   buildMap(map, stage.layers);
 
-  const game = buildGame(stage, conn, map, audio, cls, portal);
+  const game = buildGame(stage, conn, map, audio, cls, portal, settingsOverlay);
+  gameRef = game; // the settings overlay's late-bound view of the live match
   bindResize(stage, game);
   bindVisibility(game);
   // P (netcode debug) and M (mute) ride the keyboard chokepoint now — the old
@@ -1679,10 +2045,38 @@ async function main(): Promise<void> {
     ambient.destroy();
   };
 
-  const home = showHome(version, (name, cls) => {
-    audio.resume(); // must happen inside the PLAY click's user-gesture handler
-    void startGame(stage, home, stopAmbient, name, cls, audio, portal);
+  // The settings overlay outlives the join: the home gear and home ESC open it
+  // pre-connect, and the same instance is the in-match ESC surface.
+  //
+  // `onVisibility` is how the PRE-JOIN entry point works at all: the ratified z
+  // register puts this overlay (1050) UNDER the fullscreen home (1100), so the
+  // home has to yield — stop painting, stop hit-testing — for as long as the
+  // overlay is up, whichever way it was opened or closed (gear, home ESC, the
+  // panel's own CLOSE button, a confirmed RESET). See ui/home.ts homeYieldStyle.
+  let homeRef: HomeHandle | null = null;
+  const settingsOverlay = new SettingsOverlay({
+    store: settings,
+    inMatch: inLiveMatch,
+    onAbandon: abandonMatch,
+    viewportWidth: () => stage.app.screen.width,
+    onVisibility: (visible) => homeRef?.setYielded(visible),
   });
+  // Live effect: every stored setting is applied at boot and re-applied on every
+  // change, so a reload restores exactly what the player left (the AC's
+  // "takes effect live, persists across reload").
+  applyRenderSettings();
+  setUiScaleVar(scaleFactor(effectiveScale(settings.current, stage.app.screen.width)));
+  settings.subscribe(applyRenderSettings);
+
+  const home = showHome(
+    version,
+    (name, cls) => {
+      audio.resume(); // must happen inside the PLAY click's user-gesture handler
+      void startGame(stage, home, stopAmbient, name, cls, audio, portal, settingsOverlay);
+    },
+    () => settingsOverlay.toggle(),
+  );
+  homeRef = home;
   // Client-side server-health probe → the status line (probing → ready/unreachable).
   void probeServer().then((ok) => home.setServerProbe(ok ? 'ready' : 'unreachable'));
 }

@@ -17,7 +17,7 @@
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
 import type { LitZoneView } from '@salvo/shared';
-import { resolveHue, retryHue, type HueFor } from './hueLatch.js';
+import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 
 const PEAK_FILL_ALPHA = 0.12; // soft additive fill at full brightness
 const RING_ALPHA = 0.38; // the zone edge, a touch brighter than the fill
@@ -111,12 +111,10 @@ export function reconcileLitZones(
   return { add, remove };
 }
 
-interface ZoneSprite {
+interface ZoneSprite extends HueState {
   g: Graphics;
   until: number; // server-clock expiry — drives the render() fade
   r: number; // zone radius (u) — needed to redraw on a firer-hue recolor
-  by: string; // firer id — retried until its personal hue syncs
-  colored: boolean; // true once the real firer hue is latched (stop retrying)
 }
 
 export class LitZones {
@@ -147,12 +145,12 @@ export class LitZones {
   }
 
   private spawn(z: LitZoneView, hueFor: HueFor): void {
-    const { color, colored } = resolveHue(z.by, hueFor);
+    const { color, colored, rev } = resolveHue(z.by, hueFor);
     const g = new Graphics();
     this.drawGlow(g, z.r, color);
     g.position.set(z.x, z.y);
     this.layer.addChild(g);
-    this.sprites.set(z.id, { g, until: z.until, r: z.r, by: z.by, colored });
+    this.sprites.set(z.id, { g, until: z.until, r: z.r, by: z.by, colored, rev });
   }
 
   /** Draw the additive glow onto `g` (clearing prior geometry — the recolor path

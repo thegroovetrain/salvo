@@ -193,6 +193,7 @@ function setupEvents() {
     decoys: { sync: vi.fn() },
     projectiles: { onBurst, onBoom },
     effects: { spawnEffect },
+    onSunkObserved: vi.fn(),
     onSpectate: vi.fn(),
     colors: vi.fn(() => null),
     ordnanceHue: vi.fn(() => 0),
@@ -220,6 +221,7 @@ describe('bindRoom own sunk', () => {
     const conn = { room, welcome: {}, sink } as unknown as Connection;
     const resetThrottle = vi.fn();
     const resetPrime = vi.fn();
+    const onSunkObserved = vi.fn();
     const deps = {
       state: {
         net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 },
@@ -237,12 +239,16 @@ describe('bindRoom own sunk', () => {
       ordnanceHue: () => 0,
       resetThrottle,
       resetPrime,
+      onSunkObserved,
     } as unknown as RoomBindingDeps;
     bindRoom(conn, deps);
     // Own-ship sunk event (id === sessionId) drives the own-death branch.
     sink.handler({ t: 200, tick: 2, ackSeq: 0, contacts: [], mines: [], events: [{ k: 'sunk', id: 'me', by: null }] });
     expect(resetThrottle).toHaveBeenCalledTimes(1);
     expect(resetPrime).toHaveBeenCalledTimes(1); // the primed skillshot never survives death
+    // Story 2.3: the SAME observed sinking feeds the personal-score accumulator
+    // and (for our own hull, in a live match) opens the elimination modal.
+    expect(onSunkObserved).toHaveBeenCalledWith('me', null);
   });
 });
 

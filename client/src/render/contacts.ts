@@ -23,7 +23,7 @@ import type { Container } from 'pixi.js';
 import { CONFIG, type HullId } from '@salvo/shared';
 import type { ContactStore } from '../net/snapshots.js';
 import type { Point } from './camera.js';
-import { ShipView, contactStyle, isDroneHull } from './ships.js';
+import { ShipView, contactStyle, hueRevision, isDroneHull } from './ships.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './nameplates.js';
 import { Fader } from './fade.js';
 
@@ -63,8 +63,20 @@ interface FadingView {
   plated: boolean;
 }
 
+/**
+ * Pure: the latch state a view must fall back to when the hue table is swapped
+ * (Story 2.3 — the colorblind-assist toggle must be LIVE, not next-contact).
+ * A drone keeps its `colored` latch: the greys are outside the personal-hue
+ * table and never move. Everything else re-resolves on the next frame.
+ */
+export function relatchForHueSwap(isDrone: boolean): { colored: boolean; plated: boolean } {
+  return { colored: isDrone, plated: false };
+}
+
 export class ContactViews {
   private views = new Map<string, FadingView>();
+  /** The hue-table revision every live view is currently painted against. */
+  private hueRev = hueRevision();
 
   constructor(
     private readonly layer: Container,
@@ -106,6 +118,7 @@ export class ContactViews {
     rosterIndex: RosterIndex,
     plates: PlateFrame,
   ): void {
+    this.syncHueRevision();
     store.prune(serverNow, CONTACT_STALE_MS);
     // Only start/keep a view for ids whose buffer can actually produce a pose.
     // A respawn's frame-contacts push can land in the same tick as the spawn
@@ -124,6 +137,21 @@ export class ContactViews {
         this.views.delete(id);
       }
     }
+  }
+
+  /**
+   * One int compare per FRAME (not per entity): if the colorblind-assist toggle
+   * swapped the hue tables since the last frame, drop the per-view hull-color
+   * and nameplate latches so every VISIBLE contact re-resolves into the new
+   * family on this same frame. Without it the latches (which exist to stop a
+   * per-frame recolor probe) would freeze already-sighted contacts and their
+   * plates in the old palette until they died and re-appeared.
+   */
+  private syncHueRevision(): void {
+    const rev = hueRevision();
+    if (rev === this.hueRev) return;
+    this.hueRev = rev;
+    for (const fv of this.views.values()) Object.assign(fv, relatchForHueSwap(isDroneHull(fv.hull)));
   }
 
   /** Advance one view (recolor probe, pose, fade, nameplate); returns true once

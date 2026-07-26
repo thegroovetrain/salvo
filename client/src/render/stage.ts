@@ -84,13 +84,18 @@ async function preloadFonts(): Promise<void> {
     await Promise.all([
       document.fonts.load(`600 16px ${mono}`),
       document.fonts.load(`400 12px ${mono}`),
-      document.fonts.load(`400 9px ${mono}`), // nameplates (hud-micro, Story 1.13)
-      // Story 2.2 hotbar: key chips + quick-info + tooltip head (mono), and the
-      // slot name / tooltip description (display).
-      document.fonts.load(`400 10px ${mono}`),
-      document.fonts.load(`400 11px ${mono}`),
-      document.fonts.load(`600 13px ${display}`),
-      document.fonts.load(`400 12px ${display}`),
+      // Story 2.3 legibility lift (amendment 15): the micro sizes moved
+      // 9→14 / 10→16 / 11→17 / 12→18 / 13→20, so the preload list moves with
+      // them — nameplates (14), hotbar key chips (14) + quick-info/badge (16) +
+      // tooltip head (17), the HUD ladder (18/20), and the display faces used by
+      // the slot name (20) and tooltip description (18).
+      document.fonts.load(`400 14px ${mono}`),
+      document.fonts.load(`400 16px ${mono}`),
+      document.fonts.load(`400 17px ${mono}`),
+      document.fonts.load(`400 18px ${mono}`),
+      document.fonts.load(`400 20px ${mono}`),
+      document.fonts.load(`600 20px ${display}`),
+      document.fonts.load(`400 18px ${display}`),
     ]);
     await document.fonts.ready;
   } catch {

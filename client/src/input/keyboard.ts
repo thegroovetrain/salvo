@@ -4,6 +4,9 @@
 // every bound key preventDefault-ed (TAB focus-cycle and Space page-scroll
 // included), modifier chords (CTRL/META/ALT) left native, and a focused text
 // input or DOM button suppressing ALL sim keys while the sim keeps running.
+// Story 2.3 adds the FOCUSED-OVERLAY rule: while the settings overlay or the
+// results modal is up, every bound key but ESC/Enter is swallowed — helm
+// included, unlike the refit modal's partial lockout.
 // Pre-join surfaces (ui/home.ts, ui/classSelect.ts) keep their own scoped,
 // guarded handlers — this class is attached post-join only.
 //
@@ -18,10 +21,12 @@
 //   TAB            toggles the refit modal (main.ts owns open/close policy)
 //   1–4            pick a refit card ONLY while the modal is open
 //                  (refit-or-nothing; meaning evaluated at its own keydown)
-//   ESC            closes the topmost surface (the modal; settings at 2.3) —
-//                  on the results screen it returns to port (UX-DR27)
-//   ENTER          confirms the topmost surface — results screen: return to
-//                  port (UX-DR27); inert in-match
+//   ESC            closes the TOPMOST open surface (results modal / refit modal
+//                  / settings overlay) and, with nothing open, toggles settings
+//                  — the uniform law (Story 2.3, amendment 23). Never leaves the
+//                  match.
+//   ENTER          confirms the topmost surface — the game-end results screen's
+//                  RETURN TO PORT; inert in-match
 //   X / Z          camera zoom in / out (alive-only — main.ts gates)
 //   M / P          mute / prediction-debug toggle
 //   Space / CTRL   unbound; Space keydown still prevented (page scroll)
@@ -71,6 +76,16 @@ export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit3: 2, Numpad3: 2,
   Digit4: 3, Numpad4: 3,
 };
+
+/**
+ * The only keys that still act while a focused overlay is up (Story 2.3): the
+ * two that dismiss/confirm the topmost surface, plus M. M is an AUDIO
+ * META-ACTION, not sim input — the overlay itself advertises "MUTE (M)" in its
+ * own control list and mirrors the toggle live through the store subscription,
+ * so swallowing it would make the overlay lie about its own binding.
+ * Everything else is swallowed.
+ */
+const OVERLAY_KEYS = new Set(['Escape', 'Enter', 'NumpadEnter', 'KeyM']);
 
 function anyHeld(keys: Set<string>, codes: string[]): boolean {
   return codes.some((c) => keys.has(c));
@@ -124,15 +139,43 @@ export function nextPrimedSlot(current: number, keySlot: number): number {
 }
 
 /**
+ * Pure: is this element a RANGE SLIDER (the settings overlay's volume controls)?
+ * A range is an `<input>` but NOT a text field: it types nothing, so it must
+ * never trip the text-entry suppression that would kill the ESC closing the
+ * overlay it lives in. It gets its own, narrower rule — see onDown.
+ */
+export function rangeElement(el: Element | null): boolean {
+  return el !== null && el.tagName === 'INPUT' && (el as HTMLInputElement).type === 'range';
+}
+
+/**
+ * Pure: is this element a TEXT-entry field? Used by the pre-join surfaces
+ * (ui/home.ts) as well as the chokepoint, so a player mid-callsign isn't yanked
+ * into a modal — while a focused volume slider still lets ESC through.
+ */
+export function textFieldElement(el: Element | null): boolean {
+  if (el === null) return false;
+  if (el instanceof HTMLElement && el.isContentEditable) return true;
+  if (rangeElement(el)) return false;
+  return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA';
+}
+
+/**
  * Pure: is the currently-focused element a text-entry surface or DOM button?
  * While one owns focus the chokepoint suppresses ALL sim keys (no handling,
  * no preventDefault — typing "wasd" in the callsign field must steer nothing
  * and still type). The sim itself never pauses.
+ *
+ * A focused RANGE slider is deliberately NOT one of these: it would otherwise
+ * swallow ESC/Enter for as long as a volume slider held focus (which, before
+ * the sliders learned to blur, was forever — the overlay became unclosable by
+ * keyboard the moment you touched a volume).
  */
 export function textEntryFocused(doc: Document = document): boolean {
   const el = doc.activeElement;
   if (!(el instanceof HTMLElement)) return false;
   if (el.isContentEditable) return true;
+  if (rangeElement(el)) return false;
   const tag = el.tagName;
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON';
 }
@@ -164,6 +207,14 @@ export interface KeyboardHooks {
   /** Is the refit modal open? While true: Q/E/R/F are suspended and digits
    *  pick cards; helm/zoom/M/P stay live. */
   isModalOpen?: () => boolean;
+  /**
+   * Is a FOCUSED OVERLAY up (Story 2.3: the settings overlay, the results
+   * modal)? While true EVERY sim key is suppressed — helm included, unlike the
+   * refit modal's partial lockout — and only ESC/Enter still route (they are how
+   * the surface is dismissed). Bound keys stay preventDefault-ed so focus can
+   * never escape the canvas; the simulation itself never pauses.
+   */
+  isOverlayFocused?: () => boolean;
   /** TAB — toggle the refit modal (main.ts owns the only-with-a-banked-point
    *  open rule and pick/TAB/ESC close rules). */
   onRefitToggle?: () => void;
@@ -263,8 +314,7 @@ export class KeyboardInput {
    * the canvas) but takes no action.
    */
   private readonly onDown = (e: KeyboardEvent): void => {
-    if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (textEntryFocused()) return;
+    if (this.nativeKey(e)) return;
     if (e.shiftKey && e.code === 'Tab') {
       e.preventDefault();
       return;
@@ -272,8 +322,39 @@ export class KeyboardInput {
     const handler = this.bindings.get(e.code);
     if (handler === undefined) return;
     e.preventDefault();
+    if (this.suppressedByOverlay(e.code)) return;
     handler(e);
   };
+
+  /**
+   * Leave this keydown ENTIRELY NATIVE — no handling, no preventDefault:
+   *  • a modifier chord (CTRL/META/ALT are unbound; browser shortcuts must work);
+   *  • a focused text field (typing "wasd" must type, and steer nothing);
+   *  • a focused VOLUME SLIDER taking anything but a surface key — the arrows
+   *    above all, which must keep nudging the slider instead of being eaten as
+   *    rudder input (ESC/Enter/M still route, so the overlay stays closable);
+   *  • TAB while a FOCUSED OVERLAY owns the screen — native focus traversal is
+   *    the only way a keyboard user reaches the overlay's own controls, and
+   *    there is no refit modal to toggle behind it anyway.
+   */
+  private nativeKey(e: KeyboardEvent): boolean {
+    if (e.ctrlKey || e.metaKey || e.altKey) return true;
+    if (textEntryFocused()) return true;
+    if (rangeElement(document.activeElement)) return !OVERLAY_KEYS.has(e.code);
+    return e.code === 'Tab' && this.hooks.isOverlayFocused?.() === true;
+  }
+
+  /**
+   * Focused-overlay rule (Story 2.3): with the settings overlay or the results
+   * modal up, every BOUND key is swallowed except the ones that dismiss/confirm
+   * the surface (ESC / Enter) or toggle mute (M — an audio meta-action the
+   * overlay itself advertises). The key is still preventDefault-ed by the caller, so
+   * focus can never escape the canvas — and the sim keeps running behind it:
+   * this suppresses INPUT, not time.
+   */
+  private suppressedByOverlay(code: string): boolean {
+    return this.hooks.isOverlayFocused?.() === true && !OVERLAY_KEYS.has(code);
+  }
 
   /** W/S (+arrows): record the held state (spectator pan reads it) and step
    *  the telegraph one detent per keydown EDGE (repeat → stepFromKey null). */
@@ -399,9 +480,22 @@ export class KeyboardInput {
     window.removeEventListener('blur', this.onBlur);
   }
 
-  /** Driving axes: telegraph throttle order + held rudder. */
+  /**
+   * Driving axes: telegraph throttle order + held rudder.
+   *
+   * While a FOCUSED OVERLAY owns the input the rudder reads DEAD, whatever is
+   * still latched in `keys`. The overlay suppression is keydown-only and this
+   * reads the latched set, so a rudder key held at the moment the overlay opened
+   * would otherwise keep steering the (deliberately never-paused) ship for as
+   * long as the player kept holding it — the committed AC's "ALL sim keys
+   * suppressed, helm included". main.ts also clears the held set on the open
+   * edge; this is the invariant that holds even if a future open site forgets.
+   * The THROTTLE is untouched: the telegraph is a set-and-forget ORDER, not a
+   * held key, and an engine order must survive a settings visit.
+   */
   axes(): Axes {
-    return { throttle: this.telegraph.throttle, rudder: rudderFrom(this.keys) };
+    const suppressed = this.hooks.isOverlayFocused?.() === true;
+    return { throttle: this.telegraph.throttle, rudder: suppressed ? 0 : rudderFrom(this.keys) };
   }
 
   /** Spectator free-pan axes: held WASD (throttle = live held W/S, not the order). */

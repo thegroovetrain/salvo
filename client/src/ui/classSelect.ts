@@ -259,7 +259,7 @@ export function makeHoistRow(hoist: ColorHoist, direction: 'column' | 'row'): Ho
 
   const cap = document.createElement('div');
   cap.textContent = HOIST_CAPTION;
-  cap.style.cssText = `${registerCss('hudMicro')};color:var(--hc-text-muted);letter-spacing:0.08em`;
+  cap.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.08em`;
 
   const paintRing = (): void => {
     const sel = hoist.selected;
@@ -306,10 +306,10 @@ function buildCardHead(vm: CardViewModel): HTMLElement {
   const name = document.createElement('span');
   name.className = 'hc-cname';
   name.textContent = vm.name;
-  name.style.cssText = 'font:700 21px var(--hc-font-display);letter-spacing:0.05em;color:var(--hc-text-primary)';
+  name.style.cssText = 'font:700 24px var(--hc-font-display);letter-spacing:0.05em;color:var(--hc-text-primary)';
   const key = document.createElement('span');
   key.textContent = vm.key;
-  key.style.cssText = `${registerCss('hudMicro')};color:var(--hc-text-muted);letter-spacing:0.1em`;
+  key.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.1em`;
   head.append(name, key);
   return head;
 }
@@ -336,7 +336,7 @@ function buildPips(vm: CardViewModel): { el: HTMLElement; rows: HTMLElement[][] 
   for (const pr of vm.pips) {
     const label = document.createElement('span');
     label.textContent = pr.label;
-    label.style.cssText = `${registerCss('hudMicro')};color:var(--hc-text-muted);letter-spacing:0.16em`;
+    label.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.16em`;
     const dots = document.createElement('span');
     dots.style.cssText = 'display:flex;gap:5px';
     const cells: HTMLElement[] = [];
@@ -361,10 +361,10 @@ function buildLoadout(vm: CardViewModel): HTMLElement {
     row.style.cssText = 'display:flex;gap:10px;align-items:baseline';
     const k = document.createElement('span');
     k.textContent = slot.key;
-    k.style.cssText = `${registerCss('hudMicro')};flex:0 0 74px;color:var(--hc-text-muted);letter-spacing:0.14em`;
+    k.style.cssText = `${registerCss('hudMicro')};flex:0 0 108px;color:var(--hc-phosphor);letter-spacing:0.14em`;
     const v = document.createElement('span');
     v.textContent = slot.value;
-    v.style.cssText = 'font:500 13px var(--hc-font-mono);letter-spacing:0.05em;color:var(--hc-text-primary)';
+    v.style.cssText = 'font:500 20px var(--hc-font-mono);letter-spacing:0.05em;color:var(--hc-text-primary)';
     row.append(k, v);
     wrap.appendChild(row);
   }
@@ -379,8 +379,8 @@ function buildPickButton(): HTMLElement {
   btn.textContent = 'SELECT';
   btn.style.cssText =
     'width:100%;height:38px;border-radius:6px;display:flex;align-items:center;justify-content:center;' +
-    'font:500 12px var(--hc-font-mono);letter-spacing:0.24em;border:1px solid var(--hc-hairline);' +
-    'color:var(--hc-text-secondary)';
+    'font:500 18px var(--hc-font-mono);letter-spacing:0.24em;border:1px solid var(--hc-hairline);' +
+    'color:var(--hc-text-primary)';
   row.appendChild(btn);
   return row;
 }
@@ -416,11 +416,11 @@ function buildGhostCard(): HTMLElement {
   qm.textContent = '?';
   qm.style.cssText =
     'width:70px;height:110px;border:1.5px dashed var(--hc-hairline);border-radius:10px;display:flex;' +
-    'align-items:center;justify-content:center;font:400 34px var(--hc-font-display);color:var(--hc-text-muted)';
+    'align-items:center;justify-content:center;font:400 34px var(--hc-font-display);color:var(--hc-phosphor)';
   const gt = document.createElement('div');
   gt.innerHTML = 'MORE CLASSES<br>IN DEVELOPMENT';
   gt.style.cssText =
-    `${registerCss('hudMicro')};color:var(--hc-text-muted);letter-spacing:0.22em;text-align:center;line-height:2`;
+    `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.22em;text-align:center;line-height:2`;
   card.append(qm, gt);
   return card;
 }
@@ -495,12 +495,12 @@ function buildHeader(): HTMLElement {
   title.style.cssText = 'font:700 26px var(--hc-font-display);letter-spacing:0.1em;color:var(--hc-text-primary)';
   const esc = document.createElement('span');
   esc.style.cssText =
-    `${registerCss('hudMicro')};margin-left:auto;color:var(--hc-text-muted);letter-spacing:0.14em;` +
+    `${registerCss('hudMicro')};margin-left:auto;color:var(--hc-phosphor);letter-spacing:0.14em;` +
     'display:flex;align-items:center;gap:8px';
   const escKey = document.createElement('b');
   escKey.textContent = 'ESC';
   escKey.style.cssText =
-    'color:var(--hc-text-secondary);border:1px solid var(--hc-hairline);border-radius:4px;padding:2px 8px;font-weight:500';
+    'color:var(--hc-text-primary);border:1px solid var(--hc-hairline);border-radius:4px;padding:2px 8px;font-weight:500';
   const escLabel = document.createElement('span');
   escLabel.textContent = 'BACK TO PORT';
   esc.append(escKey, escLabel);

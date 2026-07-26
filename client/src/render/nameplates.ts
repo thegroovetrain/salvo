@@ -23,17 +23,18 @@ import { PLAYER_HUES } from './ships.js';
 
 const C = CLIENT_CONFIG.colors;
 
-/** Constant screen font size (px) — the DESIGN hud-micro floor; plates never
+/** Constant screen font size (px) — the hud-micro register, lifted 9 → 14 by
+ *  Story 2.3 (amendment 15, which supersedes DESIGN.md's 9px pin). Plates never
  *  scale with camera zoom (they live in screen space), so this holds at 0.5×. */
-export const PLATE_FONT_PX = 9;
+export const PLATE_FONT_PX = CLIENT_CONFIG.type.registers.hudMicro.size;
 
-/** hud-micro register in Pixi (DESIGN §Typography): mono, 9px, 0.18em tracking
- *  (= 9 × 0.18 = 1.62px). Uppercase is applied in code (Pixi has no
+/** hud-micro register in Pixi (DESIGN §Typography + amendment 15): mono, 14px,
+ *  0.18em tracking. Uppercase is applied in code (Pixi has no
  *  text-transform); `fill` is set per-plate on resolve (mirrors hud.ts). */
 const PLATE_STYLE = {
   fontFamily: CLIENT_CONFIG.type.mono,
   fontSize: PLATE_FONT_PX,
-  letterSpacing: PLATE_FONT_PX * 0.18, // hud-micro 0.18em tracking (= 9 × 0.18 = 1.62px)
+  letterSpacing: PLATE_FONT_PX * 0.18, // hud-micro 0.18em tracking
 } as const;
 
 /** Display text for a callsign: mid-ellipsized to the shared cap on the RAW name

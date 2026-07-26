@@ -3,9 +3,10 @@
 // and the ratified mock (home-class-picker-1.html): wordmark, callsign, a
 // current-class Class Chip that OPENS the class-select layer (ui/classSelect.ts),
 // the Color Hoist (writes `hullcracker.color`), one dominant amber OUTLINE+GLOW
-// PLAY button, an inert How-to-Play link + server status line, and an inert
-// settings gear. The overlay is TRANSPARENT so the ambient scene breathes behind
-// it; the ambient's scrim keeps this text legible.
+// PLAY button, an inert How-to-Play link + server status line, and the settings
+// gear — which as of Story 2.3 opens the REAL settings overlay (ui/settings.ts),
+// as does ESC with the class bay closed. The overlay is TRANSPARENT so the
+// ambient scene breathes behind it; the ambient's scrim keeps this text legible.
 //
 // First-run (no stored class): the chip shows a SELECT CLASS prompt and PLAY/
 // Enter OPENS the layer instead of connecting — no default class is ever pushed.
@@ -16,6 +17,7 @@
 
 import { sanitizeClassId, type ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
 import { registerCss } from './theme.js';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
@@ -37,15 +39,24 @@ const HOME_ID = 'main-menu'; // kept id so index.html / any external hook is sta
 const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
 
-const NOTE_SETTINGS = 'SETTINGS ARRIVE IN A LATER REFIT';
 const NOTE_HOWTO = 'FIELD MANUAL ARRIVES IN A LATER REFIT';
 const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY/SET SAIL is pressed mid-connect
 
 // --- pure name / class persistence (tested) ----------------------------------
 
-/** Trim + cap a callsign to NAME_MAX CODE POINTS ('' = server assigns). */
+/**
+ * Unicode category C — control / format (zero-width joiners, bidi overrides) /
+ * surrogate / private-use / unassigned. Stripped so what you TYPE is what the
+ * server keeps: the server's `sanitizeName` strips exactly this set, and a
+ * client that let them through would show the player a callsign (blank, or
+ * reversed by a bidi override) that no one else ever sees.
+ */
+const CONTROL_OR_FORMAT = /\p{C}/gu;
+
+/** Strip control/format code points, then trim + cap a callsign to NAME_MAX
+ *  CODE POINTS ('' = server assigns). Mirrors server roomOptions.sanitizeName. */
 export function sanitizeName(raw: string): string {
-  return [...raw.trim()].slice(0, NAME_MAX).join('');
+  return [...raw.replace(CONTROL_OR_FORMAT, '').trim()].slice(0, NAME_MAX).join('');
 }
 
 export function loadSavedName(): string {
@@ -121,7 +132,9 @@ export function serverStatusLine(state: ProbeState): StatusLine {
 function toneColor(tone: StatusTone): string {
   if (tone === 'info') return 'var(--hc-info)';
   if (tone === 'denied') return 'var(--hc-denied)';
-  return 'var(--hc-text-muted)';
+  // Story 2.3 (amendment 17): the quiet tone is a SYSTEM line, not decoration —
+  // it reads phosphor now, never the retired grey.
+  return 'var(--hc-phosphor)';
 }
 
 // --- handle ------------------------------------------------------------------
@@ -133,7 +146,37 @@ export interface HomeHandle {
   setServerProbe(state: ProbeState): void;
   /** Disable/enable PLAY while a join is in flight. */
   setBusy(busy: boolean): void;
+  /** YIELD the whole home surface while the settings overlay is open (see
+   *  `homeYieldStyle`). Idempotent; restored with `false`. */
+  setYielded(yielded: boolean): void;
   hide(): void;
+}
+
+/** The two style properties the home root takes to yield / come back. */
+export interface YieldStyle {
+  visibility: 'hidden' | 'visible';
+  pointerEvents: 'none' | 'auto';
+}
+
+/**
+ * Pure: how the HOME chrome must behave while the settings overlay is open.
+ *
+ * The z register is RATIFIED — settings sits at 1050, between the refit modal
+ * (1000) and this home (1100) — so the overlay legitimately renders UNDER a
+ * fullscreen home that hit-tests every pixel. Re-cutting the register to fix
+ * that would break the ruled ordering; instead the home YIELDS: it stops
+ * painting and stops hit-testing for as long as settings is up, and comes back
+ * unchanged when it closes.
+ *
+ * Reverse stacking falls out of the same rule rather than needing its own
+ * guard: a yielded home cannot be clicked, so PLAY, the class chip and the
+ * colour hoist are all unreachable while the overlay is open — which is exactly
+ * the "never stack, in either direction" law the in-match surfaces obey.
+ */
+export function homeYieldStyle(settingsOpen: boolean): YieldStyle {
+  return settingsOpen
+    ? { visibility: 'hidden', pointerEvents: 'none' }
+    : { visibility: 'visible', pointerEvents: 'auto' };
 }
 
 // --- DOM builders ------------------------------------------------------------
@@ -167,7 +210,7 @@ function makeWordmark(version: string): HTMLElement {
   tagline.style.cssText = `${registerCss('label')};color:var(--hc-phosphor);letter-spacing:0.44em;margin-top:8px`;
   const ver = document.createElement('div');
   ver.textContent = `RT PROTOTYPE // v${version}`;
-  ver.style.cssText = `${registerCss('hudMicro')};color:var(--hc-text-muted);letter-spacing:0.2em`;
+  ver.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.2em`;
   wrap.append(mark, tagline, ver);
   return wrap;
 }
@@ -183,7 +226,7 @@ function makeNameField(): HTMLInputElement {
   input.style.cssText =
     'width:340px;max-width:calc(100vw - 48px);height:52px;background:var(--hc-panel-deep);' +
     'border:1px solid var(--hc-hairline);border-radius:6px;padding:0 18px;color:var(--hc-text-primary);' +
-    'font:500 19px var(--hc-font-mono);letter-spacing:0.12em;text-transform:uppercase;outline:none';
+    'font:500 20px var(--hc-font-mono);letter-spacing:0.12em;text-transform:uppercase;outline:none';
   return input;
 }
 
@@ -192,7 +235,7 @@ function makeCallsignRow(input: HTMLInputElement): HTMLElement {
   row.style.cssText = 'display:flex;align-items:center;gap:14px;margin-top:44px';
   const label = document.createElement('label');
   label.textContent = 'CALLSIGN';
-  label.style.cssText = `${registerCss('label')};color:var(--hc-text-secondary);letter-spacing:0.22em`;
+  label.style.cssText = `${registerCss('label')};color:var(--hc-text-primary);letter-spacing:0.22em`;
   row.append(label, input);
   return row;
 }
@@ -218,16 +261,16 @@ function makeChip(onOpen: () => void): ChipEls {
   const meta = document.createElement('span');
   meta.style.cssText = 'display:flex;flex-direction:column';
   const role = document.createElement('span');
-  role.style.cssText = `${registerCss('hudMicro')};color:var(--hc-text-muted);letter-spacing:0.24em`;
+  role.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.24em`;
   const name = document.createElement('div');
-  name.style.cssText = 'font:700 21px var(--hc-font-display);letter-spacing:0.06em';
+  name.style.cssText = 'font:700 24px var(--hc-font-display);letter-spacing:0.06em';
   const sub = document.createElement('div');
-  sub.style.cssText = 'font:500 11px var(--hc-font-mono);letter-spacing:0.06em;color:var(--hc-text-secondary);margin-top:1px';
+  sub.style.cssText = 'font:500 17px var(--hc-font-mono);letter-spacing:0.06em;color:var(--hc-text-primary);margin-top:3px';
   meta.append(role, name, sub);
   const change = document.createElement('span');
   change.innerHTML = '<b style="color:var(--hc-phosphor);font-weight:600">▸</b>&nbsp; CHANGE CLASS';
   change.style.cssText =
-    `${registerCss('hudMicro')};margin-left:16px;color:var(--hc-text-secondary);letter-spacing:0.18em;` +
+    `${registerCss('hudMicro')};margin-left:16px;color:var(--hc-phosphor);letter-spacing:0.18em;` +
     'border-left:1px solid var(--hc-hairline);padding-left:18px';
   root.append(sil, meta, change);
   root.addEventListener('click', onOpen);
@@ -272,7 +315,7 @@ function makeUnderplay(statusEl: HTMLElement, onHowTo: () => void): HTMLElement 
 
 function makeStatusEl(): HTMLElement {
   const el = document.createElement('span');
-  el.style.cssText = `${registerCss('hudMicro')};letter-spacing:0.14em;color:var(--hc-text-muted)`;
+  el.style.cssText = `${registerCss('hudMicro')};letter-spacing:0.14em;color:var(--hc-phosphor)`;
   return el;
 }
 
@@ -283,8 +326,8 @@ function makeGear(onClick: () => void): HTMLElement {
   gear.setAttribute('title', 'Settings');
   gear.tabIndex = 0;
   gear.style.cssText =
-    'position:absolute;top:22px;right:26px;font-size:24px;line-height:1;color:var(--hc-text-muted);' +
-    'cursor:pointer;opacity:0.7';
+    'position:absolute;top:22px;right:26px;font-size:32px;line-height:1;color:var(--hc-phosphor);' +
+    'cursor:pointer';
   gear.addEventListener('click', onClick);
   gear.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' && e.key !== ' ') return;
@@ -305,6 +348,8 @@ interface Home {
   playSub: HTMLElement;
   playBtn: HTMLButtonElement;
   onDeploy: (name: string, cls: ShipClassId) => void;
+  /** Open/toggle the settings overlay (gear + home ESC — Story 2.3). */
+  onSettings: () => void;
   currentClass: ShipClassId | null;
   layerOpen: boolean;
   busy: boolean;
@@ -415,7 +460,7 @@ function mountHome(h: Home, playBtn: HTMLButtonElement, version: string): (e: Ke
     playBtn,
     makeUnderplay(h.statusEl, () => paintStatus(h, NOTE_HOWTO, 'tertiary')),
   );
-  h.overlay.append(makeWordmark(version), console_, makeGear(() => paintStatus(h, NOTE_SETTINGS, 'tertiary')));
+  h.overlay.append(makeWordmark(version), console_, makeGear(() => h.onSettings()));
   h.input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
     // Stop the SAME keystroke from bubbling to the layer's window listener (which
@@ -431,13 +476,21 @@ function mountHome(h: Home, playBtn: HTMLButtonElement, version: string): (e: Ke
   return bindHomeKeys(h);
 }
 
-/** Home ESC (nothing open) = the quiet inert settings note, mirroring the gear. */
+/**
+ * Home ESC (with the class bay closed) TOGGLES the settings overlay, mirroring
+ * the gear and the in-match ESC (Story 2.3 — the inert "settings arrive in a
+ * later refit" note is gone). The callsign field keeps ESC to itself so a player
+ * mid-edit isn't yanked into a modal. Toggling means a second ESC closes the
+ * overlay, exactly as it does in a match.
+ */
 function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
   const handler = (e: KeyboardEvent): void => {
     if (e.key !== 'Escape' || h.layerOpen) return;
-    const el = document.activeElement;
-    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
-    paintStatus(h, NOTE_SETTINGS, 'tertiary');
+    // The callsign field keeps ESC to itself — but a focused VOLUME SLIDER
+    // inside the overlay must NOT (textFieldElement excludes ranges), or ESC
+    // dies the moment the player touches a volume from the home gear.
+    if (textFieldElement(document.activeElement)) return;
+    h.onSettings();
   };
   window.addEventListener('keydown', handler);
   return handler;
@@ -447,11 +500,13 @@ function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
  * Show the pre-join home. `onDeploy(name, cls)` fires only when the player
  * commits to a match with a chosen class (returning PLAY, first-run PLAY→layer→
  * SET SAIL, or PLAY after picking in the layer). First-run PLAY opens the layer
- * instead. Returns the handle main.ts drives for status/busy/hide.
+ * instead. `onSettings()` is the gear + home-ESC settings toggle (Story 2.3).
+ * Returns the handle main.ts drives for status/busy/hide.
  */
 export function showHome(
   version: string,
   onDeploy: (name: string, cls: ShipClassId) => void,
+  onSettings: () => void = () => undefined,
 ): HomeHandle {
   document.getElementById(HOME_ID)?.remove();
   const overlay = document.createElement('div');
@@ -472,6 +527,7 @@ export function showHome(
     playSub: play.sub,
     playBtn: play.root,
     onDeploy,
+    onSettings,
     currentClass: loadSavedClassOrNull(),
     layerOpen: false,
     busy: false,
@@ -502,6 +558,11 @@ function makeHandle(h: Home, keyHandler: (e: KeyboardEvent) => void): HomeHandle
       h.busy = busy;
       h.playBtn.style.opacity = busy ? '0.4' : '1';
       h.playBtn.style.cursor = busy ? 'default' : 'pointer';
+    },
+    setYielded: (yielded) => {
+      const style = homeYieldStyle(yielded);
+      h.overlay.style.visibility = style.visibility;
+      h.overlay.style.pointerEvents = style.pointerEvents;
     },
     hide: () => {
       h.layer?.close(); // never orphan a live layer's window listener into the game

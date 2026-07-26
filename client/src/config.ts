@@ -119,6 +119,42 @@ const COLORS = {
     mulberry: 0x4f0a33, // rule-derived (0xb01772 ×0.45)
     rose: 0x733c51, // DESIGN
   },
+  // Colorblind-assist families (Story 2.3, amendment 18 — IMPLEMENTER DRAFT,
+  // canon later). Eight OUTLINE hues that the 20-hue Regatta wheel collapses onto
+  // when the accessibility toggle is on (render/ships.ts is the single remap
+  // chokepoint, so nameplates / wake / kill feed follow for free).
+  //
+  // Selection rule (reproducible, and re-checked by cvd.test.ts):
+  //   • every hue avoids the RESERVED bands — denied red (0°), amber (43°),
+  //     phosphor (152°) and storm violet (272°), each ±20° — so the assist
+  //     palette can never impersonate a functional color;
+  //   • every hue clears 4.5:1 against the void, so a hull outline stays legible;
+  //   • under a simulated deuteranopia (LMS projection, util/cvd.ts) every PAIR
+  //     is separated by CIE-Lab ΔE ≥ 30 — the automated acceptance criterion.
+  // Key order IS the family order (family f = wheel index % 8).
+  cvd: {
+    teal: 0x3f838c,
+    citron: 0xe1ff00,
+    cobalt: 0x266fff,
+    forest: 0x008c05,
+    azure: 0x00bbff,
+    mint: 0x8cff73,
+    ice: 0x73ffff,
+    rose: 0xff4d8e,
+  },
+  // Interior FILLS for the assist families — the SAME HSV value ×0.45 rule the
+  // eight rule-derived playerFills use (Math.round(channel × 0.45) per sRGB byte).
+  // Same key order as `cvd`; recomputed from that rule by cvd.test.ts.
+  cvdFills: {
+    teal: 0x1c3b3f,
+    citron: 0x657300,
+    cobalt: 0x113273,
+    forest: 0x003f02,
+    azure: 0x005473,
+    mint: 0x3f7334,
+    ice: 0x347373,
+    rose: 0x732340,
+  },
   // legacy carry-overs — byte-identical to pre-1.11 literals, owned by a later
   // story (deleted when that story lands its real color). NOT ratified roles.
   // (ownHull/enemyHull/ownAssetGreen retired by Story 1.12 — hulls, wake, and
@@ -160,9 +196,12 @@ const TYPE = {
     body: { family: 'display', size: 16, weight: 400 },
     small: { family: 'display', size: 14, weight: 400 },
     caption: { family: 'display', size: 12, weight: 400 },
-    label: { family: 'mono', size: 11, weight: 500, tracking: '0.1em', upper: true },
+    // Story 2.3 (amendment 15): the micro registers carry the ratified ~1.6×
+    // legibility lift — label 11 → 17, hudMicro 9 → 14. DESIGN.md's 9px
+    // `hud-micro` pin is superseded by the amendment (doc-sync is separate).
+    label: { family: 'mono', size: 17, weight: 500, tracking: '0.1em', upper: true },
     hudReadout: { family: 'mono', size: 22 },
-    hudMicro: { family: 'mono', size: 9, tracking: '0.18em', upper: true },
+    hudMicro: { family: 'mono', size: 14, tracking: '0.18em', upper: true },
     data: { family: 'mono', tabular: true },
   },
 } as const;
@@ -334,10 +373,16 @@ export const CLIENT_CONFIG = {
    * every stroke/fill reads a CLIENT_CONFIG.colors token.
    */
   hotbar: {
-    /** Slot square (px) — {components.hotbar-slot}.size. */
-    slot: 54,
+    /** Slot square (px) — {components.hotbar-slot}.size. Grown 54 → 62 by the
+     *  Story 2.3 legibility lift so the 20px name + 16px quick-info stack fits
+     *  the row without clipping. */
+    slot: 62,
     /** Vertical gap between slot rows (mock `.hb-stack` gap). */
     gap: 14,
+    /** Name / quick-info baselines, as px below the row's top edge (Story 2.3:
+     *  they moved with the lifted type so the two lines never collide). */
+    nameTop: 8,
+    infoTop: 36,
     /** Zone anchor: px from the viewport's left edge to the KEY CHIP column. */
     left: 44,
     /** Zone anchor: px from the viewport's bottom edge to the stack's foot. */
@@ -346,23 +391,26 @@ export const CLIENT_CONFIG = {
      *  banked-level chip (mock `.xp-rail { left: -16px }`). Nothing is drawn in
      *  it this story — it only keeps the zone anchor honest. */
     gutter: 16,
-    /** Mono key-chip square (px) — one family with the refit digits / helm keys. */
-    keyChip: 16,
+    /** Mono key-chip square (px) — one family with the refit digits / helm keys.
+     *  Grown 16 → 22 so the lifted 14px chip glyph fits. */
+    keyChip: 22,
     /** Gap between key chip and slot, and between slot and the label column. */
     keyGap: 12,
     labelGap: 12,
     /** Label column width (px) — the name / quick-info block. It is part of the
      *  ROW's clickable footprint (amendment 11: the whole row is the control),
-     *  so this is a hit-region knob, not just a text budget. */
-    labelWidth: 168,
+     *  so this is a hit-region knob, not just a text budget. Grown 168 → 268 by
+     *  the Story 2.3 legibility lift (20px names / 16px quick-info). */
+    labelWidth: 268,
     /** Top-right chamfer cut (px) — the ABILITY shape mark (weapons never cut). */
     chamfer: 9,
     /** Conic cooldown perimeter track width (px). */
     trackWidth: 2,
     /** Icon linework box (px), centered in the slot. */
     icon: 28,
-    /** Ammo badge square (px) + its top-right overhang (px on both axes). */
-    badge: 16,
+    /** Ammo badge square (px) + its top-right overhang (px on both axes).
+     *  Grown 16 → 22 for the lifted 16px badge digit. */
+    badge: 22,
     badgeOverhang: 7,
     /** Alpha the whole hotbar (tooltip included) dims to while the refit modal
      *  is open — slot keys AND slot clicks are suspended in that window. */
@@ -371,8 +419,9 @@ export const CLIENT_CONFIG = {
     tooltip: {
       /** Hover dwell (ms) before the panel appears. */
       delayMs: 250,
-      /** Panel width (px) — {components.slot-tooltip}.width. */
-      width: 236,
+      /** Panel width (px) — {components.slot-tooltip}.width. Grown 236 → 320 for
+       *  the Story 2.3 lift (18px description copy). */
+      width: 320,
       /** Inner padding (px) and gap between the panel and the hovered slot. */
       pad: 12,
       gap: 14,
@@ -381,6 +430,51 @@ export const CLIENT_CONFIG = {
       /** Minimum px between the panel and any viewport edge. */
       margin: 8,
     },
+  },
+
+  /**
+   * Settings & accessibility (Story 2.3). Everything here is a CLIENT-ONLY feel
+   * / chrome knob: no setting ever travels on the wire, and none of these values
+   * is gameplay-authoritative. The persisted VALUES live in localStorage
+   * (settings/store.ts); this group holds the option sets, gates and geometry.
+   */
+  settings: {
+    /** localStorage key holding the whole settings object (JSON). */
+    storeKey: 'hullcracker.settings',
+    /** The pre-2.3 standalone mute key — read ONCE as a fallback, then the new
+     *  store key is authoritative (it is never written again). */
+    legacyMuteKey: 'hullcracker-muted',
+    /** The three committed UI-scale tiers (%). No 150% tier — foreclosed. */
+    scaleTiers: [90, 100, 125] as const,
+    /** Viewport width (px) below which the 125% tier is shown-but-DISABLED. */
+    scaleGateWidthPx: 1600,
+    /** Hard floor (px) for rendered MONO type after the UI scale is applied. */
+    monoFloorPx: 9,
+    /** Motion intensity multiplier per level — `reduced` halves every flash /
+     *  pulse amplitude, `off` removes motion entirely (information stays). */
+    motionIntensity: { full: 1, reduced: 0.5, off: 0 },
+    /** Overlay chrome: z between the refit modal (1000) and the home (1100). */
+    zIndex: 1050,
+    /** Panel geometry (px) — the DOM port-chrome register (panel bed, 1px
+     *  hairline border, 12px radius, no fullscreen backdrop dim). */
+    panelWidth: 720,
+    panelRadius: 12,
+    panelPad: 28,
+    /** Volume slider range (both master and effects are 0..100 integers). */
+    volumeMax: 100,
+  },
+
+  /** Radar blip render knobs (Story 2.3 adds the colorblind-assist channel). */
+  blip: {
+    /** Stroke width (px, in the baked 64px blip texture) of the assist OUTLINE
+     *  ring — absent (0) unless colorblind assist is on. */
+    outlineWidthPx: 4,
+    /** Minimum alpha a decayed blip may reach while it is still alive. 0 is the
+     *  base behavior (linear fade to nothing over one sweep); the assist raises
+     *  the floor so a cooling blip never fades to near-invisible. */
+    minAlpha: 0,
+    /** The assist's raised minimum decayed-blip alpha. */
+    assistMinAlpha: 0.35,
   },
 
   /** Netcode render delays (ms behind estimated server time). */
