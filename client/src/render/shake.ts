@@ -10,6 +10,7 @@
 
 import type { Point } from './camera.js';
 import { EXTRA_MARGIN_PX } from './fog.js';
+import { motionIntensity, settings } from '../settings/store.js';
 
 /** Exponential decay rate (1/s) — mag * e^(-DECAY_RATE * t). */
 export const DECAY_RATE = 8;
@@ -88,17 +89,26 @@ const REST_EPSILON_PX = 0.05;
  * to get this frame's screen-space offset. `rng` is injectable for tests
  * (defaults to Math.random); it drives the per-frame random direction only —
  * all magnitude math above is pure and deterministic.
+ *
+ * THE single shake gate (Story 2.3): the accessibility motion level scales the
+ * emitted magnitude — `reduced` halves it, `off` returns a zero offset while the
+ * decay state keeps running (so a mid-shake setting change resolves cleanly).
+ * `intensity` is injectable so the gate is testable without touching the store.
  */
 export class ShakeDriver {
   private state: ShakeState = IDLE_SHAKE;
 
-  constructor(private readonly rng: () => number = Math.random) {}
+  constructor(
+    private readonly rng: () => number = Math.random,
+    private readonly intensity: () => number = () => motionIntensity(settings.current.motion),
+  ) {}
 
   trigger(damage: number): void {
     this.state = triggerShake(this.state, damage);
   }
 
-  /** Current decayed magnitude (px), for tests/debug. */
+  /** Current decayed magnitude (px), for tests/debug. Ungated — this is the
+   *  raw decay state, not the emitted offset. */
   get magnitude(): number {
     return shakeCurrentMagnitude(this.state);
   }
@@ -106,7 +116,7 @@ export class ShakeDriver {
   /** Advance by `dt` seconds and return this frame's screen offset (px). */
   update(dt: number): Point {
     this.state = advanceShake(this.state, dt);
-    const mag = shakeCurrentMagnitude(this.state);
+    const mag = shakeCurrentMagnitude(this.state) * this.intensity();
     if (mag <= REST_EPSILON_PX) return { x: 0, y: 0 };
     const angle = this.rng() * Math.PI * 2;
     return { x: Math.cos(angle) * mag, y: Math.sin(angle) * mag };

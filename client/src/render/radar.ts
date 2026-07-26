@@ -15,9 +15,10 @@
 // grid. Thin Pixi adapter (not unit tested; the math lives in phosphor.ts).
 
 import { Graphics, Sprite } from 'pixi.js';
-import type { Container } from 'pixi.js';
+import type { Container, Texture } from 'pixi.js';
 import { CONFIG, type BlipEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { settings } from '../settings/store.js';
 import { Pool, capOldest } from '../util/pool.js';
 import { blipAlpha, blipTint, sweepRotation } from './phosphor.js';
 import {
@@ -55,6 +56,14 @@ export class Radar {
   private readonly pool: Pool<Sprite>;
   private readonly blips: LiveBlip[] = [];
   private readonly blipTexture = bakeBlipTexture();
+  /** Colorblind-assist blip: the same soft dot plus a hard outline ring. Baked
+   *  lazily so a player who never enables the assist pays nothing for it. */
+  private assistTexture: Texture | null = null;
+  /** Live assist state, refreshed per render frame from the settings store. */
+  private assist = false;
+  /** Every blip sprite ever created (pooled or live) — the assist texture swap
+   *  has to reach the idle ones too, and Pool exposes only its free count. */
+  private readonly allSprites: Sprite[] = [];
   /** Latest authoritative sweep sample (angle at server time t). */
   private lastSweep: { angle: number; t: number } | null = null;
   // Effective vision numbers (Stage D upgrades), swapped via setRanges();
@@ -105,13 +114,32 @@ export class Radar {
   }
 
   private makeBlipSprite(layer: Container): Sprite {
-    const s = new Sprite(this.blipTexture);
+    const s = new Sprite(this.currentBlipTexture());
     s.anchor.set(0.5);
     s.blendMode = 'add';
     s.scale.set(BLIP_DIAMETER_U / BLIP_TEXTURE_SIZE);
     s.visible = false;
     layer.addChild(s);
+    this.allSprites.push(s);
     return s;
+  }
+
+  /** The blip texture the current accessibility state calls for. */
+  private currentBlipTexture(): Texture {
+    if (!this.assist) return this.blipTexture;
+    this.assistTexture ??= bakeBlipTexture(true);
+    return this.assistTexture;
+  }
+
+  /** Adopt the live colorblind-assist state: re-point every pooled + live blip
+   *  sprite at the matching texture. Cheap (a texture swap, no re-bake beyond
+   *  the one lazy assist bake) and idempotent. */
+  private syncAssist(): void {
+    const want = settings.current.colorblind;
+    if (want === this.assist) return;
+    this.assist = want;
+    const tex = this.currentBlipTexture();
+    for (const s of this.allSprites) s.texture = tex;
   }
 
   /** Ingest the authoritative sweep angle from a frame (server time `t`). */
@@ -142,6 +170,7 @@ export class Radar {
 
   /** Per-frame: rotate/position the sweep + rings, decay/release blips. */
   render(own: OwnPoint | null, serverNow: number): void {
+    this.syncAssist();
     this.updateSweep(own, serverNow);
     this.updateBlips(serverNow);
   }
@@ -163,10 +192,13 @@ export class Radar {
 
   private updateBlips(serverNow: number): void {
     const period = this.sweepPeriodMs;
+    // Colorblind assist raises the minimum decayed-blip opacity (amendment 18):
+    // a cooling contact stays readable instead of dimming into the fog.
+    const floor = this.assist ? CLIENT_CONFIG.blip.assistMinAlpha : CLIENT_CONFIG.blip.minAlpha;
     for (let i = this.blips.length - 1; i >= 0; i--) {
       const b = this.blips[i];
       const age = serverNow - b.t;
-      const alpha = blipAlpha(age, period);
+      const alpha = blipAlpha(age, period, floor);
       if (alpha <= 0) {
         b.sprite.visible = false;
         this.pool.release(b.sprite);

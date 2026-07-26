@@ -35,6 +35,11 @@ const DIM = C.textMuted;
 // DESIGN.md storm color note).
 const STORM_PURPLE = C.stormReadout;
 const PANEL = C.panel; // HP bar backing
+// Story 2.3 (amendment 17): load-bearing HUD TEXT is de-greyed to CIC phosphor —
+// `DIM` survives only as decorative LINEWORK (ladder spine, rungs, HP-bar edge).
+// An un-selected ladder rung dims the phosphor via the Text's alpha instead of
+// switching color, so the highlight grammar reads without any grey text.
+const TEXT_DIM_ALPHA = 0.55;
 // Geist Mono per DESIGN.md — the single mono stack (sizes unchanged: they already
 // embed the post-playtest ~1.6× register).
 const MONO = CLIENT_CONFIG.type.mono;
@@ -47,20 +52,20 @@ const BAR_H = 16;
 
 // --- engine-order telegraph ladder ------------------------------------------
 const SPINE_X = PANEL_W; // ladder spine at the panel's right edge
-const RUNG_GAP = 13; // vertical px between the nine detents
-const LADDER_BOTTOM = 84; // y of the full-astern rung (index 0)
+const RUNG_GAP = 20; // vertical px between the nine detents (grown for the Story 2.3 type lift)
+const LADDER_BOTTOM = 118; // y of the full-astern rung (index 0)
 const LADDER_TOP = LADDER_BOTTOM - 8 * RUNG_GAP; // full-ahead rung (index 8)
 const RUNG_LEN = 10; // half-tick length for a normal detent
 const RUNG_STYLE = {
   fontFamily: MONO,
-  fontSize: 12,
-  fill: DIM,
+  fontSize: 18,
+  fill: GREEN,
   letterSpacing: 0.5,
 } as const;
 const CAP_STYLE = {
   fontFamily: MONO,
-  fontSize: 13,
-  fill: DIM,
+  fontSize: 20,
+  fill: GREEN,
   letterSpacing: 1,
 } as const;
 
@@ -98,8 +103,8 @@ export function speedLadderFraction(speed: number, kin: LadderKin): number {
 
 const LABEL_STYLE = {
   fontFamily: MONO,
-  fontSize: 14,
-  fill: DIM,
+  fontSize: 16,
+  fill: GREEN,
   letterSpacing: 1.5,
 } as const;
 
@@ -178,8 +183,8 @@ const MATCH_LINE_STYLE = {
 } as const;
 const MATCH_TAG_STYLE = {
   fontFamily: MONO,
-  fontSize: 16,
-  fill: DIM,
+  fontSize: 18,
+  fill: GREEN,
   letterSpacing: 3,
 } as const;
 const COUNTDOWN_STYLE = {
@@ -224,11 +229,12 @@ export function reloadFraction(reloadMsLeft: number, reloadMs: number): number {
 //   telegraph     the gauge root, CLUSTER_BELOW px of clearance under it
 //   PTS prompt    above the cluster's top edge
 //   IN STORM      above the PTS prompt
-// Local extremes of the gauge root's content: y ∈ [-38, 102] (AHEAD caption to
-// ASTERN caption), x ∈ [0, ~250] (HDG readout to the speed needle).
-const CLUSTER_TOP = 38; // px of root-local content ABOVE the root origin
-const CLUSTER_BOTTOM = 102; // px of root-local content BELOW the root origin
-const CLUSTER_W = 250; // px of root-local content RIGHT of the root origin
+// Local extremes of the gauge root's content: y ∈ [-72, 142] (AHEAD caption to
+// ASTERN caption), x ∈ [0, ~260] (HDG readout to the speed needle). Story 2.3
+// grew all three so the lifted rung/caption type fits without clipping.
+const CLUSTER_TOP = 72; // px of root-local content ABOVE the root origin
+const CLUSTER_BOTTOM = 142; // px of root-local content BELOW the root origin
+const CLUSTER_W = 260; // px of root-local content RIGHT of the root origin
 const CLUSTER_BELOW = 12; // clearance between the cluster's foot and the HP bar
 const PTS_ABOVE = 24; // PTS prompt baseline above the cluster's top edge
 const STORM_ABOVE = 50; // IN STORM baseline above the cluster's top edge
@@ -408,6 +414,7 @@ export class Hud {
   private buildLadderLabels(): Text[] {
     const labels = DETENT_LABELS.map((t, i) => {
       const label = new Text({ text: t, style: RUNG_STYLE });
+      label.alpha = TEXT_DIM_ALPHA; // updateTelegraph brightens the ordered rung
       label.anchor.set(1, 0.5);
       label.position.set(SPINE_X - RUNG_LEN - 6, rungY(i));
       this.root.addChild(label);
@@ -465,7 +472,7 @@ export class Hud {
     const index = detentIndexOf(axes.throttle);
     if (index !== this.lastDetent) {
       for (let i = 0; i < this.rungLabels.length; i++) {
-        this.rungLabels[i].style.fill = i === index ? GREEN : DIM;
+        this.rungLabels[i].alpha = i === index ? 1 : TEXT_DIM_ALPHA;
       }
       this.lastDetent = index;
     }

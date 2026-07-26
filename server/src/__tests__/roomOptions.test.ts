@@ -3,7 +3,7 @@
 // Colyseus room needed to exercise every branch.
 
 import { describe, it, expect } from 'vitest';
-import { sanitizeRoomOptions, type RoomOptions } from '../rooms/roomOptions.js';
+import { NAME_MAX, sanitizeName, sanitizeRoomOptions, type RoomOptions } from '../rooms/roomOptions.js';
 
 const MATCH_OVERRIDE = { sandbox: true, minHumans: 1, countdownMs: 1, resultsMs: 1 };
 const ZONE_OVERRIDE = { grace: 1, shrinkDuration: 1, endRadiusFraction: 0.1 };
@@ -104,5 +104,44 @@ describe('sanitizeRoomOptions — devEnabled=true (HC_DEV_OPTIONS=1, smokes/test
       expect(sanitized.mapSeed).toBeUndefined();
       expect(rejectedKeys).toEqual([]); // stripped silently — dev asked, dev gave junk
     }
+  });
+});
+
+
+// --- callsign hardening (Story 2.3 — deferred-work 127/130) ------------------
+
+describe('sanitizeName — options.name is client-supplied and untrusted', () => {
+  it('type-guards a NON-STRING to undefined instead of throwing on .trim()', () => {
+    // The pre-2.3 call site was `options.name?.trim()`, which THREW on a number
+    // or an object. undefined ⇒ the caller falls back to CAPTAIN-n.
+    expect(sanitizeName(123)).toBeUndefined();
+    expect(sanitizeName({ toString: () => 'HAX' })).toBeUndefined();
+    expect(sanitizeName([])).toBeUndefined();
+    expect(sanitizeName(null)).toBeUndefined();
+    expect(sanitizeName(undefined)).toBeUndefined();
+    expect(sanitizeName(true)).toBeUndefined();
+  });
+
+  it('trims, and treats an empty / all-whitespace name as absent', () => {
+    expect(sanitizeName('  SALTY DOG  ')).toBe('SALTY DOG');
+    expect(sanitizeName('')).toBeUndefined();
+    expect(sanitizeName('    ')).toBeUndefined();
+  });
+
+  it('caps at NAME_MAX CODE POINTS (the client entry cap)', () => {
+    const long = 'X'.repeat(40);
+    expect(sanitizeName(long)).toHaveLength(NAME_MAX);
+    expect(NAME_MAX).toBe(14);
+  });
+
+  it('counts CODE POINTS, never UTF-16 units — a surrogate pair is not split', () => {
+    const emoji = '🚢'.repeat(20); // 20 code points, 40 UTF-16 units
+    const capped = sanitizeName(emoji) ?? '';
+    expect([...capped]).toHaveLength(NAME_MAX);
+    expect(capped).toBe('🚢'.repeat(NAME_MAX)); // no lone surrogate at the tail
+  });
+
+  it('leaves a name already inside the cap byte-identical', () => {
+    expect(sanitizeName('CAPTAIN-9')).toBe('CAPTAIN-9');
   });
 });

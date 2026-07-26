@@ -189,3 +189,21 @@ Verified with `resolve_customization.py` (three-layer merge: protocol appends to
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-2-the-hotbar.md`
   summary: The ratified 7-state hotbar grammar has no "active ability window" state — the retired chip row outlined a slot while speedBoost ran, and the new hotbar drops that signal (only the ≤80 ms activated pop and the speed-needle cap remain), so a running boost/decoy window has no persistent hotbar indication; needs an Eric ruling (natural home: Story 2.9 The Build Must Be Felt) before inventing an eighth state.
   evidence: Edge Case Hunter traced the deleted drawOneChip boost-active outline against DESIGN.md UX-DR11's state grammar, which contains no active-window state — adding one is a gated design decision, not an implementation choice.
+
+## 2026-07-26 — Story 2.3 (Settings & Accessibility Options + Legibility Pass)
+
+**Closures:**
+
+1. **Server `options.name` length cap** (spec-1-13, line-127 entry) — CLOSED: `sanitizeName()` in `server/src/rooms/roomOptions.ts` caps at `NAME_MAX = 14` code points (Array.from — surrogate-safe), matching the client entry cap; unit-tested.
+2. **Server `options.name` type guard** (spec-1-13, line-130 entry) — CLOSED: same `sanitizeName()` returns `undefined` for any non-string (the old `options.name?.trim()` threw on e.g. `name: 123`); caller falls back to `CAPTAIN-n`.
+3. **Inert settings gear / ESC seam** (spec-1-14 entry) — CLOSED: the real settings overlay is wired to the home gear and the uniform ESC topmost-close law (amendments 21/23); the `NOTE_SETTINGS` placeholder is deleted.
+4. **Text-entry-guard hardening convention** (spec-2-1 entry) — ADDRESSED for 2.3's chrome: the settings overlay/results modal route through the explicit `isOverlayFocused` chokepoint hook (fail-loud by design: only ESC/Enter act) rather than relying on the BUTTON-focus heuristic. The convention note stays open for future in-match focusable chrome.
+
+**New entries:**
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-settings-accessibility-options.md`
+  summary: DESIGN.md typography/color rows are now superseded by amendments 15–17 (hud-micro 9px pin → 14px; label 11 → 17; text-muted usage rules — grey retired for load-bearing text; hotbar data phosphor + white names) and the binding/ESC rows by amendments 21–23 (uniform topmost-close ESC, elimination results modal). Needs the Eric-gated doc-sync batch (Story 7.5 home or a dedicated doc-sync cycle); no design docs were edited in-story per standing rule.
+  evidence: Amendments 14–23 in epic-2-context-amendments.md vs DESIGN.md Typography/Colors tables and EXPERIENCE ESC/results primitives.
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-3-settings-accessibility-options.md`
+  summary: The results modal's "ships you sank" list is best-effort by construction — `sunk` events are LOS-gated by perception, so a kill scored without line of sight (mine, blind torpedo) contributes to the roster-derived kill TALLY but cannot contribute a NAME to the list. Making the list exhaustive requires a self-private wire addition (e.g. victim name on the killer's own frame), a PV bump — Eric's call whether the gap matters once real playtests surface it.
+  evidence: score.ts header documents the derivation; perception.observe() strips unsighted victim ids by ratified anti-cheat rule (per-event visibility).

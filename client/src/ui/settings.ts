@@ -1,0 +1,485 @@
+// THE settings overlay (Story 2.3) — plain DOM port chrome over the canvas,
+// reachable from the home gear, home ESC, and the in-match ESC toggle. It NEVER
+// pauses the simulation: while it is open the keyboard chokepoint suppresses ALL
+// sim keys (the focused-overlay rule — helm included, unlike the refit modal)
+// and canvas clicks can't fire, but the ocean keeps running behind it.
+//
+// Shape: a PURE VIEW-MODEL (the option sets, the binding reference, the
+// danger-row confirm machine) with a thin DOM shell under it, so the contract is
+// unit-testable without a browser. Every value is read from and written to
+// settings/store.ts — the overlay owns no state of its own except which danger
+// action is armed.
+//
+// Register: the DOM `panel` bed, a 1px `hairline` border, 12px radius, and NO
+// fullscreen backdrop dim (DESIGN dims behind results only). z sits between the
+// refit modal (1000) and the home (1100). Tokens only — no color literals.
+
+import { CLIENT_CONFIG } from '../config.js';
+import {
+  scaleTierEnabled,
+  scaleTierNote,
+  type MotionLevel,
+  type Settings,
+  type SettingsStore,
+  type UiScale,
+} from '../settings/store.js';
+import { registerCss } from './theme.js';
+
+const S = CLIENT_CONFIG.settings;
+const OVERLAY_ID = 'hc-settings';
+/** Stable ids the tests pin (never "the only button"). */
+export const ABANDON_BUTTON_ID = 'hc-settings-abandon';
+export const RESET_BUTTON_ID = 'hc-settings-reset';
+export const CLOSE_BUTTON_ID = 'hc-settings-close';
+
+// --- pure view model ----------------------------------------------------------
+
+/** One selectable option in a segmented row. */
+export interface OptionModel<T> {
+  value: T;
+  label: string;
+  /** Selectable at the current viewport (the 125% UI-scale gate). */
+  enabled: boolean;
+  /** Why it is disabled ('' when it isn't). */
+  note: string;
+}
+
+export const MOTION_OPTIONS: readonly OptionModel<MotionLevel>[] = [
+  { value: 'full', label: 'FULL', enabled: true, note: '' },
+  { value: 'reduced', label: 'REDUCED', enabled: true, note: '' },
+  { value: 'off', label: 'OFF', enabled: true, note: '' },
+];
+
+/**
+ * Pure: the UI-scale options for a viewport width. The 125% tier is always
+ * SHOWN — hiding it would make the capability invisible — but is disabled with
+ * an explanatory note below `scaleGateWidthPx` (the committed AC).
+ */
+export function scaleOptions(viewportW: number): OptionModel<UiScale>[] {
+  return S.scaleTiers.map((tier) => ({
+    value: tier as UiScale,
+    label: `${tier}%`,
+    enabled: scaleTierEnabled(tier, viewportW),
+    note: scaleTierNote(tier, viewportW),
+  }));
+}
+
+/** One row of the view-only binding reference. */
+export interface BindingRow {
+  keys: string;
+  action: string;
+}
+
+/**
+ * Pure: the CURRENT-TRUTH binding reference (amendments 1–13). Authored from the
+ * amendments, never copied from EXPERIENCE/DESIGN — those tables predate the
+ * 2026-07-21/24 re-rulings (Q-on-gun, the F slot, SPACE-hold refit). F is
+ * reserved-and-unbound (the future Foghorn), so it is deliberately absent. This
+ * is a REFERENCE, not a remapper: key remapping is post-beta.
+ */
+export function bindingRows(): BindingRow[] {
+  return [
+    { keys: 'W / S', action: 'ENGINE TELEGRAPH — ONE DETENT PER TAP' },
+    { keys: 'A / D', action: 'RUDDER — HELD' },
+    { keys: 'Q / E', action: 'CLASS SPECIAL SLOTS' },
+    { keys: 'R', action: 'PICKUP SLOT — INERT WHILE EMPTY' },
+    { keys: 'CLICK', action: 'FIRE THE SELECTED WEAPON / PRIME A SKILLSHOT' },
+    { keys: 'TAB', action: 'REFIT WINDOW — TOGGLE' },
+    { keys: '1 – 4', action: 'PICK A REFIT CARD (WHILE THE WINDOW IS OPEN)' },
+    { keys: 'ESC', action: 'CLOSE THE TOPMOST SURFACE / OPEN SETTINGS' },
+    { keys: 'Z / X', action: 'CAMERA ZOOM OUT / IN — WHEEL ZOOMS SMOOTHLY' },
+    { keys: 'M', action: 'MUTE' },
+    { keys: 'ENTER', action: 'CONFIRM THE TOPMOST SURFACE' },
+  ];
+}
+
+/** Which surfaces are currently up, topmost-first in the ratified order. */
+export interface OpenSurfaces {
+  /** The elimination / game-end results modal. */
+  results: boolean;
+  /** The TAB refit modal. */
+  refit: boolean;
+  /** This overlay. */
+  settings: boolean;
+}
+
+/** What ESC does, given the open surfaces. */
+export type EscapeAction = 'closeResults' | 'closeRefit' | 'closeSettings' | 'openSettings';
+
+/**
+ * Pure: THE uniform ESC law (amendment 23). ESC closes the TOPMOST open surface
+ * — results modal, then refit modal, then this overlay — and only opens/toggles
+ * settings when nothing is open at all. Consequences of note, all encoded here:
+ *   • settings NEVER opens over another surface (no stacking, ever);
+ *   • ESC never returns to port — closing the results modal equals pressing
+ *     SPECTATE, and leaving is RETURN TO PORT or ABANDON MATCH;
+ *   • from spectate (nothing open) ESC opens settings, whose ABANDON MATCH is
+ *     how a spectating player leaves.
+ */
+export function escapeAction(open: OpenSurfaces): EscapeAction {
+  if (open.results) return 'closeResults';
+  if (open.refit) return 'closeRefit';
+  if (open.settings) return 'closeSettings';
+  return 'openSettings';
+}
+
+/**
+ * Pure: may a surface OPEN right now? Nothing stacks — the refit modal cannot
+ * open over settings and settings cannot open over the refit modal or the
+ * results screen (the I/O matrix's "Never stack" row, both directions).
+ */
+export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces): boolean {
+  return !Object.entries(open).some(([k, v]) => v && k !== surface);
+}
+
+/** The two confirm-gated danger actions (amendment 19). */
+export type DangerAction = 'abandon' | 'reset';
+
+/**
+ * Pure: the danger-row confirm machine. A first press ARMS the action (the
+ * button relabels to its confirm copy); a second press on the SAME action fires
+ * it; pressing the other danger action re-arms that one instead. No stacked
+ * modal — the confirmation happens inside the overlay, on the button itself.
+ */
+export function nextArmed(armed: DangerAction | null, pressed: DangerAction): { armed: DangerAction | null; fire: boolean } {
+  return armed === pressed ? { armed: null, fire: true } : { armed: pressed, fire: false };
+}
+
+/** Pure: a danger button's label for the current armed state. */
+export function dangerLabel(action: DangerAction, armed: DangerAction | null): string {
+  const base = action === 'abandon' ? 'ABANDON MATCH' : 'RESET SETTINGS';
+  return armed === action ? `${base} — CONFIRM?` : base;
+}
+
+// --- DOM shell ----------------------------------------------------------------
+
+const OVERLAY_CSS = [
+  'position:fixed',
+  'inset:0',
+  'display:none', // flipped to 'flex' by open()
+  'align-items:center',
+  'justify-content:center',
+  'padding:24px',
+  // No fullscreen dim — DESIGN dims behind the results screen only.
+  'background:transparent',
+  `z-index:${S.zIndex}`,
+].join(';');
+
+const PANEL_CSS = [
+  'display:flex',
+  'flex-direction:column',
+  'gap:20px',
+  `width:${S.panelWidth}px`,
+  'max-width:100%',
+  'max-height:100%',
+  'overflow-y:auto',
+  `padding:${S.panelPad}px`,
+  'background:var(--hc-panel)',
+  'border:1px solid var(--hc-hairline)',
+  `border-radius:${S.panelRadius}px`,
+  'font-family:var(--hc-font-mono)',
+  'color:var(--hc-text-primary)',
+].join(';');
+
+const SECTION_CSS = 'display:flex;flex-direction:column;gap:10px';
+const ROW_CSS = 'display:flex;align-items:center;gap:14px;flex-wrap:wrap';
+const HEADING_CSS = `${registerCss('label')};color:var(--hc-phosphor)`;
+const LABEL_CSS = `${registerCss('hudMicro')};color:var(--hc-text-primary);min-width:170px`;
+const NOTE_CSS = `${registerCss('hudMicro')};color:var(--hc-phosphor);opacity:0.75`;
+const VALUE_CSS = 'font:500 17px var(--hc-font-mono);color:var(--hc-phosphor);min-width:56px;text-align:right';
+
+const CHOICE_CSS = [
+  'padding:7px 16px',
+  'background:var(--hc-panel-deep)',
+  'border:1px solid var(--hc-hairline)',
+  'color:var(--hc-text-primary)',
+  'font:500 17px var(--hc-font-mono)',
+  'letter-spacing:0.08em',
+  'border-radius:4px',
+  'cursor:pointer',
+].join(';');
+
+const DANGER_CSS = [
+  'padding:9px 20px',
+  'background:var(--hc-panel-deep)',
+  'border:1px solid var(--hc-danger)',
+  'color:var(--hc-denied)',
+  'font:600 17px var(--hc-font-mono)',
+  'letter-spacing:0.14em',
+  'border-radius:4px',
+  'cursor:pointer',
+].join(';');
+
+/** A DOM button that never keeps focus (a focused BUTTON would trip the
+ *  keyboard chokepoint's text-entry guard and swallow the ESC that closes us). */
+function makeButton(css: string, text: string, onClick: () => void, id?: string): HTMLButtonElement {
+  const b = document.createElement('button');
+  b.type = 'button';
+  if (id) b.id = id;
+  b.textContent = text;
+  b.style.cssText = css;
+  b.addEventListener('mousedown', (e) => e.preventDefault());
+  b.addEventListener('click', () => {
+    b.blur();
+    onClick();
+  });
+  return b;
+}
+
+function makeHeading(text: string): HTMLElement {
+  const el = document.createElement('div');
+  el.textContent = text;
+  el.style.cssText = HEADING_CSS;
+  return el;
+}
+
+function makeSection(title: string, ...children: HTMLElement[]): HTMLElement {
+  const el = document.createElement('div');
+  el.style.cssText = SECTION_CSS;
+  el.append(makeHeading(title), ...children);
+  return el;
+}
+
+function makeLabel(text: string): HTMLElement {
+  const el = document.createElement('span');
+  el.textContent = text;
+  el.style.cssText = LABEL_CSS;
+  return el;
+}
+
+/** A segmented choice row: label + one button per option, the selected one
+ *  amber-outlined (a disabled option renders inert with its note beside it). */
+function makeChoiceRow<T>(
+  label: string,
+  options: readonly OptionModel<T>[],
+  selected: T,
+  onPick: (v: T) => void,
+): HTMLElement {
+  const row = document.createElement('div');
+  row.style.cssText = ROW_CSS;
+  row.append(makeLabel(label));
+  for (const opt of options) {
+    const b = makeButton(CHOICE_CSS, opt.label, () => onPick(opt.value));
+    b.dataset.value = String(opt.value);
+    if (opt.value === selected) {
+      b.style.borderColor = 'var(--hc-amber)';
+      b.style.color = 'var(--hc-amber)';
+    }
+    if (!opt.enabled) {
+      b.disabled = true;
+      b.style.opacity = '0.4';
+      b.style.cursor = 'default';
+    }
+    row.appendChild(b);
+    if (opt.note !== '') {
+      const note = document.createElement('span');
+      note.textContent = opt.note;
+      note.style.cssText = NOTE_CSS;
+      row.appendChild(note);
+    }
+  }
+  return row;
+}
+
+/** A 0–100 slider row with a live numeric readout. */
+function makeSliderRow(label: string, value: number, onInput: (v: number) => void): HTMLElement {
+  const row = document.createElement('div');
+  row.style.cssText = ROW_CSS;
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.min = '0';
+  input.max = String(S.volumeMax);
+  input.step = '1';
+  input.value = String(value);
+  input.style.cssText = 'flex:1 1 220px;accent-color:var(--hc-phosphor)';
+  const readout = document.createElement('span');
+  readout.textContent = String(value);
+  readout.style.cssText = VALUE_CSS;
+  input.addEventListener('input', () => {
+    const v = Number(input.value);
+    readout.textContent = String(v);
+    onInput(v);
+  });
+  row.append(makeLabel(label), input, readout);
+  return row;
+}
+
+/** An on/off row (the same segmented control, over booleans). */
+function makeToggleRow(label: string, value: boolean, onPick: (v: boolean) => void): HTMLElement {
+  const options: OptionModel<boolean>[] = [
+    { value: false, label: 'OFF', enabled: true, note: '' },
+    { value: true, label: 'ON', enabled: true, note: '' },
+  ];
+  return makeChoiceRow(label, options, value, onPick);
+}
+
+function makeBindings(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'display:flex;flex-direction:column;gap:6px';
+  for (const r of bindingRows()) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:16px;align-items:baseline';
+    const keys = document.createElement('span');
+    keys.textContent = r.keys;
+    keys.style.cssText = 'font:600 17px var(--hc-font-mono);color:var(--hc-phosphor);min-width:96px';
+    const action = document.createElement('span');
+    action.textContent = r.action;
+    action.style.cssText = `${registerCss('hudMicro')};color:var(--hc-text-primary)`;
+    row.append(keys, action);
+    wrap.appendChild(row);
+  }
+  return wrap;
+}
+
+/** Everything the overlay needs from the app (all late-bound thunks). */
+export interface SettingsOverlayDeps {
+  store: SettingsStore;
+  /** True while the player is in a LIVE match — gates ABANDON MATCH. */
+  inMatch: () => boolean;
+  /** Confirmed ABANDON MATCH: leave the room cleanly for the home port. */
+  onAbandon: () => void;
+  /** Current viewport width (drives the 125% UI-scale gate). */
+  viewportWidth: () => number;
+}
+
+/**
+ * The settings overlay. `visible` is the surface state the uniform ESC law and
+ * the sim-suppression predicate both read; open/close/toggle are the only ways
+ * it changes. Content is rebuilt on every open (and on every settings change
+ * while open) so it always reflects the live store — the panel is small and this
+ * is chrome, not a hot path.
+ */
+export class SettingsOverlay {
+  private overlay: HTMLDivElement | null = null;
+  private panel: HTMLDivElement | null = null;
+  private shown = false;
+  private armed: DangerAction | null = null;
+  private unsubscribe: (() => void) | null = null;
+
+  constructor(private readonly deps: SettingsOverlayDeps) {}
+
+  get visible(): boolean {
+    return this.shown;
+  }
+
+  open(): void {
+    if (this.shown) return;
+    this.shown = true;
+    this.armed = null;
+    this.render();
+    this.ensureOverlay().style.display = 'flex';
+    // Live-refresh while open: an M-key mute (or any other writer) must be
+    // reflected in the overlay's own controls — one persisted value, one truth.
+    this.unsubscribe ??= this.deps.store.subscribe(() => {
+      if (this.shown) this.render();
+    });
+  }
+
+  close(): void {
+    if (!this.shown) return;
+    this.shown = false;
+    this.armed = null;
+    if (this.overlay) this.overlay.style.display = 'none';
+    this.unsubscribe?.();
+    this.unsubscribe = null;
+  }
+
+  toggle(): void {
+    if (this.shown) this.close();
+    else this.open();
+  }
+
+  /** Teardown (return to port / test cleanup). */
+  destroy(): void {
+    this.close();
+    this.overlay?.remove();
+    this.overlay = null;
+    this.panel = null;
+  }
+
+  private ensureOverlay(): HTMLDivElement {
+    if (this.overlay) return this.overlay;
+    const overlay = document.createElement('div');
+    overlay.id = OVERLAY_ID;
+    overlay.style.cssText = OVERLAY_CSS;
+    const panel = document.createElement('div');
+    panel.style.cssText = PANEL_CSS;
+    overlay.appendChild(panel);
+    document.body.appendChild(overlay);
+    this.overlay = overlay;
+    this.panel = panel;
+    return overlay;
+  }
+
+  private render(): void {
+    this.ensureOverlay();
+    const panel = this.panel!;
+    const s = this.deps.store.current;
+    panel.replaceChildren(
+      this.makeHeader(),
+      makeSection('MOTION', makeChoiceRow('SCREEN MOTION', MOTION_OPTIONS, s.motion, (v) => this.set({ motion: v }))),
+      makeSection('DISPLAY', this.makeScaleRow(s), makeToggleRow('COLORBLIND ASSIST', s.colorblind, (v) => this.set({ colorblind: v }))),
+      makeSection(
+        'AUDIO',
+        makeSliderRow('MASTER VOLUME', s.masterVolume, (v) => this.set({ masterVolume: v })),
+        makeSliderRow('EFFECTS VOLUME', s.effectsVolume, (v) => this.set({ effectsVolume: v })),
+        makeToggleRow('MONO AUDIO', s.monoAudio, (v) => this.set({ monoAudio: v })),
+        makeToggleRow('MUTE (M)', s.muted, (v) => this.set({ muted: v })),
+      ),
+      makeSection('CONTROLS — REFERENCE ONLY', makeBindings()),
+      this.makeDangerRow(),
+    );
+  }
+
+  private makeHeader(): HTMLElement {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:16px';
+    const title = document.createElement('div');
+    title.textContent = 'SETTINGS';
+    title.style.cssText = 'font:700 26px var(--hc-font-display);letter-spacing:0.14em;color:var(--hc-text-primary)';
+    row.append(title, makeButton(CHOICE_CSS, 'CLOSE (ESC)', () => this.close(), CLOSE_BUTTON_ID));
+    return row;
+  }
+
+  private makeScaleRow(s: Settings): HTMLElement {
+    return makeChoiceRow('UI SCALE', scaleOptions(this.deps.viewportWidth()), s.uiScale, (v) => this.set({ uiScale: v }));
+  }
+
+  private makeDangerRow(): HTMLElement {
+    const row = document.createElement('div');
+    row.style.cssText = `${ROW_CSS};justify-content:flex-end;border-top:1px solid var(--hc-hairline);padding-top:16px`;
+    if (this.deps.inMatch()) {
+      row.appendChild(
+        makeButton(DANGER_CSS, dangerLabel('abandon', this.armed), () => this.press('abandon'), ABANDON_BUTTON_ID),
+      );
+    }
+    row.appendChild(makeButton(DANGER_CSS, dangerLabel('reset', this.armed), () => this.press('reset'), RESET_BUTTON_ID));
+    return row;
+  }
+
+  /** A danger button was pressed: arm it, or fire it if it was already armed. */
+  private press(action: DangerAction): void {
+    const next = nextArmed(this.armed, action);
+    this.armed = next.armed;
+    if (!next.fire) {
+      this.render();
+      return;
+    }
+    if (action === 'reset') {
+      this.deps.store.reset();
+      this.render(); // subscribe() also fires, but reset must repaint even if nothing changed
+      return;
+    }
+    this.close();
+    this.deps.onAbandon();
+  }
+
+  /** A control changed: write through the store (persisted + live) and repaint
+   *  so the segmented selection follows. Any armed danger action disarms — the
+   *  player's attention moved. */
+  private set(patch: Partial<Settings>): void {
+    this.armed = null;
+    this.deps.store.set(patch);
+    this.render();
+  }
+}

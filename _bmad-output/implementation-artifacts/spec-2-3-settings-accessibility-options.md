@@ -2,7 +2,8 @@
 title: 'Story 2.3: Settings & Accessibility Options (+ Legibility Pass)'
 type: 'feature'
 created: '2026-07-26'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '2dc6a78'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -91,7 +92,7 @@ warnings: [multiple-goals, oversized]
 - `client/src/audio/context.ts` + `tones.ts` — master/effects buses, mono merge, store-driven volumes; M/mute via store
 - `client/src/main.ts` — `handleEscape` topmost/toggle routing, modal-predicate extension, overlay lifecycle, abandon → returnToPort, UI-scale application (HUD root scale + layout divisor)
 - `client/src/render/stage.ts` — preload new mono sizes
-- `client/src/render/shake.ts` / `effects.ts` / `zone.ts` / `contacts.ts` / `firing.ts` / `deniedFire.ts` — motion-level gating
+- `client/src/render/shake.ts` / `effects.ts` / `zone.ts` / `contacts.ts` — motion-level gating (implemented; `firing.ts`/`deniedFire.ts` deliberately untouched — the denied red IS the denial's only info channel, so only its glow/bloom amplitude is motion-gated, in hotbar `slotSkin`)
 - `client/src/render/ships.ts` / `textures.ts` / `phosphor.ts` / `radar.ts` — CVD remap chokepoint, blip outline, opacity floor
 - `server/src/rooms/roomOptions.ts` + `ArenaRoom.ts` — `sanitizeName()` + call site
 - Tests: NEW `settings.test.ts` (store/migration/routing/view-model), NEW CVD deuteranopia test; update `tokens/hotbar/hud/nameplates/killFeed/home/homePersistence/classSelect/keyboard` suites; server `roomOptions.test.ts`
@@ -100,20 +101,20 @@ warnings: [multiple-goals, oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `client/src/settings/store.ts` -- build schema/defaults/persist/migrate/subscribe -- single source for every setting
-- [ ] `client/src/config.ts` -- ramp lift + CVD tokens + settings config group -- token law upheld
-- [ ] `client/src/audio/*` -- gain buses, mono merge, store wiring, mute unification -- live audio settings
-- [ ] `client/src/render/` motion gating (shake/effects/zone/contacts/firing/deniedFire/hotbar pop) -- one motion-level helper -- reduced/off honored everywhere
-- [ ] `client/src/render/ships.ts`+`textures.ts`+`phosphor.ts`+`radar.ts` -- CVD remap + blip outline + opacity floor -- amendment 18
-- [ ] UI-scale seam (`main.ts` HUD root + layout divisor; `theme.ts` DOM var; 1600 px gate; 9 px mono floor) -- amendment-free committed AC
-- [ ] `client/src/ui/settings.ts` + `main.ts` + `home.ts` -- overlay, uniform ESC topmost-close law, no-stack + suppression, gear, abandon + reset -- amendments 19/21/23
-- [ ] `client/src/ui/results.ts` + score accumulator + `main.ts` death flow -- immediate elimination modal w/ personal score, SPECTATE/RETURN TO PORT, winner state -- amendments 22/23
-- [ ] Legibility pass across `hotbar.ts`, `home.ts`, `classSelect.ts`, `hud.ts`, `nameplates.ts`, `results.ts`, `killFeed.ts`, `upgradeMenu.ts`, `upgradeToast.ts`, `banner.ts` (+ `stage.ts` preloads, layout growth) -- amendments 15–17
-- [ ] `client/src/render/equipmentInfo.ts` -- Deck Gun rename -- amendment 20
-- [ ] `server/src/rooms/roomOptions.ts` + `ArenaRoom.ts` -- `sanitizeName()` -- ledger 127/130
-- [ ] Tests: new settings + CVD suites; update every pinned suite incl. I/O matrix edge cases -- grammar stays pinned
-- [ ] Bookkeeping files (sprint-status, gds-workflow-status, deferred-work closures + doc-sync entry) -- per-PR protocol
-- [ ] `npm run check` -- full gate green
+- [x] `client/src/settings/store.ts` -- build schema/defaults/persist/migrate/subscribe -- single source for every setting
+- [x] `client/src/config.ts` -- ramp lift + CVD tokens + settings config group -- token law upheld
+- [x] `client/src/audio/*` -- gain buses, mono merge, store wiring, mute unification -- live audio settings
+- [x] `client/src/render/` motion gating (shake/effects/zone/contacts/firing/deniedFire/hotbar pop) -- one motion-level helper -- reduced/off honored everywhere
+- [x] `client/src/render/ships.ts`+`textures.ts`+`phosphor.ts`+`radar.ts` -- CVD remap + blip outline + opacity floor -- amendment 18
+- [x] UI-scale seam (`main.ts` HUD root + layout divisor; `theme.ts` DOM var; 1600 px gate; 9 px mono floor) -- amendment-free committed AC
+- [x] `client/src/ui/settings.ts` + `main.ts` + `home.ts` -- overlay, uniform ESC topmost-close law, no-stack + suppression, gear, abandon + reset -- amendments 19/21/23
+- [x] `client/src/ui/results.ts` + score accumulator + `main.ts` death flow -- immediate elimination modal w/ personal score, SPECTATE/RETURN TO PORT, winner state -- amendments 22/23
+- [x] Legibility pass across `hotbar.ts`, `home.ts`, `classSelect.ts`, `hud.ts`, `nameplates.ts`, `results.ts`, `killFeed.ts`, `upgradeMenu.ts`, `upgradeToast.ts`, `banner.ts` (+ `stage.ts` preloads, layout growth) -- amendments 15–17
+- [x] `client/src/render/equipmentInfo.ts` -- Deck Gun rename -- amendment 20
+- [x] `server/src/rooms/roomOptions.ts` + `ArenaRoom.ts` -- `sanitizeName()` -- ledger 127/130
+- [x] Tests: new settings + CVD suites; update every pinned suite incl. I/O matrix edge cases -- grammar stays pinned
+- [x] Bookkeeping files (sprint-status, gds-workflow-status, deferred-work closures + doc-sync entry) -- per-PR protocol
+- [x] `npm run check` -- full gate green
 
 **Acceptance Criteria:**
 - Given any entry point (home gear, home ESC, in-match ESC), when the overlay opens, then every committed setting plus the view-only binding reference is present, live-effective, and persisted — and no setting is reachable only mid-match.
@@ -137,6 +138,7 @@ warnings: [multiple-goals, oversized]
 - Stale-doc hazard: EXPERIENCE/DESIGN binding tables predate the 2026-07-21/24 re-rulings (Q-on-gun, F slot, SPACE-hold refit) — the reference must be authored from amendments 1–13, never copied from the docs. DESIGN.md's 9 px `hud-micro` pin and `text-muted` usage rules are superseded by amendments 15–17; record in doc-sync, do not edit DESIGN.md in-story.
 - The ESC/settings interplay extends `handleEscape` (main.ts:436) and the `isModalOpen` predicate — the exact seams Story 2.1 built. Reviewer focus per epic posture: client UI state machines (open/close/suppression lifecycle, reset-on-death/port edges).
 - Mono-audio is audibly vacuous today (nothing panned) — shipped per committed AC as bus plumbing, noted for when stereo bearing audio lands.
+- The sunk-ships list is best-effort by construction: `sunk` events are LOS-gated by perception, so unsighted kills (mine, blind torpedo) raise the roster-derived kill tally but can't contribute a name. Exhaustive listing needs a self-private wire addition (PV bump) — ledgered for Eric.
 
 ## Verification
 

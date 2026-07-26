@@ -49,12 +49,15 @@ function ensureStack(): HTMLDivElement {
       'position:fixed',
       'top:72px', // below the top-center zone/match lines
       'left:50%',
-      'transform:translateX(-50%)',
+      // HUD-tier DOM chrome scales with the accessibility UI scale (Story 2.3);
+      // the centering translate composes with it.
+      'transform-origin:top center',
+      'transform:translateX(-50%) scale(var(--hc-ui-scale, 1))',
       'display:flex',
       'flex-direction:column',
       'align-items:center',
       'gap:4px',
-      'font:400 16px var(--hc-font-mono)', // >= DESIGN.md 14px floor
+      'font:400 18px var(--hc-font-mono)', // Story 2.3 lift (14px micro floor)
       'letter-spacing:2px',
       'color:var(--hc-phosphor)', // phosphor green — a reward, not a warning
       'text-align:center',

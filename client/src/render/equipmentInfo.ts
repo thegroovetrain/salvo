@@ -30,7 +30,7 @@ export const SLOT_KEY_GLYPHS: readonly string[] = ['', 'Q', 'E', 'R'];
 
 /** Display name per equipment id (DRAFT copy). */
 export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
-  gun: 'Standard Gun',
+  gun: 'Deck Gun',
   torpedo: 'Torpedoes',
   mine: 'Mines',
   speedBoost: 'Speed Boost',

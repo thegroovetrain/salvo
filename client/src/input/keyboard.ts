@@ -4,6 +4,9 @@
 // every bound key preventDefault-ed (TAB focus-cycle and Space page-scroll
 // included), modifier chords (CTRL/META/ALT) left native, and a focused text
 // input or DOM button suppressing ALL sim keys while the sim keeps running.
+// Story 2.3 adds the FOCUSED-OVERLAY rule: while the settings overlay or the
+// results modal is up, every bound key but ESC/Enter is swallowed — helm
+// included, unlike the refit modal's partial lockout.
 // Pre-join surfaces (ui/home.ts, ui/classSelect.ts) keep their own scoped,
 // guarded handlers — this class is attached post-join only.
 //
@@ -18,10 +21,12 @@
 //   TAB            toggles the refit modal (main.ts owns open/close policy)
 //   1–4            pick a refit card ONLY while the modal is open
 //                  (refit-or-nothing; meaning evaluated at its own keydown)
-//   ESC            closes the topmost surface (the modal; settings at 2.3) —
-//                  on the results screen it returns to port (UX-DR27)
-//   ENTER          confirms the topmost surface — results screen: return to
-//                  port (UX-DR27); inert in-match
+//   ESC            closes the TOPMOST open surface (results modal / refit modal
+//                  / settings overlay) and, with nothing open, toggles settings
+//                  — the uniform law (Story 2.3, amendment 23). Never leaves the
+//                  match.
+//   ENTER          confirms the topmost surface — the game-end results screen's
+//                  RETURN TO PORT; inert in-match
 //   X / Z          camera zoom in / out (alive-only — main.ts gates)
 //   M / P          mute / prediction-debug toggle
 //   Space / CTRL   unbound; Space keydown still prevented (page scroll)
@@ -71,6 +76,10 @@ export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit3: 2, Numpad3: 2,
   Digit4: 3, Numpad4: 3,
 };
+
+/** The only keys that still act while a focused overlay is up (Story 2.3): the
+ *  two that dismiss the topmost surface. Everything else is swallowed. */
+const OVERLAY_KEYS = new Set(['Escape', 'Enter', 'NumpadEnter']);
 
 function anyHeld(keys: Set<string>, codes: string[]): boolean {
   return codes.some((c) => keys.has(c));
@@ -164,6 +173,14 @@ export interface KeyboardHooks {
   /** Is the refit modal open? While true: Q/E/R/F are suspended and digits
    *  pick cards; helm/zoom/M/P stay live. */
   isModalOpen?: () => boolean;
+  /**
+   * Is a FOCUSED OVERLAY up (Story 2.3: the settings overlay, the results
+   * modal)? While true EVERY sim key is suppressed — helm included, unlike the
+   * refit modal's partial lockout — and only ESC/Enter still route (they are how
+   * the surface is dismissed). Bound keys stay preventDefault-ed so focus can
+   * never escape the canvas; the simulation itself never pauses.
+   */
+  isOverlayFocused?: () => boolean;
   /** TAB — toggle the refit modal (main.ts owns the only-with-a-banked-point
    *  open rule and pick/TAB/ESC close rules). */
   onRefitToggle?: () => void;
@@ -272,8 +289,20 @@ export class KeyboardInput {
     const handler = this.bindings.get(e.code);
     if (handler === undefined) return;
     e.preventDefault();
+    if (this.suppressedByOverlay(e.code)) return;
     handler(e);
   };
+
+  /**
+   * Focused-overlay rule (Story 2.3): with the settings overlay or the results
+   * modal up, every BOUND key is swallowed except the two that dismiss the
+   * surface (ESC / Enter). The key is still preventDefault-ed by the caller, so
+   * focus can never escape the canvas — and the sim keeps running behind it:
+   * this suppresses INPUT, not time.
+   */
+  private suppressedByOverlay(code: string): boolean {
+    return this.hooks.isOverlayFocused?.() === true && !OVERLAY_KEYS.has(code);
+  }
 
   /** W/S (+arrows): record the held state (spectator pan reads it) and step
    *  the telegraph one detent per keydown EDGE (repeat → stepFromKey null). */

@@ -38,6 +38,7 @@ import { RttEstimator } from '../game/rtt.js';
 import {
   protocolVersionError,
   sanitizeColorPref,
+  sanitizeName,
   sanitizeRoomOptions,
   type JoinOptions,
   type MatchOverride,
@@ -421,7 +422,11 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
 
   onJoin(client: Client, options: JoinOptions = {}): void {
     this.joinCounter += 1;
-    const name = options.name?.trim() || `CAPTAIN-${this.joinCounter}`;
+    // SECURITY (Story 2.3, deferred-work 127/130): options.name arrives verbatim
+    // from joinOrCreate. sanitizeName type-guards it (a non-string used to THROW
+    // on .trim()), trims it, and caps it at NAME_MAX code points; undefined ⇒
+    // the CAPTAIN-n fallback.
+    const name = sanitizeName(options.name) ?? `CAPTAIN-${this.joinCounter}`;
     const classId = sanitizeClassId(options.cls);
 
     this.world.addShip(client.sessionId, name, false, classId);

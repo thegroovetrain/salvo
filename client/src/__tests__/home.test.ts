@@ -167,18 +167,35 @@ describe('showHome — Color Hoist writes hullcracker.color', () => {
   });
 });
 
-describe('showHome — inert notes (no dead click, no modal)', () => {
+describe('showHome — the settings gear (Story 2.3: the inert note is gone)', () => {
   beforeEach(() => localStorage.clear());
   afterEach(() => home()?.remove());
 
-  it('gear click shows the quiet settings note', () => {
-    showHome('0.0.0-test', vi.fn());
+  it('gear click fires the settings callback — no "later refit" note survives', () => {
+    const onSettings = vi.fn();
+    showHome('0.0.0-test', vi.fn(), onSettings);
     (home().querySelector('[title="Settings"]') as HTMLElement).click();
-    expect(home().textContent).toContain('SETTINGS ARRIVE IN A LATER REFIT');
-    expect(document.querySelector('.modal')).toBeNull();
+    expect(onSettings).toHaveBeenCalledTimes(1);
+    expect(home().textContent).not.toContain('SETTINGS ARRIVE IN A LATER REFIT');
   });
 
-  it('HOW TO PLAY shows the field-manual note', () => {
+  it('home ESC toggles settings too (mirrors the gear and the in-match ESC)', () => {
+    const onSettings = vi.fn();
+    showHome('0.0.0-test', vi.fn(), onSettings);
+    nameInput().blur();
+    press('Escape');
+    expect(onSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('ESC in the callsign field is left to the field, not the overlay', () => {
+    const onSettings = vi.fn();
+    showHome('0.0.0-test', vi.fn(), onSettings);
+    nameInput().focus();
+    press('Escape');
+    expect(onSettings).not.toHaveBeenCalled();
+  });
+
+  it('HOW TO PLAY still shows the field-manual note (out of 2.3 scope)', () => {
     showHome('0.0.0-test', vi.fn());
     const howto = [...home().querySelectorAll('span')].find((s) => s.textContent === 'HOW TO PLAY') as HTMLElement;
     howto.click();

@@ -57,12 +57,17 @@ function ensureFeed(): HTMLDivElement {
       'flex-direction:column',
       'align-items:flex-end',
       'gap:4px',
-      'font:400 14px var(--hc-font-mono)', // >= DESIGN.md 14px floor (owner legibility pass)
+      'font:400 16px var(--hc-font-mono)', // Story 2.3 lift; the micro floor is 14px
       'letter-spacing:1px',
-      'color:var(--hc-text-secondary)', // connective base (names override per-span)
+      // Amendment 17: the connective text is load-bearing, so it reads
+      // text-primary now — the retired grey is gone from the feed.
+      'color:var(--hc-text-primary)', // connective base (names override per-span)
       'text-align:right',
       'z-index:900',
       'pointer-events:none',
+      // HUD-tier DOM chrome scales with the accessibility UI scale (Story 2.3).
+      'transform-origin:top right',
+      'transform:scale(var(--hc-ui-scale, 1))',
     ].join(';');
     document.body.appendChild(el);
   }

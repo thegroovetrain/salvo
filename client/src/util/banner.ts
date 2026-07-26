@@ -17,9 +17,11 @@ function ensureEl(): HTMLDivElement {
       'position:fixed',
       'top:16px',
       'left:50%',
-      'transform:translateX(-50%)',
-      'padding:6px 14px',
-      'font:600 13px var(--hc-font-mono)',
+      // HUD-tier DOM chrome scales with the accessibility UI scale (Story 2.3).
+      'transform-origin:top center',
+      'transform:translateX(-50%) scale(var(--hc-ui-scale, 1))',
+      'padding:8px 18px',
+      'font:600 20px var(--hc-font-mono)',
       'letter-spacing:1.5px',
       'border:1px solid',
       'background:' + cssRgba(CLIENT_CONFIG.colors.cardScrim, 0.9), // dark-glass bed

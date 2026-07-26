@@ -19,13 +19,65 @@
 import { Graphics } from 'pixi.js';
 import { REGATTA_HUES, hullSilhouette, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { motionScaled, settings } from '../settings/store.js';
 
 const C = CLIENT_CONFIG.colors;
 
-/** Bright outline hue by Regatta wheel index (REGATTA_HUES order). */
-export const PLAYER_HUES: readonly number[] = REGATTA_HUES.map((n) => C.players[n]);
-/** Darker interior fill by Regatta wheel index (REGATTA_HUES order). */
-export const PLAYER_FILLS: readonly number[] = REGATTA_HUES.map((n) => C.playerFills[n]);
+/** The full 20-hue Regatta wheel (bright outline / darker fill), wheel order. */
+const REGATTA_OUTLINES: readonly number[] = REGATTA_HUES.map((n) => C.players[n]);
+const REGATTA_FILLS: readonly number[] = REGATTA_HUES.map((n) => C.playerFills[n]);
+
+/** The eight colorblind-assist families (config key order IS family order). */
+const CVD_OUTLINES: readonly number[] = Object.values(C.cvd);
+const CVD_FILLS: readonly number[] = Object.values(C.cvdFills);
+
+/**
+ * Pure: the assist FAMILY index a Regatta wheel index collapses onto
+ * (amendment 18). Modulo keeps the 20 wheel indices evenly spread over the 8
+ * families — adjacent wheel entries (which are adjacent HUES, the pairs the
+ * assist exists to separate) always land on different families.
+ */
+export function cvdFamilyIndex(wheelIndex: number, families = CVD_OUTLINES.length): number {
+  return ((wheelIndex % families) + families) % families;
+}
+
+/**
+ * Bright outline hue by Regatta wheel index. LIVE binding: `setColorblindAssist`
+ * swaps the whole table at this ONE chokepoint, and every consumer (hulls,
+ * nameplates, wake, kill feed, ordnance tint) reads through it, so the assist
+ * needs no per-consumer wiring. ESM live bindings mean importers see the swap.
+ */
+export let PLAYER_HUES: readonly number[] = REGATTA_OUTLINES;
+/** Darker interior fill by Regatta wheel index — swapped with PLAYER_HUES. */
+export let PLAYER_FILLS: readonly number[] = REGATTA_FILLS;
+
+/** Bumped every time the hue tables are swapped, so latched consumers (own hull
+ *  color, contact styles, nameplates) know to re-resolve. */
+let revision = 0;
+let assistOn = false;
+
+/** The current hue-table revision (see `revision` above). */
+export function hueRevision(): number {
+  return revision;
+}
+
+/** Is the colorblind-assist remap currently applied? */
+export function colorblindAssist(): boolean {
+  return assistOn;
+}
+
+/**
+ * THE colorblind-assist chokepoint: project the 20-hue wheel onto the eight
+ * separated families (on) or restore the ratified Regatta wheel (off). Cheap
+ * and idempotent — a no-op call leaves the revision untouched.
+ */
+export function setColorblindAssist(on: boolean): void {
+  if (on === assistOn) return;
+  assistOn = on;
+  PLAYER_HUES = on ? REGATTA_OUTLINES.map((_, i) => CVD_OUTLINES[cvdFamilyIndex(i)]) : REGATTA_OUTLINES;
+  PLAYER_FILLS = on ? REGATTA_FILLS.map((_, i) => CVD_FILLS[cvdFamilyIndex(i)]) : REGATTA_FILLS;
+  revision += 1;
+}
 
 export interface ShipStyle {
   /** Hull outline (stroke) color. */
@@ -112,9 +164,15 @@ export class ShipView {
     this.downed = v;
   }
 
-  /** Brief bright flash (took a hit). */
+  /**
+   * Brief bright flash (took a hit). MOTION-GATED (Story 2.3): `reduced` halves
+   * the flash duration, `off` suppresses it entirely — the hp bar, damage
+   * markers and kill feed still carry the information statically.
+   */
   flash(): void {
-    this.flashUntil = performance.now() + CLIENT_CONFIG.ship.flashMs;
+    const ms = motionScaled(CLIENT_CONFIG.ship.flashMs, settings.current.motion);
+    if (ms <= 0) return;
+    this.flashUntil = performance.now() + ms;
   }
 
   /** Sight-fade multiplier [0,1] applied on top of tint/alpha state. */

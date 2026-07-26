@@ -170,8 +170,10 @@ describe('vitalsLayout — the bottom-right own-vitals stack (amendment 12)', ()
   it('keeps the whole stack clear of the bottom-LEFT hotbar corner at the floor viewport', () => {
     const L = vitalsLayout(FLOOR.w, FLOOR.h);
     const hb = CLIENT_CONFIG.hotbar;
-    // Widest the hotbar zone can get: gutter + key chip + gap + slot + label column.
-    const hotbarRight = hb.left + hb.keyChip + hb.keyGap + hb.slot + hb.labelGap + 200;
+    // Widest the hotbar zone can get: gutter + key chip + gap + slot + label
+    // column. Reads the REAL label width so the Story 2.3 growth (168 -> 268 for
+    // the lifted type) is checked rather than approximated.
+    const hotbarRight = hb.left + hb.keyChip + hb.keyGap + hb.slot + hb.labelGap + hb.labelWidth;
     expect(Math.min(L.hp.x, L.cluster.x, L.pts.x, L.storm.x)).toBeGreaterThan(hotbarRight);
   });
 

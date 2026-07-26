@@ -27,9 +27,19 @@ export function lerpColor(c0: number, c1: number, t: number): number {
   return (ch(16) << 16) | (ch(8) << 8) | ch(0);
 }
 
-/** Blip alpha at `ageMs` since paint: 1 → 0 linearly across one sweep period. */
-export function blipAlpha(ageMs: number, periodMs: number): number {
-  return clamp01(1 - ageMs / periodMs);
+/**
+ * Blip alpha at `ageMs` since paint: 1 → 0 linearly across one sweep period.
+ *
+ * `minAlpha` (Story 2.3, amendment 18) is the FLOOR a still-living blip may
+ * decay to — 0 in the base grammar (a blip fades all the way out and dies
+ * exactly as the beam comes back around), raised by the colorblind assist so a
+ * cooling contact never sinks to near-invisible against the fog. The blip still
+ * DIES at one full period (age >= period ⇒ 0), so the floor extends visibility,
+ * never the blip's life.
+ */
+export function blipAlpha(ageMs: number, periodMs: number, minAlpha = 0): number {
+  if (ageMs >= periodMs) return 0;
+  return Math.max(minAlpha, clamp01(1 - ageMs / periodMs));
 }
 
 /** Blip tint at `ageMs`: bright → dark green over the first ~30% of a period. */

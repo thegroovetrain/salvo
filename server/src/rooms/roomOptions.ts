@@ -7,6 +7,15 @@
 
 import { PROTOCOL_VERSION, REGATTA_HUES, type ZoneTimeline } from '@salvo/shared';
 
+/**
+ * Callsign cap, in CODE POINTS. Mirrors the client's display/entry cap
+ * (`client/src/util/text.ts` NAME_MAX) — the server can't import the client
+ * workspace, and this is a presentation bound rather than a sim tunable, so it
+ * is deliberately NOT promoted into shared CONFIG. Both sides cap at 14; the
+ * server's cap is the authoritative one (a hand-rolled client can't beat it).
+ */
+export const NAME_MAX = 14;
+
 export interface JoinOptions {
   name?: string;
   /**
@@ -147,4 +156,25 @@ function sanitizeMapSeed(v: unknown): number | undefined {
  */
 export function sanitizeColorPref(v: unknown): number | undefined {
   return typeof v === 'number' && Number.isInteger(v) && v >= 0 && v < REGATTA_HUES.length ? v : undefined;
+}
+
+/**
+ * Sanitize a client-supplied callsign (Story 2.3 — deferred-work 127/130).
+ * `options.name` arrives verbatim from joinOrCreate, so it is neither a string
+ * nor bounded until it passes through here:
+ *   • anything that is not a string (a number, an object, absent) → undefined,
+ *     which the caller resolves to the `CAPTAIN-n` fallback. The old
+ *     `options.name?.trim()` would THROW on a non-string.
+ *   • otherwise: trimmed, then capped at NAME_MAX CODE POINTS — the same cap
+ *     the client's entry field enforces — using Array.from so a surrogate pair
+ *     or a combining sequence is never split mid-character. An all-whitespace
+ *     name trims to '' and falls back too.
+ * Pure + unit-tested; NEVER dev-gated (a plain join option like `cls`). Mirrors
+ * sanitizeClassId / sanitizeColorPref: fail to the safe default, never throw.
+ */
+export function sanitizeName(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const trimmed = v.trim();
+  if (trimmed === '') return undefined;
+  return Array.from(trimmed).slice(0, NAME_MAX).join('');
 }

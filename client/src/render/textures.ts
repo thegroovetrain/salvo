@@ -147,8 +147,16 @@ export function bakeVignetteTexture(): Texture {
 /** Blip texture size (px); scaled down to world units and tinted per blip. */
 export const BLIP_TEXTURE_SIZE = 64;
 
-/** Bake the soft phosphor dot: white radial falloff (tint supplies the color). */
-export function bakeBlipTexture(): Texture {
+/**
+ * Bake the soft phosphor dot: white radial falloff (tint supplies the color).
+ *
+ * `outline` (Story 2.3, amendment 18) adds a hard-edged ring inside the soft
+ * falloff — the colorblind-assist channel. A soft blob relies entirely on HUE to
+ * read against the phosphor field; a crisp ring gives it a SHAPE edge, which
+ * survives any color-vision deficiency. Off by default: the assist bakes its own
+ * variant and the radar swaps between the two.
+ */
+export function bakeBlipTexture(outline = false): Texture {
   const size = BLIP_TEXTURE_SIZE;
   const { canvas, ctx } = makeCanvas(size, size);
   const c = size / 2;
@@ -160,5 +168,13 @@ export function bakeBlipTexture(): Texture {
   ctx.beginPath();
   ctx.arc(c, c, c, 0, Math.PI * 2);
   ctx.fill();
+  if (outline) {
+    const w = CLIENT_CONFIG.blip.outlineWidthPx;
+    ctx.strokeStyle = cssRgba(C.white, 1);
+    ctx.lineWidth = w;
+    ctx.beginPath();
+    ctx.arc(c, c, c * 0.62, 0, Math.PI * 2);
+    ctx.stroke();
+  }
   return Texture.from(canvas);
 }

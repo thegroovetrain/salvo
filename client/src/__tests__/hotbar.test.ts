@@ -84,7 +84,7 @@ describe('slot order — Gun (keyless) / Q / E / R, top to bottom (amendment 10)
 
   it('names each hull its own fit; slot 3 reads the awaiting-refit label', () => {
     expect(slotViewModels(viewFor('battleship')).map((r) => r.name)).toEqual([
-      'Standard Gun',
+      'Deck Gun',
       'Heavy Cannon',
       'Star Shells',
       EMPTY_SLOT_LABEL,
@@ -346,7 +346,7 @@ describe('tooltip model — name, interaction class, description, and NO boons',
   it('gives the keyless gun its always-selected interaction line', () => {
     const t = tooltipModel(0, 'gun', stats);
     expect(t).not.toBeNull();
-    expect(t?.name).toBe('STANDARD GUN');
+    expect(t?.name).toBe('DECK GUN');
     expect(t?.interaction).toBe('WEAPON · ALWAYS SELECTED');
     expect(t?.description.length).toBeGreaterThan(20);
   });

@@ -521,6 +521,68 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
   });
 });
 
+describe('KeyboardInput — the FOCUSED-OVERLAY rule (Story 2.3)', () => {
+  let kb: KeyboardInput | undefined;
+  afterEach(() => kb?.detach());
+
+  /** Every sim hook wired, plus a settings/results overlay that owns the input. */
+  function overlayKb(): { kb: KeyboardInput; log: string[] } {
+    const log: string[] = [];
+    const hooks: KeyboardHooks = {
+      isOverlayFocused: () => true,
+      isModalOpen: () => true, // the overlay is a suspending surface too
+      isSlotFitted: ALL_FITTED,
+      onDetent: () => log.push('detent'),
+      onRefitToggle: () => log.push('refit'),
+      onRefitPick: () => log.push('pick'),
+      onZoom: () => log.push('zoom'),
+      onMute: () => log.push('mute'),
+      onNetDebug: () => log.push('net'),
+      onEscape: () => log.push('esc'),
+      onConfirm: () => log.push('enter'),
+    };
+    const k = new KeyboardInput(hooks);
+    k.attach();
+    return { kb: k, log };
+  }
+
+  it('suppresses ALL sim keys — helm INCLUDED, unlike the refit modal', () => {
+    const { kb: k, log } = overlayKb();
+    kb = k;
+    for (const code of ['KeyW', 'KeyS', 'KeyA', 'KeyD', 'KeyQ', 'KeyE', 'KeyR', 'Tab', 'Digit1', 'KeyX', 'KeyZ', 'KeyM', 'KeyP']) {
+      expect(press(code), code).toBe(true); // still preventDefault-ed: focus can't escape
+    }
+    expect(log).toEqual([]);
+    expect(k.throttle).toBe(0); // the helm never moved
+    expect(k.primedSlot).toBe(SLOT_GUN);
+  });
+
+  it('still routes ESC and ENTER — the two keys that dismiss the surface', () => {
+    const { kb: k, log } = overlayKb();
+    kb = k;
+    press('Escape');
+    press('Enter');
+    expect(log).toEqual(['esc', 'enter']);
+  });
+
+  it('with the overlay CLOSED the same keys work exactly as before', () => {
+    const log: string[] = [];
+    kb = new KeyboardInput({
+      isOverlayFocused: () => false,
+      isSlotFitted: ALL_FITTED,
+      onDetent: () => log.push('detent'),
+      onMute: () => log.push('mute'),
+    });
+    kb.attach();
+    press('KeyW');
+    press('KeyM');
+    press('KeyQ');
+    expect(log).toEqual(['detent', 'mute']);
+    expect(kb.throttle).toBe(0.25);
+    expect(kb.primedSlot).toBe(TORP);
+  });
+});
+
 describe('KeyboardInput — M / P / zoom keys (folded into the chokepoint)', () => {
   let kb: KeyboardInput | undefined;
   afterEach(() => kb?.detach());
