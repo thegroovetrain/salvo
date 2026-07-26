@@ -2,8 +2,9 @@
 title: 'Story 2.3: Settings & Accessibility Options (+ Legibility Pass)'
 type: 'feature'
 created: '2026-07-26'
-status: 'in-review'
+status: 'done'
 baseline_revision: '2dc6a78'
+final_revision: '6c752d4'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
