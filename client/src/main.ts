@@ -51,6 +51,7 @@ import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
+import { helmGlyphs } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
@@ -980,8 +981,15 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
     // Each throttle detent step clicks the telegraph — pitch distinguishes
     // ringing up (ahead) from down (astern); an end-stop tap is silent.
     onDetent: (dir, changed) => {
-      if (changed && bellAudible(getG())) audio.play(telegraphTone(dir));
+      if (!changed) return; // an end-stop tap is neither a click nor a learned input
+      // A step that MOVED the order is a successful W/S input: three of them
+      // retire the helm key glyphs for good (Story 2.4, amendment 26).
+      helmGlyphs.record('ws');
+      if (bellAudible(getG())) audio.play(telegraphTone(dir));
     },
+    // Every rudder press that reaches the sim counts toward the A/D pair's fade
+    // (suppressed presses never arrive here).
+    onRudder: () => helmGlyphs.record('ad'),
     isAbilitySlot: (slot) => {
       const g = getG();
       return g !== null && slotHoldsAbility(g.ownSlots, slot);
@@ -1343,6 +1351,7 @@ function renderOwn(
   zone: ZoneHud,
   match: MatchUx,
   frameDt: number,
+  now: number,
 ): void {
   if (!g.cameraSnapped) {
     g.camera.snapTo(pose);
@@ -1358,7 +1367,9 @@ function renderOwn(
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
   renderFiring(g, pose, status, aim, cursor);
-  g.hud.update(pose, g.keyboard.axes(), status, zone, match, hudWidth(g), hudHeight(g));
+  // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
+  // storm vignette's pulse rides (the HP rail breathes on it).
+  g.hud.update(pose, g.keyboard.axes(), status, zone, match, hudWidth(g), hudHeight(g), now / 1000);
   updateHotbar(g, status);
 }
 
@@ -1595,7 +1606,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.radius);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
-  if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt);
+  if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt, now);
   else {
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility

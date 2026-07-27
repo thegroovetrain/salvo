@@ -37,7 +37,10 @@ export type ZoneDisplay = 'idle' | ZonePhase;
 // alpha (brightness), not saturation, to keep its alarm legibility (DESIGN.md).
 const VIGNETTE_BASE = 0.27; // mean alpha while outside
 const VIGNETTE_AMP = 0.17; // pulse amplitude (stays > 0 at the trough)
-const VIGNETTE_PULSE_HZ = 1.1; // pulses per second
+// The pulse RATE is no longer a local const: the vignette breathes AT the shared
+// photosensitivity ceiling, which Story 2.4 promoted to
+// CLIENT_CONFIG.settings.pulseCapHz — ONE number governing both this and the HP
+// rail's accelerating ramp. Nothing on screen may pulse faster.
 
 /**
  * Out-of-zone vignette alpha (pure). 0 when safely inside; otherwise a gentle
@@ -50,7 +53,7 @@ const VIGNETTE_PULSE_HZ = 1.1; // pulses per second
  */
 export function vignetteAlpha(inStorm: boolean, tSec: number, amp: number = VIGNETTE_AMP): number {
   if (!inStorm) return 0;
-  return VIGNETTE_BASE + amp * Math.sin(tSec * VIGNETTE_PULSE_HZ * Math.PI * 2);
+  return VIGNETTE_BASE + amp * Math.sin(tSec * CLIENT_CONFIG.settings.pulseCapHz * Math.PI * 2);
 }
 
 /** Draw a dashed circle (50% duty) into `g` as many arc subpaths; caller strokes. */

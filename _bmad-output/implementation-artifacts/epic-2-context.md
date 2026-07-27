@@ -108,3 +108,10 @@ From `epic-2-context-amendments.md` (2026-07-26, Eric, Story 2.3 pre-implementat
 21. ESC toggles the settings overlay open/closed in-game (no other surface open); refit modal ESC closes refit. (Results-ESC clause superseded by 22.)
 22. ESC never returns to port. Elimination immediately opens the results modal (SPECTATE closes it → spectate, live-match only; RETURN TO PORT leaves) replacing silent auto-spectate; leaving = modal's RETURN TO PORT or settings' ABANDON MATCH; game-end modal keeps RETURN TO PORT, Enter still confirms. (Settings-over-results clause superseded by 23.)
 23. ESC is strictly topmost-close: it closes the topmost open surface (refit, results, settings); only when nothing is open does it toggle settings — settings never stacks over anything. ESC on the elimination modal = SPECTATE. Results modal content = personal score: upgrades acquired, kill count, list of contestant-controlled ships personally sunk, elimination placement — or a winner indication (never eliminated / first).
+
+From `epic-2-context-amendments.md` (2026-07-27, Eric, Story 2.4 pre-implementation questions):
+
+24. HDG/KTS 22px readout values stay CIC phosphor (#00ff88) — the v2 mock's white values are superseded; same data family amendment 16 pinned for hotbar quick-info.
+25. Cluster micro labels (HULL caption, unit suffixes, RUDDER, AHEAD/ASTERN) render dim phosphor ~0.7 alpha — mock/DESIGN.md muted-grey treatment superseded; dim-not-grey doctrine.
+26. Helm key glyph fade: W/S and A/D pairs fade independently after 3 successful inputs each; persisted in a standalone `hullcracker.*` localStorage key surviving reloads AND RESET SETTINGS (learned anatomy, not a setting).
+27. HP rail widens to ~6px — the mock's 3px superseded for the HP rail only; "mirrors the XP rail" is idiom, not width parity (2.6's XP rail stays 3px per UX-DR12).

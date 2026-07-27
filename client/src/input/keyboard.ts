@@ -186,8 +186,17 @@ export function textEntryFocused(doc: Document = document): boolean {
  */
 export interface KeyboardHooks {
   /** A throttle keydown edge: step direction + whether the detent changed
-   *  (false at an end stop) — wired to the telegraph-click tone. */
+   *  (false at an end stop) — wired to the telegraph-click tone AND (Story 2.4)
+   *  the W/S helm-glyph fade, which counts only the CHANGED steps. */
   onDetent?: (dir: Step, changed: boolean) => void;
+  /**
+   * A rudder key ACTIVATION edge (A/D or the arrows) that reached the sim — one
+   * per physical press, never per held frame, and never while a focused overlay
+   * is suppressing input (the dispatcher swallows those before the handler).
+   * Feeds the A/D helm-glyph fade (Story 2.4, amendment 26); it changes no
+   * steering behavior — the rudder is still read from the held-key set.
+   */
+  onRudder?: () => void;
   /** Does this loadout slot hold ability (non-weapon) equipment on the OWN
    *  ship? True → the slot key ACTIVATES instead of priming. */
   isAbilitySlot?: (slot: number) => boolean;
@@ -366,9 +375,13 @@ export class KeyboardInput {
     this.hooks.onDetent?.(step, changed);
   };
 
-  /** A/D (+arrows): held rudder — state only, read by axes()/panAxes(). */
+  /** A/D (+arrows): held rudder — state only, read by axes()/panAxes(). The
+   *  ACTIVATION edge (a fresh press: not OS auto-repeat, and not a key already
+   *  latched down) also reports to onRudder for the helm-glyph fade. */
   private readonly handleRudderKey = (e: KeyboardEvent): void => {
+    const activation = !e.repeat && !this.keys.has(e.code);
     this.keys.add(e.code);
+    if (activation) this.hooks.onRudder?.();
   };
 
   /**
