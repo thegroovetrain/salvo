@@ -2,8 +2,9 @@
 title: 'Story 2.5: Boon Effect Engine (Two Homes + Hooks)'
 type: 'feature'
 created: '2026-07-28'
-status: 'in-review'
+status: 'done'
 baseline_revision: '67f5b2f'
+final_revision: 'c686e9a'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
