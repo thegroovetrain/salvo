@@ -60,6 +60,11 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     // a Contact, blip, ballistic event, boom, or spectator payload. An enemy
     // observer reads a boosting hull only through its observed kinematics.
     boostUntil: ship.boostUntil,
+    // Applied boon ids (Story 2.5 — dormant, [] until 2.7 grants any),
+    // defensive copy. SELF-PRIVATE like upg/boostUntil: rides `you` and
+    // NOTHING else — never a Contact, blip, ballistic event, boom, or
+    // spectator payload (enemy builds stay hidden).
+    boons: [...ship.boons],
   };
 }
 

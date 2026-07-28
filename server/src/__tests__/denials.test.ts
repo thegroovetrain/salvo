@@ -172,10 +172,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 11→12 bump (Story 2.1 heal removal) is enforced at matchmake', () => {
-  it('rejects a pv-11 (previous protocol) client and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(12);
-    expect(protocolVersionError(11)).toMatch(/refresh/);
+describe('pv join gate — the 12→13 bump (Story 2.5 boons wire field) is enforced at matchmake', () => {
+  it('rejects a pv-12 (previous protocol) client and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(13);
+    expect(protocolVersionError(12)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

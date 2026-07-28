@@ -12,18 +12,26 @@
 // actSeq presses) through the single sinking-activation gate.
 
 import {
+  BOON_CATALOG,
   CONFIG,
   EQUIPMENT_IS_WEAPON,
+  HOOK_REGISTRY,
+  NO_BOONS,
   UPGRADE_IDS,
+  applySlotEffect,
+  boonBehaviors,
   boostedKinematics,
   burstVictims,
   effectiveStats,
   equipmentMaxAmmo,
   generateMap,
+  hookKinematics,
   loadoutFor,
+  slotsWithBoons,
   hullEnvelope,
   hullSilhouette,
   mulberry32,
+  resolveBoons,
   resolveShipPose,
   rollOffer,
   stepShell,
@@ -35,10 +43,14 @@ import {
   isOutside,
   zeroUpgrades,
   type BallisticEvent,
+  type BoonBehaviorEffect,
+  type BoonCatalog,
+  type BoonDef,
   type DeniedView,
   type DenialReason,
   type EffectiveStats,
   type EquipmentId,
+  type HookRegistry,
   type GameEvent,
   type GameMap,
   type HullEnvelope,
@@ -72,6 +84,21 @@ import { DroneController } from './drones.js';
 import { pickSpawn } from './spawn.js';
 
 const TAU = Math.PI * 2;
+
+/** The frozen zero-boon behavior list — one shared identity so every
+ *  boon-less ShipRecord's per-tick hook fold is allocation-free. */
+const NO_BEHAVIORS: readonly BoonBehaviorEffect[] = Object.freeze([]);
+
+/**
+ * Injectable engine registries (Story 2.5). Production omits both (the empty
+ * shared HOOK_REGISTRY / BOON_CATALOG); tests inject their own so real-tick
+ * hook execution and applyBoon can be proven while the shipped registries
+ * stay empty (amendment 29 — test hooks/boons never enter production rows).
+ */
+export interface WorldOptions {
+  hookRegistry?: HookRegistry;
+  boonCatalog?: BoonCatalog;
+}
 
 /** The equipment id fitted in `loadout[slotIndex]`, or null when the slot is
  *  empty or the index is out of range. Shared by the two dispatch channels so
@@ -162,10 +189,31 @@ export interface ShipRecord {
    */
   offers: UpgradeOffer[];
   /**
-   * Cached effective stats for (cls, upgrades) — the shared effectiveStats()
-   * result. Every stat read in the sim (kinematics, vision, weapon pools,
-   * reloads, ranges) goes through this, NEVER raw CONFIG, so upgraded hulls
-   * cannot silently fall back to base numbers. Recomputed on grant/add/redeploy.
+   * Applied boon ids, in application order (Story 2.5 — dormant plumbing:
+   * nothing grants these in production until 2.7's spend flow). Mutated only
+   * by applyBoon(). Survive respawn (waiting-phase deaths keep the build,
+   * like upgrades) but NOT redeployShip (fresh match = fresh build). Mirrored
+   * onto OwnShip.boons (SELF-PRIVATE — rides `you` and nothing else).
+   */
+  boons: string[];
+  /**
+   * Cached resolved defs for `boons` (the resolveBoons result against the
+   * world's catalog) — recomputed only when `boons` changes, beside `stats`.
+   * The shared NO_BOONS identity at zero boons (allocation-free fast path).
+   */
+  boonDefs: readonly BoonDef[];
+  /**
+   * Cached `behavior` effects extracted from boonDefs — the per-tick
+   * hookKinematics workload (stepShips). Frozen empty identity at zero boons
+   * so the 20Hz loop allocates nothing for boon-less hulls.
+   */
+  boonBehaviors: readonly BoonBehaviorEffect[];
+  /**
+   * Cached effective stats for (cls, upgrades, boonDefs) — the shared
+   * effectiveStats() result. Every stat read in the sim (kinematics, vision,
+   * weapon pools, reloads, ranges) goes through this, NEVER raw CONFIG, so
+   * upgraded hulls cannot silently fall back to base numbers. Recomputed on
+   * grant/add/redeploy (and on applyBoon, Story 2.5).
    */
   stats: EffectiveStats;
   state: ShipState;
@@ -309,11 +357,21 @@ export class World {
   /** Denials belonging to the most recently completed tick (read by frames). */
   private tickDenials = new Map<string, DeniedView[]>();
 
+  /** Hook registry every per-tick kinematics fold runs against (injectable —
+   *  tests; production defaults to the empty shared HOOK_REGISTRY). */
+  private readonly hookRegistry: HookRegistry;
+  /** Boon catalog applyBoon resolves ids against (injectable — tests;
+   *  production defaults to the empty shared BOON_CATALOG). */
+  private readonly boonCatalog: BoonCatalog;
+
   constructor(
     seed: number,
     playerCap: number = CONFIG.match.fillTo,
     zoneCfg: ZoneTimeline = CONFIG.zone,
+    opts: WorldOptions = {},
   ) {
+    this.hookRegistry = opts.hookRegistry ?? HOOK_REGISTRY;
+    this.boonCatalog = opts.boonCatalog ?? BOON_CATALOG;
     this.playerCap = playerCap;
     this.map = generateMap(seed, playerCap);
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
@@ -395,6 +453,9 @@ export class World {
       prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 },
       upgrades,
       offers: [],
+      boons: [],
+      boonDefs: NO_BOONS,
+      boonBehaviors: NO_BEHAVIORS,
       stats,
       state: { x: p.x, y: p.y, heading: Math.atan2(-p.y, -p.x), speed: 0 },
       hp: stats.maxHp,
@@ -463,6 +524,11 @@ export class World {
     ship.state.speed = 0;
     ship.upgrades = zeroUpgrades();
     ship.offers = [];
+    // Boons are wiped WITH upgrades/offers (Story 2.5): the match boundary
+    // means a fresh build — respawn() below, waiting-phase only, preserves.
+    ship.boons = [];
+    ship.boonDefs = NO_BOONS;
+    ship.boonBehaviors = NO_BEHAVIORS;
     ship.stats = effectiveStats(ship.cls, ship.upgrades);
     ship.hp = ship.stats.maxHp;
     ship.alive = true;
@@ -532,9 +598,33 @@ export class World {
    */
   applyUpgrade(ship: ShipRecord, type: UpgradeId): void {
     ship.upgrades[UPGRADE_IDS.indexOf(type)] += 1;
-    ship.stats = effectiveStats(ship.cls, ship.upgrades);
+    ship.stats = effectiveStats(ship.cls, ship.upgrades, ship.boonDefs);
     this.applyGrantEffects(ship, type);
     this.pending.push({ k: 'upg', id: ship.id, type });
+  }
+
+  /**
+   * Apply one boon to a ship (Story 2.5 — the applyUpgrade mirror, DORMANT:
+   * no production caller until 2.7's spend flow). Exactly the two homes plus
+   * hooks, nothing else: append the id, refresh the resolved-def/behavior
+   * caches, recompute the cached stats through effectiveStats (home 1), and
+   * apply THIS boon's slot effects incrementally to the live loadout (home 2
+   * — untouched slots keep their ammo/reload state; behavior effects execute
+   * per-tick in stepShips via the cached boonBehaviors). NO event is queued
+   * (2.7 owns the spend UX) and no other ship field moves — hp deliberately
+   * stays put even when a stat boon moves maxHp. Fail-closed: an id the
+   * world's catalog cannot resolve appends (the wire mirrors it; clients drop
+   * it at resolve) but applies nothing. Public so directed tests (and 2.7's
+   * spend path) can drive it.
+   */
+  applyBoon(ship: ShipRecord, boonId: string): void {
+    ship.boons.push(boonId);
+    ship.boonDefs = resolveBoons(ship.boons, this.boonCatalog);
+    ship.boonBehaviors = ship.boonDefs.length === 0 ? NO_BEHAVIORS : boonBehaviors(ship.boonDefs);
+    ship.stats = effectiveStats(ship.cls, ship.upgrades, ship.boonDefs);
+    const def = this.boonCatalog[boonId];
+    if (def === undefined) return; // unknown id: nothing to apply (fail-closed)
+    for (const effect of def.effects) applySlotEffect(ship.loadout, effect, ship.stats);
   }
 
   /** Which equipment's pool an ammo-type upgrade also loads +1 current round
@@ -718,7 +808,17 @@ export class World {
       // by stats.boost.speedBonus; the hull accelerates toward it at class accel
       // and decays back at class decel on expiry. Client prediction/replay call
       // the identical helper, so a boosting hull stays in lockstep.
-      const kin = boostedKinematics(ship.stats.kinematics, ship.stats.boost.speedBonus, this.now < ship.boostUntil);
+      // Story 2.5: boon behavior hooks fold in AFTER the bespoke boost —
+      // hookKinematics(boostedKinematics(...)) — the documented composition
+      // order the client Predictor.tickKin mirrors exactly. Zero behaviors
+      // (every production hull until 2.7) returns the boosted reference
+      // unchanged, so the pre-boon tick is byte-identical.
+      const boosted = boostedKinematics(
+        ship.stats.kinematics,
+        ship.stats.boost.speedBonus,
+        this.now < ship.boostUntil,
+      );
+      const kin = hookKinematics(boosted, ship.boonBehaviors, this.hookRegistry);
       stepShip(ship.state, ship.input, kin, dt);
     }
   }
@@ -1297,7 +1397,11 @@ export class World {
     // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a
     // phantom shot / phantom boost (the stored input's fireSeq/actSeq would read
     // as a fresh click/press on this tick).
-    ship.loadout = loadoutFor(ship.hullId, ship.stats);
+    // Boons PERSIST across a waiting-phase respawn (like upgrades), so the
+    // fresh loadout re-derives with their slot effects replayed — the SAME
+    // shared derivation the client runs (slotsWithBoons ≡ loadoutFor at zero
+    // boons, byte-identical).
+    ship.loadout = slotsWithBoons(ship.hullId, ship.stats, ship.boonDefs);
     this.pending.push({ k: 'spawn', id: ship.id, x: p.x, y: p.y });
   }
 }

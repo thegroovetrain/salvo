@@ -20,14 +20,18 @@
 import {
   angleDiff,
   boostedKinematics,
+  hookKinematics,
   hullSilhouette,
   resolveShipPose,
   stepShip,
   wrapAngle,
   CONFIG,
+  HOOK_REGISTRY,
   SHIP_CLASS_IDS,
   type Circle,
+  type HookRegistry,
   type InputMsg,
+  type KinematicsBehavior,
   type Pose,
   type ShipConfig,
   type ShipState,
@@ -126,11 +130,23 @@ export class Predictor {
    */
   private optimisticBoost: { until: number; actSeq: number; pressSeq: number | null } | null = null;
 
+  /**
+   * Behavior-boon hook workload for the per-tick kinematics fold (Story 2.5):
+   * the own ship's `behavior` effects, handed over by main.applyOwnStats via
+   * setBoons. Empty (the pre-boon identity path) until a frame's you.boons
+   * resolves to a behavior-carrying def — which no production catalog entry
+   * does until 2.8.
+   */
+  private behaviors: readonly KinematicsBehavior[] = [];
+
   constructor(
     private readonly map: CollisionMap,
     private kin: ShipConfig = CONFIG.shipClasses.torpedoBoat.kinematics,
     private localPoly: readonly Vec2[] = hullSilhouette('torpedoBoat'),
     private readonly dt: number = CONFIG.tick.simDtMs / 1000,
+    /** Hook registry the kinematics fold runs against — injectable for tests
+     *  (parity suites), the empty shared HOOK_REGISTRY in production. */
+    private readonly hookRegistry: HookRegistry = HOOK_REGISTRY,
   ) {}
 
   /**
@@ -158,6 +174,16 @@ export class Predictor {
   /** Swap the effective boost numbers alongside setClassConfig (applyOwnStats seam). */
   setBoostStats(bonus: number, durationMs: number): void {
     this.boost = { bonus, durationMs };
+  }
+
+  /**
+   * Swap the own ship's behavior-boon hook workload (Story 2.5 —
+   * applyOwnStats seam, beside setBoostStats/setClassConfig). NO snap: like
+   * an upgrade grant, the pending ring is kept and the next reconcile replays
+   * it under the new fold; the transient folds into visual-error smoothing.
+   */
+  setBoons(behaviors: readonly KinematicsBehavior[]): void {
+    this.behaviors = behaviors;
   }
 
   /**
@@ -323,12 +349,16 @@ export class Predictor {
 
   /**
    * Per-tick kinematics for the tick with input `seq` at server-time estimate
-   * `t`: the shared boostedKinematics is the ONLY speed mutator — the exact
-   * per-tick rule the server's stepShips applies
-   * (boostedKinematics(stats.kinematics, bonus, now < boostUntil)).
+   * `t`: the shared boostedKinematics THEN the shared behavior-hook fold —
+   * the exact per-tick composition (boost first, hooks after) the server's
+   * stepShips applies:
+   * hookKinematics(boostedKinematics(stats.kinematics, bonus, now < boostUntil),
+   * behaviors, registry). Zero behaviors returns the boosted reference
+   * unchanged, so the pre-boon tick is byte-identical.
    */
   private tickKin(t: number, seq: number): ShipConfig {
-    return boostedKinematics(this.kin, this.boost.bonus, this.boostActiveAt(t, seq));
+    const boosted = boostedKinematics(this.kin, this.boost.bonus, this.boostActiveAt(t, seq));
+    return hookKinematics(boosted, this.behaviors, this.hookRegistry);
   }
 
   /**

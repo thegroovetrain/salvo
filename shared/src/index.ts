@@ -3,6 +3,11 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  13: boon effect engine dormant plumbing (Story 2.5) — OwnShip gains
+ *  required `boons` (applied boon ids, self-private: rides `you` and nothing
+ *  else, the upg/boostUntil precedent). Always [] until Story 2.7's spend
+ *  flow grants any (BOON_CATALOG ships empty); new shared sim/boons.ts +
+ *  sim/hooks.ts (the wire field's client-side consumers).
  *  12: the new input scheme (Story 2.1) — the interregnum REPAIR/heal spend is
  *  deleted end-to-end (Eric ruling 2026-07-24 "1-4 cards, no repair"):
  *  HEAL_CHOICE and the self-private 'heal' GameEvent leave the wire contract
@@ -46,7 +51,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 12;
+export const PROTOCOL_VERSION = 13;
 
 // Tunables
 export * from './constants.js';
@@ -63,6 +68,8 @@ export * from './math/rng.js';
 // Simulation
 export * from './sim/ship.js';
 export * from './sim/stats.js';
+export * from './sim/boons.js';
+export * from './sim/hooks.js';
 export * from './sim/loadout.js';
 export * from './sim/arcs.js';
 export * from './sim/boost.js';

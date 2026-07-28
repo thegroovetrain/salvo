@@ -14,6 +14,8 @@ import {
   equipmentMaxAmmo,
   equipmentReloadMs,
   zeroUpgrades,
+  type BoonDef,
+  type BoonStatPath,
   type EffectiveStats,
   type UpgradeId,
 } from '../index.js';
@@ -282,6 +284,41 @@ describe('effectiveStats — each id moves exactly its stat(s), nothing else', (
   it('the AFFECTED table covers all 14 ids (loop is exhaustive)', () => {
     expect(Object.keys(AFFECTED).sort()).toEqual([...UPGRADE_IDS].sort());
     expect(UPGRADE_IDS).toHaveLength(14);
+  });
+});
+
+// ---------- Story 2.5: boon stat effects (the optional third argument) --------
+
+describe('effectiveStats — boon stat effects (Story 2.5)', () => {
+  const boon = (path: BoonStatPath, over: { mult?: number; add?: number }): BoonDef => ({
+    id: 't',
+    category: 'test',
+    effects: [{ kind: 'stat', path, ...over }],
+  });
+
+  it('zero-boon identity: omitted, [], and default-arg calls are byte-identical (regression pin)', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      const cls = CONFIG.shipClasses[id];
+      expect(effectiveStats(cls, zeroUpgrades(), [])).toEqual(effectiveStats(cls, zeroUpgrades()));
+    }
+    const upg = countsWith('maxSpeed', 2);
+    expect(effectiveStats(BASE, upg, [])).toEqual(effectiveStats(BASE, upg));
+  });
+
+  it('a stat boon moves ONLY its targeted stat (AFFECTED-style deep diff)', () => {
+    const identity = flatten(effectiveStats(BASE, zeroUpgrades()));
+    const s = flatten(effectiveStats(BASE, zeroUpgrades(), [boon('gun.reloadMs', { mult: 0.8 })]));
+    expect([...s.keys()]).toEqual([...identity.keys()]); // same shape
+    const changed = [...s.keys()].filter((k) => s.get(k) !== identity.get(k));
+    expect(changed).toEqual(['gun.reloadMs']);
+    expect(s.get('gun.reloadMs')).toBeCloseTo(CONFIG.gun.reloadMs * 0.8, 9);
+  });
+
+  it('boon stat effects apply AFTER legacy stacking, in boon-list order', () => {
+    const upg = countsWith('gunReload', 1);
+    const legacy = effectiveStats(BASE, upg).gun.reloadMs;
+    const s = effectiveStats(BASE, upg, [boon('gun.reloadMs', { mult: 0.5 }), boon('gun.reloadMs', { add: 100 })]);
+    expect(s.gun.reloadMs).toBeCloseTo(legacy * 0.5 + 100, 9);
   });
 });
 

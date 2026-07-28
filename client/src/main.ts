@@ -13,16 +13,20 @@ import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
   MSG,
+  NO_BOONS,
+  boonBehaviors,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
   hullSilhouette,
   isOutside,
-  loadoutFor,
+  resolveBoons,
+  slotsWithBoons,
   REGATTA_NO_HUE,
   SLOT_COUNT,
   zeroUpgrades,
   zoneRadiusAt,
+  type BoonDef,
   type DeniedView,
   type EffectiveStats,
   type EquipmentId,
@@ -323,10 +327,13 @@ function ownPose(g: Game, alpha: number, frameDt: number): RenderPose | null {
 }
 
 /** Slot-aligned equipment ids of a hull's loadout — the client-side, read-only
- *  view of loadoutFor (Story 1.6): TB [gun, torpedo, speedBoost, null], every
- *  other hull the universal [gun, torpedo, mine, null]. */
-function slotIdsFor(cls: ShipClassId, stats: EffectiveStats): (EquipmentId | null)[] {
-  return loadoutFor(cls, stats).map((s) => s.equipmentId);
+ *  view of the shared derivation (Story 1.6, grown boons in 2.5): the class
+ *  fit (TB [gun, torpedo, speedBoost, null], etc.) with every applied boon's
+ *  slot effects replayed over it (slotsWithBoons — the SAME per-effect
+ *  function the server applies incrementally, so slot ids agree by
+ *  construction). Zero boons ≙ plain loadoutFor. */
+function slotIdsFor(cls: ShipClassId, stats: EffectiveStats, boons: readonly BoonDef[]): (EquipmentId | null)[] {
+  return slotsWithBoons(cls, stats, boons).map((s) => s.equipmentId);
 }
 
 /**
@@ -1199,7 +1206,7 @@ function buildGame(
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
-    ownStats: stats, ownSlots: slotIdsFor(cls, stats),
+    ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
   };
   gRef = g;
   g.clock.addSample(welcome.t);
@@ -1247,18 +1254,28 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * localStorage correction); an upgrade that touches kinematics swaps the
  * config in place and lets the next reconcile replay pending inputs under it.
  */
-function applyOwnStats(g: Game, cls: ShipClassId, upg: readonly number[]): void {
+function applyOwnStats(g: Game, cls: ShipClassId, upg: readonly number[], boons: readonly string[]): void {
   const classChanged = cls !== g.ownClass;
   const prev = g.ownStats;
   g.ownClass = cls;
   const spec = CONFIG.shipClasses[cls];
-  const stats = effectiveStats(spec, upg);
+  // Resolve the authoritative boon ids FAIL-CLOSED (Story 2.5): unknown ids
+  // are silently dropped, never a throw — a junk id on the wire must not take
+  // the client down. Stats fold the defs in AFTER legacy stacking (shared
+  // effectiveStats — the same call the server caches).
+  const defs = resolveBoons(boons);
+  const stats = effectiveStats(spec, upg, defs);
   g.ownStats = stats;
-  // Own loadout follows the authoritative class (Story 1.6): the slot-2
-  // activate-vs-prime split, HUD chips, and ammo fallback all read from here.
-  g.ownSlots = slotIdsFor(cls, stats);
+  // Own loadout follows the authoritative class + boons (Story 1.6 / 2.5):
+  // the slot activate-vs-prime split, HUD chips, and ammo fallback all read
+  // from here — derived via the SAME shared slot-effect replay the server
+  // applies incrementally (slotsWithBoons), so slot ids agree by construction.
+  g.ownSlots = slotIdsFor(cls, stats, defs);
   // Boost numbers ride the same stats swap (CONFIG pass-through today).
   g.predictor.setBoostStats(stats.boost.speedBonus, stats.boost.durationMs);
+  // Behavior-boon hooks ride it too (Story 2.5): the predictor folds these
+  // per tick in the SAME boost-then-hooks order the server steps with.
+  g.predictor.setBoons(boonBehaviors(defs));
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
     g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);
@@ -1282,7 +1299,7 @@ function bindGameRoom(g: Game, conn: Connection): void {
   bindRoom(conn, {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
-    onOwnStats: (cls, upg) => applyOwnStats(g, cls, upg),
+    onOwnStats: (cls, upg, boons) => applyOwnStats(g, cls, upg, boons),
     // Story 1.10: self-private server denials route through the
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
     onDenied: (d) => handleServerDenial(g, d),

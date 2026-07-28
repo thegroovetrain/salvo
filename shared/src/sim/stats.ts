@@ -15,6 +15,7 @@
 
 import { CONFIG, UPGRADE_IDS, type ShipClass, type UpgradeId } from '../constants.js';
 import type { ShipConfig } from './ship.js';
+import { applyBoonStats, type BoonDef } from './boons.js';
 
 /** UpgradeId -> index into a counts array (UPGRADE_IDS order). */
 const UPGRADE_INDEX: Readonly<Record<UpgradeId, number>> = Object.fromEntries(
@@ -161,8 +162,18 @@ function passThroughEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'star
  * Resolve the effective stats for a ship class + upgrade counts (indexed by
  * UPGRADE_IDS order). Zero counts ≙ the class/CONFIG bases exactly. Pure and
  * allocation-fresh (callers cache the result and swap it on change).
+ *
+ * `boons` (Story 2.5): resolved boon defs whose `stat` effects fold in AFTER
+ * legacy upgrade stacking, in boon-list order (sim/boons.ts applyBoonStats —
+ * the ONE legal path from boons to derived numbers, so this function stays
+ * THE desync firewall). Defaults to none: every existing caller compiles
+ * unchanged, and the zero-boon output is byte-identical to the two-arg call.
  */
-export function effectiveStats(cls: ShipClass, counts: readonly number[]): EffectiveStats {
+export function effectiveStats(
+  cls: ShipClass,
+  counts: readonly number[],
+  boons: readonly BoonDef[] = [],
+): EffectiveStats {
   const u = CONFIG.upgrades;
   const speedMult = Math.pow(u.maxSpeed.mult, countOf(counts, 'maxSpeed'));
   const k = cls.kinematics;
@@ -172,7 +183,7 @@ export function effectiveStats(cls: ShipClass, counts: readonly number[]): Effec
     CONFIG.vision.sweepRpm + u.sweepSpeed.addRpm * countOf(counts, 'sweepSpeed'),
     u.sweepSpeed.maxRpm,
   );
-  return {
+  const stats: EffectiveStats = {
     kinematics: {
       maxSpeed: k.maxSpeed * speedMult,
       reverseSpeed: k.reverseSpeed * speedMult, // scaled WITH maxSpeed by design
@@ -213,6 +224,11 @@ export function effectiveStats(cls: ShipClass, counts: readonly number[]): Effec
     // star shells, decoy) — see passThroughEquipment().
     ...passThroughEquipment(),
   };
+  // Boon stat effects (Story 2.5) fold in AFTER legacy stacking, boon-list
+  // order. Zero boons skips the fold entirely — byte-identical to pre-boon
+  // output by construction.
+  if (boons.length > 0) applyBoonStats(stats, boons);
+  return stats;
 }
 
 /** A fresh all-zeros upgrade counts array (UPGRADE_IDS order). */

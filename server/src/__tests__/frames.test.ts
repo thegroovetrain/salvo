@@ -74,6 +74,7 @@ describe('buildFrame — shape and clock', () => {
       pts: 0, // no points banked
       offer: [], // no offer while pts is 0
       boostUntil: 0, // owner-only speed-boost window end; inactive
+      boons: [], // applied boon ids — self-private, dormant until 2.7 (Story 2.5)
     });
     expect(f.spec).toBeUndefined();
   });
