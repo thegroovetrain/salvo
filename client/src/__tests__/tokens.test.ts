@@ -280,6 +280,42 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     }
   });
 
+  it('pins the Story 2.4 own-vitals group (UX-DR15 + amendments 24-27)', () => {
+    const V = CLIENT_CONFIG.vitals;
+    // Rail: 6px (amendment 27 — the mock's 3px is superseded for the HP rail
+    // only; Story 2.6's XP rail stays 3px), dim phosphor track, and a BASE fill
+    // alpha that is information (what the rail holds at motion=off).
+    expect(V.railWidth).toBe(6);
+    expect(V.railTrackAlpha).toBe(0.12);
+    expect(V.railFillAlpha).toBeGreaterThan(0.5);
+    // Bands: the ratified 50% / 25% thresholds.
+    expect(V.amberBelow).toBe(0.5);
+    expect(V.criticalBelow).toBe(0.25);
+    // Pulse envelope: ~0.5 Hz at the band start, ramping to the SHARED ceiling
+    // at 10% hull. The ceiling itself lives once, in the settings group.
+    expect(V.pulseMinHz).toBe(0.5);
+    expect(V.pulseFloorFrac).toBe(0.1);
+    expect(V.pulseAmp).toBeGreaterThan(0);
+    expect(V.pulseAmp).toBeLessThan(V.railFillAlpha); // the fill never breathes to nothing
+    // Rudder: the 110px track (mock verbatim) + its amber position tick, whose
+    // halo bleed is a token too (it is what the tick's clamp insets by).
+    expect(V.rudderTrack).toBe(110);
+    expect(V.rudderTickHaloPx).toBeGreaterThan(0);
+    expect(V.rudderTickW / 2 + V.rudderTickHaloPx).toBeLessThan(V.rudderTrack / 2);
+    // Helm glyphs: three successful inputs per pair, under a standalone key.
+    expect(V.glyphFadeCount).toBe(3);
+    expect(V.glyphKey).toBe('hullcracker.helm');
+    expect(V.glyphFadeSec).toBeGreaterThan(0);
+    // Micro labels are DIM PHOSPHOR (~0.7), never grey (amendment 25).
+    expect(V.labelAlpha).toBe(0.7);
+    // The whole stack (body + rail) fits the 1366 floor's right half.
+    expect(V.width + V.railWidth + V.margin).toBeLessThan(1366 / 2);
+  });
+
+  it('pins the ONE photosensitivity ceiling shared by every breathing pulse', () => {
+    expect(CLIENT_CONFIG.settings.pulseCapHz).toBe(1.1);
+  });
+
   it('pins the drafted colorblind-assist families (Story 2.3, amendment 18)', () => {
     expect(C.cvd).toEqual({
       teal: 0x3f838c,

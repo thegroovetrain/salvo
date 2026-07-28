@@ -51,6 +51,7 @@ import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
+import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
@@ -955,12 +956,18 @@ function makePredictor(map: GameMap, cls: ShipClassId): Predictor {
   return new Predictor({ radius: map.radius, islands: map.islands }, spec.kinematics, hullSilhouette(cls));
 }
 
-/** The telegraph bell is audible only while conning a live ship: silent while
- *  spectating (W/S pans the camera) or dead-awaiting-respawn — those taps
- *  never reach a live engine room, so they get no confirmation bell. */
-function bellAudible(g: Game | null): boolean {
+/**
+ * THE live-helm predicate: the player is conning a ship right now (own ship
+ * present and alive, not spectating). ONE gate, shared by both pieces of helm
+ * feedback — the telegraph bell (silent while spectating, where W/S pans the
+ * camera, or dead-awaiting-respawn: those taps never reach a live engine room)
+ * and the helm-glyph fade counters (a spectate pan or a dead-man's mash must
+ * never burn a coach mark). The pure test lives in render/helmGlyphs.ts so it is
+ * testable apart from this bootstrap glue.
+ */
+function conningLive(g: Game | null): boolean {
   const s = g?.state;
-  return !s?.spectating && s?.net.you?.alive !== false;
+  return s !== undefined && helmInputCounts(s.spectating, s.net.you?.alive);
 }
 
 /**
@@ -979,9 +986,18 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
   return {
     // Each throttle detent step clicks the telegraph — pitch distinguishes
     // ringing up (ahead) from down (astern); an end-stop tap is silent.
-    onDetent: (dir, changed) => {
-      if (changed && bellAudible(getG())) audio.play(telegraphTone(dir));
+    onDetent: (dir, changed, labeled) => {
+      if (!changed) return; // an end-stop tap is neither a click nor a learned input
+      const live = conningLive(getG());
+      // A step that MOVED the order on a LABELED key (W/S — not an arrow) while
+      // conning a live ship is a successful W/S input: three of them retire the
+      // helm key glyphs for good (Story 2.4, amendment 26).
+      if (labeled) recordHelmInput('ws', live);
+      if (live) audio.play(telegraphTone(dir));
     },
+    // Every labeled rudder press that reaches a LIVE helm counts toward the A/D
+    // pair's fade (suppressed presses never arrive here at all).
+    onRudder: () => recordHelmInput('ad', conningLive(getG())),
     isAbilitySlot: (slot) => {
       const g = getG();
       return g !== null && slotHoldsAbility(g.ownSlots, slot);
@@ -1343,6 +1359,7 @@ function renderOwn(
   zone: ZoneHud,
   match: MatchUx,
   frameDt: number,
+  now: number,
 ): void {
   if (!g.cameraSnapped) {
     g.camera.snapTo(pose);
@@ -1358,7 +1375,9 @@ function renderOwn(
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
   renderFiring(g, pose, status, aim, cursor);
-  g.hud.update(pose, g.keyboard.axes(), status, zone, match, hudWidth(g), hudHeight(g));
+  // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
+  // storm vignette's pulse rides (the HP rail breathes on it).
+  g.hud.update(pose, g.keyboard.axes(), status, zone, match, hudWidth(g), hudHeight(g), now / 1000);
   updateHotbar(g, status);
 }
 
@@ -1595,7 +1614,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.radius);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
-  if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt);
+  if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt, now);
   else {
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility

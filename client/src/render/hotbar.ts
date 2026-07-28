@@ -46,6 +46,7 @@ import { motionAllowed, motionIntensity, settings, type MotionLevel } from '../s
 import type { ScreenPoint } from '../input/mouse.js';
 import { tracePerimeter, traceDashed } from '../util/poly.js';
 import { drawEquipmentIcon, drawPlusGlyph } from './equipmentIcons.js';
+import { KEY_CHIP_STYLE, drawKeyChipBox, keyChipGlyphColor } from './keyChip.js';
 import {
   SLOT_KEY_GLYPHS,
   equipmentInfo,
@@ -483,7 +484,9 @@ export function tooltipPlacement(row: HotbarRow, panelH: number, screenW: number
 // bright white. Grey text is gone from this surface entirely; the cooling/empty
 // states DIM these same colors (DIM_ALPHA) instead of switching to grey, so the
 // state grammar survives the de-grey.
-const KEY_STYLE = { fontFamily: MONO, fontSize: 14, fill: C.phosphor, letterSpacing: 0 } as const;
+// The key chip's box + glyph style now live in the SHARED drawer
+// (render/keyChip.ts) — one family with the helm keys (UX-DR33).
+const KEY_STYLE = KEY_CHIP_STYLE;
 const NAME_STYLE = { fontFamily: DISPLAY, fontSize: 20, fontWeight: '600', fill: C.textPrimary, letterSpacing: 0.3 } as const;
 const INFO_STYLE = { fontFamily: MONO, fontSize: 16, fill: C.phosphor, letterSpacing: 0.8 } as const;
 const BADGE_STYLE = { fontFamily: MONO, fontSize: 16, fill: C.phosphor, letterSpacing: 0 } as const;
@@ -659,22 +662,17 @@ export class Hotbar {
     else drawEquipmentIcon(this.gfx, m.id, cx, cy, H.icon, style);
   }
 
-  /** 16×16 mono key chip; the SELECTED slot's chip fills amber with a void
-   *  glyph, the keyless gun renders a GHOST chip (transparent border, alignment
-   *  kept). */
+  /** Mono key chip via the SHARED drawer (render/keyChip.ts — one family with
+   *  the helm keys); the SELECTED slot's chip fills amber with a void glyph,
+   *  the keyless gun renders a GHOST chip (no box, alignment kept). */
   private drawKeyChip(m: SlotViewModel, row: HotbarRow): void {
     const t = this.rowText[m.slot].key;
     const s = H.keyChip;
-    if (m.selected && m.keyGlyph !== '') {
-      this.gfx.rect(row.keyX, row.keyY, s, s).fill({ color: C.amber, alpha: 1 });
-      this.gfx.rect(row.keyX, row.keyY, s, s).stroke({ width: 1, color: C.amber, alpha: 1 });
-    } else if (m.keyGlyph !== '') {
-      this.gfx.rect(row.keyX, row.keyY, s, s).stroke({ width: 1, color: C.phosphor, alpha: 0.55 });
-    }
+    if (m.keyGlyph !== '') drawKeyChipBox(this.gfx, row.keyX, row.keyY, m.selected, s);
     t.visible = m.keyGlyph !== '';
     // Key chips are PHOSPHOR (amendment 16); the SELECTED chip fills amber and
     // knocks its glyph out in void. Cooling/empty dim the phosphor, never grey.
-    this.setFill(t, m.selected ? C.void : C.phosphor);
+    this.setFill(t, keyChipGlyphColor(m.selected));
     t.alpha = m.selected ? 1 : dimAlphaFor(m);
     t.position.set(row.keyX + s / 2, row.keyY + s / 2);
     this.setText(t, m.keyGlyph, m.slot * 4);

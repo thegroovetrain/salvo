@@ -453,6 +453,13 @@ export const CLIENT_CONFIG = {
     /** Motion intensity multiplier per level — `reduced` halves every flash /
      *  pulse amplitude, `off` removes motion entirely (information stays). */
     motionIntensity: { full: 1, reduced: 0.5, off: 0 },
+    /** THE photosensitivity ceiling (Hz) for every breathing pulse on screen —
+     *  the epic's non-negotiable accessibility floor ("HP/economy pulses capped
+     *  at 1.1 Hz"). Promoted to config by Story 2.4 so ONE number governs both
+     *  consumers: the HP rail's accelerating ramp (render/hud.ts hullPulseHz)
+     *  and the out-of-zone storm vignette (render/zone.ts). Nothing may pulse
+     *  faster; a new pulsing surface reads this, never its own literal. */
+    pulseCapHz: 1.1,
     /** Overlay chrome: z between the refit modal (1000) and the home (1100). */
     zIndex: 1050,
     /** Panel geometry (px) — the DOM port-chrome register (panel bed, 1px
@@ -462,6 +469,82 @@ export const CLIENT_CONFIG = {
     panelPad: 28,
     /** Volume slider range (both master and effects are 0..100 integers). */
     volumeMax: 100,
+  },
+
+  /**
+   * The bottom-right OWN-VITALS cluster (Story 2.4) — the restyled v2-composite
+   * anatomy: a `HULL n/n` header over a body of (HDG/KTS readouts + rudder
+   * gauge | telegraph ladder) with the vertical HP rail climbing the body's
+   * right edge. Source: DESIGN.md Components · HP Rail / Telegraph Cluster and
+   * the Eric-confirmed `mockups/hud-composite-2.html` anatomy, as amended
+   * (24 phosphor readouts / 25 dim-phosphor micro labels / 26 glyph fade /
+   * 27 6px rail). Colors are NOT here — every stroke reads a `colors` token.
+   */
+  vitals: {
+    /** Cluster frame (px). `width` is the BODY column block (header, readouts,
+     *  telegraph); the HP rail adds `railWidth` on its right edge, so the whole
+     *  stack is `width + railWidth` wide. */
+    width: 296,
+    /** Body height (px). It must CONTAIN every mark the cluster paints — the
+     *  lowest of which is the ASTERN caption's line box under the ladder
+     *  (hud.ts CLUSTER_CONTENT_BOTTOM, pinned by hud.test.ts): the declared box
+     *  is what the layout tests measure, so an under-measured height would let
+     *  the caption hang outside a "no-overlap" proof. */
+    height: 254,
+    /** Header band height (px) — the `HULL n/n` line above the body. */
+    headerH: 24,
+    /** Gap (px) from the viewport's right / bottom edges. */
+    margin: 24,
+    /** PTS prompt / IN STORM baselines, px above the cluster's top edge. */
+    ptsAbove: 24,
+    stormAbove: 50,
+    /** HP RAIL — the first vertical rail in the HUD. Story 2.6's XP rail
+     *  INHERITS this idiom (dim phosphor track, bottom-up fill, soft glow) at
+     *  3px (UX-DR12); only the HP rail widens to 6px (amendment 27). */
+    railWidth: 6,
+    /** Dim phosphor track the fill climbs (the empty part of the rail). */
+    railTrackAlpha: 0.12,
+    /** BASE fill alpha. This is INFORMATION, not motion: it is exactly what the
+     *  rail holds at motion=off, and the pulse only breathes around it. */
+    railFillAlpha: 0.85,
+    /** Soft bloom around the fill (same breathing alpha as the fill). */
+    railGlowAlpha: 0.35,
+    railGlowPx: 3,
+    /** Threshold bands as a fraction of maxHp — EXCLUSIVE lower bounds for the
+     *  better color: frac ≥ 0.5 phosphor, ≥ 0.25 amber, below that damageMarker. */
+    amberBelow: 0.5,
+    criticalBelow: 0.25,
+    /** Pulse envelope: the fill breathes only below `amberBelow`, its rate
+     *  ramping linearly from `pulseMinHz` at that fraction to the shared
+     *  photosensitivity ceiling (settings.pulseCapHz) at `pulseFloorFrac` and
+     *  below — accelerating alarm, hard-capped, never a strobe. */
+    pulseMinHz: 0.5,
+    pulseFloorFrac: 0.1,
+    /** Opacity-breathing amplitude (motion-scaled at the callsite). */
+    pulseAmp: 0.15,
+    /** Rudder gauge: 110px track + the amber position tick (px). */
+    rudderTrack: 110,
+    rudderTickW: 2,
+    rudderTickH: 8,
+    /** Halo bleed (px) around the tick on every side. The tick CENTER is clamped
+     *  by half the tick plus this, so the glow never overhangs the track ends at
+     *  full deflection (hud.ts rudderTickCenter). */
+    rudderTickHaloPx: 1,
+    /** Telegraph ordered-order marker: the HOLLOW phosphor rung outline (px) —
+     *  the SHAPE channel against the solid amber actual-speed needle. */
+    orderedW: 26,
+    orderedH: 7,
+    /** Micro-label alpha — dim PHOSPHOR, never grey (amendment 25). Applies to
+     *  the HULL caption, the HDG/KTS unit labels, RUDDER, and AHEAD/ASTERN. */
+    labelAlpha: 0.7,
+    /** HELM KEY GLYPHS (amendment 26): the W/S and A/D chips at the gauge
+     *  extremes fade PERMANENTLY, per pair, after this many successful inputs.
+     *  Progress lives under its own standalone localStorage key — deliberately
+     *  NOT in the settings store, so RESET SETTINGS cannot resurrect learned
+     *  anatomy. `fadeSec` is the fade-out itself (instant at motion=off). */
+    glyphFadeCount: 3,
+    glyphFadeSec: 0.6,
+    glyphKey: 'hullcracker.helm',
   },
 
   /** Radar blip render knobs (Story 2.3 adds the colorblind-assist channel). */
