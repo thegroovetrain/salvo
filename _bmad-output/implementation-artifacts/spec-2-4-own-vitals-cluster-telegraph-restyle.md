@@ -2,8 +2,9 @@
 title: 'Story 2.4: Own-Vitals Cluster & Telegraph Restyle'
 type: 'feature'
 created: '2026-07-27'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'cf2730e'
+final_revision: '070f59f'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
