@@ -70,6 +70,13 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
  * live only in test-injected registries). Registering a hook here REQUIRES
  * adding it to the literal key list + per-row coverage table in
  * shared/src/__tests__/hooks.test.ts — the suite fails on any uncovered entry.
+ *
+ * REGISTRY CONTENT IS WIRE CONTRACT: adding, removing, or changing any entry
+ * REQUIRES a PROTOCOL_VERSION bump (shared/src/index.ts). Hooks run on BOTH
+ * sides from the boon ids on the wire, and both sides resolve FAIL-CLOSED
+ * (unknown hookId = silent no-op) — a stale client would silently skip a hook
+ * the server is simulating, desyncing prediction with no error surface. The PV
+ * join gate is the ONLY thing preventing it.
  */
 export const HOOK_REGISTRY: HookRegistry = deepFreezeRows({});
 
@@ -90,6 +97,11 @@ export function hookKinematics(
 ): ShipConfig {
   let out = kin;
   for (const b of behaviors) {
+    // OWN-PROPERTY ONLY (the resolveBoons gate, applied here too): a plain-object
+    // registry answers `registry['constructor']` with Object.prototype.constructor.
+    // The kind check alone already rejects it; hasOwn makes the rejection
+    // structural rather than incidental.
+    if (!Object.hasOwn(registry, b.hookId)) continue;
     const hook = registry[b.hookId];
     if (hook === undefined || hook.kind !== 'kinematics') continue;
     out = hook.apply(out, b.params);

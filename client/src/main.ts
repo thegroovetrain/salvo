@@ -287,8 +287,10 @@ interface Game {
    */
   ownStats: EffectiveStats;
   /**
-   * Slot-aligned equipment ids of the OWN loadout — loadoutFor(you.cls),
-   * client-side and read-only (Story 1.6). Drives the slot-2 activate-vs-prime
+   * Slot-aligned equipment ids of the OWN loadout — slotsWithBoons(you.cls,
+   * ownStats, resolved boons): the hull's base loadoutFor fit with every
+   * applied boon's slot effects replayed over it (Story 2.5), client-side and
+   * read-only (Story 1.6). Drives the slot-2 activate-vs-prime
    * split (slotHoldsAbility), the HUD chip row, and the pre-frame ammo
    * fallback. Recomputed with ownStats on the ownStatsChanged seam.
    */

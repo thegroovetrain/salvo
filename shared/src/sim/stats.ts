@@ -11,7 +11,10 @@
 // CONFIG.vision.radar — range = radar range, Eric ruling 2026-07-21). Stacking per
 // CONFIG.upgrades: multiplicative entries compound (base * mult^count), adds
 // are linear. Uncapped unless the CONFIG entry carries a ceiling — sweepSpeed
-// is the only capped stat today (maxRpm), and that clamp lives HERE alone.
+// is the only capped stat today (maxRpm). That ceiling has exactly TWO sites,
+// both inside this firewall: the legacy-stacking clamp below, and its re-apply
+// over the boon fold in sim/boons.ts applyBoonStats (boon data may not exceed
+// it either). Nothing else may clamp or re-derive it.
 
 import { CONFIG, UPGRADE_IDS, type ShipClass, type UpgradeId } from '../constants.js';
 import type { ShipConfig } from './ship.js';

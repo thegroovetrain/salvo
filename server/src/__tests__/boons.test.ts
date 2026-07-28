@@ -15,6 +15,7 @@ import {
   SLOT_EXTRA,
   SLOT_GUN,
   effectiveStats,
+  equipmentMaxAmmo,
   zeroUpgrades,
   type BoonCatalog,
   type BoonDef,
@@ -70,12 +71,35 @@ const OMNI_BOON: BoonDef = {
   ],
 };
 
+/** Pool-cap movers: a raiser (+3 tubes) and, applied AFTER it, a shrinker
+ *  (-2) — the only way to LOWER a cap below a live pool, since every shipped
+ *  pool is 1. */
+const WIDE_TUBES: BoonDef = {
+  id: 'deepMagazine',
+  category: 'test',
+  effects: [{ kind: 'stat', path: 'torpedo.maxAmmo', add: 3 }],
+};
+const NARROW_TUBES: BoonDef = {
+  id: 'crampedMagazine',
+  category: 'test',
+  effects: [{ kind: 'stat', path: 'torpedo.maxAmmo', add: -2 }],
+};
+/** A maxHp-LOWERING boon (the hp invariant's only trigger). */
+const FRAIL_HULL: BoonDef = {
+  id: 'strippedArmor',
+  category: 'test',
+  effects: [{ kind: 'stat', path: 'maxHp', mult: 0.5 }],
+};
+
 const TEST_CATALOG: BoonCatalog = {
   surgeProtocol: BEHAVIOR_BOON,
   ironPlating: STAT_BOON,
   bolterRack: FILL_BOON,
   longLance: REPLACE_BOON,
   omni: OMNI_BOON,
+  deepMagazine: WIDE_TUBES,
+  crampedMagazine: NARROW_TUBES,
+  strippedArmor: FRAIL_HULL,
 };
 
 const OPTS: WorldOptions = { hookRegistry: TEST_HOOKS, boonCatalog: TEST_CATALOG };
@@ -270,6 +294,61 @@ describe('World.applyBoon — two homes, nothing else', () => {
     const ammoBefore = ammoStates(a);
     expect(() => w.applyBoon(a, 'noSuchBoon')).not.toThrow();
     expect(a.boons).toEqual(['noSuchBoon']);
+    expect(a.stats).toEqual(statsBefore);
+    expect(ammoStates(a)).toEqual(ammoBefore);
+    expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'speedBoost', null]);
+  });
+
+  it('a cap-LOWERING stat boon clamps the live pool DOWN to the new cap', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0); // TB: [gun, torpedo, speedBoost, empty]
+    w.applyBoon(a, 'deepMagazine'); // torpedo cap 1 -> 4
+    expect(a.stats.torpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 3);
+    a.loadout[1].state!.n = 4; // a full, widened pool
+    w.applyBoon(a, 'crampedMagazine'); // cap 4 -> 2
+    expect(a.stats.torpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 1);
+    expect(a.loadout[1].state!.n).toBe(2); // clamped, never above the cap
+    // The invariant holds for EVERY fitted slot, not just the moved one.
+    for (const slot of a.loadout) {
+      if (slot.equipmentId === null) continue;
+      expect(slot.state!.n).toBeLessThanOrEqual(equipmentMaxAmmo(a.stats, slot.equipmentId));
+    }
+  });
+
+  it('a cap-RAISING stat boon leaves the live pool alone (no free top-up — a 2.8 catalog decision)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.loadout[1].state!.n = 0;
+    a.loadout[1].state!.reloadMsLeft = 900; // mid-reload, empty tubes
+    w.applyBoon(a, 'deepMagazine'); // cap 1 -> 4
+    expect(a.stats.torpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 3);
+    expect(a.loadout[1].state).toEqual({ n: 0, reloadMsLeft: 900 }); // untouched
+  });
+
+  it('a maxHp-LOWERING stat boon clamps hp to the new cap; a RAISING one still does not heal', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const fullHp = a.stats.maxHp;
+    expect(a.hp).toBe(fullHp);
+    w.applyBoon(a, 'strippedArmor'); // maxHp * 0.5
+    expect(a.stats.maxHp).toBe(fullHp * 0.5);
+    expect(a.hp).toBe(a.stats.maxHp); // clamped down — never above the cap
+    // Raising it back does NOT heal (the deliberate no-heal rule stands).
+    const wounded = a.hp;
+    w.applyBoon(a, 'ironPlating'); // +40 maxHp
+    expect(a.stats.maxHp).toBeGreaterThan(wounded);
+    expect(a.hp).toBe(wounded);
+  });
+
+  it('an Object.prototype key as a boon id appends but applies NOTHING and never throws', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const statsBefore = a.stats;
+    const ammoBefore = ammoStates(a);
+    for (const junk of ['constructor', 'toString', 'hasOwnProperty', 'valueOf']) {
+      expect(() => w.applyBoon(a, junk)).not.toThrow();
+    }
+    expect(a.boons).toEqual(['constructor', 'toString', 'hasOwnProperty', 'valueOf']);
     expect(a.stats).toEqual(statsBefore);
     expect(ammoStates(a)).toEqual(ammoBefore);
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'speedBoost', null]);

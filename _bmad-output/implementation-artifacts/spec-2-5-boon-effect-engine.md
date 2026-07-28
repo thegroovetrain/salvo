@@ -2,7 +2,7 @@
 title: 'Story 2.5: Boon Effect Engine (Two Homes + Hooks)'
 type: 'feature'
 created: '2026-07-28'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '67f5b2f'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -87,7 +87,7 @@ warnings: [oversized]
 - [x] `server/src/game/world.ts` + `frames.ts` -- record field, applyBoon, tick composition, wire copy -- dormant plumbing
 - [x] `client/src/net/roomBindings.ts` + `main.ts` + `sim/prediction.ts` -- recompute gate, resolve/derive, predictor hooks -- parity
 - [x] Shared/server/client test suites incl. I/O-matrix edges -- registry lock + two-homes property + 9-decimal parity
-- [ ] Bookkeeping files -- per-PR protocol
+- [x] Bookkeeping files -- per-PR protocol
 - [x] `npm run check` -- full gate green
 
 **Acceptance Criteria:**
@@ -101,6 +101,24 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-07-28 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 0, medium 5, low 3)
+- defer: 1: (low 1)
+- reject: 1: (low 1)
+- addressed_findings:
+  - `[medium]` `[patch]` Prototype-key fail-closed hole (Edge Case Hunter, CONFIRMED — mechanically reproduced): plain-object lookups accepted Object.prototype keys, so `resolveBoons(['constructor'])` returned `Object.prototype.constructor` and the downstream `def.effects` iteration threw — in the client resolve path, `World.applyBoon`, and (latently) the hook fold: the exact junk-id crash the engine's fail-closed contract promises against. Fixed: `Object.hasOwn` gate on every catalog/registry lookup; regression tests (incl. an inherited-registry hook case) shown to fail without the guard.
+  - `[medium]` `[patch]` Stat-fold sanity + sweep-ceiling bypass (both Fable hunters independently): `applyBoonStats` assigned raw `v*mult+add` — a mis-authored mult:0 / NaN / negative def would poison both sims identically (Infinity `sweepPeriodMs`, NaN kinematics), and the fold ran after (thus bypassed) the ratified sweepRpm hard cap. Fixed: per-assignment skip unless finite and > 0 (every whitelisted stat is a strictly positive scalar); ceiling re-applied over the fold before the `sweepPeriodMs` re-derivation; the stats.ts "clamp lives here alone" comment now names both sites.
+  - `[medium]` `[patch]` `gun.maxAmmo` whitelist removal (Blind Hunter + Codex, cross-model agreement): the path let catalog data silently unpin the single-shot Deck Gun (Eric ruling 2026-07-21). Removed, with an absence + pool-stays-pinned test.
+  - `[medium]` `[patch]` Ammo-cap reconcile (Edge Case Hunter + Codex, cross-model agreement): a cap-moving stat boon left fitted pools unreconciled — a lowered cap left an overfull pool usable for the rest of the life. Fixed: `applyBoon` clamps every fitted pool DOWN to the new cap; top-up on a raised cap deliberately NOT granted (2.8 catalog decision, documented in code).
+  - `[medium]` `[patch]` PV/catalog convention (Codex P1): fail-closed unknown-id drops make PROTOCOL_VERSION the ONLY gate against a stale client silently ignoring a boon the server is simulating (a hard desync with no error surface). Encoded as convention: BOON_CATALOG / HOOK_REGISTRY content IS wire contract — adding, removing, or changing any entry requires a PV bump (documented on both registries + the PV changelog block).
+  - `[low]` `[patch]` hp invariant: a maxHp-lowering stat boon left hp above the cap; `applyBoon` now clamps `hp = min(hp, maxHp)` (a raised maxHp still deliberately does not heal).
+  - `[low]` `[patch]` Slot-effect degeneracies (Edge Case Hunter): `slotReplace` with `from === to` handed out a fresh full pool (free instant reload); `slotFill` of an already-fitted id created duplicate ids that break the engine's replace-by-id addressing. Both are now fail-closed no-ops (2.8 may deliberately revisit duplicates — noted in code).
+  - `[low]` `[patch]` Stale own-ammo comment in main.ts still said `loadoutFor(you.cls)`; now names `slotsWithBoons`.
+  - Deferred: 2.8 authoring-time validation policy (`validateBoonDef`, top-up-on-raise, duplicate-fit latitude) → deferred-work.md 2026-07-28.
+  - Rejected (workflow-stage, not a code defect): bookkeeping files absent from the reviewed diff — they land in this finalize step per the per-PR protocol.
+
 ## Design Notes
 
 - Engine call sites take the registry as a parameter (default `HOOK_REGISTRY`) — that is what lets the production registry ship empty (amendment 29) while tests prove real execution paths with injected registries.
@@ -108,6 +126,20 @@ warnings: [oversized]
 - `boostUntil` remains bespoke owner-state; composition order (boost first, hooks after) matters only for documentation today since the registry is empty — pin it in a test via injected registry so 2.8 cannot accidentally flip it.
 - `stat` effect paths whitelist existing `EffectiveStats` scalars only; damage is deliberately not addressable (not in `EffectiveStats`; equipmentInfo.ts:10 records the future seam).
 - Client `slotAmmo` alignment: after a dormant-path slot mutation, `you.ammo` stays slot-aligned automatically (server builds it from the mutated loadout) — the client derivation must produce the same ids so the hotbar would label pools correctly when 2.7 goes live.
+
+## Auto Run Result
+
+**Status:** done — implemented, Eric-ruled pre-implementation (amendments 28–30 via AskUserQuestion), adversarially reviewed (2 Fable hunters + Codex cross-model), 8 patches applied, gate green.
+
+**Summary:** The boon effect engine lands as ratified: two homes plus hooks, full dormant plumbing (amendment 28). Shared `sim/boons.ts` defines `BoonDef { id, category, effects[] }` with four effect kinds — `stat` (folds into `effectiveStats(cls, counts, boons)` AFTER legacy stacking, over a whitelist of positive scalars, finite-and-positive-guarded, sweepRpm ceiling re-applied), `slotFill`/`slotReplace` (ONE shared per-effect function mutates the one `LoadoutSlot[]` structure — applied incrementally by the server so untouched slots keep live ammo state, replayed by the client over `loadoutFor`, id-parity property-tested over 60 seeded sequences), and `behavior(hookId, params)` (executes hooks from `sim/hooks.ts`'s kind-discriminated registry — kinematics-only attachment per amendment 30, composed boost-first-hooks-after identically in `World.stepShips` and `Predictor.tickKin`, 9-decimal replay parity pinned). Both `BOON_CATALOG` and `HOOK_REGISTRY` ship EMPTY and deep-frozen (amendment 29 — boost stays bespoke; test boons/hooks live only in test-injected registries via `WorldOptions`/predictor injection), with the signals-style literal-key parity lock armed so no future entry can register without coverage. Dormant server/client plumbing: `ShipRecord.boons` (redeploy wipes, respawn preserves), `World.applyBoon` (applyUpgrade mirror, no production caller until 2.7), self-private `OwnShip.boons` (rides `you` only, JSON-sweep privacy-pinned), client resolve/derive/predictor handoff behind the `ownStatsChanged` gate. PV 12→13; zero-boon paths byte-identical to pre-story behavior by pinned regression. Tests 1754 → 1829.
+
+**Files changed:** shared — NEW sim/boons.ts, sim/hooks.ts; sim/stats.ts (boons param + fold), types.ts (OwnShip.boons), index.ts (barrel, PV 13 + catalog-is-wire-contract convention); NEW __tests__/boons.test.ts + hooks.test.ts, stats/barrel suites extended. server — game/world.ts (ShipRecord.boons + caches, applyBoon + hp/pool clamps, boost-then-hooks tick fold, injectable WorldOptions, lifecycle semantics), game/frames.ts (you.boons); NEW __tests__/boons.test.ts, denials PV pin, goldenFrames snapshot regenerated (audited delta = `"boons":[]` only). client — net/roomBindings.ts (boons diff in the recompute gate), main.ts (resolve + shared slot derivation + predictor handoff), sim/prediction.ts (setBoons, injectable registry, mirrored tickKin composition); prediction/upgrades suites extended, fixtures gain `boons: []`. Bookkeeping — sprint-status 2-5 done, gds-workflow-status advanced (next_expected → create-story 2-6), deferred-work entry (2.8 authoring validation), amendments 28–30 recorded durably pre-implementation.
+
+**Review breakdown:** 8 patches (0 high, 5 medium, 3 low), 1 deferred, 1 rejected, 0 intent gaps, 0 bad-spec loopbacks. Cross-model agreement: `gun.maxAmmo` whitelist and the ammo-cap reconcile were each flagged independently by a Fable hunter AND Codex; the stat-fold sanity/ceiling bypass by both Fable hunters independently; the prototype-key hole was CONFIRMED (mechanically reproduced) by the Edge Case Hunter; Codex's sole P1 (stale-client catalog desync) was adjudicated real-but-conventional and encoded as the catalog-is-wire-contract PV rule. Every behavioral patch carries a regression test proven to fail without the fix.
+
+**Verification:** `npm run check` run independently by the orchestrator after implementation AND after the patch round — lint 0 errors (2 pre-existing warnings), shared 312 / server 677 / client 840 = 1829 green. Implementation and patch diffs hand-reviewed hunk-by-hunk (stats fold, tick composition, applyBoon invariants, predictor mirror, hasOwn gates).
+
+**Residual risks / notes for Eric:** (1) Everything is dormant — no production path grants a boon until 2.7, and both registries ship empty; the engine's proof is test-level (real World tick + real Predictor, injected registries). (2) The review encoded a standing convention you should know: **boon catalog/registry content is wire contract** — when 2.8 adds real boons, that change itself requires a PROTOCOL_VERSION bump, or stale clients silently desync (Codex's finding). (3) Engine guards were kept deliberately minimal to preserve 2.8's design latitude; the parked design calls (top-up on a cap-raising boon, duplicate-equipment fits, authoring-time validation) are ledgered in deferred-work for the 2.8 gate. (4) `gun.maxAmmo` is deliberately NOT boon-addressable — a catalog boon can never unpin the single-shot Deck Gun without a code change; veto if you ever want a multi-shot gun boon and we'll design that path deliberately.
 
 ## Verification
 

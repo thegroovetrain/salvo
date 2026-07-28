@@ -612,19 +612,43 @@ export class World {
    * — untouched slots keep their ammo/reload state; behavior effects execute
    * per-tick in stepShips via the cached boonBehaviors). NO event is queued
    * (2.7 owns the spend UX) and no other ship field moves — hp deliberately
-   * stays put even when a stat boon moves maxHp. Fail-closed: an id the
-   * world's catalog cannot resolve appends (the wire mirrors it; clients drop
-   * it at resolve) but applies nothing. Public so directed tests (and 2.7's
-   * spend path) can drive it.
+   * stays put (no heal) even when a stat boon RAISES maxHp; the only forced
+   * moves are the two cap INVARIANTS below (hp and pools may never exceed a
+   * LOWERED cap). Fail-closed: an id the world's catalog cannot resolve
+   * appends (the wire mirrors it; clients drop it at resolve) but applies
+   * nothing. Public so directed tests (and 2.7's spend path) can drive it.
    */
   applyBoon(ship: ShipRecord, boonId: string): void {
     ship.boons.push(boonId);
     ship.boonDefs = resolveBoons(ship.boons, this.boonCatalog);
     ship.boonBehaviors = ship.boonDefs.length === 0 ? NO_BEHAVIORS : boonBehaviors(ship.boonDefs);
     ship.stats = effectiveStats(ship.cls, ship.upgrades, ship.boonDefs);
-    const def = this.boonCatalog[boonId];
-    if (def === undefined) return; // unknown id: nothing to apply (fail-closed)
-    for (const effect of def.effects) applySlotEffect(ship.loadout, effect, ship.stats);
+    // hp invariant: a maxHp-LOWERING stat boon may not leave hp above the cap.
+    // A RAISED maxHp still deliberately does not heal (unlike hullPoints).
+    ship.hp = Math.min(ship.hp, ship.stats.maxHp);
+    // Own-property gate (fail-closed): a plain-object catalog answers
+    // `this.boonCatalog['constructor']` with Object.prototype.constructor —
+    // not undefined, and with no `effects` to iterate.
+    const def = Object.hasOwn(this.boonCatalog, boonId) ? this.boonCatalog[boonId] : undefined;
+    if (def !== undefined) {
+      for (const effect of def.effects) applySlotEffect(ship.loadout, effect, ship.stats);
+    }
+    this.clampPoolsToCaps(ship);
+  }
+
+  /**
+   * Pool invariant after a stats recompute: clamp every fitted slot's `n` DOWN
+   * to the (possibly lowered) effective cap. Deliberately does NOT top up on a
+   * RAISED cap — whether a cap-raising boon also hands out loaded rounds is a
+   * 2.8 catalog-design decision (the applyGrantEffects +1 precedent is
+   * upgrade-specific), so the engine only enforces the ceiling.
+   */
+  private clampPoolsToCaps(ship: ShipRecord): void {
+    for (const slot of ship.loadout) {
+      const id = slot.equipmentId;
+      if (id === null || slot.state === null) continue;
+      slot.state.n = Math.min(slot.state.n, equipmentMaxAmmo(ship.stats, id));
+    }
   }
 
   /** Which equipment's pool an ammo-type upgrade also loads +1 current round

@@ -210,3 +210,9 @@ Verified with `resolve_customization.py` (three-layer merge: protocol appends to
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-3-settings-accessibility-options.md`
   summary: The game-end results modal is ESC-dismissible (per the uniform topmost-close ruling) but has NO reopen path — a player who ESC-closes it idles on the dead ocean with settings→ABANDON as the only exit and the placement table gone for good; whether a reopen affordance (or an inert-ESC exception at game end) is wanted is Eric's call.
   evidence: Edge Case Hunter traced closeResultsAsSpectate with the game-end onSpectate no-op at the 2.3 review gate; behavior follows amendment 23 literally, the gap is the missing way back.
+
+## 2026-07-28 — Story 2.5 (Boon Effect Engine)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-2-5-boon-effect-engine.md`
+  summary: Catalog authoring-time validation belongs to 2.8 — the engine now guards runtime (finite/positive stat folds, sweepRpm ceiling re-applied over the fold, hasOwn lookups everywhere, hp/pool clamps on lowered caps, slot-degeneracy no-ops), but there is no authoring-time `validateBoonDef` (paths on the whitelist, hookIds present in HOOK_REGISTRY, params sane, effects non-empty), and two design calls are deliberately parked: whether a cap-RAISING boon also tops up loaded rounds (the applyGrantEffects +1 precedent is upgrade-specific), and whether duplicate-equipment fits (a two-tube build) are ever wanted — the engine's replace-by-id addressing forbids duplicates today, so allowing them means replacing id-addressing first.
+  evidence: Review-gate findings from both Fable hunters + Codex at the 2.5 gate (all runtime guards were absent pre-patch; guards were chosen deliberately minimal to keep 2.8's design latitude intact — see spec Review Triage Log 2026-07-28).

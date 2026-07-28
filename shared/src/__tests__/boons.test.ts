@@ -27,6 +27,7 @@ import {
   type BoonCatalog,
   type BoonDef,
   type BoonEffect,
+  type BoonStatEffect,
   type EffectiveStats,
   type LoadoutSlot,
   type ShipClassId,
@@ -111,6 +112,20 @@ describe('resolveBoons — fail-closed resolve', () => {
   it('a repeated id resolves to the def each time (stacking is a catalog question, not the resolver policy)', () => {
     expect(resolveBoons(['surgeEngines', 'surgeEngines'], TEST_CATALOG)).toEqual([STAT_BOON, STAT_BOON]);
   });
+
+  it('Object.prototype keys are NOT boons: a junk wire id can never resolve to an inherited property', () => {
+    // Without the own-property gate `catalog['constructor']` answers
+    // Object.prototype.constructor — not undefined, no `effects` — and any
+    // downstream effect iteration throws on a purely wire-supplied id.
+    const proto = ['constructor', 'toString', 'hasOwnProperty', '__proto__', 'valueOf'];
+    expect(resolveBoons(proto, TEST_CATALOG)).toBe(NO_BOONS);
+    expect(resolveBoons(proto)).toBe(NO_BOONS); // production catalog too
+    expect(() => {
+      for (const d of resolveBoons(proto, TEST_CATALOG)) void d.effects.length;
+    }).not.toThrow();
+    // And a prototype key mixed into a real list drops out, order preserved.
+    expect(resolveBoons(['constructor', 'surgeEngines'], TEST_CATALOG)).toEqual([STAT_BOON]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -171,6 +186,66 @@ describe('stat effects — home 1 (effectiveStats), after legacy stacking, list 
     expect(effectiveStats(TB, zeroUpgrades(), [rogue])).toEqual(effectiveStats(TB, zeroUpgrades()));
   });
 
+  it('gun.maxAmmo is NOT on the whitelist: the single-shot gun pool stays pinned', () => {
+    // effectiveStats pins gun.maxAmmo to CONFIG.gun.maxAmmo (1) — the universal
+    // standard gun is single-shot, its pool presented as a pure cooldown (Eric
+    // ruling 2026-07-21). No catalog datum may unpin it.
+    expect(BOON_STAT_PATHS).not.toContain('gun.maxAmmo');
+    const rogue = {
+      id: 'rogue',
+      category: 'test',
+      effects: [{ kind: 'stat', path: 'gun.maxAmmo', add: 5 }],
+    } as unknown as BoonDef;
+    expect(effectiveStats(TB, zeroUpgrades(), [rogue]).gun.maxAmmo).toBe(CONFIG.gun.maxAmmo);
+  });
+
+  it('a folded value that is not a POSITIVE finite number is skipped per-assignment (fail-closed sanity)', () => {
+    const base = effectiveStats(TB, zeroUpgrades());
+    const cases: BoonStatEffect[] = [
+      { kind: 'stat', path: 'maxHp', mult: 0 }, // zeroing a stat is invalid data
+      { kind: 'stat', path: 'maxHp', add: NaN },
+      { kind: 'stat', path: 'maxHp', mult: NaN },
+      { kind: 'stat', path: 'maxHp', add: Infinity },
+      { kind: 'stat', path: 'maxHp', mult: Infinity },
+      { kind: 'stat', path: 'maxHp', add: -(TB.hp + 1) }, // drives the result negative
+    ];
+    for (const e of cases) {
+      expect(effectiveStats(TB, zeroUpgrades(), [def('bad', e)])).toEqual(base);
+    }
+  });
+
+  it('a NaN/zero kinematics fold cannot poison the stats tree (the desync shape that matters)', () => {
+    const base = effectiveStats(TB, zeroUpgrades());
+    expect(effectiveStats(TB, zeroUpgrades(), [def('nanSpeed', { kind: 'stat', path: 'kinematics.maxSpeed', mult: NaN })]))
+      .toEqual(base);
+    // sweepRpm 0 would make the derived sweepPeriodMs Infinity — skipped instead.
+    const zeroRpm = effectiveStats(TB, zeroUpgrades(), [def('stopSweep', { kind: 'stat', path: 'sweepRpm', mult: 0 })]);
+    expect(zeroRpm.sweepRpm).toBe(base.sweepRpm);
+    expect(Number.isFinite(zeroRpm.sweepPeriodMs)).toBe(true);
+    expect(zeroRpm.sweepPeriodMs).toBe(base.sweepPeriodMs);
+  });
+
+  it('the skip is PER ASSIGNMENT: a valid effect after an invalid one still applies', () => {
+    const s = effectiveStats(TB, zeroUpgrades(), [
+      def('mixed', { kind: 'stat', path: 'maxHp', mult: NaN }, { kind: 'stat', path: 'maxHp', add: 25 }),
+    ]);
+    expect(s.maxHp).toBe(TB.hp + 25);
+  });
+
+  it('the sweepRpm CEILING is re-applied over the boon fold (boon data may not exceed maxRpm)', () => {
+    const maxRpm = CONFIG.upgrades.sweepSpeed.maxRpm;
+    const s = effectiveStats(TB, zeroUpgrades(), [def('overclock', { kind: 'stat', path: 'sweepRpm', add: 1000 })]);
+    expect(s.sweepRpm).toBe(maxRpm);
+    expect(s.sweepPeriodMs).toBe(60000 / maxRpm);
+    // A mult over the ceiling clamps identically, and legacy stacks + a boon
+    // still cannot cross it.
+    const upg = zeroUpgrades();
+    upg[UPGRADE_IDS.indexOf('sweepSpeed')] = 5; // already at the cap
+    const stacked = effectiveStats(TB, upg, [def('overclock2', { kind: 'stat', path: 'sweepRpm', mult: 10 })]);
+    expect(stacked.sweepRpm).toBe(maxRpm);
+    expect(stacked.sweepPeriodMs).toBe(60000 / maxRpm);
+  });
+
   it('zero boons: the 3-arg default is byte-identical to the 2-arg call (regression identity)', () => {
     expect(effectiveStats(TB, zeroUpgrades(), [])).toEqual(effectiveStats(TB, zeroUpgrades()));
     expect(effectiveStats(TB, zeroUpgrades(), NO_BOONS)).toEqual(effectiveStats(TB, zeroUpgrades()));
@@ -185,7 +260,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
   const stats = effectiveStats(TB, zeroUpgrades());
 
   it('slotFill fills the EMPTY extra slot with a fresh full pool at current stats', () => {
-    const loadout = loadoutFor('torpedoBoat', stats);
+    const loadout = loadoutFor('battleship', stats); // [gun, cannon, starShells, empty] — no torpedo fitted
     expect(loadout[SLOT_EXTRA].equipmentId).toBeNull();
     applySlotEffect(loadout, FILL_BOON.effects[0], stats);
     expect(loadout[SLOT_EXTRA].equipmentId).toBe('torpedo');
@@ -193,7 +268,7 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
   });
 
   it('slotFill against an OCCUPIED extra slot is a silent no-op — existing state untouched', () => {
-    const loadout = loadoutFor('torpedoBoat', stats);
+    const loadout = loadoutFor('battleship', stats); // no torpedo fitted: the first fill lands
     applySlotEffect(loadout, FILL_BOON.effects[0], stats);
     const occupied = loadout[SLOT_EXTRA];
     occupied.state!.n = 1;
@@ -222,6 +297,31 @@ describe('slot effects — home 2 (applySlotEffect over the one LoadoutSlot[])',
     const before = loadout.map((s) => ({ equipmentId: s.equipmentId, state: s.state ? { ...s.state } : null }));
     expect(() => applySlotEffect(loadout, REPLACE_BOON.effects[0], stats)).not.toThrow();
     expect(loadout.map((s) => ({ equipmentId: s.equipmentId, state: s.state ? { ...s.state } : null }))).toEqual(before);
+  });
+
+  it('slotReplace with `from === to` is a DEGENERATE no-op — never a free instant reload', () => {
+    const loadout = loadoutFor('torpedoBoat', stats); // [gun, torpedo, speedBoost, empty]
+    loadout[1].state!.n = 0;
+    loadout[1].state!.reloadMsLeft = 900; // mid-reload, empty tubes
+    const stateRef = loadout[1].state;
+    applySlotEffect(loadout, { kind: 'slotReplace', from: 'torpedo', to: 'torpedo' }, stats);
+    expect(loadout[1].equipmentId).toBe('torpedo');
+    expect(loadout[1].state).toBe(stateRef); // same object — no refit
+    expect(loadout[1].state).toEqual({ n: 0, reloadMsLeft: 900 }); // NOT a fresh full pool
+  });
+
+  it('slotFill of equipment ALREADY fitted in another slot is a no-op (id-addressing stays unambiguous)', () => {
+    const loadout = loadoutFor('torpedoBoat', stats); // torpedo already in slot 1
+    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'torpedo' }, stats);
+    expect(loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'speedBoost', null]);
+    expect(loadout[SLOT_EXTRA].state).toBeNull();
+    // Same for the gun (slot 0) and the hull's special.
+    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'gun' }, stats);
+    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'speedBoost' }, stats);
+    expect(loadout[SLOT_EXTRA].equipmentId).toBeNull();
+    // An UNfitted id still fills normally (the guard is duplicate-only).
+    applySlotEffect(loadout, { kind: 'slotFill', equipmentId: 'mine' }, stats);
+    expect(loadout[SLOT_EXTRA].equipmentId).toBe('mine');
   });
 
   it('stat and behavior effects are structural no-ops in the slot home', () => {

@@ -96,6 +96,30 @@ describe('hookKinematics — the per-tick fold', () => {
     expect(hookKinematics(BASE_KIN, [b('doubleSpeed')], HOOK_REGISTRY)).toBe(BASE_KIN);
   });
 
+  it('an Object.prototype key is NOT a hook: `constructor` folds to the input reference', () => {
+    // Without the own-property gate `registry['constructor']` answers
+    // Object.prototype.constructor (a function, not undefined) — the fold must
+    // reject it structurally, not by accident of the kind check.
+    for (const key of ['constructor', 'toString', 'hasOwnProperty', 'valueOf']) {
+      expect(hookKinematics(BASE_KIN, [b(key)], TEST_REGISTRY)).toBe(BASE_KIN);
+      expect(hookKinematics(BASE_KIN, [b(key)], HOOK_REGISTRY)).toBe(BASE_KIN);
+    }
+    // Mixed mid-fold: the prototype key drops, the real hook still applies.
+    expect(hookKinematics(BASE_KIN, [b('constructor'), b('plusSpeed', { bonus: 3 })], TEST_REGISTRY).maxSpeed).toBe(
+      BASE_KIN.maxSpeed + 3,
+    );
+  });
+
+  it('resolves OWN properties only: an INHERITED kinematics hook never executes', () => {
+    // The general rule the `constructor` case is one instance of: a registry
+    // lookup must not walk the prototype chain. An inherited row has the right
+    // `kind`, so only the own-property gate rejects it.
+    const inherited: HookRegistry = Object.create({
+      ghostHook: { kind: 'kinematics', apply: (kin: ShipConfig) => ({ ...kin, maxSpeed: kin.maxSpeed * 99 }) },
+    }) as HookRegistry;
+    expect(hookKinematics(BASE_KIN, [b('ghostHook')], inherited)).toBe(BASE_KIN);
+  });
+
   it('a hook that is inactive for its params keeps the reference through the fold', () => {
     expect(hookKinematics(BASE_KIN, [b('inactive', { on: 0 })], TEST_REGISTRY)).toBe(BASE_KIN);
   });

@@ -8,6 +8,11 @@
  *  else, the upg/boostUntil precedent). Always [] until Story 2.7's spend
  *  flow grants any (BOON_CATALOG ships empty); new shared sim/boons.ts +
  *  sim/hooks.ts (the wire field's client-side consumers).
+ *  CONVENTION (from 13 onward): BOON_CATALOG and HOOK_REGISTRY content IS wire
+ *  contract — adding, removing, or changing ANY entry in either REQUIRES a
+ *  PROTOCOL_VERSION bump. Both sides resolve boon ids/hook ids fail-closed
+ *  (unknown = silently dropped), so a stale client would silently ignore a
+ *  boon or hook the server is simulating; this join gate is the only guard.
  *  12: the new input scheme (Story 2.1) — the interregnum REPAIR/heal spend is
  *  deleted end-to-end (Eric ruling 2026-07-24 "1-4 cards, no repair"):
  *  HEAL_CHOICE and the self-private 'heal' GameEvent leave the wire contract
