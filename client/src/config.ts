@@ -485,7 +485,12 @@ export const CLIENT_CONFIG = {
      *  telegraph); the HP rail adds `railWidth` on its right edge, so the whole
      *  stack is `width + railWidth` wide. */
     width: 296,
-    height: 246,
+    /** Body height (px). It must CONTAIN every mark the cluster paints — the
+     *  lowest of which is the ASTERN caption's line box under the ladder
+     *  (hud.ts CLUSTER_CONTENT_BOTTOM, pinned by hud.test.ts): the declared box
+     *  is what the layout tests measure, so an under-measured height would let
+     *  the caption hang outside a "no-overlap" proof. */
+    height: 254,
     /** Header band height (px) — the `HULL n/n` line above the body. */
     headerH: 24,
     /** Gap (px) from the viewport's right / bottom edges. */
@@ -521,6 +526,10 @@ export const CLIENT_CONFIG = {
     rudderTrack: 110,
     rudderTickW: 2,
     rudderTickH: 8,
+    /** Halo bleed (px) around the tick on every side. The tick CENTER is clamped
+     *  by half the tick plus this, so the glow never overhangs the track ends at
+     *  full deflection (hud.ts rudderTickCenter). */
+    rudderTickHaloPx: 1,
     /** Telegraph ordered-order marker: the HOLLOW phosphor rung outline (px) —
      *  the SHAPE channel against the solid amber actual-speed needle. */
     orderedW: 26,

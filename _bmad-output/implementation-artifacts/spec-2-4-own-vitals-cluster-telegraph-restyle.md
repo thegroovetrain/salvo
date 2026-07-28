@@ -2,10 +2,10 @@
 title: 'Story 2.4: Own-Vitals Cluster & Telegraph Restyle'
 type: 'feature'
 created: '2026-07-27'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'cf2730e'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context-amendments.md'
@@ -92,7 +92,7 @@ warnings: [oversized]
 - [x] `client/src/main.ts` -- time param + counter wiring -- pulse clock, fade signals
 - [x] `client/src/render/zone.ts` -- consume promoted ceiling -- one 1.1 Hz truth
 - [x] Tests: hud (bands/pulse/glyphs/layout), motion (rail gate), tokens (new group), I/O matrix edge cases -- pure-logic pattern
-- [ ] Bookkeeping files -- per-PR protocol
+- [x] Bookkeeping files -- per-PR protocol
 - [x] `npm run check` -- full gate green
 
 **Acceptance Criteria:**
@@ -106,6 +106,19 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-07-28 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 2, medium 1, low 8)
+- defer: 0
+- reject: 2: (high 0, medium 0, low 2)
+- addressed_findings:
+  - `[high]` `[patch]` Pulse phase discontinuity (both hunters, CONFIRMED): alpha = sin(t·hz(frac)·2π) with frac-dependent hz meant every hp change jumped the phase by t·Δhz·2π — under storm drain past ~3 min of room uptime the rail re-rolled its alpha ~randomly at 20 Hz, a strobe in the exact low-hull alarm scenario the 1.1 Hz cap guards. Fixed: `advancePulsePhase` integrates phase (dt clamped, wrapped, held at 0 above the band so the pulse fades in from the steady base); regression test simulates a 10-minute-old match draining under storm dot and bounds per-frame |Δalpha| to the cap — fails under the old formula.
+  - `[high]` `[patch]` Spectate/dead WASD burned the helm-glyph coach marks (both hunters AND Codex's sole finding): records ran unconditionally while spectate pan and dead-awaiting-respawn presses stepped the telegraph — three camera pans permanently retired the marks. Fixed: one shared `conningLive`/`helmInputCounts` predicate (own ship present + alive + not spectating) now gates BOTH the telegraph bell and the fade counters.
+  - `[medium]` `[patch]` `HULL 0/100` on a live sliver hull: `Math.round` displayed 0 for fractional storm-dot hp (0.4) and 50 beside an amber rail (49.6). Fixed: floor + clamp-to-1 while hp > 0.
+  - `[low]` `[patch]` ×8: band/pulse redraw signature now includes band color + pulse gate (no pulsing-phosphor window at 0.5/0.25); rudder re-latch after overlay close counts as an activation (`!keys.has` alone); multi-tab persistence merges per-pair max on write (no regression of another tab's progress); a pair fading while instruments were hidden seeds as already-faded (no replay at respawn); rudder tick + halo clamped inside the 110px track; vitals height 246→254 so the layout box truly contains the ASTERN caption (all four ratified layout pins re-verified); arrow keys no longer count toward the fade (labeled W/S/A/D only — tone and steering unchanged); stale `updateHpRail` doc comment corrected.
+  - Rejected (noise): `vitalsLayout` computed 3× per frame (pre-existing pattern, trivial churn); hardcoded HULL header x-offset (safe for all current digit widths).
+
 ## Design Notes
 
 - All contested design points were ruled by Eric this run (amendments 24–27); the anatomy source is the Eric-confirmed v2 composite (`_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/mockups/hud-composite-2.html:343-431,805-838`). Its `[ASSUMPTION]` tags are stale — DESIGN.md:231/EXPERIENCE.md:165 record the confirmation. Its white readouts and grey labels are superseded by amendments 24–25; its 3px rail by 27.
@@ -114,6 +127,20 @@ warnings: [oversized]
 - The HP rail is the first vertical rail; Story 2.6's XP rail inherits the idiom (track alpha, glow, bottom-up fill) at 3px — leave a config comment saying so.
 - "Successful input" defined: W/S = a `Telegraph.step()` that changed the detent (the existing changed-boolean); A/D = a rudder keydown activation that reached the sim (suppressed input never counts). Count per activation, not per held-frame.
 - DESIGN.md:233's "AHEAD/ASTERN captions mono 9px" is superseded by amendment 15's lift (9→14). DESIGN.md/EXPERIENCE.md remain unedited per standing rule; typography doc-sync stays in the existing ledger entry.
+
+## Auto Run Result
+
+**Status:** done — implemented, Eric-ruled pre-implementation (amendments 24–27 via AskUserQuestion), adversarially reviewed (2 Fable hunters + Codex cross-model), 11 patches applied, gate green.
+
+**Summary:** The own-vitals cluster is restyled in place to the ratified Afterimage register per the Eric-confirmed v2 composite. The horizontal HP bar (and its panel fill) is replaced by a vertical ~6px HP rail on the cluster body's right edge — dim phosphor track, bottom-up fill, threshold bands phosphor ≥50% / amber <50% / damageMarker <25%, `HULL n/n` header (floor, never 0 while alive), and an opacity-breathing pulse below 50% whose rate ramps 0.5→1.1 Hz (integrated phase — cap provably holds under continuous damage) and whose amplitude is motion-gated (off = steady base, information intact). HDG/KTS render 22px tabular phosphor in suffix form with dim-phosphor (~0.7) labels — no grey text anywhere in the cluster. Rudder: 110px hairline track, center detent, clamped amber tick. Telegraph: ordered marker is now a hollow phosphor rung outline vs the solid amber needle (shape-coded, never color alone). W/S and A/D key chips (drawer extracted to shared `render/keyChip.ts`, one family with the hotbar — pixel-identical there) sit at the gauge extremes and fade permanently after 3 successful LIVE-helm inputs per pair (labeled keys only, spectate/dead/arrow presses never count), persisted in a standalone `hullcracker.*` key that RESET SETTINGS leaves alone, with per-pair-max merge across tabs. The 1.1 Hz photosensitivity ceiling was promoted to one shared config token consumed by both the rail pulse and the storm vignette. Client-only; no wire change, PV unchanged, no version bump. Tests 1688 → 1754 (client 768 → 834).
+
+**Files changed:** client — NEW render/keyChip.ts (shared key-chip drawer), render/helmGlyphs.ts (fade counters, sanitizer, merge-on-write persistence, live-helm predicate); config.ts (vitals group, shared pulseCapHz), render/hud.ts (cluster restyle + pure fns hullPulseHz/advancePulsePhase/hullFillAlpha/hullHeaderValue/railSig/rudderTickCenter, re-banded hpColor, rebuilt vitalsLayout, time-parameterized update), render/hotbar.ts (consumes shared drawer), render/zone.ts (shared ceiling), input/keyboard.ts (onRudder activation hook, labeled-key flag on onDetent), main.ts (conningLive gate, now-threading, counter wiring); tests — hud/motion/tokens suites extended (+66 net). Bookkeeping — sprint-status 2-4 done, gds-workflow-status advanced, amendments 24–27 recorded durably pre-implementation.
+
+**Review breakdown:** 11 patches (2 high — pulse-phase strobe under sustained damage, spectate/dead input burning the glyph coach marks; 1 medium — `HULL 0/N` on a live sliver hull; 8 low), 0 deferred, 2 rejected, 0 intent gaps, 0 bad-spec loopbacks. Cross-model agreement: the spectate glyph-burn was flagged independently by both Fable hunters AND was Codex's sole finding; the pulse-phase strobe was found independently by both Fable hunters. Every behavioral patch carries a regression test shown to fail without the fix (both high fixes fail-without-fix validated).
+
+**Verification:** `npm run check` run independently by the orchestrator after implementation AND after the patch round — lint 0 errors (2 pre-existing warnings), shared 263 / server 657 / client 834 = 1754 green. Pulse-integrator and live-helm-gate diffs hand-reviewed.
+
+**Residual risks / notes for Eric:** (1) No browser eyeball pass — the restyle is pinned by pure-logic tests only; the cluster (rail width, chip placement, label alphas) deserves your eyes, and W/S chips sit LEFT of the ladder (right side collided with rung labels — implementer judgment within the register). (2) A stray one-line `##### DEPRECATED #####` edit to root DESIGN.md appeared in the worktree from outside this story's work; it was reverted, not shipped — flagging in case you meant it to land somewhere. (3) The telegraph bell now shares the live-helm predicate with the fade counters, so it no longer rings on the brief pre-first-frame gap — deliberate unification, veto if you want the old edge back. (4) Arrow-key helm input steers but never fades the chips (they teach the labeled keys) — veto invited if you'd rather any successful steer count.
 
 ## Verification
 

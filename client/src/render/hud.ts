@@ -27,7 +27,7 @@ import { boostedKinematics, wrapPositive } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionAllowed, motionScaled, settings } from '../settings/store.js';
 import { KEY_CHIP_SIZE, KEY_CHIP_STYLE, drawKeyChipBox } from './keyChip.js';
-import { glyphFadeAlpha, helmGlyphs, type HelmPair } from './helmGlyphs.js';
+import { glyphFadeAlpha, helmGlyphs, type HelmGlyphStore, type HelmPair } from './helmGlyphs.js';
 
 /** Kinematics subset the speed ladder needs (ahead/astern denominators). */
 interface LadderKin {
@@ -110,6 +110,30 @@ export function rungY(index: number): number {
 }
 
 /**
+ * Pure: the x CENTER of the rudder position tick for a rudder axis in [-1,1],
+ * clamped so the tick AND its halo stay inside the track. `inset` is half the
+ * tick width plus the halo bleed: at full deflection the raw center sits exactly
+ * on the track end, which would hang the glow (and half the tick) off it.
+ */
+export function rudderTickCenter(rudder: number, trackX: number, trackW: number, inset: number): number {
+  const r = rudder < -1 ? -1 : rudder > 1 ? 1 : rudder;
+  const raw = trackX + trackW / 2 + (r * trackW) / 2;
+  const lo = trackX + inset;
+  const hi = trackX + trackW - inset;
+  return raw < lo ? lo : raw > hi ? hi : raw;
+}
+
+/** Half the rudder tick's painted footprint (core + halo) — the clamp inset. */
+const RUD_TICK_INSET = V.rudderTickW / 2 + V.rudderTickHaloPx;
+
+/** The lowest root-local y the cluster PAINTS: the ASTERN caption's line box
+ *  under the ladder (its center + ~half a line at CAP_STYLE's size). `V.height`
+ *  must contain this — the declared box is what the layout tests measure, so an
+ *  under-measured height would prove a no-overlap property about a false edge.
+ *  Pinned by hud.test.ts. */
+export const CLUSTER_CONTENT_BOTTOM = LADDER_BOTTOM + CAP_GAP + 8 + CAP_STYLE.fontSize * 0.62;
+
+/**
  * Pure: the ship's ACTUAL speed mapped onto the telegraph's [-1,1] axis for the
  * needle — ahead scales on maxSpeed, astern on reverseSpeed. The gap between
  * this needle and the ordered rung is the ship converging on the ordered speed
@@ -155,9 +179,20 @@ export function pointsLine(n: number): string {
   return n <= 0 ? '' : `PTS ×${n} — TAB`;
 }
 
-/** Pure: the HP header's value text — `72/100`, with `HULL` as its own caption. */
+/**
+ * Pure: the HP header's value text — `72/100`, with `HULL` as its own caption.
+ *
+ * The displayed hp is FLOORED, then floored again at 1 while any hull remains:
+ *   • floor, not round, so the number never disagrees with the rail's band —
+ *     49.6 hp reads `49` beside an amber rail rather than a phosphor-looking
+ *     `50` (the band uses the exact fraction);
+ *   • but a LIVE hull never reads `0`: storm damage leaves fractions (0.4 hp is
+ *     still afloat), and `HULL 0/100` on a ship that is still fighting is a lie.
+ *     Only a genuinely sunk hull (hp ≤ 0) reads zero.
+ */
 export function hullHeaderValue(hp: number, maxHp: number): string {
-  return `${Math.max(0, Math.round(hp))}/${Math.round(maxHp)}`;
+  const shown = hp <= 0 ? 0 : Math.max(1, Math.floor(hp));
+  return `${shown}/${Math.round(maxHp)}`;
 }
 
 /**
@@ -194,6 +229,24 @@ export function hpColor(frac: number): number {
   return C.damageMarker;
 }
 
+/** Pure: does the rail BREATHE at this fraction? (The pulse gate is the exact
+ *  fraction — the same test hullFillAlpha applies.) */
+export function railPulsing(frac: number): boolean {
+  return frac < V.amberBelow;
+}
+
+/**
+ * Pure: the rail geometry's redraw signature. The fraction is quantized (0.001
+ * of the bar — finer than a pixel at this height), but the BAND and the PULSE
+ * GATE are carried exactly: quantizing alone would let 0.4996 share a signature
+ * with 0.5 and keep drawing a phosphor rail while the (exact-fraction) pulse
+ * gate had already started breathing it — a pulsing "healthy" rail. Any color or
+ * gate transition forces the redraw.
+ */
+export function railSig(frac: number): string {
+  return `${frac.toFixed(3)}|${hpColor(frac)}|${railPulsing(frac) ? 1 : 0}`;
+}
+
 /**
  * Pure: the HP rail's breathing RATE (Hz) at a remaining fraction — a linear
  * ramp from `pulseMinHz` (0.5) at 50% hull to the shared photosensitivity
@@ -210,19 +263,47 @@ export function hullPulseHz(frac: number): number {
   return V.pulseMinHz + t * (CLIENT_CONFIG.settings.pulseCapHz - V.pulseMinHz);
 }
 
+/** Largest frame gap (s) the pulse integrator will advance across. A backgrounded
+ *  tab or a hitching frame must not jump the phase by a wild amount. */
+const MAX_PULSE_DT = 0.5;
+
 /**
- * Pure: the HP rail fill's alpha this frame — the opacity-breathing pulse, in
- * the storm vignette's exact shape (zone.ts vignetteAlpha).
+ * Pure: advance the breathing pulse's PHASE (radians) by one frame.
+ *
+ * The phase is INTEGRATED, never computed from absolute time. `sin(t · hz)` looks
+ * equivalent only while `hz` is constant: the moment the rate changes (and it
+ * changes every time the hull does — storm damage ticks the fraction 20×/s), the
+ * phase of an absolute-time formula jumps by `t · Δhz · 2π`, which at a few
+ * minutes of match time is effectively a random re-roll every tick. That is a
+ * strobe — in exactly the burning-in-the-storm case the 1.1 Hz ceiling exists to
+ * prevent. Integrating keeps the wave continuous through any rate change, so the
+ * cap on the RATE is also a cap on how fast the alpha can move.
+ *
+ * `dt` is clamped to [0, MAX_PULSE_DT]; the phase is wrapped to keep float
+ * precision from degrading over a long match. Above the band the phase HOLDS AT
+ * ZERO (the rail is flat there anyway), so the first breath after a hull drops
+ * through 50% starts from sin(0) = the base alpha — the pulse fades in from the
+ * steady rail instead of snapping to wherever a free-running phase had drifted.
+ */
+export function advancePulsePhase(phase: number, frac: number, dt: number): number {
+  if (!railPulsing(frac)) return 0;
+  const step = Math.min(MAX_PULSE_DT, Math.max(0, dt));
+  return (phase + hullPulseHz(frac) * step * Math.PI * 2) % (Math.PI * 2);
+}
+
+/**
+ * Pure: the HP rail fill's alpha at a given pulse PHASE — the opacity-breathing
+ * pulse, in the storm vignette's exact shape (zone.ts vignetteAlpha).
  *
  * MOTION-GATED: `amp` is the motion-scaled amplitude — halved at `reduced`, zero
  * at `off`, where the rail holds its steady BASE alpha. The base is
  * INFORMATION: the fill, its color band, and its height are fully present at
  * every motion level; only the breathing is motion. At or above 50% hull there
- * is no pulse at all.
+ * is no pulse at all (the gate is the exact fraction, not the phase).
  */
-export function hullFillAlpha(frac: number, tSec: number, amp: number = V.pulseAmp): number {
+export function hullFillAlpha(frac: number, phase: number, amp: number = V.pulseAmp): number {
   if (frac >= V.amberBelow) return V.railFillAlpha;
-  return V.railFillAlpha + amp * Math.sin(tSec * hullPulseHz(frac) * Math.PI * 2);
+  return V.railFillAlpha + amp * Math.sin(phase);
 }
 
 /**
@@ -337,8 +418,21 @@ export class Hud {
    *  reload must show the chips gone, not replay the fade (glyphFadeAlpha). */
   private readonly fadeStart: Record<HelmPair, number | null> = { ws: null, ad: null };
   private readonly wasFaded: Record<HelmPair, boolean>;
+  /** Are the live-ship instruments currently shown? A hidden→visible edge
+   *  re-snapshots the fade state (see seedFadedWhileHidden). */
+  private instrumentsShown = false;
+  /** INTEGRATED pulse phase (radians) + the clock it was last advanced at. The
+   *  phase is accumulated per frame rather than derived from absolute time, so a
+   *  changing hull fraction can never jump it (see advancePulsePhase). */
+  private pulsePhase = 0;
+  private lastPulseSec: number | null = null;
 
-  constructor(private readonly hudLayer: Container) {
+  constructor(
+    private readonly hudLayer: Container,
+    /** The helm-glyph fade progress this HUD reads. Defaults to THE process-wide
+     *  store; injectable so tests can drive a fade without touching it. */
+    private readonly glyphs: HelmGlyphStore = helmGlyphs,
+  ) {
     hudLayer.addChild(this.root);
     this.root.addChild(this.railTrack, this.railFill, this.gauges);
     this.hullValue = this.buildHeader();
@@ -348,7 +442,7 @@ export class Hud {
     this.rungLabels = this.buildLadderLabels();
     this.helmPairs = { ws: new Container(), ad: new Container() };
     this.buildHelmChips();
-    this.wasFaded = { ws: helmGlyphs.faded('ws'), ad: helmGlyphs.faded('ad') };
+    this.wasFaded = { ws: this.glyphs.faded('ws'), ad: this.glyphs.faded('ad') };
     this.overlay = new Text({ text: '', style: OVERLAY_STYLE });
     this.overlay.anchor.set(0.5);
     this.overlay.visible = false;
@@ -468,10 +562,27 @@ export class Hud {
   }
 
   /** Hide/show the live-ship instrument cluster (hidden while spectating). The
-   *  HP rail rides inside the cluster root now, so it dies with the hull too. */
+   *  HP rail rides inside the cluster root now, so it dies with the hull too.
+   *  A hidden→visible edge re-snapshots the glyph fade: the animation only ever
+   *  plays for a pair that crossed while it was ON SCREEN. */
   private setInstrumentsVisible(visible: boolean): void {
+    if (visible && !this.instrumentsShown) this.seedFadedWhileHidden();
+    this.instrumentsShown = visible;
     this.root.visible = visible;
     if (!visible) this.ptsLabel.visible = false; // spectate: no prompt (update() re-shows it when alive)
+  }
+
+  /**
+   * Adopt the store's CURRENT fade state without animating — the same snapshot
+   * the constructor takes, re-taken whenever the instruments come back. A pair
+   * whose 3rd input landed just before death (or while spectating) has already
+   * faded as far as the player is concerned; replaying the fade-out on the next
+   * live frame would be a ghost of a chip they already retired.
+   */
+  private seedFadedWhileHidden(): void {
+    for (const pair of ['ws', 'ad'] as const) {
+      if (this.glyphs.faded(pair)) this.wasFaded[pair] = true; // fadeStart stays null → instantly gone
+    }
   }
 
   /** Amber "PTS ×N — TAB" prompt, above the bottom-right vitals cluster (hidden at 0). */
@@ -533,16 +644,17 @@ export class Hud {
   }
 
   /** 110px hairline track, a center detent mark, and the AMBER position tick
-   *  (the old green tick is retired — amber is the "actual" channel). */
+   *  (the old green tick is retired — amber is the "actual" channel). The tick's
+   *  center is clamped so its halo never overhangs the track at full deflection. */
   private drawRudder(rudder: number): void {
     const g = this.gauges;
-    const half = V.rudderTrack / 2;
-    const mid = RUD_X + half;
+    const halo = V.rudderTickHaloPx;
+    const mid = RUD_X + V.rudderTrack / 2;
     g.moveTo(RUD_X, RUD_Y).lineTo(RUD_X + V.rudderTrack, RUD_Y).stroke({ width: 1, color: DIM, alpha: 0.5 });
     g.moveTo(mid, RUD_Y - 3).lineTo(mid, RUD_Y + 3).stroke({ width: 1, color: C.silver, alpha: 0.5 });
-    const x = mid + rudder * half - V.rudderTickW / 2;
+    const x = rudderTickCenter(rudder, RUD_X, V.rudderTrack, RUD_TICK_INSET) - V.rudderTickW / 2;
     g.rect(x, RUD_Y - V.rudderTickH / 2, V.rudderTickW, V.rudderTickH).fill({ color: AMBER, alpha: 1 });
-    g.rect(x - 1, RUD_Y - V.rudderTickH / 2 - 1, V.rudderTickW + 2, V.rudderTickH + 2)
+    g.rect(x - halo, RUD_Y - V.rudderTickH / 2 - halo, V.rudderTickW + halo * 2, V.rudderTickH + halo * 2)
       .fill({ color: AMBER, alpha: 0.25 });
   }
 
@@ -569,20 +681,29 @@ export class Hud {
 
   /**
    * The vertical HP rail on the body's right edge: a dim phosphor track with a
-   * bottom-up fill = hp/maxHp in the threshold color. Geometry redraws only when
-   * the fraction/color changes; the breathing pulse is a per-frame ALPHA on the
-   * fill Graphics (motion-gated — the base alpha is information and holds at
-   * `off`).
+   * bottom-up fill = hp/maxHp in the threshold color. Geometry redraws whenever
+   * the rail SIGNATURE changes — the fraction at 0.001 granularity plus the band
+   * and the pulse gate (railSig). That guard is NOT "only on a color change":
+   * under continuous damage (a storm dot drains ~0.002 of the bar per tick) the
+   * fraction moves every tick and the rail redraws every tick; the signature's
+   * job is to skip the redraw while the hull is STEADY and, crucially, to never
+   * skip one across a band/gate transition. The breathing pulse is a per-frame
+   * ALPHA on the fill Graphics
+   * (motion-gated — the base alpha is information and holds at `off`), driven by
+   * an integrated phase so a changing hull fraction never jumps the wave.
    */
   private updateHpRail(status: OwnStatus, nowSec: number): void {
     const maxHp = status.stats.maxHp;
     const frac = maxHp > 0 ? Math.max(0, Math.min(1, status.hp / maxHp)) : 0;
-    const sig = frac.toFixed(3);
+    const sig = railSig(frac);
     if (sig !== this.lastRailSig) {
       this.lastRailSig = sig;
       this.drawRail(frac);
     }
-    this.railFill.alpha = hullFillAlpha(frac, nowSec, motionScaled(V.pulseAmp, settings.current.motion));
+    const dt = this.lastPulseSec === null ? 0 : nowSec - this.lastPulseSec;
+    this.lastPulseSec = nowSec;
+    this.pulsePhase = advancePulsePhase(this.pulsePhase, frac, dt);
+    this.railFill.alpha = hullFillAlpha(frac, this.pulsePhase, motionScaled(V.pulseAmp, settings.current.motion));
     const hull = hullHeaderValue(status.hp, maxHp);
     if (hull !== this.lastHull) {
       this.hullValue.text = hull;
@@ -611,12 +732,14 @@ export class Hud {
   /**
    * Helm key glyphs: each pair holds full alpha until its 3rd successful input,
    * then fades out ONCE and stays gone (the counts persist). The fade itself is
-   * motion — at `off` the chips simply vanish rather than animating.
+   * motion — at `off` the chips simply vanish rather than animating. Only a pair
+   * that crosses while the instruments are ON SCREEN animates (a crossing during
+   * a hidden stretch was already seeded as faded — seedFadedWhileHidden).
    */
   private updateHelmGlyphs(nowSec: number): void {
     const animate = motionAllowed(settings.current.motion);
     for (const pair of ['ws', 'ad'] as const) {
-      const faded = helmGlyphs.faded(pair);
+      const faded = this.glyphs.faded(pair);
       if (faded && !this.wasFaded[pair]) {
         this.wasFaded[pair] = true;
         this.fadeStart[pair] = nowSec;
@@ -626,6 +749,16 @@ export class Hud {
       group.alpha = alpha;
       group.visible = alpha > 0;
     }
+  }
+
+  /** Render-state seams (tests/debug): the rail fill's live breathing alpha and
+   *  a helm pair's current chip alpha, without reaching into the display list. */
+  get railFillAlpha(): number {
+    return this.railFill.alpha;
+  }
+
+  chipAlpha(pair: HelmPair): number {
+    return this.helmPairs[pair].alpha;
   }
 
   private updateReadouts(ship: ShipState): void {

@@ -64,10 +64,12 @@ describe('storm vignette — the PULSE is motion, the hazard is information', ()
 describe('HP rail pulse — the BREATHING is motion, the hull reading is information', () => {
   const V = CLIENT_CONFIG.vitals;
   const CRITICAL = 0.2; // 20% hull — well inside the pulsing band
-  const PEAK_T = 0.25 / hullPulseHz(CRITICAL); // a quarter period at this rate
+  const PEAK = Math.PI / 2; // the phase where the breath is at its crest
 
   it('off holds a steady non-zero base alpha instead of pulsing', () => {
-    const samples = [0, 0.25, 0.5, 0.75].map((t) => hullFillAlpha(CRITICAL, t, motionScaled(V.pulseAmp, 'off')));
+    const samples = [0, PEAK, Math.PI, 3 * PEAK].map((p) =>
+      hullFillAlpha(CRITICAL, p, motionScaled(V.pulseAmp, 'off')),
+    );
     expect(new Set(samples).size).toBe(1);
     expect(samples[0]).toBe(V.railFillAlpha);
     expect(samples[0]).toBeGreaterThan(0); // the hull reading never disappears
@@ -75,15 +77,15 @@ describe('HP rail pulse — the BREATHING is motion, the hull reading is informa
 
   it('reduced halves the swing around the same base', () => {
     const base = hullFillAlpha(CRITICAL, 0, motionScaled(V.pulseAmp, 'off'));
-    const full = hullFillAlpha(CRITICAL, PEAK_T, motionScaled(V.pulseAmp, 'full')) - base;
-    const half = hullFillAlpha(CRITICAL, PEAK_T, motionScaled(V.pulseAmp, 'reduced')) - base;
+    const full = hullFillAlpha(CRITICAL, PEAK, motionScaled(V.pulseAmp, 'full')) - base;
+    const half = hullFillAlpha(CRITICAL, PEAK, motionScaled(V.pulseAmp, 'reduced')) - base;
     expect(full).toBeGreaterThan(0);
     expect(half).toBeCloseTo(full / 2, 6);
   });
 
   it('does not pulse at all above the 50% band, at any motion level', () => {
     for (const level of ['full', 'reduced', 'off'] as const) {
-      const samples = [0, 0.3, 0.6].map((t) => hullFillAlpha(0.8, t, motionScaled(V.pulseAmp, level)));
+      const samples = [0, PEAK, Math.PI].map((p) => hullFillAlpha(0.8, p, motionScaled(V.pulseAmp, level)));
       expect(new Set(samples).size, level).toBe(1);
     }
   });

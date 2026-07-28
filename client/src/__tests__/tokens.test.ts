@@ -297,8 +297,11 @@ describe('(c) identity pins — the full ratified table, values and counts', () 
     expect(V.pulseFloorFrac).toBe(0.1);
     expect(V.pulseAmp).toBeGreaterThan(0);
     expect(V.pulseAmp).toBeLessThan(V.railFillAlpha); // the fill never breathes to nothing
-    // Rudder: the 110px track (mock verbatim) + its amber position tick.
+    // Rudder: the 110px track (mock verbatim) + its amber position tick, whose
+    // halo bleed is a token too (it is what the tick's clamp insets by).
     expect(V.rudderTrack).toBe(110);
+    expect(V.rudderTickHaloPx).toBeGreaterThan(0);
+    expect(V.rudderTickW / 2 + V.rudderTickHaloPx).toBeLessThan(V.rudderTrack / 2);
     // Helm glyphs: three successful inputs per pair, under a standalone key.
     expect(V.glyphFadeCount).toBe(3);
     expect(V.glyphKey).toBe('hullcracker.helm');

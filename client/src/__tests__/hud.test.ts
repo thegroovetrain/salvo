@@ -9,6 +9,9 @@ import {
   hullPulseHz,
   hullFillAlpha,
   hullHeaderValue,
+  advancePulsePhase,
+  railSig,
+  rudderTickCenter,
   vitalsLayout,
   reloadFraction,
   detentIndexOf,
@@ -16,6 +19,7 @@ import {
   rungY,
   speedLadderFraction,
   pointsLine,
+  CLUSTER_CONTENT_BOTTOM,
   DETENT_LABELS,
 } from '../render/hud.js';
 import {
@@ -23,8 +27,12 @@ import {
   HelmGlyphStore,
   countHelmInput,
   glyphFadeAlpha,
+  helmInputCounts,
+  type HelmPair,
   loadHelmProgress,
+  mergeHelmProgress,
   pairFaded,
+  recordHelmInput,
   sanitizeHelmProgress,
   saveHelmProgress,
   zeroHelmProgress,
@@ -74,6 +82,25 @@ describe('hullHeaderValue — the `HULL n/n` header', () => {
     expect(hullHeaderValue(0, 100)).toBe('0/100');
     expect(hullHeaderValue(-5, 100)).toBe('0/100'); // an overkill hit never reads negative
   });
+
+  it('FLOORS rather than rounds, so the number agrees with the rail band', () => {
+    // 49.6 hp is an AMBER rail (the band uses the exact fraction) — rounding it
+    // to "50" would put a healthy-looking number beside a wounded rail.
+    expect(hullHeaderValue(49.6, 100)).toBe('49/100');
+    expect(hullHeaderValue(50, 100)).toBe('50/100'); // exactly half still reads 50 (phosphor)
+    expect(hullHeaderValue(24.9, 100)).toBe('24/100');
+  });
+
+  it('never reads 0 on a LIVE hull (storm damage leaves fractions)', () => {
+    // A storm dot can leave 0.4 hp — still afloat, still fighting. `HULL 0/100`
+    // on a ship that has not sunk is a lie the header must never tell.
+    expect(hullHeaderValue(0.4, 100)).toBe('1/100');
+    expect(hullHeaderValue(0.001, 100)).toBe('1/100');
+    expect(hullHeaderValue(1, 100)).toBe('1/100');
+    // ...and only a genuinely sunk hull reads zero.
+    expect(hullHeaderValue(0, 100)).toBe('0/100');
+    expect(hullHeaderValue(-0.2, 100)).toBe('0/100');
+  });
 });
 
 describe('hullPulseHz — the accelerating, hard-capped rail pulse', () => {
@@ -108,18 +135,19 @@ describe('hullPulseHz — the accelerating, hard-capped rail pulse', () => {
 
 describe('hullFillAlpha — opacity breathing, only below 50%', () => {
   const AMP = V.pulseAmp;
+  const PEAK = Math.PI / 2; // crest of the breath
+  const TROUGH = (3 * Math.PI) / 2;
 
   it('holds the steady base alpha at/above 50% hull (healthy never breathes)', () => {
-    const samples = [0, 0.25, 0.5, 0.9].map((t) => hullFillAlpha(0.8, t));
+    const samples = [0, PEAK, Math.PI, TROUGH].map((p) => hullFillAlpha(0.8, p));
     expect(new Set(samples).size).toBe(1);
     expect(samples[0]).toBe(V.railFillAlpha);
-    expect(hullFillAlpha(0.5, 0.25 / V.pulseMinHz)).toBe(V.railFillAlpha);
+    expect(hullFillAlpha(0.5, PEAK)).toBe(V.railFillAlpha);
   });
 
   it('breathes around the base below 50%, never to nothing', () => {
-    const hz = hullPulseHz(0.2);
-    const peak = hullFillAlpha(0.2, 0.25 / hz);
-    const trough = hullFillAlpha(0.2, 0.75 / hz);
+    const peak = hullFillAlpha(0.2, PEAK);
+    const trough = hullFillAlpha(0.2, TROUGH);
     expect(peak).toBeCloseTo(V.railFillAlpha + AMP, 6);
     expect(trough).toBeCloseTo(V.railFillAlpha - AMP, 6);
     expect(trough).toBeGreaterThan(0.5); // the fill is always clearly there
@@ -127,14 +155,100 @@ describe('hullFillAlpha — opacity breathing, only below 50%', () => {
   });
 
   it('is motion-gated in the vignette shape: off holds the base, reduced halves the swing', () => {
-    const hz = hullPulseHz(0.2);
-    const peakT = 0.25 / hz;
-    const off = [0, 0.3, 0.6, 0.9].map((t) => hullFillAlpha(0.2, t, motionScaled(AMP, 'off')));
+    const off = [0, PEAK, Math.PI, TROUGH].map((p) => hullFillAlpha(0.2, p, motionScaled(AMP, 'off')));
     expect(new Set(off).size).toBe(1);
     expect(off[0]).toBe(V.railFillAlpha); // information intact at motion=off
-    const full = hullFillAlpha(0.2, peakT, motionScaled(AMP, 'full')) - V.railFillAlpha;
-    const half = hullFillAlpha(0.2, peakT, motionScaled(AMP, 'reduced')) - V.railFillAlpha;
+    const full = hullFillAlpha(0.2, PEAK, motionScaled(AMP, 'full')) - V.railFillAlpha;
+    const half = hullFillAlpha(0.2, PEAK, motionScaled(AMP, 'reduced')) - V.railFillAlpha;
     expect(half).toBeCloseTo(full / 2, 9);
+  });
+});
+
+// The phase is INTEGRATED, never derived from absolute time: `sin(t · hz)` only
+// looks right while hz is constant, and hz changes with every point of hull. A
+// ship burning down in the storm at minute ten would re-roll its rail alpha ~20
+// times a second — a strobe, in the exact scenario the 1.1 Hz cap exists for.
+describe('pulse phase integration — the rail can never strobe on a changing hull', () => {
+  it('advances at the fraction`s rate and wraps into [0, 2π)', () => {
+    const hz = hullPulseHz(0.2);
+    expect(advancePulsePhase(0, 0.2, 0.4)).toBeCloseTo(hz * 0.4 * Math.PI * 2, 9);
+    expect(advancePulsePhase(0, 0.2, 0)).toBe(0); // a zero-length frame moves nothing
+    for (let p = 0, i = 0; i < 200; i++) {
+      p = advancePulsePhase(p, 0.05, 0.5);
+      expect(p).toBeGreaterThanOrEqual(0);
+      expect(p).toBeLessThan(Math.PI * 2);
+    }
+  });
+
+  it('holds at zero above the band, so the first breath starts from the steady rail', () => {
+    expect(advancePulsePhase(3, 0.8, 0.05)).toBe(0); // healthy: no wave at all
+    expect(advancePulsePhase(3, V.amberBelow, 0.05)).toBe(0); // exactly 50% is still flat
+    // Entering the band the alpha is continuous: sin(0) leaves the base alpha.
+    const first = advancePulsePhase(0, V.amberBelow - 0.001, 0.05);
+    expect(hullFillAlpha(V.amberBelow - 0.001, 0)).toBe(V.railFillAlpha);
+    expect(first).toBeGreaterThan(0);
+  });
+
+  it('clamps a hitching / backgrounded frame (and a negative clock step)', () => {
+    const capped = advancePulsePhase(0, 0.05, 30); // 30s away from the tab
+    expect(capped).toBe(advancePulsePhase(0, 0.05, 0.5));
+    expect(advancePulsePhase(1, 0.05, -5)).toBe(1); // a clock correction never rewinds the wave
+  });
+
+  it('keeps the per-frame alpha step under the 1.1 Hz ceiling while the hull DRAINS at minute ten', () => {
+    // The storm drains ~0.002 of the bar per 50ms tick; `now` is ~600s in, which
+    // is where an absolute-time phase (t · Δhz · 2π) goes wild.
+    const DT = 0.05;
+    const AMP = V.pulseAmp;
+    // Fastest the breath can move: amp · dθ/dt = amp · capHz · 2π.
+    const MAX_STEP = AMP * CAP_HZ * Math.PI * 2 * DT + 1e-9;
+    let phase = 0;
+    let frac = 0.45;
+    let prev = hullFillAlpha(frac, phase, AMP);
+    for (let i = 0; i < 200 && frac > 0; i++) {
+      frac = Math.max(0, frac - 0.002);
+      phase = advancePulsePhase(phase, frac, DT);
+      const alpha = hullFillAlpha(frac, phase, AMP);
+      expect(Math.abs(alpha - prev), `frame ${i} at frac ${frac.toFixed(3)}`).toBeLessThanOrEqual(MAX_STEP);
+      prev = alpha;
+    }
+  });
+});
+
+describe('railSig — the rail geometry redraw guard', () => {
+  it('forces a redraw across the band/gate transition that the quantized fraction hides', () => {
+    // Both quantize to "0.500", but 0.4996 is amber AND breathing while 0.5 is a
+    // steady phosphor rail: sharing a signature would leave a pulsing green rail.
+    expect((0.5).toFixed(3)).toBe((0.4996).toFixed(3));
+    expect(railSig(0.4996)).not.toBe(railSig(0.5));
+    // The mirror at the critical band.
+    expect((0.25).toFixed(3)).toBe((0.2496).toFixed(3));
+    expect(railSig(0.2496)).not.toBe(railSig(0.25));
+  });
+
+  it('still skips the redraw while the hull is steady', () => {
+    expect(railSig(0.8)).toBe(railSig(0.8));
+    expect(railSig(0.8)).toBe(railSig(0.80004)); // sub-quantum jitter, same band
+  });
+});
+
+describe('rudderTickCenter — the tick + halo stay inside the track', () => {
+  const TRACK_X = 40;
+  const W = V.rudderTrack;
+  const INSET = V.rudderTickW / 2 + V.rudderTickHaloPx;
+
+  it('never lets the painted tick overhang either end at full deflection', () => {
+    for (const rudder of [-1, 1, -2, 2]) {
+      const c = rudderTickCenter(rudder, TRACK_X, W, INSET);
+      expect(c - INSET, `rudder ${rudder}`).toBeGreaterThanOrEqual(TRACK_X);
+      expect(c + INSET, `rudder ${rudder}`).toBeLessThanOrEqual(TRACK_X + W);
+    }
+  });
+
+  it('is the track center amidships and tracks the axis in between', () => {
+    expect(rudderTickCenter(0, TRACK_X, W, INSET)).toBe(TRACK_X + W / 2);
+    expect(rudderTickCenter(0.5, TRACK_X, W, INSET)).toBe(TRACK_X + W / 2 + W / 4);
+    expect(rudderTickCenter(-0.5, TRACK_X, W, INSET)).toBe(TRACK_X + W / 2 - W / 4);
   });
 });
 
@@ -341,6 +455,17 @@ describe('vitalsLayout — the bottom-right own-vitals cluster (Story 2.4 anatom
     expect(L.hp.y + L.hp.h).toBeLessThanOrEqual(Math.floor(768 / 1.25));
   });
 
+  // The declared box is what every no-overlap proof above measures, so it has to
+  // CONTAIN what the cluster paints. The lowest mark is the ASTERN caption's
+  // line box under the ladder — which used to hang ~3px below the declared
+  // bottom edge, making those proofs true about a box the HUD didn't fill.
+  it('declares a body tall enough to contain the ASTERN caption it paints', () => {
+    expect(CLUSTER_CONTENT_BOTTOM).toBeLessThanOrEqual(V.height);
+    const L = vitalsLayout(1366, 768);
+    expect(L.cluster.y + CLUSTER_CONTENT_BOTTOM).toBeLessThanOrEqual(L.cluster.y + L.cluster.h);
+    expect(L.cluster.y + CLUSTER_CONTENT_BOTTOM).toBeLessThanOrEqual(768); // and stays on screen
+  });
+
   it('keeps every cluster mono size above the 9px post-scale floor at the 90% tier', () => {
     // Smallest mono in the cluster is the micro caption register (14px after
     // amendment 15's lift) — 14 * 0.9 = 12.6, comfortably over the floor.
@@ -470,6 +595,21 @@ describe('helm glyph fade — standalone persistence (RESET SETTINGS must not to
     for (let i = 0; i < V.glyphFadeCount + 5; i++) store.record('ws');
     expect(store.current.ws).toBe(V.glyphFadeCount);
   });
+
+  // Two tabs of the same game share one key. Progress only ever moves forward,
+  // so a write must MERGE: a blind last-writer-wins would let the tab that only
+  // used the telegraph roll the other tab's rudder progress back to zero.
+  it('merges per pair rather than letting the last writer win', () => {
+    expect(mergeHelmProgress({ ws: 3, ad: 0 }, { ws: 1, ad: 2 })).toEqual({ ws: 3, ad: 2 });
+    expect(mergeHelmProgress({ ws: 0, ad: 0 }, { ws: 2, ad: 1 })).toEqual({ ws: 2, ad: 1 });
+    expect(mergeHelmProgress({ ws: 1, ad: 1 }, { ws: 1, ad: 1 })).toEqual({ ws: 1, ad: 1 });
+  });
+
+  it('a save never regresses what another tab already stored', () => {
+    saveHelmProgress({ ws: V.glyphFadeCount, ad: 0 }); // the other tab faded W/S
+    expect(saveHelmProgress({ ws: 1, ad: 2 })).toEqual({ ws: V.glyphFadeCount, ad: 2 });
+    expect(loadHelmProgress()).toEqual({ ws: V.glyphFadeCount, ad: 2 });
+  });
 });
 
 // The "successful input" definition lives in the input pipeline, so it is pinned
@@ -480,18 +620,30 @@ describe('helm glyph fade — what counts as a successful input', () => {
   afterEach(() => {
     kb?.detach();
     kb = null;
+    localStorage.removeItem(V.glyphKey);
   });
 
+  /** The live-helm state main.ts's conningLive() reads (mutable per test). */
+  const helm = { spectating: false, alive: true as boolean | undefined };
+
   function drive(hooks: KeyboardHooks): { ws: number; ad: number } {
+    helm.spectating = false;
+    helm.alive = true;
     const seen = { ws: 0, ad: 0 };
+    // An UNCAPPED tally standing in for the store, so these tests count raw
+    // signals (the 3-input cap is pinned by the counter suite above).
+    const tally = { record: (pair: HelmPair) => (seen[pair] += 1) } as unknown as HelmGlyphStore;
+    // The hook bodies below are main.ts keyboardHooks()' bodies verbatim: a
+    // changed detent on a LABELED key, and a labeled rudder activation, each
+    // gated on a LIVE helm.
+    const live = (): boolean => helmInputCounts(helm.spectating, helm.alive);
     kb = new KeyboardInput({
       ...hooks,
-      onDetent: (_dir, changed) => {
-        if (changed) seen.ws += 1;
+      onDetent: (_dir, changed, labeled) => {
+        if (!changed || !labeled) return;
+        recordHelmInput('ws', live(), tally);
       },
-      onRudder: () => {
-        seen.ad += 1;
-      },
+      onRudder: () => recordHelmInput('ad', live(), tally),
     });
     kb.attach();
     return seen;
@@ -548,6 +700,106 @@ describe('helm glyph fade — what counts as a successful input', () => {
     press('KeyD');
     expect(seen).toEqual({ ws: 0, ad: 0 });
   });
+
+  // A rudder key held while the settings overlay swallowed input arrives back as
+  // an auto-REPEAT keydown when the overlay closes — and that keydown is what
+  // re-latches the rudder and starts steering. It is a real activation.
+  it('counts the keydown that RE-LATCHES a rudder key, repeat flag or not', () => {
+    const seen = drive({});
+    press('KeyA', { repeat: true }); // first event this key has landed: it latches
+    expect(seen.ad).toBe(1);
+    press('KeyA', { repeat: true }); // now genuinely held: auto-repeat, no count
+    press('KeyA', { repeat: true });
+    expect(seen.ad).toBe(1);
+    release('KeyA');
+    press('KeyA', { repeat: true }); // re-latch after the overlay ate the keyup
+    expect(seen.ad).toBe(2);
+  });
+
+  // The chips teach the LABELED keys. The arrows steer identically and always
+  // will — but an arrows-only captain has learned nothing the chips show, so
+  // they must keep them.
+  it('does NOT count arrow-key helm input, while the steering itself is unchanged', () => {
+    const seen = drive({});
+    press('ArrowUp');
+    press('ArrowUp');
+    press('ArrowDown');
+    press('ArrowLeft');
+    press('ArrowRight');
+    expect(seen).toEqual({ ws: 0, ad: 0 });
+    // ...and the arrows still drove the ship: +2 detents, -1, and both rudder
+    // keys latched (the axis reads 0 with LEFT and RIGHT both held).
+    expect(kb?.throttleIndex).toBe(5);
+    expect(kb?.axes().rudder).toBe(0);
+    release('ArrowLeft');
+    expect(kb?.axes().rudder).toBe(1);
+  });
+
+  it('counts the LABELED keys in the same session (the pair is not dead, just arrow-blind)', () => {
+    const seen = drive({});
+    press('ArrowUp');
+    press('KeyW');
+    press('KeyD');
+    expect(seen).toEqual({ ws: 1, ad: 1 });
+  });
+});
+
+// The gate: a helm key only counts when it DROVE A LIVE SHIP. Spectator WASD
+// pans the camera and a dead captain's mash reaches no engine room — neither
+// may burn a coach mark the player never got to use.
+describe('helm glyph fade — only a LIVE helm counts', () => {
+  let kb: KeyboardInput | null = null;
+  afterEach(() => {
+    kb?.detach();
+    kb = null;
+    localStorage.removeItem(V.glyphKey);
+  });
+
+  function driveLive(spectating: boolean, alive: boolean | undefined): HelmGlyphStore {
+    const store = new HelmGlyphStore(zeroHelmProgress());
+    const live = (): boolean => helmInputCounts(spectating, alive);
+    kb = new KeyboardInput({
+      onDetent: (_dir, changed, labeled) => {
+        if (changed && labeled) recordHelmInput('ws', live(), store);
+      },
+      onRudder: () => recordHelmInput('ad', live(), store),
+    });
+    kb.attach();
+    for (let i = 0; i < V.glyphFadeCount + 1; i++) {
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW', cancelable: true }));
+      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD', cancelable: true }));
+      window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD' }));
+    }
+    return store;
+  }
+
+  it('accrues nothing while SPECTATING (W/S/A/D pan the camera there)', () => {
+    const store = driveLive(true, true);
+    expect(store.current).toEqual({ ws: 0, ad: 0 });
+    expect(HELM_PAIRS.every((p) => !store.faded(p))).toBe(true);
+  });
+
+  it('accrues nothing while DEAD and awaiting respawn', () => {
+    const store = driveLive(false, false);
+    expect(store.current).toEqual({ ws: 0, ad: 0 });
+  });
+
+  it('accrues nothing before the first frame (no own ship yet)', () => {
+    expect(driveLive(false, undefined).current).toEqual({ ws: 0, ad: 0 });
+  });
+
+  it('still counts a LIVE helm (the gate lets the real thing through)', () => {
+    const store = driveLive(false, true);
+    expect(store.faded('ws')).toBe(true);
+    expect(store.faded('ad')).toBe(true);
+  });
+
+  it('pins the predicate itself (the shape camera.ts canUserZoom uses)', () => {
+    expect(helmInputCounts(false, true)).toBe(true);
+    expect(helmInputCounts(true, true)).toBe(false); // spectating
+    expect(helmInputCounts(false, false)).toBe(false); // sunk
+    expect(helmInputCounts(false, undefined)).toBe(false); // no own ship yet
+  });
 });
 
 // --- the Pixi shell ------------------------------------------------------------
@@ -574,10 +826,15 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
   const match = { topLine: '', tag: '', countdown: '' } as MatchUx;
   const quiet = { line: '', inStorm: false };
 
-  function build(): { layer: Container; hud: Hud } {
+  function build(glyphs?: HelmGlyphStore): { layer: Container; hud: Hud } {
     const layer = new Container();
-    return { layer, hud: new Hud(layer) };
+    return { layer, hud: glyphs ? new Hud(layer, glyphs) : new Hud(layer) };
   }
+
+  afterEach(() => {
+    localStorage.removeItem(V.glyphKey);
+    settings.reset();
+  });
 
   it('renders a wounded (pulsing) frame and a healthy frame without throwing', () => {
     const { hud } = build();
@@ -592,6 +849,53 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
     expect(() =>
       hud.update(ship, { throttle: 0, rudder: 0 }, { ...status, hp: 0, alive: false, respawnInMs: 3000 }, { line: 'STORM CLOSING', inStorm: true }, match, 1366, 768, 20),
     ).not.toThrow();
+  });
+
+  // THE strobe regression, driven through the real instrument: a hull draining
+  // in the storm at minute ten, one 50ms frame at a time. The rail's alpha may
+  // only move as fast as the 1.1 Hz ceiling allows.
+  it('never jumps the rail alpha while the hull drains ten minutes into a match', () => {
+    const { hud } = build();
+    const MAX_STEP = V.pulseAmp * CAP_HZ * Math.PI * 2 * 0.05 + 1e-9;
+    let hp = 45; // 45/100 — inside the pulsing band
+    let now = 600; // seconds: where an absolute-time phase goes wild
+    hud.update(ship, { throttle: 0, rudder: 0 }, { ...status, hp }, quiet, match, 1366, 768, now);
+    let prev = hud.railFillAlpha;
+    for (let i = 0; i < 200 && hp > 0; i++) {
+      hp = Math.max(0, hp - 0.2); // the storm dot's per-tick bite
+      now += 0.05;
+      hud.update(ship, { throttle: 0, rudder: 0 }, { ...status, hp }, quiet, match, 1366, 768, now);
+      const alpha = hud.railFillAlpha;
+      expect(Math.abs(alpha - prev), `frame ${i} at hp ${hp.toFixed(1)}`).toBeLessThanOrEqual(MAX_STEP);
+      prev = alpha;
+    }
+  });
+
+  // A pair whose 3rd input landed just before death has already been retired as
+  // far as the player is concerned: the fade must not replay on the next life.
+  it('does not replay the glyph fade for a pair that crossed while the instruments were hidden', () => {
+    const glyphs = new HelmGlyphStore(zeroHelmProgress());
+    const { hud } = build(glyphs);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10);
+    expect(hud.chipAlpha('ws')).toBe(1); // still learning
+    hud.updateSpectate(quiet, match, 1366, 768, 'SUNK — SPECTATING'); // instruments hidden
+    for (let i = 0; i < V.glyphFadeCount; i++) glyphs.record('ws'); // the 3rd input, off screen
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 11);
+    expect(hud.chipAlpha('ws')).toBe(0); // gone immediately, no ghost fade
+    expect(hud.chipAlpha('ad')).toBe(1); // ...and the untouched pair is unaffected
+  });
+
+  it('still ANIMATES the fade for a pair that crosses while on screen', () => {
+    const glyphs = new HelmGlyphStore(zeroHelmProgress());
+    const { hud } = build(glyphs);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10);
+    for (let i = 0; i < V.glyphFadeCount; i++) glyphs.record('ad');
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10);
+    expect(hud.chipAlpha('ad')).toBe(1); // the fade STARTS here
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10 + V.glyphFadeSec / 2);
+    expect(hud.chipAlpha('ad')).toBeCloseTo(0.5, 6);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10 + V.glyphFadeSec);
+    expect(hud.chipAlpha('ad')).toBeCloseTo(0, 12);
   });
 
   it('hides the whole cluster (rail included) on the spectate path, and re-shows it alive', () => {

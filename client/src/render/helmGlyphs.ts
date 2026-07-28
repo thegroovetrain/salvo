@@ -63,6 +63,25 @@ export function countHelmInput(progress: HelmProgress, pair: HelmPair): HelmProg
   return { ...progress, [pair]: Math.min(V.glyphFadeCount, progress[pair] + 1) };
 }
 
+/** Pure: the per-pair MAX of two progress records. Fade progress only ever moves
+ *  forward, so two tabs that each learned something must both keep it — a plain
+ *  last-writer-wins would let the tab that never touched the rudder overwrite
+ *  the other's A/D progress back down. */
+export function mergeHelmProgress(a: HelmProgress, b: HelmProgress): HelmProgress {
+  return { ws: Math.max(a.ws, b.ws), ad: Math.max(a.ad, b.ad) };
+}
+
+/**
+ * Pure: does a helm keypress reach a LIVE OWN SHIP — and therefore count toward
+ * the fade? Spectator camera pan (WASD moves the camera, not a rudder) and
+ * dead-awaiting-respawn taps drive no ship, so they must never burn the coach
+ * marks. Same shape as camera.ts's canUserZoom: a MISSING own ship (`alive`
+ * undefined — pre-join, pre-first-frame, between lives) is NOT live.
+ */
+export function helmInputCounts(spectating: boolean, alive: boolean | undefined): boolean {
+  return !spectating && alive === true;
+}
+
 /**
  * Pure: a pair's chip alpha.
  *   • not yet faded            → 1 (fully visible)
@@ -102,13 +121,22 @@ export function loadHelmProgress(): HelmProgress {
   }
 }
 
-/** Best-effort persist (storage may be unavailable or full). */
-export function saveHelmProgress(p: HelmProgress): void {
+/**
+ * Best-effort persist (storage may be unavailable or full), MERGE-ON-WRITE:
+ * whatever is on disk is re-read and sanitized first, and the per-pair max is
+ * what lands. Two tabs of the same game share one key, and a blind write from
+ * the tab that only ever used the telegraph would otherwise roll the other tab's
+ * rudder progress back to zero. Returns the merged progress so the caller can
+ * adopt it (a tab that has been away picks up what the other tab learned).
+ */
+export function saveHelmProgress(p: HelmProgress): HelmProgress {
+  const merged = mergeHelmProgress(loadHelmProgress(), p);
   try {
-    localStorage.setItem(V.glyphKey, JSON.stringify(p));
+    localStorage.setItem(V.glyphKey, JSON.stringify(merged));
   } catch {
     // the fade just won't survive this browser's next reload
   }
+  return merged;
 }
 
 /**
@@ -132,13 +160,21 @@ export class HelmGlyphStore {
   }
 
   /** Record ONE successful input for a pair. A no-op once the pair is faded
-   *  (the count is capped), so a veteran never re-writes storage every keypress. */
+   *  (the count is capped), so a veteran never re-writes storage every keypress.
+   *  Adopts the merge-on-write result, so progress another tab made is picked up
+   *  rather than fought over. */
   record(pair: HelmPair): void {
     if (this.faded(pair)) return;
-    this.progress = countHelmInput(this.progress, pair);
-    saveHelmProgress(this.progress);
+    this.progress = saveHelmProgress(countHelmInput(this.progress, pair));
   }
 }
 
 /** THE process-wide store — the input chokepoint writes it, the HUD reads it. */
 export const helmGlyphs = new HelmGlyphStore();
+
+/** Record a successful helm input for `pair` ONLY when it drove a live own ship
+ *  (helmInputCounts). THE gate main.ts's keyboard hooks call — spectate pan and
+ *  dead-awaiting-respawn presses must not retire a coach mark. */
+export function recordHelmInput(pair: HelmPair, live: boolean, store: HelmGlyphStore = helmGlyphs): void {
+  if (live) store.record(pair);
+}
