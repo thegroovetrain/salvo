@@ -115,3 +115,9 @@ From `epic-2-context-amendments.md` (2026-07-27, Eric, Story 2.4 pre-implementat
 25. Cluster micro labels (HULL caption, unit suffixes, RUDDER, AHEAD/ASTERN) render dim phosphor ~0.7 alpha — mock/DESIGN.md muted-grey treatment superseded; dim-not-grey doctrine.
 26. Helm key glyph fade: W/S and A/D pairs fade independently after 3 successful inputs each; persisted in a standalone `hullcracker.*` localStorage key surviving reloads AND RESET SETTINGS (learned anatomy, not a setting).
 27. HP rail widens to ~6px — the mock's 3px superseded for the HP rail only; "mirrors the XP rail" is idiom, not width parity (2.6's XP rail stays 3px per UX-DR12).
+
+From `epic-2-context-amendments.md` (2026-07-28, Eric, Story 2.5 pre-implementation questions):
+
+28. Story 2.5 ships full dormant plumbing: shared engine PLUS `ShipRecord.boons`, a `World.applyBoon` seam mirroring `applyUpgrade`, hook execution in the real server tick and client predictor, and a self-private `you.boons` wire field with a PV bump. Dormant until 2.7 — nothing grants boons in production this story.
+29. Speed boost stays bespoke (NOT migrated onto the hook engine) until the 2.8 catalog re-expresses it; `HOOK_REGISTRY` ships empty — parity suite structurally armed; test hooks live only in test-injected registries.
+30. v1 engine defines exactly one hook attachment point: per-tick kinematics (the boost precedent). New attachment points arrive only when a real catalog boon needs them; the hook contract stays generic and heal-compatible by design.

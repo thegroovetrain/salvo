@@ -31,11 +31,21 @@ import {
   loadoutFor,
   boostedKinematics,
   EQUIPMENT_IS_WEAPON,
+  BOON_CATALOG,
+  BOON_STAT_PATHS,
+  HOOK_REGISTRY,
+  NO_BOONS,
+  applyBoonStats,
+  applySlotEffect,
+  boonBehaviors,
+  hookKinematics,
+  resolveBoons,
+  slotsWithBoons,
 } from '../index.js';
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(12); // Story 2.1: heal left the wire (SpendMsg 0..2, no 'heal' event)
+    expect(PROTOCOL_VERSION).toBe(13); // Story 2.5: OwnShip gains required self-private `boons`
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -142,6 +152,24 @@ describe('shared barrel', () => {
     expect(CONFIG.mine.damage).toBe(45); // unchanged reference value
     // The decoy buoy: a pure-pass-through ability block on the wire config.
     expect(CONFIG.decoyBuoy).toEqual({ durationMs: 30000, reloadMs: 20000, maxAmmo: 1 });
+  });
+
+  it('re-exports the boon effect engine (Story 2.5)', () => {
+    // Both registries ship EMPTY (amendment 29 / engine before content) and
+    // deep-frozen; the engine functions are the shared two-homes-plus-hooks API.
+    expect(Object.keys(BOON_CATALOG)).toHaveLength(0);
+    expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0);
+    expect(Object.isFrozen(BOON_CATALOG)).toBe(true);
+    expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
+    expect(Object.isFrozen(NO_BOONS)).toBe(true);
+    expect(BOON_STAT_PATHS.length).toBeGreaterThan(0);
+    expect(BOON_STAT_PATHS).not.toContain('sweepPeriodMs'); // derived — never addressable
+    expect(typeof resolveBoons).toBe('function');
+    expect(typeof applyBoonStats).toBe('function');
+    expect(typeof applySlotEffect).toBe('function');
+    expect(typeof slotsWithBoons).toBe('function');
+    expect(typeof boonBehaviors).toBe('function');
+    expect(typeof hookKinematics).toBe('function');
   });
 
   it('re-exports the offer/spend system', () => {

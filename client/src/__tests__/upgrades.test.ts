@@ -34,10 +34,10 @@ describe('upgradeLabel — pure toast formatting', () => {
   });
 });
 
-function ownShip(cls: OwnShip['cls'], upg: number[]): OwnShip {
+function ownShip(cls: OwnShip['cls'], upg: number[], boons: string[] = []): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 100, alive: true,
-    ammo: [], sweep: 0, cls, upg, pts: 0, offer: [], boostUntil: 0,
+    ammo: [], sweep: 0, cls, upg, pts: 0, offer: [], boostUntil: 0, boons,
   };
 }
 
@@ -76,6 +76,23 @@ describe('ownStatsChanged — the recompute gate', () => {
   it('IGNORES pts/offer-only deltas — banking a point must not fire the stats/fog recompute', () => {
     const prev = { ...ownShip('torpedoBoat', zeroUpgrades()), pts: 0, offer: [] as number[] };
     const next = { ...ownShip('torpedoBoat', zeroUpgrades()), pts: 2, offer: [3, 6, 10] };
+    expect(ownStatsChanged(next, prev)).toBe(false);
+  });
+
+  it('fires on ANY boons change: first grant, append, removal, and reorder (Story 2.5)', () => {
+    const prev = ownShip('torpedoBoat', zeroUpgrades(), []);
+    expect(ownStatsChanged(ownShip('torpedoBoat', zeroUpgrades(), ['surge']), prev)).toBe(true);
+    const one = ownShip('torpedoBoat', zeroUpgrades(), ['surge']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', zeroUpgrades(), ['surge', 'plating']), one)).toBe(true);
+    expect(ownStatsChanged(ownShip('torpedoBoat', zeroUpgrades(), []), one)).toBe(true); // redeploy wipe
+    const two = ownShip('torpedoBoat', zeroUpgrades(), ['surge', 'plating']);
+    expect(ownStatsChanged(ownShip('torpedoBoat', zeroUpgrades(), ['plating', 'surge']), two)).toBe(true);
+  });
+
+  it('stays quiet on an IDENTICAL boons list in a fresh array (per-frame reallocation must not refire)', () => {
+    const prev = ownShip('torpedoBoat', zeroUpgrades(), ['surge', 'plating']);
+    const next = ownShip('torpedoBoat', zeroUpgrades(), ['surge', 'plating']);
+    expect(next.boons).not.toBe(prev.boons); // genuinely fresh arrays
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
 });

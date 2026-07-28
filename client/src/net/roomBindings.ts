@@ -80,14 +80,16 @@ export interface RoomBindingDeps {
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
-   * Fired when the authoritative own class OR upgrade counts first arrive (or
-   * ever change) on `you` — the client trusts the server, not the localStorage
-   * guess. The handler recomputes effectiveStats(cls, upg) and swaps the
-   * predictor kinematics, own-hull visuals, HUD denominators, radar rings/
-   * sweep period, camera zoom, and fog hole to match (main.applyOwnStats —
-   * the Stage D extension of the old onOwnClass seam).
+   * Fired when the authoritative own class, upgrade counts, OR boon list
+   * first arrive (or ever change) on `you` — the client trusts the server,
+   * not the localStorage guess. The handler resolves the boon ids
+   * (fail-closed), recomputes effectiveStats(cls, upg, boons), and swaps the
+   * predictor kinematics + behavior hooks, own-hull visuals, HUD
+   * denominators, radar rings/sweep period, camera zoom, and fog hole to
+   * match (main.applyOwnStats — the Stage D extension of the old onOwnClass
+   * seam, grown the boons leg in Story 2.5).
    */
-  onOwnStats: (cls: ShipClassId, upg: readonly number[]) => void;
+  onOwnStats: (cls: ShipClassId, upg: readonly number[], boons: readonly string[]) => void;
   /**
    * Reset the throttle order to neutral. Called on own spawn (respawn + the
    * match-activation teleport) and own sunk, so a set engine order never
@@ -221,7 +223,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
     // Trust the server's class + upgrade counts over any local guess: on the
     // first frame (or any change to either) recompute the effective stats and
     // swap every consumer (predictor/HUD/radar/camera/fog) to match.
-    if (ownStatsChanged(f.you, net.you)) deps.onOwnStats(f.you.cls, f.you.upg);
+    if (ownStatsChanged(f.you, net.you)) deps.onOwnStats(f.you.cls, f.you.upg, f.you.boons);
     net.you = f.you;
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
@@ -264,17 +266,24 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
 }
 
 /**
- * Pure: did the own class or upgrade counts change between frames? Cheap
- * array-equality (14 numbers) — this gates the (heavier) effective-stats
- * recompute in deps.onOwnStats, so it runs on change only, not per frame.
+ * Pure: did the own class, upgrade counts, or boon list change between
+ * frames? Cheap array-equality (14 numbers + the boon ids) — this gates the
+ * (heavier) effective-stats recompute in deps.onOwnStats, so it runs on
+ * change only, not per frame. Two identical lists in fresh arrays (every
+ * frame reallocates) must NOT fire it.
  */
 export function ownStatsChanged(next: OwnShip, prev: OwnShip | null | undefined): boolean {
   if (!prev || next.cls !== prev.cls) return true;
-  if (next.upg.length !== prev.upg.length) return true;
-  for (let i = 0; i < next.upg.length; i++) {
-    if (next.upg[i] !== prev.upg[i]) return true;
+  return !sameList(next.upg, prev.upg) || !sameList(next.boons, prev.boons);
+}
+
+/** Element-wise equality of two flat lists (numbers or strings). */
+function sameList(a: readonly (number | string)[], b: readonly (number | string)[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
   }
-  return false;
+  return true;
 }
 
 /** Fan every per-tick event out to the right subsystem. */

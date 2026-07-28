@@ -194,6 +194,17 @@ export interface OwnShip {
    * faster-moving contact); the boost's timing and existence stay self-private.
    */
   boostUntil: number;
+  /**
+   * Applied boon ids, in application order (Story 2.5 — dormant until 2.7's
+   * spend flow grants any). Self-syncing every frame like `upg`: the client
+   * resolves ids through the shared BOON_CATALOG (fail-closed — unknown ids
+   * dropped) and feeds the defs to effectiveStats / the slot derivation / the
+   * predictor's behavior hooks. ANTI-CHEAT: like upgrade counts, boons appear
+   * ONLY here, on your own ship — never on a Contact, blip, ballistic event,
+   * boom, or spectator contact (enemy builds are inferable only from observed
+   * behavior on the water, never from the wire).
+   */
+  boons: string[];
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */

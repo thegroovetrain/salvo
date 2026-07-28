@@ -2,10 +2,12 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   boostedKinematics,
+  hookKinematics,
   hullSilhouette,
   resolveShipPose,
   stepShip,
   transformPolygon,
+  type HookRegistry,
   type InputMsg,
   type Pose,
   type ShipConfig,
@@ -472,5 +474,115 @@ describe('Predictor speed boost (Story 1.6)', () => {
     p.onServerState(kin(server), 20);
     expect(p.boostUntilEstimate).toBe(0);
     expect(p.predicted.speed).toBeCloseTo(server.speed, 9); // truth adopted immediately
+  });
+});
+
+// --- Story 2.5: behavior boons — per-tick parity with the server's boost-then-hooks fold ---
+
+describe('Predictor behavior boons (Story 2.5)', () => {
+  const T0 = 700_000; // arbitrary server-clock anchor (ms)
+  const tickT = (seq: number): number => T0 + seq * CONFIG.tick.simDtMs;
+
+  /** Injected TEST registry (the production HOOK_REGISTRY ships empty —
+   *  amendment 29): a multiplier hook, order-sensitive against the additive
+   *  boost bonus, so the composition order is provable. */
+  const REGISTRY: HookRegistry = {
+    surge: {
+      kind: 'kinematics',
+      apply: (kin, p) => ({ ...kin, maxSpeed: kin.maxSpeed * (p.factor ?? 1) }),
+    },
+  };
+  const BEHAVIORS = [{ hookId: 'surge', params: { factor: 1.2 } }];
+
+  /** Reference server tick: the IDENTICAL per-tick composition world.stepShips
+   *  applies — hookKinematics(boostedKinematics(kin, bonus, active), behaviors,
+   *  registry): boost FIRST, hooks AFTER. */
+  function serverHookStep(s: ShipState, inp: InputMsg, t: number, boostUntil: number): void {
+    const boosted = boostedKinematics(TB.kinematics, CONFIG.speedBoost.speedBonus, t < boostUntil);
+    stepShip(s, inp, hookKinematics(boosted, BEHAVIORS, REGISTRY), DT);
+  }
+
+  function hookedPredictor(): Predictor {
+    const p = new Predictor({ radius: MAP_R, islands: [] }, TB.kinematics, TB_POLY, DT, REGISTRY);
+    p.setBoons(BEHAVIORS);
+    return p;
+  }
+
+  it('matches a local server-reference run to 9 decimals across lagged reconciles (hook active every tick)', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0.4, speed: 0 };
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }];
+    const p = hookedPredictor();
+    p.onServerState(kin(spawn), 0);
+
+    for (let seq = 1; seq <= 130; seq++) {
+      const inp = input(seq, 1, seq % 16 < 8 ? 0.3 : -0.3);
+      p.localTick(inp, tickT(seq));
+      serverHookStep(server, inp, tickT(seq), 0);
+      history[seq] = { ...server };
+      if (seq % 3 === 0 && seq > 4) {
+        // Ack lags 4 ticks: replayFrom must re-fold the hook per tick.
+        p.onServerState(kin(history[seq - 4]), seq - 4);
+        expect(p.visualErrorMagnitude).toBeLessThan(1e-9);
+      }
+    }
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+    expect(p.predicted.y).toBeCloseTo(server.y, 9);
+    expect(p.predicted.speed).toBeCloseTo(TB.kinematics.maxSpeed * 1.2, 6); // the hooked cap was reached
+  });
+
+  it('pins the composition ORDER — boost first, hooks after: cap = (base + bonus) * factor while boosted', () => {
+    const boostUntil = T0 + 400 * CONFIG.tick.simDtMs; // window held open for the whole run
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const server: ShipState = { ...spawn };
+    const p = hookedPredictor();
+    p.onServerState({ ...kin(spawn), boostUntil }, 0);
+
+    for (let seq = 1; seq <= 200; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverHookStep(server, inp, tickT(seq), boostUntil);
+      if (seq % 5 === 0) {
+        p.onServerState({ ...kin(server), boostUntil }, seq);
+        expect(p.visualErrorMagnitude).toBeLessThan(1e-9);
+      }
+    }
+    // Hooks-after-boost: the multiplier scales the RAISED cap. A flipped
+    // composition would read base*factor + bonus — a different number.
+    const hooksAfter = (TB.kinematics.maxSpeed + CONFIG.speedBoost.speedBonus) * 1.2;
+    const flipped = TB.kinematics.maxSpeed * 1.2 + CONFIG.speedBoost.speedBonus;
+    expect(hooksAfter).not.toBeCloseTo(flipped, 6); // the order is observable
+    expect(p.predicted.speed).toBeCloseTo(hooksAfter, 6);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9); // full positional parity
+  });
+
+  it('zero boons stays byte-identical to a plain predictor (identity fast path, default registry)', () => {
+    const spawn: ShipState = { x: 10, y: 20, heading: 0.1, speed: 0 };
+    const withHooks = new Predictor({ radius: MAP_R, islands: [] }, TB.kinematics, TB_POLY, DT, REGISTRY);
+    withHooks.setBoons([]); // engine wired, no behaviors
+    const plain = new Predictor({ radius: MAP_R, islands: [] });
+    withHooks.onServerState(kin(spawn), 0);
+    plain.onServerState(kin(spawn), 0);
+    for (let seq = 1; seq <= 40; seq++) {
+      const inp = input(seq, 0.8, 0.2);
+      withHooks.localTick(inp, tickT(seq));
+      plain.localTick(inp, tickT(seq));
+    }
+    expect(withHooks.predicted).toEqual(plain.predicted);
+  });
+
+  it('an unknown hookId in the behaviors is a silent per-tick no-op (fail-closed parity with the server)', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+    const p = new Predictor({ radius: MAP_R, islands: [] }, TB.kinematics, TB_POLY, DT, REGISTRY);
+    p.setBoons([{ hookId: 'noSuchHook', params: { factor: 99 } }]);
+    const control = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState(kin(spawn), 0);
+    control.onServerState(kin(spawn), 0);
+    for (let seq = 1; seq <= 30; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      control.localTick(inp, tickT(seq));
+    }
+    expect(p.predicted).toEqual(control.predicted);
   });
 });
