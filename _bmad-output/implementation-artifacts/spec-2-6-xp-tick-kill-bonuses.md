@@ -2,8 +2,9 @@
 title: 'Story 2.6: XP Tick & Kill Bonuses'
 type: 'feature'
 created: '2026-07-30'
-status: 'in-review'
+status: 'done'
 baseline_revision: '7529784'
+final_revision: 'a73da84'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
