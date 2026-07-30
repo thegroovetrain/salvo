@@ -13,9 +13,12 @@
 // Nothing else moves — a stat-only boon leaves the loadout reference-equal, a
 // slot-only boon leaves stats byte-identical (property-pinned in tests).
 //
-// BOON_CATALOG ships EMPTY (engine before content): test boons live in tests
-// as locally-constructed BoonDefs against injected catalogs/registries; the
-// real catalog is 2.8's Eric-gated design session and adds only data.
+// BOON_CATALOG ships an INTERIM DUMMY SET (Story 2.7, amendment 35): enough
+// stat-only content across enough categories for the offer flow to roll 4
+// distinct categories in production. It is deliberate placeholder data under
+// the standing draft-copy rule and DIES WHOLESALE in 2.8 (Eric's catalog design
+// session), which also strips the 14 legacy upgrades. Test boons still live in
+// tests as locally-constructed BoonDefs against injected catalogs/registries.
 
 import type { EquipmentId, LoadoutSlot } from './loadout.js';
 import { SLOT_EXTRA, equipmentMaxAmmo, loadoutFor } from './loadout.js';
@@ -140,9 +143,24 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 export type BoonCatalog = Readonly<Record<BoonId, BoonDef>>;
 
 /**
- * THE production boon catalog — deliberately EMPTY in v1 (engine before
- * content: 2.8 is the Eric-gated catalog design session; test boons live only
- * in tests as locally-constructed defs against injected catalogs).
+ * THE production boon catalog — an INTERIM DUMMY SET (Story 2.7, amendment 35).
+ *
+ * Shape: 5 categories × 2 boons = 10 entries, STAT EFFECTS ONLY on whitelisted
+ * BOON_STAT_PATHS, so HOOK_REGISTRY stays empty (amendments 29/30 intact) and
+ * no slotFill/slotReplace ships before 2.8 designs the loadout content. Two
+ * boons per category is the minimum that makes distinct-category rolls VARY
+ * (one member per category would make every offer identical).
+ *
+ * DRAFT COPY, DRAFT NUMBERS: every id, category and multiplier here is
+ * implementer-drafted placeholder data (the standing draft-copy rule) chosen to
+ * be mild and boring — this set exists to prove the roll/bank/spend flow end to
+ * end in production, not to be balanced. Player-facing names/descriptions live
+ * CLIENT-side (client/src/ui/boonCopy.ts): BoonDef stays pure sim, so copy
+ * edits never touch the wire contract. The whole table dies in 2.8.
+ *
+ * ITERATION ORDER IS LOAD-BEARING: rollBoonOffer derives its category list from
+ * catalog insertion order (sim/offers.ts), so reordering these keys changes
+ * every seeded offer. Treat the order as append-only, like UPGRADE_IDS.
  *
  * CATALOG CONTENT IS WIRE CONTRACT: adding, removing, or changing any entry
  * REQUIRES a PROTOCOL_VERSION bump (shared/src/index.ts). Boon ids ride the
@@ -151,7 +169,80 @@ export type BoonCatalog = Readonly<Record<BoonId, BoonDef>>;
  * simulating — a desync with no error surface. The PV join gate is the ONLY
  * thing preventing it.
  */
-export const BOON_CATALOG: BoonCatalog = deepFreezeRows({});
+export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
+  // --- hull ---------------------------------------------------------------
+  reinforcedBulkheads: {
+    id: 'reinforcedBulkheads',
+    category: 'hull',
+    effects: [{ kind: 'stat', path: 'maxHp', mult: 1.12 }],
+  },
+  splinterMattresses: {
+    id: 'splinterMattresses',
+    category: 'hull',
+    effects: [
+      { kind: 'stat', path: 'maxHp', mult: 1.06 },
+      { kind: 'stat', path: 'kinematics.decel', mult: 1.08 },
+    ],
+  },
+  // --- propulsion ---------------------------------------------------------
+  forcedDraught: {
+    id: 'forcedDraught',
+    category: 'propulsion',
+    effects: [{ kind: 'stat', path: 'kinematics.maxSpeed', mult: 1.1 }],
+  },
+  trimmedScrews: {
+    id: 'trimmedScrews',
+    category: 'propulsion',
+    effects: [
+      { kind: 'stat', path: 'kinematics.accel', mult: 1.12 },
+      { kind: 'stat', path: 'kinematics.turnRate', mult: 1.05 },
+    ],
+  },
+  // --- gunnery ------------------------------------------------------------
+  rangefinderCrew: {
+    id: 'rangefinderCrew',
+    category: 'gunnery',
+    effects: [{ kind: 'stat', path: 'gun.rangeU', mult: 1.1 }],
+  },
+  practicedLoaders: {
+    id: 'practicedLoaders',
+    category: 'gunnery',
+    // reloadMs is a COST: a mult BELOW 1 is the improvement (the legacy
+    // gunReload upgrade's vocabulary, carried forward verbatim).
+    effects: [{ kind: 'stat', path: 'gun.reloadMs', mult: 0.9 }],
+  },
+  // --- sensors ------------------------------------------------------------
+  highGainAntenna: {
+    id: 'highGainAntenna',
+    category: 'sensors',
+    effects: [{ kind: 'stat', path: 'radarRange', mult: 1.1 }],
+  },
+  crowsNestWatch: {
+    id: 'crowsNestWatch',
+    category: 'sensors',
+    effects: [
+      { kind: 'stat', path: 'sightRange', mult: 1.08 },
+      { kind: 'stat', path: 'sweepRpm', mult: 1.05 },
+    ],
+  },
+  // --- ordnance -----------------------------------------------------------
+  deepMagazines: {
+    id: 'deepMagazines',
+    category: 'ordnance',
+    // A pool ADD is a no-op for a hull that does not fit the system (the stat
+    // still moves; nothing else does) — dead picks are an accepted interim
+    // wart that dies with this table in 2.8.
+    effects: [{ kind: 'stat', path: 'torpedo.maxAmmo', add: 1 }],
+  },
+  practicedHandlers: {
+    id: 'practicedHandlers',
+    category: 'ordnance',
+    effects: [
+      { kind: 'stat', path: 'torpedo.reloadMs', mult: 0.92 },
+      { kind: 'stat', path: 'mine.reloadMs', mult: 0.92 },
+    ],
+  },
+});
 
 /** The immutable zero-boons list — the shared allocation-free identity for
  *  every zero-boon fast path (server record cache, client resolve). */

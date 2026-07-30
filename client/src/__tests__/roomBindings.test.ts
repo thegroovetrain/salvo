@@ -7,7 +7,7 @@
 // and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
 // a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
-import { bindRoom, type RoomBindingDeps } from '../net/roomBindings';
+import { bindRoom, frameIsDeadOrSpectating, type RoomBindingDeps } from '../net/roomBindings';
 import type { Connection } from '../net/connection';
 
 interface FakeRoom {
@@ -270,5 +270,144 @@ describe('bindRoom denial channel (Story 1.10)', () => {
     const { sink, onDenied } = setup();
     sink.handler(ownFrame(0, 0));
     expect(onDenied).not.toHaveBeenCalled();
+  });
+});
+
+// --- self-private reward toasts (Story 2.7, amendment 37) --------------------
+//
+// The `pt` level-up toast is SUPPRESSED entirely while the local captain is
+// dead/spectating: a posthumous kill still banks the level server-side (ratified
+// 2.6), but "LEVEL UP — TAB TO REFIT" is a lie to a corpse — there is no refit
+// surface while spectating. The `bn` boon-fit toast is deliberately NOT gated:
+// spending while dead is legal, and the confirmation is exactly what is wanted.
+
+/** A reward-event frame. `you` present+alive = a live captain; omitting `you`
+ *  (with spec:true) is EXACTLY the shape a spectator frame arrives in. */
+function rewardFrame(event: unknown, own: { alive: boolean } | null): unknown {
+  const base = { t: 300, tick: 3, ackSeq: 0, contacts: [], mines: [], events: [event] };
+  if (!own) return { ...base, spec: true };
+  return {
+    ...base,
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', upg: [], boons: [], alive: own.alive, sweep: 0 },
+  };
+}
+
+function setupToasts(spectating = false) {
+  const room = fakeRoom();
+  const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const play = vi.fn();
+  const onSpendAck = vi.fn();
+  const deps = {
+    state: {
+      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 },
+      spectating, phase: '', respawnEta: null, mode: 'interp',
+    },
+    clock: { addSample: vi.fn() },
+    contacts: { pushFrame: vi.fn() },
+    mines: { sync: vi.fn() },
+    litZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
+    ownBuffer: { push: vi.fn(), clear: vi.fn() },
+    predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
+    radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
+    effects: { spawnEffect: vi.fn() },
+    audio: { play },
+    names: (id: string) => id,
+    colors: () => null,
+    ordnanceHue: () => 0,
+    onOwnStats: vi.fn(),
+    onOwnSpawn: vi.fn(),
+    onSpectate: vi.fn(),
+    onSunkObserved: vi.fn(),
+    onSpendAck,
+  } as unknown as RoomBindingDeps;
+  bindRoom(conn, deps);
+  return { sink, play, onSpendAck };
+}
+
+function toastLines(): string[] {
+  const stack = document.getElementById('upgrade-toast');
+  return [...(stack?.children ?? [])].map((el) => el.textContent ?? '');
+}
+
+describe('frameIsDeadOrSpectating — the amendment 37 gate', () => {
+  it('is true for a spectator frame (no `you`) and for a dead-but-present `you`', () => {
+    expect(frameIsDeadOrSpectating(rewardFrame(null, null) as never)).toBe(true);
+    expect(frameIsDeadOrSpectating(rewardFrame(null, { alive: false }) as never)).toBe(true);
+  });
+
+  it('is false for a live captain', () => {
+    expect(frameIsDeadOrSpectating(rewardFrame(null, { alive: true }) as never)).toBe(false);
+  });
+});
+
+describe('bindRoom reward toasts', () => {
+  it('a LIVE captain gets the level-up toast + point tone', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
+    expect(toastLines()).toEqual(['▲ LEVEL UP — TAB TO REFIT']);
+    expect(play).toHaveBeenCalledWith('point');
+  });
+
+  it('a SPECTATING captain gets NO level-up toast and NO tone (amendment 37)', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts(true);
+    sink.handler(rewardFrame({ k: 'pt', id: 'me' }, null));
+    expect(toastLines()).toEqual([]);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('a DEAD-but-present captain gets no level-up toast either', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: false }));
+    expect(toastLines()).toEqual([]);
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('a fitted boon toasts with the boon label + upgrade tone, even while dead', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reinforcedBulkheads' }, { alive: false }));
+    expect(toastLines()).toEqual(['◆ REINFORCED BULKHEADS FITTED']);
+    expect(play).toHaveBeenCalledWith('upgrade');
+  });
+
+  it("another ship's reward events are ignored (defensive — perception already gates them)", () => {
+    document.body.replaceChildren();
+    const { sink, play, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'pt', id: 'someone-else' }, { alive: true }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'someone-else', boon: 'forcedDraught' }, { alive: true }));
+    expect(toastLines()).toEqual([]);
+    expect(play).not.toHaveBeenCalled();
+    expect(onSpendAck).not.toHaveBeenCalled(); // and no foreign spend can ack ours
+  });
+
+  // STORY 2.7 REVIEW — the `bn` event is ALSO the spend latch's ack: the one
+  // unambiguous "your spend landed" signal on the wire (main.ts marks the latch,
+  // which then releases as a success even when a same-frame passive bank and an
+  // identical re-roll hide every other landing signal). Net calls the callback;
+  // it never reaches into main.
+  it('routes a SELF boon-fit to deps.onSpendAck (the spend latch receipt)', () => {
+    document.body.replaceChildren();
+    const { sink, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reinforcedBulkheads' }, { alive: true }));
+    expect(onSpendAck).toHaveBeenCalledTimes(1);
+  });
+
+  it('acks a boon fitted while DEAD too (spending while dead is legal)', () => {
+    document.body.replaceChildren();
+    const { sink, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'forcedDraught' }, { alive: false }));
+    expect(onSpendAck).toHaveBeenCalledTimes(1);
+  });
+
+  it('a level-up bank is NOT a spend ack (only `bn` is)', () => {
+    document.body.replaceChildren();
+    const { sink, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
+    expect(onSpendAck).not.toHaveBeenCalled();
   });
 });

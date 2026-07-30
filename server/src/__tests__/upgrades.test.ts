@@ -1,24 +1,28 @@
-// Upgrade-point economy. Covers the earn hook in sinkShip — which is now a KILL
-// XP hook (Story 2.6): a kill pays levels' worth of XP and a point is banked on
-// every level crossed, so "an attributed kill banks a point" holds because
+// Level/offer economy. Covers the earn hook in sinkShip — which is now a KILL
+// XP hook (Story 2.6): a kill pays levels' worth of XP and a level is banked on
+// every threshold crossed, so "an attributed kill banks a level" holds because
 // CONFIG.xp.killLevels is 1. The XP economy itself (passive tick, drone tiers,
 // fraction carry, gating, drone guard) lives in xp.test.ts; this file keeps the
-// point/offer contract: who banks, who never does, determinism of the pre-rolled
-// offers off the decorrelated rng stream, the FIFO offer queue (front-on-the-wire, reroll-proof),
-// spendPoint's fail-closed validation table (incl. the deleted Story 2.1
-// REPAIR/heal choice rejecting), the lifecycle rules (respawn
-// preserves offers, redeployShip wipes them), wire privacy (pts/offer/pt/upg
-// are self-private), the spend-time side effects (hullPoints heal, +1 round),
+// level/offer contract: who banks, who never does, determinism of the pre-rolled
+// BOON offers off the decorrelated rng stream (Story 2.7), the FIFO offer queue
+// (front-on-the-wire, reroll-proof), spendPoint's fail-closed validation table
+// (now bounded by the FRONT OFFER'S LENGTH — choice 3 became legal when offers
+// grew to four cards), the lifecycle rules (respawn preserves offers,
+// redeployShip wipes them), wire privacy (pts/offer/pt/upg/bn are self-private),
+// and the LEGACY applyUpgrade side effects (hullPoints heal, +1 round) — which
+// are production-unreachable as of 2.7 and die with the 2.8 catalog strip,
 // and every stat consumer: per-observer sight/radar/sweep in perception,
 // effective gun reload, torpedo launch speed on the wire, mine maxLive threaded
 // from the owner's stats, and maxSpeed kinematics in stepShips.
 
 import { describe, it, expect } from 'vitest';
 import {
+  BOON_CATALOG,
   CONFIG,
   SLOT_GUN,
   UPGRADE_IDS,
   effectiveStats,
+  resolveBoons,
   zeroUpgrades,
   type BallisticEvent,
   type BlipEvent,
@@ -74,6 +78,7 @@ function bank(w: World, killer: ShipRecord, n: number): void {
 }
 
 const upgsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'upg');
+const bnsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'bn');
 const ptsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'pt');
 const blipsOf = (f: FrameMsg) => f.events.filter((e): e is BlipEvent => e.k === 'blip');
 const ballisticsOf = (f: FrameMsg) =>
@@ -148,7 +153,7 @@ describe('point earn — who banks one', () => {
   });
 
   it('offers are deterministic per seed (reproducible kill sequence → same offers)', () => {
-    const run = (): UpgradeId[][] => {
+    const run = (): string[][] => {
       const w = bareWorld(777);
       const a = place(w, 'a', 0, 0);
       w.step();
@@ -164,8 +169,10 @@ describe('point earn — who banks one', () => {
     const first = run();
     expect(first).toHaveLength(6);
     for (const offer of first) {
-      expect(offer).toHaveLength(3);
-      for (const type of offer) expect(UPGRADE_IDS).toContain(type);
+      // Story 2.7: four BOON ids from four distinct catalog categories.
+      expect(offer).toHaveLength(CONFIG.offer.size);
+      for (const id of offer) expect(Object.hasOwn(BOON_CATALOG, id)).toBe(true);
+      expect(new Set(offer.map((id) => BOON_CATALOG[id].category)).size).toBe(CONFIG.offer.size);
     }
     expect(run()).toEqual(first); // same seed, same stream, same offer contents
   });
@@ -185,15 +192,17 @@ describe('offer queue — FIFO, front on the wire, reroll-proof', () => {
     const second = [...a.offers[1]];
     const f1 = buildFrame(w, 'a');
     expect(f1.you!.pts).toBe(3);
-    expect(f1.you!.offer).toEqual(first.map((t) => UPGRADE_IDS.indexOf(t)));
+    expect(f1.you!.offer).toEqual(first); // boon ids, verbatim (defensive copy)
+    expect(f1.you!.offer).not.toBe(a.offers[0]); // a COPY — the queue never aliases the wire
     expect(w.spendPoint('a', 1)).toBe(true);
-    // Exactly offers[0][1] was applied — the count that moved matches the id.
-    expect(a.upgrades[UPGRADE_IDS.indexOf(first[1])]).toBe(1);
-    expect(a.upgrades.reduce((s, n) => s + n, 0)).toBe(1);
-    expect(a.stats).toEqual(effectiveStats(a.cls, a.upgrades));
+    // Exactly offers[0][1] was FITTED — no upgrade count moved (2.7: spend is boons).
+    expect(a.boons).toEqual([first[1]]);
+    expect(a.upgrades).toEqual(zeroUpgrades());
+    expect(a.stats).toEqual(effectiveStats(a.cls, a.upgrades, resolveBoons(a.boons)));
     const f2 = buildFrame(w, 'a');
     expect(f2.you!.pts).toBe(2);
-    expect(f2.you!.offer).toEqual(second.map((t) => UPGRADE_IDS.indexOf(t))); // former 2nd, now front
+    expect(f2.you!.offer).toEqual(second); // former 2nd, now front
+    expect(f2.you!.boons).toEqual([first[1]]);
   });
 
   it('the front offer is reroll-proof: identical across consecutive frames with no spend', () => {
@@ -206,7 +215,7 @@ describe('offer queue — FIFO, front on the wire, reroll-proof', () => {
     w.step();
     const f2 = buildFrame(w, 'a');
     expect(f2.you!.offer).toEqual(f1.you!.offer); // closing/reopening the window can't reroll
-    expect(f2.you!.offer).toHaveLength(3);
+    expect(f2.you!.offer).toHaveLength(CONFIG.offer.size);
   });
 });
 
@@ -226,16 +235,19 @@ describe('spendPoint — validation table', () => {
     w.step();
     bank(w, a, 1);
     const offer = [...a.offers[0]];
-    const bad: unknown[] = [-1, 4, 1.5, '1', null, undefined, Number.NaN];
+    // The bound is the FRONT OFFER'S LENGTH (4), so 4 and up are out of range;
+    // 3 is now the legal fourth card and is proven live below.
+    const bad: unknown[] = [-1, 4, 5, 1.5, '1', null, undefined, Number.NaN, Infinity];
     for (const choice of bad) {
       expect(w.spendPoint('a', choice)).toBe(false);
     }
     expect(a.offers).toHaveLength(1);
     expect([...a.offers[0]]).toEqual(offer); // untouched, not rerolled
+    expect(a.boons).toEqual([]);
     expect(a.upgrades).toEqual(zeroUpgrades());
   });
 
-  it('a valid slot applies the upgrade, recomputes stats, and emits a self-private upg', () => {
+  it('a valid slot FITS the boon, recomputes stats, and emits a self-private bn', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);
@@ -245,55 +257,94 @@ describe('spendPoint — validation table', () => {
     const expected = a.offers[0][2];
     expect(w.spendPoint('a', 2)).toBe(true);
     expect(a.offers).toEqual([]);
-    expect(a.upgrades[UPGRADE_IDS.indexOf(expected)]).toBe(1);
-    expect(a.stats).toEqual(effectiveStats(a.cls, a.upgrades));
+    expect(a.boons).toEqual([expected]);
+    expect(a.stats).toEqual(effectiveStats(a.cls, a.upgrades, resolveBoons(a.boons)));
     w.step();
-    const upgs = upgsOf(buildFrame(w, 'a').events);
-    expect(upgs).toEqual([{ k: 'upg', id: 'a', type: expected }]);
-    expect(upgsOf(buildFrame(w, 'b').events)).toEqual([]); // self-private, like at earn
+    const bns = bnsOf(buildFrame(w, 'a').events);
+    expect(bns).toEqual([{ k: 'bn', id: 'a', boon: expected }]);
+    expect(bnsOf(buildFrame(w, 'b').events)).toEqual([]); // self-private, like at earn
+    // The legacy `upg` event is production-unreachable now — a spend never fires one.
+    expect(upgsOf(buildFrame(w, 'a').events)).toEqual([]);
   });
 
-  it('upgrades ARE spendable while dead (builds persist across respawn)', () => {
+  it('digit 4 (choice 3) is LIVE against a four-card offer', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.step();
     bank(w, a, 1);
-    w.sinkShip('a'); // storm — a is a corpse with a banked point
+    const expected = a.offers[0][3];
+    expect(expected).toBeDefined();
+    expect(w.spendPoint('a', 3)).toBe(true);
+    expect(a.boons).toEqual([expected]);
+  });
+
+  it('applyBoon queues NO event on its own — only spendPoint does (the 2.5 pin stands)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.step();
+    w.applyBoon(a, 'reinforcedBulkheads');
+    w.step();
+    expect(bnsOf(buildFrame(w, 'a').events)).toEqual([]);
+  });
+
+  it('levels ARE spendable while dead (builds persist across respawn)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.step();
+    bank(w, a, 1);
+    w.sinkShip('a'); // storm — a is a corpse with a banked level
     const expected = a.offers[0][0];
     expect(w.spendPoint('a', 0)).toBe(true);
-    expect(a.upgrades[UPGRADE_IDS.indexOf(expected)]).toBe(1);
+    expect(a.boons).toEqual([expected]);
   });
 });
 
-// ---------- the deleted heal spend (Story 2.1: "1-4 cards, no repair") -----------
+// ---------- no spend ever heals (Story 2.1 REPAIR deletion + amendment 35) -------
+//
+// Choice 3 FLIPPED from rejected to legal in 2.7 (it is the fourth card, not the
+// retired HEAL_CHOICE), so the old "choice 3 is rejected" pins are replaced by
+// the property they were really protecting: a spend never restores hull. Amendment
+// 35 accepted this consequence explicitly — applyBoon never heals, and the legacy
+// applyGrantEffects heal path is unreachable from the offer flow.
 
-describe('spendPoint — the old HEAL_CHOICE (3) is rejected end-to-end', () => {
-  it('a hostile/stale {choice: 3} returns false with the point, hp, and events untouched', () => {
+describe('spendPoint — no spend heals, and no heal event exists', () => {
+  it('spending the fourth card leaves hp exactly where it was', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0);
     w.step();
     bank(w, a, 1);
-    a.hp = a.stats.maxHp - 60; // damaged — the old heal would have fired here
-    expect(w.spendPoint('a', 3)).toBe(false); // the pre-2.1 HEAL_CHOICE wire value
-    expect(a.hp).toBe(a.stats.maxHp - 60); // no heal applied
-    expect(a.offers).toHaveLength(1); // point PRESERVED (client latch releases via its 1500ms fallback)
+    a.hp = a.stats.maxHp - 60; // damaged — the retired REPAIR would have fired here
+    const before = a.hp;
+    expect(w.spendPoint('a', 3)).toBe(true); // legal fourth card as of 2.7
+    expect(a.hp).toBe(before); // no heal, whatever the boon did to maxHp
+    expect(a.hp).toBeLessThanOrEqual(a.stats.maxHp); // the cap invariant still holds
     w.step();
     // No 'heal' event kind exists on the wire anymore — no frame ever carries one.
     expect(buildFrame(w, 'a').events.some((e) => (e.k as string) === 'heal')).toBe(false);
     expect(buildFrame(w, 'b').events.some((e) => (e.k as string) === 'heal')).toBe(false);
   });
 
-  it('every out-of-range choice (3, 4, -1, 2.5, NaN) is rejected alike', () => {
+  it('a maxHp boon raises the cap without healing (applyBoon never heals)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.hp = 40;
+    const capBefore = a.stats.maxHp;
+    w.applyBoon(a, 'reinforcedBulkheads'); // maxHp x1.12
+    expect(a.stats.maxHp).toBeGreaterThan(capBefore);
+    expect(a.hp).toBe(40);
+  });
+
+  it('every choice past the offer length is still rejected alike', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.step();
     bank(w, a, 1);
-    for (const bad of [3, 4, -1, 2.5, NaN, '1', null, undefined]) {
+    for (const bad of [CONFIG.offer.size, CONFIG.offer.size + 1, -1, 2.5, NaN, '1', null, undefined]) {
       expect(w.spendPoint('a', bad)).toBe(false);
     }
     expect(a.offers).toHaveLength(1);
-    expect(w.spendPoint('a', 2)).toBe(true); // 0..2 stays live
+    expect(w.spendPoint('a', CONFIG.offer.size - 1)).toBe(true); // 0..size-1 stays live
   });
 });
 
@@ -457,40 +508,42 @@ describe('spend side effects', () => {
   });
 });
 
-// ---------- wire privacy: pts/offer/pt/heal are self-private --------------------
+// ---------- wire privacy: pts/offer/pt/upg/bn are self-private ------------------
 
-describe('wire privacy — banked points never leak', () => {
-  it("own frame: pts counts the queue, offer is the FRONT offer as valid UPGRADE_IDS indices", () => {
+describe('wire privacy — banked levels never leak', () => {
+  it('own frame: pts counts the queue, offer is the FRONT offer as resolvable BOON IDS', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.step();
     bank(w, a, 2);
     const f = buildFrame(w, 'a');
     expect(f.you!.pts).toBe(2);
-    expect(f.you!.offer).toHaveLength(3);
-    for (const idx of f.you!.offer) {
-      expect(Number.isInteger(idx)).toBe(true);
-      expect(idx).toBeGreaterThanOrEqual(0);
-      expect(idx).toBeLessThan(UPGRADE_IDS.length);
+    expect(f.you!.offer).toHaveLength(CONFIG.offer.size);
+    for (const id of f.you!.offer) {
+      expect(typeof id).toBe('string');
+      expect(Object.hasOwn(BOON_CATALOG, id)).toBe(true);
     }
-    expect(f.you!.offer.map((i) => UPGRADE_IDS[i])).toEqual([...a.offers[0]]);
+    expect(f.you!.offer).toEqual([...a.offers[0]]);
   });
 
-  it("another ship's frame carries no pt/upg events, and its contacts carry no pts/offer", () => {
+  it("another ship's frame carries no pt/upg/bn events, and its contacts carry no pts/offer", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 100, 0); // inside a's AND b's sight — b sees a as a contact
     w.step();
     bank(w, a, 2);
     expect(w.spendPoint('a', 0)).toBe(true);
-    w.step(); // pt (earn) + upg (spend) events flush this tick
+    w.step(); // pt (earn) + bn (spend) events flush this tick
     const fb = buildFrame(w, 'b');
     expect(ptsOf(fb.events)).toEqual([]);
     expect(upgsOf(fb.events)).toEqual([]);
+    expect(bnsOf(fb.events)).toEqual([]);
+    expect(bnsOf(buildFrame(w, 'a').events)).toHaveLength(1); // the spender DOES get it
     const contact = fb.contacts.find((c) => c.id === 'a')!;
     expect(contact).toBeDefined();
     expect('pts' in contact).toBe(false);
     expect('offer' in contact).toBe(false);
+    expect('boons' in contact).toBe(false);
     // Story 2.6: level and XP progress are self-private on exactly the same
     // terms — never on a contact, and b's own `you` reports B's economy only.
     expect('lvl' in contact).toBe(false);

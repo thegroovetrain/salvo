@@ -433,6 +433,56 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE REFIT BAND (Story 2.7) — the four-card offer row (UX-DR14 geometry,
+   * TAB semantics per amendment 1). Pure chrome/feel knobs: the gameplay-
+   * authoritative card COUNT lives in shared `CONFIG.offer.size` (it bounds the
+   * server's accepted choice), and everything here only decides how those cards
+   * are drawn. The layout itself is the pure `refitBandLayout()` in
+   * ui/upgradeMenu.ts — DOM positions derive from it, and the layout tests
+   * measure it (never CSS).
+   */
+  refit: {
+    /** Card width (px) — the ratified 216 (UX-DR14). */
+    card: 216,
+    /** Card height (px). Holds the top-down anatomy: key chip / category tag
+     *  (14px) / boon name (20px) / description (17px, up to three lines). */
+    cardHeight: 156,
+    /** Gap (px) between cards. Four 216s + three 20s = a 924px row that never
+     *  wraps at the 1366×768 floor or the 1280×614 logical floor (125% tier). */
+    gap: 20,
+    /** Card inner padding (px). */
+    pad: 14,
+    /**
+     * Band anchor: the row's TOP edge as a fraction of viewport height. ~58% is
+     * the BELOW-CENTER keep-out proxy — the listening ring (UX-DR18) does not
+     * exist yet (Epic 4/6), so the honest constraint today is "own hull at
+     * screen center stays clear". When the ring ships, this fraction becomes
+     * the ring's outer-radius contract and moves with it.
+     */
+    bandTopFrac: 0.58,
+    /** Queue pips: 8px squares, gap, and the pip row's baseline above the cards. */
+    pip: 8,
+    pipGap: 6,
+    pipsAbove: 18,
+    /** Key-chip square (px) — ONE family with the hotbar/helm chips (22). It
+     *  OVERHANGS the card's top-left corner by half its size. */
+    keyChip: 22,
+    /** Type sizes (px) — the amendment-15 lift applied to the card anatomy
+     *  (the stale 9px category / 11.5px description registers are superseded). */
+    categorySize: 14,
+    nameSize: 20,
+    descSize: 17,
+    /** Dashed ghost edge behind the row when more offers are queued (px). */
+    ghostOffset: 6,
+    /** Alpha the cards dim to while a spend is in flight (locked). */
+    lockedAlpha: 0.38,
+    /** Denied edge pulse on the PICKED card: the ratified 80ms one-shot with a
+     *  300ms same-source floor (the deniedFire grammar, reused verbatim). */
+    deniedPulseMs: 80,
+    deniedFloorMs: 300,
+  },
+
+  /**
    * Settings & accessibility (Story 2.3). Everything here is a CLIENT-ONLY feel
    * / chrome knob: no setting ever travels on the wire, and none of these values
    * is gameplay-authoritative. The persisted VALUES live in localStorage

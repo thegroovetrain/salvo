@@ -115,16 +115,16 @@ export interface PongMsg {
 }
 
 /**
- * Client -> server spend ("u"): consume one banked point. `choice` is 0..2 for
- * the current offer's slot (see OwnShip.offer / UpgradeOffer). Deliberately a
- * DISCRETE reliable message, NOT a field on the per-tick InputMsg: the
+ * Client -> server spend ("u"): consume one banked level. `choice` is 0..3 for
+ * the current offer's slot (see OwnShip.offer / BoonOffer — Story 2.7 grew the
+ * offer to four boon cards, so digit 4 is live). Deliberately a DISCRETE
+ * reliable message, NOT a field on the per-tick InputMsg: the
  * latest-input-wins coalescing there would silently drop back-to-back spends
- * (two quick kills → two spends). The interregnum REPAIR/heal spend
- * (HEAL_CHOICE = 3) was deleted end-to-end in Story 2.1 (Eric ruling
- * 2026-07-24, "1-4 cards, no repair"); any out-of-range choice is rejected.
+ * (two quick kills → two spends). The server bound is the FRONT offer's actual
+ * length, so an out-of-range choice is always rejected with the level intact.
  */
 export interface SpendMsg {
-  choice: number; // 0..2 = offer slot
+  choice: number; // 0..3 = offer slot (bounded by the front offer's length)
 }
 
 /**
@@ -179,11 +179,14 @@ export interface OwnShip {
    */
   pts: number;
   /**
-   * The FRONT queued offer, as indices into UPGRADE_IDS (three distinct
-   * categories; see sim/offers.ts). `[]` when pts is 0. Only the front offer is
-   * ever surfaced — the rest of the queue never leaves the server.
+   * The FRONT queued offer, as BOON IDS (Story 2.7 — four distinct catalog
+   * categories; see sim/offers.ts rollBoonOffer). `[]` when pts is 0. Only the
+   * front offer is ever surfaced — the rest of the queue never leaves the
+   * server. Self-private like `pts`: it rides `you` and NOTHING else. The
+   * client resolves each id against the shared BOON_CATALOG and drops the WHOLE
+   * view on an unresolvable id (row k must stay server slot k).
    */
-  offer: number[];
+  offer: string[];
   /**
    * ms — server-clock time the active speed-boost window ends (Story 1.6);
    * `0` = inactive. The boost is live while `serverNow < boostUntil`, driving
@@ -361,6 +364,20 @@ export interface PointEvent {
 }
 
 /**
+ * A boon FITTED by spending a banked level (Story 2.7). SELF-PRIVATE: `id` is
+ * the spending ship's id and perception forwards the event ONLY to that
+ * observer — the same gate as `upg`/`pt`, so an enemy build never rides another
+ * observer's frame. Queued by World.spendPoint (NOT by applyBoon, which stays
+ * event-free so directed grants make no UX noise). Purely UX (fitted toast +
+ * tone): the authoritative boon list self-syncs every frame via OwnShip.boons.
+ */
+export interface BoonFitEvent {
+  k: 'bn';
+  id: string; // the spender (= the only observer this is ever delivered to)
+  boon: string; // the fitted boon's catalog id
+}
+
+/**
  * A mine visible to this viewer, synced as CONTACT-LIKE state (not an event):
  * FrameMsg.mines is recomputed per observer every tick, exactly like contacts.
  * Owner sees ALL own mines always; others see a mine only when it is within
@@ -474,7 +491,8 @@ export type GameEvent =
   | SunkEvent
   | SpawnEvent
   | UpgradeEvent
-  | PointEvent;
+  | PointEvent
+  | BoonFitEvent;
 
 /**
  * Server -> client per-tick frame ("f"). Built per client by buildFrame().

@@ -3,6 +3,17 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  15: offers — roll, bank, spend (Story 2.7) — the offer flow goes fully
+ *  boon-typed. `OwnShip.offer` RE-TYPES from UPGRADE_IDS indices (number[]) to
+ *  BOON IDS (string[]) and grows from 3 entries to `CONFIG.offer.size` (4,
+ *  a new welcome-config block); `SpendMsg.choice` is therefore 0..3, bounded
+ *  server-side by the front offer's actual length. New self-private
+ *  `bn` GameEvent ({k,id,boon} — a boon FITTED by a spend), riding `you`'s
+ *  observer only, exactly like `upg`/`pt`. BOON_CATALOG ships its interim
+ *  DUMMY content (10 stat-only boons across 5 categories, amendment 35) — and
+ *  per the convention below, catalog content alone is a wire break. The legacy
+ *  `upg` event and OwnShip.upg stay on the wire but are production-unreachable
+ *  (nothing rolls or spends an upgrade any more); they die in 2.8.
  *  14: XP tick & kill bonuses (Story 2.6) — OwnShip gains required
  *  self-private `lvl` (integer levels completed) and `xp` (0..1 progress
  *  toward the next level), riding `you` and nothing else (the upg/pts/boons
@@ -63,7 +74,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 14;
+export const PROTOCOL_VERSION = 15;
 
 // Tunables
 export * from './constants.js';

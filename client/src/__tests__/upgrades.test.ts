@@ -77,8 +77,13 @@ describe('ownStatsChanged — the recompute gate', () => {
   });
 
   it('IGNORES pts/offer-only deltas — banking a point must not fire the stats/fog recompute', () => {
-    const prev = { ...ownShip('torpedoBoat', zeroUpgrades()), pts: 0, offer: [] as number[] };
-    const next = { ...ownShip('torpedoBoat', zeroUpgrades()), pts: 2, offer: [3, 6, 10] };
+    const prev = { ...ownShip('torpedoBoat', zeroUpgrades()), pts: 0, offer: [] as string[] };
+    // Story 2.7: the offer is BOON IDS now — still not a stats input.
+    const next = {
+      ...ownShip('torpedoBoat', zeroUpgrades()),
+      pts: 2,
+      offer: ['reinforcedBulkheads', 'forcedDraught', 'rangefinderCrew', 'highGainAntenna'],
+    };
     expect(ownStatsChanged(next, prev)).toBe(false);
   });
 
@@ -88,7 +93,7 @@ describe('ownStatsChanged — the recompute gate', () => {
     const prev = { ...ownShip('torpedoBoat', zeroUpgrades()), lvl: 0, xp: 0.25 };
     expect(ownStatsChanged({ ...prev, xp: 0.2508333 }, prev)).toBe(false);
     // ...and a LEVEL UP is not a stat change either: the build only moves when
-    // the point is SPENT (which lands as an `upg` count change, pinned above).
+    // the level is SPENT (which lands as a `boons` change, pinned below).
     expect(ownStatsChanged({ ...prev, lvl: 1, xp: 0, pts: 1 }, prev)).toBe(false);
   });
 

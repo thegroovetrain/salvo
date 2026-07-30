@@ -13,6 +13,7 @@ import {
   hullEnvelope,
   type BallisticEvent,
   type BoomEvent,
+  type BoonFitEvent,
   type BurstEvent,
   type DamageEvent,
   type DeniedView,
@@ -41,6 +42,7 @@ import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { killLine, pushKillLine } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast, upgradeLabel } from '../ui/upgradeToast.js';
+import { boonFitToastLine } from '../ui/boonCopy.js';
 import { fireTone, type ToneId } from '../audio/tones.js';
 
 /**
@@ -136,6 +138,17 @@ export interface RoomBindingDeps {
    * and the modal share one edge.
    */
   onSunkObserved: (victimId: string, killerId: string | null) => void;
+  /**
+   * The self-private `bn` (boon fitted) event for the local captain arrived —
+   * the server's RECEIPT for a spend (Story 2.7). main.ts marks the spend latch
+   * acked, which releases it as a 'success' no matter what `pts`/the front offer
+   * look like: a passive bank landing in the same frame as a coincidentally
+   * identical re-roll can hide both of those signals, and the latch would then
+   * time out and fire the denied pulse on a spend that demonstrably LANDED (the
+   * ◆ FITTED toast this same event pushes). Net calls a callback; it never
+   * reaches into main (one-way data flow).
+   */
+  onSpendAck: () => void;
   /** Fired ONCE when the first spec frame arrives (enter spectate mode). */
   onSpectate: () => void;
   /** The one end-of-match results broadcast. */
@@ -303,29 +316,69 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
     case 'burst': handleBurst(e, deps); return;
     case 'dmg': handleDamage(e, deps); return;
   }
-  handleRewardEvent(e, deps);
+  handleRewardEvent(e, f, deps);
 }
 
-/** Killer/self-private reward events: upgrade grant, banked point. (The
- *  'heal' event left the wire with the REPAIR spend — Story 2.1, PV 12.) */
-function handleRewardEvent(e: GameEvent, deps: RoomBindingDeps): void {
+/** Self-private reward events: the (interregnum) upgrade grant, the banked
+ *  level, and the fitted boon. (The 'heal' event left the wire with the REPAIR
+ *  spend — Story 2.1, PV 12.) */
+function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   switch (e.k) {
     case 'upg': handleUpgrade(e, deps); return;
-    case 'pt': handlePoint(e, deps); return;
+    case 'pt': handlePoint(e, f, deps); return;
+    case 'bn': handleBoonFit(e, deps); return;
   }
 }
 
 /**
- * A kill banked an upgrade point: prompt toast + a bright "point" ping. Like
- * `upg`/`dmg`, `pt` is self-private (perception.ts forwards it only to the
- * earner), so the id check is defensive, not load-bearing. The authoritative
- * bank count rides OwnShip.pts — this is UX only, and must NOT touch the
- * effectiveStats/fog recompute path (see ownStatsChanged).
+ * Pure: is the captain who owns this frame dead or spectating? A SPECTATOR
+ * frame (dead-in-active, or the finished phase) omits `you` entirely, and a
+ * dead-in-waiting captain's `you` reports `alive: false`. Either way there is no
+ * live hull to refit.
  */
-function handlePoint(e: PointEvent, deps: RoomBindingDeps): void {
+export function frameIsDeadOrSpectating(f: FrameMsg): boolean {
+  return !f.you || !f.you.alive;
+}
+
+/**
+ * A level banked: prompt toast + a bright "point" ping. Like `upg`/`dmg`, `pt`
+ * is self-private (perception.ts forwards it only to the earner), so the id
+ * check is defensive, not load-bearing. The authoritative bank count rides
+ * OwnShip.pts — this is UX only, and must NOT touch the effectiveStats/fog
+ * recompute path (see ownStatsChanged).
+ *
+ * AMENDMENT 37: a DEAD/SPECTATING captain gets NO level-up toast. A posthumous
+ * kill still banks the level server-side (ratified 2.6 behavior, unchanged), but
+ * "LEVEL UP — TAB TO REFIT" is a lie to a corpse: there is no refit surface
+ * while spectating. Suppressed entirely — tone included, since every audio cue
+ * must have a visual twin.
+ */
+function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
+  if (frameIsDeadOrSpectating(f)) return;
   pushUpgradeToast(pointToastLine());
   deps.audio.play('point');
+}
+
+/**
+ * A banked level was SPENT and a boon fitted (Story 2.7): the fitted toast on
+ * the existing upgrade-toast surface (UX-DR23 — self events only) plus the
+ * existing upgrade tone. `bn` is self-private (perception forwards it only to
+ * the spender), so the id check is defensive, not load-bearing. Deliberately
+ * NOT dead-gated: spending while dead is legal (ratified 2.6/2.7), and the
+ * confirmation that the spend landed is exactly what the player needs.
+ * The authoritative boon list rides OwnShip.boons (onOwnStats); this is UX.
+ *
+ * It is ALSO the spend latch's ack (deps.onSpendAck — see the dep's note): the
+ * one unambiguous "your spend landed" signal on the wire, where every other
+ * release clause is an inference off `you` that a same-frame passive bank can
+ * mask.
+ */
+function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
+  if (e.id !== deps.state.net.sessionId) return;
+  pushUpgradeToast(boonFitToastLine(e.boon));
+  deps.audio.play('upgrade');
+  deps.onSpendAck();
 }
 
 /**

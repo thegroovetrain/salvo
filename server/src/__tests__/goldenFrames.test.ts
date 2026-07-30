@@ -1,7 +1,7 @@
 // GOLDEN FRAMES — the byte-identity gate for the perception refactor (Story
 // 1.1). A deterministic seeded scenario drives world.step() through every
 // signal channel — all 10 GameEvent kinds (blip, shell, torp, boom, burst,
-// dmg, sunk, spawn, upg, pt) plus the contact and mine channels and a spectator
+// dmg, sunk, spawn, upg, pt, bn) plus the contact and mine channels and a spectator
 // frame — and JSON.stringify's each frame buildFrame() produces (JSON key
 // insertion order == msgpack key order, which is load-bearing on the wire).
 // The serialized array is committed as a Vitest snapshot: the later refactor of
@@ -36,11 +36,12 @@ const SIGHT = CONFIG.vision.sight;
 // by the first post-step window [0, δ).
 const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 
-// The full set of channels the fixture MUST exercise: the 10 GameEvent kinds
-// (Story 2.1 deleted 'heal' from the wire with the REPAIR spend) plus the four
-// contact-like channels (contact/mine/litzone/decoy) and the spectator frame.
+// The full set of channels the fixture MUST exercise: the 11 GameEvent kinds
+// (Story 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added the
+// self-private 'bn' boon-fit event) plus the four contact-like channels
+// (contact/mine/litzone/decoy) and the spectator frame.
 const EXPECTED_CHANNELS = [
-  'blip', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'litzone', 'mine',
+  'blip', 'bn', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'litzone', 'mine',
   'pt', 'shell', 'spawn', 'spec', 'sunk', 'torp', 'upg',
 ];
 
@@ -203,20 +204,25 @@ function scnCombat(g: Golden): void {
   cap(g, w, 'b'); // boom + dmg + sunk (victim)
 }
 
-/** upg + pt — both self-private, delivered only to the acting ship. (The
- *  'heal' event left the wire with the REPAIR spend — Story 2.1, PV 12; a
- *  hostile {choice: 3} is pinned rejected here so the fixture proves the
- *  post-heal wire.) */
+/** upg + pt + bn — all three self-private, delivered only to the acting ship.
+ *  ('heal' left the wire with the REPAIR spend — Story 2.1, PV 12. Story 2.7:
+ *  the fourth card is now a LEGAL spend, so {choice: 3} is exercised as a real
+ *  boon fit — it emits `bn` and heals nothing even though `a` is damaged. The
+ *  legacy `upg` event is driven by a DIRECT applyUpgrade call: it is
+ *  production-unreachable as of 2.7 and dies with the 2.8 strip, but the wire
+ *  row is still pinned here byte-for-byte until then.) */
 function scnUpgPt(g: Golden): void {
   const w = bareWorld(1003);
   const a = place(w, 'a', 0, 0);
-  place(w, 'b', 400, 0); // far (out of a's sight); sunk to bank a a point
+  place(w, 'b', 400, 0); // far (out of a's sight); sunk to bank a a level
   w.sinkShip('b', 'a'); // sunk(b) + pt(a)
-  a.hp -= 30; // damaged — the old heal would have been acceptable here
-  w.applyUpgrade(a, 'radarRange'); // upg(a)
-  expect(w.spendPoint('a', 3)).toBe(false); // the deleted HEAL_CHOICE — rejected, nothing emitted
+  a.hp -= 30; // damaged — no spend of any kind may restore this
+  w.applyUpgrade(a, 'radarRange'); // upg(a) — interregnum, direct call only
+  const hpBefore = a.hp;
+  expect(w.spendPoint('a', 3)).toBe(true); // the fourth card — bn(a)
+  expect(a.hp).toBe(hpBefore); // amendment 35: a spend never heals
   w.step();
-  cap(g, w, 'a'); // spawn(a) + pt + upg (b's spawn/sunk are out of sight)
+  cap(g, w, 'a'); // spawn(a) + pt + upg + bn (b's spawn/sunk are out of sight)
 }
 
 /** mine channel: own mine always, enemy mine in sight, enemy mine in fog hidden. */

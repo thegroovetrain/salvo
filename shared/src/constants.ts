@@ -356,6 +356,18 @@ export const CONFIG = {
     },
   },
 
+  /**
+   * OFFERS (Story 2.7) — the shape of the pre-rolled offer a banked level
+   * carries. `size` is the ratified card count (4 boons from 4 DISTINCT
+   * categories, UX-DR14 / FR19); it is gameplay-authoritative (it bounds the
+   * server's accepted `SpendMsg.choice` and the client's digit picks), so it
+   * lives here and not in CLIENT_CONFIG. A catalog with fewer categories than
+   * `size` rolls a shorter offer rather than throwing (sim/offers.ts).
+   */
+  offer: {
+    size: 4, // boons per offer, each from a distinct BOON_CATALOG category
+  },
+
   /** Storm circle / battle-royale zone. */
   zone: {
     grace: 45000, // ms — full radius before shrink begins
@@ -528,8 +540,9 @@ export const UPGRADE_IDS = [
 /** One of the 14 upgrade type ids (see UPGRADE_IDS / CONFIG.upgrades). */
 export type UpgradeId = (typeof UPGRADE_IDS)[number];
 
-/** Ordered upgrade CATEGORY ids. Category order feeds the deterministic offer
- *  roll (see sim/offers.ts), so — like UPGRADE_IDS — this is append-only. */
+/** Ordered upgrade CATEGORY ids. Legacy: these categorized the upgrade OFFER
+ *  roll until Story 2.7 moved offers onto boon categories (sim/offers.ts).
+ *  Kept with UPGRADE_IDS until 2.8's wholesale strip. */
 export const UPGRADE_CATEGORY_IDS = ['ship', 'intel', 'guns', 'torpedoes', 'mines'] as const;
 
 /** One of the 5 upgrade category ids (see UPGRADE_CATEGORIES). */
@@ -538,8 +551,9 @@ export type UpgradeCategoryId = (typeof UPGRADE_CATEGORY_IDS)[number];
 /**
  * Category → its member upgrade ids. PARTITIONS UPGRADE_IDS EXACTLY: every id
  * appears in exactly one category and the union is all 14 (guarded by
- * offers.test.ts, which forces a future 15th upgrade to be categorized). The
- * per-category id order also feeds the deterministic offer roll — append-only.
+ * offers.test.ts, which forces a future 15th upgrade to be categorized).
+ * No longer feeds any roll (Story 2.7 moved offers onto boon categories);
+ * retained with UPGRADE_IDS until 2.8's wholesale strip.
  */
 export const UPGRADE_CATEGORIES: Record<UpgradeCategoryId, readonly UpgradeId[]> = {
   ship: ['hullPoints', 'maxSpeed'],

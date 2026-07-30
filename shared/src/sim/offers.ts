@@ -1,72 +1,71 @@
-// Upgrade OFFER rolls — the pure, deterministic core of the spend economy.
-// A banked point carries a pre-rolled offer of three upgrades from three
-// DISTINCT categories. rollOffer is called at point-EARN time on the server's
-// decorrelated upgrade stream and the result is queued (ShipRecord.offers), so
-// reopening the spend window can NEVER reroll an offer. Style-matched to
-// sim/stats.ts: no I/O, allocation-fresh, one build-once reverse map.
+// BOON OFFER rolls — the pure, deterministic core of the spend economy.
+// A banked level carries a pre-rolled offer of CONFIG.offer.size boons from
+// that many DISTINCT categories. rollBoonOffer is called at level-EARN time on
+// the server's decorrelated upgrade stream and the result is queued
+// (ShipRecord.offers), so reopening the refit window can NEVER reroll an offer.
+// Style-matched to sim/stats.ts: no I/O, allocation-fresh, catalog-parameterized.
+//
+// Story 2.7 (amendment 35) re-typed the offer from legacy upgrade ids to BOON
+// ids: the 14 legacy upgrades left the offer flow entirely (rollOffer /
+// UpgradeOffer / OFFER_EXCLUDED_IDS / offerableIds / categoryOf are gone with
+// it). UPGRADE_IDS / UPGRADE_CATEGORIES survive in constants.ts because the
+// upgrade COUNTS array is still wire contract and effectiveStats still folds
+// it; both die in 2.8's wholesale strip.
 
-import {
-  UPGRADE_CATEGORIES,
-  UPGRADE_CATEGORY_IDS,
-  type UpgradeCategoryId,
-  type UpgradeId,
-} from '../constants.js';
+import { CONFIG } from '../constants.js';
+import { BOON_CATALOG, type BoonCatalog, type BoonCategory, type BoonId } from './boons.js';
 import type { Rng } from '../math/rng.js';
 
-/** A pre-rolled offer: three upgrade ids, one from each of three distinct categories. */
-export type UpgradeOffer = readonly [UpgradeId, UpgradeId, UpgradeId];
+/** A pre-rolled offer: boon ids, one from each of N distinct categories.
+ *  Length is `min(CONFIG.offer.size, distinct catalog categories)` — 4 against
+ *  the production catalog, fewer only against a small injected test catalog. */
+export type BoonOffer = readonly BoonId[];
 
 /**
- * Upgrade ids kept in UPGRADE_IDS for wire stability (the counts array is
- * append-only) but NEVER offered. Interregnum (Story 1.4): gunAmmo is
- * neutralized — the single-shot gun pins maxAmmo to 1 in effectiveStats — so
- * offering it would be a dead pick. The guns category therefore offers
- * gunRange + gunReload only. Dies with the legacy economy in Epic 2.
+ * The catalog's categories in ITERATION (insertion) order, each with its member
+ * ids in the same order. Deterministic by construction: `Object.keys` returns
+ * own string keys in insertion order, so the same catalog always yields the
+ * same category list and the same per-category member order — which is what
+ * makes a seeded roll reproducible across processes.
  */
-export const OFFER_EXCLUDED_IDS: readonly UpgradeId[] = ['gunAmmo'];
-
-/** The offerable ids of one category (UPGRADE_CATEGORIES minus exclusions), built once. */
-const OFFERABLE: Readonly<Record<UpgradeCategoryId, readonly UpgradeId[]>> = (() => {
-  const out = {} as Record<UpgradeCategoryId, readonly UpgradeId[]>;
-  for (const cat of UPGRADE_CATEGORY_IDS) {
-    out[cat] = UPGRADE_CATEGORIES[cat].filter((id) => !OFFER_EXCLUDED_IDS.includes(id));
+function categoryIndex(catalog: BoonCatalog): { cats: BoonCategory[]; members: Map<BoonCategory, BoonId[]> } {
+  const cats: BoonCategory[] = [];
+  const members = new Map<BoonCategory, BoonId[]>();
+  for (const id of Object.keys(catalog)) {
+    const def = catalog[id];
+    if (def === undefined) continue; // defensive: a hole can never be offered
+    const bucket = members.get(def.category);
+    if (bucket === undefined) {
+      cats.push(def.category);
+      members.set(def.category, [id]);
+    } else {
+      bucket.push(id);
+    }
   }
-  return out;
-})();
-
-/** The offerable upgrade ids of a category (its members minus OFFER_EXCLUDED_IDS). */
-export function offerableIds(cat: UpgradeCategoryId): readonly UpgradeId[] {
-  return OFFERABLE[cat];
+  return { cats, members };
 }
 
 /**
- * Roll one offer from `rng`. Picks 3 DISTINCT categories via a partial
- * Fisher–Yates over a copy of UPGRADE_CATEGORY_IDS (rng.int), then one uniform
- * id within each category's OFFERABLE members (rng.pick). Deterministic per
- * rng state — the same stream position always yields the same offer, which is
- * what lets the server roll once at earn-time and queue the result.
+ * Roll one offer from `rng` against `catalog`. Picks `min(CONFIG.offer.size,
+ * categoryCount)` DISTINCT categories via a partial Fisher–Yates prefix over a
+ * copy of the category list (rng.int), then one uniform id within each chosen
+ * category (rng.pick). Deterministic per rng state — the same stream position
+ * always yields the same offer, which is what lets the server roll once at
+ * earn-time and queue the result.
+ *
+ * NEVER THROWS (sim purity + fail-safe): an empty catalog rolls an empty offer,
+ * and a catalog with fewer categories than `CONFIG.offer.size` rolls a shorter
+ * one. The refit window renders exactly as many cards as the offer carries, so
+ * a short offer degrades instead of crashing a live match.
  */
-export function rollOffer(rng: Rng): UpgradeOffer {
-  const cats = [...UPGRADE_CATEGORY_IDS];
-  const picked: UpgradeId[] = [];
-  for (let i = 0; i < 3; i += 1) {
+export function rollBoonOffer(rng: Rng, catalog: BoonCatalog = BOON_CATALOG): BoonOffer {
+  const { cats, members } = categoryIndex(catalog);
+  const n = Math.min(CONFIG.offer.size, cats.length);
+  const picked: BoonId[] = [];
+  for (let i = 0; i < n; i += 1) {
     const j = rng.int(i, cats.length - 1); // swap in a uniform pick from the unshuffled tail
     [cats[i], cats[j]] = [cats[j], cats[i]];
-    picked.push(rng.pick(OFFERABLE[cats[i]]));
+    picked.push(rng.pick(members.get(cats[i])!));
   }
-  return [picked[0], picked[1], picked[2]];
-}
-
-/** UpgradeId → its category (reverse of UPGRADE_CATEGORIES, built once). */
-const CATEGORY_OF: Readonly<Record<UpgradeId, UpgradeCategoryId>> = (() => {
-  const out = {} as Record<UpgradeId, UpgradeCategoryId>;
-  for (const cat of UPGRADE_CATEGORY_IDS) {
-    for (const id of UPGRADE_CATEGORIES[cat]) out[id] = cat;
-  }
-  return out;
-})();
-
-/** Which category an upgrade id belongs to (reverse lookup). */
-export function categoryOf(id: UpgradeId): UpgradeCategoryId {
-  return CATEGORY_OF[id];
+  return picked;
 }
