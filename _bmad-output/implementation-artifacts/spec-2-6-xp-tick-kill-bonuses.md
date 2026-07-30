@@ -2,7 +2,7 @@
 title: 'Story 2.6: XP Tick & Kill Bonuses'
 type: 'feature'
 created: '2026-07-30'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '7529784'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -84,8 +84,8 @@ warnings: [oversized]
 - [x] `server/src/game/frames.ts` -- self-private copy -- information discipline
 - [x] `client/src/render/xpRail.ts` (NEW) + `hud.ts` + `main.ts` + `ui/upgradeToast.ts` -- satellites in, PTS line out, toast copy -- amendments 27/33
 - [x] Server/shared/client test suites incl. full I/O matrix -- pins reworked deliberately, none deleted silently
-- [ ] Bookkeeping files -- per-PR protocol (orchestrator finalizes sprint-status / gds-workflow-status)
-- [x] `npm run check` -- full gate green (1829 -> 1882)
+- [x] Bookkeeping files -- per-PR protocol (sprint-status 2-6 done, gds-workflow-status advanced, deferred-work entry)
+- [x] `npm run check` -- full gate green (1829 -> 1882 -> 1894 after the review patch round)
 
 **Acceptance Criteria:**
 - Given a live active match, when 60 seconds pass with no kills, then every alive human banks exactly one level (offer rolled, `pt` fired) and drones bank nothing.
@@ -98,6 +98,22 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-07-30 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 0, medium 1, low 5)
+- defer: 1: (low 1)
+- reject: 2: (low 2)
+- addressed_findings:
+  - `[medium]` `[patch]` Spend-latch early release (Codex, orchestrator-CONFIRMED against the code): the latch cleared on ANY pts/offer signature change, so a passive bank landing mid-flight (pts+1, front offer unchanged — banks append to the back) re-enabled the modal while a spend was still in flight, re-opening the exact double-spend-against-shifted-FIFO hazard the latch exists to prevent (routine under 2.6's timed banking; kill-only before). Fixed with a ratified predicate extracted as a pure helper (`spendLatchReleased`): release on you-gone, pts DROP, FRONT-offer change, or timeout — a bank now HOLDS the latch; degraded edge (simultaneous bank cancels the drop + identically-rolled next offer → holds till the 1.5s timeout) documented as fail-safe. 7 regression tests; the hold-through-bank test shown to fail under the old semantics.
+  - `[low]` `[patch]` Non-finite XP guard (both Fable hunters independently): `grantXp(NaN)` passed the `<= 0` guard and poisoned `xpMs` forever (Infinity would spin the bank loop). Both entry points now fail closed on `!Number.isFinite`; regression test proven to fail without the guard.
+  - `[low]` `[patch]` Transient pose-gap hide re-armed a decayed chip (both Fable hunters independently): the P-toggle forceSnap branch called the full `hide()`, resetting chip state so the next frame re-armed a fresh 10s breathing window — an unintended fourth re-arm trigger. New state-preserving `hideTransient()` used in the pose-gap branch only; death/spectate keep the full reset (next life cold, ratified).
+  - `[low]` `[patch]` Chip label overflow (both hunters): `▲12` overflowed the fixed 22px chip square; counts above 9 now render `▲9+`.
+  - `[low]` `[patch]` Refit-modal title vocabulary (Blind Hunter): `SPEND UPGRADE POINT — N BANKED` contradicted amendment 33 one keypress after the "LEVEL UP — TAB TO REFIT" cue; now `SPEND LEVEL — ×N` with a pin test.
+  - `[low]` `[patch]` Comment accuracy (Blind Hunter): the kill-credit comment claimed a phase-edge shell still pays — unproducible (damage gates off at the same applyPolicy seam); reworded to the real dead-killer-in-active rationale, matching test title updated.
+  - Deferred: dead-killer level-up toast advertises TAB while spectating, where the reward is unspendable (pre-existing shape; 2.7 owns the spend surface) → deferred-work.md 2026-07-30.
+  - Rejected: xp wire-precision quantization (wire is msgpack float64 — quantizing saves nothing; client already quantizes for render); Codex's first-active-tick under-award (traced: activation wipes progression at the boundary and accrual over active time is exact — independently verified by the Edge Case Hunter).
+
 ## Design Notes
 
 - `grantPoint` survives as the single bank primitive (offer roll + `pt` event + `pts === offers.length`); `grantXp` is the only caller besides tests. 2.7 then swaps `rollOffer` internals without touching the earn path — the cheapest seam, confirmed by investigation.
@@ -105,6 +121,20 @@ warnings: [oversized]
 - Drone tier rides the victim's existing `cls` hull id (`small`/`medium`/`large`, round-robined at fill, ArenaRoom.ts:401) — no new drone state.
 - Chip/tag/cue exact strings and micro-layout are draft placeholder copy under the standing draft-copy rule (amendment 13) — canon later; the satellites' geometry must stay inside the reserved gutter so the hud.test.ts no-overlap budget and hotbar water-pins hold.
 - Rail wrap on bank: fill simply drops to the new fraction; the chip pulse + toast + tone carry the moment (any extra one-shot flash must respect ≤80ms + motionIntensity; optional, not required).
+
+## Auto Run Result
+
+**Status:** done — implemented, Eric-ruled pre-implementation (amendments 31–34 via AskUserQuestion), adversarially reviewed (2 Fable hunters + Codex cross-model), 6 patches applied, gate green.
+
+**Summary:** Level-ups are now the only banking trigger. Server: an integer-ms XP accumulator on `ShipRecord` (`xpMs`/`level`) accrues `+dtMs` per 50ms tick while the match is active AND the ship is alive AND human (new `xpEnabled` policy flag set by Match on the same seam as `damageEnabled`; explicit step-order position after `processRespawns`); a kill adds `round(levelMs × value)` through `grantXp` — 1 full level for a human victim, the victim drone's size tier (droneSmall ¼ / droneMedium ⅓ / droneLarge ½, `CONFIG.xp.droneTierLevels`, the PvE tier hooks' first real consumer) otherwise — with fractions always carried and every threshold crossing banking through the unchanged `grantPoint` (`pts === offers.length` intact, offers stay legacy 3-card until 2.7). Drones never accrue (the ratified bugfix — the guard sits in the credit path itself). Redeploy wipes `xpMs`/`level`; respawn preserves. Wire: self-private `you.lvl` + `you.xp` (0..1), PV 13→14, `CONFIG.xp` rides the welcome snapshot. Client: new `render/xpRail.ts` satellites in the gutter 2.2 reserved — 3px rail on the HP-rail idiom, LV tag, amber `▲n` chip (breathing 2.4s → static after 10s, re-arming on new bank or TAB refit open, hidden at zero, motion-scaled under the 1.1 Hz cap), "LEVEL UP — TAB TO REFIT" cue line — while the bottom-right amber PTS readout is deleted (IN STORM reflows into its slot) and the toast becomes "▲ LEVEL UP — TAB TO REFIT". Tests 1829 → 1894.
+
+**Files changed:** shared — constants.ts (CONFIG.xp), types.ts (OwnShip.lvl/xp + anti-cheat comment), index.ts (PV 14 + changelog). server — game/world.ts (xpMs/level, xpEnabled, grantXp/addXpMs with non-finite guards, killXpLevels tier resolver, tickXp step, lifecycle semantics, comment accuracy), game/match.ts (applyPolicy xpEnabled), game/frames.ts (lvl/xp on `you`); NEW __tests__/xp.test.ts (23), upgrades/match/frames/denials/perception/spectator suites extended, goldenFrames regenerated (audited delta: `you` gains exactly `lvl`/`xp` as last keys; spectator rows unchanged). client — NEW render/xpRail.ts (+ hideTransient), render/hud.ts (PTS readout deleted, storm reflow), config.ts (xpRail block, ptsAbove retired), main.ts (satellite feed, TAB re-arm, latch rewiring), ui/upgradeMenu.ts (spendLatchReleased pure predicate + SPEND LEVEL — ×N title), ui/upgradeToast.ts (LEVEL UP copy); NEW __tests__/xpRail.test.ts (31), upgradeMenu/hud/upgrades suites extended. Bookkeeping — sprint-status 2-6 done, gds-workflow-status advanced (next_expected → create-story 2-7), deferred-work entry, amendments 31–34 recorded durably pre-implementation.
+
+**Review breakdown:** 6 patches (0 high, 1 medium, 5 low), 1 deferred, 2 rejected, 0 intent gaps, 0 bad-spec loopbacks. The medium (spend-latch early release on a mid-flight bank) was Codex's find, orchestrator-confirmed against the code before patching; the non-finite guard, chip overflow, and pose-gap re-arm were each flagged independently by both Fable hunters; Codex's other finding (first-active-tick under-award) was adjudicated wrong (activation wipes at the boundary; accrual over active time is exact) and rejected. Every behavioral patch carries a regression test proven to fail without the fix.
+
+**Verification:** `npm run check` run independently by the orchestrator after implementation AND after the patch round — lint 0 errors (2 pre-existing warnings), shared 313 / server 702 / client 879 = 1894 green. Implementation and patch diffs hand-reviewed hunk-by-hunk (accumulator + bank loop, tier resolver off the victim's hull id, policy-at-construction, frames self-private copy, latch predicate, hud deletion).
+
+**Residual risks / notes for Eric:** (1) XP values are declared handwaves — 2.10's batch-sim tuning pass owns the retune; the shape (flat cost, ~1/min floor, kill carry, drone tiers) is what's committed. (2) A dead killer still banks (ratified) but the level-up toast points at a spend surface that's hidden while spectating — ledgered for 2.7's spend-UX story. (3) The interim refit modal now says "SPEND LEVEL — ×N" and offers are still the legacy 3-card upgrades until 2.7/2.8 — a deliberate half-generation state. (4) The latch now HOLDS through a mid-flight bank (fail-safe: worst degraded case is a ≤1.5s modal lockout when a spend and a bank land the same instant with an identically-rolled next offer — vanishingly rare, and strictly better than the mis-spend it replaces).
 
 ## Verification
 

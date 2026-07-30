@@ -106,9 +106,13 @@ export function levelTag(lvl: number): string {
 }
 
 /** Pure: the banked-level chip's label ('' hides the chip at zero). The ▲ glyph
- *  is the SHAPE channel beside the count — never color alone. */
+ *  is the SHAPE channel beside the count — never color alone. The count is
+ *  CLAMPED at 9 (`▲9+` past it): the chip is a fixed square, and a two-digit
+ *  count would overflow it. Beyond 9 the exact number is not the information —
+ *  "more than you can spend in one sitting" is. */
 export function chipLabel(pts: number): string {
-  return pts > 0 ? `▲${pts}` : '';
+  if (pts <= 0) return '';
+  return pts > 9 ? '▲9+' : `▲${pts}`;
 }
 
 /** Pure: the cue line beside the chip ('' when nothing is banked). Draft copy
@@ -224,6 +228,19 @@ export class XpRail {
     this.root.visible = false;
     this.chip = XP_CHIP_IDLE;
     this.rearmPending = false;
+  }
+
+  /**
+   * Hidden for a TRANSIENT frame gap (the forceSnap/pose gap behind a respawn
+   * or the P netcode toggle) — visibility off, chip state KEPT. The reset in
+   * hide() is a fourth re-arm trigger by accident: dropping the state makes the
+   * very next frame look like a NEW bank to nextChipState, so a chip that had
+   * already decayed to static starts breathing again for a fresh window over a
+   * gap the player never saw. The three ratified re-arm triggers (a new bank, a
+   * TAB refit, an unarmed positive) stay the only ones.
+   */
+  hideTransient(): void {
+    this.root.visible = false;
   }
 
   /**

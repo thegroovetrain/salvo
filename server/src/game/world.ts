@@ -354,9 +354,13 @@ export class World {
    * stays Colyseus-free and phase-blind, and a standalone World (unit tests,
    * sandbox smokes) simply ticks XP like a live match.
    *
-   * KILL CREDIT IS NOT GATED BY THIS FLAG: ready-room kills are impossible
-   * anyway (damage is off), and a shell in flight past the phase edge should
-   * still pay its killer.
+   * KILL CREDIT IS NOT GATED BY THIS FLAG, and the reason is the DEAD KILLER,
+   * not the phase edge: within the active phase a mutual destruction must still
+   * pay the killer who died first (sinkShip's credit is deliberately not
+   * alive-gated), and routing that through an xp gate would be one more way to
+   * lose it. A sink ACROSS the phase edge is not the reason — it cannot happen:
+   * every attributed sink comes through the damage path, and `damageEnabled`
+   * flips off at the very same applyPolicy seam this flag does.
    */
   xpEnabled = true;
 
@@ -645,14 +649,16 @@ export class World {
    * The remainder always carries — no XP is ever snapped away (amendment 32).
    */
   grantXp(ship: ShipRecord, levels: number): void {
-    if (levels <= 0) return;
+    if (!Number.isFinite(levels) || levels <= 0) return;
     this.addXpMs(ship, Math.round(CONFIG.xp.levelMs * levels));
   }
 
   /** The raw ms form behind grantXp (and the passive tick's `+dtMs`): the drone
-   *  guard and the bank loop, in one place. */
+   *  guard and the bank loop, in one place. Both guards are FAIL-CLOSED on
+   *  non-finite input — a plain `<= 0` is false for NaN (which would poison
+   *  `xpMs` forever) and for Infinity (which would spin the bank loop). */
   private addXpMs(ship: ShipRecord, ms: number): void {
-    if (ship.isDrone || ms <= 0) return;
+    if (ship.isDrone || !Number.isFinite(ms) || ms <= 0) return;
     ship.xpMs += ms;
     while (ship.xpMs >= CONFIG.xp.levelMs) {
       ship.xpMs -= CONFIG.xp.levelMs;

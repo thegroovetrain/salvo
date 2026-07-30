@@ -62,7 +62,14 @@ import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from 
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
 import { KeyboardInput, slotHoldsAbility, type KeyboardHooks } from './input/keyboard.js';
-import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
+import {
+  UpgradeMenu,
+  frontOfferSignature,
+  offerView,
+  spendLatchReleased,
+  type OfferView,
+  type SpendLatch,
+} from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
 import { abilityPressDenied, shouldConsumePrime } from './sim/inputSampler.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
@@ -173,13 +180,14 @@ interface Game {
   uiScale: number;
   /**
    * FINDING A latch: set the instant a spend is sent, cleared once it visibly
-   * lands (pts drops) or a fallback timeout elapses (the server silently
-   * rejected it — so don't lock the player out forever). Guards against two
-   * rapid spends (digit 1 then digit 2, or two card clicks) within one
-   * server-tick+RTT both firing against the SAME (now-stale) front offer —
-   * see trySpend()/updateSpendLatch().
+   * lands (the bank shrinks or the offer queue shifts) or a fallback timeout
+   * elapses (the server silently rejected it — so don't lock the player out
+   * forever). Guards against two rapid spends (digit 1 then digit 2, or two
+   * card clicks) within one server-tick+RTT both firing against the SAME
+   * (now-stale) front offer — see trySpend()/updateSpendLatch() and the
+   * spendLatchReleased() predicate they share.
    */
-  spendInFlight: { pts: number; offerSig: string; at: number } | null;
+  spendInFlight: SpendLatch | null;
   /** Trailing-edge debounce handle for the fog re-bake after a user-zoom
    *  change (X/Z/wheel) — the zoom sibling of bindResize's local timer. */
   fogZoomTimer: ReturnType<typeof setTimeout> | null;
@@ -396,11 +404,6 @@ function ownStatus(g: Game): OwnStatus {
   };
 }
 
-/** How long the spend latch (below) holds before falling back open, in case the
- *  server silently rejected the spend (e.g. a heal that raced to full hp) —
- *  well past any real server-tick+RTT round trip, so it never masks a stuck UI. */
-const SPEND_LATCH_TIMEOUT_MS = 1500;
-
 /**
  * FINDING A: the single entry point for BOTH spend paths (digit picks via
  * handleRefitPick, and the UpgradeMenu card-click callback). Ignores a
@@ -408,36 +411,31 @@ const SPEND_LATCH_TIMEOUT_MS = 1500;
  * within one server-tick+RTT (digit 1 then digit 2, or two card clicks) both
  * read the SAME client-side front offer, and the second lands after the
  * server's FIFO shift and applies an upgrade the client never displayed.
- * Latched by banked points at send time; cleared by updateSpendLatch() once
- * the bank visibly shrinks or the fallback timeout elapses.
+ * Snapshots the banked count AND the front offer at send time (separately —
+ * see SpendLatch); cleared by updateSpendLatch() once the spend visibly lands
+ * or the fallback timeout elapses.
  */
 function trySpend(g: Game, choice: number): void {
   if (g.spendInFlight) return;
   const you = g.state.net.you;
   g.room.send(MSG.spend, { choice });
-  g.spendInFlight = { pts: you?.pts ?? 0, offerSig: offerSignature(you), at: performance.now() };
-}
-
-/** Snapshot of the front offer used to detect that the server queue moved. */
-function offerSignature(you: { pts: number; offer: number[] } | null | undefined): string {
-  return you ? `${you.pts}:${you.offer.join(',')}` : '';
+  g.spendInFlight = { pts: you?.pts ?? 0, offerSig: frontOfferSignature(you), at: performance.now() };
 }
 
 /**
- * Clear the spend latch once the spend visibly landed — the pts/offer snapshot
- * changed in ANY way (a pure pts-drop check misses a kill landing mid-flight,
- * which cancels the drop and would leave the menu locked until the timeout) —
- * or the fallback timeout elapsed (silently rejected — e.g. heal-at-full-hp —
- * so the player isn't locked out of spending forever). Called once per render
- * frame, same clock (`performance.now()`) the render loop already uses for the
- * denied-fire pulse — no new timer.
+ * Clear the spend latch once spendLatchReleased() says the spend visibly landed
+ * (the bank shrank, or the offer queue shifted), the own ship is gone, or the
+ * fallback timeout elapsed. A pts INCREASE with an unchanged front offer HOLDS
+ * the latch: Story 2.6's passive banking makes that routine mid-flight, and the
+ * old "changed in ANY way" check released on it — re-opening the very
+ * double-spend-against-a-shifted-FIFO hazard the latch exists to prevent.
+ * Called once per render frame, on the same clock (`performance.now()`) the
+ * render loop already uses for the denied-fire pulse — no new timer.
  */
 function updateSpendLatch(g: Game): void {
   const inFlight = g.spendInFlight;
   if (!inFlight) return;
-  const landed = offerSignature(g.state.net.you) !== inFlight.offerSig;
-  const expired = performance.now() - inFlight.at > SPEND_LATCH_TIMEOUT_MS;
-  if (landed || expired) g.spendInFlight = null;
+  if (spendLatchReleased(inFlight, g.state.net.you, performance.now())) g.spendInFlight = null;
 }
 
 /** The spend view for THIS frame (null = nothing to show → menu auto-hides). */
@@ -1665,7 +1663,11 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
     g.hotbar.hide(); // no frame renders here — the hotbar must not linger, nor route clicks
-    g.xpRail.hide(); // the economy satellites follow the hotbar's visibility exactly
+    // The economy satellites follow the hotbar's visibility exactly — but this
+    // gap is TRANSIENT (the pose returns next frame), so the chip's breathing
+    // state survives it: a full hide() would reset it and re-arm a decayed
+    // chip's 10s window off a gap the player never saw (see hideTransient).
+    g.xpRail.hideTransient();
   }
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;

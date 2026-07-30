@@ -120,7 +120,7 @@ describe('xpEnabled — the match-phase gate (amendment 34)', () => {
     expect(a.offers).toEqual([]);
   });
 
-  it('does NOT gate kill credit — a shell landing past the phase edge still pays', () => {
+  it('does NOT gate kill credit — sinkShip credits the killer even with xpEnabled off', () => {
     const w = bareWorld();
     const a = place(w, 'a');
     place(w, 'b', 100, 0);
@@ -265,6 +265,25 @@ describe('kill XP — value by victim, fraction always carried', () => {
     expect(a.xpMs).toBe(0);
     expect(a.level).toBe(0);
     expect(a.offers).toEqual([]);
+  });
+
+  // Fail-closed on non-finite: `<= 0` is FALSE for NaN, so a NaN slipped past
+  // the old guard and poisoned xpMs forever (every later comparison false, the
+  // rail dead); Infinity spun the bank loop. Both must be inert.
+  it('grantXp ignores NaN and Infinity (non-finite can neither poison xpMs nor spin the bank)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a');
+    a.xpMs = 1234; // a real, half-earned level in the bank
+    w.grantXp(a, NaN);
+    w.grantXp(a, Infinity);
+    w.grantXp(a, -Infinity);
+    expect(a.xpMs).toBe(1234); // untouched — not NaN, not overflowed
+    expect(a.level).toBe(0);
+    expect(a.offers).toEqual([]);
+    // ...and the ship still accrues normally afterwards (nothing was poisoned).
+    w.grantXp(a, 1);
+    expect(a.level).toBe(1);
+    expect(a.xpMs).toBe(1234);
   });
 });
 

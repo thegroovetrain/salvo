@@ -127,6 +127,15 @@ describe('tag / chip / cue copy — dual-coded, hidden at zero', () => {
     expect(chipLabel(4)).toBe('▲4');
   });
 
+  // The chip is a FIXED square (X.chip px): a two-digit count overflows it, so
+  // the label clamps at 9 rather than spilling past the box's border.
+  it('clamps the count at 9 — a hoarded bank renders ▲9+, never a two-digit overflow', () => {
+    expect(chipLabel(9)).toBe('▲9');
+    expect(chipLabel(10)).toBe('▲9+');
+    expect(chipLabel(42)).toBe('▲9+');
+    for (const pts of [10, 12, 99, 1000]) expect(chipLabel(pts).length).toBeLessThanOrEqual(3);
+  });
+
   it('the cue line appears WITH the chip and names the key + the action', () => {
     expect(cueLine(0)).toBe('');
     expect(cueLine(1)).toBe('LEVEL UP — TAB TO REFIT');
@@ -271,6 +280,35 @@ describe('XpRail shell — a live frame, a bank, and death', () => {
     expect(rail.chipState.armedAt).toBe(30);
     rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 31); // the signal is consumed
     expect(rail.chipState.armedAt).toBe(30);
+  });
+
+  // The forceSnap/pose gap (respawn, the P netcode toggle) hides the satellites
+  // for a frame or two. A full hide() there resets the chip state, so the very
+  // next frame reads as a NEW bank and re-arms a decayed chip's 10s breathing
+  // window — an unintended FOURTH re-arm trigger, off a gap nobody saw.
+  it('a TRANSIENT hide (pose gap) keeps the chip state: a decayed chip stays static', () => {
+    const { rail } = build();
+    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 0);
+    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 30); // decayed to static
+    expect(chipBreathing(rail.chipState, 30)).toBe(false);
+    rail.hideTransient();
+    expect(rail.visible).toBe(false);
+    expect(rail.chipState).toEqual({ pts: 1, armedAt: 0 }); // state survives the gap
+    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 31); // the pose returns
+    expect(rail.visible).toBe(true);
+    expect(chipBreathing(rail.chipState, 31)).toBe(false); // still static — no re-arm
+    expect(rail.chipFillAlpha).toBe(X.chipAlpha);
+  });
+
+  it('a FULL hide still starts the next life cold — a re-shown bank re-arms (pinned)', () => {
+    const { rail } = build();
+    rail.update({ lvl: 1, xp: 0, pts: 1 }, FLOOR.h, 0);
+    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 30); // decayed
+    rail.hide();
+    expect(rail.chipState).toEqual(XP_CHIP_IDLE);
+    rail.update({ lvl: 1, xp: 0.5, pts: 1 }, FLOOR.h, 31);
+    expect(rail.chipState).toEqual({ pts: 1, armedAt: 31 }); // fresh window
+    expect(chipBreathing(rail.chipState, 31)).toBe(true);
   });
 
   it('holds a STATIC chip at motion=off (the breath is motion, the chip is not)', () => {
