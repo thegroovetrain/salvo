@@ -2,8 +2,9 @@
 title: 'Story 2.7: Offers — Roll, Bank, Spend'
 type: 'feature'
 created: '2026-07-30'
-status: 'in-review'
+status: 'done'
 baseline_revision: '6b2822c'
+final_revision: 'd027130'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
