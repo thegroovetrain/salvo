@@ -1,6 +1,6 @@
 // Boon effect engine (Story 2.5) — the two-homes-plus-hooks law, proven on
-// locally-constructed TEST boons (the production BOON_CATALOG ships EMPTY and
-// is pinned so): all four effect kinds, the two-homes property (a stat-only
+// locally-constructed TEST boons (the production BOON_CATALOG ships Story 2.7's
+// interim DUMMY set, whose SHAPE is pinned below): all four effect kinds, the two-homes property (a stat-only
 // boon leaves the loadout untouched, a slot-only boon leaves stats
 // byte-identical), the slotFill/slotReplace silent no-op edges, fail-closed
 // resolve, list-order determinism, and the server-incremental vs
@@ -69,12 +69,52 @@ function flatten(stats: EffectiveStats): Map<string, number> {
 }
 
 // ---------------------------------------------------------------------------
-// The shipped catalog: EMPTY, deep-frozen (engine before content).
+// The shipped catalog: the INTERIM DUMMY SET, deep-frozen (Story 2.7,
+// amendment 35). These pins FLIPPED from "ships empty" — the 2.5 empty-catalog
+// assertions are replaced one-for-one by dummy-SHAPE assertions, because the
+// shape (stat-only, whitelisted paths, enough categories) is what keeps
+// amendments 29/30 intact and what rollBoonOffer depends on. Content itself is
+// draft copy and dies in 2.8.
 // ---------------------------------------------------------------------------
 
-describe('BOON_CATALOG — ships empty and frozen (amendment 29 / engine before content)', () => {
-  it('has zero entries', () => {
-    expect(Object.keys(BOON_CATALOG)).toHaveLength(0);
+describe('BOON_CATALOG — the interim dummy set (amendment 35)', () => {
+  it('ships at least 8 entries across at least 5 categories, 2+ per category', () => {
+    const defs = Object.values(BOON_CATALOG);
+    expect(defs.length).toBeGreaterThanOrEqual(8);
+    const byCat = new Map<string, number>();
+    for (const def of defs) byCat.set(def.category, (byCat.get(def.category) ?? 0) + 1);
+    expect(byCat.size).toBeGreaterThanOrEqual(5);
+    for (const [cat, n] of byCat) expect(n, cat).toBeGreaterThanOrEqual(2);
+  });
+
+  it('is keyed by its own id, with camelCase ids (the registry-id convention)', () => {
+    for (const [key, def] of Object.entries(BOON_CATALOG)) {
+      expect(def.id).toBe(key);
+      expect(key).toMatch(/^[a-z][A-Za-z0-9]*$/);
+    }
+  });
+
+  it('carries STAT EFFECTS ONLY, on whitelisted paths — so HOOK_REGISTRY stays empty', () => {
+    for (const def of Object.values(BOON_CATALOG)) {
+      expect(def.effects.length).toBeGreaterThan(0);
+      for (const e of def.effects) {
+        // No slotFill / slotReplace / behavior in the dummy set (amendments
+        // 29/30: the boost stays bespoke and no hook may be registered).
+        expect(e.kind).toBe('stat');
+        expect(BOON_STAT_PATHS as readonly string[]).toContain((e as BoonStatEffect).path);
+      }
+    }
+  });
+
+  it('every entry resolves through resolveBoons and folds into real stats', () => {
+    const base = effectiveStats(TB, zeroUpgrades());
+    for (const id of Object.keys(BOON_CATALOG)) {
+      const defs = resolveBoons([id]);
+      expect(defs).toHaveLength(1);
+      const folded = effectiveStats(TB, zeroUpgrades(), defs);
+      // A stat boon must MOVE something (a no-op entry would be a dead card).
+      expect(flatten(folded)).not.toEqual(flatten(base));
+    }
   });
 
   it('is deep-frozen: no def can be smuggled in at runtime', () => {
@@ -82,6 +122,7 @@ describe('BOON_CATALOG — ships empty and frozen (amendment 29 / engine before 
     expect(() => {
       (BOON_CATALOG as Record<string, unknown>).injected = STAT_BOON;
     }).toThrow(TypeError);
+    for (const def of Object.values(BOON_CATALOG)) expect(Object.isFrozen(def)).toBe(true);
   });
 
   it('NO_BOONS is the frozen shared zero-boon identity', () => {

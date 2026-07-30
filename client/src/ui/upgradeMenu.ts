@@ -1,68 +1,159 @@
-// The TAB-toggled refit modal (Story 2.1 — re-ruled from the interregnum CTRL
-// window, Eric 2026-07-24) — a plain DOM panel over the Pixi canvas, styled per
-// DESIGN.md (phosphor surface, Geist Mono, amber-on-hover rows). It NEVER
-// pauses or blocks the simulation: a small fixed panel with pointer-events only
-// on itself, so the ocean keeps running behind it — but while it is OPEN the
-// game is under FULL COMBAT LOCKOUT (mouse fire suppressed by MouseInput's
-// lockout predicate + canvas-target filter; Q/E/R/F suspended at the keyboard
-// chokepoint; helm stays live). It closes ONLY via a pick (digit 1–4 or card
-// click), TAB, or ESC — plus the existing auto-close when there is nothing to
-// spend (offerView → null: zero points, death into spectate). REPAIR/heal is
-// deleted end-to-end ("1-4 cards, no repair").
+// THE REFIT BAND (Story 2.7, UX-DR14 geometry) — the TAB-toggled offer window,
+// rebuilt from the interregnum 420px text column into the ratified four-card
+// row: four 216px cards, 20px gaps (a 924px row), horizontally centered, top
+// edge in the below-center band, NEVER wrapping, with queue pips and a dashed
+// ghost edge behind the row for the offers still waiting.
 //
-// Click hygiene: a card click spends AND closes and must never fire the gun
-// (MouseInput only counts canvas-target clicks; the card is DOM) — and never
-// retains focus (mousedown preventDefault + post-click blur), so a later
-// Space/Enter can't re-trigger the button and a focused button can't trip the
-// chokepoint's text-entry guard.
+// Plain DOM over the Pixi canvas (canvas is tactical, DOM is chrome), styled per
+// DESIGN.md (phosphor surface, Geist Mono, amber-on-armed). It NEVER pauses or
+// blocks the simulation: pointer-events live only on the cards, so the ocean
+// keeps running behind it — but while it is OPEN the game is under FULL COMBAT
+// LOCKOUT (mouse fire suppressed by MouseInput's lockout predicate + canvas-
+// target filter; Q/E/R/F suspended at the keyboard chokepoint; helm stays live).
 //
-// z-index sits at 1000 — below the pre-join menu (1100) and above the toast
-// stacks (900) so a spend confirmation toast never hides behind the panel.
+// STAY-OPEN THROUGH THE QUEUE (amendment 36 — supersedes amendment 2's "spending
+// closes the modal"): a pick LATCHES (cards dim, inert), and
+//   • success (the queue visibly shifted): the next offer renders IN PLACE and
+//     the window stays open — spending the LAST level empties `pts`, which makes
+//     currentOfferView() null and force-hides through the existing update(null);
+//   • failure (timeout — the server rejected it): the picked card fires the 80ms
+//     denied edge pulse, the level stays banked, and the window stays open.
+// TAB/ESC still close anytime. A card click never fires the gun (MouseInput only
+// counts canvas-target clicks) and never retains focus (mousedown preventDefault
+// + post-click blur), so a later Space/Enter can't re-trigger the button and a
+// focused button can't trip the chokepoint's text-entry guard.
+//
+// z-index sits at 1000 — below the pre-join menu (1100) and settings (1050) and
+// above the toast stacks (900) so a fitted-boon toast never hides behind a card.
 
-import { UPGRADE_IDS, categoryOf, type OwnShip, type UpgradeId } from '@salvo/shared';
-import { upgradeLabel } from './upgradeToast.js';
+import { BOON_CATALOG, resolveBoons, type BoonDef, type OwnShip } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
+import { motionIntensity, settings } from '../settings/store.js';
+import { boonCategoryLabel, boonDescription, boonLabel } from './boonCopy.js';
 
 const PANEL_ID = 'upgrade-menu';
-// Story 2.3 (amendment 17): the refit card's resting state is bright white
-// content, not grey — hover/focus still flips it to amber.
+const R = CLIENT_CONFIG.refit;
+// Story 2.3 (amendment 17): the card's resting state is bright white content,
+// not grey — armed (hover/focus) flips it to amber.
 const REST = 'var(--hc-text-primary)';
 const AMBER = 'var(--hc-amber)';
+const PHOSPHOR = 'var(--hc-phosphor)';
+const DENIED = 'var(--hc-denied)';
+const HAIRLINE = 'var(--hc-hairline)';
 
-/** The spendable state the panel renders — derived purely from `you`. */
+// --- pure core: band geometry ------------------------------------------------
+
+/** A screen-space box (px) — the hud.ts HudBox/HudRect idiom. */
+export interface RefitBox {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** The whole refit band as pure geometry (the vitalsLayout/hotbarLayout idiom:
+ *  one pure function the DOM derives from and the tests measure). */
+export interface RefitBandLayout {
+  /** The card row's bounding box (cards only — pips sit above it). */
+  row: RefitBox;
+  /** Each card's box, left to right — index k IS server offer slot k, which is
+   *  what makes the digit chips 1..4 map spatially (UX-DR14). */
+  cards: RefitBox[];
+  /** The queue-pip strip, left-aligned with the row, above the cards. */
+  pips: RefitBox;
+  /** The whole band (pips + row) — what the keep-out checks measure. */
+  band: RefitBox;
+}
+
+/** The band's card count — the ratified four (UX-DR14). Layout is fixed at this
+ *  width regardless of how many cards a given offer actually carries. */
+const CARD_SLOTS = 4;
+
+/**
+ * Pure: the band laid out for a (logical) viewport. The row is a FIXED 924px
+ * (four 216s + three 20s) and is horizontally CENTERED; the top edge sits at
+ * `bandTopFrac` of the viewport height. Deliberately independent of the offer's
+ * actual length: slot k always occupies the same box, so a short offer (a small
+ * catalog) leaves a gap rather than re-centering the digits under the player.
+ *
+ * The row NEVER wraps and never re-flows — at a viewport too narrow to hold 924
+ * the row would clip, which is why the layout tests pin both ratified floors
+ * (1366×768 at 100%, and the 1280×614 logical floor of the ≥1600px-gated 125%
+ * tier).
+ */
+export function refitBandLayout(screenW: number, screenH: number, cards = CARD_SLOTS): RefitBandLayout {
+  const rowW = cards * R.card + (cards - 1) * R.gap;
+  const x = Math.round((screenW - rowW) / 2);
+  const y = Math.round(screenH * R.bandTopFrac);
+  const row = { x, y, w: rowW, h: R.cardHeight };
+  const pips = { x, y: y - R.pipsAbove, w: rowW, h: R.pip };
+  return {
+    row,
+    cards: Array.from({ length: cards }, (_, i) => ({
+      x: x + i * (R.card + R.gap),
+      y,
+      w: R.card,
+      h: R.cardHeight,
+    })),
+    pips,
+    band: { x, y: pips.y, w: rowW, h: row.y + row.h - pips.y },
+  };
+}
+
+// --- pure core: the spend view -------------------------------------------------
+
+/** One resolved card: its catalog def plus the copy the DOM renders. */
+export interface OfferCard {
+  id: string;
+  category: string;
+  name: string;
+  description: string;
+}
+
+/** The spendable state the band renders — derived purely from `you`. */
 export interface OfferView {
+  /** Banked levels (the queue length): 1 filled pip + (pts-1) hollow pips. */
   pts: number;
-  options: UpgradeId[];
+  options: OfferCard[];
   /**
    * True while a spend is in flight (main.ts's spend latch — see trySpend()):
    * a second spend within one server-tick+RTT would otherwise reference the
-   * OLD front offer and land on whatever the FIFO shifted in behind it. Rows
-   * render dimmed/inert until the bank visibly shrinks or the latch's
-   * fallback timeout clears it; digit picks are gated on the same flag.
+   * OLD front offer and land on whatever the FIFO shifted in behind it. Cards
+   * render dimmed/inert until the queue visibly shifts or the latch's fallback
+   * timeout clears it; digit picks are gated on the same flag.
    */
   locked: boolean;
 }
 
 /**
  * Pure: the current spend view, or null when there is nothing to show — no own
- * ship, spectating, an empty bank (pts 0), OR any offer index out of range of
- * UPGRADE_IDS. That last case used to be handled by skipping just the bad
- * entry, which compacts `options` and breaks row->slot alignment (row 1 could
- * end up sending server slot 2's choice) — unreachable today, but real the
- * day a 15th upgrade ships against a stale tab that hasn't reloaded. Dropping
- * the WHOLE view instead keeps the invariant "row k == server slot k" and
- * goes inert (digit picks included, since currentOfferView() also returns
- * null) rather than silently misfiring.
+ * ship, spectating, an empty bank (pts 0), OR any offer id that does not resolve
+ * against the shared BOON_CATALOG. That last case drops the WHOLE view rather
+ * than skipping the bad entry: skipping compacts `options` and breaks
+ * row->slot alignment (row 1 could end up sending server slot 2's choice). It
+ * is unreachable while client and server share a PROTOCOL_VERSION — the join
+ * gate is what makes catalog content safe — but a stale tab that somehow got
+ * through must go inert (digit picks included, since currentOfferView() also
+ * returns null) rather than silently misfire.
  */
 export function offerView(you: OwnShip | null, spectating: boolean, locked: boolean): OfferView | null {
   if (!you || spectating || you.pts === 0) return null;
-  const options: UpgradeId[] = [];
-  for (const idx of you.offer) {
-    const id = UPGRADE_IDS[idx];
-    if (id === undefined) return null;
-    options.push(id);
-  }
-  return { pts: you.pts, options, locked };
+  const defs = resolveBoons(you.offer, BOON_CATALOG);
+  if (defs.length !== you.offer.length) return null; // fail-closed: row k == server slot k
+  return { pts: you.pts, options: defs.map(toCard), locked };
 }
+
+/** One catalog def + its (client-side, draft) copy. */
+function toCard(def: BoonDef): OfferCard {
+  return {
+    id: def.id,
+    category: boonCategoryLabel(def.category),
+    name: boonLabel(def.id).toUpperCase(),
+    description: boonDescription(def.id),
+  };
+}
+
+// --- pure core: the spend latch + outcome ---------------------------------------
 
 /** How long the spend latch holds before falling back open, in case the server
  *  silently rejected the spend — well past any real server-tick+RTT round trip,
@@ -73,24 +164,26 @@ export const SPEND_LATCH_TIMEOUT_MS = 1500;
  *  `spendInFlight`): the banked count and the FRONT offer, kept SEPARATE so a
  *  bank arriving mid-flight (which moves `pts` but not the front offer) can be
  *  told apart from the queue actually shifting. `at` is the performance.now()
- *  the spend was sent at — the timeout fallback's epoch. */
+ *  the spend was sent at — the timeout fallback's epoch. `choice` is the card
+ *  the player picked, so a FAILED outcome can pulse exactly that card. */
 export interface SpendLatch {
   pts: number;
   offerSig: string;
   at: number;
+  choice: number;
 }
 
-/** The FRONT offer's indices, joined — the "the server queue moved" signal.
+/** The FRONT offer's boon ids, joined — the "the server queue moved" signal.
  *  Deliberately excludes `pts`: Story 2.6's passive banking ticks the count up
  *  on its own schedule, and that is not a spend landing. */
-export function frontOfferSignature(you: { offer: number[] } | null | undefined): string {
+export function frontOfferSignature(you: { offer: string[] } | null | undefined): string {
   return you ? you.offer.join(',') : '';
 }
 
 /**
  * Pure: may the FINDING A spend latch be released this frame? Released when
  *
- *   (a) there is no own ship — death/spectate; the modal is hidden anyway and
+ *   (a) there is no own ship — death/spectate; the window is hidden anyway and
  *       holding the latch across a life would outlive its purpose;
  *   (b) the bank visibly SHRANK (`pts` below the snapshot) — the spend landed;
  *   (c) the front offer CHANGED — the queue shifted, which covers a spend that
@@ -102,13 +195,16 @@ export function frontOfferSignature(you: { offer: number[] } | null | undefined)
  * (Story 2.6) makes that a routine mid-flight event, and releasing on it would
  * re-open the double-spend-against-a-shifted-FIFO hazard the latch exists to
  * prevent. Known degraded edge, accepted: if a simultaneous bank cancels the
- * pts drop AND the newly-rolled offer happens to carry identical indices, the
- * latch holds until the timeout (d) — a ≤1.5s lockout, which is the fail-safe
- * side of the trade against mis-spending on an offer the player never saw.
+ * pts drop AND the newly-rolled offer happens to carry identical ids, the latch
+ * holds until the timeout (d) — a ≤1.5s lockout, which is the fail-safe side of
+ * the trade against mis-spending on an offer the player never saw.
+ *
+ * Story 2.7 EXTENDS this without regressing any clause: `spendOutcome` below
+ * classifies the released cases; the release rule itself is unchanged.
  */
 export function spendLatchReleased(
   latch: SpendLatch,
-  you: { pts: number; offer: number[] } | null | undefined,
+  you: { pts: number; offer: string[] } | null | undefined,
   nowMs: number,
 ): boolean {
   if (!you) return true;
@@ -117,92 +213,183 @@ export function spendLatchReleased(
   return frontOfferSignature(you) !== latch.offerSig;
 }
 
-/** Strip the toast's "⬆ " marker, reusing upgradeToast's label map (e.g. "+GUN AMMO"). */
-function optionLabel(id: UpgradeId): string {
-  return upgradeLabel(id).replace(/^⬆\s*/, '');
+/** What a latch is doing this frame: still waiting, landed, or gave up. */
+export type SpendOutcome = 'pending' | 'success' | 'failed';
+
+/**
+ * Pure: classify the latch for the stay-open state machine (amendment 36).
+ * Built ON TOP of spendLatchReleased so the two can never disagree about WHEN
+ * the latch clears — only about WHY:
+ *   • 'pending' — not released; cards stay dimmed and inert;
+ *   • 'success' — released because the queue visibly moved (pts dropped or the
+ *     front offer shifted): the next offer renders in place, window stays open;
+ *   • 'failed'  — released any other way (the 1.5s timeout, or the own ship
+ *     vanished): fire the denied pulse on `latch.choice`, the level stays
+ *     banked, window stays open. (The no-own-ship case classifies as failed but
+ *     renders nothing — update(null) has already force-hidden the window.)
+ */
+export function spendOutcome(
+  latch: SpendLatch,
+  you: { pts: number; offer: string[] } | null | undefined,
+  nowMs: number,
+): SpendOutcome {
+  if (!spendLatchReleased(latch, you, nowMs)) return 'pending';
+  if (!you) return 'failed';
+  return you.pts < latch.pts || frontOfferSignature(you) !== latch.offerSig ? 'success' : 'failed';
 }
+
+// --- DOM ------------------------------------------------------------------------
 
 const PANEL_CSS = [
   'position:fixed',
-  'top:30%',
   'left:50%',
   'display:none', // toggled to 'flex' when shown
   'flex-direction:column',
-  'gap:8px',
-  'width:420px',
-  'max-width:calc(100vw - 16px)', // never clip against the body's overflow:hidden on narrow viewports
-  'padding:16px',
-  'background:var(--hc-panel)',
-  'border:1px solid var(--hc-phosphor)',
+  'align-items:flex-start',
+  `gap:${R.pipsAbove - R.pip}px`,
   'z-index:1000',
+  'pointer-events:none', // only the cards take pointer events
   // HUD-tier DOM chrome scales with the accessibility UI scale (Story 2.3); the
-  // centering translate composes with it.
+  // centering translate composes with it. Origin is the band's TOP CENTER so a
+  // scaled band grows downward from its anchor instead of drifting off it.
   'transform-origin:top center',
   'transform:translateX(-50%) scale(var(--hc-ui-scale, 1))',
 ].join(';');
 
-const TITLE_CSS = [
-  'font:600 20px var(--hc-font-mono)',
-  'letter-spacing:2px',
-  'text-transform:uppercase',
-  'color:var(--hc-phosphor)',
-  'text-align:center',
-  'margin-bottom:4px',
+/** The queue-pip strip: one filled square for the offer on screen, one hollow
+ *  square per offer still queued behind it (dual-coded with the row itself —
+ *  never hue alone). */
+const PIPS_CSS = ['display:flex', 'flex-direction:row', `gap:${R.pipGap}px`, 'align-items:center'].join(';');
+
+// NOTE ON SHORTHANDS: every `border`/`background` declaration below is written
+// as LONGHANDS with the custom-property value assigned separately (element.style
+// .borderColor = 'var(--x)'). Browsers accept `border: 1px solid var(--x)` in a
+// cssText blob, but the CSSOM parser in the test environment rejects the WHOLE
+// blob on it — silently unstyling the element and making every style assertion
+// vacuous. Longhands keep the DOM tests honest and render identically.
+const PIP_BASE = [`width:${R.pip}px`, `height:${R.pip}px`, 'border-width:1px', 'border-style:solid'].join(';');
+const PIP_FILLED = PIP_BASE;
+const PIP_HOLLOW = `${PIP_BASE};background-color:transparent;opacity:0.6`;
+
+/** The row: strictly no wrap (UX-DR14) and no shared panel/backdrop behind it. */
+const ROW_CSS = ['position:relative', 'display:flex', 'flex-direction:row', 'flex-wrap:nowrap', `gap:${R.gap}px`].join(';');
+
+/** The dashed GHOST EDGE behind the row — the waiting offers, shown only when
+ *  more than one level is banked. Purely decorative, never hit-tested. */
+const GHOST_CSS = [
+  'position:absolute',
+  `left:${R.ghostOffset}px`,
+  `top:${R.ghostOffset}px`,
+  'right:-' + R.ghostOffset + 'px',
+  'bottom:-' + R.ghostOffset + 'px',
+  'border-width:1px',
+  'border-style:dashed',
+  'opacity:0.28',
+  'pointer-events:none',
+  'z-index:-1',
 ].join(';');
 
-const ROWS_CSS = ['display:flex', 'flex-direction:column', 'gap:6px'].join(';');
-
-/** Base row (dim); hover/focus flips border+text to amber (makeClassPicker style). */
-const ROW_CSS = [
-  'width:100%',
-  'padding:10px 12px',
-  'background:var(--hc-panel)',
-  'border:1px solid var(--hc-hairline)',
-  'color:' + REST,
-  'font:600 20px var(--hc-font-mono)',
-  'letter-spacing:1px',
-  'text-transform:uppercase',
+/** One card: square corners, hairline edge, no filled panel bed. */
+const CARD_CSS = [
+  'position:relative',
+  `width:${R.card}px`,
+  `height:${R.cardHeight}px`,
+  `padding:${R.pad}px`,
+  'box-sizing:border-box',
+  'border-width:1px',
+  'border-style:solid',
+  'border-radius:0', // square corners (DESIGN.md CIC chrome)
+  'display:flex',
+  'flex-direction:column',
+  'align-items:flex-start',
+  'gap:6px',
   'text-align:left',
   'cursor:pointer',
-  'display:flex',
-  'align-items:center',
-  'gap:10px',
-].join(';');
-
-/** Greyed, inert row (spend-latch lock): no hover, no click. */
-const ROW_INERT_CSS = ROW_CSS + ';opacity:0.4;cursor:default';
-
-/** The mono key-chip glyph (the ONE key-chip family — HUD chips and the PTS
- *  prompt render the same mono treatment on the Pixi side): a small bordered
- *  digit riding currentColor so the row's dim/amber state cascades into it. */
-const KEY_CHIP_CSS = [
-  'display:inline-block',
-  'min-width:20px',
-  'padding:1px 5px',
-  'border:1px solid currentColor',
-  'text-align:center',
-  'font:inherit',
+  'pointer-events:auto',
   'flex:none',
 ].join(';');
 
-function paintRow(btn: HTMLButtonElement, on: boolean): void {
-  btn.style.borderColor = on ? AMBER : 'var(--hc-hairline)';
-  btn.style.color = on ? AMBER : REST;
+/** Locked (a spend is in flight): dimmed and inert — no hover, no click. */
+const CARD_LOCKED_CSS = `${CARD_CSS};opacity:${R.lockedAlpha};cursor:default`;
+
+/** The mono key-chip glyph (the ONE key-chip family — hotbar slots and helm
+ *  glyphs render the same treatment): a bordered digit OVERHANGING the card's
+ *  top-left corner by half its size, riding currentColor so the card's
+ *  rest/armed state cascades into it. */
+const KEY_CHIP_CSS = [
+  'position:absolute',
+  `left:-${R.keyChip / 2}px`,
+  `top:-${R.keyChip / 2}px`,
+  `width:${R.keyChip}px`,
+  `height:${R.keyChip}px`,
+  'display:flex',
+  'align-items:center',
+  'justify-content:center',
+  'border:1px solid currentColor',
+  `font:400 ${R.categorySize}px var(--hc-font-mono)`,
+  'flex:none',
+].join(';');
+
+const CATEGORY_CSS = [
+  `font:400 ${R.categorySize}px var(--hc-font-mono)`,
+  'letter-spacing:2px',
+  'text-transform:uppercase',
+].join(';');
+
+const NAME_CSS = [
+  `font:600 ${R.nameSize}px var(--hc-font-mono)`,
+  'letter-spacing:1px',
+  'text-transform:uppercase',
+  'color:var(--hc-white)',
+].join(';');
+
+/** Phosphor, NOT grey (amendment 16): the description is data, and grey text is
+ *  retired for load-bearing copy everywhere. */
+const DESC_CSS = [
+  `font:400 ${R.descSize}px var(--hc-font-mono)`,
+  'line-height:1.25',
+  `color:${PHOSPHOR}`,
+  'opacity:0.85',
+].join(';');
+
+/** The armed (hover/focus) treatment: amber edge + glow, amber chip/category/
+ *  name — the hotbar's SELECTED grammar, one family. */
+function paintCard(card: RefitCardEls, armed: boolean): void {
+  const c = armed ? AMBER : REST;
+  card.root.style.borderColor = armed ? AMBER : HAIRLINE;
+  card.root.style.boxShadow = armed ? `0 0 8px ${AMBER}` : 'none';
+  card.root.style.color = c; // the key chip rides currentColor
+  card.category.style.color = armed ? AMBER : PHOSPHOR;
+  card.name.style.color = armed ? AMBER : 'var(--hc-white)';
+}
+
+/** The DOM handles of one built card. */
+interface RefitCardEls {
+  root: HTMLButtonElement;
+  category: HTMLSpanElement;
+  name: HTMLSpanElement;
 }
 
 /**
- * The refit modal. TAB toggle()s it (main.ts gates open on a banked point);
+ * The refit band. TAB toggle()s it (main.ts gates open on a banked level);
  * digits 1–4 pick via main.ts's onRefitPick while it is open; a card click
- * picks too. A pick spends AND closes (main.ts hides after routing the spend).
- * Rows re-render only when the view signature changes (pts + option ids +
+ * picks too. A pick does NOT close (amendment 36) — the window rides the queue.
+ * Cards re-render only when the view signature changes (pts + option ids +
  * locked) so live per-frame update()s stay cheap.
  */
 export class UpgradeMenu {
   private panel: HTMLDivElement | null = null;
-  private titleEl: HTMLDivElement | null = null;
-  private rowsEl: HTMLDivElement | null = null;
+  private pipsEl: HTMLDivElement | null = null;
+  private rowEl: HTMLDivElement | null = null;
+  private ghostEl: HTMLDivElement | null = null;
+  private cards: RefitCardEls[] = [];
   private shown = false;
   private sig = '';
+  /** Denied-pulse bookkeeping: the card index flashing, when it ends, and the
+   *  last trigger time (the 300ms same-source floor — deniedFire's grammar). */
+  private deniedCard = -1;
+  private deniedUntil = -Infinity;
+  private deniedLastAt = -Infinity;
 
   constructor(private readonly onSpend: (choice: number) => void) {}
 
@@ -215,67 +402,102 @@ export class UpgradeMenu {
     const panel = document.createElement('div');
     panel.id = PANEL_ID;
     panel.style.cssText = PANEL_CSS;
-    const title = document.createElement('div');
-    title.style.cssText = TITLE_CSS;
-    const rows = document.createElement('div');
-    rows.style.cssText = ROWS_CSS;
-    panel.append(title, rows);
+    const pips = document.createElement('div');
+    pips.style.cssText = PIPS_CSS;
+    const row = document.createElement('div');
+    row.style.cssText = ROW_CSS;
+    const ghost = document.createElement('div');
+    ghost.style.cssText = GHOST_CSS;
+    ghost.style.borderColor = PHOSPHOR;
+    ghost.style.display = 'none';
+    row.appendChild(ghost);
+    panel.append(pips, row);
     document.body.appendChild(panel);
     this.panel = panel;
-    this.titleEl = title;
-    this.rowsEl = rows;
+    this.pipsEl = pips;
+    this.rowEl = row;
+    this.ghostEl = ghost;
     return panel;
   }
 
-  /** One card row: mono digit key-chip + "CATEGORY — LABEL". */
-  private makeRow(chip: string, text: string, choice: number, enabled: boolean): HTMLButtonElement {
+  /** One card: overhanging digit chip + category tag + boon name + description. */
+  private makeCard(card: OfferCard, choice: number, enabled: boolean): RefitCardEls {
     const btn = document.createElement('button');
     btn.type = 'button';
-    const key = document.createElement('span');
-    key.style.cssText = KEY_CHIP_CSS;
-    key.textContent = chip;
-    btn.append(key, document.createTextNode(text));
-    btn.style.cssText = enabled ? ROW_CSS : ROW_INERT_CSS;
+    btn.style.cssText = enabled ? CARD_CSS : CARD_LOCKED_CSS;
+    btn.style.backgroundColor = 'var(--hc-panel)';
+    const chip = document.createElement('span');
+    chip.style.cssText = KEY_CHIP_CSS;
+    chip.style.backgroundColor = 'var(--hc-panel)'; // opaque under the overhang
+    chip.textContent = `${choice + 1}`;
+    const category = document.createElement('span');
+    category.style.cssText = CATEGORY_CSS;
+    category.textContent = card.category;
+    const name = document.createElement('span');
+    name.style.cssText = NAME_CSS;
+    name.textContent = card.name;
+    const desc = document.createElement('span');
+    desc.style.cssText = DESC_CSS;
+    desc.textContent = card.description;
+    btn.append(chip, category, name, desc);
+    const els: RefitCardEls = { root: btn, category, name };
+    paintCard(els, false);
     // Focus hygiene (full-lockout modal): never acquire focus on click —
     // a focus-retaining card would (a) let Space/Enter re-trigger the spend
     // and (b) trip the keyboard chokepoint's text-entry guard mid-battle.
     btn.addEventListener('mousedown', (e) => e.preventDefault());
     if (!enabled) {
       btn.disabled = true; // real disabled state, not just opacity — keyboard/AT see it too
-      return btn;
+      return els;
     }
-    btn.addEventListener('mouseenter', () => paintRow(btn, true));
-    btn.addEventListener('mouseleave', () => paintRow(btn, false));
-    btn.addEventListener('focus', () => paintRow(btn, true));
-    btn.addEventListener('blur', () => paintRow(btn, false));
+    btn.addEventListener('mouseenter', () => paintCard(els, true));
+    btn.addEventListener('mouseleave', () => paintCard(els, false));
+    btn.addEventListener('focus', () => paintCard(els, true));
+    btn.addEventListener('blur', () => paintCard(els, false));
     btn.addEventListener('click', () => {
       btn.blur(); // belt-and-braces with the mousedown preventDefault above
       this.onSpend(choice);
     });
-    return btn;
+    return els;
   }
 
-  /** Rebuild title + rows only when the meaningful view state changed. */
+  /** Queue pips: filled = the offer on screen, hollow = each one still waiting. */
+  private renderPips(pts: number): void {
+    const pips = this.pipsEl!;
+    pips.replaceChildren();
+    for (let i = 0; i < pts; i += 1) {
+      const pip = document.createElement('div');
+      pip.style.cssText = i === 0 ? PIP_FILLED : PIP_HOLLOW;
+      pip.style.borderColor = PHOSPHOR;
+      // Dual-coded: FILL (not hue) says "on screen now"; hollow says "waiting".
+      if (i === 0) pip.style.backgroundColor = PHOSPHOR;
+      pips.appendChild(pip);
+    }
+  }
+
+  /** Rebuild pips + cards only when the meaningful view state changed. */
   private render(view: OfferView): void {
     this.ensurePanel();
-    const sig = `${view.pts}|${view.options.join(',')}|${view.locked ? 1 : 0}`;
+    const sig = `${view.pts}|${view.options.map((o) => o.id).join(',')}|${view.locked ? 1 : 0}`;
     if (sig === this.sig) return;
     this.sig = sig;
-    // Amendment 33's LEVEL vocabulary: what you spend is a LEVEL, and nothing
-    // in this economy is described as "banked" any more (the chip/cue line say
-    // "LEVEL UP — TAB TO REFIT"). The ×N is the count waiting to be spent.
-    this.titleEl!.textContent = `SPEND LEVEL — ×${view.pts}`;
-    const rows = this.rowsEl!;
-    rows.replaceChildren();
+    this.renderPips(view.pts);
+    // The dashed ghost edge stands behind the row for the offers still queued.
+    this.ghostEl!.style.display = view.pts > 1 ? 'block' : 'none';
+    const row = this.rowEl!;
+    row.replaceChildren(this.ghostEl!);
     // Locked (a spend is in flight — see OfferView.locked) dims/inerts every
-    // row so a second click/digit can't fire against the offer this frame is
-    // displaying. Digit glyphs 1..N map row-for-row (digit 4 goes live when
-    // offers carry 4 cards — Story 2.7; with 3 cards it is simply never built).
-    view.options.forEach((id, i) => {
-      rows.appendChild(
-        this.makeRow(`${i + 1}`, `${categoryOf(id).toUpperCase()} — ${optionLabel(id)}`, i, !view.locked),
-      );
-    });
+    // card so a second click/digit can't fire against the offer this frame is
+    // displaying. Digit glyphs 1..N map row-for-row, left to right.
+    this.cards = view.options.map((card, i) => this.makeCard(card, i, !view.locked));
+    for (const c of this.cards) row.appendChild(c.root);
+    this.deniedCard = -1; // a fresh row never inherits the last row's pulse
+  }
+
+  /** Position the band from the pure layout (never from CSS guesses). */
+  private place(): void {
+    const layout = refitBandLayout(window.innerWidth, window.innerHeight);
+    this.ensurePanel().style.top = `${layout.band.y}px`;
   }
 
   /** TAB toggle: open with this view, or close if already open. */
@@ -285,21 +507,59 @@ export class UpgradeMenu {
       return;
     }
     this.render(view);
+    this.place();
     this.ensurePanel().style.display = 'flex';
     this.shown = true;
   }
 
   /**
-   * Per-frame refresh: null force-hides (spend emptied the bank, or spectate);
-   * a fresh view live-swaps the rows to the next queued offer, but never OPENS a
-   * closed window (only the TAB toggle does).
+   * Per-frame refresh: null force-hides (the last level was spent, or spectate);
+   * a fresh view live-swaps the cards to the next queued offer IN PLACE (the
+   * stay-open path), but never OPENS a closed window (only the TAB toggle does).
    */
   update(view: OfferView | null): void {
     if (!view) {
       this.hide();
       return;
     }
-    if (this.shown) this.render(view);
+    if (!this.shown) return;
+    this.render(view);
+    this.place(); // follow viewport resizes while open
+  }
+
+  /**
+   * A spend was REJECTED (or timed out): fire the ratified 80ms denied edge
+   * pulse on the card the player picked. Rate-limited to one flash per 300ms
+   * from this source (the deniedFire grammar) and motion-scaled — at
+   * motion=off the pulse is suppressed entirely, and the information still
+   * lands through the card re-enabling with the level still banked (the pips
+   * never dropped), so nothing is carried by the flash alone.
+   */
+  pulseDenied(choice: number, nowMs = performance.now()): void {
+    if (motionIntensity(settings.current.motion) <= 0) return;
+    if (nowMs - this.deniedLastAt < R.deniedFloorMs) return;
+    const card = this.cards[choice];
+    if (!card) return;
+    this.deniedLastAt = nowMs;
+    this.deniedCard = choice;
+    this.deniedUntil = nowMs + R.deniedPulseMs;
+    card.root.style.borderColor = DENIED;
+    card.root.style.boxShadow = `0 0 8px ${DENIED}`;
+    setTimeout(() => this.clearDenied(choice), R.deniedPulseMs);
+  }
+
+  /** Drop the denied edge back to rest, unless a newer pulse took it over. */
+  private clearDenied(choice: number): void {
+    if (this.deniedCard !== choice) return;
+    this.deniedCard = -1;
+    this.deniedUntil = -Infinity;
+    const card = this.cards[choice];
+    if (card) paintCard(card, false);
+  }
+
+  /** True while the denied pulse is lit (test/observation seam). */
+  deniedActive(nowMs = performance.now()): boolean {
+    return this.deniedCard >= 0 && nowMs < this.deniedUntil;
   }
 
   hide(): void {

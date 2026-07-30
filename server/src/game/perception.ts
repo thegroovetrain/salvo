@@ -238,7 +238,7 @@ export function observe(world: World, observerId: string): PerceptionView {
  * The UNFOGGED spectator view: every alive ship as a live contact, every mine
  * (own = observer owns it), every lit zone and decoy buoy (the truth — a
  * spectator is never lied to), and this tick's world events with only the
- * rows' spectator rules applied (upg/pt/heal stay self-private; shell/torp
+ * rows' spectator rules applied (upg/pt/bn stay self-private; shell/torp
  * world events defer to the exactly-once ballistic reveal; blips — genuine or
  * counter-intel — are pointless with live contacts and never emitted).
  *

@@ -35,7 +35,7 @@ import {
   mulberry32,
   resolveBoons,
   resolveShipPose,
-  rollOffer,
+  rollBoonOffer,
   stepShell,
   stepShip,
   transformPolygon,
@@ -48,6 +48,7 @@ import {
   type BoonBehaviorEffect,
   type BoonCatalog,
   type BoonDef,
+  type BoonOffer,
   type DeniedView,
   type DenialReason,
   type EffectiveStats,
@@ -65,7 +66,6 @@ import {
   type ShellState,
   type ShipState,
   type UpgradeId,
-  type UpgradeOffer,
   type Vec2,
   type ZonePhase,
   type ZoneTimeline,
@@ -182,14 +182,14 @@ export interface ShipRecord {
    */
   upgrades: number[];
   /**
-   * FIFO queue of pre-rolled upgrade offers, one per unspent banked point.
-   * points = offers.length — this queue is the SINGLE SOURCE OF TRUTH for the
-   * point count (OwnShip.pts derives from it). Each offer is rolled once at
-   * earn-time (sim/offers.rollOffer) so reopening the spend window can't reroll;
-   * the front offer is the one surfaced on the wire. Wiped by redeployShip (a
-   * fresh match = fresh build), like upgrades.
+   * FIFO queue of pre-rolled BOON offers, one per unspent banked level (Story
+   * 2.7). points = offers.length — this queue is the SINGLE SOURCE OF TRUTH for
+   * the level count (OwnShip.pts derives from it). Each offer is rolled once at
+   * earn-time (sim/offers.rollBoonOffer) so reopening the refit window can't
+   * reroll; the front offer is the one surfaced on the wire. Wiped by
+   * redeployShip (a fresh match = fresh build), like upgrades.
    */
-  offers: UpgradeOffer[];
+  offers: BoonOffer[];
   /**
    * XP accumulator in INTEGER MILLISECONDS toward the next level (Story 2.6),
    * always in [0, CONFIG.xp.levelMs). Integer ms — never a float fraction — so
@@ -668,15 +668,17 @@ export class World {
   }
 
   /**
-   * Level reward: bank ONE upgrade point with a pre-rolled offer. The offer is
+   * Level reward: bank ONE level with a pre-rolled BOON offer. The offer is
    * rolled at EARN time on the decorrelated upgrade stream, so reopening the
-   * spend window can never reroll it — spendPoint only ever consumes the queue
-   * front. Stats are untouched until the point is spent. Story 2.6 made
-   * grantXp its only production caller (a level-up IS the bank trigger); the
-   * `pt` event and the `pts === offers.length` invariant are unchanged.
+   * refit window can never reroll it — spendPoint only ever consumes the queue
+   * front. Stats are untouched until the level is spent. Story 2.6 made
+   * grantXp its only production caller (a level-up IS the bank trigger); Story
+   * 2.7 changed only WHAT is rolled (boon ids against this world's catalog) —
+   * this seam, the `pt` event, and the `pts === offers.length` invariant are
+   * all unchanged.
    */
   private grantPoint(killer: ShipRecord): void {
-    killer.offers.push(rollOffer(this.upgradeRng));
+    killer.offers.push(rollBoonOffer(this.upgradeRng, this.boonCatalog));
     this.pending.push({ k: 'pt', id: killer.id });
   }
 
@@ -684,9 +686,13 @@ export class World {
    * Apply one SPECIFIC upgrade to a ship: bump the count, recompute the cached
    * effective stats, apply the grant-time side effects (hull heal / +1 loaded
    * round), and queue the SELF-PRIVATE upg event (perception forwards it only
-   * to `id`, exactly like the victim-private dmg rule — the event now reads as
-   * "point spent"). Public so directed tests can grant a known type; gameplay
-   * only ever reaches it through spendPoint's offer-slot choice.
+   * to `id`, exactly like the victim-private dmg rule).
+   *
+   * INTERREGNUM — DIES WITH THE 2.8 CATALOG STRIP. Story 2.7 moved offers and
+   * spend onto boons (amendment 35), so NOTHING in production reaches this any
+   * more: offers carry boon ids and spendPoint calls applyBoon. It survives
+   * only so the upgrade COUNTS wire field (OwnShip.upg) and its `upg` event
+   * keep a driver for directed tests until 2.8 strips the legacy economy.
    */
   applyUpgrade(ship: ShipRecord, type: UpgradeId): void {
     ship.upgrades[UPGRADE_IDS.indexOf(type)] += 1;
@@ -754,6 +760,11 @@ export class World {
   };
 
   /**
+   * INTERREGNUM — DIES WITH THE 2.8 CATALOG STRIP (applyUpgrade's only caller,
+   * so it is production-unreachable for the same reason). Consequence accepted
+   * by amendment 35: spend-driven hull heal / ammo top-up is unreachable from
+   * the boon offer flow — applyBoon never heals.
+   *
    * Grant-time side effects beyond the stat table: hullPoints heals +add
    * (clamped to the new maxHp; only a LIVING killer heals — a mutual-
    * destruction corpse keeps hp 0 and gets full effective hp on respawn
@@ -790,21 +801,30 @@ export class World {
   }
 
   /**
-   * Wire entry point for MSG.spend: consume ONE banked point. Validate-
+   * Wire entry point for MSG.spend: consume ONE banked level. Validate-
    * everything like submitInput, fail-closed — unknown ship, empty bank, or a
-   * malformed choice returns false with the queue untouched. choice 0..2
-   * spends the FRONT offer's slot; upgrades ARE spendable while dead (builds
-   * persist across waiting-phase respawns — same precedent as the dead
-   * killer's reward). The interregnum REPAIR/heal spend (choice 3) was deleted
-   * in Story 2.1 (Eric ruling 2026-07-24) — any out-of-range choice, the old
-   * HEAL_CHOICE included, is rejected with the point untouched.
+   * malformed choice returns false with the queue untouched. `choice` indexes
+   * the FRONT offer, bounded by that offer's ACTUAL length (4 against the
+   * production catalog, so digit 4 is live — Story 2.7; a short offer from a
+   * small injected catalog bounds itself). Levels ARE spendable while dead
+   * (builds persist across waiting-phase respawns — same precedent as the dead
+   * killer's reward).
+   *
+   * The fitted boon is applied through applyBoon (the 2.5 seam, now live) and
+   * the SELF-PRIVATE `bn` event is queued HERE, not inside applyBoon: a
+   * directed applyBoon (tests, future scripted grants) must stay event-free —
+   * "a spend happened" is a property of this path only.
    */
   spendPoint(id: string, rawChoice: unknown): boolean {
     const ship = this.ships.get(id);
     if (!ship || ship.offers.length === 0) return false;
     if (typeof rawChoice !== 'number' || !Number.isInteger(rawChoice)) return false;
-    if (rawChoice < 0 || rawChoice > 2) return false;
-    this.applyUpgrade(ship, ship.offers.shift()![rawChoice]);
+    const front = ship.offers[0];
+    if (rawChoice < 0 || rawChoice >= front.length) return false;
+    ship.offers.shift();
+    const boon = front[rawChoice];
+    this.applyBoon(ship, boon);
+    this.pending.push({ k: 'bn', id: ship.id, boon });
     return true;
   }
 

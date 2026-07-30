@@ -40,6 +40,7 @@ import {
   type GameEvent,
   type LitZoneView,
   type MineView,
+  type BoonFitEvent,
   type PointEvent,
   type ShellState,
   type SpawnEvent,
@@ -570,19 +571,20 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
 
 /**
  * SELF-PRIVATE kinds: forwarded ONLY to the ship the event names — dmg
- * (victim), upg (spender), pt (earner). Enemy hp, builds, and
- * point banks all stay hidden by this one gate (upgrade counts / points ride
- * ONLY on OwnShip, never on contacts/blips/booms).
+ * (victim), upg (spender), pt (earner), bn (the boon a spend FITTED — Story
+ * 2.7). Enemy hp, builds, boons, and level banks all stay hidden by this one
+ * gate (upgrade counts / levels / boon ids ride ONLY on OwnShip, never on
+ * contacts/blips/booms).
  *
  * `spectatorPublic`: dmg alone passes through unfiltered to spectators (they
  * may watch a fight's hp — a dead player has no channel back into the match).
- * upg/pt stay self-private even in UNFOGGED spectator frames: a
- * dead-in-active killer (mutual destruction) still gets its own point/spend
- * toasts, but no other spectator may learn a living ship's build
- * increment or point bank. (The 'heal' row left with the REPAIR spend —
+ * upg/pt/bn stay self-private even in UNFOGGED spectator frames: a
+ * dead-in-active captain still gets its own level/fit toasts (spending while
+ * dead is legal), but no other spectator may learn a living ship's build
+ * increment, fitted boon, or level bank. (The 'heal' row left with the REPAIR spend —
  * Story 2.1, Eric ruling 2026-07-24.)
  */
-function selfPrivateSignal<E extends DamageEvent | UpgradeEvent | PointEvent>(
+function selfPrivateSignal<E extends DamageEvent | UpgradeEvent | PointEvent | BoonFitEvent>(
   kind: E['k'],
   spectatorPublic: boolean,
 ): SignalSpec<E, E> {
@@ -613,7 +615,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 };
 
 /**
- * String-keyed registry of every signal channel — the 10 GameEvent kinds plus
+ * String-keyed registry of every signal channel — the 11 GameEvent kinds plus
  * the `contact`/`mine`/`litzone`/`decoy` pseudo-types. perception.ts
  * dispatches world events by `e.k` (an emitted kind with no row is a hard
  * fail-closed drop) and drives the contact/blip/ballistic/mine/litzone/decoy
@@ -636,6 +638,7 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   dmg: selfPrivateSignal<DamageEvent>('dmg', true),
   upg: selfPrivateSignal<UpgradeEvent>('upg', false),
   pt: selfPrivateSignal<PointEvent>('pt', false),
+  bn: selfPrivateSignal<BoonFitEvent>('bn', false),
 });
 
 /**

@@ -128,3 +128,9 @@ From `epic-2-context-amendments.md` (2026-07-30, Eric, Story 2.6 pre-implementat
 32. Kill XP carries the fraction: flat per-level XP cost; a kill adds its XP value on top of current progress; partial passive progress is preserved — no XP wasted.
 33. HUD handoff: the 2.6 bottom-left satellites (3px XP rail + LV tag, level chip, cue line) replace the deleted bottom-right amber "PTS ×N — TAB" readout; copy is "LEVEL UP — TAB TO REFIT" (no "banked" wording; REFIT chosen over UPGRADE for vocabulary consistency).
 34. XP accrues only while the match phase is 'active' AND the ship is alive (humans only; drones never accrue); ready room accrues nothing; sim never pauses so XP ticks while the refit modal is open.
+
+From `epic-2-context-amendments.md` (2026-07-30, Eric, Story 2.7 pre-implementation questions):
+
+35. Offers go fully boon-typed in 2.7 with an implementer-drafted dummy production catalog (draft-copy rule; dies in 2.8): offers roll boon ids, spend flows through `World.applyBoon`, legacy upgrades leave the offer flow (strip stays 2.8), PV bump; amendment 29 narrowed to its dormant-era intent; dummy boons are stat-only so `HOOK_REGISTRY` stays empty; spend-driven heal/ammo top-up accepted as unreachable.
+36. The refit window stays open through the queue (supersedes amendment 2's close-on-every-spend): pick dims cards in flight; ack slides the next queued offer in; reject/timeout fires the denied pulse on the picked card and stays open; spending the LAST banked level closes; TAB/ESC close anytime; click-picks never fire the gun.
+37. Dead captains get no level-up toast (suppressed entirely while dead/spectating); no spectate refit surface; server-side dead-killer banking unchanged.

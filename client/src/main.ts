@@ -66,7 +66,7 @@ import {
   UpgradeMenu,
   frontOfferSignature,
   offerView,
-  spendLatchReleased,
+  spendOutcome,
   type OfferView,
   type SpendLatch,
 } from './ui/upgradeMenu.js';
@@ -419,23 +419,56 @@ function trySpend(g: Game, choice: number): void {
   if (g.spendInFlight) return;
   const you = g.state.net.you;
   g.room.send(MSG.spend, { choice });
-  g.spendInFlight = { pts: you?.pts ?? 0, offerSig: frontOfferSignature(you), at: performance.now() };
+  // `choice` rides the latch so a FAILED outcome can pulse exactly the card the
+  // player picked (amendment 36's denied register).
+  g.spendInFlight = { pts: you?.pts ?? 0, offerSig: frontOfferSignature(you), at: performance.now(), choice };
 }
 
 /**
- * Clear the spend latch once spendLatchReleased() says the spend visibly landed
- * (the bank shrank, or the offer queue shifted), the own ship is gone, or the
- * fallback timeout elapsed. A pts INCREASE with an unchanged front offer HOLDS
- * the latch: Story 2.6's passive banking makes that routine mid-flight, and the
- * old "changed in ANY way" check released on it — re-opening the very
- * double-spend-against-a-shifted-FIFO hazard the latch exists to prevent.
- * Called once per render frame, on the same clock (`performance.now()`) the
- * render loop already uses for the denied-fire pulse — no new timer.
+ * Clear the spend latch once spendOutcome() says it is no longer 'pending' —
+ * the bank shrank / the offer queue shifted ('success'), or the own ship is gone
+ * / the fallback timeout elapsed ('failed'). A pts INCREASE with an unchanged
+ * front offer HOLDS the latch: Story 2.6's passive banking makes that routine
+ * mid-flight, and the old "changed in ANY way" check released on it — re-opening
+ * the very double-spend-against-a-shifted-FIFO hazard the latch exists to
+ * prevent. Called once per render frame, on the same clock (`performance.now()`)
+ * the render loop already uses for the denied-fire pulse — no new timer.
+ *
+ * Story 2.7 (amendment 36): the window no longer closes on a pick, so the two
+ * released outcomes are now VISIBLY different — 'success' lets the next queued
+ * offer render in place (or auto-close at 0 levels through update(null)), while
+ * 'failed' fires the denied edge pulse on the picked card with the level still
+ * banked. The release RULE is untouched; only the classification is new.
+ *
+ * Returns the card index to PULSE (a failed spend) or null. The pulse itself is
+ * deliberately NOT fired here: releasing the latch flips `locked` false, which
+ * makes the very next upgradeMenu.update() rebuild the card row — and a pulse
+ * painted before that rebuild would be thrown away with the old buttons. The
+ * caller pulses AFTER the update (see the render loop).
  */
-function updateSpendLatch(g: Game): void {
+function updateSpendLatch(g: Game): number | null {
   const inFlight = g.spendInFlight;
-  if (!inFlight) return;
-  if (spendLatchReleased(inFlight, g.state.net.you, performance.now())) g.spendInFlight = null;
+  if (!inFlight) return null;
+  const outcome = spendOutcome(inFlight, g.state.net.you, performance.now());
+  if (outcome === 'pending') return null;
+  g.spendInFlight = null;
+  return outcome === 'failed' ? inFlight.choice : null;
+}
+
+/**
+ * Per-frame refit-band sync (called from the render loop). Order is load-bearing:
+ *   1. clear the spend latch once it lands or times out — so a just-cleared
+ *      latch un-dims the cards immediately, on this frame;
+ *   2. live-swap the band to the next queued offer, auto-closing at 0 levels or
+ *      on spectate (currentOfferView → null force-hides);
+ *   3. only THEN pulse a REJECTED pick — the un-dim in (2) rebuilds the card
+ *      row, and a pulse painted before it would be discarded with the old
+ *      buttons.
+ */
+function syncRefitBand(g: Game): void {
+  const deniedCard = updateSpendLatch(g);
+  g.upgradeMenu.update(currentOfferView(g));
+  if (deniedCard !== null) g.upgradeMenu.pulseDenied(deniedCard);
 }
 
 /** The spend view for THIS frame (null = nothing to show → menu auto-hides). */
@@ -468,16 +501,18 @@ function handleRefitToggle(g: Game): void {
 /**
  * A digit 1–4 pressed WHILE the modal is open (the chokepoint enforces the
  * refit-or-nothing rule; digit meaning was evaluated against modal state at
- * its own keydown): pick card `choice`, spend, and close (amendment 2 — a pick
- * closes the modal). Digit 4 against today's 3-card offer falls off the end →
- * nothing. A locked view (spend in flight) is inert, exactly like the rows.
+ * its own keydown): pick card `choice` and spend. The window STAYS OPEN
+ * (amendment 36 — it rides the queue; the last spend closes it by emptying the
+ * bank, which makes currentOfferView() null). All four digits are live against
+ * the ratified four-card offer; a choice past the offer's actual length (a
+ * short offer from a small catalog) falls off the end → nothing. A locked view
+ * (spend in flight) is inert, exactly like the cards.
  */
 function handleRefitPick(g: Game, choice: number): void {
   if (!g.upgradeMenu.visible) return;
   const view = currentOfferView(g);
   if (!view || view.locked || choice >= view.options.length) return;
   trySpend(g, choice);
-  g.upgradeMenu.hide();
 }
 
 /**
@@ -1116,16 +1151,15 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
  * The UpgradeMenu's card-click callback: same late-binding as keyboardHooks
  * (gRef isn't assigned until after the Game object literal below), routed
  * through trySpend() so a card click shares the FINDING A latch with the
- * digit-pick path — and, like a digit pick, a card click spends AND closes
- * the modal (amendment 2; the gun can never fire off it — MouseInput only
- * counts canvas-target clicks, and the modal lockout holds besides).
+ * digit-pick path — and, like a digit pick, a card click LEAVES THE WINDOW OPEN
+ * (amendment 36). The gun can never fire off it — MouseInput only counts
+ * canvas-target clicks, and the modal lockout holds besides.
  */
 function onSpendClick(getG: () => Game | null): (choice: number) => void {
   return (choice) => {
     const g = getG();
     if (!g) return;
     trySpend(g, choice);
-    g.upgradeMenu.hide();
   };
 }
 
@@ -1838,12 +1872,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       updateOwnColor(g); // recolor own hull/wake once the roster hue syncs (Story 1.12)
       if (g.state.spectating) renderSpectate(g, frameDt, now, zv, mu);
       else renderAlive(g, alpha, frameDt, now, zv, mu);
-      // Clear the spend latch once it lands (pts dropped) or times out, THEN
-      // read this frame's view — so a just-cleared latch un-dims immediately.
-      updateSpendLatch(g);
-      // Live-swap the spend window to the next queued offer after a spend, and
-      // auto-close it at 0 pts / on spectate (currentOfferView → null).
-      g.upgradeMenu.update(currentOfferView(g));
+      syncRefitBand(g);
       g.contactViews.render(
         g.contacts,
         now - CLIENT_CONFIG.net.interpDelayMs,

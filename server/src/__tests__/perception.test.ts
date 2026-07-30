@@ -10,6 +10,7 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  BOON_CATALOG,
   CONFIG,
   UPGRADE_IDS,
   bearing,
@@ -20,6 +21,7 @@ import {
   type BallisticEvent,
   type BlipEvent,
   type BoomEvent,
+  type BoonFitEvent,
   type BurstEvent,
   type Circle,
   type GameEvent,
@@ -1002,6 +1004,13 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   // Self-private kinds: each may only ever reach the ship its `id` names.
   dmg: (_w, me, e) => expect(e.id).toBe(me.id), // victim-private
   pt: (_w, me, e) => expect(e.id).toBe(me.id), // earner-private
+  bn: (_w, me, e) => {
+    // Spender-private (Story 2.7), and a valid catalog id: an enemy build can
+    // never ride another observer's frame, and a fabricated boon id can never
+    // materialize (the server only ever emits what it just applied).
+    expect(e.id).toBe(me.id);
+    expect(Object.hasOwn(BOON_CATALOG, (e as BoonFitEvent).boon)).toBe(true);
+  },
   upg: (_w, me, e) => {
     // Self-private, and a valid upgrade id (never a fabricated type).
     expect(e.id).toBe(me.id);
@@ -1132,14 +1141,14 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // litZones/decoys frame channels (verifyFrame/verifyMine/verifyLitZone/
   // verifyDecoy), not through EVENT_VERIFIERS.
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
-  // The 10 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
-  // 2.1 deleted 'heal' from the wire with the REPAIR spend).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt'];
+  // The 11 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
+  // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private 'bn').
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'bn'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 14 expected channel keys (10 event kinds + contact + mine + litzone + decoy)', () => {
+  it('has exactly the 15 expected channel keys (11 event kinds + contact + mine + litzone + decoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(14);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(15);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {
@@ -1159,7 +1168,7 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
     const rowEventKinds = Object.keys(SIGNAL_REGISTRY).filter((k) => !CONTACT_LIKE.includes(k));
     // Key-set equality both ways: a registry row lacking a verifier AND a stray
     // verifier with no row are each a hard failure. THIS is the CI-by-construction
-    // gate — a new 13th event row turns this red until its verifier lands.
+    // gate — a new event row turns this red until its verifier lands.
     expect(Object.keys(EVENT_VERIFIERS).sort()).toEqual(rowEventKinds.sort());
   });
 

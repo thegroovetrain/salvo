@@ -12,10 +12,7 @@ import {
   equipmentMaxAmmo,
   equipmentReloadMs,
   burstVictims,
-  rollOffer,
-  categoryOf,
-  offerableIds,
-  OFFER_EXCLUDED_IDS,
+  rollBoonOffer,
   mapRadius,
   stepShip,
   generateMap,
@@ -46,7 +43,7 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(14); // Story 2.6: OwnShip gains required self-private `lvl`/`xp`
+    expect(PROTOCOL_VERSION).toBe(15); // Story 2.7: OwnShip.offer re-typed to boon ids; `bn` event; dummy catalog
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -176,9 +173,11 @@ describe('shared barrel', () => {
   });
 
   it('re-exports the boon effect engine (Story 2.5)', () => {
-    // Both registries ship EMPTY (amendment 29 / engine before content) and
-    // deep-frozen; the engine functions are the shared two-homes-plus-hooks API.
-    expect(Object.keys(BOON_CATALOG)).toHaveLength(0);
+    // Story 2.7 (amendment 35) flipped the CATALOG from empty to the interim
+    // dummy set; HOOK_REGISTRY still ships EMPTY (amendments 29/30 intact —
+    // the dummy boons are stat-only). Both stay deep-frozen; the engine
+    // functions are the shared two-homes-plus-hooks API.
+    expect(Object.keys(BOON_CATALOG).length).toBeGreaterThan(0);
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0);
     expect(Object.isFrozen(BOON_CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);
@@ -194,12 +193,13 @@ describe('shared barrel', () => {
   });
 
   it('re-exports the offer/spend system', () => {
+    // Story 2.7: offers are BOON offers. The legacy upgrade-offer exports
+    // (rollOffer/categoryOf/offerableIds/OFFER_EXCLUDED_IDS) are gone; the
+    // UPGRADE_* tables survive because the counts array is still wire contract.
     expect(UPGRADE_CATEGORY_IDS).toHaveLength(5);
     expect(Object.keys(UPGRADE_CATEGORIES)).toHaveLength(5);
-    expect(typeof rollOffer).toBe('function');
-    expect(typeof categoryOf).toBe('function');
-    expect(typeof offerableIds).toBe('function');
-    expect(OFFER_EXCLUDED_IDS).toEqual(['gunAmmo']);
+    expect(typeof rollBoonOffer).toBe('function');
+    expect(CONFIG.offer.size).toBe(4); // four cards, four distinct categories
     expect(MSG.spend).toBe('u');
     // Story 2.1: the REPAIR/heal spend is gone — no HEAL_CHOICE, no upgradePoints block.
     expect('upgradePoints' in CONFIG).toBe(false);

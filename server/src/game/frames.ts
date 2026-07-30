@@ -9,7 +9,6 @@
 import {
   CONFIG,
   DRONE_HULL_IDS,
-  UPGRADE_IDS,
   type FrameMsg,
   type MatchPhase,
   type OwnShip,
@@ -51,11 +50,12 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     // frame; the client derives effective stats from (cls, upg). OWN SHIP ONLY
     // — contacts/spectator payloads never carry upgrade data (anti-cheat).
     upg: [...ship.upgrades],
-    // Banked points = the offer queue length (single source of truth). Only the
-    // FRONT offer is surfaced, as UPGRADE_IDS indices; the rest never leaves the
-    // server. Self-private (own ship only), like upg.
+    // Banked levels = the offer queue length (single source of truth). Only the
+    // FRONT offer is surfaced, as BOON IDS (Story 2.7), defensively copied; the
+    // rest of the queue never leaves the server. Self-private (own ship only),
+    // like upg/boons.
     pts: ship.offers.length,
-    offer: ship.offers.length > 0 ? ship.offers[0].map((t) => UPGRADE_IDS.indexOf(t)) : [],
+    offer: ship.offers.length > 0 ? [...ship.offers[0]] : [],
     // ms — active speed-boost window end (0 = inactive). OWNER-ONLY by
     // construction (Story 1.6): boostUntil rides `you` and NOTHING else — never
     // a Contact, blip, ballistic event, boom, or spectator payload. An enemy
