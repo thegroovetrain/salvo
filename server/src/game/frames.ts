@@ -7,6 +7,7 @@
 // ever put contacts or events into a frame.
 
 import {
+  CONFIG,
   DRONE_HULL_IDS,
   UPGRADE_IDS,
   type FrameMsg,
@@ -65,6 +66,12 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     // NOTHING else — never a Contact, blip, ballistic event, boom, or
     // spectator payload (enemy builds stay hidden).
     boons: [...ship.boons],
+    // Levels completed + progress toward the next, as a 0..1 fraction of
+    // CONFIG.xp.levelMs (Story 2.6). SELF-PRIVATE like upg/pts/boons: both ride
+    // `you` and NOTHING else — never a Contact, blip, ballistic event, boom, or
+    // spectator payload. The client renders them verbatim (no XP prediction).
+    lvl: ship.level,
+    xp: ship.xpMs / CONFIG.xp.levelMs,
   };
 }
 

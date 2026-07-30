@@ -327,6 +327,35 @@ export const CONFIG = {
     maxMines: { add: 1 }, // +max simultaneous LIVE mines on the board per stack
   },
 
+  /**
+   * XP economy (Story 2.6) — THE only progression currency, and the only
+   * trigger that banks a level (the offer roll lives behind it, unchanged).
+   *
+   * Shape (ratified; every NUMBER is a declared handwave that Story 2.10's
+   * batch-sim retunes): a flat per-level XP cost in MILLISECONDS, so passive
+   * accrual is literally "one level per `levelMs` of match time" — the
+   * anti-snowball floor and the Rat Covenant's price (a hiding captain always
+   * ticks, but never accelerates). A KILL adds its value ON TOP of current
+   * progress (fractions always carry — no XP is ever snapped away):
+   * a human captain = `killLevels`, a drone = its size tier below.
+   *
+   * DAMAGE GRANTS ZERO XP. There is deliberately no damage-XP entry here and
+   * no damage-XP path in the sim — dealing damage is not progression.
+   *
+   * `droneTierLevels` is keyed by DRONE HULL ID (the victim's `cls`), and IS
+   * the PvE fleet-tier hook the later fleets epic reuses verbatim: ¼ / ⅓ / ½
+   * of a level by hull size.
+   */
+  xp: {
+    levelMs: 60000, // ms of match time per level (passive tick ≈ 1 level/minute)
+    killLevels: 1, // levels' worth of XP for sinking a human captain
+    droneTierLevels: {
+      droneSmall: 0.25, // ¼ level
+      droneMedium: 1 / 3, // ⅓ level
+      droneLarge: 0.5, // ½ level
+    },
+  },
+
   /** Storm circle / battle-royale zone. */
   zone: {
     grace: 45000, // ms — full radius before shrink begins

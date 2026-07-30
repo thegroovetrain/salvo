@@ -121,3 +121,10 @@ From `epic-2-context-amendments.md` (2026-07-28, Eric, Story 2.5 pre-implementat
 28. Story 2.5 ships full dormant plumbing: shared engine PLUS `ShipRecord.boons`, a `World.applyBoon` seam mirroring `applyUpgrade`, hook execution in the real server tick and client predictor, and a self-private `you.boons` wire field with a PV bump. Dormant until 2.7 — nothing grants boons in production this story.
 29. Speed boost stays bespoke (NOT migrated onto the hook engine) until the 2.8 catalog re-expresses it; `HOOK_REGISTRY` ships empty — parity suite structurally armed; test hooks live only in test-injected registries.
 30. v1 engine defines exactly one hook attachment point: per-tick kinematics (the boost precedent). New attachment points arrive only when a real catalog boon needs them; the hook contract stays generic and heal-compatible by design.
+
+From `epic-2-context-amendments.md` (2026-07-30, Eric, Story 2.6 pre-implementation questions):
+
+31. Drone kill XP is tiered by drone size — drones are the first real consumer of the PvE tier fractions: small = ¼, medium = ⅓, large = ½ level; a human-captain kill stays 1 full level. Bugfix scope ratified alongside: drones never accrue XP/offers.
+32. Kill XP carries the fraction: flat per-level XP cost; a kill adds its XP value on top of current progress; partial passive progress is preserved — no XP wasted.
+33. HUD handoff: the 2.6 bottom-left satellites (3px XP rail + LV tag, level chip, cue line) replace the deleted bottom-right amber "PTS ×N — TAB" readout; copy is "LEVEL UP — TAB TO REFIT" (no "banked" wording; REFIT chosen over UPGRADE for vocabulary consistency).
+34. XP accrues only while the match phase is 'active' AND the ship is alive (humans only; drones never accrue); ready room accrues nothing; sim never pauses so XP ticks while the refit modal is open.

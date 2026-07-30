@@ -114,11 +114,21 @@ function stepUntilBoom(ctx: Ctx, maxTicks = 20): void {
 }
 
 describe('match — waiting phase (ready room)', () => {
-  it('starts weapons-safe: damage off, respawn on', () => {
+  it('starts weapons-safe: damage off, respawn on, XP off', () => {
     const ctx = setup(['a']);
     expect(ctx.m.phase).toBe('waiting');
     expect(ctx.w.damageEnabled).toBe(false);
     expect(ctx.w.respawnEnabled).toBe(true);
+    expect(ctx.w.xpEnabled).toBe(false); // amendment 34: the ready room banks nothing
+  });
+
+  it('accrues NO passive XP in the ready room, however long it idles (Story 2.6)', () => {
+    const ctx = setup(['a']);
+    const a = ctx.w.ships.get('a')!;
+    step(ctx, CONFIG.xp.levelMs / DT + 10); // well past one level of match time
+    expect(a.xpMs).toBe(0);
+    expect(a.level).toBe(0);
+    expect(a.offers).toEqual([]);
   });
 
   it('suppresses all shell damage (target practice: boom, no hp loss)', () => {
@@ -172,6 +182,7 @@ describe('match — countdown', () => {
     expect(ctx.m.countdownEndT).toBe(ctx.w.now + TIMINGS.countdownMs);
     expect(ctx.calls).toEqual(['lock']);
     expect(ctx.w.damageEnabled).toBe(false); // countdown is still weapons-safe
+    expect(ctx.w.xpEnabled).toBe(false); // ...and still pays no XP
   });
 
   it('cancels back to waiting (and unlocks) when humans drop below minimum', () => {
@@ -212,6 +223,7 @@ describe('match — countdown', () => {
     expect(ctx.m.countdownEndT).toBe(0);
     expect(ctx.w.damageEnabled).toBe(true);
     expect(ctx.w.respawnEnabled).toBe(false);
+    expect(ctx.w.xpEnabled).toBe(true); // the passive tick starts with the match
     for (const ship of ctx.w.ships.values()) {
       expect(ship.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
       expect(ship.alive).toBe(true);
@@ -346,9 +358,10 @@ describe('match — finished phase', () => {
     return ctx;
   }
 
-  it('freezes the outcome (damage suppressed again) and disconnects after resultsMs', () => {
+  it('freezes the outcome (damage + XP suppressed again) and disconnects after resultsMs', () => {
     const ctx = finished();
     expect(ctx.w.damageEnabled).toBe(false);
+    expect(ctx.w.xpEnabled).toBe(false); // the winner stops accruing at the finish
     const a = ctx.w.ships.get('a')!;
     injectShell(ctx, 's9', 'ghost', a.state.x - 20, a.state.y);
     step(ctx, Math.ceil(TIMINGS.resultsMs / DT) + 1);

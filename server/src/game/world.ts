@@ -7,9 +7,11 @@
 //
 // Step order (per plan): inputs -> ships -> boundary -> [islands -> shells ->
 // fire control -> ability activation -> radar paint: later steps, seams marked
-// below] -> sweep advance -> respawns. Ability activation (Story 1.6) sits with
-// fire control — both consume this tick's stored input intent (fireSeq clicks /
-// actSeq presses) through the single sinking-activation gate.
+// below] -> sweep advance -> respawns -> passive XP. Ability activation (Story
+// 1.6) sits with fire control — both consume this tick's stored input intent
+// (fireSeq clicks / actSeq presses) through the single sinking-activation gate.
+// The passive XP tick (Story 2.6) is deliberately LAST, after respawns and
+// before the event swap, so a level banked this tick rides this tick's frame.
 
 import {
   BOON_CATALOG,
@@ -189,6 +191,22 @@ export interface ShipRecord {
    */
   offers: UpgradeOffer[];
   /**
+   * XP accumulator in INTEGER MILLISECONDS toward the next level (Story 2.6),
+   * always in [0, CONFIG.xp.levelMs). Integer ms — never a float fraction — so
+   * 1200 passive ticks × 50ms is EXACTLY one level with no drift. Two inputs
+   * only: the passive tick (+dtMs while the match is active, this hull is
+   * alive, and it is not a drone) and kill credit (round(levelMs × value),
+   * NOT alive-gated — a shell landing after the killer's own death still
+   * credits). Damage adds nothing. Every threshold crossing is banked by
+   * grantXp through the existing grantPoint. Wiped by redeployShip (fresh
+   * match = fresh build), PRESERVED across a waiting-phase respawn — exactly
+   * like upgrades/offers/boons.
+   */
+  xpMs: number;
+  /** Levels COMPLETED (integer). Mirrored onto OwnShip.lvl (self-private);
+   *  moves only inside grantXp's bank loop. Same lifecycle as `xpMs`. */
+  level: number;
+  /**
    * Applied boon ids, in application order (Story 2.5 — dormant plumbing:
    * nothing grants these in production until 2.7's spend flow). Mutated only
    * by applyBoon(). Survive respawn (waiting-phase deaths keep the build,
@@ -328,6 +346,19 @@ export class World {
   damageEnabled = true;
   /** False = sinkShip schedules NO respawn (active phase: death → spectate). */
   respawnEnabled = true;
+  /**
+   * False = the PASSIVE XP tick is suppressed (Story 2.6, amendment 34: XP
+   * accrues only while the match phase is 'active' — the ready room banks
+   * nothing). The damageEnabled sibling in every respect, including its
+   * permissive default: Match drives it from the phase (applyPolicy) so World
+   * stays Colyseus-free and phase-blind, and a standalone World (unit tests,
+   * sandbox smokes) simply ticks XP like a live match.
+   *
+   * KILL CREDIT IS NOT GATED BY THIS FLAG: ready-room kills are impossible
+   * anyway (damage is off), and a shell in flight past the phase edge should
+   * still pay its killer.
+   */
+  xpEnabled = true;
 
   private rng: Rng;
   /**
@@ -453,6 +484,8 @@ export class World {
       prevPose: { x: p.x, y: p.y, heading: 0, speed: 0 },
       upgrades,
       offers: [],
+      xpMs: 0,
+      level: 0,
       boons: [],
       boonDefs: NO_BOONS,
       boonBehaviors: NO_BEHAVIORS,
@@ -524,6 +557,12 @@ export class World {
     ship.state.speed = 0;
     ship.upgrades = zeroUpgrades();
     ship.offers = [];
+    // XP progress dies with the build (Story 2.6): the countdown→active
+    // boundary is a fresh match, so nothing farmed in the ready room (a drone
+    // kill's XP, or waiting-phase seconds) carries a head start into it.
+    // respawn() below, waiting-phase only, PRESERVES both.
+    ship.xpMs = 0;
+    ship.level = 0;
     // Boons are wiped WITH upgrades/offers (Story 2.5): the match boundary
     // means a fresh build — respawn() below, waiting-phase only, preserves.
     ship.boons = [];
@@ -549,11 +588,11 @@ export class World {
   /**
    * Sink a ship: dead, hp 0, respawn scheduled (only while respawnEnabled —
    * in the active match phase the dead transition to spectators instead),
-   * death counted. Attributes a kill (and a banked upgrade point) to `by`
-   * when it names a different ship still in the room — a DEAD killer (mutual
-   * destruction) still gets both; storm (`by` undefined) and self-kills grant
-   * nothing by construction. Combat routes damage through here; tests drive it
-   * directly.
+   * death counted. Attributes a kill (and its XP, which banks a point on every
+   * level crossed) to `by` when it names a different ship still in the room —
+   * a DEAD killer (mutual destruction) still gets both; storm (`by` undefined)
+   * and self-kills grant nothing by construction. Combat routes damage through
+   * here; tests drive it directly.
    */
   sinkShip(id: string, by?: string): void {
     const ship = this.ships.get(id);
@@ -571,17 +610,64 @@ export class World {
       const killer = this.ships.get(by);
       if (killer) {
         killer.kills += 1;
-        this.grantPoint(killer);
+        this.grantXp(killer, World.killXpLevels(ship));
       }
     }
     this.pending.push({ k: 'sunk', id, by });
   }
 
   /**
-   * Kill reward: bank ONE upgrade point with a pre-rolled offer. The offer is
+   * Levels' worth of XP a kill on `victim` pays (Story 2.6, amendment 31): a
+   * human captain is the full `CONFIG.xp.killLevels`; a drone pays its SIZE
+   * TIER (¼ / ⅓ / ½), read off the victim's existing hull id — the PvE tier
+   * fractions' first real consumer, with no new drone state. An unknown hull
+   * id pays nothing (fail-closed).
+   */
+  private static killXpLevels(victim: ShipRecord): number {
+    if (!victim.isDrone) return CONFIG.xp.killLevels;
+    const tiers: Partial<Record<HullId, number>> = CONFIG.xp.droneTierLevels;
+    return tiers[victim.hullId] ?? 0;
+  }
+
+  /**
+   * THE one XP entry point (Story 2.6): add `levels` worth of XP to a ship and
+   * bank every threshold it crosses. Integer ms throughout — a kill's value is
+   * rounded ONCE here, so a ⅓-level drone kill is a fixed 20000ms and three of
+   * them are exactly one level.
+   *
+   * DRONES NEVER ACCRUE (the ratified bugfix): the guard sits in the credit
+   * path itself, so no caller — passive tick, kill credit, or a future one —
+   * can hand a drone XP, an offer array, or a `pt` event.
+   *
+   * The bank loop is a WHILE: one grant may cross several levels (a kill on
+   * top of near-full progress, or a kill worth > 1 level), and each crossing
+   * banks its own point + pre-rolled offer through the unchanged grantPoint.
+   * The remainder always carries — no XP is ever snapped away (amendment 32).
+   */
+  grantXp(ship: ShipRecord, levels: number): void {
+    if (levels <= 0) return;
+    this.addXpMs(ship, Math.round(CONFIG.xp.levelMs * levels));
+  }
+
+  /** The raw ms form behind grantXp (and the passive tick's `+dtMs`): the drone
+   *  guard and the bank loop, in one place. */
+  private addXpMs(ship: ShipRecord, ms: number): void {
+    if (ship.isDrone || ms <= 0) return;
+    ship.xpMs += ms;
+    while (ship.xpMs >= CONFIG.xp.levelMs) {
+      ship.xpMs -= CONFIG.xp.levelMs;
+      ship.level += 1;
+      this.grantPoint(ship);
+    }
+  }
+
+  /**
+   * Level reward: bank ONE upgrade point with a pre-rolled offer. The offer is
    * rolled at EARN time on the decorrelated upgrade stream, so reopening the
    * spend window can never reroll it — spendPoint only ever consumes the queue
-   * front. Stats are untouched until the point is spent.
+   * front. Stats are untouched until the point is spent. Story 2.6 made
+   * grantXp its only production caller (a level-up IS the bank trigger); the
+   * `pt` event and the `pts === offers.length` invariant are unchanged.
    */
   private grantPoint(killer: ShipRecord): void {
     killer.offers.push(rollOffer(this.upgradeRng));
@@ -755,6 +841,14 @@ export class World {
     // at frame-build time in perception.ts using [prevSweepAngle, sweepAngle).
     this.advanceSweeps(dtMs);
     this.processRespawns();
+    // Passive XP (Story 2.6) — DELIBERATE step-order position: dead LAST, after
+    // respawns and before the event swap. After respawns so a hull that came
+    // back this very tick is already alive for its own accrual (the alive gate
+    // reads post-respawn truth, not a one-tick-stale one); before the swap so a
+    // level banked here publishes its `pt` event on THIS tick's frame rather
+    // than trailing into the next one. Nothing downstream in the step reads XP,
+    // so no other system's behavior can depend on where it sits.
+    this.tickXp(dtMs);
 
     // Publish this tick's events (including joins/sinks queued between steps).
     this.events = this.pending;
@@ -1393,6 +1487,24 @@ export class World {
     }
   }
 
+  /**
+   * The passive XP tick (Story 2.6, amendment 34): every ALIVE human hull
+   * accrues exactly this tick's `dtMs`, so 1200 ticks of the 50ms step is one
+   * level to the millisecond. Three gates, all of them here:
+   *   • `xpEnabled` — the match phase is 'active' (the ready room and the
+   *     post-match freeze accrue nothing; Match drives the flag);
+   *   • alive — a wreck awaiting respawn / a spectating corpse earns nothing;
+   *   • not a drone — enforced again inside addXpMs, the credit path itself.
+   * The sim never pauses, so XP keeps ticking while the refit modal is open —
+   * that is the ratified behavior, not an oversight.
+   */
+  private tickXp(dtMs: number): void {
+    if (!this.xpEnabled) return;
+    for (const ship of this.ships.values()) {
+      if (ship.alive) this.addXpMs(ship, dtMs);
+    }
+  }
+
   /** Bring sunk ships back on the ring once their respawn delay elapses. */
   private processRespawns(): void {
     for (const ship of this.ships.values()) {
@@ -1412,7 +1524,9 @@ export class World {
     ship.state.speed = 0;
     // Respawn happens only in the waiting phase (active-phase death = spectate),
     // so the build PERSISTS: full EFFECTIVE hp + effective-size ammo pools.
-    // (redeployShip, the match boundary, is where upgrades get wiped.)
+    // XP progress (xpMs/level) and banked offers persist with it — deliberately
+    // untouched here. (redeployShip, the match boundary, is where the whole
+    // build, XP included, gets wiped.)
     ship.hp = ship.stats.maxHp;
     ship.alive = true;
     ship.respawnAt = 0;

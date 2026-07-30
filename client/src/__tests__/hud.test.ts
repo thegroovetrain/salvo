@@ -18,7 +18,6 @@ import {
   detentLabel,
   rungY,
   speedLadderFraction,
-  pointsLine,
   CLUSTER_CONTENT_BOTTOM,
   DETENT_LABELS,
 } from '../render/hud.js';
@@ -319,13 +318,12 @@ describe('detentLabel — compact rung labels', () => {
   });
 });
 
-describe('pointsLine — banked-points HUD prompt', () => {
-  it('hides (empty string) at zero and shows "PTS ×N — TAB" otherwise (Story 2.1: TAB is the refit key)', () => {
-    expect(pointsLine(0)).toBe('');
-    expect(pointsLine(2)).toBe('PTS ×2 — TAB');
-    expect(pointsLine(1)).toBe('PTS ×1 — TAB');
-  });
-});
+// The banked-points prompt ("PTS ×N — TAB") and its vitalsLayout slot were
+// DELETED by Story 2.6 (amendment 33): the economy readout moved bottom-LEFT
+// into the hotbar's reserved gutter (render/xpRail.ts — see xpRail.test.ts,
+// which owns the replacement pins: hidden-at-zero, chip states, cue copy).
+// What survives here is the reflow proof below — IN STORM now sits in the slot
+// the prompt used to occupy, and the vitals cluster carries no economy field.
 
 describe('speedLadderFraction — ACTUAL speed on the [-1,1] telegraph axis', () => {
   const KIN = CONFIG.shipClasses.torpedoBoat.kinematics;
@@ -401,7 +399,7 @@ describe('vitalsLayout — the bottom-right own-vitals cluster (Story 2.4 anatom
 
   it('anchors every element in the RIGHT half of the viewport', () => {
     const L = vitalsLayout(FLOOR.w, FLOOR.h);
-    for (const x of [L.hp.x, L.cluster.x, L.pts.x, L.storm.x]) {
+    for (const x of [L.hp.x, L.cluster.x, L.storm.x]) {
       expect(x).toBeGreaterThan(FLOOR.w / 2);
     }
     // ...and nothing runs off the right edge.
@@ -409,7 +407,7 @@ describe('vitalsLayout — the bottom-right own-vitals cluster (Story 2.4 anatom
     expect(L.cluster.x + L.cluster.w).toBeLessThanOrEqual(FLOOR.w);
   });
 
-  it('keeps HP rail / cluster / PTS / IN STORM from overlapping each other', () => {
+  it('keeps HP rail / cluster / IN STORM from overlapping each other', () => {
     const L = vitalsLayout(FLOOR.w, FLOOR.h);
     expect(L.hp.y + L.hp.h).toBeLessThanOrEqual(FLOOR.h); // inside the viewport
     expect(L.cluster.y + L.cluster.h).toBeLessThanOrEqual(FLOOR.h);
@@ -419,11 +417,13 @@ describe('vitalsLayout — the bottom-right own-vitals cluster (Story 2.4 anatom
     expect(overlaps(L.hp, L.cluster)).toBe(false);
     expect(L.hp.y).toBeGreaterThan(L.cluster.y);
     expect(L.hp.y + L.hp.h).toBe(L.cluster.y + L.cluster.h);
-    // The two satellite lines stack ABOVE the cluster, in order, on screen.
-    const lineH = 22; // generous line box for the 16/19px readouts
-    expect(L.pts.y + lineH).toBeLessThanOrEqual(L.cluster.y); // prompt clears the cluster
-    expect(L.storm.y + lineH).toBeLessThanOrEqual(L.pts.y); // warning clears the prompt
+    // IN STORM is now the ONLY line above the cluster (Story 2.6 deleted the PTS
+    // prompt that used to sit between them) and it REFLOWED down into the freed
+    // slot: it clears the cluster's top edge and still starts on screen.
+    const lineH = 22; // generous line box for the 19px readout
+    expect(L.storm.y + lineH).toBeLessThanOrEqual(L.cluster.y);
     expect(L.storm.y).toBeGreaterThan(0);
+    expect(L.cluster.y - L.storm.y).toBe(CLIENT_CONFIG.vitals.stormAbove);
   });
 
   it('keeps the whole stack clear of the bottom-LEFT hotbar corner at the floor viewport', () => {
@@ -433,7 +433,7 @@ describe('vitalsLayout — the bottom-right own-vitals cluster (Story 2.4 anatom
     // column. Reads the REAL label width so the Story 2.3 growth (168 -> 268 for
     // the lifted type) is checked rather than approximated.
     const hotbarRight = hb.left + hb.keyChip + hb.keyGap + hb.slot + hb.labelGap + hb.labelWidth;
-    expect(Math.min(L.hp.x, L.cluster.x, L.pts.x, L.storm.x)).toBeGreaterThan(hotbarRight);
+    expect(Math.min(L.hp.x, L.cluster.x, L.storm.x)).toBeGreaterThan(hotbarRight);
   });
 
   it('tracks the viewport (a taller/wider screen moves the whole stack with it)', () => {
@@ -817,7 +817,6 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
     alive: true,
     respawnInMs: 0,
     cls: 'torpedoBoat',
-    pts: 2,
     stats,
     loadout: ['gun', 'torpedo', null, null],
     boostActive: false,

@@ -75,6 +75,11 @@ describe('buildFrame — shape and clock', () => {
       offer: [], // no offer while pts is 0
       boostUntil: 0, // owner-only speed-boost window end; inactive
       boons: [], // applied boon ids — self-private, dormant until 2.7 (Story 2.5)
+      // Story 2.6, self-private too: levels completed + progress toward the
+      // next as a 0..1 fraction of CONFIG.xp.levelMs. One 50ms step of passive
+      // accrual has already landed (the world defaults to the active policy).
+      lvl: 0,
+      xp: CONFIG.tick.simDtMs / CONFIG.xp.levelMs,
     });
     expect(f.spec).toBeUndefined();
   });

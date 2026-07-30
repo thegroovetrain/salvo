@@ -57,6 +57,7 @@ import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
+import { XpRail, type XpView } from './render/xpRail.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
@@ -147,6 +148,11 @@ interface Game {
    *  four slots (Gun / Q / E / R), the full state grammar, hover tooltip, and
    *  key-equivalent slot clicks. Rendered only while alive in-match. */
   hotbar: Hotbar;
+  /** The bottom-left ECONOMY SATELLITES (render/xpRail.ts, Story 2.6): the XP
+   *  rail + LV tag in the hotbar's reserved gutter, the banked-level chip, and
+   *  the "LEVEL UP — TAB TO REFIT" cue line. Render-only (it routes no click)
+   *  and, like the hotbar, shown only while conning a live ship. */
+  xpRail: XpRail;
   /** The TAB-toggled refit modal (ui/upgradeMenu.ts) — DOM; while open the
    *  game is under full combat lockout (Story 2.1) but the sim never pauses. */
   upgradeMenu: UpgradeMenu;
@@ -378,7 +384,6 @@ function ownStatus(g: Game): OwnStatus {
     ammo: ownAmmo(you, stats, g.ownSlots),
     cls: you?.cls ?? g.ownClass,
     stats,
-    pts: you?.pts ?? 0,
     // Client-primed slot (immediate), not a server echo — the server keeps no
     // priming state. Keeps the HUD chip highlight in lockstep with the arcs/
     // denied-flash, which read g.keyboard.primedSlot directly. Ammo VALUES still
@@ -456,6 +461,9 @@ function handleRefitToggle(g: Game): void {
     g.upgradeMenu.hide();
     return;
   }
+  // Opening the refit window re-arms the banked-level chip's breath (amendment
+  // 1's binding replacing the old SPACE touch); closing it deliberately does not.
+  if (!g.upgradeMenu.visible) g.xpRail.rearm();
   g.upgradeMenu.toggle(view);
 }
 
@@ -1189,6 +1197,7 @@ function buildGame(
     zone: new Zone(stage.layers.zone, stage.layers.vignette, map.radius, CONFIG.zone.endRadiusFraction),
     hud: new Hud(stage.layers.hud),
     hotbar: new Hotbar(stage.layers.hud),
+    xpRail: new XpRail(stage.layers.hud),
     upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef)),
     settingsOverlay,
     score: freshScore(),
@@ -1398,6 +1407,24 @@ function renderOwn(
   // storm vignette's pulse rides (the HP rail breathes on it).
   g.hud.update(pose, g.keyboard.axes(), status, zone, match, hudWidth(g), hudHeight(g), now / 1000);
   updateHotbar(g, status);
+  updateXpRail(g, status.alive, now / 1000);
+}
+
+/**
+ * The economy satellites (Story 2.6): fed VERBATIM from the server's own-ship
+ * fields — `lvl`/`xp`/`pts` are self-private and server-authoritative, and
+ * nothing here predicts or interpolates them. Shown on exactly the hotbar's
+ * terms: alive, in-match, with a live `you` (death / spectate / the forceSnap
+ * pose gap hide it, so the satellites never describe a hull that is gone).
+ */
+function updateXpRail(g: Game, alive: boolean, nowSec: number): void {
+  const you = g.state.net.you;
+  if (!alive || !you || g.state.spectating) {
+    g.xpRail.hide();
+    return;
+  }
+  const view: XpView = { lvl: you.lvl, xp: you.xp, pts: you.pts };
+  g.xpRail.update(view, hudHeight(g), nowSec);
 }
 
 /**
@@ -1638,6 +1665,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
     g.hotbar.hide(); // no frame renders here — the hotbar must not linger, nor route clicks
+    g.xpRail.hide(); // the economy satellites follow the hotbar's visibility exactly
   }
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;
@@ -1665,6 +1693,7 @@ function enterSpectateVisuals(g: Game): void {
   g.nameplates.hide(g.state.net.sessionId); // own plate hidden while spectating (hull hidden)
   g.firing.hide();
   g.hotbar.hide(); // the loadout surface dies with the hull (Story 2.2)
+  g.xpRail.hide(); // ...and so do the economy satellites (Story 2.6)
   g.upgradeMenu.hide(); // the refit modal never lingers into spectate
   // Hand the zoom to the spectate factor: the alive user zoom resets to the
   // base framing so the spectate wheel path behaves exactly as it always has.

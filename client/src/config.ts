@@ -495,9 +495,11 @@ export const CLIENT_CONFIG = {
     headerH: 24,
     /** Gap (px) from the viewport's right / bottom edges. */
     margin: 24,
-    /** PTS prompt / IN STORM baselines, px above the cluster's top edge. */
-    ptsAbove: 24,
-    stormAbove: 50,
+    /** IN STORM baseline, px above the cluster's top edge. Story 2.6 deleted the
+     *  amber "PTS ×N — TAB" prompt that used to sit between them (amendment 33 —
+     *  the economy moved to the bottom-LEFT satellites), so the warning reflows
+     *  down into the freed slot: one satellite line, one offset. */
+    stormAbove: 24,
     /** HP RAIL — the first vertical rail in the HUD. Story 2.6's XP rail
      *  INHERITS this idiom (dim phosphor track, bottom-up fill, soft glow) at
      *  3px (UX-DR12); only the HP rail widens to 6px (amendment 27). */
@@ -545,6 +547,40 @@ export const CLIENT_CONFIG = {
     glyphFadeCount: 3,
     glyphFadeSec: 0.6,
     glyphKey: 'hullcracker.helm',
+  },
+
+  /**
+   * The bottom-left ECONOMY SATELLITES (Story 2.6, amendment 33): a vertical XP
+   * rail in the hotbar's reserved gutter with an LV tag, a banked-level chip,
+   * and the "LEVEL UP — TAB TO REFIT" cue line. They replace the deleted
+   * bottom-right amber PTS readout. Geometry + timing only — every stroke reads
+   * a `colors` token, and the rail idiom itself (dim phosphor track, bottom-up
+   * fill, soft glow) is INHERITED from `vitals` (railTrackAlpha / railFillAlpha
+   * / railGlowAlpha / railGlowPx), which is what "mirrors the HP rail" means.
+   */
+  xpRail: {
+    /** Rail width (px) — 3px per UX-DR12; only the HP rail widened to 6
+     *  (amendment 27), so the two rails share the idiom, not the width. */
+    railWidth: 3,
+    /** Gap (px) between the rail's head and the LV tag's center. */
+    tagGap: 14,
+    /** Gap (px) between the LV tag's center and the level chip's center. */
+    chipGap: 26,
+    /** Level chip square (px) — the one mono chip family's footprint. */
+    chip: 22,
+    /** Gap (px) between the chip and the cue line. */
+    cueGap: 10,
+    /** Breathing cycle (s) of an UNSPENT level chip — 2.4s (≥ the ratified 2s
+     *  floor), i.e. ~0.42 Hz, well under `settings.pulseCapHz`. */
+    breathSec: 2.4,
+    /** How long (s) the chip breathes before decaying to a STATIC chip. The
+     *  information (chip + count + cue line) never decays — only the motion. */
+    unspentSec: 10,
+    /** BASE alpha of the chip's linework/label — what it holds when static and
+     *  at motion=off (information, not motion). */
+    chipAlpha: 0.85,
+    /** Opacity-breathing amplitude (motion-scaled at the callsite). */
+    pulseAmp: 0.15,
   },
 
   /** Radar blip render knobs (Story 2.3 adds the colorblind-assist channel). */

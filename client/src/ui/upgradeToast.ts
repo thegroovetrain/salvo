@@ -34,10 +34,12 @@ export function upgradeLabel(type: UpgradeId): string {
   return `⬆ +${LABELS[type]}`;
 }
 
-/** Pure: the toast line for a banked upgrade point (a kill reward, unspent).
- *  TAB is the refit-modal toggle (Story 2.1 — supersedes the CTRL window). */
+/** Pure: the toast line for a banked level (Story 2.6 — a LEVEL UP is now the
+ *  only thing that banks a point, whether it came from the passive tick or a
+ *  kill, so the copy names the level, not the currency; amendment 33's
+ *  vocabulary, no "banked" wording). TAB is the refit-modal toggle. */
 export function pointToastLine(): string {
-  return '▲ UPGRADE POINT — TAB TO REFIT';
+  return '▲ LEVEL UP — TAB TO REFIT';
 }
 
 function ensureStack(): HTMLDivElement {

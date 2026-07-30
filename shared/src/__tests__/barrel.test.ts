@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   PROTOCOL_VERSION,
   CONFIG,
+  DRONE_HULL_IDS,
   MSG,
   UPGRADE_IDS,
   UPGRADE_CATEGORY_IDS,
@@ -45,7 +46,7 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    expect(PROTOCOL_VERSION).toBe(13); // Story 2.5: OwnShip gains required self-private `boons`
+    expect(PROTOCOL_VERSION).toBe(14); // Story 2.6: OwnShip gains required self-private `lvl`/`xp`
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -67,6 +68,26 @@ describe('shared barrel', () => {
     expect(typeof equipmentMaxAmmo).toBe('function');
     expect(typeof equipmentReloadMs).toBe('function');
     expect(CONFIG.upgrades.gunAmmo.add).toBe(1);
+  });
+
+  it('carries the XP economy block (Story 2.6) — the shape, tiers included', () => {
+    // Every NUMBER here is a declared handwave (2.10 retunes); the SHAPE is the
+    // commitment: a flat ms cost per level, a full level for a human kill, and
+    // the PvE size tiers ¼ / ⅓ / ½ keyed by DRONE HULL ID (the fleets epic reuses
+    // them verbatim).
+    expect(CONFIG.xp.levelMs).toBe(60000);
+    expect(CONFIG.xp.levelMs % CONFIG.tick.simDtMs).toBe(0); // a whole number of ticks
+    expect(CONFIG.xp.killLevels).toBe(1);
+    expect(CONFIG.xp.droneTierLevels.droneSmall).toBe(0.25);
+    expect(CONFIG.xp.droneTierLevels.droneMedium).toBeCloseTo(1 / 3, 12);
+    expect(CONFIG.xp.droneTierLevels.droneLarge).toBe(0.5);
+    for (const id of DRONE_HULL_IDS) {
+      expect(CONFIG.xp.droneTierLevels[id]).toBeGreaterThan(0);
+      expect(CONFIG.xp.droneTierLevels[id]).toBeLessThan(CONFIG.xp.killLevels); // a drone is never a human
+    }
+    // DAMAGE PAYS NOTHING — the Rat Covenant's price. There is deliberately no
+    // damage entry to tune.
+    expect(Object.keys(CONFIG.xp).sort()).toEqual(['droneTierLevels', 'killLevels', 'levelMs']);
   });
 
   it('re-exports the universal standard gun model (Story 1.4)', () => {

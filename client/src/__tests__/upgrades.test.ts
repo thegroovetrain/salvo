@@ -37,13 +37,16 @@ describe('upgradeLabel — pure toast formatting', () => {
 function ownShip(cls: OwnShip['cls'], upg: number[], boons: string[] = []): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 100, alive: true,
-    ammo: [], sweep: 0, cls, upg, pts: 0, offer: [], boostUntil: 0, boons,
+    ammo: [], sweep: 0, cls, upg, pts: 0, offer: [], boostUntil: 0, boons, lvl: 0, xp: 0,
   };
 }
 
 describe('point toast line — pure formatting', () => {
-  it('pointToastLine is the fixed TAB refit prompt (Story 2.1 — heal toast deleted with REPAIR)', () => {
-    expect(pointToastLine()).toBe('▲ UPGRADE POINT — TAB TO REFIT');
+  // Story 2.6 (amendment 33): a LEVEL UP is the only thing that banks a point
+  // now — passive tick or kill — so the toast names the level, with no "banked"
+  // wording and REFIT (not UPGRADE) as the verb. Supersedes the 2.1 copy.
+  it('pointToastLine is the fixed LEVEL UP → TAB refit prompt', () => {
+    expect(pointToastLine()).toBe('▲ LEVEL UP — TAB TO REFIT');
   });
 });
 
@@ -77,6 +80,16 @@ describe('ownStatsChanged — the recompute gate', () => {
     const prev = { ...ownShip('torpedoBoat', zeroUpgrades()), pts: 0, offer: [] as number[] };
     const next = { ...ownShip('torpedoBoat', zeroUpgrades()), pts: 2, offer: [3, 6, 10] };
     expect(ownStatsChanged(next, prev)).toBe(false);
+  });
+
+  it('IGNORES the Story 2.6 xp/lvl deltas — the passive tick moves `xp` EVERY frame', () => {
+    // The XP fill is a per-frame moving number: if it fed the recompute gate,
+    // every single frame would rebuild effective stats and re-bake the fog.
+    const prev = { ...ownShip('torpedoBoat', zeroUpgrades()), lvl: 0, xp: 0.25 };
+    expect(ownStatsChanged({ ...prev, xp: 0.2508333 }, prev)).toBe(false);
+    // ...and a LEVEL UP is not a stat change either: the build only moves when
+    // the point is SPENT (which lands as an `upg` count change, pinned above).
+    expect(ownStatsChanged({ ...prev, lvl: 1, xp: 0, pts: 1 }, prev)).toBe(false);
   });
 
   it('fires on ANY boons change: first grant, append, removal, and reorder (Story 2.5)', () => {
