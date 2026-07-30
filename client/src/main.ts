@@ -57,11 +57,19 @@ import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
+import { XpRail, type XpView } from './render/xpRail.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
 import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js';
 import { KeyboardInput, slotHoldsAbility, type KeyboardHooks } from './input/keyboard.js';
-import { UpgradeMenu, offerView, type OfferView } from './ui/upgradeMenu.js';
+import {
+  UpgradeMenu,
+  frontOfferSignature,
+  offerView,
+  spendLatchReleased,
+  type OfferView,
+  type SpendLatch,
+} from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
 import { abilityPressDenied, shouldConsumePrime } from './sim/inputSampler.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
@@ -147,6 +155,11 @@ interface Game {
    *  four slots (Gun / Q / E / R), the full state grammar, hover tooltip, and
    *  key-equivalent slot clicks. Rendered only while alive in-match. */
   hotbar: Hotbar;
+  /** The bottom-left ECONOMY SATELLITES (render/xpRail.ts, Story 2.6): the XP
+   *  rail + LV tag in the hotbar's reserved gutter, the banked-level chip, and
+   *  the "LEVEL UP — TAB TO REFIT" cue line. Render-only (it routes no click)
+   *  and, like the hotbar, shown only while conning a live ship. */
+  xpRail: XpRail;
   /** The TAB-toggled refit modal (ui/upgradeMenu.ts) — DOM; while open the
    *  game is under full combat lockout (Story 2.1) but the sim never pauses. */
   upgradeMenu: UpgradeMenu;
@@ -167,13 +180,14 @@ interface Game {
   uiScale: number;
   /**
    * FINDING A latch: set the instant a spend is sent, cleared once it visibly
-   * lands (pts drops) or a fallback timeout elapses (the server silently
-   * rejected it — so don't lock the player out forever). Guards against two
-   * rapid spends (digit 1 then digit 2, or two card clicks) within one
-   * server-tick+RTT both firing against the SAME (now-stale) front offer —
-   * see trySpend()/updateSpendLatch().
+   * lands (the bank shrinks or the offer queue shifts) or a fallback timeout
+   * elapses (the server silently rejected it — so don't lock the player out
+   * forever). Guards against two rapid spends (digit 1 then digit 2, or two
+   * card clicks) within one server-tick+RTT both firing against the SAME
+   * (now-stale) front offer — see trySpend()/updateSpendLatch() and the
+   * spendLatchReleased() predicate they share.
    */
-  spendInFlight: { pts: number; offerSig: string; at: number } | null;
+  spendInFlight: SpendLatch | null;
   /** Trailing-edge debounce handle for the fog re-bake after a user-zoom
    *  change (X/Z/wheel) — the zoom sibling of bindResize's local timer. */
   fogZoomTimer: ReturnType<typeof setTimeout> | null;
@@ -378,7 +392,6 @@ function ownStatus(g: Game): OwnStatus {
     ammo: ownAmmo(you, stats, g.ownSlots),
     cls: you?.cls ?? g.ownClass,
     stats,
-    pts: you?.pts ?? 0,
     // Client-primed slot (immediate), not a server echo — the server keeps no
     // priming state. Keeps the HUD chip highlight in lockstep with the arcs/
     // denied-flash, which read g.keyboard.primedSlot directly. Ammo VALUES still
@@ -391,11 +404,6 @@ function ownStatus(g: Game): OwnStatus {
   };
 }
 
-/** How long the spend latch (below) holds before falling back open, in case the
- *  server silently rejected the spend (e.g. a heal that raced to full hp) —
- *  well past any real server-tick+RTT round trip, so it never masks a stuck UI. */
-const SPEND_LATCH_TIMEOUT_MS = 1500;
-
 /**
  * FINDING A: the single entry point for BOTH spend paths (digit picks via
  * handleRefitPick, and the UpgradeMenu card-click callback). Ignores a
@@ -403,36 +411,31 @@ const SPEND_LATCH_TIMEOUT_MS = 1500;
  * within one server-tick+RTT (digit 1 then digit 2, or two card clicks) both
  * read the SAME client-side front offer, and the second lands after the
  * server's FIFO shift and applies an upgrade the client never displayed.
- * Latched by banked points at send time; cleared by updateSpendLatch() once
- * the bank visibly shrinks or the fallback timeout elapses.
+ * Snapshots the banked count AND the front offer at send time (separately —
+ * see SpendLatch); cleared by updateSpendLatch() once the spend visibly lands
+ * or the fallback timeout elapses.
  */
 function trySpend(g: Game, choice: number): void {
   if (g.spendInFlight) return;
   const you = g.state.net.you;
   g.room.send(MSG.spend, { choice });
-  g.spendInFlight = { pts: you?.pts ?? 0, offerSig: offerSignature(you), at: performance.now() };
-}
-
-/** Snapshot of the front offer used to detect that the server queue moved. */
-function offerSignature(you: { pts: number; offer: number[] } | null | undefined): string {
-  return you ? `${you.pts}:${you.offer.join(',')}` : '';
+  g.spendInFlight = { pts: you?.pts ?? 0, offerSig: frontOfferSignature(you), at: performance.now() };
 }
 
 /**
- * Clear the spend latch once the spend visibly landed — the pts/offer snapshot
- * changed in ANY way (a pure pts-drop check misses a kill landing mid-flight,
- * which cancels the drop and would leave the menu locked until the timeout) —
- * or the fallback timeout elapsed (silently rejected — e.g. heal-at-full-hp —
- * so the player isn't locked out of spending forever). Called once per render
- * frame, same clock (`performance.now()`) the render loop already uses for the
- * denied-fire pulse — no new timer.
+ * Clear the spend latch once spendLatchReleased() says the spend visibly landed
+ * (the bank shrank, or the offer queue shifted), the own ship is gone, or the
+ * fallback timeout elapsed. A pts INCREASE with an unchanged front offer HOLDS
+ * the latch: Story 2.6's passive banking makes that routine mid-flight, and the
+ * old "changed in ANY way" check released on it — re-opening the very
+ * double-spend-against-a-shifted-FIFO hazard the latch exists to prevent.
+ * Called once per render frame, on the same clock (`performance.now()`) the
+ * render loop already uses for the denied-fire pulse — no new timer.
  */
 function updateSpendLatch(g: Game): void {
   const inFlight = g.spendInFlight;
   if (!inFlight) return;
-  const landed = offerSignature(g.state.net.you) !== inFlight.offerSig;
-  const expired = performance.now() - inFlight.at > SPEND_LATCH_TIMEOUT_MS;
-  if (landed || expired) g.spendInFlight = null;
+  if (spendLatchReleased(inFlight, g.state.net.you, performance.now())) g.spendInFlight = null;
 }
 
 /** The spend view for THIS frame (null = nothing to show → menu auto-hides). */
@@ -456,6 +459,9 @@ function handleRefitToggle(g: Game): void {
     g.upgradeMenu.hide();
     return;
   }
+  // Opening the refit window re-arms the banked-level chip's breath (amendment
+  // 1's binding replacing the old SPACE touch); closing it deliberately does not.
+  if (!g.upgradeMenu.visible) g.xpRail.rearm();
   g.upgradeMenu.toggle(view);
 }
 
@@ -1189,6 +1195,7 @@ function buildGame(
     zone: new Zone(stage.layers.zone, stage.layers.vignette, map.radius, CONFIG.zone.endRadiusFraction),
     hud: new Hud(stage.layers.hud),
     hotbar: new Hotbar(stage.layers.hud),
+    xpRail: new XpRail(stage.layers.hud),
     upgradeMenu: new UpgradeMenu(onSpendClick(() => gRef)),
     settingsOverlay,
     score: freshScore(),
@@ -1398,6 +1405,24 @@ function renderOwn(
   // storm vignette's pulse rides (the HP rail breathes on it).
   g.hud.update(pose, g.keyboard.axes(), status, zone, match, hudWidth(g), hudHeight(g), now / 1000);
   updateHotbar(g, status);
+  updateXpRail(g, status.alive, now / 1000);
+}
+
+/**
+ * The economy satellites (Story 2.6): fed VERBATIM from the server's own-ship
+ * fields — `lvl`/`xp`/`pts` are self-private and server-authoritative, and
+ * nothing here predicts or interpolates them. Shown on exactly the hotbar's
+ * terms: alive, in-match, with a live `you` (death / spectate / the forceSnap
+ * pose gap hide it, so the satellites never describe a hull that is gone).
+ */
+function updateXpRail(g: Game, alive: boolean, nowSec: number): void {
+  const you = g.state.net.you;
+  if (!alive || !you || g.state.spectating) {
+    g.xpRail.hide();
+    return;
+  }
+  const view: XpView = { lvl: you.lvl, xp: you.xp, pts: you.pts };
+  g.xpRail.update(view, hudHeight(g), nowSec);
 }
 
 /**
@@ -1638,6 +1663,11 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
     g.hotbar.hide(); // no frame renders here — the hotbar must not linger, nor route clicks
+    // The economy satellites follow the hotbar's visibility exactly — but this
+    // gap is TRANSIENT (the pose returns next frame), so the chip's breathing
+    // state survives it: a full hide() would reset it and re-arm a decayed
+    // chip's 10s window off a gap the player never saw (see hideTransient).
+    g.xpRail.hideTransient();
   }
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;
@@ -1665,6 +1695,7 @@ function enterSpectateVisuals(g: Game): void {
   g.nameplates.hide(g.state.net.sessionId); // own plate hidden while spectating (hull hidden)
   g.firing.hide();
   g.hotbar.hide(); // the loadout surface dies with the hull (Story 2.2)
+  g.xpRail.hide(); // ...and so do the economy satellites (Story 2.6)
   g.upgradeMenu.hide(); // the refit modal never lingers into spectate
   // Hand the zoom to the spectate factor: the alive user zoom resets to the
   // base framing so the spectate wheel path behaves exactly as it always has.

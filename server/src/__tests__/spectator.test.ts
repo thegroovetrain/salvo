@@ -99,11 +99,16 @@ describe('spectator frames — dead observer in the active phase', () => {
     expect(f.you).toBeUndefined();
     const ids = f.contacts.map((c) => c.id).sort();
     expect(ids).toEqual(['b', 'c']); // unfogged: both far beyond sight
-    // Even unfogged, spectator contacts never carry upgrade data (anti-cheat).
+    // Even unfogged, spectator contacts never carry upgrade data (anti-cheat) —
+    // nor, as of Story 2.6, level or XP progress. And with `you` omitted, a
+    // spectator frame carries no economy field at all.
     for (const c of f.contacts) {
       expect('upg' in c).toBe(false);
       expect('stats' in c).toBe(false);
+      expect('lvl' in c).toBe(false);
+      expect('xp' in c).toBe(false);
     }
+    expect(JSON.stringify(f)).not.toContain('"lvl"');
     const c = w.ships.get('c')!;
     expect(f.contacts.find((x) => x.id === 'c')).toEqual({
       id: 'c',

@@ -277,11 +277,15 @@ export class Match {
 
   // --- per-phase bookkeeping ---------------------------------------------------
 
-  /** World combat policy per phase: the ready room is weapons-hot but harmless. */
+  /** World combat policy per phase: the ready room is weapons-hot but harmless.
+   *  Story 2.6 adds the XP policy on the same seam (amendment 34): passive XP
+   *  accrues in the ACTIVE phase only — the ready room and the post-match
+   *  freeze bank nothing. Kill credit is deliberately not policy-gated. */
   private applyPolicy(): void {
     const w = this.world;
     w.damageEnabled = this.phase === 'active';
     w.respawnEnabled = this.phase === 'waiting' || this.phase === 'countdown';
+    w.xpEnabled = this.phase === 'active';
   }
 
   /** Record this tick's sink events (humans only) into the placement order. */

@@ -757,6 +757,12 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   const me = w.ships.get(viewerId)!;
   // Upgrade counts ride ONLY on the observer's own ship — never on a contact.
   if (f.you) expect(f.you.upg).toEqual(me.upgrades);
+  // Story 2.6: level + XP progress are self-private on the same terms — the
+  // observer's OWN values, and nothing else's.
+  if (f.you) {
+    expect(f.you.lvl).toBe(me.level);
+    expect(f.you.xp).toBeCloseTo(me.xpMs / CONFIG.xp.levelMs, 12);
+  }
   for (const c of f.contacts) {
     const target = w.ships.get(c.id)!;
     expect(target).toBeDefined();
@@ -764,6 +770,8 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect(c.id).not.toBe(viewerId);
     expect('upg' in c).toBe(false); // enemy builds are hidden (anti-cheat)
     expect('stats' in c).toBe(false);
+    expect('lvl' in c).toBe(false); // ...and so is the economy (Story 2.6)
+    expect('xp' in c).toBe(false);
     // Sight tier (dist + LOS) OR the ship's CENTER inside a zone the viewer
     // OWNS (Story 1.7 firer-only truesight parity) — nothing else.
     expect(sighted(w, me, target.state) || zoneCovers(w, me, target.state)).toBe(true);

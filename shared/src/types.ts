@@ -205,6 +205,23 @@ export interface OwnShip {
    * behavior on the water, never from the wire).
    */
   boons: string[];
+  /**
+   * Levels COMPLETED so far this life-of-the-match (Story 2.6) — an integer,
+   * starting at 0 and wiped with the build at the match boundary. Every level
+   * banks one point (see `pts`): `lvl` is the running total earned, `pts` what
+   * is still unspent. ANTI-CHEAT: self-private like `upg`/`pts`/`boons` — it
+   * rides `you` and NOTHING else (never a Contact, blip, ballistic event,
+   * boom, spectator payload, or the roster schema). An enemy's level is
+   * inferable only from what their ship does on the water.
+   */
+  lvl: number;
+  /**
+   * Progress toward the NEXT level as a fraction in [0,1) — the server's
+   * integer-ms accumulator over CONFIG.xp.levelMs. Server-authoritative and
+   * never predicted: the client renders it verbatim (no client-side XP
+   * accrual exists). Self-private exactly like `lvl`.
+   */
+  xp: number;
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */

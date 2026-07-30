@@ -1,6 +1,10 @@
-// Upgrade-point economy. Covers the earn hook in sinkShip (who banks a point,
-// who never does, determinism of the pre-rolled offers off the decorrelated
-// rng stream), the FIFO offer queue (front-on-the-wire, reroll-proof),
+// Upgrade-point economy. Covers the earn hook in sinkShip — which is now a KILL
+// XP hook (Story 2.6): a kill pays levels' worth of XP and a point is banked on
+// every level crossed, so "an attributed kill banks a point" holds because
+// CONFIG.xp.killLevels is 1. The XP economy itself (passive tick, drone tiers,
+// fraction carry, gating, drone guard) lives in xp.test.ts; this file keeps the
+// point/offer contract: who banks, who never does, determinism of the pre-rolled
+// offers off the decorrelated rng stream, the FIFO offer queue (front-on-the-wire, reroll-proof),
 // spendPoint's fail-closed validation table (incl. the deleted Story 2.1
 // REPAIR/heal choice rejecting), the lifecycle rules (respawn
 // preserves offers, redeployShip wipes them), wire privacy (pts/offer/pt/upg
@@ -86,6 +90,9 @@ describe('point earn — who banks one', () => {
     w.sinkShip('b', 'a');
     w.step();
     expect(a.offers).toHaveLength(1);
+    // Story 2.6: the kill paid one LEVEL's worth of XP, and the level-up is
+    // what banked the point (the only banking trigger there is).
+    expect(a.level).toBe(1);
     // Earning applies NOTHING: the build and cached stats are the zero-upgrade identity.
     expect(a.upgrades).toEqual(zeroUpgrades());
     expect(a.stats).toEqual(effectiveStats(a.cls, zeroUpgrades()));
@@ -135,6 +142,7 @@ describe('point earn — who banks one', () => {
     w.sinkShip('b', 'a'); // ...but its torpedo still lands
     w.step();
     expect(a.offers).toHaveLength(1);
+    expect(a.level).toBe(1); // kill XP is NOT alive-gated (Story 2.6)
     expect(a.alive).toBe(false);
     expect(a.hp).toBe(0); // earning is inert — a corpse banks, nothing heals
   });
@@ -317,6 +325,23 @@ describe('upgrade lifecycle', () => {
     expect(a.offers.map((o) => [...o])).toEqual(offers);
   });
 
+  it('respawn (waiting phase) PRESERVES XP progress and level (Story 2.6)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.step();
+    bank(w, a, 1); // one kill = one level
+    a.xpMs = 12345; // partial progress toward the next
+    w.sinkShip('a');
+    for (let i = 0; i <= CONFIG.ship.respawnDelay / DT; i++) w.step();
+    expect(a.alive).toBe(true);
+    expect(a.level).toBe(1);
+    // The passive tick keeps running through the respawn (this world is
+    // active-policy by default), so progress GREW from the seeded value — the
+    // point is that it was never reset.
+    expect(a.xpMs).toBeGreaterThanOrEqual(12345);
+    expect(a.xpMs).toBeLessThan(CONFIG.xp.levelMs);
+  });
+
   it('redeployShip (match start) WIPES the build: counts zero, stats revert to base', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -336,6 +361,17 @@ describe('upgrade lifecycle', () => {
     bank(w, a, 2);
     w.resetForMatchStart();
     expect(a.offers).toEqual([]);
+  });
+
+  it('redeployShip (match start) WIPES XP progress and level with the build (Story 2.6)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.step();
+    bank(w, a, 2); // two kills = two levels
+    a.xpMs = 30000; // half a level of ready-room progress
+    w.resetForMatchStart();
+    expect(a.level).toBe(0);
+    expect(a.xpMs).toBe(0);
   });
 });
 
@@ -455,6 +491,13 @@ describe('wire privacy — banked points never leak', () => {
     expect(contact).toBeDefined();
     expect('pts' in contact).toBe(false);
     expect('offer' in contact).toBe(false);
+    // Story 2.6: level and XP progress are self-private on exactly the same
+    // terms — never on a contact, and b's own `you` reports B's economy only.
+    expect('lvl' in contact).toBe(false);
+    expect('xp' in contact).toBe(false);
+    expect(fb.you!.lvl).toBe(0);
+    expect(fb.you!.pts).toBe(0);
+    expect(buildFrame(w, 'a').you!.lvl).toBe(2);
   });
 });
 

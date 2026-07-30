@@ -7,8 +7,8 @@
 // Every denial spends NOTHING (round/charge + reload untouched), reaches ONLY
 // the pressing client's own frame (owner-only — never another observer, never
 // a spectator frame), lives exactly one tick, and never queues for drones.
-// The pv join gate is re-pinned here too: a pv-11 (previous-protocol) client
-// must be rejected at matchmake time after the 11→12 bump (Story 2.1).
+// The pv join gate is re-pinned here too: a pv-13 (previous-protocol) client
+// must be rejected at matchmake time after the 13→14 bump (Story 2.6).
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, PROTOCOL_VERSION, type InputMsg } from '@salvo/shared';
@@ -172,10 +172,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 12→13 bump (Story 2.5 boons wire field) is enforced at matchmake', () => {
-  it('rejects a pv-12 (previous protocol) client and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(13);
-    expect(protocolVersionError(12)).toMatch(/refresh/);
+describe('pv join gate — the 13→14 bump (Story 2.6 xp/lvl wire fields) is enforced at matchmake', () => {
+  it('rejects a pv-13 (previous protocol) client and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(14);
+    expect(protocolVersionError(13)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

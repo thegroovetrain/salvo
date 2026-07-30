@@ -3,6 +3,13 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  14: XP tick & kill bonuses (Story 2.6) — OwnShip gains required
+ *  self-private `lvl` (integer levels completed) and `xp` (0..1 progress
+ *  toward the next level), riding `you` and nothing else (the upg/pts/boons
+ *  precedent). New `CONFIG.xp` block (levelMs / killLevels / droneTierLevels)
+ *  rides the welcome config snapshot. Level-ups are now the ONLY thing that
+ *  banks a point — the `pt` event and the offer shape are unchanged, so a
+ *  stale client would silently mis-render progression rather than fail.
  *  13: boon effect engine dormant plumbing (Story 2.5) — OwnShip gains
  *  required `boons` (applied boon ids, self-private: rides `you` and nothing
  *  else, the upg/boostUntil precedent). Always [] until Story 2.7's spend
@@ -56,7 +63,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 13;
+export const PROTOCOL_VERSION = 14;
 
 // Tunables
 export * from './constants.js';

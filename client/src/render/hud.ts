@@ -145,8 +145,6 @@ export function speedLadderFraction(speed: number, kin: LadderKin): number {
   return f < -1 ? -1 : f > 1 ? 1 : f;
 }
 
-// Banked-points prompt — amber (an action is available), above the vitals cluster.
-const PTS_STYLE = { fontFamily: MONO, fontSize: 16, fill: AMBER, letterSpacing: 2 } as const;
 const OVERLAY_STYLE = { fontFamily: MONO, fontSize: 38, fill: AMBER, letterSpacing: 2 } as const;
 
 /** Own-ship status the HUD renders beyond raw kinematics. */
@@ -159,7 +157,6 @@ export interface OwnStatus {
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
   cls: ShipClassId; // own class — drives hull-length lookups (firing UX)
-  pts: number; // banked upgrade points (drives the "PTS ×N — TAB" prompt)
   /** Cached effectiveStats(cls, upg) — ALL HUD denominators (max hp, speed
    *  ladder, ammo pool sizes, reload durations) read from here (Stage D). */
   stats: EffectiveStats;
@@ -171,12 +168,6 @@ export interface OwnStatus {
   /** The own speed boost is currently active (serverNow < boostUntil estimate):
    *  drives the boosted speed-needle cap on the telegraph ladder. */
   boostActive: boolean;
-}
-
-/** Pure: the banked-points prompt above the vitals cluster ('' hides it at 0).
- *  TAB is the refit-modal toggle (Story 2.1 — supersedes the CTRL window). */
-export function pointsLine(n: number): string {
-  return n <= 0 ? '' : `PTS ×${n} — TAB`;
 }
 
 /**
@@ -322,8 +313,12 @@ export function reloadFraction(reloadMsLeft: number, reloadMs: number): number {
 //   cluster   the header + helm body, MARGIN from the right/bottom edges
 //   hp rail   a 6px column ABUTTING the cluster body's right edge (the two
 //             boxes touch and never overlap — the rail is the body's edge)
-//   PTS       above the cluster's top edge
-//   IN STORM  above the PTS prompt
+//   IN STORM  above the cluster's top edge
+//
+// Story 2.6 (amendment 33) deleted the amber "PTS ×N — TAB" prompt that used to
+// sit between the cluster and IN STORM: the whole economy readout — XP rail, LV
+// tag, banked-level chip, cue line — now lives bottom-LEFT in the hotbar's
+// reserved gutter (render/xpRail.ts). The warning reflowed into the freed slot.
 
 /** A screen-space box (px). */
 interface HudBox {
@@ -342,7 +337,6 @@ export interface VitalsLayout {
   root: { x: number; y: number };
   /** The cluster body's screen box (header + helm block, rail EXCLUDED). */
   cluster: HudBox;
-  pts: { x: number; y: number };
   storm: { x: number; y: number };
 }
 
@@ -359,7 +353,6 @@ export function vitalsLayout(screenW: number, screenH: number): VitalsLayout {
     hp: { x: root.x + V.width, y: root.y + RAIL_TOP, w: V.railWidth, h: V.height - RAIL_TOP },
     root,
     cluster,
-    pts: { x: root.x, y: root.y - V.ptsAbove },
     storm: { x: root.x, y: root.y - V.stormAbove },
   };
 }
@@ -391,7 +384,6 @@ export class Hud {
   private readonly headingLabel: Text;
   private readonly speedLabel: Text;
   private readonly overlay: Text;
-  private readonly ptsLabel: Text;
   private readonly rungLabels: Text[];
   private readonly zoneLine: Text;
   private readonly stormWarn: Text;
@@ -412,7 +404,6 @@ export class Hud {
   private lastMatchTag = '';
   private lastCountdown = '';
   private lastSpectateBanner = '';
-  private lastPtsLine = '';
   /** Per-pair fade clock: the second a pair CROSSES into faded during this
    *  session. Null means "not faded" OR "already faded when we booted" — a
    *  reload must show the chips gone, not replay the fade (glyphFadeAlpha). */
@@ -447,9 +438,6 @@ export class Hud {
     this.overlay.anchor.set(0.5);
     this.overlay.visible = false;
     hudLayer.addChild(this.overlay);
-    this.ptsLabel = new Text({ text: '', style: PTS_STYLE });
-    this.ptsLabel.visible = false;
-    hudLayer.addChild(this.ptsLabel);
     this.zoneLine = new Text({ text: '', style: ZONE_STYLE });
     this.zoneLine.anchor.set(0.5, 0);
     this.zoneLine.visible = false;
@@ -569,7 +557,6 @@ export class Hud {
     if (visible && !this.instrumentsShown) this.seedFadedWhileHidden();
     this.instrumentsShown = visible;
     this.root.visible = visible;
-    if (!visible) this.ptsLabel.visible = false; // spectate: no prompt (update() re-shows it when alive)
   }
 
   /**
@@ -583,18 +570,6 @@ export class Hud {
     for (const pair of ['ws', 'ad'] as const) {
       if (this.glyphs.faded(pair)) this.wasFaded[pair] = true; // fadeStart stays null → instantly gone
     }
-  }
-
-  /** Amber "PTS ×N — TAB" prompt, above the bottom-right vitals cluster (hidden at 0). */
-  private updatePoints(status: OwnStatus, screenW: number, screenH: number): void {
-    const line = pointsLine(status.pts);
-    if (line !== this.lastPtsLine) {
-      this.ptsLabel.text = line;
-      this.lastPtsLine = line;
-    }
-    this.ptsLabel.visible = line !== '';
-    const pts = vitalsLayout(screenW, screenH).pts;
-    this.ptsLabel.position.set(pts.x, pts.y);
   }
 
   /** Top-center storm readout + the "IN STORM" warning at the head of the
@@ -811,7 +786,6 @@ export class Hud {
     this.updateTelegraph(axes, ship.speed, kin);
     this.updateHpRail(status, nowSec);
     this.updateHelmGlyphs(nowSec);
-    this.updatePoints(status, screenW, screenH);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);
     this.drawZone(zone, screenW, screenH);

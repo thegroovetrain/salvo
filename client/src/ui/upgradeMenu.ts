@@ -64,6 +64,59 @@ export function offerView(you: OwnShip | null, spectating: boolean, locked: bool
   return { pts: you.pts, options, locked };
 }
 
+/** How long the spend latch holds before falling back open, in case the server
+ *  silently rejected the spend — well past any real server-tick+RTT round trip,
+ *  so it never masks a stuck UI. */
+export const SPEND_LATCH_TIMEOUT_MS = 1500;
+
+/** The send-time snapshot behind the FINDING A spend latch (main.ts's
+ *  `spendInFlight`): the banked count and the FRONT offer, kept SEPARATE so a
+ *  bank arriving mid-flight (which moves `pts` but not the front offer) can be
+ *  told apart from the queue actually shifting. `at` is the performance.now()
+ *  the spend was sent at — the timeout fallback's epoch. */
+export interface SpendLatch {
+  pts: number;
+  offerSig: string;
+  at: number;
+}
+
+/** The FRONT offer's indices, joined — the "the server queue moved" signal.
+ *  Deliberately excludes `pts`: Story 2.6's passive banking ticks the count up
+ *  on its own schedule, and that is not a spend landing. */
+export function frontOfferSignature(you: { offer: number[] } | null | undefined): string {
+  return you ? you.offer.join(',') : '';
+}
+
+/**
+ * Pure: may the FINDING A spend latch be released this frame? Released when
+ *
+ *   (a) there is no own ship — death/spectate; the modal is hidden anyway and
+ *       holding the latch across a life would outlive its purpose;
+ *   (b) the bank visibly SHRANK (`pts` below the snapshot) — the spend landed;
+ *   (c) the front offer CHANGED — the queue shifted, which covers a spend that
+ *       landed in the same frame as a bank that cancelled the numeric drop;
+ *   (d) the fallback timeout elapsed — the server silently rejected the spend
+ *       (nothing shifted), so the player is never locked out forever.
+ *
+ * A pts INCREASE with an unchanged front offer HOLDS: passive XP banking
+ * (Story 2.6) makes that a routine mid-flight event, and releasing on it would
+ * re-open the double-spend-against-a-shifted-FIFO hazard the latch exists to
+ * prevent. Known degraded edge, accepted: if a simultaneous bank cancels the
+ * pts drop AND the newly-rolled offer happens to carry identical indices, the
+ * latch holds until the timeout (d) — a ≤1.5s lockout, which is the fail-safe
+ * side of the trade against mis-spending on an offer the player never saw.
+ */
+export function spendLatchReleased(
+  latch: SpendLatch,
+  you: { pts: number; offer: number[] } | null | undefined,
+  nowMs: number,
+): boolean {
+  if (!you) return true;
+  if (nowMs - latch.at > SPEND_LATCH_TIMEOUT_MS) return true;
+  if (you.pts < latch.pts) return true;
+  return frontOfferSignature(you) !== latch.offerSig;
+}
+
 /** Strip the toast's "⬆ " marker, reusing upgradeToast's label map (e.g. "+GUN AMMO"). */
 function optionLabel(id: UpgradeId): string {
   return upgradeLabel(id).replace(/^⬆\s*/, '');
@@ -208,7 +261,10 @@ export class UpgradeMenu {
     const sig = `${view.pts}|${view.options.join(',')}|${view.locked ? 1 : 0}`;
     if (sig === this.sig) return;
     this.sig = sig;
-    this.titleEl!.textContent = `SPEND UPGRADE POINT — ${view.pts} BANKED`;
+    // Amendment 33's LEVEL vocabulary: what you spend is a LEVEL, and nothing
+    // in this economy is described as "banked" any more (the chip/cue line say
+    // "LEVEL UP — TAB TO REFIT"). The ×N is the count waiting to be spent.
+    this.titleEl!.textContent = `SPEND LEVEL — ×${view.pts}`;
     const rows = this.rowsEl!;
     rows.replaceChildren();
     // Locked (a spend is in flight — see OfferView.locked) dims/inerts every
