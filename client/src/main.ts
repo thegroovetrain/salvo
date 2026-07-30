@@ -64,6 +64,7 @@ import { isClickDenied, DeniedPulse, DenialDedup } from './render/deniedFire.js'
 import { KeyboardInput, slotHoldsAbility, type KeyboardHooks } from './input/keyboard.js';
 import {
   UpgradeMenu,
+  canLatchSpend,
   frontOfferSignature,
   offerView,
   spendOutcome,
@@ -413,21 +414,43 @@ function ownStatus(g: Game): OwnStatus {
  * server's FIFO shift and applies an upgrade the client never displayed.
  * Snapshots the banked count AND the front offer at send time (separately —
  * see SpendLatch); cleared by updateSpendLatch() once the spend visibly lands
- * or the fallback timeout elapses.
+ * (or is ACKED by the server's `bn` event) or the fallback timeout elapses.
+ *
+ * Both gates live in the pure `canLatchSpend` — a second spend in flight, and a
+ * pick that lands with NO own ship in the mirror (the frame that dropped `you`
+ * has arrived but the band's hide is one rAF away): the latter would latch a
+ * pts:0 / empty-signature snapshot that no later frame can ever satisfy, so it
+ * is guaranteed to time out and fire a spurious denied pulse. Nothing is
+ * spendable in that state, so the pick is dropped without even sending.
  */
 function trySpend(g: Game, choice: number): void {
-  if (g.spendInFlight) return;
   const you = g.state.net.you;
+  if (!canLatchSpend(g.spendInFlight, you)) return;
   g.room.send(MSG.spend, { choice });
   // `choice` rides the latch so a FAILED outcome can pulse exactly the card the
-  // player picked (amendment 36's denied register).
-  g.spendInFlight = { pts: you?.pts ?? 0, offerSig: frontOfferSignature(you), at: performance.now(), choice };
+  // player picked (amendment 36's denied register). `acked` flips true if the
+  // server's self-private `bn` fitted event for this spend arrives first.
+  g.spendInFlight = { pts: you?.pts ?? 0, offerSig: frontOfferSignature(you), at: performance.now(), choice, acked: false };
+}
+
+/**
+ * The server's own receipt for the spend in flight: the self-private `bn` (boon
+ * fitted) event arrived on this frame (net/roomBindings → onSpendAck). It is the
+ * ONLY direct evidence the spend landed — `pts`/front-offer inference can be
+ * masked by a passive bank arriving in the same frame as a coincidentally
+ * identical re-roll, which used to classify a SUCCESSFUL spend as 'failed' and
+ * fire the denied pulse against the ◆ FITTED toast that had just appeared.
+ * Ignored when no latch is in flight (a `bn` from a spend already classified).
+ */
+function markSpendAcked(g: Game): void {
+  if (g.spendInFlight) g.spendInFlight.acked = true;
 }
 
 /**
  * Clear the spend latch once spendOutcome() says it is no longer 'pending' —
- * the bank shrank / the offer queue shifted ('success'), or the own ship is gone
- * / the fallback timeout elapsed ('failed'). A pts INCREASE with an unchanged
+ * the server ACKED it (markSpendAcked) or the bank shrank / the offer queue
+ * shifted ('success'), or the own ship is gone / the fallback timeout elapsed
+ * ('failed'). A pts INCREASE with an unchanged
  * front offer HOLDS the latch: Story 2.6's passive banking makes that routine
  * mid-flight, and the old "changed in ANY way" check released on it — re-opening
  * the very double-spend-against-a-shifted-FIFO hazard the latch exists to
@@ -463,12 +486,15 @@ function updateSpendLatch(g: Game): number | null {
  *      on spectate (currentOfferView → null force-hides);
  *   3. only THEN pulse a REJECTED pick — the un-dim in (2) rebuilds the card
  *      row, and a pulse painted before it would be discarded with the old
- *      buttons.
+ *      buttons — and only into a band that is actually ON SCREEN: the latch
+ *      outlives the window (a TAB close, or the you-gone force-hide in (2)),
+ *      and pulsing a hidden band paints nothing while consuming the 300ms
+ *      same-source floor, swallowing the next honest denial.
  */
 function syncRefitBand(g: Game): void {
   const deniedCard = updateSpendLatch(g);
   g.upgradeMenu.update(currentOfferView(g));
-  if (deniedCard !== null) g.upgradeMenu.pulseDenied(deniedCard);
+  if (deniedCard !== null && g.upgradeMenu.visible) g.upgradeMenu.pulseDenied(deniedCard);
 }
 
 /** The spend view for THIS frame (null = nothing to show → menu auto-hides). */
@@ -1369,6 +1395,10 @@ function bindGameRoom(g: Game, conn: Connection): void {
     // Every observed sinking feeds the personal-score accumulator; our own
     // sinking in a live match opens the elimination modal (amendments 22/23).
     onSunkObserved: (victimId, killerId) => handleSunkObserved(g, victimId, killerId),
+    // The `bn` fitted event is the spend latch's ack (Story 2.7 review): mark
+    // the latch in flight so it releases as a SUCCESS even when a same-frame
+    // passive bank + an identical re-roll hide every other landing signal.
+    onSpendAck: () => markSpendAcked(g),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
       // Latched: a story-0.2 resume re-delivers the cached results broadcast,

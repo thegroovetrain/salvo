@@ -297,6 +297,7 @@ function setupToasts(spectating = false) {
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
   const conn = { room, welcome: {}, sink } as unknown as Connection;
   const play = vi.fn();
+  const onSpendAck = vi.fn();
   const deps = {
     state: {
       net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 },
@@ -319,9 +320,10 @@ function setupToasts(spectating = false) {
     onOwnSpawn: vi.fn(),
     onSpectate: vi.fn(),
     onSunkObserved: vi.fn(),
+    onSpendAck,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, play };
+  return { sink, play, onSpendAck };
 }
 
 function toastLines(): string[] {
@@ -375,10 +377,37 @@ describe('bindRoom reward toasts', () => {
 
   it("another ship's reward events are ignored (defensive — perception already gates them)", () => {
     document.body.replaceChildren();
-    const { sink, play } = setupToasts();
+    const { sink, play, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'pt', id: 'someone-else' }, { alive: true }));
     sink.handler(rewardFrame({ k: 'bn', id: 'someone-else', boon: 'forcedDraught' }, { alive: true }));
     expect(toastLines()).toEqual([]);
     expect(play).not.toHaveBeenCalled();
+    expect(onSpendAck).not.toHaveBeenCalled(); // and no foreign spend can ack ours
+  });
+
+  // STORY 2.7 REVIEW — the `bn` event is ALSO the spend latch's ack: the one
+  // unambiguous "your spend landed" signal on the wire (main.ts marks the latch,
+  // which then releases as a success even when a same-frame passive bank and an
+  // identical re-roll hide every other landing signal). Net calls the callback;
+  // it never reaches into main.
+  it('routes a SELF boon-fit to deps.onSpendAck (the spend latch receipt)', () => {
+    document.body.replaceChildren();
+    const { sink, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reinforcedBulkheads' }, { alive: true }));
+    expect(onSpendAck).toHaveBeenCalledTimes(1);
+  });
+
+  it('acks a boon fitted while DEAD too (spending while dead is legal)', () => {
+    document.body.replaceChildren();
+    const { sink, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'forcedDraught' }, { alive: false }));
+    expect(onSpendAck).toHaveBeenCalledTimes(1);
+  });
+
+  it('a level-up bank is NOT a spend ack (only `bn` is)', () => {
+    document.body.replaceChildren();
+    const { sink, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
+    expect(onSpendAck).not.toHaveBeenCalled();
   });
 });

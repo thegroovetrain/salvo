@@ -24,9 +24,12 @@
 // focused button can't trip the chokepoint's text-entry guard.
 //
 // z-index sits at 1000 — below the pre-join menu (1100) and settings (1050) and
-// above the toast stacks (900) so a fitted-boon toast never hides behind a card.
+// above the toast stacks (900). Nothing rides on that last relation visually:
+// toasts stack TOP-CENTER and the band sits BELOW-CENTER, so the two never
+// overlap and neither can hide the other. The 1000 simply keeps the band on the
+// same DOM-chrome scale as everything else (modals above it, feed chrome below).
 
-import { BOON_CATALOG, resolveBoons, type BoonDef, type OwnShip } from '@salvo/shared';
+import { BOON_CATALOG, CONFIG, resolveBoons, type BoonDef, type OwnShip } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 import { boonCategoryLabel, boonDescription, boonLabel } from './boonCopy.js';
@@ -65,9 +68,12 @@ export interface RefitBandLayout {
   band: RefitBox;
 }
 
-/** The band's card count — the ratified four (UX-DR14). Layout is fixed at this
- *  width regardless of how many cards a given offer actually carries. */
-const CARD_SLOTS = 4;
+/** The band's card count — the ratified four (UX-DR14), DERIVED from the wire
+ *  contract (`CONFIG.offer.size`) rather than re-stated as a literal, so the
+ *  laid-out slot count and the server's offer size can never drift apart.
+ *  Layout is fixed at this width regardless of how many cards a given offer
+ *  actually carries. */
+const CARD_SLOTS = CONFIG.offer.size;
 
 /**
  * Pure: the band laid out for a (logical) viewport. The row is a FIXED 924px
@@ -127,8 +133,17 @@ export interface OfferView {
 
 /**
  * Pure: the current spend view, or null when there is nothing to show — no own
- * ship, spectating, an empty bank (pts 0), OR any offer id that does not resolve
- * against the shared BOON_CATALOG. That last case drops the WHOLE view rather
+ * ship, spectating, an empty bank (pts 0), an EMPTY front offer, OR any offer id
+ * that does not resolve against the shared BOON_CATALOG.
+ *
+ * The empty-offer case is the same fail-closed reflex as the unresolvable id: a
+ * banked level whose offer carries nothing (only reachable through a degenerate
+ * catalog — the server rolls `min(size, categoryCount)` ids and never zero for
+ * the shipped catalog) would otherwise open the band with queue pips and NO
+ * cards, i.e. a window that cannot be acted on and cannot be closed by spending.
+ * Better to keep the band shut and leave the level banked.
+ *
+ * The unresolvable-id case drops the WHOLE view rather
  * than skipping the bad entry: skipping compacts `options` and breaks
  * row->slot alignment (row 1 could end up sending server slot 2's choice). It
  * is unreachable while client and server share a PROTOCOL_VERSION — the join
@@ -137,7 +152,7 @@ export interface OfferView {
  * returns null) rather than silently misfire.
  */
 export function offerView(you: OwnShip | null, spectating: boolean, locked: boolean): OfferView | null {
-  if (!you || spectating || you.pts === 0) return null;
+  if (!you || spectating || you.pts === 0 || you.offer.length === 0) return null;
   const defs = resolveBoons(you.offer, BOON_CATALOG);
   if (defs.length !== you.offer.length) return null; // fail-closed: row k == server slot k
   return { pts: you.pts, options: defs.map(toCard), locked };
@@ -165,12 +180,19 @@ export const SPEND_LATCH_TIMEOUT_MS = 1500;
  *  bank arriving mid-flight (which moves `pts` but not the front offer) can be
  *  told apart from the queue actually shifting. `at` is the performance.now()
  *  the spend was sent at — the timeout fallback's epoch. `choice` is the card
- *  the player picked, so a FAILED outcome can pulse exactly that card. */
+ *  the player picked, so a FAILED outcome can pulse exactly that card.
+ *
+ *  `acked` is the SERVER'S OWN CONFIRMATION: the self-private `bn` (boon fitted)
+ *  event for this spend arrived on a frame (net/roomBindings routes it to
+ *  main.ts, which sets the flag on the latch in flight). It is the only direct
+ *  evidence a spend LANDED — every other release clause infers it from state
+ *  that a concurrent passive bank can mask (see spendLatchReleased). */
 export interface SpendLatch {
   pts: number;
   offerSig: string;
   at: number;
   choice: number;
+  acked: boolean;
 }
 
 /** The FRONT offer's boon ids, joined — the "the server queue moved" signal.
@@ -185,6 +207,8 @@ export function frontOfferSignature(you: { offer: string[] } | null | undefined)
  *
  *   (a) there is no own ship — death/spectate; the window is hidden anyway and
  *       holding the latch across a life would outlive its purpose;
+ *   (a2) the server ACKED the spend (`latch.acked` — the self-private `bn`
+ *       fitted event for it arrived): direct evidence, no inference needed;
  *   (b) the bank visibly SHRANK (`pts` below the snapshot) — the spend landed;
  *   (c) the front offer CHANGED — the queue shifted, which covers a spend that
  *       landed in the same frame as a bank that cancelled the numeric drop;
@@ -194,13 +218,19 @@ export function frontOfferSignature(you: { offer: string[] } | null | undefined)
  * A pts INCREASE with an unchanged front offer HOLDS: passive XP banking
  * (Story 2.6) makes that a routine mid-flight event, and releasing on it would
  * re-open the double-spend-against-a-shifted-FIFO hazard the latch exists to
- * prevent. Known degraded edge, accepted: if a simultaneous bank cancels the
- * pts drop AND the newly-rolled offer happens to carry identical ids, the latch
- * holds until the timeout (d) — a ≤1.5s lockout, which is the fail-safe side of
- * the trade against mis-spending on an offer the player never saw.
+ * prevent.
  *
- * Story 2.7 EXTENDS this without regressing any clause: `spendOutcome` below
- * classifies the released cases; the release rule itself is unchanged.
+ * Clause (a2) is what CLOSES the degenerate corner the (b)/(c) inference cannot
+ * see: a spend that lands in the same frame as a passive bank (pts unchanged)
+ * whose freshly-rolled offer happens to carry IDENTICAL ids (signature
+ * unchanged) leaves no observable trace in `you` at all. Before the ack the
+ * latch held to the 1.5s timeout and classified 'failed', firing the denied
+ * pulse on a spend that had already toasted "◆ … FITTED". The `bn` event is that
+ * spend's receipt, so the latch releases on it as a success.
+ *
+ * With `acked: false` the predicate is byte-for-byte the Story 2.6 rule (its
+ * hold-through-passive-bank pins are load-bearing and stay green untouched);
+ * Story 2.7 only ADDS the acked release.
  */
 export function spendLatchReleased(
   latch: SpendLatch,
@@ -208,9 +238,31 @@ export function spendLatchReleased(
   nowMs: number,
 ): boolean {
   if (!you) return true;
+  if (latch.acked) return true;
   if (nowMs - latch.at > SPEND_LATCH_TIMEOUT_MS) return true;
   if (you.pts < latch.pts) return true;
   return frontOfferSignature(you) !== latch.offerSig;
+}
+
+/**
+ * Pure: may a pick be SENT and latched this frame (main.ts's trySpend gate)?
+ * Two conditions, both fail-closed:
+ *   • no spend already in flight — the FINDING A rule (a second pick inside one
+ *     server-tick+RTT would reference the front offer the server already
+ *     shifted away);
+ *   • an own ship actually exists in the server mirror. A click can land in the
+ *     gap between the frame that dropped `you` (death → the spectator frame
+ *     omits it) and the next rAF that hides the band. Latching there snapshots
+ *     `pts: 0` / an empty signature against a `you` that is null on every
+ *     following frame, so nothing can ever satisfy the "landed" clauses — the
+ *     latch is guaranteed to sit until the 1.5s timeout and classify 'failed'.
+ *     There is nothing to spend anyway, so the pick is dropped outright.
+ */
+export function canLatchSpend(
+  inFlight: SpendLatch | null,
+  you: { pts: number; offer: string[] } | null | undefined,
+): boolean {
+  return !inFlight && !!you;
 }
 
 /** What a latch is doing this frame: still waiting, landed, or gave up. */
@@ -221,12 +273,17 @@ export type SpendOutcome = 'pending' | 'success' | 'failed';
  * Built ON TOP of spendLatchReleased so the two can never disagree about WHEN
  * the latch clears — only about WHY:
  *   • 'pending' — not released; cards stay dimmed and inert;
- *   • 'success' — released because the queue visibly moved (pts dropped or the
+ *   • 'success' — released because the SERVER ACKED it (`latch.acked` — the
+ *     `bn` fitted event), or because the queue visibly moved (pts dropped or the
  *     front offer shifted): the next offer renders in place, window stays open;
  *   • 'failed'  — released any other way (the 1.5s timeout, or the own ship
  *     vanished): fire the denied pulse on `latch.choice`, the level stays
  *     banked, window stays open. (The no-own-ship case classifies as failed but
  *     renders nothing — update(null) has already force-hidden the window.)
+ *
+ * The ack outranks every inference, including the vanished own ship: a `bn` for
+ * this spend is proof it landed, and a denied pulse would then contradict the
+ * fitted toast the player already saw.
  */
 export function spendOutcome(
   latch: SpendLatch,
@@ -234,6 +291,7 @@ export function spendOutcome(
   nowMs: number,
 ): SpendOutcome {
   if (!spendLatchReleased(latch, you, nowMs)) return 'pending';
+  if (latch.acked) return 'success';
   if (!you) return 'failed';
   return you.pts < latch.pts || frontOfferSignature(you) !== latch.offerSig ? 'success' : 'failed';
 }
@@ -534,8 +592,15 @@ export class UpgradeMenu {
    * motion=off the pulse is suppressed entirely, and the information still
    * lands through the card re-enabling with the level still banked (the pips
    * never dropped), so nothing is carried by the flash alone.
+   *
+   * A HIDDEN band never pulses. The latch outlives the window (a TAB close, or
+   * the you-gone update(null), can land between the pick and the timeout), and
+   * painting a hidden panel would both do nothing visible AND burn the 300ms
+   * same-source floor — so the next genuinely visible denial would be swallowed.
+   * main.ts guards the call site too; this is the structural half.
    */
   pulseDenied(choice: number, nowMs = performance.now()): void {
+    if (!this.shown) return;
     if (motionIntensity(settings.current.motion) <= 0) return;
     if (nowMs - this.deniedLastAt < R.deniedFloorMs) return;
     const card = this.cards[choice];
@@ -562,8 +627,17 @@ export class UpgradeMenu {
     return this.deniedCard >= 0 && nowMs < this.deniedUntil;
   }
 
+  /** Close the band and DROP the whole denied register with it: a reopened band
+   *  must never inherit a lit edge, a pending clear, or a consumed same-source
+   *  floor from the window the player just closed. */
   hide(): void {
     if (this.panel) this.panel.style.display = 'none';
     this.shown = false;
+    // Repaint (not just forget) any lit edge: the cards outlive the close (a
+    // reopen with an unchanged view signature reuses the very same buttons), so
+    // dropping the bookkeeping alone would strand a denied border lit forever —
+    // the in-flight clearDenied timeout no-ops once the register is cleared.
+    if (this.deniedCard >= 0) this.clearDenied(this.deniedCard);
+    this.deniedLastAt = -Infinity; // the floor dies with the window
   }
 }

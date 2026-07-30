@@ -11,6 +11,7 @@ import { BOON_CATALOG, CONFIG, type OwnShip } from '@salvo/shared';
 import {
   SPEND_LATCH_TIMEOUT_MS,
   UpgradeMenu,
+  canLatchSpend,
   frontOfferSignature,
   offerView,
   refitBandLayout,
@@ -180,6 +181,15 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   it('renders a SHORT offer verbatim (a small catalog rolls fewer cards, never a crash)', () => {
     const view = offerView(ownShip({ offer: [OFFER[0], OFFER[1]] }), false, false);
     expect(view?.options.map((o) => o.id)).toEqual([OFFER[0], OFFER[1]]);
+  });
+
+  // ...but an EMPTY offer is not "short", it is unusable: a band of queue pips
+  // with no cards can neither be acted on nor spent closed. Fail closed, the
+  // same reflex as the unresolvable id (only reachable through a degenerate
+  // catalog — the server never rolls zero ids against the shipped one).
+  it('returns null for an EMPTY front offer, even with levels banked', () => {
+    expect(offerView(ownShip({ offer: [] }), false, false)).toBeNull();
+    expect(offerView(ownShip({ pts: 3, offer: [] }), false, false)).toBeNull();
   });
 
   it('is available while DEAD in the waiting phase (builds persist across respawns)', () => {
@@ -385,6 +395,63 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     menu.update(view({ pts: 1, options: cardsOf(OFFER_B) }));
     expect(menu.deniedActive(1000)).toBe(false);
   });
+
+  // STORY 2.7 REVIEW — a HIDDEN band never pulses. The latch outlives the
+  // window: the player can TAB the band closed (or die, force-hiding it through
+  // update(null)) while a spend is still in flight, and the 1.5s timeout then
+  // fires a denied verdict at a panel nobody is looking at. Painting it would
+  // both do nothing AND burn the 300ms same-source floor.
+  it('pulseDenied is inert while the band is hidden — and burns no same-source floor', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view()); // open
+    menu.hide(); // TAB close / you-gone force-hide, spend still in flight
+    menu.pulseDenied(1, 1000); // the 1.5s timeout lands here
+    expect(menu.deniedActive(1000)).toBe(false);
+    expect(cards()[1].style.borderColor).not.toBe('var(--hc-denied)');
+    // The floor was never consumed: a genuine denial in the REOPENED band
+    // flashes immediately instead of being swallowed as a repeat.
+    menu.toggle(view());
+    menu.pulseDenied(1, 1000 + 1);
+    expect(menu.deniedActive(1000 + 1)).toBe(true);
+    expect(cards()[1].style.borderColor).toBe('var(--hc-denied)');
+  });
+
+  it('closing the band drops a LIT denied edge (a reopened band starts at rest)', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view());
+    menu.pulseDenied(1, 1000);
+    expect(cards()[1].style.borderColor).toBe('var(--hc-denied)');
+    menu.hide(); // closed mid-pulse — the 80ms timeout no-ops afterwards
+    menu.toggle(view()); // same view signature: the SAME buttons are reused
+    expect(menu.deniedActive(1000)).toBe(false);
+    expect(cards()[1].style.borderColor).not.toBe('var(--hc-denied)');
+  });
+});
+
+// --- the spend GATE (main.ts's trySpend, as a pure predicate) --------------------
+
+describe('canLatchSpend — what may be sent and latched', () => {
+  const latch = (): SpendLatch => ({ pts: 1, offerSig: OFFER.join(','), at: 1000, choice: 0, acked: false });
+  const you = { pts: 1, offer: [...OFFER] };
+
+  it('allows a pick with an own ship and nothing in flight', () => {
+    expect(canLatchSpend(null, you)).toBe(true);
+  });
+
+  it('refuses a SECOND pick while one is in flight (the FINDING A rule)', () => {
+    expect(canLatchSpend(latch(), you)).toBe(false);
+  });
+
+  // STORY 2.7 REVIEW: a click can land in the gap between the frame that dropped
+  // `you` (death/spectate) and the rAF that hides the band. Latching there
+  // snapshots pts:0 / an empty signature against a `you` that stays null, so no
+  // release clause can EVER fire on state — the latch is guaranteed to sit until
+  // the 1.5s timeout and report 'failed', pulsing a card for a spend that was
+  // never spendable. Drop the pick instead.
+  it('refuses a pick with NO own ship in the mirror (the death-gap click)', () => {
+    expect(canLatchSpend(null, null)).toBe(false);
+    expect(canLatchSpend(null, undefined)).toBe(false);
+  });
 });
 
 // --- the boon copy layer ----------------------------------------------------------
@@ -418,7 +485,7 @@ describe('boonCopy — client-side draft presentation (no display fields on Boon
 
 describe('spendLatchReleased — the FINDING A latch predicate', () => {
   const latch = (over: Partial<SpendLatch> = {}): SpendLatch => ({
-    pts: 1, offerSig: OFFER.join(','), at: 1000, choice: 0, ...over,
+    pts: 1, offerSig: OFFER.join(','), at: 1000, choice: 0, acked: false, ...over,
   });
   const you = (over: Partial<Pick<OwnShip, 'pts' | 'offer'>> = {}) =>
     ({ pts: 1, offer: [...OFFER], ...over });
@@ -453,6 +520,22 @@ describe('spendLatchReleased — the FINDING A latch predicate', () => {
     expect(spendLatchReleased(latch(), undefined, soon)).toBe(true);
   });
 
+  // STORY 2.7 REVIEW — the `bn` ack extends the predicate (it never rewrites it):
+  // with acked:false every clause above is byte-for-byte the 2.6 rule; acked:true
+  // releases on the server's own receipt, no inference required.
+  it('releases on the SERVER ACK even when nothing about `you` moved at all', () => {
+    expect(spendLatchReleased(latch({ acked: true }), you(), soon)).toBe(true);
+  });
+
+  it('releases on the ack through a passive bank that masked the pts drop', () => {
+    // The degenerate corner: the spend landed AND a level banked in the same
+    // frame (pts back to its snapshot value) AND the re-rolled offer carries
+    // identical ids (unchanged signature). Nothing observable in `you` moved.
+    expect(spendLatchReleased(latch({ acked: true }), you({ pts: 1 }), soon)).toBe(true);
+    // Same state WITHOUT the ack still HOLDS — the old semantics, unregressed.
+    expect(spendLatchReleased(latch(), you({ pts: 1 }), soon)).toBe(false);
+  });
+
   it('signs the FRONT OFFER ALONE — pts is deliberately not in the signature', () => {
     expect(frontOfferSignature(you())).toBe(OFFER.join(','));
     expect(frontOfferSignature(you({ pts: 9 }))).toBe(frontOfferSignature(you({ pts: 1 })));
@@ -462,7 +545,7 @@ describe('spendLatchReleased — the FINDING A latch predicate', () => {
 
 describe('spendOutcome — the stay-open state machine classifier (amendment 36)', () => {
   const latch = (over: Partial<SpendLatch> = {}): SpendLatch => ({
-    pts: 1, offerSig: OFFER.join(','), at: 1000, choice: 2, ...over,
+    pts: 1, offerSig: OFFER.join(','), at: 1000, choice: 2, acked: false, ...over,
   });
   const you = (over: Partial<Pick<OwnShip, 'pts' | 'offer'>> = {}) =>
     ({ pts: 1, offer: [...OFFER], ...over });
@@ -490,6 +573,29 @@ describe('spendOutcome — the stay-open state machine classifier (amendment 36)
     expect(spendOutcome(latch(), null, soon)).toBe('failed');
   });
 
+  // STORY 2.7 REVIEW — THE DEGENERATE CORNER. A spend LANDS, a passive bank
+  // lands in the same frame (pts back to the snapshot value), and the freshly
+  // rolled offer happens to carry the SAME ids (unchanged front signature). No
+  // inference off `you` can see that spend. Before the `bn` ack the latch held
+  // to the 1.5s timeout and classified 'failed' — firing the denied pulse on a
+  // spend the player had ALREADY been told succeeded by the ◆ FITTED toast.
+  it('SUCCESS on the ack when pts and the front signature are both unchanged', () => {
+    const acked = latch({ acked: true });
+    expect(spendOutcome(acked, you(), soon)).toBe('success');
+    // ...and therefore never a denied pulse: main.ts pulses on 'failed' only.
+    expect(spendOutcome(acked, you(), soon)).not.toBe('failed');
+    // Without the ack the SAME state is 'pending' (held), then 'failed' at the
+    // timeout — the pre-fix behavior this patch exists to correct.
+    expect(spendOutcome(latch(), you(), soon)).toBe('pending');
+    expect(spendOutcome(latch(), you(), late)).toBe('failed');
+  });
+
+  it('the ack outranks every inference: success even past the timeout / with pts UP', () => {
+    expect(spendOutcome(latch({ acked: true }), you({ pts: 2 }), soon)).toBe('success');
+    expect(spendOutcome(latch({ acked: true }), you(), late)).toBe('success');
+    expect(spendOutcome(latch({ acked: true }), null, soon)).toBe('success');
+  });
+
   it('never disagrees with spendLatchReleased about WHEN the latch clears', () => {
     const cases: [SpendLatch, ReturnType<typeof you> | null, number][] = [
       [latch(), you(), soon],
@@ -498,6 +604,9 @@ describe('spendOutcome — the stay-open state machine classifier (amendment 36)
       [latch(), you({ offer: [...OFFER_B] }), soon],
       [latch(), you(), late],
       [latch(), null, soon],
+      [latch({ acked: true }), you(), soon],
+      [latch({ acked: true }), you({ pts: 2 }), soon],
+      [latch({ acked: true }), null, late],
     ];
     for (const [l, y, t] of cases) {
       expect(spendOutcome(l, y, t) === 'pending').toBe(!spendLatchReleased(l, y, t));

@@ -160,19 +160,26 @@ describe('spectator frames — dead observer in the active phase', () => {
     });
   });
 
-  it("filters another ship's self-private pt/upg out of spec frames; own points still arrive", () => {
+  it("filters another ship's self-private pt/upg/bn out of spec frames; own points still arrive", () => {
     const w = deadObserverWorld(); // a is dead (sunk by b)
     place(w, 'd', 600, 0);
     w.sinkShip('c', 'b'); // b's kills → self-private pt events for b only
     w.sinkShip('d', 'b');
     const b = w.ships.get('b')!;
     b.hp -= 30;
-    expect(w.spendPoint('b', 0)).toBe(true); // upg ("spent") event, b only
+    expect(w.spendPoint('b', 0)).toBe(true); // bn ("boon fitted") event, b only
     expect(w.spendPoint('b', 1)).toBe(true); // a second spend — still b only
     w.step();
+    // The SPENDER's own frame carries both bn events (self-private ≠ invisible):
+    // this is what makes the spectator assertion below non-vacuous.
+    const fb = buildFrame(w, 'b', 'active');
+    const bnB = fb.events.filter((e) => e.k === 'bn');
+    expect(bnB).toHaveLength(2);
+    expect(bnB.every((e) => e.k === 'bn' && e.id === 'b')).toBe(true);
     const fa = buildFrame(w, 'a', 'active');
-    // b's point bank and build increments all stay hidden from spectators.
-    expect(fa.events.filter((e) => e.k === 'pt' || e.k === 'upg')).toEqual([]);
+    // b's point bank, build increments, and FITTED BOONS all stay hidden from
+    // spectators (the spend event moved upg → bn in Story 2.7).
+    expect(fa.events.filter((e) => e.k === 'pt' || e.k === 'upg' || e.k === 'bn')).toEqual([]);
     // The DEAD killer still banks its own point (mutual-destruction rule), and
     // the spec-frame pass-through delivers its pt to the owning spectator.
     w.sinkShip('b', 'a');
@@ -295,6 +302,7 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
       return;
     case 'upg':
     case 'pt':
+    case 'bn':
       expect(e.id).toBe(me.id); // self-private, even under fog
       return;
     case 'sunk':

@@ -138,6 +138,17 @@ export interface RoomBindingDeps {
    * and the modal share one edge.
    */
   onSunkObserved: (victimId: string, killerId: string | null) => void;
+  /**
+   * The self-private `bn` (boon fitted) event for the local captain arrived —
+   * the server's RECEIPT for a spend (Story 2.7). main.ts marks the spend latch
+   * acked, which releases it as a 'success' no matter what `pts`/the front offer
+   * look like: a passive bank landing in the same frame as a coincidentally
+   * identical re-roll can hide both of those signals, and the latch would then
+   * time out and fire the denied pulse on a spend that demonstrably LANDED (the
+   * ◆ FITTED toast this same event pushes). Net calls a callback; it never
+   * reaches into main (one-way data flow).
+   */
+  onSpendAck: () => void;
   /** Fired ONCE when the first spec frame arrives (enter spectate mode). */
   onSpectate: () => void;
   /** The one end-of-match results broadcast. */
@@ -357,11 +368,17 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
  * NOT dead-gated: spending while dead is legal (ratified 2.6/2.7), and the
  * confirmation that the spend landed is exactly what the player needs.
  * The authoritative boon list rides OwnShip.boons (onOwnStats); this is UX.
+ *
+ * It is ALSO the spend latch's ack (deps.onSpendAck — see the dep's note): the
+ * one unambiguous "your spend landed" signal on the wire, where every other
+ * release clause is an inference off `you` that a same-frame passive bank can
+ * mask.
  */
 function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
   pushUpgradeToast(boonFitToastLine(e.boon));
   deps.audio.play('upgrade');
+  deps.onSpendAck();
 }
 
 /**

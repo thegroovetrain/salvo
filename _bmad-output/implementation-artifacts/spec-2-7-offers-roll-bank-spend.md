@@ -2,7 +2,7 @@
 title: 'Story 2.7: Offers — Roll, Bank, Spend'
 type: 'feature'
 created: '2026-07-30'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '6b2822c'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -102,6 +102,23 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-07-30 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 7: (high 0, medium 1, low 6)
+- defer: 1: (low 1)
+- reject: 5: (low 5)
+- addressed_findings:
+  - `[medium]` `[patch]` False denied pulse on a succeeded spend (both Fable hunters independently; Codex traced the corner and accepted it as documented): `spendOutcome` inferred success only from pts-drop / front-signature change, so a spend landing while a simultaneous passive bank cancels the drop AND the next offer coincidentally rolls identical ids held the latch to timeout and classified 'failed' — a denied pulse directly contradicting the ◆ FITTED toast. Fixed by threading the self-private `bn` event in as a spend ACK: `SpendLatch.acked` (set via a RoomBindingDeps callback), `spendLatchReleased` releases on ack (unacked predicate byte-identical to the pinned 2.6 rule), `spendOutcome` classifies ack as success unconditionally. Regression test proven to fail without the fix; unacked-hold semantics re-pinned.
+  - `[low]` `[patch]` Vacated spectator spend-privacy pin (Blind Hunter, CONFIRMED): spectator.test.ts still filtered `pt|upg` after the spend moved to `bn`, passing vacuously; runtime was provably safe (same `selfPrivateSignal` gate as pt). Assertions extended to `bn` (spender-present/spectator-absent), `verifyFoggedEvent` gained the `bn` case, stale comments fixed.
+  - `[low]` `[patch]` Denied pulse into a hidden band (both hunters): pick → close → timeout painted a hidden panel and burned the 300ms same-source floor. `pulseDenied` inert while hidden; `hide()` repaints a lit denied edge to rest (repaint, not just reset — a same-signature reopen reuses buttons).
+  - `[low]` `[patch]` `trySpend` latching against a nulled `you` (Edge Case Hunter): a click in the frame gap between you-removal and the rAF hide snapshotted pts:0/sig:'' and guaranteed a timeout-'failed'. New pure `canLatchSpend` gate; pick (and the pointless send) dropped.
+  - `[low]` `[patch]` Empty-front-offer band (Edge Case Hunter): `offerView` now returns null when `you.offer` is empty (degenerate injected-catalog worlds), consistent with the unknown-id fail-closed drop.
+  - `[low]` `[patch]` `CARD_SLOTS` was an independent literal 4 (Edge Case Hunter); now derives from `CONFIG.offer.size` so DOM count and `refitBandLayout` share one source.
+  - `[low]` `[patch]` Inverted z-order comment rationale (Blind Hunter) rewritten.
+  - Deferred: refit-band outer cards overlap the dimmed corner clusters at floor viewports — ratified geometry implemented and consciously pinned; lift-band vs shrink-cards vs ratify-overlap is Eric's call → deferred-work.md 2026-07-30.
+  - Rejected (5): dev-only empty-catalog permanently-unspendable level (production-unreachable — catalog shape test-pinned ≥5 categories; client symptom guarded by the empty-offer patch); hover re-arm loss on rebuilt card + hover-vs-pulse repaint (cosmetic 80ms corners); pip-strip overflow at 67+ banked levels (unreachable under the zone-timeline match length); sub-924px viewport clip (below the ratified 1366/1280 floors — deliberate never-wrap).
+
 ## Design Notes
 
 - `grantPoint` stays the one bank primitive — 2.7 swaps only what `rollOffer` returns and what spend applies (the seam 2.6 deliberately preserved). `upgradeRng` keeps its name/stream (it is the offer stream; draws-per-offer changes, so seeded-offer test expectations move — spawn/drone streams unaffected by decorrelation).
@@ -109,6 +126,20 @@ warnings: [oversized]
 - Stay-open emerges cheaply: `update(view)` already force-hides on null (pts 0) and never opens a closed window; removing hide-on-pick plus outcome classification is the whole delta. The latch's hold-through-passive-bank (2.6's medium patch) is load-bearing — extend `spendLatchReleased`, never regress it.
 - The 924px row fits every ratified viewport: 1366×768 at 100% and the 1280×614 logical floor at the (≥1600px-gated) 125% tier — pin it with `refitBandLayout` tests against `vitalsLayout`/hotbar boxes instead of trusting CSS.
 - The band's ~58% top is a keep-out proxy: the listening ring doesn't exist yet (Epic 4/6); the honest constraint today is "own hull at screen center stays clear" — comment it as the ring's future contract.
+
+## Auto Run Result
+
+**Status:** done — implemented, Eric-ruled pre-implementation (amendments 35–37 via AskUserQuestion + the TAB-not-SPACE invocation ruling), adversarially reviewed (2 Fable hunters + Codex cross-model, build-on-it ×3), 7 patches applied, gate green.
+
+**Summary:** Offers are now fully boon-typed. Each banked level rolls 4 boon ids from 4 distinct categories out of the new interim dummy `BOON_CATALOG` (5 categories × 2 stat-only boons, deep-frozen, insertion-order append-only; draft copy client-side in `ui/boonCopy.ts`; dies wholesale in 2.8) via catalog-parameterized `rollBoonOffer` on the unchanged decorrelated `upgradeRng` inside the unchanged `grantPoint` seam. Spend validates against the front offer's actual length (digit 4 live), shifts the FIFO, applies through `World.applyBoon` — the 2.5 seam now live in production — and queues the new self-private `bn` fitted event; `applyUpgrade`/`applyGrantEffects`/`upg` are production-unreachable and die in 2.8. Wire: `OwnShip.offer` re-typed to boon-id strings, PV 14→15. Client: the refit window is the ratified four-216px-card below-center band (queue pips, dashed ghost edge, no panel/backdrop) with stay-open-through-queue semantics — pick latches and dims, the `bn` ack or pts/offer movement advances to the next queued offer, a timeout fires the 80ms denied pulse on the picked card, spending the last level auto-closes; TAB toggles, ESC closes topmost, card clicks never fire the gun, hotbar dims 38%, helm stays live. Dead/spectating captains get no level-up toast (amendment 37 — the routed deferred entry is closed). Tests 1894 → 1950.
+
+**Files changed:** shared — sim/boons.ts (dummy catalog + wire-contract/iteration-order docs), sim/offers.ts (rollBoonOffer rewrite; legacy roll machinery deleted), constants.ts (CONFIG.offer), types.ts (offer string[], BoonFitEvent, SpendMsg 0..3), index.ts (PV 15 + changelog). server — game/world.ts (boon offers, dynamic spend bound, applyBoon + bn from spendPoint, interregnum annotations), game/frames.ts (string-id offer copy), game/signals.ts + perception.ts (bn on the self-private gate). client — ui/upgradeMenu.ts (band rework: refitBandLayout, boon offerView, pips/ghost/armed/locked/denied, spendLatchReleased+acked, spendOutcome, canLatchSpend), ui/boonCopy.ts (NEW draft copy + fitted toast line), config.ts (CLIENT_CONFIG.refit), main.ts (no hide-on-pick, ack wiring, visible-gated pulse), net/roomBindings.ts (pt toast dead-gate, bn → fitted toast + ack callback). Tests — shared offers/boons/barrel reworked; server upgrades/xp/frames/goldenFrames/perception/spectator/signals/denials extended (golden snapshot regenerated + audited: you.offer string[], bn row, spectator rows byte-identical); client upgradeMenu (58) rewritten + roomBindings/upgrades extended. Bookkeeping — sprint-status 2-7 done, gds-workflow-status advanced (next_expected → 2-8 design gate), deferred-work (dead-killer entry RESOLVED via amendment 37; band-overlap entry added), amendments 35–37 recorded durably pre-implementation.
+
+**Review breakdown:** 7 patches (0 high, 1 medium, 6 low), 1 deferred, 5 rejected, 0 intent gaps, 0 bad-spec loopbacks. The medium (false denied pulse on a succeeded spend) was flagged independently by both Fable hunters and killed structurally by the bn-ack latch release; every behavioral patch carries a regression test proven to fail without the fix. Cross-model agreement: Codex independently traced the full authoritative path and the perception boundary and reported zero confirmed defects.
+
+**Verification:** `npm run check` run independently by the orchestrator after implementation AND after the patch round — lint 0 errors (2 pre-existing warnings), shared 320 / server 705 / client 925 = 1950 green. Implementation and patch diffs hand-reviewed hunk-by-hunk (roll determinism + insertion-order doc, spendPoint bound + bn emission, self-private gate extension, ack-latch predicate byte-compat, toast dead-gate).
+
+**Residual risks / notes for Eric:** (1) The dummy catalog is deliberately boring stat boons — everything about it (ids, categories, values, client copy) is placeholder and dies in 2.8; players will see e.g. "REINFORCED BULKHEADS" cards until then. (2) The refit band's outer cards overlap the 38%-dimmed hotbar/vitals corners at floor viewports (1366×768) — ratified geometry implemented, consciously pinned, ledgered for your call (lift band / shrink cards / ratify overlap), natural to settle with 2.8. (3) Spend-driven hull heal and ammo top-up are gone from the offer flow (amendment 35 consequence — applyBoon never heals); the heal question stays open for the 2.8 catalog. (4) The identical-next-offer + simultaneous-bank corner now resolves correctly via the bn ack instead of a ≤1.5s lockout + false denial.
 
 ## Verification
 
