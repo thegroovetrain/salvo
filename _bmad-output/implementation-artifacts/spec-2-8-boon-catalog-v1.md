@@ -2,10 +2,11 @@
 title: 'Story 2.8: Boon Catalog v1 — THE DECK MODEL'
 type: 'feature'
 created: '2026-07-30'
-status: 'ready-for-dev'
-baseline_revision: '48d953f'
+status: 'done'
+baseline_revision: 'e639509'
+final_revision: '01e3eed'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context-amendments.md'
@@ -109,13 +110,13 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (dependency order):**
-- [ ] `shared` foundations -- stats/whitelist/CONFIG/wire strip + extensions, PV 16 -- everything downstream reads these
-- [ ] `shared` catalog + deck + shell/slow behaviors + validation + tests -- the story's heart
-- [ ] `server` world/equipment/perception integration + tests incl. goldenFrames regen -- authoritative behaviors
-- [ ] `client` strip + prediction slow + card UI + copy + mine-as-weapon + tests -- the felt surface (minimal)
-- [ ] Full I/O matrix covered by unit tests; damageGuardrail extended -- pins flipped deliberately
-- [ ] Bookkeeping files -- per-PR protocol
-- [ ] `npm run check` -- gate green (baseline 1950, target higher)
+- [x] `shared` foundations -- stats/whitelist/CONFIG/wire strip + extensions, PV 16 -- everything downstream reads these
+- [x] `shared` catalog + deck + shell/slow behaviors + validation + tests -- the story's heart
+- [x] `server` world/equipment/perception integration + tests incl. goldenFrames regen -- authoritative behaviors
+- [x] `client` strip + prediction slow + card UI + copy + mine-as-weapon + tests -- the felt surface (minimal)
+- [x] Full I/O matrix covered by unit tests; damageGuardrail extended -- pins flipped deliberately
+- [x] Bookkeeping files -- per-PR protocol
+- [x] `npm run check` -- gate green (baseline 1950, now 2063)
 
 **Acceptance Criteria:**
 - Given a fresh active TB/BS/ML, when levels bank, then every offer is 4 different lines drawn from that hull's deck (universal + carried subdecks + absent-equipment acquisitions), weighted by rarity with escalating rare weight, never rerolling, never expiring; picks stack by occurrence; unchosen cards return; the deck visibly thins over a match (chosen cards gone).
@@ -131,12 +132,50 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-07-30 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 14: (high 1, medium 7, low 6)
+- defer: 1: (low 1)
+- reject: 5: (low 5)
+- addressed_findings:
+  - `[high]` `[patch]` Triple-barrel one-click kill (Blind Hunter, CONFIRMED): three fan shells' bursts overlap one hull at practical ranges — 3×25 = 75 > the 70hp lightest base hull, defeating the ratified no-one-click-kill guardrail the moment gunBarrel is fitted. Orchestrator ruling: same-click salvo single-hit — shells of one click share a server-internal salvo tag and a victim takes at most ONE damage application per salvo (area throughput preserved; never on the wire). Guardrail extended to pin the salvo aggregate; regression proved a 70hp hull went to −25 without the fix.
+  - `[medium]` `[patch]` AP shell invisible after first pierce (Blind Hunter): non-terminal pierce booms reused the live projectile id, so every client deleted the still-flying shell's track. Non-terminal pierce booms now carry derived ids (`id#pN`); terminal keeps the real id. Verified nothing else correlates boom ids.
+  - `[medium]` `[patch]` torpU dropped for untracked torpedoes (Codex): a culled-then-re-sighted homing torpedo stayed invisible forever. onBallisticUpdate now creates the track (torpU is sight-gated server-side, so receipt implies legitimate visibility).
+  - `[medium]` `[patch]` Incendiary DoT emitted 20 victim-private dmg events/s (Blind Hunter): hp application stays per-tick; the wire event now aggregates per (owner, victim) into 500ms windows with immediate flush on death/last-zone-out; kill-credit timing pinned unchanged.
+  - `[medium]` `[patch]` Scrub-to-empty banked offer deadlocked the FIFO (Edge Case Hunter; Blind Hunter's impossibility argument refuted — a BANKED offer can be all-acquisition): an offer scrubbed to zero cards is now removed entirely (pts falls with offers.length, mirroring the ratified empty-deck level-without-offer rule).
+  - `[medium]` `[patch]` Same-tick mine double detonation (Edge Case Hunter, premise confirmed): detonation now consumes the mine first (`mines.delete` re-check) so trigger loop + chain cascade can't detonate one mine twice.
+  - `[medium]` `[patch]` Point-blank command detonation ran to the map edge (Edge Case Hunter): commanded burst distance now clamps to just past the bow spawn clearance.
+  - `[medium]` `[patch]` Homing torpedo unbounded travel (Edge Case Hunter; "immortal orbit" overclaim corrected — ~25s/1521u worst case traced): homing launches now carry CONFIG.torpedo.homingMaxRangeU = 1300 (draft) and expire like edge-reached torpedoes.
+  - `[low]` `[patch]` Dazzle marked victims in the weapons-safe ready room (Edge Case Hunter): all hostile zone effects now gate on the damage-enabled policy flag.
+  - `[low]` `[patch]` Creeping-mine single-pass island push-out could rest inside a second island or past the rim (Edge Case Hunter): illegal steps are now rejected (mine holds position).
+  - `[low]` `[patch]` Dead `offerStackSignature` with false doc (Blind Hunter): deleted; cardSignature commented as subsuming stack changes.
+  - `[low]` `[patch]` Stale strip-era docs (Blind Hunter): spawnMine's Story-1.8 ability docstring and OwnShip.pts's deleted-`upg`/per-kill wording rewritten.
+  - `[low]` `[patch]` Unfalsifiable deck exclusive-pair pin (Blind Hunter): replaced with consumption-≤-copies over full economy replays + both-rivals-appear coverage; engine/server division of labor commented.
+  - `[low]` `[patch]` Abandoned test setup in the dazzle non-observer test (Blind Hunter): cleaned to one honest arrangement.
+  - Deferred: per-tick `aliveHulls`/hulls snapshot staleness (Codex, CONFIRMED, pre-existing architecture): shells/mines/homing interact with same-tick corpses for one tick — predates 2.8; ledgered.
+  - Rejected (5): no server-side auto-revert enforcement (Codex — the server keeping no priming state is the ratified architecture; reload caps bound any modified client); dazzle widening the victim's paintable radar annulus (follows the two-tier vision model — optics blinded, radar isn't; flagged to Eric below); corpse minefields keep creeping (consistent with mines staying lethal after owner death); star-shell island stops spawning no zone (spec-consistent — interception-only rule); spec Code Map naming mouse.ts unfulfilled (aim path proved generic; no defect).
+
 ## Design Notes
 
 - **Why no hooks:** every doctrine is either projectile-side (server-authoritative, client renders from events — no parity need) or a timed kinematics modifier with a self-private wire field (the boost/slow bespoke precedent, folded identically by the predictor). `HOOK_REGISTRY` stays empty; the parity suite stays armed; amendment 30's "attachment points arrive when a real boon needs them" is satisfied by none being needed.
 - **Deck determinism:** all deck ops are pure functions over (state, rng); the per-ship stream makes every draw/scrub/refill reproducible from (mapSeed, join ordinal, spend sequence). Tests replay full economies against injected catalogs.
 - **Values are handwaves** (steps, spreads, acquire ranges, slow factor, DoT dps, dazzle factor, rare-weight dial) — implementer-drafted inside ratified pins (guardrail, torpedo-outruns-hulls, sweep 30 cap, trigger≤blast); 2-10 produces the evidence pass. Names/copy are ratified canon (amendment 42).
 - **Score continuity:** "upgrades you got" (amendment 23's results modal) becomes boons fitted — same number the player experienced as picks.
+
+## Auto Run Result
+
+**Status:** done — planned against the 2026-07-30 brainstorm (THE DECK MODEL), Eric-ruled pre-implementation (amendments 38–46: the brainstorm/party AC amendment plus eight AskUserQuestion rulings across two rounds), implemented in three orchestrated waves (shared → server → client), adversarially reviewed (2 Fable hunters + Codex cross-model), 14 patches applied with fail-without-fix regressions, gate green.
+
+**Summary:** The interregnum is over. Every player now has a personal card deck (universal Intel/Ship/Gun lines + one subdeck per carried equipment + acquisition cards for absent equipment); each level draws 4 different lines (weighted, escalating rare weight as invisible soft pity), chosen cards leave the deck, unchosen return, copy-counts ARE the caps. The 42-line Boon Catalog v1 ships with ratified ladder names (HEAVY SHELLS Mk I–V … ARMORED CITADEL), rarity tiers, and four exclusive doctrine pairs with real on-water behavior: PLUNGING FIRE (arcing, un-interceptable) ⚔ ARMOR-PIERCING SHELLS (3-hull pierce 100/50/25), ACOUSTIC HOMING (steering fish + torpU wire updates) ⚔ COMMAND DETONATION (point-det at click, radar-capped), SELF-PROPELLED ⚔ PROP-FOULING mines (creep / victim slow via self-private slowedUntil), INCENDIARY ⚔ DAZZLE star shells (DoT zones / truesight reduction + honest fog shrink). Doctrine swaps are free and ping-pong (rival returns to the deck). R-slot acquisitions arrive loaded, purge remaining equipment cards, and scrub banked offers deterministically. Baseline kit changes: star shells are damageless illumination, the mine is a click-aimed rear-arc weapon (placeRange 90, denial register on bad aims), mine chains cascade same-owner-only. Damage/blast/trigger/barrels/modes are promoted onto effectiveStats (rangeU now derives from folded radarRange — Intel is a stealth offense category); hull cards heal what they grant; capacity raises arrive loaded. The 14 legacy upgrades are stripped wholesale (OwnShip.upg, upg event, applyUpgrade/applyGrantEffects, UPGRADE_*/CONFIG.upgrades all gone), PV 15→16. The refit cards carry rarity tags, lineage pips (II/V), name-by-stack-position, live current→next contract text, and doctrine-swap lines; the floor-viewport band overlap is ratified per amendment 40. Tests 1950 → 2081.
+
+**Files changed:** shared — sim/boons.ts (BoonDef rarity/copies/exclusiveWith/healOnGrant + doctrine effect kind, 42-line catalog, validateBoonDef/validateCatalog), sim/deck.ts (NEW pure deck engine), sim/offers.ts (gutted to BoonOffer), sim/stats.ts (new stat surface + derived rangeU + clamps, counts param stripped), sim/shell.ts (arcing/pierce/homing stepping + salvo tag), sim/slow.ts (NEW), sim/loadout.ts + sim/arcs.ts (mine as sector-arc weapon), constants.ts (CONFIG.deck/mine/torpedo/starShells additions, upgrades deleted), types.ts + index.ts (upg strip, slowedUntil/dazzledUntil, torpU, PV 16). server — game/world.ts (per-ship deck + deckRng, deck-driven grant/spend with return/swap/purge/scrub + empty-offer drop, applyBoon heal/top-up/swap, salvo ledger, mine chains/creep/foul, zone DoT aggregation + dazzle, torpU emission), equipment/* (stats-driven damage everywhere, barrel fan, doctrine fire paths, aimed mine placement, decoy stern-drop rehome), perception/signals/frames (torpU row, dazzle sightOf, self-private slow/dazzle, upg row gone), goldenFrames regenerated + audited. client — strip + effectiveStats signature, prediction slow-fold (boost→slow→hooks pinned), mine-as-weapon seams (sector arc at placeRange + range parity gate), torpU track create/update, dazzle fog shrink, card UI (rarity/lineage/doctrine lines, chip-first pin held), ui/boonCopy.ts full rewrite (ratified ladders + live-value contract text), score → BOONS FITTED. Bookkeeping — sprint-status 2-8 done, gds-workflow-status advanced to 2-9, deferred-work closures + new entries, amendments 38–46 recorded pre-implementation.
+
+**Review breakdown:** 14 patches (1 high, 7 medium, 6 low), 1 deferred, 5 rejected, 0 intent gaps, 0 bad-spec loopbacks. The high (triple-barrel one-click kill breaching the ratified guardrail) was killed by the same-click salvo single-hit rule; every behavioral patch carries a regression test proven to fail without the fix. Cross-model picture: Codex confirmed the torpU-track gap the family missed; its auto-revert "exploit" was rejected against the ratified no-priming-state architecture; the hunters' scrub-deadlock disagreement was adjudicated by construction (reachable — patched).
+
+**Verification:** `npm run check` run independently by the orchestrator after every wave AND after the patch round — lint 0 errors (2 pre-existing warnings), shared 351 / server 755 / client 975 = 2081 green. Wave diffs spot-checked hunk-by-hunk (deck draw weighting, salvo ledger, DoT buckets, scrub filter, pierce id derivation).
+
+**Residual risks / notes for Eric:** (1) All step values, spreads, ranges, the rare-weight dial, and doctrine factors are draft handwaves inside ratified pins — 2-10's batch-sim owns the evidence pass (time-to-first-exclusive especially). (2) Dazzle blinds truesight but NOT radar, so a dazzled victim's sweep can still paint blips in the stolen band — my ruling from the two-tier vision model; say the word if DAZZLE should suppress radar too. (3) The exclusive rarity text color sits in the storm purple family (readout register) — flagged for your sign-off in 2.9's identity pass. (4) AP shells' later pierce hits and prop-fouling's victim slow have no dedicated presentation yet; card text can overflow on the longest doctrine cards; hotbar tooltip still renders boons as absence — all 2.9 territory, ledgered. (5) Codex's pre-existing find (per-tick hull snapshot lets shells/mines interact with same-tick corpses for one tick) is ledgered, not fixed here.
 
 ## Verification
 
