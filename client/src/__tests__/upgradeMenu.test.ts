@@ -13,7 +13,6 @@ import {
   UpgradeMenu,
   canLatchSpend,
   frontOfferSignature,
-  offerStackSignature,
   offerView,
   refitBandLayout,
   spendLatchReleased,
@@ -574,24 +573,6 @@ describe('canLatchSpend — what may be sent and latched', () => {
   it('refuses a pick with NO own ship in the mirror (the death-gap click)', () => {
     expect(canLatchSpend(null, null)).toBe(false);
     expect(canLatchSpend(null, undefined)).toBe(false);
-  });
-});
-
-// --- offer stack signature --------------------------------------------------------
-
-describe('offerStackSignature — the presentation-changed component of the render memo', () => {
-  it('moves when a HELD stack of an offered line changes, with the ids unchanged', () => {
-    const empty = offerStackSignature({ boons: [], offer: OFFER });
-    const one = offerStackSignature({ boons: ['gunDamage'], offer: OFFER });
-    expect(one).not.toBe(empty);
-    // ...and counts occurrences, the deck's copy-count law.
-    expect(offerStackSignature({ boons: ['gunDamage', 'gunDamage'], offer: OFFER })).not.toBe(one);
-  });
-
-  it('ignores boons that are not in the offer (their rung is not on screen)', () => {
-    expect(offerStackSignature({ boons: ['decoyReload'], offer: OFFER })).toBe(
-      offerStackSignature({ boons: [], offer: OFFER }),
-    );
   });
 });
 

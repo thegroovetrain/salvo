@@ -110,6 +110,19 @@ const EMPTY_DECK: DeckState = Object.freeze({ cards: Object.freeze([]) as readon
  *  sight and the client's honest fog hole expire together. */
 const DAZZLE_GRACE_MS = 250;
 
+/** ms — the incendiary DoT's `dmg` EVENT window (Story 2.8 review, P4). The
+ *  burn applies hp every tick (20/s); the victim-private event that reports it
+ *  is aggregated per (zone owner, victim) into windows this long, so a 2s burn
+ *  costs ~4 events instead of 40 and client hit feedback cannot strobe. Never
+ *  lossy: a pair that stops burning — or a victim that dies — flushes at once. */
+const DOT_EVENT_WINDOW_MS = 500;
+
+/** The (zone owner, victim) key of a DoT event bucket. Ids are opaque room
+ *  session ids; `|` is not one of their characters. */
+function dotKey(ownerId: string, victimId: string): string {
+  return `${ownerId}|${victimId}`;
+}
+
 /**
  * Injectable engine registries (Story 2.5). Production omits both (the empty
  * shared HOOK_REGISTRY; the FULL shared BOON_CATALOG as of Story 2.8); tests
@@ -448,6 +461,23 @@ export class World {
    */
   private joinSeq = 0;
   private shellSeq = 0;
+  /**
+   * THE SAME-CLICK SALVO LEDGER (Story 2.8 review, P1): salvo tag → the ids of
+   * hulls that have ALREADY taken a damage application from that salvo. A
+   * multi-barrel click's fanned bursts overlap at practical ranges, so without
+   * this a single hull takes barrels× damage from one click (3 × 25 = 75 > the
+   * 70hp lightest hull) — a breach of the ratified no-one-click-kill
+   * guardrail. Entries are dropped as soon as the salvo has no shell left in
+   * flight (releaseSalvo), so the map is bounded by live salvos.
+   */
+  private readonly salvoHits = new Map<string, Set<string>>();
+  /**
+   * OPEN INCENDIARY DoT EVENT BUCKETS (Story 2.8 review, P4), keyed by
+   * dotKey(zone owner, victim): the applied-but-not-yet-reported DoT for that
+   * pair and the server time its window opened. hp is ALREADY deducted — this
+   * only defers the victim-private `dmg` event (see applyZoneEffects).
+   */
+  private readonly dotBuckets = new Map<string, { victimId: string; amount: number; since: number }>();
   private mineSeq = 0;
   private litZoneSeq = 0;
   private decoySeq = 0;
@@ -935,6 +965,15 @@ export class World {
    * scrubbed offer back to size from the deck in offer order
    * (scrubAcquisitions — deterministic on this ship's own stream, triggered
    * only by this ship's own pick: NOT a reroll, FR19 untouched).
+   *
+   * SCRUBBED-TO-EMPTY OFFERS ARE REMOVED (Story 2.8 review, P5): a banked
+   * offer can be 100% acquisition cards, and an exhausted deck refills it with
+   * NOTHING. A zero-card offer still counted in `pts` (pts === offers.length)
+   * but spendPoint bounds `choice` by front.length — so a zero-card FRONT can
+   * never be consumed and the whole FIFO deadlocks forever. Dropping it MIRRORS
+   * the ratified empty-deck rule in grantPoint (an empty draw banks no offer:
+   * the level still happened, there is just nothing to fit) — pts falls with
+   * offers.length and the queue stays spendable.
    */
   private consumeAcquisitionPick(ship: ShipRecord, def: BoonDef): void {
     const fill = def.effects.find((e) => e.kind === 'slotFill');
@@ -942,7 +981,7 @@ export class World {
     ship.deck = consumeAcquisition(ship.deck, this.boonCatalog, fill.equipmentId);
     const scrubbed = scrubAcquisitions(ship.deck, this.boonCatalog, ship.offers, ship.deckRng);
     ship.deck = scrubbed.deck;
-    ship.offers = scrubbed.offers;
+    ship.offers = scrubbed.offers.filter((offer) => offer.length > 0);
   }
 
   /** Advance the simulation one fixed step (default SIM_DT = 50ms). */
@@ -1180,6 +1219,9 @@ export class World {
       this.shells.delete(id);
       this.forgetBallistic(id);
       this.resolveShell(shell, outcome, hulls);
+      // AFTER resolution: this shell's own hits must be claimed against the
+      // salvo ledger before the last-shell-out release can drop it.
+      this.releaseSalvo(shell);
     }
   }
 
@@ -1228,9 +1270,18 @@ export class World {
     return best;
   }
 
-  /** Clamp a creeping mine's candidate point: never outside the water disk
-   *  (scaled back to the rim) and never inside an island circle (pushed to the
-   *  rim along the island-center ray; a degenerate center hit keeps `prev`). */
+  /**
+   * Clamp a creeping mine's candidate point: never outside the water disk
+   * (scaled back to the rim) and never inside an island circle (pushed to the
+   * rim along the island-center ray; a degenerate center hit keeps `prev`).
+   *
+   * REJECT-ON-FAILURE (Story 2.8 review, P10): the clamp is a SINGLE pass, so
+   * in a pinch (two islands, or an island hard against the rim) a push-out can
+   * land inside the NEXT island or back outside the disk. Rather than iterate
+   * to a fixed point that may not exist, the step is REJECTED — the mine holds
+   * its previous position this tick. Creep is a slow crawl; a held tick is
+   * invisible, an illegal rest position is not.
+   */
   private clampMinePoint(p: Vec2, prev: Vec2): Vec2 {
     let x = p.x;
     let y = p.y;
@@ -1248,7 +1299,19 @@ export class World {
       x = isle.x + (dx / d) * isle.r;
       y = isle.y + (dy / d) * isle.r;
     }
-    return { x, y };
+    return this.minePointLegal(x, y) ? { x, y } : { x: prev.x, y: prev.y };
+  }
+
+  /** Is a mine point legal to REST at: inside the water disk and outside every
+   *  island circle? A hair of float tolerance so a point the clamp above placed
+   *  exactly ON a rim reads as legal. */
+  private minePointLegal(x: number, y: number): boolean {
+    const EPS = 1e-6;
+    if (Math.hypot(x, y) > this.map.radius + EPS) return false;
+    for (const isle of this.map.islands) {
+      if (Math.hypot(x - isle.x, y - isle.y) < isle.r - EPS) return false;
+    }
+    return true;
   }
 
   /**
@@ -1282,6 +1345,14 @@ export class World {
    * same tick, cascading breadth-first with a visited set (bounded — each mine
    * detonates at most once; deletion makes re-entry impossible); enemy mines
    * NEVER sympathetically detonate.
+   *
+   * CONSUME-FIRST (Story 2.8 review, P6): the mine is deleted from the store
+   * BEFORE its blast resolves, and every path into a detonation re-checks
+   * existence via that delete. The `visited` set alone was not enough — two
+   * mines within each other's blast can both trip in the SAME tick, so the
+   * trigger loop (and the burst-detonation snapshot) hands us a mine an
+   * earlier cascade already consumed; without the re-check it detonated twice
+   * (two booms, double damage) from one trip.
    */
   private detonateMine(mine: MineState, hulls: readonly HullTarget[], trippedBy?: string): void {
     const queue: MineState[] = [mine];
@@ -1289,7 +1360,9 @@ export class World {
     let hit = trippedBy;
     while (queue.length > 0) {
       const m = queue.shift()!;
-      this.mines.delete(m.id);
+      // Consume-first re-check: a mine an earlier cascade already detonated is
+      // gone from the store and must never detonate a second time.
+      if (!this.mines.delete(m.id)) continue;
       this.pending.push(
         hit !== undefined
           ? { k: 'boom', id: m.id, hit, x: m.x, y: m.y }
@@ -1344,6 +1417,36 @@ export class World {
     }
   }
 
+  /**
+   * THE SAME-CLICK SALVO SINGLE-HIT RULE (Story 2.8 review, P1): may `shell`
+   * still apply damage to `victimId`? An untagged shell (every single-barrel
+   * shot, every other weapon) always may. A tagged shell may only if no
+   * earlier shell of the SAME click has already damaged that victim — first
+   * resolved wins, later same-salvo hits on that victim deal 0 while still
+   * booming/bursting normally. Different victims are untouched (area
+   * throughput preserved). Claims as it answers.
+   */
+  private claimSalvoHit(shell: ShellState, victimId: string): boolean {
+    if (shell.salvo === undefined) return true;
+    let hits = this.salvoHits.get(shell.salvo);
+    if (hits === undefined) {
+      hits = new Set<string>();
+      this.salvoHits.set(shell.salvo, hits);
+    }
+    if (hits.has(victimId)) return false;
+    hits.add(victimId);
+    return true;
+  }
+
+  /** Drop a salvo's hit ledger once its LAST shell has left flight (call after
+   *  the shell was removed from `this.shells`). Bounded cleanup — live salvos
+   *  are at most a handful of shells. */
+  private releaseSalvo(shell: ShellState): void {
+    if (shell.salvo === undefined) return;
+    for (const other of this.shells.values()) if (other.salvo === shell.salvo) return;
+    this.salvoHits.delete(shell.salvo);
+  }
+
   /** Drop a spent ballistic from every observer's seen set — and its homing
    *  track-direction memory (Story 2.8) — (no leaks, no growth). */
   private forgetBallistic(id: string): void {
@@ -1389,7 +1492,7 @@ export class World {
       return;
     }
     if (outcome.kind === 'pierced') {
-      this.resolvePierce(shell, outcome.hits);
+      this.resolvePierce(shell, outcome.hits, outcome.spent);
       return;
     }
     if (outcome.kind !== 'hitShip') {
@@ -1403,6 +1506,9 @@ export class World {
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
     const victim = this.ships.get(outcome.victimId);
     if (!victim || !victim.alive) return;
+    // SALVO single-hit rule (P1): a later shell of the same click still booms
+    // and still stops here — it simply deals no damage to an already-hit hull.
+    if (!this.claimSalvoHit(shell, victim.id)) return;
     this.hitShip(victim, shell.contactDamage, shell.ownerId);
   }
 
@@ -1413,10 +1519,27 @@ export class World {
    * boom per pierce point (hit = the pierced hull, victim-stripping stays with
    * the boom row). No burst ever; the shell's island/edge stop needs no extra
    * splash boom (the per-hit booms carry the projectile id).
+   *
+   * BOOM IDS (Story 2.8 review, P2): the client removes a dead-reckoned track
+   * when a boom carrying ITS id arrives, so a NON-TERMINAL pierce (the shell
+   * flew on through) must not reuse the live projectile id — the still-flying
+   * shell would vanish for every observer. A non-terminal hit's boom carries a
+   * DERIVED id (`<shellId>#p<order>`, unique per hit and unknown to every
+   * client track, which makes it a pure impact spark); the TERMINAL hit (the
+   * one that ends the flight — `spent`) keeps the REAL id so the track is
+   * removed exactly once. Nothing else correlates boom ids: signals.ts's boom
+   * row keys only on position/`hit`, and seenBallistics/torpDirs are keyed by
+   * the real projectile id alone (forgetBallistic).
    */
-  private resolvePierce(shell: ShellState, hits: readonly { victimId: string; x: number; y: number; order: number }[]): void {
-    for (const h of hits) {
-      this.pending.push({ k: 'boom', id: shell.id, hit: h.victimId, x: h.x, y: h.y });
+  private resolvePierce(
+    shell: ShellState,
+    hits: readonly { victimId: string; x: number; y: number; order: number }[],
+    spent: boolean,
+  ): void {
+    for (const [i, h] of hits.entries()) {
+      const terminal = spent && i === hits.length - 1;
+      const id = terminal ? shell.id : `${shell.id}#p${h.order}`;
+      this.pending.push({ k: 'boom', id, hit: h.victimId, x: h.x, y: h.y });
       const victim = this.ships.get(h.victimId);
       if (victim && victim.alive) this.hitShip(victim, pierceDamage(shell.damage, h.order), shell.ownerId);
     }
@@ -1430,7 +1553,8 @@ export class World {
    * permanent owner immunity) and each victim takes the shell's full damage
    * through the hitShip choke: one victim-private dmg event per victim, kill
    * credit through the normal path, no contact-damage double-dipping (a burst
-   * outcome never also reports an interceptor).
+   * outcome never also reports an interceptor) and — Story 2.8 review, P1 — no
+   * SAME-CLICK double-dipping either (claimSalvoHit).
    */
   private resolveBurst(shell: ShellState, at: Vec2, hulls: readonly HullTarget[]): void {
     const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
@@ -1445,7 +1569,11 @@ export class World {
     if (shell.damage > 0) {
       for (const victimId of burstVictims(at, shell.burstRadius, hulls, shell.ownerId)) {
         const victim = this.ships.get(victimId);
-        if (victim && victim.alive) this.hitShip(victim, shell.damage, shell.ownerId);
+        if (!victim || !victim.alive) continue;
+        // SALVO single-hit rule (P1): the burst still happens for everyone —
+        // a hull already hit by an earlier shell of the SAME click just takes 0.
+        if (!this.claimSalvoHit(shell, victim.id)) continue;
+        this.hitShip(victim, shell.damage, shell.ownerId);
       }
     }
     this.detonateMinesInBurst(shell, at, hulls);
@@ -1496,23 +1624,78 @@ export class World {
   /**
    * Star-shell DOCTRINE zone effects (Story 2.8), once per tick over post-move
    * centers: INCENDIARY zones burn every non-owner alive hull whose CENTER is
-   * inside — incendiaryDps integrated per tick through the hitShip choke
-   * (victim-private dmg, kill credit to the zone owner), at most once per
-   * (owner, victim) pair per tick no matter how many of that owner's zones
-   * overlap; DAZZLE zones refresh the victim's dazzledUntil mark (perception
-   * shrinks the DAZZLED observer's own sight; non-dazzled observers untouched).
+   * inside — incendiaryDps integrated per tick through the burnShip choke
+   * (kill credit to the zone owner), at most once per (owner, victim) pair per
+   * tick no matter how many of that owner's zones overlap; DAZZLE zones
+   * refresh the victim's dazzledUntil mark (perception shrinks the DAZZLED
+   * observer's own sight; non-dazzled observers untouched).
+   *
+   * ALL of it is gated on damageEnabled (Story 2.8 review, P9): dazzle is a
+   * HOSTILE effect like the burn, so the weapons-safe ready room must not
+   * blind anyone. One flag, one policy — a flare fired in the ready room
+   * lights the water and nothing else.
+   *
+   * DoT WIRE CADENCE (Story 2.8 review, P4): hp application stays EXACTLY
+   * per-tick (sim math unchanged, kill timing unchanged), but the victim-
+   * private `dmg` EVENT is aggregated per (zone owner, victim) into
+   * DOT_EVENT_WINDOW_MS windows — a 20/s fractional-damage event stream is
+   * wire noise and strobes client hit feedback. Nothing is ever unreported:
+   * a pair that stopped burning this tick (zone expired, victim left, victim
+   * died) flushes immediately below, and a lethal bite flushes inside burnShip
+   * before the sink.
    */
   private applyZoneEffects(dt: number): void {
+    if (!this.damageEnabled) return; // ready-room flares never burn OR dazzle
+    const bite = CONFIG.starShells.incendiaryDps * dt;
+    const burning = new Set<string>();
     for (const ship of this.ships.values()) {
       if (!ship.alive) continue;
-      const burnedBy = this.markZoneEffects(ship);
-      if (!this.damageEnabled) continue; // ready-room flares never burn
-      const bite = CONFIG.starShells.incendiaryDps * dt;
-      for (const ownerId of burnedBy) {
+      for (const ownerId of this.markZoneEffects(ship)) {
         if (!ship.alive) break; // a mid-loop sink stops further burns
-        this.hitShip(ship, bite, ownerId);
+        burning.add(dotKey(ownerId, ship.id));
+        this.burnShip(ship, bite, ownerId);
       }
     }
+    // Every pair that did NOT burn this tick has stopped burning: flush its
+    // remainder now so no applied damage is ever left unreported.
+    for (const key of [...this.dotBuckets.keys()]) {
+      if (!burning.has(key)) this.flushDot(key);
+    }
+  }
+
+  /**
+   * One tick of incendiary DoT: hp/credit/sink exactly like hitShip, but the
+   * `dmg` EVENT is accumulated into this (owner, victim) pair's window bucket
+   * instead of emitted per tick (see applyZoneEffects). A bite that SINKS the
+   * victim flushes the bucket first, so the victim's last dmg event lands
+   * before its `sunk` — the ordering the non-DoT path already guarantees.
+   */
+  private burnShip(victim: ShipRecord, amount: number, ownerId: string): void {
+    victim.hp -= amount;
+    this.creditDamage(ownerId, victim.id, amount);
+    const key = dotKey(ownerId, victim.id);
+    const bucket = this.dotBuckets.get(key);
+    if (bucket === undefined) this.dotBuckets.set(key, { victimId: victim.id, amount, since: this.now });
+    else bucket.amount += amount;
+    if (victim.hp <= 0) {
+      this.flushDot(key);
+      this.sinkShip(victim.id, ownerId);
+      return;
+    }
+    const open = this.dotBuckets.get(key)!;
+    if (this.now - open.since >= DOT_EVENT_WINDOW_MS) this.flushDot(key);
+  }
+
+  /** Emit one aggregated victim-private `dmg` for a DoT bucket and drop it.
+   *  `hp` reports the victim's CURRENT hp (already applied per tick), so the
+   *  client's hp mirror is exact at flush time. */
+  private flushDot(key: string): void {
+    const bucket = this.dotBuckets.get(key);
+    if (bucket === undefined) return;
+    this.dotBuckets.delete(key);
+    const victim = this.ships.get(bucket.victimId);
+    if (victim === undefined || bucket.amount <= 0) return;
+    this.pending.push({ k: 'dmg', id: bucket.victimId, amount: bucket.amount, hp: Math.max(0, victim.hp) });
   }
 
   /** The per-ship zone scan: refresh the dazzle mark for every covering
@@ -1810,13 +1993,14 @@ export class World {
     shell.y = hits[0].y;
   }
 
-  /** Store a newly-dropped mine. Per-player cap = the OWNER'S effective
-   *  maxLive (maxMines upgrade); the defensive global cap stays in addMine.
-   *  Story 1.8: mines are an ABILITY (actSeq channel) — activation runs at
-   *  `now` with no fireT compensation, so `droppedAt` is always the server
-   *  apply time and armedAt = now + armDelay (the 3s arm delay dwarfs any
-   *  latency skew a claim could have shaved). Drop point / caps / eviction
-   *  untouched. */
+  /** Store a newly-dropped mine at an already-validated point. Per-player cap =
+   *  the OWNER'S effective maxLive (the maxMines ladder); the defensive global
+   *  cap stays in addMine. Story 2.8 (amendment 45): mines are a click-aimed
+   *  WEAPON on the fireSeq channel — the equipment row validates the rear
+   *  placement sector + placeRange and hands us the CLICKED point, and the
+   *  activation carries the D1-compensated fire time, so `droppedAt` is that
+   *  validated fireT (not necessarily `now`) and armedAt = droppedAt +
+   *  armDelay. Caps / oldest-eviction untouched. */
   private spawnMine(owner: ShipRecord, x: number, y: number, droppedAt: number = this.now): void {
     addMine(this.mines, owner.id, x, y, droppedAt, this.nextMineId(), owner.stats.mine.maxLive);
   }

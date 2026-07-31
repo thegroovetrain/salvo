@@ -212,18 +212,6 @@ function toCard(def: BoonDef, you: OwnShip): OfferCard {
   };
 }
 
-/**
- * Pure: the STACK SIGNATURE of an offer against the player's build — the held
- * occurrence count of each offered line, joined. It rides the render memo
- * alongside `pts` and the ids because a card's PRESENTATION can change while its
- * id does not: spend a HEAVY SHELLS, and the queued offer that slides in behind
- * it may carry the same line at a new rung (name, lineage, and the current→next
- * numbers all move). Cheap — at most `CONFIG.offer.size` counts per render call.
- */
-export function offerStackSignature(you: { boons: readonly string[]; offer: readonly string[] }): string {
-  return you.offer.map((id) => boonStackCount(you.boons, id)).join('.');
-}
-
 // --- pure core: the spend latch + outcome ---------------------------------------
 
 /** How long the spend latch holds before falling back open, in case the server
@@ -538,7 +526,10 @@ function lineEl(css: string, text: string): HTMLSpanElement {
 }
 
 /** The render memo's per-card component: every line the face actually shows,
- *  so a copy change with an unchanged id still repaints (see render()). */
+ *  so a copy change with an unchanged id still repaints (see render()). This
+ *  SUBSUMES stack changes — a line fitted to a new rung moves its name,
+ *  lineage, and current→next numbers, all of which are in here — so no
+ *  separate build/stack signature is needed alongside it. */
 function cardSignature(card: OfferCard): string {
   return [card.id, card.rarity, card.name, card.lineage ?? '', card.replaces ?? '', card.description].join('~');
 }

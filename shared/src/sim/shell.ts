@@ -94,6 +94,18 @@ export interface ShellState {
    */
   pierce?: { remaining: number; hitIds: string[] };
   /**
+   * SERVER-INTERNAL SALVO TAG (Story 2.8 review, P1): every shell spawned by
+   * ONE click of a multi-barrel mount carries the same tag. The single-hit
+   * rule lives in the server (World.claimSalvoHit): a given victim takes at
+   * most ONE damage application per salvo — the first resolved — so a TWIN/
+   * TRIPLE MOUNT can never stack overlapping bursts into a one-click kill
+   * (the ratified no-one-click-kill guardrail). Interception/stopping and
+   * per-shell booms are unchanged, and different victims each take their own
+   * hit (area throughput preserved). NEVER on the wire — stepShell never reads
+   * it; the perception shape guards pin the constant-free ballistic shape.
+   */
+  salvo?: string;
+  /**
    * ACOUSTIC HOMING doctrine (Story 2.8, torpedoHoming): per tick the fish
    * acquires the nearest non-owner hull whose centroid is within
    * `acquireRange` (hulls only — decoys never attract it; ctx.hulls carries

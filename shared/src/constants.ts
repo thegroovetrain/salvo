@@ -194,6 +194,15 @@ export const CONFIG = {
     // deg — min velocity-direction change since last emit before the server
     // re-emits a ballistic update ('torpU') to observers (wire cadence knob).
     homingUpdateAngleDeg: 5,
+    // u — TOTAL travel budget of a homing fish, consumed by actual distance
+    // travelled (a standard/command fish runs until impact or the map edge —
+    // it can never circle). A homing torpedo's turn radius at base speed is
+    // ≈ homingAcquireRange, so a slow orbiting target would otherwise trap it
+    // in an immortal circle re-emitting torpU forever; on exhaustion it
+    // expires exactly like a normal torpedo at the map edge (splash boom, no
+    // burst). DRAFT HANDWAVE (Story 2.8 review P1x; 2.10's evidence pass
+    // tunes): 1300u ≈ two-plus full crossings of base radar range.
+    homingMaxRangeU: 1300,
     // --- COMMAND DETONATION doctrine (Story 2.8, exclusive boon) — DRAFT.
     // u — blast radius of the point-detonation at the click (reuses the
     // gun-pattern targetX/targetY + burstRadius shell fields; range is capped

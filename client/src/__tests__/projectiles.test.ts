@@ -91,6 +91,30 @@ describe('Projectiles.render — the lit-zone reveal survives the beyond-sight c
   });
 });
 
+// --- Story 2.8 review, P2: a DERIVED boom id must not kill a live track --------
+//
+// A non-terminal ARMOR-PIERCING pierce booms while the shell keeps flying, so
+// the server sends those booms under a derived id (`<shellId>#p<order>`) and
+// keeps the real id for the terminal event. The client side of that contract:
+// an unknown boom id is a harmless impact spark — it must never remove a track.
+
+describe('Projectiles.onBoom — unknown/derived ids are harmless', () => {
+  const own = { x: 0, y: 0 };
+  const launch: BallisticEvent = { k: 'shell', id: 's7', x: 0, y: 0, vx: 130, vy: 0, t: 0 };
+
+  it('a DERIVED pierce-boom id leaves the still-flying shell tracked; the REAL id retires it', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell(launch);
+    p.onBoom({ k: 'boom', id: 's7#p0', x: 40, y: 0 }); // pierced hull 1, still flying
+    p.onBoom({ k: 'boom', id: 's7#p1', x: 80, y: 0 }); // pierced hull 2, still flying
+    expect(p.liveCount).toBe(1);
+    p.render(300, own, []);
+    expect(p.liveCount).toBe(1);
+    p.onBoom({ k: 'boom', id: 's7', x: 120, y: 0 }); // terminal: the real id
+    expect(p.liveCount).toBe(0);
+  });
+});
+
 // --- Story 2.8: ACOUSTIC HOMING re-anchors a live torpedo's track ---------------
 //
 // A steering fish re-emits a `torpU` (same constant-free shape as its reveal:
@@ -116,18 +140,33 @@ describe('Projectiles.onBallisticUpdate — the homing-torpedo track update', ()
     expect(p.liveCount).toBe(1); // still well inside the sight bubble
   });
 
-  it('IGNORES an update for an id it is not tracking (never a resurrection)', () => {
+  // Story 2.8 review, P3 (RULING — supersedes the original "never resurrect"
+  // rule): the client culls a track the moment it leaves the sight bubble, and
+  // the server only emits `torpU` to an observer who can legitimately see the
+  // fish right now. Dropping an update for an untracked id therefore hid a
+  // RE-SIGHTED homing torpedo permanently — it must CREATE the track instead.
+  it('CREATES the track for an id it is not tracking (a re-sighted fish must render)', () => {
     const p = new Projectiles(900, new Container());
-    p.onBallisticUpdate(steer); // no reveal ever arrived / already culled
-    expect(p.liveCount).toBe(0);
+    p.onBallisticUpdate(steer); // no reveal held (never arrived / already culled)
+    expect(p.liveCount).toBe(1);
+    // It renders as a live, correctly-anchored torpedo track: 500ms on it has
+    // run 30u down the update's bearing and is still inside the bubble.
+    p.render(1000, own, []);
+    expect(p.liveCount).toBe(1);
+    expect(shellPosition({ x: steer.x, y: steer.y }, steer, steer.t, 1000)).toEqual({ x: 30, y: 30 });
   });
 
-  it('is inert after the boom removed the track', () => {
+  it('a post-boom update re-creates the track exactly once (no duplicate, no leak)', () => {
     const p = new Projectiles(900, new Container());
     p.onShell(launch);
     p.onBoom({ k: 'boom', id: 't1', x: 30, y: 0 });
     expect(p.liveCount).toBe(0);
     p.onBallisticUpdate(steer); // a late update racing the boom
+    expect(p.liveCount).toBe(1);
+    p.onBallisticUpdate({ ...steer, t: 600 });
+    expect(p.liveCount).toBe(1); // still ONE track — updated, never duplicated
+    // ...and the next boom still terminates it.
+    p.onBoom({ k: 'boom', id: 't1', x: 30, y: 30 });
     expect(p.liveCount).toBe(0);
   });
 

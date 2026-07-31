@@ -300,14 +300,16 @@ describe('scrubAcquisitions — the stale-card rule (amendment 43)', () => {
 describe('full-economy replay — the deck plays out clean (property)', () => {
   /** Play a whole match economy: draw, pick the first card, return the rest;
    *  on an acquisition pick, consume + scrub (no banked offers held). */
-  function playEconomy(seed: number): { picks: BoonId[]; drawsUntilEmpty: number } {
+  function playEconomy(seed: number): { picks: BoonId[]; drawn: BoonId[]; drawsUntilEmpty: number } {
     const rng = mulberry32(seed);
     let deck = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
     const picks: BoonId[] = [];
+    const drawn: BoonId[] = [];
     let draws = 0;
     for (; draws < 500; draws += 1) {
       const r = drawOffer(deck, rng);
       if (r.offer.length === 0) break; // empty deck: level banks nothing
+      drawn.push(...r.offer);
       const [chosen, ...unchosen] = r.offer;
       picks.push(chosen);
       deck = returnCards(r.deck, unchosen);
@@ -318,8 +320,13 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
       }
     }
     expect(deck.cards).toHaveLength(0); // fully played out
-    return { picks, drawsUntilEmpty: draws };
+    return { picks, drawn, drawsUntilEmpty: draws };
   }
+
+  const DOCTRINE_PAIRS = [
+    ['cannonArcing', 'cannonAp'],
+    ['torpedoHoming', 'torpedoCommand'],
+  ] as const;
 
   it('no line is EVER picked beyond its copy count — caps self-enforce physically', () => {
     for (const seed of [1, 42, 1337]) {
@@ -331,13 +338,38 @@ describe('full-economy replay — the deck plays out clean (property)', () => {
       // At most ONE acquisition can ever be picked (the purge).
       const acquisitionPicks = picks.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
       expect(acquisitionPicks.length).toBeLessThanOrEqual(1);
-      // At most one doctrine of each exclusive pair (1 copy each, no return).
-      for (const [a, b] of [
-        ['cannonArcing', 'cannonAp'],
-        ['torpedoHoming', 'torpedoCommand'],
-      ] as const) {
-        expect((counts.get(a) ?? 0) + (counts.get(b) ?? 0)).toBeLessThanOrEqual(2); // 1 copy each
+    }
+  });
+
+  // The retired pin here asserted (a + b) <= 2 for two 1-copy lines — true by
+  // construction and unfalsifiable. What the ENGINE actually owes is copy
+  // scarcity per doctrine line; MUTUAL exclusion is the SERVER's job (the
+  // applyBoon doctrine swap, exercised in server/doctrines.test), and the deck
+  // deliberately does NOT impose it — that division of labor is what lets a
+  // swapped-out rival's card return to the pool and ping-pong.
+  it('a doctrine line may be OFFERED many times but PICKED at most `copies` (=1) — the only cap is scarcity', () => {
+    for (const seed of [1, 42, 1337]) {
+      const { picks, drawn } = playEconomy(seed);
+      const pickCounts = tally(picks);
+      const drawnCounts = tally(drawn);
+      for (const pair of DOCTRINE_PAIRS) {
+        for (const id of pair) {
+          expect(BOON_CATALOG[id].copies, id).toBe(1); // the scarcity the pin rests on
+          // Consuming a card is the ONLY thing that removes it for good: an
+          // unchosen doctrine returns to the pool and can be offered again...
+          expect(drawnCounts.get(id) ?? 0).toBeGreaterThanOrEqual(pickCounts.get(id) ?? 0);
+          // ...but a PICKED one is gone — never a second copy in one replay.
+          expect(pickCounts.get(id) ?? 0, `seed ${seed}: ${id}`).toBeLessThanOrEqual(BOON_CATALOG[id].copies);
+        }
       }
+    }
+  });
+
+  it('BOTH rivals of a pair can appear across replays — the engine imposes no exclusion', () => {
+    const seen = new Set<BoonId>();
+    for (let seed = 0; seed < 40; seed += 1) for (const id of playEconomy(seed).drawn) seen.add(id);
+    for (const pair of DOCTRINE_PAIRS) {
+      for (const id of pair) expect(seen.has(id), `${id} never drawable`).toBe(true);
     }
   });
 

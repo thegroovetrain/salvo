@@ -190,19 +190,22 @@ export class Projectiles {
    * running on the launch bearing. Same-shaped payload as the reveal (pos +
    * velocity only — no range-derivable field), so nothing new is inferable.
    *
-   * An update for an id we are NOT tracking is IGNORED, never a spawn: the
-   * server sends updates only to observers who can currently see the fish, but
-   * OUR track may already be gone (culled past the sight bubble, or its boom
-   * arrived first) — resurrecting it there would render a torpedo the local
-   * reveal rules had legitimately dropped.
+   * An update for an id we are NOT tracking CREATES the track (Story 2.8
+   * review, P3). Dropping it permanently hid a re-sighted fish: the client
+   * culls a track the moment it leaves the sight bubble, and the server only
+   * ever emits `torpU` to an observer who can legitimately see the torpedo
+   * RIGHT NOW (owner / sight+LOS / owned lit zone — the reveal predicate), so
+   * a torpU arriving for an unknown id means "you can see this fish and you
+   * are not drawing it". The payload is the same constant-free shape as the
+   * reveal (pos + velocity + t, no range-derivable field), so spawning from it
+   * leaks nothing the reveal would not have.
    *
    * The lifetime backstop is re-derived from the NEW speed (a doctrine may have
    * changed it) and the wake trail restarts its spacing count, because travelled
    * distance is measured from the anchor this call just moved.
    */
   onBallisticUpdate(ev: TorpedoUpdateEvent): void {
-    const s = this.live.get(ev.id);
-    if (!s) return; // untracked (culled / already boomed): never resurrect
+    const s = this.live.get(ev.id) ?? this.spawnFromUpdate(ev);
     s.x0 = ev.x;
     s.y0 = ev.y;
     s.vx = ev.vx;
@@ -210,6 +213,28 @@ export class Projectiles {
     s.t0 = ev.t;
     s.expiresAt = ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy));
     s.trailAt = TORP_TRAIL_SPACING;
+  }
+
+  /** Register a track from a `torpU` for an id we hold no track for (see
+   *  onBallisticUpdate): a torpedo-kind track — only a torpedo ever steers —
+   *  seeded from the update, which the caller then re-anchors. */
+  private spawnFromUpdate(ev: TorpedoUpdateEvent): LiveShell {
+    const gfx = this.pool.acquire();
+    this.paint(gfx, 'torp');
+    gfx.visible = true;
+    const s: LiveShell = {
+      gfx,
+      kind: 'torp',
+      x0: ev.x,
+      y0: ev.y,
+      vx: ev.vx,
+      vy: ev.vy,
+      t0: ev.t,
+      expiresAt: ev.t,
+      trailAt: TORP_TRAIL_SPACING,
+    };
+    this.live.set(ev.id, s);
+    return s;
   }
 
   /** Terminate the projectile that produced this boom (if we were tracking it). */

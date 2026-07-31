@@ -164,9 +164,12 @@ export interface OwnShip {
   sweep: number; // rad — current radar sweep angle
   cls: ShipClassId; // ship class (drives hull dims / kinematics / max hp client-side)
   /**
-   * Banked upgrade points not yet spent (one per kill). Like `upg`, this rides
-   * `you` ONLY — self-private by construction, never on a Contact or spectator
-   * payload.
+   * Banked LEVELS not yet spent (Story 2.6/2.8 — the economy is levels, earned
+   * by passive XP, not kills; `lvl` is the running total earned, `pts` what is
+   * still unspent). Exactly the length of the server's banked-offer queue —
+   * pts === offers.length is the single source of truth, so a level that drew
+   * no offer (exhausted deck) banks nothing here either. Self-private by
+   * construction: it rides `you` ONLY, never a Contact or spectator payload.
    */
   pts: number;
   /**

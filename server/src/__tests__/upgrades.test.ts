@@ -392,6 +392,45 @@ describe('acquisitions — R fills once, purge + scrub (amendments 38/41/43)', (
     expect([...a.offers[1]]).toEqual(untouched); // acquisition-free offers are byte-identical
   });
 
+  // Story 2.8 review, P5: a BANKED offer can be 100% acquisition cards, and an
+  // exhausted deck refills it with NOTHING. A zero-card offer still counted in
+  // pts (pts === offers.length) but spendPoint bounds `choice` by front.length
+  // — so a zero-card FRONT could never be consumed and the FIFO deadlocked
+  // forever. RULING: an offer scrubbed to zero cards is REMOVED entirely
+  // (mirroring grantPoint's empty-draw rule). Driven with a tiny injected
+  // catalog, the same way the empty-deck rule below is reached: production
+  // decks are far too fat for the state to arise in one match.
+  it('an offer scrubbed to ZERO cards is REMOVED — pts falls with it and the queue stays spendable', () => {
+    const twoAcquisitions: WorldOptions = {
+      boonCatalog: {
+        // Two acquisitions whose categories hold NO other lines, so nothing
+        // can refill a scrubbed offer once the pool is dry.
+        acqCannon: { id: 'acqCannon', category: 'cannon', rarity: 'rare', copies: 1, effects: [{ kind: 'slotFill', equipmentId: 'cannon' }] },
+        acqStar: { id: 'acqStar', category: 'starShells', rarity: 'rare', copies: 1, effects: [{ kind: 'slotFill', equipmentId: 'starShells' }] },
+        aLine: { id: 'aLine', category: 'guns', rarity: 'common', copies: 1, effects: [{ kind: 'stat', path: 'gun.damage', add: 1 }] },
+      },
+    };
+    const w = bareWorld(1, twoAcquisitions);
+    const a = place(w, 'a', 0, 0);
+    a.offers.push(['acqCannon']); // the FRONT: an acquisition pick (nothing to give back)
+    a.offers.push(['acqStar']); // BANKED and 100% acquisition — the scrub empties it
+    a.offers.push(['aLine']); // a real banked offer behind it
+    a.deck = { cards: [], levelsSinceRare: 0 }; // pool dry: the refill draws nothing
+    expect(buildFrame(w, 'a').you!.pts).toBe(3);
+
+    expect(w.spendPoint('a', 0)).toBe(true); // fit the acquisition
+    // The all-acquisition offer scrubbed to zero and is GONE (not a 0-card
+    // ghost); the real offer behind it survived intact.
+    expect(a.offers).toHaveLength(1);
+    expect([...a.offers[0]]).toEqual(['aLine']);
+    // pts === offers.length still holds, and the queue consumes to empty
+    // instead of deadlocking on an unspendable front.
+    expect(buildFrame(w, 'a').you!.pts).toBe(1);
+    expect(w.spendPoint('a', 0)).toBe(true);
+    expect(a.offers).toHaveLength(0);
+    expect(buildFrame(w, 'a').you!.pts).toBe(0);
+  });
+
   it('the scrub refill is deterministic on the player’s own stream (twin worlds agree)', () => {
     const run = (): BoonOffer[] => {
       const { w, a } = acquisitionBoard([['acquireCannon', 'gunReload', 'shipSpeed', 'intelRadar']]);

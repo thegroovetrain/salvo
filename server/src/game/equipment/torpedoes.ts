@@ -17,9 +17,9 @@
 import { CONFIG, EQUIPMENT_IS_WEAPON, inArc, sectorArcFor, wrapAngle, type EquipmentState, type ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
-import { burstPoint, clampToArc } from './guns.js';
+import { burstPointAlong, clampToArc } from './guns.js';
 import { consume, tickReload } from './ammo.js';
-import { makeBallistic } from './ballistics.js';
+import { hullClearOffset, makeBallistic } from './ballistics.js';
 
 // The bow sector's ratified shape (Story 1.10): the shared arcFor family is
 // the single arc-shape source — the same descriptor the client's weaponArc
@@ -29,6 +29,23 @@ import { makeBallistic } from './ballistics.js';
 // (sectorArcFor throws), never mid-tick.
 const BOW_SECTOR = sectorArcFor('torpedo');
 
+/** u — how far PAST the fish's own spawn point the nearest legal COMMAND
+ *  DETONATION point sits (Story 2.8 review, P7). A commanded burst point
+ *  inside the bow spawn clearance would lie BEHIND the just-spawned fish:
+ *  distToTarget is measured forward along the track, so the fish would never
+ *  reach it and would run to the map edge instead of detonating. Clamping the
+ *  commanded distance to (spawn offset + epsilon) makes a point-blank command
+ *  click burst just past the tube. */
+const COMMAND_MIN_EPSILON = 1;
+
+/** The nearest legal commanded burst distance from the ship CENTER: the fish's
+ *  own spawn offset along the bearing (hullClearOffset with the torpedo's
+ *  hitRadius + spawnClearance — exactly what makeBallistic uses) plus a small
+ *  epsilon, so the burst point is always AHEAD of the spawn point. */
+function minCommandDistance(ship: ShipRecord): number {
+  return hullClearOffset(ship, CONFIG.torpedo.hitRadius + CONFIG.torpedo.spawnClearance) + COMMAND_MIN_EPSILON;
+}
+
 /**
  * Torpedo launch against one slot pool, checks in TODAY'S order: bow arc first
  * (arc-miss does NOT spend a round), then the pool (empty denies). The denial
@@ -37,11 +54,14 @@ const BOW_SECTOR = sectorArcFor('torpedo');
  * never reads input.aimDist. DOCTRINE MODES (Story 2.8, stats.torpedo.mode):
  * 'homing' (ACOUSTIC HOMING) launches with the per-tick steering params
  * (CONFIG.torpedo.homingTurnRate/homingAcquireRange — sim/shell.ts steers
- * toward the nearest non-owner HULL; decoys never attract it); 'command'
- * (COMMAND DETONATION) is a point-detonation at the click — target =
- * burstPoint capped by the OWNER's effective RADAR range (the ratified reach),
- * blast = CONFIG.torpedo.commandBurstRadius — while a contact hit en route
- * stays an ordinary full-damage torpedo hit (contactDamage = damage).
+ * toward the nearest non-owner HULL; decoys never attract it) AND a finite
+ * CONFIG.torpedo.homingMaxRangeU travel budget (an orbiting fish must die);
+ * 'command' (COMMAND DETONATION) is a point-detonation at the click — target =
+ * burstPointAlong the launch bearing, capped by the OWNER's effective RADAR
+ * range (the ratified reach) and floored at minCommandDistance (the point can
+ * never sit behind the spawned fish), blast =
+ * CONFIG.torpedo.commandBurstRadius — while a contact hit en route stays an
+ * ordinary full-damage torpedo hit (contactDamage = damage).
  */
 function launchTorpedo(
   ship: ShipRecord,
@@ -59,10 +79,17 @@ function launchTorpedo(
   // distance along the aim, clamped to the water disk) with reach capped by
   // the owner's effective radarRange. In-arc aim ≡ the launch bearing, so the
   // point always lies on the fish's actual track.
-  const command = t.mode === 'command' ? burstPoint(ship, mapRadius, ship.stats.radarRange) : null;
+  const command =
+    t.mode === 'command'
+      ? burstPointAlong(ship, mapRadius, ship.stats.radarRange, dir, minCommandDistance(ship))
+      : null;
   const torp = makeBallistic(mkId(), ship, dir, now, {
     speed: t.speed, // effective launch speed (the HIGH-SPEED SETTING ladder)
-    range: Number.POSITIVE_INFINITY, // A3: run until impact / map edge
+    // A3: run until impact / map edge — EXCEPT a homing fish, which carries a
+    // finite total-travel budget (Story 2.8 review, P8: a steering fish can
+    // orbit a slow target forever otherwise). Budget exhausted = a normal
+    // torpedo expiry (splash boom, no burst).
+    range: t.mode === 'homing' ? CONFIG.torpedo.homingMaxRangeU : Number.POSITIVE_INFINITY,
     damage: t.damage, // effective damage (the HEAVY WARHEAD ladder) — never raw CONFIG
     hitRadius: CONFIG.torpedo.hitRadius, // A4: own value, no longer gun.shellRadius
     spawnClearance: CONFIG.torpedo.spawnClearance, // real spawn margin (clean spawn geometry)

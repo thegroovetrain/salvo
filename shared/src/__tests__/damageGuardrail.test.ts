@@ -68,6 +68,20 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8)', (
     expect(stacked('mineDamage').mine.damage).toBe(65); // 45 +4/card ×5
   });
 
+  it('a FULL TRIPLE-BARREL SALVO on ONE victim stays a single shell — the salvo rule is what saves it', () => {
+    // Story 2.8 review, P1. A multi-barrel click fires `barrels` real shells
+    // whose bursts OVERLAP at practical ranges. The server's same-click salvo
+    // rule holds one victim to ONE application, so the worst case a hull can
+    // take from a single click is one max-stacked shell...
+    const barrels = stacked('gunBarrel').gun.barrels;
+    const perShell = stacked('gunDamage').gun.damage;
+    expect(barrels).toBe(3); // TWIN + TRIPLE MOUNT, both copies
+    expect(perShell).toBeLessThan(minHullHp); // the guaranteed ceiling per click
+    // ...and this is the number that made the rule mandatory: UNGUARDED the
+    // same click would have breached the 70hp floor outright.
+    expect(perShell * barrels).toBeGreaterThan(minHullHp);
+  });
+
   it('AP falloff can only DECREASE a hit: even the 100% first pierce obeys the max-stacked pin', () => {
     // The AP doctrine deals 100/50/25% of cannon damage — the first hit equals
     // the burst number already pinned above; later hits are strictly smaller.

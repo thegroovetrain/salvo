@@ -196,6 +196,9 @@ describe('shared barrel', () => {
     expect(CONFIG.torpedo.homingAcquireRange).toBe(120);
     expect(CONFIG.torpedo.homingUpdateAngleDeg).toBe(5);
     expect(CONFIG.torpedo.commandBurstRadius).toBe(60);
+    // The homing travel budget (review P8): finite, so a fish can never orbit
+    // forever — and long enough to cross the map twice over.
+    expect(CONFIG.torpedo.homingMaxRangeU).toBe(1300);
   });
 
   it('re-exports the boon effect engine + Catalog v1 (Stories 2.5/2.8)', () => {

@@ -70,9 +70,20 @@ export function burstPoint(ship: ShipRecord, mapRadius: number, rangeU: number):
 
 /** burstPoint generalized over an explicit bearing (Story 2.8): the multi-
  *  barrel fan aims each shell at its OWN range-preserved burst point along its
- *  own fanned bearing — same clicked distance, same range and map clamps. */
-export function burstPointAlong(ship: ShipRecord, mapRadius: number, rangeU: number, dir: number): Vec2 {
-  const dist = Math.min(Math.max(ship.input.aimDist, 0), rangeU);
+ *  own fanned bearing — same clicked distance, same range and map clamps.
+ *  `minU` is an optional MINIMUM commanded distance (Story 2.8 review, P7 —
+ *  COMMAND DETONATION clamps the point out past its own spawn clearance so a
+ *  point-blank click can never sit BEHIND the launched fish); it wins over
+ *  `rangeU` in the degenerate minU > rangeU case, and 0 (the default) is the
+ *  historical clamp byte-for-byte. */
+export function burstPointAlong(
+  ship: ShipRecord,
+  mapRadius: number,
+  rangeU: number,
+  dir: number,
+  minU = 0,
+): Vec2 {
+  const dist = Math.min(Math.max(ship.input.aimDist, minU), Math.max(rangeU, minU));
   const target = {
     x: ship.state.x + Math.cos(dir) * dist,
     y: ship.state.y + Math.sin(dir) * dist,
@@ -122,7 +133,18 @@ const BARREL_FAN_STEP_RAD = (3 * Math.PI) / 180;
  * flying to its OWN range-preserved burst point along its own bearing. The
  * ONLY denial is an empty pool ('no-ammo' — the shot cooldown; single-consume,
  * so the denial mapping is unchanged from the single-barrel era); there is no
- * arc. Every shell carries the gun's hit rule off the OWNER's effective stats:
+ * arc.
+ *
+ * THE SAME-CLICK SALVO SINGLE-HIT RULE (Story 2.8 review, P1): a multi-barrel
+ * click tags every shell it spawns with ONE server-internal salvo id (the
+ * first shell's id — no extra id consumed, never on the wire) so the World can
+ * hold a victim to at most ONE damage application per salvo. Without it the
+ * fanned bursts overlap at practical ranges and one hull eats 3× damage
+ * (3 × 25 = 75 > the 70hp lightest hull), breaching the ratified
+ * no-one-click-kill guardrail. A SINGLE-barrel click is untagged: a salvo of
+ * one satisfies the rule trivially, so the base path stays allocation-free.
+ *
+ * Every shell carries the gun's hit rule off the OWNER's effective stats:
  * target point + burstRadius + damage/contactDamage (Story 2.8 — stats, never
  * CONFIG, so the HEAVY SHELLS ladder lands). distLeft is the spawn→target
  * distance plus a shellRadius of slack — the shell stops AT its target
@@ -158,6 +180,8 @@ function fireGunShells(
       }),
     );
   }
+  // One salvo id per multi-barrel click (the first shell's own id).
+  if (shells.length > 1) for (const s of shells) s.salvo = shells[0].id;
   return { shells, denial: null };
 }
 
