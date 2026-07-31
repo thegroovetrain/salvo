@@ -22,7 +22,7 @@ import {
   type RefitBox,
   type SpendLatch,
 } from '../ui/upgradeMenu.js';
-import { boonFitToastLine, boonLabel } from '../ui/boonCopy.js';
+import { boonFitToastLine, boonName } from '../ui/boonCopy.js';
 import { vitalsLayout } from '../render/hud.js';
 import { hotbarLayout } from '../render/hotbar.js';
 import { CLIENT_CONFIG } from '../config.js';
@@ -30,14 +30,15 @@ import { settings } from '../settings/store.js';
 
 const R = CLIENT_CONFIG.refit;
 
-/** A real four-boon offer from the shipped catalog (four distinct categories). */
-const OFFER = ['reinforcedBulkheads', 'forcedDraught', 'rangefinderCrew', 'highGainAntenna'];
-const OFFER_B = ['splinterMattresses', 'trimmedScrews', 'practicedLoaders', 'crowsNestWatch'];
+/** A real four-LINE draw from the shipped Boon Catalog v1 (the deck draws four
+ *  different card LINES — categories may repeat; these happen not to). */
+const OFFER = ['gunDamage', 'shipHull', 'intelRadar', 'mineBlast'];
+const OFFER_B = ['gunReload', 'shipSpeed', 'intelSweep', 'mineTrigger'];
 
 function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
-    ammo: [], sweep: 0, cls: 'torpedoBoat', upg: [], pts: 1, offer: [...OFFER],
+    ammo: [], sweep: 0, cls: 'torpedoBoat', pts: 1, offer: [...OFFER],
     boostUntil: 0, boons: [], lvl: 0, xp: 0,
     ...over,
   };
@@ -111,6 +112,21 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     expect(b.row.x - a.row.x).toBe((1920 - 1366) / 2);
   });
 
+  // AMENDMENT 40 (Story 2.8) — the overlap below is now RATIFIED OUTRIGHT, not
+  // merely accepted: "at floor viewports the outer cards overlap the 38%-dimmed
+  // corner clusters — the dimmed chrome is inert during the refit combat
+  // lockout; cards render above it and MAY GROW MODESTLY TALLER for the new
+  // rarity/lineage/doctrine lines. No band lift, no card shrink." The card grew
+  // 156 → 236px for exactly those lines; this pin is re-taken at the new height
+  // and the two INNER cards still clear both clusters.
+  it('the grown card still fits both ratified floors below the band anchor', () => {
+    for (const { name, w, h } of FLOORS) {
+      const L = refitBandLayout(w, h);
+      expect(L.cards[0].h, name).toBe(R.cardHeight);
+      expect(L.band.y + L.band.h, name).toBeLessThanOrEqual(h); // no clip off the bottom
+    }
+  });
+
   // DELIBERATE PIN, NOT AN ASPIRATION. The ratified UX-DR14 row (924px) and the
   // ratified below-center band (~58%) are geometrically OVER-CONSTRAINED against
   // the bottom-left hotbar (Story 2.2) and the bottom-right vitals cluster
@@ -147,14 +163,14 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     expect(offerView(ownShip({ pts: 0, offer: [] }), false, false)).toBeNull();
   });
 
-  it('resolves the front offer to four cards with catalog category + draft copy', () => {
+  it('resolves the front offer to four cards with catalog category + ratified copy', () => {
     const view = offerView(ownShip(), false, false);
     expect(view?.options.map((o) => o.id)).toEqual(OFFER);
     expect(view?.options).toHaveLength(CONFIG.offer.size);
     expect(view?.pts).toBe(1);
     for (const card of view!.options) {
-      expect(card.category).toBe(BOON_CATALOG[card.id].category.toUpperCase());
-      expect(card.name).toBe(boonLabel(card.id).toUpperCase());
+      expect(card.category.length).toBeGreaterThan(0);
+      expect(card.name).toBe(boonName(card.id, 0)); // first rung — the build is empty
       expect(card.description.length).toBeGreaterThan(0);
     }
     // Story 2.1 ("1-4 cards, no repair"): the view carries ONLY cards — the
@@ -196,6 +212,47 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
     expect(offerView(ownShip({ alive: false, hp: 0 }), false, false)).not.toBeNull();
   });
 
+  // --- Story 2.8: the card face is resolved against the PLAYER'S OWN BUILD ----
+
+  it('names each card at the rung the player\'s stack puts it at (name-by-stack-position)', () => {
+    const fresh = offerView(ownShip(), false, false);
+    expect(fresh?.options[0].name).toBe(boonName('gunDamage', 0));
+    const stacked = offerView(ownShip({ boons: ['gunDamage', 'gunDamage'] }), false, false);
+    expect(stacked?.options[0].name).toBe(boonName('gunDamage', 2));
+    expect(stacked?.options[0].name).not.toBe(fresh?.options[0].name);
+  });
+
+  it('carries the rarity tier: nothing for a common, RARE / EXCLUSIVE otherwise', () => {
+    const view = offerView(ownShip({ offer: ['gunDamage', 'gunTurret', 'torpedoHoming', 'acquireMine'] }), false, false);
+    expect(view?.options.map((o) => o.rarity)).toEqual(['', 'RARE', 'EXCLUSIVE', 'RARE']);
+  });
+
+  it('carries the lineage handrail for multi-copy lines only, at the right position', () => {
+    const view = offerView(ownShip({ offer: ['gunDamage', 'gunTurret'], boons: ['gunDamage'] }), false, false);
+    expect(view?.options[0].lineage).toBe('II/V'); // one held → this card is the second
+    expect(view?.options[1].lineage).toBeNull(); // AFT TURRET is a single copy
+  });
+
+  it('carries the doctrine-swap line ONLY while the rival is held (amendment 44)', () => {
+    const none = offerView(ownShip({ offer: ['torpedoCommand'] }), false, false);
+    expect(none?.options[0].replaces).toBeNull();
+    const held = offerView(ownShip({ offer: ['torpedoCommand'], boons: ['torpedoHoming'] }), false, false);
+    expect(held?.options[0].replaces).toBe('REPLACES: ACOUSTIC HOMING');
+  });
+
+  it('prints rules text with the player\'s LIVE values (a preview diff, not a static table)', () => {
+    const fresh = offerView(ownShip({ offer: ['intelSweep'] }), false, false);
+    const stacked = offerView(ownShip({ offer: ['intelSweep'], boons: ['intelSweep'] }), false, false);
+    expect(fresh?.options[0].description).toContain('RPM →');
+    expect(stacked?.options[0].description).not.toBe(fresh?.options[0].description);
+  });
+
+  it('resolves the card face against the OWN CLASS too (hull stats differ per class)', () => {
+    const tb = offerView(ownShip({ offer: ['shipHull'] }), false, false);
+    const bb = offerView(ownShip({ cls: 'battleship', offer: ['shipHull'] }), false, false);
+    expect(bb?.options[0].description).not.toBe(tb?.options[0].description);
+  });
+
   // FINDING A (spend latch): `locked` is threaded straight through from the
   // caller (main.ts's spendInFlight) — offerView stays pure, it just carries
   // the flag into the view so the DOM adapter can dim/inert the cards.
@@ -212,7 +269,15 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
   afterEach(() => settings.set({ motion: 'full' }));
 
   const cardsOf = (ids: readonly string[]): OfferCard[] =>
-    ids.map((id) => ({ id, category: BOON_CATALOG[id].category.toUpperCase(), name: boonLabel(id).toUpperCase(), description: '' }));
+    ids.map((id) => ({
+      id,
+      category: BOON_CATALOG[id].category.toUpperCase(),
+      rarity: '',
+      name: boonName(id, 0),
+      lineage: null,
+      replaces: null,
+      description: '',
+    }));
 
   const view = (over: Partial<OfferView> = {}): OfferView => ({
     pts: 1, options: cardsOf(OFFER), locked: false, ...over,
@@ -249,8 +314,65 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     menu.toggle(view({ options: cardsOf(OFFER).map((c) => ({ ...c, description: 'DESC ' + c.id })) }));
     const text = cards()[0].textContent ?? '';
     expect(text).toContain(BOON_CATALOG[OFFER[0]].category.toUpperCase());
-    expect(text).toContain(boonLabel(OFFER[0]).toUpperCase());
+    expect(text).toContain(boonName(OFFER[0], 0));
     expect(text).toContain('DESC ' + OFFER[0]);
+  });
+
+  // --- Story 2.8 card anatomy ---------------------------------------------------
+  //
+  // The card face grew three CONDITIONAL lines. The digit chip stays the FIRST
+  // span in every card (pinned above and re-pinned here against the new lines):
+  // the whole 1-4 spatial mapping is read off it.
+  it('renders the RARE / EXCLUSIVE tag and nothing at all for a plain common', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view({
+      options: [
+        { ...cardsOf(['gunDamage'])[0] }, // common: rarity ''
+        { ...cardsOf(['gunTurret'])[0], rarity: 'RARE' },
+        { ...cardsOf(['torpedoHoming'])[0], rarity: 'EXCLUSIVE' },
+      ],
+    }));
+    const [common, rare, exclusive] = cards();
+    expect(common.textContent).not.toContain('RARE');
+    expect(common.textContent).not.toContain('EXCLUSIVE');
+    expect(rare.textContent).toContain('RARE');
+    expect(exclusive.textContent).toContain('EXCLUSIVE');
+    // Tier colors are TEXT-only: the border/box-shadow channel belongs to the
+    // armed edge and the denied pulse, and a rarity tag must never touch it.
+    expect(rare.style.borderColor).not.toBe('var(--hc-info)');
+    expect(exclusive.style.borderColor).not.toBe('var(--hc-storm-readout)');
+    const tagColor = (b: HTMLButtonElement): string =>
+      [...b.querySelectorAll('span')].map((el) => (el as HTMLElement).style.color).join('|');
+    expect(tagColor(rare)).toContain('var(--hc-info)');
+    expect(tagColor(exclusive)).toContain('var(--hc-storm-readout)');
+  });
+
+  it('renders the lineage handrail for a multi-copy line and the doctrine-swap line', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view({
+      options: [
+        { ...cardsOf(['gunDamage'])[0], lineage: 'II/V' },
+        { ...cardsOf(['torpedoCommand'])[0], rarity: 'EXCLUSIVE', replaces: 'REPLACES: ACOUSTIC HOMING' },
+        { ...cardsOf(['gunTurret'])[0], rarity: 'RARE' }, // 1 copy: no lineage line
+      ],
+    }));
+    const [stacked, swap, single] = cards();
+    expect(stacked.textContent).toContain('II/V');
+    expect(swap.textContent).toContain('REPLACES: ACOUSTIC HOMING');
+    expect(single.textContent).not.toContain('/');
+    // The chip is STILL the first span, with every new line in place.
+    expect(cards().map((b) => b.querySelector('span')?.textContent)).toEqual(['1', '2', '3']);
+  });
+
+  it('re-renders when only the COPY moves (same ids, new rung after a spend)', () => {
+    // The memo signature carries every rendered line, not just the ids: a queued
+    // offer that slides in after a pick can carry the same line at a new rung.
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view());
+    const before = cards()[0].textContent;
+    menu.update(view({ options: cardsOf(OFFER).map((c, i) => (i === 0 ? { ...c, name: 'HEAVY SHELLS Mk II', lineage: 'II/V' } : c)) }));
+    expect(cards()[0].textContent).not.toBe(before);
+    expect(cards()[0].textContent).toContain('HEAVY SHELLS Mk II');
   });
 
   it('card buttons never retain focus: mousedown is prevented and click blurs', () => {
@@ -451,25 +573,6 @@ describe('canLatchSpend — what may be sent and latched', () => {
   it('refuses a pick with NO own ship in the mirror (the death-gap click)', () => {
     expect(canLatchSpend(null, null)).toBe(false);
     expect(canLatchSpend(null, undefined)).toBe(false);
-  });
-});
-
-// --- the boon copy layer ----------------------------------------------------------
-
-describe('boonCopy — client-side draft presentation (no display fields on BoonDef)', () => {
-  it('names and describes every shipped catalog entry', () => {
-    for (const id of Object.keys(BOON_CATALOG)) {
-      expect(boonLabel(id).length).toBeGreaterThan(0);
-      expect(boonLabel(id)).not.toBe(id); // real copy, not the humanized fallback
-    }
-  });
-
-  it('fails OPEN on an unknown id (a readable fallback, never an empty card)', () => {
-    expect(boonLabel('someFutureBoon')).toBe('Some Future Boon');
-  });
-
-  it('the fitted toast names the boon and carries the accrued-boon diamond', () => {
-    expect(boonFitToastLine('reinforcedBulkheads')).toBe('◆ REINFORCED BULKHEADS FITTED');
   });
 });
 

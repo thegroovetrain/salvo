@@ -24,7 +24,6 @@ import {
   slotsWithBoons,
   REGATTA_NO_HUE,
   SLOT_COUNT,
-  zeroUpgrades,
   zoneRadiusAt,
   type BoonDef,
   type DeniedView,
@@ -46,7 +45,7 @@ import { ContactViews, type PlateFrame } from './render/contacts.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
-import { weaponArcHit, weaponRangeU } from './render/weaponArc.js';
+import { weaponArcHit, weaponRangeHit, weaponRangeU } from './render/weaponArc.js';
 import { Effects } from './render/effects.js';
 import { Mines } from './render/mines.js';
 import { Decoys } from './render/decoys.js';
@@ -232,7 +231,7 @@ interface Game {
    *  Story 1.6) or, as of Story 1.10, an UNMATCHED server denial on ANY slot
    *  (weapon chips flash per-slot too) — consumed into the matching
    *  abilityPulse (never silence). Per-slot since Story 1.8: the ML fits TWO
-   *  ability slots (mine + decoyBuoy), so a denied mine press must not flash
+   *  special slots (mine + decoyBuoy), so a denied press must not flash
    *  the decoy chip. Indexed by loadout slot (length SLOT_COUNT). */
   abilityDeniedPress: boolean[];
   /** Rate-limited denied pulse PER LOADOUT SLOT — the SAME deniedFire grammar
@@ -295,10 +294,10 @@ interface Game {
    *  only positioned/alpha'd per frame. */
   ownPlated: boolean;
   /**
-   * Cached effectiveStats(ownClass, own upgrade counts) — THE client-side stat
+   * Cached effectiveStats(ownClass, own fitted boons) — THE client-side stat
    * source (HUD denominators, predictor kinematics, radar/camera/fog ranges,
-   * firing-arc gun range). Starts at the guessed class with zero upgrades;
-   * applyOwnStats() swaps it whenever you.cls or you.upg changes.
+   * firing-arc gun range). Starts at the guessed class with zero boons;
+   * applyOwnStats() swaps it whenever you.cls or you.boons changes.
    */
   ownStats: EffectiveStats;
   /**
@@ -837,7 +836,7 @@ function isWinner(g: Game): boolean {
 
 /** Assemble the modal's personal-score block from the accumulator + roster. */
 function ownScore(g: Game): PersonalScore {
-  return personalScore(g.score, g.state.net.you?.upg, ownKills(g), isWinner(g));
+  return personalScore(g.score, g.state.net.you?.boons, ownKills(g), isWinner(g));
 }
 
 /**
@@ -880,7 +879,7 @@ function showEliminationResults(g: Game): void {
  * PLACE #n" under a VICTORY banner until the patch caught up.
  */
 function showMatchResults(g: Game, msg: ResultsMsg): void {
-  const score = personalScoreFromResults(g.score, g.state.net.you?.upg, msg, g.state.net.sessionId, ownKills(g));
+  const score = personalScoreFromResults(g.score, g.state.net.you?.boons, msg, g.state.net.sessionId, ownKills(g));
   presentResults(g, {
     banner: winnerBanner(msg, g.state.net.sessionId),
     victory: score.winner,
@@ -1129,22 +1128,24 @@ function overlayFocused(g: Game | null): boolean {
 
 /**
  * An ability-activation keypress landed (the TB's speed boost, or — Story 1.8 —
- * the Mine Layer's mine / decoyBuoy): the keyboard has QUEUED the press (it rides
+ * the Mine Layer's decoyBuoy; the MINE left this path in Story 2.8 when it
+ * became a click-aimed weapon, amendment 45): the keyboard has QUEUED the press (it rides
  * a later input, drained one-per-tick so the server's one-ability-per-tick gate
  * fires each in turn) — the server decides. Here the client only predicts the
  * verdict, at PRESS time, keyed on the pressed slot:
  *  - predicted DENIED (slot cooling / own ship dead) → latch the pressed SLOT's
  *    denied pulse (the existing deniedFire grammar, chips-only — never silence,
  *    never the weapon-arc/reticle visuals: nothing is aimed). Per-slot so a
- *    denied mine press never flashes the decoy chip (the ML fits two abilities);
+ *    denied decoy press never flashes another slot's chip;
  *  - predicted READY → per equipment: speedBoost opens the predictor's optimistic
  *    boost window at the current server-clock estimate so the speed-up doesn't
  *    wait a round trip (the authoritative you.boostUntil overwrites it once
  *    acked; the predictor ignores a second press while pending, so a stale-ammo
- *    double press within RTT can't extend it). The decoyBuoy and mine drops need
- *    no press-time cue: their placement tones ride the Decoys / Mines reconcile
- *    own-spawn hooks (fired on the confirmed OWN buoy/mine, gated by DecoyView/
- *    MineView `own` so they never misfire on a truesighted enemy piece).
+ *    double press within RTT can't extend it). The decoyBuoy drop needs
+ *    no press-time cue: its placement tone rides the Decoys reconcile
+ *    own-spawn hook (fired on the confirmed OWN buoy, gated by DecoyView `own`
+ *    so it never misfires on a truesighted enemy buoy) — the same hook the
+ *    mine's placement tone still rides from the Mines reconcile.
  */
 function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   const you = g.state.net.you;
@@ -1190,7 +1191,7 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
 }
 
 /** Fresh per-slot denied-feedback state (Story 1.6/1.8): one latch +
- *  rate-limited pulse + flash per loadout slot, so two ability slots (the ML's
+ *  rate-limited pulse + flash per loadout slot, so two special slots (the ML's
  *  mine + decoyBuoy) never share a pulse/flash. Fed by predicted ability-press
  *  denials and — Story 1.10 — by unmatched server denials on any slot (the
  *  `ability` naming predates the weapon-slot extension). */
@@ -1227,7 +1228,7 @@ function buildGame(
   // The mouse's fire lockout covers EVERY suspending surface (Story 2.3): the
   // refit modal as ever, plus the settings overlay and the results modal.
   const { camera, keyboard, mouse, ownView, effects } = setupViewport(stage, cls, keyboardHooks(() => gRef, audio), () => (gRef?.clock ? gRef.clock.serverNow() : 0), () => modalOpen(gRef), (p) => handleHotbarPress(gRef, p));
-  const stats = effectiveStats(CONFIG.shipClasses[cls], zeroUpgrades());
+  const stats = effectiveStats(CONFIG.shipClasses[cls]);
   const nameplates = new NameplateLayer(stage.plateRoot); // screen-space plates: own hull + contacts
 
   const g: Game = {
@@ -1323,17 +1324,17 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
  * localStorage correction); an upgrade that touches kinematics swaps the
  * config in place and lets the next reconcile replay pending inputs under it.
  */
-function applyOwnStats(g: Game, cls: ShipClassId, upg: readonly number[], boons: readonly string[]): void {
+function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): void {
   const classChanged = cls !== g.ownClass;
   const prev = g.ownStats;
   g.ownClass = cls;
   const spec = CONFIG.shipClasses[cls];
   // Resolve the authoritative boon ids FAIL-CLOSED (Story 2.5): unknown ids
   // are silently dropped, never a throw — a junk id on the wire must not take
-  // the client down. Stats fold the defs in AFTER legacy stacking (shared
-  // effectiveStats — the same call the server caches).
+  // the client down. Story 2.8: boons are the ONLY stat modifier (the legacy
+  // counts param died with the 14 upgrades) — the same call the server caches.
   const defs = resolveBoons(boons);
-  const stats = effectiveStats(spec, upg, defs);
+  const stats = effectiveStats(spec, defs);
   g.ownStats = stats;
   // Own loadout follows the authoritative class + boons (Story 1.6 / 2.5):
   // the slot activate-vs-prime split, HUD chips, and ammo fallback all read
@@ -1368,7 +1369,7 @@ function bindGameRoom(g: Game, conn: Connection): void {
   bindRoom(conn, {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
-    onOwnStats: (cls, upg, boons) => applyOwnStats(g, cls, upg, boons),
+    onOwnStats: (cls, boons) => applyOwnStats(g, cls, boons),
     // Story 1.10: self-private server denials route through the
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
     onDenied: (d) => handleServerDenial(g, d),
@@ -1599,7 +1600,11 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   // read — NOT the alpha-interpolated pose.heading. At a sector boundary while
   // turning the two disagree, so a render pulse could fire without the sim-tick
   // dedup marking (→ later server denial double-pulses), or vice versa.
-  const inArc = weaponArcHit(predictedHeading(g), aim, primedId);
+  // Both halves of the aim gate: the bearing arc AND (for the mine alone) the
+  // placement reach — the server denies either the same way, so the predicted
+  // denial must too or an out-of-range mine click flashes nothing.
+  const aimDist = Math.hypot(cursor.x - pose.x, cursor.y - pose.y);
+  const inArc = weaponArcHit(predictedHeading(g), aim, primedId) && weaponRangeHit(aimDist, primedId);
   // Predicted denial (a fresh click that can't fire) OR an unmatched SERVER
   // weapon denial (Story 1.10 one-shot latch, consumed here) drives the same
   // rate-limited red pulse — the late server case replaces total silence.
@@ -1613,7 +1618,7 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
     { hasAmmo, reloadFrac },
     cursor,
     g.deniedFlash,
-    weaponRangeU(status.stats, primedId), // per-weapon range-clamp marker (gun stacks; cannon/flare base)
+    weaponRangeU(status.stats, primedId), // gun family: radar-derived clamp ring; mine: its placement reach
   );
 }
 
@@ -1646,21 +1651,26 @@ function clickPrediction(
   g: Game,
   primedSlot: number,
   aim: number,
+  aimDist: number,
 ): { alive: boolean; loaded: boolean; inArc: boolean } {
   const you = g.state.net.you;
   const a = you?.ammo[primedSlot] ?? null;
+  const id = g.ownSlots[primedSlot] ?? null;
   return {
     alive: you?.alive ?? false,
     loaded: !!a && a.n > 0,
-    inArc: weaponArcHit(predictedHeading(g), aim, g.ownSlots[primedSlot] ?? null),
+    // The mine's placement reach is part of its aim gate (Story 2.8): an
+    // out-of-range click is refused server-side with nothing consumed, so it
+    // must KEEP the prime here rather than revert to the gun.
+    inArc: weaponArcHit(predictedHeading(g), aim, id) && weaponRangeHit(aimDist, id),
   };
 }
 
-function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, fireSeq: number): void {
+function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: number, fireSeq: number): void {
   const newClick = g.mouse.clickCount !== g.lastTickClick;
   g.lastTickClick = g.mouse.clickCount;
   if (!newClick) return;
-  const p = clickPrediction(g, primedSlot, aim);
+  const p = clickPrediction(g, primedSlot, aim, aimDist);
   if (shouldConsumePrime(p.alive, primedSlot, p.loaded, p.inArc)) g.keyboard.revertToGun();
   // Story 1.10 exactly-one-feedback (weapon clicks): a click predicted DENIED
   // (reloading / out of the bow arc) fires its feedback NOW — the denial tone
@@ -1701,6 +1711,30 @@ function handleServerDenial(g: Game, d: DeniedView): void {
   // otherwise flash the GUN's reticle. The per-slot chip flash + tone above are
   // already slot-correct; the arc pulse is the only slot-sensitive piece.
   if (id !== null && EQUIPMENT_IS_WEAPON[id] && d.slot === g.keyboard.primedSlot) g.serverDeniedClick = true;
+}
+
+/**
+ * Pure-ish: is the own hull inside an enemy DAZZLE BURST right now (Story 2.8)?
+ * Read VERBATIM off the victim-private `you.dazzledUntil` against the server-
+ * clock estimate — never predicted, never interpolated (the server refreshes
+ * the mark every tick the hull sits in a dazzle zone, plus a grace). No own
+ * ship (death / spectate / the pre-first-frame gap) is never dazzled.
+ */
+function dazzleActive(g: Game, now: number): boolean {
+  return now < (g.state.net.you?.dazzledUntil ?? 0);
+}
+
+/**
+ * Keep the fog's sight hole HONEST while dazzled: the server has already
+ * shrunk this ship's perceived sight by CONFIG.starShells.dazzleSightFactor, so
+ * the hole must shrink with it — otherwise the fog draws clear water the server
+ * reveals nothing in. The rebake only runs on the two frames per dazzle event
+ * where the state actually flips (Fog.setDazzled reports staleness), the same
+ * path a resize / sight-stat change takes.
+ */
+function updateDazzleFog(g: Game, now: number): void {
+  if (!g.fog.setDazzled(dazzleActive(g, now))) return;
+  g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
 
 /** SCREEN-space fog holes for the own ACTIVE lit zones — center via the camera,
@@ -1744,6 +1778,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
+  updateDazzleFog(g, now);
   g.fog.updateHoles(ownZoneFogHoles(g, ownZones, now)); // clear fog over owned lit zones
 }
 
@@ -1883,7 +1918,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
         actSeq: g.keyboard.actSeq, // cumulative CONSUMED activation count (0-sentinel; keyboard owns it)
         actSlot: g.keyboard.actSlot,
       });
-      consumePrimeOnFire(g, primedSlot, aim, input.fireSeq);
+      consumePrimeOnFire(g, primedSlot, aim, aimDist, input.fireSeq);
       // This tick's server-time estimate rides into the pending ring so a later
       // replay re-evaluates the boost gate at the identical per-tick time.
       if (g.state.mode === 'predict') g.predictor.localTick(input, g.clock.serverNow());

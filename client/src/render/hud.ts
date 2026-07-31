@@ -157,8 +157,9 @@ export interface OwnStatus {
   alive: boolean;
   respawnInMs: number; // 0 when alive / unknown
   cls: ShipClassId; // own class — drives hull-length lookups (firing UX)
-  /** Cached effectiveStats(cls, upg) — ALL HUD denominators (max hp, speed
-   *  ladder, ammo pool sizes, reload durations) read from here (Stage D). */
+  /** Cached effectiveStats(cls, boons) — ALL HUD denominators (max hp, speed
+   *  ladder, ammo pool sizes, reload durations, damage) read from here (Stage
+   *  D; boons are the whole stat input as of Story 2.8). */
   stats: EffectiveStats;
   /** Slot-aligned equipment ids of the OWN loadout (loadoutFor(you.cls) —
    *  Story 1.6); null = an unfitted slot. Read by the firing UX and passed

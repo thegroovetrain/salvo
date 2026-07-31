@@ -2,13 +2,13 @@
 // class-era geometry is RATIFIED as-is (Eric ruling 2026-07-23): the gun
 // family (gun / cannon / starShells) is 360° with no mounts and no arc; the
 // torpedo launches in a bow sector (heading + CONFIG.torpedo.offset ±
-// halfArc); the Mine Layer's stern-rack drops (mine + decoyBuoy) place astern
-// at CONFIG.mine.offset regardless of aim; the speed boost aims nothing.
-// Both sides consume THIS function — the server's launch checks
-// (equipment/torpedoes.ts, the mines/decoy stern rack) and the client's
-// arc classification (render/weaponArc.ts) — so the enforced arc and the
-// rendered arc can never diverge. Pure over CONFIG: zero I/O, deterministic,
-// no state.
+// halfArc); the mine — a click-aimed weapon as of Story 2.8 (amendment 45) —
+// places within a REAR sector (heading + CONFIG.mine.offset ±
+// placeHalfArcDeg); the decoyBuoy still drops astern at CONFIG.mine.offset
+// regardless of aim; the speed boost aims nothing. Both sides consume THIS
+// function — the server's launch checks and the client's arc classification
+// (render/weaponArc.ts) — so the enforced arc and the rendered arc can never
+// diverge. Pure over CONFIG: zero I/O, deterministic, no state.
 
 import { CONFIG } from '../constants.js';
 import type { EquipmentId } from './loadout.js';
@@ -18,10 +18,10 @@ import type { EquipmentId } from './loadout.js';
  * - `full`       — 360°, aimed to the clicked point, never out of arc
  *                  (the gun family).
  * - `sector`     — an aimed launch sector `heading + offset ± halfArc`
- *                  (the torpedo's bow arc; aim outside it is DENIED, and a
- *                  launch clamps its bearing into the sector).
+ *                  (the torpedo's bow arc; the mine's rear placement arc as of
+ *                  Story 2.8 — aim outside it is DENIED).
  * - `stern-drop` — an un-aimed placement astern at `heading + offset`
- *                  (mine + decoyBuoy — the shared stern rack).
+ *                  (decoyBuoy — the stern rack).
  * - `none`       — nothing spatial is aimed or placed (speedBoost).
  */
 export type ArcShape =
@@ -30,11 +30,15 @@ export type ArcShape =
   | { kind: 'stern-drop'; offset: number }
   | { kind: 'none' };
 
+/** deg -> rad (CONFIG.mine.placeHalfArcDeg is authored in degrees). */
+const deg = (d: number): number => (d * Math.PI) / 180;
+
 /**
  * The ratified arc shape for a fitted equipment id, derived from CONFIG only
  * (gun/cannon/starShells declare `arc: 'full'`; the torpedo sector reads
- * CONFIG.torpedo.offset/halfArc; both stern drops read CONFIG.mine.offset —
- * the decoy shares the mine rack by design). Compile-forced to cover every
+ * CONFIG.torpedo.offset/halfArc; the mine's rear placement sector reads
+ * CONFIG.mine.offset/placeHalfArcDeg — Story 2.8, amendment 45; the decoy's
+ * stern drop still reads CONFIG.mine.offset). Compile-forced to cover every
  * EquipmentId; a new id cannot ship without declaring its arc here.
  */
 export function arcFor(id: EquipmentId): ArcShape {
@@ -46,6 +50,7 @@ export function arcFor(id: EquipmentId): ArcShape {
     case 'torpedo':
       return { kind: 'sector', offset: CONFIG.torpedo.offset, halfArc: CONFIG.torpedo.halfArc };
     case 'mine':
+      return { kind: 'sector', offset: CONFIG.mine.offset, halfArc: deg(CONFIG.mine.placeHalfArcDeg) };
     case 'decoyBuoy':
       return { kind: 'stern-drop', offset: CONFIG.mine.offset };
     case 'speedBoost':
@@ -55,8 +60,9 @@ export function arcFor(id: EquipmentId): ArcShape {
 
 /**
  * The narrowed `sector` descriptor for an id DECLARED a sector (the torpedo's
- * bow arc). Throws on any other shape — a CONFIG/arcs authoring error, failed
- * loudly at module load rather than mid-tick. Pure (a throw, never I/O).
+ * bow arc; the mine's rear placement arc). Throws on any other shape — a
+ * CONFIG/arcs authoring error, failed loudly at module load rather than
+ * mid-tick. Pure (a throw, never I/O).
  */
 export function sectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'sector' }> {
   const arc = arcFor(id);
@@ -66,7 +72,8 @@ export function sectorArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'sector
 
 /**
  * The narrowed `stern-drop` descriptor for an id DECLARED a stern drop (the
- * mine/decoy rack). Throws on any other shape — same authoring-error law.
+ * decoy rack — the mine left it for the aimed rear sector in Story 2.8).
+ * Throws on any other shape — same authoring-error law.
  */
 export function sternDropArcFor(id: EquipmentId): Extract<ArcShape, { kind: 'stern-drop' }> {
   const arc = arcFor(id);

@@ -25,18 +25,18 @@ export type EquipmentId =
  * THE single source of the weapon/ability split: true iff a piece of equipment
  * is a WEAPON in the mechanical sense — aimed, primed, fired at a clicked
  * target. A `false` entry is an instant, non-aimed ACTIVATION (boost precedent)
- * that rides the actSeq ability channel. This is the mechanical aimed-click vs
- * instant split, NOT the design notion of "weapon": mines still DEAL DAMAGE
- * (Eric ruling 2026-07-22: mines are activateable, not a skillshot — drop
- * astern, arm, enemy pass-over trips a blast), they just no longer fly to a
- * click. Server equipment rows and the client activation path both read this
- * map — nothing re-derives the split ad hoc. Compile-forced to cover every
- * EquipmentId.
+ * that rides the actSeq ability channel. Server equipment rows and the client
+ * activation path both read this map — nothing re-derives the split ad hoc.
+ * Compile-forced to cover every EquipmentId.
  */
 export const EQUIPMENT_IS_WEAPON: Record<EquipmentId, boolean> = {
   gun: true,
   torpedo: true,
-  mine: false, // Story 1.8: activateable (drop astern, no aim), not a click skillshot
+  // Story 2.8 (amendment 45): the mine is a click-aimed WEAPON again — prime,
+  // aim within the rear arc (CONFIG.mine.offset ± placeHalfArcDeg), click
+  // places at the clicked point up to placeRange. Supersedes the 1.8
+  // instant-activate stern drop.
+  mine: true,
   speedBoost: false,
   cannon: true, // Story 1.7: prime-then-click burst skillshot (gun pattern)
   starShells: true, // Story 1.7: prime-then-click skillshot (spawns a lit zone at burst)

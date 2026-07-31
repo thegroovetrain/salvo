@@ -131,7 +131,11 @@ export const CONFIG = {
   vision: {
     sight: SIGHT, // u — true-sight bubble (actual ships visible; Eric ruling 2026-07-23, was 220)
     radar: 650, // u — radar sweep range (paints stale blips)
-    sweepRpm: 15, // rev/min — radar rotation rate (15 rpm = one 4 s revolution); keep ≤ upgrades.sweepSpeed.maxRpm — the effectiveStats clamp caps the TOTAL
+    sweepRpm: 15, // rev/min — radar rotation rate (15 rpm = one 4 s revolution); keep ≤ sweepRpmMax — the effectiveStats clamp caps the TOTAL
+    // rev/min — THE ratified sweep-rate ceiling (survives the 2.8 legacy-upgrade
+    // strip; formerly CONFIG.upgrades.sweepSpeed.maxRpm). Clamped inside the
+    // effectiveStats firewall (base + boon fold) — nothing else may re-clamp it.
+    sweepRpmMax: 30,
   },
 
   /**
@@ -151,7 +155,10 @@ export const CONFIG = {
   gun: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
-    maxAmmo: 1, // single shot — pinned to 1 in effectiveStats (gunAmmo neutralized)
+    // BASE pool size. Story 2.8 deliberately RETIRES the single-shot pin: the
+    // AFT TURRET boon (gunTurret) may raise the pool to 2 via the whitelisted
+    // gun.maxAmmo stat path. The base fit is still one round.
+    maxAmmo: 1,
     reloadMs: 3000, // ms — cooldown between shots
     damage: 25, // hp per burst victim — THE gun-damage tunable (pinned by damageGuardrail.test)
     contactDamage: 10, // hp to an early interceptor outside the blast (bodyblock)
@@ -179,6 +186,28 @@ export const CONFIG = {
     maxAmmo: 1, // one fish in the tube pool
     reloadMs: 12000, // ms — reload between fish (commitment spike)
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
+    // --- ACOUSTIC HOMING doctrine (Story 2.8, exclusive boon) — DRAFT values,
+    // 2.10 tunes. A homing fish steers toward the nearest non-owner hull within
+    // acquireRange at ≤ homingTurnRate rad/s (speed unchanged; sim/shell.ts).
+    homingTurnRate: 0.5, // rad/s — max steering rate while homing
+    homingAcquireRange: 120, // u — target acquisition radius around the fish
+    // deg — min velocity-direction change since last emit before the server
+    // re-emits a ballistic update ('torpU') to observers (wire cadence knob).
+    homingUpdateAngleDeg: 5,
+    // u — TOTAL travel budget of a homing fish, consumed by actual distance
+    // travelled (a standard/command fish runs until impact or the map edge —
+    // it can never circle). A homing torpedo's turn radius at base speed is
+    // ≈ homingAcquireRange, so a slow orbiting target would otherwise trap it
+    // in an immortal circle re-emitting torpU forever; on exhaustion it
+    // expires exactly like a normal torpedo at the map edge (splash boom, no
+    // burst). DRAFT HANDWAVE (Story 2.8 review P1x; 2.10's evidence pass
+    // tunes): 1300u ≈ two-plus full crossings of base radar range.
+    homingMaxRangeU: 1300,
+    // --- COMMAND DETONATION doctrine (Story 2.8, exclusive boon) — DRAFT.
+    // u — blast radius of the point-detonation at the click (reuses the
+    // gun-pattern targetX/targetY + burstRadius shell fields; range is capped
+    // by radar range server-side; contact hits stay ordinary torpedo hits).
+    commandBurstRadius: 60,
     // u — extra spawn-offset margin ON TOP of hitRadius (see hullClearOffset)
     // so the fish spawns genuinely CLEAR of the firer's own hull, not merely
     // touching it — clean spawn geometry only. Own weapons NEVER damage the
@@ -188,19 +217,27 @@ export const CONFIG = {
   },
 
   /**
-   * Mines (Mine Layer slot 1, Story 1.8): dropped astern, never on radar, now
-   * an ACTIVATEABLE (instant, non-aimed — rides the actSeq ability channel, not
-   * a click skillshot). Arms after `armDelay`; an enemy silhouette within
+   * Mines (Mine Layer slot 1): a click-aimed WEAPON as of Story 2.8 (amendment
+   * 45 — supersedes the 1.8 instant-activate stern drop): prime the slot, aim
+   * within the REAR arc (heading + `offset` ± `placeHalfArcDeg`), and a click
+   * places the mine AT the clicked point up to `placeRange` (out-of-arc/range →
+   * the denial register). Arms after `armDelay`; an enemy silhouette within
    * `triggerRadius` trips it, BLASTING every non-owner hull within the larger
    * `blastRadius` for full `damage` (owner excluded — the gun/starShells
-   * owner-excluded AoE precedent). The owner's own gun bursts detonate own
-   * ARMED mines early (full blast); no chain detonations. Every number is a
-   * DESIGN TARGET, tunable.
+   * owner-excluded AoE precedent). Chain reactions are SAME-OWNER only
+   * (amendment 46): a detonation cascades to the owner's other ARMED mines
+   * whose centers lie within its blast radius; enemy mines never sympathize.
+   * Every number is a DESIGN TARGET, tunable.
    */
   mine: {
-    // astern — RATIFIED class-era stern rack (Eric 2026-07-23; see sim/arcs.ts).
-    // The decoyBuoy shares THIS offset (one stern-drop rule for both ML specials).
+    // astern — RATIFIED class-era stern bearing (Eric 2026-07-23; sim/arcs.ts).
+    // Story 2.8: now the CENTER of the mine's aimed rear placement arc. The
+    // decoyBuoy still shares THIS offset for its (unchanged) stern drop.
     offset: deg(180),
+    // deg — half-arc of the aimed rear placement sector about `offset`
+    // (Story 2.8, amendment 45 — DRAFT value, 2.10 tunes).
+    placeHalfArcDeg: 60,
+    placeRange: 90, // u — max distance of the clicked placement point (DRAFT)
     armDelay: 3000, // ms — before it can trigger
     triggerRadius: 32, // u — detonation proximity (enemy pass-over trips it)
     // u — full damage to every non-owner hull within it; > triggerRadius by
@@ -214,6 +251,16 @@ export const CONFIG = {
     // once (oldest evicted past it). Separate stat, separate upgrade later.
     maxLive: 5, // max simultaneous live mines per player
     globalCap: 60, // defensive ceiling on total live mines across all players
+    // --- PROP-FOULING MINES doctrine (Story 2.8, exclusive boon) — DRAFT.
+    // Victims of a fouling blast are slowed (self-private you.slowedUntil;
+    // sim/slow.ts slowedKinematics — composition pinned boosted → slowed →
+    // hooks). The doctrine also reduces mine damage (catalog-side effect).
+    foulFactor: 0.5, // × maxSpeed AND reverseSpeed while fouled
+    foulDurationMs: 4000, // ms — slow window per blast (refresh, don't stack)
+    // --- SELF-PROPELLED MINES doctrine (Story 2.8, exclusive boon) — DRAFT.
+    // Armed mines creep toward the nearest enemy hull within acquire range.
+    creepSpeed: 8, // u/s — crawl speed of an armed self-propelled mine
+    creepAcquireRange: 60, // u — target acquisition radius around the mine
   },
 
   /**
@@ -256,23 +303,26 @@ export const CONFIG = {
   },
 
   /**
-   * Star shells (Battleship slot 2, Story 1.7): a gun-pattern skillshot whose
-   * burst deals minor `damage` once across the FULL lit circle (owner excluded,
-   * burst radius = litRadius) AND spawns a server-side LIT ZONE at the burst
-   * point: for `litDurationMs` the FIRER — and only the firer — gains full
-   * truesight parity inside it ("lit from above", no island LOS: ships as
-   * contacts, mines, ballistic reveals). The zone CIRCLE itself is visible to
-   * any observer whose effective radar range reaches its center (no LOS, no
-   * sweep gate — a flare in the sky), tagged with the firer's id. NO range
-   * field: range is DERIVED from CONFIG.vision.radar in effectiveStats() (gun
-   * base parity, un-stacked). Every number is a DESIGN TARGET, tunable.
+   * Star shells (Battleship slot 2, Story 1.7): a gun-pattern skillshot that
+   * spawns a server-side LIT ZONE at the burst point: for `litDurationMs` the
+   * FIRER — and only the firer — gains full truesight parity inside it ("lit
+   * from above", no island LOS: ships as contacts, mines, ballistic reveals).
+   * DAMAGELESS as of Story 2.8 (amendment 39): the flare deals ZERO damage —
+   * interception does 0 and still spawns the lit zone at the stop point; the
+   * INCENDIARY/DAZZLE exclusive doctrines take over the damage/denial role.
+   * The zone CIRCLE itself is visible to any observer whose effective radar
+   * range reaches its center (no LOS, no sweep gate — a flare in the sky),
+   * tagged with the firer's id. NO range field: range is DERIVED from
+   * CONFIG.vision.radar in effectiveStats() (gun base parity, un-stacked).
+   * Every number is a DESIGN TARGET, tunable.
    */
   starShells: {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     maxAmmo: 1, // single flare — a 1-round pool presented as a pure cooldown
     reloadMs: 20000, // ms — cooldown between flares
-    damage: 10, // hp per burst victim — minor, once, at burst (full lit circle)
+    // NO `damage` field (amendment 39): star shells deal zero damage anywhere,
+    // structurally — a retune cannot quietly re-arm the flare.
     // u — lit-zone radius, STRUCTURALLY half of base truesight (Eric ruling
     // 2026-07-23: star shells always light exactly half the BASE sight range,
     // independent of any player's sightRange upgrade stacks). Keep this as a
@@ -283,6 +333,14 @@ export const CONFIG = {
     // u — flare collision radius. Own field (cannon plumbing parity) so a gun
     // retune can never silently change flare interception; same value today.
     shellRadius: 2,
+    // --- INCENDIARY COMPOUND doctrine (Story 2.8, exclusive boon) — DRAFT.
+    incendiaryRadiusFactor: 0.8, // × litRadius — the burning zone is slightly smaller
+    incendiaryDps: 5, // hp/s — DoT to non-owner hulls inside while lit
+    // --- DAZZLE BURST doctrine (Story 2.8, exclusive boon) — DRAFT.
+    // × sightRange — truesight factor applied to non-owner ships whose center
+    // is inside the zone (perception-side; victims get self-private
+    // you.dazzledUntil so their own fog hole shrinks honestly).
+    dazzleSightFactor: 0.5,
   },
 
   /**
@@ -304,27 +362,17 @@ export const CONFIG = {
   },
 
   /**
-   * Kill-reward upgrade increments (one uniformly-random grant per kill; see
-   * UPGRADE_IDS below for the canonical id order). Multiplicative entries stack
-   * as base * mult^count; additive entries stack linearly. Uncapped unless the
-   * entry carries its own ceiling (sweepSpeed is the only capped stat today —
-   * the clamp lives in effectiveStats). Every number is a tunable.
+   * THE DECK MODEL's draw-weight dials (Story 2.8, amendment 38). A rare or
+   * exclusive card LINE's per-card draw weight escalates the longer no rare/
+   * exclusive has landed in a draw (invisible soft pity):
+   *   perCardWeight = rareWeightBase + levelsSinceRare × rareWeightPerDryLevel
+   * (commons are always weight 1; a line's total weight = copiesInDeck ×
+   * perCardWeight — see sim/deck.ts). DRAFT values; 2.10's batch-sim evidence
+   * sets the dial.
    */
-  upgrades: {
-    hullPoints: { add: 20, healOnGrant: true }, // +hp max hp per stack; the grant also heals +add (clamped)
-    radarRange: { mult: 1.15 }, // × radar sweep range (u) per stack
-    sweepSpeed: { addRpm: 3, maxRpm: 30 }, // +rpm of radar rotation per stack, hard-capped at maxRpm
-    sightRange: { mult: 1.12 }, // × true-sight bubble (u) per stack (the fog hole)
-    maxSpeed: { mult: 1.08 }, // × maxSpeed AND reverseSpeed (u/s); accel/turn untouched
-    gunReload: { mult: 0.88 }, // × gun reload (ms) per stack — smaller = faster
-    gunRange: { mult: 1.15 }, // × max shell travel (u) per stack
-    gunAmmo: { add: 1 }, // +rounds in the gun pool per stack (grant also loads +1, clamped)
-    torpedoReload: { mult: 0.88 }, // × torpedo reload (ms) per stack
-    torpedoAmmo: { add: 1 }, // +fish in the tube pool per stack (grant also loads +1, clamped)
-    torpedoSpeed: { mult: 1.12 }, // × torpedo speed (u/s) per stack
-    mineReload: { mult: 0.85 }, // × mine reload (ms) per stack
-    mineAmmo: { add: 1 }, // +drops in the mine pool per stack (grant also loads +1, clamped)
-    maxMines: { add: 1 }, // +max simultaneous LIVE mines on the board per stack
+  deck: {
+    rareWeightBase: 1, // per-card weight of a rare/exclusive at zero dry levels
+    rareWeightPerDryLevel: 0.35, // weight added per level without a rare/exclusive drawn
   },
 
   /**
@@ -515,53 +563,11 @@ export function sanitizeClassId(raw: unknown): ShipClassId {
     : 'torpedoBoat';
 }
 
-/**
- * Canonical upgrade id order. Upgrade COUNTS travel as a plain number[] (wire:
- * OwnShip.upg; server: ShipRecord.upgrades) indexed by THIS array — the order
- * is part of the wire contract, so append-only. Grants pick uniformly over it.
- */
-export const UPGRADE_IDS = [
-  'hullPoints',
-  'radarRange',
-  'sweepSpeed',
-  'sightRange',
-  'maxSpeed',
-  'gunReload',
-  'gunRange',
-  'gunAmmo',
-  'torpedoReload',
-  'torpedoAmmo',
-  'torpedoSpeed',
-  'mineReload',
-  'mineAmmo',
-  'maxMines',
-] as const;
-
-/** One of the 14 upgrade type ids (see UPGRADE_IDS / CONFIG.upgrades). */
-export type UpgradeId = (typeof UPGRADE_IDS)[number];
-
-/** Ordered upgrade CATEGORY ids. Legacy: these categorized the upgrade OFFER
- *  roll until Story 2.7 moved offers onto boon categories (sim/offers.ts).
- *  Kept with UPGRADE_IDS until 2.8's wholesale strip. */
-export const UPGRADE_CATEGORY_IDS = ['ship', 'intel', 'guns', 'torpedoes', 'mines'] as const;
-
-/** One of the 5 upgrade category ids (see UPGRADE_CATEGORIES). */
-export type UpgradeCategoryId = (typeof UPGRADE_CATEGORY_IDS)[number];
-
-/**
- * Category → its member upgrade ids. PARTITIONS UPGRADE_IDS EXACTLY: every id
- * appears in exactly one category and the union is all 14 (guarded by
- * offers.test.ts, which forces a future 15th upgrade to be categorized).
- * No longer feeds any roll (Story 2.7 moved offers onto boon categories);
- * retained with UPGRADE_IDS until 2.8's wholesale strip.
- */
-export const UPGRADE_CATEGORIES: Record<UpgradeCategoryId, readonly UpgradeId[]> = {
-  ship: ['hullPoints', 'maxSpeed'],
-  intel: ['radarRange', 'sweepSpeed', 'sightRange'],
-  guns: ['gunAmmo', 'gunRange', 'gunReload'],
-  torpedoes: ['torpedoAmmo', 'torpedoSpeed', 'torpedoReload'],
-  mines: ['mineAmmo', 'maxMines', 'mineReload'],
-};
+// The 14-entry legacy upgrade system (UPGRADE_IDS / UpgradeId /
+// UPGRADE_CATEGORY_IDS / UPGRADE_CATEGORIES / CONFIG.upgrades) died wholesale
+// in Story 2.8 (FR20): the boon catalog + THE DECK MODEL are the only
+// progression vocabulary. The sweep ceiling survives as
+// CONFIG.vision.sweepRpmMax.
 
 /** Map radius for a given player cap: base * sqrt(cap / capRef). */
 export function mapRadius(playerCap: number): number {

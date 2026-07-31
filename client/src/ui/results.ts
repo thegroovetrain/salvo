@@ -2,7 +2,7 @@
 // re-ruled it from an end-of-match-only screen into the ONE debrief surface:
 //
 //   • ELIMINATION — the instant your hull sinks in a live match the modal opens
-//     with YOUR personal score (upgrades taken, kills incl. drones, the
+//     with YOUR personal score (boons fitted, kills incl. drones, the
 //     contestant ships you personally sank) and the place you were eliminated
 //     in. Buttons: SPECTATE (closes to the spectate view) + RETURN TO PORT. The
 //     old silent auto-spectate is gone.
@@ -59,7 +59,9 @@ export function placementLine(score: PersonalScore): string {
 /** Pure: the personal-score stat rows (label / value pairs), in reading order. */
 export function scoreRows(score: PersonalScore): Array<[string, string]> {
   return [
-    ['UPGRADES TAKEN', String(score.upgrades)],
+    // Story 2.8: the 14 legacy upgrades died — the number the player made as
+    // PICKS is now the fitted-boon count (spec 2.8 Design Notes, score continuity).
+    ['BOONS FITTED', String(score.boons)],
     ['KILLS', String(score.kills)],
   ];
 }
@@ -148,7 +150,7 @@ export function hideResults(): void {
  * touching the DOM unless a number actually moved.
  */
 export function scoreSignature(score: PersonalScore): string {
-  return [score.upgrades, score.kills, score.placement, score.winner, score.sunkContestants.join('')].join('|');
+  return [score.boons, score.kills, score.placement, score.winner, score.sunkContestants.join('')].join('|');
 }
 
 /**

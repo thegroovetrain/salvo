@@ -11,7 +11,7 @@ import { hullFillAlpha, hullPulseHz } from '../render/hud.js';
 import { motionIntensity, motionScaled } from '../settings/store.js';
 import { hullLook } from '../render/ships.js';
 import { CLIENT_CONFIG } from '../config.js';
-import { CONFIG, effectiveStats, zeroUpgrades } from '@salvo/shared';
+import { CONFIG, effectiveStats } from '@salvo/shared';
 
 /** A deterministic rng so the shake offset is a pure function of magnitude. */
 const RNG = (): number => 0;
@@ -114,7 +114,7 @@ describe('one-shot effects — juice is gated, markers are not', () => {
 });
 
 describe('hotbar — the ACTIVATED pop is juice; DENIED never is', () => {
-  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, zeroUpgrades());
+  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
 
   function view(motion: 'full' | 'reduced' | 'off'): HotbarView {
     return {

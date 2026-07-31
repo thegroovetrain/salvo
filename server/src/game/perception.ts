@@ -6,7 +6,7 @@
 // reference anything outside sight ∪ (this-tick radar paints).
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 10 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —
+// the 11 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —
 // is one declarative SignalSpec row (visible + materialize + counterIntel),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
 // Adding a signal means adding a row (plus its invariant test case), never
@@ -15,7 +15,8 @@
 //
 // ORDER IS SACRED (byte-identity on the wire): world-emitted events are
 // dispatched in world-emission order (never bucketed or re-sorted by type),
-// then per-observer ballistic reveals, then radar blips. The blip SUBSEQUENCE
+// then per-observer ballistic reveals, then homing-track updates (torpU,
+// Story 2.8), then radar blips. The blip SUBSEQUENCE
 // alone is sorted by PUBLIC payload only — (x, y, t, id), fields the observer
 // receives anyway — because genuine ship paints and decoy counter-intel
 // paints merge into it (Story 1.8/FR10): any source-derived order (ships-map
@@ -32,7 +33,7 @@
 // separate observeSpectator() view: unfogged, since a dead player has no
 // channel back into the match. observe() itself never relaxes fog.
 
-import type { BallisticEvent, BlipEvent, Contact, DecoyView, GameEvent, LitZoneView, MineView } from '@salvo/shared';
+import type { BallisticEvent, BlipEvent, Contact, DecoyView, GameEvent, LitZoneView, MineView, TorpedoUpdateEvent } from '@salvo/shared';
 import type { ShipRecord, World } from './world.js';
 import { SIGNAL_REGISTRY, signalFor, type SignalContext } from './signals.js';
 
@@ -126,6 +127,29 @@ function ballisticScan(world: World, ctx: SignalContext): BallisticEvent[] {
     // spectator: it fails closed when !me), so mark immediately — same tick and
     // per-projectile order the old mutating materialize used.
     ctx.me?.seenBallistics.add(shell.id);
+    // A HOMING torpedo's reveal also records its direction baseline (Story
+    // 2.8): the torpU row re-emits to this observer only once the live
+    // velocity direction drifts past the threshold from THIS value.
+    if (shell.homing !== undefined) ctx.me?.torpDirs.set(shell.id, Math.atan2(shell.vy, shell.vx));
+  }
+  return out;
+}
+
+/** Per-observer HOMING-track updates (Story 2.8): every live steering torpedo
+ *  is offered to the torpU row (already-revealed + currently-sighted +
+ *  direction drift ≥ threshold — the row owns the rules); an emission advances
+ *  this observer's direction baseline HERE (the seenBallistics mark precedent
+ *  — materialize stays a pure wire-shaper). The 'exactly-once' ballistic
+ *  convention is deliberately relaxed for THIS channel alone: updates re-key
+ *  the same projectile id. */
+function torpedoUpdateScan(world: World, ctx: SignalContext): TorpedoUpdateEvent[] {
+  const out: TorpedoUpdateEvent[] = [];
+  const row = SIGNAL_REGISTRY.torpU;
+  for (const shell of world.shells.values()) {
+    if (shell.homing === undefined) continue;
+    if (!row.visible(ctx, shell)) continue;
+    out.push(row.materialize(ctx, shell));
+    ctx.me?.torpDirs.set(shell.id, Math.atan2(shell.vy, shell.vx));
   }
   return out;
 }
@@ -212,6 +236,10 @@ function view(world: World, ctx: SignalContext): PerceptionView {
   const { contacts, blips } = shipScan(world, ctx);
   const events = forwardedEvents(world, ctx);
   events.push(...ballisticScan(world, ctx));
+  // Homing-track updates (Story 2.8) sit AFTER the reveals (an update can
+  // never precede its own track's reveal in a frame) and before the blip
+  // subsequence — a knowing extension of the sacred emission order.
+  events.push(...torpedoUpdateScan(world, ctx));
   blips.push(...decoyBlips(world, ctx));
   events.push(...blips.sort(blipOrder));
   return {
@@ -238,7 +266,7 @@ export function observe(world: World, observerId: string): PerceptionView {
  * The UNFOGGED spectator view: every alive ship as a live contact, every mine
  * (own = observer owns it), every lit zone and decoy buoy (the truth — a
  * spectator is never lied to), and this tick's world events with only the
- * rows' spectator rules applied (upg/pt/bn stay self-private; shell/torp
+ * rows' spectator rules applied (pt/bn stay self-private; shell/torp
  * world events defer to the exactly-once ballistic reveal; blips — genuine or
  * counter-intel — are pointless with live contacts and never emitted).
  *

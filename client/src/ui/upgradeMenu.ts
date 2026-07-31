@@ -29,10 +29,24 @@
 // overlap and neither can hide the other. The 1000 simply keeps the band on the
 // same DOM-chrome scale as everything else (modals above it, feed chrome below).
 
-import { BOON_CATALOG, CONFIG, resolveBoons, type BoonDef, type OwnShip } from '@salvo/shared';
+import {
+  BOON_CATALOG,
+  CONFIG,
+  boonStackCount,
+  resolveBoons,
+  type BoonDef,
+  type OwnShip,
+} from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
-import { boonCategoryLabel, boonDescription, boonLabel } from './boonCopy.js';
+import {
+  boonCategoryLabel,
+  boonDescription,
+  boonLineageLine,
+  boonName,
+  boonRarityLabel,
+  boonReplacesLine,
+} from './boonCopy.js';
 
 const PANEL_ID = 'upgrade-menu';
 const R = CLIENT_CONFIG.refit;
@@ -43,6 +57,14 @@ const AMBER = 'var(--hc-amber)';
 const PHOSPHOR = 'var(--hc-phosphor)';
 const DENIED = 'var(--hc-denied)';
 const HAIRLINE = 'var(--hc-hairline)';
+/** Rarity tag colors (Story 2.8, implementer-drafted inside the ratified CVD
+ *  constraints): INFO blue (~199°) for RARE and the STORM READOUT family
+ *  (~277°) for EXCLUSIVE, both clear of the denied (0°) and amber (43°) bands
+ *  and distinct from the phosphor (152°) the card's own data text rides. They
+ *  are TEXT colors only — the card's border/box-shadow channel belongs to the
+ *  denied pulse and the armed edge, and nothing else may claim it. */
+const RARE = 'var(--hc-info)';
+const EXCLUSIVE = 'var(--hc-storm-readout)';
 
 // --- pure core: band geometry ------------------------------------------------
 
@@ -108,11 +130,22 @@ export function refitBandLayout(screenW: number, screenH: number, cards = CARD_S
 
 // --- pure core: the spend view -------------------------------------------------
 
-/** One resolved card: its catalog def plus the copy the DOM renders. */
+/** One resolved card: its catalog def plus every line of copy the DOM renders
+ *  (Story 2.8's card anatomy — name by stack position, rarity tier, lineage
+ *  handrail, doctrine-swap line, and rules text with LIVE values). */
 export interface OfferCard {
   id: string;
+  /** Uppercase category tag (one of the ratified nine). */
   category: string;
+  /** Rarity tag — '' for a plain common (the absence IS the tier). */
+  rarity: string;
+  /** The ladder name at this card's stack position. */
   name: string;
+  /** Lineage handrail for a multi-copy line ("II/V"), null for a single. */
+  lineage: string | null;
+  /** "REPLACES: <rival>" when the player holds this doctrine's rival, else null. */
+  replaces: string | null;
+  /** Rules text — the contract, with the player's live current → next values. */
   description: string;
 }
 
@@ -155,16 +188,27 @@ export function offerView(you: OwnShip | null, spectating: boolean, locked: bool
   if (!you || spectating || you.pts === 0 || you.offer.length === 0) return null;
   const defs = resolveBoons(you.offer, BOON_CATALOG);
   if (defs.length !== you.offer.length) return null; // fail-closed: row k == server slot k
-  return { pts: you.pts, options: defs.map(toCard), locked };
+  return { pts: you.pts, options: defs.map((def) => toCard(def, you)), locked };
 }
 
-/** One catalog def + its (client-side, draft) copy. */
-function toCard(def: BoonDef): OfferCard {
+/**
+ * One catalog def + the copy the card face carries, resolved against the
+ * PLAYER'S OWN STATE (Story 2.8): the ladder name and the lineage marker depend
+ * on how many of that line they already hold, the doctrine-swap line on whether
+ * they hold the rival, and the rules text on their whole fitted build (a live
+ * effectiveStats preview diff). Everything here is pure — `you` is read, never
+ * touched.
+ */
+function toCard(def: BoonDef, you: OwnShip): OfferCard {
+  const stack = boonStackCount(you.boons, def.id);
   return {
     id: def.id,
     category: boonCategoryLabel(def.category),
-    name: boonLabel(def.id).toUpperCase(),
-    description: boonDescription(def.id),
+    rarity: boonRarityLabel(def.rarity),
+    name: boonName(def.id, stack),
+    lineage: boonLineageLine(def, stack),
+    replaces: boonReplacesLine(def, you.boons),
+    description: boonDescription(def, you),
   };
 }
 
@@ -394,11 +438,52 @@ const CATEGORY_CSS = [
   'text-transform:uppercase',
 ].join(';');
 
+// The ladder names are AUTHORED in their final case (amendment 42's canon —
+// "HEAVY SHELLS Mk III"), so there is deliberately NO text-transform here: an
+// uppercase transform would print "MK III" and break the period-authentic mark.
+// `--hc-white` is a UTILITY-only token that theme.ts never projects, so the old
+// `color:var(--hc-white)` here (and in paintCard) resolved to nothing and the
+// name silently inherited the card's currentColor — fixed to the real rest
+// token, which is what it was always meant to be.
 const NAME_CSS = [
   `font:600 ${R.nameSize}px var(--hc-font-mono)`,
   'letter-spacing:1px',
+  `color:${REST}`,
+].join(';');
+
+/** The category/rarity line: the category tag at rest, the rarity tag beside it
+ *  (commons render no rarity span at all — the absence IS the tier). */
+const META_ROW_CSS = [
+  'display:flex',
+  'flex-direction:row',
+  'align-items:baseline',
+  `gap:${R.metaGap}px`,
+  'align-self:stretch',
+].join(';');
+
+const RARITY_CSS = [
+  `font:600 ${R.raritySize}px var(--hc-font-mono)`,
+  'letter-spacing:2px',
   'text-transform:uppercase',
-  'color:var(--hc-white)',
+  'margin-left:auto', // the tier sits at the card's outer edge, opposite the category
+].join(';');
+
+/** The lineage handrail ("II/V") — Sally's ratified marker that ARMOR BELT
+ *  continues REINFORCED HULL. Dim-not-grey (amendment 16): phosphor at reduced
+ *  opacity, never a grey. */
+const LINEAGE_CSS = [
+  `font:400 ${R.lineageSize}px var(--hc-font-mono)`,
+  'letter-spacing:2px',
+  `color:${PHOSPHOR}`,
+  'opacity:0.7',
+].join(';');
+
+/** The doctrine-swap line ("REPLACES: ACOUSTIC HOMING") — same exclusive tier
+ *  color as the rarity tag, because it is that tier's consequence. */
+const REPLACES_CSS = [
+  `font:400 ${R.raritySize}px var(--hc-font-mono)`,
+  'letter-spacing:1px',
+  `color:${EXCLUSIVE}`,
 ].join(';');
 
 /** Phosphor, NOT grey (amendment 16): the description is data, and grey text is
@@ -411,14 +496,42 @@ const DESC_CSS = [
 ].join(';');
 
 /** The armed (hover/focus) treatment: amber edge + glow, amber chip/category/
- *  name — the hotbar's SELECTED grammar, one family. */
+ *  name — the hotbar's SELECTED grammar, one family. The RARITY tag keeps its
+ *  tier color through the arm (the tier is a fact about the card, not a state
+ *  of the pointer), and so does the lineage/replaces copy. */
 function paintCard(card: RefitCardEls, armed: boolean): void {
   const c = armed ? AMBER : REST;
   card.root.style.borderColor = armed ? AMBER : HAIRLINE;
   card.root.style.boxShadow = armed ? `0 0 8px ${AMBER}` : 'none';
   card.root.style.color = c; // the key chip rides currentColor
   card.category.style.color = armed ? AMBER : PHOSPHOR;
-  card.name.style.color = armed ? AMBER : 'var(--hc-white)';
+  card.name.style.color = c;
+}
+
+/** One rarity tag span (RARE / EXCLUSIVE) in its tier color. */
+function rarityEl(rarity: string): HTMLSpanElement {
+  const el = document.createElement('span');
+  el.style.cssText = RARITY_CSS;
+  el.style.color = rarity === 'EXCLUSIVE' ? EXCLUSIVE : RARE;
+  el.textContent = rarity;
+  return el;
+}
+
+/** One plain text line (lineage / doctrine-swap) at a prepared style. */
+function lineEl(css: string, text: string): HTMLSpanElement {
+  const el = document.createElement('span');
+  el.style.cssText = css;
+  el.textContent = text;
+  return el;
+}
+
+/** The render memo's per-card component: every line the face actually shows,
+ *  so a copy change with an unchanged id still repaints (see render()). This
+ *  SUBSUMES stack changes — a line fitted to a new rung moves its name,
+ *  lineage, and current→next numbers, all of which are in here — so no
+ *  separate build/stack signature is needed alongside it. */
+function cardSignature(card: OfferCard): string {
+  return [card.id, card.rarity, card.name, card.lineage ?? '', card.replaces ?? '', card.description].join('~');
 }
 
 /** The DOM handles of one built card. */
@@ -478,7 +591,15 @@ export class UpgradeMenu {
     return panel;
   }
 
-  /** One card: overhanging digit chip + category tag + boon name + description. */
+  /**
+   * One card, top-down: the overhanging digit chip (PINNED as the card's FIRST
+   * span — the digit-to-slot mapping is read off it), the category/rarity meta
+   * row, the ladder name, the lineage handrail, the doctrine-swap line, and the
+   * rules text. The three Story 2.8 lines are CONDITIONAL: a plain common
+   * renders no rarity span, a single-copy line no lineage span, and a card whose
+   * rival you do not hold no replaces span — an empty element would eat vertical
+   * rhythm for information that isn't there.
+   */
   private makeCard(card: OfferCard, choice: number, enabled: boolean): RefitCardEls {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -488,16 +609,24 @@ export class UpgradeMenu {
     chip.style.cssText = KEY_CHIP_CSS;
     chip.style.backgroundColor = 'var(--hc-panel)'; // opaque under the overhang
     chip.textContent = `${choice + 1}`;
+    btn.appendChild(chip); // FIRST child, always — pinned DOM order
     const category = document.createElement('span');
     category.style.cssText = CATEGORY_CSS;
     category.textContent = card.category;
+    const meta = document.createElement('div');
+    meta.style.cssText = META_ROW_CSS;
+    meta.appendChild(category);
+    if (card.rarity) meta.appendChild(rarityEl(card.rarity));
     const name = document.createElement('span');
     name.style.cssText = NAME_CSS;
     name.textContent = card.name;
     const desc = document.createElement('span');
     desc.style.cssText = DESC_CSS;
     desc.textContent = card.description;
-    btn.append(chip, category, name, desc);
+    btn.append(meta, name);
+    if (card.lineage) btn.appendChild(lineEl(LINEAGE_CSS, card.lineage));
+    if (card.replaces) btn.appendChild(lineEl(REPLACES_CSS, card.replaces));
+    btn.appendChild(desc);
     const els: RefitCardEls = { root: btn, category, name };
     paintCard(els, false);
     // Focus hygiene (full-lockout modal): never acquire focus on click —
@@ -533,10 +662,17 @@ export class UpgradeMenu {
     }
   }
 
-  /** Rebuild pips + cards only when the meaningful view state changed. */
+  /**
+   * Rebuild pips + cards only when the meaningful view state changed. The
+   * signature carries the id list AND every rendered line of copy (Story 2.8):
+   * a card's PRESENTATION moves without its id — the same line can arrive at a
+   * new rung after a spend (new name, new lineage, new current→next numbers),
+   * and a doctrine card gains its REPLACES line the moment the rival is fitted.
+   * Comparing the copy itself is both cheapest and impossible to under-specify.
+   */
   private render(view: OfferView): void {
     this.ensurePanel();
-    const sig = `${view.pts}|${view.options.map((o) => o.id).join(',')}|${view.locked ? 1 : 0}`;
+    const sig = `${view.pts}|${view.options.map(cardSignature).join(',')}|${view.locked ? 1 : 0}`;
     if (sig === this.sig) return;
     this.sig = sig;
     this.renderPips(view.pts);

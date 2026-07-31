@@ -3,6 +3,7 @@ import {
   CONFIG,
   boostedKinematics,
   hookKinematics,
+  slowedKinematics,
   hullSilhouette,
   resolveShipPose,
   stepShip,
@@ -478,6 +479,113 @@ describe('Predictor speed boost (Story 1.6)', () => {
 });
 
 // --- Story 2.5: behavior boons — per-tick parity with the server's boost-then-hooks fold ---
+
+// --- Story 2.8: the PROP-FOULING slow -------------------------------------------
+//
+// The victim-private you.slowedUntil folds through the shared slowedKinematics
+// in the PINNED composition order the server's stepShips uses byte-for-byte:
+//   boostedKinematics → slowedKinematics → hookKinematics.
+// Parity is sacred: these replay the exact reference server steps, including a
+// slow window that OPENS and EXPIRES mid-run under lagged acks (so every replay
+// re-makes the per-tick slow decision from each tick's OWN recorded time).
+
+describe('Predictor prop-fouling slow (Story 2.8)', () => {
+  const T0 = 500_000;
+  const tickT = (seq: number): number => T0 + seq * CONFIG.tick.simDtMs;
+  const FOUL = CONFIG.mine.foulFactor;
+
+  /** Reference server tick — world.stepShips' exact composition. */
+  function serverSlowStep(s: ShipState, inp: InputMsg, t: number, boostUntil: number, slowedUntil: number): void {
+    const boosted = boostedKinematics(TB.kinematics, CONFIG.speedBoost.speedBonus, t < boostUntil);
+    const slowed = slowedKinematics(boosted, FOUL, t < slowedUntil);
+    stepShip(s, inp, slowed, DT);
+  }
+
+  it('a boonless, un-fouled tick is BYTE-IDENTICAL to the pre-2.8 path', () => {
+    // slowedKinematics returns its input REFERENCE when inactive, so nothing
+    // about the un-fouled tick may move (the allocation-free identity path).
+    const spawn: ShipState = { x: 0, y: 0, heading: 0.4, speed: 0 };
+    const server: ShipState = { ...spawn };
+    const p = makeInitialized(spawn);
+    for (let seq = 1; seq <= 40; seq++) {
+      const inp = input(seq, 1, 0.3);
+      p.localTick(inp, tickT(seq));
+      serverStep(server, inp);
+    }
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+    expect(p.predicted.y).toBeCloseTo(server.y, 9);
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+  });
+
+  it('caps BOTH speeds while fouled and replays the window edges under lagged acks', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }];
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    // The mine goes off at T0: the first frame already carries the window.
+    const slowedUntil = T0 + CONFIG.mine.foulDurationMs;
+    p.onServerState({ ...kin(spawn), slowedUntil }, 0);
+
+    const expirySeq = CONFIG.mine.foulDurationMs / CONFIG.tick.simDtMs;
+    let trough = Infinity;
+    const total = expirySeq + 40; // fouled window + 2s of recovery
+    for (let seq = 1; seq <= total; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverSlowStep(server, inp, tickT(seq), 0, slowedUntil);
+      history[seq] = { ...server };
+      if (seq < expirySeq) trough = Math.min(trough, server.speed);
+      if (seq % 3 === 0 && seq > 4) {
+        // Ack lags 4 ticks: replayFrom must re-make the per-tick slow decision
+        // (including the expiry edge) from each tick's OWN recorded time.
+        p.onServerState({ ...kin(history[seq - 4]), slowedUntil }, seq - 4);
+        expect(p.visualErrorMagnitude).toBeLessThan(1e-9);
+      }
+    }
+    // The hull was dragged down to the fouled cap, then recovered to base.
+    expect(trough).toBeCloseTo(TB.kinematics.maxSpeed * FOUL, 6);
+    expect(p.predicted.speed).toBeCloseTo(TB.kinematics.maxSpeed, 6);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9); // full-run positional parity
+  });
+
+  it('composes boost THEN slow, in that pinned order, across a replay', () => {
+    // A fouled hull that boosts is capped at (maxSpeed + bonus) × foulFactor —
+    // NOT maxSpeed × foulFactor + bonus. The order is the contract.
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: 0 };
+    const server: ShipState = { ...spawn };
+    const history: ShipState[] = [{ ...spawn }];
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    const boostUntil = T0 + 1e6; // both windows open for the whole run
+    const slowedUntil = T0 + 1e6;
+    p.onServerState({ ...kin(spawn), boostUntil, slowedUntil }, 0);
+    for (let seq = 1; seq <= 120; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverSlowStep(server, inp, tickT(seq), boostUntil, slowedUntil);
+      history[seq] = { ...server };
+      if (seq % 5 === 0) p.onServerState({ ...kin(history[seq - 3]), boostUntil, slowedUntil }, seq - 3);
+    }
+    const composed = (TB.kinematics.maxSpeed + CONFIG.speedBoost.speedBonus) * FOUL;
+    expect(p.predicted.speed).toBeCloseTo(composed, 6);
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+  });
+
+  it('an absent/0 slowedUntil is simply not slowed, and a hard re-init drops the window', () => {
+    const spawn: ShipState = { x: 0, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
+    const p = new Predictor({ radius: MAP_R, islands: [] });
+    p.onServerState({ ...kin(spawn), slowedUntil: T0 + 10_000 }, 0);
+    p.forceSnap(); // respawn / reconnect / class swap
+    p.onServerState(kin(spawn), 0); // next frame carries NO slowedUntil
+    const server: ShipState = { ...spawn };
+    for (let seq = 1; seq <= 20; seq++) {
+      const inp = input(seq, 1, 0);
+      p.localTick(inp, tickT(seq));
+      serverStep(server, inp); // un-fouled reference
+    }
+    expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    expect(p.predicted.x).toBeCloseTo(server.x, 9);
+  });
+});
 
 describe('Predictor behavior boons (Story 2.5)', () => {
   const T0 = 700_000; // arbitrary server-clock anchor (ms)

@@ -16,11 +16,22 @@
 // input records its own server-time estimate + actSeq, so replays re-make the
 // exact boost decisions the original ticks made; see boostActiveAt for the
 // optimistic-press vs authoritative-window regimes.
+//
+// PROP-FOULING SLOW (Story 2.8): the victim-private you.slowedUntil folds in
+// per tick through the shared slowedKinematics, in the PINNED composition
+// order the server's stepShips uses byte-for-byte:
+//   boostedKinematics → slowedKinematics → hookKinematics
+// (boost first, slow second, hooks last — sim/slow.ts header). The window is
+// purely authoritative: nothing on the client predicts being mined, so unlike
+// boost there is no optimistic regime — a tick is slowed iff its OWN recorded
+// server-time estimate is inside the last frame's window (`t < slowedUntil`),
+// which makes localTick and replayFrom agree by construction.
 
 import {
   angleDiff,
   boostedKinematics,
   hookKinematics,
+  slowedKinematics,
   hullSilhouette,
   resolveShipPose,
   stepShip,
@@ -72,6 +83,13 @@ export interface ServerKinematics {
    * interp mode) need not fabricate it; a real frame's `you` always carries it.
    */
   boostUntil?: number;
+  /**
+   * ms — server-clock time the PROP-FOULING slow window ends
+   * (OwnShip.slowedUntil, Story 2.8); 0/omitted = not slowed. Optional for the
+   * same reason as boostUntil (pure-kinematics callers need not fabricate it);
+   * a real frame's `you` carries it whenever the victim is fouled.
+   */
+  slowedUntil?: number;
 }
 
 interface PendingInput {
@@ -115,6 +133,12 @@ export class Predictor {
   };
   /** Authoritative boost-window end (you.boostUntil from the latest server frame; 0 = inactive). */
   private authBoostUntil = 0;
+  /**
+   * Authoritative PROP-FOULING slow-window end (you.slowedUntil from the
+   * latest server frame; 0 = not slowed). Authoritative-ONLY by design — the
+   * client never predicts a mine blast, so there is no optimistic twin here.
+   */
+  private authSlowedUntil = 0;
   /**
    * Optimistic boost window opened at a predicted-ready activation press
    * (predictBoostActivation), so the speed-up doesn't wait a round trip.
@@ -253,6 +277,9 @@ export class Predictor {
     // optimistic boost window; the authoritative you.boostUntil re-seeds the
     // window on the very next frame (death resets it to 0 server-side).
     this.optimisticBoost = null;
+    // Same for the slow window: the server clears slowedUntil on death /
+    // redeploy, and the next frame re-seeds it.
+    this.authSlowedUntil = 0;
   }
 
   /**
@@ -304,6 +331,10 @@ export class Predictor {
       this.optimisticBoost = null;
     }
     this.authBoostUntil = you.boostUntil ?? 0;
+    // The slow window is authoritative-only (see authSlowedUntil): adopting it
+    // BEFORE the replay is what makes the replayed ticks re-make the same
+    // slow decisions the original local ticks will make from here on.
+    this.authSlowedUntil = you.slowedUntil ?? 0;
     const replayed = this.replayFrom(you);
     if (!this.ready) {
       this.adopt(replayed);
@@ -349,16 +380,36 @@ export class Predictor {
 
   /**
    * Per-tick kinematics for the tick with input `seq` at server-time estimate
-   * `t`: the shared boostedKinematics THEN the shared behavior-hook fold —
-   * the exact per-tick composition (boost first, hooks after) the server's
-   * stepShips applies:
-   * hookKinematics(boostedKinematics(stats.kinematics, bonus, now < boostUntil),
-   * behaviors, registry). Zero behaviors returns the boosted reference
-   * unchanged, so the pre-boon tick is byte-identical.
+   * `t` — the shared folds in the PINNED composition order the server's
+   * stepShips applies byte-for-byte (sim/slow.ts header):
+   *
+   *   hookKinematics(
+   *     slowedKinematics(
+   *       boostedKinematics(kinematics, bonus, t < boostUntil),
+   *       CONFIG.mine.foulFactor, t < slowedUntil),
+   *     behaviors, registry)
+   *
+   * An inactive boost/slow and zero behaviors each return their input
+   * reference unchanged, so the un-boosted, un-fouled, pre-boon tick is
+   * byte-identical to the pre-2.8 one. Used identically by localTick and
+   * replayFrom (both pass the tick's OWN recorded time + seq), which is what
+   * keeps a replay across a slow window self-consistent.
    */
   private tickKin(t: number, seq: number): ShipConfig {
     const boosted = boostedKinematics(this.kin, this.boost.bonus, this.boostActiveAt(t, seq));
-    return hookKinematics(boosted, this.behaviors, this.hookRegistry);
+    const slowed = slowedKinematics(boosted, CONFIG.mine.foulFactor, this.slowActiveAt(t));
+    return hookKinematics(slowed, this.behaviors, this.hookRegistry);
+  }
+
+  /**
+   * The PROP-FOULING slow gate for one tick: the server's own rule at THIS
+   * tick's recorded server-time estimate (`t < you.slowedUntil`). No seq gate
+   * and no optimistic regime — the fouling is an enemy's mine, never a local
+   * press, so there is nothing to predict ahead of the frame that reports it.
+   * A refresh (the server refreshes, never stacks) just moves the end.
+   */
+  private slowActiveAt(t: number): boolean {
+    return t < this.authSlowedUntil;
   }
 
   /**

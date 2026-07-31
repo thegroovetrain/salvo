@@ -9,14 +9,11 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
-  UPGRADE_IDS,
   hullSilhouette,
   inArc,
   pointPolygonDistance,
   transformPolygon,
   wrapAngle,
-  zeroUpgrades,
-  effectiveStats,
   type BallisticEvent,
   type BoomEvent,
   type BurstEvent,
@@ -134,18 +131,17 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
     expect(shell.targetY).toBeCloseTo(0, 9);
   });
 
-  it('the beyond-max clamp uses the EFFECTIVE range (gunRange upgrade), not CONFIG', () => {
+  it('the beyond-max clamp uses the EFFECTIVE range (ship.stats.gun.rangeU), not CONFIG', () => {
+    // The legacy gunRange upgrade died in the 2.8 strip; the clamp still reads
+    // the cached effective stats, so a stats-side range change moves it.
     const { w, a } = armed();
-    const upgrades = zeroUpgrades();
-    upgrades[UPGRADE_IDS.indexOf('gunRange')] = 2; // two stacks
-    a.upgrades = upgrades;
-    a.stats = effectiveStats(a.cls, upgrades);
+    const widened = CONFIG.vision.radar * 1.3;
+    a.stats = { ...a.stats, gun: { ...a.stats.gun, rangeU: widened } };
     a.input = gunInput(0, 50000);
     w.sinkingActivationGate(a, SLOT_GUN);
     const [shell] = [...w.shells.values()];
-    const expected = CONFIG.vision.radar * CONFIG.upgrades.gunRange.mult ** 2;
-    expect(shell.targetX).toBeCloseTo(expected, 9);
-    expect(expected).toBeGreaterThan(CONFIG.vision.radar); // interregnum artifact: can outrange radar
+    expect(shell.targetX).toBeCloseTo(widened, 9);
+    expect(widened).toBeGreaterThan(CONFIG.vision.radar);
   });
 });
 
@@ -372,6 +368,71 @@ describe('World combat — burst at the clicked point', () => {
   });
 });
 
+// ---------- the same-click SALVO single-hit rule (Story 2.8 review, P1) -------
+//
+// A TWIN/TRIPLE MOUNT fires `barrels` real shells per click, each with its own
+// burst point. At practical ranges those bursts OVERLAP, so without a rule one
+// hull took barrels× damage from a single click (3 × 25 = 75 > the 70hp
+// lightest hull) — a breach of the ratified no-one-click-kill guardrail.
+// RULING: shells of one click share a server-internal salvo tag and a given
+// victim takes at most ONE damage application per salvo; every shell still
+// booms/bursts, and DIFFERENT victims each take their own hit.
+
+describe('same-click salvo — one victim, one damage application (no one-click kill)', () => {
+  /** A triple-mount gun: two gunBarrel cards (1 → 3 barrels). */
+  function tripleMount(seed = 11): { w: World; a: ShipRecord } {
+    const { w, a } = armed(seed);
+    w.applyBoon(a, 'gunBarrel');
+    w.applyBoon(a, 'gunBarrel');
+    expect(a.stats.gun.barrels).toBe(3);
+    return { w, a };
+  }
+
+  it('THREE shells fly and all burst, but a hull inside every burst takes damage exactly ONCE', () => {
+    const { w, a } = tripleMount();
+    const b = w.addShip('b', 'B');
+    b.state = { x: 0, y: 100, heading: 0, speed: 0 }; // at the click point: inside all three bursts
+    w.submitInput('a', gunInput(HALF_PI, 100));
+    const events = stepCollect(w, 30);
+    expect(shellsOf(events)).toHaveLength(3); // a real 3-shell volley...
+    expect(burstsOf(events)).toHaveLength(3); // ...each bursting at its own point
+    // ...but exactly ONE damage application, at one shell's damage.
+    const dmgs = dmgsOf(events).filter((e) => e.id === 'b');
+    expect(dmgs).toHaveLength(1);
+    expect(dmgs[0].amount).toBe(a.stats.gun.damage);
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - a.stats.gun.damage);
+    expect(b.alive).toBe(true); // the whole point: one click cannot kill
+  });
+
+  it('AREA THROUGHPUT is preserved: two hulls in the same salvo each take their own hit', () => {
+    const { w, a } = tripleMount(12);
+    const b = w.addShip('b', 'B');
+    b.state = { x: 12, y: 200, heading: HALF_PI, speed: 0 };
+    const c = w.addShip('c', 'C');
+    c.state = { x: -12, y: 200, heading: HALF_PI, speed: 0 };
+    w.submitInput('a', gunInput(HALF_PI, 200));
+    const events = stepCollect(w, 45);
+    const dmgs = dmgsOf(events);
+    expect(dmgs.map((e) => e.id).sort()).toEqual(['b', 'c']); // one each, never two each
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - a.stats.gun.damage);
+    expect(c.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - a.stats.gun.damage);
+  });
+
+  it('the ledger is per CLICK: the NEXT salvo damages the same hull again', () => {
+    const { w, a } = tripleMount(13);
+    const b = w.addShip('b', 'B');
+    b.state = { x: 0, y: 100, heading: 0, speed: 0 };
+    w.submitInput('a', gunInput(HALF_PI, 100, 1, 1));
+    stepCollect(w, 30);
+    const afterFirst = b.hp;
+    // Wait out the reload, then click again.
+    for (let i = 0; i < Math.ceil(a.stats.gun.reloadMs / CONFIG.tick.simDtMs) + 2; i++) w.step();
+    w.submitInput('a', gunInput(HALF_PI, 100, 2, 2));
+    stepCollect(w, 30);
+    expect(b.hp).toBe(afterFirst - a.stats.gun.damage); // a second, separate application
+  });
+});
+
 // ---------- World fire control: one shot per click, single-shot pool -----------
 
 describe('World fire control — one shot per click (fireSeq), single-shot pool', () => {
@@ -595,23 +656,25 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     expect(back.a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
   });
 
-  it('MINE (Story 1.8 ability): NO fireT compensation — a back-dated claim still arms at now + armDelay', () => {
-    // Mines left the click channel: they activate via actSeq at server apply
-    // time (the 3s arm delay dwarfs any latency skew), so even a plausible
-    // fireT claim with a measured RTT compensates NOTHING.
-    const { w, a } = armed(7, 'mineLayer'); // slot 1 = mine (Story 1.8: [gun, mine, decoyBuoy])
-    w.setRtt('a', 80);
+  it('MINE (Story 2.8 aimed weapon): an honored fireT claim back-dates the arm clock (armedAt = fireT + armDelay)', () => {
+    // The 2.8 flip of the 1.8 no-compensation pin: mines ride the CLICK
+    // channel again, so the D1-validated fire time is the placement time and
+    // the 3s arm delay counts from it.
+    const { w, a } = armed(7, 'mineLayer'); // slot 1 = mine ([gun, mine, decoyBuoy])
+    for (let i = 0; i < 40; i++) w.step(); // give the clock room to back-date into
+    w.setRtt('a', 80); // allowance = min(80+30, 150) = 110
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { ...slotInput(0, 0, 1, 10), actSeq: 1, actSlot: SLOT_MINE_ML }); // press + a fireT claim
+    const claim = w.now + CONFIG.tick.simDtMs - 100; // 100ms back from the apply tick — within allowance
+    w.submitInput('a', { ...slotInput(SLOT_MINE_ML, 1, 1, claim), aim: Math.PI, aimDist: 40 });
     w.step();
     const [mine] = [...w.mines.values()];
-    expect(mine.armedAt).toBe(w.now + CONFIG.mine.armDelay); // never 10 + armDelay
+    expect(mine.armedAt).toBe(claim + CONFIG.mine.armDelay);
   });
 
-  it('MINE without a claim: armedAt = now + armDelay (the ability baseline)', () => {
-    const { w, a } = armed(7, 'mineLayer'); // slot 1 = mine (Story 1.8: [gun, mine, decoyBuoy])
+  it('MINE without a claim: armedAt = now + armDelay (the click baseline)', () => {
+    const { w, a } = armed(7, 'mineLayer');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { ...slotInput(0, 0, 1, 0), actSeq: 1, actSlot: SLOT_MINE_ML });
+    w.submitInput('a', { ...slotInput(SLOT_MINE_ML, 1, 1, 0), aim: Math.PI, aimDist: 40 });
     w.step();
     expect([...w.mines.values()][0].armedAt).toBe(w.now + CONFIG.mine.armDelay);
   });

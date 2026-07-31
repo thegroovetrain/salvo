@@ -1,38 +1,18 @@
-// Upgrade toast — small DOM text lines (center-top) fed from killer-private
-// `upg` events: "⬆ +GUN AMMO" in phosphor green. upgradeLabel() is pure
-// (unit-tested); the DOM stack is a thin adapter mirroring ui/killFeed.ts.
-// Lines expire after ~3s; the stack is capped at 3 so a kill streak cannot
-// wallpaper the screen.
-
-import type { UpgradeId } from '@salvo/shared';
+// Self-event toast — small DOM text lines (center-top) in phosphor green: the
+// banked-level prompt (pointToastLine) and the fitted-boon receipt
+// (boonFitToastLine, ui/boonCopy.ts). Both line builders are pure (unit-
+// tested); the DOM stack is a thin adapter mirroring ui/killFeed.ts. Lines
+// expire after ~3s; the stack is capped at 3 so a burst cannot wallpaper the
+// screen.
+//
+// Story 2.8: the killer-private `upg` event and its 14-entry LABELS map died
+// with the legacy upgrade strip (PV 16) — nothing on the wire grants a stat
+// upgrade outside the refit flow any more.
 
 const TOAST_ID = 'upgrade-toast';
 const LINE_TTL_MS = 3000;
 const FADE_MS = 600;
 const MAX_LINES = 3;
-
-/** Human-readable uppercase label per upgrade id (explicit — no string munging). */
-const LABELS: Record<UpgradeId, string> = {
-  hullPoints: 'HULL POINTS',
-  radarRange: 'RADAR RANGE',
-  sweepSpeed: 'SWEEP SPEED',
-  sightRange: 'SIGHT RANGE',
-  maxSpeed: 'MAX SPEED',
-  gunReload: 'GUN RELOAD',
-  gunRange: 'GUN RANGE',
-  gunAmmo: 'GUN AMMO',
-  torpedoReload: 'TORPEDO RELOAD',
-  torpedoAmmo: 'TORPEDO AMMO',
-  torpedoSpeed: 'TORPEDO SPEED',
-  mineReload: 'MINE RELOAD',
-  mineAmmo: 'MINE AMMO',
-  maxMines: 'MAX MINES',
-};
-
-/** Pure: the toast line for a granted upgrade type. */
-export function upgradeLabel(type: UpgradeId): string {
-  return `⬆ +${LABELS[type]}`;
-}
 
 /** Pure: the toast line for a banked level (Story 2.6 — a LEVEL UP is now the
  *  only thing that banks a point, whether it came from the passive tick or a

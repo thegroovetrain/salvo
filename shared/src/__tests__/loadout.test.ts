@@ -23,16 +23,15 @@ import {
   equipmentReloadMs,
   hullEnvelope,
   loadoutFor,
-  zeroUpgrades,
   type EffectiveStats,
   type EquipmentId,
   type HullId,
   type LoadoutSlot,
 } from '../index.js';
 
-/** Fresh effective stats for any hull id at zero upgrades. */
+/** Fresh effective stats for any hull id at zero boons. */
 function statsFor(id: HullId): EffectiveStats {
-  return effectiveStats(hullEnvelope(id), zeroUpgrades());
+  return effectiveStats(hullEnvelope(id));
 }
 
 /** The two specials each hull id fits under the per-hull rule (1.6–1.8). */
@@ -59,11 +58,14 @@ describe('slot-grammar constants', () => {
 });
 
 describe('EQUIPMENT_IS_WEAPON — the weapon/ability split', () => {
-  it('marks the aimed-click weapons true; mine, speedBoost, decoyBuoy false (Story 1.8 flip)', () => {
+  it('marks the aimed-click weapons true; speedBoost and decoyBuoy false (mine FLIPPED true, Story 2.8)', () => {
+    // FLIPPED PIN (amendment 45): the mine is a click-aimed rear-arc WEAPON
+    // again — prime, aim within CONFIG.mine.offset ± placeHalfArcDeg, click
+    // places at the point up to placeRange. Supersedes the 1.8 stern drop.
     expect(EQUIPMENT_IS_WEAPON).toEqual({
       gun: true,
       torpedo: true,
-      mine: false, // Story 1.8: activateable (drop astern), not a click skillshot — still deals damage
+      mine: true, // Story 2.8: click-aimed rear-arc placement (amendment 45)
       speedBoost: false,
       cannon: true, // Story 1.7: prime-then-click burst skillshot
       starShells: true, // Story 1.7: prime-then-click lit-zone flare

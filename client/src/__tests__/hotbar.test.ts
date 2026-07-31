@@ -8,11 +8,11 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  BOON_CATALOG,
   CONFIG,
-  UPGRADE_IDS,
   effectiveStats,
   loadoutFor,
-  zeroUpgrades,
+  resolveBoons,
   type EffectiveStats,
   type EquipmentId,
   type ShipClassId,
@@ -45,10 +45,18 @@ import { CLIENT_CONFIG } from '../config.js';
 const H = CLIENT_CONFIG.hotbar;
 const C = CLIENT_CONFIG.colors;
 
-function statsFor(cls: ShipClassId, upgrades: Partial<Record<string, number>> = {}): EffectiveStats {
-  const counts = zeroUpgrades();
-  for (const [id, n] of Object.entries(upgrades)) counts[UPGRADE_IDS.indexOf(id as never)] = n ?? 0;
-  return effectiveStats(CONFIG.shipClasses[cls], counts);
+/**
+ * Effective stats for a class with an optional BOON build (Story 2.8 — the
+ * legacy `upg` counts vector died; boons are the whole stat input). `boons` is
+ * an id → stack-count map, expanded to the repeated-id list the catalog stacks
+ * by occurrence.
+ */
+function statsFor(cls: ShipClassId, boons: Partial<Record<string, number>> = {}): EffectiveStats {
+  const ids: string[] = [];
+  for (const [id, n] of Object.entries(boons)) {
+    for (let i = 0; i < (n ?? 0); i += 1) ids.push(id);
+  }
+  return effectiveStats(CONFIG.shipClasses[cls], resolveBoons(ids, BOON_CATALOG));
 }
 
 function idsFor(cls: ShipClassId, stats: EffectiveStats): (EquipmentId | null)[] {
@@ -133,7 +141,7 @@ describe('the seven-state grammar + its precedence', () => {
     expect(isCooling({ n: 0, reloadMsLeft: 4000 })).toBe(true);
     expect(isCooling({ n: 0, reloadMsLeft: 0 })).toBe(false); // dry with no reload running
     expect(isCooling(null)).toBe(false);
-    const stats = statsFor('torpedoBoat', { torpedoAmmo: 1 });
+    const stats = statsFor('torpedoBoat', { torpedoTube: 1 });
     const rows = slotViewModels({
       ...viewFor('torpedoBoat'),
       stats,
@@ -166,7 +174,10 @@ describe('the chamfer is an ABILITY shape mark — weapons never carry it', () =
     expect(slotViewModels(viewFor('torpedoBoat')).map((r) => r.chamfer)).toEqual([false, false, true, false]);
     expect(slotViewModels(viewFor('battleship')).map((r) => r.chamfer)).toEqual([false, false, false, false]);
     // Mine Layer fits TWO abilities (mine + decoy).
-    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.chamfer)).toEqual([false, true, true, false]);
+    // PIN FLIPPED (Story 2.8, amendment 45): the ML's Q slot holds the MINE,
+    // now a click-aimed weapon — no chamfer. Only the decoy rack (E) keeps the
+    // ability shape mark.
+    expect(slotViewModels(viewFor('mineLayer')).map((r) => r.chamfer)).toEqual([false, false, true, false]);
   });
 });
 
@@ -176,7 +187,7 @@ describe('ammo badge — only on pools LARGER than one round', () => {
   });
 
   it('appears once torpedoAmmo grows the tube, and counts the LIVE pool', () => {
-    const stats = statsFor('torpedoBoat', { torpedoAmmo: 1 });
+    const stats = statsFor('torpedoBoat', { torpedoTube: 1 });
     const loadout = idsFor('torpedoBoat', stats);
     const view: HotbarView = {
       ...viewFor('torpedoBoat'),
@@ -191,7 +202,7 @@ describe('ammo badge — only on pools LARGER than one round', () => {
   });
 
   it('renders NO badge when the ammo entry is missing (never a fabricated "0")', () => {
-    const stats = statsFor('torpedoBoat', { torpedoAmmo: 1 });
+    const stats = statsFor('torpedoBoat', { torpedoTube: 1 });
     expect(badgeText(equipmentInfo(stats, 'torpedo'), null)).toBeNull();
     expect(badgeText(equipmentInfo(stats, 'torpedo'), { n: 0, reloadMsLeft: 1 })).toBe('0'); // a REAL empty pool does read 0
     const rows = slotViewModels({ ...viewFor('torpedoBoat'), stats, loadout: idsFor('torpedoBoat', stats), ammo: [null, null, null, null] });
@@ -208,12 +219,30 @@ describe('quick-info line (amendment 13) — real values, live countdown', () =>
       `DMG ${CONFIG.torpedo.damage} · CD ${fmtSeconds(CONFIG.torpedo.reloadMs)}`,
     );
     expect(quickInfoLine(equipmentInfo(stats, 'cannon'), 0)).toContain(`DMG ${CONFIG.cannon.damage}`);
-    expect(quickInfoLine(equipmentInfo(stats, 'starShells'), 0)).toContain(`DMG ${CONFIG.starShells.damage}`);
-    // The mine DEALS damage but is an ABILITY (EQUIPMENT_IS_WEAPON) — CD only.
-    expect(quickInfoLine(equipmentInfo(stats, 'mine'), 0)).toBe(`CD ${fmtSeconds(CONFIG.mine.reloadMs)}`);
-    expect(quickInfoLine(equipmentInfo(stats, 'mine'), 0)).not.toContain('DMG');
+    // PIN FLIPPED (Story 2.8, amendment 45): the MINE is a click-aimed WEAPON
+    // now, so it reads DMG · CD like every other weapon — the line it used to
+    // hide in the tooltip description.
+    expect(quickInfoLine(equipmentInfo(stats, 'mine'), 0)).toBe(
+      `DMG ${CONFIG.mine.damage} · CD ${fmtSeconds(CONFIG.mine.reloadMs)}`,
+    );
+    // PIN FLIPPED (Story 2.8, amendment 39): star shells lost ALL damage — pure
+    // illumination — so they read CD alone like an ability.
+    expect(quickInfoLine(equipmentInfo(stats, 'starShells'), 0)).toBe(
+      `CD ${fmtSeconds(CONFIG.starShells.reloadMs)}`,
+    );
+    expect(quickInfoLine(equipmentInfo(stats, 'starShells'), 0)).not.toContain('DMG');
     expect(quickInfoLine(equipmentInfo(stats, 'speedBoost'), 0)).toBe(`CD ${fmtSeconds(CONFIG.speedBoost.reloadMs)}`);
     expect(quickInfoLine(equipmentInfo(stats, 'decoyBuoy'), 0)).toBe(`CD ${fmtSeconds(CONFIG.decoyBuoy.reloadMs)}`);
+  });
+
+  it('DMG rides the effective stats — a filler/shell stack moves the printed number', () => {
+    // The documented migration seam closed in Story 2.8: damage is stat-driven,
+    // so equipmentDamage() reads the firewall's output, not CONFIG.
+    const heavy = statsFor('mineLayer', { mineDamage: 3, gunDamage: 2 });
+    expect(quickInfoLine(equipmentInfo(heavy, 'mine'), 0)).toContain(`DMG ${heavy.mine.damage}`);
+    expect(heavy.mine.damage).toBeGreaterThan(CONFIG.mine.damage);
+    expect(quickInfoLine(equipmentInfo(heavy, 'gun'), 0)).toContain(`DMG ${heavy.gun.damage}`);
+    expect(heavy.gun.damage).toBeGreaterThan(CONFIG.gun.damage);
   });
 
   it('counts the REMAINING seconds down while cooling', () => {
@@ -354,7 +383,10 @@ describe('tooltip model — name, interaction class, description, and NO boons',
   it('labels a weapon slot SWITCH-TO and an ability slot ACTIVATES, with its key', () => {
     expect(tooltipModel(1, 'torpedo', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
     expect(tooltipModel(2, 'speedBoost', stats)?.interaction).toBe('ABILITY · E · ACTIVATES');
-    expect(interactionLine(3, 'mine')).toBe('ABILITY · R · ACTIVATES');
+    // PIN FLIPPED (Story 2.8, amendment 45): the mine primes on its slot key
+    // and places on a click, exactly like the torpedo.
+    expect(interactionLine(3, 'mine')).toBe('WEAPON · R · SWITCH-TO');
+    expect(tooltipModel(1, 'mine', stats)?.interaction).toBe('WEAPON · Q · SWITCH-TO');
   });
 
   it('renders boons as ABSENCE — the list is empty, so no divider and no rows are drawn', () => {

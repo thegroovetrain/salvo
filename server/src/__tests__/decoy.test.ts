@@ -225,7 +225,7 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
   it("an observer whose OWN lit zone covers the buoy gets the truth, never the blip (zone parity)", () => {
     const { w, b } = observed();
     injectDecoy(w, 'd1', 'a', 400, 0);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'b', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'b', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, mode: 'standard' });
     windowAround(b, 0); // swept AND in the annulus — but zone-truesighted
     const f = buildFrame(w, 'b');
     expect(blipsOf(f)).toEqual([]);
@@ -275,7 +275,7 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
     const w = bareWorld(43);
     place(w, 'a', 900, 0, 0, 'mineLayer'); // far beyond b's sight AND radar
     const b = place(w, 'b', 0, 0);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'b', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'b', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, mode: 'standard' });
     injectDecoy(w, 'd1', 'a', 400, 0); // buoy in b's swept annulus
     windowAround(b, 0);
     const f = buildFrame(w, 'b');

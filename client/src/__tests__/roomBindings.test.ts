@@ -184,6 +184,7 @@ function setupEvents() {
   const onBurst = vi.fn();
   const spawnEffect = vi.fn();
   const onBoom = vi.fn();
+  const onBallisticUpdate = vi.fn();
   const deps = {
     state: { net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 }, spectating: true, phase: '', respawnEta: null, mode: 'interp' },
     clock: { addSample: vi.fn() },
@@ -191,7 +192,7 @@ function setupEvents() {
     mines: { sync: vi.fn() },
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    projectiles: { onBurst, onBoom },
+    projectiles: { onBurst, onBoom, onBallisticUpdate },
     effects: { spawnEffect },
     onSunkObserved: vi.fn(),
     onSpectate: vi.fn(),
@@ -199,7 +200,7 @@ function setupEvents() {
     ordnanceHue: vi.fn(() => 0),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, onBurst, spawnEffect };
+  return { sink, onBurst, spawnEffect, onBallisticUpdate };
 }
 
 describe('bindRoom burst events', () => {
@@ -209,6 +210,21 @@ describe('bindRoom burst events', () => {
     expect(onBurst).toHaveBeenCalledTimes(1);
     expect(onBurst).toHaveBeenCalledWith({ k: 'burst', id: 'shell-7', x: 300, y: -120 });
     expect(spawnEffect).toHaveBeenCalledWith('burst', 300, -120);
+  });
+});
+
+// --- Story 2.8: the homing torpedo's track update -------------------------------
+
+describe('bindRoom torpU events', () => {
+  it('routes a torpU to the projectile track update — and nothing else', () => {
+    const { sink, onBallisticUpdate, spawnEffect } = setupEvents();
+    const ev = { k: 'torpU', id: 't-3', x: 120, y: -40, vx: 0, vy: 60, t: 200 };
+    sink.handler(eventFrame(ev));
+    expect(onBallisticUpdate).toHaveBeenCalledTimes(1);
+    expect(onBallisticUpdate).toHaveBeenCalledWith(ev);
+    // A steer is NOT a launch: no muzzle flash, no splash, no tone — the fish
+    // was already revealed and this only keeps the dead reckoning honest.
+    expect(spawnEffect).not.toHaveBeenCalled();
   });
 });
 
@@ -282,13 +298,16 @@ describe('bindRoom denial channel (Story 1.10)', () => {
 // spending while dead is legal, and the confirmation is exactly what is wanted.
 
 /** A reward-event frame. `you` present+alive = a live captain; omitting `you`
- *  (with spec:true) is EXACTLY the shape a spectator frame arrives in. */
-function rewardFrame(event: unknown, own: { alive: boolean } | null): unknown {
+ *  (with spec:true) is EXACTLY the shape a spectator frame arrives in.
+ *  `boons` is the list the frame ALREADY carries when its `bn` event fans out
+ *  (handleFrame applies `you` before the events), which is what lets the fitted
+ *  toast name the ladder rung the card showed. */
+function rewardFrame(event: unknown, own: { alive: boolean; boons?: string[] } | null): unknown {
   const base = { t: 300, tick: 3, ackSeq: 0, contacts: [], mines: [], events: [event] };
   if (!own) return { ...base, spec: true };
   return {
     ...base,
-    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', upg: [], boons: [], alive: own.alive, sweep: 0 },
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: own.boons ?? [], alive: own.alive, sweep: 0 },
   };
 }
 
@@ -367,19 +386,32 @@ describe('bindRoom reward toasts', () => {
     expect(play).not.toHaveBeenCalled();
   });
 
-  it('a fitted boon toasts with the boon label + upgrade tone, even while dead', () => {
+  it('a fitted boon toasts with the ladder name + upgrade tone, even while dead', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reinforcedBulkheads' }, { alive: false }));
-    expect(toastLines()).toEqual(['◆ REINFORCED BULKHEADS FITTED']);
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'gunDamage' }, { alive: false, boons: ['gunDamage'] }));
+    expect(toastLines()).toEqual(['◆ HEAVY SHELLS Mk I FITTED']);
     expect(play).toHaveBeenCalledWith('upgrade');
+  });
+
+  it('the fitted toast names the RUNG that was fitted, not the line\'s first name', () => {
+    // Story 2.8's name-by-stack-position: the frame's `boons` already carries
+    // the new occurrence, so the third HEAVY SHELLS toasts as Mk III — exactly
+    // the name the card the player clicked was showing.
+    document.body.replaceChildren();
+    const { sink } = setupToasts();
+    sink.handler(rewardFrame(
+      { k: 'bn', id: 'me', boon: 'gunDamage' },
+      { alive: true, boons: ['gunDamage', 'gunDamage', 'gunDamage'] },
+    ));
+    expect(toastLines()).toEqual(['◆ HEAVY SHELLS Mk III FITTED']);
   });
 
   it("another ship's reward events are ignored (defensive — perception already gates them)", () => {
     document.body.replaceChildren();
     const { sink, play, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'pt', id: 'someone-else' }, { alive: true }));
-    sink.handler(rewardFrame({ k: 'bn', id: 'someone-else', boon: 'forcedDraught' }, { alive: true }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'someone-else', boon: 'shipSpeed' }, { alive: true }));
     expect(toastLines()).toEqual([]);
     expect(play).not.toHaveBeenCalled();
     expect(onSpendAck).not.toHaveBeenCalled(); // and no foreign spend can ack ours
@@ -393,14 +425,14 @@ describe('bindRoom reward toasts', () => {
   it('routes a SELF boon-fit to deps.onSpendAck (the spend latch receipt)', () => {
     document.body.replaceChildren();
     const { sink, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'reinforcedBulkheads' }, { alive: true }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'gunDamage' }, { alive: true, boons: ['gunDamage'] }));
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 
   it('acks a boon fitted while DEAD too (spending while dead is legal)', () => {
     document.body.replaceChildren();
     const { sink, onSpendAck } = setupToasts();
-    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'forcedDraught' }, { alive: false }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'shipSpeed' }, { alive: false, boons: ['shipSpeed'] }));
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 

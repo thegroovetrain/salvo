@@ -52,15 +52,17 @@ function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTi
 }
 
 describe('star shells — shell construction', () => {
-  it('firing spawns a CONFIG.starShells flare: speed 500, damage 10, burst = lit radius, lit tag set', () => {
+  it('firing spawns a DAMAGELESS flare (Story 2.8, amendment 39): speed 500, damage 0, burst = lit radius, lit tag set', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     setInput(bb, { aim: 0, aimDist: 400, slot: SLOT_STAR });
     expect(w.sinkingActivationGate(bb, SLOT_STAR)).toEqual({ ok: true });
     const shell = [...w.shells.values()][0];
     expect(Math.hypot(shell.vx, shell.vy)).toBeCloseTo(CONFIG.starShells.shellSpeed, 9);
-    expect(shell.damage).toBe(CONFIG.starShells.damage);
-    expect(shell.contactDamage).toBe(CONFIG.starShells.damage); // minor either way (torpedo precedent)
+    // Amendment 39 DELIBERATELY FLIPS the 1.7 minor-damage pin: the flare
+    // deals ZERO everywhere (CONFIG.starShells.damage no longer exists).
+    expect(shell.damage).toBe(0);
+    expect(shell.contactDamage).toBe(0);
     expect(shell.burstRadius).toBe(LIT_R); // the burst IS the lit circle
     expect(shell.hitRadius).toBe(CONFIG.starShells.shellRadius); // own field — never the gun's
     expect(shell.kind).toBe('shell'); // rides the existing ballistic wire kind
@@ -82,31 +84,39 @@ describe('star shells — shell construction', () => {
 });
 
 describe('star shells — burst damage + zone spawn (end-to-end)', () => {
-  it('bursts for ≤10 across the full 165u circle (owner excluded) and spawns the zone there', () => {
+  it('bursts for ZERO damage across the full circle (Story 2.8) — no dmg events — and spawns the zone there', () => {
     const w = bareWorld();
     const a = place(w, 'a', 'battleship', 0, 0);
     const near = place(w, 'near', 'battleship', 480, 80); // hull within 165 of the click point
     const far = place(w, 'far', 'battleship', 480, 400); // well outside the circle
     const { seen, at } = fireAndResolve(w, 'a', { aim: 0, aimDist: 500 });
     expect(seen).toContain('burst'); // the flash reuses the EXISTING burst event kind
-    expect(near.hp).toBe(near.stats.maxHp - CONFIG.starShells.damage); // 150 - 10, once
-    expect(far.hp).toBe(far.stats.maxHp); // untouched outside the circle
-    expect(a.hp).toBe(a.stats.maxHp); // owner immune, always
+    // Amendment 39 FLIP of the 1.7 minor-damage pin: everyone untouched, and
+    // no zero-amount dmg-event noise either.
+    expect(near.hp).toBe(near.stats.maxHp);
+    expect(far.hp).toBe(far.stats.maxHp);
+    expect(a.hp).toBe(a.stats.maxHp);
+    expect(seen).not.toContain('dmg');
     // The zone: centered on the clicked point, lit radius, natural expiry.
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];
-    expect(zone).toEqual({ id: zone.id, ownerId: 'a', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs });
+    expect(zone).toEqual({ id: zone.id, ownerId: 'a', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, mode: 'standard' });
   });
 
-  it('an early interceptor OUTSIDE the would-be circle takes the minor 10, stops the flare, and NO zone spawns', () => {
+  it('an early interceptor takes ZERO, stops the flare — and the zone spawns AT THE STOP POINT (Story 2.8 flip of the no-zone pin)', () => {
     const w = bareWorld();
     place(w, 'a', 'battleship', 0, 0);
     const mid = place(w, 'mid', 'battleship', 300, 0); // bodyblocks the 650u shot, 350u short
     const { seen } = fireAndResolve(w, 'a', { aim: 0, aimDist: 650 });
     expect(seen).toContain('boom');
     expect(seen).not.toContain('burst');
-    expect(mid.hp).toBe(mid.stats.maxHp - CONFIG.starShells.damage);
-    expect(w.litZones.size).toBe(0); // no burst, no light
+    // Amendment 39: interception does 0 (no dmg event) and STILL lights.
+    expect(mid.hp).toBe(mid.stats.maxHp);
+    expect(seen).not.toContain('dmg');
+    expect(w.litZones.size).toBe(1);
+    const zone = [...w.litZones.values()][0];
+    // The zone sits at the interception stop point (short of the 650u click).
+    expect(Math.hypot(zone.x, zone.y)).toBeLessThan(400);
   });
 
   it('the zone expires naturally after litDurationMs (the step() sweep)', () => {

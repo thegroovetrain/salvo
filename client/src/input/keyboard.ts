@@ -124,10 +124,12 @@ export function panAxesFrom(keys: Set<string>): Axes {
 /**
  * Pure: does `slot` of the own loadout hold instant-activation ABILITY
  * equipment (`EQUIPMENT_IS_WEAPON[id] === false`)? The TB's speedBoost and the
- * Mine Layer's BOTH specials (mine + decoyBuoy) answer true. Weapons and
- * empty/out-of-range slots return false (they prime / do nothing). The single
- * weapon/ability split source is the shared map; main.ts closes this over the
- * own loadout (loadoutFor(you.cls)) for the isAbilitySlot hook.
+ * Mine Layer's decoyBuoy answer true. Weapons and empty/out-of-range slots
+ * return false (they prime / do nothing) — as of Story 2.8 (amendment 45) the
+ * MINE is one of them: it primes on its slot key and places on a click inside
+ * its rear arc, exactly like the torpedo. The single weapon/ability split
+ * source is the shared map; main.ts closes this over the own loadout
+ * (slotsWithBoons) for the isAbilitySlot hook.
  */
 export function slotHoldsAbility(slotIds: readonly (EquipmentId | null)[], slot: number): boolean {
   const id = slotIds[slot] ?? null;

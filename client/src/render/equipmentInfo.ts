@@ -3,18 +3,16 @@
 // player reads: display name, draft description copy, the interaction line
 // ("WEAPON · Q · SWITCH-TO"), and the numeric quick-info inputs.
 //
-// Numbers rule: reload/pool come from `effectiveStats()` (the desync firewall —
-// they move with upgrades), damage comes from `CONFIG.<id>.damage` through the
-// ONE helper below. Damage is deliberately NOT part of EffectiveStats: no
-// damage upgrade exists today, and this helper is the single seam to migrate
-// when Story 2.5's boon path makes damage stat-driven. Nothing here hand-copies
-// a number.
+// Numbers rule: EVERY number comes from `effectiveStats()` (the desync
+// firewall). Story 2.8 walked the documented migration seam: damage was
+// promoted onto EffectiveStats when the catalog's damage ladders shipped, so
+// equipmentDamage() now reads `stats.<id>.damage` and moves with the fitted
+// boons exactly as reload/pool always have. Nothing here hand-copies a number.
 //
 // COPY STATUS: every name/description is DRAFT PLACEHOLDER (amendment 13, the
 // boon-copy rule) — canon later.
 
 import {
-  CONFIG,
   EQUIPMENT_IS_WEAPON,
   SLOT_GUN,
   equipmentMaxAmmo,
@@ -43,7 +41,7 @@ export const EQUIPMENT_NAME: Record<EquipmentId, string> = {
 export const EQUIPMENT_DESCRIPTION: Record<EquipmentId, string> = {
   gun: 'The deck gun you always have. It flies to the clicked point and bursts there, hitting every hull inside the blast.',
   torpedo: 'A bow-launched fish that runs flat and straight until it finds a hull. Slow to reload, brutal on contact.',
-  mine: `Drops an armed mine off your stern. It waits, silent, until an enemy hull passes over it, then takes ${CONFIG.mine.damage} hull points out of whoever found it.`,
+  mine: 'Lays an armed mine at a point off your stern quarter. It waits, silent, until an enemy hull comes close, then takes the whole blast out of whoever found it.',
   speedBoost: 'Opens the throttle past its stops for a short burst of extra speed. Nothing else changes — you just leave sooner.',
   cannon: 'A main-battery shell for long work. It bursts at the aimed point and hits hard enough to be worth the wait.',
   starShells: 'An illumination round. Where it bursts, a wide circle of ocean lights up for everyone — including the hulls in it.',
@@ -61,16 +59,24 @@ export function interactionLine(slot: number, id: EquipmentId): string {
     : `ABILITY · ${key} · ACTIVATES`;
 }
 
-/** Per-burst/per-hit damage (hp) for a piece of equipment, or null for the
- *  ones that deal none. THE single CONFIG damage read on the client. */
-export function equipmentDamage(id: EquipmentId): number | null {
+/**
+ * EFFECTIVE per-burst/per-hit damage (hp) for a piece of equipment, or null for
+ * the ones that deal none. THE single damage read on the client — it comes off
+ * the effective stats (Story 2.8: damage is stat-driven now, so a HEAVY SHELLS
+ * / RDX FILLER stack moves this number), never off CONFIG.
+ *
+ * Star shells deal NO damage as of Story 2.8 (amendment 39 — pure illumination;
+ * the INCENDIARY doctrine's DoT is a zone effect, not a hit), so they join the
+ * speed boost and the decoy buoy on the null branch.
+ */
+export function equipmentDamage(stats: EffectiveStats, id: EquipmentId): number | null {
   return {
-    gun: CONFIG.gun.damage,
-    torpedo: CONFIG.torpedo.damage,
-    mine: CONFIG.mine.damage,
+    gun: stats.gun.damage,
+    torpedo: stats.torpedo.damage,
+    mine: stats.mine.damage,
     speedBoost: null,
-    cannon: CONFIG.cannon.damage,
-    starShells: CONFIG.starShells.damage,
+    cannon: stats.cannon.damage,
+    starShells: null,
     decoyBuoy: null,
   }[id];
 }
@@ -97,7 +103,7 @@ export function equipmentInfo(stats: EffectiveStats, id: EquipmentId): Equipment
     name: EQUIPMENT_NAME[id],
     description: EQUIPMENT_DESCRIPTION[id],
     isWeapon: EQUIPMENT_IS_WEAPON[id],
-    damage: equipmentDamage(id),
+    damage: equipmentDamage(stats, id),
     reloadMs: equipmentReloadMs(stats, id),
     maxAmmo: equipmentMaxAmmo(stats, id),
   };

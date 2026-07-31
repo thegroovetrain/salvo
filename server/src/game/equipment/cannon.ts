@@ -10,20 +10,51 @@
 // gunRange upgrade moves the standard gun only). Pure over a ShipRecord's
 // input + pose + slot pool; the World owns shell storage + event emission.
 
-import { CONFIG, EQUIPMENT_IS_WEAPON, type EquipmentState, type ShellState } from '@salvo/shared';
+import { CONFIG, EQUIPMENT_IS_WEAPON, PIERCE_FALLOFF, type EquipmentState, type ShellState } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { makeBallistic } from './ballistics.js';
+import { makeBallistic, muzzleSpawn } from './ballistics.js';
 import { burstPoint, muzzleOrTarget } from './guns.js';
 
 /**
- * Cannon fire control against one slot pool: 0 or 1 shell. The ONLY denial is
- * an empty pool ('no-ammo' — the 15s cooldown); there is no arc. The shell
- * carries the cannon's own hit rule: target point + burstRadius +
- * contactDamage (CONFIG.cannon throughout — nothing borrows gun values).
- * distLeft slack mirrors fireGunShell (guards float drift, never extends
- * reach).
+ * The AP direction shot (ARMOR-PIERCING SHELLS doctrine, Story 2.8): no burst
+ * target at all — a full-range shot along the clicked DIRECTION (aimDist is
+ * deliberately ignored; distLeft = the cannon's effective range from the
+ * muzzle), piercing up to PIERCE_FALLOFF.length hulls at 100/50/25% of the
+ * effective damage in hit order (sim/shell.ts stepPierce; the World applies
+ * pierceDamage per hit); islands stop it dead.
+ */
+function fireApShell(ship: ShipRecord, now: number, mkId: () => string): ShellState {
+  const dir = ship.input.aim;
+  const origin = muzzleSpawn(ship, dir, CONFIG.cannon.shellRadius);
+  return makeBallistic(mkId(), ship, dir, now, {
+    speed: CONFIG.cannon.shellSpeed,
+    range: ship.stats.cannon.rangeU,
+    damage: ship.stats.cannon.damage,
+    hitRadius: CONFIG.cannon.shellRadius,
+    kind: 'shell',
+    origin,
+    targetX: null,
+    targetY: null,
+    burstRadius: 0,
+    // Unused in flight — the pierce sweep owns every hull resolution — but the
+    // field is required (nothing silently borrows gun values).
+    contactDamage: ship.stats.cannon.damage,
+    pierce: { remaining: PIERCE_FALLOFF.length, hitIds: [] },
+  });
+}
+
+/**
+ * Cannon fire control against one slot pool: 0 or 1 shell, MODED by the
+ * owner's doctrine (Story 2.8, stats.cannon.mode): 'standard' is the gun-
+ * pattern burst at the clicked point; 'arcing' (PLUNGING FIRE) is the same
+ * burst shot tagged to overfly islands AND hulls (un-interceptable, always
+ * bursts exactly at the click); 'ap' is the pierce direction shot above. The
+ * ONLY denial is an empty pool ('no-ammo' — the 15s cooldown); there is no
+ * arc. Damage/blast numbers come from the OWNER's effective stats (the HEAVY
+ * CHARGE / FRAGMENTATION CASING ladders), never raw CONFIG. distLeft slack
+ * mirrors fireGunShells (guards float drift, never extends reach).
  */
 function fireCannonShell(
   ship: ShipRecord,
@@ -33,20 +64,24 @@ function fireCannonShell(
   mkId: () => string,
 ): { shell: ShellState | null; denial: ActivationDenial | null } {
   if (!consume(pool, ship.stats.cannon.reloadMs)) return { shell: null, denial: 'no-ammo' }; // pool empty
+  const cannon = ship.stats.cannon;
+  if (cannon.mode === 'ap') return { shell: fireApShell(ship, now, mkId), denial: null };
   const dir = ship.input.aim;
-  const target = burstPoint(ship, mapRadius, ship.stats.cannon.rangeU);
+  const target = burstPoint(ship, mapRadius, cannon.rangeU);
   const origin = muzzleOrTarget(ship, dir, target, CONFIG.cannon.shellRadius);
   const shell = makeBallistic(mkId(), ship, dir, now, {
     speed: CONFIG.cannon.shellSpeed,
     range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.cannon.shellRadius,
-    damage: CONFIG.cannon.damage,
+    damage: cannon.damage,
     hitRadius: CONFIG.cannon.shellRadius,
     kind: 'shell', // rides the existing shell wire kind (first-sight reveal, constant-free shape)
     origin,
     targetX: target.x,
     targetY: target.y,
-    burstRadius: CONFIG.cannon.burstRadius,
-    contactDamage: CONFIG.cannon.contactDamage,
+    burstRadius: cannon.burstRadius,
+    contactDamage: cannon.contactDamage,
+    // PLUNGING FIRE: overflies everything, bursts exactly at the click.
+    ...(cannon.mode === 'arcing' ? { arcing: true as const } : {}),
   });
   return { shell, denial: null };
 }

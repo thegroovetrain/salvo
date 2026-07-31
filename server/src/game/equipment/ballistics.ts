@@ -99,6 +99,15 @@ export interface BallisticParams {
   /** Server-internal star-shell tag (Story 1.7): a burst also spawns a lit
    *  zone (see ShellState.lit). Only fireStarShell sets it; never on the wire. */
   lit?: { radius: number; durationMs: number };
+  /** PLUNGING FIRE doctrine (Story 2.8): the shell overflies islands AND hulls
+   *  and always bursts at its target (ShellState.arcing). Never on the wire. */
+  arcing?: true;
+  /** ARMOR-PIERCING doctrine (Story 2.8): the multi-hull pierce bookkeeping
+   *  (ShellState.pierce — remaining count + hit ids). Never on the wire. */
+  pierce?: { remaining: number; hitIds: string[] };
+  /** ACOUSTIC HOMING doctrine (Story 2.8): the per-tick steering params
+   *  (ShellState.homing — turn rate + acquire range). Never on the wire. */
+  homing?: { turnRate: number; acquireRange: number };
 }
 
 /**
@@ -132,8 +141,11 @@ export function makeBallistic(
     burstRadius: p.burstRadius,
     contactDamage: p.contactDamage,
   };
-  // The star-shell tag is set only when the caller carries one (never an
-  // explicit `lit: undefined` key — the shape stays clean for non-flares).
+  // The optional doctrine tags are set only when the caller carries one (never
+  // an explicit `undefined` key — the shape stays clean for plain projectiles).
   if (p.lit) shell.lit = p.lit;
+  if (p.arcing) shell.arcing = p.arcing;
+  if (p.pierce) shell.pierce = p.pierce;
+  if (p.homing) shell.homing = p.homing;
   return shell;
 }

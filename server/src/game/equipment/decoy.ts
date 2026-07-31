@@ -12,11 +12,34 @@
 // + the ship's cached effective stats (stats.decoyBuoy — a CONFIG pass-through
 // no upgrade touches).
 
-import { EQUIPMENT_IS_WEAPON, type LoadoutSlot } from '@salvo/shared';
+import { CONFIG, EQUIPMENT_IS_WEAPON, sternDropArcFor, wrapAngle, type LoadoutSlot, type Vec2 } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationContext, ActivationResult, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { dropBlocked, dropPoint } from './mines.js';
+import { hullClearOffset } from './ballistics.js';
+import { dropBlocked } from './mines.js';
+
+// The stern rack's ratified arc shape (Story 1.10): the shared arcFor family
+// is the single arc-shape source, so the drop bearing can never drift from
+// what the client classifies. As of Story 2.8 the DECOY alone keeps the stern
+// drop (the mine left it for the aimed rear sector — amendment 45); its
+// descriptor still reads CONFIG.mine.offset (sim/arcs.ts). Resolved at module
+// load — a non-stern-drop decoy arc is a CONFIG/arcs authoring error, failed
+// loudly at boot (sternDropArcFor throws), never mid-tick.
+const STERN_RACK = sternDropArcFor('decoyBuoy');
+
+/** Where a ship's next stern-rack drop lands (astern, clear of the hull):
+ *  half the FIRER's hull length back plus the mine-trigger-radius margin —
+ *  byte-identical to the pre-2.8 shared mine/decoy drop point. Exported for
+ *  tests. */
+export function dropPoint(ship: ShipRecord): Vec2 {
+  const dir = wrapAngle(ship.state.heading + STERN_RACK.offset); // astern (heading + π)
+  const dropOffset = hullClearOffset(ship, CONFIG.mine.triggerRadius);
+  return {
+    x: ship.state.x + Math.cos(dir) * dropOffset,
+    y: ship.state.y + Math.sin(dir) * dropOffset,
+  };
+}
 
 /** The decoy-buoy Equipment row. Pool size (1 charge) + reload come from the
  *  ship's cached effective stats. Denial = a BLOCKED drop point (island/
@@ -33,12 +56,12 @@ export const decoyEquipment: Equipment = {
     tickReload(slot.state!, ship.stats.decoyBuoy.maxAmmo, ship.stats.decoyBuoy.reloadMs, dtMs);
   },
   activate(ctx: ActivationContext, slot: LoadoutSlot): ActivationResult {
-    // Drop astern off the SAME stern rack as the mines (dropPoint: heading + π,
-    // hull-clear with the mine trigger-radius margin) — one stern-drop rule for
-    // both Mine Layer specials, so a hull retune can never split them. The buoy
-    // is stationary forever after (the World stores a fixed point). A drop
-    // point inside a rock / off the water is refused BEFORE the pool (Story
-    // 1.10 'blocked') — charge + reload untouched, never a silent waste.
+    // Drop astern off the stern rack (dropPoint: heading + π, hull-clear with
+    // the mine trigger-radius margin — the pre-2.8 shared rule, now the
+    // decoy's alone). The buoy is stationary forever after (the World stores a
+    // fixed point). A drop point inside a rock / off the water is refused
+    // BEFORE the pool (Story 1.10 'blocked') — charge + reload untouched,
+    // never a silent waste.
     const p = dropPoint(ctx.ship);
     if (dropBlocked(p, ctx.islands, ctx.mapRadius)) return { ok: false, reason: 'blocked' };
     if (!consume(slot.state!, ctx.ship.stats.decoyBuoy.reloadMs)) return { ok: false, reason: 'no-ammo' };

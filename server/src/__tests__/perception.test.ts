@@ -12,10 +12,10 @@ import { describe, it, expect } from 'vitest';
 import {
   BOON_CATALOG,
   CONFIG,
-  UPGRADE_IDS,
   bearing,
   effectiveStats,
   mulberry32,
+  resolveBoons,
   segCircleHit,
   wrapPositive,
   type BallisticEvent,
@@ -28,7 +28,7 @@ import {
   type FrameMsg,
   type SpawnEvent,
   type SunkEvent,
-  type UpgradeEvent,
+  type TorpedoUpdateEvent,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
@@ -56,18 +56,29 @@ function dist(a: { x: number; y: number }, b: { x: number; y: number }): number 
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-// Per-observer EFFECTIVE ranges, recomputed here from the raw upgrade counts
-// (deliberately NOT via me.stats / effectiveStats — the reimplementation rule).
-function effSight(me: ShipRecord): number {
-  return SIGHT * CONFIG.upgrades.sightRange.mult ** me.upgrades[UPGRADE_IDS.indexOf('sightRange')];
+// Per-observer EFFECTIVE ranges, recomputed here from the raw fitted-boon id
+// list (deliberately NOT via me.stats / effectiveStats — the reimplementation
+// rule). The ladder factors are the CATALOG's authored steps written out as
+// literals (intelTruesight ×1.12/card, intelRadar ×1.15/card); the DAZZLE
+// factor (Story 2.8) scales the OBSERVER's own sight while its dazzledUntil
+// mark is live — mirrored independently from signals.sightOf.
+function stacksOf(me: ShipRecord, boonId: string): number {
+  let n = 0;
+  for (const b of me.boons) if (b === boonId) n += 1;
+  return n;
+}
+
+function effSight(me: ShipRecord, now: number): number {
+  const base = SIGHT * 1.12 ** stacksOf(me, 'intelTruesight');
+  return now < me.dazzledUntil ? base * CONFIG.starShells.dazzleSightFactor : base;
 }
 
 function effRadar(me: ShipRecord): number {
-  return RADAR * CONFIG.upgrades.radarRange.mult ** me.upgrades[UPGRADE_IDS.indexOf('radarRange')];
+  return RADAR * 1.15 ** stacksOf(me, 'intelRadar');
 }
 
 function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
-  return dist(me.state, p) <= effSight(me) && clearLos(me.state, p, w.map.islands);
+  return dist(me.state, p) <= effSight(me, w.now) && clearLos(me.state, p, w.map.islands);
 }
 
 // The Story 1.7 owned-zone reveal source, reimplemented test-locally (NEVER
@@ -158,7 +169,7 @@ function injectZone(
   r = CONFIG.starShells.litRadius,
   until = 999_999,
 ): void {
-  w.litZones.set(id, { id, ownerId, x, y, r, until });
+  w.litZones.set(id, { id, ownerId, x, y, r, until, mode: 'standard' });
 }
 
 /** Drop a decoy buoy directly into world state (Story 1.8; far-future expiry). */
@@ -757,8 +768,8 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
 /** Assert one frame leaks nothing beyond the observer's vision. */
 function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   const me = w.ships.get(viewerId)!;
-  // Upgrade counts ride ONLY on the observer's own ship — never on a contact.
-  if (f.you) expect(f.you.upg).toEqual(me.upgrades);
+  // Fitted boons ride ONLY on the observer's own ship — never on a contact.
+  if (f.you) expect(f.you.boons).toEqual(me.boons);
   // Story 2.6: level + XP progress are self-private on the same terms — the
   // observer's OWN values, and nothing else's.
   if (f.you) {
@@ -770,7 +781,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
     expect(target).toBeDefined();
     expect(target.alive).toBe(true);
     expect(c.id).not.toBe(viewerId);
-    expect('upg' in c).toBe(false); // enemy builds are hidden (anti-cheat)
+    expect('boons' in c).toBe(false); // enemy builds are hidden (anti-cheat)
     expect('stats' in c).toBe(false);
     expect('lvl' in c).toBe(false); // ...and so is the economy (Story 2.6)
     expect('xp' in c).toBe(false);
@@ -887,7 +898,7 @@ type EventVerifier = (w: World, me: ShipRecord, e: GameEvent) => void;
 function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
   const d = dist(me.state, p);
   return (
-    d > effSight(me) &&
+    d > effSight(me, w.now) &&
     d <= effRadar(me) &&
     clearLos(me.state, p, w.map.islands) &&
     inPaintWindow(me, bearing(me.state, p)) &&
@@ -1011,10 +1022,20 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     expect(e.id).toBe(me.id);
     expect(Object.hasOwn(BOON_CATALOG, (e as BoonFitEvent).boon)).toBe(true);
   },
-  upg: (_w, me, e) => {
-    // Self-private, and a valid upgrade id (never a fabricated type).
-    expect(e.id).toBe(me.id);
-    expect(UPGRADE_IDS).toContain((e as UpgradeEvent).type);
+  torpU: (w, me, e) => {
+    // A homing-track UPDATE (Story 2.8): only a LIVE steering torpedo the
+    // observer has ALREADY been revealed may re-emit, at its current pos, in
+    // the constant-free ballistic shape, and only while the observer can see
+    // it (owner / sight+LOS / owned zone — the reveal predicate).
+    const ev = e as TorpedoUpdateEvent;
+    const sh = w.shells.get(ev.id)!;
+    expect(sh).toBeDefined();
+    expect(sh.kind).toBe('torp');
+    expect(sh.homing).toBeDefined();
+    expect(Object.keys(ev).sort()).toEqual(['id', 'k', 't', 'vx', 'vy', 'x', 'y']);
+    expect({ x: ev.x, y: ev.y }).toEqual({ x: sh.x, y: sh.y });
+    expect(me.seenBallistics.has(ev.id)).toBe(true); // an update only ever follows a reveal
+    if (sh.ownerId !== me.id) expect(sighted(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
   },
   spawn: (w, me, e) => {
     // Spawn point: sighted OR inside a zone the observer OWNS (Story 1.7).
@@ -1051,14 +1072,19 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         const r = rng.float(0, w.map.radius * 0.85);
         const rec = place(w, id, Math.cos(ang) * r, Math.sin(ang) * r, rng.float(0, TAU));
         rec.sweepAngle = rng.float(0, TAU); // decorrelate paint windows
-        // Random vision upgrades so the invariant is exercised at WIDENED
-        // per-observer radii too. Counts are set directly and the world-side
-        // cache recomputed the way World does (effectiveStats); the CHECKS
-        // recompute ranges independently from the raw counts (effSight/effRadar).
-        rec.upgrades[UPGRADE_IDS.indexOf('sightRange')] = rng.int(0, 2);
-        rec.upgrades[UPGRADE_IDS.indexOf('radarRange')] = rng.int(0, 2);
-        rec.upgrades[UPGRADE_IDS.indexOf('sweepSpeed')] = rng.int(0, 5); // up to the rpm cap
-        rec.stats = effectiveStats(rec.cls, rec.upgrades);
+        // Random INTEL boons so the invariant is exercised at WIDENED
+        // per-observer radii too (Story 2.8: the boon economy replaced the
+        // legacy counts). Ids are stacked directly and the world-side cache
+        // recomputed the way World does (effectiveStats over resolved defs);
+        // the CHECKS recompute ranges independently from the raw id list
+        // (effSight/effRadar).
+        const intel: string[] = [];
+        for (let n = rng.int(0, 2); n > 0; n--) intel.push('intelTruesight');
+        for (let n = rng.int(0, 2); n > 0; n--) intel.push('intelRadar');
+        for (let n = rng.int(0, 5); n > 0; n--) intel.push('intelSweep'); // toward the rpm cap
+        rec.boons = intel;
+        rec.boonDefs = resolveBoons(intel);
+        rec.stats = effectiveStats(rec.cls, rec.boonDefs);
       }
       for (let s = 0; s < rng.int(0, 5); s++) {
         const ang = rng.float(0, TAU);
@@ -1143,7 +1169,7 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
   // The 11 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private 'bn').
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'bn'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
   it('has exactly the 15 expected channel keys (11 event kinds + contact + mine + litzone + decoy)', () => {

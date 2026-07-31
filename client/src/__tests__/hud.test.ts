@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Container } from 'pixi.js';
-import { CONFIG, boostedKinematics, effectiveStats, zeroUpgrades, type ShipState } from '@salvo/shared';
+import { CONFIG, boostedKinematics, effectiveStats, type ShipState } from '@salvo/shared';
 import type { MatchUx } from '../ui/phase.js';
 import {
   Hud,
@@ -809,7 +809,7 @@ describe('helm glyph fade — only a LIVE helm counts', () => {
 // the vitals still die with the hull through the existing visibility path.
 
 describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () => {
-  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, zeroUpgrades());
+  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
   const status: OwnStatus = {
     hp: 40,
     ammo: [null, null, null, null],
