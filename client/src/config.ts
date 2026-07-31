@@ -444,9 +444,19 @@ export const CLIENT_CONFIG = {
   refit: {
     /** Card width (px) — the ratified 216 (UX-DR14). */
     card: 216,
-    /** Card height (px). Holds the top-down anatomy: key chip / category tag
-     *  (14px) / boon name (20px) / description (17px, up to three lines). */
-    cardHeight: 156,
+    /**
+     * Card height (px). GROWN 156 → 236 in Story 2.8, knowingly: the card face
+     * gained the rarity tag, the lineage handrail, the doctrine-swap line and a
+     * rules-text contract that prints live current→next values, and amendment
+     * 40 RATIFIES the resulting floor-viewport overlap outright ("cards render
+     * above the dimmed chrome and may grow modestly taller. No band lift, no
+     * card shrink"). Holds the top-down anatomy: key chip / category + rarity
+     * row (14px) / ladder name (20px, up to two lines) / lineage (12px) /
+     * replaces (12px) / rules text (17px, up to five lines). The ceiling is the
+     * 1280×614 logical floor: bandTopFrac 0.58 leaves 258px before the viewport
+     * edge, and the geometry suite pins it.
+     */
+    cardHeight: 236,
     /** Gap (px) between cards. Four 216s + three 20s = a 924px row that never
      *  wraps at the 1366×768 floor or the 1280×614 logical floor (125% tier). */
     gap: 20,
@@ -468,10 +478,18 @@ export const CLIENT_CONFIG = {
      *  OVERHANGS the card's top-left corner by half its size. */
     keyChip: 22,
     /** Type sizes (px) — the amendment-15 lift applied to the card anatomy
-     *  (the stale 9px category / 11.5px description registers are superseded). */
+     *  (the stale 9px category / 11.5px description registers are superseded).
+     *  Story 2.8 adds the rarity tag and the lineage handrail: both are
+     *  SUBORDINATE marks (they annotate the name, they are not the name), so
+     *  they sit a step below the category tag while staying clear of the 9px
+     *  mono accessibility floor at every UI-scale tier. */
     categorySize: 14,
     nameSize: 20,
     descSize: 17,
+    raritySize: 12,
+    lineageSize: 12,
+    /** Gap (px) between the category tag and the rarity tag on the meta row. */
+    metaGap: 8,
     /** Dashed ghost edge behind the row when more offers are queued (px). */
     ghostOffset: 6,
     /** Alpha the cards dim to while a spend is in flight (locked). */

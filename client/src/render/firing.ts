@@ -1,12 +1,14 @@
 // Firing UX, split across two camera-transformed layers (see render/stage.ts
 // for the full z-order rationale):
-//   - The torpedo bow arc goes in the `ship` layer (worldRoot, fogged) — it
-//     rotates with the own ship and sits inside the sight bubble, so fog over it
-//     is plan-correct. The gun FAMILY (gun / cannon / star shells) draws NO arc
-//     sector: it is 360° and fires to the clicked point (Eric ruling
-//     2026-07-21), so a broadside wedge would lie. Instant abilities (speedBoost,
-//     and — Story 1.8 — the Mine Layer's mine + decoyBuoy) never prime and draw
-//     no marker at all: the torpedo is the one aim-gated skillshot left here.
+//   - The AIM-GATED sector arcs go in the `ship` layer (worldRoot, fogged) —
+//     they rotate with the own ship and sit inside the sight bubble, so fog over
+//     them is plan-correct. Two ids draw one: the torpedo's BOW arc, and (Story
+//     2.8, amendment 45) the mine's REAR PLACEMENT arc, drawn at its true
+//     CONFIG.mine.placeRange radius so the wedge IS the reachable water. The gun
+//     FAMILY (gun / cannon / star shells) draws NO arc sector: it is 360° and
+//     fires to the clicked point (Eric ruling 2026-07-21), so a broadside wedge
+//     would lie. The remaining instant abilities (speedBoost, decoyBuoy) never
+//     prime and draw no marker at all.
 //   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
 //     because gun range (radar range, 650u) exceeds sight range (220u): aiming
 //     at a radar blip beyond sight must not put the reticle under the fog. Amber
@@ -26,7 +28,7 @@ const AMBER = CLIENT_CONFIG.colors.amber;
 const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torpedo bow arc (legacy tone)
 const DIM = CLIENT_CONFIG.colors.textMuted;
 const DENIED_RED = CLIENT_CONFIG.colors.denied; // the single denied red
-const ARC_R = 72; // u — sector indicator radius
+const ARC_R = 72; // u — sector indicator radius (the torpedo's indicative wedge)
 const RETICLE_R = 7; // u — crosshair size
 const IMPACT_R = 4; // u — range-clamped impact marker ring
 
@@ -51,7 +53,8 @@ export class FiringUX {
   private readonly arcs = new Graphics();
   private readonly reticle = new Graphics();
   /** Effective max range (u) of the primed weapon, fed each frame by update();
-   *  base = radar range. Drives the gun-family range-clamp burst marker. */
+   *  base = radar range. Drives the gun-family range-clamp burst marker AND the
+   *  mine's placement-arc radius (weaponArc.weaponRangeU is the one source). */
   private rangeU: number = CONFIG.vision.radar;
 
   /**
@@ -92,31 +95,53 @@ export class FiringUX {
     this.arcs.clear();
     this.arcs.position.set(pose.x, pose.y);
     this.arcs.rotation = pose.heading;
-    // Only the torpedo draws an arc sector; the gun family is 360° (no wedge)
-    // and instant abilities (speedBoost / mine / decoyBuoy) draw no marker.
-    if (kind === 'torpedo') this.drawBowArc(aim, pose.heading, ammo, denied);
+    // Only a SECTOR weapon draws a wedge — the torpedo's bow arc, and the
+    // mine's rear placement arc (Story 2.8). The gun family is 360° (no wedge)
+    // and the remaining abilities (speedBoost / decoyBuoy) draw no marker.
+    if (kind === 'sector' && id !== null) this.drawSectorArc(id, aim, pose.heading, ammo, denied);
     this.drawReticle(pose, aim, id, ammo.hasAmmo, cursor);
   }
 
-  private drawBowArc(aim: number, heading: number, ammo: FiringAmmo, denied: boolean): void {
-    // The wedge geometry comes from the shared arcFor descriptor (Story 1.10 —
-    // the single arc-shape source), so the drawn sector IS the enforced one.
-    const t = arcFor('torpedo');
+  /**
+   * The aim-gated wedge for a SECTOR weapon. Geometry comes from the shared
+   * arcFor descriptor (Story 1.10 — the single arc-shape source), so the drawn
+   * sector IS the enforced one. The MINE draws at its true placement reach
+   * (this.rangeU = CONFIG.mine.placeRange) because for it the wedge is the
+   * reachable water, not an indicator; the torpedo keeps the fixed indicative
+   * ARC_R (its fish runs to the map edge, so a radius would be a lie).
+   */
+  private drawSectorArc(
+    id: EquipmentId,
+    aim: number,
+    heading: number,
+    ammo: FiringAmmo,
+    denied: boolean,
+  ): void {
+    const t = arcFor(id);
     if (t.kind !== 'sector') return; // descriptor law: only a sector draws a wedge
     const lit = inArc(aim, wrapAngle(heading + t.offset), t.halfArc) && ammo.hasAmmo;
-    this.sector(t.offset, t.halfArc, denied ? DENIED_RED : TORP_TINT, denied || lit, ammo.reloadFrac);
+    const tint = id === 'mine' ? AMBER : TORP_TINT;
+    const radius = id === 'mine' ? this.rangeU : ARC_R;
+    this.sector(t.offset, t.halfArc, denied ? DENIED_RED : tint, denied || lit, ammo.reloadFrac, radius);
   }
 
   /** One sector fill (+ reload sweep-back), in the arcs graphic's local frame. */
-  private sector(offset: number, halfArc: number, color: number, lit: boolean, reloadFrac: number): void {
+  private sector(
+    offset: number,
+    halfArc: number,
+    color: number,
+    lit: boolean,
+    reloadFrac: number,
+    radius: number = ARC_R,
+  ): void {
     const g = this.arcs;
     g.moveTo(0, 0);
-    g.arc(0, 0, ARC_R, offset - halfArc, offset + halfArc);
+    g.arc(0, 0, radius, offset - halfArc, offset + halfArc);
     g.lineTo(0, 0);
     g.fill({ color: lit ? color : DIM, alpha: lit ? 0.5 : 0.14 });
     if (reloadFrac > 0 && reloadFrac < 1) {
       g.moveTo(0, 0);
-      g.arc(0, 0, ARC_R * 0.5, offset - halfArc, offset + halfArc);
+      g.arc(0, 0, radius * 0.5, offset - halfArc, offset + halfArc);
       g.lineTo(0, 0);
       g.fill({ color: DIM, alpha: 0.1 + 0.2 * reloadFrac });
     }
@@ -132,7 +157,7 @@ export class FiringUX {
     const g = this.reticle;
     g.clear();
     const kind = fireArcKind(id);
-    if (kind !== 'gunLike' && kind !== 'torpedo') return; // mines / abilities don't aim — no reticle
+    if (kind !== 'gunLike' && kind !== 'sector') return; // abilities don't aim — no reticle
     const color = this.reticleColor(pose.heading, aim, id, hasAmmo);
     g.moveTo(pose.x, pose.y).lineTo(cursor.x, cursor.y).stroke({ width: 1, color, alpha: 0.25 });
     g.circle(cursor.x, cursor.y, RETICLE_R).stroke({ width: 1.5, color, alpha: 0.8 });
@@ -166,9 +191,11 @@ export class FiringUX {
     g.moveTo(ix - tx, iy - ty).lineTo(ix + tx, iy + ty).stroke({ width: 1, color, alpha: 0.6 });
   }
 
-  /** Reticle tint: bright when the aim is in the primed weapon's arc + has ammo. */
+  /** Reticle tint: bright when the aim is in the primed weapon's arc + has ammo.
+   *  The torpedo keeps its cool-green identity; everything else (gun family and
+   *  the mine's rear placement) is amber. */
   private reticleColor(heading: number, aim: number, id: EquipmentId | null, hasAmmo: boolean): number {
     if (!(weaponArcHit(heading, aim, id) && hasAmmo)) return DIM;
-    return fireArcKind(id) === 'torpedo' ? TORP_TINT : AMBER;
+    return id === 'torpedo' ? TORP_TINT : AMBER;
   }
 }

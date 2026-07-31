@@ -21,7 +21,7 @@
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import { CONFIG, type BallisticEvent, type BoomEvent, type BurstEvent } from '@salvo/shared';
+import { CONFIG, type BallisticEvent, type BoomEvent, type BurstEvent, type TorpedoUpdateEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Pool } from '../util/pool.js';
 
@@ -181,6 +181,35 @@ export class Projectiles {
       expiresAt: ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy)),
       trailAt: TORP_TRAIL_SPACING,
     });
+  }
+
+  /**
+   * A live torpedo CHANGED COURSE (Story 2.8 — the ACOUSTIC HOMING doctrine's
+   * `torpU` re-emit): re-anchor the dead-reckoned track IN PLACE at the update's
+   * position/velocity/time, so extrapolation continues from the steer instead of
+   * running on the launch bearing. Same-shaped payload as the reveal (pos +
+   * velocity only — no range-derivable field), so nothing new is inferable.
+   *
+   * An update for an id we are NOT tracking is IGNORED, never a spawn: the
+   * server sends updates only to observers who can currently see the fish, but
+   * OUR track may already be gone (culled past the sight bubble, or its boom
+   * arrived first) — resurrecting it there would render a torpedo the local
+   * reveal rules had legitimately dropped.
+   *
+   * The lifetime backstop is re-derived from the NEW speed (a doctrine may have
+   * changed it) and the wake trail restarts its spacing count, because travelled
+   * distance is measured from the anchor this call just moved.
+   */
+  onBallisticUpdate(ev: TorpedoUpdateEvent): void {
+    const s = this.live.get(ev.id);
+    if (!s) return; // untracked (culled / already boomed): never resurrect
+    s.x0 = ev.x;
+    s.y0 = ev.y;
+    s.vx = ev.vx;
+    s.vy = ev.vy;
+    s.t0 = ev.t;
+    s.expiresAt = ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy));
+    s.trailAt = TORP_TRAIL_SPACING;
   }
 
   /** Terminate the projectile that produced this boom (if we were tracking it). */

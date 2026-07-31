@@ -14,7 +14,7 @@ import {
   recordSunk,
   refinePlacement,
   scoreAfterReconnect,
-  upgradeCount,
+  boonCount,
   type SunkObservation,
 } from '../score.js';
 
@@ -74,19 +74,22 @@ describe('placement — derived from the public alive count', () => {
   });
 });
 
-describe('upgradeCount + personalScore', () => {
-  it('sums the per-upgrade counts, tolerating a missing/short array', () => {
-    expect(upgradeCount([1, 0, 2, 3])).toBe(6);
-    expect(upgradeCount(undefined)).toBe(0);
-    expect(upgradeCount([])).toBe(0);
+describe('boonCount + personalScore', () => {
+  // Story 2.8: the metric is BOONS FITTED — the number of picks the player
+  // actually made (OwnShip.boons.length). Repeats are picks too, so occurrences
+  // count and the list is NEVER de-duplicated.
+  it('counts fitted boons, repeats included, tolerating a missing list', () => {
+    expect(boonCount(['gunDamage', 'gunDamage', 'shipHull'])).toBe(3);
+    expect(boonCount(undefined)).toBe(0);
+    expect(boonCount([])).toBe(0);
   });
 
   it('a WINNER gets the winner flag instead of a placement number', () => {
     const s = recordElimination(freshScore(), 2);
-    const won = personalScore(s, [1, 1], 4, true);
+    const won = personalScore(s, ['gunDamage', 'shipHull'], 4, true);
     expect(won.winner).toBe(true);
     expect(won.placement).toBeNull();
-    expect(won.upgrades).toBe(2);
+    expect(won.boons).toBe(2);
     expect(won.kills).toBe(4);
   });
 
@@ -224,11 +227,11 @@ describe('personalScoreFromResults — the GAME-END score comes off the MESSAGE'
   it('the winner reads VICTORY even while the schema has not patched winnerId yet', () => {
     // The schema-derived path reported `winner: false` here (winnerId still ''),
     // so the actual winner saw an amber "ELIMINATED" line under a VICTORY banner.
-    const s = personalScoreFromResults(freshScore(), [1, 1], msg, OWN, 0);
+    const s = personalScoreFromResults(freshScore(), ['gunDamage', 'gunDamage'], msg, OWN, 0);
     expect(s.winner).toBe(true);
     expect(s.placement).toBeNull();
     expect(s.kills).toBe(4); // from the row, not the lagging roster tally
-    expect(s.upgrades).toBe(2);
+    expect(s.boons).toBe(2);
   });
 
   it('a loser takes the placement from their own results row, not the roster', () => {

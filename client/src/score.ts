@@ -1,11 +1,14 @@
 // The OWN personal score (Story 2.3, amendments 22/23) — what the elimination /
-// results modal reports back to the player: how many upgrades you took, how many
+// results modal reports back to the player: how many BOONS you fitted, how many
 // kills you got, which contestant-controlled ships you personally sank, and what
 // place you were eliminated in (or that you won).
 //
 // CLIENT-DERIVED, no wire change. Everything here is assembled from data the
 // client already legitimately holds:
-//   • upgrades  — OwnShip.upg (self-private, already on every frame)
+//   • boons     — OwnShip.boons.length (self-private, already on every frame).
+//                 Story 2.8: the legacy `upg` counts died with the 14 upgrades;
+//                 the number the player experienced as PICKS is the fitted-boon
+//                 count, so score continuity holds (spec 2.8 Design Notes).
 //   • kills     — the public roster's PlayerMeta.kills for the own session
 //   • sunk list — the `sunk` events the kill feed already renders, filtered to
 //                 kills credited to the own session and to non-drone victims
@@ -184,8 +187,9 @@ export function scoreAfterReconnect(state: ScoreState): ScoreState {
 
 /** Everything the results modal renders about the local player. */
 export interface PersonalScore {
-  /** Total upgrades taken this match (the sum of OwnShip.upg). */
-  upgrades: number;
+  /** Total BOONS fitted this match (OwnShip.boons.length — Story 2.8; the
+   *  legacy per-upgrade count sum died with the 14 upgrades). */
+  boons: number;
   /** Kills, DRONES INCLUDED (the authoritative public roster tally). */
   kills: number;
   /** Contestant ships personally sunk — drones excluded (see the module note). */
@@ -196,9 +200,12 @@ export interface PersonalScore {
   winner: boolean;
 }
 
-/** Pure: total upgrades taken, from the per-upgrade counts on OwnShip.upg. */
-export function upgradeCount(upg: readonly number[] | undefined): number {
-  return (upg ?? []).reduce((n, c) => n + (Number.isFinite(c) ? c : 0), 0);
+/** Pure: boons fitted this match — the length of OwnShip.boons (Story 2.8).
+ *  Repeats are LEGAL and each is a pick the player made, so occurrences count
+ *  (never a de-duplicated set). Absent `you` (death frame / pre-first-frame)
+ *  reads 0. */
+export function boonCount(boons: readonly string[] | undefined): number {
+  return boons?.length ?? 0;
 }
 
 /**
@@ -206,9 +213,9 @@ export function upgradeCount(upg: readonly number[] | undefined): number {
  * recorded placement — a player who was never eliminated (or who is credited the
  * win after a mutual destruction) gets the winner indication, not a number.
  */
-export function personalScore(state: ScoreState, upg: readonly number[] | undefined, kills: number, winner: boolean): PersonalScore {
+export function personalScore(state: ScoreState, boons: readonly string[] | undefined, kills: number, winner: boolean): PersonalScore {
   return {
-    upgrades: upgradeCount(upg),
+    boons: boonCount(boons),
     kills: Math.max(0, Math.round(kills)),
     sunkContestants: state.sunkContestants,
     placement: winner ? null : state.placement,
@@ -237,7 +244,7 @@ export interface ResultsFacts {
  */
 export function personalScoreFromResults(
   state: ScoreState,
-  upg: readonly number[] | undefined,
+  boons: readonly string[] | undefined,
   msg: ResultsFacts,
   ownId: string,
   fallbackKills: number,
@@ -245,7 +252,7 @@ export function personalScoreFromResults(
   const row = msg.rows.find((r) => r.id === ownId);
   const winner = msg.winnerId === ownId;
   return {
-    upgrades: upgradeCount(upg),
+    boons: boonCount(boons),
     kills: Math.max(0, Math.round(row?.kills ?? fallbackKills)),
     sunkContestants: state.sunkContestants,
     placement: winner ? null : row?.placement ?? state.placement,

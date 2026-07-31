@@ -130,10 +130,12 @@ export function fmtRemaining(ms: number): string {
 /**
  * Pure: the quick-info line under a slot's name (amendment 13, literal): a
  * WEAPON reads `DMG n · CD ns`, an ABILITY reads `CD ns` — the split is
- * EQUIPMENT_IS_WEAPON, nothing else (so the mine, an ability that happens to
- * deal damage, shows CD only; its damage lives in the tooltip description).
- * While the slot is cooling the CD figure is the live remaining time, counting
- * down whether or not the slot is selected.
+ * EQUIPMENT_IS_WEAPON, nothing else. PIN FLIPPED in Story 2.8 (amendment 45):
+ * the mine became a click-aimed WEAPON, so it now carries the DMG figure it
+ * used to hide in the tooltip; the damage VALUE is stat-driven (effective
+ * stats), so a filler stack moves it. While the slot is cooling the CD figure
+ * is the live remaining time, counting down whether or not the slot is
+ * selected.
  */
 export function quickInfoLine(info: EquipmentInfo, reloadMsLeft: number): string {
   const cd = reloadMsLeft > 0 ? fmtRemaining(reloadMsLeft) : fmtSeconds(info.reloadMs);

@@ -29,7 +29,7 @@ function row(id: string, placement: number): ResultsRow {
 }
 
 function score(over: Partial<PersonalScore> = {}): PersonalScore {
-  return { upgrades: 2, kills: 3, sunkContestants: ['RIVAL'], placement: 4, winner: false, ...over };
+  return { boons: 2, kills: 3, sunkContestants: ['RIVAL'], placement: 4, winner: false, ...over };
 }
 
 function view(over: Partial<ResultsView> = {}): ResultsView {
@@ -79,9 +79,12 @@ describe('the personal-score copy (amendment 23)', () => {
     expect(placementLine(score({ placement: null }))).toBe('ELIMINATED');
   });
 
-  it('reports upgrades taken and the kill tally', () => {
-    expect(scoreRows(score({ upgrades: 5, kills: 3 }))).toEqual([
-      ['UPGRADES TAKEN', '5'],
+  // PIN FLIPPED (Story 2.8): the 14 legacy upgrades died, so the row the player
+  // reads is BOONS FITTED — the same number they experienced as refit picks
+  // (spec 2.8 Design Notes, "score continuity").
+  it('reports boons fitted and the kill tally', () => {
+    expect(scoreRows(score({ boons: 5, kills: 3 }))).toEqual([
+      ['BOONS FITTED', '5'],
       ['KILLS', '3'],
     ]);
   });
@@ -106,7 +109,7 @@ describe('showResults — the elimination modal', () => {
     const text = document.getElementById('results-overlay')?.textContent ?? '';
     expect(text).toContain('ELIMINATED');
     expect(text).toContain('PLACE #4');
-    expect(text).toContain('UPGRADES TAKEN');
+    expect(text).toContain('BOONS FITTED'); // Story 2.8: the legacy upgrade row's successor
     expect(text).toContain('RIVAL');
     expect(spectateButton()?.textContent).toBe('SPECTATE');
     expect(returnButton()?.textContent).toBe('RETURN TO PORT');

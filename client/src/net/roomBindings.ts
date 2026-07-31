@@ -10,6 +10,7 @@ import {
   CONFIG,
   HULL_IDS,
   MSG,
+  boonStackCount,
   hullEnvelope,
   type BallisticEvent,
   type BoomEvent,
@@ -25,7 +26,6 @@ import {
   type ShipClassId,
   type SpawnEvent,
   type SunkEvent,
-  type UpgradeEvent,
 } from '@salvo/shared';
 import type { GameState } from '../state.js';
 import type { Predictor } from '../sim/prediction.js';
@@ -41,7 +41,7 @@ import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
 import { killLine, pushKillLine } from '../ui/killFeed.js';
-import { pointToastLine, pushUpgradeToast, upgradeLabel } from '../ui/upgradeToast.js';
+import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
 import { fireTone, type ToneId } from '../audio/tones.js';
 
@@ -82,16 +82,16 @@ export interface RoomBindingDeps {
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
-   * Fired when the authoritative own class, upgrade counts, OR boon list
-   * first arrive (or ever change) on `you` — the client trusts the server,
-   * not the localStorage guess. The handler resolves the boon ids
-   * (fail-closed), recomputes effectiveStats(cls, upg, boons), and swaps the
-   * predictor kinematics + behavior hooks, own-hull visuals, HUD
-   * denominators, radar rings/sweep period, camera zoom, and fog hole to
-   * match (main.applyOwnStats — the Stage D extension of the old onOwnClass
-   * seam, grown the boons leg in Story 2.5).
+   * Fired when the authoritative own class OR boon list first arrive (or ever
+   * change) on `you` — the client trusts the server, not the localStorage
+   * guess. The handler resolves the boon ids (fail-closed), recomputes
+   * effectiveStats(cls, boons), and swaps the predictor kinematics + behavior
+   * hooks, own-hull visuals, HUD denominators, radar rings/sweep period,
+   * camera zoom, and fog hole to match (main.applyOwnStats — the Stage D
+   * onOwnClass seam, grown the boons leg in Story 2.5; the legacy upgrade-
+   * counts leg died with the wholesale strip in Story 2.8).
    */
-  onOwnStats: (cls: ShipClassId, upg: readonly number[], boons: readonly string[]) => void;
+  onOwnStats: (cls: ShipClassId, boons: readonly string[]) => void;
   /**
    * Reset the throttle order to neutral. Called on own spawn (respawn + the
    * match-activation teleport) and own sunk, so a set engine order never
@@ -233,10 +233,10 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
     deps.onSpectate();
   }
   if (f.you) {
-    // Trust the server's class + upgrade counts over any local guess: on the
+    // Trust the server's class + fitted boons over any local guess: on the
     // first frame (or any change to either) recompute the effective stats and
     // swap every consumer (predictor/HUD/radar/camera/fog) to match.
-    if (ownStatsChanged(f.you, net.you)) deps.onOwnStats(f.you.cls, f.you.upg, f.you.boons);
+    if (ownStatsChanged(f.you, net.you)) deps.onOwnStats(f.you.cls, f.you.boons);
     net.you = f.you;
     deps.state.phase = 'active';
     if (f.you.alive) deps.state.respawnEta = null;
@@ -279,15 +279,17 @@ function routeDenials(f: FrameMsg, deps: RoomBindingDeps): void {
 }
 
 /**
- * Pure: did the own class, upgrade counts, or boon list change between
- * frames? Cheap array-equality (14 numbers + the boon ids) — this gates the
- * (heavier) effective-stats recompute in deps.onOwnStats, so it runs on
- * change only, not per frame. Two identical lists in fresh arrays (every
- * frame reallocates) must NOT fire it.
+ * Pure: did the own class or the fitted-boon list change between frames? Cheap
+ * array-equality over the boon ids (Story 2.8: the legacy 14-number `upg`
+ * vector died with the strip, so boons are the whole stat input) — this gates
+ * the (heavier) effective-stats recompute in deps.onOwnStats, so it runs on
+ * change only, not per frame. Two identical lists in fresh arrays (every frame
+ * reallocates) must NOT fire it, and REPEATED ids are meaningful (a stack), so
+ * the comparison stays element-wise and order-sensitive.
  */
 export function ownStatsChanged(next: OwnShip, prev: OwnShip | null | undefined): boolean {
   if (!prev || next.cls !== prev.cls) return true;
-  return !sameList(next.upg, prev.upg) || !sameList(next.boons, prev.boons);
+  return !sameList(next.boons, prev.boons);
 }
 
 /** Element-wise equality of two flat lists (numbers or strings). */
@@ -311,6 +313,7 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
     case 'sunk': handleSunk(e, f.t, deps); return;
     case 'shell': handleShell(e, deps); return;
     case 'torp': handleTorp(e, deps); return;
+    case 'torpU': deps.projectiles.onBallisticUpdate(e); return;
     case 'blip': deps.radar.onBlip(e); return;
     case 'boom': handleBoom(e, deps); return;
     case 'burst': handleBurst(e, deps); return;
@@ -319,12 +322,12 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   handleRewardEvent(e, f, deps);
 }
 
-/** Self-private reward events: the (interregnum) upgrade grant, the banked
- *  level, and the fitted boon. (The 'heal' event left the wire with the REPAIR
- *  spend — Story 2.1, PV 12.) */
+/** Self-private reward events: the banked level and the fitted boon. (The
+ *  'heal' event left the wire with the REPAIR spend — Story 2.1, PV 12; the
+ *  killer-private 'upg' grant left with the legacy upgrade strip — Story 2.8,
+ *  PV 16.) */
 function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   switch (e.k) {
-    case 'upg': handleUpgrade(e, deps); return;
     case 'pt': handlePoint(e, f, deps); return;
     case 'bn': handleBoonFit(e, deps); return;
   }
@@ -376,21 +379,13 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
  */
 function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
-  pushUpgradeToast(boonFitToastLine(e.boon));
+  // Name the rung the card showed: `you` on THIS frame already carries the new
+  // boon (handleFrame applies it before the events fan out), so the occurrence
+  // count IS the fitted position — 1 for a first fit, 3 for the third HEAVY
+  // SHELLS. A defensive 0 (no `you`) floors to the ladder's first name.
+  pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.boons ?? [], e.boon)));
   deps.audio.play('upgrade');
   deps.onSpendAck();
-}
-
-/**
- * Kill-reward upgrade toast + tone. `upg` is only ever emitted to the killer
- * itself (perception.ts's killer-private rule, mirroring dmg), so this always
- * fires for the local player — the id check is defensive, not load-bearing.
- * The authoritative stat change rides OwnShip.upg (onOwnStats); this is UX.
- */
-function handleUpgrade(e: UpgradeEvent, deps: RoomBindingDeps): void {
-  if (e.id !== deps.state.net.sessionId) return;
-  pushUpgradeToast(upgradeLabel(e.type));
-  deps.audio.play('upgrade');
 }
 
 function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
@@ -403,6 +398,12 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   // own-shot signal — the same heuristic the muzzle flash above already uses.
   if (nearOwnShip(e.x, e.y, deps)) deps.audio.play(fireTone('gun'));
 }
+
+/** A steering torpedo re-anchored its track (Story 2.8 — ACOUSTIC HOMING).
+ *  Pure render bookkeeping: no tone, no flash, no muzzle heuristic — the fish
+ *  was already revealed, this only keeps the dead reckoning honest. Handled
+ *  inline above (deps.projectiles.onBallisticUpdate).
+ */
 
 /** Torpedoes are a "quiet weapon" — no muzzle flash for onlookers (per the
  *  plan: a fish you can't see coming is the point) — but the shooter still

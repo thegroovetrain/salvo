@@ -94,7 +94,9 @@ describe('nextPrimedSlot — switch-to / same-key revert', () => {
 describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
   const TB_SLOTS = ['gun', 'torpedo', 'speedBoost', null] as const; // Torpedo Boat
   const BB_SLOTS = ['gun', 'cannon', 'starShells', null] as const; // Battleship (both specials weapons)
-  const ML_SLOTS = ['gun', 'mine', 'decoyBuoy', null] as const; // Mine Layer (both specials abilities)
+  // Mine Layer: as of Story 2.8 (amendment 45) the MINE is a click-aimed
+  // weapon, so only the decoy rack (slot 2) is still an ability here.
+  const ML_SLOTS = ['gun', 'mine', 'decoyBuoy', null] as const;
 
   it('is true only for a slot holding EQUIPMENT_IS_WEAPON:false equipment', () => {
     expect(slotHoldsAbility(TB_SLOTS, 2)).toBe(true); // speedBoost
@@ -104,8 +106,10 @@ describe('slotHoldsAbility — the loadout-driven weapon/ability split', () => {
     expect(slotHoldsAbility(BB_SLOTS, 2)).toBe(false); // star shells is a weapon
   });
 
-  it('the Mine Layer answers true for BOTH specials — mine (slot 1) + decoyBuoy (slot 2)', () => {
-    expect(slotHoldsAbility(ML_SLOTS, 1)).toBe(true);
+  it('PIN FLIPPED: the ML mine (slot 1) is a WEAPON now; only the decoy rack activates', () => {
+    // Story 2.8, amendment 45: the mine primes on Q and places on a click
+    // inside its rear arc, so it must NOT take the instant-activation path.
+    expect(slotHoldsAbility(ML_SLOTS, 1)).toBe(false);
     expect(slotHoldsAbility(ML_SLOTS, 2)).toBe(true);
     expect(slotHoldsAbility(ML_SLOTS, 0)).toBe(false); // gun stays a weapon
   });
@@ -320,7 +324,9 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
     expect(rides).toEqual([1, 2]);
   });
 
-  it('the ML activates BOTH specials — two different-slot presses ride SUCCESSIVE inputs', () => {
+  it('PIN FLIPPED: the ML Q press PRIMES the mine while E still activates the decoy', () => {
+    // Story 2.8, amendment 45: the mine left the activation FIFO for the prime
+    // path. Q must prime slot 1 and queue nothing; E must queue the decoy.
     const presses: number[] = [];
     kb = new KeyboardInput({
       isSlotFitted: (slot) => slot === 1 || slot === 2,
@@ -328,15 +334,15 @@ describe('KeyboardInput — ability activation (FIFO + capped-press feedback)', 
       onAbility: (slot) => presses.push(slot),
     });
     kb.attach();
-    press('KeyQ'); // mine — slot 1
-    press('KeyE'); // decoy — slot 2, same window
-    expect(presses).toEqual([1, 2]);
-    expect(kb.pendingActivationCount).toBe(2);
+    press('KeyQ'); // mine — slot 1: a WEAPON prime now
+    expect(kb.primedSlot).toBe(1);
+    expect(kb.pendingActivationCount).toBe(0);
+    press('KeyE'); // decoy — slot 2: still an activation
+    expect(presses).toEqual([2]);
+    expect(kb.pendingActivationCount).toBe(1);
     kb.consumeActivation();
-    expect([kb.actSeq, kb.actSlot]).toEqual([1, 1]); // the FIRST press — NOT lost
-    kb.consumeActivation();
-    expect([kb.actSeq, kb.actSlot]).toEqual([2, 2]);
-    expect(kb.primedSlot).toBe(SLOT_GUN); // neither special ever primes
+    expect([kb.actSeq, kb.actSlot]).toEqual([1, 2]);
+    expect(kb.primedSlot).toBe(1); // an activation never disturbs the prime
   });
 
   it('an activation press never disturbs an existing weapon prime', () => {
