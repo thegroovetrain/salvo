@@ -2,8 +2,9 @@
 title: 'Story 2.9: The Build Must Be Felt'
 type: 'feature'
 created: '2026-07-31'
-status: 'in-review'
+status: 'done'
 baseline_revision: '836b5ef'
+final_revision: '066f15d'
 review_loop_iteration: 0
 followup_review_recommended: true
 context:
