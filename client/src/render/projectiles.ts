@@ -120,8 +120,12 @@ export interface OwnModes {
 }
 
 /** Which own weapon a `shell`/`torp` reveal came out of, when the client can
- *  honestly say (roomBindings' own-fire correlation); null = not our shot. */
-export type OwnFire = 'gun' | 'cannon' | 'torpedo' | null;
+ *  honestly say (roomBindings' own-fire correlation); null = not our shot.
+ *  `starShells` rides the `shell` wire kind too (server/equipment/starShells.ts),
+ *  so it is claimable — it earns its OWN report (fireStarShells) while keeping
+ *  the generic shell LOOK, because a flare in flight is just a shell until it
+ *  bursts. */
+export type OwnFire = 'gun' | 'cannon' | 'torpedo' | 'starShells' | null;
 
 /**
  * Pure: the look a newly-revealed track paints with.
@@ -130,7 +134,8 @@ export type OwnFire = 'gun' | 'cannon' | 'torpedo' | null;
  * torpedo doctrine is homing (self-private knowledge); an enemy's homing fish
  * earns the same look the moment it visibly steers (onBallisticUpdate). A shell
  * is a cannon look only when it is OUR cannon shot — the wire is mode-blind for
- * ballistics and stays that way.
+ * ballistics and stays that way, and an own STAR SHELL (which rides the same
+ * wire kind) falls through to the generic shell look on the same clause.
  */
 export function lookForReveal(kind: Kind, own: OwnFire, modes: OwnModes): ProjectileLookId {
   if (kind === 'torp') return own === 'torpedo' && modes.torpedo === 'homing' ? 'torpHoming' : 'torp';

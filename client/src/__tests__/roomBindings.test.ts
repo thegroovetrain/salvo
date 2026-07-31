@@ -7,15 +7,18 @@
 // and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
 // a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
+import { CONFIG } from '@salvo/shared';
 import {
   bindRoom,
   frameIsDeadOrSpectating,
   inEnemyBurningZone,
+  readsAsBurn,
   windowRunning,
   type RoomBindingDeps,
 } from '../net/roomBindings';
 import type { Connection } from '../net/connection';
 import type { OwnFire } from '../render/projectiles';
+import { CLIENT_CONFIG } from '../config';
 import { fitDetune } from '../audio/tones';
 
 interface FakeRoom {
@@ -509,6 +512,14 @@ function setupWater(ownFire: OwnFire = null) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
   const conn = { room, welcome: {}, sink } as unknown as Connection;
+  // A ONE-SHOT stand-in for main.ts's latch (sim/ownFire.ts, pinned in its own
+  // suite): claiming CONSUMES, so a second reveal in the same window gets null.
+  let held: OwnFire = ownFire;
+  const ownFireWeapon = vi.fn((): OwnFire => {
+    const claimed = held;
+    held = null;
+    return claimed;
+  });
   const play = vi.fn();
   const spawnEffect = vi.fn();
   const onShell = vi.fn();
@@ -537,10 +548,10 @@ function setupWater(ownFire: OwnFire = null) {
     onSpectate: vi.fn(),
     ordnanceHue: () => 0,
     colors: () => null,
-    ownFireWeapon: () => ownFire,
+    ownFireWeapon,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, play, spawnEffect, onShell, trigger, flash, deps };
+  return { sink, play, spawnEffect, onShell, trigger, flash, deps, ownFireWeapon };
 }
 
 describe('own-fire correlation (Story 2.9) — telling our cannon from our gun', () => {
@@ -577,13 +588,81 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
     expect(play).not.toHaveBeenCalled(); // ...and certainly no own-fire cue
   });
 
-  it('marks an own TORPEDO as ours (styled from own doctrine at launch), never as a cannon', () => {
-    const { sink, play, onShell } = setupWater('cannon'); // a stale cannon latch
+  it('marks an own TORPEDO as ours (styled from own doctrine at launch)', () => {
+    const { sink, play, onShell } = setupWater('torpedo');
     sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'torpedo');
     expect(play).toHaveBeenCalledWith('fireTorp');
   });
+
+  // --- 2.9 REVIEW: the latch must not dress what it did not fire --------------
+  //
+  // The correlation is a HEURISTIC over one self-private click, and its whole
+  // licence is that it only ever describes the round that click actually made.
+  // Every case below is one where it used to claim more than that.
+
+  it('a fish on our bow we did NOT fire renders generic — the homing look is not free', () => {
+    // A cannon latch is standing (we just shelled someone) and an ENEMY torpedo
+    // surfaces inside our hull length. Dressing it as our own steering fish
+    // would tell the player their doctrine is in the water when the enemy's is.
+    const { sink, onShell } = setupWater('cannon');
+    sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), null);
+  });
+
+  it('keeps the pre-2.9 own-fire WHOOSH on the near-hull heuristic alone', () => {
+    // Deliberately unchanged: the torpedo whoosh on `nearOwnShip` predates 2.9
+    // (it is the muzzle-flash heuristic), and retuning an old cue is not this
+    // patch's business. Only the LOOK — new information, and new misinformation
+    // — is gated on the claim.
+    const { sink, play } = setupWater(null);
+    sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+    expect(play).toHaveBeenCalledWith('fireTorp');
+  });
+
+  it('ONE claim dresses ONE shell: the second reveal in the window reads generic', () => {
+    // The latch is one-shot (sim/ownFire.ts). Two shells materialize on our hull
+    // in the same frame — ours, and an enemy's revealed at point-blank range.
+    // The first wears the cannon weight; the second must not.
+    const { sink, play, spawnEffect, onShell } = setupWater('cannon');
+    sink.handler(victimFrame([
+      { k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 },
+      { k: 'shell', id: 's2', x: 0, y: 0, vx: -130, vy: 0, t: 900 },
+    ], {}));
+    expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 's1' }), 'cannon');
+    expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 's2' }), 'gun');
+    expect(spawnEffect).toHaveBeenNthCalledWith(1, 'muzzleHeavy', 0, 0);
+    expect(spawnEffect).toHaveBeenNthCalledWith(2, 'muzzle', 0, 0);
+    expect(play).toHaveBeenNthCalledWith(1, 'fireCannon');
+    expect(play).toHaveBeenNthCalledWith(2, 'fireGun');
+  });
+
+  it('never CLAIMS the latch for a reveal that is not on our own hull', () => {
+    // Consuming on a distant shell would burn the claim our own reveal is about
+    // to need — so the far shell must not consult it at all.
+    const { sink, onShell, ownFireWeapon } = setupWater('cannon');
+    sink.handler(victimFrame([{ k: 'shell', id: 'e1', x: 900, y: 0, vx: 130, vy: 0, t: 900 }], {}));
+    sink.handler(victimFrame([{ k: 'torp', id: 'e2', x: 900, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+    expect(ownFireWeapon).not.toHaveBeenCalled();
+    expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 'e1' }), null);
+    expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 'e2' }), null);
+  });
+
+  it('gives an own STAR SHELL its own report — and the ordinary shell look', () => {
+    // The flare rides the `shell` wire kind, so it reached the client wearing
+    // the gun's crack. It is a fitted line like any other and must be FELT
+    // (FR22); the LOOK stays generic, because a flare in flight is a shell.
+    const { sink, play, spawnEffect, onShell } = setupWater('starShells');
+    sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
+    expect(play).toHaveBeenCalledWith('fireStarShells');
+    expect(play).not.toHaveBeenCalledWith('fireGun');
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'starShells');
+    expect(spawnEffect).toHaveBeenCalledWith('muzzle', 0, 0); // not the cannon's heavy flash
+  });
 });
+
+// The latch's own rules (one-shot claim, staleness, the hard-boundary clear)
+// live in __tests__/ownFire.test.ts — this suite pins how roomBindings SPENDS it.
 
 describe('pierce identity (Story 2.9) — the derived AP boom id', () => {
   it('renders a punch-through ring for a derived id and the ordinary spark otherwise', () => {
@@ -645,6 +724,62 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     play.mockClear();
     sink.handler(victimFrame(dmg, {}, { litZones: [{ ...burning('foe')[0], x: 900 }] }));
     expect(play).toHaveBeenCalledWith('damage');
+  });
+
+  // --- 2.9 REVIEW: burn is a CLASSIFICATION, not a location -------------------
+  //
+  // "Is there fire under the hull right now" was wrong in both directions. A
+  // torpedo that slams a hull parked in a burning patch is not a crackle, and
+  // the last DoT flush of a fire we have already sailed clear of is not a shell.
+
+  it('reads a BIG hit taken inside the fire as the slam it was', () => {
+    const { sink, play, trigger } = setupWater();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 40 }], {}, { litZones: burning('foe') }));
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(play).not.toHaveBeenCalledWith('burn');
+    expect(trigger).toHaveBeenCalledWith(40); // full amplitude — a torpedo, not a tick
+  });
+
+  it('still reads a DoT flush that lands just after the fire left the frame', () => {
+    const { sink, play, trigger } = setupWater();
+    // Frame 1 (t=1000): standing in the fire, no damage yet.
+    sink.handler(victimFrame([], {}, { litZones: burning('foe') }));
+    // Frame 2: the zone is gone from the list (expired, or we sailed clear) and
+    // the server's aggregated flush for the window we DID burn in arrives.
+    sink.handler({
+      t: 1400, tick: 4, ackSeq: 0, contacts: [], mines: [],
+      events: [{ k: 'dmg', id: 'me', amount: 6 }],
+      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: [], alive: true, sweep: 0 },
+    });
+    expect(play).toHaveBeenLastCalledWith('burn');
+    expect(trigger).toHaveBeenLastCalledWith(6 * CLIENT_CONFIG.litZone.burnShakeScale);
+  });
+
+  it('lets the grace EXPIRE — a hit long after the fire is an ordinary hit', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([], {}, { litZones: burning('foe') })); // t=1000
+    sink.handler({
+      t: 6000, tick: 9, ackSeq: 0, contacts: [], mines: [],
+      events: [{ k: 'dmg', id: 'me', amount: 6 }],
+      you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: [], alive: true, sweep: 0 },
+    });
+    expect(play).toHaveBeenLastCalledWith('damage');
+  });
+
+  it('a small hit with NO fire in our history is still an ordinary hit', () => {
+    const { sink, play, trigger } = setupWater();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 2 }], {}));
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(trigger).toHaveBeenCalledWith(2);
+  });
+
+  it('readsAsBurn pins both halves: recent enough AND small enough', () => {
+    const cap = CONFIG.starShells.incendiaryDps * 0.5 * 4;
+    expect(readsAsBurn(cap, 0)).toBe(true);
+    expect(readsAsBurn(cap, 600)).toBe(true); // the grace's last instant
+    expect(readsAsBurn(cap + 0.1, 0)).toBe(false); // too big to be a DoT flush
+    expect(readsAsBurn(1, 601)).toBe(false); // too long since the fire
+    expect(readsAsBurn(1, Infinity)).toBe(false); // never burned at all
   });
 
   it('inEnemyBurningZone pins the predicate itself', () => {

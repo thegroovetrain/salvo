@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
 import type { MineView } from '@salvo/shared';
 import { reconcileMines, mineMoved, Mines, type MinePos } from '../render/mines.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 const mine = (id: string, own = false, by = 'p1'): MineView => ({ id, x: 0, y: 0, own, by });
 /** A mine at a world point (the SELF-PROPELLED cases move them around). */
@@ -112,6 +113,38 @@ describe('Mines.sync — a creeping mine MOVES on screen (the defect fix)', () =
     expect(afterLeg).toBeGreaterThan(1);
     mines.sync([at('m1', 100, 0)], () => 0x00ff00); // stopped again — nothing more
     expect(wake.mock.calls.length).toBe(afterLeg);
+  });
+
+  // STORY 2.9 REVIEW: the dots were all dropped at the leg's ENDPOINT — where
+  // the mine now IS, not where it has BEEN — so a leg covering several spacings
+  // painted its whole wake as one clot on the mine's nose. A wake that leads its
+  // own mine points the player the wrong way down the mine's track.
+  it('lays each wake dot where the mine CROSSED it, along the leg', () => {
+    const wake = vi.fn();
+    const spacing = CLIENT_CONFIG.ordnance.creepWakeSpacing;
+    const mines = new Mines(new Container(), new Container(), undefined, wake);
+    mines.sync([at('m1', 0, 0)], () => 0x00ff00);
+    mines.sync([at('m1', spacing * 3, 0)], () => 0x00ff00); // one frame, three spacings
+    expect(wake.mock.calls).toEqual([
+      [spacing, 0],
+      [spacing * 2, 0],
+      [spacing * 3, 0],
+    ]);
+  });
+
+  it('follows the LEG bearing, not an axis (a diagonal creep)', () => {
+    const wake = vi.fn();
+    const s = CLIENT_CONFIG.ordnance.creepWakeSpacing;
+    const mines = new Mines(new Container(), new Container(), undefined, wake);
+    mines.sync([at('m1', 0, 0)], () => 0x00ff00);
+    // Two spacings due north-east (a 3-4-5 leg scaled to 2 spacings).
+    mines.sync([at('m1', 2 * s * 0.6, 2 * s * 0.8)], () => 0x00ff00);
+    expect(wake).toHaveBeenCalledTimes(2);
+    const [first, second] = wake.mock.calls;
+    expect(first[0]).toBeCloseTo(s * 0.6, 6);
+    expect(first[1]).toBeCloseTo(s * 0.8, 6);
+    expect(second[0]).toBeCloseTo(2 * s * 0.6, 6);
+    expect(second[1]).toBeCloseTo(2 * s * 0.8, 6);
   });
 });
 

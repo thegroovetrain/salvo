@@ -443,18 +443,37 @@ export const ACTIVE_PULSE_HZ = Math.min(1 / ACTIVE_BREATH_SEC, CLIENT_CONFIG.set
 /** Peak depth of the ACTIVE breath (a multiplier swing on the outline's alpha). */
 export const ACTIVE_PULSE_AMP = 0.3;
 
+/** Largest frame gap (s) the ACTIVE-breath integrator advances across — the
+ *  litZones/hud precedent: a backgrounded tab, or a server-clock re-estimate
+ *  that moves `nowSec` by seconds, must not jump the wave. */
+const MAX_BREATH_DT = 0.5;
+
 /**
- * Pure: the ACTIVE outline's alpha MULTIPLIER this frame, in [1 - 2·amp, 1].
+ * Pure: advance the ACTIVE breath's PHASE (radians) by one frame's `dtSec`.
  *
- * Integrated phase off the shared server clock (the xpRail chipAlpha idiom), so
- * the breath never re-phases on a frame hitch and every surface breathing on
- * this clock stays in step. `amp` is the MOTION-SCALED amplitude: `reduced`
- * halves the depth, `off` makes it exactly 1 — a STATIC outline, present and
- * fully legible, which with the always-on countdown is the whole dual-code.
- * Duration is never touched (juice discipline: reduced halves depth, not time).
+ * INTEGRATED, never derived from absolute time (litZones.advanceEmberPhase and
+ * hud.advanceHullPulsePhase, verbatim reasoning). The server clock this rides is
+ * an ESTIMATE, and it is re-estimated: an absolute `sin(nowSec · ω)` teleports
+ * the outline's alpha the instant that estimate moves, which is exactly the
+ * sudden brightness step the photosensitivity cap exists to prevent. Integrating
+ * makes the phase continuous through any such correction, so the cap on the RATE
+ * is also a cap on how fast the alpha can move.
  */
-export function activeBreath(nowSec: number, amp = ACTIVE_PULSE_AMP): number {
-  return 1 - amp + amp * Math.sin(nowSec * ACTIVE_PULSE_HZ * Math.PI * 2);
+export function advanceBreathPhase(phase: number, dtSec: number): number {
+  const step = Math.min(MAX_BREATH_DT, Math.max(0, dtSec));
+  return (phase + ACTIVE_PULSE_HZ * step * Math.PI * 2) % (Math.PI * 2);
+}
+
+/**
+ * Pure: the ACTIVE outline's alpha MULTIPLIER at a breath `phase` (radians —
+ * advanceBreathPhase's output), in [1 - 2·amp, 1]. `amp` is the MOTION-SCALED
+ * amplitude: `reduced` halves the depth, `off` makes it exactly 1 — a STATIC
+ * outline, present and fully legible, which with the always-on countdown is the
+ * whole dual-code. Duration is never touched (juice discipline: reduced halves
+ * depth, not time).
+ */
+export function activeBreath(phase: number, amp = ACTIVE_PULSE_AMP): number {
+  return 1 - amp + amp * Math.sin(phase);
 }
 
 /**
@@ -626,15 +645,19 @@ export function shouldShowTooltip(hover: HoverState, nowMs: number, dim: boolean
  * shipped in 2.2 as deliberate absence now carries the build).
  *
  * A normal row is a PAIR of lines: the `◆ NAME` the card showed (at the stack's
- * current rung, with `×n` when the ladder name does not itself say how many you
- * hold) over a compact effect line reporting the LIVE value. A `divider` row is
- * a single line with no effect under it — the `— SHIP —` section head and the
- * `+n MORE` overflow marker.
+ * current rung) over a compact effect line reporting the LIVE value. A `divider`
+ * row is a single line with no effect under it — the `— SHIP —` section head and
+ * the `+n MORE` overflow marker.
  */
 export interface TooltipBoonRow {
   label: string;
   effect: string;
   divider: boolean;
+  /** The `+n MORE` marker only: how many REAL accrued lines it stands in for.
+   *  Carried as data (not re-parsed off the label) so a second trim pass — the
+   *  render's viewport clamp re-trimming an already-trimmed list — folds the
+   *  earlier count into its own instead of forgetting it. */
+  hidden?: number;
 }
 
 /**
@@ -655,20 +678,32 @@ export const SHIP_DIVIDER_ROW = '— SHIP —';
 
 /** Pure: the `+n MORE` marker that replaces the rows a panel cannot fit. */
 export function moreBoonsRow(hidden: number): TooltipBoonRow {
-  return { label: `◆ +${hidden} MORE`, effect: '', divider: true };
+  return { label: `◆ +${hidden} MORE`, effect: '', divider: true, hidden };
 }
 
-/** Pure: one accrued line's row — the ladder name at the rung you hold, `×n`
- *  when you hold more than one, and the live effect line under it. */
+/**
+ * Pure: one accrued line's row — the ladder name at the rung you hold, and the
+ * live effect line under it.
+ *
+ * NO `×n` SUFFIX. `boonName` is position-aware: every stackable ladder in the
+ * catalog names its own rung (HEAVY SHELLS Mk III), so a suffix could only ever
+ * repeat what the name just said — and the rows that DON'T carry a rung name are
+ * the single-copy lines, where there is no count to print anyway. The
+ * "only when needed" contract stands; it is now trivially satisfied, and the
+ * label column gets three glyphs back (amendment 47).
+ */
 function boonRow(id: string, stack: number, stats: EffectiveStats): TooltipBoonRow {
-  const times = stack > 1 ? ` ×${stack}` : '';
-  return { label: `◆ ${boonName(id, stack - 1)}${times}`, effect: boonEffectLine(id, stats), divider: false };
+  return { label: `◆ ${boonName(id, stack - 1)}`, effect: boonEffectLine(id, stats), divider: false };
 }
 
 /**
  * Pure: every accrued row for a slot, UNTRIMMED, in fit order. Stacked copies
  * COLLAPSE: five HEAVY SHELLS are one row at Mk V, not five rows. The gun slot
  * appends the shipwide lines under the `— SHIP —` divider (see slotBoonIds).
+ *
+ * The divider is a SEPARATOR, so it only appears with something on both sides:
+ * a gun holding shipwide lines and nothing of its own lists them bare. A heading
+ * over the whole list separates it from nothing and just spends a line saying so.
  */
 export function boonRows(id: EquipmentId, boons: readonly string[], stats: EffectiveStats): TooltipBoonRow[] {
   const ids = slotBoonIds(id, boons);
@@ -682,6 +717,7 @@ export function boonRows(id: EquipmentId, boons: readonly string[], stats: Effec
     (SHIPWIDE_CATEGORIES.includes(BOON_CATALOG[b].category) ? ship : own).push(row);
   }
   if (ship.length === 0) return own;
+  if (own.length === 0) return ship;
   return [...own, { label: SHIP_DIVIDER_ROW, effect: '', divider: true }, ...ship];
 }
 
@@ -787,8 +823,13 @@ function boonBlockLines(rows: readonly TooltipBoonRow[], innerW: number): number
   return lines;
 }
 
-/** Pure: the modelled height of a tooltip panel, against its container. */
-export function tooltipMetrics(model: TooltipModel): TooltipMetrics {
+/**
+ * Pure: the modelled height of a tooltip panel, against its container. `maxPanelH`
+ * is the budget `overflow` is measured against — the design floor by default, and
+ * the REAL viewport's allowance when the render clamps against a screen shorter
+ * than the floor (drawTooltip / tooltipRenderGeom).
+ */
+export function tooltipMetrics(model: TooltipModel, maxPanelH = TOOLTIP_MAX_PANEL_H): TooltipMetrics {
   const T = TIP_TYPE;
   const innerW = tooltipInnerWidth();
   const descLines = monoWrapLines(model.description, T.descSize, 0, innerW);
@@ -800,7 +841,32 @@ export function tooltipMetrics(model: TooltipModel): TooltipMetrics {
     T.descGap +
     descLines * T.descLineHeight +
     (model.boons.length > 0 ? T.boonsGap + boonLines * T.boonLineHeight : 0);
-  return { innerW, descLines, boonLines, height, overflow: height - TOOLTIP_MAX_PANEL_H };
+  return { innerW, descLines, boonLines, height, overflow: height - maxPanelH };
+}
+
+/** Pure: how many REAL accrued lines a row list accounts for — one per boon row,
+ *  none for a `— SHIP —` head (furniture: counting it would make the `+n MORE`
+ *  marker overstate the build it hides), and the carried count for a marker that
+ *  is itself standing in for rows. */
+function boonLineCount(rows: readonly TooltipBoonRow[]): number {
+  return rows.reduce((n, r) => n + (r.divider ? (r.hidden ?? 0) : 1), 0);
+}
+
+/**
+ * Pure: the first `k` rows, tidied into something that can actually be shown —
+ * the trim's own honesty rules, kept out of the fit search's arithmetic.
+ *
+ *  • a kept TRAILING divider is popped: a `— SHIP —` head whose section was
+ *    entirely trimmed away introduces nothing, and directly above the marker it
+ *    reads as a heading FOR the marker;
+ *  • the `+n MORE` count is the REAL lines dropped, dividers excluded — the
+ *    panel must never claim to be hiding a separator.
+ */
+export function trimmedBoonRows(rows: readonly TooltipBoonRow[], k: number): TooltipBoonRow[] {
+  const kept = rows.slice(0, k);
+  while (kept.length > 0 && kept[kept.length - 1].divider) kept.pop();
+  const hidden = boonLineCount(rows) - boonLineCount(kept);
+  return hidden > 0 ? [...kept, moreBoonsRow(hidden)] : kept;
 }
 
 /**
@@ -808,14 +874,71 @@ export function tooltipMetrics(model: TooltipModel): TooltipMetrics {
  * half of the container-fit law). Keeps as many rows as fit, in fit order, and
  * spends the last row on a `◆ +n MORE` marker when anything had to go, so the
  * panel never lies about the size of the build. Returns the whole list whenever
- * it fits — the trim is the exception, not the design.
+ * it fits — the trim is the exception, not the design. `maxPanelH` is the height
+ * budget to fit inside (see tooltipMetrics).
  */
-export function fitBoonRows(model: TooltipModel): readonly TooltipBoonRow[] {
+export function fitBoonRows(model: TooltipModel, maxPanelH = TOOLTIP_MAX_PANEL_H): readonly TooltipBoonRow[] {
   for (let k = model.boons.length; k > 0; k -= 1) {
-    const boons = k === model.boons.length ? model.boons : [...model.boons.slice(0, k), moreBoonsRow(model.boons.length - k)];
-    if (tooltipMetrics({ ...model, boons }).overflow <= 0) return boons;
+    const boons = k === model.boons.length ? model.boons : trimmedBoonRows(model.boons, k);
+    if (tooltipMetrics({ ...model, boons }, maxPanelH).overflow <= 0) return boons;
   }
   return [];
+}
+
+/**
+ * What ONE frame's tooltip actually paints — the model's arithmetic reconciled
+ * with the two things only the renderer knows: how tall the description text
+ * MEASURED, and how tall the screen really is.
+ *
+ * The offsets are relative to the panel's top-left, so the placement (which
+ * needs `panelH`) can be resolved after this.
+ */
+export interface TooltipRenderGeom {
+  /** The rows to draw — model.boons, or a shorter list when the real viewport
+   *  is tighter than the design floor the model was fitted against. */
+  boons: readonly TooltipBoonRow[];
+  panelH: number;
+  /** Top of the description block, from the panel's top edge. */
+  descDy: number;
+  /** Top of the boons block, from the panel's top edge. */
+  boonsDy: number;
+}
+
+/**
+ * Pure: that reconciliation (amendment 47, the render half).
+ *
+ * The MODEL stays the fit-pin authority — tooltipMetrics is what the catalog
+ * walk proves — but a model is an upper bound on width and a nominal on height,
+ * and the panel is painted at real pixels on a real screen. Two things can
+ * therefore differ from the pin, and both would otherwise draw past a boundary:
+ *
+ *  • `measuredDescH`: Pixi wrapped the description to more height than the mono
+ *    model predicted. The boons block is placed below the LARGER of the two and
+ *    the panel grows by the difference, so the description can never run under
+ *    the build list.
+ *  • `screenH`: the viewport is shorter than TOOLTIP_FLOOR_VIEWPORT_H (a small
+ *    window, a high UI scale). The panel is clamped to what the REAL screen
+ *    allows and the rows are re-trimmed against that smaller budget — the same
+ *    `+n MORE` grammar, just tighter — rather than running off the bottom.
+ *
+ * Growth from measurement is taken out of the row budget FIRST, so the two fixes
+ * cannot fight: whatever the description costs, the panel still fits the screen.
+ */
+export function tooltipRenderGeom(model: TooltipModel, measuredDescH: number, screenH: number): TooltipRenderGeom {
+  const T = TIP_TYPE;
+  const maxPanelH = Math.min(TOOLTIP_MAX_PANEL_H, screenH - 2 * H.tooltip.margin);
+  const modelledDescH = tooltipMetrics(model).descLines * T.descLineHeight;
+  const excess = Math.max(0, measuredDescH - modelledDescH);
+  const budget = maxPanelH - excess;
+  const fitted = tooltipMetrics(model, budget).overflow <= 0 ? model.boons : fitBoonRows(model, budget);
+  const m = tooltipMetrics({ ...model, boons: fitted }, budget);
+  const descDy = H.tooltip.pad + T.headLineHeight * 2 + T.nameGap + T.descGap;
+  return {
+    boons: fitted,
+    panelH: m.height + excess,
+    descDy,
+    boonsDy: descDy + Math.max(modelledDescH, measuredDescH) + T.boonsGap,
+  };
 }
 
 /** Where the tooltip panel sits, and which side its pointer notch is on. */
@@ -930,6 +1053,27 @@ interface RowText {
   badge: Text;
 }
 
+/** The memoized tooltip model + the inputs it was built from (see cachedModel). */
+interface TooltipCache {
+  slot: number;
+  id: EquipmentId | null;
+  stats: EffectiveStats;
+  boons: readonly string[];
+  model: TooltipModel | null;
+}
+
+/** One shared empty list, so a build with nothing fitted keeps a stable identity
+ *  across frames instead of allocating a fresh `[]` the cache can never match. */
+const EMPTY_BOONS: readonly string[] = [];
+
+/** Pure: are these the same accrued list, for cache purposes? Identity first (the
+ *  usual case — `you.boons` is the wire array, replaced only when it changes),
+ *  then length + last id, which is what a fit CAN only ever change (boons append,
+ *  never reorder or drop). */
+function sameBoonList(a: readonly string[], b: readonly string[]): boolean {
+  return a === b || (a.length === b.length && a[a.length - 1] === b[b.length - 1]);
+}
+
 export class Hotbar {
   private readonly root = new Container();
   private readonly gfx = new Graphics();
@@ -943,6 +1087,11 @@ export class Hotbar {
   private readonly lastText: string[] = [];
   private hover: HoverState = NO_HOVER;
   private cachedLayout: HotbarLayout | null = null;
+  /** INTEGRATED ACTIVE-breath phase + the clock it last advanced at (the
+   *  litZones ember precedent — accumulated per frame, never absolute time). */
+  private breathPhase = 0;
+  private lastBreathSec: number | null = null;
+  private tipCache: TooltipCache | null = null;
 
   constructor(hudLayer: Container) {
     hudLayer.addChild(this.root);
@@ -1002,10 +1151,20 @@ export class Hotbar {
     this.cachedLayout = layout;
     const models = slotViewModels(view);
     this.gfx.clear();
-    const breath = activeBreath(view.nowSec ?? 0, motionScaled(ACTIVE_PULSE_AMP, view.motion ?? 'full'));
+    const breath = activeBreath(this.advanceBreath(view.nowSec), motionScaled(ACTIVE_PULSE_AMP, view.motion ?? 'full'));
     for (const row of layout.rows) this.drawRow(models[row.slot], row, breath);
     this.drawFitFrame(view, layout);
     this.updateTooltip(view, layout, models, cursor, screenW, screenH, nowMs);
+  }
+
+  /** Advance the shared ACTIVE-breath phase to `nowSec` and return it. A frame
+   *  with no clock (a caller from before 2.9) holds the phase where it is. */
+  private advanceBreath(nowSec: number | undefined): number {
+    if (nowSec === undefined) return this.breathPhase;
+    const dt = this.lastBreathSec === null ? 0 : nowSec - this.lastBreathSec;
+    this.lastBreathSec = nowSec;
+    this.breathPhase = advanceBreathPhase(this.breathPhase, dt);
+    return this.breathPhase;
   }
 
   private drawRow(m: SlotViewModel, row: HotbarRow, breath: number): void {
@@ -1165,7 +1324,7 @@ export class Hotbar {
     // presence flag): the last known position must not keep a tooltip alive.
     this.hover = nextHover(this.hover, cursor === null ? null : slotAtPoint(cursor, layout), nowMs);
     const slot = this.hover.slot;
-    const model = slot === null ? null : tooltipModel(slot, models[slot].id, view.stats, view.boons ?? []);
+    const model = slot === null ? null : this.cachedModel(slot, models[slot].id, view);
     if (!shouldShowTooltip(this.hover, nowMs, view.dim, model !== null) || slot === null || model === null) {
       this.tipRoot.visible = false;
       return;
@@ -1175,29 +1334,54 @@ export class Hotbar {
   }
 
   /**
+   * The hovered slot's tooltip model, rebuilt only when its INPUTS change.
+   *
+   * Pure perf, no behavior: tooltipModel walks the catalog, formats an effect
+   * line per accrued row and then runs the fit search — which re-measures the
+   * whole panel once per row it has to drop — and a held hover asks for the same
+   * answer every frame for as long as the pointer rests there. The key is the
+   * three inputs the model is a function of: the slot's equipment, the accrued
+   * list (by identity, falling back to length + last id for a caller that
+   * rebuilds the array each frame), and the effective stats the effect lines
+   * read (swapped as a whole object by applyOwnStats, so identity is exact).
+   */
+  private cachedModel(slot: number, id: EquipmentId | null, view: HotbarView): TooltipModel | null {
+    const boons = view.boons ?? EMPTY_BOONS;
+    const c = this.tipCache;
+    if (c && c.slot === slot && c.id === id && c.stats === view.stats && sameBoonList(c.boons, boons)) {
+      return c.model;
+    }
+    const model = tooltipModel(slot, id, view.stats, boons);
+    this.tipCache = { slot, id, stats: view.stats, boons, model };
+    return model;
+  }
+
+  /**
    * Near-opaque panel + 1px silver .4 border + pointer notch, laid out at the
-   * MODELLED offsets (tooltipMetrics — the amendment-47 pin measures the same
-   * arithmetic, so what the test proves fits is what the panel paints). An
-   * empty BOONS block still renders as ABSENCE: no divider, no rows, no
-   * placeholder.
+   * offsets tooltipRenderGeom resolves — the MODEL's arithmetic (the amendment-47
+   * pin measures the same functions) reconciled with the description's MEASURED
+   * height and the REAL viewport, so nothing draws past the panel and the panel
+   * draws past neither the floor pin nor the screen. An empty BOONS block still
+   * renders as ABSENCE: no divider, no rows, no placeholder.
    */
   private drawTooltip(model: TooltipModel, row: HotbarRow, screenW: number, screenH: number): void {
     const t = H.tooltip;
     const T = TIP_TYPE;
     this.setText(this.tipName, model.name, 100);
     this.setText(this.tipInteraction, model.interaction, 101);
+    // The description's text must be assigned BEFORE it is measured: the height
+    // this reads is the one Pixi just wrapped, not last frame's.
     this.setText(this.tipDesc, model.description, 102);
-    this.setText(this.tipBoons, boonBlockText(model.boons), 103);
-    this.tipBoons.visible = model.boons.length > 0;
-    const m = tooltipMetrics(model);
-    const place = tooltipPlacement(row, m.height, screenW, screenH);
+    const geom = tooltipRenderGeom(model, this.tipDesc.height, screenH);
+    this.setText(this.tipBoons, boonBlockText(geom.boons), 103);
+    this.tipBoons.visible = geom.boons.length > 0;
+    const place = tooltipPlacement(row, geom.panelH, screenW, screenH);
     const x = place.x + t.pad;
-    const descY = place.y + t.pad + T.headLineHeight * 2 + T.nameGap + T.descGap;
     this.tipName.position.set(x, place.y + t.pad);
     this.tipInteraction.position.set(x, place.y + t.pad + T.headLineHeight + T.nameGap);
-    this.tipDesc.position.set(x, descY);
-    this.tipBoons.position.set(x, descY + m.descLines * T.descLineHeight + T.boonsGap);
-    this.paintTooltipPanel(place, m.height);
+    this.tipDesc.position.set(x, place.y + geom.descDy);
+    this.tipBoons.position.set(x, place.y + geom.boonsDy);
+    this.paintTooltipPanel(place, geom.panelH);
   }
 
   private paintTooltipPanel(place: TooltipPlacement, panelH: number): void {

@@ -125,6 +125,20 @@ export function emberAlpha(phase: number, amp: number): number {
   return Z.emberAlpha + amp * Math.sin(phase);
 }
 
+/**
+ * Pure: the DAZZLE glare's two disc radii (u) inside a zone of wire radius `r` —
+ * the outer halo and the brighter core.
+ *
+ * BOTH ARE CONTAINED (`<= r`), and the clamp is structural rather than trusting
+ * the config: `r` is the hazard's real extent, the firer-hue ring at `r` is its
+ * boundary, and a glare painted outside that ring claims water that is not
+ * dazzling — a marker drawn bigger than the thing it marks (amendment 47). A
+ * future retune of the draft fractions cannot reintroduce it.
+ */
+export function dazzleRadii(r: number): { halo: number; core: number } {
+  return { halo: r * Math.min(1, Z.haloFrac), core: r * Math.min(1, Z.glareFrac) };
+}
+
 /** Pure: is world point `p` inside any of the given zone circles (center/radius)? */
 export function insideAnyZone(
   p: { x: number; y: number },
@@ -257,8 +271,9 @@ export class LitZones {
    *
    * Every doctrine keeps the firer-hue ring and fill — that is the zone's
    * IDENTITY channel, and amendment 50 changed what a zone DOES, not whose it
-   * is. `dazzle` adds a brighter core and a wide soft halo (a glare you read
-   * from outside it, deliberately STATIC — a flickering flash-blind is the exact
+   * is. `dazzle` adds a brighter core and a soft halo, both CONTAINED inside the
+   * ring (dazzleRadii — the glare is what the zone is doing, the ring is where
+   * it stops) and deliberately STATIC (a flickering flash-blind is the exact
    * hazard the flash budget exists to prevent); `incendiary`'s ember disc is a
    * separate breathing child (emberOf); `standard` paints exactly as before.
    */
@@ -266,8 +281,9 @@ export class LitZones {
     g.clear();
     g.blendMode = 'add'; // additive: illuminated water, not an opaque disc
     if (mode === 'dazzle') {
-      g.circle(0, 0, r * Z.haloFrac).fill({ color: GLARE_COLOR, alpha: Z.haloAlpha });
-      g.circle(0, 0, r * Z.glareFrac).fill({ color: GLARE_COLOR, alpha: Z.glareAlpha });
+      const glare = dazzleRadii(r);
+      g.circle(0, 0, glare.halo).fill({ color: GLARE_COLOR, alpha: Z.haloAlpha });
+      g.circle(0, 0, glare.core).fill({ color: GLARE_COLOR, alpha: Z.glareAlpha });
     }
     g.circle(0, 0, r).fill({ color, alpha: PEAK_FILL_ALPHA });
     g.circle(0, 0, r).stroke({ width: RING_W, color, alpha: RING_ALPHA });

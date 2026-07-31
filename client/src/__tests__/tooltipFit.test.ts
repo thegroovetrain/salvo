@@ -161,8 +161,15 @@ describe('the laws that constrain the fix', () => {
 
   it('hosts the shipwide lines under the SHIP divider — in the GUN slot only', () => {
     const shipwide = maxedFor(SHIPWIDE_CATEGORIES);
-    const gun = modelFor({ label: '', id: 'gun', cls: 'torpedoBoat', boons: shipwide });
-    expect(gun.boons.some((r) => r.label === SHIP_DIVIDER_ROW)).toBe(true);
+    // The divider SEPARATES, so it needs the gun's own lines above it...
+    const mixed = modelFor({ label: '', id: 'gun', cls: 'torpedoBoat', boons: ['gunDamage', ...shipwide] });
+    expect(mixed.boons.some((r) => r.label === SHIP_DIVIDER_ROW)).toBe(true);
+    // ...and a gun holding ONLY shipwide lines lists them bare (2.9 review): a
+    // heading over the whole list separates it from nothing and spends a row of
+    // the panel's fit budget saying so.
+    const shipOnly = modelFor({ label: '', id: 'gun', cls: 'torpedoBoat', boons: shipwide });
+    expect(shipOnly.boons.some((r) => r.label === SHIP_DIVIDER_ROW)).toBe(false);
+    expect(shipOnly.boons.length).toBeGreaterThan(0);
     for (const id of EQUIPMENT_IDS.filter((e) => e !== 'gun')) {
       expect(modelFor({ label: '', id, cls: 'torpedoBoat', boons: shipwide }).boons).toEqual([]);
     }

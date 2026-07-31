@@ -29,7 +29,10 @@ import {
   EMPTY_SLOT_LABEL,
   NO_HOVER,
   SHIP_DIVIDER_ROW,
+  TIP_TYPE,
+  TOOLTIP_MAX_PANEL_H,
   activeBreath,
+  advanceBreathPhase,
   activeTag,
   badgeText,
   boonMark,
@@ -53,7 +56,10 @@ import {
   slotViewModels,
   tooltipModel,
   tooltipPlacement,
+  tooltipRenderGeom,
+  trimmedBoonRows,
   type HotbarView,
+  type TooltipBoonRow,
 } from '../render/hotbar.js';
 import {
   EQUIPMENT_NAME,
@@ -665,11 +671,18 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
     expect(t.boons[1].effect).toMatch(/^Torpedoes loaded: \d/);
   });
 
-  it('COLLAPSES a stack into one row at its current rung, marked ×n', () => {
+  // PIN FLIPPED (2.9 review): the row carried a `×n` suffix beside a name that
+  // ALREADY names the rung. Every stackable ladder in the catalog is
+  // position-aware (Mk I/II/III...), so `×3` next to `Mk III` said the same
+  // thing twice — and the lines with no rung name are the single-copy ones,
+  // where there is nothing to count. The suffix is gone; the row's contract
+  // ("only when needed") is now trivially satisfied.
+  it('COLLAPSES a stack into ONE row that names the rung — and nothing else', () => {
     const held = ['gunDamage', 'gunDamage', 'gunDamage'];
     const rows = boonRows('gun', held, statsFor('torpedoBoat', { gunDamage: 3 }));
     expect(rows).toHaveLength(1);
-    expect(rows[0].label).toBe('◆ HEAVY SHELLS Mk III ×3');
+    expect(rows[0].label).toBe('◆ HEAVY SHELLS Mk III');
+    expect(rows[0].label).not.toContain('×');
   });
 
   it('prints a doctrine row with its behavior text, not a number', () => {
@@ -701,5 +714,126 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
     const one = tooltipModel(0, 'gun', statsFor('torpedoBoat', { gunDamage: 1 }), ['gunDamage'])!;
     const four = tooltipModel(0, 'gun', statsFor('torpedoBoat', { gunDamage: 4 }), Array(4).fill('gunDamage'))!;
     expect(one.boons[0].effect).not.toBe(four.boons[0].effect);
+  });
+});
+
+// --- STORY 2.9 REVIEW: the tooltip tells the truth about what it CANNOT show --
+
+/** A row list shaped by hand — the trim's edge cases are shapes, not builds. */
+const row = (label: string): TooltipBoonRow => ({ label: `◆ ${label}`, effect: 'x', divider: false });
+const divider = (label = SHIP_DIVIDER_ROW): TooltipBoonRow => ({ label, effect: '', divider: true });
+/** The `+n` a marker row is claiming (0 when the list ends in a real row). */
+function markerCount(rows: readonly TooltipBoonRow[]): number {
+  return Number(/\+(\d+) MORE/.exec(rows[rows.length - 1]?.label ?? '')?.[1] ?? 0);
+}
+
+describe('trimmedBoonRows — the +n MORE marker counts BOONS, not furniture', () => {
+  it('never counts a divider as a hidden line', () => {
+    // [own, — SHIP —, ship1, ship2] cut to two: the kept divider goes (see
+    // below) and TWO real lines are hidden — not three, which is what counting
+    // the separator as a boon claimed.
+    const rows = [row('OWN'), divider(), row('SHIP1'), row('SHIP2')];
+    expect(markerCount(trimmedBoonRows(rows, 2))).toBe(2);
+  });
+
+  it('pops a kept divider that would sit directly above the marker', () => {
+    const rows = [row('OWN'), divider(), row('SHIP1'), row('SHIP2')];
+    const out = trimmedBoonRows(rows, 2);
+    expect(out.map((r) => r.label)).toEqual(['◆ OWN', '◆ +2 MORE']);
+  });
+
+  it('pops a trailing divider even when nothing is hidden', () => {
+    const rows = [row('OWN'), divider()];
+    expect(trimmedBoonRows(rows, 2).map((r) => r.label)).toEqual(['◆ OWN']);
+  });
+
+  it('FOLDS an earlier trim into its own count (a second pass never forgets)', () => {
+    const rows = [row('A'), row('B'), row('C'), row('D')];
+    const once = trimmedBoonRows(rows, 3); // A, B, C, +1 MORE
+    expect(markerCount(once)).toBe(1);
+    // Trimming THAT again (the render's viewport clamp) must fold the earlier
+    // count in: B and C plus the D the first pass already hid.
+    const twice = trimmedBoonRows(once, 1);
+    expect(twice.map((r) => r.label)).toEqual(['◆ A', '◆ +3 MORE']);
+  });
+});
+
+describe('tooltipRenderGeom — the model reconciled with the real screen', () => {
+  const stats = statsFor('torpedoBoat');
+  /** The gun slot holding every gun + shipwide line it can (the tallest panel). */
+  const maxedGunBuild = Object.values(BOON_CATALOG)
+    .filter((d) => ['guns', 'intel', 'ship'].includes(d.category))
+    .flatMap((d) => Array<string>(d.copies).fill(d.id));
+
+  it('places the boons block below the MEASURED description, never under it', () => {
+    const model = tooltipModel(0, 'gun', stats, ['gunDamage', 'gunReload'])!;
+    const modelled = tooltipRenderGeom(model, 0, 1080);
+    // Pixi wrapped the description taller than the mono model predicted (the
+    // model is an upper bound on WIDTH, a nominal on height). The block below it
+    // has to move, or the description renders straight through the build list.
+    const measured = tooltipRenderGeom(model, 400, 1080);
+    expect(measured.boonsDy - measured.descDy).toBeGreaterThanOrEqual(400);
+    expect(measured.boonsDy).toBeGreaterThan(modelled.boonsDy);
+    expect(measured.panelH).toBeGreaterThan(modelled.panelH);
+  });
+
+  it('never shrinks below the model — the fit pin stays the authority', () => {
+    const model = tooltipModel(0, 'gun', stats, ['gunDamage'])!;
+    const under = tooltipRenderGeom(model, 1, 1080); // a measurement smaller than modelled
+    expect(under.panelH).toBe(tooltipRenderGeom(model, 0, 1080).panelH);
+  });
+
+  it('re-trims against a viewport SHORTER than the design floor', () => {
+    const model = tooltipModel(0, 'gun', stats, maxedGunBuild)!;
+    const roomy = tooltipRenderGeom(model, 0, 1080);
+    const cramped = tooltipRenderGeom(model, 0, 500);
+    expect(roomy.panelH).toBeLessThanOrEqual(TOOLTIP_MAX_PANEL_H);
+    // 500px of screen is less than the 614px floor the model was fitted to:
+    // rows come off until the panel fits the screen it is actually on.
+    expect(cramped.boons.length).toBeLessThan(roomy.boons.length);
+    expect(cramped.panelH).toBeLessThanOrEqual(500 - 2 * H.tooltip.margin);
+  });
+
+  it('still accounts for every accrued line it dropped, at any viewport', () => {
+    const model = tooltipModel(0, 'gun', stats, maxedGunBuild)!;
+    const all = boonRows('gun', maxedGunBuild, stats).filter((r) => !r.divider).length;
+    for (const screenH of [1080, 700, 500, 420]) {
+      const geom = tooltipRenderGeom(model, 0, screenH);
+      const shown = geom.boons.filter((r) => !r.divider).length;
+      expect(shown + markerCount(geom.boons), `${screenH}px`).toBe(all);
+    }
+  });
+
+  it('keeps the description block where the model says it starts', () => {
+    const model = tooltipModel(0, 'gun', stats, [])!;
+    const geom = tooltipRenderGeom(model, 0, 1080);
+    expect(geom.descDy).toBe(H.tooltip.pad + TIP_TYPE.headLineHeight * 2 + TIP_TYPE.nameGap + TIP_TYPE.descGap);
+  });
+});
+
+describe('the ACTIVE breath rides an INTEGRATED phase (2.9 review)', () => {
+  it('takes a PHASE, not an absolute clock', () => {
+    // The peak of the breath is at phase pi/2 — which is only true if the
+    // argument IS the phase. Feeding seconds through sin(t*omega) put the peak
+    // somewhere else entirely, and moved it whenever the clock estimate moved.
+    expect(activeBreath(Math.PI / 2, 0.3)).toBeCloseTo(1);
+    expect(activeBreath(-Math.PI / 2, 0.3)).toBeCloseTo(0.4);
+  });
+
+  it('CLAMPS a huge frame gap instead of jumping the wave', () => {
+    // A backgrounded tab, or a server-clock re-estimate that moves nowSec by
+    // seconds: the phase advances by at most one clamped step, so the alpha can
+    // never step faster than the photosensitivity cap allows.
+    expect(advanceBreathPhase(0, 100)).toBeCloseTo(advanceBreathPhase(0, 0.5));
+    expect(advanceBreathPhase(0, -3)).toBe(0); // a clock that went BACKWARDS holds
+  });
+
+  it('advances at the capped rate, and wraps inside one turn', () => {
+    expect(advanceBreathPhase(0, 0.5)).toBeCloseTo(ACTIVE_PULSE_HZ * 0.5 * Math.PI * 2);
+    // Integrating a whole cycle in 0.5s steps lands back at the start.
+    let phase = 0;
+    for (let i = 0; i < 1 / ACTIVE_PULSE_HZ / 0.5; i += 1) phase = advanceBreathPhase(phase, 0.5);
+    expect(phase).toBeLessThan(Math.PI * 2);
+    expect(Math.sin(phase)).toBeCloseTo(0);
   });
 });

@@ -2,10 +2,10 @@
 title: 'Story 2.9: The Build Must Be Felt'
 type: 'feature'
 created: '2026-07-31'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '836b5ef'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-2-context-amendments.md'
@@ -103,12 +103,45 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-07-31 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 0, medium 4, low 6)
+- defer: 0
+- reject: 3: (low 3)
+- addressed_findings:
+  - `[medium]` `[patch]` Own-fire misattribution (all three reviewers, CONFIRMED): the 400ms cannon latch was never consumed and near-hull torpedoes were claimed unconditionally — an enemy shell could wear the own-cannon look/report and an enemy straight-runner could render torpHoming when the player holds that doctrine. Latch extracted to a pure one-shot `OwnFireLatch` (client/src/sim/ownFire.ts), torp look latch-gated (pre-2.9 near-hull whoosh deliberately preserved and pinned), cleared at the sunk/spawn boundary. Fail-proven regressions for claim-consume, enemy-fish-generic, and boundary clear.
+  - `[medium]` `[patch]` Burn misclassification both directions (all three; Codex traced the expiry-tick direction server-side): burn treatment now requires in-zone-now-or-600ms-grace AND amount ≤ a CONFIG-derived cap (incendiaryDps × 0.5s window × 4, draft-flagged) — a torpedo slam inside a fire reads full, a DoT flush just after zone exit/expiry reads burn.
+  - `[medium]` `[patch]` `fireStarShells` was a dead tone — own star-shell launches played the gun crack (both hunters; the story's own thesis). starShells is now a claimable own-fire id with its own report; look stays generic by ruling.
+  - `[medium]` `[patch]` Tooltip render honesty (both hunters): boons block was positioned from the modelled (not measured) description height, and the panel never re-fit below the 614px design floor. drawTooltip now lays out from max(modelled, measured) and re-trims rows against the real viewport (amendment 47).
+  - `[low]` `[patch]` `+n MORE` counted the SHIP divider as a hidden boon and could dangle/lead a divider; trimmedBoonRows counts non-divider rows, pops orphan dividers, folds nested trims.
+  - `[low]` `[patch]` Mine creep wake dots all stacked at the endpoint; dropWake now interpolates each dot along the covered leg.
+  - `[low]` `[patch]` ACTIVE breath used absolute-time phase against the spec's integrated-phase mandate; now a clamped per-frame integrator (docstring corrected).
+  - `[low]` `[patch]` Dazzle halo extended 28% past the true hazard circle; dazzleRadii structurally clamps both discs ≤ r (the firer-hue ring stays the boundary).
+  - `[low]` `[patch]` Redundant `×n` on rung-named ladders removed (every ladder name encodes its position); pinning test rewritten knowingly.
+  - `[low]` `[patch]` Hover tooltip rebuilt the full model every frame; now memoized on (slot, id, stats identity, boons identity).
+  - Rejected (3): two-clocks-for-tells (display uses the standard countdown idiom, edges use frame-time to avoid double tones — the split is principled); fit-flash suppression at motion=off (the ratified juice-vs-information doctrine; toast + tooltip row are the surviving visual twins); second same-slot flash inside 300ms coalesced (the ratified same-source floor IS the law).
+
 ## Design Notes
 
 - **Why the zone mode field is legal:** the zone is observable behavior of a fired shell (like a torpedo's visible curve); its nature is part of that behavior — Eric ruled counterplay over concealment (amendment 50). Everything else stays inference-only, so no other doctrine leaks pre-behavior.
 - **Own vs observer identity split:** own client knows `ownStats.<weapon>.mode` (self-private) and styles own ordnance fully; observers get only what geometry/events already say. An enemy cannot distinguish an un-fired AP cannon from a stock one — correct per information discipline.
 - **Fit-cue shape:** keep the `upgrade` two-note as the family template (the "template all audio must match"); category variants transpose it, tier weights it — draft specs, canon later.
 - **Cannon-heavier is own-side only** because the wire's constant-free ballistic shape cannot (and must not) say "cannon"; the tester complaint is about firing feel, which is own-side.
+
+## Auto Run Result
+
+**Status:** done — planned against the 2.8 residuals + ledger docket, Eric-ruled pre-implementation (amendments 48–52 via AskUserQuestion: 8th ACTIVE hotbar state; EXCLUSIVE keeps storm purple — a deliberate DESIGN.md overrule; zones doctrine-distinct to everyone; hull visuals slot-side only; dazzle stays optics-only), implemented in four orchestrated waves (Fable wire wave → 2× Opus client waves → Sonnet fit-check/bookkeeping), adversarially reviewed (2 Fable hunters + Codex cross-model, strong agreement), 10 patches applied with fail-proven regressions, gate green.
+
+**Summary:** FR22 is closed over the full 42-line catalog — no boon is presentation-silent, and a structural fit-check test keeps it that way. Fits now land with tier-weighted, category-transposed cues (fitCommon/fitRare/fitExclusive × ±4-semitone fitDetune; the generic `upgrade` two-note is retired) plus a per-category slot fit flash (shipwide lines flash the rank frame), the tooltip finally renders the accrued build (`◆ Name` + live effect line, shipwide under the gun's `— SHIP —` divider, `◆n` quick-info compression, modelled + measured + viewport-clamped fit per amendment 47), and the hotbar gained the ratified 8th ACTIVE state (integrated-phase phosphor breathe under pulseCapHz + countdown). All 8 doctrines have on-water identity: AP pierce = contracting crimson rings on derived #pN booms (survives motion=off), homing = restyled steering tracks (own fish from launch via the honest one-shot own-fire latch), arcing = own-side swell, self-propelled mines MOVE (the frozen renderer was a real defect — fixed, with creep tick + leg-interpolated wake), prop-fouling/dazzle = SLOWED/DAZZLED vitals tells with rising-edge tones, incendiary = breathing ember zones + burn-classified damage (amount-capped + 600ms grace), dazzle zones = contained glare. Lit zones are doctrine-distinct to every observer via the story's one wire change (`LitZoneView.mode`, PV 16→17, invariants extended, goldens audited). The cannon finally reads heavier than the gun own-side (muzzleHeavy, bigger dot, and the never-wired `fireCannon` tone now plays). An audio↔visual twin table + test satisfies the EXPERIENCE.md sound-map requirement in code.
+
+**Files changed:** shared — types.ts (LitZoneView.mode), index.ts (PV 17 + changelog). server — signals.ts (mode materialized, key order preserved), world.ts (comments), perception/signals/starShells/denials tests + regenerated goldens. client — audio/tones.ts (FIT family + burn/slowed/dazzled tones + fitDetune), audio/twinMap.ts (NEW), audio/context.ts (play detune), sim/ownFire.ts (NEW one-shot latch), net/roomBindings.ts (fit routing, own-fire claims, burn classifier, victim tells), render/hotbar.ts (ACTIVE state, tooltip boons + fit model + memo), equipmentInfo.ts (slot routing), projectiles.ts (looks + pierce + lookForReveal), mines.ts (add/move/remove + wake), litZones.ts (per-mode looks + dazzleRadii), hud.ts (tells), effects.ts (pierce/muzzleHeavy), main.ts (wiring), config.ts (litZone/ordnance draft knobs), ui/boonCopy.ts (boonEffectLine), __tests__/fitCheck.test.ts (NEW structural gate). Bookkeeping — sprint-status 2-9 done, gds-workflow-status → 2-10, deferred-work 3 closures + 3 new entries, amendments 48–52 recorded pre-implementation.
+
+**Review breakdown:** 10 patches (4 medium, 6 low), 0 deferred, 3 rejected, 0 intent gaps, 0 bad-spec loopbacks. Cross-model picture: all three reviewers independently confirmed the own-fire misattribution, burn misclassification, and stacked mine wake; Codex added the server-side trace proving the burn expiry-tick direction. Every behavioral patch carries a regression test proven to fail without the fix.
+
+**Verification:** `npm run check` run independently by the orchestrator after every wave AND after the patch round — lint 0 errors (2 pre-existing warnings), shared 351 / server 758 / client 1171 = 2280 green (baseline 2104). Wave diffs spot-checked hunk-by-hunk (wire key order, fit routing, mine move path, patch highlights).
+
+**Residual risks / notes for Eric:** (1) Every new feel value is a draft handwave (fit-tone envelopes, detune table, tell copy, ember/glare fractions, creep tick, pierce curve, cannon weight) — ledgered for a canon identity/audio pass. (2) COMMAND DETONATION is deliberately the one doctrine with a generic projectile look — its identity is the click-point blast itself; pinned in fitCheck as a conscious choice, flag if you want a det telegraph. (3) The own-cannon/star-shell correlation is an honest client-side one-shot latch, not server truth — ledgered; revisit if a multi-round cannon ships. (4) Amendment 49 (EXCLUSIVE keeps storm purple) contradicts DESIGN.md's purple law by your explicit ruling — the doc-sync batch owes the carve-out text. (5) Fit flashes are suppressed at motion=off per the juice doctrine; the toast + tooltip row are the surviving visual twins — flag if you want a static residue instead.
 
 ## Verification
 

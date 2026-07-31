@@ -179,18 +179,32 @@ export class Mines {
     this.drawMarker(s.g, s.own, s.color, bearing);
   }
 
-  /** Pay out wake dots behind a creeping mine across the `dist` it just covered
-   *  (the projectiles wake-trail idiom, at the mine's own spacing). */
+  /**
+   * Pay out wake dots behind a creeping mine ALONG the leg it just covered (the
+   * projectiles emitTrail idiom, at the mine's own spacing): each owed dot lands
+   * at the point on the segment where the mine actually crossed its spacing mark,
+   * interpolated from the previous position toward the new one.
+   *
+   * Stacking them all at the endpoint (which is where the mine IS, not where it
+   * has BEEN) drew the whole leg's wake as one bright clot on the mine's nose —
+   * a wake that leads its own mine, which is backwards. It only shows up when a
+   * frame covers several spacings: a hitch, a tab regaining focus, or simply a
+   * mine under enough power to out-travel one dot per tick.
+   */
   private dropWake(s: MineSprite, m: MineView, dist: number): void {
     if (!this.wake) {
       s.wakeIn = O.creepWakeSpacing;
       return;
     }
+    const ux = dist > 0 ? (m.x - s.x) / dist : 0;
+    const uy = dist > 0 ? (m.y - s.y) / dist : 0;
+    let along = 0; // distance into the leg the next owed dot sits at
     let remaining = dist;
     while (remaining >= s.wakeIn) {
       remaining -= s.wakeIn;
+      along += s.wakeIn;
       s.wakeIn = O.creepWakeSpacing;
-      this.wake(m.x, m.y);
+      this.wake(s.x + ux * along, s.y + uy * along);
     }
     s.wakeIn -= remaining;
   }

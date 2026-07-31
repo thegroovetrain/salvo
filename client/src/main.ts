@@ -74,6 +74,7 @@ import {
 } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
 import { abilityPressDenied, shouldConsumePrime } from './sim/inputSampler.js';
+import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
 import { connect, connectErrorStatus, mapFromWelcome, probeServer, type Connection } from './net/connection.js';
@@ -277,14 +278,14 @@ interface Game {
    */
   ownDecoyUntil: number;
   /**
-   * THE OWN-FIRE LATCH (Story 2.9): the weapon behind the click we just made,
-   * and the server-clock instant we made it. The `shell`/`torp` wire shape is
-   * deliberately constant-free — it cannot say which barrel a shell left, and
-   * must not, or an onlooker could read a build off a shot — so the OWN client
-   * pairs its own click intent with the reveal that lands on its own bow
-   * (roomBindings' ownFireWeapon dep). Null once nothing was fired recently.
+   * THE OWN-FIRE LATCH (Story 2.9, sim/ownFire.ts): the weapon behind the click
+   * we just made. The `shell`/`torp` wire shape is deliberately constant-free —
+   * it cannot say which barrel a shell left, and must not, or an onlooker could
+   * read a build off a shot — so the OWN client pairs its own click intent with
+   * the reveal that lands on its own bow (roomBindings' ownFireWeapon dep). The
+   * claim is one-shot: one click is one round, and one reveal may wear it.
    */
-  ownFire: { id: EquipmentId; t: number } | null;
+  ownFire: OwnFireLatch;
   /** Tone player (audio/context.ts). */
   audio: Audio;
   /**
@@ -1369,7 +1370,7 @@ function buildGame(
     ...abilityFeedbackState(),
     audio, portal,
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
-    prevClickCount: 0, lastTickClick: 0, ownFire: null,
+    prevClickCount: 0, lastTickClick: 0, ownFire: new OwnFireLatch(),
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownDecoyUntil: 0,
     ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
@@ -1489,6 +1490,14 @@ function bindGameRoom(g: Game, conn: Connection): void {
       // so a window left standing across death would keep a slot reading ACTIVE
       // for a buoy the next life does not own. Missing juice beats a lying slot.
       g.ownDecoyUntil = 0;
+      // Story 2.9: the own-fire latch dies at that same boundary. A claim is a
+      // promise about the next reveal on our own bow, and death/respawn breaks
+      // it — the shot it describes either splashed unseen or belongs to a hull
+      // that no longer exists, so letting it stand would dress the FIRST reveal
+      // of the next life (quite possibly somebody else's shell, landing where we
+      // just spawned) as our cannon shot. An unclaimed reveal reads generic,
+      // which is the honest fallback.
+      g.ownFire.clear();
       // Reset the denial dedup at the SAME boundary (Story 1.10): dropping
       // queued presses without advancing actCount would otherwise let the next
       // press reuse a still-marked (slot, seq), suppressing a genuine later
@@ -1799,40 +1808,26 @@ function clickPrediction(
 }
 
 /**
- * How long (ms) an own-fire latch stays claimable. It has to cover the click →
- * server tick → frame round trip that carries the resulting reveal back (a 50ms
- * tick plus real-world RTT), and no longer: the latch is only ever consulted for
- * a reveal that already materialized ON OUR OWN HULL, and the next click
- * overwrites it, so the window is a staleness bound rather than a correctness
- * one. Its two failure modes both land on today's behavior (ordinary shell look,
- * gun crack).
- */
-const OWN_FIRE_WINDOW_MS = 400;
-
-/**
  * Latch which weapon this click fired, for the own-fire correlation
- * (roomBindings.ownFireWeapon). Only a click the client PREDICTS will fire
- * counts: a denied press (reloading, out of arc) produces no shell, so latching
- * it would leave a stale claim for the next reveal to pick up. Ability slots
- * never reach here — the wire click is a weapon click.
+ * (roomBindings.ownFireWeapon → OwnFireLatch.claim). Only a click the client
+ * PREDICTS will fire counts: a denied press (reloading, out of arc) produces no
+ * shell, so latching it would leave a stale claim for the next reveal to pick
+ * up. Ability slots never reach here — the wire click is a weapon click.
  */
 function latchOwnFire(g: Game, primedSlot: number, p: { alive: boolean; loaded: boolean; inArc: boolean }): void {
   const id = g.ownSlots[primedSlot] ?? null;
   if (!p.alive || !p.loaded || !p.inArc || id === null) return;
-  g.ownFire = { id, t: g.clock.serverNow() };
+  g.ownFire.latch(id, g.clock.serverNow());
 }
 
 /**
- * The weapon behind our most recent shot, or null once the latch has gone stale
- * (or was never set). Only the three BALLISTIC ids can be claimed — an ability
- * never produces a `shell`/`torp` reveal, so nothing else may leak through into
- * a projectile's identity.
+ * CLAIM the latch for an own-looking reveal: the weapon behind our most recent
+ * shot, or null once it has gone stale, was already claimed, or was never set.
+ * Consuming (one click is one round — see sim/ownFire.ts), so this is called
+ * exactly once per reveal, and only for a reveal already on our own hull.
  */
 function ownFireWeapon(g: Game): OwnFire {
-  const f = g.ownFire;
-  if (!f || g.clock.serverNow() - f.t > OWN_FIRE_WINDOW_MS) return null;
-  if (f.id === 'cannon' || f.id === 'gun' || f.id === 'torpedo') return f.id;
-  return null;
+  return g.ownFire.claim(g.clock.serverNow());
 }
 
 function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: number, fireSeq: number): void {
