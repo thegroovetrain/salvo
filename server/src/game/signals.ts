@@ -1,6 +1,6 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 10 GameEvent kinds plus the four contact-like frame channels
+// row here: the 11 GameEvent kinds plus the four contact-like frame channels
 // (`contact`, `mine`, `litzone`, and `decoy` — pseudo event types: not
 // GameEvents, but the invariant suite iterates them like everything else).
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
@@ -26,8 +26,10 @@
 // on mine/decoy so the historical prefix stays byte-stable.
 
 import {
+  CONFIG,
   bearing,
   segCircleHit,
+  wrapAngle,
   wrapPositive,
   type BallisticEvent,
   type BlipEvent,
@@ -45,7 +47,7 @@ import {
   type ShellState,
   type SpawnEvent,
   type SunkEvent,
-  type UpgradeEvent,
+  type TorpedoUpdateEvent,
   type Vec2,
 } from '@salvo/shared';
 import type { Decoy, LitZone, ShipRecord } from './world.js';
@@ -135,14 +137,30 @@ export function losClear(a: Vec2, b: Vec2, islands: readonly Circle[]): boolean 
   return true;
 }
 
+/**
+ * The observer's EFFECTIVE sight radius this tick (Story 2.8, DAZZLE BURST):
+ * stats.sightRange, scaled by CONFIG.starShells.dazzleSightFactor while the
+ * observer is DAZZLED (world.applyZoneEffects refreshes dazzledUntil every
+ * tick the observer's center sits in a non-owned dazzle zone; the victim's
+ * own wire field OwnShip.dazzledUntil reads the same mark, so the server's
+ * shrunken sight and the client's honest fog hole agree). THE one place the
+ * dazzle factor enters perception — every sight-tier predicate below calls
+ * this, so a NON-dazzled observer's numbers are bit-identical to pre-2.8.
+ */
+function sightOf(me: ShipRecord, now: number): number {
+  return now < me.dazzledUntil
+    ? me.stats.sightRange * CONFIG.starShells.dazzleSightFactor
+    : me.stats.sightRange;
+}
+
 /** Sight-tier test for a point: within the OBSERVER'S effective sight range
- *  (inclusive) + LOS-clear. Takes the ShipRecord so the sightRange upgrade
- *  applies to every point-sighted gate (ballistics, mines, booms, wrecks,
- *  spawns) uniformly. */
-function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Circle[]): boolean {
+ *  (inclusive, dazzle-scaled — sightOf) + LOS-clear. Takes the ShipRecord so
+ *  the sightRange boons apply to every point-sighted gate (ballistics, mines,
+ *  booms, wrecks, spawns) uniformly. */
+function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Circle[], now: number): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
-  const sight = me.stats.sightRange;
+  const sight = sightOf(me, now);
   return dx * dx + dy * dy <= sight * sight && losClear(me.state, p, islands);
 }
 
@@ -179,17 +197,20 @@ function sweptThisTick(me: ShipRecord, brg: number): boolean {
 }
 
 /** Radar-annulus test for a POINT: beyond sight (exclusive), within radar
- *  (inclusive) — both the OBSERVER'S effective ranges. Sight wins inside its
+ *  (inclusive) — both the OBSERVER'S effective ranges (the sight boundary is
+ *  the SAME dazzle-scaled sightOf every sight predicate uses, so "sight wins
+ *  inside its radius" stays coherent for a dazzled observer: the shrunk band
+ *  becomes paintable annulus, never a dead ring). Sight wins inside its
  *  radius (a LOS-blocked ship inside sight is simply invisible — it is not in
  *  the annulus, so it cannot paint). Point-based so the decoy counterIntel
  *  (Story 1.8) runs the IDENTICAL test on a buoy position. */
-function inRadarAnnulus(me: ShipRecord, p: Vec2): boolean {
+function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
   const d2 = dx * dx + dy * dy;
-  const sight2 = me.stats.sightRange * me.stats.sightRange;
+  const sight = sightOf(me, now);
   const radar2 = me.stats.radarRange * me.stats.radarRange;
-  return d2 > sight2 && d2 <= radar2;
+  return d2 > sight * sight && d2 <= radar2;
 }
 
 /**
@@ -200,8 +221,8 @@ function inRadarAnnulus(me: ShipRecord, p: Vec2): boolean {
  * buoy paints exactly when a ship at that position would — same tick, same
  * boundaries, same LOS shadowing. Do not fork it.
  */
-function blipGate(me: ShipRecord, p: Vec2, islands: readonly Circle[]): boolean {
-  return inRadarAnnulus(me, p) && sweptThisTick(me, bearing(me.state, p)) && losClear(me.state, p, islands);
+function blipGate(me: ShipRecord, p: Vec2, islands: readonly Circle[], now: number): boolean {
+  return inRadarAnnulus(me, p, now) && sweptThisTick(me, bearing(me.state, p)) && losClear(me.state, p, islands);
 }
 
 /** THE blip wire shaper (one function, two callers — FR10's wire
@@ -234,7 +255,7 @@ const contactSignal: SignalSpec<ShipRecord, Contact> = {
     if (ship.id === me.id) return false;
     const dx = ship.state.x - me.state.x;
     const dy = ship.state.y - me.state.y;
-    const sight = me.stats.sightRange;
+    const sight = sightOf(me, ctx.now); // dazzle-scaled (Story 2.8) — the observer's own reduction
     return (
       (dx * dx + dy * dy <= sight * sight && losClear(me.state, ship.state, ctx.islands)) ||
       ownZoneCovers(ctx, ship.state)
@@ -263,7 +284,7 @@ const mineSignal: SignalSpec<MineState, MineView> = {
     if (ctx.mode === 'spectator') return true;
     return (
       mine.ownerId === ctx.me.id ||
-      pointSighted(ctx.me, mine, ctx.islands) ||
+      pointSighted(ctx.me, mine, ctx.islands, ctx.now) ||
       ownZoneCovers(ctx, mine)
     );
   },
@@ -322,7 +343,7 @@ const decoySignal: SignalSpec<Decoy, DecoyView> = {
     if (ctx.mode === 'spectator') return true;
     return (
       decoy.ownerId === ctx.me.id ||
-      pointSighted(ctx.me, decoy, ctx.islands) ||
+      pointSighted(ctx.me, decoy, ctx.islands, ctx.now) ||
       ownZoneCovers(ctx, decoy)
     );
   },
@@ -374,7 +395,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     const me = ctx.me;
     if (!target.alive || target.id === me.id) return false;
     if (ownZoneCovers(ctx, target.state)) return false; // already a full contact — never doubled as a blip
-    return blipGate(me, target.state, ctx.islands);
+    return blipGate(me, target.state, ctx.islands, ctx.now);
   },
   materialize(ctx, target) {
     return blipShape(target.id, target.state, ctx.now);
@@ -399,7 +420,7 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     // the real hull in truesight).
     const owner = ctx.ships.get(decoy.ownerId);
     if (owner !== undefined && contactSignal.visible(ctx, owner)) return null;
-    if (!blipGate(me, decoy, ctx.islands)) return null;
+    if (!blipGate(me, decoy, ctx.islands, ctx.now)) return null;
     // The lie: the genuine blip shape with the OWNER's ship id at the buoy's
     // position. `t` = ctx.now, like every real paint.
     return blipShape(decoy.ownerId, decoy, ctx.now);
@@ -439,7 +460,7 @@ function ballisticSignal(kind: 'shell' | 'torp'): SignalSpec<ShellState, Ballist
       // marks the id like any other, so the projectile is never re-sent.
       return (
         shell.ownerId === me.id ||
-        pointSighted(me, shell, ctx.islands) ||
+        pointSighted(me, shell, ctx.islands, ctx.now) ||
         ownZoneCovers(ctx, shell)
       );
     },
@@ -454,6 +475,57 @@ function ballisticSignal(kind: 'shell' | 'torp'): SignalSpec<ShellState, Ballist
     },
   };
 }
+
+/** deg → rad for the torpU emission threshold (CONFIG authors it in degrees). */
+const TORP_UPDATE_THRESHOLD_RAD = (CONFIG.torpedo.homingUpdateAngleDeg * Math.PI) / 180;
+
+/** Has this torpedo's velocity direction drifted ≥ the torpU threshold from
+ *  what `me` last received for the track? False when the observer holds no
+ *  baseline (never revealed — updates only ever follow a reveal). */
+function homingTrackDrifted(me: ShipRecord, shell: ShellState): boolean {
+  const last = me.torpDirs.get(shell.id);
+  if (last === undefined || !me.seenBallistics.has(shell.id)) return false;
+  return Math.abs(wrapAngle(Math.atan2(shell.vy, shell.vx) - last)) >= TORP_UPDATE_THRESHOLD_RAD;
+}
+
+/**
+ * `torpU` — a STEERING (ACOUSTIC HOMING) torpedo's ballistic update (Story
+ * 2.8): the enemy client dead-reckons a torpedo from its reveal velocity, so a
+ * fish whose velocity DIRECTION has drifted ≥ CONFIG.torpedo.
+ * homingUpdateAngleDeg from what THIS observer last received re-emits current
+ * pos + velocity — same constant-free shape rule as the reveal ({k,id,x,y,vx,
+ * vy,t}: no range-derivable field may EVER be added). Emitted ONLY to an
+ * observer for whom the track is ALREADY revealed (seenBallistics — the
+ * exactly-once convention relaxes to allow UPDATES keyed by the same id, for
+ * this row alone) AND who can currently see it via the ballistic reveal
+ * predicate (owner / sight+LOS / owned lit zone; spectators skip the sight
+ * gate, mirroring the reveal row). NOT self-private: torpU is an OBSERVED-
+ * projectile event, gated by sight like the reveals. The per-observer
+ * direction baseline lives in ShipRecord.torpDirs (set at reveal, advanced by
+ * perception's scan after each emission — materialize stays a pure shaper).
+ */
+const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
+  eventType: 'torpU',
+  visible(ctx, shell) {
+    // Only a LIVE homing torpedo record may update. A fabricated world-emitted
+    // 'torpU' event reaching this row via tickEvents dispatch (no ownerId /
+    // homing on the wire shape) is dropped — fail-closed.
+    if (!('ownerId' in shell) || shell.kind !== 'torp' || shell.homing === undefined) return false;
+    const me = ctx.me;
+    if (!me || !homingTrackDrifted(me, shell)) return false;
+    if (ctx.mode === 'spectator') return true;
+    return (
+      shell.ownerId === me.id ||
+      pointSighted(me, shell, ctx.islands, ctx.now) ||
+      ownZoneCovers(ctx, shell)
+    );
+  },
+  materialize(ctx, shell) {
+    // KEY ORDER IS LOAD-BEARING (k,id,x,y,vx,vy,t) — the BallisticEvent order.
+    // `t` is UPDATE time (ctx.now).
+    return { k: 'torpU', id: shell.id, x: shell.x, y: shell.y, vx: shell.vx, vy: shell.vy, t: ctx.now };
+  },
+};
 
 // ---------------------------------------------------------------------------
 // World-event forwarding channels (subject = the world-emitted GameEvent).
@@ -476,14 +548,14 @@ const boomSignal: SignalSpec<BoomEvent, BoomEvent> = {
   eventType: 'boom',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx.islands) || ownZoneCovers(ctx, e);
+    return e.hit === ctx.me.id || pointSighted(ctx.me, e, ctx.islands, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(ctx, e) {
     if (ctx.mode === 'spectator') return e;
     const me = ctx.me;
     if (!e.hit || e.hit === me.id) return e;
     const victim = ctx.ships.get(e.hit);
-    if (victim && (pointSighted(me, victim.state, ctx.islands) || ownZoneCovers(ctx, victim.state))) {
+    if (victim && (pointSighted(me, victim.state, ctx.islands, ctx.now) || ownZoneCovers(ctx, victim.state))) {
       return e;
     }
     return { k: 'boom', id: e.id, x: e.x, y: e.y }; // impact visible, victim id stripped
@@ -522,7 +594,7 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
   eventType: 'burst',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx.islands) || ownZoneCovers(ctx, e);
+    return e.own === ctx.me.id || pointSighted(ctx.me, e, ctx.islands, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(_ctx, e) {
     // ALWAYS a fresh bare object — never `e` verbatim, which would leak the
@@ -546,7 +618,7 @@ const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
     if (e.id === ctx.me.id) return true;
     const wreck = ctx.ships.get(e.id);
     if (wreck === undefined) return false;
-    return pointSighted(ctx.me, wreck.state, ctx.islands) || ownZoneCovers(ctx, wreck.state);
+    return pointSighted(ctx.me, wreck.state, ctx.islands, ctx.now) || ownZoneCovers(ctx, wreck.state);
   },
   materialize(_ctx, e) {
     return e;
@@ -562,7 +634,7 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
   eventType: 'spawn',
   visible(ctx, e) {
     if (ctx.mode === 'spectator') return true;
-    return e.id === ctx.me.id || pointSighted(ctx.me, e, ctx.islands) || ownZoneCovers(ctx, e);
+    return e.id === ctx.me.id || pointSighted(ctx.me, e, ctx.islands, ctx.now) || ownZoneCovers(ctx, e);
   },
   materialize(_ctx, e) {
     return e;
@@ -571,20 +643,20 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
 
 /**
  * SELF-PRIVATE kinds: forwarded ONLY to the ship the event names — dmg
- * (victim), upg (spender), pt (earner), bn (the boon a spend FITTED — Story
- * 2.7). Enemy hp, builds, boons, and level banks all stay hidden by this one
- * gate (upgrade counts / levels / boon ids ride ONLY on OwnShip, never on
- * contacts/blips/booms).
+ * (victim), pt (earner), bn (the boon a spend FITTED — Story 2.7). Enemy hp,
+ * builds, boons, and level banks all stay hidden by this one gate (levels /
+ * boon ids ride ONLY on OwnShip, never on contacts/blips/booms). (The 'upg'
+ * row died with the legacy upgrade economy — Story 2.8's wholesale strip.)
  *
  * `spectatorPublic`: dmg alone passes through unfiltered to spectators (they
  * may watch a fight's hp — a dead player has no channel back into the match).
- * upg/pt/bn stay self-private even in UNFOGGED spectator frames: a
+ * pt/bn stay self-private even in UNFOGGED spectator frames: a
  * dead-in-active captain still gets its own level/fit toasts (spending while
- * dead is legal), but no other spectator may learn a living ship's build
- * increment, fitted boon, or level bank. (The 'heal' row left with the REPAIR spend —
+ * dead is legal), but no other spectator may learn a living ship's fitted
+ * boon or level bank. (The 'heal' row left with the REPAIR spend —
  * Story 2.1, Eric ruling 2026-07-24.)
  */
-function selfPrivateSignal<E extends DamageEvent | UpgradeEvent | PointEvent | BoonFitEvent>(
+function selfPrivateSignal<E extends DamageEvent | PointEvent | BoonFitEvent>(
   kind: E['k'],
   spectatorPublic: boolean,
 ): SignalSpec<E, E> {
@@ -631,12 +703,12 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   blip: blipSignal,
   shell: ballisticSignal('shell'),
   torp: ballisticSignal('torp'),
+  torpU: torpedoUpdateSignal, // Story 2.8: the homing-track update (scan-driven, like shell/torp)
   boom: boomSignal,
   burst: burstSignal,
   sunk: sunkSignal,
   spawn: spawnSignal,
   dmg: selfPrivateSignal<DamageEvent>('dmg', true),
-  upg: selfPrivateSignal<UpgradeEvent>('upg', false),
   pt: selfPrivateSignal<PointEvent>('pt', false),
   bn: selfPrivateSignal<BoonFitEvent>('bn', false),
 });
@@ -656,7 +728,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 10 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
+ * ONLY the 11 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
  * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`/`k:'decoy'`) world
  * event can never materialize (restoring the old dispatcher's
  * `default: return null` guarantee), and uses an OWN-property lookup

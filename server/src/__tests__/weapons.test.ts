@@ -225,18 +225,20 @@ describe('mines — per-player cap despawns the oldest', () => {
   });
 });
 
-describe('World — mine drop + trigger end-to-end (Story 1.8: ability drop, blast trip)', () => {
-  it('an actSeq-dropped mine arms, then sinks an enemy that sails onto it — the nearby OWNER takes 0', () => {
+describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-arc click, blast trip)', () => {
+  it('a click-placed mine lands AT the clicked point, arms, then sinks an enemy that sails onto it — the nearby OWNER takes 0', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', false, 'mineLayer'); // mine at slot 1 (Story 1.8: [gun, mine, decoyBuoy])
+    const a = w.addShip('a', 'A', false, 'mineLayer'); // mine at slot 1 ([gun, mine, decoyBuoy])
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    // Mines are an ABILITY now: a press (actSeq advance) drops one, no click.
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML };
-    w.step(); // drops one mine astern of a (behind -x)
+    // Mines are an aimed WEAPON (amendment 45): a click astern places one.
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0 };
+    w.step(); // places one mine at the clicked point (40u astern, -x)
     expect(w.mines.size).toBe(1);
     const mine = [...w.mines.values()][0];
-    // The stern drop leaves the owner's own hull inside the 48u blast radius —
-    // the built-in owner-exclusion geometry this test also pins below.
+    expect(mine.x).toBeCloseTo(-40, 6); // AT the click, not a stern-rack offset
+    expect(mine.y).toBeCloseTo(0, 6);
+    // The close placement leaves the owner's own hull inside the 48u blast
+    // radius — the built-in owner-exclusion geometry this test also pins below.
     const b = w.addShip('b', 'B');
     b.state = { x: mine.x, y: mine.y, heading: 0, speed: 0 };
     b.hp = CONFIG.mine.damage; // one blast sinks it
@@ -310,28 +312,47 @@ describe('mines — Story 1.8 blast resolution (multi-victim, owner-excluded, no
     expect(mineBlastVictims(mine, [hull('in', 0, 90), hull('o', 0, 0), hull('out', 0, 110)])).toEqual(['in']);
   });
 
-  it('NO CHAINS: a second mine inside the blast survives (armed or not)', () => {
-    const { w } = minefield();
-    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 20, y: 0, armedAt: 0 }); // armed, 20u from m1
-    w.mines.set('m3', { id: 'm3', ownerId: 'x', x: -20, y: 0, armedAt: 999_999 }); // someone else's, unarmed
-    const b = w.addShip('b', 'B');
-    b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips m1 (and m2 — both under the hull)
-    w.step();
-    // m1 and m2 both TRIPPED on the hull pass-over (independent trips, not a
-    // chain); m3 — unarmed, un-tripped, inside both blasts — SURVIVES.
-    expect(w.mines.has('m3')).toBe(true);
-    expect(w.mines.size).toBe(1);
-  });
+  // Story 2.8 (amendment 46) DELIBERATELY FLIPS the 1.8 no-chain pins below:
+  // a detonation now cascades to the SAME OWNER's other ARMED mines whose
+  // centers lie within its blast radius; enemy and unarmed mines never chain.
 
-  it('a mine blast never detonates a neighbouring mine OUTSIDE trip range (blast ≠ trigger)', () => {
+  it('SAME-OWNER CHAIN: a trip cascades to the owner’s other ARMED mine in blast range; an enemy’s unarmed mine survives', () => {
     const { w } = minefield();
-    // 45u from m1: inside m1's 48u blast, outside the tripping hull's 32u reach.
-    w.mines.set('far', { id: 'far', ownerId: 'o', x: 0, y: -45, armedAt: 0 });
+    // 45u from m1: inside m1's 48u blast, OUTSIDE the tripping hull's reach —
+    // pre-2.8 this survived ("blast ≠ trigger"); the chain now takes it.
+    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0 });
+    w.mines.set('m3', { id: 'm3', ownerId: 'x', x: -20, y: 0, armedAt: 999_999 }); // someone else's, unarmed
     const b = w.addShip('b', 'B');
     b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips only m1
     w.step();
-    expect(w.mines.has('far')).toBe(true); // no chain — the blast is damage-only
+    expect(w.mines.has('m2')).toBe(false); // chained same-tick
+    expect(w.mines.has('m3')).toBe(true); // enemy mines never sympathize (and it is unarmed)
     expect(w.mines.size).toBe(1);
+    // The chained mine's boom carries NO victim id (only the tripped mine's does).
+    const booms = w.tickEvents.filter((e) => e.k === 'boom');
+    expect(booms).toEqual([
+      { k: 'boom', id: 'm1', hit: 'b', x: 0, y: 0 },
+      { k: 'boom', id: 'm2', x: 0, y: -45 },
+    ]);
+  });
+
+  it('the chain CASCADES down a daisy line (bounded by the visited set) but never crosses owners or arms', () => {
+    const { w } = minefield();
+    // m1 (0,0) → m2 at 45u → m3 at 90u (inside m2's blast, outside m1's) —
+    // three same-owner armed mines detonate in ONE tick. An ENEMY armed mine
+    // inside the chain's blasts survives, as does an UNARMED own mine.
+    w.mines.set('m2', { id: 'm2', ownerId: 'o', x: 0, y: -45, armedAt: 0 });
+    w.mines.set('m3', { id: 'm3', ownerId: 'o', x: 0, y: -90, armedAt: 0 });
+    w.mines.set('mEnemy', { id: 'mEnemy', ownerId: 'x', x: 0, y: -70, armedAt: 0 });
+    w.mines.set('mCold', { id: 'mCold', ownerId: 'o', x: 0, y: -120, armedAt: 999_999 });
+    const b = w.addShip('b', 'B');
+    b.state = { x: 0, y: 10, heading: 0, speed: 0 }; // trips only m1
+    w.step();
+    expect(w.mines.has('m2')).toBe(false);
+    expect(w.mines.has('m3')).toBe(false);
+    expect(w.mines.has('mEnemy')).toBe(true); // enemy mines never chain
+    expect(w.mines.has('mCold')).toBe(true); // unarmed mines never chain
+    expect(w.mines.size).toBe(2);
   });
 });
 
@@ -387,14 +408,16 @@ describe('mines — owner gun-burst detonation (armed-only, owner-only, no casca
     expect(w.mines.has('m1')).toBe(true); // only the OWNER's bursts detonate
   });
 
-  it('NO CASCADE: a detonation’s blast never sets off a further mine outside the shell burst', () => {
+  it('CHAIN THROUGH THE BURST (Story 2.8 flip of the 1.8 no-cascade pin): the burst-detonated mine chains its own neighbour outside the shell burst', () => {
     const { w } = board();
     w.mines.set('m1', { id: 'm1', ownerId: 'a', x: 300, y: 0, armedAt: 0 }); // under the click (30u burst)
-    // 40u from m1: inside m1's 48u blast, OUTSIDE the 30u shell burst.
+    // 40u from m1: inside m1's 48u blast, OUTSIDE the 30u shell burst — the
+    // burst never reaches it, but m1's detonation now cascades same-owner
+    // (amendment 46; pre-2.8 this survived as "blast is damage-only").
     w.mines.set('m2', { id: 'm2', ownerId: 'a', x: 340, y: 0, armedAt: 0 });
     shootAt(w, 300);
     expect(w.mines.has('m1')).toBe(false); // burst-detonated
-    expect(w.mines.has('m2')).toBe(true); // m1's blast is damage-only — never a detonator
+    expect(w.mines.has('m2')).toBe(false); // chained off m1's blast
   });
 });
 
@@ -412,29 +435,29 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     expect(torps).toBe(1);
   });
 
-  it('one PRESS drops exactly one mine (actSeq — Story 1.8), even applied past the drop cooldown; a second press drops another', () => {
+  it('one CLICK places exactly one mine (fireSeq — Story 2.8 aimed weapon), even applied past the drop cooldown; a second click places another', () => {
     const w = bareWorld();
-    const a = w.addShip('a', 'A', false, 'mineLayer'); // mine at slot 1 (Story 1.8: [gun, mine, decoyBuoy])
+    const a = w.addShip('a', 'A', false, 'mineLayer'); // mine at slot 1 ([gun, mine, decoyBuoy])
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML });
-    // Under hold-to-activate this input would re-drop every reload; a press must not.
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0 });
+    // Under hold-to-fire this input would re-place every reload; a click must not.
     const ticks = CONFIG.mine.reloadMs / CONFIG.tick.simDtMs + 20;
     for (let i = 0; i < ticks; i++) w.step();
     expect(w.mines.size).toBe(1);
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 2, actSlot: SLOT_MINE_ML });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 2, aimDist: 60, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0 });
     w.step();
     expect(w.mines.size).toBe(2);
   });
 
-  it('a CLICK (fireSeq) on the ML mine slot is inert — mines left the fire-control channel (Story 1.8)', () => {
+  it('a PRESS (actSeq) on the ML mine slot is inert — mines JOINED the fire-control channel (Story 2.8 flip of the 1.8 pin)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', false, 'mineLayer');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 40, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML });
     w.step();
-    expect(w.mines.size).toBe(0); // the weapon-only click wall refuses abilities
+    expect(w.mines.size).toBe(0); // the ability-only press wall refuses weapons
     expect(a.loadout[SLOT_MINE_ML].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 }); // charge intact
-    expect(a.lastFireSeq).toBe(1); // the click was still consumed
+    expect(a.lastActSeq).toBe(1); // the press was still consumed
   });
 });
 

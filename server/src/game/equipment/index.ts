@@ -128,7 +128,7 @@ export function slotAmmo(ship: ShipRecord): (WeaponAmmo | null)[] {
 
 export { freshAmmo, tickReload, consume } from './ammo.js';
 export { boostEquipment } from './boost.js';
-export { decoyEquipment } from './decoy.js';
+export { decoyEquipment, dropPoint } from './decoy.js';
 export { cannonEquipment } from './cannon.js';
 export { starShellsEquipment } from './starShells.js';
 export { gunEquipment } from './guns.js';
@@ -138,9 +138,9 @@ export {
   addMine,
   checkMineTriggers,
   dropBlocked,
-  dropPoint,
   hullFor,
   mineBlastVictims,
+  minePlacePoint,
   type MineState,
   type MineTrigger,
 } from './mines.js';

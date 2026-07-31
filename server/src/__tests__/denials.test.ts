@@ -7,8 +7,8 @@
 // Every denial spends NOTHING (round/charge + reload untouched), reaches ONLY
 // the pressing client's own frame (owner-only — never another observer, never
 // a spectator frame), lives exactly one tick, and never queues for drones.
-// The pv join gate is re-pinned here too: a pv-13 (previous-protocol) client
-// must be rejected at matchmake time after the 14→15 bump (Story 2.7).
+// The pv join gate is re-pinned here too: a pv-15 (previous-protocol) client
+// must be rejected at matchmake time after the 15→16 bump (Story 2.8).
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, PROTOCOL_VERSION, type InputMsg } from '@salvo/shared';
@@ -98,33 +98,51 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 2, reason: 'no-ammo', seq: 2 }]);
   });
 
-  for (const [label, slot] of [
-    ['mine', 1],
-    ['decoy', 2],
-  ] as const) {
-    it(`blocked (island): a ${label} stern drop into a rock denies {'blocked'} and consumes NOTHING`, () => {
-      const w = bareWorld();
-      const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // stern rack drops at (-76, 0)
-      w.map.islands.push({ x: -76, y: 0, r: 20 }); // the rock the stern is backed against
-      w.submitInput('a', input(1, { actSeq: 1, actSlot: slot }));
-      w.step();
-      expect(buildFrame(w, 'a').denied).toEqual([{ slot, reason: 'blocked', seq: 1 }]);
-      // Charge AND reload untouched — the previously wasted charge is kept.
-      expect(a.loadout[slot].state).toEqual({ n: 1, reloadMsLeft: 0 });
-      expect(w.mines.size).toBe(0);
-      expect(w.decoys.size).toBe(0);
-    });
-  }
-
-  it("blocked (boundary): a stern drop off the water disk denies {'blocked'} too", () => {
+  it("blocked (island): a MINE click onto a rock (Story 2.8 aimed placement) denies {'blocked'} and consumes NOTHING", () => {
     const w = bareWorld();
-    // Facing map-inward (heading π → bow along −x), stern rack reaches +76u
-    // PAST the hull toward +x — beyond the rim from 30u inside it.
+    const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // heading 0 ⇒ rear sector centers on π
+    w.map.islands.push({ x: -60, y: 0, r: 20 }); // the rock the click lands on
+    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 60 }));
+    w.step();
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'blocked', seq: 1 }]);
+    // Charge AND reload untouched — the previously wasted charge is kept.
+    expect(a.loadout[1].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(w.mines.size).toBe(0);
+  });
+
+  it("blocked (island): a DECOY stern drop into a rock denies {'blocked'} and consumes NOTHING", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // stern rack drops at (-76, 0)
+    w.map.islands.push({ x: -76, y: 0, r: 20 }); // the rock the stern is backed against
+    w.submitInput('a', input(1, { actSeq: 1, actSlot: 2 }));
+    w.step();
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 2, reason: 'blocked', seq: 1 }]);
+    expect(a.loadout[2].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(w.decoys.size).toBe(0);
+  });
+
+  it("blocked (boundary): a mine click off the water disk denies {'blocked'} too", () => {
+    const w = bareWorld();
+    // Facing map-inward (heading π → bow along −x), the rear sector centers on
+    // +x — a click 60u astern from 30u inside the rim lands past the edge.
     const a = place(w, 'a', w.map.radius - 30, 0, Math.PI, 'mineLayer');
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: 1 }));
+    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: 0, aimDist: 60 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'blocked', seq: 1 }]);
     expect(a.loadout[1].state).toEqual({ n: 1, reloadMsLeft: 0 });
+  });
+
+  it("out-of-arc: a mine click at the BOW (or past placeRange) denies {'out-of-arc'} (Story 2.8 rear placement arc)", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0, 0, 'mineLayer');
+    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: 0, aimDist: 40 })); // bow click — outside the rear sector
+    w.step();
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'out-of-arc', seq: 1 }]);
+    w.submitInput('a', input(2, { fireSeq: 2, slot: 1, aim: Math.PI, aimDist: CONFIG.mine.placeRange + 50 }));
+    w.step();
+    expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'out-of-arc', seq: 2 }]);
+    expect(a.loadout[1].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(w.mines.size).toBe(0);
   });
 });
 
@@ -172,28 +190,27 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 14→15 bump (Story 2.7 boon offers + bn) is enforced at matchmake', () => {
-  it('rejects a pv-14 (previous protocol) client and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(15);
-    expect(protocolVersionError(14)).toMatch(/refresh/);
+describe('pv join gate — the 15→16 bump (Story 2.8 catalog + deck economy + strip) is enforced at matchmake', () => {
+  it('rejects a pv-15 (previous protocol) client and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(16);
+    expect(protocolVersionError(15)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });
 });
 
-describe('blocked-drop geometry sanity (the ratified stern rack)', () => {
-  it('an ML with open water astern still drops normally (the check refuses only illegal water)', () => {
+describe('blocked-drop geometry sanity (Story 2.8: clicked placement + the decoy stern rack)', () => {
+  it('an ML clicking open water astern still places normally (the check refuses only illegal water)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0, 0, 'mineLayer');
-    w.map.islands.push({ x: 200, y: 200, r: 40 }); // a rock nowhere near the rack
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: 1 }));
+    w.map.islands.push({ x: 200, y: 200, r: 40 }); // a rock nowhere near the click
+    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(w.mines.size).toBe(1);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
-    // The drop point is the SAME ratified stern rack as before (heading + π,
-    // hull-clear + trigger margin): 88/2 + 32 = 76u dead astern.
+    // The mine lands AT the clicked point (amendment 45), 60u dead astern.
     const mine = [...w.mines.values()][0];
-    expect(mine.x).toBeCloseTo(-76, 6);
+    expect(mine.x).toBeCloseTo(-60, 6);
     expect(mine.y).toBeCloseTo(0, 6);
     expect(CONFIG.mine.offset).toBeCloseTo(Math.PI, 12);
   });

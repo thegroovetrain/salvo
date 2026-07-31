@@ -163,13 +163,16 @@ describe('fireControl — two clicks landing in ONE tick are BOTH evaluated in s
 });
 
 describe('activationControl — two ability presses landing in ONE tick both evaluate', () => {
-  it('the ML drops a mine AND a decoy from one coalesced tick (neither press lost)', () => {
+  it('the ML places a mine (click) AND drops a decoy (press) from one coalesced tick (neither intent lost)', () => {
+    // Story 2.8 flip: the mine is an aimed WEAPON (fireSeq click, rear arc);
+    // the decoy stays an ability (actSeq press). One coalesced tick carries a
+    // mine click and a decoy press — both land, neither channel swallows.
     const w = bareWorld();
-    place(w, 'a', 0, 0, 0, 'mineLayer'); // slot 1 = mine, slot 2 = decoyBuoy
+    place(w, 'a', 0, 0, 0, 'mineLayer'); // slot 1 = mine, slot 2 = decoyBuoy; heading 0 ⇒ astern π
     w.step();
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: 1 }));
-    w.submitInput('a', input(2, { actSeq: 2, actSlot: 2 }));
-    w.step(); // ONE tick — pre-2.1 the mine press was swallowed by latest-wins
+    w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 40 }));
+    w.submitInput('a', input(2, { actSeq: 1, actSlot: 2 }));
+    w.step(); // ONE tick — pre-2.1 the earlier intent was swallowed by latest-wins
     expect(w.mines.size).toBe(1);
     expect(w.decoys.size).toBe(1);
     expect('denied' in buildFrame(w, 'a')).toBe(false);

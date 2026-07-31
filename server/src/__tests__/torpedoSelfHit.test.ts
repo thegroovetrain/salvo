@@ -19,7 +19,6 @@ import {
   type GameEvent,
   type ShellState,
   type ShipClassId,
-  type UpgradeId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 
@@ -47,9 +46,10 @@ function place(
   return rec;
 }
 
-/** Stack `count` upgrades of one type through the real grant seam (mirrors upgrades.test.ts). */
-function stack(w: World, ship: ShipRecord, type: UpgradeId, count: number): void {
-  for (let i = 0; i < count; i++) w.applyUpgrade(ship, type);
+/** Stack `count` copies of one boon line through the real grant seam (the
+ *  2.8 deck economy's applyBoon — mirrors upgrades.test.ts). */
+function stack(w: World, ship: ShipRecord, boonId: string, count: number): void {
+  for (let i = 0; i < count; i++) w.applyBoon(ship, boonId);
 }
 
 const dmgOf = (events: readonly GameEvent[]): DamageEvent[] =>
@@ -84,7 +84,7 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
   function runFullThrottleShot(aim: number, maxSpeedStacks = 0): { dmgs: DamageEvent[]; ship: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0); // torpedoBoat, bow points +x (heading 0)
-    if (maxSpeedStacks > 0) stack(w, a, 'maxSpeed', maxSpeedStacks);
+    if (maxSpeedStacks > 0) stack(w, a, 'shipSpeed', maxSpeedStacks);
 
     const dmgs: DamageEvent[] = [];
 
@@ -119,14 +119,17 @@ describe('torpedo self-hit — full-throttle torpedo boat end to end', () => {
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);
   });
 
-  it('straight ahead with 5 maxSpeed stacks (hull OUTRUNS the fish) — firer STILL takes no damage', () => {
-    // 45 · 1.08^5 ≈ 66.1 u/s > torpedo speed 60: the boat now overtakes its own
-    // fish, the exact geometry the old margin+grace fix depended on. Permanent
-    // owner immunity makes a self-hit impossible regardless.
-    expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed * 1.08 ** 5).toBeGreaterThan(
+  it('straight ahead with the hull OVERDRIVEN past the fish — firer STILL takes no damage', () => {
+    // Under the 2.8 catalog the deck caps shipSpeed at 5 copies (45 · 1.05⁵ ≈
+    // 57.4 < 60 — a max-stacked hull can no longer outrun its own base fish,
+    // by guardrail design). To keep the outrun geometry the old margin+grace
+    // fix depended on PINNED, the test overdrives the applyBoon seam past the
+    // deck's copy cap: 8 stacks ≈ 66.5 u/s > 60. Permanent owner immunity
+    // makes a self-hit impossible regardless of geometry.
+    expect(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed * 1.05 ** 8).toBeGreaterThan(
       CONFIG.torpedo.speed,
     );
-    const { dmgs, ship } = runFullThrottleShot(0, 5);
+    const { dmgs, ship } = runFullThrottleShot(0, 8);
     expect(ship.stats.kinematics.maxSpeed).toBeGreaterThan(CONFIG.torpedo.speed);
     expect(ship.hp).toBe(ship.stats.maxHp);
     expect(dmgs.some((e) => e.id === 'a')).toBe(false);

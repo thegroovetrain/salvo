@@ -65,10 +65,17 @@ function clampInsideMap(center: Vec2, target: Vec2, mapRadius: number): Vec2 {
  * are measured from the ship CENTER.
  */
 export function burstPoint(ship: ShipRecord, mapRadius: number, rangeU: number): Vec2 {
+  return burstPointAlong(ship, mapRadius, rangeU, ship.input.aim);
+}
+
+/** burstPoint generalized over an explicit bearing (Story 2.8): the multi-
+ *  barrel fan aims each shell at its OWN range-preserved burst point along its
+ *  own fanned bearing — same clicked distance, same range and map clamps. */
+export function burstPointAlong(ship: ShipRecord, mapRadius: number, rangeU: number, dir: number): Vec2 {
   const dist = Math.min(Math.max(ship.input.aimDist, 0), rangeU);
   const target = {
-    x: ship.state.x + Math.cos(ship.input.aim) * dist,
-    y: ship.state.y + Math.sin(ship.input.aim) * dist,
+    x: ship.state.x + Math.cos(dir) * dist,
+    y: ship.state.y + Math.sin(dir) * dist,
   };
   return clampInsideMap(ship.state, target, mapRadius);
 }
@@ -101,41 +108,61 @@ export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shel
 }
 
 /**
- * Gun fire control against one slot pool: 0 or 1 shell. The ONLY denial is an
- * empty pool ('no-ammo' — the shot cooldown); there is no arc. The shell
- * carries the gun's hit rule: target point + burstRadius + contactDamage.
- * distLeft is the spawn→target distance plus a shellRadius of slack — the
- * shell stops AT its target (stepShell), so the slack only guards float drift
- * from ever expiring it a hair short of the burst.
+ * rad — the fixed angular spread between ADJACENT shells of a multi-barrel
+ * fan (Story 2.8, TWIN/TRIPLE MOUNT). DRAFT HANDWAVE (implementer-drafted, no
+ * shared constant by wave-2 ruling; 2.10's evidence pass may promote/tune it):
+ * 3° reads as a volley at typical gun ranges without shotgunning the blast.
  */
-function fireGunShell(
+const BARREL_FAN_STEP_RAD = (3 * Math.PI) / 180;
+
+/**
+ * Gun fire control against one slot pool: `stats.gun.barrels` shells (1..3 —
+ * TWIN/TRIPLE MOUNT, Story 2.8) for ONE consumed round, fanned
+ * BARREL_FAN_STEP_RAD apart centered on the aim bearing, each a REAL shell
+ * flying to its OWN range-preserved burst point along its own bearing. The
+ * ONLY denial is an empty pool ('no-ammo' — the shot cooldown; single-consume,
+ * so the denial mapping is unchanged from the single-barrel era); there is no
+ * arc. Every shell carries the gun's hit rule off the OWNER's effective stats:
+ * target point + burstRadius + damage/contactDamage (Story 2.8 — stats, never
+ * CONFIG, so the HEAVY SHELLS ladder lands). distLeft is the spawn→target
+ * distance plus a shellRadius of slack — the shell stops AT its target
+ * (stepShell), so the slack only guards float drift from ever expiring it a
+ * hair short of the burst.
+ */
+function fireGunShells(
   ship: ShipRecord,
   pool: EquipmentState,
   now: number,
   mapRadius: number,
   mkId: () => string,
-): { shell: ShellState | null; denial: ActivationDenial | null } {
-  if (!consume(pool, ship.stats.gun.reloadMs)) return { shell: null, denial: 'no-ammo' }; // pool empty
-  const dir = ship.input.aim;
-  const target = gunTarget(ship, mapRadius);
-  const origin = muzzleOrTarget(ship, dir, target, CONFIG.gun.shellRadius);
-  const shell = makeBallistic(mkId(), ship, dir, now, {
-    speed: CONFIG.gun.shellSpeed,
-    range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.gun.shellRadius,
-    damage: CONFIG.gun.damage,
-    hitRadius: CONFIG.gun.shellRadius,
-    kind: 'shell',
-    origin,
-    targetX: target.x,
-    targetY: target.y,
-    burstRadius: CONFIG.gun.burstRadius,
-    contactDamage: CONFIG.gun.contactDamage,
-  });
-  return { shell, denial: null };
+): { shells: ShellState[]; denial: ActivationDenial | null } {
+  if (!consume(pool, ship.stats.gun.reloadMs)) return { shells: [], denial: 'no-ammo' }; // pool empty
+  const gun = ship.stats.gun;
+  const shells: ShellState[] = [];
+  for (let b = 0; b < gun.barrels; b += 1) {
+    const dir = ship.input.aim + (b - (gun.barrels - 1) / 2) * BARREL_FAN_STEP_RAD;
+    const target = burstPointAlong(ship, mapRadius, gun.rangeU, dir);
+    const origin = muzzleOrTarget(ship, dir, target, CONFIG.gun.shellRadius);
+    shells.push(
+      makeBallistic(mkId(), ship, dir, now, {
+        speed: CONFIG.gun.shellSpeed,
+        range: Math.hypot(target.x - origin.x, target.y - origin.y) + CONFIG.gun.shellRadius,
+        damage: gun.damage,
+        hitRadius: CONFIG.gun.shellRadius,
+        kind: 'shell',
+        origin,
+        targetX: target.x,
+        targetY: target.y,
+        burstRadius: gun.burstRadius,
+        contactDamage: gun.contactDamage,
+      }),
+    );
+  }
+  return { shells, denial: null };
 }
 
 /** The gun Equipment row. Pool size + reload come from the ship's cached
- *  effective stats (maxAmmo is pinned to 1 — the single-shot cooldown).
+ *  effective stats (base maxAmmo 1; AFT TURRET may raise it — Story 2.8).
  *  Slot state is non-null by the loadout invariant (see index.ts). */
 export const gunEquipment: Equipment = {
   id: 'gun',
@@ -146,8 +173,8 @@ export const gunEquipment: Equipment = {
   activate(ctx, slot) {
     // bornAt = the VALIDATED fire time (D1): a back-dated shell is then
     // pre-stepped by the World to where it belongs this tick.
-    const { shell, denial } = fireGunShell(ctx.ship, slot.state!, ctx.fireT, ctx.mapRadius, ctx.mkId);
-    if (shell) ctx.spawnBallistic(shell);
+    const { shells, denial } = fireGunShells(ctx.ship, slot.state!, ctx.fireT, ctx.mapRadius, ctx.mkId);
+    for (const shell of shells) ctx.spawnBallistic(shell);
     return denial === null ? { ok: true } : { ok: false, reason: denial };
   },
 };

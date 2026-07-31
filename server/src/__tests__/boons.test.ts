@@ -1,6 +1,8 @@
-// Boon engine server plumbing (Story 2.5 — dormant until 2.7). Proves, against
-// INJECTED test registries (the shipped HOOK_REGISTRY / BOON_CATALOG stay
-// empty — amendment 29), that: a behavior boon's kinematics hook executes in
+// Boon engine server plumbing (Story 2.5; live since 2.7). Proves, against
+// INJECTED test registries (the shipped HOOK_REGISTRY stays empty — amendment
+// 29; the shipped BOON_CATALOG is the full 2.8 content, exercised in
+// upgrades.test.ts — the injected catalog here keeps these pins
+// content-independent), that: a behavior boon's kinematics hook executes in
 // the REAL world tick (measurable position change vs an identical control
 // world); applyBoon touches exactly the two homes on a live ShipRecord (stats
 // only via effectiveStats, slots only in the one loadout — untouched slots
@@ -16,7 +18,6 @@ import {
   SLOT_GUN,
   effectiveStats,
   equipmentMaxAmmo,
-  zeroUpgrades,
   type BoonCatalog,
   type BoonDef,
   type HookRegistry,
@@ -41,21 +42,29 @@ const TEST_HOOKS: HookRegistry = {
 const BEHAVIOR_BOON: BoonDef = {
   id: 'surgeProtocol',
   category: 'test',
+  rarity: 'common',
+  copies: 1,
   effects: [{ kind: 'behavior', hookId: 'surge', params: { bonus: 20 } }],
 };
 const STAT_BOON: BoonDef = {
   id: 'ironPlating',
   category: 'test',
+  rarity: 'common',
+  copies: 1,
   effects: [{ kind: 'stat', path: 'maxHp', add: 40 }],
 };
 const FILL_BOON: BoonDef = {
   id: 'bolterRack',
   category: 'test',
+  rarity: 'common',
+  copies: 1,
   effects: [{ kind: 'slotFill', equipmentId: 'mine' }],
 };
 const REPLACE_BOON: BoonDef = {
   id: 'longLance',
   category: 'test',
+  rarity: 'common',
+  copies: 1,
   effects: [{ kind: 'slotReplace', from: 'torpedo', to: 'cannon' }],
 };
 
@@ -63,6 +72,8 @@ const REPLACE_BOON: BoonDef = {
 const OMNI_BOON: BoonDef = {
   id: 'omni',
   category: 'test',
+  rarity: 'common',
+  copies: 1,
   effects: [
     { kind: 'stat', path: 'sightRange', mult: 1.25 },
     { kind: 'slotFill', equipmentId: 'decoyBuoy' },
@@ -77,17 +88,23 @@ const OMNI_BOON: BoonDef = {
 const WIDE_TUBES: BoonDef = {
   id: 'deepMagazine',
   category: 'test',
+  rarity: 'common',
+  copies: 1,
   effects: [{ kind: 'stat', path: 'torpedo.maxAmmo', add: 3 }],
 };
 const NARROW_TUBES: BoonDef = {
   id: 'crampedMagazine',
   category: 'test',
+  rarity: 'common',
+  copies: 1,
   effects: [{ kind: 'stat', path: 'torpedo.maxAmmo', add: -2 }],
 };
 /** A maxHp-LOWERING boon (the hp invariant's only trigger). */
 const FRAIL_HULL: BoonDef = {
   id: 'strippedArmor',
   category: 'test',
+  rarity: 'common',
+  copies: 1,
   effects: [{ kind: 'stat', path: 'maxHp', mult: 0.5 }],
 };
 
@@ -162,7 +179,7 @@ describe('behavior boon — the kinematics hook executes in the REAL world tick'
 
   it('a behavior boon whose hookId is unknown to the registry is a silent per-tick no-op', () => {
     const catalog: BoonCatalog = {
-      ghost: { id: 'ghost', category: 'test', effects: [{ kind: 'behavior', hookId: 'nope', params: {} }] },
+      ghost: { id: 'ghost', category: 'test', rarity: 'common', copies: 1, effects: [{ kind: 'behavior', hookId: 'nope', params: {} }] },
     };
     const w = bareWorld(7, { hookRegistry: TEST_HOOKS, boonCatalog: catalog });
     const control = bareWorld(7, {});
@@ -204,7 +221,7 @@ describe('World.applyBoon — two homes, nothing else', () => {
     const stateRefs = a.loadout.map((s) => s.state);
     w.applyBoon(a, 'ironPlating');
     expect(a.boons).toEqual(['ironPlating']);
-    expect(a.stats).toEqual(effectiveStats(a.cls, zeroUpgrades(), [STAT_BOON]));
+    expect(a.stats).toEqual(effectiveStats(a.cls, [STAT_BOON]));
     expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 40);
     expect(a.loadout).toBe(loadoutRef); // same array
     a.loadout.forEach((s, i) => {
@@ -244,18 +261,18 @@ describe('World.applyBoon — two homes, nothing else', () => {
     const before = {
       hp: a.hp, alive: a.alive, boostUntil: a.boostUntil, kills: a.kills, deaths: a.deaths,
       damageDealt: a.damageDealt, lastFireSeq: a.lastFireSeq, lastActSeq: a.lastActSeq,
-      respawnAt: a.respawnAt, sweepAngle: a.sweepAngle, upgrades: [...a.upgrades],
+      respawnAt: a.respawnAt, sweepAngle: a.sweepAngle,
       offers: [...a.offers], state: { ...a.state },
     };
     w.applyBoon(a, 'ironPlating');
     w.applyBoon(a, 'bolterRack');
     w.step();
-    expect(w.tickEvents.filter((e) => e.k === 'upg' || e.k === 'pt')).toEqual([]);
+    expect(w.tickEvents.filter((e) => e.k === 'pt' || e.k === 'bn')).toEqual([]);
     expect(a.hp).toBe(55); // NOT healed (no grant side effects — unlike hullPoints upgrades)
     expect({
       hp: a.hp, alive: a.alive, boostUntil: a.boostUntil, kills: a.kills, deaths: a.deaths,
       damageDealt: a.damageDealt, lastFireSeq: a.lastFireSeq, lastActSeq: a.lastActSeq,
-      respawnAt: before.respawnAt, sweepAngle: before.sweepAngle, upgrades: [...a.upgrades],
+      respawnAt: before.respawnAt, sweepAngle: before.sweepAngle,
       offers: [...a.offers], state: before.state,
     }).toEqual(before);
   });
@@ -268,7 +285,7 @@ describe('World.applyBoon — two homes, nothing else', () => {
     a.hp = 42;
     w.applyBoon(a, 'omni');
     // Home 1 — stats: exactly the effectiveStats fold (sight boon included).
-    expect(a.stats).toEqual(effectiveStats(a.cls, zeroUpgrades(), [OMNI_BOON]));
+    expect(a.stats).toEqual(effectiveStats(a.cls, [OMNI_BOON]));
     expect(a.stats.sightRange).toBeCloseTo(CONFIG.vision.sight * 1.25, 9);
     // Home 2 — slots: the fill AND the replace landed in the one structure.
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'starShells', 'decoyBuoy']);
@@ -315,14 +332,16 @@ describe('World.applyBoon — two homes, nothing else', () => {
     }
   });
 
-  it('a cap-RAISING stat boon leaves the live pool alone (no free top-up — a 2.8 catalog decision)', () => {
+  it('a cap-RAISING stat boon fills the pool to the new cap (amendment 41 — everything arrives loaded; FLIPS the 2.5 no-top-up pin)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     a.loadout[1].state!.n = 0;
     a.loadout[1].state!.reloadMsLeft = 900; // mid-reload, empty tubes
     w.applyBoon(a, 'deepMagazine'); // cap 1 -> 4
     expect(a.stats.torpedo.maxAmmo).toBe(CONFIG.torpedo.maxAmmo + 3);
-    expect(a.loadout[1].state).toEqual({ n: 0, reloadMsLeft: 900 }); // untouched
+    // The raise arrives loaded: the pool fills to the NEW cap immediately
+    // (the reload timer keeps running toward nothing — it settles at full).
+    expect(a.loadout[1].state!.n).toBe(CONFIG.torpedo.maxAmmo + 3);
   });
 
   it('a maxHp-LOWERING stat boon clamps hp to the new cap; a RAISING one still does not heal', () => {
@@ -354,15 +373,13 @@ describe('World.applyBoon — two homes, nothing else', () => {
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'speedBoost', null]);
   });
 
-  it('composes with legacy upgrades: applyUpgrade AFTER a boon keeps the boon fold in the cached stats', () => {
+  it('REPEATED ids stack by occurrence (the deck copy-count law): two ironPlating fits fold +40 twice', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyBoon(a, 'ironPlating');
-    w.applyUpgrade(a, 'hullPoints');
-    // Legacy stacking first (base + add), then the boon's +40 fold on top.
-    expect(a.stats.maxHp).toBe(
-      CONFIG.shipClasses.torpedoBoat.hp + CONFIG.upgrades.hullPoints.add + 40,
-    );
+    w.applyBoon(a, 'ironPlating');
+    expect(a.boons).toEqual(['ironPlating', 'ironPlating']);
+    expect(a.stats.maxHp).toBe(CONFIG.shipClasses.torpedoBoat.hp + 80);
   });
 });
 
@@ -388,14 +405,14 @@ describe('lifecycle — redeployShip wipes boons, respawn preserves the build', 
     expect(a.loadout[SLOT_EXTRA].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
   });
 
-  it('redeployShip (the match boundary) WIPES boons with upgrades/offers — fresh match, fresh build', () => {
+  it('redeployShip (the match boundary) WIPES boons with offers — fresh match, fresh build', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     w.applyBoon(a, 'ironPlating');
     w.applyBoon(a, 'bolterRack');
     w.resetForMatchStart();
     expect(a.boons).toEqual([]);
-    expect(a.stats).toEqual(effectiveStats(a.cls, zeroUpgrades()));
+    expect(a.stats).toEqual(effectiveStats(a.cls));
     expect(a.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp);
     expect(a.loadout.map((s) => s.equipmentId)).toEqual(['gun', 'torpedo', 'speedBoost', null]);
     // And the per-tick fold is back on the identity path (no stale behaviors).
@@ -424,7 +441,7 @@ describe('wire privacy — boons never leak', () => {
     w.step();
     const f = buildFrame(w, 'a');
     expect(f.you!.boons).toEqual(['ironPlating']);
-    expect(f.you!.boons).not.toBe(a.boons); // defensive copy (the upg discipline)
+    expect(f.you!.boons).not.toBe(a.boons); // defensive copy (the self-private-field discipline)
   });
 
   it("another observer's frame: the booned hull's Contact carries NO boons key", () => {

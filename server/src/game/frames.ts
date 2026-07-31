@@ -18,7 +18,7 @@ import { observe, observeSpectator } from './perception.js';
 import { slotAmmo } from './equipment/index.js';
 import type { ShipRecord, World } from './world.js';
 
-function toOwnShip(ship: ShipRecord): OwnShip {
+function toOwnShip(ship: ShipRecord, now: number): OwnShip {
   // Anti-cheat/invariant guard: OwnShip only ever describes a human client's
   // own ship, whose hullId is ALWAYS a ShipClassId. A drone hull id reaching
   // here means a drone record was routed to a client frame — an upstream bug,
@@ -46,14 +46,13 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     // hull ids exist only on drones, which have no client). Contacts carry the
     // full HullId instead — that lives in signals.ts's contact row.
     cls: ship.hullId as ShipClassId,
-    // Upgrade counts (UPGRADE_IDS order), defensive copy. Self-syncing every
-    // frame; the client derives effective stats from (cls, upg). OWN SHIP ONLY
-    // — contacts/spectator payloads never carry upgrade data (anti-cheat).
-    upg: [...ship.upgrades],
+    // (OwnShip.upg died with the legacy upgrade economy — Story 2.8's
+    // wholesale strip. The client derives effective stats from (cls, boons).)
     // Banked levels = the offer queue length (single source of truth). Only the
-    // FRONT offer is surfaced, as BOON IDS (Story 2.7), defensively copied; the
-    // rest of the queue never leaves the server. Self-private (own ship only),
-    // like upg/boons.
+    // FRONT offer is surfaced, as BOON IDS (Story 2.7; deck-drawn as of 2.8),
+    // defensively copied; the rest of the queue never leaves the server — and
+    // the DECK itself never leaves it at all. Self-private (own ship only),
+    // like boons.
     pts: ship.offers.length,
     offer: ship.offers.length > 0 ? [...ship.offers[0]] : [],
     // ms — active speed-boost window end (0 = inactive). OWNER-ONLY by
@@ -72,6 +71,14 @@ function toOwnShip(ship: ShipRecord): OwnShip {
     // spectator payload. The client renders them verbatim (no XP prediction).
     lvl: ship.level,
     xp: ship.xpMs / CONFIG.xp.levelMs,
+    // Active debuff windows (Story 2.8), OPTIONAL on the wire — omitted (not
+    // 0) when inactive, so debuff-free frames carry no dead keys. VICTIM-
+    // PRIVATE like boostUntil: they ride `you` and NOTHING else — an enemy
+    // reads a fouled hull only through its observed kinematics, a dazzled one
+    // not at all. slowedUntil drives the predictor's slowedKinematics fold;
+    // dazzledUntil shrinks the client's own fog hole honestly.
+    ...(ship.slowedUntil > now ? { slowedUntil: ship.slowedUntil } : {}),
+    ...(ship.dazzledUntil > now ? { dazzledUntil: ship.dazzledUntil } : {}),
   };
 }
 
@@ -128,7 +135,7 @@ export function buildFrame(world: World, playerId: string, phase: MatchPhase = '
   const denied = world.denialsFor(playerId);
   return {
     ...base,
-    you: ship ? toOwnShip(ship) : undefined,
+    you: ship ? toOwnShip(ship, world.now) : undefined,
     contacts: view.contacts,
     events: view.events,
     mines: view.mines,

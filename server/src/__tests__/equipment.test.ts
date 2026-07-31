@@ -97,15 +97,18 @@ describe('EQUIPMENT registry — interface conformance', () => {
 
   // Content-level, NOT conformance: the weapon/ability split rides the shared
   // EQUIPMENT_IS_WEAPON map (single source) — gun/torpedo/cannon/starShells
-  // are aimed-click weapons; speedBoost (1.6), mine (flipped in 1.8), and
-  // decoyBuoy (1.8) are instant-activation abilities (isWeapon:false).
+  // AND (as of Story 2.8, amendment 45) the mine are aimed-click weapons;
+  // speedBoost (1.6) and decoyBuoy (1.8) are instant-activation abilities
+  // (isWeapon:false).
   it('each row mirrors the shared EQUIPMENT_IS_WEAPON split', () => {
     for (const [id, row] of Object.entries(EQUIPMENT)) {
       expect(row.isWeapon).toBe(EQUIPMENT_IS_WEAPON[id as keyof typeof EQUIPMENT_IS_WEAPON]);
     }
     expect(EQUIPMENT.gun.isWeapon).toBe(true);
     expect(EQUIPMENT.torpedo.isWeapon).toBe(true);
-    expect(EQUIPMENT.mine.isWeapon).toBe(false); // Story 1.8: drop-astern ability, not a click
+    // Story 2.8 (amendment 45) DELIBERATELY FLIPS the 1.8 ability pin: the mine
+    // is a click-aimed weapon again (rear placement arc + placeRange).
+    expect(EQUIPMENT.mine.isWeapon).toBe(true);
     expect(EQUIPMENT.speedBoost.isWeapon).toBe(false);
     expect(EQUIPMENT.cannon.isWeapon).toBe(true); // Story 1.7
     expect(EQUIPMENT.starShells.isWeapon).toBe(true); // Story 1.7
@@ -168,12 +171,28 @@ describe('denial reasons — derived through the gate without changing effects',
     });
   });
 
-  it('mine empty pool denies no-ammo (mines have no arc)', () => {
+  it('mine empty pool denies no-ammo (in-arc, in-range aim — Story 2.8 aimed placement)', () => {
     const w = bareWorld();
     const ship = place(w, 'a');
-    setInput(ship, { slot: SLOT_MINE });
+    // Heading 0 ⇒ the rear placement sector centers on π; aim astern, in range.
+    setInput(ship, { aim: Math.PI, aimDist: CONFIG.mine.placeRange / 2, slot: SLOT_MINE });
     ship.loadout[SLOT_MINE].state = { n: 0, reloadMsLeft: CONFIG.mine.reloadMs };
     expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: false, reason: 'no-ammo' });
+  });
+
+  it('mine out-of-arc (bow click) and out-of-RANGE both deny out-of-arc, keeping the drop (Story 2.8)', () => {
+    const w = bareWorld();
+    const ship = place(w, 'a');
+    // Bow click: outside the rear sector entirely.
+    setInput(ship, { aim: 0, aimDist: 20, slot: SLOT_MINE });
+    expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: false, reason: 'out-of-arc' });
+    // Astern but past placeRange: the rack cannot reach — same aim-denial
+    // channel (amendment 45 ruling).
+    setInput(ship, { aim: Math.PI, aimDist: CONFIG.mine.placeRange + 1, slot: SLOT_MINE });
+    expect(w.sinkingActivationGate(ship, SLOT_MINE)).toEqual({ ok: false, reason: 'out-of-arc' });
+    // Nothing consumed either way.
+    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 });
+    expect(w.mines.size).toBe(0);
   });
 
   it('decoy empty pool denies no-ammo (its only row denial — nothing aimed, no arc)', () => {
@@ -187,21 +206,24 @@ describe('denial reasons — derived through the gate without changing effects',
   });
 });
 
-// ---------- 2b. mine dispatch channel (Story 1.8: ability, not fire control) --
+// ---------- 2b. mine dispatch channel (Story 2.8: aimed weapon, fire control) --
 
-describe('mine dispatch — the activation (actSeq) channel, never fire control', () => {
-  it('an actSeq press on the mine slot drops a mine; a fireSeq click on it is inert', () => {
+describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 2.8 flip of the 1.8 pin)', () => {
+  it('a fireSeq CLICK astern places a mine at the clicked point; an actSeq press on the slot is inert', () => {
     const w = bareWorld();
-    const ship = place(w, 'a'); // universal fit: mine at slot 2
-    // PRESS (ability channel): drops.
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE });
+    const ship = place(w, 'a'); // universal fit: mine at slot 2; heading 0 ⇒ astern = π
+    // CLICK (weapon channel): places at the clicked point.
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0 });
     w.step();
     expect(w.mines.size).toBe(1);
-    // CLICK (weapon channel) with a reloaded pool: refused by the weapon wall.
+    const [mine] = [...w.mines.values()];
+    expect(mine.x).toBeCloseTo(ship.state.x - 50, 0); // AT the click (astern 50u; hull barely moved)
+    // PRESS (ability channel) with a reloaded pool: refused by the ability wall
+    // — actSeq targets non-weapons only, and the mine is a weapon now.
     ship.loadout[SLOT_MINE].state = { n: 1, reloadMsLeft: 0 };
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_MINE, fireT: 0, actSeq: 1, actSlot: SLOT_MINE });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, actSlot: SLOT_MINE });
     w.step();
-    expect(w.mines.size).toBe(1); // no second mine — clicks never reach an ability
+    expect(w.mines.size).toBe(1); // no second mine — presses never reach a weapon
     expect(ship.loadout[SLOT_MINE].state).toEqual({ n: 1, reloadMsLeft: 0 }); // charge intact
   });
 });

@@ -46,7 +46,7 @@ function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
 
 /** Drop a lit zone directly into world state (Story 1.7). */
 function injectZone(w: World, id: string, ownerId: string, x: number, y: number, r = CONFIG.starShells.litRadius, until = 999_999): void {
-  w.litZones.set(id, { id, ownerId, x, y, r, until });
+  w.litZones.set(id, { id, ownerId, x, y, r, until, mode: 'standard' });
 }
 
 function makeShell(overrides: Partial<ShellState> = {}): ShellState {
@@ -87,7 +87,9 @@ const REGISTRY_KEYS = [
   'sunk',
   'spawn',
   'dmg',
-  'upg',
+  // 'upg' died with the legacy upgrade economy (Story 2.8 strip); 'torpU' is
+  // the homing-track update row that entered in the same story.
+  'torpU',
   'pt',
   'bn',
 ];
@@ -95,7 +97,7 @@ const REGISTRY_KEYS = [
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 15 known channels (Story 2.7 added the self-private `bn` boon-fit row)', () => {
+  it('has exactly the 15 known channels (Story 2.8: `upg` stripped, `torpU` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
     expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(15);
   });
@@ -352,7 +354,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
   function zoneWorld(): { w: World; a: ShipRecord } {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 900, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, mode: 'standard' });
     return { w, a };
   }
 
@@ -417,7 +419,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     a.sweepAngle = wrapPositive(0.02); // beam crossing bearing 0 this tick
     const row = signalFor('blip')!;
     expect(row.visible(foggedCtx(w, a), b)).toBe(true); // sanity: paints without a zone
-    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+    w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 400, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, mode: 'standard' });
     expect(row.visible(foggedCtx(w, a), b)).toBe(false); // contact tier now — never a blip
   });
 });
@@ -493,7 +495,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
   // kinds. The four contact/mine/litzone/decoy pseudo-rows are unreachable from
   // it (a fabricated k:'mine'/'litzone'/'decoy' world event can never
   // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'upg', 'pt', 'bn'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn'];
 
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();

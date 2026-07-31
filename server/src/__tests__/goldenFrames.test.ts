@@ -1,7 +1,7 @@
 // GOLDEN FRAMES — the byte-identity gate for the perception refactor (Story
 // 1.1). A deterministic seeded scenario drives world.step() through every
-// signal channel — all 10 GameEvent kinds (blip, shell, torp, boom, burst,
-// dmg, sunk, spawn, upg, pt, bn) plus the contact and mine channels and a spectator
+// signal channel — all 11 GameEvent kinds (blip, shell, torp, torpU, boom,
+// burst, dmg, sunk, spawn, pt, bn) plus the contact and mine channels and a spectator
 // frame — and JSON.stringify's each frame buildFrame() produces (JSON key
 // insertion order == msgpack key order, which is load-bearing on the wire).
 // The serialized array is committed as a Vitest snapshot: the later refactor of
@@ -38,11 +38,12 @@ const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 
 // The full set of channels the fixture MUST exercise: the 11 GameEvent kinds
 // (Story 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added the
-// self-private 'bn' boon-fit event) plus the four contact-like channels
+// self-private 'bn' boon-fit event; Story 2.8 stripped 'upg' and added the
+// homing-track update 'torpU') plus the four contact-like channels
 // (contact/mine/litzone/decoy) and the spectator frame.
 const EXPECTED_CHANNELS = [
   'blip', 'bn', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'litzone', 'mine',
-  'pt', 'shell', 'spawn', 'spec', 'sunk', 'torp', 'upg',
+  'pt', 'shell', 'spawn', 'spec', 'sunk', 'torp', 'torpU',
 ];
 
 // Targeted sub-cases the APPENDED scenarios (island LOS, non-owner + spectator
@@ -51,6 +52,7 @@ const EXPECTED_CHANNELS = [
 // fails the sub-case coverage assertion — the "found-style boolean per mandatory
 // sub-case" the straddle-boom check pioneered, generalized across the additions.
 const EXPECTED_SUBCASES = [
+  'dazzled-victim-private',
   'decoy-expiry',
   'decoy-owner-truth-view',
   'decoy-thirdparty-swept-blip',
@@ -74,10 +76,13 @@ const EXPECTED_SUBCASES = [
   'nonowner-hidden-at-launch',
   'nonowner-reveal-current-params',
   'nonowner-reveal-once',
+  'slowed-victim-private',
   'spectator-ballistic-reveal',
   'spectator-dmg-passthrough',
   'spectator-raw-boom',
   'spectator-reveal-once',
+  'torpu-sighted-update',
+  'torpu-unsighted-silent',
 ];
 
 // ---------- collector ---------------------------------------------------------
@@ -204,25 +209,24 @@ function scnCombat(g: Golden): void {
   cap(g, w, 'b'); // boom + dmg + sunk (victim)
 }
 
-/** upg + pt + bn — all three self-private, delivered only to the acting ship.
- *  ('heal' left the wire with the REPAIR spend — Story 2.1, PV 12. Story 2.7:
- *  the fourth card is now a LEGAL spend, so {choice: 3} is exercised as a real
- *  boon fit — it emits `bn` and heals nothing even though `a` is damaged. The
- *  legacy `upg` event is driven by a DIRECT applyUpgrade call: it is
- *  production-unreachable as of 2.7 and dies with the 2.8 strip, but the wire
- *  row is still pinned here byte-for-byte until then.) */
-function scnUpgPt(g: Golden): void {
+/** pt + bn — both self-private, delivered only to the acting ship. ('heal'
+ *  left the wire with the REPAIR spend — Story 2.1, PV 12; the legacy 'upg'
+ *  event died with the 2.8 strip, so this scenario no longer drives one. The
+ *  banked offer is OVERRIDDEN with a fixed non-heal hand so the fixture stays
+ *  content-stable — and the "a spend never heals" pin holds for every non-
+ *  healOnGrant card: only shipHull heals, by exactly its granted delta.) */
+function scnPtBn(g: Golden): void {
   const w = bareWorld(1003);
   const a = place(w, 'a', 0, 0);
   place(w, 'b', 400, 0); // far (out of a's sight); sunk to bank a a level
   w.sinkShip('b', 'a'); // sunk(b) + pt(a)
-  a.hp -= 30; // damaged — no spend of any kind may restore this
-  w.applyUpgrade(a, 'radarRange'); // upg(a) — interregnum, direct call only
+  a.hp -= 30; // damaged — a non-heal spend may not restore this
+  a.offers[0] = ['gunDamage', 'gunReload', 'intelSweep', 'torpedoSpeed']; // fixed non-heal hand
   const hpBefore = a.hp;
   expect(w.spendPoint('a', 3)).toBe(true); // the fourth card — bn(a)
-  expect(a.hp).toBe(hpBefore); // amendment 35: a spend never heals
+  expect(a.hp).toBe(hpBefore); // a non-heal spend never heals
   w.step();
-  cap(g, w, 'a'); // spawn(a) + pt + upg + bn (b's spawn/sunk are out of sight)
+  cap(g, w, 'a'); // spawn(a) + pt + bn (b's spawn/sunk are out of sight)
 }
 
 /** mine channel: own mine always, enemy mine in sight, enemy mine in fog hidden. */
@@ -456,7 +460,7 @@ function scnZoneKill(g: Golden): void {
   place(w, 'a', 0, 0);
   const b = place(w, 'b', 500, 0);
   b.hp = 15; // the next hit sinks it
-  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 500, y: 0, r: CONFIG.starShells.litRadius, until: 999_999 });
+  w.litZones.set('z1', { id: 'z1', ownerId: 'a', x: 500, y: 0, r: CONFIG.starShells.litRadius, until: 999_999, mode: 'standard' });
   injectShell(w, 'ks', 'a', 480, 0, 0, 100); // a's shell, point-blank on b, far outside a's sight
   w.step(); // strikes b -> boom + dmg (victim-private) + sunk + pt
   const fa = cap(g, w, 'a');
@@ -469,21 +473,21 @@ function scnZoneKill(g: Golden): void {
 }
 
 /**
- * Mine Layer trip blast (Story 1.8) — a REAL ability drop through the actSeq
- * channel: ML `a` drops a mine astern; enemies `b` (the tripper) and `c` sit
- * so the armed mine's 48u BLAST covers both hulls while `a`'s own hull is
- * inside the radius too (owner-excluded by rule). At the trip: ONE boom at the
- * mine with `hit` = the tripper, full damage to b AND c (each victim-private),
- * none to a. Captures pin the post-drop own-mine frame and the blast tick for
- * both the owner and the tripping victim.
+ * Mine Layer trip blast — a REAL aimed placement through the fire channel
+ * (Story 2.8, amendment 45): ML `a` clicks a mine 76u astern; enemies `b` (the
+ * tripper) and `c` sit so the armed mine's 48u BLAST covers both hulls while
+ * `a`'s own hull is inside the radius too (owner-excluded by rule). At the
+ * trip: ONE boom at the mine with `hit` = the tripper, full damage to b AND c
+ * (each victim-private), none to a. Captures pin the post-placement own-mine
+ * frame and the blast tick for both the owner and the tripping victim.
  */
 function scnMineBlast(g: Golden): void {
   const w = bareWorld(1013);
   const a = place(w, 'a', 0, 0, 0, 'mineLayer');
-  const b = place(w, 'b', -76, 10); // hull over the future drop point — trips it
+  const b = place(w, 'b', -76, 10); // hull over the future clicked point — trips it
   const c = place(w, 'c', -76, -40); // second victim: hull within the 48u blast
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 1 });
-  w.step(); // the press drops the mine astern (ability channel)
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.step(); // the click places the mine at the clicked point (weapon channel)
   expect(w.mines.size).toBe(1);
   cap(g, w, 'a'); // own mine view + spawns/contacts
   let boom = false;
@@ -580,11 +584,13 @@ function scnDecoy(g: Golden): void {
  * Denial channel (Story 1.10) — every wire reason through the REAL input
  * path, pinned byte-for-byte in the fixture: an astern torpedo click
  * ('out-of-arc'), a gun click mid-cooldown ('cooling'), an ability double
- * press ('no-ammo'), and an island-backed ML stern drop ('blocked'). Denials
- * are SELF-PRIVATE: sighted observer `b` captures the same tick byte-free of
- * the channel. When a weapon click AND an ability press deny on the same
- * tick, the weapon denial rides first (fireControl runs before
- * activationControl — the step order is the wire order).
+ * press ('no-ammo'), and an island-backed ML DECOY stern drop ('blocked' —
+ * the decoy alone keeps the stern rack as of Story 2.8; the mine's own
+ * blocked CLICK is pinned in denials.test.ts). Denials are SELF-PRIVATE:
+ * sighted observer `b` captures the same tick byte-free of the channel. When
+ * a weapon click AND an ability press deny on the same tick, the weapon
+ * denial rides first (fireControl runs before activationControl — the step
+ * order is the wire order).
  */
 function scnDenied(g: Golden): void {
   const w = bareWorld(1016);
@@ -592,9 +598,9 @@ function scnDenied(g: Golden): void {
   place(w, 'b', 120, 0); // sighted second captain — proves owner-only
   const m = place(w, 'm', 400, 0, 0, 'mineLayer'); // stern rack drops at (324, 0)
   w.map.islands.push({ x: 324, y: 0, r: 20 }); // the rock behind m's stern
-  // Tick 1: a clicks the torpedo dead astern; m presses its mine into the rock.
+  // Tick 1: a clicks the torpedo dead astern; m presses its DECOY into the rock.
   w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
-  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 1 });
+  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 2 });
   w.step();
   const fa1 = cap(g, w, 'a');
   const fm1 = cap(g, w, 'm');
@@ -605,7 +611,7 @@ function scnDenied(g: Golden): void {
     (fa1.denied ?? []).some((d) => d.reason === 'out-of-arc' && d.slot === 1 && d.seq === 1) &&
       !('denied' in fb1),
   );
-  prove(g, 'denied-blocked-stern-drop', (fm1.denied ?? []).some((d) => d.reason === 'blocked') && w.mines.size === 0);
+  prove(g, 'denied-blocked-stern-drop', (fm1.denied ?? []).some((d) => d.reason === 'blocked' && d.slot === 2) && w.decoys.size === 0);
   // Tick 2: a fires the gun (spends the round) + activates the boost (spends the charge).
   w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, actSlot: 2 });
   w.step();
@@ -618,6 +624,75 @@ function scnDenied(g: Golden): void {
   prove(g, 'denied-noammo-ability', (fa3.denied ?? [])[1]?.reason === 'no-ammo' && (fa3.denied ?? [])[1]?.slot === 2);
 }
 
+/**
+ * Homing-track updates (Story 2.8, 'torpU'): TB `a` holds ACOUSTIC HOMING and
+ * fires past an off-axis enemy; sighted observer `c` gets the exactly-once
+ * 'torp' reveal and then ≥1 'torpU' as the fish steers (the exactly-once
+ * convention relaxes for updates alone), while far observer `d` never gets a
+ * byte of either. Frames are captured every tick for both observers — the
+ * update cadence itself (CONFIG.torpedo.homingUpdateAngleDeg over the seeded
+ * steering) is pinned by the snapshot.
+ */
+function scnHoming(g: Golden): void {
+  const w = bareWorld(1017);
+  const a = place(w, 'a', 0, 0);
+  w.applyBoon(a, 'torpedoHoming');
+  place(w, 'b', 320, 80); // the fish steers toward this hull mid-flight
+  const c = place(w, 'c', 250, -60); // sight covers the turning stretch
+  const d = place(w, 'd', -900, 0); // beyond sight of everything
+  for (const s of [c, d]) {
+    s.prevSweepAngle = Math.PI; // park the beams away from the action
+    s.sweepAngle = Math.PI + 1e-4;
+  }
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
+  let cReveals = 0;
+  let cUpdates = 0;
+  let dBytes = 0;
+  for (let i = 0; i < 60; i++) {
+    w.step();
+    const fc = cap(g, w, 'c');
+    cReveals += fc.events.filter((e) => e.k === 'torp').length;
+    cUpdates += fc.events.filter((e) => e.k === 'torpU').length;
+    const fd = buildFrame(w, 'd'); // NOT recorded — only proven silent
+    dBytes += fd.events.filter((e) => e.k === 'torp' || e.k === 'torpU').length;
+    if (i > 2 && w.shells.size === 0) break;
+  }
+  prove(g, 'torpu-sighted-update', cReveals === 1 && cUpdates >= 1);
+  prove(g, 'torpu-unsighted-silent', dBytes === 0);
+}
+
+/**
+ * Debuff privacy (Story 2.8): a PROP-FOULING blast stamps the victim's
+ * slowedUntil and a DAZZLE zone stamps dazzledUntil — each rides `you` on the
+ * victim's own frame ONLY (the boostUntil precedent); a sighted watcher's
+ * contact for the victim carries neither key.
+ */
+function scnDebuffs(g: Golden): void {
+  const w = bareWorld(1018);
+  const o = place(w, 'o', 600, 600, 0, 'mineLayer');
+  w.applyBoon(o, 'minePropFouling');
+  const b = place(w, 'b', 0, 10); // trips the fouling mine below on the first step
+  place(w, 'watcher', 100, 60); // sees b as a contact
+  injectMine(w, 'fm', 'o', 0, 0);
+  w.litZones.set('dz', { id: 'dz', ownerId: 'o', x: 0, y: 0, r: 100, until: 999_999, mode: 'dazzle' });
+  w.step(); // blast + dazzle both land on b
+  const fb = cap(g, w, 'b');
+  const fw = cap(g, w, 'watcher');
+  const contact = fw.contacts.find((ct) => ct.id === 'b');
+  prove(
+    g,
+    'slowed-victim-private',
+    fb.you!.slowedUntil === b.slowedUntil && b.slowedUntil > 0 &&
+      contact !== undefined && !('slowedUntil' in contact) && fw.you!.slowedUntil === undefined,
+  );
+  prove(
+    g,
+    'dazzled-victim-private',
+    fb.you!.dazzledUntil === b.dazzledUntil && b.dazzledUntil > 0 &&
+      contact !== undefined && !('dazzledUntil' in contact),
+  );
+}
+
 // ---------- the fixture -------------------------------------------------------
 
 describe('golden frames — byte-identity gate for the perception refactor', () => {
@@ -625,7 +700,7 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     const g: Golden = { frames: [], channels: new Set(), subcases: new Set() };
     scnSightSpawnBlip(g);
     scnCombat(g);
-    scnUpgPt(g);
+    scnPtBn(g);
     scnMines(g);
     scnSpectator(g);
     scnStraddleBoom(g);
@@ -640,6 +715,11 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     scnMineBurstDetonation(g);
     scnDecoy(g);
     scnDenied(g);
+    // Story 2.8 additions (appended KNOWINGLY — the snapshot regenerated with
+    // the strip + deck economy; every earlier scenario's rows changed shape
+    // through you.upg leaving and you.offer going deck-drawn).
+    scnHoming(g);
+    scnDebuffs(g);
 
     // Self-validating coverage: the fixture can never silently lose a channel.
     expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);

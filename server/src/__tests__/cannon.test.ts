@@ -73,13 +73,14 @@ describe('cannon — server loadout + shell construction', () => {
     expect(shell.targetY).toBeCloseTo(0, 9);
   });
 
-  it('the cannon range never rides gun upgrades: gunRange stacks move the gun clamp only', () => {
+  it('cannon range stays the radar-derived base under the boon economy (no catalog line moves rangeU)', () => {
+    // The legacy gunRange upgrade died in the 2.8 strip. No v1 catalog line
+    // addresses cannon.rangeU (or gun.rangeU), so both pin at the base.
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
-    w.applyUpgrade(bb, 'gunRange');
-    w.applyUpgrade(bb, 'gunRange');
-    expect(bb.stats.gun.rangeU).toBeGreaterThan(CONFIG.vision.radar);
-    expect(bb.stats.cannon.rangeU).toBe(CONFIG.vision.radar); // pinned — the interregnum quirk
+    w.applyBoon(bb, 'cannonDamage'); // an unrelated cannon boon moves damage only
+    expect(bb.stats.gun.rangeU).toBe(CONFIG.vision.radar);
+    expect(bb.stats.cannon.rangeU).toBe(CONFIG.vision.radar);
   });
 
   it('D1: the validated fire time becomes the shell bornAt', () => {
