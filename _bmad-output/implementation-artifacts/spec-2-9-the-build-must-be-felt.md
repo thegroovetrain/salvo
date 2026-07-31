@@ -83,13 +83,13 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (dependency order):**
-- [ ] `shared` + `server` -- zone mode on the wire (PV 17), invariants + goldens -- the one wire change, everything client-side reads it
-- [ ] `client` audio -- tones + twin table + tests -- the audible half of every channel
-- [ ] `client` hotbar/tooltip -- accrued list, `◆n`, ACTIVE state, fit flash -- the slot-side visible change (amendments 48/51)
-- [ ] `client` on-water -- projectiles/mines/litZones/tells/cannon-weight -- doctrine identity + defect fix
-- [ ] Fit-check structural test + I/O matrix coverage -- "no boon is presentation-silent" pinned
-- [ ] Bookkeeping files -- per-PR protocol
-- [ ] `npm run check` -- gate green (baseline 2104)
+- [x] `shared` + `server` -- zone mode on the wire (PV 17), invariants + goldens -- the one wire change, everything client-side reads it
+- [x] `client` audio -- tones + twin table + tests -- the audible half of every channel
+- [x] `client` hotbar/tooltip -- accrued list, `◆n`, ACTIVE state, fit flash -- the slot-side visible change (amendments 48/51)
+- [x] `client` on-water -- projectiles/mines/litZones/tells/cannon-weight -- doctrine identity + defect fix
+- [x] Fit-check structural test + I/O matrix coverage -- "no boon is presentation-silent" pinned
+- [x] Bookkeeping files -- per-PR protocol
+- [x] `npm run check` -- gate green (baseline 2104, now 2246)
 
 **Acceptance Criteria:**
 - Given any of the 42 catalog lines fitted, then an audible cue (mute-aware, ≤150 ms, category/tier-appropriate) and a visible slot change (fit flash + tooltip row + toast) land together, and a catalog-walking fit-check test fails the build on any presentation-silent line.
