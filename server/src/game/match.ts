@@ -109,6 +109,23 @@ export function shouldAbortOnTickError(consecutiveFailures: number, tolerance: n
 }
 
 /**
+ * How a match ended (amendment 53) — the abandonment classification the balance
+ * evidence needs, so a quit-out match isn't read as a fought-out one:
+ *   lastHumanSunk — a terminal SINKING left 0 humans alive (mutual destruction
+ *                   or the last human sinking to storm/combat; the winner is
+ *                   resolved by latest-sunk placement).
+ *   lastHumanLeft — the terminal event was a DEPARTURE that left 0 humans alive
+ *                   (the quit-out path: onPlayerLeave → win check).
+ *   fieldCleared  — the winner is alive with everything else gone.
+ * Telemetry only: this rides the `match.end` log line, never the wire.
+ */
+export type MatchEndCause = 'lastHumanSunk' | 'fieldCleared' | 'lastHumanLeft';
+
+/** What drove the win check that finished the match — the post-step sink scan
+ *  or a client departure. Classification input only (see classifyEnd). */
+type WinTrigger = 'sink' | 'leave';
+
+/**
  * Pure, room-agnostic telemetry aggregate for a match, assembled sim-side so the
  * numbers stay unit-testable without a Colyseus room. The room decorates it with
  * identity (matchId, mode) before emitting `match.end`. Safe to call in any
@@ -128,6 +145,10 @@ export interface MatchEndSummary {
   killsByClass: Record<string, number>;
   /** Sinks with no attributable killer (storm deaths) observed while active. */
   stormDeaths: number;
+  /** How the match ended (amendment 53). Before a finish this reads the
+   *  no-survivor default ('lastHumanSunk'); durationS 0 + winnerClass null are
+   *  what mark a summary as not-yet-finished. */
+  endedBy: MatchEndCause;
 }
 
 /** Snapshot of a participant's identity + tallies (survives their ship's removal). */
@@ -152,6 +173,11 @@ export class Match {
 
   /** Killer-less sinks (storm deaths) observed during the active phase. */
   private stormDeaths = 0;
+
+  /** Terminal cause, written once in finish(). The pre-finish value is derived
+   *  from the same winner-resolution state a sunk-out finish reads (no alive
+   *  survivor, no winnerId), never from a clock or the room. */
+  private endedBy: MatchEndCause = 'lastHumanSunk';
 
   /** Human ids in sink order (earliest first). Later sink = better placement. */
   private readonly sinkOrder: string[] = [];
@@ -201,7 +227,8 @@ export class Match {
     }
     this.world.removeShip(id);
     this.notifyRosterChanged();
-    if (this.phase === 'active') this.checkWin();
+    // 'leave': a finish that falls out of THIS check was driven by a departure.
+    if (this.phase === 'active') this.checkWin('leave');
   }
 
   /** Advance the state machine one tick. Call right after world.step(). */
@@ -209,7 +236,7 @@ export class Match {
     if (this.phase === 'countdown' && this.world.now >= this.countdownEndT) this.activate();
     if (this.phase === 'active') {
       this.consumeSinks();
-      this.checkWin();
+      this.checkWin('sink');
     }
     if (this.phase === 'finished') this.maybeDisconnect();
   }
@@ -242,7 +269,7 @@ export class Match {
     this.applyPolicy();
   }
 
-  private finish(aliveWinner: ShipRecord | undefined): void {
+  private finish(aliveWinner: ShipRecord | undefined, trigger: WinTrigger): void {
     for (const s of this.world.ships.values()) {
       if (this.participants.has(s.id)) this.snapshotStats(s);
     }
@@ -268,11 +295,24 @@ export class Match {
     // latest-sunk HUMAN — drones can never win, so we skip past them in the sink
     // order rather than taking its last entry blindly.
     this.winnerId = aliveWinner?.id ?? this.latestSunkHuman() ?? '';
+    this.endedBy = this.classifyEnd(aliveWinner, trigger);
     this.computePlacements();
     this.phase = 'finished';
     this.finishedAt = this.world.now;
     this.applyPolicy(); // freeze the outcome: damage suppressed during results
     this.hooks.broadcastResults(this.resultsMsg());
+  }
+
+  /**
+   * endedBy classification (amendment 53). A survivor means the field was
+   * cleared regardless of what tripped the check — in a 2-human room one
+   * departure leaves the other captain standing on an empty ocean, which is a
+   * victory, not an abandonment. With NO human alive the trigger names the
+   * cause: the last hull left the room, or the last hull went down.
+   */
+  private classifyEnd(aliveWinner: ShipRecord | undefined, trigger: WinTrigger): MatchEndCause {
+    if (aliveWinner) return 'fieldCleared';
+    return trigger === 'leave' ? 'lastHumanLeft' : 'lastHumanSunk';
   }
 
   // --- per-phase bookkeeping ---------------------------------------------------
@@ -313,11 +353,11 @@ export class Match {
    *     (the lone human has cleared the field — winner = that human).
    * A lone human with drones still afloat keeps fighting.
    */
-  private checkWin(): void {
+  private checkWin(trigger: WinTrigger): void {
     const humans = this.aliveHumans();
     if (humans.length > 1) return;
     if (humans.length === 1 && this.aliveDroneCount() > 0) return;
-    this.finish(humans[0]);
+    this.finish(humans[0], trigger);
   }
 
   private maybeDisconnect(): void {
@@ -378,6 +418,7 @@ export class Match {
       winnerClass: this.participants.get(this.winnerId)?.hullId ?? null,
       killsByClass,
       stormDeaths: this.stormDeaths,
+      endedBy: this.endedBy,
     };
   }
 

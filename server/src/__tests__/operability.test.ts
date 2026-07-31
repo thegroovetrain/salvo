@@ -33,6 +33,7 @@ const SUMMARY: MatchEndSummary = {
   winnerClass: 'torpedoBoat',
   killsByClass: { torpedoBoat: 5, battleship: 0, droneSmall: 0 },
   stormDeaths: 1,
+  endedBy: 'fieldCleared',
 };
 
 // --- console.log spy (the logger's only sink) ---------------------------------
@@ -279,6 +280,7 @@ describe('match telemetry', () => {
     expect(f.winnerClass).toBe(SUMMARY.winnerClass);
     expect(f.killsByClass).toEqual(SUMMARY.killsByClass);
     expect(f.stormDeaths).toBe(SUMMARY.stormDeaths);
+    expect(f.endedBy).toBe(SUMMARY.endedBy); // amendment 53 rides the spread, unchanged room
 
     // A second hook invocation must not emit a second telemetry line.
     hooks.broadcastResults(msg);

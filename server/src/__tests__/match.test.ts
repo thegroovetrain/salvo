@@ -351,6 +351,9 @@ describe('match — active phase', () => {
     expect(ctx.m.placements.get('a')).toBe(1);
     expect(ctx.m.placements.get('c')).toBe(2); // later departure places higher
     expect(ctx.m.placements.get('b')).toBe(3);
+    // The departures never left the ocean empty of humans — 'a' is standing, so
+    // the telemetry cause is a cleared field, not an abandonment (amendment 53).
+    expect(ctx.m.endSummary().endedBy).toBe('fieldCleared');
     const rowB = ctx.results[0].rows.find((r) => r.id === 'b')!;
     expect(rowB.name).toBe('B');
     expect(rowB.damageDealt).toBe(30);
