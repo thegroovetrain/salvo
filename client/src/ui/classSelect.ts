@@ -16,6 +16,7 @@
 
 import { CONFIG, SHIP_CLASS_IDS, type ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { applyViewportCap } from './fit.js';
 import { cssHex, cssRgba } from '../util/color.js';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
 import { pipFill } from '../util/pips.js';
@@ -643,9 +644,15 @@ function makeLayerShell(): { container: HTMLElement; dimmer: HTMLElement; panel:
   const dimmer = document.createElement('div');
   dimmer.style.cssText = `position:absolute;inset:0;background:${cssRgba(C.void, 0.72)}`;
   const panel = document.createElement('div');
+  // `box-sizing:border-box` is the amendment-47 fix: the 34/26px padding and the
+  // 1px border sat OUTSIDE the `calc(100vh - 48px)` cap under content-box, so
+  // the bay's border box was always `viewport + 14px` and 7px of panel chrome
+  // was clipped at the top and bottom edges at every viewport size.
   panel.style.cssText =
     'position:relative;width:1680px;max-width:calc(100vw - 48px);max-height:calc(100vh - 48px);overflow-y:auto;' +
+    'box-sizing:border-box;' +
     'background:var(--hc-panel);border:1px solid var(--hc-hairline);border-radius:12px;padding:34px 0 26px';
+  applyViewportCap(panel); // amendment 47 — border-box + a real scroll surface (ui/fit.ts)
   container.append(dimmer, panel);
   return { container, dimmer, panel };
 }

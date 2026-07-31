@@ -39,6 +39,7 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
+import { REFIT_TYPE } from './refitCardFit.js';
 import {
   boonCategoryLabel,
   boonDescription,
@@ -50,6 +51,12 @@ import {
 
 const PANEL_ID = 'upgrade-menu';
 const R = CLIENT_CONFIG.refit;
+/** The card's text metrics — letter-spacings, line-heights and the row gap. The
+ *  CSS below INTERPOLATES these, and ui/refitCardFit.ts measures with the very
+ *  same numbers, so the container-fit model can never drift from the render
+ *  (amendment 47). Every card text row declares an EXPLICIT line-height for the
+ *  same reason: `normal` is a font metric no pure model could know. */
+const T = REFIT_TYPE;
 // Story 2.3 (amendment 17): the card's resting state is bright white content,
 // not grey — armed (hover/focus) flips it to amber.
 const REST = 'var(--hc-text-primary)';
@@ -391,7 +398,9 @@ const GHOST_CSS = [
   'z-index:-1',
 ].join(';');
 
-/** One card: square corners, hairline edge, no filled panel bed. */
+/** One card: square corners, hairline edge, no filled panel bed. The card itself
+ *  keeps `overflow` visible because the digit key chip deliberately OVERHANGS
+ *  its top-left corner; the clip lives one level in, on the body (below). */
 const CARD_CSS = [
   'position:relative',
   `width:${R.card}px`,
@@ -404,11 +413,36 @@ const CARD_CSS = [
   'display:flex',
   'flex-direction:column',
   'align-items:flex-start',
-  'gap:6px',
   'text-align:left',
   'cursor:pointer',
   'pointer-events:auto',
   'flex:none',
+].join(';');
+
+/**
+ * The card BODY — every text row, clipped to the card's inner box.
+ *
+ * `overflow:hidden` here is the amendment-47 BELT AND BRACES, not the fix: the
+ * fix is the copy/type budget that ui/refitCardFit.ts models and
+ * __tests__/refitCardFit.test.ts pins, so no card ever WANTS to paint outside
+ * this box. The clip is what guarantees an unforeseen state (a future catalog
+ * line, a font fallback wider than the model's 0.605em advance, a browser that
+ * rounds line boxes up) still cannot lay text over the neighbouring card or the
+ * dimmed corner clusters the band renders above (amendment 40).
+ *
+ * `min-height:0` is load-bearing: a flex item's default `min-height:auto` is its
+ * CONTENT height, which would let an over-long body stretch the card instead of
+ * being clipped by it — the exact failure this guard exists to stop.
+ */
+const CARD_BODY_CSS = [
+  'display:flex',
+  'flex-direction:column',
+  'align-items:flex-start',
+  `gap:${T.rowGap}px`,
+  'align-self:stretch',
+  'flex:1 1 auto',
+  'min-height:0',
+  'overflow:hidden',
 ].join(';');
 
 /** Locked (a spend is in flight): dimmed and inert — no hover, no click. */
@@ -432,10 +466,17 @@ const KEY_CHIP_CSS = [
   'flex:none',
 ].join(';');
 
+/** Every text row declares an EXPLICIT line-height and `overflow-wrap:anywhere`
+ *  (amendment 47): the line-height makes the fit model exact rather than
+ *  font-dependent, and the wrap rule means even a token wider than the 186px
+ *  inner box breaks instead of painting out through the card's side. */
+const TEXT_ROW = [`line-height:${T.lineHeight}`, 'overflow-wrap:anywhere'].join(';');
+
 const CATEGORY_CSS = [
   `font:400 ${R.categorySize}px var(--hc-font-mono)`,
-  'letter-spacing:2px',
+  `letter-spacing:${T.categoryLetterSpacing}px`,
   'text-transform:uppercase',
+  TEXT_ROW,
 ].join(';');
 
 // The ladder names are AUTHORED in their final case (amendment 42's canon —
@@ -447,8 +488,9 @@ const CATEGORY_CSS = [
 // token, which is what it was always meant to be.
 const NAME_CSS = [
   `font:600 ${R.nameSize}px var(--hc-font-mono)`,
-  'letter-spacing:1px',
+  `letter-spacing:${T.nameLetterSpacing}px`,
   `color:${REST}`,
+  TEXT_ROW,
 ].join(';');
 
 /** The category/rarity line: the category tag at rest, the rarity tag beside it
@@ -463,9 +505,11 @@ const META_ROW_CSS = [
 
 const RARITY_CSS = [
   `font:600 ${R.raritySize}px var(--hc-font-mono)`,
-  'letter-spacing:2px',
+  `letter-spacing:${T.rarityLetterSpacing}px`,
   'text-transform:uppercase',
   'margin-left:auto', // the tier sits at the card's outer edge, opposite the category
+  'white-space:nowrap', // the tier tag is one token; the category yields first
+  TEXT_ROW,
 ].join(';');
 
 /** The lineage handrail ("II/V") — Sally's ratified marker that ARMOR BELT
@@ -473,26 +517,29 @@ const RARITY_CSS = [
  *  opacity, never a grey. */
 const LINEAGE_CSS = [
   `font:400 ${R.lineageSize}px var(--hc-font-mono)`,
-  'letter-spacing:2px',
+  `letter-spacing:${T.lineageLetterSpacing}px`,
   `color:${PHOSPHOR}`,
   'opacity:0.7',
+  TEXT_ROW,
 ].join(';');
 
 /** The doctrine-swap line ("REPLACES: ACOUSTIC HOMING") — same exclusive tier
  *  color as the rarity tag, because it is that tier's consequence. */
 const REPLACES_CSS = [
   `font:400 ${R.raritySize}px var(--hc-font-mono)`,
-  'letter-spacing:1px',
+  `letter-spacing:${T.replacesLetterSpacing}px`,
   `color:${EXCLUSIVE}`,
+  TEXT_ROW,
 ].join(';');
 
 /** Phosphor, NOT grey (amendment 16): the description is data, and grey text is
  *  retired for load-bearing copy everywhere. */
 const DESC_CSS = [
   `font:400 ${R.descSize}px var(--hc-font-mono)`,
-  'line-height:1.25',
+  `line-height:${T.descLineHeight}`,
   `color:${PHOSPHOR}`,
   'opacity:0.85',
+  'overflow-wrap:anywhere',
 ].join(';');
 
 /** The armed (hover/focus) treatment: amber edge + glow, amber chip/category/
@@ -623,10 +670,17 @@ export class UpgradeMenu {
     const desc = document.createElement('span');
     desc.style.cssText = DESC_CSS;
     desc.textContent = card.description;
-    btn.append(meta, name);
-    if (card.lineage) btn.appendChild(lineEl(LINEAGE_CSS, card.lineage));
-    if (card.replaces) btn.appendChild(lineEl(REPLACES_CSS, card.replaces));
-    btn.appendChild(desc);
+    // Every text row hangs off the CLIPPED body, never off the button itself:
+    // the button has to keep `overflow` visible for the overhanging key chip,
+    // so the amendment-47 clip lives exactly one level in (CARD_BODY_CSS). The
+    // chip stays the button's FIRST child — the pinned digit-to-slot mapping.
+    const body = document.createElement('div');
+    body.style.cssText = CARD_BODY_CSS;
+    body.append(meta, name);
+    if (card.lineage) body.appendChild(lineEl(LINEAGE_CSS, card.lineage));
+    if (card.replaces) body.appendChild(lineEl(REPLACES_CSS, card.replaces));
+    body.appendChild(desc);
+    btn.appendChild(body);
     const els: RefitCardEls = { root: btn, category, name };
     paintCard(els, false);
     // Focus hygiene (full-lockout modal): never acquire focus on click —

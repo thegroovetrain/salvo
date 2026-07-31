@@ -211,24 +211,31 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   shipHull: { label: 'Max hull', read: (s) => s.maxHp, note: 'Repairs the hull it adds.' },
 };
 
-/** The doctrine cards' rules text — each spells out the full behavior change
- *  (the Exclusive Law: exclusives change a weapon's NATURE). */
+/**
+ * The doctrine cards' rules text — each spells out the full behavior change
+ * (the Exclusive Law: exclusives change a weapon's NATURE).
+ *
+ * AMENDMENT 47 (the container-fit law) rewrote every line here. The Story 2.8
+ * drafts ran 111–149 characters, which wrapped to 7–9 lines inside the card's
+ * 186px inner box and pushed the exclusive cards 50–97px past the card bottom
+ * on the live site. These are the SHORTEST wordings that still state the whole
+ * contract — nothing was deleted from any behavior (no-burst, pierce count and
+ * damage ladder, island stop, acquisition-range homing, decoy immunity, the
+ * command-detonation range and the surviving contact hit, the fouling trade,
+ * the burn/dazzle radius-and-duration terms are all still printed). The pin in
+ * __tests__/refitCardFit.test.ts fails the build if a future edit re-inflates
+ * one: the budget is ~5 wrapped lines (~90 characters) for a doctrine card
+ * carrying a REPLACES line under a two-line ladder name.
+ */
 const DOCTRINE_TEXT: Readonly<Record<string, string>> = {
-  cannonArcing:
-    'Cannon shells lob over islands and hulls alike — nothing can intercept them — and always burst at the point you clicked.',
-  cannonAp:
-    'Cannon shells stop bursting. A full-range shot along your bearing punches through up to three hulls for 100 / 50 / 25% damage. Islands still stop it.',
-  torpedoHoming:
-    'Torpedoes steer, slowly, toward the nearest enemy hull inside a short acquisition range. Decoy buoys do not attract them.',
-  torpedoCommand:
-    'Torpedoes detonate on command at the point you clicked, out to radar range, in a large blast. A hull they simply run into still takes an ordinary hit.',
-  mineSelfPropelled: 'Armed mines creep toward the nearest enemy hull inside an acquisition range.',
-  minePropFouling:
-    'Mines hit softer, but every hull caught in the blast has its screws fouled — about half speed for a few seconds.',
-  starIncendiary:
-    'The lit zone burns: a slightly smaller circle that scorches every hull but yours standing in it, for as long as it lasts.',
-  starDazzle:
-    'The lit zone still illuminates, and every hull but yours inside it is dazzled — their own true sight is cut while they stand in the light.',
+  cannonArcing: 'Cannon shells lob over islands and hulls, cannot be intercepted, and burst on your click.',
+  cannonAp: 'Cannon shells stop bursting. A shot pierces up to three hulls: 100/50/25%. Islands stop it.',
+  torpedoHoming: 'Torpedoes slowly steer to the nearest enemy hull in range. Decoys are ignored.',
+  torpedoCommand: 'Click to detonate a torpedo, out to radar range, in a big blast. Contact still hits.',
+  mineSelfPropelled: 'Armed mines creep toward the nearest enemy hull in acquisition range.',
+  minePropFouling: 'Mines hit softer, but hulls in the blast are fouled to half speed briefly.',
+  starIncendiary: 'The lit zone burns: a smaller circle scorches every hull but yours inside it, while lit.',
+  starDazzle: 'The lit zone still lights. Every hull but yours inside it is dazzled: true sight cut.',
 };
 
 /** The acquisition cards' rules text — what arrives in the open slot. */

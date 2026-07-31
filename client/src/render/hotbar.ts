@@ -128,6 +128,23 @@ export function fmtRemaining(ms: number): string {
 }
 
 /**
+ * Pure: trimmed damage for the quick-info line — integers bare, everything else
+ * to ONE decimal (the ui/boonCopy num() idiom, the one number grammar the refit
+ * card already prints).
+ *
+ * AMENDMENT 47 (the container-fit law) made this mandatory rather than tidy.
+ * `applyStatEffect` folds `value * mult + add` with no rounding, so PROP-FOULING
+ * MINES (×0.6) landing after two RDX FILLER cards produced a genuine
+ * `31.799999999999997`. That printed `DMG 31.799999999999997 · CD 8s` — 32
+ * characters at 16px mono = 332.8px in a 268px label column, running 64.8px
+ * past the row's own clickable footprint and out over the open water.
+ */
+export function fmtDamage(hp: number): string {
+  const tenths = Math.round(hp * 10) / 10;
+  return Number.isInteger(tenths) ? tenths.toFixed(0) : tenths.toFixed(1);
+}
+
+/**
  * Pure: the quick-info line under a slot's name (amendment 13, literal): a
  * WEAPON reads `DMG n · CD ns`, an ABILITY reads `CD ns` — the split is
  * EQUIPMENT_IS_WEAPON, nothing else. PIN FLIPPED in Story 2.8 (amendment 45):
@@ -139,7 +156,7 @@ export function fmtRemaining(ms: number): string {
  */
 export function quickInfoLine(info: EquipmentInfo, reloadMsLeft: number): string {
   const cd = reloadMsLeft > 0 ? fmtRemaining(reloadMsLeft) : fmtSeconds(info.reloadMs);
-  return info.isWeapon && info.damage !== null ? `DMG ${info.damage} · CD ${cd}` : `CD ${cd}`;
+  return info.isWeapon && info.damage !== null ? `DMG ${fmtDamage(info.damage)} · CD ${cd}` : `CD ${cd}`;
 }
 
 /** Everything one rendered slot row needs — the pure view model. */
