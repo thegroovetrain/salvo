@@ -7,7 +7,9 @@ import { describe, it, expect } from 'vitest';
 import { BOON_CATALOG, type BoonRarity } from '@salvo/shared';
 import {
   TONES,
+  FIT_CATEGORIES,
   fireTone,
+  fitDetune,
   fitTone,
   telegraphTone,
   MAX_TONE_S,
@@ -33,6 +35,9 @@ const ALL_TONE_IDS: ToneId[] = [
   'fitCommon',
   'fitRare',
   'fitExclusive',
+  'burn',
+  'slowed',
+  'dazzled',
   'sink',
   'tick',
   'matchStart',
@@ -238,5 +243,72 @@ describe('stormEnterEdge', () => {
     expect(stormEnterEdge(true, true)).toBe(false); // already outside — no repeat
     expect(stormEnterEdge(false, false)).toBe(false);
     expect(stormEnterEdge(true, false)).toBe(false); // re-entering the zone, no warning
+  });
+});
+
+// --- STORY 2.9: the per-CATEGORY fit transposition ------------------------------
+//
+// Tier picks the cue's weight (fitTone); category moves it up or down the scale
+// (fitDetune, in cents). One family, nine voices — so fitting a gun common and a
+// mine common back to back are audibly different EVENTS without being different
+// cues, and neither needs a new tone spec.
+
+describe('fitDetune — one fit family, nine category voices', () => {
+  const CATEGORIES = [...new Set(Object.values(BOON_CATALOG).map((d) => d.category))];
+
+  it('covers EXACTLY the catalog\'s categories — no gap, no orphan', () => {
+    expect([...FIT_CATEGORIES].sort()).toEqual([...CATEGORIES].sort());
+    expect(CATEGORIES).toHaveLength(9);
+  });
+
+  it('gives every category a DISTINCT transposition inside ±4 semitones', () => {
+    const cents = CATEGORIES.map((c) => fitDetune(c));
+    expect(new Set(cents).size).toBe(CATEGORIES.length);
+    for (const c of cents) expect(Math.abs(c)).toBeLessThanOrEqual(400);
+  });
+
+  it('every category lands on a whole semitone (no microtonal drift)', () => {
+    for (const c of CATEGORIES) expect(Math.abs(fitDetune(c) % 100)).toBe(0);
+  });
+
+  it('fails OPEN to the untransposed root on a junk/absent category', () => {
+    expect(fitDetune('')).toBe(0);
+    expect(fitDetune('notACategory')).toBe(0);
+  });
+
+  it('every catalog line therefore has BOTH a weight and a voice', () => {
+    for (const def of Object.values(BOON_CATALOG)) {
+      expect(TONES[fitTone(def.rarity)]).toBeDefined();
+      expect(Number.isFinite(fitDetune(def.category))).toBe(true);
+    }
+  });
+});
+
+// --- STORY 2.9: the victim tells + the burn treatment ---------------------------
+
+describe('the victim cues (Story 2.9) — burn / slowed / dazzled', () => {
+  it('are all inside the short-tone budget', () => {
+    for (const id of ['burn', 'slowed', 'dazzled'] as const) {
+      expect(TONES[id].duration).toBeLessThanOrEqual(MAX_TONE_S);
+    }
+  });
+
+  it('burn is the damage thud\'s quieter, lower sibling — the same register, not a new one', () => {
+    expect(TONES.burn.type).toBe(TONES.damage.type); // same family: this IS damage
+    expect(TONES.burn.freqStart).toBeLessThan(TONES.damage.freqStart); // ...but under it
+    expect(TONES.burn.volume).toBeLessThan(TONES.damage.volume); // a DoT tick, not a slam
+  });
+
+  it('slowed SAGS and dazzled STINGS — opposite shapes, so the two never blur', () => {
+    expect(TONES.slowed.freqEnd).toBeLessThan(TONES.slowed.freqStart); // revs falling
+    expect(TONES.dazzled.freqMid).toBeGreaterThan(TONES.dazzled.freqStart); // a wash upward
+    expect(TONES.dazzled.freqStart).toBeGreaterThan(TONES.slowed.freqStart * 2);
+  });
+
+  it('neither tell can be confused with the denied refusal or a fire cue', () => {
+    for (const id of ['slowed', 'dazzled'] as const) {
+      expect(TONES[id].type).not.toBe(TONES.denied.type); // never the square blat
+      expect(TONES[id].noise).toBeUndefined(); // never a gun-family transient
+    }
   });
 });

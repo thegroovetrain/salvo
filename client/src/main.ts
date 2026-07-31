@@ -44,7 +44,7 @@ import { Camera, canUserZoom } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, hullStyle, hueRevision, setColorblindAssist } from './render/ships.js';
 import { ContactViews, type PlateFrame } from './render/contacts.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
-import { Projectiles } from './render/projectiles.js';
+import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
 import { weaponArcHit, weaponRangeHit, weaponRangeU } from './render/weaponArc.js';
 import { Effects } from './render/effects.js';
@@ -276,6 +276,15 @@ interface Game {
    * replacement buoy simply supersedes it (latest `until` wins).
    */
   ownDecoyUntil: number;
+  /**
+   * THE OWN-FIRE LATCH (Story 2.9): the weapon behind the click we just made,
+   * and the server-clock instant we made it. The `shell`/`torp` wire shape is
+   * deliberately constant-free — it cannot say which barrel a shell left, and
+   * must not, or an onlooker could read a build off a shot — so the OWN client
+   * pairs its own click intent with the reveal that lands on its own bow
+   * (roomBindings' ownFireWeapon dep). Null once nothing was fired recently.
+   */
+  ownFire: { id: EquipmentId; t: number } | null;
   /** Tone player (audio/context.ts). */
   audio: Audio;
   /**
@@ -424,7 +433,18 @@ function ownStatus(g: Game): OwnStatus {
     respawnInMs: respawnMs(g.state.respawnEta, g.clock.serverNow()),
     loadout: g.ownSlots,
     boostActive: g.clock.serverNow() < boostUntilNow(g),
+    // Story 2.9 — the victim tells. Read VERBATIM off the victim-private
+    // windows on `you` against the server clock (the dazzle fog-shrink gate's
+    // exact source), never predicted: what an enemy doctrine did to us is the
+    // server's word, and a mispredicted tell is a lie about our own hull.
+    slowedMsLeft: windowLeft(g.state.net.you?.slowedUntil, g.clock.serverNow()),
+    dazzledMsLeft: windowLeft(g.state.net.you?.dazzledUntil, g.clock.serverNow()),
   };
+}
+
+/** ms remaining on a victim window (0 when absent or already expired). */
+function windowLeft(until: number | undefined, now: number): number {
+  return Math.max(0, (until ?? 0) - now);
 }
 
 /**
@@ -1315,7 +1335,15 @@ function buildGame(
     projectiles: new Projectiles(map.radius, stage.layers.projectile, (x, y) => effects.spawnEffect('torpwake', x, y)),
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     effects,
-    mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
+    // The creep wake rides the SAME torpedo-wake dot a fish lays (a mine under
+    // power is making a wake, and it is the one existing marker that already
+    // survives every motion level).
+    mines: new Mines(
+      stage.layers.mineChart,
+      stage.layers.mineWorld,
+      () => audio.play('fireMine'),
+      (x, y) => effects.spawnEffect('torpwake', x, y),
+    ),
     decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, (d) => onOwnDecoy(gRef, audio, d)),
     litZones: new LitZones(stage.layers.litZone),
     fog: new Fog(stage.fogSprite),
@@ -1341,7 +1369,7 @@ function buildGame(
     ...abilityFeedbackState(),
     audio, portal,
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
-    prevClickCount: 0, lastTickClick: 0,
+    prevClickCount: 0, lastTickClick: 0, ownFire: null,
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
     ownDecoyUntil: 0,
     ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
@@ -1414,6 +1442,12 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
   // Behavior-boon hooks ride it too (Story 2.5): the predictor folds these
   // per tick in the SAME boost-then-hooks order the server steps with.
   g.predictor.setBoons(boonBehaviors(defs));
+  // Story 2.9 — the OWN doctrine modes fan out to the on-water renderer, which
+  // is how our own ordnance gets its identity from LAUNCH (an enemy's has to
+  // earn it from observable behavior). Deliberately ABOVE the vision-change
+  // early-return below: a doctrine swap moves no vision stat, so gating it on
+  // one would leave the water lying about the build we just fitted.
+  g.projectiles.setOwnModes({ cannon: stats.cannon.mode, torpedo: stats.torpedo.mode });
 
   if (classChanged || !sameKinematics(prev.kinematics, stats.kinematics)) {
     g.predictor.setClassConfig(stats.kinematics, hullSilhouette(cls), classChanged);
@@ -1478,6 +1512,10 @@ function bindGameRoom(g: Game, conn: Connection): void {
     // 51 — the visible change is slot-side). A shipwide INTEL/SHIP line owns no
     // slot, so the whole stack takes one rank-wide pulse instead.
     onBoonFitted: (category) => latchFitFlash(g, category),
+    // Story 2.9: the click-time own-fire latch (see ownFireWeapon) — the only
+    // honest way to tell an own CANNON shell from an own GUN shell, since the
+    // ballistic wire shape says neither.
+    ownFireWeapon: () => ownFireWeapon(g),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
       // Latched: a story-0.2 resume re-delivers the cached results broadcast,
@@ -1760,11 +1798,49 @@ function clickPrediction(
   };
 }
 
+/**
+ * How long (ms) an own-fire latch stays claimable. It has to cover the click →
+ * server tick → frame round trip that carries the resulting reveal back (a 50ms
+ * tick plus real-world RTT), and no longer: the latch is only ever consulted for
+ * a reveal that already materialized ON OUR OWN HULL, and the next click
+ * overwrites it, so the window is a staleness bound rather than a correctness
+ * one. Its two failure modes both land on today's behavior (ordinary shell look,
+ * gun crack).
+ */
+const OWN_FIRE_WINDOW_MS = 400;
+
+/**
+ * Latch which weapon this click fired, for the own-fire correlation
+ * (roomBindings.ownFireWeapon). Only a click the client PREDICTS will fire
+ * counts: a denied press (reloading, out of arc) produces no shell, so latching
+ * it would leave a stale claim for the next reveal to pick up. Ability slots
+ * never reach here — the wire click is a weapon click.
+ */
+function latchOwnFire(g: Game, primedSlot: number, p: { alive: boolean; loaded: boolean; inArc: boolean }): void {
+  const id = g.ownSlots[primedSlot] ?? null;
+  if (!p.alive || !p.loaded || !p.inArc || id === null) return;
+  g.ownFire = { id, t: g.clock.serverNow() };
+}
+
+/**
+ * The weapon behind our most recent shot, or null once the latch has gone stale
+ * (or was never set). Only the three BALLISTIC ids can be claimed — an ability
+ * never produces a `shell`/`torp` reveal, so nothing else may leak through into
+ * a projectile's identity.
+ */
+function ownFireWeapon(g: Game): OwnFire {
+  const f = g.ownFire;
+  if (!f || g.clock.serverNow() - f.t > OWN_FIRE_WINDOW_MS) return null;
+  if (f.id === 'cannon' || f.id === 'gun' || f.id === 'torpedo') return f.id;
+  return null;
+}
+
 function consumePrimeOnFire(g: Game, primedSlot: number, aim: number, aimDist: number, fireSeq: number): void {
   const newClick = g.mouse.clickCount !== g.lastTickClick;
   g.lastTickClick = g.mouse.clickCount;
   if (!newClick) return;
   const p = clickPrediction(g, primedSlot, aim, aimDist);
+  latchOwnFire(g, primedSlot, p);
   if (shouldConsumePrime(p.alive, primedSlot, p.loaded, p.inArc)) g.keyboard.revertToGun();
   // Story 1.10 exactly-one-feedback (weapon clicks): a click predicted DENIED
   // (reloading / out of the bow arc) fires its feedback NOW — the denial tone
@@ -1868,7 +1944,9 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
   g.radar.render(pose, now);
-  g.litZones.render(now); // fade each lit-zone glow by its timestamp expiry
+  // Fade each lit-zone glow by its timestamp expiry, and breathe the burning
+  // zones' embers on the shared server-clock seconds (Story 2.9, amendment 50).
+  g.litZones.render(now, now / 1000);
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
@@ -1936,7 +2014,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, zv: ZoneView, mu:
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
   g.effects.update(frameDt, null);
   g.radar.render(null, now); // hides the sweep + rings
-  g.litZones.render(now); // spectators see all zones; fade them by expiry too
+  g.litZones.render(now, now / 1000); // spectators see all zones, doctrine and all
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
   g.hud.updateSpectate(zoneHud(zv, now, false), mu, hudWidth(g), hudHeight(g), banner);

@@ -20,7 +20,12 @@ import {
   speedLadderFraction,
   CLUSTER_CONTENT_BOTTOM,
   DETENT_LABELS,
+  TELL_FIT_MAX_MS,
+  TELL_STYLE,
+  tellLine,
+  tellSeconds,
 } from '../render/hud.js';
+import { monoTextWidth } from '../ui/refitCardFit.js';
 import {
   HELM_PAIRS,
   HelmGlyphStore,
@@ -820,6 +825,8 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
     stats,
     loadout: ['gun', 'torpedo', null, null],
     boostActive: false,
+    slowedMsLeft: 0,
+    dazzledMsLeft: 0,
   };
   const ship = { x: 0, y: 0, heading: 1, speed: 4.2 } as ShipState;
   const match = { topLine: '', tag: '', countdown: '' } as MatchUx;
@@ -906,5 +913,125 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
     expect(root.visible).toBe(false); // the HP rail died with the hull too
     hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 2);
     expect(root.visible).toBe(true);
+  });
+});
+
+// --- STORY 2.9: THE VICTIM TELLS -----------------------------------------------
+//
+// Story 2.8 shipped PROP-FOULING and DAZZLE BURST with no victim-side feedback
+// at all: your engine lost revs and your sight bubble shrank, and the game said
+// nothing about why. These lines are the "why" — and they are DUAL-CODED by
+// construction (a word plus a live countdown), so neither a color nor the mere
+// presence of a mark is ever carrying the state alone.
+
+describe('tellLine / tellSeconds — the dual-coded victim status line', () => {
+  it('names the state AND counts it down', () => {
+    expect(tellLine('SLOWED', 2400)).toBe('SLOWED 3s');
+    expect(tellLine('DAZZLED', 1000)).toBe('DAZZLED 1s');
+  });
+
+  it('renders NOTHING when the window is not running (no ghost, no placeholder)', () => {
+    expect(tellLine('SLOWED', 0)).toBe('');
+    expect(tellLine('DAZZLED', -500)).toBe(''); // already expired
+  });
+
+  it('never reads "0s" while the window is still live', () => {
+    expect(tellSeconds(1)).toBe(1);
+    expect(tellSeconds(999)).toBe(1);
+    expect(tellSeconds(1001)).toBe(2);
+  });
+});
+
+describe('the tells fit their box (amendment 47 — the container-fit law)', () => {
+  // The cluster's body width is the column these lines share with IN STORM. A
+  // tell that outran it would paint over the ocean beside the vitals, which is
+  // exactly what the law forbids — so the pin measures a deliberately absurd
+  // window, not just today's few-second one.
+  const inner = CLIENT_CONFIG.vitals.width;
+
+  it('every reachable tell line fits the cluster column', () => {
+    for (const label of ['SLOWED', 'DAZZLED']) {
+      for (const ms of [1, 999, 1000, 9000, 60_000, TELL_FIT_MAX_MS]) {
+        const line = tellLine(label, ms);
+        const w = monoTextWidth(line, TELL_STYLE.fontSize, TELL_STYLE.letterSpacing);
+        expect(w, `${line} @ ${w}px`).toBeLessThanOrEqual(inner);
+      }
+    }
+  });
+
+  it('the tell slots sit ABOVE the cluster and clear of the storm warning', () => {
+    const l = vitalsLayout(1366, 768);
+    expect(l.tells.y).toBeLessThan(l.storm.y); // above IN STORM
+    expect(l.tells.x).toBe(l.cluster.x); // ...in the same column
+    // Two stacked tells still clear the cluster's top edge.
+    const highest = l.tells.y - CLIENT_CONFIG.vitals.tellGap;
+    expect(highest).toBeLessThan(l.cluster.y);
+    expect(highest).toBeGreaterThan(0); // ...and stay on screen at the floor viewport
+  });
+});
+
+describe('Hud — the tells on a live frame', () => {
+  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const base: OwnStatus = {
+    hp: 80,
+    ammo: [null, null, null, null],
+    primedSlot: 0,
+    alive: true,
+    respawnInMs: 0,
+    cls: 'torpedoBoat',
+    stats,
+    loadout: ['gun', 'torpedo', null, null],
+    boostActive: false,
+    slowedMsLeft: 0,
+    dazzledMsLeft: 0,
+  };
+  const ship = { x: 0, y: 0, heading: 1, speed: 4.2 } as ShipState;
+  const match = { topLine: '', tag: '', countdown: '' } as MatchUx;
+  const quiet = { line: '', inStorm: false };
+  const draw = (hud: Hud, status: OwnStatus): void =>
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10);
+
+  it('shows nothing at all while unafflicted', () => {
+    const hud = new Hud(new Container());
+    draw(hud, base);
+    expect([hud.tellText(0), hud.tellText(1)]).toEqual(['', '']);
+  });
+
+  it('shows each window, and BOTH at once when both are running', () => {
+    const hud = new Hud(new Container());
+    draw(hud, { ...base, slowedMsLeft: 2000 });
+    expect([hud.tellText(0), hud.tellText(1)]).toEqual(['SLOWED 2s', '']);
+    draw(hud, { ...base, dazzledMsLeft: 3000 });
+    expect([hud.tellText(0), hud.tellText(1)]).toEqual(['', 'DAZZLED 3s']);
+    draw(hud, { ...base, slowedMsLeft: 1500, dazzledMsLeft: 4000 });
+    expect([hud.tellText(0), hud.tellText(1)]).toEqual(['SLOWED 2s', 'DAZZLED 4s']);
+  });
+
+  it('a single running tell takes the BOTTOM slot — the column never shows a hole', () => {
+    const hud = new Hud(new Container());
+    draw(hud, { ...base, slowedMsLeft: 2000 });
+    const slowedOnly = hud.tellPosition(0);
+    draw(hud, { ...base, dazzledMsLeft: 2000 });
+    expect(hud.tellPosition(1)).toEqual(slowedOnly);
+    // With both up, they stack — same column, one gap apart.
+    draw(hud, { ...base, slowedMsLeft: 2000, dazzledMsLeft: 2000 });
+    expect(hud.tellPosition(0)).toEqual(slowedOnly);
+    expect(hud.tellPosition(1)?.y).toBe((slowedOnly?.y ?? 0) - CLIENT_CONFIG.vitals.tellGap);
+  });
+
+  it('clears the tells when the window ends, and on a dead hull', () => {
+    const hud = new Hud(new Container());
+    draw(hud, { ...base, slowedMsLeft: 2000, dazzledMsLeft: 2000 });
+    draw(hud, base); // both expired
+    expect([hud.tellText(0), hud.tellText(1)]).toEqual(['', '']);
+    draw(hud, { ...base, alive: false, slowedMsLeft: 5000 }); // a sunk hull is not fouled
+    expect(hud.tellText(0)).toBe('');
+  });
+
+  it('drops the tells on a spectate frame (they die with the hull)', () => {
+    const hud = new Hud(new Container());
+    draw(hud, { ...base, dazzledMsLeft: 5000 });
+    hud.updateSpectate(quiet, match, 1366, 768, 'SPECTATING');
+    expect(hud.tellText(1)).toBe('');
   });
 });

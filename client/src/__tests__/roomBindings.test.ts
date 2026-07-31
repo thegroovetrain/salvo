@@ -7,8 +7,16 @@
 // and reverts the primed weapon to the gun (the sunk-path symmetry: a resume is
 // a hard boundary, so a pre-outage prime never fires on the first click back).
 import { describe, expect, it, vi } from 'vitest';
-import { bindRoom, frameIsDeadOrSpectating, type RoomBindingDeps } from '../net/roomBindings';
+import {
+  bindRoom,
+  frameIsDeadOrSpectating,
+  inEnemyBurningZone,
+  windowRunning,
+  type RoomBindingDeps,
+} from '../net/roomBindings';
 import type { Connection } from '../net/connection';
+import type { OwnFire } from '../render/projectiles';
+import { fitDetune } from '../audio/tones';
 
 interface FakeRoom {
   onMessage: (type: string, cb: (msg: unknown) => void) => void;
@@ -393,7 +401,9 @@ describe('bindRoom reward toasts', () => {
     const { sink, play } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'gunDamage' }, { alive: false, boons: ['gunDamage'] }));
     expect(toastLines()).toEqual(['◆ HEAVY SHELLS Mk I FITTED']);
-    expect(play).toHaveBeenCalledWith('fitCommon');
+    // The cue carries BOTH axes as of Story 2.9: the tier picks the tone, the
+    // category transposes it (see the fitDetune suite below).
+    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('guns') });
   });
 
   it('WEIGHTS the fit cue by the fitted line\'s tier (Story 2.9)', () => {
@@ -401,7 +411,7 @@ describe('bindRoom reward toasts', () => {
       document.body.replaceChildren();
       const { sink, play } = setupToasts();
       sink.handler(rewardFrame({ k: 'bn', id: 'me', boon }, { alive: true, boons: [boon] }));
-      expect(play).toHaveBeenCalledWith(tone);
+      expect(play).toHaveBeenCalledWith(tone, expect.anything());
     }
   });
 
@@ -418,7 +428,7 @@ describe('bindRoom reward toasts', () => {
     document.body.replaceChildren();
     const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, boons: ['notARealBoon'] }));
-    expect(play).toHaveBeenCalledWith('fitCommon');
+    expect(play).toHaveBeenCalledWith('fitCommon', { detune: 0 });
     expect(onBoonFitted).toHaveBeenCalledWith('');
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
@@ -470,5 +480,260 @@ describe('bindRoom reward toasts', () => {
     const { sink, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
     expect(onSpendAck).not.toHaveBeenCalled();
+  });
+});
+
+// --- STORY 2.9: the net side of "the build must be felt" ------------------------
+//
+// Three separate contracts live down here, and they share one theme: the client
+// may present a doctrine ONLY from something it legitimately has —
+//   • OWN fire, correlated with our own click (never inferable by an onlooker);
+//   • an enemy's OBSERVABLE behavior (a derived pierce id, a burning zone we are
+//     standing in) — never a new field describing their build.
+
+/** A frame carrying events plus an own ship at the origin (the victim cases). */
+function victimFrame(
+  events: unknown[],
+  you: Record<string, unknown> | null,
+  extra: Record<string, unknown> = {},
+): unknown {
+  const base = { t: 1000, tick: 3, ackSeq: 0, contacts: [], mines: [], events, ...extra };
+  if (!you) return { ...base, spec: true };
+  return {
+    ...base,
+    you: { x: 0, y: 0, heading: 0, speed: 0, cls: 'torpedoBoat', boons: [], alive: true, sweep: 0, ...you },
+  };
+}
+
+function setupWater(ownFire: OwnFire = null) {
+  const room = fakeRoom();
+  const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+  const conn = { room, welcome: {}, sink } as unknown as Connection;
+  const play = vi.fn();
+  const spawnEffect = vi.fn();
+  const onShell = vi.fn();
+  const trigger = vi.fn();
+  const flash = vi.fn();
+  const deps = {
+    state: {
+      net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0, litZones: [] },
+      spectating: false, phase: '', respawnEta: null, mode: 'interp',
+    },
+    clock: { addSample: vi.fn() },
+    ownBuffer: { push: vi.fn(), clear: vi.fn() },
+    predictor: { onServerState: vi.fn(), forceSnap: vi.fn() },
+    radar: { onSweepSample: vi.fn(), onBlip: vi.fn() },
+    contacts: { pushFrame: vi.fn(), ids: () => [], get: () => null },
+    contactViews: { flash },
+    mines: { sync: vi.fn() },
+    litZones: { sync: vi.fn() },
+    decoys: { sync: vi.fn() },
+    projectiles: { onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn() },
+    effects: { spawnEffect },
+    shake: { trigger },
+    audio: { play },
+    onOwnStats: vi.fn(),
+    onOwnSpawn: vi.fn(),
+    onSpectate: vi.fn(),
+    ordnanceHue: () => 0,
+    colors: () => null,
+    ownFireWeapon: () => ownFire,
+  } as unknown as RoomBindingDeps;
+  bindRoom(conn, deps);
+  return { sink, play, spawnEffect, onShell, trigger, flash, deps };
+}
+
+describe('own-fire correlation (Story 2.9) — telling our cannon from our gun', () => {
+  it('an OWN cannon shot lands with cannon weight: heavy muzzle, heavy report, cannon look', () => {
+    const { sink, play, spawnEffect, onShell } = setupWater('cannon');
+    sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'cannon');
+    expect(spawnEffect).toHaveBeenCalledWith('muzzleHeavy', 0, 0);
+    expect(play).toHaveBeenCalledWith('fireCannon'); // the heavier report, finally played
+  });
+
+  it('an OWN gun shot is unchanged — the ordinary flash and the gun crack', () => {
+    const { sink, play, spawnEffect, onShell } = setupWater('gun');
+    sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'gun');
+    expect(spawnEffect).toHaveBeenCalledWith('muzzle', 0, 0);
+    expect(play).toHaveBeenCalledWith('fireGun');
+  });
+
+  it('with NO latch (nothing fired recently) an own reveal falls back to the gun', () => {
+    const { sink, play, spawnEffect, onShell } = setupWater(null);
+    sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'gun');
+    expect(spawnEffect).toHaveBeenCalledWith('muzzle', 0, 0);
+    expect(play).toHaveBeenCalledWith('fireGun');
+  });
+
+  it('NEVER attributes a distant (enemy) shell to our own weapon, latch or no latch', () => {
+    const { sink, play, spawnEffect, onShell } = setupWater('cannon');
+    // Far from our hull: this is somebody else's shell, revealed at our fog edge.
+    sink.handler(victimFrame([{ k: 'shell', id: 'e1', x: 900, y: 0, vx: 130, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), null);
+    expect(spawnEffect).not.toHaveBeenCalled(); // no visible hull there → no flash
+    expect(play).not.toHaveBeenCalled(); // ...and certainly no own-fire cue
+  });
+
+  it('marks an own TORPEDO as ours (styled from own doctrine at launch), never as a cannon', () => {
+    const { sink, play, onShell } = setupWater('cannon'); // a stale cannon latch
+    sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'torpedo');
+    expect(play).toHaveBeenCalledWith('fireTorp');
+  });
+});
+
+describe('pierce identity (Story 2.9) — the derived AP boom id', () => {
+  it('renders a punch-through ring for a derived id and the ordinary spark otherwise', () => {
+    const { sink, spawnEffect } = setupWater();
+    sink.handler(victimFrame([{ k: 'boom', id: 's7#p0', hit: 'foe', x: 40, y: 0 }], {}));
+    expect(spawnEffect).toHaveBeenCalledWith('pierce', 40, 0);
+    spawnEffect.mockClear();
+    sink.handler(victimFrame([{ k: 'boom', id: 's7', hit: 'foe', x: 90, y: 0 }], {}));
+    expect(spawnEffect).toHaveBeenCalledWith('spark', 90, 0); // terminal: unchanged
+  });
+
+  it('still flashes the struck contact, and still splashes a MISS (no id styling)', () => {
+    const { sink, spawnEffect, flash } = setupWater();
+    sink.handler(victimFrame([{ k: 'boom', id: 's7#p1', hit: 'foe', x: 40, y: 0 }], {}));
+    expect(flash).toHaveBeenCalledWith('foe');
+    spawnEffect.mockClear();
+    sink.handler(victimFrame([{ k: 'boom', id: 's7#p2', x: 40, y: 0 }], {})); // no hit
+    expect(spawnEffect).toHaveBeenCalledWith('splash', 40, 0);
+  });
+
+  it('a boom with no id at all is a plain spark (fail-open, never a throw)', () => {
+    const { sink, spawnEffect } = setupWater();
+    sink.handler(victimFrame([{ k: 'boom', hit: 'foe', x: 5, y: 5 }], {}));
+    expect(spawnEffect).toHaveBeenCalledWith('spark', 5, 5);
+  });
+});
+
+describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', () => {
+  const burning = (by: string) => [{ id: 'z1', x: 0, y: 0, r: 100, until: 9e9, by, mode: 'incendiary' }];
+  const dmg = [{ k: 'dmg', id: 'me', amount: 6 }];
+
+  it('reads an ordinary hit as damage: full shake, the impact thud', () => {
+    const { sink, play, trigger } = setupWater();
+    sink.handler(victimFrame(dmg, {}));
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(trigger).toHaveBeenCalledWith(6);
+  });
+
+  it('reads a tick inside an ENEMY burning zone as BURN: the burn cue, a softened shake', () => {
+    const { sink, play, trigger } = setupWater();
+    sink.handler(victimFrame(dmg, {}, { litZones: burning('foe') }));
+    expect(play).toHaveBeenCalledWith('burn');
+    expect(play).not.toHaveBeenCalledWith('damage');
+    const shaken = trigger.mock.calls[0][0] as number;
+    expect(shaken).toBeGreaterThan(0); // it is still damage — never silent
+    expect(shaken).toBeLessThan(6); // ...but a DoT tick, not a slam
+  });
+
+  it('our OWN flare never burns us (you cannot set fire to yourself)', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame(dmg, {}, { litZones: burning('me') }));
+    expect(play).toHaveBeenCalledWith('damage');
+  });
+
+  it('a NON-incendiary enemy zone is not fire, and neither is standing outside one', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame(dmg, {}, { litZones: [{ ...burning('foe')[0], mode: 'dazzle' }] }));
+    expect(play).toHaveBeenCalledWith('damage');
+    play.mockClear();
+    sink.handler(victimFrame(dmg, {}, { litZones: [{ ...burning('foe')[0], x: 900 }] }));
+    expect(play).toHaveBeenCalledWith('damage');
+  });
+
+  it('inEnemyBurningZone pins the predicate itself', () => {
+    const zones = [
+      { id: 'a', x: 0, y: 0, r: 100, until: 9e9, by: 'foe', mode: 'incendiary' as const },
+      { id: 'b', x: 0, y: 0, r: 100, until: 9e9, by: 'me', mode: 'incendiary' as const },
+    ];
+    expect(inEnemyBurningZone(zones, { x: 50, y: 0 }, 'me')).toBe(true);
+    expect(inEnemyBurningZone(zones, { x: 100, y: 0 }, 'me')).toBe(true); // on the edge
+    expect(inEnemyBurningZone(zones, { x: 101, y: 0 }, 'me')).toBe(false);
+    expect(inEnemyBurningZone([zones[1]], { x: 0, y: 0 }, 'me')).toBe(false); // our own flare
+    expect(inEnemyBurningZone([], { x: 0, y: 0 }, 'me')).toBe(false);
+  });
+});
+
+describe('victim tells (Story 2.9) — SLOWED / DAZZLED cue edges', () => {
+  it('fires each cue ONCE on the rising edge, and never on a refresh', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([], { slowedUntil: 4000 }));
+    expect(play).toHaveBeenCalledWith('slowed');
+    play.mockClear();
+    sink.handler(victimFrame([], { slowedUntil: 4000 })); // still running
+    sink.handler(victimFrame([], { slowedUntil: 9000 })); // REFRESHED, not re-applied
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('says nothing on the falling edge (the line simply disappears)', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([], { dazzledUntil: 4000 }));
+    play.mockClear();
+    sink.handler(victimFrame([], { dazzledUntil: 0 })); // expired
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('re-fires when the affliction lands AGAIN after ending', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([], { slowedUntil: 1500 }));
+    sink.handler(victimFrame([], {})); // clear
+    play.mockClear();
+    sink.handler(victimFrame([], { slowedUntil: 3000 })); // fouled a second time
+    expect(play).toHaveBeenCalledWith('slowed');
+  });
+
+  it('drives the two windows independently, and stays quiet with neither running', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([], {}));
+    expect(play).not.toHaveBeenCalled();
+    sink.handler(victimFrame([], { slowedUntil: 4000, dazzledUntil: 4000 }));
+    expect(play).toHaveBeenCalledWith('slowed');
+    expect(play).toHaveBeenCalledWith('dazzled');
+  });
+
+  it('a spectator frame (no `you`) clears both without a sound', () => {
+    const { sink, play } = setupWater();
+    sink.handler(victimFrame([], { slowedUntil: 4000 }));
+    play.mockClear();
+    sink.handler(victimFrame([], null)); // died mid-window
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('windowRunning measures against the FRAME\'s own server time', () => {
+    expect(windowRunning(1001, 1000)).toBe(true);
+    expect(windowRunning(1000, 1000)).toBe(false); // expires AT the instant
+    expect(windowRunning(undefined, 1000)).toBe(false); // never started
+  });
+});
+
+describe('the fit cue is transposed by CATEGORY (Story 2.9 carry-over)', () => {
+  it('plays the tier tone at its category\'s detune', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
+    expect(play).toHaveBeenCalledWith('fitCommon', { detune: fitDetune('mines') });
+  });
+
+  it('gives two same-tier fits on DIFFERENT slots different voices', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'gunDamage' }, { alive: true, boons: ['gunDamage'] }));
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
+    const [first, second] = play.mock.calls;
+    expect(first[0]).toBe(second[0]); // same tier → same tone id
+    expect(first[1]).not.toEqual(second[1]); // ...heard as a different event
+  });
+
+  it('an unknown boon still sounds — common weight, untransposed root', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, boons: ['x'] }));
+    expect(play).toHaveBeenCalledWith('fitCommon', { detune: 0 });
   });
 });

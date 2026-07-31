@@ -169,7 +169,42 @@ export interface OwnStatus {
   /** The own speed boost is currently active (serverNow < boostUntil estimate):
    *  drives the boosted speed-needle cap on the telegraph ladder. */
   boostActive: boolean;
+  /** ms remaining on the PROP-FOULING slow window (`you.slowedUntil` vs the
+   *  server clock; 0 = not fouled) — Story 2.9's victim tell. */
+  slowedMsLeft: number;
+  /** ms remaining on the DAZZLE window (`you.dazzledUntil`; 0 = not dazzled). */
+  dazzledMsLeft: number;
 }
+
+/** The two victim tells, top-down in the order they stack above the cluster. */
+const TELL_LABELS = ['SLOWED', 'DAZZLED'] as const;
+
+/**
+ * Pure: WHOLE remaining seconds of a victim window, floored at 1 so a live
+ * window never reads "0s" (the hotbar's fmtWindow rule, restated here rather
+ * than reached for across the render boundary — the hotbar owns the slot
+ * surface, the HUD owns the vitals).
+ */
+export function tellSeconds(ms: number): number {
+  return Math.max(1, Math.ceil(ms / 1000));
+}
+
+/**
+ * Pure: the tell line for a window — `SLOWED 2s`, or '' when nothing is running.
+ *
+ * DUAL-CODED by construction: the STATE is a word and the SEVERITY is a live
+ * countdown, so neither the color nor the mere presence of a mark carries it
+ * alone. The tone (audio/tones.ts slowed/dazzled) is the flourish; THIS is the
+ * information, and it renders identically at every motion level.
+ */
+export function tellLine(label: string, msLeft: number): string {
+  return msLeft > 0 ? `${label} ${tellSeconds(msLeft)}s` : '';
+}
+
+/** The longest a tell line can ever get — the fit pin's input. Windows are
+ *  short (a few seconds), but the pin measures a deliberately absurd one so a
+ *  future duration boon cannot quietly push the line out of the cluster. */
+export const TELL_FIT_MAX_MS = 99_000;
 
 /**
  * Pure: the HP header's value text — `72/100`, with `HULL` as its own caption.
@@ -203,6 +238,9 @@ const MATCH_LINE_STYLE = { fontFamily: MONO, fontSize: 22, fill: GREEN, letterSp
 const MATCH_TAG_STYLE = { fontFamily: MONO, fontSize: 18, fill: GREEN, letterSpacing: 3 } as const;
 const COUNTDOWN_STYLE = { fontFamily: MONO, fontSize: 112, fill: GREEN, letterSpacing: 4 } as const;
 const SPECTATE_STYLE = { fontFamily: MONO, fontSize: 28, fill: AMBER, letterSpacing: 3 } as const;
+/** Victim tells (Story 2.9) — the vitals cluster's own register: phosphor data
+ *  caps in the one mono stack, never grey and never a color-only mark. */
+export const TELL_STYLE = { fontFamily: MONO, fontSize: V.tellSize, fill: GREEN, letterSpacing: V.tellSpacing } as const;
 
 function pad3(n: number): string {
   return Math.round(n).toString().padStart(3, '0');
@@ -339,6 +377,11 @@ export interface VitalsLayout {
   /** The cluster body's screen box (header + helm block, rail EXCLUDED). */
   cluster: HudBox;
   storm: { x: number; y: number };
+  /** BOTTOM tell slot (Story 2.9): the baseline of the first victim tell, one
+   *  satellite line above IN STORM. Further tells stack UPWARD from here at
+   *  `V.tellGap`, so a single running window always sits in this slot — the
+   *  column never shows a hole where the other tell would have been. */
+  tells: { x: number; y: number };
 }
 
 /**
@@ -355,6 +398,7 @@ export function vitalsLayout(screenW: number, screenH: number): VitalsLayout {
     root,
     cluster,
     storm: { x: root.x, y: root.y - V.stormAbove },
+    tells: { x: root.x, y: root.y - V.tellAbove },
   };
 }
 
@@ -392,6 +436,9 @@ export class Hud {
   private readonly matchTag: Text;
   private readonly countdownBig: Text;
   private readonly spectateBanner: Text;
+  /** The victim tells, index-aligned with TELL_LABELS (SLOWED, DAZZLED). */
+  private readonly tells: Text[];
+  private readonly lastTells: string[];
   private lastHeading = '';
   private lastSpeed = '';
   private lastHull = '';
@@ -458,6 +505,14 @@ export class Hud {
     this.spectateBanner.anchor.set(0.5, 0);
     this.spectateBanner.visible = false;
     hudLayer.addChild(this.matchLine, this.matchTag, this.countdownBig, this.spectateBanner);
+    this.tells = TELL_LABELS.map(() => {
+      const t = new Text({ text: '', style: TELL_STYLE });
+      t.anchor.set(0, 1); // stack upward from a baseline
+      t.visible = false;
+      hudLayer.addChild(t);
+      return t;
+    });
+    this.lastTells = TELL_LABELS.map(() => '');
   }
 
   /** A dim-phosphor micro caption (never grey — amendment 25). */
@@ -585,6 +640,36 @@ export class Hud {
     this.stormWarn.visible = zone.inStorm;
     const storm = vitalsLayout(screenW, screenH).storm;
     this.stormWarn.position.set(storm.x, storm.y);
+  }
+
+  /**
+   * The victim tells (Story 2.9): one short status line per running enemy-
+   * doctrine window, stacked upward from the bottom tell slot. A window that is
+   * not running renders NOTHING (no placeholder, no dimmed ghost) and the
+   * remaining line closes up into the bottom slot, so the column never carries a
+   * hole. Hidden wholesale on a dead hull — a sunk ship is not fouled.
+   */
+  private drawTells(status: OwnStatus, screenW: number, screenH: number): void {
+    const at = vitalsLayout(screenW, screenH).tells;
+    const windows = [status.slowedMsLeft, status.dazzledMsLeft];
+    let slot = 0;
+    for (let i = 0; i < this.tells.length; i++) {
+      const line = status.alive ? tellLine(TELL_LABELS[i], windows[i]) : '';
+      const t = this.tells[i];
+      if (line !== this.lastTells[i]) {
+        t.text = line;
+        this.lastTells[i] = line;
+      }
+      t.visible = line !== '';
+      if (!t.visible) continue;
+      t.position.set(at.x, at.y - slot * V.tellGap);
+      slot++;
+    }
+  }
+
+  /** Drop both tells (spectating / returning to port — no hull to afflict). */
+  private hideTells(): void {
+    for (const t of this.tells) t.visible = false;
   }
 
   private layout(screenW: number, screenH: number): void {
@@ -789,8 +874,20 @@ export class Hud {
     this.updateHelmGlyphs(nowSec);
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);
+    this.drawTells(status, screenW, screenH);
     this.drawZone(zone, screenW, screenH);
     this.drawMatch(match, screenW, screenH);
+  }
+
+  /** A tell's rendered line (test/debug seam) — '' when its window is idle. */
+  tellText(index: number): string {
+    return this.tells[index]?.visible ? this.tells[index].text : '';
+  }
+
+  /** Where a VISIBLE tell is drawn (test/debug seam); null when it is idle. */
+  tellPosition(index: number): { x: number; y: number } | null {
+    const t = this.tells[index];
+    return t?.visible ? { x: t.position.x, y: t.position.y } : null;
   }
 
   /**
@@ -802,6 +899,7 @@ export class Hud {
     this.setInstrumentsVisible(false);
     this.overlay.visible = false;
     this.stormWarn.visible = false;
+    this.hideTells(); // the victim tells die with the hull, like the instruments
     if (bannerText !== this.lastSpectateBanner) {
       this.spectateBanner.text = bannerText;
       this.lastSpectateBanner = bannerText;
