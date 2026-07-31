@@ -14,6 +14,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { Container } from 'pixi.js';
 import {
+  CHIP_LABEL_MAX_GLYPHS,
   CHIP_PULSE_HZ,
   XP_CHIP_IDLE,
   XpRail,
@@ -129,11 +130,22 @@ describe('tag / chip / cue copy — dual-coded, hidden at zero', () => {
 
   // The chip is a FIXED square (X.chip px): a two-digit count overflows it, so
   // the label clamps at 9 rather than spilling past the box's border.
-  it('clamps the count at 9 — a hoarded bank renders ▲9+, never a two-digit overflow', () => {
+  it('clamps the count at 9 — a hoarded bank renders ▲+, never a two-digit overflow', () => {
     expect(chipLabel(9)).toBe('▲9');
-    expect(chipLabel(10)).toBe('▲9+');
-    expect(chipLabel(42)).toBe('▲9+');
-    for (const pts of [10, 12, 99, 1000]) expect(chipLabel(pts).length).toBeLessThanOrEqual(3);
+    expect(chipLabel(10)).toBe('▲+');
+    expect(chipLabel(42)).toBe('▲+');
+    for (const pts of [10, 12, 99, 1000]) expect(chipLabel(pts).length).toBeLessThanOrEqual(2);
+  });
+
+  // AMENDMENT 47 (the container-fit law), pinned: NO reachable chip label is
+  // wider than the fixed chip square. `▲9+` used to be — three glyphs (26.7px)
+  // in a 22px box, overhanging its own amber border by ~2.4px per side.
+  it('NO chip label renders wider than the chip square it sits in', () => {
+    const glyphW = CLIENT_CONFIG.type.registers.hudMicro.size * 0.605 + 0.5; // mono advance + tracking
+    for (const pts of [0, 1, 5, 9, 10, 99, 1000]) {
+      expect([...chipLabel(pts)].length * glyphW).toBeLessThanOrEqual(CLIENT_CONFIG.xpRail.chip);
+    }
+    expect(CHIP_LABEL_MAX_GLYPHS).toBeGreaterThanOrEqual(2);
   });
 
   it('the cue line appears WITH the chip and names the key + the action', () => {

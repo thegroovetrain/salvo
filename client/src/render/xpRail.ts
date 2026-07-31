@@ -105,14 +105,25 @@ export function levelTag(lvl: number): string {
   return `LV ${n}`;
 }
 
+/** THE label budget: how many glyphs fit the fixed chip square at the micro
+ *  register. `size / (fontPx * 0.6 + letterSpacing)` — 22 / (14×0.6 + 0.5) = 2. */
+export const CHIP_LABEL_MAX_GLYPHS = Math.floor(X.chip / (MICRO * 0.605 + CHIP_STYLE.letterSpacing));
+
 /** Pure: the banked-level chip's label ('' hides the chip at zero). The ▲ glyph
  *  is the SHAPE channel beside the count — never color alone. The count is
- *  CLAMPED at 9 (`▲9+` past it): the chip is a fixed square, and a two-digit
- *  count would overflow it. Beyond 9 the exact number is not the information —
- *  "more than you can spend in one sitting" is. */
+ *  CLAMPED: the chip is a fixed square holding exactly CHIP_LABEL_MAX_GLYPHS
+ *  glyphs, so past 9 the label becomes the bare overflow mark `▲+`. Beyond 9 the
+ *  exact number is not the information — "more than you can spend in one
+ *  sitting" is, and the cue line says the rest.
+ *
+ *  AMENDMENT 47 (the container-fit law): the old `▲9+` was THREE glyphs (26.7px)
+ *  in the 22px square — the chip's own doc-comment already forbade a label wider
+ *  than its box, and this is the case it missed. Widening the square was
+ *  rejected: 22 is the ONE mono chip family (hotbar key chips, helm glyphs, the
+ *  refit digit chips), and the family outranks the plus sign. */
 export function chipLabel(pts: number): string {
   if (pts <= 0) return '';
-  return pts > 9 ? '▲9+' : `▲${pts}`;
+  return pts > 9 ? '▲+' : `▲${pts}`;
 }
 
 /** Pure: the cue line beside the chip ('' when nothing is banked). Draft copy

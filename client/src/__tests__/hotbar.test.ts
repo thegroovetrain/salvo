@@ -23,6 +23,7 @@ import {
   NO_HOVER,
   badgeText,
   coolFraction,
+  fmtDamage,
   fmtRemaining,
   fmtSeconds,
   hotbarLayout,
@@ -39,7 +40,7 @@ import {
   tooltipPlacement,
   type HotbarView,
 } from '../render/hotbar.js';
-import { equipmentInfo, interactionLine, SLOT_KEY_GLYPHS } from '../render/equipmentInfo.js';
+import { EQUIPMENT_NAME, equipmentInfo, interactionLine, SLOT_KEY_GLYPHS } from '../render/equipmentInfo.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const H = CLIENT_CONFIG.hotbar;
@@ -425,5 +426,84 @@ describe('tooltip placement — flanks the stack and never leaves the viewport',
     expect(p.y + 700).toBeLessThanOrEqual(768 - H.tooltip.margin + 1);
     expect(p.notchY).toBeGreaterThanOrEqual(p.y);
     expect(p.notchY).toBeLessThanOrEqual(p.y + 700);
+  });
+});
+
+// --- THE CONTAINER-FIT LAW (amendment 47) -------------------------------------
+//
+// The slot row's label column is a FIXED 268px box (CLIENT_CONFIG.hotbar
+// .labelWidth) and it is also the row's clickable footprint (amendment 11), so
+// a label wider than it does not merely look wrong — its tail hangs over open
+// water that still fires the gun.
+//
+// The live-site defect this pins: `applyStatEffect` folds `value * mult + add`
+// with no rounding, so PROP-FOULING MINES (x0.6) fitted AFTER a filler stack
+// produced `31.799999999999997` and the quick-info line rendered
+// `DMG 31.799999999999997 · CD 8s` — 332.8px in the 268px column.
+describe('label column fit (amendment 47)', () => {
+  const MONO_ADVANCE = 0.605; // Geist Mono 0.6em, Menlo 0.6021em — the whole declared stack
+  const monoW = (s: string, px: number, ls: number): number => [...s].length * (px * MONO_ADVANCE + ls);
+  const EVERY = Object.values(BOON_CATALOG);
+  /** Every non-acquisition line at full copies: the largest numbers reachable. */
+  const MAXED = EVERY.filter((d) => !d.effects.some((e) => e.kind === 'slotFill')).flatMap((d) =>
+    Array<string>(d.copies).fill(d.id),
+  );
+
+  /**
+   * The builds that actually produce ugly numbers. `applyStatEffect` folds in
+   * BOON-GRANT ORDER, so a multiplier doctrine landing on top of k additive
+   * cards is a different float every k — 53 x 0.6 is 31.799999999999997 while
+   * 65 x 0.6 is exact. A single "everything maxed" build sails right past it,
+   * so every (additive line, rival doctrine) pair is swept at every stack depth.
+   */
+  const BUILDS: string[][] = [[], MAXED];
+  for (const excl of EVERY.filter((d) => d.rarity === 'exclusive')) {
+    for (const common of EVERY.filter((d) => d.category === excl.category && d.rarity === 'common')) {
+      for (let k = 0; k <= common.copies; k += 1) BUILDS.push([...Array<string>(k).fill(common.id), excl.id]);
+    }
+  }
+
+  it('NO quick-info line, at any boon stack, is wider than the 268px label column', () => {
+    const over: string[] = [];
+    for (const cls of Object.keys(CONFIG.shipClasses) as ShipClassId[]) {
+      for (const boons of BUILDS) {
+        const stats = effectiveStats(CONFIG.shipClasses[cls], resolveBoons(boons, BOON_CATALOG));
+        for (const id of Object.keys(EQUIPMENT_NAME) as EquipmentId[]) {
+          const info = equipmentInfo(stats, id);
+          for (const left of [0, 1, 999, info.reloadMs]) {
+            const line = quickInfoLine(info, left);
+            const w = monoW(line, 16, 0.8); // INFO_STYLE
+            if (w > H.labelWidth) over.push(`${cls}/${id}: "${line}" = ${w.toFixed(1)}px > ${H.labelWidth}px`);
+          }
+        }
+      }
+    }
+    expect(over).toEqual([]);
+  });
+
+  it('rounds the damage figure at the display seam (integers bare, else one decimal)', () => {
+    expect(fmtDamage(45)).toBe('45');
+    expect(fmtDamage(31.799999999999997)).toBe('31.8');
+    expect(fmtDamage(34.199999999999996)).toBe('34.2');
+    expect(fmtDamage(0)).toBe('0');
+    // The whole point: no float tail ever reaches the label column.
+    for (const hp of [31.799999999999997, 34.199999999999996, 1 / 3]) {
+      expect(fmtDamage(hp).length).toBeLessThanOrEqual(5);
+    }
+  });
+
+  it('NO slot name, including the empty-slot label, is wider than the label column', () => {
+    const names = [...Object.values(EQUIPMENT_NAME), EMPTY_SLOT_LABEL];
+    for (const n of names) expect(monoW(n, 20, 0.3)).toBeLessThanOrEqual(H.labelWidth);
+  });
+
+  it('NO ammo badge digit is wider than the 22px badge square', () => {
+    const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(MAXED, BOON_CATALOG));
+    for (const id of Object.keys(EQUIPMENT_NAME) as EquipmentId[]) {
+      for (const n of [0, 1, 2, 9]) {
+        const t = badgeText(equipmentInfo(stats, id), { n, reloadMsLeft: 0 });
+        if (t !== null) expect(monoW(t, 16, 0)).toBeLessThanOrEqual(H.badge);
+      }
+    }
   });
 });

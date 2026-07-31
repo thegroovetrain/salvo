@@ -15,6 +15,7 @@
 // refit modal (1000) and the home (1100). Tokens only — no color literals.
 
 import { CLIENT_CONFIG } from '../config.js';
+import { applyViewportCap } from './fit.js';
 import {
   scaleTierEnabled,
   scaleTierNote,
@@ -191,6 +192,10 @@ const PANEL_CSS = [
   `width:${S.panelWidth}px`,
   'max-width:100%',
   'max-height:100%',
+  // AMENDMENT 47: without border-box the 28px padding + 1px border sit OUTSIDE
+  // the 100% max-height, so the overlay clipped 5px off the panel's top and
+  // bottom chrome at every viewport. Same one-word defect as results/class bay.
+  'box-sizing:border-box',
   'overflow-y:auto',
   `padding:${S.panelPad}px`,
   'background:var(--hc-panel)',
@@ -477,6 +482,7 @@ export class SettingsOverlay {
     overlay.style.cssText = OVERLAY_CSS;
     const panel = document.createElement('div');
     panel.style.cssText = PANEL_CSS;
+    applyViewportCap(panel); // amendment 47 — border-box + a real scroll surface (ui/fit.ts)
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
     this.overlay = overlay;

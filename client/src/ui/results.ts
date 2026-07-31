@@ -19,6 +19,7 @@
 
 import type { ResultsMsg, ResultsRow } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { applyViewportCap } from './fit.js';
 import type { PersonalScore } from '../score.js';
 import { cssRgba } from '../util/color.js';
 import { registerCss } from './theme.js';
@@ -109,12 +110,19 @@ const OVERLAY_CSS = [
   'z-index:1000',
 ].join(';');
 
+// AMENDMENT 47 (the container-fit law): `box-sizing:border-box` is LOAD-BEARING
+// next to `max-height:100%`. Under the default content-box, that max caps the
+// CONTENT height, so the panel's border box came out at `overlayHeight + 66px`
+// (32+32 padding + 2 border) at EVERY viewport — 33px of the results modal was
+// clipped off the top and bottom edges, viewport-independent, and the top clip
+// took the WINNER/placement headline with it.
 const PANEL_CSS = [
   'display:flex',
   'flex-direction:column',
   'align-items:stretch',
   'gap:18px',
   'padding:32px 40px',
+  'box-sizing:border-box',
   'max-height:100%',
   'overflow-y:auto',
   'background:var(--hc-panel)',
@@ -259,7 +267,14 @@ function makeRow(r: ResultsRow, own: boolean): HTMLTableRowElement {
 
 function makeTable(rows: readonly ResultsRow[], ownId: string): HTMLElement {
   const wrap = document.createElement('div');
-  wrap.style.cssText = 'overflow-x:auto';
+  // `flex:0 0 auto` is the amendment-47 half of this element. `overflow-x:auto`
+  // makes it a scroll container, which gives it an automatic min-size of 0 —
+  // so inside the panel's flex column it became the shrink SINK: at a short
+  // viewport the whole placement table was crushed from its natural 279px into
+  // a ~49px window (a 1.5-row peephole) while the score card kept every pixel.
+  // Refusing to shrink puts the overflow back on the PANEL, which already owns
+  // the one scroll surface this modal is allowed to have.
+  wrap.style.cssText = 'overflow-x:auto;flex:0 0 auto';
   const table = document.createElement('table');
   table.style.cssText = 'border-collapse:collapse;margin:0 auto';
   table.appendChild(makeHeaderRow());
@@ -321,6 +336,7 @@ export function showResults(view: ResultsView, h: ResultsHandlers): void {
 
   const panel = document.createElement('div');
   panel.style.cssText = PANEL_CSS;
+  applyViewportCap(panel); // amendment 47 — border-box + a real scroll surface (ui/fit.ts)
   const placement = makePlacement(view.score);
   const card = makeScoreCard(view.score);
   panel.append(makeBanner(view.banner, view.victory), placement, card);

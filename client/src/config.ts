@@ -482,14 +482,25 @@ export const CLIENT_CONFIG = {
      *  Story 2.8 adds the rarity tag and the lineage handrail: both are
      *  SUBORDINATE marks (they annotate the name, they are not the name), so
      *  they sit a step below the category tag while staying clear of the 9px
-     *  mono accessibility floor at every UI-scale tier. */
+     *  mono accessibility floor at every UI-scale tier.
+     *
+     *  AMENDMENT 47 (the container-fit law) trimmed two of these. The rules
+     *  text went 17 → 15: at 17px a 186px inner box holds only 18 mono
+     *  characters per line, which put every doctrine card 50–97px PAST the card
+     *  bottom on the live site. 15px is a deliberate step ABOVE amendment 15's
+     *  14px legibility floor, not a crash back to micro-type — the copy was cut
+     *  first (boonCopy.ts) and the size second, in that ratified order. The
+     *  rarity tag went 12 → 11 so the widest meta row (STAR SHELLS + EXCLUSIVE)
+     *  fits ONE line inside 186px; 11px still clears the 9px mono floor at the
+     *  90% tier (9.9px). Both are pinned by __tests__/refitCardFit.test.ts. */
     categorySize: 14,
     nameSize: 20,
-    descSize: 17,
-    raritySize: 12,
+    descSize: 15,
+    raritySize: 11,
     lineageSize: 12,
-    /** Gap (px) between the category tag and the rarity tag on the meta row. */
-    metaGap: 8,
+    /** Gap (px) between the category tag and the rarity tag on the meta row.
+     *  8 → 6 with the amendment-47 meta-row fit (see raritySize above). */
+    metaGap: 6,
     /** Dashed ghost edge behind the row when more offers are queued (px). */
     ghostOffset: 6,
     /** Alpha the cards dim to while a spend is in flight (locked). */

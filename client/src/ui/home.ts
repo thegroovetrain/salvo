@@ -17,6 +17,7 @@
 
 import { sanitizeClassId, type ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { applySafeCenterScroll } from './fit.js';
 import { textFieldElement } from '../input/keyboard.js';
 import { cssRgba } from '../util/color.js';
 import { registerCss } from './theme.js';
@@ -181,13 +182,25 @@ export function homeYieldStyle(settingsOpen: boolean): YieldStyle {
 
 // --- DOM builders ------------------------------------------------------------
 
+// AMENDMENT 47 (the container-fit law). The port stack is a rigid column of hard
+// px margins — wordmark, callsign field, class chip, PLAY, the HOW TO PLAY /
+// SERVER row — measuring ~668px tall, and it does NOT ride the HUD's ui-scale.
+// Below a 668px-tall viewport it therefore overflowed `inset:0` in BOTH
+// directions: the wordmark clipped off the top and the HOW TO PLAY / SERVER row
+// fell past the bottom edge, unreachable (index.html sets `body{overflow:hidden}`
+// so there is no page scroll to rescue it).
+//
+// The guard is applied by applyOverflowGuard() below, deliberately as SEPARATE
+// property assignments rather than inside this cssText blob (the CSSOM-blob
+// hazard the refit band documents: one declaration the test environment's parser
+// dislikes silently voids the WHOLE blob, and this blob is already one of those
+// — so anything load-bearing has to be assigned on its own).
 const OVERLAY_CSS = [
   'position:fixed',
   'inset:0',
   'display:flex',
   'flex-direction:column',
   'align-items:center',
-  'justify-content:center',
   'gap:0',
   'background:transparent', // the ambient CIC scene breathes behind
   'z-index:1100',
@@ -512,6 +525,7 @@ export function showHome(
   const overlay = document.createElement('div');
   overlay.id = HOME_ID;
   overlay.style.cssText = OVERLAY_CSS;
+  applySafeCenterScroll(overlay); // amendment 47 — see ui/fit.ts
 
   const input = makeNameField();
   const statusEl = makeStatusEl();
