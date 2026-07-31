@@ -75,11 +75,15 @@ export type DoctrineWeapon = keyof typeof DOCTRINE_MODES;
 
 /**
  * The typed whitelist of EffectiveStats scalar paths a `stat` effect may
- * address — every scalar except the derived `sweepPeriodMs` (always re-derived
- * from sweepRpm after the fold) and the mode fields (doctrine effects' home).
- * Story 2.8 additions: the promoted damage/blast/trigger/lit scalars, plus
- * `gun.barrels` and `gun.maxAmmo` — the single-shot gun-pool pin is
- * DELIBERATELY RETIRED (AFT TURRET raises the pool; clamps live in
+ * address — every scalar except the derived fields (always re-derived after
+ * the fold, never independently stat-addressable) and the mode fields
+ * (doctrine effects' home). Derived fields: `sweepPeriodMs` (from sweepRpm),
+ * and `gun.rangeU`/`cannon.rangeU`/`starShells.rangeU` (from radarRange —
+ * brainstorm 2026-07-30: Intel's radarRange growth quietly buffs gun/cannon/
+ * blast-torp reach too, so those three ride radarRange, they don't take their
+ * own boon lines). Story 2.8 additions: the promoted damage/blast/trigger/lit
+ * scalars, plus `gun.barrels` and `gun.maxAmmo` — the single-shot gun-pool
+ * pin is DELIBERATELY RETIRED (AFT TURRET raises the pool; clamps live in
  * effectiveStats).
  */
 export const BOON_STAT_PATHS = [
@@ -94,7 +98,6 @@ export const BOON_STAT_PATHS = [
   'kinematics.turnRate',
   'kinematics.steerageSpeed',
   'gun.reloadMs',
-  'gun.rangeU',
   'gun.maxAmmo',
   'gun.damage',
   'gun.contactDamage',
@@ -116,13 +119,11 @@ export const BOON_STAT_PATHS = [
   'boost.reloadMs',
   'cannon.reloadMs',
   'cannon.maxAmmo',
-  'cannon.rangeU',
   'cannon.damage',
   'cannon.contactDamage',
   'cannon.burstRadius',
   'starShells.reloadMs',
   'starShells.maxAmmo',
-  'starShells.rangeU',
   'starShells.litRadius',
   'starShells.litDurationMs',
   'decoyBuoy.reloadMs',
@@ -323,8 +324,10 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // --- intel (universal) ---------------------------------------------------
   // IMPROVED OPTICS → MASTHEAD POST: ×1.12 truesight per card.
   intelTruesight: { id: 'intelTruesight', category: 'intel', rarity: 'common', copies: 5, effects: [stat('sightRange', { mult: 1.12 })] },
-  // IMPROVED RECEIVER → CAVITY MAGNETRON: ×1.15 radar per card (knowingly also
-  // grows gun/cannon range and command-det reach — range = radar range).
+  // IMPROVED RECEIVER → CAVITY MAGNETRON: ×1.15 radar per card — ALSO grows
+  // gun/cannon/starShells rangeU (derived from radarRange, sim/stats.ts) and
+  // command-det reach (reads radarRange directly): Intel is a stealth
+  // offense category (brainstorm 2026-07-30).
   intelRadar: { id: 'intelRadar', category: 'intel', rarity: 'common', copies: 5, effects: [stat('radarRange', { mult: 1.15 })] },
   // UPRATED SWEEP MOTOR Mk I–V: +3 RPM/card (15 → 30 at the ratified cap).
   intelSweep: { id: 'intelSweep', category: 'intel', rarity: 'common', copies: 5, effects: [stat('sweepRpm', { add: 3 })] },
@@ -497,6 +500,15 @@ export function applyBoonStats(stats: EffectiveStats, boons: readonly BoonDef[])
   }
   stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
+  // gun/cannon/starShells range is radarRange, always (brainstorm 2026-07-30:
+  // Radar Range quietly buffs gun/cannon/blast-torp reach — Intel is a
+  // stealth offense category). Re-derived here (not stat-addressable —
+  // BOON_STAT_PATHS omits all three rangeU paths) so an intelRadar fold
+  // anywhere in the list can never leave them stale; re-pinned again in
+  // sim/stats.ts clampStats, the sweepPeriodMs precedent's sibling site.
+  stats.gun.rangeU = stats.radarRange;
+  stats.cannon.rangeU = stats.radarRange;
+  stats.starShells.rangeU = stats.radarRange;
 }
 
 // ---------------------------------------------------------------------------

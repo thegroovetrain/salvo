@@ -238,6 +238,12 @@ describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => 
     expect(BOON_STAT_PATHS).toContain('gun.damage'); // damage promoted onto EffectiveStats
   });
 
+  it('WHITELIST SHRINK: gun/cannon/starShells rangeU are OFF the whitelist (derived from radarRange, brainstorm 2026-07-30)', () => {
+    expect(BOON_STAT_PATHS).not.toContain('gun.rangeU');
+    expect(BOON_STAT_PATHS).not.toContain('cannon.rangeU');
+    expect(BOON_STAT_PATHS).not.toContain('starShells.rangeU');
+  });
+
   it('the universal categories are intel + ship + guns; equipment categories map 1:1', () => {
     expect(UNIVERSAL_CATEGORIES).toEqual(['intel', 'ship', 'guns']);
     expect(EQUIPMENT_CATEGORY).toEqual({

@@ -7,7 +7,10 @@
 // (3) doctrine effects fold into the per-weapon mode fields; (4) the
 // defensive clamps: sweepRpm ≤ CONFIG.vision.sweepRpmMax (re-homed from the
 // deleted CONFIG.upgrades), mine.triggerRadius ≤ blastRadius, gun.barrels
-// 1..3; (5) the single-shot gun-pool pin is RETIRED (gun.maxAmmo moves).
+// 1..3; (5) the single-shot gun-pool pin is RETIRED (gun.maxAmmo moves);
+// (6) gun/cannon/starShells rangeU are DERIVED from post-fold radarRange —
+// an intelRadar stack grows them too (brainstorm 2026-07-30: Intel is a
+// stealth offense category), and they are never independently addressable.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -132,6 +135,16 @@ describe('effectiveStats — boon stacking BY OCCURRENCE (the deck copy law)', (
   it('N repeats of a mult line compound: base × mult^N', () => {
     const s3 = effectiveStats(BASE, stack('intelRadar', 3));
     expect(s3.radarRange).toBeCloseTo(CONFIG.vision.radar * 1.15 ** 3, 9);
+  });
+
+  it('intelRadar stacks ALSO grow gun/cannon/starShells rangeU — Intel is a stealth offense category (brainstorm 2026-07-30)', () => {
+    const s5 = effectiveStats(BASE, stack('intelRadar', 5));
+    const grown = CONFIG.vision.radar * 1.15 ** 5;
+    expect(s5.radarRange).toBeCloseTo(grown, 9);
+    expect(s5.gun.rangeU).toBe(s5.radarRange);
+    expect(s5.cannon.rangeU).toBe(s5.radarRange);
+    expect(s5.starShells.rangeU).toBe(s5.radarRange);
+    expect(s5.gun.rangeU).toBeCloseTo(grown, 9);
   });
 
   it('N repeats of an add line stack linearly (shipHull +20/card)', () => {

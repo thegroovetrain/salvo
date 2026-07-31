@@ -14,6 +14,14 @@
 // Damage/blast/trigger/lit numbers are now PROMOTED onto EffectiveStats so the
 // catalog's stat ladders can move them through the one firewall.
 //
+// gun/cannon/starShells rangeU are DERIVED, not independently stat-addressable
+// (brainstorm 2026-07-30: Radar Range quietly buffs gun/cannon/blast-torp
+// reach too — Intel is a stealth offense category). They are re-pinned to the
+// POST-FOLD `radarRange` every time, in both applyBoonStats (sim/boons.ts —
+// covers an intelRadar fold mid-list) and clampStats below (the firewall's
+// unconditional output pass, the sweepPeriodMs precedent) — a boon fold can
+// never leave rangeU stale.
+//
 // Defensive clamps (all inside this firewall, nowhere else):
 //   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling —
 //     re-applied over the boon fold in sim/boons.ts applyBoonStats, its only
@@ -37,7 +45,7 @@ const MS_PER_MINUTE = 60000;
 export interface EffectiveGun {
   reloadMs: number; // ms per shot (the gun cooldown)
   maxAmmo: number; // pool size — base 1; gunTurret (AFT TURRET) raises it
-  rangeU: number; // u — max shell travel / aimDist clamp (base = CONFIG.vision.radar)
+  rangeU: number; // u — max shell travel / aimDist clamp — DERIVED = radarRange post-fold (not stat-addressable)
   damage: number; // hp per burst victim
   contactDamage: number; // hp to an early interceptor outside the blast
   burstRadius: number; // u — blast radius around the clicked point
@@ -50,7 +58,7 @@ export type CannonMode = 'standard' | 'arcing' | 'ap';
 export interface EffectiveCannon {
   reloadMs: number; // ms per shot (the cannon cooldown)
   maxAmmo: number; // pool size
-  rangeU: number; // u — max shell travel / aimDist clamp (= CONFIG.vision.radar base)
+  rangeU: number; // u — max shell travel / aimDist clamp — DERIVED = radarRange post-fold (not stat-addressable)
   damage: number; // hp per burst victim
   contactDamage: number; // hp to an early interceptor outside the blast
   burstRadius: number; // u — blast radius around the clicked point
@@ -87,7 +95,7 @@ export type StarShellsMode = 'standard' | 'incendiary' | 'dazzle';
 export interface EffectiveStarShells {
   reloadMs: number; // ms per flare (the star-shell cooldown)
   maxAmmo: number; // pool size
-  rangeU: number; // u — max flare travel (= CONFIG.vision.radar base)
+  rangeU: number; // u — max flare travel — DERIVED = radarRange post-fold (not stat-addressable)
   litRadius: number; // u — lit-zone radius (base = the ratified SIGHT/2 CONFIG derivation)
   litDurationMs: number; // ms — lit-zone lifetime
   mode: StarShellsMode; // doctrine fold — 'standard' unless an exclusive is held
@@ -142,6 +150,8 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'starShells'
     cannon: {
       reloadMs: CONFIG.cannon.reloadMs,
       maxAmmo: CONFIG.cannon.maxAmmo,
+      // rangeU base — re-derived from radarRange post-fold in clampStats/
+      // applyBoonStats regardless of this seed.
       rangeU: CONFIG.vision.radar,
       damage: CONFIG.cannon.damage,
       contactDamage: CONFIG.cannon.contactDamage,
@@ -151,6 +161,8 @@ function baseEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'starShells'
     starShells: {
       reloadMs: CONFIG.starShells.reloadMs,
       maxAmmo: CONFIG.starShells.maxAmmo,
+      // rangeU base — re-derived from radarRange post-fold in clampStats/
+      // applyBoonStats regardless of this seed.
       rangeU: CONFIG.vision.radar,
       // Base stays the ratified SIGHT/2-derived CONFIG value (Eric 2026-07-23).
       litRadius: CONFIG.starShells.litRadius,
@@ -178,8 +190,9 @@ function baseStats(cls: ShipClass): EffectiveStats {
     gun: {
       reloadMs: CONFIG.gun.reloadMs,
       maxAmmo: CONFIG.gun.maxAmmo,
-      // Base gun range IS radar range (Eric ruling 2026-07-21) — derived, never
-      // duplicated.
+      // Gun range IS radar range (Eric ruling 2026-07-21) — derived, never
+      // duplicated; re-derived from radarRange post-fold in clampStats/
+      // applyBoonStats regardless of this seed.
       rangeU: CONFIG.vision.radar,
       damage: CONFIG.gun.damage,
       contactDamage: CONFIG.gun.contactDamage,
@@ -206,12 +219,19 @@ function baseStats(cls: ShipClass): EffectiveStats {
   };
 }
 
-/** The post-fold defensive clamps (see the header). Mutates in place. */
+/** The post-fold defensive clamps + derivations (see the header). Mutates in
+ *  place. */
 function clampStats(stats: EffectiveStats): void {
   // Sweep ceiling: the boon fold already clamps (applyBoonStats), but the
   // firewall's OUTPUT is the contract — clamp unconditionally.
   stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
+  // gun/cannon/starShells range is radarRange, always — the boon fold already
+  // re-derives it (applyBoonStats), but the firewall's OUTPUT is the contract
+  // — re-pin unconditionally so a boonless call is byte-consistent too.
+  stats.gun.rangeU = stats.radarRange;
+  stats.cannon.rangeU = stats.radarRange;
+  stats.starShells.rangeU = stats.radarRange;
   stats.mine.triggerRadius = Math.min(stats.mine.triggerRadius, stats.mine.blastRadius);
   stats.gun.barrels = Math.min(3, Math.max(1, Math.round(stats.gun.barrels)));
 }

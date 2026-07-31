@@ -73,14 +73,30 @@ describe('cannon — server loadout + shell construction', () => {
     expect(shell.targetY).toBeCloseTo(0, 9);
   });
 
-  it('cannon range stays the radar-derived base under the boon economy (no catalog line moves rangeU)', () => {
-    // The legacy gunRange upgrade died in the 2.8 strip. No v1 catalog line
-    // addresses cannon.rangeU (or gun.rangeU), so both pin at the base.
+  it('cannon range stays the radar-derived base when an UNRELATED cannon boon folds (damage-only, rangeU untouched)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     w.applyBoon(bb, 'cannonDamage'); // an unrelated cannon boon moves damage only
     expect(bb.stats.gun.rangeU).toBe(CONFIG.vision.radar);
     expect(bb.stats.cannon.rangeU).toBe(CONFIG.vision.radar);
+  });
+
+  it('FLIPPED PIN (was the wave-2 discrepancy pin): intelRadar grows gun/cannon/starShells rangeU too — range = radar range, Intel is a stealth offense category (brainstorm 2026-07-30)', () => {
+    const w = bareWorld();
+    const bb = place(w, 'a', 'battleship', 0, 0);
+    w.applyBoon(bb, 'intelRadar');
+    const grown = CONFIG.vision.radar * 1.15;
+    expect(bb.stats.radarRange).toBeCloseTo(grown, 9);
+    expect(bb.stats.gun.rangeU).toBeCloseTo(grown, 9);
+    expect(bb.stats.cannon.rangeU).toBeCloseTo(grown, 9);
+    expect(bb.stats.starShells.rangeU).toBeCloseTo(grown, 9);
+    // And the effect is REAL at the equipment seam: a click beyond the OLD
+    // base range now clamps to the GROWN range, not CONFIG.vision.radar.
+    setInput(bb, { aim: 0, aimDist: 1200, slot: SLOT_CANNON });
+    expect(w.sinkingActivationGate(bb, SLOT_CANNON)).toEqual({ ok: true });
+    const shell = [...w.shells.values()][0];
+    expect(shell.targetX).toBeCloseTo(grown, 6);
+    expect(shell.targetX).toBeGreaterThan(CONFIG.vision.radar);
   });
 
   it('D1: the validated fire time becomes the shell bornAt', () => {
