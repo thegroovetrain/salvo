@@ -150,7 +150,8 @@ function fittedEquipment(loadout: LoadoutSlot[], slotIndex: number): EquipmentId
  * (the reveal rules live in signals.ts — "lit from above", no island LOS).
  * Server-owned, NO per-ship state — a zone survives its owner's death and
  * dies only by natural expiry (expireLitZones). The wire shape is LitZoneView
- * ({id,x,y,r,until,by}), materialized per observer by the litzone signal row.
+ * ({id,x,y,r,until,by,mode}), materialized per observer by the litzone signal
+ * row.
  */
 export interface LitZone {
   id: string;
@@ -163,9 +164,12 @@ export interface LitZone {
    * The firer's star-shell DOCTRINE at zone-spawn time (Story 2.8): 'standard'
    * unless the owner held INCENDIARY/DAZZLE when the flare stopped (owner
    * lookup at spawn; a vacated owner falls back to 'standard' — the CONFIG-base
-   * rule). SERVER-INTERNAL ONLY: the LitZoneView wire shape never carries it —
-   * an enemy learns a zone's doctrine only from observable behavior (burn
-   * damage / their own shrunken sight), never from the wire.
+   * rule). As of Story 2.9 (amendment 50) this rides the wire on LitZoneView
+   * to EVERY observer who sees the circle — counterplay over concealment: the
+   * zone's nature is observable behavior of the fired shell, not a build
+   * leak. Zone-spawn stamping (not fire-time) is deliberate — the burn/dazzle
+   * zone effects key off this same field, so the wire mode can never disagree
+   * with what the zone actually does.
    */
   mode: StarShellsMode;
 }

@@ -3,6 +3,13 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  17: doctrine-distinct lit zones (Story 2.9, amendment 50) — LitZoneView
+ *  gains a trailing `mode` ('standard'|'incendiary'|'dazzle'): the firer's
+ *  star-shell doctrine stamped on the zone record at zone-spawn time,
+ *  delivered to EVERY legitimate observer of the circle (counterplay over
+ *  concealment — the zone's nature is observable behavior of the fired
+ *  shell, not a build leak). The server always emits it; the field is
+ *  optional on the type only so a mode-blind reader defaults to 'standard'.
  *  16: Boon Catalog v1 + THE DECK MODEL (Story 2.8) — one bump for the story's
  *  every wire delta: (1) BOON_CATALOG is REPLACED wholesale (dummy set → the
  *  42-line v1 catalog across 9 categories; per the content-is-contract
@@ -94,7 +101,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 16;
+export const PROTOCOL_VERSION = 17;
 
 // Tunables
 export * from './constants.js';

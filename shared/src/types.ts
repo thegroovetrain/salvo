@@ -6,6 +6,7 @@
 // (server->client, every tick).
 
 import type { GameConfig, HullId, ShipClassId } from './constants.js';
+import type { StarShellsMode } from './sim/stats.js';
 
 /** Short message-name tags used on the Colyseus channel. */
 export const MSG = {
@@ -430,6 +431,12 @@ export interface MineView {
  * `until` is the server-clock expiry (drives the client's fade); a zone
  * dropping out of the list means expired OR out of radar range — the client
  * cannot tell, and that ambiguity is the point (the mines precedent).
+ * `mode` is the firer's star-shell DOCTRINE stamped on the zone record at
+ * zone-spawn time — delivered to EVERY legitimate observer (Story 2.9,
+ * amendment 50: counterplay over concealment — the zone's nature is
+ * observable behavior of the fired shell, not a build leak). Optional on the
+ * TYPE only so pre-2.9 client fixtures keep compiling — the server always
+ * emits it; a missing mode renders as 'standard'.
  */
 export interface LitZoneView {
   id: string;
@@ -438,6 +445,7 @@ export interface LitZoneView {
   r: number; // u — lit radius
   until: number; // ms — server time the zone expires
   by: string; // the firer's ship id
+  mode?: StarShellsMode; // the zone's doctrine (amendment 50); server-emitted always
 }
 
 /**

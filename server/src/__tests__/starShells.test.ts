@@ -119,6 +119,24 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     expect(Math.hypot(zone.x, zone.y)).toBeLessThan(400);
   });
 
+  it("the zone's wire mode is stamped AT ZONE SPAWN, not fire time — a mid-flight doctrine fit rides the landing zone (Story 2.9)", () => {
+    // Deliberate at-land semantics: the burn/dazzle zone EFFECTS key off the
+    // record's spawn-time mode, so stamping the wire from the same lookup
+    // guarantees presentation can never disagree with what the zone does.
+    const w = bareWorld();
+    const a = place(w, 'a', 'battleship', 0, 0);
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 650, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.step(); // consumes the click; the flare is airborne, fired UNDER 'standard'
+    expect(w.shells.size).toBe(1);
+    expect(a.stats.starShells.mode).toBe('standard');
+    w.applyBoon(a, 'starIncendiary'); // the doctrine lands while the flare flies
+    for (let i = 0; i < 120 && w.litZones.size === 0; i++) w.step();
+    expect(w.litZones.size).toBe(1);
+    const zone = [...w.litZones.values()][0];
+    expect(zone.mode).toBe('incendiary'); // owner's doctrine at zone spawn
+    expect(buildFrame(w, 'a').litZones?.[0].mode).toBe('incendiary'); // and the wire agrees
+  });
+
   it('the zone expires naturally after litDurationMs (the step() sweep)', () => {
     const w = bareWorld();
     place(w, 'a', 'battleship', 0, 0);
@@ -165,12 +183,12 @@ describe('star shells — the lit intel, end-to-end through the real weapon', ()
       id: 'e', x: hidden.state.x, y: hidden.state.y, heading: hidden.state.heading, speed: 0, cls: 'torpedoBoat',
     });
     expect(fa.litZones).toEqual([
-      { id: 'z1', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },
+      { id: 'z1', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a', mode: 'standard' },
     ]);
     // THIRD PARTY in radar range: the tagged circle and NOTHING else from it.
     const fc = buildFrame(w, 'c');
     expect(fc.litZones).toEqual([
-      { id: 'z1', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a' },
+      { id: 'z1', x: 500, y: 0, r: LIT_R, until: at + CONFIG.starShells.litDurationMs, by: 'a', mode: 'standard' },
     ]);
     expect(fc.contacts.map((x) => x.id)).not.toContain('e'); // someone else's zone reveals nothing
     // BEYOND radar: frames byte-free of the zone (key absent, not []).

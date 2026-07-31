@@ -168,8 +168,9 @@ function injectZone(
   y: number,
   r = CONFIG.starShells.litRadius,
   until = 999_999,
+  mode: 'standard' | 'incendiary' | 'dazzle' = 'standard',
 ): void {
-  w.litZones.set(id, { id, ownerId, x, y, r, until, mode: 'standard' });
+  w.litZones.set(id, { id, ownerId, x, y, r, until, mode });
 }
 
 /** Drop a decoy buoy directly into world state (Story 1.8; far-future expiry). */
@@ -669,7 +670,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     const fc = buildFrame(w, 'c');
     // b stays hidden from c (a, 100u away, is c's ordinary sight contact).
     expect(fc.contacts.map((x) => x.id)).toEqual(['a']);
-    expect(fc.litZones).toEqual([{ id: 'z1', x: 500, y: 0, r: LIT_R, until: 999_999, by: 'a' }]);
+    expect(fc.litZones).toEqual([{ id: 'z1', x: 500, y: 0, r: LIT_R, until: 999_999, by: 'a', mode: 'standard' }]);
   });
 
   it("an enemy mine inside the firer's zone becomes a mine view (mines never radar-paint otherwise)", () => {
@@ -711,7 +712,7 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
     injectZone(w, 'z1', 'a', RADAR + 500, 0, CONFIG.starShells.litRadius, 42_000);
     const fa = buildFrame(w, 'a');
     expect(fa.litZones).toEqual([
-      { id: 'z1', x: RADAR + 500, y: 0, r: CONFIG.starShells.litRadius, until: 42_000, by: 'a' },
+      { id: 'z1', x: RADAR + 500, y: 0, r: CONFIG.starShells.litRadius, until: 42_000, by: 'a', mode: 'standard' },
     ]);
     // Beyond-radar third party: byte-free — the litZones key is ABSENT, not [].
     const ffar = buildFrame(w, 'far');
@@ -737,11 +738,25 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
     expect(buildFrame(w, 'c').litZones?.map((z) => z.id)).toEqual(['z1']);
   });
 
-  it('spectators see every zone', () => {
+  it('spectators see every zone, doctrine mode included', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    injectZone(w, 'z1', 'b', 9_000, 9_000);
-    expect(buildFrame(w, 'a', 'finished').litZones?.map((z) => z.id)).toEqual(['z1']);
+    injectZone(w, 'z1', 'b', 9_000, 9_000, CONFIG.starShells.litRadius, 999_999, 'incendiary');
+    const zones = buildFrame(w, 'a', 'finished').litZones;
+    expect(zones?.map((z) => z.id)).toEqual(['z1']);
+    expect(zones?.[0].mode).toBe('incendiary');
+  });
+
+  it("every legitimate observer of the circle sees its doctrine mode (Story 2.9, amendment 50)", () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0); // the firer (owner)
+    place(w, 'c', 100, 0); // third party: zone center within radar
+    injectZone(w, 'zd', 'a', 500, 0, CONFIG.starShells.litRadius, 999_999, 'dazzle');
+    // Owner, radar-gated non-owner, and spectator all read the same mode —
+    // the zone's nature is observable behavior, never a build leak.
+    expect(buildFrame(w, 'a').litZones?.[0].mode).toBe('dazzle');
+    expect(buildFrame(w, 'c').litZones?.[0].mode).toBe('dazzle');
+    expect(buildFrame(w, 'c', 'finished').litZones?.[0].mode).toBe('dazzle');
   });
 
   it("a dead firer's zone persists and keeps revealing nothing to others (natural expiry only)", () => {
@@ -864,18 +879,20 @@ function verifyDecoy(
 
 /** A lit-zone circle may reach a frame only if the viewer OWNS the zone or the
  *  zone CENTER is within the viewer's effective radar range — no LOS term, no
- *  sweep term (Story 1.7). Wire shape is exactly {id,x,y,r,until,by} with `by`
- *  naming the owner; the zone must be live (in the world map, unexpired). */
+ *  sweep term (Story 1.7). Wire shape is exactly {id,x,y,r,until,by,mode} with
+ *  `by` naming the owner and `mode` the zone record's doctrine verbatim (Story
+ *  2.9, amendment 50 — every observer of the circle sees its nature); the zone
+ *  must be live (in the world map, unexpired). */
 function verifyLitZone(
   w: World,
   me: ShipRecord,
-  z: { id: string; x: number; y: number; r: number; until: number; by: string },
+  z: { id: string; x: number; y: number; r: number; until: number; by: string; mode?: string },
 ): void {
   const zone = w.litZones.get(z.id)!;
   expect(zone).toBeDefined();
   expect(w.now).toBeLessThan(zone.until); // expired zones never materialize
-  expect(Object.keys(z).sort()).toEqual(['by', 'id', 'r', 'until', 'x', 'y']);
-  expect(z).toEqual({ id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId });
+  expect(Object.keys(z).sort()).toEqual(['by', 'id', 'mode', 'r', 'until', 'x', 'y']);
+  expect(z).toEqual({ id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId, mode: zone.mode });
   if (zone.ownerId !== me.id) expect(dist(me.state, zone)).toBeLessThanOrEqual(effRadar(me));
 }
 
