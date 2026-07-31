@@ -1,13 +1,20 @@
 // Balance guardrails (HULLCRACKER_NOTES "PROBLEMS SO FAR"): no single hit may
-// ever kill an undamaged hull, and a torpedo must always outrun every hull —
-// ship classes AND drones. The chase guardrail is now purely a CHASE/DODGE
-// balance pin (targets can't trivially outrun a fish); it is NO LONGER about
-// self-hit safety — own weapons never damage the owner (permanent owner
-// immunity, Eric ruling 2026-07-19). Pure CONFIG pins — they fail the moment a
-// retune drifts across either line.
+// ever kill an undamaged hull — now extended to MAX-STACKED catalog ladders
+// (Story 2.8: every damage ladder, fully stacked to its copy cap, stays under
+// the 70hp lightest hull) — and a torpedo must always outrun every hull. The
+// star-shell damage pins FLIPPED deliberately (amendment 39: the flare is
+// damageless — the CONFIG field is DELETED, not zeroed). Pure CONFIG/catalog
+// pins — they fail the moment a retune or a catalog step drifts across a line.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, DRONE_SIZE_IDS, SHIP_CLASS_IDS } from '../index.js';
+import {
+  BOON_CATALOG,
+  CONFIG,
+  DRONE_SIZE_IDS,
+  SHIP_CLASS_IDS,
+  effectiveStats,
+  resolveBoons,
+} from '../index.js';
 
 const classHps = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].hp);
 const droneHps = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].hp);
@@ -17,50 +24,26 @@ const classSpeeds = SHIP_CLASS_IDS.map((c) => CONFIG.shipClasses[c].kinematics.m
 const droneSpeeds = DRONE_SIZE_IDS.map((d) => CONFIG.drones[d].kinematics.maxSpeed);
 const maxHullSpeed = Math.max(...classSpeeds, ...droneSpeeds);
 
-describe('one-hit-kill guardrail (classes AND drones)', () => {
-  it('gun BURST damage cannot one-hit the lightest hull', () => {
+/** Stats under N copies of one catalog line (the max-stack computation). */
+const stacked = (id: string, n = BOON_CATALOG[id].copies) =>
+  effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(new Array<string>(n).fill(id)));
+
+describe('one-hit-kill guardrail — CONFIG bases (classes AND drones)', () => {
+  it('gun burst / contact damage cannot one-hit the lightest hull; bodyblock is the lighter outcome', () => {
     expect(CONFIG.gun.damage).toBeLessThan(minHullHp);
-  });
-
-  it('gun CONTACT (bodyblock) damage cannot one-hit the lightest hull', () => {
     expect(CONFIG.gun.contactDamage).toBeLessThan(minHullHp);
-  });
-
-  it('bodyblocking is the lighter outcome: contactDamage does not exceed burst damage', () => {
     expect(CONFIG.gun.contactDamage).toBeLessThanOrEqual(CONFIG.gun.damage);
   });
 
-  it('torpedo damage cannot one-hit the lightest hull', () => {
+  it('torpedo and mine damage cannot one-hit the lightest hull', () => {
     expect(CONFIG.torpedo.damage).toBeLessThan(minHullHp);
-  });
-
-  it('mine damage cannot one-hit the lightest hull', () => {
     expect(CONFIG.mine.damage).toBeLessThan(minHullHp);
   });
 
-  it('mine BLAST damage (every non-owner hull in blastRadius) cannot one-hit the lightest hull (Story 1.8)', () => {
-    // The 1.8 trip-to-blast rework deals full `damage` to every non-owner hull
-    // inside blastRadius — each victim's hit is still one flat `mine.damage`,
-    // so the same guardrail binds it.
-    expect(CONFIG.mine.damage).toBeLessThan(minHullHp);
-  });
-
-  it('cannon BURST damage cannot one-hit the lightest hull (Story 1.7)', () => {
+  it('cannon burst / contact damage cannot one-hit the lightest hull; bodyblock lighter', () => {
     expect(CONFIG.cannon.damage).toBeLessThan(minHullHp);
-  });
-
-  it('cannon CONTACT (bodyblock) damage cannot one-hit the lightest hull', () => {
     expect(CONFIG.cannon.contactDamage).toBeLessThan(minHullHp);
-  });
-
-  it('cannon bodyblocking is the lighter outcome: contactDamage does not exceed burst damage', () => {
     expect(CONFIG.cannon.contactDamage).toBeLessThanOrEqual(CONFIG.cannon.damage);
-  });
-
-  it('star-shell damage is minor: cannot one-hit the lightest hull, and stays below every other burster', () => {
-    expect(CONFIG.starShells.damage).toBeLessThan(minHullHp);
-    expect(CONFIG.starShells.damage).toBeLessThanOrEqual(CONFIG.gun.damage);
-    expect(CONFIG.starShells.damage).toBeLessThanOrEqual(CONFIG.cannon.damage);
   });
 
   it('the lightest hull is the 70hp torpedoBoat (drones are all heavier)', () => {
@@ -69,28 +52,62 @@ describe('one-hit-kill guardrail (classes AND drones)', () => {
   });
 });
 
-describe('mine blast geometry guardrail (Story 1.8)', () => {
-  it('blastRadius is strictly larger than triggerRadius (blast reaches past detection)', () => {
-    // Eric mid-run ruling 2026-07-22: the blast is strictly larger than the
-    // detection ring — an enemy trips the mine at triggerRadius but the
-    // explosion reaches farther, catching nearby hulls too.
-    expect(CONFIG.mine.blastRadius).toBeGreaterThan(CONFIG.mine.triggerRadius);
+describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8)', () => {
+  it('every damage ladder, stacked to its copy cap, stays UNDER the 70hp lightest hull', () => {
+    // Computed FROM the catalog defs, so a step retune re-checks automatically.
+    expect(stacked('gunDamage').gun.damage).toBeLessThan(minHullHp);
+    expect(stacked('cannonDamage').cannon.damage).toBeLessThan(minHullHp);
+    expect(stacked('torpedoDamage').torpedo.damage).toBeLessThan(minHullHp);
+    expect(stacked('mineDamage').mine.damage).toBeLessThan(minHullHp);
   });
 
-  it('mine damage is unchanged at the 45 reference value (the rework retunes geometry, not damage)', () => {
-    expect(CONFIG.mine.damage).toBe(45);
+  it('the drafted ladder endpoints land where the spec ruled them', () => {
+    expect(stacked('gunDamage').gun.damage).toBe(40); // 25 +3/card ×5
+    expect(stacked('cannonDamage').cannon.damage).toBe(65); // 50 +3/card ×5
+    expect(stacked('torpedoDamage').torpedo.damage).toBe(65); // 55 +2/card ×5
+    expect(stacked('mineDamage').mine.damage).toBe(65); // 45 +4/card ×5
+  });
+
+  it('AP falloff can only DECREASE a hit: even the 100% first pierce obeys the max-stacked pin', () => {
+    // The AP doctrine deals 100/50/25% of cannon damage — the first hit equals
+    // the burst number already pinned above; later hits are strictly smaller.
+    expect(stacked('cannonDamage').cannon.damage).toBeLessThan(minHullHp);
   });
 });
 
-describe('star-shell tell guardrail (Story 1.7)', () => {
-  it('litRadius stays inside base radar range, so a lit ship always has the circle on its radar', () => {
-    // Eric ruling: there is NO literal "you are lit" victim message — the
-    // radar-visible zone circle IS the tell. That only holds while
-    // litRadius < vision.radar: a ship inside a zone sits ≤ litRadius from
-    // its center, so the center is within even a base (un-upgraded) radar and
-    // the circle is guaranteed visible to the victim. A retune pushing
-    // litRadius past radar would silently create lit-but-blind victims.
+describe('star shells are DAMAGELESS (amendment 39 — flipped pin)', () => {
+  it('the CONFIG damage field is DELETED, not zeroed (structurally unarmable)', () => {
+    expect('damage' in CONFIG.starShells).toBe(false);
+  });
+
+  it('the incendiary doctrine DoT is the only star-shell damage, and it cannot one-tick a hull', () => {
+    expect(CONFIG.starShells.incendiaryDps).toBeGreaterThan(0);
+    expect(CONFIG.starShells.incendiaryDps).toBeLessThan(minHullHp);
+  });
+});
+
+describe('mine blast geometry guardrail', () => {
+  it('blastRadius is strictly larger than triggerRadius at base (blast reaches past detection)', () => {
+    expect(CONFIG.mine.blastRadius).toBeGreaterThan(CONFIG.mine.triggerRadius);
+  });
+
+  it('mine damage keeps the 45 reference base value', () => {
+    expect(CONFIG.mine.damage).toBe(45);
+  });
+
+  it('max-stacked trigger can never outgrow the blast (the effectiveStats clamp holds)', () => {
+    const s = stacked('mineTrigger');
+    expect(s.mine.triggerRadius).toBeLessThanOrEqual(s.mine.blastRadius);
+  });
+});
+
+describe('star-shell tell guardrail', () => {
+  it('base litRadius stays inside base radar range (a lit ship always has the circle on radar)', () => {
     expect(CONFIG.starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
+  });
+
+  it('even a max-stacked WIDE BURST zone stays inside BASE radar range', () => {
+    expect(stacked('starRadius').starShells.litRadius).toBeLessThan(CONFIG.vision.radar);
   });
 });
 
@@ -99,11 +116,31 @@ describe('torpedo chase/dodge guardrail (classes AND drones)', () => {
     expect(CONFIG.torpedo.speed).toBeGreaterThan(maxHullSpeed);
   });
 
-  it('a base torpedo outruns every ship class individually', () => {
-    for (const speed of classSpeeds) expect(CONFIG.torpedo.speed).toBeGreaterThan(speed);
+  it('a base torpedo outruns every ship class and every drone individually', () => {
+    for (const speed of [...classSpeeds, ...droneSpeeds]) {
+      expect(CONFIG.torpedo.speed).toBeGreaterThan(speed);
+    }
   });
 
-  it('a base torpedo outruns every drone individually', () => {
-    for (const speed of droneSpeeds) expect(CONFIG.torpedo.speed).toBeGreaterThan(speed);
+  it('a base torpedo outruns a base-BOOSTED Torpedo Boat (45 + 10 = 55 < 60)', () => {
+    expect(CONFIG.torpedo.speed).toBeGreaterThan(
+      CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed + CONFIG.speedBoost.speedBonus,
+    );
+  });
+
+  it('the MAX-STACKED torpedo (80) outruns even a max-stacked, max-boosted hull (Story 2.8)', () => {
+    const torpMax = stacked('torpedoSpeed').torpedo.speed;
+    expect(torpMax).toBe(80); // the ratified 60 → 80 ladder
+    // The fastest achievable hull: TB with full shipSpeed stacks + full
+    // boostMax stacks, boost active — computed from the catalog defs.
+    const build = resolveBoons([
+      ...new Array<string>(BOON_CATALOG.shipSpeed.copies).fill('shipSpeed'),
+      ...new Array<string>(BOON_CATALOG.boostMax.copies).fill('boostMax'),
+    ]);
+    const s = effectiveStats(CONFIG.shipClasses.torpedoBoat, build);
+    const maxAchievableHull = s.kinematics.maxSpeed + s.boost.speedBonus;
+    expect(maxAchievableHull).toBeLessThan(torpMax);
+    // Drones never stack; the fastest drone stays below even the base fish.
+    expect(Math.max(...droneSpeeds)).toBeLessThan(CONFIG.torpedo.speed);
   });
 });

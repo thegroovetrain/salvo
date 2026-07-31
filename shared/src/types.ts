@@ -5,7 +5,7 @@
 // Messages: "w" welcome (once), "i" input (client->server), "f" frame
 // (server->client, every tick).
 
-import type { GameConfig, HullId, ShipClassId, UpgradeId } from './constants.js';
+import type { GameConfig, HullId, ShipClassId } from './constants.js';
 
 /** Short message-name tags used on the Colyseus channel. */
 export const MSG = {
@@ -164,27 +164,19 @@ export interface OwnShip {
   sweep: number; // rad — current radar sweep angle
   cls: ShipClassId; // ship class (drives hull dims / kinematics / max hp client-side)
   /**
-   * Upgrade counts, indexed by UPGRADE_IDS order. Self-syncing every frame (no
-   * event-replay problem across match resets); the client feeds (cls, upg)
-   * through the shared effectiveStats() — the desync firewall. ANTI-CHEAT:
-   * upgrade counts appear ONLY here, on your own ship — never on a Contact,
-   * blip, ballistic event, boom, or spectator contact (enemy builds are hidden;
-   * a sighted hull's class size is the only legitimate tell).
-   */
-  upg: number[];
-  /**
    * Banked upgrade points not yet spent (one per kill). Like `upg`, this rides
    * `you` ONLY — self-private by construction, never on a Contact or spectator
    * payload.
    */
   pts: number;
   /**
-   * The FRONT queued offer, as BOON IDS (Story 2.7 — four distinct catalog
-   * categories; see sim/offers.ts rollBoonOffer). `[]` when pts is 0. Only the
-   * front offer is ever surfaced — the rest of the queue never leaves the
-   * server. Self-private like `pts`: it rides `you` and NOTHING else. The
-   * client resolves each id against the shared BOON_CATALOG and drops the WHOLE
-   * view on an unresolvable id (row k must stay server slot k).
+   * The FRONT queued offer, as BOON IDS (Story 2.8 — up to CONFIG.offer.size
+   * DIFFERENT card lines drawn from this player's deck; sim/deck.ts). `[]`
+   * when pts is 0. Only the front offer is ever surfaced — the rest of the
+   * queue never leaves the server (and the DECK never leaves it at all).
+   * Self-private like `pts`: it rides `you` and NOTHING else. The client
+   * resolves each id against the shared BOON_CATALOG and drops the WHOLE view
+   * on an unresolvable id (row k must stay server slot k).
    */
   offer: string[];
   /**
@@ -225,6 +217,23 @@ export interface OwnShip {
    * accrual exists). Self-private exactly like `lvl`.
    */
   xp: number;
+  /**
+   * ms — server-clock time the PROP-FOULING slow on this ship ends (Story
+   * 2.8); absent/0 = not slowed. The victim is slowed while `serverNow <
+   * slowedUntil`, driving the predictor's slowedKinematics fold (sim/slow.ts —
+   * composition pinned boosted → slowed → hooks) and any HUD tell. VICTIM-
+   * PRIVATE by construction (the boostUntil precedent): rides `you` and
+   * NOTHING else — an enemy observer reads a fouled hull only through its
+   * observed kinematics.
+   */
+  slowedUntil?: number;
+  /**
+   * ms — server-clock time the DAZZLE truesight reduction on this ship ends
+   * (Story 2.8); absent/0 = not dazzled. While dazzled the server's perception
+   * shrinks this ship's effective sight, and the client shrinks its own fog
+   * hole honestly from THIS field. VICTIM-PRIVATE exactly like `slowedUntil`.
+   */
+  dazzledUntil?: number;
 }
 
 /** A ship revealed by true-sight this tick (position is live, not stale). */
@@ -299,6 +308,27 @@ export interface BoomEvent {
 }
 
 /**
+ * A steering (ACOUSTIC HOMING) torpedo's ballistic UPDATE (Story 2.8): the
+ * enemy client dead-reckons ballistics from reveal velocity, so a torpedo
+ * whose velocity DIRECTION has drifted beyond a small threshold since its last
+ * emit re-emits current pos + velocity to observers who can currently see it;
+ * the client updates the live track in place (same id). SAME CONSTANT-FREE
+ * SHAPE RULE as BallisticEvent's materialization: {id,x,y,vx,vy,t} only — no
+ * range-derivable field (ttl/distLeft/launch/target) may EVER be added, or a
+ * fogged shooter's position becomes solvable. `seenBallistics` exactly-once
+ * relaxes to allow updates keyed by the same id.
+ */
+export interface TorpedoUpdateEvent {
+  k: 'torpU';
+  id: string; // the live torpedo's projectile id (matches its 'torp' reveal)
+  x: number; // u — position at update time
+  y: number;
+  vx: number; // u/s — velocity at update time
+  vy: number;
+  t: number; // ms — update server time
+}
+
+/**
  * A gun shell BURST at its target point (reached it un-intercepted, or was
  * intercepted inside the would-be blast — see sim/shell.ts). `id` matches the
  * originating shell so the client terminates its dead-reckoned render; x/y is
@@ -339,24 +369,10 @@ export interface SpawnEvent {
 }
 
 /**
- * A kill-reward upgrade grant. KILLER-PRIVATE: `id` is the receiving (killer)
- * ship's id, and perception forwards the event ONLY to that observer — the
- * exact mechanism of the victim-private `dmg` rule (see perception.ts). Since
- * the sole recipient is the killer itself, `id` is always the receiver's own
- * id and leaks nothing. Purely UX (toast + tone): the authoritative counts
- * self-sync every frame via OwnShip.upg.
- */
-export interface UpgradeEvent {
-  k: 'upg';
-  id: string; // the killer (= the only observer this is ever delivered to)
-  type: UpgradeId;
-}
-
-/**
- * A banked point earned (one per kill). SELF-PRIVATE: `id` is the earning ship's
- * id, and perception forwards it ONLY to that observer — the same mechanism as
- * the killer-private `upg` event. Purely UX (toast + tone): the authoritative
- * count self-syncs every frame via OwnShip.pts.
+ * A banked point earned (one per level). SELF-PRIVATE: `id` is the earning
+ * ship's id, and perception forwards it ONLY to that observer — the same
+ * mechanism as the victim-private `dmg` rule. Purely UX (toast + tone): the
+ * authoritative count self-syncs every frame via OwnShip.pts.
  */
 export interface PointEvent {
   k: 'pt';
@@ -485,12 +501,12 @@ export interface DeniedView {
 export type GameEvent =
   | BlipEvent
   | BallisticEvent
+  | TorpedoUpdateEvent
   | BoomEvent
   | BurstEvent
   | DamageEvent
   | SunkEvent
   | SpawnEvent
-  | UpgradeEvent
   | PointEvent
   | BoonFitEvent;
 

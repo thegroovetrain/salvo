@@ -1,70 +1,102 @@
-// Effective per-ship stats — THE server/client desync firewall for upgrades.
-// One pure function turns (ship class, upgrade counts) into every derived
-// number the simulation and the HUD consume. The server computes it on grant/
-// spawn (cached on ShipRecord.stats); the client recomputes it from you.cls +
-// you.upg whenever either changes. Both sides MUST call this — nothing may
-// re-derive an upgraded stat ad hoc, or the predictor/HUD silently drift from
+// Effective per-ship stats — THE server/client desync firewall. One pure
+// function turns (ship class, fitted boons) into every derived number the
+// simulation and the HUD consume. The server computes it on grant/spawn
+// (cached on ShipRecord.stats); the client recomputes it from you.cls +
+// you.boons whenever either changes. Both sides MUST call this — nothing may
+// re-derive a boosted stat ad hoc, or the predictor/HUD silently drift from
 // the authoritative sim.
 //
-// Bases: the ship class for hull-ish stats (hp, kinematics); CONFIG.vision for
-// radar/sweep/sight; CONFIG.gun/torpedo/mine for weapons (gun RANGE bases on
-// CONFIG.vision.radar — range = radar range, Eric ruling 2026-07-21). Stacking per
-// CONFIG.upgrades: multiplicative entries compound (base * mult^count), adds
-// are linear. Uncapped unless the CONFIG entry carries a ceiling — sweepSpeed
-// is the only capped stat today (maxRpm). That ceiling has exactly TWO sites,
-// both inside this firewall: the legacy-stacking clamp below, and its re-apply
-// over the boon fold in sim/boons.ts applyBoonStats (boon data may not exceed
-// it either). Nothing else may clamp or re-derive it.
+// Story 2.8: the 14-entry legacy upgrade system (counts param, CONFIG.upgrades
+// stacking) died wholesale — boons are the ONLY stat modifier. Bases: the ship
+// class for hull-ish stats (hp, kinematics); CONFIG.vision for radar/sweep/
+// sight; the per-equipment CONFIG blocks for everything else (gun-family RANGE
+// bases on CONFIG.vision.radar — range = radar range, Eric ruling 2026-07-21).
+// Damage/blast/trigger/lit numbers are now PROMOTED onto EffectiveStats so the
+// catalog's stat ladders can move them through the one firewall.
+//
+// Defensive clamps (all inside this firewall, nowhere else):
+//   - sweepRpm ≤ CONFIG.vision.sweepRpmMax (the ratified 30-RPM ceiling —
+//     re-applied over the boon fold in sim/boons.ts applyBoonStats, its only
+//     sibling site);
+//   - mine.triggerRadius ≤ mine.blastRadius (the trip ring never outgrows the
+//     blast);
+//   - gun.barrels clamped to 1..3 integer (TWIN/TRIPLE MOUNT ladder bounds).
 
-import { CONFIG, UPGRADE_IDS, type ShipClass, type UpgradeId } from '../constants.js';
+import { CONFIG, type ShipClass } from '../constants.js';
 import type { ShipConfig } from './ship.js';
 import { applyBoonStats, type BoonDef } from './boons.js';
 
-/** UpgradeId -> index into a counts array (UPGRADE_IDS order). */
-const UPGRADE_INDEX: Readonly<Record<UpgradeId, number>> = Object.fromEntries(
-  UPGRADE_IDS.map((id, i) => [id, i]),
-) as Record<UpgradeId, number>;
-
-/** Count of one upgrade type in a counts array (missing/short arrays read 0). */
-function countOf(counts: readonly number[], id: UpgradeId): number {
-  return counts[UPGRADE_INDEX[id]] ?? 0;
-}
-
-/** ms per minute — the rpm -> period conversion for effective (upgraded) stats.
- *  Render-side BASE defaults (radar.ts, ambient.ts) derive 60000/CONFIG rpm at
- *  their own edges; only THIS conversion ever sees upgrade counts. */
+/** ms per minute — the rpm -> period conversion for effective stats. Render-
+ *  side BASE defaults (radar.ts, ambient.ts) derive 60000/CONFIG rpm at their
+ *  own edges; only THIS conversion ever sees boon-modified rpm. */
 const MS_PER_MINUTE = 60000;
 
-/** base * mult^count — the multiplicative stacking rule. */
-function stack(base: number, mult: number, count: number): number {
-  return base * Math.pow(mult, count);
-}
-
-/** One weapon's effective numbers (per-weapon extras live beside these). */
+/** The universal standard gun's effective numbers (Story 2.8: damage/burst
+ *  promoted; the single-shot maxAmmo pin is deliberately retired — AFT TURRET
+ *  raises the pool; TWIN/TRIPLE MOUNT raise `barrels`). */
 export interface EffectiveGun {
   reloadMs: number; // ms per shot (the gun cooldown)
-  maxAmmo: number; // pool size — ALWAYS 1 (single-shot; gunAmmo neutralized)
+  maxAmmo: number; // pool size — base 1; gunTurret (AFT TURRET) raises it
   rangeU: number; // u — max shell travel / aimDist clamp (base = CONFIG.vision.radar)
+  damage: number; // hp per burst victim
+  contactDamage: number; // hp to an early interceptor outside the blast
+  burstRadius: number; // u — blast radius around the clicked point
+  barrels: number; // shells per click (1..3 — each a real shell, own burst point)
 }
+
+/** Cannon doctrine modes (PLUNGING FIRE ⚔ ARMOR-PIERCING SHELLS). */
+export type CannonMode = 'standard' | 'arcing' | 'ap';
+
+export interface EffectiveCannon {
+  reloadMs: number; // ms per shot (the cannon cooldown)
+  maxAmmo: number; // pool size
+  rangeU: number; // u — max shell travel / aimDist clamp (= CONFIG.vision.radar base)
+  damage: number; // hp per burst victim
+  contactDamage: number; // hp to an early interceptor outside the blast
+  burstRadius: number; // u — blast radius around the clicked point
+  mode: CannonMode; // doctrine fold (sim/boons.ts) — 'standard' unless an exclusive is held
+}
+
+/** Torpedo doctrine modes (ACOUSTIC HOMING ⚔ COMMAND DETONATION). */
+export type TorpedoMode = 'standard' | 'homing' | 'command';
 
 export interface EffectiveTorpedo {
   reloadMs: number; // ms per fish
   maxAmmo: number; // tube pool size
   speed: number; // u/s — launch speed
+  damage: number; // hp per contact hit
+  mode: TorpedoMode; // doctrine fold — 'standard' unless an exclusive is held
 }
+
+/** Mine doctrine modes (SELF-PROPELLED ⚔ PROP-FOULING). */
+export type MineMode = 'standard' | 'selfPropelled' | 'propFouling';
 
 export interface EffectiveMine {
   reloadMs: number; // ms per drop
   maxAmmo: number; // drop pool size
   maxLive: number; // max simultaneous live mines on the board
+  damage: number; // hp per blast victim
+  blastRadius: number; // u — full damage to every non-owner hull within it
+  triggerRadius: number; // u — detonation proximity (clamped ≤ blastRadius)
+  mode: MineMode; // doctrine fold — 'standard' unless an exclusive is held
+}
+
+/** Star-shell doctrine modes (INCENDIARY COMPOUND ⚔ DAZZLE BURST). */
+export type StarShellsMode = 'standard' | 'incendiary' | 'dazzle';
+
+export interface EffectiveStarShells {
+  reloadMs: number; // ms per flare (the star-shell cooldown)
+  maxAmmo: number; // pool size
+  rangeU: number; // u — max flare travel (= CONFIG.vision.radar base)
+  litRadius: number; // u — lit-zone radius (base = the ratified SIGHT/2 CONFIG derivation)
+  litDurationMs: number; // ms — lit-zone lifetime
+  mode: StarShellsMode; // doctrine fold — 'standard' unless an exclusive is held
 }
 
 /**
- * The activated speed boost's effective numbers — a pure pass-through of
- * CONFIG.speedBoost. NO upgrade multiplies any of these: the legacy maxSpeed
- * upgrade multiplies the BASE kinematics cap (kinematics.maxSpeed above) BEFORE
- * this additive `speedBonus` is layered on, and that additive step happens
- * elsewhere, per-tick, via sim/boost.ts boostedKinematics — never here.
+ * The activated speed boost's effective numbers. The additive `speedBonus` is
+ * layered per-tick via sim/boost.ts boostedKinematics — never folded into
+ * kinematics here.
  */
 export interface EffectiveBoost {
   speedBonus: number; // u/s added to the forward maxSpeed cap while active
@@ -73,49 +105,19 @@ export interface EffectiveBoost {
   reloadMs: number; // ms — cooldown between activations
 }
 
-/**
- * The long-range cannon's effective numbers (Story 1.7) — a pure pass-through
- * of CONFIG.cannon plus the radar-DERIVED base range. NO upgrade multiplies
- * any of these (the boost precedent): the legacy gun-category upgrades keep
- * applying to the standard gun ONLY, so a gunRange-stacked standard gun can
- * out-range the cannon — a known interregnum quirk that dies with the Epic 2
- * economy.
- */
-export interface EffectiveCannon {
-  reloadMs: number; // ms per shot (the cannon cooldown)
-  maxAmmo: number; // pool size — always 1 (single-shot)
-  rangeU: number; // u — max shell travel / aimDist clamp (= CONFIG.vision.radar, un-stacked)
-}
-
-/**
- * The star shells' effective numbers (Story 1.7) — a pure pass-through of
- * CONFIG.starShells plus the radar-DERIVED base range. NO upgrade multiplies
- * any of these (see EffectiveCannon's interregnum note — same rule).
- */
-export interface EffectiveStarShells {
-  reloadMs: number; // ms per flare (the star-shell cooldown)
-  maxAmmo: number; // pool size — always 1 (single-shot)
-  rangeU: number; // u — max shell travel / aimDist clamp (= CONFIG.vision.radar, un-stacked)
-}
-
-/**
- * The decoy buoy's effective numbers (Story 1.8) — a pure pass-through of
- * CONFIG.decoyBuoy (the boost precedent). NO upgrade touches any of these: the
- * decoy is a fixed-cost signature ability, and no legacy upgrade category
- * covers it.
- */
+/** The decoy buoy's effective numbers. */
 export interface EffectiveDecoy {
   reloadMs: number; // ms — cooldown between placements
   maxAmmo: number; // charge pool size (one live per owner)
   durationMs: number; // ms — buoy lifetime before natural expiry
 }
 
-/** Everything (class, upgrades) resolves to. See effectiveStats(). */
+/** Everything (class, boons) resolves to. See effectiveStats(). */
 export interface EffectiveStats {
   kinematics: ShipConfig;
   maxHp: number;
   radarRange: number; // u
-  sweepRpm: number; // rev/min — THE tracked radar rotation rate (capped at maxRpm)
+  sweepRpm: number; // rev/min — THE tracked radar rotation rate (capped at sweepRpmMax)
   sweepPeriodMs: number; // ms per radar revolution — DERIVED: 60000 / sweepRpm
   sightRange: number; // u — true-sight bubble
   gun: EffectiveGun;
@@ -127,15 +129,9 @@ export interface EffectiveStats {
   decoyBuoy: EffectiveDecoy;
 }
 
-/**
- * The count-independent activated-ability + skillshot blocks — pure CONFIG
- * pass-throughs that NO upgrade touches (boost precedent). rangeU on the
- * cannon/star shells is the gun's BASE range (CONFIG.vision.radar), deliberately
- * WITHOUT the gunRange stack: gun-category upgrades apply to the standard gun
- * only, so an upgraded gun can out-range the cannon (a known interregnum quirk,
- * dies with Epic 2). Split out of effectiveStats so that function stays lean.
- */
-function passThroughEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'starShells' | 'decoyBuoy'> {
+/** The count-independent ability blocks + the cannon/starShells skillshots —
+ *  pure CONFIG pass-throughs, split out so baseStats stays lean. */
+function baseEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'starShells' | 'decoyBuoy'> {
   return {
     boost: {
       speedBonus: CONFIG.speedBoost.speedBonus,
@@ -147,11 +143,19 @@ function passThroughEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'star
       reloadMs: CONFIG.cannon.reloadMs,
       maxAmmo: CONFIG.cannon.maxAmmo,
       rangeU: CONFIG.vision.radar,
+      damage: CONFIG.cannon.damage,
+      contactDamage: CONFIG.cannon.contactDamage,
+      burstRadius: CONFIG.cannon.burstRadius,
+      mode: 'standard',
     },
     starShells: {
       reloadMs: CONFIG.starShells.reloadMs,
       maxAmmo: CONFIG.starShells.maxAmmo,
       rangeU: CONFIG.vision.radar,
+      // Base stays the ratified SIGHT/2-derived CONFIG value (Eric 2026-07-23).
+      litRadius: CONFIG.starShells.litRadius,
+      litDurationMs: CONFIG.starShells.litDurationMs,
+      mode: 'standard',
     },
     decoyBuoy: {
       reloadMs: CONFIG.decoyBuoy.reloadMs,
@@ -161,84 +165,73 @@ function passThroughEquipment(): Pick<EffectiveStats, 'boost' | 'cannon' | 'star
   };
 }
 
-/**
- * Resolve the effective stats for a ship class + upgrade counts (indexed by
- * UPGRADE_IDS order). Zero counts ≙ the class/CONFIG bases exactly. Pure and
- * allocation-fresh (callers cache the result and swap it on change).
- *
- * `boons` (Story 2.5): resolved boon defs whose `stat` effects fold in AFTER
- * legacy upgrade stacking, in boon-list order (sim/boons.ts applyBoonStats —
- * the ONE legal path from boons to derived numbers, so this function stays
- * THE desync firewall). Defaults to none: every existing caller compiles
- * unchanged, and the zero-boon output is byte-identical to the two-arg call.
- */
-export function effectiveStats(
-  cls: ShipClass,
-  counts: readonly number[],
-  boons: readonly BoonDef[] = [],
-): EffectiveStats {
-  const u = CONFIG.upgrades;
-  const speedMult = Math.pow(u.maxSpeed.mult, countOf(counts, 'maxSpeed'));
-  const k = cls.kinematics;
-  // Radar rotation is tracked in RPM (additive, hard-capped); sim consumers
-  // read the derived period, and no upgraded rpm is ever converted elsewhere.
-  const sweepRpm = Math.min(
-    CONFIG.vision.sweepRpm + u.sweepSpeed.addRpm * countOf(counts, 'sweepSpeed'),
-    u.sweepSpeed.maxRpm,
-  );
-  const stats: EffectiveStats = {
-    kinematics: {
-      maxSpeed: k.maxSpeed * speedMult,
-      reverseSpeed: k.reverseSpeed * speedMult, // scaled WITH maxSpeed by design
-      accel: k.accel,
-      decel: k.decel,
-      turnRate: k.turnRate,
-      steerageSpeed: k.steerageSpeed,
-    },
-    maxHp: cls.hp + u.hullPoints.add * countOf(counts, 'hullPoints'),
-    radarRange: stack(CONFIG.vision.radar, u.radarRange.mult, countOf(counts, 'radarRange')),
-    sweepRpm,
-    sweepPeriodMs: MS_PER_MINUTE / sweepRpm,
-    sightRange: stack(CONFIG.vision.sight, u.sightRange.mult, countOf(counts, 'sightRange')),
+/** The CONFIG-base stats tree for a class — every number a pure base, every
+ *  mode 'standard'. Split out so effectiveStats stays lean. */
+function baseStats(cls: ShipClass): EffectiveStats {
+  return {
+    kinematics: { ...cls.kinematics },
+    maxHp: cls.hp,
+    radarRange: CONFIG.vision.radar,
+    sweepRpm: Math.min(CONFIG.vision.sweepRpm, CONFIG.vision.sweepRpmMax),
+    sweepPeriodMs: MS_PER_MINUTE / Math.min(CONFIG.vision.sweepRpm, CONFIG.vision.sweepRpmMax),
+    sightRange: CONFIG.vision.sight,
     gun: {
-      reloadMs: stack(CONFIG.gun.reloadMs, u.gunReload.mult, countOf(counts, 'gunReload')),
-      // Single-shot gun: PINNED to the CONFIG pool size (1) regardless of any
-      // gunAmmo count — the id survives on the wire (append-only UPGRADE_IDS)
-      // but is neutralized here AND excluded from offers (interregnum, dies in
-      // Epic 2). A pre-rolled legacy offer spent on gunAmmo increments the
-      // count with zero effect.
+      reloadMs: CONFIG.gun.reloadMs,
       maxAmmo: CONFIG.gun.maxAmmo,
       // Base gun range IS radar range (Eric ruling 2026-07-21) — derived, never
-      // duplicated. gunRange stacks can briefly outrange an unupgraded radar
-      // (known-ugly interregnum artifact, dies in Epic 2).
-      rangeU: stack(CONFIG.vision.radar, u.gunRange.mult, countOf(counts, 'gunRange')),
+      // duplicated.
+      rangeU: CONFIG.vision.radar,
+      damage: CONFIG.gun.damage,
+      contactDamage: CONFIG.gun.contactDamage,
+      burstRadius: CONFIG.gun.burstRadius,
+      barrels: 1, // base single mount — the TWIN/TRIPLE MOUNT ladder adds
     },
     torpedo: {
-      reloadMs: stack(CONFIG.torpedo.reloadMs, u.torpedoReload.mult, countOf(counts, 'torpedoReload')),
-      maxAmmo: CONFIG.torpedo.maxAmmo + u.torpedoAmmo.add * countOf(counts, 'torpedoAmmo'),
-      speed: stack(CONFIG.torpedo.speed, u.torpedoSpeed.mult, countOf(counts, 'torpedoSpeed')),
+      reloadMs: CONFIG.torpedo.reloadMs,
+      maxAmmo: CONFIG.torpedo.maxAmmo,
+      speed: CONFIG.torpedo.speed,
+      damage: CONFIG.torpedo.damage,
+      mode: 'standard',
     },
     mine: {
-      reloadMs: stack(CONFIG.mine.reloadMs, u.mineReload.mult, countOf(counts, 'mineReload')),
-      maxAmmo: CONFIG.mine.maxAmmo + u.mineAmmo.add * countOf(counts, 'mineAmmo'),
-      maxLive: CONFIG.mine.maxLive + u.maxMines.add * countOf(counts, 'maxMines'),
+      reloadMs: CONFIG.mine.reloadMs,
+      maxAmmo: CONFIG.mine.maxAmmo,
+      maxLive: CONFIG.mine.maxLive,
+      damage: CONFIG.mine.damage,
+      blastRadius: CONFIG.mine.blastRadius,
+      triggerRadius: CONFIG.mine.triggerRadius,
+      mode: 'standard',
     },
-    // The count-independent ability/skillshot pass-throughs (boost, cannon,
-    // star shells, decoy) — see passThroughEquipment().
-    ...passThroughEquipment(),
+    ...baseEquipment(),
   };
-  // Boon stat effects (Story 2.5) fold in AFTER legacy stacking, boon-list
-  // order. Zero boons skips the fold entirely — byte-identical to pre-boon
-  // output by construction.
+}
+
+/** The post-fold defensive clamps (see the header). Mutates in place. */
+function clampStats(stats: EffectiveStats): void {
+  // Sweep ceiling: the boon fold already clamps (applyBoonStats), but the
+  // firewall's OUTPUT is the contract — clamp unconditionally.
+  stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
+  stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
+  stats.mine.triggerRadius = Math.min(stats.mine.triggerRadius, stats.mine.blastRadius);
+  stats.gun.barrels = Math.min(3, Math.max(1, Math.round(stats.gun.barrels)));
+}
+
+/**
+ * Resolve the effective stats for a ship class + fitted boons. Zero boons ≙
+ * the class/CONFIG bases exactly. Pure and allocation-fresh (callers cache the
+ * result and swap it on change).
+ *
+ * `boons` are resolved boon defs whose `stat` and `doctrine` effects fold in
+ * over the bases, in boon-list order (sim/boons.ts applyBoonStats — the ONE
+ * legal path from boons to derived numbers, so this function stays THE desync
+ * firewall). A REPEATED def stacks by occurrence (the deck's copy-count law).
+ */
+export function effectiveStats(cls: ShipClass, boons: readonly BoonDef[] = []): EffectiveStats {
+  const stats = baseStats(cls);
   if (boons.length > 0) applyBoonStats(stats, boons);
+  clampStats(stats);
   return stats;
 }
 
-/** A fresh all-zeros upgrade counts array (UPGRADE_IDS order). */
-export function zeroUpgrades(): number[] {
-  return new Array<number>(UPGRADE_IDS.length).fill(0);
-}
-
 // The per-equipment pool/reload lookups (equipmentMaxAmmo / equipmentReloadMs)
-// live in sim/loadout.ts beside EquipmentId — the WeaponId-indexed
-// weaponMaxAmmo/weaponReloadMs helpers are retired with the weapon selector.
+// live in sim/loadout.ts beside EquipmentId.

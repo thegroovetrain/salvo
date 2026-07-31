@@ -3,6 +3,26 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  16: Boon Catalog v1 + THE DECK MODEL (Story 2.8) — one bump for the story's
+ *  every wire delta: (1) BOON_CATALOG is REPLACED wholesale (dummy set → the
+ *  42-line v1 catalog across 9 categories; per the content-is-contract
+ *  convention the replacement alone is a break); (2) the legacy upgrade
+ *  system leaves the wire — `OwnShip.upg` deleted, the `upg` GameEvent
+ *  deleted, UPGRADE_IDS/UPGRADE_CATEGORIES/CONFIG.upgrades gone from the
+ *  welcome config snapshot (the sweep ceiling re-homes to
+ *  CONFIG.vision.sweepRpmMax); (3) OwnShip gains optional victim-private
+ *  `slowedUntil` and `dazzledUntil` (prop-fouling slow / dazzle windows,
+ *  riding `you` only — the boostUntil precedent); (4) new `torpU` GameEvent
+ *  (TorpedoUpdateEvent {k,id,x,y,vx,vy,t} — a homing torpedo's constant-free
+ *  ballistic update; seenBallistics exactly-once relaxes to allow updates);
+ *  (5) catalog-driven behavior changes ride the config snapshot: star shells
+ *  are damageless (CONFIG.starShells.damage deleted; incendiary/dazzle
+ *  doctrine fields added), the mine is a click-aimed rear-arc weapon
+ *  (EQUIPMENT_IS_WEAPON.mine true; CONFIG.mine gains placeRange,
+ *  placeHalfArcDeg, the foul and creep doctrine fields), CONFIG.torpedo gains
+ *  the homing fields + commandBurstRadius, and
+ *  new CONFIG.deck (rare-weight dials) ships. Offers are deck-drawn
+ *  (rollBoonOffer died; sim/deck.ts is the engine).
  *  15: offers — roll, bank, spend (Story 2.7) — the offer flow goes fully
  *  boon-typed. `OwnShip.offer` RE-TYPES from UPGRADE_IDS indices (number[]) to
  *  BOON IDS (string[]) and grows from 3 entries to `CONFIG.offer.size` (4,
@@ -74,7 +94,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 15;
+export const PROTOCOL_VERSION = 16;
 
 // Tunables
 export * from './constants.js';
@@ -96,7 +116,9 @@ export * from './sim/hooks.js';
 export * from './sim/loadout.js';
 export * from './sim/arcs.js';
 export * from './sim/boost.js';
+export * from './sim/slow.js';
 export * from './sim/offers.js';
+export * from './sim/deck.js';
 export * from './sim/collision.js';
 export * from './sim/silhouette.js';
 export * from './sim/shell.js';

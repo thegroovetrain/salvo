@@ -9,6 +9,10 @@
 // toward a higher ceiling at its class accel and decays back at its class decel
 // once the window closes (no impulse, no teleport). Pure, zero I/O, plain
 // objects — never mutates its input.
+//
+// PINNED COMPOSITION ORDER (server AND predictor, byte-identical — Story 2.8):
+//   boostedKinematics → slowedKinematics → hookKinematics
+// (boost first, the prop-fouling slow second — see sim/slow.ts — hooks last).
 
 import type { ShipConfig } from './ship.js';
 

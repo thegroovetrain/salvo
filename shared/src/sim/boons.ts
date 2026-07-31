@@ -1,47 +1,86 @@
-// Boon effect engine (Story 2.5) — the ratified "two homes + hooks" law
-// (epics AR4; Epic 2 amendments 28–30). A boon is `{ id, category, effects[] }`
-// and applying one may touch exactly three lawful paths:
+// Boon effect engine (Story 2.5) + Boon Catalog v1 (Story 2.8) — the ratified
+// "two homes + hooks" law (epics AR4; Epic 2 amendments 28–30, 38–46). A boon
+// is one card LINE `{ id, category, rarity, copies, effects[] }` and applying
+// one may touch exactly these lawful paths:
 //   1. `stat` effects flow ONLY through effectiveStats() (sim/stats.ts calls
 //      applyBoonStats — the desync firewall stays intact);
-//   2. `slotFill`/`slotReplace` effects mutate ONLY the one LoadoutSlot[]
+//   2. `doctrine` effects fold ONLY into the per-weapon `mode` fields of
+//      EffectiveStats (same fold, same firewall — the exclusive doctrines are
+//      data + bespoke shared modifiers, the boost precedent; HOOK_REGISTRY
+//      stays EMPTY, amendment 30 satisfied without new hook plumbing);
+//   3. `slotFill`/`slotReplace` effects mutate ONLY the one LoadoutSlot[]
 //      structure, through applySlotEffect below — used INCREMENTALLY by the
-//      server (live loadout, untouched slots keep their ammo state) and
-//      REPLAYED by the client over loadoutFor output (slotsWithBoons): one
-//      function, two callers, id-parity property-tested;
-//   3. `behavior(hookId, params)` executes registered hooks (sim/hooks.ts)
+//      server and REPLAYED by the client over loadoutFor output;
+//   4. `behavior(hookId, params)` executes registered hooks (sim/hooks.ts)
 //      per-tick on BOTH sides, so prediction survives.
 // Nothing else moves — a stat-only boon leaves the loadout reference-equal, a
 // slot-only boon leaves stats byte-identical (property-pinned in tests).
 //
-// BOON_CATALOG ships an INTERIM DUMMY SET (Story 2.7, amendment 35): enough
-// stat-only content across enough categories for the offer flow to roll 4
-// distinct categories in production. It is deliberate placeholder data under
-// the standing draft-copy rule and DIES WHOLESALE in 2.8 (Eric's catalog design
-// session), which also strips the 14 legacy upgrades. Test boons still live in
-// tests as locally-constructed BoonDefs against injected catalogs/registries.
+// BOON_CATALOG ships the FULL v1 content (amendment 42 — ladders ratified
+// wholesale; step VALUES are implementer-drafted handwaves inside the ratified
+// pins, 2.10 tunes). Stack count = OCCURRENCES of an id in ship.boons /
+// you.boons (repeats are legal and stack); `copies` IS the cap (THE DECK
+// MODEL, amendment 38). Player-facing names live CLIENT-side (boonCopy.ts).
 
 import type { EquipmentId, LoadoutSlot } from './loadout.js';
 import { SLOT_EXTRA, equipmentMaxAmmo, loadoutFor } from './loadout.js';
 import { CONFIG, type HullId } from '../constants.js';
-import type { EffectiveStats } from './stats.js';
+import type { CannonMode, EffectiveStats, MineMode, StarShellsMode, TorpedoMode } from './stats.js';
 import type { HookParams } from './hooks.js';
 
 /** Catalog boon id (camelCase string — the registry-id convention). */
 export type BoonId = string;
 
-/** Offer-distinctness category a boon rolls under (vocabulary is 2.8 catalog
- *  design; the engine only threads it). */
+/** Offer/deck category a boon line belongs to (the 9 v1 categories below). */
 export type BoonCategory = string;
+
+/** Card scarcity tier (amendment 38): commons are stat cards; rares/exclusives
+ *  are the qualitative nature-changers. Physical copy counts ARE the caps. */
+export type BoonRarity = 'common' | 'rare' | 'exclusive';
+
+/** The deck's three UNIVERSAL categories — always in every player's deck
+ *  regardless of carried equipment (amendment 38: Intel + Ship + Gun). */
+export const UNIVERSAL_CATEGORIES: readonly BoonCategory[] = ['intel', 'ship', 'guns'];
+
+/**
+ * EquipmentId -> its catalog category (subdeck membership + acquisition-card
+ * category). THE single mapping the deck engine keys on — acquisitions carry
+ * their equipment's category by construction.
+ */
+export const EQUIPMENT_CATEGORY: Readonly<Record<EquipmentId, BoonCategory>> = {
+  gun: 'guns',
+  torpedo: 'torpedoes',
+  mine: 'mines',
+  speedBoost: 'speedBoost',
+  cannon: 'cannon',
+  starShells: 'starShells',
+  decoyBuoy: 'decoyBuoy',
+};
+
+/**
+ * The known doctrine modes per weapon — the fold's fail-closed vocabulary AND
+ * the validateBoonDef authoring gate. Exactly the four ratified exclusive
+ * pairs (amendments 38/44); 'standard' is the implicit no-doctrine mode and
+ * never appears in a catalog datum.
+ */
+export const DOCTRINE_MODES = {
+  cannon: ['arcing', 'ap'],
+  torpedo: ['homing', 'command'],
+  mine: ['selfPropelled', 'propFouling'],
+  starShells: ['incendiary', 'dazzle'],
+} as const satisfies Partial<Record<EquipmentId, readonly string[]>>;
+
+/** A weapon that carries a doctrine mode field on EffectiveStats. */
+export type DoctrineWeapon = keyof typeof DOCTRINE_MODES;
 
 /**
  * The typed whitelist of EffectiveStats scalar paths a `stat` effect may
- * address — every EXISTING scalar except the derived `sweepPeriodMs` (always
- * re-derived from sweepRpm after the fold, preserving the "no rpm is ever
- * converted elsewhere" law). Damage is deliberately NOT addressable: it does
- * not live on EffectiveStats (equipmentInfo.ts records the future seam).
- * `gun.maxAmmo` is deliberately NOT addressable either: effectiveStats PINS the
- * gun pool to 1 (single-shot gun, Eric ruling 2026-07-21 — the pool is a pure
- * cooldown), and no catalog datum may unpin it.
+ * address — every scalar except the derived `sweepPeriodMs` (always re-derived
+ * from sweepRpm after the fold) and the mode fields (doctrine effects' home).
+ * Story 2.8 additions: the promoted damage/blast/trigger/lit scalars, plus
+ * `gun.barrels` and `gun.maxAmmo` — the single-shot gun-pool pin is
+ * DELIBERATELY RETIRED (AFT TURRET raises the pool; clamps live in
+ * effectiveStats).
  */
 export const BOON_STAT_PATHS = [
   'maxHp',
@@ -56,12 +95,21 @@ export const BOON_STAT_PATHS = [
   'kinematics.steerageSpeed',
   'gun.reloadMs',
   'gun.rangeU',
+  'gun.maxAmmo',
+  'gun.damage',
+  'gun.contactDamage',
+  'gun.burstRadius',
+  'gun.barrels',
   'torpedo.reloadMs',
   'torpedo.maxAmmo',
   'torpedo.speed',
+  'torpedo.damage',
   'mine.reloadMs',
   'mine.maxAmmo',
   'mine.maxLive',
+  'mine.damage',
+  'mine.blastRadius',
+  'mine.triggerRadius',
   'boost.speedBonus',
   'boost.durationMs',
   'boost.maxAmmo',
@@ -69,9 +117,14 @@ export const BOON_STAT_PATHS = [
   'cannon.reloadMs',
   'cannon.maxAmmo',
   'cannon.rangeU',
+  'cannon.damage',
+  'cannon.contactDamage',
+  'cannon.burstRadius',
   'starShells.reloadMs',
   'starShells.maxAmmo',
   'starShells.rangeU',
+  'starShells.litRadius',
+  'starShells.litDurationMs',
   'decoyBuoy.reloadMs',
   'decoyBuoy.maxAmmo',
   'decoyBuoy.durationMs',
@@ -85,10 +138,9 @@ export type BoonStatPath = (typeof BOON_STAT_PATHS)[number];
 const BOON_STAT_PATH_SET: ReadonlySet<string> = new Set(BOON_STAT_PATHS);
 
 /**
- * Derived-stat mutation: `value * (mult ?? 1) + (add ?? 0)` on one
- * whitelisted EffectiveStats scalar — the legacy CONFIG.upgrades mult/add
- * vocabulary generalized. Applied AFTER legacy upgrade stacking, in boon-list
- * order (deterministic), only ever inside effectiveStats().
+ * Derived-stat mutation: `value * (mult ?? 1) + (add ?? 0)` on one whitelisted
+ * EffectiveStats scalar. Applied in boon-list order (deterministic), only ever
+ * inside effectiveStats().
  */
 export interface BoonStatEffect {
   kind: 'stat';
@@ -105,8 +157,7 @@ export interface BoonSlotFillEffect {
 }
 
 /** Replace the slot currently holding `from` with `to` (fresh full-pool
- *  state). No-op (silent) when `from` is unfitted — the applyGrantEffects
- *  fail-closed guard, carried forward. */
+ *  state). No-op (silent) when `from` is unfitted. */
 export interface BoonSlotReplaceEffect {
   kind: 'slotReplace';
   from: EquipmentId;
@@ -121,14 +172,41 @@ export interface BoonBehaviorEffect {
   params: HookParams;
 }
 
-/** The four-effect vocabulary — the ONLY ways a boon may touch the sim. */
-export type BoonEffect = BoonStatEffect | BoonSlotFillEffect | BoonSlotReplaceEffect | BoonBehaviorEffect;
+/**
+ * Set a weapon's doctrine `mode` on EffectiveStats (Story 2.8) — the exclusive
+ * cards' declarative home. Folded by applyBoonStats into stats.<weapon>.mode;
+ * an unknown weapon/mode combination is a fail-closed no-op. Only one doctrine
+ * per weapon can be HELD (deck exclusivity + the swap flow enforce it — the
+ * fold itself just applies list order, last write wins).
+ */
+export interface BoonDoctrineEffect {
+  kind: 'doctrine';
+  weapon: EquipmentId;
+  mode: string;
+}
 
-/** One catalog boon: an id, its offer category, and its effect list. */
+/** The five-effect vocabulary — the ONLY ways a boon may touch the sim. */
+export type BoonEffect =
+  | BoonStatEffect
+  | BoonSlotFillEffect
+  | BoonSlotReplaceEffect
+  | BoonBehaviorEffect
+  | BoonDoctrineEffect;
+
+/**
+ * One catalog card LINE: id, category, scarcity (rarity + physical copies),
+ * and its effect list. `exclusiveWith` links the two cards of a doctrine pair
+ * (symmetric, same weapon — validated); `healOnGrant` marks the grant itself
+ * as healing the granted maxHp delta (shipHull — the ONLY heal path).
+ */
 export interface BoonDef {
   id: BoonId;
   category: BoonCategory;
+  rarity: BoonRarity;
+  copies: number;
   effects: readonly BoonEffect[];
+  exclusiveWith?: BoonId;
+  healOnGrant?: true;
 }
 
 /** Freeze the catalog AND every def inside it (the HOOK_REGISTRY /
@@ -142,117 +220,155 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
  *  (server World options, client resolve); production passes BOON_CATALOG. */
 export type BoonCatalog = Readonly<Record<BoonId, BoonDef>>;
 
+/** Shorthand builders for the catalog table below (authoring sugar only). */
+const stat = (path: BoonStatPath, over: { mult?: number; add?: number }): BoonStatEffect => ({
+  kind: 'stat',
+  path,
+  ...over,
+});
+const doctrine = (weapon: DoctrineWeapon, mode: string): BoonDoctrineEffect => ({
+  kind: 'doctrine',
+  weapon,
+  mode,
+});
+const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
+  id,
+  category: EQUIPMENT_CATEGORY[equipmentId],
+  rarity: 'rare',
+  copies: 1,
+  effects: [{ kind: 'slotFill', equipmentId }],
+});
+
 /**
- * THE production boon catalog — an INTERIM DUMMY SET (Story 2.7, amendment 35).
- *
- * Shape: 5 categories × 2 boons = 10 entries, STAT EFFECTS ONLY on whitelisted
- * BOON_STAT_PATHS, so HOOK_REGISTRY stays empty (amendments 29/30 intact) and
- * no slotFill/slotReplace ships before 2.8 designs the loadout content. Two
- * boons per category is the minimum that makes distinct-category rolls VARY
- * (one member per category would make every offer identical).
- *
- * DRAFT COPY, DRAFT NUMBERS: every id, category and multiplier here is
- * implementer-drafted placeholder data (the standing draft-copy rule) chosen to
- * be mild and boring — this set exists to prove the roll/bank/spend flow end to
- * end in production, not to be balanced. Player-facing names/descriptions live
- * CLIENT-side (client/src/ui/boonCopy.ts): BoonDef stays pure sim, so copy
- * edits never touch the wire contract. The whole table dies in 2.8.
- *
- * ITERATION ORDER IS LOAD-BEARING: rollBoonOffer derives its category list from
- * catalog insertion order (sim/offers.ts), so reordering these keys changes
- * every seeded offer. Treat the order as append-only, like UPGRADE_IDS.
+ * THE production Boon Catalog v1 (Story 2.8, amendment 42 — 42 card lines
+ * across 9 categories). Ladder NAMES are ratified canon and live client-side
+ * (boonCopy.ts); every step VALUE here is an implementer-drafted handwave
+ * inside the ratified pins (damageGuardrail: no single hit ≥ 70 even
+ * max-stacked; torpedoSpeed +5/card 60→80 ratified; intelSweep +3 RPM/card to
+ * the 30 cap; shipHull +20/card heal-on-grant; trigger ≤ blast clamped in
+ * effectiveStats). 2.10's batch-sim evidence retunes.
  *
  * CATALOG CONTENT IS WIRE CONTRACT: adding, removing, or changing any entry
  * REQUIRES a PROTOCOL_VERSION bump (shared/src/index.ts). Boon ids ride the
  * wire and the client resolves them FAIL-CLOSED (unknown id = silently
- * dropped), so a stale client would silently ignore a boon the server is
- * simulating — a desync with no error surface. The PV join gate is the ONLY
- * thing preventing it.
+ * dropped) — the PV join gate is the ONLY desync guard.
  */
 export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
-  // --- hull ---------------------------------------------------------------
-  reinforcedBulkheads: {
-    id: 'reinforcedBulkheads',
-    category: 'hull',
-    effects: [{ kind: 'stat', path: 'maxHp', mult: 1.12 }],
-  },
-  splinterMattresses: {
-    id: 'splinterMattresses',
-    category: 'hull',
-    effects: [
-      { kind: 'stat', path: 'maxHp', mult: 1.06 },
-      { kind: 'stat', path: 'kinematics.decel', mult: 1.08 },
-    ],
-  },
-  // --- propulsion ---------------------------------------------------------
-  forcedDraught: {
-    id: 'forcedDraught',
-    category: 'propulsion',
-    effects: [{ kind: 'stat', path: 'kinematics.maxSpeed', mult: 1.1 }],
-  },
-  trimmedScrews: {
-    id: 'trimmedScrews',
-    category: 'propulsion',
-    effects: [
-      { kind: 'stat', path: 'kinematics.accel', mult: 1.12 },
-      { kind: 'stat', path: 'kinematics.turnRate', mult: 1.05 },
-    ],
-  },
-  // --- gunnery ------------------------------------------------------------
-  rangefinderCrew: {
-    id: 'rangefinderCrew',
-    category: 'gunnery',
-    effects: [{ kind: 'stat', path: 'gun.rangeU', mult: 1.1 }],
-  },
-  practicedLoaders: {
-    id: 'practicedLoaders',
-    category: 'gunnery',
-    // reloadMs is a COST: a mult BELOW 1 is the improvement (the legacy
-    // gunReload upgrade's vocabulary, carried forward verbatim).
-    effects: [{ kind: 'stat', path: 'gun.reloadMs', mult: 0.9 }],
-  },
-  // --- sensors ------------------------------------------------------------
-  highGainAntenna: {
-    id: 'highGainAntenna',
-    category: 'sensors',
-    effects: [{ kind: 'stat', path: 'radarRange', mult: 1.1 }],
-  },
-  crowsNestWatch: {
-    id: 'crowsNestWatch',
-    category: 'sensors',
-    effects: [
-      { kind: 'stat', path: 'sightRange', mult: 1.08 },
-      { kind: 'stat', path: 'sweepRpm', mult: 1.05 },
-    ],
-  },
-  // --- ordnance -----------------------------------------------------------
-  deepMagazines: {
-    id: 'deepMagazines',
-    category: 'ordnance',
-    // A pool ADD is a no-op for a hull that does not fit the system (the stat
-    // still moves; nothing else does) — dead picks are an accepted interim
-    // wart that dies with this table in 2.8.
-    effects: [{ kind: 'stat', path: 'torpedo.maxAmmo', add: 1 }],
-  },
-  practicedHandlers: {
-    id: 'practicedHandlers',
-    category: 'ordnance',
-    effects: [
-      { kind: 'stat', path: 'torpedo.reloadMs', mult: 0.92 },
-      { kind: 'stat', path: 'mine.reloadMs', mult: 0.92 },
-    ],
-  },
+  // --- guns (universal) ----------------------------------------------------
+  // HEAVY SHELLS Mk I–V: 25 → 40 hp (+3/card — guardrail: max burst < 70).
+  gunDamage: { id: 'gunDamage', category: 'guns', rarity: 'common', copies: 5, effects: [stat('gun.damage', { add: 3 })] },
+  // LOADING DRILLS → READY MAGAZINE: ×0.9 reload per card.
+  gunReload: { id: 'gunReload', category: 'guns', rarity: 'common', copies: 5, effects: [stat('gun.reloadMs', { mult: 0.9 })] },
+  // TWIN MOUNT → TRIPLE MOUNT (rare ×2): +1 barrel per card (clamped 1..3).
+  gunBarrel: { id: 'gunBarrel', category: 'guns', rarity: 'rare', copies: 2, effects: [stat('gun.barrels', { add: 1 })] },
+  // AFT TURRET (rare ×1): gun pool 1 → 2 — the single-shot pin deliberately retired.
+  gunTurret: { id: 'gunTurret', category: 'guns', rarity: 'rare', copies: 1, effects: [stat('gun.maxAmmo', { add: 1 })] },
+  // --- cannon --------------------------------------------------------------
+  // HEAVY CHARGE Mk I–V: 50 → 65 hp (+3/card).
+  cannonDamage: { id: 'cannonDamage', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.damage', { add: 3 })] },
+  // FRAGMENTATION CASING Mk I–V: ×1.1 burst radius per card.
+  cannonBlast: { id: 'cannonBlast', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.burstRadius', { mult: 1.1 })] },
+  // HYDRAULIC RAMMER Mk I–V: ×0.9 reload per card.
+  cannonReload: { id: 'cannonReload', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.reloadMs', { mult: 0.9 })] },
+  // PLUNGING FIRE ⚔ ARMOR-PIERCING SHELLS (exclusive pair).
+  cannonArcing: { id: 'cannonArcing', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonAp', effects: [doctrine('cannon', 'arcing')] },
+  cannonAp: { id: 'cannonAp', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonArcing', effects: [doctrine('cannon', 'ap')] },
+  // --- torpedoes -----------------------------------------------------------
+  // HEAVY WARHEAD Mk I–V: 55 → 65 hp (+2/card).
+  torpedoDamage: { id: 'torpedoDamage', category: 'torpedoes', rarity: 'common', copies: 5, effects: [stat('torpedo.damage', { add: 2 })] },
+  // HIGH-SPEED SETTING → PURE OXYGEN DRIVE (×4): +5 kn/card, 60 → 80 (RATIFIED).
+  torpedoSpeed: { id: 'torpedoSpeed', category: 'torpedoes', rarity: 'common', copies: 4, effects: [stat('torpedo.speed', { add: 5 })] },
+  // QUICK-LOADING GEAR Mk I–V: ×0.9 reload per card.
+  torpedoReload: { id: 'torpedoReload', category: 'torpedoes', rarity: 'common', copies: 5, effects: [stat('torpedo.reloadMs', { mult: 0.9 })] },
+  // SECOND TUBE (rare ×1): tube pool 1 → 2.
+  torpedoTube: { id: 'torpedoTube', category: 'torpedoes', rarity: 'rare', copies: 1, effects: [stat('torpedo.maxAmmo', { add: 1 })] },
+  // ACOUSTIC HOMING ⚔ COMMAND DETONATION (exclusive pair).
+  torpedoHoming: { id: 'torpedoHoming', category: 'torpedoes', rarity: 'exclusive', copies: 1, exclusiveWith: 'torpedoCommand', effects: [doctrine('torpedo', 'homing')] },
+  torpedoCommand: { id: 'torpedoCommand', category: 'torpedoes', rarity: 'exclusive', copies: 1, exclusiveWith: 'torpedoHoming', effects: [doctrine('torpedo', 'command')] },
+  // --- mines ---------------------------------------------------------------
+  // TNT → RDX FILLER: 45 → 65 hp (+4/card).
+  mineDamage: { id: 'mineDamage', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.damage', { add: 4 })] },
+  // BLAST CASING Mk I–V: ×1.1 blast radius per card.
+  mineBlast: { id: 'mineBlast', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.blastRadius', { mult: 1.1 })] },
+  // MAGNETIC → COMBINATION FUZE: ×1.1 trigger radius per card (clamped ≤ blast).
+  mineTrigger: { id: 'mineTrigger', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.triggerRadius', { mult: 1.1 })] },
+  // DECK RACKS → CONVERTED HOLD: +1 max LIVE mine per card.
+  mineMax: { id: 'mineMax', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.maxLive', { add: 1 })] },
+  // QUICK-RELEASE RAILS Mk I–V: ×0.9 reload per card.
+  mineReload: { id: 'mineReload', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.reloadMs', { mult: 0.9 })] },
+  // SELF-PROPELLED MINES ⚔ PROP-FOULING MINES (exclusive pair). Prop-fouling
+  // trades damage (×0.6, DRAFT) for the slow debuff (CONFIG.mine.foul*).
+  mineSelfPropelled: { id: 'mineSelfPropelled', category: 'mines', rarity: 'exclusive', copies: 1, exclusiveWith: 'minePropFouling', effects: [doctrine('mine', 'selfPropelled')] },
+  minePropFouling: { id: 'minePropFouling', category: 'mines', rarity: 'exclusive', copies: 1, exclusiveWith: 'mineSelfPropelled', effects: [doctrine('mine', 'propFouling'), stat('mine.damage', { mult: 0.6 })] },
+  // --- speedBoost ----------------------------------------------------------
+  // CLEAN BOILERS → EMERGENCY POWER: +2 u/s boost bonus per card (10 → 20).
+  boostMax: { id: 'boostMax', category: 'speedBoost', rarity: 'common', copies: 5, effects: [stat('boost.speedBonus', { add: 2 })] },
+  // STEAM RESERVE Mk I–V: ×0.9 boost cooldown per card.
+  boostReload: { id: 'boostReload', category: 'speedBoost', rarity: 'common', copies: 5, effects: [stat('boost.reloadMs', { mult: 0.9 })] },
+  // --- starShells ----------------------------------------------------------
+  // SLOW-BURN COMPOUND Mk I–V: ×1.1 lit duration per card.
+  starDuration: { id: 'starDuration', category: 'starShells', rarity: 'common', copies: 5, effects: [stat('starShells.litDurationMs', { mult: 1.1 })] },
+  // WIDE BURST Mk I–V: ×1.1 lit radius per card.
+  starRadius: { id: 'starRadius', category: 'starShells', rarity: 'common', copies: 5, effects: [stat('starShells.litRadius', { mult: 1.1 })] },
+  // RAPID HANDLING Mk I–V: ×0.9 reload per card.
+  starReload: { id: 'starReload', category: 'starShells', rarity: 'common', copies: 5, effects: [stat('starShells.reloadMs', { mult: 0.9 })] },
+  // INCENDIARY COMPOUND ⚔ DAZZLE BURST (exclusive pair).
+  starIncendiary: { id: 'starIncendiary', category: 'starShells', rarity: 'exclusive', copies: 1, exclusiveWith: 'starDazzle', effects: [doctrine('starShells', 'incendiary')] },
+  starDazzle: { id: 'starDazzle', category: 'starShells', rarity: 'exclusive', copies: 1, exclusiveWith: 'starIncendiary', effects: [doctrine('starShells', 'dazzle')] },
+  // --- decoyBuoy -----------------------------------------------------------
+  // EXTENDED BATTERY Mk I–V: ×1.1 lifetime per card.
+  decoyDuration: { id: 'decoyDuration', category: 'decoyBuoy', rarity: 'common', copies: 5, effects: [stat('decoyBuoy.durationMs', { mult: 1.1 })] },
+  // SPARE BUOYS Mk I–V: ×0.9 cooldown per card.
+  decoyReload: { id: 'decoyReload', category: 'decoyBuoy', rarity: 'common', copies: 5, effects: [stat('decoyBuoy.reloadMs', { mult: 0.9 })] },
+  // --- intel (universal) ---------------------------------------------------
+  // IMPROVED OPTICS → MASTHEAD POST: ×1.12 truesight per card.
+  intelTruesight: { id: 'intelTruesight', category: 'intel', rarity: 'common', copies: 5, effects: [stat('sightRange', { mult: 1.12 })] },
+  // IMPROVED RECEIVER → CAVITY MAGNETRON: ×1.15 radar per card (knowingly also
+  // grows gun/cannon range and command-det reach — range = radar range).
+  intelRadar: { id: 'intelRadar', category: 'intel', rarity: 'common', copies: 5, effects: [stat('radarRange', { mult: 1.15 })] },
+  // UPRATED SWEEP MOTOR Mk I–V: +3 RPM/card (15 → 30 at the ratified cap).
+  intelSweep: { id: 'intelSweep', category: 'intel', rarity: 'common', copies: 5, effects: [stat('sweepRpm', { add: 3 })] },
+  // --- ship (universal) ----------------------------------------------------
+  // HULL SCRAPING → FLANK SPEED TRIALS: ×1.05 maxSpeed AND reverseSpeed per
+  // card (reverse scales with it, as the legacy upgrade did). Draft chosen so
+  // a max-stacked, max-boosted hull (TB ≈ 77.4 u/s) stays under the
+  // max-stacked torpedo (80 u/s) — pinned by damageGuardrail.test.
+  shipSpeed: { id: 'shipSpeed', category: 'ship', rarity: 'common', copies: 5, effects: [stat('kinematics.maxSpeed', { mult: 1.05 }), stat('kinematics.reverseSpeed', { mult: 1.05 })] },
+  // REINFORCED HULL → ARMORED CITADEL: +20 max hp per card; the grant HEALS
+  // the granted delta (healOnGrant — the ONLY heal path, amendment 38).
+  shipHull: { id: 'shipHull', category: 'ship', rarity: 'common', copies: 5, healOnGrant: true, effects: [stat('maxHp', { add: 20 })] },
+  // --- acquisitions (rare ×1 each; category = the equipment's category) -----
+  acquireTorpedo: acquire('acquireTorpedo', 'torpedo'),
+  acquireMine: acquire('acquireMine', 'mine'),
+  acquireStarShells: acquire('acquireStarShells', 'starShells'),
+  acquireCannon: acquire('acquireCannon', 'cannon'),
+  acquireDecoy: acquire('acquireDecoy', 'decoyBuoy'),
+  acquireBoost: acquire('acquireBoost', 'speedBoost'),
 });
 
 /** The immutable zero-boons list — the shared allocation-free identity for
  *  every zero-boon fast path (server record cache, client resolve). */
 export const NO_BOONS: readonly BoonDef[] = Object.freeze([]);
 
+/** True iff a def is an equipment-ACQUISITION card (carries a slotFill) — the
+ *  deck engine's purge/scrub predicate (amendments 38/43). */
+export function isAcquisitionDef(def: BoonDef): boolean {
+  return def.effects.some((e) => e.kind === 'slotFill');
+}
+
+/** Occurrences of `id` in a fitted-boon list — THE stack count (repeats are
+ *  legal; `copies` caps them physically via the deck). Works on ids or defs. */
+export function boonStackCount(boons: readonly (BoonDef | BoonId)[], id: BoonId): number {
+  let n = 0;
+  for (const b of boons) if ((typeof b === 'string' ? b : b.id) === id) n += 1;
+  return n;
+}
+
 /**
  * Resolve a boon-id list to its defs, FAIL-CLOSED: an unknown id is silently
  * dropped (never a throw — a junk id on the wire must not take the client
- * down), known ids keep list order. Returns NO_BOONS (the shared identity)
- * when nothing resolves, so zero-boon callers stay allocation-free.
+ * down), known ids keep list order, REPEATED ids resolve each time (stacking).
+ * Returns NO_BOONS (the shared identity) when nothing resolves.
  */
 export function resolveBoons(ids: readonly string[], catalog: BoonCatalog = BOON_CATALOG): readonly BoonDef[] {
   if (ids.length === 0) return NO_BOONS;
@@ -288,29 +404,26 @@ function freshSlotState(stats: EffectiveStats, id: EquipmentId): LoadoutSlot['st
 /**
  * Apply ONE effect's slot consequence to a live loadout IN PLACE — THE single
  * slot-mutation path of the engine, shared verbatim by the server (applyBoon,
- * incremental: untouched slots keep their live ammo/reload state) and the
- * client (slotsWithBoons, replayed over loadoutFor output). `stat`/`behavior`
- * effects are structural no-ops here (their homes are effectiveStats and the
- * hook registry). Every slot edge is a silent no-op: slotFill against an
- * occupied extra slot, slotFill of equipment ALREADY fitted anywhere,
- * slotReplace against an unfitted `from`, and slotReplace with `from === to`.
+ * incremental) and the client (slotsWithBoons, replayed over loadoutFor
+ * output). `stat`/`behavior`/`doctrine` effects are structural no-ops here
+ * (their homes are effectiveStats and the hook registry). Every slot edge is a
+ * silent no-op: slotFill against an occupied extra slot, slotFill of equipment
+ * ALREADY fitted anywhere (acquisition cards for carried equipment never enter
+ * the deck, so this path is production-unreachable — pinned), slotReplace
+ * against an unfitted `from`, and slotReplace with `from === to`.
  */
 export function applySlotEffect(loadout: LoadoutSlot[], effect: BoonEffect, stats: EffectiveStats): void {
   if (effect.kind === 'slotFill') {
     const slot = loadout[SLOT_EXTRA];
     if (slot === undefined || slot.equipmentId !== null) return; // occupied (or malformed): no-op
-    // Already fitted somewhere: no-op. The engine addresses slots BY EQUIPMENT
-    // ID (slotReplace's `from`, the server's ammo lookups), so a duplicate id
-    // makes the addressing ambiguous. 2.8 may deliberately revisit duplicates
-    // (a two-tube fit would need id-addressing replaced first).
-    if (loadout.some((s) => s.equipmentId === effect.equipmentId)) return;
+    if (loadout.some((s) => s.equipmentId === effect.equipmentId)) return; // already fitted: no-op
     slot.equipmentId = effect.equipmentId;
     slot.state = freshSlotState(stats, effect.equipmentId);
     return;
   }
-  if (effect.kind !== 'slotReplace') return; // stat/behavior: not a slot home
-  // Degenerate self-replace: a no-op, NOT a refit. Replacing X with X would
-  // hand out a fresh full pool with reloadMsLeft 0 — a free instant reload.
+  if (effect.kind !== 'slotReplace') return; // stat/behavior/doctrine: not a slot home
+  // Degenerate self-replace: a no-op, NOT a refit (a fresh pool would be a
+  // free instant reload).
   if (effect.from === effect.to) return;
   const slot = loadout.find((s) => s.equipmentId === effect.from);
   if (slot === undefined) return; // `from` unfitted: fail-closed no-op
@@ -348,33 +461,171 @@ function applyStatEffect(stats: EffectiveStats, e: BoonStatEffect): void {
   const target = tail === undefined ? (root as Record<string, number>) : (root[head] as Record<string, number>);
   const key = tail ?? head;
   const v = target[key] * (e.mult ?? 1) + (e.add ?? 0);
-  // Sanity gate: EVERY whitelisted stat is a strictly POSITIVE scalar (speeds,
-  // ranges, hp, reload ms, rpm, pool sizes). Zero, negative, NaN and Infinity
-  // are all invalid effect data — skip the assignment rather than poison the
-  // stats tree (a NaN maxSpeed desyncs prediction silently; a 0 sweepRpm makes
-  // sweepPeriodMs Infinity). Deterministic and identical on both sides.
+  // Sanity gate: EVERY whitelisted stat is a strictly POSITIVE scalar. Zero,
+  // negative, NaN and Infinity are all invalid effect data — skip the
+  // assignment rather than poison the stats tree. Deterministic on both sides.
   if (!Number.isFinite(v) || v <= 0) return;
   target[key] = v;
 }
 
+/** Fold one doctrine effect into its weapon's `mode` field — fail-closed:
+ *  unknown weapon or mode moves nothing. */
+function applyDoctrineEffect(stats: EffectiveStats, e: BoonDoctrineEffect): void {
+  if (!Object.hasOwn(DOCTRINE_MODES, e.weapon)) return;
+  const weapon = e.weapon as DoctrineWeapon;
+  if (!(DOCTRINE_MODES[weapon] as readonly string[]).includes(e.mode)) return;
+  if (weapon === 'cannon') stats.cannon.mode = e.mode as CannonMode;
+  else if (weapon === 'torpedo') stats.torpedo.mode = e.mode as TorpedoMode;
+  else if (weapon === 'mine') stats.mine.mode = e.mode as MineMode;
+  else stats.starShells.mode = e.mode as StarShellsMode;
+}
+
 /**
- * Fold every `stat` effect of `boons` into `stats` IN PLACE, in boon-list
- * order (then per-def effect order) — deterministic, applied AFTER legacy
- * upgrade stacking. Consumed ONLY by effectiveStats() (sim/stats.ts): the
- * one legal path from boons to derived numbers, so the desync firewall holds.
- * Re-applies the ratified sweepRpm ceiling and re-derives sweepPeriodMs from
- * the (possibly moved) sweepRpm afterward.
+ * Fold every `stat` and `doctrine` effect of `boons` into `stats` IN PLACE, in
+ * boon-list order (then per-def effect order) — deterministic. Consumed ONLY
+ * by effectiveStats() (sim/stats.ts): the one legal path from boons to derived
+ * numbers, so the desync firewall holds. Re-applies the ratified sweepRpm
+ * ceiling (CONFIG.vision.sweepRpmMax — sibling of the clamp in sim/stats.ts,
+ * the only two sites) and re-derives sweepPeriodMs afterward.
  */
 export function applyBoonStats(stats: EffectiveStats, boons: readonly BoonDef[]): void {
   for (const def of boons) {
     for (const e of def.effects) {
       if (e.kind === 'stat') applyStatEffect(stats, e);
+      else if (e.kind === 'doctrine') applyDoctrineEffect(stats, e);
     }
   }
-  // The ONE ratified stat ceiling (CONFIG.upgrades.sweepSpeed.maxRpm), re-applied
-  // over the boon fold: it is a property of the stat, not of the legacy upgrade
-  // path, so boon data may not exceed it either. Sibling site of the legacy
-  // clamp in sim/stats.ts — the two are the only places the ceiling lives.
-  stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.upgrades.sweepSpeed.maxRpm);
+  stats.sweepRpm = Math.min(stats.sweepRpm, CONFIG.vision.sweepRpmMax);
   stats.sweepPeriodMs = MS_PER_MINUTE / stats.sweepRpm;
+}
+
+// ---------------------------------------------------------------------------
+// Authoring-time catalog validation (Story 2.8 — closes the 2.5 ledger entry).
+// Pure and throw-free: each validator returns a list of human-readable
+// problems (empty = valid). Run over the production catalog in tests; also
+// available to any tool that authors injected catalogs.
+// ---------------------------------------------------------------------------
+
+/** The real equipment ids (slotFill/slotReplace targets). */
+const EQUIPMENT_IDS: ReadonlySet<string> = new Set(Object.keys(EQUIPMENT_CATEGORY));
+
+/** Problems with one STAT effect (helper of validateEffect). */
+function validateStatEffect(e: BoonStatEffect, tag: string): string[] {
+  const errs: string[] = [];
+  if (!BOON_STAT_PATH_SET.has(e.path)) errs.push(`${tag}: off-whitelist stat path '${e.path}'`);
+  if (e.mult === undefined && e.add === undefined) errs.push(`${tag}: stat effect moves nothing`);
+  if (e.mult !== undefined && (!Number.isFinite(e.mult) || e.mult <= 0)) errs.push(`${tag}: mult must be finite and > 0`);
+  if (e.add !== undefined && (!Number.isFinite(e.add) || e.add === 0)) errs.push(`${tag}: add must be finite and non-zero`);
+  return errs;
+}
+
+/** Problems with one SLOT effect (helper of validateEffect). */
+function validateSlotEffect(e: BoonSlotFillEffect | BoonSlotReplaceEffect, tag: string): string[] {
+  const errs: string[] = [];
+  if (e.kind === 'slotFill') {
+    if (!EQUIPMENT_IDS.has(e.equipmentId)) errs.push(`${tag}: slotFill of unknown equipment '${e.equipmentId}'`);
+    return errs;
+  }
+  if (!EQUIPMENT_IDS.has(e.from) || !EQUIPMENT_IDS.has(e.to)) errs.push(`${tag}: slotReplace of unknown equipment`);
+  if (e.from === e.to) errs.push(`${tag}: degenerate slotReplace (from === to)`);
+  return errs;
+}
+
+/** Problems with one DOCTRINE effect (helper of validateEffect). */
+function validateDoctrineEffect(e: BoonDoctrineEffect, tag: string): string[] {
+  if (!Object.hasOwn(DOCTRINE_MODES, e.weapon)) return [`${tag}: doctrine on non-doctrine weapon '${e.weapon}'`];
+  const modes = DOCTRINE_MODES[e.weapon as DoctrineWeapon] as readonly string[];
+  if (!modes.includes(e.mode)) return [`${tag}: unknown doctrine mode '${e.mode}' for '${e.weapon}'`];
+  return [];
+}
+
+/** Problems with one EFFECT of a def (helper of validateBoonDef). */
+function validateEffect(e: BoonEffect, tag: string): string[] {
+  if (e.kind === 'stat') return validateStatEffect(e, tag);
+  if (e.kind === 'slotFill' || e.kind === 'slotReplace') return validateSlotEffect(e, tag);
+  if (e.kind === 'doctrine') return validateDoctrineEffect(e, tag);
+  if (e.kind !== 'behavior') return [`${tag}: unknown effect kind`];
+  return [];
+}
+
+/** Problems with a def's rarity/copies row (helper of validateBoonDef). */
+function validateScarcity(def: BoonDef): string[] {
+  const errs: string[] = [];
+  if (!['common', 'rare', 'exclusive'].includes(def.rarity)) errs.push(`${def.id}: unknown rarity '${def.rarity}'`);
+  if (!Number.isInteger(def.copies) || def.copies < 1) errs.push(`${def.id}: copies must be an integer ≥ 1`);
+  if (def.rarity === 'exclusive' && def.copies !== 1) errs.push(`${def.id}: an exclusive is always 1 copy`);
+  if (def.healOnGrant !== undefined && def.healOnGrant !== true) errs.push(`${def.id}: healOnGrant may only be true`);
+  if (def.healOnGrant === true) {
+    const heals = def.effects.some((e) => e.kind === 'stat' && e.path === 'maxHp' && (e.add ?? 0) > 0);
+    if (!heals) errs.push(`${def.id}: healOnGrant requires a positive maxHp add effect`);
+  }
+  return errs;
+}
+
+/** The weapon of a def's doctrine effect, if any (exclusive-pair helper). */
+function doctrineWeaponOf(d: BoonDef): string | undefined {
+  return d.effects.find((e): e is BoonDoctrineEffect => e.kind === 'doctrine')?.weapon;
+}
+
+/** Problems with the RIVAL side of an exclusive link (helper below). */
+function validateRival(def: BoonDef, rival: BoonDef | undefined): string[] {
+  if (rival === undefined) return [`${def.id}: exclusiveWith names unknown boon '${def.exclusiveWith}'`];
+  const errs: string[] = [];
+  if (rival.exclusiveWith !== def.id) errs.push(`${def.id}: exclusiveWith is not symmetric with '${rival.id}'`);
+  if (rival.rarity !== 'exclusive') errs.push(`${def.id}: rival '${rival.id}' is not rarity 'exclusive'`);
+  const w1 = doctrineWeaponOf(def);
+  if (w1 === undefined || w1 !== doctrineWeaponOf(rival)) {
+    errs.push(`${def.id}: exclusive pair must both carry a doctrine on the same weapon`);
+  }
+  return errs;
+}
+
+/** Problems with a def's exclusiveWith link (helper of validateBoonDef). */
+function validateExclusiveLink(def: BoonDef, catalog: BoonCatalog): string[] {
+  const errs: string[] = [];
+  if (doctrineWeaponOf(def) !== undefined && def.rarity !== 'exclusive') {
+    errs.push(`${def.id}: doctrine effects belong to 'exclusive' rarity only`);
+  }
+  if (def.exclusiveWith === undefined) {
+    if (def.rarity === 'exclusive') errs.push(`${def.id}: an exclusive must name its rival (exclusiveWith)`);
+    return errs;
+  }
+  if (def.rarity !== 'exclusive') errs.push(`${def.id}: exclusiveWith requires rarity 'exclusive'`);
+  const rival = Object.hasOwn(catalog, def.exclusiveWith) ? catalog[def.exclusiveWith] : undefined;
+  errs.push(...validateRival(def, rival));
+  return errs;
+}
+
+/**
+ * Validate ONE boon def against its catalog (authoring-time; closes the 2.5
+ * deferred-work entry). Returns problems, empty = valid: whitelisted stat
+ * paths with finite positive values, non-empty effects, sane rarity/copies
+ * (exclusives are 1 copy), symmetric same-weapon exclusive pairs, known
+ * doctrine modes, real slotFill/slotReplace equipment, healOnGrant coherence.
+ */
+export function validateBoonDef(def: BoonDef, catalog: BoonCatalog = BOON_CATALOG): string[] {
+  const errs: string[] = [];
+  if (typeof def.id !== 'string' || !/^[a-z][A-Za-z0-9]*$/.test(def.id)) errs.push(`'${String(def.id)}': id must be camelCase`);
+  if (typeof def.category !== 'string' || def.category.length === 0) errs.push(`${def.id}: category must be non-empty`);
+  if (def.effects.length === 0) errs.push(`${def.id}: effects must be non-empty`);
+  def.effects.forEach((e, i) => errs.push(...validateEffect(e, `${def.id}[${i}]`)));
+  errs.push(...validateScarcity(def));
+  errs.push(...validateExclusiveLink(def, catalog));
+  return errs;
+}
+
+/**
+ * Validate a whole catalog: every def valid under validateBoonDef, and every
+ * key equal to its def's id (the registry-id convention). Returns problems,
+ * empty = valid. The production BOON_CATALOG passes (pinned in tests).
+ */
+export function validateCatalog(catalog: BoonCatalog = BOON_CATALOG): string[] {
+  const errs: string[] = [];
+  for (const key of Object.keys(catalog)) {
+    const def = catalog[key];
+    if (def === undefined) continue;
+    if (def.id !== key) errs.push(`catalog key '${key}' does not match def id '${def.id}'`);
+    errs.push(...validateBoonDef(def, catalog));
+  }
+  return errs;
 }
