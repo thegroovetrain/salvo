@@ -7,6 +7,7 @@
 // the only push in the one-way flow; everything else pulls).
 
 import {
+  BOON_CATALOG,
   CONFIG,
   HULL_IDS,
   MSG,
@@ -43,7 +44,7 @@ import type { ShakeDriver } from '../render/shake.js';
 import { killLine, pushKillLine } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
-import { fireTone, type ToneId } from '../audio/tones.js';
+import { fireTone, fitTone, type ToneId } from '../audio/tones.js';
 
 /**
  * A `shell` event fires a muzzle flash only when it reveals AT a ship we can
@@ -149,6 +150,15 @@ export interface RoomBindingDeps {
    * reaches into main (one-way data flow).
    */
   onSpendAck: () => void;
+  /**
+   * A boon just landed, with the CATEGORY it landed on (Story 2.9): main.ts
+   * latches the fit flash on the slot that category belongs to — or, for a
+   * shipwide INTEL/SHIP line that no slot owns, on the whole hotbar frame
+   * (amendment 51: the visible change is slot-side, never the hull). The tone
+   * is played here (it is a cue, and cues live with their events); the flash is
+   * a render latch, so net calls a callback rather than reaching into main.
+   */
+  onBoonFitted: (category: string) => void;
   /** Fired ONCE when the first spec frame arrives (enter spectate mode). */
   onSpectate: () => void;
   /** The one end-of-match results broadcast. */
@@ -366,7 +376,7 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
 /**
  * A banked level was SPENT and a boon fitted (Story 2.7): the fitted toast on
  * the existing upgrade-toast surface (UX-DR23 — self events only) plus the
- * existing upgrade tone. `bn` is self-private (perception forwards it only to
+ * fit cue. `bn` is self-private (perception forwards it only to
  * the spender), so the id check is defensive, not load-bearing. Deliberately
  * NOT dead-gated: spending while dead is legal (ratified 2.6/2.7), and the
  * confirmation that the spend landed is exactly what the player needs.
@@ -384,7 +394,14 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   // count IS the fitted position — 1 for a first fit, 3 for the third HEAVY
   // SHELLS. A defensive 0 (no `you`) floors to the ladder's first name.
   pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.boons ?? [], e.boon)));
-  deps.audio.play('upgrade');
+  // STORY 2.9 — the fit is no longer one generic two-note for all 42 lines: the
+  // cue is WEIGHTED BY TIER (fitTone) and the flash lands on the CATEGORY's own
+  // slot. Both read off the shared catalog, fail-open (a junk/unknown id still
+  // gets the common weight and a rank-wide flash) — FR22 makes silence the
+  // defect, so no branch here may end without a cue.
+  const def = Object.hasOwn(BOON_CATALOG, e.boon) ? BOON_CATALOG[e.boon] : undefined;
+  deps.audio.play(fitTone(def?.rarity));
+  deps.onBoonFitted(def?.category ?? '');
   deps.onSpendAck();
 }
 

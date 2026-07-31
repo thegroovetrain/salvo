@@ -1,10 +1,15 @@
 // The hotbar's PURE CORE (Story 2.2) — the whole ratified contract, tested
 // without instantiating Pixi (the class is a thin shell over these functions):
-// slot order Gun–Q–E–R, the seven-state grammar and its precedence, the ability
+// slot order Gun–Q–E–R, the state grammar and its precedence, the ability
 // chamfer, the >1-pool ammo badge, quick-info strings (incl. the live cooling
 // countdown), the hit-test that both hover and the click gate consult, the
 // key-equivalent click routing (amendment 11), the tooltip model (keyless gun
-// line, boons rendered as ABSENCE) and its viewport-safe placement.
+// line) and its viewport-safe placement.
+//
+// STORY 2.9 grew it into the surface where a boon becomes VISIBLE (amendment
+// 51): the eighth ACTIVE state (amendment 48) with its breathing outline and
+// countdown, the fit flash, the `◆n` compression, and the tooltip's accrued
+// list. The container-fit half of that lives in __tests__/tooltipFit.test.ts.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -19,13 +24,22 @@ import {
   type WeaponAmmo,
 } from '@salvo/shared';
 import {
+  ACTIVE_PULSE_AMP,
+  ACTIVE_PULSE_HZ,
   EMPTY_SLOT_LABEL,
   NO_HOVER,
+  SHIP_DIVIDER_ROW,
+  activeBreath,
+  activeTag,
   badgeText,
+  boonMark,
+  boonRows,
+  breathedSkin,
   coolFraction,
   fmtDamage,
   fmtRemaining,
   fmtSeconds,
+  fmtWindow,
   hotbarLayout,
   hoverReady,
   isCooling,
@@ -33,6 +47,7 @@ import {
   quickInfoLine,
   shouldShowTooltip,
   slotAtPoint,
+  slotBoonIds,
   slotSkin,
   slotState,
   slotViewModels,
@@ -40,7 +55,13 @@ import {
   tooltipPlacement,
   type HotbarView,
 } from '../render/hotbar.js';
-import { EQUIPMENT_NAME, equipmentInfo, interactionLine, SLOT_KEY_GLYPHS } from '../render/equipmentInfo.js';
+import {
+  EQUIPMENT_NAME,
+  equipmentInfo,
+  interactionLine,
+  slotForBoonCategory,
+  SLOT_KEY_GLYPHS,
+} from '../render/equipmentInfo.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const H = CLIENT_CONFIG.hotbar;
@@ -505,5 +526,180 @@ describe('label column fit (amendment 47)', () => {
         if (t !== null) expect(monoW(t, 16, 0)).toBeLessThanOrEqual(H.badge);
       }
     }
+  });
+});
+
+// --- Story 2.9: the build, felt on the slot ------------------------------------
+
+describe('the EIGHTH state: ACTIVE while an ability window runs (amendment 48)', () => {
+  const NONE = { denied: false, activated: false };
+
+  it('enters ACTIVE from a running window, and leaves it when the window ends', () => {
+    const base = viewFor('torpedoBoat'); // slot 2 = speedBoost
+    const running = slotViewModels({ ...base, activeMsLeft: [0, 0, 3000, 0] });
+    expect(running[2].state).toBe('active');
+    const ended = slotViewModels({ ...base, activeMsLeft: [0, 0, 0, 0] });
+    expect(ended[2].state).toBe('readyAbility');
+  });
+
+  it('outranks COOLING — a decoy floats while its rack reloads — but not denied/activated', () => {
+    expect(slotState('decoyBuoy', NONE, true, false, false, true)).toBe('active');
+    expect(slotState('decoyBuoy', NONE, true, true, false, true)).toBe('active');
+    expect(slotState('decoyBuoy', { ...NONE, denied: true }, true, false, false, true)).toBe('denied');
+    expect(slotState('decoyBuoy', { ...NONE, activated: true }, true, false, false, true)).toBe('activated');
+    // ...and the conic cool track keeps its fraction, so nothing is lost.
+    const view = viewFor('mineLayer', {
+      ammo: [null, null, { n: 0, reloadMsLeft: 5000 }, null],
+      activeMsLeft: [0, 0, 20_000, 0],
+    });
+    const decoy = slotViewModels(view)[2];
+    expect(decoy.state).toBe('active');
+    expect(decoy.coolFrac).toBeGreaterThan(0);
+  });
+
+  it('prints the remaining WHOLE seconds in the quick-info line, dual-coding the outline', () => {
+    const stats = statsFor('torpedoBoat');
+    const boost = equipmentInfo(stats, 'speedBoost');
+    expect(quickInfoLine(boost, 0, 3200)).toBe(`ACTIVE 4s · CD ${fmtSeconds(boost.reloadMs)}`);
+    expect(quickInfoLine(boost, 0, 0)).toBe(`CD ${fmtSeconds(boost.reloadMs)}`);
+    expect(activeTag(0)).toBe('');
+    expect(fmtWindow(1)).toBe('1s'); // a live window never reads 0s
+    expect(fmtWindow(12_010)).toBe('13s');
+  });
+
+  it('keeps the countdown at EVERY motion level — only the breathing stops', () => {
+    const stats = statsFor('torpedoBoat');
+    const boost = equipmentInfo(stats, 'speedBoost');
+    // The text is motion-independent by construction (no motion input at all).
+    expect(quickInfoLine(boost, 0, 2000)).toContain('ACTIVE');
+    // motion=off → amplitude 0 → a STATIC outline at full alpha, not a dark one.
+    expect(activeBreath(1.234, 0)).toBe(1);
+    expect(activeBreath(9.9, 0)).toBe(1);
+  });
+
+  it('breathes under the SHARED photosensitivity cap, never on a literal', () => {
+    expect(ACTIVE_PULSE_HZ).toBeLessThanOrEqual(CLIENT_CONFIG.settings.pulseCapHz);
+    expect(ACTIVE_PULSE_HZ).toBeLessThanOrEqual(0.5); // amendment 48's >= 2s cycle
+    // The breath swings the alpha multiplier inside [1 - 2a, 1] and never above 1.
+    for (let t = 0; t < 4; t += 0.05) {
+      const b = activeBreath(t);
+      expect(b).toBeLessThanOrEqual(1 + 1e-9);
+      expect(b).toBeGreaterThanOrEqual(1 - 2 * ACTIVE_PULSE_AMP - 1e-9);
+    }
+  });
+
+  it('applies the breath to the ACTIVE outline ONLY', () => {
+    const dim = breathedSkin('active', 1, 0.5);
+    const full = slotSkin('active', 1);
+    expect(dim.borderAlpha).toBeCloseTo(full.borderAlpha * 0.5);
+    expect(dim.glowAlpha).toBeCloseTo(full.glowAlpha * 0.5);
+    expect(dim.borderWidth).toBe(full.borderWidth); // width holds — shape is information
+    for (const s of ['cooling', 'selected', 'readyWeapon', 'denied'] as const) {
+      expect(breathedSkin(s, 1, 0.2)).toEqual(slotSkin(s, 1));
+    }
+  });
+});
+
+describe('the FIT flash — the slot-side visible change (amendment 51)', () => {
+  it('flashes only the slot whose family took the boon', () => {
+    const rows = slotViewModels(viewFor('torpedoBoat', { fit: [false, true, false, false] }));
+    expect(rows.map((r) => r.fitFlash)).toEqual([false, true, false, false]);
+  });
+
+  it('is suppressed at motion=off (the toast + tooltip row carry it statically)', () => {
+    const on = slotViewModels(viewFor('torpedoBoat', { fit: [true, false, false, false], motion: 'reduced' }));
+    const off = slotViewModels(viewFor('torpedoBoat', { fit: [true, false, false, false], motion: 'off' }));
+    expect(on[0].fitFlash).toBe(true);
+    expect(off[0].fitFlash).toBe(false);
+  });
+
+  it('routes a fitted CATEGORY to its slot, and a shipwide line to no slot at all', () => {
+    const loadout = idsFor('mineLayer', statsFor('mineLayer')); // gun / mine / decoyBuoy / null
+    expect(slotForBoonCategory(loadout, 'guns')).toBe(0);
+    expect(slotForBoonCategory(loadout, 'mines')).toBe(1);
+    expect(slotForBoonCategory(loadout, 'decoyBuoy')).toBe(2);
+    expect(slotForBoonCategory(loadout, 'intel')).toBeNull();
+    expect(slotForBoonCategory(loadout, 'ship')).toBeNull();
+    // A category this hull does not carry owns no slot either (rank-wide flash).
+    expect(slotForBoonCategory(loadout, 'torpedoes')).toBeNull();
+  });
+});
+
+describe('the ◆n accrued mark compresses the build into the row', () => {
+  it('counts the slot family only, and shows nothing on an unboonded slot', () => {
+    const boons = ['gunDamage', 'gunDamage', 'torpedoSpeed'];
+    const rows = slotViewModels(viewFor('torpedoBoat', { boons }));
+    expect(rows[0].boonCount).toBe(2); // gun
+    expect(rows[1].boonCount).toBe(1); // torpedo
+    expect(rows[2].boonCount).toBe(0); // boost
+    expect(rows[0].quickInfo.endsWith(' ◆2')).toBe(true);
+    expect(rows[2].quickInfo).not.toContain('◆');
+  });
+
+  it('folds the shipwide lines into the GUN slot only (the ship card)', () => {
+    const boons = ['intelRadar', 'shipHull', 'gunReload'];
+    const rows = slotViewModels(viewFor('torpedoBoat', { boons }));
+    expect(rows[0].boonCount).toBe(3);
+    expect(rows[1].boonCount).toBe(0);
+    expect(slotBoonIds('torpedo', boons)).toEqual([]);
+  });
+
+  it('ignores a junk id on the wire rather than counting it', () => {
+    expect(slotBoonIds('gun', ['gunDamage', 'notARealBoon', 'constructor'])).toEqual(['gunDamage']);
+  });
+
+  it('clamps at 9+ so the mark can never outgrow the label column', () => {
+    expect(boonMark(0)).toBe('');
+    expect(boonMark(9)).toBe(' ◆9');
+    expect(boonMark(12)).toBe(' ◆9+');
+  });
+});
+
+describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => {
+  const stats = statsFor('torpedoBoat');
+
+  it('gives every held line a ◆ name row and a live effect line', () => {
+    const t = tooltipModel(1, 'torpedo', stats, ['torpedoDamage', 'torpedoTube'])!;
+    expect(t.boons.map((r) => r.label)).toEqual(['◆ HEAVY WARHEAD Mk I', '◆ SECOND TUBE']);
+    expect(t.boons[0].effect).toMatch(/^Torpedo damage: \d/);
+    expect(t.boons[1].effect).toMatch(/^Torpedoes loaded: \d/);
+  });
+
+  it('COLLAPSES a stack into one row at its current rung, marked ×n', () => {
+    const held = ['gunDamage', 'gunDamage', 'gunDamage'];
+    const rows = boonRows('gun', held, statsFor('torpedoBoat', { gunDamage: 3 }));
+    expect(rows).toHaveLength(1);
+    expect(rows[0].label).toBe('◆ HEAVY SHELLS Mk III ×3');
+  });
+
+  it('prints a doctrine row with its behavior text, not a number', () => {
+    const t = tooltipModel(1, 'mine', stats, ['mineSelfPropelled'])!;
+    expect(t.boons[0].label).toBe('◆ SELF-PROPELLED MINES');
+    expect(t.boons[0].effect).toContain('creep');
+  });
+
+  it('hosts INTEL/SHIP lines under the — SHIP — divider, in the gun tooltip only', () => {
+    const held = ['gunReload', 'intelSweep', 'shipSpeed'];
+    const gun = tooltipModel(0, 'gun', stats, held)!;
+    expect(gun.boons.map((r) => r.label)).toEqual([
+      '◆ LOADING DRILLS',
+      SHIP_DIVIDER_ROW,
+      '◆ UPRATED SWEEP MOTOR Mk I',
+      '◆ HULL SCRAPING',
+    ]);
+    expect(gun.boons[1].divider).toBe(true);
+    expect(gun.boons[1].effect).toBe('');
+    expect(tooltipModel(1, 'torpedo', stats, held)!.boons).toEqual([]);
+  });
+
+  it('still renders ABSENCE for a slot with nothing fitted', () => {
+    expect(tooltipModel(1, 'torpedo', stats, ['gunDamage'])!.boons).toEqual([]);
+    expect(tooltipModel(1, 'torpedo', stats)!.boons).toEqual([]);
+  });
+
+  it('reports the LIVE value, so the row moves with the stack', () => {
+    const one = tooltipModel(0, 'gun', statsFor('torpedoBoat', { gunDamage: 1 }), ['gunDamage'])!;
+    const four = tooltipModel(0, 'gun', statsFor('torpedoBoat', { gunDamage: 4 }), Array(4).fill('gunDamage'))!;
+    expect(one.boons[0].effect).not.toBe(four.boons[0].effect);
   });
 });

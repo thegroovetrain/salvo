@@ -26,6 +26,7 @@ import {
   SLOT_COUNT,
   zoneRadiusAt,
   type BoonDef,
+  type DecoyView,
   type DeniedView,
   type EffectiveStats,
   type EquipmentId,
@@ -56,6 +57,7 @@ import { Zone, type ZoneDisplay } from './render/zone.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
+import { slotForBoonCategory } from './render/equipmentInfo.js';
 import { XpRail, type XpView } from './render/xpRail.js';
 import { spectatePan, wheelZoom, pickSpectateTarget, shouldEngageFreePan } from './render/spectate.js';
 import { ShakeDriver } from './render/shake.js';
@@ -253,6 +255,27 @@ interface Game {
   activatedPulse: DeniedPulse[];
   /** This frame's activated-pop state per loadout slot (read by the hotbar). */
   activatedFlash: boolean[];
+  /** One-shot latch PER LOADOUT SLOT: a boon landed on that slot's category
+   *  (Story 2.9, amendment 51) — consumed into the matching fitPulse. */
+  fitPress: boolean[];
+  /** Rate-limited FIT pulse per loadout slot — the SAME 80ms/300ms register as
+   *  the denied and activated pulses (one DeniedPulse driver per slot, so two
+   *  fits in one refit window can't share a rate floor). */
+  fitPulse: DeniedPulse[];
+  /** This frame's fit-flash state per loadout slot (read by the hotbar). */
+  fitFlash: boolean[];
+  /** The RANK-WIDE fit channel: a shipwide INTEL/SHIP boon belongs to no single
+   *  slot, so the whole stack flashes once on the same 80ms/300ms register. */
+  fitFramePress: boolean;
+  fitFramePulse: DeniedPulse;
+  fitFrameFlash: boolean;
+  /**
+   * ms (server clock) — the latest OWN decoy buoy's expiry, the decoy slot's
+   * ACTIVE window (amendment 48). Latched from the Decoys reconcile's own-spawn
+   * hook, which is the only "you just placed one" signal the client gets; a
+   * replacement buoy simply supersedes it (latest `until` wins).
+   */
+  ownDecoyUntil: number;
   /** Tone player (audio/context.ts). */
   audio: Audio;
   /**
@@ -1197,7 +1220,8 @@ function onSpendClick(getG: () => Game | null): (choice: number) => void {
  *  `ability` naming predates the weapon-slot extension). */
 function abilityFeedbackState(): Pick<
   Game,
-  'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityActivatedPress' | 'activatedPulse' | 'activatedFlash'
+  | 'abilityDeniedPress' | 'abilityPulse' | 'abilityFlash' | 'abilityActivatedPress' | 'activatedPulse'
+  | 'activatedFlash' | 'fitPress' | 'fitPulse' | 'fitFlash' | 'fitFramePress' | 'fitFramePulse' | 'fitFrameFlash'
 > {
   return {
     abilityDeniedPress: Array.from({ length: SLOT_COUNT }, () => false),
@@ -1208,7 +1232,50 @@ function abilityFeedbackState(): Pick<
     abilityActivatedPress: Array.from({ length: SLOT_COUNT }, () => false),
     activatedPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
     activatedFlash: Array.from({ length: SLOT_COUNT }, () => false),
+    // Story 2.9: the same three-part shape again for the FIT channel, driven off
+    // the server's `bn` receipt (never predicted — a fit is the server's word).
+    fitPress: Array.from({ length: SLOT_COUNT }, () => false),
+    fitPulse: Array.from({ length: SLOT_COUNT }, () => new DeniedPulse()),
+    fitFlash: Array.from({ length: SLOT_COUNT }, () => false),
+    fitFramePress: false,
+    fitFramePulse: new DeniedPulse(),
+    fitFrameFlash: false,
   };
+}
+
+/**
+ * An OWN decoy buoy just appeared in the reconcile (render/decoys' own-spawn
+ * hook): play its placement cue and latch the window the hotbar's ACTIVE state
+ * reads. The hook only ever fires for buoys we own, so a truesighted enemy buoy
+ * can never light our slot.
+ */
+function onOwnDecoy(g: Game | null, audio: Audio, d: DecoyView): void {
+  audio.play('placeDecoy');
+  if (g) g.ownDecoyUntil = Math.max(g.ownDecoyUntil, d.until);
+}
+
+/**
+ * A boon landed: latch its FIT flash (Story 2.9). The category resolves to the
+ * slot carrying that equipment; a shipwide INTEL/SHIP line (or any category no
+ * fitted slot owns) falls through to the rank-wide frame pulse, so no fit is
+ * ever presentation-silent (FR22).
+ */
+function latchFitFlash(g: Game, category: string): void {
+  const slot = slotForBoonCategory(g.ownSlots, category);
+  if (slot === null) g.fitFramePress = true;
+  else g.fitPress[slot] = true;
+}
+
+/**
+ * ms — the REMAINING ability window per loadout slot (0 = none running), the
+ * ACTIVE state's only input (amendment 48). The boost reads the same
+ * (prediction-aware) `boostUntil` estimate the HUD's boost tag does; the decoy
+ * reads the latched own-buoy expiry. Everything else has no window.
+ */
+function activeWindows(g: Game, status: OwnStatus): number[] {
+  const now = g.clock.serverNow();
+  const until = { speedBoost: boostUntilNow(g), decoyBuoy: g.ownDecoyUntil };
+  return status.loadout.map((id) => (id === 'speedBoost' || id === 'decoyBuoy' ? Math.max(0, until[id] - now) : 0));
 }
 
 function buildGame(
@@ -1249,7 +1316,7 @@ function buildGame(
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
     effects,
     mines: new Mines(stage.layers.mineChart, stage.layers.mineWorld, () => audio.play('fireMine')),
-    decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, () => audio.play('placeDecoy')),
+    decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, (d) => onOwnDecoy(gRef, audio, d)),
     litZones: new LitZones(stage.layers.litZone),
     fog: new Fog(stage.fogSprite),
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
@@ -1276,6 +1343,7 @@ function buildGame(
     matchEnded: false, resultsFinal: false, resultsShownAt: Infinity, audioCueState: INITIAL_CUE_STATE, wasInStorm: false,
     prevClickCount: 0, lastTickClick: 0,
     ownClass: cls, ownHueIndex: null, ownPlated: false, // amber/unresolved until the roster syncs (1.12/1.13)
+    ownDecoyUntil: 0,
     ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
   };
   gRef = g;
@@ -1381,6 +1449,12 @@ function bindGameRoom(g: Game, conn: Connection): void {
     resetThrottle: () => {
       g.keyboard.resetThrottle();
       g.keyboard.clearActivations();
+      // Story 2.9: the decoy slot's ACTIVE window dies at the same hard boundary
+      // (own sunk / spawn / the match-activation teleport). The latch is fed by
+      // the reconcile's own-spawn hook, which only ever fires for a NEW buoy —
+      // so a window left standing across death would keep a slot reading ACTIVE
+      // for a buoy the next life does not own. Missing juice beats a lying slot.
+      g.ownDecoyUntil = 0;
       // Reset the denial dedup at the SAME boundary (Story 1.10): dropping
       // queued presses without advancing actCount would otherwise let the next
       // press reuse a still-marked (slot, seq), suppressing a genuine later
@@ -1400,6 +1474,10 @@ function bindGameRoom(g: Game, conn: Connection): void {
     // the latch in flight so it releases as a SUCCESS even when a same-frame
     // passive bank + an identical re-roll hide every other landing signal.
     onSpendAck: () => markSpendAcked(g),
+    // Story 2.9: the fitted boon's CATEGORY decides which slot flashes (amendment
+    // 51 — the visible change is slot-side). A shipwide INTEL/SHIP line owns no
+    // slot, so the whole stack takes one rank-wide pulse instead.
+    onBoonFitted: (category) => latchFitFlash(g, category),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
       // Latched: a story-0.2 resume re-delivers the cached results broadcast,
@@ -1522,7 +1600,16 @@ function updateHotbar(g: Game, status: OwnStatus): void {
     denied: hotbarDenied(g, status),
     activated: g.activatedFlash,
     dim: modalOpen(g), // any suspending surface: dim to 38%, keys AND clicks off
-    motion: settings.current.motion, // gates the ACTIVATED pop + glow amplitude
+    motion: settings.current.motion, // gates the ACTIVATED/FIT pops + amplitudes
+    // Story 2.9 — the build, felt on the slot: the accrued list + `◆n` marks
+    // (server-authoritative `you.boons`, rendered verbatim), the ACTIVE ability
+    // windows (amendment 48), and this frame's fit flashes. `nowSec` is the
+    // shared server-clock estimate the ACTIVE outline breathes on.
+    boons: g.state.net.you?.boons ?? [],
+    activeMsLeft: activeWindows(g, status),
+    fit: g.fitFlash,
+    fitFrame: g.fitFrameFlash,
+    nowSec: g.clock.serverNow() / 1000,
   };
   // Hover reads the pointer ONLY while it is inside the window (the aim path
   // keeps using the last known position regardless — see MouseInput).
@@ -1576,7 +1663,14 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
     // The ACTIVATED pop rides the identical register (Story 2.2).
     g.activatedFlash[s] = g.activatedPulse[s].update(g.abilityActivatedPress[s], nowMs);
     g.abilityActivatedPress[s] = false;
+    // ...and so does the FIT flash (Story 2.9): the boon landing on this slot's
+    // family. Driven OUTSIDE the alive gate below like the denial channel — a
+    // spend is legal while dead, and the hotbar is simply hidden there.
+    g.fitFlash[s] = g.fitPulse[s].update(g.fitPress[s], nowMs);
+    g.fitPress[s] = false;
   }
+  g.fitFrameFlash = g.fitFramePulse.update(g.fitFramePress, nowMs);
+  g.fitFramePress = false;
   if (!status.alive) {
     g.firing.hide();
     g.deniedFlash = false;

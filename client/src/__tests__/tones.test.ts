@@ -4,9 +4,11 @@
 // untested adapter per convention — this file covers everything pure.
 
 import { describe, it, expect } from 'vitest';
+import { BOON_CATALOG, type BoonRarity } from '@salvo/shared';
 import {
   TONES,
   fireTone,
+  fitTone,
   telegraphTone,
   MAX_TONE_S,
   MAX_SINK_TONE_S,
@@ -28,7 +30,9 @@ const ALL_TONE_IDS: ToneId[] = [
   'damage',
   'kill',
   'point',
-  'upgrade',
+  'fitCommon',
+  'fitRare',
+  'fitExclusive',
   'sink',
   'tick',
   'matchStart',
@@ -135,11 +139,42 @@ describe('telegraphTone — detent-click direction', () => {
   });
 });
 
-describe('upgrade tone — short rising two-note', () => {
-  it('rises (ends above its start) and stays within the short-tone budget', () => {
-    expect(TONES.upgrade.freqEnd).toBeGreaterThan(TONES.upgrade.freqStart);
-    expect(TONES.upgrade.freqMid).toBeGreaterThan(TONES.upgrade.freqStart); // the second note steps UP
-    expect(TONES.upgrade.duration).toBeLessThanOrEqual(MAX_TONE_S);
+describe('the FIT family (Story 2.9) — one two-note template, three tier weights', () => {
+  const TIERS = ['fitCommon', 'fitRare', 'fitExclusive'] as const;
+
+  it('every tier is the same rising two-note shape, inside the short-tone budget', () => {
+    for (const id of TIERS) {
+      const t = TONES[id];
+      expect(t.freqMid).toBeGreaterThan(t.freqStart); // the second note steps UP
+      expect(t.freqEnd).toBe(t.freqMid); // ...and HOLDS (the retired `upgrade` shape)
+      expect(t.duration).toBeLessThanOrEqual(MAX_TONE_S);
+      expect(t.type).toBe('triangle'); // one instrument, three weights
+      expect(t.noise).toBeUndefined(); // never a gun-family transient
+    }
+  });
+
+  it('WEIGHTS by tier: the root drops, the note lengthens, the level rises', () => {
+    const [common, rare, exclusive] = TIERS.map((id) => TONES[id]);
+    expect(rare.freqStart).toBeLessThan(common.freqStart);
+    expect(exclusive.freqStart).toBeLessThan(rare.freqStart);
+    expect(rare.duration).toBeGreaterThan(common.duration);
+    expect(exclusive.duration).toBeGreaterThan(rare.duration);
+    expect(rare.volume).toBeGreaterThan(common.volume);
+    expect(exclusive.volume).toBeGreaterThan(rare.volume);
+  });
+
+  it('routes a boon rarity to its cue, and fails OPEN (never silent) on junk', () => {
+    expect(fitTone('common')).toBe('fitCommon');
+    expect(fitTone('rare')).toBe('fitRare');
+    expect(fitTone('exclusive')).toBe('fitExclusive');
+    expect(fitTone(undefined)).toBe('fitCommon');
+    expect(fitTone('legendary' as BoonRarity)).toBe('fitCommon');
+  });
+
+  it('every catalog line maps to a fit cue with a real spec (no silent boon)', () => {
+    const silent = Object.values(BOON_CATALOG).filter((def) => TONES[fitTone(def.rarity)] === undefined);
+    expect(silent).toEqual([]);
+    expect(Object.keys(BOON_CATALOG).length).toBeGreaterThanOrEqual(42);
   });
 });
 
@@ -150,10 +185,10 @@ describe('point tone — bright single rise (banked-point ping)', () => {
     expect(TONES.point.duration).toBeLessThanOrEqual(MAX_TONE_S);
   });
 
-  it('is distinct from the upgrade "spent" two-note (which plateaus)', () => {
-    // upgrade holds its second note (mid === end); point keeps climbing.
+  it('is distinct from the FIT family\'s "spent" two-note (which plateaus)', () => {
+    // Every fit tone holds its second note (mid === end); point keeps climbing.
     expect(TONES.point.freqEnd).not.toBe(TONES.point.freqMid);
-    expect(TONES.upgrade.freqEnd).toBe(TONES.upgrade.freqMid);
+    expect(TONES.fitCommon.freqEnd).toBe(TONES.fitCommon.freqMid);
   });
 });
 

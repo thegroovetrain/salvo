@@ -317,6 +317,7 @@ function setupToasts(spectating = false) {
   const conn = { room, welcome: {}, sink } as unknown as Connection;
   const play = vi.fn();
   const onSpendAck = vi.fn();
+  const onBoonFitted = vi.fn();
   const deps = {
     state: {
       net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 },
@@ -340,9 +341,10 @@ function setupToasts(spectating = false) {
     onSpectate: vi.fn(),
     onSunkObserved: vi.fn(),
     onSpendAck,
+    onBoonFitted,
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
-  return { sink, play, onSpendAck };
+  return { sink, play, onSpendAck, onBoonFitted };
 }
 
 function toastLines(): string[] {
@@ -386,12 +388,39 @@ describe('bindRoom reward toasts', () => {
     expect(play).not.toHaveBeenCalled();
   });
 
-  it('a fitted boon toasts with the ladder name + upgrade tone, even while dead', () => {
+  it('a fitted boon toasts with the ladder name + its TIER cue, even while dead', () => {
     document.body.replaceChildren();
     const { sink, play } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'gunDamage' }, { alive: false, boons: ['gunDamage'] }));
     expect(toastLines()).toEqual(['◆ HEAVY SHELLS Mk I FITTED']);
-    expect(play).toHaveBeenCalledWith('upgrade');
+    expect(play).toHaveBeenCalledWith('fitCommon');
+  });
+
+  it('WEIGHTS the fit cue by the fitted line\'s tier (Story 2.9)', () => {
+    for (const [boon, tone] of [['gunDamage', 'fitCommon'], ['gunBarrel', 'fitRare'], ['cannonAp', 'fitExclusive']]) {
+      document.body.replaceChildren();
+      const { sink, play } = setupToasts();
+      sink.handler(rewardFrame({ k: 'bn', id: 'me', boon }, { alive: true, boons: [boon] }));
+      expect(play).toHaveBeenCalledWith(tone);
+    }
+  });
+
+  it('routes the fit FLASH to the fitted line\'s category (amendment 51)', () => {
+    document.body.replaceChildren();
+    const { sink, onBoonFitted } = setupToasts();
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'mineBlast' }, { alive: true, boons: ['mineBlast'] }));
+    expect(onBoonFitted).toHaveBeenCalledWith('mines');
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'intelRadar' }, { alive: true, boons: ['intelRadar'] }));
+    expect(onBoonFitted).toHaveBeenCalledWith('intel'); // shipwide -> the rank-wide flash
+  });
+
+  it('never goes SILENT on an unknown id (FR22): the common cue + a rank-wide flash', () => {
+    document.body.replaceChildren();
+    const { sink, play, onBoonFitted, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, boons: ['notARealBoon'] }));
+    expect(play).toHaveBeenCalledWith('fitCommon');
+    expect(onBoonFitted).toHaveBeenCalledWith('');
+    expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 
   it('the fitted toast names the RUNG that was fitted, not the line\'s first name', () => {

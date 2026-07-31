@@ -13,6 +13,7 @@
 // boon-copy rule) — canon later.
 
 import {
+  EQUIPMENT_CATEGORY,
   EQUIPMENT_IS_WEAPON,
   SLOT_GUN,
   equipmentMaxAmmo,
@@ -57,6 +58,35 @@ export function interactionLine(slot: number, id: EquipmentId): string {
   return EQUIPMENT_IS_WEAPON[id]
     ? `WEAPON · ${key} · SWITCH-TO`
     : `ABILITY · ${key} · ACTIVATES`;
+}
+
+/**
+ * The two catalog categories that belong to no single slot: INTEL (sight/radar/
+ * sweep) and SHIP (speed/hull) upgrade the whole vessel. Amendment 51 makes the
+ * hotbar the ONLY place a boon becomes visible, so these need a home that is not
+ * a weapon — the gun slot's tooltip carries them under a `— SHIP —` divider (the
+ * gun is the permanent top slot, i.e. the natural ship card) and their fit flash
+ * is rank-wide rather than slot-local.
+ */
+export const SHIPWIDE_CATEGORIES: readonly string[] = ['intel', 'ship'];
+
+/**
+ * Pure: the loadout slot a fitted boon's CATEGORY belongs to, or null when no
+ * fitted slot owns it — a shipwide category (INTEL/SHIP), or an equipment
+ * category for a piece of kit this hull does not carry (defensive: the server
+ * only offers a subdeck's cards while its equipment is fitted).
+ *
+ * THE routing behind the fit flash (amendment 51): the boon lands on ITS slot.
+ */
+export function slotForBoonCategory(
+  loadout: readonly (EquipmentId | null)[],
+  category: string,
+): number | null {
+  for (let slot = 0; slot < loadout.length; slot += 1) {
+    const id = loadout[slot];
+    if (id !== null && EQUIPMENT_CATEGORY[id] === category) return slot;
+  }
+  return null;
 }
 
 /**
