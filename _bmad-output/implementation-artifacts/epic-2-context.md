@@ -134,3 +134,18 @@ From `epic-2-context-amendments.md` (2026-07-30, Eric, Story 2.7 pre-implementat
 35. Offers go fully boon-typed in 2.7 with an implementer-drafted dummy production catalog (draft-copy rule; dies in 2.8): offers roll boon ids, spend flows through `World.applyBoon`, legacy upgrades leave the offer flow (strip stays 2.8), PV bump; amendment 29 narrowed to its dormant-era intent; dummy boons are stat-only so `HOOK_REGISTRY` stays empty; spend-driven heal/ammo top-up accepted as unreachable.
 36. The refit window stays open through the queue (supersedes amendment 2's close-on-every-spend): pick dims cards in flight; ack slides the next queued offer in; reject/timeout fires the denied pulse on the picked card and stays open; spending the LAST banked level closes; TAB/ESC close anytime; click-picks never fire the gun.
 37. Dead captains get no level-up toast (suppressed entirely while dead/spectating); no spectate refit surface; server-side dead-killer banking unchanged.
+
+From `epic-2-context-amendments.md` (2026-07-30, Boon Catalog brainstorm party-review ruling — the 2.8 design gate):
+
+38. The 2.8 AC's stat-vs-qualitative tension settles: commons are stat cards, rares/exclusives are qualitative (the Exclusive Law). THE DECK MODEL supersedes weighted rolls (personal deck = universal Intel/Ship/Gun set + subdecks per carried equipment + acquisition cards; 4-different-LINES draws replace 4-distinct-categories; chosen cards leave; caps ARE copy-counts; escalating rare weight, CONFIG-tunable, tuned by 2-10). Smoke screen: intent affirmed, DEFERRED past v1. R pool universal, R slot permanent in v1. Empty deck = level increments, no offer (pinned unreachable). Lineage pips on card faces ratified. 2-8 is ONE story; 2-9 owns juice; 2-10 owns tuning.
+
+From `epic-2-context-amendments.md` (2026-07-30, Eric, Story 2.8 pre-implementation questions):
+
+39. ALL baseline kit changes land in 2-8: star shells lose base damage (pure illumination); mines gain same-owner chain reactions and aimed placement (3s arm delay stays).
+40. The refit-band floor-viewport overlap is RATIFIED outright (closes the 2.7 ledger entry); cards may grow modestly taller for rarity/lineage/doctrine lines.
+41. Everything arrives loaded: capacity raises (AFT TURRET / SECOND TUBE) fill the new round; acquisitions install a full pool. Supersedes the 2.5 no-top-up parking.
+42. All draft card ladders ratified wholesale as printed in the brainstorm; Speed Boost acquisition card = EMERGENCY THROTTLE.
+43. Stale cards in banked offers: when R fills, banked offers scrub dead acquisition cards and refill to size from the player's deck (deterministic, own-pick-triggered — not a reroll).
+44. Doctrine swap ratified: the rival presents as a REPLACE card; free swap; swapped-out card returns to the deck (ping-pong legal).
+45. The mine becomes a click-aimed weapon: prime, rear arc, click places at point (short max range, implementer-drafted); `EQUIPMENT_IS_WEAPON` flips; supersedes instant-activate stern drop.
+46. Chain reactions are same-owner only (cascade through the owner's field; enemy mines never sympathetically detonate).
