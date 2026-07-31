@@ -244,6 +244,41 @@ export const CLIENT_CONFIG = {
     // color); no static token here. Amber is the pre-roster fallback (in effects.ts).
   },
 
+  /**
+   * ON-WATER ORDNANCE IDENTITY (Story 2.9) — render-only feel knobs for what a
+   * doctrine LOOKS like in flight / on the chart. Nothing here is gameplay
+   * authoritative: the sim numbers (speeds, radii, damage) all live in shared
+   * CONFIG, and the wire stays mode-blind for ballistics. The OWN-side cannon
+   * weights (`cannon*`) are the ratified "the cannon must read heavier than the
+   * gun" tester fix — own-side only, because the constant-free ballistic wire
+   * shape cannot (and must not) say "cannon" to an onlooker.
+   */
+  ordnance: {
+    /** Own CANNON shell: a visibly bigger, heavier dot than the gun's (2.2/6). */
+    cannonCoreR: 3.4, // u
+    cannonGlowR: 9, // u
+    cannonGlowAlpha: 0.3,
+    /** ARMOR-PIERCING: the core is stretched into a dart along its bearing. */
+    apStretch: 2.6,
+    /** PLUNGING FIRE: peak extra scale at the top of the arc, and the time the
+     *  swell takes to rise and fall back (ms). Motion-scaled at the callsite —
+     *  the shell's POSITION (the information) never moves with it. */
+    arcSwell: 0.45,
+    arcSwellMs: 900,
+    /** ACOUSTIC HOMING: a steering fish reads brighter-headed with a tighter
+     *  wake than a straight-runner (spacing in u; the base is 16u). */
+    homingCoreR: 4.2, // u
+    homingTrailSpacing: 10, // u
+    /** SELF-PROPELLED mines: drop a faint wake dot every this many units of
+     *  creep, and draw the heading tick this long (u) — the tick is the STATIC
+     *  half of the creep tell, so the doctrine reads at motion=off too. */
+    creepWakeSpacing: 14, // u
+    creepTickLen: 9, // u
+    /** Movement (u) below which a re-synced mine counts as STATIONARY — frame
+     *  positions are exact server values, so this only guards float noise. */
+    creepEpsilon: 0.05, // u
+  },
+
   /** Own/contact ship view feel constants. */
   ship: {
     flashMs: 130, // ms — hit-flash duration
@@ -626,6 +661,15 @@ export const CLIENT_CONFIG = {
     glyphFadeCount: 3,
     glyphFadeSec: 0.6,
     glyphKey: 'hullcracker.helm',
+    /** VICTIM TELLS (Story 2.9): the SLOWED / DAZZLED status lines stacked above
+     *  the cluster, sharing the IN STORM satellite column. `tellAbove` is the
+     *  FIRST tell's baseline in px above the cluster's top edge — one satellite
+     *  slot above IN STORM (stormAbove) — and `tellGap` stacks any second line
+     *  above the first. `tellSize` is the mono size the fit pin measures. */
+    tellAbove: 48,
+    tellGap: 22,
+    tellSize: 16,
+    tellSpacing: 1.5,
   },
 
   /**
@@ -660,6 +704,43 @@ export const CLIENT_CONFIG = {
     chipAlpha: 0.85,
     /** Opacity-breathing amplitude (motion-scaled at the callsite). */
     pulseAmp: 0.15,
+  },
+
+  /**
+   * STAR-SHELL ZONE IDENTITY (Story 2.9, amendment 50): a lit zone reads as its
+   * DOCTRINE for every observer — the one thing on the wire that says what a
+   * build is doing, because the zone IS observable behavior (Eric's counterplay-
+   * over-concealment ruling). The firer's personal hue always owns the RING (a
+   * zone still says WHOSE it is); the doctrine layers INSIDE it.
+   */
+  litZone: {
+    /** INCENDIARY: an ember disc inside the ring, at this fraction of the zone
+     *  radius, breathing between (base ∓ amp) alpha at `emberHz` — well under
+     *  `settings.pulseCapHz` and nowhere near the ≤3 flashes/s ceiling. The
+     *  disc itself (position + extent) is the information and holds at
+     *  motion=off; only the breath is motion. */
+    emberFrac: 0.72,
+    emberAlpha: 0.16,
+    emberAmp: 0.07,
+    emberHz: 0.5,
+    /** DAZZLE: a brighter core disc + a softer outer halo — STATIC (the doctrine
+     *  is a flash-blind, and a flickering one would be the exact hazard the
+     *  flash budget exists to prevent).
+     *
+     *  BOTH FRACTIONS ARE <= 1: the glare lives INSIDE the zone's true circle.
+     *  The wire radius `r` is the hazard's real extent and the firer-hue ring at
+     *  `r` is its boundary; a halo painted past that (the 1.28 draft) advertised
+     *  a flash-blind over water that is not dazzling — the same class of lie as
+     *  a marker drawn bigger than the thing it marks (amendment 47). The halo
+     *  now stops just short of the ring so the boundary stays the ring's. */
+    glareFrac: 0.5,
+    glareAlpha: 0.2,
+    haloFrac: 0.95,
+    haloAlpha: 0.09,
+    /** A burn tick is a DoT, not a slam: the victim's shake is scaled to this
+     *  fraction of an ordinary hit's so standing in fire nudges instead of
+     *  hammering (the tone + the zone under the hull carry the information). */
+    burnShakeScale: 0.35,
   },
 
   /** Radar blip render knobs (Story 2.3 adds the colorblind-assist channel). */

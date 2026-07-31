@@ -42,7 +42,7 @@
 # Story 1.9 tombstoned (number retired, not reused); later stories keep their numbers.
 
 generated: 2026-07-17
-last_updated: 2026-07-30
+last_updated: 2026-07-31
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -85,7 +85,7 @@ development_status:
   2-6-xp-tick-kill-bonuses: done
   2-7-offers-roll-bank-spend: done
   2-8-boon-catalog-v1: done
-  2-9-the-build-must-be-felt: backlog
+  2-9-the-build-must-be-felt: done
   2-10-economy-batch-sim-harness: backlog
   epic-2-retrospective: optional
 

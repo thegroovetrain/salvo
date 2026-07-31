@@ -16,6 +16,7 @@ import { BOON_CATALOG, CONFIG, effectiveStats, resolveBoons } from '@salvo/share
 import {
   boonCategoryLabel,
   boonDescription,
+  boonEffectLine,
   boonFitToastLine,
   boonLineageLine,
   boonName,
@@ -206,5 +207,45 @@ describe('the fitted toast', () => {
 
   it('floors a defensive 0 to the ladder\'s first name', () => {
     expect(boonFitToastLine('gunDamage', 0)).toBe('◆ HEAVY SHELLS Mk I FITTED');
+  });
+});
+
+describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pitch', () => {
+  const bare = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+
+  it('reports a stat line\'s LIVE value, with no current→next arrow', () => {
+    expect(boonEffectLine('gunDamage', bare)).toBe(`Gun damage: ${bare.gun.damage}`);
+    expect(boonEffectLine('gunDamage', bare)).not.toContain('→');
+    expect(boonEffectLine('intelSweep', bare)).toBe(`Radar sweep: ${bare.sweepRpm} RPM`);
+    expect(boonEffectLine('gunReload', bare)).toBe(`Gun reload: ${bare.gun.reloadMs / 1000}s`);
+  });
+
+  it('MOVES with the fitted stack (it reads the firewall\'s output, not CONFIG)', () => {
+    const stacked = effectiveStats(CONFIG.shipClasses.torpedoBoat, resolveBoons(['gunDamage', 'gunDamage']));
+    expect(boonEffectLine('gunDamage', stacked)).not.toBe(boonEffectLine('gunDamage', bare));
+    expect(boonEffectLine('gunDamage', stacked)).toBe(`Gun damage: ${stacked.gun.damage}`);
+  });
+
+  it('drops the card\'s standing note — the row is a readout, not a pitch', () => {
+    expect(boonDescription(BOON_CATALOG.shipHull, { cls: 'torpedoBoat', boons: [] })).toContain('Repairs');
+    expect(boonEffectLine('shipHull', bare)).not.toContain('Repairs');
+  });
+
+  it('reuses the doctrine / acquisition text verbatim (one copy of every string)', () => {
+    expect(boonEffectLine('cannonAp', bare)).toBe(
+      boonDescription(BOON_CATALOG.cannonAp, { cls: 'battleship', boons: [] }),
+    );
+    expect(boonEffectLine('acquireTorpedo', bare)).toBe(
+      boonDescription(BOON_CATALOG.acquireTorpedo, { cls: 'battleship', boons: [] }),
+    );
+  });
+
+  it('is TOTAL over the catalog — no line can be presentation-silent (FR22)', () => {
+    const blank = Object.keys(BOON_CATALOG).filter((id) => boonEffectLine(id, bare).trim() === '');
+    expect(blank).toEqual([]);
+  });
+
+  it('fails open on an unwritten id rather than throwing mid-hover', () => {
+    expect(boonEffectLine('notARealBoon', bare)).toBe('');
   });
 });

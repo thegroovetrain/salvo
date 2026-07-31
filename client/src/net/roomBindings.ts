@@ -7,6 +7,7 @@
 // the only push in the one-way flow; everything else pulls).
 
 import {
+  BOON_CATALOG,
   CONFIG,
   HULL_IDS,
   MSG,
@@ -20,6 +21,7 @@ import {
   type DeniedView,
   type FrameMsg,
   type GameEvent,
+  type LitZoneView,
   type OwnShip,
   type PointEvent,
   type ResultsMsg,
@@ -27,6 +29,7 @@ import {
   type SpawnEvent,
   type SunkEvent,
 } from '@salvo/shared';
+import { CLIENT_CONFIG } from '../config.js';
 import type { GameState } from '../state.js';
 import type { Predictor } from '../sim/prediction.js';
 import type { Connection } from './connection.js';
@@ -43,7 +46,8 @@ import type { ShakeDriver } from '../render/shake.js';
 import { killLine, pushKillLine } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
-import { fireTone, type ToneId } from '../audio/tones.js';
+import { fireTone, fitDetune, fitTone, type ToneId } from '../audio/tones.js';
+import { pierceOrder, type OwnFire } from '../render/projectiles.js';
 
 /**
  * A `shell` event fires a muzzle flash only when it reveals AT a ship we can
@@ -77,8 +81,35 @@ export interface RoomBindingDeps {
   decoys: Decoys;
   /** Screen-shake driver (render/shake.ts) — triggered on own-ship damage. */
   shake: ShakeDriver;
-  /** Tone player (audio/context.ts) — a minimal play-only surface here. */
-  audio: { play: (id: ToneId) => void };
+  /** Tone player (audio/context.ts) — a minimal play-only surface here. The
+   *  optional `detune` (cents) carries the fit cue's per-category transposition. */
+  audio: { play: (id: ToneId, opts?: { detune?: number }) => void };
+  /**
+   * THE OWN-FIRE CORRELATION (Story 2.9). CLAIMS the click-time own-fire latch
+   * (sim/ownFire.ts): which weapon the local captain fired a moment ago —
+   * 'gun' | 'cannon' | 'torpedo' | 'starShells' — or null if we did not just
+   * shoot. main.ts latches it at CLICK time (the primed slot's equipment id, on
+   * a click its own prediction says will fire) and expires it after a short
+   * window, so an own reveal materializing on our own bow can be attributed to
+   * the weapon that actually made it.
+   *
+   * The claim is ONE-SHOT and this is a MUTATING call: one click is one round,
+   * so the first reveal to claim it consumes it and every later reveal in the
+   * same window reads generic. Call it exactly once per reveal, and ONLY for a
+   * reveal that already looks like ours (`nearOwnShip`) — an unconditional call
+   * would burn the latch on somebody else's shell.
+   *
+   * This exists because the ballistic wire shape is deliberately constant-free:
+   * a `shell` event says nothing about which barrel it left, and MUST NOT — the
+   * moment it did, an onlooker could read a build off a shot. So the client
+   * pairs a self-private click with an own-looking reveal. It is a heuristic,
+   * exactly like the muzzle-flash/own-fire-tone `nearOwnShip` test it composes
+   * with, and it fails SAFE in both directions: a miss renders the ordinary
+   * shell look and plays the gun crack (pre-2.9 behavior), and it can never
+   * misattribute another ship's shell, because a reveal that is not on our own
+   * hull never consults it.
+   */
+  ownFireWeapon: () => OwnFire;
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
@@ -149,6 +180,15 @@ export interface RoomBindingDeps {
    * reaches into main (one-way data flow).
    */
   onSpendAck: () => void;
+  /**
+   * A boon just landed, with the CATEGORY it landed on (Story 2.9): main.ts
+   * latches the fit flash on the slot that category belongs to — or, for a
+   * shipwide INTEL/SHIP line that no slot owns, on the whole hotbar frame
+   * (amendment 51: the visible change is slot-side, never the hull). The tone
+   * is played here (it is a cue, and cues live with their events); the flash is
+   * a render latch, so net calls a callback rather than reaching into main.
+   */
+  onBoonFitted: (category: string) => void;
   /** Fired ONCE when the first spec frame arrives (enter spectate mode). */
   onSpectate: () => void;
   /** The one end-of-match results broadcast. */
@@ -174,11 +214,26 @@ export interface RoomBindingDeps {
  */
 interface ResumeState {
   pendingSnap: boolean;
+  /** Was the PROP-FOULING slow window running on the previous frame? The tell's
+   *  cue fires on the RISING edge only: a refresh extends the window (the server
+   *  takes the later expiry), and re-announcing it every tick would turn a
+   *  status change into a machine-gun. The falling edge is silent — the line
+   *  simply disappears, which is the whole visual twin doing its job. */
+  slowed: boolean;
+  /** ...and the same for the DAZZLE window. */
+  dazzled: boolean;
+  /**
+   * Server time (ms) of the last frame on which the own hull stood inside SOME
+   * enemy incendiary zone — the burn classifier's memory (see readsAsBurn).
+   * `-Infinity` until we have ever been in one, so a hull that has never been
+   * on fire can never read a hit as fire.
+   */
+  burningAt: number;
 }
 
 /** Attach frame/results/error/leave handling to a completed connection. */
 export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
-  const resume: ResumeState = { pendingSnap: false };
+  const resume: ResumeState = { pendingSnap: false, slowed: false, dazzled: false, burningAt: -Infinity };
   conn.sink.handler = (f) => handleFrame(f, deps, resume);
   conn.room.onMessage(MSG.results, (msg: ResultsMsg) => {
     deps.state.matchOver = true;
@@ -267,8 +322,57 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
   net.litZones = litZones;
+  routeVictimTells(f, deps, resume);
+  trackBurning(f, deps, resume);
   routeDenials(f, deps);
-  handleEvents(f, deps);
+  handleEvents(f, deps, resume);
+}
+
+/**
+ * The BURN classifier's memory (Story 2.9): stamp this frame's server time
+ * whenever the own hull is standing in SOME other captain's incendiary zone.
+ * handleDamage reads it through a grace window rather than re-testing the
+ * geometry, because fire's damage arrives AFTER the fact: the server aggregates
+ * incendiary ticks into 500ms windows with a death flush (Story 2.8 review), so
+ * the last flush routinely lands on a frame where we have already sailed clear
+ * — or where the zone itself has expired off the list — and reading that as an
+ * ordinary slam misnames the thing that killed you.
+ *
+ * Zone geometry is only ever tested against a `you` on THIS frame: a spectator
+ * frame carries no hull, and the last one is a lie by then.
+ */
+function trackBurning(f: FrameMsg, deps: RoomBindingDeps, s: ResumeState): void {
+  if (!f.you) return;
+  if (inEnemyBurningZone(deps.state.net.litZones, f.you, deps.state.net.sessionId)) s.burningAt = f.t;
+}
+
+/**
+ * Pure: is a victim window (`slowedUntil` / `dazzledUntil`) running at server
+ * time `t`? An absent field is a window that never started. Measured against
+ * the FRAME's own `t` — exact server time, not the local clock estimate — so
+ * the edge cannot chatter on clock jitter around the expiry instant.
+ */
+export function windowRunning(until: number | undefined, t: number): boolean {
+  return (until ?? 0) > t;
+}
+
+/**
+ * The victim tells (Story 2.9): SLOWED and DAZZLED each fire their cue on the
+ * RISING edge of their window and nothing on the falling one. The visual twin
+ * is the HUD status line the same fields drive (render/hud.ts drawTells) —
+ * plus, for dazzle, the sight hole already shrinking (render/fog.ts) — so the
+ * information is on screen whether or not the sound is.
+ *
+ * Both fields are victim-private on `you`: nobody else's affliction ever
+ * reaches this client, and a spectator frame (no `you`) simply clears both.
+ */
+function routeVictimTells(f: FrameMsg, deps: RoomBindingDeps, s: ResumeState): void {
+  const slowed = windowRunning(f.you?.slowedUntil, f.t);
+  const dazzled = windowRunning(f.you?.dazzledUntil, f.t);
+  if (slowed && !s.slowed) deps.audio.play('slowed');
+  if (dazzled && !s.dazzled) deps.audio.play('dazzled');
+  s.slowed = slowed;
+  s.dazzled = dazzled;
 }
 
 /** Self-private denied presses (Story 1.10): frames OMIT the key when none,
@@ -302,12 +406,12 @@ function sameList(a: readonly (number | string)[], b: readonly (number | string)
 }
 
 /** Fan every per-tick event out to the right subsystem. */
-function handleEvents(f: FrameMsg, deps: RoomBindingDeps): void {
-  for (const e of f.events) handleEvent(e, f, deps);
+function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: ResumeState): void {
+  for (const e of f.events) handleEvent(e, f, deps, s);
 }
 
 /** World/combat events (position + fire + hit); self-private rewards split out. */
-function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
+function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: ResumeState): void {
   switch (e.k) {
     case 'spawn': handleSpawn(e, deps); return;
     case 'sunk': handleSunk(e, f.t, deps); return;
@@ -317,7 +421,7 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
     case 'blip': deps.radar.onBlip(e); return;
     case 'boom': handleBoom(e, deps); return;
     case 'burst': handleBurst(e, deps); return;
-    case 'dmg': handleDamage(e, deps); return;
+    case 'dmg': handleDamage(e, f, deps, s); return;
   }
   handleRewardEvent(e, f, deps);
 }
@@ -366,7 +470,7 @@ function handlePoint(e: PointEvent, f: FrameMsg, deps: RoomBindingDeps): void {
 /**
  * A banked level was SPENT and a boon fitted (Story 2.7): the fitted toast on
  * the existing upgrade-toast surface (UX-DR23 — self events only) plus the
- * existing upgrade tone. `bn` is self-private (perception forwards it only to
+ * fit cue. `bn` is self-private (perception forwards it only to
  * the spender), so the id check is defensive, not load-bearing. Deliberately
  * NOT dead-gated: spending while dead is legal (ratified 2.6/2.7), and the
  * confirmation that the spend landed is exactly what the player needs.
@@ -384,19 +488,68 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   // count IS the fitted position — 1 for a first fit, 3 for the third HEAVY
   // SHELLS. A defensive 0 (no `you`) floors to the ladder's first name.
   pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.boons ?? [], e.boon)));
-  deps.audio.play('upgrade');
+  // STORY 2.9 — the fit is no longer one generic two-note for all 42 lines: the
+  // cue is WEIGHTED BY TIER (fitTone) and the flash lands on the CATEGORY's own
+  // slot. Both read off the shared catalog, fail-open (a junk/unknown id still
+  // gets the common weight and a rank-wide flash) — FR22 makes silence the
+  // defect, so no branch here may end without a cue.
+  // The TIER picks the cue's weight; the CATEGORY transposes it (fitDetune, in
+  // cents) so two commons fitted back to back on different slots are audibly
+  // different events without becoming different cues. Both fail open: an
+  // unknown id lands on the common weight at the untransposed root.
+  const def = Object.hasOwn(BOON_CATALOG, e.boon) ? BOON_CATALOG[e.boon] : undefined;
+  deps.audio.play(fitTone(def?.rarity), { detune: fitDetune(def?.category ?? '') });
+  deps.onBoonFitted(def?.category ?? '');
   deps.onSpendAck();
 }
 
+/**
+ * A gun/cannon shell was revealed. For the SHOOTER, reveal position == launch
+ * position == our own hull, so "near own ship" is a reliable (if not airtight)
+ * own-shot signal — the same heuristic the muzzle flash already uses. Story 2.9
+ * composes it with the click-time weapon latch (deps.ownFireWeapon) so an own
+ * CANNON shot lands with the weight it should have had all along: its own heavy
+ * report (the `fireCannon` tone, which until now no callsite ever played), a
+ * bigger muzzle flash, and a heavier shell in flight, plus the doctrine look
+ * for whichever cannon exclusive we hold. An onlooker's side of the event is
+ * BYTE-IDENTICAL to before — the wire cannot say "cannon" and must not.
+ */
 function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
-  deps.projectiles.onShell(e);
+  // The latch is claimed ONCE, and only for a reveal already sitting on our own
+  // hull — see the ownFireWeapon dep note (a claim consumes).
+  const own = nearOwnShip(e.x, e.y, deps) ? ownShellWeapon(deps) : null;
+  deps.projectiles.onShell(e, own);
   // Muzzle flash only when the reveal sits on a hull we can see (own ship or a
   // sighted contact) — a mid-flight fog-boundary reveal gets no flash.
-  if (nearVisibleShip(e.x, e.y, deps)) deps.effects.spawnEffect('muzzle', e.x, e.y);
-  // Own-fire tone: for the shooter, reveal position == launch position == the
-  // shooter's own hull, so "near own ship" is a reliable (if not airtight)
-  // own-shot signal — the same heuristic the muzzle flash above already uses.
-  if (nearOwnShip(e.x, e.y, deps)) deps.audio.play(fireTone('gun'));
+  if (nearVisibleShip(e.x, e.y, deps)) {
+    deps.effects.spawnEffect(own === 'cannon' ? 'muzzleHeavy' : 'muzzle', e.x, e.y);
+  }
+  if (own) deps.audio.play(fireTone(shellFireId(own)));
+}
+
+/**
+ * Pure-ish: which own weapon an own-looking SHELL reveal came out of. The
+ * latched click intent wins when it agrees with the reveal's KIND — a shell can
+ * be the gun, the cannon or a star shell (all three ride the `shell` kind), and
+ * a standing TORPEDO claim cannot dress one, so it degrades to the gun.
+ *
+ * The fallback IS pre-2.9 behavior, and it is where every unclaimed own shell
+ * lands: the generic shell look plus the gun crack. Never guesses upward — the
+ * cannon's weight (its heavy muzzle, its heavy report, its doctrine look) is
+ * spent ONLY against a live claim, so a second shell inside one 400ms window,
+ * or an enemy shell revealed on our bow, can never wear it.
+ */
+function ownShellWeapon(deps: RoomBindingDeps): OwnFire {
+  const fired = deps.ownFireWeapon();
+  return fired === 'cannon' || fired === 'gun' || fired === 'starShells' ? fired : 'gun';
+}
+
+/** Pure: the own-fire cue a claimed shell weapon reports with. The star shell
+ *  earns its own launch report (Story 2.9: every fitted line is felt); anything
+ *  the claim could not name falls to the gun crack. */
+function shellFireId(own: OwnFire): 'gun' | 'cannon' | 'starShells' {
+  if (own === 'cannon') return 'cannon';
+  return own === 'starShells' ? 'starShells' : 'gun';
 }
 
 /** A steering torpedo re-anchored its track (Story 2.8 — ACOUSTIC HOMING).
@@ -405,12 +558,26 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
  *  inline above (deps.projectiles.onBallisticUpdate).
  */
 
-/** Torpedoes are a "quiet weapon" — no muzzle flash for onlookers (per the
- *  plan: a fish you can't see coming is the point) — but the shooter still
- *  gets an own-fire whoosh, using the same near-own-ship heuristic as guns. */
+/**
+ * Torpedoes are a "quiet weapon" — no muzzle flash for onlookers (per the plan:
+ * a fish you can't see coming is the point) — but the shooter still gets an
+ * own-fire whoosh, using the same near-own-ship heuristic as guns.
+ *
+ * The LOOK and the TONE part company here, deliberately. The whoosh on
+ * `nearOwnShip` alone PREDATES Story 2.9 and stays exactly as it was (it is the
+ * same heuristic the muzzle flash has always used, and this patch is not the
+ * place to retune an old cue). The homing LOOK is new, and misinformation:
+ * dressing a fish as OUR steering torpedo because it happened to surface on our
+ * bow tells the player their own doctrine is in the water when an ENEMY's fish
+ * is. So the look is spent only against a claimed torpedo latch — an enemy fish
+ * near our hull renders the generic straight-runner, and earns the homing look
+ * the instant it visibly steers (onBallisticUpdate), like every other observer's.
+ */
 function handleTorp(e: BallisticEvent, deps: RoomBindingDeps): void {
-  deps.projectiles.onShell(e);
-  if (nearOwnShip(e.x, e.y, deps)) deps.audio.play(fireTone('torpedo'));
+  const near = nearOwnShip(e.x, e.y, deps);
+  const own: OwnFire = near && deps.ownFireWeapon() === 'torpedo' ? 'torpedo' : null;
+  deps.projectiles.onShell(e, own);
+  if (near) deps.audio.play(fireTone('torpedo'));
 }
 
 /** True iff (x,y) is within one hull length of the own ship specifically. */
@@ -435,10 +602,20 @@ function near2(x: number, y: number, cx: number, cy: number): boolean {
   return dx * dx + dy * dy <= MUZZLE_NEAR2;
 }
 
+/**
+ * An impact. Story 2.9 reads the boom's ID as well as its position: a DERIVED
+ * `<shellId>#p<order>` id is an ARMOR-PIERCING punch-through — the shell went
+ * through that hull and is still flying — and gets the collapsing pierce ring
+ * instead of the ordinary hit spark. That is the ONLY enemy-side AP tell, and
+ * it is legal for the same reason the homing steer is: the derived id is
+ * already on the wire (it has to be, so the boom cannot retire the live track),
+ * and what it describes — a hit that did not end the shell — is on screen
+ * anyway. An unrecognized suffix falls straight through to the generic path.
+ */
 function handleBoom(e: BoomEvent, deps: RoomBindingDeps): void {
   deps.projectiles.onBoom(e);
   if (e.hit) {
-    deps.effects.spawnEffect('spark', e.x, e.y);
+    deps.effects.spawnEffect(pierceOrder(e.id ?? '') === null ? 'spark' : 'pierce', e.x, e.y);
     if (e.hit !== deps.state.net.sessionId) deps.contactViews.flash(e.hit);
   } else {
     deps.effects.spawnEffect('splash', e.x, e.y);
@@ -485,11 +662,79 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
  * itself (perception.ts's worldEventForObserver never forwards another ship's
  * dmg amount to onlookers), so this always fires for the local player — the
  * id check is defensive, not load-bearing.
+ *
+ * STORY 2.9 — BURN IDENTITY. A tick taken because we are STANDING IN FIRE is not
+ * a slam: it plays the `burn` cue instead of the impact thud and shakes at a
+ * fraction of the amplitude (the tone plus the burning water under the hull
+ * carry it — a full-strength shake per DoT tick reads as being shelled, which is
+ * a lie about what is happening). The 300ms same-source floor is respected
+ * upstream: the server aggregates incendiary damage into 500ms windows with a
+ * death flush (Story 2.8 review), so at most two of these land per second.
+ *
+ * The zone list is the one the client already holds (net → state, mirrored in
+ * handleFrame) — no new wire data, and no way to mistake our OWN flare for a
+ * hazard (`by !== self`; you cannot burn yourself).
  */
-function handleDamage(e: DamageEvent, deps: RoomBindingDeps): void {
+function handleDamage(e: DamageEvent, f: FrameMsg, deps: RoomBindingDeps, s: ResumeState): void {
   if (e.id !== deps.state.net.sessionId) return;
-  deps.shake.trigger(e.amount);
-  deps.audio.play('damage');
+  const burn = readsAsBurn(e.amount, f.t - s.burningAt);
+  deps.shake.trigger(burn ? e.amount * CLIENT_CONFIG.litZone.burnShakeScale : e.amount);
+  deps.audio.play(burn ? 'burn' : 'damage');
+}
+
+/**
+ * How long (ms) after the own hull last stood in enemy fire a damage event may
+ * still read as a BURN. Tied to the server's 500ms incendiary aggregation window
+ * (Story 2.8 review): the flush for a window we spent burning can arrive a tick
+ * or two after we sailed clear — or after the zone expired off the frame list —
+ * and 600ms covers that lag with a tick of slack, without stretching so far that
+ * a genuine shell landing seconds later inherits the burn read. Draft value
+ * (draft-copy rule); the aggregation window is the thing it must track.
+ */
+const BURN_GRACE_MS = 600;
+
+/**
+ * The largest damage amount a single incendiary flush can be (hp), derived so
+ * the cap moves when the doctrine is retuned: the DoT rate × the server's 0.5s
+ * aggregation window, ×4 headroom for a hull sitting in several overlapping
+ * burning patches at once. Anything bigger than that arrived some other way —
+ * a torpedo, a shell, a mine — and must read as the slam it was, however much
+ * fire happens to be on the water. Draft headroom factor (draft-copy rule).
+ */
+const BURN_AMOUNT_CAP = CONFIG.starShells.incendiaryDps * 0.5 * 4;
+
+/**
+ * Pure: does a damage event read as FIRE rather than as an impact? Both halves
+ * have to hold — recency (we were standing in an enemy incendiary zone within
+ * the grace window) AND size (it is small enough to be a DoT flush). Each half
+ * fixes a real lie the geometry-only test told: a torpedo slamming a hull that
+ * happens to be parked in a burning patch read as a gentle crackle, and the last
+ * flush of a fire that just went out read as a shell hit.
+ */
+export function readsAsBurn(amount: number, sinceBurningMs: number): boolean {
+  return sinceBurningMs <= BURN_GRACE_MS && amount <= BURN_AMOUNT_CAP;
+}
+
+/**
+ * Pure: is `p` standing in some OTHER captain's burning (INCENDIARY) zone?
+ *
+ * Deliberately does NOT re-check the zone's expiry: a zone that is still in the
+ * frame's list is still live by construction (the server rebuilds that list per
+ * observer per tick, and drops expired zones), and the damage event we are
+ * classifying arrived on that same frame.
+ */
+export function inEnemyBurningZone(
+  zones: readonly LitZoneView[],
+  p: { x: number; y: number },
+  selfId: string,
+): boolean {
+  for (const z of zones) {
+    if (z.mode !== 'incendiary' || z.by === selfId) continue;
+    const dx = p.x - z.x;
+    const dy = p.y - z.y;
+    if (dx * dx + dy * dy <= z.r * z.r) return true;
+  }
+  return false;
 }
 
 /** Last known world position of a ship that just sank (own or a contact). */

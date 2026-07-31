@@ -21,9 +21,10 @@
 // msgpack key order follows object insertion order. Every materialize() below
 // builds its wire object in the exact historical field order (Contact:
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
-// k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by; DecoyView:
-// id,x,y,until,own,by). Do not reorder keys — `by` (Story 1.12) is appended LAST
-// on mine/decoy so the historical prefix stays byte-stable.
+// k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,mode;
+// DecoyView: id,x,y,until,own,by). Do not reorder keys — `by` (Story 1.12) is
+// appended LAST on mine/decoy, `mode` (Story 2.9) after it on litzone, so the
+// historical prefix stays byte-stable.
 
 import {
   CONFIG,
@@ -320,8 +321,11 @@ const litZoneSignal: SignalSpec<LitZone, LitZoneView> = {
     return dx * dx + dy * dy <= radar * radar; // no LOS, no sweep gate
   },
   materialize(_ctx, zone) {
-    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,until,by.
-    return { id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId };
+    // KEY ORDER IS LOAD-BEARING (msgpack): id,x,y,r,until,by,mode. `mode`
+    // (Story 2.9, amendment 50) is the zone's doctrine — stamped on the
+    // record at zone-spawn time and delivered to EVERY observer who sees the
+    // circle (counterplay over concealment), appended LAST.
+    return { id: zone.id, x: zone.x, y: zone.y, r: zone.r, until: zone.until, by: zone.ownerId, mode: zone.mode };
   },
 };
 

@@ -1,8 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
 import type { BallisticEvent, TorpedoUpdateEvent } from '@salvo/shared';
-import { Projectiles, shellCulledBeyondSight, shellPosition, maxLifetimeMs } from '../render/projectiles.js';
+import {
+  Projectiles,
+  arcSwellScale,
+  lookForReveal,
+  pierceOrder,
+  shellCulledBeyondSight,
+  shellPosition,
+  maxLifetimeMs,
+  trailSpacing,
+} from '../render/projectiles.js';
 import type { OwnZone } from '../render/litZones.js';
+import { settings } from '../settings/store.js';
 
 describe('shellPosition (dead reckoning)', () => {
   it('extrapolates p0 + v*(now - t0)', () => {
@@ -180,5 +190,162 @@ describe('Projectiles.onBallisticUpdate — the homing-torpedo track update', ()
     // it has not, so the track survives.
     p.render(maxLifetimeMs(900, 260) + 1, own, []);
     expect(p.liveCount).toBe(1);
+  });
+});
+
+// --- STORY 2.9: ORDNANCE IDENTITY ON THE WATER ---------------------------------
+//
+// The information split this suite exists to hold:
+//   • OWN ordnance is styled from own (self-private) stats at launch;
+//   • an ENEMY's is styled only from behavior the observer can already see —
+//     a fish that visibly steers, a boom whose derived id says the shell kept
+//     flying — and NEVER from anything the wire would have to start carrying.
+// A regression that styles an enemy's stock shell as a cannon (or an unfired
+// doctrine as anything at all) is an information leak, not a cosmetic slip.
+
+describe('pierceOrder — the derived AP boom id', () => {
+  it('reads the pierce order out of a derived id', () => {
+    expect(pierceOrder('s7#p0')).toBe(0);
+    expect(pierceOrder('s7#p2')).toBe(2);
+    expect(pierceOrder('shell-12#p11')).toBe(11);
+  });
+
+  it('is null for an ordinary boom id, and for anything malformed', () => {
+    expect(pierceOrder('s7')).toBeNull();
+    expect(pierceOrder('')).toBeNull();
+    expect(pierceOrder('s7#p')).toBeNull(); // no order at all
+    expect(pierceOrder('s7#pX')).toBeNull(); // not a number
+    expect(pierceOrder('s7#p1x')).toBeNull(); // trailing junk
+    expect(pierceOrder('s7#p2-late')).toBeNull(); // suffix not at the end
+  });
+});
+
+describe('lookForReveal — who gets which identity, on what evidence', () => {
+  const stock = { cannon: 'standard', torpedo: 'standard' } as const;
+
+  it('gives every OBSERVER the plain wire-kind look, whatever WE have fitted', () => {
+    const armed = { cannon: 'ap', torpedo: 'homing' } as const;
+    // `own: null` is "not our shot" — an enemy's shell/fish. Our own doctrine
+    // must not paint their ordnance: that would leak OUR build to nobody's
+    // benefit and, worse, make the two indistinguishable on screen.
+    expect(lookForReveal('shell', null, armed)).toBe('shell');
+    expect(lookForReveal('torp', null, armed)).toBe('torp');
+  });
+
+  it('styles OWN cannon fire per the fitted doctrine — and own GUN fire never', () => {
+    expect(lookForReveal('shell', 'cannon', stock)).toBe('cannon');
+    expect(lookForReveal('shell', 'cannon', { ...stock, cannon: 'arcing' })).toBe('cannonArcing');
+    expect(lookForReveal('shell', 'cannon', { ...stock, cannon: 'ap' })).toBe('cannonAp');
+    // The gun is not the cannon: an own gun shell stays the ordinary dot even
+    // with a cannon doctrine fitted.
+    expect(lookForReveal('shell', 'gun', { ...stock, cannon: 'ap' })).toBe('shell');
+  });
+
+  it('styles an OWN homing fish from LAUNCH, and a stock own fish not at all', () => {
+    expect(lookForReveal('torp', 'torpedo', { ...stock, torpedo: 'homing' })).toBe('torpHoming');
+    expect(lookForReveal('torp', 'torpedo', stock)).toBe('torp');
+    // COMMAND DETONATION is the other torpedo exclusive: it changes when the
+    // fish detonates, not how it runs, so it inherits the straight-runner look.
+    expect(lookForReveal('torp', 'torpedo', { ...stock, torpedo: 'command' })).toBe('torp');
+  });
+});
+
+describe('Projectiles — the identity a live track paints with', () => {
+  const own = { x: 0, y: 0 };
+
+  it('an enemy fish becomes a HOMING track the moment it visibly steers', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }); // no `own`
+    expect(p.lookOf('t1')).toBe('torp');
+    p.onBallisticUpdate({ k: 'torpU', id: 't1', x: 30, y: 0, vx: 0, vy: 60, t: 500 });
+    expect(p.lookOf('t1')).toBe('torpHoming'); // observable behavior, not wire data
+  });
+
+  it('a track re-created from a torpU alone (a re-sighted fish) is a homing track', () => {
+    const p = new Projectiles(900, new Container());
+    p.onBallisticUpdate({ k: 'torpU', id: 't9', x: 0, y: 0, vx: 60, vy: 0, t: 0 });
+    expect(p.lookOf('t9')).toBe('torpHoming');
+  });
+
+  it('styles OWN ordnance off the modes fanned in from applyOwnStats', () => {
+    const p = new Projectiles(900, new Container());
+    p.setOwnModes({ cannon: 'ap', torpedo: 'homing' });
+    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
+    p.onShell({ k: 'shell', id: 's2', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'gun');
+    p.onShell({ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 0 }, 'torpedo');
+    expect(p.lookOf('s1')).toBe('cannonAp');
+    expect(p.lookOf('s2')).toBe('shell');
+    expect(p.lookOf('t1')).toBe('torpHoming'); // styled at launch, before any steer
+  });
+
+  it('a doctrine swap never restyles ordnance already in the water', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
+    p.setOwnModes({ cannon: 'ap', torpedo: 'standard' });
+    expect(p.lookOf('s1')).toBe('cannon'); // the shell that left the barrel stock
+  });
+
+  it('a homing fish lays a TIGHTER wake than a straight-runner', () => {
+    expect(trailSpacing('torpHoming')).toBeLessThan(trailSpacing('torp'));
+    expect(trailSpacing('shell')).toBe(trailSpacing('torp')); // the default
+  });
+
+  it('reports no look for an id it holds no track for', () => {
+    expect(new Projectiles(900, new Container()).lookOf('nope')).toBeNull();
+  });
+
+  it('a retired sprite hands on no scale or rotation to the next track', () => {
+    const p = new Projectiles(900, new Container());
+    p.setOwnModes({ cannon: 'arcing', torpedo: 'standard' });
+    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
+    p.render(400, own, []);
+    expect(p.scaleOf('s1')).toBeGreaterThan(1); // mid-arc: swollen
+    p.onBoom({ k: 'boom', id: 's1', x: 50, y: 0 });
+    p.onShell({ k: 'shell', id: 's2', x: 0, y: 0, vx: 130, vy: 0, t: 0 }); // pooled gfx
+    p.render(400, own, []);
+    expect(p.scaleOf('s2')).toBe(1);
+  });
+});
+
+describe('arcSwellScale — PLUNGING FIRE reads as height', () => {
+  it('rises to its peak mid-arc and settles back to 1', () => {
+    expect(arcSwellScale(0, 0.4, 1000)).toBe(1);
+    expect(arcSwellScale(500, 0.4, 1000)).toBeCloseTo(1.4, 9);
+    expect(arcSwellScale(1000, 0.4, 1000)).toBe(1);
+    expect(arcSwellScale(5000, 0.4, 1000)).toBe(1); // long after: flat
+  });
+
+  it('is exactly 1 with no amplitude — the motion=off contract', () => {
+    for (const t of [0, 250, 500, 900]) expect(arcSwellScale(t, 0, 1000)).toBe(1);
+  });
+});
+
+describe('the arc swell is MOTION, the position is INFORMATION', () => {
+  afterEach(() => settings.reset());
+
+  it('holds an arcing shell at scale 1 with motion off — and still moves it', () => {
+    settings.set({ motion: 'off' });
+    const p = new Projectiles(900, new Container());
+    p.setOwnModes({ cannon: 'arcing', torpedo: 'standard' });
+    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
+    p.render(400, { x: 0, y: 0 }, []);
+    expect(p.scaleOf('s1')).toBe(1); // no swell at all
+    expect(p.liveCount).toBe(1); // ...and the shell is still tracked + placed
+  });
+
+  it('halves the swell at reduced motion (never removes the shell)', () => {
+    settings.set({ motion: 'reduced' });
+    const p = new Projectiles(900, new Container());
+    p.setOwnModes({ cannon: 'arcing', torpedo: 'standard' });
+    p.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
+    p.render(450, { x: 0, y: 0 }, []);
+    const reduced = p.scaleOf('s1');
+    settings.set({ motion: 'full' });
+    const q = new Projectiles(900, new Container());
+    q.setOwnModes({ cannon: 'arcing', torpedo: 'standard' });
+    q.onShell({ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 0 }, 'cannon');
+    q.render(450, { x: 0, y: 0 }, []);
+    expect(reduced).toBeGreaterThan(1);
+    expect(reduced - 1).toBeCloseTo((q.scaleOf('s1') - 1) / 2, 9);
   });
 });

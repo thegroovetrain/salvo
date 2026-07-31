@@ -96,10 +96,19 @@ export class Audio {
     settings.set({ muted: !settings.current.muted });
   }
 
-  /** Play a tone by id (no-op if muted, unsupported, or not yet resumed). */
-  play(id: ToneId): void {
+  /**
+   * Play a tone by id (no-op if muted, unsupported, or not yet resumed).
+   *
+   * `opts.detune` transposes the whole envelope, in CENTS (the Web Audio unit —
+   * 100 cents = one semitone), applied to the oscillator's `detune` param so the
+   * frequency RAMP shape is untouched and only the pitch moves. It defaults to
+   * 0, which is byte-identical to the pre-Story-2.9 behavior for every existing
+   * callsite. Today's one user is the fit cue's per-category transposition
+   * (audio/tones.ts fitDetune) — one tone family heard nine ways.
+   */
+  play(id: ToneId, opts?: { detune?: number }): void {
     if (this.muted || !this.ctx || !this.buses) return;
-    this.playSpec(TONES[id]);
+    this.playSpec(TONES[id], opts?.detune ?? 0);
   }
 
   /** Drop the settings subscription (teardown; the page reload normally does it). */
@@ -107,11 +116,11 @@ export class Audio {
     this.unsubscribe();
   }
 
-  private playSpec(spec: ToneSpec): void {
+  private playSpec(spec: ToneSpec, detune: number): void {
     const ctx = this.ctx;
     if (!ctx) return;
     const t0 = ctx.currentTime;
-    this.playOscillator(ctx, spec, t0);
+    this.playOscillator(ctx, spec, t0, detune);
     if (spec.noise) {
       this.playNoiseBurst(ctx, t0, spec.duration * NOISE_DURATION_FRACTION, spec.volume * NOISE_VOLUME_FRACTION);
     }
@@ -122,11 +131,12 @@ export class Audio {
     return this.buses?.effects ?? null;
   }
 
-  private playOscillator(ctx: AudioContext, spec: ToneSpec, t0: number): void {
+  private playOscillator(ctx: AudioContext, spec: ToneSpec, t0: number, detune: number): void {
     const sink = this.sink;
     if (!sink) return;
     const osc = ctx.createOscillator();
     osc.type = spec.type;
+    if (detune !== 0) osc.detune.setValueAtTime(detune, t0);
     osc.frequency.setValueAtTime(spec.freqStart, t0);
     osc.frequency.linearRampToValueAtTime(spec.freqMid, t0 + spec.duration * 0.4);
     osc.frequency.linearRampToValueAtTime(spec.freqEnd, t0 + spec.duration);

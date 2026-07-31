@@ -222,7 +222,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.counterIntel!(ctx, w.decoys.get('d1')!)).toEqual({ k: 'blip', id: 'a', x: 400, y: 0, t: w.now });
   });
 
-  it('litzone row: [id,x,y,r,until,by] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {
+  it('litzone row: [id,x,y,r,until,by,mode] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     injectZone(w, 'z1', 'a', 400, 0, 110, 12_345); // owner sees it always
@@ -231,9 +231,23 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const zone = w.litZones.get('z1')!;
     expect(row.visible(ctx, zone)).toBe(true);
     const wire = row.materialize(ctx, zone);
-    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'r', 'until', 'by']);
-    expect(wire).toEqual({ id: 'z1', x: 400, y: 0, r: 110, until: 12_345, by: 'a' });
+    expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'r', 'until', 'by', 'mode']);
+    expect(wire).toEqual({ id: 'z1', x: 400, y: 0, r: 110, until: 12_345, by: 'a', mode: 'standard' });
     expect('ownerId' in (wire as object)).toBe(false); // the wire key is `by`, never the internal name
+  });
+
+  it('litzone row carries the zone\'s DOCTRINE mode verbatim (Story 2.9, amendment 50)', () => {
+    const w = bareWorld();
+    const b = place(w, 'b', 0, 0); // a NON-owner observer within radar range
+    w.litZones.set('zi', { id: 'zi', ownerId: 'a', x: 400, y: 0, r: 130, until: 999_999, mode: 'incendiary' });
+    w.litZones.set('zd', { id: 'zd', ownerId: 'a', x: 0, y: 400, r: 165, until: 999_999, mode: 'dazzle' });
+    const row = SIGNAL_REGISTRY.litzone;
+    const ctx = foggedCtx(w, b);
+    for (const [id, mode] of [['zi', 'incendiary'], ['zd', 'dazzle']] as const) {
+      const zone = w.litZones.get(id)!;
+      expect(row.visible(ctx, zone)).toBe(true); // radar-gated non-owner sees the circle
+      expect((row.materialize(ctx, zone) as { mode: string }).mode).toBe(mode);
+    }
   });
 
   it('boom row, STRIPPED variant: [k,id,x,y], no "hit" key — fogged observer sights the impact but not the victim center', () => {

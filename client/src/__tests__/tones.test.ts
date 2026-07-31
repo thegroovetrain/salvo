@@ -4,9 +4,13 @@
 // untested adapter per convention — this file covers everything pure.
 
 import { describe, it, expect } from 'vitest';
+import { BOON_CATALOG, type BoonRarity } from '@salvo/shared';
 import {
   TONES,
+  FIT_CATEGORIES,
   fireTone,
+  fitDetune,
+  fitTone,
   telegraphTone,
   MAX_TONE_S,
   MAX_SINK_TONE_S,
@@ -28,7 +32,12 @@ const ALL_TONE_IDS: ToneId[] = [
   'damage',
   'kill',
   'point',
-  'upgrade',
+  'fitCommon',
+  'fitRare',
+  'fitExclusive',
+  'burn',
+  'slowed',
+  'dazzled',
   'sink',
   'tick',
   'matchStart',
@@ -135,11 +144,42 @@ describe('telegraphTone — detent-click direction', () => {
   });
 });
 
-describe('upgrade tone — short rising two-note', () => {
-  it('rises (ends above its start) and stays within the short-tone budget', () => {
-    expect(TONES.upgrade.freqEnd).toBeGreaterThan(TONES.upgrade.freqStart);
-    expect(TONES.upgrade.freqMid).toBeGreaterThan(TONES.upgrade.freqStart); // the second note steps UP
-    expect(TONES.upgrade.duration).toBeLessThanOrEqual(MAX_TONE_S);
+describe('the FIT family (Story 2.9) — one two-note template, three tier weights', () => {
+  const TIERS = ['fitCommon', 'fitRare', 'fitExclusive'] as const;
+
+  it('every tier is the same rising two-note shape, inside the short-tone budget', () => {
+    for (const id of TIERS) {
+      const t = TONES[id];
+      expect(t.freqMid).toBeGreaterThan(t.freqStart); // the second note steps UP
+      expect(t.freqEnd).toBe(t.freqMid); // ...and HOLDS (the retired `upgrade` shape)
+      expect(t.duration).toBeLessThanOrEqual(MAX_TONE_S);
+      expect(t.type).toBe('triangle'); // one instrument, three weights
+      expect(t.noise).toBeUndefined(); // never a gun-family transient
+    }
+  });
+
+  it('WEIGHTS by tier: the root drops, the note lengthens, the level rises', () => {
+    const [common, rare, exclusive] = TIERS.map((id) => TONES[id]);
+    expect(rare.freqStart).toBeLessThan(common.freqStart);
+    expect(exclusive.freqStart).toBeLessThan(rare.freqStart);
+    expect(rare.duration).toBeGreaterThan(common.duration);
+    expect(exclusive.duration).toBeGreaterThan(rare.duration);
+    expect(rare.volume).toBeGreaterThan(common.volume);
+    expect(exclusive.volume).toBeGreaterThan(rare.volume);
+  });
+
+  it('routes a boon rarity to its cue, and fails OPEN (never silent) on junk', () => {
+    expect(fitTone('common')).toBe('fitCommon');
+    expect(fitTone('rare')).toBe('fitRare');
+    expect(fitTone('exclusive')).toBe('fitExclusive');
+    expect(fitTone(undefined)).toBe('fitCommon');
+    expect(fitTone('legendary' as BoonRarity)).toBe('fitCommon');
+  });
+
+  it('every catalog line maps to a fit cue with a real spec (no silent boon)', () => {
+    const silent = Object.values(BOON_CATALOG).filter((def) => TONES[fitTone(def.rarity)] === undefined);
+    expect(silent).toEqual([]);
+    expect(Object.keys(BOON_CATALOG).length).toBeGreaterThanOrEqual(42);
   });
 });
 
@@ -150,10 +190,10 @@ describe('point tone — bright single rise (banked-point ping)', () => {
     expect(TONES.point.duration).toBeLessThanOrEqual(MAX_TONE_S);
   });
 
-  it('is distinct from the upgrade "spent" two-note (which plateaus)', () => {
-    // upgrade holds its second note (mid === end); point keeps climbing.
+  it('is distinct from the FIT family\'s "spent" two-note (which plateaus)', () => {
+    // Every fit tone holds its second note (mid === end); point keeps climbing.
     expect(TONES.point.freqEnd).not.toBe(TONES.point.freqMid);
-    expect(TONES.upgrade.freqEnd).toBe(TONES.upgrade.freqMid);
+    expect(TONES.fitCommon.freqEnd).toBe(TONES.fitCommon.freqMid);
   });
 });
 
@@ -203,5 +243,72 @@ describe('stormEnterEdge', () => {
     expect(stormEnterEdge(true, true)).toBe(false); // already outside — no repeat
     expect(stormEnterEdge(false, false)).toBe(false);
     expect(stormEnterEdge(true, false)).toBe(false); // re-entering the zone, no warning
+  });
+});
+
+// --- STORY 2.9: the per-CATEGORY fit transposition ------------------------------
+//
+// Tier picks the cue's weight (fitTone); category moves it up or down the scale
+// (fitDetune, in cents). One family, nine voices — so fitting a gun common and a
+// mine common back to back are audibly different EVENTS without being different
+// cues, and neither needs a new tone spec.
+
+describe('fitDetune — one fit family, nine category voices', () => {
+  const CATEGORIES = [...new Set(Object.values(BOON_CATALOG).map((d) => d.category))];
+
+  it('covers EXACTLY the catalog\'s categories — no gap, no orphan', () => {
+    expect([...FIT_CATEGORIES].sort()).toEqual([...CATEGORIES].sort());
+    expect(CATEGORIES).toHaveLength(9);
+  });
+
+  it('gives every category a DISTINCT transposition inside ±4 semitones', () => {
+    const cents = CATEGORIES.map((c) => fitDetune(c));
+    expect(new Set(cents).size).toBe(CATEGORIES.length);
+    for (const c of cents) expect(Math.abs(c)).toBeLessThanOrEqual(400);
+  });
+
+  it('every category lands on a whole semitone (no microtonal drift)', () => {
+    for (const c of CATEGORIES) expect(Math.abs(fitDetune(c) % 100)).toBe(0);
+  });
+
+  it('fails OPEN to the untransposed root on a junk/absent category', () => {
+    expect(fitDetune('')).toBe(0);
+    expect(fitDetune('notACategory')).toBe(0);
+  });
+
+  it('every catalog line therefore has BOTH a weight and a voice', () => {
+    for (const def of Object.values(BOON_CATALOG)) {
+      expect(TONES[fitTone(def.rarity)]).toBeDefined();
+      expect(Number.isFinite(fitDetune(def.category))).toBe(true);
+    }
+  });
+});
+
+// --- STORY 2.9: the victim tells + the burn treatment ---------------------------
+
+describe('the victim cues (Story 2.9) — burn / slowed / dazzled', () => {
+  it('are all inside the short-tone budget', () => {
+    for (const id of ['burn', 'slowed', 'dazzled'] as const) {
+      expect(TONES[id].duration).toBeLessThanOrEqual(MAX_TONE_S);
+    }
+  });
+
+  it('burn is the damage thud\'s quieter, lower sibling — the same register, not a new one', () => {
+    expect(TONES.burn.type).toBe(TONES.damage.type); // same family: this IS damage
+    expect(TONES.burn.freqStart).toBeLessThan(TONES.damage.freqStart); // ...but under it
+    expect(TONES.burn.volume).toBeLessThan(TONES.damage.volume); // a DoT tick, not a slam
+  });
+
+  it('slowed SAGS and dazzled STINGS — opposite shapes, so the two never blur', () => {
+    expect(TONES.slowed.freqEnd).toBeLessThan(TONES.slowed.freqStart); // revs falling
+    expect(TONES.dazzled.freqMid).toBeGreaterThan(TONES.dazzled.freqStart); // a wash upward
+    expect(TONES.dazzled.freqStart).toBeGreaterThan(TONES.slowed.freqStart * 2);
+  });
+
+  it('neither tell can be confused with the denied refusal or a fire cue', () => {
+    for (const id of ['slowed', 'dazzled'] as const) {
+      expect(TONES[id].type).not.toBe(TONES.denied.type); // never the square blat
+      expect(TONES[id].noise).toBeUndefined(); // never a gun-family transient
+    }
   });
 });

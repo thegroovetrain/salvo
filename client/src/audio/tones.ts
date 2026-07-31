@@ -4,7 +4,7 @@
 // a browser audio stack. Envelope shape follows DESIGN.md's carried-forward
 // playTone(freqStart, freqMid, freqEnd, duration, volume, type) approach.
 
-import type { EquipmentId } from '@salvo/shared';
+import type { BoonRarity, EquipmentId } from '@salvo/shared';
 
 /** Every distinct cue the client can play. */
 export type ToneId =
@@ -18,7 +18,12 @@ export type ToneId =
   | 'damage'
   | 'kill'
   | 'point'
-  | 'upgrade'
+  | 'fitCommon'
+  | 'fitRare'
+  | 'fitExclusive'
+  | 'burn'
+  | 'slowed'
+  | 'dazzled'
   | 'sink'
   | 'tick'
   | 'matchStart'
@@ -72,10 +77,32 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // Point earned (banked, unspent): one bright continuous rise — a "ping" that
   // reads as a reward-available prompt, distinct from the upgrade two-note.
   point: { freqStart: 700, freqMid: 1100, freqEnd: 1500, duration: 0.12, volume: 0.4, type: 'triangle' },
-  // Upgrade granted / point SPENT: short rising two-note — flat first note,
-  // stepping up a fourth at the 40% mark and holding (reads as "do-mi",
-  // distinct from the kill chime's continuous glide and the point ping).
-  upgrade: { freqStart: 660, freqMid: 880, freqEnd: 880, duration: 0.14, volume: 0.45, type: 'triangle' },
+  // --- THE FIT FAMILY (Story 2.9) — one template, three weights -------------
+  // A boon FITTED. All three are the retired `upgrade` two-note verbatim in
+  // shape — flat first note, stepping up a fourth at the 40% mark and holding
+  // ("do-mi", distinct from the kill chime's continuous glide and the point
+  // ping) — so the family reads as ONE cue heard three ways. Only the WEIGHT
+  // moves with the card's tier: the root drops, the note lengthens, and the
+  // level rises as the tier climbs, which is how a heavier instrument sounds
+  // without becoming a different instrument. Draft specs (the draft-copy rule);
+  // every one has a visual twin in audio/twinMap.ts.
+  fitCommon: { freqStart: 660, freqMid: 880, freqEnd: 880, duration: 0.1, volume: 0.36, type: 'triangle' },
+  fitRare: { freqStart: 550, freqMid: 733, freqEnd: 733, duration: 0.13, volume: 0.45, type: 'triangle' },
+  fitExclusive: { freqStart: 440, freqMid: 587, freqEnd: 587, duration: 0.15, volume: 0.52, type: 'triangle' },
+  // --- THE VICTIM TELLS (Story 2.9) — what a doctrine did TO YOU --------------
+  // Burning: a damage tick taken inside an enemy INCENDIARY zone. Deliberately
+  // the damage thud's quieter, airier sibling — same triangle family, pitched
+  // under it with a noise hiss (fire, not impact) — because it IS damage, only
+  // a DoT tick rather than a slam (the shake is scaled down to match).
+  burn: { freqStart: 150, freqMid: 120, freqEnd: 90, duration: 0.11, volume: 0.32, type: 'triangle', noise: true },
+  // Fouled (PROP-FOULING): a sagging low sine — the engine losing revs. Falls
+  // like the denied blat but soft and round, never that curt square refusal.
+  slowed: { freqStart: 300, freqMid: 190, freqEnd: 130, duration: 0.14, volume: 0.34, type: 'sine' },
+  // Dazzled (DAZZLE BURST): a bright glassy sting that washes UP and thins out —
+  // the optical opposite of the fouled sag, and audibly nothing like the star
+  // shell's own launch whistle (that one is the firer's, this one is the
+  // victim's: shorter, higher, no body).
+  dazzled: { freqStart: 900, freqMid: 1400, freqEnd: 1250, duration: 0.12, volume: 0.34, type: 'sine' },
   // Own sink: the one long tone — alarm warble sliding down into a low boom.
   sink: { freqStart: 320, freqMid: 180, freqEnd: 60, duration: 0.4, volume: 0.55, type: 'sawtooth' },
   // Countdown tick (last 5s): short, neutral, clock-like.
@@ -117,6 +144,61 @@ const FIRE_TONE: Record<FiringEquipmentId, ToneId> = {
 export function fireTone(id: FiringEquipmentId): ToneId {
   return FIRE_TONE[id];
 }
+
+/** Boon rarity -> its fit cue (Story 2.9). The tier is the ONE audible axis:
+ *  a common lands light, a rare fuller, an exclusive heaviest. */
+const FIT_TONE: Record<BoonRarity, ToneId> = {
+  common: 'fitCommon',
+  rare: 'fitRare',
+  exclusive: 'fitExclusive',
+};
+
+/** Pure: the fit cue for a fitted boon's rarity tier. Fail-open to the common
+ *  weight — a junk/unknown rarity must still be AUDIBLE (FR22: a
+ *  presentation-silent boon is a defect), never silent. */
+export function fitTone(rarity: BoonRarity | undefined): ToneId {
+  return rarity !== undefined && Object.hasOwn(FIT_TONE, rarity) ? FIT_TONE[rarity] : 'fitCommon';
+}
+
+/** One semitone, in the CENTS `Audio.play`'s `detune` option speaks (the Web
+ *  Audio unit — see audio/context.ts). */
+const SEMITONE_CENTS = 100;
+
+/**
+ * Boon CATEGORY -> the fit cue's transposition, in cents (Story 2.9). The TIER
+ * picks the instrument's weight (fitTone); the CATEGORY moves it up or down the
+ * scale, so two commons fitted back to back on different slots are audibly
+ * different events without becoming different cues. The nine v1 categories are
+ * laid across ±4 semitones in the deck's own order — the four weapon families
+ * below the root, the utilities above it, SHIP at the root — which keeps the
+ * interval between any two neighbours a clean semitone. Draft mapping (the
+ * draft-copy rule); the table is pinned exhaustive over the catalog by
+ * __tests__/tones.test.ts, so a tenth category cannot ship untransposed.
+ */
+const FIT_CATEGORY_CENTS: Readonly<Record<string, number>> = {
+  guns: -4 * SEMITONE_CENTS,
+  cannon: -3 * SEMITONE_CENTS,
+  torpedoes: -2 * SEMITONE_CENTS,
+  mines: -1 * SEMITONE_CENTS,
+  ship: 0,
+  intel: 1 * SEMITONE_CENTS,
+  speedBoost: 2 * SEMITONE_CENTS,
+  starShells: 3 * SEMITONE_CENTS,
+  decoyBuoy: 4 * SEMITONE_CENTS,
+};
+
+/**
+ * Pure: the fit cue's detune (cents) for a fitted line's category. Fails OPEN to
+ * the root — an unknown/junk category still gets the untransposed cue rather
+ * than silence (FR22: a presentation-silent boon is the defect).
+ */
+export function fitDetune(category: string): number {
+  return Object.hasOwn(FIT_CATEGORY_CENTS, category) ? FIT_CATEGORY_CENTS[category] : 0;
+}
+
+/** The categories the fit transposition covers (test seam — pinned against the
+ *  live catalog so a new category cannot ship without a voice). */
+export const FIT_CATEGORIES: readonly string[] = Object.keys(FIT_CATEGORY_CENTS);
 
 // --- match-phase edge cues (countdown tick + match-start) -------------------
 

@@ -16,18 +16,30 @@ import { CLIENT_CONFIG } from '../config.js';
 import { motionIntensity, settings } from '../settings/store.js';
 
 /** Effect kinds routed through spawnEffect(). */
-export type EffectKind = 'wake' | 'muzzle' | 'spark' | 'splash' | 'sink' | 'torpwake' | 'burst';
+export type EffectKind =
+  | 'wake'
+  | 'muzzle'
+  | 'muzzleHeavy'
+  | 'spark'
+  | 'pierce'
+  | 'splash'
+  | 'sink'
+  | 'torpwake'
+  | 'burst';
 
 /**
  * Pure: is this one-shot pure JUICE (a decorative flash) rather than a marker
- * that carries information? Only the muzzle flash and the impact spark are —
- * splash / sink / burst rings say WHERE something happened and the torpedo wake
- * says where a fish ran, so they survive every motion level. The juice kinds'
- * peak alpha is scaled by the accessibility motion level (Story 2.3): halved at
- * `reduced`, suppressed at `off`.
+ * that carries information? Only the muzzle flashes and the impact spark are —
+ * splash / sink / burst rings say WHERE something happened, the torpedo wake
+ * says where a fish ran, and the `pierce` ring says a shell PUNCHED THROUGH a
+ * hull and is still flying (Story 2.9: the ARMOR-PIERCING read, which is the
+ * only thing on screen distinguishing a pierce from a terminal hit), so they
+ * survive every motion level. The juice kinds' peak alpha is scaled by the
+ * accessibility motion level (Story 2.3): halved at `reduced`, suppressed at
+ * `off`.
  */
 export function isJuiceEffect(kind: EffectKind): boolean {
-  return kind === 'muzzle' || kind === 'spark';
+  return kind === 'muzzle' || kind === 'muzzleHeavy' || kind === 'spark';
 }
 
 /** Pure: the peak alpha a one-shot renders at, after the motion gate. */
@@ -62,8 +74,19 @@ const C = CLIENT_CONFIG.colors;
 
 const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
   muzzle: { type: 'dot', life: 0.12, color: C.muzzle, r0: 5, r1: 1, width: 0, alpha: 0.9, additive: true },
+  // Story 2.9 — the OWN cannon's muzzle: the same flash with real weight behind
+  // it (bigger, and it hangs a beat longer). Own-side only, because the wire's
+  // ballistic shape deliberately cannot say "cannon" to an onlooker.
+  muzzleHeavy: { type: 'dot', life: 0.18, color: C.muzzle, r0: 9, r1: 1.5, width: 0, alpha: 1, additive: true },
   // spark = the hit flash at a shell-vs-ship impact → Hit Call bloom.
   spark: { type: 'dot', life: 0.2, color: C.hitBloom, r0: 7, r1: 1, width: 0, alpha: 1, additive: true },
+  // Story 2.9 — ARMOR-PIERCING punch-through: a ring that CONTRACTS onto the
+  // hull it just went through. Every other ring in the game expands (splash,
+  // burst, sink), so collapsing inward is unmistakably a different event at a
+  // glance — a shell that did NOT stop here. Damage-marker crimson (the
+  // existing damage register; no new reds), and NOT juice: it is the whole
+  // enemy-side AP tell, so it holds at motion=off.
+  pierce: { type: 'ring', life: 0.28, color: C.damageMarker, r0: 20, r1: 3, width: 2, alpha: 0.9, additive: true },
   // Miss splash ring (replaces the retired blip-green double-duty — see DESIGN.md).
   splash: { type: 'ring', life: 0.5, color: C.splash, r0: 3, r1: 22, width: 2, alpha: 0.7, additive: false },
   // Gun-shell burst at the clicked point: a bright amber ring expanding to the

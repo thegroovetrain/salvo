@@ -53,9 +53,9 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    // Story 2.8: catalog v1 replace + legacy upgrade strip + slow/dazzle wire
-    // fields + torpU event + deck-drawn offers — one bump for everything.
-    expect(PROTOCOL_VERSION).toBe(16);
+    // Story 2.9: doctrine-distinct lit zones (amendment 50) — LitZoneView
+    // gains the trailing `mode` field, delivered to every observer.
+    expect(PROTOCOL_VERSION).toBe(17);
   });
 
   it('re-exports config, wire tags, and functions', () => {

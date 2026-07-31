@@ -287,6 +287,33 @@ export function boonDescription(def: BoonDef, you: BoonPreviewShip): string {
 }
 
 /**
+ * Pure: the ACCRUED-BOON effect line for the hotbar slot tooltip (Story 2.9) —
+ * the one-line "what this line is doing for you RIGHT NOW" under a `◆ NAME` row.
+ *
+ * Deliberately NOT the refit card's sentence: a card sells a change and prints
+ * `current → next`; a tooltip row reports a HOLDING and prints the value the
+ * fitted build actually has. So the stat lines read straight off the LIVE
+ * effective stats already resolved for the slot (no preview diff, no second
+ * resolve — `stats` IS the firewall's output for this hull), and the standing
+ * `note` is dropped: it belongs to the sales pitch, not the readout.
+ *
+ * Doctrine and acquisition lines have no number to report, so they reuse their
+ * card text verbatim — one copy of every string, and the tooltip's container-fit
+ * pin (__tests__/tooltipFit.test.ts) is what keeps the long ones honest.
+ *
+ * TOTAL over BOON_CATALOG by construction (every line is a stat, a doctrine or
+ * an acquisition); an unwritten id fails open to '' rather than breaking a row.
+ */
+export function boonEffectLine(id: string, stats: EffectiveStats): string {
+  if (Object.hasOwn(DOCTRINE_TEXT, id)) return DOCTRINE_TEXT[id];
+  if (Object.hasOwn(ACQUISITION_TEXT, id)) return ACQUISITION_TEXT[id];
+  if (!Object.hasOwn(STAT_LINES, id)) return '';
+  const line = STAT_LINES[id];
+  const fmt = line.fmt ?? num;
+  return `${line.label}: ${fmt(line.read(stats))}`;
+}
+
+/**
  * Pure: the DOCTRINE-SWAP line for a card whose rival doctrine you already hold
  * (amendment 44 — picking it swaps for free, and the rival's card returns to the
  * deck), or null when there is nothing to replace. The rival is named at ITS
