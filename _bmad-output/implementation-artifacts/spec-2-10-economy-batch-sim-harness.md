@@ -2,8 +2,9 @@
 title: 'Story 2.10: Economy Batch-Sim Harness'
 type: 'feature'
 created: '2026-07-31'
-status: 'in-review'
+status: 'done'
 baseline_revision: '23227ed'
+final_revision: 'ac92529'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
