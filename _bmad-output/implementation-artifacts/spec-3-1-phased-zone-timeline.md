@@ -1,0 +1,120 @@
+---
+title: '3-1 Phased Zone Timeline (+ ratified map bump)'
+type: 'feature'
+created: '2026-08-01'
+status: 'ready-for-dev'
+review_loop_iteration: 0
+context:
+  - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
+  - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context-amendments.md'
+  - '{project-root}/_bmad-output/project-context.md'
+warnings: [oversized, multiple-goals]
+---
+
+<intent-contract>
+
+## Intent
+
+**Problem:** The storm is a single 45s-grace + 3-min continuous shrink fully closed at 3:45 on a 900u map — no pacing arc (matches end 0:40–1:20 p50 in the harness), the ratified 12–20 picks-per-match band is arithmetically unreachable (match length, not XP dials, owns the fix — amendment 2), and on today's map the ring would be toothless (worst-case escape ≈ 8% of a battleship-minute).
+
+**Approach:** Replace `sim/zone.ts` with a phased three-group offset-ring timeline (pure shared sim; per group: clear seas → reserved supply-drop no-op → next ring revealed → ring closes over one minute; full closure ~12:00; terminal radius = 2 × truesight radius derived from `CONFIG.vision.sight`; geometric radius steps), retune map/fill design targets to the closing-rate criterion (map radius ≈ 2400u, fill ≈ 20 — amendments 7/8), bump PROTOCOL_VERSION 17→18, update every consumer/smoke/harness touchpoint, and prove pacing with a batch-sim evidence campaign (lethal baseline + new pacifist-pilot control) whose tuning values commit ONLY via an Eric mid-run checkpoint.
+
+## Boundaries & Constraints
+
+**Always:**
+- Timeline is pure shared sim: both sides derive identical {phase, current ring, closing interpolation} from (zoneStartT, clock, CONFIG); zero I/O, zero Colyseus imports, no `Math.random`/`Date.now` — ring-center rolls use a seeded server-private stream (see Design Notes).
+- Storm deals flat `CONFIG.zone.stormDps` (4 hp/s reference) outside the live ring in EVERY phase and never blinds/degrades any sensor tier.
+- Supply-drop beat is a named structural phase with ZERO HUD footprint and zero behavior.
+- Terminal ring radius = 2 × `CONFIG.vision.sight` (660u today), computed from CONFIG — never an independent constant.
+- Every next ring is fully contained within the current ring for every seed (offset cap enforced structurally).
+- PROTOCOL_VERSION 17→18 with a changelog entry; `zoneState` phase values, new ArenaState ring fields, and the CONFIG.zone snapshot reshape are all wire contract.
+- Closing-rate criterion pinned as a CONFIG-invariant test: worst-case escape distance per close ≤ battleship-minute (2100u), with the ratified ~80% target at defaults.
+- Map/fill/ring tuning values are DESIGN TARGETS; exact committed values require Eric's ratification at the mid-run evidence checkpoint (amendment-55 pattern). No autonomous balance commits.
+- Interim client adaptation only: map new phases onto the existing storm-readout registers (draft copy) and thread ring center/radius through existing renderers; degenerate-numeric guards (0/NaN/negative durations, radii, caps) are first-write habit.
+- Epic-3 amendments 1–9 bind; complexity ≤ 10; `npm run check` green.
+
+**Block If:**
+- The evidence checkpoint cannot reach Eric, or evidence shows the ratified shape (3×4min, geometric steps, 660u terminal) cannot satisfy the closing-rate criterion at ANY map size — do not self-modify the ratified shape.
+- Any change outside zone/map/fill scope appears necessary to satisfy an AC (e.g. XP dials chasing the picks band, pilot lethality retunes beyond the pacifist flag).
+
+**Never:**
+- No ring-reveal/storm rendering work (3.2), no chrome bar (3.3), no endgame-constraint evidence beyond exposing the terminal value (3.4).
+- No supply-drop mechanic, hint, or HUD trace; no escalating storm damage; no roster-dynamic map sizing (6.2); no teams/squads work (Epic 6 ledger).
+- Never derive future ring centers from client-known seeds (precompute cheat); never send unrevealed ring geometry to clients.
+- One PR; never split.
+
+## I/O & Edge-Case Matrix
+
+| Scenario | Input / State | Expected Output / Behavior | Error Handling |
+|----------|--------------|---------------------------|----------------|
+| Pre-start | zone not started | phase `idle`, full map radius, no damage | No error |
+| Group g, beats 1–3 | elapsed in clear/supply/reveal | radius+center hold at ring g; phase names exact; next-ring geometry exposed from reveal beat only | No error |
+| Close beat | elapsed in group g beat 4 | center+radius interpolate linearly ring g → ring g+1 over beat duration | No error |
+| Past closure | elapsed ≥ timeline total | phase `closed`, holds final ring (center + 660u) forever | No error |
+| Ship vs ring | pos on live ring boundary / outside | boundary-inclusive SAFE; strictly outside takes `stormDps·dt`, storm kills unattributed | No error |
+| Containment | any seed, any group | next ring circle ⊆ current ring circle; terminal = 2×sight | Structural clamp, property-tested |
+| Stale client | join with pv 17 | rejected at matchmake (`protocolVersionError`) | Clean rejection |
+| Degenerate cfg | 0/negative beat ms, 0 groups, offsetCap>1 | clamped/guarded; no NaN, no hang, no divide-by-zero | Fail-closed guards |
+| zoneOverride | dev-gated new-shape override | honored under HC_DEV_OPTIONS=1 only; stripped otherwise (unchanged gate) | rejectedKeys unchanged |
+
+</intent-contract>
+
+## Code Map
+
+- `shared/src/sim/zone.ts` — REWRITE: phased timeline model + API (see Design Notes); keep `isOutside` semantics (center-aware).
+- `shared/src/constants.ts` — CONFIG.zone reshape (beats/groups/offsetCap/stormDps + geometric ring derivation); CONFIG.map/match retune to targets (radius ≈2400, fill ≈20; expression implementer-drafted per amendment 8).
+- `shared/src/index.ts` — PROTOCOL_VERSION 17→18 + changelog entry.
+- `server/src/game/world.ts` — zone stream (seeded, server-private), ring-state getters, `applyStorm` center-aware; `startZone` anchor unchanged.
+- `server/src/game/drones.ts` — zone-recovery steers to live ring center, not (0,0).
+- `server/src/rooms/schema/ArenaState.ts` + `ArenaRoom.ts` (`syncZone`) — phase string + current/next ring geometry fields, revealed-only.
+- `server/src/rooms/roomOptions.ts` — `zoneOverride` typed to the new timeline shape (gate logic unchanged).
+- `client/src/main.ts` — `zoneView`/`zoneHud` derive from schema ring fields + clock; interim phase→register mapping; Zone ctor args.
+- `client/src/render/zone.ts` — accept ring center; draw whatever geometry it's handed (no new visuals).
+- `shared/src/__tests__/zone.test.ts` — full rewrite + containment/determinism/closing-rate property tests.
+- `server/src/__tests__/{zone,match,drones,roomOptions,boons,upgrades}.test.ts`, `client/src/__tests__/{zone,hud}.test.ts` — timeline-literal reshapes + behavior updates.
+- `server/scripts/*.mjs` (11 smokes) — override literals reshaped; `zoneSmoke.mjs` phase assertions rewritten.
+- `server/scripts/batchsim/overrides.ts` — phased-key sweep support; `runner.ts` — tick budget from a shared time-to-closed helper; `pilots.ts` — ring-center goal + pacifist (no-hunt) policy flag; `report.ts` — closure-time/phase columns as needed.
+- `VERSION` + root `package.json` — 0.X.0 feature bump; `CLAUDE.md` zone line; `sprint-status.yaml` + `gds-workflow-status.yaml` ride the PR; deferred-work picks-band entry status updated from evidence.
+
+## Tasks & Acceptance
+
+**Execution:**
+- [ ] `shared/src/sim/zone.ts` + `shared/src/constants.ts` + `shared/src/index.ts` — phased model, CONFIG reshape, PV 18 — the spine everything else consumes.
+- [ ] `shared/src/__tests__/zone.test.ts` — rewrite + new property tests (containment ∀ seeds, boundary semantics, interpolation, closing-rate criterion, degenerate guards).
+- [ ] `server/src/game/{world,drones}.ts` + `rooms/{schema/ArenaState,ArenaRoom,roomOptions}.ts` — server integration: stream, getters, storm, steering, reveal-gated sync.
+- [ ] `server/src/__tests__/*` — reshaped literals + new behavior pins (reveal-gating: next-ring fields absent pre-reveal).
+- [ ] `client/src/main.ts` + `render/zone.ts` (+ hud if forced) — interim adaptation; client tests updated.
+- [ ] `server/scripts/*.mjs` — smoke literals + zoneSmoke assertions; verify zoneSmoke runs green.
+- [ ] `server/scripts/batchsim/{overrides,runner,pilots,report}.ts` + harness tests — sweep keys, tick budget, ring-center goal, pacifist flag.
+- [ ] Evidence campaign + checkpoint — lethal baseline rerun, pacifist control, map-radius × ring sweep, closing-rate table; AskUserQuestion checkpoint; commit ONLY ratified values; write `batch-sim-evidence-<date>.md`-style report; update deferred-work picks-band entry.
+- [ ] Docs/bookkeeping — VERSION, CLAUDE.md, sprint/workflow status files.
+
+**Acceptance Criteria:**
+- Given an unmodified match, when the timeline runs, then phases follow clear→supply→reveal→close per group, three groups, full closure at the CONFIG target (~12:00), then `closed` holds the terminal ring.
+- Given the same schema fields and clock, when server and client compute ring state during any beat, then geometry and phase agree exactly (shared function, shared inputs).
+- Given any zone-stream seed, when all rings are rolled, then every next ring is contained in the current one and the terminal radius equals 2×`CONFIG.vision.sight`.
+- Given a client before a group's reveal beat, when frames/schema arrive, then no future-ring geometry is present anywhere on the wire.
+- Given the committed CONFIG defaults, when the closing-rate test computes worst-case escape per close, then it is ≤ 2100u and ≈ the ratified 80% target.
+- Given the batch-sim pacifist control, when matches run, then they reach storm-forced conclusions with closure ≈ the CONFIG target and the evidence report states match-length distributions, picks-band position, `endedBy` split, and the lower-bounds caveat.
+- Given a pv-17 client, when it attempts matchmake, then it is rejected cleanly before seat reservation.
+
+## Spec Change Log
+
+## Review Triage Log
+
+## Design Notes
+
+- **Anti-cheat ruling (Eric-ratified, amendment 10):** ring centers roll on a **server-private seeded stream** (decorrelated from mapSeed, offer-stream pattern) — mapSeed is client-known, so seed-derived centers would let a modded client precompute future rings. Revealed geometry travels via ArenaState fields at reveal time. Preserves amendment 3's ratified WHAT (offset rings, containment, reveal at minute 3); harness reproducibility holds (World seed → zone stream).
+- **API sketch (shape, not prescription):** `zoneStateAt(t, startT, rings, cfg) → { phase, groupIndex, current: {cx, cy, r}, next: {cx, cy, r} | null, closesInMs }` with `rings` rolled once at `startZone` by the server and mirrored (revealed-prefix only) to clients; plus `zoneClosedAtMs(cfg)` for tick budgets and `isOutside(pos, ring)`.
+- **Closing-rate criterion (the design equation):** worst-case escape per close = (1 + offsetCap) × Δr where Δr = r_g − r_g+1; criterion: ≤ 0.8 × 35 u/s × beatMs. Geometric steps 2400→660 give Δ₁ ≈ 840u → 1680u ≈ 80% ✓. Pinned as a test over CONFIG so future retunes can't silently make the ring unwinnable.
+- **Interim HUD mapping (draft copy):** clear/supply → the existing "STORM M:SS" countdown register (to next close), reveal → same countdown (3.2 owns the reveal moment), close → "STORM CLOSING", terminal → "STORM CLOSED". Zero supply-drop trace.
+
+## Verification
+
+**Commands:**
+- `npm run check` — expected: lint + type-check + full suite green (test count grows; no complexity errors).
+- `HC_DEV_OPTIONS=1 node server/scripts/zoneSmoke.mjs` (server booted per its header) — expected: phased assertions pass over real sockets.
+- Harness evidence runs (batchSim CLI per its `--help`): lethal baseline, pacifist control, `--sweep` over map/ring keys — expected: seeded, byte-identical reruns; evidence doc written; checkpoint held with Eric before committing tuning values.
+
+**Manual checks (if no CLI):**
+- Worktree diff contains no unrelated files (Eric's HULLCRACKER_NOTES.md untouched); PV changelog entry present; supply beat greps to zero client-visible strings.
