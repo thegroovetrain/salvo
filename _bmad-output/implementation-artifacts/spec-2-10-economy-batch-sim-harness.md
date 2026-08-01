@@ -72,14 +72,14 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution (dependency order):**
-- [ ] `server/src/game/match.ts` + tests -- endedBy classification -- the telemetry debt that must land before tuning (amendment 53)
-- [ ] `server/scripts/batchSim.mjs` + internals -- in-process runner + scripted captain pilots + drone fill -- the engine (amendment 54)
-- [ ] Stats collectors + report + config sweep + deck-only mode -- the AC's measures + amendment 38's pity evidence
-- [ ] Unit tests -- endedBy matrix, reproducibility, aggregation helpers
-- [ ] Evidence campaign -- runs at current dials + candidate sweeps → evidence artifact
-- [ ] EVIDENCE CHECKPOINT (AskUserQuestion, amendment 55) -- present distributions + recommended values -- commit ONLY ratified values (+ pinned-test updates)
-- [ ] Bookkeeping files -- per-PR protocol
-- [ ] `npm run check` -- gate green
+- [x] `server/src/game/match.ts` + tests -- endedBy classification -- the telemetry debt that must land before tuning (amendment 53)
+- [x] `server/scripts/batchSim.mjs` + internals -- in-process runner + scripted captain pilots + drone fill -- the engine (amendment 54)
+- [x] Stats collectors + report + config sweep + deck-only mode -- the AC's measures + amendment 38's pity evidence
+- [x] Unit tests -- endedBy matrix, reproducibility, aggregation helpers
+- [x] Evidence campaign -- runs at current dials + candidate sweeps → evidence artifact (`batch-sim-evidence-2026-07-31.md`)
+- [x] EVIDENCE CHECKPOINT (AskUserQuestion, amendment 55) -- ratified as amendment 57: CONFIG.xp confirmed as-is; deck.rareWeightPerDryLevel 0.35 → 0.7 committed (+ barrel.test pin)
+- [x] Bookkeeping files -- per-PR protocol
+- [x] `npm run check` -- gate green (2280 → 2305)
 
 **Acceptance Criteria:**
 - Given the same seed/config/roster, when the harness runs twice, then reports are identical (NFR5).

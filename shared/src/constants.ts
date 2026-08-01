@@ -367,12 +367,15 @@ export const CONFIG = {
    * exclusive has landed in a draw (invisible soft pity):
    *   perCardWeight = rareWeightBase + levelsSinceRare × rareWeightPerDryLevel
    * (commons are always weight 1; a line's total weight = copiesInDeck ×
-   * perCardWeight — see sim/deck.ts). DRAFT values; 2.10's batch-sim evidence
-   * sets the dial.
+   * perCardWeight — see sim/deck.ts). Values RATIFIED by Eric 2026-07-31 from
+   * the 2.10 batch-sim evidence (amendment 57): at 0.35 the escalation only
+   * offset natural rare depletion (flat pity curve); 0.7 makes the ratified
+   * soft pity genuinely rise (rareRate 0.43→0.57 by dry 6) and trims the
+   * first-exclusive tail without flooding shallow draws.
    */
   deck: {
     rareWeightBase: 1, // per-card weight of a rare/exclusive at zero dry levels
-    rareWeightPerDryLevel: 0.35, // weight added per level without a rare/exclusive drawn
+    rareWeightPerDryLevel: 0.7, // weight added per level without a rare/exclusive drawn
   },
 
   /**

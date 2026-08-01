@@ -232,7 +232,8 @@ describe('shared barrel', () => {
     for (const fn of [buildDeck, drawOffer, returnCards, consumeAcquisition, scrubAcquisitions]) {
       expect(typeof fn).toBe('function');
     }
-    expect(CONFIG.deck).toEqual({ rareWeightBase: 1, rareWeightPerDryLevel: 0.35 });
+    // dial ratified 0.35 -> 0.7 by Eric from 2-10 batch-sim evidence (amendment 57)
+    expect(CONFIG.deck).toEqual({ rareWeightBase: 1, rareWeightPerDryLevel: 0.7 });
     expect(CONFIG.offer.size).toBe(4); // four cards, four DIFFERENT lines
     expect(MSG.spend).toBe('u');
     expect('upgradePoints' in CONFIG).toBe(false);
