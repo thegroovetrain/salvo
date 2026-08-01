@@ -135,6 +135,18 @@ function dotKey(ownerId: string, victimId: string): string {
 export interface WorldOptions {
   hookRegistry?: HookRegistry;
   boonCatalog?: BoonCatalog;
+  /**
+   * Seed of the SERVER-PRIVATE zone ring stream (Story 3.1, amendment 10).
+   * The World never generates entropy itself — the caller supplies this:
+   * ArenaRoom passes a per-room private nonce (adapter-layer entropy), the
+   * batch-sim harness derives it from the match seed (server-side, so
+   * reproducibility leaks nothing). When omitted (standalone Worlds: unit
+   * tests, sandbox smokes) it falls back to a fixed derivation of the map
+   * seed — fine for tests, NEVER acceptable for a production room: mapSeed is
+   * client-known, so a derivable zone stream would let a modded client
+   * precompute every future ring.
+   */
+  zoneSeed?: number;
 }
 
 /** The equipment id fitted in `loadout[slotIndex]`, or null when the slot is
@@ -500,9 +512,12 @@ export class World {
    */
   private zoneRings: ZoneRing[] | null = null;
   /**
-   * The zone stream (Story 3.1): mulberry32 decorrelated from the mapgen/
-   * spawn/drone/deck streams by its own fresh golden constant (the deckRngFor
-   * idiom). Deterministic per World seed — the harness's (seed → rings)
+   * The zone stream (Story 3.1): mulberry32 over the caller-supplied
+   * SERVER-PRIVATE zone seed (WorldOptions.zoneSeed — see its JSDoc for who
+   * supplies what). Deliberately NOT derived from the world/map seed in
+   * production: mapSeed rides the welcome, so any fixed derivation would let a
+   * modded client precompute every future ring (amendment 10). Deterministic
+   * per zone seed — the harness's (match seed → zone seed → rings)
    * reproducibility rides on it.
    */
   private readonly zoneRng: Rng;
@@ -539,8 +554,10 @@ export class World {
     this.map = generateMap(seed, playerCap);
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
     this.zoneCfg = zoneCfg;
-    // Zone ring stream, decorrelated again (0x27d4eb2f is unused elsewhere).
-    this.zoneRng = mulberry32((seed ^ 0x27d4eb2f) >>> 0);
+    // Zone ring stream: the caller's private seed (see WorldOptions.zoneSeed).
+    // The map-seed fallback (0x27d4eb2f is unused elsewhere) exists ONLY for
+    // standalone Worlds — production rooms always pass a private nonce.
+    this.zoneRng = mulberry32((opts.zoneSeed ?? seed ^ 0x27d4eb2f) >>> 0);
     // Drone steering stream, decorrelated again from mapgen + spawn.
     this.drones = new DroneController(this, (seed ^ 0x85ebca6b) >>> 0);
   }

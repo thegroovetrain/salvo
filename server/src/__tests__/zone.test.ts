@@ -80,22 +80,44 @@ describe('zone lifecycle — starts ONLY via startZone', () => {
     expect(w.zoneLiveRing).toEqual(ring);
   });
 
-  it('rings are deterministic per World seed (harness reproducibility)', () => {
-    const roll = (seed: number): ZoneRing => {
-      const w = new World(seed, CONFIG.match.fillTo, instant(1, 1));
+  it('rings are deterministic per zone seed (harness reproducibility)', () => {
+    const roll = (seed: number, zoneSeed?: number): ZoneRing => {
+      const w = new World(seed, CONFIG.match.fillTo, instant(1, 1), { zoneSeed });
       w.startZone();
       w.step();
       return w.zoneLiveRing;
     };
+    expect(roll(7, 42)).toEqual(roll(7, 42));
+    expect(roll(7, 42)).not.toEqual(roll(7, 43)); // the pin discriminates
+    // The standalone fallback (no zoneSeed) stays deterministic per map seed.
     expect(roll(7)).toEqual(roll(7));
-    expect(roll(7)).not.toEqual(roll(8)); // the pin discriminates
+  });
+
+  it('the zone stream is INDEPENDENT of the client-known map seed (amendment 10)', () => {
+    // Same map seed, different private zone seeds => different rings: nothing a
+    // client can derive from the welcome's mapSeed pins where rings land when
+    // the room supplies its private nonce (ArenaRoom always does).
+    const roll = (zoneSeed: number): ZoneRing => {
+      const w = new World(7, CONFIG.match.fillTo, instant(1, 1), { zoneSeed });
+      w.startZone();
+      w.step();
+      return w.zoneLiveRing;
+    };
+    const a = roll(1001);
+    const b = roll(1002);
+    expect(a).not.toEqual(b); // centers moved — the map seed alone decides nothing
+    expect(a.r).toBeCloseTo(b.r, 9); // radii are cfg-derived, only CENTERS are private
+    expect(roll(1001)).toEqual(a); // same nonce => identical rings
   });
 });
 
 describe('zone phases — beat boundaries are tick-exact', () => {
+  /** Explicit zone seed so the stream is reconstructable below. */
+  const ZONE_SEED = 0xbeef;
+
   /** A started world plus its private ring set read back through the getters. */
   function started(seed = 3): World {
-    const w = new World(seed, CONFIG.match.fillTo, paced());
+    const w = new World(seed, CONFIG.match.fillTo, paced(), { zoneSeed: ZONE_SEED });
     w.startZone(0);
     return w;
   }
@@ -158,13 +180,12 @@ describe('zone phases — beat boundaries are tick-exact', () => {
   });
 
   it('the getters agree with the shared zoneStateAt over the same stream every tick', () => {
-    // Reconstruct the world's private ring roll on the SAME derivation
-    // (seed ^ 0x27d4eb2f — the world.ts zone stream) and pin that every getter
-    // is exactly the shared function over those rings: no forked math, no
-    // off-by-one-tick divergence between phase and geometry.
-    const seed = 3;
-    const w = started(seed);
-    const rings = rollZoneRings(w.map.radius, paced(), mulberry32((seed ^ 0x27d4eb2f) >>> 0));
+    // Reconstruct the world's private ring roll from the SAME supplied zone
+    // seed and pin that every getter is exactly the shared function over those
+    // rings: no forked math, no off-by-one-tick divergence between phase and
+    // geometry.
+    const w = started(3);
+    const rings = rollZoneRings(w.map.radius, paced(), mulberry32(ZONE_SEED >>> 0));
     for (let t = 0; t < 12 * TICKS_PER_BEAT + 20; t++) {
       w.step();
       const s = zoneStateAt(w.now, w.zoneStartMs, rings, paced());

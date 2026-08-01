@@ -42,6 +42,9 @@ export const BOON_N_MAX = 10;
 const ENDGAME_SLACK_MS = 600000;
 /** Documented short countdown (see module header). */
 const COUNTDOWN_MS = 1000;
+/** mixSeed ordinal reserved for a match's zone-stream seed (captains use
+ *  0x100 + i — keep this outside any roster-sized range). */
+const ZONE_SEED_ORDINAL = 0x7a0e;
 
 export interface RunSpec {
   seed: number;
@@ -235,7 +238,11 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   const matchSeed = mixSeed(spec.seed, index);
   const droneCount = spec.drones ?? Math.max(0, CONFIG.match.fillTo - spec.captains);
   const playerCap = Math.max(CONFIG.match.fillTo, spec.captains + droneCount);
-  const world = new World(matchSeed, playerCap);
+  // zoneSeed: production rooms roll a private nonce (amendment 10); the harness
+  // instead derives it from the match seed on its own ordinal so ring rolls are
+  // part of the reproducible run key (byte-identical reruns). Server-side only —
+  // nothing here rides a wire, so the derivation leaks nothing.
+  const world = new World(matchSeed, playerCap, CONFIG.zone, { zoneSeed: mixSeed(matchSeed, ZONE_SEED_ORDINAL) });
   const timings: MatchTimings = {
     countdownMs: COUNTDOWN_MS,
     resultsMs: CONFIG.match.resultsSeconds * 1000,

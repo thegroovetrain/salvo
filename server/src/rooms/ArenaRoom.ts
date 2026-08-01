@@ -208,7 +208,17 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // Map sized for the match fill (mapRadius(fillTo) — 2400u at the 3.1
     // targets). zoneOverride (dev-only) reshapes the storm timeline for
     // smokes/tests; undefined => shipped CONFIG.zone.
-    this.world = new World(seed, CONFIG.match.fillTo, sanitized.zoneOverride ?? CONFIG.zone);
+    //
+    // zoneSeed: a per-room SERVER-PRIVATE nonce for the ring stream (amendment
+    // 10). mapSeed rides the welcome, so the zone stream must NOT be derivable
+    // from it — a modded client could otherwise precompute every future ring.
+    // Non-deterministic entropy is legal HERE (the I/O adapter, like the random
+    // map seed above — never in game/); the World stays pure and just consumes
+    // the seed. Deliberately NOT a dev option: nothing needs to pin it (smokes
+    // assert ring structure, not specific rolls).
+    this.world = new World(seed, CONFIG.match.fillTo, sanitized.zoneOverride ?? CONFIG.zone, {
+      zoneSeed: (Math.random() * 0xffffffff) >>> 0,
+    });
 
     this.initOperability(rejectedKeys);
 
