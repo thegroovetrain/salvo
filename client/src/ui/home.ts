@@ -12,9 +12,11 @@
 // duplicate home hoist is retired). The shared ColorHoist still lives here, as
 // the state the home's PERSONAL TINT follows: the chip's border/glow/name and
 // the callsign field's border + focus ring all take the player's Regatta hue
-// (via `repaintAccent`, resubscribed on every hoist change so a pick in the bay
-// repaints the port behind it). Amber stays the ACTION register (PLAY only) and
-// phosphor stays the system/status register — neither is ever personalized.
+// (via `repaintAccent`, subscribed ONCE at mount to the hoist's onChange — not
+// resubscribed per pick — so a hue chosen in the bay repaints the port behind
+// it; the subscription is released by hide()'s disposers). Amber stays the
+// ACTION register (PLAY only) and phosphor stays the system/status register —
+// neither is ever personalized.
 //
 // First-run (no stored class): the chip shows a SELECT CLASS prompt and PLAY/
 // Enter OPENS the layer instead of connecting — no default class is ever pushed.
@@ -291,13 +293,16 @@ function makeChip(onOpen: () => void): ChipEls {
   const role = document.createElement('span');
   role.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.24em`;
   const name = document.createElement('div');
-  name.style.cssText = 'font:700 24px var(--hc-font-display);letter-spacing:0.06em;white-space:nowrap';
+  name.style.cssText =
+    'font:700 24px var(--hc-font-display);letter-spacing:0.06em;white-space:nowrap;' +
+    'overflow:hidden;text-overflow:ellipsis;min-width:0';
   meta.append(role, name);
   const change = document.createElement('span');
   change.innerHTML = '<b style="color:var(--hc-phosphor);font-weight:600">▸</b>&nbsp; CHANGE CLASS';
   change.style.cssText =
     `${registerCss('hudMicro')};margin-left:12px;color:var(--hc-phosphor);letter-spacing:0.18em;` +
-    'border-left:1px solid var(--hc-hairline);padding-left:14px;white-space:nowrap';
+    'border-left:1px solid var(--hc-hairline);padding-left:14px;white-space:nowrap;' +
+    'overflow:hidden;text-overflow:ellipsis;min-width:0';
   root.append(sil, meta, change);
   root.addEventListener('click', onOpen);
   root.addEventListener('keydown', (e) => {

@@ -3,7 +3,7 @@
 // token while the server holds the ship through its grace window. connect()
 // sets reconnection.enabled + a maxRetries sized to span that window, and rides
 // a `pv` (PROTOCOL_VERSION) in the join options for the server's version gate.
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MSG, PROTOCOL_VERSION, REGATTA_HUES } from '@salvo/shared';
 
 interface FakeRoom {
@@ -56,7 +56,17 @@ import {
   ensureColorPref,
   loadColorPref,
   RECONNECT_MAX_RETRIES,
+  __resetSessionColorPrefForTests,
 } from '../net/connection';
+
+// Module-level state in connection.ts (`sessionColorPref`) would otherwise leak
+// between tests in this file — e.g. the 'connect' tests below already exercise
+// `ensureColorPref()` indirectly (connect() now always resolves one), which
+// would seed the cache before the dedicated `ensureColorPref` tests further down
+// ever run. Reset before EVERY test so each one starts from a clean cache.
+beforeEach(() => {
+  __resetSessionColorPrefForTests();
+});
 
 /**
  * Reproduce the SDK's reconnection backoff (Room.ts): each attempt waits
@@ -244,5 +254,47 @@ describe('ensureColorPref — never-null preference resolution (Story 1.14)', ()
     expect(idx).toBeGreaterThanOrEqual(0);
     expect(idx).toBeLessThan(REGATTA_HUES.length);
     expect(localStorage.getItem(KEY)).toBe(String(idx));
+  });
+});
+
+describe('ensureColorPref — session cache when localStorage.setItem throws (regression)', () => {
+  const KEY = 'hullcracker.color';
+  let setItemSpy: ReturnType<typeof vi.spyOn>;
+
+  // Simulates blocked/private-mode/quota-exceeded storage: reads still work
+  // (the key is simply absent), but persisting a fresh roll always throws.
+  beforeEach(() => {
+    localStorage.removeItem(KEY);
+    setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError (simulated blocked/private-mode storage)');
+    });
+  });
+
+  afterEach(() => {
+    setItemSpy.mockRestore();
+  });
+
+  it('returns the SAME index across two successive calls (no per-call reroll)', () => {
+    const first = ensureColorPref();
+    const second = ensureColorPref();
+    expect(second).toBe(first);
+    expect(Number.isInteger(first)).toBe(true);
+    expect(first).toBeGreaterThanOrEqual(0);
+    expect(first).toBeLessThan(REGATTA_HUES.length);
+    // Confirms persistence genuinely failed for this scenario — the key never
+    // landed in storage, so a plain loadColorPref()-backed fallback (with no
+    // session cache) would have had nothing to agree on and would reroll.
+    expect(localStorage.getItem(KEY)).toBeNull();
+  });
+
+  it("is the SAME index connect() forwards as `colorPref` in its join options", async () => {
+    room = fakeRoom();
+    const idx = ensureColorPref();
+    await connectAndWelcome();
+    // Before the fix, connect() read loadColorPref() directly (undefined in this
+    // throwing-storage environment) and omitted `colorPref` entirely — the
+    // server would then assign a hue different from the one ensureColorPref()
+    // told the whole home/bay chrome to tint with.
+    expect(lastJoinOpts?.colorPref).toBe(idx);
   });
 });

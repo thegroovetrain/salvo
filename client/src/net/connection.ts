@@ -43,18 +43,38 @@ export function loadColorPref(): number | undefined {
 }
 
 /**
+ * Session-lifetime fallback for `ensureColorPref()` when storage cannot persist
+ * the roll (blocked/private-mode/quota-exceeded localStorage). Without this, a
+ * remount in that environment would reroll a DIFFERENT hue every call —
+ * `ensureColorPref()` promised the whole home/bay chrome (and `connect()`'s join
+ * options) the SAME hue for the session, which a bare in-memory-only fallback
+ * can't keep once the function is called again. A valid STORED value always
+ * takes precedence over this cache (see below) so an explicit pick (which
+ * writes storage) or a cross-tab edit still wins at read time.
+ */
+let sessionColorPref: number | undefined;
+
+/**
  * The persisted Regatta hue preference (0..19), NEVER null. If `loadColorPref()`
  * finds a valid stored index, it is returned unchanged — a valid preference is
- * never rerolled. Otherwise (absent key, or the corrupt/out-of-range/empty cases
- * `loadColorPref` already rejects) a uniform random index is rolled and
- * persisted immediately under COLOR_PREF_KEY, so home/modal/join all agree on
- * the SAME hue from the very first paint (Story 1.14: unset color no longer
- * falls back to amber). Single owner of the no-pref case — classSelect.ts's
- * ColorHoist seeds from this, not from loadColorPref() directly.
+ * never rerolled — and it refreshes `sessionColorPref` so a later storage
+ * failure still falls back to this same value. Otherwise (absent key, or the
+ * corrupt/out-of-range/empty cases `loadColorPref` already rejects): if this
+ * session already rolled one (persisted or not), reuse it — never reroll
+ * within a session. Only when neither exists is a uniform random index rolled;
+ * persistence is attempted (best-effort) so home/modal/join all agree on the
+ * SAME hue from the very first paint (Story 1.14: unset color no longer falls
+ * back to amber), and the roll is cached for the rest of the session even if
+ * `localStorage.setItem` throws. Single owner of the no-pref case —
+ * classSelect.ts's ColorHoist seeds from this, not from loadColorPref() directly.
  */
 export function ensureColorPref(): number {
   const existing = loadColorPref();
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) {
+    sessionColorPref = existing;
+    return existing;
+  }
+  if (sessionColorPref !== undefined) return sessionColorPref;
   const idx = Math.floor(Math.random() * REGATTA_HUES.length);
   try {
     localStorage.setItem(COLOR_PREF_KEY, String(idx));
@@ -62,7 +82,17 @@ export function ensureColorPref(): number {
     // storage unavailable — the roll still stands for this session, it just
     // won't persist across reloads (same idiom as classSelect.ts's saveColorPref).
   }
+  sessionColorPref = idx;
   return idx;
+}
+
+/** Test-only: clear the in-memory session color-preference cache (mirrors the
+ *  server's `resetMetrics`/`__setNowSource` test-only convention). Without this,
+ *  one test's `ensureColorPref()`/`connect()` call would seed `sessionColorPref`
+ *  and leak it into every later test in the same file, since the cache is
+ *  module-level state that outlives any single test. */
+export function __resetSessionColorPrefForTests(): void {
+  sessionColorPref = undefined;
 }
 
 /**
@@ -167,10 +197,12 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
   const opts: { pv: number; name?: string; cls?: string; colorPref?: number } = { pv: PROTOCOL_VERSION };
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
-  // Story 1.12: forward a persisted color preference when one exists (no UI writes
-  // it yet — the picker is 1.14); the server assigns FCFS and re-sanitizes.
-  const colorPref = loadColorPref();
-  if (colorPref !== undefined) opts.colorPref = colorPref;
+  // Story 1.12/1.14: always forward the resolved color preference — `ensureColorPref()`
+  // never returns undefined (stored value, session-cached roll, or a fresh roll),
+  // so the hue the home/bay chrome tinted with is the exact hue the server assigns,
+  // even when localStorage.setItem throws (blocked/private/quota storage). The
+  // server assigns FCFS and re-sanitizes regardless.
+  opts.colorPref = ensureColorPref();
   const room = await client.joinOrCreate('arena', opts);
   // Story 0.2 re-enables the 0.17 SDK's same-Room auto-reconnect: on an abnormal
   // close the SDK fires onDrop and retries the SAME room with the reconnection

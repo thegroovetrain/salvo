@@ -18,7 +18,12 @@ import {
   openClassSelect,
   CLASS_DISPLAY_NAMES,
 } from '../ui/classSelect.js';
-import { loadColorPref } from '../net/connection.js';
+import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
+
+// The connection module caches the session's rolled hue (review-gate fix for
+// blocked-storage divergence); reset it per test so corrupt/absent-pref cases
+// exercise a fresh roll instead of the previous test's cached one.
+beforeEach(() => __resetSessionColorPrefForTests());
 import { PLAYER_HUES, PLAYER_FILLS } from '../render/ships.js';
 import { cssHex } from '../util/color.js';
 
@@ -245,6 +250,20 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(layer.querySelectorAll('button[aria-label^="hue "]').length).toBe(PLAYER_HUES.length);
   });
 
+  // Finding B regression pin: the footer (label + 20 swatches + the min-width
+  // CONFIRM button) is a nowrap flex row in a panel with vertical-only
+  // scrolling — below ~700px viewport width the button clipped outside the
+  // panel and became partially unclickable. flex-wrap lets it degrade by
+  // wrapping instead (the ratified 1366x768 floor still fits on one row).
+  it('the footer row wraps instead of clipping at narrow viewport widths (Finding B)', () => {
+    open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const swatch = layer.querySelector('button[aria-label="hue 1"]') as HTMLElement;
+    const hoistWrap = swatch.parentElement!.parentElement as HTMLElement; // makeHoistRow's outer wrap
+    const footer = hoistWrap.parentElement as HTMLElement;
+    expect(footer.style.flexWrap).toBe('wrap');
+  });
+
   it('blurs the home overlay while open, restores it on close', () => {
     const { onClose } = open();
     expect(blurTarget.style.filter).toBe('blur(2px)');
@@ -329,12 +348,71 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
-  it('Enter is ignored when a layer button holds focus (native activation wins)', () => {
-    const { onPick, onConfirm } = open();
+  // RENAMED (Codex finding): the old name claimed to prove "native activation
+  // wins", but this dispatches keydown on `window` — jsdom has no native
+  // button-activation behavior to observe. What this actually proves: the
+  // window-level shortcut handler stays quiet for Enter/Space while a layer
+  // button holds focus. EXTENDED (Finding A ruling): the guard is narrowed to
+  // ONLY those two keys — ESC and arrows must still reach the layer even while
+  // a button (e.g. a focused swatch) holds focus.
+  it('Enter/Space stay swallowed by the window handler while a layer button holds focus; ESC and arrows still work regardless of focus', () => {
+    const { onPick, onConfirm, onClose } = open();
     confirmButton().focus();
     press('Enter');
     expect(onPick).not.toHaveBeenCalled(); // the window shortcut did NOT steal Enter
     expect(onConfirm).not.toHaveBeenCalled();
+    press(' '); // Space is swallowed the same way (native button activation)
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    // Finding A: a color swatch is a layer BUTTON too (the bay is the app's
+    // ONLY color picker) — while it holds focus, ArrowRight must still move
+    // the highlight and ESC must still close.
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    const pickBtnText = (i: number): string | null | undefined =>
+      cards[i].querySelector('.hc-pickbtn')?.textContent;
+    expect(pickBtnText(0)).toBe('SELECTED ✓'); // initial highlight: torpedoBoat
+
+    const swatch = layer.querySelector('button[aria-label="hue 1"]') as HTMLButtonElement;
+    swatch.focus();
+    press('ArrowRight'); // must move despite the swatch (a BUTTON) holding focus
+    expect(pickBtnText(1)).toBe('SELECTED ✓'); // battleship now highlighted
+    expect(pickBtnText(0)).toBe('SELECT');
+
+    press('Escape'); // must still close despite focus
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
+  // Finding A regression pin: clicking a swatch used to leave it focused, and
+  // the (unnarrowed) guard then swallowed EVERY key — ESC included — until a
+  // stray mouse click restored the keyboard. The fix blurs the swatch after
+  // pick, so ESC keeps working right after a real click.
+  it('a swatch click still lets ESC close the layer afterward (Finding A)', () => {
+    const { onClose } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const swatch = layer.querySelector('button[aria-label="hue 3"]') as HTMLButtonElement;
+    swatch.focus(); // simulate the browser's implicit focus-on-click
+    swatch.click();
+    press('Escape');
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
+  // Finding A regression pin: without the post-pick blur, Enter stays
+  // swallowed by the narrowed guard too (it deliberately still swallows
+  // Enter/Space while ANY layer button — including a swatch — holds focus).
+  // Only the blur restores Enter → CONFIRM SELECTION via the window handler.
+  it('a swatch click still lets Enter confirm via the window handler afterward (Finding A)', () => {
+    const { onConfirm } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const swatch = layer.querySelector('button[aria-label="hue 3"]') as HTMLButtonElement;
+    swatch.focus();
+    swatch.click();
+    expect(document.activeElement).not.toBe(swatch); // blurred after the pick
+    press('Enter');
+    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat'); // highlight unchanged; only the color changed
   });
 });
 

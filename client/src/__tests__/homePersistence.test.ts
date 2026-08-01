@@ -14,7 +14,12 @@ import {
   NAME_MAX,
   showHome,
 } from '../ui/home.js';
-import { loadColorPref } from '../net/connection.js';
+import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
+
+// The connection module caches the session's rolled hue (review-gate fix for
+// blocked-storage divergence); reset it per test so corrupt/absent-pref cases
+// exercise a fresh roll instead of the previous test's cached one.
+beforeEach(() => __resetSessionColorPrefForTests());
 import { PLAYER_HUES } from '../render/ships.js';
 
 describe('sanitizeName', () => {

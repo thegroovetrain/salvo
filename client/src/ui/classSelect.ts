@@ -234,7 +234,13 @@ function makeSwatch(hoist: ColorHoist, idx: number): HTMLButtonElement {
   sw.type = 'button';
   sw.style.cssText = `${SWATCH_BASE};background:${cssHex(PLAYER_HUES[idx])}`;
   sw.setAttribute('aria-label', `hue ${idx + 1}`);
-  sw.addEventListener('click', () => hoist.pick(idx));
+  sw.addEventListener('click', () => {
+    hoist.pick(idx);
+    // Release focus so the full keyboard (ESC/Enter/arrows) is live again —
+    // without this the swatch stays the focused BUTTON and Enter/Space stay
+    // swallowed by isSwallowedKey until a stray mouse click (Finding A).
+    sw.blur();
+  });
   return sw;
 }
 
@@ -569,8 +575,13 @@ function buildConfirm(onConfirm: () => void): HTMLElement {
 
 function buildFooter(hoist: ColorHoist, onConfirm: () => void): HoistRow {
   const foot = document.createElement('div');
+  // flex-wrap:wrap — below ~700px viewport width this nowrap row (label + 20
+  // swatches + the 300px-min CONFIRM button) clipped the button outside the
+  // panel (vertical-only scroll can't reach it). Wrapping degrades gracefully
+  // instead; the ratified 1366x768 floor is unchanged (still fits on one row).
   foot.style.cssText =
-    'display:flex;align-items:center;gap:30px;padding:18px 42px 0;border-top:1px solid var(--hc-hairline);margin-top:4px';
+    'display:flex;align-items:center;flex-wrap:wrap;gap:30px;padding:18px 42px 0;' +
+    'border-top:1px solid var(--hc-hairline);margin-top:4px';
   const hoistRow = makeHoistRow(hoist);
   foot.append(hoistRow.el, buildConfirm(onConfirm));
   return { el: foot, off: hoistRow.off };
@@ -605,10 +616,21 @@ function isTextInput(el: Element | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable === true;
 }
 
-/** A layer button holds keyboard focus (Tab): native Enter/Space activation wins,
- *  so the layer's shortcut handler must NOT preventDefault + steal the keystroke. */
+/** A layer button (e.g. a focused color swatch) holds keyboard focus. */
 function isLayerButton(el: Element | null, container: HTMLElement): boolean {
   return !!el && el.tagName === 'BUTTON' && container.contains(el);
+}
+
+/**
+ * Only Enter/Space are swallowed while a layer button holds focus — those two
+ * would otherwise double-fire (native button activation racing our own
+ * pick/confirm). Everything else (ESC/arrows/digits) must still reach the
+ * layer regardless of focus, or a focused button (notably a color swatch —
+ * the bay is the app's ONLY color picker) would deafen the whole layer to
+ * every shortcut until a stray mouse click restored it (Finding A).
+ */
+function isSwallowedKey(e: KeyboardEvent, container: HTMLElement): boolean {
+  return (e.key === 'Enter' || e.key === ' ') && isLayerButton(document.activeElement, container);
 }
 
 /** The single live layer, if any — so a re-open fully tears the prior one down
@@ -706,7 +728,7 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   function onKey(e: KeyboardEvent): void {
     if (e.timeStamp <= openedAt) return; // the opening keystroke — never ours to act on
     if (isTextInput(document.activeElement)) return;
-    if (isLayerButton(document.activeElement, container)) return; // let native button activation win
+    if (isSwallowedKey(e, container)) return; // let native Enter/Space button activation win
     const action = keyAction(e.key, cards.length);
     if (!action) return;
     e.preventDefault();

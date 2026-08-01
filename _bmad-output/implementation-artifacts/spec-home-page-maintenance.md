@@ -2,7 +2,7 @@
 title: 'Home Page Maintenance Patch — hoist to bay, random color identity, slim chip, confirm-not-deploy'
 type: 'chore'
 created: '2026-08-01'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'a41d619a09a5a68994d59dd0176ea2467ed3816b'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -74,6 +74,22 @@ warnings: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-01 — Review pass (2 Fable hunters + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 6: (high 0, medium 2, low 4)
+- defer: 1: (high 0, medium 0, low 1)
+- reject: 2
+- addressed_findings:
+  - `medium` `patch` Blocked-storage identity divergence (ALL THREE reviewers): `ensureColorPref()` swallowed a failed `setItem` while `connect()` re-read raw storage — home tints hue A, join sends nothing, server assigns hue B; remounts rerolled. Fixed: module-level session cache; `connect()` reads through `ensureColorPref()` and always sends `colorPref`. Fail-proven regression tests; three test files gained the cache reset (orchestrator-applied fallout fix).
+  - `medium` `patch` Swatch-click keyboard death (Blind Hunter CONFIRMED): the key guard swallowed EVERY key while any layer button held focus — ESC/Enter/arrows dead after clicking a swatch in the app's now-only color picker. Fixed: guard narrowed to Enter/Space only + swatches blur on click. Fail-proven.
+  - `low` `patch` Modal footer clipped below ~700px width (Edge Hunter + Codex agreed): nowrap row + vertical-only panel scroll made CONFIRM partially unreachable. Fixed: `flex-wrap:wrap`; 1366×768 floor unchanged.
+  - `low` `patch` Chip text bled past its border box below ~430px width (nowrap name/divider in a max-width box). Fixed: ellipsis + `min-width:0`; no ellipsis at the floor.
+  - `low` `patch` Test pin overclaimed (Codex): "native activation wins" test dispatched on `window` and cannot prove native activation in jsdom. Renamed to what it proves + extended with the narrowed-guard assertions.
+  - `low` `patch` home.ts header comment claimed `repaintAccent` is "resubscribed on every hoist change" — it's a single mount-time subscription. Comment corrected.
+
+Deferred (ledger entry filed): CVD-assist toggle leaves already-painted home tint stale (`PLAYER_HUES` swap repaints only on hoist change) — pre-existing pattern, surface widened by broader tinting. Rejected: cross-tab first-run roll race (menu-pref live-sync out of scope; join reads current storage at PLAY); "reuse saveColorPref" note (would create a connection→classSelect import cycle; behavior identical).
 
 ## Verification
 

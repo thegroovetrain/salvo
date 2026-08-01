@@ -15,7 +15,12 @@ import {
   serverStatusLine,
   showHome,
 } from '../ui/home.js';
-import { loadColorPref } from '../net/connection.js';
+import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
+
+// The connection module caches the session's rolled hue (review-gate fix for
+// blocked-storage divergence); reset it per test so corrupt/absent-pref cases
+// exercise a fresh roll instead of the previous test's cached one.
+beforeEach(() => __resetSessionColorPrefForTests());
 import { PLAYER_HUES } from '../render/ships.js';
 import { cssHex } from '../util/color.js';
 
@@ -113,6 +118,26 @@ describe('showHome — first-run vs returning routing', () => {
     playButton().click();
     expect(onDeploy).toHaveBeenCalledWith('', 'battleship'); // empty callsign → server assigns
     expect(document.getElementById('hc-class-select')).toBeNull(); // no layer, connected
+  });
+
+  // Container-fit law (amendment 47): below ~430px viewport width the class
+  // name/divider must degrade with an ellipsis inside the chip's border box
+  // rather than render past it. jsdom does no layout, so this pins the style
+  // properties that make truncation possible (overflow/text-overflow/min-width)
+  // rather than simulating the narrow viewport itself.
+  it('the class name and CHANGE CLASS divider are styled to clip with an ellipsis, not overflow', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    showHome('0.0.0-test', vi.fn());
+    const name = chip().querySelector('div') as HTMLElement;
+    expect(name.style.overflow).toBe('hidden');
+    expect(name.style.textOverflow).toBe('ellipsis');
+    expect(name.style.minWidth).toBe('0px');
+    expect(name.style.whiteSpace).toBe('nowrap');
+    const divider = chip().children[2] as HTMLElement; // sil, meta, [change]
+    expect(divider.textContent).toContain('CHANGE CLASS');
+    expect(divider.style.overflow).toBe('hidden');
+    expect(divider.style.textOverflow).toBe('ellipsis');
+    expect(divider.style.minWidth).toBe('0px');
   });
 
   it('first-run PLAY → layer → pick updates the chip + sub-line without deploying', () => {
