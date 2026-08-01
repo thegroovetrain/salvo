@@ -42,7 +42,7 @@
 # Story 1.9 tombstoned (number retired, not reused); later stories keep their numbers.
 
 generated: 2026-07-17
-last_updated: 2026-07-31
+last_updated: 2026-08-01
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -76,7 +76,7 @@ development_status:
   epic-1-retrospective: done
 
   # epic-2: The New Economy (+ New Controls)
-  epic-2: in-progress
+  epic-2: done
   2-1-the-new-input-scheme: done
   2-2-the-hotbar: done
   2-3-settings-accessibility-options: done
@@ -87,7 +87,7 @@ development_status:
   2-8-boon-catalog-v1: done
   2-9-the-build-must-be-felt: done
   2-10-economy-batch-sim-harness: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done  # epic-2-retro-2026-08-01.md
 
   # epic-3: The Ring
   epic-3: backlog
@@ -139,3 +139,21 @@ development_status:
   7-5-design-md-real-time-refresh: backlog
   7-6-the-release-gate: backlog
   epic-7-retrospective: optional
+
+action_items:
+  - epic: 2
+    action: "Waive all 18 followup_review_recommended flags; retire the flag — future follow-up wishes are ledger entries with evidence + named home, or nothing (Eric ruling, epic-2 retro)"
+    owner: "review pipeline"
+    status: done
+  - epic: 2
+    action: "Storm-purple ruling into 3-2 spec: exclusivity clause dead; binding requirement is ring-edge legibility; accent reuse of storm purple is fine (Eric ruling, epic-2 retro)"
+    owner: "spec author (create-story 3-2)"
+    status: open
+  - epic: 2
+    action: "3-1 spec carries picks-band shortfall ownership + harness-lengths-are-lower-bounds caveat + endedBy split + post-landing baseline rerun"
+    owner: "spec author (create-story 3-1)"
+    status: open
+  - epic: 2
+    action: "Epic 2 doc debt (typography rows, purple carve-out now moot, LitZoneView.mode, audio table) rides to Story 7-5 — no pre-Epic-3 batch"
+    owner: "Story 7-5"
+    status: open
