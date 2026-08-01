@@ -56,6 +56,9 @@ describe('Match.endSummary — pre-activation safety', () => {
       winnerClass: null,
       killsByClass: {},
       stormDeaths: 0,
+      // Pre-finish default (amendment 53): the no-survivor winner-resolution
+      // state. durationS 0 + winnerClass null are the not-yet-finished tell.
+      endedBy: 'lastHumanSunk',
     });
   });
 
@@ -110,6 +113,78 @@ describe('Match.endSummary — driven mini-match (drones + storm death)', () => 
     expect(s.killsByClass).toEqual({ torpedoBoat: 1, mineLayer: 0, droneLarge: 0 });
     expect(s.stormDeaths).toBe(1);
     expect(s.durationS).toBeCloseTo(0.1, 5); // finishedAt 200 - activatedAt 100
+    expect(s.endedBy).toBe('fieldCleared'); // 'a' survives an empty ocean
+  });
+});
+
+// endedBy (amendment 53): the abandonment classification the balance evidence
+// needs, so a quit-out match can't be read as a fought-out one. One case per
+// cause, driven through the real transitions (no direct field pokes).
+describe('Match.endSummary — endedBy classification', () => {
+  /** Two humans + `drones` drones, activated. The drones keep a lone survivor
+   *  from insta-winning so the terminal event can be chosen deliberately. */
+  function activated(drones: number): Ctx {
+    const ctx = build();
+    ctx.w.addShip('a', 'A', false, 'torpedoBoat');
+    ctx.m.notifyRosterChanged();
+    ctx.w.addShip('b', 'B', false, 'mineLayer');
+    ctx.m.notifyRosterChanged();
+    for (let i = 0; i < drones; i++) ctx.w.addShip(`d${i}`, `D${i}`, true, 'droneLarge');
+    for (let i = 0; i < 100 && ctx.m.phase !== 'active'; i++) step(ctx);
+    expect(ctx.m.phase).toBe('active');
+    return ctx;
+  }
+
+  it('fieldCleared: the winner is alive with everything else dead', () => {
+    const ctx = activated(1);
+    ctx.w.sinkShip('d0', 'a');
+    ctx.w.sinkShip('b', 'a');
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('a');
+    expect(ctx.m.endSummary().endedBy).toBe('fieldCleared');
+  });
+
+  it('lastHumanSunk: a terminal sinking leaves 0 humans alive (storm case)', () => {
+    const ctx = activated(1);
+    // Killer-less sinks = storm deaths; the drone outlives both captains, so
+    // the winner comes from latest-sunk placement, not a survivor.
+    ctx.w.sinkShip('a');
+    ctx.w.sinkShip('b');
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('b'); // latest-sunk human
+    const s = ctx.m.endSummary();
+    expect(s.stormDeaths).toBe(2);
+    expect(s.endedBy).toBe('lastHumanSunk');
+  });
+
+  it('lastHumanSunk: mutual destruction in combat classifies as sunk, not cleared', () => {
+    const ctx = activated(0);
+    ctx.w.sinkShip('a', 'b');
+    ctx.w.sinkShip('b', 'a'); // same tick
+    step(ctx);
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.endSummary().endedBy).toBe('lastHumanSunk');
+  });
+
+  it('lastHumanLeft: the last afloat human quits out mid-match', () => {
+    const ctx = activated(1);
+    ctx.w.sinkShip('b', 'a');
+    step(ctx);
+    expect(ctx.m.phase).toBe('active'); // the drone keeps 'a' fighting
+    ctx.m.onPlayerLeave('a');
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('a'); // latest-sunk (sunk-at-leave-time)
+    expect(ctx.m.endSummary().endedBy).toBe('lastHumanLeft');
+  });
+
+  it('a departure that leaves a survivor standing is fieldCleared, not lastHumanLeft', () => {
+    const ctx = activated(0);
+    ctx.m.onPlayerLeave('b'); // 'a' is left alone on an empty ocean
+    expect(ctx.m.phase).toBe('finished');
+    expect(ctx.m.winnerId).toBe('a');
+    expect(ctx.m.endSummary().endedBy).toBe('fieldCleared');
   });
 });
 

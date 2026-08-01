@@ -1,0 +1,309 @@
+// The in-process batch runner (spec task: the engine, amendment 54).
+//
+// THE RUNNER SEAM (AR12): one match = build lobby -> drive to finished ->
+// collect stats. World + Match are Colyseus-free and wall-clock-free, so the
+// harness constructs them DIRECTLY (the drones.test.ts fillingHooks pattern):
+// no sockets, no rooms, no frame/perception builds anywhere in the hot loop —
+// the loop is exactly `pilots(); world.step(); match.update(); observe()`.
+// The later load-test / bot-vs-bot duties reuse runMatch with a different
+// PilotFactory (see pilots.ts) and their own collectors; nothing here knows
+// what a pilot is beyond the CaptainPilot interface.
+//
+// Determinism: matchSeed = mixSeed(runSeed, matchIndex); every stream in the
+// match (map, spawns, drones, decks, pilots) derives from it. No Math.random,
+// no Date.now — wall-clock metadata lives in main.ts, outside the run key.
+//
+// Timings: production CONFIG.match values EXCEPT a short 1000ms countdown and
+// minHumans=1. Documented choice: the economy only accrues in the ACTIVE phase
+// (xpEnabled), so the 15s production countdown would only burn batch budget in
+// the ready room where nothing measurable happens; minHumans=1 lets the
+// scripted-captain lobby arm without a second "human". Both ride the same
+// MatchTimings dev seam the drone/solo tests use — no production code changes.
+
+import {
+  BOON_CATALOG,
+  CONFIG,
+  DRONE_HULL_IDS,
+  SHIP_CLASS_IDS,
+  type HullId,
+} from '@salvo/shared';
+import { World, type ShipRecord } from '../../src/game/world.js';
+import { Match, type MatchEndCause, type MatchHooks, type MatchTimings } from '../../src/game/match.js';
+import { PILOT_REGISTRY, type CaptainPilot, type PilotFactory } from './pilots.js';
+import { mixSeed, tally } from './stats.js';
+
+/** ms of sim time each level-curve sample bucket spans. */
+export const LEVEL_SAMPLE_MS = 30000;
+/** Time-to-N-boons is tracked for N = 1..BOON_N_MAX. */
+export const BOON_N_MAX = 10;
+/** Sim-time slack past the storm timeline before a match is declared hung. */
+const ENDGAME_SLACK_MS = 600000;
+/** Documented short countdown (see module header). */
+const COUNTDOWN_MS = 1000;
+
+export interface RunSpec {
+  seed: number;
+  matches: number;
+  captains: number;
+  /** null = CONFIG.match.fillTo - captains (never below 0). */
+  drones: number | null;
+  /** Pilot factory; defaults to the v1 gunner (PILOT_REGISTRY.gunner). */
+  pilot?: PilotFactory;
+}
+
+export interface ReachSample {
+  s: number; // sim-seconds since activation
+  level: number; // the captain's level at the moment
+}
+
+export interface CaptainSample {
+  id: string;
+  cls: string;
+  finalLevel: number;
+  kills: number;
+  deaths: number;
+  picks: number;
+  boonsFitted: number;
+  deckRemaining: number;
+  cappedLines: number;
+  /** boonTimesS[n-1] = sim-seconds to the n-th fitted boon (null = never). */
+  boonTimesS: (number | null)[];
+  firstExclusiveOffered: ReachSample | null;
+  firstExclusiveFitted: ReachSample | null;
+  /** levelCurve[k] = level at k*LEVEL_SAMPLE_MS since activation. */
+  levelCurve: number[];
+}
+
+export interface MatchSample {
+  index: number;
+  seed: number;
+  durationS: number;
+  endedBy: MatchEndCause;
+  stormDeaths: number;
+  /** Victims of CAPTAIN killers, by tier: captain / droneSmall / droneMedium / droneLarge. */
+  killsByVictimTier: Record<string, number>;
+  /** Captains still in world.ships at the finish — the ONLY rows that feed the
+   *  per-captain aggregates (see departedCaptains). */
+  captains: CaptainSample[];
+  /** Captain ids whose ship was gone at collection time (Match.onPlayerLeave
+   *  removes the ship). Today's scripted pilots never leave, so this is always
+   *  empty; it exists so a leave-capable pilot cannot crash the batch, and so
+   *  the exclusion is REPORTED rather than silent. */
+  departedCaptains: string[];
+}
+
+export interface BatchResult {
+  matches: MatchSample[];
+  failures: { index: number; seed: number; error: string }[];
+}
+
+const isExclusiveId = (id: string): boolean => BOON_CATALOG[id]?.rarity === 'exclusive';
+
+/** Lines whose fitted stack has physically consumed every copy in the catalog. */
+function cappedLineCount(boons: readonly string[]): number {
+  let capped = 0;
+  for (const [id, n] of tally(boons)) {
+    const def = BOON_CATALOG[id];
+    if (def !== undefined && n >= def.copies) capped += 1;
+  }
+  return capped;
+}
+
+/** Per-captain progression tracking over the active phase. */
+class CaptainTracker {
+  readonly boonTimesS: (number | null)[] = new Array<number | null>(BOON_N_MAX).fill(null);
+  firstExclusiveOffered: ReachSample | null = null;
+  firstExclusiveFitted: ReachSample | null = null;
+  readonly levelCurve: number[] = [];
+  picks = 0;
+
+  observe(ship: ShipRecord, tS: number): void {
+    for (let n = 0; n < BOON_N_MAX; n += 1) {
+      if (this.boonTimesS[n] === null && ship.boons.length >= n + 1) this.boonTimesS[n] = tS;
+    }
+    if (this.firstExclusiveOffered === null && ship.offers.some((o) => o.some(isExclusiveId))) {
+      this.firstExclusiveOffered = { s: tS, level: ship.level };
+    }
+    if (this.firstExclusiveFitted === null && ship.boons.some(isExclusiveId)) {
+      this.firstExclusiveFitted = { s: tS, level: ship.level };
+    }
+  }
+}
+
+/** Per-match stats collection: tick events + captain trackers + level curve. */
+class MatchCollector {
+  readonly killsByVictimTier: Record<string, number> = {};
+  private readonly trackers = new Map<string, CaptainTracker>();
+  private nextBucket = 0;
+
+  constructor(captainIds: readonly string[]) {
+    for (const id of captainIds) this.trackers.set(id, new CaptainTracker());
+  }
+
+  observe(world: World, match: Match): void {
+    if (match.activatedAt === 0) return;
+    const elapsedMs = world.now - match.activatedAt;
+    const tS = elapsedMs / 1000;
+    this.consumeEvents(world);
+    for (const [id, tracker] of this.trackers) {
+      const ship = world.ships.get(id);
+      if (ship) tracker.observe(ship, tS);
+    }
+    while (elapsedMs >= this.nextBucket * LEVEL_SAMPLE_MS) {
+      for (const [id, tracker] of this.trackers) {
+        tracker.levelCurve.push(world.ships.get(id)?.level ?? 0);
+      }
+      this.nextBucket += 1;
+    }
+  }
+
+  private consumeEvents(world: World): void {
+    for (const e of world.tickEvents) {
+      if (e.k === 'bn') this.recordPick(e.id);
+      else if (e.k === 'sunk' && e.by !== undefined) this.recordKill(world, e.by, e.id);
+    }
+  }
+
+  private recordPick(id: string): void {
+    const t = this.trackers.get(id);
+    if (t) t.picks += 1;
+  }
+
+  /** Tally a CAPTAIN's kill by victim tier (drone killers cannot happen —
+   *  drones are weaponless — but stay fail-closed on the lookup anyway). */
+  private recordKill(world: World, by: string, victimId: string): void {
+    const killer = world.ships.get(by);
+    const victim = world.ships.get(victimId);
+    if (!killer || killer.isDrone || !victim) return;
+    const tier = victim.isDrone ? victim.hullId : 'captain';
+    this.killsByVictimTier[tier] = (this.killsByVictimTier[tier] ?? 0) + 1;
+  }
+
+  captainSample(ship: ShipRecord): CaptainSample {
+    const t = this.trackers.get(ship.id)!;
+    return {
+      id: ship.id,
+      cls: ship.hullId,
+      finalLevel: ship.level,
+      kills: ship.kills,
+      deaths: ship.deaths,
+      picks: t.picks,
+      boonsFitted: ship.boons.length,
+      deckRemaining: ship.deck.cards.length,
+      cappedLines: cappedLineCount(ship.boons),
+      boonTimesS: t.boonTimesS,
+      firstExclusiveOffered: t.firstExclusiveOffered,
+      firstExclusiveFitted: t.firstExclusiveFitted,
+      levelCurve: t.levelCurve,
+    };
+  }
+}
+
+/** Inert lobby hooks + the ArenaRoom-faithful round-robin drone fill. */
+function harnessHooks(world: World, droneCount: number): MatchHooks {
+  return {
+    lock: () => {},
+    unlock: () => {},
+    fillToCapacity: () => {
+      for (let i = 0; i < droneCount; i += 1) {
+        const hullId: HullId = DRONE_HULL_IDS[i % DRONE_HULL_IDS.length];
+        world.addShip(`drone-${i + 1}`, `DRONE-${String(i + 1).padStart(2, '0')}`, true, hullId);
+      }
+    },
+    broadcastResults: () => {},
+    disconnect: () => {},
+  };
+}
+
+/** Run ONE match to `finished` and collect its sample. Throws on a hung match
+ *  (structural: the storm timeline + slack elapsed without a finish). */
+export function runMatch(index: number, spec: RunSpec): MatchSample {
+  const matchSeed = mixSeed(spec.seed, index);
+  const droneCount = spec.drones ?? Math.max(0, CONFIG.match.fillTo - spec.captains);
+  const playerCap = Math.max(CONFIG.match.fillTo, spec.captains + droneCount);
+  const world = new World(matchSeed, playerCap);
+  const timings: MatchTimings = {
+    countdownMs: COUNTDOWN_MS,
+    resultsMs: CONFIG.match.resultsSeconds * 1000,
+    // CAVEAT: production is CONFIG.match.minHumans = 2. A `--captains 1` run
+    // therefore models the FUTURE solo-vs-AI shape (Epic 6) / this dev seam,
+    // NOT a lobby that ships today — a real solo captain never leaves the
+    // weapons-safe ready room. Read 1vN rows as forward-looking, not current.
+    minHumans: 1,
+  };
+  const match = new Match(world, timings, harnessHooks(world, droneCount));
+  const factory = spec.pilot ?? PILOT_REGISTRY.gunner;
+  const pilots: CaptainPilot[] = [];
+  const captainIds: string[] = [];
+  for (let i = 0; i < spec.captains; i += 1) {
+    const id = `cap-${i + 1}`;
+    captainIds.push(id);
+    world.addShip(id, `CAP-${String(i + 1).padStart(2, '0')}`, false, SHIP_CLASS_IDS[i % SHIP_CLASS_IDS.length]);
+    pilots.push(factory(id, mixSeed(matchSeed, 0x100 + i)));
+  }
+  match.notifyRosterChanged();
+  const collector = new MatchCollector(captainIds);
+  const tickCap = Math.ceil(
+    (COUNTDOWN_MS + CONFIG.zone.grace + CONFIG.zone.shrinkDuration + ENDGAME_SLACK_MS) / CONFIG.tick.simDtMs,
+  );
+  for (let tick = 0; tick < tickCap; tick += 1) {
+    for (const p of pilots) p.tick(world);
+    world.step();
+    match.update();
+    collector.observe(world, match);
+    if (match.phase === 'finished') return finishSample(index, matchSeed, world, match, collector, captainIds);
+  }
+  throw new Error(`match ${index} (seed ${matchSeed}) did not finish within ${tickCap} ticks`);
+}
+
+/** DEPARTED CAPTAINS: a captain's ship is gone from world.ships if the match
+ *  ended through Match.onPlayerLeave (the quit-out path — it calls
+ *  world.removeShip). The end-of-match sample must not assume presence.
+ *  RULING (minimal honest option): a departed captain is RECORDED by id and
+ *  EXCLUDED from the per-captain rows. The alternative — reconstructing a row
+ *  from the Match participant snapshot — would emit final-level / deck /
+ *  boon numbers that Match never snapshots (it keeps only name/kills/damage),
+ *  i.e. fabricated economy evidence. An honest omission beats an invented row;
+ *  the id list keeps the omission visible. */
+function finishSample(
+  index: number,
+  seed: number,
+  world: World,
+  match: Match,
+  collector: MatchCollector,
+  captainIds: readonly string[],
+): MatchSample {
+  const summary = match.endSummary();
+  const captains: CaptainSample[] = [];
+  const departedCaptains: string[] = [];
+  for (const id of captainIds) {
+    const ship = world.ships.get(id);
+    if (ship === undefined) departedCaptains.push(id);
+    else captains.push(collector.captainSample(ship));
+  }
+  return {
+    index,
+    seed,
+    durationS: summary.durationS,
+    endedBy: summary.endedBy,
+    stormDeaths: summary.stormDeaths,
+    killsByVictimTier: collector.killsByVictimTier,
+    captains,
+    departedCaptains,
+  };
+}
+
+/** Run the whole batch; per-match failures are recorded and skipped (spec).
+ *  `onMatchDone` is a progress hook (stderr logging lives in main). */
+export function runBatch(spec: RunSpec, onMatchDone?: (i: number) => void): BatchResult {
+  const result: BatchResult = { matches: [], failures: [] };
+  for (let i = 0; i < spec.matches; i += 1) {
+    try {
+      result.matches.push(runMatch(i, spec));
+    } catch (err) {
+      result.failures.push({ index: i, seed: mixSeed(spec.seed, i), error: (err as Error).message });
+    }
+    onMatchDone?.(i);
+  }
+  return result;
+}
