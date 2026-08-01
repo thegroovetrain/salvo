@@ -4,7 +4,7 @@
 // into the nullable (first-run) + defaulting (in-game) pair; the DOM chrome
 // itself is exercised in home.test.ts / classSelect.test.ts.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   sanitizeName,
   loadSavedName,
@@ -12,7 +12,10 @@ import {
   loadSavedClassOrNull,
   isFirstRun,
   NAME_MAX,
+  showHome,
 } from '../ui/home.js';
+import { loadColorPref } from '../net/connection.js';
+import { PLAYER_HUES } from '../render/ships.js';
 
 describe('sanitizeName', () => {
   it('trims + caps at NAME_MAX (14 — matches the kill feed)', () => {
@@ -84,5 +87,38 @@ describe('loadSavedClassOrNull (first-run signal — NO default pushed)', () => 
     localStorage.setItem('hullcracker.class', 'cruiser');
     expect(loadSavedClassOrNull()).toBe('torpedoBoat');
     expect(isFirstRun()).toBe(false);
+  });
+});
+
+// The personal-color preference is the third persisted home value (alongside
+// name + class). Mounting the home ENSURES it: an absent/corrupt key is rerolled
+// and written before first paint, a valid one is kept verbatim (never rerolled).
+describe('hullcracker.color — ensured at home mount', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => document.getElementById('main-menu')?.remove());
+
+  it('first visit: a valid random index is persisted by the time home is up', () => {
+    expect(localStorage.getItem('hullcracker.color')).toBeNull();
+    showHome('0.0.0-test', vi.fn());
+    const raw = localStorage.getItem('hullcracker.color');
+    expect(raw).not.toBeNull();
+    const idx = Number(raw);
+    expect(Number.isInteger(idx)).toBe(true);
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(idx).toBeLessThan(PLAYER_HUES.length);
+    expect(loadColorPref()).toBe(idx);
+  });
+
+  it('a valid stored preference survives a mount untouched (no reroll)', () => {
+    localStorage.setItem('hullcracker.color', '13');
+    showHome('0.0.0-test', vi.fn());
+    expect(localStorage.getItem('hullcracker.color')).toBe('13');
+  });
+
+  it('a corrupt stored preference is replaced with a valid index', () => {
+    localStorage.setItem('hullcracker.color', '99');
+    showHome('0.0.0-test', vi.fn());
+    expect(loadColorPref()).not.toBeUndefined();
+    expect(Number(localStorage.getItem('hullcracker.color'))).toBeLessThan(PLAYER_HUES.length);
   });
 });

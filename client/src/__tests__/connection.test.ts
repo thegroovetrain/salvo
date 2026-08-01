@@ -4,7 +4,7 @@
 // sets reconnection.enabled + a maxRetries sized to span that window, and rides
 // a `pv` (PROTOCOL_VERSION) in the join options for the server's version gate.
 import { describe, expect, it, vi } from 'vitest';
-import { MSG, PROTOCOL_VERSION } from '@salvo/shared';
+import { MSG, PROTOCOL_VERSION, REGATTA_HUES } from '@salvo/shared';
 
 interface FakeRoom {
   reconnection: { enabled: boolean; maxRetries: number };
@@ -50,7 +50,13 @@ vi.mock('@colyseus/sdk', () => ({
   },
 }));
 
-import { connect, connectErrorStatus, loadColorPref, RECONNECT_MAX_RETRIES } from '../net/connection';
+import {
+  connect,
+  connectErrorStatus,
+  ensureColorPref,
+  loadColorPref,
+  RECONNECT_MAX_RETRIES,
+} from '../net/connection';
 
 /**
  * Reproduce the SDK's reconnection backoff (Room.ts): each attempt waits
@@ -191,5 +197,52 @@ describe('loadColorPref — persisted Regatta preference (Story 1.12)', () => {
     expect(withStored('-1')).toBeUndefined();
     expect(withStored('3.5')).toBeUndefined();
     expect(withStored('x')).toBeUndefined();
+  });
+});
+
+describe('ensureColorPref — never-null preference resolution (Story 1.14)', () => {
+  const KEY = 'hullcracker.color'; // COLOR_PREF_KEY (connection.ts)
+
+  it('rolls and persists a random in-range index when no key is stored', () => {
+    localStorage.removeItem(KEY);
+    const idx = ensureColorPref();
+    expect(Number.isInteger(idx)).toBe(true);
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(idx).toBeLessThan(REGATTA_HUES.length);
+    // Persisted immediately — a subsequent loadColorPref() sees the SAME value,
+    // and it survives as the stored string format saveColorPref() also uses.
+    expect(localStorage.getItem(KEY)).toBe(String(idx));
+    expect(loadColorPref()).toBe(idx);
+  });
+
+  it('never rerolls a valid stored preference', () => {
+    localStorage.setItem(KEY, '7');
+    expect(ensureColorPref()).toBe(7);
+    // Untouched — still exactly what was stored, not rewritten.
+    expect(localStorage.getItem(KEY)).toBe('7');
+  });
+
+  it('rerolls and persists a valid index when the stored value is corrupt (garbage string)', () => {
+    localStorage.setItem(KEY, 'not-a-number');
+    const idx = ensureColorPref();
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(idx).toBeLessThan(REGATTA_HUES.length);
+    expect(localStorage.getItem(KEY)).toBe(String(idx));
+  });
+
+  it('rerolls and persists a valid index when the stored value is out of range', () => {
+    localStorage.setItem(KEY, '20');
+    const idx = ensureColorPref();
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(idx).toBeLessThan(REGATTA_HUES.length);
+    expect(localStorage.getItem(KEY)).toBe(String(idx));
+  });
+
+  it('rerolls and persists a valid index when the stored value is empty', () => {
+    localStorage.setItem(KEY, '');
+    const idx = ensureColorPref();
+    expect(idx).toBeGreaterThanOrEqual(0);
+    expect(idx).toBeLessThan(REGATTA_HUES.length);
+    expect(localStorage.getItem(KEY)).toBe(String(idx));
   });
 });

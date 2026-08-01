@@ -43,6 +43,29 @@ export function loadColorPref(): number | undefined {
 }
 
 /**
+ * The persisted Regatta hue preference (0..19), NEVER null. If `loadColorPref()`
+ * finds a valid stored index, it is returned unchanged — a valid preference is
+ * never rerolled. Otherwise (absent key, or the corrupt/out-of-range/empty cases
+ * `loadColorPref` already rejects) a uniform random index is rolled and
+ * persisted immediately under COLOR_PREF_KEY, so home/modal/join all agree on
+ * the SAME hue from the very first paint (Story 1.14: unset color no longer
+ * falls back to amber). Single owner of the no-pref case — classSelect.ts's
+ * ColorHoist seeds from this, not from loadColorPref() directly.
+ */
+export function ensureColorPref(): number {
+  const existing = loadColorPref();
+  if (existing !== undefined) return existing;
+  const idx = Math.floor(Math.random() * REGATTA_HUES.length);
+  try {
+    localStorage.setItem(COLOR_PREF_KEY, String(idx));
+  } catch {
+    // storage unavailable — the roll still stands for this session, it just
+    // won't persist across reloads (same idiom as classSelect.ts's saveColorPref).
+  }
+  return idx;
+}
+
+/**
  * How many same-Room auto-reconnect attempts the SDK makes before giving up.
  *
  * The server holds a dropped ship for CONFIG.net.reconnectGraceSeconds = 60s
