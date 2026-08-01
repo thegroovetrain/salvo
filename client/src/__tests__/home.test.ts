@@ -1,7 +1,12 @@
 // Story 1.14 — home chrome: pure copy/status reducers plus DOM pins on
-// showHome (first-run vs returning routing, chip + sub-line copy, hoist
-// write/read, inert-note pattern, status-line states). DOM assertions follow
-// the repo pattern (build, assert textContent / attributes).
+// showHome (first-run vs returning routing, chip copy, personal-color tint,
+// inert-note pattern, status-line states). DOM assertions follow the repo
+// pattern (build, assert textContent / attributes).
+//
+// Home-page maintenance patch re-takes pins DELIBERATELY: the home carries NO
+// color picker (the class bay footer owns it), the chip carries NO loadout
+// sub-line, and the callsign field + chip are TINTED with the ensured personal
+// hue (which a pick in the bay repaints live).
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
@@ -10,7 +15,14 @@ import {
   serverStatusLine,
   showHome,
 } from '../ui/home.js';
-import { loadColorPref } from '../net/connection.js';
+import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
+
+// The connection module caches the session's rolled hue (review-gate fix for
+// blocked-storage divergence); reset it per test so corrupt/absent-pref cases
+// exercise a fresh roll instead of the previous test's cached one.
+beforeEach(() => __resetSessionColorPrefForTests());
+import { PLAYER_HUES } from '../render/ships.js';
+import { cssHex } from '../util/color.js';
 
 // --- pure reducers -----------------------------------------------------------
 
@@ -51,6 +63,15 @@ function chip(): HTMLElement {
   return home().querySelector('[title="Open the class-select layer"]') as HTMLElement;
 }
 
+/** jsdom normalizes an assigned color ('#00d0ff') into its own serialization
+ *  ('rgb(0, 208, 255)'). Round-trip the expected hex through a throwaway
+ *  element so the comparison is serialization-agnostic. */
+function normColor(css: string): string {
+  const probe = document.createElement('div');
+  probe.style.borderColor = css;
+  return probe.style.borderColor;
+}
+
 /** Dispatch a keydown on the window (the layer's own listener target). */
 function press(key: string): void {
   window.dispatchEvent(new KeyboardEvent('keydown', { key }));
@@ -75,22 +96,48 @@ describe('showHome — first-run vs returning routing', () => {
     const text = home().textContent ?? '';
     expect(text).toContain('SELECT CLASS');
     expect(text).toContain('SELECT A CLASS TO DEPLOY');
+    expect(text).not.toContain('CLICK TO OPEN THE CLASS BAY'); // slimmed away with the sub-line
     playButton().click();
     expect(onDeploy).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).not.toBeNull(); // layer opened
   });
 
-  it('returning: chip shows the class + loadout, PLAY connects immediately', () => {
+  // RE-TAKEN pin (was "chip shows the class + loadout"): the chip is SLIM now —
+  // silhouette, role tag, class name, CHANGE CLASS. No loadout sub-line.
+  it('returning: chip shows the class with NO loadout sub-line, PLAY connects immediately', () => {
     localStorage.setItem('hullcracker.class', 'battleship');
     const onDeploy = vi.fn();
     showHome('0.0.0-test', onDeploy);
     const text = home().textContent ?? '';
     expect(text).toContain('BATTLESHIP');
-    expect(text).toContain('LONG-RANGE CANNON'); // chip loadout sub-line
+    expect(text).toContain('YOUR SHIP');
+    expect(text).toContain('CHANGE CLASS');
+    expect(text).not.toContain('STD GUN'); // the retired loadout sub-line
+    expect(text).not.toContain('LONG-RANGE CANNON');
     expect(text).toContain('DEPLOY AS BATTLESHIP · SOLO');
     playButton().click();
     expect(onDeploy).toHaveBeenCalledWith('', 'battleship'); // empty callsign → server assigns
     expect(document.getElementById('hc-class-select')).toBeNull(); // no layer, connected
+  });
+
+  // Container-fit law (amendment 47): below ~430px viewport width the class
+  // name/divider must degrade with an ellipsis inside the chip's border box
+  // rather than render past it. jsdom does no layout, so this pins the style
+  // properties that make truncation possible (overflow/text-overflow/min-width)
+  // rather than simulating the narrow viewport itself.
+  it('the class name and CHANGE CLASS divider are styled to clip with an ellipsis, not overflow', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    showHome('0.0.0-test', vi.fn());
+    const name = chip().querySelector('div') as HTMLElement;
+    expect(name.style.overflow).toBe('hidden');
+    expect(name.style.textOverflow).toBe('ellipsis');
+    expect(name.style.minWidth).toBe('0px');
+    expect(name.style.whiteSpace).toBe('nowrap');
+    const divider = chip().children[2] as HTMLElement; // sil, meta, [change]
+    expect(divider.textContent).toContain('CHANGE CLASS');
+    expect(divider.style.overflow).toBe('hidden');
+    expect(divider.style.textOverflow).toBe('ellipsis');
+    expect(divider.style.minWidth).toBe('0px');
   });
 
   it('first-run PLAY → layer → pick updates the chip + sub-line without deploying', () => {
@@ -155,16 +202,132 @@ describe('showHome — layer interaction guards (Story 1.14 review fixes)', () =
   });
 });
 
-describe('showHome — Color Hoist writes hullcracker.color', () => {
+describe('showHome — the color picker is GONE from home (it lives in the class bay)', () => {
   beforeEach(() => localStorage.clear());
-  afterEach(() => home()?.remove());
+  afterEach(() => {
+    home()?.remove();
+    document.getElementById('hc-class-select')?.remove();
+  });
 
-  it('a swatch click persists the hue connect() reads', () => {
+  // RE-TAKEN pin (was "a swatch click persists the hue connect() reads" ON HOME):
+  // home carries no swatches at all now — the bay footer is the one picker.
+  it('renders NO swatches and no hoist caption anywhere on the home surface', () => {
     showHome('0.0.0-test', vi.fn());
-    const swatch = home().querySelector('button[aria-label="hue 9"]') as HTMLButtonElement; // idx 8 = cyan
-    swatch.click();
+    expect(home().querySelectorAll('button[aria-label^="hue "]').length).toBe(0);
+    expect(home().querySelector('button[aria-label="hue 9"]')).toBeNull();
+    expect(home().textContent).not.toContain('COLOR PREFERENCE:');
+    expect(home().textContent).not.toContain('PREFERENCE PICK');
+  });
+
+  it('mounting ENSURES a persisted personal hue (first visit rolls + writes it)', () => {
+    showHome('0.0.0-test', vi.fn());
+    const idx = loadColorPref();
+    expect(idx).not.toBeUndefined();
+    expect(localStorage.getItem('hullcracker.color')).toBe(String(idx));
+  });
+
+  it('tints the callsign field + chip with the ensured personal color (no amber accents)', () => {
+    localStorage.setItem('hullcracker.color', '8'); // cyan — deterministic
+    localStorage.setItem('hullcracker.class', 'battleship');
+    showHome('0.0.0-test', vi.fn());
+    const hue = normColor(cssHex(PLAYER_HUES[8]));
+    expect(nameInput().style.borderColor).toBe(hue);
+    expect(chip().style.borderColor).toBe(hue);
+    expect(chip().style.boxShadow).not.toBe(''); // personal-hue glow
+  });
+
+  it('the callsign focus ring is the personal color, and it lifts on blur', () => {
+    localStorage.setItem('hullcracker.color', '8');
+    showHome('0.0.0-test', vi.fn());
+    const input = nameInput();
+    input.focus();
+    expect(input.style.boxShadow).not.toBe('none');
+    expect(input.style.boxShadow).not.toBe('');
+    input.blur();
+    expect(input.style.boxShadow).toBe('none');
+  });
+
+  it('a pick in the class bay repaints the home tint live (modal → home)', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    showHome('0.0.0-test', vi.fn());
+    chip().click(); // open the bay
+    const swatch = document.querySelector('#hc-class-select button[aria-label="hue 9"]') as HTMLButtonElement;
+    swatch.click(); // idx 8 = cyan
     expect(localStorage.getItem('hullcracker.color')).toBe('8');
     expect(loadColorPref()).toBe(8);
+    const hue = normColor(cssHex(PLAYER_HUES[8]));
+    expect(chip().style.borderColor).toBe(hue);
+    expect(nameInput().style.borderColor).toBe(hue);
+  });
+
+  // The PLAY button's amber chrome lives in a `border:1px solid var(--hc-amber)`
+  // blob that jsdom's cssstyle voids wholesale (the documented CSSOM-blob
+  // hazard), so it can't be read back. What IS pinnable: the accent repaint
+  // never writes a personal hue onto it, while the chip/callsign both get one.
+  it('PLAY is never personal-tinted — the amber action register stays amber', () => {
+    localStorage.setItem('hullcracker.color', '8');
+    showHome('0.0.0-test', vi.fn());
+    const hue = normColor(cssHex(PLAYER_HUES[8]));
+    expect(playButton().style.borderColor).not.toBe(hue);
+    expect(playButton().style.boxShadow).not.toContain(hue);
+    expect(nameInput().style.borderColor).toBe(hue); // ...but the callsign does
+  });
+
+  it('the phosphor status line keeps its own register (never personal-tinted)', () => {
+    localStorage.setItem('hullcracker.color', '8');
+    const handle = showHome('0.0.0-test', vi.fn());
+    handle.setServerProbe('ready');
+    const status = [...home().querySelectorAll('span')].find((s) => s.textContent === 'SERVER: READY') as HTMLElement;
+    expect(status.style.color).toBe('var(--hc-phosphor)');
+  });
+});
+
+describe('showHome — CONFIRM SELECTION saves the class WITHOUT deploying', () => {
+  beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    home()?.remove();
+    document.getElementById('hc-class-select')?.remove();
+  });
+
+  function confirmButton(): HTMLButtonElement {
+    return [...document.querySelectorAll('#hc-class-select button')].find(
+      (b) => b.textContent === 'CONFIRM SELECTION',
+    ) as HTMLButtonElement;
+  }
+
+  it('click: class persisted, bay closes back to port, NO connection attempted', () => {
+    const onDeploy = vi.fn();
+    showHome('0.0.0-test', onDeploy);
+    playButton().click(); // first-run PLAY opens the bay (TB pre-highlighted)
+    press('3'); // highlight mineLayer
+    confirmButton().click();
+    expect(localStorage.getItem('hullcracker.class')).toBe('mineLayer');
+    expect(onDeploy).not.toHaveBeenCalled(); // PLAY is the ONLY deploy path
+    expect(document.getElementById('hc-class-select')).toBeNull();
+    expect(home().textContent).toContain('MINE LAYER');
+    expect(home().textContent).toContain('DEPLOY AS MINE LAYER · SOLO');
+  });
+
+  it('Enter in the bay confirms the same way (no deploy)', () => {
+    const onDeploy = vi.fn();
+    showHome('0.0.0-test', onDeploy);
+    playButton().click();
+    press('2'); // battleship
+    press('Enter');
+    expect(localStorage.getItem('hullcracker.class')).toBe('battleship');
+    expect(onDeploy).not.toHaveBeenCalled();
+  });
+
+  it('ESC still closes with the class unchanged (semantics untouched)', () => {
+    localStorage.setItem('hullcracker.class', 'battleship');
+    const onDeploy = vi.fn();
+    showHome('0.0.0-test', onDeploy);
+    chip().click();
+    press('3'); // move the highlight to mineLayer — ESC must not commit it
+    press('Escape');
+    expect(localStorage.getItem('hullcracker.class')).toBe('battleship');
+    expect(onDeploy).not.toHaveBeenCalled();
+    expect(document.getElementById('hc-class-select')).toBeNull();
   });
 });
 

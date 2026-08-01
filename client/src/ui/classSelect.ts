@@ -4,24 +4,26 @@
 // ghost card on a horizontal scroll rail, each card carrying the four
 // differences that matter: hull silhouette (the shared polygon via
 // util/silhouetteSvg), three real-value pip scales (util/pips against
-// absolute anchors), and the two special-slot loadout rows. A footer
-// repeats the Color Hoist and carries SET SAIL (pick + deploy in one press).
+// absolute anchors), and the two special-slot loadout rows. The footer is the
+// ONLY home for the Color Hoist (the duplicate home picker is retired) and
+// carries CONFIRM SELECTION — which saves the class and returns to port. It
+// never deploys: PLAY is the single launch path.
 //
-// Keyboard: 1/2/3 + arrows move the highlight, Enter picks it, ESC closes
-// without change — all gated OFF whenever a text input is focused (the callsign
-// field keeps its own Enter=PLAY). Colors/typography via CLIENT_CONFIG tokens
-// (cssHex/cssRgba for the personal hues, which have no --hc-* var; registerCss
-// for the DESIGN type ramp). DESIGN spine over mock: SET SAIL is an amber
-// OUTLINE+GLOW primary button (never a filled slab).
+// Keyboard: 1/2/3 + arrows move the highlight, Enter ≡ CONFIRM SELECTION, ESC
+// closes without change — all gated OFF whenever a text input is focused (the
+// callsign field keeps its own Enter=PLAY). Colors/typography via CLIENT_CONFIG
+// tokens (cssHex/cssRgba for the personal hues, which have no --hc-* var;
+// registerCss for the DESIGN type ramp). DESIGN spine over mock: CONFIRM
+// SELECTION is an amber OUTLINE+GLOW primary button (never a filled slab).
 
 import { CONFIG, SHIP_CLASS_IDS, type ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { applyViewportCap } from './fit.js';
-import { cssHex, cssRgba } from '../util/color.js';
+import { cssHex, cssRgba, textSafe } from '../util/color.js';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
 import { pipFill } from '../util/pips.js';
 import { PLAYER_HUES, PLAYER_FILLS } from '../render/ships.js';
-import { loadColorPref, COLOR_PREF_KEY } from '../net/connection.js';
+import { ensureColorPref, COLOR_PREF_KEY } from '../net/connection.js';
 import { registerCss } from './theme.js';
 
 const C = CLIENT_CONFIG.colors;
@@ -62,7 +64,8 @@ const LOADOUT: Record<ShipClassId, readonly LoadoutRow[]> = {
   ],
 };
 
-const HOIST_CAPTION = 'PREFERENCE PICK — YOU GET IT UNLESS CLAIMED, THEN NEAREST FREE HUE';
+/** Register label sitting to the LEFT of the footer swatch row. */
+const HOIST_LABEL = 'COLOR PREFERENCE:';
 
 // --- pure view-model + input helpers (tested) --------------------------------
 
@@ -102,12 +105,6 @@ export function cardViewModel(cls: ShipClassId): CardViewModel {
   };
 }
 
-/** Compact loadout line for the home Class Chip sub-line (gun + two specials). */
-export function chipLoadoutLine(cls: ShipClassId): string {
-  const rows = LOADOUT[cls];
-  return ['STD GUN', rows[0].value, rows[1].value].join(' · ');
-}
-
 export type LayerAction =
   | { kind: 'highlight'; index: number }
   | { kind: 'move'; dir: -1 | 1 }
@@ -117,7 +114,8 @@ export type LayerAction =
 
 /**
  * Map a keydown key to a layer action, or null (ignored). 1..cardCount jump the
- * highlight to that card; arrows step it; Enter picks the highlight; ESC closes.
+ * highlight to that card; arrows step it; Enter confirms the highlight (≡ the
+ * footer's CONFIRM SELECTION); ESC closes.
  * The caller suppresses this entirely while a text input is focused.
  */
 export function keyAction(key: string, cardCount: number): LayerAction {
@@ -138,17 +136,12 @@ export function moveHighlight(current: number, dir: number, count: number): numb
 
 // --- color hoist (shared controller) -----------------------------------------
 
-/** Resolved personal accent as a 0xRRGGBB number (pref hue, or amber when unset). */
-function accentNum(idx: number | null): number {
-  return idx === null ? C.amber : PLAYER_HUES[idx];
+function accentColor(idx: number): string {
+  return cssHex(PLAYER_HUES[idx]);
 }
 
-function accentColor(idx: number | null): string {
-  return cssHex(accentNum(idx));
-}
-
-function accentFillColor(idx: number | null): string {
-  return idx === null ? 'none' : cssHex(PLAYER_FILLS[idx]);
+function accentFillColor(idx: number): string {
+  return cssHex(PLAYER_FILLS[idx]);
 }
 
 function saveColorPref(idx: number): void {
@@ -161,30 +154,46 @@ function saveColorPref(idx: number): void {
 
 /**
  * The shared Color Hoist state. One instance is created by the home and passed
- * into the layer, so the two swatch rows (home + layer footer) and the Class
- * Chip / card treatment stay in lockstep. `pick` writes `hullcracker.color` —
- * the exact key connection.ts's `loadColorPref` reads — and notifies every
- * subscriber (both rows' rings, the chip border, the highlighted card).
+ * into the layer, so the layer's swatch row and the home's tinted chrome (Class
+ * Chip, callsign field) stay in lockstep — the home itself no longer carries a
+ * picker, only the tint that follows this state. `pick` writes
+ * `hullcracker.color` — the exact key connection.ts's `loadColorPref` reads —
+ * and notifies every subscriber (the row's rings, the home tint, the card).
+ *
+ * The index is NEVER null: the constructor seeds from `ensureColorPref()`,
+ * which either returns the valid stored preference or rolls a uniform random
+ * Regatta hue and persists it before first paint (the retired amber-unset
+ * fallback is gone — an unset player still gets a personal identity color).
  */
 export class ColorHoist {
-  private index: number | null;
+  private index: number;
   private readonly listeners: Array<(idx: number) => void> = [];
 
   constructor() {
-    this.index = loadColorPref() ?? null;
+    this.index = ensureColorPref();
   }
 
-  /** Selected wheel index (0..19) or null when no preference is stored. */
-  get selected(): number | null {
+  /** Selected wheel index (0..19) — always a real index, never null. */
+  get selected(): number {
     return this.index;
   }
 
-  /** Resolved personal accent CSS color (the pref hue, or amber when unset). */
+  /** Resolved personal accent CSS color (the raw pref hue — outlines/borders). */
   get accent(): string {
     return accentColor(this.index);
   }
 
-  /** Personal interior fill CSS color, or 'none' when no preference is set. */
+  /** The personal accent as a raw 0xRRGGBB number (for `cssRgba` glows). */
+  get accentValue(): number {
+    return PLAYER_HUES[this.index];
+  }
+
+  /** The personal accent rendered as TEXT — WCAG-lifted via `textSafe`. */
+  get accentText(): string {
+    return cssHex(textSafe(PLAYER_HUES[this.index]));
+  }
+
+  /** Personal interior fill CSS color. */
   get accentFill(): string {
     return accentFillColor(this.index);
   }
@@ -225,7 +234,13 @@ function makeSwatch(hoist: ColorHoist, idx: number): HTMLButtonElement {
   sw.type = 'button';
   sw.style.cssText = `${SWATCH_BASE};background:${cssHex(PLAYER_HUES[idx])}`;
   sw.setAttribute('aria-label', `hue ${idx + 1}`);
-  sw.addEventListener('click', () => hoist.pick(idx));
+  sw.addEventListener('click', () => {
+    hoist.pick(idx);
+    // Release focus so the full keyboard (ESC/Enter/arrows) is live again —
+    // without this the swatch stays the focused BUTTON and Enter/Space stay
+    // swallowed by isSwallowedKey until a stray mouse click (Finding A).
+    sw.blur();
+  });
   return sw;
 }
 
@@ -236,31 +251,30 @@ export interface HoistRow {
 }
 
 /**
- * A Color Hoist row (20 round swatches + caption), wired to the shared `hoist`.
- * `direction` lays the caption below ('column', home) or the row is inline
- * ('row', layer footer). Repaints its selected ring on every hoist change.
- * Returns the element AND an `off` disposer so the caller releases the
- * subscription when its container tears down (the hoist outlives both rows).
+ * THE Color Hoist row (a `COLOR PREFERENCE:` register label + 20 round
+ * swatches), wired to the shared `hoist` and mounted only in the layer footer —
+ * the home's duplicate picker is retired, so this row is the single place a hue
+ * is chosen. The claim-caveat caption is gone with it. Repaints its selected
+ * ring on every hoist change. Returns the element AND an `off` disposer so the
+ * caller releases the subscription when its container tears down (the hoist
+ * outlives the row).
  */
-export function makeHoistRow(hoist: ColorHoist, direction: 'column' | 'row'): HoistRow {
+export function makeHoistRow(hoist: ColorHoist): HoistRow {
   const wrap = document.createElement('div');
-  wrap.style.cssText =
-    direction === 'column'
-      ? 'display:flex;flex-direction:column;align-items:center;gap:8px'
-      : 'display:flex;flex-direction:row;align-items:center;gap:14px';
+  wrap.style.cssText = 'display:flex;flex-direction:row;align-items:center;gap:16px;min-width:0';
+
+  const label = document.createElement('span');
+  label.textContent = HOIST_LABEL;
+  label.style.cssText = `${registerCss('label')};color:var(--hc-phosphor);white-space:nowrap`;
 
   const row = document.createElement('div');
-  row.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;justify-content:center';
+  row.style.cssText = 'display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-start;min-width:0';
   const swatches: HTMLButtonElement[] = [];
   for (let i = 0; i < PLAYER_HUES.length; i++) {
     const sw = makeSwatch(hoist, i);
     swatches.push(sw);
     row.appendChild(sw);
   }
-
-  const cap = document.createElement('div');
-  cap.textContent = HOIST_CAPTION;
-  cap.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.08em`;
 
   const paintRing = (): void => {
     const sel = hoist.selected;
@@ -273,7 +287,7 @@ export function makeHoistRow(hoist: ColorHoist, direction: 'column' | 'row'): Ho
   paintRing();
   const off = hoist.onChange(paintRing);
 
-  wrap.append(row, cap);
+  wrap.append(label, row);
   return { el: wrap, off };
 }
 
@@ -430,8 +444,8 @@ function buildGhostCard(): HTMLElement {
 
 /** Repaint every card for the current highlight + personal accent. */
 function paintCards(cards: CardEls[], highlight: number, hoist: ColorHoist): void {
-  const n = accentNum(hoist.selected);
-  const fill = accentFillColor(hoist.selected);
+  const n = hoist.accentValue;
+  const fill = hoist.accentFill;
   cards.forEach((card, i) => paintCard(card, i === highlight, n, fill));
 }
 
@@ -540,25 +554,36 @@ function buildRail(cards: CardEls[]): RailEls {
   return { el: wrap, evaluateOverflow };
 }
 
-/** Amber outline+glow primary button (DESIGN spine — never a filled slab). */
-function buildSetSail(onSetSail: () => void): HTMLElement {
+/**
+ * CONFIRM SELECTION — the layer's primary. Amber outline+glow chrome, byte-for-
+ * byte the SET SAIL treatment it replaces (Eric ruling: identical chrome), with
+ * one container-fit concession: the 300px fixed width becomes a MIN width so
+ * the longer label can't overrun its own border box (amendment 47).
+ */
+function buildConfirm(onConfirm: () => void): HTMLElement {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.textContent = 'SET SAIL';
+  btn.textContent = 'CONFIRM SELECTION';
   btn.style.cssText =
-    'margin-left:auto;width:300px;height:56px;background:transparent;border:1px solid var(--hc-amber);' +
+    'margin-left:auto;min-width:300px;height:56px;padding:0 28px;box-sizing:border-box;background:transparent;' +
+    'border:1px solid var(--hc-amber);flex:0 0 auto;white-space:nowrap;' +
     'border-radius:7px;color:var(--hc-amber);font:800 20px var(--hc-font-mono);letter-spacing:0.3em;' +
     `text-indent:0.3em;cursor:pointer;box-shadow:0 0 30px ${cssRgba(C.amber, 0.22)}`;
-  btn.addEventListener('click', onSetSail);
+  btn.addEventListener('click', onConfirm);
   return btn;
 }
 
-function buildFooter(hoist: ColorHoist, onSetSail: () => void): HoistRow {
+function buildFooter(hoist: ColorHoist, onConfirm: () => void): HoistRow {
   const foot = document.createElement('div');
+  // flex-wrap:wrap — below ~700px viewport width this nowrap row (label + 20
+  // swatches + the 300px-min CONFIRM button) clipped the button outside the
+  // panel (vertical-only scroll can't reach it). Wrapping degrades gracefully
+  // instead; the ratified 1366x768 floor is unchanged (still fits on one row).
   foot.style.cssText =
-    'display:flex;align-items:center;gap:30px;padding:18px 42px 0;border-top:1px solid var(--hc-hairline);margin-top:4px';
-  const hoistRow = makeHoistRow(hoist, 'row');
-  foot.append(hoistRow.el, buildSetSail(onSetSail));
+    'display:flex;align-items:center;flex-wrap:wrap;gap:30px;padding:18px 42px 0;' +
+    'border-top:1px solid var(--hc-hairline);margin-top:4px';
+  const hoistRow = makeHoistRow(hoist);
+  foot.append(hoistRow.el, buildConfirm(onConfirm));
   return { el: foot, off: hoistRow.off };
 }
 
@@ -570,10 +595,11 @@ export interface ClassSelectOpts {
   hoist: ColorHoist;
   /** Home overlay to blur/dim behind the layer while open. */
   blurTarget: HTMLElement;
-  /** Enter / card click / SELECT: persist + close + update the chip (no deploy). */
+  /** Card click / SELECT: persist + close + update the chip (no deploy). */
   onPick: (cls: ShipClassId) => void;
-  /** Footer SET SAIL: pick the highlight AND deploy in one press. */
-  onSetSail: (cls: ShipClassId) => void;
+  /** Footer CONFIRM SELECTION (and Enter): persist the highlight + close back to
+   *  port. NEVER deploys — PLAY is the one launch path. */
+  onConfirm: (cls: ShipClassId) => void;
   /** ESC / dimmer dismiss: close with no change. */
   onClose: () => void;
 }
@@ -590,10 +616,21 @@ function isTextInput(el: Element | null): boolean {
   return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable === true;
 }
 
-/** A layer button holds keyboard focus (Tab): native Enter/Space activation wins,
- *  so the layer's shortcut handler must NOT preventDefault + steal the keystroke. */
+/** A layer button (e.g. a focused color swatch) holds keyboard focus. */
 function isLayerButton(el: Element | null, container: HTMLElement): boolean {
   return !!el && el.tagName === 'BUTTON' && container.contains(el);
+}
+
+/**
+ * Only Enter/Space are swallowed while a layer button holds focus — those two
+ * would otherwise double-fire (native button activation racing our own
+ * pick/confirm). Everything else (ESC/arrows/digits) must still reach the
+ * layer regardless of focus, or a focused button (notably a color swatch —
+ * the bay is the app's ONLY color picker) would deafen the whole layer to
+ * every shortcut until a stray mouse click restored it (Finding A).
+ */
+function isSwallowedKey(e: KeyboardEvent, container: HTMLElement): boolean {
+  return (e.key === 'Enter' || e.key === ' ') && isLayerButton(document.activeElement, container);
 }
 
 /** The single live layer, if any — so a re-open fully tears the prior one down
@@ -632,9 +669,8 @@ function activateLayer(w: LayerWiring): () => void {
 /**
  * Open the class-select layer over the home. Returns a handle whose `close()`
  * tears everything down (removes the DOM, restores the home blur, detaches the
- * keydown listener). All three exits (pick / set-sail / dismiss) route through
- * the caller's callbacks; the caller closes via those (except SET SAIL, which
- * closes here after deploying).
+ * keydown listener). All three exits (pick / confirm / dismiss) close the layer
+ * here and then route through the caller's callbacks — none of them deploys.
  */
 function makeLayerShell(): { container: HTMLElement; dimmer: HTMLElement; panel: HTMLElement } {
   const container = document.createElement('div');
@@ -664,7 +700,7 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
 
   const { container, dimmer, panel } = makeLayerShell();
   const rail = buildRail(cards);
-  const footer = buildFooter(opts.hoist, setSail);
+  const footer = buildFooter(opts.hoist, confirmPick);
   panel.append(buildHeader(), rail.el, footer.el);
 
   // Ignore any keydown dispatched at/before this instant — the very keystroke
@@ -679,10 +715,11 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
     close();
     opts.onPick(cls);
   }
-  function setSail(): void {
+  /** CONFIRM SELECTION / Enter: resolve the highlight, close, hand it back. */
+  function confirmPick(): void {
     const cls = SHIP_CLASS_IDS[highlight];
     close();
-    opts.onSetSail(cls);
+    opts.onConfirm(cls);
   }
   function dismiss(): void {
     close();
@@ -691,13 +728,13 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   function onKey(e: KeyboardEvent): void {
     if (e.timeStamp <= openedAt) return; // the opening keystroke — never ours to act on
     if (isTextInput(document.activeElement)) return;
-    if (isLayerButton(document.activeElement, container)) return; // let native button activation win
+    if (isSwallowedKey(e, container)) return; // let native Enter/Space button activation win
     const action = keyAction(e.key, cards.length);
     if (!action) return;
     e.preventDefault();
     if (action.kind === 'highlight') highlight = action.index;
     else if (action.kind === 'move') highlight = moveHighlight(highlight, action.dir, cards.length);
-    else if (action.kind === 'pick') return pick(SHIP_CLASS_IDS[highlight]);
+    else if (action.kind === 'pick') return confirmPick(); // Enter ≡ CONFIRM SELECTION
     else if (action.kind === 'close') return dismiss();
     repaint();
   }

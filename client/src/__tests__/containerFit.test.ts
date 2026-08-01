@@ -93,7 +93,7 @@ describe('port panels cap their height against the VIEWPORT, in border-box (amen
       hoist: new ColorHoist(),
       blurTarget,
       onPick: () => undefined,
-      onSetSail: () => undefined,
+      onConfirm: () => undefined,
       onClose: () => undefined,
     });
     const panel = document.querySelector('#hc-class-select > div:nth-child(2)') as HTMLElement;
