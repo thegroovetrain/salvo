@@ -3,6 +3,7 @@
 // Pure over argv — unit-testable without a process.
 
 import { validateTunableKey, validateTunableValue } from './overrides.js';
+import { PILOT_REGISTRY } from './pilots.js';
 
 /** Bad command line — main prints .message and exits 2. */
 export class UsageError extends Error {}
@@ -18,6 +19,8 @@ export interface CliOptions {
   captains: number;
   /** Drone fill per match; null = default (CONFIG.match.fillTo - captains). */
   drones: number | null;
+  /** Captain pilot policy name (PILOT_REGISTRY key); default 'gunner'. */
+  pilot: string;
   /** CONFIG overrides (tunable dials only), applied before any World is built. */
   set: Record<string, number>;
   /** Each sweep multiplies the variant grid (cartesian across repeats). */
@@ -36,9 +39,13 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --captains C       scripted captains (default 3; classes round-robin)
   --drones D         drone fill per match (default CONFIG.match.fillTo - captains)
   --set key=value    CONFIG override, repeatable. Tunable dials ONLY:
-                     xp.*, deck.*, offer.size, match.fillTo, zone.*
+                     xp.*, deck.*, offer.size, match.fillTo, map.baseRadius,
+                     zone.* (phased shape: beatMs, ringSteps.N, offsetCap,
+                     terminalSightFactor, stormDps)
   --sweep key=v1,v2  run the full batch per value and compare side-by-side
                      (repeatable; repeats form a cartesian variant grid)
+  --pilot NAME       captain pilot policy: gunner (default) | pacifist
+                     (no-hunt control — sails the ring rhythm, never fires)
   --deck-only        pure deck-economy fast mode (no World, no Match)
   --draws N          deck-only total draw budget (default 20000)
   --json PATH        also write the machine-readable report to PATH
@@ -51,6 +58,7 @@ function defaults(): CliOptions {
     seed: 1,
     captains: 3,
     drones: null,
+    pilot: 'gunner',
     set: {},
     sweeps: [],
     deckOnly: false,
@@ -122,6 +130,14 @@ const VALUE_FLAGS: Record<string, ValueHandler> = {
   '--captains': (o, v) => void (o.captains = parseCount(v, '--captains', 1)),
   '--drones': (o, v) => void (o.drones = parseCount(v, '--drones', 0)),
   '--draws': (o, v) => void (o.draws = parseCount(v, '--draws', 1)),
+  // Validated against the real registry at parse time so a typo fails fast
+  // with the legal names instead of silently running the default pilot.
+  '--pilot': (o, v) => {
+    if (!Object.hasOwn(PILOT_REGISTRY, v)) {
+      throw new UsageError(`--pilot: unknown pilot '${v}' (available: ${Object.keys(PILOT_REGISTRY).sort().join(', ')})`);
+    }
+    o.pilot = v;
+  },
   '--set': parseSet,
   '--sweep': parseSweep,
   // A dropped path (`--json --quiet`) would otherwise write the report to a

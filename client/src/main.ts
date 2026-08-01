@@ -24,7 +24,7 @@ import {
   slotsWithBoons,
   REGATTA_NO_HUE,
   SLOT_COUNT,
-  zoneRadiusAt,
+  zoneLiveState,
   type BoonDef,
   type DecoyView,
   type DeniedView,
@@ -35,6 +35,7 @@ import {
   type ResultsMsg,
   type ShipClassId,
   type WeaponAmmo,
+  type ZoneRing,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
@@ -653,17 +654,25 @@ function handleConfirm(g: Game): void {
 }
 
 
-/** Live safe radius + state, derived locally from the schema's zone plane. */
+/** Live ring + phase, derived locally from the schema's revealed zone plane. */
 interface ZoneView {
   state: ZoneDisplay;
-  radius: number; // u
+  cur: ZoneRing; // the LIVE ring (offset center; interpolated while closing)
+  next: ZoneRing | null; // the revealed next ring (reveal beat onward)
   startT: number; // server ms the timeline was anchored at
+  closesInMs: number; // to the next close start (pre-close) / close end (closing)
 }
 
 /** The public plane fields this client polls off the room schema. */
 interface PublicState {
   zoneState?: string;
   zoneStartT?: number;
+  zoneCurCx?: number;
+  zoneCurCy?: number;
+  zoneCurR?: number;
+  zoneNextCx?: number;
+  zoneNextCy?: number;
+  zoneNextR?: number;
   matchPhase?: string;
   countdownEndT?: number;
   winnerId?: string;
@@ -680,15 +689,30 @@ function publicState(g: Game): PublicState {
   return (g.room.state ?? {}) as PublicState;
 }
 
-/** Read the public zone plane off the polled room schema (fail-safe to idle). */
+/** Read the public zone plane off the polled room schema (fail-safe to idle).
+ *  Phase and the LIVE ring derive locally from the schema's revealed rings +
+ *  zoneStartT + CONFIG via the SHARED zoneLiveState (see ArenaState JSDoc) so
+ *  the ring is smooth at 60fps — the same math the server runs, no fork. Real
+ *  clients never see a zoneOverride, so CONFIG matches the server. */
 function zoneView(g: Game, now: number): ZoneView {
   const s = publicState(g);
-  const state = (s.zoneState ?? 'idle') as ZoneDisplay;
   const startT = s.zoneStartT ?? 0;
-  // Derive the radius locally from CONFIG for a smooth ring (see ArenaState
-  // JSDoc). Real clients never see a zoneOverride, so CONFIG matches the server.
-  const radius = state === 'idle' ? g.mapRadius : zoneRadiusAt(now, startT, g.mapRadius, CONFIG.zone);
-  return { state, radius, startT };
+  if ((s.zoneState ?? 'idle') === 'idle') {
+    return { state: 'idle', cur: { cx: 0, cy: 0, r: g.mapRadius }, next: null, startT, closesInMs: 0 };
+  }
+  const { cur, next } = schemaRings(s, g.mapRadius);
+  const live = zoneLiveState(now, startT, cur, next, CONFIG.zone);
+  return { state: live.phase, cur: live.current, next: live.next, startT, closesInMs: live.closesInMs };
+}
+
+/** The schema's revealed ring prefix: ring g as of the last boundary (always),
+ *  and the revealed next ring — r === 0 means "unrevealed" (a real ring's
+ *  radius is always > 0), matching the server's zeroed mirror. */
+function schemaRings(s: PublicState, mapRadius: number): { cur: ZoneRing; next: ZoneRing | null } {
+  const cur: ZoneRing = { cx: s.zoneCurCx ?? 0, cy: s.zoneCurCy ?? 0, r: s.zoneCurR || mapRadius };
+  const nextR = s.zoneNextR ?? 0;
+  const next: ZoneRing | null = nextR > 0 ? { cx: s.zoneNextCx ?? 0, cy: s.zoneNextCy ?? 0, r: nextR } : null;
+  return { cur, next };
 }
 
 /** Read the public match plane and map it to HUD strings. */
@@ -815,23 +839,26 @@ function updateMatchAudioCues(g: Game, now: number): void {
   }
 }
 
-/** M:SS clock for the grace countdown. */
+/** M:SS clock for the next-close countdown. */
 function fmtClock(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-/** Compact top-center storm readout for the current zone view. */
-function zoneHud(zv: ZoneView, now: number, inStorm: boolean): ZoneHud {
+/** Compact top-center storm readout for the current zone view (interim 3.1
+ *  mapping — Story 3.3's chrome bar owns the real presentation): every
+ *  pre-close beat shows the countdown to the NEXT close start on the existing
+ *  "STORM M:SS" register (deliberately including the reserved second beat —
+ *  the parked supply slot has ZERO HUD trace), then CLOSING / CLOSED. */
+function zoneHud(zv: ZoneView, inStorm: boolean): ZoneHud {
   let line = '';
-  if (zv.state === 'grace') {
-    const sec = Math.max(0, Math.ceil((CONFIG.zone.grace - (now - zv.startT)) / 1000));
-    line = `STORM ${fmtClock(sec)}`;
-  } else if (zv.state === 'shrinking') {
+  if (zv.state === 'closing') {
     line = 'STORM CLOSING';
   } else if (zv.state === 'closed') {
     line = 'STORM CLOSED';
+  } else if (zv.state !== 'idle') {
+    line = `STORM ${fmtClock(Math.max(0, Math.ceil(zv.closesInMs / 1000)))}`;
   }
   return { line, inStorm };
 }
@@ -1349,7 +1376,7 @@ function buildGame(
     litZones: new LitZones(stage.layers.litZone),
     fog: new Fog(stage.fogSprite),
     radar: new Radar(stage.layers.blip, stage.layers.sweep),
-    zone: new Zone(stage.layers.zone, stage.layers.vignette, map.radius, CONFIG.zone.endRadiusFraction),
+    zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
     hotbar: new Hotbar(stage.layers.hud),
     xpRail: new XpRail(stage.layers.hud),
@@ -1918,10 +1945,10 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   // Own ACTIVE star-shell zones (net → state → render): keep beyond-sight shells
   // revealed by our flare (projectiles) and clear our own fog over them (fog).
   const ownZones = ownActiveZones(g.state.net.litZones, g.state.net.sessionId, now);
-  const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.radius);
+  const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
-  if (pose) renderOwn(g, pose, status, zoneHud(zv, now, inStorm), mu, frameDt, now);
+  if (pose) renderOwn(g, pose, status, zoneHud(zv, inStorm), mu, frameDt, now);
   else {
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
@@ -1934,7 +1961,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   }
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;
-  g.zone.update(zv.radius, zv.state, inStorm, now / 1000, w, h);
+  g.zone.update(zv.cur, zv.next, zv.state, inStorm, now / 1000, w, h);
   // Own pose feeds the shell sight-bubble cull; own active zones keep a shell
   // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
@@ -2005,14 +2032,14 @@ function renderSpectate(g: Game, frameDt: number, now: number, zv: ZoneView, mu:
   updateSpectateCamera(g, frameDt, now);
   const w = g.stage.app.screen.width;
   const h = g.stage.app.screen.height;
-  g.zone.update(zv.radius, zv.state, false, now / 1000, w, h);
+  g.zone.update(zv.cur, zv.next, zv.state, false, now / 1000, w, h);
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
   g.effects.update(frameDt, null);
   g.radar.render(null, now); // hides the sweep + rings
   g.litZones.render(now, now / 1000); // spectators see all zones, doctrine and all
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
-  g.hud.updateSpectate(zoneHud(zv, now, false), mu, hudWidth(g), hudHeight(g), banner);
+  g.hud.updateSpectate(zoneHud(zv, false), mu, hudWidth(g), hudHeight(g), banner);
 }
 
 // --- UI scale (Story 2.3) -----------------------------------------------------

@@ -36,23 +36,25 @@ const endpoint = `ws://localhost:${PORT}`;
 // ship speeds mean each 12s reload gets roughly one shot per pass); results
 // short so the disposal is observable.
 const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000 };
-// After B sinks (step 4), A is the last human. Give the step-4 fight a
-// comfortable storm-free window (90s grace >> the ~50s converge+two-torpedo
-// fight, so A — not the storm — sinks B), then shrink to a TINY floor.
+// After B sinks (step 4), A is the last human. The phased timeline (Story 3.1)
+// gives the step-4 fight a comfortable storm-free window — 30s beats park the
+// first close at 90s, well past the typical converge+two-torpedo fight, so A
+// (not the storm) sinks B — and full closure lands at 12 beats = 360s on a
+// TINY terminal floor.
 //
-// endRadiusFraction is a small NON-zero value on purpose. A pure point (0) makes
-// the endgame an hp race A cannot reliably win: the 120hp battleship fill drone
-// outlasts A's 100hp cruiser at a zero-radius floor no matter how long the shrink
-// (the heal spend is clamped to A's 100 maxHp, so it can't close the gap either).
-// Instead we leave a floor pocket (13.5u — 0.015 of the 900u fillTo-6 map) that
-// ONLY A can hold: the drone AI never throttles below 0.5 (drones.ts
-// MIN_THROTTLE) so a dumb hull is always moving >=15u/s and cannot loiter inside
-// so tight a circle — it keeps crossing the ring and storm-sinks — while A
-// throttles right down and holds inside it, safe. Too LARGE a pocket and drones
-// camp it forever (the historical 0.1/90u flake); 13.5u is well under a dumb
-// hull's minimum turning circle but roomy enough for A's wobbling center hold.
+// terminalSightFactor is a small NON-zero value on purpose. A pure point (0)
+// makes the endgame an hp race A cannot reliably win: a 120hp droneLarge fill
+// hull outlasts A's 70hp torpedo boat at a zero-radius floor. Instead we leave
+// a floor pocket (0.04 x 330 = 13.2u) that ONLY A can hold: the drone AI never
+// throttles below 0.5 (drones.ts MIN_THROTTLE) so a dumb hull is always moving
+// >=15u/s and cannot loiter inside so tight a circle — it keeps crossing the
+// ring and storm-sinks — while A throttles right down and holds inside it,
+// safe. Too LARGE a pocket and drones camp it forever (the historical flake);
+// 13.2u is well under a dumb hull's minimum turning circle but roomy enough
+// for A's wobbling center hold. offsetCap 0 keeps every ring CONCENTRIC so the
+// steer-to-center endgame choreography holds (zoneSmoke covers offset rings).
 // So the match finishes with A alive, every drone (and B) placed, A the winner.
-const ZONE_OVERRIDE = { grace: 90000, shrinkDuration: 90000, endRadiusFraction: 0.015 };
+const ZONE_OVERRIDE = { beatMs: 30000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 0.04 };
 // Fire only from close, well-aimed range: a short lane keeps ready-room drones
 // from wandering into the shot and makes each fish near-certain on a head-on
 // target (fish + closing target ≈ 90 u/s over <4s).
@@ -172,7 +174,7 @@ function onFrame(ctx, f) {
   if (hasPeerSunk) ctx.seenPeerSunk = true;
   if (f.you) {
     ctx.you = f.you;
-    if (!ctx.activated && f.you.hp < CONFIG.shipClasses.cruiser.hp) ctx.readyHpViolations += 1;
+    if (!ctx.activated && f.you.hp < CONFIG.shipClasses.torpedoBoat.hp) ctx.readyHpViolations += 1;
     if (ctx.activated) ctx.minHpActive = Math.min(ctx.minHpActive, f.you.hp);
   }
   for (const e of f.events) {
@@ -461,7 +463,7 @@ async function main() {
     await sleep(300); // a few frames of active state
     const ring = a.welcome.mapRadius * CONFIG.map.spawnFraction;
     for (const ctx of [a, b]) {
-      assert(ctx.you.hp === CONFIG.shipClasses.cruiser.hp, `${ctx.name} not at full hp after reset`);
+      assert(ctx.you.hp === CONFIG.shipClasses.torpedoBoat.hp, `${ctx.name} not at full hp after reset`);
       const r = Math.hypot(ctx.you.x, ctx.you.y);
       assert(Math.abs(r - ring) < 60, `${ctx.name} not on the spawn ring (r=${r.toFixed(0)} vs ${ring.toFixed(0)})`);
     }
@@ -470,9 +472,9 @@ async function main() {
 
     // --- 4. A sinks B; B spectates unfogged; A never spec'd early ------------
     // A hunts, B converges then parks (huntPeer) so A lands both fish quickly —
-    // the ~90s storm grace leaves comfortable margin over the ~50s converge+two-
-    // torpedo fight, so A (not the storm) is the one that sinks B. Once B is sunk
-    // it spectates and sends nothing.
+    // the 90s of pre-close beats leave comfortable margin over the ~50s
+    // converge+two-torpedo fight, so A (not the storm) is the one that sinks B.
+    // Once B is sunk it spectates and sends nothing.
     const fightTick = () => {
       if (!a.results) strafeFire(a, b.sunkSeen ? null : b.you, !b.sunkSeen);
       if (b.sunkSeen || b.results) return;
@@ -493,22 +495,24 @@ async function main() {
 
     // --- 5. results ----------------------------------------------------------
     // A steers to and holds the tiny storm-floor pocket at map center
-    // (steerToCenter) where it is permanently safe, while the storm mops up the 4
-    // fill drones (which never throttle below 0.5 and so cannot loiter in the
-    // pocket). A survives, so the match finishes with A the winner and ALL drones
-    // sunk. We assert LIFECYCLE INVARIANTS, not the drone-vs-B sink race:
-    // B's exact rank depends on which drone sinks when, so we bound it (2..6)
-    // rather than pin it. The load-bearing checks are: A wins and is placement 1
+    // (steerToCenter — concentric rings per the override) where it is
+    // permanently safe, while the storm mops up the fill drones (which never
+    // throttle below 0.5 and so cannot loiter in the pocket). A survives, so
+    // the match finishes with A the winner and ALL drones sunk. We assert
+    // LIFECYCLE INVARIANTS, not the drone-vs-B sink race: B's exact rank
+    // depends on which drone sinks when, so we bound it (2..N) rather than pin
+    // it. The load-bearing checks are: A wins and is placement 1
     // (first, sorted); EVERY row is placed >= 1 (no alive placement-0 hull — the
     // proof all four drones storm-died); A is credited the kill + hull damage.
     const endgameTick = () => {
       if (!a.results) steerToCenter(a);
     };
-    // 300s budget: with grace 90s + shrink 90s the 13.5u floor lands ~180s after
-    // go-live; drones bleed at 4hp/s as the ring passes them (battleship 120hp
-    // is the tail), so the last sink lands roughly 190-230s after go-live while
-    // step 5 starts ~55s in — 300s leaves comfortable headroom over the tail.
-    await runUntil(endgameTick, () => a.results !== null && b.results !== null, 300000, 'results broadcast');
+    // 480s budget: the phased timeline reaches the 13.2u floor 360s after
+    // go-live (12 x 30s beats); drones bleed at 4hp/s whenever a close strands
+    // them (droneLarge 120hp is the tail), so the last sink lands roughly
+    // 380-420s after go-live while step 5 starts ~55s in — 480s leaves
+    // comfortable headroom over the tail.
+    await runUntil(endgameTick, () => a.results !== null && b.results !== null, 480000, 'results broadcast');
     const res = a.results;
     assert(res.winnerId === a.room.sessionId, `winnerId=${res.winnerId}, expected A`);
     const rowA = res.rows.find((r) => r.id === a.room.sessionId);
@@ -525,7 +529,7 @@ async function main() {
       assert(res.rows[i].placement >= res.rows[i - 1].placement, 'rows not sorted ascending by placement');
     }
     assert(rowA.kills >= 1, `A kills=${rowA.kills}, expected >= 1`);
-    assert(rowA.damageDealt >= CONFIG.shipClasses.cruiser.hp, `A damageDealt=${rowA.damageDealt} < ${CONFIG.shipClasses.cruiser.hp}`);
+    assert(rowA.damageDealt >= CONFIG.shipClasses.torpedoBoat.hp, `A damageDealt=${rowA.damageDealt} < ${CONFIG.shipClasses.torpedoBoat.hp}`);
     log.push(`results: winner=ALPHA (1st, ${rowA.kills} kill, ${rowA.damageDealt}dmg); B placed ${rowB.placement}; all ${res.rows.length} hulls placed`);
 
     // --- 6. room disconnects after resultsMs ---------------------------------

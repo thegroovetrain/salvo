@@ -24,9 +24,11 @@ function assert(cond, msg) {
 }
 
 // Sandbox (dev-only): pre-step-14 room behavior — no match lifecycle, permissive
-// combat policy, storm at 2nd join. The long grace keeps that storm harmless
+// combat policy, storm at 2nd join. The long beat keeps that storm harmless
 // for the whole choreography (this smoke predates the zone / match steps).
-const SANDBOX_ZONE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction: 0.15 };
+// Phased timeline (Story 3.1): a 10-minute beat parks the first close at 30
+// minutes out, so the whole choreography runs on the full-map ring.
+const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
 
 async function joinClient(name) {
   const client = new Client(endpoint);

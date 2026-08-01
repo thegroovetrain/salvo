@@ -10,10 +10,18 @@
 // runner, the Match wiring, or the stats collectors.
 //
 // V1 pilots are deliberately OMNISCIENT: they read world.ships / world.map /
-// world.zoneRadius directly instead of a perception frame. That is an honesty
+// world.zoneLiveRing directly instead of a perception frame. That is an honesty
 // tradeoff accepted for ECONOMY tuning (the spec pins it): building
 // perception frames in the hot loop would burn the batch budget, and fog-
 // honest target selection is Epic 6's bot duty, not this story's.
+//
+// PACIFIST CONTROL (Story 3.1, amendment 6): PILOT_REGISTRY.pacifist is the
+// gunner with the hunt policy OFF — it never fires and never seeks targets,
+// but still rides the ring rhythm (live-ring safety + wander) and still spends
+// its levels through the real spend flow. Lethal (gunner) matches remain the
+// LOWER-BOUND baseline on match length; pacifist matches run the full storm
+// timeline so ~12:00 closure, storm pressure, and picks-band reachability
+// under long matches are measurable.
 //
 // Determinism: every pilot decision rides its own mulberry32 stream seeded by
 // the runner from (matchSeed, captain ordinal) — no Math.random, no Date.now.
@@ -78,7 +86,7 @@ export function pickSpendChoice(offer: readonly string[], rng: Rng, fitted: read
 }
 
 // --- gunner pilot tunables (script behavior, not game balance) ---------------
-const ZONE_SAFETY = 0.8; // steer home once outside this fraction of the safe radius
+const ZONE_SAFETY = 0.8; // steer for the ring center once outside this fraction of the live ring
 const FIRE_RANGE_FACTOR = 0.65; // click only inside this fraction of effective gun range (accuracy over reach)
 const CLOSE_RANGE_U = 150; // throttle down inside this range (hold steerage, keep tracking)
 const WAYPOINT_REACHED_U = 60; // wander waypoint retarget distance
@@ -141,7 +149,12 @@ class GunnerPilot implements CaptainPilot {
   private waypoint: Vec2 | null = null;
   private readonly rng: Rng;
 
-  constructor(readonly id: string, seed: number) {
+  constructor(
+    readonly id: string,
+    seed: number,
+    /** false = the pacifist no-hunt policy: never target, never fire. */
+    private readonly hunt: boolean = true,
+  ) {
     this.rng = mulberry32(seed);
   }
 
@@ -156,7 +169,7 @@ class GunnerPilot implements CaptainPilot {
   }
 
   private buildInput(world: World, ship: ShipRecord): InputMsg {
-    const target = nearestEnemy(world, ship);
+    const target = this.hunt ? nearestEnemy(world, ship) : null;
     const goal = this.pickGoal(world, ship, target);
     const brg = Math.atan2(goal.y - ship.state.y, goal.x - ship.state.x);
     const rudder = clamp(angleDiff(ship.state.heading, brg) * 3 + islandAvoid(world, ship), -1, 1);
@@ -183,15 +196,17 @@ class GunnerPilot implements CaptainPilot {
     };
   }
 
-  /** Storm first, target second, seeded wander third. */
+  /** Storm first, target second, seeded wander third — all against the LIVE
+   *  ring (offset-center as of Story 3.1), never the map origin. */
   private pickGoal(world: World, ship: ShipRecord, target: { ship: ShipRecord; d: number } | null): Vec2 {
-    const fromCenter = Math.hypot(ship.state.x, ship.state.y);
-    if (fromCenter > world.zoneRadius * ZONE_SAFETY) return { x: 0, y: 0 };
+    const ring = world.zoneLiveRing;
+    const fromRingCenter = Math.hypot(ship.state.x - ring.cx, ship.state.y - ring.cy);
+    if (fromRingCenter > ring.r * ZONE_SAFETY) return { x: ring.cx, y: ring.cy };
     if (target !== null) return target.ship.state;
     if (this.waypoint === null || distTo(ship.state, this.waypoint) < WAYPOINT_REACHED_U) {
-      const r = Math.sqrt(this.rng.next()) * world.zoneRadius * 0.6;
+      const r = Math.sqrt(this.rng.next()) * ring.r * 0.6;
       const a = this.rng.next() * Math.PI * 2;
-      this.waypoint = { x: Math.cos(a) * r, y: Math.sin(a) * r };
+      this.waypoint = { x: ring.cx + Math.cos(a) * r, y: ring.cy + Math.sin(a) * r };
     }
     return this.waypoint;
   }
@@ -204,4 +219,7 @@ function distTo(a: Vec2, b: Vec2): number {
 /** The pilot registry — the swap point for Epic 6 duties (see header). */
 export const PILOT_REGISTRY: Record<string, PilotFactory> = {
   gunner: (id, seed) => new GunnerPilot(id, seed),
+  // The no-hunt control (Story 3.1): same seeded steering/spending instrument,
+  // hunt policy off — proves storm-forced pacing without lethality.
+  pacifist: (id, seed) => new GunnerPilot(id, seed, false),
 };

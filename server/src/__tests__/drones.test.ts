@@ -2,9 +2,9 @@
 // (game/match.ts). Drones are ordinary ships driven only through the normal
 // input path: the controller submits a sanitized InputMsg per drone per tick and
 // NEVER fires. Steering is dumb-but-safe: waypoint sailing with island/boundary
-// avoidance and a zone-recovery override. On the match side, a lone human + 5
-// drones must NOT insta-finish, drones can hold placements, and a drone can
-// never win.
+// avoidance and a zone-recovery override. On the match side, a lone human +
+// fillTo-1 drones must NOT insta-finish, drones can hold placements, and a
+// drone can never win.
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, dist, type ZoneTimeline } from '@salvo/shared';
@@ -155,22 +155,25 @@ describe('drones — avoidance', () => {
 });
 
 describe('drones — zone recovery', () => {
-  it('heads for the center when caught outside the safe zone', () => {
-    // Fast zone: fully closed to 10% within a few ticks.
-    const w = bareWorld(9, { grace: 0, shrinkDuration: 100, endRadiusFraction: 0.1 });
+  it('heads for the LIVE ring center when caught outside the safe ring', () => {
+    // Fast zone: fully closed on a small OFFSET terminal ring within a few
+    // ticks (offsetCap 1 exercises the Story 3.1 offset-center steering).
+    const w = bareWorld(9, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 1 });
     const d = addDrone(w, 'd');
     w.startZone();
     for (let t = 0; t < 10; t++) w.step(); // zone now tiny
-    // Strand the drone far outside the safe ring, pointing outward.
-    d.state.x = w.map.radius * 0.85;
-    d.state.y = 0;
+    const ring = w.zoneLiveRing;
+    const ringDist = (s: ShipRecord): number => Math.hypot(s.state.x - ring.cx, s.state.y - ring.cy);
+    // Strand the drone far outside the safe ring, pointing away from it.
+    d.state.x = ring.cx + w.map.radius * 0.5;
+    d.state.y = ring.cy;
     d.state.heading = 0;
     d.state.speed = 0;
-    expect(centerDist(d)).toBeGreaterThan(w.zoneRadius);
-    const before = centerDist(d);
+    expect(ringDist(d)).toBeGreaterThan(ring.r);
+    const before = ringDist(d);
     // Slow-turning hull with outward momentum: allow the U-turn to complete.
     for (let t = 0; t < 300; t++) w.step();
-    expect(centerDist(d)).toBeLessThan(before - 100); // measurably converged inward
+    expect(ringDist(d)).toBeLessThan(before - 100); // measurably converged on the ring
   });
 });
 

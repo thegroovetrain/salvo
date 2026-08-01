@@ -51,6 +51,15 @@ describe('args — CLI parsing', () => {
     expect(() => parseArgs(['--set', 'gun.damage=99'])).toThrow(TunableError);
     expect(() => parseArgs(['--set', 'gun.damage=99'])).toThrow(/not a tunable dial/);
     expect(() => parseArgs(['--sweep', 'net.pingIntervalMs=1,2'])).toThrow(TunableError);
+    // map.baseRadius is the ONE map dial (3.1 evidence sweeps) — its siblings stay closed.
+    expect(() => parseArgs(['--set', 'map.playerCap=40'])).toThrow(TunableError);
+  });
+
+  it('parses --pilot against the real registry and rejects unknowns', () => {
+    expect(parseArgs([]).pilot).toBe('gunner');
+    expect(parseArgs(['--pilot', 'pacifist']).pilot).toBe('pacifist');
+    expect(() => parseArgs(['--pilot', 'kamikaze'])).toThrow(UsageError);
+    expect(() => parseArgs(['--pilot', 'kamikaze'])).toThrow(/available: gunner, pacifist/);
   });
 
   it('builds the cartesian sweep grid over the base --set', () => {
@@ -111,14 +120,20 @@ describe('overrides — per-key value floors (review gate 2026-07-31)', () => {
     expect(() => parseArgs(['--sweep', 'offer.size=3,0'])).toThrow(/'offer\.size'.*>= 1/);
     expect(() => parseArgs(['--set', 'xp.levelMs=0'])).toThrow(/'xp\.levelMs'.*>= 1/);
     expect(() => parseArgs(['--set', 'zone.stormDps=-1'])).toThrow(/'zone\.stormDps'.*>= 0/);
+    // Phased-timeline floors (Story 3.1): a 0-beat rhythm and a 0-radius board
+    // are degenerate run shapes, not evidence values.
+    expect(() => parseArgs(['--set', 'zone.beatMs=0'])).toThrow(/'zone\.beatMs'.*>= 1/);
+    expect(() => parseArgs(['--set', 'map.baseRadius=0'])).toThrow(/'map\.baseRadius'.*>= 1/);
     expect(() => applyOverrides({ 'offer.size': 0 })).toThrow(TunableError);
   });
 
   it('keeps the legitimate ZERO sweep arms legal (they are real ratification evidence)', () => {
     expect(parseArgs(['--set', 'deck.rareWeightPerDryLevel=0']).set).toEqual({ 'deck.rareWeightPerDryLevel': 0 });
-    const restore = applyOverrides({ 'zone.grace': 0, 'zone.endRadiusFraction': 0 });
-    expect(CONFIG.zone.grace).toBe(0);
+    const restore = applyOverrides({ 'zone.offsetCap': 0, 'zone.ringSteps.0': 0 });
+    expect(CONFIG.zone.offsetCap).toBe(0);
+    expect(CONFIG.zone.ringSteps[0]).toBe(0);
     restore();
+    expect(CONFIG.zone.ringSteps[0]).toBeCloseTo(1 / 3, 12);
   });
 });
 
@@ -137,6 +152,27 @@ describe('overrides — tunable CONFIG dials', () => {
     expect(CONFIG.xp.droneTierLevels.droneSmall).toBe(0.5);
     restore();
     expect(CONFIG.xp.droneTierLevels.droneSmall).toBe(before);
+  });
+
+  it('addresses the phased-timeline shape: beatMs, ringSteps by index, offsetCap, map.baseRadius', () => {
+    const restore = applyOverrides({
+      'zone.beatMs': 30000,
+      'zone.ringSteps.1': 0.8,
+      'zone.offsetCap': 0.5,
+      'zone.terminalSightFactor': 3,
+      'map.baseRadius': 1200,
+    });
+    expect(CONFIG.zone.beatMs).toBe(30000);
+    expect(CONFIG.zone.ringSteps[1]).toBe(0.8);
+    expect(CONFIG.zone.offsetCap).toBe(0.5);
+    expect(CONFIG.zone.terminalSightFactor).toBe(3);
+    expect(CONFIG.map.baseRadius).toBe(1200);
+    restore();
+    expect(CONFIG.zone.beatMs).toBe(60000);
+    expect(CONFIG.zone.ringSteps[1]).toBeCloseTo(2 / 3, 12);
+    expect(CONFIG.map.baseRadius).toBe(2400);
+    // An out-of-range ringSteps index is a real rejection, not a silent no-op.
+    expect(() => applyOverrides({ 'zone.ringSteps.7': 0.5 })).toThrow(TunableError);
   });
 
   it('rejects non-tunable keys, unknown paths, and non-numeric leaves', () => {
@@ -210,9 +246,8 @@ describe('pilots — determinism', () => {
 describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
   it('same run key => deep-equal batch results; different seed differs', () => {
     const restore = applyOverrides({
-      'zone.grace': 5000,
-      'zone.shrinkDuration': 20000,
-      'zone.endRadiusFraction': 0.02,
+      'zone.beatMs': 2000,
+      'zone.terminalSightFactor': 0,
       'zone.stormDps': 40,
     });
     try {
@@ -241,9 +276,8 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
 
   it('endedBy lastHumanSunk: an instant lethal storm sinks the last captain', () => {
     const restore = applyOverrides({
-      'zone.grace': 0,
-      'zone.shrinkDuration': 100,
-      'zone.endRadiusFraction': 0,
+      'zone.beatMs': 1,
+      'zone.terminalSightFactor': 0,
       'zone.stormDps': 100000,
     });
     try {
@@ -264,9 +298,8 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
     // a single aggregate — proves the split surfaces per cause, not as a blob.
     const cleared = runBatch({ seed: 3, matches: 1, captains: 1, drones: 0 });
     const restore = applyOverrides({
-      'zone.grace': 0,
-      'zone.shrinkDuration': 100,
-      'zone.endRadiusFraction': 0,
+      'zone.beatMs': 1,
+      'zone.terminalSightFactor': 0,
       'zone.stormDps': 100000,
     });
     let sunk;
@@ -280,6 +313,74 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
       1,
     );
     expect(agg.endedBy).toEqual({ fieldCleared: 1, lastHumanSunk: 1 });
+  });
+});
+
+describe('pilots — the pacifist no-hunt control (Story 3.1)', () => {
+  it('NEVER fires, even with a target alongside; the gunner does (fail-proof)', () => {
+    const fireSeqAfter = (factory: (typeof PILOT_REGISTRY)['gunner'], ticks: number): number => {
+      const w = new World(7, CONFIG.match.fillTo);
+      w.map.islands.length = 0;
+      w.addShip('cap-1', 'CAP-01', false, 'torpedoBoat');
+      const target = w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+      const cap = w.ships.get('cap-1')!;
+      // Park a live target right inside comfortable gun range.
+      target.state.x = cap.state.x + 150;
+      target.state.y = cap.state.y;
+      const pilot = factory('cap-1', 42);
+      for (let t = 0; t < ticks; t += 1) {
+        target.state.x = cap.state.x + 150; // keep the solution trivially held
+        target.state.y = cap.state.y;
+        pilot.tick(w);
+        w.step();
+      }
+      return w.inputs.get('cap-1')?.fireSeq ?? 0;
+    };
+    expect(fireSeqAfter(PILOT_REGISTRY.pacifist, 100)).toBe(0);
+    expect(fireSeqAfter(PILOT_REGISTRY.gunner, 100)).toBeGreaterThan(0);
+  });
+
+  it('is deterministic per seed like every pilot', () => {
+    const run = (): string => {
+      const w = new World(9, CONFIG.match.fillTo);
+      w.addShip('cap-1', 'CAP-01', false, 'battleship');
+      const pilot = PILOT_REGISTRY.pacifist('cap-1', 5);
+      const lines: string[] = [];
+      for (let t = 0; t < 150; t += 1) {
+        pilot.tick(w);
+        lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
+        w.step();
+      }
+      return lines.join('\n');
+    };
+    expect(run()).toBe(run());
+  });
+});
+
+describe('runner — the unresolved outcome (tick budget, Story 3.1)', () => {
+  it('collects an honest endedBy=unresolved sample instead of a failure', () => {
+    // Two pacifists, zero drones, harmless storm: nobody can ever win, so the
+    // tick budget is the only way out. beatMs 1000 keeps the budget's timeline
+    // half tiny (the endgame slack dominates: ~12.3k ticks — bounded, honest).
+    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
+    let result;
+    try {
+      result = runBatch({ seed: 11, matches: 1, captains: 2, drones: 0, pilot: PILOT_REGISTRY.pacifist });
+    } finally {
+      restore();
+    }
+    // FAIL-PROOF: the old runner THREW here ("did not finish within N ticks")
+    // and recorded a failure row with no captain economy data at all.
+    expect(result.failures).toEqual([]);
+    expect(result.matches).toHaveLength(1);
+    const m = result.matches[0];
+    expect(m.endedBy).toBe('unresolved');
+    expect(m.durationS).toBeGreaterThan(0);
+    expect(m.captains).toHaveLength(2);
+    // The whole point of the control: full-timeline economy rows exist.
+    expect(m.captains.every((c) => c.finalLevel > 0)).toBe(true);
+    const agg = buildAggregate(result, 2);
+    expect(agg.endedBy).toEqual({ unresolved: 1 });
   });
 });
 

@@ -58,6 +58,8 @@ const MAX_ACCUMULATED_MS = SIM_DT_MS * 5; // spiral-of-death cap
 const MAX_OUTSTANDING_PINGS = 16;
 /** Telemetry mode tag (one room type today) carried on match.end/match.abort. */
 const MODE = 'arena';
+/** The zeroed "unrevealed" next-ring mirror (r 0 = no reveal — see ArenaState). */
+const ZERO_RING = Object.freeze({ cx: 0, cy: 0, r: 0 });
 
 /**
  * Render a thrown value into log fields WITHOUT ever throwing ourselves:
@@ -203,8 +205,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // the deterministic map for latency-harness smokes; production rooms
     // always roll a random seed.
     const seed = sanitized.mapSeed ?? (Math.random() * 0xffffffff) >>> 0;
-    // mapRadius(6) sizing per plan. zoneOverride (dev-only) fast-forwards the
-    // storm timeline for smokes/tests; undefined => shipped CONFIG.zone.
+    // Map sized for the match fill (mapRadius(fillTo) — 2400u at the 3.1
+    // targets). zoneOverride (dev-only) reshapes the storm timeline for
+    // smokes/tests; undefined => shipped CONFIG.zone.
     this.world = new World(seed, CONFIG.match.fillTo, sanitized.zoneOverride ?? CONFIG.zone);
 
     this.initOperability(rejectedKeys);
@@ -233,8 +236,9 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     this.state = new ArenaState();
     this.state.mapSeed = seed;
     this.state.mapRadius = this.world.map.radius;
-    // Idle full map until the match activates and anchors the storm timeline.
-    this.state.zoneRadius = this.world.map.radius;
+    // Idle full-map ring until the match activates and anchors the storm
+    // timeline (center 0,0 is the schema default; next stays zeroed/unrevealed).
+    this.state.zoneCurR = this.world.map.radius;
 
     this.onMessage(MSG.input, (client: Client, raw: unknown) => this.onInputMessage(client, raw));
     this.onMessage(MSG.spend, (client: Client, raw: unknown) => this.onSpendMessage(client, raw));
@@ -777,16 +781,35 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   }
 
   /**
-   * Mirror the live zone onto the public schema. zoneRadius is animated every
-   * step (its patch rides the normal cadence); state/startT change rarely.
-   * Clients derive the smooth ring locally from zoneStartT + CONFIG.
+   * Mirror the phased zone onto the public schema (Story 3.1): phase string,
+   * anchor time, and the REVEALED ring prefix only — the current ring (ring g
+   * at the last boundary) plus the next ring from its reveal beat onward,
+   * zeroed otherwise (amendment 10: unrevealed geometry never rides the wire).
+   * Everything is STATE-DERIVED from the world each step — never event-driven —
+   * so late joiners and reconnects get the correct prefix from plain schema
+   * sync. Clients interpolate current→next locally (shared zoneLiveState) for
+   * the smooth 60fps ring; every field here changes only at beat boundaries.
    */
   private syncZone(): void {
     const phase = this.world.zonePhase;
     if (this.state.zoneState !== phase) this.state.zoneState = phase;
     const startT = this.world.zoneStartMs;
     if (this.state.zoneStartT !== startT) this.state.zoneStartT = startT;
-    this.state.zoneRadius = this.world.zoneRadius;
+    this.syncZoneGeometry();
+  }
+
+  /** The ring-geometry half of syncZone (guarded assigns: schema patches only
+   *  on real boundary changes). */
+  private syncZoneGeometry(): void {
+    const s = this.state;
+    const cur = this.world.zoneCurrentRing;
+    if (s.zoneCurCx !== cur.cx) s.zoneCurCx = cur.cx;
+    if (s.zoneCurCy !== cur.cy) s.zoneCurCy = cur.cy;
+    if (s.zoneCurR !== cur.r) s.zoneCurR = cur.r;
+    const next = this.world.zoneRevealedNextRing ?? ZERO_RING;
+    if (s.zoneNextCx !== next.cx) s.zoneNextCx = next.cx;
+    if (s.zoneNextCy !== next.cy) s.zoneNextCy = next.cy;
+    if (s.zoneNextR !== next.r) s.zoneNextR = next.r;
   }
 
   /** Mirror the match lifecycle onto the public schema. */

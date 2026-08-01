@@ -395,13 +395,14 @@ describe('match — finished phase', () => {
 
 describe('world storm damage respects the damage policy flag', () => {
   it('bleeds no hp while damage is suppressed, even outside the zone', () => {
-    // Fast zone: shrink well underway within a few ticks.
-    const w = new World(1, 6, { grace: 0, shrinkDuration: 100, endRadiusFraction: 0.1 });
+    // Fast zone: fully closed on a tiny concentric terminal within a few ticks.
+    const w = new World(1, 6, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 1 });
     w.map.islands.length = 0;
     const a = w.addShip('a', 'A');
     w.startZone();
     for (let i = 0; i < 10; i++) w.step(); // zone now far smaller than the ring
-    expect(Math.hypot(a.state.x, a.state.y)).toBeGreaterThan(w.zoneRadius);
+    const ring = w.zoneLiveRing;
+    expect(Math.hypot(a.state.x - ring.cx, a.state.y - ring.cy)).toBeGreaterThan(ring.r);
     w.damageEnabled = false;
     const hp = a.hp;
     for (let i = 0; i < 10; i++) w.step();

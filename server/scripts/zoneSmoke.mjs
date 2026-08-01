@@ -1,18 +1,26 @@
-// Storm-circle smoke: self-boots the colyseus server, joins two live
-// @colyseus/sdk clients with a DEV zoneOverride that fast-forwards the timeline,
-// and proves the storm end to end:
-//   1. Zone starts when the 2nd ship joins (interim wiring); during grace, at
-//      full radius, neither ship takes storm damage.
-//   2. OUTSIDE ship (A): parks near the map boundary → the shrinking safe ring
-//      passes it → HP decays at CONFIG.zone.stormDps (~4 HP/s) → eventually
-//      SUNK with NO killer (its own `sunk` event carries by=undefined, and no
-//      roster kill is credited to anyone).
-//   3. INSIDE ship (B): sails to map center and holds → stays inside the safe
-//      ring the whole time → takes ZERO storm damage.
+// Storm-circle smoke (phased timeline, Story 3.1): self-boots the colyseus
+// server, joins two live @colyseus/sdk clients with a DEV zoneOverride that
+// compresses the beat rhythm, and proves the phased storm end to end:
+//   1. Zone starts when the 2nd ship joins (sandbox wiring). The schema walks
+//      the four-beat rhythm in order — clear -> supply -> reveal -> closing —
+//      and during the pre-close beats NEITHER ship takes storm damage while
+//      inside the full-map ring.
+//   2. REVEAL GATING (amendment 10): while zoneState is clear/supply the
+//      zoneNext* schema fields are ZEROED; from the reveal beat they carry a
+//      real ring that is strictly smaller than — and fully contained in — the
+//      current ring. When the close completes, that revealed ring BECOMES the
+//      current ring (zoneCur*) and zoneNext* zeroes again.
+//   3. OUTSIDE ship (A): parks near the map boundary -> the closing ring
+//      leaves it behind -> HP decays at CONFIG.zone.stormDps (~4 HP/s) ->
+//      eventually SUNK with NO killer (its own `sunk` event carries
+//      by=undefined, and no roster kill is credited to anyone).
+//   4. INSIDE ship (B): chases the LIVE ring center read off the schema
+//      (rings are OFFSET-center — the map origin is not the safe point) ->
+//      stays inside the safe ring -> takes ZERO storm damage.
 // Then kills the server and frees the port.
 //
 // zoneOverride is a dev tool — matchmaking / the real client never set it (the
-// client derives its ring from CONFIG.zone). Run: node server/scripts/zoneSmoke.mjs
+// client derives its ring phases from CONFIG.zone). Run: node server/scripts/zoneSmoke.mjs
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { fileURLToPath } from 'node:url';
@@ -23,16 +31,20 @@ import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, isOutside } from '@salvo/
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2599; // never the dev server's 2567 — this smoke self-boots
 const endpoint = `ws://localhost:${PORT}`;
-// Fast-forward but keep the shrink gentle enough that a ship steering inward
-// comfortably outruns the closing ring (dev-only override): 1s grace, 30s shrink
-// to 60% of map radius (~12 u/s close rate << ship maxSpeed 25 u/s).
-const ZONE_OVERRIDE = { grace: 1000, shrinkDuration: 30000, endRadiusFraction: 0.6 };
+// Compressed phased rhythm: 8s beats — reveal at 16s, first close at 24-32s,
+// full closure at 96s. offsetCap 0.3 keeps the rolled rings genuinely OFFSET
+// (the containment + follow-the-center assertions bite) while bounding the
+// first ring's center within ~250u of the origin so B's sail-in from the
+// spawn ring comfortably beats close 1. Terminal stays the production
+// 2 x truesight (660u).
+const ZONE_OVERRIDE = { beatMs: 8000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0.3, terminalSightFactor: 2 };
+/** The four in-group beats, in wire order (zoneState values). */
+const BEAT_ORDER = ['clear', 'supply', 'reveal', 'closing'];
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 const clamp = (v, lo, hi) => (v < lo ? lo : v > hi ? hi : v);
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // --- server lifecycle --------------------------------------------------------
@@ -88,23 +100,37 @@ async function joinClient(name) {
     name, room, welcome: null, you: null, seq: 0,
     goal: { mode: 'idle' },
     minHp: Infinity, sunkBy: 'UNSET', sunkSeen: false,
-    outsideSamples: [], // {t, hp} while alive AND outside the safe ring
+    outsideSamples: [], // {t, hp} while alive AND outside the CURRENT ring
   };
   room.onMessage('w', (m) => (ctx.welcome = m));
   room.onMessage('f', (m) => onFrame(ctx, m));
   return ctx;
 }
 
-function safeRadius(ctx) {
-  const r = ctx.room.state?.zoneRadius;
-  return typeof r === 'number' && r > 0 ? r : Infinity;
+/** The schema's current ring (ring g as of the last boundary), or null pre-sync. */
+function curRing(ctx) {
+  const s = ctx.room.state;
+  return s && typeof s.zoneCurR === 'number' && s.zoneCurR > 0
+    ? { cx: s.zoneCurCx, cy: s.zoneCurCy, r: s.zoneCurR }
+    : null;
+}
+
+/** The schema's revealed next ring, or null while zeroed (unrevealed). */
+function nextRing(ctx) {
+  const s = ctx.room.state;
+  return s && typeof s.zoneNextR === 'number' && s.zoneNextR > 0
+    ? { cx: s.zoneNextCx, cy: s.zoneNextCy, r: s.zoneNextR }
+    : null;
 }
 
 function onFrame(ctx, f) {
   if (f.you) {
     ctx.you = f.you;
     ctx.minHp = Math.min(ctx.minHp, f.you.hp);
-    if (f.you.alive && isOutside(f.you, safeRadius(ctx))) {
+    // Sample while strictly outside the CURRENT (boundary) ring: the live ring
+    // is always contained in it, so these samples are unambiguously in-storm.
+    const ring = curRing(ctx);
+    if (f.you.alive && ring && isOutside(f.you, ring.cx, ring.cy, ring.r)) {
       ctx.outsideSamples.push({ t: f.t, hp: f.you.hp });
     }
   }
@@ -154,32 +180,73 @@ function measuredDps(samples) {
   return (first.hp - last.hp) / secs;
 }
 
+/** circle b fully inside circle a (with a float epsilon)? */
+function contained(a, b) {
+  return Math.hypot(a.cx - b.cx, a.cy - b.cy) + b.r <= a.r + 1e-3;
+}
+
 async function main() {
   const server = bootServer();
   const log = [];
+  const fullHp = CONFIG.shipClasses.torpedoBoat.hp; // both clients join the default class
   try {
     await waitForServer(15000);
     const a = await joinClient('ZONE-OUT'); // parks near the boundary
-    const b = await joinClient('ZONE-IN'); // sails to center
+    const b = await joinClient('ZONE-IN'); // chases the live ring center
     assert(a.room.roomId === b.room.roomId, 'clients joined different rooms');
     await sleep(400);
     assert(a.welcome && b.welcome, 'missing welcome');
 
     const mapR = a.welcome.mapRadius;
-    // A steers OUTWARD toward the boundary; B sails to map center. Set from the
-    // start so B is already fleeing inward when the ring begins to close.
+    // A steers OUTWARD toward the boundary; B chases the CURRENT ring center
+    // read off the schema (offset rings — the origin is not the safe point).
     const setGoals = () => {
       const len = a.you ? Math.hypot(a.you.x, a.you.y) || 1 : 1;
       a.goal = { mode: 'goto', target: a.you ? { x: (a.you.x / len) * mapR * 1.5, y: (a.you.y / len) * mapR * 1.5 } : null };
-      b.goal = { mode: 'goto', target: { x: 0, y: 0 } };
+      const ring = curRing(b);
+      b.goal = { mode: 'goto', target: ring ? { x: ring.cx, y: ring.cy } : { x: 0, y: 0 } };
     };
 
-    // Grace check: at full radius nobody takes storm damage (zone just started).
-    await pilotUntil([a, b], setGoals, () => a.room.state?.zoneState === 'shrinking', 8000, 'grace->shrink');
-    assert(a.minHp === CONFIG.shipClasses.cruiser.hp && b.minHp === CONFIG.shipClasses.cruiser.hp, 'storm damage during grace');
-    log.push(`grace: both full HP until shrink began (state=${a.room.state.zoneState})`);
+    // --- 1+2. beat rhythm + reveal gating across group 0 ---------------------
+    const phasesSeen = [];
+    let revealedRing = null; // the zoneNext* ring captured during reveal
+    const watchZone = () => {
+      const state = a.room.state?.zoneState ?? 'idle';
+      if (state !== 'idle' && phasesSeen[phasesSeen.length - 1] !== state) phasesSeen.push(state);
+      const next = nextRing(a);
+      if ((state === 'clear' || state === 'supply') && phasesSeen.length <= 2) {
+        assert(next === null, `zoneNext* populated during ${state} (unrevealed geometry leaked)`);
+      }
+      if (state === 'reveal' && next !== null && revealedRing === null) {
+        revealedRing = next;
+        const cur = curRing(a);
+        assert(cur !== null, 'reveal with no current ring on the schema');
+        assert(next.r < cur.r, `revealed ring not smaller (${next.r} vs ${cur.r})`);
+        assert(contained(cur, next), 'revealed ring not contained in the current ring');
+      }
+    };
+    await pilotUntil([a, b], () => { setGoals(); watchZone(); },
+      () => phasesSeen.includes('closing'), 40000, 'clear->supply->reveal->closing');
+    assert(
+      JSON.stringify(phasesSeen.slice(0, 4)) === JSON.stringify(BEAT_ORDER),
+      `beat order was [${phasesSeen.join(',')}], expected [${BEAT_ORDER.join(',')}]`,
+    );
+    assert(revealedRing !== null, 'the reveal beat never populated zoneNext*');
+    assert(a.minHp === fullHp && b.minHp === fullHp, 'storm damage during the pre-close beats');
+    log.push(`rhythm: ${phasesSeen.slice(0, 4).join(' -> ')}; reveal gated (next zeroed pre-reveal, contained after)`);
 
-    // Reset outside-sample windows now that the ring is closing; run until A sinks.
+    // --- 2b. close completion: the revealed ring becomes the current ring ----
+    await pilotUntil([a, b], setGoals, () => {
+      const cur = curRing(a);
+      return cur !== null && Math.abs(cur.r - revealedRing.r) < 1e-3;
+    }, 15000, 'revealed ring becoming current after close 1');
+    const cur1 = curRing(a);
+    assert(Math.abs(cur1.cx - revealedRing.cx) < 1e-3 && Math.abs(cur1.cy - revealedRing.cy) < 1e-3,
+      'close 1 completed onto a different center than the revealed ring');
+    assert(nextRing(a) === null, 'zoneNext* not zeroed after the close completed');
+    log.push(`close 1: current ring is now the revealed ring (r=${cur1.r.toFixed(0)}u, offset ${Math.hypot(cur1.cx, cur1.cy).toFixed(0)}u)`);
+
+    // --- 3. A storm-dies outside; no killer, no kill credit ------------------
     a.outsideSamples = [];
     b.outsideSamples = [];
     await pilotUntil([a, b], setGoals, () => a.sunkSeen, 90000, 'A storm death');
@@ -188,7 +255,6 @@ async function main() {
     // roster asserts below — without this they race and flake.
     await sleep(300);
 
-    // A: decayed at ~stormDps and sank with no killer; nobody scored a kill.
     const dps = measuredDps(a.outsideSamples);
     assert(dps !== null, 'A never logged a contiguous outside window');
     assert(Math.abs(dps - CONFIG.zone.stormDps) < 1.0, `A storm dps ${dps?.toFixed(2)} != ${CONFIG.zone.stormDps}`);
@@ -197,10 +263,11 @@ async function main() {
     assert(roster(a.room, a.room.sessionId).kills === 0 && roster(b.room, b.room.sessionId).kills === 0, 'a kill was credited for a storm death');
     log.push(`outside: A decayed ${dps.toFixed(2)} HP/s, sunk by=undefined, no kill credited`);
 
-    // B: stayed inside the whole time → zero storm damage.
-    assert(b.minHp === CONFIG.shipClasses.cruiser.hp, `inside ship B lost HP (minHp=${b.minHp})`);
+    // --- 4. B chased the live ring center and never bled ---------------------
+    assert(b.minHp === fullHp, `inside ship B lost HP (minHp=${b.minHp})`);
     assert(b.outsideSamples.length === 0, `inside ship B was outside the ring ${b.outsideSamples.length}x`);
-    log.push(`inside: B held center at full HP (radius end=${(mapR * ZONE_OVERRIDE.endRadiusFraction).toFixed(0)}u)`);
+    const ringB = curRing(b);
+    log.push(`inside: B held the ring center at full HP (cur r=${ringB.r.toFixed(0)}u, center ${Math.hypot(ringB.cx, ringB.cy).toFixed(0)}u off-origin)`);
 
     console.log('ZONE SMOKE OK:', { room: a.room.roomId, seed: a.welcome.mapSeed, trace: log });
     await a.room.leave();

@@ -53,7 +53,7 @@ describe('island separation vs hull beams (#64 channel guarantee)', () => {
 describe('mapRadius', () => {
   it('scales as base * sqrt(cap / capRef)', () => {
     expect(mapRadius(CONFIG.map.capRef)).toBeCloseTo(CONFIG.map.baseRadius);
-    expect(mapRadius(20)).toBeCloseTo(900 * Math.sqrt(20 / 6));
+    expect(mapRadius(5)).toBeCloseTo(2400 * Math.sqrt(5 / 20));
   });
 });
 

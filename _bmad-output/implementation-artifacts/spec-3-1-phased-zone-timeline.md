@@ -2,8 +2,9 @@
 title: '3-1 Phased Zone Timeline (+ ratified map bump)'
 type: 'feature'
 created: '2026-08-01'
-status: 'ready-for-dev'
+status: 'in-progress'
 review_loop_iteration: 0
+baseline_revision: 'cd91b4a2b79aa42f6b1a27134a4d482f2306548f'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context-amendments.md'

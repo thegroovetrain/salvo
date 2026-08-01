@@ -51,7 +51,7 @@ const metricsUrl = `http://localhost:${PORT}/metrics`;
 // Fast countdown with two humans; storm parked far in the future so it never
 // interferes with (or contributes storm-deaths to) the short live window.
 const MATCH_OVERRIDE = { minHumans: 2, countdownMs: 1500, resultsMs: 3000 };
-const ZONE_OVERRIDE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction: 0.15 };
+const ZONE_OVERRIDE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 }; // first close 30min out (phased, 3.1)
 
 /** Structured src log events — a known token off a non-structured line = defect. */
 const KNOWN_EVENTS = new Set([

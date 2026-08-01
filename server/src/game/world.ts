@@ -46,8 +46,8 @@ import {
   stepShip,
   transformPolygon,
   wrapPositive,
-  zonePhaseAt,
-  zoneRadiusAt,
+  rollZoneRings,
+  zoneStateAt,
   isOutside,
   type BallisticEvent,
   type BoonBehaviorEffect,
@@ -74,6 +74,8 @@ import {
   type StarShellsMode,
   type Vec2,
   type ZonePhase,
+  type ZoneRing,
+  type ZoneState,
   type ZoneTimeline,
 } from '@salvo/shared';
 import {
@@ -489,6 +491,21 @@ export class World {
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
   private zoneStartT: number | null = null;
+  /**
+   * The full rolled ring set (Story 3.1), rolled ONCE by startZone on the
+   * SERVER-PRIVATE zone stream; null while idle. SERVER-PRIVATE as a whole
+   * (amendment 10): only the revealed prefix — zoneCurrentRing plus
+   * zoneRevealedNextRing from the reveal beat — may ever reach a client, so a
+   * modded client can never precompute where future rings land.
+   */
+  private zoneRings: ZoneRing[] | null = null;
+  /**
+   * The zone stream (Story 3.1): mulberry32 decorrelated from the mapgen/
+   * spawn/drone/deck streams by its own fresh golden constant (the deckRngFor
+   * idiom). Deterministic per World seed — the harness's (seed → rings)
+   * reproducibility rides on it.
+   */
+  private readonly zoneRng: Rng;
   /** Events queued since the last completed step (joins, sinks, respawns). */
   private pending: GameEvent[] = [];
   /** Events belonging to the most recently completed tick (read by frames). */
@@ -522,6 +539,8 @@ export class World {
     this.map = generateMap(seed, playerCap);
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
     this.zoneCfg = zoneCfg;
+    // Zone ring stream, decorrelated again (0x27d4eb2f is unused elsewhere).
+    this.zoneRng = mulberry32((seed ^ 0x27d4eb2f) >>> 0);
     // Drone steering stream, decorrelated again from mapgen + spawn.
     this.drones = new DroneController(this, (seed ^ 0x85ebca6b) >>> 0);
   }
@@ -533,7 +552,11 @@ export class World {
    * interim "start on 2nd ship" wiring in ArenaRoom cannot re-anchor it.
    */
   startZone(t: number = this.now): void {
-    if (this.zoneStartT === null) this.zoneStartT = t;
+    if (this.zoneStartT !== null) return;
+    this.zoneStartT = t;
+    // Roll the WHOLE ring set once, on the server-private zone stream (Story
+    // 3.1, amendment 10). Clients only ever receive the revealed prefix.
+    this.zoneRings = rollZoneRings(this.map.radius, this.zoneCfg, this.zoneRng);
   }
 
   /** Server ms the zone was anchored at, or 0 while idle (for the schema). */
@@ -541,16 +564,57 @@ export class World {
     return this.zoneStartT ?? 0;
   }
 
-  /** Current safe-zone radius (u). Full map radius while idle. */
-  get zoneRadius(): number {
-    if (this.zoneStartT === null) return this.map.radius;
-    return zoneRadiusAt(this.now, this.zoneStartT, this.map.radius, this.zoneCfg);
+  /** The full-map ring — the zone geometry while idle (pre-start). */
+  private idleRing(): ZoneRing {
+    return { cx: 0, cy: 0, r: this.map.radius };
   }
 
-  /** Current zone phase for the public schema. */
-  get zonePhase(): 'idle' | ZonePhase {
-    if (this.zoneStartT === null) return 'idle';
-    return zonePhaseAt(this.now, this.zoneStartT, this.zoneCfg);
+  /** The full phased timeline state, or null while idle. */
+  private zoneTimelineState(): ZoneState | null {
+    if (this.zoneStartT === null || this.zoneRings === null) return null;
+    return zoneStateAt(this.now, this.zoneStartT, this.zoneRings, this.zoneCfg);
+  }
+
+  /** Current zone phase for the public schema ('idle' until startZone). */
+  get zonePhase(): ZonePhase {
+    return this.zoneTimelineState()?.phase ?? 'idle';
+  }
+
+  /**
+   * The LIVE ring — ring g exactly through clear/supply/reveal, the linear
+   * ring-g → ring-g+1 interpolation during a close, terminal once closed, the
+   * full map while idle. THE ring applyStorm bites outside of, and the one
+   * drones/pilots steer against.
+   */
+  get zoneLiveRing(): ZoneRing {
+    return this.zoneTimelineState()?.current ?? this.idleRing();
+  }
+
+  /**
+   * Ring g as of the last ring boundary (UNinterpolated — the schema's
+   * `zoneCur*` mirror; clients interpolate toward the revealed next ring
+   * themselves via the shared zoneLiveState). Terminal once closed; the full
+   * map while idle.
+   */
+  get zoneCurrentRing(): ZoneRing {
+    const state = this.zoneTimelineState();
+    if (state === null || this.zoneRings === null) return this.idleRing();
+    if (state.phase === 'closed') return this.zoneRings[this.zoneRings.length - 1];
+    return this.zoneRings[state.groupIndex];
+  }
+
+  /**
+   * The REVEALED next ring — non-null only from the live group's reveal beat
+   * through the end of its close (the schema's `zoneNext*` mirror, amendment
+   * 10: unrevealed geometry never leaves the World). Null while idle/closed.
+   */
+  get zoneRevealedNextRing(): ZoneRing | null {
+    return this.zoneTimelineState()?.next ?? null;
+  }
+
+  /** ms until the live ring next starts/finishes closing (0 once closed). */
+  get zoneClosesInMs(): number {
+    return this.zoneTimelineState()?.closesInMs ?? 0;
   }
 
   /** Events emitted during the last completed step (and joins just before it). */
@@ -1165,19 +1229,21 @@ export class World {
   }
 
   /**
-   * Storm damage: every alive hull outside the current safe radius bleeds
-   * stormDps·dt HP (kept fractional — hp is a float internally). A storm kill
-   * routes through sinkShip with `by` undefined (unattributed). Per RULING this
-   * emits NO per-tick dmg event (that would spam ~20/s); the victim already
-   * receives its live hp every frame via OwnShip.hp, and the client HP bar reads
-   * from you.hp, so it stays accurate. No boom for storm ticks either.
+   * Storm damage: every alive hull strictly outside the LIVE ring (Story 3.1:
+   * offset-center, phase-interpolated — boundary-inclusive-SAFE) bleeds
+   * stormDps·dt HP in EVERY phase (kept fractional — hp is a float
+   * internally). A storm kill routes through sinkShip with `by` undefined
+   * (unattributed). Per RULING this emits NO per-tick dmg event (that would
+   * spam ~20/s); the victim already receives its live hp every frame via
+   * OwnShip.hp, and the client HP bar reads from you.hp, so it stays accurate.
+   * No boom for storm ticks either.
    */
   private applyStorm(dt: number): void {
     if (this.zoneStartT === null || !this.damageEnabled) return;
-    const radius = this.zoneRadius;
+    const ring = this.zoneLiveRing;
     const bite = CONFIG.zone.stormDps * dt;
     for (const ship of this.ships.values()) {
-      if (!ship.alive || !isOutside(ship.state, radius)) continue;
+      if (!ship.alive || !isOutside(ship.state, ring.cx, ring.cy, ring.r)) continue;
       ship.hp -= bite;
       if (ship.hp <= 0) this.sinkShip(ship.id); // by=undefined — the storm has no killer
     }

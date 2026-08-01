@@ -60,13 +60,15 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const PORT = 2601;
 const endpoint = `ws://localhost:${PORT}`;
 
-// MAP SEED CHOICE: scanned seeds 1..300 with generateMap(seed, 6) for the map
-// whose nearest island EDGE is farthest from the center — seed 140 keeps every
-// island edge >= 540u from the origin (4 islands, all in the outer band), so
-// the whole engagement bubble (shooter anchored at center, target orbiting at
+// MAP SEED CHOICE: re-scanned seeds 1..300 with generateMap(seed, 20) after the
+// Story 3.1 map bump (2400u board, fill 20) for the map whose nearest island
+// EDGE is farthest from the center — seed 110 keeps every island edge >= 1626u
+// from the origin (3 small islands, all out in the spawn-ring band), so the
+// whole engagement bubble (shooter anchored at center, target orbiting at
 // ORBIT_RADIUS_U ~180u, sight lines <= ~220u) is guaranteed open water with
-// island-free LOS, and both sail-in routes from the 720u spawn ring are clear.
-const MAP_SEED = 140;
+// island-free LOS, and both sail-in routes from the 1920u spawn ring are clear
+// of everything but three r~60u rocks far off the straight-in lanes.
+const MAP_SEED = 110;
 
 // Storm neutered like combatSmoke (sandbox rooms start the zone on the 2nd
 // join), but the grace SCALES with the computed pass duration so zone damage
@@ -82,9 +84,12 @@ function passTimeoutMs(opts) {
 
 function sandboxZone(opts) {
   return {
-    grace: SERVER_BOOT_TIMEOUT_MS + passTimeoutMs(opts) * 2 + ZONE_GRACE_MARGIN_MS,
-    shrinkDuration: 180000,
-    endRadiusFraction: 0.15,
+    // Phased timeline (Story 3.1): the first close starts at 3 beats, so one
+    // beat sized to the whole worst-case run keeps the storm 3x clear of it.
+    beatMs: SERVER_BOOT_TIMEOUT_MS + passTimeoutMs(opts) * 2 + ZONE_GRACE_MARGIN_MS,
+    ringSteps: [1 / 3, 2 / 3],
+    offsetCap: 1,
+    terminalSightFactor: 2,
   };
 }
 
@@ -415,7 +420,7 @@ function orbitControl(you, C, R, inp) {
   const want = Math.atan2(ry, rx) + HALF_PI + clamp((rr - R) * 0.03, -0.8, 0.8);
   inp.rudder = clamp(angleDiff(you.heading, want) * 3, -1, 1);
   // Full throttle while far outside the ring (initial approach + post-respawn
-  // return from the 720u spawn ring) — identical in both passes, and shots are
+  // return from the 1920u spawn ring) — identical in both passes, and shots are
   // range-gated, so this only trims dead time, never the firing geometry.
   inp.throttle = rr > R + 80 ? 1 : ORBIT_THROTTLE;
 }

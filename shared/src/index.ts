@@ -3,6 +3,21 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  18: phased zone timeline + map bump (Story 3.1) — three wire deltas in one
+ *  bump: (1) CONFIG.zone is RESHAPED in the welcome config snapshot
+ *  (grace/shrinkDuration/endRadiusFraction die; beatMs/ringSteps/offsetCap/
+ *  terminalSightFactor ship; stormDps survives) and CONFIG.map/match retune
+ *  (baseRadius 900→2400, capRef 6→20, fillTo 6→20); (2) the ArenaState zone
+ *  plane changes: the animated `zoneRadius` float is REPLACED by revealed-only
+ *  ring geometry — `zoneCurCx/zoneCurCy/zoneCurR` (ring g as of the last ring
+ *  boundary, always present once started) and `zoneNextCx/zoneNextCy/zoneNextR`
+ *  (ring g+1, ZEROED except from that group's reveal beat through its close —
+ *  clients NEVER receive unrevealed ring geometry; centers are server-private,
+ *  amendment 10); the client derives the live 60fps ring by interpolating
+ *  current→next from zoneStartT + CONFIG via the shared zoneLiveState();
+ *  (3) the `zoneState` value set changes: 'grace'/'shrinking' die,
+ *  'clear'|'supply'|'reveal'|'closing' ship ('idle'/'closed' survive).
+ *  No FrameMsg changes.
  *  17: doctrine-distinct lit zones (Story 2.9, amendment 50) — LitZoneView
  *  gains a trailing `mode` ('standard'|'incendiary'|'dazzle'): the firer's
  *  star-shell doctrine stamped on the zone record at zone-spawn time,
@@ -101,7 +116,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 17;
+export const PROTOCOL_VERSION = 18;
 
 // Tunables
 export * from './constants.js';

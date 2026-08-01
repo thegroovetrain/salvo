@@ -36,22 +36,37 @@ export class ArenaState extends Schema {
 
   // --- Storm circle (public plane — the zone is charted; everyone sees it) ---
   //
-  // The zone timeline is deterministic: given zoneStartT and CONFIG.zone (which
-  // every client already has from the welcome), zoneRadiusAt(serverNow, ...)
-  // reproduces the exact safe radius at any instant. RULING: the client DERIVES
-  // its render radius from zoneStartT + CONFIG via serverNow() so the ring stays
-  // butter-smooth at 60fps regardless of schema patch cadence, and treats the
-  // live `zoneRadius` below only as a cross-check / fallback. The server still
-  // animates zoneRadius every fixed step (patches ride the normal cadence) so a
-  // client that trusts the schema directly is never wrong by more than one tick.
+  // PHASED TIMELINE (Story 3.1, PV 18). The timing is deterministic: given
+  // zoneStartT and CONFIG.zone (which every client already has from the
+  // welcome), the phase rhythm reproduces at any instant. The GEOMETRY is not
+  // client-derivable by design (amendment 10): ring centers roll on a
+  // server-private stream, so the schema mirrors exactly the REVEALED prefix —
+  // the current ring (ring g as of the last ring boundary) always, and the
+  // next ring ONLY from its group's reveal beat through the end of the close
+  // (ZEROED otherwise — unrevealed geometry never rides the wire). The client
+  // derives its butter-smooth 60fps live ring by interpolating current→next
+  // from zoneStartT + CONFIG via the SAME shared zoneLiveState() the server
+  // runs — no forked math, never wrong by more than one tick at a boundary.
+  // All fields are state-derived every step, so a late joiner / reconnecting
+  // client gets the correct revealed prefix from the plain schema sync.
 
-  /** 'idle' (pre-start) | 'grace' | 'shrinking' | 'closed'. */
+  /** 'idle' (pre-start) | 'clear' | 'supply' | 'reveal' | 'closing' | 'closed'. */
   @type('string') zoneState = 'idle';
   /** Server ms the zone timeline was anchored at (0 while idle). */
   @type('float64') zoneStartT = 0;
-  /** Live safe-zone radius (u), re-animated every fixed step. Derive-locally on
-   *  the client for smoothness; this is the authoritative cross-check. */
-  @type('float32') zoneRadius = 0;
+  /** Current ring center x (u) — ring g as of the last ring boundary. */
+  @type('float32') zoneCurCx = 0;
+  /** Current ring center y (u). */
+  @type('float32') zoneCurCy = 0;
+  /** Current ring radius (u); the full map radius while idle. */
+  @type('float32') zoneCurR = 0;
+  /** Revealed next-ring center x (u); 0 while unrevealed (see header). */
+  @type('float32') zoneNextCx = 0;
+  /** Revealed next-ring center y (u); 0 while unrevealed. */
+  @type('float32') zoneNextCy = 0;
+  /** Revealed next-ring radius (u); 0 while unrevealed (the reveal gate —
+   *  a real ring's radius is always > 0, so r === 0 means "no reveal"). */
+  @type('float32') zoneNextR = 0;
 
   // --- Match lifecycle (public plane — see server/src/game/match.ts) ---
 

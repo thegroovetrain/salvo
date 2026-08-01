@@ -224,8 +224,10 @@ export function hullHeaderValue(hp: number, maxHp: number): string {
 
 /**
  * Storm-circle HUD summary. `line` is the compact top-center readout ("STORM
- * 0:32" during grace, "STORM CLOSING" while shrinking, "" when idle); `inStorm`
- * flags the own ship outside the safe radius (shows an "IN STORM" warning).
+ * 0:32" counting to the next close start through every holding beat, "STORM
+ * CLOSING" while a ring closes, "STORM CLOSED" at the terminal ring, "" when
+ * idle); `inStorm` flags the own ship outside the live ring (shows an
+ * "IN STORM" warning).
  */
 export interface ZoneHud {
   line: string;

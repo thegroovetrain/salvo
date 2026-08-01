@@ -41,13 +41,18 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ---------------------------------------------------------------- clients ---
 
 // Sandbox (dev-only): pre-step-14 room behavior — no match lifecycle, permissive
-// combat policy, storm at 2nd join. The long grace keeps that storm harmless
+// combat policy, storm at 2nd join. The long beat keeps that storm harmless
 // for the whole choreography (this smoke predates the zone / match steps).
-const SANDBOX_ZONE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction: 0.15 };
+// Phased timeline (Story 3.1): a 10-minute beat parks the first close at 30
+// minutes out, so the whole choreography runs on the full-map ring.
+const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
 
 async function joinClient(name) {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
+  // mapSeed 110 (dev-only pin): the latencyHarness scan winner for the 3.1
+  // board (cap 20) — 3 small islands, all >= 1626u from center, so the long
+  // sail-ins this smoke's un-avoiding park() pilot makes never jam on a rock.
+  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE, mapSeed: 110 });
   const ctx = {
     name, room, welcome: null, you: null, now: 0,
     contacts: [], blips: [], shells: [], booms: [],
@@ -234,7 +239,12 @@ async function phaseShellReveal(a, b, log) {
   for (const sb of bShells) {
     const sa = aShells.find((e) => e.id === sb.id);
     assert(sa, `shell: B saw ${sb.id} that A (owner) never did`);
-    assert(sb.t - sa.t >= 1000, `shell: ${sb.id} revealed to B only ${(sb.t - sa.t).toFixed(0)}ms after launch (fired from ~400u)`);
+    // Reveal must be LATER than launch — never on the launch tick. The exact
+    // delay is geometry ((standoff - sight)/shellSpeed ~ 180ms at 420u standoff,
+    // sight 330, shell 500u/s — the old 1000ms literal predates both retunes);
+    // the load-bearing anti-cheat check is the reveal POSITION below (the shell
+    // materializes at B's sight boundary, not at A's muzzle).
+    assert(sb.t - sa.t >= CONFIG.tick.simDtMs, `shell: ${sb.id} revealed to B on its launch tick (+${(sb.t - sa.t).toFixed(0)}ms)`);
     assert(sa.ttl === undefined && sb.ttl === undefined, `shell: ${sb.id} carried a ttl (range-derivable field must not be on the wire)`);
     assert(dist(sb, b.you) <= SIGHT + 60, `shell: ${sb.id} revealed ${dist(sb, b.you).toFixed(0)}u from B (outside sight)`);
   }

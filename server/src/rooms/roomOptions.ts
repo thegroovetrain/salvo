@@ -83,10 +83,13 @@ export interface MatchOverride {
 
 /**
  * Room-create options. `zoneOverride` is a DEV TOOL for smokes/tests only — it
- * fast-forwards the storm timeline so a shrink is observable in seconds.
- * Matchmaking / the real client NEVER set it (the client derives its ring from
- * CONFIG.zone, so an override desyncs the client's derived radius). Gated by
- * sanitizeRoomOptions same as matchOverride.
+ * reshapes the phased storm timeline (beatMs / ringSteps / offsetCap /
+ * terminalSightFactor — the ZoneTimeline structural subset; stormDps is
+ * deliberately NOT part of the shape: damage is never overridable) so closes
+ * are observable in seconds. Matchmaking / the real client NEVER set it (the
+ * client derives its ring phases from CONFIG.zone, so an override desyncs the
+ * client's derived timeline). Gated by sanitizeRoomOptions same as
+ * matchOverride.
  */
 export interface RoomOptions extends JoinOptions {
   zoneOverride?: ZoneTimeline;
