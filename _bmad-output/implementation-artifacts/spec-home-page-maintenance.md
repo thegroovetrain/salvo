@@ -2,8 +2,9 @@
 title: 'Home Page Maintenance Patch — hoist to bay, random color identity, slim chip, confirm-not-deploy'
 type: 'chore'
 created: '2026-08-01'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'a41d619a09a5a68994d59dd0176ea2467ed3816b'
+final_revision: '229ec75'
 review_loop_iteration: 0
 followup_review_recommended: false
 context: ['{project-root}/_bmad-output/project-context.md']
@@ -99,3 +100,17 @@ Deferred (ledger entry filed): CVD-assist toggle leaves already-painted home tin
 
 **Manual checks (if no CLI):**
 - jsdom covers DOM pins; visual container-fit at 1366×768 spot-checked via test assertions on computed styles where practical.
+
+## Auto Run Result
+
+**Status:** done. **Summary:** All five Eric-ruled home-page changes shipped, plus this run's three AskUserQuestion rulings (persist the random hue; broader home tinting — callsign field + chip; CONFIRM SELECTION keeps amber chrome): the color picker now lives only in the SELECT CLASS modal; absent/corrupt `hullcracker.color` rolls a random Regatta hue, persists it, and tints home chrome (amber-unset accents are gone); the class chip lost its "STD GUN · …" line and slimmed; the modal caption was replaced by a left-side `COLOR PREFERENCE:` label; SET SAIL became CONFIRM SELECTION (saves class, returns home — PLAY is the only deploy path, restoring EXPERIENCE.md's original pick-returns-home contract).
+
+**Files changed:** `client/src/net/connection.ts` (ensureColorPref + session cache; connect always sends colorPref) · `client/src/ui/classSelect.ts` (hoist never-null, caption→label, chipLoadoutLine deleted, confirm button, narrowed key guard + swatch blur, footer wrap) · `client/src/ui/home.ts` (hoist unmounted, chip slimmed + ellipsis guard, callsign/chip personal-color tinting, confirm wiring without deploy, comment fix) · test files re-pinned/extended: `classSelect.test.ts` 26→34, `home.test.ts` 22→33, `homePersistence.test.ts` 10→13, `connection.test.ts` 13→20, `containerFit.test.ts` (mechanical rename) · ledgers: `deferred-work.md` (doc-sync debt, dead-server-branch awareness, CVD-stale-tint defer), `gds-workflow-status.yaml` (last_updated note).
+
+**Review:** 2 Fable hunters + Codex cross-model. 6 patches applied (2 medium, both fail-proven with regression tests: blocked-storage identity divergence — all three reviewers agreed; swatch-click keyboard death; 4 low: footer flex-wrap, chip ellipsis, test-pin honesty, comment fix), 1 defer (CVD-assist stale home tint — ledgered), 2 rejects. 0 intent gaps, 0 bad_spec.
+
+**Follow-up review:** false — two medium fixes are narrow, regression-pinned, and behaviorally verified; remainder cosmetic. (Epic-2 retro also retired the flag as a category.)
+
+**Verification:** `npm run check` green at final revision — lint 0 errors (2 pre-existing max-lines-per-function warnings), tsc clean ×3 workspaces, 2342 tests (351 shared / 792 server / 1199 client), up from 2305 at baseline.
+
+**Residual risks:** displaced-preference case (pref taken → nearest-free hue) now has no UI explanation anywhere pre-join (caption deleted by ruling; ledgered); server no-pref branch is production-dead for current clients (deliberate, ledgered); harness cannot verify real-browser layout — Eric's live-play eye is the ratified visual-acceptance mechanism.
