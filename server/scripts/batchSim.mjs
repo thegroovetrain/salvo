@@ -50,4 +50,13 @@ const result = spawnSync(tsx, ['--tsconfig', tsconfig, entry, ...process.argv.sl
   stdio: 'inherit',
   env: process.env,
 });
+// A spawn failure (ENOENT: node_modules/.bin/tsx missing after a fresh clone or
+// a pruned install) leaves status null — without this the harness would exit 1
+// with NO output at all, which reads like a silent sim failure.
+if (result.error) {
+  console.error(
+    `batchSim: could not launch tsx at ${tsx}: ${result.error.message}\n` +
+      'The workspace dependencies are probably not installed — run `npm ci` at the repo root.',
+  );
+}
 process.exit(result.status ?? 1);

@@ -20,6 +20,11 @@ export interface BatchAggregate {
   matches: number;
   failures: number;
   captainsPerMatch: number;
+  /** Captain-matches excluded from the per-captain rows because the captain's
+   *  ship was gone at collection (quit-out path). Always 0 with today's
+   *  never-leaving pilots; reported only when non-zero so the omission from
+   *  every per-captain statistic below can never be silent. */
+  departedCaptains: number;
   durationS: Summary;
   endedBy: Record<string, number>;
   stormDeathsTotal: number;
@@ -63,7 +68,9 @@ function aggregateBoonTimes(captains: readonly { boonTimesS: (number | null)[] }
 }
 
 function aggregateLevelCurve(captains: readonly { levelCurve: number[] }[]): BatchAggregate['levelCurve'] {
-  const buckets = Math.max(0, ...captains.map((c) => c.levelCurve.length));
+  // reduce, never Math.max(...arr): the captain array is unbounded (matches x
+  // captains) and an argument spread over ~100k+ entries throws RangeError.
+  const buckets = captains.reduce((m, c) => Math.max(m, c.levelCurve.length), 0);
   const out: BatchAggregate['levelCurve'] = [];
   for (let k = 0; k < buckets; k += 1) {
     const values = captains.filter((c) => c.levelCurve.length > k).map((c) => c.levelCurve[k]);
@@ -91,6 +98,7 @@ export function buildAggregate(result: BatchResult, captainsPerMatch: number): B
     matches: matches.length,
     failures: result.failures.length,
     captainsPerMatch,
+    departedCaptains: matches.reduce((n, m) => n + (m.departedCaptains?.length ?? 0), 0),
     durationS: summarize(matches.map((m) => m.durationS)),
     endedBy,
     stormDeathsTotal: stormDeaths.reduce((a, b) => a + b, 0),
@@ -130,6 +138,9 @@ export function renderBatchReport(label: string, agg: BatchAggregate): string[] 
   const lines: string[] = [];
   lines.push(`== BATCH ${label} ==`);
   lines.push(`matches: ${agg.matches} completed, ${agg.failures} failed | captains/match: ${agg.captainsPerMatch}`);
+  if (agg.departedCaptains > 0) {
+    lines.push(`departed captains EXCLUDED from per-captain rows: ${agg.departedCaptains}`);
+  }
   lines.push(`match length s: ${fmtSummary(agg.durationS)}`);
   lines.push(`endedBy: ${countLine(agg.endedBy)}`);
   lines.push(`storm deaths: total=${agg.stormDeathsTotal} per-match[${fmtSummary(agg.stormDeaths)}]`);
@@ -154,12 +165,18 @@ export function renderBatchReport(label: string, agg: BatchAggregate): string[] 
   return lines;
 }
 
-/** The deck-only mode's report body (pity curve + exclusive/cap evidence). */
+/** The deck-only mode's report body (pity curve + exclusive/cap evidence).
+ *  The stopping-rule caveat is printed IN the report, not just in the code:
+ *  see deckSim.ts's header — production never terminates an economy. */
 export function renderDeckReport(label: string, agg: DeckAggregate): string[] {
   const lines: string[] = [];
   lines.push(`== DECK-ONLY ${label} ==`);
+  lines.push('stopping rule (harness model, NOT production): an economy ends when the deck is');
+  lines.push('EMPTY OR holds only terminal rival cards. Production has no economy termination —');
+  lines.push('a fitted doctrine returns its rival to the deck forever. All variants share this');
+  lines.push('rule, so cross-variant deltas are comparable; per-economy totals are model numbers.');
   lines.push(`economies: ${agg.economies} | total draws: ${agg.totalDraws}`);
-  lines.push(`draws played per economy: ${fmtSummary(agg.drawsPlayed)} | decks effectively exhausted: ${pct(agg.deckExhaustedRate)}`);
+  lines.push(`draws played per economy: ${fmtSummary(agg.drawsPlayed)} | decks empty-or-rivals-only at stop: ${pct(agg.deckExhaustedRate)}`);
   lines.push('pity curve (rare/exclusive landing rate vs pre-draw levelsSinceRare):');
   for (const row of agg.pity) {
     if (row.draws === 0) continue;
@@ -169,7 +186,7 @@ export function renderDeckReport(label: string, agg: DeckAggregate): string[] {
   lines.push(`first exclusive OFFERED: reach=${pct(agg.exclusiveOfferedReach)} drawIndex[${fmtSummary(agg.exclusiveOfferedDraw)}]`);
   lines.push(`first exclusive PICKED : reach=${pct(agg.exclusivePickedReach)} drawIndex[${fmtSummary(agg.exclusivePickedDraw)}]`);
   lines.push(`copy-capped lines per economy: ${fmtSummary(agg.cappedLines)} | economies with >=1 cap: ${pct(agg.anyCapRate)}`);
-  lines.push('deck depletion (mean cards remaining after draw k):');
+  lines.push('deck depletion (mean cards remaining after draw k AND its immediate spend, give-backs included):');
   for (const row of agg.depletion) {
     lines.push(`  k=${String(row.draw).padStart(3)} n=${String(row.n).padStart(6)} meanRemaining=${fmt(row.meanRemaining, 1)}`);
   }
@@ -180,7 +197,7 @@ export function renderDeckReport(label: string, agg: DeckAggregate): string[] {
 export function renderDeckComparison(variants: readonly { label: string; agg: DeckAggregate }[]): string[] {
   const rows: { name: string; value: (a: DeckAggregate) => string }[] = [
     { name: 'draws played p50', value: (a) => fmt(a.drawsPlayed.p50) },
-    { name: 'decks exhausted', value: (a) => pct(a.deckExhaustedRate) },
+    { name: 'empty-or-rivals-only', value: (a) => pct(a.deckExhaustedRate) },
     { name: 'rareRate dry=0', value: (a) => pct(a.pity[0]?.rareRate ?? 0) },
     { name: 'rareRate dry=3', value: (a) => pct(a.pity[3]?.rareRate ?? 0) },
     { name: 'rareRate dry=6', value: (a) => pct(a.pity[6]?.rareRate ?? 0) },

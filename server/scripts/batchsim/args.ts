@@ -2,7 +2,7 @@
 // `--flag value` pairs, fail-fast with a usage message on anything unknown).
 // Pure over argv — unit-testable without a process.
 
-import { validateTunableKey } from './overrides.js';
+import { validateTunableKey, validateTunableValue } from './overrides.js';
 
 /** Bad command line — main prints .message and exits 2. */
 export class UsageError extends Error {}
@@ -62,9 +62,19 @@ function defaults(): CliOptions {
 }
 
 function parseNumber(raw: string, flag: string): number {
+  // Number('') and Number('  ') are 0, not NaN — an empty value (or an empty
+  // element in a `1,,2` sweep list) would silently become a legitimate-looking
+  // zero dial. Reject before coercion.
+  if (raw.trim() === '') throw new UsageError(`${flag}: expected a number, got an empty value`);
   const n = Number(raw);
   if (!Number.isFinite(n)) throw new UsageError(`${flag}: '${raw}' is not a number`);
   return n;
+}
+
+/** Fold a seed into the uint32 domain every mulberry32 stream actually uses, so
+ *  a >= 2^32 seed cannot alias another run's key while printing as distinct. */
+function toUint32Seed(n: number): number {
+  return (n % 2 ** 32) >>> 0;
 }
 
 function parseCount(raw: string, flag: string, min: number): number {
@@ -79,19 +89,27 @@ function parseSet(opts: CliOptions, raw: string): void {
   if (eq <= 0) throw new UsageError(`--set: expected key=value, got '${raw}'`);
   const key = raw.slice(0, eq);
   validateTunableKey(key); // throws TunableError on unknown/non-tunable keys
-  opts.set[key] = parseNumber(raw.slice(eq + 1), `--set ${key}`);
+  const value = parseNumber(raw.slice(eq + 1), `--set ${key}`);
+  validateTunableValue(key, value); // per-key floor (see overrides.MIN_ONE_KEYS)
+  opts.set[key] = value;
 }
 
-/** `key=v1,v2,...` for --sweep: same key rules, >= 1 numeric values. */
+/** `key=v1,v2,...` for --sweep: same key rules, >= 1 numeric values, and the
+ *  key may appear only ONCE across all --sweep flags — a repeat would make the
+ *  later value overwrite the earlier one in every grid cell (buildVariants
+ *  spreads onto the same key), fabricating a comparison of identical runs under
+ *  different labels. */
 function parseSweep(opts: CliOptions, raw: string): void {
   const eq = raw.indexOf('=');
   if (eq <= 0) throw new UsageError(`--sweep: expected key=v1,v2,..., got '${raw}'`);
   const key = raw.slice(0, eq);
   validateTunableKey(key);
+  if (opts.sweeps.some((s) => s.key === key)) throw new UsageError(`duplicate sweep key: ${key}`);
   const values = raw
     .slice(eq + 1)
     .split(',')
     .map((v) => parseNumber(v, `--sweep ${key}`));
+  for (const v of values) validateTunableValue(key, v);
   if (values.length === 0) throw new UsageError(`--sweep ${key}: needs at least one value`);
   opts.sweeps.push({ key, values });
 }
@@ -100,13 +118,18 @@ type ValueHandler = (opts: CliOptions, value: string) => void;
 
 const VALUE_FLAGS: Record<string, ValueHandler> = {
   '--matches': (o, v) => void (o.matches = parseCount(v, '--matches', 1)),
-  '--seed': (o, v) => void (o.seed = parseCount(v, '--seed', 0)),
+  '--seed': (o, v) => void (o.seed = toUint32Seed(parseCount(v, '--seed', 0))),
   '--captains': (o, v) => void (o.captains = parseCount(v, '--captains', 1)),
   '--drones': (o, v) => void (o.drones = parseCount(v, '--drones', 0)),
   '--draws': (o, v) => void (o.draws = parseCount(v, '--draws', 1)),
   '--set': parseSet,
   '--sweep': parseSweep,
-  '--json': (o, v) => void (o.json = v),
+  // A dropped path (`--json --quiet`) would otherwise write the report to a
+  // file literally named '--quiet' and swallow the flag.
+  '--json': (o, v) => {
+    if (v.startsWith('--')) throw new UsageError(`--json requires a path, got '${v}'`);
+    o.json = v;
+  },
 };
 
 const BOOL_FLAGS: Record<string, (opts: CliOptions) => void> = {

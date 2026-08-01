@@ -370,7 +370,9 @@ export const CONFIG = {
    * perCardWeight — see sim/deck.ts). Values RATIFIED by Eric 2026-07-31 from
    * the 2.10 batch-sim evidence (amendment 57): at 0.35 the escalation only
    * offset natural rare depletion (flat pity curve); 0.7 makes the ratified
-   * soft pity genuinely rise (rareRate 0.43→0.57 by dry 6) and trims the
+   * soft pity genuinely rise (rareRate climbs from the dry-1 dip of ~0.43 to
+   * ~0.57 by dry 6, vs a ≈flat ~0.4 across the same span at the old 0.35 dial;
+   * the dry-0 opening rate is ~0.48 either way) and trims the
    * first-exclusive tail without flooding shallow draws.
    */
   deck: {

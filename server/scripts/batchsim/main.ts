@@ -134,4 +134,18 @@ function main(): number {
   }
 }
 
-process.exit(main());
+// EPIPE companion to the exitCode change below: no longer exiting synchronously
+// means the process outlives its own stdout writes, so a reader that closes the
+// pipe early (`... | head`) now delivers an ASYNC EPIPE that node would raise as
+// an unhandled 'error' event and crash on. A closed downstream pipe is a normal
+// outcome for a report writer — treat it as success, rethrow anything else.
+process.stdout.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EPIPE') process.exit(0);
+  throw err;
+});
+
+// process.exitCode, NOT process.exit(): exit() tears the process down
+// immediately and can truncate a large report still draining through a piped
+// (async) stdout. Setting the code and returning normally keeps the SAME exit
+// semantics while letting node flush stdout first.
+process.exitCode = main();

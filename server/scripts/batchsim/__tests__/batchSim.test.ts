@@ -15,7 +15,7 @@ import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
 import { mixSeed, percentile, summarize } from '../stats.js';
 import { PILOT_REGISTRY, pickSpendChoice } from '../pilots.js';
-import { runBatch } from '../runner.js';
+import { runBatch, type CaptainSample, type MatchSample } from '../runner.js';
 import { buildAggregate } from '../report.js';
 import { runDeckSim } from '../deckSim.js';
 import { mulberry32 } from '@salvo/shared';
@@ -66,6 +66,59 @@ describe('args — CLI parsing', () => {
     expect(variants[3].set).toEqual({ 'zone.stormDps': 8, 'xp.levelMs': 60000, 'deck.rareWeightBase': 2 });
     // Every variant keeps the base --set override.
     for (const v of variants) expect(v.set['zone.stormDps']).toBe(8);
+  });
+});
+
+describe('args — value hygiene (review gate 2026-07-31)', () => {
+  it('rejects empty / whitespace-only values before Number() coerces them to 0', () => {
+    // Number('') === 0: an empty value would become a legitimate-looking zero dial.
+    expect(() => parseArgs(['--set', 'xp.levelMs='])).toThrow(UsageError);
+    expect(() => parseArgs(['--set', 'xp.levelMs='])).toThrow(/empty value/);
+    expect(() => parseArgs(['--set', 'xp.levelMs=   '])).toThrow(/empty value/);
+    expect(() => parseArgs(['--sweep', 'deck.rareWeightBase=1,,2'])).toThrow(/empty value/);
+    expect(() => parseArgs(['--seed', ''])).toThrow(/empty value/);
+  });
+
+  it('rejects a repeated --sweep key (the later value would overwrite the earlier in every cell)', () => {
+    expect(() => parseArgs(['--sweep', 'xp.levelMs=30000,45000', '--sweep', 'xp.levelMs=60000'])).toThrow(
+      /duplicate sweep key: xp\.levelMs/,
+    );
+    // Distinct keys still stack into the cartesian grid.
+    expect(parseArgs(['--sweep', 'xp.levelMs=30000', '--sweep', 'deck.rareWeightBase=1']).sweeps).toHaveLength(2);
+  });
+
+  it('rejects --json swallowing the following flag', () => {
+    expect(() => parseArgs(['--json', '--quiet'])).toThrow(/--json requires a path/);
+    const ok = parseArgs(['--json', '/tmp/r.json', '--quiet']);
+    expect(ok.json).toBe('/tmp/r.json');
+    expect(ok.quiet).toBe(true);
+  });
+
+  it('normalizes a >= 2^32 seed to the uint32 the rng streams actually use', () => {
+    // Aliasing is unavoidable (mulberry32 is uint32); what matters is that the
+    // printed run key equals the EFFECTIVE seed, so two runs cannot label
+    // identical streams differently.
+    expect(parseArgs(['--seed', String(2 ** 32 + 7)]).seed).toBe(7);
+    expect(parseArgs(['--seed', String(2 ** 32)]).seed).toBe(0);
+    expect(parseArgs(['--seed', '7']).seed).toBe(7);
+  });
+});
+
+describe('overrides — per-key value floors (review gate 2026-07-31)', () => {
+  it('rejects non-positive offer.size / xp.levelMs at parse time AND at apply time', () => {
+    expect(() => parseArgs(['--set', 'offer.size=0'])).toThrow(TunableError);
+    expect(() => parseArgs(['--set', 'offer.size=0'])).toThrow(/'offer\.size'.*>= 1/);
+    expect(() => parseArgs(['--sweep', 'offer.size=3,0'])).toThrow(/'offer\.size'.*>= 1/);
+    expect(() => parseArgs(['--set', 'xp.levelMs=0'])).toThrow(/'xp\.levelMs'.*>= 1/);
+    expect(() => parseArgs(['--set', 'zone.stormDps=-1'])).toThrow(/'zone\.stormDps'.*>= 0/);
+    expect(() => applyOverrides({ 'offer.size': 0 })).toThrow(TunableError);
+  });
+
+  it('keeps the legitimate ZERO sweep arms legal (they are real ratification evidence)', () => {
+    expect(parseArgs(['--set', 'deck.rareWeightPerDryLevel=0']).set).toEqual({ 'deck.rareWeightPerDryLevel': 0 });
+    const restore = applyOverrides({ 'zone.grace': 0, 'zone.endRadiusFraction': 0 });
+    expect(CONFIG.zone.grace).toBe(0);
+    restore();
   });
 });
 
@@ -230,6 +283,65 @@ describe('runner — reproducibility + endedBy (fast-zone overrides)', () => {
   });
 });
 
+describe('runner — a captain who leaves mid-match (review gate 2026-07-31)', () => {
+  /** A pilot that quits: at `atTick` it removes its own ship exactly the way
+   *  Match.onPlayerLeave does (world.removeShip), the quit-out path a future
+   *  leave-capable pilot will drive for real. */
+  function quitterFactory(quitId: string, atTick: number) {
+    return (id: string, seed: number) => {
+      const inner = PILOT_REGISTRY.gunner(id, seed);
+      let t = 0;
+      return {
+        id,
+        tick(world: World): void {
+          t += 1;
+          if (id === quitId && t >= atTick) {
+            if (world.ships.has(id)) world.removeShip(id);
+            return;
+          }
+          inner.tick(world);
+        },
+      };
+    };
+  }
+
+  it('records the departed captain and excludes it from the aggregates, never throwing', () => {
+    const result = runBatch({ seed: 5, matches: 1, captains: 2, drones: 0, pilot: quitterFactory('cap-2', 60) });
+    // FAIL-PROOF: with the old `world.ships.get(id)!` collection this is a
+    // recorded failure ("Cannot read properties of undefined"), not a match.
+    expect(result.failures).toEqual([]);
+    expect(result.matches).toHaveLength(1);
+    const m = result.matches[0];
+    expect(m.departedCaptains).toEqual(['cap-2']);
+    expect(m.captains.map((c) => c.id)).toEqual(['cap-1']);
+    const agg = buildAggregate(result, 2);
+    expect(agg.departedCaptains).toBe(1);
+    expect(agg.finalLevel.n).toBe(1); // the survivor only — sane, not NaN, not 2
+    expect(Number.isFinite(agg.killsPerCaptain.mean)).toBe(true);
+  });
+});
+
+describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () => {
+  it('aggregates a 200k-captain batch without an argument-spread RangeError', () => {
+    const captain: CaptainSample = {
+      id: 'cap-1', cls: 'torpedoBoat', finalLevel: 2, kills: 1, deaths: 0, picks: 2,
+      boonsFitted: 2, deckRemaining: 30, cappedLines: 0,
+      boonTimesS: new Array<number | null>(10).fill(null),
+      firstExclusiveOffered: null, firstExclusiveFitted: null, levelCurve: [1, 2],
+    };
+    const match: MatchSample = {
+      index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', stormDeaths: 0,
+      killsByVictimTier: {}, captains: new Array<CaptainSample>(200000).fill(captain),
+      departedCaptains: [],
+    };
+    // FAIL-PROOF: `Math.max(0, ...captains.map(...))` over 200k entries throws
+    // RangeError: Maximum call stack size exceeded.
+    const agg = buildAggregate({ matches: [match], failures: [] }, 200000);
+    expect(agg.levelCurve).toHaveLength(2);
+    expect(agg.levelCurve[1].n).toBe(200000);
+  });
+});
+
 describe('deck-only mode', () => {
   it('is deterministic per seed and structurally sound', () => {
     const a = runDeckSim({ seed: 7, draws: 3000 });
@@ -244,6 +356,20 @@ describe('deck-only mode', () => {
     expect(a.pity.reduce((n, row) => n + row.draws, 0)).toBe(a.totalDraws);
     // Fail-proof for the determinism pin: a different seed diverges.
     expect(JSON.stringify(runDeckSim({ seed: 8, draws: 3000 }))).not.toBe(JSON.stringify(a));
+  });
+
+  it('refuses to spin when an economy can play no draws (zero-progress guard)', () => {
+    // Deliberately bypass the CLI floor by mutating CONFIG directly — this is
+    // the defense-in-depth layer. FAIL-PROOF: without the guard this call never
+    // returns (the budget loop only advances on draws played), so the missing
+    // fix shows up as a hung test / vitest timeout rather than a bad assertion.
+    const before = CONFIG.offer.size;
+    (CONFIG.offer as { size: number }).size = 0;
+    try {
+      expect(() => runDeckSim({ seed: 7, draws: 100 })).toThrow(/played 0 draws/);
+    } finally {
+      (CONFIG.offer as { size: number }).size = before;
+    }
   });
 
   it('a deck.rareWeightPerDryLevel override bites the pity curve', () => {

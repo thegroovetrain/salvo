@@ -57,6 +57,24 @@ export function validateTunableKey(key: string): void {
   resolveLeaf(key);
 }
 
+/** Per-key numeric FLOOR. A dial the sim divides by, or loops until it consumes,
+ *  cannot legally be <= 0: `offer.size` 0 makes drawOffer return an empty offer
+ *  forever (the deck never depletes -> the deck-only economy loop never
+ *  terminates), and `xp.levelMs` 0 makes passive accrual a divide-by-zero.
+ *  Everything else may legitimately be 0 — `deck.rareWeightPerDryLevel=0` (the
+ *  ratified no-pity sweep arm) and `zone.grace=0` / `zone.endRadiusFraction=0`
+ *  (the fast-storm test arms) are real evidence values. */
+const MIN_ONE_KEYS = new Set(['xp.levelMs', 'offer.size']);
+
+/** Floor-check a --set/--sweep VALUE (arg-parse time and again at apply time).
+ *  Rejecting here is what keeps a non-positive dial from reaching a sim loop. */
+export function validateTunableValue(key: string, value: number): void {
+  const floor = MIN_ONE_KEYS.has(key) ? 1 : 0;
+  if (!Number.isFinite(value) || value < floor) {
+    throw new TunableError(`'${key}': expected a finite value >= ${floor}, got '${value}'`);
+  }
+}
+
 /**
  * Apply a set of overrides by structured mutation; returns a restore closure
  * that puts every original value back (reverse order). Call BEFORE constructing
@@ -66,6 +84,7 @@ export function applyOverrides(set: Readonly<Record<string, number>>): () => voi
   const undo: { leaf: Leaf; prev: number }[] = [];
   for (const key of Object.keys(set)) {
     const leaf = resolveLeaf(key);
+    validateTunableValue(key, set[key]); // defense in depth: programmatic callers too
     undo.push({ leaf, prev: leaf.obj[leaf.prop] });
     leaf.obj[leaf.prop] = set[key];
   }

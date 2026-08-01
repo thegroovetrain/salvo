@@ -20,6 +20,29 @@
 // Classes round-robin per economy; `draws` is the TOTAL draw budget across
 // economies (the last economy always plays out fully — determinism over exact
 // budget adherence). No World, no Match: >= 10^4 economies run in seconds.
+//
+// ===== THE STOPPING RULE IS A MODELING CHOICE (evidence honesty) =============
+// PRODUCTION HAS NO ECONOMY TERMINATION. A live captain's deck never "ends":
+// once a doctrine is fitted, its rival card is a permanent REPLACE offer —
+// world.ts settleSpend returns the swapped-out rival to the deck, so a
+// rivals-only deck cycles forever at net-zero depletion. Levels keep coming as
+// long as the match runs; only the MATCH ends, not the deck.
+//
+// This harness therefore imposes its own stop: an economy ends when the deck is
+// EMPTY OR holds only terminal rival cards (deckExhausted below), with
+// ECONOMY_DRAW_CAP as a backstop. That is a deliberate model, not a claim about
+// the server. It is sound for the comparative question it was built to answer:
+//   - EVERY dial variant runs under the SAME rule, so cross-variant deltas
+//     (flat vs escalating pity) are apples-to-apples;
+//   - the pity buckets are dominated by PRE-exhaustion draws (the shallow
+//     dry 0-6 rows that real matches actually reach), so the ratification
+//     evidence does not rest on the tail the rule truncates;
+//   - the batch mode (real World + Match) corroborates the same direction
+//     without any stopping rule at all.
+// What the rule DOES bias: absolute per-economy totals — "draws played per
+// economy", "decks effectively exhausted", and the deep-dry (>= ~10) buckets.
+// Read those as harness-model numbers, never as production lifetimes.
+// ============================================================================
 
 import {
   BOON_CATALOG,
@@ -64,17 +87,20 @@ export interface DeckAggregate {
   exclusiveOfferedDraw: Summary;
   exclusivePickedReach: number;
   exclusivePickedDraw: Summary;
-  /** Draws each economy played before exhaustion (see deckExhaustedRate). */
+  /** Draws each economy played before hitting the harness stopping rule
+   *  (empty-or-rivals-only; see the module header — production never stops). */
   drawsPlayed: Summary;
-  /** Fraction of economies that reached EFFECTIVE exhaustion: zero cards, or
-   *  only terminal rival cards left. A fitted doctrine's rival can never
-   *  leave circulation (the swap returns it — net-zero draws forever), so a
-   *  deck with a doctrine fitted structurally floors at those cards instead
-   *  of zero — a true server-economy behavior surfaced by this harness. */
+  /** Fraction of economies that reached the harness stopping rule: the deck is
+   *  EMPTY OR holds only terminal rival cards. A fitted doctrine's rival can
+   *  never leave circulation (the swap returns it — net-zero draws forever), so
+   *  a deck with a doctrine fitted structurally floors at those cards instead of
+   *  zero. This is a MODELING stop, not a production one (module header). */
   deckExhaustedRate: number;
   cappedLines: Summary;
   anyCapRate: number;
-  /** Mean cards remaining after draw k (k = 1..DEPLETION_MAX, 5-step rows). */
+  /** Mean cards remaining AFTER draw k and its immediate spend — give-backs
+   *  (losing-option returns + doctrine-rival returns) included, since the spend
+   *  resolves inside the same step (k = 1..DEPLETION_MAX, 5-step rows). */
   depletion: { draw: number; meanRemaining: number; n: number }[];
 }
 
@@ -147,10 +173,11 @@ const isTerminalRival = (id: string, fitted: readonly string[]): boolean => {
   return def?.exclusiveWith !== undefined && fitted.includes(def.exclusiveWith);
 };
 
-/** Effective exhaustion: nothing left, or only terminal rival cards — every
- *  further draw would be a net-zero doctrine ping-pong (found empirically:
- *  without this, every doctrine-fitted economy burns the draw cap and floods
- *  the pity table with degenerate tail draws). */
+/** THE HARNESS STOPPING RULE (module header): empty, or only terminal rival
+ *  cards — every further draw would be a net-zero doctrine ping-pong (found
+ *  empirically: without this, every doctrine-fitted economy burns the draw cap
+ *  and floods the pity table with degenerate tail draws). Production has no
+ *  such stop; this is a modeling choice applied identically to every variant. */
 const deckExhausted = (st: EconomyState): boolean =>
   st.deck.cards.every((id) => isTerminalRival(id, st.fitted));
 
@@ -218,6 +245,17 @@ export function runDeckSim(spec: DeckSimSpec): DeckAggregate {
     const rng = mulberry32(mixSeed(spec.seed, e));
     const cls = SHIP_CLASS_IDS[e % SHIP_CLASS_IDS.length];
     const stats = playEconomy(cls, rng, pityHits, pityDraws);
+    // ZERO-PROGRESS GUARD (defense in depth behind the --set floors): the budget
+    // loop only advances on draws played, so an economy that plays none would
+    // spin forever. The known cause is a non-positive offer.size (drawOffer
+    // returns an empty offer every level), now rejected at parse/apply time —
+    // anything else reaching here is a structural bug, and must fail loudly.
+    if (stats.draws === 0) {
+      throw new Error(
+        `deck-only: economy ${e} (class ${cls}) played 0 draws — no progress is possible ` +
+          `(check CONFIG.offer.size / the deck catalog); refusing to spin`,
+      );
+    }
     economies.push(stats);
     totalDraws += stats.draws;
   }

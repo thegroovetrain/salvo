@@ -13,6 +13,8 @@ First evidence campaign of the triple-duty harness (`server/scripts/batchSim.mjs
 | 3v3 | 40.4 / 131.7 | 1 / 3 | 1 (0.92) | 19% / 11% | 492 / 8 |
 | 6v0 | 30.9 / 130.5 | 1 / 3 | 1 (0.72) | 13% / 9% | 468 / 32 |
 
+> **Caveat — the 1v5 row models a lobby that does not ship today.** The runner drives matches with `minHumans: 1` (production `CONFIG.match.minHumans` is 2). A real solo captain never leaves the weapons-safe ready room, so the 1-captain baseline reads as the FUTURE solo-vs-AI shape (Epic 6) / the dev-override lobby, not a live configuration. The 2v4 / 3v3 / 6v0 rows are unaffected.
+
 **xp.levelMs sweep** (30000 / 45000 / 60000): at 1v5, picks mean 3.80 / 2.79 / 2.31 and excl-fitted reach 42% / 32% / 25%; at 3v3, picks mean 1.62 / 1.18 / 0.92. Match lengths unchanged (the dial does not alter combat).
 
 **zone.shrinkDuration sweep** (180s / 420s / 720s, 3v3): picks mean 0.92 / 0.97 / 0.98 — the zone is NOT the binding constraint at this pilot lethality; elimination ends matches at ~40s p50 long before any storm close.
@@ -48,6 +50,21 @@ Eric ratified both recommendations at the amendment-55 checkpoint (2026-07-31, r
 
 - **CONFIG.xp confirmed as-is** (`levelMs` 60000, `killLevels` 1, `droneTierLevels` ¼/⅓/½) — this is the committed tuning pass of FR18's values: evidence-confirmed rather than changed, with the picks-band shortfall attributed to match length (Story 3.1's scope).
 - **`deck.rareWeightPerDryLevel` raised 0.35 → 0.7** (`rareWeightBase` stays 1) — committed in `shared/src/constants.ts` with the `barrel.test.ts` pin updated knowingly. The 1.5 steep-pity option was declined.
+
+## Review-gate adjudications (2026-07-31)
+
+Two honesty caveats raised at the 2-10 review gate, recorded here so the evidence above is read with them attached. Neither changes a number in this report.
+
+**(a) The deck-only stopping rule is a MODELING choice, absent from production.** The deck-only mode ends an economy when the deck is empty *or* holds only terminal rival cards. **Production has no economy termination at all**: once a doctrine is fitted, its rival card is a permanent REPLACE offer — `world.ts` `settleSpend` returns the swapped-out rival to the deck — so a rivals-only deck cycles forever at net-zero depletion. Only the match ends, never the deck. Codex's cross-model challenge on this point was **adjudicated as documentation-honesty, not evidence invalidation**:
+
+- every dial variant ran under the *identical* rule, so the comparative flat-vs-escalating-pity conclusion (Finding 3, Recommendation `rareWeightPerDryLevel` 0.35 → 0.7) is apples-to-apples;
+- the buckets that drove ratification are the early-draw ones (dry 0–6), which are dominated by **pre-exhaustion** draws — the rule truncates only the deep tail;
+- the batch mode (real `World` + `Match`, no stopping rule whatsoever) corroborates the same direction independently.
+- What the rule *does* bias, and what must therefore never be quoted as a production lifetime: "draws played per economy", the "empty-or-rivals-only" rate, and the deep-dry (≥ ~10) pity rows. Those are harness-model numbers.
+
+The rule is now stated in the deckSim module header, printed in the deck-only report body itself, and reflected in the renamed labels ("decks empty-or-rivals-only at stop"; depletion is "after draw k AND its immediate spend, give-backs included").
+
+**(b) `minHumans: 1` caveat** — see the campaign-matrix note above: the 1v5 baseline models the future solo-vs-AI mode / dev-override shape, not a lobby that ships today (production requires 2 humans to arm the countdown).
 
 ## Reproduction
 

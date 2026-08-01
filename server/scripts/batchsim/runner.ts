@@ -82,7 +82,14 @@ export interface MatchSample {
   stormDeaths: number;
   /** Victims of CAPTAIN killers, by tier: captain / droneSmall / droneMedium / droneLarge. */
   killsByVictimTier: Record<string, number>;
+  /** Captains still in world.ships at the finish — the ONLY rows that feed the
+   *  per-captain aggregates (see departedCaptains). */
   captains: CaptainSample[];
+  /** Captain ids whose ship was gone at collection time (Match.onPlayerLeave
+   *  removes the ship). Today's scripted pilots never leave, so this is always
+   *  empty; it exists so a leave-capable pilot cannot crash the batch, and so
+   *  the exclusion is REPORTED rather than silent. */
+  departedCaptains: string[];
 }
 
 export interface BatchResult {
@@ -218,6 +225,10 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   const timings: MatchTimings = {
     countdownMs: COUNTDOWN_MS,
     resultsMs: CONFIG.match.resultsSeconds * 1000,
+    // CAVEAT: production is CONFIG.match.minHumans = 2. A `--captains 1` run
+    // therefore models the FUTURE solo-vs-AI shape (Epic 6) / this dev seam,
+    // NOT a lobby that ships today — a real solo captain never leaves the
+    // weapons-safe ready room. Read 1vN rows as forward-looking, not current.
     minHumans: 1,
   };
   const match = new Match(world, timings, harnessHooks(world, droneCount));
@@ -245,6 +256,15 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   throw new Error(`match ${index} (seed ${matchSeed}) did not finish within ${tickCap} ticks`);
 }
 
+/** DEPARTED CAPTAINS: a captain's ship is gone from world.ships if the match
+ *  ended through Match.onPlayerLeave (the quit-out path — it calls
+ *  world.removeShip). The end-of-match sample must not assume presence.
+ *  RULING (minimal honest option): a departed captain is RECORDED by id and
+ *  EXCLUDED from the per-captain rows. The alternative — reconstructing a row
+ *  from the Match participant snapshot — would emit final-level / deck /
+ *  boon numbers that Match never snapshots (it keeps only name/kills/damage),
+ *  i.e. fabricated economy evidence. An honest omission beats an invented row;
+ *  the id list keeps the omission visible. */
 function finishSample(
   index: number,
   seed: number,
@@ -254,6 +274,13 @@ function finishSample(
   captainIds: readonly string[],
 ): MatchSample {
   const summary = match.endSummary();
+  const captains: CaptainSample[] = [];
+  const departedCaptains: string[] = [];
+  for (const id of captainIds) {
+    const ship = world.ships.get(id);
+    if (ship === undefined) departedCaptains.push(id);
+    else captains.push(collector.captainSample(ship));
+  }
   return {
     index,
     seed,
@@ -261,7 +288,8 @@ function finishSample(
     endedBy: summary.endedBy,
     stormDeaths: summary.stormDeaths,
     killsByVictimTier: collector.killsByVictimTier,
-    captains: captainIds.map((id) => collector.captainSample(world.ships.get(id)!)),
+    captains,
+    departedCaptains,
   };
 }
 

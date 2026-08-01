@@ -2,7 +2,7 @@
 title: 'Story 2.10: Economy Batch-Sim Harness'
 type: 'feature'
 created: '2026-07-31'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: '23227ed'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -93,6 +93,28 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-07-31 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-model)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 13: (high 0, medium 5, low 8)
+- defer: 0
+- reject: 1: (low 1)
+- addressed_findings:
+  - `[medium]` `[patch]` Deck-only mode hung forever on `--set offer.size=0` (both hunters CONFIRMED, reproduced) — per-key value floors added (`xp.levelMs`/`offer.size` ≥ 1, all other dials finite ≥ 0; zero stays legal where it was a legitimate sweep arm) + a zero-progress structural guard in runDeckSim; fail-proven (guard-stripped test spins to timeout).
+  - `[medium]` `[patch]` `Number('') === 0` made empty `--set`/`--sweep` values silently apply 0 (both hunters CONFIRMED) — empty/whitespace values and empty sweep elements now rejected before coercion; the same floor fix closes the Edge Hunter's `xp.levelMs=0` in-step hang (world.ts while-loop) at the CLI boundary.
+  - `[medium]` `[patch]` Repeated `--sweep` on one key fabricated the comparison grid (labels claimed combinations the runs never applied) — duplicate sweep keys rejected; fail-proven.
+  - `[medium]` `[patch]` Departed-captain crash in end-of-match sampling (Codex, verified): a quit-out would throw in captainSample — departed captains are now recorded + honestly excluded (report prints the exclusion only when non-zero); fail-proven via a quitter pilot.
+  - `[medium]` `[patch]` deckSim evidence honesty (Codex P1 + Blind Hunter obs. 4/5, adjudicated by the orchestrator as documentation-honesty NOT evidence invalidation — identical stopping rule across all dial variants keeps the comparison apples-to-apples, ratification rode the pre-exhaustion dry-0–6 buckets, and the real-sim batch mode corroborates): the modeling-choice stopping rule (production never terminates an economy — rivals cycle forever) is now stated in the module header, printed in the report body, and the labels renamed; adjudication recorded in the evidence artifact.
+  - `[low]` `[patch]` tsx bootstrap ENOENT exited silently — spawn error now printed with an `npm ci` hint.
+  - `[low]` `[patch]` Argument-spread `Math.max` over per-captain arrays threw RangeError on ~200k samples (hours of sim discarded at the finish line) — reduce; fail-proven.
+  - `[low]` `[patch]` `--json --quiet` swallowed the next flag as a path — `--`-prefixed values rejected.
+  - `[low]` `[patch]` Seeds ≥ 2^32 aliased to small seeds under a run-key label claiming distinctness — normalized to uint32 at parse so the label equals the effective seed.
+  - `[low]` `[patch]` `process.exit(main())` could truncate piped stdout — `process.exitCode` + an EPIPE-tolerant stdout handler (the fix's necessary companion, verified).
+  - `[low]` `[patch]` constants.ts pity-curve comment cited the dry-1 dip ambiguously — reworded precisely.
+  - `[low]` `[patch]` `minHumans: 1` divergence from production 2 (Codex): the 1v5 baseline models the future solo-vs-AI / dev-override shape — caveat added at the timings site and in the evidence artifact.
+  - `[low]` `[patch]` deckSim depletion label imprecision ("after draw k" vs draw-plus-spend) — relabeled.
+  - Rejected (1): `--help` unreachable without HC_DEV_OPTIONS (deliberate gate ordering; the refusal message includes the full invocation).
+
 ## Design Notes
 
 - **Why in-process:** every existing smoke is socket-bound (5-min matches); World+Match have zero Colyseus imports, no wall clock (`World.now` is an accumulator), and measure ~42µs/tick — 1,785 ticks of a full solo match in 121ms. The batch AC is only feasible in-process; `drones.test.ts` `fillingHooks()` is the 4-line lobby-fill pattern.
@@ -100,6 +122,16 @@ warnings: [oversized]
 - **endedBy semantics:** `'lastHumanLeft'` = the terminal event was a departure (`onPlayerLeave` → checkWin with 0 alive humans); `'lastHumanSunk'` = terminal sinking left 0 alive humans (winner by latest-sunk placement); `'fieldCleared'` = winner alive with field cleared. Room needs no change — `emitMatchEnd` spreads the summary.
 - **Config sweep mechanism:** implementer's choice (in-process CONFIG patching before World construction, or subprocess-per-variant) — constraint: production code paths unchanged; if CONFIG is frozen, prefer subprocess-per-variant over adding shared seams.
 - **Draft tuning targets (amendment 56, for the recommendation — not auto-commit):** passive ~1 level/min shape preserved; ~12–20 picks per match (brainstorm draw-math premise); exclusives reliably reachable (time-to-first-exclusive). Note: at today's 3:45 storm close, passive alone yields ~4–6 levels — the 12–20 band likely leans on kills and/or reveals dial tension; that is exactly the evidence for the checkpoint, and any zone-length conclusion is 3.1's, not ours.
+
+## Auto Run Result
+
+**Status:** done — planned against the epics AC + the 2-8/2-9 ledger docket, Eric-ruled pre-implementation (amendments 53–56 via AskUserQuestion: endedBy telemetry shape; scripted captains + drones; evidence checkpoint; XP + rare-weight tuning scope), implemented in three orchestrated waves (Opus endedBy → Fable harness core → orchestrator evidence campaign + Sonnet-tier bookkeeping), the amendment-55 evidence checkpoint ratified as amendment 57, adversarially reviewed (2 Fable hunters + Codex cross-model), 13 patches applied with fail-proven regressions, gate green.
+
+**Summary:** The triple-duty harness's first duty is live and the committed FR18 tuning pass is done. `server/scripts/batchSim.mjs` drives the REAL sim in-process (World+Match are Colyseus-free and wall-clock-free; ~70ms per full match vs the 5-minute socket floor) with N scripted seeded captains + drone fill, deterministic spend policy through the real `spendPoint` flow, percentile-aggregated reports over level curves / kill tiers / time-to-N-boons / first-exclusive / picks / deck depletion / endedBy split, whitelisted `--set`/`--sweep` dial overrides with per-key floors, and a pure deck-only pity mode (10k economies in ~14s). Byte-identical reproducibility per run key is verified and test-pinned. The amendment-53 `endedBy` classification (`lastHumanSunk`/`fieldCleared`/`lastHumanLeft`) landed first, closing the Epic-1 abandonment-telemetry debt that gated tuning conclusions. The evidence campaign (4 roster baselines ×500 matches, levelMs sweeps, zone-sensitivity probe, 4-dial pity sweep ×10k economies → `batch-sim-evidence-2026-07-31.md`) went to Eric at the ratification checkpoint: **CONFIG.xp confirmed as-is** (the picks-band shortfall traces to match length — routed to Story 3.1 — not to the XP dials) and **`deck.rareWeightPerDryLevel` raised 0.35 → 0.7** (the ratified escalating pity was flat at 0.35, merely offsetting natural rare depletion; it genuinely escalates at 0.7). EPIC 2 IS COMPLETE.
+
+**Review breakdown:** 13 patches (0 high, 5 medium, 8 low), 0 deferred, 1 rejected, 0 intent gaps, 0 bad-spec loopbacks. Cross-model picture: production surfaces (endedBy, the CONFIG retune) came back CLEAN from all three reviewers; every finding was harness tooling. Both Fable hunters independently confirmed the deck-only hang and the empty-string-parses-as-0 hazard; Codex alone raised the departed-captain crash (verified, patched) and challenged the deck-only stopping rule as evidence-tainting — adjudicated by the orchestrator as documentation-honesty rather than invalidation (identical rule across variants, pre-exhaustion buckets drove ratification, real-sim batch mode corroborates), with the adjudication recorded in the evidence artifact for Eric's veto.
+
+**Residual risks / notes for Eric:** (1) Harness pilots are omniscient v1 — match lengths are lower bounds, kill rates upper bounds on human play; re-check economy conclusions when Epic 6's perception-honest bots exist (ledgered). (2) The 12–20 picks band is unreachable until match lengths reach NFR6's shape — ledgered and routed to Story 3.1, where the harness's zone sweep is ready. (3) The deck-only stopping rule and `minHumans: 1` caveats are documented in the evidence artifact's adjudication section. (4) Catalog step values / doctrine factors remain unretuned by ratified scope (amendment 56).
 
 ## Verification
 
