@@ -36,7 +36,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 - **sim/collision.ts** — boundary + ship-island resolution.
 - **sim/shell.ts** — swept ballistic collision (`stepShell`).
 - **sim/map.ts** — seeded deterministic map generation (`generateMap`); islands never travel on the wire, both sides rebuild from the seed.
-- **sim/zone.ts** — storm circle timeline (`zoneRadiusAt`/`zonePhaseAt`/`isOutside`).
+- **sim/zone.ts** — phased storm timeline (`zoneStateAt`/`zoneLiveState`/`rollZoneRings`/`isOutside`): three ring groups × clear/supply/reveal/close beats, offset-center rings (server-rolled, reveal-gated), terminal radius derived from truesight.
 
 #### Server (`server/src/`)
 - **index.ts** — `@colyseus/tools` boot; listens on `PORT` or `:2567`.
@@ -75,7 +75,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 
 ### Key Decisions
 - **CONFIG is the single source of truth** — every gameplay-authoritative tunable lives in `shared/src/constants.ts` (`CONFIG`). Client-only feel knobs live in `client/src/config.ts`; promote a value to shared CONFIG the moment it becomes gameplay-load-bearing.
-- **Deterministic shared simulation** — the same pure functions (`stepShip`, `stepShell`, `generateMap`, zone math) run on server and client. This is what makes client-side prediction agree with the authoritative world. `PROTOCOL_VERSION` (shared/src/index.ts, currently 6) records wire-breaking changes and IS a runtime join gate: `server/src/rooms/roomOptions.ts` (`protocolVersionError`) rejects a mismatched-or-missing client `pv` at matchmake time, before any seat is reserved.
+- **Deterministic shared simulation** — the same pure functions (`stepShip`, `stepShell`, `generateMap`, zone math) run on server and client. This is what makes client-side prediction agree with the authoritative world. `PROTOCOL_VERSION` (shared/src/index.ts, currently 18) records wire-breaking changes and IS a runtime join gate: `server/src/rooms/roomOptions.ts` (`protocolVersionError`) rejects a mismatched-or-missing client `pv` at matchmake time, before any seat is reserved.
 - **effectiveStats() is the upgrade desync firewall** — (ship class + upgrade counts) → every derived stat, via one pure function both sides call. Server caches it on grant/spawn; client recomputes from `you.cls` + `you.upg`. Nothing may re-derive an upgraded stat ad hoc.
 - **Upgrade offers are pre-rolled at earn-time** — a banked point carries a fixed offer of 3 upgrades from 3 distinct categories (`rollOffer`), rolled on the server's decorrelated upgrade stream and queued. Reopening the spend window can never reroll. Spend picks one upgrade (CTRL+1/2/3) or heals (CTRL+E, `HEAL_CHOICE`).
 - **Authoritative 20Hz World, zero Colyseus imports** — `game/world.ts` owns the one server clock and runs a fixed 50ms step; `ArenaRoom` is a thin adapter. The room's only synced schema is the roster.
@@ -88,7 +88,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 - **Three ship classes, universal weapon fit** — Torpedo Boat (fast/light), Battleship (slow/heavy), Mine Layer (mid). Only hull dims, hp, and kinematics vary; every class shares CONFIG.gun/torpedo/mine. (The retired destroyer/cruiser/battleship prototype kinematics now live on as the drone envelopes, byte-for-byte, pinned by a shipClasses identity test.)
 - **The universal standard gun (Eric ruling 2026-07-21)** — the permanently-selected default weapon: 360° (no mounts/arc), a single shot on a 3s reload (a 1-round pool, presented as a pure cooldown), that flies to the CLICKED point and BURSTS there in `burstRadius` (every enemy hull in range takes full damage; an early interceptor takes the smaller `contactDamage` and stops the shell with no burst, unless inside the would-be blast). Base range = radar range. Torpedo/mine are interim prime-next-shot skillshots.
 - **One Equipment interface** — guns/torpedoes/mines all implement it (`game/equipment/`); each has its own ammo pool + reload timer (reload ticks regardless of which slot is primed). Torpedoes spawn with real bow clearance + an owner-only grace and outrun every hull so they can't self-hit at base speed.
-- **Storm circle** — a shared, damage-only zone timeline (`sim/zone.ts`) shrinks the ocean; stay inside or take damage.
+- **Phased storm (Story 3.1)** — a shared, damage-only zone timeline (`sim/zone.ts`): three ~4-min ring groups, each running clear seas → reserved supply-drop no-op → next ring revealed → ring closes (one minute each), fully closed at ~12:00. Rings are offset-center circles rolled on a server-private stream (a per-room nonce — never derivable from the client-known map seed) and revealed to clients via ArenaState only from each group's reveal beat; the terminal ring radius is derived from truesight (2 × `CONFIG.vision.sight`). Stay inside or take damage; the storm never blinds any sensor.
 - **Dev-only room options gated by `HC_DEV_OPTIONS=1`** — `matchOverride`/`zoneOverride` arrive verbatim from client join options and are only honored when the server process opts in (smokes/tests). Production clients cannot pass them.
 - **Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision** (`VERSION` + package.json, single-sourced into the client at build time by Vite).
 

@@ -80,15 +80,15 @@ warnings: [oversized, multiple-goals]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/sim/zone.ts` + `shared/src/constants.ts` + `shared/src/index.ts` — phased model, CONFIG reshape, PV 18 — the spine everything else consumes.
-- [ ] `shared/src/__tests__/zone.test.ts` — rewrite + new property tests (containment ∀ seeds, boundary semantics, interpolation, closing-rate criterion, degenerate guards).
-- [ ] `server/src/game/{world,drones}.ts` + `rooms/{schema/ArenaState,ArenaRoom,roomOptions}.ts` — server integration: stream, getters, storm, steering, reveal-gated sync.
-- [ ] `server/src/__tests__/*` — reshaped literals + new behavior pins (reveal-gating: next-ring fields absent pre-reveal).
-- [ ] `client/src/main.ts` + `render/zone.ts` (+ hud if forced) — interim adaptation; client tests updated.
-- [ ] `server/scripts/*.mjs` — smoke literals + zoneSmoke assertions; verify zoneSmoke runs green.
-- [ ] `server/scripts/batchsim/{overrides,runner,pilots,report}.ts` + harness tests — sweep keys, tick budget, ring-center goal, pacifist flag.
-- [ ] Evidence campaign + checkpoint — lethal baseline rerun, pacifist control, map-radius × ring sweep, closing-rate table; AskUserQuestion checkpoint; commit ONLY ratified values; write `batch-sim-evidence-<date>.md`-style report; update deferred-work picks-band entry.
-- [ ] Docs/bookkeeping — VERSION, CLAUDE.md, sprint/workflow status files.
+- [x] `shared/src/sim/zone.ts` + `shared/src/constants.ts` + `shared/src/index.ts` — phased model, CONFIG reshape, PV 18 — the spine everything else consumes.
+- [x] `shared/src/__tests__/zone.test.ts` — rewrite + new property tests (containment ∀ seeds, boundary semantics, interpolation, closing-rate criterion, degenerate guards).
+- [x] `server/src/game/{world,drones}.ts` + `rooms/{schema/ArenaState,ArenaRoom,roomOptions}.ts` — server integration: stream, getters, storm, steering, reveal-gated sync (ring stream server-private via per-room nonce, amendment 10).
+- [x] `server/src/__tests__/*` — reshaped literals + new behavior pins (reveal-gating: next-ring fields absent pre-reveal; zone-seed independence).
+- [x] `client/src/main.ts` + `render/zone.ts` (+ hud doc comment) — interim adaptation; client tests green unchanged.
+- [x] `server/scripts/*.mjs` — smoke literals + zoneSmoke assertions; all 11 smokes run green (matchSmoke/dronesSmoke pin offsetCap:0 for their hand-tuned choreography; offset proven by zoneSmoke).
+- [x] `server/scripts/batchsim/{overrides,args,runner,pilots,main}.ts` + harness tests — phased sweep keys, zoneClosedAtMs tick budget, ring-center goal, pacifist flag, 'unresolved' endedBy for uncompleted pacifist matches.
+- [x] Evidence campaign + checkpoint — lethal baseline (200), pacifist control (50), map sweep (3×100), closing-rate table; Eric ratified as evidenced, unchanged (amendment 11); `batch-sim-evidence-2026-08-01.md` written; deferred-work picks-band entry RESOLVED.
+- [x] Docs/bookkeeping — VERSION 0.17.0→0.18.0 + root package.json, CLAUDE.md (zone lines + PV), sprint/workflow status files ride the PR at finalize.
 
 **Acceptance Criteria:**
 - Given an unmodified match, when the timeline runs, then phases follow clear→supply→reveal→close per group, three groups, full closure at the CONFIG target (~12:00), then `closed` holds the terminal ring.

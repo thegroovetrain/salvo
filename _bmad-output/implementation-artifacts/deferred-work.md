@@ -278,6 +278,7 @@ Story 2-10 (spec-2-10-economy-batch-sim-harness.md) shipped the triple-duty harn
 **New entries:**
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-10-economy-batch-sim-harness.md`
+  status: RESOLVED 2026-08-01 by Story 3-1 (Eric ratification, epic-3 amendment 11) — the phased timeline + ratified map bump (2400u / fill 20) make the band reachable by match length alone: pacifist control picks p50 = 12.0 exactly at the 12:00 closure and 21 by the harness cap; lethal lower bound rose ~1–2 → 4. No XP dial was touched. Evidence: batch-sim-evidence-2026-08-01.md. Human confirmation rides Eric's live play (lower-bounds caveat stands).
   summary: The 12–20 picks-per-match draft band is arithmetically unreachable at current match lengths — the shipped storm closes at 3:45 and harness matches end 0:40–1:20 p50 by elimination, while the band requires ~10+ minutes of active play (NFR6's ring-closed-~12:00 shape). Routed to Story 3.1 (epics.md already assigns the harness match-length confirm there); the harness's zone.* sweep support is ready for it. No XP dial change should chase this number before 3.1 lands.
   evidence: batch-sim-evidence-2026-07-31.md campaign matrix (roster baselines, levelMs sweeps showing picks mean 0.72–3.80 across all variants; zone sweep showing insensitivity at current pilot lethality); Eric ratified the attribution at the amendment-55 checkpoint.
 - source_spec: `_bmad-output/implementation-artifacts/spec-2-10-economy-batch-sim-harness.md`
