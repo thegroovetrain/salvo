@@ -11,7 +11,10 @@ import { World } from '../game/world.js';
 import { Match, type MatchHooks } from '../game/match.js';
 
 const DT = CONFIG.tick.simDtMs;
-const TIMINGS = { countdownMs: 100, resultsMs: 200 }; // 2 ticks / 4 ticks
+// joinWindowMs: 0 = the legacy fast path (waiting -> countdown + lock at
+// minHumans, no gathering phase) so every pre-gathering suite keeps its exact
+// assertions; the gathering window has its own suite below.
+const TIMINGS = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 }; // 2 ticks / 4 ticks
 
 interface Recorder {
   calls: string[];
@@ -47,11 +50,11 @@ interface Ctx extends Recorder {
  *  `hull` picks the class for every joined ship — default torpedoBoat, but mine
  *  tests pass 'mineLayer' so slot 2 fits a mine (the TB carries speedBoost there,
  *  Story 1.6). */
-function setup(ids: string[], hull: ShipClassId = 'torpedoBoat'): Ctx {
+function setup(ids: string[], hull: ShipClassId = 'torpedoBoat', timings = TIMINGS): Ctx {
   const w = new World(1);
   w.map.islands.length = 0;
   const rec = recorder();
-  const m = new Match(w, TIMINGS, rec.hooks);
+  const m = new Match(w, timings, rec.hooks);
   for (const id of ids) {
     w.addShip(id, id.toUpperCase(), false, hull);
     m.notifyRosterChanged();
@@ -245,6 +248,96 @@ describe('match — countdown', () => {
     step(ctx);
     const spawns = ctx.w.tickEvents.filter((e) => e.k === 'spawn').map((e) => e.id);
     expect(spawns.sort()).toEqual(['a', 'b']);
+  });
+});
+
+describe('match — gathering window (joinWindowMs > 0)', () => {
+  // 100ms window = 2 ticks; countdown 100ms = 2 more ticks.
+  const GATHER_TIMINGS = { countdownMs: 100, resultsMs: 200, joinWindowMs: 100 };
+  const gsetup = (ids: string[]) => setup(ids, 'torpedoBoat', GATHER_TIMINGS);
+
+  it('NEGATIVE joinWindowMs takes the legacy path too: immediate countdown + lock', () => {
+    // The contract is "<= 0 collapses to legacy", not "=== 0" — pin the < 0 leg.
+    const ctx = setup(['a'], 'torpedoBoat', { countdownMs: 100, resultsMs: 200, joinWindowMs: -1 });
+    ctx.w.addShip('b', 'B');
+    ctx.m.notifyRosterChanged();
+    expect(ctx.m.phase).toBe('countdown');
+    expect(ctx.m.countdownEndT).toBe(ctx.w.now + 100);
+    expect(ctx.calls).toEqual(['lock']);
+  });
+
+  it('opens UNLOCKED at minHumans: gathering phase, deadline set, no lock call', () => {
+    const ctx = gsetup(['a']);
+    expect(ctx.m.phase).toBe('waiting');
+    ctx.w.addShip('b', 'B');
+    ctx.m.notifyRosterChanged();
+    expect(ctx.m.phase).toBe('gathering');
+    expect(ctx.m.countdownEndT).toBe(ctx.w.now + GATHER_TIMINGS.joinWindowMs);
+    expect(ctx.calls).toEqual([]); // the room was NOT locked
+  });
+
+  it('stays weapons-safe with respawn ENABLED (ready-room policy)', () => {
+    // Window far longer than the respawn delay so the whole loop runs INSIDE
+    // gathering (a short window would activate mid-wait and revive trivially).
+    const ctx = setup(['a', 'b'], 'torpedoBoat', { countdownMs: 100, resultsMs: 200, joinWindowMs: 600000 });
+    expect(ctx.m.phase).toBe('gathering');
+    expect(ctx.w.damageEnabled).toBe(false);
+    expect(ctx.w.xpEnabled).toBe(false);
+    expect(ctx.w.respawnEnabled).toBe(true); // a ready-room death must respawn
+    ctx.w.sinkShip('a');
+    step(ctx, Math.ceil(CONFIG.ship.respawnDelay / DT) + 1);
+    expect(ctx.m.phase).toBe('gathering'); // still inside the window
+    expect(ctx.w.ships.get('a')!.alive).toBe(true);
+  });
+
+  it('a join during the window never resets the timer', () => {
+    const ctx = gsetup(['a', 'b']);
+    const deadline = ctx.m.countdownEndT;
+    step(ctx); // let time advance so a reset would be visible
+    ctx.w.addShip('c', 'C');
+    ctx.m.notifyRosterChanged();
+    expect(ctx.m.phase).toBe('gathering');
+    expect(ctx.m.countdownEndT).toBe(deadline);
+    expect(ctx.calls).toEqual([]); // still unlocked
+  });
+
+  it('window expiry arms the countdown and locks EXACTLY once', () => {
+    const ctx = gsetup(['a', 'b']);
+    step(ctx, 2); // 2 ticks = 100ms: the window expires
+    expect(ctx.m.phase).toBe('countdown');
+    expect(ctx.m.countdownEndT).toBe(ctx.w.now + GATHER_TIMINGS.countdownMs);
+    expect(ctx.calls).toEqual(['lock']);
+    step(ctx, 2); // the unchanged countdown then activates as today
+    expect(ctx.m.phase).toBe('active');
+    expect(ctx.calls.filter((c) => c === 'lock')).toHaveLength(1);
+  });
+
+  it('countdownEndT is the CURRENT-PHASE deadline: gathering end, then countdown end, 0 in waiting', () => {
+    const ctx = gsetup(['a']);
+    expect(ctx.m.countdownEndT).toBe(0); // waiting
+    ctx.w.addShip('b', 'B');
+    ctx.m.notifyRosterChanged();
+    const gatherEnd = ctx.w.now + GATHER_TIMINGS.joinWindowMs;
+    expect(ctx.m.countdownEndT).toBe(gatherEnd);
+    step(ctx, 2);
+    expect(ctx.m.phase).toBe('countdown');
+    expect(ctx.m.countdownEndT).not.toBe(gatherEnd); // re-armed for the countdown
+    expect(ctx.m.countdownEndT).toBe(ctx.w.now + GATHER_TIMINGS.countdownMs);
+  });
+
+  it('cancel from gathering (humans < min) returns to waiting with NO unlock call', () => {
+    const ctx = gsetup(['a', 'b']);
+    expect(ctx.m.phase).toBe('gathering');
+    ctx.m.onPlayerLeave('b');
+    expect(ctx.m.phase).toBe('waiting');
+    expect(ctx.m.countdownEndT).toBe(0);
+    expect(ctx.calls).toEqual([]); // never locked, so never unlocked
+    // Reaching the minimum again opens a FRESH window.
+    step(ctx, 3);
+    ctx.w.addShip('b', 'B');
+    ctx.m.notifyRosterChanged();
+    expect(ctx.m.phase).toBe('gathering');
+    expect(ctx.m.countdownEndT).toBe(ctx.w.now + GATHER_TIMINGS.joinWindowMs);
   });
 });
 

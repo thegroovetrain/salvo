@@ -13,7 +13,7 @@ import {
   shouldAbortOnTickError,
 } from '../game/match.js';
 
-const TIMINGS = { countdownMs: 100, resultsMs: 200 }; // 2 ticks / 4 ticks
+const TIMINGS = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 }; // 2 ticks / 4 ticks; no gathering window (legacy fast path)
 
 function noopHooks(): MatchHooks {
   return {

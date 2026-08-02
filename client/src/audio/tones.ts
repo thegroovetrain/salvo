@@ -228,6 +228,9 @@ export interface AudioCueResult {
  * secondsUntil) so this module stays clock-agnostic.
  */
 export function audioCues(prev: AudioCueState, phase: string, secondsRemaining: number): AudioCueResult {
+  // 'countdown' only, deliberately: the gathering join window also renders big
+  // center seconds but stays silent — the audible tick is reserved for "locked,
+  // really starting" (spec design note for the 30s join window).
   const inTickWindow = phase === 'countdown' && secondsRemaining <= TICK_WINDOW_S;
   const tick = inTickWindow && secondsRemaining !== prev.lastTickSec;
   const matchStart = phase === 'active' && prev.lastPhase !== 'active';

@@ -497,7 +497,7 @@ describe('SettingsOverlay — DOM shell', () => {
 
 describe('canAbandon — where the leave button belongs (amendment 19)', () => {
   it('offers it while the match can still be abandoned', () => {
-    for (const phase of ['waiting', 'countdown', 'active']) {
+    for (const phase of ['waiting', 'gathering', 'countdown', 'active']) {
       expect(canAbandon(phase, false, false), phase).toBe(true);
     }
   });

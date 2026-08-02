@@ -61,8 +61,25 @@ export class DeniedPulse {
       this.lastTriggerAt = nowMs;
       this.activeUntil = nowMs + PULSE_DURATION_MS;
     }
-    return nowMs < this.activeUntil;
+    return pulseLiveAt(this.activeUntil, nowMs);
   }
+
+  /**
+   * READ-ONLY liveness at `nowMs` — the same answer update() returned, without
+   * triggering or advancing anything. This is the attention seam's Tier-1 input
+   * (Story 3.2, amendment 16): the vignette asks "is a denied pulse live?" from
+   * a different call site than the one that drives the pulse, and asking must
+   * never be able to change the answer.
+   */
+  liveAt(nowMs: number): boolean {
+    return pulseLiveAt(this.activeUntil, nowMs);
+  }
+}
+
+/** Pure: is a pulse that runs until `activeUntil` still live at `nowMs`? The
+ *  one place the half-open [start, until) window is decided. */
+export function pulseLiveAt(activeUntil: number, nowMs: number): boolean {
+  return nowMs < activeUntil;
 }
 
 /** Cap on remembered predicted-denial keys (FIFO evicted past it) — bounds

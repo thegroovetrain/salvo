@@ -74,7 +74,7 @@ warnings: [multiple-goals, oversized]
 - [x] `client/src/main.ts` + `client/src/config.ts` — plumb islands/stats into preview; add `CLIENT_CONFIG.aimPreview` block
 - [x] `client/src/render/effects.ts` — own-correlated burst ring uses effective radius — fixes stale-radius inconsistency
 - [x] `client/src/__tests__/` — pure-logic tests: burst-point clamp parity with shared helpers, island clip incl. arcing exemption, homing band gating, mine ring radii/mode/arming selection
-- [x] `VERSION` + `package.json` — 0.17.32 — cycle 32 per versioning ruling
+- [x] `VERSION` + `package.json` — 0.17.34 at landing (authored as 0.17.32; renumbered at merge — see Spec Change Log) — per versioning ruling
 - [x] `shared/src/constants.ts` — `CONFIG.mine.placeRange` 90→150 — Eric ruling R5 (mid-run)
 - [x] `client/src/render/firing.ts` — primed mine wedge gains a crisp boundary stroke (range arc + side rays) over the existing fill — Eric ruling R6 (mid-run)
 
@@ -89,6 +89,7 @@ warnings: [multiple-goals, oversized]
 ## Spec Change Log
 
 - 2026-08-02 (mid-run Eric message + AskUserQuestion, post-implementation checkpoint 62fb05d): Eric added scope — mine placement range is too small and the legal placement area needs clearer indication. Rulings: **R5** `CONFIG.mine.placeRange` 90→150u (matches the new creep-acquire ring); **R6** primed-mine wedge gains a crisp boundary stroke (range arc + side rays) over the existing fill — static, no new colors. This supersedes the intent-contract's "no gameplay changes beyond the three ruled mine values/metric" by direct Eric ruling (fourth mine value: placeRange). KEEP: wedge continues to draw at true `placeRange` so the outline scales automatically; out-of-arc denied treatment unchanged.
+- 2026-08-02 (landing merge, Eric: "merge it"): main had advanced two cycles during this run (join-window interstitial = cycle 32 → 0.17.32 + PV 19; story 3-2 = cycle 33 → 0.17.33), so this cycle renumbers 32 → 34 and VERSION lands as 0.17.34. The intent-contract's "VERSION → 0.17.32 (cycle 32)" clause is read-only and stands as-authored; this entry is the authoritative correction per the versioning ruling (X = landed cycle count). No PROTOCOL_VERSION change from this cycle (main's 19 carries through the merge). Merge conflicts were artifact-tail only (VERSION, package.json, gds yaml, deferred-work); all code auto-merged and the full gate was re-run on the merged tree.
 
 ## Review Triage Log
 
@@ -118,7 +119,7 @@ Key facts: server reads mine radii live from owner stats each tick (`world.ts:14
 
 ## Auto Run Result
 
-**Status:** done — cycle 32, VERSION 0.17.32, tests 2391 → 2471, `npm run check` green (0 lint errors), zero wire changes (PROTOCOL_VERSION 18 untouched; perception/frames/signals byte-unchanged).
+**Status:** done — cycle 34 (authored as 32; renumbered at landing), VERSION 0.17.34, tests 2391 → 2471 pre-merge, `npm run check` green (0 lint errors), zero wire changes (PROTOCOL_VERSION 18 untouched; perception/frames/signals byte-unchanged).
 
 **Implemented:** (1) Tracking-mine fix — root cause CONFIRMED as acquisition (center-metric, 60u) strictly inside the trigger's silhouette reach (74–94u center-distance), so mines detonated before ever acquiring; acquisition now uses the same `pointPolygonDistance` silhouette metric at 150u with creep 8→14 u/s, regression tests proven failing pre-fix. (2) Ordnance aim previews, all client-derived: shared `sim/aim.ts` promoted from server equipment (server now thin wrappers, byte-identical — verified by all three reviewers); travel lines for every projectile weapon (AP full pierce line, island-clipped; plunging overflies; torpedoes from the real tube exit), homing 120u acquisition band, per-barrel blast circles at the true burst point (command floor + map clamp honored), blocked/rim dim tells, mine placement rings. (3) Owner-private always-on mine rings (solid blast / dashed trigger / dotted acquire, owner hue, frame-time arming dim, rejoin pre-arm). (4) Eric mid-run additions: placeRange 90→150 + primed-wedge boundary outline. (5) Own-correlated burst rings now use effective radius via a claims tombstone; unclaimed/enemy bursts keep the CONFIG default.
 

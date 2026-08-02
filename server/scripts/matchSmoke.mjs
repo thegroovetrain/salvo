@@ -1,8 +1,11 @@
 // Match-lifecycle smoke: self-boots the colyseus server on PORT 2599 (never
 // the dev server's 2567), joins two live @colyseus/sdk clients with a DEV
 // matchOverride that shrinks the lifecycle timers, and proves the full loop:
-//   1. waiting -> countdown at the 2nd join; the room LOCKS (a 3rd client's
-//      joinOrCreate lands in a fresh room).
+//   1. waiting -> GATHERING at the 2nd join: the room stays UNLOCKED for the
+//      joinWindowMs override (~5s here; production 30s), so a 3rd client's
+//      joinOrCreate lands in the SAME room. When the window elapses the
+//      countdown arms and the room LOCKS (a 4th client's joinOrCreate lands
+//      in a fresh room).
 //   2. Ready room is weapons-safe: A torpedoes B point blank — B sees the
 //      boom strike itself but loses ZERO hp until the match activates.
 //   3. countdown end -> active: both hulls teleported to the spawn ring at
@@ -34,8 +37,12 @@ const endpoint = `ws://localhost:${PORT}`;
 // and prove damage suppression (with margin for missed passes — drone traffic
 // in the ready room can intercept a fish, and the flyby orbits at current
 // ship speeds mean each 12s reload gets roughly one shot per pass); results
-// short so the disposal is observable.
-const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000 };
+// short so the disposal is observable. joinWindowMs is a small REAL window
+// (unlike the other smokes' 0): step 1 proves the gathering phase over real
+// sockets — unlocked during the window, locked after it. 5s (not 2s) so the
+// post-join sleep(500) + CHARLIE's join round-trip can't eat the window on a
+// slow CI box and flake the same-room assertion.
+const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000, joinWindowMs: 5000 };
 // After B sinks (step 4), A is the last human. The phased timeline (Story 3.1)
 // gives the step-4 fight a comfortable storm-free window — 30s beats park the
 // first close at 90s, well past the typical converge+two-torpedo fight, so A
@@ -418,7 +425,7 @@ async function main() {
   try {
     await waitForServer(15000);
 
-    // --- 1. waiting -> countdown + room lock --------------------------------
+    // --- 1. waiting -> gathering (unlocked window) -> countdown + room lock --
     const a = await joinClient('ALPHA');
     await sleep(500);
     assert(phase(a) === 'waiting', `solo join should idle in waiting (got ${phase(a)})`);
@@ -431,12 +438,22 @@ async function main() {
     a.peerId = b.room.sessionId;
     b.peerId = a.room.sessionId;
     await sleep(500);
-    assert(phase(a) === 'countdown', `2nd join should start the countdown (got ${phase(a)})`);
-    assert(a.room.state.countdownEndT > 0, 'countdownEndT not set');
-    const c = await joinClient('CHARLIE'); // locked room -> fresh room
-    assert(c.room.roomId !== a.room.roomId, 'locked room accepted a 3rd client');
-    await c.room.leave();
-    log.push('countdown started at 2nd join; locked room bounced CHARLIE to a fresh room');
+    assert(phase(a) === 'gathering', `2nd join should open the gathering window (got ${phase(a)})`);
+    const gatherDeadline = a.room.state.countdownEndT;
+    assert(gatherDeadline > 0, 'gathering deadline (countdownEndT) not set');
+    // The gathering room is still UNLOCKED: a 3rd joinOrCreate lands in it.
+    const c = await joinClient('CHARLIE');
+    assert(c.room.roomId === a.room.roomId, 'gathering room bounced a 3rd client (window should be open)');
+    await c.room.leave(); // 2 humans remain (>= min) — the window keeps running
+    // Window expiry -> countdown + lock. Generous timeout past the window.
+    await runUntil(() => {}, () => phase(a) === 'countdown', MATCH_OVERRIDE.joinWindowMs + 10000, 'gathering window expiry -> countdown');
+    // The deadline must have MOVED to the countdown's (a stale gathering
+    // deadline would also be > 0 — assert re-arm, not mere presence).
+    assert(a.room.state.countdownEndT > gatherDeadline, 'countdownEndT was not re-armed past the gathering deadline');
+    const d = await joinClient('DELTA'); // locked room -> fresh room
+    assert(d.room.roomId !== a.room.roomId, 'locked room accepted a 4th client');
+    await d.room.leave();
+    log.push('gathering opened at 2nd join (CHARLIE joined the SAME room); window expiry armed the countdown; locked room bounced DELTA to a fresh room');
 
     // --- 2. weapons-safe ready room (fire torpedoes point blank) ------------
     // huntPeer closes the pair, then LATCHES B to a dead stop once within 500u:

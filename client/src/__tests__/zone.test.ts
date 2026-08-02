@@ -1,24 +1,408 @@
-// Pure vignette state→alpha mapping (render/zone.ts) + the client's zone-view
+// The storm plane's pure mappings (render/zone.ts) + the client's zone-view
 // derivation (sim/zoneView.ts). The timeline math itself lives in
 // shared/src/sim/zone.ts (ONE implementation for both sides — see
-// shared/src/__tests__/zone.test.ts); the client-specific part re-tested here
-// is the STALE-BOUNDARY GUARD around it.
+// shared/src/__tests__/zone.test.ts); the client-specific parts tested here are
+// the STALE-BOUNDARY GUARD and Story 3.2's render grammar.
+//
+// Every number below is READ FROM CLIENT_CONFIG.zone, never mirrored: the 3.1
+// version of this file kept its own BASE/AMP copies of the renderer's consts,
+// which is a drift bomb (a config change that the test happily keeps passing
+// against the old literal). Promoting the tunables (Story 3.2) retires it.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, ZONE_BEATS_PER_GROUP } from '@salvo/shared';
-import { vignetteAlpha } from '../render/zone.js';
+import { CONFIG, ZONE_BEATS_PER_GROUP, type ZoneRing } from '@salvo/shared';
+import {
+  EDGE_COLOR,
+  FILL_COLOR,
+  RevealOneShot,
+  dashSpans,
+  easeHold,
+  fillOuterRadius,
+  type FillView,
+  needsRedraw,
+  planeVisibility,
+  revealFlashAlpha,
+  ringKey,
+  strokeWorldWidth,
+  vignetteAlpha,
+  vignetteHeld,
+} from '../render/zone.js';
 import { zoneViewFrom, type ZonePlane } from '../sim/zoneView.js';
+import { CLIENT_CONFIG } from '../config.js';
 
-// Must track render/zone.ts's VIGNETTE_BASE/AMP (bumped for the purple storm —
-// purple reads calmer than red, so it leans on alpha to keep alarm legibility).
-const BASE = 0.27;
-const AMP = 0.17;
+const Z = CLIENT_CONFIG.zone;
+const CAP_HZ = CLIENT_CONFIG.settings.pulseCapHz;
+/** The shipped user-zoom range (CLIENT_CONFIG.zoom) — the zoom-lock's contract. */
+const ZOOMS = [CLIENT_CONFIG.zoom.min, 1, CLIENT_CONFIG.zoom.max];
+
+const RING = (r: number, cx = 0, cy = 0): ZoneRing => ({ cx, cy, r });
+
+describe('ring grammar (amendment 14) — solid current, dashed next, both violet', () => {
+  it('draws BOTH on-water edges at storm-readout, and the fill at storm', () => {
+    expect(EDGE_COLOR).toBe(CLIENT_CONFIG.colors.stormReadout);
+    expect(FILL_COLOR).toBe(CLIENT_CONFIG.colors.storm);
+  });
+
+  it('retires the phosphor-green "safe ring" — no green enters the zone plane', () => {
+    expect(EDGE_COLOR).not.toBe(CLIENT_CONFIG.colors.phosphor);
+    expect(FILL_COLOR).not.toBe(CLIENT_CONFIG.colors.phosphor);
+  });
+
+  it('separates the two edges by SHAPE, not hue: the telegraph is the dashed one', () => {
+    // The non-color channel is the whole point — the current edge is one
+    // unbroken circle (no spans), the telegraph is a dash/gap pattern.
+    const spans = dashSpans(Z.telegraphDashes, Z.telegraphDuty);
+    expect(spans).toHaveLength(Z.telegraphDashes);
+    const lit = spans.reduce((sum, [a0, a1]) => sum + (a1 - a0), 0);
+    expect(lit).toBeCloseTo(Math.PI * 2 * Z.telegraphDuty, 9); // half lit at 50% duty
+    // Dashes are evenly spaced and never overlap the next dash's start.
+    for (let i = 1; i < spans.length; i++) expect(spans[i][0]).toBeGreaterThan(spans[i - 1][1]);
+  });
+
+  it('keeps the telegraph subordinate to the live boundary (alpha)', () => {
+    expect(Z.telegraphAlpha).toBeLessThan(Z.edgeAlpha);
+    expect(Z.telegraphAlpha).toBeCloseTo(0.5, 6); // the ratified ~50%
+  });
+
+  it('dashSpans survives a degenerate config: always dashed, never empty', () => {
+    // Pure hardening. A mistuned segment count or duty must still produce a
+    // readable DASHED telegraph — an empty span list draws no telegraph at all
+    // (information deleted) and a full-duty one draws a solid circle, which is
+    // the CURRENT edge's grammar (the two would stop being distinguishable).
+    for (const segments of [0, -3, 2.7, NaN]) {
+      const spans = dashSpans(segments, Z.telegraphDuty);
+      expect(spans.length).toBeGreaterThanOrEqual(1);
+      for (const [a0, a1] of spans) {
+        expect(Number.isFinite(a0)).toBe(true);
+        expect(a1).toBeGreaterThan(a0);
+      }
+    }
+    for (const duty of [0, -1, 1, 1.5, NaN]) {
+      const spans = dashSpans(Z.telegraphDashes, duty);
+      expect(spans).toHaveLength(Z.telegraphDashes);
+      const lit = spans.reduce((sum, [a0, a1]) => sum + (a1 - a0), 0);
+      expect(lit).toBeGreaterThan(0); // never invisible
+      expect(lit).toBeLessThan(Math.PI * 2); // never solid
+      // gaps survive: every dash still ends before the next one starts
+      for (let i = 1; i < spans.length; i++) expect(spans[i][0]).toBeGreaterThan(spans[i - 1][1]);
+    }
+  });
+});
+
+describe('strokeWorldWidth — the SCREEN-LOCKED stroke (zoom invariance)', () => {
+  it('renders the same on-screen px at 0.5x / 1.0x / 1.5x zoom', () => {
+    for (const zoom of ZOOMS) {
+      // chartRoot is scaled by exactly `zoom`, so on-screen px = world width x zoom.
+      expect(strokeWorldWidth(Z.edgePx, zoom) * zoom).toBeCloseTo(Z.edgePx, 9);
+      expect(strokeWorldWidth(Z.telegraphPx, zoom) * zoom).toBeCloseTo(Z.telegraphPx, 9);
+    }
+  });
+
+  it('FATTENS the world stroke as the camera zooms out (the 3.1 hairline bug)', () => {
+    // The interim renderer used a fixed 2 WORLD units, which at 0.5x drew ~1px.
+    expect(strokeWorldWidth(Z.edgePx, 0.5)).toBeGreaterThan(strokeWorldWidth(Z.edgePx, 1.5));
+    expect(strokeWorldWidth(Z.edgePx, 0.5)).toBe(Z.edgePx / 0.5);
+  });
+
+  it('never yields NaN/Infinity for a degenerate camera zoom', () => {
+    for (const bad of [0, -1, NaN, Infinity]) {
+      const w = strokeWorldWidth(Z.edgePx, bad);
+      expect(Number.isFinite(w)).toBe(true);
+      expect(w).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
+  const MAP_R = CONFIG.map.baseRadius;
+  /** The true maximum effective radar range: intelRadar is a x5-copy 1.15
+   *  multiplier (shared/sim/boons.ts), and the camera fits 2 x radar on the
+   *  SHORT axis — a bigger radar is a WIDER view, so it widens the fill's job. */
+  const MAX_RADAR = CONFIG.vision.radar * Math.pow(1.15, 5);
+
+  const view = (o: Partial<FillView> = {}): FillView => ({
+    cur: { cx: 0, cy: 0 },
+    camX: 0,
+    camY: 0,
+    zoom: 1,
+    screenW: 1920,
+    screenH: 1080,
+    mapRadius: MAP_R,
+    ...o,
+  });
+
+  /** The camera zoom a viewport lands at for a given radar range + user zoom. */
+  const zoomFor = (vw: number, vh: number, radar: number, user: number): number =>
+    (Math.min(vw, vh) / (2 * radar)) * user;
+
+  /** EXACTLY what the disc must reach: the ring center is its origin, and the
+   *  farthest visible point is the opposite screen corner from the camera. */
+  const needed = (v: FillView): number =>
+    Math.hypot(v.camX - v.cur.cx, v.camY - v.cur.cy) +
+    Math.hypot(v.screenW, v.screenH) / 2 / v.zoom;
+
+  it('reaches well past the map edge in ordinary play, and stays on its floor', () => {
+    const v = view({ zoom: zoomFor(1920, 1080, CONFIG.vision.radar, 1) });
+    expect(fillOuterRadius(v)).toBeGreaterThan(MAP_R);
+    // Ordinary play never leaves the floor's bucket — so the disc is drawn once
+    // and never re-tessellated by a camera that is merely following a hull.
+    expect(fillOuterRadius(v)).toBe(Math.ceil((MAP_R * Z.fillOuterFactor) / Z.fillBucketU) * Z.fillBucketU);
+  });
+
+  it('covers ANY viewport / zoom / camera offset thrown at it (the dynamic bound)', () => {
+    const viewports = [
+      [1280, 614], // the logical floor
+      [1920, 1080],
+      [2560, 1080],
+      [3440, 720], // short-wide: the case a constant x7 factor misses
+      [3840, 1080],
+      [720, 3440], // portrait, for symmetry
+    ];
+    for (const [vw, vh] of viewports) {
+      for (const radar of [CONFIG.vision.radar, MAX_RADAR]) {
+        for (const user of [CLIENT_CONFIG.zoom.min, 1, CLIENT_CONFIG.zoom.max]) {
+          for (const [dx, dy] of [[0, 0], [MAP_R, MAP_R], [-9_000, 4_000]]) {
+            const v = view({
+              zoom: zoomFor(vw, vh, radar, user),
+              screenW: vw,
+              screenH: vh,
+              cur: { cx: 180, cy: -90 },
+              camX: 180 + dx,
+              camY: -90 + dy,
+            });
+            expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
+          }
+        }
+      }
+    }
+  });
+
+  it('FAIL-PROOF: 3440x720 at min zoom with a maxed radar stack', () => {
+    // The pre-fix constant bound (mapRadius x 7 = 16800u) fell ~760u short here,
+    // which paints an arc of un-tinted void along the outside of the fill.
+    const v = view({
+      screenW: 3440,
+      screenH: 720,
+      zoom: zoomFor(3440, 720, MAX_RADAR, CLIENT_CONFIG.zoom.min),
+      // A ring hugging one map edge with the camera at the opposite one: the
+      // two are 2 x mapRadius apart, which is the honest worst case.
+      cur: { cx: -MAP_R, cy: 0 },
+      camX: MAP_R,
+      camY: 0,
+    });
+    expect(needed(v)).toBeGreaterThan(MAP_R * Z.fillOuterFactor); // the old bound WAS short
+    expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
+  });
+
+  it('covers a far-panned SPECTATOR (free pan is unclamped — no constant covers it)', () => {
+    for (const d of [10_000, 250_000, 5_000_000]) {
+      const v = view({ camX: d, camY: -d, zoom: zoomFor(2560, 1080, MAX_RADAR, 1), screenW: 2560, screenH: 1080 });
+      expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
+      expect(Number.isFinite(fillOuterRadius(v))).toBe(true);
+    }
+  });
+
+  it('BUCKETS upward, so a panning camera does not re-tessellate every frame', () => {
+    const base = view({ camX: 29_000, zoom: 0.2 });
+    const r = fillOuterRadius(base);
+    expect(r % Z.fillBucketU).toBe(0); // always on a bucket step
+    // Creeping the camera a few hundred units cannot move the drawn radius.
+    for (const dx of [1, 50, 400]) {
+      expect(fillOuterRadius(view({ camX: 29_000 + dx, zoom: 0.2 }))).toBe(r);
+    }
+    // ...but a genuine pan past a step does.
+    expect(fillOuterRadius(view({ camX: 29_000 + Z.fillBucketU * 2, zoom: 0.2 }))).toBeGreaterThan(r);
+  });
+
+  it('stays finite and positive for a degenerate map radius or camera', () => {
+    expect(fillOuterRadius(view({ mapRadius: 0 }))).toBeGreaterThan(0);
+    for (const bad of [0, -1, NaN, Infinity]) {
+      const r = fillOuterRadius(view({ zoom: bad }));
+      expect(Number.isFinite(r)).toBe(true);
+      expect(r).toBeGreaterThan(0);
+    }
+    for (const bad of [NaN, Infinity]) {
+      const r = fillOuterRadius(view({ camX: bad, mapRadius: NaN, screenW: bad }));
+      expect(Number.isFinite(r)).toBe(true);
+      expect(r).toBeGreaterThan(0);
+    }
+  });
+
+  it('keeps the fill low enough to be ambience, not a legibility surface', () => {
+    // The EDGE carries the 3:1 contrast (DESIGN.md storm note); blips, contacts
+    // and the sweep all draw ABOVE layers.zone and must stay readable through it.
+    expect(Z.fillAlpha).toBeGreaterThan(0);
+    expect(Z.fillAlpha).toBeLessThanOrEqual(0.15);
+    expect(Z.fillAlpha).toBeLessThan(Z.edgeAlpha);
+  });
+});
+
+describe('planeVisibility — the I/O matrix rows that decide what is drawn', () => {
+  const next = RING(1561, 180, -90);
+
+  it('pre-reveal (clear/supply, next=null): plane only, no telegraph anywhere', () => {
+    expect(planeVisibility('clear', RING(2400), null)).toEqual({ plane: true, telegraph: false });
+    expect(planeVisibility('supply', RING(2400), null)).toEqual({ plane: true, telegraph: false });
+  });
+
+  it('reveal + closing: plane AND telegraph', () => {
+    expect(planeVisibility('reveal', RING(2400), next)).toEqual({ plane: true, telegraph: true });
+    expect(planeVisibility('closing', RING(2000), next)).toEqual({ plane: true, telegraph: true });
+  });
+
+  it('closed: terminal ring holds, no telegraph', () => {
+    expect(planeVisibility('closed', RING(660, 300, 120), null)).toEqual({
+      plane: true,
+      telegraph: false,
+    });
+  });
+
+  it('idle draws nothing at all', () => {
+    expect(planeVisibility('idle', RING(2400), next)).toEqual({ plane: false, telegraph: false });
+  });
+
+  it('a degenerate r=0 sentinel draws nothing (never a hole-less world-wide fill)', () => {
+    expect(planeVisibility('closing', RING(0), next)).toEqual({ plane: false, telegraph: false });
+    expect(planeVisibility('reveal', RING(2400), RING(0, 10, 10))).toEqual({
+      plane: true,
+      telegraph: false,
+    });
+  });
+});
+
+describe('needsRedraw — the throttle keyed on radius AND zoom', () => {
+  it('always draws the first frame (never-drawn sentinel)', () => {
+    expect(needsRedraw(-1, -1, 2400, 1)).toBe(true);
+  });
+
+  it('ignores sub-epsilon radius drift while closing (position-only updates)', () => {
+    expect(needsRedraw(2400, 1, 2400 + Z.redrawEpsU / 2, 1)).toBe(false);
+    expect(needsRedraw(2400, 1, 2400 - Z.redrawEpsU * 2, 1)).toBe(true);
+  });
+
+  it('re-strokes when the ZOOM moves past the epsilon (else the lock is a lie)', () => {
+    const z = 1;
+    expect(needsRedraw(2400, z, 2400, z * (1 + Z.redrawZoomFrac / 2))).toBe(false);
+    expect(needsRedraw(2400, z, 2400, z * (1 + Z.redrawZoomFrac * 4))).toBe(true);
+    expect(needsRedraw(2400, z, 2400, z * 0.5)).toBe(true); // a full zoom-out step
+  });
+
+  it('is relative to the current zoom, so it behaves the same at any base zoom', () => {
+    for (const base of [0.2, 1, 5]) {
+      expect(needsRedraw(2400, base, 2400, base * 1.5)).toBe(true);
+      expect(needsRedraw(2400, base, 2400, base * (1 + Z.redrawZoomFrac / 2))).toBe(false);
+    }
+  });
+});
+
+describe('the reveal ONE-SHOT (amendment 17)', () => {
+  const RING1 = RING(1561, 180, -90);
+  const RING2 = RING(1015, 260, -40);
+  const AMP = Z.revealAmp;
+
+  it('is silent while nothing is revealed', () => {
+    const os = new RevealOneShot();
+    expect(os.update(null, 0, AMP)).toBe(0);
+    expect(os.update(null, 1_000, AMP)).toBe(0);
+  });
+
+  it('flashes ONCE on the null -> non-null edge and settles inside the envelope', () => {
+    const os = new RevealOneShot();
+    const t0 = 10_000;
+    expect(os.update(null, t0 - 16, AMP)).toBe(0);
+    expect(os.update(RING1, t0, AMP)).toBeCloseTo(AMP, 9); // peak at the reveal
+    expect(os.update(RING1, t0 + Z.revealMs / 2, AMP)).toBeCloseTo(AMP / 2, 9); // decaying
+    expect(os.update(RING1, t0 + Z.revealMs, AMP)).toBe(0); // settled
+    expect(os.update(RING1, t0 + 5_000, AMP)).toBe(0); // and stays settled
+  });
+
+  it('never re-fires for the SAME ring — the stale-boundary re-derivation guard', () => {
+    // zoneViewFrom's guard can flip `next` non-null -> null -> non-null for the
+    // same ring as the server-clock estimate jitters across a group boundary.
+    // A naive rising edge would flash on every flip; the ring identity must not.
+    const os = new RevealOneShot();
+    os.update(RING1, 0, AMP);
+    os.update(RING1, Z.revealMs, AMP); // settled
+    expect(os.update(null, 1_000, AMP)).toBe(0);
+    expect(os.update(RING1, 1_016, AMP)).toBe(0); // same ring back — no flash
+    expect(os.update(RING1, 60_000, AMP)).toBe(0);
+  });
+
+  it('DOES fire for the next group’s ring (a genuinely new reveal)', () => {
+    const os = new RevealOneShot();
+    os.update(RING1, 0, AMP);
+    expect(os.update(RING2, 240_000, AMP)).toBeCloseTo(AMP, 9);
+  });
+
+  it('structurally guarantees the >=300ms spacing between fires', () => {
+    const os = new RevealOneShot();
+    expect(os.update(RING1, 0, AMP)).toBeCloseTo(AMP, 9);
+    // A second ring arriving inside the floor cannot fire a second flash there.
+    expect(os.update(RING2, Z.revealFloorMs - 1, AMP)).toBe(0);
+    expect(Z.revealFloorMs).toBeGreaterThanOrEqual(300);
+    expect(Z.revealMs).toBeLessThanOrEqual(80);
+  });
+
+  it('motion=off: no flourish, and no delayed flash if motion comes back on', () => {
+    const os = new RevealOneShot();
+    expect(os.update(RING1, 0, 0)).toBe(0); // amp 0 = the motion-scaled `off` level
+    expect(os.update(RING1, 20, 0)).toBe(0);
+    // The reveal was still RECORDED, so re-enabling motion cannot resurrect it.
+    expect(os.update(RING1, 40, AMP)).toBe(0);
+  });
+
+  it('dies INSTANTLY when motion drops to off mid-envelope (latched amp clamp)', () => {
+    // The amplitude is latched at fire time so a later motion change cannot
+    // resurrect a flash. The other direction has to hold too: a player who hits
+    // "reduce motion" DURING the 80ms envelope must not keep watching the flash
+    // they just switched off — the CURRENT frame's amp caps the returned alpha.
+    const os = new RevealOneShot();
+    expect(os.update(RING1, 0, AMP)).toBeCloseTo(AMP, 9); // fired at motion=full
+    expect(os.update(RING1, Z.revealMs / 4, 0)).toBe(0); // motion -> off mid-flash
+    expect(os.update(RING1, Z.revealMs / 2, 0)).toBe(0);
+    // ...and `reduced` mid-envelope clamps to the reduced level, not the latch.
+    const os2 = new RevealOneShot();
+    os2.update(RING1, 0, AMP);
+    expect(os2.update(RING1, 0, AMP * 0.5)).toBeCloseTo(AMP * 0.5, 9);
+  });
+
+  it('halves the flash at motion=reduced (amplitude is the motion channel)', () => {
+    const os = new RevealOneShot();
+    expect(os.update(RING1, 0, AMP * 0.5)).toBeCloseTo(AMP / 2, 9);
+  });
+
+  it('revealFlashAlpha is a single decay, never negative, never re-blooming', () => {
+    expect(revealFlashAlpha(-Infinity, AMP)).toBe(0); // never fired
+    expect(revealFlashAlpha(-5, AMP)).toBe(0);
+    expect(revealFlashAlpha(0, AMP)).toBeCloseTo(AMP, 9);
+    expect(revealFlashAlpha(Z.revealMs, AMP)).toBe(0);
+    expect(revealFlashAlpha(Z.revealMs * 10, AMP)).toBe(0);
+    for (let t = 0; t < Z.revealMs; t += 1) {
+      const a = revealFlashAlpha(t, AMP);
+      expect(a).toBeGreaterThanOrEqual(0);
+      expect(a).toBeLessThanOrEqual(AMP);
+    }
+  });
+
+  it('the settled telegraph alpha never exceeds full opacity at the peak', () => {
+    expect(Z.telegraphAlpha + Z.revealAmp).toBeLessThanOrEqual(1);
+  });
+
+  it('ringKey identifies a ring, and null stays null', () => {
+    expect(ringKey(null)).toBeNull();
+    expect(ringKey(RING1)).toBe(ringKey({ ...RING1 }));
+    expect(ringKey(RING1)).not.toBe(ringKey(RING2));
+  });
+});
 
 describe('vignetteAlpha — out-of-zone feedback mapping', () => {
-  it('is exactly 0 when not in the storm (any time)', () => {
+  const BASE = Z.vignetteBase;
+  const AMP = Z.vignetteAmp;
+
+  it('is exactly 0 when not in the storm (any time, any tier)', () => {
     expect(vignetteAlpha(false, 0)).toBe(0);
     expect(vignetteAlpha(false, 12.34)).toBe(0);
-    expect(vignetteAlpha(false, 999)).toBe(0);
+    expect(vignetteAlpha(false, 999, AMP, true)).toBe(0);
   });
 
   it('sits at the base alpha at the pulse zero-crossing (t=0)', () => {
@@ -34,12 +418,95 @@ describe('vignetteAlpha — out-of-zone feedback mapping', () => {
     }
   });
 
-  it('reaches its peak a quarter-pulse in and its trough three-quarters in', () => {
-    const hz = 1.1;
-    const peakT = 0.25 / hz; // sin = +1
-    const troughT = 0.75 / hz; // sin = -1
+  it('breathes at the SHARED photosensitivity ceiling, never its own rate', () => {
+    const peakT = 0.25 / CAP_HZ; // sin = +1
+    const troughT = 0.75 / CAP_HZ; // sin = -1
     expect(vignetteAlpha(true, peakT)).toBeCloseTo(BASE + AMP, 6);
     expect(vignetteAlpha(true, troughT)).toBeCloseTo(BASE - AMP, 6);
+  });
+
+  it('motion=off holds the steady BASE alpha (information, not motion)', () => {
+    for (const t of [0, 0.3, 1.7, 42]) expect(vignetteAlpha(true, t, 0)).toBeCloseTo(BASE, 9);
+  });
+
+  it('TIER-1 HOLD: freezes at the lit (max-alpha) keyframe, then resumes breathing', () => {
+    for (const t of [0, 0.3, 1.7, 42]) {
+      expect(vignetteAlpha(true, t, AMP, true)).toBeCloseTo(BASE + AMP, 9);
+      // ...and it is a HOLD at the top of the same wave, never a new brightness.
+      expect(vignetteAlpha(true, t, AMP, true)).toBeCloseTo(vignetteAlpha(true, 0.25 / CAP_HZ), 6);
+    }
+    expect(vignetteAlpha(true, 0.75 / CAP_HZ, AMP, false)).toBeCloseTo(BASE - AMP, 6); // resumed
+  });
+
+  it('the Tier-1 hold is a no-op at motion=off (never a hidden motion exception)', () => {
+    expect(vignetteAlpha(true, 1.7, 0, true)).toBeCloseTo(BASE, 9);
+  });
+});
+
+describe('the Tier-1 hold EASING (amendment 16 under the photosensitivity floor)', () => {
+  const AMP = Z.vignetteAmp;
+  const FRAME_MS = 16; // ~60fps
+
+  /**
+   * The renderer's per-frame vignette alpha over a script of Tier-1 states —
+   * exactly what Zone.updateVignette computes, frame by frame, so what these
+   * tests measure is what the player sees.
+   */
+  const run = (holds: boolean[], amp: number = AMP): number[] => {
+    const out: number[] = [];
+    let tSec = 0;
+    let hold = 0;
+    for (const h of holds) {
+      hold = easeHold(hold, h ? 1 : 0, FRAME_MS);
+      out.push(vignetteHeld(true, tSec, amp, hold));
+      tSec += FRAME_MS / 1000;
+    }
+    return out;
+  };
+
+  /** The frame-by-frame breathing baseline (no Tier-1 anywhere). */
+  const baseline = (n: number, amp: number = AMP): number[] => run(new Array(n).fill(false), amp);
+
+  /** The LIT keyframe (what a sustained hold must converge to). */
+  const LIT = Z.vignetteBase + AMP;
+
+  /** How far a run departed from the breathing baseline, as a fraction of the
+   *  full hold delta (breathing → lit) available on that frame. */
+  const departure = (got: number[], base: number[]): number =>
+    Math.max(...got.map((a, i) => Math.abs(a - base[i]) / Math.abs(LIT - base[i])));
+
+  it('FAIL-PROOF: one 80ms denied-fire blip must not square-wave the vignette', () => {
+    // Click-spam in the storm lands an accepted denial every 300ms, each live
+    // for 80ms. A hold that SNAPS turns that into up to 3.3 full-amplitude
+    // full-screen flashes per second — over the ≤1.1Hz / ≤3-flashes-per-region
+    // floor this story itself pins. A brief blip may only swell the vignette.
+    const blip = [true, true, true, true, true]; // 5 x 16ms ≈ the 80ms pulse
+    expect(departure(run(blip), baseline(blip.length))).toBeLessThan(0.35);
+  });
+
+  it('a SUSTAINED hold (low hull) still converges to the lit keyframe', () => {
+    const frames = new Array(Math.ceil(2_000 / FRAME_MS)).fill(true);
+    const alphas = run(frames);
+    expect(alphas[alphas.length - 1]).toBeCloseTo(LIT, 3);
+    // ...it gets there without ever overshooting the lit keyframe (the hold is
+    // an approach, never a brighter-than-lit flash)...
+    for (const a of alphas) expect(a).toBeLessThanOrEqual(LIT + 1e-9);
+    // ...and it is already most of the way there within ~3 time constants.
+    const settled = alphas[Math.ceil((Z.holdEaseMs * 3) / FRAME_MS)];
+    expect(settled).toBeGreaterThan(Z.vignetteBase + AMP * 0.9);
+  });
+
+  it('RELEASE eases back down to the breathing curve', () => {
+    const hold = new Array(Math.ceil(2_000 / FRAME_MS)).fill(true);
+    const release = new Array(Math.ceil(2_000 / FRAME_MS)).fill(false);
+    const alphas = run([...hold, ...release]);
+    const base = baseline(alphas.length);
+    expect(alphas[alphas.length - 1]).toBeCloseTo(base[base.length - 1], 3);
+  });
+
+  it('motion=off stays CONSTANT at the base alpha, held or not (no new motion)', () => {
+    const script = [false, false, true, true, true, false, false, true];
+    for (const a of run(script, 0)) expect(a).toBeCloseTo(Z.vignetteBase, 9);
   });
 });
 
@@ -104,5 +571,19 @@ describe('zoneViewFrom — the stale close-boundary guard (review FIX 1)', () =>
     const zv = zoneViewFrom(clearSchema, 2400, START + GROUP_MS + 10);
     expect(zv.state).toBe('clear');
     expect(zv.cur).toEqual(RING1);
+  });
+
+  it('feeds the one-shot a STABLE ring identity across the guard flip', () => {
+    // The guard's window: `next` is the same RING1 before the boundary and null
+    // after it. The renderer keys the flash on identity, so a jittering clock
+    // estimate flipping back and forth cannot strobe the telegraph.
+    const before = zoneViewFrom(staleSchema, 2400, START + GROUP_MS - 10);
+    const after = zoneViewFrom(staleSchema, 2400, START + GROUP_MS + 10);
+    expect(ringKey(before.next)).toBe(ringKey(RING1));
+    expect(ringKey(after.next)).toBeNull();
+    const os = new RevealOneShot();
+    expect(os.update(before.next, 0, Z.revealAmp)).toBeCloseTo(Z.revealAmp, 9);
+    expect(os.update(after.next, Z.revealMs, Z.revealAmp)).toBe(0);
+    expect(os.update(before.next, Z.revealMs * 2, Z.revealAmp)).toBe(0); // no re-flash
   });
 });

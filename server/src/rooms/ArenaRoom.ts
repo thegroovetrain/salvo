@@ -380,6 +380,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     return {
       countdownMs: override?.countdownMs ?? base.countdownMs,
       resultsMs: override?.resultsMs ?? base.resultsMs,
+      joinWindowMs: override?.joinWindowMs ?? base.joinWindowMs,
       minHumans: override?.minHumans,
     };
   }
@@ -832,7 +833,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     if (s.zoneNextR !== next.r) s.zoneNextR = next.r;
   }
 
-  /** Mirror the match lifecycle onto the public schema. */
+  /** Mirror the match lifecycle onto the public schema. Match.countdownEndT
+   *  is the CURRENT-PHASE deadline (gathering window end during 'gathering',
+   *  countdown end during 'countdown', 0 otherwise) — mirrored verbatim; the
+   *  phase string tells the client which deadline it is reading. */
   private syncMatch(): void {
     if (!this.match) return;
     if (this.state.matchPhase !== this.match.phase) this.state.matchPhase = this.match.phase;
