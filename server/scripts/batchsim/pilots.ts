@@ -44,6 +44,25 @@
 // The endgame pilot is a MODELING instrument, not a human model: real captains
 // skirmish long before closure. It exists to prove the geometry concludes.
 //
+// MINIMAL SEAMANSHIP — un-beaching (Story 3.4, amendment 25): "the instrument
+// must be able to reverse off a rock like any human can." Shared by ALL THREE
+// registry pilots, because steering is common to them.
+// THE FAILURE MODE it fixes: a grounded hull takes the islandSpeedMult damp
+// every contact tick, so its speed collapses to a ~0.2 u/s crawl; rudder
+// authority scales with speed, so it cannot turn away either. These pilots
+// only ever ordered AHEAD (0.5 or 1), so a beached pilot was pinned to the
+// rock forever — the diagnosed cause of both cap-outs in the 50-match endgame
+// campaign. Humans have full astern; the instrument did not.
+// THE POLICY (counters only — NO rng anywhere in it, so determinism is
+// untouched; no new world accessors, only the hull's own pose): if the pilot
+// ordered meaningful AHEAD yet made no ground for STUCK_TICKS straight, it
+// orders FULL ASTERN with the rudder amidships for UNBEACH_ASTERN_TICKS —
+// backing down the reciprocal of its heading, i.e. through water it just
+// occupied and therefore knows is clear — and then sails normally again. A
+// forward GRACE window (UNBEACH_GRACE_TICKS) blocks re-arming right after a
+// burst, so a hull in a pocket backs out, turns, and leaves instead of
+// metronoming ahead/astern. No targeting or firing happens on astern ticks.
+//
 // Determinism: every pilot decision rides its own mulberry32 stream seeded by
 // the runner from (matchSeed, captain ordinal) — no Math.random, no Date.now.
 // Same run key => byte-identical input streams (unit-pinned).
@@ -117,6 +136,33 @@ const CLOSE_RANGE_U = 150; // throttle down inside this range (hold steerage, ke
 const WAYPOINT_REACHED_U = 60; // wander waypoint retarget distance
 const ISLAND_LOOKAHEAD_U = 160; // dronesSmoke huntTick avoidance horizon
 
+// --- un-beach seamanship (Story 3.4, amendment 25) ---------------------------
+// All four numbers are TICK/UNIT counters — no rng, no world accessors beyond
+// the ship's own pose. See the header for the ruling and the failure mode.
+/** Ordered-throttle floor that counts as "meaningful ahead" (the pilot only
+ *  ever emits 0.5 or 1 forward, so this separates ahead from astern/stop). */
+const STUCK_THROTTLE_MIN = 0.4;
+/** Per-tick displacement (u) below which a hull ordered AHEAD is not moving.
+ *  0.1 u/tick = 2 u/s, which cleanly separates the two regimes: a permalocked
+ *  hull crawls at ~0.2-0.25 u/s (~0.01 u/tick — the islandSpeedMult damp
+ *  re-crushing speed every contact tick), while the SLOWEST intentional-slow
+ *  order in this file (CLOSE_RANGE throttle 0.5 on the 35 u/s battleship) still
+ *  makes 17.5 u/s = 0.875 u/tick. ~9x of headroom on both sides. */
+const STUCK_STEP_U = 0.1;
+/** Consecutive sub-threshold ticks before declaring the hull beached (1.5 s).
+ *  The slowest hull (battleship, accel 5 u/s^2) passes 2 u/s within 0.4 s of
+ *  ordering ahead, so a healthy hull never accumulates this many. */
+const STUCK_TICKS = 30;
+/** Full-astern burst length (2.5 s). The slowest hull reaches its 9 u/s reverse
+ *  cap in 1.8 s, so the burst backs ~15 u down the track the hull arrived on —
+ *  water it already occupied, hence known clear. */
+const UNBEACH_ASTERN_TICKS = 50;
+/** Forward grace after a burst before detection can re-arm (3 s) — longer than
+ *  the worst-case astern->ahead turnaround (-9 u/s back through +2 u/s at
+ *  accel 5 ~= 2.2 s), so a hull in a pocket backs out, turns and sails on
+ *  instead of metronoming between ahead and astern. */
+const UNBEACH_GRACE_TICKS = 60;
+
 /** Nearest ALIVE non-self hull (deterministic: strict `<` keeps the earliest
  *  ships-map entry on ties — the world's own nearestEnemyCenter idiom). */
 function nearestEnemy(world: World, self: ShipRecord): { ship: ShipRecord; d: number } | null {
@@ -173,6 +219,13 @@ class GunnerPilot implements CaptainPilot {
   private aimDist = 0;
   private waypoint: Vec2 | null = null;
   private readonly rng: Rng;
+  // --- un-beach seamanship state (amendment 25): pure counters, no rng ---
+  private lastX: number | null = null;
+  private lastY: number | null = null;
+  private lastThrottle = 0;
+  private stuckTicks = 0;
+  private asternTicks = 0;
+  private graceTicks = 0;
 
   constructor(
     readonly id: string,
@@ -191,8 +244,84 @@ class GunnerPilot implements CaptainPilot {
     // Spends are legal while dead (builds persist across waiting-phase deaths);
     // drain at most one banked level per tick through the REAL spend flow.
     if (ship.offers.length > 0) world.spendPoint(this.id, pickSpendChoice(ship.offers[0], this.rng, ship.boons));
-    if (!ship.alive) return;
-    world.submitInput(this.id, this.buildInput(world, ship));
+    if (!ship.alive) {
+      // A respawn teleports the hull: carrying the pre-death pose forward would
+      // read as a giant displacement (harmless) or, worse, keep a stale stuck
+      // count alive across the gap. Start the seamanship state clean.
+      this.resetSeamanship();
+      return;
+    }
+    const input = this.wantsAstern(ship) ? this.asternInput() : this.buildInput(world, ship);
+    this.lastThrottle = input.throttle;
+    world.submitInput(this.id, input);
+  }
+
+  private resetSeamanship(): void {
+    this.lastX = null;
+    this.lastY = null;
+    this.lastThrottle = 0;
+    this.stuckTicks = 0;
+    this.asternTicks = 0;
+    this.graceTicks = 0;
+  }
+
+  /** Distance made good since the previous tick (Infinity on the first tick /
+   *  after a respawn — an unknown step can never read as "not moving"). */
+  private stepDistance(ship: ShipRecord): number {
+    const prevX = this.lastX;
+    const prevY = this.lastY;
+    this.lastX = ship.state.x;
+    this.lastY = ship.state.y;
+    if (prevX === null || prevY === null) return Infinity;
+    return Math.hypot(ship.state.x - prevX, ship.state.y - prevY);
+  }
+
+  /** THE UN-BEACH GATE (amendment 25). Advances every counter exactly once per
+   *  tick and answers "is this tick a full-astern tick?". Rng-free by
+   *  construction; the only world state it reads is the hull's own pose. */
+  private wantsAstern(ship: ShipRecord): boolean {
+    const moved = this.stepDistance(ship);
+    if (this.asternTicks === 0 && this.graceTicks === 0 && this.detectBeached(moved)) {
+      this.asternTicks = UNBEACH_ASTERN_TICKS;
+    }
+    if (this.asternTicks > 0) {
+      this.asternTicks -= 1;
+      // The grace arms as the burst ends, never during it.
+      if (this.asternTicks === 0) this.graceTicks = UNBEACH_GRACE_TICKS;
+      return true;
+    }
+    if (this.graceTicks > 0) this.graceTicks -= 1;
+    return false;
+  }
+
+  /** Ordered ahead but making no ground for STUCK_TICKS straight — the
+   *  observable signature of a permalock (see the constants for why the
+   *  threshold cannot confuse this with an intentional slow bell). */
+  private detectBeached(moved: number): boolean {
+    const pinned = this.lastThrottle >= STUCK_THROTTLE_MIN && moved < STUCK_STEP_U;
+    this.stuckTicks = pinned ? this.stuckTicks + 1 : 0;
+    if (this.stuckTicks < STUCK_TICKS) return false;
+    this.stuckTicks = 0;
+    return true;
+  }
+
+  /** Full astern, rudder amidships: back straight down the reciprocal of the
+   *  heading, i.e. through the water the hull just came from (clear by
+   *  construction). No targeting and no wander draw happen on these ticks, so
+   *  the pilot never fires while backing and the rng stream stays untouched. */
+  private asternInput(): InputMsg {
+    return {
+      seq: ++this.seq,
+      throttle: -1,
+      rudder: 0,
+      aim: this.aim,
+      fireSeq: this.fireSeq,
+      aimDist: this.aimDist,
+      slot: 0,
+      fireT: 0,
+      actSeq: 0,
+      actSlot: 0,
+    };
   }
 
   private buildInput(world: World, ship: ShipRecord): InputMsg {

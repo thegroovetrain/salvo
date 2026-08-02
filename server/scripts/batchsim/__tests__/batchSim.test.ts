@@ -437,6 +437,75 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
   });
 });
 
+describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
+  /** Drive one pilot with its hull PINNED at the spawn pose every tick. That is
+   *  exactly the observable signature of an island permalock — the pilot orders
+   *  ahead and makes no ground — without depending on a seed that happens to
+   *  beach a ship. Returns the throttle ordered on each tick, plus the fireSeq
+   *  at the end (a pilot must not shoot its way off a rock). */
+  function throttleTrace(
+    factory: (typeof PILOT_REGISTRY)['gunner'],
+    ticks: number,
+    pin: boolean,
+  ): { throttles: number[]; fireSeq: number } {
+    const w = new World(7, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('cap-1', 'CAP-01', false, 'battleship'); // the slowest hull
+    const cap = w.ships.get('cap-1')!;
+    const pose = { x: cap.state.x, y: cap.state.y };
+    const pilot = factory('cap-1', 42);
+    const throttles: number[] = [];
+    for (let t = 0; t < ticks; t += 1) {
+      if (pin) {
+        cap.state.x = pose.x; // the rock wins every tick
+        cap.state.y = pose.y;
+        cap.state.speed = 0;
+      }
+      pilot.tick(w);
+      throttles.push(w.inputs.get('cap-1')?.throttle ?? 0);
+      w.step();
+    }
+    return { throttles, fireSeq: w.inputs.get('cap-1')?.fireSeq ?? 0 };
+  }
+
+  it('orders full astern once pinned, then returns to ahead — and never while sailing free', () => {
+    const { throttles } = throttleTrace(PILOT_REGISTRY.gunner, 200, true);
+    const firstAstern = throttles.findIndex((v) => v < 0);
+    // Detection is 30 consecutive pinned ticks; allow the first-tick unknown
+    // step and one tick of ordering slack, never a whole extra window.
+    expect(firstAstern).toBeGreaterThan(0);
+    expect(firstAstern).toBeLessThanOrEqual(33);
+    expect(throttles.slice(0, firstAstern).every((v) => v >= 0.5)).toBe(true);
+    // The burst is a solid block of full astern (50 ticks), not a flutter.
+    expect(throttles.slice(firstAstern, firstAstern + 50).every((v) => v === -1)).toBe(true);
+    // ...and then the pilot sails again rather than backing forever.
+    expect(throttles[firstAstern + 50]).toBeGreaterThan(0);
+    // FAIL-PROOF: an unpinned hull sails normally and NEVER orders astern, so
+    // the assertions above are measuring the stuck detector, not a pilot that
+    // reverses on a timer.
+    expect(throttleTrace(PILOT_REGISTRY.gunner, 300, false).throttles.some((v) => v < 0)).toBe(false);
+  });
+
+  it('does not metronome: the grace window blocks an immediate re-arm', () => {
+    const { throttles } = throttleTrace(PILOT_REGISTRY.gunner, 400, true);
+    const bursts: number[] = [];
+    for (let i = 1; i < throttles.length; i += 1) {
+      if (throttles[i] < 0 && throttles[i - 1] >= 0) bursts.push(i);
+    }
+    expect(bursts.length).toBeGreaterThan(1); // still stuck => it keeps trying
+    // Burst period: 50 astern ticks + 60 grace ticks + the 30 detection ticks
+    // whose LAST one is the next burst's first tick => 139 apart, minimum.
+    // Without the grace window this would be 50 + 30 = 80 (a metronome).
+    for (let i = 1; i < bursts.length; i += 1) expect(bursts[i] - bursts[i - 1]).toBeGreaterThanOrEqual(139);
+  });
+
+  it('the pacifist control still never fires while un-beaching', () => {
+    const pacifist = throttleTrace(PILOT_REGISTRY.pacifist, 200, true);
+    expect(pacifist.fireSeq).toBe(0);
+    expect(pacifist.throttles.some((v) => v < 0)).toBe(true); // it does back off
+  });
+});
+
 describe('runner — winnerClass (Story 3.4 evidence field)', () => {
   it('a resolved match names the winning hull class; an unresolved one is null', () => {
     const cleared = runBatch({ seed: 3, matches: 1, captains: 1, drones: 0 });
