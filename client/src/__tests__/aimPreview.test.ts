@@ -232,6 +232,35 @@ describe('mine placement — both rings at the drop point', () => {
   });
 });
 
+// A hull pinned against the rim can point its guns at open water OUTSIDE the
+// disk: the boundary clamp holds the CENTRE inside, but the muzzle (and the
+// torpedo tube exit) sits up to a half hull-length past it. The sim disposes of
+// a ballistic spawned out there immediately, so the preview must not promise a
+// shot — the one thing worse than no preview is a confident wrong one.
+describe('rim honesty — a shot whose ORIGIN is off the water', () => {
+  const rimShip = { ...SHIP, x: MAP_R + 5, y: 0, heading: 0 };
+
+  it('previews NOTHING for a torpedo whose tube exit is past the rim', () => {
+    const m = computeAimPreview(input({ id: 'torpedo', ship: rimShip, aimDist: 300 }));
+    expect(m).toEqual({ lines: [], bursts: [], place: null, band: null });
+  });
+
+  it('still previews a torpedo fired from inside the rim', () => {
+    const m = computeAimPreview(input({ id: 'torpedo', ship: { ...SHIP, x: 0 } }));
+    expect(m.lines).toHaveLength(1);
+  });
+
+  it('marks a gun burst BLOCKED when the muzzle itself is off the water', () => {
+    const m = computeAimPreview(input({ ship: rimShip, aimDist: 300 }));
+    expect(m.bursts[0].blocked).toBe(true);
+  });
+
+  it('...and the same for the cannon, while an in-bounds muzzle stays confident', () => {
+    expect(computeAimPreview(input({ id: 'cannon', ship: rimShip })).bursts[0].blocked).toBe(true);
+    expect(computeAimPreview(input({ id: 'cannon' })).bursts[0].blocked).toBe(false);
+  });
+});
+
 describe('ownBurstRadius — our own blast, never anybody else’s', () => {
   it('sizes an own gun/cannon burst off our effective stats', () => {
     const s = stats('cannonBlast');
@@ -242,8 +271,19 @@ describe('ownBurstRadius — our own blast, never anybody else’s', () => {
   it('leaves every other burst on the CONFIG default (enemy builds stay private)', () => {
     const s = stats();
     expect(ownBurstRadius(s, null)).toBeUndefined();
-    expect(ownBurstRadius(s, 'torpedo')).toBeUndefined();
+    expect(ownBurstRadius(s, 'torpedo')).toBeUndefined(); // a straight-runner has no point burst
     expect(ownBurstRadius(s, 'starShells')).toBeUndefined();
+  });
+
+  // The command fish is the biggest blast in the game (60u) and it DOES burst
+  // at a point — leaving it on the gun's 15u default under-drew it by 4×.
+  it('sizes an own COMMAND DETONATION fish at its real 60u blast', () => {
+    expect(ownBurstRadius(stats('torpedoCommand'), 'torpedo')).toBe(CONFIG.torpedo.commandBurstRadius);
+  });
+
+  it('...but a HOMING or standard fish still has no burst ring of its own', () => {
+    expect(ownBurstRadius(stats('torpedoHoming'), 'torpedo')).toBeUndefined();
+    expect(ownBurstRadius(stats(), 'torpedo')).toBeUndefined();
   });
 });
 

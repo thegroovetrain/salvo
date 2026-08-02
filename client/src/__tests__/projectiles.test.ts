@@ -2,6 +2,7 @@ import { afterEach, describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
 import type { BallisticEvent, TorpedoUpdateEvent } from '@salvo/shared';
 import {
+  MAX_OWN_CLAIMS,
   Projectiles,
   arcSwellScale,
   lookForReveal,
@@ -347,5 +348,63 @@ describe('the arc swell is MOTION, the position is INFORMATION', () => {
     q.render(450, { x: 0, y: 0 }, []);
     expect(reduced).toBeGreaterThan(1);
     expect(reduced - 1).toBeCloseTo((q.scaleOf('s1') - 1) / 2, 9);
+  });
+});
+
+// --- OWN-SHOT CLAIM TOMBSTONES ----------------------------------------------
+//
+// The burst ring wants to know "was that OUR shell?" long after the track that
+// could answer is gone: the sight-bubble cull (~370u) and the lifetime backstop
+// both retire a shell well before a boosted gun/cannon reaches its 650u+ burst
+// point — i.e. the claim evaporated for exactly the long-range upgraded blasts
+// the effective-radius ring exists to draw. The claim therefore outlives the
+// sprite, bounded by count so it can never grow without limit.
+describe('Projectiles — own-shot claims outlive their sprites', () => {
+  const shell = (id: string, x = 0): BallisticEvent => ({
+    k: 'shell', id, x, y: 0, vx: 130, vy: 0, t: 0,
+  });
+
+  it('answers ownFireOf for a track the SIGHT CULL has already retired', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell(shell('s1'), 'cannon', 'cannon');
+    p.render(10_000, { x: 5_000, y: 5_000 }); // far outside the bubble → culled
+    expect(p.liveCount).toBe(0);
+    expect(p.ownFireOf('s1')).toBe('cannon'); // ...the claim survives it
+  });
+
+  it('answers ownFireOf after the LIFETIME backstop retires the track', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell(shell('s1'), 'gun', 'gun');
+    p.render(10_000_000); // long past expiresAt
+    expect(p.liveCount).toBe(0);
+    expect(p.ownFireOf('s1')).toBe('gun');
+  });
+
+  it('CONSUMES the claim on the burst (and on a boom) that ends the shot', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell(shell('s1'), 'gun', 'gun');
+    expect(p.ownFireOf('s1')).toBe('gun');
+    p.onBurst({ k: 'burst', id: 's1', x: 0, y: 0 });
+    expect(p.ownFireOf('s1')).toBeNull();
+
+    p.onShell(shell('s2'), 'gun', 'gun');
+    p.onBoom({ k: 'boom', id: 's2', x: 0, y: 0 });
+    expect(p.ownFireOf('s2')).toBeNull();
+  });
+
+  it('is BOUNDED: the oldest claim is evicted, and that burst falls back to default', () => {
+    const p = new Projectiles(900, new Container());
+    p.onShell(shell('oldest'), 'cannon', 'cannon');
+    for (let i = 0; i < MAX_OWN_CLAIMS; i++) p.onShell(shell(`s${i}`), 'gun', 'gun');
+    expect(p.ownFireOf('oldest')).toBeNull(); // aged out → CONFIG-default ring
+    expect(p.ownFireOf(`s${MAX_OWN_CLAIMS - 1}`)).toBe('gun'); // the recent ones stand
+  });
+
+  it('never remembers an UNCLAIMED reveal, however it was dressed', () => {
+    const p = new Projectiles(900, new Container());
+    // `own` is the ratified 'gun' look/audio fallback for any shell surfacing
+    // near our hull — including an ENEMY's. It must not size a burst ring.
+    p.onShell(shell('enemy'), 'gun', null);
+    expect(p.ownFireOf('enemy')).toBeNull();
   });
 });

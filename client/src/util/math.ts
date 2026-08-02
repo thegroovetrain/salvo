@@ -47,7 +47,11 @@ export function expDecay(current: number, target: number, rate: number, dt: numb
 export function dashArcs(segments: number, duty: number): [number, number][] {
   if (segments <= 0 || duty <= 0) return [];
   const step = (Math.PI * 2) / segments;
-  const ink = step * Math.min(1, duty);
+  // Ink is capped BELOW a full slice: at duty ≥ 1 the arcs would meet and the
+  // ring would close into a solid circle — silently destroying the one channel
+  // that separates the trigger ring from the blast ring (line style, not hue).
+  // A dashed ring must look dashed at every tunable value it can be handed.
+  const ink = step * Math.min(0.95, Math.max(0, duty));
   const out: [number, number][] = [];
   for (let i = 0; i < segments; i += 1) out.push([i * step, i * step + ink]);
   return out;

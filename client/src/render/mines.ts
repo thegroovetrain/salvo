@@ -48,9 +48,14 @@ const DOT_R = 3.5; // u
  * ARE the mine's ground truth, not a decoration of it.
  *
  * `acquire` is the SELF-PROPELLED doctrine's acquisition reach, or null when
- * the owner does not hold that doctrine (no doctrine, no ring). `now` is the
- * server-clock estimate, used to infer the arming window — `armedAt` is not on
- * the wire and does not need to be: these are OUR mines, we saw them appear.
+ * the owner does not hold that doctrine (no doctrine, no ring).
+ *
+ * `now` is THE FRAME'S OWN TIMESTAMP (`FrameMsg.t`), not a local clock reading,
+ * and that distinction is the whole accuracy of the arming dim: `armedAt` is
+ * not on the wire and does not need to be — these are OUR mines and we watched
+ * them appear — but only if both ends of the comparison come from the same
+ * authoritative clock. Dating first-seen by local receive time instead charges
+ * the mine for the transport delay and holds the dim systematically late.
  */
 export interface OwnMineRings {
   blast: number;
@@ -83,9 +88,10 @@ export function ownMineRings(p: OwnMineRings, armed: boolean): MineRing[] {
   return rings;
 }
 
-/** Pure: has a mine we first saw at `seenAt` finished arming by `now`? The
- *  client infers the window (first-seen + CONFIG.mine.armDelay) — exact enough
- *  for our OWN mines, which are in our frame list from the tick they drop. */
+/** Pure: has a mine we first saw at `seenAt` finished arming by `now`? Both are
+ *  FRAME timestamps, so the window is measured on the server's own clock. A
+ *  `seenAt` of -Infinity means "already armed when we first laid eyes on it" —
+ *  the rebuild/rejoin case (see Mines.sync's first-frame rule). */
 export function mineArmed(seenAt: number, now: number): boolean {
   return now - seenAt >= CONFIG.mine.armDelay;
 }
@@ -168,6 +174,9 @@ interface MineSprite extends HueState, MinePos {
 
 export class Mines {
   private readonly sprites = new Map<string, MineSprite>();
+  /** Has any frame been synced yet? The FIRST one is a rejoin snapshot whose
+   *  mines are already on the water (see sync), not a batch of fresh drops. */
+  private synced = false;
 
   /**
    * `ownLayer` = chartRoot (fog-immune); `enemyLayer` = worldRoot.
@@ -195,8 +204,16 @@ export class Mines {
    *  as before. An enemy's mine NEVER draws a ring — their numbers are theirs. */
   sync(mines: readonly MineView[], hueFor: HueFor, own?: OwnMineRings): void {
     const { add, move, remove } = reconcileMines(this.sprites, mines);
+    // THE FIRST SYNCED FRAME is a rejoin, not a drop: every mine already on the
+    // water when we arrive has been there for some unknowable time, and most of
+    // them are long armed. Stamping them as first-seen NOW would flash the
+    // whole field back to the arming dim for 3s after any reconnect or reload —
+    // a lie about live ordnance. They come up ARMED; anything laid after this
+    // frame is a real drop and dims honestly.
+    const seenAt = this.synced ? (own?.now ?? 0) : -Infinity;
+    this.synced = true;
     for (const id of remove) this.despawn(id);
-    for (const m of add) this.spawn(m, hueFor, own);
+    for (const m of add) this.spawn(m, hueFor, own, seenAt);
     for (const m of move) this.moveTo(m); // SELF-PROPELLED: the mine is under way
     for (const s of this.sprites.values()) {
       retryHue(s, hueFor, (color) => {
@@ -241,7 +258,7 @@ export class Mines {
     return this.sprites.get(id)?.rings ?? [];
   }
 
-  private spawn(m: MineView, hueFor: HueFor, own: OwnMineRings | undefined): void {
+  private spawn(m: MineView, hueFor: HueFor, own: OwnMineRings | undefined, seenAt: number): void {
     const g = new Graphics();
     const { color, colored, rev } = resolveHue(m.by, hueFor);
     g.position.set(m.x, m.y);
@@ -249,9 +266,10 @@ export class Mines {
     const s: MineSprite = {
       g, by: m.by, own: m.own, colored, rev, color,
       x: m.x, y: m.y, bearing: null, wakeIn: O.creepWakeSpacing,
-      // A mine we are seeing for the first time is one we just dropped (own
-      // mines never leave our own frame list), so first-seen IS the drop time.
-      seenAt: own?.now ?? 0, rings: [], ringsKey: '',
+      // A mine appearing after the first synced frame is one we just dropped
+      // (own mines never leave our own frame list), so first-seen IS the drop
+      // time — dated by the FRAME's clock, the same one `now` reads.
+      seenAt, rings: [], ringsKey: '',
     };
     this.sprites.set(m.id, s);
     this.refreshRings(s, own); // draws the rings; redraw() paints the marker too

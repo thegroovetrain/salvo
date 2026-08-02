@@ -1480,19 +1480,21 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
 }
 
 /**
- * The own-mine ring parameters for this tick: EFFECTIVE blast/trigger radii
- * (the very numbers the server reads off our stats when one of our mines trips
- * or blasts) plus the server-clock estimate that dates the arming window. The
- * acquisition ring is present only under the SELF-PROPELLED doctrine, and its
- * radius is raw CONFIG on purpose — no boon scales acquisition today.
+ * The own-mine ring parameters for the frame timestamped `t`: EFFECTIVE
+ * blast/trigger radii (the very numbers the server reads off our stats when one
+ * of our mines trips or blasts), stamped with the FRAME's own time so the
+ * arming window is measured on the clock that owns it — an estimated local
+ * serverNow() charges the mine for the transport delay and holds the dim late.
+ * The acquisition ring is present only under the SELF-PROPELLED doctrine, and
+ * its radius is raw CONFIG on purpose — no boon scales acquisition today.
  */
-function ownMineRingParams(g: Game): OwnMineRings {
+function ownMineRingParams(g: Game, t: number): OwnMineRings {
   const mine = g.ownStats.mine;
   return {
     blast: mine.blastRadius,
     trigger: mine.triggerRadius,
     acquire: mine.mode === 'selfPropelled' ? CONFIG.mine.creepAcquireRange : null,
-    now: g.clock.serverNow(),
+    now: t,
   };
 }
 
@@ -1559,7 +1561,7 @@ function bindGameRoom(g: Game, conn: Connection): void {
     ownBurstRadius: (own) => ownBurstRadius(g.ownStats, own),
     // The owner-private mine rings: our live effective radii + our clock. The
     // acquisition ring exists only while we actually hold the doctrine.
-    ownMineRings: () => ownMineRingParams(g),
+    ownMineRings: (t) => ownMineRingParams(g, t),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
       // Latched: a story-0.2 resume re-delivers the cached results broadcast,

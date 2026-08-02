@@ -226,11 +226,16 @@ describe('ownMineRings — the owner-private radius set', () => {
   });
 
   it('dims the whole set while the mine is still arming, and snaps to full when armed', () => {
-    const arming = ownMineRings(base, false);
-    const armed = ownMineRings(base, true);
-    for (let i = 0; i < armed.length; i++) {
-      expect(arming[i].alpha).toBeCloseTo(armed[i].alpha * CLIENT_CONFIG.mineRings.armingScale, 9);
-      expect(arming[i].alpha).toBeLessThan(armed[i].alpha);
+    // LITERAL alphas, deliberately: re-deriving them from CLIENT_CONFIG would
+    // make this test agree with any value the config happens to hold, including
+    // an armingScale of 1 that renders the arming state invisible.
+    expect(ownMineRings(base, true).map((r) => r.alpha)).toEqual([0.3, 0.34]);
+    const arming = ownMineRings(base, false).map((r) => r.alpha);
+    expect(arming[0]).toBeCloseTo(0.12, 9);
+    expect(arming[1]).toBeCloseTo(0.136, 9);
+    // ...and the arming set is unambiguously the quieter of the two.
+    for (let i = 0; i < arming.length; i++) {
+      expect(arming[i]).toBeLessThan(ownMineRings(base, true)[i].alpha);
     }
   });
 
@@ -275,10 +280,50 @@ describe('Mines — rings are drawn for OWN mines only', () => {
 
   it('snaps an arming mine to full brightness on the tick it goes live', () => {
     const mines = new Mines(new Container(), new Container());
-    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, rings);
+    mines.sync([], () => 0x00ff00, rings); // the rejoin snapshot (empty water)
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, rings); // a REAL drop
     const arming = mines.ringsAt('m1')[0].alpha;
     mines.sync([mine('m1', true, 'me')], () => 0x00ff00, { ...rings, now: CONFIG.mine.armDelay });
     expect(mines.ringsAt('m1')[0].alpha).toBeGreaterThan(arming);
+  });
+
+  // P2(a): the arming window is a SERVER-side 3s. Dating first-seen by a local
+  // clock reading instead charges the mine for the transport delay, so the dim
+  // outlives the arming every time by however laggy the connection is.
+  it('dates first-seen by the FRAME clock, so the dim lasts exactly armDelay', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([], () => 0x00ff00, { ...rings, now: 5_000 });
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, { ...rings, now: 5_000 }); // dropped at t=5000
+    const arming = mines.ringsAt('m1')[0].alpha;
+    // One frame short of the window: still arming, to the millisecond.
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, {
+      ...rings,
+      now: 5_000 + CONFIG.mine.armDelay - 1,
+    });
+    expect(mines.ringsAt('m1')[0].alpha).toBe(arming);
+    // The frame that crosses it: live.
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, {
+      ...rings,
+      now: 5_000 + CONFIG.mine.armDelay,
+    });
+    expect(mines.ringsAt('m1')[0].alpha).toBeGreaterThan(arming);
+  });
+
+  // P2(b): a reload/rejoin re-adds a field that has been on the water for
+  // minutes. Treating those as fresh drops flashes live ordnance as "arming"
+  // for 3s — a lie about which of your own mines can kill right now.
+  it('treats the FIRST synced frame as a rejoin: its mines come up ARMED, not arming', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([mine('old', true, 'me')], () => 0x00ff00, { ...rings, now: 900_000 });
+    const rejoined = mines.ringsAt('old')[0].alpha;
+    // Identical to a mine that has sat through its whole arming window.
+    mines.sync([], () => 0x00ff00, rings);
+    mines.sync([mine('fresh', true, 'me')], () => 0x00ff00, { ...rings, now: 0 });
+    mines.sync([mine('fresh', true, 'me')], () => 0x00ff00, { ...rings, now: CONFIG.mine.armDelay });
+    expect(mines.ringsAt('fresh')[0].alpha).toBe(rejoined);
+    // ...and a drop laid AFTER that first frame still dims honestly.
+    mines.sync([mine('later', true, 'me')], () => 0x00ff00, { ...rings, now: 900_000 });
+    expect(mines.ringsAt('later')[0].alpha).toBeLessThan(rejoined);
   });
 
   it('follows a mid-life stat change (a boon fitted while the field is out)', () => {
@@ -286,5 +331,11 @@ describe('Mines — rings are drawn for OWN mines only', () => {
     mines.sync([mine('m1', true, 'me')], () => 0x00ff00, rings);
     mines.sync([mine('m1', true, 'me')], () => 0x00ff00, { ...rings, blast: 70 });
     expect(mines.ringsAt('m1')[0].r).toBe(70);
+  });
+
+  it('never rings an enemy mine, even on the first (rejoin) frame', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([mine('foe', false, 'them')], () => 0x00ff00, rings);
+    expect(mines.ringsAt('foe')).toEqual([]);
   });
 });

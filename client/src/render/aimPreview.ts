@@ -146,6 +146,15 @@ export function clipAtIslands(
   };
 }
 
+/** Is a point off the water disk? A shot whose ORIGIN is already outside the
+ *  rim is a shot the sim disposes of immediately (a ballistic spawned past the
+ *  edge expires without ever meeting an obstacle), so the preview must not draw
+ *  it as a live shot. Reachable at the rim: the muzzle/tube exit sits up to a
+ *  half hull-length outside a hull the boundary clamp has pinned to the edge. */
+function outsideDisk(p: Vec2, mapRadius: number): boolean {
+  return Math.hypot(p.x, p.y) > mapRadius;
+}
+
 /** The barrel-fan bearing for barrel `b` of `barrels`, centred on the aim —
  *  the shared fan step, so preview and salvo spread identically. */
 function fanBearing(aim: number, b: number, barrels: number): number {
@@ -166,7 +175,11 @@ function burstFan(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel {
     const clip = spec.arcing ? { point: target, clipped: false } : clipAtIslands(origin, target, inp.islands);
     lines.push({ x1: origin.x, y1: origin.y, x2: clip.point.x, y2: clip.point.y });
     if (spec.burstRadius > 0) {
-      bursts.push({ x: target.x, y: target.y, r: spec.burstRadius, blocked: clip.clipped });
+      // A muzzle already outside the rim is the same promise-breaker an island
+      // is — the shell never reaches the point — so it earns the same dim tell
+      // rather than a confident circle.
+      const blocked = clip.clipped || outsideDisk(origin, inp.mapRadius);
+      bursts.push({ x: target.x, y: target.y, r: spec.burstRadius, blocked });
     }
   }
   return { lines, bursts, place: null, band: null };
@@ -235,6 +248,10 @@ function torpedoPreview(inp: AimPreviewInput): AimPreviewModel {
   const dir = inp.aim; // legal ⇒ in the bow arc ⇒ the launch bearing IS the aim
   const hullLength = hullEnvelope(inp.ship.cls).hull.length;
   const origin = torpedoSpawn(inp.ship, hullLength, dir);
+  // A tube exit past the rim launches a fish the sim expires on the spot; the
+  // map clamp below would fold its whole run into a degenerate point and draw a
+  // phantom track out of the ship's nose. Preview nothing instead.
+  if (outsideDisk(origin, inp.mapRadius)) return EMPTY;
   if (inp.stats.torpedo.mode === 'command') return commandTorpedo(inp, origin, dir);
   const homing = inp.stats.torpedo.mode === 'homing';
   const run = homing ? CONFIG.torpedo.homingMaxRangeU : inp.mapRadius * 2;
@@ -317,7 +334,12 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
 export function ownBurstRadius(stats: EffectiveStats, own: OwnFire): number | undefined {
   if (own === 'gun') return stats.gun.burstRadius;
   if (own === 'cannon') return stats.cannon.burstRadius;
-  return undefined; // star shells (lit, not blast), torpedo, and every non-own burst
+  // COMMAND DETONATION is the one torpedo that bursts at a point — and it is
+  // the biggest blast in the game (60u), so the CONFIG-default gun ring
+  // under-drew it by 4×. A standard/homing fish has no point burst at all (a
+  // contact hit rides the boom/spark path), so it stays on the default.
+  if (own === 'torpedo' && stats.torpedo.mode === 'command') return CONFIG.torpedo.commandBurstRadius;
+  return undefined; // star shells (lit, not blast) and every non-own burst
 }
 
 /** The stroke tint for a weapon's preview: the torpedo keeps its cool-green

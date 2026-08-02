@@ -7,7 +7,7 @@
 // dazzled observer's shrunken sight) — plus the vacated-owner CONFIG fallback.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { CONFIG, HULL_IDS, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -444,9 +444,13 @@ describe('SELF-PROPELLED MINES (mineSelfPropelled) — armed creep toward the ne
     const trigger = o.stats.mine.triggerRadius;
     expect(trigger).toBeGreaterThan(CONFIG.mine.triggerRadius); // the ring really grew
     // The invariant the fix has to hold: acquisition reach outranges the widest
-    // trip ring plus the longest hull's half-length, so no approach can trip
-    // before it is acquired.
-    expect(CONFIG.mine.creepAcquireRange).toBeGreaterThan(trigger + 124 / 2);
+    // trip ring plus the LONGEST hull's half-length, so no approach on any
+    // aspect can trip before it is acquired. Computed over every hull in the
+    // game (drone envelopes included) rather than pinned to today's battleship,
+    // so a longer hull shipping later fails this instead of silently reopening
+    // the bug.
+    const longestHull = Math.max(...HULL_IDS.map((id) => hullEnvelope(id).hull.length));
+    expect(CONFIG.mine.creepAcquireRange).toBeGreaterThan(trigger + longestHull / 2);
     // And on the water: a battleship bow-on at 140u centre is acquired even
     // with the widened ring standing.
     place(w, 'prey', 140, 0, Math.PI, 'battleship');

@@ -65,9 +65,20 @@ describe('dashArcs', () => {
     expect(ink).toBeCloseTo(Math.PI * 2 * 0.25, 9);
   });
 
-  it('caps duty at a full slice, and returns NOTHING for degenerate input', () => {
-    expect(dashArcs(3, 2)[0][1]).toBeCloseTo((Math.PI * 2) / 3, 9);
+  it('never closes the ring, even at duty ≥ 1 — a dashed ring must LOOK dashed', () => {
+    // A closed ring would silently destroy the one channel separating the
+    // trigger ring from the blast ring: line style, not hue.
+    for (const duty of [1, 2, 1000]) {
+      const arcs = dashArcs(8, duty);
+      const step = (Math.PI * 2) / 8;
+      expect(arcs[0][1] - arcs[0][0]).toBeLessThan(step); // a real gap survives
+      expect(arcs[0][1]).toBeLessThan(arcs[1][0]); // ...and the arcs never meet
+    }
+  });
+
+  it('returns NOTHING for degenerate input', () => {
     expect(dashArcs(0, 0.5)).toEqual([]);
     expect(dashArcs(10, 0)).toEqual([]);
+    expect(dashArcs(10, -1)).toEqual([]);
   });
 });
