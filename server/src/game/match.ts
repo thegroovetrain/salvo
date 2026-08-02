@@ -5,7 +5,15 @@
 //   waiting   — ready room. Ships spawn/drive/aim/FIRE freely (including mine
 //               drops), but all damage is suppressed (World.damageEnabled=
 //               false; target practice). Respawn works.
-//   countdown — starts the moment ≥ CONFIG.match.minHumans humans are present;
+//   gathering — ≥ CONFIG.match.minHumans humans present; the room stays
+//               UNLOCKED for joinWindowMs (CONFIG.match.joinWindow) so more
+//               captains can pile into the same room. Same weapons-safe
+//               policy as waiting; countdownEndT carries the window deadline.
+//               Joins never reset the timer. CANCELS back to waiting (WITHOUT
+//               unlock — it was never locked) if humans drop below the
+//               minimum. joinWindowMs <= 0 skips this phase entirely (legacy:
+//               straight to countdown + lock — smokes/tests/batch-sim).
+//   countdown — the join window elapsed (or joinWindowMs <= 0 at minHumans);
 //               countdownEndT = now + countdown. The room LOCKS (late joiners
 //               land in fresh rooms via joinOrCreate). CANCELS back to waiting
 //               (and unlocks) if humans drop below the minimum.
@@ -33,6 +41,9 @@ import type { ShipRecord, World } from './world.js';
 export interface MatchTimings {
   countdownMs: number;
   resultsMs: number;
+  /** Unlocked gathering window at minHumans, before the countdown arms.
+   *  <= 0 collapses to the legacy behavior (immediate countdown + lock). */
+  joinWindowMs: number;
   /** Humans required to start the countdown. DEV override; defaults to CONFIG. */
   minHumans?: number;
 }
@@ -41,6 +52,7 @@ export function defaultTimings(): MatchTimings {
   return {
     countdownMs: CONFIG.match.countdown,
     resultsMs: CONFIG.match.resultsSeconds * 1000,
+    joinWindowMs: CONFIG.match.joinWindow,
   };
 }
 
@@ -162,7 +174,10 @@ interface Participant {
 
 export class Match {
   phase: MatchPhase = 'waiting';
-  /** Server ms the countdown ends at; 0 while no countdown is running. */
+  /** CURRENT-PHASE deadline (server ms): the gathering window's end during
+   *  'gathering', the countdown's end during 'countdown', 0 otherwise. The
+   *  room mirrors it verbatim onto ArenaState.countdownEndT — the phase
+   *  string disambiguates which deadline a client is reading. */
   countdownEndT = 0;
   /** Winner's id once finished ('' before). */
   winnerId = '';
@@ -199,14 +214,22 @@ export class Match {
     return this.timings.minHumans ?? CONFIG.match.minHumans;
   }
 
-  /** Call after any join (and after onPlayerLeave): starts/cancels the countdown. */
+  /** Call after any join (and after onPlayerLeave): opens/cancels the
+   *  gathering window and starts/cancels the countdown. Joins during
+   *  gathering deliberately change nothing — the window timer never resets. */
   notifyRosterChanged(): void {
-    if (this.phase === 'waiting' && this.humanCount() >= this.minHumans) {
-      this.phase = 'countdown';
-      this.countdownEndT = this.world.now + this.timings.countdownMs;
+    const enough = this.humanCount() >= this.minHumans;
+    if (this.phase === 'waiting' && enough) {
+      // joinWindowMs <= 0 collapses synchronously to the legacy behavior:
+      // straight to countdown + lock (smokes/tests/batch-sim fast path).
+      if (this.timings.joinWindowMs > 0) this.openGathering();
+      else this.startCountdown();
+    } else if (this.phase === 'gathering' && !enough) {
+      // Back to waiting WITHOUT unlock(): the gathering room was never locked.
+      this.phase = 'waiting';
+      this.countdownEndT = 0;
       this.applyPolicy();
-      this.hooks.lock();
-    } else if (this.phase === 'countdown' && this.humanCount() < this.minHumans) {
+    } else if (this.phase === 'countdown' && !enough) {
       this.phase = 'waiting';
       this.countdownEndT = 0;
       this.applyPolicy();
@@ -233,6 +256,7 @@ export class Match {
 
   /** Advance the state machine one tick. Call right after world.step(). */
   update(): void {
+    if (this.phase === 'gathering' && this.world.now >= this.countdownEndT) this.startCountdown();
     if (this.phase === 'countdown' && this.world.now >= this.countdownEndT) this.activate();
     if (this.phase === 'active') {
       this.consumeSinks();
@@ -242,6 +266,24 @@ export class Match {
   }
 
   // --- transitions -----------------------------------------------------------
+
+  /** minHumans reached with a real join window: hold the room OPEN so more
+   *  captains can gather. No lock — that fires at the countdown transition. */
+  private openGathering(): void {
+    this.phase = 'gathering';
+    this.countdownEndT = this.world.now + this.timings.joinWindowMs;
+    this.applyPolicy();
+  }
+
+  /** Arm the countdown and LOCK the room — from waiting (joinWindowMs <= 0
+   *  legacy path) or from a gathering window that just expired. The one place
+   *  lock() ever fires. */
+  private startCountdown(): void {
+    this.phase = 'countdown';
+    this.countdownEndT = this.world.now + this.timings.countdownMs;
+    this.applyPolicy();
+    this.hooks.lock();
+  }
 
   /** Countdown end → active. Fill seam, field reset, THEN the storm anchors. */
   private activate(): void {
@@ -324,7 +366,7 @@ export class Match {
   private applyPolicy(): void {
     const w = this.world;
     w.damageEnabled = this.phase === 'active';
-    w.respawnEnabled = this.phase === 'waiting' || this.phase === 'countdown';
+    w.respawnEnabled = this.phase === 'waiting' || this.phase === 'gathering' || this.phase === 'countdown';
     w.xpEnabled = this.phase === 'active';
   }
 

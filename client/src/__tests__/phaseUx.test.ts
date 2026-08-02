@@ -15,6 +15,17 @@ describe('matchUx — phase to HUD strings', () => {
     expect(matchUx('waiting', 2, 0, 0).topLine).toBe(`AWAITING CAPTAINS 2/${CONFIG.match.minHumans}`);
   });
 
+  it('gathering: GATHERING CAPTAINS n/fillTo + WEAPONS SAFE + big window seconds (draft copy)', () => {
+    const ux = matchUx('gathering', 3, 30000, 4200);
+    expect(ux.topLine).toBe(`GATHERING CAPTAINS 3/${CONFIG.match.fillTo}`);
+    expect(ux.tag).toBe('WEAPONS SAFE');
+    expect(ux.countdown).toBe('26'); // ceil((30000-4200)/1000) — the JOIN WINDOW deadline
+  });
+
+  it('gathering seconds never go negative', () => {
+    expect(matchUx('gathering', 2, 1000, 5000).countdown).toBe('0');
+  });
+
   it('countdown: big center seconds derived from countdownEndT and serverNow', () => {
     const ux = matchUx('countdown', 2, 15000, 3200);
     expect(ux.topLine).toBe('MATCH STARTING');

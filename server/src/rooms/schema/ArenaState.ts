@@ -72,8 +72,10 @@ export class ArenaState extends Schema {
 
   /** 'waiting' | 'countdown' | 'active' | 'finished' (MatchPhase). */
   @type('string') matchPhase = 'waiting';
-  /** Server ms the countdown ends at; 0 while no countdown is running. The
-   *  client derives its big center countdown from this via serverNow(). */
+  /** CURRENT-PHASE deadline (server ms): the gathering window's end during
+   *  'gathering', the countdown's end during 'countdown', 0 otherwise —
+   *  matchPhase disambiguates. The client derives its big center countdown
+   *  from this via serverNow(). */
   @type('float64') countdownEndT = 0;
   /** Winner's session id once finished; '' until then. */
   @type('string') winnerId = '';

@@ -456,6 +456,7 @@ export const CONFIG = {
   /** Match lifecycle. */
   match: {
     countdown: 15000, // ms — ready-room countdown once minHumans reached
+    joinWindow: 30000, // ms — room stays open/joinable after minHumans before the countdown arms (gathering phase)
     minHumans: 2, // humans required to start the countdown
     fillTo: 20, // total ships at start (drones fill the rest) — 3.1 design target (amendment 7)
     resultsSeconds: 10, // s — results overlay before room disposes

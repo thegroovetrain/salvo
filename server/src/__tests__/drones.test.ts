@@ -187,7 +187,7 @@ interface MatchCtx {
 }
 
 /** Timings that let a SOLO human start the countdown and fill with drones. */
-const SOLO_TIMINGS: MatchTimings = { countdownMs: 100, resultsMs: 200, minHumans: 1 };
+const SOLO_TIMINGS: MatchTimings = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0, minHumans: 1 };
 
 /** A hooks impl whose fillToCapacity tops the world up to CONFIG.match.fillTo. */
 function fillingHooks(w: World, calls: string[], results: unknown[]): MatchHooks {

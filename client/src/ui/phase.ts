@@ -38,6 +38,15 @@ export function matchUx(
       countdown: '',
     };
   }
+  if (phase === 'gathering') {
+    // Join window (draft copy): the room is still open — countdownEndT here is
+    // the GATHERING deadline (the phase string disambiguates the shared field).
+    return {
+      topLine: `GATHERING CAPTAINS ${humans}/${CONFIG.match.fillTo}`,
+      tag: 'WEAPONS SAFE',
+      countdown: String(secondsUntil(countdownEndT, serverNow)),
+    };
+  }
   if (phase === 'countdown') {
     return {
       topLine: 'MATCH STARTING',
