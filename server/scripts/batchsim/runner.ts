@@ -13,12 +13,14 @@
 // match (map, spawns, drones, decks, pilots) derives from it. No Math.random,
 // no Date.now — wall-clock metadata lives in main.ts, outside the run key.
 //
-// Timings: production CONFIG.match values EXCEPT a short 1000ms countdown and
-// minHumans=1. Documented choice: the economy only accrues in the ACTIVE phase
-// (xpEnabled), so the 15s production countdown would only burn batch budget in
-// the ready room where nothing measurable happens; minHumans=1 lets the
-// scripted-captain lobby arm without a second "human". Both ride the same
-// MatchTimings dev seam the drone/solo tests use — no production code changes.
+// Timings: production CONFIG.match values EXCEPT a short 1000ms countdown,
+// minHumans=1, and joinWindowMs=0. Documented choice: the economy only accrues
+// in the ACTIVE phase (xpEnabled), so the 15s production countdown — and the
+// 30s gathering join window, which only matters to real sockets piling into a
+// room — would only burn batch budget in the ready room where nothing
+// measurable happens; minHumans=1 lets the scripted-captain lobby arm without
+// a second "human". All three ride the same MatchTimings dev seam the
+// drone/solo tests use — no production code changes.
 
 import {
   BOON_CATALOG,
@@ -251,6 +253,9 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   const timings: MatchTimings = {
     countdownMs: COUNTDOWN_MS,
     resultsMs: CONFIG.match.resultsSeconds * 1000,
+    // No gathering window in the harness (see module header): the lobby is
+    // fully scripted, so the 30s socket-pile-in window is pure budget burn.
+    joinWindowMs: 0,
     // CAVEAT: production is CONFIG.match.minHumans = 2. A `--captains 1` run
     // therefore models the FUTURE solo-vs-AI shape (Epic 6) / this dev seam,
     // NOT a lobby that ships today — a real solo captain never leaves the

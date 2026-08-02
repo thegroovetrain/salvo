@@ -151,6 +151,7 @@ describe('canOpenElimination — the ordering law for the elimination modal', ()
 
   it('a ready-room sinking is a respawn, not an elimination', () => {
     expect(canOpenElimination('waiting', false, false)).toBe(false);
+    expect(canOpenElimination('gathering', false, false)).toBe(false); // join window = ready room
     expect(canOpenElimination('countdown', false, false)).toBe(false);
   });
 

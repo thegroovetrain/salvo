@@ -31,7 +31,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const PORT = 2599;
 const endpoint = `ws://localhost:${PORT}`;
 // Solo countdown + a phased storm fast enough to funnel the field in minutes.
-const MATCH_OVERRIDE = { minHumans: 1, countdownMs: 3000, resultsMs: 3000 };
+const MATCH_OVERRIDE = { minHumans: 1, countdownMs: 3000, resultsMs: 3000, joinWindowMs: 0 }; // no gathering window — legacy fast path
 // Phased timeline (Story 3.1), compressed: 12s beats close ring 1/2/3 at
 // 36-48s / 84-96s / 132-144s, funneling the dumb drones toward center (they
 // head for the live ring center whenever the storm catches them) — giving a

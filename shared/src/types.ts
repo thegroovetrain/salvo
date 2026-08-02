@@ -21,11 +21,13 @@ export const MSG = {
 /**
  * Match lifecycle phase (public plane — mirrored on the schema as matchPhase).
  * waiting: ready room, drive/aim/fire freely but ALL damage suppressed.
- * countdown: ≥ minHumans present, room locked, countdownEndT set.
+ * gathering: ≥ minHumans present, room still UNLOCKED for the join window
+ *   (CONFIG.match.joinWindow); countdownEndT carries the window's deadline.
+ * countdown: join window elapsed, room locked, countdownEndT set.
  * active: damage live, respawn disabled (death → spectate), storm running.
  * finished: winner decided; results broadcast; room disposes after the overlay.
  */
-export type MatchPhase = 'waiting' | 'countdown' | 'active' | 'finished';
+export type MatchPhase = 'waiting' | 'gathering' | 'countdown' | 'active' | 'finished';
 
 /** A circle: island obstacle or spawn ring. */
 export interface Circle {

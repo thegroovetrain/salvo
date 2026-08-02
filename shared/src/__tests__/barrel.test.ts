@@ -53,10 +53,10 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    // Story 3.1: phased zone timeline + map bump — CONFIG.zone reshape rides
-    // the welcome snapshot, the ArenaState zone plane changes (revealed-only
-    // ring geometry), and the zoneState value set changes.
-    expect(PROTOCOL_VERSION).toBe(18);
+    // Join window before the countdown: MatchPhase gains 'gathering',
+    // ArenaState.countdownEndT is redefined as the current-phase deadline,
+    // and CONFIG.match.joinWindow rides the welcome config snapshot.
+    expect(PROTOCOL_VERSION).toBe(19);
   });
 
   it('re-exports config, wire tags, and functions', () => {

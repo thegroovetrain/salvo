@@ -24,7 +24,7 @@ import { Match, dropPolicy, type MatchHooks } from '../game/match.js';
 import { ArenaRoom } from '../rooms/ArenaRoom.js';
 import { protocolVersionError } from '../rooms/roomOptions.js';
 
-const TIMINGS = { countdownMs: 100, resultsMs: 200 }; // 2 ticks / 4 ticks
+const TIMINGS = { countdownMs: 100, resultsMs: 200, joinWindowMs: 0 }; // 2 ticks / 4 ticks; no gathering window (legacy fast path)
 
 // --- harness (match.test.ts pattern + a bare room for the private teardown) --
 
