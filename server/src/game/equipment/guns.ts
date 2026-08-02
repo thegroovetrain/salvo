@@ -11,11 +11,22 @@
 // ballistics.muzzleSpawn). Pure over a ShipRecord's input + pose + slot pool;
 // the World owns shell storage + event emission.
 
-import { CONFIG, EQUIPMENT_IS_WEAPON, angleDiff, segCircleExit, wrapAngle, type EquipmentState, type ShellState, type Vec2 } from '@salvo/shared';
+import {
+  BARREL_FAN_STEP_RAD,
+  CONFIG,
+  EQUIPMENT_IS_WEAPON,
+  angleDiff,
+  burstPointAlong as sharedBurstPointAlong,
+  muzzleOrTarget as sharedMuzzleOrTarget,
+  wrapAngle,
+  type EquipmentState,
+  type ShellState,
+  type Vec2,
+} from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
 import { consume, tickReload } from './ammo.js';
-import { makeBallistic, muzzleSpawn } from './ballistics.js';
+import { makeBallistic } from './ballistics.js';
 
 /**
  * Clamp `angle` into the arc `[center - halfArc, center + halfArc]`. Returns the
@@ -27,33 +38,6 @@ export function clampToArc(angle: number, center: number, halfArc: number): numb
   if (d > halfArc) return wrapAngle(center + halfArc);
   if (d < -halfArc) return wrapAngle(center - halfArc);
   return wrapAngle(angle);
-}
-
-/** The water disk is centered at the world origin (the boundary clamp too). */
-const MAP_ORIGIN: Vec2 = { x: 0, y: 0 };
-/** Keep a clamped burst point this far inside the water disk (u) so a rim shot
- *  bursts at a legitimate in-water point rather than expiring at the map edge. */
-const MAP_EDGE_EPSILON = 1;
-
-/**
- * Pull `target` back inside the water disk along the ship→target ray: if that
- * segment exits the map circle, clamp to the exit crossing minus a small
- * epsilon. Built on the shared segCircleExit primitive — no hand-rolled root
- * solving. A target already inside the disk is returned unchanged. Guards a rim
- * ship firing outward: a map-edge crossing must not beat the burst at an
- * otherwise in-range point (the shell would silently expire at the edge).
- */
-function clampInsideMap(center: Vec2, target: Vec2, mapRadius: number): Vec2 {
-  const t = segCircleExit(center, target, MAP_ORIGIN, mapRadius);
-  if (t === null) return target; // the ray never leaves the disk
-  // Defense-in-depth (unreachable for a live ship — the boundary clamp keeps
-  // every center polyMax inside the rim): a degenerate exit at the segment
-  // start would collapse the target onto the ship center; keep the range-
-  // clamped target instead (pre-clamp behavior: the shell expires at the edge).
-  if (t <= 0) return target;
-  const len = Math.hypot(target.x - center.x, target.y - center.y);
-  const back = len <= 0 ? 0 : Math.max(0, t - MAP_EDGE_EPSILON / len);
-  return { x: center.x + (target.x - center.x) * back, y: center.y + (target.y - center.y) * back };
 }
 
 /**
@@ -68,14 +52,12 @@ export function burstPoint(ship: ShipRecord, mapRadius: number, rangeU: number):
   return burstPointAlong(ship, mapRadius, rangeU, ship.input.aim);
 }
 
-/** burstPoint generalized over an explicit bearing (Story 2.8): the multi-
- *  barrel fan aims each shell at its OWN range-preserved burst point along its
- *  own fanned bearing — same clicked distance, same range and map clamps.
- *  `minU` is an optional MINIMUM commanded distance (Story 2.8 review, P7 —
- *  COMMAND DETONATION clamps the point out past its own spawn clearance so a
- *  point-blank click can never sit BEHIND the launched fish); it wins over
- *  `rangeU` in the degenerate minU > rangeU case, and 0 (the default) is the
- *  historical clamp byte-for-byte. */
+/** burstPoint generalized over an explicit bearing (Story 2.8) — the
+ *  ShipRecord-shaped wrapper around the shared `burstPointAlong` (sim/aim.ts,
+ *  where the full rationale + the map clamp live): the multi-barrel fan aims
+ *  each shell at its OWN range-preserved burst point along its own fanned
+ *  bearing. Promoted to shared so the client's blast-radius preview circle
+ *  sits at the exact point the shell will burst at. */
 export function burstPointAlong(
   ship: ShipRecord,
   mapRadius: number,
@@ -83,12 +65,7 @@ export function burstPointAlong(
   dir: number,
   minU = 0,
 ): Vec2 {
-  const dist = Math.min(Math.max(ship.input.aimDist, minU), Math.max(rangeU, minU));
-  const target = {
-    x: ship.state.x + Math.cos(dir) * dist,
-    y: ship.state.y + Math.sin(dir) * dist,
-  };
-  return clampInsideMap(ship.state, target, mapRadius);
+  return sharedBurstPointAlong(ship.state, ship.input.aimDist, mapRadius, rangeU, dir, minU);
 }
 
 /**
@@ -112,19 +89,8 @@ export function gunTarget(ship: ShipRecord, mapRadius: number): Vec2 {
  * the cannon/star-shell rows, Story 1.7).
  */
 export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shellRadius: number): Vec2 {
-  const muzzle = muzzleSpawn(ship, dir, shellRadius);
-  const targetDist = Math.hypot(target.x - ship.state.x, target.y - ship.state.y);
-  const muzzleDist = Math.hypot(muzzle.x - ship.state.x, muzzle.y - ship.state.y);
-  return targetDist <= muzzleDist + shellRadius ? { x: target.x, y: target.y } : muzzle;
+  return sharedMuzzleOrTarget(ship.state, ship.hullId, dir, target, shellRadius);
 }
-
-/**
- * rad — the fixed angular spread between ADJACENT shells of a multi-barrel
- * fan (Story 2.8, TWIN/TRIPLE MOUNT). DRAFT HANDWAVE (implementer-drafted, no
- * shared constant by wave-2 ruling; 2.10's evidence pass may promote/tune it):
- * 3° reads as a volley at typical gun ranges without shotgunning the blast.
- */
-const BARREL_FAN_STEP_RAD = (3 * Math.PI) / 180;
 
 /**
  * Gun fire control against one slot pool: `stats.gun.barrels` shells (1..3 —

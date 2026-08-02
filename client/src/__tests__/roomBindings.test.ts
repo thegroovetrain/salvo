@@ -78,6 +78,11 @@ function setup() {
     radar: { onSweepSample: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
+    // The own-private preview seams (aim-preview cycle): the burst ring's
+    // effective radius and the own-mine rings. Both fail to `undefined` here,
+    // which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     onOwnStats: vi.fn(),
@@ -157,6 +162,11 @@ function setupChannels() {
     clock: { addSample: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
+    // The own-private preview seams (aim-preview cycle): the burst ring's
+    // effective radius and the own-mine rings. Both fail to `undefined` here,
+    // which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: decoysSync },
     colors: vi.fn(() => null),
@@ -188,7 +198,7 @@ function eventFrame(event: unknown): unknown {
   return { t: 200, tick: 2, ackSeq: 0, spec: true, contacts: [], mines: [], events: [event] };
 }
 
-function setupEvents() {
+function setupEvents(over: Record<string, unknown> = {}) {
   const room = fakeRoom();
   const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
   const conn = { room, welcome: {}, sink } as unknown as Connection;
@@ -201,14 +211,25 @@ function setupEvents() {
     clock: { addSample: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
+    // The own-private preview seams (aim-preview cycle): the burst ring's
+    // effective radius and the own-mine rings. Both fail to `undefined` here,
+    // which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    projectiles: { onBurst, onBoom, onBallisticUpdate },
+    projectiles: {
+      onBurst: over.onBurst ?? onBurst,
+      onBoom,
+      onBallisticUpdate,
+      ownFireOf: over.ownFireOf ?? (() => null),
+    },
     effects: { spawnEffect },
     onSunkObserved: vi.fn(),
     onSpectate: vi.fn(),
     colors: vi.fn(() => null),
     ordnanceHue: vi.fn(() => 0),
+    ...(over.ownBurstRadius ? { ownBurstRadius: over.ownBurstRadius } : {}),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
   return { sink, onBurst, spawnEffect, onBallisticUpdate };
@@ -220,7 +241,35 @@ describe('bindRoom burst events', () => {
     sink.handler(eventFrame({ k: 'burst', id: 'shell-7', x: 300, y: -120 }));
     expect(onBurst).toHaveBeenCalledTimes(1);
     expect(onBurst).toHaveBeenCalledWith({ k: 'burst', id: 'shell-7', x: 300, y: -120 });
-    expect(spawnEffect).toHaveBeenCalledWith('burst', 300, -120);
+    // An UNCORRELATED burst (not ours) keeps the CONFIG-default ring radius:
+    // the wire carries no radius, and an onlooker must not read one off it.
+    expect(spawnEffect).toHaveBeenCalledWith('burst', 300, -120, 1, undefined);
+  });
+
+  // P1(c): the ring is sized off a CLAIM, never off the near-hull look. The
+  // wiring must read the claim BEFORE onBurst consumes it, and must pass what
+  // the claim says — not what the shell was dressed as.
+  it('sizes the ring off the track’s claim, and reads it BEFORE the track is retired', () => {
+    const calls: string[] = [];
+    const { sink, spawnEffect } = setupEvents({
+      ownFireOf: (id: string) => {
+        calls.push(`read:${id}`);
+        return 'cannon';
+      },
+      onBurst: () => calls.push('retire'),
+      ownBurstRadius: (own: unknown) => (own === 'cannon' ? 77 : undefined),
+    });
+    sink.handler(eventFrame({ k: 'burst', id: 'shell-7', x: 300, y: -120 }));
+    expect(calls).toEqual(['read:shell-7', 'retire']); // order is load-bearing
+    expect(spawnEffect).toHaveBeenCalledWith('burst', 300, -120, 1, 77);
+  });
+
+  it('leaves an UNCLAIMED near-hull shell (an enemy’s, or our own 2nd barrel) on the default', () => {
+    // ownFireOf answers null for anything that never claimed the latch — even
+    // though roomBindings dressed it with the ratified 'gun' look.
+    const { sink, spawnEffect } = setupEvents({ ownFireOf: () => null });
+    sink.handler(eventFrame({ k: 'burst', id: 'shell-9', x: 0, y: 0 }));
+    expect(spawnEffect).toHaveBeenCalledWith('burst', 0, 0, 1, undefined);
   });
 });
 
@@ -257,6 +306,11 @@ describe('bindRoom own sunk', () => {
       clock: { addSample: vi.fn() },
       contacts: { pushFrame: vi.fn() },
       mines: { sync: vi.fn() },
+      // The own-private preview seams (aim-preview cycle): the burst ring's
+      // effective radius and the own-mine rings. Both fail to `undefined` here,
+      // which is exactly the pre-stats behavior (CONFIG default / no rings).
+      ownBurstRadius: () => undefined,
+      ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
@@ -337,6 +391,11 @@ function setupToasts(spectating = false) {
     clock: { addSample: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
+    // The own-private preview seams (aim-preview cycle): the burst ring's
+    // effective radius and the own-mine rings. Both fail to `undefined` here,
+    // which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
@@ -537,9 +596,14 @@ function setupWater(ownFire: OwnFire = null) {
     contacts: { pushFrame: vi.fn(), ids: () => [], get: () => null },
     contactViews: { flash },
     mines: { sync: vi.fn() },
+    // The own-private preview seams (aim-preview cycle): the burst ring's
+    // effective radius and the own-mine rings. Both fail to `undefined` here,
+    // which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    projectiles: { onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn() },
+    projectiles: { onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(), ownFireOf: () => null },
     effects: { spawnEffect },
     shake: { trigger },
     audio: { play },
@@ -558,7 +622,7 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
   it('an OWN cannon shot lands with cannon weight: heavy muzzle, heavy report, cannon look', () => {
     const { sink, play, spawnEffect, onShell } = setupWater('cannon');
     sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'cannon');
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'cannon', 'cannon');
     expect(spawnEffect).toHaveBeenCalledWith('muzzleHeavy', 0, 0);
     expect(play).toHaveBeenCalledWith('fireCannon'); // the heavier report, finally played
   });
@@ -566,7 +630,8 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
   it('an OWN gun shot is unchanged — the ordinary flash and the gun crack', () => {
     const { sink, play, spawnEffect, onShell } = setupWater('gun');
     sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'gun');
+    // A REAL claim: look 'gun' AND claim 'gun' (this one may size a burst ring).
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'gun', 'gun');
     expect(spawnEffect).toHaveBeenCalledWith('muzzle', 0, 0);
     expect(play).toHaveBeenCalledWith('fireGun');
   });
@@ -574,7 +639,10 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
   it('with NO latch (nothing fired recently) an own reveal falls back to the gun', () => {
     const { sink, play, spawnEffect, onShell } = setupWater(null);
     sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'gun');
+    // The ratified fallback: it LOOKS and SOUNDS like our gun (pre-2.9
+    // behavior, unchanged) but it CLAIMED nothing — the third argument is the
+    // burst-ring authority, and a guess is not evidence.
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'gun', null);
     expect(spawnEffect).toHaveBeenCalledWith('muzzle', 0, 0);
     expect(play).toHaveBeenCalledWith('fireGun');
   });
@@ -583,7 +651,7 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
     const { sink, play, spawnEffect, onShell } = setupWater('cannon');
     // Far from our hull: this is somebody else's shell, revealed at our fog edge.
     sink.handler(victimFrame([{ k: 'shell', id: 'e1', x: 900, y: 0, vx: 130, vy: 0, t: 900 }], {}));
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), null);
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 'e1' }), null, null);
     expect(spawnEffect).not.toHaveBeenCalled(); // no visible hull there → no flash
     expect(play).not.toHaveBeenCalled(); // ...and certainly no own-fire cue
   });
@@ -591,7 +659,7 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
   it('marks an own TORPEDO as ours (styled from own doctrine at launch)', () => {
     const { sink, play, onShell } = setupWater('torpedo');
     sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'torpedo');
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), 'torpedo', 'torpedo');
     expect(play).toHaveBeenCalledWith('fireTorp');
   });
 
@@ -607,7 +675,7 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
     // would tell the player their doctrine is in the water when the enemy's is.
     const { sink, onShell } = setupWater('cannon');
     sink.handler(victimFrame([{ k: 'torp', id: 't1', x: 0, y: 0, vx: 60, vy: 0, t: 900 }], {}));
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), null);
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), null, null);
   });
 
   it('keeps the pre-2.9 own-fire WHOOSH on the near-hull heuristic alone', () => {
@@ -629,8 +697,8 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
       { k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 },
       { k: 'shell', id: 's2', x: 0, y: 0, vx: -130, vy: 0, t: 900 },
     ], {}));
-    expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 's1' }), 'cannon');
-    expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 's2' }), 'gun');
+    expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 's1' }), 'cannon', 'cannon');
+    expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 's2' }), 'gun', null);
     expect(spawnEffect).toHaveBeenNthCalledWith(1, 'muzzleHeavy', 0, 0);
     expect(spawnEffect).toHaveBeenNthCalledWith(2, 'muzzle', 0, 0);
     expect(play).toHaveBeenNthCalledWith(1, 'fireCannon');
@@ -644,8 +712,8 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
     sink.handler(victimFrame([{ k: 'shell', id: 'e1', x: 900, y: 0, vx: 130, vy: 0, t: 900 }], {}));
     sink.handler(victimFrame([{ k: 'torp', id: 'e2', x: 900, y: 0, vx: 60, vy: 0, t: 900 }], {}));
     expect(ownFireWeapon).not.toHaveBeenCalled();
-    expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 'e1' }), null);
-    expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 'e2' }), null);
+    expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 'e1' }), null, null);
+    expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 'e2' }), null, null);
   });
 
   it('gives an own STAR SHELL its own report — and the ordinary shell look', () => {
@@ -656,7 +724,7 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
     sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
     expect(play).toHaveBeenCalledWith('fireStarShells');
     expect(play).not.toHaveBeenCalledWith('fireGun');
-    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'starShells');
+    expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'starShells', 'starShells');
     expect(spawnEffect).toHaveBeenCalledWith('muzzle', 0, 0); // not the cannon's heavy flash
   });
 });

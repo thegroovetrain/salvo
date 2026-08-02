@@ -28,15 +28,79 @@
 
 import { Graphics } from 'pixi.js';
 import type { Container } from 'pixi.js';
-import type { MineView } from '@salvo/shared';
+import { CONFIG, type MineView } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import { dashArcs } from '../util/math.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 
 export type { HueFor };
 
 const O = CLIENT_CONFIG.ordnance;
+const R = CLIENT_CONFIG.mineRings;
+const P = CLIENT_CONFIG.aimPreview;
 const RING_R = 10; // u (Eric 2026-07-22: the mine graphic read a bit small)
 const DOT_R = 3.5; // u
+
+/**
+ * The OWNER'S live mine numbers, fed in every sync (they are effectiveStats
+ * values, so a boon fitted this second must move the rings this second). The
+ * server reads these same owner stats when a mine trips or blasts, so the rings
+ * ARE the mine's ground truth, not a decoration of it.
+ *
+ * `acquire` is the SELF-PROPELLED doctrine's acquisition reach, or null when
+ * the owner does not hold that doctrine (no doctrine, no ring).
+ *
+ * `now` is THE FRAME'S OWN TIMESTAMP (`FrameMsg.t`), not a local clock reading,
+ * and that distinction is the whole accuracy of the arming dim: `armedAt` is
+ * not on the wire and does not need to be — these are OUR mines and we watched
+ * them appear — but only if both ends of the comparison come from the same
+ * authoritative clock. Dating first-seen by local receive time instead charges
+ * the mine for the transport delay and holds the dim systematically late.
+ */
+export interface OwnMineRings {
+  blast: number;
+  trigger: number;
+  acquire: number | null;
+  now: number;
+}
+
+/** One own-mine radius ring. STYLE, not hue, is what separates them (all three
+ *  render in the dropper's personal color — DESIGN.md dual-coding). */
+export interface MineRing {
+  r: number;
+  style: 'solid' | 'dashed' | 'dotted';
+  alpha: number;
+}
+
+/**
+ * Pure: the rings an OWN mine draws. Solid blast (the killing area), dashed
+ * trigger (what sets it off), sparse-dotted acquisition (only under the
+ * SELF-PROPELLED doctrine — the water it hunts). `armed` false dims every ring
+ * by `armingScale`: a mine that cannot trip yet must not draw a live trip ring.
+ */
+export function ownMineRings(p: OwnMineRings, armed: boolean): MineRing[] {
+  const scale = armed ? 1 : R.armingScale;
+  const rings: MineRing[] = [
+    { r: p.blast, style: 'solid', alpha: R.blastAlpha * scale },
+    { r: p.trigger, style: 'dashed', alpha: R.triggerAlpha * scale },
+  ];
+  if (p.acquire !== null) rings.push({ r: p.acquire, style: 'dotted', alpha: R.acquireAlpha * scale });
+  return rings;
+}
+
+/** Pure: has a mine we first saw at `seenAt` finished arming by `now`? Both are
+ *  FRAME timestamps, so the window is measured on the server's own clock. A
+ *  `seenAt` of -Infinity means "already armed when we first laid eyes on it" —
+ *  the rebuild/rejoin case (see Mines.sync's first-frame rule). */
+export function mineArmed(seenAt: number, now: number): boolean {
+  return now - seenAt >= CONFIG.mine.armDelay;
+}
+
+/** Pure: a redraw key for a ring set — the sprite redraws only when this
+ *  changes (a boon lands, or the mine finishes arming), never per frame. */
+export function ringsKey(rings: readonly MineRing[]): string {
+  return rings.map((r) => `${r.style}:${r.r}:${r.alpha.toFixed(3)}`).join('|');
+}
 
 /** What changed between the sprites we hold and the incoming mine list. */
 export interface MineDiff {
@@ -99,10 +163,20 @@ interface MineSprite extends HueState, MinePos {
   bearing: number | null;
   /** Units of creep still owed before the next wake dot drops. */
   wakeIn: number;
+  /** Server time (ms) we first saw this mine — the arming-window clock. */
+  seenAt: number;
+  /** The own-mine radius rings currently painted (empty for an enemy mine),
+   *  plus their redraw key, so a per-frame sync is a no-op until something
+   *  actually changes. */
+  rings: MineRing[];
+  ringsKey: string;
 }
 
 export class Mines {
   private readonly sprites = new Map<string, MineSprite>();
+  /** Has any frame been synced yet? The FIRST one is a rejoin snapshot whose
+   *  mines are already on the water (see sync), not a batch of fresh drops. */
+  private synced = false;
 
   /**
    * `ownLayer` = chartRoot (fog-immune); `enemyLayer` = worldRoot.
@@ -122,18 +196,51 @@ export class Mines {
   /** Reconcile sprites against this observer's mine list for the tick. `hueFor`
    *  resolves each mine's dropper id (`by`) → its personal hue (Story 1.12), or
    *  null while the roster hasn't synced — those markers boot on the amber
-   *  fallback and recolor here on a later tick once the hue lands. */
-  sync(mines: readonly MineView[], hueFor: HueFor): void {
+   *  fallback and recolor here on a later tick once the hue lands.
+   *
+   *  `own` carries the OWNER's live mine radii + the server clock: OUR mines
+   *  draw their blast/trigger(/acquisition) rings always-on from it. Omitted
+   *  (tests, and any caller that has no own stats yet) = markers only, exactly
+   *  as before. An enemy's mine NEVER draws a ring — their numbers are theirs. */
+  sync(mines: readonly MineView[], hueFor: HueFor, own?: OwnMineRings): void {
     const { add, move, remove } = reconcileMines(this.sprites, mines);
+    // THE FIRST SYNCED FRAME is a rejoin, not a drop: every mine already on the
+    // water when we arrive has been there for some unknowable time, and most of
+    // them are long armed. Stamping them as first-seen NOW would flash the
+    // whole field back to the arming dim for 3s after any reconnect or reload —
+    // a lie about live ordnance. They come up ARMED; anything laid after this
+    // frame is a real drop and dims honestly.
+    const seenAt = this.synced ? (own?.now ?? 0) : -Infinity;
+    this.synced = true;
     for (const id of remove) this.despawn(id);
-    for (const m of add) this.spawn(m, hueFor);
+    for (const m of add) this.spawn(m, hueFor, own, seenAt);
     for (const m of move) this.moveTo(m); // SELF-PROPELLED: the mine is under way
     for (const s of this.sprites.values()) {
       retryHue(s, hueFor, (color) => {
         s.color = color;
-        this.drawMarker(s.g, s.own, color, s.bearing);
+        this.redraw(s);
       });
+      this.refreshRings(s, own);
     }
+  }
+
+  /** Re-evaluate one own sprite's rings against the current owner stats +
+   *  clock, redrawing ONLY when they actually changed (a boon landed, or the
+   *  mine just finished arming and snaps from dim to full). */
+  private refreshRings(s: MineSprite, own: OwnMineRings | undefined): void {
+    if (!s.own || own === undefined) return;
+    const rings = ownMineRings(own, mineArmed(s.seenAt, own.now));
+    const key = ringsKey(rings);
+    if (key === s.ringsKey) return;
+    s.rings = rings;
+    s.ringsKey = key;
+    this.redraw(s);
+  }
+
+  /** The whole sprite: marker + (own) radius rings, in its current hue. */
+  private redraw(s: MineSprite): void {
+    this.drawMarker(s.g, s.own, s.color, s.bearing);
+    for (const ring of s.rings) drawRing(s.g, ring, s.color);
   }
 
   /** Where a held mine's SPRITE actually sits, and the course it is making good
@@ -144,16 +251,29 @@ export class Mines {
     return s ? { x: s.g.position.x, y: s.g.position.y, bearing: s.bearing } : null;
   }
 
-  private spawn(m: MineView, hueFor: HueFor): void {
+  /** The radius rings a held mine currently draws (empty for an enemy mine, or
+   *  before owner stats arrive) — the ring tests' render-state seam, without
+   *  reaching into the display list. */
+  ringsAt(id: string): readonly MineRing[] {
+    return this.sprites.get(id)?.rings ?? [];
+  }
+
+  private spawn(m: MineView, hueFor: HueFor, own: OwnMineRings | undefined, seenAt: number): void {
     const g = new Graphics();
     const { color, colored, rev } = resolveHue(m.by, hueFor);
-    this.drawMarker(g, m.own, color, null);
     g.position.set(m.x, m.y);
     (m.own ? this.ownLayer : this.enemyLayer).addChild(g);
-    this.sprites.set(m.id, {
+    const s: MineSprite = {
       g, by: m.by, own: m.own, colored, rev, color,
       x: m.x, y: m.y, bearing: null, wakeIn: O.creepWakeSpacing,
-    });
+      // A mine appearing after the first synced frame is one we just dropped
+      // (own mines never leave our own frame list), so first-seen IS the drop
+      // time — dated by the FRAME's clock, the same one `now` reads.
+      seenAt, rings: [], ringsKey: '',
+    };
+    this.sprites.set(m.id, s);
+    this.refreshRings(s, own); // draws the rings; redraw() paints the marker too
+    if (s.rings.length === 0) this.drawMarker(g, m.own, color, null);
     if (m.own) this.onOwnMineSpawn?.(m);
   }
 
@@ -176,7 +296,7 @@ export class Mines {
     s.g.position.set(m.x, m.y);
     if (s.bearing === bearing) return;
     s.bearing = bearing;
-    this.drawMarker(s.g, s.own, s.color, bearing);
+    this.redraw(s);
   }
 
   /**
@@ -240,4 +360,27 @@ export class Mines {
       .lineTo(cx * (RING_R + O.creepTickLen), cy * (RING_R + O.creepTickLen))
       .stroke({ width: 1.5, color, alpha });
   }
+}
+
+/**
+ * One own-mine radius ring in the dropper's hue, in the sprite's LOCAL frame
+ * (the graphic is positioned at the mine). Style is the channel that separates
+ * the radii — solid blast, dashed trigger, sparse-dotted acquisition — so the
+ * set reads without color vision and without motion.
+ */
+function drawRing(g: Graphics, ring: MineRing, color: number): void {
+  const stroke = { width: R.width, color, alpha: ring.alpha };
+  if (ring.style === 'solid') {
+    g.circle(0, 0, ring.r).stroke(stroke);
+    return;
+  }
+  const dashed = ring.style === 'dashed';
+  for (const [a0, a1] of dashArcs(
+    dashed ? P.dashSegments : P.dotSegments,
+    dashed ? P.dashDuty : P.dotDuty,
+  )) {
+    g.moveTo(Math.cos(a0) * ring.r, Math.sin(a0) * ring.r);
+    g.arc(0, 0, ring.r, a0, a1);
+  }
+  g.stroke(stroke);
 }

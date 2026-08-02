@@ -183,12 +183,19 @@ describe('shared barrel', () => {
     expect(CONFIG.mine.blastRadius).toBeGreaterThan(CONFIG.mine.triggerRadius);
     expect(CONFIG.mine.maxLive).toBe(5);
     expect(CONFIG.mine.damage).toBe(45);
-    expect(CONFIG.mine.placeRange).toBe(90);
+    // The placement leash (Eric ruling 2026-08-02): 90u put the drop point
+    // inside your own wake; 150u lets a Mine Layer actually seed water.
+    expect(CONFIG.mine.placeRange).toBe(150);
     expect(CONFIG.mine.placeHalfArcDeg).toBe(60);
     expect(CONFIG.mine.foulFactor).toBe(0.5);
     expect(CONFIG.mine.foulDurationMs).toBe(4000);
-    expect(CONFIG.mine.creepSpeed).toBe(8);
-    expect(CONFIG.mine.creepAcquireRange).toBe(60);
+    // The tracking-mine fix (Eric ruling 2026-08-02): acquisition is measured
+    // mine→hull SILHOUETTE (world.ts nearestEnemyHull, the trigger's metric),
+    // so the range is a silhouette reach and must clear the widest trip ring —
+    // a max-mineTrigger 51.5u — with room to close.
+    expect(CONFIG.mine.creepSpeed).toBe(14);
+    expect(CONFIG.mine.creepAcquireRange).toBe(150);
+    expect(CONFIG.mine.creepAcquireRange).toBeGreaterThan(CONFIG.mine.blastRadius);
     expect(CONFIG.decoyBuoy).toEqual({ durationMs: 30000, reloadMs: 20000, maxAmmo: 1 });
   });
 

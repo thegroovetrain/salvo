@@ -39,7 +39,7 @@ import type { ContactViews } from '../render/contacts.js';
 import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
-import type { Mines } from '../render/mines.js';
+import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
@@ -110,6 +110,20 @@ export interface RoomBindingDeps {
    * hull never consults it.
    */
   ownFireWeapon: () => OwnFire;
+  /**
+   * The burst-ring radius for an own-correlated burst, or undefined to keep the
+   * CONFIG default (render/aimPreview.ownBurstRadius over the live own stats).
+   * A function, not a value: effective stats are swapped wholesale whenever a
+   * boon lands, and a captured snapshot would ring yesterday's blast.
+   */
+  ownBurstRadius: (own: OwnFire) => number | undefined;
+  /**
+   * The OWNER's live mine radii for the own-mine rings, stamped with the FRAME
+   * time `t` the caller hands in (the arming window is server-side, so it is
+   * measured against server timestamps, never a local receive time). Undefined
+   * before own stats exist. A function, same reason as ownBurstRadius.
+   */
+  ownMineRings: (t: number) => OwnMineRings | undefined;
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
@@ -310,7 +324,11 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
   // hue (MineView/DecoyView/LitZoneView `by` → deps.ordnanceHue), the same hue for
   // every observer; the own/enemy discriminator (`own`) now only drives the fog
   // layer + brightness inside each renderer.
-  deps.mines.sync(f.mines, deps.ordnanceHue); // reconcile the mine field every tick
+  // Own mines carry their owner-private radius rings (always-on, our stats,
+  // THE FRAME's clock); enemy mines get exactly the marker they always got.
+  // f.t — not a local clock reading: the arming dim measures a server-side
+  // window, so both ends of it have to come off the server's own timestamps.
+  deps.mines.sync(f.mines, deps.ordnanceHue, deps.ownMineRings(f.t));
   // Star-shell lit zones, same reconcile. Frames OMIT the key when the observer
   // sees no zones, so treat a missing key as an empty list.
   const litZones = f.litZones ?? [];
@@ -517,8 +535,10 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
 function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   // The latch is claimed ONCE, and only for a reveal already sitting on our own
   // hull — see the ownFireWeapon dep note (a claim consumes).
-  const own = nearOwnShip(e.x, e.y, deps) ? ownShellWeapon(deps) : null;
-  deps.projectiles.onShell(e, own);
+  const near = nearOwnShip(e.x, e.y, deps);
+  const claim = near ? shellClaim(deps) : null;
+  const own = near ? ownShellWeapon(claim) : null;
+  deps.projectiles.onShell(e, own, claim);
   // Muzzle flash only when the reveal sits on a hull we can see (own ship or a
   // sighted contact) — a mid-flight fog-boundary reveal gets no flash.
   if (nearVisibleShip(e.x, e.y, deps)) {
@@ -528,20 +548,35 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
 }
 
 /**
- * Pure-ish: which own weapon an own-looking SHELL reveal came out of. The
- * latched click intent wins when it agrees with the reveal's KIND — a shell can
- * be the gun, the cannon or a star shell (all three ride the `shell` kind), and
- * a standing TORPEDO claim cannot dress one, so it degrades to the gun.
+ * Pure-ish: the GENUINE claim behind an own-looking SHELL reveal, or null. The
+ * latched click intent counts only when it agrees with the reveal's KIND — a
+ * shell can be the gun, the cannon or a star shell (all three ride the `shell`
+ * kind), and a standing TORPEDO claim cannot dress one.
  *
- * The fallback IS pre-2.9 behavior, and it is where every unclaimed own shell
- * lands: the generic shell look plus the gun crack. Never guesses upward — the
- * cannon's weight (its heavy muzzle, its heavy report, its doctrine look) is
- * spent ONLY against a live claim, so a second shell inside one 400ms window,
- * or an enemy shell revealed on our bow, can never wear it.
+ * Never guesses upward — the cannon's weight (its heavy muzzle, its heavy
+ * report, its doctrine look) is spent ONLY against a live claim, so a second
+ * shell inside one 400ms window, or an enemy shell revealed on our bow, can
+ * never wear it.
  */
-function ownShellWeapon(deps: RoomBindingDeps): OwnFire {
+function shellClaim(deps: RoomBindingDeps): OwnFire {
   const fired = deps.ownFireWeapon();
-  return fired === 'cannon' || fired === 'gun' || fired === 'starShells' ? fired : 'gun';
+  return fired === 'cannon' || fired === 'gun' || fired === 'starShells' ? fired : null;
+}
+
+/**
+ * The LOOK/AUDIO attribution for an own-looking shell reveal: the genuine claim
+ * when there is one, else the ratified pre-2.9 'gun' fallback (see above).
+ *
+ * THE FALLBACK IS NOT EVIDENCE. It fires for any shell surfacing within a hull
+ * length of us — including an ENEMY's shell revealed on our bow, and our own
+ * second/third barrel in a salvo whose one-shot latch the first shell consumed.
+ * That is harmless for a look and a crack, and WRONG for a burst ring: sizing
+ * one off our effective blast radius on the strength of a guess would draw
+ * somebody else's detonation at our numbers. So the burst path takes `claim`
+ * (null here) and never this.
+ */
+function ownShellWeapon(claim: OwnFire): OwnFire {
+  return claim ?? 'gun';
 }
 
 /** Pure: the own-fire cue a claimed shell weapon reports with. The star shell
@@ -576,7 +611,10 @@ function shellFireId(own: OwnFire): 'gun' | 'cannon' | 'starShells' {
 function handleTorp(e: BallisticEvent, deps: RoomBindingDeps): void {
   const near = nearOwnShip(e.x, e.y, deps);
   const own: OwnFire = near && deps.ownFireWeapon() === 'torpedo' ? 'torpedo' : null;
-  deps.projectiles.onShell(e, own);
+  // A torpedo's `own` IS a genuine claim (there is no fallback on this path —
+  // an unclaimed fish renders the generic straight-runner), so it doubles as
+  // the burst-ring authority for a COMMAND DETONATION fish.
+  deps.projectiles.onShell(e, own, own);
   if (near) deps.audio.play(fireTone('torpedo'));
 }
 
@@ -623,15 +661,24 @@ function handleBoom(e: BoomEvent, deps: RoomBindingDeps): void {
 }
 
 /**
- * A gun shell burst at its target point: spawn the burst ring (sized to
- * CONFIG.gun.burstRadius) and terminate the dead-reckoned shell render (same
- * removal semantics as a boom). Damage arrives separately as victim-private
- * `dmg` events; an early-intercept detonation stays on the `boom` spark/splash
- * branch (handleBoom above).
+ * A gun shell burst at its target point: spawn the burst ring and terminate the
+ * dead-reckoned shell render (same removal semantics as a boom). Damage arrives
+ * separately as victim-private `dmg` events; an early-intercept detonation
+ * stays on the `boom` spark/splash branch (handleBoom above).
+ *
+ * The ring is sized to the shooter's EFFECTIVE blast radius when the burst is
+ * OURS (the track was own-correlated at reveal time) and to the CONFIG base
+ * otherwise. That split is deliberate and permanent: our own upgraded blast
+ * should look like what it is, and an onlooker must never be able to measure an
+ * enemy's FRAGMENTATION ladder off a detonation ring — the wire deliberately
+ * carries no radius (see BurstEvent).
  */
 function handleBurst(e: BurstEvent, deps: RoomBindingDeps): void {
+  // Ask the track who fired it BEFORE onBurst retires it (Story 2.9's click
+  // latch is long expired by burst time; the track carries the answer).
+  const radius = deps.ownBurstRadius(deps.projectiles.ownFireOf(e.id));
   deps.projectiles.onBurst(e);
-  deps.effects.spawnEffect('burst', e.x, e.y);
+  deps.effects.spawnEffect('burst', e.x, e.y, 1, radius);
 }
 
 function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {

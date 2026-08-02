@@ -1,7 +1,15 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Container } from 'pixi.js';
-import type { MineView } from '@salvo/shared';
-import { reconcileMines, mineMoved, Mines, type MinePos } from '../render/mines.js';
+import { CONFIG, type MineView } from '@salvo/shared';
+import {
+  reconcileMines,
+  mineArmed,
+  mineMoved,
+  ownMineRings,
+  ringsKey,
+  Mines,
+  type MinePos,
+} from '../render/mines.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const mine = (id: string, own = false, by = 'p1'): MineView => ({ id, x: 0, y: 0, own, by });
@@ -183,5 +191,151 @@ describe('Mines — firer-hue tint (Story 1.12) + own/enemy layer split', () => 
     // Latched now — a further sync must NOT probe the resolved marker again.
     mines.sync([mine('m1', true, 'late')], hueFor);
     expect(hueFor.mock.calls.length).toBe(afterResolve);
+  });
+});
+
+// --- OWN-MINE RINGS (aim-preview cycle) -------------------------------------
+//
+// Your own minefield used to be a set of dots: the numbers that decide whether
+// a hull dies — trip radius, blast radius, and (under SELF-PROPELLED) the water
+// the mine hunts — were invisible to the only player entitled to know them.
+// These rings are owner-private and always-on, dual-coded by LINE STYLE rather
+// than hue (all three render in the dropper's personal color), and dimmed while
+// the mine is still arming. An enemy observer gets none of it.
+
+describe('ownMineRings — the owner-private radius set', () => {
+  const base = { blast: 48, trigger: 32, acquire: null, now: 10_000 };
+
+  it('is blast-solid + trigger-dashed, and NO acquisition ring without the doctrine', () => {
+    const rings = ownMineRings(base, true);
+    expect(rings.map((r) => [r.r, r.style])).toEqual([
+      [48, 'solid'],
+      [32, 'dashed'],
+    ]);
+  });
+
+  it('adds the sparse-dotted acquisition ring only under SELF-PROPELLED', () => {
+    const rings = ownMineRings({ ...base, acquire: CONFIG.mine.creepAcquireRange }, true);
+    expect(rings).toHaveLength(3);
+    expect(rings[2]).toMatchObject({ r: CONFIG.mine.creepAcquireRange, style: 'dotted' });
+  });
+
+  it('every radius carries a DISTINCT line style — the rings never rely on hue', () => {
+    const styles = ownMineRings({ ...base, acquire: 150 }, true).map((r) => r.style);
+    expect(new Set(styles).size).toBe(styles.length);
+  });
+
+  it('dims the whole set while the mine is still arming, and snaps to full when armed', () => {
+    // LITERAL alphas, deliberately: re-deriving them from CLIENT_CONFIG would
+    // make this test agree with any value the config happens to hold, including
+    // an armingScale of 1 that renders the arming state invisible.
+    expect(ownMineRings(base, true).map((r) => r.alpha)).toEqual([0.3, 0.34]);
+    const arming = ownMineRings(base, false).map((r) => r.alpha);
+    expect(arming[0]).toBeCloseTo(0.12, 9);
+    expect(arming[1]).toBeCloseTo(0.136, 9);
+    // ...and the arming set is unambiguously the quieter of the two.
+    for (let i = 0; i < arming.length; i++) {
+      expect(arming[i]).toBeLessThan(ownMineRings(base, true)[i].alpha);
+    }
+  });
+
+  it('tracks EFFECTIVE radii — a boon that widens the blast widens the ring', () => {
+    const wide = ownMineRings({ ...base, blast: 60 }, true);
+    expect(wide[0].r).toBe(60);
+  });
+});
+
+describe('mineArmed / ringsKey — the client-inferred arming window', () => {
+  it('arms exactly CONFIG.mine.armDelay after the mine was first seen', () => {
+    expect(mineArmed(1000, 1000)).toBe(false);
+    expect(mineArmed(1000, 1000 + CONFIG.mine.armDelay - 1)).toBe(false);
+    expect(mineArmed(1000, 1000 + CONFIG.mine.armDelay)).toBe(true);
+  });
+
+  it('keys a ring set so an unchanged set never redraws, and any change does', () => {
+    const p = { blast: 48, trigger: 32, acquire: null, now: 0 };
+    expect(ringsKey(ownMineRings(p, true))).toBe(ringsKey(ownMineRings(p, true)));
+    expect(ringsKey(ownMineRings(p, true))).not.toBe(ringsKey(ownMineRings(p, false)));
+    expect(ringsKey(ownMineRings(p, true))).not.toBe(
+      ringsKey(ownMineRings({ ...p, acquire: 150 }, true)),
+    );
+  });
+});
+
+describe('Mines — rings are drawn for OWN mines only', () => {
+  const rings = { blast: 48, trigger: 32, acquire: 150, now: 0 };
+
+  it('draws nothing extra when no owner stats are supplied (the pre-feature path)', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00);
+    expect(mines.ringsAt('m1')).toEqual([]);
+  });
+
+  it('gives an OWN mine its rings and an ENEMY mine none', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([mine('m1', true, 'me'), mine('m2', false, 'foe')], () => 0x00ff00, rings);
+    expect(mines.ringsAt('m1')).toHaveLength(3);
+    expect(mines.ringsAt('m2')).toEqual([]);
+  });
+
+  it('snaps an arming mine to full brightness on the tick it goes live', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([], () => 0x00ff00, rings); // the rejoin snapshot (empty water)
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, rings); // a REAL drop
+    const arming = mines.ringsAt('m1')[0].alpha;
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, { ...rings, now: CONFIG.mine.armDelay });
+    expect(mines.ringsAt('m1')[0].alpha).toBeGreaterThan(arming);
+  });
+
+  // P2(a): the arming window is a SERVER-side 3s. Dating first-seen by a local
+  // clock reading instead charges the mine for the transport delay, so the dim
+  // outlives the arming every time by however laggy the connection is.
+  it('dates first-seen by the FRAME clock, so the dim lasts exactly armDelay', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([], () => 0x00ff00, { ...rings, now: 5_000 });
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, { ...rings, now: 5_000 }); // dropped at t=5000
+    const arming = mines.ringsAt('m1')[0].alpha;
+    // One frame short of the window: still arming, to the millisecond.
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, {
+      ...rings,
+      now: 5_000 + CONFIG.mine.armDelay - 1,
+    });
+    expect(mines.ringsAt('m1')[0].alpha).toBe(arming);
+    // The frame that crosses it: live.
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, {
+      ...rings,
+      now: 5_000 + CONFIG.mine.armDelay,
+    });
+    expect(mines.ringsAt('m1')[0].alpha).toBeGreaterThan(arming);
+  });
+
+  // P2(b): a reload/rejoin re-adds a field that has been on the water for
+  // minutes. Treating those as fresh drops flashes live ordnance as "arming"
+  // for 3s — a lie about which of your own mines can kill right now.
+  it('treats the FIRST synced frame as a rejoin: its mines come up ARMED, not arming', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([mine('old', true, 'me')], () => 0x00ff00, { ...rings, now: 900_000 });
+    const rejoined = mines.ringsAt('old')[0].alpha;
+    // Identical to a mine that has sat through its whole arming window.
+    mines.sync([], () => 0x00ff00, rings);
+    mines.sync([mine('fresh', true, 'me')], () => 0x00ff00, { ...rings, now: 0 });
+    mines.sync([mine('fresh', true, 'me')], () => 0x00ff00, { ...rings, now: CONFIG.mine.armDelay });
+    expect(mines.ringsAt('fresh')[0].alpha).toBe(rejoined);
+    // ...and a drop laid AFTER that first frame still dims honestly.
+    mines.sync([mine('later', true, 'me')], () => 0x00ff00, { ...rings, now: 900_000 });
+    expect(mines.ringsAt('later')[0].alpha).toBeLessThan(rejoined);
+  });
+
+  it('follows a mid-life stat change (a boon fitted while the field is out)', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, rings);
+    mines.sync([mine('m1', true, 'me')], () => 0x00ff00, { ...rings, blast: 70 });
+    expect(mines.ringsAt('m1')[0].r).toBe(70);
+  });
+
+  it('never rings an enemy mine, even on the first (rejoin) frame', () => {
+    const mines = new Mines(new Container(), new Container());
+    mines.sync([mine('foe', false, 'them')], () => 0x00ff00, rings);
+    expect(mines.ringsAt('foe')).toEqual([]);
   });
 });

@@ -241,6 +241,11 @@ interface LiveShell {
   launchedAt: number;
   expiresAt: number; // server time (ms) the shell self-terminates
   trailAt: number; // next travel-distance (u) to drop a wake dot (torpedoes only)
+  /** Which OWN weapon this track was DRESSED as (roomBindings' near-own-hull
+   *  heuristic, including its ratified 'gun' fallback for an unclaimed reveal)
+   *  — the LOOK/audio channel only. NOT the burst-ring authority: see the
+   *  `claims` tombstone map, which holds only genuine latch claims. */
+  own: OwnFire;
 }
 
 /**
@@ -260,9 +265,18 @@ export function arcSwellScale(elapsedMs: number, amp: number, periodMs: number =
   return 1 + amp * Math.sin(Math.PI * k);
 }
 
+/** How many own-shot claim tombstones are retained (oldest evicted). One entry
+ *  per own shot; the gun's floor is a 3s reload, so this is minutes of cover
+ *  for a burst that arrives seconds after launch. */
+export const MAX_OWN_CLAIMS = 32;
+
 export class Projectiles {
   private readonly pool: Pool<Graphics>;
   private readonly live = new Map<string, LiveShell>();
+  /** id → the GENUINELY claimed own weapon, kept past the sprite's death (cull
+   *  / lifetime backstop) so a late burst can still be sized off our own stats.
+   *  Bounded, and consumed by the burst/boom that ends the track. */
+  private readonly claims = new Map<string, OwnFire>();
 
   /**
    * `trail` drops a torpedo-wake particle at a world point (wired to the effects
@@ -353,9 +367,19 @@ export class Projectiles {
    * a click we just made (roomBindings' own-fire heuristic — the same one the
    * muzzle flash and own-fire tone already ride); it is null for every other
    * observer, who gets exactly today's look.
+   *
+   * `claimed` is the STRICTER half of that pair: the weapon only when the
+   * click-time latch was genuinely claimed for this reveal. `own` carries a
+   * ratified FALLBACK ('gun' for any unclaimed shell surfacing near our hull,
+   * which is pre-2.9 behavior and includes an ENEMY's shell revealed on our
+   * bow), and that fallback is fine for a look and a crack — but it must never
+   * size a burst ring off OUR effective blast radius. Only `claimed` may.
    */
-  onShell(ev: BallisticEvent, own: OwnFire = null): void {
+  onShell(ev: BallisticEvent, own: OwnFire = null, claimed: OwnFire = null): void {
     if (this.live.has(ev.id)) return;
+    // A GENUINE latch claim is remembered independently of the sprite, because
+    // the burst that needs it arrives long after this track may be gone.
+    if (claimed !== null) this.rememberClaim(ev.id, claimed);
     const gfx = this.pool.acquire();
     const look = lookForReveal(ev.k, own, this.ownModes);
     this.paint(gfx, look);
@@ -372,9 +396,42 @@ export class Projectiles {
       launchedAt: ev.t,
       expiresAt: ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy)),
       trailAt: trailSpacing(look),
+      own,
     };
     this.live.set(ev.id, s);
     this.orient(s);
+  }
+
+  /**
+   * Which own weapon GENUINELY fired the track `id` (a claimed click-time
+   * latch), or null. Read at BURST time so the ring may size itself off our own
+   * effective blast radius (aimPreview.ownBurstRadius) — the wire will never
+   * say, and must not.
+   *
+   * It reads the tombstone map, NOT the live track, because the two ways a
+   * track dies before it bursts are exactly the cases the effective radius
+   * matters most for: the sight-bubble cull (~370u) and the lifetime backstop
+   * both fire long before a boosted gun/cannon shell reaches its 650u+ burst
+   * point. Consulting `live` alone handed every long shot the CONFIG default —
+   * i.e. it failed precisely for the upgraded blasts it exists to draw.
+   */
+  ownFireOf(id: string): OwnFire {
+    return this.claims.get(id) ?? null;
+  }
+
+  /**
+   * Remember a genuine claim past the life of its sprite. BOUNDED by count
+   * (MAX_OWN_CLAIMS, oldest evicted) rather than by a timer: only our OWN shots
+   * ever land here — a few per reload cycle — so the cap is far more headroom
+   * than any shell's flight time needs, and it cannot grow without limit even
+   * if a burst/boom never arrives to consume the entry.
+   */
+  private rememberClaim(id: string, claimed: OwnFire): void {
+    this.claims.delete(id); // re-insert so eviction order is true recency
+    this.claims.set(id, claimed);
+    if (this.claims.size <= MAX_OWN_CLAIMS) return;
+    const oldest = this.claims.keys().next().value;
+    if (oldest !== undefined) this.claims.delete(oldest);
   }
 
   /**
@@ -434,19 +491,25 @@ export class Projectiles {
       launchedAt: ev.t,
       expiresAt: ev.t,
       trailAt: trailSpacing('torpHoming'),
+      own: null, // a track we only learned about from a steer is never ours
     };
     this.live.set(ev.id, s);
     return s;
   }
 
-  /** Terminate the projectile that produced this boom (if we were tracking it). */
+  /** Terminate the projectile that produced this boom (if we were tracking it).
+   *  A boom is terminal, so its claim tombstone is consumed with it. */
   onBoom(ev: BoomEvent): void {
-    if (ev.id) this.remove(ev.id);
+    if (!ev.id) return;
+    this.remove(ev.id);
+    this.claims.delete(ev.id);
   }
 
-  /** Terminate the shell that burst at its target point (same removal as boom). */
+  /** Terminate the shell that burst at its target point (same removal as boom).
+   *  The caller reads ownFireOf FIRST — this consumes the claim. */
   onBurst(ev: BurstEvent): void {
     this.remove(ev.id);
+    this.claims.delete(ev.id);
   }
 
   /**

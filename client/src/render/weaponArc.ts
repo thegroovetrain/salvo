@@ -102,3 +102,35 @@ export function weaponRangeU(stats: EffectiveStats, id: EquipmentId | null): num
 export function weaponRangeHit(aimDist: number, id: EquipmentId | null): boolean {
   return id !== 'mine' || aimDist <= CONFIG.mine.placeRange;
 }
+
+/** A sector wedge's BOUNDARY, in the arc graphic's local (hull-relative) frame:
+ *  the two side rays out of the apex, plus the range arc that closes them. */
+export interface SectorOutline {
+  /** The far endpoint of each side ray (the apex is the local origin), in
+   *  drawing order: the `offset - halfArc` edge first. */
+  rays: [{ x: number; y: number }, { x: number; y: number }];
+  /** The closing range arc: sweep bearings and the radius they run at. */
+  arc: { from: number; to: number; r: number };
+}
+
+/**
+ * Pure: the boundary geometry of the sector `offset ± halfArc` at `radius`.
+ *
+ * The mine's rear placement wedge is the one sector whose radius is REAL — it
+ * is the reachable water, not an indicator (render/firing.ts) — so its edge is
+ * information: a filled gradient-ish wash tells you roughly where the rack can
+ * reach, a stroked boundary tells you exactly. Factored out here, beside the
+ * arc predicates it belongs with, so the drawn boundary is unit-testable and
+ * firing.ts stays a thin Pixi adapter.
+ */
+export function sectorOutline(offset: number, halfArc: number, radius: number): SectorOutline {
+  const from = offset - halfArc;
+  const to = offset + halfArc;
+  return {
+    rays: [
+      { x: Math.cos(from) * radius, y: Math.sin(from) * radius },
+      { x: Math.cos(to) * radius, y: Math.sin(to) * radius },
+    ],
+    arc: { from, to, r: radius },
+  };
+}

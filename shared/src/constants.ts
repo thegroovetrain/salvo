@@ -245,7 +245,16 @@ export const CONFIG = {
     // deg — half-arc of the aimed rear placement sector about `offset`
     // (Story 2.8, amendment 45 — DRAFT value, 2.10 tunes).
     placeHalfArcDeg: 60,
-    placeRange: 90, // u — max distance of the clicked placement point (DRAFT)
+    // u — max distance of the clicked placement point. Eric ruling 2026-08-02:
+    // 90u was barely a hull and a half astern of a battleship (124u long), so
+    // "laying a field" meant dropping mines on your own transom and sailing off
+    // it; 150u is a real leash — you can seed the water you just left, or the
+    // gap you are backing away from, without the rack becoming a ranged weapon
+    // (it stays a fraction of gun/radar reach). Every consumer derives from
+    // this: the rear placement wedge IS drawn at placeRange (render/firing.ts
+    // via weaponArc.weaponRangeU), the client's range-denial gate and the
+    // server's activation check both read it, so the leash moves in one place.
+    placeRange: 150,
     armDelay: 3000, // ms — before it can trigger
     triggerRadius: 32, // u — detonation proximity (enemy pass-over trips it)
     // u — full damage to every non-owner hull within it; > triggerRadius by
@@ -265,10 +274,18 @@ export const CONFIG = {
     // hooks). The doctrine also reduces mine damage (catalog-side effect).
     foulFactor: 0.5, // × maxSpeed AND reverseSpeed while fouled
     foulDurationMs: 4000, // ms — slow window per blast (refresh, don't stack)
-    // --- SELF-PROPELLED MINES doctrine (Story 2.8, exclusive boon) — DRAFT.
+    // --- SELF-PROPELLED MINES doctrine (Story 2.8, exclusive boon).
     // Armed mines creep toward the nearest enemy hull within acquire range.
-    creepSpeed: 8, // u/s — crawl speed of an armed self-propelled mine
-    creepAcquireRange: 60, // u — target acquisition radius around the mine
+    // ACQUISITION IS SILHOUETTE-METRIC (Eric ruling 2026-08-02): the range below
+    // is measured mine→hull POLYGON (pointPolygonDistance — the SAME metric the
+    // trigger uses), never mine→ship center. The old 60u center-metric ring was
+    // strictly INSIDE the trip ring for every hull in the game (hulls are
+    // 85–124u long, so a ship trips the mine at 74–94u CENTER distance): the
+    // doctrine could never acquire anything. 150u of silhouette reach clears
+    // even a max-mineTrigger battleship's 51.5u trip ring by a wide margin, and
+    // 14 u/s is a crawl that can still close it before the hull sails past.
+    creepSpeed: 14, // u/s — crawl speed of an armed self-propelled mine
+    creepAcquireRange: 150, // u — SILHOUETTE-distance acquisition radius
   },
 
   /**

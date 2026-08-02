@@ -16,7 +16,7 @@
 import { describe, it, expect } from 'vitest';
 import { BOON_CATALOG, CONFIG, arcFor, effectiveStats, loadoutFor, resolveBoons } from '@salvo/shared';
 import type { EquipmentId } from '@salvo/shared';
-import { fireArcKind, weaponArcHit, weaponRangeHit, weaponRangeU } from '../render/weaponArc.js';
+import { fireArcKind, sectorOutline, weaponArcHit, weaponRangeHit, weaponRangeU } from '../render/weaponArc.js';
 
 /** The fitted equipment id at a slot for a hull (the client's slotIdsFor path). */
 function idAt(cls: 'torpedoBoat' | 'battleship' | 'mineLayer', slot: number): EquipmentId | null {
@@ -235,5 +235,37 @@ describe('weaponArc — arcFor single-source (Story 1.10)', () => {
     expect(weaponArcHit(0, arc.offset - arc.halfArc, 'torpedo')).toBe(true);
     // …and a hair beyond it is denied — the exact server gate, same primitives.
     expect(weaponArcHit(0, arc.offset + arc.halfArc + 0.001, 'torpedo')).toBe(false);
+  });
+});
+
+// The mine's rear wedge is the one sector whose radius is REAL reach, so its
+// boundary is information: the stroked edge (render/firing.ts sectorEdge) says
+// "exactly this far, exactly this sector" where the fill only suggests it.
+describe('sectorOutline — the placement wedge boundary', () => {
+  it('puts the side rays on the sector edges at the wedge radius', () => {
+    const { rays, arc } = sectorOutline(0, Math.PI / 3, 150);
+    expect(Math.hypot(rays[0].x, rays[0].y)).toBeCloseTo(150, 9);
+    expect(Math.hypot(rays[1].x, rays[1].y)).toBeCloseTo(150, 9);
+    expect(Math.atan2(rays[0].y, rays[0].x)).toBeCloseTo(-Math.PI / 3, 9);
+    expect(Math.atan2(rays[1].y, rays[1].x)).toBeCloseTo(Math.PI / 3, 9);
+    expect(arc).toEqual({ from: -Math.PI / 3, to: Math.PI / 3, r: 150 });
+  });
+
+  it('is the mine’s enforced sector at its true placement reach (never a promise of water the rack cannot reach)', () => {
+    const t = arcFor('mine');
+    if (t.kind !== 'sector') throw new Error('mine must declare a sector');
+    const { rays, arc } = sectorOutline(t.offset, t.halfArc, CONFIG.mine.placeRange);
+    expect(arc.r).toBe(CONFIG.mine.placeRange);
+    expect(arc.to - arc.from).toBeCloseTo(2 * t.halfArc, 12);
+    // Both rays land on the placement leash, astern (offset 180°: x < 0).
+    for (const r of rays) expect(Math.hypot(r.x, r.y)).toBeCloseTo(CONFIG.mine.placeRange, 9);
+    expect(rays[0].x).toBeLessThan(0);
+  });
+
+  it('a degenerate radius collapses to the apex rather than drawing a stray ring', () => {
+    const { rays, arc } = sectorOutline(0, Math.PI / 4, 0);
+    expect(Math.hypot(rays[0].x, rays[0].y)).toBe(0);
+    expect(Math.hypot(rays[1].x, rays[1].y)).toBe(0);
+    expect(arc.r).toBe(0);
   });
 });

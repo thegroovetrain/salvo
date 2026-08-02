@@ -150,6 +150,7 @@ export * from './sim/offers.js';
 export * from './sim/deck.js';
 export * from './sim/collision.js';
 export * from './sim/silhouette.js';
+export * from './sim/aim.js';
 export * from './sim/shell.js';
 export * from './sim/map.js';
 export * from './sim/zone.js';

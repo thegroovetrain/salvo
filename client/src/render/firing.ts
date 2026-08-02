@@ -22,12 +22,13 @@
 import { Container, Graphics } from 'pixi.js';
 import { CONFIG, arcFor, inArc, wrapAngle, type EquipmentId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
-import { fireArcKind, weaponArcHit } from './weaponArc.js';
+import { fireArcKind, sectorOutline, weaponArcHit } from './weaponArc.js';
 
 const AMBER = CLIENT_CONFIG.colors.amber;
 const TORP_TINT = CLIENT_CONFIG.colors.legacy.torpGlow; // cool green — torpedo bow arc (legacy tone)
 const DIM = CLIENT_CONFIG.colors.textMuted;
 const DENIED_RED = CLIENT_CONFIG.colors.denied; // the single denied red
+const EDGE = CLIENT_CONFIG.aimPreview.placementEdge;
 const ARC_R = 72; // u — sector indicator radius (the torpedo's indicative wedge)
 const RETICLE_R = 7; // u — crosshair size
 const IMPACT_R = 4; // u — range-clamped impact marker ring
@@ -122,7 +123,41 @@ export class FiringUX {
     const lit = inArc(aim, wrapAngle(heading + t.offset), t.halfArc) && ammo.hasAmmo;
     const tint = id === 'mine' ? AMBER : TORP_TINT;
     const radius = id === 'mine' ? this.rangeU : ARC_R;
-    this.sector(t.offset, t.halfArc, denied ? DENIED_RED : tint, denied || lit, ammo.reloadFrac, radius);
+    const color = denied ? DENIED_RED : tint;
+    this.sector(t.offset, t.halfArc, color, denied || lit, ammo.reloadFrac, radius);
+    // THE MINE'S wedge alone gets a stroked boundary (see sectorEdge): its
+    // radius is the reachable water, so the edge is a real line on the chart.
+    // The torpedo's ARC_R is indicative — outlining it would draw a hard border
+    // around a distance that means nothing.
+    if (id === 'mine') this.sectorEdge(t.offset, t.halfArc, radius, color, denied || lit);
+  }
+
+  /**
+   * The mine placement wedge's crisp BOUNDARY, stroked over the fill: the two
+   * side rays plus the closing range arc (geometry from weaponArc.sectorOutline
+   * — pure, unit-tested, the same descriptor the fill uses). Where the fill is a
+   * soft wash that fades into the water, this says "the rack reaches EXACTLY
+   * here, in EXACTLY this sector", which is what a captain seeding a field
+   * actually needs to see.
+   *
+   * STATIC — no pulse, so it reads identically at motion=off — and it carries
+   * NO new state: it takes the wedge's own color and its lit/dim/denied verdict
+   * and only chooses an alpha from them, so the dim wedge stays as quiet as it
+   * is today and the denied red stays the denial register's alone.
+   */
+  private sectorEdge(
+    offset: number,
+    halfArc: number,
+    radius: number,
+    color: number,
+    lit: boolean,
+  ): void {
+    const { rays, arc } = sectorOutline(offset, halfArc, radius);
+    const g = this.arcs;
+    g.moveTo(0, 0).lineTo(rays[0].x, rays[0].y);
+    g.arc(0, 0, arc.r, arc.from, arc.to);
+    g.lineTo(0, 0);
+    g.stroke({ width: EDGE.width, color, alpha: lit ? EDGE.alpha : EDGE.dimAlpha });
   }
 
   /** One sector fill (+ reload sweep-back), in the arcs graphic's local frame. */

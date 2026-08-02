@@ -14,12 +14,21 @@
 // ballistic machinery as shells (sight + LOS), so a torpedo materializes at your
 // fog boundary, never at its launch point (see perception.ts / BallisticEvent).
 
-import { CONFIG, EQUIPMENT_IS_WEAPON, inArc, sectorArcFor, wrapAngle, type EquipmentState, type ShellState } from '@salvo/shared';
+import {
+  CONFIG,
+  EQUIPMENT_IS_WEAPON,
+  inArc,
+  minCommandDistance as sharedMinCommandDistance,
+  sectorArcFor,
+  wrapAngle,
+  type EquipmentState,
+  type ShellState,
+} from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import type { ActivationDenial, Equipment } from './index.js';
 import { burstPointAlong, clampToArc } from './guns.js';
 import { consume, tickReload } from './ammo.js';
-import { hullClearOffset, makeBallistic } from './ballistics.js';
+import { makeBallistic } from './ballistics.js';
 
 // The bow sector's ratified shape (Story 1.10): the shared arcFor family is
 // the single arc-shape source — the same descriptor the client's weaponArc
@@ -29,21 +38,14 @@ import { hullClearOffset, makeBallistic } from './ballistics.js';
 // (sectorArcFor throws), never mid-tick.
 const BOW_SECTOR = sectorArcFor('torpedo');
 
-/** u — how far PAST the fish's own spawn point the nearest legal COMMAND
- *  DETONATION point sits (Story 2.8 review, P7). A commanded burst point
- *  inside the bow spawn clearance would lie BEHIND the just-spawned fish:
- *  distToTarget is measured forward along the track, so the fish would never
- *  reach it and would run to the map edge instead of detonating. Clamping the
- *  commanded distance to (spawn offset + epsilon) makes a point-blank command
- *  click burst just past the tube. */
-const COMMAND_MIN_EPSILON = 1;
-
-/** The nearest legal commanded burst distance from the ship CENTER: the fish's
- *  own spawn offset along the bearing (hullClearOffset with the torpedo's
- *  hitRadius + spawnClearance — exactly what makeBallistic uses) plus a small
- *  epsilon, so the burst point is always AHEAD of the spawn point. */
+/** The nearest legal commanded burst distance from the ship CENTER — the
+ *  ShipRecord-shaped wrapper around the shared `minCommandDistance`
+ *  (sim/aim.ts, where the full rationale lives): the fish's own spawn offset
+ *  along the bearing plus a small epsilon, so the commanded burst point is
+ *  always AHEAD of the spawn point. Promoted to shared so the client's command
+ *  aim preview honors the same floor. */
 function minCommandDistance(ship: ShipRecord): number {
-  return hullClearOffset(ship, CONFIG.torpedo.hitRadius + CONFIG.torpedo.spawnClearance) + COMMAND_MIN_EPSILON;
+  return sharedMinCommandDistance(ship.cls.hull.length);
 }
 
 /**

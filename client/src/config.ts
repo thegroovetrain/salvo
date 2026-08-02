@@ -279,6 +279,77 @@ export const CLIENT_CONFIG = {
     creepEpsilon: 0.05, // u
   },
 
+  /**
+   * ORDNANCE AIM PREVIEW (the aim-time answer to "where does this actually go
+   * and what does it actually cover") — render/aimPreview.ts + the own-mine
+   * rings in render/mines.ts. Geometry is NOT here: every point and radius is
+   * computed from the shared aim helpers + own effectiveStats(), so these are
+   * purely how loud the drawing is.
+   *
+   * The whole block is deliberately QUIET (implementer-drafted, Eric's
+   * guardrail: "information noise must never bury the hunt"). A preview is a
+   * hairline the eye can find when it looks for it and ignore when it does not
+   * — never a second HUD painted over the water. Every value is STATIC: the
+   * preview never pulses, so it reads identically at motion=off (DESIGN.md
+   * dual-coding + motion law). Radii are distinguished by LINE STYLE (solid /
+   * dashed / dotted), never by color alone.
+   */
+  aimPreview: {
+    lineWidth: 1, // px-ish (world units at zoom 1) — travel-line stroke
+    lineAlpha: 0.26, // the travel line: present, never competing with the reticle
+    /** The blast circle at the true burst point: a hairline ring + a whisper of
+     *  fill so the covered water reads as an area, not just an outline. */
+    burstWidth: 1.2,
+    burstAlpha: 0.4,
+    burstFillAlpha: 0.05,
+    /** A path an island blocks short of the burst point: the line clips at the
+     *  rock and the circle drops to this alpha — the "this shot does not get
+     *  there" tell (never a new color; the red register is denial only). */
+    blockedAlpha: 0.14,
+    /** ACOUSTIC HOMING's acquisition band along the initial track (the straight
+     *  line is only where the fish STARTS — the band is the honesty device). */
+    bandAlpha: 0.07, // interior wash
+    bandEdgeAlpha: 0.13, // the two rails
+    /** Dashed/dotted rings: how many segments the full circle is cut into, and
+     *  what fraction of each segment is ink. Dotted is sparser AND thinner-duty
+     *  than dashed, so the three own-mine rings separate at a glance. */
+    dashSegments: 28,
+    dashDuty: 0.55,
+    dotSegments: 40,
+    dotDuty: 0.22,
+    /**
+     * The MINE PLACEMENT wedge's stroked boundary (render/firing.ts
+     * sectorEdge): the two side rays + the closing range arc, over the existing
+     * fill. The mine is the only sector whose radius is REAL reach rather than
+     * an indicator, so its edge is information and deserves a hard line instead
+     * of a wash that fades out. Static (no pulse). `dimAlpha` keeps the
+     * not-ready / out-of-arc wedge as quiet as it is today — the boundary is
+     * legible there, never loud.
+     */
+    placementEdge: {
+      width: 1.2,
+      alpha: 0.55,
+      dimAlpha: 0.18,
+    },
+  },
+
+  /**
+   * OWN-MINE RINGS (render/mines.ts) — always-on, owner-private radii drawn in
+   * the dropper's personal hue on the fog-immune chart layer: solid blast,
+   * dashed trigger, sparse-dotted acquisition (SELF-PROPELLED only). Enemies
+   * see exactly today's marker and nothing else.
+   */
+  mineRings: {
+    width: 1, // ring stroke width
+    blastAlpha: 0.3,
+    triggerAlpha: 0.34,
+    acquireAlpha: 0.16,
+    /** Multiplier applied to every ring alpha while the mine is still ARMING
+     *  (client-inferred: first-seen + CONFIG.mine.armDelay). Dim = "not live
+     *  yet"; it snaps to full the moment it arms. */
+    armingScale: 0.4,
+  },
+
   /** Own/contact ship view feel constants. */
   ship: {
     flashMs: 130, // ms — hit-flash duration

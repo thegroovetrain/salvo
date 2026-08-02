@@ -7,7 +7,7 @@
 // dazzled observer's shrunken sight) — plus the vacated-owner CONFIG fallback.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
+import { CONFIG, HULL_IDS, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
@@ -387,8 +387,8 @@ describe('SELF-PROPELLED MINES (mineSelfPropelled) — armed creep toward the ne
 
   it('an ARMED mine creeps at creepSpeed toward an enemy hull inside acquireRange; unarmed and doctrine-less mines sit still', () => {
     const { w } = creepBoard();
-    // Beam-on prey: center 55u away (inside the 60u acquire radius) but its
-    // silhouette stays clear of the 32u trigger ring — it attracts, not trips.
+    // Beam-on prey: silhouette ~48u off the mine — well inside the 150u acquire
+    // reach, well outside the 32u trigger ring. It attracts, it does not trip.
     place(w, 'prey', 55, 0, Math.PI / 2);
     w.mines.set('armed', { id: 'armed', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     w.mines.set('cold', { id: 'cold', ownerId: 'o', x: 0, y: 30, armedAt: 999_999 }); // still arming
@@ -401,12 +401,87 @@ describe('SELF-PROPELLED MINES (mineSelfPropelled) — armed creep toward the ne
     expect(w.mines.get('plain')!.x).toBe(0); // a vacated/doctrine-less owner's mines sit still
   });
 
+  // THE TRACKING FIX (Eric ruling 2026-08-02). PRE-FIX this test FAILS: with
+  // acquisition measured mine→ship CENTRE at 60u, a battleship whose bow is 78u
+  // off the mine (centre 140u) is invisible to the doctrine — and by the time
+  // its centre reaches 60u the hull is 62u long, so its silhouette crossed the
+  // 32u trip ring at centre ≈94u and the mine already detonated. Every hull in
+  // the game is 88–124u long, so the old acquire ring lived strictly INSIDE the
+  // trip ring: self-propelled mines could never acquire anything, ever.
+  it('acquires a BOW-ON hull whose CENTRE is far outside the old 60u ring (the tracking fix)', () => {
+    const { w } = creepBoard();
+    // Battleship bearing down bow-first: centre 140u out (>60), silhouette 78u
+    // (<150), trip ring 32u — acquisition must precede the trip by design.
+    place(w, 'prey', 140, 0, Math.PI, 'battleship');
+    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.step();
+    const m = w.mines.get('m')!;
+    expect(m.x).toBeCloseTo(CONFIG.mine.creepSpeed * (DT / 1000), 6); // under way toward the bow
+    expect(m.y).toBeCloseTo(0, 6);
+  });
+
+  it('on a real approach the mine is CLOSING before the hull ever trips it', () => {
+    const { w } = creepBoard();
+    // A battleship steaming at the minefield from 400u out, full ahead.
+    const prey = place(w, 'prey', 400, 0, Math.PI, 'battleship');
+    setInput(prey, { throttle: 1, aim: Math.PI, seq: 2 });
+    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    let travelled = 0;
+    for (let i = 0; i < 400 && w.mines.has('m'); i++) {
+      w.step();
+      const m = w.mines.get('m');
+      if (m) travelled = m.x;
+    }
+    expect(w.mines.has('m')).toBe(false); // it tripped (the hull reached it)
+    // ...and it did REAL closing work first — several seconds of creep, not the
+    // zero units the pre-fix acquisition managed on every approach.
+    expect(travelled).toBeGreaterThan(20);
+  });
+
+  it('a BOON-STACKED trigger ring still cannot pre-empt acquisition', () => {
+    const { w, o } = creepBoard();
+    for (let i = 0; i < 5; i++) w.applyBoon(o, 'mineTrigger'); // max stack
+    const trigger = o.stats.mine.triggerRadius;
+    expect(trigger).toBeGreaterThan(CONFIG.mine.triggerRadius); // the ring really grew
+    // The invariant the fix has to hold: acquisition reach outranges the widest
+    // trip ring plus the LONGEST hull's half-length, so no approach on any
+    // aspect can trip before it is acquired. Computed over every hull in the
+    // game (drone envelopes included) rather than pinned to today's battleship,
+    // so a longer hull shipping later fails this instead of silently reopening
+    // the bug.
+    const longestHull = Math.max(...HULL_IDS.map((id) => hullEnvelope(id).hull.length));
+    expect(CONFIG.mine.creepAcquireRange).toBeGreaterThan(trigger + longestHull / 2);
+    // And on the water: a battleship bow-on at 140u centre is acquired even
+    // with the widened ring standing.
+    place(w, 'prey', 140, 0, Math.PI, 'battleship');
+    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.step();
+    expect(w.mines.get('m')!.x).toBeCloseTo(CONFIG.mine.creepSpeed * (DT / 1000), 6);
+  });
+
   it('no enemy inside acquireRange ⇒ the mine holds position', () => {
     const { w } = creepBoard();
-    place(w, 'far', 200, 0); // beyond the 60u acquire radius
+    // Beam-on at 400u: silhouette ~384u off the mine, far outside the 150u reach.
+    place(w, 'far', 400, 0, Math.PI / 2);
     w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     for (let i = 0; i < 10; i++) w.step();
     expect(w.mines.get('m')!.x).toBe(0);
+  });
+
+  it('acquisition uses the SILHOUETTE metric — the nearest HULL wins, not the nearest centre', () => {
+    const { w } = creepBoard();
+    // A battleship END-ON up the +y axis: centre 150u, silhouette ~88u (its
+    // 124u hull lies along the bearing).
+    place(w, 'broad', 0, 150, Math.PI / 2, 'battleship');
+    // A torpedo boat up the +x axis, BEAM-ON: centre 140u — CLOSER by centre —
+    // but only its 9u beam faces the mine, so its silhouette is ~135u out.
+    // Under the old centre metric the mine would have chased this one.
+    place(w, 'thin', 140, 0, Math.PI / 2, 'torpedoBoat');
+    w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
+    w.step();
+    const m = w.mines.get('m')!;
+    expect(m.y).toBeGreaterThan(0); // heading for the broadside battleship
+    expect(m.x).toBeCloseTo(0, 6);
   });
 
   it('a creeping mine STOPS at an island rim — mines float, they never climb rocks', () => {
