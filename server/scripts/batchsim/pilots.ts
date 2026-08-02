@@ -54,14 +54,35 @@
 // rock forever — the diagnosed cause of both cap-outs in the 50-match endgame
 // campaign. Humans have full astern; the instrument did not.
 // THE POLICY (counters only — NO rng anywhere in it, so determinism is
-// untouched; no new world accessors, only the hull's own pose): if the pilot
-// ordered meaningful AHEAD yet made no ground for STUCK_TICKS straight, it
-// orders FULL ASTERN with the rudder amidships for UNBEACH_ASTERN_TICKS —
-// backing down the reciprocal of its heading, i.e. through water it just
-// occupied and therefore knows is clear — and then sails normally again. A
-// forward GRACE window (UNBEACH_GRACE_TICKS) blocks re-arming right after a
-// burst, so a hull in a pocket backs out, turns, and leaves instead of
-// metronoming ahead/astern. No targeting or firing happens on astern ticks.
+// untouched; no new world accessors, only the hull's own pose and the island
+// list islandAvoid already reads): if the pilot ordered meaningful AHEAD yet
+// made no ground for STUCK_TICKS straight, it orders FULL ASTERN for
+// UNBEACH_ASTERN_TICKS and then sails normally again. A forward GRACE window
+// (UNBEACH_GRACE_TICKS) blocks re-arming right after a burst. No targeting or
+// firing happens on astern ticks.
+//
+// V2 — BREAKING THE METRONOME (same amendment, second iteration). v1 backed
+// off with the rudder amidships, which retraced the SAME line; pickGoal then
+// steered straight back at the target and the hull re-beached on the same
+// rock. The rerun campaign still capped out 3/50 endgame + 1/200 gunner
+// matches, ALL FOUR diagnosed as exactly that loop (inter-burst gaps pinned at
+// the policy's own ~139-158 ticks, 60-97% of the endgame spent immobile),
+// while a lateral shift of only 78-153u would have opened LOS on the last
+// hull. Two changes, both deterministic:
+//   1. ROTATE AWAY WHILE BACKING. The burst commands a nonzero rudder whose
+//      sign is taken from the same cross-product islandAvoid uses, against the
+//      NEAREST island in its lookahead cone, so the bow swings away from the
+//      obstacle; +1 is the fixed fallback when no island qualifies. The sign is
+//      captured ONCE as the burst arms and held (no per-tick flapping). Note
+//      stepShip's authority is signed, so the commanded rudder is the NEGATION
+//      of the forward-sense turn (see asternTurnRudder). Measured swing over a
+//      full burst: 39.5 deg battleship / 65.3 deg mineLayer / 92.8 deg
+//      torpedo boat.
+//   2. HOLD THE EXIT HEADING THROUGH THE GRACE. Target-seek is suppressed for
+//      the grace window and the rudder simply steers back onto the heading the
+//      hull left the burst on (same x3 gain), throttle and gunnery as normal.
+//      Without this the rotated approach line never commits — a battleship
+//      undoes the whole 39.5 deg in ~1.7 s of target-seek.
 //
 // Determinism: every pilot decision rides its own mulberry32 stream seeded by
 // the runner from (matchSeed, captain ordinal) — no Math.random, no Date.now.
@@ -162,6 +183,12 @@ const UNBEACH_ASTERN_TICKS = 50;
  *  accel 5 ~= 2.2 s), so a hull in a pocket backs out, turns and sails on
  *  instead of metronoming between ahead and astern. */
 const UNBEACH_GRACE_TICKS = 60;
+/** Astern rudder when no island qualifies as the blocker — a FIXED sign, never
+ *  an rng pick (determinism), so a bow-on beaching still rotates its exit. */
+const UNBEACH_FALLBACK_RUDDER = 1;
+/** Proportional gain steering back to a stored heading — the same x3 idiom the
+ *  normal goal-bearing rudder uses. */
+const HEADING_GAIN = 3;
 
 /** Nearest ALIVE non-self hull (deterministic: strict `<` keeps the earliest
  *  ships-map entry on ties — the world's own nearestEnemyCenter idiom). */
@@ -177,6 +204,44 @@ function nearestEnemy(world: World, self: ShipRecord): { ship: ShipRecord; d: nu
     }
   }
   return best === null ? null : { ship: best, d: bestD };
+}
+
+/** Signed cross product of the hull's forward vector with the bearing to a
+ *  point: > 0 = the point lies to PORT (CCW of the heading). The one geometric
+ *  primitive behind both islandAvoid's bias and the un-beach turn sign. */
+function forwardCross(self: ShipRecord, px: number, py: number): number {
+  const fx = Math.cos(self.state.heading);
+  const fy = Math.sin(self.state.heading);
+  return fx * (py - self.state.y) - fy * (px - self.state.x);
+}
+
+/**
+ * The rudder to hold through an un-beach burst (amendment 25 v2), chosen so the
+ * BOW swings AWAY from the island that is blocking the bow — the nearest one
+ * inside islandAvoid's own lookahead cone, so the two agree on what "the
+ * obstacle ahead" means. Deterministic (nearest wins, first-in-array on ties)
+ * and rng-free; +1 when no island qualifies (beached bow-on to nothing
+ * islandAvoid can see), never a random pick.
+ *
+ * SIGN NOTE — this is a REVERSE rudder: stepShip scales rudder authority by
+ * `speed / steerageSpeed` with a SIGNED speed ("sign flips in reverse"), so a
+ * given rudder yaws the hull the opposite way when making sternway. The
+ * forward-sense "turn away" rudder is `cross > 0 ? -1 : +1` (islandAvoid's
+ * idiom); backing, we command its NEGATION to get the same bow swing.
+ */
+function asternTurnRudder(world: World, self: ShipRecord): number {
+  const fx = Math.cos(self.state.heading);
+  const fy = Math.sin(self.state.heading);
+  let blocker: { cross: number; d: number } | null = null;
+  for (const isle of world.map.islands) {
+    const dx = isle.x - self.state.x;
+    const dy = isle.y - self.state.y;
+    const d = Math.hypot(dx, dy);
+    if (dx * fx + dy * fy <= 0 || d > ISLAND_LOOKAHEAD_U + isle.r) continue;
+    if (blocker === null || d < blocker.d) blocker = { cross: forwardCross(self, isle.x, isle.y), d };
+  }
+  if (blocker === null) return UNBEACH_FALLBACK_RUDDER;
+  return blocker.cross > 0 ? 1 : -1; // negation of the forward-sense away turn
 }
 
 /** Rudder bias steering clear of islands dead ahead (dronesSmoke islandAvoid). */
@@ -226,6 +291,11 @@ class GunnerPilot implements CaptainPilot {
   private stuckTicks = 0;
   private asternTicks = 0;
   private graceTicks = 0;
+  /** Rudder held for the WHOLE current burst — captured once when it arms so
+   *  the sign cannot flap tick to tick as the geometry changes. */
+  private asternRudder = 0;
+  /** The heading to hold through the grace window (null = not holding). */
+  private holdHeading: number | null = null;
 
   constructor(
     readonly id: string,
@@ -251,7 +321,7 @@ class GunnerPilot implements CaptainPilot {
       this.resetSeamanship();
       return;
     }
-    const input = this.wantsAstern(ship) ? this.asternInput() : this.buildInput(world, ship);
+    const input = this.wantsAstern(world, ship) ? this.asternInput() : this.buildInput(world, ship);
     this.lastThrottle = input.throttle;
     world.submitInput(this.id, input);
   }
@@ -263,6 +333,8 @@ class GunnerPilot implements CaptainPilot {
     this.stuckTicks = 0;
     this.asternTicks = 0;
     this.graceTicks = 0;
+    this.asternRudder = 0;
+    this.holdHeading = null;
   }
 
   /** Distance made good since the previous tick (Infinity on the first tick /
@@ -279,10 +351,12 @@ class GunnerPilot implements CaptainPilot {
   /** THE UN-BEACH GATE (amendment 25). Advances every counter exactly once per
    *  tick and answers "is this tick a full-astern tick?". Rng-free by
    *  construction; the only world state it reads is the hull's own pose. */
-  private wantsAstern(ship: ShipRecord): boolean {
+  private wantsAstern(world: World, ship: ShipRecord): boolean {
     const moved = this.stepDistance(ship);
     if (this.asternTicks === 0 && this.graceTicks === 0 && this.detectBeached(moved)) {
       this.asternTicks = UNBEACH_ASTERN_TICKS;
+      // Captured ONCE, held for the whole burst (no per-tick re-evaluation).
+      this.asternRudder = asternTurnRudder(world, ship);
     }
     if (this.asternTicks > 0) {
       this.asternTicks -= 1;
@@ -290,7 +364,13 @@ class GunnerPilot implements CaptainPilot {
       if (this.asternTicks === 0) this.graceTicks = UNBEACH_GRACE_TICKS;
       return true;
     }
-    if (this.graceTicks > 0) this.graceTicks -= 1;
+    if (this.graceTicks > 0) {
+      // First tick out of the burst: THIS is the exit heading the rotated
+      // approach line has to commit to (see the header's v2 rationale).
+      if (this.holdHeading === null) this.holdHeading = ship.state.heading;
+      this.graceTicks -= 1;
+      if (this.graceTicks === 0) this.holdHeading = null;
+    }
     return false;
   }
 
@@ -305,15 +385,17 @@ class GunnerPilot implements CaptainPilot {
     return true;
   }
 
-  /** Full astern, rudder amidships: back straight down the reciprocal of the
-   *  heading, i.e. through the water the hull just came from (clear by
-   *  construction). No targeting and no wander draw happen on these ticks, so
-   *  the pilot never fires while backing and the rng stream stays untouched. */
+  /** Full astern with the burst's captured rudder: back off the rock while
+   *  swinging the bow AWAY from it, so the approach line the hull will sail
+   *  next is a DIFFERENT one (amendment 25 v2 — rudder amidships retraced the
+   *  same line and metronomed). No targeting and no wander draw happen on
+   *  these ticks, so the pilot never fires while backing and the rng stream
+   *  stays untouched. */
   private asternInput(): InputMsg {
     return {
       seq: ++this.seq,
       throttle: -1,
-      rudder: 0,
+      rudder: this.asternRudder,
       aim: this.aim,
       fireSeq: this.fireSeq,
       aimDist: this.aimDist,
@@ -326,9 +408,9 @@ class GunnerPilot implements CaptainPilot {
 
   private buildInput(world: World, ship: ShipRecord): InputMsg {
     const target = this.hunt(world) ? nearestEnemy(world, ship) : null;
-    const goal = this.pickGoal(world, ship, target);
-    const brg = Math.atan2(goal.y - ship.state.y, goal.x - ship.state.x);
-    const rudder = clamp(angleDiff(ship.state.heading, brg) * 3 + islandAvoid(world, ship), -1, 1);
+    // Through the grace window the rudder HOLDS the exit heading instead of
+    // seeking; gunnery and throttle are untouched (amendment 25 v2).
+    const rudder = this.holdHeading === null ? this.seekRudder(world, ship, target) : this.holdRudder(ship);
     const throttle = target !== null && target.d < CLOSE_RANGE_U ? 0.5 : 1;
     if (target !== null && target.d <= ship.stats.gun.rangeU * FIRE_RANGE_FACTOR) {
       // Click every tick while the solution holds: clicks are consumed, never
@@ -350,6 +432,21 @@ class GunnerPilot implements CaptainPilot {
       actSeq: 0,
       actSlot: 0,
     };
+  }
+
+  /** The normal rudder: steer the goal bearing, biased clear of islands. */
+  private seekRudder(world: World, ship: ShipRecord, target: { ship: ShipRecord; d: number } | null): number {
+    const goal = this.pickGoal(world, ship, target);
+    const brg = Math.atan2(goal.y - ship.state.y, goal.x - ship.state.x);
+    return clamp(angleDiff(ship.state.heading, brg) * HEADING_GAIN + islandAvoid(world, ship), -1, 1);
+  }
+
+  /** The grace-window rudder: proportional steering back onto the heading the
+   *  hull left the burst on. Nothing else may pull the bow around until the
+   *  window expires — the probe measured target-seek undoing a battleship's
+   *  whole 39.5 degree exit turn in ~1.7 s. No wander draw happens here. */
+  private holdRudder(ship: ShipRecord): number {
+    return clamp(angleDiff(ship.state.heading, this.holdHeading ?? ship.state.heading) * HEADING_GAIN, -1, 1);
   }
 
   /** Storm first, target second, seeded wander third — all against the LIVE

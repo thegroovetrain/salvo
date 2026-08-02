@@ -9,7 +9,7 @@
 // NEVER import ./main.ts here — it runs the CLI (process.exit) at import time.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, SHIP_CLASS_IDS, zoneClosedAtMs } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, angleDiff, zoneClosedAtMs, type HullId } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
@@ -438,38 +438,59 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
 });
 
 describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
-  /** Drive one pilot with its hull PINNED at the spawn pose every tick. That is
-   *  exactly the observable signature of an island permalock — the pilot orders
-   *  ahead and makes no ground — without depending on a seed that happens to
-   *  beach a ship. Returns the throttle ordered on each tick, plus the fireSeq
-   *  at the end (a pilot must not shoot its way off a rock). */
-  function throttleTrace(
+  /** A STICKY-ROCK fixture: while the pilot orders AHEAD the hull is held at
+   *  the beaching pose with its speed crushed (what the islandSpeedMult damp
+   *  does to a hull pushing into rock — no ground made, no rudder authority);
+   *  the moment it orders ASTERN the sim runs free (backing off ends contact).
+   *  Ordering ahead again re-grounds it on the same rock. That is the exact
+   *  metronome the campaign probe diagnosed, reproduced without depending on a
+   *  seed that happens to beach a ship. `island` optionally places a rock the
+   *  pilot's turn-sign logic can see, at the given bearing offset from the
+   *  hull's heading. */
+  function beachTrace(
     factory: (typeof PILOT_REGISTRY)['gunner'],
     ticks: number,
-    pin: boolean,
-  ): { throttles: number[]; fireSeq: number } {
+    opts: { pin: boolean; islandOffsetRad?: number; hull?: HullId } = { pin: true },
+  ): { throttles: number[]; rudders: number[]; headings: number[]; fireSeq: number } {
     const w = new World(7, CONFIG.match.fillTo);
     w.map.islands.length = 0;
-    w.addShip('cap-1', 'CAP-01', false, 'battleship'); // the slowest hull
+    w.addShip('cap-1', 'CAP-01', false, opts.hull ?? 'battleship'); // slowest hull by default
     const cap = w.ships.get('cap-1')!;
     const pose = { x: cap.state.x, y: cap.state.y };
+    if (opts.islandOffsetRad !== undefined) {
+      const brg = cap.state.heading + opts.islandOffsetRad;
+      w.map.islands.push({ x: pose.x + Math.cos(brg) * 100, y: pose.y + Math.sin(brg) * 100, r: 40 });
+    }
     const pilot = factory('cap-1', 42);
     const throttles: number[] = [];
+    const rudders: number[] = [];
+    const headings: number[] = [];
     for (let t = 0; t < ticks; t += 1) {
-      if (pin) {
-        cap.state.x = pose.x; // the rock wins every tick
+      const backing = (throttles[t - 1] ?? 0) < 0;
+      if (opts.pin && !backing) {
+        cap.state.x = pose.x; // aground: the rock wins while she pushes into it
         cap.state.y = pose.y;
         cap.state.speed = 0;
       }
       pilot.tick(w);
-      throttles.push(w.inputs.get('cap-1')?.throttle ?? 0);
+      const input = w.inputs.get('cap-1');
+      throttles.push(input?.throttle ?? 0);
+      rudders.push(input?.rudder ?? 0);
       w.step();
+      headings.push(cap.state.heading);
     }
-    return { throttles, fireSeq: w.inputs.get('cap-1')?.fireSeq ?? 0 };
+    return { throttles, rudders, headings, fireSeq: w.inputs.get('cap-1')?.fireSeq ?? 0 };
   }
 
+  /** Indices where a full-astern burst begins. */
+  const burstStarts = (throttles: readonly number[]): number[] => {
+    const out: number[] = [];
+    for (let i = 1; i < throttles.length; i += 1) if (throttles[i] < 0 && throttles[i - 1] >= 0) out.push(i);
+    return out;
+  };
+
   it('orders full astern once pinned, then returns to ahead — and never while sailing free', () => {
-    const { throttles } = throttleTrace(PILOT_REGISTRY.gunner, 200, true);
+    const { throttles } = beachTrace(PILOT_REGISTRY.gunner, 200);
     const firstAstern = throttles.findIndex((v) => v < 0);
     // Detection is 30 consecutive pinned ticks; allow the first-tick unknown
     // step and one tick of ordering slack, never a whole extra window.
@@ -483,15 +504,11 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     // FAIL-PROOF: an unpinned hull sails normally and NEVER orders astern, so
     // the assertions above are measuring the stuck detector, not a pilot that
     // reverses on a timer.
-    expect(throttleTrace(PILOT_REGISTRY.gunner, 300, false).throttles.some((v) => v < 0)).toBe(false);
+    expect(beachTrace(PILOT_REGISTRY.gunner, 300, { pin: false }).throttles.some((v) => v < 0)).toBe(false);
   });
 
   it('does not metronome: the grace window blocks an immediate re-arm', () => {
-    const { throttles } = throttleTrace(PILOT_REGISTRY.gunner, 400, true);
-    const bursts: number[] = [];
-    for (let i = 1; i < throttles.length; i += 1) {
-      if (throttles[i] < 0 && throttles[i - 1] >= 0) bursts.push(i);
-    }
+    const bursts = burstStarts(beachTrace(PILOT_REGISTRY.gunner, 400).throttles);
     expect(bursts.length).toBeGreaterThan(1); // still stuck => it keeps trying
     // Burst period: 50 astern ticks + 60 grace ticks + the 30 detection ticks
     // whose LAST one is the next burst's first tick => 139 apart, minimum.
@@ -499,8 +516,75 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     for (let i = 1; i < bursts.length; i += 1) expect(bursts[i] - bursts[i - 1]).toBeGreaterThanOrEqual(139);
   });
 
+  it('backs off under a NONZERO constant-sign rudder that turns the bow off the rock (v2)', () => {
+    // A rock 100u ahead and 30 degrees to STARBOARD: the bow must swing to port.
+    const toStarboard = beachTrace(PILOT_REGISTRY.gunner, 200, { pin: true, islandOffsetRad: -0.5 });
+    const start = burstStarts(toStarboard.throttles)[0];
+    const burst = toStarboard.rudders.slice(start, start + 50);
+    expect(burst.every((v) => v !== 0)).toBe(true); // v1 backed with rudder 0
+    expect(new Set(burst).size).toBe(1); // captured once, held for the burst
+    // Mirror the rock to PORT and the sign must flip — the sign is read off the
+    // geometry, not a constant (FAIL-PROOF for the fallback masquerading as it).
+    const toPort = beachTrace(PILOT_REGISTRY.gunner, 200, { pin: true, islandOffsetRad: 0.5 });
+    const mirrored = toPort.rudders[burstStarts(toPort.throttles)[0]];
+    expect(Math.sign(mirrored)).toBe(-Math.sign(burst[0]));
+  });
+
+  it('leaves each burst on a MATERIALLY different heading — the metronome is broken (v2)', () => {
+    const { throttles, headings } = beachTrace(PILOT_REGISTRY.gunner, 500);
+    const bursts = burstStarts(throttles);
+    expect(bursts.length).toBeGreaterThanOrEqual(3);
+    // Each burst rotates the hull ~39.5 degrees (battleship, measured), and the
+    // heading-hold grace stops target-seek from undoing it before the next run
+    // at the rock. FAIL-PROOF: with v1 (rudder 0 astern, target-seek grace) an
+    // aground hull leaves every burst on the SAME heading and these are ~0.
+    for (let i = 1; i < bursts.length; i += 1) {
+      const turned = Math.abs(angleDiff(headings[bursts[i - 1]], headings[bursts[i]]));
+      expect(turned).toBeGreaterThan(0.35); // rad — half the measured swing
+    }
+  });
+
+  it('the grace window steers back to the stored exit heading, not at a goal (v2)', () => {
+    // Run to the first grace tick, then force the hull off the exit heading and
+    // read the rudder the pilot answers with.
+    const w = new World(7, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('cap-1', 'CAP-01', false, 'battleship');
+    const cap = w.ships.get('cap-1')!;
+    const pose = { x: cap.state.x, y: cap.state.y };
+    const pilot = PILOT_REGISTRY.gunner('cap-1', 42);
+    let prev = 0;
+    let exitHeading = 0;
+    const rudderAt = (offset: number): number => {
+      cap.state.heading = exitHeading + offset;
+      pilot.tick(w);
+      return w.inputs.get('cap-1')!.rudder;
+    };
+    for (let t = 0; t < 200; t += 1) {
+      if (prev >= 0) {
+        cap.state.x = pose.x;
+        cap.state.y = pose.y;
+        cap.state.speed = 0;
+      }
+      pilot.tick(w);
+      const throttle = w.inputs.get('cap-1')!.throttle;
+      if (prev < 0 && throttle >= 0) {
+        exitHeading = cap.state.heading; // first grace tick: the heading to hold
+        break;
+      }
+      prev = throttle;
+      w.step();
+    }
+    // Dead on the stored heading the hold asks for nothing; off it, the rudder
+    // opposes the deviation at the x3 gain. A goal-seeking rudder would have no
+    // reason to be zero at THIS particular heading.
+    expect(rudderAt(0)).toBeCloseTo(0, 10);
+    expect(rudderAt(0.2)).toBeCloseTo(-0.6, 10);
+    expect(rudderAt(-0.2)).toBeCloseTo(0.6, 10);
+  });
+
   it('the pacifist control still never fires while un-beaching', () => {
-    const pacifist = throttleTrace(PILOT_REGISTRY.pacifist, 200, true);
+    const pacifist = beachTrace(PILOT_REGISTRY.pacifist, 200);
     expect(pacifist.fireSeq).toBe(0);
     expect(pacifist.throttles.some((v) => v < 0)).toBe(true); // it does back off
   });
