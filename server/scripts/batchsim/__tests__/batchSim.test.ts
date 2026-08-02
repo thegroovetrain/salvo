@@ -9,7 +9,7 @@
 // NEVER import ./main.ts here — it runs the CLI (process.exit) at import time.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, zoneClosedAtMs } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
@@ -17,7 +17,7 @@ import { mixSeed, percentile, summarize } from '../stats.js';
 import { PILOT_REGISTRY, pickSpendChoice } from '../pilots.js';
 import { Match } from '../../../src/game/match.js';
 import { MatchCollector, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
-import { buildAggregate } from '../report.js';
+import { buildAggregate, renderBatchReport } from '../report.js';
 import { runDeckSim } from '../deckSim.js';
 import { mulberry32 } from '@salvo/shared';
 
@@ -59,8 +59,10 @@ describe('args — CLI parsing', () => {
   it('parses --pilot against the real registry and rejects unknowns', () => {
     expect(parseArgs([]).pilot).toBe('gunner');
     expect(parseArgs(['--pilot', 'pacifist']).pilot).toBe('pacifist');
+    expect(parseArgs(['--pilot', 'endgame']).pilot).toBe('endgame');
     expect(() => parseArgs(['--pilot', 'kamikaze'])).toThrow(UsageError);
-    expect(() => parseArgs(['--pilot', 'kamikaze'])).toThrow(/available: gunner, pacifist/);
+    // The error lists the registry SORTED — 'endgame' (Story 3.4) leads it now.
+    expect(() => parseArgs(['--pilot', 'kamikaze'])).toThrow(/available: endgame, gunner, pacifist/);
   });
 
   it('builds the cartesian sweep grid over the base --set', () => {
@@ -358,6 +360,144 @@ describe('pilots — the pacifist no-hunt control (Story 3.1)', () => {
   });
 });
 
+describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
+  /** Drive one pilot with a target parked in comfortable gun range while a
+   *  FAST zone timeline runs underneath. Returns the fireSeq as of the last
+   *  PRE-closure tick, the final fireSeq, and how many closed ticks ran (so a
+   *  timeline that never actually closed can't pass as a green gate). */
+  function fireGate(
+    factory: (typeof PILOT_REGISTRY)['gunner'],
+    ticks: number,
+  ): { preClosure: number; final: number; closedTicks: number } {
+    const w = new World(7, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('cap-1', 'CAP-01', false, 'torpedoBoat');
+    const target = w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+    const cap = w.ships.get('cap-1')!;
+    w.startZone();
+    const pilot = factory('cap-1', 42);
+    let preClosure = 0;
+    let closedTicks = 0;
+    for (let t = 0; t < ticks; t += 1) {
+      target.state.x = cap.state.x + 150; // keep the firing solution trivially held
+      target.state.y = cap.state.y;
+      const closed = w.zonePhase === 'closed';
+      pilot.tick(w);
+      if (closed) closedTicks += 1;
+      else preClosure = w.inputs.get('cap-1')?.fireSeq ?? 0;
+      w.step();
+    }
+    return { preClosure, final: w.inputs.get('cap-1')?.fireSeq ?? 0, closedTicks };
+  }
+
+  it('holds fire through the whole ring rhythm and opens up once the zone is CLOSED', () => {
+    // stormDps 0 keeps the parked pair alive through the fast timeline; the
+    // gate under test is pure phase equality, never geometry (so no
+    // terminalSightFactor override is involved — see pilots.ts header).
+    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
+    try {
+      const endgame = fireGate(PILOT_REGISTRY.endgame, 200);
+      expect(endgame.closedTicks).toBeGreaterThan(0); // the timeline really closed
+      expect(endgame.preClosure).toBe(0); // pacifist right up to closure
+      expect(endgame.final).toBeGreaterThan(0); // gunner after it
+      // FAIL-PROOF / discriminating negative: the plain gunner is already
+      // firing before closure under the identical setup, so the assertion
+      // above is measuring the GATE, not an unreachable target.
+      const gunner = fireGate(PILOT_REGISTRY.gunner, 200);
+      expect(gunner.preClosure).toBeGreaterThan(0);
+      // ...and the pacifist never fires at all, closed or not.
+      expect(fireGate(PILOT_REGISTRY.pacifist, 200).final).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it('is deterministic per seed and diverges on a different seed', () => {
+    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
+    try {
+      const run = (worldSeed: number): string => {
+        const w = new World(worldSeed, CONFIG.match.fillTo);
+        w.addShip('cap-1', 'CAP-01', false, 'battleship');
+        w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+        w.startZone(); // the stream spans BOTH sides of the hunt gate
+        const pilot = PILOT_REGISTRY.endgame('cap-1', 5);
+        const lines: string[] = [];
+        for (let t = 0; t < 200; t += 1) {
+          pilot.tick(w);
+          lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
+          w.step();
+        }
+        return lines.join('\n');
+      };
+      expect(run(9)).toBe(run(9));
+      expect(run(9)).not.toBe(run(10)); // the pin discriminates
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('runner — winnerClass (Story 3.4 evidence field)', () => {
+  it('a resolved match names the winning hull class; an unresolved one is null', () => {
+    const cleared = runBatch({ seed: 3, matches: 1, captains: 1, drones: 0 });
+    const m = cleared.matches[0];
+    expect(m.endedBy).toBe('fieldCleared');
+    // FAIL-PROOF: runner.ts dropped summary.winnerClass entirely before 3.4.
+    expect(m.winnerClass).not.toBeNull();
+    expect(SHIP_CLASS_IDS as readonly string[]).toContain(m.winnerClass);
+
+    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
+    let unresolved;
+    try {
+      unresolved = runBatch({ seed: 11, matches: 1, captains: 2, drones: 0, pilot: PILOT_REGISTRY.pacifist });
+    } finally {
+      restore();
+    }
+    expect(unresolved.matches[0].endedBy).toBe('unresolved');
+    expect(unresolved.matches[0].winnerClass).toBeNull(); // no conclusion, no winner
+  });
+});
+
+describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
+  const closureS = zoneClosedAtMs(CONFIG.zone) / 1000;
+  const sample = (over: Partial<MatchSample>): MatchSample => ({
+    index: 0, seed: 1, durationS: 100, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat',
+    stormDeaths: 0, killsByVictimTier: {}, captains: [], departedCaptains: [], ...over,
+  });
+
+  it('excludes cap-outs from resolvedDurationS and from the past-closure rate', () => {
+    const matches = [
+      sample({ index: 0, durationS: closureS + 60 }),
+      sample({ index: 1, durationS: closureS - 60, winnerClass: 'battleship' }),
+      // The cap-out sits WAY past closure — if it leaked into either stat it
+      // would inflate both (2/3 past-closure, a max at the budget edge).
+      sample({ index: 2, durationS: closureS + 600, endedBy: 'unresolved', winnerClass: null }),
+    ];
+    const agg = buildAggregate({ matches, failures: [] }, 1);
+    expect(agg.durationS.n).toBe(3); // the all-matches summary is unchanged
+    expect(agg.resolvedDurationS.n).toBe(2);
+    expect(agg.resolvedDurationS.max).toBe(closureS + 60);
+    expect(agg.pastClosureRate).toBe(0.5);
+    expect(agg.winnerClass).toEqual({ torpedoBoat: 1, battleship: 1, none: 1 });
+    const body = renderBatchReport('x', agg).join('\n');
+    expect(body).toContain('resolved past full closure: 50.0%');
+    expect(body).toContain('winner class: battleship=1 none=1 torpedoBoat=1');
+  });
+
+  it('an all-unresolved batch renders n=0 rather than crashing or faking percentiles', () => {
+    const agg = buildAggregate(
+      { matches: [sample({ endedBy: 'unresolved', winnerClass: null })], failures: [] },
+      1,
+    );
+    expect(agg.resolvedDurationS.n).toBe(0);
+    expect(agg.pastClosureRate).toBe(0);
+    const body = renderBatchReport('all-unresolved', agg).join('\n');
+    expect(body).toContain('resolved match length s: n=0');
+    expect(body).toContain('resolved past full closure: n=0');
+    expect(body).toContain('winner class: none=1');
+  });
+});
+
 describe('runner — the unresolved outcome (tick budget, Story 3.1)', () => {
   it('collects an honest endedBy=unresolved sample instead of a failure', () => {
     // Two pacifists, zero drones, harmless storm: nobody can ever win, so the
@@ -456,7 +596,7 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
       firstExclusiveOffered: null, firstExclusiveFitted: null, levelCurve: [1, 2],
     };
     const match: MatchSample = {
-      index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', stormDeaths: 0,
+      index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat', stormDeaths: 0,
       killsByVictimTier: {}, captains: new Array<CaptainSample>(200000).fill(captain),
       departedCaptains: [],
     };

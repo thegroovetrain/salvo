@@ -23,6 +23,27 @@
 // timeline so ~12:00 closure, storm pressure, and picks-band reachability
 // under long matches are measurable.
 //
+// ENDGAME INSTRUMENT (Story 3.4, amendment 23): PILOT_REGISTRY.endgame is the
+// SAME gunner with the hunt policy expressed as a world PREDICATE instead of a
+// flag — pacifist behavior (steer the ring rhythm, never target, never fire)
+// until the zone timeline is fully closed, then gunner behavior inside the
+// terminal ring. WHY the gate is `zonePhase === 'closed'` and not the final
+// ring GROUP's start: gating at the group start lets these omniscient pilots
+// clear the field BEFORE 12:00, which is exactly the evidence the Endgame
+// Guarantee needs; gating at full closure makes every RESOLVED match
+// structurally conclude past 12:00 with the fight staged inside the terminal
+// ring — the Story 3.4 evidence instrument for "matches conclude past 12:00,
+// no stalemate loop" (the geometric bar of amendment 24; no forcing mechanic
+// is added anywhere). The gate is a pure phase equality: it consumes NO rng
+// (determinism is untouched — the wander branch only draws when there is no
+// target, and the predicate itself never draws), and it never reads
+// world.zoneStartMs (0 while idle) or ring geometry (test overrides run
+// terminalSightFactor 0). While idle the phase is 'idle', so the endgame pilot
+// can never degenerate into a plain gunner before the match arms.
+//
+// The endgame pilot is a MODELING instrument, not a human model: real captains
+// skirmish long before closure. It exists to prove the geometry concludes.
+//
 // Determinism: every pilot decision rides its own mulberry32 stream seeded by
 // the runner from (matchSeed, captain ordinal) — no Math.random, no Date.now.
 // Same run key => byte-identical input streams (unit-pinned).
@@ -59,6 +80,10 @@ export interface CaptainPilot {
 
 /** Builds a pilot for captain `id` on a deterministic seed. */
 export type PilotFactory = (id: string, seed: number) => CaptainPilot;
+
+/** Should the pilot seek and shoot targets THIS tick? Evaluated once per tick
+ *  against the live world. MUST be pure and rng-free (see header). */
+export type HuntPolicy = (world: World) => boolean;
 
 /** Probability the spend policy takes the highest-rarity line (else uniform). */
 export const SPEND_TOP_P = 0.75;
@@ -152,8 +177,10 @@ class GunnerPilot implements CaptainPilot {
   constructor(
     readonly id: string,
     seed: number,
-    /** false = the pacifist no-hunt policy: never target, never fire. */
-    private readonly hunt: boolean = true,
+    /** The hunt policy, evaluated per tick: `() => false` is the pacifist
+     *  control (never target, never fire); `(w) => w.zonePhase === 'closed'`
+     *  is the Story 3.4 endgame instrument. Never consumes rng. */
+    private readonly hunt: HuntPolicy = () => true,
   ) {
     this.rng = mulberry32(seed);
   }
@@ -169,7 +196,7 @@ class GunnerPilot implements CaptainPilot {
   }
 
   private buildInput(world: World, ship: ShipRecord): InputMsg {
-    const target = this.hunt ? nearestEnemy(world, ship) : null;
+    const target = this.hunt(world) ? nearestEnemy(world, ship) : null;
     const goal = this.pickGoal(world, ship, target);
     const brg = Math.atan2(goal.y - ship.state.y, goal.x - ship.state.x);
     const rudder = clamp(angleDiff(ship.state.heading, brg) * 3 + islandAvoid(world, ship), -1, 1);
@@ -218,8 +245,12 @@ function distTo(a: Vec2, b: Vec2): number {
 
 /** The pilot registry — the swap point for Epic 6 duties (see header). */
 export const PILOT_REGISTRY: Record<string, PilotFactory> = {
-  gunner: (id, seed) => new GunnerPilot(id, seed),
+  gunner: (id, seed) => new GunnerPilot(id, seed, () => true),
   // The no-hunt control (Story 3.1): same seeded steering/spending instrument,
   // hunt policy off — proves storm-forced pacing without lethality.
-  pacifist: (id, seed) => new GunnerPilot(id, seed, false),
+  pacifist: (id, seed) => new GunnerPilot(id, seed, () => false),
+  // The endgame guarantee instrument (Story 3.4, amendment 23): pacifist until
+  // the timeline is fully CLOSED, gunner after — see the header for why the
+  // gate sits at closure rather than at the final ring group's start.
+  endgame: (id, seed) => new GunnerPilot(id, seed, (w) => w.zonePhase === 'closed'),
 };

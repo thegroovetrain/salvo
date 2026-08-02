@@ -54,6 +54,20 @@ describe('zone timeline shape — the ratified design targets', () => {
   });
 });
 
+describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
+  it('radar is structurally 2 × sight (Eric ruling 2026-08-02, amendment 22 — derivation pin)', () => {
+    expect(CONFIG.vision.radar).toBe(2 * CONFIG.vision.sight);
+  });
+
+  it('radar reaches the terminal ring radius (blips stay meaningful at the final ring; structural equality today is legal)', () => {
+    expect(CONFIG.vision.radar).toBeGreaterThanOrEqual(zoneTerminalRadius(CONFIG.zone));
+  });
+
+  it('sight does NOT reach the terminal ring radius (no hull auto-visible across the final ring from its center)', () => {
+    expect(CONFIG.vision.sight).toBeLessThan(zoneTerminalRadius(CONFIG.zone));
+  });
+});
+
 describe('closing-rate criterion (amendment 7) — pinned over committed CONFIG', () => {
   it('worst-case escape per close = (1 + offsetCap) × max Δr ≤ a battleship-minute, ≈80%', () => {
     const radii = zoneRingRadii(MAP_R, CONFIG.zone);

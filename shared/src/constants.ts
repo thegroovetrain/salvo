@@ -138,7 +138,14 @@ export const CONFIG = {
   /** Vision + radar (fog-of-war ranges). */
   vision: {
     sight: SIGHT, // u — true-sight bubble (actual ships visible; Eric ruling 2026-07-23, was 220)
-    radar: 650, // u — radar sweep range (paints stale blips)
+    radar: SIGHT * 2, // u — radar sweep range (paints stale blips) — DERIVED: 2 × base truesight
+    // (Eric ruling 2026-08-02, epic-3 amendment 22; resolves the radar-650-vs-660
+    // marginality: radar from the terminal-ring center exactly covers the 660u
+    // endgame ring). Gun base range and star-shell flare range ride this same
+    // number (Eric ruling 2026-07-21). Note: zoneTerminalRadius (in sim/zone.ts,
+    // terminalSightFactor × sight) is an INDEPENDENT derivation that happens to
+    // share the factor 2 — the constraint test in zone.test.ts is what binds the
+    // two together; don't conflate them as the same derivation.
     sweepRpm: 15, // rev/min — radar rotation rate (15 rpm = one 4 s revolution); keep ≤ sweepRpmMax — the effectiveStats clamp caps the TOTAL
     // rev/min — THE ratified sweep-rate ceiling (survives the 2.8 legacy-upgrade
     // strip; formerly CONFIG.upgrades.sweepSpeed.maxRpm). Clamped inside the
@@ -209,7 +216,7 @@ export const CONFIG = {
     // in an immortal circle re-emitting torpU forever; on exhaustion it
     // expires exactly like a normal torpedo at the map edge (splash boom, no
     // burst). DRAFT HANDWAVE (Story 2.8 review P1x; 2.10's evidence pass
-    // tunes): 1300u ≈ two-plus full crossings of base radar range.
+    // tunes): 1300u ≈ just under two full crossings of base radar range (660u).
     homingMaxRangeU: 1300,
     // --- COMMAND DETONATION doctrine (Story 2.8, exclusive boon) — DRAFT.
     // u — blast radius of the point-detonation at the click (reuses the

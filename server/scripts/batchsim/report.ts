@@ -6,6 +6,7 @@
 // formatting. Wall-clock metadata NEVER enters this module (main.ts appends
 // the one `meta:` line outside the diffable body).
 
+import { CONFIG, zoneClosedAtMs } from '@salvo/shared';
 import { fmt, fmtSummary, summarize, type Summary } from './stats.js';
 import { BOON_N_MAX, LEVEL_SAMPLE_MS, type BatchResult } from './runner.js';
 import type { DeckAggregate } from './deckSim.js';
@@ -26,6 +27,19 @@ export interface BatchAggregate {
    *  every per-captain statistic below can never be silent. */
   departedCaptains: number;
   durationS: Summary;
+  /** Duration over RESOLVED matches only (`endedBy !== 'unresolved'`) — Story
+   *  3.4. Cap-outs sit at the tick budget (~1321s at production timing) and
+   *  would drag every conclusion percentile toward the budget edge, so the
+   *  "how long does a match take to CONCLUDE" question gets its own summary.
+   *  All-zeros (n=0) when nothing resolved; the renderer prints that as n=0. */
+  resolvedDurationS: Summary;
+  /** Fraction of RESOLVED matches that concluded past full zone closure
+   *  (`durationS > zoneClosedAtMs / 1000`) — the Endgame Guarantee evidence
+   *  line. 0 when nothing resolved. */
+  pastClosureRate: number;
+  /** Winning hull class per match ('none' = no winner, incl. every
+   *  unresolved cap-out). Tallied over ALL matches. */
+  winnerClass: Record<string, number>;
   endedBy: Record<string, number>;
   stormDeathsTotal: number;
   stormDeaths: Summary;
@@ -88,11 +102,32 @@ function sumByKey(records: readonly Record<string, number>[]): Record<string, nu
   return out;
 }
 
+/** Resolved-only conclusion evidence (Story 3.4): the duration summary and the
+ *  past-closure rate, both over matches that actually CONCLUDED. Reads the LIVE
+ *  CONFIG.zone (so a --set zone.* override moves the closure threshold with the
+ *  run it describes). */
+function resolvedEvidence(
+  matches: readonly { durationS: number; endedBy: string }[],
+): Pick<BatchAggregate, 'resolvedDurationS' | 'pastClosureRate'> {
+  const resolved = matches.filter((m) => m.endedBy !== 'unresolved');
+  const closureS = zoneClosedAtMs(CONFIG.zone) / 1000;
+  const past = resolved.filter((m) => m.durationS > closureS).length;
+  return {
+    resolvedDurationS: summarize(resolved.map((m) => m.durationS)),
+    pastClosureRate: resolved.length === 0 ? 0 : past / resolved.length,
+  };
+}
+
 export function buildAggregate(result: BatchResult, captainsPerMatch: number): BatchAggregate {
   const matches = result.matches;
   const captains = matches.flatMap((m) => m.captains);
   const endedBy: Record<string, number> = {};
-  for (const m of matches) endedBy[m.endedBy] = (endedBy[m.endedBy] ?? 0) + 1;
+  const winnerClass: Record<string, number> = {};
+  for (const m of matches) {
+    endedBy[m.endedBy] = (endedBy[m.endedBy] ?? 0) + 1;
+    const cls = m.winnerClass ?? 'none';
+    winnerClass[cls] = (winnerClass[cls] ?? 0) + 1;
+  }
   const stormDeaths = matches.map((m) => m.stormDeaths);
   return {
     matches: matches.length,
@@ -100,6 +135,8 @@ export function buildAggregate(result: BatchResult, captainsPerMatch: number): B
     captainsPerMatch,
     departedCaptains: matches.reduce((n, m) => n + (m.departedCaptains?.length ?? 0), 0),
     durationS: summarize(matches.map((m) => m.durationS)),
+    ...resolvedEvidence(matches),
+    winnerClass,
     endedBy,
     stormDeathsTotal: stormDeaths.reduce((a, b) => a + b, 0),
     stormDeaths: summarize(stormDeaths),
@@ -142,7 +179,12 @@ export function renderBatchReport(label: string, agg: BatchAggregate): string[] 
     lines.push(`departed captains EXCLUDED from per-captain rows: ${agg.departedCaptains}`);
   }
   lines.push(`match length s: ${fmtSummary(agg.durationS)}`);
+  // Story 3.4: conclusions, separated from cap-outs (see BatchAggregate).
+  const resolvedN = agg.resolvedDurationS.n;
+  lines.push(`resolved match length s: ${resolvedN === 0 ? 'n=0' : fmtSummary(agg.resolvedDurationS)}`);
+  lines.push(`resolved past full closure: ${resolvedN === 0 ? 'n=0' : pct(agg.pastClosureRate)}`);
   lines.push(`endedBy: ${countLine(agg.endedBy)}`);
+  lines.push(`winner class: ${countLine(agg.winnerClass)}`);
   lines.push(`storm deaths: total=${agg.stormDeathsTotal} per-match[${fmtSummary(agg.stormDeaths)}]`);
   lines.push(`captain kills by victim tier: ${countLine(agg.killsByVictimTier)}`);
   lines.push(`kills per captain: ${fmtSummary(agg.killsPerCaptain)}`);

@@ -309,7 +309,7 @@ describe('stepShell — targeted shell bursts at the clicked point', () => {
   });
 
   it('STOPS at the target — never overflies it despite range left', () => {
-    const s = gunShell(300); // distLeft = GUN_RANGE (650) >> 300
+    const s = gunShell(300); // distLeft = GUN_RANGE (660) >> 300
     let out = stepShell(s, ctx());
     while (out.kind === 'travel') {
       expect(s.x).toBeLessThanOrEqual(300);
