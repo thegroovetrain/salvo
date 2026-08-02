@@ -2,8 +2,9 @@
 title: '30s Join Window Before the Countdown'
 type: 'feature'
 created: '2026-08-02'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'ca8fb82726e8916afe4b45af66033ba09ccf3fab'
+final_revision: '61beaa1'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
