@@ -78,13 +78,13 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `client/src/config.ts` — add `CLIENT_CONFIG.zone` block; promote zone render consts — single tunable home, config-read tests.
-- [ ] `client/src/render/zone.ts` — implement amendment 14/15/17 visuals + zoom-locked strokes + vignette hold input — the story's core.
-- [ ] `client/src/render/attention.ts` + `hud.ts`/`deniedFire.ts` predicates — amendment 16 minimal seam — pure, testable, 4-8-extensible.
-- [ ] `client/src/main.ts` — wire zoom, tier-1 state, reveal rising edge — the only integration point.
-- [ ] `client/src/__tests__/{zone,attention,hud}.test.ts` — pin grammar, zoom px, fill, one-shot grammar, hold semantics, motion=off statics, I/O matrix edges — regression armor in the established pure-logic style.
-- [ ] Screenshot checkpoint — build client, boot scratch-port stack (never 2567/5173), capture reveal/mid-close/in-storm at 3 zooms, AskUserQuestion design gate with Eric — closes the story's design gate in-run.
-- [ ] Docs/bookkeeping — VERSION 0.17.32 + package.json, CLAUDE.md zone-render line, sprint/gds status files, stage.ts comment fix — rides the PR at finalize.
+- [x] `client/src/config.ts` — add `CLIENT_CONFIG.zone` block; promote zone render consts — single tunable home, config-read tests.
+- [x] `client/src/render/zone.ts` — implement amendment 14/15/17 visuals + zoom-locked strokes + vignette hold input — the story's core. (hud.ts untouched: its pure `railPulsing()` already existed — the ruling's "owning-module predicate" verbatim.)
+- [x] `client/src/render/attention.ts` + `deniedFire.ts` predicate — amendment 16 minimal seam — pure, testable, 4-8-extensible.
+- [x] `client/src/main.ts` — wire zoom, tier-1 state, reveal rising edge (`updateZone`/`ownTier1`) — the only integration point.
+- [x] `client/src/__tests__/{zone,attention,hud}.test.ts` — grammar, zoom px @ 0.5/1.0/1.5, fill, one-shot grammar + no-retrigger, hold semantics, motion=off statics, all I/O matrix rows — client 1203→1248 (+45).
+- [x] Screenshot checkpoint — 8 live captures (clear/reveal/mid-close/in-storm × 0.5/1.0/1.5×) on scratch stack (:2599/:4199, torn down); design-gate artifact published; Eric RATIFIED as captured (amendment 18); rig script deleted.
+- [x] Docs/bookkeeping — VERSION 0.17.32 + package.json, CLAUDE.md zone-render line, sprint/gds status files, stage.ts comment fix — rides the PR at finalize. (stage.ts comment fixed in wave 1; remainder at finalize.)
 
 **Acceptance Criteria:**
 - Given the reveal beat, when the next ring appears, then it renders dashed `stormReadout` distinct from the solid `stormReadout` current edge, both above the fog composite (chart layer) and legible at every zoom in [0.5, 1.5].
