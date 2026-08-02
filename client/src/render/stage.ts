@@ -52,7 +52,8 @@ export interface StageLayers {
   burstFx: Container;
   sweep: Container;
   // screen-space
-  /** Out-of-zone red vignette (render/zone.ts) — behind the HUD readouts. */
+  /** Out-of-zone STORM vignette (render/zone.ts) — dimensional purple since the
+   *  storm palette landed, not the old red; behind the HUD readouts. */
   vignette: Container;
   hud: Container;
 }

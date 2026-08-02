@@ -386,6 +386,93 @@ export const CLIENT_CONFIG = {
     wheelRate: 0.0008,
   },
 
+  /**
+   * THE STORM PLANE (Story 3.2, amendments 14/15/17) — every render tunable the
+   * zone renderer owns, promoted out of render/zone.ts's bare consts so the
+   * tests read config instead of mirroring literals. Nothing here is gameplay
+   * authoritative: the timeline, the radii and the damage all live in shared
+   * `CONFIG.zone` (the sim's single source of truth); this group only decides
+   * how that geometry LOOKS. Colors are NOT here either — the renderer reads the
+   * `colors.storm` / `colors.stormReadout` tokens.
+   *
+   * The grammar itself (amendment 14): SOLID current edge vs DASHED next-ring
+   * telegraph, both at storm-readout violet — solid-vs-dashed is the non-color
+   * channel, so the two edges never depend on hue to be told apart. The 3.1
+   * interim phosphor-green "safe ring" is retired.
+   */
+  zone: {
+    /**
+     * Alpha of the FULL-AREA storm fill (amendment 15: the whole region outside
+     * the live ring, not the 3.1 70u annulus). Deliberately low: the fill is
+     * ambience, the EDGE carries the 3:1 legibility (DESIGN.md's storm color
+     * note — `storm` at 2.87:1 is below the graphics threshold). 0.12 keeps
+     * roughly the interim band's density (0.11) while blips, contacts and the
+     * sweep — all of which draw ABOVE `layers.zone` in chartRoot — stay legible
+     * over it.
+     */
+    fillAlpha: 0.12,
+    /**
+     * Outer radius of the fill disc, as a multiple of the map radius. The disc
+     * is centered on the LIVE RING, so "past the map edge" is not enough — it
+     * must clear the farthest screen corner in the worst case, or the fill's own
+     * edge becomes a visible arc of open void:
+     *
+     *   dist(ring center → screen corner) ≤ |ring center| + |camera center|
+     *                                       + half the visible diagonal
+     *
+     * A ring is contained in the map and the camera follows a hull that is too,
+     * so the first two terms are ≤ 2 × mapRadius. The third is the ugly one: the
+     * camera fits 2 × radar range on the SHORT axis, so at the widest user zoom
+     * (`zoom.min`) an ultrawide viewport sees `radar × aspect / 0.5` to the side
+     * — on a 32:9 screen with a heavily stacked radar that half-diagonal alone
+     * is ~4 map radii. 7 covers the sum with headroom (zone.test.ts computes the
+     * bound), and a bigger circle costs nothing: it is one shape, re-tessellated
+     * only when the ring radius or the camera zoom moves.
+     */
+    fillOuterFactor: 7,
+    /**
+     * SCREEN-LOCKED stroke widths (px, amendment 14 + the zoom-invariance
+     * clause). The renderer divides these by the camera zoom at draw time, so
+     * the on-screen width is constant across the shipped 0.5×–1.5× user-zoom
+     * range instead of thinning to a hairline when you zoom out.
+     */
+    edgePx: 2,
+    telegraphPx: 2,
+    /** Solid live-edge alpha — the brightest mark the zone plane paints. */
+    edgeAlpha: 0.9,
+    /** Dashed telegraph alpha (~50%): present and readable, subordinate to the
+     *  live boundary. This is the SETTLED alpha the reveal one-shot decays to. */
+    telegraphAlpha: 0.5,
+    /** Dash count around the telegraph circle and the lit fraction of each
+     *  segment (0.5 = a 50% duty dash-gap pattern). */
+    telegraphDashes: 48,
+    telegraphDuty: 0.5,
+    /** Redraw throttle: the rings are re-stroked only when the radius moves more
+     *  than this many world units, or the camera zoom moves by more than this
+     *  FRACTION of itself (a 2% zoom change is a sub-pixel stroke-width error at
+     *  2px). Everything between redraws is a position-only update. */
+    redrawEpsU: 1,
+    redrawZoomFrac: 0.02,
+    /** Out-of-zone vignette: mean alpha and pulse amplitude while outside. Purple
+     *  reads calmer than the old red, so the alarm leans on brightness, not
+     *  saturation (DESIGN.md). The BASE is information — it is exactly what the
+     *  vignette holds at motion=off; only the breathing is motion. The pulse RATE
+     *  is never a local number: it is `settings.pulseCapHz`, the one shared
+     *  photosensitivity ceiling. */
+    vignetteBase: 0.27,
+    vignetteAmp: 0.17,
+    /** THE REVEAL ONE-SHOT (amendment 17): when a next ring first becomes public
+     *  the dashed telegraph lands with a brief flash-then-settle — `revealMs` of
+     *  linear decay from (telegraphAlpha + revealAmp) back to telegraphAlpha.
+     *  The 80ms/≥300ms register is the ratified one-shot grammar (the deniedFire
+     *  pulse's numbers, reused verbatim); the floor is structural insurance —
+     *  reveals are a ring group apart. Motion-scaled at the callsite: `off`
+     *  makes the telegraph simply appear, with no flourish and nothing lost. */
+    revealMs: 80,
+    revealFloorMs: 300,
+    revealAmp: 0.4,
+  },
+
   /** End-of-match results overlay feel. */
   results: {
     /**

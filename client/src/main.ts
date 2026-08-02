@@ -53,6 +53,7 @@ import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/li
 import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
+import { tier1Active } from './render/attention.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
@@ -1910,6 +1911,42 @@ function ownZoneFogHoles(g: Game, zones: readonly OwnZone[], now: number): FogHo
   });
 }
 
+/**
+ * The zone plane's per-frame inputs (Story 3.2). Beyond the derived ring view it
+ * carries the CAMERA ZOOM (the strokes are screen-locked, so the zoom is part of
+ * the drawn geometry), the MAP EXTENT (the storm fill runs out past the map
+ * edge), and the TIER-1 attention state (the vignette holds at its lit keyframe
+ * while a threat channel owns the eye). `nowMs` is deliberately the monotonic
+ * clock, not the server estimate: it drives the reveal one-shot's 80ms envelope,
+ * which a clock resync must never stretch or rewind.
+ */
+function updateZone(g: Game, zv: ZoneView, inStorm: boolean, tier1: boolean, now: number): void {
+  g.zone.update({
+    cur: zv.cur,
+    next: zv.next,
+    state: zv.state,
+    inStorm,
+    tier1,
+    nowSec: now / 1000,
+    nowMs: performance.now(),
+    zoom: g.camera.zoom,
+    mapRadius: g.mapRadius,
+    screenW: g.stage.app.screen.width,
+    screenH: g.stage.app.screen.height,
+  });
+}
+
+/** Tier-1 (THREAT) channels as this story knows them (amendment 16): the HP
+ *  rail's low-HP pulse and a live denied-fire pulse. render/attention.ts owns
+ *  the composition; this only resolves the own-ship inputs. */
+function ownTier1(g: Game, status: OwnStatus): boolean {
+  const maxHp = status.stats.maxHp;
+  return tier1Active({
+    hpFrac: maxHp > 0 ? status.hp / maxHp : null,
+    deniedLive: g.deniedPulse.liveAt(performance.now()),
+  });
+}
+
 function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
   const pose = ownPose(g, alpha, frameDt);
   const status = ownStatus(g);
@@ -1930,9 +1967,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
     // chip's 10s window off a gap the player never saw (see hideTransient).
     g.xpRail.hideTransient();
   }
-  const w = g.stage.app.screen.width;
-  const h = g.stage.app.screen.height;
-  g.zone.update(zv.cur, zv.next, zv.state, inStorm, now / 1000, w, h);
+  updateZone(g, zv, inStorm, ownTier1(g, status), now);
   // Own pose feeds the shell sight-bubble cull; own active zones keep a shell
   // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
@@ -2001,9 +2036,9 @@ function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
 function renderSpectate(g: Game, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
   enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
   updateSpectateCamera(g, frameDt, now);
-  const w = g.stage.app.screen.width;
-  const h = g.stage.app.screen.height;
-  g.zone.update(zv.cur, zv.next, zv.state, false, now / 1000, w, h);
+  // A spectator is never IN the storm and owns no Tier-1 channel (no hull, no
+  // fire control) — the plane renders, the vignette does not.
+  updateZone(g, zv, false, false, now);
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
   g.effects.update(frameDt, null);
   g.radar.render(null, now); // hides the sweep + rings
