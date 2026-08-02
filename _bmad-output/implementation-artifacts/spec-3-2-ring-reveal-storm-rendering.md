@@ -2,9 +2,11 @@
 title: '3-2 Ring Reveal & Storm Rendering'
 type: 'feature'
 created: '2026-08-02'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
+followup_review_recommended: false # flag retired (Epic 2 retro Ruling 1) — residuals are ledger entries with evidence + named home
 baseline_revision: '630045e'
+final_revision: '9bd9c3c'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context-amendments.md'
