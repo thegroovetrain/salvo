@@ -78,14 +78,14 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` — radar derivation + comment sweep (shared side) — the story's one production change.
-- [ ] `shared/src/__tests__/zone.test.ts` — Endgame Guarantee constraint block — the durable pillar pins.
-- [ ] `server/src/__tests__` snapshot regen + server/client comment-only sites — mechanical fallout of the derivation.
-- [ ] `server/scripts/batchsim/pilots.ts` + `args.ts` — endgame pilot (predicate gate) + registry/usage — the evidence instrument.
-- [ ] `server/scripts/batchsim/runner.ts` + `report.ts` — winnerClass, resolved-duration, past-closure aggregates — the evidence fields.
-- [ ] `server/scripts/batchsim/__tests__/batchSim.test.ts` — error-string fix + endgame suites + aggregate assertions.
-- [ ] Evidence campaign (endgame seed 4; gunner seed 1 + pacifist seed 2 reruns) → `batch-sim-evidence-2026-08-02.md` — the AC's proof.
-- [ ] Bookkeeping — VERSION 0.17.37, sprint-status (3-4 + epic-3 done), gds-workflow-status, CLAUDE.md — in the PR.
+- [x] `shared/src/constants.ts` — radar derivation + comment sweep (shared side) — the story's one production change.
+- [x] `shared/src/__tests__/zone.test.ts` — Endgame Guarantee constraint block — the durable pillar pins.
+- [x] `server/src/__tests__` snapshot regen + server/client comment-only sites — mechanical fallout of the derivation.
+- [x] `server/scripts/batchsim/pilots.ts` + `args.ts` — endgame pilot (predicate gate) + registry/usage — the evidence instrument (+ amendment-25 un-beach seamanship v1/v2, Eric-ratified mid-run at the evidence checkpoint).
+- [x] `server/scripts/batchsim/runner.ts` + `report.ts` — winnerClass, resolved-duration, past-closure aggregates — the evidence fields.
+- [x] `server/scripts/batchsim/__tests__/batchSim.test.ts` — error-string fix + endgame suites + aggregate assertions (+ un-beach/sticky-rock suites; 46 in-file).
+- [x] Evidence campaign (endgame seed 4; gunner seed 1 + pacifist seed 2 reruns) → `batch-sim-evidence-2026-08-02.md` — the AC's proof (50/50 resolved, 100% past closure, p50 830.0s).
+- [x] Bookkeeping — VERSION 0.17.37, sprint-status (3-4 + epic-3 done), gds-workflow-status, CLAUDE.md — in the PR.
 
 **Acceptance Criteria:**
 - Given CONFIG, when the constraint tests run, then radar is structurally `2 × sight`, radar ≥ terminal ring radius, sight < terminal ring radius — and a retune of sight moves radar, gun base range, star-shell flare range, and the terminal ring together (verified by the derivation pins, not literals).
