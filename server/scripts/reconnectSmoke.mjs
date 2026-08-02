@@ -39,7 +39,7 @@ const PORT = 2601;
 const endpoint = `ws://localhost:${PORT}`;
 // Fast countdown with two humans; storm parked far in the future so it never
 // interferes with the choreography.
-const MATCH_OVERRIDE = { minHumans: 2, countdownMs: 2000, resultsMs: 5000 };
+const MATCH_OVERRIDE = { minHumans: 2, countdownMs: 2000, resultsMs: 5000, joinWindowMs: 0 }; // no gathering window — legacy fast path
 const ZONE_OVERRIDE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 }; // first close 30min out (phased, 3.1)
 /** How long the ship sails pilotless before we resume (well inside the 60s grace). */
 const OUTAGE_MS = 3500;

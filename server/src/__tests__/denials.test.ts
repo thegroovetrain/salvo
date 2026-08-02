@@ -190,10 +190,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 17→18 bump (Story 3.1 phased zone timeline) is enforced at matchmake', () => {
-  it('rejects a pv-17 (previous protocol) client and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(18);
-    expect(protocolVersionError(17)).toMatch(/refresh/);
+describe('pv join gate — the 18→19 bump (gathering join window) is enforced at matchmake', () => {
+  it('rejects a pv-18 (previous protocol) client and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(19);
+    expect(protocolVersionError(18)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

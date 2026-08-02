@@ -76,6 +76,9 @@ export function protocolVersionError(pv: unknown): string | null {
 export interface MatchOverride {
   countdownMs?: number;
   resultsMs?: number;
+  /** DEV: unlocked gathering window (ms) at minHumans before the countdown
+   *  arms; <= 0 = legacy immediate countdown + lock (the smokes' fast path). */
+  joinWindowMs?: number;
   /** DEV: humans needed to start the countdown (e.g. 1 for a solo drone smoke). */
   minHumans?: number;
   sandbox?: boolean;

@@ -142,9 +142,10 @@ export function canOpenSurface(surface: keyof OpenSurfaces, open: OpenSurfaces):
  *     to it just invites a mis-click into an identical outcome;
  *   • `returning` — the leave is already in flight.
  *
- * `waiting` and `countdown` DO keep it, deliberately: the weapons-safe ready
- * room is where a solo captain can sit indefinitely (the countdown needs two
- * humans), and the spec's leaving law is "the modal's RETURN TO PORT or
+ * `waiting`, `gathering`, and `countdown` DO keep it, deliberately: the
+ * weapons-safe ready room is where a solo captain can sit indefinitely (the
+ * countdown needs two humans, and the gathering join window is still pre-match),
+ * and the spec's leaving law is "the modal's RETURN TO PORT or
  * settings' ABANDON MATCH — never ESC, never a page refresh". Hiding it there
  * would leave a ready-room captain with no sanctioned way back to port at all.
  */

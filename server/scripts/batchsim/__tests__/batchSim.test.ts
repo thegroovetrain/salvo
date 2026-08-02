@@ -393,7 +393,7 @@ describe('runner — at-cap classification keeps a real conclusion (review FIX 5
     // this reads endedBy 'unresolved' with a cap-measured duration.
     const world = new World(21, 4);
     const hooks = { lock: () => {}, unlock: () => {}, fillToCapacity: () => {}, broadcastResults: () => {}, disconnect: () => {} };
-    const match = new Match(world, { countdownMs: 100, resultsMs: 1000, minHumans: 1 }, hooks);
+    const match = new Match(world, { countdownMs: 100, resultsMs: 1000, joinWindowMs: 0, minHumans: 1 }, hooks);
     world.addShip('cap-1', 'CAP-01', false, 'torpedoBoat');
     match.notifyRosterChanged();
     for (let t = 0; t < 100 && match.phase !== 'finished'; t += 1) {

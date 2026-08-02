@@ -3,6 +3,13 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  19: join window before the countdown — MatchPhase gains 'gathering'
+ *  (waiting → gathering at minHumans: the room stays UNLOCKED for
+ *  CONFIG.match.joinWindow ms, then the unchanged locked countdown arms).
+ *  ArenaState.countdownEndT is REDEFINED as the current-phase deadline
+ *  (gathering window end during 'gathering', countdown end during
+ *  'countdown', 0 otherwise) — no new schema field. CONFIG.match gains
+ *  joinWindow (rides the welcome config snapshot).
  *  18: phased zone timeline + map bump (Story 3.1) — three wire deltas in one
  *  bump: (1) CONFIG.zone is RESHAPED in the welcome config snapshot
  *  (grace/shrinkDuration/endRadiusFraction die; beatMs/ringSteps/offsetCap/
@@ -116,7 +123,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 18;
+export const PROTOCOL_VERSION = 19;
 
 // Tunables
 export * from './constants.js';
