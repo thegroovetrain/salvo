@@ -245,7 +245,16 @@ export const CONFIG = {
     // deg — half-arc of the aimed rear placement sector about `offset`
     // (Story 2.8, amendment 45 — DRAFT value, 2.10 tunes).
     placeHalfArcDeg: 60,
-    placeRange: 90, // u — max distance of the clicked placement point (DRAFT)
+    // u — max distance of the clicked placement point. Eric ruling 2026-08-02:
+    // 90u was barely a hull and a half astern of a battleship (124u long), so
+    // "laying a field" meant dropping mines on your own transom and sailing off
+    // it; 150u is a real leash — you can seed the water you just left, or the
+    // gap you are backing away from, without the rack becoming a ranged weapon
+    // (it stays a fraction of gun/radar reach). Every consumer derives from
+    // this: the rear placement wedge IS drawn at placeRange (render/firing.ts
+    // via weaponArc.weaponRangeU), the client's range-denial gate and the
+    // server's activation check both read it, so the leash moves in one place.
+    placeRange: 150,
     armDelay: 3000, // ms — before it can trigger
     triggerRadius: 32, // u — detonation proximity (enemy pass-over trips it)
     // u — full damage to every non-owner hull within it; > triggerRadius by

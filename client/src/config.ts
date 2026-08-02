@@ -317,6 +317,20 @@ export const CLIENT_CONFIG = {
     dashDuty: 0.55,
     dotSegments: 40,
     dotDuty: 0.22,
+    /**
+     * The MINE PLACEMENT wedge's stroked boundary (render/firing.ts
+     * sectorEdge): the two side rays + the closing range arc, over the existing
+     * fill. The mine is the only sector whose radius is REAL reach rather than
+     * an indicator, so its edge is information and deserves a hard line instead
+     * of a wash that fades out. Static (no pulse). `dimAlpha` keeps the
+     * not-ready / out-of-arc wedge as quiet as it is today — the boundary is
+     * legible there, never loud.
+     */
+    placementEdge: {
+      width: 1.2,
+      alpha: 0.55,
+      dimAlpha: 0.18,
+    },
   },
 
   /**

@@ -74,6 +74,8 @@ warnings: [multiple-goals, oversized]
 - [x] `client/src/render/effects.ts` — own-correlated burst ring uses effective radius — fixes stale-radius inconsistency
 - [x] `client/src/__tests__/` — pure-logic tests: burst-point clamp parity with shared helpers, island clip incl. arcing exemption, homing band gating, mine ring radii/mode/arming selection
 - [x] `VERSION` + `package.json` — 0.17.32 — cycle 32 per versioning ruling
+- [ ] `shared/src/constants.ts` — `CONFIG.mine.placeRange` 90→150 — Eric ruling R5 (mid-run)
+- [ ] `client/src/render/firing.ts` — primed mine wedge gains a crisp boundary stroke (range arc + side rays) over the existing fill — Eric ruling R6 (mid-run)
 
 **Acceptance Criteria:**
 - Given an armed self-propelled mine and any hull approaching on any aspect, when its silhouette comes within 150u, then the mine acquires and closes at 14 u/s until trip (server test, fails pre-fix).
@@ -84,6 +86,8 @@ warnings: [multiple-goals, oversized]
 - Given `npm run check`, then lint (complexity ≤ 10), all type-checks, and all tests pass; perception/goldenFrames/signals tests unchanged.
 
 ## Spec Change Log
+
+- 2026-08-02 (mid-run Eric message + AskUserQuestion, post-implementation checkpoint 62fb05d): Eric added scope — mine placement range is too small and the legal placement area needs clearer indication. Rulings: **R5** `CONFIG.mine.placeRange` 90→150u (matches the new creep-acquire ring); **R6** primed-mine wedge gains a crisp boundary stroke (range arc + side rays) over the existing fill — static, no new colors. This supersedes the intent-contract's "no gameplay changes beyond the three ruled mine values/metric" by direct Eric ruling (fourth mine value: placeRange). KEEP: wedge continues to draw at true `placeRange` so the outline scales automatically; out-of-arc denied treatment unchanged.
 
 ## Review Triage Log
 

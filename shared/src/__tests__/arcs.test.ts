@@ -41,7 +41,7 @@ describe('arcFor — descriptor ↔ CONFIG identity (ratified geometry)', () => 
     });
     expect(CONFIG.mine.offset).toBeCloseTo(deg(180), 12);
     expect(CONFIG.mine.placeHalfArcDeg).toBe(60); // DRAFT half-arc, 2.10 tunes
-    expect(CONFIG.mine.placeRange).toBe(90); // DRAFT max placement range
+    expect(CONFIG.mine.placeRange).toBe(150); // the ratified placement leash (Eric 2026-08-02)
   });
 
   it('the decoyBuoy keeps the stern drop at CONFIG.mine.offset (astern)', () => {

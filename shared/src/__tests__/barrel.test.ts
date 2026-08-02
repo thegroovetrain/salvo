@@ -183,7 +183,9 @@ describe('shared barrel', () => {
     expect(CONFIG.mine.blastRadius).toBeGreaterThan(CONFIG.mine.triggerRadius);
     expect(CONFIG.mine.maxLive).toBe(5);
     expect(CONFIG.mine.damage).toBe(45);
-    expect(CONFIG.mine.placeRange).toBe(90);
+    // The placement leash (Eric ruling 2026-08-02): 90u put the drop point
+    // inside your own wake; 150u lets a Mine Layer actually seed water.
+    expect(CONFIG.mine.placeRange).toBe(150);
     expect(CONFIG.mine.placeHalfArcDeg).toBe(60);
     expect(CONFIG.mine.foulFactor).toBe(0.5);
     expect(CONFIG.mine.foulDurationMs).toBe(4000);
