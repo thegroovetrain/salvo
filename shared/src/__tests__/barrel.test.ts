@@ -53,9 +53,10 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    // Story 2.9: doctrine-distinct lit zones (amendment 50) — LitZoneView
-    // gains the trailing `mode` field, delivered to every observer.
-    expect(PROTOCOL_VERSION).toBe(17);
+    // Story 3.1: phased zone timeline + map bump — CONFIG.zone reshape rides
+    // the welcome snapshot, the ArenaState zone plane changes (revealed-only
+    // ring geometry), and the zoneState value set changes.
+    expect(PROTOCOL_VERSION).toBe(18);
   });
 
   it('re-exports config, wire tags, and functions', () => {

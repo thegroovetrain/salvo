@@ -90,8 +90,8 @@ development_status:
   epic-2-retrospective: done  # epic-2-retro-2026-08-01.md
 
   # epic-3: The Ring
-  epic-3: backlog
-  3-1-phased-zone-timeline: backlog
+  epic-3: in-progress
+  3-1-phased-zone-timeline: done
   3-2-ring-reveal-storm-rendering: backlog
   3-3-br-chrome-bar: backlog
   3-4-the-endgame-guarantee: backlog
@@ -152,7 +152,7 @@ action_items:
   - epic: 2
     action: "3-1 spec carries picks-band shortfall ownership + harness-lengths-are-lower-bounds caveat + endedBy split + post-landing baseline rerun"
     owner: "spec author (create-story 3-1)"
-    status: open
+    status: done  # 3-1 spec + evidence campaign carried all four; picks-band ledger entry RESOLVED (pacifist picks p50 12.0 at 12:00 closure)
   - epic: 2
     action: "Epic 2 doc debt (typography rows, purple carve-out now moot, LitZoneView.mode, audio table) rides to Story 7-5 — no pre-Epic-3 batch"
     owner: "Story 7-5"

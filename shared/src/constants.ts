@@ -13,10 +13,18 @@ const deg = (d: number): number => (d * Math.PI) / 180;
 const SIGHT = 330;
 
 export const CONFIG = {
-  /** Circular water map. radius = base * sqrt(playerCap / capRef). */
+  /**
+   * Circular water map. radius = base * sqrt(playerCap / capRef). Story 3.1
+   * (epic-3 amendments 7/8) bumps the production board to the ratified DESIGN
+   * TARGETS: radius ≈ 2400u at fill ≈ 20 (mapRadius(20) = 2400), sized by the
+   * closing-rate criterion — the phased storm's worst-case escape per close
+   * lands ≈80% of a battleship-minute (pinned by shared zone tests). Exact
+   * values ride the 3.1 evidence checkpoint; Story 6.2 makes sizing
+   * roster-dynamic.
+   */
   map: {
-    baseRadius: 900, // u — map radius tuned for capRef players
-    capRef: 6, // players the base radius is scaled against
+    baseRadius: 2400, // u — map radius tuned for capRef players
+    capRef: 20, // players the base radius is scaled against
     playerCap: 20, // u — max clients per arena room
     spawnFraction: 0.8, // spawn ring radius as a fraction of map radius
   },
@@ -421,19 +429,35 @@ export const CONFIG = {
     size: 4, // boons per offer, each from a distinct BOON_CATALOG category
   },
 
-  /** Storm circle / battle-royale zone. */
+  /**
+   * Storm circle / battle-royale zone — the PHASED ring timeline (Story 3.1).
+   * ringSteps.length + 1 ring groups, each a four-beat rhythm of beatMs per
+   * beat (clear → reserved structural slot → next ring revealed → ring closes
+   * over one beat); full closure at groups × 4 × beatMs (12:00 at the shipped
+   * defaults). Rings are offset-center circles rolled once at zone start on a
+   * server-private stream; the terminal ring radius is DERIVED as
+   * terminalSightFactor × CONFIG.vision.sight (the Story 3.4 endgame pillar —
+   * never an independent constant). Semantics + structural guards live in
+   * sim/zone.ts. Every number is a DESIGN TARGET pending the 3.1 evidence
+   * checkpoint; stormDps deliberately sits OUTSIDE the ZoneTimeline override
+   * shape (damage is never overridable).
+   */
   zone: {
-    grace: 45000, // ms — full radius before shrink begins
-    shrinkDuration: 180000, // ms — time to shrink to end radius
-    endRadiusFraction: 0.15, // final radius as a fraction of map radius
-    stormDps: 4, // hp/s — damage while outside the safe zone
+    beatMs: 60000, // ms — one beat; a ring group is 4 of these
+    // Per-group geometric exponents of the intermediate rings in the descent
+    // map radius → terminal (r_g = R·(T/R)^step): equal ratio steps — the
+    // ratified pure-geometric shrink (amendment 5). Length sets the group count.
+    ringSteps: [1 / 3, 2 / 3],
+    offsetCap: 1.0, // ≤ this × (r_cur − r_next) next-ring center offset (structurally clamped 0..1)
+    terminalSightFactor: 2, // × CONFIG.vision.sight — the endgame ring radius (660u at sight 330)
+    stormDps: 4, // hp/s — damage while outside the live ring, every phase
   },
 
   /** Match lifecycle. */
   match: {
     countdown: 15000, // ms — ready-room countdown once minHumans reached
     minHumans: 2, // humans required to start the countdown
-    fillTo: 6, // total ships at start (drones fill the rest)
+    fillTo: 20, // total ships at start (drones fill the rest) — 3.1 design target (amendment 7)
     resultsSeconds: 10, // s — results overlay before room disposes
   },
 

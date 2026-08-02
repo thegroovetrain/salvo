@@ -3,8 +3,8 @@
 // that lets a solo human start the countdown (minHumans:1) + a fast storm, and
 // proves the whole drone loop end to end:
 //   1. Solo join -> countdown; at activation the room fills to CONFIG.match.fillTo
-//      with weaponless drones (5 drones + the human = 6 hulls, 5 DRONE-xx roster
-//      rows), and the match does NOT insta-finish (the win-check fix).
+//      with weaponless drones (fillTo-1 drones + the human, one DRONE-xx roster
+//      row each), and the match does NOT insta-finish (the win-check fix).
 //   2. Drones SAIL: every drone position the human ever observes (radar blips +
 //      sight contacts) moves over time and stays in-bounds (inside the map, out
 //      of every island). The human's scope paints drone blips.
@@ -30,15 +30,19 @@ import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap } from '@salv
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2599;
 const endpoint = `ws://localhost:${PORT}`;
-// Solo countdown + a storm that grants a hunting window (25s grace at full
-// radius), then closes so a parked human is stormed out.
+// Solo countdown + a phased storm fast enough to funnel the field in minutes.
 const MATCH_OVERRIDE = { minHumans: 1, countdownMs: 3000, resultsMs: 3000 };
-// Shrink to a tight ring so the dumb drones funnel toward center (they head for
-// center whenever the storm catches them) — giving a human loitering at center
-// reliable true-sight contacts to torpedo. The shrink RATE ((900-90)/50s ≈ 16
-// u/s) is kept below ship maxSpeed (38 u/s) so a ship can actually sail inward
-// and hold the safe center; a faster ring would strand every hull outside.
-const ZONE_OVERRIDE = { grace: 2000, shrinkDuration: 50000, endRadiusFraction: 0.1 };
+// Phased timeline (Story 3.1), compressed: 12s beats close ring 1/2/3 at
+// 36-48s / 84-96s / 132-144s, funneling the dumb drones toward center (they
+// head for the live ring center whenever the storm catches them) — giving a
+// human loitering there reliable true-sight contacts to torpedo once the ring
+// is inside sight scale (terminal = 0.7 x 330 = 231u < the 330u bubble).
+// offsetCap 0 keeps every ring CONCENTRIC so this smoke's center-loiter
+// choreography holds (zoneSmoke covers offset rings over sockets). The fastest
+// close sweeps ~107 u/s — faster than any hull, but each close is followed by
+// three holding beats (36s), so trailing drones re-enter with hp to spare
+// (worst tier ~30 u/s soaks ~20-30s of 4hp/s storm on 80-120hp hulls).
+const ZONE_OVERRIDE = { beatMs: 12000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 0.7 };
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);

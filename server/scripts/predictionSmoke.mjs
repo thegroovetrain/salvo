@@ -36,8 +36,8 @@ function assert(cond, msg) {
 }
 
 function step(state, inp) {
-  // Smoke clients join with no class option -> server defaults to 'cruiser'.
-  stepShip(state, inp, CONFIG.shipClasses.cruiser.kinematics, DT);
+  // Smoke clients join with no class option -> server defaults to 'torpedoBoat'.
+  stepShip(state, inp, CONFIG.shipClasses.torpedoBoat.kinematics, DT);
   return state;
 }
 
@@ -46,9 +46,11 @@ function dist(a, b) {
 }
 
 // Sandbox (dev-only): pre-step-14 room behavior — no match lifecycle, permissive
-// combat policy, storm at 2nd join. The long grace keeps that storm harmless
+// combat policy, storm at 2nd join. The long beat keeps that storm harmless
 // for the whole choreography (this smoke predates the zone / match steps).
-const SANDBOX_ZONE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction: 0.15 };
+// Phased timeline (Story 3.1): a 10-minute beat parks the first close at 30
+// minutes out, so the whole choreography runs on the full-map ring.
+const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
 
 async function joinClient(name) {
   const client = new Client(endpoint);
@@ -176,7 +178,7 @@ async function main() {
   // against the server tick grid). Gate loosely at one ship length; the real
   // client reconciles every frame, so what the player sees is maxCorrectionU
   // per frame, absorbed by visualError.
-  assert(prediction.max < CONFIG.shipClasses.cruiser.hull.length, `prediction divergence too high: ${prediction.max}`);
+  assert(prediction.max < CONFIG.shipClasses.torpedoBoat.hull.length, `prediction divergence too high: ${prediction.max}`);
 
   console.log('PREDICTION SMOKE OK:', {
     room: a.room.roomId,

@@ -25,6 +25,8 @@ import {
   CONFIG,
   DRONE_HULL_IDS,
   SHIP_CLASS_IDS,
+  zoneClosedAtMs,
+  zoneGroups,
   type HullId,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../../src/game/world.js';
@@ -36,10 +38,15 @@ import { mixSeed, tally } from './stats.js';
 export const LEVEL_SAMPLE_MS = 30000;
 /** Time-to-N-boons is tracked for N = 1..BOON_N_MAX. */
 export const BOON_N_MAX = 10;
-/** Sim-time slack past the storm timeline before a match is declared hung. */
+/** Sim-time slack past the storm timeline before a match is declared UNRESOLVED
+ *  (see runMatch — the sample is still collected honestly, never thrown away). */
 const ENDGAME_SLACK_MS = 600000;
 /** Documented short countdown (see module header). */
 const COUNTDOWN_MS = 1000;
+/** mixSeed ordinal BAND reserved for a match's per-ring zone seeds (ordinal +
+ *  ring index; captains use 0x100 + i — keep this band outside any
+ *  roster-sized range). */
+const ZONE_SEED_ORDINAL = 0x7a0e;
 
 export interface RunSpec {
   seed: number;
@@ -74,11 +81,21 @@ export interface CaptainSample {
   levelCurve: number[];
 }
 
+/**
+ * How a harness match concluded: a real MatchEndCause, or 'unresolved' — the
+ * tick budget (full storm timeline + endgame slack) elapsed with the match
+ * still active. Unresolved matches are COLLECTED, not failed (Story 3.1): the
+ * pacifist control's whole point is to run the full ring rhythm, and until
+ * Story 3.4's endgame guarantee lands, mutual avoidance at the terminal ring
+ * is a real, reportable outcome — the endedBy split keeps it visible.
+ */
+export type HarnessEndCause = MatchEndCause | 'unresolved';
+
 export interface MatchSample {
   index: number;
   seed: number;
   durationS: number;
-  endedBy: MatchEndCause;
+  endedBy: HarnessEndCause;
   stormDeaths: number;
   /** Victims of CAPTAIN killers, by tier: captain / droneSmall / droneMedium / droneLarge. */
   killsByVictimTier: Record<string, number>;
@@ -130,8 +147,9 @@ class CaptainTracker {
   }
 }
 
-/** Per-match stats collection: tick events + captain trackers + level curve. */
-class MatchCollector {
+/** Per-match stats collection: tick events + captain trackers + level curve.
+ *  Exported only for the capSample pin (see capSample). */
+export class MatchCollector {
   readonly killsByVictimTier: Record<string, number> = {};
   private readonly trackers = new Map<string, CaptainTracker>();
   private nextBucket = 0;
@@ -215,13 +233,21 @@ function harnessHooks(world: World, droneCount: number): MatchHooks {
   };
 }
 
-/** Run ONE match to `finished` and collect its sample. Throws on a hung match
- *  (structural: the storm timeline + slack elapsed without a finish). */
+/** Run ONE match and collect its sample: to `finished`, or to the tick budget
+ *  (full storm timeline via the shared zoneClosedAtMs + endgame slack), which
+ *  collects an honest endedBy 'unresolved' sample instead. Throws only on the
+ *  structural impossibility of a match that never even ACTIVATED in budget. */
 export function runMatch(index: number, spec: RunSpec): MatchSample {
   const matchSeed = mixSeed(spec.seed, index);
   const droneCount = spec.drones ?? Math.max(0, CONFIG.match.fillTo - spec.captains);
   const playerCap = Math.max(CONFIG.match.fillTo, spec.captains + droneCount);
-  const world = new World(matchSeed, playerCap);
+  // zoneSeeds: production rooms roll independent per-ring nonces (amendment
+  // 10); the harness instead derives one per ring from the match seed on its
+  // own ordinal band so ring rolls are part of the reproducible run key
+  // (byte-identical reruns). Server-side only — nothing rides a wire, so the
+  // derivation leaks nothing.
+  const zoneSeeds = Array.from({ length: zoneGroups(CONFIG.zone) }, (_, i) => mixSeed(matchSeed, ZONE_SEED_ORDINAL + i));
+  const world = new World(matchSeed, playerCap, CONFIG.zone, { zoneSeeds });
   const timings: MatchTimings = {
     countdownMs: COUNTDOWN_MS,
     resultsMs: CONFIG.match.resultsSeconds * 1000,
@@ -243,9 +269,11 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
   }
   match.notifyRosterChanged();
   const collector = new MatchCollector(captainIds);
-  const tickCap = Math.ceil(
-    (COUNTDOWN_MS + CONFIG.zone.grace + CONFIG.zone.shrinkDuration + ENDGAME_SLACK_MS) / CONFIG.tick.simDtMs,
-  );
+  // Tick budget from the SHARED time-to-closed helper: the full phased
+  // timeline (12:00 at production CONFIG — ~14400 ticks) + countdown + endgame
+  // slack. Honest but bounded: a pacifist full run fits comfortably; nothing
+  // spins forever on a degenerate override (zoneClosedAtMs fails closed to 0).
+  const tickCap = Math.ceil((COUNTDOWN_MS + zoneClosedAtMs(CONFIG.zone) + ENDGAME_SLACK_MS) / CONFIG.tick.simDtMs);
   for (let tick = 0; tick < tickCap; tick += 1) {
     for (const p of pilots) p.tick(world);
     world.step();
@@ -253,7 +281,31 @@ export function runMatch(index: number, spec: RunSpec): MatchSample {
     collector.observe(world, match);
     if (match.phase === 'finished') return finishSample(index, matchSeed, world, match, collector, captainIds);
   }
-  throw new Error(`match ${index} (seed ${matchSeed}) did not finish within ${tickCap} ticks`);
+  if (match.activatedAt === 0) {
+    throw new Error(`match ${index} (seed ${matchSeed}) never activated within ${tickCap} ticks`);
+  }
+  return capSample(index, matchSeed, world, match, collector, captainIds);
+}
+
+/**
+ * The at-cap classification (review FIX 5): a match that GENUINELY concluded
+ * at the budget edge keeps its real cause — 'unresolved' is only for a match
+ * still contested at the cap. Today the in-loop finished-check returns on the
+ * very tick finish() flips the phase, so runMatch reaches this only for
+ * unfinished matches; the guard exists (and is pinned by a direct test) so no
+ * future reordering of the loop can mislabel a real conclusion as unresolved.
+ * Exported for that pin only.
+ */
+export function capSample(
+  index: number,
+  seed: number,
+  world: World,
+  match: Match,
+  collector: MatchCollector,
+  captainIds: readonly string[],
+): MatchSample {
+  if (match.phase === 'finished') return finishSample(index, seed, world, match, collector, captainIds);
+  return unresolvedSample(index, seed, world, match, collector, captainIds);
 }
 
 /** DEPARTED CAPTAINS: a captain's ship is gone from world.ships if the match
@@ -274,6 +326,36 @@ function finishSample(
   captainIds: readonly string[],
 ): MatchSample {
   const summary = match.endSummary();
+  return buildSample(index, seed, world, collector, captainIds, summary.durationS, summary.endedBy, summary.stormDeaths);
+}
+
+/** The tick-budget outcome: the match is still 'active', so endSummary would
+ *  report zeros — duration is measured directly and endedBy is the honest
+ *  harness-only 'unresolved' (see HarnessEndCause). Captain economy rows are
+ *  collected exactly like a finished match: for the pacifist control these
+ *  full-timeline rows ARE the evidence. */
+function unresolvedSample(
+  index: number,
+  seed: number,
+  world: World,
+  match: Match,
+  collector: MatchCollector,
+  captainIds: readonly string[],
+): MatchSample {
+  const durationS = Math.round((world.now - match.activatedAt) / 100) / 10;
+  return buildSample(index, seed, world, collector, captainIds, durationS, 'unresolved', match.endSummary().stormDeaths);
+}
+
+function buildSample(
+  index: number,
+  seed: number,
+  world: World,
+  collector: MatchCollector,
+  captainIds: readonly string[],
+  durationS: number,
+  endedBy: HarnessEndCause,
+  stormDeaths: number,
+): MatchSample {
   const captains: CaptainSample[] = [];
   const departedCaptains: string[] = [];
   for (const id of captainIds) {
@@ -284,9 +366,9 @@ function finishSample(
   return {
     index,
     seed,
-    durationS: summary.durationS,
-    endedBy: summary.endedBy,
-    stormDeaths: summary.stormDeaths,
+    durationS,
+    endedBy,
+    stormDeaths,
     killsByVictimTier: collector.killsByVictimTier,
     captains,
     departedCaptains,

@@ -53,7 +53,7 @@ describe('island separation vs hull beams (#64 channel guarantee)', () => {
 describe('mapRadius', () => {
   it('scales as base * sqrt(cap / capRef)', () => {
     expect(mapRadius(CONFIG.map.capRef)).toBeCloseTo(CONFIG.map.baseRadius);
-    expect(mapRadius(20)).toBeCloseTo(900 * Math.sqrt(20 / 6));
+    expect(mapRadius(5)).toBeCloseTo(2400 * Math.sqrt(5 / 20));
   });
 });
 
@@ -91,5 +91,31 @@ describe('generateMap', () => {
     const map = generateMap(7, CONFIG.map.playerCap);
     expect(map.radius).toBeCloseTo(mapRadius(CONFIG.map.playerCap));
     assertConstraints(map);
+  });
+
+  it('island density scales ~with map AREA (Story 3.1, amendment 12)', () => {
+    // cap 20 board (2400u) has 4x the area of the cap 5 board (1200u); the
+    // cluster budget must track it — without area scaling this ratio sits ~1.
+    const avgCount = (cap: number): number => {
+      let n = 0;
+      for (let seed = 100; seed < 130; seed++) n += generateMap(seed, cap).islands.length;
+      return n / 30;
+    };
+    const ratio = avgCount(20) / avgCount(5);
+    expect(ratio).toBeGreaterThan(2.5);
+    expect(ratio).toBeLessThan(6);
+    // Cover sanity on the production board: the pre-bump 900u generator
+    // REALIZED ~1.4% area cover (~5.6 islands after placement rejections —
+    // measured by reconstructing the old constants); amendment 12 keeps at
+    // least that density with sizes modestly up (~2.2% realized at 2400u),
+    // and never a maze.
+    let cover = 0;
+    for (let seed = 100; seed < 130; seed++) {
+      const m = generateMap(seed, 20);
+      cover += m.islands.reduce((a, c) => a + c.r * c.r, 0) / (m.radius * m.radius);
+    }
+    cover /= 30;
+    expect(cover).toBeGreaterThan(0.012);
+    expect(cover).toBeLessThan(0.05);
   });
 });

@@ -11,12 +11,20 @@ import type { Circle } from '../types.js';
 
 const TAU = Math.PI * 2;
 
-const MIN_CLUSTERS = 4;
-const MAX_CLUSTERS = 7;
+// Cluster budget DENSITY REFERENCE (Story 3.1, amendment 12): the counts below
+// were hand-tuned on the pre-bump 900u board; the cluster count now scales
+// ~with map AREA (see clusterBudget) so any board keeps that cover/LOS/
+// radar-shadow density — the 2400u production ocean rolls ~7.1× the clusters
+// instead of shipping the old absolute budget as ~14%-density open sea.
+const REF_RADIUS = 900; // u — the board MIN/MAX_CLUSTERS were tuned on
+const MIN_CLUSTERS = 4; // at REF_RADIUS
+const MAX_CLUSTERS = 7; // at REF_RADIUS
 const MIN_CIRCLES = 2;
 const MAX_CIRCLES = 4;
-const MIN_R = 25; // u — smallest island circle
-const MAX_R = 70; // u — largest island circle
+// Island sizes bumped modestly with the map (amendment 12: 25–70 → 30–90) so
+// single rocks still read — and still shadow — at the bigger board's ranges.
+const MIN_R = 30; // u — smallest island circle
+const MAX_R = 90; // u — largest island circle
 const SEPARATION = 40; // u — min gap between island circles (widest hull beam 32 must fit channels)
 const SPAWN_MARGIN = 64; // u — min clearance from the spawn ring (>= max hull bounding radius 62.29, so the ring guarantee holds at board scale)
 const INNER_FRACTION = 0.15; // no islands within this fraction of center
@@ -106,11 +114,21 @@ export function generateMap(seed: number, playerCap: number = CONFIG.map.playerC
   const spawnRing = radius * CONFIG.map.spawnFraction;
   const rng = mulberry32(seed);
   const islands: Circle[] = [];
-  const clusters = rng.int(MIN_CLUSTERS, MAX_CLUSTERS);
+  const clusters = clusterBudget(rng, radius);
   for (let i = 0; i < clusters; i++) {
     placeCluster(rng, islands, radius, spawnRing);
   }
   return { radius, spawnRing, islands };
+}
+
+/** Cluster count for a board: the REF_RADIUS-tuned range scaled ~with map
+ *  AREA (amendment 12 — density, not absolute count, is the design constant),
+ *  floored at 1 so even a tiny dev board is never a featureless disc. */
+function clusterBudget(rng: Rng, radius: number): number {
+  const areaScale = (radius / REF_RADIUS) ** 2;
+  const lo = Math.max(1, Math.round(MIN_CLUSTERS * areaScale));
+  const hi = Math.max(lo, Math.round(MAX_CLUSTERS * areaScale));
+  return rng.int(lo, hi);
 }
 
 /** Constants describing island placement constraints (exposed for tests). */

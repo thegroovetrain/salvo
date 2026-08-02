@@ -1,19 +1,19 @@
 // Weapons smoke: two live @colyseus/sdk clients against a running dev server,
 // exercising torpedoes + mines end to end.
-//   1. Torpedo kill: A faces B (bow-on) and holds fire until B sinks. With the
-//      single bow tube (owner play test) that is TWO 55-dmg fish across two ~12s
-//      reloads (2×55 = 110 > 100 HP), not one two-tube volley. Asserts 55-damage
-//      hits, the kill on the roster.
+//   1. Torpedo kill: A (torpedo boat) faces B (mine layer, 105hp) bow-on and
+//      holds fire until B sinks — TWO 55-dmg fish across two ~12s reloads
+//      (2×55 = 110 > 105 HP). Asserts 55-damage hits, the kill on the roster.
 //   2. Torpedo never blips: B collects every torpedo id it is shown (via `torp`
 //      events entering its sight) and every radar blip id — asserts the sets are
 //      DISJOINT (a torpedo can never appear on the scope).
-//   3. Mine visibility + oldest-despawn: A holds station and drops mines astern
-//      while B loiters within sight but outside trigger range. Asserts B never
-//      sees an enemy mine beyond sight range (no radar/fog leak), never sees
-//      more than maxLive of A's mines at once, yet sees >maxLive distinct ids
-//      over time (proving the 4th drop despawned the oldest).
-//   4. Mine ambush: B sails onto a live armed mine — asserts 45 damage + a boom,
-//      and that B first saw that mine only from within sight range.
+//   3. Mine visibility + oldest-despawn: B — the MINE LAYER (mines are its
+//      click-aimed rear-arc slot 1 as of Story 2.8) — holds station clicking
+//      drops astern while A loiters within sight but outside trigger range.
+//      Asserts A never sees an enemy mine beyond sight range (no radar/fog
+//      leak), never sees more than maxLive of B's mines at once, yet sees
+//      >maxLive distinct ids over time (oldest-despawn proven).
+//   4. Mine ambush: A sails onto a live armed mine — asserts 45 damage + a
+//      boom, and that A first saw that mine only from within sight range.
 //
 // Run against a booted server (tsx server/src/index.ts + shared/dist built),
 // with HC_DEV_OPTIONS=1 in ITS env — this smoke's sandbox matchOverride +
@@ -22,7 +22,7 @@
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/weaponsSmoke.mjs
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const SIGHT = CONFIG.vision.sight;
@@ -35,13 +35,15 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Sandbox (dev-only): pre-step-14 room behavior — no match lifecycle, permissive
-// combat policy, storm at 2nd join. The long grace keeps that storm harmless
+// combat policy, storm at 2nd join. The long beat keeps that storm harmless
 // for the whole choreography (this smoke predates the zone / match steps).
-const SANDBOX_ZONE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction: 0.15 };
+// Phased timeline (Story 3.1): a 10-minute beat parks the first close at 30
+// minutes out, so the whole choreography runs on the full-map ring.
+const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
 
-async function joinClient(name) {
+async function joinClient(name, cls = 'torpedoBoat') {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
+  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, cls, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
   const ctx = {
     name,
     room,
@@ -61,8 +63,12 @@ async function joinClient(name) {
     maxConcurrentEnemy: 0, // most of A's mines seen at once
     distinctEnemy: new Set(),
     firstSeenDist: new Map(), // mineId -> distance at first sighting
+    islands: [], // rebuilt from the welcome — arms islandAvoid
   };
-  room.onMessage('w', (m) => (ctx.welcome = m));
+  room.onMessage('w', (m) => {
+    ctx.welcome = m;
+    ctx.islands = generateMap(m.mapSeed, m.playerCap).islands; // arms islandAvoid
+  });
   room.onMessage('f', (m) => onFrame(ctx, m));
   return ctx;
 }
@@ -106,10 +112,28 @@ function control(ctx) {
   ctx.room.send('i', inp);
 }
 
+
+/** Rudder bias steering away from any island ahead (dronesSmoke islandAvoid —
+ *  needed since amendment 12 scaled the island budget with map area: long
+ *  straight sail-ins on the 2400u board WILL cross rocks). */
+function islandAvoid(ctx) {
+  if (!ctx.you) return 0;
+  const fx = Math.cos(ctx.you.heading);
+  const fy = Math.sin(ctx.you.heading);
+  let bias = 0;
+  for (const c of ctx.islands ?? []) {
+    const dx = c.x - ctx.you.x;
+    const dy = c.y - ctx.you.y;
+    if (dx * fx + dy * fy <= 0 || Math.hypot(dx, dy) > 170 + c.r) continue;
+    bias += fx * dy - fy * dx > 0 ? -0.9 : 0.9;
+  }
+  return bias;
+}
+
 function steerToward(ctx, inp, target, throttle) {
   if (!ctx.you || !target) return;
   const want = bearing(ctx.you, target);
-  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 2, -1, 1);
+  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 2 + islandAvoid(ctx), -1, 1);
   inp.throttle = throttle;
 }
 
@@ -135,11 +159,15 @@ function engageTorp(ctx, inp, target) {
   if (Math.abs(angleDiff(brg, ctx.you.heading)) < CONFIG.torpedo.halfArc) inp.fireSeq = ++ctx.fireSeq;
 }
 
-/** Hold station (heading steady with light steerage) and drop mines astern. */
+/** Hold station (light steerage) and CLICK mine drops astern — the Story 2.8
+ *  aimed rear-arc placement (mine layer slot 1): aim dead astern, well inside
+ *  placeRange, so every click is a legal placement. */
 function dropMines(ctx, inp) {
   if (!ctx.you) return;
   inp.throttle = 0.12; // just enough steerageway to hold a heading
-  inp.slot = 2; // mines
+  inp.slot = 1; // the mine layer's mine slot (gun / mine / decoyBuoy fit)
+  inp.aim = ctx.you.heading + Math.PI; // dead astern — center of the placement arc
+  inp.aimDist = CONFIG.mine.placeRange * 0.6; // comfortably inside placeRange
   inp.fireSeq = ++ctx.fireSeq; // click every tick; the 8s drop cooldown paces it
 }
 
@@ -245,8 +273,8 @@ function nearestEnemyMine(b) {
 }
 
 async function main() {
-  const a = await joinClient('WPN-A');
-  const b = await joinClient('WPN-B');
+  const a = await joinClient('WPN-A'); // torpedo boat — the torpedo-phase shooter
+  const b = await joinClient('WPN-B', 'mineLayer'); // the mine-phase dropper
   assert(a.room.roomId === b.room.roomId, 'clients joined different rooms');
   await sleep(300);
   assert(a.welcome && b.welcome, 'missing welcome');
@@ -254,8 +282,10 @@ async function main() {
   const log = [];
   await rendezvous(a, b, log);
   await torpedoPhase(a, b, log);
-  await minePhase(a, b, log);
-  await ambushPhase(a, b, log);
+  // Role swap for the mine phases: B is the mine layer (the dropper); A observes
+  // in phase 3 and sails onto a mine in phase 4.
+  await minePhase(b, a, log);
+  await ambushPhase(b, a, log);
 
   console.log('WEAPONS SMOKE OK:', {
     room: a.room.roomId,

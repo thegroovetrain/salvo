@@ -1,37 +1,41 @@
 // Storm-circle renderer. Two pieces:
 //   1. CHARTED rings (chartRoot, fog-immune): the live safe circle (thin bright
-//      GREEN ring — the safe side), a wide translucent dimensional-purple storm
-//      annulus just outside it, and a dim dashed purple target ring at the final
-//      radius (shown from grace onward so players can plan). All are
-//      camera-transformed world geometry.
+//      GREEN ring — the safe side) with a wide translucent dimensional-purple
+//      storm annulus just outside it, drawn at the ring's OFFSET center (Story
+//      3.1: rings are no longer concentric to the map), and a dim dashed purple
+//      target ring at the REVEALED next ring when one is public (the reveal
+//      beat onward — the same planning telegraph the old final-radius ring
+//      carried, now honest about where the ring actually goes; Story 3.2 owns
+//      the real reveal presentation). All are camera-transformed world geometry.
 //   2. SCREEN vignette (hudRoot): a pre-baked dimensional-purple radial-gradient
 //      sprite whose alpha pulses while the own ship is out of the zone.
 //
-// The safe radius is DERIVED on the client from zoneStartT + CONFIG via
-// serverNow() (see ArenaState JSDoc) so it is smooth at 60fps; this module just
-// draws whatever radius it is handed. Charted ring/annulus redraws are throttled
-// to meaningful radius changes (>1u) — the vignette is the only per-frame cost.
+// The live ring is DERIVED on the client from the schema's revealed rings +
+// zoneStartT + CONFIG via the shared zoneLiveState() (see ArenaState JSDoc) so
+// it is smooth at 60fps; this module just draws whatever geometry it is handed.
+// Charted redraws are throttled to meaningful radius changes (>1u; recenters
+// are a cheap position set) — the vignette is the only per-frame cost.
 // Thin Pixi adapter except vignetteAlpha(), which is pure + unit-tested.
 
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
-import type { ZonePhase } from '@salvo/shared';
+import type { ZonePhase, ZoneRing } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
 import { bakeVignetteTexture } from './textures.js';
 
 const SAFE_RING = CLIENT_CONFIG.colors.phosphor; // phosphor-green safe boundary — the safe side
-// The wide storm band is the storm FILL (`storm`); the thin dashed final-radius
-// ring is a graphic on-water edge stroke, so it reads at readout brightness
-// (`storm-readout`) — the `storm` fill at 2.87:1 is below the 3:1 graphic
-// threshold (DESIGN.md storm color note).
-const TARGET_RING = CLIENT_CONFIG.colors.stormReadout; // on-water final-radius edge telegraph
+// The wide storm band is the storm FILL (`storm`); the thin dashed next-ring
+// telegraph is a graphic on-water edge stroke, so it reads at readout
+// brightness (`storm-readout`) — the `storm` fill at 2.87:1 is below the 3:1
+// graphic threshold (DESIGN.md storm color note).
+const TARGET_RING = CLIENT_CONFIG.colors.stormReadout; // on-water revealed-next-ring edge telegraph
 const STORM = CLIENT_CONFIG.colors.storm; // storm band fill
 const STORM_BAND = 70; // u — annulus width painted outside the safe ring
 const TARGET_DASHES = 48; // dash segments around the target ring
 const REDRAW_EPS = 1; // u — min radius change before re-stroking the rings
 
-/** Zone display state incl. the pre-start `idle` (charted rings hidden). */
-export type ZoneDisplay = 'idle' | ZonePhase;
+/** Zone display state ('idle' hides the charted rings). */
+export type ZoneDisplay = ZonePhase;
 
 // Purple reads calmer than the old red, so the out-of-zone vignette leans on
 // alpha (brightness), not saturation, to keep its alarm legibility (DESIGN.md).
@@ -69,17 +73,14 @@ function dashedCircle(g: Graphics, r: number, segments: number): void {
 
 export class Zone {
   private readonly rings = new Graphics(); // safe ring + storm annulus (redrawn on change)
-  private readonly target = new Graphics(); // dashed final-radius ring (drawn once)
+  private readonly target = new Graphics(); // dashed revealed-next-ring telegraph
   private readonly vignette: Sprite;
-  private readonly endRadius: number;
   private lastRadius = -Infinity;
+  private lastTargetR = -Infinity;
 
-  constructor(chartLayer: Container, vignetteLayer: Container, mapRadius: number, endRadiusFraction: number) {
-    this.endRadius = mapRadius * endRadiusFraction;
+  constructor(chartLayer: Container, vignetteLayer: Container) {
     chartLayer.addChild(this.rings);
     chartLayer.addChild(this.target);
-    dashedCircle(this.target, this.endRadius, TARGET_DASHES);
-    this.target.stroke({ width: 2, color: TARGET_RING, alpha: 0.5 });
     this.target.visible = false;
 
     this.vignette = new Sprite(bakeVignetteTexture());
@@ -88,7 +89,8 @@ export class Zone {
     vignetteLayer.addChild(this.vignette);
   }
 
-  /** Re-stroke the safe ring + storm band for a new radius (throttled by caller). */
+  /** Re-stroke the safe ring + storm band for a new radius (throttled by caller).
+   *  Drawn about the local origin — the graphic's POSITION carries the ring center. */
   private drawRings(radius: number): void {
     const g = this.rings;
     g.clear();
@@ -99,24 +101,47 @@ export class Zone {
     g.circle(0, 0, radius).stroke({ width: 2, color: SAFE_RING, alpha: 0.7 });
   }
 
+  /** The dashed telegraph for the revealed next ring (throttled like drawRings). */
+  private updateTarget(next: ZoneRing): void {
+    if (Math.abs(next.r - this.lastTargetR) > REDRAW_EPS) {
+      this.target.clear();
+      dashedCircle(this.target, next.r, TARGET_DASHES);
+      this.target.stroke({ width: 2, color: TARGET_RING, alpha: 0.5 });
+      this.lastTargetR = next.r;
+    }
+    this.target.position.set(next.cx, next.cy);
+  }
+
   /**
    * Update the zone visuals for this frame.
-   *   radius   — current safe radius (u), derived on the client for smoothness
-   *   state    — 'idle' (hide everything) | 'grace' | 'shrinking' | 'closed'
-   *   inStorm  — own ship currently outside the safe radius
+   *   cur      — the LIVE ring (offset center + radius), derived on the client
+   *              via the shared zoneLiveState() for smoothness
+   *   next     — the REVEALED next ring, or null while none is public
+   *   state    — the zone phase ('idle' hides everything)
+   *   inStorm  — own ship currently outside the live ring
    *   nowSec   — wall-clock seconds (drives the vignette pulse)
    *   screenW/H — viewport (positions + stretches the screen-space vignette)
    */
-  update(radius: number, state: ZoneDisplay, inStorm: boolean, nowSec: number, screenW: number, screenH: number): void {
+  update(
+    cur: ZoneRing,
+    next: ZoneRing | null,
+    state: ZoneDisplay,
+    inStorm: boolean,
+    nowSec: number,
+    screenW: number,
+    screenH: number,
+  ): void {
     const active = state !== 'idle';
     this.rings.visible = active;
-    // The final-radius telegraph shows from grace onward (plan) but not once the
-    // ring has already reached it (closed) — then the safe ring sits on top.
-    this.target.visible = active && state !== 'closed';
-    if (active && Math.abs(radius - this.lastRadius) > REDRAW_EPS) {
-      this.drawRings(radius);
-      this.lastRadius = radius;
+    // The telegraph draws exactly the revealed next ring — present only from
+    // the reveal beat through the close (the schema's revealed prefix).
+    this.target.visible = active && next !== null;
+    if (active && Math.abs(cur.r - this.lastRadius) > REDRAW_EPS) {
+      this.drawRings(cur.r);
+      this.lastRadius = cur.r;
     }
+    this.rings.position.set(cur.cx, cur.cy);
+    if (next !== null) this.updateTarget(next);
     this.vignette.position.set(screenW / 2, screenH / 2);
     this.vignette.width = screenW;
     this.vignette.height = screenH;

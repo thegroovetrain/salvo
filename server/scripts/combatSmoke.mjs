@@ -26,15 +26,20 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Sandbox (dev-only): pre-step-14 room behavior — no match lifecycle, permissive
-// combat policy, storm at 2nd join. The long grace keeps that storm harmless
+// combat policy, storm at 2nd join. The long beat keeps that storm harmless
 // for the whole choreography (this smoke predates the zone / match steps).
-const SANDBOX_ZONE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction: 0.15 };
+// Phased timeline (Story 3.1): a 10-minute beat parks the first close at 30
+// minutes out, so the whole choreography runs on the full-map ring.
+const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
 
 async function joinClient(name) {
   const client = new Client(endpoint);
   const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
-  const ctx = { name, room, welcome: null, you: null, contacts: [], booms: [], shells: 0 };
-  room.onMessage('w', (m) => (ctx.welcome = m));
+  const ctx = { name, room, welcome: null, you: null, contacts: [], booms: [], shells: 0, islands: [] };
+  room.onMessage('w', (m) => {
+    ctx.welcome = m;
+    ctx.islands = generateMap(m.mapSeed, m.playerCap).islands; // arms islandAvoid
+  });
   room.onMessage('f', (m) => onFrame(ctx, m));
   ctx.goal = { mode: 'idle' };
   ctx.seq = 0;
@@ -64,10 +69,30 @@ function control(ctx) {
   ctx.room.send('i', inp);
 }
 
+
+/** Rudder bias steering away from any island ahead (dronesSmoke islandAvoid —
+ *  needed since amendment 12 scaled the island budget with map area: long
+ *  straight sail-ins on the 2400u board WILL cross rocks). */
+function islandAvoid(ctx) {
+  if (!ctx.you) return 0;
+  const fx = Math.cos(ctx.you.heading);
+  const fy = Math.sin(ctx.you.heading);
+  let bias = 0;
+  for (const c of ctx.islands ?? []) {
+    const dx = c.x - ctx.you.x;
+    const dy = c.y - ctx.you.y;
+    if (dx * fx + dy * fy <= 0 || Math.hypot(dx, dy) > 170 + c.r) continue;
+    bias += fx * dy - fy * dx > 0 ? -0.9 : 0.9;
+  }
+  return bias;
+}
+
 function steerToward(ctx, inp, target, throttle) {
   if (!ctx.you) return;
   const want = bearing(ctx.you, target);
-  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 2, -1, 1);
+  // Avoidance only while under way — a 'hold' (throttle 0) must stay parked.
+  const bias = throttle > 0 ? islandAvoid(ctx) : 0;
+  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 2 + bias, -1, 1);
   inp.throttle = throttle;
 }
 

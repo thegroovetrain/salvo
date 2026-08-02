@@ -15,11 +15,13 @@
 // click or activation counter.
 //
 // Steering is deliberately dumb (this is NOT an AI): each drone waypoint-sails
-// to a random point inside the current safe zone at a per-leg throttle, seeded
-// per drone via mulberry32 so behavior is deterministic + testable. Avoidance
+// to a random point inside the current safe ring at a per-leg throttle, seeded
+// per drone via mulberry32 so behavior is deterministic + testable. The ring is
+// OFFSET-CENTER as of Story 3.1, so every zone read here goes through the
+// world's LIVE ring (center + radius), never the map origin. Avoidance
 // overrides, in priority order:
-//   1. outside the zone  -> steer straight at the zone center (they should only
-//      die to the storm through incompetence, never by parking outside);
+//   1. outside the zone  -> steer straight at the live ring CENTER (they should
+//      only die to the storm through incompetence, never by parking outside);
 //   2. island ahead      -> bias the rudder away from it (+ never pick a
 //      waypoint that sits inside an island);
 //   3. near the map edge -> steer back toward center.
@@ -136,11 +138,12 @@ export class DroneController {
   /** Bearing the drone wants to hold, applying the zone/waypoint overrides. */
   private steerTarget(ship: ShipRecord, mind: DroneMind): number {
     const pos = ship.state;
-    // Override 1: outside the safe zone -> beeline for center; drop the waypoint
-    // so a fresh one is picked once the drone is back inside.
-    if (isOutside(pos, this.world.zoneRadius)) {
+    // Override 1: outside the safe ring -> beeline for the LIVE ring center
+    // (offset-aware); drop the waypoint so a fresh one is picked once inside.
+    const ring = this.world.zoneLiveRing;
+    if (isOutside(pos, ring.cx, ring.cy, ring.r)) {
       mind.waypoint = null;
-      return bearing(pos, ORIGIN);
+      return bearing(pos, { x: ring.cx, y: ring.cy });
     }
     return bearing(pos, this.currentWaypoint(pos, mind));
   }
@@ -162,16 +165,19 @@ export class DroneController {
     return this.insideIsland(wp);
   }
 
-  /** A random point uniformly inside 0.8x the current zone radius, island-free. */
+  /** A random point uniformly inside 0.8x the LIVE ring (offset-center), island-free. */
   private pickWaypoint(rng: Rng): Vec2 {
-    const max = this.world.zoneRadius * WAYPOINT_ZONE_FRACTION;
+    const ring = this.world.zoneLiveRing;
+    const max = ring.r * WAYPOINT_ZONE_FRACTION;
     for (let i = 0; i < 16; i++) {
       const a = rng.float(0, TAU);
       const r = Math.sqrt(rng.next()) * max; // sqrt => uniform over the disc
-      const p = { x: Math.cos(a) * r, y: Math.sin(a) * r };
+      const p = { x: ring.cx + Math.cos(a) * r, y: ring.cy + Math.sin(a) * r };
       if (!this.insideIsland(p)) return p;
     }
-    return ORIGIN; // center is always island-free (mapgen's inner exclusion)
+    // The ring center beats the map origin as a fallback: a late offset ring
+    // may not even contain the origin. Islands there are survivable (push-out).
+    return { x: ring.cx, y: ring.cy };
   }
 
   /** True iff `p` sits inside (or hugging) any island. */

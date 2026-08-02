@@ -41,20 +41,31 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ---------------------------------------------------------------- clients ---
 
 // Sandbox (dev-only): pre-step-14 room behavior — no match lifecycle, permissive
-// combat policy, storm at 2nd join. The long grace keeps that storm harmless
+// combat policy, storm at 2nd join. The long beat keeps that storm harmless
 // for the whole choreography (this smoke predates the zone / match steps).
-const SANDBOX_ZONE = { grace: 600000, shrinkDuration: 180000, endRadiusFraction: 0.15 };
+// Phased timeline (Story 3.1): a 10-minute beat parks the first close at 30
+// minutes out, so the whole choreography runs on the full-map ring.
+const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, terminalSightFactor: 2 };
 
 async function joinClient(name) {
   const client = new Client(endpoint);
-  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE });
+  // mapSeed 265 (dev-only pin): the latencyHarness scan winner for the
+  // amendment-12 island field (fewest islands — 23 — with the farthest center
+  // clearance, 663u; scan method documented there). park() carries an
+  // islandAvoid bias for the long sail-ins; the pin keeps the standoff
+  // geometry and LOS lanes deterministic.
+  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE, mapSeed: 265 });
   const ctx = {
     name, room, welcome: null, you: null, now: 0,
     contacts: [], blips: [], shells: [], booms: [],
     frames: null, // when set, per-frame records are pushed here
     goal: { mode: 'idle' }, seq: 0, fireSeq: 0, other: null,
+    islands: [], // rebuilt from the welcome — arms park()'s island avoidance
   };
-  room.onMessage('w', (m) => (ctx.welcome = m));
+  room.onMessage('w', (m) => {
+    ctx.welcome = m;
+    ctx.islands = generateMap(m.mapSeed, m.playerCap).islands;
+  });
   room.onMessage('f', (f) => onFrame(ctx, f));
   return ctx;
 }
@@ -93,6 +104,22 @@ function control(ctx) {
   ctx.room.send('i', inp);
 }
 
+/** Rudder bias steering away from any island ahead (dronesSmoke islandAvoid —
+ *  needed since amendment 12: the area-scaled island budget puts ~35 rocks on
+ *  the 2400u board, so long straight sail-ins WILL cross some). */
+function islandAvoid(ctx) {
+  const fx = Math.cos(ctx.you.heading);
+  const fy = Math.sin(ctx.you.heading);
+  let bias = 0;
+  for (const c of ctx.islands) {
+    const dx = c.x - ctx.you.x;
+    const dy = c.y - ctx.you.y;
+    if (dx * fx + dy * fy <= 0 || Math.hypot(dx, dy) > 170 + c.r) continue;
+    bias += fx * dy - fy * dx > 0 ? -0.9 : 0.9;
+  }
+  return bias;
+}
+
 /** Drive to `target` and stop there (throttle tapers with distance). */
 function park(ctx, inp, target) {
   if (!ctx.you) return;
@@ -100,7 +127,7 @@ function park(ctx, inp, target) {
   if (d < 15) return; // arrived: coast to a stop
   const want = bearing(ctx.you, target);
   const err = angleDiff(ctx.you.heading, want);
-  inp.rudder = clamp(err * 2.5, -1, 1);
+  inp.rudder = clamp(err * 2.5 + islandAvoid(ctx), -1, 1);
   inp.throttle = d > 140 ? 1 : Math.abs(err) > 0.6 ? 0.35 : clamp(d / 140, 0.25, 1);
 }
 
@@ -234,7 +261,12 @@ async function phaseShellReveal(a, b, log) {
   for (const sb of bShells) {
     const sa = aShells.find((e) => e.id === sb.id);
     assert(sa, `shell: B saw ${sb.id} that A (owner) never did`);
-    assert(sb.t - sa.t >= 1000, `shell: ${sb.id} revealed to B only ${(sb.t - sa.t).toFixed(0)}ms after launch (fired from ~400u)`);
+    // Reveal must be LATER than launch — never on the launch tick. The exact
+    // delay is geometry ((standoff - sight)/shellSpeed ~ 180ms at 420u standoff,
+    // sight 330, shell 500u/s — the old 1000ms literal predates both retunes);
+    // the load-bearing anti-cheat check is the reveal POSITION below (the shell
+    // materializes at B's sight boundary, not at A's muzzle).
+    assert(sb.t - sa.t >= CONFIG.tick.simDtMs, `shell: ${sb.id} revealed to B on its launch tick (+${(sb.t - sa.t).toFixed(0)}ms)`);
     assert(sa.ttl === undefined && sb.ttl === undefined, `shell: ${sb.id} carried a ttl (range-derivable field must not be on the wire)`);
     assert(dist(sb, b.you) <= SIGHT + 60, `shell: ${sb.id} revealed ${dist(sb, b.you).toFixed(0)}u from B (outside sight)`);
   }

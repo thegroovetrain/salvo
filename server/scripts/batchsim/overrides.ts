@@ -8,9 +8,14 @@
 // between variants, single runs simply exit.
 //
 // The whitelist is EXACTLY the spec's tunable-dial surface: xp.*, deck.*,
-// offer.size, match.fillTo, zone.*. Anything else — even a real CONFIG path
-// like gun.damage — is rejected with a clear error, so the harness can never
-// quietly become a general balance-editing backdoor.
+// offer.size, match.fillTo, map.baseRadius, zone.*. Anything else — even a
+// real CONFIG path like gun.damage — is rejected with a clear error, so the
+// harness can never quietly become a general balance-editing backdoor.
+// zone.* keys address the PHASED timeline shape (Story 3.1): zone.beatMs,
+// zone.offsetCap, zone.terminalSightFactor, zone.stormDps, and the per-group
+// ring exponents by INDEX — zone.ringSteps.0 / zone.ringSteps.1 (resolveLeaf
+// walks any dotted path, array indices included). map.baseRadius joins for the
+// 3.1 map-radius × ring evidence sweeps (amendment 7).
 
 import { CONFIG } from '@salvo/shared';
 
@@ -18,7 +23,7 @@ import { CONFIG } from '@salvo/shared';
 export class TunableError extends Error {}
 
 const TUNABLE_FAMILIES = ['xp.', 'deck.', 'zone.'];
-const TUNABLE_EXACT = new Set(['offer.size', 'match.fillTo']);
+const TUNABLE_EXACT = new Set(['offer.size', 'match.fillTo', 'map.baseRadius']);
 
 export function isTunableKey(key: string): boolean {
   return TUNABLE_EXACT.has(key) || TUNABLE_FAMILIES.some((p) => key.startsWith(p));
@@ -34,7 +39,7 @@ interface Leaf {
 function resolveLeaf(key: string): Leaf {
   if (!isTunableKey(key)) {
     throw new TunableError(
-      `'${key}' is not a tunable dial (allowed: xp.*, deck.*, offer.size, match.fillTo, zone.*)`,
+      `'${key}' is not a tunable dial (allowed: xp.*, deck.*, offer.size, match.fillTo, map.baseRadius, zone.*)`,
     );
   }
   const parts = key.split('.');
@@ -60,11 +65,14 @@ export function validateTunableKey(key: string): void {
 /** Per-key numeric FLOOR. A dial the sim divides by, or loops until it consumes,
  *  cannot legally be <= 0: `offer.size` 0 makes drawOffer return an empty offer
  *  forever (the deck never depletes -> the deck-only economy loop never
- *  terminates), and `xp.levelMs` 0 makes passive accrual a divide-by-zero.
- *  Everything else may legitimately be 0 — `deck.rareWeightPerDryLevel=0` (the
- *  ratified no-pity sweep arm) and `zone.grace=0` / `zone.endRadiusFraction=0`
- *  (the fast-storm test arms) are real evidence values. */
-const MIN_ONE_KEYS = new Set(['xp.levelMs', 'offer.size']);
+ *  terminates), `xp.levelMs` 0 makes passive accrual a divide-by-zero,
+ *  `zone.beatMs` 0 collapses zoneClosedAtMs to 0 (a zero tick budget — the
+ *  shared timeline fails closed, but every match would report as unresolved
+ *  nonsense), and `map.baseRadius` 0 is a zero-area board. Everything else may
+ *  legitimately be 0 — `deck.rareWeightPerDryLevel=0` (the ratified no-pity
+ *  sweep arm), `zone.offsetCap=0` (concentric rings), `zone.ringSteps.N=0`
+ *  (a hold-at-map-radius ring) are real evidence values. */
+const MIN_ONE_KEYS = new Set(['xp.levelMs', 'offer.size', 'zone.beatMs', 'map.baseRadius']);
 
 /** Floor-check a --set/--sweep VALUE (arg-parse time and again at apply time).
  *  Rejecting here is what keeps a non-positive dial from reaching a sim loop. */

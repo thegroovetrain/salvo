@@ -13,6 +13,7 @@
 import { writeFileSync } from 'node:fs';
 import { USAGE, UsageError, buildVariants, parseArgs, type CliOptions } from './args.js';
 import { TunableError, applyOverrides } from './overrides.js';
+import { PILOT_REGISTRY } from './pilots.js';
 import { runBatch, type BatchResult } from './runner.js';
 import { runDeckSim, type DeckAggregate } from './deckSim.js';
 import {
@@ -31,7 +32,7 @@ function overridesLine(set: Record<string, number>): string {
 
 function headerLines(opts: CliOptions): string[] {
   const mode = opts.deckOnly ? `deck-only draws=${opts.draws}` : `batch matches=${opts.matches}`;
-  const roster = opts.deckOnly ? '' : ` captains=${opts.captains} drones=${opts.drones ?? 'default'}`;
+  const roster = opts.deckOnly ? '' : ` captains=${opts.captains} drones=${opts.drones ?? 'default'} pilot=${opts.pilot}`;
   return [
     'HULLCRACKER ECONOMY BATCH-SIM',
     `run key: seed=${opts.seed} mode=${mode}${roster} overrides=${overridesLine(opts.set)} sweeps=${opts.sweeps.length}`,
@@ -55,7 +56,13 @@ function batchMode(opts: CliOptions): ModeOutput {
     const restore = applyOverrides(variant.set);
     try {
       const result = runBatch(
-        { seed: opts.seed, matches: opts.matches, captains: opts.captains, drones: opts.drones },
+        {
+          seed: opts.seed,
+          matches: opts.matches,
+          captains: opts.captains,
+          drones: opts.drones,
+          pilot: PILOT_REGISTRY[opts.pilot],
+        },
         opts.quiet ? undefined : progressLogger(variant.label, opts.matches),
       );
       const agg = buildAggregate(result, opts.captains);
