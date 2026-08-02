@@ -241,6 +241,11 @@ interface LiveShell {
   launchedAt: number;
   expiresAt: number; // server time (ms) the shell self-terminates
   trailAt: number; // next travel-distance (u) to drop a wake dot (torpedoes only)
+  /** Which OWN weapon fired this track, when roomBindings could honestly
+   *  correlate the reveal with a click of ours — null for everyone else's. Held
+   *  so a LATER event on the same track (the burst, which arrives long after
+   *  the 400ms click latch has expired) can still be attributed to us. */
+  own: OwnFire;
 }
 
 /**
@@ -372,9 +377,18 @@ export class Projectiles {
       launchedAt: ev.t,
       expiresAt: ev.t + maxLifetimeMs(this.mapRadius, Math.hypot(ev.vx, ev.vy)),
       trailAt: trailSpacing(look),
+      own,
     };
     this.live.set(ev.id, s);
     this.orient(s);
+  }
+
+  /** Which own weapon fired the track `id`, or null (unknown track, or not
+   *  ours). Read at BURST time, before onBurst retires the track: the burst
+   *  ring needs to know whether it may size itself off our own effective blast
+   *  radius (aimPreview.ownBurstRadius) — the wire will never say. */
+  ownFireOf(id: string): OwnFire {
+    return this.live.get(id)?.own ?? null;
   }
 
   /**
@@ -434,6 +448,7 @@ export class Projectiles {
       launchedAt: ev.t,
       expiresAt: ev.t,
       trailAt: trailSpacing('torpHoming'),
+      own: null, // a track we only learned about from a steer is never ours
     };
     this.live.set(ev.id, s);
     return s;

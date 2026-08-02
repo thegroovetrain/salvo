@@ -78,6 +78,11 @@ function setup() {
     radar: { onSweepSample: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
+    // The own-private preview seams (aim-preview cycle): the burst ring's
+    // effective radius and the own-mine rings. Both fail to `undefined` here,
+    // which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     onOwnStats: vi.fn(),
@@ -157,6 +162,11 @@ function setupChannels() {
     clock: { addSample: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
+    // The own-private preview seams (aim-preview cycle): the burst ring's
+    // effective radius and the own-mine rings. Both fail to `undefined` here,
+    // which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: decoysSync },
     colors: vi.fn(() => null),
@@ -201,9 +211,14 @@ function setupEvents() {
     clock: { addSample: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
+    // The own-private preview seams (aim-preview cycle): the burst ring's
+    // effective radius and the own-mine rings. Both fail to `undefined` here,
+    // which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    projectiles: { onBurst, onBoom, onBallisticUpdate },
+    projectiles: { onBurst, onBoom, onBallisticUpdate, ownFireOf: () => null },
     effects: { spawnEffect },
     onSunkObserved: vi.fn(),
     onSpectate: vi.fn(),
@@ -220,7 +235,9 @@ describe('bindRoom burst events', () => {
     sink.handler(eventFrame({ k: 'burst', id: 'shell-7', x: 300, y: -120 }));
     expect(onBurst).toHaveBeenCalledTimes(1);
     expect(onBurst).toHaveBeenCalledWith({ k: 'burst', id: 'shell-7', x: 300, y: -120 });
-    expect(spawnEffect).toHaveBeenCalledWith('burst', 300, -120);
+    // An UNCORRELATED burst (not ours) keeps the CONFIG-default ring radius:
+    // the wire carries no radius, and an onlooker must not read one off it.
+    expect(spawnEffect).toHaveBeenCalledWith('burst', 300, -120, 1, undefined);
   });
 });
 
@@ -257,6 +274,11 @@ describe('bindRoom own sunk', () => {
       clock: { addSample: vi.fn() },
       contacts: { pushFrame: vi.fn() },
       mines: { sync: vi.fn() },
+      // The own-private preview seams (aim-preview cycle): the burst ring's
+      // effective radius and the own-mine rings. Both fail to `undefined` here,
+      // which is exactly the pre-stats behavior (CONFIG default / no rings).
+      ownBurstRadius: () => undefined,
+      ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
       effects: { spawnEffect: vi.fn() },
@@ -337,6 +359,11 @@ function setupToasts(spectating = false) {
     clock: { addSample: vi.fn() },
     contacts: { pushFrame: vi.fn() },
     mines: { sync: vi.fn() },
+    // The own-private preview seams (aim-preview cycle): the burst ring's
+    // effective radius and the own-mine rings. Both fail to `undefined` here,
+    // which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
     ownBuffer: { push: vi.fn(), clear: vi.fn() },
@@ -537,9 +564,14 @@ function setupWater(ownFire: OwnFire = null) {
     contacts: { pushFrame: vi.fn(), ids: () => [], get: () => null },
     contactViews: { flash },
     mines: { sync: vi.fn() },
+    // The own-private preview seams (aim-preview cycle): the burst ring's
+    // effective radius and the own-mine rings. Both fail to `undefined` here,
+    // which is exactly the pre-stats behavior (CONFIG default / no rings).
+    ownBurstRadius: () => undefined,
+    ownMineRings: () => undefined,
     litZones: { sync: vi.fn() },
     decoys: { sync: vi.fn() },
-    projectiles: { onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn() },
+    projectiles: { onShell, onBoom: vi.fn(), onBurst: vi.fn(), onBallisticUpdate: vi.fn(), ownFireOf: () => null },
     effects: { spawnEffect },
     shake: { trigger },
     audio: { play },

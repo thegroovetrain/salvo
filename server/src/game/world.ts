@@ -37,6 +37,7 @@ import {
   hullSilhouette,
   mulberry32,
   pierceDamage,
+  pointPolygonDistance,
   resolveBoons,
   resolveShipPose,
   returnCards,
@@ -1098,7 +1099,7 @@ export class World {
     // Self-propelled mines creep BEFORE the trigger scan (Story 2.8) — a
     // deliberate step-order position: a mine that crawls into trigger range
     // this tick trips this tick, against the same post-move hulls.
-    this.creepMines(dt);
+    this.creepMines(dt, hulls);
     this.stepMines(hulls);
     // Star-shell doctrine zone effects (Story 2.8): incendiary DoT + dazzle
     // marking, against post-move centers, BEFORE the expiry sweep so a zone
@@ -1322,19 +1323,29 @@ export class World {
   /**
    * SELF-PROPELLED MINES (Story 2.8 doctrine): every ARMED mine whose owner
    * currently holds the selfPropelled doctrine creeps at CONFIG.mine.creepSpeed
-   * toward the nearest NON-OWNER alive hull center within creepAcquireRange.
-   * Owner lookup at step time (a vacated/doctrine-less owner's mines sit
-   * still — the CONFIG-base fallback rule). A creeping mine never leaves the
-   * water disk and never enters an island circle (stopped at the rim — mines
-   * float). Position changes flow to clients automatically: MineViews are
-   * re-materialized per tick.
+   * toward the nearest NON-OWNER alive hull whose SILHOUETTE is within
+   * creepAcquireRange. Owner lookup at step time (a vacated/doctrine-less
+   * owner's mines sit still — the CONFIG-base fallback rule). A creeping mine
+   * never leaves the water disk and never enters an island circle (stopped at
+   * the rim — mines float). Position changes flow to clients automatically:
+   * MineViews are re-materialized per tick.
+   *
+   * THE METRIC IS THE SILHOUETTE (Eric ruling 2026-08-02, the tracking fix):
+   * acquisition measures mine→hull POLYGON exactly like the trip does
+   * (pointPolygonDistance, against THIS tick's post-move hulls). The original
+   * center-distance ring could not work at any radius the doctrine could
+   * afford: hulls are 85–124u long, so a ship's silhouette reaches the 32u+
+   * trip ring while its CENTER is still 74–94u out — every approach tripped the
+   * mine before the old 60u center ring ever acquired it, and a trigger boon
+   * widened the pre-empting ring further. Same metric on both rings is the only
+   * shape in which "acquire, then close, then trip" can be true.
    */
-  private creepMines(dt: number): void {
+  private creepMines(dt: number, hulls: readonly HullTarget[]): void {
     for (const mine of this.mines.values()) {
       if (this.now < mine.armedAt) continue; // unarmed mines never move
       const owner = this.ships.get(mine.ownerId);
       if (owner === undefined || owner.stats.mine.mode !== 'selfPropelled') continue;
-      const target = this.nearestEnemyCenter(mine, mine.ownerId, CONFIG.mine.creepAcquireRange);
+      const target = this.nearestEnemyHull(mine, mine.ownerId, hulls, CONFIG.mine.creepAcquireRange);
       if (target === null) continue;
       const d = Math.hypot(target.x - mine.x, target.y - mine.y);
       if (d <= 0) continue;
@@ -1348,18 +1359,35 @@ export class World {
     }
   }
 
-  /** Nearest ALIVE non-`ownerId` hull center within `range` of `p`, or null.
-   *  Deterministic: strict `<` keeps the earliest ships-map entry on ties. */
-  private nearestEnemyCenter(p: Vec2, ownerId: string, range: number): Vec2 | null {
+  /**
+   * The nearest ALIVE non-`ownerId` hull whose SILHOUETTE lies within `range`
+   * of `p` — the trigger's own metric (pointPolygonDistance, 0 inside,
+   * concave-safe) against this tick's post-move hull polygons. Returns that
+   * ship's CENTER, which is what the mine steers for: the closest silhouette
+   * POINT slides along the hull as the target turns, so homing on it would make
+   * a crawling mine chase a moving tangent; the center is the stable heading
+   * and lies inside the hull either way. Null when nothing is in reach.
+   *
+   * Deterministic: strict `<` keeps the earliest hull-list entry on ties, and
+   * `hulls` is built in ships-map order (aliveHulls), so the choice is the same
+   * ordering guarantee the old center-metric scan gave.
+   */
+  private nearestEnemyHull(
+    p: Vec2,
+    ownerId: string,
+    hulls: readonly HullTarget[],
+    range: number,
+  ): Vec2 | null {
     let best: Vec2 | null = null;
-    let bestD = range;
-    for (const ship of this.ships.values()) {
-      if (!ship.alive || ship.id === ownerId) continue;
-      const d = Math.hypot(ship.state.x - p.x, ship.state.y - p.y);
-      if (d < bestD || (best === null && d <= range)) {
-        bestD = d;
-        best = ship.state;
-      }
+    let bestD = Infinity;
+    for (const hull of hulls) {
+      if (hull.id === ownerId) continue; // a mine never hunts its own owner
+      const ship = this.ships.get(hull.id);
+      if (ship === undefined) continue; // defensive: hulls come from alive ships
+      const d = pointPolygonDistance(p, hull.poly);
+      if (d > range || d >= bestD) continue;
+      bestD = d;
+      best = ship.state;
     }
     return best;
   }

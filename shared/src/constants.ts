@@ -265,10 +265,18 @@ export const CONFIG = {
     // hooks). The doctrine also reduces mine damage (catalog-side effect).
     foulFactor: 0.5, // × maxSpeed AND reverseSpeed while fouled
     foulDurationMs: 4000, // ms — slow window per blast (refresh, don't stack)
-    // --- SELF-PROPELLED MINES doctrine (Story 2.8, exclusive boon) — DRAFT.
+    // --- SELF-PROPELLED MINES doctrine (Story 2.8, exclusive boon).
     // Armed mines creep toward the nearest enemy hull within acquire range.
-    creepSpeed: 8, // u/s — crawl speed of an armed self-propelled mine
-    creepAcquireRange: 60, // u — target acquisition radius around the mine
+    // ACQUISITION IS SILHOUETTE-METRIC (Eric ruling 2026-08-02): the range below
+    // is measured mine→hull POLYGON (pointPolygonDistance — the SAME metric the
+    // trigger uses), never mine→ship center. The old 60u center-metric ring was
+    // strictly INSIDE the trip ring for every hull in the game (hulls are
+    // 85–124u long, so a ship trips the mine at 74–94u CENTER distance): the
+    // doctrine could never acquire anything. 150u of silhouette reach clears
+    // even a max-mineTrigger battleship's 51.5u trip ring by a wide margin, and
+    // 14 u/s is a crawl that can still close it before the hull sails past.
+    creepSpeed: 14, // u/s — crawl speed of an armed self-propelled mine
+    creepAcquireRange: 150, // u — SILHOUETTE-distance acquisition radius
   },
 
   /**

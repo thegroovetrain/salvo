@@ -20,10 +20,10 @@
 import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
+  blockedWater,
   burstVictims,
   hullSilhouette,
   inArc,
-  pointInCircle,
   pointPolygonDistance,
   sectorArcFor,
   transformPolygon,
@@ -114,18 +114,15 @@ export function minePlacePoint(ship: ShipRecord): Vec2 {
 
 /**
  * Is a placement/drop point ILLEGAL water (Story 1.10 'blocked')? True when
- * the point lands inside any island circle or outside the water disk. Server-
- * only (the client cannot cheaply predict it); the mine AND decoy rows both
- * refuse a blocked point WITHOUT consuming anything (charge + reload kept), so
- * the previously silent wasted-charge failure becomes an explicit 'blocked'
- * denial. Built on the shared circle primitives — never hand-rolled geometry.
+ * the point lands inside any island circle or outside the water disk. The mine
+ * AND decoy rows both refuse a blocked point WITHOUT consuming anything (charge
+ * + reload kept), so the previously silent wasted-charge failure becomes an
+ * explicit 'blocked' denial. The rule itself now lives in shared sim/aim.ts
+ * (blockedWater) because the client's mine-placement preview draws its blocked
+ * tell off the same predicate; this stays as the row's named seam.
  */
 export function dropBlocked(p: Vec2, islands: readonly Circle[], mapRadius: number): boolean {
-  if (!pointInCircle(p, { x: 0, y: 0 }, mapRadius)) return true; // off the water disk
-  for (const isle of islands) {
-    if (pointInCircle(p, isle, isle.r)) return true; // inside a rock
-  }
-  return false;
+  return blockedWater(p, islands, mapRadius);
 }
 
 /**

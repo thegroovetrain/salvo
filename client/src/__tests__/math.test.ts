@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { lerp, clamp01, clamp, expDecay, lerpAngle } from '../util/math.js';
+import { lerp, clamp01, clamp, dashArcs, expDecay, lerpAngle } from '../util/math.js';
 
 describe('lerp', () => {
   it('interpolates endpoints and midpoint', () => {
@@ -44,5 +44,30 @@ describe('lerpAngle (re-exported from shared)', () => {
     // shortest path crosses the +/-pi seam, not the long way through 0
     const mid = lerpAngle(a, b, 0.5);
     expect(Math.abs(mid)).toBeGreaterThan(3.0);
+  });
+});
+
+// The dash/dot vocabulary the ordnance previews and the own-mine rings share:
+// line STYLE is how two concentric radii stay distinguishable without a second
+// color, and a static pattern reads identically at motion=off.
+describe('dashArcs', () => {
+  it('cuts the circle into `segments` evenly-spaced inked arcs', () => {
+    const arcs = dashArcs(4, 0.5);
+    expect(arcs).toHaveLength(4);
+    expect(arcs[0][0]).toBeCloseTo(0, 9);
+    expect(arcs[1][0]).toBeCloseTo(Math.PI / 2, 9);
+    // Each arc inks HALF its slice — the gap is what makes it read as dashed.
+    expect(arcs[0][1] - arcs[0][0]).toBeCloseTo(Math.PI / 4, 9);
+  });
+
+  it('never closes the ring: total ink is duty × the full circle', () => {
+    const ink = dashArcs(20, 0.25).reduce((sum, [a, b]) => sum + (b - a), 0);
+    expect(ink).toBeCloseTo(Math.PI * 2 * 0.25, 9);
+  });
+
+  it('caps duty at a full slice, and returns NOTHING for degenerate input', () => {
+    expect(dashArcs(3, 2)[0][1]).toBeCloseTo((Math.PI * 2) / 3, 9);
+    expect(dashArcs(0, 0.5)).toEqual([]);
+    expect(dashArcs(10, 0)).toEqual([]);
   });
 });

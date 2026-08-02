@@ -25,6 +25,7 @@ import {
   REGATTA_NO_HUE,
   SLOT_COUNT,
   type BoonDef,
+  type Circle,
   type DecoyView,
   type DeniedView,
   type EffectiveStats,
@@ -45,9 +46,10 @@ import { ContactViews, type PlateFrame } from './render/contacts.js';
 import { NameplateLayer, latchPlate, plateScreenY } from './render/nameplates.js';
 import { Projectiles, type OwnFire } from './render/projectiles.js';
 import { FiringUX } from './render/firing.js';
+import { AimPreview, computeAimPreview, ownBurstRadius, previewTint } from './render/aimPreview.js';
 import { weaponArcHit, weaponRangeHit, weaponRangeU } from './render/weaponArc.js';
 import { Effects } from './render/effects.js';
-import { Mines } from './render/mines.js';
+import { Mines, type OwnMineRings } from './render/mines.js';
 import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { Fog, type FogHole } from './render/fog.js';
@@ -142,6 +144,11 @@ interface Game {
   nameplates: NameplateLayer;
   projectiles: Projectiles;
   firing: FiringUX;
+  /** ORDNANCE AIM PREVIEW (render/aimPreview.ts): blast circles at the true
+   *  burst point, travel lines for every projectile weapon, the homing
+   *  acquisition band, and the mine's placement rings. Owner-private, drawn
+   *  from own stats + the local map — nothing new crosses the wire. */
+  aimPreview: AimPreview;
   effects: Effects;
   mines: Mines;
   /** Decoy-buoy markers (render/decoys.ts) — synced from FrameMsg.decoys, the
@@ -198,6 +205,10 @@ interface Game {
   room: Room;
   /** Full map radius (u) — the zone's derived-radius baseline. */
   mapRadius: number;
+  /** The island circles, rebuilt locally from the welcome map seed. Retained on
+   *  the game because the aim preview clips its travel lines against them (the
+   *  renderer's map layer had been the only holder). */
+  islands: readonly Circle[];
   cameraSnapped: boolean;
   lastOwn: { x: number; y: number };
   /** Spectate-mode render state (death → spectate, active phase). */
@@ -1333,6 +1344,9 @@ function buildGame(
     nameplates,
     projectiles: new Projectiles(map.radius, stage.layers.projectile, (x, y) => effects.spawnEffect('torpwake', x, y)),
     firing: new FiringUX(stage.layers.ship, stage.layers.aim),
+    // Same fog-immune chart layer as the reticle: a burst point can sit far
+    // beyond the sight bubble, and the preview must not be eaten by fog.
+    aimPreview: new AimPreview(stage.layers.aim),
     effects,
     // The creep wake rides the SAME torpedo-wake dot a fish lays (a mine under
     // power is making a wake, and it is the one existing marker that already
@@ -1359,7 +1373,7 @@ function buildGame(
     uiScale: 1,
     spendInFlight: null,
     fogZoomTimer: null,
-    room: conn.room, mapRadius: map.radius,
+    room: conn.room, mapRadius: map.radius, islands: map.islands,
     cameraSnapped: false, lastOwn: { x: 0, y: 0 },
     spectate: { freePan: false, visualsSet: false },
     returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
@@ -1465,6 +1479,23 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
 
+/**
+ * The own-mine ring parameters for this tick: EFFECTIVE blast/trigger radii
+ * (the very numbers the server reads off our stats when one of our mines trips
+ * or blasts) plus the server-clock estimate that dates the arming window. The
+ * acquisition ring is present only under the SELF-PROPELLED doctrine, and its
+ * radius is raw CONFIG on purpose — no boon scales acquisition today.
+ */
+function ownMineRingParams(g: Game): OwnMineRings {
+  const mine = g.ownStats.mine;
+  return {
+    blast: mine.blastRadius,
+    trigger: mine.triggerRadius,
+    acquire: mine.mode === 'selfPropelled' ? CONFIG.mine.creepAcquireRange : null,
+    now: g.clock.serverNow(),
+  };
+}
+
 /** Wire the room's messages into the game (frames, results, disconnects). */
 function bindGameRoom(g: Game, conn: Connection): void {
   bindRoom(conn, {
@@ -1523,6 +1554,12 @@ function bindGameRoom(g: Game, conn: Connection): void {
     // honest way to tell an own CANNON shell from an own GUN shell, since the
     // ballistic wire shape says neither.
     ownFireWeapon: () => ownFireWeapon(g),
+    // The own-burst ring's EFFECTIVE radius (undefined = keep the CONFIG base,
+    // which is what every burst we cannot honestly claim as ours renders at).
+    ownBurstRadius: (own) => ownBurstRadius(g.ownStats, own),
+    // The owner-private mine rings: our live effective radii + our clock. The
+    // acquisition ring exists only while we actually hold the doctrine.
+    ownMineRings: () => ownMineRingParams(g),
     onSpectate: () => enterSpectateVisuals(g),
     onResults: (msg) => {
       // Latched: a story-0.2 resume re-delivers the cached results broadcast,
@@ -1718,6 +1755,7 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   g.fitFramePress = false;
   if (!status.alive) {
     g.firing.hide();
+    g.aimPreview.hide();
     g.deniedFlash = false;
     g.serverDeniedClick = false; // a denial landing on the death frame has no arc to pulse
     return;
@@ -1759,6 +1797,37 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
     g.deniedFlash,
     weaponRangeU(status.stats, primedId), // gun family: radar-derived clamp ring; mine: its placement reach
   );
+  renderAimPreview(g, pose, aim, aimDist, status, primedId, inArc);
+}
+
+/**
+ * The ordnance aim preview for this frame: the shot's OWN geometry (shared
+ * sim/aim.ts, the same helpers the server fires with) one frame early. Drawn
+ * off the PREDICTED pose — the same pose the fire gate reads — so the circle
+ * sits where the shell will actually burst, not where the last server echo put
+ * our hull. An out-of-arc / out-of-reach aim previews nothing: the denied
+ * treatment is already the honest answer there.
+ */
+function renderAimPreview(
+  g: Game,
+  pose: RenderPose,
+  aim: number,
+  aimDist: number,
+  status: OwnStatus,
+  primedId: EquipmentId | null,
+  legal: boolean,
+): void {
+  const model = computeAimPreview({
+    id: primedId,
+    ship: { x: pose.x, y: pose.y, heading: predictedHeading(g), cls: g.ownClass },
+    aim,
+    aimDist,
+    stats: status.stats,
+    mapRadius: g.mapRadius,
+    islands: g.islands,
+    legal,
+  });
+  g.aimPreview.update(model, previewTint(primedId));
 }
 
 /**
@@ -1958,6 +2027,7 @@ function enterSpectateVisuals(g: Game): void {
   g.ownView.gfx.visible = false;
   g.nameplates.hide(g.state.net.sessionId); // own plate hidden while spectating (hull hidden)
   g.firing.hide();
+  g.aimPreview.hide(); // nothing is aimed from a sunk hull
   g.hotbar.hide(); // the loadout surface dies with the hull (Story 2.2)
   g.xpRail.hide(); // ...and so do the economy satellites (Story 2.6)
   g.upgradeMenu.hide(); // the refit modal never lingers into spectate

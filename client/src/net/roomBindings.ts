@@ -39,7 +39,7 @@ import type { ContactViews } from '../render/contacts.js';
 import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
-import type { Mines } from '../render/mines.js';
+import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
@@ -110,6 +110,18 @@ export interface RoomBindingDeps {
    * hull never consults it.
    */
   ownFireWeapon: () => OwnFire;
+  /**
+   * The burst-ring radius for an own-correlated burst, or undefined to keep the
+   * CONFIG default (render/aimPreview.ownBurstRadius over the live own stats).
+   * A function, not a value: effective stats are swapped wholesale whenever a
+   * boon lands, and a captured snapshot would ring yesterday's blast.
+   */
+  ownBurstRadius: (own: OwnFire) => number | undefined;
+  /**
+   * The OWNER's live mine radii + server clock for the own-mine rings, or
+   * undefined before own stats exist. Also a function, same reason.
+   */
+  ownMineRings: () => OwnMineRings | undefined;
   /** Called when the own ship (re)spawns — snap the camera, etc. */
   onOwnSpawn: (x: number, y: number) => void;
   /**
@@ -310,7 +322,9 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
   // hue (MineView/DecoyView/LitZoneView `by` → deps.ordnanceHue), the same hue for
   // every observer; the own/enemy discriminator (`own`) now only drives the fog
   // layer + brightness inside each renderer.
-  deps.mines.sync(f.mines, deps.ordnanceHue); // reconcile the mine field every tick
+  // Own mines carry their owner-private radius rings (always-on, our stats,
+  // our clock); enemy mines get exactly the marker they always got.
+  deps.mines.sync(f.mines, deps.ordnanceHue, deps.ownMineRings());
   // Star-shell lit zones, same reconcile. Frames OMIT the key when the observer
   // sees no zones, so treat a missing key as an empty list.
   const litZones = f.litZones ?? [];
@@ -623,15 +637,24 @@ function handleBoom(e: BoomEvent, deps: RoomBindingDeps): void {
 }
 
 /**
- * A gun shell burst at its target point: spawn the burst ring (sized to
- * CONFIG.gun.burstRadius) and terminate the dead-reckoned shell render (same
- * removal semantics as a boom). Damage arrives separately as victim-private
- * `dmg` events; an early-intercept detonation stays on the `boom` spark/splash
- * branch (handleBoom above).
+ * A gun shell burst at its target point: spawn the burst ring and terminate the
+ * dead-reckoned shell render (same removal semantics as a boom). Damage arrives
+ * separately as victim-private `dmg` events; an early-intercept detonation
+ * stays on the `boom` spark/splash branch (handleBoom above).
+ *
+ * The ring is sized to the shooter's EFFECTIVE blast radius when the burst is
+ * OURS (the track was own-correlated at reveal time) and to the CONFIG base
+ * otherwise. That split is deliberate and permanent: our own upgraded blast
+ * should look like what it is, and an onlooker must never be able to measure an
+ * enemy's FRAGMENTATION ladder off a detonation ring — the wire deliberately
+ * carries no radius (see BurstEvent).
  */
 function handleBurst(e: BurstEvent, deps: RoomBindingDeps): void {
+  // Ask the track who fired it BEFORE onBurst retires it (Story 2.9's click
+  // latch is long expired by burst time; the track carries the answer).
+  const radius = deps.ownBurstRadius(deps.projectiles.ownFireOf(e.id));
   deps.projectiles.onBurst(e);
-  deps.effects.spawnEffect('burst', e.x, e.y);
+  deps.effects.spawnEffect('burst', e.x, e.y, 1, radius);
 }
 
 function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {

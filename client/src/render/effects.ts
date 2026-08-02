@@ -90,9 +90,13 @@ const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
   // Miss splash ring (replaces the retired blip-green double-duty — see DESIGN.md).
   splash: { type: 'ring', life: 0.5, color: C.splash, r0: 3, r1: 22, width: 2, alpha: 0.7, additive: false },
   // Gun-shell burst at the clicked point: a bright amber ring expanding to the
-  // CONFIG burst radius (the area every enemy hull in it takes full damage) —
-  // the gun's own action detonation, additive so it reads as a flash. Sized from
-  // shared CONFIG (the radius never travels on the wire — see BurstEvent).
+  // burst radius (the area every enemy hull in it takes full damage) — the
+  // gun's own action detonation, additive so it reads as a flash. The radius
+  // never travels on the wire (see BurstEvent), so this CONFIG base is what an
+  // uncorrelated burst rings at. An OWN burst (the click-time latch correlated
+  // it to our own shell) is spawned with an explicit EFFECTIVE radius instead,
+  // so our own upgraded blast stops under-drawing itself while enemy builds
+  // stay unreadable — see roomBindings.handleBurst.
   burst: { type: 'ring', life: 0.35, color: C.amber, r0: 4, r1: CONFIG.gun.burstRadius, width: 3, alpha: 0.95, additive: true },
   // Sink ring where a hull went down → damage-marker (DESIGN.md Combat Effects).
   sink: { type: 'ring', life: 0.9, color: C.damageMarker, r0: 6, r1: 40, width: 3, alpha: 0.9, additive: false },
@@ -179,10 +183,18 @@ export class Effects {
     return g;
   }
 
-  /** Single entry point for one-shot effects. */
-  spawnEffect(kind: EffectKind, x: number, y: number, intensity = 1): void {
+  /**
+   * Single entry point for one-shot effects. `radius` overrides the spec's END
+   * radius for a RING kind — the own-burst path uses it to ring the EFFECTIVE
+   * blast radius instead of the CONFIG base (see roomBindings.handleBurst /
+   * aimPreview.ownBurstRadius). Omitted everywhere else, which keeps every
+   * uncorrelated burst on the constant-free default: the wire cannot say whose
+   * shell that was, and an onlooker must not be able to read a blast upgrade
+   * off a detonation.
+   */
+  spawnEffect(kind: EffectKind, x: number, y: number, intensity = 1, radius?: number): void {
     if (kind === 'wake') this.spawnWake(x, y, intensity);
-    else this.spawnOneShot(kind, x, y);
+    else this.spawnOneShot(kind, x, y, radius);
   }
 
   private spawnWake(x: number, y: number, intensity: number): void {
@@ -196,11 +208,14 @@ export class Effects {
     this.wake.push({ gfx: g, age: 0, life: CLIENT_CONFIG.wake.life, baseAlpha });
   }
 
-  private spawnOneShot(kind: Exclude<EffectKind, 'wake'>, x: number, y: number): void {
+  private spawnOneShot(kind: Exclude<EffectKind, 'wake'>, x: number, y: number, radius?: number): void {
     // Backgrounded tab: skip one-shot spawns entirely rather than let them pile
     // up in the pool while the render loop that ages/retires them is throttled.
     if (typeof document !== 'undefined' && document.hidden) return;
-    const spec = SPECS[kind];
+    const base = SPECS[kind];
+    // A ring told its true radius rides a per-spawn copy; every other spawn
+    // keeps the shared spec object (no allocation on the common path).
+    const spec = radius !== undefined && base.type === 'ring' ? { ...base, r1: radius } : base;
     const peakAlpha = effectPeakAlpha(kind, spec.alpha, motionIntensity(settings.current.motion));
     if (peakAlpha <= 0) return; // motion off: the juice flashes simply don't spawn
     const pool = isFogImmuneEffect(kind) ? this.burstPool : this.shotPool;

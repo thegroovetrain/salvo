@@ -187,8 +187,13 @@ describe('shared barrel', () => {
     expect(CONFIG.mine.placeHalfArcDeg).toBe(60);
     expect(CONFIG.mine.foulFactor).toBe(0.5);
     expect(CONFIG.mine.foulDurationMs).toBe(4000);
-    expect(CONFIG.mine.creepSpeed).toBe(8);
-    expect(CONFIG.mine.creepAcquireRange).toBe(60);
+    // The tracking-mine fix (Eric ruling 2026-08-02): acquisition is measured
+    // mine→hull SILHOUETTE (world.ts nearestEnemyHull, the trigger's metric),
+    // so the range is a silhouette reach and must clear the widest trip ring —
+    // a max-mineTrigger 51.5u — with room to close.
+    expect(CONFIG.mine.creepSpeed).toBe(14);
+    expect(CONFIG.mine.creepAcquireRange).toBe(150);
+    expect(CONFIG.mine.creepAcquireRange).toBeGreaterThan(CONFIG.mine.blastRadius);
     expect(CONFIG.decoyBuoy).toEqual({ durationMs: 30000, reloadMs: 20000, maxAmmo: 1 });
   });
 
