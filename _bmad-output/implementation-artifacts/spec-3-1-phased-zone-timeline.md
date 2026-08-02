@@ -2,9 +2,11 @@
 title: '3-1 Phased Zone Timeline (+ ratified map bump)'
 type: 'feature'
 created: '2026-08-01'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
+followup_review_recommended: false # flag retired (Epic 2 retro Ruling 1) — residuals are ledger entries with evidence + named home
 baseline_revision: 'cd91b4a2b79aa42f6b1a27134a4d482f2306548f'
+final_revision: 'ec2e00a'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context-amendments.md'
@@ -138,3 +140,17 @@ warnings: [oversized, multiple-goals]
 
 **Manual checks (if no CLI):**
 - Worktree diff contains no unrelated files (Eric's HULLCRACKER_NOTES.md untouched); PV changelog entry present; supply beat greps to zero client-visible strings.
+
+## Auto Run Result
+
+**Status:** done. **Final revision:** ec2e00a (code); branch worktree-dev-auto-3-1-phased-zone-timeline.
+
+**Summary.** The storm is now the designed pacing arc: three ring groups × (clear seas → reserved supply-drop no-op → next ring revealed → ring closes), 60s beats, full closure at 12:00, offset-center rings rolled on server-private per-ring seed streams and revealed to clients only from each group's reveal beat (PV 17→18). The board grew to the closing-rate criterion (map 2400u, fill 20, worst-case escape ≈80% of a battleship-minute — pinned as a CONFIG-invariant test) and the island field scaled with it (amendment 12). Terminal ring = 2×truesight, derived. Eric ratified every tuning value from a seeded evidence campaign (amendment 11); the 2-10 picks-band ledger entry is RESOLVED (pacifist picks p50 = 12.0 exactly at the 12:00 closure). VERSION scheme re-ruled mid-run (amendment 13): 0.17.31.
+
+**Files changed (grouped).** shared: sim/zone.ts (phased model, per-ring streams, terminal floor), sim/map.ts (area-scaled islands), constants.ts (CONFIG.zone reshape; map/match retune), index.ts (PV 18); server: game/world.ts (zoneSeeds, ring getters, center-aware storm), game/drones.ts (ring-center steering), rooms/ArenaRoom.ts (buildWorld + per-ring nonces, syncZone), rooms/schema/ArenaState.ts (reveal-gated ring fields), rooms/roomOptions.ts (new zoneOverride shape); client: new sim/zoneView.ts (derivation + stale-boundary guard), main.ts, render/zone.ts (offset center; revealed-next telegraph); tooling: all 11 smokes (incl. zoneSmoke live-boundary honesty, fogSmoke/latencyHarness seed 265, avoidance pilots), batchsim (phased sweep keys, zoneClosedAtMs tick budget, pacifist pilot, capSample, per-ring seeds); tests across all three workspaces (2314 → 2363); artifacts: evidence doc + addendum, amendments 1–13, deferred-work (teams entry, fogSmoke flake entry, picks-band RESOLVED), sprint/gds status, VERSION/package.json 0.17.31, CLAUDE.md.
+
+**Review findings breakdown.** 2 Fable hunters + Codex cross-model, verdict build-on-it: 9 patches applied (3 medium — client ring pop-back guard [all three reviewers], zone-stream forward secrecy via per-ring independent seeds [Codex; 32-bit stream state was brute-forceable from ring 1's revealed geometry], island scaling [Eric-ratified amendment 12]; 6 low), 1 defer (fogSmoke flake family → ledger), 3 rejects, 0 intent gaps, 0 bad-spec. Follow-up-review flag: retired category (Epic 2 retro Ruling 1) — residuals live in the ledger.
+
+**Verification.** `npm run check` green at every wave (final: 2363 tests — 379 shared / 809 server / 1175 client; lint 0 errors). All 11 headless smokes green over real sockets on the final code state (zoneSmoke proves offset rings, reveal gating, +0ms live-boundary damage start, 4.00 hp/s decay, unattributed storm kill). Batch-sim byte-identical rerun property re-verified. Evidence campaign (seeded): lethal 200 (length p50 293.3s, picks p50 5), pacifist 50 (picks p50 12.0 at t=720s, 21 at cap; storm deaths 6.2/match), map sweep (length scales with board), analytic closing-rate table, perf probe (total p50 1.33ms/tick, p95 1.85ms vs 3ms budget, 20 captains × 20 observers).
+
+**Residual risks.** Harness numbers remain lower/upper bounds (omniscient pilots) — human match lengths land between the lethal floor (~5 min) and the pacifist ceiling (22 min cap); Eric's live-play eye is the acceptance mechanism of record. Pacifist lobbies end 'unresolved' by construction — the endgame-conclusion guarantee is Story 3.4's evidence. fogSmoke's shell-reveal intermittent (pre-existing family) is ledgered with a candidate fix. The drone XP piñata (84% of hunter kills are drones at fill 20) is measured and accepted until Epic 6's real bots.
