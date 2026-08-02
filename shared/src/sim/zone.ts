@@ -29,7 +29,7 @@
 // exponents (equal ratio steps at the shipped defaults).
 
 import { CONFIG } from '../constants.js';
-import type { Rng } from '../math/rng.js';
+import { mulberry32 } from '../math/rng.js';
 import type { Vec2 } from '../math/vec.js';
 
 const TAU = Math.PI * 2;
@@ -132,11 +132,14 @@ export function zoneClosedAtMs(cfg: ZoneTimeline = CONFIG.zone): number {
  * intermediate rings follow the ringSteps exponents; the last is the terminal
  * radius. STRUCTURALLY monotone non-increasing and ≥ the terminal (each value
  * clamps into [terminal, previous]; NaN falls to the previous radius) — no
- * degenerate cfg can produce a growing or NaN ring.
+ * degenerate cfg can produce a growing or NaN ring. The terminal is FLOORED at
+ * 1u structurally: a real ring's radius is always > 0, so the schema's
+ * `zoneNextR === 0` unrevealed sentinel can never collide with a legal ring
+ * even under a degenerate dev-only zoneOverride (terminalSightFactor 0).
  */
 export function zoneRingRadii(mapRadius: number, cfg: ZoneTimeline = CONFIG.zone): number[] {
   const groups = zoneGroups(cfg);
-  const terminal = Math.min(zoneTerminalRadius(cfg), mapRadius);
+  const terminal = Math.max(1, Math.min(zoneTerminalRadius(cfg), mapRadius));
   const radii = [mapRadius];
   for (let g = 1; g < groups; g += 1) {
     const prev = radii[g - 1];
@@ -149,21 +152,29 @@ export function zoneRingRadii(mapRadius: number, cfg: ZoneTimeline = CONFIG.zone
 }
 
 /**
- * Roll the full ring set ONCE at zone start. `rng` is the caller's stream —
- * the server passes its private zone stream (amendment 10); tests pass any
- * seeded stream. Consumption order is fixed (angle then distance per ring) so
- * a (seed → rings) mapping is stable. Containment is structural: the center
- * offset is bounded by clamp01(offsetCap) × (r_prev − r_g), so every next
- * ring lies fully inside the current one for ANY stream values.
+ * Roll the full ring set ONCE at zone start. `ringSeeds[i]` seeds an
+ * INDEPENDENT mulberry32 stream for rolled ring i+1 (rings 1..groups; ring 0
+ * is always the full map at the origin) — one uint32 of server-private seed
+ * material per ring, supplied by the caller (amendment 10 + review FIX 2:
+ * a single shared stream lets a modded client brute-force the 2^32 state
+ * space offline against ring 1's revealed angle/offset and precompute rings
+ * 2–3; per-ring streams make one ring's reveal disclose NOTHING about later
+ * rings' offsets). Consumption order per stream is fixed (angle then
+ * distance) so the (seed → offset) mapping is stable; a MISSING seed fails
+ * CLOSED to a concentric ring (offset 0). Containment is structural: the
+ * center offset is bounded by clamp01(offsetCap) × (r_prev − r_g), so every
+ * next ring lies fully inside the current one for ANY seed values.
  */
-export function rollZoneRings(mapRadius: number, cfg: ZoneTimeline, rng: Rng): ZoneRing[] {
+export function rollZoneRings(mapRadius: number, cfg: ZoneTimeline, ringSeeds: readonly number[]): ZoneRing[] {
   const radii = zoneRingRadii(mapRadius, cfg);
   const cap = clamp01(cfg.offsetCap);
   const rings: ZoneRing[] = [{ cx: 0, cy: 0, r: radii[0] }];
   for (let g = 1; g < radii.length; g += 1) {
     const prev = rings[g - 1];
-    const angle = rng.float(0, TAU);
-    const d = rng.next() * cap * Math.max(0, prev.r - radii[g]);
+    const seed = ringSeeds[g - 1];
+    const rng = seed === undefined ? null : mulberry32(seed >>> 0);
+    const angle = rng === null ? 0 : rng.float(0, TAU);
+    const d = rng === null ? 0 : rng.next() * cap * Math.max(0, prev.r - radii[g]);
     rings.push({ cx: prev.cx + Math.cos(angle) * d, cy: prev.cy + Math.sin(angle) * d, r: radii[g] });
   }
   return rings;

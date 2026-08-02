@@ -90,7 +90,7 @@ Three workspaces with strict layering: `shared` (deterministic pure simulation, 
 - **One Equipment interface** — guns/torpedoes/mines all implement it (`game/equipment/`); each has its own ammo pool + reload timer (reload ticks regardless of which slot is primed). Torpedoes spawn with real bow clearance + an owner-only grace and outrun every hull so they can't self-hit at base speed.
 - **Phased storm (Story 3.1)** — a shared, damage-only zone timeline (`sim/zone.ts`): three ~4-min ring groups, each running clear seas → reserved supply-drop no-op → next ring revealed → ring closes (one minute each), fully closed at ~12:00. Rings are offset-center circles rolled on a server-private stream (a per-room nonce — never derivable from the client-known map seed) and revealed to clients via ArenaState only from each group's reveal beat; the terminal ring radius is derived from truesight (2 × `CONFIG.vision.sight`). Stay inside or take damage; the storm never blinds any sensor.
 - **Dev-only room options gated by `HC_DEV_OPTIONS=1`** — `matchOverride`/`zoneOverride` arrive verbatim from client join options and are only honored when the server process opts in (smokes/tests). Production clients cannot pass them.
-- **Versioning: X.0.0 = major, 0.X.0 = minor, 0.0.X = revision** (`VERSION` + package.json, single-sourced into the client at build time by Vite).
+- **Versioning (Eric ruling 2026-08-01): the game stays 0.17.X until all 7 epics complete** — X counts landed dev-auto build cycles (epic stories AND interstitial fix cycles; cycle 31 = Story 3-1), incrementing by 1 per cycle. The X.0.0/0.X.0/0.0.X scheme resumes after the epics. (`VERSION` + package.json, single-sourced into the client at build time by Vite.)
 
 ## gstack
 

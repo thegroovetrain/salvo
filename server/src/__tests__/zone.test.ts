@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   isOutside,
-  mulberry32,
   rollZoneRings,
   zoneStateAt,
   type ZoneRing,
@@ -80,44 +79,44 @@ describe('zone lifecycle — starts ONLY via startZone', () => {
     expect(w.zoneLiveRing).toEqual(ring);
   });
 
-  it('rings are deterministic per zone seed (harness reproducibility)', () => {
-    const roll = (seed: number, zoneSeed?: number): ZoneRing => {
-      const w = new World(seed, CONFIG.match.fillTo, instant(1, 1), { zoneSeed });
+  it('rings are deterministic per zone seed set (harness reproducibility)', () => {
+    const roll = (seed: number, zoneSeeds?: number[]): ZoneRing => {
+      const w = new World(seed, CONFIG.match.fillTo, instant(1, 1), { zoneSeeds });
       w.startZone();
       w.step();
       return w.zoneLiveRing;
     };
-    expect(roll(7, 42)).toEqual(roll(7, 42));
-    expect(roll(7, 42)).not.toEqual(roll(7, 43)); // the pin discriminates
-    // The standalone fallback (no zoneSeed) stays deterministic per map seed.
+    expect(roll(7, [42, 43, 44])).toEqual(roll(7, [42, 43, 44]));
+    expect(roll(7, [42, 43, 44])).not.toEqual(roll(7, [42, 43, 45])); // the pin discriminates
+    // The standalone fallback (no zoneSeeds) stays deterministic per map seed.
     expect(roll(7)).toEqual(roll(7));
   });
 
-  it('the zone stream is INDEPENDENT of the client-known map seed (amendment 10)', () => {
-    // Same map seed, different private zone seeds => different rings: nothing a
-    // client can derive from the welcome's mapSeed pins where rings land when
-    // the room supplies its private nonce (ArenaRoom always does).
-    const roll = (zoneSeed: number): ZoneRing => {
-      const w = new World(7, CONFIG.match.fillTo, instant(1, 1), { zoneSeed });
+  it('the ring streams are INDEPENDENT of the client-known map seed (amendment 10)', () => {
+    // Same map seed, different private per-ring seeds => different rings:
+    // nothing a client can derive from the welcome's mapSeed pins where rings
+    // land when the room supplies its private nonces (ArenaRoom always does).
+    const roll = (zoneSeeds: number[]): ZoneRing => {
+      const w = new World(7, CONFIG.match.fillTo, instant(1, 1), { zoneSeeds });
       w.startZone();
       w.step();
       return w.zoneLiveRing;
     };
-    const a = roll(1001);
-    const b = roll(1002);
+    const a = roll([1001, 1002, 1003]);
+    const b = roll([2001, 2002, 2003]);
     expect(a).not.toEqual(b); // centers moved — the map seed alone decides nothing
     expect(a.r).toBeCloseTo(b.r, 9); // radii are cfg-derived, only CENTERS are private
-    expect(roll(1001)).toEqual(a); // same nonce => identical rings
+    expect(roll([1001, 1002, 1003])).toEqual(a); // same nonces => identical rings
   });
 });
 
 describe('zone phases — beat boundaries are tick-exact', () => {
-  /** Explicit zone seed so the stream is reconstructable below. */
-  const ZONE_SEED = 0xbeef;
+  /** Explicit per-ring zone seeds so the streams are reconstructable below. */
+  const ZONE_SEEDS = [0xbee1, 0xbee2, 0xbee3];
 
   /** A started world plus its private ring set read back through the getters. */
   function started(seed = 3): World {
-    const w = new World(seed, CONFIG.match.fillTo, paced(), { zoneSeed: ZONE_SEED });
+    const w = new World(seed, CONFIG.match.fillTo, paced(), { zoneSeeds: ZONE_SEEDS });
     w.startZone(0);
     return w;
   }
@@ -181,11 +180,11 @@ describe('zone phases — beat boundaries are tick-exact', () => {
 
   it('the getters agree with the shared zoneStateAt over the same stream every tick', () => {
     // Reconstruct the world's private ring roll from the SAME supplied zone
-    // seed and pin that every getter is exactly the shared function over those
-    // rings: no forked math, no off-by-one-tick divergence between phase and
-    // geometry.
+    // seeds and pin that every getter is exactly the shared function over
+    // those rings: no forked math, no off-by-one-tick divergence between
+    // phase and geometry.
     const w = started(3);
-    const rings = rollZoneRings(w.map.radius, paced(), mulberry32(ZONE_SEED >>> 0));
+    const rings = rollZoneRings(w.map.radius, paced(), ZONE_SEEDS);
     for (let t = 0; t < 12 * TICKS_PER_BEAT + 20; t++) {
       w.step();
       const s = zoneStateAt(w.now, w.zoneStartMs, rings, paced());
@@ -230,6 +229,29 @@ describe('storm damage', () => {
     const hp0 = rec.hp;
     w.step();
     expect(rec.hp).toBeLessThan(hp0); // the clear beat still bites outside
+  });
+
+  it('bites against the LIVE interpolated ring MID-CLOSE (not the boundary ring)', () => {
+    // Half-way through close 1 the live ring sits between ring 0 (the map) and
+    // ring 1: a ship outside the live radius but INSIDE ring 0 must bleed —
+    // and one just inside the live radius must not. Concentric cfg so the
+    // boundary is a pure radius; positions are set after the ring is known.
+    const w = new World(8, CONFIG.match.fillTo, paced(0));
+    const outside = w.addShip('a', 'ALPHA');
+    const inside = w.addShip('b', 'BRAVO');
+    w.startZone(0);
+    while (w.tick < 3 * TICKS_PER_BEAT + TICKS_PER_BEAT / 2) w.step(); // f = 0.5 of close 1
+    expect(w.zonePhase).toBe('closing');
+    const live = w.zoneLiveRing;
+    expect(live.r).toBeLessThan(w.map.radius);
+    expect(live.r).toBeGreaterThan(w.zoneRevealedNextRing!.r);
+    placeClear(w, 'a', live.r + 100); // outside live, inside ring 0
+    placeClear(w, 'b', live.r - 150); // inside live (margin: it shrinks ~21u/tick)
+    const hpOut = outside.hp;
+    const hpIn = inside.hp;
+    w.step();
+    expect(outside.hp).toBeLessThan(hpOut); // the close bites at the LIVE boundary
+    expect(inside.hp).toBe(hpIn);
   });
 
   it('deals NO damage to a ship inside the safe radius', () => {

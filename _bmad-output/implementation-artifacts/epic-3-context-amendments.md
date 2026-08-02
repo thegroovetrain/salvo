@@ -35,3 +35,10 @@ Source: Eric, direct answer to the surfaced anti-cheat question.
 ## 2026-08-01 — Eric ruling, Story 3-1 evidence checkpoint (AskUserQuestion, this run — the amendment-7 checkpoint)
 
 11. **The 3-1 tuning pass is RATIFIED AS EVIDENCED, unchanged** (`batch-sim-evidence-2026-08-01.md`): `map.baseRadius 2400 / capRef 20 / match.fillTo 20`, `zone.beatMs 60000 / offsetCap 1.0 / terminalSightFactor 2 (→660u) / geometric ringSteps / stormDps 4`. Evidence: pacifist control reaches picks p50 12.0 exactly at 12:00 closure (band floor) and 21 by cap; lethal baseline p50 tripled to ~3:00 with picks 4; map sweep shows match length now scales with board size (zone-insensitivity over); closing-rate table pins 2400u at 79.9% of a battleship-minute on close 1 (the ratified ~80%), 3200u rejected (>100%, worst-placed battleship unsavable), 1600u rejected (toothless). No XP/deck dial touched (amendment 2 honored — the picks band was reached by match length alone). Measured observation, no change: 84% of hunter kills are drones (piñata until Epic 6 bots; awareness only). The 2-10 picks-band deferred-work entry is RESOLVED by this evidence.
+
+## 2026-08-01 — Eric rulings, Story 3-1 review gate (AskUserQuestion, this run)
+
+Source: Eric, direct answers during the 3-1 review gate.
+
+12. **Islands scale with the map bump, in-story.** The island budget (cluster count, modestly sizes) scales ~with map area so the 2400u board keeps Hullcracker's cover/LOS/radar-shadow density instead of shipping ~14% of the pre-bump density as open sea; spawn-clearance rules keep holding; smoke seeds re-scanned; evidence baseline re-run. (Review finding: generateMap constants were tuned for the 900u board; no prior amendment covered island density.)
+13. **Versioning re-ruled (project-wide): the game stays 0.17.X until all 7 epics complete.** X = the count of landed dev-auto build cycles for these epics (epic stories AND interstitial fix cycles); each future cycle increments X by 1. This PR is cycle 31 → VERSION 0.17.31 (the in-run 0.18.0 bump is reverted). Supersedes the old "0.X.0 = features" application for the epic era.

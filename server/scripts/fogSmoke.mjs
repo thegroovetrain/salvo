@@ -49,17 +49,23 @@ const SANDBOX_ZONE = { beatMs: 600000, ringSteps: [1 / 3, 2 / 3], offsetCap: 1, 
 
 async function joinClient(name) {
   const client = new Client(endpoint);
-  // mapSeed 110 (dev-only pin): the latencyHarness scan winner for the 3.1
-  // board (cap 20) — 3 small islands, all >= 1626u from center, so the long
-  // sail-ins this smoke's un-avoiding park() pilot makes never jam on a rock.
-  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE, mapSeed: 110 });
+  // mapSeed 265 (dev-only pin): the latencyHarness scan winner for the
+  // amendment-12 island field (fewest islands — 23 — with the farthest center
+  // clearance, 663u; scan method documented there). park() carries an
+  // islandAvoid bias for the long sail-ins; the pin keeps the standoff
+  // geometry and LOS lanes deterministic.
+  const room = await client.joinOrCreate('arena', { name, pv: PROTOCOL_VERSION, matchOverride: { sandbox: true }, zoneOverride: SANDBOX_ZONE, mapSeed: 265 });
   const ctx = {
     name, room, welcome: null, you: null, now: 0,
     contacts: [], blips: [], shells: [], booms: [],
     frames: null, // when set, per-frame records are pushed here
     goal: { mode: 'idle' }, seq: 0, fireSeq: 0, other: null,
+    islands: [], // rebuilt from the welcome — arms park()'s island avoidance
   };
-  room.onMessage('w', (m) => (ctx.welcome = m));
+  room.onMessage('w', (m) => {
+    ctx.welcome = m;
+    ctx.islands = generateMap(m.mapSeed, m.playerCap).islands;
+  });
   room.onMessage('f', (f) => onFrame(ctx, f));
   return ctx;
 }
@@ -98,6 +104,22 @@ function control(ctx) {
   ctx.room.send('i', inp);
 }
 
+/** Rudder bias steering away from any island ahead (dronesSmoke islandAvoid —
+ *  needed since amendment 12: the area-scaled island budget puts ~35 rocks on
+ *  the 2400u board, so long straight sail-ins WILL cross some). */
+function islandAvoid(ctx) {
+  const fx = Math.cos(ctx.you.heading);
+  const fy = Math.sin(ctx.you.heading);
+  let bias = 0;
+  for (const c of ctx.islands) {
+    const dx = c.x - ctx.you.x;
+    const dy = c.y - ctx.you.y;
+    if (dx * fx + dy * fy <= 0 || Math.hypot(dx, dy) > 170 + c.r) continue;
+    bias += fx * dy - fy * dx > 0 ? -0.9 : 0.9;
+  }
+  return bias;
+}
+
 /** Drive to `target` and stop there (throttle tapers with distance). */
 function park(ctx, inp, target) {
   if (!ctx.you) return;
@@ -105,7 +127,7 @@ function park(ctx, inp, target) {
   if (d < 15) return; // arrived: coast to a stop
   const want = bearing(ctx.you, target);
   const err = angleDiff(ctx.you.heading, want);
-  inp.rudder = clamp(err * 2.5, -1, 1);
+  inp.rudder = clamp(err * 2.5 + islandAvoid(ctx), -1, 1);
   inp.throttle = d > 140 ? 1 : Math.abs(err) > 0.6 ? 0.35 : clamp(d / 140, 0.25, 1);
 }
 

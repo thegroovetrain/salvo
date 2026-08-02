@@ -47,6 +47,7 @@ import {
   transformPolygon,
   wrapPositive,
   rollZoneRings,
+  zoneGroups,
   zoneStateAt,
   isOutside,
   type BallisticEvent,
@@ -136,17 +137,20 @@ export interface WorldOptions {
   hookRegistry?: HookRegistry;
   boonCatalog?: BoonCatalog;
   /**
-   * Seed of the SERVER-PRIVATE zone ring stream (Story 3.1, amendment 10).
-   * The World never generates entropy itself — the caller supplies this:
-   * ArenaRoom passes a per-room private nonce (adapter-layer entropy), the
-   * batch-sim harness derives it from the match seed (server-side, so
-   * reproducibility leaks nothing). When omitted (standalone Worlds: unit
-   * tests, sandbox smokes) it falls back to a fixed derivation of the map
-   * seed — fine for tests, NEVER acceptable for a production room: mapSeed is
-   * client-known, so a derivable zone stream would let a modded client
-   * precompute every future ring.
+   * PER-RING seed material of the SERVER-PRIVATE zone ring streams (Story
+   * 3.1, amendment 10 + review FIX 2): one uint32 per rolled ring
+   * (zoneSeeds[i] → ring i+1), each seeding an INDEPENDENT stream so a
+   * revealed ring's geometry discloses nothing about later rings — a single
+   * stream would let a modded client brute-force its 2^32 state offline from
+   * ring 1's observed angle/offset. The World never generates entropy itself —
+   * the caller supplies these: ArenaRoom passes fresh per-room, per-ring
+   * nonces (adapter-layer entropy), the batch-sim harness derives them from
+   * the match seed (server-side, so reproducibility leaks nothing). Omitted
+   * entries fall back to a fixed derivation of the map seed — fine for
+   * standalone Worlds (unit tests, sandbox smokes), NEVER acceptable for a
+   * production room: mapSeed is client-known.
    */
-  zoneSeed?: number;
+  zoneSeeds?: readonly number[];
 }
 
 /** The equipment id fitted in `loadout[slotIndex]`, or null when the slot is
@@ -512,15 +516,14 @@ export class World {
    */
   private zoneRings: ZoneRing[] | null = null;
   /**
-   * The zone stream (Story 3.1): mulberry32 over the caller-supplied
-   * SERVER-PRIVATE zone seed (WorldOptions.zoneSeed — see its JSDoc for who
-   * supplies what). Deliberately NOT derived from the world/map seed in
-   * production: mapSeed rides the welcome, so any fixed derivation would let a
-   * modded client precompute every future ring (amendment 10). Deterministic
-   * per zone seed — the harness's (match seed → zone seed → rings)
-   * reproducibility rides on it.
+   * Caller-supplied per-ring zone seed material (WorldOptions.zoneSeeds — see
+   * its JSDoc for who supplies what). Deliberately NOT derived from the
+   * world/map seed in production: mapSeed rides the welcome, so any fixed
+   * derivation would let a modded client precompute every future ring
+   * (amendment 10). Deterministic per seed set — the harness's (match seed →
+   * ring seeds → rings) reproducibility rides on it.
    */
-  private readonly zoneRng: Rng;
+  private readonly zoneSeeds: readonly number[] | undefined;
   /** Events queued since the last completed step (joins, sinks, respawns). */
   private pending: GameEvent[] = [];
   /** Events belonging to the most recently completed tick (read by frames). */
@@ -554,10 +557,7 @@ export class World {
     this.map = generateMap(seed, playerCap);
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
     this.zoneCfg = zoneCfg;
-    // Zone ring stream: the caller's private seed (see WorldOptions.zoneSeed).
-    // The map-seed fallback (0x27d4eb2f is unused elsewhere) exists ONLY for
-    // standalone Worlds — production rooms always pass a private nonce.
-    this.zoneRng = mulberry32((opts.zoneSeed ?? seed ^ 0x27d4eb2f) >>> 0);
+    this.zoneSeeds = opts.zoneSeeds;
     // Drone steering stream, decorrelated again from mapgen + spawn.
     this.drones = new DroneController(this, (seed ^ 0x85ebca6b) >>> 0);
   }
@@ -571,9 +571,20 @@ export class World {
   startZone(t: number = this.now): void {
     if (this.zoneStartT !== null) return;
     this.zoneStartT = t;
-    // Roll the WHOLE ring set once, on the server-private zone stream (Story
+    // Roll the WHOLE ring set once, on per-ring server-private streams (Story
     // 3.1, amendment 10). Clients only ever receive the revealed prefix.
-    this.zoneRings = rollZoneRings(this.map.radius, this.zoneCfg, this.zoneRng);
+    const groups = zoneGroups(this.zoneCfg);
+    const ringSeeds = Array.from({ length: groups }, (_, i) => this.zoneRingSeed(i));
+    this.zoneRings = rollZoneRings(this.map.radius, this.zoneCfg, ringSeeds);
+  }
+
+  /** Seed for rolled ring i+1: the caller-supplied private material, or the
+   *  TEST-ONLY map-seed fallback (standalone Worlds — see WorldOptions.
+   *  zoneSeeds; 0x27d4eb2f is unused by any other stream). */
+  private zoneRingSeed(i: number): number {
+    const supplied = this.zoneSeeds?.[i];
+    if (supplied !== undefined) return supplied >>> 0;
+    return (this.seed ^ 0x27d4eb2f ^ Math.imul(i + 1, 0x9e3779b9)) >>> 0;
   }
 
   /** Server ms the zone was anchored at, or 0 while idle (for the schema). */
@@ -629,10 +640,6 @@ export class World {
     return this.zoneTimelineState()?.next ?? null;
   }
 
-  /** ms until the live ring next starts/finishes closing (0 once closed). */
-  get zoneClosesInMs(): number {
-    return this.zoneTimelineState()?.closesInMs ?? 0;
-  }
 
   /** Events emitted during the last completed step (and joins just before it). */
   get tickEvents(): readonly GameEvent[] {

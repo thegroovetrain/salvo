@@ -26,7 +26,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, isOutside } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, isOutside, zoneLiveState } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2599; // never the dev server's 2567 — this smoke self-boots
@@ -101,6 +101,9 @@ async function joinClient(name) {
     goal: { mode: 'idle' },
     minHp: Infinity, sunkBy: 'UNSET', sunkSeen: false,
     outsideSamples: [], // {t, hp} while alive AND outside the CURRENT ring
+    firstOutsideLiveT: null, // first frame t strictly outside the LIVE interpolated ring
+    firstDamageT: null, // first frame t with hp below full
+    outsideLiveFrames: 0, // frames spent outside the live ring (B pins this at 0)
   };
   room.onMessage('w', (m) => (ctx.welcome = m));
   room.onMessage('f', (m) => onFrame(ctx, m));
@@ -123,6 +126,16 @@ function nextRing(ctx) {
     : null;
 }
 
+/** The LIVE interpolated ring, derived from the schema exactly like a real
+ *  client (shared zoneLiveState over the revealed prefix + zoneStartT), with
+ *  THIS smoke's override as the timeline cfg. Null pre-start/pre-sync. */
+function liveRing(ctx, t) {
+  const s = ctx.room.state;
+  const cur = curRing(ctx);
+  if (!s || s.zoneState === 'idle' || !cur) return null;
+  return zoneLiveState(t, s.zoneStartT, cur, nextRing(ctx), ZONE_OVERRIDE).current;
+}
+
 function onFrame(ctx, f) {
   if (f.you) {
     ctx.you = f.you;
@@ -132,6 +145,17 @@ function onFrame(ctx, f) {
     const ring = curRing(ctx);
     if (f.you.alive && ring && isOutside(f.you, ring.cx, ring.cy, ring.r)) {
       ctx.outsideSamples.push({ t: f.t, hp: f.you.hp });
+    }
+    // LIVE-boundary bookkeeping (review FIX 6): storm damage must begin when
+    // the hull crosses the INTERPOLATED ring mid-close, not only once the
+    // boundary ring is promoted at the beat edge.
+    const live = liveRing(ctx, f.t);
+    if (live && f.you.alive && isOutside(f.you, live.cx, live.cy, live.r)) {
+      if (ctx.firstOutsideLiveT === null) ctx.firstOutsideLiveT = f.t;
+      ctx.outsideLiveFrames += 1;
+    }
+    if (ctx.firstDamageT === null && f.you.hp < CONFIG.shipClasses.torpedoBoat.hp) {
+      ctx.firstDamageT = f.t;
     }
   }
   for (const e of f.events) {
@@ -258,6 +282,17 @@ async function main() {
     const dps = measuredDps(a.outsideSamples);
     assert(dps !== null, 'A never logged a contiguous outside window');
     assert(Math.abs(dps - CONFIG.zone.stormDps) < 1.0, `A storm dps ${dps?.toFixed(2)} != ${CONFIG.zone.stormDps}`);
+    // LIVE-boundary honesty (review FIX 6): A's damage must begin when it
+    // crossed the INTERPOLATED ring (mid-close), never before it, and not
+    // only after the beat-edge ring promotion. Small slop covers the 20Hz
+    // frame quantization + a schema patch landing between frames.
+    assert(a.firstOutsideLiveT !== null, 'A never observed itself outside the live ring');
+    assert(a.firstDamageT !== null, 'A never observed storm damage');
+    assert(a.firstDamageT >= a.firstOutsideLiveT - 150,
+      `A damaged ${a.firstOutsideLiveT - a.firstDamageT}ms BEFORE crossing the live ring`);
+    assert(a.firstDamageT - a.firstOutsideLiveT <= 1500,
+      `A's damage began ${a.firstDamageT - a.firstOutsideLiveT}ms after crossing the live ring (late-start regression)`);
+    log.push(`live boundary: A crossed at t=${a.firstOutsideLiveT}, first damage at t=${a.firstDamageT} (+${a.firstDamageT - a.firstOutsideLiveT}ms)`);
     assert(a.sunkBy === undefined, `A sunk attributed to ${a.sunkBy} (expected undefined)`);
     assert(roster(a.room, a.room.sessionId).deaths >= 1, 'A death not on roster');
     assert(roster(a.room, a.room.sessionId).kills === 0 && roster(b.room, b.room.sessionId).kills === 0, 'a kill was credited for a storm death');
@@ -266,6 +301,7 @@ async function main() {
     // --- 4. B chased the live ring center and never bled ---------------------
     assert(b.minHp === fullHp, `inside ship B lost HP (minHp=${b.minHp})`);
     assert(b.outsideSamples.length === 0, `inside ship B was outside the ring ${b.outsideSamples.length}x`);
+    assert(b.outsideLiveFrames === 0, `inside ship B was outside the LIVE ring ${b.outsideLiveFrames} frame(s)`);
     const ringB = curRing(b);
     log.push(`inside: B held the ring center at full HP (cur r=${ringB.r.toFixed(0)}u, center ${Math.hypot(ringB.cx, ringB.cy).toFixed(0)}u off-origin)`);
 

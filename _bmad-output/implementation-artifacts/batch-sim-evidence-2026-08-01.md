@@ -46,3 +46,20 @@ Match length now rises monotonically with map size — the 2-10 "zone-insensitiv
 ## Recommendation (for the amendment-55-pattern checkpoint)
 
 Commit the wave-1 design targets unchanged: `map.baseRadius 2400 / capRef 20 / match.fillTo 20`, `zone.beatMs 60000 / offsetCap 1.0 / terminalSightFactor 2 / geometric ringSteps`, `stormDps 4`. Every ratified criterion is met at these values; no XP or deck dial is touched (amendment 2 honored — the picks band was reached by match length alone).
+
+## Post-review addendum (2026-08-02): island scaling (amendment 12) + perf leg
+
+The review gate scaled the island field with the map (amendment 12: cluster budget ~× map-area ratio; sizes 30–90u; the 2400u board realizes ~37 islands / 2.22% cover vs the old 900u board's ~5.6 / 1.40%). Both evidence runs were re-executed on the final code state (same run keys; byte-identical rerun property re-verified):
+
+| | Lethal 200 (seed 1) old → new | Pacifist 50 (seed 2) old → new |
+|---|---|---|
+| match length p50 s | 178.4 → **293.3** | 1320 cap (unchanged; one lobby storm-ended at 502s) |
+| endedBy | fieldCleared 190→183, lastHumanSunk 10→17 | unresolved 50→49, lastHumanSunk 0→1 |
+| storm deaths total | 6 → **90** | 51 → **311** (mean 6.2/match) |
+| picks p50 | 4 → 5 | 21 at cap (unchanged) |
+| **picks p50 at t=720s (12:00 closure)** | — | **12.0 (unchanged — the band floor still lands exactly at closure)** |
+| first exclusive FITTED reach | 45.0% → 54.8% | 100% → 95.3% (early-ended-lobby tail) |
+
+Reading: cover slows even omniscient hunters (~65% longer matches) and the denser field materially raises storm lethality during closes (escape lanes blocked) — the ring now kills sailors who don't commit, exactly the "neither dilly nor dally" intent. The picks-band conclusion is unchanged and slightly strengthened.
+
+**Amendment 7's perf leg (measured at the review gate):** in-process probe, 20 human gunner captains (production ceiling: every hull a frame-receiving client), damage suppressed so all 20 stay alive and firing, 6,000 ticks, real per-observer `observe()`/frame build ×20 per tick. **Total per tick p50 1.330ms / p95 1.846ms / p99 2.169ms** (sim p50 1.264ms; frames×20 p50 0.057ms) against the ~3ms sim budget — comfortable headroom at the new scale on this hardware; per-observer perception cost is negligible next to the sim step.

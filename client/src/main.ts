@@ -24,7 +24,6 @@ import {
   slotsWithBoons,
   REGATTA_NO_HUE,
   SLOT_COUNT,
-  zoneLiveState,
   type BoonDef,
   type DecoyView,
   type DeniedView,
@@ -35,7 +34,6 @@ import {
   type ResultsMsg,
   type ShipClassId,
   type WeaponAmmo,
-  type ZoneRing,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
@@ -54,7 +52,7 @@ import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
-import { Zone, type ZoneDisplay } from './render/zone.js';
+import { Zone } from './render/zone.js';
 import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
@@ -75,6 +73,7 @@ import {
 } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
 import { abilityPressDenied, shouldConsumePrime } from './sim/inputSampler.js';
+import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
@@ -654,15 +653,6 @@ function handleConfirm(g: Game): void {
 }
 
 
-/** Live ring + phase, derived locally from the schema's revealed zone plane. */
-interface ZoneView {
-  state: ZoneDisplay;
-  cur: ZoneRing; // the LIVE ring (offset center; interpolated while closing)
-  next: ZoneRing | null; // the revealed next ring (reveal beat onward)
-  startT: number; // server ms the timeline was anchored at
-  closesInMs: number; // to the next close start (pre-close) / close end (closing)
-}
-
 /** The public plane fields this client polls off the room schema. */
 interface PublicState {
   zoneState?: string;
@@ -689,30 +679,11 @@ function publicState(g: Game): PublicState {
   return (g.room.state ?? {}) as PublicState;
 }
 
-/** Read the public zone plane off the polled room schema (fail-safe to idle).
- *  Phase and the LIVE ring derive locally from the schema's revealed rings +
- *  zoneStartT + CONFIG via the SHARED zoneLiveState (see ArenaState JSDoc) so
- *  the ring is smooth at 60fps — the same math the server runs, no fork. Real
- *  clients never see a zoneOverride, so CONFIG matches the server. */
+/** Read the public zone plane off the polled room schema (fail-safe to idle) —
+ *  the pure derivation (shared zoneLiveState + the stale-boundary guard) lives
+ *  in sim/zoneView.ts so it stays unit-testable without Pixi. */
 function zoneView(g: Game, now: number): ZoneView {
-  const s = publicState(g);
-  const startT = s.zoneStartT ?? 0;
-  if ((s.zoneState ?? 'idle') === 'idle') {
-    return { state: 'idle', cur: { cx: 0, cy: 0, r: g.mapRadius }, next: null, startT, closesInMs: 0 };
-  }
-  const { cur, next } = schemaRings(s, g.mapRadius);
-  const live = zoneLiveState(now, startT, cur, next, CONFIG.zone);
-  return { state: live.phase, cur: live.current, next: live.next, startT, closesInMs: live.closesInMs };
-}
-
-/** The schema's revealed ring prefix: ring g as of the last boundary (always),
- *  and the revealed next ring — r === 0 means "unrevealed" (a real ring's
- *  radius is always > 0), matching the server's zeroed mirror. */
-function schemaRings(s: PublicState, mapRadius: number): { cur: ZoneRing; next: ZoneRing | null } {
-  const cur: ZoneRing = { cx: s.zoneCurCx ?? 0, cy: s.zoneCurCy ?? 0, r: s.zoneCurR || mapRadius };
-  const nextR = s.zoneNextR ?? 0;
-  const next: ZoneRing | null = nextR > 0 ? { cx: s.zoneNextCx ?? 0, cy: s.zoneNextCy ?? 0, r: nextR } : null;
-  return { cur, next };
+  return zoneViewFrom(publicState(g), g.mapRadius, now);
 }
 
 /** Read the public match plane and map it to HUD strings. */

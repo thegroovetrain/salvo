@@ -4,7 +4,6 @@ import {
   ZONE_BEATS_PER_GROUP,
   isOutside,
   mapRadius,
-  mulberry32,
   rollZoneRings,
   zoneClosedAtMs,
   zoneGroups,
@@ -21,9 +20,14 @@ const START = 10_000; // arbitrary non-zero anchor to prove startT is honored
 const BEAT = CONFIG.zone.beatMs;
 const GROUP_MS = ZONE_BEATS_PER_GROUP * BEAT;
 
-/** The production ring set on a fixed stream (offsets exercised, deterministic). */
+/** Deterministic per-ring seed material for test rolls (one uint32 per ring). */
+function seedsFor(seed: number, cfg: ZoneTimeline = CONFIG.zone): number[] {
+  return Array.from({ length: zoneGroups(cfg) }, (_, i) => (seed + i * 0x9e3779b9) >>> 0);
+}
+
+/** The production ring set on fixed streams (offsets exercised, deterministic). */
 function ringsFor(seed: number, cfg: ZoneTimeline = CONFIG.zone, mapR: number = MAP_R): ZoneRing[] {
-  return rollZoneRings(mapR, cfg, mulberry32(seed));
+  return rollZoneRings(mapR, cfg, seedsFor(seed, cfg));
 }
 
 const dist = (a: ZoneRing, b: ZoneRing): number => Math.hypot(a.cx - b.cx, a.cy - b.cy);
@@ -82,22 +86,54 @@ describe('rollZoneRings — containment + determinism (property, ∀ seeds)', ()
   it('containment holds structurally even for an out-of-range offsetCap', () => {
     const cfg: ZoneTimeline = { ...CONFIG.zone, offsetCap: 99 }; // clamped to 1
     for (let seed = 1; seed <= 50; seed += 1) {
-      const rings = rollZoneRings(MAP_R, cfg, mulberry32(seed));
+      const rings = rollZoneRings(MAP_R, cfg, seedsFor(seed, cfg));
       for (let g = 1; g < rings.length; g += 1) {
         expect(dist(rings[g - 1], rings[g]) + rings[g].r).toBeLessThanOrEqual(rings[g - 1].r + 1e-9);
       }
     }
   });
 
-  it('same stream seed → identical rings; different seed → different centers', () => {
+  it('same seed set → identical rings; different seeds → different centers', () => {
     expect(ringsFor(7)).toEqual(ringsFor(7));
     const a = ringsFor(7);
     const b = ringsFor(8);
     expect(a.slice(1).map((r) => [r.cx, r.cy])).not.toEqual(b.slice(1).map((r) => [r.cx, r.cy]));
   });
 
+  it('rings roll on INDEPENDENT per-ring streams (review FIX 2: one reveal discloses nothing)', () => {
+    // Offsets are chained (each center hangs off the previous ring), so the
+    // independence property is: (a) changing ring j's seed leaves every ring
+    // BEFORE j untouched, and (b) ring j's OFFSET DELTA from its parent is a
+    // function of ring j's seed alone — other seeds moving never change it.
+    const base = seedsFor(7);
+    const delta = (rings: ZoneRing[], g: number): [number, number] => [
+      rings[g].cx - rings[g - 1].cx,
+      rings[g].cy - rings[g - 1].cy,
+    ];
+    const a = rollZoneRings(MAP_R, CONFIG.zone, base);
+    // Change ONLY ring 2's seed: ring 1 is untouched, ring 2 moves, and ring
+    // 3's own offset delta is unchanged (its stream never saw the change).
+    const b = rollZoneRings(MAP_R, CONFIG.zone, [base[0], 0xdead, base[2]]);
+    expect(b[1]).toEqual(a[1]);
+    expect(delta(b, 2)).not.toEqual(delta(a, 2));
+    expect(delta(b, 3)[0]).toBeCloseTo(delta(a, 3)[0], 9);
+    expect(delta(b, 3)[1]).toBeCloseTo(delta(a, 3)[1], 9);
+    // Change ONLY ring 1's seed: rings 2 and 3 keep their own deltas exactly.
+    const c = rollZoneRings(MAP_R, CONFIG.zone, [0xbeef, base[1], base[2]]);
+    expect(c[1]).not.toEqual(a[1]);
+    for (const g of [2, 3]) {
+      expect(delta(c, g)[0]).toBeCloseTo(delta(a, g)[0], 9);
+      expect(delta(c, g)[1]).toBeCloseTo(delta(a, g)[1], 9);
+    }
+  });
+
+  it('missing seed material fails CLOSED to concentric rings', () => {
+    const rings = rollZoneRings(MAP_R, CONFIG.zone, []);
+    for (const ring of rings) expect(Math.hypot(ring.cx, ring.cy)).toBe(0);
+  });
+
   it('offsetCap 0 rolls concentric rings', () => {
-    const rings = rollZoneRings(MAP_R, { ...CONFIG.zone, offsetCap: 0 }, mulberry32(5));
+    const rings = rollZoneRings(MAP_R, { ...CONFIG.zone, offsetCap: 0 }, seedsFor(5));
     for (const ring of rings) expect(Math.hypot(ring.cx, ring.cy)).toBe(0);
   });
 });
@@ -223,7 +259,7 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
 
   it('NaN/negative ringSteps and offsetCap never produce NaN or growing rings', () => {
     const cfg: ZoneTimeline = { ...CONFIG.zone, ringSteps: [NaN, -3], offsetCap: NaN };
-    const rings = rollZoneRings(MAP_R, cfg, mulberry32(3));
+    const rings = rollZoneRings(MAP_R, cfg, seedsFor(3, cfg));
     let prev = Infinity;
     for (const r of rings) {
       expect(Number.isFinite(r.cx) && Number.isFinite(r.cy) && Number.isFinite(r.r)).toBe(true);
@@ -241,6 +277,19 @@ describe('degenerate timelines — fail closed, never NaN, never a hang', () => 
     const radii = zoneRingRadii(300, CONFIG.zone); // terminal 660 > map 300
     for (const r of radii) expect(r).toBeLessThanOrEqual(300);
     expect(radii[radii.length - 1]).toBe(300);
+  });
+
+  it('the terminal radius is FLOORED at 1u — a legal ring can never be r=0 (sentinel collision)', () => {
+    // A dev-only zoneOverride with terminalSightFactor 0 must not mint an r=0
+    // ring: the schema's zoneNextR === 0 means "unrevealed", and isOutside
+    // against r=0 marks the ring's own center as outside.
+    const cfg: ZoneTimeline = { ...CONFIG.zone, terminalSightFactor: 0 };
+    const radii = zoneRingRadii(MAP_R, cfg);
+    expect(radii[radii.length - 1]).toBe(1);
+    for (const ring of rollZoneRings(MAP_R, cfg, seedsFor(9, cfg))) {
+      expect(ring.r).toBeGreaterThanOrEqual(1);
+    }
+    expect(isOutside({ x: 0, y: 0 }, 0, 0, radii[radii.length - 1])).toBe(false); // own center is safe
   });
 });
 

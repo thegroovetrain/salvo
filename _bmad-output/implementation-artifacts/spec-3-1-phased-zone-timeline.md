@@ -2,7 +2,7 @@
 title: '3-1 Phased Zone Timeline (+ ratified map bump)'
 type: 'feature'
 created: '2026-08-01'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 baseline_revision: 'cd91b4a2b79aa42f6b1a27134a4d482f2306548f'
 context:
@@ -102,6 +102,25 @@ warnings: [oversized, multiple-goals]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-02 — Review pass (2 Fable hunters + Codex cross-model; verdict: build-on-it)
+- intent_gap: 0 (the island-density gap was resolved live by Eric ruling → amendment 12, not a HALT; versioning re-ruled → amendment 13)
+- bad_spec: 0
+- patch: 9: (high 0, medium 3, low 6)
+- defer: 1: (low 1)
+- reject: 3: (low 3)
+- addressed_findings:
+  - `[medium]` `[patch]` Client ring pop-back at intermediate close completions (all three reviewers) — stale-boundary guard in new `client/src/sim/zoneView.ts` (schema's revealed next IS ring g+1 during the latency window); 4 client tests, core one fail-proven.
+  - `[medium]` `[patch]` Zone-stream PRNG state recovery (Codex, orchestrator-verified) — revealing ring 1 disclosed two raw outputs of one 32-bit stream, brute-forceable offline; per-ring independent streams (`WorldOptions.zoneSeeds`, per-ring room nonces, harness per-ring derivation); forward-secrecy pins (prefix stability + offset-delta invariance).
+  - `[medium]` `[patch]` Island field didn't scale with the map bump (Blind Hunter; Eric-ratified amendment 12) — cluster budget ~× map-area, sizes 30–90u (2400u board: ~37 islands / 2.22% cover vs old realized ~5.6 / 1.40%); smoke seeds re-scanned (fogSmoke/latencyHarness 110→265), island avoidance added to straight-line smoke pilots; both evidence runs re-executed (evidence-doc addendum).
+  - `[low]` `[patch]` Amendment 7's perf leg unmeasured (Blind Hunter) — probe: 20 captains × 20 observers × real observe()/frames, p50 1.33ms/tick vs 3ms budget; recorded in evidence doc, probe deleted.
+  - `[low]` `[patch]` r===0 unrevealed-sentinel collision with terminalSightFactor 0 (both hunters) — terminal radius floored at 1u structurally, pinned.
+  - `[low]` `[patch]` Harness at-cap mislabel (Edge Case Hunter) — `capSample` classifies genuinely-finished matches at the tick cap; fail-proven at the seam (the live path is unreachable in the current loop — guard is defensive; honesty note in report).
+  - `[low]` `[patch]` zoneSmoke couldn't catch late storm-damage start (Codex) — live-boundary crossing assertion added (observed +0ms) + server unit pin for mid-close live-radius damage.
+  - `[low]` `[patch]` `World.zoneClosesInMs` dead code (Blind Hunter) — removed.
+  - `[low]` `[patch]` No regression pin that ArenaRoom supplies private zone seeds (both hunters) — `zoneSeeds.test.ts`: same map seed ⇒ identical maps, different rings.
+- defer: fogSmoke shell-reveal intermittent (pre-existing flakiness family; one non-reproducible failure in 4 runs; candidate fix documented) → deferred-work entry.
+- reject: float32 schema quantization at the ring boundary (server-authoritative, sub-0.01u); interim HUD countdown semantics drift note (spec-compliant; 3.3 reads the spec); pre-existing smoke rot observation (already repaired in wave 1, informational).
 
 ## Design Notes
 

@@ -22,7 +22,7 @@
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/weaponsSmoke.mjs
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const SIGHT = CONFIG.vision.sight;
@@ -63,8 +63,12 @@ async function joinClient(name, cls = 'torpedoBoat') {
     maxConcurrentEnemy: 0, // most of A's mines seen at once
     distinctEnemy: new Set(),
     firstSeenDist: new Map(), // mineId -> distance at first sighting
+    islands: [], // rebuilt from the welcome — arms islandAvoid
   };
-  room.onMessage('w', (m) => (ctx.welcome = m));
+  room.onMessage('w', (m) => {
+    ctx.welcome = m;
+    ctx.islands = generateMap(m.mapSeed, m.playerCap).islands; // arms islandAvoid
+  });
   room.onMessage('f', (m) => onFrame(ctx, m));
   return ctx;
 }
@@ -108,10 +112,28 @@ function control(ctx) {
   ctx.room.send('i', inp);
 }
 
+
+/** Rudder bias steering away from any island ahead (dronesSmoke islandAvoid —
+ *  needed since amendment 12 scaled the island budget with map area: long
+ *  straight sail-ins on the 2400u board WILL cross rocks). */
+function islandAvoid(ctx) {
+  if (!ctx.you) return 0;
+  const fx = Math.cos(ctx.you.heading);
+  const fy = Math.sin(ctx.you.heading);
+  let bias = 0;
+  for (const c of ctx.islands ?? []) {
+    const dx = c.x - ctx.you.x;
+    const dy = c.y - ctx.you.y;
+    if (dx * fx + dy * fy <= 0 || Math.hypot(dx, dy) > 170 + c.r) continue;
+    bias += fx * dy - fy * dx > 0 ? -0.9 : 0.9;
+  }
+  return bias;
+}
+
 function steerToward(ctx, inp, target, throttle) {
   if (!ctx.you || !target) return;
   const want = bearing(ctx.you, target);
-  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 2, -1, 1);
+  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 2 + islandAvoid(ctx), -1, 1);
   inp.throttle = throttle;
 }
 

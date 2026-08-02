@@ -15,6 +15,7 @@ import {
   REGATTA_NO_HUE,
   mulberry32,
   sanitizeClassId,
+  zoneGroups,
   type ResultsMsg,
   type Rng,
   type WelcomeMsg,
@@ -205,20 +206,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // the deterministic map for latency-harness smokes; production rooms
     // always roll a random seed.
     const seed = sanitized.mapSeed ?? (Math.random() * 0xffffffff) >>> 0;
-    // Map sized for the match fill (mapRadius(fillTo) — 2400u at the 3.1
-    // targets). zoneOverride (dev-only) reshapes the storm timeline for
-    // smokes/tests; undefined => shipped CONFIG.zone.
-    //
-    // zoneSeed: a per-room SERVER-PRIVATE nonce for the ring stream (amendment
-    // 10). mapSeed rides the welcome, so the zone stream must NOT be derivable
-    // from it — a modded client could otherwise precompute every future ring.
-    // Non-deterministic entropy is legal HERE (the I/O adapter, like the random
-    // map seed above — never in game/); the World stays pure and just consumes
-    // the seed. Deliberately NOT a dev option: nothing needs to pin it (smokes
-    // assert ring structure, not specific rolls).
-    this.world = new World(seed, CONFIG.match.fillTo, sanitized.zoneOverride ?? CONFIG.zone, {
-      zoneSeed: (Math.random() * 0xffffffff) >>> 0,
-    });
+    this.world = this.buildWorld(seed, sanitized);
 
     this.initOperability(rejectedKeys);
 
@@ -232,6 +220,28 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       this.metrics = null;
       throw err;
     }
+  }
+
+  /**
+   * The room's World: map sized for the match fill (mapRadius(fillTo) — 2400u
+   * at the 3.1 targets); zoneOverride (dev-only) reshapes the storm timeline
+   * for smokes/tests, undefined => shipped CONFIG.zone.
+   *
+   * zoneSeeds: per-room, PER-RING server-private nonces for the ring streams
+   * (amendment 10 + review FIX 2). mapSeed rides the welcome, so ring offsets
+   * must NOT be derivable from it — and each ring gets its OWN independent
+   * nonce so a revealed ring's geometry cannot be brute-forced back into a
+   * shared stream state to precompute later rings. Non-deterministic entropy
+   * is legal HERE (the I/O adapter, like the random map seed — never in
+   * game/); the World stays pure and just consumes the seeds. Deliberately NOT
+   * a dev option: nothing needs to pin rolls (smokes assert ring structure,
+   * not specific offsets). Split out of onCreate so tests can pin that the
+   * world actually receives caller-supplied seed material.
+   */
+  private buildWorld(seed: number, sanitized: SanitizedRoomOptions): World {
+    const zoneCfg = sanitized.zoneOverride ?? CONFIG.zone;
+    const zoneSeeds = Array.from({ length: zoneGroups(zoneCfg) }, () => (Math.random() * 0xffffffff) >>> 0);
+    return new World(seed, CONFIG.match.fillTo, zoneCfg, { zoneSeeds });
   }
 
   /** The post-operability remainder of room creation (see onCreate's guard). */

@@ -15,7 +15,8 @@ import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
 import { mixSeed, percentile, summarize } from '../stats.js';
 import { PILOT_REGISTRY, pickSpendChoice } from '../pilots.js';
-import { runBatch, type CaptainSample, type MatchSample } from '../runner.js';
+import { Match } from '../../../src/game/match.js';
+import { MatchCollector, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
 import { buildAggregate } from '../report.js';
 import { runDeckSim } from '../deckSim.js';
 import { mulberry32 } from '@salvo/shared';
@@ -381,6 +382,30 @@ describe('runner — the unresolved outcome (tick budget, Story 3.1)', () => {
     expect(m.captains.every((c) => c.finalLevel > 0)).toBe(true);
     const agg = buildAggregate(result, 2);
     expect(agg.endedBy).toEqual({ unresolved: 1 });
+  });
+});
+
+describe('runner — at-cap classification keeps a real conclusion (review FIX 5)', () => {
+  it('a finished match is NEVER emitted as unresolved by the cap path', () => {
+    // Drive a real lone-captain match to 'finished' (fieldCleared at
+    // activation), then classify it through the cap seam directly. FAIL-PROOF:
+    // without the finished-guard, capSample routes to unresolvedSample and
+    // this reads endedBy 'unresolved' with a cap-measured duration.
+    const world = new World(21, 4);
+    const hooks = { lock: () => {}, unlock: () => {}, fillToCapacity: () => {}, broadcastResults: () => {}, disconnect: () => {} };
+    const match = new Match(world, { countdownMs: 100, resultsMs: 1000, minHumans: 1 }, hooks);
+    world.addShip('cap-1', 'CAP-01', false, 'torpedoBoat');
+    match.notifyRosterChanged();
+    for (let t = 0; t < 100 && match.phase !== 'finished'; t += 1) {
+      world.step();
+      match.update();
+    }
+    expect(match.phase).toBe('finished');
+    const collector = new MatchCollector(['cap-1']);
+    collector.observe(world, match);
+    const sample = capSample(0, 21, world, match, collector, ['cap-1']);
+    expect(sample.endedBy).toBe('fieldCleared');
+    expect(sample.durationS).toBe(match.endSummary().durationS);
   });
 });
 
