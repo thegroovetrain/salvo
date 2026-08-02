@@ -91,7 +91,7 @@ import { showHome, type HomeHandle } from './ui/home.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
 import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
-import { ringReadout, type ChromeBarView } from './ui/chromeBar.js';
+import { barVisible, ringReadout, type ChromeBarView } from './ui/chromeBar.js';
 import {
   closeResultsAsSpectate,
   hideResults,
@@ -843,7 +843,10 @@ function updateMatchAudioCues(g: Game, now: number): void {
 function chromeBarView(g: Game, zv: ZoneView, now: number, tier1: boolean): ChromeBarView {
   const players = publicState(g).players;
   return {
-    visible: zv.state !== 'idle',
+    // The gate also requires a REAL anchor (barVisible): `zoneStartT` is 0 until
+    // the server anchors the timeline, and a non-idle state presented against
+    // that sentinel would print `now − 0` as the match clock.
+    visible: barVisible(zv.state, zv.startT),
     // Amendment 19: ALL hulls, drones included — deliberately NOT the
     // humans-only rival count placement uses (score.ts isAfloatHull).
     afloat: players ? afloatCount(players) : 0,
@@ -1616,6 +1619,15 @@ function bindGameRoom(g: Game, conn: Connection): void {
 
 // --- alive rendering -----------------------------------------------------------
 
+/**
+ * Draws the own-ship frame and RETURNS this frame's Tier-1 (threat) read.
+ *
+ * The read has to happen HERE, not in the caller: `renderFiring` is what drives
+ * the denied-fire pulse, so a tier1 sampled before it would miss a pulse born
+ * this frame (a one-frame lie in both Tier-2 consumers). Everything downstream
+ * of that call — the bar's payload, the storm vignette via renderAlive — shares
+ * this one value.
+ */
 function renderOwn(
   g: Game,
   pose: RenderPose,
@@ -1626,7 +1638,7 @@ function renderOwn(
   frameDt: number,
   now: number,
   nowMs: number,
-): void {
+): boolean {
   if (!g.cameraSnapped) {
     g.camera.snapTo(pose);
     g.cameraSnapped = true;
@@ -1641,11 +1653,18 @@ function renderOwn(
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
   renderFiring(g, pose, status, aim, cursor, nowMs);
+  // ONE Tier-1 read per frame, taken AFTER renderFiring drove the denied pulse
+  // and shared by both Tier-2 consumers (the chrome bar's amber ring segment
+  // here, the storm vignette back in renderAlive): two reads — or one taken
+  // before the pulse was driven — could disagree inside a single frame.
+  const tier1 = ownTier1(g, status, nowMs);
+  bar.tier1 = tier1;
   // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
   // storm vignette's pulse rides (the HP rail breathes on it).
   g.hud.update(pose, g.keyboard.axes(), status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000);
   updateHotbar(g, status, nowMs);
   updateXpRail(g, status.alive, now / 1000);
+  return tier1;
 }
 
 /**
@@ -2069,12 +2088,17 @@ function renderAlive(
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
-  // ONE Tier-1 read per frame, shared by both Tier-2 consumers (the storm
-  // vignette and the chrome bar's amber ring segment) — two reads could
-  // disagree inside a single rendered frame.
-  const tier1 = ownTier1(g, status, nowMs);
-  if (pose) renderOwn(g, pose, status, inStorm, chromeBarView(g, zv, now, tier1), mu, frameDt, now, nowMs);
+  // THE frame's Tier-1 read comes back OUT of renderOwn: it is taken there,
+  // after renderFiring has driven the denied pulse, and both Tier-2 consumers
+  // (the chrome bar's amber ring segment and the storm vignette below) share
+  // that one value. The payload is built with a provisional `false`, which
+  // renderOwn overwrites with the real read before the HUD draws it.
+  let tier1: boolean;
+  if (pose) tier1 = renderOwn(g, pose, status, inStorm, chromeBarView(g, zv, now, false), mu, frameDt, now, nowMs);
   else {
+    // No own frame this tick (forceSnap gap): nothing drove the denied pulse, so
+    // the vignette reads the Tier-1 state directly.
+    tier1 = ownTier1(g, status, nowMs);
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
     g.hotbar.hide(); // no frame renders here — the hotbar must not linger, nor route clicks

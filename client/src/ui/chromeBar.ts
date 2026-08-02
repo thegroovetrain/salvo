@@ -26,6 +26,7 @@
 //    the figures are tabular for free) and their LABELS are dim-alpha phosphor —
 //    never `textMuted`, which amendment 17 retired for load-bearing HUD text.
 
+import type { ZonePhase } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { monoTextWidth } from './refitCardFit.js';
 
@@ -54,19 +55,30 @@ export const RING_LIT_ALPHA = 1;
  *  tab must not jump the phase by a wild amount on the frame it returns. */
 const MAX_PULSE_DT = 0.5;
 
-/** Whole seconds of a countdown/elapsed window: clamped at 0, CEILED (a live
- *  second reads as that second, and nothing ever renders a negative clock). */
+/** Whole seconds REMAINING in a countdown window: clamped at 0, CEILED (a live
+ *  second reads as that second, and nothing ever renders a negative clock).
+ *  Elapsed time is the other direction — see elapsedSeconds. */
 function clockSeconds(ms: number): number {
   return Number.isFinite(ms) ? Math.max(0, Math.ceil(ms / 1000)) : 0;
+}
+
+/** Whole seconds ELAPSED: clamped at 0, FLOORED. A clock counting UP shows the
+ *  second that has actually passed — ceiling it would read one second fast for
+ *  the whole match (1ms in would already say `T+00:01`). */
+function elapsedSeconds(ms: number): number {
+  return Number.isFinite(ms) ? Math.max(0, Math.floor(ms / 1000)) : 0;
 }
 
 /**
  * Pure: the BAR clock — `mm:ss`, minutes ZERO-PADDED (`T+04:12`, `T+00:00`).
  * The match timer is derived every frame from `serverNow − zoneStartT`, so it is
  * reconnect-safe by construction: there is no local accumulator to lose.
+ *
+ * ELAPSED, so it FLOORS (the ceil rationale belongs to the countdowns alone):
+ * `T+00:00` holds for the whole first second and flips at exactly 1.000s.
  */
 export function fmtBarClock(ms: number): string {
-  const total = clockSeconds(ms);
+  const total = elapsedSeconds(ms);
   const m = Math.floor(total / 60);
   return `${String(m).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
 }
@@ -102,7 +114,7 @@ export interface RingReadout {
  * beat with `closesInMs ≤ urgentMs` — rather than on "the reveal beat's last
  * 10s". Same behavior on the shipped timeline, robust on any other.
  */
-export function ringReadout(state: string, closesInMs: number, urgentMs: number = CB.urgentMs): RingReadout {
+export function ringReadout(state: ZonePhase, closesInMs: number, urgentMs: number = CB.urgentMs): RingReadout {
   if (state === 'idle') return { text: '', urgent: false };
   if (state === 'closed') return { text: 'RING CLOSED', urgent: false };
   // The shrink: counts to the close END, violet, never amber — the ring is
@@ -147,6 +159,20 @@ export interface ChromeBarView {
   /** A Tier-1 (threat) channel is animating this frame — the amber segment
    *  holds at its lit keyframe while it is (attention.ts's tier table). */
   tier1: boolean;
+}
+
+/**
+ * Pure: is the bar shown at all?
+ *
+ * TWO conditions, both required. The zone timeline must be live (idle = the
+ * pre-live ready room, where the match-phase lines own top-center) AND its
+ * anchor must be a real timestamp: `zoneStartT` is 0 until the server anchors
+ * the timeline, and a non-idle state presented against that sentinel would print
+ * `T+` as the whole server uptime (`now − 0`). The bar simply waits a frame for
+ * the anchor rather than rendering a number it cannot mean.
+ */
+export function barVisible(state: ZonePhase, startT: number): boolean {
+  return state !== 'idle' && Number.isFinite(startT) && startT > 0;
 }
 
 /** Whole, non-negative integer for a displayed tally (a schema miss reads 0). */
@@ -234,13 +260,20 @@ export function chromeBarLayout(segments: readonly ChromeSegment[], screenW: num
  * integrated-phase pattern (hud.ts advancePulsePhase), for this channel.
  *
  * The phase is INTEGRATED rather than computed from absolute time, and it HOLDS
- * AT ZERO while the urgency window is shut. Phase 0 is the LIT keyframe (the
- * breath is a cosine), so the first amber breath always starts fully lit and
- * dips from there — the segment can never snap on at whatever alpha a
- * free-running phase had drifted to.
+ * AT ZERO whenever the breath is not actually being drawn — the urgency window
+ * is shut, OR the effective amplitude is zero (motion=off). Phase 0 is the LIT
+ * keyframe (the breath is a cosine), so the first amber breath always starts
+ * fully lit and dips from there — the segment can never snap on at whatever
+ * alpha a free-running phase had drifted to.
+ *
+ * The amplitude is a PARAMETER (the function stays pure): integrating through a
+ * motion=off stretch would leave the phase parked at an arbitrary angle, and
+ * re-enabling motion mid-urgency would then apply full amplitude there — a
+ * one-frame snap down from lit, which is exactly the onset rule this gate
+ * exists to enforce.
  */
-export function advanceRingPhase(phase: number, urgent: boolean, dt: number): number {
-  if (!urgent) return 0;
+export function advanceRingPhase(phase: number, urgent: boolean, dt: number, amp: number): number {
+  if (!urgent || !(amp > 0)) return 0;
   const step = Math.min(MAX_PULSE_DT, Math.max(0, Number.isFinite(dt) ? dt : 0));
   return (phase + RING_PULSE_HZ * step * Math.PI * 2) % (Math.PI * 2);
 }

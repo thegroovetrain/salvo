@@ -12,6 +12,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CHROME_BAR_SEGMENTS,
+  barVisible,
   RING_LIT_ALPHA,
   RING_PULSE_AMP,
   RING_PULSE_HZ,
@@ -114,6 +115,17 @@ describe('fmtBarClock — the zero-padded, up-counting match timer', () => {
     expect(fmtBarClock(600_000)).toBe('10:00');
   });
 
+  it('FLOORS the elapsed second — an up-counting clock must never read ahead of itself', () => {
+    // Review fix 1: the match timer counts UP, so the second it displays is the
+    // one that has actually elapsed. (Countdowns are the opposite and keep CEIL:
+    // a live second reads as that second — see fmtRingClock.)
+    expect(fmtBarClock(0)).toBe('00:00');
+    expect(fmtBarClock(1)).toBe('00:00'); // one ms into the match is still T+00:00
+    expect(fmtBarClock(999)).toBe('00:00');
+    expect(fmtBarClock(1_000)).toBe('00:01');
+    expect(fmtBarClock(61_001)).toBe('01:01');
+  });
+
   it('clamps at zero and survives a degenerate clock (no NaN, no negative string)', () => {
     expect(fmtBarClock(-1)).toBe('00:00');
     expect(fmtBarClock(-999_999)).toBe('00:00');
@@ -160,7 +172,7 @@ describe('chromeBarSegments — the whole register', () => {
   it('has exactly the segment count the renderer pools Texts for', () => {
     expect(chromeBarSegments(view())).toHaveLength(CHROME_BAR_SEGMENTS);
     // ...and the count is stable across every ring state (the pool is fixed).
-    for (const state of ['clear', 'supply', 'reveal', 'closing', 'closed', 'idle']) {
+    for (const state of ['clear', 'supply', 'reveal', 'closing', 'closed', 'idle'] as const) {
       expect(chromeBarSegments(view({ ring: ringReadout(state, 5_000) }))).toHaveLength(CHROME_BAR_SEGMENTS);
     }
   });
@@ -222,30 +234,69 @@ describe('RING_PULSE_HZ — exactly 1 Hz, under the ONE shared ceiling', () => {
 
   it('a full second of phase is exactly one breath', () => {
     // Half a cycle is the trough; two halves come back around to the crest.
-    const half = advanceRingPhase(0, true, 0.5 / RING_PULSE_HZ);
+    const half = advanceRingPhase(0, true, 0.5 / RING_PULSE_HZ, RING_PULSE_AMP);
     expect(half).toBeCloseTo(Math.PI, 9);
-    expect(advanceRingPhase(half, true, 0.5 / RING_PULSE_HZ)).toBeCloseTo(0, 9); // wrapped
+    expect(advanceRingPhase(half, true, 0.5 / RING_PULSE_HZ, RING_PULSE_AMP)).toBeCloseTo(0, 9); // wrapped
   });
 });
 
 describe('advanceRingPhase — the integrated, phase-gated breath', () => {
   it('HOLDS AT ZERO while the urgency window is shut, so onset starts LIT', () => {
-    expect(advanceRingPhase(2.2, false, 0.016)).toBe(0);
+    expect(advanceRingPhase(2.2, false, 0.016, RING_PULSE_AMP)).toBe(0);
     expect(ringSegmentAlpha(0, RING_PULSE_AMP)).toBe(RING_LIT_ALPHA);
   });
 
+  it('HOLDS AT ZERO at motion=off too, so re-enabling motion never snaps mid-breath', () => {
+    // Review fix 3: the integrator is gated on the EFFECTIVE amplitude as well
+    // as the window. Integrating through a motion=off stretch would park the
+    // phase at an arbitrary angle, and the frame motion came back would apply
+    // full amplitude there — a one-frame drop from lit.
+    const off = motionScaled(RING_PULSE_AMP, 'off');
+    let p = 0;
+    for (let i = 0; i < 60; i++) p = advanceRingPhase(p, true, 0.016, off);
+    expect(p).toBe(0);
+    // ...and the first breathing frame after the toggle starts from the LIT
+    // keyframe, exactly as a fresh urgency onset does.
+    p = advanceRingPhase(p, true, 0.016, RING_PULSE_AMP);
+    expect(ringSegmentAlpha(p, RING_PULSE_AMP)).toBeCloseTo(RING_LIT_ALPHA, 2);
+  });
+
   it('clamps a wild frame gap (a backgrounded tab must not jump the wave)', () => {
-    const huge = advanceRingPhase(0, true, 30);
-    expect(huge).toBe(advanceRingPhase(0, true, 0.5));
-    expect(advanceRingPhase(1, true, -5)).toBe(1); // negative dt advances nothing
-    expect(advanceRingPhase(1, true, Number.NaN)).toBe(1);
+    const huge = advanceRingPhase(0, true, 30, RING_PULSE_AMP);
+    expect(huge).toBe(advanceRingPhase(0, true, 0.5, RING_PULSE_AMP));
+    expect(advanceRingPhase(1, true, -5, RING_PULSE_AMP)).toBe(1); // negative dt advances nothing
+    expect(advanceRingPhase(1, true, Number.NaN, RING_PULSE_AMP)).toBe(1);
   });
 
   it('stays wrapped into [0, 2π) over a long window', () => {
     let p = 0;
-    for (let i = 0; i < 1000; i++) p = advanceRingPhase(p, true, 0.05);
+    for (let i = 0; i < 1000; i++) p = advanceRingPhase(p, true, 0.05, RING_PULSE_AMP);
     expect(p).toBeGreaterThanOrEqual(0);
     expect(p).toBeLessThan(Math.PI * 2);
+  });
+});
+
+describe('barVisible — the bar needs a live timeline AND a real anchor', () => {
+  it('is hidden through the whole pre-live ready room (idle timeline)', () => {
+    expect(barVisible('idle', 0)).toBe(false);
+    expect(barVisible('idle', 1_700_000_000_000)).toBe(false);
+  });
+
+  it('is hidden while a non-idle state still carries the 0 anchor sentinel', () => {
+    // The schema's `zoneStartT` is 0 until the server anchors the timeline; a
+    // bar drawn against it would print `now − 0` as the match clock.
+    for (const state of ['clear', 'supply', 'reveal', 'closing', 'closed'] as const) {
+      expect(barVisible(state, 0)).toBe(false);
+    }
+    expect(barVisible('clear', -5)).toBe(false);
+    expect(barVisible('clear', Number.NaN)).toBe(false);
+  });
+
+  it('shows the moment a live state arrives with a real anchor', () => {
+    for (const state of ['clear', 'supply', 'reveal', 'closing', 'closed'] as const) {
+      expect(barVisible(state, 1_700_000_000_000)).toBe(true);
+    }
+    expect(barVisible('clear', 1)).toBe(true);
   });
 });
 
@@ -337,7 +388,7 @@ describe('the bar fits its container (amendment 47 — the container-fit law)', 
   });
 
   it('every reachable ring register fits, at a full 20-hull field', () => {
-    for (const state of ['clear', 'supply', 'reveal', 'closing', 'closed']) {
+    for (const state of ['clear', 'supply', 'reveal', 'closing', 'closed'] as const) {
       for (const ms of [0, 9_400, 47_000, 154_000, 240_000]) {
         const v = view({ afloat: 20, kills: 19, matchMs: 720_000, ring: ringReadout(state, ms) });
         const w = chromeBarLayout(chromeBarSegments(v), NARROWEST_LOGICAL).width;

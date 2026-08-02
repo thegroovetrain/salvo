@@ -718,12 +718,22 @@ export class Hud {
         this.lastBarFill[i] = seg.color;
       }
     }
-    const sig = `${segs.map((s) => s.text).join(' ')}|${screenW}`;
+    // The change signature joins on a control character written as an ESCAPE,
+    // never a literal byte in the source: the segment texts carry spaces (and
+    // the separator is literally ' · '), so joining on anything printable could
+    // let two different segment lists sign identically and skip a real redraw.
+    const sig = `${segs.map((s) => s.text).join('\u0000')}|${screenW}`;
     if (sig === this.lastBarSig) return;
     this.lastBarSig = sig;
-    for (let i = 0; i < segs.length; i++) this.barSegs[i].text = segs[i].text;
+    // The pool is FIXED (CHROME_BAR_SEGMENTS, pinned against the composer by
+    // chromeBar.test.ts) — bound both loops by it as well as by the composed
+    // list, so a future composer that emitted an extra segment would drop it
+    // rather than throw on every frame. (The loop above already covers the
+    // short side via its undefined guard.)
+    const n = Math.min(segs.length, this.barSegs.length);
+    for (let i = 0; i < n; i++) this.barSegs[i].text = segs[i].text;
     const at = chromeBarLayout(segs, screenW);
-    for (let i = 0; i < segs.length; i++) this.barSegs[i].position.set(at.xs[i], CB.y);
+    for (let i = 0; i < n; i++) this.barSegs[i].position.set(at.xs[i], CB.y);
   }
 
   /**
@@ -734,9 +744,12 @@ export class Hud {
    */
   private breatheRing(bar: ChromeBarView, segs: readonly ChromeSegment[], dtSec: number): void {
     const urgent = bar.ring.urgent;
-    this.ringPhase = advanceRingPhase(this.ringPhase, urgent, dtSec);
-    this.ringHold = easeHold(this.ringHold, bar.tier1 ? 1 : 0, Math.max(0, dtSec) * 1000, CB.holdEaseMs);
+    // The amplitude gates the INTEGRATOR as well as the wave: at motion=off the
+    // phase holds at 0, so turning motion back on mid-window starts the breath
+    // from the lit keyframe instead of wherever a free-running phase had drifted.
     const amp = motionScaled(RING_PULSE_AMP, settings.current.motion);
+    this.ringPhase = advanceRingPhase(this.ringPhase, urgent, dtSec, amp);
+    this.ringHold = easeHold(this.ringHold, bar.tier1 ? 1 : 0, Math.max(0, dtSec) * 1000, CB.holdEaseMs);
     const pulsed = ringSegmentAlpha(this.ringPhase, amp, this.ringHold);
     for (let i = 0; i < segs.length; i++) {
       this.barSegs[i].alpha = segs[i].pulsed && urgent ? pulsed : segs[i].alpha;

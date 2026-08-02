@@ -2,8 +2,9 @@
 title: '3-3 BR Chrome Bar'
 type: 'feature'
 created: '2026-08-02'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
+followup_review_recommended: false # flag retired (Epic 2 retro Ruling 1) — residuals are ledger entries with evidence + named home
 baseline_revision: 'aa67e6c'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
@@ -86,7 +87,7 @@ warnings: [oversized]
 - [x] `client/src/render/hud.ts` — bar row on `hudLayer`, drawn from both update paths; retire `zoneLine`; amber pulse/hold/motion wiring — the render half.
 - [x] `client/src/main.ts` — payload assembly + visibility gate; delete the interim register — the only integration point.
 - [x] `client/src/__tests__/chromeBar.test.ts` (+ `score.test.ts` extension) — all I/O matrix rows + pulse-ceiling pin + segment style registers.
-- [ ] Docs/bookkeeping — VERSION 0.17.35, sprint-status, gds-workflow-status (→ create-story 3-4), CLAUDE.md — in the PR.
+- [x] Docs/bookkeeping — VERSION 0.17.36 (cycle 36; baseline already carries 0.17.35), sprint-status, gds-workflow-status (→ create-story 3-4), CLAUDE.md — in the PR.
 
 **Acceptance Criteria:**
 - Given a live match, when the bar renders, then it reads `n AFLOAT · n KILLS · T+mm:ss · <ring readout>` top-center — AFLOAT = all alive hulls (drones included), KILLS = own roster tally, T+ zero-padded and up-counting from the live anchor.
@@ -99,6 +100,24 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-02 — Review pass (2 Fable hunters + Codex cross-model; verdicts: build-on-it ×2; Codex 2×P2, both overlapping a hunter finding)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 0, medium 1, low 7)
+- defer: 2: (low 2)
+- reject: 2: (low 2)
+- addressed_findings:
+  - `[medium]` `[patch]` The elapsed T+ match clock CEILed seconds (Codex + Edge Case Hunter independently), reading one second fast the entire match (`matchMs=1` → `T+00:01`) — split `elapsedSeconds` (floor) from the countdown `clockSeconds` (ceil); ring countdowns unchanged. Fail-proven (`expected '00:01' to be '00:00'`).
+  - `[low]` `[patch]` The spec matrix's "startT 0 mid-race → Guarded" row was not implemented (ALL THREE reviewers): non-idle zone state with the `zoneStartT=0` sentinel would print a huge T+ — new pure `barVisible(state, startT)` gate (`state !== 'idle' && startT > 0`), tested across every phase × 0/negative/NaN/real anchors.
+  - `[low]` `[patch]` `advanceRingPhase` integrated while motion=off (amp 0), so re-enabling motion mid-urgency-window applied full amplitude at an arbitrary phase — a 1.0→0.45 snap violating the lit-onset rule (Edge Case Hunter, CONFIRMED) — amp is now a required parameter; phase holds 0 whenever `!urgent || amp <= 0`. Fail-proven.
+  - `[low]` `[patch]` The one-Tier-1-read hoist put the read BEFORE the denied-pulse driver (Blind Hunter, CONFIRMED): a denial born this frame was missed by both Tier-2 consumers for one frame and the same-frame comment went stale — read moved to after `renderFiring` inside `renderOwn` (returned to `renderAlive` for `updateZone`); same-frame invariant restored, comment true again.
+  - `[low]` `[patch]` `layoutChromeBar` text/position loops indexed the fixed Text pool unguarded past `CHROME_BAR_SEGMENTS` on composer drift — bounded by `Math.min`.
+  - `[low]` `[patch]` `ringReadout(state: string)` was stringly-typed — now `ZonePhase`, so a future phase fails at compile time instead of rendering fallthrough copy.
+  - `[low]` `[patch]` `lastBarSig` joined space-bearing texts with a literal NUL BYTE embedded in the source (made hud.ts read as binary to grep/file) — rewritten as the an explicit backslash-u0000 escape; same collision-proof semantics, file is text again.
+  - `[low]` `[patch]` Spec Tasks line said VERSION 0.17.35 while the Code Map correctly said 0.17.36 (baseline aa67e6c already carries cycle 35) — Tasks line corrected; plus one new hud test pinning the alive→spectate pulse seam (Blind Hunter's only reasoning-alone gap).
+- defer: the 2026-07-16 HUD-composite mock's grey labels + white T+ number vs the shipped amendment-17/21 registers (doc-sync batch, Eric-gated); pre-existing literal 0x01 byte in `results.ts` `scoreSignature` (same binary-file hazard the NUL patch fixed in hud.ts).
+- reject: layout-model hairline gaps (~2px/boundary, conservative-safe direction, reads as tracking on a letter-spaced mono row); one-frame amber→violet snap at urgency-window close (amendment-20-by-design, single non-repeating state transition).
 
 ## Design Notes
 
@@ -116,3 +135,17 @@ warnings: [oversized]
 
 **Manual checks (if no CLI):**
 - Worktree diff contains no unrelated files (HULLCRACKER_NOTES.md untouched); grep confirms no `textMuted` usage in the bar path and no second pulse-rate literal.
+
+## Auto Run Result
+
+**Status:** done. **Branch:** worktree-dev-auto-3-3-br-chrome-bar (final_revision in frontmatter).
+
+**Summary.** The match now wears its BR chrome: one restrained mono row top-center — `n AFLOAT · n KILLS · T+mm:ss · <ring readout>` — replacing the 3.1 interim `STORM m:ss` register. Three pre-implementation Eric rulings (amendments 19–21, all the presented recommendations) settled the forks: AFLOAT counts ALL hulls including drones (the BR reading; deliberate asymmetry with humans-only placement), the ring readout runs the URGENCY-OVERRIDE grammar (`RING CLOSES` to close start through clear/supply; `RING REVEALED` through the reveal beat until its final 10s yield back to the countdown with the amber exactly-1 Hz pulse; `RING CLOSING` to close end, no amber; then `RING CLOSED`), and the ring segment wears storm-violet outside the amber window. The headline architectural fact from investigation: every input was already on the wire (roster `alive`/`kills` sync live per tick, `zoneStartT` is public schema, ZoneView ships since 3.1) — so the story landed client-only, zero shared/server diffs, PROTOCOL_VERSION untouched at 19. The amber pulse is the attention seam's second Tier-2 consumer (eased 240ms hold at the lit keyframe under Tier-1, motion=off = static lit amber, phase-gated lit onset), and the bar is the first shipped member of the ratified reveal-HUD survivor set: hudLayer texts drawn from BOTH alive and spectate paths, visible whenever the zone timeline is anchored, gone only at return to port. Labels render dim-alpha phosphor per the amendment-17 de-grey doctrine (the 2026-07-16 mock's grey labels ledgered as doc drift).
+
+**Files changed (grouped).** NEW `client/src/ui/chromeBar.ts` (pure composer: fmtBarClock floor-elapsed / fmtRingClock ceil-countdown, ringReadout over ZonePhase, chromeBarSegments/chromeBarLayout, RING_PULSE_HZ = min(1, pulseCapHz), advanceRingPhase amp-gated, ringSegmentAlpha, barVisible); `client/src/render/hud.ts` (chrome-bar Text pool on hudLayer, drawChromeBar from update() AND updateSpectate(), signature-gated layout, breatheRing w/ eased Tier-1 hold via zone.ts easeHold; zoneLine/ZONE_STYLE retired, drawZone → drawStormWarn); `client/src/main.ts` (chromeBarView payload, tier-1 read restored to after the denied-pulse driver inside renderOwn, interim zoneHud/fmtClock deleted); `client/src/score.ts` (afloatCount + isAfloatHull beside the untouched humans-only placement doctrine); `client/src/config.ts` (CLIENT_CONFIG.chromeBar block); tests: NEW chromeBar.test.ts (43), hud.test.ts chrome/seam suites, score.test.ts afloatCount suite; bookkeeping: VERSION/package.json/lockfile 0.17.36 (cycle 36), sprint-status 3-3 done, gds-workflow-status (cycle entry + next_expected → create-story 3-4), CLAUDE.md (ui list + 3.3 grammar bullet), amendments 19–21, 2 deferred-work entries.
+
+**Review findings breakdown.** 2 Fable hunters + Codex cross-model (Codex 2×P2, both overlapping a hunter finding — full agreement picture, no disagreements to adjudicate). 8 patches applied, key ones fail-proven: 1 medium — the elapsed T+ clock CEILed seconds and read one second fast all match (Codex + Edge Case Hunter); 7 low — the startT=0 sentinel gate the spec matrix promised but the code lacked (flagged by ALL THREE reviewers → barVisible), motion-off phase integration (re-enable snapped mid-phase; amp now gates the integrator), the Tier-1 read hoisted before the denied-pulse driver (one-frame onset lag for both Tier-2 consumers; read-after-drive restored), unguarded Text-pool indexing, stringly-typed ringReadout → ZonePhase, a LITERAL NUL BYTE in source that made hud.ts binary to grep (rewritten as an escape), and the spec's own stale 0.17.35 Tasks line. 2 defers ledgered (mock register drift → doc-sync batch; pre-existing 0x01 byte in results.ts). 2 rejects (layout-model hairline gaps — conservative-safe direction; the one-frame snap at urgency-window close — amendment-20-by-design). 0 intent gaps, 0 bad-spec. Verdicts: build-on-it ×2.
+
+**Verification.** `npm run check` green at every wave, independently re-run by the orchestrator after each: final 2596 tests — 395 shared / 820 server / 1381 client (baseline 2535 on main; +61), lint 0 errors. Scope pin `git diff aa67e6c -- shared/ server/` empty throughout. No dev server or external process touched; no design docs edited.
+
+**Residual risks.** chromeBar config values (fontSize 18, labelAlpha 0.55, sepAlpha 0.35, pulseFloorAlpha 0.45) are implementer-drafted within ratified envelopes — Eric's live-play eye remains the acceptance mechanism of record; the layout width model slightly over-bounds Pixi's true advance (~2px/boundary slack, centering conservative — worth an eyeball on the water, never an overflow). The bar's Epic-5 obligation (persisting through the full omniscient-reveal camera work) is wired-ready but verified there, per the epic's cross-story contract.

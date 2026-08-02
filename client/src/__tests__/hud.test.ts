@@ -1068,6 +1068,41 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
     }
     expect(hud.chromeBarText().join('')).toContain('RING CLOSES 0:04'); // copy intact
   });
+
+  it('carries the breath ACROSS the alive→spectate seam — no reset, no dt spike', () => {
+    // Dying mid-urgency-window swaps which update path draws the bar. The pulse
+    // integrator is the SAME one either side, so the breath must simply continue:
+    // a per-path phase (or a per-path clock) would either restart the wave at the
+    // lit keyframe or jump it by the whole elapsed match.
+    const urgent = bar({ ring: ringReadout('reveal', 9_400) });
+    const seam = new Hud(new Container());
+    const control = new Hud(new Container()); // the same breath, never interrupted
+    let t = 0;
+    drive(seam, urgent, t);
+    drive(control, urgent, t);
+    for (let i = 0; i < 16; i++) {
+      t += 0.016;
+      drive(seam, urgent, t);
+      drive(control, urgent, t);
+    }
+    const atDeath = seam.chromeBarAlpha(RING);
+    expect(atDeath).toBeLessThan(RING_LIT_ALPHA); // caught mid-descent
+    // The hull sinks here; every frame from now on comes through the spectate path.
+    let prev = atDeath;
+    for (let i = 0; i < 14; i++) { // stops just short of the 0.5s trough
+      t += 0.016;
+      seam.updateSpectate(urgent, match, 1366, 768, 'SUNK — SPECTATING', t);
+      drive(control, urgent, t);
+      const a = seam.chromeBarAlpha(RING);
+      expect(a).toBeCloseTo(control.chromeBarAlpha(RING), 9); // identical wave
+      expect(a).toBeLessThan(prev); // still descending — no snap back to lit
+      expect(prev - a).toBeLessThan(0.05); // one frame's worth, not a jump
+      prev = a;
+    }
+    // Half a cycle from onset is still exactly the trough, seam and all.
+    seam.updateSpectate(urgent, match, 1366, 768, 'SUNK — SPECTATING', 0.5);
+    expect(seam.chromeBarAlpha(RING)).toBeCloseTo(CLIENT_CONFIG.chromeBar.pulseFloorAlpha, 6);
+  });
 });
 
 // --- STORY 2.9: THE VICTIM TELLS -----------------------------------------------
