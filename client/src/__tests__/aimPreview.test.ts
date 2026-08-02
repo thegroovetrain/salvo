@@ -22,6 +22,7 @@ import {
 import {
   clipAtIslands,
   computeAimPreview,
+  effectiveLitRadius,
   ownBurstRadius,
   previewTint,
   type AimPreviewInput,
@@ -237,6 +238,63 @@ describe('mine placement — both rings at the drop point', () => {
 // torpedo tube exit) sits up to a half hull-length past it. The sim disposes of
 // a ballistic spawned out there immediately, so the preview must not promise a
 // shot — the one thing worse than no preview is a confident wrong one.
+// Eric ruling R7 (post-landing): the flare previews what it will LIGHT. A
+// one-shot flare on a 20s cooldown that lands 100u off the ship you meant to
+// reveal is the entire cost of guessing, and the lit circle is the only thing
+// that makes the aim a decision rather than a hope.
+describe('star shells — the lit radius is the preview', () => {
+  it('draws the lit circle at the burst point, in the quieter EFFECT register', () => {
+    const inp = input({ id: 'starShells', aimDist: 300 });
+    const m = computeAimPreview(inp);
+    expect(m.bursts).toHaveLength(1);
+    expect(m.bursts[0].x).toBeCloseTo(300, 6);
+    expect(m.bursts[0].r).toBe(inp.stats.starShells.litRadius);
+    expect(m.bursts[0].effect).toBe(true); // not a damage area
+    expect(m.lines).toHaveLength(1); // ...and it keeps its travel line
+  });
+
+  it('uses the EFFECTIVE lit radius, never the raw CONFIG base', () => {
+    const wide = stats('starRadius', 'starRadius');
+    expect(wide.starShells.litRadius).toBeGreaterThan(CONFIG.starShells.litRadius);
+    const m = computeAimPreview(input({ id: 'starShells', stats: wide }));
+    expect(m.bursts[0].r).toBe(wide.starShells.litRadius);
+  });
+
+  it('honors the INCENDIARY shrink — the doctrine trades reach for burn', () => {
+    const inc = stats('starIncendiary');
+    expect(inc.starShells.mode).toBe('incendiary');
+    const m = computeAimPreview(input({ id: 'starShells', stats: inc }));
+    expect(m.bursts[0].r).toBeCloseTo(
+      inc.starShells.litRadius * CONFIG.starShells.incendiaryRadiusFactor,
+      9,
+    );
+    expect(m.bursts[0].r).toBeLessThan(inc.starShells.litRadius);
+    expect(effectiveLitRadius(inc)).toBe(m.bursts[0].r);
+  });
+
+  it('clamps the lit circle to effective range like any gun-family shot', () => {
+    const inp = input({ id: 'starShells', aimDist: 99999 });
+    const m = computeAimPreview(inp);
+    expect(Math.hypot(m.bursts[0].x, m.bursts[0].y)).toBeCloseTo(inp.stats.starShells.rangeU, 6);
+  });
+
+  // An island-stopped flare takes World.resolveShell's plain splash-boom path,
+  // which — unlike an interception — spawns NO lit zone. A blocked flare lights
+  // NOTHING, so the dim tell here is not cosmetic, it is the warning.
+  it('DIMS the circle when a rock stops the flare short (a blocked flare lights nothing)', () => {
+    const m = computeAimPreview(
+      input({ id: 'starShells', aimDist: 400, islands: [{ x: 150, y: 0, r: 30 }] }),
+    );
+    expect(m.bursts[0].blocked).toBe(true);
+    expect(m.lines[0].x2).toBeCloseTo(120, 3); // the line still clips at the rock
+  });
+
+  it('never overflies a rock — the flare is not plunging fire', () => {
+    const clear = computeAimPreview(input({ id: 'starShells', aimDist: 400 }));
+    expect(clear.bursts[0].blocked).toBe(false);
+  });
+});
+
 describe('rim honesty — a shot whose ORIGIN is off the water', () => {
   const rimShip = { ...SHIP, x: MAP_R + 5, y: 0, heading: 0 };
 

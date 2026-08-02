@@ -76,13 +76,20 @@ export interface PreviewLine {
   y2: number;
 }
 
-/** A blast circle at the TRUE burst point. `blocked` = an island stops the shot
- *  short of it, so the circle renders dimmed rather than promising a burst. */
+/** A circle at the TRUE burst point. `blocked` = an island stops the shot short
+ *  of it, so the circle renders dimmed rather than promising anything there.
+ *
+ *  `effect` marks a circle that is NOT a damage area — today only the star
+ *  shell's lit radius. It renders in a quieter register: it is typically many
+ *  times a blast circle's size (the flare lights half a truesight bubble), and
+ *  at damage-circle weight that much ink would read as a threat and bury the
+ *  actual kill circles the same aim UX draws. */
 export interface PreviewBurst {
   x: number;
   y: number;
   r: number;
   blocked: boolean;
+  effect: boolean;
 }
 
 /** The mine's placement preview: both rings at the clicked drop point. */
@@ -121,6 +128,9 @@ interface BurstSpec {
   shellRadius: number;
   barrels: number;
   arcing: boolean;
+  /** The circle is an EFFECT radius (the star shell's lit zone), not a damage
+   *  area — a quieter draw. Defaults to false: everything else here kills. */
+  effect?: boolean;
 }
 
 /**
@@ -179,7 +189,13 @@ function burstFan(inp: AimPreviewInput, spec: BurstSpec): AimPreviewModel {
       // is — the shell never reaches the point — so it earns the same dim tell
       // rather than a confident circle.
       const blocked = clip.clipped || outsideDisk(origin, inp.mapRadius);
-      bursts.push({ x: target.x, y: target.y, r: spec.burstRadius, blocked });
+      bursts.push({
+        x: target.x,
+        y: target.y,
+        r: spec.burstRadius,
+        blocked,
+        effect: spec.effect === true,
+      });
     }
   }
   return { lines, bursts, place: null, band: null };
@@ -214,6 +230,46 @@ function cannonPreview(inp: AimPreviewInput): AimPreviewModel {
   });
 }
 
+/**
+ * The flare's EFFECTIVE lit radius — the exact number the server hands the
+ * shell (`equipment/starShells.ts`): the owner's stats.starShells.litRadius,
+ * shrunk by CONFIG.starShells.incendiaryRadiusFactor while the INCENDIARY
+ * doctrine is held. Both halves matter: the SLOW-BURN/WIDE BURST ladders move
+ * the stat, and incendiary trades reach for the burn, so a preview built on
+ * either the raw CONFIG base or the un-shrunk stat would over-draw the zone the
+ * player is trying to place.
+ */
+export function effectiveLitRadius(stats: EffectiveStats): number {
+  const stars = stats.starShells;
+  return stars.litRadius * (stars.mode === 'incendiary' ? CONFIG.starShells.incendiaryRadiusFactor : 1);
+}
+
+/**
+ * STAR SHELLS (Eric ruling R7, post-landing): the flare previews the circle it
+ * will LIGHT, at the burst point, so the illumination can be positioned before
+ * it is spent — a one-shot 20s-cooldown flare landing 100u off the ship you
+ * meant to reveal is the whole cost of guessing.
+ *
+ * It flies exactly like the gun family (360°, to the clicked point, range- and
+ * map-clamped) and it is stopped dead by islands: an island/expiry outcome
+ * takes the plain splash-boom path in World.resolveShell, which — unlike an
+ * interception — spawns NO lit zone at all. So a blocked flare lights NOTHING,
+ * and the standard blocked tell is exactly the right, and rather important,
+ * thing to show. The circle is drawn in the quieter EFFECT register (see
+ * PreviewBurst.effect): the lit radius is ~7× a gun blast, and at damage weight
+ * it would dominate every other circle on the water.
+ */
+function starShellPreview(inp: AimPreviewInput): AimPreviewModel {
+  return burstFan(inp, {
+    rangeU: inp.stats.starShells.rangeU,
+    burstRadius: effectiveLitRadius(inp.stats),
+    shellRadius: CONFIG.starShells.shellRadius,
+    barrels: 1,
+    arcing: false,
+    effect: true,
+  });
+}
+
 /** COMMAND DETONATION: the fish bursts at the commanded point — clicked
  *  distance, capped by the owner's EFFECTIVE radar reach and floored at the
  *  shared minCommandDistance (the point can never sit behind the tube). */
@@ -230,7 +286,9 @@ function commandTorpedo(inp: AimPreviewInput, origin: Vec2, dir: number): AimPre
   const clip = clipAtIslands(origin, target, inp.islands);
   return {
     lines: [{ x1: origin.x, y1: origin.y, x2: clip.point.x, y2: clip.point.y }],
-    bursts: [{ x: target.x, y: target.y, r: CONFIG.torpedo.commandBurstRadius, blocked: clip.clipped }],
+    bursts: [
+      { x: target.x, y: target.y, r: CONFIG.torpedo.commandBurstRadius, blocked: clip.clipped, effect: false },
+    ],
     place: null,
     band: null,
   };
@@ -307,17 +365,7 @@ export function computeAimPreview(inp: AimPreviewInput): AimPreviewModel {
     });
   }
   if (inp.id === 'cannon') return cannonPreview(inp);
-  if (inp.id === 'starShells') {
-    // The flare is damageless (amendment 39): its travel line is real, but it
-    // has no BLAST to promise, so it draws no circle.
-    return burstFan(inp, {
-      rangeU: inp.stats.starShells.rangeU,
-      burstRadius: 0,
-      shellRadius: CONFIG.starShells.shellRadius,
-      barrels: 1,
-      arcing: false,
-    });
-  }
+  if (inp.id === 'starShells') return starShellPreview(inp);
   if (inp.id === 'torpedo') return torpedoPreview(inp);
   if (inp.id === 'mine') return minePreview(inp);
   return EMPTY; // speedBoost / decoyBuoy — abilities aim nothing
@@ -380,9 +428,10 @@ export class AimPreview {
    *  A blocked path drops the whole thing to `blockedAlpha` — the shot does not
    *  get there, and the circle must not claim it will. */
   private drawBurst(b: PreviewBurst, tint: number): void {
-    const alpha = b.blocked ? P.blockedAlpha : P.burstAlpha;
-    this.g.circle(b.x, b.y, b.r).fill({ color: tint, alpha: b.blocked ? 0 : P.burstFillAlpha });
-    this.g.circle(b.x, b.y, b.r).stroke({ width: P.burstWidth, color: tint, alpha });
+    const lit = b.blocked ? P.blockedAlpha : b.effect ? P.effectAlpha : P.burstAlpha;
+    const fill = b.blocked ? 0 : b.effect ? P.effectFillAlpha : P.burstFillAlpha;
+    this.g.circle(b.x, b.y, b.r).fill({ color: tint, alpha: fill });
+    this.g.circle(b.x, b.y, b.r).stroke({ width: P.burstWidth, color: tint, alpha: lit });
   }
 
   /** The homing acquisition corridor: two rails plus an interior wash, drawn as

@@ -302,6 +302,15 @@ export const CLIENT_CONFIG = {
     burstWidth: 1.2,
     burstAlpha: 0.4,
     burstFillAlpha: 0.05,
+    /**
+     * The EFFECT register (star-shell lit radius): the same circle, quieter.
+     * An effect radius is not a threat — and the flare's is ~7× a gun blast, so
+     * at damage weight one aim would wash the chart. Implementer-drafted (Eric
+     * ruling R7 asked for the radius, not for a loudness): roughly half the
+     * damage register's ink.
+     */
+    effectAlpha: 0.22,
+    effectFillAlpha: 0.03,
     /** A path an island blocks short of the burst point: the line clips at the
      *  rock and the circle drops to this alpha — the "this shot does not get
      *  there" tell (never a new color; the red register is denial only). */
