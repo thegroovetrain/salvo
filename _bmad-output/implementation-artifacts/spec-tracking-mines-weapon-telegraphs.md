@@ -2,10 +2,11 @@
 title: 'Tracking Mines Fix + Ordnance Aim Previews'
 type: 'feature'
 created: '2026-08-02'
-status: 'in-progress'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '630045eb8df4de746eda35b8d9481512ce80ae5b'
-followup_review_recommended: false
+final_revision: '33d8b1d'
+followup_review_recommended: false # epic-2 retro retired the flag policy; review-driven changes are localized client-cosmetic fixes, each with failing-first regression coverage
 context:
   [
     '{project-root}/_bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/DESIGN.md',
@@ -74,8 +75,8 @@ warnings: [multiple-goals, oversized]
 - [x] `client/src/render/effects.ts` — own-correlated burst ring uses effective radius — fixes stale-radius inconsistency
 - [x] `client/src/__tests__/` — pure-logic tests: burst-point clamp parity with shared helpers, island clip incl. arcing exemption, homing band gating, mine ring radii/mode/arming selection
 - [x] `VERSION` + `package.json` — 0.17.32 — cycle 32 per versioning ruling
-- [ ] `shared/src/constants.ts` — `CONFIG.mine.placeRange` 90→150 — Eric ruling R5 (mid-run)
-- [ ] `client/src/render/firing.ts` — primed mine wedge gains a crisp boundary stroke (range arc + side rays) over the existing fill — Eric ruling R6 (mid-run)
+- [x] `shared/src/constants.ts` — `CONFIG.mine.placeRange` 90→150 — Eric ruling R5 (mid-run)
+- [x] `client/src/render/firing.ts` — primed mine wedge gains a crisp boundary stroke (range arc + side rays) over the existing fill — Eric ruling R6 (mid-run)
 
 **Acceptance Criteria:**
 - Given an armed self-propelled mine and any hull approaching on any aspect, when its silhouette comes within 150u, then the mine acquires and closes at 14 u/s until trip (server test, fails pre-fix).
@@ -91,11 +92,43 @@ warnings: [multiple-goals, oversized]
 
 ## Review Triage Log
 
+### 2026-08-02 — Review pass (2 Fable hunters + Codex gpt-5.4 cross-model; Fable verdicts build-on-it ×2, Codex fix-first — all findings client-cosmetic, sim/wire/anti-cheat verified clean by all three)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 0, medium 3, low 5)
+- defer: 3: (high 0, medium 0, low 3)
+- reject: 1: (high 0, medium 0, low 1)
+- addressed_findings:
+  - `[medium]` `[patch]` Own-burst ring correlation died with the track (sight cull at ~370u / lifetime retirement vs 650u weapon range) — bounded claims tombstone (`MAX_OWN_CLAIMS` 32, consumed on burst/boom) keeps genuine claims alive past retirement (Blind Hunter CONFIRMED + Edge Hunter).
+  - `[medium]` `[patch]` `ownShellWeapon`'s ratified `'gun'` fallback tagged every near-hull reveal (incl. enemy shells) as own, sizing their bursts at OUR effective radius — claim channel split (`shellClaim` genuine-latch-only feeds ring sizing; look/audio semantics byte-identical) (Codex CONFIRMED + Blind Hunter).
+  - `[medium]` `[patch]` `ownBurstRadius` missed the command torpedo — own 60u command blast rang at the gun's 15u default (Edge Hunter).
+  - `[low]` `[patch]` Arming dim anchored to `serverNow()` at receive (systematically late by transport delay) → frame-`t` anchoring (Codex CONFIRMED); rejoin/reload first-frame adds falsely re-dimmed → first-synced-frame pre-arm (Edge Hunter).
+  - `[low]` `[patch]` Rim honesty: torpedo tube exit past the water disk drew a phantom line via the degenerate clamp → EMPTY; gun/cannon muzzle off-water previewed a confident burst → blocked tell (Edge Hunter ×2).
+  - `[low]` `[patch]` `dashArcs` duty ≥ 1 rendered a closed "dashed" ring → ink clamp 0.95 (Edge Hunter).
+  - `[low]` `[patch]` Test robustness: doctrine acquire-invariant pinned a 124u literal (stales if a longer hull ships) → computed max hull length; mines arming-alpha expectation mirrored the config it tested → literals (Edge Hunter ×2).
+  - `[low]` `[patch]` Spec bookkeeping: R5/R6 tasks implemented but unchecked (Blind Hunter).
+  - Deferred (ledgered): travel-line clipping vs sighted enemy hulls (interpolated-estimate design question); placeRange deploy-skew on the client denial gate; multi-barrel salvo rings 2–3 at default (salvo identity on the wire is design-forbidden).
+  - Rejected: residual 400ms latch mis-claim window (pre-existing 2-9 heuristic, already ledgered there).
+
 ## Design Notes
 
 **Eric rulings 2026-08-02 (AskUserQuestion, this run):** R1 mine fix = silhouette acquire + 150u + creep 14 u/s. R2 travel lines = ALL projectile weapons (incl. deck gun + standard/plunging cannon), homing torpedo gets the 120u acquisition band. R3 blast preview = every blast weapon incl. deck gun 15u and mine placement. R4 mine rings = always-on + arming-state dim (client-inferred; `armedAt` is not on the wire — safe for own mines, which never leave the owner's list).
 
 Key facts: server reads mine radii live from owner stats each tick (`world.ts:1420,:1474`) so own `effectiveStats` IS ground truth for the rings. `WelcomeMsg.config` ships full CONFIG; islands rebuild from `mapSeed` — preview needs zero new data. Homing steers toward hull centroids within 120u at 0.5 rad/s (`shell.ts:289`); the straight line is only the initial track — the band is the honesty device. Wire-shape tests pin `MineView` keys exactly (`signals.test.ts:176`) — do not touch. `creepAcquireRange`/`creepSpeed` stay raw CONFIG (no boon scales them today); note for a future catalog pass.
+
+## Auto Run Result
+
+**Status:** done — cycle 32, VERSION 0.17.32, tests 2391 → 2471, `npm run check` green (0 lint errors), zero wire changes (PROTOCOL_VERSION 18 untouched; perception/frames/signals byte-unchanged).
+
+**Implemented:** (1) Tracking-mine fix — root cause CONFIRMED as acquisition (center-metric, 60u) strictly inside the trigger's silhouette reach (74–94u center-distance), so mines detonated before ever acquiring; acquisition now uses the same `pointPolygonDistance` silhouette metric at 150u with creep 8→14 u/s, regression tests proven failing pre-fix. (2) Ordnance aim previews, all client-derived: shared `sim/aim.ts` promoted from server equipment (server now thin wrappers, byte-identical — verified by all three reviewers); travel lines for every projectile weapon (AP full pierce line, island-clipped; plunging overflies; torpedoes from the real tube exit), homing 120u acquisition band, per-barrel blast circles at the true burst point (command floor + map clamp honored), blocked/rim dim tells, mine placement rings. (3) Owner-private always-on mine rings (solid blast / dashed trigger / dotted acquire, owner hue, frame-time arming dim, rejoin pre-arm). (4) Eric mid-run additions: placeRange 90→150 + primed-wedge boundary outline. (5) Own-correlated burst rings now use effective radius via a claims tombstone; unclaimed/enemy bursts keep the CONFIG default.
+
+**Eric rulings this run (R1–R6, AskUserQuestion):** silhouette acquire 150u + creep 14; travel lines for everything; blast preview for every blast weapon; mine rings always-on + arming state; placeRange 150; wedge boundary stroke. **Implementer-drafted, Eric may veto:** wedge outline draws in all three wedge states (alpha keyed lit/dim/denied — one-word change to lit-only); star shells get a line but no lit-radius circle; preview draws while reloading.
+
+**Review:** 2 Fable hunters (build-on-it ×2) + Codex gpt-5.4 cross-model (fix-first); 8 patches applied (3 medium — all in the new preview/correlation code), 3 defers ledgered, 1 reject; breakdown + evidence in the Review Triage Log above.
+
+**Verification:** `npm run check` independently re-run by the orchestrator after every wave (three times total): lint 0 errors (2 pre-existing max-lines warnings), tsc ×3 workspaces, 395/813/1263 green. No browser QA this run (dev server user-managed); manual check list in Verification below stands for Eric's next session.
+
+**Residual risks:** stale-cached clients deny 90–150u placements until refresh (deploy-skew, ledgered); barrels 2–3 of a salvo ring at default radius (ledgered); travel lines don't clip at sighted enemy hulls (deliberate, ledgered with fix shape).
 
 ## Verification
 
