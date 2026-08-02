@@ -1,12 +1,22 @@
 // Pre-join HOME chrome (Story 1.14) — replaces the prototype menu. Plain DOM
 // over the live ambient CIC Pixi scene (render/ambient.ts), styled per DESIGN.md
 // and the ratified mock (home-class-picker-1.html): wordmark, callsign, a
-// current-class Class Chip that OPENS the class-select layer (ui/classSelect.ts),
-// the Color Hoist (writes `hullcracker.color`), one dominant amber OUTLINE+GLOW
-// PLAY button, an inert How-to-Play link + server status line, and the settings
-// gear — which as of Story 2.3 opens the REAL settings overlay (ui/settings.ts),
-// as does ESC with the class bay closed. The overlay is TRANSPARENT so the
-// ambient scene breathes behind it; the ambient's scrim keeps this text legible.
+// slim current-class Class Chip that OPENS the class-select layer
+// (ui/classSelect.ts), one dominant amber OUTLINE+GLOW PLAY button, an inert
+// How-to-Play link + server status line, and the settings gear — which as of
+// Story 2.3 opens the REAL settings overlay (ui/settings.ts), as does ESC with
+// the class bay closed. The overlay is TRANSPARENT so the ambient scene
+// breathes behind it; the ambient's scrim keeps this text legible.
+//
+// The color picker lives ONLY in the class bay's footer now (Eric ruling — the
+// duplicate home hoist is retired). The shared ColorHoist still lives here, as
+// the state the home's PERSONAL TINT follows: the chip's border/glow/name and
+// the callsign field's border + focus ring all take the player's Regatta hue
+// (via `repaintAccent`, subscribed ONCE at mount to the hoist's onChange — not
+// resubscribed per pick — so a hue chosen in the bay repaints the port behind
+// it; the subscription is released by hide()'s disposers). Amber stays the
+// ACTION register (PLAY only) and phosphor stays the system/status register —
+// neither is ever personalized.
 //
 // First-run (no stored class): the chip shows a SELECT CLASS prompt and PLAY/
 // Enter OPENS the layer instead of connecting — no default class is ever pushed.
@@ -24,9 +34,7 @@ import { registerCss } from './theme.js';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
 import {
   ColorHoist,
-  makeHoistRow,
   openClassSelect,
-  chipLoadoutLine,
   CLASS_DISPLAY_NAMES,
   type ClassSelectHandle,
 } from './classSelect.js';
@@ -41,7 +49,7 @@ const NAME_KEY = 'hullcracker.name';
 const CLASS_KEY = 'hullcracker.class';
 
 const NOTE_HOWTO = 'FIELD MANUAL ARRIVES IN A LATER REFIT';
-const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY/SET SAIL is pressed mid-connect
+const NOTE_CONNECTING = 'CONNECTING…'; // re-asserted when PLAY is pressed mid-connect
 
 // --- pure name / class persistence (tested) ----------------------------------
 
@@ -170,9 +178,9 @@ export interface YieldStyle {
  * unchanged when it closes.
  *
  * Reverse stacking falls out of the same rule rather than needing its own
- * guard: a yielded home cannot be clicked, so PLAY, the class chip and the
- * colour hoist are all unreachable while the overlay is open — which is exactly
- * the "never stack, in either direction" law the in-match surfaces obey.
+ * guard: a yielded home cannot be clicked, so PLAY and the class chip are both
+ * unreachable while the overlay is open — which is exactly the "never stack, in
+ * either direction" law the in-match surfaces obey.
  */
 export function homeYieldStyle(settingsOpen: boolean): YieldStyle {
   return settingsOpen
@@ -236,6 +244,8 @@ function makeNameField(): HTMLInputElement {
   input.value = loadSavedName();
   input.autocomplete = 'off';
   input.spellcheck = false;
+  // The border color is a PLACEHOLDER: `paintCallsign` overwrites it (and the
+  // focus glow) with the player's personal hue on mount and on every hoist pick.
   input.style.cssText =
     'width:340px;max-width:calc(100vw - 48px);height:52px;background:var(--hc-panel-deep);' +
     'border:1px solid var(--hc-hairline);border-radius:6px;padding:0 18px;color:var(--hc-text-primary);' +
@@ -258,33 +268,41 @@ interface ChipEls {
   sil: HTMLElement;
   role: HTMLElement;
   name: HTMLElement;
-  sub: HTMLElement;
 }
 
+/**
+ * The Class Chip — SLIM (Eric ruling): silhouette, role tag, class name and the
+ * CHANGE CLASS affordance, nothing else. The loadout sub-line is gone (it was
+ * the widest thing in the chip and the class bay already sells the loadout), so
+ * the box hugs what's left: tighter gaps/padding and a `max-width` + border-box
+ * so it can never outgrow the 1366×768 floor viewport (amendment 47).
+ */
 function makeChip(onOpen: () => void): ChipEls {
   const root = document.createElement('div');
   root.style.cssText =
-    'display:flex;align-items:center;gap:20px;background:var(--hc-panel-deep);border:1px solid var(--hc-hairline);' +
-    'border-radius:8px;padding:12px 22px 12px 16px;cursor:pointer;margin-top:22px';
+    'display:flex;align-items:center;gap:14px;background:var(--hc-panel-deep);border:1px solid var(--hc-hairline);' +
+    'border-radius:8px;padding:10px 16px 10px 12px;cursor:pointer;margin-top:22px;' +
+    'max-width:calc(100vw - 48px);box-sizing:border-box';
   root.setAttribute('role', 'button');
   root.setAttribute('title', 'Open the class-select layer');
   root.tabIndex = 0;
   const sil = document.createElement('span');
   sil.style.cssText = 'display:flex;align-items:center;justify-content:center;width:44px;min-height:44px';
   const meta = document.createElement('span');
-  meta.style.cssText = 'display:flex;flex-direction:column';
+  meta.style.cssText = 'display:flex;flex-direction:column;min-width:0';
   const role = document.createElement('span');
   role.style.cssText = `${registerCss('hudMicro')};color:var(--hc-phosphor);letter-spacing:0.24em`;
   const name = document.createElement('div');
-  name.style.cssText = 'font:700 24px var(--hc-font-display);letter-spacing:0.06em';
-  const sub = document.createElement('div');
-  sub.style.cssText = 'font:500 17px var(--hc-font-mono);letter-spacing:0.06em;color:var(--hc-text-primary);margin-top:3px';
-  meta.append(role, name, sub);
+  name.style.cssText =
+    'font:700 24px var(--hc-font-display);letter-spacing:0.06em;white-space:nowrap;' +
+    'overflow:hidden;text-overflow:ellipsis;min-width:0';
+  meta.append(role, name);
   const change = document.createElement('span');
   change.innerHTML = '<b style="color:var(--hc-phosphor);font-weight:600">▸</b>&nbsp; CHANGE CLASS';
   change.style.cssText =
-    `${registerCss('hudMicro')};margin-left:16px;color:var(--hc-phosphor);letter-spacing:0.18em;` +
-    'border-left:1px solid var(--hc-hairline);padding-left:18px';
+    `${registerCss('hudMicro')};margin-left:12px;color:var(--hc-phosphor);letter-spacing:0.18em;` +
+    'border-left:1px solid var(--hc-hairline);padding-left:14px;white-space:nowrap;' +
+    'overflow:hidden;text-overflow:ellipsis;min-width:0';
   root.append(sil, meta, change);
   root.addEventListener('click', onOpen);
   root.addEventListener('keydown', (e) => {
@@ -293,7 +311,7 @@ function makeChip(onOpen: () => void): ChipEls {
     e.stopPropagation(); // don't let the Enter reach the layer's window listener (insta-pick)
     onOpen();
   });
-  return { root, sil, role, name, sub };
+  return { root, sil, role, name };
 }
 
 function makePlayButton(onPlay: () => void): { root: HTMLButtonElement; sub: HTMLElement } {
@@ -366,6 +384,8 @@ interface Home {
   currentClass: ShipClassId | null;
   layerOpen: boolean;
   busy: boolean;
+  /** Drives the callsign field's personal-color focus ring (see paintCallsign). */
+  inputFocused: boolean;
   /** The live class-select layer, if open — so hide() can tear it down instead of
    *  orphaning its window listener (which could write hullcracker.class in-game). */
   layer: ClassSelectHandle | null;
@@ -381,16 +401,21 @@ function paintStatus(h: Home, text: string, tone: StatusTone): void {
   h.statusEl.style.color = toneColor(tone);
 }
 
-/** Rebuild the chip contents for the current class + personal accent. */
+/**
+ * Rebuild the chip contents for the current class + personal accent. The border
+ * and silhouette take the RAW hue (graphic marks); the class name is TEXT, so it
+ * takes the WCAG-lifted `accentText` (textSafe) instead. No loadout sub-line —
+ * the chip is slim now (the class bay carries the loadout).
+ */
 function repaintChip(h: Home): void {
   const accent = h.hoist.accent;
   h.chip.root.style.borderColor = accent;
-  h.chip.name.style.color = accent;
+  h.chip.root.style.boxShadow = `0 0 22px ${cssRgba(h.hoist.accentValue, 0.16)}`;
+  h.chip.name.style.color = h.hoist.accentText;
   if (h.currentClass === null) {
     h.chip.sil.innerHTML = '';
     h.chip.role.textContent = 'SELECT CLASS';
     h.chip.name.textContent = 'CHOOSE A HULL';
-    h.chip.sub.textContent = 'CLICK TO OPEN THE CLASS BAY';
     return;
   }
   h.chip.sil.innerHTML = silhouetteSvg(h.currentClass, { stroke: accent, fill: h.hoist.accentFill, strokeWidth: 2 });
@@ -398,7 +423,25 @@ function repaintChip(h: Home): void {
   if (svg) svg.style.cssText = 'height:40px;width:auto';
   h.chip.role.textContent = 'YOUR SHIP';
   h.chip.name.textContent = CLASS_DISPLAY_NAMES[h.currentClass];
-  h.chip.sub.textContent = chipLoadoutLine(h.currentClass);
+}
+
+/** The callsign field's personal-color chrome: a hue border always, plus a ring
+ *  + glow in the same hue while it holds focus (it replaces the native outline,
+ *  which is suppressed). Text stays --hc-text-primary; only the chrome tints. */
+function paintCallsign(h: Home): void {
+  const accent = h.hoist.accent;
+  h.input.style.borderColor = accent;
+  h.input.style.boxShadow = h.inputFocused
+    ? `0 0 0 1px ${accent}, 0 0 18px ${cssRgba(h.hoist.accentValue, 0.28)}`
+    : 'none';
+}
+
+/** Repaint everything the personal color owns (chip + callsign chrome). Runs at
+ *  mount and on every hoist pick, so a hue chosen in the class bay is already
+ *  painted on the port the moment the layer closes. */
+function repaintAccent(h: Home): void {
+  repaintChip(h);
+  paintCallsign(h);
 }
 
 function updateSubline(h: Home): void {
@@ -427,7 +470,7 @@ function onPlay(h: Home): void {
 }
 
 /** Refocus the callsign field after any layer exit, so Enter=PLAY lives again —
- *  but only while the home is still on screen (a SET SAIL deploy tears it down). */
+ *  but only while the home is still on screen. */
 function refocusInput(h: Home): void {
   if (document.body.contains(h.overlay)) h.input.focus();
 }
@@ -445,11 +488,12 @@ function openLayer(h: Home): void {
       setClass(h, cls);
       refocusInput(h);
     },
-    onSetSail: (cls) => {
+    // CONFIRM SELECTION (and Enter) saves the class and comes back to port —
+    // deliberately NO deploy(h) here: PLAY is the only path to onDeploy.
+    onConfirm: (cls) => {
       h.layerOpen = false;
       h.layer = null;
       setClass(h, cls);
-      deploy(h);
       refocusInput(h);
     },
     onClose: () => {
@@ -465,11 +509,10 @@ function openLayer(h: Home): void {
 function mountHome(h: Home, playBtn: HTMLButtonElement, version: string): (e: KeyboardEvent) => void {
   const console_ = document.createElement('div');
   console_.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:22px';
-  const hoistRow = makeHoistRow(h.hoist, 'column');
+  // NO hoist row here: the color picker lives only in the class bay footer now.
   console_.append(
     makeCallsignRow(h.input),
     h.chip.root,
-    hoistRow.el,
     playBtn,
     makeUnderplay(h.statusEl, () => paintStatus(h, NOTE_HOWTO, 'tertiary')),
   );
@@ -482,8 +525,16 @@ function mountHome(h: Home, playBtn: HTMLButtonElement, version: string): (e: Ke
     if (h.layerOpen) return;
     onPlay(h);
   });
-  h.disposers.push(hoistRow.off, h.hoist.onChange(() => repaintChip(h)));
-  repaintChip(h);
+  h.input.addEventListener('focus', () => {
+    h.inputFocused = true;
+    paintCallsign(h);
+  });
+  h.input.addEventListener('blur', () => {
+    h.inputFocused = false;
+    paintCallsign(h);
+  });
+  h.disposers.push(h.hoist.onChange(() => repaintAccent(h)));
+  repaintAccent(h);
   updateSubline(h);
   paintStatus(h, ...statusTuple(serverStatusLine('probing')));
   return bindHomeKeys(h);
@@ -510,10 +561,10 @@ function bindHomeKeys(h: Home): (e: KeyboardEvent) => void {
 }
 
 /**
- * Show the pre-join home. `onDeploy(name, cls)` fires only when the player
- * commits to a match with a chosen class (returning PLAY, first-run PLAY→layer→
- * SET SAIL, or PLAY after picking in the layer). First-run PLAY opens the layer
- * instead. `onSettings()` is the gear + home-ESC settings toggle (Story 2.3).
+ * Show the pre-join home. `onDeploy(name, cls)` fires ONLY from PLAY with a
+ * chosen class — the class bay never deploys (CONFIRM SELECTION saves and comes
+ * back to port). First-run PLAY opens the layer instead of connecting.
+ * `onSettings()` is the gear + home-ESC settings toggle (Story 2.3).
  * Returns the handle main.ts drives for status/busy/hide.
  */
 export function showHome(
@@ -545,6 +596,7 @@ export function showHome(
     currentClass: loadSavedClassOrNull(),
     layerOpen: false,
     busy: false,
+    inputFocused: false,
     layer: null,
     statusLocked: false,
     disposers: [],

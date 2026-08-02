@@ -1,19 +1,31 @@
 // Story 1.14 — the class-select layer: pure helpers (card view-model, key map,
-// highlight movement, chip loadout line, the shared ColorHoist) plus DOM-level
-// pins on openClassSelect (pick / SET SAIL / ESC / dimmer semantics, focus
+// highlight movement, the shared ColorHoist) plus DOM-level pins on
+// openClassSelect (pick / CONFIRM SELECTION / ESC / dimmer semantics, focus
 // suppression, blur of the home). DOM assertions follow the repo pattern.
+//
+// Home-page maintenance patch re-takes three pins DELIBERATELY: the footer
+// button is CONFIRM SELECTION (it saves + closes, it does NOT deploy), the
+// ColorHoist index is NEVER null (it seeds from ensureColorPref, which rolls +
+// persists a random Regatta hue when none is stored), and the claim-caveat
+// caption is replaced by a `COLOR PREFERENCE:` label left of the swatches.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   cardViewModel,
-  chipLoadoutLine,
   keyAction,
   moveHighlight,
   ColorHoist,
   openClassSelect,
   CLASS_DISPLAY_NAMES,
 } from '../ui/classSelect.js';
-import { loadColorPref } from '../net/connection.js';
+import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
+
+// The connection module caches the session's rolled hue (review-gate fix for
+// blocked-storage divergence); reset it per test so corrupt/absent-pref cases
+// exercise a fresh roll instead of the previous test's cached one.
+beforeEach(() => __resetSessionColorPrefForTests());
+import { PLAYER_HUES, PLAYER_FILLS } from '../render/ships.js';
+import { cssHex } from '../util/color.js';
 
 // --- card view-model ---------------------------------------------------------
 
@@ -62,13 +74,6 @@ describe('cardViewModel — pips, keys, loadout', () => {
   });
 });
 
-describe('chipLoadoutLine — compact home-chip sub-line', () => {
-  it('joins STD GUN + the two specials', () => {
-    expect(chipLoadoutLine('torpedoBoat')).toBe('STD GUN · TORPEDO TUBES · SPEED BOOST');
-    expect(chipLoadoutLine('battleship')).toBe('STD GUN · LONG-RANGE CANNON · STAR SHELLS');
-  });
-});
-
 // --- key map + highlight -----------------------------------------------------
 
 describe('keyAction — layer key mapping', () => {
@@ -109,10 +114,36 @@ describe('moveHighlight — wrap-around', () => {
 describe('ColorHoist — write/read round-trip + sync', () => {
   beforeEach(() => localStorage.clear());
 
-  it('starts null with no stored preference and amber accent', () => {
+  // RE-TAKEN pin (was: "starts null … and amber accent"). Unset no longer means
+  // amber — ensureColorPref rolls a real hue and persists it before first paint.
+  it('with NO stored preference: seeds a real random hue, persists it, never null', () => {
     const h = new ColorHoist();
-    expect(h.selected).toBeNull();
-    expect(h.accentFill).toBe('none');
+    expect(h.selected).not.toBeNull();
+    expect(Number.isInteger(h.selected)).toBe(true);
+    expect(h.selected).toBeGreaterThanOrEqual(0);
+    expect(h.selected).toBeLessThan(PLAYER_HUES.length);
+    expect(localStorage.getItem('hullcracker.color')).toBe(String(h.selected)); // persisted at construction
+    expect(loadColorPref()).toBe(h.selected);
+    expect(h.accentFill).not.toBe('none'); // the fill-'none' unset branch is gone
+    expect(h.accent).toBe(cssHex(PLAYER_HUES[h.selected]));
+    expect(h.accentFill).toBe(cssHex(PLAYER_FILLS[h.selected]));
+  });
+
+  it('a VALID stored preference is used verbatim, never rerolled', () => {
+    localStorage.setItem('hullcracker.color', '8'); // cyan
+    const h = new ColorHoist();
+    expect(h.selected).toBe(8);
+    expect(h.accent).toBe(cssHex(PLAYER_HUES[8]));
+    expect(h.accentValue).toBe(PLAYER_HUES[8]);
+    expect(localStorage.getItem('hullcracker.color')).toBe('8');
+  });
+
+  it('a CORRUPT stored preference is treated as absent (reroll + persist)', () => {
+    localStorage.setItem('hullcracker.color', 'not-a-hue');
+    const h = new ColorHoist();
+    expect(Number.isInteger(h.selected)).toBe(true);
+    expect(h.selected).toBeLessThan(PLAYER_HUES.length);
+    expect(loadColorPref()).toBe(h.selected); // the garbage was replaced by a valid index
   });
 
   it('pick writes hullcracker.color (the exact key connect() reads) + notifies', () => {
@@ -168,14 +199,21 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
 
   function open(cb: Partial<Parameters<typeof openClassSelect>[0]> = {}): {
     onPick: ReturnType<typeof vi.fn>;
-    onSetSail: ReturnType<typeof vi.fn>;
+    onConfirm: ReturnType<typeof vi.fn>;
     onClose: ReturnType<typeof vi.fn>;
   } {
     const onPick = vi.fn();
-    const onSetSail = vi.fn();
+    const onConfirm = vi.fn();
     const onClose = vi.fn();
-    openClassSelect({ initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onPick, onSetSail, onClose, ...cb });
-    return { onPick, onSetSail, onClose };
+    openClassSelect({ initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onPick, onConfirm, onClose, ...cb });
+    return { onPick, onConfirm, onClose };
+  }
+
+  /** The footer primary, found by its RE-TAKEN label (was SET SAIL). */
+  function confirmButton(): HTMLButtonElement {
+    return [...document.querySelectorAll('#hc-class-select button')].find(
+      (b) => b.textContent === 'CONFIRM SELECTION',
+    ) as HTMLButtonElement;
   }
 
   it('renders three cards + the ghost card and the header', () => {
@@ -187,7 +225,43 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(text).toContain('BATTLESHIP');
     expect(text).toContain('MINE LAYER');
     expect(text).toContain('MORE CLASSES');
-    expect(text).toContain('SET SAIL');
+    expect(text).toContain('CONFIRM SELECTION'); // RE-TAKEN pin: was SET SAIL
+    expect(text).not.toContain('SET SAIL');
+  });
+
+  it('the footer labels the swatches COLOR PREFERENCE: — the claim caveat caption is gone', () => {
+    open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const text = layer.textContent ?? '';
+    expect(text).toContain('COLOR PREFERENCE:');
+    expect(text).not.toContain('PREFERENCE PICK'); // the retired caption
+    expect(text).not.toContain('NEAREST FREE HUE');
+    // the label sits to the LEFT of the swatch row (same flex row, first child)
+    const swatch = layer.querySelector('button[aria-label="hue 1"]') as HTMLElement;
+    const row = swatch.parentElement as HTMLElement;
+    const wrap = row.parentElement as HTMLElement;
+    expect(wrap.firstElementChild?.textContent).toBe('COLOR PREFERENCE:');
+    expect(wrap.style.flexDirection).toBe('row');
+  });
+
+  it('the class bay still carries all 20 swatches (the ONE picker in the app)', () => {
+    open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    expect(layer.querySelectorAll('button[aria-label^="hue "]').length).toBe(PLAYER_HUES.length);
+  });
+
+  // Finding B regression pin: the footer (label + 20 swatches + the min-width
+  // CONFIRM button) is a nowrap flex row in a panel with vertical-only
+  // scrolling — below ~700px viewport width the button clipped outside the
+  // panel and became partially unclickable. flex-wrap lets it degrade by
+  // wrapping instead (the ratified 1366x768 floor still fits on one row).
+  it('the footer row wraps instead of clipping at narrow viewport widths (Finding B)', () => {
+    open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const swatch = layer.querySelector('button[aria-label="hue 1"]') as HTMLElement;
+    const hoistWrap = swatch.parentElement!.parentElement as HTMLElement; // makeHoistRow's outer wrap
+    const footer = hoistWrap.parentElement as HTMLElement;
+    expect(footer.style.flexWrap).toBe('wrap');
   });
 
   it('blurs the home overlay while open, restores it on close', () => {
@@ -199,24 +273,41 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
-  it('Enter picks the highlighted class (no deploy) and closes', () => {
-    const { onPick, onSetSail } = open();
+  // RE-TAKEN pin: Enter ≡ CONFIRM SELECTION (it used to route to onPick).
+  it('Enter CONFIRMS the highlighted class (no deploy) and closes', () => {
+    const { onPick, onConfirm } = open();
     press('2'); // highlight battleship
     press('Enter');
-    expect(onPick).toHaveBeenCalledWith('battleship');
-    expect(onSetSail).not.toHaveBeenCalled();
+    expect(onConfirm).toHaveBeenCalledWith('battleship');
+    expect(onPick).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
-  it('SET SAIL picks the highlight AND deploys in one press', () => {
-    const { onSetSail, onPick } = open();
+  // RE-TAKEN pin (was "SET SAIL picks the highlight AND deploys in one press"):
+  // the button confirms the highlight and closes — deploying is PLAY's job now.
+  it('CONFIRM SELECTION hands back the highlight and closes — it never deploys', () => {
+    const { onConfirm, onPick, onClose } = open();
     press('3'); // highlight mineLayer
-    const btn = [...document.querySelectorAll('#hc-class-select button')].find(
-      (b) => b.textContent === 'SET SAIL',
-    ) as HTMLButtonElement;
-    btn.click();
-    expect(onSetSail).toHaveBeenCalledWith('mineLayer');
+    confirmButton().click();
+    expect(onConfirm).toHaveBeenCalledWith('mineLayer');
     expect(onPick).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(document.getElementById('hc-class-select')).toBeNull(); // closed back to port
+  });
+
+  // NOTE: the amber outline+glow chrome (Eric ruling: byte-identical to the
+  // SET SAIL treatment it replaces) is NOT assertable here — jsdom's cssstyle
+  // cannot parse `border:1px solid var(--hc-amber)` and silently voids the
+  // WHOLE style blob (the documented CSSOM-blob hazard; the PLAY button has the
+  // same blind spot). What IS pinned: the button carries no personal-hue tint,
+  // i.e. the layer's accent repaint never touches it.
+  it('CONFIRM SELECTION is never personal-tinted (amber stays the action register)', () => {
+    const hoist = new ColorHoist();
+    hoist.pick(8);
+    open({ hoist });
+    const btn = confirmButton();
+    expect(btn.style.borderColor).not.toBe(cssHex(PLAYER_HUES[8]));
+    expect(btn.style.color).not.toBe(cssHex(PLAYER_HUES[8]));
   });
 
   it('a card click picks that class', () => {
@@ -239,23 +330,89 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
   });
 
   it('a dimmer click dismisses (onClose) without changing the pick', () => {
-    const { onClose, onPick, onSetSail } = open();
+    const { onClose, onPick, onConfirm } = open();
     const dimmer = document.getElementById('hc-class-select')!.firstElementChild as HTMLElement;
     dimmer.click();
     expect(onClose).toHaveBeenCalledOnce();
     expect(onPick).not.toHaveBeenCalled();
-    expect(onSetSail).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
-  it('Enter is ignored when a layer button holds focus (native activation wins)', () => {
-    const { onPick } = open();
-    const setSail = [...document.querySelectorAll('#hc-class-select button')].find(
-      (b) => b.textContent === 'SET SAIL',
-    ) as HTMLButtonElement;
-    setSail.focus();
+  it('ESC closes with NO class change (semantics unchanged by the confirm patch)', () => {
+    const { onClose, onPick, onConfirm } = open();
+    press('2'); // move the highlight — ESC must still not commit it
+    press('Escape');
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+  });
+
+  // RENAMED (Codex finding): the old name claimed to prove "native activation
+  // wins", but this dispatches keydown on `window` — jsdom has no native
+  // button-activation behavior to observe. What this actually proves: the
+  // window-level shortcut handler stays quiet for Enter/Space while a layer
+  // button holds focus. EXTENDED (Finding A ruling): the guard is narrowed to
+  // ONLY those two keys — ESC and arrows must still reach the layer even while
+  // a button (e.g. a focused swatch) holds focus.
+  it('Enter/Space stay swallowed by the window handler while a layer button holds focus; ESC and arrows still work regardless of focus', () => {
+    const { onPick, onConfirm, onClose } = open();
+    confirmButton().focus();
     press('Enter');
     expect(onPick).not.toHaveBeenCalled(); // the window shortcut did NOT steal Enter
+    expect(onConfirm).not.toHaveBeenCalled();
+    press(' '); // Space is swallowed the same way (native button activation)
+    expect(onPick).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
+
+    // Finding A: a color swatch is a layer BUTTON too (the bay is the app's
+    // ONLY color picker) — while it holds focus, ArrowRight must still move
+    // the highlight and ESC must still close.
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    const pickBtnText = (i: number): string | null | undefined =>
+      cards[i].querySelector('.hc-pickbtn')?.textContent;
+    expect(pickBtnText(0)).toBe('SELECTED ✓'); // initial highlight: torpedoBoat
+
+    const swatch = layer.querySelector('button[aria-label="hue 1"]') as HTMLButtonElement;
+    swatch.focus();
+    press('ArrowRight'); // must move despite the swatch (a BUTTON) holding focus
+    expect(pickBtnText(1)).toBe('SELECTED ✓'); // battleship now highlighted
+    expect(pickBtnText(0)).toBe('SELECT');
+
+    press('Escape'); // must still close despite focus
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
+  // Finding A regression pin: clicking a swatch used to leave it focused, and
+  // the (unnarrowed) guard then swallowed EVERY key — ESC included — until a
+  // stray mouse click restored the keyboard. The fix blurs the swatch after
+  // pick, so ESC keeps working right after a real click.
+  it('a swatch click still lets ESC close the layer afterward (Finding A)', () => {
+    const { onClose } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const swatch = layer.querySelector('button[aria-label="hue 3"]') as HTMLButtonElement;
+    swatch.focus(); // simulate the browser's implicit focus-on-click
+    swatch.click();
+    press('Escape');
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
+  // Finding A regression pin: without the post-pick blur, Enter stays
+  // swallowed by the narrowed guard too (it deliberately still swallows
+  // Enter/Space while ANY layer button — including a swatch — holds focus).
+  // Only the blur restores Enter → CONFIRM SELECTION via the window handler.
+  it('a swatch click still lets Enter confirm via the window handler afterward (Finding A)', () => {
+    const { onConfirm } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const swatch = layer.querySelector('button[aria-label="hue 3"]') as HTMLButtonElement;
+    swatch.focus();
+    swatch.click();
+    expect(document.activeElement).not.toBe(swatch); // blurred after the pick
+    press('Enter');
+    expect(onConfirm).toHaveBeenCalledWith('torpedoBoat'); // highlight unchanged; only the color changed
   });
 });
 
@@ -279,7 +436,7 @@ describe('openClassSelect — teardown balances hoist subscriptions (no leak)', 
       hoist,
       blurTarget,
       onPick: vi.fn(),
-      onSetSail: vi.fn(),
+      onConfirm: vi.fn(),
       onClose: vi.fn(),
     });
     expect(hoist.listenerCount).toBeGreaterThan(before); // layer added subscriptions
@@ -290,9 +447,9 @@ describe('openClassSelect — teardown balances hoist subscriptions (no leak)', 
   it('re-opening fully tears the prior layer down (one live layer, balanced subs)', () => {
     const hoist = new ColorHoist();
     const before = hoist.listenerCount;
-    openClassSelect({ initial: 'torpedoBoat', hoist, blurTarget, onPick: vi.fn(), onSetSail: vi.fn(), onClose: vi.fn() });
+    openClassSelect({ initial: 'torpedoBoat', hoist, blurTarget, onPick: vi.fn(), onConfirm: vi.fn(), onClose: vi.fn() });
     const afterFirst = hoist.listenerCount;
-    openClassSelect({ initial: 'battleship', hoist, blurTarget, onPick: vi.fn(), onSetSail: vi.fn(), onClose: vi.fn() });
+    openClassSelect({ initial: 'battleship', hoist, blurTarget, onPick: vi.fn(), onConfirm: vi.fn(), onClose: vi.fn() });
     expect(hoist.listenerCount).toBe(afterFirst); // prior layer's subs freed, not stacked
     expect(document.querySelectorAll('#hc-class-select').length).toBe(1);
   });
