@@ -114,6 +114,44 @@ export function isLiveRival(meta: RosterEntry, ownId: string, droneHue: number):
 }
 
 /**
+ * Pure: does this roster entry count as a hull still AFLOAT? Only one thing is
+ * asked — is it alive.
+ *
+ * THE DELIBERATE ASYMMETRY (Story 3.3, amendment 19). This counts DRONES, and
+ * it counts the LOCAL PLAYER, both of which `isLiveRival` above deliberately
+ * excludes. The two numbers answer different questions and are ratified to
+ * disagree:
+ *   • PLACEMENT ranks CONTESTANTS. The win check is human-gated and the results
+ *     table lists humans only, so a placement that counted drones would report a
+ *     number matching nothing else the player is ever shown.
+ *   • `n AFLOAT` counts HULLS ON THE WATER. It is the BR-genre field readout —
+ *     it must visibly thin as the field dies, and a solo captain's match reads
+ *     20 → 1 exactly as it looks out the window. It is also consistent with
+ *     `n KILLS` beside it, which already counts drones on the server tally.
+ * Neither rule may be "fixed" into the other; this comment is the reason.
+ */
+export function isAfloatHull(meta: RosterEntry): boolean {
+  return meta.alive === true;
+}
+
+/** A roster the count can walk (structural — the real one is a Colyseus
+ *  MapSchema, and a plain array satisfies it too). */
+export interface RosterScan {
+  forEach(fn: (meta: RosterEntry) => void): void;
+}
+
+/** Pure: hulls still afloat, humans AND drones (see isAfloatHull's doctrine
+ *  note). Walks the roster in place — no intermediate array, because this runs
+ *  every rendered frame. */
+export function afloatCount(roster: RosterScan): number {
+  let n = 0;
+  roster.forEach((meta) => {
+    if (isAfloatHull(meta)) n += 1;
+  });
+  return n;
+}
+
+/**
  * Pure: may an own-sinking OPEN the elimination modal?
  *   • only in a live match — a ready-room sinking is a respawn, not an
  *     elimination;

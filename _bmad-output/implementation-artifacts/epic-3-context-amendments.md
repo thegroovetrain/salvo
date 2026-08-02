@@ -55,3 +55,11 @@ Source: Eric, direct answers to the four surfaced questions (all chose the prese
 ## 2026-08-02 — Eric ruling, Story 3-2 design-gate checkpoint (AskUserQuestion, this run)
 
 18. **The 3-2 rendering is RATIFIED AS CAPTURED — the story's design gate (ring-edge legibility, UX OQ#7 closure) is CLOSED.** Evidence: 8 live captures from the built client on a scratch-port production-timeline stack (clear/reveal/mid-close/in-storm at 0.5×/1.0×/1.5× zoom; design-gate artifact page). Ratified values: edge 2px screen-locked @ 0.9 alpha, telegraph @ 0.5 alpha (48 dashes, 50% duty), fillAlpha 0.12, vignette 0.27 base + 0.17 amp, reveal one-shot 80ms/300ms floor/0.4 amp. Eric verbatim choice: "Ratified — ship it."
+
+## 2026-08-02 — Eric rulings, Story 3-3 pre-implementation questions (AskUserQuestion, this run)
+
+Source: Eric, direct answers to the three surfaced questions (all chose the presented recommendation).
+
+19. **`n AFLOAT` counts ALL hulls — humans + drones.** The BR-genre reading: the count visibly thins as the field dies (solo vs AI reads 20→1). Deliberate, accepted asymmetry with the elimination modal's placement number, which stays humans-only (placement ranks contestants; AFLOAT counts hulls on the water — the score.ts humans-only doctrine is untouched for placement/results). Consistent with `n KILLS`, which already counts drones on the server tally.
+20. **Ring-readout grammar is the URGENCY OVERRIDE:** clear/supply beats read `RING CLOSES m:ss` (countdown to close start); the reveal beat reads `RING REVEALED` for its first ~50s, then the last 10s before the close starts return to `RING CLOSES 0:0x` carrying the amber exactly-1 Hz pulse (announcement yields to urgency at the get-moving moment); the active shrink reads `RING CLOSING m:ss` (countdown to close end, no amber); after final closure the readout reads `RING CLOSED`. This fixes the AC's reveal-register/amber-final-10s collision: "counts down each closure" = counts to each close START.
+21. **The ring-readout segment renders storm-violet `stormReadout` #B06EE8 (label + number), amber only during its final-10s pulse** — the ratified HUD mock's explicit treatment; storm information wears the storm register (3.2 doctrine). The epics AC's "numbers phosphor tabular" clause applies to the AFLOAT/KILLS/T+ segments.

@@ -56,7 +56,7 @@ import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
 import { tier1Active } from './render/attention.js';
-import { Hud, reloadFraction, type OwnStatus, type ZoneHud } from './render/hud.js';
+import { Hud, reloadFraction, type OwnStatus } from './render/hud.js';
 import { helmInputCounts, recordHelmInput } from './render/helmGlyphs.js';
 import { Hotbar, type HotbarView } from './render/hotbar.js';
 import { slotForBoonCategory } from './render/equipmentInfo.js';
@@ -91,6 +91,7 @@ import { showHome, type HomeHandle } from './ui/home.js';
 import { AmbientScene } from './render/ambient.js';
 import { injectTheme } from './ui/theme.js';
 import { matchUx, secondsUntil, spectateBannerText, type MatchUx } from './ui/phase.js';
+import { ringReadout, type ChromeBarView } from './ui/chromeBar.js';
 import {
   closeResultsAsSpectate,
   hideResults,
@@ -104,6 +105,7 @@ import { SettingsOverlay, canAbandon, canOpenSurface, escapeAction } from './ui/
 import { effectiveScale, scaleFactor, settings } from './settings/store.js';
 import { setUiScaleVar } from './ui/theme.js';
 import {
+  afloatCount,
   canOpenElimination,
   freshScore,
   isLiveRival,
@@ -822,28 +824,36 @@ function updateMatchAudioCues(g: Game, now: number): void {
   }
 }
 
-/** M:SS clock for the next-close countdown. */
-function fmtClock(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return `${m}:${String(s).padStart(2, '0')}`;
-}
-
-/** Compact top-center storm readout for the current zone view (interim 3.1
- *  mapping — Story 3.3's chrome bar owns the real presentation): every
- *  pre-close beat shows the countdown to the NEXT close start on the existing
- *  "STORM M:SS" register (deliberately including the reserved second beat —
- *  the parked supply slot has ZERO HUD trace), then CLOSING / CLOSED. */
-function zoneHud(zv: ZoneView, inStorm: boolean): ZoneHud {
-  let line = '';
-  if (zv.state === 'closing') {
-    line = 'STORM CLOSING';
-  } else if (zv.state === 'closed') {
-    line = 'STORM CLOSED';
-  } else if (zv.state !== 'idle') {
-    line = `STORM ${fmtClock(Math.max(0, Math.ceil(zv.closesInMs / 1000)))}`;
-  }
-  return { line, inStorm };
+/**
+ * THE BR CHROME BAR's per-frame payload (Story 3.3) — `n AFLOAT · n KILLS ·
+ * T+mm:ss · <ring readout>`. Assembled here from data the client already holds
+ * and composed in ui/chromeBar.ts; this function stays a wiring point.
+ *
+ * The visibility gate is the ZONE TIMELINE, not the match phase: the zone
+ * anchors at the exact moment the match goes active, `zoneStartT` is public
+ * schema, and one gate therefore covers live, finished, spectate and reconnect
+ * (and the pre-live ready room — waiting/gathering/countdown — where the timeline
+ * is idle and the match-phase lines own top-center) without touching any of the
+ * match plumbing.
+ *
+ * `matchMs` is DERIVED every frame from the server clock against the anchor, so
+ * a reconnect mid-match shows the right T+ on its first frame — there is no
+ * local accumulator that could have missed the outage.
+ */
+function chromeBarView(g: Game, zv: ZoneView, now: number, tier1: boolean): ChromeBarView {
+  const players = publicState(g).players;
+  return {
+    visible: zv.state !== 'idle',
+    // Amendment 19: ALL hulls, drones included — deliberately NOT the
+    // humans-only rival count placement uses (score.ts isAfloatHull).
+    afloat: players ? afloatCount(players) : 0,
+    kills: ownKills(g),
+    matchMs: Math.max(0, now - zv.startT),
+    // `closesInMs` is handed over verbatim — its dual meaning (to close START
+    // pre-close, to close END while closing) is the composer's contract.
+    ring: ringReadout(zv.state, zv.closesInMs),
+    tier1,
+  };
 }
 
 // --- personal score + the results modal (amendments 22/23) ---------------------
@@ -1610,7 +1620,8 @@ function renderOwn(
   g: Game,
   pose: RenderPose,
   status: OwnStatus,
-  zone: ZoneHud,
+  inStorm: boolean,
+  bar: ChromeBarView,
   match: MatchUx,
   frameDt: number,
   now: number,
@@ -1632,7 +1643,7 @@ function renderOwn(
   renderFiring(g, pose, status, aim, cursor, nowMs);
   // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
   // storm vignette's pulse rides (the HP rail breathes on it).
-  g.hud.update(pose, g.keyboard.axes(), status, zone, match, hudWidth(g), hudHeight(g), now / 1000);
+  g.hud.update(pose, g.keyboard.axes(), status, inStorm, bar, match, hudWidth(g), hudHeight(g), now / 1000);
   updateHotbar(g, status, nowMs);
   updateXpRail(g, status.alive, now / 1000);
 }
@@ -2058,7 +2069,11 @@ function renderAlive(
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
-  if (pose) renderOwn(g, pose, status, zoneHud(zv, inStorm), mu, frameDt, now, nowMs);
+  // ONE Tier-1 read per frame, shared by both Tier-2 consumers (the storm
+  // vignette and the chrome bar's amber ring segment) — two reads could
+  // disagree inside a single rendered frame.
+  const tier1 = ownTier1(g, status, nowMs);
+  if (pose) renderOwn(g, pose, status, inStorm, chromeBarView(g, zv, now, tier1), mu, frameDt, now, nowMs);
   else {
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
@@ -2069,7 +2084,7 @@ function renderAlive(
     // chip's 10s window off a gap the player never saw (see hideTransient).
     g.xpRail.hideTransient();
   }
-  updateZone(g, zv, inStorm, ownTier1(g, status, nowMs), now, nowMs);
+  updateZone(g, zv, inStorm, tier1, now, nowMs);
   // Own pose feeds the shell sight-bubble cull; own active zones keep a shell
   // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
@@ -2148,7 +2163,9 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.litZones.render(now, now / 1000); // spectators see all zones, doctrine and all
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
-  g.hud.updateSpectate(zoneHud(zv, false), mu, hudWidth(g), hudHeight(g), banner);
+  // A spectator owns no Tier-1 channel (no hull, no fire control), so the bar's
+  // amber ring segment breathes uninterrupted here — same view, tier1 false.
+  g.hud.updateSpectate(chromeBarView(g, zv, now, false), mu, hudWidth(g), hudHeight(g), banner, now / 1000);
 }
 
 // --- UI scale (Story 2.3) -----------------------------------------------------

@@ -20,6 +20,13 @@
 // Text strings are diffed before assignment (Pixi re-rasterizes on `.text`), the
 // telegraph Graphics redraws only on a state change, and the HP pulse rides an
 // ALPHA on its own Graphics so the breathing never forces a redraw.
+//
+// The module also owns the screen's other screen-space text layers: the
+// match-phase lines, the IN STORM warning, the spectate banner — and, as of
+// Story 3.3, the BR CHROME BAR (`n AFLOAT · n KILLS · T+mm:ss · <ring>`), the
+// top-center match register composed in ui/chromeBar.ts. Those layers live on
+// `hudLayer` rather than the cluster root, which is what lets the chrome bar
+// outlive the hull the vitals die with.
 
 import { Container, Graphics, Text, type TextStyleOptions } from 'pixi.js';
 import type { EffectiveStats, ShipState, EquipmentId, ShipClassId, WeaponAmmo } from '@salvo/shared';
@@ -28,6 +35,20 @@ import { CLIENT_CONFIG } from '../config.js';
 import { motionAllowed, motionScaled, settings } from '../settings/store.js';
 import { KEY_CHIP_SIZE, KEY_CHIP_STYLE, drawKeyChipBox } from './keyChip.js';
 import { glyphFadeAlpha, helmGlyphs, type HelmGlyphStore, type HelmPair } from './helmGlyphs.js';
+// The Tier-1 hold easing is the storm vignette's, imported rather than
+// re-derived: amendment 16's hold is ONE behavior with one time constant shape,
+// and a second implementation of it would be a second thing to keep in step.
+import { easeHold } from './zone.js';
+import {
+  CHROME_BAR_SEGMENTS,
+  RING_PULSE_AMP,
+  advanceRingPhase,
+  chromeBarLayout,
+  chromeBarSegments,
+  ringSegmentAlpha,
+  type ChromeBarView,
+  type ChromeSegment,
+} from '../ui/chromeBar.js';
 
 /** Kinematics subset the speed ladder needs (ahead/astern denominators). */
 interface LadderKin {
@@ -39,6 +60,7 @@ import type { MatchUx } from '../ui/phase.js';
 
 const C = CLIENT_CONFIG.colors;
 const V = CLIENT_CONFIG.vitals;
+const CB = CLIENT_CONFIG.chromeBar;
 const GREEN = C.phosphor;
 const AMBER = C.amber;
 const DIM = C.textMuted;
@@ -222,20 +244,10 @@ export function hullHeaderValue(hp: number, maxHp: number): string {
   return `${shown}/${Math.round(maxHp)}`;
 }
 
-/**
- * Storm-circle HUD summary. `line` is the compact top-center readout ("STORM
- * 0:32" counting to the next close start through every holding beat, "STORM
- * CLOSING" while a ring closes, "STORM CLOSED" at the terminal ring, "" when
- * idle); `inStorm` flags the own ship outside the live ring (shows an
- * "IN STORM" warning).
- */
-export interface ZoneHud {
-  line: string;
-  inStorm: boolean;
-}
-
-const ZONE_STYLE = { fontFamily: MONO, fontSize: 20, fill: STORM_PURPLE, letterSpacing: 2 } as const;
 const STORM_STYLE = { fontFamily: MONO, fontSize: 19, fill: STORM_PURPLE, letterSpacing: 2 } as const;
+/** The BR chrome bar's row style (Story 3.3). Per-segment FILL and ALPHA are
+ *  set from the composed segments — this carries the family/size/tracking only. */
+const BAR_STYLE = { fontFamily: MONO, fontSize: CB.fontSize, letterSpacing: CB.letterSpacing } as const;
 const MATCH_LINE_STYLE = { fontFamily: MONO, fontSize: 22, fill: GREEN, letterSpacing: 3 } as const;
 const MATCH_TAG_STYLE = { fontFamily: MONO, fontSize: 18, fill: GREEN, letterSpacing: 3 } as const;
 const COUNTDOWN_STYLE = { fontFamily: MONO, fontSize: 112, fill: GREEN, letterSpacing: 4 } as const;
@@ -432,7 +444,12 @@ export class Hud {
   private readonly speedLabel: Text;
   private readonly overlay: Text;
   private readonly rungLabels: Text[];
-  private readonly zoneLine: Text;
+  /** THE BR CHROME BAR (Story 3.3): one Text per composed segment, created once
+   *  and reused. They parent to `hudLayer`, NEVER to `this.root` — the root's
+   *  visibility is the instruments kill switch, and the bar is a member of the
+   *  ratified reveal-HUD SURVIVOR set (it outlives the hull, all the way to
+   *  return to port). */
+  private readonly barSegs: Text[];
   private readonly stormWarn: Text;
   private readonly matchLine: Text;
   private readonly matchTag: Text;
@@ -449,7 +466,18 @@ export class Hud {
   private lastDetent = -1;
   private lastRailSig = '';
   private lastOverlay = '';
-  private lastZoneLine = '';
+  /** Chrome-bar re-layout guard: the composed strings + the viewport width. The
+   *  row is only re-measured when one of them moves (the T+ segment ticks once a
+   *  second) — per-frame alpha/color are cheap sets that never re-measure. */
+  private lastBarSig = '';
+  /** Per-segment color diff (a `.style.fill` write re-rasterizes the Text). */
+  private readonly lastBarFill: number[];
+  /** INTEGRATED ring-pulse phase + the eased Tier-1 hold blend, and the clock
+   *  they were last advanced at. The bar draws from BOTH update paths, so this
+   *  is its own clock rather than the rail's (which only ticks while alive). */
+  private ringPhase = 0;
+  private ringHold = 0;
+  private lastBarSec: number | null = null;
   private lastMatchLine = '';
   private lastMatchTag = '';
   private lastCountdown = '';
@@ -488,12 +516,11 @@ export class Hud {
     this.overlay.anchor.set(0.5);
     this.overlay.visible = false;
     hudLayer.addChild(this.overlay);
-    this.zoneLine = new Text({ text: '', style: ZONE_STYLE });
-    this.zoneLine.anchor.set(0.5, 0);
-    this.zoneLine.visible = false;
+    this.barSegs = this.buildChromeBar();
+    this.lastBarFill = this.barSegs.map(() => GREEN);
     this.stormWarn = new Text({ text: 'IN STORM', style: STORM_STYLE });
     this.stormWarn.visible = false;
-    hudLayer.addChild(this.zoneLine, this.stormWarn);
+    hudLayer.addChild(this.stormWarn);
     this.matchLine = new Text({ text: '', style: MATCH_LINE_STYLE });
     this.matchLine.anchor.set(0.5, 0);
     this.matchLine.visible = false;
@@ -515,6 +542,20 @@ export class Hud {
       return t;
     });
     this.lastTells = TELL_LABELS.map(() => '');
+  }
+
+  /** The chrome bar's fixed Text pool (Story 3.3) — one per composed segment,
+   *  created ONCE here and reused forever (nothing in the bar allocates per
+   *  frame). They parent to `hudLayer`, deliberately NOT to `this.root`: the
+   *  root is the instruments kill switch, and the bar outlives the hull. */
+  private buildChromeBar(): Text[] {
+    return Array.from({ length: CHROME_BAR_SEGMENTS }, () => {
+      const t = new Text({ text: '', style: { ...BAR_STYLE, fill: GREEN } });
+      t.anchor.set(0, 0); // the row lays out left-to-right from a computed x
+      t.visible = false;
+      this.hudLayer.addChild(t);
+      return t;
+    });
   }
 
   /** A dim-phosphor micro caption (never grey — amendment 25). */
@@ -630,18 +671,95 @@ export class Hud {
     }
   }
 
-  /** Top-center storm readout + the "IN STORM" warning at the head of the
-   *  bottom-RIGHT vitals stack (amendment 12 — it moved with the cluster). */
-  private drawZone(zone: ZoneHud, screenW: number, screenH: number): void {
-    if (zone.line !== this.lastZoneLine) {
-      this.zoneLine.text = zone.line;
-      this.lastZoneLine = zone.line;
-    }
-    this.zoneLine.visible = zone.line !== '';
-    this.zoneLine.position.set(screenW / 2, MARGIN);
-    this.stormWarn.visible = zone.inStorm;
+  /** The "IN STORM" warning at the head of the bottom-RIGHT vitals stack
+   *  (amendment 12 — it moved with the cluster). Story 3.3 took the top-center
+   *  storm LINE out of here: the interim `STORM m:ss` register is retired and
+   *  the chrome bar's ring segment carries that information now. */
+  private drawStormWarn(inStorm: boolean, screenW: number, screenH: number): void {
+    this.stormWarn.visible = inStorm;
     const storm = vitalsLayout(screenW, screenH).storm;
     this.stormWarn.position.set(storm.x, storm.y);
+  }
+
+  /**
+   * THE BR CHROME BAR (Story 3.3) — `n AFLOAT · n KILLS · T+mm:ss · <ring>` on
+   * one centered mono row at the top of the screen.
+   *
+   * Drawn from BOTH update paths (alive and spectating) onto `hudLayer`, so it
+   * survives the hull exactly as the ratified reveal-HUD survivor set requires.
+   * Composition is ui/chromeBar.ts's; this only assigns, positions and breathes.
+   *
+   * `nowSec` is the server-clock estimate in seconds — the same clock the HP
+   * rail's pulse rides.
+   */
+  private drawChromeBar(bar: ChromeBarView, screenW: number, nowSec: number): void {
+    const dt = this.lastBarSec === null ? 0 : nowSec - this.lastBarSec;
+    this.lastBarSec = nowSec;
+    if (!bar.visible) {
+      this.hideChromeBar();
+      return;
+    }
+    const segs = chromeBarSegments(bar);
+    this.layoutChromeBar(segs, screenW);
+    this.breatheRing(bar, segs, dt);
+  }
+
+  /** Assign / re-measure the row. Text assignment and the layout both run only
+   *  on a real change (the strings tick once a second at most, the viewport on
+   *  resize), which is what keeps a permanent top-center row free. */
+  private layoutChromeBar(segs: readonly ChromeSegment[], screenW: number): void {
+    for (let i = 0; i < this.barSegs.length; i++) {
+      const t = this.barSegs[i];
+      const seg = segs[i];
+      t.visible = seg !== undefined && seg.text !== '';
+      if (seg === undefined) continue;
+      if (seg.color !== this.lastBarFill[i]) {
+        t.style.fill = seg.color;
+        this.lastBarFill[i] = seg.color;
+      }
+    }
+    const sig = `${segs.map((s) => s.text).join(' ')}|${screenW}`;
+    if (sig === this.lastBarSig) return;
+    this.lastBarSig = sig;
+    for (let i = 0; i < segs.length; i++) this.barSegs[i].text = segs[i].text;
+    const at = chromeBarLayout(segs, screenW);
+    for (let i = 0; i < segs.length; i++) this.barSegs[i].position.set(at.xs[i], CB.y);
+  }
+
+  /**
+   * The ring segment's amber breath: an integrated 1 Hz phase (gated on the
+   * urgency window, so it always starts lit), an eased Tier-1 hold toward the
+   * lit keyframe, and a motion-scaled amplitude — at `off` the amplitude is zero
+   * and the segment simply holds amber and lit, information intact.
+   */
+  private breatheRing(bar: ChromeBarView, segs: readonly ChromeSegment[], dtSec: number): void {
+    const urgent = bar.ring.urgent;
+    this.ringPhase = advanceRingPhase(this.ringPhase, urgent, dtSec);
+    this.ringHold = easeHold(this.ringHold, bar.tier1 ? 1 : 0, Math.max(0, dtSec) * 1000, CB.holdEaseMs);
+    const amp = motionScaled(RING_PULSE_AMP, settings.current.motion);
+    const pulsed = ringSegmentAlpha(this.ringPhase, amp, this.ringHold);
+    for (let i = 0; i < segs.length; i++) {
+      this.barSegs[i].alpha = segs[i].pulsed && urgent ? pulsed : segs[i].alpha;
+    }
+  }
+
+  /** Drop the bar (pre-live, where the match-phase lines own top-center) and
+   *  disarm the pulse, so the next urgency window starts from the lit keyframe. */
+  private hideChromeBar(): void {
+    for (const t of this.barSegs) t.visible = false;
+    this.ringPhase = 0;
+    this.ringHold = 0;
+  }
+
+  /** The bar's rendered segment strings (test/debug seam) — '' for a hidden
+   *  slot, so a hidden bar reads as an empty row rather than stale copy. */
+  chromeBarText(): string[] {
+    return this.barSegs.map((t) => (t.visible ? t.text : ''));
+  }
+
+  /** A bar segment's live alpha (test/debug seam — the ring breath). */
+  chromeBarAlpha(index: number): number {
+    return this.barSegs[index]?.alpha ?? 0;
   }
 
   /**
@@ -859,7 +977,8 @@ export class Hud {
     ship: ShipState,
     axes: Axes,
     status: OwnStatus,
-    zone: ZoneHud,
+    inStorm: boolean,
+    bar: ChromeBarView,
     match: MatchUx,
     screenW: number,
     screenH: number,
@@ -877,7 +996,8 @@ export class Hud {
     this.updateReadouts(ship);
     this.updateOverlay(status, screenW, screenH);
     this.drawTells(status, screenW, screenH);
-    this.drawZone(zone, screenW, screenH);
+    this.drawStormWarn(inStorm, screenW, screenH);
+    this.drawChromeBar(bar, screenW, nowSec);
     this.drawMatch(match, screenW, screenH);
   }
 
@@ -893,11 +1013,24 @@ export class Hud {
   }
 
   /**
-   * Spectator frame: instruments hidden, banner + zone/phase lines only.
+   * Spectator frame: instruments hidden, banner + the chrome bar + phase lines.
    * `bannerText` is computed by ui/phase.ts's spectateBannerText() from the
    * match phase + winnerId.
+   *
+   * The CHROME BAR renders here exactly as it does alive — that is the whole
+   * survivor-set ruling: the hotbar, the XP rail and the own vitals die with the
+   * hull, and the match readout does not. A spectator owns no Tier-1 channel
+   * (no hull to be critical, no fire control to be denied), which the caller
+   * expresses by handing over a view with `tier1: false`.
    */
-  updateSpectate(zone: ZoneHud, match: MatchUx, screenW: number, screenH: number, bannerText: string): void {
+  updateSpectate(
+    bar: ChromeBarView,
+    match: MatchUx,
+    screenW: number,
+    screenH: number,
+    bannerText: string,
+    nowSec: number,
+  ): void {
     this.setInstrumentsVisible(false);
     this.overlay.visible = false;
     this.stormWarn.visible = false;
@@ -908,7 +1041,7 @@ export class Hud {
     }
     this.spectateBanner.visible = true;
     this.spectateBanner.position.set(screenW / 2, screenH * 0.16);
-    this.drawZone({ line: zone.line, inStorm: false }, screenW, screenH);
+    this.drawChromeBar(bar, screenW, nowSec);
     this.drawMatch(match, screenW, screenH);
   }
 }
