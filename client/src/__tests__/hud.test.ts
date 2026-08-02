@@ -27,6 +27,7 @@ import {
   tellSeconds,
 } from '../render/hud.js';
 import { monoTextWidth } from '../ui/refitCardFit.js';
+import { CHROME_BAR_SEGMENTS, RING_LIT_ALPHA, ringReadout, type ChromeBarView } from '../ui/chromeBar.js';
 import {
   HELM_PAIRS,
   HelmGlyphStore,
@@ -848,7 +849,17 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
   };
   const ship = { x: 0, y: 0, heading: 1, speed: 4.2 } as ShipState;
   const match = { topLine: '', tag: '', countdown: '' } as MatchUx;
-  const quiet = { line: '', inStorm: false };
+  // The chrome bar is a separate surface with its own tests (chromeBar.test.ts);
+  // these shell frames pass a HIDDEN bar (the pre-live gate) so they exercise
+  // exactly the vitals cluster they are about.
+  const quiet: ChromeBarView = {
+    visible: false,
+    afloat: 0,
+    kills: 0,
+    matchMs: 0,
+    ring: { text: '', urgent: false },
+    tier1: false,
+  };
 
   function build(glyphs?: HelmGlyphStore): { layer: Container; hud: Hud } {
     const layer = new Container();
@@ -862,16 +873,16 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
 
   it('renders a wounded (pulsing) frame and a healthy frame without throwing', () => {
     const { hud } = build();
-    expect(() => hud.update(ship, { throttle: 0.5, rudder: -1 }, status, quiet, match, 1366, 768, 12.5)).not.toThrow();
+    expect(() => hud.update(ship, { throttle: 0.5, rudder: -1 }, status, false, quiet, match, 1366, 768, 12.5)).not.toThrow();
     expect(() =>
-      hud.update(ship, { throttle: -1, rudder: 1 }, { ...status, hp: 100 }, quiet, match, 1366, 768, 13.1),
+      hud.update(ship, { throttle: -1, rudder: 1 }, { ...status, hp: 100 }, false, quiet, match, 1366, 768, 13.1),
     ).not.toThrow();
   });
 
   it('renders a ZERO-HP frame (empty rail, `HULL 0/n` header) without throwing', () => {
     const { hud } = build();
     expect(() =>
-      hud.update(ship, { throttle: 0, rudder: 0 }, { ...status, hp: 0, alive: false, respawnInMs: 3000 }, { line: 'STORM CLOSING', inStorm: true }, match, 1366, 768, 20),
+      hud.update(ship, { throttle: 0, rudder: 0 }, { ...status, hp: 0, alive: false, respawnInMs: 3000 }, true, quiet, match, 1366, 768, 20),
     ).not.toThrow();
   });
 
@@ -883,12 +894,12 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
     const MAX_STEP = V.pulseAmp * CAP_HZ * Math.PI * 2 * 0.05 + 1e-9;
     let hp = 45; // 45/100 — inside the pulsing band
     let now = 600; // seconds: where an absolute-time phase goes wild
-    hud.update(ship, { throttle: 0, rudder: 0 }, { ...status, hp }, quiet, match, 1366, 768, now);
+    hud.update(ship, { throttle: 0, rudder: 0 }, { ...status, hp }, false, quiet, match, 1366, 768, now);
     let prev = hud.railFillAlpha;
     for (let i = 0; i < 200 && hp > 0; i++) {
       hp = Math.max(0, hp - 0.2); // the storm dot's per-tick bite
       now += 0.05;
-      hud.update(ship, { throttle: 0, rudder: 0 }, { ...status, hp }, quiet, match, 1366, 768, now);
+      hud.update(ship, { throttle: 0, rudder: 0 }, { ...status, hp }, false, quiet, match, 1366, 768, now);
       const alpha = hud.railFillAlpha;
       expect(Math.abs(alpha - prev), `frame ${i} at hp ${hp.toFixed(1)}`).toBeLessThanOrEqual(MAX_STEP);
       prev = alpha;
@@ -900,11 +911,11 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
   it('does not replay the glyph fade for a pair that crossed while the instruments were hidden', () => {
     const glyphs = new HelmGlyphStore(zeroHelmProgress());
     const { hud } = build(glyphs);
-    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, false, quiet, match, 1366, 768, 10);
     expect(hud.chipAlpha('ws')).toBe(1); // still learning
-    hud.updateSpectate(quiet, match, 1366, 768, 'SUNK — SPECTATING'); // instruments hidden
+    hud.updateSpectate(quiet, match, 1366, 768, 'SUNK — SPECTATING', 0); // instruments hidden
     for (let i = 0; i < V.glyphFadeCount; i++) glyphs.record('ws'); // the 3rd input, off screen
-    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 11);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, false, quiet, match, 1366, 768, 11);
     expect(hud.chipAlpha('ws')).toBe(0); // gone immediately, no ghost fade
     expect(hud.chipAlpha('ad')).toBe(1); // ...and the untouched pair is unaffected
   });
@@ -912,25 +923,185 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
   it('still ANIMATES the fade for a pair that crosses while on screen', () => {
     const glyphs = new HelmGlyphStore(zeroHelmProgress());
     const { hud } = build(glyphs);
-    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, false, quiet, match, 1366, 768, 10);
     for (let i = 0; i < V.glyphFadeCount; i++) glyphs.record('ad');
-    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, false, quiet, match, 1366, 768, 10);
     expect(hud.chipAlpha('ad')).toBe(1); // the fade STARTS here
-    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10 + V.glyphFadeSec / 2);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, false, quiet, match, 1366, 768, 10 + V.glyphFadeSec / 2);
     expect(hud.chipAlpha('ad')).toBeCloseTo(0.5, 6);
-    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10 + V.glyphFadeSec);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, false, quiet, match, 1366, 768, 10 + V.glyphFadeSec);
     expect(hud.chipAlpha('ad')).toBeCloseTo(0, 12);
   });
 
   it('hides the whole cluster (rail included) on the spectate path, and re-shows it alive', () => {
     const { layer, hud } = build();
     const root = layer.children[0];
-    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 1);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, false, quiet, match, 1366, 768, 1);
     expect(root.visible).toBe(true);
-    hud.updateSpectate(quiet, match, 1366, 768, 'SUNK — SPECTATING');
+    hud.updateSpectate(quiet, match, 1366, 768, 'SUNK — SPECTATING', 0);
     expect(root.visible).toBe(false); // the HP rail died with the hull too
-    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 2);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, false, quiet, match, 1366, 768, 2);
     expect(root.visible).toBe(true);
+  });
+});
+
+// --- STORY 3.3: THE BR CHROME BAR ----------------------------------------------
+//
+// The composer has its own suite (chromeBar.test.ts). These are the RENDER-half
+// properties that only the real instrument can prove: that the row is drawn from
+// BOTH update paths (the ratified reveal-HUD survivor set — it outlives the hull
+// where the vitals do not), that it hangs off `hudLayer` rather than the
+// instruments root whose visibility is the kill switch, and that the amber
+// urgency breath starts LIT, dips to the floor, and holds while Tier 1 owns the
+// eye.
+
+describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
+  const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
+  const status: OwnStatus = {
+    hp: 80,
+    ammo: [null, null, null, null],
+    primedSlot: 0,
+    alive: true,
+    respawnInMs: 0,
+    cls: 'torpedoBoat',
+    stats,
+    loadout: ['gun', 'torpedo', null, null],
+    boostActive: false,
+    slowedMsLeft: 0,
+    dazzledMsLeft: 0,
+  };
+  const ship = { x: 0, y: 0, heading: 1, speed: 4.2 } as ShipState;
+  const match = { topLine: '', tag: '', countdown: '' } as MatchUx;
+  const LIVE_ROW = '12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES 2:34';
+  const RING = CHROME_BAR_SEGMENTS - 1; // the ring readout is the last segment
+
+  function bar(over: Partial<ChromeBarView> = {}): ChromeBarView {
+    return {
+      visible: true,
+      afloat: 12,
+      kills: 2,
+      matchMs: 252_000,
+      ring: ringReadout('clear', 154_000),
+      tier1: false,
+      ...over,
+    };
+  }
+
+  const drive = (hud: Hud, v: ChromeBarView, nowSec: number): void =>
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, false, v, match, 1366, 768, nowSec);
+
+  afterEach(() => settings.reset());
+
+  it('renders the row alive, and KEEPS rendering it from the spectate path', () => {
+    const hud = new Hud(new Container());
+    drive(hud, bar(), 1);
+    expect(hud.chromeBarText().join('')).toBe(LIVE_ROW);
+    hud.updateSpectate(bar(), match, 1366, 768, 'SUNK — SPECTATING', 2);
+    expect(hud.chromeBarText().join('')).toBe(LIVE_ROW); // the match readout outlives the hull
+  });
+
+  it('hangs off hudLayer, NOT the instruments root (the kill switch must not take it)', () => {
+    const layer = new Container();
+    const hud = new Hud(layer);
+    hud.updateSpectate(bar(), match, 1366, 768, 'SUNK — SPECTATING', 1);
+    expect(layer.children[0].visible).toBe(false); // instruments root: dead with the hull
+    expect(hud.chromeBarText().join('')).toBe(LIVE_ROW); // ...the bar is not
+  });
+
+  it('is HIDDEN while the zone timeline is idle (the pre-live ready room)', () => {
+    const hud = new Hud(new Container());
+    drive(hud, bar({ visible: false }), 1);
+    expect(hud.chromeBarText().join('')).toBe('');
+    drive(hud, bar(), 2); // ...and comes back the moment the match goes live
+    expect(hud.chromeBarText().join('')).toBe(LIVE_ROW);
+  });
+
+  it('re-centers on a viewport change and tracks the T+ tick', () => {
+    const hud = new Hud(new Container());
+    drive(hud, bar(), 1);
+    drive(hud, bar({ matchMs: 253_000 }), 2);
+    expect(hud.chromeBarText().join('')).toContain('T+04:13');
+  });
+
+  it('breathes the ring ONLY in the urgency window — starting at the LIT keyframe', () => {
+    const hud = new Hud(new Container());
+    const urgent = bar({ ring: ringReadout('reveal', 9_400) });
+    drive(hud, bar(), 0); // steady violet segment first
+    expect(hud.chromeBarAlpha(RING)).toBe(1);
+    drive(hud, urgent, 0); // onset: phase 0 = lit, never a mid-breath snap
+    expect(hud.chromeBarAlpha(RING)).toBeCloseTo(RING_LIT_ALPHA, 9);
+    drive(hud, urgent, 0.5); // half a 1 Hz cycle later: the trough
+    expect(hud.chromeBarAlpha(RING)).toBeCloseTo(CLIENT_CONFIG.chromeBar.pulseFloorAlpha, 6);
+    drive(hud, bar(), 1); // window shut: steady again, and the phase DISARMS
+    expect(hud.chromeBarAlpha(RING)).toBe(1);
+    // ...so the NEXT window opens from the lit keyframe too, not from wherever a
+    // free-running phase had drifted to (one frame in, it is still ~lit).
+    drive(hud, urgent, 1.016);
+    expect(hud.chromeBarAlpha(RING)).toBeCloseTo(RING_LIT_ALPHA, 2);
+  });
+
+  it('HOLDS the amber segment lit while a Tier-1 threat channel owns the eye', () => {
+    const hud = new Hud(new Container());
+    const urgent = bar({ ring: ringReadout('reveal', 9_400) });
+    drive(hud, urgent, 0);
+    drive(hud, urgent, 0.5); // at the trough
+    const breathing = hud.chromeBarAlpha(RING);
+    expect(breathing).toBeLessThan(RING_LIT_ALPHA);
+    // Tier 1 goes live: the segment EASES to lit rather than snapping (the 3.2
+    // vignette-hold precedent — denied-click spam must not square-wave it).
+    let t = 0.5;
+    const held = { ...urgent, tier1: true };
+    drive(hud, held, (t += 0.016));
+    expect(hud.chromeBarAlpha(RING)).toBeGreaterThan(breathing);
+    expect(hud.chromeBarAlpha(RING)).toBeLessThan(RING_LIT_ALPHA); // not a snap
+    for (let i = 0; i < 120; i++) drive(hud, held, (t += 0.016)); // ~2s of hold
+    expect(hud.chromeBarAlpha(RING)).toBeCloseTo(RING_LIT_ALPHA, 2);
+  });
+
+  it('at motion=off the amber segment is STATIC AND LIT — the information survives', () => {
+    settings.set({ motion: 'off' });
+    const hud = new Hud(new Container());
+    const urgent = bar({ ring: ringReadout('reveal', 4_000) });
+    for (const t of [0, 0.25, 0.5, 0.75, 1]) {
+      drive(hud, urgent, t);
+      expect(hud.chromeBarAlpha(RING)).toBe(RING_LIT_ALPHA);
+    }
+    expect(hud.chromeBarText().join('')).toContain('RING CLOSES 0:04'); // copy intact
+  });
+
+  it('carries the breath ACROSS the alive→spectate seam — no reset, no dt spike', () => {
+    // Dying mid-urgency-window swaps which update path draws the bar. The pulse
+    // integrator is the SAME one either side, so the breath must simply continue:
+    // a per-path phase (or a per-path clock) would either restart the wave at the
+    // lit keyframe or jump it by the whole elapsed match.
+    const urgent = bar({ ring: ringReadout('reveal', 9_400) });
+    const seam = new Hud(new Container());
+    const control = new Hud(new Container()); // the same breath, never interrupted
+    let t = 0;
+    drive(seam, urgent, t);
+    drive(control, urgent, t);
+    for (let i = 0; i < 16; i++) {
+      t += 0.016;
+      drive(seam, urgent, t);
+      drive(control, urgent, t);
+    }
+    const atDeath = seam.chromeBarAlpha(RING);
+    expect(atDeath).toBeLessThan(RING_LIT_ALPHA); // caught mid-descent
+    // The hull sinks here; every frame from now on comes through the spectate path.
+    let prev = atDeath;
+    for (let i = 0; i < 14; i++) { // stops just short of the 0.5s trough
+      t += 0.016;
+      seam.updateSpectate(urgent, match, 1366, 768, 'SUNK — SPECTATING', t);
+      drive(control, urgent, t);
+      const a = seam.chromeBarAlpha(RING);
+      expect(a).toBeCloseTo(control.chromeBarAlpha(RING), 9); // identical wave
+      expect(a).toBeLessThan(prev); // still descending — no snap back to lit
+      expect(prev - a).toBeLessThan(0.05); // one frame's worth, not a jump
+      prev = a;
+    }
+    // Half a cycle from onset is still exactly the trough, seam and all.
+    seam.updateSpectate(urgent, match, 1366, 768, 'SUNK — SPECTATING', 0.5);
+    expect(seam.chromeBarAlpha(RING)).toBeCloseTo(CLIENT_CONFIG.chromeBar.pulseFloorAlpha, 6);
   });
 });
 
@@ -1005,9 +1176,19 @@ describe('Hud — the tells on a live frame', () => {
   };
   const ship = { x: 0, y: 0, heading: 1, speed: 4.2 } as ShipState;
   const match = { topLine: '', tag: '', countdown: '' } as MatchUx;
-  const quiet = { line: '', inStorm: false };
+  // The chrome bar is a separate surface with its own tests (chromeBar.test.ts);
+  // these shell frames pass a HIDDEN bar (the pre-live gate) so they exercise
+  // exactly the vitals cluster they are about.
+  const quiet: ChromeBarView = {
+    visible: false,
+    afloat: 0,
+    kills: 0,
+    matchMs: 0,
+    ring: { text: '', urgent: false },
+    tier1: false,
+  };
   const draw = (hud: Hud, status: OwnStatus): void =>
-    hud.update(ship, { throttle: 0, rudder: 0 }, status, quiet, match, 1366, 768, 10);
+    hud.update(ship, { throttle: 0, rudder: 0 }, status, false, quiet, match, 1366, 768, 10);
 
   it('shows nothing at all while unafflicted', () => {
     const hud = new Hud(new Container());
@@ -1049,7 +1230,7 @@ describe('Hud — the tells on a live frame', () => {
   it('drops the tells on a spectate frame (they die with the hull)', () => {
     const hud = new Hud(new Container());
     draw(hud, { ...base, dazzledMsLeft: 5000 });
-    hud.updateSpectate(quiet, match, 1366, 768, 'SPECTATING');
+    hud.updateSpectate(quiet, match, 1366, 768, 'SPECTATING', 0);
     expect(hud.tellText(1)).toBe('');
   });
 });

@@ -585,6 +585,63 @@ export const CLIENT_CONFIG = {
     revealAmp: 0.4,
   },
 
+  /**
+   * THE BR CHROME BAR (Story 3.3, amendments 19–21) — the one restrained mono
+   * row top-center: `n AFLOAT · n KILLS · T+mm:ss · <ring readout>`. Everything
+   * it shows is data the client already holds (roster alive/kills, zoneStartT,
+   * the derived ZoneView); nothing here is gameplay-authoritative and nothing
+   * travels on the wire. Colors are NOT here — the bar reads the `colors`
+   * tokens directly (numbers + labels `phosphor`, the ring segment
+   * `stormReadout`, amber only in the urgency window — amendments 17/21).
+   *
+   * The composition lives in ui/chromeBar.ts (pure, zero Pixi); render/hud.ts
+   * only lays the composed segments out and drives the pulse.
+   */
+  chromeBar: {
+    /** Baseline (px from the top of the logical viewport) of the bar row — the
+     *  slot the retired 3.1 `zoneLine` register held. Deliberately the SAME 24
+     *  as `vitals.margin`: the HUD's one edge margin, so the top-center row and
+     *  the bottom-right cluster sit the same distance off their edges. (Pinned
+     *  by chromeBar.test.ts; config object literals cannot reference their own
+     *  siblings, which is why the number is restated rather than read.) */
+    y: 24,
+    /** Row type: mono (CLIENT_CONFIG.type.mono), 18px — a touch under the 20px
+     *  the interim storm line used, because the bar carries four segments where
+     *  that carried one, and comfortably over the 14px micro floor. */
+    fontSize: 18,
+    /** Letter-spacing (px). The bar is a READOUT, not prose — the tracking is
+     *  what makes a dense one-line register scan as separate facts. */
+    letterSpacing: 2,
+    /** Alpha of the bar's LABELS (`AFLOAT` / `KILLS` / the `T+` prefix). The
+     *  labels are dim PHOSPHOR, never grey: amendment 17 retired `textMuted`
+     *  for load-bearing HUD text, and 0.55 is the vitals cluster's own
+     *  dim-phosphor text alpha (hud.ts `TEXT_DIM_ALPHA`, which dims an
+     *  un-selected telegraph rung) — one dim-TEXT register across the HUD. */
+    labelAlpha: 0.55,
+    /** Alpha of the ` · ` separators. Dimmer than the labels: they are
+     *  punctuation, and nothing about them is information. */
+    sepAlpha: 0.35,
+    /** FLOOR alpha of the ring segment's amber breath — the trough of the
+     *  opacity pulse, whose crest is the LIT keyframe (alpha 1, ui/chromeBar.ts
+     *  RING_LIT_ALPHA). Opacity-only breathing: the text, the countdown and the
+     *  amber color are all fully present at the trough, so the urgency cue can
+     *  never take the information with it (and at motion=off the amplitude is
+     *  zero and the segment simply holds lit). */
+    pulseFloorAlpha: 0.45,
+    /** Time constant (ms) of the Tier-2 HOLD easing — how fast the amber
+     *  segment moves between its breathing value and the lit keyframe it holds
+     *  at while a Tier-1 threat channel owns the eye (attention.ts). The 3.2
+     *  vignette-hold precedent, verbatim (`zone.holdEaseMs`): a snapping hold
+     *  would let denied-click spam square-wave the segment at up to 3.3 Hz,
+     *  past the ≤1.1 Hz / ≤3-flashes-per-region accessibility floor. */
+    holdEaseMs: 240,
+    /** THE URGENCY WINDOW (ms before a ring's close STARTS) — amendment 20's
+     *  override: inside it the reveal beat's `RING REVEALED` announcement yields
+     *  to `RING CLOSES 0:0x` and the segment turns amber and breathes. 10s is
+     *  the get-moving moment; the shrink itself (`closing`) is never amber. */
+    urgentMs: 10_000,
+  },
+
   /** End-of-match results overlay feel. */
   results: {
     /**

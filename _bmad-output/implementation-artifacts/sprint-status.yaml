@@ -93,7 +93,7 @@ development_status:
   epic-3: in-progress
   3-1-phased-zone-timeline: done
   3-2-ring-reveal-storm-rendering: done  # 2026-08-02 dev-auto cycle 33 (0.17.33); design gate closed in-run (amendment 18)
-  3-3-br-chrome-bar: backlog
+  3-3-br-chrome-bar: done  # 2026-08-02 dev-auto cycle 36 (0.17.36); amendments 19-21 ratified pre-implementation (all-hulls AFLOAT, urgency-override ring grammar, storm-violet segment)
   3-4-the-endgame-guarantee: backlog
   epic-3-retrospective: optional
 

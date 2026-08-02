@@ -4,8 +4,10 @@
 
 import { describe, it, expect } from 'vitest';
 import {
+  afloatCount,
   canOpenElimination,
   freshScore,
+  isAfloatHull,
   isLiveRival,
   personalScore,
   personalScoreFromResults,
@@ -141,6 +143,44 @@ describe('isLiveRival — placement counts HUMANS, never drones', () => {
     const rivals = roster.filter((m) => isLiveRival(m, OWN, DRONE)).length;
     expect(rivals).toBe(1);
     expect(placementFor(rivals)).toBe(2);
+  });
+});
+
+describe('afloatCount — the chrome bar counts HULLS, drones included (Story 3.3, amendment 19)', () => {
+  const DRONE = 255;
+  // A solo captain's field: our hull, one human rival, five drones.
+  const field = [
+    { id: OWN, alive: true, color: 1 },
+    { id: 'human', alive: true, color: 2 },
+    ...[0, 1, 2, 3, 4].map((n) => ({ id: `drone${n}`, alive: true, color: DRONE })),
+  ];
+
+  it('counts every alive hull — drones AND our own', () => {
+    expect(afloatCount(field)).toBe(7);
+    expect(isAfloatHull({ id: 'd', alive: true, color: DRONE })).toBe(true);
+    expect(isAfloatHull({ id: OWN, alive: true, color: 1 })).toBe(true);
+  });
+
+  it('thins as the field dies — that IS the readout', () => {
+    const sunk = field.map((m, i) => (i > 3 ? { ...m, alive: false } : m));
+    expect(afloatCount(sunk)).toBe(4);
+    expect(afloatCount(field.map((m) => ({ ...m, alive: false })))).toBe(0);
+  });
+
+  it('excludes the dead, and an entry the roster has not synced yet', () => {
+    expect(isAfloatHull({ id: 'a', alive: false, color: 3 })).toBe(false);
+    expect(isAfloatHull({ id: 'a' })).toBe(false); // `alive` undefined is not afloat
+    expect(afloatCount([])).toBe(0);
+  });
+
+  it('DISAGREES with the placement count on purpose — two questions, two answers', () => {
+    // THE ratified asymmetry (amendment 19): placement ranks CONTESTANTS
+    // (humans, us excluded), the bar counts HULLS ON THE WATER. Neither may be
+    // "fixed" into the other; this test is the guard on that.
+    const rivals = field.filter((m) => isLiveRival(m, OWN, DRONE)).length;
+    expect(rivals).toBe(1); // the one human rival
+    expect(afloatCount(field)).toBe(7); // ...but seven hulls are still afloat
+    expect(placementFor(rivals)).toBe(2); // and the placement number is unchanged
   });
 });
 
