@@ -412,24 +412,36 @@ export const CLIENT_CONFIG = {
      */
     fillAlpha: 0.12,
     /**
-     * Outer radius of the fill disc, as a multiple of the map radius. The disc
-     * is centered on the LIVE RING, so "past the map edge" is not enough — it
-     * must clear the farthest screen corner in the worst case, or the fill's own
-     * edge becomes a visible arc of open void:
+     * FLOOR for the fill disc's outer radius, as a multiple of the map radius.
+     * The disc is centered on the LIVE RING, so "past the map edge" is not
+     * enough — it must clear the farthest visible screen corner, or the fill's
+     * own edge shows up as an arc of un-tinted void:
      *
-     *   dist(ring center → screen corner) ≤ |ring center| + |camera center|
-     *                                       + half the visible diagonal
+     *   needed = dist(camera center → ring center) + half the visible diagonal
      *
-     * A ring is contained in the map and the camera follows a hull that is too,
-     * so the first two terms are ≤ 2 × mapRadius. The third is the ugly one: the
-     * camera fits 2 × radar range on the SHORT axis, so at the widest user zoom
-     * (`zoom.min`) an ultrawide viewport sees `radar × aspect / 0.5` to the side
-     * — on a 32:9 screen with a heavily stacked radar that half-diagonal alone
-     * is ~4 map radii. 7 covers the sum with headroom (zone.test.ts computes the
-     * bound), and a bigger circle costs nothing: it is one shape, re-tessellated
-     * only when the ring radius or the camera zoom moves.
+     * No CONSTANT factor can bound that: the camera fits 2 × radar range on the
+     * SHORT axis, so a short-wide viewport at the widest user zoom with a maxed
+     * radar stack (intelRadar ×5 = 1.15⁵) already needs ~17.8k u on a 3440×720
+     * screen (this factor gives 16.8k), and spectate free-pan is UNCLAMPED — the
+     * camera can travel arbitrarily far from any ring. So the renderer computes
+     * `needed` per frame and draws max(this floor, needed), bucketed up by
+     * `fillBucketU`. The floor still earns its keep: it is what ordinary play
+     * sits at, so the bucket never moves and the shape is never re-tessellated.
      */
     fillOuterFactor: 7,
+    /**
+     * Quantum (world units) the dynamic fill radius is rounded UP to, and the
+     * screen-space slack added before rounding. Bucketing is what keeps the
+     * dynamic bound cheap: the drawn radius only changes when the requirement
+     * crosses a 2000u step (and it is grow-only per Zone), so ordinary play
+     * never re-tessellates the disc and even a fast-panning spectator redraws
+     * it every few seconds at most. The margin is expressed in SCREEN px and
+     * divided by the zoom like the strokes are, because what it covers is
+     * screen-space: the camera SHAKE offset (≤56px, render/shake.ts) plus
+     * stroke overhang and rounding slack.
+     */
+    fillBucketU: 2000,
+    fillMarginPx: 96,
     /**
      * SCREEN-LOCKED stroke widths (px, amendment 14 + the zoom-invariance
      * clause). The renderer divides these by the camera zoom at draw time, so
@@ -461,6 +473,26 @@ export const CLIENT_CONFIG = {
      *  photosensitivity ceiling. */
     vignetteBase: 0.27,
     vignetteAmp: 0.17,
+    /**
+     * Time constant (ms) of the Tier-1 HOLD easing — how fast the vignette
+     * moves between its breathing value and its lit keyframe (amendment 16).
+     *
+     * WHY IT IS NOT A SNAP: every accepted denied-fire click owns Tier 1 for
+     * exactly 80ms, and the click-spam register is one accepted denial every
+     * 300ms — a snapping hold would square-wave the FULL-SCREEN vignette up to
+     * 3.3 times a second, past the ≤1.1Hz pulse / ≤3-flashes-per-region
+     * accessibility floor this very story pins. The floor is the superior law,
+     * so the hold EASES: an 80ms blip becomes a barely-perceptible swell (~28%
+     * of the way to lit at this constant), while a sustained hold — the case
+     * amendment 16 was actually written for, a hull under 50% — still arrives
+     * at the lit keyframe within ~1s and stays there. Semantics preserved,
+     * strobe removed.
+     *
+     * 240ms sits in the ratified 150–250ms band: fast enough that the hold
+     * still reads as a response to the threat, slow enough that the blip case
+     * lands well under the perceptual flash threshold.
+     */
+    holdEaseMs: 240,
     /** THE REVEAL ONE-SHOT (amendment 17): when a next ring first becomes public
      *  the dashed telegraph lands with a brief flash-then-settle — `revealMs` of
      *  linear decay from (telegraphAlpha + revealAmp) back to telegraphAlpha.

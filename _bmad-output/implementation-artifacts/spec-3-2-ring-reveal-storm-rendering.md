@@ -2,7 +2,7 @@
 title: '3-2 Ring Reveal & Storm Rendering'
 type: 'feature'
 created: '2026-08-02'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 baseline_revision: '630045e'
 context:
@@ -98,6 +98,19 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-02 — Review pass (2 Fable hunters + Codex cross-model; verdicts: build-on-it ×2, Codex fix-first on the fill bound — resolved by patching)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 4: (high 0, medium 2, low 2)
+- defer: 0
+- reject: 2: (low 2)
+- addressed_findings:
+  - `[medium]` `[patch]` Storm-fill containment bound fails on short-wide viewports and unclamped spectate free-pan (ALL THREE reviewers; Codex arithmetic: 3440×720 @ min zoom + maxed radar needs ~17.8k u vs 16.8k drawn) — `fillOuterRadius` made dynamic and exact (camera↔ring distance + half-diagonal/zoom + margin, bucketed grow-only at 2000u steps, factor-7×mapRadius floor kept; degenerate camera → floor); containment test rewritten to the dynamic guarantee incl. ultrawide, far-panned spectator (to 5M u), and the TRUE max radar stack 1.15⁵ (the old ×2 premise undershot it — Blind Hunter). Fail-proven (16800 < 17563 before fix).
+  - `[medium]` `[patch]` In-storm denied-click spam square-waved the full-screen vignette up to 3.3 discontinuous flashes/s via the 80ms Tier-1 hold (Blind Hunter traced; Codex independently found the one-frame clock desync half — two `performance.now()` samples per frame) — one shared frame timestamp threaded through renderFiring/ownTier1/updateZone/updateHotbar, and the hold became a 240ms-τ eased BLEND between the two pure `vignetteAlpha` endpoints (an 80ms blip now moves <35% of the hold delta; sustained hold converges lit; breathing amplitude untouched at hold 0; no-op at motion=off). Amendment 16's hold semantics preserved; the ratified photosensitivity floor is the superior law — reconciliation documented in-code. Fail-proven + click-spam regression test over the real DeniedPulse.
+  - `[low]` `[patch]` RevealOneShot's latched amplitude let ≤80ms of flash continue after motion→off mid-envelope (Edge Case Hunter) — returned flash clamped to `min(firedAmp, current amp)`; fail-proven.
+  - `[low]` `[patch]` `dashSpans` had no degenerate-config guard (segments ≤0/fractional → invisible telegraph; duty ≥1 → solid circle = grammar-channel collapse) (Edge Case Hunter) — segments floored ≥1, duty clamped [0.05, 0.95]; fail-proven.
+- reject: finalize-bookkeeping-missing-at-HEAD observation (the spec's own planned sequencing, not a defect); codex CLI internal cache-TTL log noise.
 
 ## Design Notes
 

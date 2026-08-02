@@ -2,9 +2,10 @@
 //   1. The CHARTED storm plane (chartRoot, fog-immune), all camera-transformed
 //      world geometry drawn at the ring's OFFSET center (Story 3.1: rings are no
 //      longer concentric to the map):
-//        • a FULL-AREA storm fill — everything outside the live ring, out past
-//          the map edge (amendment 15; the 3.1 70u annulus band is retired, and
-//          with it the open water that used to sit beyond it);
+//        • a FULL-AREA storm fill — everything outside the live ring, out to
+//          whatever radius covers the whole screen from that ring's center
+//          (amendment 15; the 3.1 70u annulus band is retired, and with it the
+//          open water that used to sit beyond it);
 //        • the live ring's SOLID storm-readout edge on top of it;
 //        • the revealed next ring as a DASHED storm-readout telegraph at ~50%
 //          alpha, landing with a brief motion-gated flash-then-settle at the
@@ -27,8 +28,9 @@
 // it is smooth at 60fps; this module just draws whatever geometry it is handed.
 // Charted redraws are throttled to meaningful radius OR zoom changes (recenters
 // are a cheap position set) — the vignette is the only per-frame cost.
-// Thin Pixi adapter except the pure, unit-tested mappings below (vignetteAlpha,
-// strokeWorldWidth, needsRedraw, dashSpans, the reveal one-shot).
+// Thin Pixi adapter except the pure, unit-tested mappings below (vignetteAlpha
+// + its easeHold/vignetteHeld hold blend, strokeWorldWidth, fillOuterRadius,
+// needsRedraw, dashSpans, the reveal one-shot).
 
 import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { ZonePhase, ZoneRing } from '@salvo/shared';
@@ -58,10 +60,59 @@ export function strokeWorldWidth(px: number, zoom: number): number {
   return Number.isFinite(zoom) && zoom > 0 ? px / zoom : px;
 }
 
-/** Pure: outer radius of the storm fill disc — well beyond the map edge, so
- *  there is no open water outside the live ring at any zoom. */
-export function fillOuterRadius(mapRadius: number): number {
-  return Math.max(1, mapRadius) * Z.fillOuterFactor;
+/** The geometry the storm fill's extent depends on — the subset of a ZoneFrame
+ *  `fillOuterRadius` reads (ZoneFrame extends it, so a frame IS a FillView). */
+export interface FillView {
+  /** The live ring — the fill disc is drawn about ITS center. */
+  cur: { cx: number; cy: number };
+  /** Camera world center (Camera.center) — the middle of what is on screen. */
+  camX: number;
+  camY: number;
+  /** Camera px-per-world-unit. */
+  zoom: number;
+  screenW: number;
+  screenH: number;
+  mapRadius: number;
+}
+
+/**
+ * Pure: the outer radius of the storm fill disc, in world units.
+ *
+ * The disc is centered on the LIVE RING while the VIEWPORT is centered on the
+ * camera, so the disc must reach from the ring's center to the farthest visible
+ * screen corner:
+ *
+ *   needed = dist(camera center, ring center) + halfDiagonal(screen) / zoom
+ *
+ * This is EXACT rather than a constant multiple of the map radius, because no
+ * constant covers it: a short-wide viewport at min zoom with a maxed radar
+ * stack already exceeds `fillOuterFactor × mapRadius`, and spectate free-pan is
+ * unclamped (the camera can sit arbitrarily far from every ring). Cheapness
+ * comes from BUCKETING the answer up to a `fillBucketU` step instead of from a
+ * loose constant — ordinary play never leaves its bucket, so the disc is not
+ * re-tessellated, and a panning spectator crosses a step every few seconds.
+ * `fillOuterFactor × mapRadius` stays as the floor.
+ *
+ * A degenerate camera (non-finite/non-positive zoom or viewport) falls back to
+ * that floor rather than producing an Infinity/NaN radius.
+ */
+export function fillOuterRadius(v: FillView): number {
+  const floor = Math.max(1, Number.isFinite(v.mapRadius) ? v.mapRadius : 0) * Z.fillOuterFactor;
+  return bucketUp(Math.max(floor, coverRadius(v)));
+}
+
+/** World-space distance from the ring center to the farthest visible corner
+ *  (0 when the camera state is degenerate — the floor then wins). */
+function coverRadius(v: FillView): number {
+  const parts = [v.cur.cx, v.cur.cy, v.camX, v.camY, v.zoom, v.screenW, v.screenH];
+  if (!parts.every(Number.isFinite) || v.zoom <= 0) return 0;
+  const halfDiag = Math.hypot(v.screenW, v.screenH) / 2;
+  return Math.hypot(v.camX - v.cur.cx, v.camY - v.cur.cy) + (halfDiag + Z.fillMarginPx) / v.zoom;
+}
+
+/** Round a radius UP to the next `fillBucketU` step (the re-tessellation guard). */
+function bucketUp(r: number): number {
+  return Math.ceil(r / Z.fillBucketU) * Z.fillBucketU;
 }
 
 /**
@@ -77,12 +128,28 @@ export function needsRedraw(lastR: number, lastZoom: number, r: number, zoom: nu
   return Math.abs(zoom - lastZoom) > Math.abs(lastZoom) * Z.redrawZoomFrac;
 }
 
-/** Pure: the [start, end] angles (rad) of each dash around a dashed circle —
- *  `segments` evenly spaced spans, each lit for `duty` of its step. */
+/** Duty clamp — a dash must be VISIBLE and must leave a GAP, or the telegraph
+ *  stops being the dashed half of the amendment-14 grammar (0 draws nothing,
+ *  1 draws the solid circle that is the LIVE edge's mark). */
+const DUTY_MIN = 0.05;
+const DUTY_MAX = 0.95;
+
+/**
+ * Pure: the [start, end] angles (rad) of each dash around a dashed circle —
+ * `segments` evenly spaced spans, each lit for `duty` of its step.
+ *
+ * Both inputs are CLAMPED rather than trusted: they are config today, but a
+ * degenerate pair is a silent information loss (no spans = no telegraph; a
+ * full duty = a solid circle indistinguishable from the live edge), and a
+ * fractional/zero/negative/NaN segment count would otherwise produce an empty
+ * list or an Infinity step.
+ */
 export function dashSpans(segments: number, duty: number): [number, number][] {
-  const step = (Math.PI * 2) / segments;
+  const n = Math.max(1, Math.floor(Number.isFinite(segments) ? segments : 1));
+  const d = Math.min(DUTY_MAX, Math.max(DUTY_MIN, Number.isFinite(duty) ? duty : DUTY_MIN));
+  const step = (Math.PI * 2) / n;
   const spans: [number, number][] = [];
-  for (let i = 0; i < segments; i++) spans.push([i * step, i * step + step * duty]);
+  for (let i = 0; i < n; i++) spans.push([i * step, i * step + step * d]);
   return spans;
 }
 
@@ -137,7 +204,13 @@ export class RevealOneShot {
       this.firedAt = nowMs;
       this.firedAmp = amp;
     }
-    return revealFlashAlpha(nowMs - this.firedAt, this.firedAmp);
+    // The latched amplitude, CLAMPED to this frame's: the latch exists so a
+    // motion level raised after the fact cannot resurrect a flash, but it must
+    // not work the other way either — a player who drops motion to `off` (or
+    // `reduced`) DURING the 80ms envelope has to see it stop immediately, rather
+    // than sit through a flourish they just switched off. At `off` amp is 0, so
+    // the residual flash dies on the very next frame.
+    return revealFlashAlpha(nowMs - this.firedAt, Math.min(this.firedAmp, amp));
   }
 }
 
@@ -155,11 +228,13 @@ export class RevealOneShot {
  * at `reduced`, zero at `off`, where the vignette holds its steady base alpha.
  * The hazard stays fully visible at every level; only the pulse is motion.
  *
- * TIER-GATED (Story 3.2, amendment 16): `holdLit` is the attention seam — while
- * a Tier-1 threat channel owns the player's eye, this Tier-2 channel stops
- * breathing and HOLDS at its lit (max-alpha) keyframe, resuming when the channel
- * clears. At motion=off (amp 0) the lit keyframe IS the base alpha, so the hold
- * is a no-op there rather than a hidden motion exception.
+ * TIER-GATED (Story 3.2, amendment 16): `holdLit` selects the attention seam's
+ * two ENDPOINTS — the breathing value, and the lit (max-alpha) keyframe this
+ * Tier-2 channel holds at while a Tier-1 threat channel owns the player's eye.
+ * The renderer does not switch between them discontinuously; it eases (see
+ * easeHold/vignetteHeld below). At motion=off (amp 0) the lit keyframe IS the
+ * base alpha, so the hold is a no-op there rather than a hidden motion
+ * exception.
  */
 export function vignetteAlpha(
   inStorm: boolean,
@@ -170,6 +245,63 @@ export function vignetteAlpha(
   if (!inStorm) return 0;
   if (holdLit) return Z.vignetteBase + amp;
   return Z.vignetteBase + amp * Math.sin(tSec * CLIENT_CONFIG.settings.pulseCapHz * Math.PI * 2);
+}
+
+/** Clamp to [0,1] (a blend factor, or a caller's degenerate input). */
+function clamp01(v: number): number {
+  return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+}
+
+/**
+ * Pure: the Tier-1 HOLD BLEND, eased one frame of `dtMs` toward `target`
+ * (1 while a Tier-1 channel is live, 0 otherwise) with time constant `tauMs`.
+ *
+ * THE RECONCILIATION (amendment 16 vs the ratified photosensitivity floor).
+ * Amendment 16 says a Tier-1 channel moves the vignette to — and holds it at —
+ * its lit keyframe. Taken as an instantaneous switch, that breaks the floor the
+ * same story pins: an accepted denied-fire click owns Tier 1 for 80ms and the
+ * spam register allows one every 300ms, so in-storm click-spam would square-wave
+ * a FULL-SCREEN wash up to 3.3 times a second (the floor is ≤1.1Hz pulsing and
+ * ≤3 flashes/s in any region). The accessibility floor is the superior law, so
+ * the hold is a first-order approach instead of a step: the SEMANTICS are
+ * untouched (Tier-1 active → move to and hold the lit keyframe; clear → return
+ * to breathing), only the discontinuity is gone. An 80ms blip becomes a swell of
+ * ~28% of the delta; a sustained hold arrives and stays.
+ *
+ * Blending the two ENDPOINTS (rather than low-passing the alpha itself) is what
+ * keeps the breathing waveform intact at hold 0 — a filter over the alpha would
+ * quietly attenuate the ratified pulse amplitude.
+ */
+export function easeHold(
+  current: number,
+  target: number,
+  dtMs: number,
+  tauMs: number = Z.holdEaseMs,
+): number {
+  const from = clamp01(current);
+  const to = clamp01(target);
+  if (!Number.isFinite(dtMs) || dtMs <= 0) return from;
+  if (!(tauMs > 0)) return to; // a zero time constant IS the old snap
+  return from + (to - from) * (1 - Math.exp(-dtMs / tauMs));
+}
+
+/**
+ * Pure: the vignette alpha actually drawn — the breathing value and the lit
+ * keyframe mixed by the eased `hold` blend (0 = breathing, 1 = held lit).
+ *
+ * At motion=off the two endpoints are the SAME number (amp 0), so the blend is
+ * a literal no-op: the hold can never introduce motion at a level that asked
+ * for none.
+ */
+export function vignetteHeld(
+  inStorm: boolean,
+  tSec: number,
+  amp: number,
+  hold: number,
+): number {
+  const breathing = vignetteAlpha(inStorm, tSec, amp, false);
+  const lit = vignetteAlpha(inStorm, tSec, amp, true);
+  return breathing + (lit - breathing) * clamp01(hold);
 }
 
 /** What the charted plane shows this frame. */
@@ -208,7 +340,7 @@ function dashedCircle(g: Graphics, r: number): void {
 /** Everything the zone plane needs for one frame. An object rather than a
  *  positional list: the frame carries camera + attention state now, and a
  *  ten-argument call is where render bugs come from. */
-export interface ZoneFrame {
+export interface ZoneFrame extends FillView {
   /** The LIVE ring (offset center + radius), derived via zoneLiveState(). */
   cur: ZoneRing;
   /** The REVEALED next ring, or null while none is public. */
@@ -225,11 +357,18 @@ export interface ZoneFrame {
   /** MONOTONIC ms (performance.now()) — drives the reveal one-shot envelope, so
    *  a server-clock resync can never stretch or rewind an 80ms flash. */
   nowMs: number;
-  /** Camera px-per-world-unit (chartRoot's scale) — the screen-lock divisor. */
+  /** Camera px-per-world-unit (chartRoot's scale) — the screen-lock divisor,
+   *  and (with the viewport) half of the fill's containment bound. */
   zoom: number;
-  /** Map radius (u) — sets how far past the edge the storm fill reaches. */
+  /** Camera world center (Camera.center) — the fill disc is drawn about the
+   *  RING's center, so how far the camera has travelled from it is exactly how
+   *  far the disc must reach to still cover the screen. */
+  camX: number;
+  camY: number;
+  /** Map radius (u) — the FLOOR under the fill's dynamic outer radius. */
   mapRadius: number;
-  /** Viewport (positions + stretches the screen-space vignette). */
+  /** Viewport (positions + stretches the screen-space vignette; also feeds the
+   *  fill's visible-diagonal term). */
   screenW: number;
   screenH: number;
 }
@@ -243,9 +382,13 @@ export class Zone {
   private readonly reveal = new RevealOneShot();
   private lastR = -1;
   private lastZoom = -1;
-  private lastMapR = -1;
+  private lastFillR = -1;
   private lastTargetR = -1;
   private lastTargetZoom = -1;
+  /** The eased Tier-1 hold blend (0 breathing → 1 held lit) + the frame clock
+   *  it was last advanced on (-1 = never; the first frame eases by nothing). */
+  private holdBlend = 0;
+  private lastVigMs = -1;
 
   constructor(chartLayer: Container, vignetteLayer: Container) {
     chartLayer.addChild(this.storm);
@@ -261,13 +404,14 @@ export class Zone {
   /**
    * Re-stroke the storm plane for a new radius/zoom (throttled by the caller).
    * Drawn about the local origin — the graphic's POSITION carries the ring
-   * center. The fill is ONE path: a disc out past the map edge with the live
-   * ring cut out of it, so the storm is everywhere the safe circle is not.
+   * center. The fill is ONE path: a disc of `fillR` (sized to cover the whole
+   * screen from this ring's center — see fillOuterRadius) with the live ring cut
+   * out of it, so the storm is everywhere the safe circle is not.
    */
-  private drawStorm(radius: number, zoom: number, mapRadius: number): void {
+  private drawStorm(radius: number, zoom: number, fillR: number): void {
     const g = this.storm;
     g.clear();
-    g.circle(0, 0, fillOuterRadius(mapRadius)).fill({ color: FILL_COLOR, alpha: Z.fillAlpha });
+    g.circle(0, 0, fillR).fill({ color: FILL_COLOR, alpha: Z.fillAlpha });
     g.circle(0, 0, radius).cut(); // the safe side is a hole in the storm, not a band
     g.circle(0, 0, radius).stroke({
       width: strokeWorldWidth(Z.edgePx, zoom),
@@ -276,14 +420,23 @@ export class Zone {
     });
   }
 
-  /** Storm plane for this frame: re-stroke only on a meaningful radius / zoom /
-   *  map change, then carry the offset center as a cheap position set. */
+  /**
+   * Storm plane for this frame: re-stroke only on a meaningful radius / zoom
+   * change, or when the containment bound outgrows what is drawn, then carry
+   * the offset center as a cheap position set.
+   *
+   * The fill radius is GROW-ONLY: a bucket that shrinks (the spectator pans
+   * back toward the ring) keeps the bigger disc, because an oversized fill is
+   * invisible — it only ever covers water the screen cannot see — while a
+   * shrink would buy a re-tessellation for nothing.
+   */
   private updateStorm(f: ZoneFrame): void {
-    if (needsRedraw(this.lastR, this.lastZoom, f.cur.r, f.zoom) || this.lastMapR !== f.mapRadius) {
-      this.drawStorm(f.cur.r, f.zoom, f.mapRadius);
+    const fillR = Math.max(this.lastFillR, fillOuterRadius(f));
+    if (needsRedraw(this.lastR, this.lastZoom, f.cur.r, f.zoom) || fillR > this.lastFillR) {
+      this.drawStorm(f.cur.r, f.zoom, fillR);
       this.lastR = f.cur.r;
       this.lastZoom = f.zoom;
-      this.lastMapR = f.mapRadius;
+      this.lastFillR = fillR;
     }
     this.storm.position.set(f.cur.cx, f.cur.cy);
   }
@@ -305,13 +458,18 @@ export class Zone {
   }
 
   /** Screen-space vignette: stretched to the viewport, alpha from the pure
-   *  mapping (motion-scaled amplitude, Tier-1 hold). */
+   *  mappings (motion-scaled amplitude, EASED Tier-1 hold). The hold blend is
+   *  advanced on the frame's monotonic clock — the same instant the denied
+   *  pulse that may own Tier-1 was driven with (main.ts samples it once). */
   private updateVignette(f: ZoneFrame, active: boolean): void {
     this.vignette.position.set(f.screenW / 2, f.screenH / 2);
     this.vignette.width = f.screenW;
     this.vignette.height = f.screenH;
+    const dtMs = this.lastVigMs < 0 ? 0 : f.nowMs - this.lastVigMs;
+    this.lastVigMs = f.nowMs;
+    this.holdBlend = easeHold(this.holdBlend, f.tier1 ? 1 : 0, dtMs);
     const amp = motionScaled(Z.vignetteAmp, settings.current.motion);
-    this.vignette.alpha = active ? vignetteAlpha(f.inStorm, f.nowSec, amp, f.tier1) : 0;
+    this.vignette.alpha = active ? vignetteHeld(f.inStorm, f.nowSec, amp, this.holdBlend) : 0;
   }
 
   /** Update the zone visuals for this frame. */

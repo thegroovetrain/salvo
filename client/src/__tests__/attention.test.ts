@@ -8,7 +8,7 @@ import { describe, it, expect } from 'vitest';
 import { holdAtLitKeyframe, tier1Active } from '../render/attention.js';
 import { railPulsing } from '../render/hud.js';
 import { DeniedPulse, PULSE_DURATION_MS, pulseLiveAt } from '../render/deniedFire.js';
-import { vignetteAlpha } from '../render/zone.js';
+import { easeHold, vignetteAlpha, vignetteHeld } from '../render/zone.js';
 import { CLIENT_CONFIG } from '../config.js';
 
 const V = CLIENT_CONFIG.vitals;
@@ -91,5 +91,39 @@ describe('Tier 1 -> Tier 2: the in-storm vignette holds at its lit keyframe', ()
 
   it('never overrides the storm gate: inside the ring there is no vignette', () => {
     expect(vignetteAlpha(false, 1.2, AMP, true)).toBe(0);
+  });
+
+  it('CLICK-SPAM in the storm never square-waves the full-screen vignette', () => {
+    // The hazard the easing exists for: a player mashing fire while out of the
+    // zone lands an ACCEPTED denial every PULSE_RATE_MS (300), each owning
+    // Tier 1 for PULSE_DURATION_MS (80). A snapping hold turns that into ~3.3
+    // full-amplitude flashes per second on a FULL-SCREEN wash — past the
+    // ≤1.1Hz / ≤3-flashes-per-region floor. Driven here through the real
+    // DeniedPulse + the real seam, three seconds of spam at 60fps.
+    const pulse = new DeniedPulse();
+    const FRAME_MS = 16;
+    let hold = 0;
+    const alphas: number[] = [];
+    const breathing: number[] = [];
+    const tiers: boolean[] = [];
+    for (let i = 0; i * FRAME_MS < 3_000; i++) {
+      const nowMs = i * FRAME_MS;
+      pulse.update(true, nowMs); // a click every single frame
+      const tier1 = tier1Active({ hpFrac: 1, deniedLive: pulse.liveAt(nowMs) });
+      tiers.push(tier1);
+      hold = easeHold(hold, holdAtLitKeyframe(tier1) ? 1 : 0, FRAME_MS);
+      alphas.push(vignetteHeld(true, nowMs / 1000, AMP, hold));
+      breathing.push(vignetteAlpha(true, nowMs / 1000, AMP, false));
+    }
+    // Tier 1 really is cycling on and off (the seam is not dead in this
+    // scenario — this is exactly the square wave the vignette must not copy).
+    expect(tiers.filter(Boolean).length).toBeGreaterThan(10);
+    expect(tiers.filter((t) => !t).length).toBeGreaterThan(10);
+    // ...yet in the steady state the wash RIPPLES rather than square-waves:
+    // peak-to-peak, it covers well under a third of the breathing→lit delta
+    // (a snapping hold covers the whole of it, 300ms in and 300ms out).
+    const swing = alphas.map((a, i) => Math.abs(a - breathing[i]) / Math.abs(LIT - breathing[i]));
+    const steady = swing.slice(Math.ceil(2_000 / FRAME_MS)); // last ~1s
+    expect(Math.max(...steady) - Math.min(...steady)).toBeLessThan(0.35);
   });
 });

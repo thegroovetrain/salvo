@@ -1575,6 +1575,7 @@ function renderOwn(
   match: MatchUx,
   frameDt: number,
   now: number,
+  nowMs: number,
 ): void {
   if (!g.cameraSnapped) {
     g.camera.snapTo(pose);
@@ -1589,11 +1590,11 @@ function renderOwn(
   g.lastOwn = { x: pose.x, y: pose.y };
   const cursor = g.camera.screenToWorld(g.mouse.screenPos);
   const aim = worldAim(pose.x, pose.y, cursor);
-  renderFiring(g, pose, status, aim, cursor);
+  renderFiring(g, pose, status, aim, cursor, nowMs);
   // `now / 1000` — the server-clock estimate in SECONDS, the same clock the
   // storm vignette's pulse rides (the HP rail breathes on it).
   g.hud.update(pose, g.keyboard.axes(), status, zone, match, hudWidth(g), hudHeight(g), now / 1000);
-  updateHotbar(g, status);
+  updateHotbar(g, status, nowMs);
   updateXpRail(g, status.alive, now / 1000);
 }
 
@@ -1633,7 +1634,7 @@ function hotbarDenied(g: Game, status: OwnStatus): boolean[] {
  * included) — it dies with the hull (death / spectate / reveal) and on return
  * to port. Called after renderFiring so this frame's denied pulse is resolved.
  */
-function updateHotbar(g: Game, status: OwnStatus): void {
+function updateHotbar(g: Game, status: OwnStatus, nowMs: number): void {
   if (!status.alive) {
     g.hotbar.hide();
     return;
@@ -1662,7 +1663,7 @@ function updateHotbar(g: Game, status: OwnStatus): void {
   // Hover + hit-test run in the HUD's own (scaled) coordinate space, so the raw
   // screen cursor is divided by the same factor the root container multiplies by.
   const cursor = g.mouse.pointerInside ? hudPoint(g, g.mouse.screenPos) : null;
-  g.hotbar.update(view, hudWidth(g), hudHeight(g), cursor, performance.now());
+  g.hotbar.update(view, hudWidth(g), hudHeight(g), cursor, nowMs); // the frame's ONE timestamp
 }
 
 /**
@@ -1694,7 +1695,7 @@ function handleHotbarPress(g: Game | null, p: ScreenPoint): boolean {
  * is suppressed), so denying fire on that phase alone would red-pulse
  * "denied" while shells visibly leave the tube.
  */
-function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }): void {
+function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number, cursor: { x: number; y: number }, nowMs: number): void {
   const clicked = g.mouse.clickCount !== g.prevClickCount;
   g.prevClickCount = g.mouse.clickCount;
   // Ability denied pulse (Story 1.6): consume each slot's one-shot press latch
@@ -1702,7 +1703,6 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   // ability slots). Chips-only feedback — deliberately OUTSIDE the alive gate
   // below (a dead press is denied too and must still pulse) and never fed into
   // the weapon-arc/reticle denied visuals (nothing is aimed).
-  const nowMs = performance.now();
   for (let s = 0; s < g.abilityPulse.length; s++) {
     g.abilityFlash[s] = g.abilityPulse[s].update(g.abilityDeniedPress[s], nowMs);
     g.abilityDeniedPress[s] = false;
@@ -1750,7 +1750,11 @@ function renderFiring(g: Game, pose: RenderPose, status: OwnStatus, aim: number,
   // rate-limited red pulse — the late server case replaces total silence.
   const denied = isClickDenied({ clicked, ready: hasAmmo, inArc }) || g.serverDeniedClick;
   g.serverDeniedClick = false;
-  g.deniedFlash = g.deniedPulse.update(denied, performance.now());
+  // The FRAME's timestamp, not a fresh sample: the attention seam (ownTier1)
+  // reads this same pulse's liveness later in the same frame, and two
+  // performance.now() calls can straddle the envelope's tail — a hold that
+  // disagrees with the flash the player actually saw.
+  g.deniedFlash = g.deniedPulse.update(denied, nowMs);
   g.firing.update(
     pose,
     aim,
@@ -1913,14 +1917,25 @@ function ownZoneFogHoles(g: Game, zones: readonly OwnZone[], now: number): FogHo
 
 /**
  * The zone plane's per-frame inputs (Story 3.2). Beyond the derived ring view it
- * carries the CAMERA ZOOM (the strokes are screen-locked, so the zoom is part of
- * the drawn geometry), the MAP EXTENT (the storm fill runs out past the map
- * edge), and the TIER-1 attention state (the vignette holds at its lit keyframe
- * while a threat channel owns the eye). `nowMs` is deliberately the monotonic
- * clock, not the server estimate: it drives the reveal one-shot's 80ms envelope,
- * which a clock resync must never stretch or rewind.
+ * carries the CAMERA ZOOM + CENTER (the strokes are screen-locked and the storm
+ * fill must cover the screen from the ring's center, so both are part of the
+ * drawn geometry), the MAP EXTENT (the fill's floor), and the TIER-1 attention
+ * state (the vignette holds at its lit keyframe while a threat channel owns the
+ * eye). `nowMs` is deliberately the monotonic clock, not the server estimate: it
+ * drives the reveal one-shot's 80ms envelope and the vignette's hold easing,
+ * which a clock resync must never stretch or rewind. It is also THE ONE frame
+ * timestamp (sampled once in makeCallbacks' render callback) — re-sampling
+ * performance.now() here would let the vignette's hold disagree by a frame with
+ * the denied pulse that caused it.
  */
-function updateZone(g: Game, zv: ZoneView, inStorm: boolean, tier1: boolean, now: number): void {
+function updateZone(
+  g: Game,
+  zv: ZoneView,
+  inStorm: boolean,
+  tier1: boolean,
+  now: number,
+  nowMs: number,
+): void {
   g.zone.update({
     cur: zv.cur,
     next: zv.next,
@@ -1928,8 +1943,13 @@ function updateZone(g: Game, zv: ZoneView, inStorm: boolean, tier1: boolean, now
     inStorm,
     tier1,
     nowSec: now / 1000,
-    nowMs: performance.now(),
+    nowMs,
     zoom: g.camera.zoom,
+    // The camera's world center: the storm fill is drawn about the RING's
+    // center, so the disc's outer radius has to reach whatever the camera has
+    // wandered to (spectate free-pan is unclamped).
+    camX: g.camera.center.x,
+    camY: g.camera.center.y,
     mapRadius: g.mapRadius,
     screenW: g.stage.app.screen.width,
     screenH: g.stage.app.screen.height,
@@ -1938,16 +1958,27 @@ function updateZone(g: Game, zv: ZoneView, inStorm: boolean, tier1: boolean, now
 
 /** Tier-1 (THREAT) channels as this story knows them (amendment 16): the HP
  *  rail's low-HP pulse and a live denied-fire pulse. render/attention.ts owns
- *  the composition; this only resolves the own-ship inputs. */
-function ownTier1(g: Game, status: OwnStatus): boolean {
+ *  the composition; this only resolves the own-ship inputs. `nowMs` is the
+ *  frame's ONE timestamp — the same instant renderFiring drove the denied pulse
+ *  with, so the hold can never read a pulse the visible flash has already ended
+ *  (or miss one it just started). */
+function ownTier1(g: Game, status: OwnStatus, nowMs: number): boolean {
   const maxHp = status.stats.maxHp;
   return tier1Active({
     hpFrac: maxHp > 0 ? status.hp / maxHp : null,
-    deniedLive: g.deniedPulse.liveAt(performance.now()),
+    deniedLive: g.deniedPulse.liveAt(nowMs),
   });
 }
 
-function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
+function renderAlive(
+  g: Game,
+  alpha: number,
+  frameDt: number,
+  now: number,
+  nowMs: number,
+  zv: ZoneView,
+  mu: MatchUx,
+): void {
   const pose = ownPose(g, alpha, frameDt);
   const status = ownStatus(g);
   // Own ACTIVE star-shell zones (net → state → render): keep beyond-sight shells
@@ -1956,7 +1987,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
   const inStorm = !!pose && zv.state !== 'idle' && isOutside(pose, zv.cur.cx, zv.cur.cy, zv.cur.r);
   if (stormEnterEdge(g.wasInStorm, inStorm)) g.audio.play('stormWarn');
   g.wasInStorm = inStorm;
-  if (pose) renderOwn(g, pose, status, zoneHud(zv, inStorm), mu, frameDt, now);
+  if (pose) renderOwn(g, pose, status, zoneHud(zv, inStorm), mu, frameDt, now, nowMs);
   else {
     g.ownView.gfx.visible = false; // forceSnap gap (respawn/P-toggle): no stale-pose flicker
     g.nameplates.hide(g.state.net.sessionId); // plate follows the hull's visibility
@@ -1967,7 +1998,7 @@ function renderAlive(g: Game, alpha: number, frameDt: number, now: number, zv: Z
     // chip's 10s window off a gap the player never saw (see hideTransient).
     g.xpRail.hideTransient();
   }
-  updateZone(g, zv, inStorm, ownTier1(g, status), now);
+  updateZone(g, zv, inStorm, ownTier1(g, status, nowMs), now, nowMs);
   // Own pose feeds the shell sight-bubble cull; own active zones keep a shell
   // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
@@ -2033,12 +2064,12 @@ function updateSpectateCamera(g: Game, frameDt: number, now: number): void {
   if (pose) g.camera.update(frameDt, pose);
 }
 
-function renderSpectate(g: Game, frameDt: number, now: number, zv: ZoneView, mu: MatchUx): void {
+function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv: ZoneView, mu: MatchUx): void {
   enterSpectateVisuals(g); // idempotent belt-and-braces with onSpectate
   updateSpectateCamera(g, frameDt, now);
   // A spectator is never IN the storm and owns no Tier-1 channel (no hull, no
   // fire control) — the plane renders, the vignette does not.
-  updateZone(g, zv, false, false, now);
+  updateZone(g, zv, false, false, now, nowMs);
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
   g.effects.update(frameDt, null);
   g.radar.render(null, now); // hides the sweep + rings
@@ -2125,6 +2156,12 @@ function makeCallbacks(g: Game): LoopCallbacks {
     },
     render: (alpha, frameDt) => {
       applyUiScale(g); // no-op unless the stored tier or the viewport gate moved
+      // THE frame's monotonic timestamp, sampled EXACTLY once: every one-shot
+      // pulse driven this frame and every reader of those pulses (the attention
+      // seam → the storm vignette's hold) must see the same instant, or a
+      // channel can be "live" for its driver and dead for its reader inside one
+      // rendered frame.
+      const nowMs = performance.now();
       const now = g.clock.serverNow();
       const zv = zoneView(g, now);
       const mu = matchUxFromRoom(g, now);
@@ -2135,8 +2172,8 @@ function makeCallbacks(g: Game): LoopCallbacks {
       g.camera.shake.x = shakeOff.x;
       g.camera.shake.y = shakeOff.y;
       updateOwnColor(g); // recolor own hull/wake once the roster hue syncs (Story 1.12)
-      if (g.state.spectating) renderSpectate(g, frameDt, now, zv, mu);
-      else renderAlive(g, alpha, frameDt, now, zv, mu);
+      if (g.state.spectating) renderSpectate(g, frameDt, now, nowMs, zv, mu);
+      else renderAlive(g, alpha, frameDt, now, nowMs, zv, mu);
       syncRefitBand(g);
       g.contactViews.render(
         g.contacts,

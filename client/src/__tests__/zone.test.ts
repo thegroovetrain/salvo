@@ -16,13 +16,16 @@ import {
   FILL_COLOR,
   RevealOneShot,
   dashSpans,
+  easeHold,
   fillOuterRadius,
+  type FillView,
   needsRedraw,
   planeVisibility,
   revealFlashAlpha,
   ringKey,
   strokeWorldWidth,
   vignetteAlpha,
+  vignetteHeld,
 } from '../render/zone.js';
 import { zoneViewFrom, type ZonePlane } from '../sim/zoneView.js';
 import { CLIENT_CONFIG } from '../config.js';
@@ -60,6 +63,30 @@ describe('ring grammar (amendment 14) — solid current, dashed next, both viole
     expect(Z.telegraphAlpha).toBeLessThan(Z.edgeAlpha);
     expect(Z.telegraphAlpha).toBeCloseTo(0.5, 6); // the ratified ~50%
   });
+
+  it('dashSpans survives a degenerate config: always dashed, never empty', () => {
+    // Pure hardening. A mistuned segment count or duty must still produce a
+    // readable DASHED telegraph — an empty span list draws no telegraph at all
+    // (information deleted) and a full-duty one draws a solid circle, which is
+    // the CURRENT edge's grammar (the two would stop being distinguishable).
+    for (const segments of [0, -3, 2.7, NaN]) {
+      const spans = dashSpans(segments, Z.telegraphDuty);
+      expect(spans.length).toBeGreaterThanOrEqual(1);
+      for (const [a0, a1] of spans) {
+        expect(Number.isFinite(a0)).toBe(true);
+        expect(a1).toBeGreaterThan(a0);
+      }
+    }
+    for (const duty of [0, -1, 1, 1.5, NaN]) {
+      const spans = dashSpans(Z.telegraphDashes, duty);
+      expect(spans).toHaveLength(Z.telegraphDashes);
+      const lit = spans.reduce((sum, [a0, a1]) => sum + (a1 - a0), 0);
+      expect(lit).toBeGreaterThan(0); // never invisible
+      expect(lit).toBeLessThan(Math.PI * 2); // never solid
+      // gaps survive: every dash still ends before the next one starts
+      for (let i = 1; i < spans.length; i++) expect(spans[i][0]).toBeGreaterThan(spans[i - 1][1]);
+    }
+  });
 });
 
 describe('strokeWorldWidth — the SCREEN-LOCKED stroke (zoom invariance)', () => {
@@ -87,31 +114,118 @@ describe('strokeWorldWidth — the SCREEN-LOCKED stroke (zoom invariance)', () =
 });
 
 describe('fillOuterRadius — the FULL-AREA storm fill (amendment 15)', () => {
-  it('reaches well past the map edge, so no open water sits outside the ring', () => {
-    const mapR = CONFIG.map.baseRadius;
-    expect(fillOuterRadius(mapR)).toBeGreaterThan(mapR);
-    expect(fillOuterRadius(mapR)).toBeCloseTo(mapR * Z.fillOuterFactor, 9);
+  const MAP_R = CONFIG.map.baseRadius;
+  /** The true maximum effective radar range: intelRadar is a x5-copy 1.15
+   *  multiplier (shared/sim/boons.ts), and the camera fits 2 x radar on the
+   *  SHORT axis — a bigger radar is a WIDER view, so it widens the fill's job. */
+  const MAX_RADAR = CONFIG.vision.radar * Math.pow(1.15, 5);
+
+  const view = (o: Partial<FillView> = {}): FillView => ({
+    cur: { cx: 0, cy: 0 },
+    camX: 0,
+    camY: 0,
+    zoom: 1,
+    screenW: 1920,
+    screenH: 1080,
+    mapRadius: MAP_R,
+    ...o,
   });
 
-  it('clears the farthest screen CORNER in the worst case (no open-void arc)', () => {
-    // The disc is centered on the LIVE RING, so the bound is
-    //   |ring center| + |camera center| + half the visible diagonal.
-    // Worst case: a maximally offset ring, a hull at the far map edge, an
-    // ultrawide viewport at the widest user zoom, with an upgraded radar range
-    // (the camera fits 2x radar on the SHORT axis, so a bigger radar = a wider
-    // view). If this ever fails, the storm fill ends mid-screen.
-    const mapR = CONFIG.map.baseRadius;
-    const [vw, vh] = [3840, 1080]; // 32:9
-    const radar = CONFIG.vision.radar * 2; // a heavily stacked radarRange build
-    const zoom = (Math.min(vw, vh) / (2 * radar)) * CLIENT_CONFIG.zoom.min;
-    const halfDiag = Math.hypot(vw / 2, vh / 2) / zoom;
-    const worstCase = 2 * mapR + CLIENT_CONFIG.camera.leadMax + halfDiag;
-    expect(fillOuterRadius(mapR)).toBeGreaterThan(worstCase);
+  /** The camera zoom a viewport lands at for a given radar range + user zoom. */
+  const zoomFor = (vw: number, vh: number, radar: number, user: number): number =>
+    (Math.min(vw, vh) / (2 * radar)) * user;
+
+  /** EXACTLY what the disc must reach: the ring center is its origin, and the
+   *  farthest visible point is the opposite screen corner from the camera. */
+  const needed = (v: FillView): number =>
+    Math.hypot(v.camX - v.cur.cx, v.camY - v.cur.cy) +
+    Math.hypot(v.screenW, v.screenH) / 2 / v.zoom;
+
+  it('reaches well past the map edge in ordinary play, and stays on its floor', () => {
+    const v = view({ zoom: zoomFor(1920, 1080, CONFIG.vision.radar, 1) });
+    expect(fillOuterRadius(v)).toBeGreaterThan(MAP_R);
+    // Ordinary play never leaves the floor's bucket — so the disc is drawn once
+    // and never re-tessellated by a camera that is merely following a hull.
+    expect(fillOuterRadius(v)).toBe(Math.ceil((MAP_R * Z.fillOuterFactor) / Z.fillBucketU) * Z.fillBucketU);
   });
 
-  it('stays finite and positive for a degenerate map radius', () => {
-    expect(fillOuterRadius(0)).toBeGreaterThan(0);
-    expect(Number.isFinite(fillOuterRadius(0))).toBe(true);
+  it('covers ANY viewport / zoom / camera offset thrown at it (the dynamic bound)', () => {
+    const viewports = [
+      [1280, 614], // the logical floor
+      [1920, 1080],
+      [2560, 1080],
+      [3440, 720], // short-wide: the case a constant x7 factor misses
+      [3840, 1080],
+      [720, 3440], // portrait, for symmetry
+    ];
+    for (const [vw, vh] of viewports) {
+      for (const radar of [CONFIG.vision.radar, MAX_RADAR]) {
+        for (const user of [CLIENT_CONFIG.zoom.min, 1, CLIENT_CONFIG.zoom.max]) {
+          for (const [dx, dy] of [[0, 0], [MAP_R, MAP_R], [-9_000, 4_000]]) {
+            const v = view({
+              zoom: zoomFor(vw, vh, radar, user),
+              screenW: vw,
+              screenH: vh,
+              cur: { cx: 180, cy: -90 },
+              camX: 180 + dx,
+              camY: -90 + dy,
+            });
+            expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
+          }
+        }
+      }
+    }
+  });
+
+  it('FAIL-PROOF: 3440x720 at min zoom with a maxed radar stack', () => {
+    // The pre-fix constant bound (mapRadius x 7 = 16800u) fell ~760u short here,
+    // which paints an arc of un-tinted void along the outside of the fill.
+    const v = view({
+      screenW: 3440,
+      screenH: 720,
+      zoom: zoomFor(3440, 720, MAX_RADAR, CLIENT_CONFIG.zoom.min),
+      // A ring hugging one map edge with the camera at the opposite one: the
+      // two are 2 x mapRadius apart, which is the honest worst case.
+      cur: { cx: -MAP_R, cy: 0 },
+      camX: MAP_R,
+      camY: 0,
+    });
+    expect(needed(v)).toBeGreaterThan(MAP_R * Z.fillOuterFactor); // the old bound WAS short
+    expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
+  });
+
+  it('covers a far-panned SPECTATOR (free pan is unclamped — no constant covers it)', () => {
+    for (const d of [10_000, 250_000, 5_000_000]) {
+      const v = view({ camX: d, camY: -d, zoom: zoomFor(2560, 1080, MAX_RADAR, 1), screenW: 2560, screenH: 1080 });
+      expect(fillOuterRadius(v)).toBeGreaterThan(needed(v));
+      expect(Number.isFinite(fillOuterRadius(v))).toBe(true);
+    }
+  });
+
+  it('BUCKETS upward, so a panning camera does not re-tessellate every frame', () => {
+    const base = view({ camX: 29_000, zoom: 0.2 });
+    const r = fillOuterRadius(base);
+    expect(r % Z.fillBucketU).toBe(0); // always on a bucket step
+    // Creeping the camera a few hundred units cannot move the drawn radius.
+    for (const dx of [1, 50, 400]) {
+      expect(fillOuterRadius(view({ camX: 29_000 + dx, zoom: 0.2 }))).toBe(r);
+    }
+    // ...but a genuine pan past a step does.
+    expect(fillOuterRadius(view({ camX: 29_000 + Z.fillBucketU * 2, zoom: 0.2 }))).toBeGreaterThan(r);
+  });
+
+  it('stays finite and positive for a degenerate map radius or camera', () => {
+    expect(fillOuterRadius(view({ mapRadius: 0 }))).toBeGreaterThan(0);
+    for (const bad of [0, -1, NaN, Infinity]) {
+      const r = fillOuterRadius(view({ zoom: bad }));
+      expect(Number.isFinite(r)).toBe(true);
+      expect(r).toBeGreaterThan(0);
+    }
+    for (const bad of [NaN, Infinity]) {
+      const r = fillOuterRadius(view({ camX: bad, mapRadius: NaN, screenW: bad }));
+      expect(Number.isFinite(r)).toBe(true);
+      expect(r).toBeGreaterThan(0);
+    }
   });
 
   it('keeps the fill low enough to be ambience, not a legibility surface', () => {
@@ -237,6 +351,21 @@ describe('the reveal ONE-SHOT (amendment 17)', () => {
     expect(os.update(RING1, 40, AMP)).toBe(0);
   });
 
+  it('dies INSTANTLY when motion drops to off mid-envelope (latched amp clamp)', () => {
+    // The amplitude is latched at fire time so a later motion change cannot
+    // resurrect a flash. The other direction has to hold too: a player who hits
+    // "reduce motion" DURING the 80ms envelope must not keep watching the flash
+    // they just switched off — the CURRENT frame's amp caps the returned alpha.
+    const os = new RevealOneShot();
+    expect(os.update(RING1, 0, AMP)).toBeCloseTo(AMP, 9); // fired at motion=full
+    expect(os.update(RING1, Z.revealMs / 4, 0)).toBe(0); // motion -> off mid-flash
+    expect(os.update(RING1, Z.revealMs / 2, 0)).toBe(0);
+    // ...and `reduced` mid-envelope clamps to the reduced level, not the latch.
+    const os2 = new RevealOneShot();
+    os2.update(RING1, 0, AMP);
+    expect(os2.update(RING1, 0, AMP * 0.5)).toBeCloseTo(AMP * 0.5, 9);
+  });
+
   it('halves the flash at motion=reduced (amplitude is the motion channel)', () => {
     const os = new RevealOneShot();
     expect(os.update(RING1, 0, AMP * 0.5)).toBeCloseTo(AMP / 2, 9);
@@ -311,6 +440,73 @@ describe('vignetteAlpha — out-of-zone feedback mapping', () => {
 
   it('the Tier-1 hold is a no-op at motion=off (never a hidden motion exception)', () => {
     expect(vignetteAlpha(true, 1.7, 0, true)).toBeCloseTo(BASE, 9);
+  });
+});
+
+describe('the Tier-1 hold EASING (amendment 16 under the photosensitivity floor)', () => {
+  const AMP = Z.vignetteAmp;
+  const FRAME_MS = 16; // ~60fps
+
+  /**
+   * The renderer's per-frame vignette alpha over a script of Tier-1 states —
+   * exactly what Zone.updateVignette computes, frame by frame, so what these
+   * tests measure is what the player sees.
+   */
+  const run = (holds: boolean[], amp: number = AMP): number[] => {
+    const out: number[] = [];
+    let tSec = 0;
+    let hold = 0;
+    for (const h of holds) {
+      hold = easeHold(hold, h ? 1 : 0, FRAME_MS);
+      out.push(vignetteHeld(true, tSec, amp, hold));
+      tSec += FRAME_MS / 1000;
+    }
+    return out;
+  };
+
+  /** The frame-by-frame breathing baseline (no Tier-1 anywhere). */
+  const baseline = (n: number, amp: number = AMP): number[] => run(new Array(n).fill(false), amp);
+
+  /** The LIT keyframe (what a sustained hold must converge to). */
+  const LIT = Z.vignetteBase + AMP;
+
+  /** How far a run departed from the breathing baseline, as a fraction of the
+   *  full hold delta (breathing → lit) available on that frame. */
+  const departure = (got: number[], base: number[]): number =>
+    Math.max(...got.map((a, i) => Math.abs(a - base[i]) / Math.abs(LIT - base[i])));
+
+  it('FAIL-PROOF: one 80ms denied-fire blip must not square-wave the vignette', () => {
+    // Click-spam in the storm lands an accepted denial every 300ms, each live
+    // for 80ms. A hold that SNAPS turns that into up to 3.3 full-amplitude
+    // full-screen flashes per second — over the ≤1.1Hz / ≤3-flashes-per-region
+    // floor this story itself pins. A brief blip may only swell the vignette.
+    const blip = [true, true, true, true, true]; // 5 x 16ms ≈ the 80ms pulse
+    expect(departure(run(blip), baseline(blip.length))).toBeLessThan(0.35);
+  });
+
+  it('a SUSTAINED hold (low hull) still converges to the lit keyframe', () => {
+    const frames = new Array(Math.ceil(2_000 / FRAME_MS)).fill(true);
+    const alphas = run(frames);
+    expect(alphas[alphas.length - 1]).toBeCloseTo(LIT, 3);
+    // ...it gets there without ever overshooting the lit keyframe (the hold is
+    // an approach, never a brighter-than-lit flash)...
+    for (const a of alphas) expect(a).toBeLessThanOrEqual(LIT + 1e-9);
+    // ...and it is already most of the way there within ~3 time constants.
+    const settled = alphas[Math.ceil((Z.holdEaseMs * 3) / FRAME_MS)];
+    expect(settled).toBeGreaterThan(Z.vignetteBase + AMP * 0.9);
+  });
+
+  it('RELEASE eases back down to the breathing curve', () => {
+    const hold = new Array(Math.ceil(2_000 / FRAME_MS)).fill(true);
+    const release = new Array(Math.ceil(2_000 / FRAME_MS)).fill(false);
+    const alphas = run([...hold, ...release]);
+    const base = baseline(alphas.length);
+    expect(alphas[alphas.length - 1]).toBeCloseTo(base[base.length - 1], 3);
+  });
+
+  it('motion=off stays CONSTANT at the base alpha, held or not (no new motion)', () => {
+    const script = [false, false, true, true, true, false, false, true];
+    for (const a of run(script, 0)) expect(a).toBeCloseTo(Z.vignetteBase, 9);
   });
 });
 
