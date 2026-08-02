@@ -15,9 +15,9 @@ describe('matchUx — phase to HUD strings', () => {
     expect(matchUx('waiting', 2, 0, 0).topLine).toBe(`AWAITING CAPTAINS 2/${CONFIG.match.minHumans}`);
   });
 
-  it('gathering: GATHERING CAPTAINS n/fillTo + WEAPONS SAFE + big window seconds (draft copy)', () => {
+  it('gathering: GATHERING CAPTAINS — n ABOARD + WEAPONS SAFE + big window seconds (draft copy)', () => {
     const ux = matchUx('gathering', 3, 30000, 4200);
-    expect(ux.topLine).toBe(`GATHERING CAPTAINS 3/${CONFIG.match.fillTo}`);
+    expect(ux.topLine).toBe('GATHERING CAPTAINS — 3 ABOARD');
     expect(ux.tag).toBe('WEAPONS SAFE');
     expect(ux.countdown).toBe('26'); // ceil((30000-4200)/1000) — the JOIN WINDOW deadline
   });

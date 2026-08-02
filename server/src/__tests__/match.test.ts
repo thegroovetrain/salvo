@@ -256,6 +256,16 @@ describe('match — gathering window (joinWindowMs > 0)', () => {
   const GATHER_TIMINGS = { countdownMs: 100, resultsMs: 200, joinWindowMs: 100 };
   const gsetup = (ids: string[]) => setup(ids, 'torpedoBoat', GATHER_TIMINGS);
 
+  it('NEGATIVE joinWindowMs takes the legacy path too: immediate countdown + lock', () => {
+    // The contract is "<= 0 collapses to legacy", not "=== 0" — pin the < 0 leg.
+    const ctx = setup(['a'], 'torpedoBoat', { countdownMs: 100, resultsMs: 200, joinWindowMs: -1 });
+    ctx.w.addShip('b', 'B');
+    ctx.m.notifyRosterChanged();
+    expect(ctx.m.phase).toBe('countdown');
+    expect(ctx.m.countdownEndT).toBe(ctx.w.now + 100);
+    expect(ctx.calls).toEqual(['lock']);
+  });
+
   it('opens UNLOCKED at minHumans: gathering phase, deadline set, no lock call', () => {
     const ctx = gsetup(['a']);
     expect(ctx.m.phase).toBe('waiting');

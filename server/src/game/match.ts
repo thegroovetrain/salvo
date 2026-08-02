@@ -256,7 +256,13 @@ export class Match {
 
   /** Advance the state machine one tick. Call right after world.step(). */
   update(): void {
-    if (this.phase === 'gathering' && this.world.now >= this.countdownEndT) this.startCountdown();
+    if (this.phase === 'gathering' && this.world.now >= this.countdownEndT) {
+      this.startCountdown();
+      // Return so 'countdown' is synced to clients for at least one tick even
+      // under degenerate dev timings (countdownMs <= 0 would otherwise cascade
+      // gathering -> countdown -> active inside a single update).
+      return;
+    }
     if (this.phase === 'countdown' && this.world.now >= this.countdownEndT) this.activate();
     if (this.phase === 'active') {
       this.consumeSinks();

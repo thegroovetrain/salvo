@@ -41,8 +41,10 @@ export function matchUx(
   if (phase === 'gathering') {
     // Join window (draft copy): the room is still open — countdownEndT here is
     // the GATHERING deadline (the phase string disambiguates the shared field).
+    // No denominator: fillTo counts drones too, so "n/20" would read as a
+    // failed gather right before 20 hulls deploy anyway.
     return {
-      topLine: `GATHERING CAPTAINS ${humans}/${CONFIG.match.fillTo}`,
+      topLine: `GATHERING CAPTAINS — ${humans} ABOARD`,
       tag: 'WEAPONS SAFE',
       countdown: String(secondsUntil(countdownEndT, serverNow)),
     };

@@ -2,7 +2,7 @@
 // the dev server's 2567), joins two live @colyseus/sdk clients with a DEV
 // matchOverride that shrinks the lifecycle timers, and proves the full loop:
 //   1. waiting -> GATHERING at the 2nd join: the room stays UNLOCKED for the
-//      joinWindowMs override (~2s here; production 30s), so a 3rd client's
+//      joinWindowMs override (~5s here; production 30s), so a 3rd client's
 //      joinOrCreate lands in the SAME room. When the window elapses the
 //      countdown arms and the room LOCKS (a 4th client's joinOrCreate lands
 //      in a fresh room).
@@ -39,8 +39,10 @@ const endpoint = `ws://localhost:${PORT}`;
 // ship speeds mean each 12s reload gets roughly one shot per pass); results
 // short so the disposal is observable. joinWindowMs is a small REAL window
 // (unlike the other smokes' 0): step 1 proves the gathering phase over real
-// sockets — unlocked during the window, locked after it.
-const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000, joinWindowMs: 2000 };
+// sockets — unlocked during the window, locked after it. 5s (not 2s) so the
+// post-join sleep(500) + CHARLIE's join round-trip can't eat the window on a
+// slow CI box and flake the same-room assertion.
+const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000, joinWindowMs: 5000 };
 // After B sinks (step 4), A is the last human. The phased timeline (Story 3.1)
 // gives the step-4 fight a comfortable storm-free window — 30s beats park the
 // first close at 90s, well past the typical converge+two-torpedo fight, so A
@@ -437,14 +439,17 @@ async function main() {
     b.peerId = a.room.sessionId;
     await sleep(500);
     assert(phase(a) === 'gathering', `2nd join should open the gathering window (got ${phase(a)})`);
-    assert(a.room.state.countdownEndT > 0, 'gathering deadline (countdownEndT) not set');
+    const gatherDeadline = a.room.state.countdownEndT;
+    assert(gatherDeadline > 0, 'gathering deadline (countdownEndT) not set');
     // The gathering room is still UNLOCKED: a 3rd joinOrCreate lands in it.
     const c = await joinClient('CHARLIE');
     assert(c.room.roomId === a.room.roomId, 'gathering room bounced a 3rd client (window should be open)');
     await c.room.leave(); // 2 humans remain (>= min) — the window keeps running
-    // Window expiry -> countdown + lock. joinWindowMs is 2s; generous timeout.
+    // Window expiry -> countdown + lock. Generous timeout past the window.
     await runUntil(() => {}, () => phase(a) === 'countdown', MATCH_OVERRIDE.joinWindowMs + 10000, 'gathering window expiry -> countdown');
-    assert(a.room.state.countdownEndT > 0, 'countdownEndT not set');
+    // The deadline must have MOVED to the countdown's (a stale gathering
+    // deadline would also be > 0 — assert re-arm, not mere presence).
+    assert(a.room.state.countdownEndT > gatherDeadline, 'countdownEndT was not re-armed past the gathering deadline');
     const d = await joinClient('DELTA'); // locked room -> fresh room
     assert(d.room.roomId !== a.room.roomId, 'locked room accepted a 4th client');
     await d.room.leave();

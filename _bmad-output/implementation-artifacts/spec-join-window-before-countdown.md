@@ -2,7 +2,7 @@
 title: '30s Join Window Before the Countdown'
 type: 'feature'
 created: '2026-08-02'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'ca8fb82726e8916afe4b45af66033ba09ccf3fab'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -94,6 +94,26 @@ warnings: [oversized]
 
 ## Review Triage Log
 
+### 2026-08-02 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 0, medium 1, low 9)
+- defer: 1: (high 0, medium 1, low 0)
+- reject: 6
+- addressed_findings:
+  - `[medium]` `[patch]` CLAUDE.md still described the pre-change lifecycle ("Countdown arms at 2 human captains", waiting/countdown phase lists ×3) — all three sites updated to the gathering model
+  - `[low]` `[patch]` `ArenaState.matchPhase` docstring still enumerated the old four phases — added `'gathering'`
+  - `[low]` `[patch]` gathering HUD copy `GATHERING CAPTAINS n/${fillTo}` used the drone-inclusive denominator (read as a failed gather) — draft copy now `GATHERING CAPTAINS — n ABOARD`, test updated
+  - `[low]` `[patch]` `matchSmoke` post-expiry assertion `countdownEndT > 0` was tautological (already true during gathering) — now asserts the deadline moved past the captured gathering deadline
+  - `[low]` `[patch]` `matchSmoke` 2000ms window left thin margin for sleep(500)+join round-trips on slow CI — raised to 5000ms with rationale comment
+  - `[low]` `[patch]` `<= 0` legacy contract only tested at exactly 0 — added a `joinWindowMs: -1` legacy-path unit test
+  - `[low]` `[patch]` degenerate dev timings (`countdownMs <= 0` + real window) could cascade gathering→countdown→active in one `update()`, never syncing `'countdown'` — early return after `startCountdown()` guarantees one synced tick
+  - `[low]` `[patch]` gathering's silent final-5s (vs countdown's tick cue) was undocumented at the gate — comment in `tones.ts` records the deliberate design
+  - `[low]` `[patch]` `canAbandon` docstring rationale didn't know `gathering` exists — extended
+  - `[low]` `[patch]` `CONFIG.match.joinWindow` carried no ruling attribution unlike neighboring tunables — comment cites the Eric ruling 2026-08-02
+  - Deferred: leave/rejoin cycling now reopens fresh 30s windows (pre-existing hostage vector, scaled up; mitigation needs an Eric design ruling) → deferred-work.md
+  - Rejected (6): full-room-skips-window (explicit spec Never — FR34/Epic 6 fill-or-timer scope); 45s unconditional start (Eric's ratified 30s+15s design); `matchOverride` value-type sanitization hole (pre-existing pattern, `HC_DEV_OPTIONS`-gated, unreachable in production); seat-reservation-vs-lock race (pre-existing engine-level race, `finish()` P2 backfill already defends); reviewed-diff-excludes-lockfile/spec (deliberate workflow exclusions); PV-19 comment overstating the config leg (welcome snapshot does change shape — claim accurate)
+
 ## Design Notes
 
 - Reusing `ArenaState.countdownEndT` as "current phase deadline" avoids a schema field addition; the phase string disambiguates. Internal `Match` representation (one deadline field vs. two) is implementer's choice — the public contract is `countdownEndT` + `phase`.
@@ -107,3 +127,24 @@ warnings: [oversized]
 - `npm run check` -- expected: lint + tsc (shared/server/client) + full suite green
 - `HC_DEV_OPTIONS=1 node server/scripts/matchSmoke.mjs` (server booted from `server/`) -- expected: PASS incl. new gathering assertions
 - `HC_DEV_OPTIONS=1 node server/scripts/dronesSmoke.mjs` / `metricsSmoke.mjs` / `reconnectSmoke.mjs` -- expected: PASS within existing budgets
+
+## Auto Run Result
+
+**Summary:** Added a 30s unlocked join window (`gathering` phase) between `waiting` and the 15s locked `countdown`, so playtesting friends can pile into the same room instead of being bounced the instant a 2nd captain joins. `CONFIG.match.joinWindow = 30000` (Eric ruling 2026-08-02); `joinWindowMs <= 0` (dev override/harness timings) collapses synchronously to the exact legacy immediate-countdown+lock behavior. New `MatchPhase` value ⇒ `PROTOCOL_VERSION` 18→19; `ArenaState.countdownEndT` redefined as the current-phase deadline (no new schema field). VERSION 0.17.32 (cycle 32).
+
+**Files changed:**
+- `shared/src/constants.ts` — `match.joinWindow: 30000` tunable (ruling-attributed)
+- `shared/src/types.ts` / `shared/src/index.ts` — `MatchPhase` + `'gathering'`; PV 19 with log entry
+- `server/src/game/match.ts` — gathering state: `openGathering()`/`startCountdown()` (single lock site), `<=0` legacy shortcut, cancel-without-unlock, respawn policy, one-synced-tick guard, header spec
+- `server/src/rooms/roomOptions.ts` / `ArenaRoom.ts` / `schema/ArenaState.ts` — `joinWindowMs` dev override plumb-through; deadline-mirror + phase docs
+- `client/src/ui/phase.ts` — gathering HUD (draft copy `GATHERING CAPTAINS — n ABOARD`, big window seconds, WEAPONS SAFE)
+- `client/src/ui/settings.ts` / `client/src/audio/tones.ts` — comment contracts (abandon rationale; deliberate gathering silence)
+- Tests: `match.test.ts` (+7 gathering/legacy-negative), `matchTelemetry`, `roomOptions`, `drones`, `reconnect`, `denials`, `barrel`, `batchSim`, `phaseUx` (+2), `score`, `settings`
+- Smokes/harness: `matchSmoke.mjs` (real 5s window proving same-room join + post-expiry lock over sockets), `dronesSmoke`/`metricsSmoke`/`reconnectSmoke` (+`joinWindowMs: 0`), `batchsim/runner.ts` (0 + rationale)
+- Process: `VERSION`/`package.json` 0.17.32, `package-lock.json` version sync, `gds-workflow-status.yaml` last_updated, `CLAUDE.md` lifecycle prose ×3
+
+**Review findings:** 10 patched (1 medium, 9 low — docs/comments, HUD denominator, smoke flake margin + tautological assertion, negative-override test, degenerate-timing sync guard), 1 deferred (leave/rejoin fresh-window cycling → deferred-work.md, needs an Eric design ruling), 6 rejected (incl. full-room early-arm = FR34/Epic 6 scope; 45s start = the ratified design).
+
+**Verification:** `npm run check` exit 0 (0 lint errors; 379+816+1205 = 2400 tests green, was 2391 at baseline). All four lifecycle smokes PASS over real sockets (`matchSmoke` twice — pre- and post-patch — proving gathering same-room join, window-expiry lock, weapons-safe window, full loop to results; `dronesSmoke`, `metricsSmoke`, `reconnectSmoke` on the `joinWindowMs: 0` fast path). The seven sandbox smokes construct no Match and are unaffected.
+
+**Residual risks:** production 30s+15s pre-match length is by design but unmeasured with real humans (first playtest will tell); the deferred leave/rejoin window-cycling vector; stale clients (pv ≤ 18) are cleanly rejected at matchmake — players must refresh after deploy.

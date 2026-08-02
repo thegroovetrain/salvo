@@ -70,7 +70,7 @@ export class ArenaState extends Schema {
 
   // --- Match lifecycle (public plane — see server/src/game/match.ts) ---
 
-  /** 'waiting' | 'countdown' | 'active' | 'finished' (MatchPhase). */
+  /** 'waiting' | 'gathering' | 'countdown' | 'active' | 'finished' (MatchPhase). */
   @type('string') matchPhase = 'waiting';
   /** CURRENT-PHASE deadline (server ms): the gathering window's end during
    *  'gathering', the countdown's end during 'countdown', 0 otherwise —
