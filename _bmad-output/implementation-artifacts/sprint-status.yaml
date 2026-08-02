@@ -42,7 +42,7 @@
 # Story 1.9 tombstoned (number retired, not reused); later stories keep their numbers.
 
 generated: 2026-07-17
-last_updated: 2026-08-01
+last_updated: 2026-08-02
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -92,7 +92,7 @@ development_status:
   # epic-3: The Ring
   epic-3: in-progress
   3-1-phased-zone-timeline: done
-  3-2-ring-reveal-storm-rendering: backlog
+  3-2-ring-reveal-storm-rendering: done  # 2026-08-02 dev-auto cycle 33 (0.17.33); design gate closed in-run (amendment 18)
   3-3-br-chrome-bar: backlog
   3-4-the-endgame-guarantee: backlog
   epic-3-retrospective: optional

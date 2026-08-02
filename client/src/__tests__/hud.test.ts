@@ -10,6 +10,7 @@ import {
   hullFillAlpha,
   hullHeaderValue,
   advancePulsePhase,
+  railPulsing,
   railSig,
   rudderTickCenter,
   vitalsLayout,
@@ -44,6 +45,8 @@ import {
 import { KeyboardInput, type KeyboardHooks } from '../input/keyboard.js';
 import { abilityPressDenied } from '../sim/inputSampler.js';
 import { DeniedPulse } from '../render/deniedFire.js';
+import { tier1Active } from '../render/attention.js';
+import { vignetteAlpha } from '../render/zone.js';
 import { motionScaled, settings } from '../settings/store.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -134,6 +137,21 @@ describe('hullPulseHz — the accelerating, hard-capped rail pulse', () => {
     for (const frac of [0, 0.05, 0.1, 0.2, 0.35, 0.5, 1]) {
       expect(hullPulseHz(frac)).toBeLessThanOrEqual(CAP_HZ);
     }
+    // ...and the vignette really does breathe at that same config value: its
+    // crest lands a quarter-cycle of CAP_HZ in. A second literal anywhere would
+    // put the peak somewhere else.
+    const Z = CLIENT_CONFIG.zone;
+    expect(vignetteAlpha(true, 0.25 / CAP_HZ)).toBeCloseTo(Z.vignetteBase + Z.vignetteAmp, 6);
+  });
+
+  it('IS the Tier-1 low-HP gate (Story 3.2, amendment 16) — one threshold, not two', () => {
+    // render/attention.ts composes THIS predicate rather than declaring its own
+    // low-HP threshold, so the rail and the storm vignette's hold can never
+    // disagree about when the hull is a threat channel.
+    expect(railPulsing(V.amberBelow)).toBe(false);
+    expect(railPulsing(V.amberBelow - 1e-9)).toBe(true);
+    expect(tier1Active({ hpFrac: 0.3, deniedLive: false })).toBe(railPulsing(0.3));
+    expect(tier1Active({ hpFrac: 0.9, deniedLive: false })).toBe(railPulsing(0.9));
   });
 });
 
