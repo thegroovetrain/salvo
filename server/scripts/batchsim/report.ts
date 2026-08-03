@@ -111,6 +111,11 @@ function resolvedEvidence(
 ): Pick<BatchAggregate, 'resolvedDurationS' | 'pastClosureRate'> {
   const resolved = matches.filter((m) => m.endedBy !== 'unresolved');
   const closureS = zoneClosedAtMs(CONFIG.zone) / 1000;
+  // durationS arrives rounded to 0.1s, so this classification has a ±50ms
+  // band at exactly-closure; strict `>` keeps the claim conservative (a
+  // borderline match counts as NOT past), and the endgame instrument
+  // structurally lands well past the boundary, so the band is never the
+  // deciding factor in practice.
   const past = resolved.filter((m) => m.durationS > closureS).length;
   return {
     resolvedDurationS: summarize(resolved.map((m) => m.durationS)),

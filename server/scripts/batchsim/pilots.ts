@@ -84,6 +84,40 @@
 //      Without this the rotated approach line never commits — a battleship
 //      undoes the whole 39.5 deg in ~1.7 s of target-seek.
 //
+// GRACE HOLD, EXACTLY (both reviewers confirmed this tick-by-tick — see
+// wantsAstern): the burst's last astern tick (the exit-heading capture tick)
+// arms graceTicks = UNBEACH_GRACE_TICKS = 60 but is itself still an astern
+// tick. Of the 60 grace ticks that follow, ticks 1-59 hold the captured exit
+// heading (holdRudder); on tick 60, graceTicks counts down to 0, holdHeading
+// is nulled BEFORE buildInput runs, so target-seek (seekRudder) resumes that
+// same tick — one tick before stuck-detection re-arms (the arming guard
+// `asternTicks === 0 && graceTicks === 0` first passes on tick 61). This seam
+// is harmless: detection is still fully suppressed on tick 60 regardless of
+// which rudder ran, and the 139-158-tick inter-burst metronome floor from the
+// v1 rerun campaign (see above) is unchanged by which single tick resumes
+// seeking.
+//
+// DURING THE HOLD, STEERING IS PURE HEADING-HOLD (holdRudder: proportional
+// gain onto holdHeading, nothing else) — no islandAvoid bias, no storm/ring
+// seeking. This is deliberate: it keeps the committed exit line
+// deterministic-simple (one geometric term, no interaction with the normal
+// goal-bearing logic) rather than a hybrid that could re-pull the bow toward
+// the very obstacle the burst just turned away from. A grace that happens to
+// carry the hull toward another rock or the storm edge is not corrected
+// during the hold — it self-corrects on the NEXT burst cycle instead (stuck-
+// detection re-arms at tick 61 and a fresh pin re-triggers a burst normally).
+// The 250-match endgame campaign showed zero cap-outs traceable to this gap.
+//
+// KNOWN RESIDUAL (disclosed, not fixed): the burst assumes the water astern
+// is clear "hence known clear" (see UNBEACH_ASTERN_TICKS above) — true for
+// the line the hull just sailed in, but not guaranteed for the ~15u of
+// sternway a full burst actually covers. A pocket with a second blocker
+// astern within that ~15u (or the map boundary) can zero the burst's
+// progress and re-arm stuck-detection with the SAME geometry that produced
+// the first burst. The harness does not paper over this: such a match reports
+// honestly as an `unresolved` cap-out (see runner.ts / report.ts). None
+// occurred across 250 campaign matches.
+//
 // Determinism: every pilot decision rides its own mulberry32 stream seeded by
 // the runner from (matchSeed, captain ordinal) — no Math.random, no Date.now.
 // Same run key => byte-identical input streams (unit-pinned).
@@ -181,7 +215,12 @@ const UNBEACH_ASTERN_TICKS = 50;
 /** Forward grace after a burst before detection can re-arm (3 s) — longer than
  *  the worst-case astern->ahead turnaround (-9 u/s back through +2 u/s at
  *  accel 5 ~= 2.2 s), so a hull in a pocket backs out, turns and sails on
- *  instead of metronoming between ahead and astern. */
+ *  instead of metronoming between ahead and astern.
+ *  EFFECTIVE HOLD (see the header for the full tick trace): of these 60
+ *  ticks, 59 (ticks 1-59) are held-steering ticks onto the captured exit
+ *  heading; tick 60 resumes target-seek one tick before stuck-detection
+ *  re-arms on tick 61 — harmless, since detection stays suppressed through
+ *  tick 60 either way. */
 const UNBEACH_GRACE_TICKS = 60;
 /** Astern rudder when no island qualifies as the blocker — a FIXED sign, never
  *  an rng pick (determinism), so a bow-on beaching still rotates its exit. */
@@ -217,11 +256,15 @@ function forwardCross(self: ShipRecord, px: number, py: number): number {
 
 /**
  * The rudder to hold through an un-beach burst (amendment 25 v2), chosen so the
- * BOW swings AWAY from the island that is blocking the bow — the nearest one
- * inside islandAvoid's own lookahead cone, so the two agree on what "the
- * obstacle ahead" means. Deterministic (nearest wins, first-in-array on ties)
- * and rng-free; +1 when no island qualifies (beached bow-on to nothing
- * islandAvoid can see), never a random pick.
+ * BOW swings AWAY from the island that is blocking the bow. Both this function
+ * and islandAvoid apply the SAME forward HALF-DISC filter (dot(heading, bearing)
+ * > 0, within ISLAND_LOOKAHEAD_U + island radius), so the two agree on what
+ * counts as "ahead" — but they do NOT agree on aggregation: islandAvoid SUMS a
+ * bias contribution over every qualifying island, while this function picks
+ * only the single NEAREST qualifying island as "the" blocker. Deterministic
+ * (nearest wins, first-in-array on ties) and rng-free; +1 when no island
+ * qualifies (beached bow-on to nothing either function can see), never a
+ * random pick.
  *
  * SIGN NOTE — this is a REVERSE rudder: stepShip scales rudder authority by
  * `speed / steerageSpeed` with a SIGNED speed ("sign flips in reverse"), so a

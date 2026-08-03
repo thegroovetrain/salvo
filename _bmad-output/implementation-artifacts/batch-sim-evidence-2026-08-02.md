@@ -44,6 +44,7 @@ Attribution: the radar/gun bump alone moved the baseline ~−1.8% (economically 
 
 ## Observations ledgered, no change proposed
 
+- **Battleship takes 25/50 endgame wins (50% — 2:1 over each other class).** "No class shut out" holds, but a 50% BB share of 660u-ring conclusions is a balance-feel signal in its own right (review-gate finding). Instrument caveats apply hard here: pilots fight a pure stand-and-shoot war at closure with no kiting, torpedo skillshots, or mine play — the exact styles the lighter hulls are built for — so the BB share is plausibly instrument-inflated. Ledgered for human-playtest review, not tuned.
 - **Island pockets inside the terminal ring**: islands inside the 660u endgame ring create no-fire LOS shadows with zero storm pressure to dislodge a hull sitting in them (island-LOS blocking is Eric-ratified doctrine 2026-08-02). Real captains maneuver around them (and did, in-instrument, once given seamanship) — awareness entry for endgame feel review, not a defect claim.
 - **Drones never un-beach**: `server/src/game/drones.ts` server AI has no astern behavior; beached drones sat immortal-behind-cover in the v0/v1 probes until captains flanked them. Epic 6's combat-bot AI (6-4) is the natural home for real bot seamanship.
 - `ENDGAME_SLACK_MS` 600s is adequate: slowest resolved endgame match 1169.1s vs the 1320s cap.

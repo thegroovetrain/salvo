@@ -435,6 +435,70 @@ describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
       restore();
     }
   });
+
+  it('the pilot seed discriminates too: same world seed, different pilot seed diverges (the seed test above only varies the WORLD seed)', () => {
+    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
+    try {
+      const run = (pilotSeed: number): string => {
+        const w = new World(9, CONFIG.match.fillTo);
+        w.addShip('cap-1', 'CAP-01', false, 'battleship');
+        w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+        w.startZone();
+        const pilot = PILOT_REGISTRY.endgame('cap-1', pilotSeed);
+        const lines: string[] = [];
+        for (let t = 0; t < 200; t += 1) {
+          pilot.tick(w);
+          lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
+          w.step();
+        }
+        return lines.join('\n');
+      };
+      expect(run(5)).toBe(run(5));
+      expect(run(5)).not.toBe(run(6)); // the pilot's OWN rng stream discriminates, world seed fixed
+    } finally {
+      restore();
+    }
+  });
+
+  it('steers exactly like the pacifist control pre-closure (spec I/O matrix row)', () => {
+    // Same (id, seed) and same fast-zone world evolution: pre-closure both
+    // hunt policies collapse to `() => false`, so the emitted input stream
+    // must be byte-identical up to the first tick where zonePhase flips to
+    // 'closed' — and must then diverge (endgame opens fire, pacifist never
+    // does), so the identity above is measuring the gate, not two silent
+    // pilots that happen to never fire.
+    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
+    try {
+      const run = (factory: (typeof PILOT_REGISTRY)['gunner']): { lines: string[]; closedAt: number } => {
+        const w = new World(9, CONFIG.match.fillTo);
+        w.map.islands.length = 0;
+        w.addShip('cap-1', 'CAP-01', false, 'battleship');
+        const target = w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+        const cap = w.ships.get('cap-1')!;
+        w.startZone();
+        const pilot = factory('cap-1', 5);
+        const lines: string[] = [];
+        let closedAt = -1;
+        for (let t = 0; t < 200; t += 1) {
+          target.state.x = cap.state.x + 150; // keep a firing solution trivially held once hunting starts
+          target.state.y = cap.state.y;
+          if (closedAt === -1 && w.zonePhase === 'closed') closedAt = t;
+          pilot.tick(w);
+          lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
+          w.step();
+        }
+        return { lines, closedAt };
+      };
+      const endgame = run(PILOT_REGISTRY.endgame);
+      const pacifist = run(PILOT_REGISTRY.pacifist);
+      expect(endgame.closedAt).toBeGreaterThan(0); // the timeline really closed within the window
+      expect(endgame.closedAt).toBe(pacifist.closedAt); // identical world evolution => identical phase-flip tick
+      expect(endgame.lines.slice(0, endgame.closedAt)).toEqual(pacifist.lines.slice(0, endgame.closedAt));
+      expect(endgame.lines.slice(endgame.closedAt)).not.toEqual(pacifist.lines.slice(endgame.closedAt));
+    } finally {
+      restore();
+    }
+  });
 });
 
 describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
@@ -587,6 +651,79 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     const pacifist = beachTrace(PILOT_REGISTRY.pacifist, 200);
     expect(pacifist.fireSeq).toBe(0);
     expect(pacifist.throttles.some((v) => v < 0)).toBe(true); // it does back off
+  });
+
+  it('death mid-burst resets seamanship: drops the stale burst and re-arms detection cleanly', () => {
+    // Locate the reference burst start on the same (world seed, pilot seed,
+    // hull) beachTrace already pins deterministically, so the kill point below
+    // is provably mid-burst rather than a guessed tick count.
+    const { throttles: ref } = beachTrace(PILOT_REGISTRY.gunner, 60);
+    const firstAstern = ref.findIndex((v) => v < 0);
+    expect(firstAstern).toBeGreaterThan(0); // sanity: the reference run really beached
+
+    const w = new World(7, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('cap-1', 'CAP-01', false, 'battleship');
+    const cap = w.ships.get('cap-1')!;
+    const pose = { x: cap.state.x, y: cap.state.y };
+    const pilot = PILOT_REGISTRY.gunner('cap-1', 42);
+
+    const killTick = firstAstern + 10; // mid-burst: the burst runs firstAstern..firstAstern+49
+    const reviveTick = killTick + 5;
+    const throttles: number[] = [];
+    for (let t = 0; t < killTick; t += 1) {
+      const backing = (throttles[t - 1] ?? 0) < 0;
+      if (!backing) {
+        cap.state.x = pose.x;
+        cap.state.y = pose.y;
+        cap.state.speed = 0;
+      }
+      pilot.tick(w);
+      throttles.push(w.inputs.get('cap-1')?.throttle ?? 0);
+      w.step();
+    }
+    expect(throttles[killTick - 1]).toBeLessThan(0); // confirms the kill lands mid-burst
+
+    // Die for a few ticks — resetSeamanship runs (idempotently) on every dead
+    // tick, and no input is submitted while dead (world.ts alive-gates the
+    // real spend/submit paths the same way).
+    for (let t = killTick; t < reviveTick; t += 1) {
+      cap.alive = false;
+      pilot.tick(w);
+      w.step();
+    }
+
+    // Revive at the SAME pose the hull died at — the harshest case for a
+    // false-positive: if resetSeamanship had NOT nulled lastX/lastY, this
+    // tick's displacement read would see moved=0 at the old rock and could
+    // misread as an instant stuck tick. stepDistance instead returns Infinity
+    // on an unknown first step (see pilots.ts), so it cannot.
+    cap.alive = true;
+    cap.state.x = pose.x;
+    cap.state.y = pose.y;
+    cap.state.speed = 0;
+    pilot.tick(w);
+    // The pilot does not resume the stale burst: the next emitted throttle is
+    // forward, not astern.
+    expect(w.inputs.get('cap-1')?.throttle ?? 0).toBeGreaterThan(0);
+    w.step();
+
+    // Re-pin from here and confirm stuck-detection re-arms on the NORMAL
+    // ~30-tick timetable (same tolerance the fresh-burst test above uses),
+    // not instantly and not with an extra phantom tick baked in.
+    const postReset: number[] = [];
+    for (let t = 0; t < 40; t += 1) {
+      cap.state.x = pose.x;
+      cap.state.y = pose.y;
+      cap.state.speed = 0;
+      pilot.tick(w);
+      postReset.push(w.inputs.get('cap-1')?.throttle ?? 0);
+      w.step();
+    }
+    const reArmed = postReset.findIndex((v) => v < 0);
+    expect(reArmed).toBeGreaterThan(0);
+    expect(reArmed).toBeLessThanOrEqual(33); // same detection-window tolerance as above
+    expect(postReset.slice(0, reArmed).every((v) => v >= 0)).toBe(true); // never astern before it re-arms
   });
 });
 

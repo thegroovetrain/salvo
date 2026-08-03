@@ -2,7 +2,7 @@
 title: '3-4 The Endgame Guarantee'
 type: 'feature'
 created: '2026-08-02'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 followup_review_recommended: false # flag retired (Epic 2 retro Ruling 1) — residuals are ledger entries with evidence + named home
 baseline_revision: '418607d'
@@ -81,7 +81,7 @@ warnings: [oversized]
 - [x] `shared/src/constants.ts` — radar derivation + comment sweep (shared side) — the story's one production change.
 - [x] `shared/src/__tests__/zone.test.ts` — Endgame Guarantee constraint block — the durable pillar pins.
 - [x] `server/src/__tests__` snapshot regen + server/client comment-only sites — mechanical fallout of the derivation.
-- [x] `server/scripts/batchsim/pilots.ts` + `args.ts` — endgame pilot (predicate gate) + registry/usage — the evidence instrument (+ amendment-25 un-beach seamanship v1/v2, Eric-ratified mid-run at the evidence checkpoint).
+- [x] `server/scripts/batchsim/pilots.ts` + `args.ts` — endgame pilot (predicate gate) + registry/usage — the evidence instrument (+ amendment-25 un-beach seamanship: the ruling Eric-ratified mid-run at the evidence checkpoint; v2's rotate-away/heading-hold was orchestrator-directed within that ruling's scope — see the amendment's v2 scope note).
 - [x] `server/scripts/batchsim/runner.ts` + `report.ts` — winnerClass, resolved-duration, past-closure aggregates — the evidence fields.
 - [x] `server/scripts/batchsim/__tests__/batchSim.test.ts` — error-string fix + endgame suites + aggregate assertions (+ un-beach/sticky-rock suites; 46 in-file).
 - [x] Evidence campaign (endgame seed 4; gunner seed 1 + pacifist seed 2 reruns) → `batch-sim-evidence-2026-08-02.md` — the AC's proof (50/50 resolved, 100% past closure, p50 830.0s).
@@ -97,6 +97,27 @@ warnings: [oversized]
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-02 — Review pass (2 Fable hunters + Codex cross-model; verdicts: build-on-it ×3; Codex: no findings)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 11: (high 0, medium 0, low 11)
+- defer: 1: (low 1)
+- reject: 4: (low 4)
+- addressed_findings:
+  - `[low]` `[patch]` Grace-hold off-by-one (BOTH hunters, CONFIRMED): effective hold is the exit-capture tick + 59 grace ticks; the 60th tick resumes target-seek one tick before detection re-arms. Resolved by DOCUMENTATION (tick-by-tick trace in the header + constant doc) — deliberately not a code change: both hunters rated it behaviorally invisible, and perturbing the streams would invalidate the freshly-run 300-match campaign for a cosmetic seam.
+  - `[low]` `[patch]` Grace hold is blind to islands/storm (Blind Hunter, CONFIRMED) — disclosed in the header as deliberate (self-corrects via the next burst; zero resulting campaign cap-outs).
+  - `[low]` `[patch]` Astern-blocked pocket residual (Edge Case Hunter, PLAUSIBLE): a blocker within the ~15u sternway could re-arm with identical geometry — disclosed in the header; the harness reports such a match honestly as `unresolved`; none in 250 campaign matches.
+  - `[low]` `[patch]` False "same lookahead cone" comment (Blind Hunter, CONFIRMED) — corrected: half-disc filter; islandAvoid SUMS, asternTurnRudder picks nearest.
+  - `[low]` `[patch]` Zone constraint pins are factor pins (Blind Hunter, CONFIRMED): with radar = 2×sight, sight cancels — retitled/commented honestly (they bind terminalSightFactor ∈ (1,2] against the shared derivation, the spec's actual intent) + NEW `Number.isFinite(terminalSightFactor)` pin closing the silent-NaN pass.
+  - `[low]` `[patch]` Death-reset path untested (Blind Hunter, CONFIRMED) — NEW test: death mid-burst drops the stale burst, detection re-arms cleanly, no false-positive from the reset pose.
+  - `[low]` `[patch]` Pre-closure steering identity asserted-not-tested (Blind Hunter, CONFIRMED) — NEW test: endgame vs pacifist input streams byte-identical until first `closed` tick, divergent after (vacuous-pass-proofed).
+  - `[low]` `[patch]` Determinism negative varied the world seed, not the pilot seed (Blind Hunter, CONFIRMED) — NEW test pinning pilot-seed discrimination.
+  - `[low]` `[patch]` runner.ts winnerClass '' comment fiction (Blind Hunter, CONFIRMED) — reworded: '' unreachable today, the collapse is a defensive guard.
+  - `[low]` `[patch]` pastClosureRate ±50ms rounding band at exactly-closure (Edge Case Hunter, PLAUSIBLE) — documented; strict `>` kept as the conservative direction.
+  - `[low]` `[patch]` Amendment-25 v2 paper trail (Blind Hunter, PLAUSIBLE): v2 exceeded the ruling's recorded text — v2 scope note appended to the amendment (orchestrator-directed within the ratified scope, surfaced to Eric in the Auto Run Result); spec task line reworded.
+- defer: battleship takes 25/50 instrument endgames (50%, 2:1 over each other class) — real balance-feel signal, plausibly instrument-inflated (no kiting/torpedo/mine play in the pilots); ledgered for human-playtest review, no tuning.
+- reject: boundary-wall un-beach trigger (hunters disagreed; adjudicated correct behavior — backing off the map wall is desirable); beachTrace fixture idealization (the 300-match campaign IS the real-physics integration evidence); evidence-doc numbers not review-reproducible (inherent to seeded 26k-tick runs; byte-identical-rerun property + internal-consistency audit stand in); aim.test.ts 650 fixture not in the spec's reject list (same decoupled-fixture class as the named camera/spectate/mouse rejects; list lives in the read-only intent contract).
 
 ## Design Notes
 
@@ -114,3 +135,17 @@ warnings: [oversized]
 
 **Manual checks (if no CLI):**
 - Snapshot diff shows only radar-derived placements; evidence doc numbers match report output verbatim; no `650` literal remains that means "radar" anywhere in source or comments.
+
+## Auto Run Result
+
+**Status:** done. **Branch:** worktree-dev-auto-3-4-endgame-guarantee (final_revision in frontmatter). **Epic 3 is complete — all four stories landed.**
+
+**Summary.** The Endgame Guarantee is now verified, not vibed. Three pre-implementation Eric rulings (amendments 22–24) shaped the story: `CONFIG.vision.radar` became DERIVED `SIGHT * 2` (650 → 660 — resolving the radar-650-vs-660 marginality amendment 4 routed here; gun base range and star-shell flare ride the same number, ~1.5%, deltas measured and economically invisible), so radar and the terminal ring radius are now the same expression forever, pinned by new shared constraint tests; the no-stalemate instrument is the new batch-sim `endgame` pilot (pacifist until `zonePhase === 'closed'`, then hunts — rng-free predicate); and the acceptance bar is GEOMETRIC — no forcing mechanic exists or was added. Mid-run, the evidence campaign's cap-outs were probe-diagnosed as island-beaching permalocks of the forward-only INSTRUMENT (humans carry full astern; the game has no permalock) — Eric ruled at the checkpoint (amendment 25): fix the instrument, rerun. Seamanship landed in two iterations (v1 astern burst; v2 rotate-away rudder — islandAvoid cross-product sign, NEGATED for signed sternway authority — plus heading-hold grace, after probes showed a 139-tick metronome; v2 was orchestrator-directed within the ruling's scope — Eric sees this here). **Final evidence (batch-sim-evidence-2026-08-02.md): 50/50 endgame matches resolved `fieldCleared`, 100% past the 12:00 closure, resolved p50 830.0s (13:50 — the ~15:00 contract at the median), winners across all three classes (25 BB / 13 ML / 12 TB); gunner baseline 200/200; pacifist control 50/50 structurally unresolved with picks p50 12.0 exactly at closure — the 3-1 band-floor invariant unchanged through every iteration. Zero mutual-avoidance failures in any leg at any iteration: the geometry concludes.**
+
+**Files changed (grouped).** Production: `shared/src/constants.ts` (ONE line — the radar derivation — plus comments; PV stays 19; zone timeline untouched). Tests: `shared/src/__tests__/zone.test.ts` (Endgame Guarantee constraint block: derivation pin, factor pins, finite-factor pin), goldenFrames snapshot regen (one line, −650 → −660), comment-only 650→660 sweep across the named server/client sites. Harness: `server/scripts/batchsim/pilots.ts` (HuntPolicy predicate, `endgame` pilot, un-beach seamanship v1+v2), `runner.ts` (winnerClass), `report.ts` (resolved-only durations, past-closure rate, winnerClass tally), `args.ts` (usage), `__tests__/batchSim.test.ts` (49 in-file: endgame gate/determinism, sticky-rock un-beach suite, death-reset, pre-closure steering identity, pilot-seed discrimination, evidence-field aggregates). Docs/bookkeeping: `batch-sim-evidence-2026-08-02.md`, amendments 22–25 (+v2 scope note), 3 deferred-work entries, VERSION/package/lockfile 0.17.37 (cycle 37), sprint-status (3-4 done, epic-3 done), gds-workflow-status (cycle entry, next_expected → epic-3 retro else 4-1), CLAUDE.md 3.4 bullet.
+
+**Review findings breakdown.** 2 Fable hunters + Codex cross-model; verdicts build-on-it ×3, Codex zero findings, no cross-model disagreements. 0 intent-gap, 0 bad-spec, 11 patches (all low: the grace-hold off-by-one resolved by documentation — both hunters rated it invisible and a code change would have invalidated the campaign for a cosmetic seam; two disclosure comments; the factor-pin retitle + finite-factor pin; three new coverage tests; two comment fictions; the amendment-25 v2 paper-trail note), 1 defer (BB takes 50% of instrument endgames — plausibly instrument-inflated, ledgered for human playtests), 4 rejects (incl. one adjudicated hunter disagreement: boundary-wall un-beaching is correct behavior). One review-hardening highlight: the pins' algebra is now stated honestly — with radar = 2×sight the sensor-vs-ring inequalities reduce to `terminalSightFactor ∈ (1, 2]` pins, which is exactly the one-sided-retune tripwire the spec intended.
+
+**Verification.** `npm run check` green at every wave, independently re-run by the orchestrator after each: final 2614 tests — 399 shared / 834 server / 1381 client (2596 at cycle start; +18), lint 0 errors. Scope pin `git diff 418607d -- server/src client/src` = tests, snapshot, comments only. Campaign legs run at production timing, byte-identical on rerun; probe scripts deleted after use; no dev server touched; no design docs edited.
+
+**Residual risks.** The endgame pilot is a modeling instrument — real humans skirmish before closure, so its conclusion times are conservative and its 50% BB win share is plausibly inflated (ledgered, not tuned). Three deferred-work entries carry the real-game observations to their homes (terminal-ring island pockets → endgame feel review; drone un-beaching → Epic 6 bot AI; BB share → human-playtest reads). The known astern-blocked residual is disclosed in the pilot header and reports honestly as a cap-out if it ever occurs (zero in 250 matches).

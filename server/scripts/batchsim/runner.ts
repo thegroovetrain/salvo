@@ -338,8 +338,10 @@ function finishSample(
   return buildSample(index, seed, world, collector, captainIds, {
     durationS: summary.durationS,
     endedBy: summary.endedBy,
-    // Keep the field HONEST: the match layer reports '' for a class it cannot
-    // name; an empty string is not a class, so it collapses to null.
+    // Keep the field HONEST: match.ts today emits `?.hullId ?? null`, so ''
+    // is unreachable — this '' collapse is a defensive guard against a FUTURE
+    // '' emitter, not a current contract; an empty string is not a class, so
+    // it collapses to null same as the real null case.
     winnerClass: summary.winnerClass === null || summary.winnerClass === '' ? null : summary.winnerClass,
     stormDeaths: summary.stormDeaths,
   });
