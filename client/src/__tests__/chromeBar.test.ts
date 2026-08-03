@@ -1,7 +1,7 @@
 // THE BR CHROME BAR (Story 3.3, amendments 19–21) — the pure composer behind
 // the top-center match register:
 //
-//     12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES 2:34
+//     12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34
 //
 // Every row of the story's I/O matrix is a test here, plus the three rules that
 // are easy to break silently later: the ring readout's URGENCY OVERRIDE grammar,
@@ -52,13 +52,13 @@ function row(v: ChromeBarView): string {
 
 // --- the register strings (the I/O matrix, row by row) -------------------------
 
-describe('ringReadout — amendment 20\'s urgency-override grammar', () => {
+describe('ringReadout — amendment 26\'s continuous-countdown grammar', () => {
   it('idle renders NOTHING (the pre-live ready room keeps its phase lines)', () => {
     expect(ringReadout('idle', 0)).toEqual({ text: '', urgent: false });
   });
 
   it('a clear beat counts down to the next close START', () => {
-    expect(ringReadout('clear', 154_000)).toEqual({ text: 'RING CLOSES 2:34', urgent: false });
+    expect(ringReadout('clear', 154_000)).toEqual({ text: 'RING CLOSES IN 2:34', urgent: false });
   });
 
   it('the SUPPLY beat is BYTE-IDENTICAL to clear (the parked slot has zero HUD trace)', () => {
@@ -67,21 +67,23 @@ describe('ringReadout — amendment 20\'s urgency-override grammar', () => {
     }
   });
 
-  it('the reveal beat ANNOUNCES while there is still time to plan', () => {
-    expect(ringReadout('reveal', 47_000)).toEqual({ text: 'RING REVEALED', urgent: false });
+  it('the REVEAL beat keeps the countdown running — no announcement register (amendment 26; the RING REVEALED gap Eric hit live is retired)', () => {
+    expect(ringReadout('reveal', 47_000)).toEqual({ text: 'RING CLOSES IN 0:47', urgent: false });
+    for (const ms of [59_000, 30_000, 10_001]) {
+      expect(ringReadout('reveal', ms)).toEqual(ringReadout('clear', ms));
+    }
   });
 
-  it('the last 10s of ANY pre-close beat return to the countdown, in the urgency window', () => {
-    // The announcement yields to urgency at the get-moving moment.
-    expect(ringReadout('reveal', 9_400)).toEqual({ text: 'RING CLOSES 0:10', urgent: true });
-    expect(ringReadout('clear', 9_400)).toEqual({ text: 'RING CLOSES 0:10', urgent: true });
-    expect(ringReadout('supply', 4_100)).toEqual({ text: 'RING CLOSES 0:05', urgent: true });
+  it('the last 10s of ANY pre-close beat go amber, in the urgency window', () => {
+    expect(ringReadout('reveal', 9_400)).toEqual({ text: 'RING CLOSES IN 0:10', urgent: true });
+    expect(ringReadout('clear', 9_400)).toEqual({ text: 'RING CLOSES IN 0:10', urgent: true });
+    expect(ringReadout('supply', 4_100)).toEqual({ text: 'RING CLOSES IN 0:05', urgent: true });
   });
 
   it('opens the urgency window at EXACTLY urgentMs (inclusive), not a tick later', () => {
     expect(ringReadout('reveal', CB.urgentMs).urgent).toBe(true);
     expect(ringReadout('reveal', CB.urgentMs + 1).urgent).toBe(false);
-    expect(ringReadout('reveal', CB.urgentMs + 1).text).toBe('RING REVEALED');
+    expect(ringReadout('reveal', CB.urgentMs + 1).text).toBe(`RING CLOSES IN ${fmtRingClock(CB.urgentMs + 1)}`);
     // ...and the window is defined on closesInMs itself, so a retuned timeline
     // (or a test beat config) can never put copy and countdown out of step.
     expect(ringReadout('clear', 3_000, 5_000).urgent).toBe(true);
@@ -100,8 +102,8 @@ describe('ringReadout — amendment 20\'s urgency-override grammar', () => {
   });
 
   it('clamps a degenerate clock instead of printing a negative one', () => {
-    expect(ringReadout('clear', 0).text).toBe('RING CLOSES 0:00');
-    expect(ringReadout('clear', -5_000).text).toBe('RING CLOSES 0:00');
+    expect(ringReadout('clear', 0).text).toBe('RING CLOSES IN 0:00');
+    expect(ringReadout('clear', -5_000).text).toBe('RING CLOSES IN 0:00');
     expect(ringReadout('closing', Number.NaN).text).toBe('RING CLOSING 0:00');
     expect(ringReadout('clear', Number.NaN).urgent).toBe(false); // a NaN clock is not an alarm
   });
@@ -144,7 +146,7 @@ describe('fmtBarClock — the zero-padded, up-counting match timer', () => {
 
 describe('chromeBarSegments — the whole register', () => {
   it('reads `n AFLOAT · n KILLS · T+mm:ss · <ring>` on a live clear beat', () => {
-    expect(row(view())).toBe('12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES 2:34');
+    expect(row(view())).toBe('12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34');
   });
 
   it('the supply beat renders byte-identically to clear', () => {
@@ -152,8 +154,8 @@ describe('chromeBarSegments — the whole register', () => {
   });
 
   it('shows the whole matrix of ring states in place', () => {
-    expect(row(view({ ring: ringReadout('reveal', 47_000) }))).toMatch(/· RING REVEALED$/);
-    expect(row(view({ ring: ringReadout('reveal', 9_400) }))).toMatch(/· RING CLOSES 0:10$/);
+    expect(row(view({ ring: ringReadout('reveal', 47_000) }))).toMatch(/· RING CLOSES IN 0:47$/);
+    expect(row(view({ ring: ringReadout('reveal', 9_400) }))).toMatch(/· RING CLOSES IN 0:10$/);
     expect(row(view({ ring: ringReadout('closing', 41_000) }))).toMatch(/· RING CLOSING 0:41$/);
     expect(row(view({ ring: ringReadout('closed', 0) }))).toMatch(/· RING CLOSED$/);
   });
@@ -381,7 +383,7 @@ describe('the bar fits its container (amendment 47 — the container-fit law)', 
       afloat: 99,
       kills: 99,
       matchMs: 99 * 60_000 + 59_000, // T+99:59
-      ring: ringReadout('clear', 99 * 60_000 + 59_000), // RING CLOSES 99:59
+      ring: ringReadout('clear', 99 * 60_000 + 59_000), // RING CLOSES IN 99:59
     });
     const w = chromeBarLayout(chromeBarSegments(worst), NARROWEST_LOGICAL).width;
     expect(w, `${row(worst)} @ ${w}px`).toBeLessThanOrEqual(NARROWEST_LOGICAL);

@@ -636,8 +636,8 @@ export const CLIENT_CONFIG = {
      *  past the ≤1.1 Hz / ≤3-flashes-per-region accessibility floor. */
     holdEaseMs: 240,
     /** THE URGENCY WINDOW (ms before a ring's close STARTS) — amendment 20's
-     *  override: inside it the reveal beat's `RING REVEALED` announcement yields
-     *  to `RING CLOSES 0:0x` and the segment turns amber and breathes. 10s is
+     *  override: inside it the segment turns amber and breathes while the
+     *  continuous `RING CLOSES IN m:ss` countdown runs on (amendment 26). 10s is
      *  the get-moving moment; the shrink itself (`closing`) is never amber. */
     urgentMs: 10_000,
   },

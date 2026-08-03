@@ -1,7 +1,7 @@
 // THE BR CHROME BAR (Story 3.3, amendments 19–21) — the pure composer for the
 // one restrained mono row that sits top-center for the whole match:
 //
-//     12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES 2:34
+//     12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34
 //
 // PURE by construction (the ui/phase.ts precedent): no Pixi, no DOM, no clock
 // and no state. Everything here is a total function of numbers the client
@@ -15,11 +15,14 @@
 //    the number visibly thins as the field dies. The deliberate asymmetry with
 //    the elimination modal's humans-only PLACEMENT lives in score.ts, beside
 //    the placement rule it is asymmetric with.
-//  • THE RING READOUT IS AN URGENCY OVERRIDE (amendment 20): clear/supply count
-//    down to the next close START; the reveal beat ANNOUNCES (`RING REVEALED`)
-//    until the last 10s, where the announcement yields back to the countdown and
-//    the segment turns amber; the shrink counts down to the close END and is
-//    never amber; after final closure the readout just says so.
+//  • THE RING READOUT IS A CONTINUOUS COUNTDOWN (amendment 26, superseding
+//    amendment 20's reveal-beat announcement): every pre-close beat — clear,
+//    supply, AND reveal — counts down to the next close START as
+//    `RING CLOSES IN m:ss`, unbroken from cycle start; the last 10s turn amber
+//    (the get-moving moment). The `RING REVEALED` register is retired — Eric hit
+//    the gap it created live ("timer ticks down to the reveal text, then there's
+//    no indicator of when it will close"). The shrink counts down to the close
+//    END and is never amber; after final closure the readout just says so.
 //  • STORM INFORMATION WEARS THE STORM REGISTER (amendment 21): the ring segment
 //    is storm-readout violet, amber only inside the urgency window. The
 //    AFLOAT/KILLS/T+ numbers are phosphor tabular (Geist Mono is monospaced, so
@@ -103,16 +106,16 @@ export interface RingReadout {
 }
 
 /**
- * Pure: the ring readout for a zone phase (amendment 20's grammar, exactly).
+ * Pure: the ring readout for a zone phase (amendment 26's grammar, exactly).
  *
  * `closesInMs` is DUAL-MEANING by design (shared zone.ts: to the close START
  * during clear/supply/reveal, to the close END while closing) and this composer
  * takes it verbatim — it never re-derives a beat boundary, so a retuned timeline
  * or a test beat config can never put the copy and the countdown out of step.
  *
- * The urgency window is therefore defined on the value itself — any PRE-CLOSE
- * beat with `closesInMs ≤ urgentMs` — rather than on "the reveal beat's last
- * 10s". Same behavior on the shipped timeline, robust on any other.
+ * The urgency window is defined on the value itself — any PRE-CLOSE beat with
+ * `closesInMs ≤ urgentMs` — rather than on any beat identity. Same behavior on
+ * the shipped timeline, robust on any other.
  */
 export function ringReadout(state: ZonePhase, closesInMs: number, urgentMs: number = CB.urgentMs): RingReadout {
   if (state === 'idle') return { text: '', urgent: false };
@@ -120,13 +123,12 @@ export function ringReadout(state: ZonePhase, closesInMs: number, urgentMs: numb
   // The shrink: counts to the close END, violet, never amber — the ring is
   // already moving, and the urgency cue belongs to the moment before it does.
   if (state === 'closing') return { text: `RING CLOSING ${fmtRingClock(closesInMs)}`, urgent: false };
+  // Every pre-close beat — clear, supply, reveal alike (amendment 26: the
+  // countdown never breaks; the reveal beat's on-water dashed telegraph is the
+  // reveal's whole HUD story). Supply stays BYTE-IDENTICAL to clear, which is
+  // the whole of "the parked supply beat has zero HUD trace".
   const urgent = Number.isFinite(closesInMs) && closesInMs <= urgentMs;
-  // The announcement holds the segment only while there is still time to plan;
-  // inside the window it yields to the countdown (the get-moving moment).
-  if (state === 'reveal' && !urgent) return { text: 'RING REVEALED', urgent: false };
-  // clear / supply — and supply is BYTE-IDENTICAL to clear here, which is the
-  // whole of "the parked supply beat has zero HUD trace".
-  return { text: `RING CLOSES ${fmtRingClock(closesInMs)}`, urgent };
+  return { text: `RING CLOSES IN ${fmtRingClock(closesInMs)}`, urgent };
 }
 
 /** One laid-out piece of the bar. Pixi Text is single-style, so a multi-color
