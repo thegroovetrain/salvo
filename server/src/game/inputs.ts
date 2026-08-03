@@ -38,7 +38,7 @@ export const INTENT_QUEUE_CAP = INPUT_RATE_CAP;
  * effective range never exceeds the map) with generous headroom, while
  * rejecting only absurd wire garbage. It is deliberately a MAP-SCALE constant,
  * NOT a weapon stat: a radar-derived bound (e.g. 2× radar) is silently
- * overtaken by ~5 stacked gunRange upgrades (650×1.15ⁿ), which would clamp
+ * overtaken by ~5 stacked gunRange upgrades (660×1.15ⁿ), which would clamp
  * legitimate long shots short of the client's range marker. The real gameplay
  * clamp to per-ship effective gun range is applied PER SHOT in equipment/guns.ts.
  */

@@ -549,7 +549,7 @@ describe('perception — mine visibility (owner-always, else sight+LOS, never ra
     injectMine(w, 'm1', 'a', 900, 900); // owner's mine, far outside any range
     const fa = buildFrame(w, 'a');
     expect(fa.mines).toEqual([{ id: 'm1', x: 900, y: 900, own: true, by: 'a' }]);
-    // b sits at the origin — the mine is 1273u away, far beyond radar(650).
+    // b sits at the origin — the mine is 1273u away, far beyond radar(660).
     expect(buildFrame(w, 'b').mines).toEqual([]);
   });
 
@@ -588,7 +588,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
   it('the FIRER gains a full contact for a ship inside its zone, far beyond sight and radar', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    place(w, 'b', 900, 0, 2.1); // way outside sight (330) AND radar (650)
+    place(w, 'b', 900, 0, 2.1); // way outside sight (330) AND radar (660)
     injectZone(w, 'z1', 'a', 900, 0);
     expect(buildFrame(w, 'a').contacts).toEqual([
       { id: 'b', x: 900, y: 0, heading: 2.1, speed: 0, cls: 'torpedoBoat' },

@@ -71,7 +71,7 @@ describe('star shells — shell construction', () => {
     expect(bb.loadout[SLOT_STAR].state).toEqual({ n: 0, reloadMsLeft: CONFIG.starShells.reloadMs });
   });
 
-  it('a click beyond range clamps the burst point to the radar-derived base range (650u)', () => {
+  it('a click beyond range clamps the burst point to the radar-derived base range (660u)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     setInput(bb, { aim: 0, aimDist: 1200, slot: SLOT_STAR });
@@ -106,7 +106,7 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
   it('an early interceptor takes ZERO, stops the flare — and the zone spawns AT THE STOP POINT (Story 2.8 flip of the no-zone pin)', () => {
     const w = bareWorld();
     place(w, 'a', 'battleship', 0, 0);
-    const mid = place(w, 'mid', 'battleship', 300, 0); // bodyblocks the 650u shot, 350u short
+    const mid = place(w, 'mid', 'battleship', 300, 0); // bodyblocks the 650u click (an arbitrary long-range distance), 350u short
     const { seen } = fireAndResolve(w, 'a', { aim: 0, aimDist: 650 });
     expect(seen).toContain('boom');
     expect(seen).not.toContain('burst');
@@ -115,7 +115,7 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     expect(seen).not.toContain('dmg');
     expect(w.litZones.size).toBe(1);
     const zone = [...w.litZones.values()][0];
-    // The zone sits at the interception stop point (short of the 650u click).
+    // The zone sits at the interception stop point (short of the 650u click, an arbitrary long-range distance).
     expect(Math.hypot(zone.x, zone.y)).toBeLessThan(400);
   });
 

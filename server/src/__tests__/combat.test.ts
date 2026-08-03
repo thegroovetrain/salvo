@@ -122,7 +122,7 @@ describe('gun shell construction — the burst hit rule rides the projectile', (
   it('gunTarget clamps the click to the effective range, measured from the CENTER', () => {
     const { w, a } = armed();
     a.input = gunInput(0, 5000);
-    // Base effective range IS radar range (single source, no duplicated 650).
+    // Base effective range IS radar range (single source, no duplicated 660).
     expect(a.stats.gun.rangeU).toBe(CONFIG.vision.radar);
     expect(gunTarget(a, w.map.radius).x).toBeCloseTo(CONFIG.vision.radar, 9);
     w.sinkingActivationGate(a, SLOT_GUN);

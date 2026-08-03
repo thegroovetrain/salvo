@@ -10,7 +10,7 @@
 //     would lie. The remaining instant abilities (speedBoost, decoyBuoy) never
 //     prime and draw no marker at all.
 //   - The crosshair + bearing line go in the `aim` layer (chartRoot, fog-immune)
-//     because gun range (radar range, 650u) exceeds sight range (220u): aiming
+//     because gun range (radar range, 660u) exceeds sight range (330u): aiming
 //     at a radar blip beyond sight must not put the reticle under the fog. Amber
 //     when the aim is in the primed weapon's arc AND it is ready, else dim. The
 //     bearing line still originates at the own ship's world position — chartRoot

@@ -695,7 +695,7 @@ describe('per-observer sight (intelTruesight)', () => {
 
 describe('per-observer radar (intelRadar)', () => {
   it('paints a blip in the widened annulus that a base observer cannot reach', () => {
-    const target = RADAR + 40; // between base radar and one-stack radar (650×1.15)
+    const target = RADAR + 40; // between base radar and one-stack radar (660×1.15)
     const w = bareWorld();
     const up = place(w, 'up', 0, 0);
     const base = place(w, 'base', 0, 0);
