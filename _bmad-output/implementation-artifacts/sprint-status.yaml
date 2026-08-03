@@ -42,7 +42,7 @@
 # Story 1.9 tombstoned (number retired, not reused); later stories keep their numbers.
 
 generated: 2026-07-17
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -95,7 +95,7 @@ development_status:
   3-2-ring-reveal-storm-rendering: done  # 2026-08-02 dev-auto cycle 33 (0.17.33); design gate closed in-run (amendment 18)
   3-3-br-chrome-bar: done  # 2026-08-02 dev-auto cycle 36 (0.17.36); amendments 19-21 ratified pre-implementation (all-hulls AFLOAT, urgency-override ring grammar, storm-violet segment)
   3-4-the-endgame-guarantee: done  # 2026-08-02 dev-auto cycle 37 (0.17.37); amendments 22-24 ratified pre-implementation (radar DERIVED 2×truesight, endgame-gated pilot evidence, geometric no-stalemate bar)
-  epic-3-retrospective: optional
+  epic-3-retrospective: done  # epic-3-retro-2026-08-03.md (live with Eric; carries the ~10-player playtest reads)
 
   # epic-4: Information Texture (GDD E6)
   epic-4: backlog
@@ -148,7 +148,7 @@ action_items:
   - epic: 2
     action: "Storm-purple ruling into 3-2 spec: exclusivity clause dead; binding requirement is ring-edge legibility; accent reuse of storm purple is fine (Eric ruling, epic-2 retro)"
     owner: "spec author (create-story 3-2)"
-    status: open
+    status: done  # 3-2 spec authored from the ruling; amendment 14 grammar; design gate ratified from live screenshots (amendment 18); stale-open corrected at epic-3 retro
   - epic: 2
     action: "3-1 spec carries picks-band shortfall ownership + harness-lengths-are-lower-bounds caveat + endedBy split + post-landing baseline rerun"
     owner: "spec author (create-story 3-1)"
@@ -156,4 +156,16 @@ action_items:
   - epic: 2
     action: "Epic 2 doc debt (typography rows, purple carve-out now moot, LitZoneView.mode, audio table) rides to Story 7-5 — no pre-Epic-3 batch"
     owner: "Story 7-5"
+    status: open
+  - epic: 3
+    action: "Sudden-death full-close at ~15:00 is a PARKED Eric-gated contingency (would supersede amendment 24's geometric bar) — never built absent a new explicit ruling; revisit only on live-play evidence of non-concluding matches (Eric, epic-3 retro)"
+    owner: "ledger (Eric-gated)"
+    status: open
+  - epic: 3
+    action: "Live-playtest lobby-convergence friction (~10 players, hard to reach one room, 2026-08-02) recorded as evidence for queue-based lobbies"
+    owner: "spec author (create-story 6-1)"
+    status: open
+  - epic: 3
+    action: "BB endgame share + terminal-ring island pockets: next checkpoint is full-roster matches reaching 12:00 closure (terminal ring human-unverified — playtest matches never hit 12:00)"
+    owner: "ledger (playtest checkpoint)"
     status: open
