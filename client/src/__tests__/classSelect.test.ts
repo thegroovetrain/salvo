@@ -106,9 +106,19 @@ describe('pipFill — objective anchored-linear mapper (Eric ruling 2026-08-03)'
     expect(pipFill(0.6, turning)).toBe(3); // 0.2 + 2*0.2
   });
 
-  it('degenerate anchor (step <= 0) clamps to 1', () => {
+  it('degenerate anchor (step <= 0 or non-finite base) clamps to 1', () => {
     expect(pipFill(40, { base: 30, step: 0 })).toBe(1);
     expect(pipFill(40, { base: 30, step: -5 })).toBe(1);
+    // Review-gate fix: an unguarded NaN base survives the clamp as NaN and
+    // paints a BLANK pip row — the one input class that broke never-blank.
+    expect(pipFill(40, { base: Number.NaN, step: 5 })).toBe(1);
+    expect(pipFill(40, { base: Number.POSITIVE_INFINITY, step: 5 })).toBe(1);
+  });
+
+  it('exact half-step rungs round UP despite float noise (review-gate fix)', () => {
+    // (0.5-0.2)/0.2 = 1.4999999999999998 in floats; the formula in exact
+    // arithmetic reads round(1.5) → 3 pips. The epsilon makes it so.
+    expect(pipFill(0.5, turning)).toBe(3);
   });
 
   it('non-finite value clamps to 1', () => {

@@ -244,8 +244,9 @@ const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
  * THE production Boon Catalog v1 (Story 2.8, amendment 42 — 42 card lines
  * across 9 categories). Ladder NAMES are ratified canon and live client-side
  * (boonCopy.ts); every step VALUE here is an implementer-drafted handwave
- * inside the ratified pins (damageGuardrail: no single hit ≥ 70 even
- * max-stacked; torpedoSpeed +5/card 60→80 ratified; intelSweep +3 RPM/card to
+ * inside the ratified pins (damageGuardrail: no single hit can kill the
+ * lightest hull — the 80hp small drone since the 2026-08-03 hp-ladder move —
+ * even max-stacked; torpedoSpeed +5/card 60→80 ratified; intelSweep +3 RPM/card to
  * the 30 cap; shipHull +20/card heal-on-grant; trigger ≤ blast clamped in
  * effectiveStats). 2.10's batch-sim evidence retunes.
  *
@@ -256,7 +257,7 @@ const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
  */
 export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // --- guns (universal) ----------------------------------------------------
-  // HEAVY SHELLS Mk I–V: 25 → 40 hp (+3/card — guardrail: max burst < 70).
+  // HEAVY SHELLS Mk I–V: 25 → 40 hp (+3/card — guardrail: max burst < the 80hp floor).
   gunDamage: { id: 'gunDamage', category: 'guns', rarity: 'common', copies: 5, effects: [stat('gun.damage', { add: 3 })] },
   // LOADING DRILLS → READY MAGAZINE: ×0.9 reload per card.
   gunReload: { id: 'gunReload', category: 'guns', rarity: 'common', copies: 5, effects: [stat('gun.reloadMs', { mult: 0.9 })] },

@@ -2,7 +2,7 @@
 title: 'TTK & Objective Pip Rebalance'
 type: 'feature'
 created: '2026-08-03'
-status: 'in-progress'
+status: 'in-review'
 review_loop_iteration: 0
 baseline_revision: '412dcc79a6de508987e1ce876d4b4c0231231488'
 followup_review_recommended: false
@@ -84,11 +84,43 @@ warnings: []
 
 ## Review Triage Log
 
+### 2026-08-03 — Review pass (Blind Hunter + Edge Case Hunter + Codex cross-check; verdicts: build-on-it ×3)
+- intent_gap: 0
+- bad_spec: 0
+- patch: 3: (high 0, medium 0, low 3)
+- defer: 2: (high 0, medium 0, low 2)
+- reject: 2: (high 0, medium 0, low 2)
+- addressed_findings:
+  - `[low]` `[patch]` pipFill left `anchor.base` unguarded — a NaN base survived the clamp and painted a BLANK pip row (both Fable reviewers; Codex clean). Fixed with a `Number.isFinite(anchor.base)` guard + regression tests (NaN/Infinity base → 1 pip).
+  - `[low]` `[patch]` Float half-step on non-dyadic ladders rounded DOWN ((0.5−0.2)/0.2 = 1.4999999999999998 → 2 pips vs exact-math 3) — latent, no current stat on a half-rung. Fixed with a +1e-9 epsilon + a pinned 0.5 rad/s → 3 test.
+  - `[low]` `[patch]` Stale "70hp floor" comment sweep: boons.ts catalog header + HEAVY SHELLS note, guns.ts/world.ts salvo-ledger rationale (re-derived against the 80hp floor with max-stacked math), weaponsSmoke.mjs header (3×55=165>150), matchSmoke.mjs terminal-floor rationale (historicized), config.ts speed-anchor knots⇄u/s note.
+- Deferred (ledgered): DESIGN/EXPERIENCE pip-scheme drift (Eric-gated doc-sync); unmeasured relative-balance shifts folded into the future evidence rerun.
+- Rejected: stale-cached-client 125/70 header flash (accepted transient deploy-skew family); "evidence now stale" as a finding (already Eric-ruled + ledgered this cycle).
+
 ## Design Notes
 
 - Rulings (Eric, 2026-08-03, AskUserQuestion): turning anchor 0.2/pip ratified; drones unchanged; level-heal deferred again; evidence rerun report-only ratified.
 - Execution directive from invocation: use `/orchestrate` for implementation subagents, model per task complexity.
 - Drone XP-farm pace and the 3-1 economy evidence stay anchored precisely because drone HP is untouched.
+
+## Auto Run Result
+
+**Summary:** Class HP moved onto the Eric-ruled objective toughness ladder (TB 70→125, ML 105→150, BS 150→175) so a gun+cannon alpha strike (75) no longer deletes an un-upgraded torpedo boat; ship-select pips reworked from relative maxima to absolute objective ladders (SPEED 30+5/pip, TOUGHNESS 100+25/pip, TURNING 0.2+0.2/pip) — BS speed card 3→2 pips is the only visible pip change, all kinematics untouched. Values-only; no wire change (PV 19). Cycle 39 → 0.17.39.
+
+**Files changed:**
+- `shared/src/constants.ts` — the three hp literals + ladder comments (the only sim change)
+- `shared/src/__tests__/shipClasses.test.ts` / `damageGuardrail.test.ts` — pins updated; lightest-hull identity deliberately flipped to the 80hp small drone and re-pinned directly (max-stacked 65 < 80)
+- `client/src/util/pips.ts` + `config.ts` + `ui/classSelect.ts` — anchored-linear `pipFill(value, {base, step})` over per-stat objective anchors
+- `client/src/__tests__/classSelect.test.ts` — new card pins + mapper edge-case suite; `silhouetteSvg.test.ts` — superseded old-mapper suite removed
+- `server/src/__tests__/__snapshots__/goldenFrames.test.ts.snap` — regenerated; hp fields only (verified by diff read)
+- `server/scripts/weaponsSmoke.mjs` / `matchSmoke.mjs`, `shared/src/sim/boons.ts`, `server/src/game/equipment/guns.ts`, `server/src/game/world.ts`, `client/src/config.ts` — stale 70hp-floor / anchor comments re-derived (review-gate sweep)
+- `VERSION` + `package.json` — 0.17.39; `_bmad-output/gds-workflow-status.yaml` — cycle 39 chained; `deferred-work.md` — 3 entries (evidence rerun per Eric's mid-run skip ruling; DESIGN/EXPERIENCE pip-scheme drift; unmeasured relative-balance shifts)
+
+**Review breakdown:** Blind Hunter + Edge Case Hunter (Fable) + Codex cross-check, verdicts build-on-it ×3. 3 low patches applied (pipFill NaN-base blank-row guard — flagged by both hunters, Codex clean; half-step float epsilon on non-dyadic ladders; comment sweep), 2 deferred (ledgered), 2 rejected, 0 intent_gap, 0 bad_spec.
+
+**Verification:** `npm run check` green post-patches — lint 0 errors (2 pre-existing warnings), tsc clean ×3, tests 400 shared / 834 server / 1384 client = 2618 (main was 2614). AC walk: TB survives 75 (125 hp, pinned); card fills TB 4/2/4 · BS 2/4/2 · ML 3/3/3 (pinned); no max-stacked one-shot vs any hull (65 < 80, pinned); only the three hp literals changed among dials (reviewed diff + Codex confirm no missed consumer).
+
+**Residual risks:** All empirical balance baselines (match length, picks band, endgame win rates) are formally stale until the ledgered report-only batch-sim rerun (Eric-accepted, credit budget); stale-cached clients may transiently show a 125/70 hull header until refresh (accepted deploy-skew family).
 
 ## Verification
 

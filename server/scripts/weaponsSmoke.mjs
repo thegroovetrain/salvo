@@ -1,8 +1,10 @@
 // Weapons smoke: two live @colyseus/sdk clients against a running dev server,
 // exercising torpedoes + mines end to end.
-//   1. Torpedo kill: A (torpedo boat) faces B (mine layer, 105hp) bow-on and
-//      holds fire until B sinks — TWO 55-dmg fish across two ~12s reloads
-//      (2×55 = 110 > 105 HP). Asserts 55-damage hits, the kill on the roster.
+//   1. Torpedo kill: A (torpedo boat) faces B (mine layer, 150hp since the
+//      2026-08-03 hp-ladder move) bow-on and holds fire until B sinks — THREE
+//      55-dmg fish across ~12s reloads (3×55 = 165 > 150 HP; the smoke clicks
+//      every tick, so the fish count follows the hp automatically). Asserts
+//      55-damage hits, the kill on the roster.
 //   2. Torpedo never blips: B collects every torpedo id it is shown (via `torp`
 //      events entering its sight) and every radar blip id — asserts the sets are
 //      DISJOINT (a torpedo can never appear on the scope).

@@ -389,7 +389,7 @@ export const CLIENT_CONFIG = {
      *  roster changes AND the pip count means the same real-world value
      *  everywhere it's shown. */
     pip: {
-      speed: { base: 30, step: 5 }, // knots — 1 pip = 30kn, +5kn/pip
+      speed: { base: 30, step: 5 }, // knots (numerically = u/s per the 2026-07-21 knot-realistic rescale) — 1 pip = 30kn, +5kn/pip
       toughness: { base: 100, step: 25 }, // hull hp — 1 pip = 100hp, +25hp/pip
       turning: { base: 0.2, step: 0.2 }, // rad/s — 1 pip = 0.2 rad/s, +0.2/pip
     },
