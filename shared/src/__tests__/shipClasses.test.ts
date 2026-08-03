@@ -1,10 +1,13 @@
 // Pins the ratified beta class table and the drone envelope table. The class
 // maxSpeeds are the Eric knot-realistic rescale (2026-07-21, Story 1.6): TB 45
 // / ML 40 / BS 35 — a DELIBERATE pin update from the 50/38/28 of Story 1.3.
-// Every other class field (reverseSpeed/accel/decel/turnRate/steerageSpeed,
-// hull dims, hp) and the entire drone table are UNCHANGED and byte-for-byte
-// pinned. These pins fail the moment any envelope value drifts from the
-// approved table without a matching test change.
+// Class hp moved onto the objective toughness ladder (Eric ruling 2026-08-03,
+// TTK & Objective Pip Rebalance): 1 pip = 100 HP, +25 HP/pip — TB 70→125 (2
+// pips), ML 105→150 (3 pips), BS 150→175 (4 pips). Every other class field
+// (reverseSpeed/accel/decel/turnRate/steerageSpeed, hull dims) and the entire
+// drone table are UNCHANGED and byte-for-byte pinned. These pins fail the
+// moment any envelope value drifts from the approved table without a
+// matching test change.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -18,10 +21,10 @@ import {
 } from '../index.js';
 
 describe('ratified class table (exact Eric-approved values)', () => {
-  it('torpedoBoat: 100×9, hp 70, fast and fragile', () => {
+  it('torpedoBoat: 100×9, hp 125, fast and fragile', () => {
     expect(CONFIG.shipClasses.torpedoBoat).toEqual({
       hull: { length: 100, beam: 9 },
-      hp: 70,
+      hp: 125,
       kinematics: {
         maxSpeed: 45,
         reverseSpeed: 15,
@@ -33,10 +36,10 @@ describe('ratified class table (exact Eric-approved values)', () => {
     });
   });
 
-  it('battleship: 124×32, hp 150, slow and armored', () => {
+  it('battleship: 124×32, hp 175, slow and armored', () => {
     expect(CONFIG.shipClasses.battleship).toEqual({
       hull: { length: 124, beam: 32 },
-      hp: 150,
+      hp: 175,
       kinematics: {
         maxSpeed: 35,
         reverseSpeed: 9,
@@ -48,10 +51,10 @@ describe('ratified class table (exact Eric-approved values)', () => {
     });
   });
 
-  it('mineLayer: 88×20, hp 105, the middle envelope', () => {
+  it('mineLayer: 88×20, hp 150, the middle envelope', () => {
     expect(CONFIG.shipClasses.mineLayer).toEqual({
       hull: { length: 88, beam: 20 },
-      hp: 105,
+      hp: 150,
       kinematics: {
         maxSpeed: 40,
         reverseSpeed: 14,

@@ -1,10 +1,14 @@
 // Balance guardrails (HULLCRACKER_NOTES "PROBLEMS SO FAR"): no single hit may
 // ever kill an undamaged hull — now extended to MAX-STACKED catalog ladders
 // (Story 2.8: every damage ladder, fully stacked to its copy cap, stays under
-// the 70hp lightest hull) — and a torpedo must always outrun every hull. The
-// star-shell damage pins FLIPPED deliberately (amendment 39: the flare is
-// damageless — the CONFIG field is DELETED, not zeroed). Pure CONFIG/catalog
-// pins — they fail the moment a retune or a catalog step drifts across a line.
+// the lightest hull on the water) — and a torpedo must always outrun every
+// hull. The TTK & Objective Pip Rebalance (Eric ruling 2026-08-03) moved class
+// hp onto the toughness ladder (TB 70→125, ML 105→150, BS 150→175), which
+// FLIPS the lightest-hull identity: the 80hp small drone is now the floor,
+// not the torpedoBoat (drones stay 80/100/120, unchanged). The star-shell
+// damage pins FLIPPED deliberately (amendment 39: the flare is damageless —
+// the CONFIG field is DELETED, not zeroed). Pure CONFIG/catalog pins — they
+// fail the moment a retune or a catalog step drifts across a line.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -46,14 +50,42 @@ describe('one-hit-kill guardrail — CONFIG bases (classes AND drones)', () => {
     expect(CONFIG.cannon.contactDamage).toBeLessThanOrEqual(CONFIG.cannon.damage);
   });
 
-  it('the lightest hull is the 70hp torpedoBoat (drones are all heavier)', () => {
-    expect(minHullHp).toBe(70);
-    expect(Math.min(...droneHps)).toBeGreaterThan(CONFIG.torpedo.damage);
+  it('the lightest CLASS hull is the 125hp torpedoBoat; every drone is now LIGHTER than every class hull', () => {
+    // Objective toughness ladder (Eric ruling 2026-08-03) moved class hp onto
+    // 100 + 25/pip: TB 125 (2 pips) is the lightest CLASS hull, below ML 150
+    // (3 pips) and BS 175 (4 pips).
+    expect(Math.min(...classHps)).toBe(125);
+    expect(Math.min(...classHps)).toBe(CONFIG.shipClasses.torpedoBoat.hp);
+    // Drones (80/100/120, byte-for-byte unchanged) are now ALL lighter than
+    // every pickable class hull — the small drone becomes the lightest hull
+    // on the water, a deliberate consequence of the ladder move, not a drone
+    // retune.
+    for (const droneHp of droneHps) {
+      for (const classHp of classHps) {
+        expect(droneHp).toBeLessThan(classHp);
+      }
+    }
+    expect(minHullHp).toBe(80);
+    expect(minHullHp).toBe(CONFIG.drones.small.hp);
+  });
+});
+
+describe('one-hit-kill guardrail — the small drone (80hp) is the new floor (Eric ruling 2026-08-03)', () => {
+  it('no single weapon, even fully max-stacked, one-shots the 80hp small drone — the lightest hull afloat', () => {
+    // The objective toughness ladder made the small drone the lightest hull on
+    // the water (it was 70hp-TB-relative before). Re-pin the max-stacked
+    // ladder endpoints directly against CONFIG.drones.small.hp so this
+    // guardrail can never quietly regress if the generic minHullHp derivation
+    // changes shape.
+    expect(stacked('gunDamage').gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 40 < 80
+    expect(stacked('cannonDamage').cannon.damage).toBeLessThan(CONFIG.drones.small.hp); // 65 < 80
+    expect(stacked('torpedoDamage').torpedo.damage).toBeLessThan(CONFIG.drones.small.hp); // 65 < 80
+    expect(stacked('mineDamage').mine.damage).toBeLessThan(CONFIG.drones.small.hp); // 65 < 80
   });
 });
 
 describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8)', () => {
-  it('every damage ladder, stacked to its copy cap, stays UNDER the 70hp lightest hull', () => {
+  it('every damage ladder, stacked to its copy cap, stays UNDER the 80hp lightest hull', () => {
     // Computed FROM the catalog defs, so a step retune re-checks automatically.
     expect(stacked('gunDamage').gun.damage).toBeLessThan(minHullHp);
     expect(stacked('cannonDamage').cannon.damage).toBeLessThan(minHullHp);
@@ -78,7 +110,7 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8)', (
     expect(barrels).toBe(3); // TWIN + TRIPLE MOUNT, both copies
     expect(perShell).toBeLessThan(minHullHp); // the guaranteed ceiling per click
     // ...and this is the number that made the rule mandatory: UNGUARDED the
-    // same click would have breached the 70hp floor outright.
+    // same click would have breached the 80hp floor outright.
     expect(perShell * barrels).toBeGreaterThan(minHullHp);
   });
 

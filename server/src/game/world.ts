@@ -488,8 +488,9 @@ export class World {
    * THE SAME-CLICK SALVO LEDGER (Story 2.8 review, P1): salvo tag → the ids of
    * hulls that have ALREADY taken a damage application from that salvo. A
    * multi-barrel click's fanned bursts overlap at practical ranges, so without
-   * this a single hull takes barrels× damage from one click (3 × 25 = 75 > the
-   * 70hp lightest hull) — a breach of the ratified no-one-click-kill
+   * this a single hull takes barrels× damage from one click (max-stacked
+   * 3 × 40 = 120 > the 80hp lightest hull; at the original 70hp floor even
+   * base 3 × 25 = 75 breached) — a breach of the ratified no-one-click-kill
    * guardrail. Entries are dropped as soon as the salvo has no shell left in
    * flight (releaseSalvo), so the map is bounded by live salvos.
    */

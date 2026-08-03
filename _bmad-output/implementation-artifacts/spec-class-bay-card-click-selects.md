@@ -57,7 +57,7 @@ warnings: []
 - `client/src/__tests__/classSelect.test.ts` — `:313 'a card click picks that class'` must be rewritten; `:332` dimmer-dismiss and `:342` ESC tests must stay green unchanged.
 - `client/src/__tests__/containerFit.test.ts` — `:88` passes a no-op `onPick`; update for the removed field.
 - `client/src/__tests__/home.test.ts` — layer tests use digits+Enter, expected untouched.
-- `VERSION`, `package.json` — 0.17.39.
+- `VERSION`, `package.json` — 0.17.40 (renumbered at landing: PR #87 took cycle 39 / 0.17.39 in parallel).
 - `_bmad-output/implementation-artifacts/deferred-work.md` — doc-sync entry for the superseded EXPERIENCE.md pick-returns-home lines.
 
 ## Tasks & Acceptance
@@ -67,7 +67,7 @@ warnings: []
 - [x] `client/src/ui/home.ts` — drop the `onPick` callback from `openLayer` (confirm path already persists via `setClass`); update the openLayer/showHome comments.
 - [x] `client/src/__tests__/classSelect.test.ts` — rewrite the card-click test: click highlights (SELECTED ✓ on the clicked card), layer stays mounted, no `onPick`/`onConfirm`/`onClose` call; add click→CONFIRM hands back the clicked class, and click→ESC fires `onClose` only; assert the one-visit flow (card click + swatch click + confirm in a single open); keep dimmer/ESC/Finding-A/teardown tests green.
 - [x] `client/src/__tests__/containerFit.test.ts` — remove the now-dead `onPick` option from the bay fixture.
-- [x] `VERSION` + `package.json` — 0.17.38 → 0.17.39.
+- [x] `VERSION` + `package.json` — 0.17.38 → 0.17.40 (the contract's 0.17.39 target was renumbered at landing; PR #87 landed cycle 39 in parallel).
 - [x] `_bmad-output/implementation-artifacts/deferred-work.md` — append doc-sync entry: EXPERIENCE.md:66/115/124 "pick returns to home" superseded by Eric ruling 2026-08-03 (card click selects, confirm/ESC close).
 
 **Acceptance Criteria:**
@@ -108,19 +108,19 @@ Rejected (noise): route-digits-through-select parity refactor (no defect); Layer
 
 ## Auto Run Result
 
-**Summary:** The class bay no longer closes on a ship-card click. A card click (or its in-card SELECT button, via bubbling) only moves the highlight; the bay closes solely via CONFIRM SELECTION/Enter (the one class commit), ESC, or the backdrop dismiss — so ship and color change in a single visit. Eric rulings taken pre-implementation via AskUserQuestion: backdrop keeps dismissing; Enter stays ≡ CONFIRM; ESC discards the unconfirmed class while color swatch picks keep persisting instantly. Client-only, no wire change (PV stays 19). Cycle 39 → 0.17.39.
+**Summary:** The class bay no longer closes on a ship-card click. A card click (or its in-card SELECT button, via bubbling) only moves the highlight; the bay closes solely via CONFIRM SELECTION/Enter (the one class commit), ESC, or the backdrop dismiss — so ship and color change in a single visit. Eric rulings taken pre-implementation via AskUserQuestion: backdrop keeps dismissing; Enter stays ≡ CONFIRM; ESC discards the unconfirmed class while color swatch picks keep persisting instantly. Client-only, no wire change (PV stays 19). Cycle 40 → 0.17.40 (authored as cycle 39; PR #87's TTK/pip rebalance took 39 in parallel, so this renumbered at landing — the intent-contract's 0.17.39 line is superseded by that renumber).
 
 **Files changed:**
 - `client/src/ui/classSelect.ts` — `pick()`/`ClassSelectOpts.onPick` retired; new `select()` highlight path (index-guarded); doc comments corrected and relocated.
 - `client/src/ui/home.ts` — `onPick` dropped from the sole `openClassSelect` call site; comments updated.
 - `client/src/__tests__/classSelect.test.ts` — card-click test rewritten to the new grammar + 6 new pins (click→CONFIRM, click→ESC discard, one-visit ship+color flow [determinism-pinned], re-click no-op, click→Enter, SELECT-button bubbling).
 - `client/src/__tests__/containerFit.test.ts` — dead `onPick` fixture option removed.
-- `VERSION` + `package.json` (+ lockfile version fields) — 0.17.38 → 0.17.39.
+- `VERSION` + `package.json` (+ lockfile version fields) — 0.17.38 → 0.17.40.
 - `_bmad-output/implementation-artifacts/deferred-work.md` — EXPERIENCE.md:66 doc-sync debt entry.
 - `_bmad-output/gds-workflow-status.yaml` — cycle-39 narrative chained into `last_updated`.
 
 **Review findings:** 2 Fable hunters + Codex cross-check. 9 patches applied (1 medium — the workflow-status ledger; 8 low), 0 deferred, 4 rejected, 0 intent gaps, 0 bad-spec. Codex: zero findings, verdict build-on-it (traced and cleared the focus/Enter-swallow and openedAt-guard suspicions).
 
-**Verification:** `npm run check` run independently by the orchestrator after each wave — final: lint 0 errors (2 pre-existing max-lines warnings), all three workspaces type-check, 2620 tests green (shared 399 / server 834 / client 1387; was 2614 at baseline).
+**Verification:** `npm run check` run independently by the orchestrator after each wave — final: lint 0 errors (2 pre-existing max-lines warnings), all three workspaces type-check, 2620 tests green (shared 399 / server 834 / client 1387; was 2614 at baseline). Re-run after merging main (PR #87, the parallel TTK/pip rebalance cycle): 2624 green (400/834/1390) — the two cycles coexist, only the classSelect test-file import line and the two ledger files conflicted.
 
 **Residual risks:** (1) "SELECTED ✓" chrome now labels a STAGED (unconfirmed) class rather than a saved one — Eric ruled no new visual grammar, but the treatment's meaning shifted; if playtests show players ESC-ing away picks they believed saved, a staged-vs-committed visual distinction is the follow-up. (2) The worktree needed a fresh `npm install`; `package-lock.json` carries only its two version-field bumps, no dependency changes.

@@ -381,14 +381,17 @@ export const CLIENT_CONFIG = {
    *  feel knobs (render/ambient.ts). Colors are NOT here — the scene reads
    *  CLIENT_CONFIG.colors tokens (void/phosphorBright/silver/island*). */
   home: {
-    /** Pip scale anchors (Eric ruling 2026-07-24) — ABSOLUTE maxima against which
-     *  a class stat resolves to a filled-pip count via util/pips.ts's pipFill:
-     *  round(value / anchorMax * 5), clamped 1..5. Fixed anchors (not per-batch
-     *  relative) so a hull's pips never shift when the class roster changes. */
+    /** Pip scale anchors (objective rework Eric ruling 2026-08-03, superseding
+     *  the 2026-07-24 relative-maxima scheme) — ABSOLUTE OBJECTIVE LADDERS: 1
+     *  pip = `base`, each additional pip = `+step`, via util/pips.ts's pipFill:
+     *  clamp(1 + round((value - base) / step), 1, 5). Fixed per-stat ladders
+     *  (not per-batch relative) so a hull's pips never shift when the class
+     *  roster changes AND the pip count means the same real-world value
+     *  everywhere it's shown. */
     pip: {
-      speedMax: 60, // u/s — top of the speed pip scale
-      hpMax: 200, // hull hp — top of the toughness pip scale
-      turnMax: 1.0, // rad/s — top of the turning pip scale
+      speed: { base: 30, step: 5 }, // knots (numerically = u/s per the 2026-07-21 knot-realistic rescale) — 1 pip = 30kn, +5kn/pip
+      toughness: { base: 100, step: 25 }, // hull hp — 1 pip = 100hp, +25hp/pip
+      turning: { base: 0.2, step: 0.2 }, // rad/s — 1 pip = 0.2 rad/s, +0.2/pip
     },
 
     /** Ambient pre-join CIC scene (render/ambient.ts) — the game "breathing"
