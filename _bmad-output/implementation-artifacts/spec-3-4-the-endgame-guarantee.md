@@ -2,10 +2,11 @@
 title: '3-4 The Endgame Guarantee'
 type: 'feature'
 created: '2026-08-02'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
-followup_review_recommended: false # flag retired (Epic 2 retro Ruling 1) — residuals are ledger entries with evidence + named home
+followup_review_recommended: false # flag retired (Epic 2 retro Ruling 1) — residuals are ledger entries with evidence + named home; this pass's changes were disclosures/coverage tests, no behavior change
 baseline_revision: '418607d'
+final_revision: '90f8a22'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-3-context-amendments.md'
