@@ -625,7 +625,8 @@ function isLayerButton(el: Element | null, container: HTMLElement): boolean {
 /**
  * Only Enter/Space are swallowed while a layer button holds focus — those two
  * would otherwise double-fire (native button activation racing our own
- * pick/confirm). Everything else (ESC/arrows/digits) must still reach the
+ * confirm — Enter on the CONFIRM button, or a focused swatch's Space/Enter
+ * activation). Everything else (ESC/arrows/digits) must still reach the
  * layer regardless of focus, or a focused button (notably a color swatch —
  * the bay is the app's ONLY color picker) would deafen the whole layer to
  * every shortcut until a stray mouse click restored it (Finding A).
@@ -667,13 +668,7 @@ function activateLayer(w: LayerWiring): () => void {
   return unsubHoist;
 }
 
-/**
- * Open the class-select layer over the home. Returns a handle whose `close()`
- * tears everything down (removes the DOM, restores the home blur, detaches the
- * keydown listener). Only two exits close the layer — confirm and dismiss —
- * and route through the caller's callbacks; a card click only moves the
- * highlight and stays open. None of them deploys.
- */
+/** Build the layer's fixed container + dimmer + viewport-capped panel shell. */
 function makeLayerShell(): { container: HTMLElement; dimmer: HTMLElement; panel: HTMLElement } {
   const container = document.createElement('div');
   container.id = LAYER_ID;
@@ -695,6 +690,16 @@ function makeLayerShell(): { container: HTMLElement; dimmer: HTMLElement; panel:
   return { container, dimmer, panel };
 }
 
+/**
+ * Open the class-select layer over the home. Returns a handle whose `close()`
+ * tears everything down (removes the DOM, restores the home blur, detaches the
+ * keydown listener). Two caller-facing exits close the layer — confirm and
+ * dismiss — and route through the caller's callbacks; a card click only moves
+ * the highlight and stays open, never one of them. The returned handle's
+ * `close()` is a third, callback-free teardown path (used by re-open and home
+ * teardown) — it tears down without notifying either callback. None of them
+ * deploys.
+ */
 export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   current?.close(); // full teardown of any prior layer (listener + subscriptions), not just DOM
   const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), select));
@@ -716,7 +721,7 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   /** Card click (or its in-card SELECT button): move the highlight and repaint —
    *  never closes the layer, never fires a callback (Eric ruling 2026-08-03). */
   function select(cls: ShipClassId): void {
-    highlight = SHIP_CLASS_IDS.indexOf(cls);
+    highlight = Math.max(0, SHIP_CLASS_IDS.indexOf(cls));
     repaint();
   }
   /** CONFIRM SELECTION / Enter: resolve the highlight, close, hand it back. */

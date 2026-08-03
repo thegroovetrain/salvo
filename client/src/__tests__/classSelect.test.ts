@@ -18,7 +18,7 @@ import {
   openClassSelect,
   CLASS_DISPLAY_NAMES,
 } from '../ui/classSelect.js';
-import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
+import { loadColorPref, __resetSessionColorPrefForTests, COLOR_PREF_KEY } from '../net/connection.js';
 
 // The connection module caches the session's rolled hue (review-gate fix for
 // blocked-storage divergence); reset it per test so corrupt/absent-pref cases
@@ -280,6 +280,19 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
+  // Pins the click→Enter sequence: the existing Enter test above only reaches
+  // the highlight via a digit key — this proves a mouse card-click sets the
+  // same highlight Enter reads.
+  it('Enter after a mouse card-click confirms the clicked class', () => {
+    const { onConfirm } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    (cards[1] as HTMLElement).click(); // highlight battleship via click
+    press('Enter');
+    expect(onConfirm).toHaveBeenCalledWith('battleship');
+    expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
   // RE-TAKEN pin (was "SET SAIL picks the highlight AND deploys in one press"):
   // the button confirms the highlight and closes — deploying is PLAY's job now.
   it('CONFIRM SELECTION hands back the highlight and closes — it never deploys', () => {
@@ -325,6 +338,35 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
+  // Pins the spec's I/O-matrix row: re-clicking the card that's already
+  // highlighted must stay a pure no-op (no callback, no close).
+  it('re-clicking the already-highlighted card is a no-op', () => {
+    const { onConfirm, onClose } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    (cards[1] as HTMLElement).click(); // battleship — first click highlights it
+    (cards[1] as HTMLElement).click(); // second click on the already-highlighted card
+    expect(cards[1].querySelector('.hc-pickbtn')?.textContent).toBe('SELECTED ✓');
+    expect(document.getElementById('hc-class-select')).not.toBeNull(); // still mounted
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // Pins the bubbling assumption: the in-card SELECT button is not a separate
+  // click target — it's part of the whole-card click handler. A future
+  // stopPropagation on the button would silently kill this path.
+  it('clicking the in-card SELECT button itself highlights via bubbling', () => {
+    const { onConfirm, onClose } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    const pickBtn = cards[1].querySelector('.hc-pickbtn') as HTMLElement;
+    pickBtn.click();
+    expect(pickBtn.textContent).toBe('SELECTED ✓');
+    expect(document.getElementById('hc-class-select')).not.toBeNull(); // still mounted
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('click card B then CONFIRM hands back class B and closes', () => {
     const { onConfirm } = open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
@@ -351,7 +393,13 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
   // color swatch, and CONFIRM — all in a single bay open — must hand back the
   // clicked class while the swatch pick has already persisted independently.
   it('one visit: card click + swatch click + CONFIRM changes both ship and color', () => {
+    // Pin the stored preference to an index other than 5 (hue 6) FIRST — with
+    // localStorage empty, ColorHoist seeds from ensureColorPref(), which rolls
+    // a RANDOM hue, and the `toBe(5)` assertion below could pass vacuously
+    // whenever that random roll happened to land on 5.
+    localStorage.setItem(COLOR_PREF_KEY, '0');
     const hoist = new ColorHoist();
+    expect(hoist.selected).toBe(0); // seeded from the pinned pref, not a random roll
     const { onConfirm } = open({ hoist });
     const layer = document.getElementById('hc-class-select') as HTMLElement;
     const cards = [...layer.querySelectorAll('.hc-ccard')];
