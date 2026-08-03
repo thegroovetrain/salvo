@@ -354,3 +354,9 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
 - source_spec: `_bmad-output/implementation-artifacts/spec-3-4-the-endgame-guarantee.md`
   summary: Battleship wins 50% of instrument endgames (25/50 at the 660u ring; 2:1 over mineLayer and torpedoBoat) — a balance-feel signal for the endgame ring, plausibly instrument-inflated (scripted pilots fight stand-and-shoot wars with no kiting/torpedo/mine play, the lighter hulls' designed styles), so no tuning now; review against human playtests at the endgame ring (epic-3 retro or Epic 6-era playtest reads are the natural checkpoints).
   evidence: batch-sim-evidence-2026-08-02.md Run 1 winnerClass tally (battleship=25, mineLayer=13, torpedoBoat=12 over 50 resolved matches); review-gate finding (Blind Hunter), triaged defer 2026-08-02.
+
+## 2026-08-03 — TTK & Objective Pip Rebalance (cycle 39)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-ttk-pip-rebalance.md`
+  summary: Batch-sim evidence rerun under the new class HP (TB 125 / ML 150 / BS 175) — the ratified baselines (lethal ~3:00 / pacifist 12:00 match lengths, picks band, endgame-resolution 50/50) were all measured at 70/105/150, so kill rates, match length, and picks-per-match have shifted an unmeasured amount. Eric ruled mid-cycle (2026-08-03) to skip the rerun this cycle (Fable credit budget) and ledger it: run the lethal baseline, pacifist control, and endgame legs report-only in a future cycle and write the evidence doc; no dial changes without ratification.
+  evidence: Eric mid-run message 2026-08-03 ("skip the evidence batch sim… put it on the todo list"); prior baselines batch-sim-evidence-2026-08-01.md / batch-sim-evidence-2026-08-02.md.

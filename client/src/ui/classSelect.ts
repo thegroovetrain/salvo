@@ -85,8 +85,8 @@ export interface CardViewModel {
 
 /**
  * The card's data per class: name, zero-padded key (index+1), the three
- * real-value pips (util/pips against the absolute anchors — TB 4/2/4,
- * BS 3/4/2, ML 3/3/3), and the two special-slot loadout rows. Pure — the DOM
+ * real-value pips (util/pips against the objective anchor ladders — TB 4/2/4,
+ * BS 2/4/2, ML 3/3/3), and the two special-slot loadout rows. Pure — the DOM
  * builder + tests consume it.
  */
 export function cardViewModel(cls: ShipClassId): CardViewModel {
@@ -97,9 +97,9 @@ export function cardViewModel(cls: ShipClassId): CardViewModel {
     name: CLASS_DISPLAY_NAMES[cls],
     key: String(SHIP_CLASS_IDS.indexOf(cls) + 1).padStart(2, '0'),
     pips: [
-      { label: 'SPEED', filled: pipFill(spec.kinematics.maxSpeed, anchors.speedMax) },
-      { label: 'TOUGHNESS', filled: pipFill(spec.hp, anchors.hpMax) },
-      { label: 'TURNING', filled: pipFill(spec.kinematics.turnRate, anchors.turnMax) },
+      { label: 'SPEED', filled: pipFill(spec.kinematics.maxSpeed, anchors.speed) },
+      { label: 'TOUGHNESS', filled: pipFill(spec.hp, anchors.toughness) },
+      { label: 'TURNING', filled: pipFill(spec.kinematics.turnRate, anchors.turning) },
     ],
     loadout: LOADOUT[cls],
   };
