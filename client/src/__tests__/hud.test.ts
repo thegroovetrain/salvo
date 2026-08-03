@@ -972,7 +972,7 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
   };
   const ship = { x: 0, y: 0, heading: 1, speed: 4.2 } as ShipState;
   const match = { topLine: '', tag: '', countdown: '' } as MatchUx;
-  const LIVE_ROW = '12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES 2:34';
+  const LIVE_ROW = '12 AFLOAT · 2 KILLS · T+04:12 · RING CLOSES IN 2:34';
   const RING = CHROME_BAR_SEGMENTS - 1; // the ring readout is the last segment
 
   function bar(over: Partial<ChromeBarView> = {}): ChromeBarView {
@@ -1066,7 +1066,7 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
       drive(hud, urgent, t);
       expect(hud.chromeBarAlpha(RING)).toBe(RING_LIT_ALPHA);
     }
-    expect(hud.chromeBarText().join('')).toContain('RING CLOSES 0:04'); // copy intact
+    expect(hud.chromeBarText().join('')).toContain('RING CLOSES IN 0:04'); // copy intact
   });
 
   it('carries the breath ACROSS the alive→spectate seam — no reset, no dt spike', () => {
