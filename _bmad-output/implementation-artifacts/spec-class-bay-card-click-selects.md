@@ -2,9 +2,10 @@
 title: 'Class bay: card click selects without closing'
 type: 'feature'
 created: '2026-08-03'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '6f22818ae61f3219dd845c85772b61f2e54b73bd'
+final_revision: 'b69fca6'
 followup_review_recommended: false
 context: []
 warnings: []
