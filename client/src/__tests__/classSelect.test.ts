@@ -19,6 +19,8 @@ import {
   CLASS_DISPLAY_NAMES,
 } from '../ui/classSelect.js';
 import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
+import { pipFill } from '../util/pips.js';
+import { CLIENT_CONFIG } from '../config.js';
 
 // The connection module caches the session's rolled hue (review-gate fix for
 // blocked-storage divergence); reset it per test so corrupt/absent-pref cases
@@ -30,9 +32,14 @@ import { cssHex } from '../util/color.js';
 // --- card view-model ---------------------------------------------------------
 
 describe('cardViewModel — pips, keys, loadout', () => {
-  it('pins Eric-ruled pip fills (TB 4/2/4 · BS 3/4/2 · ML 3/3/3)', () => {
+  // Objective anchor rework (Eric ruling 2026-08-03): pips derive from the
+  // absolute {base, step} ladders in CLIENT_CONFIG.home.pip, not a relative
+  // fraction of a class-roster maximum. Under the rebalanced hull hp
+  // (125/175/150 — the TTK fix landed alongside this pip rework) the fills
+  // are TB 4/2/4 · BS 2/4/2 · ML 3/3/3.
+  it('pins Eric-ruled pip fills (TB 4/2/4 · BS 2/4/2 · ML 3/3/3)', () => {
     expect(cardViewModel('torpedoBoat').pips.map((p) => p.filled)).toEqual([4, 2, 4]);
-    expect(cardViewModel('battleship').pips.map((p) => p.filled)).toEqual([3, 4, 2]);
+    expect(cardViewModel('battleship').pips.map((p) => p.filled)).toEqual([2, 4, 2]);
     expect(cardViewModel('mineLayer').pips.map((p) => p.filled)).toEqual([3, 3, 3]);
   });
 
@@ -71,6 +78,52 @@ describe('cardViewModel — pips, keys, loadout', () => {
       battleship: 'BATTLESHIP',
       mineLayer: 'MINE LAYER',
     });
+  });
+});
+
+// --- pipFill — objective anchor mapper edge cases ----------------------------
+
+describe('pipFill — objective anchored-linear mapper (Eric ruling 2026-08-03)', () => {
+  const { speed, toughness, turning } = CLIENT_CONFIG.home.pip;
+
+  it('pins the config anchors', () => {
+    expect(speed).toEqual({ base: 30, step: 5 });
+    expect(toughness).toEqual({ base: 100, step: 25 });
+    expect(turning).toEqual({ base: 0.2, step: 0.2 });
+  });
+
+  it('below-base value clamps to 1 pip (never blank)', () => {
+    expect(pipFill(25, speed)).toBe(1); // < 30 base
+  });
+
+  it('above-top value clamps to 5 pips', () => {
+    expect(pipFill(60, speed)).toBe(5); // > the 5-pip rung (50)
+  });
+
+  it('exact anchor landings', () => {
+    expect(pipFill(45, speed)).toBe(4); // 30 + 3*5
+    expect(pipFill(175, toughness)).toBe(4); // 100 + 3*25
+    expect(pipFill(0.6, turning)).toBe(3); // 0.2 + 2*0.2
+  });
+
+  it('degenerate anchor (step <= 0 or non-finite base) clamps to 1', () => {
+    expect(pipFill(40, { base: 30, step: 0 })).toBe(1);
+    expect(pipFill(40, { base: 30, step: -5 })).toBe(1);
+    // Review-gate fix: an unguarded NaN base survives the clamp as NaN and
+    // paints a BLANK pip row — the one input class that broke never-blank.
+    expect(pipFill(40, { base: Number.NaN, step: 5 })).toBe(1);
+    expect(pipFill(40, { base: Number.POSITIVE_INFINITY, step: 5 })).toBe(1);
+  });
+
+  it('exact half-step rungs round UP despite float noise (review-gate fix)', () => {
+    // (0.5-0.2)/0.2 = 1.4999999999999998 in floats; the formula in exact
+    // arithmetic reads round(1.5) → 3 pips. The epsilon makes it so.
+    expect(pipFill(0.5, turning)).toBe(3);
+  });
+
+  it('non-finite value clamps to 1', () => {
+    expect(pipFill(Number.NaN, speed)).toBe(1);
+    expect(pipFill(Number.POSITIVE_INFINITY, speed)).toBe(1);
   });
 });
 

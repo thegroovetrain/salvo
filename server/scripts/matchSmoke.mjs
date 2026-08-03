@@ -50,8 +50,10 @@ const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000, joinWindowMs: 500
 // TINY terminal floor.
 //
 // terminalSightFactor is a small NON-zero value on purpose. A pure point (0)
-// makes the endgame an hp race A cannot reliably win: a 120hp droneLarge fill
-// hull outlasts A's 70hp torpedo boat at a zero-radius floor. Instead we leave
+// makes the endgame an hp race A cannot reliably win: at the original 70hp
+// torpedo boat the 120hp droneLarge fill hull outright outlasted A at a
+// zero-radius floor (today's 125hp TB would win that race by a 5hp coin flip
+// — still no margin to smoke-test against). Instead we leave
 // a floor pocket (0.04 x 330 = 13.2u) that ONLY A can hold: the drone AI never
 // throttles below 0.5 (drones.ts MIN_THROTTLE) so a dumb hull is always moving
 // >=15u/s and cannot loiter inside so tight a circle — it keeps crossing the

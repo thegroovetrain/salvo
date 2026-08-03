@@ -106,7 +106,8 @@ export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shel
  * first shell's id — no extra id consumed, never on the wire) so the World can
  * hold a victim to at most ONE damage application per salvo. Without it the
  * fanned bursts overlap at practical ranges and one hull eats 3× damage
- * (3 × 25 = 75 > the 70hp lightest hull), breaching the ratified
+ * (max-stacked 3 × 40 = 120 > the 80hp lightest hull; at the original 70hp
+ * floor even base 3 × 25 = 75 breached), breaching the ratified
  * no-one-click-kill guardrail. A SINGLE-barrel click is untagged: a salvo of
  * one satisfies the rule trivially, so the base path stays allocation-free.
  *

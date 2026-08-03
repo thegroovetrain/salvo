@@ -363,3 +363,15 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
 - source_spec: `_bmad-output/implementation-artifacts/epic-3-retro-2026-08-03.md`
   summary: Lobby-convergence friction, live-play evidence for Story 6-1 (queue-based lobbies) — the 2026-08-02 ~10-player playtest found it "tough getting us all in the same game" even with the cycle-32 gathering window (30s unlocked join window at minHumans); real friends converging on one room is still manual-timing-dependent. The 6-1 spec author should treat this as the primary observed failure mode the queue design must solve (alongside the already-ledgered join-window hostage-cycling vector).
   evidence: Eric's live report at the epic-3 retrospective 2026-08-03 (retro Ruling 1 context + retro Ledger Sweep); spec-join-window-before-countdown.md shipped the interim mechanism this evidence grades.
+
+## 2026-08-03 — TTK & Objective Pip Rebalance (cycle 39)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-ttk-pip-rebalance.md`
+  summary: Batch-sim evidence rerun under the new class HP (TB 125 / ML 150 / BS 175) — the ratified baselines (lethal ~3:00 / pacifist 12:00 match lengths, picks band, endgame-resolution 50/50) were all measured at 70/105/150, so kill rates, match length, and picks-per-match have shifted an unmeasured amount. Eric ruled mid-cycle (2026-08-03) to skip the rerun this cycle (Fable credit budget) and ledger it: run the lethal baseline, pacifist control, and endgame legs report-only in a future cycle and write the evidence doc; no dial changes without ratification.
+  evidence: Eric mid-run message 2026-08-03 ("skip the evidence batch sim… put it on the todo list"); prior baselines batch-sim-evidence-2026-08-01.md / batch-sim-evidence-2026-08-02.md.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ttk-pip-rebalance.md`
+  summary: Ratified UX docs now pin the superseded pip scheme — EXPERIENCE.md (~line 267) records anchors "speed 60 / hp 200 / turn 1.0 → BS 3/4/2" and DESIGN.md (~line 240) the 2026-07-24 relative-maxima ruling, both superseded by the 2026-08-03 objective ladders (BS card now 2/4/2); reconciling is Eric's gated doc-sync call (house rule: no design-doc edits in-cycle).
+  evidence: Review-gate finding (Blind Hunter) against _bmad-output/planning-artifacts/ux-designs/ux-Hullcracker.io-2026-07-16/; same pattern as the ledgered chrome-bar mock drift entry.
+- source_spec: `_bmad-output/implementation-artifacts/spec-ttk-pip-rebalance.md`
+  summary: Unmeasured relative-balance shifts from the hp-ladder move, to fold into the already-ledgered evidence rerun — class hp spread compressed 2.14×→1.4× (TB +79% vs BS +17%, vs the 3-4 instrument's 50% BS endgame win rate), fixed-value boons devalued relative to hulls (shipHull +20/card was +28.6% of a TB, now +16%; damage ladders similarly), and drone-farm efficiency relatively amplified (drone TTK unchanged while player-kill TTK rose ~67%).
+  evidence: Review-gate findings (Blind Hunter #5-7, Edge Case Hunter drone probe), arithmetic verified against CONFIG; all three are measurement questions for the deferred report-only batch-sim rerun, not defects.

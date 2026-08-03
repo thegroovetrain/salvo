@@ -45,7 +45,7 @@ export const CONFIG = {
   shipClasses: {
     torpedoBoat: {
       hull: { length: 100, beam: 9 }, // u — silhouette bow-to-stern / max beam
-      hp: 70, // hit points
+      hp: 125, // hit points — objective toughness ladder: 1 pip=100hp, +25/pip (Eric ruling 2026-08-03); 2 pips
       kinematics: {
         maxSpeed: 45, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 15, // u/s — full-astern (magnitude)
@@ -57,7 +57,7 @@ export const CONFIG = {
     },
     battleship: {
       hull: { length: 124, beam: 32 }, // u
-      hp: 150, // hit points
+      hp: 175, // hit points — objective toughness ladder: 1 pip=100hp, +25/pip (Eric ruling 2026-08-03); 4 pips
       kinematics: {
         maxSpeed: 35, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 9, // u/s — full-astern (magnitude)
@@ -69,7 +69,7 @@ export const CONFIG = {
     },
     mineLayer: {
       hull: { length: 88, beam: 20 }, // u
-      hp: 105, // hit points
+      hp: 150, // hit points — objective toughness ladder: 1 pip=100hp, +25/pip (Eric ruling 2026-08-03); 3 pips
       kinematics: {
         maxSpeed: 40, // u/s — full-ahead (Eric knot-realistic rescale 2026-07-21)
         reverseSpeed: 14, // u/s — full-astern (magnitude)

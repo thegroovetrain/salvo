@@ -5,8 +5,6 @@
 import { describe, it, expect } from 'vitest';
 import { HULL_IDS, hullSilhouette, polygonMaxRadius } from '@salvo/shared';
 import { silhouetteSvg } from '../util/silhouetteSvg.js';
-import { pipFill } from '../util/pips.js';
-import { CLIENT_CONFIG } from '../config.js';
 
 /** Pull the `points="..."` coord pairs out of the emitted SVG. */
 function parsePoints(svg: string): [number, number][] {
@@ -67,43 +65,5 @@ describe('silhouetteSvg — traces the shared hull polygon', () => {
     expect(svg).toContain('stroke="#00d0ff"');
     expect(svg).toContain('fill="#005e73"');
     expect(silhouetteSvg('mineLayer', { stroke: 'x' })).toContain('fill="none"');
-  });
-});
-
-describe('pipFill — clamp(round(value/anchor*5), 1, 5) on absolute anchors', () => {
-  const { speedMax, hpMax, turnMax } = CLIENT_CONFIG.home.pip;
-
-  it('pins the config anchors (Eric ruling 2026-07-24)', () => {
-    expect(speedMax).toBe(60);
-    expect(hpMax).toBe(200);
-    expect(turnMax).toBe(1.0);
-  });
-
-  it('pins Eric-ruled fills', () => {
-    // speed
-    expect(pipFill(45, speedMax)).toBe(4);
-    expect(pipFill(35, speedMax)).toBe(3);
-    expect(pipFill(40, speedMax)).toBe(3);
-    // hp / toughness
-    expect(pipFill(70, hpMax)).toBe(2);
-    expect(pipFill(150, hpMax)).toBe(4);
-    expect(pipFill(105, hpMax)).toBe(3);
-    // turning
-    expect(pipFill(0.8, turnMax)).toBe(4);
-    expect(pipFill(0.4, turnMax)).toBe(2);
-    expect(pipFill(0.6, turnMax)).toBe(3);
-  });
-
-  it('clamps to [1,5] at the bounds', () => {
-    expect(pipFill(0, speedMax)).toBe(1);
-    expect(pipFill(-5, speedMax)).toBe(1);
-    expect(pipFill(1e9, speedMax)).toBe(5);
-    expect(pipFill(speedMax, speedMax)).toBe(5);
-  });
-
-  it('guards degenerate anchors / non-finite values', () => {
-    expect(pipFill(40, 0)).toBe(1);
-    expect(pipFill(40, -1)).toBe(1);
-    expect(pipFill(Number.NaN, speedMax)).toBe(1);
   });
 });
