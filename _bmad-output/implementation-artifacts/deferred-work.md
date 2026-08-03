@@ -363,3 +363,9 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
 - source_spec: `_bmad-output/implementation-artifacts/epic-3-retro-2026-08-03.md`
   summary: Lobby-convergence friction, live-play evidence for Story 6-1 (queue-based lobbies) — the 2026-08-02 ~10-player playtest found it "tough getting us all in the same game" even with the cycle-32 gathering window (30s unlocked join window at minHumans); real friends converging on one room is still manual-timing-dependent. The 6-1 spec author should treat this as the primary observed failure mode the queue design must solve (alongside the already-ledgered join-window hostage-cycling vector).
   evidence: Eric's live report at the epic-3 retrospective 2026-08-03 (retro Ruling 1 context + retro Ledger Sweep); spec-join-window-before-countdown.md shipped the interim mechanism this evidence grades.
+
+## 2026-08-03 — Class bay card click selects (Eric ruling, this run)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-class-bay-card-click-selects.md`
+  summary: EXPERIENCE.md:66/115/124 document a "pick returns to home" contract for the class bay (card click picks the class AND closes the layer) — superseded by Eric ruling 2026-08-03: a card click now only selects/highlights the card and the bay stays open; the bay closes only via CONFIRM SELECTION/Enter, ESC, or the backdrop dismiss. DESIGN.md/EXPERIENCE.md were not edited in this story per the minimal-design-doc-edits ruling — doc-sync is a separate, Eric-gated pass.
+  evidence: EXPERIENCE.md lines 66, 115, 124 (pre-existing "pick returns to home" language); shipped behavior now in `client/src/ui/classSelect.ts` (`select()` highlight path replacing the retired `pick()`/`onPick` exit).

@@ -9,12 +9,15 @@
 // carries CONFIRM SELECTION — which saves the class and returns to port. It
 // never deploys: PLAY is the single launch path.
 //
-// Keyboard: 1/2/3 + arrows move the highlight, Enter ≡ CONFIRM SELECTION, ESC
-// closes without change — all gated OFF whenever a text input is focused (the
-// callsign field keeps its own Enter=PLAY). Colors/typography via CLIENT_CONFIG
-// tokens (cssHex/cssRgba for the personal hues, which have no --hc-* var;
-// registerCss for the DESIGN type ramp). DESIGN spine over mock: CONFIRM
-// SELECTION is an amber OUTLINE+GLOW primary button (never a filled slab).
+// Card click (whole card, including its in-card SELECT button — same element)
+// only HIGHLIGHTS: it moves the highlight to that card and repaints, exactly
+// like a digit press, and never closes the layer. Keyboard: 1/2/3 + arrows
+// move the highlight, Enter ≡ CONFIRM SELECTION, ESC closes without change —
+// all gated OFF whenever a text input is focused (the callsign field keeps
+// its own Enter=PLAY). Colors/typography via CLIENT_CONFIG tokens (cssHex/
+// cssRgba for the personal hues, which have no --hc-* var; registerCss for
+// the DESIGN type ramp). DESIGN spine over mock: CONFIRM SELECTION is an
+// amber OUTLINE+GLOW primary button (never a filled slab).
 
 import { CONFIG, SHIP_CLASS_IDS, type ShipClassId } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -400,7 +403,7 @@ function buildPickButton(): HTMLElement {
   return row;
 }
 
-function buildCard(vm: CardViewModel, onPick: (cls: ShipClassId) => void): CardEls {
+function buildCard(vm: CardViewModel, onSelect: (cls: ShipClassId) => void): CardEls {
   const root = document.createElement('div');
   root.className = 'hc-ccard';
   root.style.cssText = CARD_BASE;
@@ -409,7 +412,7 @@ function buildCard(vm: CardViewModel, onPick: (cls: ShipClassId) => void): CardE
   const pips = buildPips(vm);
   const pickRow = buildPickButton();
   root.append(head, silbox, pips.el, buildLoadout(vm), pickRow);
-  root.addEventListener('click', () => onPick(vm.cls));
+  root.addEventListener('click', () => onSelect(vm.cls));
   return {
     cls: vm.cls,
     root,
@@ -595,8 +598,6 @@ export interface ClassSelectOpts {
   hoist: ColorHoist;
   /** Home overlay to blur/dim behind the layer while open. */
   blurTarget: HTMLElement;
-  /** Card click / SELECT: persist + close + update the chip (no deploy). */
-  onPick: (cls: ShipClassId) => void;
   /** Footer CONFIRM SELECTION (and Enter): persist the highlight + close back to
    *  port. NEVER deploys — PLAY is the one launch path. */
   onConfirm: (cls: ShipClassId) => void;
@@ -669,8 +670,9 @@ function activateLayer(w: LayerWiring): () => void {
 /**
  * Open the class-select layer over the home. Returns a handle whose `close()`
  * tears everything down (removes the DOM, restores the home blur, detaches the
- * keydown listener). All three exits (pick / confirm / dismiss) close the layer
- * here and then route through the caller's callbacks — none of them deploys.
+ * keydown listener). Only two exits close the layer — confirm and dismiss —
+ * and route through the caller's callbacks; a card click only moves the
+ * highlight and stays open. None of them deploys.
  */
 function makeLayerShell(): { container: HTMLElement; dimmer: HTMLElement; panel: HTMLElement } {
   const container = document.createElement('div');
@@ -695,7 +697,7 @@ function makeLayerShell(): { container: HTMLElement; dimmer: HTMLElement; panel:
 
 export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   current?.close(); // full teardown of any prior layer (listener + subscriptions), not just DOM
-  const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), pick));
+  const cards = SHIP_CLASS_IDS.map((cls) => buildCard(cardViewModel(cls), select));
   let highlight = Math.max(0, SHIP_CLASS_IDS.indexOf(opts.initial));
 
   const { container, dimmer, panel } = makeLayerShell();
@@ -711,9 +713,11 @@ export function openClassSelect(opts: ClassSelectOpts): ClassSelectHandle {
   function repaint(): void {
     paintCards(cards, highlight, opts.hoist);
   }
-  function pick(cls: ShipClassId): void {
-    close();
-    opts.onPick(cls);
+  /** Card click (or its in-card SELECT button): move the highlight and repaint —
+   *  never closes the layer, never fires a callback (Eric ruling 2026-08-03). */
+  function select(cls: ShipClassId): void {
+    highlight = SHIP_CLASS_IDS.indexOf(cls);
+    repaint();
   }
   /** CONFIRM SELECTION / Enter: resolve the highlight, close, hand it back. */
   function confirmPick(): void {

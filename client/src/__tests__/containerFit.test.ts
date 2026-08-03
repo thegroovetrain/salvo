@@ -92,7 +92,6 @@ describe('port panels cap their height against the VIEWPORT, in border-box (amen
       initial: 'torpedoBoat',
       hoist: new ColorHoist(),
       blurTarget,
-      onPick: () => undefined,
       onConfirm: () => undefined,
       onClose: () => undefined,
     });
