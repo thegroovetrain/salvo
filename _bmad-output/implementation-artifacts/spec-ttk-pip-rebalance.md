@@ -2,9 +2,10 @@
 title: 'TTK & Objective Pip Rebalance'
 type: 'feature'
 created: '2026-08-03'
-status: 'in-review'
+status: 'done'
 review_loop_iteration: 0
 baseline_revision: '412dcc79a6de508987e1ce876d4b4c0231231488'
+final_revision: '759a92c51f3461413ec760869fb0f24872950ae2'
 followup_review_recommended: false
 context: []
 warnings: []
