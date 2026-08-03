@@ -475,6 +475,9 @@ function refocusInput(h: Home): void {
   if (document.body.contains(h.overlay)) h.input.focus();
 }
 
+/** Open the class bay. Card clicks only highlight inside the layer now — the
+ *  layer stays open until CONFIRM SELECTION/Enter (persists) or ESC/backdrop
+ *  (discards); only those two paths reach the callbacks below. */
 function openLayer(h: Home): void {
   if (h.busy || h.layerOpen) return;
   h.layerOpen = true;
@@ -482,12 +485,6 @@ function openLayer(h: Home): void {
     initial: h.currentClass ?? 'torpedoBoat',
     hoist: h.hoist,
     blurTarget: h.overlay,
-    onPick: (cls) => {
-      h.layerOpen = false;
-      h.layer = null;
-      setClass(h, cls);
-      refocusInput(h);
-    },
     // CONFIRM SELECTION (and Enter) saves the class and comes back to port —
     // deliberately NO deploy(h) here: PLAY is the only path to onDeploy.
     onConfirm: (cls) => {

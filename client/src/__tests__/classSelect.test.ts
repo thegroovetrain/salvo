@@ -18,7 +18,7 @@ import {
   openClassSelect,
   CLASS_DISPLAY_NAMES,
 } from '../ui/classSelect.js';
-import { loadColorPref, __resetSessionColorPrefForTests } from '../net/connection.js';
+import { loadColorPref, __resetSessionColorPrefForTests, COLOR_PREF_KEY } from '../net/connection.js';
 import { pipFill } from '../util/pips.js';
 import { CLIENT_CONFIG } from '../config.js';
 
@@ -251,15 +251,13 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
   });
 
   function open(cb: Partial<Parameters<typeof openClassSelect>[0]> = {}): {
-    onPick: ReturnType<typeof vi.fn>;
     onConfirm: ReturnType<typeof vi.fn>;
     onClose: ReturnType<typeof vi.fn>;
   } {
-    const onPick = vi.fn();
     const onConfirm = vi.fn();
     const onClose = vi.fn();
-    openClassSelect({ initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onPick, onConfirm, onClose, ...cb });
-    return { onPick, onConfirm, onClose };
+    openClassSelect({ initial: 'torpedoBoat', hoist: new ColorHoist(), blurTarget, onConfirm, onClose, ...cb });
+    return { onConfirm, onClose };
   }
 
   /** The footer primary, found by its RE-TAKEN label (was SET SAIL). */
@@ -326,24 +324,35 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
-  // RE-TAKEN pin: Enter ≡ CONFIRM SELECTION (it used to route to onPick).
+  // RE-TAKEN pin: Enter ≡ CONFIRM SELECTION (it used to route to onPick, now retired).
   it('Enter CONFIRMS the highlighted class (no deploy) and closes', () => {
-    const { onPick, onConfirm } = open();
+    const { onConfirm } = open();
     press('2'); // highlight battleship
     press('Enter');
     expect(onConfirm).toHaveBeenCalledWith('battleship');
-    expect(onPick).not.toHaveBeenCalled();
+    expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
+  // Pins the click→Enter sequence: the existing Enter test above only reaches
+  // the highlight via a digit key — this proves a mouse card-click sets the
+  // same highlight Enter reads.
+  it('Enter after a mouse card-click confirms the clicked class', () => {
+    const { onConfirm } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    (cards[1] as HTMLElement).click(); // highlight battleship via click
+    press('Enter');
+    expect(onConfirm).toHaveBeenCalledWith('battleship');
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
   // RE-TAKEN pin (was "SET SAIL picks the highlight AND deploys in one press"):
   // the button confirms the highlight and closes — deploying is PLAY's job now.
   it('CONFIRM SELECTION hands back the highlight and closes — it never deploys', () => {
-    const { onConfirm, onPick, onClose } = open();
+    const { onConfirm, onClose } = open();
     press('3'); // highlight mineLayer
     confirmButton().click();
     expect(onConfirm).toHaveBeenCalledWith('mineLayer');
-    expect(onPick).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).toBeNull(); // closed back to port
   });
@@ -363,41 +372,125 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
     expect(btn.style.color).not.toBe(cssHex(PLAYER_HUES[8]));
   });
 
-  it('a card click picks that class', () => {
-    const { onPick } = open();
+  // RE-TAKEN pin (Eric ruling 2026-08-03): a card click no longer picks-and-closes
+  // — it only highlights. onPick is retired entirely (no such callback exists
+  // anymore), so the surviving spies are onConfirm/onClose.
+  it('a card click highlights that card and keeps the layer open', () => {
+    const { onConfirm, onClose } = open();
     const layer = document.getElementById('hc-class-select') as HTMLElement;
-    // first rail card = torpedoBoat
-    const card = layer.querySelector('.hc-ccard') as HTMLElement;
-    card.click();
-    expect(onPick).toHaveBeenCalledWith('torpedoBoat');
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    const pickBtnText = (i: number): string | null | undefined =>
+      cards[i].querySelector('.hc-pickbtn')?.textContent;
+    expect(pickBtnText(0)).toBe('SELECTED ✓'); // initial highlight: torpedoBoat (index 0)
+
+    (cards[1] as HTMLElement).click(); // battleship card
+    expect(pickBtnText(1)).toBe('SELECTED ✓');
+    expect(pickBtnText(0)).toBe('SELECT');
+    expect(document.getElementById('hc-class-select')).not.toBeNull(); // still mounted
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // Pins the spec's I/O-matrix row: re-clicking the card that's already
+  // highlighted must stay a pure no-op (no callback, no close).
+  it('re-clicking the already-highlighted card is a no-op', () => {
+    const { onConfirm, onClose } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    (cards[1] as HTMLElement).click(); // battleship — first click highlights it
+    (cards[1] as HTMLElement).click(); // second click on the already-highlighted card
+    expect(cards[1].querySelector('.hc-pickbtn')?.textContent).toBe('SELECTED ✓');
+    expect(document.getElementById('hc-class-select')).not.toBeNull(); // still mounted
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // Pins the bubbling assumption: the in-card SELECT button is not a separate
+  // click target — it's part of the whole-card click handler. A future
+  // stopPropagation on the button would silently kill this path.
+  it('clicking the in-card SELECT button itself highlights via bubbling', () => {
+    const { onConfirm, onClose } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    const pickBtn = cards[1].querySelector('.hc-pickbtn') as HTMLElement;
+    pickBtn.click();
+    expect(pickBtn.textContent).toBe('SELECTED ✓');
+    expect(document.getElementById('hc-class-select')).not.toBeNull(); // still mounted
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('click card B then CONFIRM hands back class B and closes', () => {
+    const { onConfirm } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    (cards[1] as HTMLElement).click(); // battleship
+    confirmButton().click();
+    expect(onConfirm).toHaveBeenCalledOnce();
+    expect(onConfirm).toHaveBeenCalledWith('battleship');
+    expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
+  it('click card B then ESC discards it — onClose fires, onConfirm never does', () => {
+    const { onConfirm, onClose } = open();
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    (cards[1] as HTMLElement).click(); // battleship
+    press('Escape');
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onConfirm).not.toHaveBeenCalled();
+    expect(document.getElementById('hc-class-select')).toBeNull();
+  });
+
+  // One-visit flow (the ruling's whole point): a click on a card, a click on a
+  // color swatch, and CONFIRM — all in a single bay open — must hand back the
+  // clicked class while the swatch pick has already persisted independently.
+  it('one visit: card click + swatch click + CONFIRM changes both ship and color', () => {
+    // Pin the stored preference to an index other than 5 (hue 6) FIRST — with
+    // localStorage empty, ColorHoist seeds from ensureColorPref(), which rolls
+    // a RANDOM hue, and the `toBe(5)` assertion below could pass vacuously
+    // whenever that random roll happened to land on 5.
+    localStorage.setItem(COLOR_PREF_KEY, '0');
+    const hoist = new ColorHoist();
+    expect(hoist.selected).toBe(0); // seeded from the pinned pref, not a random roll
+    const { onConfirm } = open({ hoist });
+    const layer = document.getElementById('hc-class-select') as HTMLElement;
+    const cards = [...layer.querySelectorAll('.hc-ccard')];
+    (cards[2] as HTMLElement).click(); // mineLayer
+
+    const swatch = layer.querySelector('button[aria-label="hue 6"]') as HTMLButtonElement;
+    swatch.click();
+    expect(hoist.selected).toBe(5); // swatch pick persisted immediately
+
+    confirmButton().click();
+    expect(onConfirm).toHaveBeenCalledWith('mineLayer');
+    expect(hoist.selected).toBe(5); // untouched by confirm — already persisted at swatch click
   });
 
   it('suppresses shortcuts while a text input is focused (typing isolation)', () => {
-    const { onPick } = open();
+    const { onConfirm } = open();
     const input = document.createElement('input');
     document.body.appendChild(input);
     input.focus();
     press('Enter');
-    expect(onPick).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled();
     input.remove();
   });
 
   it('a dimmer click dismisses (onClose) without changing the pick', () => {
-    const { onClose, onPick, onConfirm } = open();
+    const { onClose, onConfirm } = open();
     const dimmer = document.getElementById('hc-class-select')!.firstElementChild as HTMLElement;
     dimmer.click();
     expect(onClose).toHaveBeenCalledOnce();
-    expect(onPick).not.toHaveBeenCalled();
     expect(onConfirm).not.toHaveBeenCalled();
     expect(document.getElementById('hc-class-select')).toBeNull();
   });
 
   it('ESC closes with NO class change (semantics unchanged by the confirm patch)', () => {
-    const { onClose, onPick, onConfirm } = open();
+    const { onClose, onConfirm } = open();
     press('2'); // move the highlight — ESC must still not commit it
     press('Escape');
     expect(onClose).toHaveBeenCalledOnce();
-    expect(onPick).not.toHaveBeenCalled();
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
@@ -409,13 +502,11 @@ describe('openClassSelect — DOM pick / dismiss semantics', () => {
   // ONLY those two keys — ESC and arrows must still reach the layer even while
   // a button (e.g. a focused swatch) holds focus.
   it('Enter/Space stay swallowed by the window handler while a layer button holds focus; ESC and arrows still work regardless of focus', () => {
-    const { onPick, onConfirm, onClose } = open();
+    const { onConfirm, onClose } = open();
     confirmButton().focus();
     press('Enter');
-    expect(onPick).not.toHaveBeenCalled(); // the window shortcut did NOT steal Enter
-    expect(onConfirm).not.toHaveBeenCalled();
+    expect(onConfirm).not.toHaveBeenCalled(); // the window shortcut did NOT steal Enter
     press(' '); // Space is swallowed the same way (native button activation)
-    expect(onPick).not.toHaveBeenCalled();
     expect(onConfirm).not.toHaveBeenCalled();
 
     // Finding A: a color swatch is a layer BUTTON too (the bay is the app's
@@ -488,7 +579,6 @@ describe('openClassSelect — teardown balances hoist subscriptions (no leak)', 
       initial: 'torpedoBoat',
       hoist,
       blurTarget,
-      onPick: vi.fn(),
       onConfirm: vi.fn(),
       onClose: vi.fn(),
     });
@@ -500,9 +590,9 @@ describe('openClassSelect — teardown balances hoist subscriptions (no leak)', 
   it('re-opening fully tears the prior layer down (one live layer, balanced subs)', () => {
     const hoist = new ColorHoist();
     const before = hoist.listenerCount;
-    openClassSelect({ initial: 'torpedoBoat', hoist, blurTarget, onPick: vi.fn(), onConfirm: vi.fn(), onClose: vi.fn() });
+    openClassSelect({ initial: 'torpedoBoat', hoist, blurTarget, onConfirm: vi.fn(), onClose: vi.fn() });
     const afterFirst = hoist.listenerCount;
-    openClassSelect({ initial: 'battleship', hoist, blurTarget, onPick: vi.fn(), onConfirm: vi.fn(), onClose: vi.fn() });
+    openClassSelect({ initial: 'battleship', hoist, blurTarget, onConfirm: vi.fn(), onClose: vi.fn() });
     expect(hoist.listenerCount).toBe(afterFirst); // prior layer's subs freed, not stacked
     expect(document.querySelectorAll('#hc-class-select').length).toBe(1);
   });

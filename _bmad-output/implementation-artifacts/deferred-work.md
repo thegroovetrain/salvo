@@ -375,3 +375,9 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
 - source_spec: `_bmad-output/implementation-artifacts/spec-ttk-pip-rebalance.md`
   summary: Unmeasured relative-balance shifts from the hp-ladder move, to fold into the already-ledgered evidence rerun — class hp spread compressed 2.14×→1.4× (TB +79% vs BS +17%, vs the 3-4 instrument's 50% BS endgame win rate), fixed-value boons devalued relative to hulls (shipHull +20/card was +28.6% of a TB, now +16%; damage ladders similarly), and drone-farm efficiency relatively amplified (drone TTK unchanged while player-kill TTK rose ~67%).
   evidence: Review-gate findings (Blind Hunter #5-7, Edge Case Hunter drone probe), arithmetic verified against CONFIG; all three are measurement questions for the deferred report-only batch-sim rerun, not defects.
+
+## 2026-08-03 — Class bay card click selects (cycle 40, Eric ruling)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-class-bay-card-click-selects.md`
+  summary: EXPERIENCE.md:66 documents the class bay's "pick returns to home" contract (card click picks the class AND closes the layer) — superseded by Eric ruling 2026-08-03: a card click now only selects/highlights the card and the bay stays open; the bay closes only via CONFIRM SELECTION/Enter, ESC, or the backdrop dismiss. Only line 66 carries the retired contract — the keyboard rows (highlight + Enter-confirms, ESC-closes; lines 115/124/125) already describe the NEW behavior and need no edit. DESIGN.md/EXPERIENCE.md were not edited in this story per the minimal-design-doc-edits ruling — doc-sync is a separate, Eric-gated pass (batch it with the same-cycle pip-scheme drift entry above).
+  evidence: EXPERIENCE.md line 66 ("pick returns to home with chip + Primary Button sub-line updated"); shipped behavior now in `client/src/ui/classSelect.ts` (`select()` highlight path replacing the retired `pick()`/`onPick` exit).
