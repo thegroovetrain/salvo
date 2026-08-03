@@ -45,7 +45,9 @@ export const USAGE = `usage: HC_DEV_OPTIONS=1 node server/scripts/batchSim.mjs [
   --sweep key=v1,v2  run the full batch per value and compare side-by-side
                      (repeatable; repeats form a cartesian variant grid)
   --pilot NAME       captain pilot policy: gunner (default) | pacifist
-                     (no-hunt control — sails the ring rhythm, never fires)
+                     (no-hunt control — sails the ring rhythm, never fires) |
+                     endgame (pacifist until the zone closes, then hunts —
+                     the Story 3.4 endgame-guarantee evidence instrument)
   --deck-only        pure deck-economy fast mode (no World, no Match)
   --draws N          deck-only total draw budget (default 20000)
   --json PATH        also write the machine-readable report to PATH

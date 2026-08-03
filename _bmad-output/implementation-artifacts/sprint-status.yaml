@@ -90,11 +90,11 @@ development_status:
   epic-2-retrospective: done  # epic-2-retro-2026-08-01.md
 
   # epic-3: The Ring
-  epic-3: in-progress
+  epic-3: done  # all 4 stories landed 2026-08-02 (cycle 37); retrospective optional/pending
   3-1-phased-zone-timeline: done
   3-2-ring-reveal-storm-rendering: done  # 2026-08-02 dev-auto cycle 33 (0.17.33); design gate closed in-run (amendment 18)
   3-3-br-chrome-bar: done  # 2026-08-02 dev-auto cycle 36 (0.17.36); amendments 19-21 ratified pre-implementation (all-hulls AFLOAT, urgency-override ring grammar, storm-violet segment)
-  3-4-the-endgame-guarantee: backlog
+  3-4-the-endgame-guarantee: done  # 2026-08-02 dev-auto cycle 37 (0.17.37); amendments 22-24 ratified pre-implementation (radar DERIVED 2×truesight, endgame-gated pilot evidence, geometric no-stalemate bar)
   epic-3-retrospective: optional
 
   # epic-4: Information Texture (GDD E6)

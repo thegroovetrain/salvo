@@ -54,6 +54,36 @@ describe('zone timeline shape — the ratified design targets', () => {
   });
 });
 
+// Endgame Guarantee sensor-vs-ring pins, honestly described: with the
+// committed derivation CONFIG.vision.radar === 2 × CONFIG.vision.sight and
+// zoneTerminalRadius(cfg) === terminalSightFactor × sight, BOTH inequalities
+// below reduce algebraically to a pure comparison against terminalSightFactor
+// once `sight` (> 0) cancels: radar >= terminal <=> factor <= 2, and
+// sight < terminal <=> factor > 1. Together they bind
+// terminalSightFactor ∈ (1, 2] against the shared derivation — sight itself
+// cancels out, so a truesight-only retune (changing CONFIG.vision.sight alone)
+// can NEVER fail either test. That is exactly the intent: these are FACTOR /
+// DERIVATION pins, not a sight pin — a one-sided retune of terminalSightFactor
+// out of (1, 2], or of the radar-from-sight derivation itself, is what must
+// fail loudly here.
+describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
+  it('radar is structurally 2 × sight (Eric ruling 2026-08-02, amendment 22 — derivation pin)', () => {
+    expect(CONFIG.vision.radar).toBe(2 * CONFIG.vision.sight);
+  });
+
+  it('radar reaches the terminal ring radius — reduces to terminalSightFactor <= 2 (sight cancels; a truesight-only retune cannot fail this)', () => {
+    expect(CONFIG.vision.radar).toBeGreaterThanOrEqual(zoneTerminalRadius(CONFIG.zone));
+  });
+
+  it('sight does NOT reach the terminal ring radius — reduces to terminalSightFactor > 1 (sight cancels; a truesight-only retune cannot fail this)', () => {
+    expect(CONFIG.vision.sight).toBeLessThan(zoneTerminalRadius(CONFIG.zone));
+  });
+
+  it('terminalSightFactor is finite (a NaN factor would otherwise silently pass both pins above via the fail-closed ×2 fallback in zoneTerminalRadius)', () => {
+    expect(Number.isFinite(CONFIG.zone.terminalSightFactor)).toBe(true);
+  });
+});
+
 describe('closing-rate criterion (amendment 7) — pinned over committed CONFIG', () => {
   it('worst-case escape per close = (1 + offsetCap) × max Δr ≤ a battleship-minute, ≈80%', () => {
     const radii = zoneRingRadii(MAP_R, CONFIG.zone);

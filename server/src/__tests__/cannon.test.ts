@@ -62,13 +62,13 @@ describe('cannon — server loadout + shell construction', () => {
     expect(bb.loadout[SLOT_CANNON].state).toEqual({ n: 0, reloadMsLeft: CONFIG.cannon.reloadMs });
   });
 
-  it('a click beyond range clamps the burst point to the radar-derived base range (650u)', () => {
+  it('a click beyond range clamps the burst point to the radar-derived base range (660u)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 'battleship', 0, 0);
     setInput(bb, { aim: 0, aimDist: 1200, slot: SLOT_CANNON });
     expect(w.sinkingActivationGate(bb, SLOT_CANNON)).toEqual({ ok: true });
     const shell = [...w.shells.values()][0];
-    expect(bb.stats.cannon.rangeU).toBe(CONFIG.vision.radar); // 650 — gun BASE parity, un-stacked
+    expect(bb.stats.cannon.rangeU).toBe(CONFIG.vision.radar); // 660 — gun BASE parity, un-stacked
     expect(shell.targetX).toBeCloseTo(CONFIG.vision.radar, 9);
     expect(shell.targetY).toBeCloseTo(0, 9);
   });

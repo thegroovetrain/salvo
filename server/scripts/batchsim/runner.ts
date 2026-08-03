@@ -98,6 +98,10 @@ export interface MatchSample {
   seed: number;
   durationS: number;
   endedBy: HarnessEndCause;
+  /** Hull class of the winning captain, or null when there is no winner (an
+   *  'unresolved' cap-out, or a conclusion with no surviving winner). Story
+   *  3.4 evidence: a resolved endgame match must name a real winner class. */
+  winnerClass: string | null;
   stormDeaths: number;
   /** Victims of CAPTAIN killers, by tier: captain / droneSmall / droneMedium / droneLarge. */
   killsByVictimTier: Record<string, number>;
@@ -331,7 +335,16 @@ function finishSample(
   captainIds: readonly string[],
 ): MatchSample {
   const summary = match.endSummary();
-  return buildSample(index, seed, world, collector, captainIds, summary.durationS, summary.endedBy, summary.stormDeaths);
+  return buildSample(index, seed, world, collector, captainIds, {
+    durationS: summary.durationS,
+    endedBy: summary.endedBy,
+    // Keep the field HONEST: match.ts today emits `?.hullId ?? null`, so ''
+    // is unreachable — this '' collapse is a defensive guard against a FUTURE
+    // '' emitter, not a current contract; an empty string is not a class, so
+    // it collapses to null same as the real null case.
+    winnerClass: summary.winnerClass === null || summary.winnerClass === '' ? null : summary.winnerClass,
+    stormDeaths: summary.stormDeaths,
+  });
 }
 
 /** The tick-budget outcome: the match is still 'active', so endSummary would
@@ -348,7 +361,21 @@ function unresolvedSample(
   captainIds: readonly string[],
 ): MatchSample {
   const durationS = Math.round((world.now - match.activatedAt) / 100) / 10;
-  return buildSample(index, seed, world, collector, captainIds, durationS, 'unresolved', match.endSummary().stormDeaths);
+  return buildSample(index, seed, world, collector, captainIds, {
+    durationS,
+    endedBy: 'unresolved',
+    // No conclusion => no winner, ever. Never borrow a class from the roster.
+    winnerClass: null,
+    stormDeaths: match.endSummary().stormDeaths,
+  });
+}
+
+/** The outcome fields a sample carries beyond its collected economy rows. */
+interface SampleOutcome {
+  durationS: number;
+  endedBy: HarnessEndCause;
+  winnerClass: string | null;
+  stormDeaths: number;
 }
 
 function buildSample(
@@ -357,9 +384,7 @@ function buildSample(
   world: World,
   collector: MatchCollector,
   captainIds: readonly string[],
-  durationS: number,
-  endedBy: HarnessEndCause,
-  stormDeaths: number,
+  outcome: SampleOutcome,
 ): MatchSample {
   const captains: CaptainSample[] = [];
   const departedCaptains: string[] = [];
@@ -371,9 +396,10 @@ function buildSample(
   return {
     index,
     seed,
-    durationS,
-    endedBy,
-    stormDeaths,
+    durationS: outcome.durationS,
+    endedBy: outcome.endedBy,
+    winnerClass: outcome.winnerClass,
+    stormDeaths: outcome.stormDeaths,
     killsByVictimTier: collector.killsByVictimTier,
     captains,
     departedCaptains,

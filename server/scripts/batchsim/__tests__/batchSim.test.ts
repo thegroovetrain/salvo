@@ -9,7 +9,7 @@
 // NEVER import ./main.ts here — it runs the CLI (process.exit) at import time.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG } from '@salvo/shared';
+import { CONFIG, SHIP_CLASS_IDS, angleDiff, zoneClosedAtMs, type HullId } from '@salvo/shared';
 import { World } from '../../../src/game/world.js';
 import { UsageError, buildVariants, parseArgs } from '../args.js';
 import { TunableError, applyOverrides, validateTunableKey } from '../overrides.js';
@@ -17,7 +17,7 @@ import { mixSeed, percentile, summarize } from '../stats.js';
 import { PILOT_REGISTRY, pickSpendChoice } from '../pilots.js';
 import { Match } from '../../../src/game/match.js';
 import { MatchCollector, capSample, runBatch, type CaptainSample, type MatchSample } from '../runner.js';
-import { buildAggregate } from '../report.js';
+import { buildAggregate, renderBatchReport } from '../report.js';
 import { runDeckSim } from '../deckSim.js';
 import { mulberry32 } from '@salvo/shared';
 
@@ -59,8 +59,10 @@ describe('args — CLI parsing', () => {
   it('parses --pilot against the real registry and rejects unknowns', () => {
     expect(parseArgs([]).pilot).toBe('gunner');
     expect(parseArgs(['--pilot', 'pacifist']).pilot).toBe('pacifist');
+    expect(parseArgs(['--pilot', 'endgame']).pilot).toBe('endgame');
     expect(() => parseArgs(['--pilot', 'kamikaze'])).toThrow(UsageError);
-    expect(() => parseArgs(['--pilot', 'kamikaze'])).toThrow(/available: gunner, pacifist/);
+    // The error lists the registry SORTED — 'endgame' (Story 3.4) leads it now.
+    expect(() => parseArgs(['--pilot', 'kamikaze'])).toThrow(/available: endgame, gunner, pacifist/);
   });
 
   it('builds the cartesian sweep grid over the base --set', () => {
@@ -358,6 +360,434 @@ describe('pilots — the pacifist no-hunt control (Story 3.1)', () => {
   });
 });
 
+describe('pilots — the endgame instrument (Story 3.4, amendment 23)', () => {
+  /** Drive one pilot with a target parked in comfortable gun range while a
+   *  FAST zone timeline runs underneath. Returns the fireSeq as of the last
+   *  PRE-closure tick, the final fireSeq, and how many closed ticks ran (so a
+   *  timeline that never actually closed can't pass as a green gate). */
+  function fireGate(
+    factory: (typeof PILOT_REGISTRY)['gunner'],
+    ticks: number,
+  ): { preClosure: number; final: number; closedTicks: number } {
+    const w = new World(7, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('cap-1', 'CAP-01', false, 'torpedoBoat');
+    const target = w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+    const cap = w.ships.get('cap-1')!;
+    w.startZone();
+    const pilot = factory('cap-1', 42);
+    let preClosure = 0;
+    let closedTicks = 0;
+    for (let t = 0; t < ticks; t += 1) {
+      target.state.x = cap.state.x + 150; // keep the firing solution trivially held
+      target.state.y = cap.state.y;
+      const closed = w.zonePhase === 'closed';
+      pilot.tick(w);
+      if (closed) closedTicks += 1;
+      else preClosure = w.inputs.get('cap-1')?.fireSeq ?? 0;
+      w.step();
+    }
+    return { preClosure, final: w.inputs.get('cap-1')?.fireSeq ?? 0, closedTicks };
+  }
+
+  it('holds fire through the whole ring rhythm and opens up once the zone is CLOSED', () => {
+    // stormDps 0 keeps the parked pair alive through the fast timeline; the
+    // gate under test is pure phase equality, never geometry (so no
+    // terminalSightFactor override is involved — see pilots.ts header).
+    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
+    try {
+      const endgame = fireGate(PILOT_REGISTRY.endgame, 200);
+      expect(endgame.closedTicks).toBeGreaterThan(0); // the timeline really closed
+      expect(endgame.preClosure).toBe(0); // pacifist right up to closure
+      expect(endgame.final).toBeGreaterThan(0); // gunner after it
+      // FAIL-PROOF / discriminating negative: the plain gunner is already
+      // firing before closure under the identical setup, so the assertion
+      // above is measuring the GATE, not an unreachable target.
+      const gunner = fireGate(PILOT_REGISTRY.gunner, 200);
+      expect(gunner.preClosure).toBeGreaterThan(0);
+      // ...and the pacifist never fires at all, closed or not.
+      expect(fireGate(PILOT_REGISTRY.pacifist, 200).final).toBe(0);
+    } finally {
+      restore();
+    }
+  });
+
+  it('is deterministic per seed and diverges on a different seed', () => {
+    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
+    try {
+      const run = (worldSeed: number): string => {
+        const w = new World(worldSeed, CONFIG.match.fillTo);
+        w.addShip('cap-1', 'CAP-01', false, 'battleship');
+        w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+        w.startZone(); // the stream spans BOTH sides of the hunt gate
+        const pilot = PILOT_REGISTRY.endgame('cap-1', 5);
+        const lines: string[] = [];
+        for (let t = 0; t < 200; t += 1) {
+          pilot.tick(w);
+          lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
+          w.step();
+        }
+        return lines.join('\n');
+      };
+      expect(run(9)).toBe(run(9));
+      expect(run(9)).not.toBe(run(10)); // the pin discriminates
+    } finally {
+      restore();
+    }
+  });
+
+  it('the pilot seed discriminates too: same world seed, different pilot seed diverges (the seed test above only varies the WORLD seed)', () => {
+    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
+    try {
+      const run = (pilotSeed: number): string => {
+        const w = new World(9, CONFIG.match.fillTo);
+        w.addShip('cap-1', 'CAP-01', false, 'battleship');
+        w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+        w.startZone();
+        const pilot = PILOT_REGISTRY.endgame('cap-1', pilotSeed);
+        const lines: string[] = [];
+        for (let t = 0; t < 200; t += 1) {
+          pilot.tick(w);
+          lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
+          w.step();
+        }
+        return lines.join('\n');
+      };
+      expect(run(5)).toBe(run(5));
+      expect(run(5)).not.toBe(run(6)); // the pilot's OWN rng stream discriminates, world seed fixed
+    } finally {
+      restore();
+    }
+  });
+
+  it('steers exactly like the pacifist control pre-closure (spec I/O matrix row)', () => {
+    // Same (id, seed) and same fast-zone world evolution: pre-closure both
+    // hunt policies collapse to `() => false`, so the emitted input stream
+    // must be byte-identical up to the first tick where zonePhase flips to
+    // 'closed' — and must then diverge (endgame opens fire, pacifist never
+    // does), so the identity above is measuring the gate, not two silent
+    // pilots that happen to never fire.
+    const restore = applyOverrides({ 'zone.beatMs': 200, 'zone.stormDps': 0 });
+    try {
+      const run = (factory: (typeof PILOT_REGISTRY)['gunner']): { lines: string[]; closedAt: number } => {
+        const w = new World(9, CONFIG.match.fillTo);
+        w.map.islands.length = 0;
+        w.addShip('cap-1', 'CAP-01', false, 'battleship');
+        const target = w.addShip('drone-1', 'DRONE-01', true, 'droneSmall');
+        const cap = w.ships.get('cap-1')!;
+        w.startZone();
+        const pilot = factory('cap-1', 5);
+        const lines: string[] = [];
+        let closedAt = -1;
+        for (let t = 0; t < 200; t += 1) {
+          target.state.x = cap.state.x + 150; // keep a firing solution trivially held once hunting starts
+          target.state.y = cap.state.y;
+          if (closedAt === -1 && w.zonePhase === 'closed') closedAt = t;
+          pilot.tick(w);
+          lines.push(JSON.stringify(w.inputs.get('cap-1') ?? null));
+          w.step();
+        }
+        return { lines, closedAt };
+      };
+      const endgame = run(PILOT_REGISTRY.endgame);
+      const pacifist = run(PILOT_REGISTRY.pacifist);
+      expect(endgame.closedAt).toBeGreaterThan(0); // the timeline really closed within the window
+      expect(endgame.closedAt).toBe(pacifist.closedAt); // identical world evolution => identical phase-flip tick
+      expect(endgame.lines.slice(0, endgame.closedAt)).toEqual(pacifist.lines.slice(0, endgame.closedAt));
+      expect(endgame.lines.slice(endgame.closedAt)).not.toEqual(pacifist.lines.slice(endgame.closedAt));
+    } finally {
+      restore();
+    }
+  });
+});
+
+describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
+  /** A STICKY-ROCK fixture: while the pilot orders AHEAD the hull is held at
+   *  the beaching pose with its speed crushed (what the islandSpeedMult damp
+   *  does to a hull pushing into rock — no ground made, no rudder authority);
+   *  the moment it orders ASTERN the sim runs free (backing off ends contact).
+   *  Ordering ahead again re-grounds it on the same rock. That is the exact
+   *  metronome the campaign probe diagnosed, reproduced without depending on a
+   *  seed that happens to beach a ship. `island` optionally places a rock the
+   *  pilot's turn-sign logic can see, at the given bearing offset from the
+   *  hull's heading. */
+  function beachTrace(
+    factory: (typeof PILOT_REGISTRY)['gunner'],
+    ticks: number,
+    opts: { pin: boolean; islandOffsetRad?: number; hull?: HullId } = { pin: true },
+  ): { throttles: number[]; rudders: number[]; headings: number[]; fireSeq: number } {
+    const w = new World(7, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('cap-1', 'CAP-01', false, opts.hull ?? 'battleship'); // slowest hull by default
+    const cap = w.ships.get('cap-1')!;
+    const pose = { x: cap.state.x, y: cap.state.y };
+    if (opts.islandOffsetRad !== undefined) {
+      const brg = cap.state.heading + opts.islandOffsetRad;
+      w.map.islands.push({ x: pose.x + Math.cos(brg) * 100, y: pose.y + Math.sin(brg) * 100, r: 40 });
+    }
+    const pilot = factory('cap-1', 42);
+    const throttles: number[] = [];
+    const rudders: number[] = [];
+    const headings: number[] = [];
+    for (let t = 0; t < ticks; t += 1) {
+      const backing = (throttles[t - 1] ?? 0) < 0;
+      if (opts.pin && !backing) {
+        cap.state.x = pose.x; // aground: the rock wins while she pushes into it
+        cap.state.y = pose.y;
+        cap.state.speed = 0;
+      }
+      pilot.tick(w);
+      const input = w.inputs.get('cap-1');
+      throttles.push(input?.throttle ?? 0);
+      rudders.push(input?.rudder ?? 0);
+      w.step();
+      headings.push(cap.state.heading);
+    }
+    return { throttles, rudders, headings, fireSeq: w.inputs.get('cap-1')?.fireSeq ?? 0 };
+  }
+
+  /** Indices where a full-astern burst begins. */
+  const burstStarts = (throttles: readonly number[]): number[] => {
+    const out: number[] = [];
+    for (let i = 1; i < throttles.length; i += 1) if (throttles[i] < 0 && throttles[i - 1] >= 0) out.push(i);
+    return out;
+  };
+
+  it('orders full astern once pinned, then returns to ahead — and never while sailing free', () => {
+    const { throttles } = beachTrace(PILOT_REGISTRY.gunner, 200);
+    const firstAstern = throttles.findIndex((v) => v < 0);
+    // Detection is 30 consecutive pinned ticks; allow the first-tick unknown
+    // step and one tick of ordering slack, never a whole extra window.
+    expect(firstAstern).toBeGreaterThan(0);
+    expect(firstAstern).toBeLessThanOrEqual(33);
+    expect(throttles.slice(0, firstAstern).every((v) => v >= 0.5)).toBe(true);
+    // The burst is a solid block of full astern (50 ticks), not a flutter.
+    expect(throttles.slice(firstAstern, firstAstern + 50).every((v) => v === -1)).toBe(true);
+    // ...and then the pilot sails again rather than backing forever.
+    expect(throttles[firstAstern + 50]).toBeGreaterThan(0);
+    // FAIL-PROOF: an unpinned hull sails normally and NEVER orders astern, so
+    // the assertions above are measuring the stuck detector, not a pilot that
+    // reverses on a timer.
+    expect(beachTrace(PILOT_REGISTRY.gunner, 300, { pin: false }).throttles.some((v) => v < 0)).toBe(false);
+  });
+
+  it('does not metronome: the grace window blocks an immediate re-arm', () => {
+    const bursts = burstStarts(beachTrace(PILOT_REGISTRY.gunner, 400).throttles);
+    expect(bursts.length).toBeGreaterThan(1); // still stuck => it keeps trying
+    // Burst period: 50 astern ticks + 60 grace ticks + the 30 detection ticks
+    // whose LAST one is the next burst's first tick => 139 apart, minimum.
+    // Without the grace window this would be 50 + 30 = 80 (a metronome).
+    for (let i = 1; i < bursts.length; i += 1) expect(bursts[i] - bursts[i - 1]).toBeGreaterThanOrEqual(139);
+  });
+
+  it('backs off under a NONZERO constant-sign rudder that turns the bow off the rock (v2)', () => {
+    // A rock 100u ahead and 30 degrees to STARBOARD: the bow must swing to port.
+    const toStarboard = beachTrace(PILOT_REGISTRY.gunner, 200, { pin: true, islandOffsetRad: -0.5 });
+    const start = burstStarts(toStarboard.throttles)[0];
+    const burst = toStarboard.rudders.slice(start, start + 50);
+    expect(burst.every((v) => v !== 0)).toBe(true); // v1 backed with rudder 0
+    expect(new Set(burst).size).toBe(1); // captured once, held for the burst
+    // Mirror the rock to PORT and the sign must flip — the sign is read off the
+    // geometry, not a constant (FAIL-PROOF for the fallback masquerading as it).
+    const toPort = beachTrace(PILOT_REGISTRY.gunner, 200, { pin: true, islandOffsetRad: 0.5 });
+    const mirrored = toPort.rudders[burstStarts(toPort.throttles)[0]];
+    expect(Math.sign(mirrored)).toBe(-Math.sign(burst[0]));
+  });
+
+  it('leaves each burst on a MATERIALLY different heading — the metronome is broken (v2)', () => {
+    const { throttles, headings } = beachTrace(PILOT_REGISTRY.gunner, 500);
+    const bursts = burstStarts(throttles);
+    expect(bursts.length).toBeGreaterThanOrEqual(3);
+    // Each burst rotates the hull ~39.5 degrees (battleship, measured), and the
+    // heading-hold grace stops target-seek from undoing it before the next run
+    // at the rock. FAIL-PROOF: with v1 (rudder 0 astern, target-seek grace) an
+    // aground hull leaves every burst on the SAME heading and these are ~0.
+    for (let i = 1; i < bursts.length; i += 1) {
+      const turned = Math.abs(angleDiff(headings[bursts[i - 1]], headings[bursts[i]]));
+      expect(turned).toBeGreaterThan(0.35); // rad — half the measured swing
+    }
+  });
+
+  it('the grace window steers back to the stored exit heading, not at a goal (v2)', () => {
+    // Run to the first grace tick, then force the hull off the exit heading and
+    // read the rudder the pilot answers with.
+    const w = new World(7, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('cap-1', 'CAP-01', false, 'battleship');
+    const cap = w.ships.get('cap-1')!;
+    const pose = { x: cap.state.x, y: cap.state.y };
+    const pilot = PILOT_REGISTRY.gunner('cap-1', 42);
+    let prev = 0;
+    let exitHeading = 0;
+    const rudderAt = (offset: number): number => {
+      cap.state.heading = exitHeading + offset;
+      pilot.tick(w);
+      return w.inputs.get('cap-1')!.rudder;
+    };
+    for (let t = 0; t < 200; t += 1) {
+      if (prev >= 0) {
+        cap.state.x = pose.x;
+        cap.state.y = pose.y;
+        cap.state.speed = 0;
+      }
+      pilot.tick(w);
+      const throttle = w.inputs.get('cap-1')!.throttle;
+      if (prev < 0 && throttle >= 0) {
+        exitHeading = cap.state.heading; // first grace tick: the heading to hold
+        break;
+      }
+      prev = throttle;
+      w.step();
+    }
+    // Dead on the stored heading the hold asks for nothing; off it, the rudder
+    // opposes the deviation at the x3 gain. A goal-seeking rudder would have no
+    // reason to be zero at THIS particular heading.
+    expect(rudderAt(0)).toBeCloseTo(0, 10);
+    expect(rudderAt(0.2)).toBeCloseTo(-0.6, 10);
+    expect(rudderAt(-0.2)).toBeCloseTo(0.6, 10);
+  });
+
+  it('the pacifist control still never fires while un-beaching', () => {
+    const pacifist = beachTrace(PILOT_REGISTRY.pacifist, 200);
+    expect(pacifist.fireSeq).toBe(0);
+    expect(pacifist.throttles.some((v) => v < 0)).toBe(true); // it does back off
+  });
+
+  it('death mid-burst resets seamanship: drops the stale burst and re-arms detection cleanly', () => {
+    // Locate the reference burst start on the same (world seed, pilot seed,
+    // hull) beachTrace already pins deterministically, so the kill point below
+    // is provably mid-burst rather than a guessed tick count.
+    const { throttles: ref } = beachTrace(PILOT_REGISTRY.gunner, 60);
+    const firstAstern = ref.findIndex((v) => v < 0);
+    expect(firstAstern).toBeGreaterThan(0); // sanity: the reference run really beached
+
+    const w = new World(7, CONFIG.match.fillTo);
+    w.map.islands.length = 0;
+    w.addShip('cap-1', 'CAP-01', false, 'battleship');
+    const cap = w.ships.get('cap-1')!;
+    const pose = { x: cap.state.x, y: cap.state.y };
+    const pilot = PILOT_REGISTRY.gunner('cap-1', 42);
+
+    const killTick = firstAstern + 10; // mid-burst: the burst runs firstAstern..firstAstern+49
+    const reviveTick = killTick + 5;
+    const throttles: number[] = [];
+    for (let t = 0; t < killTick; t += 1) {
+      const backing = (throttles[t - 1] ?? 0) < 0;
+      if (!backing) {
+        cap.state.x = pose.x;
+        cap.state.y = pose.y;
+        cap.state.speed = 0;
+      }
+      pilot.tick(w);
+      throttles.push(w.inputs.get('cap-1')?.throttle ?? 0);
+      w.step();
+    }
+    expect(throttles[killTick - 1]).toBeLessThan(0); // confirms the kill lands mid-burst
+
+    // Die for a few ticks — resetSeamanship runs (idempotently) on every dead
+    // tick, and no input is submitted while dead (world.ts alive-gates the
+    // real spend/submit paths the same way).
+    for (let t = killTick; t < reviveTick; t += 1) {
+      cap.alive = false;
+      pilot.tick(w);
+      w.step();
+    }
+
+    // Revive at the SAME pose the hull died at — the harshest case for a
+    // false-positive: if resetSeamanship had NOT nulled lastX/lastY, this
+    // tick's displacement read would see moved=0 at the old rock and could
+    // misread as an instant stuck tick. stepDistance instead returns Infinity
+    // on an unknown first step (see pilots.ts), so it cannot.
+    cap.alive = true;
+    cap.state.x = pose.x;
+    cap.state.y = pose.y;
+    cap.state.speed = 0;
+    pilot.tick(w);
+    // The pilot does not resume the stale burst: the next emitted throttle is
+    // forward, not astern.
+    expect(w.inputs.get('cap-1')?.throttle ?? 0).toBeGreaterThan(0);
+    w.step();
+
+    // Re-pin from here and confirm stuck-detection re-arms on the NORMAL
+    // ~30-tick timetable (same tolerance the fresh-burst test above uses),
+    // not instantly and not with an extra phantom tick baked in.
+    const postReset: number[] = [];
+    for (let t = 0; t < 40; t += 1) {
+      cap.state.x = pose.x;
+      cap.state.y = pose.y;
+      cap.state.speed = 0;
+      pilot.tick(w);
+      postReset.push(w.inputs.get('cap-1')?.throttle ?? 0);
+      w.step();
+    }
+    const reArmed = postReset.findIndex((v) => v < 0);
+    expect(reArmed).toBeGreaterThan(0);
+    expect(reArmed).toBeLessThanOrEqual(33); // same detection-window tolerance as above
+    expect(postReset.slice(0, reArmed).every((v) => v >= 0)).toBe(true); // never astern before it re-arms
+  });
+});
+
+describe('runner — winnerClass (Story 3.4 evidence field)', () => {
+  it('a resolved match names the winning hull class; an unresolved one is null', () => {
+    const cleared = runBatch({ seed: 3, matches: 1, captains: 1, drones: 0 });
+    const m = cleared.matches[0];
+    expect(m.endedBy).toBe('fieldCleared');
+    // FAIL-PROOF: runner.ts dropped summary.winnerClass entirely before 3.4.
+    expect(m.winnerClass).not.toBeNull();
+    expect(SHIP_CLASS_IDS as readonly string[]).toContain(m.winnerClass);
+
+    const restore = applyOverrides({ 'zone.beatMs': 1000, 'zone.stormDps': 0 });
+    let unresolved;
+    try {
+      unresolved = runBatch({ seed: 11, matches: 1, captains: 2, drones: 0, pilot: PILOT_REGISTRY.pacifist });
+    } finally {
+      restore();
+    }
+    expect(unresolved.matches[0].endedBy).toBe('unresolved');
+    expect(unresolved.matches[0].winnerClass).toBeNull(); // no conclusion, no winner
+  });
+});
+
+describe('report — resolved-only conclusion evidence (Story 3.4)', () => {
+  const closureS = zoneClosedAtMs(CONFIG.zone) / 1000;
+  const sample = (over: Partial<MatchSample>): MatchSample => ({
+    index: 0, seed: 1, durationS: 100, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat',
+    stormDeaths: 0, killsByVictimTier: {}, captains: [], departedCaptains: [], ...over,
+  });
+
+  it('excludes cap-outs from resolvedDurationS and from the past-closure rate', () => {
+    const matches = [
+      sample({ index: 0, durationS: closureS + 60 }),
+      sample({ index: 1, durationS: closureS - 60, winnerClass: 'battleship' }),
+      // The cap-out sits WAY past closure — if it leaked into either stat it
+      // would inflate both (2/3 past-closure, a max at the budget edge).
+      sample({ index: 2, durationS: closureS + 600, endedBy: 'unresolved', winnerClass: null }),
+    ];
+    const agg = buildAggregate({ matches, failures: [] }, 1);
+    expect(agg.durationS.n).toBe(3); // the all-matches summary is unchanged
+    expect(agg.resolvedDurationS.n).toBe(2);
+    expect(agg.resolvedDurationS.max).toBe(closureS + 60);
+    expect(agg.pastClosureRate).toBe(0.5);
+    expect(agg.winnerClass).toEqual({ torpedoBoat: 1, battleship: 1, none: 1 });
+    const body = renderBatchReport('x', agg).join('\n');
+    expect(body).toContain('resolved past full closure: 50.0%');
+    expect(body).toContain('winner class: battleship=1 none=1 torpedoBoat=1');
+  });
+
+  it('an all-unresolved batch renders n=0 rather than crashing or faking percentiles', () => {
+    const agg = buildAggregate(
+      { matches: [sample({ endedBy: 'unresolved', winnerClass: null })], failures: [] },
+      1,
+    );
+    expect(agg.resolvedDurationS.n).toBe(0);
+    expect(agg.pastClosureRate).toBe(0);
+    const body = renderBatchReport('all-unresolved', agg).join('\n');
+    expect(body).toContain('resolved match length s: n=0');
+    expect(body).toContain('resolved past full closure: n=0');
+    expect(body).toContain('winner class: none=1');
+  });
+});
+
 describe('runner — the unresolved outcome (tick budget, Story 3.1)', () => {
   it('collects an honest endedBy=unresolved sample instead of a failure', () => {
     // Two pacifists, zero drones, harmless storm: nobody can ever win, so the
@@ -456,7 +886,7 @@ describe('report — unbounded per-captain arrays (review gate 2026-07-31)', () 
       firstExclusiveOffered: null, firstExclusiveFitted: null, levelCurve: [1, 2],
     };
     const match: MatchSample = {
-      index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', stormDeaths: 0,
+      index: 0, seed: 1, durationS: 60, endedBy: 'fieldCleared', winnerClass: 'torpedoBoat', stormDeaths: 0,
       killsByVictimTier: {}, captains: new Array<CaptainSample>(200000).fill(captain),
       departedCaptains: [],
     };

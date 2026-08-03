@@ -411,7 +411,7 @@ export class Projectiles {
    * It reads the tombstone map, NOT the live track, because the two ways a
    * track dies before it bursts are exactly the cases the effective radius
    * matters most for: the sight-bubble cull (~370u) and the lifetime backstop
-   * both fire long before a boosted gun/cannon shell reaches its 650u+ burst
+   * both fire long before a boosted gun/cannon shell reaches its 660u+ burst
    * point. Consulting `live` alone handed every long shot the CONFIG default —
    * i.e. it failed precisely for the upgraded blasts it exists to draw.
    */

@@ -355,7 +355,7 @@ describe('the arc swell is MOTION, the position is INFORMATION', () => {
 //
 // The burst ring wants to know "was that OUR shell?" long after the track that
 // could answer is gone: the sight-bubble cull (~370u) and the lifetime backstop
-// both retire a shell well before a boosted gun/cannon reaches its 650u+ burst
+// both retire a shell well before a boosted gun/cannon reaches its 660u+ burst
 // point — i.e. the claim evaporated for exactly the long-range upgraded blasts
 // the effective-radius ring exists to draw. The claim therefore outlives the
 // sprite, bounded by count so it can never grow without limit.
