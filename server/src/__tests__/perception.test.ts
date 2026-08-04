@@ -173,9 +173,13 @@ function injectZone(
   w.litZones.set(id, { id, ownerId, x, y, r, until, mode });
 }
 
-/** Drop a decoy buoy directly into world state (Story 1.8; far-future expiry). */
+/** Drop a decoy buoy directly into world state (Story 1.8; far-future expiry).
+ *  Mirrors spawnDecoy's drop-time snapshot (Story 4.2): the owner's hull id
+ *  and heading frozen onto the record — mineLayer/0 when the owner has no
+ *  ship in the world (a buoy legitimately outlives its owner). */
 function injectDecoy(w: World, id: string, ownerId: string, x: number, y: number, until = 999_999): void {
-  w.decoys.set(id, { id, ownerId, x, y, until });
+  const owner = w.ships.get(ownerId);
+  w.decoys.set(id, { id, ownerId, x, y, hullId: owner?.hullId ?? 'mineLayer', heading: owner?.state.heading ?? 0, until });
 }
 
 /** Push a raw world-emitted event onto the world's tick-event list — the exact
@@ -246,13 +250,16 @@ describe('perception — sight tier boundaries (exact)', () => {
 // ---------- directed cases: radar tier ---------------------------------------
 
 describe('perception — radar paint window (exact)', () => {
-  it('paints a ship in the annulus when the beam crosses its bearing', () => {
+  it('paints a ship in the annulus when the beam crosses its bearing — carrying its LIVE pose (Story 4.2)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 400, 0);
+    const b = place(w, 'b', 400, 0, 0.7);
+    b.state.speed = 12; // the raw signed scalar rides the wire
     windowAround(a, 0);
     const blips = blipsOf(buildFrame(w, 'a'));
-    expect(blips).toEqual([{ k: 'blip', id: 'b', x: b.state.x, y: b.state.y, t: w.now }]);
+    expect(blips).toEqual([
+      { k: 'blip', id: 'b', x: b.state.x, y: b.state.y, t: w.now, cls: 'torpedoBoat', heading: 0.7, speed: 12 },
+    ]);
   });
 
   it('does not paint outside the beam window', () => {
@@ -924,11 +931,14 @@ function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): b
 }
 
 /** True iff `ev` is a legitimate GENUINE ship paint: a live non-self ship at
- *  exactly the blip position passing the ship-blip predicate. */
+ *  exactly the blip position passing the ship-blip predicate, carrying the
+ *  ship's LIVE pose verbatim (Story 4.2 — cls/heading/speed must be the raw
+ *  sim values; anything derived or shifted fails the invariant). */
 function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   const target = w.ships.get(ev.id);
   if (!target || !target.alive || target.id === me.id) return false;
   if (target.state.x !== ev.x || target.state.y !== ev.y) return false;
+  if (ev.cls !== target.hullId || ev.heading !== target.state.heading || ev.speed !== target.state.speed) return false;
   return blipPredicate(w, me, target.state);
 }
 
@@ -952,6 +962,10 @@ function ownerContactVisible(w: World, me: ShipRecord, ownerId: string): boolean
 function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   for (const decoy of w.decoys.values()) {
     if (decoy.ownerId !== ev.id || decoy.x !== ev.x || decoy.y !== ev.y) continue;
+    // The pose must be the record's FROZEN drop-time snapshot at speed 0
+    // (Story 4.2, amendment 11) — a live owner value here would mean the
+    // counterIntel path read ctx.ships.get(ownerId), which it must never do.
+    if (ev.cls !== decoy.hullId || ev.heading !== decoy.heading || ev.speed !== 0) continue;
     if (w.now >= decoy.until) continue;
     if (decoy.ownerId === me.id) continue;
     if (ownerContactVisible(w, me, decoy.ownerId)) continue;

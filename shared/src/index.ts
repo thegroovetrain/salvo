@@ -3,7 +3,7 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  20: global cooldown reduction (Eric rulings 2026-08-04) — BOON_CATALOG
+ *  21: global cooldown reduction (Eric rulings 2026-08-04) — BOON_CATALOG
  *  content changed, and catalog content IS wire contract: the seven
  *  per-equipment reload lines (gunReload/cannonReload/torpedoReload/
  *  mineReload/boostReload/starReload/decoyReload) are DELETED and one
@@ -12,6 +12,12 @@
  *  (−0.1/card) into EVERY equipment reloadMs. 42 lines → 36. CONFIG.gun.
  *  reloadMs 3000→5000 and CONFIG.cannon.reloadMs 15000→50000 also ride the
  *  welcome config snapshot. No FrameMsg/schema shape changes.
+ *  20: class-legible blips (Story 4.2, FR14) — BlipEvent gains `cls` (HullId),
+ *  `heading`, and `speed` (the raw signed scalar), APPENDED after `t` so the
+ *  historical {k,id,x,y,t} prefix stays byte-stable. A genuine paint carries
+ *  the ship's live pose; a decoy buoy's counterIntel paint carries its frozen
+ *  drop-time cls/heading with speed exactly 0 (a radar reflector reports true
+ *  stationary values) — same shaper, field-for-field identical.
  *  19: join window before the countdown — MatchPhase gains 'gathering'
  *  (waiting → gathering at minHumans: the room stays UNLOCKED for
  *  CONFIG.match.joinWindow ms, then the unchanged locked countdown arms).
@@ -132,7 +138,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 20;
+export const PROTOCOL_VERSION = 21;
 
 // Tunables
 export * from './constants.js';

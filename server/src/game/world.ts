@@ -210,6 +210,17 @@ export interface Decoy {
   ownerId: string; // the Mine Layer that dropped it — the ship id its blips impersonate
   x: number; // u — fixed drop point (stationary forever after)
   y: number; // u
+  /**
+   * FROZEN drop-time snapshot of the owner (Story 4.2, amendment 11): the
+   * buoy is a radar reflector reporting TRUE stationary values, so its
+   * counterIntel blips carry THIS hull id and heading with speed exactly 0 —
+   * never a live `ships.get(ownerId)` read. A live read would leak the
+   * owner's current course/speed at a false position while they are fogged,
+   * and is undefined for the up-to-30s window a buoy legitimately outlives
+   * its owner (owner death never clears it — the litZone precedent).
+   */
+  hullId: HullId;
+  heading: number; // rad — the owner's heading at drop time
   until: number; // ms — server time the buoy expires
 }
 
@@ -1910,7 +1921,17 @@ export class World {
       if (decoy.ownerId === owner.id) this.decoys.delete(id);
     }
     const id = this.nextDecoyId();
-    this.decoys.set(id, { id, ownerId: owner.id, x, y, until: this.now + owner.stats.decoyBuoy.durationMs });
+    // hullId/heading frozen HERE, at drop time (Story 4.2, amendment 11) — the
+    // buoy's blips report this snapshot forever, live owner state never read.
+    this.decoys.set(id, {
+      id,
+      ownerId: owner.id,
+      x,
+      y,
+      hullId: owner.hullId,
+      heading: owner.state.heading,
+      until: this.now + owner.stats.decoyBuoy.durationMs,
+    });
   }
 
   /**

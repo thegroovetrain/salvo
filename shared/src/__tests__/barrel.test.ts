@@ -53,12 +53,15 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
+    // Class-legible blips (Story 4.2): BlipEvent gains cls/heading/speed,
+    // appended after `t` so the historical {k,id,x,y,t} prefix stays
+    // byte-stable.
     // Global cooldown reduction (Eric rulings 2026-08-04): BOON_CATALOG
     // content changed — the seven per-equipment reload lines died and the
     // universal shipCooldown line replaced them (42 → 36) — and catalog
     // content IS wire contract. CONFIG.gun/cannon reloadMs retunes ride the
     // welcome config snapshot with it.
-    expect(PROTOCOL_VERSION).toBe(20);
+    expect(PROTOCOL_VERSION).toBe(21);
   });
 
   it('re-exports config, wire tags, and functions', () => {

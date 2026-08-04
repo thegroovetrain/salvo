@@ -142,7 +142,7 @@ Independently verified by the orchestrator after the fixes: `npm run check` exit
 
 ## Auto Run Result
 
-Status: **done**. Landed as cycle 41 → VERSION 0.17.41, `PROTOCOL_VERSION` 20. Final gate: `npm run check` and `npm run build` both exit 0, **2648 tests** (414 shared / 841 server / 1393 client), up from 2624 on main.
+Status: **done**. Landed as cycle 42 → VERSION 0.17.42, `PROTOCOL_VERSION` 21 (renumbered at landing — PR #89 / story 4-2 landed first and took both 0.17.41 and the PV 19→20 bump; the intent-contract's 0.17.41 / PV 20 line is superseded by that renumber). Final gate: `npm run check` and `npm run build` both exit 0, **2648 tests** (414 shared / 841 server / 1393 client), up from 2624 on main.
 
 Four Eric rulings taken at the pre-implementation question gate (AskUserQuestion, 2026-08-04): CDR covers all 7 equipment cooldowns including the two non-weapon abilities; the 4 cards live in the universal `ship` category; stacking is additive-linear (a deliberate departure from the catalog's multiplicative ×0.9 convention, because 0.9⁴ = 0.6561 misses the stated 5s → 3s target); the thinned `speedBoost`/`decoyBuoy` subdecks are accepted and ledgered rather than backfilled.
 

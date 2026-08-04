@@ -130,17 +130,19 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(wire as object)).toEqual(['id', 'x', 'y', 'heading', 'speed', 'cls']);
   });
 
-  it('blip row: [k,id,x,y,t]', () => {
+  it('blip row: [k,id,x,y,t,cls,heading,speed] — Story 4.2 appends the LIVE pose after t', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', RADAR, 0); // beyond sight, at the radar boundary, bearing 0
+    const b = place(w, 'b', RADAR, 0, 1.2); // beyond sight, at the radar boundary, bearing 0
+    b.state.speed = -4; // astern — the raw SIGNED scalar rides the wire
     a.prevSweepAngle = wrapPositive(-0.02);
     a.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
     const row = signalFor('blip')!;
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, b)).toBe(true);
     const wire = row.materialize(ctx, b);
-    expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 't']);
+    expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y', 't', 'cls', 'heading', 'speed']);
+    expect(wire).toEqual({ k: 'blip', id: 'b', x: RADAR, y: 0, t: w.now, cls: 'torpedoBoat', heading: 1.2, speed: -4 });
   });
 
   it('shell row: [k,id,x,y,vx,vy,t]', () => {
@@ -180,7 +182,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   it('decoy row: [id,x,y,until,own,by] — DECOY id, `by` = owner ship id appended LAST (Story 1.12)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 40, y: 0, until: 30_000 }); // owner sees it always
+    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 40, y: 0, hullId: 'mineLayer', heading: 0, until: 30_000 }); // owner sees it always
     const row = SIGNAL_REGISTRY.decoy; // pseudo-row: direct access (not signalFor)
     const ctx = foggedCtx(w, a);
     const decoy = w.decoys.get('d1')!;
@@ -192,24 +194,26 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(wire).toEqual({ id: 'd1', x: 40, y: 0, until: 30_000, own: true, by: 'a' });
   });
 
-  it('blip row counterIntel: the SAME [k,id,x,y,t] shape, id = the OWNER\'s ship id at the BUOY\'s position', () => {
+  it('blip row counterIntel: the SAME [k,id,x,y,t,cls,heading,speed] shape — OWNER\'s ship id at the BUOY\'s position, FROZEN drop-time pose at speed 0', () => {
     const w = bareWorld();
     const b = place(w, 'b', 0, 0); // fogged non-owner observer
-    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 400, y: 0, until: 999_999 }); // radar annulus, bearing 0
+    // hullId/heading are the drop-time snapshot ON the record (Story 4.2,
+    // amendment 11) — the owner needs no ship in the world at all.
+    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 400, y: 0, hullId: 'mineLayer', heading: 0.9, until: 999_999 }); // radar annulus, bearing 0
     b.prevSweepAngle = wrapPositive(-0.02);
     b.sweepAngle = wrapPositive(0.02); // beam just crossed bearing 0 this tick
     const row = SIGNAL_REGISTRY.blip;
     const lie = row.counterIntel!(foggedCtx(w, b), w.decoys.get('d1')!);
     expect(lie).not.toBeNull();
-    expect(Object.keys(lie as object)).toEqual(['k', 'id', 'x', 'y', 't']); // byte-identical to a real paint
-    expect(lie).toEqual({ k: 'blip', id: 'a', x: 400, y: 0, t: w.now });
+    expect(Object.keys(lie as object)).toEqual(['k', 'id', 'x', 'y', 't', 'cls', 'heading', 'speed']); // byte-identical to a real paint
+    expect(lie).toEqual({ k: 'blip', id: 'a', x: 400, y: 0, t: w.now, cls: 'mineLayer', heading: 0.9, speed: 0 });
   });
 
   it('blip row counterIntel: SUPPRESSED while the owner is contact-visible (the FR10 coexistence guard)', () => {
     const w = bareWorld();
     const b = place(w, 'b', 0, 0);
     const a = place(w, 'a', 100, 0); // the owner, inside b's sight — a live contact
-    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 400, y: 0, until: 999_999 }); // swept annulus
+    w.decoys.set('d1', { id: 'd1', ownerId: 'a', x: 400, y: 0, hullId: 'mineLayer', heading: 0, until: 999_999 }); // swept annulus
     b.prevSweepAngle = wrapPositive(-0.02);
     b.sweepAngle = wrapPositive(0.02);
     const row = SIGNAL_REGISTRY.blip;
@@ -219,7 +223,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     // Owner out of contact reach: the same call lies again (control).
     a.state.x = -400; // annulus, bearing π — invisible to the window around 0
     expect(SIGNAL_REGISTRY.contact.visible(ctx, a)).toBe(false);
-    expect(row.counterIntel!(ctx, w.decoys.get('d1')!)).toEqual({ k: 'blip', id: 'a', x: 400, y: 0, t: w.now });
+    expect(row.counterIntel!(ctx, w.decoys.get('d1')!)).toEqual({ k: 'blip', id: 'a', x: 400, y: 0, t: w.now, cls: 'mineLayer', heading: 0, speed: 0 });
   });
 
   it('litzone row: [id,x,y,r,until,by,mode] — `by` is the firer\'s ship id, ownerId never leaks raw', () => {
