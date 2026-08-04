@@ -2,9 +2,10 @@
 title: 'Story 4.3 — The Gunnery Conversation'
 type: 'feature'
 created: '2026-08-04'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '1585c7845b9de021664e376dda32715ac0e57ba6'
-review_loop_iteration: 0
+final_revision: '41abe9b'
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context.md'
@@ -138,48 +139,48 @@ now render above the fog and survive motion=off as information rather than juice
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/types.ts` -- add the three event interfaces and extend the `GameEvent` union, each
+- [x] `shared/src/types.ts` -- add the three event interfaces and extend the `GameEvent` union, each
   with the anti-cheat comment stating what it deliberately omits -- the wire contract.
-- [ ] `shared/src/index.ts` + `shared/src/constants.ts` -- PV 21 → 22; add derived
+- [x] `shared/src/index.ts` + `shared/src/constants.ts` -- PV 21 → 22; add derived
   `vision.muzzleFlash = SIGHT * 1.5` -- amendment 15's derivation, never a literal.
-- [ ] `shared/src/__tests__/` -- pin `muzzleFlash === SIGHT * 1.5` and `sight < muzzleFlash < radar`
+- [x] `shared/src/__tests__/` -- pin `muzzleFlash === SIGHT * 1.5` and `sight < muzzleFlash < radar`
   beside the existing radar pin; update the PV literal -- the derivation's tripwire.
-- [ ] `server/src/game/signals.ts` -- add `fallOfShotSignal` (self-private, spectator-public),
+- [x] `server/src/game/signals.ts` -- add `fallOfShotSignal` (self-private, spectator-public),
   `hitCallSignal` (self-private, spectator-public), `muzzleFlashSignal` (range `vision.muzzleFlash`
   ∧ LOS, payload `{k,x,y}` with NO id for anyone); amend the `boom` row comment to record amendment
   17 -- three declared exceptions, each with its stated rationale.
-- [ ] `server/src/game/world.ts` -- emit `sp`/`hc` from `resolveShell`/`resolveBurst`/`resolvePierce`
+- [x] `server/src/game/world.ts` -- emit `sp`/`hc` from `resolveShell`/`resolveBurst`/`resolvePierce`
   keyed on victim RESOLUTION (one `hc` per shell resolution max, splash only for wire kind `shell`),
   emit `hc` on the mine detonation path for the mine's owner, and emit `mz` in `spawnBallistic` at
   the pre-pre-step origin for wire kind `shell`, deduped per tick per owner -- the emission sites.
-- [ ] `server/src/__tests__/signals.test.ts` -- registry count 15 → 18, `REGISTRY_KEYS`, key-order
+- [x] `server/src/__tests__/signals.test.ts` -- registry count 15 → 18, `REGISTRY_KEYS`, key-order
   guards for the three rows, `counterIntel` still only on `blip`, owned-zone parity block -- the
   registry pins.
-- [ ] `server/src/__tests__/perception.test.ts` -- three independently reimplemented oracles in
+- [x] `server/src/__tests__/perception.test.ts` -- three independently reimplemented oracles in
   `EVENT_VERIFIERS`, `EVENT_KINDS` 11 → 14, count 15 → 18; THE INVARIANT must pass with the three
   declared exceptions -- the anti-cheat gate.
-- [ ] `server/src/__tests__/goldenFrames.test.ts` (+ snapshot) -- `EXPECTED_CHANNELS` 17 → 20, new
+- [x] `server/src/__tests__/goldenFrames.test.ts` (+ snapshot) -- `EXPECTED_CHANNELS` 17 → 20, new
   sub-cases for a miss, a beyond-sight hit, a decoy shot, and a flash at 400u vs 600u; regenerate
   with `vitest -u` and hand-inspect -- golden-frame discipline.
-- [ ] `server/src/__tests__/decoy.test.ts` -- extend the existing "no Hit Call" case to assert no
+- [x] `server/src/__tests__/decoy.test.ts` -- extend the existing "no Hit Call" case to assert no
   `hc` event reaches the shooter while a `sp` does -- the oracle, now observable on the wire.
-- [ ] `client/src/render/effects.ts` -- move `splash`, `spark`, `muzzle` into `isFogImmuneEffect` and
+- [x] `client/src/render/effects.ts` -- move `splash`, `spark`, `muzzle` into `isFogImmuneEffect` and
   out of `isJuiceEffect` (`muzzleHeavy` stays own-side juice) -- information survives motion=off and
   draws above the fog.
-- [ ] `client/src/render/gunneryFeed.ts` (new) -- PURE: the per-frame impact-position dedupe key and
+- [x] `client/src/render/gunneryFeed.ts` (new) -- PURE: the per-frame impact-position dedupe key and
   the 300ms same-source tone floor, in the `DenialDedup`/`DeniedPulse` house shape, zero Pixi -- the
   unit-testable seam.
-- [ ] `client/src/net/roomBindings.ts` -- add `mz`/`sp`/`hc` handlers, retire the `nearVisibleShip`
+- [x] `client/src/net/roomBindings.ts` -- add `mz`/`sp`/`hc` handlers, retire the `nearVisibleShip`
   muzzle trigger (keep a client-local own-proximity read only to pick `muzzleHeavy`), and route
   `handleBoom`'s spark/splash through the dedupe -- the dispatch change.
-- [ ] `client/src/audio/tones.ts` + `audio/twinMap.ts` -- add the `hitCall` muffled-boom tone (low
+- [x] `client/src/audio/tones.ts` + `audio/twinMap.ts` -- add the `hitCall` muffled-boom tone (low
   triangle, ≤150ms, distinct from `damage`/`burn`/`stormWarn`) and its mandatory twin row -- UX-DR36.
-- [ ] `client/src/config.ts` -- add the `gunnery` feel block (tone floor ms, own-muzzle proximity)
+- [x] `client/src/config.ts` -- add the `gunnery` feel block (tone floor ms, own-muzzle proximity)
   next to `ordnance` -- client-only tunables in their home.
-- [ ] `client/src/__tests__/effects.test.ts`, `tones.test.ts`, `twinMap.test.ts`,
+- [x] `client/src/__tests__/effects.test.ts`, `tones.test.ts`, `twinMap.test.ts`,
   `roomBindings.test.ts` + `client/src/__tests__/gunneryFeed.test.ts` (new) -- update the
   exhaustiveness pins and cover the dedupe/floor -- the client gates.
-- [ ] `CLAUDE.md`, `VERSION` (0.17.42 → 0.17.43), `_bmad-output/gds-workflow-status.yaml`,
+- [x] `CLAUDE.md`, `VERSION` (0.17.42 → 0.17.43), `_bmad-output/gds-workflow-status.yaml`,
   `_bmad-output/implementation-artifacts/deferred-work.md` -- record the Key Decision, the cycle
   bump, `next_expected` → 4-4, and the ledger entries -- the standing per-cycle obligations.
 
@@ -202,6 +203,45 @@ now render above the fog and survive motion=off as information rather than juice
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-04 — Review pass 1 (Fable adversarial + Codex cross-model, run in that order)
+
+**Fable (in-family, seeded with the orchestrator's own top suspicions):** 1 finding —
+1 patch (low), 0 intent_gap, 0 bad_spec, 0 defer, 0 reject. Verdict: **build-on-it**.
+- **F1 (patch, low) — FIXED.** `hc` is spectator-public on the wire (the `dmg` precedent), so a
+  spectating captain received EVERY shooter's Hit Call and was played the personal "something YOU
+  fired connected" tone for all remaining hulls' hits, up to once per 300ms floor, until results.
+  Gated the TONE on `e.id === sessionId` (the `handleDamage` precedent, and the amendment-37 "a
+  spectating captain gets no toast and no tone" rule); the MARKS still draw, because watching the
+  gunnery conversation is what spectating is. Regression test proven to fail without the guard.
+- Eight further suspicions were run to ground and came back clean: the `mz` per-tick dedupe's
+  lifetime under every path into `spawnBallistic`, the salvo/pierce `hc` counting, the
+  exactly-one-of-`hc`/`sp` exhaustiveness over `ShellOutcome` (including the D1 pre-step and
+  `rollBackPierce`), the client dedupe's per-frame clear on spectator/zero-event/reconnect frames,
+  the independence of the three new perception oracles, a machine-diff of all 14 changed golden
+  snapshot frames (byte-identical after stripping the three new channels), and wire key order.
+
+**Codex (cross-model, same diff):** 3 CONFIRMED findings — 1 patch (low), 1 reject (false
+positive), 1 reject-with-hardening. Cross-model agreement picture: **the two models overlapped on
+nothing**, which is the point of running both.
+- **C1 (patch, low) — FIXED as documentation.** Codex was right that the dedupe comment LIED: it
+  claimed to collapse "a multi-barrel salvo's N shells" when it collapses ANY same-owner gun-family
+  launch that tick, including two clicks coalesced by `tickIntents`. The BEHAVIOR is the ruled
+  design and was kept (both muzzles are on the same hull that tick, and emitting two would tell an
+  observer the ship fired twice — a weapon-activity tell amendment 19 keeps off this row). Fable had
+  examined the same code and called it correct; the comment is what neither of us should have let
+  stand. Comment rewritten to say what the code does.
+- **C2 (reject) — FALSE POSITIVE.** "`mz` reaches every spectator unconditionally, outside the halo
+  and through islands." True, and correct: twelve rows in `signals.ts` do the identical
+  `spectator → true`. Spectator omniscience is the universal house rule, not a leak on this row.
+  Codex flagged it only because the review prompt stated the halo rule without mentioning
+  spectators. Adjudicated by reading the code; no change.
+- **C3 (reject, hardened) — CORRECT AS SHIPPED, and Codex's fix would have opened a hole.** "A
+  damageless star shell bursting over a hull emits `sp`, never `hc`." Deliberate: a flare damages
+  nothing, so a Hit Call would be a lie — and it would answer "is a hull within `burstRadius` of
+  this point?" for a flare lobbed blind into fog, bypassing the lit zone + LOS that is the flare's
+  ONE sanctioned reveal. Kept, and hardened with a regression test plus a comment naming the trap,
+  because the `damage > 0` gate in `resolveBurst` genuinely reads like a bug to a fresh reader.
 
 ## Design Notes
 
@@ -265,3 +305,45 @@ hexes remain implementer draft. (c) The owner already infers a bit from burst ab
 - Inspect the regenerated golden snapshot diff: only `sp`/`hc`/`mz` channels may be new; every other
   channel byte-identical.
 - Confirm no `mz` payload anywhere in the snapshot contains an `id`, hue, class or weapon field.
+
+## Auto Run Result
+
+Status: **done** — Story 4.3 shipped. Baseline `1585c78` → final `41abe9b`, branch
+`worktree-dev-auto-4-3-gunnery-conversation`, cycle 43 → `0.17.43`.
+
+**Six Eric rulings gated the run** (two AskUserQuestion rounds before any implementation, recorded
+durably as amendments 15-20 in `epic-4-context-amendments.md`). The through-line: at every fork Eric
+took the SMALLEST new information channel that still satisfied the story — the same instinct that
+produced the 4-1 deferral. Muzzle flash carries to `SIGHT * 1.5` (495u, derived, LOS-blocked) rather
+than radar range or map-wide; splash is self-private and gun-family only; the Hit Call is
+shooter-only and knowingly overrides the shipped anti-leak rule for the owner-hit case; Hit Call
+covers all ordnance including mines; the flash is neutral (position only, never who or which
+weapon); the flash fires for the gun family only, upholding the torpedo's "quiet weapon" status.
+
+**Two doc conflicts were resolved by ruling, not by implementer choice:** FR16's "own splashes" beats
+EXPERIENCE.md:181's unqualified line (amendment 16), and DESIGN.md:239's neutral `{muzzle}` token
+beats UX-DR7's firer's-hue rule for this signal (amendment 19). Both are ledgered for the Eric-gated
+7-5 doc-sync batch.
+
+**Verification:** `npm run check` green — lint 0 errors (2 pre-existing `max-lines-per-function`
+warnings in untouched files), type-check clean across all three workspaces, **2733 tests passing**
+(shared 416, server 866, client 1451; baseline was 414/842/1423). Golden snapshot regenerated and
+hand-inspected: after stripping the three new channels every changed frame is byte-identical to its
+predecessor.
+
+**Orchestration:** four routed waves — Fable for the shared+server wire and perception rows (the
+anti-cheat chokepoint, where a locally-plausible implementation is globally wrong), Opus for the
+client render/audio/dispatch, Sonnet for the doc/version/ledger sync, and a two-model review gate
+(Fable adversarial + Codex cross-model) whose findings are triaged in the Review Triage Log above.
+
+**Not done here, deliberately, and ledgered in `deferred-work.md`:** the aggregate ≤3 flashes/s
+per-region budget still has no global mechanism (4.3 ships only the per-source 300ms tone floor;
+Story 4.8 owns attention priority and is its home) — and muzzle-carries is the first feature that can
+actually bind it. All 4.3 effect geometry/durations and the five `[PROPOSAL]` token hexes remain
+implementer draft. Firing into fog is now a hit/miss probe — the ratified decoy oracle generalized,
+accepted knowingly by amendment 17, ledgered as emergent behavior to watch in playtest.
+
+**Awaiting Eric before their stories, not during** (carried in `gds-workflow-status.yaml`):
+Story 4-5's foghorn lost its display surface to the 4-1 deferral and needs its own bearing surface
+or a matching deferral; Story 4-8 must resolve the tier-table drift and inherits a changed
+juice/information split, since 4.3 promoted `muzzle` and `spark` out of `isJuiceEffect`.
