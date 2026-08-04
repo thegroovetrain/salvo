@@ -242,7 +242,12 @@ describe('quick-info line (amendment 13) — real values, live countdown', () =>
   const stats = statsFor('torpedoBoat');
 
   it('reads DMG · CD for WEAPONS and CD alone for ABILITIES (amendment 13, literal)', () => {
-    expect(quickInfoLine(equipmentInfo(stats, 'gun'), 0)).toBe(`DMG ${CONFIG.gun.damage} · CD 3s`);
+    // CONFIG-derived, never a literal: the gun's base reload moved 3s → 5s with
+    // the global-cooldown rebalance (Eric ruling 2026-08-04), and the chip has
+    // to follow CONFIG rather than a hand-copied number.
+    expect(quickInfoLine(equipmentInfo(stats, 'gun'), 0)).toBe(
+      `DMG ${CONFIG.gun.damage} · CD ${fmtSeconds(CONFIG.gun.reloadMs)}`,
+    );
     expect(quickInfoLine(equipmentInfo(stats, 'torpedo'), 0)).toBe(
       `DMG ${CONFIG.torpedo.damage} · CD ${fmtSeconds(CONFIG.torpedo.reloadMs)}`,
     );
@@ -643,7 +648,7 @@ describe('the ◆n accrued mark compresses the build into the row', () => {
   });
 
   it('folds the shipwide lines into the GUN slot only (the ship card)', () => {
-    const boons = ['intelRadar', 'shipHull', 'gunReload'];
+    const boons = ['intelRadar', 'shipHull', 'shipCooldown'];
     const rows = slotViewModels(viewFor('torpedoBoat', { boons }));
     expect(rows[0].boonCount).toBe(3);
     expect(rows[1].boonCount).toBe(0);
@@ -692,11 +697,15 @@ describe('the tooltip lists the ACCRUED build (the 2.2 absence, filled)', () => 
   });
 
   it('hosts INTEL/SHIP lines under the — SHIP — divider, in the gun tooltip only', () => {
-    const held = ['gunReload', 'intelSweep', 'shipSpeed'];
+    // `shipCooldown` is a SHIP line (the universal cooldown card), so it belongs
+    // BELOW the divider with the intel/ship lines — the gun's own row here is
+    // the gun-category one, which is what puts a side on each of the separator.
+    const held = ['gunDamage', 'shipCooldown', 'intelSweep', 'shipSpeed'];
     const gun = tooltipModel(0, 'gun', stats, held)!;
     expect(gun.boons.map((r) => r.label)).toEqual([
-      '◆ LOADING DRILLS',
+      '◆ HEAVY SHELLS Mk I',
       SHIP_DIVIDER_ROW,
+      '◆ DRILL SCHEDULE',
       '◆ UPRATED SWEEP MOTOR Mk I',
       '◆ HULL SCRAPING',
     ]);
@@ -766,7 +775,7 @@ describe('tooltipRenderGeom — the model reconciled with the real screen', () =
     .flatMap((d) => Array<string>(d.copies).fill(d.id));
 
   it('places the boons block below the MEASURED description, never under it', () => {
-    const model = tooltipModel(0, 'gun', stats, ['gunDamage', 'gunReload'])!;
+    const model = tooltipModel(0, 'gun', stats, ['gunDamage', 'shipCooldown'])!;
     const modelled = tooltipRenderGeom(model, 0, 1080);
     // Pixi wrapped the description taller than the mono model predicted (the
     // model is an upper bound on WIDTH, a nominal on height). The block below it

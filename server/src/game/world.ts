@@ -28,6 +28,7 @@ import {
   drawOffer,
   effectiveStats,
   equipmentMaxAmmo,
+  equipmentReloadMs,
   generateMap,
   hookKinematics,
   isAcquisitionDef,
@@ -956,6 +957,11 @@ export class World {
    * effective cap ROSE fills to the new cap; a LOWERED cap still clamps down
    * (reconcilePools). Acquisitions install full pools via freshSlotState.
    *
+   * TIMERS (Eric ruling 2026-08-04): a grant that moves a fitted slot's
+   * effective reload rescales that slot's in-flight `reloadMsLeft` by the same
+   * ratio, preserving the progress fraction — never a free round
+   * (rescaleReloadTimers).
+   *
    * Fail-closed: an id the world's catalog cannot resolve appends (the wire
    * mirrors it; clients drop it at resolve) but applies nothing. Public so
    * directed tests (and the spend path) can drive it.
@@ -981,6 +987,7 @@ export class World {
       for (const effect of def.effects) applySlotEffect(ship.loadout, effect, ship.stats);
     }
     this.reconcilePools(ship, prevStats);
+    this.rescaleReloadTimers(ship, prevStats);
     return swappedOut;
   }
 
@@ -1010,6 +1017,44 @@ export class World {
       const cap = equipmentMaxAmmo(ship.stats, id);
       if (cap > equipmentMaxAmmo(prevStats, id)) slot.state.n = cap;
       slot.state.n = Math.min(slot.state.n, cap);
+    }
+  }
+
+  /**
+   * Mid-reload renormalization (Eric ruling 2026-08-04): a grant that changes a
+   * fitted slot's EFFECTIVE reload rescales that slot's in-flight timer by the
+   * same ratio, so the PROGRESS FRACTION survives the fit — a captain half way
+   * through a 5000ms gun reload who takes one cooldown card lands on 2250 of
+   * 4500, still half way, instead of waiting out the old, longer clock.
+   *
+   * Deliberately NOT a free round: only `reloadMsLeft` moves (`n` is
+   * reconcilePools' business) and the scaled timer stays strictly positive, so
+   * nothing becomes instantly available. The rule is GENERIC — it compares
+   * prev-vs-new `equipmentReloadMs` per fitted slot, so a ratio of 1 (any boon
+   * that does not touch reloads) leaves every timer byte-identical, and a future
+   * per-weapon reload card gets the same treatment for free.
+   *
+   * ORDER — this runs AFTER reconcilePools deliberately. The two touch disjoint
+   * fields (counts vs timer) and both read the same untouched `prevStats`, so
+   * they commute numerically; running timers LAST keeps the reading "settle the
+   * pool, then the clock that fills it" and guarantees we never scale a timer a
+   * later step would overwrite. The one interaction worth naming: a slot whose
+   * cap ROSE is filled to cap by reconcilePools and may keep a stale nonzero
+   * timer — but `tickReload` pins the timer to 0 on the very next tick once
+   * `n >= maxAmmo`, so scaling it is inert either way. A slot FILLED by this
+   * grant (acquisition) arrives from `freshSlotState` with `reloadMsLeft: 0` and
+   * is skipped by the `left <= 0` guard.
+   */
+  private rescaleReloadTimers(ship: ShipRecord, prevStats: EffectiveStats): void {
+    for (const slot of ship.loadout) {
+      const id = slot.equipmentId;
+      if (id === null || slot.state === null) continue;
+      const left = slot.state.reloadMsLeft;
+      if (left <= 0) continue; // idle slot: nothing in flight
+      const oldMs = equipmentReloadMs(prevStats, id);
+      const newMs = equipmentReloadMs(ship.stats, id);
+      if (oldMs <= 0 || oldMs === newMs) continue; // no ratio, or nothing moved
+      slot.state.reloadMsLeft = left * (newMs / oldMs);
     }
   }
 

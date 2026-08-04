@@ -1445,7 +1445,7 @@ function visionChanged(a: EffectiveStats, b: EffectiveStats): boolean {
 
 /**
  * Recompute + apply the own effective stats. Work is scoped to what actually
- * changed: a gunReload grant must not hard-snap the predictor or rebake the
+ * changed: a shipCooldown grant must not hard-snap the predictor or rebake the
  * fog — those on every kill read as a hitch exactly when the player is
  * maneuvering. The predictor only SNAPS on a real class change (first-frame
  * localStorage correction); an upgrade that touches kinematics swaps the

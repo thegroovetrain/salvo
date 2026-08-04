@@ -49,19 +49,16 @@ import {
 const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   // --- GUNS ----------------------------------------------------------------
   gunDamage: ['HEAVY SHELLS Mk I', 'HEAVY SHELLS Mk II', 'HEAVY SHELLS Mk III', 'HEAVY SHELLS Mk IV', 'HEAVY SHELLS Mk V'],
-  gunReload: ['LOADING DRILLS', 'IMPROVED LOADER', 'POWER RAMMER', 'AUTOLOADER', 'READY MAGAZINE'],
   gunBarrel: ['TWIN MOUNT', 'TRIPLE MOUNT'],
   gunTurret: ['AFT TURRET'],
   // --- CANNON --------------------------------------------------------------
   cannonDamage: ['HEAVY CHARGE Mk I', 'HEAVY CHARGE Mk II', 'HEAVY CHARGE Mk III', 'HEAVY CHARGE Mk IV', 'HEAVY CHARGE Mk V'],
   cannonBlast: ['FRAGMENTATION CASING Mk I', 'FRAGMENTATION CASING Mk II', 'FRAGMENTATION CASING Mk III', 'FRAGMENTATION CASING Mk IV', 'FRAGMENTATION CASING Mk V'],
-  cannonReload: ['HYDRAULIC RAMMER Mk I', 'HYDRAULIC RAMMER Mk II', 'HYDRAULIC RAMMER Mk III', 'HYDRAULIC RAMMER Mk IV', 'HYDRAULIC RAMMER Mk V'],
   cannonArcing: ['PLUNGING FIRE'],
   cannonAp: ['ARMOR-PIERCING SHELLS'],
   // --- TORPEDOES -----------------------------------------------------------
   torpedoDamage: ['HEAVY WARHEAD Mk I', 'HEAVY WARHEAD Mk II', 'HEAVY WARHEAD Mk III', 'HEAVY WARHEAD Mk IV', 'HEAVY WARHEAD Mk V'],
   torpedoSpeed: ['HIGH-SPEED SETTING', 'WET-HEATER ENGINE', 'ENRICHED OXIDIZER', 'PURE OXYGEN DRIVE'],
-  torpedoReload: ['QUICK-LOADING GEAR Mk I', 'QUICK-LOADING GEAR Mk II', 'QUICK-LOADING GEAR Mk III', 'QUICK-LOADING GEAR Mk IV', 'QUICK-LOADING GEAR Mk V'],
   torpedoTube: ['SECOND TUBE'],
   torpedoHoming: ['ACOUSTIC HOMING'],
   torpedoCommand: ['COMMAND DETONATION'],
@@ -70,21 +67,17 @@ const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   mineBlast: ['BLAST CASING Mk I', 'BLAST CASING Mk II', 'BLAST CASING Mk III', 'BLAST CASING Mk IV', 'BLAST CASING Mk V'],
   mineTrigger: ['MAGNETIC FUZE', 'ACOUSTIC FUZE', 'PRESSURE FUZE', 'ANTENNA FUZE', 'COMBINATION FUZE'],
   mineMax: ['DECK RACKS', 'EXTENDED RACKS', 'MINE RAILS', 'SPONSON STOWAGE', 'CONVERTED HOLD'],
-  mineReload: ['QUICK-RELEASE RAILS Mk I', 'QUICK-RELEASE RAILS Mk II', 'QUICK-RELEASE RAILS Mk III', 'QUICK-RELEASE RAILS Mk IV', 'QUICK-RELEASE RAILS Mk V'],
   mineSelfPropelled: ['SELF-PROPELLED MINES'],
   minePropFouling: ['PROP-FOULING MINES'],
   // --- SPEED BOOST ---------------------------------------------------------
   boostMax: ['CLEAN BOILERS', 'UPRATED BOILERS', 'SUPERHEATERS', 'FORCED DRAUGHT', 'EMERGENCY POWER'],
-  boostReload: ['STEAM RESERVE Mk I', 'STEAM RESERVE Mk II', 'STEAM RESERVE Mk III', 'STEAM RESERVE Mk IV', 'STEAM RESERVE Mk V'],
   // --- STAR SHELLS ---------------------------------------------------------
   starDuration: ['SLOW-BURN COMPOUND Mk I', 'SLOW-BURN COMPOUND Mk II', 'SLOW-BURN COMPOUND Mk III', 'SLOW-BURN COMPOUND Mk IV', 'SLOW-BURN COMPOUND Mk V'],
   starRadius: ['WIDE BURST Mk I', 'WIDE BURST Mk II', 'WIDE BURST Mk III', 'WIDE BURST Mk IV', 'WIDE BURST Mk V'],
-  starReload: ['RAPID HANDLING Mk I', 'RAPID HANDLING Mk II', 'RAPID HANDLING Mk III', 'RAPID HANDLING Mk IV', 'RAPID HANDLING Mk V'],
   starIncendiary: ['INCENDIARY COMPOUND'],
   starDazzle: ['DAZZLE BURST'],
   // --- DECOY BUOY ----------------------------------------------------------
   decoyDuration: ['EXTENDED BATTERY Mk I', 'EXTENDED BATTERY Mk II', 'EXTENDED BATTERY Mk III', 'EXTENDED BATTERY Mk IV', 'EXTENDED BATTERY Mk V'],
-  decoyReload: ['SPARE BUOYS Mk I', 'SPARE BUOYS Mk II', 'SPARE BUOYS Mk III', 'SPARE BUOYS Mk IV', 'SPARE BUOYS Mk V'],
   // --- INTEL ---------------------------------------------------------------
   intelTruesight: ['IMPROVED OPTICS', 'SPOTTING SCOPES', 'RANGEFINDER ARRAY', 'DIRECTOR TOWER', 'MASTHEAD POST'],
   intelRadar: ['IMPROVED RECEIVER', 'HIGH-GAIN ANTENNA', 'EXTENDED MAST', 'CENTIMETRIC SET', 'CAVITY MAGNETRON'],
@@ -92,6 +85,13 @@ const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   // --- SHIP ----------------------------------------------------------------
   shipSpeed: ['HULL SCRAPING', 'NEW SCREWS', 'ENGINE REFIT', 'GEARED TURBINES', 'FLANK SPEED TRIALS'],
   shipHull: ['REINFORCED HULL', 'ARMOR BELT', 'TORPEDO BULGE', 'WATERTIGHT COMPARTMENTS', 'ARMORED CITADEL'],
+  // The universal cooldown line (Eric ruling 2026-08-04): a CREW-PROFICIENCY
+  // ladder, not a hardware one — it scales every mounting on the ship at once,
+  // so the flavor is the ratings who work them, not any one weapon's loader.
+  // The 5th rung (Eric ruling 2026-08-04, copies 4 → 5): the gunnery pennant is
+  // the real-world award for the squadron's top gunnery ship — an EARNED capstone
+  // for max crew proficiency, so it closes the ladder rather than continuing it.
+  shipCooldown: ['DRILL SCHEDULE', 'PRACTICED CREWS', 'VETERAN RATINGS', 'BATTLE STATIONS', 'GUNNERY PENNANT'],
   // --- EQUIPMENT ACQUISITIONS (fill the R slot, shuffle their subdeck in) ---
   acquireTorpedo: ['TORPEDO TUBES'],
   acquireMine: ['MINE RACKS'],
@@ -163,6 +163,14 @@ function secs(ms: number): string {
   return `${num(ms / 1000)}s`;
 }
 
+/** A 0..1 scale as a percentage OF BASE — "100%", "90%". Used by the global
+ *  cooldown line, whose one number stands in for seven different reloads: a
+ *  card that scales all of them has no single second-count to headline, so it
+ *  prints the scale itself and the before→after reads honestly downward. */
+function pct(v: number): string {
+  return `${num(v * 100)}%`;
+}
+
 /** One headline stat of a stat line: what to call it, where to read it, how to
  *  print it, and any second sentence the ladder owes the player. */
 interface StatLine {
@@ -176,28 +184,21 @@ interface StatLine {
  *  as `current → next`. One row per stat line in BOON_CATALOG. */
 const STAT_LINES: Readonly<Record<string, StatLine>> = {
   gunDamage: { label: 'Gun damage', read: (s) => s.gun.damage },
-  gunReload: { label: 'Gun reload', read: (s) => s.gun.reloadMs, fmt: secs },
   gunBarrel: { label: 'Shells per shot', read: (s) => s.gun.barrels, note: 'Every shell bursts at its own point.' },
   gunTurret: { label: 'Gun rounds ready', read: (s) => s.gun.maxAmmo },
   cannonDamage: { label: 'Cannon damage', read: (s) => s.cannon.damage },
   cannonBlast: { label: 'Cannon blast radius', read: (s) => s.cannon.burstRadius },
-  cannonReload: { label: 'Cannon reload', read: (s) => s.cannon.reloadMs, fmt: secs },
   torpedoDamage: { label: 'Torpedo damage', read: (s) => s.torpedo.damage },
   torpedoSpeed: { label: 'Torpedo speed', read: (s) => s.torpedo.speed },
-  torpedoReload: { label: 'Torpedo reload', read: (s) => s.torpedo.reloadMs, fmt: secs },
   torpedoTube: { label: 'Torpedoes loaded', read: (s) => s.torpedo.maxAmmo },
   mineDamage: { label: 'Mine damage', read: (s) => s.mine.damage },
   mineBlast: { label: 'Mine blast radius', read: (s) => s.mine.blastRadius },
   mineTrigger: { label: 'Mine trigger radius', read: (s) => s.mine.triggerRadius, note: 'Never wider than the blast.' },
   mineMax: { label: 'Mines on the board', read: (s) => s.mine.maxLive },
-  mineReload: { label: 'Mine reload', read: (s) => s.mine.reloadMs, fmt: secs },
   boostMax: { label: 'Boost speed', read: (s) => s.boost.speedBonus },
-  boostReload: { label: 'Boost cooldown', read: (s) => s.boost.reloadMs, fmt: secs },
   starDuration: { label: 'Flare burn time', read: (s) => s.starShells.litDurationMs, fmt: secs },
   starRadius: { label: 'Lit zone radius', read: (s) => s.starShells.litRadius },
-  starReload: { label: 'Star shell reload', read: (s) => s.starShells.reloadMs, fmt: secs },
   decoyDuration: { label: 'Buoy lifetime', read: (s) => s.decoyBuoy.durationMs, fmt: secs },
-  decoyReload: { label: 'Buoy reload', read: (s) => s.decoyBuoy.reloadMs, fmt: secs },
   intelTruesight: { label: 'True sight', read: (s) => s.sightRange },
   intelRadar: {
     label: 'Radar range',
@@ -209,6 +210,15 @@ const STAT_LINES: Readonly<Record<string, StatLine>> = {
   intelSweep: { label: 'Radar sweep', read: (s) => s.sweepRpm, fmt: (v) => `${num(v)} RPM` },
   shipSpeed: { label: 'Top speed', read: (s) => s.kinematics.maxSpeed },
   shipHull: { label: 'Max hull', read: (s) => s.maxHp, note: 'Repairs the hull it adds.' },
+  // The ONE global cooldown lever: `cooldownScale` multiplies every equipment's
+  // reload post-fold, so this row reads the scalar itself rather than any single
+  // weapon — printed as a percentage of base so 100% → 90% reads downward.
+  shipCooldown: {
+    label: 'All cooldowns',
+    read: (s) => s.cooldownScale,
+    fmt: pct,
+    note: 'Every weapon and ability reloads faster.',
+  },
 };
 
 /**

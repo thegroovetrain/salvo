@@ -56,7 +56,12 @@ describe('shared barrel', () => {
     // Class-legible blips (Story 4.2): BlipEvent gains cls/heading/speed,
     // appended after `t` so the historical {k,id,x,y,t} prefix stays
     // byte-stable.
-    expect(PROTOCOL_VERSION).toBe(20);
+    // Global cooldown reduction (Eric rulings 2026-08-04): BOON_CATALOG
+    // content changed — the seven per-equipment reload lines died and the
+    // universal shipCooldown line replaced them (42 → 36) — and catalog
+    // content IS wire contract. CONFIG.gun/cannon reloadMs retunes ride the
+    // welcome config snapshot with it.
+    expect(PROTOCOL_VERSION).toBe(21);
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -149,7 +154,7 @@ describe('shared barrel', () => {
       arc: 'full',
       shellSpeed: 500,
       maxAmmo: 1,
-      reloadMs: 15000,
+      reloadMs: 50000, // RETUNED 15000 -> 50000 (Eric ruling 2026-08-04)
       damage: 50,
       contactDamage: 20,
       burstRadius: 30,
@@ -210,7 +215,7 @@ describe('shared barrel', () => {
   });
 
   it('re-exports the boon effect engine + Catalog v1 (Stories 2.5/2.8)', () => {
-    expect(Object.keys(BOON_CATALOG)).toHaveLength(42);
+    expect(Object.keys(BOON_CATALOG)).toHaveLength(36); // 42 - 7 reload lines + shipCooldown (Eric 2026-08-04)
     expect(Object.keys(HOOK_REGISTRY)).toHaveLength(0); // still EMPTY (amendment 30 satisfied data-side)
     expect(Object.isFrozen(BOON_CATALOG)).toBe(true);
     expect(Object.isFrozen(HOOK_REGISTRY)).toBe(true);

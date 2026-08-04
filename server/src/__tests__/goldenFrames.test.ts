@@ -221,7 +221,7 @@ function scnPtBn(g: Golden): void {
   place(w, 'b', 400, 0); // far (out of a's sight); sunk to bank a a level
   w.sinkShip('b', 'a'); // sunk(b) + pt(a)
   a.hp -= 30; // damaged — a non-heal spend may not restore this
-  a.offers[0] = ['gunDamage', 'gunReload', 'intelSweep', 'torpedoSpeed']; // fixed non-heal hand
+  a.offers[0] = ['gunDamage', 'shipCooldown', 'intelSweep', 'torpedoSpeed']; // fixed non-heal hand
   const hpBefore = a.hp;
   expect(w.spendPoint('a', 3)).toBe(true); // the fourth card — bn(a)
   expect(a.hp).toBe(hpBefore); // a non-heal spend never heals

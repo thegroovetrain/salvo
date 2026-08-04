@@ -29,6 +29,13 @@
 //   - mine.triggerRadius ≤ mine.blastRadius (the trip ring never outgrows the
 //     blast);
 //   - gun.barrels clamped to 1..3 integer (TWIN/TRIPLE MOUNT ladder bounds).
+//
+// `cooldownScale` (Eric ruling 2026-08-04) is the ONE global cooldown lever:
+// a base-1.0 scalar the universal `shipCooldown` line drives DOWN additively
+// (-0.10/card, 5 copies -> 0.50), applied post-fold to EVERY equipment's
+// reloadMs in clampStats. One scalar, one multiply site — so per-weapon reload
+// effects (still whitelisted, none in the catalog today) compose BEFORE the
+// global scale, and stacking stays additive-linear rather than 0.9^N.
 
 import { CONFIG, type ShipClass } from '../constants.js';
 import type { ShipConfig } from './ship.js';
@@ -128,6 +135,10 @@ export interface EffectiveStats {
   sweepRpm: number; // rev/min — THE tracked radar rotation rate (capped at sweepRpmMax)
   sweepPeriodMs: number; // ms per radar revolution — DERIVED: 60000 / sweepRpm
   sightRange: number; // u — true-sight bubble
+  // Global cooldown multiplier applied to EVERY equipment reloadMs post-fold
+  // (clampStats). Base 1.0 = a true no-op; shipCooldown drives it down
+  // additively (-0.1/card) to 0.5 at the 5-copy cap. Floored at 0.1.
+  cooldownScale: number;
   gun: EffectiveGun;
   torpedo: EffectiveTorpedo;
   mine: EffectiveMine;
@@ -187,6 +198,7 @@ function baseStats(cls: ShipClass): EffectiveStats {
     sweepRpm: Math.min(CONFIG.vision.sweepRpm, CONFIG.vision.sweepRpmMax),
     sweepPeriodMs: MS_PER_MINUTE / Math.min(CONFIG.vision.sweepRpm, CONFIG.vision.sweepRpmMax),
     sightRange: CONFIG.vision.sight,
+    cooldownScale: 1, // base: the global cooldown scale is a no-op until shipCooldown stacks
     gun: {
       reloadMs: CONFIG.gun.reloadMs,
       maxAmmo: CONFIG.gun.maxAmmo,
@@ -234,6 +246,27 @@ function clampStats(stats: EffectiveStats): void {
   stats.starShells.rangeU = stats.radarRange;
   stats.mine.triggerRadius = Math.min(stats.mine.triggerRadius, stats.mine.blastRadius);
   stats.gun.barrels = Math.min(3, Math.max(1, Math.round(stats.gun.barrels)));
+  // THE global cooldown scale, applied ONCE, post-fold, to every equipment —
+  // the sibling of the rangeU re-derivations above. Additive folding
+  // (-0.1/card) accumulates float dust (a 5-stack lands on
+  // 0.5000000000000001, not 0.5; a 4-stack on 0.6000000000000001), and
+  // because ammo.ts ticks reloads down in 50ms steps and only refills at
+  // <= 0, un-rounded dust silently costs a whole extra 50ms tick on every
+  // affected weapon (e.g. the 5-stack gun ruling of 5s -> 2.5s would land 51
+  // ticks instead of 50). Round to 3 decimals — far
+  // finer than any card's 0.1 step — so every reachable stack lands on the
+  // exact ruled number, THEN floor so a hostile or over-stacked list can
+  // never reach zero/negative cadence (applyStatEffect's own positive gate is
+  // per-effect, not per-total).
+  const cd = Math.max(0.1, Math.round(stats.cooldownScale * 1000) / 1000);
+  stats.cooldownScale = cd;
+  stats.gun.reloadMs *= cd;
+  stats.cannon.reloadMs *= cd;
+  stats.torpedo.reloadMs *= cd;
+  stats.mine.reloadMs *= cd;
+  stats.starShells.reloadMs *= cd;
+  stats.boost.reloadMs *= cd;
+  stats.decoyBuoy.reloadMs *= cd;
 }
 
 /**
