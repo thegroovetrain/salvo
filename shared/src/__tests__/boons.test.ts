@@ -1,6 +1,7 @@
 // Boon effect engine (Story 2.5) + Boon Catalog v1 (Story 2.8). The 2.7-era
 // dummy-set pins FLIPPED DELIBERATELY to the ratified v1 catalog shape
-// (amendment 42): 42 card lines across 9 categories, rarity/copies as
+// (amendment 42, thinned by the 2026-08-04 global-cooldown ruling): 36 card
+// lines across 9 categories, rarity/copies as
 // physical scarcity, 4 symmetric exclusive doctrine pairs, slotFill-only
 // acquisitions, healOnGrant on shipHull alone — all validated by the new
 // authoring-time validateBoonDef/validateCatalog (closing the 2.5 ledger
@@ -85,20 +86,17 @@ function flatten(stats: EffectiveStats): Map<string, number | string> {
 
 const ALL_DEFS = Object.values(BOON_CATALOG);
 
-/** The ratified rarity/copies table, every one of the 42 lines. */
+/** The ratified rarity/copies table, every one of the 36 lines. */
 const SCARCITY: Record<string, { rarity: string; copies: number }> = {
   gunDamage: { rarity: 'common', copies: 5 },
-  gunReload: { rarity: 'common', copies: 5 },
   gunBarrel: { rarity: 'rare', copies: 2 },
   gunTurret: { rarity: 'rare', copies: 1 },
   cannonDamage: { rarity: 'common', copies: 5 },
   cannonBlast: { rarity: 'common', copies: 5 },
-  cannonReload: { rarity: 'common', copies: 5 },
   cannonArcing: { rarity: 'exclusive', copies: 1 },
   cannonAp: { rarity: 'exclusive', copies: 1 },
   torpedoDamage: { rarity: 'common', copies: 5 },
   torpedoSpeed: { rarity: 'common', copies: 4 }, // the ratified ×4 ladder (60 → 80)
-  torpedoReload: { rarity: 'common', copies: 5 },
   torpedoTube: { rarity: 'rare', copies: 1 },
   torpedoHoming: { rarity: 'exclusive', copies: 1 },
   torpedoCommand: { rarity: 'exclusive', copies: 1 },
@@ -106,23 +104,20 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
   mineBlast: { rarity: 'common', copies: 5 },
   mineTrigger: { rarity: 'common', copies: 5 },
   mineMax: { rarity: 'common', copies: 5 },
-  mineReload: { rarity: 'common', copies: 5 },
   mineSelfPropelled: { rarity: 'exclusive', copies: 1 },
   minePropFouling: { rarity: 'exclusive', copies: 1 },
   boostMax: { rarity: 'common', copies: 5 },
-  boostReload: { rarity: 'common', copies: 5 },
   starDuration: { rarity: 'common', copies: 5 },
   starRadius: { rarity: 'common', copies: 5 },
-  starReload: { rarity: 'common', copies: 5 },
   starIncendiary: { rarity: 'exclusive', copies: 1 },
   starDazzle: { rarity: 'exclusive', copies: 1 },
   decoyDuration: { rarity: 'common', copies: 5 },
-  decoyReload: { rarity: 'common', copies: 5 },
   intelTruesight: { rarity: 'common', copies: 5 },
   intelRadar: { rarity: 'common', copies: 5 },
   intelSweep: { rarity: 'common', copies: 5 },
   shipSpeed: { rarity: 'common', copies: 5 },
   shipHull: { rarity: 'common', copies: 5 },
+  shipCooldown: { rarity: 'common', copies: 4 }, // THE one global cooldown line (Eric 2026-08-04)
   acquireTorpedo: { rarity: 'rare', copies: 1 },
   acquireMine: { rarity: 'rare', copies: 1 },
   acquireStarShells: { rarity: 'rare', copies: 1 },
@@ -132,9 +127,9 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
 };
 
 describe('BOON_CATALOG v1 — the ratified content shape (amendment 42)', () => {
-  it('ships exactly the 42 card lines of the scarcity table', () => {
+  it('ships exactly the 36 card lines of the scarcity table', () => {
     expect(Object.keys(BOON_CATALOG).sort()).toEqual(Object.keys(SCARCITY).sort());
-    expect(ALL_DEFS).toHaveLength(42);
+    expect(ALL_DEFS).toHaveLength(36);
   });
 
   it('spans exactly the 9 categories', () => {
@@ -374,6 +369,18 @@ describe('resolveBoons — fail-closed resolve', () => {
     expect(boonStackCount(resolveBoons(['gunDamage', 'shipHull', 'gunDamage']), 'gunDamage')).toBe(2);
     expect(boonStackCount([], 'gunDamage')).toBe(0);
     expect(boonStackCount(['shipHull'], 'gunDamage')).toBe(0);
+  });
+
+  it('the seven DELETED reload ids resolve to nothing and move no stat (fail-closed, Eric 2026-08-04)', () => {
+    const dead = ['gunReload', 'cannonReload', 'torpedoReload', 'mineReload', 'boostReload', 'starReload', 'decoyReload'];
+    for (const id of dead) {
+      expect(BOON_CATALOG[id], id).toBeUndefined();
+      expect(resolveBoons([id]), id).toBe(NO_BOONS); // the shared empty identity
+      expect(effectiveStats(TB, resolveBoons([id])), id).toEqual(effectiveStats(TB));
+    }
+    expect(resolveBoons(dead)).toBe(NO_BOONS);
+    // Mixed with a live id: the survivor still resolves, the corpses drop.
+    expect(resolveBoons(['gunReload', 'shipCooldown'])).toEqual([BOON_CATALOG.shipCooldown]);
   });
 
   it('Object.prototype keys are NOT boons: a junk wire id can never resolve to an inherited property', () => {

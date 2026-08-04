@@ -85,12 +85,23 @@ export type DoctrineWeapon = keyof typeof DOCTRINE_MODES;
  * scalars, plus `gun.barrels` and `gun.maxAmmo` — the single-shot gun-pool
  * pin is DELIBERATELY RETIRED (AFT TURRET raises the pool; clamps live in
  * effectiveStats).
+ *
+ * The seven `<equipment>.reloadMs` paths STAY whitelisted even though the
+ * 2026-08-04 global-cooldown ruling deleted every per-weapon reload card: a
+ * future per-weapon line must still be able to compose BEFORE the global
+ * `cooldownScale` multiply in clampStats. Nothing in the catalog writes them
+ * today.
  */
 export const BOON_STAT_PATHS = [
   'maxHp',
   'radarRange',
   'sweepRpm',
   'sightRange',
+  // The ONE global cooldown lever (Eric ruling 2026-08-04): a top-level base-1
+  // scalar multiplied into EVERY equipment reloadMs post-fold (sim/stats.ts
+  // clampStats). `shipCooldown` drives it with add: -0.1 so stacking is
+  // ADDITIVE-LINEAR (1.0 → 0.6 at the 4-copy cap), not 0.9^N.
+  'cooldownScale',
   'kinematics.maxSpeed',
   'kinematics.reverseSpeed',
   'kinematics.accel',
@@ -241,8 +252,10 @@ const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
 });
 
 /**
- * THE production Boon Catalog v1 (Story 2.8, amendment 42 — 42 card lines
- * across 9 categories). Ladder NAMES are ratified canon and live client-side
+ * THE production Boon Catalog v1 (Story 2.8, amendment 42 — 36 card lines
+ * across 9 categories; was 42 until the 2026-08-04 global-cooldown ruling
+ * traded the seven per-equipment reload ladders for the single universal
+ * `shipCooldown` line). Ladder NAMES are ratified canon and live client-side
  * (boonCopy.ts); every step VALUE here is an implementer-drafted handwave
  * inside the ratified pins (damageGuardrail: no single hit can kill the
  * lightest hull — the 80hp small drone since the 2026-08-03 hp-ladder move —
@@ -259,8 +272,6 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // --- guns (universal) ----------------------------------------------------
   // HEAVY SHELLS Mk I–V: 25 → 40 hp (+3/card — guardrail: max burst < the 80hp floor).
   gunDamage: { id: 'gunDamage', category: 'guns', rarity: 'common', copies: 5, effects: [stat('gun.damage', { add: 3 })] },
-  // LOADING DRILLS → READY MAGAZINE: ×0.9 reload per card.
-  gunReload: { id: 'gunReload', category: 'guns', rarity: 'common', copies: 5, effects: [stat('gun.reloadMs', { mult: 0.9 })] },
   // TWIN MOUNT → TRIPLE MOUNT (rare ×2): +1 barrel per card (clamped 1..3).
   gunBarrel: { id: 'gunBarrel', category: 'guns', rarity: 'rare', copies: 2, effects: [stat('gun.barrels', { add: 1 })] },
   // AFT TURRET (rare ×1): gun pool 1 → 2 — the single-shot pin deliberately retired.
@@ -270,8 +281,6 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   cannonDamage: { id: 'cannonDamage', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.damage', { add: 3 })] },
   // FRAGMENTATION CASING Mk I–V: ×1.1 burst radius per card.
   cannonBlast: { id: 'cannonBlast', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.burstRadius', { mult: 1.1 })] },
-  // HYDRAULIC RAMMER Mk I–V: ×0.9 reload per card.
-  cannonReload: { id: 'cannonReload', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.reloadMs', { mult: 0.9 })] },
   // PLUNGING FIRE ⚔ ARMOR-PIERCING SHELLS (exclusive pair).
   cannonArcing: { id: 'cannonArcing', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonAp', effects: [doctrine('cannon', 'arcing')] },
   cannonAp: { id: 'cannonAp', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonArcing', effects: [doctrine('cannon', 'ap')] },
@@ -280,8 +289,6 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   torpedoDamage: { id: 'torpedoDamage', category: 'torpedoes', rarity: 'common', copies: 5, effects: [stat('torpedo.damage', { add: 2 })] },
   // HIGH-SPEED SETTING → PURE OXYGEN DRIVE (×4): +5 kn/card, 60 → 80 (RATIFIED).
   torpedoSpeed: { id: 'torpedoSpeed', category: 'torpedoes', rarity: 'common', copies: 4, effects: [stat('torpedo.speed', { add: 5 })] },
-  // QUICK-LOADING GEAR Mk I–V: ×0.9 reload per card.
-  torpedoReload: { id: 'torpedoReload', category: 'torpedoes', rarity: 'common', copies: 5, effects: [stat('torpedo.reloadMs', { mult: 0.9 })] },
   // SECOND TUBE (rare ×1): tube pool 1 → 2.
   torpedoTube: { id: 'torpedoTube', category: 'torpedoes', rarity: 'rare', copies: 1, effects: [stat('torpedo.maxAmmo', { add: 1 })] },
   // ACOUSTIC HOMING ⚔ COMMAND DETONATION (exclusive pair).
@@ -296,8 +303,6 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   mineTrigger: { id: 'mineTrigger', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.triggerRadius', { mult: 1.1 })] },
   // DECK RACKS → CONVERTED HOLD: +1 max LIVE mine per card.
   mineMax: { id: 'mineMax', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.maxLive', { add: 1 })] },
-  // QUICK-RELEASE RAILS Mk I–V: ×0.9 reload per card.
-  mineReload: { id: 'mineReload', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.reloadMs', { mult: 0.9 })] },
   // SELF-PROPELLED MINES ⚔ PROP-FOULING MINES (exclusive pair). Prop-fouling
   // trades damage (×0.6, DRAFT) for the slow debuff (CONFIG.mine.foul*).
   mineSelfPropelled: { id: 'mineSelfPropelled', category: 'mines', rarity: 'exclusive', copies: 1, exclusiveWith: 'minePropFouling', effects: [doctrine('mine', 'selfPropelled')] },
@@ -305,23 +310,17 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // --- speedBoost ----------------------------------------------------------
   // CLEAN BOILERS → EMERGENCY POWER: +2 u/s boost bonus per card (10 → 20).
   boostMax: { id: 'boostMax', category: 'speedBoost', rarity: 'common', copies: 5, effects: [stat('boost.speedBonus', { add: 2 })] },
-  // STEAM RESERVE Mk I–V: ×0.9 boost cooldown per card.
-  boostReload: { id: 'boostReload', category: 'speedBoost', rarity: 'common', copies: 5, effects: [stat('boost.reloadMs', { mult: 0.9 })] },
   // --- starShells ----------------------------------------------------------
   // SLOW-BURN COMPOUND Mk I–V: ×1.1 lit duration per card.
   starDuration: { id: 'starDuration', category: 'starShells', rarity: 'common', copies: 5, effects: [stat('starShells.litDurationMs', { mult: 1.1 })] },
   // WIDE BURST Mk I–V: ×1.1 lit radius per card.
   starRadius: { id: 'starRadius', category: 'starShells', rarity: 'common', copies: 5, effects: [stat('starShells.litRadius', { mult: 1.1 })] },
-  // RAPID HANDLING Mk I–V: ×0.9 reload per card.
-  starReload: { id: 'starReload', category: 'starShells', rarity: 'common', copies: 5, effects: [stat('starShells.reloadMs', { mult: 0.9 })] },
   // INCENDIARY COMPOUND ⚔ DAZZLE BURST (exclusive pair).
   starIncendiary: { id: 'starIncendiary', category: 'starShells', rarity: 'exclusive', copies: 1, exclusiveWith: 'starDazzle', effects: [doctrine('starShells', 'incendiary')] },
   starDazzle: { id: 'starDazzle', category: 'starShells', rarity: 'exclusive', copies: 1, exclusiveWith: 'starIncendiary', effects: [doctrine('starShells', 'dazzle')] },
   // --- decoyBuoy -----------------------------------------------------------
   // EXTENDED BATTERY Mk I–V: ×1.1 lifetime per card.
   decoyDuration: { id: 'decoyDuration', category: 'decoyBuoy', rarity: 'common', copies: 5, effects: [stat('decoyBuoy.durationMs', { mult: 1.1 })] },
-  // SPARE BUOYS Mk I–V: ×0.9 cooldown per card.
-  decoyReload: { id: 'decoyReload', category: 'decoyBuoy', rarity: 'common', copies: 5, effects: [stat('decoyBuoy.reloadMs', { mult: 0.9 })] },
   // --- intel (universal) ---------------------------------------------------
   // IMPROVED OPTICS → MASTHEAD POST: ×1.12 truesight per card.
   intelTruesight: { id: 'intelTruesight', category: 'intel', rarity: 'common', copies: 5, effects: [stat('sightRange', { mult: 1.12 })] },
@@ -341,6 +340,13 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // REINFORCED HULL → ARMORED CITADEL: +20 max hp per card; the grant HEALS
   // the granted delta (healOnGrant — the ONLY heal path, amendment 38).
   shipHull: { id: 'shipHull', category: 'ship', rarity: 'common', copies: 5, healOnGrant: true, effects: [stat('maxHp', { add: 20 })] },
+  // DRILL SCHEDULE → BATTLE STATIONS (×4): −0.10 cooldownScale per card, the
+  // ONE global cooldown line (Eric ruling 2026-08-04 — it replaced all seven
+  // per-equipment reload ladders). ADDITIVE, never multiplicative: 1.0 → 0.9 →
+  // 0.8 → 0.7 → 0.6, so a full stack lands gun 5000 → 3000 ms and cannon
+  // 50000 → 30000 ms exactly. Applied once, post-fold, to EVERY equipment
+  // reloadMs (sim/stats.ts clampStats).
+  shipCooldown: { id: 'shipCooldown', category: 'ship', rarity: 'common', copies: 4, effects: [stat('cooldownScale', { add: -0.1 })] },
   // --- acquisitions (rare ×1 each; category = the equipment's category) -----
   acquireTorpedo: acquire('acquireTorpedo', 'torpedo'),
   acquireMine: acquire('acquireMine', 'mine'),

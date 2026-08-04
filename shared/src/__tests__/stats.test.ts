@@ -64,6 +64,7 @@ describe('effectiveStats — zero-boons identity (per class, new-field bases)', 
       sweepRpm: CONFIG.vision.sweepRpm,
       sweepPeriodMs: 60000 / CONFIG.vision.sweepRpm,
       sightRange: CONFIG.vision.sight,
+      cooldownScale: 1, // the global cooldown lever is a true no-op at base
       gun: {
         reloadMs: CONFIG.gun.reloadMs,
         maxAmmo: CONFIG.gun.maxAmmo,
@@ -289,9 +290,120 @@ describe('effectiveStats — every production catalog line folds (no dead cards)
   });
 });
 
+// ---------------------------------------------------------------------------
+// cooldownScale — THE one global cooldown lever (Eric rulings 2026-08-04).
+// The seven per-equipment reload ladders died; `shipCooldown` (ship, common,
+// ×4) drives a single base-1.0 scalar ADDITIVELY (-0.1/card) that clampStats
+// multiplies into all seven equipment reloads, once, post-fold.
+// ---------------------------------------------------------------------------
+
+/** The seven equipment reloads, paired with their CONFIG bases. */
+const RELOADS = [
+  ['gun', (s: EffectiveStats) => s.gun.reloadMs, CONFIG.gun.reloadMs],
+  ['cannon', (s: EffectiveStats) => s.cannon.reloadMs, CONFIG.cannon.reloadMs],
+  ['torpedo', (s: EffectiveStats) => s.torpedo.reloadMs, CONFIG.torpedo.reloadMs],
+  ['mine', (s: EffectiveStats) => s.mine.reloadMs, CONFIG.mine.reloadMs],
+  ['starShells', (s: EffectiveStats) => s.starShells.reloadMs, CONFIG.starShells.reloadMs],
+  ['boost', (s: EffectiveStats) => s.boost.reloadMs, CONFIG.speedBoost.reloadMs],
+  ['decoyBuoy', (s: EffectiveStats) => s.decoyBuoy.reloadMs, CONFIG.decoyBuoy.reloadMs],
+] as const;
+
+describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-04)', () => {
+  it('the retuned CONFIG bases are the ruling: gun 5000 ms, cannon 50000 ms', () => {
+    expect(CONFIG.gun.reloadMs).toBe(5000);
+    expect(CONFIG.cannon.reloadMs).toBe(50000);
+  });
+
+  it('zero boons: scale is exactly 1 and EVERY reload is REFERENCE-EXACT to its CONFIG base (a true no-op)', () => {
+    for (const id of SHIP_CLASS_IDS) {
+      const s = effectiveStats(CONFIG.shipClasses[id]);
+      expect(s.cooldownScale, id).toBe(1);
+      // Strict equality, not toBeCloseTo: x * 1.0 === x is the whole point.
+      for (const [name, read, base] of RELOADS) expect(read(s), `${id}:${name}`).toBe(base);
+    }
+  });
+
+  it('ONE stack: scale 0.9 — gun 4500, cannon 45000', () => {
+    const s = effectiveStats(BASE, stack('shipCooldown', 1));
+    expect(s.cooldownScale).toBeCloseTo(0.9, 12);
+    expect(s.gun.reloadMs).toBeCloseTo(4500, 9);
+    expect(s.cannon.reloadMs).toBeCloseTo(45000, 9);
+  });
+
+  it('FULL stack (4 copies, the cap): scale 0.6 — ADDITIVE, not 0.9^4', () => {
+    expect(BOON_CATALOG.shipCooldown.copies).toBe(4); // the physical cap the pin rests on
+    const s = effectiveStats(BASE, stack('shipCooldown', 4));
+    expect(s.cooldownScale).toBeCloseTo(0.6, 12);
+    // ANTI-MULTIPLICATIVE PIN: 0.9^4 = 0.6561 would land gun at 3280.5 ms and
+    // cannon at 32805 ms — Eric's targets are 3000 / 30000 exactly.
+    expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 4, 3);
+    expect(Math.round(s.gun.reloadMs)).toBe(3000);
+    expect(Math.round(s.cannon.reloadMs)).toBe(30000);
+    expect(s.gun.reloadMs).not.toBeCloseTo(3280.5, 3);
+    expect(s.cannon.reloadMs).not.toBeCloseTo(32805, 3);
+    // ALL SEVEN move — one card, every cooldown.
+    const expected: Record<string, number> = {
+      gun: 3000,
+      cannon: 30000,
+      torpedo: 7200,
+      mine: 4800,
+      starShells: 12000,
+      boost: 10800,
+      decoyBuoy: 12000,
+    };
+    for (const [name, read] of RELOADS) expect(read(s), name).toBeCloseTo(expected[name], 9);
+  });
+
+  it('the scale reaches EVERY equipment: no reload is left at its base after a full stack', () => {
+    const s = effectiveStats(BASE, stack('shipCooldown', 4));
+    for (const [name, read, base] of RELOADS) {
+      expect(read(s), name).toBeLessThan(base);
+      expect(read(s), name).toBeCloseTo(base * 0.6, 9);
+    }
+  });
+
+  it('OVER-STACK (defensive): floored at 0.1 — never zero, negative, or non-finite', () => {
+    for (const n of [10, 15, 50]) {
+      const s = effectiveStats(BASE, stack('shipCooldown', n));
+      expect(s.cooldownScale, `${n} stacks`).toBe(0.1);
+      for (const [name, read, base] of RELOADS) {
+        const v = read(s);
+        expect(Number.isFinite(v), `${n}:${name}`).toBe(true);
+        expect(v, `${n}:${name}`).toBeGreaterThan(0);
+        expect(v, `${n}:${name}`).toBeCloseTo(base * 0.1, 9);
+      }
+    }
+  });
+
+  it('a hand-built over-stack of raw defs floors identically (no catalog copy cap in the way)', () => {
+    const raw = new Array<BoonDef>(12).fill(boon('cooldownScale', { add: -0.1 }));
+    const s = effectiveStats(BASE, raw);
+    expect(s.cooldownScale).toBe(0.1);
+    expect(s.gun.reloadMs).toBeCloseTo(CONFIG.gun.reloadMs * 0.1, 9);
+  });
+
+  it('the scale moves ONLY the seven reloads (flatten diff) — no other stat rides along', () => {
+    const identity = flatten(effectiveStats(BASE));
+    const scaled = flatten(effectiveStats(BASE, stack('shipCooldown', 4)));
+    const changed = [...scaled.keys()].filter((k) => scaled.get(k) !== identity.get(k));
+    expect(changed.sort()).toEqual(
+      [
+        'boost.reloadMs',
+        'cannon.reloadMs',
+        'cooldownScale',
+        'decoyBuoy.reloadMs',
+        'gun.reloadMs',
+        'mine.reloadMs',
+        'starShells.reloadMs',
+        'torpedo.reloadMs',
+      ].sort(),
+    );
+  });
+});
+
 describe('equipment helpers', () => {
   it('equipmentMaxAmmo / equipmentReloadMs look up the per-equipment effective values', () => {
-    const s = effectiveStats(BASE, stack('mineReload', 1));
+    const s = effectiveStats(BASE, stack('shipCooldown', 1));
     expect(equipmentMaxAmmo(s, 'gun')).toBe(s.gun.maxAmmo);
     expect(equipmentMaxAmmo(s, 'torpedo')).toBe(s.torpedo.maxAmmo);
     expect(equipmentMaxAmmo(s, 'mine')).toBe(s.mine.maxAmmo);
@@ -302,7 +414,9 @@ describe('equipment helpers', () => {
     expect(equipmentReloadMs(s, 'mine')).toBe(s.mine.reloadMs);
     expect(equipmentReloadMs(s, 'speedBoost')).toBe(s.boost.reloadMs);
     expect(equipmentReloadMs(s, 'decoyBuoy')).toBe(s.decoyBuoy.reloadMs);
+    // ONE shipCooldown stack scales EVERY lookup, not just one weapon's.
     expect(equipmentReloadMs(s, 'mine')).toBeCloseTo(CONFIG.mine.reloadMs * 0.9, 9);
+    expect(equipmentReloadMs(s, 'gun')).toBeCloseTo(CONFIG.gun.reloadMs * 0.9, 9);
   });
 
   it('the legacy upgrade vocabulary is GONE: no CONFIG.upgrades block survives', () => {

@@ -1,7 +1,8 @@
 // THE DECK MODEL engine (Story 2.8, amendment 38) — sim/deck.ts. Pins:
 // (1) buildDeck composition per hull loadout (universal intel/ship/guns +
 // carried-equipment subdecks + one acquisition per NOT-carried equipment,
-// copies per catalog — the spec's TB 13/15/10 + 17 + 10 + 4 matrix);
+// copies per catalog — the TB 8/15/14 + 12 + 5 + 4 matrix after the
+// 2026-08-04 global-cooldown thinning);
 // (2) drawOffer distinctness / weighting / determinism / rare escalation +
 // reset / empty-and-thin-deck fail-safety; (3) returnCards / consume-
 // Acquisition purge / scrubAcquisitions (amendment 43) semantics; (4) a
@@ -66,36 +67,48 @@ const common = (id: string, copies = 5): BoonDef => ({
 });
 
 describe('buildDeck — composition per hull loadout', () => {
-  it('Torpedo Boat: universal (guns 13, intel 15, ship 10) + torpedo 17 + boost 10 + 4 acquisitions = 69', () => {
+  it('Torpedo Boat: universal (guns 8, intel 15, ship 14) + torpedo 12 + boost 5 + 4 acquisitions = 58', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
-    expect(categoryCount(deck.cards, 'guns')).toBe(13); // 5+5+2+1
+    expect(categoryCount(deck.cards, 'guns')).toBe(8); // 5+2+1 (the gunReload line died 2026-08-04)
     expect(categoryCount(deck.cards, 'intel')).toBe(15); // 5+5+5
-    expect(categoryCount(deck.cards, 'ship')).toBe(10); // 5+5
-    expect(categoryCount(deck.cards, 'torpedoes')).toBe(17); // 5+4+5+1+1+1
-    expect(categoryCount(deck.cards, 'speedBoost')).toBe(10); // 5+5
+    expect(categoryCount(deck.cards, 'ship')).toBe(14); // 5+5+4 (shipCooldown joined)
+    expect(categoryCount(deck.cards, 'torpedoes')).toBe(12); // 5+4+1+1+1
+    expect(categoryCount(deck.cards, 'speedBoost')).toBe(5); // 5
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireCannon', 'acquireDecoy', 'acquireMine', 'acquireStarShells']);
-    expect(deck.cards).toHaveLength(69);
+    expect(deck.cards).toHaveLength(58);
     expect(deck.levelsSinceRare).toBe(0);
   });
 
   it('Battleship: cannon + starShells subdecks; torpedo/mine/decoy/boost acquisitions', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.battleship);
-    expect(categoryCount(deck.cards, 'cannon')).toBe(17); // 5+5+5+1+1
-    expect(categoryCount(deck.cards, 'starShells')).toBe(17); // 5+5+5+1+1
+    expect(categoryCount(deck.cards, 'cannon')).toBe(12); // 5+5+1+1
+    expect(categoryCount(deck.cards, 'starShells')).toBe(12); // 5+5+1+1
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(0);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireDecoy', 'acquireMine', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(13 + 15 + 10 + 17 + 17 + 4);
+    expect(deck.cards).toHaveLength(8 + 15 + 14 + 12 + 12 + 4);
   });
 
   it('Mine Layer: mines + decoyBuoy subdecks; torpedo/cannon/star/boost acquisitions', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.mineLayer);
-    expect(categoryCount(deck.cards, 'mines')).toBe(27); // 5×5 + 1 + 1
-    expect(categoryCount(deck.cards, 'decoyBuoy')).toBe(10);
+    expect(categoryCount(deck.cards, 'mines')).toBe(22); // 5×4 + 1 + 1
+    expect(categoryCount(deck.cards, 'decoyBuoy')).toBe(5);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireCannon', 'acquireStarShells', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(13 + 15 + 10 + 27 + 10 + 4);
+    expect(deck.cards).toHaveLength(8 + 15 + 14 + 22 + 5 + 4);
+  });
+
+  it('the 7 deleted reload lines are in NO hull deck; ship contributes 14 (Eric ruling 2026-08-04)', () => {
+    const dead = ['gunReload', 'cannonReload', 'torpedoReload', 'mineReload', 'boostReload', 'starReload', 'decoyReload'];
+    for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
+      const deck = buildDeck(BOON_CATALOG, CARRIED[cls]);
+      for (const id of dead) expect(deck.cards, `${cls}:${id}`).not.toContain(id);
+      // The one global cooldown line replaces them, in the UNIVERSAL ship
+      // subdeck — every hull draws it: 5 shipSpeed + 5 shipHull + 4 shipCooldown.
+      expect(categoryCount(deck.cards, 'ship'), cls).toBe(14);
+      expect(tally(deck.cards).get('shipCooldown'), cls).toBe(4);
+    }
   });
 
   it('every line appears exactly `copies` times; a CARRIED equipment never has an acquisition card', () => {
@@ -226,11 +239,11 @@ describe('consumeAcquisition — subdeck shuffle-in + total purge (amendment 38)
   it('R filled with mine: mine subdeck joins, EVERY acquisition card purges', () => {
     const start = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
     const after = consumeAcquisition(start, BOON_CATALOG, 'mine');
-    expect(categoryCount(after.cards, 'mines')).toBe(27); // the full mine subdeck
+    expect(categoryCount(after.cards, 'mines')).toBe(22); // the full mine subdeck
     expect(after.cards.some((id) => isAcquisitionDef(BOON_CATALOG[id]))).toBe(false); // R is permanent
     // Everything else untouched.
-    expect(categoryCount(after.cards, 'torpedoes')).toBe(17);
-    expect(categoryCount(after.cards, 'guns')).toBe(13);
+    expect(categoryCount(after.cards, 'torpedoes')).toBe(12);
+    expect(categoryCount(after.cards, 'guns')).toBe(8);
     expect(after.levelsSinceRare).toBe(start.levelsSinceRare);
   });
 
@@ -239,7 +252,7 @@ describe('consumeAcquisition — subdeck shuffle-in + total purge (amendment 38)
     const after = consumeAcquisition(start, BOON_CATALOG, 'cannon');
     expect(after.cards).not.toContain('acquireCannon');
     expect(after.cards).not.toContain('acquireMine');
-    expect(categoryCount(after.cards, 'cannon')).toBe(17); // 5+5+5 commons + 2 exclusives
+    expect(categoryCount(after.cards, 'cannon')).toBe(12); // 5+5 commons + 2 exclusives
   });
 });
 
@@ -279,7 +292,7 @@ describe('scrubAcquisitions — the stale-card rule (amendment 43)', () => {
   });
 
   it('is deterministic on the same stream (the own-pick-triggered, never-reroll guarantee)', () => {
-    const offers = [['acquireCannon', 'gunDamage', 'intelRadar', 'torpedoReload']];
+    const offers = [['acquireCannon', 'gunDamage', 'intelRadar', 'torpedoDamage']];
     const a = scrubAcquisitions(purgedDeck(), BOON_CATALOG, offers, mulberry32(21));
     const b = scrubAcquisitions(purgedDeck(), BOON_CATALOG, offers, mulberry32(21));
     expect(a.offers).toEqual(b.offers);

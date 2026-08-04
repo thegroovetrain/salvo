@@ -174,7 +174,11 @@ export const CONFIG = {
     // AFT TURRET boon (gunTurret) may raise the pool to 2 via the whitelisted
     // gun.maxAmmo stat path. The base fit is still one round.
     maxAmmo: 1,
-    reloadMs: 3000, // ms — cooldown between shots
+    // ms — cooldown between shots. RETUNED 3000 → 5000 (Eric ruling
+    // 2026-08-04, the global-cooldown-reduction cycle): the gun fired far too
+    // often for its payload. A max shipCooldown build (4 copies, cooldownScale
+    // 0.6 — the ONE global reduction line) lands it back at 3.0s.
+    reloadMs: 5000,
     damage: 25, // hp per burst victim — THE gun-damage tunable (pinned by damageGuardrail.test)
     contactDamage: 10, // hp to an early interceptor outside the blast (bodyblock)
     burstRadius: 15, // u — blast radius around the clicked point
@@ -327,7 +331,12 @@ export const CONFIG = {
     arc: 'full', // 360° — RATIFIED class-era geometry (Eric 2026-07-23; see sim/arcs.ts)
     shellSpeed: 500, // u/s — standardized gun-family muzzle velocity (Eric ruling 2026-07-25, retuned 300→500 same day)
     maxAmmo: 1, // single shot — a 1-round pool presented as a pure cooldown
-    reloadMs: 15000, // ms — cooldown between shots (the commitment spike)
+    // ms — cooldown between shots (the commitment spike). RETUNED 15000 →
+    // 50000 (Eric ruling 2026-08-04, the global-cooldown-reduction cycle): a
+    // 500 u/s shell at a 15s cadence gave no reaction window, making the
+    // cannon the strongest weapon in the game. A max shipCooldown build
+    // (4 copies, cooldownScale 0.6) lands it at 30s.
+    reloadMs: 50000,
     damage: 50, // hp per burst victim (pinned by damageGuardrail.test)
     contactDamage: 20, // hp to an early interceptor outside the blast (bodyblock)
     burstRadius: 30, // u — blast radius around the clicked point
