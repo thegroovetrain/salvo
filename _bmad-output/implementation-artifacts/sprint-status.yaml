@@ -101,13 +101,13 @@ development_status:
   epic-3-retrospective: done  # epic-3-retro-2026-08-03.md (live with Eric; carries the ~10-player playtest reads)
 
   # epic-4: Information Texture (GDD E6)
-  epic-4: backlog  # no story file created yet — 4-1 was deferred at its question gate, before any spec
+  epic-4: in-progress  # 4-2 landed 2026-08-04 (dev-auto cycle 41, 0.17.41); 4-1 deferred at its question gate before any spec
   # DEFERRED 2026-08-04 by Eric ruling (bmad-dev-auto-result-4-1-listening-ring-deferred.md;
   # epic-4-context-amendments.md amendment 1): hydrophone sensor tier not built — enough
   # information channels already, active sonar is coming, and the ring's value is contingent on a
   # torpedo/mine rebalance that hasn't happened. Not cut; revivable by a later explicit ruling.
   4-1-the-listening-ring: deferred
-  4-2-class-legible-blips: backlog
+  4-2-class-legible-blips: done  # 2026-08-04 dev-auto cycle 41 (0.17.41); PV 19->20; amendments 7-14 ratified pre-implementation (TRUE-SCALE silhouette blips supersede the DESIGN.md px table/floor-clamp/3x ML notch; 3-paint persistence; decoy = radar reflector at frozen pose, speed 0; algorithmic luminance floor)
   4-3-the-gunnery-conversation: backlog
   4-4-wounded-smoke: backlog
   4-5-the-foghorn: backlog

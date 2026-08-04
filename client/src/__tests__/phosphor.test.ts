@@ -15,6 +15,7 @@ import {
   lerpColor,
   sweepRotation,
 } from '../render/phosphor.js';
+import { luminanceFloor, relativeLuminance } from '../render/blipMarks.js';
 
 const TAU = Math.PI * 2;
 const PERIOD = 4000;
@@ -88,6 +89,30 @@ describe('blipCool — the HUE-PRESERVING cooling ramp', () => {
     const floorLevel = Math.round(255 * CLIENT_CONFIG.blip.coolFloor);
     expect(grey(blipCool(life * TINT_FADE_FRACTION, life))[0]).toBe(floorLevel);
     expect(grey(blipCool(life, life))[0]).toBe(floorLevel); // held, never darker
+  });
+
+  // Review catch: the assist's luminance floor is baked into the STROKE color
+  // once, but this multiplier then scales every channel down — so the base
+  // cooling ramp dragged a lifted dark hue back UNDER the floor for most of a
+  // paint's life, silently undoing the assist for the exact hues it rescues.
+  // The assist therefore cools on its own shallower ramp.
+  it('cools a colorblind-assist paint shallowly enough to KEEP its luminance floor', () => {
+    const life = blipLifeMs(PERIOD);
+    const { assistCoolFloor, assistLumaFloor, lumaFloor } = CLIENT_CONFIG.blip;
+    // A fully-cooled assist paint must still outrank a fully-cooled base paint.
+    const assistLevel = grey(blipCool(life, life, assistCoolFloor))[0];
+    expect(assistLevel).toBeGreaterThan(grey(blipCool(life, life))[0]);
+
+    // The real guarantee, end to end: lift the DARKEST Regatta hue to the
+    // assist floor, apply the fully-cooled multiplier, and the result must
+    // still clear the BASE floor — the failure mode was landing far below it.
+    const darkest = Object.values(CLIENT_CONFIG.colors.players).reduce((a, b) =>
+      relativeLuminance(a) <= relativeLuminance(b) ? a : b,
+    );
+    const lifted = luminanceFloor(darkest, assistLumaFloor);
+    const mul = assistLevel / 255;
+    const ch = (shift: number): number => Math.round(((lifted >> shift) & 0xff) * mul) << shift;
+    expect(relativeLuminance(ch(16) | ch(8) | ch(0))).toBeGreaterThanOrEqual(lumaFloor);
   });
 
   it('cools monotonically through the fade window (fresh reads hottest)', () => {

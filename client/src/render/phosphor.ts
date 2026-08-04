@@ -92,9 +92,17 @@ export function blipTint(ageMs: number, lifeMs: number): number {
  * Why it exists at all: across a 3-sweep (~12s) linear alpha ramp a 1s-old paint
  * still sits at ~0.92 alpha, so alpha alone cannot say "this one is FRESH". The
  * cooling ramp is what makes the newest paint of a track pop out of its ghosts.
+ *
+ * `floor` is a parameter because the colorblind assist needs a SHALLOWER ramp:
+ * this multiplier stacks on top of the luminance floor already baked into the
+ * stroke color, so the base floor would pull a lifted dark hue back under the
+ * assist's own threshold for most of the paint's life.
  */
-export function blipCool(ageMs: number, lifeMs: number): number {
-  const floor = CLIENT_CONFIG.blip.coolFloor;
+export function blipCool(
+  ageMs: number,
+  lifeMs: number,
+  floor: number = CLIENT_CONFIG.blip.coolFloor,
+): number {
   const k = clamp01(ageMs / (lifeMs * TINT_FADE_FRACTION));
   const level = Math.round(255 * (1 - k * (1 - floor)));
   return (level << 16) | (level << 8) | level;

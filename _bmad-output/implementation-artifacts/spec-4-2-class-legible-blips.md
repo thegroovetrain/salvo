@@ -2,8 +2,9 @@
 title: 'Story 4.2 — Class-Legible Blips'
 type: 'feature'
 created: '2026-08-04'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '1514b6ea3ed9deb1c4442be9b9c51a5345d079c0'
+final_revision: '6e417df055aa22bf50311206fc959071752d3ad4'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -116,6 +117,61 @@ an ARPA-style arrowhead vector whose length is proportional to speed. Paints per
 - Given `__BLIP_VARIANT_P__` is true at build time, when blips render, then every blip is phosphor green and no personal hue appears on any blip.
 - Given a client at PROTOCOL_VERSION 19, when it tries to join a v20 server, then matchmaking rejects it before a seat is reserved (existing `protocolVersionError` gate, symbol-driven).
 
+## Spec Change Log
+
+No bad_spec loopback occurred — the spec was not amended during review.
+
+## Review Triage Log
+
+### 2026-08-04 — Review pass
+
+Gate: 2 adversarial hunters (Fable — Blind Hunter + Edge Case Hunter) in parallel, plus a
+cross-model Codex review of the same diff. Verdicts: build-on-it, build-on-it, fix-first (Codex).
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 5: (high 0, medium 1, low 4)
+- defer: 3: (high 0, medium 0, low 3)
+- reject: 2
+- addressed_findings:
+  - `[medium]` `[patch]` The colorblind assist's luminance floor was silently undone by decay: the
+    floor is baked into the stroke color once, but `blipCool` then multiplies every channel to
+    `coolFloor` (0.55), dragging a lifted cobalt/azure ghost to ~0.11 linear luminance — below even
+    the BASE floor — for the last ~70% of its 12s life, i.e. defeating the assist for exactly the
+    hues it exists to rescue. Added `assistCoolFloor` (0.85) and made `blipCool` take the floor as a
+    parameter, so the assist cools on a shallower ramp and keeps its floor for the whole paint.
+    Pinned by a new regression test verifying the darkest Regatta hue, lifted to the assist floor and
+    fully cooled, still clears the base floor — confirmed RED when `assistCoolFloor` is reverted to
+    `coolFloor` (Blind Hunter, single-model finding, verified against the code before fixing).
+  - `[low]` `[patch]` Codex (high confidence, fix-first) claimed pooled `Graphics` are re-acquired
+    carrying the previous life's decayed `alpha`/`tint`, so a fresh paint could draw dim.
+    ADJUDICATED AGAINST the finding after tracing `app/loop.ts`: the render callback runs at ticker
+    priority NORMAL and Pixi's own render is added at LOW, so `updateBlips` always rewrites both
+    before the stage draws — unreachable today, and the Blind Hunter's independent trace agreed.
+    Took the hardening anyway (reset alpha/tint on acquire) because the invariant otherwise rests on
+    implicit ticker ordering that nothing in the file would notice breaking.
+  - `[low]` `[patch]` The `MAX_LIVE_BLIPS` sizing comment was arithmetically impossible: it justified
+    128 as "19 ships + 19 decoy buoys × 3 ≈ 114", but the per-contact cap keys on blip `id` and a
+    decoy paints under its OWNER's id, so the true ceiling is 19 distinct ids × 3 = 57. Comment
+    corrected to state the shared-budget mechanism (both hunters flagged this independently).
+  - `[low]` `[patch]` `hullSilhouette(cls)` is a bare record lookup returning `undefined` for an
+    unregistered id, which would throw inside the Colyseus message handler and take blip ingest down
+    for the session. Unreachable from a conforming server (the PV-20 gate gives both sides the same
+    `HullId` union), so added a fail-soft fallback rather than a validation layer.
+  - `[low]` `[patch]` The `BlipEvent` anti-cheat comment overstated its guarantee ("never leaks build
+    state"). Base class envelopes are public CONFIG, so a paint above a class's base `maxSpeed` does
+    imply an engine boon or active boost. Softened to state the honest limit and to record that this
+    extends an accepted sight-range disclosure (`Contact` already ships raw speed) outward to radar
+    range rather than opening a new class of leak — what the rule buys is that the wire never states
+    build state OUTRIGHT.
+
+Rejected (noise): the decoy's `cls` always being `mineLayer` (already ratified and documented in
+amendment 11 and the spec's Design Notes — not a new finding); and a "speed 0 identifies a decoy"
+line of attack that the Blind Hunter itself disproved on trace (`approach()` snaps to target exactly,
+so a genuinely stopped hull reports speed exactly 0 and, having no rudder authority at rest, also
+holds heading and position across sweeps — the lie is behaviorally consistent, not merely
+payload-consistent).
+
 ## Design Notes
 
 **Eric rulings, 2026-08-04 (this run's pre-implementation question gate).** The governing instruction
@@ -175,3 +231,56 @@ Each is an outline-only `Graphics` with no fill; geometry is rebuilt only on acq
 
 **Manual checks (if no CLI):**
 - Inspect the regenerated golden snapshot diff: ONLY `blip` events may have gained `cls`/`heading`/`speed`; every other channel byte-identical.
+
+## Auto Run Result
+
+Status: done. Cycle 41 → VERSION 0.17.41.
+
+**What shipped.** A radar paint stopped being an anonymous dot. `BlipEvent` now carries
+`cls`/`heading`/`speed` (PROTOCOL_VERSION 19 → 20), and the client draws each paint as the ship's
+TRUE-SCALE hull silhouette at its true position and heading — the same shared `hullSilhouette()`
+polygon the hull renderer and the server hit-tests use — in a 1px non-scaling hairline, tinted with
+the owner's algorithmically luminance-floored personal hue, with an ARPA-style arrowhead vector whose
+length is proportional to speed. Paints persist three sweeps (live + 2 ghosts, capped per contact),
+so a contact leaves a plottable track and ghost SPACING encodes speed the way it does on a real
+scope. Drones paint their legacy chevron at true size; the decoy buoy paints a stationary Mine Layer.
+
+**Files changed.**
+- `shared/src/types.ts` — `BlipEvent` + the anti-cheat rationale for why heading/speed are not range-derivable.
+- `shared/src/index.ts` — PROTOCOL_VERSION 20 with its changelog entry.
+- `server/src/game/world.ts` — `Decoy` gains frozen `hullId`/`heading`, snapshotted at drop.
+- `server/src/game/signals.ts` — one `blipShape()` emits the widened payload for both the genuine and the decoy path.
+- `server/src/game/perception.ts` — comment only: pins why the new fields stay OUT of `blipOrder`'s sort key.
+- `client/src/render/blipMarks.ts` (new) — pure speed-vector geometry + the algorithmic WCAG luminance floor.
+- `client/src/render/radar.ts` — tracks keyed by id, 3-per-contact cap, silhouette + vector drawing.
+- `client/src/render/phosphor.ts` — 3-sweep life, hue-preserving `blipCool` (assist-aware floor).
+- `client/src/util/pool.ts` — `capOldestByKey`.
+- `client/src/config.ts`, `client/vite.config.ts`, `vitest.config.ts`, `vite-env.d.ts` — tunables + the `__BLIP_VARIANT_P__` build define.
+- `client/src/main.ts` — injects the roster hue resolver into `Radar`.
+- Tests: `signals`/`decoy`/`perception`/`denials`/`spectator`/`barrel` updated for the 8-field shape and PV 20, golden snapshot regenerated, new `blipMarks.test.ts`, extended `phosphor.test.ts` + `pool.test.ts`.
+
+**Review findings.** 0 intent_gap, 0 bad_spec, 5 patches applied (1 medium, 4 low), 3 deferred, 2
+rejected. Detail in the Review Triage Log above. The one behavioral defect was the colorblind
+assist's luminance floor being undone by the cooling ramp; it now has a regression test proven RED
+without the fix. Codex's sole finding (fix-first, pooled `Graphics` stale visual state) was
+adjudicated against on a trace of the ticker priority ordering, with the hardening taken anyway.
+
+**Verification.** `npm run check` exit 0 — lint (0 errors, 2 pre-existing `max-lines-per-function`
+warnings), type-check clean across all three workspaces, and 400 shared / 835 server / 1420 client =
+**2655 tests** green, up from the 2624 baseline. Golden-snapshot diff hand-inspected: exactly four
+blip lines gained the three fields, every other channel byte-identical. The Variant P define was
+proven to reach the emitted bundle (different bundle hash, name absent from the default build).
+
+**Residual risks.**
+1. **Visual density is unmeasured.** Three true-scale outlines per contact is materially more ink
+   than three dots, and no live playtest has happened. This is the epic guardrail Story 4.8's
+   readability gate exists to arbitrate, and it is the single most likely thing to want tuning
+   (`persistSweeps`, `paintsPerContact`, and the cooling ramp are all CONFIG knobs).
+2. **Render cost is reasoned, not profiled.** Outline-only Graphics with geometry built at acquire
+   rather than per frame, bounded at 128 — but no frame-budget measurement was taken on the
+   reference device, which the epic asks for as effects land.
+3. **The decoy is knowingly weaker.** With persistence, a stationary buoy's stacked paints unmask it
+   in roughly two sweeps (~8s). Eric accepted this explicitly; it is realistic, and it converts decoy
+   counterplay from "impossible" to "a skill", but it is a real nerf to Story 1.8 worth watching.
+4. **`radar.ts` remains the untested Pixi adapter** by house convention — the new pure math is well
+   covered, but the drawing path itself is verified by inspection, not by test.

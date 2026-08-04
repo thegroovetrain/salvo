@@ -59,10 +59,13 @@ export type { HueFor };
  * throttled/paused) can otherwise accumulate blips faster than they age out,
  * growing the pool unbounded. Oldest-inserted is evicted first.
  *
- * Sized for the worst legitimate case under 3-sweep persistence: 19 other ships
- * plus 19 decoy buoys, each holding a full 3-paint track ≈ 114. Rounded up to
- * 128 so the backstop stays what it is — a backstop, never the thing that trims
- * a legitimate scope (the per-contact cap does that).
+ * Sized for the worst legitimate case under 3-sweep persistence. Note the
+ * per-contact cap keys on blip `id`, and a decoy buoy paints under its OWNER's
+ * ship id (amendment 11) — so a hull and its own buoy SHARE one 3-paint budget
+ * rather than holding two. The true ceiling is therefore 19 distinct ids × 3 =
+ * 57, not the 114 a per-source reading would suggest. 128 keeps the backstop
+ * comfortably above that: it stays a backstop, never the thing that trims a
+ * legitimate scope (the per-contact cap does that).
  */
 const MAX_LIVE_BLIPS = 128;
 const RING_SIGHT_COLOR = CLIENT_CONFIG.colors.phosphor; // sight ring — HUD chart chrome
@@ -180,6 +183,14 @@ export class Radar {
     const gfx = this.pool.acquire();
     gfx.position.set(e.x, e.y);
     gfx.visible = true;
+    // A pooled Graphics carries the alpha/tint its PREVIOUS life decayed to.
+    // `updateBlips` overwrites both before the stage draws (our render callback
+    // runs at ticker priority NORMAL, Pixi's own render at LOW), so this is not
+    // reachable today — but resetting here makes "a fresh paint is fresh" a
+    // local invariant of acquire instead of a silent dependency on that
+    // ordering, which nothing else in this file would notice breaking.
+    gfx.alpha = 1;
+    gfx.tint = CLIENT_CONFIG.colors.white; // the un-cooled multiplier
     const { color, colored, rev } = resolveHue(e.id, this.hueFor);
     const b: LiveBlip = {
       gfx,
@@ -217,7 +228,13 @@ export class Radar {
   private drawBlip(b: LiveBlip, color: number): void {
     const g = b.gfx;
     g.clear();
-    const local = hullSilhouette(b.cls);
+    // `hullSilhouette` is a plain record lookup and returns undefined for an
+    // id outside the registry, which would throw one frame later inside a
+    // Colyseus message handler and take blip ingest down for the session. A
+    // conforming server can't send one (the PV-20 gate gives both sides the
+    // same HullId union), so this is purely a fail-soft on the ingest path:
+    // draw SOMETHING readable rather than lose the scope.
+    const local = hullSilhouette(b.cls) ?? hullSilhouette('torpedoBoat');
     tracePolygon(g, transformPolygon(local, 0, 0, b.heading, this.scratch));
     const mark = this.speedMark(local, b.heading, b.speed);
     if (mark !== null) traceVector(g, mark);
@@ -264,7 +281,11 @@ export class Radar {
     const life = blipLifeMs(this.sweepPeriodMs);
     // Colorblind assist raises the minimum decayed-blip opacity (amendment 18):
     // a cooling contact stays readable instead of dimming into the fog.
-    const floor = this.assist ? CLIENT_CONFIG.blip.assistMinAlpha : CLIENT_CONFIG.blip.minAlpha;
+    const assist = this.assist;
+    const floor = assist ? CLIENT_CONFIG.blip.assistMinAlpha : CLIENT_CONFIG.blip.minAlpha;
+    // The assist cools on a shallower ramp so the luminance floor baked into
+    // the stroke color survives the paint's whole life (see config comment).
+    const cool = assist ? CLIENT_CONFIG.blip.assistCoolFloor : CLIENT_CONFIG.blip.coolFloor;
     for (let i = this.blips.length - 1; i >= 0; i--) {
       const b = this.blips[i];
       const age = serverNow - b.t;
@@ -276,7 +297,7 @@ export class Radar {
       }
       b.gfx.alpha = alpha;
       // Greyscale multiplier — hue-preserving, so the owner's color survives.
-      b.gfx.tint = blipCool(age, life);
+      b.gfx.tint = blipCool(age, life, cool);
       retryHue(b.hue, this.hueFor, (color) => this.drawBlip(b, color));
     }
   }

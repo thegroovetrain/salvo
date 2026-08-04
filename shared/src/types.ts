@@ -273,7 +273,15 @@ export interface Contact {
  * shell, where remaining-flight × known speed recovers the muzzle). Only the
  * raw `state.speed` scalar rides here — NEVER a derived speed cap, max-speed
  * fraction, or boost flag, which would leak build state (the OwnShip
- * boostUntil/boons self-private law). A decoy buoy's paint carries its FROZEN
+ * boostUntil/boons self-private law). Note the honest limit of that rule: base
+ * class envelopes are public CONFIG, so a paint reporting speed above a class's
+ * base maxSpeed still IMPLIES an engine boon or an active boost. That inference
+ * is inherent to disclosing speed at all (FR14) and is not new — `Contact`
+ * already discloses raw speed at sight range; 4.2 extends an accepted
+ * disclosure outward to radar range rather than opening a new class of leak.
+ * What the rule buys is that the wire never states build state OUTRIGHT, so a
+ * stock hull at flank is indistinguishable from a boosted one at the same
+ * speed. A decoy buoy's paint carries its FROZEN
  * drop-time cls/heading with speed exactly 0 (a radar reflector reports true
  * stationary values) through the same shaper — field-for-field identical.
  * KEY ORDER: the three fields are APPENDED after `t` (msgpack key-insertion

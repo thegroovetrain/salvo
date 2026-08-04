@@ -1052,6 +1052,15 @@ export const CLIENT_CONFIG = {
      *  carried onto the outline grammar). The old hard OUTLINE RING is retired
      *  with the soft dot that needed it: every blip is now a hard outline. */
     assistLumaFloor: 0.45,
+    /** The assist's raised COOLING floor. Review catch: the luminance floor is
+     *  baked into the stroke color ONCE at draw, but `blipCool` then multiplies
+     *  every channel down to `coolFloor` — which drags a lifted cobalt/azure
+     *  ghost back to roughly a quarter of its floor in linear light, BELOW even
+     *  the base floor, for the last ~70% of its 12s life. That silently undid
+     *  the assist for exactly the hues it exists to rescue. Cooling still runs
+     *  for the assist (the fresh-vs-ghost read matters just as much there), but
+     *  on a much shallower ramp so the floor survives the whole paint. */
+    assistCoolFloor: 0.85,
     /** ARPA speed-vector geometry (amendment 10), world units — see
      *  render/blipMarks.speedVector. */
     vector: {
