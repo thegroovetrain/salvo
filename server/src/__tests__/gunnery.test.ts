@@ -186,6 +186,36 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
     expect(acc.sp).toHaveLength(0); // exactly one of hc/sp, never both
   });
 
+  it('A DAMAGELESS FLARE bursting OVER a hull emits sp and NEVER hc (do not "fix" this — it would mint a detection channel)', () => {
+    // Cross-model review (Codex) called this a bug: the burst geometrically
+    // contained a hull, so surely it "connected"? No. A star shell damages
+    // nothing, so a Hit Call would be a lie — and it would answer "is a hull
+    // within burstRadius of this point?" for a flare lobbed blind into fog,
+    // bypassing the lit zone + LOS that is the flare's ONE sanctioned way to
+    // reveal a ship. The flare reports where it FELL; the zone it lights is
+    // what finds people. This test exists so the next reader who spots the
+    // `damage > 0` gate in resolveBurst does not helpfully open that hole.
+    const w = bareWorld();
+    place(w, 'a', 0, -900); // the shooter, nowhere near the burst
+    place(w, 'b', 300, 0); // a hull sitting directly under the flare's burst point
+    injectShell(w, {
+      id: 'flare',
+      ownerId: 'a',
+      x: 280,
+      y: 0,
+      damage: 0, // the damageless star shell (amendment 39)
+      contactDamage: 0,
+      targetX: 300,
+      targetY: 0,
+      burstRadius: 60, // b is well inside it
+    });
+    const acc = stepCollect(w, 10, (evs) => ofKind(evs, 'burst').length > 0);
+    expect(acc.sp).toHaveLength(1); // fall of shot: where the flare fell
+    expect(acc.sp[0].id).toBe('a');
+    expect(acc.hc).toHaveLength(0); // it connected with NOTHING
+    expect(w.ships.get('b')!.hp).toBe(w.ships.get('b')!.stats.maxHp); // and hurt nothing
+  });
+
   it("an early interception (hitShip) is a victim RESOLUTION: hc at the impact point", () => {
     const w = bareWorld();
     place(w, 'a', 0, -900); // shooter far away; the shell is injected mid-flight

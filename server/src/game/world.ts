@@ -1829,6 +1829,16 @@ export class World {
     // resolved ≥1 hull is a Hit Call at the burst point; one that resolved
     // none is fall of shot (a decoy buoy is not a collision subject, so a
     // shot centered on one lands HERE, in the splash branch, by construction).
+    //
+    // A DAMAGELESS FLARE BURSTING OVER A HULL EMITS `sp`, NEVER `hc` — and that
+    // is deliberate, not an oversight in the `damage > 0` gate above. DO NOT
+    // "fix" it by counting geometric victims for zero-damage shells: a star
+    // shell cannot connect with anything (it damages nothing), so a Hit Call
+    // there would be a lie — and worse, it would mint an unsanctioned detection
+    // channel. A flare lobbed into fog would answer "is a hull within
+    // burstRadius of this point?" directly, bypassing the lit zone + LOS that
+    // is the flare's ONE sanctioned way to reveal a ship. The flare reports
+    // where it fell; the zone it lights is what finds people.
     if (resolved > 0) this.emitHitCall(shell.ownerId, at.x, at.y);
     else this.emitSplash(shell, at.x, at.y);
     this.detonateMinesInBurst(shell, at, hulls);
@@ -2213,13 +2223,23 @@ export class World {
    * + cannon + star shells and excludes 'torp' exactly — torpedoes are the
    * ratified quiet weapon, and no per-weapon flash table exists for a weapon
    * identity to leak through. Mines and decoys never call spawnBallistic at
-   * all. The per-tick per-owner dedupe collapses a multi-barrel salvo's N
-   * shells into exactly ONE flash. The event carries position ONLY — no
-   * shooter id for anyone, including the shooter (amendment 19).
+   * all. The event carries position ONLY — no shooter id for anyone, including
+   * the shooter (amendment 19).
+   *
+   * THE DEDUPE IS PER TICK PER OWNER, NOT PER SALVO — say it precisely, because
+   * the two differ. Its headline job is collapsing a multi-barrel salvo's N
+   * shells into ONE flash (per-shell flashes would leak the barrel count, a
+   * build tell the wire deliberately does not carry). But it ALSO collapses two
+   * SEPARATE gun-family launches by the same ship in one 50ms tick — a gun
+   * click and a star-shell click coalesced by `tickIntents` — into a single
+   * flash. That is intended and costs nothing: both muzzles are on the same
+   * hull at the same tick, so the second flash would draw on top of the first,
+   * and emitting two would tell an observer the ship fired twice, which is a
+   * weapon-activity tell amendment 19 keeps off this row.
    */
   private emitMuzzleFlash(shell: ShellState): void {
     if (shell.kind !== 'shell') return; // gun family only — the wire kind IS the predicate
-    if (this.mzOwnersThisTick.has(shell.ownerId)) return; // one flash per salvo
+    if (this.mzOwnersThisTick.has(shell.ownerId)) return; // per tick per owner (see above)
     this.mzOwnersThisTick.add(shell.ownerId);
     this.pending.push({ k: 'mz', x: shell.x, y: shell.y });
   }
