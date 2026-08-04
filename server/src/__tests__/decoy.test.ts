@@ -47,9 +47,13 @@ function windowAround(me: ShipRecord, brg: number, halfWidth = 0.02): void {
   me.sweepAngle = wrapPositive(brg + halfWidth);
 }
 
-/** Drop a decoy buoy directly into world state (perception-facing cases). */
+/** Drop a decoy buoy directly into world state (perception-facing cases).
+ *  Mirrors spawnDecoy's drop-time snapshot (Story 4.2): the owner's hull id
+ *  and heading frozen onto the record — falling back to mineLayer/0 when the
+ *  owner has no ship in the world (a buoy legitimately outlives its owner). */
 function injectDecoy(w: World, id: string, ownerId: string, x: number, y: number, until = 999_999): void {
-  w.decoys.set(id, { id, ownerId, x, y, until });
+  const owner = w.ships.get(ownerId);
+  w.decoys.set(id, { id, ownerId, x, y, hullId: owner?.hullId ?? 'mineLayer', heading: owner?.state.heading ?? 0, until });
 }
 
 const blipsOf = (f: FrameMsg): BlipEvent[] => f.events.filter((e): e is BlipEvent => e.k === 'blip');
@@ -172,12 +176,12 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
     return { w, b };
   }
 
-  it('paints in the annulus when swept: {k:blip, id: OWNER ship id, x,y = the BUOY, t: now}', () => {
+  it('paints in the annulus when swept: {k:blip, id: OWNER ship id, x,y = the BUOY, t: now, frozen cls/heading, speed 0}', () => {
     const { w, b } = observed();
     injectDecoy(w, 'd1', 'a', 400, 0);
     windowAround(b, 0);
     const blips = blipsOf(buildFrame(w, 'b'));
-    expect(blips).toEqual([{ k: 'blip', id: 'a', x: 400, y: 0, t: w.now }]);
+    expect(blips).toEqual([{ k: 'blip', id: 'a', x: 400, y: 0, t: w.now, cls: 'mineLayer', heading: 0, speed: 0 }]);
   });
 
   it('does not paint outside the beam window (the swept-this-tick gate)', () => {
@@ -250,8 +254,12 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
       expect(typeof lie[key]).toBe(typeof real[key]);
     }
     expect(lie.t).toBe(real.t); // stamped by the same tick clock
-    // Serialized forms differ ONLY in id/position values — never in shape.
-    expect(JSON.stringify(lie)).toBe(JSON.stringify({ k: 'blip', id: 'a', x: 0, y: 400, t: w.now }));
+    // Serialized forms differ ONLY in values — never in shape. The lie's pose
+    // is the FROZEN drop-time snapshot at speed 0 (Story 4.2): plausible
+    // stationary values, unmaskable only by watching the paint fail to move.
+    expect(JSON.stringify(lie)).toBe(
+      JSON.stringify({ k: 'blip', id: 'a', x: 0, y: 400, t: w.now, cls: 'mineLayer', heading: 0, speed: 0 }),
+    );
   });
 
   it('COEXISTENCE GUARD (FR10): no decoy blip while the OWNER is a contact — contact(a) + blip(a) never share a frame', () => {
@@ -268,7 +276,7 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
     windowAround(b, 0);
     const f2 = buildFrame(w, 'b');
     expect(f2.contacts).toEqual([]);
-    expect(blipsOf(f2)).toEqual([{ k: 'blip', id: 'a', x: 400, y: 0, t: w.now }]);
+    expect(blipsOf(f2)).toEqual([{ k: 'blip', id: 'a', x: 400, y: 0, t: w.now, cls: 'mineLayer', heading: 0, speed: 0 }]);
   });
 
   it("COEXISTENCE GUARD zone tier: an observer whose OWN zone covers the owner's hull gets no decoy blip", () => {
@@ -292,10 +300,28 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
     b.sweepAngle = Math.PI / 2 + 0.05;
     const blips = blipsOf(buildFrame(w, 'b'));
     // Both paint, same id — and the DECOY (x=0) precedes the REAL hull (x=400)
-    // because the order is the public payload key, not genuine-first.
+    // because the order is the public payload key, not genuine-first. (The 4.2
+    // pose fields are NOT in the sort key — a speed-0-first order would be a
+    // sort-position de-anonymizer.)
     expect(blips).toEqual([
-      { k: 'blip', id: 'a', x: 0, y: 400, t: w.now },
-      { k: 'blip', id: 'a', x: a.state.x, y: a.state.y, t: w.now },
+      { k: 'blip', id: 'a', x: 0, y: 400, t: w.now, cls: 'mineLayer', heading: 0, speed: 0 },
+      { k: 'blip', id: 'a', x: a.state.x, y: a.state.y, t: w.now, cls: 'mineLayer', heading: a.state.heading, speed: a.state.speed },
+    ]);
+  });
+
+  it('OUTLIVES ITS OWNER: the frozen drop-time snapshot keeps painting after the owner leaves the world (no live lookup)', () => {
+    const w = bareWorld(45);
+    place(w, 'a', 0, 0, 1.2, 'mineLayer');
+    press(w, 'a', 1, SLOT_DECOY);
+    w.step(); // the REAL drop path: hullId/heading snapshotted onto the record here
+    const buoy = [...w.decoys.values()][0];
+    expect(buoy.hullId).toBe('mineLayer');
+    expect(buoy.heading).toBeCloseTo(1.2, 6); // the drop-time heading (kinematics FP-wraps the last ulp)
+    w.removeShip('a'); // the owner is GONE — a ships.get(ownerId) read would find nothing
+    const b = place(w, 'b', buoy.x - 400, buoy.y); // buoy in b's annulus at bearing 0
+    windowAround(b, 0);
+    expect(blipsOf(buildFrame(w, 'b'))).toEqual([
+      { k: 'blip', id: 'a', x: buoy.x, y: buoy.y, t: w.now, cls: 'mineLayer', heading: buoy.heading, speed: 0 },
     ]);
   });
 

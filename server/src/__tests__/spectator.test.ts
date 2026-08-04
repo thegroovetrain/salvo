@@ -133,7 +133,7 @@ describe('spectator frames — dead observer in the active phase', () => {
 
   it('carries every decoy buoy (the truth — a spectator is never lied to, so no blips either)', () => {
     const w = deadObserverWorld();
-    w.decoys.set('d1', { id: 'd1', ownerId: 'b', x: 700, y: -700, until: 42_000 });
+    w.decoys.set('d1', { id: 'd1', ownerId: 'b', x: 700, y: -700, hullId: 'mineLayer', heading: 0, until: 42_000 });
     const f = buildFrame(w, 'a', 'active');
     // DecoyView carries the decoy's own id; own:false — spectator 'a' does not own 'b's buoy.
     expect(f.decoys).toEqual([{ id: 'd1', x: 700, y: -700, until: 42_000, own: false, by: 'b' }]);
