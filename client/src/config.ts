@@ -431,8 +431,10 @@ export const CLIENT_CONFIG = {
       contactCount: 5,
       /** Contact drift speed, in fractions of min(viewport) per second. */
       contactDriftFrac: 0.012,
-      /** Painted blip diameter (px) — the in-game blip sprite (bakeBlipTexture)
-       *  scaled to roughly its in-game on-screen size (BLIP_DIAMETER_U at ~1×). */
+      /** Painted blip diameter (px) — the soft dot (bakeBlipTexture) at roughly
+       *  the on-screen size the in-game blip used to have. The menu scope keeps
+       *  the dot deliberately: its drifting contacts have no owner and no class,
+       *  so the Story 4.2 silhouette grammar has nothing to say about them. */
       blipDiameterPx: 16,
       /** Faint island masses scattered in the picture (count + fill/stroke alpha,
        *  mock: fill .5, stroke .34). Radii range in px @ reference height. */
@@ -1002,17 +1004,79 @@ export const CLIENT_CONFIG = {
     burnShakeScale: 0.35,
   },
 
-  /** Radar blip render knobs (Story 2.3 adds the colorblind-assist channel). */
+  /**
+   * Radar blip render knobs. Story 2.3 added the colorblind-assist channel;
+   * Story 4.2 (FR14, amendments 7-13) replaced the soft dot with the ship's
+   * TRUE-SCALE hull silhouette — so every size knob here is gone: the blip's
+   * footprint IS the hull footprint, straight off the shared
+   * `hullSilhouette()` polygon, and no blip-specific geometry exists anywhere.
+   * What remains is persistence, the speed vector, and legibility.
+   */
   blip: {
-    /** Stroke width (px, in the baked 64px blip texture) of the assist OUTLINE
-     *  ring — absent (0) unless colorblind assist is on. */
-    outlineWidthPx: 4,
+    /** How many SWEEP PERIODS a paint lives (amendment 9): the live paint plus
+     *  `persistSweeps − 1` decaying ghosts. Long-persistence phosphor is how
+     *  course and speed are actually plotted off a scope — and ghost SPACING
+     *  encodes speed for free (a fast hull's ghosts sit nose-to-tail, a
+     *  loitering hull's overlap into a blob). ~12s of track at 15rpm. */
+    persistSweeps: 3,
+    /** Live paints retained per CONTACT id. The 4th paint of an id releases
+     *  that id's oldest, so a busy contact can never crowd the scope: the cap
+     *  is per-track, not just the global backstop. Matches persistSweeps —
+     *  one sweep, one paint — but is a separate knob because the two answer
+     *  different questions (how long a track lives vs how long it is). */
+    paintsPerContact: 3,
     /** Minimum alpha a decayed blip may reach while it is still alive. 0 is the
-     *  base behavior (linear fade to nothing over one sweep); the assist raises
-     *  the floor so a cooling blip never fades to near-invisible. */
+     *  base behavior (linear fade to nothing over the full life); the assist
+     *  raises the floor so a cooling blip never fades to near-invisible. */
     minAlpha: 0,
     /** The assist's raised minimum decayed-blip alpha. */
     assistMinAlpha: 0.35,
+    /** Neutral-grey multiplier a paint COOLS to (1 = fresh/white). The tint is
+     *  greyscale on purpose: the blip's COLOR is now an information channel
+     *  (owner hue / drone grey), so the shipped bright→dark phosphor ramp had
+     *  to become a hue-PRESERVING dim or it would have erased the very hue
+     *  Story 4.2 adds. A fresh paint still pops hotter than a 1s-old one,
+     *  which a 12s linear alpha ramp alone could never deliver. */
+    coolFloor: 0.55,
+    /** WCAG relative-luminance floor a blip's hue is lifted to (amendment 13,
+     *  render/blipMarks.luminanceFloor — ALGORITHMIC, no per-hue table). A 1px
+     *  hairline carries far less light than the hull view's 1.5px stroke over a
+     *  solid fill, so the dark end of the wheel (cobalt ~0.19 at full value,
+     *  azure, mulberry, lagoon) would sink into the fogged ocean unlifted. The
+     *  bright half of the wheel is already above this and returns untouched. */
+    lumaFloor: 0.3,
+    /** The colorblind assist's raised luminance floor. `pixelLine` strokes are
+     *  exactly 1 screen px by construction and IGNORE width, so the assist
+     *  cannot thicken an outline — it boosts it in the only two channels a
+     *  hairline has: this floor and `assistMinAlpha` (amendment 18's intent,
+     *  carried onto the outline grammar). The old hard OUTLINE RING is retired
+     *  with the soft dot that needed it: every blip is now a hard outline. */
+    assistLumaFloor: 0.45,
+    /** ARPA speed-vector geometry (amendment 10), world units — see
+     *  render/blipMarks.speedVector. */
+    vector: {
+      /** Seconds of travel the shaft represents: the tip IS where the contact
+       *  will be in this long, which is the ARPA convention and makes the mark
+       *  a deduction input rather than decoration. A 35 u/s battleship gets
+       *  ~105u — a bit under one hull length. */
+      seconds: 3,
+      /** Shortest drawable shaft — a crawling contact still shows a course. */
+      minLength: 24,
+      /** Longest drawable shaft. Above the fastest hull's 3s of travel (45 u/s
+       *  → 135u) plus upgrade headroom, so the clamp bites only on absurd
+       *  speeds and never lets linework overwhelm the silhouette. */
+      maxLength: 150,
+      /** At or below this speed (u/s) NO vector is drawn — a stationary return
+       *  has no course, and drawing the min-length stub for a decoy buoy
+       *  (`speed` exactly 0) would have the RENDER invent the lie the wire
+       *  deliberately refused to tell (amendment 11). */
+      deadSpeed: 0.5,
+      /** Arrowhead barb length. The terminal is what keeps the vector from
+       *  sharing line grammar with a rotated hull outline (DESIGN.md). */
+      barbLength: 9,
+      /** Arrowhead half-angle (rad) between a barb and the shaft (~26°). */
+      barbAngle: 0.45,
+    },
   },
 
   /** Netcode render delays (ms behind estimated server time). */
@@ -1023,3 +1087,20 @@ export const CLIENT_CONFIG = {
     ownDelayMs: 50,
   },
 } as const;
+
+/**
+ * VARIANT P (Story 4.2, amendment 13): the phosphor-ANONYMOUS blip scope. When
+ * true, every radar paint is drawn in the single phosphor green and NO personal
+ * hue reaches the scope — the class silhouette and the speed vector still carry
+ * their information, but who owns a return does not. Default is Variant C (the
+ * ratified personal-hue grammar); this exists so the two can be compared on
+ * water without a code edit.
+ *
+ * A BUILD-TIME define (vite.config.ts / vitest.config.ts, the `__APP_VERSION__`
+ * precedent) rather than a runtime setting, deliberately: a variant the player
+ * can flip mid-match is a different feature (an accessibility toggle), and this
+ * is a design A/B. The `typeof` guard keeps any consumer that loads this module
+ * outside a Vite pipeline from throwing on the undeclared global.
+ */
+export const BLIP_VARIANT_P: boolean =
+  typeof __BLIP_VARIANT_P__ === 'undefined' ? false : __BLIP_VARIANT_P__;

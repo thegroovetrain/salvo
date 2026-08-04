@@ -1374,7 +1374,11 @@ function buildGame(
     decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, (d) => onOwnDecoy(gRef, audio, d)),
     litZones: new LitZones(stage.layers.litZone),
     fog: new Fog(stage.fogSprite),
-    radar: new Radar(stage.layers.blip, stage.layers.sweep),
+    // Story 4.2: a blip flies its owner's personal hue, so the radar needs the
+    // SAME roster resolution the kill feed uses — bright hue for a human, drone
+    // grey for the sentinel (255), null on a roster miss so the paint boots
+    // amber and repaints when the hue lands (render/hueLatch.ts).
+    radar: new Radar(stage.layers.blip, stage.layers.sweep, (id) => (gRef ? feedColor(gRef, id) : null)),
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
     hotbar: new Hotbar(stage.layers.hud),

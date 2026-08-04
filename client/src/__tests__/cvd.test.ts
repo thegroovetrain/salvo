@@ -2,13 +2,15 @@
 // the eight drafted families must be pairwise distinguishable under a simulated
 // deuteranopia at blip scale, must avoid the reserved functional bands, and must
 // stay legible against the void. Plus the remap chokepoint itself (render/
-// ships.ts) and the two blip-legibility levers (outline + opacity floor).
+// ships.ts) and the two blip-legibility levers (opacity floor + luminance
+// floor — Story 4.2 replaced the old assist outline RING lever, see below).
 
 import { describe, it, expect } from 'vitest';
 import { CLIENT_CONFIG } from '../config.js';
 import { hueAngle, hueSeparation, labDistance, simulateDeuteranopia } from '../util/cvd.js';
 import { contrastRatio } from '../util/color.js';
 import { blipAlpha } from '../render/phosphor.js';
+import { luminanceFloor, relativeLuminance } from '../render/blipMarks.js';
 import {
   PLAYER_FILLS,
   PLAYER_HUES,
@@ -132,12 +134,23 @@ describe('blip legibility levers', () => {
     expect(blipAlpha(900, 1000)).toBeCloseTo(0.1, 9); // base: nearly gone
     expect(blipAlpha(900, 1000, floor)).toBe(floor); // assist: still readable
     expect(blipAlpha(0, 1000, floor)).toBe(1); // a fresh paint is unaffected
-    expect(blipAlpha(1000, 1000, floor)).toBe(0); // ...and it still DIES at one period
+    expect(blipAlpha(1000, 1000, floor)).toBe(0); // ...and it still DIES at its full life
     expect(blipAlpha(5000, 1000, floor)).toBe(0);
   });
 
-  it('the assist blip outline is a real stroke width', () => {
-    expect(CLIENT_CONFIG.blip.outlineWidthPx).toBeGreaterThan(0);
+  // Story 4.2 retired the assist's hard OUTLINE RING with the soft dot it
+  // existed for: every blip is now a 1px `pixelLine` hull outline, and
+  // `pixelLine` IGNORES stroke width, so the assist cannot thicken it. Amendment
+  // 18's "boost the outline" intent moved to the two channels a hairline has —
+  // the decayed-alpha floor above, and the hue LUMINANCE floor here.
+  it('the assist raises the blip hue LUMINANCE floor above the base grammar', () => {
+    expect(CLIENT_CONFIG.blip.assistLumaFloor).toBeGreaterThan(CLIENT_CONFIG.blip.lumaFloor);
+    // Every assist family clears the raised floor once lifted (the lift is
+    // algorithmic, so this holds for any future family without a table edit).
+    for (const hue of Object.values(CLIENT_CONFIG.colors.cvd)) {
+      const lifted = luminanceFloor(hue, CLIENT_CONFIG.blip.assistLumaFloor);
+      expect(relativeLuminance(lifted)).toBeGreaterThanOrEqual(CLIENT_CONFIG.blip.assistLumaFloor - 1e-6);
+    }
   });
 });
 

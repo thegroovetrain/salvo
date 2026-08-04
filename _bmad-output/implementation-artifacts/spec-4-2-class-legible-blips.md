@@ -94,19 +94,19 @@ an ARPA-style arrowhead vector whose length is proportional to speed. Paints per
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/types.ts` -- append `cls: HullId`, `heading: number`, `speed: number` to `BlipEvent` with an anti-cheat comment noting these are not range-derivable -- FR14 wire shape.
-- [ ] `shared/src/index.ts` -- bump `PROTOCOL_VERSION` to 20 -- wire-breaking change.
-- [ ] `server/src/game/world.ts` -- add frozen `hullId` + `heading` to the `Decoy` record, snapshotted from the owner at drop -- lets the buoy paint without a live owner lookup (survives owner death).
-- [ ] `server/src/game/signals.ts` -- extend `blipShape()` to take hull id + pose and emit the three new fields last; pass the ship's live values on the genuine path and the buoy's frozen snapshot (speed 0) on `counterIntel` -- one shaper, identical payload.
-- [ ] `client/src/render/blipMarks.ts` (new) -- PURE geometry: the arrowhead-vector polyline for a (heading, speed) pair, and the algorithmic per-hue luminance floor -- unit-testable, zero Pixi.
-- [ ] `client/src/render/radar.ts` -- key live blips by `id`, cap each contact's track at 3 (TTL-based), raise the global cap, and draw each paint as a `Graphics` tracing `hullSilhouette(cls)` at true world scale, rotated to heading, stroked `{width:1, pixelLine:true}` in the floored hue, plus the speed vector -- the story's render change.
-- [ ] `client/src/render/phosphor.ts` -- extend blip life to `CLIENT_CONFIG.blip.persistSweeps` periods and re-document the decay contract -- 3-paint persistence.
-- [ ] `client/src/config.ts` -- add `persistSweeps`, `ghostsPerContact`, vector length knobs, and the luminance-floor target -- tunables in the client-only home.
-- [ ] `client/vite.config.ts` + `client/src/config.ts` -- `__BLIP_VARIANT_P__` build define, default false -- Variant P phosphor-anonymous swap.
-- [ ] `server/src/__tests__/signals.test.ts`, `decoy.test.ts`, `perception.test.ts` -- update the blip key-order, `counterIntel` `toEqual`, and WIRE-INDISTINGUISHABILITY assertions for the 8-field shape; ADD a decoy-outlives-owner case -- the counter-intel law re-pinned.
-- [ ] `server/src/__tests__/__snapshots__/goldenFrames.test.ts.snap` -- regenerate (`vitest -u` in `server/`) and hand-inspect that ONLY blip events gained fields -- golden-frame discipline.
-- [ ] `shared/src/__tests__/barrel.test.ts`, `server/src/__tests__/denials.test.ts` -- update the pinned PROTOCOL_VERSION literals to 20 -- the bump's tripwires.
-- [ ] `client/src/__tests__/blipMarks.test.ts` (new) + `phosphor.test.ts` -- cover the vector geometry, the luminance floor across all 20 hues + 8 CVD families, and the 3-sweep decay -- new pure surface.
+- [x] `shared/src/types.ts` -- append `cls: HullId`, `heading: number`, `speed: number` to `BlipEvent` with an anti-cheat comment noting these are not range-derivable -- FR14 wire shape.
+- [x] `shared/src/index.ts` -- bump `PROTOCOL_VERSION` to 20 -- wire-breaking change.
+- [x] `server/src/game/world.ts` -- add frozen `hullId` + `heading` to the `Decoy` record, snapshotted from the owner at drop -- lets the buoy paint without a live owner lookup (survives owner death).
+- [x] `server/src/game/signals.ts` -- extend `blipShape()` to take hull id + pose and emit the three new fields last; pass the ship's live values on the genuine path and the buoy's frozen snapshot (speed 0) on `counterIntel` -- one shaper, identical payload.
+- [x] `client/src/render/blipMarks.ts` (new) -- PURE geometry: the arrowhead-vector polyline for a (heading, speed) pair, and the algorithmic per-hue luminance floor -- unit-testable, zero Pixi.
+- [x] `client/src/render/radar.ts` -- key live blips by `id`, cap each contact's track at 3 (TTL-based), raise the global cap, and draw each paint as a `Graphics` tracing `hullSilhouette(cls)` at true world scale, rotated to heading, stroked `{width:1, pixelLine:true}` in the floored hue, plus the speed vector -- the story's render change.
+- [x] `client/src/render/phosphor.ts` -- extend blip life to `CLIENT_CONFIG.blip.persistSweeps` periods and re-document the decay contract -- 3-paint persistence.
+- [x] `client/src/config.ts` -- add `persistSweeps`, `ghostsPerContact`, vector length knobs, and the luminance-floor target -- tunables in the client-only home.
+- [x] `client/vite.config.ts` + `client/src/config.ts` -- `__BLIP_VARIANT_P__` build define, default false -- Variant P phosphor-anonymous swap.
+- [x] `server/src/__tests__/signals.test.ts`, `decoy.test.ts`, `perception.test.ts` -- update the blip key-order, `counterIntel` `toEqual`, and WIRE-INDISTINGUISHABILITY assertions for the 8-field shape; ADD a decoy-outlives-owner case -- the counter-intel law re-pinned.
+- [x] `server/src/__tests__/__snapshots__/goldenFrames.test.ts.snap` -- regenerate (`vitest -u` in `server/`) and hand-inspect that ONLY blip events gained fields -- golden-frame discipline.
+- [x] `shared/src/__tests__/barrel.test.ts`, `server/src/__tests__/denials.test.ts` -- update the pinned PROTOCOL_VERSION literals to 20 -- the bump's tripwires.
+- [x] `client/src/__tests__/blipMarks.test.ts` (new) + `phosphor.test.ts` -- cover the vector geometry, the luminance floor across all 20 hues + 8 CVD families, and the 3-sweep decay -- new pure surface.
 
 **Acceptance Criteria:**
 - Given a swept LOS-clear ship, when a blip is built, then it carries the ship's hull id, heading and signed speed, and the perception invariant fuzz (`perception.test.ts` THE INVARIANT) still passes with the widened payload.

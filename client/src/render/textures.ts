@@ -150,13 +150,14 @@ export const BLIP_TEXTURE_SIZE = 64;
 /**
  * Bake the soft phosphor dot: white radial falloff (tint supplies the color).
  *
- * `outline` (Story 2.3, amendment 18) adds a hard-edged ring inside the soft
- * falloff — the colorblind-assist channel. A soft blob relies entirely on HUE to
- * read against the phosphor field; a crisp ring gives it a SHAPE edge, which
- * survives any color-vision deficiency. Off by default: the assist bakes its own
- * variant and the radar swaps between the two.
+ * ONLY the pre-join ambient scope (render/ambient.ts) paints this now. Story 4.2
+ * replaced the in-game blip with a true-scale hull silhouette (render/radar.ts),
+ * and with it the Story 2.3 `outline` variant — a hard-edged assist ring that
+ * existed to give a soft blob a SHAPE edge. Every in-game blip is a hard outline
+ * already, so the ring has nothing left to add; the assist now boosts the
+ * hairline in the channels it actually has (alpha + luminance floor).
  */
-export function bakeBlipTexture(outline = false): Texture {
+export function bakeBlipTexture(): Texture {
   const size = BLIP_TEXTURE_SIZE;
   const { canvas, ctx } = makeCanvas(size, size);
   const c = size / 2;
@@ -168,13 +169,5 @@ export function bakeBlipTexture(outline = false): Texture {
   ctx.beginPath();
   ctx.arc(c, c, c, 0, Math.PI * 2);
   ctx.fill();
-  if (outline) {
-    const w = CLIENT_CONFIG.blip.outlineWidthPx;
-    ctx.strokeStyle = cssRgba(C.white, 1);
-    ctx.lineWidth = w;
-    ctx.beginPath();
-    ctx.arc(c, c, c * 0.62, 0, Math.PI * 2);
-    ctx.stroke();
-  }
   return Texture.from(canvas);
 }
