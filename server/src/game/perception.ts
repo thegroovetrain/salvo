@@ -215,7 +215,11 @@ function decoyBlips(world: World, ctx: SignalContext): BlipEvent[] {
  * ordering is a pure function of what the observer receives and carries ZERO
  * information about which paints are genuine hulls and which are decoy
  * counter-intel. Appending genuine-then-decoy (source order) would make "first
- * same-id blip = the real ship" a wire-readable de-anonymizer.
+ * same-id blip = the real ship" a wire-readable de-anonymizer. Story 4.2's
+ * cls/heading/speed fields are deliberately NOT in the key: `id` already
+ * breaks every tie, and a field that DIFFERS between a genuine paint and a
+ * decoy paint (speed is 0 on every decoy) would become a sort-position
+ * de-anonymizer the moment it participated in ordering.
  */
 function blipOrder(a: BlipEvent, b: BlipEvent): number {
   if (a.x !== b.x) return a.x - b.x;

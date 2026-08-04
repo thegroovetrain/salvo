@@ -41,6 +41,7 @@ import {
   type DamageEvent,
   type DecoyView,
   type GameEvent,
+  type HullId,
   type LitZoneView,
   type MineView,
   type BoonFitEvent,
@@ -228,11 +229,15 @@ function blipGate(me: ShipRecord, p: Vec2, islands: readonly Circle[], now: numb
 
 /** THE blip wire shaper (one function, two callers — FR10's wire
  *  indistinguishability by construction): KEY ORDER IS LOAD-BEARING
- *  (k,id,x,y,t). A genuine paint passes the ship's id/position; the decoy
- *  counterIntel passes the OWNER'S ship id with the buoy's position — byte-for
- *  -byte the same shape either way. */
-function blipShape(id: string, p: Vec2, now: number): BlipEvent {
-  return { k: 'blip', id, x: p.x, y: p.y, t: now };
+ *  (k,id,x,y,t,cls,heading,speed — Story 4.2 appends the class-legible pose
+ *  AFTER `t`, so the historical prefix stays byte-stable). A genuine paint
+ *  passes the ship's id/position and LIVE pose; the decoy counterIntel passes
+ *  the OWNER'S ship id with the buoy's position and its FROZEN drop-time
+ *  cls/heading at speed 0 (a radar reflector reports true stationary values —
+ *  see the Decoy record's anti-cheat note) — byte-for-byte the same shape
+ *  either way. */
+function blipShape(id: string, p: Vec2, now: number, cls: HullId, heading: number, speed: number): BlipEvent {
+  return { k: 'blip', id, x: p.x, y: p.y, t: now, cls, heading, speed };
 }
 
 // ---------------------------------------------------------------------------
@@ -402,7 +407,9 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     return blipGate(me, target.state, ctx.islands, ctx.now);
   },
   materialize(ctx, target) {
-    return blipShape(target.id, target.state, ctx.now);
+    // Live pose (Story 4.2, FR14): hull id, heading, and the raw signed speed
+    // scalar at paint time — never a derived cap or boost flag (build leak).
+    return blipShape(target.id, target.state, ctx.now, target.hullId, target.state.heading, target.state.speed);
   },
   counterIntel(ctx, decoy) {
     // Spectators are unfogged — they get the truth (the decoy row), never a lie.
@@ -426,8 +433,14 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     if (owner !== undefined && contactSignal.visible(ctx, owner)) return null;
     if (!blipGate(me, decoy, ctx.islands, ctx.now)) return null;
     // The lie: the genuine blip shape with the OWNER's ship id at the buoy's
-    // position. `t` = ctx.now, like every real paint.
-    return blipShape(decoy.ownerId, decoy, ctx.now);
+    // position. `t` = ctx.now, like every real paint. The pose is the buoy's
+    // FROZEN drop-time snapshot at speed 0 (Story 4.2, amendment 11) — TRUE
+    // stationary values, never a live ctx.ships.get(ownerId) kinematics read
+    // (the buoy outlives its owner by up to 30s and must keep painting; a live
+    // read would also leak the fogged owner's course/speed at a false
+    // position). Unmasking the lie is BEHAVIORAL — it never moves — not a
+    // payload difference.
+    return blipShape(decoy.ownerId, decoy, ctx.now, decoy.hullId, decoy.heading, 0);
   },
 };
 

@@ -53,10 +53,10 @@ import {
 
 describe('shared barrel', () => {
   it('exposes the protocol version', () => {
-    // Join window before the countdown: MatchPhase gains 'gathering',
-    // ArenaState.countdownEndT is redefined as the current-phase deadline,
-    // and CONFIG.match.joinWindow rides the welcome config snapshot.
-    expect(PROTOCOL_VERSION).toBe(19);
+    // Class-legible blips (Story 4.2): BlipEvent gains cls/heading/speed,
+    // appended after `t` so the historical {k,id,x,y,t} prefix stays
+    // byte-stable.
+    expect(PROTOCOL_VERSION).toBe(20);
   });
 
   it('re-exports config, wire tags, and functions', () => {

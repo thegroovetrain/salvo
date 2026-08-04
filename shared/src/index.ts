@@ -3,6 +3,12 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  20: class-legible blips (Story 4.2, FR14) — BlipEvent gains `cls` (HullId),
+ *  `heading`, and `speed` (the raw signed scalar), APPENDED after `t` so the
+ *  historical {k,id,x,y,t} prefix stays byte-stable. A genuine paint carries
+ *  the ship's live pose; a decoy buoy's counterIntel paint carries its frozen
+ *  drop-time cls/heading with speed exactly 0 (a radar reflector reports true
+ *  stationary values) — same shaper, field-for-field identical.
  *  19: join window before the countdown — MatchPhase gains 'gathering'
  *  (waiting → gathering at minHumans: the room stays UNLOCKED for
  *  CONFIG.match.joinWindow ms, then the unchanged locked countdown arms).
@@ -123,7 +129,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 19;
+export const PROTOCOL_VERSION = 20;
 
 // Tunables
 export * from './constants.js';
