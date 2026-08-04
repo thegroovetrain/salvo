@@ -129,9 +129,34 @@ describe('HUD denominators react to effective stats', () => {
     expect(equipmentMaxAmmo(effectiveStats(TB), 'gun')).toBe(CONFIG.gun.maxAmmo);
     const turret = statsFor('torpedoBoat', { gunTurret: 1 });
     expect(equipmentMaxAmmo(turret, 'gun')).toBe(CONFIG.gun.maxAmmo + 1);
-    const drilled = statsFor('torpedoBoat', { gunReload: 1 });
-    expect(equipmentReloadMs(drilled, 'gun')).toBeCloseTo(CONFIG.gun.reloadMs * 0.9, 9);
-    expect(equipmentMaxAmmo(drilled, 'torpedo')).toBe(CONFIG.torpedo.maxAmmo); // others untouched
+  });
+
+  // PIN INVERTED (2026-08-04): the seven per-equipment reload lines are gone and
+  // ONE universal `shipCooldown` card scales every cooldown at once. The old
+  // pin proved a gun card left the mines alone; this one proves the opposite —
+  // a single stack has to move ALL SEVEN reloads, or the card is a lie.
+  it('cooldown chips: ONE shipCooldown stack scales every equipment reload at once', () => {
+    const base = effectiveStats(TB);
+    const drilled = statsFor('torpedoBoat', { shipCooldown: 1 });
+    expect(drilled.cooldownScale).toBeCloseTo(0.9, 9);
+    for (const id of ['gun', 'cannon', 'torpedo', 'mine', 'starShells', 'speedBoost', 'decoyBuoy'] as const) {
+      expect(equipmentReloadMs(drilled, id), id).toBeCloseTo(equipmentReloadMs(base, id) * 0.9, 9);
+    }
+    // ...and nothing that is not a cooldown moves with it.
+    expect(equipmentMaxAmmo(drilled, 'mine')).toBe(equipmentMaxAmmo(base, 'mine'));
+    expect(drilled.gun.damage).toBe(base.gun.damage);
+    expect(drilled.kinematics.maxSpeed).toBe(base.kinematics.maxSpeed);
+  });
+
+  // The HUD/hotbar surface reads the SAME scaled numbers the sim does — the
+  // firewall's post-fold multiply is the only place the scale is applied, so a
+  // full 4-stack build lands the ratified 3.0s gun / 30s cannon on the chips.
+  it('a FULL shipCooldown stack lands the ratified 3.0s gun and 30s cannon on the chips', () => {
+    const maxed = statsFor('battleship', { shipCooldown: 4 });
+    expect(Math.round(equipmentReloadMs(maxed, 'gun'))).toBe(3000);
+    expect(Math.round(equipmentReloadMs(maxed, 'cannon'))).toBe(30000);
+    // Additive-linear, never 0.9^4 (which would land 3280/32805).
+    expect(maxed.cooldownScale).toBeCloseTo(0.6, 9);
   });
 
   it('hp bar: the effective maxHp denominator grows with shipHull stacks', () => {

@@ -190,10 +190,10 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 18→19 bump (gathering join window) is enforced at matchmake', () => {
-  it('rejects a pv-18 (previous protocol) client and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(19);
-    expect(protocolVersionError(18)).toMatch(/refresh/);
+describe('pv join gate — the 19→20 bump (global cooldown catalog change) is enforced at matchmake', () => {
+  it('rejects a pv-19 (previous protocol) client and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(20);
+    expect(protocolVersionError(19)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

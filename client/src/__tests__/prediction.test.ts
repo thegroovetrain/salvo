@@ -313,7 +313,7 @@ describe('Predictor stats swap mid-flight (upgrade grant)', () => {
     const ack16 = kin(server); // stale-by-4 server state, as a real frame would be
     expect(p.pendingCount).toBeGreaterThan(0);
 
-    // e.g. a gunReload grant: same kinematics object semantics, snap=false.
+    // e.g. a shipCooldown grant: same kinematics object semantics, snap=false.
     p.setClassConfig({ ...TB.kinematics }, TB_POLY, false);
     expect(p.isInitialized).toBe(true);
     expect(p.pendingCount).toBe(control.pendingCount); // ring survives the grant

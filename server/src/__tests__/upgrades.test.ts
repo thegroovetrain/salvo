@@ -32,6 +32,8 @@ const RADAR = CONFIG.vision.radar;
 const DT = CONFIG.tick.simDtMs;
 const SLOT_GUN = 0;
 const SLOT_TORPEDO = 1;
+/** Battleship fit [gun, cannon, starShells, empty]. */
+const SLOT_CANNON = 1;
 
 function bareWorld(seed = 1, opts?: WorldOptions): World {
   const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
@@ -52,6 +54,12 @@ function place(w: World, id: string, x: number, y: number, heading = 0, hull: Sh
 function windowAround(me: ShipRecord, brg: number, halfWidth = 0.02): void {
   me.prevSweepAngle = brg - halfWidth;
   me.sweepAngle = brg + halfWidth;
+}
+
+/** Park a complete InputMsg carrying ONE click on `slot` (fireSeq doubles as
+ *  seq — a fresh fireSeq is what the world reads as a pending press). */
+function fire(ship: ShipRecord, fireSeq: number, slot: number, aimDist: number, aim = 0): void {
+  ship.input = { seq: fireSeq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot, fireT: 0, actSeq: 0, actSlot: 0 };
 }
 
 /** Stack `count` copies of one catalog line through the real grant seam. */
@@ -77,17 +85,24 @@ const ballisticsOf = (f: FrameMsg) =>
 
 // ---------- deck composition -------------------------------------------------
 
+/** The seven per-equipment reload lines the 2026-08-04 global cooldown ruling
+ *  deleted — no deck, offer, or catalog may ever hold one again. */
+const DEAD_RELOAD_IDS = ['gunReload', 'cannonReload', 'torpedoReload', 'mineReload', 'boostReload', 'starReload', 'decoyReload'];
+
 describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', () => {
   // Per-hull expected line totals against the production catalog: universal
-  // (guns 13 + intel 15 + ship 10 = 38) + carried subdecks + ONE acquisition
-  // card per absent equipment.
+  // (guns 8 + intel 15 + ship 14 = 37) + carried subdecks + ONE acquisition
+  // card per absent equipment. (Global cooldown reduction, Eric ruling
+  // 2026-08-04: the seven per-equipment *Reload lines died and ONE universal
+  // `shipCooldown` line — 4 copies, `ship` category — replaced them, so every
+  // subdeck thinned by its 5 reload copies and `ship` grew by 4.)
   const CASES: [ShipClassId, number, string[]][] = [
-    // TB: torpedo 17 + boost 10 + acquisitions (mine/cannon/star/decoy) 4 = 69.
-    ['torpedoBoat', 38 + 17 + 10 + 4, ['acquireMine', 'acquireCannon', 'acquireStarShells', 'acquireDecoy']],
-    // BS: cannon 17 + starShells 17 + acquisitions (torpedo/mine/decoy/boost) 4 = 76.
-    ['battleship', 38 + 17 + 17 + 4, ['acquireTorpedo', 'acquireMine', 'acquireDecoy', 'acquireBoost']],
-    // ML: mine 27 + decoy 10 + acquisitions (torpedo/cannon/star/boost) 4 = 79.
-    ['mineLayer', 38 + 27 + 10 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
+    // TB: torpedo 12 + boost 5 + acquisitions (mine/cannon/star/decoy) 4 = 58.
+    ['torpedoBoat', 37 + 12 + 5 + 4, ['acquireMine', 'acquireCannon', 'acquireStarShells', 'acquireDecoy']],
+    // BS: cannon 12 + starShells 12 + acquisitions (torpedo/mine/decoy/boost) 4 = 65.
+    ['battleship', 37 + 12 + 12 + 4, ['acquireTorpedo', 'acquireMine', 'acquireDecoy', 'acquireBoost']],
+    // ML: mine 22 + decoy 5 + acquisitions (torpedo/cannon/star/boost) 4 = 68.
+    ['mineLayer', 37 + 22 + 5 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
   ];
 
   for (const [hull, total, acquisitions] of CASES) {
@@ -106,6 +121,13 @@ describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', 
       // Copy counts mirror the catalog for every present line.
       expect(copiesInDeck(rec, 'gunDamage')).toBe(5);
       expect(copiesInDeck(rec, 'gunTurret')).toBe(1);
+      // The ONE global cooldown line is universal — every hull's deck carries
+      // all 4 copies, and no per-equipment reload line survives anywhere.
+      expect(copiesInDeck(rec, 'shipCooldown')).toBe(4);
+      for (const dead of DEAD_RELOAD_IDS) {
+        expect(BOON_CATALOG[dead]).toBeUndefined();
+        expect(copiesInDeck(rec, dead)).toBe(0);
+      }
     });
   }
 
@@ -378,7 +400,7 @@ describe('acquisitions — R fills once, purge + scrub (amendments 38/41/43)', (
 
   it('banked offers SCRUB their dead acquisition cards and refill to size from the deck (amendment 43)', () => {
     const { w, a } = acquisitionBoard([
-      ['acquireCannon', 'gunReload', 'shipSpeed', 'intelRadar'], // holds a now-dead acquisition
+      ['acquireCannon', 'shipCooldown', 'shipSpeed', 'intelRadar'], // holds a now-dead acquisition
       ['gunDamage', 'torpedoDamage', 'intelTruesight', 'boostMax'], // acquisition-free: untouched
     ]);
     const untouched = [...a.offers[2]];
@@ -386,7 +408,7 @@ describe('acquisitions — R fills once, purge + scrub (amendments 38/41/43)', (
     expect(a.offers).toHaveLength(2);
     const scrubbed = a.offers[0];
     expect(scrubbed).toHaveLength(4); // refilled back to its prior size
-    expect([...scrubbed.slice(0, 3)]).toEqual(['gunReload', 'shipSpeed', 'intelRadar']); // kept cards keep identity + order
+    expect([...scrubbed.slice(0, 3)]).toEqual(['shipCooldown', 'shipSpeed', 'intelRadar']); // kept cards keep identity + order
     expect(isAcquisitionDef(BOON_CATALOG[scrubbed[3]])).toBe(false); // the refill can never be an acquisition
     expect(scrubbed).not.toContain('acquireCannon');
     expect([...a.offers[1]]).toEqual(untouched); // acquisition-free offers are byte-identical
@@ -433,7 +455,7 @@ describe('acquisitions — R fills once, purge + scrub (amendments 38/41/43)', (
 
   it('the scrub refill is deterministic on the player’s own stream (twin worlds agree)', () => {
     const run = (): BoonOffer[] => {
-      const { w, a } = acquisitionBoard([['acquireCannon', 'gunReload', 'shipSpeed', 'intelRadar']]);
+      const { w, a } = acquisitionBoard([['acquireCannon', 'shipCooldown', 'shipSpeed', 'intelRadar']]);
       w.spendPoint('a', 0);
       return [...a.offers];
     };
@@ -614,7 +636,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     // absent-equipment acquisitions back.
     expect(copiesInDeck(a, 'mineDamage')).toBe(0);
     expect(copiesInDeck(a, 'acquireMine')).toBe(1);
-    expect(a.deck.cards).toHaveLength(69); // the TB composition (suite above)
+    expect(a.deck.cards).toHaveLength(58); // the TB composition (suite above)
   });
 });
 
@@ -727,14 +749,72 @@ describe('per-observer sweep (intelSweep)', () => {
 // ---------- effective weapon stats in the fire path --------------------------
 
 describe('effective weapon stats in the fire path (catalog ladders)', () => {
-  it('gunReload: a consumed round starts the EFFECTIVE (shorter) reload', () => {
+  it('shipCooldown: ONE card shortens EVERY equipment — a consumed gun AND torpedo round both start the SCALED reload', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 0);
-    stack(w, a, 'gunReload', 1); // ×0.9
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 2, fireSeq: 1, aimDist: 300, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0 };
+    const a = place(w, 'a', 0, 0); // TB fit: [gun, torpedo, speedBoost, empty]
+    stack(w, a, 'shipCooldown', 4); // the 4-copy cap: additive −0.1/card => 0.6
+    // Additive-linear, never 0.9^4 (=0.6561). The literal carries float dust
+    // (−0.1 accumulation), so compare rounded/close — never strict.
+    expect(a.stats.cooldownScale).toBeCloseTo(0.6, 9);
+    expect(Math.round(a.stats.gun.reloadMs)).toBe(3000); // 5000 base -> 3000
+    expect(Math.round(a.stats.torpedo.reloadMs)).toBe(Math.round(CONFIG.torpedo.reloadMs * 0.6));
+
+    // The GUN's fire path reads the scaled reload, not raw CONFIG.
+    fire(a, 1, SLOT_GUN, 300);
     w.step();
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeCloseTo(CONFIG.gun.reloadMs * 0.9, 9);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeCloseTo(CONFIG.gun.reloadMs * 0.6, 6);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeLessThan(CONFIG.gun.reloadMs); // strictly shorter than base
+
+    // ...and so does the TORPEDO's — the SAME single card, a different weapon.
+    fire(a, 2, SLOT_TORPEDO, 0);
+    w.step();
+    expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(0);
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeCloseTo(CONFIG.torpedo.reloadMs * 0.6, 6);
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeLessThan(CONFIG.torpedo.reloadMs);
+  });
+
+  it('shipCooldown: the CANNON reads the same global scale (50s -> 30s) off the Battleship fit', () => {
+    const w = bareWorld();
+    const bb = place(w, 'a', 0, 0, 0, 'battleship'); // [gun, cannon, starShells, empty]
+    stack(w, bb, 'shipCooldown', 4);
+    expect(Math.round(bb.stats.cannon.reloadMs)).toBe(30000); // 50000 base -> 30000
+    fire(bb, 1, SLOT_CANNON, 400);
+    w.step();
+    expect(bb.loadout[SLOT_CANNON].state!.n).toBe(0);
+    expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBeCloseTo(CONFIG.cannon.reloadMs * 0.6, 6);
+    expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBeLessThan(CONFIG.cannon.reloadMs);
+
+    // ...and the authoritative tick really returns the round on the 30s clock:
+    // still empty at 29 950ms, back at 30 050ms — 20s short of the 50s base.
+    bb.input = { ...bb.input!, fireSeq: 0, seq: 2 };
+    for (let i = 0; i < 599; i++) w.step();
+    expect(bb.loadout[SLOT_CANNON].state!.n).toBe(0);
+    w.step();
+    w.step();
+    expect(bb.loadout[SLOT_CANNON].state!.n).toBe(1);
+    expect(602 * DT).toBeLessThan(CONFIG.cannon.reloadMs); // 30 100 < 50 000
+  });
+
+  it('shipCooldown: the AUTHORITATIVE ammo tick restores the round on the SCALED clock (~3.0s), not the 5.0s base', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    stack(w, a, 'shipCooldown', 4);
+    fire(a, 1, SLOT_GUN, 300);
+    w.step(); // the shot: pool 1 -> 0, the scaled reload starts
+    a.input = { ...a.input!, fireSeq: 0, seq: 2 }; // stop clicking — just let the world tick
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
+
+    // 59 more ticks == 2950ms elapsed on the reload: still empty.
+    for (let i = 0; i < 59; i++) w.step();
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
+    // Two more (3050ms) and the round is BACK — the base 5000ms clock would
+    // still be 39 ticks away, so nothing but the global scale can explain it.
+    w.step();
+    w.step();
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(1);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(0);
+    expect(61 * DT).toBeLessThan(CONFIG.gun.reloadMs); // 3050 < 5000 — the proof
   });
 
   it('gunDamage: the spawned shell carries the effective damage (HEAVY SHELLS), never raw CONFIG', () => {

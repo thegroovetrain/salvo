@@ -50,8 +50,10 @@ describe('ladder coverage — every catalog line, every stack position', () => {
   it('carries the ratified ladders verbatim (spot checks across the naming styles)', () => {
     expect(boonName('gunDamage', 0)).toBe('HEAVY SHELLS Mk I');
     expect(boonName('gunDamage', 4)).toBe('HEAVY SHELLS Mk V');
-    expect(boonName('gunReload', 0)).toBe('LOADING DRILLS');
-    expect(boonName('gunReload', 4)).toBe('READY MAGAZINE');
+    // The universal cooldown line's crew-proficiency ladder (2026-08-04): four
+    // rungs, one per copy, sitting in the SHIP category beside HULL SCRAPING.
+    expect(boonName('shipCooldown', 0)).toBe('DRILL SCHEDULE');
+    expect(boonName('shipCooldown', 3)).toBe('BATTLE STATIONS');
     expect(boonName('gunBarrel', 0)).toBe('TWIN MOUNT');
     expect(boonName('gunBarrel', 1)).toBe('TRIPLE MOUNT');
     expect(boonName('gunTurret')).toBe('AFT TURRET');
@@ -144,8 +146,11 @@ describe('rules text — the contract, with live values', () => {
     );
   });
 
-  it('prints reloads as seconds and carries the standing notes', () => {
-    expect(boonDescription(BOON_CATALOG.gunReload, TB)).toContain('s →');
+  it('prints durations as seconds, the global cooldown as a PERCENT, and carries the standing notes', () => {
+    expect(boonDescription(BOON_CATALOG.starDuration, TB)).toContain('s →');
+    // The one card that scales seven different reloads has no single second
+    // count to headline, so it prints the scale itself, reading downward.
+    expect(boonDescription(BOON_CATALOG.shipCooldown, TB)).toContain('All cooldowns: 100% → 90%.');
     expect(boonDescription(BOON_CATALOG.shipHull, TB)).toContain('Repairs the hull it adds.');
     expect(boonDescription(BOON_CATALOG.intelRadar, TB)).toContain('Gun, cannon and star shells reach with it.');
     expect(boonDescription(BOON_CATALOG.mineTrigger, TB)).toContain('Never wider than the blast.');
@@ -217,7 +222,7 @@ describe('the tooltip effect line (Story 2.9) — the HOLDING, not the sales pit
     expect(boonEffectLine('gunDamage', bare)).toBe(`Gun damage: ${bare.gun.damage}`);
     expect(boonEffectLine('gunDamage', bare)).not.toContain('→');
     expect(boonEffectLine('intelSweep', bare)).toBe(`Radar sweep: ${bare.sweepRpm} RPM`);
-    expect(boonEffectLine('gunReload', bare)).toBe(`Gun reload: ${bare.gun.reloadMs / 1000}s`);
+    expect(boonEffectLine('shipCooldown', bare)).toBe('All cooldowns: 100%');
   });
 
   it('MOVES with the fitted stack (it reads the firewall\'s output, not CONFIG)', () => {
