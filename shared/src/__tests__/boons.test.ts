@@ -117,7 +117,7 @@ const SCARCITY: Record<string, { rarity: string; copies: number }> = {
   intelSweep: { rarity: 'common', copies: 5 },
   shipSpeed: { rarity: 'common', copies: 5 },
   shipHull: { rarity: 'common', copies: 5 },
-  shipCooldown: { rarity: 'common', copies: 4 }, // THE one global cooldown line (Eric 2026-08-04)
+  shipCooldown: { rarity: 'common', copies: 5 }, // THE one global cooldown line, ×5 = 50% cap (Eric 2026-08-04)
   acquireTorpedo: { rarity: 'rare', copies: 1 },
   acquireMine: { rarity: 'rare', copies: 1 },
   acquireStarShells: { rarity: 'rare', copies: 1 },

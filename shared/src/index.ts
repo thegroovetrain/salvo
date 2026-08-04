@@ -7,7 +7,7 @@
  *  content changed, and catalog content IS wire contract: the seven
  *  per-equipment reload lines (gunReload/cannonReload/torpedoReload/
  *  mineReload/boostReload/starReload/decoyReload) are DELETED and one
- *  universal `shipCooldown` line (category 'ship', common ×4) replaces them,
+ *  universal `shipCooldown` line (category 'ship', common ×5) replaces them,
  *  driving the new base-1.0 `cooldownScale` EffectiveStats scalar additively
  *  (−0.1/card) into EVERY equipment reloadMs. 42 lines → 36. CONFIG.gun.
  *  reloadMs 3000→5000 and CONFIG.cannon.reloadMs 15000→50000 also ride the

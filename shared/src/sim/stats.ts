@@ -32,7 +32,7 @@
 //
 // `cooldownScale` (Eric ruling 2026-08-04) is the ONE global cooldown lever:
 // a base-1.0 scalar the universal `shipCooldown` line drives DOWN additively
-// (-0.10/card, 4 copies -> 0.60), applied post-fold to EVERY equipment's
+// (-0.10/card, 5 copies -> 0.50), applied post-fold to EVERY equipment's
 // reloadMs in clampStats. One scalar, one multiply site — so per-weapon reload
 // effects (still whitelisted, none in the catalog today) compose BEFORE the
 // global scale, and stacking stays additive-linear rather than 0.9^N.
@@ -137,7 +137,7 @@ export interface EffectiveStats {
   sightRange: number; // u — true-sight bubble
   // Global cooldown multiplier applied to EVERY equipment reloadMs post-fold
   // (clampStats). Base 1.0 = a true no-op; shipCooldown drives it down
-  // additively (-0.1/card) to 0.6 at the 4-copy cap. Floored at 0.1.
+  // additively (-0.1/card) to 0.5 at the 5-copy cap. Floored at 0.1.
   cooldownScale: number;
   gun: EffectiveGun;
   torpedo: EffectiveTorpedo;
@@ -248,11 +248,12 @@ function clampStats(stats: EffectiveStats): void {
   stats.gun.barrels = Math.min(3, Math.max(1, Math.round(stats.gun.barrels)));
   // THE global cooldown scale, applied ONCE, post-fold, to every equipment —
   // the sibling of the rangeU re-derivations above. Additive folding
-  // (-0.1/card) accumulates float dust (a 4-stack lands on
-  // 0.6000000000000001, not 0.6), and because ammo.ts ticks reloads down in
-  // 50ms steps and only refills at <= 0, un-rounded dust silently costs a
-  // whole extra 50ms tick on every affected weapon (e.g. the 4-stack gun
-  // ruling of 5s -> 3s would land 60 ticks vs 61). Round to 3 decimals — far
+  // (-0.1/card) accumulates float dust (a 5-stack lands on
+  // 0.5000000000000001, not 0.5; a 4-stack on 0.6000000000000001), and
+  // because ammo.ts ticks reloads down in 50ms steps and only refills at
+  // <= 0, un-rounded dust silently costs a whole extra 50ms tick on every
+  // affected weapon (e.g. the 5-stack gun ruling of 5s -> 2.5s would land 51
+  // ticks instead of 50). Round to 3 decimals — far
   // finer than any card's 0.1 step — so every reachable stack lands on the
   // exact ruled number, THEN floor so a hostile or over-stacked list can
   // never reach zero/negative cadence (applyStatEffect's own positive gate is

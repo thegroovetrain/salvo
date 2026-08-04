@@ -176,8 +176,8 @@ export const CONFIG = {
     maxAmmo: 1,
     // ms — cooldown between shots. RETUNED 3000 → 5000 (Eric ruling
     // 2026-08-04, the global-cooldown-reduction cycle): the gun fired far too
-    // often for its payload. A max shipCooldown build (4 copies, cooldownScale
-    // 0.6 — the ONE global reduction line) lands it back at 3.0s.
+    // often for its payload. A max shipCooldown build (5 copies, cooldownScale
+    // 0.5 — the ONE global reduction line) lands it at 2.5s.
     reloadMs: 5000,
     damage: 25, // hp per burst victim — THE gun-damage tunable (pinned by damageGuardrail.test)
     contactDamage: 10, // hp to an early interceptor outside the blast (bodyblock)
@@ -335,7 +335,7 @@ export const CONFIG = {
     // 50000 (Eric ruling 2026-08-04, the global-cooldown-reduction cycle): a
     // 500 u/s shell at a 15s cadence gave no reaction window, making the
     // cannon the strongest weapon in the game. A max shipCooldown build
-    // (4 copies, cooldownScale 0.6) lands it at 30s.
+    // (5 copies, cooldownScale 0.5) lands it at 25s.
     reloadMs: 50000,
     damage: 50, // hp per burst victim (pinned by damageGuardrail.test)
     contactDamage: 20, // hp to an early interceptor outside the blast (bodyblock)

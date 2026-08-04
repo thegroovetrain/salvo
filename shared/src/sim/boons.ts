@@ -100,7 +100,7 @@ export const BOON_STAT_PATHS = [
   // The ONE global cooldown lever (Eric ruling 2026-08-04): a top-level base-1
   // scalar multiplied into EVERY equipment reloadMs post-fold (sim/stats.ts
   // clampStats). `shipCooldown` drives it with add: -0.1 so stacking is
-  // ADDITIVE-LINEAR (1.0 → 0.6 at the 4-copy cap), not 0.9^N.
+  // ADDITIVE-LINEAR (1.0 → 0.5 at the 5-copy cap), not 0.9^N.
   'cooldownScale',
   'kinematics.maxSpeed',
   'kinematics.reverseSpeed',
@@ -340,13 +340,16 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // REINFORCED HULL → ARMORED CITADEL: +20 max hp per card; the grant HEALS
   // the granted delta (healOnGrant — the ONLY heal path, amendment 38).
   shipHull: { id: 'shipHull', category: 'ship', rarity: 'common', copies: 5, healOnGrant: true, effects: [stat('maxHp', { add: 20 })] },
-  // DRILL SCHEDULE → BATTLE STATIONS (×4): −0.10 cooldownScale per card, the
+  // DRILL SCHEDULE → BATTLE STATIONS (×5): −0.10 cooldownScale per card, the
   // ONE global cooldown line (Eric ruling 2026-08-04 — it replaced all seven
   // per-equipment reload ladders). ADDITIVE, never multiplicative: 1.0 → 0.9 →
-  // 0.8 → 0.7 → 0.6, so a full stack lands gun 5000 → 3000 ms and cannon
-  // 50000 → 30000 ms exactly. Applied once, post-fold, to EVERY equipment
-  // reloadMs (sim/stats.ts clampStats).
-  shipCooldown: { id: 'shipCooldown', category: 'ship', rarity: 'common', copies: 4, effects: [stat('cooldownScale', { add: -0.1 })] },
+  // 0.8 → 0.7 → 0.6 → 0.5, so a full stack lands gun 5000 → 2500 ms and cannon
+  // 50000 → 25000 ms exactly. The ladder was widened 4 → 5 copies (a 50% cap,
+  // was 40%) by a later Eric ruling the same day: 2.5s on the gun feels
+  // genuinely fast next to 3s, which makes a full cooldown investment a real
+  // reward. Applied once, post-fold, to EVERY equipment reloadMs
+  // (sim/stats.ts clampStats).
+  shipCooldown: { id: 'shipCooldown', category: 'ship', rarity: 'common', copies: 5, effects: [stat('cooldownScale', { add: -0.1 })] },
   // --- acquisitions (rare ×1 each; category = the equipment's category) -----
   acquireTorpedo: acquire('acquireTorpedo', 'torpedo'),
   acquireMine: acquire('acquireMine', 'mine'),

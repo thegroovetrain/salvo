@@ -293,8 +293,11 @@ describe('effectiveStats — every production catalog line folds (no dead cards)
 // ---------------------------------------------------------------------------
 // cooldownScale — THE one global cooldown lever (Eric rulings 2026-08-04).
 // The seven per-equipment reload ladders died; `shipCooldown` (ship, common,
-// ×4) drives a single base-1.0 scalar ADDITIVELY (-0.1/card) that clampStats
-// multiplies into all seven equipment reloads, once, post-fold.
+// ×5) drives a single base-1.0 scalar ADDITIVELY (-0.1/card) that clampStats
+// multiplies into all seven equipment reloads, once, post-fold. The ladder was
+// widened 4 → 5 copies (0.6 → 0.5 at the cap) by a later Eric ruling the same
+// day: 2.5s on the gun feels genuinely fast next to 3s, so a full cooldown
+// investment is a real reward.
 // ---------------------------------------------------------------------------
 
 /** The seven equipment reloads, paired with their CONFIG bases. */
@@ -330,22 +333,47 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     expect(s.cannon.reloadMs).toBeCloseTo(45000, 9);
   });
 
-  it('FULL stack (4 copies, the cap): scale 0.6 — ADDITIVE, not 0.9^4', () => {
-    expect(BOON_CATALOG.shipCooldown.copies).toBe(4); // the physical cap the pin rests on
-    const s = effectiveStats(BASE, stack('shipCooldown', 4));
+  it('THE COPY CAP IS 5 and a full stack is EXACTLY 0.5 — the ×5 / 50% ruling pin (Eric 2026-08-04)', () => {
+    // The ruling this test exists for: the ladder runs five cards, not four,
+    // so the cap is a 50% global cooldown cut. Strict equality on both halves
+    // — copies is the physical cap, 0.5 is the number it buys.
+    expect(BOON_CATALOG.shipCooldown.copies).toBe(5);
+    expect(effectiveStats(BASE, stack('shipCooldown', 5)).cooldownScale).toBe(0.5);
+  });
+
+  it('FULL stack (5 copies, the cap): scale 0.5 — ADDITIVE, not 0.9^5', () => {
+    const s = effectiveStats(BASE, stack('shipCooldown', BOON_CATALOG.shipCooldown.copies));
     // STRICT equality: additive folding accumulates float dust
-    // (1 - 0.1*4 === 0.6000000000000001, not 0.6) — clampStats rounds the
+    // (1 - 0.1*5 === 0.5000000000000001, not 0.5) — clampStats rounds the
     // scale to 3 decimals BEFORE the multiplies precisely so this is exact,
     // not merely close. See the tick-count test below for why dust mattered.
+    expect(s.cooldownScale).toBe(0.5);
+    // ANTI-MULTIPLICATIVE PIN: 0.9^5 = 0.59049 would land gun at 2952.45 ms
+    // and cannon at 29524.5 ms — Eric's targets are 2500 / 25000 exactly.
+    expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 5, 3);
+    expect(s.gun.reloadMs).toBe(2500);
+    expect(s.cannon.reloadMs).toBe(25000);
+    expect(s.gun.reloadMs).not.toBeCloseTo(2952.45, 3);
+    expect(s.cannon.reloadMs).not.toBeCloseTo(29524.5, 3);
+    // ALL SEVEN move — one card, every cooldown.
+    const expected: Record<string, number> = {
+      gun: 2500,
+      cannon: 25000,
+      torpedo: 6000,
+      mine: 4000,
+      starShells: 10000,
+      boost: 9000,
+      decoyBuoy: 10000,
+    };
+    for (const [name, read] of RELOADS) expect(read(s), name).toBe(expected[name]);
+  });
+
+  it('FOUR stacks (one short of the cap, still a reachable state): scale 0.6 — gun 3000, cannon 30000', () => {
+    const s = effectiveStats(BASE, stack('shipCooldown', 4));
     expect(s.cooldownScale).toBe(0.6);
-    // ANTI-MULTIPLICATIVE PIN: 0.9^4 = 0.6561 would land gun at 3280.5 ms and
-    // cannon at 32805 ms — Eric's targets are 3000 / 30000 exactly.
-    expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 4, 3);
+    expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 4, 3); // 0.6561 would be 3280.5 / 32805
     expect(s.gun.reloadMs).toBe(3000);
     expect(s.cannon.reloadMs).toBe(30000);
-    expect(s.gun.reloadMs).not.toBeCloseTo(3280.5, 3);
-    expect(s.cannon.reloadMs).not.toBeCloseTo(32805, 3);
-    // ALL SEVEN move — one card, every cooldown.
     const expected: Record<string, number> = {
       gun: 3000,
       cannon: 30000,
@@ -358,11 +386,11 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
     for (const [name, read] of RELOADS) expect(read(s), name).toBe(expected[name]);
   });
 
-  it('EVERY reachable stack count (0..4) lands EXACTLY on the ruled table — the rounding-fix regression pin', () => {
+  it('EVERY reachable stack count (0..5) lands EXACTLY on the ruled table — the rounding-fix regression pin', () => {
     // scale + all seven equipment reloads, per stack count. This fails without
     // clampStats rounding the accumulated scale before the multiplies (a
-    // 4-stack would otherwise land at cooldownScale 0.6000000000000001, gun
-    // 3000.0000000000005, cannon 30000.000000000004 — all off the ruled
+    // 5-stack would otherwise land at cooldownScale 0.5000000000000001, gun
+    // 2500.0000000000005, cannon 25000.000000000004 — all off the ruled
     // numbers by float dust).
     const table: Record<number, { scale: number } & Record<string, number>> = {
       0: { scale: 1, gun: 5000, cannon: 50000, torpedo: 12000, mine: 8000, starShells: 20000, boost: 18000, decoyBuoy: 20000 },
@@ -370,19 +398,22 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
       2: { scale: 0.8, gun: 4000, cannon: 40000, torpedo: 9600, mine: 6400, starShells: 16000, boost: 14400, decoyBuoy: 16000 },
       3: { scale: 0.7, gun: 3500, cannon: 35000, torpedo: 8400, mine: 5600, starShells: 14000, boost: 12600, decoyBuoy: 14000 },
       4: { scale: 0.6, gun: 3000, cannon: 30000, torpedo: 7200, mine: 4800, starShells: 12000, boost: 10800, decoyBuoy: 12000 },
+      5: { scale: 0.5, gun: 2500, cannon: 25000, torpedo: 6000, mine: 4000, starShells: 10000, boost: 9000, decoyBuoy: 10000 },
     };
+    // The table IS the whole reachable ladder — no stack count is untested.
+    expect(Object.keys(table)).toHaveLength(BOON_CATALOG.shipCooldown.copies + 1);
     for (const [n, expected] of Object.entries(table)) {
       const s = effectiveStats(BASE, stack('shipCooldown', Number(n)));
       expect(s.cooldownScale, `${n} stacks: scale`).toBe(expected.scale);
       for (const [name, read] of RELOADS) expect(read(s), `${n} stacks: ${name}`).toBe(expected[name]);
     }
     // The ruling itself, as strict multiplication identities.
-    const full = effectiveStats(BASE, stack('shipCooldown', 4));
-    expect(5000 * full.cooldownScale === 3000).toBe(true);
-    expect(50000 * full.cooldownScale === 30000).toBe(true);
+    const full = effectiveStats(BASE, stack('shipCooldown', 5));
+    expect(5000 * full.cooldownScale === 2500).toBe(true);
+    expect(50000 * full.cooldownScale === 25000).toBe(true);
   });
 
-  it('the tick-count consequence: ammo.ts ticks reloads down in 50ms steps and refills at <= 0 — a 4-stack gun must take EXACTLY 60 ticks (not 61), a 4-stack cannon EXACTLY 600 (not 601)', () => {
+  it('the tick-count consequence: ammo.ts ticks reloads down in 50ms steps and refills at <= 0 — a 5-stack gun must take EXACTLY 50 ticks (not 51) and cannon 500 (not 501); a 4-stack 60 / 600', () => {
     // Inlined ammo.ts loop shape (server/src/game/equipment/ammo.ts) — do not
     // import server code into a shared test.
     const ticksToRefill = (reloadMs: number): number => {
@@ -394,16 +425,19 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
       }
       return n;
     };
-    const s = effectiveStats(BASE, stack('shipCooldown', 4));
-    expect(ticksToRefill(s.gun.reloadMs)).toBe(60);
-    expect(ticksToRefill(s.cannon.reloadMs)).toBe(600);
+    const capped = effectiveStats(BASE, stack('shipCooldown', 5));
+    expect(ticksToRefill(capped.gun.reloadMs)).toBe(50);
+    expect(ticksToRefill(capped.cannon.reloadMs)).toBe(500);
+    const four = effectiveStats(BASE, stack('shipCooldown', 4));
+    expect(ticksToRefill(four.gun.reloadMs)).toBe(60);
+    expect(ticksToRefill(four.cannon.reloadMs)).toBe(600);
   });
 
   it('the scale reaches EVERY equipment: no reload is left at its base after a full stack', () => {
-    const s = effectiveStats(BASE, stack('shipCooldown', 4));
+    const s = effectiveStats(BASE, stack('shipCooldown', 5));
     for (const [name, read, base] of RELOADS) {
       expect(read(s), name).toBeLessThan(base);
-      expect(read(s), name).toBeCloseTo(base * 0.6, 9);
+      expect(read(s), name).toBeCloseTo(base * 0.5, 9);
     }
   });
 
@@ -429,7 +463,7 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
 
   it('the scale moves ONLY the seven reloads (flatten diff) — no other stat rides along', () => {
     const identity = flatten(effectiveStats(BASE));
-    const scaled = flatten(effectiveStats(BASE, stack('shipCooldown', 4)));
+    const scaled = flatten(effectiveStats(BASE, stack('shipCooldown', 5)));
     const changed = [...scaled.keys()].filter((k) => scaled.get(k) !== identity.get(k));
     expect(changed.sort()).toEqual(
       [

@@ -1,8 +1,8 @@
 // THE DECK MODEL engine (Story 2.8, amendment 38) — sim/deck.ts. Pins:
 // (1) buildDeck composition per hull loadout (universal intel/ship/guns +
 // carried-equipment subdecks + one acquisition per NOT-carried equipment,
-// copies per catalog — the TB 8/15/14 + 12 + 5 + 4 matrix after the
-// 2026-08-04 global-cooldown thinning);
+// copies per catalog — the TB 8/15/15 + 12 + 5 + 4 matrix after the
+// 2026-08-04 global-cooldown thinning, with shipCooldown widened to ×5);
 // (2) drawOffer distinctness / weighting / determinism / rare escalation +
 // reset / empty-and-thin-deck fail-safety; (3) returnCards / consume-
 // Acquisition purge / scrubAcquisitions (amendment 43) semantics; (4) a
@@ -67,16 +67,16 @@ const common = (id: string, copies = 5): BoonDef => ({
 });
 
 describe('buildDeck — composition per hull loadout', () => {
-  it('Torpedo Boat: universal (guns 8, intel 15, ship 14) + torpedo 12 + boost 5 + 4 acquisitions = 58', () => {
+  it('Torpedo Boat: universal (guns 8, intel 15, ship 15) + torpedo 12 + boost 5 + 4 acquisitions = 59', () => {
     const deck = buildDeck(BOON_CATALOG, CARRIED.torpedoBoat);
     expect(categoryCount(deck.cards, 'guns')).toBe(8); // 5+2+1 (the gunReload line died 2026-08-04)
     expect(categoryCount(deck.cards, 'intel')).toBe(15); // 5+5+5
-    expect(categoryCount(deck.cards, 'ship')).toBe(14); // 5+5+4 (shipCooldown joined)
+    expect(categoryCount(deck.cards, 'ship')).toBe(15); // 5+5+5 (shipCooldown joined, widened to ×5)
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(12); // 5+4+1+1+1
     expect(categoryCount(deck.cards, 'speedBoost')).toBe(5); // 5
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireCannon', 'acquireDecoy', 'acquireMine', 'acquireStarShells']);
-    expect(deck.cards).toHaveLength(58);
+    expect(deck.cards).toHaveLength(59);
     expect(deck.levelsSinceRare).toBe(0);
   });
 
@@ -87,7 +87,7 @@ describe('buildDeck — composition per hull loadout', () => {
     expect(categoryCount(deck.cards, 'torpedoes')).toBe(0);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireDecoy', 'acquireMine', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(8 + 15 + 14 + 12 + 12 + 4);
+    expect(deck.cards).toHaveLength(8 + 15 + 15 + 12 + 12 + 4); // 66
   });
 
   it('Mine Layer: mines + decoyBuoy subdecks; torpedo/cannon/star/boost acquisitions', () => {
@@ -96,18 +96,18 @@ describe('buildDeck — composition per hull loadout', () => {
     expect(categoryCount(deck.cards, 'decoyBuoy')).toBe(5);
     const acquisitions = deck.cards.filter((id) => isAcquisitionDef(BOON_CATALOG[id]));
     expect(acquisitions.sort()).toEqual(['acquireBoost', 'acquireCannon', 'acquireStarShells', 'acquireTorpedo']);
-    expect(deck.cards).toHaveLength(8 + 15 + 14 + 22 + 5 + 4);
+    expect(deck.cards).toHaveLength(8 + 15 + 15 + 22 + 5 + 4); // 69
   });
 
-  it('the 7 deleted reload lines are in NO hull deck; ship contributes 14 (Eric ruling 2026-08-04)', () => {
+  it('the 7 deleted reload lines are in NO hull deck; ship contributes 15 (Eric rulings 2026-08-04)', () => {
     const dead = ['gunReload', 'cannonReload', 'torpedoReload', 'mineReload', 'boostReload', 'starReload', 'decoyReload'];
     for (const cls of ['torpedoBoat', 'battleship', 'mineLayer'] as const) {
       const deck = buildDeck(BOON_CATALOG, CARRIED[cls]);
       for (const id of dead) expect(deck.cards, `${cls}:${id}`).not.toContain(id);
       // The one global cooldown line replaces them, in the UNIVERSAL ship
-      // subdeck — every hull draws it: 5 shipSpeed + 5 shipHull + 4 shipCooldown.
-      expect(categoryCount(deck.cards, 'ship'), cls).toBe(14);
-      expect(tally(deck.cards).get('shipCooldown'), cls).toBe(4);
+      // subdeck — every hull draws it: 5 shipSpeed + 5 shipHull + 5 shipCooldown.
+      expect(categoryCount(deck.cards, 'ship'), cls).toBe(15);
+      expect(tally(deck.cards).get('shipCooldown'), cls).toBe(5);
     }
   });
 
