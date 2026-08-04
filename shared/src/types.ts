@@ -381,6 +381,81 @@ export interface BurstEvent {
   y: number; // u
 }
 
+/**
+ * FALL OF SHOT (Story 4.3, amendment 16): the shooter's OWN shell terminated
+ * without resolving any victim — a splash at the true impact point, rendered
+ * above the fog for the shooter alone, so bracket-and-walk fire works (FR16).
+ * `id` is the SHOOTER's ship id: the self-private gate key (perception
+ * forwards it ONLY to that observer — the dmg/pt precedent), never a victim
+ * reference. GUN-FAMILY ONLY (wire kind 'shell' — gun, cannon, star shells):
+ * torpedoes and mines have no fall-of-shot (the quiet weapons stay quiet).
+ *
+ * ANTI-CHEAT — deliberately omitted: any victim/target identity (a splash IS
+ * a miss; there is nobody to name), any weapon identity, and any
+ * range-derivable field (the BallisticEvent rationale applies unchanged).
+ * The position reveals nothing the shooter did not author: the shell flew to
+ * a point they clicked. KEY ORDER IS LOAD-BEARING (msgpack): k,id,x,y.
+ */
+export interface SplashEvent {
+  k: 'sp';
+  id: string; // the SHOOTER's ship id (the self-private gate key)
+  x: number; // u — the true impact point
+  y: number; // u
+}
+
+/**
+ * HIT CALL (Story 4.3, amendments 17/18): something the shooter fired or laid
+ * CONNECTED — exactly one per ordnance resolution, at the impact/burst/mine
+ * point, delivered ONLY to the owner (self-private; spectator-public like
+ * dmg). ALL ORDNANCE: gun, cannon, star shells, torpedo, AND mines (a Mine
+ * Layer learning remotely that a trap sprung is the intended feature). This
+ * KNOWINGLY supersedes the boom row's owner anti-leak rule for the owner-hit
+ * case (amendment 17): "something of yours connected out there" is now
+ * deliberate — it is what keeps the ratified decoy disambiguation oracle
+ * alive ("shooting a decoy produces no Hit Call" only means something if a
+ * real hit at fog range produces one).
+ *
+ * ANTI-CHEAT — deliberately omitted: EVERY severity channel. No victim id,
+ * no amount, no hp, no kill flag, no weapon, no hull count — an AP shell
+ * that pierces several hulls sends exactly ONE Hit Call (a per-pierce call
+ * would leak the hull count). `id` is the SHOOTER's ship id (the
+ * self-private gate key), NEVER the victim's. KEY ORDER IS LOAD-BEARING
+ * (msgpack): k,id,x,y.
+ */
+export interface HitCallEvent {
+  k: 'hc';
+  id: string; // the SHOOTER's ship id (the self-private gate key) — NEVER the victim
+  x: number; // u — the impact/burst/detonation point
+  y: number; // u
+}
+
+/**
+ * MUZZLE FLASH (Story 4.3, amendments 15/19/20): a gun-family weapon fired
+ * HERE — position only. Emitted at the shell's PRE-pre-step origin (the TRUE
+ * muzzle), so a D1 back-dated shell that materializes further along its
+ * flight is masked by a flash at the hull it left — never at a reveal point,
+ * which is the exact anti-cheat leak the Story 1.5 review closed. Visible to
+ * any observer within the derived CONFIG.vision.muzzleFlash halo
+ * (SIGHT * 1.5) with island LOS clear — a declared, narrowly-scoped fog
+ * exception (a flash is a light source: dazzle does not change how far it
+ * carries, and no lit zone extends it).
+ *
+ * ANTI-CHEAT — deliberately omitted: EVERY identity channel. No shooter id
+ * (not even for the shooter — there is no privileged view of this row), no
+ * personal hue, no class, no weapon kind, no heading, and no per-weapon
+ * weight (a heavier cannon flash would put a class tell on the wire that
+ * deliberately does not exist). The flash must create a question, never
+ * answer one. GUN FAMILY ONLY by the wire-kind predicate ('shell' selects
+ * gun + cannon + star shells and excludes 'torp' exactly — no per-weapon
+ * table exists to leak through); mine/decoy stern-drops never spawn a
+ * ballistic at all. KEY ORDER IS LOAD-BEARING (msgpack): k,x,y.
+ */
+export interface MuzzleEvent {
+  k: 'mz';
+  x: number; // u — the TRUE muzzle (never a reveal point)
+  y: number; // u
+}
+
 /** A ship took damage. `hp` is its resulting hit points. */
 export interface DamageEvent {
   k: 'dmg';
@@ -551,7 +626,10 @@ export type GameEvent =
   | SunkEvent
   | SpawnEvent
   | PointEvent
-  | BoonFitEvent;
+  | BoonFitEvent
+  | SplashEvent
+  | HitCallEvent
+  | MuzzleEvent;
 
 /**
  * Server -> client per-tick frame ("f"). Built per client by buildFrame().

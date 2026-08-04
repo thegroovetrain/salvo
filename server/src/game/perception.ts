@@ -3,10 +3,13 @@
 // tick; frames.ts is the only caller, so nothing spatial can leave the server
 // without going through observe(). The invariant is unit-tested property-style
 // in __tests__/perception.test.ts: no contact or event in any frame may
-// reference anything outside sight ∪ (this-tick radar paints).
+// reference anything outside sight ∪ (this-tick radar paints) — beyond the
+// DECLARED per-row exceptions (self-directed events, owner-authored points,
+// and Story 4.3's sp/hc/mz gunnery rows), each codified by its own
+// independently-reimplemented oracle in that suite.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 11 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —
+// the 14 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —
 // is one declarative SignalSpec row (visible + materialize + counterIntel),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
 // Adding a signal means adding a row (plus its invariant test case), never

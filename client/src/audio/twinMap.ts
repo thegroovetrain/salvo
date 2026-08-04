@@ -32,6 +32,8 @@ export const TONE_TWINS: Record<ToneId, string> = {
   fitRare: 'the ◆ FITTED toast + the slot fit flash + the new tooltip row (ui/upgradeToast, render/hotbar)',
   fitExclusive: 'the ◆ FITTED toast + the slot fit flash + the new tooltip row, plus the doctrine\'s on-water identity (ui/upgradeToast, render/hotbar)',
   burn: 'the burning zone under your hull + the HP rail dropping in the vitals cluster (render/litZones, hud)',
+  hitCall:
+    'the Hit Call bloom at the impact point, drawn above the fog so a connection you cannot see still shows (render/effects)',
   slowed: 'the SLOWED tell + its countdown above the vitals cluster (render/hud)',
   dazzled: 'the DAZZLED tell + its countdown above the vitals cluster, plus the shrunken sight hole (render/hud, fog)',
   sink: 'the sinking-hull effect + the elimination modal (render/effects, ui/results)',

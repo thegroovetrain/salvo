@@ -508,6 +508,14 @@ export class World {
    */
   private readonly salvoHits = new Map<string, Set<string>>();
   /**
+   * MUZZLE-FLASH DEDUPE (Story 4.3): owners whose `mz` already fired this
+   * tick. A multi-barrel salvo spawns N shells in one tick and must produce
+   * exactly ONE flash (per-shell flashes would leak the barrel count — a
+   * build tell the wire deliberately does not carry). Cleared with the other
+   * per-tick state at the end-of-step event swap.
+   */
+  private readonly mzOwnersThisTick = new Set<string>();
+  /**
    * OPEN INCENDIARY DoT EVENT BUCKETS (Story 2.8 review, P4), keyed by
    * dotKey(zone owner, victim): the applied-but-not-yet-reported DoT for that
    * pair and the server time its window opened. hp is ALREADY deducted — this
@@ -1196,6 +1204,9 @@ export class World {
     // Publish this tick's denied presses (Story 1.10) — same swap discipline.
     this.tickDenials = this.pendingDenials;
     this.pendingDenials = new Map();
+    // Muzzle-flash dedupe (Story 4.3) resets with the tick's other per-tick
+    // state: next tick's first gun-family spawn per owner flashes again.
+    this.mzOwnersThisTick.clear();
   }
 
   /**
@@ -1566,18 +1577,26 @@ export class World {
   }
 
   /** One mine's blast damage + prop-fouling debuff (owner-stats-driven with
-   *  the vacated-owner CONFIG fallback). Returns the blast radius used. */
+   *  the vacated-owner CONFIG fallback). Returns the blast radius used.
+   *  Story 4.3 (amendment 18): a detonation that RESOLVES ≥1 victim sends one
+   *  self-private `hc` to the mine's OWNER at the MINE's position — a Mine
+   *  Layer learning remotely that a trap sprung is the intended feature.
+   *  Victim RESOLUTION, not dmg emission (the ready-room rule); a victimless
+   *  detonation sends NOTHING (mines have no fall-of-shot — amendment 16). */
   private blastMine(m: MineState, hulls: readonly HullTarget[]): number {
     const { damage, blastRadius, fouls } = this.mineBlastParams(m.ownerId);
+    let resolved = 0;
     for (const victimId of mineBlastVictims(m, hulls, blastRadius)) {
       const victim = this.ships.get(victimId);
       if (!victim || !victim.alive) continue;
+      resolved += 1;
       this.hitShip(victim, damage, m.ownerId);
       // PROP-FOULING: a fouling blast's victim is slowed — REFRESH (plain
       // assignment), never stack. Gated with damage (no fouling in the
       // damage-suppressed ready room).
       if (fouls && this.damageEnabled) victim.slowedUntil = this.now + CONFIG.mine.foulDurationMs;
     }
+    if (resolved > 0) this.emitHitCall(m.ownerId, m.x, m.y);
     return blastRadius;
   }
 
@@ -1656,6 +1675,38 @@ export class World {
     if (attacker) attacker.damageDealt += amount;
   }
 
+  /**
+   * HIT CALL (Story 4.3, amendments 17/18): one self-private `hc` to the
+   * ordnance OWNER at the connection point — ALL ordnance (gun, cannon, star
+   * shells, torpedo, mines). Keyed off VICTIM RESOLUTION at every call site,
+   * never off `dmg` emission, so target practice in the weapons-safe ready
+   * room (damage suppressed) still gets its feedback. Carries NO severity
+   * channel of any kind: no victim id, no amount, no kill flag, no hull
+   * count. There is deliberately NO decoy-suppression code anywhere on the
+   * paths into this: a buoy is not a collision subject, so a shot at one
+   * structurally resolves no victim and produces `sp`, never `hc` — the
+   * ratified oracle holds BY CONSTRUCTION.
+   */
+  private emitHitCall(ownerId: string, x: number, y: number): void {
+    this.pending.push({ k: 'hc', id: ownerId, x, y });
+  }
+
+  /**
+   * FALL OF SHOT (Story 4.3, amendment 16): one self-private `sp` to the
+   * shooter at the true termination point of a shell that resolved NO victim.
+   * GUN-FAMILY ONLY — the wire-kind predicate (`kind === 'shell'`) selects
+   * gun + cannon + star shells and excludes 'torp' exactly: a torpedo that
+   * misses or expires produces NOTHING (the quiet weapon), and mines never
+   * route here at all. The pierce guard keeps "exactly one of hc/sp per
+   * shell": an AP shell that pierced earlier in its life already sent its
+   * Hit Call, so its eventual island/edge/range stop is not also a splash.
+   */
+  private emitSplash(shell: ShellState, x: number, y: number): void {
+    if (shell.kind !== 'shell') return; // gun family only (amendment 16)
+    if (shell.pierce !== undefined && shell.pierce.hitIds.length > 0) return; // hc already sent
+    this.pending.push({ k: 'sp', id: shell.ownerId, x, y });
+  }
+
   /** Turn a spent ballistic's outcome into its events, per the projectile's
    *  OWN hit rule (Story 1.4 seam): `burst` detonates at the target point;
    *  `pierced` applies the AP falloff per hull in hit order (Story 2.8);
@@ -1676,9 +1727,18 @@ export class World {
     }
     if (outcome.kind !== 'hitShip') {
       this.pending.push({ k: 'boom', id: shell.id, x: outcome.x, y: outcome.y });
+      // hitIsland / expired: a MISS — fall of shot to the shooter (Story 4.3;
+      // gun family only, and never after an earlier pierce Hit Call — the
+      // guards live in emitSplash).
+      this.emitSplash(shell, outcome.x, outcome.y);
       return;
     }
     this.pending.push({ k: 'boom', id: shell.id, hit: outcome.victimId, x: outcome.x, y: outcome.y });
+    // Early interception = a victim RESOLVED (Story 4.3, amendments 17/18):
+    // one Hit Call at the impact point, all ordnance — deliberately NOT
+    // derived from dmg emission, so the weapons-safe ready room still calls
+    // hits (hitShip early-returns on !damageEnabled).
+    this.emitHitCall(shell.ownerId, outcome.x, outcome.y);
     // A DAMAGELESS flare still lights where it stopped (Story 2.8, amendment
     // 39): an intercepted star shell spawns its zone at the interception point.
     if (shell.lit) this.spawnLitZone(shell, outcome);
@@ -1715,6 +1775,13 @@ export class World {
     hits: readonly { victimId: string; x: number; y: number; order: number }[],
     spent: boolean,
   ): void {
+    // EXACTLY ONE Hit Call per SHELL LIFE (Story 4.3): only the FIRST pierce
+    // ever recorded (global hit order 0) carries it, at that first pierce
+    // point. A per-pierce (or per-tick) Hit Call would leak the hull count —
+    // severity information the `hc` wire shape deliberately cannot carry. The
+    // terminal splash for an AP shell that pierced is likewise suppressed
+    // (emitSplash's pierce guard): one of hc/sp per shell, never both.
+    if (hits.length > 0 && hits[0].order === 0) this.emitHitCall(shell.ownerId, hits[0].x, hits[0].y);
     for (const [i, h] of hits.entries()) {
       const terminal = spent && i === hits.length - 1;
       const id = terminal ? shell.id : `${shell.id}#p${h.order}`;
@@ -1745,16 +1812,35 @@ export class World {
     if (shell.lit) this.spawnLitZone(shell, at);
     // A zero-damage burst (the damageless star shell, amendment 39) resolves
     // no victims at all — no 0-hp dmg-event noise, structurally.
+    let resolved = 0; // hulls the burst RESOLVED (Story 4.3 — counted before
+    // the salvo/damage gates, so the Hit Call keys off resolution, not dmg).
     if (shell.damage > 0) {
       for (const victimId of burstVictims(at, shell.burstRadius, hulls, shell.ownerId)) {
         const victim = this.ships.get(victimId);
         if (!victim || !victim.alive) continue;
+        resolved += 1;
         // SALVO single-hit rule (P1): the burst still happens for everyone —
         // a hull already hit by an earlier shell of the SAME click just takes 0.
         if (!this.claimSalvoHit(shell, victim.id)) continue;
         this.hitShip(victim, shell.damage, shell.ownerId);
       }
     }
+    // Story 4.3: exactly one of hc/sp per shell resolution — a burst that
+    // resolved ≥1 hull is a Hit Call at the burst point; one that resolved
+    // none is fall of shot (a decoy buoy is not a collision subject, so a
+    // shot centered on one lands HERE, in the splash branch, by construction).
+    //
+    // A DAMAGELESS FLARE BURSTING OVER A HULL EMITS `sp`, NEVER `hc` — and that
+    // is deliberate, not an oversight in the `damage > 0` gate above. DO NOT
+    // "fix" it by counting geometric victims for zero-damage shells: a star
+    // shell cannot connect with anything (it damages nothing), so a Hit Call
+    // there would be a lie — and worse, it would mint an unsanctioned detection
+    // channel. A flare lobbed into fog would answer "is a hull within
+    // burstRadius of this point?" directly, bypassing the lit zone + LOS that
+    // is the flare's ONE sanctioned way to reveal a ship. The flare reports
+    // where it fell; the zone it lights is what finds people.
+    if (resolved > 0) this.emitHitCall(shell.ownerId, at.x, at.y);
+    else this.emitSplash(shell, at.x, at.y);
     this.detonateMinesInBurst(shell, at, hulls);
   }
 
@@ -2119,9 +2205,43 @@ export class World {
    * ahead of the muzzle".
    */
   private spawnBallistic(shell: ShellState): void {
+    // MUZZLE FLASH (Story 4.3) — emitted BEFORE the D1 pre-step below runs,
+    // while (shell.x, shell.y) is still the TRUE MUZZLE (the pre-pre-step
+    // origin). This is the Epic 1 D1 latency mask: the flash marks the hull
+    // the shell left, while the back-dated shell materializes further along
+    // its flight. NEVER compute a flash from a reveal point — that is the
+    // exact anti-cheat leak the Story 1.5 review closed.
+    this.emitMuzzleFlash(shell);
     this.shells.set(shell.id, shell);
     this.pending.push(this.ballisticEvent(shell));
     if (shell.bornAt < this.now) this.preStepShell(shell);
+  }
+
+  /**
+   * One `mz` per owner per tick for GUN-FAMILY spawns only (Story 4.3,
+   * amendments 19/20): the wire-kind predicate `kind === 'shell'` selects gun
+   * + cannon + star shells and excludes 'torp' exactly — torpedoes are the
+   * ratified quiet weapon, and no per-weapon flash table exists for a weapon
+   * identity to leak through. Mines and decoys never call spawnBallistic at
+   * all. The event carries position ONLY — no shooter id for anyone, including
+   * the shooter (amendment 19).
+   *
+   * THE DEDUPE IS PER TICK PER OWNER, NOT PER SALVO — say it precisely, because
+   * the two differ. Its headline job is collapsing a multi-barrel salvo's N
+   * shells into ONE flash (per-shell flashes would leak the barrel count, a
+   * build tell the wire deliberately does not carry). But it ALSO collapses two
+   * SEPARATE gun-family launches by the same ship in one 50ms tick — a gun
+   * click and a star-shell click coalesced by `tickIntents` — into a single
+   * flash. That is intended and costs nothing: both muzzles are on the same
+   * hull at the same tick, so the second flash would draw on top of the first,
+   * and emitting two would tell an observer the ship fired twice, which is a
+   * weapon-activity tell amendment 19 keeps off this row.
+   */
+  private emitMuzzleFlash(shell: ShellState): void {
+    if (shell.kind !== 'shell') return; // gun family only — the wire kind IS the predicate
+    if (this.mzOwnersThisTick.has(shell.ownerId)) return; // per tick per owner (see above)
+    this.mzOwnersThisTick.add(shell.ownerId);
+    this.pending.push({ k: 'mz', x: shell.x, y: shell.y });
   }
 
   /**

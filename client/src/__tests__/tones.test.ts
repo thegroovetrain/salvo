@@ -36,6 +36,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'fitRare',
   'fitExclusive',
   'burn',
+  'hitCall',
   'slowed',
   'dazzled',
   'sink',
@@ -310,5 +311,40 @@ describe('the victim cues (Story 2.9) — burn / slowed / dazzled', () => {
       expect(TONES[id].type).not.toBe(TONES.denied.type); // never the square blat
       expect(TONES[id].noise).toBeUndefined(); // never a gun-family transient
     }
+  });
+});
+
+// --- STORY 4.3: the HIT CALL — the muffled boom --------------------------------
+//
+// "Something you fired or laid CONNECTED", possibly at a hull you cannot see.
+// The character contract: the lowest tone in the catalog, a soft triangle with
+// no transient (muffled = distance), and a contour that DIPS and rolls back up
+// — a swell, not an impact. Its neighbours in the low register (damage, burn,
+// stormWarn) are all things happening TO you, and all fall monotonically.
+
+describe('hitCall tone (Story 4.3) — a connection you may not be able to see', () => {
+  it('is a short, noise-free triangle inside the tone budget', () => {
+    expect(TONES.hitCall.type).toBe('triangle');
+    expect(TONES.hitCall.noise).toBeUndefined(); // a transient would make it a near crack
+    expect(TONES.hitCall.duration).toBeLessThanOrEqual(MAX_TONE_S);
+  });
+
+  it('sits BELOW every low-register neighbour it must not be confused with', () => {
+    for (const id of ['damage', 'burn', 'stormWarn'] as const) {
+      expect(TONES.hitCall.freqStart, id).toBeLessThan(TONES[id].freqStart);
+    }
+  });
+
+  it('DIPS and rolls back up, where every low neighbour falls and stops', () => {
+    expect(TONES.hitCall.freqMid).toBeLessThan(TONES.hitCall.freqStart); // the punch down
+    expect(TONES.hitCall.freqEnd).toBeGreaterThan(TONES.hitCall.freqMid); // ...and the swell back
+    for (const id of ['damage', 'burn', 'stormWarn'] as const) {
+      expect(TONES[id].freqEnd, id).toBeLessThan(TONES[id].freqMid); // monotonic fall
+    }
+  });
+
+  it('is not the storm\'s sawtooth growl, and carries no burn hiss', () => {
+    expect(TONES.hitCall.type).not.toBe(TONES.stormWarn.type);
+    expect(TONES.burn.noise).toBe(true);
   });
 });

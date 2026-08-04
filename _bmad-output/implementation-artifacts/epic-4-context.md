@@ -82,3 +82,19 @@ planning-artifact-derived content above, **the amendment WINS**. Summary of entr
 6. **Doc drift ledgered, not fixed:** the tone catalog is 22, not the "13" in EXPERIENCE.md:137 and
    the 4.7 AC; the denied tone shipped (1.10) rather than being deferred; `CLAUDE.md` says
    PROTOCOL_VERSION 18 but it is 19.
+7. **Story 4.2 rulings (amendments 7-14):** blips paint TRUE-SCALE hull silhouettes at true position
+   and heading (the DESIGN.md px table, 11px floor-clamp and 3× ML notch are RETIRED); radar
+   BEHAVIOR is realistic while the silhouette grammar is the retained conceit; three-paint
+   persistence; ARPA speed vector on raw `speed`; the decoy is a radar reflector reporting frozen
+   drop-time pose at speed 0; drones paint the legacy chevron at true size; the per-hue luminance
+   floor is algorithmic, not a table; Variant P is a build-time define.
+8. **Story 4.3 rulings (amendments 15-20)** — at every fork Eric took the SMALLEST new information
+   channel that still satisfied the story: muzzle flash carries to `SIGHT * 1.5` (495u, derived,
+   LOS-blocked) — NOT radar range and NOT map-wide; fall-of-shot splashes are SELF-PRIVATE own
+   misses only and gun-family only (FR16's "own" wins over EXPERIENCE.md:181's unqualified line);
+   the Hit Call is SHOOTER-ONLY and deliberately OVERRIDES the shipped "hit confirmation beyond
+   sight would leak contact presence" rule for the owner-hit case, which is what keeps the decoy
+   disambiguation oracle alive; Hit Call scope is ALL ordnance including mines (a Mine Layer learns
+   remotely that a trap sprung); the flash is NEUTRAL — position only, never who fired and never
+   which weapon (DESIGN.md:239 beats UX-DR7 for this signal); the flash fires for the gun family
+   only, upholding the torpedo's shipped "quiet weapon" status.

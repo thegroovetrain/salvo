@@ -627,12 +627,14 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
     expect(play).toHaveBeenCalledWith('fireCannon'); // the heavier report, finally played
   });
 
-  it('an OWN gun shot is unchanged — the ordinary flash and the gun crack', () => {
+  it('an OWN gun shot keeps its crack — and no longer flashes from here (Story 4.3)', () => {
     const { sink, play, spawnEffect, onShell } = setupWater('gun');
     sink.handler(victimFrame([{ k: 'shell', id: 's1', x: 0, y: 0, vx: 130, vy: 0, t: 900 }], {}));
     // A REAL claim: look 'gun' AND claim 'gun' (this one may size a burst ring).
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'gun', 'gun');
-    expect(spawnEffect).toHaveBeenCalledWith('muzzle', 0, 0);
+    // The universal flash is the server's `mz` row now; handleShell only ever
+    // adds the own cannon's extra weight on top of it.
+    expect(spawnEffect).not.toHaveBeenCalled();
     expect(play).toHaveBeenCalledWith('fireGun');
   });
 
@@ -643,7 +645,7 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
     // behavior, unchanged) but it CLAIMED nothing — the third argument is the
     // burst-ring authority, and a guess is not evidence.
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'gun', null);
-    expect(spawnEffect).toHaveBeenCalledWith('muzzle', 0, 0);
+    expect(spawnEffect).not.toHaveBeenCalled(); // no plain muzzle from here (4.3)
     expect(play).toHaveBeenCalledWith('fireGun');
   });
 
@@ -699,8 +701,10 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
     ], {}));
     expect(onShell).toHaveBeenNthCalledWith(1, expect.objectContaining({ id: 's1' }), 'cannon', 'cannon');
     expect(onShell).toHaveBeenNthCalledWith(2, expect.objectContaining({ id: 's2' }), 'gun', null);
-    expect(spawnEffect).toHaveBeenNthCalledWith(1, 'muzzleHeavy', 0, 0);
-    expect(spawnEffect).toHaveBeenNthCalledWith(2, 'muzzle', 0, 0);
+    // Only the CLAIMED cannon shot spawns anything here; the second reveal's
+    // flash (if it earns one) comes from the server's own `mz` row.
+    expect(spawnEffect).toHaveBeenCalledTimes(1);
+    expect(spawnEffect).toHaveBeenCalledWith('muzzleHeavy', 0, 0);
     expect(play).toHaveBeenNthCalledWith(1, 'fireCannon');
     expect(play).toHaveBeenNthCalledWith(2, 'fireGun');
   });
@@ -725,7 +729,7 @@ describe('own-fire correlation (Story 2.9) — telling our cannon from our gun',
     expect(play).toHaveBeenCalledWith('fireStarShells');
     expect(play).not.toHaveBeenCalledWith('fireGun');
     expect(onShell).toHaveBeenCalledWith(expect.objectContaining({ id: 's1' }), 'starShells', 'starShells');
-    expect(spawnEffect).toHaveBeenCalledWith('muzzle', 0, 0); // not the cannon's heavy flash
+    expect(spawnEffect).not.toHaveBeenCalled(); // never the cannon's heavy flash
   });
 });
 
@@ -755,6 +759,117 @@ describe('pierce identity (Story 2.9) — the derived AP boom id', () => {
     const { sink, spawnEffect } = setupWater();
     sink.handler(victimFrame([{ k: 'boom', hit: 'foe', x: 5, y: 5 }], {}));
     expect(spawnEffect).toHaveBeenCalledWith('spark', 5, 5);
+  });
+});
+
+// --- STORY 4.3: THE GUNNERY CONVERSATION ---------------------------------------
+//
+// Three server rows replace three client-side guesses. `mz` says a gun-family
+// weapon fired HERE (for anyone in the 495u halo, and deliberately anonymous),
+// `sp` is our own fall of shot through any fog, `hc` is "something you fired
+// connected" with no severity of any kind. The two impact rows CLAIM their
+// point, so a shooter who can see their own impact draws one mark, not two.
+
+describe('the gunnery rows (Story 4.3) — mz / sp / hc', () => {
+  it('spawns the neutral muzzle flash wherever the server says a gun went off', () => {
+    const { sink, spawnEffect, play } = setupWater();
+    // Far outside our sight bubble and carrying NO id — we cannot see the
+    // shooter and are not told who they are. It still draws.
+    sink.handler(victimFrame([{ k: 'mz', x: 420, y: -80 }], {}));
+    expect(spawnEffect).toHaveBeenCalledWith('muzzle', 420, -80);
+    expect(play).not.toHaveBeenCalled(); // the flash is silent — no tone exists for it
+  });
+
+  it('spawns our own fall of shot at the true impact point', () => {
+    const { sink, spawnEffect, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'sp', id: 'me', x: 500, y: 260 }], {}));
+    expect(spawnEffect).toHaveBeenCalledWith('splash', 500, 260);
+    expect(play).not.toHaveBeenCalled(); // a miss has no cue
+  });
+
+  it('blooms AND calls the hit when something we fired connects', () => {
+    const { sink, spawnEffect, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'hc', id: 'me', x: -300, y: 44 }], {}));
+    expect(spawnEffect).toHaveBeenCalledWith('spark', -300, 44);
+    expect(play).toHaveBeenCalledWith('hitCall');
+  });
+
+  it('SPECTATOR: another captain\'s hit call blooms but never sounds in our ears', () => {
+    // `hc` is spectator-public on the wire (the `dmg` precedent), so a dead
+    // captain receives EVERY shooter's Hit Call. The bloom is watching the
+    // gunnery conversation and is welcome; the TONE means "something YOU fired
+    // connected" and must not fire for someone else's shot — ungated, a
+    // spectator would hear it for all 19 remaining hulls until results.
+    const { sink, spawnEffect, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'hc', id: 'someone-else', x: -300, y: 44 }], {}));
+    expect(spawnEffect).toHaveBeenCalledWith('spark', -300, 44);
+    expect(play.mock.calls.filter(([id]) => id === 'hitCall')).toHaveLength(0);
+  });
+
+  it('THE DOUBLE-RENDER SEAM: a boom and an hc at one point draw ONE spark', () => {
+    const { sink, spawnEffect, play } = setupWater();
+    sink.handler(victimFrame([
+      { k: 'boom', id: 's7', hit: 'foe', x: 40, y: -12 },
+      { k: 'hc', id: 'me', x: 40, y: -12 },
+    ], {}));
+    expect(spawnEffect).toHaveBeenCalledTimes(1);
+    expect(spawnEffect).toHaveBeenCalledWith('spark', 40, -12);
+    expect(play).toHaveBeenCalledWith('hitCall'); // the cue is never deduped away
+  });
+
+  it('...and ORDER-INDEPENDENTLY so — hc first draws exactly one too', () => {
+    const { sink, spawnEffect } = setupWater();
+    sink.handler(victimFrame([
+      { k: 'hc', id: 'me', x: 40, y: -12 },
+      { k: 'boom', id: 's7', hit: 'foe', x: 40, y: -12 },
+    ], {}));
+    expect(spawnEffect).toHaveBeenCalledTimes(1);
+    expect(spawnEffect).toHaveBeenCalledWith('spark', 40, -12);
+  });
+
+  it('dedupes a MISS the same way: the boom splash and our own sp are one mark', () => {
+    const { sink, spawnEffect } = setupWater();
+    sink.handler(victimFrame([
+      { k: 'boom', id: 's7', x: 88, y: 3 },
+      { k: 'sp', id: 'me', x: 88, y: 3 },
+    ], {}));
+    expect(spawnEffect).toHaveBeenCalledTimes(1);
+    expect(spawnEffect).toHaveBeenCalledWith('splash', 88, 3);
+  });
+
+  it('leaves the PIERCE ring alongside the Hit Call bloom — different facts', () => {
+    // The ring says the shell went THROUGH and is still flying; the bloom says
+    // we connected. Keeping pierce out of the claim is also what keeps the
+    // boom/hc pairing order-independent.
+    const { sink, spawnEffect } = setupWater();
+    sink.handler(victimFrame([
+      { k: 'boom', id: 's7#p0', hit: 'foe', x: 40, y: 0 },
+      { k: 'hc', id: 'me', x: 40, y: 0 },
+    ], {}));
+    expect(spawnEffect).toHaveBeenNthCalledWith(1, 'pierce', 40, 0);
+    expect(spawnEffect).toHaveBeenNthCalledWith(2, 'spark', 40, 0);
+  });
+
+  it('draws every bloom of a rapid salvo but plays at most one tone per 300ms', () => {
+    const { sink, spawnEffect, play } = setupWater();
+    // Three connections across two frames, 200ms of server time apart.
+    sink.handler(victimFrame([
+      { k: 'hc', id: 'me', x: 0, y: 0 },
+      { k: 'hc', id: 'me', x: 30, y: 0 },
+    ], {}, { t: 1000 }));
+    sink.handler(victimFrame([{ k: 'hc', id: 'me', x: 60, y: 0 }], {}, { t: 1200 }));
+    expect(spawnEffect).toHaveBeenCalledTimes(3); // three points, three facts
+    expect(play.mock.calls.filter(([id]) => id === 'hitCall')).toHaveLength(1);
+    // ...and once the floor has elapsed the cue is heard again.
+    sink.handler(victimFrame([{ k: 'hc', id: 'me', x: 90, y: 0 }], {}, { t: 1400 }));
+    expect(play.mock.calls.filter(([id]) => id === 'hitCall')).toHaveLength(2);
+  });
+
+  it('the claim does not carry ACROSS frames — the same water can be shelled again', () => {
+    const { sink, spawnEffect } = setupWater();
+    sink.handler(victimFrame([{ k: 'sp', id: 'me', x: 12, y: 12 }], {}, { t: 1000 }));
+    sink.handler(victimFrame([{ k: 'sp', id: 'me', x: 12, y: 12 }], {}, { t: 1100 }));
+    expect(spawnEffect).toHaveBeenCalledTimes(2);
   });
 });
 

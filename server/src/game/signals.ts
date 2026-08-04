@@ -1,6 +1,6 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 11 GameEvent kinds plus the four contact-like frame channels
+// row here: the 14 GameEvent kinds plus the four contact-like frame channels
 // (`contact`, `mine`, `litzone`, and `decoy` — pseudo event types: not
 // GameEvents, but the invariant suite iterates them like everything else).
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
@@ -22,7 +22,8 @@
 // builds its wire object in the exact historical field order (Contact:
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
 // k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,mode;
-// DecoyView: id,x,y,until,own,by). Do not reorder keys — `by` (Story 1.12) is
+// DecoyView: id,x,y,until,own,by; SplashEvent/HitCallEvent: k,id,x,y;
+// MuzzleEvent: k,x,y — Story 4.3). Do not reorder keys — `by` (Story 1.12) is
 // appended LAST on mine/decoy, `mode` (Story 2.9) after it on litzone, so the
 // historical prefix stays byte-stable.
 
@@ -41,13 +42,16 @@ import {
   type DamageEvent,
   type DecoyView,
   type GameEvent,
+  type HitCallEvent,
   type HullId,
   type LitZoneView,
   type MineView,
+  type MuzzleEvent,
   type BoonFitEvent,
   type PointEvent,
   type ShellState,
   type SpawnEvent,
+  type SplashEvent,
   type SunkEvent,
   type TorpedoUpdateEvent,
   type Vec2,
@@ -552,9 +556,15 @@ const torpedoUpdateSignal: SignalSpec<ShellState, TorpedoUpdateEvent> = {
  * `boom` — visible iff the boom location is within sight + LOS, inside a lit
  * zone the observer OWNS (Story 1.7 truesight parity — everything a firer's
  * zone reveals can also visibly explode), OR the boom struck the observer
- * (`hit === me`). The shell's owner does NOT get an out-of-sight boom — hit
- * confirmation beyond sight would leak contact presence; their dead-reckoned
- * shell just expires by client lifetime. Even when the boom IS visible, its
+ * (`hit === me`). The shell's owner does NOT get an out-of-sight boom on THIS
+ * row — but the original rationale ("hit confirmation beyond sight would leak
+ * contact presence") is SUPERSEDED for the owner-hit case by Story 4.3,
+ * amendment 17: out-of-sight hit confirmation is now the deliberate,
+ * narrowly-scoped job of the SELF-PRIVATE Hit Call row (`hc`, hitCallSignal
+ * below) — position only, never a victim id or severity — because the
+ * ratified decoy disambiguation oracle depends on it. Bystanders and victims
+ * keep today's boom rules exactly; the owner's dead-reckoned shell still just
+ * expires by client lifetime on this row. Even when the boom IS visible, its
  * `hit` (victim id) is stripped unless the victim's CENTER is itself sighted
  * or zone-covered (or the observer IS the victim): a hull can straddle the
  * sight edge with its center in fog, and emitting the id there would leak the
@@ -689,6 +699,86 @@ function selfPrivateSignal<E extends DamageEvent | PointEvent | BoonFitEvent>(
   };
 }
 
+/**
+ * SHOOTER-PRIVATE kinds (Story 4.3) — the selfPrivateSignal idiom applied to
+ * the gunnery events `sp`/`hc`, whose `id` names the SHOOTER rather than a
+ * victim/earner. A separate factory (not a widening of selfPrivateSignal's
+ * union) so the dmg/pt/bn gate keeps its exact historical type. Both rows are
+ * spectator-public, exactly like `dmg` (a dead player may watch the gunnery
+ * conversation; there is no channel back into the match).
+ */
+function shooterPrivateSignal<E extends SplashEvent | HitCallEvent>(kind: E['k']): SignalSpec<E, E> {
+  return {
+    eventType: kind,
+    visible(ctx, e) {
+      if (ctx.mode === 'spectator') return true; // spectator-public, the dmg precedent
+      return e.id === ctx.observerId;
+    },
+    materialize(_ctx, e) {
+      return e; // world-emitted key order (k,id,x,y) forwarded verbatim
+    },
+  };
+}
+
+/**
+ * `sp` — FALL OF SHOT (Story 4.3, amendment 16): the shooter's own shell
+ * terminated without resolving any victim; a splash at the true impact point,
+ * for the shooter ALONE, at any range and through any fog. A DECLARED
+ * exception to the master perception invariant: it references a point outside
+ * the observer's sight ∪ paints, justified because the point is one the
+ * shooter authored (their own click / their own shell's flight) — the burst
+ * row's owner rationale, extended to misses. Self-private + spectator-public:
+ * exactly the `dmg` row's shape. GUN-FAMILY ONLY at the emission site (wire
+ * kind 'shell'): torpedoes and mines never produce one (World.emitSplash).
+ */
+const fallOfShotSignal = shooterPrivateSignal<SplashEvent>('sp');
+
+/**
+ * `hc` — HIT CALL (Story 4.3, amendments 17/18): something the shooter fired
+ * or laid CONNECTED — position only, never a victim id or any severity
+ * channel. A DECLARED exception to the master perception invariant AND a
+ * knowing supersession of the boom row's owner anti-leak rule for the
+ * owner-hit case ONLY (see the boom row's amended comment): leaking
+ * "something of yours connected out there" to its owner is now the intended
+ * feature — it is what keeps the ratified decoy disambiguation oracle alive.
+ * Self-private + spectator-public: exactly the `dmg` row's shape. ALL
+ * ORDNANCE at the emission sites: gun, cannon, star shells, torpedo, mines.
+ */
+const hitCallSignal = shooterPrivateSignal<HitCallEvent>('hc');
+
+/**
+ * `mz` — MUZZLE FLASH (Story 4.3, amendments 15/19/20): a gun-family weapon
+ * fired at this point. A DECLARED exception to the master perception
+ * invariant with its own NEW spatial rule: visible iff
+ * dist(observer, flash) ≤ CONFIG.vision.muzzleFlash (the DERIVED SIGHT * 1.5
+ * halo — the CONSTANT, deliberately NOT the observer's dazzle-scaled
+ * sightOf: a flash is a light source, not an illuminated object, so dazzle
+ * does not change how far it carries, and intel boons do not widen it) ∧
+ * island LOS clear (the standing 2026-08-02 ruling: islands block EVERY
+ * sensor at ALL ranges). Deliberately NO ownZoneCovers term — a star-shell
+ * zone does not help you see a flash you are too far away from. materialize
+ * returns the bare {k,x,y} for EVERY observer — shooter and spectators
+ * included; there is no privileged view of this row and no identity of any
+ * kind on it (amendment 19: the flash must create a question, not answer
+ * one).
+ */
+const muzzleFlashSignal: SignalSpec<MuzzleEvent, MuzzleEvent> = {
+  eventType: 'mz',
+  visible(ctx, e) {
+    if (ctx.mode === 'spectator') return true;
+    const me = ctx.me;
+    const dx = e.x - me.state.x;
+    const dy = e.y - me.state.y;
+    const halo = CONFIG.vision.muzzleFlash;
+    return dx * dx + dy * dy <= halo * halo && losClear(me.state, e, ctx.islands);
+  },
+  materialize(_ctx, e) {
+    // ALWAYS a fresh bare object (the burst-row discipline): the wire shape is
+    // {k,x,y} for every observer — no id can ever ride along by accident.
+    return { k: 'mz', x: e.x, y: e.y };
+  },
+};
+
 // ---------------------------------------------------------------------------
 // The registry: every spatial signal channel, one row each.
 // ---------------------------------------------------------------------------
@@ -704,7 +794,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 };
 
 /**
- * String-keyed registry of every signal channel — the 11 GameEvent kinds plus
+ * String-keyed registry of every signal channel — the 14 GameEvent kinds plus
  * the `contact`/`mine`/`litzone`/`decoy` pseudo-types. perception.ts
  * dispatches world events by `e.k` (an emitted kind with no row is a hard
  * fail-closed drop) and drives the contact/blip/ballistic/mine/litzone/decoy
@@ -728,6 +818,11 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   dmg: selfPrivateSignal<DamageEvent>('dmg', true),
   pt: selfPrivateSignal<PointEvent>('pt', false),
   bn: selfPrivateSignal<BoonFitEvent>('bn', false),
+  // Story 4.3 (amendments 15-20): the gunnery conversation — three declared
+  // fog exceptions, each with its stated rationale on its row above.
+  sp: fallOfShotSignal,
+  hc: hitCallSignal,
+  mz: muzzleFlashSignal,
 });
 
 /**
@@ -745,7 +840,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 11 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
+ * ONLY the 14 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
  * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`/`k:'decoy'`) world
  * event can never materialize (restoring the old dispatcher's
  * `default: return null` guarantee), and uses an OWN-property lookup

@@ -71,6 +71,15 @@ describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
     expect(CONFIG.vision.radar).toBe(2 * CONFIG.vision.sight);
   });
 
+  it('muzzleFlash is structurally 1.5 × sight (Story 4.3, amendment 15 — derivation pin)', () => {
+    expect(CONFIG.vision.muzzleFlash).toBe(1.5 * CONFIG.vision.sight);
+  });
+
+  it('the flash halo sits strictly between sight and radar: sight < muzzleFlash < radar (amendment 15 — a thin annulus, radar stays the only long-range sensor)', () => {
+    expect(CONFIG.vision.sight).toBeLessThan(CONFIG.vision.muzzleFlash);
+    expect(CONFIG.vision.muzzleFlash).toBeLessThan(CONFIG.vision.radar);
+  });
+
   it('radar reaches the terminal ring radius — reduces to terminalSightFactor <= 2 (sight cancels; a truesight-only retune cannot fail this)', () => {
     expect(CONFIG.vision.radar).toBeGreaterThanOrEqual(zoneTerminalRadius(CONFIG.zone));
   });

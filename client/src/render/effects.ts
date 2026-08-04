@@ -1,7 +1,9 @@
 // Feel effects, funneled through one spawnEffect() entry + a shared sprite pool.
 //   - wake:   continuous speed feedback behind the own hull (world-space dots)
-//   - muzzle: brief flash at a gun's shell spawn (bright dot)
-//   - spark:  bright hit spark at a shell-vs-ship impact (additive)
+//   - muzzle: brief flash where a gun-family weapon fired (bright dot) — since
+//             Story 4.3 driven by the server's neutral `mz` row, not a guess
+//   - spark:  bright hit bloom at an impact (additive) — the public `boom` for
+//             onlookers, the self-private `hc` Hit Call for the shooter
 //   - splash: expanding ring at a shell splash (miss / island / range-out)
 //   - sink:   larger expanding crimson ring where a hull went down
 // One-shots share a redraw-per-frame Graphics pool; wake keeps its own aged
@@ -29,17 +31,29 @@ export type EffectKind =
 
 /**
  * Pure: is this one-shot pure JUICE (a decorative flash) rather than a marker
- * that carries information? Only the muzzle flashes and the impact spark are —
- * splash / sink / burst rings say WHERE something happened, the torpedo wake
- * says where a fish ran, and the `pierce` ring says a shell PUNCHED THROUGH a
- * hull and is still flying (Story 2.9: the ARMOR-PIERCING read, which is the
- * only thing on screen distinguishing a pierce from a terminal hit), so they
- * survive every motion level. The juice kinds' peak alpha is scaled by the
- * accessibility motion level (Story 2.3): halved at `reduced`, suppressed at
- * `off`.
+ * that carries information? Exactly ONE kind is, now: `muzzleHeavy`, the own
+ * cannon's extra weight — it only ever draws on our own hull, on top of the
+ * universal flash, and says nothing the universal flash did not already say.
+ * Everything else is a marker: splash / sink / burst rings say WHERE something
+ * happened, the torpedo wake says where a fish ran, and the `pierce` ring says a
+ * shell PUNCHED THROUGH a hull and is still flying (Story 2.9: the
+ * ARMOR-PIERCING read, the only thing on screen distinguishing a pierce from a
+ * terminal hit). The juice kinds' peak alpha is scaled by the accessibility
+ * motion level (Story 2.3): halved at `reduced`, suppressed at `off`.
+ *
+ * STORY 4.3 PROMOTED `muzzle` AND `spark` OUT OF JUICE. They were juice while
+ * they were client-side GUESSES about things you could already see: a flash
+ * drawn only when a shell happened to reveal on a visible hull, and a spark
+ * drawn only at impacts inside your own bubble. The server now states both
+ * outright — `mz` says a gun went off HERE (a shooter you may not be able to
+ * see), and `hc` says something you fired CONNECTED (at a point you may have no
+ * other way to learn about). FR16 makes them load-bearing information, and the
+ * ratified motion rule is that `off` removes MOTION, never INFORMATION. Do not
+ * put them back: gating them on the motion setting would delete the two answers
+ * this story exists to give from the screen of anyone who turned animation down.
  */
 export function isJuiceEffect(kind: EffectKind): boolean {
-  return kind === 'muzzle' || kind === 'muzzleHeavy' || kind === 'spark';
+  return kind === 'muzzleHeavy';
 }
 
 /** Pure: the peak alpha a one-shot renders at, after the motion gate. */
@@ -49,14 +63,25 @@ export function effectPeakAlpha(kind: EffectKind, baseAlpha: number, intensity: 
 
 /**
  * Pure layer-routing predicate: which one-shot kinds render into the FOG-IMMUNE
- * chart layer instead of the fogged world. Only the gun-shell `burst` does — a
- * burst at radar range (well beyond the sight bubble) must read as a detonation
+ * chart layer instead of the fogged world. The gun-shell `burst` was the first —
+ * a burst at radar range (well beyond the sight bubble) must read as a detonation
  * flash above the fog, mirroring the reticle's fog-immunity (render/firing.ts).
- * Muzzle/spark/splash/sink/torpwake stay in the fogged world (they only ever
- * occur inside or near your own sight). Unit-tested; no Pixi involved.
+ *
+ * STORY 4.3 ADDS THE THREE GUNNERY MARKS. Each is now a server signal with its
+ * own declared fog exception, so each must be able to draw where the fog is:
+ * `splash` is your own fall of shot at its true impact point (bracket-and-walk
+ * fire is the whole point — a miss you cannot see is the one you most need to
+ * see), `spark` is the Hit Call bloom confirming a connection at a hull the fog
+ * is hiding, and `muzzle` is a shooter inside the 495u flash halo but outside
+ * your 330u bubble. Drawing any of the three UNDER the fog would render them
+ * exactly where they are already useless.
+ *
+ * `muzzleHeavy` stays fogged, and correctly: it is own-side only and only ever
+ * draws on our own hull, which IS the hole in the fog. Sink and torpwake stay
+ * fogged too (both only occur where you can already see). No Pixi involved.
  */
 export function isFogImmuneEffect(kind: EffectKind): boolean {
-  return kind === 'burst';
+  return kind === 'burst' || kind === 'splash' || kind === 'spark' || kind === 'muzzle';
 }
 
 interface OneShotSpec {

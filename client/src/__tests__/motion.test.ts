@@ -97,17 +97,22 @@ describe('HP rail pulse — the BREATHING is motion, the hull reading is informa
 });
 
 describe('one-shot effects — juice is gated, markers are not', () => {
-  it('classifies muzzle/spark as juice and the location markers as information', () => {
-    expect(isJuiceEffect('muzzle')).toBe(true);
-    expect(isJuiceEffect('spark')).toBe(true);
-    for (const kind of ['splash', 'sink', 'burst', 'torpwake'] as const) {
+  it('classifies the own cannon\'s extra flash as juice and every marker as information', () => {
+    // STORY 4.3 moved muzzle and spark out of juice: the server now states both
+    // outright (`mz` / `hc`), so they carry information a player with motion=off
+    // must not lose. muzzleHeavy is the only pure decoration left — own-side
+    // weight layered on top of the universal flash, on our own hull.
+    expect(isJuiceEffect('muzzleHeavy')).toBe(true);
+    for (const kind of ['muzzle', 'spark', 'splash', 'sink', 'burst', 'torpwake'] as const) {
       expect(isJuiceEffect(kind), kind).toBe(false);
     }
   });
 
-  it('motion=off removes the flashes but never the markers', () => {
-    expect(effectPeakAlpha('spark', 1, 0)).toBe(0);
-    expect(effectPeakAlpha('muzzle', 0.9, 0.5)).toBeCloseTo(0.45, 9);
+  it('motion=off removes the own-side flourish but never the markers', () => {
+    expect(effectPeakAlpha('muzzleHeavy', 1, 0)).toBe(0);
+    expect(effectPeakAlpha('muzzleHeavy', 0.9, 0.5)).toBeCloseTo(0.45, 9);
+    expect(effectPeakAlpha('spark', 1, 0)).toBe(1); // the Hit Call bloom: kept
+    expect(effectPeakAlpha('muzzle', 0.9, 0)).toBe(0.9); // someone fired there: kept
     expect(effectPeakAlpha('sink', 0.9, 0)).toBe(0.9); // where a hull went down: kept
     expect(effectPeakAlpha('burst', 0.95, 0)).toBe(0.95);
   });
