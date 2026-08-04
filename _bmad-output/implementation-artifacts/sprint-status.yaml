@@ -22,6 +22,9 @@
 #   - in-progress: Developer actively working on implementation
 #   - review: Ready for code review (via Dev's code-review workflow)
 #   - done: Story completed
+#   - deferred: Deliberately postponed by an owner ruling — NOT cut, NOT available for pickup.
+#     The story number stays reserved and the story may be revived by a later explicit ruling.
+#     Every deferred story must name its ruling record in a trailing comment.
 #
 # Retrospective Status:
 #   - optional: Can be completed but not required
@@ -42,7 +45,7 @@
 # Story 1.9 tombstoned (number retired, not reused); later stories keep their numbers.
 
 generated: 2026-07-17
-last_updated: 2026-08-03
+last_updated: 2026-08-04
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -98,8 +101,12 @@ development_status:
   epic-3-retrospective: done  # epic-3-retro-2026-08-03.md (live with Eric; carries the ~10-player playtest reads)
 
   # epic-4: Information Texture (GDD E6)
-  epic-4: backlog
-  4-1-the-listening-ring: backlog
+  epic-4: backlog  # no story file created yet — 4-1 was deferred at its question gate, before any spec
+  # DEFERRED 2026-08-04 by Eric ruling (bmad-dev-auto-result-4-1-listening-ring-deferred.md;
+  # epic-4-context-amendments.md amendment 1): hydrophone sensor tier not built — enough
+  # information channels already, active sonar is coming, and the ring's value is contingent on a
+  # torpedo/mine rebalance that hasn't happened. Not cut; revivable by a later explicit ruling.
+  4-1-the-listening-ring: deferred
   4-2-class-legible-blips: backlog
   4-3-the-gunnery-conversation: backlog
   4-4-wounded-smoke: backlog
@@ -168,4 +175,16 @@ action_items:
   - epic: 3
     action: "BB endgame share + terminal-ring island pockets: next checkpoint is full-roster matches reaching 12:00 closure (terminal ring human-unverified — playtest matches never hit 12:00)"
     owner: "ledger (playtest checkpoint)"
+    status: open
+  - epic: 4
+    action: "Story 4-5 (The Foghorn) lost its ratified display surface to the 4-1 deferral — the honk's arc sweep lit every hull's listening ring, which no longer exists. 4-5 must grow its own bearing surface or defer alongside 4-1; settle with Eric BEFORE create-story 4-5, not during it (Eric ruling 2026-08-04, epic-4 amendment 4)"
+    owner: "spec author (create-story 4-5)"
+    status: open
+  - epic: 4
+    action: "Story 4-8 must not pin a listening-ring Tier-1 attention channel (deferred with 4-1); shipped Tier-1 set is the low-HP rail pulse + live denied pulse. Still owns resolving the tier-table <25%-vs-50% doc drift with Eric rather than inheriting the stale number"
+    owner: "spec author (create-story 4-8)"
+    status: open
+  - epic: 4
+    action: "Weapon cooldown / TTK rebalance is Eric-SIGNALED but NOT scheduled or ratified (torpedo speed FIXED at 60 u/s — lethality must come from damage/reload/delivery; cooldowns likely rising across most weapons). No cycle implements it without an explicit numbers ruling. This is also the natural moment to revisit the 4-1 deferral, since the listening ring's value is contingent on torps/mines being threatening"
+    owner: "ledger (Eric-gated)"
     status: open
