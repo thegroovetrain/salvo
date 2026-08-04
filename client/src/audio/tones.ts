@@ -22,6 +22,7 @@ export type ToneId =
   | 'fitRare'
   | 'fitExclusive'
   | 'burn'
+  | 'hitCall'
   | 'slowed'
   | 'dazzled'
   | 'sink'
@@ -95,6 +96,29 @@ export const TONES: Record<ToneId, ToneSpec> = {
   // under it with a noise hiss (fire, not impact) — because it IS damage, only
   // a DoT tick rather than a slam (the shake is scaled down to match).
   burn: { freqStart: 150, freqMid: 120, freqEnd: 90, duration: 0.11, volume: 0.32, type: 'triangle', noise: true },
+  // --- THE HIT CALL (Story 4.3, amendments 17/18) ----------------------------
+  // Something YOU fired or laid connected — possibly at a hull you cannot see.
+  // A MUFFLED BOOM: the lowest tone in the catalog, a soft triangle that punches
+  // down to 85Hz in the first 40% and then ROLLS BACK UP as it fades, which is
+  // what a detonation sounds like from far enough away that the crack is gone
+  // and only the swell reaches you. Deliberately no noise layer — a transient
+  // would make it a nearby crack, and the whole character of this cue is
+  // distance.
+  //
+  // WHY IT CANNOT BE MISTAKEN FOR ITS NEIGHBOURS, all three of which are things
+  // happening TO you while this is something happening FOR you:
+  //   • the CONTOUR is unique in the low register — damage (220→110), burn
+  //     (150→90) and stormWarn (160→70) all fall monotonically to their floor
+  //     and stop; this one dips and comes back, so it lands as a swell, not a
+  //     hit;
+  //   • it starts BELOW all three (130 < 150 < 160 < 220), so even the contour
+  //     aside it sits in its own octave;
+  //   • it is not the storm's sawtooth growl, and unlike burn it carries no
+  //     hiss.
+  // Draft spec (the draft-copy rule); the visual twin is the Hit Call bloom
+  // (audio/twinMap.ts), which stands alone — with Story 4.1 deferred there is no
+  // listening ring to back it up, so the bloom is the whole muted answer.
+  hitCall: { freqStart: 130, freqMid: 85, freqEnd: 120, duration: 0.12, volume: 0.42, type: 'triangle' },
   // Fouled (PROP-FOULING): a sagging low sine — the engine losing revs. Falls
   // like the denied blat but soft and round, never that curt square refusal.
   slowed: { freqStart: 300, freqMid: 190, freqEnd: 130, duration: 0.14, volume: 0.34, type: 'sine' },

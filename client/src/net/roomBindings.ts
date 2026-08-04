@@ -1,7 +1,8 @@
 // Wires incoming frames to the client's net machinery: clock samples, the
 // server mirror in state, own-ship snapshot buffer + predictor reconcile,
-// contact snapshot buffers, and per-tick events (shell/boom/dmg/sunk/spawn +
-// radar blips/sweep -> radar module). Spec frames (dead-in-active / match
+// contact snapshot buffers, and per-tick events (shell/boom/dmg/sunk/spawn, the
+// Story 4.3 gunnery rows mz/sp/hc, and radar blips/sweep -> radar module). Spec
+// frames (dead-in-active / match
 // finished) flip state.spectating and ride the SAME contact pipeline. This is
 // the only place server messages mutate client state (Colyseus messages are
 // the only push in the one-way flow; everything else pulls).
@@ -21,12 +22,15 @@ import {
   type DeniedView,
   type FrameMsg,
   type GameEvent,
+  type HitCallEvent,
   type LitZoneView,
+  type MuzzleEvent,
   type OwnShip,
   type PointEvent,
   type ResultsMsg,
   type ShipClassId,
   type SpawnEvent,
+  type SplashEvent,
   type SunkEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -48,18 +52,27 @@ import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
 import { fireTone, fitDetune, fitTone, type ToneId } from '../audio/tones.js';
 import { pierceOrder, type OwnFire } from '../render/projectiles.js';
+import { ImpactDedup, ToneFloor, hitCallToneFloor } from '../render/gunneryFeed.js';
 
 /**
- * A `shell` event fires a muzzle flash only when it reveals AT a ship we can
- * see — the shell wire shape no longer distinguishes a launch from a mid-flight
- * first-sight reveal (that distinction leaked the muzzle position; see
- * BallisticEvent's anti-cheat note). A genuine muzzle sits on a hull: our own
- * ship, or a sighted contact. A shell materializing in open water at our fog
- * boundary is a mid-flight reveal — no flash. `² of one hull length` as the
- * "on a ship" threshold (mounts sit within the hull footprint).
+ * "Close enough to be OUR hull": the squared threshold (one full hull length,
+ * the longest class's, since mounts sit inside the hull footprint) behind
+ * `nearOwnShip`. It is what makes a ballistic reveal on our own bow readable as
+ * OUR shot — the own-fire correlation's first gate (see the `ownFireWeapon` dep
+ * note), which picks the own cannon's heavy flash and plays the own-fire cue.
+ *
+ * STORY 4.3 RETIRED ITS OTHER USE. Until now the same threshold also drove a
+ * `nearVisibleShip` test that decided whether to draw a muzzle flash at all: a
+ * shell revealing near ANY hull we could see was assumed to be a launch, and a
+ * shell surfacing in open water at our fog boundary a mid-flight reveal. That
+ * was a client-side GUESS standing in for information the server would not send,
+ * and it is superseded by the `mz` row — the server now states, authoritatively
+ * and neutrally, where and when a gun-family weapon fired, at the TRUE muzzle
+ * rather than at a reveal point (which is the leak the Story 1.5 review closed).
+ * The heuristic answers only the own-side question it can actually answer.
  */
 const MAX_HULL_LEN = Math.max(...HULL_IDS.map((id) => hullEnvelope(id).hull.length));
-const MUZZLE_NEAR2 = MAX_HULL_LEN * MAX_HULL_LEN;
+const OWN_NEAR2 = MAX_HULL_LEN * MAX_HULL_LEN;
 
 export interface RoomBindingDeps {
   state: GameState;
@@ -221,12 +234,15 @@ export interface RoomBindingDeps {
 }
 
 /**
- * Cross-callback resume state. A reconnect resumes mid-flight: the ship's
+ * Per-binding state that outlives a single frame — the frame-to-frame memory
+ * the handlers need and the one cross-callback resume flag.
+ *
+ * The resume flag first: a reconnect resumes mid-flight, and the ship's
  * authoritative pose does not ride the onReconnect signal — it arrives on the
- * NEXT frame's `you`. So we arm a one-shot camera snap here and consume it in
+ * NEXT frame's `you`. So we arm a one-shot camera snap there and consume it in
  * handleFrame, completing the handleSpawn mirror (clear → forceSnap → snap).
  */
-interface ResumeState {
+interface BindState {
   pendingSnap: boolean;
   /** Was the PROP-FOULING slow window running on the previous frame? The tell's
    *  cue fires on the RISING edge only: a refresh extends the window (the server
@@ -243,12 +259,26 @@ interface ResumeState {
    * on fire can never read a hit as fire.
    */
   burningAt: number;
+  /** THE GUNNERY FEED (Story 4.3, render/gunneryFeed.ts). `impacts` is the
+   *  per-frame one-mark-per-point claim that keeps a shooter who can SEE their
+   *  own impact from drawing the public `boom` mark and the self-private
+   *  `hc`/`sp` mark on top of each other; `hitCallTone` is the Hit Call cue's
+   *  300ms same-source floor (nothing in the audio layer rate-limits). */
+  impacts: ImpactDedup;
+  hitCallTone: ToneFloor;
 }
 
 /** Attach frame/results/error/leave handling to a completed connection. */
 export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
-  const resume: ResumeState = { pendingSnap: false, slowed: false, dazzled: false, burningAt: -Infinity };
-  conn.sink.handler = (f) => handleFrame(f, deps, resume);
+  const s: BindState = {
+    pendingSnap: false,
+    slowed: false,
+    dazzled: false,
+    burningAt: -Infinity,
+    impacts: new ImpactDedup(),
+    hitCallTone: hitCallToneFloor(),
+  };
+  conn.sink.handler = (f) => handleFrame(f, deps, s);
   conn.room.onMessage(MSG.results, (msg: ResultsMsg) => {
     deps.state.matchOver = true;
     deps.onResults(msg);
@@ -283,7 +313,7 @@ export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
     // authoritative pose (you.x/you.y) actually arrives.
     deps.ownBuffer.clear();
     deps.predictor.forceSnap();
-    resume.pendingSnap = true;
+    s.pendingSnap = true;
     // The prime is client-only UX and does NOT survive the gap: revert to the
     // gun exactly as the sunk path does, so the first click back never fires a
     // stale torpedo/mine the player forgot they had primed.
@@ -292,7 +322,7 @@ export function bindRoom(conn: Connection, deps: RoomBindingDeps): void {
   });
 }
 
-function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): void {
+function handleFrame(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   deps.clock.addSample(f.t);
   const net = deps.state.net;
   net.tick = f.tick;
@@ -314,8 +344,8 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
     deps.radar.onSweepSample(f.you.sweep, f.t); // authoritative sweep anchor
     // First authoritative pose after a reconnect: snap the camera to the resumed
     // hull (completes the handleSpawn mirror), consuming the one-shot flag.
-    if (resume.pendingSnap) {
-      resume.pendingSnap = false;
+    if (s.pendingSnap) {
+      s.pendingSnap = false;
       deps.onOwnSpawn(f.you.x, f.you.y);
     }
   }
@@ -340,10 +370,10 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
   // derives the own ACTIVE zones from it to keep beyond-sight shells alive
   // (projectiles) and clear the own fog over them (fog).
   net.litZones = litZones;
-  routeVictimTells(f, deps, resume);
-  trackBurning(f, deps, resume);
+  routeVictimTells(f, deps, s);
+  trackBurning(f, deps, s);
   routeDenials(f, deps);
-  handleEvents(f, deps, resume);
+  handleEvents(f, deps, s);
 }
 
 /**
@@ -359,7 +389,7 @@ function handleFrame(f: FrameMsg, deps: RoomBindingDeps, resume: ResumeState): v
  * Zone geometry is only ever tested against a `you` on THIS frame: a spectator
  * frame carries no hull, and the last one is a lie by then.
  */
-function trackBurning(f: FrameMsg, deps: RoomBindingDeps, s: ResumeState): void {
+function trackBurning(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   if (!f.you) return;
   if (inEnemyBurningZone(deps.state.net.litZones, f.you, deps.state.net.sessionId)) s.burningAt = f.t;
 }
@@ -384,7 +414,7 @@ export function windowRunning(until: number | undefined, t: number): boolean {
  * Both fields are victim-private on `you`: nobody else's affliction ever
  * reaches this client, and a spectator frame (no `you`) simply clears both.
  */
-function routeVictimTells(f: FrameMsg, deps: RoomBindingDeps, s: ResumeState): void {
+function routeVictimTells(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   const slowed = windowRunning(f.you?.slowedUntil, f.t);
   const dazzled = windowRunning(f.you?.dazzledUntil, f.t);
   if (slowed && !s.slowed) deps.audio.play('slowed');
@@ -423,13 +453,23 @@ function sameList(a: readonly (number | string)[], b: readonly (number | string)
   return true;
 }
 
-/** Fan every per-tick event out to the right subsystem. */
-function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: ResumeState): void {
+/**
+ * Fan every per-tick event out to the right subsystem.
+ *
+ * The batch opens by dropping the previous frame's impact claims (Story 4.3):
+ * the public `boom` mark and the self-private `hc`/`sp` mark for one impact are
+ * same-frame by construction, so the claim set lives exactly one frame — see
+ * render/gunneryFeed.ts for why a longer memory would start eating legitimate
+ * repeat marks.
+ */
+function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
+  s.impacts.beginFrame();
   for (const e of f.events) handleEvent(e, f, deps, s);
 }
 
-/** World/combat events (position + fire + hit); self-private rewards split out. */
-function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: ResumeState): void {
+/** World/combat events (position + fire + hit); gunnery + self-private rewards
+ *  split out (one switch per group keeps each under the complexity ceiling). */
+function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   switch (e.k) {
     case 'spawn': handleSpawn(e, deps); return;
     case 'sunk': handleSunk(e, f.t, deps); return;
@@ -437,11 +477,61 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: Resume
     case 'torp': handleTorp(e, deps); return;
     case 'torpU': deps.projectiles.onBallisticUpdate(e); return;
     case 'blip': deps.radar.onBlip(e); return;
-    case 'boom': handleBoom(e, deps); return;
+    case 'boom': handleBoom(e, deps, s); return;
     case 'burst': handleBurst(e, deps); return;
     case 'dmg': handleDamage(e, f, deps, s); return;
   }
+  handleGunneryEvent(e, f, deps, s);
+}
+
+/**
+ * THE GUNNERY CONVERSATION (Story 4.3) — the three rows that make firing an
+ * exchange of information instead of a private guess:
+ *   • `mz` MUZZLE FLASH — someone fired a gun-family weapon HERE, inside the
+ *     495u halo with LOS clear. For ANYONE, and deliberately anonymous: no id,
+ *     no hue, no class, no weapon weight (amendment 19 — the flash must create
+ *     a question, never answer one). Nothing to dedupe: the server already caps
+ *     it at one per tick per shooter, and a flash is not an impact mark.
+ *   • `sp` FALL OF SHOT — YOUR gun-family shell terminated with no victim, at
+ *     the true impact point, through any fog. Bracket and walk (FR16).
+ *   • `hc` HIT CALL — something YOU fired or laid connected, position only:
+ *     no victim, no amount, no kill flag, no hull count. The tone rides the
+ *     300ms same-source floor; the bloom never does, because three connections
+ *     are three facts (see render/gunneryFeed.ts).
+ * Both impact rows claim their point, so a shooter who can SEE the impact draws
+ * ONE mark rather than stacking this one on the public `boom`'s.
+ */
+function handleGunneryEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
+  switch (e.k) {
+    case 'mz': handleMuzzle(e, deps); return;
+    case 'sp': handleFallOfShot(e, deps, s); return;
+    case 'hc': handleHitCall(e, f, deps, s); return;
+  }
   handleRewardEvent(e, f, deps);
+}
+
+/** A gun-family weapon fired at (x,y) — the universal, identity-free flash. */
+function handleMuzzle(e: MuzzleEvent, deps: RoomBindingDeps): void {
+  deps.effects.spawnEffect('muzzle', e.x, e.y);
+}
+
+/** Our own shell fell HERE and hit nothing (self-private, gun family only). */
+function handleFallOfShot(e: SplashEvent, deps: RoomBindingDeps, s: BindState): void {
+  if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('splash', e.x, e.y);
+}
+
+/**
+ * Something we fired or laid CONNECTED at (x,y). The bloom is the shipped hit
+ * spark, now fog-immune (render/effects.ts) so a connection beyond our bubble
+ * actually shows. The cue is the muffled boom, and it is the ONE thing here
+ * that is rate-limited: a salvo landing inside the floor draws every bloom and
+ * plays a single tone. It is played independently of the claim — when the claim
+ * fails, the mark is already on screen (the `boom` drew it) and the cue is
+ * still the shooter's own confirmation.
+ */
+function handleHitCall(e: HitCallEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
+  if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('spark', e.x, e.y);
+  if (s.hitCallTone.request(f.t)) deps.audio.play('hitCall');
 }
 
 /** Self-private reward events: the banked level and the fitted boon. (The
@@ -531,6 +621,17 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
  * bigger muzzle flash, and a heavier shell in flight, plus the doctrine look
  * for whichever cannon exclusive we hold. An onlooker's side of the event is
  * BYTE-IDENTICAL to before — the wire cannot say "cannon" and must not.
+ *
+ * STORY 4.3 TOOK THE UNIVERSAL FLASH AWAY FROM HERE. The plain `muzzle` is now
+ * spawned by the server's `mz` row (handleGunneryEvent), which knows the TRUE
+ * muzzle and does not have to infer a launch from a reveal. What stays is the
+ * own cannon's `muzzleHeavy` — extra weight the wire deliberately cannot carry
+ * (amendment 19 forbids a heavier flash for the cannon, precisely because it
+ * would put a class tell on a public row). For our own cannon shot BOTH land on
+ * our hull, layered: the universal flash the whole ocean can see, and our own
+ * heavier report on top of it. That is intended and is NOT deduped — they are
+ * two different statements about the same shot, and correlating `mz` back to a
+ * shell is impossible by design (it carries no id at all).
  */
 function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   // The latch is claimed ONCE, and only for a reveal already sitting on our own
@@ -539,11 +640,7 @@ function handleShell(e: BallisticEvent, deps: RoomBindingDeps): void {
   const claim = near ? shellClaim(deps) : null;
   const own = near ? ownShellWeapon(claim) : null;
   deps.projectiles.onShell(e, own, claim);
-  // Muzzle flash only when the reveal sits on a hull we can see (own ship or a
-  // sighted contact) — a mid-flight fog-boundary reveal gets no flash.
-  if (nearVisibleShip(e.x, e.y, deps)) {
-    deps.effects.spawnEffect(own === 'cannon' ? 'muzzleHeavy' : 'muzzle', e.x, e.y);
-  }
+  if (own === 'cannon') deps.effects.spawnEffect('muzzleHeavy', e.x, e.y);
   if (own) deps.audio.play(fireTone(shellFireId(own)));
 }
 
@@ -624,20 +721,10 @@ function nearOwnShip(x: number, y: number, deps: RoomBindingDeps): boolean {
   return !!you && near2(x, y, you.x, you.y);
 }
 
-/** True iff (x,y) is within one hull length of the own ship or any live contact. */
-function nearVisibleShip(x: number, y: number, deps: RoomBindingDeps): boolean {
-  if (nearOwnShip(x, y, deps)) return true;
-  for (const id of deps.contacts.ids()) {
-    const p = deps.contacts.get(id)?.newest;
-    if (p && near2(x, y, p.x, p.y)) return true;
-  }
-  return false;
-}
-
 function near2(x: number, y: number, cx: number, cy: number): boolean {
   const dx = x - cx;
   const dy = y - cy;
-  return dx * dx + dy * dy <= MUZZLE_NEAR2;
+  return dx * dx + dy * dy <= OWN_NEAR2;
 }
 
 /**
@@ -649,15 +736,24 @@ function near2(x: number, y: number, cx: number, cy: number): boolean {
  * already on the wire (it has to be, so the boom cannot retire the live track),
  * and what it describes — a hit that did not end the shell — is on screen
  * anyway. An unrecognized suffix falls straight through to the generic path.
+ *
+ * STORY 4.3 — the spark and the splash now CLAIM their point (gunneryFeed), so
+ * the shooter's own self-private `hc`/`sp` for the same impact does not stack a
+ * second mark on this one. Whichever row the frame happens to carry first wins;
+ * neither handler knows or cares which it is. The PIERCE ring deliberately does
+ * NOT claim: it says something the Hit Call bloom does not (the shell went
+ * THROUGH and is still flying), so both are wanted — and keeping it out of the
+ * claim is also what keeps the pairing order-independent.
  */
-function handleBoom(e: BoomEvent, deps: RoomBindingDeps): void {
+function handleBoom(e: BoomEvent, deps: RoomBindingDeps, s: BindState): void {
   deps.projectiles.onBoom(e);
-  if (e.hit) {
-    deps.effects.spawnEffect(pierceOrder(e.id ?? '') === null ? 'spark' : 'pierce', e.x, e.y);
-    if (e.hit !== deps.state.net.sessionId) deps.contactViews.flash(e.hit);
-  } else {
-    deps.effects.spawnEffect('splash', e.x, e.y);
+  if (!e.hit) {
+    if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('splash', e.x, e.y);
+    return;
   }
+  if (pierceOrder(e.id ?? '') !== null) deps.effects.spawnEffect('pierce', e.x, e.y);
+  else if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('spark', e.x, e.y);
+  if (e.hit !== deps.state.net.sessionId) deps.contactViews.flash(e.hit);
 }
 
 /**
@@ -722,7 +818,7 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
  * handleFrame) — no new wire data, and no way to mistake our OWN flare for a
  * hazard (`by !== self`; you cannot burn yourself).
  */
-function handleDamage(e: DamageEvent, f: FrameMsg, deps: RoomBindingDeps, s: ResumeState): void {
+function handleDamage(e: DamageEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   if (e.id !== deps.state.net.sessionId) return;
   const burn = readsAsBurn(e.amount, f.t - s.burningAt);
   deps.shake.trigger(burn ? e.amount * CLIENT_CONFIG.litZone.burnShakeScale : e.amount);

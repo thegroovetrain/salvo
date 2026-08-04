@@ -280,6 +280,28 @@ export const CLIENT_CONFIG = {
   },
 
   /**
+   * THE GUNNERY CONVERSATION (Story 4.3) — the client-side feel knobs for the
+   * three new gunnery signals (`mz` muzzle flash / `sp` fall of shot / `hc` Hit
+   * Call). Nothing here is gameplay-authoritative: WHO is told and HOW FAR a
+   * flash carries are server rules living in shared CONFIG (`vision.muzzleFlash`
+   * is derived there), and the three marks reuse the shipped `muzzle` / `splash`
+   * / `hitBloom` tokens and their shipped geometry — no new color, no retune.
+   * What is left for the client to decide is how often the Hit Call is allowed
+   * to make a NOISE, which is a comfort question, not a rules question.
+   */
+  gunnery: {
+    /**
+     * Minimum gap (ms) between HIT CALL tones — the ratified 300ms same-source
+     * floor (the deniedFire pulse's own register, reused verbatim), applied in
+     * render/gunneryFeed.ts because nothing in the audio layer rate-limits.
+     * A 3-shell salvo connecting inside 200ms draws three blooms and plays ONE
+     * cue: the blooms are three facts about three points, the cue is one fact
+     * about the salvo, and three overlapping muffled booms are just a smear.
+     */
+    hitCallToneFloorMs: 300,
+  },
+
+  /**
    * ORDNANCE AIM PREVIEW (the aim-time answer to "where does this actually go
    * and what does it actually cover") — render/aimPreview.ts + the own-mine
    * rings in render/mines.ts. Geometry is NOT here: every point and radius is
