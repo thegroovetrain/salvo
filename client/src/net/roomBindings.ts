@@ -528,9 +528,19 @@ function handleFallOfShot(e: SplashEvent, deps: RoomBindingDeps, s: BindState): 
  * plays a single tone. It is played independently of the claim — when the claim
  * fails, the mark is already on screen (the `boom` drew it) and the cue is
  * still the shooter's own confirmation.
+ *
+ * THE MARK IS PUBLIC TO A SPECTATOR, THE CUE IS NOT. `hc` is spectator-public on
+ * the wire (the `dmg` precedent — a dead captain may watch the gunnery
+ * conversation), so a spectator receives EVERY shooter's Hit Call. The bloom is
+ * fine there: it is watching. The tone is not — it means "something YOU fired
+ * connected", and ungated it would fire in a dead captain's ears for all 19
+ * remaining hulls' hits, up to once per floor, until results. Gated on identity
+ * exactly like handleDamage's shake/tone (:822) and the amendment-37 rule that a
+ * spectating captain gets no level-up toast and no tone.
  */
 function handleHitCall(e: HitCallEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   if (s.impacts.claim(e.x, e.y)) deps.effects.spawnEffect('spark', e.x, e.y);
+  if (e.id !== deps.state.net.sessionId) return;
   if (s.hitCallTone.request(f.t)) deps.audio.play('hitCall');
 }
 

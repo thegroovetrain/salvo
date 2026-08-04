@@ -794,6 +794,18 @@ describe('the gunnery rows (Story 4.3) — mz / sp / hc', () => {
     expect(play).toHaveBeenCalledWith('hitCall');
   });
 
+  it('SPECTATOR: another captain\'s hit call blooms but never sounds in our ears', () => {
+    // `hc` is spectator-public on the wire (the `dmg` precedent), so a dead
+    // captain receives EVERY shooter's Hit Call. The bloom is watching the
+    // gunnery conversation and is welcome; the TONE means "something YOU fired
+    // connected" and must not fire for someone else's shot — ungated, a
+    // spectator would hear it for all 19 remaining hulls until results.
+    const { sink, spawnEffect, play } = setupWater();
+    sink.handler(victimFrame([{ k: 'hc', id: 'someone-else', x: -300, y: 44 }], {}));
+    expect(spawnEffect).toHaveBeenCalledWith('spark', -300, 44);
+    expect(play.mock.calls.filter(([id]) => id === 'hitCall')).toHaveLength(0);
+  });
+
   it('THE DOUBLE-RENDER SEAM: a boom and an hc at one point draw ONE spark', () => {
     const { sink, spawnEffect, play } = setupWater();
     sink.handler(victimFrame([
