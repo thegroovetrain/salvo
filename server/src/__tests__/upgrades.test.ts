@@ -91,18 +91,18 @@ const DEAD_RELOAD_IDS = ['gunReload', 'cannonReload', 'torpedoReload', 'mineRelo
 
 describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', () => {
   // Per-hull expected line totals against the production catalog: universal
-  // (guns 8 + intel 15 + ship 14 = 37) + carried subdecks + ONE acquisition
+  // (guns 8 + intel 15 + ship 15 = 38) + carried subdecks + ONE acquisition
   // card per absent equipment. (Global cooldown reduction, Eric ruling
   // 2026-08-04: the seven per-equipment *Reload lines died and ONE universal
-  // `shipCooldown` line — 4 copies, `ship` category — replaced them, so every
-  // subdeck thinned by its 5 reload copies and `ship` grew by 4.)
+  // `shipCooldown` line — 5 copies, `ship` category — replaced them, so every
+  // subdeck thinned by its 5 reload copies and `ship` grew by 5.)
   const CASES: [ShipClassId, number, string[]][] = [
-    // TB: torpedo 12 + boost 5 + acquisitions (mine/cannon/star/decoy) 4 = 58.
-    ['torpedoBoat', 37 + 12 + 5 + 4, ['acquireMine', 'acquireCannon', 'acquireStarShells', 'acquireDecoy']],
-    // BS: cannon 12 + starShells 12 + acquisitions (torpedo/mine/decoy/boost) 4 = 65.
-    ['battleship', 37 + 12 + 12 + 4, ['acquireTorpedo', 'acquireMine', 'acquireDecoy', 'acquireBoost']],
-    // ML: mine 22 + decoy 5 + acquisitions (torpedo/cannon/star/boost) 4 = 68.
-    ['mineLayer', 37 + 22 + 5 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
+    // TB: torpedo 12 + boost 5 + acquisitions (mine/cannon/star/decoy) 4 = 59.
+    ['torpedoBoat', 38 + 12 + 5 + 4, ['acquireMine', 'acquireCannon', 'acquireStarShells', 'acquireDecoy']],
+    // BS: cannon 12 + starShells 12 + acquisitions (torpedo/mine/decoy/boost) 4 = 66.
+    ['battleship', 38 + 12 + 12 + 4, ['acquireTorpedo', 'acquireMine', 'acquireDecoy', 'acquireBoost']],
+    // ML: mine 22 + decoy 5 + acquisitions (torpedo/cannon/star/boost) 4 = 69.
+    ['mineLayer', 38 + 22 + 5 + 4, ['acquireTorpedo', 'acquireCannon', 'acquireStarShells', 'acquireBoost']],
   ];
 
   for (const [hull, total, acquisitions] of CASES) {
@@ -122,8 +122,8 @@ describe('deck composition — buildDeck over the fresh fit (spec I/O matrix)', 
       expect(copiesInDeck(rec, 'gunDamage')).toBe(5);
       expect(copiesInDeck(rec, 'gunTurret')).toBe(1);
       // The ONE global cooldown line is universal — every hull's deck carries
-      // all 4 copies, and no per-equipment reload line survives anywhere.
-      expect(copiesInDeck(rec, 'shipCooldown')).toBe(4);
+      // all 5 copies, and no per-equipment reload line survives anywhere.
+      expect(copiesInDeck(rec, 'shipCooldown')).toBe(5);
       for (const dead of DEAD_RELOAD_IDS) {
         expect(BOON_CATALOG[dead]).toBeUndefined();
         expect(copiesInDeck(rec, dead)).toBe(0);
@@ -636,7 +636,7 @@ describe('economy lifecycle — respawn preserves, redeploy wipes', () => {
     // absent-equipment acquisitions back.
     expect(copiesInDeck(a, 'mineDamage')).toBe(0);
     expect(copiesInDeck(a, 'acquireMine')).toBe(1);
-    expect(a.deck.cards).toHaveLength(58); // the TB composition (suite above)
+    expect(a.deck.cards).toHaveLength(59); // the TB composition (suite above)
   });
 });
 
@@ -752,76 +752,163 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
   it('shipCooldown: ONE card shortens EVERY equipment — a consumed gun AND torpedo round both start the SCALED reload', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0); // TB fit: [gun, torpedo, speedBoost, empty]
-    stack(w, a, 'shipCooldown', 4); // the 4-copy cap: additive −0.1/card => 0.6
-    // Additive-linear, never 0.9^4 (=0.6561). clampStats rounds the
+    stack(w, a, 'shipCooldown', 5); // the 5-copy cap: additive −0.1/card => 0.5
+    // Additive-linear, never 0.9^5 (=0.5905). clampStats rounds the
     // accumulated scale to 3 decimals before the multiplies (shared/src/sim/
-    // stats.ts), so a 4-stack lands EXACTLY on 0.6 — strict, not close.
-    expect(a.stats.cooldownScale).toBe(0.6);
-    expect(a.stats.gun.reloadMs).toBe(3000); // 5000 base -> 3000
-    expect(a.stats.torpedo.reloadMs).toBe(CONFIG.torpedo.reloadMs * 0.6);
+    // stats.ts), so a 5-stack lands EXACTLY on 0.5 — strict, not close.
+    expect(a.stats.cooldownScale).toBe(0.5);
+    expect(a.stats.gun.reloadMs).toBe(2500); // 5000 base -> 2500
+    expect(a.stats.torpedo.reloadMs).toBe(CONFIG.torpedo.reloadMs * 0.5);
 
     // The GUN's fire path reads the scaled reload, not raw CONFIG.
     fire(a, 1, SLOT_GUN, 300);
     w.step();
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs * 0.6);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs * 0.5);
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeLessThan(CONFIG.gun.reloadMs); // strictly shorter than base
 
     // ...and so does the TORPEDO's — the SAME single card, a different weapon.
     fire(a, 2, SLOT_TORPEDO, 0);
     w.step();
     expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(0);
-    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(CONFIG.torpedo.reloadMs * 0.6);
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(CONFIG.torpedo.reloadMs * 0.5);
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeLessThan(CONFIG.torpedo.reloadMs);
   });
 
-  it('shipCooldown: the CANNON reads the same global scale (50s -> 30s) off the Battleship fit', () => {
+  it('shipCooldown: the CANNON reads the same global scale (50s -> 25s) off the Battleship fit', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 0, 0, 0, 'battleship'); // [gun, cannon, starShells, empty]
-    stack(w, bb, 'shipCooldown', 4);
-    expect(bb.stats.cannon.reloadMs).toBe(30000); // 50000 base -> 30000
+    stack(w, bb, 'shipCooldown', 5);
+    expect(bb.stats.cannon.reloadMs).toBe(25000); // 50000 base -> 25000
     fire(bb, 1, SLOT_CANNON, 400);
     w.step();
     expect(bb.loadout[SLOT_CANNON].state!.n).toBe(0);
-    expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBe(CONFIG.cannon.reloadMs * 0.6);
+    expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBe(CONFIG.cannon.reloadMs * 0.5);
     expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBeLessThan(CONFIG.cannon.reloadMs);
 
-    // ...and the authoritative tick really returns the round on the 30s clock:
-    // still empty at 29 950ms, back at exactly 30 000ms — 20s short of the 50s
-    // base, and exactly 600 ticks (not 601 — the rounding fix's tick-count
-    // pin: reloadMsLeft is exactly 30000, so it takes exactly 600 * 50ms
+    // ...and the authoritative tick really returns the round on the 25s clock:
+    // still empty at 24 950ms, back at exactly 25 000ms — 25s short of the 50s
+    // base, and exactly 500 ticks (not 501 — the rounding fix's tick-count
+    // pin: reloadMsLeft is exactly 25000, so it takes exactly 500 * 50ms
     // decrements to cross zero, never one tick of float-dust slop).
     bb.input = { ...bb.input!, fireSeq: 0, seq: 2 };
-    for (let i = 0; i < 599; i++) w.step();
+    for (let i = 0; i < 499; i++) w.step();
     expect(bb.loadout[SLOT_CANNON].state!.n).toBe(0);
     w.step();
     expect(bb.loadout[SLOT_CANNON].state!.n).toBe(1);
-    expect(601 * DT).toBeLessThan(CONFIG.cannon.reloadMs); // 30 050 < 50 000
+    expect(501 * DT).toBeLessThan(CONFIG.cannon.reloadMs); // 25 050 < 50 000
   });
 
-  it('shipCooldown: the AUTHORITATIVE ammo tick restores the round on the SCALED clock (exactly 3.0s), not the 5.0s base', () => {
+  it('shipCooldown: the AUTHORITATIVE ammo tick restores the round on the SCALED clock (exactly 2.5s), not the 5.0s base', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    stack(w, a, 'shipCooldown', 4);
+    stack(w, a, 'shipCooldown', 5);
     fire(a, 1, SLOT_GUN, 300);
     w.step(); // the shot: pool 1 -> 0, the scaled reload starts
     a.input = { ...a.input!, fireSeq: 0, seq: 2 }; // stop clicking — just let the world tick
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
 
-    // 59 more ticks == 2950ms elapsed on the reload: still empty.
-    for (let i = 0; i < 59; i++) w.step();
+    // 49 more ticks == 2450ms elapsed on the reload: still empty.
+    for (let i = 0; i < 49; i++) w.step();
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
-    // ONE more (3000ms, EXACTLY — not 3050ms) and the round is BACK. Before
-    // the clampStats rounding fix, cooldownScale carried float dust
-    // (0.6000000000000001), reloadMs was 3000.0000000000005, and this took a
-    // full extra 50ms tick (61 decrements, not 60) to cross zero — the actual
-    // defect this pin regresses. The base 5000ms clock would still be 39
-    // ticks away, so nothing but the global scale can explain it.
+    // ONE more (2500ms, EXACTLY — not 2550ms) and the round is BACK. Before
+    // the clampStats rounding fix the accumulated scale carried float dust
+    // (a 4-stack landed on 0.6000000000000001), the scaled reload was a hair
+    // over its integer, and the refill took a full extra 50ms tick to cross
+    // zero — the actual defect this pin regresses. The base 5000ms clock
+    // would still be 50 ticks away, so nothing but the global scale can
+    // explain it.
     w.step();
     expect(a.loadout[SLOT_GUN].state!.n).toBe(1);
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(0);
-    expect(60 * DT).toBe(CONFIG.gun.reloadMs * 0.6); // 3000 === 3000 — exact, no tick slop
-    expect(60 * DT).toBeLessThan(CONFIG.gun.reloadMs); // 3000 < 5000 — the proof
+    expect(50 * DT).toBe(CONFIG.gun.reloadMs * 0.5); // 2500 === 2500 — exact, no tick slop
+    expect(50 * DT).toBeLessThan(CONFIG.gun.reloadMs); // 2500 < 5000 — the proof
+  });
+
+  // ---------- mid-reload renormalization (Eric ruling 2026-08-04) ------------
+  // A grant that moves a fitted slot's effective reload rescales that slot's
+  // IN-FLIGHT timer by the same ratio, so the progress FRACTION survives the
+  // fit. Never a free round: `n` does not move and the scaled timer stays
+  // positive. Driven through the real World tick, not effectiveStats.
+
+  /** Fire the gun and let the world tick until the reload is exactly half
+   *  spent (5000ms base: the shot tick sets the timer, 50 ticks burn 2500ms). */
+  function gunAtHalfReload(w: World, a: ShipRecord): void {
+    fire(a, 1, SLOT_GUN, 300);
+    w.step(); // the shot: pool 1 -> 0, the full-length reload starts
+    a.input = { ...a.input!, fireSeq: 0, seq: 2 }; // stop clicking
+    for (let i = 0; i < 50; i++) w.step();
+  }
+
+  it('a mid-reload shipCooldown grant PRESERVES the progress fraction (half of 5000 -> half of 4500)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    gunAtHalfReload(w, a);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(2500); // 50% of the 5000ms base
+
+    w.applyBoon(a, 'shipCooldown'); // 5000 -> 4500
+    expect(a.stats.gun.reloadMs).toBe(4500);
+    // 2500 * (4500/5000) = 2250 — still EXACTLY half remaining, on the new clock.
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(2250);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft / a.stats.gun.reloadMs).toBe(0.5);
+  });
+
+  it('the rescale is NEVER a free round — the pool is untouched and the timer stays positive', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    gunAtHalfReload(w, a);
+    const nBefore = a.loadout[SLOT_GUN].state!.n;
+    w.applyBoon(a, 'shipCooldown');
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(nBefore); // 0 — no round handed out
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeGreaterThan(0);
+    // ...and the very next tick does not conjure one either.
+    w.step();
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
+  });
+
+  it('a mid-reload 5-stack lands the round on the RESCALED clock (~1250ms, not the 2500ms it had left)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    gunAtHalfReload(w, a);
+    stack(w, a, 'shipCooldown', 5); // 5000 -> 2500; half remaining => ~1250ms
+    expect(a.stats.gun.reloadMs).toBe(2500);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeCloseTo(1250, 6);
+
+    // 24 ticks (1200ms): not yet. On the un-rescaled clock 2500ms remained, so
+    // nothing but the renormalization can land the round inside 26 ticks.
+    for (let i = 0; i < 24; i++) w.step();
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
+    w.step();
+    w.step(); // 1300ms: past the rescaled 1250ms remainder
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(1);
+  });
+
+  it('a boon that does not touch reloads leaves every in-flight timer BYTE-identical', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    gunAtHalfReload(w, a);
+    const before = a.loadout[SLOT_GUN].state!.reloadMsLeft;
+    w.applyBoon(a, 'shipHull'); // +20 maxHp, heal-on-grant: ratio 1
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(before);
+    w.applyBoon(a, 'gunDamage'); // a GUN card that is not a reload card: ratio 1
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(before);
+    expect(a.stats.gun.reloadMs).toBe(CONFIG.gun.reloadMs); // untouched base
+  });
+
+  it('an IDLE slot (and a slot filled by this very grant) stays at reloadMsLeft 0', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0); // nothing fired: every fitted slot is full + idle
+    w.applyBoon(a, 'acquireMine'); // fills the extra slot via freshSlotState
+    for (const slot of a.loadout) {
+      if (slot.state === null) continue;
+      expect(slot.state.reloadMsLeft).toBe(0);
+    }
+    stack(w, a, 'shipCooldown', 5); // every reload moves; no timer is running
+    for (const slot of a.loadout) {
+      if (slot.state === null) continue;
+      expect(slot.state.reloadMsLeft).toBe(0);
+    }
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(a.stats.gun.maxAmmo);
   });
 
   it('gunDamage: the spawned shell carries the effective damage (HEAVY SHELLS), never raw CONFIG', () => {

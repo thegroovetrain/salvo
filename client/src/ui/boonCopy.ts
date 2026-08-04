@@ -88,7 +88,10 @@ const BOON_LADDERS: Readonly<Record<string, readonly string[]>> = {
   // The universal cooldown line (Eric ruling 2026-08-04): a CREW-PROFICIENCY
   // ladder, not a hardware one — it scales every mounting on the ship at once,
   // so the flavor is the ratings who work them, not any one weapon's loader.
-  shipCooldown: ['DRILL SCHEDULE', 'PRACTICED CREWS', 'VETERAN RATINGS', 'BATTLE STATIONS'],
+  // The 5th rung (Eric ruling 2026-08-04, copies 4 → 5): the gunnery pennant is
+  // the real-world award for the squadron's top gunnery ship — an EARNED capstone
+  // for max crew proficiency, so it closes the ladder rather than continuing it.
+  shipCooldown: ['DRILL SCHEDULE', 'PRACTICED CREWS', 'VETERAN RATINGS', 'BATTLE STATIONS', 'GUNNERY PENNANT'],
   // --- EQUIPMENT ACQUISITIONS (fill the R slot, shuffle their subdeck in) ---
   acquireTorpedo: ['TORPEDO TUBES'],
   acquireMine: ['MINE RACKS'],

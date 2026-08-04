@@ -15,6 +15,7 @@ import {
   resolveBoons,
   type OwnShip,
 } from '@salvo/shared';
+import { boonName } from '../ui/boonCopy.js';
 import { pointToastLine } from '../ui/upgradeToast.js';
 import { ownStatsChanged } from '../net/roomBindings.js';
 import { speedLadderFraction } from '../render/hud.js';
@@ -150,13 +151,29 @@ describe('HUD denominators react to effective stats', () => {
 
   // The HUD/hotbar surface reads the SAME scaled numbers the sim does — the
   // firewall's post-fold multiply is the only place the scale is applied, so a
-  // full 4-stack build lands the ratified 3.0s gun / 30s cannon on the chips.
-  it('a FULL shipCooldown stack lands the ratified 3.0s gun and 30s cannon on the chips', () => {
-    const maxed = statsFor('battleship', { shipCooldown: 4 });
-    expect(equipmentReloadMs(maxed, 'gun')).toBe(3000);
-    expect(equipmentReloadMs(maxed, 'cannon')).toBe(30000);
-    // Additive-linear, never 0.9^4 (which would land 3280/32805).
-    expect(maxed.cooldownScale).toBe(0.6);
+  // full 5-stack build (Eric ruling 2026-08-04: copies 4 → 5, cap 0.6 → 0.5)
+  // lands the ratified 2.5s gun / 25s cannon on the chips.
+  it('a FULL shipCooldown stack lands the ratified 2.5s gun and 25s cannon on the chips', () => {
+    const maxed = statsFor('battleship', { shipCooldown: 5 });
+    expect(equipmentReloadMs(maxed, 'gun')).toBe(2500);
+    expect(equipmentReloadMs(maxed, 'cannon')).toBe(25000);
+    // Additive-linear, never 0.9^5 (which would land 2952/29525).
+    expect(maxed.cooldownScale).toBe(0.5);
+    // The 5th rung has ratified copy — the card can name the stack it just took.
+    expect(boonName('shipCooldown', 4)).toBe('GUNNERY PENNANT');
+  });
+
+  // The whole ladder, rung by rung: 1 / 0.9 / 0.8 / 0.7 / 0.6 / 0.5 — every step
+  // exact after clampStats' 3-decimal rounding, so no reachable stack can leave
+  // float dust that costs a whole 50ms ammo tick.
+  it('walks the exact scale ladder at every reachable stack (0..5), strictly', () => {
+    const ladder = [1, 0.9, 0.8, 0.7, 0.6, 0.5];
+    ladder.forEach((scale, n) => {
+      const s = statsFor('battleship', { shipCooldown: n });
+      expect(s.cooldownScale, `stack ${n}`).toBe(scale);
+      expect(equipmentReloadMs(s, 'gun'), `gun @ ${n}`).toBe(CONFIG.gun.reloadMs * scale);
+      expect(equipmentReloadMs(s, 'cannon'), `cannon @ ${n}`).toBe(CONFIG.cannon.reloadMs * scale);
+    });
   });
 
   it('hp bar: the effective maxHp denominator grows with shipHull stacks', () => {

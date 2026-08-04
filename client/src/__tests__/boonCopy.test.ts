@@ -50,10 +50,12 @@ describe('ladder coverage — every catalog line, every stack position', () => {
   it('carries the ratified ladders verbatim (spot checks across the naming styles)', () => {
     expect(boonName('gunDamage', 0)).toBe('HEAVY SHELLS Mk I');
     expect(boonName('gunDamage', 4)).toBe('HEAVY SHELLS Mk V');
-    // The universal cooldown line's crew-proficiency ladder (2026-08-04): four
-    // rungs, one per copy, sitting in the SHIP category beside HULL SCRAPING.
+    // The universal cooldown line's crew-proficiency ladder (2026-08-04): FIVE
+    // rungs, one per copy (the copies 4 → 5 ruling took the cap to 0.5), sitting
+    // in the SHIP category beside HULL SCRAPING. Both ends are pinned.
     expect(boonName('shipCooldown', 0)).toBe('DRILL SCHEDULE');
     expect(boonName('shipCooldown', 3)).toBe('BATTLE STATIONS');
+    expect(boonName('shipCooldown', 4)).toBe('GUNNERY PENNANT');
     expect(boonName('gunBarrel', 0)).toBe('TWIN MOUNT');
     expect(boonName('gunBarrel', 1)).toBe('TRIPLE MOUNT');
     expect(boonName('gunTurret')).toBe('AFT TURRET');
