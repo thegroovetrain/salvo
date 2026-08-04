@@ -333,12 +333,16 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
   it('FULL stack (4 copies, the cap): scale 0.6 — ADDITIVE, not 0.9^4', () => {
     expect(BOON_CATALOG.shipCooldown.copies).toBe(4); // the physical cap the pin rests on
     const s = effectiveStats(BASE, stack('shipCooldown', 4));
-    expect(s.cooldownScale).toBeCloseTo(0.6, 12);
+    // STRICT equality: additive folding accumulates float dust
+    // (1 - 0.1*4 === 0.6000000000000001, not 0.6) — clampStats rounds the
+    // scale to 3 decimals BEFORE the multiplies precisely so this is exact,
+    // not merely close. See the tick-count test below for why dust mattered.
+    expect(s.cooldownScale).toBe(0.6);
     // ANTI-MULTIPLICATIVE PIN: 0.9^4 = 0.6561 would land gun at 3280.5 ms and
     // cannon at 32805 ms — Eric's targets are 3000 / 30000 exactly.
     expect(s.cooldownScale).not.toBeCloseTo(0.9 ** 4, 3);
-    expect(Math.round(s.gun.reloadMs)).toBe(3000);
-    expect(Math.round(s.cannon.reloadMs)).toBe(30000);
+    expect(s.gun.reloadMs).toBe(3000);
+    expect(s.cannon.reloadMs).toBe(30000);
     expect(s.gun.reloadMs).not.toBeCloseTo(3280.5, 3);
     expect(s.cannon.reloadMs).not.toBeCloseTo(32805, 3);
     // ALL SEVEN move — one card, every cooldown.
@@ -351,7 +355,48 @@ describe('cooldownScale — the ONE global cooldown lever (Eric ruling 2026-08-0
       boost: 10800,
       decoyBuoy: 12000,
     };
-    for (const [name, read] of RELOADS) expect(read(s), name).toBeCloseTo(expected[name], 9);
+    for (const [name, read] of RELOADS) expect(read(s), name).toBe(expected[name]);
+  });
+
+  it('EVERY reachable stack count (0..4) lands EXACTLY on the ruled table — the rounding-fix regression pin', () => {
+    // scale + all seven equipment reloads, per stack count. This fails without
+    // clampStats rounding the accumulated scale before the multiplies (a
+    // 4-stack would otherwise land at cooldownScale 0.6000000000000001, gun
+    // 3000.0000000000005, cannon 30000.000000000004 — all off the ruled
+    // numbers by float dust).
+    const table: Record<number, { scale: number } & Record<string, number>> = {
+      0: { scale: 1, gun: 5000, cannon: 50000, torpedo: 12000, mine: 8000, starShells: 20000, boost: 18000, decoyBuoy: 20000 },
+      1: { scale: 0.9, gun: 4500, cannon: 45000, torpedo: 10800, mine: 7200, starShells: 18000, boost: 16200, decoyBuoy: 18000 },
+      2: { scale: 0.8, gun: 4000, cannon: 40000, torpedo: 9600, mine: 6400, starShells: 16000, boost: 14400, decoyBuoy: 16000 },
+      3: { scale: 0.7, gun: 3500, cannon: 35000, torpedo: 8400, mine: 5600, starShells: 14000, boost: 12600, decoyBuoy: 14000 },
+      4: { scale: 0.6, gun: 3000, cannon: 30000, torpedo: 7200, mine: 4800, starShells: 12000, boost: 10800, decoyBuoy: 12000 },
+    };
+    for (const [n, expected] of Object.entries(table)) {
+      const s = effectiveStats(BASE, stack('shipCooldown', Number(n)));
+      expect(s.cooldownScale, `${n} stacks: scale`).toBe(expected.scale);
+      for (const [name, read] of RELOADS) expect(read(s), `${n} stacks: ${name}`).toBe(expected[name]);
+    }
+    // The ruling itself, as strict multiplication identities.
+    const full = effectiveStats(BASE, stack('shipCooldown', 4));
+    expect(5000 * full.cooldownScale === 3000).toBe(true);
+    expect(50000 * full.cooldownScale === 30000).toBe(true);
+  });
+
+  it('the tick-count consequence: ammo.ts ticks reloads down in 50ms steps and refills at <= 0 — a 4-stack gun must take EXACTLY 60 ticks (not 61), a 4-stack cannon EXACTLY 600 (not 601)', () => {
+    // Inlined ammo.ts loop shape (server/src/game/equipment/ammo.ts) — do not
+    // import server code into a shared test.
+    const ticksToRefill = (reloadMs: number): number => {
+      let left = reloadMs;
+      let n = 0;
+      while (left > 0) {
+        left -= 50;
+        n++;
+      }
+      return n;
+    };
+    const s = effectiveStats(BASE, stack('shipCooldown', 4));
+    expect(ticksToRefill(s.gun.reloadMs)).toBe(60);
+    expect(ticksToRefill(s.cannon.reloadMs)).toBe(600);
   });
 
   it('the scale reaches EVERY equipment: no reload is left at its base after a full stack', () => {

@@ -506,7 +506,7 @@ function handleBoonFit(e: BoonFitEvent, deps: RoomBindingDeps): void {
   // count IS the fitted position — 1 for a first fit, 3 for the third HEAVY
   // SHELLS. A defensive 0 (no `you`) floors to the ladder's first name.
   pushUpgradeToast(boonFitToastLine(e.boon, boonStackCount(deps.state.net.you?.boons ?? [], e.boon)));
-  // STORY 2.9 — the fit is no longer one generic two-note for all 42 lines: the
+  // STORY 2.9 — the fit is no longer one generic two-note for every line: the
   // cue is WEIGHTED BY TIER (fitTone) and the flash lands on the CATEGORY's own
   // slot. Both read off the shared catalog, fail-open (a junk/unknown id still
   // gets the common weight and a rank-wide flash) — FR22 makes silence the

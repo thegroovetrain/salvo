@@ -753,24 +753,25 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0); // TB fit: [gun, torpedo, speedBoost, empty]
     stack(w, a, 'shipCooldown', 4); // the 4-copy cap: additive −0.1/card => 0.6
-    // Additive-linear, never 0.9^4 (=0.6561). The literal carries float dust
-    // (−0.1 accumulation), so compare rounded/close — never strict.
-    expect(a.stats.cooldownScale).toBeCloseTo(0.6, 9);
-    expect(Math.round(a.stats.gun.reloadMs)).toBe(3000); // 5000 base -> 3000
-    expect(Math.round(a.stats.torpedo.reloadMs)).toBe(Math.round(CONFIG.torpedo.reloadMs * 0.6));
+    // Additive-linear, never 0.9^4 (=0.6561). clampStats rounds the
+    // accumulated scale to 3 decimals before the multiplies (shared/src/sim/
+    // stats.ts), so a 4-stack lands EXACTLY on 0.6 — strict, not close.
+    expect(a.stats.cooldownScale).toBe(0.6);
+    expect(a.stats.gun.reloadMs).toBe(3000); // 5000 base -> 3000
+    expect(a.stats.torpedo.reloadMs).toBe(CONFIG.torpedo.reloadMs * 0.6);
 
     // The GUN's fire path reads the scaled reload, not raw CONFIG.
     fire(a, 1, SLOT_GUN, 300);
     w.step();
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
-    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeCloseTo(CONFIG.gun.reloadMs * 0.6, 6);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(CONFIG.gun.reloadMs * 0.6);
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBeLessThan(CONFIG.gun.reloadMs); // strictly shorter than base
 
     // ...and so does the TORPEDO's — the SAME single card, a different weapon.
     fire(a, 2, SLOT_TORPEDO, 0);
     w.step();
     expect(a.loadout[SLOT_TORPEDO].state!.n).toBe(0);
-    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeCloseTo(CONFIG.torpedo.reloadMs * 0.6, 6);
+    expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBe(CONFIG.torpedo.reloadMs * 0.6);
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeLessThan(CONFIG.torpedo.reloadMs);
   });
 
@@ -778,25 +779,27 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 0, 0, 0, 'battleship'); // [gun, cannon, starShells, empty]
     stack(w, bb, 'shipCooldown', 4);
-    expect(Math.round(bb.stats.cannon.reloadMs)).toBe(30000); // 50000 base -> 30000
+    expect(bb.stats.cannon.reloadMs).toBe(30000); // 50000 base -> 30000
     fire(bb, 1, SLOT_CANNON, 400);
     w.step();
     expect(bb.loadout[SLOT_CANNON].state!.n).toBe(0);
-    expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBeCloseTo(CONFIG.cannon.reloadMs * 0.6, 6);
+    expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBe(CONFIG.cannon.reloadMs * 0.6);
     expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBeLessThan(CONFIG.cannon.reloadMs);
 
     // ...and the authoritative tick really returns the round on the 30s clock:
-    // still empty at 29 950ms, back at 30 050ms — 20s short of the 50s base.
+    // still empty at 29 950ms, back at exactly 30 000ms — 20s short of the 50s
+    // base, and exactly 600 ticks (not 601 — the rounding fix's tick-count
+    // pin: reloadMsLeft is exactly 30000, so it takes exactly 600 * 50ms
+    // decrements to cross zero, never one tick of float-dust slop).
     bb.input = { ...bb.input!, fireSeq: 0, seq: 2 };
     for (let i = 0; i < 599; i++) w.step();
     expect(bb.loadout[SLOT_CANNON].state!.n).toBe(0);
     w.step();
-    w.step();
     expect(bb.loadout[SLOT_CANNON].state!.n).toBe(1);
-    expect(602 * DT).toBeLessThan(CONFIG.cannon.reloadMs); // 30 100 < 50 000
+    expect(601 * DT).toBeLessThan(CONFIG.cannon.reloadMs); // 30 050 < 50 000
   });
 
-  it('shipCooldown: the AUTHORITATIVE ammo tick restores the round on the SCALED clock (~3.0s), not the 5.0s base', () => {
+  it('shipCooldown: the AUTHORITATIVE ammo tick restores the round on the SCALED clock (exactly 3.0s), not the 5.0s base', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
     stack(w, a, 'shipCooldown', 4);
@@ -808,13 +811,17 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     // 59 more ticks == 2950ms elapsed on the reload: still empty.
     for (let i = 0; i < 59; i++) w.step();
     expect(a.loadout[SLOT_GUN].state!.n).toBe(0);
-    // Two more (3050ms) and the round is BACK — the base 5000ms clock would
-    // still be 39 ticks away, so nothing but the global scale can explain it.
-    w.step();
+    // ONE more (3000ms, EXACTLY — not 3050ms) and the round is BACK. Before
+    // the clampStats rounding fix, cooldownScale carried float dust
+    // (0.6000000000000001), reloadMs was 3000.0000000000005, and this took a
+    // full extra 50ms tick (61 decrements, not 60) to cross zero — the actual
+    // defect this pin regresses. The base 5000ms clock would still be 39
+    // ticks away, so nothing but the global scale can explain it.
     w.step();
     expect(a.loadout[SLOT_GUN].state!.n).toBe(1);
     expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(0);
-    expect(61 * DT).toBeLessThan(CONFIG.gun.reloadMs); // 3050 < 5000 — the proof
+    expect(60 * DT).toBe(CONFIG.gun.reloadMs * 0.6); // 3000 === 3000 — exact, no tick slop
+    expect(60 * DT).toBeLessThan(CONFIG.gun.reloadMs); // 3000 < 5000 — the proof
   });
 
   it('gunDamage: the spawned shell carries the effective damage (HEAVY SHELLS), never raw CONFIG', () => {

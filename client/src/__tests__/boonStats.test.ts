@@ -138,9 +138,9 @@ describe('HUD denominators react to effective stats', () => {
   it('cooldown chips: ONE shipCooldown stack scales every equipment reload at once', () => {
     const base = effectiveStats(TB);
     const drilled = statsFor('torpedoBoat', { shipCooldown: 1 });
-    expect(drilled.cooldownScale).toBeCloseTo(0.9, 9);
+    expect(drilled.cooldownScale).toBe(0.9);
     for (const id of ['gun', 'cannon', 'torpedo', 'mine', 'starShells', 'speedBoost', 'decoyBuoy'] as const) {
-      expect(equipmentReloadMs(drilled, id), id).toBeCloseTo(equipmentReloadMs(base, id) * 0.9, 9);
+      expect(equipmentReloadMs(drilled, id), id).toBe(equipmentReloadMs(base, id) * 0.9);
     }
     // ...and nothing that is not a cooldown moves with it.
     expect(equipmentMaxAmmo(drilled, 'mine')).toBe(equipmentMaxAmmo(base, 'mine'));
@@ -153,10 +153,10 @@ describe('HUD denominators react to effective stats', () => {
   // full 4-stack build lands the ratified 3.0s gun / 30s cannon on the chips.
   it('a FULL shipCooldown stack lands the ratified 3.0s gun and 30s cannon on the chips', () => {
     const maxed = statsFor('battleship', { shipCooldown: 4 });
-    expect(Math.round(equipmentReloadMs(maxed, 'gun'))).toBe(3000);
-    expect(Math.round(equipmentReloadMs(maxed, 'cannon'))).toBe(30000);
+    expect(equipmentReloadMs(maxed, 'gun')).toBe(3000);
+    expect(equipmentReloadMs(maxed, 'cannon')).toBe(30000);
     // Additive-linear, never 0.9^4 (which would land 3280/32805).
-    expect(maxed.cooldownScale).toBeCloseTo(0.6, 9);
+    expect(maxed.cooldownScale).toBe(0.6);
   });
 
   it('hp bar: the effective maxHp denominator grows with shipHull stacks', () => {

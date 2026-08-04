@@ -247,10 +247,17 @@ function clampStats(stats: EffectiveStats): void {
   stats.mine.triggerRadius = Math.min(stats.mine.triggerRadius, stats.mine.blastRadius);
   stats.gun.barrels = Math.min(3, Math.max(1, Math.round(stats.gun.barrels)));
   // THE global cooldown scale, applied ONCE, post-fold, to every equipment —
-  // the sibling of the rangeU re-derivations above. Floored so a hostile or
-  // over-stacked list can never reach zero/negative cadence (applyStatEffect's
-  // own positive gate is per-effect, not per-total).
-  const cd = Math.max(0.1, stats.cooldownScale);
+  // the sibling of the rangeU re-derivations above. Additive folding
+  // (-0.1/card) accumulates float dust (a 4-stack lands on
+  // 0.6000000000000001, not 0.6), and because ammo.ts ticks reloads down in
+  // 50ms steps and only refills at <= 0, un-rounded dust silently costs a
+  // whole extra 50ms tick on every affected weapon (e.g. the 4-stack gun
+  // ruling of 5s -> 3s would land 60 ticks vs 61). Round to 3 decimals — far
+  // finer than any card's 0.1 step — so every reachable stack lands on the
+  // exact ruled number, THEN floor so a hostile or over-stacked list can
+  // never reach zero/negative cadence (applyStatEffect's own positive gate is
+  // per-effect, not per-total).
+  const cd = Math.max(0.1, Math.round(stats.cooldownScale * 1000) / 1000);
   stats.cooldownScale = cd;
   stats.gun.reloadMs *= cd;
   stats.cannon.reloadMs *= cd;

@@ -415,6 +415,17 @@ export const CONFIG = {
    * ~0.57 by dry 6, vs a ≈flat ~0.4 across the same span at the old 0.35 dial;
    * the dry-0 opening rate is ~0.48 either way) and trims the
    * first-exclusive tail without flooding shallow draws.
+   *
+   * STALE RATES, DIALS UNCHANGED (2026-08-04, global-cooldown cycle 41): the
+   * ~0.48/~0.57 figures above were measured against the 42-line catalog.
+   * Deleting the seven per-equipment reload ladders removed 35 COMMON cards
+   * while leaving every rare/exclusive in place, so rare DENSITY rose on every
+   * deck (TB 14.5% -> 17.2%, ML 11.4% -> 13.2%) and with it the draw rate — a
+   * review simulation puts TB dry-0 P(>=1 rare per offer) at ~0.59, i.e. the
+   * new OPENING rate now exceeds the old ratified dry-6 pity CEILING. The dials
+   * themselves are untouched: retuning them is a balance decision that needs an
+   * Eric ruling + a batch-sim pass, and is ledgered in deferred-work.md. Treat
+   * the numbers above as the amendment-57 provenance record, not current rates.
    */
   deck: {
     rareWeightBase: 1, // per-card weight of a rare/exclusive at zero dry levels
