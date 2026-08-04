@@ -3,6 +3,15 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  22: the gunnery conversation (Story 4.3, amendments 15-20) — three new
+ *  GameEvent kinds, each its own declared fog exception in the signal
+ *  registry: `sp` (SplashEvent {k,id,x,y} — fall of shot, self-private to
+ *  the shooter, gun family only), `hc` (HitCallEvent {k,id,x,y} —
+ *  shooter-only hit confirmation across ALL ordnance, position but never
+ *  severity or victim), and `mz` (MuzzleEvent {k,x,y} — a NEUTRAL gun-family
+ *  muzzle flash carrying no identity for anyone, visible within the derived
+ *  CONFIG.vision.muzzleFlash halo (SIGHT * 1.5) with island LOS). CONFIG.
+ *  vision gains muzzleFlash (rides the welcome config snapshot).
  *  21: global cooldown reduction (Eric rulings 2026-08-04) — BOON_CATALOG
  *  content changed, and catalog content IS wire contract: the seven
  *  per-equipment reload lines (gunReload/cannonReload/torpedoReload/
@@ -138,7 +147,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 21;
+export const PROTOCOL_VERSION = 22;
 
 // Tunables
 export * from './constants.js';

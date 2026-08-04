@@ -190,11 +190,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 20→21 bump (global cooldown catalog change, atop 4.2 class-legible blips) is enforced at matchmake', () => {
-  it('rejects pv-20 and pv-19 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(21);
+describe('pv join gate — the 21→22 bump (Story 4.3 gunnery conversation: sp/hc/mz + vision.muzzleFlash) is enforced at matchmake', () => {
+  it('rejects pv-21 and pv-20 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(22);
+    expect(protocolVersionError(21)).toMatch(/refresh/);
     expect(protocolVersionError(20)).toMatch(/refresh/);
-    expect(protocolVersionError(19)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

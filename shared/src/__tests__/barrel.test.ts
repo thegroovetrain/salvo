@@ -61,7 +61,12 @@ describe('shared barrel', () => {
     // universal shipCooldown line replaced them (42 → 36) — and catalog
     // content IS wire contract. CONFIG.gun/cannon reloadMs retunes ride the
     // welcome config snapshot with it.
-    expect(PROTOCOL_VERSION).toBe(21);
+    // The gunnery conversation (Story 4.3, amendments 15-20): three new
+    // GameEvent kinds — sp (fall of shot, self-private, gun family only),
+    // hc (Hit Call, shooter-only, all ordnance, never severity/victim), mz
+    // (neutral muzzle flash, no identity for anyone) — plus the derived
+    // CONFIG.vision.muzzleFlash halo in the welcome config snapshot.
+    expect(PROTOCOL_VERSION).toBe(22);
   });
 
   it('re-exports config, wire tags, and functions', () => {

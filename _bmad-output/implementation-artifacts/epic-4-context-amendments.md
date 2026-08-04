@@ -128,3 +128,68 @@ this is still a video game?"* — followed by **"confirmed."** Spec of record:
 14. **Doc drift added to the 7-5 batch by this ruling** (no design-doc edits in-cycle): DESIGN.md's
     blip-size table and blip-rule paragraph, and EXPERIENCE.md's sensor-presentation line, are
     superseded by amendment 7 and must be reconciled in the Eric-gated doc-sync batch.
+
+## 2026-08-04 — Eric rulings, Story 4-3 pre-implementation question gate (bmad-dev-auto, this session)
+
+Source: Eric, live design conversation during the Story 4-3 run (two AskUserQuestion rounds, six
+rulings). Spec of record: `spec-4-3-the-gunnery-conversation.md`. The governing shape of the answers
+is CONSISTENTLY NARROW: at every fork Eric took the smallest new information channel that still
+satisfied the story, which is the same instinct that produced amendment 1 (the 4-1 deferral).
+
+15. **Muzzle flash carries to 1.5 × truesight — a MODEST HALO, not radar range and not map-wide.**
+    `CONFIG.vision.muzzleFlash = SIGHT * 1.5` (495u at today's 330u sight), DERIVED from truesight
+    exactly as `radar = SIGHT * 2` is (epic-3 amendment 22), so retuning truesight moves the flash
+    halo with it. Explicitly REJECTED: radar range (660u) as "the natural same-ceiling-as-radar
+    read", unbounded map-wide flashes ("firing lights the fog" read literally), and deferring
+    muzzle-carries alongside 4.1. Consequence of record: a shooter just outside your bubble gives
+    themselves away, but a radar-range duel stays anonymous — radar remains the ONLY long-range
+    sensor, and the 165u-wide flash annulus is deliberately thin. **LOS applies** (islands block the
+    flash) — not a new decision, but the direct consequence of the standing 2026-08-02 radar/island
+    LOS ruling that islands block EVERY sensor at ALL ranges.
+
+16. **Fall-of-shot splashes are SELF-PRIVATE — your own misses only.** A splash renders at its true
+    impact point even in fog, for the shooter alone, so bracket-and-walk fire works (FR16, GDD #21).
+    This RESOLVES the direct doc conflict between FR16 / the Story 4.3 AC ("**own** splashes",
+    "**my** misses") and EXPERIENCE.md:181, which drops the ownership qualifier: **FR16's wording
+    wins, EXPERIENCE.md:181 is the drift.** Explicitly REJECTED: anyone's misses inside radar range
+    (a second fog-piercing public channel), and the status quo (splashes only where you can already
+    see, which leaves 4.3's first AC unmet). Splash is a GUN-FAMILY signal only (wire kind `shell` —
+    gun, cannon, star shells); torpedoes and mines have no fall-of-shot.
+
+17. **The Hit Call is SHOOTER-ONLY and it DOES override the shipped anti-leak rule.** The comment at
+    `server/src/game/signals.ts:556` — *"The shell's owner does NOT get an out-of-sight boom — hit
+    confirmation beyond sight would leak contact presence"* — is **SUPERSEDED for the owner-hit case
+    and only that case**. Leaking "something of yours connected out there" is now the intended
+    feature, not an accident, and it is what keeps the ratified decoy disambiguation oracle alive
+    (gdd.md:179, epics.md:486, game-architecture.md:791-794): "shooting a decoy produces no Hit
+    Call" is only meaningful counterplay if you would normally GET one at fog range. The victim
+    keeps ONLY their existing private tells (dmg / shake / vignette — no new "someone unseen hit
+    you" cue); bystanders keep today's rule (bloom only at impacts they can already see). Explicitly
+    REJECTED: bystanders inside radar range, an extra victim cue, and keeping the anti-leak rule
+    intact (which would have killed the decoy oracle).
+
+18. **Hit Call scope is ALL ORDNANCE — gun, cannon, star shells, torpedo, mine.** Anything you fired
+    or laid that connects tells you so. This RATIFIES EXPERIENCE.md:223's Journey B climax (a mine's
+    proximity fuse produces a Hit Call) against the narrower "Gunnery Conversation" framing of the
+    story title. Accepted consequence of record: **a Mine Layer learns remotely that a trap sprung**,
+    intel about a stretch of water they may be nowhere near — judged to be the point of laying traps.
+    Note the asymmetry with amendment 16 that this creates and that is INTENTIONAL: Hit Call covers
+    every weapon, splash covers only the gun family.
+
+19. **The muzzle flash is NEUTRAL — it says someone fired, never who.** Payload carries position
+    only: no shooter id, no personal hue, no weapon-type weight. This RESOLVES the head-on conflict
+    between DESIGN.md:239 (neutral `{muzzle}` token) and UX-DR7 ("ordnance truth-markers in the
+    FIRER's hue for ALL observers") **in DESIGN.md's favor for this signal**: the flash must create a
+    question, not answer one — you still have to sweep radar or close to truesight to learn class and
+    identity. Explicitly REJECTED: personal-hue flashes, and a heavier flash for the cannon (which
+    would put a class tell on the wire that deliberately does not exist today — the shipped
+    `muzzleHeavy` is own-side only precisely because the wire cannot say "cannon").
+
+20. **Muzzle flash fires for the GUN FAMILY only — gun, cannon, star shells. Torpedoes stay silent.**
+    This UPHOLDS the shipped "quiet weapon" ratification (`client/src/net/roomBindings.ts:597`)
+    rather than reversing it; with 4.1 deferred there is already no long-range torpedo warning of any
+    kind, and Eric declined to add the launch as one. Mine and decoy stern-drops have no muzzle
+    either way. Implementation consequence: the flash predicate is exactly "the spawned ballistic's
+    wire kind is `shell`", which selects gun + cannon + star shells and excludes `torp` with no
+    weapon-type enumeration anywhere — so the server never needs a per-weapon flash table, and no
+    weapon identity can leak through one.

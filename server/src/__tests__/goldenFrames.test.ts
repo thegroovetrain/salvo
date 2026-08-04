@@ -24,6 +24,7 @@ import {
   type BallisticEvent,
   type FrameMsg,
   type GameEvent,
+  type HitCallEvent,
   type MatchPhase,
 } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
@@ -36,14 +37,15 @@ const SIGHT = CONFIG.vision.sight;
 // by the first post-step window [0, δ).
 const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 
-// The full set of channels the fixture MUST exercise: the 11 GameEvent kinds
+// The full set of channels the fixture MUST exercise: the 14 GameEvent kinds
 // (Story 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added the
 // self-private 'bn' boon-fit event; Story 2.8 stripped 'upg' and added the
-// homing-track update 'torpU') plus the four contact-like channels
+// homing-track update 'torpU'; Story 4.3 added the gunnery conversation's
+// 'sp'/'hc'/'mz') plus the four contact-like channels
 // (contact/mine/litzone/decoy) and the spectator frame.
 const EXPECTED_CHANNELS = [
-  'blip', 'bn', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'litzone', 'mine',
-  'pt', 'shell', 'spawn', 'spec', 'sunk', 'torp', 'torpU',
+  'blip', 'bn', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'hc', 'litzone', 'mine',
+  'mz', 'pt', 'shell', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU',
 ];
 
 // Targeted sub-cases the APPENDED scenarios (island LOS, non-owner + spectator
@@ -61,6 +63,9 @@ const EXPECTED_SUBCASES = [
   'denied-cooling-weapon',
   'denied-noammo-ability',
   'denied-out-of-arc-owner-only',
+  'gunnery-decoy-splash-no-hitcall',
+  'gunnery-hitcall-beyond-sight',
+  'gunnery-miss-own-splash',
   'island-allows-radar-blip',
   'island-allows-sight-contact',
   'island-blocks-radar-blip',
@@ -73,6 +78,9 @@ const EXPECTED_SUBCASES = [
   'litzone-thirdparty-radar-circle',
   'mine-burst-detonation',
   'mine-trip-blast-multivictim',
+  'muzzle-flash-at-400u',
+  'muzzle-flash-beyond-halo-silent',
+  'muzzle-flash-island-blocked',
   'nonowner-hidden-at-launch',
   'nonowner-reveal-current-params',
   'nonowner-reveal-once',
@@ -81,6 +89,7 @@ const EXPECTED_SUBCASES = [
   'spectator-dmg-passthrough',
   'spectator-raw-boom',
   'spectator-reveal-once',
+  'torpedo-launch-no-muzzle',
   'torpu-sighted-update',
   'torpu-unsighted-silent',
 ];
@@ -693,6 +702,111 @@ function scnDebuffs(g: Golden): void {
   );
 }
 
+/**
+ * The gunnery conversation (Story 4.3) — a REAL gun click driving all three
+ * new channels through the wire. Shooter `a` fires into empty water 560u out:
+ * on the launch tick the muzzle flash `mz` reaches o1 (≈370u from the muzzle,
+ * inside the 495u SIGHT*1.5 halo), never o2 (≈630u — beyond the halo) and
+ * never o3 (≈370u but island-blocked: islands block every sensor at all
+ * ranges); on the burst tick the shooter alone receives the self-private
+ * fall-of-shot `sp` at the true burst point (o1, captured the same tick, gets
+ * neither sp nor burst — the point is outside its sight). A torpedo launch
+ * next proves the quiet weapon: o1's frame carries NO mz (amendment 20).
+ * After the gun reload, a second click centered on fogged hull `b` (500u out
+ * — beyond sight, no boom rides a burst outcome) delivers exactly one Hit
+ * Call `hc` carrying only {k,id,x,y} with id = the SHOOTER — no victim id, no
+ * severity, and no sp for the same shell.
+ */
+function scnGunnery(g: Golden): void {
+  const w = bareWorld(1019);
+  w.map.islands.push({ x: 200, y: 0, r: 40 }); // the o3 LOS blocker
+  place(w, 'a', 0, 0); // the shooter
+  place(w, 'o1', 0, 400); // inside the muzzle halo
+  place(w, 'o2', 0, -600); // beyond the 495u halo
+  place(w, 'o3', 400, 0); // inside the halo but behind the island
+  place(w, 'b', -500, 0); // the fogged victim of the second shot
+  // Shot 1 — a miss into empty water at bearing pi/4 (clear of the island).
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 1, aimDist: 560, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.step(); // the click fires: mz + shell reveal ride this tick
+  cap(g, w, 'a'); // shooter: own mz + own shell reveal
+  const fo1 = cap(g, w, 'o1');
+  const fo2 = cap(g, w, 'o2');
+  const fo3 = cap(g, w, 'o3');
+  prove(g, 'muzzle-flash-at-400u', fo1.events.some((e) => e.k === 'mz'));
+  prove(g, 'muzzle-flash-beyond-halo-silent', !fo2.events.some((e) => e.k === 'mz'));
+  prove(g, 'muzzle-flash-island-blocked', !fo3.events.some((e) => e.k === 'mz'));
+  // Flight to the burst (no frame builds), then the burst/splash tick.
+  let burst = false;
+  for (let i = 0; i < 40 && !burst; i++) {
+    w.step();
+    burst = w.tickEvents.some((e) => e.k === 'burst');
+  }
+  expect(burst).toBe(true);
+  const faMiss = cap(g, w, 'a');
+  const fo1Miss = cap(g, w, 'o1'); // same tick: the splash is SELF-private
+  prove(
+    g,
+    'gunnery-miss-own-splash',
+    faMiss.events.some((e) => e.k === 'sp' && e.id === 'a') &&
+      !fo1Miss.events.some((e) => e.k === 'sp'),
+  );
+  // The torpedo launch — the ratified quiet weapon: no mz for anyone.
+  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.step();
+  cap(g, w, 'a'); // own torp reveal, no mz
+  const fo1Torp = cap(g, w, 'o1');
+  prove(g, 'torpedo-launch-no-muzzle', w.shells.size === 1 && !fo1Torp.events.some((e) => e.k === 'mz'));
+  // Ride out the gun reload, then shot 2 — centered on the fogged hull b.
+  const reloadTicks = Math.ceil(CONFIG.gun.reloadMs / DT) + 1;
+  for (let i = 0; i < reloadTicks; i++) w.step();
+  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 3, aimDist: 500, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+  let hit = false;
+  for (let i = 0; i < 40 && !hit; i++) {
+    w.step();
+    hit = w.tickEvents.some((e) => e.k === 'hc');
+  }
+  expect(hit).toBe(true);
+  const faHit = cap(g, w, 'a');
+  const hc = faHit.events.find((e): e is HitCallEvent => e.k === 'hc');
+  prove(
+    g,
+    'gunnery-hitcall-beyond-sight',
+    hc !== undefined &&
+      Object.keys(hc).join(',') === 'k,id,x,y' && // NO victim id / severity field anywhere in it
+      hc.id === 'a' && // the SHOOTER's id — never the victim's
+      !faHit.contacts.some((c) => c.id === 'b') && // b really is fogged
+      !faHit.events.some((e) => e.k === 'sp'), // exactly one of hc/sp per shell
+  );
+}
+
+/**
+ * Shooting a decoy buoy (Story 4.3 + the Story 1.8 oracle, on the wire): a
+ * burst centered on a buoy structurally resolves no victim (the buoy is not a
+ * collision subject), so the shooter's frame carries a fall-of-shot `sp` and
+ * NEVER an `hc` — the ratified decoy disambiguation, with zero suppression
+ * code anywhere on the path.
+ */
+function scnGunneryDecoy(g: Golden): void {
+  const w = bareWorld(1020);
+  place(w, 'a', 0, 0);
+  w.decoys.set('d1', { id: 'd1', ownerId: 'z', x: 400, y: 0, hullId: 'mineLayer', heading: 0, until: 999_999 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+  let burst = false;
+  for (let i = 0; i < 40 && !burst; i++) {
+    w.step();
+    burst = w.tickEvents.some((e) => e.k === 'burst');
+  }
+  expect(burst).toBe(true);
+  const fa = cap(g, w, 'a');
+  prove(
+    g,
+    'gunnery-decoy-splash-no-hitcall',
+    fa.events.some((e) => e.k === 'sp' && e.id === 'a') &&
+      !fa.events.some((e) => e.k === 'hc') &&
+      w.decoys.has('d1'),
+  );
+}
+
 // ---------- the fixture -------------------------------------------------------
 
 describe('golden frames — byte-identity gate for the perception refactor', () => {
@@ -720,6 +834,12 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     // through you.upg leaving and you.offer going deck-drawn).
     scnHoming(g);
     scnDebuffs(g);
+    // Story 4.3 additions (appended KNOWINGLY — the snapshot regenerated with
+    // the gunnery conversation: earlier scenarios' rows gain sp/hc/mz where
+    // their existing shots always earned them; every other channel must stay
+    // byte-identical).
+    scnGunnery(g);
+    scnGunneryDecoy(g);
 
     // Self-validating coverage: the fixture can never silently lose a channel.
     expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);

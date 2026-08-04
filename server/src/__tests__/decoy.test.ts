@@ -380,6 +380,17 @@ describe('decoy buoy — never a collision subject (sanctioned disambiguation)',
     expect(sawBurst).toBe(true);
     expect(dmg).toEqual([]); // the buoy is not a hull — no Hit Call
     expect(w.decoys.has('d1')).toBe(true);
+    // Story 4.3 — the ratified interaction oracle, now observable ON THE WIRE:
+    // the shooter's own frame this tick carries a fall-of-shot `sp` (a miss at
+    // the clicked point) and NO `hc`. This holds BY CONSTRUCTION — the buoy is
+    // not a collision subject, so the burst structurally resolves zero victims;
+    // no isDecoy suppression exists anywhere on the resolution path.
+    const fa = buildFrame(w, 'a');
+    const sp = fa.events.filter((e) => e.k === 'sp');
+    expect(sp).toHaveLength(1);
+    expect(sp[0]).toMatchObject({ k: 'sp', id: 'a' });
+    expect((sp[0] as { x: number }).x).toBeCloseTo(300, 4); // the true burst point, on the buoy
+    expect(fa.events.filter((e) => e.k === 'hc')).toEqual([]); // never a Hit Call for a decoy
   });
 
   it('an armed mine NEVER trips on a buoy sitting inside its trigger radius', () => {

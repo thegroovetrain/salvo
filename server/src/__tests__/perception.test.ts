@@ -3,10 +3,12 @@
 // in every frame, every contact and every event references ONLY what that
 // observer's sight bubble ∪ this-tick radar paints ∪ lit zones the observer
 // OWNS (Story 1.7 — plus the self-directed events: own dmg/sunk/spawn, own
-// shells; the lit-zone CIRCLE itself is owner-always / radar-gated). The
-// checks below are a deliberate test-local reimplementation of the visibility
-// predicates so a refactor of perception.ts cannot silently agree with its
-// own bug.
+// shells; the lit-zone CIRCLE itself is owner-always / radar-gated; and Story
+// 4.3's three DECLARED gunnery exceptions: shooter-private sp/hc at any
+// range, and the mz flash inside the constant SIGHT*1.5 halo with island
+// LOS). The checks below are a deliberate test-local reimplementation of the
+// visibility predicates so a refactor of perception.ts cannot silently agree
+// with its own bug.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -24,9 +26,13 @@ import {
   type BoonFitEvent,
   type BurstEvent,
   type Circle,
+  type DamageEvent,
   type GameEvent,
   type FrameMsg,
+  type HitCallEvent,
+  type PointEvent,
   type SpawnEvent,
+  type SplashEvent,
   type SunkEvent,
   type TorpedoUpdateEvent,
 } from '@salvo/shared';
@@ -1044,14 +1050,46 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   burst: verifyBurst,
   sunk: verifySunk,
   // Self-private kinds: each may only ever reach the ship its `id` names.
-  dmg: (_w, me, e) => expect(e.id).toBe(me.id), // victim-private
-  pt: (_w, me, e) => expect(e.id).toBe(me.id), // earner-private
+  dmg: (_w, me, e) => expect((e as DamageEvent).id).toBe(me.id), // victim-private
+  pt: (_w, me, e) => expect((e as PointEvent).id).toBe(me.id), // earner-private
   bn: (_w, me, e) => {
     // Spender-private (Story 2.7), and a valid catalog id: an enemy build can
     // never ride another observer's frame, and a fabricated boon id can never
     // materialize (the server only ever emits what it just applied).
-    expect(e.id).toBe(me.id);
+    expect((e as BoonFitEvent).id).toBe(me.id);
     expect(Object.hasOwn(BOON_CATALOG, (e as BoonFitEvent).boon)).toBe(true);
+  },
+  // Story 4.3 — the gunnery conversation's three DECLARED exceptions, each
+  // reimplemented here independently of its registry row (the header rule).
+  sp: (_w, me, e) => {
+    // FALL OF SHOT (amendment 16): shooter-private — the `id` names the
+    // SHOOTER and only that observer may receive it, at ANY range (a declared
+    // exception: the point is one the shooter authored). Wire shape carries
+    // no victim/severity field — exactly {k,id,x,y}.
+    const ev = e as SplashEvent;
+    expect(Object.keys(ev).sort()).toEqual(['id', 'k', 'x', 'y']);
+    expect(ev.id).toBe(me.id);
+  },
+  hc: (_w, me, e) => {
+    // HIT CALL (amendments 17/18): shooter-private, position only. The exact
+    // key set IS the severity oracle: no victim id, no amount/hp, no kill
+    // flag, no hull count can ride a {k,id,x,y} shape — and `id` must be the
+    // OBSERVER (the shooter), never a victim reference.
+    const ev = e as HitCallEvent;
+    expect(Object.keys(ev).sort()).toEqual(['id', 'k', 'x', 'y']);
+    expect(ev.id).toBe(me.id);
+  },
+  mz: (w, me, e) => {
+    // MUZZLE FLASH (amendments 15/19/20): the halo is the CONSTANT
+    // SIGHT * 1.5 — independently re-derived here, deliberately NOT the
+    // observer's dazzle-scaled or boon-widened sight and with NO owned-zone
+    // term — plus island LOS (islands block every sensor at all ranges). The
+    // exact key set is the identity oracle: {k,x,y} carries no shooter id,
+    // hue, class, weapon, or heading for ANY observer.
+    const ev = e as { k: 'mz'; x: number; y: number };
+    expect(Object.keys(ev).sort()).toEqual(['k', 'x', 'y']);
+    expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.5);
+    expect(clearLos(me.state, ev, w.map.islands)).toBe(true);
   },
   torpU: (w, me, e) => {
     // A homing-track UPDATE (Story 2.8): only a LIVE steering torpedo the
@@ -1071,7 +1109,7 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   spawn: (w, me, e) => {
     // Spawn point: sighted OR inside a zone the observer OWNS (Story 1.7).
     const p = e as SpawnEvent;
-    if (e.id !== me.id) expect(sighted(w, me, p) || zoneCovers(w, me, p)).toBe(true);
+    if (p.id !== me.id) expect(sighted(w, me, p) || zoneCovers(w, me, p)).toBe(true);
   },
 };
 
@@ -1198,14 +1236,15 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // litZones/decoys frame channels (verifyFrame/verifyMine/verifyLitZone/
   // verifyDecoy), not through EVENT_VERIFIERS.
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
-  // The 11 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
-  // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private 'bn').
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn'];
+  // The 14 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
+  // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
+  // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz').
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 15 expected channel keys (11 event kinds + contact + mine + litzone + decoy)', () => {
+  it('has exactly the 18 expected channel keys (14 event kinds + contact + mine + litzone + decoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(15);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(18);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {

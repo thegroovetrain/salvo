@@ -6,7 +6,7 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type ShellState } from '@salvo/shared';
+import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SplashEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
@@ -92,14 +92,18 @@ const REGISTRY_KEYS = [
   'torpU',
   'pt',
   'bn',
+  // Story 4.3 — the gunnery conversation's three declared fog exceptions.
+  'sp',
+  'hc',
+  'mz',
 ];
 
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 15 known channels (Story 2.8: `upg` stripped, `torpU` added)', () => {
+  it('has exactly the 18 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(15);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(18);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; counterIntel lives ONLY on the blip row (Story 1.8)', () => {
@@ -305,6 +309,83 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect('own' in wire).toBe(false);
   });
 
+  it("sp row (Story 4.3): [k,id,x,y] — shooter-private at ANY range; a sighted non-shooter NEVER receives it", () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 850, 50); // sits right next to the splash — still never told
+    const e: SplashEvent = { k: 'sp', id: 'a', x: 900, y: 0 }; // far beyond a's 330u sight
+    const row = signalFor('sp')!;
+    expect(row.visible(foggedCtx(w, a), e)).toBe(true); // the shooter, through any fog
+    expect(row.visible(foggedCtx(w, b), e)).toBe(false); // self-private — proximity is irrelevant
+    const wire = row.materialize(foggedCtx(w, a), e);
+    expect(Object.keys(wire as object)).toEqual(['k', 'id', 'x', 'y']);
+  });
+
+  it('hc row (Story 4.3): [k,id,x,y] — `id` is the SHOOTER, and NO severity/victim field exists on the wire', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 850, 50); // near the impact — still never told
+    const e: HitCallEvent = { k: 'hc', id: 'a', x: 900, y: 0 }; // a fogged hit, far beyond sight
+    const row = signalFor('hc')!;
+    expect(row.visible(foggedCtx(w, a), e)).toBe(true); // the shooter, through any fog
+    expect(row.visible(foggedCtx(w, b), e)).toBe(false); // even the VICTIM's neighborhood learns nothing
+    const wire = row.materialize(foggedCtx(w, a), e) as HitCallEvent;
+    expect(Object.keys(wire)).toEqual(['k', 'id', 'x', 'y']);
+    expect(wire.id).toBe('a'); // the shooter's own id — never a victim reference
+    for (const forbidden of ['hit', 'amount', 'hp', 'kill', 'weapon']) {
+      expect(forbidden in (wire as object)).toBe(false);
+    }
+  });
+
+  it('sp/hc rows are spectator-public (the dmg precedent), materializing the same verbatim shape', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    const ctx: SpectatorSignalContext = {
+      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
+    };
+    const sp: SplashEvent = { k: 'sp', id: 'a', x: 900, y: 0 };
+    const hc: HitCallEvent = { k: 'hc', id: 'a', x: 900, y: 0 };
+    expect(signalFor('sp')!.visible(ctx, sp)).toBe(true);
+    expect(signalFor('hc')!.visible(ctx, hc)).toBe(true);
+    expect(Object.keys(signalFor('sp')!.materialize(ctx, sp) as object)).toEqual(['k', 'id', 'x', 'y']);
+    expect(Object.keys(signalFor('hc')!.materialize(ctx, hc) as object)).toEqual(['k', 'id', 'x', 'y']);
+  });
+
+  it('mz row (Story 4.3): [k,x,y] with NO id for ANY observer — fogged, shooter, and spectator alike', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 400); // 400u from the flash — inside the 495u halo
+    const e: MuzzleEvent = { k: 'mz', x: 0, y: 0 };
+    const row = signalFor('mz')!;
+    const ctx = foggedCtx(w, a);
+    expect(row.visible(ctx, e)).toBe(true);
+    const wire = row.materialize(ctx, e) as MuzzleEvent;
+    expect(Object.keys(wire)).toEqual(['k', 'x', 'y']);
+    expect('id' in wire).toBe(false); // no identity channel, period (amendment 19)
+    const spec: SpectatorSignalContext = {
+      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
+    };
+    expect(row.visible(spec, e)).toBe(true);
+    expect(Object.keys(row.materialize(spec, e) as object)).toEqual(['k', 'x', 'y']);
+  });
+
+  it('mz row visibility: the CONSTANT SIGHT*1.5 halo (boundary inclusive), island LOS applies, dazzle does NOT shrink it', () => {
+    const w = bareWorld();
+    const at = place(w, 'at', CONFIG.vision.muzzleFlash, 0); // exactly at the halo — inclusive
+    const past = place(w, 'past', CONFIG.vision.muzzleFlash + 0.01, 0); // a hair beyond
+    const e: MuzzleEvent = { k: 'mz', x: 0, y: 0 };
+    const row = signalFor('mz')!;
+    expect(row.visible(foggedCtx(w, at), e)).toBe(true);
+    expect(row.visible(foggedCtx(w, past), e)).toBe(false);
+    // Dazzle shrinks the observer's SIGHT, never the flash halo: a flash is a
+    // light source, not an illuminated object (deliberate sightOf bypass).
+    at.dazzledUntil = w.now + 10_000;
+    expect(row.visible(foggedCtx(w, at), e)).toBe(true);
+    // Island LOS blocks the flash exactly like every other sensor
+    // (Eric ruling 2026-08-02).
+    w.map.islands.push({ x: 200, y: 0, r: 40 });
+    expect(row.visible(foggedCtx(w, at), e)).toBe(false);
+  });
+
   it('burst row visibility: owner anywhere; non-owner needs the burst point sighted', () => {
     const w = bareWorld();
     const owner = place(w, 'a', 0, 0);
@@ -429,6 +510,12 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
     expect(signalFor('spawn')!.visible(ctx, { k: 'spawn', id: 'b', x: 890, y: 0 })).toBe(false);
   });
 
+  it('mz: an OWNED zone over the flash point does NOT extend the halo (Story 4.3 — deliberate absence: a flare does not help you see a distant flash)', () => {
+    const { w, a } = zoneWorld(); // a owns a zone at (900,0), far beyond the 495u halo
+    const e: MuzzleEvent = { k: 'mz', x: 900, y: 0 }; // flash dead-center in a's own zone
+    expect(signalFor('mz')!.visible(foggedCtx(w, a), e)).toBe(false); // no ownZoneCovers term, by ruling
+  });
+
   it('blip: a zone-covered annulus ship fails the blip row even when swept (already a full contact)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
@@ -509,11 +596,11 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
 // ---------- fail-closed lookups -----------------------------------------------
 
 describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
-  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 11 GameEvent
+  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 14 GameEvent
   // kinds. The four contact/mine/litzone/decoy pseudo-rows are unreachable from
   // it (a fabricated k:'mine'/'litzone'/'decoy' world event can never
   // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz'];
 
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();
@@ -521,7 +608,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(signalFor('CONTACT')).toBeUndefined(); // case-sensitive, not fuzzy
   });
 
-  it('signalFor resolves exactly the 11 event kinds to their registry rows', () => {
+  it('signalFor resolves exactly the 14 event kinds to their registry rows', () => {
     for (const key of EVENT_KINDS) {
       expect(signalFor(key)).toBe(SIGNAL_REGISTRY[key as keyof typeof SIGNAL_REGISTRY]);
     }

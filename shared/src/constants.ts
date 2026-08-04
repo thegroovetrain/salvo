@@ -146,6 +146,17 @@ export const CONFIG = {
     // terminalSightFactor × sight) is an INDEPENDENT derivation that happens to
     // share the factor 2 — the constraint test in zone.test.ts is what binds the
     // two together; don't conflate them as the same derivation.
+    // u — muzzle-flash carry (Story 4.3, amendment 15) — DERIVED: 1.5 × base
+    // truesight, exactly as radar above, so retuning SIGHT moves the flash
+    // halo with it (never an independent literal; the constraint test in
+    // zone.test.ts pins the derivation and sight < muzzleFlash < radar). A
+    // deliberately THIN annulus beyond the base bubble (165u today): a
+    // shooter just outside your sight gives themselves away, but a
+    // radar-range duel stays anonymous — radar remains the ONLY long-range
+    // sensor. Island LOS applies (Eric ruling 2026-08-02: islands block
+    // EVERY sensor at ALL ranges); dazzle does NOT (a flash is a light
+    // source, not an illuminated object — signals.ts muzzleFlashSignal).
+    muzzleFlash: SIGHT * 1.5,
     sweepRpm: 15, // rev/min — radar rotation rate (15 rpm = one 4 s revolution); keep ≤ sweepRpmMax — the effectiveStats clamp caps the TOTAL
     // rev/min — THE ratified sweep-rate ceiling (survives the 2.8 legacy-upgrade
     // strip; formerly CONFIG.upgrades.sweepSpeed.maxRpm). Clamped inside the
