@@ -142,8 +142,23 @@ Independently verified by the orchestrator after the fixes: `npm run check` exit
 
 ## Auto Run Result
 
-Status: **done**. Landed as cycle 41 → VERSION 0.17.41, `PROTOCOL_VERSION` 20.
+Status: **done**. Landed as cycle 41 → VERSION 0.17.41, `PROTOCOL_VERSION` 20. Final gate: `npm run check` and `npm run build` both exit 0, **2648 tests** (414 shared / 841 server / 1393 client), up from 2624 on main.
 
 Four Eric rulings taken at the pre-implementation question gate (AskUserQuestion, 2026-08-04): CDR covers all 7 equipment cooldowns including the two non-weapon abilities; the 4 cards live in the universal `ship` category; stacking is additive-linear (a deliberate departure from the catalog's multiplicative ×0.9 convention, because 0.9⁴ = 0.6561 misses the stated 5s → 3s target); the thinned `speedBoost`/`decoyBuoy` subdecks are accepted and ledgered rather than backfilled.
 
 Five deferred-work entries: thinned subdecks; the unmeasured balance shift (no batch-sim pass — multi-weapon builds are structurally buffed, and the early/late TTK spread is now wider than any measured configuration); git-worktree `node_modules` resolution friction; the rare/exclusive draw-rate drift; and the mid-reload renormalization design question.
+
+## Spec Change Log
+
+### 2026-08-04 — post-review Eric rulings (supersede the `<intent-contract>` where they conflict)
+
+The `<intent-contract>` block is read-only by workflow rule, so the three rulings Eric gave AFTER the review gate are recorded here instead. Where they conflict with the contract above, **these win**.
+
+1. **A FIFTH cooldown card.** `shipCooldown.copies` **4 → 5**; the per-card step stays `-0.1`, so the cap moves **0.6 → 0.5 (50% total reduction)**. New endpoints: **gun 5000 → 2500 ms, cannon 50000 → 25000 ms**; torpedo 6000, mine 4000, starShells 10000, boost 9000, decoyBuoy 10000. Eric's rationale, verbatim: 2.5s "feels very fast even compared to 3s and thus a real reward for investing". Consequences: the `ship` category is 15 cards (was 14) and hull decks are TB 59 / BS 66 / ML 69 (were 58 / 65 / 68); the ladder gained a 5th rung, `GUNNERY PENNANT`. Catalog stays 36 lines and `PROTOCOL_VERSION` stays 20 (the bump had not shipped).
+   *Known-bad state this avoids:* the contract's "4 stacks MUST yield exactly 0.6" is now the four-card waypoint, not the cap — the 0..5 ladder (`1 / 0.9 / 0.8 / 0.7 / 0.6 / 0.5`) is pinned in full so a future reader cannot mistake 0.6 for the ceiling.
+
+2. **Mid-reload grants rescale proportionally.** Resolves the review gate's deferred design question in the opposite direction from the shipped behavior: `World.applyBoon` → new private `rescaleReloadTimers(ship, prevStats)` scales each fitted slot's `reloadMsLeft` by `newReloadMs / oldReloadMs`, preserving the PROGRESS FRACTION. Pool counts are never touched, so no free round is granted, and a boon that doesn't move reloads leaves timers byte-identical. Supersedes the previous "finish the cycle you started" rule, which became untenable once the cannon's base reload hit 50s (worst-case residual ~45s). No wire shape change.
+
+3. **Rare/exclusive draw-rate drift accepted.** Eric reviewed the review gate's CONFIRMED finding (TB dry-0 P(≥1 rare) ~0.51 → ~0.59, above the old ratified dry-6 pity ceiling) and ruled it fine as-is. `CONFIG.deck` dials stay untuned; the deferred-work entry is marked ACCEPTED and kept as the provenance record.
+
+**KEEP on any re-derivation:** the one-multiply-site architecture (`clampStats`, the `rangeU` sibling), the 3-decimal rounding of `cooldownScale` before the multiply (without it every max-cooldown weapon reloads a full 50ms tick late), the additive `add: -0.1` step, and the universal `ship` category placement.
