@@ -104,18 +104,35 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8)', (
     expect(stacked('mineDamage').mine.damage).toBe(75); // 55 +4/card ×5
   });
 
-  it('a FULL TRIPLE-BARREL SALVO on ONE victim stays a single shell — the salvo rule is what saves it', () => {
-    // Story 2.8 review, P1. A multi-barrel click fires `barrels` real shells
-    // whose bursts OVERLAP at practical ranges. The server's same-click salvo
-    // rule holds one victim to ONE application, so the worst case a hull can
-    // take from a single click is one max-stacked shell...
+  it('THE LAW IS PER SHELL: a max-stacked multi-barrel CLICK may legitimately exceed the floor', () => {
+    // Eric ruling 2026-08-05: "every shell that connects deals full damage; the
+    // one-hit-kill law governs a single SHELL, not a single click." The Story
+    // 2.8 review's same-click salvo rule (one application per click) is DELETED
+    // — it was an orchestrator invention, mandatory only under the pre-rebalance
+    // numbers (gun 25 vs a 70hp floor, where even a BASE 3 × 25 = 75 breached).
+    //
+    // What CI still enforces is the per-shell law, above and here: no single
+    // shell of any weapon, max-stacked, reaches the lightest hull.
     const barrels = stacked('gunBarrel').gun.barrels;
     const perShell = stacked('gunDamage').gun.damage;
     expect(barrels).toBe(3); // TWIN + TRIPLE MOUNT, both copies
-    expect(perShell).toBeLessThan(minHullHp); // the guaranteed ceiling per click
-    // ...and this is the number that made the rule mandatory: UNGUARDED the
-    // same click would have breached the 80hp floor outright.
+    expect(perShell).toBeLessThan(minHullHp); // the law, per SHELL — the thing that holds
+    // And this is the consequence Eric was shown and ACCEPTED: a fully
+    // max-stacked triple mount whose three overlapping bursts all connect deals
+    // 90 and one-clicks an undamaged 80hp small drone. That is not a breach —
+    // it is three hits. No player hull falls to the SHELLS ALONE: the lightest
+    // is the 125hp Torpedo Boat, which takes 72%. Rejected alternatives (do not
+    // re-propose): falloff on later same-click hits, an aggregate cap below the
+    // floor, shrinking the HEAVY SHELLS step.
+    //
+    // SCOPE, precisely: this bounds the click's GUN SHELLS and nothing else. A
+    // burst also detonates the shooter's own armed mines inside burstRadius
+    // (detonateMinesInBurst, Story 1.8 + the 2.8 same-owner cascade), so a
+    // click walked over your own field can obviously exceed any hull's hp. That
+    // is the minefield paying out, not the gun, and it is deliberately outside
+    // this pin.
     expect(perShell * barrels).toBeGreaterThan(minHullHp);
+    expect(perShell * barrels).toBeLessThan(Math.min(...classHps));
   });
 
   it('AP falloff can only DECREASE a hit: even the 100% first pierce obeys the max-stacked pin', () => {

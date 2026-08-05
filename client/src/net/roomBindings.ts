@@ -18,7 +18,6 @@ import {
   type BoomEvent,
   type BoonFitEvent,
   type BurstEvent,
-  type DamageEvent,
   type DeniedView,
   type FrameMsg,
   type GameEvent,
@@ -466,9 +465,18 @@ function sameList(a: readonly (number | string)[], b: readonly (number | string)
  * same-frame by construction, so the claim set lives exactly one frame — see
  * render/gunneryFeed.ts for why a longer memory would start eating legitimate
  * repeat marks.
+ *
+ * The own-damage aggregate is resolved FIRST, in a pre-pass, not at the end
+ * (Eric ruling 2026-08-05): every `dmg` for this hull in this frame is one felt
+ * hit at the summed magnitude, because a multi-barrel click can now land three
+ * of them at once (see flushDamage). The pre-pass placement is load-bearing —
+ * the server pushes `dmg` BEFORE the `sunk` it caused, so flushing after the
+ * fan-out would play the sink cue ahead of the thud that earned it, inverting
+ * the order the events were generated in. Damage is felt, then the hull goes.
  */
 function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   s.impacts.beginFrame();
+  flushDamage(f, deps, s);
   for (const e of f.events) handleEvent(e, f, deps, s);
 }
 
@@ -484,7 +492,7 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
     case 'blip': deps.radar.onBlip(e); return;
     case 'boom': handleBoom(e, deps, s); return;
     case 'burst': handleBurst(e, deps); return;
-    case 'dmg': handleDamage(e, f, deps, s); return;
+    case 'dmg': return; // own damage is felt once, in handleEvents' pre-pass (flushDamage)
   }
   handleGunneryEvent(e, f, deps, s);
 }
@@ -858,28 +866,50 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
 }
 
 /**
- * Own-ship damage: shake + a thud. `dmg` is only ever emitted to the victim
- * itself (perception.ts's worldEventForObserver never forwards another ship's
- * dmg amount to onlookers), so this always fires for the local player — the
- * id check is defensive, not load-bearing.
+ * THE FRAME'S OWN DAMAGE, FELT ONCE (Eric ruling 2026-08-05): one shake at the
+ * SUMMED magnitude and one cue, resolved in a pre-pass over the frame's events.
+ * `dmg` is only ever emitted to the victim itself (perception.ts's
+ * worldEventForObserver never forwards another ship's dmg amount to onlookers),
+ * so the id filter is defensive, not load-bearing.
  *
- * STORY 2.9 — BURN IDENTITY. A tick taken because we are STANDING IN FIRE is not
- * a slam: it plays the `burn` cue instead of the impact thud and shakes at a
- * fraction of the amplitude (the tone plus the burning water under the hull
- * carry it — a full-strength shake per DoT tick reads as being shelled, which is
- * a lie about what is happening). The 300ms same-source floor is respected
- * upstream: the server aggregates incendiary damage into 500ms windows with a
- * death flush (Story 2.8 review), so at most two of these land per second.
+ * It sums because a multi-barrel click now lands N separate applications on one
+ * hull in one tick, and per-event feedback UNDERSTATES that: shake.ts resolves
+ * colliding triggers with Math.max, so three 15hp triggers would report a 15hp
+ * hit for 45hp of damage and the MOUNT cards would land invisibly (the Story
+ * 2.9 rule: the build must be felt). Three identical thuds in one frame just
+ * smear, so they collapse to one — the same grammar the shooter's side already
+ * ships for the Hit Call tone (CLIENT_CONFIG.gunnery.hitCallToneFloorMs). No
+ * new tunable.
+ *
+ * STORY 2.9 — BURN IDENTITY, classified PER EVENT and then folded, NOT by
+ * testing the sum. A tick taken because we are STANDING IN FIRE is not a slam:
+ * it plays the `burn` cue instead of the impact thud and shakes at a fraction
+ * of the amplitude (a full-strength shake per DoT tick reads as being shelled,
+ * which is a lie about what is happening). The frame reads as fire only when
+ * EVERY application in it does. Testing the sum instead would break in both
+ * directions: BURN_AMOUNT_CAP's ×4 headroom was derived for ONE event covering
+ * overlapping patches, so four distinct enemy burners (~2.75hp each, one bite
+ * per owner per tick) already sum past it and pure fire would misreport as an
+ * impact — while a genuine shell arriving alongside a flush must read as the
+ * slam it was, which the per-event fold gets right for the opposite reason.
  *
  * The zone list is the one the client already holds (net → state, mirrored in
  * handleFrame) — no new wire data, and no way to mistake our OWN flare for a
  * hazard (`by !== self`; you cannot burn yourself).
  */
-function handleDamage(e: DamageEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
-  if (e.id !== deps.state.net.sessionId) return;
-  const burn = readsAsBurn(e.amount, f.t - s.burningAt);
-  deps.shake.trigger(burn ? e.amount * CLIENT_CONFIG.litZone.burnShakeScale : e.amount);
-  deps.audio.play(burn ? 'burn' : 'damage');
+function flushDamage(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
+  const selfId = deps.state.net.sessionId;
+  const since = f.t - s.burningAt;
+  let total = 0;
+  let allBurn = true;
+  for (const e of f.events) {
+    if (e.k !== 'dmg' || e.id !== selfId) continue;
+    total += e.amount;
+    if (!readsAsBurn(e.amount, since)) allBurn = false;
+  }
+  if (total <= 0) return; // no own damage this frame (the overwhelmingly common case)
+  deps.shake.trigger(allBurn ? total * CLIENT_CONFIG.litZone.burnShakeScale : total);
+  deps.audio.play(allBurn ? 'burn' : 'damage');
 }
 
 /**

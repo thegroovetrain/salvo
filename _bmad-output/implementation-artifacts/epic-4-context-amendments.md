@@ -375,3 +375,74 @@ re-propose.
     in-cycle): UX-DR17's "max 5 lines, 6 s TTL" (`epics.md:160` and the matching `DESIGN.md` kill-feed
     block) and the Story 1.12 restyle AC at `epics.md:534` are superseded by amendment 33; epic-3
     amendment 19's AFLOAT rule is superseded by amendment 32 wherever it is restated in design docs.
+
+## 2026-08-05 — Eric rulings, the per-shell damage law (bmad-dev-auto, interstitial — cycle 48)
+
+Source: Eric, bug report plus a two-question pre-implementation gate (AskUserQuestion, both answered
+on the recommended option). Spec of record: `spec-salvo-per-shell-damage.md`. Starting intent,
+verbatim: *"when you have upgraded the number of turrets on your Gun, and are now firing 2 or 3
+bullets from one shot, if all the bullets hit, it only counts for damage once. That's wrong.
+Everything that connects should deal damage."*
+
+35. **EVERY SHELL THAT CONNECTS DEALS FULL DAMAGE — the same-click salvo single-hit rule is DELETED.**
+    A multi-barrel click's fanned bursts overlap at fighting range (3° fan step, 15u burst radius —
+    they separate only past ~573u of a 660u base range), and a hull standing inside two or three of
+    them now takes two or three applications. The `ShellState.salvo` tag, `World.salvoHits`,
+    `claimSalvoHit()`, `releaseSalvo()`, and both damage gates are gone, tag and all.
+
+    **What was deleted was never an Eric ruling.** It was an ORCHESTRATOR invention from the Story
+    2.8 review (`spec-2-8-boon-catalog-v1.md:142`), introduced to protect Eric's actual law
+    (`HULLCRACKER_NOTES.md:83` — *"nothing should be a 1-hit kill on an otherwise undamaged ship"*).
+    It was genuinely mandatory under the numbers of the day: gun 25 against a 70hp lightest hull, so
+    a BASE 3 × 25 = 75 breached the floor with no upgrades at all. The cycle-44 rebalance
+    (amendment 21: gun 25 → 15) against the 2026-08-03 toughness ladder (lightest hull now the 80hp
+    small drone) dissolved that premise — base 3 × 15 = 45 is safe by a wide margin. Consequence of
+    record: the two rare TWIN/TRIPLE MOUNT cards added ZERO single-target damage for their whole
+    shipped life; they were coverage-only cards presented as an armament upgrade.
+
+36. **THE ONE-HIT-KILL LAW GOVERNS A SINGLE SHELL, NOT A SINGLE CLICK.** Three shells landing is
+    three hits, so the law is not breached by their sum. Eric was shown the exact consequence and
+    ACCEPTED it: a fully max-stacked triple mount (5× HEAVY SHELLS → 30/shell, 2× MOUNT cards →
+    3 barrels) deals **90** and one-clicks an undamaged **80hp small drone**. No player hull falls to
+    the shells alone — the lightest is the 125hp Torpedo Boat, which takes 72%.
+    `damageGuardrail.test.ts` was re-pinned accordingly: it now enforces the per-SHELL law and adds a
+    NEW pin, `perShell × barrels < min(classHps)`, so the thing Eric actually cares about (no PLAYER
+    hull is ever one-clicked by gunfire) is CI-enforced rather than assumed. That pin is explicitly
+    scoped to gun shells: a burst also detonates the shooter's own armed mines inside `burstRadius`
+    (`detonateMinesInBurst` + the 2.8 same-owner cascade), which can obviously exceed any hull's hp —
+    that is the minefield paying out, not the gun.
+
+    Explicitly REJECTED, all three shown to Eric — **do not re-propose without a new ruling**:
+    falloff on later same-click hits (100/50/25% like the AP ladder, topping at 52.5), an aggregate
+    per-click cap clamped just under the floor, and shrinking the HEAVY SHELLS step (+3 → +1) the way
+    amendment 23 shrank the torpedo/cannon ladders.
+
+37. **The victim's own damage feedback is now a PER-FRAME AGGREGATE — one shake at the summed
+    magnitude, one cue.** Required to make the ruling land at all, not scope creep: `triggerShake`
+    resolves colliding triggers with `Math.max`, so three separate 15hp triggers would report a 15hp
+    hit for 45hp of damage and the MOUNT cards would land INVISIBLY — a direct contradiction of Story
+    2.9 ("the build must be felt"). Three identical thuds in one frame are a smear, so they collapse
+    to one; this is the grammar the shooter's side already ships for the Hit Call tone
+    (`CLIENT_CONFIG.gunnery.hitCallToneFloorMs`), applied to the victim's side. **No new tunable was
+    invented.**
+
+    Two implementation invariants worth keeping, both found by review: the aggregate resolves in a
+    PRE-PASS over the frame's events, not after the fan-out, because the server pushes `dmg` before
+    the `sunk` it caused and flushing late would play the sink cue ahead of the blow that earned it.
+    And burn identity is classified PER EVENT and then folded (the frame reads as fire only when
+    EVERY application in it does), NOT by testing the sum against `BURN_AMOUNT_CAP` — that cap's ×4
+    headroom was derived for ONE event covering overlapping patches, so four distinct enemy burners
+    (~2.75hp each, one bite per owner per tick) already sum past it and pure fire would misreport as
+    an impact.
+
+38. **Scope discipline of record.** Mechanism-only: **no `PROTOCOL_VERSION` bump** (24 stands — the
+    salvo tag was server-internal and never on the wire), no CONFIG tunable touched, no catalog step
+    retuned, no change to `gun.damage`/`contactDamage`/`burstRadius`/`BARREL_FAN_STEP_RAD`, drone hp,
+    or class hp. The surviving PER-SHELL no-double-dipping rule (one shell hits one hull at most once
+    — contact XOR burst) is untouched and now has its own regression test.
+
+39. **Doc drift added to the Eric-gated 7-5 batch by this ruling** (house rule: no design-doc edits
+    in-cycle): `HULLCRACKER_NOTES.md:83` still reads *"nothing should be a 1-hit kill on an otherwise
+    undamaged ship"* without the per-SHELL qualifier amendment 36 attaches to it — the traceability
+    chain from three code comments now terminates in a line that reads more absolutely than the
+    ratified law. Also `CLAUDE.md` records `PROTOCOL_VERSION` as "currently 23"; actual is **24**.

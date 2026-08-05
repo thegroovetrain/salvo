@@ -101,15 +101,20 @@ export function muzzleOrTarget(ship: ShipRecord, dir: number, target: Vec2, shel
  * so the denial mapping is unchanged from the single-barrel era); there is no
  * arc.
  *
- * THE SAME-CLICK SALVO SINGLE-HIT RULE (Story 2.8 review, P1): a multi-barrel
- * click tags every shell it spawns with ONE server-internal salvo id (the
- * first shell's id — no extra id consumed, never on the wire) so the World can
- * hold a victim to at most ONE damage application per salvo. Without it the
- * fanned bursts overlap at practical ranges and one hull eats 3× damage
- * (max-stacked 3 × 40 = 120 > the 80hp lightest hull; at the original 70hp
- * floor even base 3 × 25 = 75 breached), breaching the ratified
- * no-one-click-kill guardrail. A SINGLE-barrel click is untagged: a salvo of
- * one satisfies the rule trivially, so the base path stays allocation-free.
+ * EVERY BARREL IS A REAL SHELL THAT DEALS FULL DAMAGE (Eric ruling 2026-08-05):
+ * the fanned bursts DO overlap at practical ranges (3° apart, 15u burst radius —
+ * they separate only past ~573u of a 660u base range), and a hull standing
+ * inside two or three of them takes two or three applications. That is the
+ * point of the mount cards, not a bug in them: "everything that connects should
+ * deal damage." The one-hit-kill guardrail governs a single SHELL, not a single
+ * CLICK — the Story 2.8 review's same-click salvo ledger (a server-internal tag
+ * holding a victim to ONE application per click) was an orchestrator invention
+ * that has been DELETED, tag and all. It was mandatory under the pre-rebalance
+ * numbers (gun 25, lightest hull 70 — base 3 × 25 = 75 breached the floor with
+ * no upgrades at all); the cycle-44 rebalance (gun 15, lightest hull 80) removed
+ * that premise. The accepted consequence: a fully max-stacked triple mount
+ * (3 barrels × 30) deals 90 and one-clicks an undamaged 80hp small drone. No
+ * PLAYER hull can be one-clicked — the lightest is the 125hp Torpedo Boat.
  *
  * Every shell carries the gun's hit rule off the OWNER's effective stats:
  * target point + burstRadius + damage/contactDamage (Story 2.8 — stats, never
@@ -147,8 +152,6 @@ function fireGunShells(
       }),
     );
   }
-  // One salvo id per multi-barrel click (the first shell's own id).
-  if (shells.length > 1) for (const s of shells) s.salvo = shells[0].id;
   return { shells, denial: null };
 }
 

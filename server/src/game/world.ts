@@ -508,17 +508,6 @@ export class World {
   private joinSeq = 0;
   private shellSeq = 0;
   /**
-   * THE SAME-CLICK SALVO LEDGER (Story 2.8 review, P1): salvo tag → the ids of
-   * hulls that have ALREADY taken a damage application from that salvo. A
-   * multi-barrel click's fanned bursts overlap at practical ranges, so without
-   * this a single hull takes barrels× damage from one click (max-stacked
-   * 3 × 40 = 120 > the 80hp lightest hull; at the original 70hp floor even
-   * base 3 × 25 = 75 breached) — a breach of the ratified no-one-click-kill
-   * guardrail. Entries are dropped as soon as the salvo has no shell left in
-   * flight (releaseSalvo), so the map is bounded by live salvos.
-   */
-  private readonly salvoHits = new Map<string, Set<string>>();
-  /**
    * MUZZLE-FLASH DEDUPE (Story 4.3): owners whose `mz` already fired this
    * tick. A multi-barrel salvo spawns N shells in one tick and must produce
    * exactly ONE flash (per-shell flashes would leak the barrel count — a
@@ -1484,9 +1473,6 @@ export class World {
       this.shells.delete(id);
       this.forgetBallistic(id);
       this.resolveShell(shell, outcome, hulls);
-      // AFTER resolution: this shell's own hits must be claimed against the
-      // salvo ledger before the last-shell-out release can drop it.
-      this.releaseSalvo(shell);
     }
   }
 
@@ -1717,36 +1703,6 @@ export class World {
     }
   }
 
-  /**
-   * THE SAME-CLICK SALVO SINGLE-HIT RULE (Story 2.8 review, P1): may `shell`
-   * still apply damage to `victimId`? An untagged shell (every single-barrel
-   * shot, every other weapon) always may. A tagged shell may only if no
-   * earlier shell of the SAME click has already damaged that victim — first
-   * resolved wins, later same-salvo hits on that victim deal 0 while still
-   * booming/bursting normally. Different victims are untouched (area
-   * throughput preserved). Claims as it answers.
-   */
-  private claimSalvoHit(shell: ShellState, victimId: string): boolean {
-    if (shell.salvo === undefined) return true;
-    let hits = this.salvoHits.get(shell.salvo);
-    if (hits === undefined) {
-      hits = new Set<string>();
-      this.salvoHits.set(shell.salvo, hits);
-    }
-    if (hits.has(victimId)) return false;
-    hits.add(victimId);
-    return true;
-  }
-
-  /** Drop a salvo's hit ledger once its LAST shell has left flight (call after
-   *  the shell was removed from `this.shells`). Bounded cleanup — live salvos
-   *  are at most a handful of shells. */
-  private releaseSalvo(shell: ShellState): void {
-    if (shell.salvo === undefined) return;
-    for (const other of this.shells.values()) if (other.salvo === shell.salvo) return;
-    this.salvoHits.delete(shell.salvo);
-  }
-
   /** Drop a spent ballistic from every observer's seen set — and its homing
    *  track-direction memory (Story 2.8) — (no leaks, no growth). */
   private forgetBallistic(id: string): void {
@@ -1847,9 +1803,10 @@ export class World {
     if (shell.contactDamage <= 0) return; // zero-damage interception: boom only
     const victim = this.ships.get(outcome.victimId);
     if (!victim || !victim.alive) return;
-    // SALVO single-hit rule (P1): a later shell of the same click still booms
-    // and still stops here — it simply deals no damage to an already-hit hull.
-    if (!this.claimSalvoHit(shell, victim.id)) return;
+    // EVERY SHELL THAT CONNECTS DEALS DAMAGE (Eric ruling 2026-08-05): a later
+    // shell of the same multi-barrel click gets no discount here — it is its
+    // own shell, and it connected. The one-hit-kill law governs a single SHELL,
+    // not a single click (the same-click salvo ledger is deleted).
     this.hitShip(victim, shell.contactDamage, shell.ownerId);
   }
 
@@ -1900,9 +1857,17 @@ export class World {
    * resolves every hull silhouette within the blast (owner excluded —
    * permanent owner immunity) and each victim takes the shell's full damage
    * through the hitShip choke: one victim-private dmg event per victim, kill
-   * credit through the normal path, no contact-damage double-dipping (a burst
-   * outcome never also reports an interceptor) and — Story 2.8 review, P1 — no
-   * SAME-CLICK double-dipping either (claimSalvoHit).
+   * credit through the normal path, and no contact-damage double-dipping (a
+   * burst outcome never also reports an interceptor).
+   *
+   * THE NO-DOUBLE-DIPPING RULE IS PER SHELL, AND ONLY PER SHELL (Eric ruling
+   * 2026-08-05). One shell hits a given hull at most once — contact XOR burst.
+   * ACROSS shells of one multi-barrel click there is no such rule: the fanned
+   * bursts overlap at fighting range and a hull inside all three takes all
+   * three applications. The Story 2.8 review's same-click salvo ledger, which
+   * held a victim to one application per CLICK, is deleted — see guns.ts's
+   * fireGunShells for why its premise (gun 25 vs a 70hp floor) dissolved in the
+   * cycle-44 rebalance.
    */
   private resolveBurst(shell: ShellState, at: Vec2, hulls: readonly HullTarget[]): void {
     const burst: BurstSubject = { k: 'burst', id: shell.id, x: at.x, y: at.y, own: shell.ownerId };
@@ -1914,16 +1879,14 @@ export class World {
     if (shell.lit) this.spawnLitZone(shell, at);
     // A zero-damage burst (the damageless star shell, amendment 39) resolves
     // no victims at all — no 0-hp dmg-event noise, structurally.
-    let resolved = 0; // hulls the burst RESOLVED (Story 4.3 — counted before
-    // the salvo/damage gates, so the Hit Call keys off resolution, not dmg).
+    let resolved = 0; // hulls the burst RESOLVED (Story 4.3 — counted ahead of
+    // the damage-suppression phase guard inside hitShip, so the Hit Call keys
+    // off resolution, not dmg: the weapons-safe ready room still calls hits).
     if (shell.damage > 0) {
       for (const victimId of burstVictims(at, shell.burstRadius, hulls, shell.ownerId)) {
         const victim = this.ships.get(victimId);
         if (!victim || !victim.alive) continue;
         resolved += 1;
-        // SALVO single-hit rule (P1): the burst still happens for everyone —
-        // a hull already hit by an earlier shell of the SAME click just takes 0.
-        if (!this.claimSalvoHit(shell, victim.id)) continue;
         this.hitShip(victim, shell.damage, shell.ownerId);
       }
     }

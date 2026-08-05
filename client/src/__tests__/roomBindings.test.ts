@@ -754,6 +754,12 @@ function setupWater(ownFire: OwnFire = null) {
     ordnanceHue: () => 0,
     colors: () => null,
     ownFireWeapon,
+    // The sunk-path seams, stubbed so a death frame can be driven through this
+    // same harness (the frame-aggregate suite pins thud-before-sink ordering).
+    names: (id: string) => id,
+    onSunkObserved: vi.fn(),
+    resetThrottle: vi.fn(),
+    resetPrime: vi.fn(),
   } as unknown as RoomBindingDeps;
   bindRoom(conn, deps);
   return { sink, play, spawnEffect, onShell, trigger, flash, deps, ownFireWeapon };
@@ -1104,6 +1110,126 @@ describe('burn identity (Story 2.9) — a damage tick taken inside enemy fire', 
     expect(readsAsBurn(cap + 0.1, 0)).toBe(false); // too big to be a DoT flush
     expect(readsAsBurn(1, 601)).toBe(false); // too long since the fire
     expect(readsAsBurn(1, Infinity)).toBe(false); // never burned at all
+  });
+
+  // --- THE FRAME AGGREGATE (Eric ruling 2026-08-05) --------------------------
+  //
+  // A multi-barrel click now lands one `dmg` per connecting shell, so several
+  // arrive in ONE frame. shake.ts resolves colliding triggers with Math.max, so
+  // per-event feedback would report the biggest single hit and swallow the rest
+  // — the MOUNT cards would land invisibly. One frame is one felt hit, summed.
+
+  it('sums a THREE-hit frame into ONE shake at the total and ONE thud', () => {
+    const { sink, play, trigger } = setupWater();
+    sink.handler(
+      victimFrame(
+        [
+          { k: 'dmg', id: 'me', amount: 15 },
+          { k: 'dmg', id: 'me', amount: 15 },
+          { k: 'dmg', id: 'me', amount: 15 },
+        ],
+        {},
+      ),
+    );
+    expect(trigger).toHaveBeenCalledTimes(1);
+    expect(trigger).toHaveBeenCalledWith(45); // a 3× hit FEELS like a 3× hit
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(play).toHaveBeenCalledWith('damage'); // three identical thuds are a smear
+  });
+
+  it('leaves a SINGLE-event frame byte-for-byte as it was', () => {
+    const { sink, play, trigger } = setupWater();
+    sink.handler(victimFrame(dmg, {}));
+    expect(trigger).toHaveBeenCalledTimes(1);
+    expect(trigger).toHaveBeenCalledWith(6);
+    expect(play).toHaveBeenCalledTimes(1);
+    expect(play).toHaveBeenCalledWith('damage');
+  });
+
+  it('never aggregates ACROSS frames — each frame is its own hit', () => {
+    const { sink, trigger } = setupWater();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 15 }], {}));
+    sink.handler(victimFrame([{ k: 'dmg', id: 'me', amount: 15 }], {}));
+    expect(trigger.mock.calls.map((c) => c[0])).toEqual([15, 15]);
+  });
+
+  it('on the DEATH frame the killing thud lands BEFORE the sink cue', () => {
+    // The server pushes `dmg` and then the `sunk` it caused, so the felt order
+    // must match: hit, then hull lost. This is why the aggregate is resolved in
+    // a PRE-PASS rather than after the fan-out — flushing at the end would put
+    // the sink cue ahead of the blow that earned it.
+    const { sink, play } = setupWater();
+    sink.handler(
+      victimFrame(
+        [
+          { k: 'dmg', id: 'me', amount: 15 },
+          { k: 'sunk', id: 'me', by: 'foe', seen: true },
+        ],
+        {},
+      ),
+    );
+    expect(play.mock.calls.map((c) => c[0])).toEqual(['damage', 'sink']);
+  });
+
+  it('a frame with NO own damage is silent (the common case costs nothing)', () => {
+    const { sink, play, trigger } = setupWater();
+    sink.handler(victimFrame([{ k: 'dmg', id: 'someone-else', amount: 15 }], {}));
+    expect(trigger).not.toHaveBeenCalled();
+    expect(play).not.toHaveBeenCalled();
+  });
+
+  it('a shell landing in the same frame as a flush is a SLAM, not a burn', () => {
+    const { sink, play, trigger } = setupWater();
+    // Alone, the 6hp flush would read as burn (it does, in the tests above).
+    // The 30hp shell beside it does not, and the frame reads as fire only when
+    // EVERY application in it does — so this is correctly reported as the
+    // impact it mostly was, and the shake still carries the full 36.
+    sink.handler(
+      victimFrame(
+        [
+          { k: 'dmg', id: 'me', amount: 6 },
+          { k: 'dmg', id: 'me', amount: 30 },
+        ],
+        {},
+        { litZones: burning('foe') },
+      ),
+    );
+    expect(play).toHaveBeenCalledWith('damage');
+    expect(play).not.toHaveBeenCalledWith('burn');
+    expect(trigger).toHaveBeenCalledWith(36);
+  });
+
+  it('a lone DoT flush still reads as BURN', () => {
+    const { sink, play, trigger } = setupWater();
+    sink.handler(victimFrame(dmg, {}, { litZones: burning('foe') }));
+    expect(play).toHaveBeenCalledWith('burn');
+    expect(trigger).toHaveBeenCalledWith(6 * CLIENT_CONFIG.litZone.burnShakeScale);
+  });
+
+  it('MANY simultaneous burners still read as BURN even though the SUM passes the cap', () => {
+    // The reason burn is classified PER EVENT and folded, rather than by testing
+    // the total: applyZoneEffects emits one bite per (owner, victim) per tick, so
+    // four distinct enemy burners produce four separate small flushes. Their sum
+    // (24) sails past BURN_AMOUNT_CAP (10), whose ×4 headroom was derived for ONE
+    // event covering overlapping patches. Testing the sum would report standing
+    // in four fires as being shelled — a full-amplitude shake and a thud for
+    // damage that was entirely DoT.
+    const { sink, play, trigger } = setupWater();
+    sink.handler(
+      victimFrame(
+        [
+          { k: 'dmg', id: 'me', amount: 6 },
+          { k: 'dmg', id: 'me', amount: 6 },
+          { k: 'dmg', id: 'me', amount: 6 },
+          { k: 'dmg', id: 'me', amount: 6 },
+        ],
+        {},
+        { litZones: burning('foe') },
+      ),
+    );
+    expect(play).toHaveBeenCalledWith('burn');
+    expect(play).not.toHaveBeenCalledWith('damage');
+    expect(trigger).toHaveBeenCalledWith(24 * CLIENT_CONFIG.litZone.burnShakeScale);
   });
 
   it('inEnemyBurningZone pins the predicate itself', () => {
