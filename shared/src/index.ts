@@ -3,6 +3,16 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  23: DAMAGE CONTROL (Eric rulings 2026-08-04) — the heal spend returns as
+ *  an ALWAYS-AVAILABLE spend, NOT a card: nothing enters BOON_CATALOG and
+ *  deck composition is byte-identical (CONFIG.offer.size stays 4).
+ *  `SpendMsg.choice` gains the reserved NEGATIVE sentinel HEAL_CHOICE (-1;
+ *  card picks stay 0..front-offer-length-1, everything else rejected);
+ *  OwnShip gains required self-private `repairHp` (remaining regen pool, hp
+ *  — rides `you` and nothing else, the boostUntil precedent); new
+ *  self-private `heal` GameEvent ({k,id} — the instant application at spend
+ *  time, the pt/bn gate); new CONFIG.damageControl block
+ *  (instantHp/regenHp/regenMs) rides the welcome config snapshot.
  *  22: the gunnery conversation (Story 4.3, amendments 15-20) — three new
  *  GameEvent kinds, each its own declared fog exception in the signal
  *  registry: `sp` (SplashEvent {k,id,x,y} — fall of shot, self-private to
@@ -147,7 +157,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 22;
+export const PROTOCOL_VERSION = 23;
 
 // Tunables
 export * from './constants.js';

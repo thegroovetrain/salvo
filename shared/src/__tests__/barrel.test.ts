@@ -66,7 +66,12 @@ describe('shared barrel', () => {
     // hc (Hit Call, shooter-only, all ordnance, never severity/victim), mz
     // (neutral muzzle flash, no identity for anyone) — plus the derived
     // CONFIG.vision.muzzleFlash halo in the welcome config snapshot.
-    expect(PROTOCOL_VERSION).toBe(22);
+    // DAMAGE CONTROL (Eric rulings 2026-08-04): the heal returns as an
+    // always-available spend (NOT a card) — HEAL_CHOICE (-1) on
+    // SpendMsg.choice, required self-private OwnShip.repairHp, the
+    // self-private 'heal' GameEvent, and CONFIG.damageControl in the
+    // welcome config snapshot.
+    expect(PROTOCOL_VERSION).toBe(23);
   });
 
   it('re-exports config, wire tags, and functions', () => {
