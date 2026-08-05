@@ -112,6 +112,17 @@ interface BlipPose {
   hue: HueState;
 }
 
+/** A `return` echo whose OBSERVER-RELATIVE geometry (bearing, range) is not
+ *  resolved yet: the wire payload alone, held until a frame with a real own
+ *  pose can turn it into a `ReturnMark`. Null once resolved — and a blip whose
+ *  seed is still set is NOT DRAWN, because a blob posed from a guessed observer
+ *  would be wrong for its whole ~12s decay, not for a frame. */
+interface EchoSeed {
+  x: number;
+  y: number;
+  ext: number;
+}
+
 interface LiveBlip {
   gfx: Graphics;
   /** Contact id — the TRACK key (3 paints per id) and the hue lookup key. For a
@@ -122,6 +133,9 @@ interface LiveBlip {
    *  is the ONLY per-blip branch: a null pose means blob geometry and the
    *  monochrome green ramp, a present one means outline + personal hue. */
   pose: BlipPose | null;
+  /** Pending `return` geometry, or null when there is nothing to resolve (every
+   *  `silhouette` blip, every coast mark, and every echo already posed). */
+  echo: EchoSeed | null;
 }
 
 interface OwnPoint {
@@ -165,8 +179,9 @@ export class Radar {
   private lastRotation: number | null = null;
   /** Last rendered own position — the observer an echo's bearing and range are
    *  measured from. A paint arrives on network cadence, not render cadence, so
-   *  this is at most one frame stale (~16ms); null before the first render, in
-   *  which case an echo degrades to an unattenuated blob rather than a NaN. */
+   *  this is at most one frame stale (~16ms). Null before the first render (and
+   *  in any later gap where the own pose is unknown), in which case an echo's
+   *  geometry is DEFERRED rather than guessed — see `resolveEcho`. */
   private own: OwnPoint | null = null;
   // Effective vision numbers (Stage D upgrades), swapped via setRanges();
   // bases = CONFIG.vision. sweepPeriodMs drives both the wedge rotation rate
@@ -274,7 +289,7 @@ export class Radar {
    * mis-read a legitimate `ext: 0` echo.
    */
   onBlip(e: BlipEvent): void {
-    if (this.grammar === 'return') this.addBlip(this.shipMark(e as ReturnBlipEvent), e.t, null);
+    if (this.grammar === 'return') this.addReturnBlip(e as ReturnBlipEvent);
     else this.addSilhouetteBlip(e as SilhouetteBlipEvent);
   }
 
@@ -289,22 +304,56 @@ export class Radar {
     };
     const b = this.acquireBlip(e.x, e.y, e.id, e.t, pose);
     this.drawBlip(b, pose, color);
-    this.blips.push(b);
     // Per-track cap first (this id's 4th paint releases its oldest), then the
     // global backstop — so a flood on one contact can never evict another's.
-    this.retire(capOldestByKey(this.blips, keyOf, e.id, CLIENT_CONFIG.blip.paintsPerContact));
-    this.retire(capOldest(this.blips, MAX_LIVE_BLIPS));
+    this.enroll(this.blips, b, CLIENT_CONFIG.blip.paintsPerContact, MAX_LIVE_BLIPS);
   }
 
-  /** The `return` acquire path — one seeded echo blob, contact or coastline. */
-  private addBlip(m: ReturnMark, t: number, coast: null | { perKey: number; cap: number }): void {
+  /**
+   * The `return` acquire path for a CONTACT echo.
+   *
+   * Geometry is NOT baked here. A paint arrives on network cadence, so it can
+   * land before the first render (join) or in any later gap where the own pose
+   * is unknown — and `drawReturn` traces a blob exactly once, so a pose guessed
+   * at acquire would be frozen into the mark for its ENTIRE decay: unattenuated,
+   * and oriented on a bearing the contact does not hold. Deferring costs at most
+   * one invisible frame on a fresh paint; guessing costs ~12s of a wrong scope.
+   */
+  private addReturnBlip(e: ReturnBlipEvent): void {
+    const b = this.acquireBlip(e.x, e.y, e.id, e.t, null);
+    b.echo = { x: e.x, y: e.y, ext: e.ext };
+    b.gfx.visible = false; // nothing legitimate to draw until the pose resolves
+    this.resolveEcho(b);
+    this.enroll(this.blips, b, CLIENT_CONFIG.blip.paintsPerContact, MAX_LIVE_BLIPS);
+  }
+
+  /** The `return` acquire path for a COASTLINE mark (amendment 58). Its geometry
+   *  needs no deferral: `paintIslands` only ever runs with a known own pose. */
+  private addCoastMark(m: ReturnMark, t: number, perKey: number, cap: number): void {
     const b = this.acquireBlip(m.x, m.y, m.key, t, null);
     this.drawReturn(b, m);
-    const list = coast === null ? this.blips : this.marks;
-    const perKey = coast === null ? CLIENT_CONFIG.blip.paintsPerContact : coast.perKey;
-    const cap = coast === null ? MAX_LIVE_BLIPS : coast.cap;
+    this.enroll(this.marks, b, perKey, cap);
+  }
+
+  /**
+   * Resolve a pending echo the FIRST time an own pose is actually available,
+   * draw it once, and reveal it. Frozen from then on — a phosphor paint is a
+   * historical snapshot (amendment 59), so it must NOT re-pose as the observer
+   * moves; the deferral exists only to stop a mark being born wrong.
+   */
+  private resolveEcho(b: LiveBlip): void {
+    const own = this.own;
+    const seed = b.echo;
+    if (own === null || seed === null) return;
+    b.echo = null;
+    b.gfx.visible = true;
+    this.drawReturn(b, this.shipMark(seed, b.id, own));
+  }
+
+  /** Add a fresh mark to its list and apply the per-track then global caps. */
+  private enroll(list: LiveBlip[], b: LiveBlip, perKey: number, cap: number): void {
     list.push(b);
-    this.retire(capOldestByKey(list, keyOf, m.key, perKey));
+    this.retire(capOldestByKey(list, keyOf, b.id, perKey));
     this.retire(capOldest(list, cap));
   }
 
@@ -320,24 +369,24 @@ export class Radar {
     gfx.visible = true;
     gfx.alpha = 1;
     gfx.tint = CLIENT_CONFIG.colors.white; // the un-cooled multiplier
-    return { gfx, id, t, pose };
+    return { gfx, id, t, pose, echo: null };
   }
 
   /** A `return` paint as a render-frame echo: the wire carries pure aspect
    *  geometry (`ext`), and the OBSERVER-relative terms — bearing and range —
-   *  are derived here, where both positions are known (ruling R2). Before the
-   *  first render the own position is unknown; the echo then draws unattenuated
-   *  and bow-up rather than NaN, which is a one-frame cosmetic at worst. */
-  private shipMark(e: ReturnBlipEvent): ReturnMark {
-    const dx = this.own === null ? 0 : e.x - this.own.x;
-    const dy = this.own === null ? 0 : e.y - this.own.y;
+   *  are derived here, where both positions are known (ruling R2). `own` is a
+   *  REQUIRED argument, not a field read: the only caller is `resolveEcho`,
+   *  which has already established that a real pose exists. */
+  private shipMark(seed: EchoSeed, key: string, own: OwnPoint): ReturnMark {
+    const dx = seed.x - own.x;
+    const dy = seed.y - own.y;
     return {
-      x: e.x,
-      y: e.y,
-      ext: e.ext,
+      x: seed.x,
+      y: seed.y,
+      ext: seed.ext,
       bearing: Math.atan2(dy, dx),
       dist: Math.hypot(dx, dy),
-      key: e.id,
+      key,
     };
   }
 
@@ -453,21 +502,23 @@ export class Radar {
    *
    * PURE PRESENTATION — the island field is rebuilt locally from the map seed,
    * so nothing here touches the wire or the perception invariant. Only the NEAR
-   * arc paints; the shadow behind an island is the existing rule (islands block
-   * every sensor at all ranges), not a new one.
+   * arc paints, and only where the sightline is clear of the REST of the field:
+   * the shadow behind an island is the existing rule (islands block every sensor
+   * at all ranges), not a new one, and it applies to terrain exactly as it does
+   * to hulls — hence the whole island list goes into the geometry.
    *
    * Cost per frame is one hypot + three angle compares PER ISLAND: a 60fps frame
-   * advances the beam ~0.9° at 15rpm, so the near-arc sampling loop runs only for
-   * the island the beam is actually on — typically none, at most one or two.
+   * advances the beam ~1.5° at 15rpm, so the near-arc sampling loop (and the LOS
+   * work behind it) runs only for the island the beam is actually on — typically
+   * none, at most one or two.
    */
   private paintIslands(own: OwnPoint, rot: number, serverNow: number): void {
     const from = this.lastRotation;
     if (this.grammar !== 'return' || from === null) return;
     const o = CLIENT_CONFIG.blip.returns.island;
-    const coast = { perKey: o.paintsPerSample, cap: o.maxMarks };
     for (const isl of this.islands) {
-      for (const m of islandReturns(isl, own, from, rot, this.radarRange, o)) {
-        this.addBlip(m, serverNow, coast);
+      for (const m of islandReturns(isl, this.islands, own, from, rot, this.radarRange, o)) {
+        this.addCoastMark(m, serverNow, o.paintsPerSample, o.maxMarks);
       }
     }
   }
@@ -509,6 +560,9 @@ export class Radar {
       b.gfx.alpha = alpha;
       const pose = b.pose;
       if (pose === null) {
+        // A paint that arrived without an own pose is still waiting for one:
+        // this is the first frame it can be posed correctly, so pose it here.
+        if (b.echo !== null) this.resolveEcho(b);
         b.gfx.tint = blipTint(age, d.life);
         continue;
       }

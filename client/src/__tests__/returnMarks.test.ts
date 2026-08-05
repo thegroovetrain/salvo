@@ -20,7 +20,7 @@
 //     as hard as the new path is.
 
 import { describe, it, expect } from 'vitest';
-import { perpendicularExtent, type Circle, type Vec2 } from '@salvo/shared';
+import { perpendicularExtent, segCircleHit, type Circle, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { createGameState } from '../state.js';
 import { radarModes } from '../net/connection.js';
@@ -261,26 +261,82 @@ describe('islandReturns gating', () => {
   it('emits marks when the beam crosses the island, and only near-arc ones', () => {
     const [from, to] = wide();
     const centreDist = Math.hypot(ISLAND.x, ISLAND.y);
-    const marks = islandReturns(ISLAND, OBSERVER, from, to, RADAR, ISL);
+    const marks = islandReturns(ISLAND, [ISLAND], OBSERVER, from, to, RADAR, ISL);
     expect(marks.length).toBeGreaterThan(1);
     for (const m of marks) expect(m.dist).toBeLessThan(centreDist);
   });
 
   it('emits nothing while the beam is elsewhere', () => {
-    expect(islandReturns(ISLAND, OBSERVER, 2.0, 2.1, RADAR, ISL)).toEqual([]);
+    expect(islandReturns(ISLAND, [ISLAND], OBSERVER, 2.0, 2.1, RADAR, ISL)).toEqual([]);
   });
 
   it('emits nothing beyond radar range — the NEAREST point is what counts', () => {
     const far: Circle = { x: RADAR + 200, y: 0, r: 80 };
     const near: Circle = { x: RADAR + 40, y: 0, r: 80 }; // centre out, coast in
     const [from, to] = wide();
-    expect(islandReturns(far, OBSERVER, from, to, RADAR, ISL)).toEqual([]);
-    expect(islandReturns(near, OBSERVER, from, to, RADAR, ISL).length).toBeGreaterThan(0);
+    expect(islandReturns(far, [far], OBSERVER, from, to, RADAR, ISL)).toEqual([]);
+    expect(islandReturns(near, [near], OBSERVER, from, to, RADAR, ISL).length).toBeGreaterThan(0);
   });
 
   it('emits nothing when the observer is aground inside the island', () => {
     const [from, to] = wide();
-    expect(islandReturns({ x: 10, y: 0, r: 80 }, OBSERVER, from, to, RADAR, ISL)).toEqual([]);
+    const aground: Circle = { x: 10, y: 0, r: 80 };
+    expect(islandReturns(aground, [aground], OBSERVER, from, to, RADAR, ISL)).toEqual([]);
+  });
+
+  // --- ISLANDS SHADOW EACH OTHER (Eric ruling 2026-08-02) -------------------
+  // The near-arc horizon only handles an island's shadow of ITSELF. A second
+  // island in front is the SAME rule and was unenforced: a coast mark a ship
+  // could not blip from (server/src/game/signals.ts:losClear rejects it) must
+  // not paint either, or terrain would see through what hulls cannot.
+
+  it('a coast hidden behind another island is SHADOW, not a return', () => {
+    const front: Circle = { x: 300, y: 0, r: 80 };
+    const behind: Circle = { x: 700, y: 0, r: 60 }; // wholly inside front's shadow
+    const [from, to] = wide();
+    // Alone, the beam reaches it and it paints — so the field is what decides.
+    const alone = islandReturns(behind, [behind], OBSERVER, from, to, RADAR, ISL);
+    expect(alone.length).toBeGreaterThan(0);
+    // And every one of those sightlines runs straight through `front`.
+    for (const m of alone) expect(segCircleHit(OBSERVER, m, front, front.r)).not.toBeNull();
+    expect(islandReturns(behind, [front, behind], OBSERVER, from, to, RADAR, ISL)).toEqual([]);
+  });
+
+  it('shadows only the samples actually blocked — a partial occluder is partial', () => {
+    const front: Circle = { x: 300, y: 0, r: 40 };
+    const behind: Circle = { x: 700, y: 0, r: 200 }; // subtends far wider than front
+    const [from, to] = wide();
+    const alone = islandReturns(behind, [behind], OBSERVER, from, to, RADAR, ISL);
+    const shadowed = islandReturns(behind, [front, behind], OBSERVER, from, to, RADAR, ISL);
+    expect(shadowed.length).toBeGreaterThan(0); // the flanks are still in the clear
+    expect(shadowed.length).toBeLessThan(alone.length); // the middle is not
+    for (const m of shadowed) expect(segCircleHit(OBSERVER, m, front, front.r)).toBeNull();
+  });
+
+  it('an island never occludes ITSELF — its own near arc IS the return', () => {
+    // Every near-arc sample sits exactly ON the island circle, where the LOS
+    // primitive reports a touch. Excluding `self` by identity is what keeps the
+    // whole feature from cancelling itself out.
+    const [from, to] = wide();
+    expect(islandReturns(ISLAND, [ISLAND], OBSERVER, from, to, RADAR, ISL).length)
+      .toBeGreaterThan(1);
+  });
+
+  // --- RANGE IS PER SAMPLE, NOT PER ISLAND ----------------------------------
+
+  it('never paints a mark outside the radar ring, even when the island is inside', () => {
+    // The island gate uses the NEAREST point, but the near arc reaches out to
+    // the tangents at sqrt(d² − r²) — which here is 692u against a 660u ring.
+    // Ship paints are hard-gated to the annulus; terrain leaking past the drawn
+    // ring is a visible contradiction.
+    const isl: Circle = { x: 700, y: 0, r: 100 };
+    const [from, to] = wide();
+    expect(isl.r + RADAR).toBeGreaterThan(700); // the island itself is in range
+    const overRange = nearArcSamples(isl, OBSERVER, ISL).filter((m) => m.dist > RADAR);
+    expect(overRange.length).toBeGreaterThan(0); // the leak is reachable at all
+    for (const m of islandReturns(isl, [isl], OBSERVER, from, to, RADAR, ISL)) {
+      expect(m.dist).toBeLessThanOrEqual(RADAR);
+    }
   });
 
   it('a narrow advance paints only the slice it crossed, and paints all of it '
@@ -292,7 +348,7 @@ describe('islandReturns gating', () => {
     const step = 0.02;
     for (let i = 0; i < Math.ceil((2 * Math.PI) / step); i++) {
       const from = i * step;
-      const got = islandReturns(ISLAND, OBSERVER, from, from + step, RADAR, ISL);
+      const got = islandReturns(ISLAND, [ISLAND], OBSERVER, from, from + step, RADAR, ISL);
       expect(got.length).toBeLessThan(all); // never the whole island at once
       for (const m of got) {
         expect(seen.has(m.key)).toBe(false);

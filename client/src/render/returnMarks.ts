@@ -36,14 +36,18 @@
 //     PRESENTATION — no wire field, no server work, no perception-invariant
 //     surface. Only the NEAR ARC paints; everything behind stays shadow, which
 //     is not a new rule but the existing one (Eric ruling 2026-08-02: islands
-//     block every sensor at all ranges).
+//     block every sensor at all ranges). That rule is TWO-SIDED and both sides
+//     are enforced here: an island shadows ITSELF (the near-arc horizon), and it
+//     shadows EVERY OTHER island behind it (the `segCircleHit` LOS filter, the
+//     same primitive `server/src/game/signals.ts:losClear` gates ship paints
+//     with). A coast mark a ship could not blip from must not paint either.
 //
 //   • SWEEP CROSSING. Both ship and island returns are born the instant the beam
 //     crosses their bearing, and both then decay on the ordinary phosphor ramp.
 //     The island path re-derives its own crossing here because the server never
 //     sees an island paint at all.
 
-import { mulberry32, wrapPositive, type Circle, type Vec2 } from '@salvo/shared';
+import { mulberry32, segCircleHit, wrapPositive, type Circle, type Vec2 } from '@salvo/shared';
 
 const TAU = Math.PI * 2;
 
@@ -288,22 +292,62 @@ export function nearArcSamples(
 }
 
 /**
+ * Is the observer→`p` segment clear of every island in `field` EXCEPT `self`?
+ *
+ * `segCircleHit` is THE line-of-sight primitive of this codebase — the same one
+ * `server/src/game/signals.ts:losClear` runs to decide whether a SHIP paints.
+ * Terrain answers to it identically: a coast mark whose sightline is blocked by
+ * another island must not paint, or the scope would draw a shoreline the same
+ * observer could not blip a hull at.
+ *
+ * `self` is excluded by IDENTITY, not by geometry: an island can never occlude
+ * itself, because its own near arc IS the return, and every one of those samples
+ * sits exactly on its circle (where `segCircleHit` reports a touch).
+ */
+function losClearOfOthers(
+  observer: Vec2,
+  p: Vec2,
+  field: readonly Circle[],
+  self: Circle,
+): boolean {
+  for (const isl of field) {
+    if (isl === self) continue;
+    if (segCircleHit(observer, p, isl, isl.r) !== null) return false;
+  }
+  return true;
+}
+
+/**
  * The island returns born THIS FRAME: near-arc samples whose bearing the beam
- * crossed while advancing from `from` to `to`.
+ * crossed while advancing from `from` to `to`, that are in range, and that the
+ * rest of the island field does not shadow.
  *
- * The cheap whole-island bearing-span rejection runs FIRST. A 60fps frame
- * advances the beam ~0.9° at 15rpm while an island subtends a handful of
- * degrees, so on nearly every frame nothing is in the beam and this costs one
- * hypot plus three angle compares per island — the sampling loop only runs for
- * the island the beam is actually on. That is the whole per-frame cost of
- * amendment 58.
+ * The cheap whole-island bearing-span rejection runs FIRST, and the per-sample
+ * predicate is ordered cheapest-first behind it (beam crossing → range → LOS).
+ * A 60fps frame advances the beam ~1.5° at 15rpm while an island subtends a
+ * handful of degrees, so on nearly every frame nothing is in the beam and this
+ * costs one hypot plus three angle compares per island — the sampling loop, and
+ * with it the only LOS work, runs solely for the island the beam is actually on.
+ * WORST CASE per frame is therefore `maxSamples × (islands the beam is inside) ×
+ * (field − 1)` quadratic tests; the ordering keeps the realistic case at zero.
  *
- * An island is in range when its NEAREST point is (its coastline is what
- * paints, not its centre), and the observer being inside it is treated as no
- * coast at all rather than as a divide-by-zero.
+ * RANGE IS CHECKED PER SAMPLE, not just per island. The whole-island gate uses
+ * the island's NEAREST point (its coastline is what paints, not its centre), but
+ * the near arc runs out to the tangents at up to sqrt(d² − r²) — so a coastline
+ * that starts inside the radar ring can reach past it, and a mark outside the
+ * drawn ring would contradict the hard annulus gate every ship paint obeys.
+ *
+ * The observer being inside the island is treated as no coast at all rather than
+ * as a divide-by-zero.
+ *
+ * `field` is the whole client-known island list; `island` must be the SAME
+ * OBJECT as its entry there (render/radar.ts iterates the very array it passes),
+ * because the self-exclusion is by reference — a value-equal clone would shadow
+ * its own coastline into nothing.
  */
 export function islandReturns(
   island: Circle,
+  field: readonly Circle[],
   observer: Vec2,
   from: number,
   to: number,
@@ -317,5 +361,10 @@ export function islandReturns(
   const centre = Math.atan2(dy, dx);
   const half = Math.asin(Math.min(1, island.r / dist));
   if (!arcOverlaps(from, to, centre, half)) return [];
-  return nearArcSamples(island, observer, o).filter((m) => sweepCrossed(from, to, m.bearing));
+  return nearArcSamples(island, observer, o).filter(
+    (m) =>
+      sweepCrossed(from, to, m.bearing) &&
+      m.dist <= radarRange &&
+      losClearOfOthers(observer, m, field, island),
+  );
 }
