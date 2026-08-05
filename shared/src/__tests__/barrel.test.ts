@@ -80,7 +80,13 @@ describe('shared barrel', () => {
     // two-value enum) plus CONFIG.damageBands and CONFIG.smoke in the welcome
     // config snapshot. Reach reuses CONFIG.vision.muzzleFlash — no new vision
     // constant.
-    expect(PROTOCOL_VERSION).toBe(25);
+    // THE FOGHORN (PV 26, Eric rulings 2026-08-05, amendments 51-58): the new
+    // 'fh' GameEvent ({k,h,self?,b?,v?,x?,y?} — bearing + volume tier for a
+    // fogged listener, NEVER a position or ship id; the 6th declared
+    // perception exception and the first per-observer-varying payload) plus
+    // required InputMsg.hornSeq, the shared HORN_IDS catalog, and
+    // CONFIG.foghorn in the welcome config snapshot. No vision constant added.
+    expect(PROTOCOL_VERSION).toBe(26);
   });
 
   it('re-exports config, wire tags, and functions', () => {

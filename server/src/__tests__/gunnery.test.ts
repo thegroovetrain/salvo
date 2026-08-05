@@ -58,7 +58,7 @@ function injectShell(w: World, overrides: Partial<ShellState> & { id: string; ow
 }
 
 function fire(w: World, id: string, slot: number, aim: number, aimDist: number, seq = 1): void {
-  w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist, slot, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
 }
 
 const ofKind = <K extends GameEvent['k']>(events: readonly GameEvent[], k: K) =>
@@ -109,7 +109,7 @@ describe('gunnery — mz emission (gun family only, true muzzle, one per owner p
     // Aim a long shot (the gate reads the ship's stored input for the clicked
     // point), then fire with a time 200ms in the past: the spawned shell is
     // pre-stepped ~100u along its flight on the spawn tick.
-    a.input = { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 };
+    a.input = { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
     expect(w.sinkingActivationGate(a, 0, w.now - 200).ok).toBe(true);
     w.step();
     const mz = ofKind(w.tickEvents, 'mz');

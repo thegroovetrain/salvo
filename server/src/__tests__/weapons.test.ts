@@ -47,7 +47,7 @@ function bareWorld(seed = 3): World {
 function torpShip(w: World, id: string, x: number, y: number, heading: number): ShipRecord {
   const rec = w.addShip(id, id.toUpperCase());
   rec.state = { x, y, heading, speed: 0 };
-  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0 };
+  const input: InputMsg = { seq: 1, throttle: 0, rudder: 0, aim: heading, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
   rec.input = input;
   return rec;
 }
@@ -231,7 +231,7 @@ describe('World — mine placement + trigger end-to-end (Story 2.8: aimed rear-a
     const a = w.addShip('a', 'A', false, 'mineLayer'); // mine at slot 1 ([gun, mine, decoyBuoy])
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Mines are an aimed WEAPON (amendment 45): a click astern places one.
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0 };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
     w.step(); // places one mine at the clicked point (40u astern, -x)
     expect(w.mines.size).toBe(1);
     const mine = [...w.mines.values()][0];
@@ -371,7 +371,7 @@ describe('mines — owner gun-burst detonation (armed-only, owner-only, no casca
 
   /** Click a's gun at (dist, 0) and step until the burst resolves. */
   function shootAt(w: World, dist: number): void {
-    w.submitInput('a', { seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('a', { seq: 9, throttle: 0, rudder: 0, aim: 0, fireSeq: 9, aimDist: dist, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     for (let i = 0; i < 60; i++) {
       w.step();
       if (w.tickEvents.some((e) => e.k === 'burst')) return;
@@ -426,7 +426,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_TORPEDO, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     let torps = 0;
     for (let i = 0; i < 20; i++) {
       w.step();
@@ -439,12 +439,12 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', false, 'mineLayer'); // mine at slot 1 ([gun, mine, decoyBuoy])
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 40, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     // Under hold-to-fire this input would re-place every reload; a click must not.
     const ticks = CONFIG.mine.reloadMs / CONFIG.tick.simDtMs + 20;
     for (let i = 0; i < ticks; i++) w.step();
     expect(w.mines.size).toBe(1);
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 2, aimDist: 60, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 2, aimDist: 60, slot: SLOT_MINE_ML, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     w.step();
     expect(w.mines.size).toBe(2);
   });
@@ -453,7 +453,7 @@ describe('one shot per click — torpedoes and mines (world level)', () => {
     const w = bareWorld();
     const a = w.addShip('a', 'A', false, 'mineLayer');
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 40, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 0, aimDist: 40, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_MINE_ML, hornSeq: 0 });
     w.step();
     expect(w.mines.size).toBe(0); // the ability-only press wall refuses weapons
     expect(a.loadout[SLOT_MINE_ML].state).toEqual({ n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 }); // charge intact
@@ -484,7 +484,7 @@ describe('ammo wire array is SLOT-ALIGNED (WeaponAmmo | null)[]', () => {
     const ship = w.addShip('a', 'A');
     ship.state = { x: 0, y: 0, heading: 0, speed: 0 };
     expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: CONFIG.gun.maxAmmo, reloadMsLeft: 0 });
-    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0 };
+    ship.input = { seq: 1, throttle: 0, rudder: 0, aim: HALF_PI, fireSeq: 1, aimDist: 1000, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
     w.step(); // one click -> one shell, pool 1 -> 0, the 3s cooldown starts
     expect(slotAmmo(ship)[SLOT_GUN]).toEqual({ n: CONFIG.gun.maxAmmo - 1, reloadMsLeft: CONFIG.gun.reloadMs });
   });

@@ -27,7 +27,8 @@ export type EffectKind =
   | 'splash'
   | 'sink'
   | 'torpwake'
-  | 'burst';
+  | 'burst'
+  | 'horn';
 
 /**
  * Pure: is this one-shot pure JUICE (a decorative flash) rather than a marker
@@ -51,6 +52,14 @@ export type EffectKind =
  * ratified motion rule is that `off` removes MOTION, never INFORMATION. Do not
  * put them back: gating them on the motion setting would delete the two answers
  * this story exists to give from the screen of anyone who turned animation down.
+ *
+ * STORY 4.5's `horn` IS NOT JUICE EITHER, and the reason is sharper than the
+ * two above: it is the ONLY visual your own honk ever produces. A honker gets
+ * no chevron (a bearing to yourself is meaningless — amendment 55), so if the
+ * bloom were juice, `spawnOneShot`'s `peakAlpha <= 0` early-out at `motion:
+ * 'off'` would delete the entire visual twin of the one cue the player
+ * deliberately triggered, leaving a 1.8s horn with nothing on screen at all.
+ * UX-DR36 requires every honk to have a twin; this is that twin.
  */
 export function isJuiceEffect(kind: EffectKind): boolean {
   return kind === 'muzzleHeavy';
@@ -79,9 +88,15 @@ export function effectPeakAlpha(kind: EffectKind, baseAlpha: number, intensity: 
  * `muzzleHeavy` stays fogged, and correctly: it is own-side only and only ever
  * draws on our own hull, which IS the hole in the fog. Sink and torpwake stay
  * fogged too (both only occur where you can already see). No Pixi involved.
+ *
+ * STORY 4.5 ADDS `horn`, the own-hull bloom. It rings out to roughly the sight
+ * hole's inner feather, where the fog composite has already begun to darken,
+ * and it is the honker's ONLY visual confirmation that their horn sounded — a
+ * confirmation the fog may not be allowed to eat, however partially. The same
+ * argument the burst ring made first.
  */
 export function isFogImmuneEffect(kind: EffectKind): boolean {
-  return kind === 'burst' || kind === 'splash' || kind === 'spark' || kind === 'muzzle';
+  return kind === 'burst' || kind === 'splash' || kind === 'spark' || kind === 'muzzle' || kind === 'horn';
 }
 
 interface OneShotSpec {
@@ -125,6 +140,12 @@ const SPECS: Record<Exclude<EffectKind, 'wake'>, OneShotSpec> = {
   burst: { type: 'ring', life: 0.35, color: C.amber, r0: 4, r1: CONFIG.gun.burstRadius, width: 3, alpha: 0.95, additive: true },
   // Sink ring where a hull went down → damage-marker (DESIGN.md Combat Effects).
   sink: { type: 'ring', life: 0.9, color: C.damageMarker, r0: 6, r1: 40, width: 3, alpha: 0.9, additive: false },
+  // Story 4.5 — YOUR OWN HONK (amendment 55): a slow wide ring leaving your
+  // own hull, the sound going out. Drawn in HUD phosphor rather than a combat
+  // color because a foghorn is an EMOTE, not ordnance, and it is deliberately
+  // the SLOWEST one-shot in the table — a horn is ~1.8s and a 0.35s flash would
+  // read as a hit. Non-additive: this must not look like a detonation.
+  horn: { type: 'ring', life: 1, color: C.phosphor, r0: 12, r1: 110, width: 2, alpha: 0.5, additive: false },
   // Torpedo wake: a small dim bubble dropped along the fish's run; fades fast so
   // the trail reads as a fresh streak, not a persistent line (legacy torp tone).
   torpwake: { type: 'dot', life: 0.7, color: C.legacy.torpWake, r0: 2, r1: 3.5, width: 0, alpha: 0.4, additive: false },

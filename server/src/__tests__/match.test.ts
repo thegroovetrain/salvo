@@ -98,13 +98,13 @@ function injectShell(ctx: Ctx, id: string, ownerId: string, x: number, y: number
 
 function fire(ctx: Ctx, id: string, slot: 0 | 1 | 2, seq: number): void {
   // seq doubles as the click counter: every call is one fresh click.
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot, fireT: 0, actSeq: 0, actSlot: 0 });
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: seq, aimDist: 600, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
 }
 
 /** One fresh ability press (actSeq advance) on `actSlot` (boost/decoy). seq
  *  doubles as the press counter. */
 function press(ctx: Ctx, id: string, actSlot: 0 | 1 | 2, seq: number): void {
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: seq, actSlot });
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: seq, actSlot, hornSeq: 0 });
 }
 
 /** One fresh mine CLICK (Story 2.8, amendment 45: the mine is an aimed weapon
@@ -113,7 +113,7 @@ function press(ctx: Ctx, id: string, actSlot: 0 | 1 | 2, seq: number): void {
 function mineClick(ctx: Ctx, id: string, slot: 0 | 1 | 2, seq: number): void {
   const heading = ctx.w.ships.get(id)!.state.heading;
   const aim = heading + Math.PI; // rear-sector center
-  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist: CONFIG.mine.placeRange / 2, slot, fireT: 0, actSeq: 0, actSlot: 0 });
+  ctx.w.submitInput(id, { seq, throttle: 0, rudder: 0, aim, fireSeq: seq, aimDist: CONFIG.mine.placeRange / 2, slot, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
 }
 
 /** Step until this tick's events contain a boom (shell resolution is 1-4 ticks). */

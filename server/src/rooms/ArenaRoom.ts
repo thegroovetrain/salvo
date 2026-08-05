@@ -15,6 +15,7 @@ import {
   REGATTA_NO_HUE,
   mulberry32,
   sanitizeClassId,
+  sanitizeHornId,
   zoneGroups,
   type ResultsMsg,
   type Rng,
@@ -453,8 +454,12 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
     // the CAPTAIN-n fallback.
     const name = sanitizeName(options.name) ?? `CAPTAIN-${this.joinCounter}`;
     const classId = sanitizeClassId(options.cls);
+    // Foghorn variant (Story 4.5): sanitized HERE like cls — a plain identity
+    // option, never a dev override — and handed straight to the ship record.
+    // Fail-open to 'standard'; no roster/PlayerMeta field (amendment 52).
+    const horn = sanitizeHornId(options.horn);
 
-    this.world.addShip(client.sessionId, name, false, classId);
+    this.world.addShip(client.sessionId, name, false, classId, horn);
 
     // Sandbox mode only (dev smokes): pre-lifecycle interim behavior — the
     // storm starts when the 2nd ship joins. The real lifecycle anchors the

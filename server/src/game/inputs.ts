@@ -46,7 +46,7 @@ export const AIM_DIST_MAX = 4 * CONFIG.map.baseRadius;
 
 /** Neutral input applied to a ship before its client ever sends one. */
 export function neutralInput(): InputMsg {
-  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 };
+  return { seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
 }
 
 function isFiniteNumber(v: unknown): v is number {
@@ -113,6 +113,11 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
   // drops the whole message, never partially applying.
   if (!isActSeq(m.actSeq)) return null;
   if (!isSlotIndex(m.actSlot)) return null;
+  // Story 4.5 foghorn counter: validated EXACTLY as actSeq (isActSeq is the
+  // one monotonic-counter guard — finite int >= 0), whole message dropped on
+  // anything malformed. The World's lastHornSeq = max(...) consumption makes
+  // any accepted-but-stale value read as "no new press".
+  if (!isActSeq(m.hornSeq)) return null;
   const seq = m.seq as number;
   if (seq <= lastSeq) return null;
   return {
@@ -126,6 +131,7 @@ export function sanitizeInput(raw: unknown, lastSeq: number): InputMsg | null {
     fireT: m.fireT as number,
     actSeq: m.actSeq,
     actSlot: m.actSlot,
+    hornSeq: m.hornSeq,
   };
 }
 

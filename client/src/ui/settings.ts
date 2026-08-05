@@ -74,9 +74,14 @@ export interface BindingRow {
 /**
  * Pure: the CURRENT-TRUTH binding reference (amendments 1–13). Authored from the
  * amendments, never copied from EXPERIENCE/DESIGN — those tables predate the
- * 2026-07-21/24 re-rulings (Q-on-gun, the F slot, SPACE-hold refit). F is
- * reserved-and-unbound (the future Foghorn), so it is deliberately absent. This
+ * 2026-07-21/24 re-rulings (Q-on-gun, the F slot, SPACE-hold refit). This
  * is a REFERENCE, not a remapper: key remapping is post-beta.
+ *
+ * F IS NOW A REAL BINDING (Story 4.5, amendment 56 — UX open question #20
+ * closed). It sat reserved-and-unbound here since Epic 2 and was deliberately
+ * ABSENT from this table for exactly as long; that omission is wrong by design
+ * as of the foghorn, and the row below replaces it. Listed right after the slot
+ * keys because it is a conning-position action, not chrome.
  */
 export function bindingRows(): BindingRow[] {
   return [
@@ -84,6 +89,7 @@ export function bindingRows(): BindingRow[] {
     { keys: 'A / D', action: 'RUDDER — HELD' },
     { keys: 'Q / E', action: 'CLASS SPECIAL SLOTS' },
     { keys: 'R', action: 'PICKUP SLOT — INERT WHILE EMPTY' },
+    { keys: 'F', action: 'FOGHORN — SOUND OFF (BEARING ONLY)' },
     { keys: 'CLICK', action: 'FIRE THE SELECTED WEAPON / PRIME A SKILLSHOT' },
     { keys: 'TAB', action: 'REFIT WINDOW — TOGGLE' },
     { keys: '1 – 4', action: 'PICK A REFIT CARD (WHILE THE WINDOW IS OPEN)' },

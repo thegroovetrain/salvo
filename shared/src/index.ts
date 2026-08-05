@@ -3,6 +3,22 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  26: THE FOGHORN (Story 4.5, Eric rulings 2026-08-05, amendments 51-58) —
+ *  two wire-shape changes in one bump: (1) new `fh` GameEvent (FoghornEvent
+ *  {k,h,self?,b?,v?,x?,y?}), the SIXTH declared exception to the master
+ *  perception invariant and the FIRST row whose payload varies BY OBSERVER in
+ *  substance — a fogged listener gets BEARING + VOLUME TIER + horn id and
+ *  NEVER a position, ship id, or correlation handle (amendment 51), the
+ *  honker gets {k,h,self}, and only the omniscient spectator path gets x/y;
+ *  and (2) InputMsg gains required `hornSeq` (cumulative honk counter,
+ *  max()-consumed, the fireSeq/actSeq grammar). Tiers derive from the
+ *  LISTENER's effective ranges, so no vision constant was added (amendments
+ *  42/53); islands MUFFLE by one tier instead of blocking (amendment 54). New
+ *  shared HORN_IDS/HornId/DEFAULT_HORN_ID/sanitizeHornId catalog (exactly one
+ *  horn, 'standard' — a second horn is Eric-gated content, amendment 52) and
+ *  a new CONFIG.foghorn block (cooldownMs) riding the welcome config
+ *  snapshot; join options gain an optional `horn`. No roster/PlayerMeta
+ *  schema field, no kill-feed line, no XP or damage — it is an emote.
  *  25: WOUNDED SMOKE (Story 4.4, Eric rulings 2026-08-05) — new `sm`
  *  GameEvent ({k,x,y,tier}: a hull is hurt HERE, this hurt), the FIFTH
  *  declared exception to the master perception invariant and the first
@@ -176,7 +192,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 25;
+export const PROTOCOL_VERSION = 26;
 
 // Tunables
 export * from './constants.js';

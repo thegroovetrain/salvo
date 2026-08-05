@@ -205,6 +205,30 @@ export const CONFIG = {
   },
 
   /**
+   * The foghorn (Story 4.5, amendments 51-58) — the SIM-AUTHORITATIVE cadence,
+   * and nothing else. The server is the only authority on whether a honk
+   * happened: it gates the emit on this cooldown and silently drops an early
+   * hornSeq. The client mirrors the same number purely to avoid wire spam and
+   * to play the predicted `denied` cue on an early press — an own honk is
+   * NEVER client-predicted (amendment 58); the honker hears their own horn
+   * from the self-addressed server event, exactly once.
+   *
+   * Reach is deliberately NOT here: the volume tiers derive from the
+   * LISTENER's effective ranges (sightOf / muzzleFlash / radarRange —
+   * amendment 53), never from flat foghorn constants, and no fourth
+   * CONFIG.vision constant was added (amendment 42). Horn voices, tier gains,
+   * mix concurrency cap, chevron geometry and TTL are all CLIENT-ONLY
+   * presentation (CLIENT_CONFIG.foghorn + client/src/audio/horns.ts).
+   */
+  foghorn: {
+    // ms between accepted honks, server-gated. 1.5s (Eric ruling, amendment
+    // 56) chosen over 3s/5s explicitly so captains can have honk
+    // CONVERSATIONS — "let them be silly". The audio mix is protected by a
+    // client-side concurrency cap, not by a slower cooldown.
+    cooldownMs: 1500,
+  },
+
+  /**
    * The universal standard gun (Eric rulings 2026-07-21): the permanently
    * selected default weapon, byte-identical on every class. 360° — no mounts,
    * no arcs, never out-of-arc. Single shot on a pure cooldown, implemented as
@@ -740,6 +764,37 @@ export function sanitizeClassId(raw: unknown): ShipClassId {
   return typeof raw === 'string' && (SHIP_CLASS_IDS as readonly string[]).includes(raw)
     ? (raw as ShipClassId)
     : 'torpedoBoat';
+}
+
+/**
+ * The horn catalog (Story 4.5, amendment 52) — the shared vocabulary for the
+ * `h` field on a FoghornEvent and the optional `horn` join option.
+ *
+ * EXACTLY ONE HORN SHIPS. The variant id exists now because the wire carries
+ * it (a purchased horn must be audible to everyone, not just its owner), but
+ * ADDING A SECOND HORN IS CONTENT AND NEEDS AN ERIC RULING — no cycle may
+ * invent horn variants. A horn's VOICE (synth layers or a sample url) is
+ * client-only presentation (client/src/audio/horns.ts); this catalog is only
+ * the id space both sides validate against.
+ */
+export const HORN_IDS = ['standard'] as const;
+
+/** A foghorn variant id as it appears on the wire (FoghornEvent.h). */
+export type HornId = (typeof HORN_IDS)[number];
+
+/** The horn every captain fits until one is chosen/purchased. */
+export const DEFAULT_HORN_ID: HornId = 'standard';
+
+/**
+ * Coerce arbitrary (wire/localStorage/join-option) input to a valid horn id,
+ * default 'standard'. Never throws — an OLD CLIENT hearing a NEW horn must
+ * degrade to the default voice rather than to silence or an exception
+ * (amendment 52), which is the same fail-open contract as sanitizeClassId.
+ */
+export function sanitizeHornId(raw: unknown): HornId {
+  return typeof raw === 'string' && (HORN_IDS as readonly string[]).includes(raw)
+    ? (raw as HornId)
+    : DEFAULT_HORN_ID;
 }
 
 // The 14-entry legacy upgrade system (UPGRADE_IDS / UpgradeId /

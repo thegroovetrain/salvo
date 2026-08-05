@@ -113,3 +113,21 @@ planning-artifact-derived content above, **the amendment WINS**. Summary of entr
    are broadcasting). Every hull with hp smokes, drones included; decoys have no hp and so no plume,
    which is not a tell. PV bumps 24 → 25; no combat tunable moves; no audio twin this cycle (4.7
    owns that); `motion: off` removes the drift, never the plume.
+10. **Story 4.5 rulings (amendments 51-61): the foghorn SHIPS — 4.5 does NOT defer.** It is the
+    SIXTH declared exception to the master perception invariant, and the first signal whose payload
+    varies by observer in substance rather than by a flag: a fogged listener gets **bearing + volume
+    tier only** — no position, no id, no correlation handle — while the honker gets `{self}` and a
+    spectator gets position. Tiers scale with the LISTENER's effective ranges (`sightOf` /
+    `max(1.5×sight, muzzleFlash)` / `radarRange`, clamped monotone so dazzle cannot also deafen), and
+    **islands MUFFLE a honk by exactly one tier** — the first, partial dent in the 2026-08-02 LOS law,
+    reversed onto by Eric mid-run so terrain keeps working as a hiding mechanism if a sound sensor is
+    ever revived. Amendment 4's open question is CLOSED: the story grew its own bearing surface, a
+    **screen-edge chevron** (deliberately foghorn-shaped, not sensor-shaped, so a revived 4.1 inherits
+    nothing). The key is **F**, as reserved — UX open question #20 is closed — on a 1.5s cooldown
+    whose denial is **completely silent** (amendment 60: the horn was the only `denied` site with no
+    visual twin, so the orphan cue went rather than a new surface being invented). The wire carries a
+    **horn variant id** — a knowing, narrow break with the neutral-signal rule of amendments 19/45,
+    justified because an emote is information a captain SPENDS rather than leaks — behind a
+    sample-capable audio seam with exactly ONE synthesized horn shipped; **adding horn variants is
+    Eric-gated content.** PV bumps 25 → 26; no combat tunable moves; own honks are never
+    client-predicted.
