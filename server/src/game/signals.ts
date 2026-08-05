@@ -673,10 +673,16 @@ function sunkCreditedTo(ctx: SignalContext, e: SunkEvent): boolean {
  *     PvE/combat-bot distinction changes.
  * ANTI-LEAK RATIONALE for the public clause: the payload is IDENTITY ONLY
  * ({k,id,by?} — no position, class, hue, damage, or weapon field), and
- * ArenaRoom.syncRoster() already mirrors alive/kills/deaths to every client
- * every tick — a client can already derive "A killed B" from schema deltas at
- * tick precision, so the public clause says out loud what the schema already
- * whispers. Drone sinkings are NOT public (drones are not contestants — a
+ * ArenaRoom.syncRoster() already makes the FACT of every sinking public —
+ * alive/kills/deaths mirror to every client. What this row adds beyond the
+ * schema is precision, and that is the honest scope of the ratification: the
+ * event is a SAME-TICK channel (frame events send synchronously each tick;
+ * schema patches ride Colyseus's patch-rate timer), and it PAIRS killer to
+ * victim explicitly via `by` — two same-tick kills by different killers
+ * aggregate in the counters as (+1, +1) and cannot be paired back from
+ * deltas. So the public clause makes ATTRIBUTION explicit and same-tick;
+ * it does not merely restate the schema. Drone sinkings are NOT public
+ * (drones are not contestants — a
  * drone kill is a fraction of a level via CONFIG.xp.droneTierLevels where a
  * captain is a full one); they arrive only witnessed or credited.
  * materialize() stamps the per-observer `seen: true` exactly when

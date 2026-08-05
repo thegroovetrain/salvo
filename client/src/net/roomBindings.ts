@@ -47,7 +47,7 @@ import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
 import type { ShakeDriver } from '../render/shake.js';
-import { killLine, pushKillLine } from '../ui/killFeed.js';
+import { killLine, pushKillLine, UNKNOWN_VESSEL } from '../ui/killFeed.js';
 import { pointToastLine, pushUpgradeToast } from '../ui/upgradeToast.js';
 import { boonFitToastLine } from '../ui/boonCopy.js';
 import { fireTone, fitDetune, fitTone, type ToneId } from '../audio/tones.js';
@@ -165,8 +165,12 @@ export interface RoomBindingDeps {
    * the player's first click back (they expect the default gun).
    */
   resetPrime: () => void;
-  /** Roster name lookup (public schema) for the kill feed. */
-  names: (id: string) => string;
+  /** Roster name lookup (public schema) for the kill feed: the synced callsign,
+   *  or null on a roster miss (a victim/killer who already left the room).
+   *  NEVER a raw session id — handleSunk substitutes the neutral
+   *  UNKNOWN_VESSEL label for a null, mirroring the score card's
+   *  rosterNameOrNull rule (main.ts handleSunkObserved). */
+  names: (id: string) => string | null;
   /**
    * Kill-feed name color (Story 1.12): a vessel id → the CSS-ready personal hue
    * for its feed span (bright hue for a human, drone-outline for a drone), or null
@@ -787,6 +791,15 @@ function handleBurst(e: BurstEvent, deps: RoomBindingDeps): void {
   deps.effects.spawnEffect('burst', e.x, e.y, 1, radius);
 }
 
+/** The feed's name reference for a vessel id: the roster callsign, or the
+ *  neutral UNKNOWN_VESSEL label on a roster miss (the vessel already left the
+ *  room) — NEVER the raw session id, which a global feed would print into
+ *  every client's feed. The segment stays uncolored on a miss: deps.colors
+ *  misses the same roster entry and resolves null. */
+function feedNameRef(id: string, deps: RoomBindingDeps): { name: string; id: string } {
+  return { name: deps.names(id) ?? UNKNOWN_VESSEL, id };
+}
+
 function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
   // THE PUBLIC REGISTER (PV 23): a `sunk` may now arrive for a wreck this
   // observer never saw. Everything SPATIAL is gated on the server's
@@ -798,8 +811,11 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
     const pos = sunkPosition(e.id, deps);
     if (pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
   }
-  const killer = e.by ? { name: deps.names(e.by), id: e.by } : null;
-  pushKillLine(killLine({ name: deps.names(e.id), id: e.id }, killer), deps.colors);
+  // feedNameRef: a roster miss renders the neutral UNKNOWN_VESSEL label,
+  // never the raw session id — a global feed puts this line in front of
+  // EVERY client.
+  const killer = e.by ? feedNameRef(e.by, deps) : null;
+  pushKillLine(killLine(feedNameRef(e.id, deps), killer), deps.colors);
   const sessionId = deps.state.net.sessionId;
   // Story 2.3: the personal-score accumulator + the elimination modal ride the
   // SAME observed sinking the kill feed does — no new wire data.

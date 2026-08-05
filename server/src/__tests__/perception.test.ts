@@ -1095,11 +1095,32 @@ function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
 // hears of its own sinking; and the per-observer `seen` flag may be PRESENT
 // only when the witness predicate genuinely holds — `seen` is the client's
 // license to render spatially, so a wrongly-stamped flag IS a location leak.
+// INDEPENDENCE SCOPE: the claim above is honest only for the GEOMETRY terms —
+// `sighted`/`zoneCovers` are this file's own reimplementations. The drone
+// discrimination reads the same production `wreck.isDrone` field the row
+// reads, and the credited clause is the same trivial `by === me` equality, so
+// a hull mis-flagged at construction (e.g. a future combat bot built through
+// the drone path) would put the row and this oracle in agreement on the same
+// wrong answer.
 function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as SunkEvent;
+  // THE PAYLOAD PIN: because this event now reaches every fogged client, the
+  // wire shape itself is the anti-leak boundary — the keys must be a subset of
+  // exactly {k,id,by,seen}. A positional (or any other) field added at the
+  // world emission, or a materialize() regression back to pass-through, fails
+  // HERE even though every visibility clause still holds.
+  for (const key of Object.keys(ev)) expect(['k', 'id', 'by', 'seen']).toContain(key);
   if (ev.id === me.id) return;
-  const wreck = w.ships.get(ev.id)!;
-  expect(wreck).toBeDefined();
+  const wreck = w.ships.get(ev.id);
+  if (wreck === undefined) {
+    // No wreck record this tick. Production visible() still delivers to the
+    // CREDITED KILLER (sunkCreditedTo consults no record), and ONLY to them:
+    // sunkWitnessed and the public clause both fail-close without a record.
+    expect(ev.by).toBe(me.id);
+    // The witness predicate fail-closes too, so `seen` must be ABSENT.
+    expect(ev.seen).toBeUndefined();
+    return;
+  }
   const witnessed = sighted(w, me, wreck.state) || zoneCovers(w, me, wreck.state);
   // A drone sinking is NEVER public: witnessed, or this observer's own kill.
   if (wreck.isDrone) expect(witnessed || ev.by === me.id).toBe(true);

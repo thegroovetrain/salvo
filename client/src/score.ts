@@ -15,12 +15,17 @@
 //   • placement — the public roster's alive count at the moment you went down
 //                 (k contestants still floating ⇒ you placed k+1)
 //
-// COMPLETE AS OF THE PUBLIC REGISTER (PV 23): `sunk` delivery was historically
-// LOS-gated, so a kill you never SAW was missing a NAME here. The sunk row now
-// always delivers YOUR OWN kills (the credited-killer clause, amendment 17's
-// principle) and every human captain's sinking besides, so a mine trip or a
-// torpedo run beyond your sight bubble reaches recordSunk like any other kill
-// and the "SHIPS YOU SANK" roll matches the authoritative roster tally.
+// COMPLETE WHILE CONNECTED (the public register, PV 23): `sunk` delivery was
+// historically LOS-gated, so a kill you never SAW was missing a NAME here. The
+// sunk row now always delivers YOUR OWN kills (the credited-killer clause,
+// amendment 17's principle) and every human captain's sinking besides, so a
+// mine trip or a torpedo run beyond your sight bubble reaches recordSunk like
+// any other kill. Two deliberate exceptions keep the NAME roll narrower than
+// the authoritative roster tally: a RECONNECT wipes the roll
+// (scoreAfterReconnect — the outage may have swallowed `sunk` events, and a
+// clean list beats a wrong one), and a victim whose roster entry is already
+// gone has no callsign and is left OFF the list (recordSunk). In both cases
+// the kill COUNT stays the roster's authoritative figure.
 //
 // Pure functions over a plain state object; main.ts owns the single instance and
 // resets it at every hard boundary (match start, return to port, reconnect).
@@ -131,6 +136,16 @@ export function isLiveRival(meta: RosterEntry, ownId: string, droneHue: number):
  * Match.checkWin() is untouched by this cycle and belongs to Story 6-3 ("The
  * Participants-Only Win Check"). Until 6-3 lands, AFLOAT reads as "rivals
  * left" (plus you); when 6-3 lands it becomes literally "hulls left to clear".
+ *
+ * THE SENTINEL CONTRACT this predicate leans on: REGATTA_NO_HUE (255) is
+ * dual-purpose — it means "drone" AND "hue not assigned yet" — and RosterEntry
+ * declares `color` optional, so an `alive: true` entry whose `color` is still
+ * undefined counts as a CAPTAIN here. That default is CORRECT and deliberate,
+ * not an accident: hue assignment is synchronous in ArenaRoom.onJoin (a
+ * captain's meta carries a real wheel index before it ever enters the roster)
+ * and drones carry the sentinel from creation (the PlayerMeta schema default),
+ * so an absent/undefined colour can only be a captain whose entry has not
+ * fully patched in — and a captain mid-patch should count.
  */
 export function isAfloatHull(meta: RosterEntry, droneHue: number): boolean {
   return meta.alive === true && meta.color !== droneHue;

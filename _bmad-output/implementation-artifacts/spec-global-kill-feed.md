@@ -2,10 +2,11 @@
 title: 'The Public Register — a global kill feed'
 type: 'feature'
 created: '2026-08-04'
-status: 'in-progress'
+status: 'done'
 baseline_revision: 'fc83e7af7a7fe5eba5cf004e9e19ceeb375467ca'
 review_loop_iteration: 0
 followup_review_recommended: false
+final_revision: 'PENDING'
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context-amendments.md'
 warnings: []
@@ -76,30 +77,30 @@ warnings: []
 - `server/src/__tests__/spectator.test.ts:307-309` -- the spectator-path verifier.
 - `client/src/__tests__/killFeed.test.ts` -- cap/TTL assertions.
 - `client/src/__tests__/roomBindings.test.ts:293-330` -- own-`sunk` handling.
-- `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` -- amendments 21-24 (append only).
+- `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` -- amendments 21-26 (append only).
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`, `_bmad-output/gds-workflow-status.yaml`, `_bmad-output/implementation-artifacts/deferred-work.md`, `VERSION`, `package.json`, `CLAUDE.md` -- cycle bookkeeping.
 
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/types.ts` -- add `seen?: true` to `SunkEvent` with a comment stating it is per-observer, means "you legitimately witnessed the wreck", and gates everything spatial -- the wire contract is the one place this must be unambiguous.
-- [ ] `shared/src/index.ts` -- bump `PROTOCOL_VERSION` to 23 -- the payload shape changed, and the version is a live join gate.
-- [ ] `server/src/game/signals.ts` -- extract `sunkWitnessed(ctx, e)` from the current predicate; add a named `sunkCreditedTo(ctx, e)` for the killer clause (the future team-extension site); `visible()` returns `sunkWitnessed(...) || sunkCreditedTo(...) || (wreck !== undefined && !wreck.isDrone)`; `materialize()` builds a fresh object in key order `k, id, by?, seen?`, omitting absent keys entirely -- the registry is the single chokepoint, and `materialize` is the sanctioned per-observer shaper.
-- [ ] `client/src/net/roomBindings.ts` -- in `handleSunk`, wrap the `sunkPosition`/`spawnEffect('sink', …)` call and the `contactViews.markSunk(e.id)` call in `if (e.seen)`; leave the feed line, `onSunkObserved`, the `kill` tone, and the own-death branch unconditional -- a stale last-known position must never draw a plume for a kill you did not see.
-- [ ] `client/src/ui/killFeed.ts` -- `LINE_TTL_MS = 8000`, `MAX_LINES = 6` -- Eric ruling: a global feed carries more traffic and needs the headroom.
-- [ ] `client/src/score.ts` -- give `isAfloatHull` the `droneHue` sentinel and exclude drones; thread it through `afloatCount`; REWRITE the amendment-19 doctrine comment to state the new rule and why (drones are not combatants — a fraction of a level, not a full one) -- the old comment argues the opposite case and would become a live lie.
-- [ ] `client/src/main.ts`, `client/src/ui/chromeBar.ts` -- update the `afloat:` call site to pass the drone hue and correct the three amendment-19 comments -- a stale "counts drones" comment in three files is how the next cycle re-introduces the bug.
-- [ ] `client/src/__tests__/` (score/chromeBar suites) -- assert AFLOAT excludes drones and still counts the local player -- the local-player inclusion is the half of the asymmetry that SURVIVES.
-- [ ] `server/src/__tests__/perception.test.ts` -- rewrite `verifySunk` as an independent oracle: victim-is-self returns; a drone victim MUST be sighted-or-owned-zone OR killed by the observer; a human victim is unconditionally allowed; and in every case, if `seen` is present the sight-or-owned-zone condition MUST hold. Add targeted cases for the fog-kill third party, the drone-unwitnessed-by-a-bystander case, the drone-killed-by-me case, and `seen` absence/presence. Keep the row-count pin at 18.
-- [ ] `server/src/__tests__/signals.test.ts` -- add cases for the widened `visible()` (human victim beyond sight → true; drone victim beyond sight to a bystander → false; the SAME drone to its killer → true) and pin the materialized key order for both the `seen` and no-`seen` shapes, including the no-killer variant.
-- [ ] `server/src/__tests__/frames.test.ts`, `server/src/__tests__/spectator.test.ts` -- update to the new delivery rule; spectators always carry `seen: true`.
-- [ ] `client/src/__tests__/roomBindings.test.ts` -- assert an unseen `sunk` prints a feed line but spawns no sink effect and calls no `markSunk`, and that a `seen` one does both; assert an own fog kill still plays the `kill` tone and reaches `onSunkObserved`.
-- [ ] `client/src/__tests__/killFeed.test.ts` -- update the cap test to 6 lines and the TTL expectation to 8s.
-- [ ] `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` -- append amendments 21-24 recording the four Eric rulings verbatim-sourced, plus the declared-exception note and the UX-DR17 doc drift -- ratified corrections must live in the durable file, never only in regenerable context.
-- [ ] `VERSION`, `package.json` (+ workspace manifests if they carry the version) -- 0.17.43 → 0.17.44 -- cycle 44.
-- [ ] `CLAUDE.md` -- update `PROTOCOL_VERSION` to 23 and add a Key Decision bullet for the public register -- CLAUDE.md is the standing architecture brief.
-- [ ] `_bmad-output/implementation-artifacts/sprint-status.yaml` and `_bmad-output/gds-workflow-status.yaml` -- record cycle 44 -- both trackers must move in the same PR.
-- [ ] `_bmad-output/implementation-artifacts/deferred-work.md` -- ledger the UX-DR17 (`DESIGN.md`) and `epics.md:534` 5-lines/6s drift into the 7-5 doc-sync batch -- no design-doc edits in-cycle.
+- [x] `shared/src/types.ts` -- add `seen?: true` to `SunkEvent` with a comment stating it is per-observer, means "you legitimately witnessed the wreck", and gates everything spatial -- the wire contract is the one place this must be unambiguous.
+- [x] `shared/src/index.ts` -- bump `PROTOCOL_VERSION` to 23 -- the payload shape changed, and the version is a live join gate.
+- [x] `server/src/game/signals.ts` -- extract `sunkWitnessed(ctx, e)` from the current predicate; add a named `sunkCreditedTo(ctx, e)` for the killer clause (the future team-extension site); `visible()` returns `sunkWitnessed(...) || sunkCreditedTo(...) || (wreck !== undefined && !wreck.isDrone)`; `materialize()` builds a fresh object in key order `k, id, by?, seen?`, omitting absent keys entirely -- the registry is the single chokepoint, and `materialize` is the sanctioned per-observer shaper.
+- [x] `client/src/net/roomBindings.ts` -- in `handleSunk`, wrap the `sunkPosition`/`spawnEffect('sink', …)` call and the `contactViews.markSunk(e.id)` call in `if (e.seen)`; leave the feed line, `onSunkObserved`, the `kill` tone, and the own-death branch unconditional -- a stale last-known position must never draw a plume for a kill you did not see.
+- [x] `client/src/ui/killFeed.ts` -- `LINE_TTL_MS = 8000`, `MAX_LINES = 6` -- Eric ruling: a global feed carries more traffic and needs the headroom.
+- [x] `client/src/score.ts` -- give `isAfloatHull` the `droneHue` sentinel and exclude drones; thread it through `afloatCount`; REWRITE the amendment-19 doctrine comment to state the new rule and why (drones are not combatants — a fraction of a level, not a full one) -- the old comment argues the opposite case and would become a live lie.
+- [x] `client/src/main.ts`, `client/src/ui/chromeBar.ts` -- update the `afloat:` call site to pass the drone hue and correct the three amendment-19 comments -- a stale "counts drones" comment in three files is how the next cycle re-introduces the bug.
+- [x] `client/src/__tests__/` (score/chromeBar suites) -- assert AFLOAT excludes drones and still counts the local player -- the local-player inclusion is the half of the asymmetry that SURVIVES.
+- [x] `server/src/__tests__/perception.test.ts` -- rewrite `verifySunk` as an independent oracle: victim-is-self returns; a drone victim MUST be sighted-or-owned-zone OR killed by the observer; a human victim is unconditionally allowed; and in every case, if `seen` is present the sight-or-owned-zone condition MUST hold. Add targeted cases for the fog-kill third party, the drone-unwitnessed-by-a-bystander case, the drone-killed-by-me case, and `seen` absence/presence. Keep the row-count pin at 18.
+- [x] `server/src/__tests__/signals.test.ts` -- add cases for the widened `visible()` (human victim beyond sight → true; drone victim beyond sight to a bystander → false; the SAME drone to its killer → true) and pin the materialized key order for both the `seen` and no-`seen` shapes, including the no-killer variant.
+- [x] `server/src/__tests__/frames.test.ts`, `server/src/__tests__/spectator.test.ts` -- update to the new delivery rule; spectators always carry `seen: true`.
+- [x] `client/src/__tests__/roomBindings.test.ts` -- assert an unseen `sunk` prints a feed line but spawns no sink effect and calls no `markSunk`, and that a `seen` one does both; assert an own fog kill still plays the `kill` tone and reaches `onSunkObserved`.
+- [x] `client/src/__tests__/killFeed.test.ts` -- update the cap test to 6 lines and the TTL expectation to 8s.
+- [x] `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` -- append amendments 21-26 recording the Eric rulings verbatim-sourced (including the two reversals on drone status and the reasoning path, since the discarded branches are what a future cycle will re-propose), plus the declared-exception note and the UX-DR17 doc drift -- ratified corrections must live in the durable file, never only in regenerable context.
+- [x] `VERSION`, `package.json` (+ workspace manifests if they carry the version) -- 0.17.43 → 0.17.44 -- cycle 44.
+- [x] `CLAUDE.md` -- update `PROTOCOL_VERSION` to 23 and add a Key Decision bullet for the public register -- CLAUDE.md is the standing architecture brief.
+- [x] `_bmad-output/implementation-artifacts/sprint-status.yaml` and `_bmad-output/gds-workflow-status.yaml` -- record cycle 44 -- both trackers must move in the same PR.
+- [x] `_bmad-output/implementation-artifacts/deferred-work.md` -- ledger the UX-DR17 (`DESIGN.md`) and `epics.md:534` 5-lines/6s drift into the 7-5 doc-sync batch -- no design-doc edits in-cycle.
 
 **Acceptance Criteria:**
 - Given a human captain sunk anywhere on the map, when any living client receives that tick's frame, then it contains the `sunk` event and the kill feed prints the line, whether or not the wreck was in sight.
@@ -115,6 +116,23 @@ warnings: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### 2026-08-04 — Review pass
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 8: (high 1, medium 3, low 4)
+- defer: 6: (high 0, medium 5, low 1)
+- reject: 3: (high 0, medium 1, low 2)
+- addressed_findings:
+  - `[high]` `[patch]` The declared-exception oracle asserted the VISIBILITY rule but never the wire PAYLOAD, so a positional field added at the world emission — or a `materialize()` regression back to pass-through — would have reached every fogged client with the master invariant suite still green. `verifySunk` now pins `Object.keys(ev) ⊆ {k,id,by,seen}` before any visibility logic, giving the spec's "Block If: any spatial field to an unsighted observer" boundary a property-level backstop.
+  - `[medium]` `[patch]` `verifySunk` encoded a STRICTER rule than the row it verifies: it asserted the wreck record exists, but production `visible()` deliberately delivers to the credited killer without consulting one. The oracle would have rejected a legitimate delivery the moment a victim's record is removed in the tick its `sunk` rides. Restructured so the record-absent path asserts exactly what production permits (`by === me` and `seen` ABSENT). Same latent shape found and fixed in `spectator.test.ts`'s `verifyFoggedEvent`.
+  - `[medium]` `[patch]` A departed player's raw Colyseus session id would now print in EVERY client's kill feed (`rosterName`'s id fallback, blast radius widened from witnesses-only to the whole room). The feed now renders a neutral `UNKNOWN VESSEL`; `rosterName` itself proved to have no other callers and was removed as dead code, with every consumer now supplying its own null policy.
+  - `[medium]` `[patch]` The row's own anti-leak rationale overstated its case — it claimed a client could already derive "A killed B" from schema deltas "at tick precision". False twice over: frame events are same-tick sends while schema patches ride Colyseus's patch-rate timer, and two same-tick kills by different killers aggregate into unpairable `(+1, +1)` counters where `by` pairs them exactly. Comment rewritten to claim only what is true (the schema makes the FACT public; the row makes ATTRIBUTION explicit and same-tick). The ratification is unaffected — the payload is still identity-only.
+  - `[low]` `[patch]` Scoped the "independently reimplemented oracle" claim honestly: the sight/zone terms are genuine reimplementations, but the drone discrimination reads the same production `isDrone` field the row reads, so a hull mis-flagged at construction would put row and oracle in agreement on the same wrong answer.
+  - `[low]` `[patch]` Documented the sentinel contract `isAfloatHull` now leans on — `REGATTA_NO_HUE` means both "drone" and "hue not yet assigned", and an `alive` entry with an undefined colour counts as a captain by design (correct, previously undocumented).
+  - `[low]` `[patch]` The `score.ts` module header rewritten this cycle claimed the personal roll matches the roster tally; two retained paths contradict it (`scoreAfterReconnect` wipes the roll, `recordSunk` skips a departed victim). Reworded to "complete while connected", naming both exceptions.
+  - `[low]` `[patch]` Corrected the orphaned consistency argument in the chrome-bar comments: AFLOAT is now captains-only while KILLS still counts every hull, so the two deliberately differ pending a ruling. Behavior untouched.
 
 ## Design Notes
 
@@ -153,3 +171,51 @@ function sunkCreditedTo(ctx: SignalContext, e: SunkEvent): boolean {
 **Manual checks (if no CLI):**
 - Confirm no key in the materialized `sunk` payload is ever present with an `undefined` value (msgpack encodes it; the no-killer path must omit `by` entirely).
 </content>
+
+## Auto Run Result
+
+Status: **done**. Cycle 44 (0.17.44). Branch `worktree-dev-auto-global-kill-feed`.
+
+**What shipped.** The kill feed is global. The `sunk` registry row became the 4th declared exception to
+the master perception invariant, gated by three clauses — witnessed (the historical rule, extracted
+verbatim), credited-to-you (you learn anything you sank went down, at any range through any fog), or
+the victim is a combatant. A per-observer `seen?: true` flag, stamped by `materialize()` exactly when
+the witness predicate holds, keeps everything SPATIAL as gated as before. `n AFLOAT` now counts
+captains only. PROTOCOL_VERSION 22 → 23.
+
+**Design gate.** Four rounds with Eric (two AskUserQuestion rounds, three mid-run interruptions),
+recorded as amendments 21-26. He reversed himself twice on drone status before settling — the
+amendments record the reasoning path, not just the outcome, because the discarded branches are what a
+future cycle will re-propose. Two consequential deferrals came out of it: the matching win-condition
+change went to Story 6-3 (dropping the drone guard outright makes a solo match finish the instant it
+activates), and the `n KILLS` denominator question is ledgered unresolved.
+
+**Files changed (26 code + 6 bookkeeping).** Server: `signals.ts` (the three-clause row + `seen`).
+Shared: `types.ts` (`SunkEvent.seen`), `index.ts` (PV 23). Client: `roomBindings.ts` (spatial
+reactions behind `seen`, `feedNameRef` fallback), `killFeed.ts` (6 lines / 8s TTL, `UNKNOWN_VESSEL`),
+`score.ts` (captains-only AFLOAT + corrected doctrine), `main.ts`, `chromeBar.ts`. Tests: 9 suites
+updated, incl. the rewritten `verifySunk` oracle and a regenerated golden-frame snapshot (diff verified
+as 7 rows, all `sunk` payloads). `server/src/game/match.ts` is BYTE-IDENTICAL to baseline, as ruled.
+
+**Review.** Two adversarial Fable passes (Blind Hunter, Edge Case Hunter). 8 patches applied, 6 items
+deferred to `deferred-work.md`, 3 rejected. The single most valuable finding was that the new
+declared exception's oracle pinned the visibility rule but not the wire payload — now fixed, and it is
+the guard that makes the whole exception safe to leave in place.
+
+**Verification.** `npm run check` green, run independently by the orchestrator after the patches:
+lint 0 errors (2 pre-existing `max-lines-per-function` warnings in untouched functions, confirmed
+present at baseline), all three workspaces type-check, **2751 tests pass** (shared 416 / server 878 /
+client 1457). `npm run build` clean. `git diff` against baseline confirms `match.ts` untouched and
+`package-lock.json` unchanged.
+
+**Residual risks.**
+1. **Not playtested.** Every claim here is test- and inspection-backed; nobody has watched a real
+   match with a global feed. The feed's new traffic volume at 6 lines / 8s is a judgment call of
+   Eric's that only live play can validate.
+2. **The interim AFLOAT inconsistency is live** until Story 6-3: the bar reads captains-only while
+   drones still gate the ending, so `1 AFLOAT` does not yet mean "one hull from over".
+3. **Reconnect gaps** (ledgered): a resuming client silently misses every `sunk` from its
+   disconnected window, and an own-sinking during the grace never replays its elimination modal —
+   the second is pre-existing and independent of this cycle.
+4. **PV 23 is a hard join gate.** Any client build older than this deploy is rejected at matchmake;
+   server and client must ship together.

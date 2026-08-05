@@ -153,8 +153,14 @@ export interface ChromeBarView {
   /** Captains still afloat — humans only, the local player included (the
    *  public-register cycle; drones are excluded — score.ts isAfloatHull). */
   afloat: number;
-  /** Own kills, the server-authoritative public roster tally (drones included —
-   *  the same number the results modal reports). Never a client recount. */
+  /** Own kills, the server-authoritative public roster tally — EVERY hull the
+   *  server credited, DRONES INCLUDED (the same number the results modal
+   *  reports). Never a client recount. HONEST CAVEAT: this denominator now
+   *  deliberately differs from the AFLOAT segment beside it — AFLOAT counts
+   *  captains only (the public-register cycle) while KILLS still counts every
+   *  hull, so a solo captain can read `1 AFLOAT · 5 KILLS` off five drone
+   *  kills. Whether KILLS should go captains-only awaits an owner ruling
+   *  (ledgered); until then the roster tally stands unchanged. */
   kills: number;
   /** Elapsed match time (ms) = serverNow − zoneStartT, clamped at 0. */
   matchMs: number;

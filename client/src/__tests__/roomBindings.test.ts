@@ -20,6 +20,7 @@ import type { Connection } from '../net/connection';
 import type { OwnFire } from '../render/projectiles';
 import { CLIENT_CONFIG } from '../config';
 import { fitDetune } from '../audio/tones';
+import { UNKNOWN_VESSEL } from '../ui/killFeed';
 
 interface FakeRoom {
   onMessage: (type: string, cb: (msg: unknown) => void) => void;
@@ -336,7 +337,7 @@ describe('bindRoom own sunk', () => {
 // --- the public register (PV 23): `seen` gates the spatial half --------------
 
 describe('bindRoom sunk — seen gates the sink plume and the contact teardown', () => {
-  function setupSunk() {
+  function setupSunk(names: (id: string) => string | null = (id) => id.toUpperCase()) {
     const room = fakeRoom();
     const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
     const conn = { room, welcome: {}, sink } as unknown as Connection;
@@ -364,7 +365,7 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
       decoys: { sync: vi.fn() },
       effects: { spawnEffect },
       audio: { play },
-      names: (id: string) => id.toUpperCase(),
+      names,
       colors: () => null,
       ordnanceHue: () => 0,
       resetThrottle: vi.fn(),
@@ -408,6 +409,22 @@ describe('bindRoom sunk — seen gates the sink plume and the contact teardown',
     expect(onSunkObserved).toHaveBeenCalledWith('victim', 'me'); // "SHIPS YOU SANK" credit
     expect(spawnEffect).not.toHaveBeenCalled(); // still no spatial render
     expect(markSunk).not.toHaveBeenCalled();
+  });
+
+  it('a roster miss renders the neutral UNKNOWN VESSEL label — NEVER the raw session id', () => {
+    // Both vessels have already LEFT the room: the roster resolves no callsign
+    // for either. Under the GLOBAL feed (PV 23) this line reaches EVERY client,
+    // so a raw-session-id fallback here would print transport plumbing into
+    // every feed in the match.
+    const { sink } = setupSunk(() => null);
+    sink.handler(sunkFrame({ k: 'sunk', id: 'sess_victim1', by: 'sess_killer2' }));
+    expect(feedLines()).toEqual([`${UNKNOWN_VESSEL} SUNK BY ${UNKNOWN_VESSEL}`]);
+    expect(feedLines().join('')).not.toContain('sess_'); // the raw id appears nowhere
+    // The roster-miss name segments stay UNCOLORED (colors() misses the same
+    // entry and returns null): no span carries an inline personal-hue color.
+    const spans = [...(document.getElementById('kill-feed')?.querySelectorAll('span') ?? [])];
+    expect(spans.length).toBeGreaterThan(0);
+    for (const span of spans) expect((span as HTMLElement).style.color).toBe('');
   });
 });
 

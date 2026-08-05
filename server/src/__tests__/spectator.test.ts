@@ -325,7 +325,15 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
       // killer; and the spatial license `seen` may be present ONLY when the
       // wreck was genuinely sighted (these worlds inject no lit zones).
       if (e.id === me.id) return;
-      const wreck = w.ships.get(e.id)!;
+      const wreck = w.ships.get(e.id);
+      if (wreck === undefined) {
+        // No wreck record this tick: production delivers only to the CREDITED
+        // KILLER (sunkCreditedTo needs no record; witness and public clauses
+        // fail-close), and the witness predicate fail-closes too — no `seen`.
+        expect(e.by).toBe(me.id);
+        expect(e.seen).toBeUndefined();
+        return;
+      }
       const witnessed = sighted(w, me, wreck.state);
       if (wreck.isDrone) expect(witnessed || e.by === me.id).toBe(true);
       if (e.seen !== undefined) {
