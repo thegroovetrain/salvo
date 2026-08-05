@@ -2,7 +2,8 @@
 title: 'Story 4.5 — The Foghorn'
 type: 'feature'
 created: '2026-08-05'
-status: 'ready-for-dev'
+status: 'in-progress'
+baseline_revision: '73471b9'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
