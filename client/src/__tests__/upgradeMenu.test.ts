@@ -162,10 +162,62 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
       for (let i = 1; i < L.cards.length; i += 1) {
         expect(L.cards[i].x - (L.cards[i - 1].x + 216), name).toBe(20);
       }
-      // ...and the row's ANCHOR is untouched: no band lift bought the rail room.
+      // The row still derives from ONE anchor and the pips still hang a fixed
+      // offset above it. CYCLE 47 moved that anchor (0.58 → 0.534) to buy the
+      // rail its room — deliberately, by Eric ruling (amendment 65), which
+      // reopened amendment 40's "no band lift" for exactly this. What the pin
+      // above protects is unchanged and is the point: the row's SHAPE is
+      // untouchable, its POSITION was the only thing that moved.
       expect(L.row.y, name).toBe(Math.round(h * R.bandTopFrac));
       expect(L.pips.y, name).toBe(L.row.y - R.pipsAbove);
     }
+  });
+
+  // THE FIVE-PIXEL BAND (cycle 47). The lifted anchor is wedged between two hard
+  // constraints at the 1280×614 logical floor, and the whole geometry lives or
+  // dies on both margins staying non-negative:
+  //
+  //   above — the own-hull keep-out:  band.y > h/2
+  //   below — the container-fit law:  strip bottom ≤ h
+  //
+  // At that floor there are exactly five pixels of slack between them, so this
+  // is pinned with the ACTUAL numbers rather than only as an inequality: a
+  // future card-height, pip-offset, rail-height or anchor change that eats the
+  // margin fails HERE, in arithmetic, instead of clipping off the bottom of
+  // someone's laptop screen. The 1366×768 floor is comfortable and is pinned
+  // alongside so the two are never accidentally tuned apart.
+  it('keeps both floor margins non-negative at the lifted anchor', () => {
+    const cases = [
+      { name: '1366x768 @100%', w: 1366, h: 768 },
+      { name: '1280x614 (125% logical floor)', w: 1280, h: 614 },
+    ];
+    for (const { name, w, h } of cases) {
+      const L = refitBandLayout(w, h);
+      const keepOut = L.band.y - h / 2; // > 0 or the band covers the own hull
+      const bottom = h - (L.strip.y + L.strip.h); // ≥ 0 or the rail clips off
+      expect(keepOut, `${name}: band ${-keepOut}px over the own-hull keep-out`).toBeGreaterThan(0);
+      expect(bottom, `${name}: rail ${-bottom}px past the bottom edge`).toBeGreaterThanOrEqual(0);
+    }
+    // The floor case, to the pixel — the five-pixel band, split 3 above / 2 below.
+    const F = refitBandLayout(1280, 614);
+    expect(F.row.y).toBe(328);
+    expect(F.band.y).toBe(310); // 3px clear of the 307 keep-out
+    expect(F.strip.y).toBe(572);
+    expect(F.strip.y + F.strip.h).toBe(612); // 2px clear of the 614 edge
+  });
+
+  // The rail must READ as choosable, which is a type-and-padding property, not a
+  // box-size one (Eric, cycle 47: "big enough to actually register as 'this is
+  // something I can choose' on all viewports"). These are the three marks that
+  // were below the line in cycle 46.
+  it('carries card-grade type, the family key chip, and real vertical padding', () => {
+    expect(R.stripFontSize, 'below amendment 15 legibility floor').toBeGreaterThanOrEqual(14);
+    expect(R.stripFontSize * 0.9, 'below the 9px mono floor at the 90% tier').toBeGreaterThanOrEqual(9);
+    expect(R.stripKeyChip, 'not the ONE key-chip family size').toBe(R.keyChip);
+    expect(R.stripPadY, 'the rail has no vertical padding').toBeGreaterThan(0);
+    // The chip is the tallest mark, so it — plus its padding and borders — IS
+    // the rail height. A mismatch here means the box and its contents disagree.
+    expect(R.stripHeight).toBe(R.stripKeyChip + 2 * R.stripPadY + 2);
   });
 
   it('hangs the rail BELOW the row, exactly as wide, never overlapping a card', () => {
@@ -181,10 +233,13 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     expect(L.band.y + L.band.h).toBe(L.strip.y + L.strip.h);
   });
 
-  // THE CONTAINER-FIT LAW (amendment 47) at both ratified floors. This is the
-  // constraint the rail's whole geometry was derived from: at 1280×614 the card
-  // row already ends 22px above the viewport edge, and the rail lives in that
-  // 22px or it does not ship.
+  // THE CONTAINER-FIT LAW (amendment 47) at both ratified floors. In cycle 46
+  // this was the constraint the rail's whole geometry was DERIVED from — the
+  // card row ended 22px above the 1280×614 viewport edge and the rail had to
+  // live in that 22px, which is what produced the 16px seam Eric rejected on
+  // sight. Cycle 47 inverted the dependency: the rail is a ruled 40px and the
+  // band anchor absorbs the cost, so this check is now a GUARD on the anchor
+  // rather than the derivation of the rail.
   for (const { name, w, h } of FLOORS) {
     it(`fits the rail inside the viewport with nothing clipped at ${name}`, () => {
       const L = refitBandLayout(w, h);
@@ -203,6 +258,11 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     expect(m.overflowX, `rail content overflows by ${m.overflowX}px`).toBeLessThanOrEqual(0);
     expect(m.overflowY, `rail content is ${m.overflowY}px taller than its box`).toBeLessThanOrEqual(0);
     expect(refitStripInnerBox().w).toBeLessThan(924); // the box is the ROW's, minus chrome
+    // The inner box must SUBTRACT the vertical padding, not just the borders.
+    // Without this the model reports a comfortable −16px overflowY on a rail
+    // whose marks actually sit in the padding — a false pass, which is exactly
+    // the failure mode a fit model exists to prevent.
+    expect(refitStripInnerBox().h).toBe(R.stripHeight - 2 * (R.stripPadY + 1));
   });
 
   // DELIBERATE PIN, NOT AN ASPIRATION. The ratified UX-DR14 row (924px) and the
@@ -385,8 +445,12 @@ describe('healView — the rail is ARMED only where the server would honor the p
   it('prints the amounts from CONFIG.damageControl, never a hardcoded 25/25/5', () => {
     const dc = CONFIG.damageControl;
     const line = healReadout();
-    expect(line).toContain(`+${dc.instantHp} HP`);
-    expect(line).toContain(`+${dc.regenHp} HP`);
+    // Cycle 47 moved the voice from a stat line to a sentence (Eric: "Restores
+    // 25 HP now and 25 HP/5s or something") — the pin is that the NUMBERS still
+    // come from config, which is what a retune of the ruling has to keep moving.
+    expect(line).toBe(`RESTORES ${dc.instantHp} HP NOW AND ${dc.regenHp} HP OVER ${dc.regenMs / 1000}S`);
+    expect(line).toContain(`${dc.instantHp} HP`);
+    expect(line).toContain(`${dc.regenHp} HP`);
     expect(line).toContain(`${dc.regenMs / 1000}S`);
   });
 
