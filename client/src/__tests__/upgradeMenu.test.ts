@@ -139,7 +139,7 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
     }
   });
 
-  // --- THE DAMAGE CONTROL RAIL (cycle 44) --------------------------------------
+  // --- THE DAMAGE CONTROL RAIL (cycle 46) --------------------------------------
   //
   // THE REGRESSION PIN THAT MATTERS MOST. The heal is a SIBLING of the row, not
   // a fifth card: the four cards stay 216px, the gaps stay 20px, the row stays

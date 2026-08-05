@@ -437,7 +437,7 @@ function ownStatus(g: Game): OwnStatus {
   const stats = g.ownStats;
   return {
     hp: you?.hp ?? stats.maxHp,
-    // DAMAGE CONTROL's still-draining regen pool (cycle 44). Self-private and
+    // DAMAGE CONTROL's still-draining regen pool (cycle 46). Self-private and
     // server-authoritative — it rides `you` and is read VERBATIM, never
     // predicted: the pool pays out on the server's wall clock and `hp` already
     // self-syncs every frame, so the HUD's only job is to show what is coming.

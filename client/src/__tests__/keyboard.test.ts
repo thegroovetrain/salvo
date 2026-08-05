@@ -73,7 +73,7 @@ describe('the ratified binding tables', () => {
     expect(REFIT_DIGIT_CODES.Numpad4).toBe(3);
   });
 
-  // DAMAGE CONTROL (cycle 44): digit 5 is the always-available heal, addressed
+  // DAMAGE CONTROL (cycle 46): digit 5 is the always-available heal, addressed
   // by the reserved NEGATIVE wire sentinel rather than an index — a positive
   // one would collide with a real card the moment CONFIG.offer.size moved.
   it('digit 5 (top row + numpad) maps to HEAL_CHOICE, never to an offer index', () => {

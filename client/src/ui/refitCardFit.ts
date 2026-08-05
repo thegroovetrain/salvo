@@ -123,7 +123,7 @@ export function refitCardInnerBox(): { w: number; h: number } {
   return { w: R.card - chrome, h: R.cardHeight - chrome };
 }
 
-// --- THE DAMAGE CONTROL STRIP (cycle 44) ---------------------------------------
+// --- THE DAMAGE CONTROL STRIP (cycle 46) ---------------------------------------
 //
 // The strip is the same shape of problem as the card, one axis at a time: a
 // FIXED box (924 × `stripHeight`) holding mono text whose length is CONFIG-

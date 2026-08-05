@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-04  # cycle 44 (0.17.44), DAMAGE CONTROL heal strip (interstitial)
+# last_updated: 2026-08-04  # cycle 46 (0.17.46), DAMAGE CONTROL heal strip (interstitial)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -193,6 +193,6 @@ action_items:
     owner: "spec author (create-story 4-8)"
     status: open
   - epic: 2
-    action: "DAMAGE CONTROL heal strip — LANDED as interstitial dev-auto cycle 44 (0.17.44, DAMAGE CONTROL heal strip): DISCHARGES epic-2 amendment 38's 'Eric's 10%-over-5s level-heal FILED TO THE FUTURE TTK PASS' — this cycle IS that pass, ratified as a flat 25-instant + 25-pooled-at-5hp/s heal on every hull, spent as an always-available strip below the four-card refit row (never a fifth card, never a card at all; CONFIG.offer.size stays 4). PV 22 -> 23 (OwnShip.repairHp, self-private `heal` event, HEAL_CHOICE=-1 negative sentinel). Amendments 58-64 record the seven rulings. One thread left OPEN: heal observability (self-private for now, amendment 63) is an explicit Eric-gated revisit after live play"
+    action: "DAMAGE CONTROL heal strip — LANDED as interstitial dev-auto cycle 46 (0.17.46, DAMAGE CONTROL heal strip): DISCHARGES epic-2 amendment 38's 'Eric's 10%-over-5s level-heal FILED TO THE FUTURE TTK PASS' — this cycle IS that pass, ratified as a flat 25-instant + 25-pooled-at-5hp/s heal on every hull, spent as an always-available strip below the four-card refit row (never a fifth card, never a card at all; CONFIG.offer.size stays 4). PV 22 -> 23 (OwnShip.repairHp, self-private `heal` event, HEAL_CHOICE=-1 negative sentinel). Amendments 58-64 record the seven rulings. One thread left OPEN: heal observability (self-private for now, amendment 63) is an explicit Eric-gated revisit after live play"
     owner: "ledger (Eric-gated)"
-    status: done  # landed as cycle 44 (0.17.44); the observability revisit is named in the action text
+    status: done  # landed as cycle 46 (0.17.46); the observability revisit is named in the action text

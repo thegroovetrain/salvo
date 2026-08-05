@@ -559,7 +559,7 @@ function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): vo
 }
 
 /**
- * A heal LANDED (cycle 44). `heal` is self-private — perception forwards it only
+ * A heal LANDED (cycle 46). `heal` is self-private — perception forwards it only
  * to the healer — so the id check is defensive, not load-bearing, exactly like
  * `pt`/`bn`. Deliberately NOT dead-gated and carrying no numbers of its own: the
  * event is a pure confirmation cue, and every authoritative number (the new hp,

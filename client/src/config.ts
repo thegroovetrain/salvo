@@ -829,7 +829,7 @@ export const CLIENT_CONFIG = {
     deniedFloorMs: 300,
 
     /**
-     * THE DAMAGE CONTROL STRIP (cycle 44) — the always-present heal spend, a
+     * THE DAMAGE CONTROL STRIP (cycle 46) — the always-present heal spend, a
      * SIBLING of the card row rather than a member of it: never drawn, never
      * exhausted, never in `OwnShip.offer`, and addressed by the reserved
      * negative wire sentinel (`HEAL_CHOICE`), never by an offer index.
@@ -937,7 +937,7 @@ export const CLIENT_CONFIG = {
     railWidth: 6,
     /** Dim phosphor track the fill climbs (the empty part of the rail). */
     railTrackAlpha: 0.12,
-    /** DAMAGE CONTROL's incoming-HP band (cycle 44): the still-draining regen
+    /** DAMAGE CONTROL's incoming-HP band (cycle 46): the still-draining regen
      *  pool (`OwnShip.repairHp`) painted as a dimmed segment sitting directly
      *  ON TOP of the live fill, in the fill's own color. Dual-coded by
      *  POSITION + geometry (a distinct band above the fill line), never by hue

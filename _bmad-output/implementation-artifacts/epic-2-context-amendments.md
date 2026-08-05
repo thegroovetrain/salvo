@@ -135,7 +135,7 @@ Source: Eric, direct answers to the four surfaced questions.
 
 57. **The committed tuning pass (FR18 + amendment 38's dial), ratified from the batch-sim evidence** (`batch-sim-evidence-2026-07-31.md`): **CONFIG.xp confirmed as-is** — `levelMs` 60000, `killLevels` 1, `droneTierLevels` ¼/⅓/½ (the shape is right; the picks-per-match shortfall vs the 12–20 band traces to match length — omniscient-pilot lethality now, the 3:45 storm vs NFR6's ~12:00 intent, owned by Story 3.1 — not to the XP dials). **`deck.rareWeightPerDryLevel` RAISED 0.35 → 0.7** (`rareWeightBase` stays 1): at 0.35 the ratified escalating soft pity was flat — it only offset natural rare depletion; 0.7 makes it genuinely escalate (rareRate 0.43→0.57 by dry 6) and trims the first-exclusive tail in exactly the shallow draws real matches reach. The steeper 1.5 option was declined.
 
-## 2026-08-04 — Eric rulings, DAMAGE CONTROL heal strip (bmad-dev-auto interstitial cycle 44)
+## 2026-08-04 — Eric rulings, DAMAGE CONTROL heal strip (bmad-dev-auto interstitial cycle 46)
 
 Source: Eric, direct answers to the seven surfaced questions at the pre-implementation question gate (AskUserQuestion, this run).
 

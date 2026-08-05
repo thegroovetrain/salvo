@@ -255,7 +255,7 @@ describe('railSig — the rail geometry redraw guard', () => {
     expect(railSig(0.8)).toBe(railSig(0.80004)); // sub-quantum jitter, same band
   });
 
-  // DAMAGE CONTROL (cycle 44): the incoming band is part of the rail's geometry,
+  // DAMAGE CONTROL (cycle 46): the incoming band is part of the rail's geometry,
   // so a pool that drains while the hull sits steady (the exact case at full
   // health with a wasted pool) must still force the redraw that shrinks it.
   it('carries the incoming band, so a draining pool alone redraws the rail', () => {
@@ -264,7 +264,7 @@ describe('railSig — the rail geometry redraw guard', () => {
   });
 });
 
-// DAMAGE CONTROL's incoming band (cycle 44) — the still-draining regen pool
+// DAMAGE CONTROL's incoming band (cycle 46) — the still-draining regen pool
 // drawn above the fill. It shows what will LAND, so it is clipped at the top of
 // the bar exactly as the server clamps the payout at maxHp.
 describe('repairFraction — the HP rail\'s incoming band', () => {

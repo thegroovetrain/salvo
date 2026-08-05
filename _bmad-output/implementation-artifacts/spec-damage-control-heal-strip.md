@@ -86,7 +86,7 @@ warnings: []
 - [ ] `shared/src/__tests__/` + `server/src/__tests__/upgrades.test.ts` + `client/src/__tests__/` -- cover every I/O matrix row, plus a perception/goldenFrames pin that `repairHp` and `heal` never reach a non-owner -- the matrix is the test plan.
 - [ ] `_bmad-output/implementation-artifacts/epic-2-context-amendments.md` -- append the seven 2026-08-04 rulings (amendments 58-64) -- amendments protocol: rulings need a durable home.
 - [ ] `_bmad-output/implementation-artifacts/deferred-work.md` -- ledger the observability revisit and the DESIGN/EXPERIENCE drift -- house rule: no design-doc edits in-cycle.
-- [ ] `VERSION` + `package.json` + `_bmad-output/implementation-artifacts/sprint-status.yaml` + `gds-workflow-status.yaml` -- 0.17.43 → 0.17.44 and both trackers -- every landed PR updates BOTH trackers.
+- [ ] `VERSION` + `package.json` + `_bmad-output/implementation-artifacts/sprint-status.yaml` + `gds-workflow-status.yaml` -- 0.17.43 → 0.17.46 and both trackers -- every landed PR updates BOTH trackers.
 
 **Acceptance Criteria:**
 - Given a live match with any ship class, when the refit band opens, then the DAMAGE CONTROL strip is present below four unchanged 216px cards and the row is still 924px wide.

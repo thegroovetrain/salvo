@@ -23,7 +23,7 @@
 // + post-click blur), so a later Space/Enter can't re-trigger the button and a
 // focused button can't trip the chokepoint's text-entry guard.
 //
-// THE DAMAGE CONTROL RAIL (cycle 44) hangs one seam BELOW the row: the
+// THE DAMAGE CONTROL RAIL (cycle 46) hangs one seam BELOW the row: the
 // always-available heal spend, addressed by the reserved negative wire sentinel
 // HEAL_CHOICE (-1) and picked with [5] or a click. It is deliberately NOT a
 // fifth card — a five-card row is 1160px, which leaves 60px of margin at the
@@ -110,7 +110,7 @@ export interface RefitBandLayout {
   /** The queue-pip strip, left-aligned with the row, above the cards. */
   pips: RefitBox;
   /**
-   * THE DAMAGE CONTROL RAIL (cycle 44): the always-present heal spend, one
+   * THE DAMAGE CONTROL RAIL (cycle 46): the always-present heal spend, one
    * `stripGap` seam BELOW the row and exactly as wide as it. It is NOT a card
    * — `cards` and `row` are byte-identical with or without it, which is the
    * property the geometry suite pins.
@@ -272,7 +272,7 @@ export interface OfferView {
    * timeout clears it; digit picks are gated on the same flag.
    */
   locked: boolean;
-  /** The DAMAGE CONTROL rail's state (cycle 44) — a SIBLING of `options`,
+  /** The DAMAGE CONTROL rail's state (cycle 46) — a SIBLING of `options`,
    *  never a member of it: the rail is never drawn, never exhausted, and never
    *  appears in `OwnShip.offer`. */
   heal: HealView;
@@ -581,7 +581,7 @@ const KEY_CHIP_CSS = [
   'flex:none',
 ].join(';');
 
-// --- THE DAMAGE CONTROL RAIL (cycle 44) ----------------------------------------
+// --- THE DAMAGE CONTROL RAIL (cycle 46) ----------------------------------------
 //
 // A one-line rail under the row, in the card's own grammar (square corners,
 // hairline edge, panel bed, amber-on-armed, 80ms denied edge pulse) at rail

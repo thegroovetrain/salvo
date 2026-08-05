@@ -91,7 +91,7 @@ export const TONES: Record<ToneId, ToneSpec> = {
   fitCommon: { freqStart: 660, freqMid: 880, freqEnd: 880, duration: 0.1, volume: 0.36, type: 'triangle' },
   fitRare: { freqStart: 550, freqMid: 733, freqEnd: 733, duration: 0.13, volume: 0.45, type: 'triangle' },
   fitExclusive: { freqStart: 440, freqMid: 587, freqEnd: 587, duration: 0.15, volume: 0.52, type: 'triangle' },
-  // --- DAMAGE CONTROL (cycle 44) ---------------------------------------------
+  // --- DAMAGE CONTROL (cycle 46) ---------------------------------------------
   // A banked level spent on the heal. The fit family's two-note INVERTED: where
   // a fit steps UP a fourth and holds (a permanent thing acquired), this settles
   // DOWN onto a held root — a hull steadying, not a capability gained — so the

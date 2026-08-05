@@ -299,7 +299,7 @@ export function railSig(frac: number, pending = 0): string {
 
 /**
  * Pure: the DAMAGE CONTROL rail's INCOMING band, as a fraction of the bar
- * (cycle 44). It is what the still-draining regen pool (`OwnShip.repairHp`)
+ * (cycle 46). It is what the still-draining regen pool (`OwnShip.repairHp`)
  * can actually deliver, so it is CLIPPED at the top of the bar exactly as the
  * server clamps the payout at maxHp — a pool draining against a nearly-full
  * hull shows only the part that will land, never a band hanging off the end.
