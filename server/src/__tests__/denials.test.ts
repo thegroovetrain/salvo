@@ -192,11 +192,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 23→24 bump (PV 23: the public register — SunkEvent.seen + the widened sunk row; PV 24: DAMAGE CONTROL — HEAL_CHOICE + OwnShip.repairHp + the heal event) is enforced at matchmake', () => {
-  it('rejects pv-23 and pv-22 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(24);
+describe('pv join gate — the 24→25 bump (PV 24: DAMAGE CONTROL — HEAL_CHOICE + OwnShip.repairHp + the heal event; PV 25: WOUNDED SMOKE — the anonymous `sm` signal, Story 4.4) is enforced at matchmake', () => {
+  it('rejects pv-24 and pv-23 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(25);
+    expect(protocolVersionError(24)).toMatch(/refresh/);
     expect(protocolVersionError(23)).toMatch(/refresh/);
-    expect(protocolVersionError(22)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

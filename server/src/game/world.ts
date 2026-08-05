@@ -413,6 +413,17 @@ export interface ShipRecord {
    */
   lastFireT: number;
   respawnAt: number; // ms server time to respawn at; 0 = not pending
+  /**
+   * ms — server time this hull may emit its next WOUNDED SMOKE puff (Story
+   * 4.4); 0 = eligible immediately. Advanced by tickSmoke to
+   * now + CONFIG.smoke.puffIntervalMs on each emission — the per-ship cadence
+   * throttle (at most one `sm` per interval per hull). SERVER-PRIVATE, never
+   * on the wire (the sm payload is {k,x,y,tier} and nothing else). RESET to 0
+   * on spawn/respawn/redeploy so a fresh hull never inherits a stale timer;
+   * dead hulls never emit (tickSmoke's alive gate), so no sink-time reset is
+   * needed.
+   */
+  nextSmokeAt: number;
   sweepAngle: number; // rad — current (post-advance) radar sweep angle
   prevSweepAngle: number; // rad — sweep angle before this tick's advance (paint window start)
   /**
@@ -731,6 +742,7 @@ export class World {
       rttMs: null,
       lastFireT: 0,
       respawnAt: 0,
+      nextSmokeAt: 0,
       sweepAngle: 0,
       prevSweepAngle: 0,
       seenBallistics: new Set(),
@@ -826,6 +838,8 @@ export class World {
     ship.repairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
+    // A fresh match never inherits a stale smoke timer (Story 4.4).
+    ship.nextSmokeAt = 0;
     // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a
     // phantom shot / phantom boost (the stored input's fireSeq/actSeq would read
     // as a fresh click/press on this tick).
@@ -1233,6 +1247,12 @@ export class World {
     // would be overwritten rather than banked. Nothing downstream in the step
     // reads hp or repairHp, so no other system depends on this position.
     this.tickRepairs(dtMs);
+    // WOUNDED SMOKE (Story 4.4) — DELIBERATE step-order position: directly
+    // after the LAST hp mover (tickRepairs), so every damage source AND the
+    // regen drain have already resolved. A hull that crossed a band this tick
+    // smokes at its post-resolution hp, and one healed above the band goes
+    // silent the same tick it recovered.
+    this.tickSmoke();
     // Lit zones (Story 1.7): natural-expiry sweep, positioned with the other
     // static-entity resolution (the mines precedent). Zones are SPAWNED inside
     // stepShells (resolveBurst on a star shell) and deliberately survive their
@@ -2452,6 +2472,33 @@ export class World {
     }
   }
 
+  /**
+   * WOUNDED SMOKE emission (Story 4.4, amendments 40-50): every ALIVE hull —
+   * drones included (amendment 47), the smoking ship's own captain included
+   * (amendment 46: the row has no special case) — whose hp FRACTION sits below
+   * a damage band queues one anonymous `sm` pulse per
+   * CONFIG.smoke.puffIntervalMs at its TRUE current position. The fraction
+   * reads the EFFECTIVE maxHp (stats.maxHp — a hull-boon hull smokes by its
+   * real capacity), and the thresholds are EXCLUSIVE lower bounds for the
+   * better state, mirroring the client rail's hpColor(): exactly 0.5 is
+   * healthy (silent), exactly 0.25 is hurt (tier 1), below 0.25 is critical
+   * (tier 2). The payload is {k,x,y,tier} and NOTHING else — no ship id for
+   * any observer (amendment 45); per-observer delivery is the sm registry
+   * row's job (the CONFIG.vision.muzzleFlash halo + island LOS), never this
+   * emitter's. A healthy hull's stale timer is left untouched: the moment it
+   * drops into a band it puffs immediately, then throttles.
+   */
+  private tickSmoke(): void {
+    const bands = CONFIG.damageBands;
+    for (const ship of this.ships.values()) {
+      if (!ship.alive || this.now < ship.nextSmokeAt) continue;
+      const frac = ship.hp / ship.stats.maxHp;
+      if (frac >= bands.amberBelow) continue;
+      ship.nextSmokeAt = this.now + CONFIG.smoke.puffIntervalMs;
+      this.pending.push({ k: 'sm', x: ship.state.x, y: ship.state.y, tier: frac < bands.criticalBelow ? 2 : 1 });
+    }
+  }
+
   /** Bring sunk ships back on the ring once their respawn delay elapses. */
   private processRespawns(): void {
     for (const ship of this.ships.values()) {
@@ -2484,6 +2531,10 @@ export class World {
     ship.repairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
+    // A fresh life never inherits a stale smoke timer (Story 4.4): without
+    // this, a hull that puffed just before sinking would owe the remainder of
+    // the old interval on its next life.
+    ship.nextSmokeAt = 0;
     // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a
     // phantom shot / phantom boost (the stored input's fireSeq/actSeq would read
     // as a fresh click/press on this tick).

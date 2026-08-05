@@ -11,7 +11,10 @@
 // a witness or its killer, and the per-observer `seen` flag may be present
 // only when the witness predicate holds — see verifySunk; plus DAMAGE
 // CONTROL's healer-private `heal` and the owner-only `repairHp` pool,
-// neither of which may ever reach another observer). The checks below
+// neither of which may ever reach another observer; and Story 4.4's FIFTH
+// declared exception, the anonymous `sm` wounded-smoke pulse inside the same
+// constant SIGHT*1.5 halo with island LOS — identity-free for EVERY observer,
+// see the sm verifier). The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -1203,6 +1206,23 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.5);
     expect(clearLos(me.state, ev, w.map.islands)).toBe(true);
   },
+  sm: (w, me, e) => {
+    // WOUNDED SMOKE (Story 4.4, amendments 40-50) — the FIFTH declared
+    // exception. The halo is the CONSTANT SIGHT * 1.5, independently
+    // re-derived here as a literal (deliberately NOT shared with the mz
+    // verifier above, per the header's reimplementation rule) — never the
+    // observer's dazzle-scaled or boon-widened sight, and with NO owned-zone
+    // term — plus island LOS (islands block every sensor at all ranges). The
+    // exact key set IS the identity oracle: {k,x,y,tier} carries no ship id,
+    // hue, class, hp, or fraction for ANY observer — the smoking captain and
+    // spectators included — and `tier` is the two-value enum, never a number
+    // an hp could be recovered from.
+    const ev = e as { k: 'sm'; x: number; y: number; tier: number };
+    expect(Object.keys(ev).sort()).toEqual(['k', 'tier', 'x', 'y']);
+    expect([1, 2]).toContain(ev.tier);
+    expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.5);
+    expect(clearLos(me.state, ev, w.map.islands)).toBe(true);
+  },
   torpU: (w, me, e) => {
     // A homing-track UPDATE (Story 2.8): only a LIVE steering torpedo the
     // observer has ALREADY been revealed may re-emit, at its current pos, in
@@ -1267,6 +1287,15 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
         rec.boonDefs = resolveBoons(intel);
         rec.stats = effectiveStats(rec.cls, rec.boonDefs);
       }
+      // WOUNDED SMOKE (Story 4.4): guarantee the sm oracle is EXERCISED, not
+      // vacuous — two hulls start wounded, one in each band, so every world
+      // emits `sm` pulses on the cadence. Delivery is guaranteed at minimum to
+      // the smoking captain itself (dist 0 passes the constant halo trivially
+      // — amendment 46: own smoke rides the same row), so the verifier always
+      // runs against real frames. The random scratches below (the heal-spend
+      // block) rarely cross a band on their own.
+      w.ships.get(ids[0])!.hp = w.ships.get(ids[0])!.stats.maxHp * 0.4; // tier 1 band
+      w.ships.get(ids[1])!.hp = w.ships.get(ids[1])!.stats.maxHp * 0.2; // tier 2 band
       for (let s = 0; s < rng.int(0, 5); s++) {
         const ang = rng.float(0, TAU);
         const r = rng.float(0, w.map.radius * 0.9);
@@ -1359,16 +1388,17 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // litZones/decoys frame channels (verifyFrame/verifyMine/verifyLitZone/
   // verifyDecoy), not through EVENT_VERIFIERS.
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
-  // The 15 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
+  // The 16 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
-  // CONTROL strip brought 'heal' BACK, on stricter no-severity terms).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal'];
+  // CONTROL strip brought 'heal' BACK, on stricter no-severity terms; Story
+  // 4.4 added the anonymous wounded-smoke row 'sm').
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 19 expected channel keys (15 event kinds + contact + mine + litzone + decoy)', () => {
+  it('has exactly the 20 expected channel keys (16 event kinds + contact + mine + litzone + decoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(19);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(20);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {

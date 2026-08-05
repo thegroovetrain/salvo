@@ -1010,9 +1010,19 @@ export const CLIENT_CONFIG = {
     railGlowAlpha: 0.35,
     railGlowPx: 3,
     /** Threshold bands as a fraction of maxHp — EXCLUSIVE lower bounds for the
-     *  better color: frac ≥ 0.5 phosphor, ≥ 0.25 amber, below that damageMarker. */
-    amberBelow: 0.5,
-    criticalBelow: 0.25,
+     *  better color: frac ≥ amberBelow phosphor, ≥ criticalBelow amber, below
+     *  that damageMarker.
+     *
+     *  STORY 4.4 (amendment 41) — THESE ARE NO LONGER LOCAL NUMBERS. The rail's
+     *  own shipped 0.5 / 0.25 were PROMOTED VERBATIM to shared
+     *  `CONFIG.damageBands` the moment the server started deciding wounded smoke
+     *  from them, and this block now REFERENCES that promotion rather than
+     *  restating it. Binding: exactly ONE set of band numbers may exist in the
+     *  codebase, so a future retune of the rail moves the smoke tiers with it and
+     *  the two can never silently fork. Light plume ⇔ this rail has gone amber;
+     *  heavy plume ⇔ it has gone crimson. Do not re-inline the literals. */
+    amberBelow: CONFIG.damageBands.amberBelow,
+    criticalBelow: CONFIG.damageBands.criticalBelow,
     /** Pulse envelope: the fill breathes only below `amberBelow`, its rate
      *  ramping linearly from `pulseMinHz` at that fraction to the shared
      *  photosensitivity ceiling (settings.pulseCapHz) at `pulseFloorFrac` and
@@ -1215,6 +1225,98 @@ export const CLIENT_CONFIG = {
       barbLength: 9,
       /** Arrowhead half-angle (rad) between a barb and the shaft (~26°). */
       barbAngle: 0.45,
+    },
+  },
+
+  /**
+   * WOUNDED SMOKE presentation (Story 4.4, amendments 41-47). Every knob here is
+   * CLIENT-ONLY: the server emits anonymous `{k,x,y,tier}` pulses on the shared
+   * `CONFIG.smoke.puffIntervalMs` cadence and keeps NO plume history at all, so
+   * the persistence is entirely synthesized here — the phosphor blip's shipped
+   * arrangement (`blip` above), applied to a second anonymous pulse.
+   *
+   * There is no reach knob and no band knob on purpose: reach is
+   * `CONFIG.vision.muzzleFlash` (amendment 42) and the tiers are
+   * `CONFIG.damageBands` (amendment 41), both server-side. Nothing in this block
+   * may become gameplay-authoritative — it decides how the plume LOOKS, never
+   * who sees it or when.
+   */
+  smoke: {
+    /**
+     * How long one puff lives, ms. **DESIGN-LOAD-BEARING — NOT A FREE KNOB.**
+     * Puffs are emitted at the hull's position, so a moving ship necessarily
+     * leaves them behind, and this number is the ONLY thing separating amendment
+     * 43's attached plume from the decaying TRACK that ruling explicitly
+     * rejected (a track would encode course, speed and origin — a strictly
+     * larger disclosure than "a hull is hurt, right there").
+     *
+     * The arithmetic: the fastest hull is the Torpedo Boat at 45 u/s (55
+     * boosted) and is ~100u long, so 1400ms leaves a ~63u tail (77u boosted) —
+     * comfortably inside ONE hull length, which reads as smoke blowing off the
+     * stern rather than a line to follow. At the 250ms server cadence that is
+     * ~6 live puffs forming the column. RAISING THIS IS A DESIGN CHANGE
+     * REQUIRING A RULING, not a tuning call.
+     */
+    puffLifeMs: 1400,
+    /** Fraction of a puff's life over which it blooms in to full opacity; it
+     *  fades linearly to nothing across the whole life from there. A puff that
+     *  appeared at full strength would pop, and the newest puff is the one
+     *  sitting on the hull. */
+    riseFraction: 0.15,
+    /**
+     * Global backstop on live puffs — the ONLY cap that exists. Per-source
+     * capping is impossible BY CONSTRUCTION: amendment 45 forbids any
+     * correlation handle on the wire (no id, no alias, no stable anonymous
+     * key), so puffs cannot be grouped by the hull that made them and no key
+     * may be invented to do it. Oldest-inserted is evicted first (`capOldest`).
+     *
+     * Sized for the worst legitimate case: 20 hulls all smoking at once × ~6
+     * live puffs each = 120, doubled for the heavy tier's second puff = 240,
+     * so 256 keeps this a genuine backstop rather than the thing that trims a
+     * legitimate screen. Its real job is the backgrounded tab, where network
+     * pulses keep arriving while the render loop that ages them is throttled —
+     * `document.hidden` at the spawn site is the companion measure.
+     */
+    maxPuffs: 256,
+    /**
+     * The wind, u/s. A single FIXED drift vector, deliberately not derived from
+     * `welcome.mapSeed`: it is pure decoration, never gameplay-authoritative,
+     * and a per-map wind would buy a wire dependency for zero gameplay gain.
+     * Scaled by the motion setting at the callsite, so `off` stills the drift —
+     * which removes MOTION only: presence, extent and tier are untouched.
+     */
+    wind: { x: 11, y: -6 },
+    /** BILLOW: a slow radius wobble so a column looks alive rather than
+     *  stamped. Amplitude is a fraction of the puff's radius and is
+     *  motion-scaled, so `off` leaves the puff at exactly its base extent. */
+    billowHz: 0.45,
+    billowAmp: 0.12,
+    /**
+     * PER-TIER VISUALS. The two tiers must be unmistakable at a glance, so they
+     * differ in all three available channels at once — puff COUNT, radius RAMP,
+     * and peak ALPHA. A heavy plume is roughly twice as wide, twice as dense
+     * and twice as opaque as a light one; nothing about severity rides on hue
+     * (both draw in `colors.woundedSmoke`), because the tier must survive a
+     * colorblind read exactly as the HP rail's dual-coded bands do.
+     */
+    light: {
+      /** Puffs spawned per `sm` pulse. */
+      puffs: 1,
+      /** Radius at birth → radius at death, u (smoke expands as it disperses). */
+      r0: 5,
+      r1: 17,
+      /** Peak opacity (at the top of the bloom-in ramp). */
+      peakAlpha: 0.3,
+      /** Age head-start, ms, applied to the Nth extra puff of one pulse so a
+       *  multi-puff tier reads as depth rather than one hard-edged stamp. */
+      stagger: 0,
+    },
+    heavy: {
+      puffs: 2,
+      r0: 8,
+      r1: 34,
+      peakAlpha: 0.58,
+      stagger: 300,
     },
   },
 
