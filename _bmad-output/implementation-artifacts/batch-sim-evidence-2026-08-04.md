@@ -122,7 +122,19 @@ honest options, none of which this cycle takes unilaterally:
 3. **Leave the tuning and shorten the storm timeline** instead, so closure arrives earlier and the
    endgame starts sooner.
 
-Recorded, not decided.
+**DECIDED 2026-08-04 — option 1, ACCEPT.** Eric, shown these numbers: *"match time is fine."* The
+tuning stands as shipped; no gun-damage claw-back and no storm-timeline change. The ~15:00 figure is
+a soft pacing reference, not a bar the tuning is held to.
+
+Eric's interest runs the opposite way — toward a forcing mechanic rather than a faster gun:
+*"I'm actually heavily considering 'sudden death' at 15 minutes that fully closes the ring in until
+it is all storm at 16 minutes. someone will win at that point pretty quick. but not today!"* That
+remains PARKED (it would supersede epic-3 amendment 24's geometric no-stalemate bar) and explicitly
+deferred — see the SUDDEN DEATH entry in `deferred-work.md`, reaffirmed and sharpened the same day.
+
+Also ruled the same day, on storm-attributed kills: *"if I'm keeping someone in the storm and that
+is what kills them, then I'm fine with it registering as a storm kill."* Current attribution
+behavior is correct and needs no change.
 
 The relevant bar (amendment 24): the no-stalemate guarantee is **geometric** — no post-closure
 shrink, damage ramp, or forcing mechanic. Evidence is that resolved matches structurally conclude

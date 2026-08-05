@@ -256,3 +256,31 @@ per-weapon cooldowns, and the mine rack depth.
     margin from roughly seven spare fish to one; the assertions are unchanged, only the patience.
     This was proven necessary, not precautionary: the post-retune `weaponsSmoke` run needed 4
     torpedoes / 3 hits to sink a 125hp hull, which would have blown the old 120s budget outright.
+
+26. **Post-evidence rulings — the retune STANDS, and pacing is accepted as-is.** Eric, shown the
+    cycle-44 batch-sim evidence (endgame resolved p50 830.0s → 925.7s, crossing the ~15:00
+    contract): *"match time is fine."* The three options the evidence recorded are resolved on
+    **accept** — no gun-damage claw-back, no storm-timeline change, no renegotiated contract. The
+    ~15:00 figure is henceforth a soft pacing reference, NOT a bar the tuning is held to; a future
+    cycle must not "fix" match length by citing it. The Story 3.4 no-stalemate guarantee is
+    untouched and still measured the way amendment 24 ratified (matches conclude; 50/50 did).
+
+27. **Storm-attributed kills are CORRECT as shipped.** Eric: *"if I'm keeping someone in the storm
+    and that is what kills them, then I'm fine with it registering as a storm kill."* No change to
+    kill attribution. Recorded because the cycle-44 review surfaced storm kills as a
+    behavior-vs-intent question; the answer is that the behavior is the intent. Note for precision:
+    this does NOT resolve the `matchSmoke` step-4 failure, which asserts kill CREDIT plumbing
+    (winner id, placement, results rows) rather than whether storm kills are acceptable — that stays
+    ledgered as a pre-existing harness flake this retune aggravated.
+
+28. **SUDDEN DEATH is reaffirmed, sharpened, and still PARKED — explicitly "not today".** Eric,
+    unprompted, in the same message: *"I'm actually heavily considering 'sudden death' at 15 minutes
+    that fully closes the ring in until it is all storm at 16 minutes. someone will win at that
+    point pretty quick. but not today!"* This SHARPENS the epic-3-retro contingency from "fully
+    close the ring at ~15:00" to a **one-minute ramp: sudden death opens at 15:00, all storm by
+    16:00**. The gate is UNCHANGED and absolute: it is a forcing mechanic that would **supersede
+    epic-3 amendment 24's geometric no-stalemate bar**, and "not today" is an explicit deferral —
+    **no cycle may build it without a further explicit Eric ruling authorizing the work.** One
+    thing did shift: the original revisit trigger was "live play shows matches failing to conclude,"
+    but Eric is weighing this while matches DO conclude, so the motivation is now pacing and
+    decisiveness rather than stalemate rescue. Any future spec must argue from that premise.
