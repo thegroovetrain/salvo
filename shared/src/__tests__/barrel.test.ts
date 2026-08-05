@@ -75,7 +75,12 @@ describe('shared barrel', () => {
     // SpendMsg.choice, required self-private OwnShip.repairHp, the
     // self-private 'heal' GameEvent, and CONFIG.damageControl in the
     // welcome config snapshot.
-    expect(PROTOCOL_VERSION).toBe(24);
+    // WOUNDED SMOKE (PV 25, Eric rulings 2026-08-05, amendments 40-49): the
+    // new 'sm' GameEvent ({k,x,y,tier} — no identity for ANY observer, tier a
+    // two-value enum) plus CONFIG.damageBands and CONFIG.smoke in the welcome
+    // config snapshot. Reach reuses CONFIG.vision.muzzleFlash — no new vision
+    // constant.
+    expect(PROTOCOL_VERSION).toBe(25);
   });
 
   it('re-exports config, wire tags, and functions', () => {

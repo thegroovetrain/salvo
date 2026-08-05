@@ -53,6 +53,7 @@ import { Effects } from './render/effects.js';
 import { Mines, type OwnMineRings } from './render/mines.js';
 import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
+import { Smoke } from './render/smoke.js';
 import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
@@ -163,6 +164,10 @@ interface Game {
   litZones: LitZones;
   fog: Fog;
   radar: Radar;
+  /** WOUNDED SMOKE plumes (render/smoke.ts, Story 4.4) — accumulated from
+   *  the anonymous `sm` pulses on the fog-immune chart, since a hurt hull is
+   *  disclosed out to 495u and the plume must read past the sight bubble. */
+  smoke: Smoke;
   zone: Zone;
   hud: Hud;
   /** The bottom-left hotbar (render/hotbar.ts, Story 2.2) — the loadout surface:
@@ -1034,6 +1039,12 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       if (!g) return;
       g.returning = true; // handleRoomLeave: the reload is already on its way
       cancelZoomFogRebake(g); // no trailing re-bake against a torn-down stage
+      // Defensive: today the chain always ends in location.reload(), which
+      // wipes every plume for free — but a plume is drawn at a hull's TRUE
+      // world position, so if a future match-restart path ever skips the
+      // reload, stale smoke must not survive to render at pre-reset
+      // coordinates on the next match.
+      g.smoke.clear();
     },
   });
 }
@@ -1402,6 +1413,7 @@ function buildGame(
     ),
     decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, (d) => onOwnDecoy(gRef, audio, d)),
     litZones: new LitZones(stage.layers.litZone),
+    smoke: new Smoke(stage.layers.smoke),
     fog: new Fog(stage.fogSprite),
     // Story 4.2: a blip flies its owner's personal hue, so the radar needs the
     // SAME roster resolution the kill feed uses — bright hue for a human, drone
@@ -2150,6 +2162,13 @@ function renderAlive(
   // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
   g.radar.render(pose, now);
+  // Wounded smoke ages on the SERVER clock, so it is driven here rather than
+  // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
+  // own pose for a frame, and a plume that stopped drifting whenever our own
+  // hull blinked would stutter for a reason the player cannot see. Nothing
+  // about it depends on the own ship — your own plume rides the same anonymous
+  // row as everyone else's (amendment 46).
+  g.smoke.render(now);
   // Fade each lit-zone glow by its timestamp expiry, and breathe the burning
   // zones' embers on the shared server-clock seconds (Story 2.9, amendment 50).
   g.litZones.render(now, now / 1000);
@@ -2221,6 +2240,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
   g.effects.update(frameDt, null);
   g.radar.render(null, now); // hides the sweep + rings
+  g.smoke.render(now); // a spectator receives every `sm` pulse — the plumes keep drifting
   g.litZones.render(now, now / 1000); // spectators see all zones, doctrine and all
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);

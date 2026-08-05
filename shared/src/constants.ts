@@ -165,6 +165,46 @@ export const CONFIG = {
   },
 
   /**
+   * THE DAMAGE BANDS (Story 4.4, amendment 41) — the ONE set of hp-fraction
+   * thresholds in the game. Fractions of maxHp, read as EXCLUSIVE LOWER
+   * BOUNDS FOR THE BETTER STATE: `frac >= amberBelow` is healthy,
+   * `frac >= criticalBelow` is hurt, anything below `criticalBelow` is
+   * critical. Exactly 0.5 is therefore healthy — no amber rail, no smoke.
+   *
+   * These are the own-vitals HP rail's SHIPPED thresholds (hpColor() /
+   * railPulsing()), promoted here UNCHANGED because the server now decides
+   * wounded smoke from them: a light plume means your rail has gone amber, a
+   * heavy plume means it has gone crimson — "wounded smoke is the
+   * enemy-facing half of a vocabulary that already shipped self-facing"
+   * (amendment 41). BINDING: no second set of band numbers may exist
+   * anywhere. `CLIENT_CONFIG.vitals.amberBelow`/`criticalBelow` MUST
+   * REFERENCE these rather than restate them, so a future retune of the rail
+   * moves the smoke tiers with it. Pinned by __tests__/damageBands.test.ts.
+   */
+  damageBands: {
+    amberBelow: 0.5, // frac < this — hurt (amber rail / light smoke, tier 1)
+    criticalBelow: 0.25, // frac < this — critical (crimson rail / heavy smoke, tier 2)
+  },
+
+  /**
+   * Wounded smoke (Story 4.4) — the SERVER emission cadence, and nothing
+   * else. Reach is deliberately NOT here: it is CONFIG.vision.muzzleFlash
+   * (SIGHT * 1.5, 495u) reused verbatim, never forked into a fourth vision
+   * constant (amendment 42). The tiers are CONFIG.damageBands (amendment 41).
+   * Puff lifetime, drift, billow and every other presentation knob are
+   * CLIENT-ONLY (CLIENT_CONFIG.smoke): the server keeps no plume history at
+   * all, exactly as it keeps no radar-blip history — the client synthesizes
+   * the persistence from these anonymous pulses.
+   */
+  smoke: {
+    // ms between puffs, emitted at a smoking hull's TRUE current position.
+    // Paired with the client's deliberately SHORT puff life, this cadence is
+    // what keeps the plume an attached column rather than the decaying track
+    // amendment 43 explicitly rejected.
+    puffIntervalMs: 250,
+  },
+
+  /**
    * The universal standard gun (Eric rulings 2026-07-21): the permanently
    * selected default weapon, byte-identical on every class. 360° — no mounts,
    * no arcs, never out-of-arc. Single shot on a pure cooldown, implemented as

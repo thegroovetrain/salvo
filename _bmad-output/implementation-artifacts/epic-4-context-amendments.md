@@ -446,3 +446,136 @@ Everything that connects should deal damage."*
     undamaged ship"* without the per-SHELL qualifier amendment 36 attaches to it — the traceability
     chain from three code comments now terminates in a line that reads more absolutely than the
     ratified law. Also `CLAUDE.md` records `PROTOCOL_VERSION` as "currently 23"; actual is **24**.
+
+## 2026-08-05 — Eric rulings, Story 4-4 pre-implementation question gate (bmad-dev-auto, cycle 49)
+
+Source: Eric, live design conversation during the Story 4-4 run (one clarifying exchange plus two
+AskUserQuestion rounds, seven rulings). Spec of record: `spec-4-4-wounded-smoke.md`. The governing
+move was Eric's own: shown the reach question cold he first chose truesight-only (smoke as pure
+texture), then asked *"Don't we have the HP bar turning yellow or red based on remaining HP
+already?"* — which reframed the whole story and moved him UP to a fog-piercing channel once the
+vocabulary was settled. That question is the spine of amendment 41 and is why this story ships as a
+disclosure rather than a decoration.
+
+40. **WOUNDED SMOKE IS THE FIFTH DECLARED EXCEPTION to the master perception invariant** — joining
+    Story 4.3's `sp`/`hc`/`mz` and cycle 45's `sunk` — and it is the first of its kind twice over.
+    It is **the first enemy-HP-derived information the game has ever put on the wire**: until now
+    `Contact` carried exactly `{id,x,y,heading,speed,cls}` and the no-enemy-hp law was stated
+    outright in four places (`signals.ts:730-733`, `types.ts:441-446`, `types.ts:552-554`,
+    `signals.ts:610-612`). It is also **the first PERSISTENT fog-piercing signal** — `sp`, `hc`,
+    `mz` and `sunk` are all one-tick pulses, whereas a hurt hull smokes continuously for as long as
+    it stays hurt. Both firsts are deliberate and both require the row's own independently
+    reimplemented oracle in `perception.test.ts`, exactly as the four prior exceptions have.
+
+41. **THE SMOKE BANDS ARE THE HP RAIL'S BANDS — 50% and 25%, two tiers.** Light smoke below 50% of
+    max hp, heavy smoke below 25%. Eric: *"Then those are the numbers I want."* This is a
+    RE-USE ruling, not a new tuning: `hpColor()` (`client/src/render/hud.ts:276-280`) has always
+    drawn the own-vitals rail phosphor ≥50%, amber 25–50%, `damageMarker` crimson <25%
+    (`CLIENT_CONFIG.vitals.amberBelow` / `criticalBelow`), and `railPulsing()` has always breathed
+    the rail below 50%. **Wounded smoke is the enemy-facing half of a vocabulary that already
+    shipped self-facing.** Light plume ⇔ your rail has gone amber; heavy plume ⇔ your rail has gone
+    crimson. Implementation consequence, binding: the smoke tier and the rail band MUST derive from
+    the SAME thresholds — no second set of numbers may exist, and a future retune of the rail bands
+    moves the smoke with it. Explicitly REJECTED: a single tier at 50%, a single tier at 25%, and a
+    single tier at 60% — all three were the smaller channel and Eric chose the full vocabulary.
+
+    Tension with UX-DR24 (*"smoke conveys hurt, never a number"*) is ACKNOWLEDGED and resolved in
+    favor of two tiers: two named conditions is a state, not a gauge. The wire carries a **tier
+    enum**, never a fraction and never an hp value — sending `hp/maxHp` would be a real HP gauge and
+    is forbidden. UX-DR24's "no enemy HP bars" clause is untouched: no bar, no number, ever.
+
+42. **REACH IS `SIGHT * 1.5` — 495u, the muzzle-flash halo, DERIVED.** Smoke reuses
+    `CONFIG.vision.muzzleFlash` rather than introducing a fourth vision constant, so retuning
+    truesight moves the smoke halo exactly as it moves the flash and radar. This is the Story 4.3
+    precedent taken verbatim (amendment 15), and it lands smoke in the same deliberately-thin 165u
+    annulus beyond the sight bubble. Consequence of record: **inside 330u you already see the hull,
+    so smoke's new work happens entirely in the 330–495u annulus**, where a plume appears with no
+    hull under it and no sweep required. Radar (660u) remains the only long-range sensor, and a
+    radar-range hunt still cannot tell a hurt hull from a whole one.
+
+    Eric REVERSED his own first answer here. Truesight-only (330u) was his initial pick and would
+    have made smoke pure texture — no perception exception, no new channel, and the epic's
+    "damage is trackable prey" language dropped. He moved off it after the HP-rail reframing.
+    Also explicitly REJECTED: radar range (660u), which would have made a hurt hull's position
+    CONTINUOUS at the full sensor ceiling, and map-wide smoke ("above the fog" read literally),
+    which would have been a wholly new tier beyond radar from which no wounded ship could disengage.
+
+43. **AN ATTACHED, DRIFTING PLUME — WHERE THEY ARE, NEVER WHERE THEY'VE BEEN.** The column rises
+    from the hull's current position and drifts on a fixed wind. It reveals POSITION ONLY. Explicitly
+    REJECTED: a decaying trail of puffs left in the water (which would encode course, speed, and
+    origin — the same information ghost blips carry, but continuous, and a strictly larger
+    disclosure), and the both-at-once variant. **Binding implementation consequence:** puff lifetime
+    is the knob that decides column-vs-track, so it must be tuned SHORT enough that the plume hugs
+    the hull. A long-lived puff silently converts this ruling into the option Eric rejected — any
+    future change to puff life is a design change, not a tuning change.
+
+44. **ISLANDS BLOCK WOUNDED SMOKE.** LOS applies, upholding the standing 2026-08-02 ruling that
+    islands block EVERY sensor at ALL ranges, and matching the muzzle flash which got LOS for exactly
+    this reason. A wounded ship CAN break contact by putting rock between itself and a hunter.
+    Explicitly REJECTED: the realism argument that a burning hull's column is physically tall enough
+    to show over an island — which was the first time realism cut AGAINST the LOS law rather than for
+    it, and Eric declined to open the first carve-out. Island shadows remain absolute.
+
+45. **THE PLUME IS NEUTRAL — position and severity, never identity.** No ship id, no personal hue, no
+    class, for anyone, at any range. This is **amendment 19's muzzle-flash rule applied to a second
+    signal**: the flash *"says someone fired, never who"*, and the plume says *"a hull is hurt, this
+    hurt, right there"* and nothing more. In the 330–495u annulus you learn that something is wounded
+    and where — you still have to sweep radar or close to truesight to learn what it is and whose it
+    is. This RESOLVES the same DESIGN.md-vs-UX-DR7 conflict amendment 19 resolved, the same way and
+    for the same reason: **DESIGN.md's neutral-token grammar wins for this signal**, because the mark
+    must create a question rather than answer one. Explicitly REJECTED: personal hue + class (which
+    would have made the annulus a full contact and left smoke outranking radar as a continuous
+    identification channel), and hue-only.
+
+    Implementation consequence, load-bearing: **the wire payload carries no id at all**, so no
+    correlation handle exists and none may be invented — not the real ship id, not a per-observer
+    alias, not a stable anonymous key. The plume is therefore built the way the phosphor blip is
+    built (the shipped precedent: the server keeps no history and the client synthesizes the
+    persistence), NOT the way a contact is built.
+
+46. **YOU SEE YOUR OWN SMOKE.** Own damage staying HUD-private (`EXPERIENCE.md:179`) is upheld in
+    substance — no hp, amount, or number about you reaches anyone — but the plume itself is visible
+    to its own captain. The reasoning is the mechanic's own: **smoke broadcasts your position to
+    everyone inside 495u, so you must know you are broadcasting**, or the mechanic punishes you
+    invisibly and the decision to disengage is made blind. The plume becomes a diegetic second
+    reading of the amber/crimson rail you can already see. This also matches the shipped mockup
+    (`mockups/death-reveal-results-1.html:531-546`), which draws heavy own smoke. Explicitly
+    REJECTED: own smoke hidden entirely, and a visually heavier own plume than an enemy's (rejected
+    as a second visual weight to tune and a readability-gate cost on your own screen — own and enemy
+    plumes render identically).
+
+47. **EVERY HULL WITH HP SMOKES, DRONES INCLUDED.** One rule, no carve-out: below the band is below
+    the band. This does NOT contradict amendment 31 (drones are not combatants) — that ruling governs
+    the PUBLIC REGISTER, which is about whose sinking is news, whereas smoke is a physical property of
+    a damaged hull observed at close range. Drones already paint radar blips, so a drone plume
+    discloses nothing the sweep does not. Consequence of record: a solo captain's battle royale reads
+    consistently, and drones are useful practice for learning the cue. Explicitly REJECTED:
+    captains-only smoke (which would have made a plume a guaranteed player tell and forced drones to
+    read differently from every other hull).
+
+48. **Decoys do not smoke, and this creates no wire-indistinguishability problem.** A `Decoy` record
+    has no hp, so it has no band to fall below. The Story 1.8 indistinguishability law binds the
+    PAYLOAD of a genuine paint (amendment 11), and a healthy real ship emits no smoke either — so
+    "no plume" is not a decoy tell. Adding a fake plume to sell the illusion was considered and NOT
+    adopted: it would be inventing a mechanic, and amendment 11 already ratified that the decoy's lie
+    is unmasked by BEHAVIOR over time rather than by payload.
+
+49. **Scope discipline of record.** `PROTOCOL_VERSION` **bumps** (24 → 25) — a new wire signal is a
+    wire-shape change. No CONFIG combat tunable is touched: no damage, reload, hp, range, or catalog
+    value moves, and `CONFIG.vision` gains no new constant (reach reuses `muzzleFlash` per amendment
+    42; bands reuse the vitals thresholds per amendment 41). **Smoke gets no audio twin this cycle** —
+    it is a continuous STATE, not an event, and the Story 4.4 acceptance criteria are the only ones in
+    Epic 4 that name no tone (4.3, 4.5 and 4.6 all do). Story 4.7's sound map owns any later decision
+    to voice it. **Motion setting:** the ratified house rule governs — `off` removes MOTION, never
+    INFORMATION (`effects.ts:44-53`, `config.ts:1006-1008`), so the plume's PRESENCE and TIER must
+    survive `motion: 'off'` intact and only the drift/billow cadence is motion-scaled. The 4.4 AC's
+    "smoke respects the motion setting's reduced/off tiers" is read that way and no other.
+
+50. **Doc drift added to the Eric-gated 7-5 batch by this ruling** (house rule: no design-doc edits
+    in-cycle): `EXPERIENCE.md:179` reads *"wounded ships trail smoke … above the fog"* with no reach
+    qualifier — amendment 42 bounds it at 495u, and the word "trail" is superseded by amendment 43's
+    attached plume. `DESIGN.md:239`'s wounded-smoke line carries no tier grammar and must gain the
+    two-band mapping from amendment 41. `epics.md:848`'s *"below the smoke threshold (CONFIG design
+    target)"* is singular where amendment 41 ratified two. Also `CLAUDE.md` records
+    `PROTOCOL_VERSION` as "currently 23"; actual after this cycle is **25** (it was already 24 before
+    this cycle began — see amendment 39).

@@ -4,7 +4,7 @@
 //   worldRoot   (camera-transformed): ocean, wake, projectile, ship
 //   plateRoot   (screen space)        — truesight nameplates (render/nameplates.ts)
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
-//   chartRoot   (camera-transformed): map, blip, aim, burstFx, sweep   (fog-immune: above fog)
+//   chartRoot   (camera-transformed): map, smoke, blip, aim, burstFx, sweep   (fog-immune: above fog)
 //   hudRoot     (screen space)        — telegraph HUD
 //
 // worldRoot and chartRoot share the same camera transform; plateRoot, fogSprite,
@@ -37,6 +37,14 @@ export interface StageLayers {
   /** Star-shell lit zones (render/litZones.ts) — a fog-immune additive glow,
    *  beneath the tactical markers so blips/mines/reticle stay readable on top. */
   litZone: Container;
+  /** WOUNDED SMOKE plumes (render/smoke.ts) — fog-immune for the same reason
+   *  the burst ring and the reticle are: a hurt hull is disclosed out to 495u,
+   *  well past the 330u sight bubble, so a plume drawn UNDER the fog would be
+   *  invisible in exactly the 330-495u annulus where the whole signal lives.
+   *  Placed directly above `litZone` and BENEATH the tactical marks for
+   *  litZone's own stated reason — blips, mines and the reticle must stay
+   *  readable on top of it, and a plume is soft ambient texture, not a mark. */
+  smoke: Container;
   /** Own mines (render/mines.ts) — fog-immune so your field is always readable. */
   mineChart: Container;
   /** OWN decoy buoys (render/decoys.ts) — fog-immune chart markers so your own
@@ -142,6 +150,7 @@ export async function createStage(): Promise<Stage> {
     map: child(chartRoot),
     zone: child(chartRoot),
     litZone: child(chartRoot),
+    smoke: child(chartRoot),
     mineChart: child(chartRoot),
     decoyChart: child(chartRoot),
     blip: child(chartRoot),

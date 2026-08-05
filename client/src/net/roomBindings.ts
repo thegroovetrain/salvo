@@ -43,6 +43,7 @@ import type { ContactViews } from '../render/contacts.js';
 import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
+import type { Smoke } from '../render/smoke.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
@@ -85,6 +86,9 @@ export interface RoomBindingDeps {
   projectiles: Projectiles;
   effects: Effects;
   radar: Radar;
+  /** Wounded-smoke plumes (render/smoke.ts) — accumulated from the anonymous
+   *  `sm` pulses, exactly as radar blips are accumulated from `blip`. */
+  smoke: Smoke;
   mines: Mines;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
    *  from FrameMsg.litZones every tick, exactly like mines. */
@@ -480,8 +484,9 @@ function handleEvents(f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   for (const e of f.events) handleEvent(e, f, deps, s);
 }
 
-/** World/combat events (position + fire + hit); gunnery + self-private rewards
- *  split out (one switch per group keeps each under the complexity ceiling). */
+/** World/combat events (position + fire + hit); the accumulated sensor pulses,
+ *  gunnery, and self-private rewards split out (one switch per group keeps each
+ *  under the complexity ceiling). */
 function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   switch (e.k) {
     case 'spawn': handleSpawn(e, deps); return;
@@ -489,10 +494,34 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
     case 'shell': handleShell(e, deps); return;
     case 'torp': handleTorp(e, deps); return;
     case 'torpU': deps.projectiles.onBallisticUpdate(e); return;
-    case 'blip': deps.radar.onBlip(e); return;
     case 'boom': handleBoom(e, deps, s); return;
     case 'burst': handleBurst(e, deps); return;
     case 'dmg': return; // own damage is felt once, in handleEvents' pre-pass (flushDamage)
+  }
+  handlePulseEvent(e, f, deps, s);
+}
+
+/**
+ * THE ACCUMULATED SENSOR PULSES — the two rows where THE SERVER KEEPS NO
+ * HISTORY AT ALL and the client synthesizes the persistence itself. Both are
+ * anonymous-by-construction in the sense that matters to the renderer: nothing
+ * downstream may correlate one pulse to the next except through the row's own
+ * declared key (a `blip` carries a contact id; `sm` carries NOTHING, by
+ * amendment 45, and therefore cannot be grouped at all).
+ *   • `blip` RADAR PAINT — the beam crossed a contact's bearing this tick.
+ *     Accumulated into decaying phosphor (render/radar.ts + phosphor.ts).
+ *   • `sm` WOUNDED SMOKE (Story 4.4) — a hull is hurt HERE, this hurt, inside
+ *     the 495u halo with LOS clear. Position and severity band, and nothing
+ *     else: no id, no hue, no class, no hp, no fraction, for ANY observer
+ *     including the smoking captain and spectators. Accumulated into a drifting
+ *     plume (render/smoke.ts), which is deliberately the BLIP's arrangement and
+ *     not a contact's. `f.t` is the pulse's timestamp — the row carries no time
+ *     of its own and the decay is server-clock math, never accumulated dt.
+ */
+function handlePulseEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
+  switch (e.k) {
+    case 'blip': deps.radar.onBlip(e); return;
+    case 'sm': deps.smoke.onSmoke(e, f.t); return;
   }
   handleGunneryEvent(e, f, deps, s);
 }

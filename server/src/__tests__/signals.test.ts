@@ -6,7 +6,7 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SplashEvent, type SunkEvent } from '@salvo/shared';
+import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SmokeEvent, type SplashEvent, type SunkEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
@@ -99,14 +99,17 @@ const REGISTRY_KEYS = [
   // DAMAGE CONTROL (2026-08-04) — the heal spend's self-private toast; the
   // 'heal' key RETURNS to the registry after Story 2.1 retired it with REPAIR.
   'heal',
+  // Story 4.4 — wounded smoke, the fifth declared fog exception (anonymous
+  // {k,x,y,tier} pulse inside the constant muzzle-flash halo).
+  'sm',
 ];
 
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 19 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns)', () => {
+  it('has exactly the 20 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(19);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(20);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; counterIntel lives ONLY on the blip row (Story 1.8)', () => {
@@ -423,6 +426,88 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   });
 });
 
+// ---------- wounded smoke (Story 4.4) -----------------------------------------
+
+describe('SIGNAL_REGISTRY — sm row (Story 4.4: wounded smoke, the fifth declared fog exception)', () => {
+  const row = signalFor('sm')!;
+
+  it('materializes exactly [k,x,y,tier] as a FRESH object — never the subject verbatim', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 100); // inside the halo
+    const e: SmokeEvent = { k: 'sm', x: 0, y: 0, tier: 2 };
+    const ctx = foggedCtx(w, a);
+    expect(row.visible(ctx, e)).toBe(true);
+    const wire = row.materialize(ctx, e) as SmokeEvent;
+    expect(wire).not.toBe(e); // fresh bare object — the mz/burst discipline
+    expect(Object.keys(wire)).toEqual(['k', 'x', 'y', 'tier']);
+    expect(wire).toEqual({ k: 'sm', x: 0, y: 0, tier: 2 });
+    for (const forbidden of ['id', 'hue', 'cls', 'hp', 'frac', 'heading', 'by', 'own']) {
+      expect(forbidden in (wire as object)).toBe(false);
+    }
+  });
+
+  it('visibility is the CONSTANT muzzle-flash halo: inside passes, exactly at passes (inclusive), a hair beyond fails', () => {
+    const w = bareWorld();
+    const inside = place(w, 'in', 100, 0);
+    const at = place(w, 'at', CONFIG.vision.muzzleFlash, 0);
+    const past = place(w, 'past', CONFIG.vision.muzzleFlash + 0.01, 0);
+    const e: SmokeEvent = { k: 'sm', x: 0, y: 0, tier: 1 };
+    expect(row.visible(foggedCtx(w, inside), e)).toBe(true);
+    expect(row.visible(foggedCtx(w, at), e)).toBe(true);
+    expect(row.visible(foggedCtx(w, past), e)).toBe(false);
+  });
+
+  it('island LOS blocks the plume exactly like every other sensor; dazzle does NOT shrink the halo', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 400, 0); // inside the 495u halo
+    const e: SmokeEvent = { k: 'sm', x: 0, y: 0, tier: 1 };
+    // Dazzle shrinks the observer's SIGHT, never the smoke halo (the mz rule:
+    // the halo is the raw constant, deliberately not sightOf).
+    a.dazzledUntil = w.now + 10_000;
+    expect(row.visible(foggedCtx(w, a), e)).toBe(true);
+    w.map.islands.push({ x: 200, y: 0, r: 40 }); // on the segment
+    expect(row.visible(foggedCtx(w, a), e)).toBe(false);
+  });
+
+  it('an OWNED lit zone over the puff does NOT extend the halo (no ownZoneCovers term, the mz rule)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    injectZone(w, 'z1', 'a', 900, 0); // a's own zone, far beyond the 495u halo
+    const e: SmokeEvent = { k: 'sm', x: 900, y: 0, tier: 2 }; // puff dead-center in a's zone
+    expect(row.visible(foggedCtx(w, a), e)).toBe(false);
+  });
+
+  it('the smoking captain gets the SAME anonymous payload through the same gate (dist 0 — no special case)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const e: SmokeEvent = { k: 'sm', x: 0, y: 0, tier: 1 }; // a's own puff, at a's own position
+    const ctx = foggedCtx(w, a);
+    expect(row.visible(ctx, e)).toBe(true); // dist 0 passes the halo trivially
+    expect(row.materialize(ctx, e)).toEqual({ k: 'sm', x: 0, y: 0, tier: 1 }); // still no id
+  });
+
+  it('spectators see every puff, and the spectator payload carries no id either', () => {
+    const w = bareWorld();
+    const e: SmokeEvent = { k: 'sm', x: 9_000, y: 9_000, tier: 2 }; // absurdly far from everything
+    const ctx: SpectatorSignalContext = {
+      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
+    };
+    expect(row.visible(ctx, e)).toBe(true);
+    const wire = row.materialize(ctx, e) as SmokeEvent;
+    expect(wire).not.toBe(e);
+    expect(Object.keys(wire)).toEqual(['k', 'x', 'y', 'tier']);
+    expect('id' in (wire as object)).toBe(false);
+  });
+
+  it('both tiers pass through verbatim — the enum, never a fraction', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const ctx = foggedCtx(w, a);
+    expect((row.materialize(ctx, { k: 'sm', x: 1, y: 2, tier: 1 } as SmokeEvent) as SmokeEvent).tier).toBe(1);
+    expect((row.materialize(ctx, { k: 'sm', x: 1, y: 2, tier: 2 } as SmokeEvent) as SmokeEvent).tier).toBe(2);
+  });
+});
+
 // ---------- litzone visibility (Story 1.7) ------------------------------------
 
 describe('SIGNAL_REGISTRY — litzone row visibility (owner always, else radar-gated, no LOS/sweep)', () => {
@@ -727,11 +812,11 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
 // ---------- fail-closed lookups -----------------------------------------------
 
 describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
-  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 15 GameEvent
+  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 16 GameEvent
   // kinds. The four contact/mine/litzone/decoy pseudo-rows are unreachable from
   // it (a fabricated k:'mine'/'litzone'/'decoy' world event can never
   // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm'];
 
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();
@@ -739,7 +824,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(signalFor('CONTACT')).toBeUndefined(); // case-sensitive, not fuzzy
   });
 
-  it('signalFor resolves exactly the 15 event kinds to their registry rows', () => {
+  it('signalFor resolves exactly the 16 event kinds to their registry rows', () => {
     for (const key of EVENT_KINDS) {
       expect(signalFor(key)).toBe(SIGNAL_REGISTRY[key as keyof typeof SIGNAL_REGISTRY]);
     }

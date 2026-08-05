@@ -1,6 +1,6 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 15 GameEvent kinds plus the four contact-like frame channels
+// row here: the 16 GameEvent kinds plus the four contact-like frame channels
 // (`contact`, `mine`, `litzone`, and `decoy` — pseudo event types: not
 // GameEvents, but the invariant suite iterates them like everything else).
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
@@ -23,7 +23,8 @@
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
 // k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,mode;
 // DecoyView: id,x,y,until,own,by; SplashEvent/HitCallEvent: k,id,x,y;
-// MuzzleEvent: k,x,y — Story 4.3; SunkEvent: k,id,by?,seen? — the public
+// MuzzleEvent: k,x,y — Story 4.3; SmokeEvent: k,x,y,tier — Story 4.4;
+// SunkEvent: k,id,by?,seen? — the public
 // register, absent keys OMITTED). Do not reorder keys — `by` (Story 1.12) is
 // appended LAST on mine/decoy, `mode` (Story 2.9) after it on litzone, so the
 // historical prefix stays byte-stable.
@@ -52,6 +53,7 @@ import {
   type BoonFitEvent,
   type PointEvent,
   type ShellState,
+  type SmokeEvent,
   type SpawnEvent,
   type SplashEvent,
   type SunkEvent,
@@ -839,6 +841,44 @@ const muzzleFlashSignal: SignalSpec<MuzzleEvent, MuzzleEvent> = {
   },
 };
 
+/**
+ * `sm` — WOUNDED SMOKE (Story 4.4, amendments 40-50): a hull below a damage
+ * band is smoking at this point, this hard. The FIFTH declared exception to
+ * the master perception invariant (after 4.3's sp/hc/mz and PV 23's public
+ * sunk register), with its own independently-reimplemented oracle in
+ * perception.test.ts. Visible iff dist(observer, puff) ≤
+ * CONFIG.vision.muzzleFlash — the mz row's CONSTANT halo reused verbatim
+ * (amendment 42: no fourth vision constant), deliberately NOT the observer's
+ * dazzle-scaled sightOf and NOT the boon-widened stats.sightRange: smoke
+ * reach must be identical for every observer, or the plume would carry
+ * per-observer build/state information — ∧ island LOS clear (amendment 44:
+ * islands block EVERY sensor at ALL ranges). Deliberately NO ownZoneCovers
+ * term, exactly like mz: a star-shell zone does not help you see a plume you
+ * are too far away from. materialize returns a fresh bare {k,x,y,tier} for
+ * EVERY observer — the smoking ship's own captain (amendment 46: own smoke
+ * rides this row with no special case) and spectators included; no ship id,
+ * hue, class, hp, or fraction may ever ride it (amendment 45: no correlation
+ * handle of any kind exists on this row, so per-source capping is impossible
+ * by construction).
+ */
+const woundedSmokeSignal: SignalSpec<SmokeEvent, SmokeEvent> = {
+  eventType: 'sm',
+  visible(ctx, e) {
+    if (ctx.mode === 'spectator') return true;
+    const me = ctx.me;
+    const dx = e.x - me.state.x;
+    const dy = e.y - me.state.y;
+    const halo = CONFIG.vision.muzzleFlash;
+    return dx * dx + dy * dy <= halo * halo && losClear(me.state, e, ctx.islands);
+  },
+  materialize(_ctx, e) {
+    // ALWAYS a fresh bare object (the mz/burst-row discipline): the wire shape
+    // is {k,x,y,tier} for every observer — no id can ever ride along by
+    // accident, and no observer gets a privileged view.
+    return { k: 'sm', x: e.x, y: e.y, tier: e.tier };
+  },
+};
+
 // ---------------------------------------------------------------------------
 // The registry: every spatial signal channel, one row each.
 // ---------------------------------------------------------------------------
@@ -854,7 +894,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 };
 
 /**
- * String-keyed registry of every signal channel — the 15 GameEvent kinds plus
+ * String-keyed registry of every signal channel — the 16 GameEvent kinds plus
  * the `contact`/`mine`/`litzone`/`decoy` pseudo-types. perception.ts
  * dispatches world events by `e.k` (an emitted kind with no row is a hard
  * fail-closed drop) and drives the contact/blip/ballistic/mine/litzone/decoy
@@ -888,6 +928,9 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   sp: fallOfShotSignal,
   hc: hitCallSignal,
   mz: muzzleFlashSignal,
+  // Story 4.4 (amendments 40-50): wounded smoke — the fifth declared fog
+  // exception, anonymous by construction (see the row above).
+  sm: woundedSmokeSignal,
 });
 
 /**
@@ -905,7 +948,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 15 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
+ * ONLY the 16 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
  * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`/`k:'decoy'`) world
  * event can never materialize (restoring the old dispatcher's
  * `default: return null` guarantee), and uses an OWN-property lookup
