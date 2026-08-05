@@ -11,10 +11,10 @@
 //
 // THE THREE RATIFIED RULES THIS MODULE ENCODES
 //
-//  • AFLOAT counts ALL hulls, humans AND drones (amendment 19) — the BR reading:
-//    the number visibly thins as the field dies. The deliberate asymmetry with
-//    the elimination modal's humans-only PLACEMENT lives in score.ts, beside
-//    the placement rule it is asymmetric with.
+//  • AFLOAT counts CAPTAINS — humans only, the local player included (the
+//    public-register cycle, superseding amendment 19's all-hulls count: drones
+//    are not combatants). The rule and its doctrine note live in score.ts
+//    (isAfloatHull), beside the rival count it remains half-asymmetric with.
 //  • THE RING READOUT IS A CONTINUOUS COUNTDOWN (amendment 26, superseding
 //    amendment 20's reveal-beat announcement): every pre-close beat — clear,
 //    supply, AND reveal — counts down to the next close START as
@@ -150,10 +150,17 @@ export interface ChromeBarView {
    *  whole pre-live ready room (waiting/gathering/countdown), where the match
    *  phase lines own top-center. */
   visible: boolean;
-  /** Hulls still afloat — humans AND drones (amendment 19). */
+  /** Captains still afloat — humans only, the local player included (the
+   *  public-register cycle; drones are excluded — score.ts isAfloatHull). */
   afloat: number;
-  /** Own kills, the server-authoritative public roster tally (drones included —
-   *  the same number the results modal reports). Never a client recount. */
+  /** Own kills, the server-authoritative public roster tally — EVERY hull the
+   *  server credited, DRONES INCLUDED (the same number the results modal
+   *  reports). Never a client recount. HONEST CAVEAT: this denominator now
+   *  deliberately differs from the AFLOAT segment beside it — AFLOAT counts
+   *  captains only (the public-register cycle) while KILLS still counts every
+   *  hull, so a solo captain can read `1 AFLOAT · 5 KILLS` off five drone
+   *  kills. Whether KILLS should go captains-only awaits an owner ruling
+   *  (ledgered); until then the roster tally stands unchanged. */
   kills: number;
   /** Elapsed match time (ms) = serverNow − zoneStartT, clamped at 0. */
   matchMs: number;

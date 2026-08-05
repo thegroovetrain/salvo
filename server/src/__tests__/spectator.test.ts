@@ -160,6 +160,21 @@ describe('spectator frames — dead observer in the active phase', () => {
     });
   });
 
+  it("a spectator's sunk ALWAYS carries seen: true (PV 23 — spectators witness everything)", () => {
+    const w = deadObserverWorld(); // a died this very tick — the sunk rides tickEvents
+    const own = buildFrame(w, 'a', 'active');
+    expect(own.events.filter((e) => e.k === 'sunk')).toEqual([
+      { k: 'sunk', id: 'a', by: 'b', seen: true },
+    ]);
+    // A later sinking far from the wreck's old bubble: still seen for the
+    // spectator — the unfogged path stamps the spatial license unconditionally.
+    w.sinkShip('c', 'b');
+    w.step();
+    expect(buildFrame(w, 'a', 'active').events.filter((e) => e.k === 'sunk')).toEqual([
+      { k: 'sunk', id: 'c', by: 'b', seen: true },
+    ]);
+  });
+
   it("filters another ship's self-private pt/bn out of spec frames; own points still arrive", () => {
     const w = deadObserverWorld(); // a is dead (sunk by b)
     place(w, 'd', 600, 0);
@@ -304,9 +319,29 @@ function verifyFoggedEvent(w: World, me: ShipRecord, e: GameEvent): void {
     case 'bn':
       expect(e.id).toBe(me.id); // self-private, even under fog
       return;
-    case 'sunk':
-      if (e.id !== me.id) expect(sighted(w, me, w.ships.get(e.id)!.state)).toBe(true);
+    case 'sunk': {
+      // PV 23 (the public register): a HUMAN victim's sinking reaches every
+      // fogged observer (identity only); a DRONE victim only a witness or its
+      // killer; and the spatial license `seen` may be present ONLY when the
+      // wreck was genuinely sighted (these worlds inject no lit zones).
+      if (e.id === me.id) return;
+      const wreck = w.ships.get(e.id);
+      if (wreck === undefined) {
+        // No wreck record this tick: production delivers only to the CREDITED
+        // KILLER (sunkCreditedTo needs no record; witness and public clauses
+        // fail-close), and the witness predicate fail-closes too — no `seen`.
+        expect(e.by).toBe(me.id);
+        expect(e.seen).toBeUndefined();
+        return;
+      }
+      const witnessed = sighted(w, me, wreck.state);
+      if (wreck.isDrone) expect(witnessed || e.by === me.id).toBe(true);
+      if (e.seen !== undefined) {
+        expect(e.seen).toBe(true);
+        expect(witnessed).toBe(true);
+      }
       return;
+    }
     case 'spawn':
       if (e.id !== me.id) expect(sighted(w, me, e)).toBe(true);
       return;

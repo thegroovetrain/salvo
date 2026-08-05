@@ -1,5 +1,6 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-04  # cycle 44 (0.17.44), the per-weapon balance pass (interstitial, not a story)
+# last_updated: 2026-08-04  # cycle 45 (0.17.45), the Public Register (interstitial — global kill feed).
+#                          # cycle 44 (0.17.44) was the per-weapon balance pass, landed in parallel.
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -101,7 +102,7 @@ development_status:
   epic-3-retrospective: done  # epic-3-retro-2026-08-03.md (live with Eric; carries the ~10-player playtest reads)
 
   # epic-4: Information Texture (GDD E6)
-  epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Interstitial cycle 44 (0.17.44) = the per-weapon balance pass, not an epic story — no story line, see the cooldown/TTK action below
+  epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3)
   # DEFERRED 2026-08-04 by Eric ruling (bmad-dev-auto-result-4-1-listening-ring-deferred.md;
   # epic-4-context-amendments.md amendment 1): hydrophone sensor tier not built — enough
   # information channels already, active sonar is coming, and the ring's value is contingent on a
@@ -109,6 +110,17 @@ development_status:
   4-1-the-listening-ring: deferred
   4-2-class-legible-blips: done  # 2026-08-04 dev-auto cycle 41 (0.17.41); PV 19->20; amendments 7-14 ratified pre-implementation (TRUE-SCALE silhouette blips supersede the DESIGN.md px table/floor-clamp/3x ML notch; 3-paint persistence; decoy = radar reflector at frozen pose, speed 0; algorithmic luminance floor)
   4-3-the-gunnery-conversation: done  # 2026-08-04 dev-auto cycle 43 (0.17.43); PV 21->22; amendments 15-20 ratified pre-implementation (muzzle flash carries to a DERIVED SIGHT*1.5 495u halo, LOS-blocked — not radar range, not map-wide; fall-of-shot splash SELF-PRIVATE and gun-family only, resolving FR16 "own" vs EXPERIENCE.md:181's unqualified line in FR16's favor; the Hit Call is SHOOTER-ONLY and knowingly SUPERSEDES the boom row's "hit confirmation beyond sight would leak contact presence" rule for the owner-hit case, because the ratified decoy oracle depends on it; Hit Call covers ALL ordnance incl. mines; the flash is NEUTRAL — position only, never who or which weapon, DESIGN.md:239 beating UX-DR7 for this signal; flash is gun-family only, upholding the torpedo's shipped "quiet weapon" status). Three declared perception-invariant exceptions, each with its own independent oracle. Also promoted `muzzle`/`spark` OUT of isJuiceEffect (they are information now, so they survive motion=off) — Story 4-8 inherits that changed split
+  # INTERSTITIAL 2026-08-04 (dev-auto cycle 45, 0.17.45) — THE PUBLIC REGISTER (global kill feed).
+  # Developed in PARALLEL with the cycle-44 balance pass and landed second: renumbered 44->45 and
+  # its amendments 21-26 -> 29-34 on merge, since the balance pass had taken 21-28.
+  # Not a numbered story; spec-global-kill-feed.md, amendments 29-34. PV 22->23. `sunk` becomes the
+  # 4th declared perception-invariant exception (witnessed || credited-to-you || victim-is-combatant),
+  # with a per-observer `seen` flag keeping everything SPATIAL as gated as before. Drones are not
+  # combatants (their sinkings reach only the witness and the killer); AFLOAT now counts captains only
+  # (supersedes epic-3 amendment 19). Feed 6 lines / 8s TTL.
+  # HANDS OFF TO 6-3: the matching win-condition change (drones must NOT gate the win) was deferred by
+  # Eric to Story 6-3 below. Match.checkWin() is untouched — see amendment 23 for why the naive
+  # removal breaks the solo path (drones.test.ts / dronesSmoke.mjs at minHumans:1).
   4-4-wounded-smoke: backlog
   4-5-the-foghorn: backlog
   4-6-the-bounty: backlog
@@ -130,6 +142,10 @@ development_status:
   epic-6: backlog
   6-1-queue-based-lobbies: backlog
   6-2-roster-scaled-oceans: backlog
+  # SCOPE ADDED 2026-08-04 (cycle 45, amendment 31): Eric ruled drones are NOT combatants and must not
+  # gate the win. Deferred here deliberately — dropping the aliveDroneCount() guard in Match.checkWin()
+  # outright makes a solo match (minHumans:1, dev/smoke/test path) finish the instant it activates, so
+  # 6-3 must solve solo-mode termination as part of this work.
   6-3-the-participants-only-win-check: backlog
   6-4-combat-bot-ai: backlog
   6-5-solo-vs-ai-mode: backlog

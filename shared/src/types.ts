@@ -464,11 +464,27 @@ export interface DamageEvent {
   hp: number; // hp remaining
 }
 
-/** A ship sank. `by` is the killer's id, if attributable. */
+/**
+ * A ship sank. `by` is the killer's id, if attributable.
+ *
+ * THE PUBLIC REGISTER (global kill feed): a human captain's sinking is
+ * delivered to EVERY client — identity only ({k,id,by?}), never a position,
+ * class, hue, damage, or weapon field. Drone sinkings stay gated (witnessed,
+ * or your own kill). `seen` is PER-OBSERVER, stamped by the sunk row's
+ * materialize() on the server: present (always `true`) iff THIS observer
+ * legitimately witnessed the wreck (sight+LOS, an owned lit zone, own hull,
+ * or spectator). It gates EVERYTHING SPATIAL on the client — the sink plume
+ * and the contact-view teardown — so an unwitnessed feed line can never draw
+ * at a stale last-known position. Never emitted as `seen: false` or with an
+ * `undefined` value (msgpack encodes it): the key is omitted entirely when
+ * the observer did not witness the wreck. KEY ORDER IS LOAD-BEARING
+ * (msgpack): k,id,by?,seen? — absent keys are omitted, never undefined.
+ */
 export interface SunkEvent {
   k: 'sunk';
   id: string;
   by?: string;
+  seen?: true;
 }
 
 /** A ship (re)spawned at a position. */

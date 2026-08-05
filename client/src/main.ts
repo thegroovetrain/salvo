@@ -718,14 +718,11 @@ function updateScoreEpoch(g: Game): void {
   if (phase === 'active') g.score = freshScore();
 }
 
-/** Roster name lookup for the kill feed / results (falls back to the raw id). */
-function rosterName(g: Game, id: string): string {
-  return publicState(g).players?.get(id)?.name ?? id;
-}
-
-/** Roster name lookup for nameplates (Story 1.13): the synced callsign or null —
- *  NEVER the id fallback, so an unresolved human hull shows no plate rather than
- *  a session id (rosterName's fallback would leak the id onto the water). */
+/** Roster name lookup (Story 1.13): the synced callsign or null — NEVER a
+ *  raw-session-id fallback. Every consumer supplies its own null policy: the
+ *  nameplates show no plate, the score card drops the name from the roll, and
+ *  the kill feed substitutes its neutral UNKNOWN_VESSEL label — a session id
+ *  is transport plumbing and must never print anywhere a player reads. */
 function rosterNameOrNull(g: Game, id: string): string | null {
   return publicState(g).players?.get(id)?.name ?? null;
 }
@@ -847,9 +844,11 @@ function chromeBarView(g: Game, zv: ZoneView, now: number, tier1: boolean): Chro
     // the server anchors the timeline, and a non-idle state presented against
     // that sentinel would print `now − 0` as the match clock.
     visible: barVisible(zv.state, zv.startT),
-    // Amendment 19: ALL hulls, drones included — deliberately NOT the
-    // humans-only rival count placement uses (score.ts isAfloatHull).
-    afloat: players ? afloatCount(players) : 0,
+    // The public-register cycle (superseding amendment 19): AFLOAT counts
+    // CAPTAINS — drones are not combatants and are excluded via the roster hue
+    // sentinel — but the LOCAL PLAYER is still counted, unlike the rival count
+    // placement uses (score.ts isAfloatHull has the full doctrine note).
+    afloat: players ? afloatCount(players, REGATTA_NO_HUE) : 0,
     kills: ownKills(g),
     matchMs: Math.max(0, now - zv.startT),
     // `closesInMs` is handed over verbatim — its dual meaning (to close START
@@ -1554,7 +1553,11 @@ function bindGameRoom(g: Game, conn: Connection): void {
       g.denialDedup.clear();
     },
     resetPrime: () => g.keyboard.revertToGun(),
-    names: (id) => rosterName(g, id),
+    // The FEED's name lookup is the nullable resolver, NOT rosterName: a
+    // departed vessel must render the feed's neutral UNKNOWN_VESSEL label
+    // (roomBindings.handleSunk), never the raw-session-id fallback — the same
+    // rule the score card already applies (handleSunkObserved below).
+    names: (id) => rosterNameOrNull(g, id),
     // Story 1.12 personal-hue resolvers (roster-driven): kill-feed name color +
     // ordnance-marker firer tint.
     colors: (id) => feedColor(g, id),

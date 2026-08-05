@@ -4,7 +4,7 @@
 // connective text inherits the container's text-secondary, newest line on top,
 // capped at MAX_LINES.
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { killLine, ellipsizeName, pushKillLine } from '../ui/killFeed.js';
 import { CLIENT_CONFIG } from '../config.js';
 import { cssHex } from '../util/color.js';
@@ -100,10 +100,25 @@ describe('pushKillLine — DOM span building', () => {
     expect(feed().lastChild!.textContent).toBe('FIRST');
   });
 
-  it('caps the stack at 5 lines (oldest at the bottom evicted)', () => {
+  it('caps the stack at 6 lines (the global feed carries more traffic — PV 23)', () => {
     for (let i = 0; i < 8; i++) pushKillLine([{ text: `L${i}` }], () => null);
-    expect(feed().children).toHaveLength(5);
+    expect(feed().children).toHaveLength(6);
     expect(feed().firstChild!.textContent).toBe('L7'); // newest
-    expect(feed().lastChild!.textContent).toBe('L3'); // oldest surviving
+    expect(feed().lastChild!.textContent).toBe('L2'); // oldest surviving
+  });
+
+  it('a line lives 8 seconds (fades late, removes at exactly the TTL)', () => {
+    vi.useFakeTimers();
+    try {
+      pushKillLine([{ text: 'TTL' }], () => null);
+      const line = feed().firstChild as HTMLDivElement;
+      vi.advanceTimersByTime(7999);
+      expect(line.isConnected).toBe(true); // still on screen a tick before the TTL
+      expect(line.style.opacity).toBe('0'); // ...already fading (TTL − 1.2s fade lead)
+      vi.advanceTimersByTime(1);
+      expect(line.isConnected).toBe(false); // gone at 8s, not the old 6s
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

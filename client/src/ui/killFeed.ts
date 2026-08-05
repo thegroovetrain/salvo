@@ -17,8 +17,19 @@ import { ellipsizeName } from '../util/text.js';
 export { ellipsizeName };
 
 const FEED_ID = 'kill-feed';
-const LINE_TTL_MS = 6000;
-const MAX_LINES = 5;
+// A GLOBAL feed (PV 23) carries every captain's sinking, not just the ones in
+// sight — more traffic needs the headroom (Eric ruling): 8s TTL, 6 lines.
+const LINE_TTL_MS = 8000;
+const MAX_LINES = 6;
+
+/**
+ * The feed's neutral stand-in for a vessel whose roster entry is already gone
+ * (a departed captain has no callsign). A GLOBAL feed (PV 23) delivers every
+ * sinking to every client, so a raw session id fallback would print transport
+ * plumbing into everyone's feed — the label stands in instead, and the segment
+ * stays uncolored (a roster miss also resolves no hue).
+ */
+export const UNKNOWN_VESSEL = 'UNKNOWN VESSEL';
 
 /** A vessel reference in a feed line — its display name + roster id (for color). */
 export interface NameRef {

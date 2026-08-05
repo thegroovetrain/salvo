@@ -3,10 +3,14 @@
 // in every frame, every contact and every event references ONLY what that
 // observer's sight bubble ∪ this-tick radar paints ∪ lit zones the observer
 // OWNS (Story 1.7 — plus the self-directed events: own dmg/sunk/spawn, own
-// shells; the lit-zone CIRCLE itself is owner-always / radar-gated; and Story
+// shells; the lit-zone CIRCLE itself is owner-always / radar-gated; Story
 // 4.3's three DECLARED gunnery exceptions: shooter-private sp/hc at any
 // range, and the mz flash inside the constant SIGHT*1.5 halo with island
-// LOS). The checks below are a deliberate test-local reimplementation of the
+// LOS; and PV 23's 4th declared exception, the PUBLIC REGISTER `sunk` row:
+// a human captain's sinking is identity-only public, a drone's reaches only
+// a witness or its killer, and the per-observer `seen` flag may be present
+// only when the witness predicate holds — see verifySunk). The checks below
+// are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
 
@@ -423,33 +427,80 @@ describe('perception — boom / dmg / sunk / spawn visibility', () => {
     w.step();
     const fa = buildFrame(w, 'a');
     const fb = buildFrame(w, 'b');
-    // b (victim) sees the boom, its dmg, and its own sinking.
+    // b (victim) sees the boom, its dmg, and its own sinking (seen: own hull).
     expect(fb.events.filter((e) => e.k === 'boom')).toHaveLength(1);
     expect(fb.events.filter((e) => e.k === 'dmg')).toEqual([
       { k: 'dmg', id: 'b', amount: CONFIG.gun.damage, hp: 0 },
     ]);
-    expect(fb.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
-    // a (owner, out of sight) gets NONE of it — no hit confirmation leak.
+    expect(fb.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true }]);
+    // a (owner, out of sight) gets no boom / dmg — no impact-location leak —
+    // but the sinking itself arrives (PV 23: credited killer + public
+    // register), WITHOUT the spatial license: no `seen`.
     expect(fa.events.filter((e) => e.k === 'boom')).toEqual([]);
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
-    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([]);
+    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
   });
 
-  it('a boom within sight is visible; a sinking within sight is visible', () => {
+  it('a boom within sight is visible; a witnessed sinking carries seen: true', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
     const b = place(w, 'b', 150, 0);
     b.hp = 15;
-    place(w, 'c', 0, 800); // far-away third party sees none of it
+    place(w, 'c', 0, 800); // far-away third party
     injectShell(w, 's1', 'a', 130, 0, 0, 100); // a's shell, point-blank on b
     w.step();
     const fa = buildFrame(w, 'a');
     expect(fa.events.filter((e) => e.k === 'boom')).toHaveLength(1);
-    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
+    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true }]);
     // dmg stays victim-private even when the boom is visible.
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
     const fc = buildFrame(w, 'c');
-    expect(fc.events.filter((e) => e.k === 'boom' || e.k === 'sunk')).toEqual([]);
+    // The fog-kill THIRD PARTY (PV 23): no boom, but the public register
+    // delivers the human sinking — identity only, no `seen`.
+    expect(fc.events.filter((e) => e.k === 'boom')).toEqual([]);
+    expect(fc.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
+  });
+
+  it('the public register: a drone fog kill reaches its killer but NOT a bystander', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0); // the killer
+    place(w, 'c', 0, 800); // an uninvolved, out-of-sight bystander
+    const d = w.addShip('d1', 'DRONE-01', true, 'droneSmall');
+    d.state.x = 500; // far outside everyone's sight
+    d.state.y = 0;
+    w.sinkShip('d1', 'a');
+    w.step();
+    // The killer learns its trap/round connected — no `seen` (never witnessed).
+    expect(buildFrame(w, 'a').events.filter((e) => e.k === 'sunk')).toEqual([
+      { k: 'sunk', id: 'd1', by: 'a' },
+    ]);
+    // The bystander receives NOTHING: drones are not on the public register.
+    expect(buildFrame(w, 'c').events.filter((e) => e.k === 'sunk')).toEqual([]);
+  });
+
+  it('a WITNESSED drone sinking arrives with seen: true (today\'s rule, unchanged)', () => {
+    const w = bareWorld();
+    place(w, 'c', 0, 0); // a witness who did not fire the shot
+    const d = w.addShip('d1', 'DRONE-01', true, 'droneSmall');
+    d.state.x = 100; // inside c's sight bubble
+    d.state.y = 0;
+    w.sinkShip('d1', 'a');
+    w.step();
+    expect(buildFrame(w, 'c').events.filter((e) => e.k === 'sunk')).toEqual([
+      { k: 'sunk', id: 'd1', by: 'a', seen: true },
+    ]);
+  });
+
+  it('an unattributed human sinking (storm) is public with `by` OMITTED, never undefined', () => {
+    const w = bareWorld();
+    place(w, 'c', 0, 800); // far away — unwitnessed
+    place(w, 'b', 0, 0);
+    w.sinkShip('b'); // by = undefined (the storm has no killer)
+    w.step();
+    const sunk = buildFrame(w, 'c').events.filter((e) => e.k === 'sunk');
+    expect(sunk).toEqual([{ k: 'sunk', id: 'b' }]);
+    expect('by' in sunk[0]).toBe(false); // msgpack would encode an undefined value
+    expect('seen' in sunk[0]).toBe(false);
   });
 
   it('a boom whose victim center is out of sight arrives WITHOUT hit (straddle)', () => {
@@ -635,13 +686,13 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     expect(fa.events.filter((e) => e.k === 'boom')).toEqual([
       { k: 'boom', id: 's1', hit: 'b', x: expect.any(Number), y: expect.any(Number) },
     ]);
-    // Wreck inside the owned zone => the sunk arrives too.
-    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
+    // Wreck inside the owned zone => the sunk arrives WITNESSED (seen: true).
+    expect(fa.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a', seen: true }]);
     // dmg stays victim-private even under the zone (truesight parity, not omniscience).
     expect(fa.events.filter((e) => e.k === 'dmg')).toEqual([]);
   });
 
-  it("a kill inside someone ELSE's zone stays hidden (boom/sunk never leak to non-owners)", () => {
+  it("a kill inside someone ELSE's zone: the boom never leaks; the sunk is public but UNSEEN (PV 23)", () => {
     const w = bareWorld();
     place(w, 'c', 0, 0); // non-owner observer
     const b = place(w, 'b', 900, 0);
@@ -650,7 +701,10 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
     injectShell(w, 's1', 'a', 880, 0, 0, 100);
     w.step();
     const fc = buildFrame(w, 'c');
-    expect(fc.events.filter((e) => e.k === 'boom' || e.k === 'sunk')).toEqual([]);
+    expect(fc.events.filter((e) => e.k === 'boom')).toEqual([]);
+    // The human sinking rides the public register — identity only, no `seen`,
+    // so someone else's zone still grants c NO spatial knowledge.
+    expect(fc.events.filter((e) => e.k === 'sunk')).toEqual([{ k: 'sunk', id: 'b', by: 'a' }]);
   });
 
   it('a ship BEHIND AN ISLAND inside the zone is still revealed to the firer (no LOS term)', () => {
@@ -1033,13 +1087,48 @@ function verifyBurst(w: World, me: ShipRecord, e: GameEvent): void {
   if (src!.own !== me.id) expect(sighted(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
 }
 
+// THE PUBLIC REGISTER (PV 23) — `sunk` is the 4th DECLARED exception to the
+// master invariant (after sp/hc/mz), reimplemented here independently of its
+// registry row: a HUMAN victim's sinking is identity-only PUBLIC (allowed
+// unconditionally); a DRONE victim reaches only a witness (sighted or
+// owned-zone — Story 1.7) or its credited killer; the victim itself always
+// hears of its own sinking; and the per-observer `seen` flag may be PRESENT
+// only when the witness predicate genuinely holds — `seen` is the client's
+// license to render spatially, so a wrongly-stamped flag IS a location leak.
+// INDEPENDENCE SCOPE: the claim above is honest only for the GEOMETRY terms —
+// `sighted`/`zoneCovers` are this file's own reimplementations. The drone
+// discrimination reads the same production `wreck.isDrone` field the row
+// reads, and the credited clause is the same trivial `by === me` equality, so
+// a hull mis-flagged at construction (e.g. a future combat bot built through
+// the drone path) would put the row and this oracle in agreement on the same
+// wrong answer.
 function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as SunkEvent;
+  // THE PAYLOAD PIN: because this event now reaches every fogged client, the
+  // wire shape itself is the anti-leak boundary — the keys must be a subset of
+  // exactly {k,id,by,seen}. A positional (or any other) field added at the
+  // world emission, or a materialize() regression back to pass-through, fails
+  // HERE even though every visibility clause still holds.
+  for (const key of Object.keys(ev)) expect(['k', 'id', 'by', 'seen']).toContain(key);
   if (ev.id === me.id) return;
-  const wreck = w.ships.get(ev.id)!;
-  expect(wreck).toBeDefined();
-  // Wreck position: sighted OR inside a zone the observer OWNS (Story 1.7).
-  expect(sighted(w, me, wreck.state) || zoneCovers(w, me, wreck.state)).toBe(true);
+  const wreck = w.ships.get(ev.id);
+  if (wreck === undefined) {
+    // No wreck record this tick. Production visible() still delivers to the
+    // CREDITED KILLER (sunkCreditedTo consults no record), and ONLY to them:
+    // sunkWitnessed and the public clause both fail-close without a record.
+    expect(ev.by).toBe(me.id);
+    // The witness predicate fail-closes too, so `seen` must be ABSENT.
+    expect(ev.seen).toBeUndefined();
+    return;
+  }
+  const witnessed = sighted(w, me, wreck.state) || zoneCovers(w, me, wreck.state);
+  // A drone sinking is NEVER public: witnessed, or this observer's own kill.
+  if (wreck.isDrone) expect(witnessed || ev.by === me.id).toBe(true);
+  // In EVERY case: `seen` present ⇒ the sight-or-owned-zone condition holds.
+  if (ev.seen !== undefined) {
+    expect(ev.seen).toBe(true); // never emitted as false
+    expect(witnessed).toBe(true);
+  }
 }
 
 const EVENT_VERIFIERS: Record<string, EventVerifier> = {
