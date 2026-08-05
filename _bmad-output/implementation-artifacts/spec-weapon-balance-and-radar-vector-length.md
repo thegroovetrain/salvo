@@ -2,7 +2,7 @@
 title: 'Weapon Balance Pass + Radar Speed-Vector Length'
 type: 'feature'
 created: '2026-08-04'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '1585727493bcfe40c6da2f31e74008b4ffe07b83'
 review_loop_iteration: 0
 followup_review_recommended: false
