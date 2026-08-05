@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-04  # cycle 43 (0.17.43), Story 4-3 The Gunnery Conversation
+# last_updated: 2026-08-04  # cycle 44 (0.17.44), the per-weapon balance pass (interstitial, not a story)
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -101,7 +101,7 @@ development_status:
   epic-3-retrospective: done  # epic-3-retro-2026-08-03.md (live with Eric; carries the ~10-player playtest reads)
 
   # epic-4: Information Texture (GDD E6)
-  epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec
+  epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Interstitial cycle 44 (0.17.44) = the per-weapon balance pass, not an epic story — no story line, see the cooldown/TTK action below
   # DEFERRED 2026-08-04 by Eric ruling (bmad-dev-auto-result-4-1-listening-ring-deferred.md;
   # epic-4-context-amendments.md amendment 1): hydrophone sensor tier not built — enough
   # information channels already, active sonar is coming, and the ring's value is contingent on a
@@ -187,7 +187,7 @@ action_items:
   - epic: 4
     action: "Weapon cooldown / TTK rebalance — LANDED as interstitial dev-auto cycle 42 (0.17.42, global cooldown reduction): gun 3s->5s, cannon 15s->50s, the seven per-equipment reload cards traded for ONE universal additive 5-copy `shipCooldown` line capping at 50%, and boon grants now rescale in-flight reload timers proportionally. Torpedo speed stayed FIXED at 60 u/s. Two threads it left OPEN: the 4-1 hydrophone deferral was NOT revisited and still needs its own explicit Eric revival ruling, and the rebalance shipped WITHOUT a batch-sim evidence pass, so the early/late TTK spread is wider than any measured configuration"
     owner: "ledger (Eric-gated)"
-    status: done  # landed as cycle 42 (0.17.42); the two threads it left open are named in the action text
+    status: done  # landed as cycle 42 (0.17.42). SECOND HALF LANDED as interstitial cycle 44 (0.17.44): cycle 42 gave the GLOBAL cooldown ruling, cycle 44 the explicit PER-WEAPON numbers (epic-4 amendments 21-25) — gun 25->15 dmg (contact 10->6), torpedo 55->70 @ 12s->30s, cannon 50->65 @ 50s->45s, mine 45->55 @ 8s->15s with a 2-deep BASE rack; torpedoDamage/cannonDamage ladder steps cut to +1/+2 so max-stack tops at 75, under the 80hp one-hit-kill floor; torpedo.speed 60 UNTOUCHED per amendment 2. Of the two threads named in the action text, cycle 44 CLOSES the second — it ran the before/after batch-sim pass (batch-sim-evidence-2026-08-04.md; 200/200 resolved both sides, no structural regression) that cycle 42 skipped, so the TTK spread is now a measured configuration. Eric then ruled the resulting pacing acceptable ("match time is fine", amendment 26) despite the endgame p50 crossing ~15:00, and reaffirmed SUDDEN DEATH at 15:00->16:00 as sharpened-but-PARKED (amendment 28). The FIRST thread is STILL OPEN: the 4-1 hydrophone deferral was again NOT revisited, and although torps/mines are now materially more threatening (a 70hp fish, a 55hp mine, two-deep racks) — moving the very premise that deferral rested on — reviving 4-1 still needs its own explicit Eric ruling and is not implied by this cycle
   - epic: 4
     action: "Aggregate flash budget still has NO global mechanism. The ratified accessibility floor says no element or screen region flashes more than 3x/s regardless of how many compliant events stack — and the accessibility review wrote that rule FOR muzzle flashes and Hit Call blooms specifically. Story 4-3 shipped only the per-source 300ms tone floor; muzzle-carries is the FIRST feature that can actually bind the budget (up to 19 other hulls flashing inside your 495u halo). Story 4-8 owns attention priority and is its natural home. Related: 4-3 promoted `muzzle` and `spark` out of isJuiceEffect, so 4-8 inherits a changed juice/information split"
     owner: "spec author (create-story 4-8)"

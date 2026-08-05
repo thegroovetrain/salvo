@@ -77,10 +77,10 @@ describe('one-hit-kill guardrail — the small drone (80hp) is the new floor (Er
     // ladder endpoints directly against CONFIG.drones.small.hp so this
     // guardrail can never quietly regress if the generic minHullHp derivation
     // changes shape.
-    expect(stacked('gunDamage').gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 40 < 80
-    expect(stacked('cannonDamage').cannon.damage).toBeLessThan(CONFIG.drones.small.hp); // 65 < 80
-    expect(stacked('torpedoDamage').torpedo.damage).toBeLessThan(CONFIG.drones.small.hp); // 65 < 80
-    expect(stacked('mineDamage').mine.damage).toBeLessThan(CONFIG.drones.small.hp); // 65 < 80
+    expect(stacked('gunDamage').gun.damage).toBeLessThan(CONFIG.drones.small.hp); // 30 < 80
+    expect(stacked('cannonDamage').cannon.damage).toBeLessThan(CONFIG.drones.small.hp); // 75 < 80
+    expect(stacked('torpedoDamage').torpedo.damage).toBeLessThan(CONFIG.drones.small.hp); // 75 < 80
+    expect(stacked('mineDamage').mine.damage).toBeLessThan(CONFIG.drones.small.hp); // 75 < 80
   });
 });
 
@@ -94,10 +94,14 @@ describe('one-hit-kill guardrail — MAX-STACKED catalog ladders (Story 2.8)', (
   });
 
   it('the drafted ladder endpoints land where the spec ruled them', () => {
-    expect(stacked('gunDamage').gun.damage).toBe(40); // 25 +3/card ×5
-    expect(stacked('cannonDamage').cannon.damage).toBe(65); // 50 +3/card ×5
-    expect(stacked('torpedoDamage').torpedo.damage).toBe(65); // 55 +2/card ×5
-    expect(stacked('mineDamage').mine.damage).toBe(65); // 45 +4/card ×5
+    // Endpoints after the 2026-08-04 weapon balance pass. Torpedo and cannon
+    // each got a heavier base AND a SHRUNK step (+2→+1, +3→+2) precisely so the
+    // ladders top at 75 rather than the exactly-80 one-shot the untouched steps
+    // would have produced. Do not "restore" the old steps.
+    expect(stacked('gunDamage').gun.damage).toBe(30); // 15 +3/card ×5
+    expect(stacked('cannonDamage').cannon.damage).toBe(75); // 65 +2/card ×5
+    expect(stacked('torpedoDamage').torpedo.damage).toBe(75); // 70 +1/card ×5
+    expect(stacked('mineDamage').mine.damage).toBe(75); // 55 +4/card ×5
   });
 
   it('a FULL TRIPLE-BARREL SALVO on ONE victim stays a single shell — the salvo rule is what saves it', () => {
@@ -137,8 +141,9 @@ describe('mine blast geometry guardrail', () => {
     expect(CONFIG.mine.blastRadius).toBeGreaterThan(CONFIG.mine.triggerRadius);
   });
 
-  it('mine damage keeps the 45 reference base value', () => {
-    expect(CONFIG.mine.damage).toBe(45);
+  it('mine damage keeps the 55 reference base value', () => {
+    // 45 → 55 (Eric ruling 2026-08-04, the weapon balance pass).
+    expect(CONFIG.mine.damage).toBe(55);
   });
 
   it('max-stacked trigger can never outgrow the blast (the effectiveStats clamp holds)', () => {

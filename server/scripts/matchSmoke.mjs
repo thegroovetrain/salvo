@@ -44,10 +44,27 @@ const endpoint = `ws://localhost:${PORT}`;
 // slow CI box and flake the same-room assertion.
 const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000, joinWindowMs: 5000 };
 // After B sinks (step 4), A is the last human. The phased timeline (Story 3.1)
-// gives the step-4 fight a comfortable storm-free window — 30s beats park the
-// first close at 90s, well past the typical converge+two-torpedo fight, so A
-// (not the storm) sinks B — and full closure lands at 12 beats = 360s on a
-// TINY terminal floor.
+// gives the step-4 fight a comfortable storm-free window — beats park the first
+// close at 3 x beatMs, well past the typical converge+two-torpedo fight, so A
+// (not the storm) sinks B — and full closure lands at 12 beats on a TINY
+// terminal floor.
+//
+// beatMs WIDENED 30000 -> 45000 (2026-08-04 balance pass). This is a REAL
+// FAILURE this cycle caught, not a precaution: at 30s beats the storm-free
+// window was 90s, tuned when a 12s tube reload made the converge+two-torpedo
+// fight ~50s and left room for several missed passes. The retune took the
+// reload to 30s, so two missed passes push the kill past 90s — the storm closed
+// and sank B first, and the smoke failed on `B sunk by undefined, expected A`.
+// The window must scale with the weapon cycle it exists to accommodate: 135s
+// covers a converge plus two missed passes (~20 + 30 + 30 + 30) with room to
+// spare. 45s (not 60s) is deliberate — beatMs stretches the WHOLE timeline, and
+// every extra second is paid twelve times over in this smoke's runtime.
+//
+// The step-5 endgame budget is DERIVED from this value (see 'results broadcast')
+// rather than hardcoded, because a bare 60000 here first traded the step-4
+// failure for a `timeout: results broadcast` — full closure moved 360s -> 720s
+// and the fixed 480s budget below no longer covered it. Deriving it means the
+// two can never drift apart again.
 //
 // terminalSightFactor is a small NON-zero value on purpose. A pure point (0)
 // makes the endgame an hp race A cannot reliably win: at the original 70hp
@@ -63,7 +80,10 @@ const MATCH_OVERRIDE = { countdownMs: 120000, resultsMs: 3000, joinWindowMs: 500
 // for A's wobbling center hold. offsetCap 0 keeps every ring CONCENTRIC so the
 // steer-to-center endgame choreography holds (zoneSmoke covers offset rings).
 // So the match finishes with A alive, every drone (and B) placed, A the winner.
-const ZONE_OVERRIDE = { beatMs: 30000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 0.04 };
+const ZONE_OVERRIDE = { beatMs: 45000, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 0.04 };
+// Full closure = 3 ring groups x 4 beats = 12 beats. Every budget that waits on
+// the storm derives from this so a beatMs retune can never strand one behind.
+const FULL_CLOSURE_MS = 12 * ZONE_OVERRIDE.beatMs;
 // Fire only from close, well-aimed range: a short lane keeps ready-room drones
 // from wandering into the shot and makes each fish near-certain on a head-on
 // target (fish + closing target ≈ 90 u/s over <4s).
@@ -501,9 +521,17 @@ async function main() {
       if (b.parked || !b.you || !a.you) idle(b);
       else control(b, a.you, false);
     };
-    // 120s budget: ample over the ~50s fight; absorbs a slow converge or a
-    // missed pass before both fish connect (110 dmg vs 100 hp).
-    await runUntil(fightTick, () => b.sunkSeen, 120000, 'A sinking B');
+    // Budget WIDENED 120s -> 240s (2026-08-04 balance pass), same reason as the
+    // weaponsSmoke torpedo phase. B is a 125hp torpedo boat, so the heavier fish
+    // actually cuts the kill from THREE hits to two (2x70 = 140 >= 125, where
+    // 2x55 = 110 fell short) — but the reload went 12s -> 30s, so the nominal
+    // no-miss fight still spans one 30s cycle and every MISS costs 30s instead
+    // of 12s. (The superseded comment here read "110 dmg vs 100 hp", stale since
+    // the 2026-08-03 toughness ladder moved the TB to 125.)
+    // At 120s this had ~2 spare fish; the ready-room fish fired earlier in this
+    // smoke can also put A into the active phase mid-reload, eating more of the
+    // window. Assertion unchanged: only the patience is.
+    await runUntil(fightTick, () => b.sunkSeen, 240000, 'A sinking B');
     assert(b.sunkBy === a.room.sessionId, `B sunk by ${b.sunkBy}, expected A`);
     await runUntil(fightTick, () => b.specFrames >= 5, 5000, 'B spec frames');
     assert(b.specWithYou === 0, 'a spec frame carried `you`');
@@ -526,12 +554,17 @@ async function main() {
     const endgameTick = () => {
       if (!a.results) steerToCenter(a);
     };
-    // 480s budget: the phased timeline reaches the 13.2u floor 360s after
-    // go-live (12 x 30s beats); drones bleed at 4hp/s whenever a close strands
+    // Budget DERIVED from FULL_CLOSURE_MS (2026-08-04 balance pass), not
+    // hardcoded: the phased timeline reaches the 13.2u floor FULL_CLOSURE_MS
+    // after go-live (12 beats); drones bleed at 4hp/s whenever a close strands
     // them (droneLarge 120hp is the tail), so the last sink lands roughly
-    // 380-420s after go-live while step 5 starts ~55s in — 480s leaves
-    // comfortable headroom over the tail.
-    await runUntil(endgameTick, () => a.results !== null && b.results !== null, 480000, 'results broadcast');
+    // 20-60s past closure while step 5 starts ~55s in. The +120s tail leaves
+    // comfortable headroom. This WAS a flat 480000 tuned against 30s beats; when
+    // the balance pass widened beatMs the flat number silently stopped covering
+    // closure and the smoke failed on `timeout: results broadcast`. Deriving it
+    // means the next beatMs retune carries this budget with it automatically.
+    await runUntil(endgameTick, () => a.results !== null && b.results !== null,
+      FULL_CLOSURE_MS + 120000, 'results broadcast');
     const res = a.results;
     assert(res.winnerId === a.room.sessionId, `winnerId=${res.winnerId}, expected A`);
     const rowA = res.rows.find((r) => r.id === a.room.sessionId);

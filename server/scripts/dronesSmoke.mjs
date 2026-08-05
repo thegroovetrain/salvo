@@ -198,8 +198,9 @@ function islandAvoid(ctx) {
 /**
  * HUNT: loiter at center (the storm funnels the dumb drones inward, into true
  * sight) and lead-fire torpedoes at the nearest live contact. With the single
- * bow tube (owner play test) a fish is 55 dmg, so a 100hp drone needs TWO hits
- * across two ~12s reloads; damage persists (no drone heal/respawn in active), so
+ * bow tube (owner play test) a fish is 70 dmg (retuned 55 -> 70, Eric ruling
+ * 2026-08-04), so a 100hp drone still needs TWO hits — but now across two ~30s
+ * reloads (retuned 12s -> 30s in the same pass); damage persists (no drone heal/respawn in active), so
  * click-per-tick fire (reload-paced) whittles a drone down over the hunting
  * window until it sinks.
  */
@@ -210,7 +211,7 @@ function huntTick(ctx) {
   const fromCenter = Math.hypot(ctx.you.x, ctx.you.y);
   // Loiter centrally: if we've drifted out toward the storm, steer home rather
   // than chase (a faster ship over-runs the tightening ring and gets stormed).
-  // Otherwise face the lead point and torpedo it. A single 55-dmg tube needs a
+  // Otherwise face the lead point and torpedo it. A single 70-dmg tube needs a
   // TIGHT solution to reliably land two fish on the same funneling drone, so
   // fire only when well aligned (loose 0.45rad spray mostly missed 38u/s drones).
   const chasing = target && fromCenter < 220;
@@ -278,9 +279,12 @@ async function main() {
     log.push(`activation: filled ${filled} drones (${CONFIG.match.fillTo} hulls total), match stayed active`);
 
     // --- 2/3/4. drones sail, paint blips, never fire; human torpedoes one ----
-    // Single tube => a drone kill needs two 55-dmg fish across two ~12s reloads
+    // Single tube => a drone kill needs two 70-dmg fish across two ~30s reloads
     // (was one two-tube volley); widened window to absorb the extra reload.
-    await runUntil(() => huntTick(h), () => h.kills >= 1, 170000, 'human torpedoes a drone');
+    // NOTE: the 2026-08-04 balance pass took the reload 12s -> 30s, so every
+    // MISS now costs 30s of this window instead of 12s.
+    // Budget WIDENED 170s -> 300s in the same pass, for the same reason.
+    await runUntil(() => huntTick(h), () => h.kills >= 1, 300000, 'human torpedoes a drone');
     assert(h.blipDroneIds.size >= 1, 'the scope never painted a drone blip');
     assert(h.shellEvents === 0, `saw ${h.shellEvents} gun shells — a drone fired guns`);
     assert(h.enemyMines === 0, `saw ${h.enemyMines} enemy mines — a drone dropped a mine`);

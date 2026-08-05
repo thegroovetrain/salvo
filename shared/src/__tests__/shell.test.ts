@@ -492,7 +492,8 @@ describe('stepShell — AP pierce (falloff order, island stop, max 3, no re-hit)
     if (last.kind === 'pierced') expect(last.spent).toBe(true);
     // The falloff helper the server applies: 100 / 50 / 25%.
     expect(PIERCE_FALLOFF).toEqual([1, 0.5, 0.25]);
-    expect(hits.map((h) => pierceDamage(CONFIG.cannon.damage, h.order))).toEqual([50, 25, 12.5]);
+    // Base cannon damage 65 (RETUNED 50 -> 65, Eric ruling 2026-08-04).
+    expect(hits.map((h) => pierceDamage(CONFIG.cannon.damage, h.order))).toEqual([65, 32.5, 16.25]);
     expect(pierceDamage(CONFIG.cannon.damage, 3)).toBe(0); // past the table: nothing
   });
 
