@@ -193,3 +193,66 @@ satisfied the story, which is the same instinct that produced amendment 1 (the 4
     wire kind is `shell`", which selects gun + cannon + star shells and excludes `torp` with no
     weapon-type enumeration anywhere — so the server never needs a per-weapon flash table, and no
     weapon identity can leak through one.
+
+## 2026-08-04 — Eric rulings, interstitial weapon balance pass (bmad-dev-auto, cycle 44)
+
+Source: Eric, invocation intent plus a four-question pre-implementation gate (AskUserQuestion,
+all four answered on the recommended option). Spec of record:
+`spec-weapon-balance-and-radar-vector-length.md`. Evidence:
+`batch-sim-evidence-2026-08-04.md`. This is the SECOND half of the rebalance amendment 3 predicted
+as design direction — cycle 42 moved cooldowns globally, this cycle moves per-weapon damage,
+per-weapon cooldowns, and the mine rack depth.
+
+21. **The retuned armory (Eric, verbatim intent).** `gun.damage` 25 → **15** and
+    `gun.contactDamage` 10 → **6**; `torpedo.damage` 55 → **70** with `reloadMs` 12000 → **30000**;
+    `cannon.damage` 50 → **65** with `reloadMs` 50000 → **45000**; `mine.damage` 45 → **55**,
+    `reloadMs` 8000 → **15000**, and `maxAmmo` 1 → **2**. The shape is explicit: the permanently
+    fitted default weapon gets weaker, the committed skillshots get heavier and slower, and the
+    cannon's same-day 50s retune is walked back 5s as an overshoot. `contactDamage` was scaled with
+    the burst (Eric ruling) to hold the bodyblock at 40% of a full hit rather than letting the nerf
+    silently buff interception. **`torpedo.speed` stays 60** — amendment 2 is untouched and remains
+    in force.
+
+22. **The 2-deep mine rack is a BASE change, not a card.** `mine.maxAmmo: 2` ships as the base fit,
+    explicitly modelled on what `torpedoTube` does for the bow tube — Eric's framing was "as if it
+    had something similar to the torpedo extra tube enhancement", and the ruling makes it standard
+    equipment rather than a boon. It reuses the shared pool state machine
+    (`server/src/game/equipment/ammo.ts`) **verbatim, with zero code changes**: one round refills
+    per `reloadMs` with overshoot carry, so the rack returns to 1/2 at 15s and 2/2 at 30s. Eric
+    confirmed this per-round cadence over a whole-rack refill specifically because the latter would
+    have made mines the only weapon in the game with bespoke ammo machinery. `mine.maxLive` (5)
+    is UNTOUCHED and remains a distinct cap — the pool bounds drops before reloading, `maxLive`
+    bounds hulls on the board. The `mine.maxAmmo` stat path stays whitelisted-but-uncarded so a
+    future rack card can still compose on top.
+
+23. **Two catalog ladder steps SHRINK to keep the one-hit-kill law.** `torpedoDamage` +2 → **+1**
+    and `cannonDamage` +3 → **+2** per card (both still 5 copies). At the retuned bases those
+    ladders would otherwise have topped out at exactly **80** — precisely the hp of the small drone,
+    the lightest hull afloat since the 2026-08-03 toughness ladder — and one-shot an undamaged hull,
+    which `HULLCRACKER_NOTES.md:83` forbids ("nothing should be a 1-hit kill on an otherwise
+    undamaged ship") and `damageGuardrail.test.ts` enforces. Eric chose shrinking the steps over
+    three alternatives that were explicitly REJECTED: lowering the requested bases by 5 each, raising
+    drone hp to lift the guardrail ceiling, and relaxing the law to protect only player hulls (125hp
+    TB) while accepting that a max-stacked fish deletes a drone. Ratified max-stack endpoints are now
+    **gun 30 / cannon 75 / torpedo 75 / mine 75**, all strictly under 80. Consequence of record: the
+    upgrade curve on those two lines is deliberately flatter — the base number is the ratified one,
+    so the step gives.
+
+24. **The ARPA speed vector halves in ALL THREE knobs.** `CLIENT_CONFIG.blip.vector`
+    `seconds` 3 → **1.5**, `minLength` 24 → **12**, `maxLength` 150 → **75**. Eric's signal was that
+    the Story 4.2 vector "is too long, maybe cut the scaling in half"; the ruling scales the whole
+    mark rather than only its rate, because halving `seconds` alone would leave the 24u floor
+    dominating every contact under 16 u/s (a crawler's stub reading proportionally LONGER than a
+    cruiser's shaft) and strand `maxLength` beyond the reach of any hull in the game. The ARPA
+    meaning is preserved exactly — the tip is still where the contact will be in `seconds` — only
+    the horizon shortens. Amendment 10 stands; this retunes its geometry, it does not supersede it.
+    Client-only, no wire change.
+
+25. **Scope discipline of record.** This cycle is values-only: **no `PROTOCOL_VERSION` bump**
+    (22 stands — no wire shape changed), no new machinery, no new catalog cards, no changes to
+    drone/class hp, torpedo speed, `mine.maxLive`, `gun.maxAmmo`, or any range/geometry constant.
+    Two smoke-harness wall-clock budgets WERE widened (`weaponsSmoke` torpedo phase 120s → 240s,
+    `dronesSmoke` drone-kill phase 170s → 300s) because the 12s → 30s torpedo reload cut their miss
+    margin from roughly seven spare fish to one; the assertions are unchanged, only the patience.
+    This was proven necessary, not precautionary: the post-retune `weaponsSmoke` run needed 4
+    torpedoes / 3 hits to sink a 125hp hull, which would have blown the old 120s budget outright.

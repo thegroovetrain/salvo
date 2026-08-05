@@ -220,11 +220,13 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
     expect(mine.x).toBeCloseTo(ship.state.x - 50, 0); // AT the click (astern 50u; hull barely moved)
     // PRESS (ability channel) with a reloaded pool: refused by the ability wall
     // — actSeq targets non-weapons only, and the mine is a weapon now.
-    ship.loadout[SLOT_MINE].state = { n: 1, reloadMsLeft: 0 };
+    // A FULL rack (2-deep at base since the 2026-08-04 balance pass) with an
+    // idle timer — so the only thing that could move the pool is the press.
+    ship.loadout[SLOT_MINE].state = { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 };
     w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, actSlot: SLOT_MINE });
     w.step();
     expect(w.mines.size).toBe(1); // no second mine — presses never reach a weapon
-    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: 1, reloadMsLeft: 0 }); // charge intact
+    expect(ship.loadout[SLOT_MINE].state).toEqual({ n: 2, reloadMsLeft: 0 }); // charges intact
   });
 });
 

@@ -2,9 +2,10 @@
 // exercising torpedoes + mines end to end.
 //   1. Torpedo kill: A (torpedo boat) faces B (mine layer, 150hp since the
 //      2026-08-03 hp-ladder move) bow-on and holds fire until B sinks — THREE
-//      55-dmg fish across ~12s reloads (3×55 = 165 > 150 HP; the smoke clicks
+//      70-dmg fish across ~30s reloads (3×70 = 210 > 150 HP; the smoke clicks
 //      every tick, so the fish count follows the hp automatically). Asserts
-//      55-damage hits, the kill on the roster.
+//      70-damage hits, the kill on the roster. Damage/reload retuned 55/12s ->
+//      70/30s by the 2026-08-04 weapon balance pass.
 //   2. Torpedo never blips: B collects every torpedo id it is shown (via `torp`
 //      events entering its sight) and every radar blip id — asserts the sets are
 //      DISJOINT (a torpedo can never appear on the scope).
@@ -14,7 +15,7 @@
 //      Asserts A never sees an enemy mine beyond sight range (no radar/fog
 //      leak), never sees more than maxLive of B's mines at once, yet sees
 //      >maxLive distinct ids over time (oldest-despawn proven).
-//   4. Mine ambush: A sails onto a live armed mine — asserts 45 damage + a
+//   4. Mine ambush: A sails onto a live armed mine — asserts 55 damage + a
 //      boom, and that A first saw that mine only from within sight range.
 //
 // Run against a booted server (tsx server/src/index.ts + shared/dist built),
@@ -208,10 +209,15 @@ async function torpedoPhase(a, b, log) {
   await pilotUntil([a, b], () => {
     a.goal = { mode: 'engageTorp', target: b.you };
     b.goal = { mode: 'hold', target: b.you }; // hold roughly still as a target
-  }, () => roster(a.room, b.room.sessionId)?.deaths >= 1, 120000, 'torpedo kill');
+    // Budget WIDENED 120s -> 240s (2026-08-04 balance pass): the reload went
+    // 12s -> 30s, so a 125hp hull now falls to 2x 70-dmg fish across ~35s of
+    // cadence instead of 3x 55-dmg across ~26s — but every MISS costs a full
+    // 30s reload instead of 12s. At 120s this phase had ~1 spare fish; 240s
+    // restores a real miss margin. The assertion is unchanged: only patience is.
+  }, () => roster(a.room, b.room.sessionId)?.deaths >= 1, 240000, 'torpedo kill');
   const hits = b.dmg.slice(dmg0).filter((d) => d.amount === CONFIG.torpedo.damage);
-  log.push(`torpedo: B sank; 55-dmg hits=${hits.length} kills=${roster(a.room, a.room.sessionId).kills}`);
-  assert(hits.length >= 1, 'no 55-damage torpedo hit recorded on B');
+  log.push(`torpedo: B sank; 70-dmg hits=${hits.length} kills=${roster(a.room, a.room.sessionId).kills}`);
+  assert(hits.length >= 1, 'no 70-damage torpedo hit recorded on B');
   // Torpedoes must NEVER appear as radar blips.
   assert(b.torpIds.size > 0, 'B never saw a torpedo (test would be vacuous)');
   for (const id of b.torpIds) assert(!b.blipIds.has(id), `torpedo ${id} appeared as a radar blip!`);
@@ -246,7 +252,7 @@ async function minePhase(a, b, log) {
 }
 
 async function ambushPhase(a, b, log) {
-  // B sails onto the nearest live A-mine → should take 45 damage + a boom.
+  // B sails onto the nearest live A-mine → should take 55 damage + a boom.
   a.goal = { mode: 'idle' };
   const hp0 = b.you.hp;
   const booms0 = b.booms.length;

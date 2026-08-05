@@ -101,14 +101,18 @@ development_status:
   epic-3-retrospective: done  # epic-3-retro-2026-08-03.md (live with Eric; carries the ~10-player playtest reads)
 
   # epic-4: Information Texture (GDD E6)
-  epic-4: in-progress  # 4-2 landed 2026-08-04 (dev-auto cycle 41, 0.17.41); 4-1 deferred at its question gate before any spec
+  epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-2 cycle 41 (0.17.41); 4-1 deferred at its question gate before any spec. Interstitial cycle 44 (0.17.44) = the per-weapon balance pass, not an epic story — no story line, see the resolved cooldown/TTK action below
   # DEFERRED 2026-08-04 by Eric ruling (bmad-dev-auto-result-4-1-listening-ring-deferred.md;
   # epic-4-context-amendments.md amendment 1): hydrophone sensor tier not built — enough
   # information channels already, active sonar is coming, and the ring's value is contingent on a
   # torpedo/mine rebalance that hasn't happened. Not cut; revivable by a later explicit ruling.
   4-1-the-listening-ring: deferred
   4-2-class-legible-blips: done  # 2026-08-04 dev-auto cycle 41 (0.17.41); PV 19->20; amendments 7-14 ratified pre-implementation (TRUE-SCALE silhouette blips supersede the DESIGN.md px table/floor-clamp/3x ML notch; 3-paint persistence; decoy = radar reflector at frozen pose, speed 0; algorithmic luminance floor)
-  4-3-the-gunnery-conversation: backlog
+  # CORRECTED 2026-08-04 by the cycle-44 balance pass: this line still read `backlog` after 4-3
+  # landed (PR #91, cycle 43 / 0.17.43). The 4-3 cycle advanced gds-workflow-status.yaml but not
+  # this file — the exact both-trackers miss the house rule exists to prevent. Not a cycle-44
+  # change; a cycle-43 omission repaired in passing.
+  4-3-the-gunnery-conversation: done  # 2026-08-04 dev-auto cycle 43 (0.17.43); PV 21->22; amendments 15-20 (sp/hc/mz signal rows: self-private gun-family splash, self-private all-ordnance Hit Call knowingly superseding the boom anti-leak rule for the owner-hit case, neutral 495u muzzle-flash halo)
   4-4-wounded-smoke: backlog
   4-5-the-foghorn: backlog
   4-6-the-bounty: backlog
@@ -187,4 +191,4 @@ action_items:
   - epic: 4
     action: "Weapon cooldown / TTK rebalance is Eric-SIGNALED but NOT scheduled or ratified (torpedo speed FIXED at 60 u/s — lethality must come from damage/reload/delivery; cooldowns likely rising across most weapons). No cycle implements it without an explicit numbers ruling. This is also the natural moment to revisit the 4-1 deferral, since the listening ring's value is contingent on torps/mines being threatening"
     owner: "ledger (Eric-gated)"
-    status: open
+    status: resolved  # CLOSED 2026-08-04 by interstitial cycle 44 (0.17.44), the per-weapon half of the rebalance this entry was waiting on. Cycle 42 supplied the GLOBAL cooldown ruling; cycle 44 supplies the explicit PER-WEAPON numbers (epic-4 amendments 21-25): gun 25->15 dmg (contact 10->6), torpedo 55->70 dmg @ 12s->30s, cannon 50->65 dmg @ 50s->45s, mine 45->55 dmg @ 8s->15s with a 2-deep base rack; torpedoDamage/cannonDamage ladder steps cut to +1/+2 so max-stack tops at 75, under the 80hp one-hit-kill floor. torpedo.speed 60 UNTOUCHED as amendment 2 requires. Backed by a before/after batch-sim pass (batch-sim-evidence-2026-08-04.md) — which also closes the cycle-42 "shipped without evidence" gap. STILL OPEN and deliberately NOT closed here: the 4-1 listening-ring deferral revisit. This entry paired the rebalance with that revisit, and torps/mines ARE now materially more threatening (a 70hp fish, a 55hp mine, two-deep racks), so the premise the deferral rested on has moved — but reviving 4-1 needs its own explicit Eric ruling and is not implied by this cycle

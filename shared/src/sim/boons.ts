@@ -270,23 +270,34 @@ const acquire = (id: BoonId, equipmentId: EquipmentId): BoonDef => ({
  */
 export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // --- guns (universal) ----------------------------------------------------
-  // HEAVY SHELLS Mk I–V: 25 → 40 hp (+3/card — guardrail: max burst < the 80hp floor).
+  // HEAVY SHELLS Mk I–V: 15 → 30 hp (+3/card — step unchanged; the 2026-08-04
+  // balance pass moved the base 25 → 15. Guardrail: max burst < the 80hp floor).
   gunDamage: { id: 'gunDamage', category: 'guns', rarity: 'common', copies: 5, effects: [stat('gun.damage', { add: 3 })] },
   // TWIN MOUNT → TRIPLE MOUNT (rare ×2): +1 barrel per card (clamped 1..3).
   gunBarrel: { id: 'gunBarrel', category: 'guns', rarity: 'rare', copies: 2, effects: [stat('gun.barrels', { add: 1 })] },
   // AFT TURRET (rare ×1): gun pool 1 → 2 — the single-shot pin deliberately retired.
   gunTurret: { id: 'gunTurret', category: 'guns', rarity: 'rare', copies: 1, effects: [stat('gun.maxAmmo', { add: 1 })] },
   // --- cannon --------------------------------------------------------------
-  // HEAVY CHARGE Mk I–V: 50 → 65 hp (+3/card).
-  cannonDamage: { id: 'cannonDamage', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.damage', { add: 3 })] },
+  // HEAVY CHARGE Mk I–V: 65 → 75 hp (+2/card); was 50 → 65 hp (+3/card) before
+  // the 2026-08-04 balance pass moved the base. Step CUT 3 → 2 (Eric ruling
+  // 2026-08-04, the weapon balance pass): at the retuned 65hp base a +3 ladder
+  // would top out at exactly 80 and one-shot an undamaged small drone, which
+  // the one-hit-kill law forbids. The flatter curve is deliberate — the base
+  // number is the ratified one, so the step gives.
+  cannonDamage: { id: 'cannonDamage', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.damage', { add: 2 })] },
   // FRAGMENTATION CASING Mk I–V: ×1.1 burst radius per card.
   cannonBlast: { id: 'cannonBlast', category: 'cannon', rarity: 'common', copies: 5, effects: [stat('cannon.burstRadius', { mult: 1.1 })] },
   // PLUNGING FIRE ⚔ ARMOR-PIERCING SHELLS (exclusive pair).
   cannonArcing: { id: 'cannonArcing', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonAp', effects: [doctrine('cannon', 'arcing')] },
   cannonAp: { id: 'cannonAp', category: 'cannon', rarity: 'exclusive', copies: 1, exclusiveWith: 'cannonArcing', effects: [doctrine('cannon', 'ap')] },
   // --- torpedoes -----------------------------------------------------------
-  // HEAVY WARHEAD Mk I–V: 55 → 65 hp (+2/card).
-  torpedoDamage: { id: 'torpedoDamage', category: 'torpedoes', rarity: 'common', copies: 5, effects: [stat('torpedo.damage', { add: 2 })] },
+  // HEAVY WARHEAD Mk I–V: 70 → 75 hp (+1/card); was 55 → 65 hp (+2/card) before
+  // the 2026-08-04 balance pass moved the base. Step CUT 2 → 1 (Eric ruling
+  // 2026-08-04, the weapon balance pass): at the retuned 70hp base a +2 ladder
+  // would top out at 80 and one-shot an undamaged small drone, which the
+  // one-hit-kill law forbids. The flatter curve is deliberate — the base number
+  // is the ratified one, so the step gives.
+  torpedoDamage: { id: 'torpedoDamage', category: 'torpedoes', rarity: 'common', copies: 5, effects: [stat('torpedo.damage', { add: 1 })] },
   // HIGH-SPEED SETTING → PURE OXYGEN DRIVE (×4): +5 kn/card, 60 → 80 (RATIFIED).
   torpedoSpeed: { id: 'torpedoSpeed', category: 'torpedoes', rarity: 'common', copies: 4, effects: [stat('torpedo.speed', { add: 5 })] },
   // SECOND TUBE (rare ×1): tube pool 1 → 2.
@@ -295,7 +306,9 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   torpedoHoming: { id: 'torpedoHoming', category: 'torpedoes', rarity: 'exclusive', copies: 1, exclusiveWith: 'torpedoCommand', effects: [doctrine('torpedo', 'homing')] },
   torpedoCommand: { id: 'torpedoCommand', category: 'torpedoes', rarity: 'exclusive', copies: 1, exclusiveWith: 'torpedoHoming', effects: [doctrine('torpedo', 'command')] },
   // --- mines ---------------------------------------------------------------
-  // TNT → RDX FILLER: 45 → 65 hp (+4/card).
+  // TNT → RDX FILLER: 55 → 75 hp (+4/card — step unchanged; the 2026-08-04
+  // balance pass moved the base 45 → 55, so the ladder tops at 75, still under
+  // the 80hp one-hit-kill floor).
   mineDamage: { id: 'mineDamage', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.damage', { add: 4 })] },
   // BLAST CASING Mk I–V: ×1.1 blast radius per card.
   mineBlast: { id: 'mineBlast', category: 'mines', rarity: 'common', copies: 5, effects: [stat('mine.blastRadius', { mult: 1.1 })] },
