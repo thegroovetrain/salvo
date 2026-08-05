@@ -1226,6 +1226,86 @@ export const CLIENT_CONFIG = {
       /** Arrowhead half-angle (rad) between a barb and the shaft (~26°). */
       barbAngle: 0.45,
     },
+    /**
+     * `return`-GRAMMAR ECHO KNOBS (cycle 50, amendments 51-59). Inert unless the
+     * SERVER announces `radarGrammar: 'return'` in the welcome — the grammar is
+     * a server flag (amendment 52), never a client choice, because a client-side
+     * switch would force the wire to carry the identity superset in both modes
+     * and reduce the whole anti-cheat argument to cosmetics.
+     *
+     * Every value here is PRESENTATION. Amendment 61 forbids `CONFIG.vision`
+     * gaining a new constant this cycle, and the range-attenuation curve in
+     * particular belongs here on its own merits: the server sends pure aspect
+     * geometry (`ext`, world units, no range term) and the client — which knows
+     * both its own position and the paint position — does the falloff at render
+     * time (orchestrator ruling R2).
+     *
+     * The baseline is explicitly TWEAKABLE: Eric ratified the seeded-polygon
+     * blob as a starting point ("we can start with that and tweak from that
+     * baseline"), so these numbers are expected to move after playtest.
+     * `persistSweeps`/`paintsPerContact` above are NOT in that set — in `return`
+     * mode they become the entire course-and-speed channel (amendment 56 kills
+     * the ARPA vector), so retuning them is a deliberate post-playtest job.
+     */
+    returns: {
+      /** Vertices around one echo. Enough to read as an irregular smear, few
+       *  enough that the jitter stays visible instead of averaging to a circle. */
+      vertices: 12,
+      /** Per-vertex radial jitter, ± as a fraction of the base radius. This is
+       *  the shimmer amendment 59 asked for; push it up and returns stop reading
+       *  as objects, push it to 0 and every hull paints the same clean ellipse —
+       *  which is the class readout the cycle exists to delete. */
+      jitter: 0.22,
+      /** Fill opacity of the blob body (the 1px edge stays at full alpha). A
+       *  radar return is a FILLED echo, not an outline: amendment 60 leaves the
+       *  colorblind assist's outline-boost clause inert here precisely because
+       *  blobs have no outline to boost. */
+      fillAlpha: 0.5,
+      /** Smallest drawable ACROSS extent (u). A needle bow-on at the rim is a
+       *  weak contact, never an absent one. */
+      minExtent: 10,
+      /** Range depth as a fraction of the across extent — a scope smears an
+       *  echo in range as well as azimuth, and a zero-depth blob reads as a
+       *  line rather than a return. */
+      depthFrac: 0.5,
+      /** Smallest drawable range depth (u). */
+      minDepth: 7,
+      /** Asymptotic floor of the attenuation curve — the scale a return at
+       *  infinite range would approach, never reach. Deliberately an asymptote
+       *  and not a `Math.max` clamp: a hard floor would make two different
+       *  ranges paint at identical size, colliding with amendment 53's rule that
+       *  size carries return strength and nothing else shares that channel. */
+      attenFloor: 0.45,
+      /** Range at which the above-floor part of the curve has halved, as a
+       *  fraction of the observer's radar range. At 0.5 a rim contact paints at
+       *  ~0.63 of its point-blank size — a clear read on "far", well short of
+       *  the vanishing act a physical 1/r⁴ law would produce. */
+      attenHalfRange: 0.5,
+      /** ISLAND COASTLINE RETURNS (amendment 58, ruling R4). Pure client
+       *  presentation: islands are already client-known from the map seed, so
+       *  no wire field and no server work exist for this at all. */
+      island: {
+        /** Target spacing between near-arc samples (u of arc length). */
+        arcStepU: 34,
+        /** Hard cap on samples per island, so a large island close aboard can
+         *  never turn one frame into a hundred Graphics. */
+        maxSamples: 14,
+        /** Each coast sample's echo extent as a fraction of `arcStepU` — just
+         *  under 1 so consecutive marks nearly touch and read as broken
+         *  coastline rather than a dotted line of contacts. */
+        extFactor: 0.9,
+        /** Global cap on live coast marks. Coast marks live in their OWN list
+         *  with their own cap so an island field can never evict a ship paint
+         *  from the contact scope (`MAX_LIVE_BLIPS` in render/radar.ts). */
+        maxMarks: 128,
+        /** Live marks retained per coast SAMPLE. 1, not `paintsPerContact`: a
+         *  coast sample never moves, so stacked ghosts at one spot would only
+         *  make terrain burn brighter than contacts under additive blend — the
+         *  opposite of "information noise must never bury the hunt". The beam
+         *  re-brightening a decaying echo each sweep is what a scope does. */
+        paintsPerSample: 1,
+      },
+    },
   },
 
   /**
@@ -1329,19 +1409,10 @@ export const CLIENT_CONFIG = {
   },
 } as const;
 
-/**
- * VARIANT P (Story 4.2, amendment 13): the phosphor-ANONYMOUS blip scope. When
- * true, every radar paint is drawn in the single phosphor green and NO personal
- * hue reaches the scope — the class silhouette and the speed vector still carry
- * their information, but who owns a return does not. Default is Variant C (the
- * ratified personal-hue grammar); this exists so the two can be compared on
- * water without a code edit.
- *
- * A BUILD-TIME define (vite.config.ts / vitest.config.ts, the `__APP_VERSION__`
- * precedent) rather than a runtime setting, deliberately: a variant the player
- * can flip mid-match is a different feature (an accessibility toggle), and this
- * is a design A/B. The `typeof` guard keeps any consumer that loads this module
- * outside a Vite pipeline from throwing on the undeclared global.
- */
-export const BLIP_VARIANT_P: boolean =
-  typeof __BLIP_VARIANT_P__ === 'undefined' ? false : __BLIP_VARIANT_P__;
+// VARIANT P IS RETIRED (cycle 50, amendment 52). The build-time
+// `__BLIP_VARIANT_P__` define and its `BLIP_VARIANT_P` export lived here to A/B
+// a phosphor-anonymous scope against the personal-hue one. Both are superseded
+// by the SERVER-side flag pair `HC_RADAR_GRAMMAR` / `HC_RADAR_IDENTITY`, which
+// answers the same question properly: a client-side variant could only ever
+// repaint a wire that still carried class, heading, speed and roster identity,
+// so it was cosmetics — the server flags actually delete those fields.

@@ -28,7 +28,7 @@ import {
   type HitCallEvent,
   type MatchPhase,
 } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
 const TAU = Math.PI * 2;
@@ -138,9 +138,20 @@ function cap(g: Golden, w: World, id: string, phase?: MatchPhase): FrameMsg {
 
 // ---------- world construction helpers (mirror perception.test) ---------------
 
+/**
+ * The radar-mode options every scenario world is built with (R6 — the
+ * golden-frames battery runs once per GRAMMAR). Module-scoped so the scenario
+ * functions stay signature-stable; set by each `it` before running the
+ * battery and restored to the default after. Identity stays 'roster' in both
+ * runs: several scenarios pin blip ids against roster ids ('a'), which is the
+ * shipped default — pseudonym identity is covered by the invariant fuzz and
+ * the directed radarModes/decoy suites.
+ */
+let WORLD_OPTS: WorldOptions = {};
+
 /** World with a fixed seed and no islands (fog stays out of the geometry). */
 function bareWorld(seed: number): World {
-  const w = new World(seed);
+  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, WORLD_OPTS);
   w.map.islands.length = 0;
   return w;
 }
@@ -855,55 +866,80 @@ function scnHeal(g: Golden): void {
 
 // ---------- the fixture -------------------------------------------------------
 
+/** The full scenario battery + the self-validating coverage assertions —
+ *  shared verbatim by both grammar runs (R6). Returns the serialized frames
+ *  for the caller's own snapshot. */
+function runBattery(): string[] {
+  const g: Golden = { frames: [], channels: new Set(), subcases: new Set() };
+  runScenarios(g);
+  // Self-validating coverage: the fixture can never silently lose a channel.
+  expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);
+  // Strengthened coverage: every appended scenario's mandatory sub-cases were
+  // actually OBSERVED (each tag is recorded only when its fact held), so a
+  // regression or a removed scenario fails here.
+  expect([...g.subcases].sort()).toEqual(EXPECTED_SUBCASES);
+  return g.frames;
+}
+
 describe('golden frames — byte-identity gate for the perception refactor', () => {
   it('serializes every signal channel across observers and ticks, deterministically', () => {
-    const g: Golden = { frames: [], channels: new Set(), subcases: new Set() };
-    scnSightSpawnBlip(g);
-    scnCombat(g);
-    scnPtBn(g);
-    scnMines(g);
-    scnSpectator(g);
-    scnStraddleBoom(g);
-    // Appended scenarios (must not disturb the six above or their snapshot rows).
-    scnIslandLos(g);
-    scnBallisticReveal(g);
-    scnSpectatorBallistic(g);
-    scnBurst(g);
-    scnStarShell(g);
-    scnZoneKill(g);
-    scnMineBlast(g);
-    scnMineBurstDetonation(g);
-    scnDecoy(g);
-    scnDenied(g);
-    // Story 2.8 additions (appended KNOWINGLY — the snapshot regenerated with
-    // the strip + deck economy; every earlier scenario's rows changed shape
-    // through you.upg leaving and you.offer going deck-drawn).
-    scnHoming(g);
-    scnDebuffs(g);
-    // Story 4.3 additions (appended KNOWINGLY — the snapshot regenerated with
-    // the gunnery conversation: earlier scenarios' rows gain sp/hc/mz where
-    // their existing shots always earned them; every other channel must stay
-    // byte-identical).
-    scnGunnery(g);
-    scnGunneryDecoy(g);
-    // PV 23 (the public register — snapshot regenerated KNOWINGLY): witnessed
-    // `sunk` rows gain the trailing per-observer `seen: true`, and previously
-    // absent sunk rows appear unseen where an observer is the credited killer
-    // or the victim is a human captain. Every other channel must stay
-    // byte-identical.
-    // DAMAGE CONTROL addition (appended KNOWINGLY — the snapshot regenerated
-    // with PV 24: every `you` row gains the required `repairHp` key, and this
-    // scenario adds the self-private `heal` channel).
-    scnHeal(g);
+    // Default grammar (silhouette/roster): this snapshot key predates the
+    // radar realism cycle and MUST stay byte-identical (AC4).
+    WORLD_OPTS = {};
+    expect(runBattery()).toMatchSnapshot();
+  });
 
-    // Self-validating coverage: the fixture can never silently lose a channel.
-    expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);
-    // Strengthened coverage: every appended scenario's mandatory sub-cases were
-    // actually OBSERVED (each tag is recorded only when its fact held), so a
-    // regression or a removed scenario fails here.
-    expect([...g.subcases].sort()).toEqual(EXPECTED_SUBCASES);
-    // The byte-identity gate itself: the committed snapshot pins every frame's
-    // serialized form (JSON key order => msgpack key order on the wire).
-    expect(g.frames).toMatchSnapshot();
+  it('RETURN grammar (R6): the same battery under HC_RADAR_GRAMMAR=return semantics', () => {
+    // Every scenario, prove(), and coverage assertion runs unchanged — only
+    // the blip wire shape branches ({k,id,x,y,t,ext}; ids stay roster). Its
+    // own snapshot keeps the new path from rotting silently.
+    WORLD_OPTS = { radarGrammar: 'return' };
+    try {
+      expect(runBattery()).toMatchSnapshot();
+    } finally {
+      WORLD_OPTS = {};
+    }
   });
 });
+
+/** Every scenario in fixture order (extracted verbatim from the original
+ *  single `it` — the ordering comments still govern). */
+function runScenarios(g: Golden): void {
+  scnSightSpawnBlip(g);
+  scnCombat(g);
+  scnPtBn(g);
+  scnMines(g);
+  scnSpectator(g);
+  scnStraddleBoom(g);
+  // Appended scenarios (must not disturb the six above or their snapshot rows).
+  scnIslandLos(g);
+  scnBallisticReveal(g);
+  scnSpectatorBallistic(g);
+  scnBurst(g);
+  scnStarShell(g);
+  scnZoneKill(g);
+  scnMineBlast(g);
+  scnMineBurstDetonation(g);
+  scnDecoy(g);
+  scnDenied(g);
+  // Story 2.8 additions (appended KNOWINGLY — the snapshot regenerated with
+  // the strip + deck economy; every earlier scenario's rows changed shape
+  // through you.upg leaving and you.offer going deck-drawn).
+  scnHoming(g);
+  scnDebuffs(g);
+  // Story 4.3 additions (appended KNOWINGLY — the snapshot regenerated with
+  // the gunnery conversation: earlier scenarios' rows gain sp/hc/mz where
+  // their existing shots always earned them; every other channel must stay
+  // byte-identical).
+  scnGunnery(g);
+  scnGunneryDecoy(g);
+  // PV 23 (the public register — snapshot regenerated KNOWINGLY): witnessed
+  // `sunk` rows gain the trailing per-observer `seen: true`, and previously
+  // absent sunk rows appear unseen where an observer is the credited killer
+  // or the victim is a human captain. Every other channel must stay
+  // byte-identical.
+  // DAMAGE CONTROL addition (appended KNOWINGLY — the snapshot regenerated
+  // with PV 24: every `you` row gains the required `repairHp` key, and this
+  // scenario adds the self-private `heal` channel).
+  scnHeal(g);
+}

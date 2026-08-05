@@ -385,3 +385,78 @@ describe('(d) util/color hardening — masked, clamped, well-formed output', () 
     expect(cssRgba(0x1ffffff, 0.25)).toBe('rgba(255, 255, 255, 0.25)');
   });
 });
+
+// --- (e) splash vs. the phosphor green band ----------------------------------
+//
+// DESIGN.md's colors table forbids "phosphor-adjacent greens" for combat
+// effects, with the reason spelled out: *"a phosphor-ish splash is a fake
+// blip"*. Amendment 59 records that this constraint TIGHTENS under the `return`
+// grammar rather than loosening — a monochrome green scope makes every radar
+// mark the same color, so a fall-of-shot `sp` splash now competes against a
+// field of green echoes rather than against hue-coded silhouettes.
+//
+// The separation is a CHROMA one, not a hue one, and the test has to say so.
+// `splash` (#B8CCC6) sits at ~162° — inside the reserved 132-172° band by angle
+// alone — but at ~10% HSV saturation, where hue carries no perceptual meaning at
+// all. What actually keeps a splash ring from reading as a blip is that it is
+// near-grey while every echo is saturated phosphor. So "in the green band" is
+// defined here as hue-in-band AND saturated, and the predicate is proven to have
+// teeth by asserting the phosphor tokens themselves ARE in the band.
+
+/** HSV hue (deg) and saturation [0,1] of a packed 0xRRGGBB color. */
+function hsv(color: number): { hue: number; sat: number } {
+  const r = ((color >> 16) & 0xff) / 255;
+  const g = ((color >> 8) & 0xff) / 255;
+  const b = (color & 0xff) / 255;
+  const max = Math.max(r, g, b);
+  const min = Math.min(r, g, b);
+  const c = max - min;
+  if (c === 0) return { hue: 0, sat: 0 };
+  const h = max === r ? (g - b) / c : max === g ? 2 + (b - r) / c : 4 + (r - g) / c;
+  return { hue: (h * 60 + 360) % 360, sat: max === 0 ? 0 : c / max };
+}
+
+/** DESIGN.md's reserved phosphor green band: ±20° around #00FF88 (~132-172°),
+ *  and only for a color saturated enough for its hue to mean anything. */
+const BAND_CENTRE = hsv(CLIENT_CONFIG.colors.phosphor).hue;
+const BAND_HALF = 20;
+const BAND_MIN_SAT = 0.35;
+
+function inGreenBand(color: number): boolean {
+  const { hue, sat } = hsv(color);
+  const off = Math.abs(((hue - BAND_CENTRE + 540) % 360) - 180); // circular distance
+  return sat >= BAND_MIN_SAT && off <= BAND_HALF;
+}
+
+describe('(e) the splash stays separable from a phosphor return (amendment 59)', () => {
+  it('the band predicate has teeth — every phosphor blip token is inside it', () => {
+    expect(inGreenBand(CLIENT_CONFIG.colors.phosphor)).toBe(true);
+    expect(inGreenBand(CLIENT_CONFIG.colors.blipFresh)).toBe(true);
+    expect(inGreenBand(CLIENT_CONFIG.colors.blipFaded)).toBe(true);
+  });
+
+  it('the miss splash is NOT inside the phosphor green band', () => {
+    expect(inGreenBand(CLIENT_CONFIG.colors.splash)).toBe(false);
+  });
+
+  it('and it is out on CHROMA — a near-grey ring, which is the real separator', () => {
+    // Well under the blip tokens', and under the band threshold with margin, so
+    // a nudge toward green fails this test before it reaches the water.
+    expect(hsv(CLIENT_CONFIG.colors.splash).sat).toBeLessThan(0.2);
+    expect(hsv(CLIENT_CONFIG.colors.blipFresh).sat).toBeGreaterThan(0.5);
+  });
+
+  it('no OTHER combat-effect token drifts into the band either', () => {
+    const C = CLIENT_CONFIG.colors;
+    for (const [name, color] of Object.entries({
+      splash: C.splash,
+      muzzle: C.muzzle,
+      torpedo: C.torpedo,
+      hitBloom: C.hitBloom,
+      woundedSmoke: C.woundedSmoke,
+      damageMarker: C.damageMarker,
+    })) {
+      expect(inGreenBand(color), name).toBe(false);
+    }
+  });
+});

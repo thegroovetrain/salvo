@@ -32,7 +32,10 @@
 import {
   CONFIG,
   bearing,
+  hullSilhouette,
+  perpendicularExtent,
   segCircleHit,
+  transformPolygon,
   wrapAngle,
   wrapPositive,
   type BallisticEvent,
@@ -52,6 +55,8 @@ import {
   type MuzzleEvent,
   type BoonFitEvent,
   type PointEvent,
+  type RadarGrammar,
+  type RadarIdentity,
   type ShellState,
   type SmokeEvent,
   type SpawnEvent,
@@ -83,6 +88,17 @@ interface SignalContextBase {
   /** All LIVE decoy buoys (Story 1.8) — the decoy row's scan subjects AND the
    *  blip row's counterIntel subjects (the radar-double deception). */
   decoys: ReadonlyMap<string, Decoy>;
+  /** Which blip wire shape this room emits (the radar realism cycle, amendment
+   *  52) — the blipShape branch key. The GATE never reads it: only the wire
+   *  SHAPE branches on grammar, never who can see what. */
+  radarGrammar: RadarGrammar;
+  /** Which id namespace blips carry (amendment 52): 'roster' = the painted
+   *  ship's real id (today's behavior), 'pseudonym' = pseudonymOf(shipId). */
+  radarIdentity: RadarIdentity;
+  /** Ship id → stable per-match track id (World.pseudonymFor — the server-
+   *  private stream; see World.trackIds for the honest correlation bound).
+   *  Consulted by blipShape ONLY in pseudonym mode. */
+  pseudonymOf(shipId: string): string;
 }
 
 /** The fogged observe() path: rows apply full fog-of-war. observe() fail-closes
@@ -235,17 +251,54 @@ function blipGate(me: ShipRecord, p: Vec2, islands: readonly Circle[], now: numb
   return inRadarAnnulus(me, p, now) && sweptThisTick(me, bearing(me.state, p)) && losClear(me.state, p, islands);
 }
 
+/** Scratch polygon for the `ext` computation (transformPolygon's `out` reuse —
+ *  allocation-light; consumed synchronously inside blipShape, never retained). */
+const EXT_SCRATCH: Vec2[] = [];
+
+/**
+ * The `return`-grammar echo extent (amendment 55, R2): the hull silhouette's
+ * total extent projected PERPENDICULAR to the observer→target bearing, in
+ * world units. Posed at the ORIGIN (extent is translation-invariant) with the
+ * paint's heading only. ANTI-CHEAT BOUND (absolute): `ext` derives from hull
+ * geometry + relative bearing ONLY — never boons, hp, damage state, or any
+ * range-derivable flight quantity. There is deliberately NO range term
+ * server-side: range attenuation is client render math (R2), computed from
+ * the paint position the observer already holds.
+ */
+function echoExtent(me: ShipRecord, p: Vec2, cls: HullId, heading: number): number {
+  return perpendicularExtent(transformPolygon(hullSilhouette(cls), 0, 0, heading, EXT_SCRATCH), bearing(me.state, p));
+}
+
 /** THE blip wire shaper (one function, two callers — FR10's wire
- *  indistinguishability by construction): KEY ORDER IS LOAD-BEARING
- *  (k,id,x,y,t,cls,heading,speed — Story 4.2 appends the class-legible pose
- *  AFTER `t`, so the historical prefix stays byte-stable). A genuine paint
- *  passes the ship's id/position and LIVE pose; the decoy counterIntel passes
- *  the OWNER'S ship id with the buoy's position and its FROZEN drop-time
- *  cls/heading at speed 0 (a radar reflector reports true stationary values —
- *  see the Decoy record's anti-cheat note) — byte-for-byte the same shape
- *  either way. */
-function blipShape(id: string, p: Vec2, now: number, cls: HullId, heading: number, speed: number): BlipEvent {
-  return { k: 'blip', id, x: p.x, y: p.y, t: now, cls, heading, speed };
+ *  indistinguishability by construction), branched per the room's radar modes
+ *  (the radar realism cycle, amendments 51-57 — ONLY the wire shape branches;
+ *  blipGate is untouched). KEY ORDER IS LOAD-BEARING: silhouette grammar
+ *  emits k,id,x,y,t,cls,heading,speed (Story 4.2 — the class-legible pose
+ *  APPENDED after `t`); return grammar emits k,id,x,y,t,ext (the one aspect
+ *  scalar appended after the same byte-stable {k,id,x,y,t} prefix). In
+ *  pseudonym identity mode `id` is the ship's stable per-match track id
+ *  (ctx.pseudonymOf) — a genuine paint resolves the SHIP's id, the decoy
+ *  counterIntel resolves the OWNER's, so the buoy paints under exactly the id
+ *  the owner's own hull would (the Story 1.8 indistinguishability law,
+ *  preserved under both flags). A genuine paint passes the ship's id/position
+ *  and LIVE pose; the decoy counterIntel passes the OWNER'S ship id with the
+ *  buoy's position and its FROZEN drop-time cls/heading at speed 0 (a radar
+ *  reflector reports true stationary values — see the Decoy record's
+ *  anti-cheat note) — byte-for-byte the same shape either way. */
+function blipShape(
+  ctx: SignalContext,
+  me: ShipRecord,
+  shipId: string,
+  p: Vec2,
+  cls: HullId,
+  heading: number,
+  speed: number,
+): BlipEvent {
+  const id = ctx.radarIdentity === 'pseudonym' ? ctx.pseudonymOf(shipId) : shipId;
+  if (ctx.radarGrammar === 'return') {
+    return { k: 'blip', id, x: p.x, y: p.y, t: ctx.now, ext: echoExtent(me, p, cls, heading) };
+  }
+  return { k: 'blip', id, x: p.x, y: p.y, t: ctx.now, cls, heading, speed };
 }
 
 // ---------------------------------------------------------------------------
@@ -417,7 +470,9 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
   materialize(ctx, target) {
     // Live pose (Story 4.2, FR14): hull id, heading, and the raw signed speed
     // scalar at paint time — never a derived cap or boost flag (build leak).
-    return blipShape(target.id, target.state, ctx.now, target.hullId, target.state.heading, target.state.speed);
+    // The blip row only ever materializes fogged (visible() requires it), so
+    // ctx.me is always set; the non-null assertion mirrors that gate.
+    return blipShape(ctx, ctx.me!, target.id, target.state, target.hullId, target.state.heading, target.state.speed);
   },
   counterIntel(ctx, decoy) {
     // Spectators are unfogged — they get the truth (the decoy row), never a lie.
@@ -447,8 +502,12 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     // (the buoy outlives its owner by up to 30s and must keep painting; a live
     // read would also leak the fogged owner's course/speed at a false
     // position). Unmasking the lie is BEHAVIORAL — it never moves — not a
-    // payload difference.
-    return blipShape(decoy.ownerId, decoy, ctx.now, decoy.hullId, decoy.heading, 0);
+    // payload difference. In pseudonym mode blipShape resolves the OWNER's
+    // pseudonym from ownerId, so the lie rides exactly the track id the
+    // owner's own hull paints under; in return grammar it carries the
+    // owner-hull extent at the frozen drop heading — indistinguishable under
+    // every flag combination.
+    return blipShape(ctx, me, decoy.ownerId, decoy, decoy.hullId, decoy.heading, 0);
   },
 };
 

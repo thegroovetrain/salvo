@@ -82,7 +82,7 @@ import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
 import { makeReturnToPort } from './app/returnToPort.js';
-import { connect, connectErrorStatus, mapFromWelcome, probeServer, type Connection } from './net/connection.js';
+import { connect, connectErrorStatus, mapFromWelcome, probeServer, radarModes, type Connection } from './net/connection.js';
 import { ServerClock } from './net/clock.js';
 import { ContactStore, SnapshotBuffer } from './net/snapshots.js';
 import { bindRoom } from './net/roomBindings.js';
@@ -1372,6 +1372,10 @@ function buildGame(
   settingsOverlay: SettingsOverlay,
 ): Game {
   const { welcome } = conn;
+  // The room's radar grammar/identity, announced ONCE in the welcome (cycle 50,
+  // amendment 52 — the flags live on the SERVER). Read here at the one-way data
+  // flow's head: server mirror → sim state → render views.
+  const radar = radarModes(welcome);
   // Late-bound: the input callbacks need game state that is assembled just below.
   let gRef: Game | null = null;
   // setupViewport args: the chokepoint hooks, the lazy server-clock thunk for the mouse's
@@ -1384,7 +1388,7 @@ function buildGame(
 
   const g: Game = {
     stage,
-    state: createGameState(welcome.sessionId),
+    state: createGameState(welcome.sessionId, radar),
     clock: new ServerClock(),
     ownBuffer: new SnapshotBuffer(),
     contacts: new ContactStore(),
@@ -1415,11 +1419,13 @@ function buildGame(
     litZones: new LitZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
     fog: new Fog(stage.fogSprite),
-    // Story 4.2: a blip flies its owner's personal hue, so the radar needs the
-    // SAME roster resolution the kill feed uses — bright hue for a human, drone
-    // grey for the sentinel (255), null on a roster miss so the paint boots
-    // amber and repaints when the hue lands (render/hueLatch.ts).
-    radar: new Radar(stage.layers.blip, stage.layers.sweep, (id) => (gRef ? feedColor(gRef, id) : null)),
+    // Story 4.2: under the `silhouette` grammar a blip flies its owner's
+    // personal hue, so the radar needs the SAME roster resolution the kill feed
+    // uses — bright hue for a human, drone grey for the sentinel (255), null on
+    // a roster miss so the paint boots amber and repaints when the hue lands
+    // (render/hueLatch.ts). Under `return` the hue resolver is never called: an
+    // echo carries no identity to color (amendments 54/56).
+    radar: new Radar(stage.layers.blip, stage.layers.sweep, (id) => (gRef ? feedColor(gRef, id) : null), radar.grammar),
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
     hotbar: new Hotbar(stage.layers.hud),
@@ -1447,6 +1453,9 @@ function buildGame(
     ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
   };
   gRef = g;
+  // Coast returns (amendment 58) read the island field the client already
+  // rebuilt from the map seed — pure presentation, never on the wire.
+  g.radar.setIslands(map.islands);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   bindGameRoom(g, conn);

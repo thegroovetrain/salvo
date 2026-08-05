@@ -192,11 +192,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 24→25 bump (PV 24: DAMAGE CONTROL — HEAL_CHOICE + OwnShip.repairHp + the heal event; PV 25: WOUNDED SMOKE — the anonymous `sm` signal, Story 4.4) is enforced at matchmake', () => {
-  it('rejects pv-24 and pv-23 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(25);
+describe('pv join gate — the 25→26 bump (PV 26: the radar realism cycle — a blip may carry either wire shape, and the welcome announces radarGrammar/radarIdentity) is enforced at matchmake', () => {
+  it('rejects pv-25 and pv-24 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(26);
+    expect(protocolVersionError(25)).toMatch(/refresh/);
     expect(protocolVersionError(24)).toMatch(/refresh/);
-    expect(protocolVersionError(23)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

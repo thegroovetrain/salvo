@@ -18,12 +18,16 @@
 //
 // Two cooling ramps therefore coexist, and they are not interchangeable:
 //   • `blipTint`  — bright → dark phosphor GREEN. The original ramp; it SETS the
-//                   color, so it may only drive a blip that has no other color
-//                   to carry (the ambient dots).
-//   • `blipCool`  — a neutral-grey MULTIPLIER. The in-game blip's color is now
-//                   an information channel (owner hue / drone grey / Variant P),
-//                   so its cooling has to preserve hue: greyscale multiplies
-//                   every channel equally and leaves the hue exact.
+//                   color, so it may only drive a mark that has no other color
+//                   to carry: the ambient dots, and (cycle 50, amendment 54) the
+//                   `return` grammar's monochrome echoes, where hue is
+//                   deliberately spent on nothing at all.
+//   • `blipCool`  — a neutral-grey MULTIPLIER. Under the `silhouette` grammar a
+//                   blip's color is an information channel (owner hue / drone
+//                   grey), so its cooling has to preserve hue: greyscale
+//                   multiplies every channel equally and leaves the hue exact.
+//                   This ramp exists ONLY because hue is a channel there — it
+//                   stays alive for that grammar and is not used by `return`.
 
 import { wrapPositive } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
