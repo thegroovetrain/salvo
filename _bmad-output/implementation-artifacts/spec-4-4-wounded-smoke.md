@@ -2,8 +2,10 @@
 title: 'Story 4.4 — Wounded Smoke'
 type: 'feature'
 created: '2026-08-05'
-status: 'ready-for-dev'
-review_loop_iteration: 0
+status: 'done'
+baseline_revision: '5263cb4'
+final_revision: '4446939'
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context.md'
@@ -128,3 +130,36 @@ warnings: [oversized]
 
 **Manual checks:**
 - Confirm `git grep -n "0\.5\|0\.25" client/src/config.ts` shows the vitals bands as references, not literals — the single-source requirement is the one thing a passing test suite could still miss.
+
+## Review Triage Log
+
+**Pass 1 (2026-08-05, cycle 49) — Fable adversarial review + Codex cross-model check, run in parallel.**
+
+Counts: `intent_gap` 0, `bad_spec` 0, `patch` 2 (1 low, 1 medium-downgraded-to-hygiene), `defer` 0, `reject` 0.
+Verdict from the Fable gate: **build-on-it**. Zero model overlap — each reviewer found what the other missed,
+which is the whole argument for running both.
+
+- **CONFIRMED (Fable), low — puff deleted at birth under clock slew.** `puffAlpha()` returned exactly 0 for a
+  non-positive age and `render()` retired on `alpha <= 0`, so a puff whose first render landed behind its own
+  spawn timestamp was destroyed permanently — losing its entire 1400ms disclosure window, not one frame of it.
+  Reachable in ordinary play: the server-clock estimator slews toward a rolling-min offset, so any transit-time
+  improvement spawns puffs at negative age until it converges; a heavy plume degraded to its stagger-ghost.
+  PATCHED: retire on AGE (`age >= life`), never on alpha, and clamp jitter-negative ages to exactly newborn.
+  The clamp is deliberate and differs from `phosphor.ts`'s `blipAlpha`, which resolves the same condition to
+  FULL brightness — a blip has no bloom-in ramp so newborn and full coincide for it, while for a puff they
+  diverge, and resolving to full would put a discontinuity at the origin (bright pop, then near-zero 1ms later)
+  precisely when the clock is already slewing. Regression test proven to fail under alpha-based retirement.
+- **PLAUSIBLE (Codex), adjudicated NOT a shipped defect — `Smoke.clear()` had no call site.** Codex projected
+  stale plumes rendering at pre-reset coordinates across a match restart. Verified against the code: match end
+  always ends in `location.reload()` (`main.ts:1065-1069`), so no no-reload restart path exists today, and the
+  1.4s tail after a respawn is legitimately-disclosed information decaying — which is what puff life IS.
+  The dead method was the real finding. PATCHED as hygiene: wired into the return-to-port teardown so the API
+  is live and a future no-reload restart cannot leak stale plumes.
+
+Both reviewers independently cleared the load-bearing risks: no identity/hp leak through `sm` on any path
+including spectators, band comparisons correct at both exact boundaries, `nextSmokeAt` reset on every
+spawn/respawn/match-restart path, the blip dispatch refactor byte-identical, and the motion contract
+structurally enforced (`puffAlpha`/`puffRadius` take no intensity argument, so `motion: 'off'` cannot dim or
+shrink a plume). Fable additionally caught that the property-fuzz suite ran the new `sm` oracle **zero** times
+before the wave-2 agent seeded two wounded hulls — a row whose oracle never executes is exactly the vacuity the
+registry design exists to prevent; it now executes 102 times per run.
