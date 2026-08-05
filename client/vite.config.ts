@@ -9,10 +9,10 @@ const pkg = JSON.parse(readFileSync(resolve(__dirname, '../package.json'), 'utf-
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
-    // Variant P (Story 4.2, amendment 13): phosphor-anonymous blips. A BUILD
-    // define, default Variant C — set HC_BLIP_VARIANT_P=1 in the build env to
-    // produce a Variant P bundle for a side-by-side on water.
-    __BLIP_VARIANT_P__: JSON.stringify(process.env.HC_BLIP_VARIANT_P === '1'),
+    // (The Story 4.2 `__BLIP_VARIANT_P__` define is retired — cycle 50,
+    // amendment 52. The radar grammar is now a SERVER flag announced in the
+    // welcome handshake, so a build-time client variant would only repaint a
+    // wire that still carried the identity superset.)
   },
   resolve: {
     alias: {

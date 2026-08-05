@@ -22,7 +22,7 @@ import {
   type WelcomeMsg,
 } from '@salvo/shared';
 import { ArenaState, PlayerMeta } from './schema/ArenaState.js';
-import { World } from '../game/world.js';
+import { World, resolveRadarGrammar, resolveRadarIdentity } from '../game/world.js';
 import { assignHue } from '../game/regatta.js';
 import { buildFrame } from '../game/frames.js';
 import {
@@ -242,7 +242,19 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private buildWorld(seed: number, sanitized: SanitizedRoomOptions): World {
     const zoneCfg = sanitized.zoneOverride ?? CONFIG.zone;
     const zoneSeeds = Array.from({ length: zoneGroups(zoneCfg) }, () => (Math.random() * 0xffffffff) >>> 0);
-    return new World(seed, CONFIG.match.fillTo, zoneCfg, { zoneSeeds });
+    // Radar realism cycle (amendment 63): the two SERVER-SIDE mode flags.
+    // process.env is read HERE, in the adapter — never in game/ (the
+    // resolveTickErrorTolerance seam); the resolvers are pure and FAIL-SAFE
+    // (unrecognized/absent values => today's behavior, never fail-open). The
+    // pseudonym seed is fresh per-room adapter entropy (the zoneSeeds
+    // posture): track ids must never be derivable from the client-known
+    // mapSeed.
+    return new World(seed, CONFIG.match.fillTo, zoneCfg, {
+      zoneSeeds,
+      radarGrammar: resolveRadarGrammar(process.env.HC_RADAR_GRAMMAR),
+      radarIdentity: resolveRadarIdentity(process.env.HC_RADAR_IDENTITY),
+      pseudonymSeed: (Math.random() * 0xffffffff) >>> 0,
+    });
   }
 
   /** The post-operability remainder of room creation (see onCreate's guard). */
@@ -484,6 +496,10 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       playerCap: this.world.playerCap,
       t: this.world.now,
       config: CONFIG,
+      // The room's radar modes (amendment 63) — the ONLY place they travel;
+      // blips themselves are tagless and the client narrows on these.
+      radarGrammar: this.world.radarGrammar,
+      radarIdentity: this.world.radarIdentity,
     };
     client.send(MSG.welcome, welcome);
 

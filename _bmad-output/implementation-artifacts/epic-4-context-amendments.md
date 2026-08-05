@@ -769,3 +769,184 @@ from.
     The general lesson for future cycles: **run the cross-model review even when the in-family gate
     returns `build-on-it`.** Its verdict here was correct on everything it examined and still missed
     two confirmed defects.
+
+## 2026-08-05 — Eric rulings, the radar realism cycle (bmad-dev-auto, interstitial — cycle 51)
+
+Source: Eric, live design conversation across four exchanges (investigation gate → color design chat →
+pre-implementation question gate → rulings), driven by **playtest feedback from ohzie**, a day-one
+player. Investigation of record:
+`bmad-dev-auto-result-radar-realism-investigation.md`. The governing player quote:
+
+> *"It's almost too much information, right? Like the fact that I can tell what you are and whether
+> you're a player … I like the heading, but not the ship outline or color … when everyone's just a
+> blip, **chasing a blip is a risk**, and risks get your blood up. it's a pvp game."*
+
+And Eric's, verbatim: *"what if we just made it really work like a real radar? Indiscriminate, kinda
+fuzzy shapes roughly the size of the object based on what the radar 'sees' that don't transmit any
+information about what the target is"* — with heading/speed left inferable from ghost paints,
+*"as that is still real."*
+
+62. **THE 4.2 SILHOUETTE GRAMMAR IS REVERSED ON PLAYTEST EVIDENCE — but kept, not deleted.** This is
+    the option amendment 8 explicitly declined (*"Eric chose this over full realism (size-scaled blobs
+    with no class on the wire)"*). It returns because a day-one player's objection landed on exactly
+    the three channels that are NOT real radar behavior. Amendments 7, 8, 10, 12 and 13 are therefore
+    **conditionally superseded** — superseded in the new `return` grammar, untouched in the retained
+    `silhouette` grammar. Nothing is retired outright this cycle. Precedent for reversing on a realism
+    argument: amendment 9 did the same to Eric's own provisional one-sweep-decay pick.
+
+63. **BOTH GRAMMARS SHIP SIDE BY SIDE, BEHIND TWO SERVER-SIDE FLAGS.** Eric: *"I'd like to keep the
+    current implementation as well for now until this is tested, so we can switch back and/or build a
+    happy medium more easily."* Two INDEPENDENT flags, not one — `HC_RADAR_GRAMMAR`
+    (`silhouette` | `return`) and `HC_RADAR_IDENTITY` (`roster` | `pseudonym`) — because presentation
+    and identity are orthogonal questions and a single flag would foreclose the very happy medium the
+    ruling exists to enable. Both default to TODAY's behavior, so production is byte-identical until a
+    flag is flipped. **The flags MUST live on the server** (env vars honored the way `HC_DEV_OPTIONS`
+    is, with the active mode announced in the welcome handshake). Rationale of record: a client-side
+    flag would force the wire to carry the SUPERSET in both modes, leaving identity on the wire in
+    realism mode and reducing the entire anti-cheat argument to cosmetics. Accepted consequence: the
+    dual path makes this cycle BIGGER than a replacement would be (`speedVector` and `luminanceFloor`
+    stay alive, the signal shaper grows a branch, golden frames need both modes).
+
+64. **THE THREE-CHANNEL INFORMATION SPLIT** — one quantity per channel, zero overlap:
+    **size = return strength**, **brightness = age**, **hue = which sensor painted it.** This
+    resolves a real conflict: brightness was ALREADY spent on phosphor decay, so letting it also carry
+    echo strength would make a fresh weak return and an old strong return identical. Note the
+    convergence — DESIGN.md:236 already ratified exactly this grammar for the Listening Ring
+    (*"pure intensity grammar: more/closer = brighter … deliberately source-ambiguous — it never
+    encodes what a noise is, only where and how loud"*). Radar is being brought ONTO the design
+    language the doc already holds for the acoustic sensor, not given a new one.
+
+65. **COLOR IS SPENT ON SENSOR PROVENANCE, NOT ECHO STRENGTH — monochrome per sensor.** Garmin-style
+    red/yellow/green was considered and REJECTED: on a real marine set that palette is a GAIN
+    DIAGNOSTIC, and here it would be a second, redundant encoding of the quantity blob size already
+    carries — clutter measured against DESIGN.md:122's guardrail *"information noise must never bury
+    the hunt."* Provenance is the one thing on the scope no other channel can carry. Radar is phosphor
+    green (`blip-fresh`/`blip-faded` already exist as tokens, DESIGN.md:138). **Amber is RESERVED and
+    left UNASSIGNED** (see amendment 71). This change also FREES amber: its only on-water use today is
+    the hue-latch boot color for unresolved contacts, which retires with the hue system in `return`
+    mode. Colorblind note of record: hue must never be provenance's SOLE carrier — a second sensor
+    should also differ in persistence and edge character, which it wants to anyway on realism grounds.
+
+66. **RETURN SIZE IS ASPECT-DEPENDENT — one continuous `ext` scalar, never a class bucket.** A size
+    enum (`sz: 0|1|2`) was REJECTED as channel C with extra steps: three buckets, three classes, class
+    readout restored. Instead `ext` = the hull silhouette's extent PROJECTED PERPENDICULAR to the
+    observer→target bearing, computed from the polygon already in `shared/src/sim/silhouette.ts`. A
+    battleship bow-on paints narrow; a torpedo boat abeam paints broad. Size therefore stops mapping
+    cleanly to class, which is the mysticism ohzie asked for delivered by physics rather than a fudge.
+    `ext` folds in range attenuation (farther = weaker return) — both are the one quantity "how big is
+    the echo." **Anti-cheat bound:** `ext` derives from hull geometry + relative bearing + range ONLY.
+    It must never reflect boons, hp, damage state, or any range-derivable flight quantity.
+
+67. **THE ARPA SPEED VECTOR DIES IN `return` MODE** (it survives untouched in `silhouette` mode).
+    This overrides the one thing ohzie asked to KEEP (*"I like the heading"*), knowingly. It is
+    defensible because amendment 9's three-paint persistence was justified on precisely this ground:
+    *"long-persistence phosphor is how course and speed are actually plotted off a scope … ghost
+    SPACING encodes speed."* Removing `heading`/`speed` from the wire does not destroy the
+    information — it DEMOTES it from readout to inference, which is the entire stated goal. Course is
+    additionally inferable a second way: returns pulse in size as a contact turns (amendment 66).
+
+68. **DRONES ARE INDISTINGUISHABLE FROM CAPTAINS ON RADAR, and class is LEARNABLE rather than
+    stated.** Eric, verbatim: *"Indistinguishable. Its purely a 'rough size/shape' thing. If you learn
+    what a particular ship class looks like under radar, then that's player skill because it should
+    not be easy."* This is a ruling that class inference is DESIGNED-IN, not a leak to be sealed — the
+    aspect-dependent scalar makes it learnable but never free. It directly answers ohzie's "whether
+    you're a player" complaint and strengthens the solo-match illusion. Supersedes amendment 12 in
+    `return` mode (drones keep the legacy chevron in `silhouette` mode).
+
+69. **ISLANDS PAINT RETURNS — IN THIS CYCLE.** Eric: *"Lets say yes, that will make your radar range's
+    terrain a bit more prominant."* A real marine scope is mostly coastline. Cost is far lower than it
+    sounds and carries **zero disclosure**: islands are already client-known from the map seed
+    (`generateMap`), so this is PURE CLIENT PRESENTATION — no wire field, no server work, no
+    perception-invariant surface. Radar paints only the island's NEAR arc, with everything behind it
+    in shadow, which is not a new rule but the existing one (Eric ruling 2026-08-02: islands block
+    every sensor at all ranges). Island returns obey the sweep and the phosphor decay exactly as ship
+    returns do.
+
+70. **BLOB GRAMMAR — a seeded irregular polygon, as the tweakable baseline.** Jitter derived from
+    (track id, paint time) so a given paint is STABLE while it decays but the NEXT paint of the same
+    contact differs slightly: real scope shimmer without frame-to-frame noise, and no two returns of
+    one hull look identical, which reinforces the ambiguity. Eric: *"I think I like your rec, we can
+    start with that and tweak from that baseline."* The alternative (a soft-edged sprite scaled by
+    `ext`) was cheaper but reads as game glow rather than echo. **Collision to hold:** DESIGN.md:145
+    warns *"a phosphor-ish splash is a fake blip"* — Story 4.3's fall-of-shot `sp` mark must stay in
+    `{colors.splash}` and visually separable from a green return, a constraint that TIGHTENS under
+    monochrome, not loosens.
+
+71. **THREE QUESTIONS DELIBERATELY LEFT OPEN — recorded, ledgered, and NOT resolved by this cycle.**
+    Eric declined to rule on all three, and inventing answers would violate the house rule against
+    inventing game mechanics:
+    - **Bounty Bloom** (DESIGN.md:237, GDD E6 #47, unbuilt) requires both deleted channels — personal
+      hue on radar and a class blip. Eric: *"I don't know honestly because I haven't addressed the
+      'bounty' story at all yet. I'm not sure I want the kill leader's position to be known globally."*
+      The bounty story owns it; this cycle neither builds nor re-grammars it.
+    - **Colorblind assist under `return` mode.** DESIGN.md:163 defines the assist's blip behavior as
+      boosting OUTLINES and raising decayed opacity; blobs have no outlines. Eric: *"Colorblind mode
+      should address this, we should make a note to circle back to this question in the future."*
+      Interim: the raised decayed-opacity floor is kept, the outline clause is inert in `return` mode,
+      and the family-palette work for hulls/nameplates/kill-feed is untouched.
+    - **Sonar hue and the Listening Ring.** Eric: *"I don't know yet, I'm thinking about how to
+      represent sound information but I'm not sold on the 'listening ring' concept entirely."* Amber
+      stays reserved but UNASSIGNED — this cycle spends no hue on a sensor that does not exist.
+
+72. **Scope discipline of record.** `PROTOCOL_VERSION` **bumps 26 → 27** — one bump covering "a blip
+    may carry either shape." **Renumbered post-merge:** this cycle branched from PV 25 and originally
+    claimed 26, but Story 4.5 (the foghorn) landed first and took 26, so this cycle became 27 — and
+    its amendments moved 51-64 → 62-75 for the same reason. **Correction:** `CLAUDE.md` still records
+    PV as "currently 23"; the actual pre-cycle value was **25** (amendment 49 already flagged the
+    staleness) and is **27** after this cycle. Persistence stays
+    at `persistSweeps: 3` / `paintsPerContact: 3` — they become THE course-and-speed channel in
+    `return` mode, so retuning is a deliberate post-playtest job, not a guess made in-cycle. No CONFIG
+    combat tunable moves: no damage, reload, hp, or range value changes, and `CONFIG.vision` gains no
+    new constant. The master perception invariant and its declared exceptions (`sp`, `hc`, `mz`,
+    `sunk`, `sm`, and now 4.5's `fh`) are UNTOUCHED — this change only ever REMOVES fields from
+    frames, so the anti-cheat posture strictly improves.
+
+73. **Doc drift added to the Eric-gated 7-5 batch by this ruling** (house rule: no design-doc edits
+    in-cycle). This lands ON TOP of the 4.2 drift amendment 14 already queued: `DESIGN.md:169` (*"radar
+    blips carry the hull outline, so class must read at blip scale"*) and `DESIGN.md:262` (*"keep
+    silhouette geometry consistent everywhere a hull appears (water, blip, class card, results)"*) are
+    both false in `return` mode and must gain the two-grammar split. `DESIGN.md:160`'s propagation
+    line ("radar blips + kill-feed names (Variant C, the preferred default)") and its Variant P
+    sentence are superseded by the flag pair in amendment 63. `DESIGN.md:163`'s assist clause needs
+    the amendment 71 carve-out. `DESIGN.md:179`'s blip rule is now doubly superseded (amendment 7 then
+    55). `DESIGN.md:237`'s Bounty Bloom entry must record its dependency on a channel that no longer
+    exists in `return` mode.
+
+## 2026-08-05 — Eric ruling, the Garmin echo scale (cycle 51, post-implementation)
+
+Source: Eric, live, after seeing the shipped monochrome return grammar. Verbatim: *"Lets actually
+keep the radar sweep color green but we'll change the detected entity color to the red/blue/green
+scale like in the garmin radar."*
+
+74. **RETURN-MODE ECHOES ARE COLORED BY STRENGTH ON A GARMIN-STYLE SCALE; THE SWEEP STAYS PHOSPHOR
+    GREEN.** This **SUPERSEDES amendment 65's monochrome clause for radar returns** and nothing else:
+    54's finding that a marine palette is a GAIN DIAGNOSTIC still stands as description — Eric has
+    simply ruled that he wants that diagnostic on his scope. The split is now explicit: the SWEEP
+    (conic wedge, range rings, all radar chrome) stays `{colors.phosphor}` green, and only the
+    DETECTED ENTITY carries the scale. Weak → strong runs blue → green → yellow → red, matching the
+    reference screenshots. **Coast returns take the same scale** (terrain is just a strong return —
+    which is why the reference images are mostly red and green coastline). `silhouette` mode is
+    UNTOUCHED: personal hues remain its identity channel.
+
+    **The scale encodes RETURN STRENGTH — the same quantity blob size already carries** (aspect-
+    projected `ext`, attenuated by range). That redundancy is authentic rather than accidental: on a
+    real set, size and color both fall out of the echo. It is also a genuine accessibility win and a
+    PARTIAL answer to the colorblind question amendment 71 left open — size dual-codes strength, so
+    a CVD player loses none of the information the color carries.
+
+    **Implementation consequence (the Story 4.2 trap, avoided):** the phosphor decay ramp
+    (`blipTint`) SETS color, so it cannot drive a colored echo — it would erase the very scale this
+    ruling adds. Return mode must decay through the hue-PRESERVING multiplier (`blipCool`), which
+    exists for exactly this reason: Story 4.2 hit the identical problem when hue first became a
+    channel (`CLIENT_CONFIG.blip.coolFloor`'s comment records it). Channels after this ruling:
+    **hue = return strength, alpha = age, size = return strength.**
+
+75. **No wire change, no PV bump — this is PURE PRESENTATION.** The client already holds `ext` and
+    computes range from its own position and the paint position, so mapping those to a color
+    discloses NOTHING new: `PROTOCOL_VERSION` stays **26** and the server is untouched. Amendment
+    65's provenance idea is not dead but is DEFERRED with the rest of the sound-sensor question
+    (amendment 71): if a second sensor ever ships, provenance must ride a channel other than a single
+    hue — the natural form is a distinct RAMP per sensor (radar blue→red, sonar some other ramp) so
+    palette identity rather than one color carries it. **Amber remains reserved and unassigned;
+    nothing in this ruling spends it.**
+

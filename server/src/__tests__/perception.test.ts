@@ -30,12 +30,16 @@ import {
   HORN_IDS,
   bearing,
   effectiveStats,
+  hullSilhouette,
   mulberry32,
   resolveBoons,
   segCircleHit,
   wrapPositive,
   type BallisticEvent,
   type BlipEvent,
+  type HullId,
+  type ReturnBlipEvent,
+  type SilhouetteBlipEvent,
   type BoomEvent,
   type BoonFitEvent,
   type BurstEvent,
@@ -51,7 +55,7 @@ import {
   type SunkEvent,
   type TorpedoUpdateEvent,
 } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 // Registry symbols are imported ONLY to ENUMERATE keys/rows for the completeness
 // block below — never as a behavior oracle. Every visibility predicate in this
@@ -1011,15 +1015,66 @@ function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): b
   );
 }
 
+/** Test-local reverse pseudonym resolution (radar realism cycle, R3): the
+ *  roster ship id a blip id names under the world's identity mode. In roster
+ *  mode the blip id IS the roster id; in pseudonym mode we invert the world's
+ *  track map (read-only — never the production pseudonymOf resolver path). */
+function rosterIdOf(w: World, blipId: string): string | undefined {
+  if (w.radarIdentity === 'roster') return blipId;
+  for (const [shipId, track] of w.pseudonyms) {
+    if (track === blipId) return shipId;
+  }
+  return undefined;
+}
+
+/** Test-local `ext` oracle (radar realism cycle, amendment 66): the hull
+ *  silhouette rotated by `heading`, projected on the axis PERPENDICULAR to
+ *  the observer→target bearing, max−min. Deliberately reimplemented from the
+ *  raw vert list (hullSilhouette is the single shared geometry source) —
+ *  never via the production transformPolygon/perpendicularExtent pipeline. */
+function extOracle(cls: HullId, heading: number, brg: number): number {
+  const ux = -Math.sin(brg);
+  const uy = Math.cos(brg);
+  const c = Math.cos(heading);
+  const s = Math.sin(heading);
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of hullSilhouette(cls)) {
+    const wx = c * p.x - s * p.y;
+    const wy = s * p.x + c * p.y;
+    const d = wx * ux + wy * uy;
+    if (d < min) min = d;
+    if (d > max) max = d;
+  }
+  return max - min;
+}
+
+/** Grammar-branched pose check for one blip against a (cls, heading, speed)
+ *  truth source: silhouette mode carries the values verbatim (Story 4.2);
+ *  return mode carries ONLY the aspect-projected `ext` (amendment 66 — never
+ *  a pose field), verified against the independent oracle above at the
+ *  observer→paint bearing. */
+function blipPoseMatches(w: World, me: ShipRecord, ev: BlipEvent, cls: HullId, heading: number, speed: number): boolean {
+  if (w.radarGrammar === 'return') {
+    const r = ev as ReturnBlipEvent;
+    return r.ext === extOracle(cls, heading, bearing(me.state, ev));
+  }
+  const sil = ev as SilhouetteBlipEvent;
+  return sil.cls === cls && sil.heading === heading && sil.speed === speed;
+}
+
 /** True iff `ev` is a legitimate GENUINE ship paint: a live non-self ship at
  *  exactly the blip position passing the ship-blip predicate, carrying the
  *  ship's LIVE pose verbatim (Story 4.2 — cls/heading/speed must be the raw
- *  sim values; anything derived or shifted fails the invariant). */
+ *  sim values; anything derived or shifted fails the invariant) or, in
+ *  `return` grammar, its aspect extent alone (amendment 66). */
 function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
-  const target = w.ships.get(ev.id);
+  const rosterId = rosterIdOf(w, ev.id);
+  if (rosterId === undefined) return false;
+  const target = w.ships.get(rosterId);
   if (!target || !target.alive || target.id === me.id) return false;
   if (target.state.x !== ev.x || target.state.y !== ev.y) return false;
-  if (ev.cls !== target.hullId || ev.heading !== target.state.heading || ev.speed !== target.state.speed) return false;
+  if (!blipPoseMatches(w, me, ev, target.hullId, target.state.heading, target.state.speed)) return false;
   return blipPredicate(w, me, target.state);
 }
 
@@ -1041,12 +1096,16 @@ function ownerContactVisible(w: World, me: ShipRecord, ownerId: string): boolean
  *  coexistence guard above), and the ship-blip predicate holds at the BUOY's
  *  position. */
 function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+  const rosterId = rosterIdOf(w, ev.id);
+  if (rosterId === undefined) return false;
   for (const decoy of w.decoys.values()) {
-    if (decoy.ownerId !== ev.id || decoy.x !== ev.x || decoy.y !== ev.y) continue;
+    if (decoy.ownerId !== rosterId || decoy.x !== ev.x || decoy.y !== ev.y) continue;
     // The pose must be the record's FROZEN drop-time snapshot at speed 0
     // (Story 4.2, amendment 11) — a live owner value here would mean the
     // counterIntel path read ctx.ships.get(ownerId), which it must never do.
-    if (ev.cls !== decoy.hullId || ev.heading !== decoy.heading || ev.speed !== 0) continue;
+    // In `return` grammar the same law holds through the extent: the OWNER's
+    // hull at the frozen drop heading, at the observer→BUOY bearing.
+    if (!blipPoseMatches(w, me, ev, decoy.hullId, decoy.heading, 0)) continue;
     if (w.now >= decoy.until) continue;
     if (decoy.ownerId === me.id) continue;
     if (ownerContactVisible(w, me, decoy.ownerId)) continue;
@@ -1055,9 +1114,22 @@ function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   return false;
 }
 
+/** The exact per-grammar blip key sets — the return grammar's DELETION of the
+ *  pose channels (cls/heading/speed), pinned structurally on every blip the
+ *  fuzz ever sees. */
+const SILHOUETTE_BLIP_KEYS = ['cls', 'heading', 'id', 'k', 'speed', 't', 'x', 'y'];
+const RETURN_BLIP_KEYS = ['ext', 'id', 'k', 't', 'x', 'y'];
+
 function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BlipEvent;
   expect(ev.t).toBe(w.now);
+  // Grammar shape gate (radar realism cycle): a `return`-mode frame may carry
+  // NO cls/heading/speed on any blip — the actual deletion, pinned — and a
+  // silhouette-mode frame carries exactly the 4.2 shape.
+  expect(Object.keys(ev).sort()).toEqual(w.radarGrammar === 'return' ? RETURN_BLIP_KEYS : SILHOUETTE_BLIP_KEYS);
+  // Identity gate (R3): in pseudonym mode a blip id must NEVER be a roster
+  // ship id — the roster link is deliberately not free.
+  if (w.radarIdentity === 'pseudonym') expect(w.ships.has(ev.id)).toBe(false);
   // Every blip in a frame must be JUSTIFIED as exactly one of the two legal
   // sources: a genuine ship paint, or a decoy counter-intel paint whose owner
   // id it carries. Anything else — a fabricated id, a wrong position, an
@@ -1320,11 +1392,22 @@ function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
   EVENT_VERIFIERS[e.k](w, me, e);
 }
 
+/** Every flag combination the radar realism cycle ships (amendment 63 — the
+ *  two modes are orthogonal, so the invariant must hold under all four).
+ *  Labels feed it.each; the default combo runs FIRST so a regression in the
+ *  shipped behavior reads first in the output. */
+const MODE_COMBOS: [string, WorldOptions][] = [
+  ['silhouette/roster (default)', {}],
+  ['return/roster', { radarGrammar: 'return' }],
+  ['silhouette/pseudonym', { radarIdentity: 'pseudonym' }],
+  ['return/pseudonym', { radarGrammar: 'return', radarIdentity: 'pseudonym' }],
+];
+
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
-  it('no frame ever references anything outside sight ∪ this-tick paints', () => {
+  it.each(MODE_COMBOS)('no frame ever references anything outside sight ∪ this-tick paints [%s]', (_label, modeOpts) => {
     const rng = mulberry32(0x5eed_f0f0);
     for (let world = 0; world < 20; world++) {
-      const w = new World(rng.int(0, 2 ** 31 - 1));
+      const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone, modeOpts);
       const ids: string[] = [];
       const shipCount = rng.int(3, 6);
       for (let i = 0; i < shipCount; i++) {

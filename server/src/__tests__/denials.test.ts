@@ -192,11 +192,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 25→26 bump (PV 25: WOUNDED SMOKE — the anonymous `sm` signal, Story 4.4; PV 26: THE FOGHORN — the `fh` signal + InputMsg.hornSeq, Story 4.5) is enforced at matchmake', () => {
-  it('rejects pv-25 and pv-24 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(26);
+describe('pv join gate — the 26→27 bump (PV 26: THE FOGHORN — the `fh` signal + InputMsg.hornSeq, Story 4.5; PV 27: the radar realism cycle — a blip may carry either wire shape, and the welcome announces radarGrammar/radarIdentity) is enforced at matchmake', () => {
+  it('rejects pv-26 and pv-25 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(27);
+    expect(protocolVersionError(26)).toMatch(/refresh/);
     expect(protocolVersionError(25)).toMatch(/refresh/);
-    expect(protocolVersionError(24)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

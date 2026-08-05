@@ -323,7 +323,7 @@ export interface Contact {
  * KEY ORDER: the three fields are APPENDED after `t` (msgpack key-insertion
  * order) so the historical {k,id,x,y,t} prefix stays byte-stable.
  */
-export interface BlipEvent {
+export interface SilhouetteBlipEvent {
   k: 'blip';
   id: string;
   x: number; // u — position at paint time
@@ -333,6 +333,53 @@ export interface BlipEvent {
   heading: number; // rad — at paint time
   speed: number; // u/s (signed, the raw scalar) — at paint time
 }
+
+/**
+ * Radar paint, `return` grammar (the radar realism cycle, Eric rulings
+ * 2026-08-05, amendments 62-68): a real marine set paints an indiscriminate
+ * echo, not a readout. The 4.2 pose channels (`cls`/`heading`/`speed`) are
+ * DELETED from this shape — course and speed DEMOTE from readout to inference
+ * off ghost-paint spacing (amendment 67), and class DEMOTES to a learnable
+ * skill (amendment 68: drones and captains are indistinguishable). What
+ * replaces them is ONE continuous scalar, `ext`: the hull silhouette's total
+ * extent projected PERPENDICULAR to the observer→target bearing, in world
+ * units (sim/silhouette.ts perpendicularExtent). A battleship bow-on paints
+ * narrow; a torpedo boat abeam paints broad — so size stops mapping cleanly
+ * to class, by physics rather than a fudge (amendment 66 rejected a size
+ * enum as a class bucket with extra steps).
+ *
+ * ANTI-CHEAT (amendment 66's bound): `ext` derives from hull geometry +
+ * relative bearing ONLY — never boons, hp, damage state, or any
+ * range-derivable flight quantity. There is deliberately NO range term on
+ * the wire: range attenuation (farther = weaker return) is a client render
+ * concern, computed from the paint position the observer already holds — a
+ * server-side range fold would put a redundant, solvable quantity on a 20Hz
+ * channel for zero information the client can't derive itself. A decoy
+ * buoy's paint carries its owner-hull extent at the frozen drop heading
+ * through the same shaper (the Story 1.8 indistinguishability law).
+ *
+ * KEY ORDER: `ext` is APPENDED after `t` (msgpack key-insertion order) so
+ * the historical {k,id,x,y,t} prefix stays byte-stable, exactly as the 4.2
+ * pose fields were.
+ */
+export interface ReturnBlipEvent {
+  k: 'blip';
+  id: string;
+  x: number; // u — position at paint time
+  y: number; // u
+  t: number; // ms — server time the blip was painted (drives phosphor decay)
+  ext: number; // u — aspect-projected echo extent (pure geometry, no range term)
+}
+
+/**
+ * The blip wire shape — a two-member union with NO per-event discriminator
+ * beyond the shared `k: 'blip'`. The server picks ONE grammar for the whole
+ * room (`HC_RADAR_GRAMMAR`, amendment 63) and announces it in the welcome
+ * handshake (`WelcomeMsg.radarGrammar`), so every blip in a given match has
+ * the same shape and the client narrows on the ANNOUNCED mode, never by
+ * probing fields — a per-event tag would be dead weight on a 20Hz channel.
+ */
+export type BlipEvent = SilhouetteBlipEvent | ReturnBlipEvent;
 
 /**
  * A ballistic projectile entering your vision, sent once — position and
@@ -848,9 +895,32 @@ export interface ResultsMsg {
 }
 
 /**
+ * Which blip wire shape this room speaks (amendment 63): 'silhouette' is the
+ * shipped 4.2 grammar (SilhouetteBlipEvent — pose on the wire), 'return' the
+ * realism grammar (ReturnBlipEvent — one aspect-projected extent scalar).
+ * Server-picked per room (`HC_RADAR_GRAMMAR`, default 'silhouette'), announced
+ * once in the welcome; the client narrows every BlipEvent on this, never by
+ * probing fields.
+ */
+export type RadarGrammar = 'silhouette' | 'return';
+
+/**
+ * Which id namespace blips carry (amendment 63): 'roster' is today's behavior
+ * (blip.id is the painted ship's roster id), 'pseudonym' maps each ship to a
+ * stable per-match track id rolled on the server's private stream (the zone
+ * nonce posture), a decoy emitting under its OWNER's pseudonym. Orthogonal to
+ * RadarGrammar by design — presentation and identity are independent questions
+ * and a single flag would foreclose the happy medium the ruling exists to
+ * enable. Server-picked per room (`HC_RADAR_IDENTITY`, default 'roster').
+ */
+export type RadarIdentity = 'roster' | 'pseudonym';
+
+/**
  * Server -> client handshake ("w"), sent once on join. Carries the map seed for
  * deterministic client-side island generation plus a CONFIG snapshot so the
- * client shares every tunable.
+ * client shares every tunable — and, as of the radar realism cycle, the room's
+ * radar grammar/identity modes, the ONLY place they travel (blips themselves
+ * are deliberately tagless; see BlipEvent).
  */
 export interface WelcomeMsg {
   sessionId: string;
@@ -859,4 +929,6 @@ export interface WelcomeMsg {
   playerCap: number; // the cap the server sized the map against (feeds generateMap)
   t: number; // ms — server time at welcome (seeds the client clock)
   config: GameConfig;
+  radarGrammar: RadarGrammar; // which BlipEvent member this room emits
+  radarIdentity: RadarIdentity; // which id namespace blips carry
 }

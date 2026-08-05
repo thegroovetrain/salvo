@@ -3,6 +3,23 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  27: THE RADAR REALISM CYCLE (Eric rulings 2026-08-05, amendments 62-75) —
+ *  one bump covering "a blip may carry either shape" (amendment 72). Landed in
+ *  PARALLEL with Story 4.5 (the foghorn, 26 below): both cycles branched from
+ *  PV 25 and both claimed 26; 4.5 merged first, so this cycle renumbered to 27
+ *  and its amendments from 51-64 to 62-75.
+ *  BlipEvent becomes a two-member union with NO per-event discriminator:
+ *  SilhouetteBlipEvent (the shipped 4.2 shape, byte-stable {k,id,x,y,t}
+ *  prefix then cls/heading/speed, unchanged) | ReturnBlipEvent
+ *  ({k,id,x,y,t,ext} — ext the hull silhouette's extent projected
+ *  perpendicular to the observer→target bearing, pure aspect geometry in
+ *  world units, no range term; amendment 66's anti-cheat bound: never boons,
+ *  hp, damage state, or any range-derivable flight quantity). The server
+ *  picks ONE grammar per room and announces it in the welcome — WelcomeMsg
+ *  gains required radarGrammar ('silhouette'|'return') and radarIdentity
+ *  ('roster'|'pseudonym'), both defaulting to today's behavior so production
+ *  is byte-identical until a server flag flips (amendment 63). CONFIG is
+ *  untouched (CONFIG.vision gains no new constant).
  *  26: THE FOGHORN (Story 4.5, Eric rulings 2026-08-05, amendments 51-58) —
  *  two wire-shape changes in one bump: (1) new `fh` GameEvent (FoghornEvent
  *  {k,h,self?,b?,v?,x?,y?}), the SIXTH declared exception to the master
@@ -192,7 +209,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 26;
+export const PROTOCOL_VERSION = 27;
 
 // Tunables
 export * from './constants.js';

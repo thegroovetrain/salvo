@@ -50,13 +50,23 @@ function honks(events: readonly GameEvent[]): FoghornEvent[] {
 const subject = (x: number, y: number, id: string): FoghornEvent =>
   ({ k: 'fh', h: 'standard', x, y, id }) as FoghornEvent;
 
+/** The radar-mode half of a SignalContext (cycle 51). The foghorn row reads
+ *  none of it — `fh` has no wire shape that varies by radar grammar — but the
+ *  context type carries it for every row, so these tests pass the World's own
+ *  values through rather than hardcoding a grammar. */
+const radarCtx = (w: World) => ({
+  radarGrammar: w.radarGrammar,
+  radarIdentity: w.radarIdentity,
+  pseudonymOf: (id: string) => w.pseudonymFor(id),
+});
+
 /** A fogged SignalContext for `me` (the signals.test.ts helper, verbatim). */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
-  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me };
+  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me, ...radarCtx(w) };
 }
 
 function spectatorCtx(w: World, observerId: string): SpectatorSignalContext {
-  return { mode: 'spectator', observerId, now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: w.ships.get(observerId) };
+  return { mode: 'spectator', observerId, now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: w.ships.get(observerId), ...radarCtx(w) };
 }
 
 const row = signalFor('fh')!;
@@ -329,7 +339,7 @@ describe('SIGNAL_REGISTRY — fh row: spectators', () => {
   it('a record-less spectator (me undefined) receives {k,h,x,y} — the short-circuit before any me math', () => {
     const w = bareWorld();
     const e = subject(9_000, 9_000, 'honker'); // absurdly far from everything
-    const ctx: SpectatorSignalContext = { mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined };
+    const ctx: SpectatorSignalContext = { mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined, ...radarCtx(w) };
     expect(row.visible(ctx, e)).toBe(true);
     const wire = row.materialize(ctx, e) as FoghornEvent;
     expect(wire).not.toBe(e);

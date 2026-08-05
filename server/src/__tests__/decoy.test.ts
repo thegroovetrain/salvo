@@ -11,8 +11,18 @@
 // seeds and scripted inputs only.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, wrapPositive, type BlipEvent, type FrameMsg } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import {
+  CONFIG,
+  hullSilhouette,
+  perpendicularExtent,
+  transformPolygon,
+  wrapPositive,
+  type BlipEvent,
+  type FrameMsg,
+  type ReturnBlipEvent,
+  type SilhouetteBlipEvent,
+} from '@salvo/shared';
+import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 
 const DT = CONFIG.tick.simDtMs;
@@ -23,8 +33,8 @@ const SLOT_DECOY = 2;
 /** Astern drop offset (the mines' stern rack): half the ML hull + trigger margin. */
 const DROP_OFFSET = CONFIG.shipClasses.mineLayer.hull.length / 2 + CONFIG.mine.triggerRadius;
 
-function bareWorld(seed = 31): World {
-  const w = new World(seed);
+function bareWorld(seed = 31, opts: WorldOptions = {}): World {
+  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, opts);
   w.map.islands.length = 0;
   return w;
 }
@@ -249,9 +259,18 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
     expect(real).toBeDefined();
     expect(lie).toBeDefined();
     // Field-for-field: same keys, same ORDER (msgpack wire shape), same types.
+    // PINNED against SilhouetteBlipEvent EXPLICITLY (radar realism cycle): the
+    // BlipEvent union's `keyof` collapsed to the COMMON keys (k,id,x,y,t),
+    // which would let this loop silently check less than it used to — the
+    // literal key list below re-pins the FULL 4.2 shape, and the `satisfies`
+    // clause fails to compile if the type ever drifts from it.
+    const SILHOUETTE_KEYS = ['k', 'id', 'x', 'y', 't', 'cls', 'heading', 'speed'] as const satisfies readonly (keyof SilhouetteBlipEvent)[];
+    expect(Object.keys(real)).toEqual([...SILHOUETTE_KEYS]);
     expect(Object.keys(lie)).toEqual(Object.keys(real));
-    for (const key of Object.keys(real) as (keyof BlipEvent)[]) {
-      expect(typeof lie[key]).toBe(typeof real[key]);
+    const realSil = real as SilhouetteBlipEvent;
+    const lieSil = lie as SilhouetteBlipEvent;
+    for (const key of SILHOUETTE_KEYS) {
+      expect(typeof lieSil[key]).toBe(typeof realSil[key]);
     }
     expect(lie.t).toBe(real.t); // stamped by the same tick clock
     // Serialized forms differ ONLY in values — never in shape. The lie's pose
@@ -260,6 +279,58 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
     expect(JSON.stringify(lie)).toBe(
       JSON.stringify({ k: 'blip', id: 'a', x: 0, y: 400, t: w.now, cls: 'mineLayer', heading: 0, speed: 0 }),
     );
+  });
+
+  it('WIRE-INDISTINGUISHABILITY under the RETURN grammar: same keys, and the lie\'s ext is the OWNER hull\'s aspect extent at the buoy bearing', () => {
+    // The matching ReturnBlipEvent pin (radar realism cycle): the same
+    // scenario as above, in a `return`-grammar world — the lie must be
+    // field-for-field a genuine return paint, carrying ONLY {k,id,x,y,t,ext}.
+    const w = bareWorld(33, { radarGrammar: 'return' });
+    place(w, 'a', -2000, 0, 0, 'mineLayer'); // the impersonated owner, far away
+    const b = place(w, 'b', 0, 0);
+    place(w, 'x', 400, 0); // a real ship in the annulus at bearing 0
+    injectDecoy(w, 'd1', 'a', 0, 400); // the buoy in the annulus at bearing π/2
+    b.prevSweepAngle = wrapPositive(-0.05); // one window spanning both bearings
+    b.sweepAngle = Math.PI / 2 + 0.05;
+    const blips = blipsOf(buildFrame(w, 'b'));
+    expect(blips).toHaveLength(2);
+    const real = blips.find((e) => e.id === 'x')! as ReturnBlipEvent;
+    const lie = blips.find((e) => e.id === 'a')! as ReturnBlipEvent; // id === the OWNER's ship id
+    const RETURN_KEYS = ['k', 'id', 'x', 'y', 't', 'ext'] as const satisfies readonly (keyof ReturnBlipEvent)[];
+    expect(Object.keys(real)).toEqual([...RETURN_KEYS]);
+    expect(Object.keys(lie)).toEqual(Object.keys(real));
+    // The lie's ext: the OWNER's hull (mineLayer) at the FROZEN drop heading
+    // (0), projected at the observer→BUOY bearing (π/2) — never a live owner
+    // read, and never a range term (R2: pure aspect geometry).
+    const brg = Math.atan2(400 - b.state.y, 0 - b.state.x); // observer at origin → buoy at (0,400) = π/2 exactly
+    expect(lie.ext).toBe(perpendicularExtent(transformPolygon(hullSilhouette('mineLayer'), 0, 0, 0), brg));
+    // No pose channel survives on either paint — the deletion, byte-level.
+    for (const forbidden of ['cls', 'heading', 'speed']) {
+      expect(forbidden in (real as object)).toBe(false);
+      expect(forbidden in (lie as object)).toBe(false);
+    }
+  });
+
+  it('PSEUDONYM identity (R3): the lie rides the OWNER\'s pseudonym — the same track id a genuine paint of the owner carries, and never a roster id', () => {
+    const w = bareWorld(33, { radarIdentity: 'pseudonym' });
+    const a = place(w, 'a', 400, 0, 0, 'mineLayer'); // the owner: annulus, bearing 0
+    const b = place(w, 'b', 0, 0);
+    injectDecoy(w, 'd1', 'a', 0, 400); // the buoy: annulus, bearing π/2
+    b.prevSweepAngle = wrapPositive(-0.05); // one window spanning both bearings
+    b.sweepAngle = Math.PI / 2 + 0.05;
+    const blips = blipsOf(buildFrame(w, 'b'));
+    expect(blips).toHaveLength(2);
+    const track = w.pseudonymFor('a');
+    expect(track).not.toBe('a'); // the pseudonym is never the roster id
+    // BOTH paints — the genuine hull and the buoy's lie — carry the SAME
+    // track id (Story 1.8 indistinguishability, preserved under the flag),
+    // and neither carries any roster ship id.
+    expect(blips.map((e) => e.id)).toEqual([track, track]);
+    for (const e of blips) expect(w.ships.has(e.id)).toBe(false);
+    // The genuine paint is at the hull, the lie at the buoy (public payload
+    // sort: x=0 before x=400) — position still tells them apart HERE because
+    // the test placed them; the wire itself carries no source marker.
+    expect(blips.map((e) => e.x)).toEqual([0, a.state.x]);
   });
 
   it('COEXISTENCE GUARD (FR10): no decoy blip while the OWNER is a contact — contact(a) + blip(a) never share a frame', () => {

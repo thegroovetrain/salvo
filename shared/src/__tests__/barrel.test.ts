@@ -23,6 +23,7 @@ import {
   transformPolygon,
   segPolygonHit,
   polygonMaxRadius,
+  perpendicularExtent,
   loadoutFor,
   boostedKinematics,
   slowedKinematics,
@@ -80,13 +81,21 @@ describe('shared barrel', () => {
     // two-value enum) plus CONFIG.damageBands and CONFIG.smoke in the welcome
     // config snapshot. Reach reuses CONFIG.vision.muzzleFlash — no new vision
     // constant.
+    // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
+    // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
+    // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
+    // range term, amendment 66's anti-cheat bound) and WelcomeMsg gains
+    // required radarGrammar/radarIdentity, the room-wide mode announcement
+    // the client narrows on. One bump covers "a blip may carry either shape"
+    // (amendment 72). Landed in parallel with the foghorn below: both branched
+    // from PV 25 and claimed 26; 4.5 merged first, so this cycle took 27.
     // THE FOGHORN (PV 26, Eric rulings 2026-08-05, amendments 51-58): the new
     // 'fh' GameEvent ({k,h,self?,b?,v?,x?,y?} — bearing + volume tier for a
     // fogged listener, NEVER a position or ship id; the 6th declared
     // perception exception and the first per-observer-varying payload) plus
     // required InputMsg.hornSeq, the shared HORN_IDS catalog, and
     // CONFIG.foghorn in the welcome config snapshot. No vision constant added.
-    expect(PROTOCOL_VERSION).toBe(26);
+    expect(PROTOCOL_VERSION).toBe(27);
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -152,6 +161,8 @@ describe('shared barrel', () => {
     expect(typeof transformPolygon).toBe('function');
     expect(typeof segPolygonHit).toBe('function');
     expect(typeof polygonMaxRadius).toBe('function');
+    // The return-grammar echo-size primitive (radar realism cycle, PV 26).
+    expect(typeof perpendicularExtent).toBe('function');
     expect(CONFIG.drones.medium.hp).toBe(100);
   });
 

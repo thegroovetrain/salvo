@@ -62,6 +62,12 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     decoys: world.decoys,
+    // Radar realism cycle (amendment 63): the room's modes + the pseudonym
+    // resolver, threaded from the World (which the ADAPTER configured — no
+    // process.env anywhere on this path).
+    radarGrammar: world.radarGrammar,
+    radarIdentity: world.radarIdentity,
+    pseudonymOf: (id: string) => world.pseudonymFor(id),
   };
 }
 
@@ -77,6 +83,11 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     decoys: world.decoys,
+    // Modes ride every context uniformly (spectators get live contacts, never
+    // blips — these are inert here, but the context stays one shape).
+    radarGrammar: world.radarGrammar,
+    radarIdentity: world.radarIdentity,
+    pseudonymOf: (id: string) => world.pseudonymFor(id),
   };
 }
 

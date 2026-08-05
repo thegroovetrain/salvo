@@ -73,6 +73,8 @@ import {
   type HullTarget,
   type InputMsg,
   type LoadoutSlot,
+  type RadarGrammar,
+  type RadarIdentity,
   type Rng,
   type ShellOutcome,
   type ShellState,
@@ -100,6 +102,27 @@ import { DroneController } from './drones.js';
 import { pickSpawn } from './spawn.js';
 
 const TAU = Math.PI * 2;
+
+/**
+ * Resolve the raw HC_RADAR_GRAMMAR env value into a RadarGrammar (the radar
+ * realism cycle, amendment 63). PURE — the env var itself is read in the
+ * adapter (ArenaRoom), never here; World stays free of process.env exactly as
+ * it stays free of Colyseus. FAIL-SAFE, never fail-open: only the exact string
+ * 'return' selects the new grammar — absent, empty, mis-cased, or garbage
+ * values all fall back to today's shipped behavior ('silhouette').
+ */
+export function resolveRadarGrammar(raw: string | undefined): RadarGrammar {
+  return raw === 'return' ? 'return' : 'silhouette';
+}
+
+/**
+ * Resolve the raw HC_RADAR_IDENTITY env value into a RadarIdentity (amendment
+ * 63). Same contract as resolveRadarGrammar: pure, adapter-read, fail-safe —
+ * only the exact string 'pseudonym' leaves the default 'roster' namespace.
+ */
+export function resolveRadarIdentity(raw: string | undefined): RadarIdentity {
+  return raw === 'pseudonym' ? 'pseudonym' : 'roster';
+}
 
 /** The frozen zero-boon behavior list — one shared identity so every
  *  boon-less ShipRecord's per-tick hook fold is allocation-free. */
@@ -156,6 +179,30 @@ export interface WorldOptions {
    * production room: mapSeed is client-known.
    */
   zoneSeeds?: readonly number[];
+  /**
+   * Which blip wire shape this room emits (the radar realism cycle, amendment
+   * 63): 'silhouette' (default — the shipped 4.2 pose grammar) or 'return'
+   * (the realism grammar: one aspect-projected `ext` scalar). Resolved from
+   * HC_RADAR_GRAMMAR by the ADAPTER (resolveRadarGrammar) — World never reads
+   * process.env. Announced to clients in the welcome handshake.
+   */
+  radarGrammar?: RadarGrammar;
+  /**
+   * Which id namespace blips carry (amendment 63): 'roster' (default — the
+   * painted ship's real id) or 'pseudonym' (a stable per-match track id from
+   * the server-private pseudonym stream). Resolved from HC_RADAR_IDENTITY by
+   * the ADAPTER (resolveRadarIdentity). Orthogonal to radarGrammar by design.
+   */
+  radarIdentity?: RadarIdentity;
+  /**
+   * Seed material of the SERVER-PRIVATE pseudonym stream (R3 — the zone-nonce
+   * posture): track ids must never be derivable from the client-known map
+   * seed. ArenaRoom passes fresh per-room entropy (adapter-layer, like
+   * zoneSeeds); omitted => a fixed derivation of the map seed — fine for
+   * standalone Worlds (unit tests, smokes), NEVER acceptable for a production
+   * room in pseudonym mode.
+   */
+  pseudonymSeed?: number;
 }
 
 /** The equipment id fitted in `loadout[slotIndex]`, or null when the slot is
@@ -507,6 +554,13 @@ export class World {
   readonly inputs = new InputStore();
   /** Drives drone hulls through the normal input path (see game/drones.ts). */
   readonly drones: DroneController;
+  /** Which blip wire shape this room emits (amendment 63) — fixed at
+   *  construction, announced in the welcome, threaded into every
+   *  SignalContext. Default 'silhouette' = the shipped 4.2 behavior. */
+  readonly radarGrammar: RadarGrammar;
+  /** Which id namespace blips carry (amendment 63) — fixed at construction,
+   *  announced in the welcome. Default 'roster' = today's behavior. */
+  readonly radarIdentity: RadarIdentity;
 
   /** ms since world creation — the one server clock. */
   now = 0;
@@ -570,6 +624,26 @@ export class World {
   private mineSeq = 0;
   private litZoneSeq = 0;
   private decoySeq = 0;
+  /**
+   * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match
+   * track id, rolled on the SERVER-PRIVATE pseudonym stream (pseudonymRng —
+   * the zone-nonce posture: never derivable from the client-known map seed).
+   * Entries are assigned at addShip and NEVER pruned — a decoy buoy outlives
+   * its owner by up to 30s and must keep painting under the OWNER's pseudonym
+   * even after removeShip (the Story 1.8 indistinguishability law), so the map
+   * is append-only for the room's lifetime (bounded by joins per room).
+   *
+   * HONEST BOUND (do not overclaim): a stable pseudonym does NOT make tracks
+   * uncorrelatable. A client that watches a ship leave truesight (real id, via
+   * `Contact`) and reappear at radar range can re-link it by trajectory. Fully
+   * breaking that would require per-paint random ids, which would destroy
+   * ghost-track linking — the entire course-inference channel amendment 67
+   * depends on. What the pseudonym buys is that the ROSTER link is not free
+   * and not instant.
+   */
+  private readonly trackIds = new Map<string, string>();
+  /** The private pseudonym stream (see trackIds / WorldOptions.pseudonymSeed). */
+  private readonly pseudonymRng: Rng;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
@@ -625,8 +699,53 @@ export class World {
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
     this.zoneCfg = zoneCfg;
     this.zoneSeeds = opts.zoneSeeds;
+    // Radar realism cycle (amendment 63): both modes default to the shipped
+    // behavior — production is byte-identical until a flag is flipped.
+    this.radarGrammar = opts.radarGrammar ?? 'silhouette';
+    this.radarIdentity = opts.radarIdentity ?? 'roster';
+    // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
+    // map-seed fallback (0x1b873593 is unused by any other stream).
+    this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
     // Drone steering stream, decorrelated again from mapgen + spawn.
     this.drones = new DroneController(this, (seed ^ 0x85ebca6b) >>> 0);
+  }
+
+  /** The pseudonym map, read-only — for perception context threading and
+   *  tests. See trackIds for the honest correlation bound. */
+  get pseudonyms(): ReadonlyMap<string, string> {
+    return this.trackIds;
+  }
+
+  /**
+   * The stable per-match track id for `shipId` (R3), rolling one on first
+   * request. Roll-on-demand (not only at addShip) covers the decoy edge: a
+   * buoy's ownerId can name a ship whose record predates this room's map (or
+   * was injected by a test) — its counterIntel paint must still emit a
+   * pseudonym, never fall open to the roster id.
+   */
+  pseudonymFor(shipId: string): string {
+    let track = this.trackIds.get(shipId);
+    if (track === undefined) {
+      track = this.rollTrackId();
+      this.trackIds.set(shipId, track);
+    }
+    return track;
+  }
+
+  /** One fresh track id off the private stream: 'trk-' + 8 hex chars —
+   *  structurally distinct from Colyseus session ids and 'drone-N' ids, and
+   *  re-rolled on the (astronomically unlikely) collision with an existing
+   *  track id or ship id. */
+  private rollTrackId(): string {
+    for (;;) {
+      const id = `trk-${this.pseudonymRng.int(0, 0xffffffff).toString(16).padStart(8, '0')}`;
+      if (this.ships.has(id)) continue;
+      let taken = false;
+      for (const existing of this.trackIds.values()) {
+        if (existing === id) { taken = true; break; }
+      }
+      if (!taken) return id;
+    }
   }
 
   /**
@@ -791,6 +910,7 @@ export class World {
       damageDealt: 0,
     };
     this.ships.set(id, rec);
+    this.pseudonymFor(id); // eager track id (R3) — see pseudonymFor / trackIds
     if (isDrone) this.drones.add(id);
     this.pending.push({ k: 'spawn', id, x: p.x, y: p.y });
     return rec;
