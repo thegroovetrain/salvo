@@ -241,7 +241,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
   private buildWorld(seed: number, sanitized: SanitizedRoomOptions): World {
     const zoneCfg = sanitized.zoneOverride ?? CONFIG.zone;
     const zoneSeeds = Array.from({ length: zoneGroups(zoneCfg) }, () => (Math.random() * 0xffffffff) >>> 0);
-    // Radar realism cycle (amendment 61): the two SERVER-SIDE mode flags.
+    // Radar realism cycle (amendment 63): the two SERVER-SIDE mode flags.
     // process.env is read HERE, in the adapter — never in game/ (the
     // resolveTickErrorTolerance seam); the resolvers are pure and FAIL-SAFE
     // (unrecognized/absent values => today's behavior, never fail-open). The
@@ -491,7 +491,7 @@ export class ArenaRoom extends Room<{ state: ArenaState }> {
       playerCap: this.world.playerCap,
       t: this.world.now,
       config: CONFIG,
-      // The room's radar modes (amendment 61) — the ONLY place they travel;
+      // The room's radar modes (amendment 63) — the ONLY place they travel;
       // blips themselves are tagless and the client narrows on these.
       radarGrammar: this.world.radarGrammar,
       radarIdentity: this.world.radarIdentity,

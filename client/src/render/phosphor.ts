@@ -27,9 +27,9 @@
 //                   its cooling has to preserve hue: greyscale multiplies every
 //                   channel equally and leaves the hue exact. That is now BOTH
 //                   grammars — `silhouette`'s owner hue / drone grey, and (cycle
-//                   50, amendment 72) the `return` echo's Garmin strength ramp.
+//                   50, amendment 74) the `return` echo's Garmin strength ramp.
 //                   The `return` grammar briefly used `blipTint` while its
-//                   echoes were monochrome (amendment 63); the moment hue became
+//                   echoes were monochrome (amendment 65); the moment hue became
 //                   a channel there, that wiring became the same bug Story 4.2
 //                   found the first time, and it moved here.
 

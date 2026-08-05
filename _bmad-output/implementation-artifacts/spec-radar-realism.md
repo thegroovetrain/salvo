@@ -10,7 +10,7 @@ warnings: []
 
 # Spec: The Radar Realism Cycle (cycle 50)
 
-**Design contract:** amendments **60–71** in
+**Design contract:** amendments **62–73** in
 `_bmad-output/implementation-artifacts/epic-4-context-amendments.md`. Those amendments are the
 RULINGS. This spec is the implementation plan derived from them. Where the two ever appear to
 conflict, **the amendments win** — report the conflict, do not resolve it yourself.
@@ -50,10 +50,10 @@ The client narrows on the welcome-announced mode, never by probing fields.
 world units, and nothing else. Range attenuation is applied at RENDER time by the client, which
 already knows both its own position and the paint position.
 
-Rationale: this honors amendment 64's "size = return strength, attenuated by range" while respecting
-amendment 70's "`CONFIG.vision` gains no new constant" — the attenuation curve is a presentation
+Rationale: this honors amendment 66's "size = return strength, attenuated by range" while respecting
+amendment 72's "`CONFIG.vision` gains no new constant" — the attenuation curve is a presentation
 knob and belongs in `CLIENT_CONFIG`, not on the wire. It also keeps the wire minimal and leaks
-strictly less. *(Flagged to Eric as a refinement of amendment 64's wording; the delivered behavior is
+strictly less. *(Flagged to Eric as a refinement of amendment 66's wording; the delivered behavior is
 what 55 asked for.)*
 
 **R3 — pseudonyms are PER-ROOM and stable for the match, and the correlation ceiling is documented.**
@@ -65,7 +65,7 @@ A decoy emits under its OWNER's pseudonym, preserving the Story 1.8 indistinguis
 tracks uncorrelatable. A client that watches a ship leave truesight (real id, via `Contact`) and
 reappear at radar range can re-link it by trajectory. Fully breaking that would require per-paint
 random ids, which would destroy ghost-track linking — the entire course-inference channel amendment
-65 depends on. What the pseudonym buys is that the **roster link is not free and not instant**. Do
+67 depends on. What the pseudonym buys is that the **roster link is not free and not instant**. Do
 not overclaim it.
 
 **R4 — island returns are pure client presentation, sampled along the NEAR arc.**
@@ -100,7 +100,7 @@ If a milestone needs a change outside its seam: **report it, do not make it.**
 
 1. `shared/src/types.ts` — split `BlipEvent` per R1. Keep the existing 4.2 doc block attached to
    `SilhouetteBlipEvent`; write a new one for `ReturnBlipEvent` recording the anti-cheat bound
-   (amendment 64: geometry + bearing ONLY — never boons, hp, damage, or any range-derivable flight
+   (amendment 66: geometry + bearing ONLY — never boons, hp, damage, or any range-derivable flight
    quantity).
 2. `shared/src/types.ts` — `WelcomeMsg` gains `radarGrammar: RadarGrammar` and
    `radarIdentity: RadarIdentity`; export both union types.
@@ -113,7 +113,7 @@ If a milestone needs a change outside its seam: **report it, do not make it.**
    - a battleship bow-on returns a materially SMALLER extent than the same hull abeam
      (this is the whole design thesis — pin it);
    - a torpedo boat abeam vs. a battleship bow-on **overlap** in extent (size does not cleanly map
-     to class — amendments 64 and 66);
+     to class — amendments 66 and 68);
    - `perpendicularExtent` is invariant under adding π to the bearing (a hull's extent is the same
      from either side);
    - the barrel test (`shared/src/__tests__/barrel.test.ts`) still passes with the new exports.
@@ -150,7 +150,7 @@ tests pass and `PROTOCOL_VERSION === 26`.
      deletion, pinned);
    - in pseudonym mode, no blip `id` equals any roster ship id, and a decoy's blip id equals its
      OWNER's pseudonym;
-   - `ext` is unchanged by granting a boon / changing hp (amendment 64's anti-cheat bound, pinned as
+   - `ext` is unchanged by granting a boon / changing hp (amendment 66's anti-cheat bound, pinned as
      a fail-proven test).
 
 **AC4** — *Given* `HC_RADAR_GRAMMAR` unset, *when* a client joins, *then* every blip carries
@@ -172,10 +172,10 @@ unchanged.
    generator + the range-attenuation curve (R2). Unit-tested like `blipMarks.ts`.
 3. `client/src/render/radar.ts` — branch on grammar. In `return` mode: draw the blob, no silhouette,
    no speed vector. ~~monochrome phosphor green with brightness carrying age only~~ — **SUPERSEDED
-   by amendment 72:** the blob is colored by RETURN STRENGTH on a Garmin-style blue→green→yellow→red
+   by amendment 74:** the blob is colored by RETURN STRENGTH on a Garmin-style blue→green→yellow→red
    scale. The SWEEP stays phosphor green; only the detected entity carries the scale.
 4. `client/src/render/phosphor.ts` + `client/src/config.ts` — ~~in `return` mode use the original
-   bright→dark green ramp~~ — **SUPERSEDED by amendment 72, and now exactly BACKWARDS from what this
+   bright→dark green ramp~~ — **SUPERSEDED by amendment 74, and now exactly BACKWARDS from what this
    line first said:** hue became an information channel in `return` mode too, so BOTH grammars decay
    through the hue-PRESERVING `blipCool` multiplier. `blipTint` SETS color and would erase the
    strength scale; it now has exactly one caller left (`render/ambient.ts`). `blipCool` is
@@ -184,10 +184,10 @@ unchanged.
    agents in one file is corruption. Keep the geometry pure in `returnMarks.ts` (or a sibling pure
    module) with `radar.ts` holding only the call site.
 6. `client/vite.config.ts` — the old `__BLIP_VARIANT_P__` define is SUPERSEDED by the server flags
-   (amendment 61). Remove it and its `radar.ts:115` consumer.
-7. **Splash separation** (amendment 68): fall-of-shot `sp` marks stay `{colors.splash}` and must
+   (amendment 63). Remove it and its `radar.ts:115` consumer.
+7. **Splash separation** (amendment 70): fall-of-shot `sp` marks stay `{colors.splash}` and must
    remain visually separable from returns. ~~Add a token-level test asserting the splash color is
-   not within the phosphor green band.~~ **AMENDED by amendment 72:** the strength ramp deliberately
+   not within the phosphor green band.~~ **AMENDED by amendment 74:** the strength ramp deliberately
    passes THROUGH the phosphor band, so hue distance can no longer be the separator at all. The
    separator is CHROMA — splash is ~10% saturation, the dullest point on the whole ramp is 63%. The
    test asserts the splash reads as an echo at NO strength on the ramp.
@@ -214,7 +214,7 @@ pre-cycle build (silhouettes, hues, ARPA vectors, `blipCool` grey ramp).
   UNTOUCHED. This cycle only ever REMOVES fields from frames.
 - No CONFIG combat tunable moves; `CONFIG.vision` gains no new constant.
 - **No design-doc edits in-cycle** — doc drift is ledgered for the Eric-gated 7-5 batch
-  (amendment 71).
+  (amendment 73).
 - Agents never commit. The orchestrator commits after independent verification.
 - Gate: `npm run check` (lint + type-check + all tests) from the repo root.
 
@@ -226,7 +226,7 @@ pre-cycle build (silhouettes, hues, ARPA vectors, `blipCool` grey ramp).
 (2 pre-existing `max-lines-per-function` warnings, baseline unchanged), three clean `tsc` projects,
 **130 test files / 2,975 tests**.
 
-**Late ruling folded in (amendments 72–73):** after seeing the monochrome grammar on water, Eric
+**Late ruling folded in (amendments 74–75):** after seeing the monochrome grammar on water, Eric
 ruled *"keep the radar sweep color green but change the detected entity color to the red/blue/green
 scale like in the garmin radar."* Return-mode echoes are now colored by RETURN STRENGTH on a
 blue→green→yellow→red ramp; the sweep, rings and all radar chrome stay phosphor green. Client-only,
@@ -273,7 +273,7 @@ Two reviewers ran against `8f231b6..HEAD`: a Fable adversarial hunter and a Code
   island and contained no LOS term of any kind — verified structurally (`segCircleHit`, the
   codebase's LOS primitive, appeared nowhere in the file). This violated the named Eric ruling of
   record (*"islands block EVERY sensor at ALL ranges"*, 2026-08-02) inside the very feature
-  amendment 67 justified by that ruling. Fixed: per-sample `segCircleHit` filter against the whole
+  amendment 69 justified by that ruling. Fixed: per-sample `segCircleHit` filter against the whole
   island field, self excluded by reference identity.
 - **Coast marks painted past the radar ring** (677u at radar 660) because range was gated on the
   island's nearest point while the near arc extends beyond it. Fixed: per-sample range check.
@@ -296,7 +296,7 @@ this cycle produced.
 - **The design thesis (AC1/AC2):** measured extents — BB bow-on **32u**, BB abeam **124u**, TB abeam
   **100u**. TB-abeam exceeds BB-bow-on, so the class bands genuinely overlap and no single extent
   value identifies a class. Full-aspect ranges: TB [9.0, 100.1], BB [32, 124.1], ML [20.0, 88.6].
-- **`ext` carries no build state (amendment 64):** fail-proven — planting an hp dependence in the
+- **`ext` carries no build state (amendment 66):** fail-proven — planting an hp dependence in the
   blip shaper failed exactly that test and nothing else.
 - **`blipGate` did not move:** pinned by a test asserting the paint SET is identical across
   grammars for the same seed and scene, with only the wire keys differing.

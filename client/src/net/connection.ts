@@ -270,7 +270,7 @@ const DEFAULT_RADAR_MODES: RadarModes = { grammar: 'silhouette', identity: 'rost
 
 /**
  * The room's radar grammar + identity, read off the welcome (cycle 50,
- * amendment 61). These are SERVER flags: the room picks one grammar for the
+ * amendment 63). These are SERVER flags: the room picks one grammar for the
  * whole match and announces it here, which is why `BlipEvent` can be a TAGLESS
  * union — every blip in a given match has the same shape and a per-event
  * discriminator would be dead weight on a 20Hz channel.

@@ -391,12 +391,12 @@ describe('(d) util/color hardening — masked, clamped, well-formed output', () 
 //
 // DESIGN.md's colors table forbids "phosphor-adjacent greens" for combat
 // effects, with the reason spelled out: *"a phosphor-ish splash is a fake
-// blip"*. Amendment 68 recorded that this constraint TIGHTENS under the `return`
+// blip"*. Amendment 70 recorded that this constraint TIGHTENS under the `return`
 // grammar rather than loosening — a monochrome green scope makes every radar
 // mark the same color, so a fall-of-shot `sp` splash competes against a field of
 // echoes rather than against hue-coded silhouettes.
 //
-// AMENDMENT 72 WIDENS THE PREMISE. Returns are no longer green: they run the
+// AMENDMENT 74 WIDENS THE PREMISE. Returns are no longer green: they run the
 // Garmin strength ramp, blue → green → yellow → red, so "not phosphor green" is
 // no longer sufficient — a splash must stay separable from an echo of ANY
 // strength. And the ramp passes deliberately THROUGH the phosphor band at its
@@ -448,7 +448,7 @@ function readsAsEcho(color: number): boolean {
   return hsv(color).sat >= BAND_MIN_SAT;
 }
 
-describe('(e) the splash stays separable from a phosphor return (amendment 68)', () => {
+describe('(e) the splash stays separable from a phosphor return (amendment 70)', () => {
   it('the band predicate has teeth — every phosphor blip token is inside it', () => {
     expect(inGreenBand(CLIENT_CONFIG.colors.phosphor)).toBe(true);
     expect(inGreenBand(CLIENT_CONFIG.colors.blipFresh)).toBe(true);
@@ -480,7 +480,7 @@ describe('(e) the splash stays separable from a phosphor return (amendment 68)',
     }
   });
 
-  // --- the same constraint against the WHOLE Garmin scale (amendment 72) -----
+  // --- the same constraint against the WHOLE Garmin scale (amendment 74) -----
 
   it('the ramp runs THROUGH the phosphor band, so hue distance cannot be the '
     + 'separator any more', () => {

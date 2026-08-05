@@ -1,5 +1,5 @@
 // Pins the `return`-grammar aspect primitive (the radar realism cycle, Eric
-// rulings 2026-08-05, amendments 60-66): perpendicularExtent is the ONE
+// rulings 2026-08-05, amendments 62-68): perpendicularExtent is the ONE
 // quantity a return-mode blip carries (`ext`), and the design thesis lives in
 // its geometry — a hull's echo width depends on ASPECT, so size stops mapping
 // cleanly to class. These tests pin the thesis itself (bow-on < abeam, the
@@ -45,7 +45,7 @@ describe('perpendicularExtent — the design thesis (AC1)', () => {
   });
 });
 
-describe('perpendicularExtent — no single extent value identifies a class (amendments 64, 66)', () => {
+describe('perpendicularExtent — no single extent value identifies a class (amendments 66, 68)', () => {
   it('a torpedo boat abeam out-paints a battleship bow-on, so the class bands overlap', () => {
     // The mysticism ohzie asked for, delivered by physics: the LIGHTEST hull
     // at its broadest aspect returns a BIGGER echo than the heaviest hull at

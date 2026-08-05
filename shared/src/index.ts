@@ -3,19 +3,19 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  26: THE RADAR REALISM CYCLE (Eric rulings 2026-08-05, amendments 60-71) —
- *  one bump covering "a blip may carry either shape" (amendment 70).
+ *  26: THE RADAR REALISM CYCLE (Eric rulings 2026-08-05, amendments 62-73) —
+ *  one bump covering "a blip may carry either shape" (amendment 72).
  *  BlipEvent becomes a two-member union with NO per-event discriminator:
  *  SilhouetteBlipEvent (the shipped 4.2 shape, byte-stable {k,id,x,y,t}
  *  prefix then cls/heading/speed, unchanged) | ReturnBlipEvent
  *  ({k,id,x,y,t,ext} — ext the hull silhouette's extent projected
  *  perpendicular to the observer→target bearing, pure aspect geometry in
- *  world units, no range term; amendment 64's anti-cheat bound: never boons,
+ *  world units, no range term; amendment 66's anti-cheat bound: never boons,
  *  hp, damage state, or any range-derivable flight quantity). The server
  *  picks ONE grammar per room and announces it in the welcome — WelcomeMsg
  *  gains required radarGrammar ('silhouette'|'return') and radarIdentity
  *  ('roster'|'pseudonym'), both defaulting to today's behavior so production
- *  is byte-identical until a server flag flips (amendment 61). CONFIG is
+ *  is byte-identical until a server flag flips (amendment 63). CONFIG is
  *  untouched (CONFIG.vision gains no new constant).
  *  25: WOUNDED SMOKE (Story 4.4, Eric rulings 2026-08-05) — new `sm`
  *  GameEvent ({k,x,y,tier}: a hull is hurt HERE, this hurt), the FIFTH

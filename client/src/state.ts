@@ -41,13 +41,13 @@ export interface GameState {
   killerId: string | null;
   /** True once the results broadcast arrived (drives auto-return on disconnect). */
   matchOver: boolean;
-  /** Which `BlipEvent` member this room emits (cycle 50, amendment 61) — a
+  /** Which `BlipEvent` member this room emits (cycle 50, amendment 63) — a
    *  SERVER flag, announced once in the welcome and constant for the match.
    *  Every blip narrows on this, never on which fields an event carries. */
   radarGrammar: RadarGrammar;
   /** Which id namespace blips carry — roster ids (today) or per-match
    *  pseudonyms. Independent of the grammar on purpose: presentation and
-   *  identity are orthogonal questions (amendment 61). Mirrored here for the
+   *  identity are orthogonal questions (amendment 63). Mirrored here for the
    *  same reason `radarGrammar` is — the client must never infer it. */
   radarIdentity: RadarIdentity;
 }

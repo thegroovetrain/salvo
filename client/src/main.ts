@@ -1373,7 +1373,7 @@ function buildGame(
 ): Game {
   const { welcome } = conn;
   // The room's radar grammar/identity, announced ONCE in the welcome (cycle 50,
-  // amendment 61 — the flags live on the SERVER). Read here at the one-way data
+  // amendment 63 — the flags live on the SERVER). Read here at the one-way data
   // flow's head: server mirror → sim state → render views.
   const radar = radarModes(welcome);
   // Late-bound: the input callbacks need game state that is assembled just below.
@@ -1424,7 +1424,7 @@ function buildGame(
     // uses — bright hue for a human, drone grey for the sentinel (255), null on
     // a roster miss so the paint boots amber and repaints when the hue lands
     // (render/hueLatch.ts). Under `return` the hue resolver is never called: an
-    // echo carries no identity to color (amendments 63/65).
+    // echo carries no identity to color (amendments 65/67).
     radar: new Radar(stage.layers.blip, stage.layers.sweep, (id) => (gRef ? feedColor(gRef, id) : null), radar.grammar),
     zone: new Zone(stage.layers.zone, stage.layers.vignette),
     hud: new Hud(stage.layers.hud),
@@ -1453,7 +1453,7 @@ function buildGame(
     ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
   };
   gRef = g;
-  // Coast returns (amendment 67) read the island field the client already
+  // Coast returns (amendment 69) read the island field the client already
   // rebuilt from the map seed — pure presentation, never on the wire.
   g.radar.setIslands(map.islands);
   g.clock.addSample(welcome.t);

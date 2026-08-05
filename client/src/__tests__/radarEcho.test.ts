@@ -6,7 +6,7 @@
 //   • A PAINT IS POSED FROM A REAL OBSERVER OR NOT AT ALL. Radar paints arrive
 //     on network cadence, not render cadence, so one can land before the first
 //     render (join) or in any later gap where the own pose is unknown. The blob
-//     is traced ONCE and then frozen for its whole ~12s decay (amendment 68), so
+//     is traced ONCE and then frozen for its whole ~12s decay (amendment 70), so
 //     a guessed observer is not a one-frame cosmetic — it is twelve seconds of a
 //     mark drawn unattenuated on a bearing the contact does not hold. Geometry
 //     therefore resolves LAZILY, on the first frame with a pose, and the mark
@@ -15,10 +15,10 @@
 //     born wrong, not to make it track the observer: a phosphor paint is a
 //     historical snapshot and must not re-pose as the ship moves.
 //   • COASTLINE MARKS STILL PAINT, in their own list with their own caps
-//     (amendment 67) — they need no deferral, since the island path only ever
+//     (amendment 69) — they need no deferral, since the island path only ever
 //     runs with a known pose.
 //   • THE ECHO'S HUE IS AN INFORMATION CHANNEL AND DECAY MUST NOT TOUCH IT
-//     (amendment 72). The color is baked into the mark's FILL AND STROKE at
+//     (amendment 74). The color is baked into the mark's FILL AND STROKE at
 //     acquire off the Garmin strength ramp, and the per-frame tint is the
 //     hue-PRESERVING grey multiplier `blipCool`. Wiring the tint back to
 //     `blipTint` — which is what this grammar did while its echoes were
@@ -140,7 +140,7 @@ describe('`return` echoes are posed from a real observer or not at all', () => {
   });
 });
 
-describe('coastline marks (amendment 67)', () => {
+describe('coastline marks (amendment 69)', () => {
   it('paints the near arc the beam crossed, into its own list', () => {
     const { radar } = makeRadar();
     radar.setIslands([{ x: 300, y: 0, r: 80 }]);
@@ -165,7 +165,7 @@ describe('coastline marks (amendment 67)', () => {
   });
 });
 
-// --- the Garmin echo scale on the scope (amendment 72) ----------------------
+// --- the Garmin echo scale on the scope (amendment 74) ----------------------
 
 const OWN = { x: 0, y: 0 };
 const RADAR_RANGE = CONFIG.vision.radar;
@@ -193,7 +193,7 @@ describe('a `return` echo is DRAWN in its strength color', () => {
   });
 });
 
-describe('decay preserves the echo HUE — the `blipTint` trap (amendment 72)', () => {
+describe('decay preserves the echo HUE — the `blipTint` trap (amendment 74)', () => {
   it('cools through a NEUTRAL GREY tint at every age', () => {
     // THIS IS THE REGRESSION GUARD. `blipTint` returns saturated phosphor green
     // (#66FFAA → #0A3D20), which is never neutral, so rewiring the `return` path
@@ -233,7 +233,7 @@ describe('decay preserves the echo HUE — the `blipTint` trap (amendment 72)', 
   });
 });
 
-describe('`silhouette` mode decays exactly as before (amendment 60: untouched)', () => {
+describe('`silhouette` mode decays exactly as before (amendment 62: untouched)', () => {
   const HUE = CLIENT_CONFIG.colors.players.cyan;
   const POSE: SilhouetteBlipEvent = {
     k: 'blip', id: 'trk-s', x: 0, y: 500, t: 1000, cls: 'battleship', heading: 0, speed: 20,

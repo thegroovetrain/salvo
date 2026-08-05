@@ -106,7 +106,7 @@ development_status:
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 50 (0.17.50) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
   # INTERSTITIAL 2026-08-05 (dev-auto cycle 50, 0.17.50) — THE RADAR REALISM CYCLE. PV 25->26.
-  # Amendments 60-71. NOT an epic story: driven by playtest feedback from ohzie (day-one player)
+  # Amendments 62-73. NOT an epic story: driven by playtest feedback from ohzie (day-one player)
   # — "It's almost too much information ... I can tell what you are and whether you're a player ...
   # when everyone's just a blip, chasing a blip is a risk, and risks get your blood up."
   # A SECOND radar grammar ships ALONGSIDE story 4-2's silhouette grammar, selected by two
@@ -118,14 +118,14 @@ development_status:
   # In `return` mode BlipEvent drops cls/heading/speed for ONE continuous `ext` scalar — the hull
   # silhouette's extent projected PERPENDICULAR to the observer->target bearing, so a battleship
   # bow-on (32u) paints smaller than a torpedo boat abeam (100u) and size STOPS MAPPING TO CLASS.
-  # Class becomes learnable-by-skill rather than stated (amendment 66, Eric: "if you learn what a
+  # Class becomes learnable-by-skill rather than stated (amendment 68, Eric: "if you learn what a
   # particular ship class looks like under radar, then that's player skill because it should not be
   # easy"), drones are INDISTINGUISHABLE from captains, and the ARPA speed vector dies — course and
   # speed demote from readout to INFERENCE off the 3-paint ghost track, which is exactly the ground
   # amendment 9 stood on. Islands now paint coast returns (client-only, from the map seed, near-arc
-  # with cross-island LOS). Hue is respent from IDENTITY to SENSOR PROVENANCE (amendment 63):
+  # with cross-island LOS). Hue is respent from IDENTITY to SENSOR PROVENANCE (amendment 65):
   # radar is monochrome phosphor green and AMBER IS RESERVED-BUT-UNASSIGNED for a future sound
-  # sensor — anything spending amber on the water must read amendment 69 first.
+  # sensor — anything spending amber on the water must read amendment 71 first.
   # THREE QUESTIONS DELIBERATELY LEFT OPEN by Eric, all ledgered in deferred-work.md: Bounty Bloom
   # (blocks/reshapes STORY 4-6 — see the note on that line), the colorblind assist under `return`
   # mode, and the sonar hue vs the listening ring.
@@ -149,7 +149,7 @@ development_status:
   # removal breaks the solo path (drones.test.ts / dronesSmoke.mjs at minHumans:1).
   4-4-wounded-smoke: done  # 2026-08-05 dev-auto cycle 49 (0.17.49); PV 24->25; amendments 40-50 ratified pre-implementation. `sm` is the FIFTH declared perception-invariant exception (joining 4.3's sp/hc/mz and cycle 45's sunk) and is a first TWICE OVER: the first enemy-HP-derived information ever put on the wire, and the first PERSISTENT fog-piercing signal (the other four are one-tick pulses). Eric's own question — "don't we have the HP bar turning yellow or red already?" — reframed the story mid-gate and moved him OFF his first answer (truesight-only texture) onto a real fog-piercing channel: smoke tiers ARE the own-vitals rail bands (light <50%, heavy <25%), so `CONFIG.damageBands` was PROMOTED to shared and `CLIENT_CONFIG.vitals` now REFERENCES it — exactly one set of 0.5/0.25 exists in the codebase and a future rail retune moves the smoke with it. Reach reuses `CONFIG.vision.muzzleFlash` (495u) rather than adding a fourth vision constant, so all new disclosure happens in the 330-495u annulus and radar stays the only long-range sensor. The plume is ATTACHED and drifting (not a track), NEUTRAL (no id/hue/class for anyone, so no correlation handle exists on the wire and the client synthesizes persistence the phosphor way), islands BLOCK it, you see your OWN plume, and every hull with hp smokes incl. drones. No audio twin — 4.7 owns that.
   4-5-the-foghorn: backlog
-  4-6-the-bounty: backlog  # SCOPE CHANGED 2026-08-05 (cycle 50, amendment 69): DESIGN.md:237's Bounty Bloom is specced as "an expanding ring in the leader's personal color around their class blip at true position" — and `HC_RADAR_GRAMMAR=return` deletes BOTH of those channels (personal hue on radar, and the class blip). 4-6 must resolve it, and Eric declined to rule at cycle 50's gate: "I don't know honestly because I haven't addressed the 'bounty' story at all yet. I'm not sure I want the kill leader's position to be known globally, for example." Note the deeper question that raises is NOT a rendering question — whether a global position broadcast should exist at all is a fog-of-war call that would touch the master perception invariant's declared-exception list (currently 5: sp/hc/mz/sunk/sm). Options surfaced and NOT chosen: a hueless expanding ring on an anonymous return (keeps "someone is leading, over there", loses "who"), a sanctioned identity exception on radar, or dropping the feature. See deferred-work.md, cycle-50 block.
+  4-6-the-bounty: backlog  # SCOPE CHANGED 2026-08-05 (cycle 50, amendment 71): DESIGN.md:237's Bounty Bloom is specced as "an expanding ring in the leader's personal color around their class blip at true position" — and `HC_RADAR_GRAMMAR=return` deletes BOTH of those channels (personal hue on radar, and the class blip). 4-6 must resolve it, and Eric declined to rule at cycle 50's gate: "I don't know honestly because I haven't addressed the 'bounty' story at all yet. I'm not sure I want the kill leader's position to be known globally, for example." Note the deeper question that raises is NOT a rendering question — whether a global position broadcast should exist at all is a fog-of-war call that would touch the master perception invariant's declared-exception list (currently 5: sp/hc/mz/sunk/sm). Options surfaced and NOT chosen: a hueless expanding ring on an anonymous return (keeps "someone is leading, over there", loses "who"), a sanctioned identity exception on radar, or dropping the feature. See deferred-work.md, cycle-50 block.
   4-7-the-real-time-sound-map: backlog
   4-8-attention-priority-the-readability-gate: backlog
   epic-4-retrospective: optional

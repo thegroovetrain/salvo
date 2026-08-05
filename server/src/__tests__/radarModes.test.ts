@@ -1,8 +1,8 @@
 // THE RADAR REALISM CYCLE — directed server-side coverage for the two mode
-// flags (amendments 60-66, spec R1/R2/R3): the pure env resolvers (fail-safe,
+// flags (amendments 62-68, spec R1/R2/R3): the pure env resolvers (fail-safe,
 // never fail-open), the default-mode byte regression (production is identical
 // until a flag flips), the `return` grammar's pose-channel DELETION and its
-// aspect-only `ext` scalar (amendment 64's anti-cheat bound, pinned), the
+// aspect-only `ext` scalar (amendment 66's anti-cheat bound, pinned), the
 // pseudonym identity namespace (stable per-match track ids off the server-
 // private stream), and the adapter seam (ArenaRoom reads process.env, World
 // never does; the welcome announces the modes). The behavioral fog-of-war
@@ -105,7 +105,7 @@ describe('default modes — production behavior is byte-identical until a flag f
   });
 });
 
-// ---------- the return grammar (AC5, R2, amendment 64) -------------------------
+// ---------- the return grammar (AC5, R2, amendment 66) -------------------------
 
 describe('return grammar — the pose deletion and the aspect-only ext scalar', () => {
   it('a return-mode frame contains NO cls, heading, or speed on ANY blip — and ext matches the shared aspect primitive', () => {
@@ -160,7 +160,7 @@ describe('return grammar — the pose deletion and the aspect-only ext scalar', 
     expect(abeam.ext).toBeGreaterThan(bowOn.ext);
   });
 
-  it("AMENDMENT 64's ANTI-CHEAT BOUND (fail-proven): ext is UNCHANGED by granting boons or changing hp/damage state", () => {
+  it("AMENDMENT 66's ANTI-CHEAT BOUND (fail-proven): ext is UNCHANGED by granting boons or changing hp/damage state", () => {
     const w = bareWorld(55, { radarGrammar: 'return' });
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 400, 0, 0.9, 'battleship');
