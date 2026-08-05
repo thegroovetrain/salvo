@@ -1311,11 +1311,16 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
  *    consumeHonk gates on `ship.alive`), so feedback here would teach a rule
  *    the sim does not have. Deliberately NOT gated on match phase either; see
  *    hornPressVerdict for why.
- *  - DENIED inside the cooldown → the shipped predicted `denied` TONE, and
- *    nothing on the wire. No `denialDedup` mark is registered, and that is a
- *    real difference from handleAbilityPress: the dedup exists to suppress a
- *    matching SERVER denial echo, and a honk has none — the server drops an
- *    early hornSeq silently — so a mark would sit unmatched forever.
+ *  - DENIED inside the cooldown → COMPLETELY SILENT (Eric ruling 2026-08-05):
+ *    no tone, no visual, nothing on the wire. The foghorn was the only
+ *    `denied`-tone site with no visual twin of its own — weapons flash the aim
+ *    arc, abilities flash their hotbar chip, and the horn has no surface to
+ *    flash. Rather than invent one, Eric dropped the orphan cue: the press has
+ *    no gameplay consequence, so nothing is owed to the player. No
+ *    `denialDedup` mark is registered either, and that is a real difference
+ *    from handleAbilityPress: the dedup exists to suppress a matching SERVER
+ *    denial echo, and a honk has none — the server drops an early hornSeq
+ *    silently — so a mark would sit unmatched forever.
  *  - ACCEPTED → bump the sampler's honk counter (it rides the next input, tick
  *    or tab-hide neutral alike) and arm the local cooldown.
  *
@@ -1332,11 +1337,11 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
 function handleFoghornPress(g: Game): void {
   const now = g.clock.serverNow();
   const verdict = hornPressVerdict(g.state.net.you?.alive ?? false, g.state.spectating, now, g.nextHonkAt);
-  if (verdict === 'ignore') return;
-  if (verdict === 'denied') {
-    g.audio.play('denied');
-    return;
-  }
+  // 'ignore' and 'denied' are both a no-op from here: a denied honk (Eric
+  // ruling 2026-08-05) gets NO side effect of any kind — no tone, no visual.
+  // See the doc comment above for why the tone was cut rather than given a
+  // visual twin.
+  if (verdict !== 'honk') return;
   g.sampler.honk();
   g.nextHonkAt = now + CONFIG.foghorn.cooldownMs;
 }
@@ -1663,6 +1668,15 @@ function bindGameRoom(g: Game, conn: Connection): void {
       g.denialDedup.clear();
     },
     resetPrime: () => g.keyboard.revertToGun(),
+    // Review fix: the server clears nextHonkAt on respawn/redeploy (world.ts);
+    // mirror it here so a captain who honks, dies, and respawns inside the old
+    // cooldown window can honk again immediately rather than having the client
+    // silently eat an otherwise-accepted press (a denied honk is now silent by
+    // design — see handleFoghornPress — so a stale gate would give no feedback
+    // at all).
+    resetHonkCooldown: () => {
+      g.nextHonkAt = 0;
+    },
     // The FEED's name lookup is the nullable resolver, NOT rosterName: a
     // departed vessel must render the feed's neutral UNKNOWN_VESSEL label
     // (roomBindings.handleSunk), never the raw-session-id fallback — the same
@@ -2237,7 +2251,11 @@ function renderAlive(
   // about it depends on the own ship — your own plume rides the same anonymous
   // row as everyone else's (amendment 46).
   g.smoke.render(now);
-  renderFoghorn(g, now);
+  // The chevron ray originates at the own hull's screen position — same rule
+  // as the fog hole just below, and for the same reason: the camera's forward
+  // lead means screen centre is NOT where the hull sits (review fix).
+  const foghornOrigin = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
+  renderFoghorn(g, now, foghornOrigin);
   // Fade each lit-zone glow by its timestamp expiry, and breathe the burning
   // zones' embers on the shared server-clock seconds (Story 2.9, amendment 50).
   g.litZones.render(now, now / 1000);
@@ -2310,7 +2328,10 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.effects.update(frameDt, null);
   g.radar.render(null, now); // hides the sweep + rings
   g.smoke.render(now); // a spectator receives every `sm` pulse — the plumes keep drifting
-  renderFoghorn(g, now); // ...and every `fh`, on the omniscient position path
+  // Spectator origin is the camera centre — honkBearing (roomBindings.ts)
+  // derives the spectator bearing from the camera centre too, so origin and
+  // bearing must agree (review fix).
+  renderFoghorn(g, now, g.camera.screenCenter); // ...and every `fh`, on the omniscient position path
   g.litZones.render(now, now / 1000); // spectators see all zones, doctrine and all
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
@@ -2360,9 +2381,17 @@ function hudHeight(g: Game): number {
  * Fed the RAW screen dimensions, not hudWidth/hudHeight: the chevron layer is a
  * sibling of `layers.hud` and deliberately outside the UI-scale transform (see
  * stage.ts), so its px inset is measured against the real viewport edge.
+ *
+ * `origin` is the screen point the bearing was actually measured FROM (review
+ * fix): the caller's own hull on screen while alive, the camera centre while
+ * spectating (honkBearing in roomBindings.ts derives the spectator bearing
+ * from the camera centre at receipt, so origin and bearing must agree).
+ * renderAlive computes it exactly like the fog hole just below it in that
+ * function — own pose if one rendered this frame, camera centre otherwise
+ * (a forceSnap gap); renderSpectate passes the camera centre outright.
  */
-function renderFoghorn(g: Game, now: number): void {
-  g.foghorn.render(now, g.stage.app.screen.width, g.stage.app.screen.height);
+function renderFoghorn(g: Game, now: number, origin: ScreenPoint): void {
+  g.foghorn.render(now, origin.x, origin.y, g.stage.app.screen.width, g.stage.app.screen.height);
 }
 
 /** A raw screen point projected into the HUD's coordinate space (hover/hit-test). */

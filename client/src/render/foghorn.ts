@@ -105,37 +105,97 @@ export function chevronWeight(v: HornTier | undefined): ChevronWeight {
 }
 
 /**
- * Pure: where a bearing's chevron sits on screen — the point where a ray from
- * the viewport centre along `(cos b, sin b)` meets a rectangle inset by
+ * Pure: where a bearing's chevron sits on screen — the point where a ray cast
+ * from `(originX, originY)` along `(cos b, sin b)` meets a rectangle inset by
  * `inset` px from every edge. See the file header for why the world bearing IS
  * the screen direction (no camera rotation, no y-flip).
  *
- * A viewport too small to hold the inset collapses the rectangle to the centre
- * rather than inverting it — the mark stacks in the middle, which is ugly and
- * honest, where a negative half-extent would fling it off screen entirely.
+ * THE ORIGIN IS NOT THE VIEWPORT CENTRE (Story 4.5 review fix). It is the
+ * screen point the bearing was actually measured FROM: the caller's own hull
+ * (`camera.worldToScreen`) while alive, or the camera centre while spectating
+ * — see `renderFoghorn` in main.ts. Alive, the camera's forward lead (up to
+ * 110u, camera.ts `leadOffset`) pushes the hull off screen centre, so anchoring
+ * the ray at the viewport centre would disagree with the exact bearing the
+ * chevron's own rotation draws.
+ *
+ * The origin can land anywhere on screen, including well outside the inset
+ * rectangle (an off-screen hull at extreme zoom): the ray-rectangle
+ * intersection below is general, not the old centre-only "half-extent along
+ * each axis" shortcut, so it still finds the first rectangle edge the ray
+ * reaches from wherever it starts. A viewport too small to hold the inset, or
+ * a ray that (from an off-rectangle origin) never reaches the rectangle at
+ * all, collapses to the viewport CENTRE rather than inverting or going
+ * unplaced — the mark stacks in the middle, which is ugly and honest, where a
+ * negative half-extent (or an unbounded ray) would fling it off screen or
+ * produce NaN.
  */
 export function chevronPoint(
   bearing: number,
+  originX: number,
+  originY: number,
   screenW: number,
   screenH: number,
   inset: number = CH.insetPx,
 ): ScreenPoint {
   const cx = screenW / 2;
   const cy = screenH / 2;
-  const hw = Math.max(0, cx - inset);
-  const hh = Math.max(0, cy - inset);
+  const centre = { x: cx, y: cy };
+  const xMin = inset;
+  const xMax = screenW - inset;
+  const yMin = inset;
+  const yMax = screenH - inset;
+  // Viewport too small to hold the inset: hold the centre rather than invert.
+  if (xMax <= xMin || yMax <= yMin) return centre;
   const dx = Math.cos(bearing);
   const dy = Math.sin(bearing);
-  // Ray-to-rectangle: the first edge the ray reaches is the smaller of the two
-  // axis crossings. An axis the ray does not travel along (|d| ~ 0) can never
-  // be the limiting one, so it contributes no scale.
+  if (!Number.isFinite(dx) || !Number.isFinite(dy)) return centre;
+  if (!Number.isFinite(originX) || !Number.isFinite(originY)) return centre;
+  const hit = firstRectHit(originX, originY, dx, dy, xMin, xMax, yMin, yMax);
+  return hit ?? centre;
+}
+
+/**
+ * Pure: the first point (forward along the ray, `t > 0`) where a ray from
+ * `(ox, oy)` in direction `(dx, dy)` crosses one of the four edges of
+ * `[xMin, xMax] x [yMin, yMax]` — checked against all four regardless of the
+ * origin's own position, so this is correct whether the origin sits inside the
+ * rectangle (the common alive case) or outside it (an off-screen hull). `null`
+ * when no edge is reached going forward (the ray points away from the box
+ * entirely), which the caller resolves to the viewport centre.
+ */
+function firstRectHit(
+  ox: number,
+  oy: number,
+  dx: number,
+  dy: number,
+  xMin: number,
+  xMax: number,
+  yMin: number,
+  yMax: number,
+): ScreenPoint | null {
   const EPS = 1e-9;
-  const tx = Math.abs(dx) > EPS ? hw / Math.abs(dx) : Infinity;
-  const ty = Math.abs(dy) > EPS ? hh / Math.abs(dy) : Infinity;
-  const t = Math.min(tx, ty);
-  // Both axes degenerate only if the bearing is not finite; hold the centre.
-  if (!Number.isFinite(t)) return { x: cx, y: cy };
-  return { x: cx + dx * t, y: cy + dy * t };
+  const TOL = 1e-6;
+  let bestT = Infinity;
+  let best: ScreenPoint | null = null;
+  const consider = (t: number, p: ScreenPoint): void => {
+    if (t > EPS && t < bestT && p.x >= xMin - TOL && p.x <= xMax + TOL && p.y >= yMin - TOL && p.y <= yMax + TOL) {
+      bestT = t;
+      best = p;
+    }
+  };
+  if (Math.abs(dx) > EPS) {
+    const tR = (xMax - ox) / dx;
+    consider(tR, { x: xMax, y: oy + tR * dy });
+    const tL = (xMin - ox) / dx;
+    consider(tL, { x: xMin, y: oy + tL * dy });
+  }
+  if (Math.abs(dy) > EPS) {
+    const tB = (yMax - oy) / dy;
+    consider(tB, { x: ox + tB * dx, y: yMax });
+    const tT = (yMin - oy) / dy;
+    consider(tT, { x: ox + tT * dx, y: yMin });
+  }
+  return best;
 }
 
 /**
@@ -271,9 +331,12 @@ export class Foghorn {
   /**
    * Per-frame: age every chevron against SERVER time, retiring the dead ones,
    * and re-pin the survivors to the current viewport (a resize must not strand
-   * a live bearing off screen).
+   * a live bearing off screen). `(originX, originY)` is the screen point the
+   * bearing was actually measured from — the caller's job (see `chevronPoint`
+   * and `renderFoghorn` in main.ts), not this adapter's: it just threads the
+   * origin through unchanged every frame.
    */
-  render(serverNow: number, screenW: number, screenH: number): void {
+  render(serverNow: number, originX: number, originY: number, screenW: number, screenH: number): void {
     // Read the motion level straight from the store each frame: the settings
     // panel can change it mid-match, and a cached copy would strand a chevron
     // mid-pop after the player turned motion off (smoke.ts:254-258).
@@ -290,7 +353,7 @@ export class Foghorn {
         this.marks.splice(i, 1);
         continue;
       }
-      const p = chevronPoint(m.bearing, screenW, screenH);
+      const p = chevronPoint(m.bearing, originX, originY, screenW, screenH);
       m.gfx.position.set(p.x, p.y);
       m.gfx.alpha = chevronAlpha(age, m.weight.alpha);
       m.gfx.scale.set(chevronPop(age, intensity));

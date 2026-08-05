@@ -191,6 +191,19 @@ export interface RoomBindingDeps {
    * the player's first click back (they expect the default gun).
    */
   resetPrime: () => void;
+  /**
+   * Reset the client's local foghorn cooldown gate (`Game.nextHonkAt`) to 0 —
+   * ready. Called on own spawn ONLY (review fix), mirroring the server, which
+   * clears `nextHonkAt` on both respawn and redeploy (world.ts). Deliberately
+   * NOT called on reconnect (unlike resetPrime): a reconnect resumes an
+   * in-progress life, and a mid-life cooldown the server still enforces must
+   * keep holding, or the client would show a false-ready foghorn the very next
+   * press would silently eat. Without this, dying and respawning inside the
+   * old cooldown window leaves the client eating an otherwise-accepted press
+   * with zero feedback (a denied honk is now silent by design — see
+   * handleFoghornPress in main.ts — so a stale local gate would be invisible).
+   */
+  resetHonkCooldown: () => void;
   /** Roster name lookup (public schema) for the kill feed: the synced callsign,
    *  or null on a roster miss (a victim/killer who already left the room).
    *  NEVER a raw session id — handleSunk substitutes the neutral
@@ -1086,6 +1099,7 @@ function handleSpawn(e: SpawnEvent, deps: RoomBindingDeps): void {
     deps.resetThrottle(); // spawn/teleport starts stopped — the setting doesn't carry over
     deps.ownBuffer.clear(); // teleport: snap, don't interpolate across the map
     deps.predictor.forceSnap(); // re-init prediction from the next frame
+    deps.resetHonkCooldown(); // the server clears nextHonkAt on respawn too (review fix)
     deps.onOwnSpawn(e.x, e.y);
   } else {
     deps.contacts.clear(e.id); // same snap rule for a respawning contact

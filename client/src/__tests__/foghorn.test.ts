@@ -20,6 +20,8 @@
 //     no per-source cap can exist. There is deliberately no key here to test.
 
 import { describe, it, expect, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { Container } from 'pixi.js';
 import { CONFIG, type FoghornEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -43,6 +45,15 @@ const TTL = CH.ttlMs;
 const W = 1366;
 const H = 768;
 const TAU = Math.PI * 2;
+
+// main.ts boots the whole app at module load (main().catch(...) at the bottom)
+// and is never imported by any test for exactly that reason — importing it
+// here would run the real Pixi/DOM boot sequence. `handleFoghornPress` is a
+// small, module-private function inside it, so the "denied is silent" review
+// fix below is pinned by reading the SOURCE, the same technique tokens.test.ts
+// uses for its guard scan. vitest's root is the client workspace dir, so
+// process.cwd() === client/.
+const MAIN_TS = readFileSync(join(process.cwd(), 'src', 'main.ts'), 'utf8');
 
 // --- the cooldown is single-sourced from shared CONFIG (amendment 41) --------
 
@@ -129,27 +140,32 @@ describe('chevronPoint — world bearing IS the screen direction (no y-flip)', (
   const inset = CH.insetPx;
   const cx = W / 2;
   const cy = H / 2;
+  // This suite pins bearing->direction with the origin AT the viewport centre
+  // — the one case where the pre-review-fix centre-anchored code and the
+  // current explicit-origin code must agree bit for bit. The off-centre
+  // origin behavior (the review fix itself) gets its own suite below.
+  const at = (bearing: number, sw = W, sh = H, ins = inset) => chevronPoint(bearing, sw / 2, sh / 2, sw, sh, ins);
 
   it('puts bearing 0 on the RIGHT edge, vertically centred', () => {
-    const p = chevronPoint(0, W, H, inset);
+    const p = at(0);
     expect(p.x).toBeCloseTo(W - inset, 6);
     expect(p.y).toBeCloseTo(cy, 6);
   });
 
   it('puts bearing π/2 on the BOTTOM edge — screen +y is DOWN, and so is world +y', () => {
-    const p = chevronPoint(Math.PI / 2, W, H, inset);
+    const p = at(Math.PI / 2);
     expect(p.x).toBeCloseTo(cx, 6);
     expect(p.y).toBeCloseTo(H - inset, 6);
   });
 
   it('puts bearing π on the LEFT edge', () => {
-    const p = chevronPoint(Math.PI, W, H, inset);
+    const p = at(Math.PI);
     expect(p.x).toBeCloseTo(inset, 6);
     expect(p.y).toBeCloseTo(cy, 6);
   });
 
   it('puts bearing 3π/2 on the TOP edge', () => {
-    const p = chevronPoint((3 * Math.PI) / 2, W, H, inset);
+    const p = at((3 * Math.PI) / 2);
     expect(p.x).toBeCloseTo(cx, 6);
     expect(p.y).toBeCloseTo(inset, 6);
   });
@@ -160,14 +176,14 @@ describe('chevronPoint — world bearing IS the screen direction (no y-flip)', (
     // at +y in world space is at +y on screen. If chevronPoint ever disagreed
     // with that, every bearing in the game would point at the wrong horizon.
     const b = bearingTo(0, 0, 0, 500); // straight "down" in world coords
-    const p = chevronPoint(b, W, H, inset);
+    const p = at(b);
     expect(p.y).toBeGreaterThan(cy);
     expect(p.x).toBeCloseTo(cx, 6);
   });
 
   it('never leaves the inset rectangle, for any bearing', () => {
     for (let i = 0; i < 64; i++) {
-      const p = chevronPoint((i / 64) * TAU, W, H, inset);
+      const p = at((i / 64) * TAU);
       expect(p.x).toBeGreaterThanOrEqual(inset - 1e-6);
       expect(p.x).toBeLessThanOrEqual(W - inset + 1e-6);
       expect(p.y).toBeGreaterThanOrEqual(inset - 1e-6);
@@ -177,7 +193,7 @@ describe('chevronPoint — world bearing IS the screen direction (no y-flip)', (
 
   it('touches an edge for every bearing — the mark is PINNED, never floating', () => {
     for (let i = 0; i < 64; i++) {
-      const p = chevronPoint((i / 64) * TAU, W, H, inset);
+      const p = at((i / 64) * TAU);
       const onEdge =
         Math.min(Math.abs(p.x - inset), Math.abs(p.x - (W - inset))) < 1e-6 ||
         Math.min(Math.abs(p.y - inset), Math.abs(p.y - (H - inset))) < 1e-6;
@@ -186,19 +202,83 @@ describe('chevronPoint — world bearing IS the screen direction (no y-flip)', (
   });
 
   it('is translational under a viewport change (the mark tracks the real edge)', () => {
-    const a = chevronPoint(0, W, H, inset);
-    const b = chevronPoint(0, W * 2, H, inset);
+    const a = at(0);
+    const b = at(0, W * 2, H);
     expect(b.x - a.x).toBeCloseTo(W, 6);
   });
 
   it('collapses to the centre rather than inverting on a viewport smaller than the inset', () => {
-    const p = chevronPoint(0, 40, 40, inset);
+    const p = at(0, 40, 40);
     expect(p.x).toBeCloseTo(20, 6);
     expect(p.y).toBeCloseTo(20, 6);
   });
 
   it('holds the centre for a non-finite bearing instead of producing NaN coordinates', () => {
-    const p = chevronPoint(Number.NaN, W, H, inset);
+    const p = at(Number.NaN);
+    expect(Number.isFinite(p.x)).toBe(true);
+    expect(Number.isFinite(p.y)).toBe(true);
+  });
+});
+
+// --- THE OBSERVER ORIGIN (review fix) ----------------------------------------
+//
+// The ray must originate at the point the bearing was actually measured FROM
+// — the caller's own hull on screen while alive, since the camera's forward
+// lead (up to 110u, camera.ts leadOffset) pushes the hull off screen centre.
+// The pre-fix code always cast from the viewport centre regardless, so the
+// mark's edge position disagreed with the exact bearing its own rotation drew
+// whenever the origin was not the centre.
+
+describe('chevronPoint — the ray originates at an explicit OBSERVER origin (review fix)', () => {
+  const inset = CH.insetPx;
+
+  it('a due-EAST bearing from an origin well LEFT of centre lands on the right edge AT THE ORIGIN\'S OWN Y — not viewport mid-height', () => {
+    const originX = 200; // well left of W/2 (683)
+    const originY = 100; // far from H/2 (384) — the centre-anchored bug would land here instead
+    const p = chevronPoint(0, originX, originY, W, H, inset);
+    expect(p.x).toBeCloseTo(W - inset, 6);
+    expect(p.y).toBeCloseTo(originY, 6);
+    expect(p.y).not.toBeCloseTo(H / 2, 1);
+  });
+
+  it('a due-SOUTH bearing from an origin inside the rect lands on the bottom edge AT THE ORIGIN\'S OWN X', () => {
+    const originX = 300;
+    const originY = 100;
+    const p = chevronPoint(Math.PI / 2, originX, originY, W, H, inset);
+    expect(p.y).toBeCloseTo(H - inset, 6);
+    expect(p.x).toBeCloseTo(originX, 6);
+  });
+
+  it('an origin OUTSIDE the inset rectangle entirely still lands the mark ON the rectangle — never NaN, never off the viewport', () => {
+    // Own hull off-screen at extreme zoom: origin sits left of the whole
+    // viewport, bearing due east (back toward the visible screen).
+    const originX = -500;
+    const originY = H / 2;
+    const p = chevronPoint(0, originX, originY, W, H, inset);
+    expect(Number.isFinite(p.x)).toBe(true);
+    expect(Number.isFinite(p.y)).toBe(true);
+    expect(p.x).toBeGreaterThanOrEqual(0);
+    expect(p.x).toBeLessThanOrEqual(W);
+    expect(p.y).toBeGreaterThanOrEqual(0);
+    expect(p.y).toBeLessThanOrEqual(H);
+    // Specifically: the LEFT inset edge is the first boundary the ray crosses
+    // moving rightward from off-screen — not the centre, and not the far edge.
+    expect(p.x).toBeCloseTo(inset, 6);
+    expect(p.y).toBeCloseTo(H / 2, 6);
+  });
+
+  it('an off-rectangle origin whose bearing points AWAY from the rect collapses to the viewport centre, never NaN', () => {
+    const originX = -500;
+    const originY = H / 2;
+    const p = chevronPoint(Math.PI, originX, originY, W, H, inset); // due WEST — further off-screen
+    expect(Number.isFinite(p.x)).toBe(true);
+    expect(Number.isFinite(p.y)).toBe(true);
+    expect(p.x).toBeCloseTo(W / 2, 6);
+    expect(p.y).toBeCloseTo(H / 2, 6);
+  });
+
+  it('a non-finite origin holds the centre instead of poisoning the point with NaN', () => {
+    const p = chevronPoint(0, Number.NaN, 100, W, H, inset);
     expect(Number.isFinite(p.x)).toBe(true);
     expect(Number.isFinite(p.y)).toBe(true);
   });
@@ -305,9 +385,9 @@ describe("motion: 'off' removes MOTION, never INFORMATION (UX-DR36, amendment 55
   });
 
   it('keeps DIRECTION: the placement takes no motion input whatsoever', () => {
-    expect(chevronPoint.length).toBe(3); // bearing, w, h — inset defaulted, no level
-    const off = chevronPoint(1.1, W, H);
-    const same = chevronPoint(1.1, W, H);
+    expect(chevronPoint.length).toBe(5); // bearing, originX, originY, w, h — inset defaulted, no level
+    const off = chevronPoint(1.1, W / 2, H / 2, W, H);
+    const same = chevronPoint(1.1, W / 2, H / 2, W, H);
     expect(off).toEqual(same);
   });
 
@@ -324,7 +404,7 @@ describe("motion: 'off' removes MOTION, never INFORMATION (UX-DR36, amendment 55
     const age = 60;
     expect(chevronPop(age, 0)).toBe(1); // gone
     expect(chevronAlpha(age, 0.9)).toBeGreaterThan(0); // stays
-    expect(chevronPoint(2.2, W, H)).toEqual(chevronPoint(2.2, W, H)); // stays
+    expect(chevronPoint(2.2, W / 2, H / 2, W, H)).toEqual(chevronPoint(2.2, W / 2, H / 2, W, H)); // stays
   });
 });
 
@@ -355,9 +435,9 @@ describe('Foghorn — the pooled chevron list', () => {
     const f = mk();
     f.onHonk(0, 1, 1000);
     expect(f.liveMarks).toBe(1);
-    f.render(1000 + TTL - 1, W, H);
+    f.render(1000 + TTL - 1, W / 2, H / 2, W, H);
     expect(f.liveMarks).toBe(1);
-    f.render(1000 + TTL, W, H);
+    f.render(1000 + TTL, W / 2, H / 2, W, H);
     expect(f.liveMarks).toBe(0);
   });
 
@@ -366,7 +446,7 @@ describe('Foghorn — the pooled chevron list', () => {
     // that would do the accumulating is throttled while hidden.
     const f = mk();
     f.onHonk(0, 1, 5000);
-    f.render(5000 + TTL * 10, W, H); // one frame, ten lifetimes later
+    f.render(5000 + TTL * 10, W / 2, H / 2, W, H); // one frame, ten lifetimes later
     expect(f.liveMarks).toBe(0);
   });
 
@@ -394,10 +474,10 @@ describe('Foghorn — the pooled chevron list', () => {
 
   it('survives a render with no marks and a render after a clear', () => {
     const f = mk();
-    expect(() => f.render(1000, W, H)).not.toThrow();
+    expect(() => f.render(1000, W / 2, H / 2, W, H)).not.toThrow();
     f.onHonk(0, 1, 1000);
     f.clear();
-    expect(() => f.render(1000, W, H)).not.toThrow();
+    expect(() => f.render(1000, W / 2, H / 2, W, H)).not.toThrow();
   });
 
   it('skips the spawn entirely while the tab is hidden', () => {
@@ -412,7 +492,7 @@ describe('Foghorn — the pooled chevron list', () => {
     const f = mk();
     f.onHonk(Math.PI, 3, 1000);
     expect(f.liveMarks).toBe(1);
-    f.render(1000, W, H);
+    f.render(1000, W / 2, H / 2, W, H);
     expect(f.liveMarks).toBe(1);
   });
 });
@@ -552,5 +632,40 @@ describe("roomBindings case 'fh' — three shapes, three behaviors", () => {
     for (const arg of onHonk.mock.calls[0]) {
       expect(typeof arg === 'number' || arg === undefined).toBe(true);
     }
+  });
+});
+
+// --- A DENIED HONK IS COMPLETELY SILENT (Eric ruling 2026-08-05, review fix) -
+//
+// The foghorn was the only `denied`-tone site in the client with no visual
+// twin of its own — weapons flash the aim arc, abilities flash their hotbar
+// chip, the horn has no surface to flash. Rather than invent one, Eric ruled
+// the orphan cue out entirely: an early F press is simply ignored, with no
+// side effect of any kind. `handleFoghornPress` (main.ts) is module-private
+// and untestable by import (see MAIN_TS above), so this pins the source text
+// of that one function rather than its runtime behavior.
+
+describe('a denied honk press is COMPLETELY SILENT (Eric ruling 2026-08-05, review fix)', () => {
+  it('handleFoghornPress calls audio.play NOWHERE in its body', () => {
+    const start = MAIN_TS.indexOf('function handleFoghornPress(g: Game): void {');
+    expect(start).toBeGreaterThan(-1); // the function must still exist under this name/signature
+    const end = MAIN_TS.indexOf('\n}', start);
+    expect(end).toBeGreaterThan(start);
+    const body = MAIN_TS.slice(start, end);
+    // The old code played the shipped `denied` cue on the denied branch —
+    // this is the exact call this ruling deletes. A weapon/ability press
+    // legitimately calls audio.play('denied') elsewhere in main.ts; this pins
+    // ONLY the foghorn handler's own body.
+    expect(body).not.toMatch(/audio\.play\(/);
+  });
+
+  it('still advances the wire counter and arms the cooldown on ACCEPT (unchanged)', () => {
+    const start = MAIN_TS.indexOf('function handleFoghornPress(g: Game): void {');
+    const end = MAIN_TS.indexOf('\n}', start);
+    const body = MAIN_TS.slice(start, end);
+    // The ACCEPTED path is untouched by this ruling — only the denied branch's
+    // side effect was removed.
+    expect(body).toContain('g.sampler.honk()');
+    expect(body).toContain('g.nextHonkAt = now + CONFIG.foghorn.cooldownMs');
   });
 });
