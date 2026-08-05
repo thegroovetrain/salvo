@@ -242,7 +242,7 @@ export function segPolygonHit(
 /**
  * The polygon's TOTAL extent projected onto the axis perpendicular to
  * `bearing` (radians): the width the hull subtends across an observer's line
- * of sight — the `return`-grammar echo-size primitive (amendment 55). A
+ * of sight — the `return`-grammar echo-size primitive (amendment 64). A
  * battleship bow-on (bearing along the hull axis) projects its beam; the same
  * hull abeam projects its full length. Max−min of the projections, so it is
  * translation-invariant (pass a world-posed polygon or a local one, same

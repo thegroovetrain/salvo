@@ -3,7 +3,7 @@
 // chartRoot (fog-immune, camera-transformed), so blips/sweep stay readable
 // over the fogged ocean while remaining in world coordinates.
 //
-// TWO RADAR GRAMMARS LIVE HERE (cycle 50, amendments 51-59 + 63), selected by the
+// TWO RADAR GRAMMARS LIVE HERE (cycle 50, amendments 60-68 + 63), selected by the
 // SERVER and announced once in the welcome handshake. The room picks one for the
 // whole match, so `BlipEvent` is a TAGLESS union and this file narrows on the
 // announced mode — never by probing which fields an event carries.
@@ -24,7 +24,7 @@
 //   • an ARPA speed vector (render/blipMarks.ts), astern for a reversing hull.
 //
 // `return` — THE REALISM GRAMMAR, reversed onto the scope on playtest evidence
-// (amendment 51). A paint is an ECHO: a seeded irregular blob (render/
+// (amendment 60). A paint is an ECHO: a seeded irregular blob (render/
 // returnMarks.ts) whose channels are SIZE and HUE — both return strength, the
 // wire's aspect-projected `ext` attenuated by range here at render time — plus
 // ALPHA (age). No silhouette, no personal hue, no ARPA vector — the wire does
@@ -33,13 +33,13 @@
 // persisted paints, which is precisely the justification amendment 9 gave that
 // persistence in the first place.
 //
-// THE ECHO WEARS THE GARMIN SCALE, THE SWEEP DOES NOT (amendment 63, superseding
-// amendment 54's monochrome clause for returns only). Weak → strong runs blue →
+// THE ECHO WEARS THE GARMIN SCALE, THE SWEEP DOES NOT (amendment 72, superseding
+// amendment 63's monochrome clause for returns only). Weak → strong runs blue →
 // green → yellow → red off `returnStrength`/`echoColor`; the sweep wedge, both
 // range rings and every other piece of radar chrome stay phosphor green. Coast
 // marks take the same scale — terrain is just a strong return, which is why a
 // real marine plate is mostly green and red coastline. Islands paint their near
-// arc here too (amendment 58) — pure client presentation off the map seed, no
+// arc here too (amendment 67) — pure client presentation off the map seed, no
 // wire field, no server involvement.
 //
 // Blips persist independent of the beam graphic: each `blip` event acquires its
@@ -140,7 +140,7 @@ interface LiveBlip {
   /** `silhouette` pose + hue latch, or null for a `return`-grammar echo. This
    *  is the ONLY per-blip branch: a null pose means blob geometry in the Garmin
    *  strength color, a present one means outline + personal hue. Both cool
-   *  through the same hue-preserving tint (amendment 63). */
+   *  through the same hue-preserving tint (amendment 72). */
   pose: BlipPose | null;
   /** Pending `return` geometry, or null when there is nothing to resolve (every
    *  `silhouette` blip, every coast mark, and every echo already posed). */
@@ -164,7 +164,7 @@ export class Radar {
   private readonly rings: Graphics;
   private readonly pool: Pool<Graphics>;
   private readonly blips: LiveBlip[] = [];
-  /** Coast returns (amendment 58) — a SEPARATE list with its own caps, so an
+  /** Coast returns (amendment 67) — a SEPARATE list with its own caps, so an
    *  island field can never evict a ship paint from the contact scope. Empty in
    *  `silhouette` mode. */
   private readonly marks: LiveBlip[] = [];
@@ -242,7 +242,7 @@ export class Radar {
   }
 
   /**
-   * Adopt the client-known island field for coast returns (amendment 58).
+   * Adopt the client-known island field for coast returns (amendment 67).
    * Islands are rebuilt locally from `welcome.mapSeed`, so this carries ZERO
    * disclosure: no wire field, no server work, no perception-invariant surface.
    * A no-op in `silhouette` mode, where nothing reads it.
@@ -336,7 +336,7 @@ export class Radar {
     this.enroll(this.blips, b, CLIENT_CONFIG.blip.paintsPerContact, MAX_LIVE_BLIPS);
   }
 
-  /** The `return` acquire path for a COASTLINE mark (amendment 58). Its geometry
+  /** The `return` acquire path for a COASTLINE mark (amendment 67). Its geometry
    *  needs no deferral: `paintIslands` only ever runs with a known own pose. */
   private addCoastMark(m: ReturnMark, t: number, perKey: number, cap: number): void {
     const b = this.acquireBlip(m.x, m.y, m.key, t, null);
@@ -347,7 +347,7 @@ export class Radar {
   /**
    * Resolve a pending echo the FIRST time an own pose is actually available,
    * draw it once, and reveal it. Frozen from then on — a phosphor paint is a
-   * historical snapshot (amendment 59), so it must NOT re-pose as the observer
+   * historical snapshot (amendment 68), so it must NOT re-pose as the observer
    * moves; the deferral exists only to stop a mark being born wrong.
    */
   private resolveEcho(b: LiveBlip): void {
@@ -433,9 +433,9 @@ export class Radar {
 
   /**
    * Draw one `return` echo: a seeded irregular blob, FILLED with a 1px edge, in
-   * the Garmin strength color (amendment 63).
+   * the Garmin strength color (amendment 72).
    *
-   * Filled, not outlined, because that is what an echo is — and amendment 60
+   * Filled, not outlined, because that is what an echo is — and amendment 69
    * leaves the colorblind assist's outline-boost clause inert here for exactly
    * that reason (the assist's raised decayed-alpha floor still applies, via
    * `updateBlips`). The strength color is baked into the FILL AND STROKE, not
@@ -450,7 +450,7 @@ export class Radar {
    * two readings of it) and dual-codes the channel for CVD.
    *
    * Called ONCE at acquire and never again — the blob is stable for its whole
-   * decay (amendment 59), and the per-frame cost stays one alpha + one tint.
+   * decay (amendment 68), and the per-frame cost stays one alpha + one tint.
    */
   private drawReturn(b: LiveBlip, m: ReturnMark): void {
     const o = CLIENT_CONFIG.blip.returns;
@@ -514,7 +514,7 @@ export class Radar {
   }
 
   /**
-   * Coast returns for the arc the beam swept this frame (amendment 58).
+   * Coast returns for the arc the beam swept this frame (amendment 67).
    *
    * PURE PRESENTATION — the island field is rebuilt locally from the map seed,
    * so nothing here touches the wire or the perception invariant. Only the NEAR
@@ -545,7 +545,7 @@ export class Radar {
     // Colorblind assist raises the minimum decayed-blip opacity (amendment 18):
     // a cooling contact stays readable instead of dimming into the fog. This
     // half of the assist survives into `return` mode; the outline-boost half is
-    // inert there (amendment 60 — a blob has no outline).
+    // inert there (amendment 69 — a blob has no outline).
     const assist = this.assist;
     const d: DecayFrame = {
       life,
@@ -561,7 +561,7 @@ export class Radar {
   /** Age one list of live marks: alpha, tint, and release at end of life.
    *
    *  BOTH GRAMMARS COOL THROUGH THE HUE-PRESERVING GREY MULTIPLIER (amendment
-   *  63). They used to part company here — a posed blip kept its owner's hue
+   *  72). They used to part company here — a posed blip kept its owner's hue
    *  under `blipCool` while a monochrome echo ran the color-SETTING `blipTint`.
    *  The echo now carries the Garmin strength ramp, so it has a hue to protect
    *  too, and `blipTint` would overwrite it with green inside the first ~30% of

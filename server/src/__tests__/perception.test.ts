@@ -1023,7 +1023,7 @@ function rosterIdOf(w: World, blipId: string): string | undefined {
   return undefined;
 }
 
-/** Test-local `ext` oracle (radar realism cycle, amendment 55): the hull
+/** Test-local `ext` oracle (radar realism cycle, amendment 64): the hull
  *  silhouette rotated by `heading`, projected on the axis PERPENDICULAR to
  *  the observer→target bearing, max−min. Deliberately reimplemented from the
  *  raw vert list (hullSilhouette is the single shared geometry source) —
@@ -1047,7 +1047,7 @@ function extOracle(cls: HullId, heading: number, brg: number): number {
 
 /** Grammar-branched pose check for one blip against a (cls, heading, speed)
  *  truth source: silhouette mode carries the values verbatim (Story 4.2);
- *  return mode carries ONLY the aspect-projected `ext` (amendment 55 — never
+ *  return mode carries ONLY the aspect-projected `ext` (amendment 64 — never
  *  a pose field), verified against the independent oracle above at the
  *  observer→paint bearing. */
 function blipPoseMatches(w: World, me: ShipRecord, ev: BlipEvent, cls: HullId, heading: number, speed: number): boolean {
@@ -1063,7 +1063,7 @@ function blipPoseMatches(w: World, me: ShipRecord, ev: BlipEvent, cls: HullId, h
  *  exactly the blip position passing the ship-blip predicate, carrying the
  *  ship's LIVE pose verbatim (Story 4.2 — cls/heading/speed must be the raw
  *  sim values; anything derived or shifted fails the invariant) or, in
- *  `return` grammar, its aspect extent alone (amendment 55). */
+ *  `return` grammar, its aspect extent alone (amendment 64). */
 function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   const rosterId = rosterIdOf(w, ev.id);
   if (rosterId === undefined) return false;
@@ -1331,7 +1331,7 @@ function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
   EVENT_VERIFIERS[e.k](w, me, e);
 }
 
-/** Every flag combination the radar realism cycle ships (amendment 52 — the
+/** Every flag combination the radar realism cycle ships (amendment 61 — the
  *  two modes are orthogonal, so the invariant must hold under all four).
  *  Labels feed it.each; the default combo runs FIRST so a regression in the
  *  shipped behavior reads first in the output. */

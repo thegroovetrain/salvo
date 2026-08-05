@@ -1,5 +1,5 @@
 // Pure `return`-grammar echo math (no Pixi import — unit-tested). Cycle 50,
-// amendments 51-59 + 63: a radar paint stops being a hull silhouette and becomes
+// amendments 60-68 + 63: a radar paint stops being a hull silhouette and becomes
 // an ECHO — a fuzzy irregular blob whose channels are SIZE and HUE (both return
 // strength) and ALPHA (age). This module owns every number that decision needs; the
 // Pixi adapter (render/radar.ts) only traces what these functions return, so
@@ -21,17 +21,17 @@
 //     term. The falloff is applied HERE, at render time, because the client
 //     already knows both its own position and the paint position — so the wire
 //     stays minimal and leaks strictly less. That also keeps the curve where
-//     amendment 61 requires it: a presentation knob in CLIENT_CONFIG, never a
+//     amendment 70 requires it: a presentation knob in CLIENT_CONFIG, never a
 //     new constant in shared `CONFIG.vision`.
 //
-//   • THE SEEDED BLOB (amendment 59). Jitter derives from (track id, paint
+//   • THE SEEDED BLOB (amendment 68). Jitter derives from (track id, paint
 //     time), so a given paint is STABLE across its entire decay while the NEXT
 //     paint of the same contact differs — real scope shimmer without
 //     frame-to-frame noise, and no two returns of one hull ever look identical.
 //     That irregularity is the POINT: it is what stops a player reading class
-//     off a shape, which is the whole reversal amendment 51 ordered.
+//     off a shape, which is the whole reversal amendment 60 ordered.
 //
-//   • ISLAND RETURNS (amendment 58, ruling R4). Islands are already client-known
+//   • ISLAND RETURNS (amendment 67, ruling R4). Islands are already client-known
 //     from the map seed (`generateMap`), so a coastline echo is PURE
 //     PRESENTATION — no wire field, no server work, no perception-invariant
 //     surface. Only the NEAR ARC paints; everything behind stays shadow, which
@@ -42,7 +42,7 @@
 //     same primitive `server/src/game/signals.ts:losClear` gates ship paints
 //     with). A coast mark a ship could not blip from must not paint either.
 //
-//   • THE GARMIN ECHO SCALE (amendment 63). `returnStrength` reduces an echo to
+//   • THE GARMIN ECHO SCALE (amendment 72). `returnStrength` reduces an echo to
 //     one [0,1] scalar and `echoColor` maps it blue → green → yellow → red off
 //     the CLIENT_CONFIG stop table. It is the SAME quantity size carries, on
 //     purpose: on a real set both fall out of the echo, and the redundancy
@@ -146,7 +146,7 @@ export interface EchoSize {
  *
  * STRICTLY DECREASING FOR EVERY dist >= 0, with no clamp anywhere: a hard
  * `Math.max` floor would make two different ranges paint identically, which is
- * exactly the collision the three-channel split (amendment 53) exists to avoid —
+ * exactly the collision the three-channel split (amendment 62) exists to avoid —
  * size means return strength, so two strengths must not share a size by
  * accident. The floor is therefore an ASYMPTOTE, blended in:
  *
@@ -170,7 +170,7 @@ export function rangeAttenuation(dist: number, radarRange: number, o: ReturnOpts
 /**
  * The drawn semi-axes for an echo of aspect extent `ext` at `dist`.
  *
- * `across` is the information channel (amendment 55: hull geometry × relative
+ * `across` is the information channel (amendment 64: hull geometry × relative
  * bearing × range, and NOTHING else — never boons, hp, or damage state, none of
  * which reach this function). `along` is pure presentation: a scope's range
  * smear, floored so a needle bow-on still has a body.
@@ -187,7 +187,7 @@ export function echoSize(
 
 /**
  * How strong this echo is, on [0,1] — the input to the Garmin color ramp
- * (amendment 63).
+ * (amendment 72).
  *
  * DELIBERATELY THE SAME QUANTITY `echoSize` USES: aspect-projected `ext`
  * attenuated by range, normalized against `strongExtent`. Color and size are one
@@ -198,7 +198,7 @@ export function echoSize(
  * The `minExtent` floor that `echoSize` applies is NOT applied here: that floor
  * is a drawability clamp (a needle bow-on at the rim must still have a body), and
  * folding it in would make every sub-floor echo share one color as well as one
- * size — a second collision of the kind amendment 53 exists to prevent. Strength
+ * size — a second collision of the kind amendment 62 exists to prevent. Strength
  * therefore keeps running down to 0 under the size floor, so the weakest returns
  * still separate on hue after they stop separating on size.
  *
@@ -218,7 +218,7 @@ export function returnStrength(
 /**
  * The echo color for a strength on [0,1]: piecewise-linear through `ramp`.
  *
- * Weak → strong runs blue → green → yellow → red (amendment 63). Stops must be
+ * Weak → strong runs blue → green → yellow → red (amendment 72). Stops must be
  * sorted ascending by `at`; strengths outside the ends clamp to the end colors,
  * so a ramp that does not start at 0 or end at 1 still answers everywhere.
  *
@@ -250,7 +250,7 @@ export function echoColor(strength: number, ramp: readonly EchoStop[]): number {
  * Both inputs matter and neither may be dropped. The KEY is what keeps every
  * echo of one contact from being a re-roll of the same shape; the TIME is what
  * makes the next paint of that same contact differ. Together they give
- * amendment 59's exact contract — stable while it decays, different next sweep.
+ * amendment 68's exact contract — stable while it decays, different next sweep.
  *
  * FNV-1a over the key, the time folded in with a mixing constant, then a final
  * xorshift-multiply avalanche so a 50ms tick step (the smallest change the

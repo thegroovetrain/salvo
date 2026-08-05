@@ -62,7 +62,7 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     decoys: world.decoys,
-    // Radar realism cycle (amendment 52): the room's modes + the pseudonym
+    // Radar realism cycle (amendment 61): the room's modes + the pseudonym
     // resolver, threaded from the World (which the ADAPTER configured — no
     // process.env anywhere on this path).
     radarGrammar: world.radarGrammar,

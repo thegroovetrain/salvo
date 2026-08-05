@@ -1,14 +1,14 @@
 // `return`-grammar echo math (render/returnMarks.ts) — the pure core the Pixi
-// adapter traces. Cycle 50, amendments 51-59.
+// adapter traces. Cycle 50, amendments 60-68.
 //
 // Four things in here are CONTRACT, not coverage:
-//   • THE SEED IS (track key, paint time) AND BOTH HALVES MATTER. Amendment 59
+//   • THE SEED IS (track key, paint time) AND BOTH HALVES MATTER. Amendment 68
 //     asked for "stable while it decays, different next sweep". Drop the time
 //     and every echo of a contact is the same shape forever; drop the key and
 //     two contacts painted on the same tick are twins. Both failure modes are
 //     pinned below.
 //   • RANGE ATTENUATION IS STRICTLY MONOTONE, WITH NO CLAMP. Size is the
-//     return-strength channel and nothing else shares it (amendment 53), so two
+//     return-strength channel and nothing else shares it (amendment 62), so two
 //     different ranges must never resolve to one drawn size. The floor is an
 //     asymptote for exactly that reason.
 //   • ONLY THE NEAR ARC PAINTS. Everything behind an island is shadow — the
@@ -16,7 +16,7 @@
 //     The test states it geometrically: every sampled coast point is strictly
 //     nearer the observer than the island's own centre.
 //   • THE DEFAULT GRAMMAR IS UNCHANGED. `silhouette`/`roster` is what production
-//     runs until a server flag flips (amendment 52), so the fallbacks are pinned
+//     runs until a server flag flips (amendment 61), so the fallbacks are pinned
 //     as hard as the new path is.
 
 import { describe, it, expect } from 'vitest';
@@ -52,7 +52,7 @@ function same(a: readonly Vec2[], b: readonly Vec2[]): boolean {
 
 // --- AC8: a paint is stable while it decays, and the next one differs --------
 
-describe('blob determinism (amendment 59)', () => {
+describe('blob determinism (amendment 68)', () => {
   it('the SAME (track key, paint time) yields a byte-identical polygon', () => {
     // This is what makes a paint stable across its whole 3-sweep decay: the
     // adapter draws once at acquire, but any redraw must land on the same shape.
@@ -135,7 +135,7 @@ describe('range attenuation (ruling R2)', () => {
 
   it('is STRICTLY decreasing in range, with no clamp flattening it', () => {
     // No two ranges may share a drawn size: size is the return-strength channel
-    // and brightness is already spent on age (amendment 53).
+    // and brightness is already spent on age (amendment 62).
     let prev = Infinity;
     for (let d = 0; d <= 4 * RADAR; d += 5) {
       const a = rangeAttenuation(d, RADAR, O);
@@ -175,7 +175,7 @@ describe('range attenuation (ruling R2)', () => {
   });
 });
 
-// --- the Garmin echo scale (amendment 63) -----------------------------------
+// --- the Garmin echo scale (amendment 72) -----------------------------------
 //
 // Eric, after seeing the monochrome build: *"Lets actually keep the radar sweep
 // color green but we'll change the detected entity color to the red/blue/green
@@ -312,7 +312,7 @@ describe('echoColor — blue → green → yellow → red, monotone in hue', () 
   });
 
   it('a coast sample lands mid-scale and a broadside battleship at the top', () => {
-    // Amendment 63: coast returns take the SAME scale, which is why a real plate
+    // Amendment 72: coast returns take the SAME scale, which is why a real plate
     // is mostly green coastline with red where the shore is closest.
     const coast = returnStrength(ISL.arcStepU * ISL.extFactor, 300, RADAR, O);
     expect(hsv(echoColor(coast, O.ramp)).hue).toBeLessThan(200); // off the blue end
@@ -348,7 +348,7 @@ describe('sweepCrossed', () => {
 const ISLAND: Circle = { x: 300, y: 0, r: 80 };
 const OBSERVER: Vec2 = { x: 0, y: 0 };
 
-describe('island near-arc sampling (amendment 58, ruling R4)', () => {
+describe('island near-arc sampling (amendment 67, ruling R4)', () => {
   it('AC10 — every sample is strictly nearer the observer than the centre is', () => {
     // The near-arc guarantee, stated geometrically: a point behind the island
     // is by definition farther from the observer than the island's own centre.
@@ -530,7 +530,7 @@ describe('AC11 — `silhouette` stays the default and stays whole', () => {
 
   it('the grey-cooling knobs are still present and unchanged', () => {
     // `blipCool`/`coolFloor` exist because hue is an information channel — the
-    // owner's color under `silhouette`, and (amendment 63) the Garmin strength
+    // owner's color under `silhouette`, and (amendment 72) the Garmin strength
     // color under `return`. BOTH grammars cool through them now; nothing here
     // may be deleted on the theory that one of them is monochrome.
     expect(CLIENT_CONFIG.blip.coolFloor).toBe(0.55);
@@ -541,7 +541,7 @@ describe('AC11 — `silhouette` stays the default and stays whole', () => {
   });
 
   it('persistence is untouched — it IS the course channel in `return` mode', () => {
-    // Amendment 61: retuning these is a deliberate post-playtest job, not a
+    // Amendment 70: retuning these is a deliberate post-playtest job, not a
     // guess made in-cycle.
     expect(CLIENT_CONFIG.blip.persistSweeps).toBe(3);
     expect(CLIENT_CONFIG.blip.paintsPerContact).toBe(3);

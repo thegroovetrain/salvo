@@ -84,10 +84,10 @@ describe('shared barrel', () => {
     // THE RADAR REALISM CYCLE (PV 26, Eric rulings 2026-08-05, amendments
     // 51-62): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
-    // range term, amendment 55's anti-cheat bound) and WelcomeMsg gains
+    // range term, amendment 64's anti-cheat bound) and WelcomeMsg gains
     // required radarGrammar/radarIdentity, the room-wide mode announcement
     // the client narrows on. One bump covers "a blip may carry either shape"
-    // (amendment 61).
+    // (amendment 70).
     expect(PROTOCOL_VERSION).toBe(26);
   });
 

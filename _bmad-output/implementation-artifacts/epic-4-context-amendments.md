@@ -632,7 +632,7 @@ information about what the target is"* — with heading/speed left inferable fro
     carries — clutter measured against DESIGN.md:122's guardrail *"information noise must never bury
     the hunt."* Provenance is the one thing on the scope no other channel can carry. Radar is phosphor
     green (`blip-fresh`/`blip-faded` already exist as tokens, DESIGN.md:138). **Amber is RESERVED and
-    left UNASSIGNED** (see amendment 60). This change also FREES amber: its only on-water use today is
+    left UNASSIGNED** (see amendment 69). This change also FREES amber: its only on-water use today is
     the hue-latch boot color for unresolved contacts, which retires with the hue system in `return`
     mode. Colorblind note of record: hue must never be provenance's SOLE carrier — a second sensor
     should also differ in persistence and edge character, which it wants to anyway on realism grounds.
@@ -653,7 +653,7 @@ information about what the target is"* — with heading/speed left inferable fro
     *"long-persistence phosphor is how course and speed are actually plotted off a scope … ghost
     SPACING encodes speed."* Removing `heading`/`speed` from the wire does not destroy the
     information — it DEMOTES it from readout to inference, which is the entire stated goal. Course is
-    additionally inferable a second way: returns pulse in size as a contact turns (amendment 55).
+    additionally inferable a second way: returns pulse in size as a contact turns (amendment 64).
 
 57. **DRONES ARE INDISTINGUISHABLE FROM CAPTAINS ON RADAR, and class is LEARNABLE rather than
     stated.** Eric, verbatim: *"Indistinguishable. Its purely a 'rough size/shape' thing. If you learn
@@ -714,8 +714,8 @@ information about what the target is"* — with heading/speed left inferable fro
     silhouette geometry consistent everywhere a hull appears (water, blip, class card, results)"*) are
     both false in `return` mode and must gain the two-grammar split. `DESIGN.md:160`'s propagation
     line ("radar blips + kill-feed names (Variant C, the preferred default)") and its Variant P
-    sentence are superseded by the flag pair in amendment 52. `DESIGN.md:163`'s assist clause needs
-    the amendment 60 carve-out. `DESIGN.md:179`'s blip rule is now doubly superseded (amendment 7 then
+    sentence are superseded by the flag pair in amendment 61. `DESIGN.md:163`'s assist clause needs
+    the amendment 69 carve-out. `DESIGN.md:179`'s blip rule is now doubly superseded (amendment 7 then
     55). `DESIGN.md:237`'s Bounty Bloom entry must record its dependency on a channel that no longer
     exists in `return` mode.
 
@@ -726,7 +726,7 @@ keep the radar sweep color green but we'll change the detected entity color to t
 scale like in the garmin radar."*
 
 63. **RETURN-MODE ECHOES ARE COLORED BY STRENGTH ON A GARMIN-STYLE SCALE; THE SWEEP STAYS PHOSPHOR
-    GREEN.** This **SUPERSEDES amendment 54's monochrome clause for radar returns** and nothing else:
+    GREEN.** This **SUPERSEDES amendment 63's monochrome clause for radar returns** and nothing else:
     54's finding that a marine palette is a GAIN DIAGNOSTIC still stands as description — Eric has
     simply ruled that he wants that diagnostic on his scope. The split is now explicit: the SWEEP
     (conic wedge, range rings, all radar chrome) stays `{colors.phosphor}` green, and only the
@@ -738,7 +738,7 @@ scale like in the garmin radar."*
     **The scale encodes RETURN STRENGTH — the same quantity blob size already carries** (aspect-
     projected `ext`, attenuated by range). That redundancy is authentic rather than accidental: on a
     real set, size and color both fall out of the echo. It is also a genuine accessibility win and a
-    PARTIAL answer to the colorblind question amendment 60 left open — size dual-codes strength, so
+    PARTIAL answer to the colorblind question amendment 69 left open — size dual-codes strength, so
     a CVD player loses none of the information the color carries.
 
     **Implementation consequence (the Story 4.2 trap, avoided):** the phosphor decay ramp
@@ -751,8 +751,8 @@ scale like in the garmin radar."*
 64. **No wire change, no PV bump — this is PURE PRESENTATION.** The client already holds `ext` and
     computes range from its own position and the paint position, so mapping those to a color
     discloses NOTHING new: `PROTOCOL_VERSION` stays **26** and the server is untouched. Amendment
-    54's provenance idea is not dead but is DEFERRED with the rest of the sound-sensor question
-    (amendment 60): if a second sensor ever ships, provenance must ride a channel other than a single
+    63's provenance idea is not dead but is DEFERRED with the rest of the sound-sensor question
+    (amendment 69): if a second sensor ever ships, provenance must ride a channel other than a single
     hue — the natural form is a distinct RAMP per sensor (radar blue→red, sonar some other ramp) so
     palette identity rather than one color carries it. **Amber remains reserved and unassigned;
     nothing in this ruling spends it.**

@@ -103,7 +103,7 @@ const TAU = Math.PI * 2;
 
 /**
  * Resolve the raw HC_RADAR_GRAMMAR env value into a RadarGrammar (the radar
- * realism cycle, amendment 52). PURE — the env var itself is read in the
+ * realism cycle, amendment 61). PURE — the env var itself is read in the
  * adapter (ArenaRoom), never here; World stays free of process.env exactly as
  * it stays free of Colyseus. FAIL-SAFE, never fail-open: only the exact string
  * 'return' selects the new grammar — absent, empty, mis-cased, or garbage
@@ -115,7 +115,7 @@ export function resolveRadarGrammar(raw: string | undefined): RadarGrammar {
 
 /**
  * Resolve the raw HC_RADAR_IDENTITY env value into a RadarIdentity (amendment
- * 52). Same contract as resolveRadarGrammar: pure, adapter-read, fail-safe —
+ * 61). Same contract as resolveRadarGrammar: pure, adapter-read, fail-safe —
  * only the exact string 'pseudonym' leaves the default 'roster' namespace.
  */
 export function resolveRadarIdentity(raw: string | undefined): RadarIdentity {
@@ -179,14 +179,14 @@ export interface WorldOptions {
   zoneSeeds?: readonly number[];
   /**
    * Which blip wire shape this room emits (the radar realism cycle, amendment
-   * 52): 'silhouette' (default — the shipped 4.2 pose grammar) or 'return'
+   * 61): 'silhouette' (default — the shipped 4.2 pose grammar) or 'return'
    * (the realism grammar: one aspect-projected `ext` scalar). Resolved from
    * HC_RADAR_GRAMMAR by the ADAPTER (resolveRadarGrammar) — World never reads
    * process.env. Announced to clients in the welcome handshake.
    */
   radarGrammar?: RadarGrammar;
   /**
-   * Which id namespace blips carry (amendment 52): 'roster' (default — the
+   * Which id namespace blips carry (amendment 61): 'roster' (default — the
    * painted ship's real id) or 'pseudonym' (a stable per-match track id from
    * the server-private pseudonym stream). Resolved from HC_RADAR_IDENTITY by
    * the ADAPTER (resolveRadarIdentity). Orthogonal to radarGrammar by design.
@@ -520,11 +520,11 @@ export class World {
   readonly inputs = new InputStore();
   /** Drives drone hulls through the normal input path (see game/drones.ts). */
   readonly drones: DroneController;
-  /** Which blip wire shape this room emits (amendment 52) — fixed at
+  /** Which blip wire shape this room emits (amendment 61) — fixed at
    *  construction, announced in the welcome, threaded into every
    *  SignalContext. Default 'silhouette' = the shipped 4.2 behavior. */
   readonly radarGrammar: RadarGrammar;
-  /** Which id namespace blips carry (amendment 52) — fixed at construction,
+  /** Which id namespace blips carry (amendment 61) — fixed at construction,
    *  announced in the welcome. Default 'roster' = today's behavior. */
   readonly radarIdentity: RadarIdentity;
 
@@ -603,7 +603,7 @@ export class World {
    * uncorrelatable. A client that watches a ship leave truesight (real id, via
    * `Contact`) and reappear at radar range can re-link it by trajectory. Fully
    * breaking that would require per-paint random ids, which would destroy
-   * ghost-track linking — the entire course-inference channel amendment 56
+   * ghost-track linking — the entire course-inference channel amendment 65
    * depends on. What the pseudonym buys is that the ROSTER link is not free
    * and not instant.
    */
@@ -665,7 +665,7 @@ export class World {
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
     this.zoneCfg = zoneCfg;
     this.zoneSeeds = opts.zoneSeeds;
-    // Radar realism cycle (amendment 52): both modes default to the shipped
+    // Radar realism cycle (amendment 61): both modes default to the shipped
     // behavior — production is byte-identical until a flag is flipped.
     this.radarGrammar = opts.radarGrammar ?? 'silhouette';
     this.radarIdentity = opts.radarIdentity ?? 'roster';

@@ -323,19 +323,19 @@ export interface SilhouetteBlipEvent {
 
 /**
  * Radar paint, `return` grammar (the radar realism cycle, Eric rulings
- * 2026-08-05, amendments 51-57): a real marine set paints an indiscriminate
+ * 2026-08-05, amendments 60-66): a real marine set paints an indiscriminate
  * echo, not a readout. The 4.2 pose channels (`cls`/`heading`/`speed`) are
  * DELETED from this shape — course and speed DEMOTE from readout to inference
- * off ghost-paint spacing (amendment 56), and class DEMOTES to a learnable
- * skill (amendment 57: drones and captains are indistinguishable). What
+ * off ghost-paint spacing (amendment 65), and class DEMOTES to a learnable
+ * skill (amendment 66: drones and captains are indistinguishable). What
  * replaces them is ONE continuous scalar, `ext`: the hull silhouette's total
  * extent projected PERPENDICULAR to the observer→target bearing, in world
  * units (sim/silhouette.ts perpendicularExtent). A battleship bow-on paints
  * narrow; a torpedo boat abeam paints broad — so size stops mapping cleanly
- * to class, by physics rather than a fudge (amendment 55 rejected a size
+ * to class, by physics rather than a fudge (amendment 64 rejected a size
  * enum as a class bucket with extra steps).
  *
- * ANTI-CHEAT (amendment 55's bound): `ext` derives from hull geometry +
+ * ANTI-CHEAT (amendment 64's bound): `ext` derives from hull geometry +
  * relative bearing ONLY — never boons, hp, damage state, or any
  * range-derivable flight quantity. There is deliberately NO range term on
  * the wire: range attenuation (farther = weaker return) is a client render
@@ -361,7 +361,7 @@ export interface ReturnBlipEvent {
 /**
  * The blip wire shape — a two-member union with NO per-event discriminator
  * beyond the shared `k: 'blip'`. The server picks ONE grammar for the whole
- * room (`HC_RADAR_GRAMMAR`, amendment 52) and announces it in the welcome
+ * room (`HC_RADAR_GRAMMAR`, amendment 61) and announces it in the welcome
  * handshake (`WelcomeMsg.radarGrammar`), so every blip in a given match has
  * the same shape and the client narrows on the ANNOUNCED mode, never by
  * probing fields — a per-event tag would be dead weight on a 20Hz channel.
@@ -814,7 +814,7 @@ export interface ResultsMsg {
 }
 
 /**
- * Which blip wire shape this room speaks (amendment 52): 'silhouette' is the
+ * Which blip wire shape this room speaks (amendment 61): 'silhouette' is the
  * shipped 4.2 grammar (SilhouetteBlipEvent — pose on the wire), 'return' the
  * realism grammar (ReturnBlipEvent — one aspect-projected extent scalar).
  * Server-picked per room (`HC_RADAR_GRAMMAR`, default 'silhouette'), announced
@@ -824,7 +824,7 @@ export interface ResultsMsg {
 export type RadarGrammar = 'silhouette' | 'return';
 
 /**
- * Which id namespace blips carry (amendment 52): 'roster' is today's behavior
+ * Which id namespace blips carry (amendment 61): 'roster' is today's behavior
  * (blip.id is the painted ship's roster id), 'pseudonym' maps each ship to a
  * stable per-match track id rolled on the server's private stream (the zone
  * nonce posture), a decoy emitting under its OWNER's pseudonym. Orthogonal to

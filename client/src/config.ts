@@ -45,13 +45,13 @@ const COLORS = {
   damageMarker: 0xff6666,
   islandFill: 0x2a2410,
   islandStroke: 0x8b7520,
-  // RADAR ECHO SCALE (cycle 50, amendment 63 — Eric's Garmin ruling). The three
+  // RADAR ECHO SCALE (cycle 50, amendment 72 — Eric's Garmin ruling). The three
   // ends of the `return`-grammar strength ramp; the GREEN stop in the middle is
   // `phosphor` itself, which is the point — the scale passes straight through
   // the scope's own green, so a mid-strength echo and the sweep agree while a
   // weak one cools to blue and a strong one burns to red. These are FUNCTIONAL
   // colors on a sensor readout, never combatant identity: `return` mode carries
-  // no personal hue at all (amendment 51), so nothing here competes with the
+  // no personal hue at all (amendment 60), so nothing here competes with the
   // Regatta wheel. Ramp stops live in `blip.returns.ramp`.
   echoWeak: 0x1e5cff, // weakest return — deep radar blue (~223°)
   echoWarm: 0xffd400, // strong return — yellow (~50°)
@@ -1181,7 +1181,7 @@ export const CLIENT_CONFIG = {
      *  Story 4.2 adds. A fresh paint still pops hotter than a 1s-old one,
      *  which a 12s linear alpha ramp alone could never deliver.
      *
-     *  BOTH GRAMMARS COOL THROUGH THIS RAMP AS OF AMENDMENT 63. The `return`
+     *  BOTH GRAMMARS COOL THROUGH THIS RAMP AS OF AMENDMENT 72. The `return`
      *  echo was monochrome when it shipped, so it decayed on the color-SETTING
      *  `blipTint`; now that hue carries return strength (`returns.ramp` below)
      *  that wiring would erase the scale exactly as it would have erased the
@@ -1244,13 +1244,13 @@ export const CLIENT_CONFIG = {
       barbAngle: 0.45,
     },
     /**
-     * `return`-GRAMMAR ECHO KNOBS (cycle 50, amendments 51-59). Inert unless the
+     * `return`-GRAMMAR ECHO KNOBS (cycle 50, amendments 60-68). Inert unless the
      * SERVER announces `radarGrammar: 'return'` in the welcome — the grammar is
-     * a server flag (amendment 52), never a client choice, because a client-side
+     * a server flag (amendment 61), never a client choice, because a client-side
      * switch would force the wire to carry the identity superset in both modes
      * and reduce the whole anti-cheat argument to cosmetics.
      *
-     * Every value here is PRESENTATION. Amendment 61 forbids `CONFIG.vision`
+     * Every value here is PRESENTATION. Amendment 70 forbids `CONFIG.vision`
      * gaining a new constant this cycle, and the range-attenuation curve in
      * particular belongs here on its own merits: the server sends pure aspect
      * geometry (`ext`, world units, no range term) and the client — which knows
@@ -1261,7 +1261,7 @@ export const CLIENT_CONFIG = {
      * blob as a starting point ("we can start with that and tweak from that
      * baseline"), so these numbers are expected to move after playtest.
      * `persistSweeps`/`paintsPerContact` above are NOT in that set — in `return`
-     * mode they become the entire course-and-speed channel (amendment 56 kills
+     * mode they become the entire course-and-speed channel (amendment 65 kills
      * the ARPA vector), so retuning them is a deliberate post-playtest job.
      */
     returns: {
@@ -1269,12 +1269,12 @@ export const CLIENT_CONFIG = {
        *  enough that the jitter stays visible instead of averaging to a circle. */
       vertices: 12,
       /** Per-vertex radial jitter, ± as a fraction of the base radius. This is
-       *  the shimmer amendment 59 asked for; push it up and returns stop reading
+       *  the shimmer amendment 68 asked for; push it up and returns stop reading
        *  as objects, push it to 0 and every hull paints the same clean ellipse —
        *  which is the class readout the cycle exists to delete. */
       jitter: 0.22,
       /** Fill opacity of the blob body (the 1px edge stays at full alpha). A
-       *  radar return is a FILLED echo, not an outline: amendment 60 leaves the
+       *  radar return is a FILLED echo, not an outline: amendment 69 leaves the
        *  colorblind assist's outline-boost clause inert here precisely because
        *  blobs have no outline to boost. */
       fillAlpha: 0.5,
@@ -1290,7 +1290,7 @@ export const CLIENT_CONFIG = {
       /** Asymptotic floor of the attenuation curve — the scale a return at
        *  infinite range would approach, never reach. Deliberately an asymptote
        *  and not a `Math.max` clamp: a hard floor would make two different
-       *  ranges paint at identical size, colliding with amendment 53's rule that
+       *  ranges paint at identical size, colliding with amendment 62's rule that
        *  size carries return strength and nothing else shares that channel. */
       attenFloor: 0.45,
       /** Range at which the above-floor part of the curve has halved, as a
@@ -1309,15 +1309,15 @@ export const CLIENT_CONFIG = {
        *  where the shore is closest and broadest. */
       strongExtent: 60,
       /**
-       * THE GARMIN ECHO RAMP (amendment 63). Weak → strong runs blue → green →
+       * THE GARMIN ECHO RAMP (amendment 72). Weak → strong runs blue → green →
        * yellow → red, keyed on `returnStrength` — the SAME quantity blob size
        * carries (aspect-projected `ext`, attenuated by range). That redundancy
        * is authentic rather than accidental: on a real set, size and color both
        * fall out of the echo, and it dual-codes the channel so a CVD player
        * loses nothing the color says (the partial answer to the colorblind
-       * question amendment 60 left open).
+       * question amendment 69 left open).
        *
-       * Amendment 63 SUPERSEDES amendment 54's monochrome clause FOR RETURNS
+       * Amendment 72 SUPERSEDES amendment 63's monochrome clause FOR RETURNS
        * ONLY: the sweep wedge, the range rings and every other piece of radar
        * chrome stay `{colors.phosphor}` green. Only the detected entity carries
        * the scale — coastline included (terrain is just a strong return).
@@ -1341,7 +1341,7 @@ export const CLIENT_CONFIG = {
         { at: 0.7, color: COLORS.echoWarm },
         { at: 1, color: COLORS.echoHot },
       ],
-      /** ISLAND COASTLINE RETURNS (amendment 58, ruling R4). Pure client
+      /** ISLAND COASTLINE RETURNS (amendment 67, ruling R4). Pure client
        *  presentation: islands are already client-known from the map seed, so
        *  no wire field and no server work exist for this at all. */
       island: {
@@ -1469,7 +1469,7 @@ export const CLIENT_CONFIG = {
   },
 } as const;
 
-// VARIANT P IS RETIRED (cycle 50, amendment 52). The build-time
+// VARIANT P IS RETIRED (cycle 50, amendment 61). The build-time
 // `__BLIP_VARIANT_P__` define and its `BLIP_VARIANT_P` export lived here to A/B
 // a phosphor-anonymous scope against the personal-hue one. Both are superseded
 // by the SERVER-side flag pair `HC_RADAR_GRAMMAR` / `HC_RADAR_IDENTITY`, which

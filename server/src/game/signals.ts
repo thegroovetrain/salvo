@@ -89,10 +89,10 @@ interface SignalContextBase {
    *  blip row's counterIntel subjects (the radar-double deception). */
   decoys: ReadonlyMap<string, Decoy>;
   /** Which blip wire shape this room emits (the radar realism cycle, amendment
-   *  52) — the blipShape branch key. The GATE never reads it: only the wire
+   *  61) — the blipShape branch key. The GATE never reads it: only the wire
    *  SHAPE branches on grammar, never who can see what. */
   radarGrammar: RadarGrammar;
-  /** Which id namespace blips carry (amendment 52): 'roster' = the painted
+  /** Which id namespace blips carry (amendment 61): 'roster' = the painted
    *  ship's real id (today's behavior), 'pseudonym' = pseudonymOf(shipId). */
   radarIdentity: RadarIdentity;
   /** Ship id → stable per-match track id (World.pseudonymFor — the server-
@@ -256,7 +256,7 @@ function blipGate(me: ShipRecord, p: Vec2, islands: readonly Circle[], now: numb
 const EXT_SCRATCH: Vec2[] = [];
 
 /**
- * The `return`-grammar echo extent (amendment 55, R2): the hull silhouette's
+ * The `return`-grammar echo extent (amendment 64, R2): the hull silhouette's
  * total extent projected PERPENDICULAR to the observer→target bearing, in
  * world units. Posed at the ORIGIN (extent is translation-invariant) with the
  * paint's heading only. ANTI-CHEAT BOUND (absolute): `ext` derives from hull
@@ -271,7 +271,7 @@ function echoExtent(me: ShipRecord, p: Vec2, cls: HullId, heading: number): numb
 
 /** THE blip wire shaper (one function, two callers — FR10's wire
  *  indistinguishability by construction), branched per the room's radar modes
- *  (the radar realism cycle, amendments 51-57 — ONLY the wire shape branches;
+ *  (the radar realism cycle, amendments 60-66 — ONLY the wire shape branches;
  *  blipGate is untouched). KEY ORDER IS LOAD-BEARING: silhouette grammar
  *  emits k,id,x,y,t,cls,heading,speed (Story 4.2 — the class-legible pose
  *  APPENDED after `t`); return grammar emits k,id,x,y,t,ext (the one aspect
