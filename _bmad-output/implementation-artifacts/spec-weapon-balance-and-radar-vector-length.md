@@ -73,19 +73,20 @@ warnings: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `server/scripts/batchSim.mjs` -- run a BEFORE pass on the current tuning and save the report -- baseline for the evidence comparison; must happen before any CONFIG edit.
-- [ ] `shared/src/constants.ts` -- `gun.damage` 25→15, `gun.contactDamage` 10→6 -- the default weapon hits too hard; bodyblock keeps its 40% ratio (Eric ruling 2026-08-04).
-- [ ] `shared/src/constants.ts` -- `torpedo.damage` 55→70, `torpedo.reloadMs` 12000→30000 -- a heavier fish on a much longer commitment cycle, the shape epic-4 amendment 3 predicted.
-- [ ] `shared/src/constants.ts` -- `mine.damage` 45→55, `mine.reloadMs` 8000→15000, `mine.maxAmmo` 1→2 -- a 2-deep rack lets a Mine Layer actually lay a field; note in the comment that `maxLive` (5) is untouched and distinct.
-- [ ] `shared/src/constants.ts` -- `cannon.damage` 50→65, `cannon.reloadMs` 50000→45000 -- amend the existing 2026-08-04 retune comment rather than replacing it, so both rulings stay legible.
-- [ ] `shared/src/sim/boons.ts` -- `torpedoDamage` step `add: 2`→`add: 1`, `cannonDamage` step `add: 3`→`add: 2` -- both ladders would otherwise top out at exactly 80 and one-shot the lightest hull; each now tops at 75.
-- [ ] `client/src/config.ts` -- `blip.vector` `seconds` 3→1.5, `minLength` 24→12, `maxLength` 150→75 -- halve all three so the mark shrinks proportionally and every clamp keeps the role it was tuned for.
-- [ ] `shared/src/__tests__/damageGuardrail.test.ts` -- update endpoint pins to 30/75/75/75, repoint the `mine.damage` literal pin to 55, refresh the inline arithmetic comments -- the guardrail must assert the NEW ladder, not merely pass.
-- [ ] `shared/src/__tests__/barrel.test.ts`, `shared/src/__tests__/stats.test.ts`, `server/src/__tests__/upgrades.test.ts` -- update every pinned literal to the retuned bases and their `cooldownScale` products -- `npm run check` enumerates the full set; fix each in place, never by loosening an assertion.
-- [ ] `server/scripts/batchSim.mjs` -- run an AFTER pass with the identical seed/flags and write `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-08-04.md` comparing both -- the evidence pass cycle 42 skipped.
-- [ ] `VERSION`, `package.json` -- 0.17.43 → 0.17.44 -- one increment per landed dev-auto cycle (Eric ruling 2026-08-01).
-- [ ] `CHANGELOG.md`, `_bmad-output/gds-workflow-status.yaml` -- record the cycle and advance `next_expected` + `last_updated` -- mandatory in the same PR.
-- [ ] `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` -- append the four rulings from this run's question gate as dated, source-attributed amendments -- the amendments protocol requires a durable home outside regenerable context.
+- [x] `server/scripts/batchSim.mjs` -- run a BEFORE pass on the current tuning and save the report -- baseline for the evidence comparison; must happen before any CONFIG edit.
+- [x] `shared/src/constants.ts` -- `gun.damage` 25→15, `gun.contactDamage` 10→6 -- the default weapon hits too hard; bodyblock keeps its 40% ratio (Eric ruling 2026-08-04).
+- [x] `shared/src/constants.ts` -- `torpedo.damage` 55→70, `torpedo.reloadMs` 12000→30000 -- a heavier fish on a much longer commitment cycle, the shape epic-4 amendment 3 predicted.
+- [x] `shared/src/constants.ts` -- `mine.damage` 45→55, `mine.reloadMs` 8000→15000, `mine.maxAmmo` 1→2 -- a 2-deep rack lets a Mine Layer actually lay a field; note in the comment that `maxLive` (5) is untouched and distinct.
+- [x] `shared/src/constants.ts` -- `cannon.damage` 50→65, `cannon.reloadMs` 50000→45000 -- amend the existing 2026-08-04 retune comment rather than replacing it, so both rulings stay legible.
+- [x] `shared/src/sim/boons.ts` -- `torpedoDamage` step `add: 2`→`add: 1`, `cannonDamage` step `add: 3`→`add: 2` -- both ladders would otherwise top out at exactly 80 and one-shot the lightest hull; each now tops at 75.
+- [x] `client/src/config.ts` -- `blip.vector` `seconds` 3→1.5, `minLength` 24→12, `maxLength` 150→75 -- halve all three so the mark shrinks proportionally and every clamp keeps the role it was tuned for.
+- [x] `shared/src/__tests__/damageGuardrail.test.ts` -- update endpoint pins to 30/75/75/75, repoint the `mine.damage` literal pin to 55, refresh the inline arithmetic comments -- the guardrail must assert the NEW ladder, not merely pass.
+- [x] `shared/src/__tests__/barrel.test.ts`, `shared/src/__tests__/stats.test.ts`, `server/src/__tests__/upgrades.test.ts` -- update every pinned literal to the retuned bases and their `cooldownScale` products -- `npm run check` enumerates the full set; fix each in place, never by loosening an assertion.
+- [x] `server/scripts/batchSim.mjs` -- run an AFTER pass with the identical seed/flags and write `_bmad-output/implementation-artifacts/batch-sim-evidence-2026-08-04.md` comparing both -- the evidence pass cycle 42 skipped.
+- [x] `VERSION`, `package.json` -- 0.17.43 → 0.17.44 -- one increment per landed dev-auto cycle (Eric ruling 2026-08-01).
+- [x] `_bmad-output/gds-workflow-status.yaml` -- advance `last_updated` with the full cycle record -- mandatory in the same PR. ALSO `_bmad-output/implementation-artifacts/sprint-status.yaml` (the house rule is BOTH trackers): closed the open cooldown/TTK-rebalance action this cycle satisfies, and repaired a cycle-43 omission that still read `4-3: backlog`.
+- [ ] `CHANGELOG.md` -- **DELIBERATELY NOT DONE.** The spec called for an entry, but the repo's actual practice contradicts it: `CHANGELOG.md` is cut only at minor-version boundaries (0.14.0, 0.15.0, 0.16.0, 0.17.0 — `git log -- CHANGELOG.md` shows no per-cycle entries across all 43 cycles since 0.17.0). Adding a lone 0.17.44 section would break that cadence for one balance pass. Flagged for Eric rather than done silently: if per-cycle player-facing notes are wanted, this retune (every weapon's damage changed) is a reasonable place to start the practice — but starting it is his call, not a spec line's.
+- [x] `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` -- append the four rulings from this run's question gate as dated, source-attributed amendments -- the amendments protocol requires a durable home outside regenerable context.
 
 **Acceptance Criteria:**
 - Given a fully max-stacked build of any single damage ladder, when `effectiveStats()` resolves it, then the resulting per-hit damage is strictly less than 80 for every weapon.
@@ -98,6 +99,50 @@ warnings: []
 ## Spec Change Log
 
 ## Review Triage Log
+
+### Pass 1 — 2026-08-04 (2 Fable adversarial hunters + Codex cross-model)
+
+Counts: **intent_gap 0 · bad_spec 0 · patch 7 (1 high, 2 medium, 4 low) · defer 3 · reject 1.**
+
+**Both hunters independently made the SAME top finding (high):** the commit cited
+`batch-sim-evidence-2026-08-04.md` in two committed docs (`sprint-status.yaml`,
+`epic-4-context-amendments.md`) before that file existed — the sim was still running when the
+checkpoint was committed. Patched by writing the evidence doc. The systems hunter correctly
+escalated it beyond bookkeeping: the Story 3.4 endgame instrument is a *gunner*, so the 25→15 nerf
+cuts its post-closure kill rate ~40% and the no-stalemate pillar was unverified under the new
+tuning. Answered by re-running the endgame pilot (50/50 resolved, guarantee holds; p50 crossed the
+~15:00 contract — deferred to Eric).
+
+**Patched (medium):**
+- `matchSmoke.mjs` step 4 **actually failed** — `B sunk by undefined, expected A`. `ZONE_OVERRIDE.beatMs` 30000 parked the storm's first close at 90s, a window tuned when a 12s reload made the fight ~50s; at 30s reloads two missed passes push the kill past 90s and the storm sank B first. Fixed by widening beatMs 30000→45000. The first fix attempt (60000) traded it for `timeout: results broadcast`, so the step-5 budget is now **derived** from `FULL_CLOSURE_MS` instead of hardcoded, and the two can no longer drift apart.
+- `_bmad-output/gds-workflow-status.yaml` not advanced in the same commit (the house rule that has bitten twice). Patched.
+
+**Patched (low, all comment-arithmetic drift):**
+- `weaponsSmoke.mjs` — my own new comment called the 150hp mineLayer target a "125hp hull" and said 2 fish; it needs 3.
+- `matchSmoke.mjs` — the pre-existing "110 dmg vs 100 hp" was already stale (the 2026-08-03 toughness ladder moved the TB to 125); my edit carried it forward. **Caught by Codex.**
+- `boons.ts:359` — the `shipCooldown` ladder comment still documented the pre-retune "cannon 50000 → 25000" endpoint; now 45000 → 22500. **Caught by Codex alone — the unique cross-model catch this gate paid for.**
+- `boonStats.test.ts:155` — comment still said "25s cannon" above a test asserting 22500.
+
+**Rejected (1):** Codex claimed `weapons.test.ts:470` was "still pinned to the old mine reload
+(8000)" and would fail. Adjudicated against on the code: that `8000` is an arbitrary **input**
+fixture the test writes into `ship.loadout[2].state` and then asserts the wire mirror returns
+unchanged — it never reads CONFIG. Verified green in isolation. A single-model finding is a
+hypothesis, not a verdict.
+
+**Deferred (3):** the endgame p50 vs the ~15:00 contract (Eric decision); the same-owner mine
+cascade widened in degree by the 2-deep rack (not a law violation — the law is per-hit); the
+batch-sim harness's blindness to 3 of the 4 retuned weapons. All three ledgered in
+`deferred-work.md`.
+
+**Survived attack (verified, not assumed):** the `31499.999999999996` strict pin is correct and the
+3-decimal scale rounding is honored (the dust is downward and behaviorally inert at 630 ticks; the
+regression it guards produces *upward* dust at 631 ticks, which `toBeCloseTo` would have accepted —
+so the strict pin is a strengthening, not a paper-over). Max-stack endpoints recomputed from the
+catalog defs: 30/75/75/75. Golden snapshot verified programmatically — 25 changed frames,
+number-stripped skeletons byte-identical, zero position/contact/blip/sweep/zone drift. No assertion
+weakened anywhere in the diff. The `mine.maxAmmo: 2` claim held under direct attack: no `=== 1`
+assumption exists, `maxLive` eviction is unaffected, `rescaleReloadTimers` commutes correctly, and
+`frames.ts`/`perception.ts` are untouched (rack depth never reaches the wire).
 
 ## Design Notes
 

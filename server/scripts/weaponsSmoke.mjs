@@ -210,10 +210,11 @@ async function torpedoPhase(a, b, log) {
     a.goal = { mode: 'engageTorp', target: b.you };
     b.goal = { mode: 'hold', target: b.you }; // hold roughly still as a target
     // Budget WIDENED 120s -> 240s (2026-08-04 balance pass): the reload went
-    // 12s -> 30s, so a 125hp hull now falls to 2x 70-dmg fish across ~35s of
-    // cadence instead of 3x 55-dmg across ~26s — but every MISS costs a full
-    // 30s reload instead of 12s. At 120s this phase had ~1 spare fish; 240s
-    // restores a real miss margin. The assertion is unchanged: only patience is.
+    // 12s -> 30s. B is the 150hp mineLayer, so a kill still needs THREE 70-dmg
+    // fish (2x70 = 140 < 150) across ~65s of cadence, where three 55-dmg fish
+    // used to span ~26s — and every MISS now costs a full 30s reload instead of
+    // 12s. At 120s this phase had ~1 spare fish; 240s restores a real miss
+    // margin. The assertion is unchanged: only the patience is.
   }, () => roster(a.room, b.room.sessionId)?.deaths >= 1, 240000, 'torpedo kill');
   const hits = b.dmg.slice(dmg0).filter((d) => d.amount === CONFIG.torpedo.damage);
   log.push(`torpedo: B sank; 70-dmg hits=${hits.length} kills=${roster(a.room, a.room.sessionId).kills}`);

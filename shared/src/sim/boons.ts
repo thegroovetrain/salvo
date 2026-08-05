@@ -357,7 +357,8 @@ export const BOON_CATALOG: BoonCatalog = deepFreezeRows({
   // ONE global cooldown line (Eric ruling 2026-08-04 — it replaced all seven
   // per-equipment reload ladders). ADDITIVE, never multiplicative: 1.0 → 0.9 →
   // 0.8 → 0.7 → 0.6 → 0.5, so a full stack lands gun 5000 → 2500 ms and cannon
-  // 50000 → 25000 ms exactly. The ladder was widened 4 → 5 copies (a 50% cap,
+  // 45000 → 22500 ms exactly (the cannon endpoint was 50000 → 25000 until the
+  // same-day balance pass retuned its base). The ladder was widened 4 → 5 copies (a 50% cap,
   // was 40%) by a later Eric ruling the same day: 2.5s on the gun feels
   // genuinely fast next to 3s, which makes a full cooldown investment a real
   // reward. Applied once, post-fold, to EVERY equipment reloadMs
