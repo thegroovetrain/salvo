@@ -1,8 +1,10 @@
 ---
-status: ready-for-dev
+status: done
 cycle: 50
 version: 0.17.50
 protocol_version: 25 -> 26
+baseline_revision: 8f231b6
+final_revision: HEAD
 warnings: []
 ---
 
@@ -208,3 +210,77 @@ pre-cycle build (silhouettes, hues, ARPA vectors, `blipCool` grey ramp).
   (amendment 62).
 - Agents never commit. The orchestrator commits after independent verification.
 - Gate: `npm run check` (lint + type-check + all tests) from the repo root.
+
+---
+
+## Auto Run Result
+
+**Status: done.** Landed as cycle 50 (0.17.50), PV 25 → 26. `npm run check` green: 0 lint errors
+(2 pre-existing `max-lines-per-function` warnings, baseline unchanged), three clean `tsc` projects,
+**130 test files / 2,952 tests**.
+
+### Environment hazard found and fixed BEFORE any verification was trusted
+
+The worktree had **no `node_modules`**, so Node resolved up the directory tree to the MAIN
+checkout's copy, where `@salvo/shared` symlinks back to the main checkout. Consequence: every
+server/client type-check run inside this worktree was silently checking against the main repo's
+STALE `shared` and reporting no breakage at all — `npx tsc -p server/tsconfig.json` could not even
+resolve `colyseus`. M1 caught it; the orchestrator verified it independently and fixed it with
+`npm ci` in the worktree (`package-lock.json` unchanged). Every verification recorded below was run
+AFTER that fix. **Any future worktree-based cycle in this repo must check this first** — a green
+type-check in a worktree without `node_modules` means nothing.
+
+### Model routing (per the /orchestrate table)
+
+| Milestone | Model | Why |
+|---|---|---|
+| M1 shared wire contract | **Fable** | Wire/protocol contract + anti-cheat boundary — a locally-plausible shape is globally wrong |
+| M2 server | **Fable** | The perception chokepoint; pseudonyms are a trust-boundary problem |
+| M3 client | **Opus** | New modules on a settled design; reasoning local to the code being written |
+| Review gate | **Fable** + **Codex** | Adversarial, plus a different model's blind spots |
+| Review fixes | **Opus** | Contained geometry/LOS corrections on a decided design |
+
+### Review triage log
+
+Two reviewers ran against `8f231b6..HEAD`: a Fable adversarial hunter and a Codex cross-model pass.
+
+**Both models flagged (CONFIRMED-tier, fixed):**
+- **A return blip baked from a null own pose kept wrong geometry for its whole life.** `onBlip()`
+  baked geometry immediately via `shipMark()`, which substituted `dx=dy=0` when `own` was null →
+  bearing 0, dist 0 → drawn unattenuated and mis-oriented for the paint's entire ~12s decay, not
+  "one frame" as the code comment claimed. Fable ranked it PLAUSIBLE; **Codex ranked it CONFIRMED
+  and traced it more precisely**, which is exactly the value of the cross-model pass. Fixed by
+  resolving geometry lazily on the first frame with a real pose, and not drawing until then.
+
+**Fable only (both verified by the orchestrator against the code before dispatch, then fixed):**
+- **Coast returns painted straight through occluding islands.** `islandReturns()` received a SINGLE
+  island and contained no LOS term of any kind — verified structurally (`segCircleHit`, the
+  codebase's LOS primitive, appeared nowhere in the file). This violated the named Eric ruling of
+  record (*"islands block EVERY sensor at ALL ranges"*, 2026-08-02) inside the very feature
+  amendment 58 justified by that ruling. Fixed: per-sample `segCircleHit` filter against the whole
+  island field, self excluded by reference identity.
+- **Coast marks painted past the radar ring** (677u at radar 660) because range was gated on the
+  island's nearest point while the near arc extends beyond it. Fixed: per-sample range check.
+
+**Ledgered, not fixed** (see `deferred-work.md`, cycle-50 block): the beam-discontinuity coast-mark
+flash (fixing it would touch the shipped `silhouette` path, and byte-identity of the default was
+this cycle's governing discipline), and the all-amber `silhouette`+`pseudonym` flag combo (a design
+call, not a defect).
+
+**Both models independently found NO server-side information leak in the return/pseudonym emission
+path, NO error in the perpendicular-extent math, and NO case where the unset-flag default differs
+from pre-cycle behavior.** Cross-model agreement on the anti-cheat surface is the strongest evidence
+this cycle produced.
+
+### Evidence for the load-bearing claims
+
+- **Default byte-identity (AC4):** the golden-frames snapshot diff is **131 additions, 0 deletions**
+  — every pre-cycle line intact. Verified by the orchestrator with `git diff --numstat`, not taken
+  on an agent's word.
+- **The design thesis (AC1/AC2):** measured extents — BB bow-on **32u**, BB abeam **124u**, TB abeam
+  **100u**. TB-abeam exceeds BB-bow-on, so the class bands genuinely overlap and no single extent
+  value identifies a class. Full-aspect ranges: TB [9.0, 100.1], BB [32, 124.1], ML [20.0, 88.6].
+- **`ext` carries no build state (amendment 55):** fail-proven — planting an hp dependence in the
+  blip shaper failed exactly that test and nothing else.
+- **`blipGate` did not move:** pinned by a test asserting the paint SET is identical across
+  grammars for the same seed and scene, with only the wire keys differing.
