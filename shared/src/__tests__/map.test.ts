@@ -13,9 +13,10 @@ import {
   MAP_RULES,
   type GameMap,
 } from '../sim/map.js';
-import { mapRadius, CONFIG } from '../constants.js';
+import { mapRadius, CONFIG, HULL_IDS } from '../constants.js';
 import { mulberry32 } from '../math/rng.js';
-import { pointInPolygon } from '../sim/silhouette.js';
+import { skeletonNormal } from '../sim/island.js';
+import { hullSilhouette, pointInPolygon, polygonMaxRadius } from '../sim/silhouette.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Island } from '../types.js';
 
@@ -51,6 +52,43 @@ function nearestOnSkeleton(p: Vec2, skel: readonly Vec2[]): Vec2 {
     }
   }
   return best;
+}
+
+/**
+ * True iff the segment from `b`'s nearest skeleton point out to `b` stays on
+ * land — sampled at a subset of the generator's own accept fractions (k/9).
+ */
+function starClear(b: Vec2, skel: readonly Vec2[], poly: readonly Vec2[]): boolean {
+  const s = nearestOnSkeleton(b, skel);
+  for (const t of [2 / 9, 4 / 9, 6 / 9, 8 / 9]) {
+    if (!pointInPolygon({ x: s.x + (b.x - s.x) * t, y: s.y + (b.y - s.y) * t }, poly)) return false;
+  }
+  return true;
+}
+
+/**
+ * INDEPENDENT oracle: sorted forward hit parameters (t > 0) of the ray from
+ * `p` along unit (dx, dy) against the polygon. Does not reuse any generator
+ * or collision internals. `p` inside => an odd number of hits; exactly one
+ * means the ray leaves the land and never comes back.
+ */
+function rayHits(p: Vec2, dx: number, dy: number, poly: readonly Vec2[]): number[] {
+  const ts: number[] = [];
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const ax = poly[j].x;
+    const ay = poly[j].y;
+    const ex = poly[i].x - ax;
+    const ey = poly[i].y - ay;
+    const den = dx * ey - dy * ex;
+    if (Math.abs(den) < 1e-15) continue;
+    const qx = ax - p.x;
+    const qy = ay - p.y;
+    const t = (qx * ey - qy * ex) / den; // along the ray
+    const u = (qx * dy - qy * dx) / den; // along the edge
+    if (t > 1e-9 && u >= -1e-12 && u <= 1 + 1e-12) ts.push(t);
+  }
+  ts.sort((a, b) => a - b);
+  return ts.filter((t, i) => i === 0 || t - ts[i - 1] > 1e-7); // vertex hits count once
 }
 
 // --- Ratified constants ------------------------------------------------------
@@ -165,19 +203,88 @@ describe('island geometry invariants (all 100 sweep maps)', () => {
     }
   });
 
-  it('every polygon is star-shaped about its skeleton (the push-out guarantee)', () => {
+  // VERTICES **AND EDGE MIDPOINTS**. Vertices alone were the shipped blind
+  // spot that let a non-star-shaped coastline through: the generator's own
+  // accept predicate sampled only vertices too, so this suite structurally
+  // could not catch a violation hiding between two clean neighbours (measured
+  // 15 failing midpoints across 60 production maps before the fix).
+  it('every polygon is star-shaped about its skeleton at vertices AND edge midpoints', () => {
+    let vertices = 0;
+    let midpoints = 0;
+    let vertexFails = 0;
+    let midpointFails = 0;
     for (const { map } of sweep) {
       for (const isle of map.islands) {
-        for (const v of isle.poly) {
-          const s = nearestOnSkeleton(v, isle.skeleton);
-          // Subset of the generator's own accept-predicate fractions (k/9).
-          for (const t of [2 / 9, 4 / 9, 6 / 9, 8 / 9]) {
-            const p = { x: s.x + (v.x - s.x) * t, y: s.y + (v.y - s.y) * t };
-            expect(pointInPolygon(p, isle.poly)).toBe(true);
+        const poly = isle.poly;
+        for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+          const mid = { x: (poly[j].x + poly[i].x) / 2, y: (poly[j].y + poly[i].y) / 2 };
+          vertices++;
+          midpoints++;
+          if (!starClear(poly[i], isle.skeleton, poly)) vertexFails++;
+          if (!starClear(mid, isle.skeleton, poly)) midpointFails++;
+        }
+      }
+    }
+    expect(midpoints).toBeGreaterThan(50_000); // the widened sampling really ran
+    expect(vertices).toBe(midpoints);
+    expect(vertexFails).toBe(0);
+    expect(midpointFails).toBe(0);
+  });
+
+  // REGRESSION (adversarial review gate, cycle 51). The shipped defect: the
+  // push-out consumer took its escape direction from the nearest skeleton
+  // POINT while the generator validated star-shapedness about the skeleton
+  // POLYLINE. On a long 2-point ridge a hull amidships was therefore pushed
+  // along a heavily TANGENTIAL ray from a far endpoint, and its escape ray
+  // left the coastline only to re-enter it (measured 121 / 81,499 interior
+  // points across 60 production maps). Both sides now call the SAME
+  // `nearestOnSkeleton`, so the ray this test aims IS the ray collision.ts
+  // aims. It must leave the land and STAY out.
+  it('every interior escape ray leaves the coastline and never re-enters it', () => {
+    // The narrowest water gap any hull afloat could ever come to rest inside.
+    const smallestHull = Math.min(...HULL_IDS.map((id) => 2 * polygonMaxRadius(hullSilhouette(id))));
+    let sampled = 0;
+    let ridgeFails = 0; // blobs + 2-point ridges: ZERO tolerance
+    let jointFails = 0; // 3-point ridge joints: bounded slivers only
+    let worstGap = 0;
+    for (const { map } of sweep) {
+      for (const isle of map.islands) {
+        const step = (isle.r * 2) / 16;
+        for (let gx = -isle.r; gx <= isle.r; gx += step) {
+          for (let gy = -isle.r; gy <= isle.r; gy += step) {
+            const p = { x: isle.x + gx, y: isle.y + gy };
+            if (!pointInPolygon(p, isle.poly)) continue;
+            sampled++;
+            // THE PRODUCTION AIM — collision.ts pushOutOf calls exactly this.
+            const { nx, ny, dist } = skeletonNormal(p, isle);
+            if (dist <= 1e-9) continue;
+            const ts = rayHits(p, nx, ny, isle.poly);
+            if (ts.length <= 1) continue;
+            if (isle.skeleton.length <= 2) ridgeFails++;
+            else jointFails++;
+            worstGap = Math.max(worstGap, ts[1] - ts[0]);
           }
         }
       }
     }
+    expect(sampled).toBeGreaterThan(100_000); // the probe genuinely bit
+    // Blobs and 2-point ridges — the shipped failure case — are now exact:
+    // the nearest-point map is constant along the outward ray, so the
+    // generator's boundary predicate implies the interior property.
+    expect(ridgeFails).toBe(0);
+    // A 3-point ridge JOINT is the one place that implication does not hold
+    // (there the nearest-point map switches segments along the outward ray),
+    // so the generator's finite escape-ray sampling can leave a vanishing
+    // residue. This sweep currently measures ZERO of it, but the tolerance is
+    // deliberate rather than tightened to 0: a denser probe (60 maps @ cap 20,
+    // 500k interior points) still finds 7, and they are harmless BY
+    // CONSTRUCTION — this is the bound that proves it. Every residual
+    // re-entry is a water sliver (worst measured 2.99u) far narrower than the
+    // smallest hull afloat, so pushOutOf's bisection — which needs the WHOLE
+    // silhouette clear — can never come to rest inside one, and the push
+    // direction stays perpendicular to the coast either way.
+    expect(worstGap).toBeLessThan(smallestHull / 4);
+    expect(jointFails / sampled).toBeLessThan(1e-4);
   });
 
   it('concavity is bounded by MAX_CONCAVITY (vertex offset ratio about the skeleton)', () => {

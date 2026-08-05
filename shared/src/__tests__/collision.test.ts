@@ -225,6 +225,87 @@ describe('resolveShipPose — island push-out (skeleton normal)', () => {
   });
 });
 
+// --- R4 REGRESSION (adversarial review gate, cycle 51) ----------------------
+// The shipped defect: `skeletonNormal` aimed the escape from the nearest
+// skeleton POINT while map-gen validated star-shapedness about the skeleton
+// POLYLINE. A hull ramming a long 2-POINT RIDGE broadside AMIDSHIPS therefore
+// got its push direction from a far ridge endpoint — heavily TANGENTIAL to
+// the coast — so pushOutOf's "minimal clearing translation" slid it ALONG the
+// coastline instead of off it: up to 30.19u in a single 50ms tick against a
+// legitimate 2.25u of free travel. Both sides now project onto skeleton
+// SEGMENTS via the one shared `nearestOnSkeleton`, so the push is
+// perpendicular to the ridge and a resolved tick can never out-travel an
+// unobstructed one.
+describe('broadside ram — the push-out never slides a hull along the coast', () => {
+  const kin = CONFIG.shipClasses.battleship.kinematics;
+  const local = hullSilhouette('battleship');
+  const polyMax = polygonMaxRadius(local);
+  const FREE_TRAVEL = kin.maxSpeed * DT; // the most an UNOBSTRUCTED tick can move
+
+  /** Back off along `n` from `mid` until the posed hull is clear of everything. */
+  function clearStart(mid: Vec2, nx: number, ny: number, isles: readonly Island[]): ShipState | null {
+    for (let back = polyMax; back < polyMax + 400; back += 8) {
+      const s: ShipState = {
+        x: mid.x + nx * back,
+        y: mid.y + ny * back,
+        heading: Math.atan2(-ny, -nx),
+        speed: kin.maxSpeed,
+      };
+      if (clearOfAll(s, 'battleship', isles)) return s;
+    }
+    return null;
+  }
+
+  it('rams every long 2-point ridge amidships without ever out-travelling a free tick', () => {
+    let rams = 0;
+    let contacts = 0;
+    let worst = 0;
+    let worstDesc = '';
+    let overlaps = 0;
+    for (let seed = 0; seed < 8; seed++) {
+      const map = generateMap(seed, 20);
+      for (const isle of map.islands) {
+        if (isle.skeleton.length !== 2) continue;
+        const [a, b] = isle.skeleton;
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        if (len < 150) continue; // a LONG ridge — the worst tangential lever arm
+        const tx = (b.x - a.x) / len;
+        const ty = (b.y - a.y) / len;
+        for (const f of [0.35, 0.5, 0.65]) {
+          for (const side of [1, -1]) {
+            const mid = { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+            const s = clearStart(mid, -ty * side, tx * side, map.islands);
+            if (!s) continue;
+            rams++;
+            let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+            for (let t = 0; t < 40; t++) {
+              s.speed = kin.maxSpeed; // pinned at full ahead: no damping reprieve
+              stepShip(s, { throttle: 1, rudder: 0 }, kin, DT);
+              if (resolve(prev, s, map.islands, 'battleship', map.radius)) contacts++;
+              if (!clearOfAll(s, 'battleship', map.islands)) overlaps++;
+              const moved = Math.hypot(s.x - prev.x, s.y - prev.y);
+              if (moved > worst) {
+                worst = moved;
+                worstDesc = `seed ${seed} ridge ${len.toFixed(0)}u f=${f} side=${side} tick ${t}`;
+              }
+              prev = { x: s.x, y: s.y, heading: s.heading };
+            }
+          }
+        }
+      }
+    }
+    expect(rams).toBeGreaterThan(20); // long ridges genuinely exist in the sweep
+    expect(contacts).toBeGreaterThan(rams); // and every ram genuinely hit rock
+    expect(overlaps).toBe(0); // the shipped post-invariant is NOT regressed
+    // THE BOUND. Measured 7.08u before the fix on this harness (30.19u on the
+    // reviewer's) and, after it, exactly FREE_TRAVEL to float dust — i.e. the
+    // worst resolved tick is now an UNOBSTRUCTED one, and no push-out tick
+    // moves the hull further than simply sailing would have.
+    const msg = `worst single-tick displacement ${worst.toFixed(4)}u at ${worstDesc}`;
+    expect(worst, msg).toBeLessThanOrEqual(FREE_TRAVEL + 1e-9);
+  });
+});
+
 describe('graze-slide — a shallow drive past a single island slides, never sticks', () => {
   // The island sits just above the ship's lane; a straight drive clips its top
   // arc, so the correction is ~perpendicular to travel (a lateral deflect, not
@@ -414,16 +495,23 @@ describe('cove escape — the worst concavity the generator produces (measured)'
   // Measured across seeds 1..400 at playerCap 20 (convex-hull pocket depth —
   // distance from a coastline vertex to the polygon's convex hull; mouth = the
   // spanning hull-bridge length):
-  //   deepest cove:         seed 333, island 12, vertex 8  — 119.6u deep, 635.7u mouth
-  //   narrowest deep notch: seed 363, island 10, vertex 40 —  41.3u deep, 103.6u mouth
+  //   deepest cove:         seed 270, island 8,  vertex 30 —  92.0u deep, 563.6u mouth
+  //   narrowest deep notch: seed 74,  island 16, vertex 1  —  40.2u deep, 117.7u mouth
+  // RE-PINNED at the cycle-51 review gate: unifying `nearestOnSkeleton` across
+  // the generator's star-shape predicate and collision's push-out changed the
+  // accept/reject decision, so the RNG stream consumption — and therefore every
+  // map — moved (deliberately; nothing had shipped). The same measurement that
+  // produced the old pins reproduces them EXACTLY on the pre-fix generator, so
+  // these are the same worst cases on the new one. Deepest concavity fell
+  // 119.6u -> 92.0u: the tightened predicate rejects the deepest pockets.
   // A torpedo boat (thinnest hull — reaches deepest into a notch) is driven
   // bow-first into the cove bottom at full throttle until wedged, then ordered
   // full astern: it must come fully clear within 40 ticks (2s) of the helm
   // order, and at NO tick — wedging in or backing out — may its silhouette
   // overlap land. Re-measure and re-pin if the generator's shape math changes.
   const cases = [
-    { name: 'deepest cove', seed: 333, isle: 12, vert: 8 },
-    { name: 'narrowest deep notch', seed: 363, isle: 10, vert: 40 },
+    { name: 'deepest cove', seed: 270, isle: 8, vert: 30 },
+    { name: 'narrowest deep notch', seed: 74, isle: 16, vert: 1 },
   ] as const;
 
   const kin = CONFIG.shipClasses.torpedoBoat.kinematics;

@@ -20,6 +20,9 @@ Also, different classes of weapon should behave differently:
 - Torpedos should fire in the direction of the mouse when it is clicked. The only thing that stops a torpedo is edge of the map, an island, or another ship.
 - Mines just drop. They aren't invisible, players should be able to see them. They also should have a duration, so they disappear automatically if not triggered after some time that is long enough to meaningfully feel like placing it matters. but not too long that they sit there forever until the map closes in on it. Either that or a player gets a maximum number of mines that can be out at once, and dropping more than that clears the oldest.
 
+## ISLANDS
+Islands used to just be circles. That's boring and doesn't read as terrain. Islands should be real coastlines — actual polygon shapes with coves, ridges, and channels you can thread a torpedo through, not dots scattered on the water. Ocean should still dominate the view; islands are texture, not the point.
+
 ## UPGRADES!!!!!!!!!
 This is my best idea yet I think.
 To start, *ALL* ships will simply be one of the three classes:

@@ -156,6 +156,53 @@ describe('skeletonNormal (the push-out authority)', () => {
     expect(n.ny).toBe(0);
     expect(n.dist).toBe(0);
   });
+
+  // THE cycle-51 review-gate regression. This function projects onto the
+  // skeleton POLYLINE — the same `nearestOnSkeleton` islandShape.ts validates
+  // star-shapedness with. When it took the nearest skeleton POINT instead, a
+  // hull amidships a long ridge was aimed at a far ENDPOINT, giving a heavily
+  // tangential push that slid it along the coast instead of off it.
+  it('projects onto skeleton SEGMENTS: amidships a ridge is PERPENDICULAR, not toward an endpoint', () => {
+    // A 400u-long east-west ridge; the skeleton is its two endpoints only.
+    const isle = islandFromPolygon(
+      [
+        { x: -220, y: -40 },
+        { x: 220, y: -40 },
+        { x: 220, y: 40 },
+        { x: -220, y: 40 },
+      ],
+      [
+        { x: -200, y: 0 },
+        { x: 200, y: 0 },
+      ],
+    );
+    // Amidships, 20u off the ridge axis. The nearest skeleton POINT is 200u
+    // away at an endpoint (a ~6-degree, near-tangential aim); the nearest
+    // point on the POLYLINE is the foot 20u directly below.
+    const n = skeletonNormal({ x: 10, y: 20 }, isle);
+    expect(n.dist).toBeCloseTo(20);
+    expect(n.nx).toBeCloseTo(0);
+    expect(n.ny).toBeCloseTo(1);
+  });
+
+  it('clamps to the endpoint beyond the ridge ends (the cap region)', () => {
+    const isle = islandFromPolygon(
+      [
+        { x: -60, y: -20 },
+        { x: 60, y: -20 },
+        { x: 60, y: 20 },
+        { x: -60, y: 20 },
+      ],
+      [
+        { x: -40, y: 0 },
+        { x: 40, y: 0 },
+      ],
+    );
+    const n = skeletonNormal({ x: 43, y: 4 }, isle); // past the +x endpoint
+    expect(n.dist).toBeCloseTo(5);
+    expect(n.nx).toBeCloseTo(3 / 5);
+    expect(n.ny).toBeCloseTo(4 / 5);
+  });
 });
 
 // --- Float-dust regression at the segPolygonHit radius comparison -----------

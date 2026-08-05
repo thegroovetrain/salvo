@@ -13,9 +13,11 @@
 // skeleton (asserted per roll; self-intersecting or non-star rolls reroll
 // from the SAME rng stream).
 
+import { wrapAngle } from '../math/angle.js';
 import type { Rng } from '../math/rng.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Island } from '../types.js';
+import { nearestOnSkeleton } from './island.js';
 import { closestPointOnPolygon, pointInPolygon } from './silhouette.js';
 
 const TAU = Math.PI * 2;
@@ -182,42 +184,97 @@ export function polygonArea(poly: readonly Vec2[]): number {
   return s / 2;
 }
 
-/** Closest point on the skeleton polyline to `p` (1-pt skeleton => that point). */
-function nearestOnSkeleton(p: Vec2, skel: readonly Vec2[]): Vec2 {
-  let best = skel[0];
-  let bd = Infinity;
-  for (let i = 0; i + 1 < Math.max(skel.length, 2); i++) {
-    const a = skel[i];
-    const b = skel[Math.min(i + 1, skel.length - 1)];
-    const dx = b.x - a.x;
-    const dy = b.y - a.y;
-    const len2 = dx * dx + dy * dy;
-    const t = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2)) : 0;
-    const q = { x: a.x + dx * t, y: a.y + dy * t };
-    const d = Math.hypot(p.x - q.x, p.y - q.y);
-    if (d < bd) {
-      bd = d;
-      best = q;
-    }
+/**
+ * True iff the segment from `b`'s nearest skeleton point out to `b` stays
+ * inside the polygon, sampled at k/9, k = 1..8 (the test suite asserts a
+ * subset of these fractions). `nearestOnSkeleton` is imported from the
+ * island.ts query seam so the accept predicate and the runtime push-out
+ * consumer can never disagree about what "the skeleton" means.
+ */
+function skeletonRayClear(b: Vec2, poly: readonly Vec2[], skel: readonly Vec2[]): boolean {
+  const s = nearestOnSkeleton(b, skel);
+  for (let k = 1; k <= 8; k++) {
+    const t = k / 9;
+    const p = { x: s.x + (b.x - s.x) * t, y: s.y + (b.y - s.y) * t };
+    if (!pointInPolygon(p, poly)) return false;
   }
-  return best;
+  return true;
 }
 
 /**
- * Star-shapedness about the skeleton polyline: for every vertex, the segment
- * from its nearest skeleton point stays inside the polygon (sampled at k/9,
- * k = 1..8 — the test suite asserts a subset of these fractions). This is
- * the load-bearing escape guarantee: push-out away from the skeleton always
- * has a clear line to the boundary.
+ * Forward crossings (t > 0) of the ray from `p` along unit `d` with the
+ * polygon boundary. Half-open side rule ((sA > 0) !== (sB > 0)) so a ray
+ * grazing a vertex counts once, never twice. `p` inside => odd count; a count
+ * of exactly 1 means the ray leaves the land and NEVER RE-ENTERS it.
  */
-function isStarShaped(poly: readonly Vec2[], skel: readonly Vec2[]): boolean {
-  for (const v of poly) {
-    const s = nearestOnSkeleton(v, skel);
-    for (let k = 1; k <= 8; k++) {
-      const t = k / 9;
-      const p = { x: s.x + (v.x - s.x) * t, y: s.y + (v.y - s.y) * t };
-      if (!pointInPolygon(p, poly)) return false;
+function rayCrossings(p: Vec2, dx: number, dy: number, poly: readonly Vec2[]): number {
+  let n = 0;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[j];
+    const b = poly[i];
+    const sa = dx * (a.y - p.y) - dy * (a.x - p.x);
+    const sb = dx * (b.y - p.y) - dy * (b.x - p.x);
+    if (sa > 0 === sb > 0) continue;
+    const ex = b.x - a.x;
+    const ey = b.y - a.y;
+    if ((((a.x - p.x) * ey - (a.y - p.y) * ex) / (dx * ey - dy * ex)) > 0) n++;
+  }
+  return n;
+}
+
+const RAY_SAMPLES = 288; // escape-ray anchors walked around the capsule perimeter
+const JOINT_FAN = 48; // extra rays fanned across each ridge joint's normal cone
+
+/**
+ * Every (anchor, direction) an escape ray can take — the NORMAL CONE of the
+ * skeleton polyline, which is exactly the family `skeletonNormal` produces:
+ * a `capsuleFrames` walk already enumerates both side normals along every
+ * segment plus the 180-degree fan at each end cap. What it does NOT enumerate
+ * is the wedge at an interior ridge JOINT, where the outer-side normal swings
+ * by the joint's turn angle — and that wedge is where every residual
+ * violation lived once the two `nearestOnSkeleton` definitions were unified.
+ */
+function escapeRays(skel: readonly Vec2[], hw: number): Frame[] {
+  const out = capsuleFrames(skel, hw, RAY_SAMPLES);
+  if (skel.length < 3) return out;
+  const { segs } = skeletonSegments(skel);
+  for (let j = 1; j < segs.length; j++) {
+    const turn = wrapAngle(segs[j].ang - segs[j - 1].ang);
+    const side = turn > 0 ? -HALF_PI : HALF_PI; // the convex side of the joint
+    for (let k = 0; k <= JOINT_FAN; k++) {
+      const na = segs[j - 1].ang + side + (turn * k) / JOINT_FAN;
+      out.push({ ax: skel[j].x, ay: skel[j].y, na });
     }
+  }
+  return out;
+}
+
+/**
+ * Star-shapedness about the skeleton polyline — the load-bearing escape
+ * guarantee: from anywhere inside the coastline the push-out direction leads
+ * out and STAYS out, so no concave pocket can trap a hull and no "minimal
+ * clearing translation" can slide one along the coast.
+ *
+ * Two complementary samplings, both anchored on the SAME `nearestOnSkeleton`
+ * the runtime push-out uses:
+ *  1. BOUNDARY: vertices **and edge midpoints**. Vertices alone were the
+ *     shipped blind spot — the offset ring is sampled at only 32/48 frames and
+ *     the fractal displaces neighbours independently, so a midpoint's ray can
+ *     clip a neighbouring lobe while both endpoints are clean.
+ *  2. RAY FAMILY: every escape ray must cross the coastline exactly ONCE. The
+ *     boundary sampling alone cannot see this near a 3-point ridge's joint,
+ *     because there the nearest-skeleton map is NOT constant along the outward
+ *     ray, so a boundary violation need not exist for an interior one to.
+ */
+function isStarShaped(poly: readonly Vec2[], skel: readonly Vec2[], hw: number): boolean {
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    if (!skeletonRayClear(poly[i], poly, skel)) return false;
+    const mid = { x: (poly[j].x + poly[i].x) / 2, y: (poly[j].y + poly[i].y) / 2 };
+    if (!skeletonRayClear(mid, poly, skel)) return false;
+  }
+  for (const f of escapeRays(skel, hw)) {
+    const p = { x: f.ax, y: f.ay };
+    if (rayCrossings(p, Math.cos(f.na), Math.sin(f.na), poly) !== 1) return false;
   }
   return true;
 }
@@ -271,7 +328,7 @@ export function buildShape(rng: Rng, hw: number, kind: 'blob' | 'ridge'): Shape 
       x: f.ax + Math.cos(f.na) * hw * m[i],
       y: f.ay + Math.sin(f.na) * hw * m[i],
     }));
-    if (!polygonIsSimple(poly) || !isStarShaped(poly, skel)) continue;
+    if (!polygonIsSimple(poly) || !isStarShaped(poly, skel, hw)) continue;
     return finishShape(poly, skel);
   }
   return null;
