@@ -52,7 +52,7 @@ function input(seq: number, extra: Partial<InputMsg> = {}): InputMsg {
     slot: 0,
     fireT: 0,
     actSeq: 0,
-    actSlot: 0,
+    actSlot: 0, hornSeq: 0,
     ...extra,
   };
 }
@@ -89,11 +89,11 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   it("no-ammo: a within-RTT ability double press denies {'no-ammo'} keyed on the press's actSeq", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0); // TB: slot 2 = speedBoost (1 charge)
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: 2 }));
+    w.submitInput('a', input(1, { actSeq: 1, actSlot: 2, hornSeq: 0 }));
     w.step(); // press 1 activates (charge 1 → 0)
     expect(a.boostUntil).toBeGreaterThan(0);
     expect('denied' in buildFrame(w, 'a')).toBe(false);
-    w.submitInput('a', input(2, { actSeq: 2, actSlot: 2 }));
+    w.submitInput('a', input(2, { actSeq: 2, actSlot: 2, hornSeq: 0 }));
     w.step(); // press 2, pool empty — silently swallowed before 1.10
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 2, reason: 'no-ammo', seq: 2 }]);
   });
@@ -116,7 +116,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // stern rack drops at (-76, 0)
     w.map.islands.push({ x: -76, y: 0, r: 20 }); // the rock the stern is backed against
-    w.submitInput('a', input(1, { actSeq: 1, actSlot: 2 }));
+    w.submitInput('a', input(1, { actSeq: 1, actSlot: 2, hornSeq: 0 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 2, reason: 'blocked', seq: 1 }]);
     expect(a.loadout[2].state).toEqual({ n: 1, reloadMsLeft: 0 });
@@ -192,11 +192,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 24→25 bump (PV 24: DAMAGE CONTROL — HEAL_CHOICE + OwnShip.repairHp + the heal event; PV 25: WOUNDED SMOKE — the anonymous `sm` signal, Story 4.4) is enforced at matchmake', () => {
-  it('rejects pv-24 and pv-23 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(25);
+describe('pv join gate — the 25→26 bump (PV 25: WOUNDED SMOKE — the anonymous `sm` signal, Story 4.4; PV 26: THE FOGHORN — the `fh` signal + InputMsg.hornSeq, Story 4.5) is enforced at matchmake', () => {
+  it('rejects pv-25 and pv-24 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(26);
+    expect(protocolVersionError(25)).toMatch(/refresh/);
     expect(protocolVersionError(24)).toMatch(/refresh/);
-    expect(protocolVersionError(23)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

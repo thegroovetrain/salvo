@@ -5,9 +5,9 @@
 // in __tests__/perception.test.ts: no contact or event in any frame may
 // reference anything outside sight ∪ (this-tick radar paints) — beyond the
 // DECLARED per-row exceptions (self-directed events, owner-authored points,
-// Story 4.3's sp/hc/mz gunnery rows, and Story 4.4's anonymous `sm` wounded
-// smoke), each codified by its own independently-reimplemented oracle in that
-// suite.
+// Story 4.3's sp/hc/mz gunnery rows, Story 4.4's anonymous `sm` wounded
+// smoke, and Story 4.5's bearing-only `fh` foghorn), each codified by its own
+// independently-reimplemented oracle in that suite.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
 // the 16 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —

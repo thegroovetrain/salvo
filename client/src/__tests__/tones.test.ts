@@ -74,6 +74,17 @@ describe('TONES — spec table completeness', () => {
     expect(TONES.sink.duration).toBeGreaterThan(MAX_TONE_S);
     expect(TONES.sink.duration).toBeLessThanOrEqual(MAX_SINK_TONE_S);
   });
+
+  // Story 4.5 / amendment 57. The ~1.8s foghorn got its OWN play path
+  // (Audio.playHorn + audio/horns.ts) precisely so this ceiling would not have
+  // to move for it. If a horn ever appears in TONES, or MAX_TONE_S drifts up to
+  // accommodate one, the ceiling has stopped meaning anything for the short cues
+  // it was written for — which is the thing that ruling protected.
+  it('keeps the 150ms ceiling intact — the horn rides its own path, not an exemption', () => {
+    expect(MAX_TONE_S).toBe(0.15);
+    expect(Object.keys(TONES)).not.toContain('foghorn');
+    expect(Object.keys(TONES).filter((id) => /horn/i.test(id))).toEqual([]);
+  });
 });
 
 describe('fireTone — weapon -> own-fire tone mapping', () => {
