@@ -368,17 +368,21 @@ describe('World combat — burst at the clicked point', () => {
   });
 });
 
-// ---------- the same-click SALVO single-hit rule (Story 2.8 review, P1) -------
+// ---------- EVERY SHELL THAT CONNECTS DEALS DAMAGE (Eric ruling 2026-08-05) ---
 //
 // A TWIN/TRIPLE MOUNT fires `barrels` real shells per click, each with its own
-// burst point. At practical ranges those bursts OVERLAP, so without a rule one
-// hull took barrels× damage from a single click (3 × 25 = 75 > the 70hp
-// lightest hull) — a breach of the ratified no-one-click-kill guardrail.
-// RULING: shells of one click share a server-internal salvo tag and a given
-// victim takes at most ONE damage application per salvo; every shell still
-// booms/bursts, and DIFFERENT victims each take their own hit.
+// burst point, and at fighting range those bursts OVERLAP (3° apart, 15u blast:
+// they separate only past ~573u of a 660u base range). Story 2.8's review added
+// a same-click salvo ledger that held one victim to ONE application per click —
+// so two of the three shells did nothing and the two rare MOUNT cards added no
+// single-target damage at all.
+//
+// RULING (2026-08-05): "everything that connects should deal damage." The
+// ledger, the tag, and both gates are DELETED. The one-hit-kill law governs a
+// single SHELL, not a single click. What survives untouched is the PER-SHELL
+// rule: one shell hits one hull at most once (contact XOR burst, never both).
 
-describe('same-click salvo — one victim, one damage application (no one-click kill)', () => {
+describe('multi-barrel click — every shell that connects deals its own damage', () => {
   /** A triple-mount gun: two gunBarrel cards (1 → 3 barrels). */
   function tripleMount(seed = 11): { w: World; a: ShipRecord } {
     const { w, a } = armed(seed);
@@ -388,7 +392,7 @@ describe('same-click salvo — one victim, one damage application (no one-click 
     return { w, a };
   }
 
-  it('THREE shells fly and all burst, but a hull inside every burst takes damage exactly ONCE', () => {
+  it('THREE shells fly, all burst, and a hull inside every burst takes all THREE applications', () => {
     const { w, a } = tripleMount();
     const b = w.addShip('b', 'B');
     b.state = { x: 0, y: 100, heading: 0, speed: 0 }; // at the click point: inside all three bursts
@@ -396,15 +400,16 @@ describe('same-click salvo — one victim, one damage application (no one-click 
     const events = stepCollect(w, 30);
     expect(shellsOf(events)).toHaveLength(3); // a real 3-shell volley...
     expect(burstsOf(events)).toHaveLength(3); // ...each bursting at its own point
-    // ...but exactly ONE damage application, at one shell's damage.
+    // ...and THREE damage applications, one per connecting shell.
     const dmgs = dmgsOf(events).filter((e) => e.id === 'b');
-    expect(dmgs).toHaveLength(1);
-    expect(dmgs[0].amount).toBe(a.stats.gun.damage);
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - a.stats.gun.damage);
-    expect(b.alive).toBe(true); // the whole point: one click cannot kill
+    expect(dmgs).toHaveLength(3);
+    for (const d of dmgs) expect(d.amount).toBe(a.stats.gun.damage);
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 3 * a.stats.gun.damage);
+    // A base triple mount is 45 into a 125hp hull — a real bite, not a kill.
+    expect(b.alive).toBe(true);
   });
 
-  it('AREA THROUGHPUT is preserved: two hulls in the same salvo each take their own hit', () => {
+  it('AREA THROUGHPUT still holds: two hulls straddling the fan each take their own hits', () => {
     const { w, a } = tripleMount(12);
     const b = w.addShip('b', 'B');
     b.state = { x: 12, y: 200, heading: HALF_PI, speed: 0 };
@@ -413,23 +418,41 @@ describe('same-click salvo — one victim, one damage application (no one-click 
     w.submitInput('a', gunInput(HALF_PI, 200));
     const events = stepCollect(w, 45);
     const dmgs = dmgsOf(events);
-    expect(dmgs.map((e) => e.id).sort()).toEqual(['b', 'c']); // one each, never two each
-    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - a.stats.gun.damage);
-    expect(c.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - a.stats.gun.damage);
+    // Each hull sits inside TWO of the three fanned bursts at this geometry, so
+    // each takes TWO applications — and neither one's hits were spent on the
+    // other. The counts are the discriminating assertion: under the deleted
+    // ledger BOTH of these were exactly 1, so this test fails outright if the
+    // salvo rule is ever restored.
+    const hitsOn = (id: string) => dmgs.filter((e) => e.id === id);
+    expect(hitsOn('b')).toHaveLength(2);
+    expect(hitsOn('c')).toHaveLength(2);
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.gun.damage);
+    expect(c.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - 2 * a.stats.gun.damage);
   });
 
-  it('the ledger is per CLICK: the NEXT salvo damages the same hull again', () => {
-    const { w, a } = tripleMount(13);
+  it('CONTACT from one shell and BURST from another both land on the same hull', () => {
+    // The victim lies athwart the fan at 250u under a 300u click, angled so the
+    // geometry splits the volley: one barrel's shell strikes its hull well short
+    // of that barrel's burst point (an interception OUTSIDE the would-be blast —
+    // a bodyblock, contactDamage), while another barrel's burst point lands
+    // within blast radius of the same hull (full damage). Both connected, so
+    // both are paid. The no-double-dipping rule they respect is PER SHELL:
+    // neither shell hit this hull twice.
+    const { w, a } = tripleMount(14);
     const b = w.addShip('b', 'B');
-    b.state = { x: 0, y: 100, heading: 0, speed: 0 };
-    w.submitInput('a', gunInput(HALF_PI, 100, 1, 1));
-    stepCollect(w, 30);
-    const afterFirst = b.hp;
-    // Wait out the reload, then click again.
-    for (let i = 0; i < Math.ceil(a.stats.gun.reloadMs / CONFIG.tick.simDtMs) + 2; i++) w.step();
-    w.submitInput('a', gunInput(HALF_PI, 100, 2, 2));
-    stepCollect(w, 30);
-    expect(b.hp).toBe(afterFirst - a.stats.gun.damage); // a second, separate application
+    b.state = { x: -35, y: 250, heading: Math.PI / 4, speed: 0 };
+    w.submitInput('a', gunInput(HALF_PI, 300));
+    const events = stepCollect(w, 45);
+    const amounts = dmgsOf(events).filter((e) => e.id === 'b').map((e) => e.amount);
+    // EXACTLY two applications from a three-shell click: one bodyblock and one
+    // burst. The LENGTH is what pins the per-shell rule — three barrels could
+    // have produced at most three, and a shell that double-dipped (contact AND
+    // burst on this same hull) would push this to three with a duplicate. The
+    // deleted ledger would have allowed only the first, so the pair also fails
+    // if the salvo rule returns.
+    expect(amounts).toHaveLength(2);
+    expect([...amounts].sort((x, y) => x - y)).toEqual([a.stats.gun.contactDamage, a.stats.gun.damage]);
+    expect(b.hp).toBe(CONFIG.shipClasses.torpedoBoat.hp - a.stats.gun.contactDamage - a.stats.gun.damage);
   });
 });
 
