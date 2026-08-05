@@ -4,7 +4,7 @@
 // sets reconnection.enabled + a maxRetries sized to span that window, and rides
 // a `pv` (PROTOCOL_VERSION) in the join options for the server's version gate.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { MSG, PROTOCOL_VERSION, REGATTA_HUES } from '@salvo/shared';
+import { DEFAULT_HORN_ID, MSG, PROTOCOL_VERSION, REGATTA_HUES } from '@salvo/shared';
 
 interface FakeRoom {
   reconnection: { enabled: boolean; maxRetries: number };
@@ -55,6 +55,8 @@ import {
   connectErrorStatus,
   ensureColorPref,
   loadColorPref,
+  loadHornPref,
+  HORN_PREF_KEY,
   RECONNECT_MAX_RETRIES,
   __resetSessionColorPrefForTests,
 } from '../net/connection';
@@ -115,6 +117,15 @@ describe('connect', () => {
     room = fakeRoom();
     await connectAndWelcome();
     expect(lastJoinOpts?.pv).toBe(PROTOCOL_VERSION);
+  });
+
+  it('forwards the persisted foghorn variant as `horn` (Story 4.5, amendment 52)', async () => {
+    room = fakeRoom();
+    await connectAndWelcome();
+    // ALWAYS sent (loadHornPref never returns undefined) and re-sanitized
+    // server-side in onJoin, exactly like `cls`. Exactly one horn ships and no
+    // UI writes the key — a second horn is CONTENT and needs an Eric ruling.
+    expect(lastJoinOpts?.horn).toBe(DEFAULT_HORN_ID);
   });
 
   it('rejects immediately when the socket closes during the welcome handshake', async () => {
@@ -207,6 +218,37 @@ describe('loadColorPref — persisted Regatta preference (Story 1.12)', () => {
     expect(withStored('-1')).toBeUndefined();
     expect(withStored('3.5')).toBeUndefined();
     expect(withStored('x')).toBeUndefined();
+  });
+});
+
+describe('loadHornPref — the persisted foghorn variant (Story 4.5, amendment 52)', () => {
+  afterEach(() => localStorage.removeItem(HORN_PREF_KEY));
+
+  it('FAILS OPEN to the default horn for an absent key — the shipped case', () => {
+    // No UI writes this key: exactly one horn ships, and adding variants is
+    // CONTENT that needs an Eric ruling. The seam is plumbed, not surfaced.
+    localStorage.removeItem(HORN_PREF_KEY);
+    expect(loadHornPref()).toBe(DEFAULT_HORN_ID);
+  });
+
+  it('FAILS OPEN for a corrupt, empty, or unknown id — never silence, never a throw', () => {
+    for (const junk of ['', '   ', 'not-a-horn', '42', '[]']) {
+      localStorage.setItem(HORN_PREF_KEY, junk);
+      expect(loadHornPref()).toBe(DEFAULT_HORN_ID);
+    }
+  });
+
+  it('returns a valid stored id unchanged', () => {
+    localStorage.setItem(HORN_PREF_KEY, DEFAULT_HORN_ID);
+    expect(loadHornPref()).toBe(DEFAULT_HORN_ID);
+  });
+
+  it('survives storage that throws (blocked / private-mode localStorage)', () => {
+    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError');
+    });
+    expect(loadHornPref()).toBe(DEFAULT_HORN_ID);
+    spy.mockRestore();
   });
 });
 

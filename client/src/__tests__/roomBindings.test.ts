@@ -1322,3 +1322,72 @@ describe('the fit cue is transposed by CATEGORY (Story 2.9 carry-over)', () => {
     expect(play).toHaveBeenCalledWith('fitCommon', { detune: 0 });
   });
 });
+
+// --- the accumulated-pulse switch now carries THREE rows (Story 4.5) --------
+//
+// `fh` joins `blip` and `sm` in handlePulseEvent — the rows where the server
+// keeps no history and the client synthesizes the persistence. The row's own
+// behavior is covered exhaustively in foghorn.test.ts; what belongs HERE is
+// that adding it did not cost the other two their fan-out, and that a honk
+// never falls through into the gunnery or reward switches below it.
+
+describe('bindRoom pulse fan-out with the foghorn row present', () => {
+  function setupPulses() {
+    const room = fakeRoom();
+    const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const onBlip = vi.fn();
+    const onSmoke = vi.fn();
+    const onHonk = vi.fn();
+    const playHorn = vi.fn();
+    const play = vi.fn();
+    const spawnEffect = vi.fn();
+    const deps = {
+      state: { net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 }, spectating: true, phase: '', respawnEta: null, mode: 'interp' },
+      clock: { addSample: vi.fn() },
+      contacts: { pushFrame: vi.fn() },
+      mines: { sync: vi.fn() },
+      litZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      ownBurstRadius: () => undefined,
+      ownMineRings: () => undefined,
+      radar: { onSweepSample: vi.fn(), onBlip },
+      smoke: { onSmoke },
+      foghorn: { onHonk },
+      cameraCenter: () => ({ x: 0, y: 0 }),
+      effects: { spawnEffect },
+      audio: { play, playHorn },
+      onSunkObserved: vi.fn(),
+      onSpectate: vi.fn(),
+      colors: vi.fn(() => null),
+      ordnanceHue: vi.fn(() => 0),
+    } as unknown as RoomBindingDeps;
+    bindRoom(conn, deps);
+    return { sink, onBlip, onSmoke, onHonk, playHorn, play };
+  }
+
+  it('fans blip, sm and fh out of ONE frame, each to its own subsystem', () => {
+    const { sink, onBlip, onSmoke, onHonk, playHorn } = setupPulses();
+    sink.handler({
+      t: 400, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [],
+      events: [
+        { k: 'blip', id: 'c1', x: 10, y: 20, heading: 0, speed: 0, cls: 'torpedoBoat' },
+        { k: 'sm', x: 30, y: 40, tier: 1 },
+        { k: 'fh', h: 'standard', b: 1.25, v: 2 },
+      ],
+    });
+    expect(onBlip).toHaveBeenCalledTimes(1);
+    expect(onSmoke).toHaveBeenCalledTimes(1);
+    expect(onHonk).toHaveBeenCalledWith(1.25, 2, 400); // the FRAME's timestamp
+    expect(playHorn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a honk plays on its OWN path — never through the short-tone table', () => {
+    // A horn is ~1.8s and multi-layered; `play()` is the 150ms-capped ToneSpec
+    // path (amendment 57). Routing a honk through it would silently truncate it.
+    const { sink, play, playHorn } = setupPulses();
+    sink.handler({ t: 400, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [], events: [{ k: 'fh', h: 'standard', b: 0, v: 1 }] });
+    expect(playHorn).toHaveBeenCalledTimes(1);
+    expect(play).not.toHaveBeenCalled();
+  });
+});

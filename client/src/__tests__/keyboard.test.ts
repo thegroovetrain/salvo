@@ -683,16 +683,60 @@ describe('KeyboardInput — chokepoint hygiene', () => {
     }
   });
 
-  it('F (Foghorn-reserved) and Space are fully inert — prevented, zero state change', () => {
+  it('Space is fully inert — prevented, zero state change', () => {
+    // F LEFT THIS TEST IN STORY 4.5 (amendment 56). It sat here as a pin on the
+    // Foghorn RESERVATION since Epic 2; the reservation is now spent, and the
+    // pin would be pinning the absence of a shipped feature. Space keeps the
+    // bound-inert treatment (prevented so the page cannot scroll, no action).
     const picks: number[] = [];
     kb = new KeyboardInput({ onRefitPick: (c) => picks.push(c), isModalOpen: () => true });
     kb.attach();
-    expect(press('KeyF')).toBe(true);
     expect(press('Space')).toBe(true);
     expect(kb.primedSlot).toBe(SLOT_GUN);
     expect(kb.pendingActivationCount).toBe(0);
     expect(kb.throttle).toBe(0);
     expect(picks).toEqual([]);
+  });
+
+  // --- F: THE FOGHORN (Story 4.5, amendment 56) ------------------------------
+  //
+  // The chokepoint's whole job for F is the press EDGE plus the two suspension
+  // rules it shares with the slot keys. Alive/spectating/cooldown are main.ts's
+  // (hornPressVerdict) — the keyboard reports a press, it does not adjudicate
+  // one.
+
+  it('F fires onFoghorn exactly once per physical press — never on auto-repeat', () => {
+    let honks = 0;
+    kb = new KeyboardInput({ onFoghorn: () => (honks += 1) });
+    kb.attach();
+    expect(press('KeyF')).toBe(true); // still preventDefault-ed, as it always was
+    press('KeyF', { repeat: true }); // OS auto-repeat: a held F is ONE honk
+    press('KeyF', { repeat: true });
+    expect(honks).toBe(1);
+    press('KeyF'); // a fresh press edge honks again
+    expect(honks).toBe(2);
+  });
+
+  it('F is SUSPENDED while the refit modal is open (the Q/E/R rule, verbatim)', () => {
+    let honks = 0;
+    kb = new KeyboardInput({ onFoghorn: () => (honks += 1), isModalOpen: () => true });
+    kb.attach();
+    expect(press('KeyF')).toBe(true); // prevented — focus never escapes the canvas
+    expect(honks).toBe(0); // ...but inert: a captain picking a card is not conning
+  });
+
+  it('F is SWALLOWED by a focused overlay (settings / results), like every non-ESC key', () => {
+    let honks = 0;
+    kb = new KeyboardInput({ onFoghorn: () => (honks += 1), isOverlayFocused: () => true });
+    kb.attach();
+    expect(press('KeyF')).toBe(true);
+    expect(honks).toBe(0);
+  });
+
+  it('F with no hook wired is harmless (every hook is optional)', () => {
+    kb = new KeyboardInput();
+    kb.attach();
+    expect(() => press('KeyF')).not.toThrow();
   });
 
   it('unbound keys are left native (no preventDefault)', () => {

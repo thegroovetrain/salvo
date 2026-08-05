@@ -54,6 +54,7 @@ import { Mines, type OwnMineRings } from './render/mines.js';
 import { Decoys } from './render/decoys.js';
 import { LitZones, litZoneFade, ownActiveZones, type OwnZone } from './render/litZones.js';
 import { Smoke } from './render/smoke.js';
+import { Foghorn } from './render/foghorn.js';
 import { Fog, type FogHole } from './render/fog.js';
 import { Radar } from './render/radar.js';
 import { Zone } from './render/zone.js';
@@ -77,7 +78,7 @@ import {
   type SpendLatch,
 } from './ui/upgradeMenu.js';
 import { MouseInput, worldAim, worldAimDist, type ScreenPoint } from './input/mouse.js';
-import { abilityPressDenied, shouldConsumePrime } from './sim/inputSampler.js';
+import { abilityPressDenied, hornPressVerdict, shouldConsumePrime } from './sim/inputSampler.js';
 import { zoneViewFrom, type ZoneView } from './sim/zoneView.js';
 import { OwnFireLatch } from './sim/ownFire.js';
 import { startLoop, type LoopCallbacks } from './app/loop.js';
@@ -168,6 +169,15 @@ interface Game {
    *  the anonymous `sm` pulses on the fog-immune chart, since a hurt hull is
    *  disclosed out to 495u and the plume must read past the sight bubble. */
   smoke: Smoke;
+  /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
+   *  visual twin, screen-space and above every HUD readout. */
+  foghorn: Foghorn;
+  /**
+   * Server-clock estimate (ms) the local foghorn cooldown next opens at; 0 =
+   * ready. Armed at SEND time by handleFoghornPress — see there for why the
+   * client mirrors a server-authoritative gate at all.
+   */
+  nextHonkAt: number;
   zone: Zone;
   hud: Hud;
   /** The bottom-left hotbar (render/hotbar.ts, Story 2.2) — the loadout surface:
@@ -1045,6 +1055,9 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       // reload, stale smoke must not survive to render at pre-reset
       // coordinates on the next match.
       g.smoke.clear();
+      // Same defence for the foghorn chevrons (Story 4.5): a bearing is a fact
+      // about one moment on one ocean, and it must not survive into the next.
+      g.foghorn.clear();
     },
   });
 }
@@ -1198,6 +1211,9 @@ function keyboardHooks(getG: () => Game | null, audio: Audio): KeyboardHooks {
       g.abilityDeniedPress[slot] = true;
       g.audio.play('denied');
     },
+    // F — the foghorn (Story 4.5). The chokepoint has already edge-gated the
+    // press and applied the refit-modal suspension; everything else is here.
+    onFoghorn: withG(handleFoghornPress),
     // Slot keys / clicks AND the refit digits suspend under ANY open surface —
     // the refit modal as ever, plus (Story 2.3) the settings overlay and the
     // results modal, which are focused overlays.
@@ -1278,6 +1294,51 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
   // decoyBuoy has no press-time cue: its placement tone rides the Decoys
   // reconcile own-spawn hook (the mine precedent), so it fires on the confirmed
   // OWN buoy and never on a truesighted enemy buoy.
+}
+
+/**
+ * F LANDED — one foghorn press (Story 4.5, amendments 56 + 58).
+ *
+ * THE HONK IS NOT PREDICTED. Nothing sounds here. The honker hears their own
+ * horn from the server's self-addressed `fh` event, exactly once
+ * (roomBindings.handleFoghorn), so ONE code path serves every listener and no
+ * dedup machinery exists to get wrong. Predicting it locally would double-play
+ * the moment that event came back, which is why amendment 58 forbids it
+ * outright.
+ *
+ * All this does is decide whether to advance the wire counter:
+ *  - IGNORED while spectating or sunk — the server refuses both (world.ts
+ *    consumeHonk gates on `ship.alive`), so feedback here would teach a rule
+ *    the sim does not have. Deliberately NOT gated on match phase either; see
+ *    hornPressVerdict for why.
+ *  - DENIED inside the cooldown → the shipped predicted `denied` TONE, and
+ *    nothing on the wire. No `denialDedup` mark is registered, and that is a
+ *    real difference from handleAbilityPress: the dedup exists to suppress a
+ *    matching SERVER denial echo, and a honk has none — the server drops an
+ *    early hornSeq silently — so a mark would sit unmatched forever.
+ *  - ACCEPTED → bump the sampler's honk counter (it rides the next input, tick
+ *    or tab-hide neutral alike) and arm the local cooldown.
+ *
+ * WHOSE CLOCK, AND WHY IT CAN ONLY COST A HONK. The gate is measured in
+ * SERVER-CLOCK estimate against `CONFIG.foghorn.cooldownMs` — read straight
+ * from shared CONFIG, never restated client-side (the amendment 41
+ * `damageBands` rule). The client arms from SEND while the server arms from
+ * EMIT, which is strictly later (one-way latency plus tick quantization), so
+ * the client's window opens marginally EARLIER in absolute server time: a
+ * second press right on the boundary can be dropped by the server. That is the
+ * whole cost — because nothing was predicted, a dropped honk leaves no local
+ * state to reconcile and no visual to retract. It simply does not sound.
+ */
+function handleFoghornPress(g: Game): void {
+  const now = g.clock.serverNow();
+  const verdict = hornPressVerdict(g.state.net.you?.alive ?? false, g.state.spectating, now, g.nextHonkAt);
+  if (verdict === 'ignore') return;
+  if (verdict === 'denied') {
+    g.audio.play('denied');
+    return;
+  }
+  g.sampler.honk();
+  g.nextHonkAt = now + CONFIG.foghorn.cooldownMs;
 }
 
 /**
@@ -1414,6 +1475,8 @@ function buildGame(
     decoys: new Decoys(stage.layers.decoyChart, stage.layers.decoyWorld, (d) => onOwnDecoy(gRef, audio, d)),
     litZones: new LitZones(stage.layers.litZone),
     smoke: new Smoke(stage.layers.smoke),
+    foghorn: new Foghorn(stage.layers.foghorn),
+    nextHonkAt: 0,
     fog: new Fog(stage.fogSprite),
     // Story 4.2: a blip flies its owner's personal hue, so the radar needs the
     // SAME roster resolution the kill feed uses — bright hue for a human, drone
@@ -1562,6 +1625,11 @@ function bindGameRoom(g: Game, conn: Connection): void {
   bindRoom(conn, {
     ...g,
     onOwnSpawn: (x, y) => g.camera.snapTo({ x, y }),
+    // Story 4.5: the SPECTATOR foghorn path's vantage point. A spectator's honk
+    // arrives as a position (the free camera has no server-known one to take a
+    // bearing from), so the bearing is derived from wherever the camera is at
+    // the instant it lands — read live, never captured.
+    cameraCenter: () => g.camera.center,
     onOwnStats: (cls, boons) => applyOwnStats(g, cls, boons),
     // Story 1.10: self-private server denials route through the
     // exactly-one-feedback dedup (predicted-first suppresses the echo).
@@ -2169,6 +2237,7 @@ function renderAlive(
   // about it depends on the own ship — your own plume rides the same anonymous
   // row as everyone else's (amendment 46).
   g.smoke.render(now);
+  renderFoghorn(g, now);
   // Fade each lit-zone glow by its timestamp expiry, and breathe the burning
   // zones' embers on the shared server-clock seconds (Story 2.9, amendment 50).
   g.litZones.render(now, now / 1000);
@@ -2241,6 +2310,7 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   g.effects.update(frameDt, null);
   g.radar.render(null, now); // hides the sweep + rings
   g.smoke.render(now); // a spectator receives every `sm` pulse — the plumes keep drifting
+  renderFoghorn(g, now); // ...and every `fh`, on the omniscient position path
   g.litZones.render(now, now / 1000); // spectators see all zones, doctrine and all
   const s = publicState(g);
   const banner = spectateBannerText(s.matchPhase ?? 'waiting', s.winnerId ?? '', g.state.net.sessionId);
@@ -2279,6 +2349,20 @@ function hudWidth(g: Game): number {
 /** Viewport height in the (possibly scaled) HUD's own coordinate space. */
 function hudHeight(g: Game): number {
   return g.stage.app.screen.height / g.uiScale;
+}
+
+/**
+ * Age + re-pin the FOGHORN chevrons (Story 4.5) against SERVER time. Driven
+ * from BOTH the alive and the spectate paths — a spectator receives every honk
+ * on the omniscient position path, and a bearing that froze the moment you
+ * sank would be a lie about a live ocean.
+ *
+ * Fed the RAW screen dimensions, not hudWidth/hudHeight: the chevron layer is a
+ * sibling of `layers.hud` and deliberately outside the UI-scale transform (see
+ * stage.ts), so its px inset is measured against the real viewport edge.
+ */
+function renderFoghorn(g: Game, now: number): void {
+  g.foghorn.render(now, g.stage.app.screen.width, g.stage.app.screen.height);
 }
 
 /** A raw screen point projected into the HUD's coordinate space (hover/hit-test). */
