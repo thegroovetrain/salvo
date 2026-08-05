@@ -376,7 +376,7 @@ re-propose.
     block) and the Story 1.12 restyle AC at `epics.md:534` are superseded by amendment 33; epic-3
     amendment 19's AFLOAT rule is superseded by amendment 32 wherever it is restated in design docs.
 
-## 2026-08-05 — Eric rulings, the per-shell damage law (bmad-dev-auto, interstitial — cycle 47)
+## 2026-08-05 — Eric rulings, the per-shell damage law (bmad-dev-auto, interstitial — cycle 48)
 
 Source: Eric, bug report plus a two-question pre-implementation gate (AskUserQuestion, both answered
 on the recommended option). Spec of record: `spec-salvo-per-shell-damage.md`. Starting intent,

@@ -781,13 +781,36 @@ export const CLIENT_CONFIG = {
     /** Card inner padding (px). */
     pad: 14,
     /**
-     * Band anchor: the row's TOP edge as a fraction of viewport height. ~58% is
-     * the BELOW-CENTER keep-out proxy — the listening ring (UX-DR18) does not
-     * exist yet (Epic 4/6), so the honest constraint today is "own hull at
-     * screen center stays clear". When the ring ships, this fraction becomes
-     * the ring's outer-radius contract and moves with it.
+     * Band anchor: the row's TOP edge as a fraction of viewport height. The
+     * BELOW-CENTER keep-out proxy — the listening ring (UX-DR18) does not exist
+     * yet (Epic 4/6, and 4.1 is deferred), so the honest constraint today is
+     * "own hull at screen center stays clear". When the ring ships, this
+     * fraction becomes the ring's outer-radius contract and moves with it.
+     *
+     * LIFTED 0.58 → 0.534 in cycle 47 by Eric ruling (amendment 65), which
+     * REOPENED amendment 40's "no band lift" specifically to buy the DAMAGE
+     * CONTROL rail the room to be legible. The value is not a taste call — it is
+     * the only band the hard constraints leave at the 1280×614 logical floor,
+     * where the band is boxed on BOTH sides:
+     *
+     *   below-center keep-out   row.y - pipsAbove > 614/2   →  row.y > 325
+     *   container-fit law       row.y + cardHeight + stripGap + stripHeight
+     *                                                ≤ 614  →  row.y ≤ 332
+     *
+     * Seven pixels of total slack. 0.534 lands row.y at 328 (round(614×0.534)),
+     * leaving 3px clear of the keep-out and 4px clear of the screen edge. A
+     * 236px card row plus a genuinely legible rail simply near-fills a 614px
+     * viewport — which is exactly why cycle 46 squeezed the rail instead, that
+     * option having been closed to it.
+     *
+     * A THIRD constraint binds from outside this arithmetic: the band is
+     * anchored in PHYSICAL px while its contents are CSS-scaled, so the 125%
+     * tier at a 1600×768 viewport is tighter than the logical-floor math
+     * suggests. That constraint is what set `stripGap` to 6 rather than 8 —
+     * see that knob. All three margins are pinned by the geometry suite, so a
+     * future drift fails loudly rather than clipping on someone's laptop.
      */
-    bandTopFrac: 0.58,
+    bandTopFrac: 0.534,
     /** Queue pips: 8px squares, gap, and the pip row's baseline above the cards. */
     pip: 8,
     pipGap: 6,
@@ -834,33 +857,69 @@ export const CLIENT_CONFIG = {
      * exhausted, never in `OwnShip.offer`, and addressed by the reserved
      * negative wire sentinel (`HEAL_CHOICE`), never by an offer index.
      *
-     * WHY A RAIL AND NOT A BLOCK — the whole geometry below is dictated by the
-     * container-fit law (amendment 47) against the RATIFIED, UNTOUCHABLE row:
-     * four 216px cards / 20px gaps / 924px / `CONFIG.offer.size` 4, with the
-     * band anchored at `bandTopFrac`. At the 1280×614 logical floor the card
-     * row already ends at y=592, so the ENTIRE budget below it is 22px. The
-     * strip therefore runs as a one-line rail (16px tall, a 2px seam under the
-     * row = 18px total, 4px of margin left over) at the HUD MICRO type tier
-     * (10px mono — DESIGN.md Typography "HUD micro 9–10px", one step under the
-     * 11px label tier the cards' category tag uses) with a PROPORTIONALLY
-     * SCALED key chip (14, the DESIGN.md "proportional below" precedent the
-     * ability chamfer already sets), because the 22px family chip cannot fit a
-     * 16px rail. Shrinking a card, lifting the band, or a fifth card (1160px —
-     * 60px of margin at the floor) were all foreclosed before this geometry
-     * was chosen; see the spec's "Why a strip and not a fifth card".
+     * A RAIL, AND NOW AN ACTUALLY CHOOSABLE ONE. Cycle 46 derived this geometry
+     * from the 22px the card row left under itself at the 1280×614 logical
+     * floor, and the result was a 16px seam at the 10px HUD-micro tier with a
+     * shrunken 14px chip and ZERO vertical padding. It shipped flagged as
+     * unratified draft, and Eric ruled on sight (amendment 66): *"its just plain
+     * fucking tiny and hard to read/see. It doesn't even have any padding!"*,
+     * with the binding requirement that the rail be *"big enough to actually
+     * register as 'this is something I can choose' on all viewports."*
+     *
+     * The room came from lifting the band (see `bandTopFrac`) — Eric's own pick,
+     * and the ONLY lever available, since the row is untouchable (four 216px
+     * cards / 20px gaps / 924px / `CONFIG.offer.size` 4) and shrinking a card or
+     * spending a card slot on heal were both declined. With 48px under the row
+     * instead of 22px, every cycle-46 compromise is retired:
+     *
+     *   • the key chip returns to the ONE 22px family (hotbar / helm / card
+     *     digits) — "a 22px chip cannot fit a 16px rail" was true of a 16px rail
+     *     and is moot at 40px, so the DESIGN.md "proportional below" carve-out
+     *     the ledger flagged dies with this cycle;
+     *   • type clears amendment 15's 14px legibility floor with a step to spare
+     *     (16px — the rail is a peer of the whole ROW, not of a card's category
+     *     tag, and the fit model says the widest copy spends only ~705 of 894
+     *     available px, so the larger register costs nothing on either axis);
+     *   • the rail gets real vertical padding, which is what makes it read as a
+     *     pressable thing rather than a seam.
+     *
+     * The container-fit law (amendment 47) still governs both axes and is still
+     * proven by arithmetic in ui/refitCardFit.ts, not by hope.
      */
-    /** Rail height (px) — the strip's whole box, borders included. */
-    stripHeight: 16,
-    /** Seam (px) between the card row's bottom edge and the rail's top edge. */
-    stripGap: 2,
-    /** The rail's key chip (px) — the mono key-chip family at rail scale. */
-    stripKeyChip: 14,
-    /** Type size (px) for every mark on the rail (HUD micro tier). */
-    stripFontSize: 10,
+    /** Rail height (px) — the strip's whole box, borders included. 22px chip +
+     *  2×`stripPadY` + 2×1px border = 40, so the chip sets the height. */
+    stripHeight: 40,
+    /**
+     * Seam (px) between the card row's bottom edge and the rail's top edge.
+     * 2 → 6: at 2px the rail read as part of the row's own border rather than
+     * as a separate, pressable sibling.
+     *
+     * WHY 6 AND NOT THE `spacing.sm` 8 IT WANTS TO BE. The band is positioned
+     * in PHYSICAL px (`place()` reads `window.innerHeight`) but its contents
+     * are CSS-scaled by `--hc-ui-scale`, so at the 125% tier the band's real
+     * footprint is 1.25 × its laid-out height while its anchor is not scaled.
+     * At a 1600×768 viewport — the 125% tier's own gate is width-only, so that
+     * viewport can select it — an 8px seam puts the rail's bottom edge 1.5px
+     * past the screen, an amendment-47 violation. 6px lands it at 767 of 768.
+     * The two px come out of the seam rather than the rail because the rail's
+     * height, chip, type and padding are the whole point of the retune. The
+     * anchor↔scale mismatch itself is a PRE-EXISTING defect, ledgered — this
+     * value keeps the shipped geometry legal in the meantime, and the scaled
+     * case is now pinned so it can never silently regress again.
+     */
+    stripGap: 6,
+    /** The rail's key chip (px) — the ONE key-chip family, at family size. */
+    stripKeyChip: 22,
+    /** Type size (px) for every mark on the rail. Above amendment 15's 14px
+     *  floor, and 16×0.9 = 14.4 clears the 9px mono floor at the 90% tier. */
+    stripFontSize: 16,
     /** Inner padding (px) at the rail's left/right ends. */
-    stripPad: 8,
+    stripPad: 14,
+    /** Inner padding (px) at the rail's top/bottom — the knob cycle 46 did not
+     *  have room to have at all (`padding: 0 8px`). */
+    stripPadY: 8,
     /** Gap (px) between the rail's columns (chip · label · readout · status). */
-    stripColGap: 10,
+    stripColGap: 14,
   },
 
   /**

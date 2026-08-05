@@ -102,7 +102,7 @@ warnings: []
   - `[medium]` `[patch]` Burn identity misclassified under the new aggregate: `BURN_AMOUNT_CAP`'s ×4 headroom was derived for ONE event, but `applyZoneEffects` emits one bite per (owner, victim) per tick, so four distinct enemy burners (~2.75hp each) sum past the 10hp cap and pure fire reported as an impact. Reworked to classify PER EVENT and fold (the frame reads as fire only when every application does), with a regression test for the four-burner case.
   - `[low]` `[patch]` The aggregate flushed AFTER the fan-out, so on the death frame the sink cue played before the thud that caused it (the server pushes `dmg` then `sunk`). Moved the flush to a pre-pass over `f.events`, dropping `BindState.dmgSum` entirely; added a test pinning the `['damage','sink']` order.
   - `[low]` `[patch]` The re-pinned guardrail comment claimed "no PLAYER hull can be one-clicked" while a burst also detonates the shooter's own armed mines inside `burstRadius` (`detonateMinesInBurst` + the 2.8 same-owner cascade), which can exceed any hull's hp. Scoped the claim explicitly to gun shells and named the minefield exclusion.
-  - `[medium]` `[patch]` The cycle carried none of the release bookkeeping every landed cycle requires. Added: `VERSION` + `package.json` 0.17.46 → 0.17.47, epic-4 amendments 35-39, the `sprint-status.yaml` entry, the `gds-workflow-status.yaml` `last_updated` + `next_expected` update (both YAMLs validated as parsing), and the spec doc itself tracked in the commit.
+  - `[medium]` `[patch]` The cycle carried none of the release bookkeeping every landed cycle requires. Added: `VERSION` + `package.json` → 0.17.48, epic-4 amendments 35-39, the `sprint-status.yaml` entry, the `gds-workflow-status.yaml` `last_updated` + `next_expected` update (both YAMLs validated as parsing), and the spec doc itself tracked in the commit.
 
 ## Design Notes
 
@@ -126,7 +126,7 @@ warnings: []
 
 ## Auto Run Result
 
-Status: **done** (cycle 47, 0.17.47)
+Status: **done** (cycle 48, 0.17.48)
 
 ### Implemented change
 
@@ -154,7 +154,7 @@ without which the ruling would have landed invisibly: `triggerShake` resolves co
   hull, exact area-throughput counts, and contact+burst from different shells of one click.
 - `client/src/__tests__/roomBindings.test.ts` — 8 tests for the aggregate (sum, single-event parity, no
   cross-frame carry, silence, slam-vs-flush, lone flush, four-burner burn, death-frame ordering).
-- `VERSION`, `package.json` — 0.17.46 → 0.17.47.
+- `VERSION`, `package.json` — 0.17.47 → 0.17.48 (cycle 47 landed in parallel as PR #96; Eric renumbered this cycle to 48).
 - `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` — amendments 35-39.
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`, `_bmad-output/gds-workflow-status.yaml`,
   `_bmad-output/implementation-artifacts/deferred-work.md` — cycle bookkeeping.
