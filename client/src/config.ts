@@ -45,6 +45,17 @@ const COLORS = {
   damageMarker: 0xff6666,
   islandFill: 0x2a2410,
   islandStroke: 0x8b7520,
+  // RADAR ECHO SCALE (cycle 50, amendment 63 — Eric's Garmin ruling). The three
+  // ends of the `return`-grammar strength ramp; the GREEN stop in the middle is
+  // `phosphor` itself, which is the point — the scale passes straight through
+  // the scope's own green, so a mid-strength echo and the sweep agree while a
+  // weak one cools to blue and a strong one burns to red. These are FUNCTIONAL
+  // colors on a sensor readout, never combatant identity: `return` mode carries
+  // no personal hue at all (amendment 51), so nothing here competes with the
+  // Regatta wheel. Ramp stops live in `blip.returns.ramp`.
+  echoWeak: 0x1e5cff, // weakest return — deep radar blue (~223°)
+  echoWarm: 0xffd400, // strong return — yellow (~50°)
+  echoHot: 0xff2a00, // strongest return — red (~10°)
   // combat effects
   splash: 0xb8ccc6, // miss splash — replaces retired #66FFAA double-duty
   muzzle: 0xe8f2ec,
@@ -1168,7 +1179,13 @@ export const CLIENT_CONFIG = {
      *  (owner hue / drone grey), so the shipped bright→dark phosphor ramp had
      *  to become a hue-PRESERVING dim or it would have erased the very hue
      *  Story 4.2 adds. A fresh paint still pops hotter than a 1s-old one,
-     *  which a 12s linear alpha ramp alone could never deliver. */
+     *  which a 12s linear alpha ramp alone could never deliver.
+     *
+     *  BOTH GRAMMARS COOL THROUGH THIS RAMP AS OF AMENDMENT 63. The `return`
+     *  echo was monochrome when it shipped, so it decayed on the color-SETTING
+     *  `blipTint`; now that hue carries return strength (`returns.ramp` below)
+     *  that wiring would erase the scale exactly as it would have erased the
+     *  personal hue here. Same trap, second grammar, same answer. */
     coolFloor: 0.55,
     /** WCAG relative-luminance floor a blip's hue is lifted to (amendment 13,
      *  render/blipMarks.luminanceFloor — ALGORITHMIC, no per-hue table). A 1px
@@ -1281,6 +1298,49 @@ export const CLIENT_CONFIG = {
        *  ~0.63 of its point-blank size — a clear read on "far", well short of
        *  the vanishing act a physical 1/r⁴ law would produce. */
       attenHalfRange: 0.5,
+      /** Attenuated ACROSS extent (u) that reads as a full-strength return —
+       *  the denominator of `returnStrength`, at or above which an echo paints
+       *  the hot end of the ramp. 60u is deliberately well under a broadside
+       *  battleship (124u) and well over a bow-on needle: the scale has to
+       *  SATURATE on genuinely big echoes rather than reserve its top end for a
+       *  hull nobody ever presents. It also lands a coast sample
+       *  (`arcStepU × extFactor` = 30.6u, attenuated) in the green middle, which
+       *  is why the Garmin reference plates read as green coastline with red
+       *  where the shore is closest and broadest. */
+      strongExtent: 60,
+      /**
+       * THE GARMIN ECHO RAMP (amendment 63). Weak → strong runs blue → green →
+       * yellow → red, keyed on `returnStrength` — the SAME quantity blob size
+       * carries (aspect-projected `ext`, attenuated by range). That redundancy
+       * is authentic rather than accidental: on a real set, size and color both
+       * fall out of the echo, and it dual-codes the channel so a CVD player
+       * loses nothing the color says (the partial answer to the colorblind
+       * question amendment 60 left open).
+       *
+       * Amendment 63 SUPERSEDES amendment 54's monochrome clause FOR RETURNS
+       * ONLY: the sweep wedge, the range rings and every other piece of radar
+       * chrome stay `{colors.phosphor}` green. Only the detected entity carries
+       * the scale — coastline included (terrain is just a strong return).
+       *
+       * THE TRAP THIS RAMP MUST NEVER FALL INTO: the phosphor decay ramp
+       * (`blipTint`) SETS the color, so it cannot drive a colored echo without
+       * erasing this scale. `return` marks decay through the hue-PRESERVING
+       * multiplier `blipCool` instead — see its `coolFloor` comment above, which
+       * records Story 4.2 hitting the identical problem the first time hue
+       * became an information channel. Channels are now hue = return strength,
+       * alpha = age, size = return strength.
+       *
+       * Stops are (`at` = strength in [0,1], `color` = token) and MUST be sorted
+       * ascending; `render/returnMarks.echoColor` lerps between neighbours and
+       * clamps outside the ends. The middle stop is `phosphor` on purpose — the
+       * scale runs straight through the scope's own green.
+       */
+      ramp: [
+        { at: 0, color: COLORS.echoWeak },
+        { at: 0.4, color: COLORS.phosphor },
+        { at: 0.7, color: COLORS.echoWarm },
+        { at: 1, color: COLORS.echoHot },
+      ],
       /** ISLAND COASTLINE RETURNS (amendment 58, ruling R4). Pure client
        *  presentation: islands are already client-known from the map seed, so
        *  no wire field and no server work exist for this at all. */

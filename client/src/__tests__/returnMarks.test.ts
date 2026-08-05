@@ -26,11 +26,13 @@ import { createGameState } from '../state.js';
 import { radarModes } from '../net/connection.js';
 import {
   blobSeed,
+  echoColor,
   echoSize,
   islandReturns,
   nearArcSamples,
   rangeAttenuation,
   returnPolygon,
+  returnStrength,
   sweepCrossed,
 } from '../render/returnMarks.js';
 
@@ -170,6 +172,152 @@ describe('range attenuation (ruling R2)', () => {
     const s = echoSize(0, RADAR, RADAR, O);
     expect(s.across).toBe(O.minExtent);
     expect(s.along).toBe(Math.max(O.minDepth, O.minExtent * O.depthFrac));
+  });
+});
+
+// --- the Garmin echo scale (amendment 63) -----------------------------------
+//
+// Eric, after seeing the monochrome build: *"Lets actually keep the radar sweep
+// color green but we'll change the detected entity color to the red/blue/green
+// scale like in the garmin radar."* The scale encodes RETURN STRENGTH — the same
+// quantity size already carries — so these tests pin two things: that strength
+// is that same quantity and no other, and that the ramp walks blue → green →
+// yellow → red without doubling back.
+//
+// Monotonicity is stated on HUE ANGLE, which is what "blue → green → yellow →
+// red" actually means: 223° → 152° → 50° → 10°, strictly decreasing. Stating it
+// on a channel instead would be wrong — red's blue channel is not below yellow's
+// by construction, and a future retune could satisfy a channel test while
+// scrambling the perceptual order the ruling names.
+
+/** HSV hue (deg), saturation and value of a packed 0xRRGGBB color. */
+function hsv(color: number): { hue: number; sat: number; val: number } {
+  const r = ((color >> 16) & 0xff) / 255;
+  const g = ((color >> 8) & 0xff) / 255;
+  const b = (color & 0xff) / 255;
+  const max = Math.max(r, g, b);
+  const c = max - Math.min(r, g, b);
+  if (c === 0) return { hue: 0, sat: 0, val: max };
+  const h = max === r ? (g - b) / c : max === g ? 2 + (b - r) / c : 4 + (r - g) / c;
+  return { hue: (h * 60 + 360) % 360, sat: c / max, val: max };
+}
+
+describe('returnStrength — the scale input is the SAME quantity size carries', () => {
+  it('is 0 for a zero echo and saturates at strongExtent, point blank', () => {
+    expect(returnStrength(0, 0, RADAR, O)).toBe(0);
+    expect(returnStrength(O.strongExtent, 0, RADAR, O)).toBeCloseTo(1, 12);
+    expect(returnStrength(O.strongExtent * 4, 0, RADAR, O)).toBe(1); // clamped, never > 1
+  });
+
+  it('is strictly increasing in aspect extent, up to the clamp', () => {
+    let prev = -1;
+    for (let ext = 0; ext < O.strongExtent; ext += 1) {
+      const s = returnStrength(ext, 300, RADAR, O);
+      if (s >= 1) break; // past saturation the clamp is allowed to flatten
+      expect(s).toBeGreaterThan(prev);
+      prev = s;
+    }
+  });
+
+  it('is strictly decreasing in range — the far half of the same hull is weaker', () => {
+    let prev = Infinity;
+    for (let d = 0; d <= 4 * RADAR; d += 5) {
+      const s = returnStrength(40, d, RADAR, O);
+      expect(s).toBeLessThan(prev);
+      prev = s;
+    }
+  });
+
+  it('rides EXACTLY the attenuation curve size rides — one quantity, two readings', () => {
+    // If this ever diverges, the scope has started saying two different things
+    // about one echo. `minExtent` is deliberately NOT applied here: that floor is
+    // a drawability clamp, and folding it in would flatten hue as well as size.
+    for (const d of [0, 120, 400, RADAR]) {
+      expect(returnStrength(50, d, RADAR, O)).toBeCloseTo(
+        (50 * rangeAttenuation(d, RADAR, O)) / O.strongExtent,
+        12,
+      );
+    }
+  });
+
+  it('degrades to full strength rather than Infinity on a zero strongExtent', () => {
+    expect(returnStrength(50, 100, RADAR, { ...O, strongExtent: 0 })).toBe(1);
+  });
+});
+
+describe('echoColor — blue → green → yellow → red, monotone in hue', () => {
+  const RAMP = O.ramp;
+
+  it('returns the ENDPOINT colors at strength 0 and 1', () => {
+    expect(echoColor(0, RAMP)).toBe(CLIENT_CONFIG.colors.echoWeak);
+    expect(echoColor(1, RAMP)).toBe(CLIENT_CONFIG.colors.echoHot);
+  });
+
+  it('clamps outside [0,1] instead of extrapolating off the ends', () => {
+    expect(echoColor(-5, RAMP)).toBe(echoColor(0, RAMP));
+    expect(echoColor(5, RAMP)).toBe(echoColor(1, RAMP));
+    expect(echoColor(Number.NaN, RAMP)).toBe(echoColor(0, RAMP)); // clamp01 folds NaN to 0
+  });
+
+  it('lands each stop exactly on its token, green included', () => {
+    for (const stop of RAMP) expect(echoColor(stop.at, RAMP)).toBe(stop.color);
+    // The middle stop IS the scope's own green — the scale runs through it.
+    expect(RAMP.some((s) => s.color === CLIENT_CONFIG.colors.phosphor)).toBe(true);
+  });
+
+  it('is a PURE function — same strength, same color, no hidden state', () => {
+    for (const s of [0, 0.13, 0.5, 0.77, 1]) {
+      expect(echoColor(s, RAMP)).toBe(echoColor(s, RAMP));
+    }
+  });
+
+  it('walks hue STRICTLY DOWN from blue to red across the whole scale', () => {
+    // 223° (blue) → 152° (phosphor green) → 50° (yellow) → 10° (red), with no
+    // reversal anywhere between: a doubling-back ramp would make two different
+    // strengths paint the same hue, the exact collision size already avoids.
+    // 200 samples: the ramp is quantized to 8-bit channels, so a MUCH finer
+    // walk (1000+) shows sub-0.15° rounding wiggle that is not a direction
+    // change. 200 steps is well clear of that and still ~40 samples per segment.
+    let prev = Infinity;
+    for (let i = 0; i <= 200; i++) {
+      const h = hsv(echoColor(i / 200, RAMP)).hue;
+      expect(h).toBeLessThanOrEqual(prev);
+      prev = h;
+    }
+    expect(hsv(echoColor(0, RAMP)).hue).toBeGreaterThan(180); // blue end
+    expect(hsv(echoColor(1, RAMP)).hue).toBeLessThan(30); // red end
+    expect(hsv(echoColor(0.4, RAMP)).hue).toBeCloseTo(hsv(CLIENT_CONFIG.colors.phosphor).hue, 6);
+  });
+
+  it('stays saturated and legible at EVERY strength — no muddy midpoint', () => {
+    // A mark that desaturates mid-ramp would read as the near-grey `sp` splash
+    // (DESIGN.md:145, "a phosphor-ish splash is a fake blip"), and one that goes
+    // dark would spend brightness — which is the AGE channel, not strength.
+    for (let i = 0; i <= 200; i++) {
+      const { sat, val } = hsv(echoColor(i / 200, RAMP));
+      expect(sat).toBeGreaterThan(0.6);
+      expect(val).toBeGreaterThan(0.7);
+    }
+  });
+
+  it('answers on a degenerate ramp: one stop, and stops sharing an `at`', () => {
+    const one = [{ at: 0.5, color: CLIENT_CONFIG.colors.phosphor }];
+    expect(echoColor(0, one)).toBe(CLIENT_CONFIG.colors.phosphor);
+    expect(echoColor(1, one)).toBe(CLIENT_CONFIG.colors.phosphor);
+    const tied = [
+      { at: 0, color: CLIENT_CONFIG.colors.echoWeak },
+      { at: 0, color: CLIENT_CONFIG.colors.echoHot },
+    ];
+    expect(echoColor(0.5, tied)).toBe(CLIENT_CONFIG.colors.echoHot); // last wins, no NaN lerp
+  });
+
+  it('a coast sample lands mid-scale and a broadside battleship at the top', () => {
+    // Amendment 63: coast returns take the SAME scale, which is why a real plate
+    // is mostly green coastline with red where the shore is closest.
+    const coast = returnStrength(ISL.arcStepU * ISL.extFactor, 300, RADAR, O);
+    expect(hsv(echoColor(coast, O.ramp)).hue).toBeLessThan(200); // off the blue end
+    expect(hsv(echoColor(coast, O.ramp)).hue).toBeGreaterThan(60); // and short of yellow
+    expect(returnStrength(124, 200, RADAR, O)).toBe(1); // battleship abeam: hot
   });
 });
 
@@ -380,10 +528,11 @@ describe('AC11 — `silhouette` stays the default and stays whole', () => {
     });
   });
 
-  it('the `silhouette` grey-cooling knobs are still present and unchanged', () => {
-    // `blipCool`/`coolFloor` exist ONLY because hue is an information channel in
-    // that grammar. The `return` path uses the green `blipTint` ramp instead and
-    // must never be a reason to delete these.
+  it('the grey-cooling knobs are still present and unchanged', () => {
+    // `blipCool`/`coolFloor` exist because hue is an information channel — the
+    // owner's color under `silhouette`, and (amendment 63) the Garmin strength
+    // color under `return`. BOTH grammars cool through them now; nothing here
+    // may be deleted on the theory that one of them is monochrome.
     expect(CLIENT_CONFIG.blip.coolFloor).toBe(0.55);
     expect(CLIENT_CONFIG.blip.assistCoolFloor).toBe(0.85);
     expect(CLIENT_CONFIG.blip.lumaFloor).toBe(0.3);

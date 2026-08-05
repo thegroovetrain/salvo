@@ -1,7 +1,7 @@
 // Pure `return`-grammar echo math (no Pixi import — unit-tested). Cycle 50,
-// amendments 51-59: a radar paint stops being a hull silhouette and becomes an
-// ECHO — a fuzzy irregular blob whose only channels are SIZE (return strength)
-// and BRIGHTNESS (age). This module owns every number that decision needs; the
+// amendments 51-59 + 63: a radar paint stops being a hull silhouette and becomes
+// an ECHO — a fuzzy irregular blob whose channels are SIZE and HUE (both return
+// strength) and ALPHA (age). This module owns every number that decision needs; the
 // Pixi adapter (render/radar.ts) only traces what these functions return, so
 // the geometry stays testable without a GPU — the same seam blipMarks.ts holds
 // for the `silhouette` grammar.
@@ -13,7 +13,7 @@
 // interchangeable. Everything here consumes the total-span reading, so a blob's
 // ACROSS semi-axis is `ext / 2`.
 //
-// Four surfaces live here:
+// Five surfaces live here:
 //
 //   • RANGE ATTENUATION (orchestrator ruling R2). The server sends PURE ASPECT
 //     GEOMETRY in world units and nothing else: `ext` is the hull silhouette
@@ -42,12 +42,24 @@
 //     same primitive `server/src/game/signals.ts:losClear` gates ship paints
 //     with). A coast mark a ship could not blip from must not paint either.
 //
+//   • THE GARMIN ECHO SCALE (amendment 63). `returnStrength` reduces an echo to
+//     one [0,1] scalar and `echoColor` maps it blue → green → yellow → red off
+//     the CLIENT_CONFIG stop table. It is the SAME quantity size carries, on
+//     purpose: on a real set both fall out of the echo, and the redundancy
+//     dual-codes the channel for CVD. The SWEEP is untouched — wedge, rings and
+//     every other piece of radar chrome stay phosphor green; only the detected
+//     entity (coastline included) wears the scale. The color is baked into the
+//     mark at acquire and the mark then decays through the hue-PRESERVING
+//     `blipCool` multiplier, never through the color-SETTING `blipTint`.
+//
 //   • SWEEP CROSSING. Both ship and island returns are born the instant the beam
 //     crosses their bearing, and both then decay on the ordinary phosphor ramp.
 //     The island path re-derives its own crossing here because the server never
 //     sees an island paint at all.
 
 import { mulberry32, segCircleHit, wrapPositive, type Circle, type Vec2 } from '@salvo/shared';
+import { clamp01 } from '../util/math.js';
+import { lerpColor } from './phosphor.js';
 
 const TAU = Math.PI * 2;
 
@@ -82,6 +94,15 @@ export interface ReturnOpts {
   /** Range at which the ABOVE-FLOOR part of the curve has halved, as a fraction
    *  of the observer's radar range. */
   attenHalfRange: number;
+  /** Attenuated ACROSS extent (u) that reads as a full-strength return — the
+   *  denominator of `returnStrength`. */
+  strongExtent: number;
+}
+
+/** One stop on the echo strength ramp: `at` = strength in [0,1]. */
+export interface EchoStop {
+  at: number;
+  color: number;
 }
 
 /** Tunables for island coastline returns. */
@@ -162,6 +183,65 @@ export function echoSize(
 ): EchoSize {
   const across = Math.max(o.minExtent, ext * rangeAttenuation(dist, radarRange, o));
   return { across, along: Math.max(o.minDepth, across * o.depthFrac) };
+}
+
+/**
+ * How strong this echo is, on [0,1] — the input to the Garmin color ramp
+ * (amendment 63).
+ *
+ * DELIBERATELY THE SAME QUANTITY `echoSize` USES: aspect-projected `ext`
+ * attenuated by range, normalized against `strongExtent`. Color and size are one
+ * channel expressed twice, exactly as they are on a real set where both fall out
+ * of the returned power — so this must never grow a term `echoSize` does not
+ * have, or the scope would start saying two different things about one echo.
+ *
+ * The `minExtent` floor that `echoSize` applies is NOT applied here: that floor
+ * is a drawability clamp (a needle bow-on at the rim must still have a body), and
+ * folding it in would make every sub-floor echo share one color as well as one
+ * size — a second collision of the kind amendment 53 exists to prevent. Strength
+ * therefore keeps running down to 0 under the size floor, so the weakest returns
+ * still separate on hue after they stop separating on size.
+ *
+ * Monotone: strictly increasing in `ext`, strictly decreasing in `dist` (up to
+ * the [0,1] clamp), because `rangeAttenuation` is.
+ */
+export function returnStrength(
+  ext: number,
+  dist: number,
+  radarRange: number,
+  o: ReturnOpts,
+): number {
+  if (!(o.strongExtent > 0)) return 1;
+  return clamp01((Math.max(0, ext) * rangeAttenuation(dist, radarRange, o)) / o.strongExtent);
+}
+
+/**
+ * The echo color for a strength on [0,1]: piecewise-linear through `ramp`.
+ *
+ * Weak → strong runs blue → green → yellow → red (amendment 63). Stops must be
+ * sorted ascending by `at`; strengths outside the ends clamp to the end colors,
+ * so a ramp that does not start at 0 or end at 1 still answers everywhere.
+ *
+ * This is the ONLY place an echo's color is decided. The mark is drawn with it
+ * ONCE at acquire and then cools through the hue-PRESERVING `blipCool`
+ * multiplier — never through `blipTint`, which SETS the color and would erase
+ * the scale over the first ~30% of every paint's life.
+ */
+export function echoColor(strength: number, ramp: readonly EchoStop[]): number {
+  const last = ramp[ramp.length - 1];
+  const s = clamp01(strength);
+  // Negated compare on purpose: it catches `s <= first` AND a NaN that survived
+  // `clamp01`, so a poisoned strength paints the weak end rather than a NaN
+  // color (which Pixi renders as black — an invisible echo on the void).
+  if (!(s > ramp[0].at)) return ramp[0].color;
+  for (let i = 1; i < ramp.length; i++) {
+    const hi = ramp[i];
+    if (s > hi.at) continue;
+    const lo = ramp[i - 1];
+    const span = hi.at - lo.at;
+    return span > 0 ? lerpColor(lo.color, hi.color, (s - lo.at) / span) : hi.color;
+  }
+  return last.color;
 }
 
 /**

@@ -3,7 +3,7 @@
 // chartRoot (fog-immune, camera-transformed), so blips/sweep stay readable
 // over the fogged ocean while remaining in world coordinates.
 //
-// TWO RADAR GRAMMARS LIVE HERE (cycle 50, amendments 51-59), selected by the
+// TWO RADAR GRAMMARS LIVE HERE (cycle 50, amendments 51-59 + 63), selected by the
 // SERVER and announced once in the welcome handshake. The room picks one for the
 // whole match, so `BlipEvent` is a TAGLESS union and this file narrows on the
 // announced mode — never by probing which fields an event carries.
@@ -25,16 +25,22 @@
 //
 // `return` — THE REALISM GRAMMAR, reversed onto the scope on playtest evidence
 // (amendment 51). A paint is an ECHO: a seeded irregular blob (render/
-// returnMarks.ts) whose ONLY channels are SIZE (return strength — the wire's
-// aspect-projected `ext`, attenuated by range here at render time) and
-// BRIGHTNESS (age). No silhouette, no personal hue, no ARPA vector — the wire
-// does not carry class, heading or speed at all in this mode. Course and speed
-// are DEMOTED from readout to inference, off ghost SPACING across the three
+// returnMarks.ts) whose channels are SIZE and HUE — both return strength, the
+// wire's aspect-projected `ext` attenuated by range here at render time — plus
+// ALPHA (age). No silhouette, no personal hue, no ARPA vector — the wire does
+// not carry class, heading or speed at all in this mode. Course and speed are
+// DEMOTED from readout to inference, off ghost SPACING across the three
 // persisted paints, which is precisely the justification amendment 9 gave that
-// persistence in the first place. Monochrome phosphor green, so hue is left free
-// to mean SENSOR PROVENANCE later (amendment 54) and means nothing today.
-// Islands paint their near arc here too (amendment 58) — pure client
-// presentation off the map seed, no wire field, no server involvement.
+// persistence in the first place.
+//
+// THE ECHO WEARS THE GARMIN SCALE, THE SWEEP DOES NOT (amendment 63, superseding
+// amendment 54's monochrome clause for returns only). Weak → strong runs blue →
+// green → yellow → red off `returnStrength`/`echoColor`; the sweep wedge, both
+// range rings and every other piece of radar chrome stay phosphor green. Coast
+// marks take the same scale — terrain is just a strong return, which is why a
+// real marine plate is mostly green and red coastline. Islands paint their near
+// arc here too (amendment 58) — pure client presentation off the map seed, no
+// wire field, no server involvement.
 //
 // Blips persist independent of the beam graphic: each `blip` event acquires its
 // own Graphics whose alpha/tint are pure functions of serverNow − blip.t
@@ -69,12 +75,14 @@ import { settings } from '../settings/store.js';
 import { Pool, capOldest, capOldestByKey } from '../util/pool.js';
 import { extentAlong, luminanceFloor, speedVector, type SpeedVector } from './blipMarks.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
-import { blipAlpha, blipCool, blipLifeMs, blipTint, sweepRotation } from './phosphor.js';
+import { blipAlpha, blipCool, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
   blobSeed,
+  echoColor,
   echoSize,
   islandReturns,
   returnPolygon,
+  returnStrength,
   type ReturnMark,
 } from './returnMarks.js';
 import { SWEEP_TEXTURE_RADIUS, bakeSweepTexture } from './textures.js';
@@ -130,8 +138,9 @@ interface LiveBlip {
   id: string;
   t: number; // ms — server paint time (drives decay)
   /** `silhouette` pose + hue latch, or null for a `return`-grammar echo. This
-   *  is the ONLY per-blip branch: a null pose means blob geometry and the
-   *  monochrome green ramp, a present one means outline + personal hue. */
+   *  is the ONLY per-blip branch: a null pose means blob geometry in the Garmin
+   *  strength color, a present one means outline + personal hue. Both cool
+   *  through the same hue-preserving tint (amendment 63). */
   pose: BlipPose | null;
   /** Pending `return` geometry, or null when there is nothing to resolve (every
    *  `silhouette` blip, every coast mark, and every echo already posed). */
@@ -423,16 +432,22 @@ export class Radar {
   }
 
   /**
-   * Draw one `return` echo: a seeded irregular blob, FILLED with a 1px edge.
+   * Draw one `return` echo: a seeded irregular blob, FILLED with a 1px edge, in
+   * the Garmin strength color (amendment 63).
    *
    * Filled, not outlined, because that is what an echo is — and amendment 60
    * leaves the colorblind assist's outline-boost clause inert here for exactly
    * that reason (the assist's raised decayed-alpha floor still applies, via
-   * `updateBlips`). Stroked in WHITE so the Pixi tint carries the whole color:
-   * in this grammar the tint is the ORIGINAL bright→dark phosphor ramp
-   * (`blipTint`), which SETS the color, rather than `silhouette` mode's
-   * hue-preserving grey multiplier. There is no hue to preserve here, and that
-   * is the point (amendment 54: color is reserved for sensor provenance).
+   * `updateBlips`). The strength color is baked into the FILL AND STROKE, not
+   * into the tint: the tint is now the hue-PRESERVING grey multiplier
+   * (`blipCool`) in BOTH grammars, because the ramp this mark carries is an
+   * information channel exactly as `silhouette` mode's personal hue is. Driving
+   * it from the color-SETTING `blipTint` would erase the scale over the first
+   * ~30% of the paint's life — the Story 4.2 trap, second grammar.
+   *
+   * Size and hue both read `ext`/`dist` and say the same thing twice, which is
+   * the ruling's intent (a real set returns one echo, and its size and color are
+   * two readings of it) and dual-codes the channel for CVD.
    *
    * Called ONCE at acquire and never again — the blob is stable for its whole
    * decay (amendment 59), and the per-frame cost stays one alpha + one tint.
@@ -445,11 +460,12 @@ export class Radar {
       m.bearing,
       o,
     );
+    const color = echoColor(returnStrength(m.ext, m.dist, this.radarRange, o), o.ramp);
     const g = b.gfx;
     g.clear();
     tracePolygon(g, poly);
-    g.fill({ color: CLIENT_CONFIG.colors.white, alpha: o.fillAlpha });
-    g.stroke({ width: 1, pixelLine: true, color: CLIENT_CONFIG.colors.white, alpha: 1 });
+    g.fill({ color, alpha: o.fillAlpha });
+    g.stroke({ width: 1, pixelLine: true, color, alpha: 1 });
   }
 
   /** The speed vector for a paint, rooted on the hull outline in the direction
@@ -542,11 +558,15 @@ export class Radar {
     this.decay(this.marks, serverNow, d);
   }
 
-  /** Age one list of live marks: alpha, tint, and release at end of life. The
-   *  tint is the ONLY place the two grammars part company per frame — a posed
-   *  blip cools on the hue-PRESERVING grey multiplier so the owner's color
-   *  survives, an echo runs the original bright→dark phosphor ramp, which SETS
-   *  the color because there is no hue to preserve. */
+  /** Age one list of live marks: alpha, tint, and release at end of life.
+   *
+   *  BOTH GRAMMARS COOL THROUGH THE HUE-PRESERVING GREY MULTIPLIER (amendment
+   *  63). They used to part company here — a posed blip kept its owner's hue
+   *  under `blipCool` while a monochrome echo ran the color-SETTING `blipTint`.
+   *  The echo now carries the Garmin strength ramp, so it has a hue to protect
+   *  too, and `blipTint` would overwrite it with green inside the first ~30% of
+   *  every paint. One ramp, both grammars: the tint scales every channel
+   *  equally, leaving hue exact and saying only "how old". */
   private decay(list: LiveBlip[], serverNow: number, d: DecayFrame): void {
     for (let i = list.length - 1; i >= 0; i--) {
       const b = list[i];
@@ -558,15 +578,14 @@ export class Radar {
         continue;
       }
       b.gfx.alpha = alpha;
+      b.gfx.tint = blipCool(age, d.life, d.cool);
       const pose = b.pose;
       if (pose === null) {
         // A paint that arrived without an own pose is still waiting for one:
         // this is the first frame it can be posed correctly, so pose it here.
         if (b.echo !== null) this.resolveEcho(b);
-        b.gfx.tint = blipTint(age, d.life);
         continue;
       }
-      b.gfx.tint = blipCool(age, d.life, d.cool);
       retryHue(pose.hue, this.hueFor, (color) => this.drawBlip(b, pose, color));
     }
   }

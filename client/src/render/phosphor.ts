@@ -18,16 +18,20 @@
 //
 // Two cooling ramps therefore coexist, and they are not interchangeable:
 //   • `blipTint`  — bright → dark phosphor GREEN. The original ramp; it SETS the
-//                   color, so it may only drive a mark that has no other color
-//                   to carry: the ambient dots, and (cycle 50, amendment 54) the
-//                   `return` grammar's monochrome echoes, where hue is
-//                   deliberately spent on nothing at all.
-//   • `blipCool`  — a neutral-grey MULTIPLIER. Under the `silhouette` grammar a
-//                   blip's color is an information channel (owner hue / drone
-//                   grey), so its cooling has to preserve hue: greyscale
-//                   multiplies every channel equally and leaves the hue exact.
-//                   This ramp exists ONLY because hue is a channel there — it
-//                   stays alive for that grammar and is not used by `return`.
+//                   color, so it may only drive a mark that has NO other color
+//                   to carry. Exactly one caller is left: the pre-join ambient
+//                   dots (render/ambient.ts), which have no owner, no class and
+//                   no strength.
+//   • `blipCool`  — a neutral-grey MULTIPLIER, and the ramp EVERY in-game scope
+//                   mark uses. Wherever a blip's color is an information channel
+//                   its cooling has to preserve hue: greyscale multiplies every
+//                   channel equally and leaves the hue exact. That is now BOTH
+//                   grammars — `silhouette`'s owner hue / drone grey, and (cycle
+//                   50, amendment 63) the `return` echo's Garmin strength ramp.
+//                   The `return` grammar briefly used `blipTint` while its
+//                   echoes were monochrome (amendment 54); the moment hue became
+//                   a channel there, that wiring became the same bug Story 4.2
+//                   found the first time, and it moved here.
 
 import { wrapPositive } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -82,7 +86,7 @@ export function blipLifeMs(
 
 /** Blip tint at `ageMs`: bright → dark green over the first ~30% of its life.
  *  SETS the color, so it belongs to the colorless ambient dots only (see the
- *  file header); the in-game scope uses `blipCool`. */
+ *  file header); EVERY in-game scope mark uses `blipCool`, in both grammars. */
 export function blipTint(ageMs: number, lifeMs: number): number {
   return lerpColor(BLIP_BRIGHT, BLIP_DARK, ageMs / (lifeMs * TINT_FADE_FRACTION));
 }
@@ -91,7 +95,8 @@ export function blipTint(ageMs: number, lifeMs: number): number {
  * Hue-PRESERVING cooling multiplier at `ageMs`: white (fresh) → a neutral grey
  * at `CLIENT_CONFIG.blip.coolFloor`, over the first ~30% of the paint's life,
  * then held. Applied as a Pixi tint over a hue-stroked blip, so every channel
- * scales by the same factor and the owner's hue survives intact.
+ * scales by the same factor and the mark's hue survives intact — the owner's
+ * personal color under `silhouette`, the Garmin strength color under `return`.
  *
  * Why it exists at all: across a 3-sweep (~12s) linear alpha ramp a 1s-old paint
  * still sits at ~0.92 alpha, so alpha alone cannot say "this one is FRESH". The

@@ -24,6 +24,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { CLIENT_CONFIG } from '../config.js';
+import { echoColor } from '../render/returnMarks.js';
 import { cssHex, cssRgba, contrastRatio, textSafe } from '../util/color.js';
 
 // vitest's root is the client workspace dir, so process.cwd() === client/.
@@ -386,22 +387,29 @@ describe('(d) util/color hardening — masked, clamped, well-formed output', () 
   });
 });
 
-// --- (e) splash vs. the phosphor green band ----------------------------------
+// --- (e) splash vs. a radar return, at ANY strength ---------------------------
 //
 // DESIGN.md's colors table forbids "phosphor-adjacent greens" for combat
 // effects, with the reason spelled out: *"a phosphor-ish splash is a fake
-// blip"*. Amendment 59 records that this constraint TIGHTENS under the `return`
+// blip"*. Amendment 59 recorded that this constraint TIGHTENS under the `return`
 // grammar rather than loosening — a monochrome green scope makes every radar
-// mark the same color, so a fall-of-shot `sp` splash now competes against a
-// field of green echoes rather than against hue-coded silhouettes.
+// mark the same color, so a fall-of-shot `sp` splash competes against a field of
+// echoes rather than against hue-coded silhouettes.
 //
-// The separation is a CHROMA one, not a hue one, and the test has to say so.
+// AMENDMENT 63 WIDENS THE PREMISE. Returns are no longer green: they run the
+// Garmin strength ramp, blue → green → yellow → red, so "not phosphor green" is
+// no longer sufficient — a splash must stay separable from an echo of ANY
+// strength. And the ramp passes deliberately THROUGH the phosphor band at its
+// middle stop, which forecloses hue distance as the separator outright.
+//
+// The separator was always CHROMA, and now it is the only one available.
 // `splash` (#B8CCC6) sits at ~162° — inside the reserved 132-172° band by angle
 // alone — but at ~10% HSV saturation, where hue carries no perceptual meaning at
-// all. What actually keeps a splash ring from reading as a blip is that it is
-// near-grey while every echo is saturated phosphor. So "in the green band" is
-// defined here as hue-in-band AND saturated, and the predicate is proven to have
-// teeth by asserting the phosphor tokens themselves ARE in the band.
+// all. What keeps a splash ring from reading as an echo is that it is near-grey
+// while every point on the ramp is vividly saturated. So the tests below assert
+// two things: the legacy band predicate (hue-in-band AND saturated) still has
+// teeth on the phosphor chrome tokens, and the WHOLE RAMP clears a saturation
+// bar the splash falls far under.
 
 /** HSV hue (deg) and saturation [0,1] of a packed 0xRRGGBB color. */
 function hsv(color: number): { hue: number; sat: number } {
@@ -426,6 +434,18 @@ function inGreenBand(color: number): boolean {
   const { hue, sat } = hsv(color);
   const off = Math.abs(((hue - BAND_CENTRE + 540) % 360) - 180); // circular distance
   return sat >= BAND_MIN_SAT && off <= BAND_HALF;
+}
+
+/** Every color the `return` grammar can paint an echo, sampled across the scale.
+ *  This is the set a splash must stay separable from — not just the green. */
+const RAMP_SAMPLES: number[] = Array.from({ length: 101 }, (_, i) =>
+  echoColor(i / 100, CLIENT_CONFIG.blip.returns.ramp),
+);
+
+/** Does this color read as a radar echo — i.e. is it saturated enough that the
+ *  eye takes it for a lit, colored mark rather than a near-grey ring? */
+function readsAsEcho(color: number): boolean {
+  return hsv(color).sat >= BAND_MIN_SAT;
 }
 
 describe('(e) the splash stays separable from a phosphor return (amendment 59)', () => {
@@ -458,5 +478,46 @@ describe('(e) the splash stays separable from a phosphor return (amendment 59)',
     })) {
       expect(inGreenBand(color), name).toBe(false);
     }
+  });
+
+  // --- the same constraint against the WHOLE Garmin scale (amendment 63) -----
+
+  it('the ramp runs THROUGH the phosphor band, so hue distance cannot be the '
+    + 'separator any more', () => {
+    // The middle stop IS `phosphor` — stated here as the premise of everything
+    // below, not as an accident to be fixed. A splash cannot be defended by
+    // sitting off the green when green is only one point on the scale.
+    expect(RAMP_SAMPLES.some(inGreenBand)).toBe(true);
+    expect(RAMP_SAMPLES.some((c) => !inGreenBand(c))).toBe(true);
+  });
+
+  it('EVERY strength on the scale reads as an echo — the whole ramp is vivid', () => {
+    for (let i = 0; i < RAMP_SAMPLES.length; i++) {
+      expect(readsAsEcho(RAMP_SAMPLES[i]), `strength ${i / 100}`).toBe(true);
+    }
+  });
+
+  it('the splash reads as an echo at NO strength — it is near-grey, they are not', () => {
+    // The actual acceptance: DESIGN.md:145's "a phosphor-ish splash is a fake
+    // blip", generalized from one green to the entire scale.
+    expect(readsAsEcho(CLIENT_CONFIG.colors.splash)).toBe(false);
+    const weakest = Math.min(...RAMP_SAMPLES.map((c) => hsv(c).sat));
+    expect(hsv(CLIENT_CONFIG.colors.splash).sat).toBeLessThan(0.2);
+    // Margin, not a hairline: the dullest echo on the scale is >3x the splash's
+    // chroma, so a nudge toward color fails here before it reaches the water.
+    expect(weakest).toBeGreaterThan(hsv(CLIENT_CONFIG.colors.splash).sat * 3);
+  });
+
+  it('the three echo tokens are the ramp ends and are all fully saturated', () => {
+    const C = CLIENT_CONFIG.colors;
+    for (const [name, color] of Object.entries({
+      echoWeak: C.echoWeak,
+      echoWarm: C.echoWarm,
+      echoHot: C.echoHot,
+    })) {
+      expect(hsv(color).sat, name).toBeGreaterThan(0.85);
+    }
+    expect(RAMP_SAMPLES[0]).toBe(C.echoWeak);
+    expect(RAMP_SAMPLES[RAMP_SAMPLES.length - 1]).toBe(C.echoHot);
   });
 });

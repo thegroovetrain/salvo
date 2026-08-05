@@ -171,19 +171,26 @@ unchanged.
 2. **New** `client/src/render/returnMarks.ts` — PURE (zero Pixi), per R5: seeded-jitter polygon
    generator + the range-attenuation curve (R2). Unit-tested like `blipMarks.ts`.
 3. `client/src/render/radar.ts` — branch on grammar. In `return` mode: draw the blob, no silhouette,
-   no speed vector, monochrome phosphor green with brightness carrying age only.
-4. `client/src/render/phosphor.ts` + `client/src/config.ts` — in `return` mode use the original
-   bright→dark green ramp (`blipFresh`/`blipFaded` tokens already exist). The greyscale `blipCool`
-   multiplier stays for `silhouette` mode — it exists only because hue is a channel there.
-   **Do not delete it.**
+   no speed vector. ~~monochrome phosphor green with brightness carrying age only~~ — **SUPERSEDED
+   by amendment 63:** the blob is colored by RETURN STRENGTH on a Garmin-style blue→green→yellow→red
+   scale. The SWEEP stays phosphor green; only the detected entity carries the scale.
+4. `client/src/render/phosphor.ts` + `client/src/config.ts` — ~~in `return` mode use the original
+   bright→dark green ramp~~ — **SUPERSEDED by amendment 63, and now exactly BACKWARDS from what this
+   line first said:** hue became an information channel in `return` mode too, so BOTH grammars decay
+   through the hue-PRESERVING `blipCool` multiplier. `blipTint` SETS color and would erase the
+   strength scale; it now has exactly one caller left (`render/ambient.ts`). `blipCool` is
+   load-bearing in both grammars. **Do not delete it.**
 5. **Island returns** (R4) — this milestone owns it too, because it lands in `radar.ts` and two
    agents in one file is corruption. Keep the geometry pure in `returnMarks.ts` (or a sibling pure
    module) with `radar.ts` holding only the call site.
 6. `client/vite.config.ts` — the old `__BLIP_VARIANT_P__` define is SUPERSEDED by the server flags
    (amendment 52). Remove it and its `radar.ts:115` consumer.
 7. **Splash separation** (amendment 59): fall-of-shot `sp` marks stay `{colors.splash}` and must
-   remain visually separable from green returns. Add a token-level test asserting the splash color
-   is not within the phosphor green band.
+   remain visually separable from returns. ~~Add a token-level test asserting the splash color is
+   not within the phosphor green band.~~ **AMENDED by amendment 63:** the strength ramp deliberately
+   passes THROUGH the phosphor band, so hue distance can no longer be the separator at all. The
+   separator is CHROMA — splash is ~10% saturation, the dullest point on the whole ramp is 63%. The
+   test asserts the splash reads as an echo at NO strength on the ramp.
 8. Tests: blob determinism (same seed → same polygon; different paint time → different polygon),
    the attenuation curve is monotone decreasing in range, island near-arc sampling produces marks
    only on the observer-facing side.
@@ -217,7 +224,16 @@ pre-cycle build (silhouettes, hues, ARPA vectors, `blipCool` grey ramp).
 
 **Status: done.** Landed as cycle 50 (0.17.50), PV 25 → 26. `npm run check` green: 0 lint errors
 (2 pre-existing `max-lines-per-function` warnings, baseline unchanged), three clean `tsc` projects,
-**130 test files / 2,952 tests**.
+**130 test files / 2,975 tests**.
+
+**Late ruling folded in (amendments 63–64):** after seeing the monochrome grammar on water, Eric
+ruled *"keep the radar sweep color green but change the detected entity color to the red/blue/green
+scale like in the garmin radar."* Return-mode echoes are now colored by RETURN STRENGTH on a
+blue→green→yellow→red ramp; the sweep, rings and all radar chrome stay phosphor green. Client-only,
+no wire change, PV stays 26. The implementation had to rewire return-mode decay from `blipTint`
+(which SETS color and would have erased the scale) to the hue-preserving `blipCool` — the same trap
+Story 4.2 hit when hue first became a channel, called out in the ruling and guarded by a test that
+fails if anyone rewires it back.
 
 ### Environment hazard found and fixed BEFORE any verification was trusted
 
