@@ -198,12 +198,43 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
       expect(keepOut, `${name}: band ${-keepOut}px over the own-hull keep-out`).toBeGreaterThan(0);
       expect(bottom, `${name}: rail ${-bottom}px past the bottom edge`).toBeGreaterThanOrEqual(0);
     }
-    // The floor case, to the pixel — the five-pixel band, split 3 above / 2 below.
+    // The floor case, to the pixel — 3px clear above, 4px clear below.
     const F = refitBandLayout(1280, 614);
     expect(F.row.y).toBe(328);
     expect(F.band.y).toBe(310); // 3px clear of the 307 keep-out
-    expect(F.strip.y).toBe(572);
-    expect(F.strip.y + F.strip.h).toBe(612); // 2px clear of the 614 edge
+    expect(F.strip.y).toBe(570);
+    expect(F.strip.y + F.strip.h).toBe(610); // 4px clear of the 614 edge
+  });
+
+  // THE SCALED-TIER FIT — the case the logical-floor pins above CANNOT see, and
+  // the one that actually caught a real clip during the cycle-47 review.
+  //
+  // `place()` anchors the band from `window.innerHeight` in PHYSICAL pixels,
+  // but the panel's contents are scaled by `--hc-ui-scale` about `top center`.
+  // So at the 125% tier the band's real footprint is 1.25 × its laid-out height
+  // hanging off an UNSCALED anchor — which is NOT what refitBandLayout(w/1.25,
+  // h/1.25) models. The tier's own gate is width-only (`scaleGateWidthPx` 1600),
+  // so a 1600×768 viewport can select 125% and is the binding case.
+  //
+  // This mismatch is a pre-existing defect (ledgered). What is pinned here is
+  // the consequence that must stay legal regardless: the band, at every
+  // committed scale tier, still ends inside the viewport.
+  it('keeps the scaled band inside the viewport at every UI-scale tier', () => {
+    const H = R.pipsAbove + R.cardHeight + R.stripGap + R.stripHeight;
+    for (const { w, h } of [
+      { w: 1600, h: 768 }, // the binding case — 125% is reachable here
+      { w: 1600, h: 900 },
+      { w: 1920, h: 1080 },
+      { w: 1366, h: 768 }, // 125% gated off below 1600 wide, but 90%/100% apply
+    ]) {
+      const top = refitBandLayout(w, h).band.y;
+      for (const tier of CLIENT_CONFIG.settings.scaleTiers) {
+        const scale = tier / 100;
+        if (scale > 1 && w < CLIENT_CONFIG.settings.scaleGateWidthPx) continue; // tier disabled
+        const bottom = top + H * scale;
+        expect(bottom, `${w}x${h} @${tier}%: band ${(bottom - h).toFixed(1)}px past the bottom`).toBeLessThanOrEqual(h);
+      }
+    }
   });
 
   // The rail must READ as choosable, which is a type-and-padding property, not a

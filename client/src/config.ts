@@ -790,20 +790,25 @@ export const CLIENT_CONFIG = {
      * LIFTED 0.58 → 0.534 in cycle 47 by Eric ruling (amendment 65), which
      * REOPENED amendment 40's "no band lift" specifically to buy the DAMAGE
      * CONTROL rail the room to be legible. The value is not a taste call — it is
-     * the only band the two hard constraints leave at the 1280×614 logical
-     * floor, where the band is boxed on BOTH sides:
+     * the only band the hard constraints leave at the 1280×614 logical floor,
+     * where the band is boxed on BOTH sides:
      *
      *   below-center keep-out   row.y - pipsAbove > 614/2   →  row.y > 325
      *   container-fit law       row.y + cardHeight + stripGap + stripHeight
-     *                                                ≤ 614  →  row.y ≤ 330
+     *                                                ≤ 614  →  row.y ≤ 332
      *
-     * Five pixels of total slack. 0.534 lands row.y at 328 (round(614×0.534)),
-     * splitting it 3px clear of the keep-out and 2px clear of the screen edge.
-     * A 236px card row plus a genuinely legible rail simply near-fills a 614px
+     * Seven pixels of total slack. 0.534 lands row.y at 328 (round(614×0.534)),
+     * leaving 3px clear of the keep-out and 4px clear of the screen edge. A
+     * 236px card row plus a genuinely legible rail simply near-fills a 614px
      * viewport — which is exactly why cycle 46 squeezed the rail instead, that
-     * option having been closed to it. Both margins are pinned by the geometry
-     * suite, so any future drift fails loudly rather than clipping on someone's
-     * laptop.
+     * option having been closed to it.
+     *
+     * A THIRD constraint binds from outside this arithmetic: the band is
+     * anchored in PHYSICAL px while its contents are CSS-scaled, so the 125%
+     * tier at a 1600×768 viewport is tighter than the logical-floor math
+     * suggests. That constraint is what set `stripGap` to 6 rather than 8 —
+     * see that knob. All three margins are pinned by the geometry suite, so a
+     * future drift fails loudly rather than clipping on someone's laptop.
      */
     bandTopFrac: 0.534,
     /** Queue pips: 8px squares, gap, and the pip row's baseline above the cards. */
@@ -884,10 +889,25 @@ export const CLIENT_CONFIG = {
     /** Rail height (px) — the strip's whole box, borders included. 22px chip +
      *  2×`stripPadY` + 2×1px border = 40, so the chip sets the height. */
     stripHeight: 40,
-    /** Seam (px) between the card row's bottom edge and the rail's top edge.
-     *  2 → 8 (the DESIGN.md `spacing.sm` step): at 2px the rail read as part of
-     *  the row's own border rather than as a separate, pressable sibling. */
-    stripGap: 8,
+    /**
+     * Seam (px) between the card row's bottom edge and the rail's top edge.
+     * 2 → 6: at 2px the rail read as part of the row's own border rather than
+     * as a separate, pressable sibling.
+     *
+     * WHY 6 AND NOT THE `spacing.sm` 8 IT WANTS TO BE. The band is positioned
+     * in PHYSICAL px (`place()` reads `window.innerHeight`) but its contents
+     * are CSS-scaled by `--hc-ui-scale`, so at the 125% tier the band's real
+     * footprint is 1.25 × its laid-out height while its anchor is not scaled.
+     * At a 1600×768 viewport — the 125% tier's own gate is width-only, so that
+     * viewport can select it — an 8px seam puts the rail's bottom edge 1.5px
+     * past the screen, an amendment-47 violation. 6px lands it at 767 of 768.
+     * The two px come out of the seam rather than the rail because the rail's
+     * height, chip, type and padding are the whole point of the retune. The
+     * anchor↔scale mismatch itself is a PRE-EXISTING defect, ledgered — this
+     * value keeps the shipped geometry legal in the meantime, and the scaled
+     * case is now pinned so it can never silently regress again.
+     */
+    stripGap: 6,
     /** The rail's key chip (px) — the ONE key-chip family, at family size. */
     stripKeyChip: 22,
     /** Type size (px) for every mark on the rail. Above amendment 15's 14px

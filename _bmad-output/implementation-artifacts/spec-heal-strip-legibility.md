@@ -2,7 +2,7 @@
 title: 'The DAMAGE CONTROL rail, made choosable'
 type: 'bugfix'
 created: '2026-08-05'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'cf74009'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -68,7 +68,7 @@ warnings: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [x] `client/src/config.ts` -- retune `bandTopFrac` to 0.534 and the six strip knobs (`stripHeight` 16→40, `stripGap` 2→8, `stripKeyChip` 14→22, `stripFontSize` 10→16, `stripPad` 8→14, `stripColGap` 10→14) plus a vertical-padding knob; rewrite both comment blocks so the recorded arithmetic matches the shipped numbers -- the old comments justify a budget that no longer exists, and a stale rationale is worse than none.
+- [x] `client/src/config.ts` -- retune `bandTopFrac` to 0.534 and the six strip knobs (`stripHeight` 16→40, `stripGap` 2→6, `stripKeyChip` 14→22, `stripFontSize` 10→16, `stripPad` 8→14, `stripColGap` 10→14) plus a vertical-padding knob; rewrite both comment blocks so the recorded arithmetic matches the shipped numbers -- the old comments justify a budget that no longer exists, and a stale rationale is worse than none.
 - [x] `client/src/ui/upgradeMenu.ts` -- apply the vertical padding in `STRIP_CSS`, size the chip and text from the retuned knobs, and rewrite the `refitBandLayout()` doc block ("the rail's whole 18px budget", "no band lift bought the rail room") -- the layout function is the single source the DOM and the tests both read.
 - [x] `client/src/ui/upgradeMenu.ts` -- `healReadout()` copy to Eric's phrasing (`RESTORES 25 HP NOW AND 25 HP OVER 5S` shape), still composed from `CONFIG.damageControl` -- a retune of the ruling must keep moving the rail's own copy.
 - [x] `client/src/ui/refitCardFit.ts` -- extend the rail fit model for vertical padding so `overflowY` stays honest -- the fit model IS the container-fit law's proof, not the CSS.
@@ -94,10 +94,20 @@ Two things shipped differently from the plan text. Neither breaks the intent-con
 
 1. **Rail type shipped at 16px, not the planned 14px.** The contract's binding rule is *"Rail type sizes clear amendment 15's 14px legibility floor"* — 16 clears it with a step to spare, so this is a strengthening rather than a departure from intent. It was taken once the fit model showed the widest copy spends only ~705 of 894 available px and that `lineBox(16, 1.2) = 20 ≤ 22` (the key chip's height, which sets the rail's inner box) — i.e. the larger register was free on BOTH axes, and legibility is the entire defect being fixed. Known-bad state avoided: shipping the floor value "because it is the floor" on the one surface whose complaint was that it is too small to read. CONSEQUENCE: the I/O matrix's 90%-tier row still reads "14px × 0.9 = 12.6px"; the shipped arithmetic is 16 × 0.9 = 14.4px and its claim (clears the 9px mono floor) holds with more margin than written. KEEP on any re-derivation: choose the type size against the fit model's measured headroom, not by assuming the floor.
 
-2. **The rail's fit pins live in `upgradeMenu.test.ts`, not `refitCardFit.test.ts`.** The plan named the latter; it carries no strip cases at all — the cycle-46 author put the rail pins beside the geometry pins. Pins landed where they actually live, and the Code Map plus task list were corrected to match, rather than a new test file being invented to satisfy a wrong path.
+2. **The seam shipped at 6px, not the planned 8px, so two contract numbers moved with it.** Driven by the review finding in the triage log (the 125%-tier clip at 1600×768). CONSEQUENCE for the read-only I/O matrix: the floor row's `strip.y` is **570** not 572 and its bottom is **610** not 612, and the bottom clearance improved from the stated 2px to 4px. The row's binding claims — 40px rail, nothing past 614, `band.y` 310 > 307 — all still hold, with more margin than written. KEEP on any re-derivation: the seam is the give, never the rail's height, chip, type or padding.
+
+3. **The rail's fit pins live in `upgradeMenu.test.ts`, not `refitCardFit.test.ts`.** The plan named the latter; it carries no strip cases at all — the cycle-46 author put the rail pins beside the geometry pins. Pins landed where they actually live, and the Code Map plus task list were corrected to match, rather than a new test file being invented to satisfy a wrong path.
 
 ## Review Triage Log
 
+### 2026-08-05 — Review pass
+- intent_gap: 0
+- bad_spec: 0
+- patch: 1: (high 0, medium 1, low 0)
+- defer: 1: (high 0, medium 1, low 0)
+- reject: 0
+- addressed_findings:
+  - `[medium]` `[patch]` **The lifted band clipped the rail at the 125% UI-scale tier.** `place()` anchors the band from `window.innerHeight` in PHYSICAL px while the panel's contents are scaled by `--hc-ui-scale` about `top center`, so at 125% the band's real footprint is 1.25 × its laid-out height hanging off an unscaled anchor — a case the logical-floor pins structurally cannot see. The tier's gate is width-only (`scaleGateWidthPx` 1600), so a 1600×768 viewport can select it and is the binding case: with the planned 8px seam the rail's bottom edge landed 1.5px past the screen, violating amendment 47. The pre-change geometry cleared it by 1px, so this was caused by the change. FIX: `stripGap` 8 → 6 (767 of 768), taken out of the seam rather than the rail because the rail's height, chip, type and padding are the entire point of the retune; every other margin improved (floor bottom clearance 2px → 4px). A new pin walks every committed scale tier at four viewports and fails with the exact overflow — proven load-bearing by reverting the seam to 8 and watching it report "1600x768 @125%: band 1.5px past the bottom".
 ## Design Notes
 
 **Where the 40px comes from (the arithmetic that must survive review).** At the 1280×614 logical floor the band is boxed on two sides: the pips row must stay below the vertical center (`band.y > 307`, the own-hull keep-out) and the rail must stay above the screen edge (`row.y + 236 + 8 + 40 ≤ 614`). That leaves `row.y ∈ (325, 330]` — five pixels of total slack. `bandTopFrac` 0.534 lands `row.y` at 328, splitting it 3px above the keep-out and 2px below the edge. The tightness is inherent: a 236px card row plus a genuinely legible rail nearly fills a 614px viewport, which is exactly why the cycle-46 implementer squeezed the rail instead of lifting the band — that option was closed to them by amendment 40's "no band lift", and it is open now only because Eric reopened it.
@@ -117,3 +127,22 @@ Two things shipped differently from the plan text. Neither breaks the intent-con
 **Manual checks:**
 - Open the refit band at 1280×614 and 1366×768: four 216px cards, 924px row, a 40px padded rail below with a readable label, nothing clipped or overlapping (container-fit law).
 - Confirm the rail reads as a pressable option at a glance — the defect being fixed is legibility, so the check is perceptual, not only arithmetic.
+
+## Auto Run Result
+
+Status: **done**. Cycle 47, VERSION 0.17.47. Client presentation only — no `PROTOCOL_VERSION` bump, no server or shared change, no change to heal mechanics.
+
+**What changed.** Eric rejected the cycle-46 DAMAGE CONTROL rail on sight and set the bar himself: *"big enough to actually register as 'this is something I can choose' on all viewports."* The rail was 16px tall, 10px type, a shrunken 14px chip and literally `padding: 0 8px`. That was not carelessness — cycle 46 derived the rail from the 22px the card row left under itself at the 1280×614 logical floor, because amendment 40's "no band lift" had closed the only other lever. Eric reopened that lever (amendment 65), which inverts the dependency: the rail is now a ruled 40px and the BAND ANCHOR absorbs the cost. The four-card row is byte-identical throughout.
+
+**Files changed.**
+- `client/src/config.ts` — `bandTopFrac` 0.58 → 0.534; rail 16 → 40px, seam 2 → 6px, chip 14 → 22px, type 10 → 16px, new `stripPadY` 8px, `stripPad` 8 → 14, `stripColGap` 10 → 14. Both comment blocks rewritten: the old ones justified a budget that no longer exists.
+- `client/src/ui/upgradeMenu.ts` — vertical padding in `STRIP_CSS`; chip and text at family/card-grade sizes; `healReadout()` to Eric's sentence phrasing; `refitBandLayout()` doc block rewritten (its "no band lift bought the rail room" prose was now false).
+- `client/src/ui/refitCardFit.ts` — `refitStripInnerBox()` subtracts the new vertical padding, or `overflowY` would have reported a comfortable −16px on a rail whose marks sit in the padding.
+- `client/src/__tests__/upgradeMenu.test.ts` — anchor and rail pins re-taken; three new pins (literal floor margins, type/chip/padding floors, scaled-tier fit); the fit assertion extended to the inner box.
+- Paper trail — amendments 65-68, two ledger closures/additions, both trackers, VERSION + package.json.
+
+**Review findings.** 1 patch (medium), 1 defer (medium), 0 intent_gap, 0 bad_spec, 0 reject. The patch is the one that matters: the lifted band clipped the rail by 1.5px at a 1600×768 viewport on the 125% UI tier, because `place()` anchors the band in PHYSICAL px while the panel's contents are CSS-scaled — a case the logical-floor pins structurally cannot see, and one the pre-change geometry happened to clear by 1px. Fixed by taking 2px out of the SEAM (8 → 6) rather than the rail, since the rail's height, chip, type and padding are the whole point. The underlying anchor↔scale mismatch is pre-existing and deferred with full evidence: fixing it moves the band for every user at 90% and 125% alike, which wants its own cycle and probably Eric's eye.
+
+**Verification.** `npm run check` green — 2810 tests (422 shared / 893 server / 1495 client), lint 0 errors (2 pre-existing warnings in untouched files), type-check clean across all three workspaces. `npm run build` clean. Both new geometry pins were proven load-bearing by deliberately reverting the values and confirming the exact failures ("rail 26px past the bottom edge" at the old anchor; "1600x768 @125%: band 1.5px past the bottom" at an 8px seam). Visual check: a before/after render built from the shipped config values, since the dev server is Eric-managed and was not running — the fix is perceptual, so it was looked at, not only computed.
+
+**Residual risks.** (1) The anchor now has seven pixels of slack at the 1280×614 floor and about one at the 125%/1600×768 case; the next refit-band change collides with this first. All three margins are pinned with literal values so it fails in the suite, not on someone's laptop. (2) The band overlaps the dimmed corner clusters more than amendment 40 measured — its logic is unchanged and inner cards stay clear, but the extent grew; ledgered. (3) The rail's tone is still unratified draft. (4) No live-client capture was taken (dev server not running), so the perceptual sign-off is Eric's to give on the running game.
