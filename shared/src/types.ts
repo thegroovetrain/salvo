@@ -6,6 +6,7 @@
 // (server->client, every tick).
 
 import type { GameConfig, HullId, ShipClassId } from './constants.js';
+import type { Vec2 } from './math/vec.js';
 import type { StarShellsMode } from './sim/stats.js';
 
 /** Short message-name tags used on the Colyseus channel. */
@@ -29,11 +30,32 @@ export const MSG = {
  */
 export type MatchPhase = 'waiting' | 'gathering' | 'countdown' | 'active' | 'finished';
 
-/** A circle: island obstacle or spawn ring. */
+/** A circle: spawn ring, map disc, or an island's bounding circle. */
 export interface Circle {
   x: number; // u
   y: number; // u
   r: number; // u
+}
+
+/**
+ * A fractal-coastline landmass (cycle 51, PV 26). `x/y/r` IS the bounding
+ * circle — max distance from (x,y) to any vert — which keeps `Island`
+ * structurally assignable to `Circle` (deliberate: every circle-typed
+ * consumer keeps compiling, and the bounding circle is the mandatory
+ * broadphase in front of every exact polygon test; see sim/island.ts, the
+ * single query seam). Map geometry never travels on the wire — both sides
+ * rebuild identical islands from `mapSeed` via generateMap.
+ */
+export interface Island {
+  x: number; // u — bounding-circle centre
+  y: number; // u
+  r: number; // u — bounding-circle radius: max distance from (x,y) to any vert
+  /** Closed WORLD-SPACE boundary, CCW, implicitly closed (last -> first). */
+  poly: Vec2[];
+  /** 1-3 world-space points; the push-out authority (polygon is star-shaped about these). */
+  skeleton: Vec2[];
+  /** Largest radius about (x,y) fully inside poly; 0 if (x,y) is outside poly. */
+  core: number;
 }
 
 /**

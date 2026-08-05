@@ -3,6 +3,15 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  26: FRACTAL ISLANDS (cycle 51, Eric ruling 2026-08-05) — islands become
+ *  true polygon coastlines: generateMap's circle-packing generator is
+ *  REPLACED by the fractal capsule-offset generator (new `Island` type:
+ *  bounding circle x/y/r + CCW boundary poly + 1-3 pt skeleton + core
+ *  radius). Map geometry still never travels on the wire — only `mapSeed`
+ *  does — but the same seed now yields a COMPLETELY different ocean, so an
+ *  un-bumped old client would rebuild a different map and desync
+ *  catastrophically. New sim/island.ts query seam (broadphase-first island
+ *  geometry for every consumer) rides the barrel.
  *  25: WOUNDED SMOKE (Story 4.4, Eric rulings 2026-08-05) — new `sm`
  *  GameEvent ({k,x,y,tier}: a hull is hurt HERE, this hurt), the FIFTH
  *  declared exception to the master perception invariant and the first
@@ -176,7 +185,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 25;
+export const PROTOCOL_VERSION = 26;
 
 // Tunables
 export * from './constants.js';
@@ -203,6 +212,7 @@ export * from './sim/offers.js';
 export * from './sim/deck.js';
 export * from './sim/collision.js';
 export * from './sim/silhouette.js';
+export * from './sim/island.js';
 export * from './sim/aim.js';
 export * from './sim/shell.js';
 export * from './sim/map.js';
