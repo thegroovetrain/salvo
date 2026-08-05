@@ -1,6 +1,6 @@
 // The SIGNAL REGISTRY — one declarative home per spatial signal (Story 1.1).
 // Every channel that can put per-observer spatial knowledge into a frame is a
-// row here: the 14 GameEvent kinds plus the four contact-like frame channels
+// row here: the 15 GameEvent kinds plus the four contact-like frame channels
 // (`contact`, `mine`, `litzone`, and `decoy` — pseudo event types: not
 // GameEvents, but the invariant suite iterates them like everything else).
 // perception.ts's observe()/observeSpectator() are the ONLY callers of a row's
@@ -42,6 +42,7 @@ import {
   type DamageEvent,
   type DecoyView,
   type GameEvent,
+  type HealEvent,
   type HitCallEvent,
   type HullId,
   type LitZoneView,
@@ -670,20 +671,23 @@ const spawnSignal: SignalSpec<SpawnEvent, SpawnEvent> = {
 
 /**
  * SELF-PRIVATE kinds: forwarded ONLY to the ship the event names — dmg
- * (victim), pt (earner), bn (the boon a spend FITTED — Story 2.7). Enemy hp,
- * builds, boons, and level banks all stay hidden by this one gate (levels /
- * boon ids ride ONLY on OwnShip, never on contacts/blips/booms). (The 'upg'
- * row died with the legacy upgrade economy — Story 2.8's wholesale strip.)
+ * (victim), pt (earner), bn (the boon a spend FITTED — Story 2.7), heal (the
+ * DAMAGE CONTROL spend — Eric rulings 2026-08-04). Enemy hp, builds, boons,
+ * level banks, and repairs all stay hidden by this one gate (levels / boon ids
+ * ride ONLY on OwnShip, never on contacts/blips/booms). (The 'upg' row died
+ * with the legacy upgrade economy — Story 2.8's wholesale strip.)
  *
  * `spectatorPublic`: dmg alone passes through unfiltered to spectators (they
  * may watch a fight's hp — a dead player has no channel back into the match).
- * pt/bn stay self-private even in UNFOGGED spectator frames: a
+ * pt/bn/heal stay self-private even in UNFOGGED spectator frames: a
  * dead-in-active captain still gets its own level/fit toasts (spending while
  * dead is legal), but no other spectator may learn a living ship's fitted
- * boon or level bank. (The 'heal' row left with the REPAIR spend —
- * Story 2.1, Eric ruling 2026-07-24.)
+ * boon, level bank, or that it just repaired. (The 'heal' row LEFT with the
+ * REPAIR spend — Story 2.1, Eric ruling 2026-07-24 — and RETURNED with the
+ * DAMAGE CONTROL strip, 2026-08-04, on strictly tighter terms: no hp amount,
+ * no total, no victim id, nothing derivable about another ship.)
  */
-function selfPrivateSignal<E extends DamageEvent | PointEvent | BoonFitEvent>(
+function selfPrivateSignal<E extends DamageEvent | PointEvent | BoonFitEvent | HealEvent>(
   kind: E['k'],
   spectatorPublic: boolean,
 ): SignalSpec<E, E> {
@@ -794,7 +798,7 @@ const deepFreezeRows = <T extends object>(rows: T): Readonly<T> => {
 };
 
 /**
- * String-keyed registry of every signal channel — the 14 GameEvent kinds plus
+ * String-keyed registry of every signal channel — the 15 GameEvent kinds plus
  * the `contact`/`mine`/`litzone`/`decoy` pseudo-types. perception.ts
  * dispatches world events by `e.k` (an emitted kind with no row is a hard
  * fail-closed drop) and drives the contact/blip/ballistic/mine/litzone/decoy
@@ -818,6 +822,11 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   dmg: selfPrivateSignal<DamageEvent>('dmg', true),
   pt: selfPrivateSignal<PointEvent>('pt', false),
   bn: selfPrivateSignal<BoonFitEvent>('bn', false),
+  // DAMAGE CONTROL (Eric rulings 2026-08-04): the heal spend's own toast.
+  // spectatorPublic FALSE — the pt/bn terms, deliberately NOT dmg's: a heal is
+  // an economy act, and "that hull just repaired" must never reach anyone but
+  // the hull that spent the level (the spec's no-observer-visible-cue rule).
+  heal: selfPrivateSignal<HealEvent>('heal', false),
   // Story 4.3 (amendments 15-20): the gunnery conversation — three declared
   // fog exceptions, each with its stated rationale on its row above.
   sp: fallOfShotSignal,
@@ -840,7 +849,7 @@ export type RegistryCoversEveryGameEventKind = AssertNever<MissingEventRows>;
 
 /**
  * Row lookup for WORLD-EVENT dispatch (perception.forwardedEvents). Resolves
- * ONLY the 14 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
+ * ONLY the 15 GameEvent-kind rows. It excludes the contact/mine/litzone/decoy
  * pseudo-rows so a fabricated `k:'mine'` (or `k:'litzone'`/`k:'decoy'`) world
  * event can never materialize (restoring the old dispatcher's
  * `default: return null` guarantee), and uses an OWN-property lookup

@@ -35,6 +35,7 @@ const ALL_TONE_IDS: ToneId[] = [
   'fitCommon',
   'fitRare',
   'fitExclusive',
+  'heal',
   'burn',
   'hitCall',
   'slowed',

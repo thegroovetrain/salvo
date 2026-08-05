@@ -75,6 +75,10 @@ describe('buildFrame — shape and clock', () => {
       pts: 0, // no points banked
       offer: [], // no offer while pts is 0
       boostUntil: 0, // owner-only speed-boost window end; inactive
+      // DAMAGE CONTROL (2026-08-04): the remaining regen pool in hp, owner-only
+      // on the boostUntil terms. REQUIRED (never omitted), so a pool-less hull
+      // still carries an explicit 0 rather than a missing key.
+      repairHp: 0,
       boons: [], // applied boon ids — self-private, dormant until 2.7 (Story 2.5)
       // Story 2.6, self-private too: levels completed + progress toward the
       // next as a 0..1 fraction of CONFIG.xp.levelMs. One 50ms step of passive

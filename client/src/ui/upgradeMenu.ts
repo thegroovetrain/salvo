@@ -23,6 +23,14 @@
 // + post-click blur), so a later Space/Enter can't re-trigger the button and a
 // focused button can't trip the chokepoint's text-entry guard.
 //
+// THE DAMAGE CONTROL RAIL (cycle 44) hangs one seam BELOW the row: the
+// always-available heal spend, addressed by the reserved negative wire sentinel
+// HEAL_CHOICE (-1) and picked with [5] or a click. It is deliberately NOT a
+// fifth card — a five-card row is 1160px, which leaves 60px of margin at the
+// 1280×614 logical floor and would supersede the ratified UX-DR14 geometry — and
+// it is never drawn, never exhausted, and never in `OwnShip.offer`. The cards,
+// the gaps, the 924px row and `CONFIG.offer.size` are untouched by it.
+//
 // z-index sits at 1000 — below the pre-join menu (1100) and settings (1050) and
 // above the toast stacks (900). Nothing rides on that last relation visually:
 // toasts stack TOP-CENTER and the band sits BELOW-CENTER, so the two never
@@ -32,7 +40,9 @@
 import {
   BOON_CATALOG,
   CONFIG,
+  HEAL_CHOICE,
   boonStackCount,
+  effectiveStats,
   resolveBoons,
   type BoonDef,
   type OwnShip,
@@ -50,6 +60,12 @@ import {
 } from './boonCopy.js';
 
 const PANEL_ID = 'upgrade-menu';
+/** The DAMAGE CONTROL rail's element id — a stable handle for the band's one
+ *  permanent control (the cards are rebuilt per offer; this never is). */
+const STRIP_ID = 'refit-damage-control';
+/** The rail's key hint. Digit 5 sits immediately after the four card digits,
+ *  and input/keyboard.ts maps BOTH Digit5 and Numpad5 to HEAL_CHOICE. */
+const STRIP_KEY_GLYPH = '5';
 const R = CLIENT_CONFIG.refit;
 /** The card's text metrics — letter-spacings, line-heights and the row gap. The
  *  CSS below INTERPOLATES these, and ui/refitCardFit.ts measures with the very
@@ -93,7 +109,14 @@ export interface RefitBandLayout {
   cards: RefitBox[];
   /** The queue-pip strip, left-aligned with the row, above the cards. */
   pips: RefitBox;
-  /** The whole band (pips + row) — what the keep-out checks measure. */
+  /**
+   * THE DAMAGE CONTROL RAIL (cycle 44): the always-present heal spend, one
+   * `stripGap` seam BELOW the row and exactly as wide as it. It is NOT a card
+   * — `cards` and `row` are byte-identical with or without it, which is the
+   * property the geometry suite pins.
+   */
+  strip: RefitBox;
+  /** The whole band (pips + row + rail) — what the keep-out checks measure. */
   band: RefitBox;
 }
 
@@ -115,6 +138,12 @@ const CARD_SLOTS = CONFIG.offer.size;
  * the row would clip, which is why the layout tests pin both ratified floors
  * (1366×768 at 100%, and the 1280×614 logical floor of the ≥1600px-gated 125%
  * tier).
+ *
+ * CYCLE 44 adds the DAMAGE CONTROL rail below the row and NOTHING else: the
+ * row, the cards and the pips come out byte-identical, and only `band.h` grows
+ * (by `stripGap + stripHeight`) to keep covering everything the band paints.
+ * The rail's whole 18px budget is what was left under the row at the 1280×614
+ * logical floor — see CLIENT_CONFIG.refit.stripHeight for the arithmetic.
  */
 export function refitBandLayout(screenW: number, screenH: number, cards = CARD_SLOTS): RefitBandLayout {
   const rowW = cards * R.card + (cards - 1) * R.gap;
@@ -122,6 +151,7 @@ export function refitBandLayout(screenW: number, screenH: number, cards = CARD_S
   const y = Math.round(screenH * R.bandTopFrac);
   const row = { x, y, w: rowW, h: R.cardHeight };
   const pips = { x, y: y - R.pipsAbove, w: rowW, h: R.pip };
+  const strip = { x, y: row.y + row.h + R.stripGap, w: rowW, h: R.stripHeight };
   return {
     row,
     cards: Array.from({ length: cards }, (_, i) => ({
@@ -131,7 +161,8 @@ export function refitBandLayout(screenW: number, screenH: number, cards = CARD_S
       h: R.cardHeight,
     })),
     pips,
-    band: { x, y: pips.y, w: rowW, h: row.y + row.h - pips.y },
+    strip,
+    band: { x, y: pips.y, w: rowW, h: strip.y + strip.h - pips.y },
   };
 }
 
@@ -156,6 +187,78 @@ export interface OfferCard {
   description: string;
 }
 
+// --- pure core: the DAMAGE CONTROL rail ----------------------------------------
+
+/**
+ * The rail's two states, DUAL-CODED so nothing rides on hue (DESIGN.md · Do's
+ * and Don'ts):
+ *   • 'armed' — a damaged, living hull: live edge, hoverable/focusable,
+ *     amber-on-armed exactly like a card, and NO status word;
+ *   • 'inert' — the server would reject this pick (full hp, or a sunk hull) or
+ *     a spend is already in flight: the rail dims to `lockedAlpha`, goes
+ *     genuinely `disabled` (keyboard and AT see it, not just the eye), and — for
+ *     the two REJECTION cases — prints the reason as a word. The word is the
+ *     non-color channel; the dim alone would be hue/lightness only.
+ */
+export type HealArm = 'armed' | 'inert';
+
+export interface HealView {
+  state: HealArm;
+  /** The dual-coding reason word; '' while armed (the absence IS the state). */
+  status: string;
+  /** 'DAMAGE CONTROL' — deliberately NOT "repair/patch HULL": `hull` is the
+   *  +maxHp `shipHull` ladder's vocabulary and must not be echoed here. */
+  label: string;
+  /** The amounts, printed from CONFIG.damageControl — never hardcoded, so a
+   *  retune of the ruling moves the rail's own copy with it. */
+  readout: string;
+}
+
+export const HEAL_LABEL = 'DAMAGE CONTROL';
+/** Rejection reasons — the two fail-closed guards the server itself applies. */
+export const HEAL_STATUS_FULL = 'AT FULL HP';
+export const HEAL_STATUS_SUNK = 'SUNK';
+
+/** Pure: the rail's amounts line, straight off the shared config. */
+export function healReadout(): string {
+  const dc = CONFIG.damageControl;
+  const secs = dc.regenMs / 1000;
+  const s = Number.isInteger(secs) ? `${secs}` : secs.toFixed(1);
+  return `+${dc.instantHp} HP NOW · +${dc.regenHp} HP OVER ${s}S`;
+}
+
+/**
+ * Pure: the own hull's max HP, through the ONE derivation path — the shared
+ * `effectiveStats()` desync firewall, fed by (class + fitted boons), exactly
+ * as the HUD's HP rail and the cards' preview diffs already do it. Nothing here
+ * re-derives, hardcodes, or reads a class table ad hoc.
+ */
+function ownMaxHp(you: Pick<OwnShip, 'cls' | 'boons'>): number {
+  return effectiveStats(CONFIG.shipClasses[you.cls], resolveBoons(you.boons)).maxHp;
+}
+
+/**
+ * Pure: the rail's state for this frame. The two INERT cases mirror the
+ * server's fail-closed heal guard exactly (dead hull, or `hp >= maxHp`), which
+ * is what makes the affordance honest rather than decorative — a rail the
+ * player can press is a rail the server will honor. `locked` (a spend already
+ * in flight) inerts it too, for the same reason the cards dim: a second pick
+ * inside one server-tick+RTT would reference an offer the FIFO has moved on
+ * from. It carries no reason word, being transient rather than a refusal.
+ */
+export function healView(you: OwnShip | null | undefined, locked: boolean): HealView {
+  const copy = { label: HEAL_LABEL, readout: healReadout() };
+  if (!you || !you.alive) return { ...copy, state: 'inert', status: HEAL_STATUS_SUNK };
+  if (you.hp >= ownMaxHp(you)) return { ...copy, state: 'inert', status: HEAL_STATUS_FULL };
+  if (locked) return { ...copy, state: 'inert', status: '' };
+  return { ...copy, state: 'armed', status: '' };
+}
+
+/** The rail's render memo key — every mark it actually paints. */
+function healSignature(heal: HealView): string {
+  return `${heal.state}|${heal.status}|${heal.label}|${heal.readout}`;
+}
+
 /** The spendable state the band renders — derived purely from `you`. */
 export interface OfferView {
   /** Banked levels (the queue length): 1 filled pip + (pts-1) hollow pips. */
@@ -169,6 +272,10 @@ export interface OfferView {
    * timeout clears it; digit picks are gated on the same flag.
    */
   locked: boolean;
+  /** The DAMAGE CONTROL rail's state (cycle 44) — a SIBLING of `options`,
+   *  never a member of it: the rail is never drawn, never exhausted, and never
+   *  appears in `OwnShip.offer`. */
+  heal: HealView;
 }
 
 /**
@@ -195,7 +302,7 @@ export function offerView(you: OwnShip | null, spectating: boolean, locked: bool
   if (!you || spectating || you.pts === 0 || you.offer.length === 0) return null;
   const defs = resolveBoons(you.offer, BOON_CATALOG);
   if (defs.length !== you.offer.length) return null; // fail-closed: row k == server slot k
-  return { pts: you.pts, options: defs.map((def) => toCard(def, you)), locked };
+  return { pts: you.pts, options: defs.map((def) => toCard(def, you)), locked, heal: healView(you, locked) };
 }
 
 /**
@@ -349,13 +456,15 @@ export function spendOutcome(
 
 // --- DOM ------------------------------------------------------------------------
 
+// The panel carries NO flex `gap`: the pips sit `pipsAbove` over the row and
+// the DAMAGE CONTROL rail sits `stripGap` under it — two different seams, so
+// each child owns its own margin and the DOM matches refitBandLayout() exactly.
 const PANEL_CSS = [
   'position:fixed',
   'left:50%',
   'display:none', // toggled to 'flex' when shown
   'flex-direction:column',
   'align-items:flex-start',
-  `gap:${R.pipsAbove - R.pip}px`,
   'z-index:1000',
   'pointer-events:none', // only the cards take pointer events
   // HUD-tier DOM chrome scales with the accessibility UI scale (Story 2.3); the
@@ -368,7 +477,13 @@ const PANEL_CSS = [
 /** The queue-pip strip: one filled square for the offer on screen, one hollow
  *  square per offer still queued behind it (dual-coded with the row itself —
  *  never hue alone). */
-const PIPS_CSS = ['display:flex', 'flex-direction:row', `gap:${R.pipGap}px`, 'align-items:center'].join(';');
+const PIPS_CSS = [
+  'display:flex',
+  'flex-direction:row',
+  `gap:${R.pipGap}px`,
+  'align-items:center',
+  `margin-bottom:${R.pipsAbove - R.pip}px`,
+].join(';');
 
 // NOTE ON SHORTHANDS: every `border`/`background` declaration below is written
 // as LONGHANDS with the custom-property value assigned separately (element.style
@@ -465,6 +580,68 @@ const KEY_CHIP_CSS = [
   `font:400 ${R.categorySize}px var(--hc-font-mono)`,
   'flex:none',
 ].join(';');
+
+// --- THE DAMAGE CONTROL RAIL (cycle 44) ----------------------------------------
+//
+// A one-line rail under the row, in the card's own grammar (square corners,
+// hairline edge, panel bed, amber-on-armed, 80ms denied edge pulse) at rail
+// scale. It is a real <button>: pointer-events live on it, it is keyboard- and
+// AT-reachable, and it goes genuinely `disabled` when the server would refuse
+// the pick. Focus hygiene is the card's, verbatim (mousedown preventDefault +
+// post-click blur), so a strip click can never fire the gun (MouseInput only
+// counts canvas-target clicks) and can never retain focus.
+const STRIP_CSS = [
+  'position:relative',
+  `height:${R.stripHeight}px`,
+  'align-self:stretch', // the rail is exactly as wide as the ratified row
+  `padding:0 ${R.stripPad}px`,
+  'box-sizing:border-box',
+  'border-width:1px',
+  'border-style:solid',
+  'border-radius:0', // square corners (DESIGN.md CIC chrome)
+  'display:flex',
+  'flex-direction:row',
+  'align-items:center',
+  `gap:${R.stripColGap}px`,
+  'text-align:left',
+  'cursor:pointer',
+  'pointer-events:auto',
+  'flex:none',
+  `margin-top:${R.stripGap}px`,
+  'overflow:hidden', // amendment-47 belt and braces; the fit model is the fix
+].join(';');
+
+/** The rail's key chip: the mono key-chip family at rail scale (the DESIGN.md
+ *  "proportional below" precedent — a 22px chip cannot fit a 16px rail). Rides
+ *  currentColor, so the rail's rest/armed state cascades into it. */
+const STRIP_CHIP_CSS = [
+  `width:${R.stripKeyChip}px`,
+  `height:${R.stripKeyChip}px`,
+  'display:flex',
+  'align-items:center',
+  'justify-content:center',
+  'border:1px solid currentColor',
+  `font:400 ${R.stripFontSize}px var(--hc-font-mono)`,
+  'flex:none',
+].join(';');
+
+/** One rail text column. `white-space:nowrap` is the horizontal half of the
+ *  container-fit law here: the rail is ONE line high by construction, so a wrap
+ *  would paint outside it rather than growing it. */
+const STRIP_TEXT_CSS = [
+  `font:400 ${R.stripFontSize}px var(--hc-font-mono)`,
+  `letter-spacing:${T.categoryLetterSpacing}px`,
+  `line-height:${T.lineHeight}`,
+  'text-transform:uppercase',
+  'white-space:nowrap',
+  'flex:none',
+].join(';');
+
+/** The amounts column — data, so phosphor (amendment 16: never grey). */
+const STRIP_READOUT_CSS = `${STRIP_TEXT_CSS};color:${PHOSPHOR};opacity:0.85`;
+
+/** The reason word, hard right — the rail's non-color state channel. */
+const STRIP_STATUS_CSS = `${STRIP_TEXT_CSS};margin-left:auto;color:${PHOSPHOR};opacity:0.7`;
 
 /** Every text row declares an EXPLICIT line-height and `overflow-wrap:anywhere`
  *  (amendment 47): the line-height makes the fit model exact rather than
@@ -588,6 +765,27 @@ interface RefitCardEls {
   name: HTMLSpanElement;
 }
 
+/** The DOM handles of the DAMAGE CONTROL rail (built once, never rebuilt — it
+ *  is the one element in the band that no offer can take away). */
+interface RefitStripEls {
+  root: HTMLButtonElement;
+  chip: HTMLSpanElement;
+  label: HTMLSpanElement;
+  readout: HTMLSpanElement;
+  status: HTMLSpanElement;
+}
+
+/** The rail's armed (hover/focus) treatment — the card's `paintCard`, one line
+ *  high: amber edge + glow and amber chip/label, or the resting hairline. The
+ *  READOUT keeps its phosphor through the arm (the amounts are a fact about the
+ *  spend, not a state of the pointer), exactly as a card's rarity tag does. */
+function paintStrip(strip: RefitStripEls, armed: boolean): void {
+  strip.root.style.borderColor = armed ? AMBER : HAIRLINE;
+  strip.root.style.boxShadow = armed ? `0 0 8px ${AMBER}` : 'none';
+  strip.root.style.color = armed ? AMBER : REST; // the key chip rides currentColor
+  strip.label.style.color = armed ? AMBER : REST;
+}
+
 /**
  * The refit band. TAB toggle()s it (main.ts gates open on a banked level);
  * digits 1–4 pick via main.ts's onRefitPick while it is open; a card click
@@ -601,11 +799,15 @@ export class UpgradeMenu {
   private rowEl: HTMLDivElement | null = null;
   private ghostEl: HTMLDivElement | null = null;
   private cards: RefitCardEls[] = [];
+  private strip: RefitStripEls | null = null;
   private shown = false;
   private sig = '';
-  /** Denied-pulse bookkeeping: the card index flashing, when it ends, and the
-   *  last trigger time (the 300ms same-source floor — deniedFire's grammar). */
-  private deniedCard = -1;
+  private stripSig = '';
+  /** Denied-pulse bookkeeping: the CHOICE flashing (a card index, or
+   *  HEAL_CHOICE for the rail — hence `null`, not -1, as the nothing-lit
+   *  sentinel: -1 is now a real target), when it ends, and the last trigger
+   *  time (the 300ms same-source floor — deniedFire's grammar). */
+  private deniedChoice: number | null = null;
   private deniedUntil = -Infinity;
   private deniedLastAt = -Infinity;
 
@@ -629,13 +831,80 @@ export class UpgradeMenu {
     ghost.style.borderColor = PHOSPHOR;
     ghost.style.display = 'none';
     row.appendChild(ghost);
-    panel.append(pips, row);
+    this.strip = this.makeStrip();
+    panel.append(pips, row, this.strip.root);
     document.body.appendChild(panel);
     this.panel = panel;
     this.pipsEl = pips;
     this.rowEl = row;
     this.ghostEl = ghost;
     return panel;
+  }
+
+  /**
+   * The DAMAGE CONTROL rail, built ONCE with the panel: chip · label · amounts
+   * · reason word. It is deliberately outside the card row's render memo — the
+   * rail is never drawn and never exhausted, so nothing about an offer may
+   * rebuild it (and a rebuild would strand a lit denied edge on a dead node).
+   * The click routes the SAME path a digit does, through `onSpend(HEAL_CHOICE)`.
+   */
+  private makeStrip(): RefitStripEls {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = STRIP_ID;
+    btn.style.cssText = STRIP_CSS;
+    btn.style.backgroundColor = 'var(--hc-panel)';
+    const chip = document.createElement('span');
+    chip.style.cssText = STRIP_CHIP_CSS;
+    chip.textContent = STRIP_KEY_GLYPH;
+    const label = document.createElement('span');
+    label.style.cssText = STRIP_TEXT_CSS;
+    const readout = document.createElement('span');
+    readout.style.cssText = STRIP_READOUT_CSS;
+    const status = document.createElement('span');
+    status.style.cssText = STRIP_STATUS_CSS;
+    btn.append(chip, label, readout, status);
+    const els: RefitStripEls = { root: btn, chip, label, readout, status };
+    paintStrip(els, false);
+    // Focus hygiene, the card's verbatim: never acquire focus on click, so a
+    // later Space/Enter cannot re-trigger the spend and a focused button cannot
+    // trip the keyboard chokepoint's text-entry guard mid-battle.
+    btn.addEventListener('mousedown', (e) => e.preventDefault());
+    btn.addEventListener('mouseenter', () => this.armStrip(true));
+    btn.addEventListener('mouseleave', () => this.armStrip(false));
+    btn.addEventListener('focus', () => this.armStrip(true));
+    btn.addEventListener('blur', () => this.armStrip(false));
+    btn.addEventListener('click', () => {
+      btn.blur();
+      this.onSpend(HEAL_CHOICE);
+    });
+    return els;
+  }
+
+  /** Hover/focus arm — suppressed while the denied edge is lit on the rail, so
+   *  a pointer sitting on the strip cannot paint the refusal away mid-pulse. */
+  private armStrip(armed: boolean): void {
+    if (this.strip && this.deniedChoice !== HEAL_CHOICE) paintStrip(this.strip, armed);
+  }
+
+  /**
+   * Repaint the rail from its state. Memoized on its own signature (NOT the
+   * card row's): hp crossing maxHp must not rebuild four cards, and a fresh
+   * offer must not disturb the rail.
+   */
+  private renderStrip(heal: HealView): void {
+    const strip = this.strip!;
+    const sig = healSignature(heal);
+    if (sig === this.stripSig) return;
+    this.stripSig = sig;
+    strip.label.textContent = heal.label;
+    strip.readout.textContent = heal.readout;
+    strip.status.textContent = heal.status;
+    const armed = heal.state === 'armed';
+    strip.root.disabled = !armed; // real disabled state — keyboard/AT see it too
+    strip.root.style.opacity = armed ? '1' : String(R.lockedAlpha);
+    strip.root.style.cursor = armed ? 'pointer' : 'default';
+    if (this.deniedChoice !== HEAL_CHOICE) paintStrip(strip, false);
   }
 
   /**
@@ -726,6 +995,10 @@ export class UpgradeMenu {
    */
   private render(view: OfferView): void {
     this.ensurePanel();
+    // The rail first, on its OWN memo: it outlives every offer, so it must be
+    // repainted even on the frames the card row memo skips (a hull crossing
+    // maxHp mid-window moves nothing about the cards).
+    this.renderStrip(view.heal);
     const sig = `${view.pts}|${view.options.map(cardSignature).join(',')}|${view.locked ? 1 : 0}`;
     if (sig === this.sig) return;
     this.sig = sig;
@@ -739,7 +1012,10 @@ export class UpgradeMenu {
     // displaying. Digit glyphs 1..N map row-for-row, left to right.
     this.cards = view.options.map((card, i) => this.makeCard(card, i, !view.locked));
     for (const c of this.cards) row.appendChild(c.root);
-    this.deniedCard = -1; // a fresh row never inherits the last row's pulse
+    // A fresh ROW never inherits the last row's pulse. A lit RAIL is untouched:
+    // the rail's node survives the rebuild, so its pulse is still on screen and
+    // still owns the same-source floor it consumed.
+    if (this.deniedChoice !== null && this.deniedChoice >= 0) this.deniedChoice = null;
   }
 
   /** Position the band from the pure layout (never from CSS guesses). */
@@ -793,28 +1069,39 @@ export class UpgradeMenu {
     if (!this.shown) return;
     if (motionIntensity(settings.current.motion) <= 0) return;
     if (nowMs - this.deniedLastAt < R.deniedFloorMs) return;
-    const card = this.cards[choice];
-    if (!card) return;
+    const el = this.deniedTarget(choice);
+    if (!el) return;
     this.deniedLastAt = nowMs;
-    this.deniedCard = choice;
+    this.deniedChoice = choice;
     this.deniedUntil = nowMs + R.deniedPulseMs;
-    card.root.style.borderColor = DENIED;
-    card.root.style.boxShadow = `0 0 8px ${DENIED}`;
+    el.style.borderColor = DENIED;
+    el.style.boxShadow = `0 0 8px ${DENIED}`;
     setTimeout(() => this.clearDenied(choice), R.deniedPulseMs);
+  }
+
+  /** The element a pick's denied pulse paints: a card, or the DAMAGE CONTROL
+   *  rail for HEAL_CHOICE (the one negative choice on the wire). */
+  private deniedTarget(choice: number): HTMLElement | null {
+    if (choice === HEAL_CHOICE) return this.strip?.root ?? null;
+    return this.cards[choice]?.root ?? null;
   }
 
   /** Drop the denied edge back to rest, unless a newer pulse took it over. */
   private clearDenied(choice: number): void {
-    if (this.deniedCard !== choice) return;
-    this.deniedCard = -1;
+    if (this.deniedChoice !== choice) return;
+    this.deniedChoice = null;
     this.deniedUntil = -Infinity;
+    if (choice === HEAL_CHOICE) {
+      if (this.strip) paintStrip(this.strip, false);
+      return;
+    }
     const card = this.cards[choice];
     if (card) paintCard(card, false);
   }
 
   /** True while the denied pulse is lit (test/observation seam). */
   deniedActive(nowMs = performance.now()): boolean {
-    return this.deniedCard >= 0 && nowMs < this.deniedUntil;
+    return this.deniedChoice !== null && nowMs < this.deniedUntil;
   }
 
   /** Close the band and DROP the whole denied register with it: a reopened band
@@ -827,7 +1114,7 @@ export class UpgradeMenu {
     // reopen with an unchanged view signature reuses the very same buttons), so
     // dropping the bookkeeping alone would strand a denied border lit forever —
     // the in-flight clearDenied timeout no-ops once the register is cleared.
-    if (this.deniedCard >= 0) this.clearDenied(this.deniedCard);
+    if (this.deniedChoice !== null) this.clearDenied(this.deniedChoice);
     this.deniedLastAt = -Infinity; // the floor dies with the window
   }
 }

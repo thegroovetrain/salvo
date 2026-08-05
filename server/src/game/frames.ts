@@ -60,6 +60,14 @@ function toOwnShip(ship: ShipRecord, now: number): OwnShip {
     // a Contact, blip, ballistic event, boom, or spectator payload. An enemy
     // observer reads a boosting hull only through its observed kinematics.
     boostUntil: ship.boostUntil,
+    // hp — the REMAINING DAMAGE CONTROL regen pool (Eric rulings 2026-08-04);
+    // 0 = nothing draining. OWNER-ONLY on exactly the boostUntil terms: it
+    // rides `you` and NOTHING else — never a Contact, blip, ballistic event,
+    // boom, or spectator payload. An enemy observer can never learn that a hull
+    // is repairing; it reads only the hp it can actually see change. REQUIRED
+    // (not optional like slowedUntil/dazzledUntil): the client's strip renders
+    // the pool every frame, so a dropped key would read as "pool gone".
+    repairHp: ship.repairHp,
     // Applied boon ids (Story 2.5 — dormant, [] until 2.7 grants any),
     // defensive copy. SELF-PRIVATE like upg/boostUntil: rides `you` and
     // NOTHING else — never a Contact, blip, ballistic event, boom, or

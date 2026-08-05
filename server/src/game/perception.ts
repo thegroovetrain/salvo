@@ -9,7 +9,7 @@
 // independently-reimplemented oracle in that suite.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
-// the 14 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —
+// the 15 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —
 // is one declarative SignalSpec row (visible + materialize + counterIntel),
 // and observe()/observeSpectator() below are the ONLY callers of row logic.
 // Adding a signal means adding a row (plus its invariant test case), never

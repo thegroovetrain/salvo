@@ -190,11 +190,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 21→22 bump (Story 4.3 gunnery conversation: sp/hc/mz + vision.muzzleFlash) is enforced at matchmake', () => {
-  it('rejects pv-21 and pv-20 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(22);
+describe('pv join gate — the 22→23 bump (DAMAGE CONTROL: HEAL_CHOICE + OwnShip.repairHp + the heal event) is enforced at matchmake', () => {
+  it('rejects pv-22 and pv-21 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(23);
+    expect(protocolVersionError(22)).toMatch(/refresh/);
     expect(protocolVersionError(21)).toMatch(/refresh/);
-    expect(protocolVersionError(20)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

@@ -12,6 +12,7 @@ import type { Room } from '@colyseus/sdk';
 import {
   CONFIG,
   EQUIPMENT_IS_WEAPON,
+  HEAL_CHOICE,
   MSG,
   NO_BOONS,
   boonBehaviors,
@@ -436,6 +437,11 @@ function ownStatus(g: Game): OwnStatus {
   const stats = g.ownStats;
   return {
     hp: you?.hp ?? stats.maxHp,
+    // DAMAGE CONTROL's still-draining regen pool (cycle 44). Self-private and
+    // server-authoritative — it rides `you` and is read VERBATIM, never
+    // predicted: the pool pays out on the server's wall clock and `hp` already
+    // self-syncs every frame, so the HUD's only job is to show what is coming.
+    repairHp: you?.repairHp ?? 0,
     ammo: ownAmmo(you, stats, g.ownSlots),
     cls: you?.cls ?? g.ownClass,
     stats,
@@ -448,12 +454,22 @@ function ownStatus(g: Game): OwnStatus {
     respawnInMs: respawnMs(g.state.respawnEta, g.clock.serverNow()),
     loadout: g.ownSlots,
     boostActive: g.clock.serverNow() < boostUntilNow(g),
-    // Story 2.9 — the victim tells. Read VERBATIM off the victim-private
-    // windows on `you` against the server clock (the dazzle fog-shrink gate's
-    // exact source), never predicted: what an enemy doctrine did to us is the
-    // server's word, and a mispredicted tell is a lie about our own hull.
-    slowedMsLeft: windowLeft(g.state.net.you?.slowedUntil, g.clock.serverNow()),
-    dazzledMsLeft: windowLeft(g.state.net.you?.dazzledUntil, g.clock.serverNow()),
+    ...victimWindows(you, g.clock.serverNow()),
+  };
+}
+
+/**
+ * Story 2.9 — the victim tells' remaining ms. Read VERBATIM off the victim-
+ * private windows on `you` against the server clock (the dazzle fog-shrink
+ * gate's exact source), never predicted: what an enemy doctrine did to us is
+ * the server's word, and a mispredicted tell is a lie about our own hull.
+ * Lifted out of ownStatus() as its own function so the status builder stays
+ * under the complexity ceiling as `you`-derived fields accumulate.
+ */
+function victimWindows(you: OwnShip | null | undefined, now: number): Pick<OwnStatus, 'slowedMsLeft' | 'dazzledMsLeft'> {
+  return {
+    slowedMsLeft: windowLeft(you?.slowedUntil, now),
+    dazzledMsLeft: windowLeft(you?.dazzledUntil, now),
   };
 }
 
@@ -582,7 +598,7 @@ function handleRefitToggle(g: Game): void {
 }
 
 /**
- * A digit 1–4 pressed WHILE the modal is open (the chokepoint enforces the
+ * A digit 1–5 pressed WHILE the modal is open (the chokepoint enforces the
  * refit-or-nothing rule; digit meaning was evaluated against modal state at
  * its own keydown): pick card `choice` and spend. The window STAYS OPEN
  * (amendment 36 — it rides the queue; the last spend closes it by emptying the
@@ -594,7 +610,20 @@ function handleRefitToggle(g: Game): void {
 function handleRefitPick(g: Game, choice: number): void {
   if (!g.upgradeMenu.visible) return;
   const view = currentOfferView(g);
-  if (!view || view.locked || choice >= view.options.length) return;
+  if (!view || view.locked) return;
+  // DIGIT 5 — the DAMAGE CONTROL rail. It is addressed by the reserved negative
+  // sentinel, so it deliberately skips the card-index bound below. A pick the
+  // server WOULD refuse (full hp, sunk hull) is refused HERE too, with the same
+  // 80ms denied edge pulse a rejected card gets: the client-side guard is the
+  // server's own fail-closed rule mirrored, and without it the refusal would
+  // have to come back as a 1.5s latch timeout — an eternity for what will be
+  // the most-mashed key in the band (mashing 5 at full hp is routine).
+  if (choice === HEAL_CHOICE) {
+    if (view.heal.state === 'armed') trySpend(g, choice);
+    else g.upgradeMenu.pulseDenied(choice);
+    return;
+  }
+  if (choice >= view.options.length) return;
   trySpend(g, choice);
 }
 
@@ -1242,18 +1271,19 @@ function handleAbilityPress(g: Game, slot: number, actSeq: number): void {
 }
 
 /**
- * The UpgradeMenu's card-click callback: same late-binding as keyboardHooks
- * (gRef isn't assigned until after the Game object literal below), routed
- * through trySpend() so a card click shares the FINDING A latch with the
- * digit-pick path — and, like a digit pick, a card click LEAVES THE WINDOW OPEN
- * (amendment 36). The gun can never fire off it — MouseInput only counts
- * canvas-target clicks, and the modal lockout holds besides.
+ * The UpgradeMenu's click callback (cards AND the DAMAGE CONTROL rail): same
+ * late-binding as keyboardHooks (gRef isn't assigned until after the Game object
+ * literal below), routed through handleRefitPick so a CLICK IS KEY-EQUIVALENT BY
+ * CONSTRUCTION — the same FINDING A latch, the same heal guard, the same denied
+ * pulse — and, like a digit pick, a click LEAVES THE WINDOW OPEN (amendment 36).
+ * The gun can never fire off it: MouseInput only counts canvas-target clicks,
+ * and the modal lockout holds besides.
  */
 function onSpendClick(getG: () => Game | null): (choice: number) => void {
   return (choice) => {
     const g = getG();
     if (!g) return;
-    trySpend(g, choice);
+    handleRefitPick(g, choice);
   };
 }
 

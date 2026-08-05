@@ -21,6 +21,8 @@
 //   TAB            toggles the refit modal (main.ts owns open/close policy)
 //   1–4            pick a refit card ONLY while the modal is open
 //                  (refit-or-nothing; meaning evaluated at its own keydown)
+//   5              spend on DAMAGE CONTROL (the always-available heal rail —
+//                  HEAL_CHOICE), under the exact same modal-only rule
 //   ESC            closes the TOPMOST open surface (results modal / refit modal
 //                  / settings overlay) and, with nothing open, toggles settings
 //                  — the uniform law (Story 2.3, amendment 23). Never leaves the
@@ -39,7 +41,7 @@
 // queue and never prime. Weapon-vs-ability comes ONLY from EQUIPMENT_IS_WEAPON
 // (the isAbilitySlot hook), never a slot literal or hull id.
 
-import { EQUIPMENT_IS_WEAPON, SLOT_COUNT, SLOT_GUN, type EquipmentId } from '@salvo/shared';
+import { EQUIPMENT_IS_WEAPON, HEAL_CHOICE, SLOT_COUNT, SLOT_GUN, type EquipmentId } from '@salvo/shared';
 import {
   Telegraph,
   stepFromKey,
@@ -78,13 +80,23 @@ export const SLOT_KEY_CODES: Record<string, number> = {
   KeyR: 3,
 };
 
-/** Digit key → refit-card index 0..3 (top row + numpad). Digits mean a card
- *  pick ONLY while the refit modal is open; refit-or-nothing otherwise. */
+/**
+ * Digit key → the refit choice it sends (top row + numpad). 1–4 are card
+ * indices 0..3; 5 is the DAMAGE CONTROL rail, which rides the reserved NEGATIVE
+ * wire sentinel `HEAL_CHOICE` (-1) rather than an index — a positive sentinel
+ * would collide with a real card the moment `CONFIG.offer.size` moved.
+ *
+ * Every one of them means a refit pick ONLY while the refit modal is open;
+ * refit-or-nothing otherwise (amendment 3). Digit 5 joins that rule verbatim:
+ * it is bound (and therefore preventDefault-ed) at all times, and acts at none
+ * but the modal.
+ */
 export const REFIT_DIGIT_CODES: Record<string, number> = {
   Digit1: 0, Numpad1: 0,
   Digit2: 1, Numpad2: 1,
   Digit3: 2, Numpad3: 2,
   Digit4: 3, Numpad4: 3,
+  Digit5: HEAL_CHOICE, Numpad5: HEAL_CHOICE,
 };
 
 /**
@@ -242,7 +254,8 @@ export interface KeyboardHooks {
   /** TAB — toggle the refit modal (main.ts owns the only-with-a-banked-point
    *  open rule and pick/TAB/ESC close rules). */
   onRefitToggle?: () => void;
-  /** Digit 1–4 while the modal is open — pick card `choice` (0-based). */
+  /** Digit 1–5 while the modal is open — pick card `choice` (0-based), or
+   *  HEAL_CHOICE (-1) for the DAMAGE CONTROL rail. */
   onRefitPick?: (choice: number) => void;
   /** ESC — close the topmost surface (in-match: the refit modal; on the results
    *  screen main.ts routes it to RETURN TO PORT — UX-DR27). */
@@ -440,9 +453,10 @@ export class KeyboardInput {
     this.primed = nextPrimedSlot(this.primed, slot);
   }
 
-  /** Digits 1–4: a refit-card pick while the modal is open; refit-or-nothing
-   *  otherwise (the old digit slot-priming and closed-window spend are dead —
-   *  amendment 3). Meaning is evaluated against modal state at THIS keydown. */
+  /** Digits 1–5: a refit pick while the modal is open — a card (1–4) or the
+   *  DAMAGE CONTROL rail (5 → HEAL_CHOICE); refit-or-nothing otherwise (the old
+   *  digit slot-priming and closed-window spend are dead — amendment 3).
+   *  Meaning is evaluated against modal state at THIS keydown. */
   private readonly handleDigitKey = (e: KeyboardEvent): void => {
     if (e.repeat) return;
     if (this.hooks.isModalOpen?.() !== true) return;

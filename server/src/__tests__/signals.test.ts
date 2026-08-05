@@ -6,7 +6,7 @@
 // perception.ts is the ONLY other caller.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SplashEvent } from '@salvo/shared';
+import { CONFIG, wrapPositive, type BallisticEvent, type BoomEvent, type BurstEvent, type HealEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SplashEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import type { MineState } from '../game/equipment/index.js';
 import {
@@ -96,14 +96,17 @@ const REGISTRY_KEYS = [
   'sp',
   'hc',
   'mz',
+  // DAMAGE CONTROL (2026-08-04) — the heal spend's self-private toast; the
+  // 'heal' key RETURNS to the registry after Story 2.1 retired it with REPAIR.
+  'heal',
 ];
 
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 18 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added)', () => {
+  it('has exactly the 19 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(18);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(19);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; counterIntel lives ONLY on the blip row (Story 1.8)', () => {
@@ -351,6 +354,27 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(signalFor('hc')!.materialize(ctx, hc) as object)).toEqual(['k', 'id', 'x', 'y']);
   });
 
+  it('heal row (DAMAGE CONTROL 2026-08-04): [k,id] — self-private AND spectator-private, with no severity channel', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const b = place(w, 'b', 20, 0); // hull-to-hull, fully sighted — still never told
+    const e: HealEvent = { k: 'heal', id: 'a' };
+    const row = signalFor('heal')!;
+    expect(row.visible(foggedCtx(w, a), e)).toBe(true); // the healer alone
+    expect(row.visible(foggedCtx(w, b), e)).toBe(false); // proximity is irrelevant — no observer cue
+    const spec: SpectatorSignalContext = {
+      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
+    };
+    // The pt/bn terms, NOT dmg's: a spectator may watch hp move, but must never
+    // learn a living hull converted a banked level into survival.
+    expect(row.visible(spec, e)).toBe(false);
+    const wire = row.materialize(foggedCtx(w, a), e) as HealEvent;
+    expect(Object.keys(wire)).toEqual(['k', 'id']);
+    for (const forbidden of ['hp', 'amount', 'repairHp', 'pool', 'maxHp']) {
+      expect(forbidden in (wire as object)).toBe(false);
+    }
+  });
+
   it('mz row (Story 4.3): [k,x,y] with NO id for ANY observer — fogged, shooter, and spectator alike', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 400); // 400u from the flash — inside the 495u halo
@@ -596,11 +620,11 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
 // ---------- fail-closed lookups -----------------------------------------------
 
 describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
-  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 14 GameEvent
+  // signalFor is the WORLD-EVENT dispatcher: it resolves ONLY the 15 GameEvent
   // kinds. The four contact/mine/litzone/decoy pseudo-rows are unreachable from
   // it (a fabricated k:'mine'/'litzone'/'decoy' world event can never
   // materialize), and inherited prototype keys resolve to nothing (Object.hasOwn).
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz'];
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal'];
 
   it('signalFor returns undefined for an unknown kind', () => {
     expect(signalFor('nonexistent')).toBeUndefined();
@@ -608,7 +632,7 @@ describe('SIGNAL_REGISTRY — fail-closed lookup + registry integrity', () => {
     expect(signalFor('CONTACT')).toBeUndefined(); // case-sensitive, not fuzzy
   });
 
-  it('signalFor resolves exactly the 14 event kinds to their registry rows', () => {
+  it('signalFor resolves exactly the 15 event kinds to their registry rows', () => {
     for (const key of EVENT_KINDS) {
       expect(signalFor(key)).toBe(SIGNAL_REGISTRY[key as keyof typeof SIGNAL_REGISTRY]);
     }

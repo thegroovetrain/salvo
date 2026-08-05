@@ -508,6 +508,32 @@ describe('bindRoom reward toasts', () => {
     expect(toastLines()).toEqual(['◆ HEAVY SHELLS Mk III FITTED']);
   });
 
+  // DAMAGE CONTROL (cycle 44): the `heal` row is a pure self-private
+  // CONFIRMATION — one tone, no toast, no numbers. Every authoritative value
+  // (the new hp, the pool still draining) self-syncs on `you` every frame, and
+  // the visual twin is the HP rail's jump plus its incoming band.
+  it('a heal plays the heal cue and toasts NOTHING', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    sink.handler(rewardFrame({ k: 'heal', id: 'me' }, { alive: true }));
+    expect(play).toHaveBeenCalledWith('heal');
+    expect(toastLines()).toEqual([]);
+  });
+
+  it('a heal is NOT dead-gated — spending while dead is legal and still confirms', () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    sink.handler(rewardFrame({ k: 'heal', id: 'me' }, { alive: false }));
+    expect(play).toHaveBeenCalledWith('heal');
+  });
+
+  it("another ship's heal is ignored (defensive — the row is self-private)", () => {
+    document.body.replaceChildren();
+    const { sink, play } = setupToasts();
+    sink.handler(rewardFrame({ k: 'heal', id: 'someone-else' }, { alive: true }));
+    expect(play).not.toHaveBeenCalled();
+  });
+
   it("another ship's reward events are ignored (defensive — perception already gates them)", () => {
     document.body.replaceChildren();
     const { sink, play, onSpendAck } = setupToasts();

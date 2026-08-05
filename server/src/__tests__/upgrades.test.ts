@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 import {
   BOON_CATALOG,
   CONFIG,
+  HEAL_CHOICE,
   boonStackCount,
   effectiveStats,
   isAcquisitionDef,
@@ -318,14 +319,19 @@ describe('spendPoint — validation table', () => {
   it('rejects every malformed choice, leaving the queue untouched', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
+    a.hp -= 40; // DAMAGE gone, so a -1 rejection can only be the SENTINEL check
     bank(w, a, 1);
     const before = [...a.offers[0]];
-    for (const junk of [-1, 4, 99, 1.5, NaN, Infinity, '0', null, undefined, {}]) {
+    // -1 left this list on 2026-08-04: it is now HEAL_CHOICE, the one reserved
+    // negative. EVERY other negative stays malformed — that is the whole point
+    // of a reserved sentinel over "any negative means heal".
+    for (const junk of [-2, -99, 4, 99, 1.5, NaN, Infinity, '0', 'heal', null, undefined, {}]) {
       expect(w.spendPoint('a', junk)).toBe(false);
     }
     expect(a.offers).toHaveLength(1);
     expect([...a.offers[0]]).toEqual(before);
     expect(a.boons).toEqual([]);
+    expect(a.repairHp).toBe(0); // no near-miss ever primed the pool
   });
 
   it('a valid slot FITS the boon, recomputes stats, and emits a self-private bn', () => {
@@ -363,6 +369,255 @@ describe('spendPoint — validation table', () => {
     expect(w.spendPoint('a', 0)).toBe(true);
     expect(a.boons).toEqual([pick]);
     expect(a.offers).toEqual([]);
+  });
+});
+
+// ---------- DAMAGE CONTROL (the always-available heal spend) ------------------
+//
+// The spec's I/O & Edge-Case Matrix, row for row. The strip is NOT a card: it
+// is never drawn, never in the deck, never in OwnShip.offer — it is addressed
+// by the reserved negative wire sentinel HEAL_CHOICE (-1) alone.
+
+const HEALS_OF = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'heal');
+const DC = CONFIG.damageControl;
+/** hp per 50ms tick at the fixed regen rate (25hp / 5000ms = 5 hp/s). */
+const REGEN_PER_TICK = (DC.regenHp / DC.regenMs) * DT;
+
+describe('DAMAGE CONTROL — the heal spend (Eric rulings 2026-08-04)', () => {
+  it('happy path: 25 instant + a 25hp pool, ONE level consumed, self-private heal event', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 100, 0); // hull-to-hull neighbour: sighted, and told nothing
+    bank(w, a, 1);
+    a.hp = a.stats.maxHp - 75;
+    const hpBefore = a.hp;
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
+    expect(a.hp).toBe(hpBefore + DC.instantHp);
+    expect(a.repairHp).toBe(DC.regenHp);
+    expect(a.offers).toHaveLength(0); // exactly one level consumed
+    w.step();
+    expect(HEALS_OF(buildFrame(w, 'a').events)).toEqual([{ k: 'heal', id: 'a' }]);
+    expect(HEALS_OF(buildFrame(w, 'b').events)).toEqual([]); // healer-private
+  });
+
+  it('the WHOLE front offer returns to the deck — no card leaves it (unlike a card pick)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 1);
+    a.hp -= 50;
+    const offer = [...a.offers[0]];
+    const deckBefore = a.deck.cards.length;
+    const copiesBefore = offer.map((id) => copiesInDeck(a, id));
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
+    expect(a.deck.cards).toHaveLength(deckBefore + offer.length); // +4, not +3
+    offer.forEach((id, i) => expect(copiesInDeck(a, id)).toBe(copiesBefore[i] + 1));
+    expect(a.boons).toEqual([]); // nothing was fitted
+  });
+
+  it('the pool pays out exactly regenHp over regenMs at the FIXED rate, then stops', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 1);
+    a.hp = a.stats.maxHp - 100;
+    w.spendPoint('a', HEAL_CHOICE);
+    const hpAfterInstant = a.hp;
+    const ticks = DC.regenMs / DT;
+    for (let i = 0; i < ticks; i++) w.step();
+    expect(a.hp).toBeCloseTo(hpAfterInstant + DC.regenHp, 6);
+    expect(a.repairHp).toBeCloseTo(0, 9);
+    const settled = a.hp;
+    for (let i = 0; i < 20; i++) w.step(); // a drained pool never pays again
+    expect(a.hp).toBe(settled);
+  });
+
+  it('POOLS ADD, the rate never changes: a second heal mid-drain extends, never steepens', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 2);
+    a.hp = a.stats.maxHp - 150;
+    w.spendPoint('a', HEAL_CHOICE);
+    // Drain to exactly 15hp remaining (10hp paid = 2s), then heal again.
+    const ticks = Math.round(10 / REGEN_PER_TICK);
+    for (let i = 0; i < ticks; i++) w.step();
+    expect(a.repairHp).toBeCloseTo(15, 6);
+    const hpAtSecondHeal = a.hp;
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
+    expect(a.repairHp).toBeCloseTo(15 + DC.regenHp, 6); // 40, the matrix row
+    // THE RATE PIN: the very next tick pays 5 hp/s worth, NOT 10 hp/s worth.
+    w.step();
+    expect(a.hp).toBeCloseTo(hpAtSecondHeal + DC.instantHp + REGEN_PER_TICK, 9);
+    expect(a.hp).not.toBeCloseTo(hpAtSecondHeal + DC.instantHp + 2 * REGEN_PER_TICK, 9);
+  });
+
+  it('FULL HP is rejected fail-closed: the level stays banked, the pool untouched, no event', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 1);
+    expect(a.hp).toBe(a.stats.maxHp);
+    const offerBefore = [...a.offers[0]];
+    const deckBefore = a.deck.cards.length;
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
+    expect(a.offers).toHaveLength(1);
+    expect([...a.offers[0]]).toEqual(offerBefore); // the SAME hand, never rerolled
+    expect(a.deck.cards).toHaveLength(deckBefore);
+    expect(a.repairHp).toBe(0);
+    w.step();
+    expect(HEALS_OF(buildFrame(w, 'a').events)).toEqual([]);
+  });
+
+  it('a DEAD hull is rejected — the level stays banked for the next life', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 1);
+    a.hp -= 50;
+    w.respawnEnabled = false;
+    w.sinkShip('a');
+    expect(a.alive).toBe(false);
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
+    expect(a.offers).toHaveLength(1); // banked, unlike a CARD pick which is legal dead
+    expect(a.repairHp).toBe(0);
+    expect(a.hp).toBe(0);
+  });
+
+  it('NO banked levels is rejected by the existing empty-queue guard', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.hp -= 50; // damaged and alive — only the empty bank can refuse it
+    expect(a.offers).toHaveLength(0);
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(false);
+    expect(w.spendPoint('ghost', HEAL_CHOICE)).toBe(false);
+    expect(a.repairHp).toBe(0);
+  });
+
+  it('OVERFLOW IS LOST, not banked: healing at maxHp-1 wastes the instant AND the pool', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 1);
+    a.hp = a.stats.maxHp - 1; // damaged enough to pass the guard, by exactly 1hp
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
+    expect(a.hp).toBe(a.stats.maxHp); // 24 of the 25 instant clamped away
+    expect(a.repairHp).toBe(DC.regenHp); // the pool still exists...
+    // ...and drains on the WALL CLOCK against a full bar, delivering nothing.
+    for (let i = 0; i < DC.regenMs / DT; i++) w.step();
+    expect(a.repairHp).toBeCloseTo(0, 9);
+    expect(a.hp).toBe(a.stats.maxHp);
+  });
+
+  it('STORM OVERLAP nets +1 hp/s: 5 hp/s regen against the 4 dps bite, both independent', () => {
+    // A collapsed timeline (1ms beats) so the terminal ring is live in one step;
+    // the hull sits far outside it and bleeds stormDps for the pool's whole life.
+    const w = new World(3, CONFIG.match.fillTo, { beatMs: 1, ringSteps: [1 / 3, 2 / 3], offsetCap: 0, terminalSightFactor: 1 });
+    w.map.islands.length = 0;
+    const a = place(w, 'a', w.map.radius * 0.8, 0);
+    w.startZone();
+    bank(w, a, 1);
+    a.hp = a.stats.maxHp - 100;
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
+    const hpAfterInstant = a.hp;
+    const stormPerTick = CONFIG.zone.stormDps * (DT / 1000);
+    const ticks = DC.regenMs / DT;
+    for (let i = 0; i < ticks; i++) w.step();
+    expect(a.repairHp).toBeCloseTo(0, 9);
+    // Net over the pool's life = regenHp - stormDps*regenMs: +25 - 20 = +5hp.
+    expect(a.hp).toBeCloseTo(hpAfterInstant + DC.regenHp - stormPerTick * ticks, 6);
+    expect(a.hp).toBeGreaterThan(hpAfterInstant); // the pool out-paces the storm
+    // ...and once it drains, the storm has the hull to itself again.
+    const afterPool = a.hp;
+    w.step();
+    expect(a.hp).toBeCloseTo(afterPool - stormPerTick, 6);
+  });
+
+  it('SINKING mid-drain zeroes the pool — nothing carries through the death gap', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 1);
+    a.hp = a.stats.maxHp - 100;
+    w.spendPoint('a', HEAL_CHOICE);
+    for (let i = 0; i < 4; i++) w.step();
+    expect(a.repairHp).toBeGreaterThan(0);
+    w.respawnEnabled = false;
+    w.sinkShip('a');
+    expect(a.repairHp).toBe(0);
+    const hp = a.hp;
+    for (let i = 0; i < 10; i++) w.step(); // a wreck never trickles hp back
+    expect(a.hp).toBe(hp);
+  });
+
+  it('a RESPAWN and a match-boundary REDEPLOY each clear the pool (the boostUntil sites)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 2);
+    a.hp = a.stats.maxHp - 100;
+    w.spendPoint('a', HEAL_CHOICE);
+    expect(a.repairHp).toBe(DC.regenHp);
+    w.sinkShip('a'); // respawnEnabled (waiting phase) — zeroed here...
+    const ticks = Math.ceil(CONFIG.ship.respawnDelay / DT) + 2;
+    for (let i = 0; i < ticks; i++) w.step();
+    expect(a.alive).toBe(true);
+    expect(a.repairHp).toBe(0); // ...and again on the way back
+    a.hp = a.stats.maxHp - 100;
+    w.spendPoint('a', HEAL_CHOICE);
+    expect(a.repairHp).toBe(DC.regenHp);
+    w.resetForMatchStart();
+    expect(a.repairHp).toBe(0);
+  });
+
+  it('the heal NEVER routes through applyBoon: no fit, no stat recompute, no reload rescale', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 1);
+    a.hp -= 50;
+    const statsBefore = a.stats;
+    const boonDefsBefore = a.boonDefs;
+    // Put a round in flight so a stray rescaleReloadTimers would be visible.
+    fire(a, 1, SLOT_GUN, 300);
+    w.step();
+    const reloadBefore = a.loadout[SLOT_GUN].state!.reloadMsLeft;
+    const ammoBefore = a.loadout[SLOT_GUN].state!.n;
+    expect(reloadBefore).toBeGreaterThan(0);
+    expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
+    expect(a.boons).toEqual([]);
+    expect(a.stats).toBe(statsBefore); // the SAME object — never recomputed
+    expect(a.boonDefs).toBe(boonDefsBefore);
+    expect(a.loadout[SLOT_GUN].state!.reloadMsLeft).toBe(reloadBefore); // byte-identical
+    expect(a.loadout[SLOT_GUN].state!.n).toBe(ammoBefore); // no free round
+  });
+
+  it('wire: repairHp rides `you` alone — never a contact, an event, or a spectator frame', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    place(w, 'b', 100, 0); // mutual sight
+    bank(w, a, 1);
+    a.hp -= 60;
+    w.spendPoint('a', HEAL_CHOICE);
+    w.step();
+    const fa = buildFrame(w, 'a');
+    expect(fa.you!.repairHp).toBe(a.repairHp);
+    expect(fa.you!.repairHp).toBeGreaterThan(0);
+    // b sees a as a live contact and learns NOTHING about the repair.
+    const fb = buildFrame(w, 'b');
+    expect(fb.contacts.find((c) => c.id === 'a')).toBeDefined();
+    expect(fb.you!.repairHp).toBe(0); // b's OWN pool, not a's
+    expect(HEALS_OF(fb.events)).toEqual([]);
+    expect(JSON.stringify({ ...fb, you: undefined })).not.toContain('repairHp');
+    // ...and neither does a spectator, even in an UNFOGGED frame (pt/bn terms).
+    const spec = buildFrame(w, 'b', 'finished');
+    expect(spec.spec).toBe(true);
+    expect(HEALS_OF(spec.events)).toEqual([]);
+    expect(JSON.stringify(spec)).not.toContain('repairHp');
+  });
+
+  it('the strip is NOT a card: heal never appears in the deck, the catalog, or an offer', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    bank(w, a, 3);
+    expect(CONFIG.offer.size).toBe(4); // untouched by DAMAGE CONTROL
+    for (const id of a.deck.cards) expect(id).not.toMatch(/heal|repair|damageControl/i);
+    for (const offer of a.offers) {
+      expect(offer).toHaveLength(4);
+      for (const id of offer) expect(Object.hasOwn(BOON_CATALOG, id)).toBe(true);
+    }
+    expect(buildFrame(w, 'a').you!.offer).toHaveLength(4); // the strip never rides `offer`
   });
 });
 

@@ -31,6 +31,8 @@ export const TONE_TWINS: Record<ToneId, string> = {
   fitCommon: 'the ◆ FITTED toast + the slot fit flash + the new tooltip row (ui/upgradeToast, render/hotbar)',
   fitRare: 'the ◆ FITTED toast + the slot fit flash + the new tooltip row (ui/upgradeToast, render/hotbar)',
   fitExclusive: 'the ◆ FITTED toast + the slot fit flash + the new tooltip row, plus the doctrine\'s on-water identity (ui/upgradeToast, render/hotbar)',
+  heal:
+    'the HP rail jumping the instant amount + its dimmed INCOMING band for the pool still draining, and the DAMAGE CONTROL rail going inert at full hp (render/hud, ui/upgradeMenu)',
   burn: 'the burning zone under your hull + the HP rail dropping in the vitals cluster (render/litZones, hud)',
   hitCall:
     'the Hit Call bloom at the impact point, drawn above the fog so a connection you cannot see still shows (render/effects)',

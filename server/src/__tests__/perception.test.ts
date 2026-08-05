@@ -6,7 +6,9 @@
 // shells; the lit-zone CIRCLE itself is owner-always / radar-gated; and Story
 // 4.3's three DECLARED gunnery exceptions: shooter-private sp/hc at any
 // range, and the mz flash inside the constant SIGHT*1.5 halo with island
-// LOS). The checks below are a deliberate test-local reimplementation of the
+// LOS; plus DAMAGE CONTROL's healer-private `heal` and the owner-only
+// `repairHp` pool, neither of which may ever reach another observer). The
+// checks below are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
 
@@ -14,6 +16,7 @@ import { describe, it, expect } from 'vitest';
 import {
   BOON_CATALOG,
   CONFIG,
+  HEAL_CHOICE,
   bearing,
   effectiveStats,
   mulberry32,
@@ -29,6 +32,7 @@ import {
   type DamageEvent,
   type GameEvent,
   type FrameMsg,
+  type HealEvent,
   type HitCallEvent,
   type PointEvent,
   type SpawnEvent,
@@ -803,7 +807,17 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   if (f.you) {
     expect(f.you.lvl).toBe(me.level);
     expect(f.you.xp).toBeCloseTo(me.xpMs / CONFIG.xp.levelMs, 12);
+    // DAMAGE CONTROL (2026-08-04): the regen pool is self-private on the
+    // boostUntil terms — the OBSERVER'S OWN value on `you`, and nothing else's.
+    expect(f.you.repairHp).toBe(me.repairHp);
   }
+  // THE STRUCTURAL PIN: `repairHp` may exist NOWHERE in a frame except `you`,
+  // and the string must be absent entirely from any frame that has no `you`
+  // (every spectator frame). A whole-frame text scan, so a future channel that
+  // starts carrying the pool — a contact field, a heal event payload, a
+  // spectator passthrough — fails here even if no verifier knows about it.
+  const withoutYou = { ...f, you: undefined };
+  expect(JSON.stringify(withoutYou)).not.toContain('repairHp');
   for (const c of f.contacts) {
     const target = w.ships.get(c.id)!;
     expect(target).toBeDefined();
@@ -1052,6 +1066,15 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   // Self-private kinds: each may only ever reach the ship its `id` names.
   dmg: (_w, me, e) => expect((e as DamageEvent).id).toBe(me.id), // victim-private
   pt: (_w, me, e) => expect((e as PointEvent).id).toBe(me.id), // earner-private
+  // DAMAGE CONTROL (2026-08-04): healer-private on the pt/bn terms, and the
+  // key set IS the severity oracle — a heal may carry NO hp amount, no pool
+  // total, no maxHp, nothing another observer could difference against a
+  // watched hp bar. Reimplemented here independently of the registry row.
+  heal: (_w, me, e) => {
+    const ev = e as HealEvent;
+    expect(ev.id).toBe(me.id);
+    expect(Object.keys(ev).sort()).toEqual(['id', 'k']);
+  },
   bn: (_w, me, e) => {
     // Spender-private (Story 2.7), and a valid catalog id: an enemy build can
     // never ride another observer's frame, and a fabricated boon id can never
@@ -1215,6 +1238,17 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             actSlot: 2,
           });
         }
+        // DAMAGE CONTROL (2026-08-04): drive REAL heal spends through the fuzz
+        // so the self-private `heal` row and the repairHp pin are exercised
+        // rather than vacuous — ~25% of ticks a random hull takes a scratch,
+        // banks a level, and converts it. (The spend fails closed on a full or
+        // dead hull; either outcome is a legal world state to verify.)
+        if (rng.float(0, 1) < 0.25) {
+          const patient = w.ships.get(ids[rng.int(0, ids.length - 1)])!;
+          patient.hp = Math.max(1, patient.hp - rng.float(10, 60));
+          w.grantXp(patient, 1);
+          w.spendPoint(patient.id, HEAL_CHOICE);
+        }
         w.step();
         // Build each observer's frame exactly once per tick (wire semantics).
         for (const id of ids) verifyFrame(w, id, buildFrame(w, id));
@@ -1236,15 +1270,16 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // litZones/decoys frame channels (verifyFrame/verifyMine/verifyLitZone/
   // verifyDecoy), not through EVENT_VERIFIERS.
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
-  // The 14 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
+  // The 15 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
-  // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz').
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz'];
+  // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
+  // CONTROL strip brought 'heal' BACK, on stricter no-severity terms).
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 18 expected channel keys (14 event kinds + contact + mine + litzone + decoy)', () => {
+  it('has exactly the 19 expected channel keys (15 event kinds + contact + mine + litzone + decoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(18);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(19);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {

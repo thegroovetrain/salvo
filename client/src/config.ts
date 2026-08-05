@@ -827,6 +827,40 @@ export const CLIENT_CONFIG = {
      *  300ms same-source floor (the deniedFire grammar, reused verbatim). */
     deniedPulseMs: 80,
     deniedFloorMs: 300,
+
+    /**
+     * THE DAMAGE CONTROL STRIP (cycle 44) — the always-present heal spend, a
+     * SIBLING of the card row rather than a member of it: never drawn, never
+     * exhausted, never in `OwnShip.offer`, and addressed by the reserved
+     * negative wire sentinel (`HEAL_CHOICE`), never by an offer index.
+     *
+     * WHY A RAIL AND NOT A BLOCK — the whole geometry below is dictated by the
+     * container-fit law (amendment 47) against the RATIFIED, UNTOUCHABLE row:
+     * four 216px cards / 20px gaps / 924px / `CONFIG.offer.size` 4, with the
+     * band anchored at `bandTopFrac`. At the 1280×614 logical floor the card
+     * row already ends at y=592, so the ENTIRE budget below it is 22px. The
+     * strip therefore runs as a one-line rail (16px tall, a 2px seam under the
+     * row = 18px total, 4px of margin left over) at the HUD MICRO type tier
+     * (10px mono — DESIGN.md Typography "HUD micro 9–10px", one step under the
+     * 11px label tier the cards' category tag uses) with a PROPORTIONALLY
+     * SCALED key chip (14, the DESIGN.md "proportional below" precedent the
+     * ability chamfer already sets), because the 22px family chip cannot fit a
+     * 16px rail. Shrinking a card, lifting the band, or a fifth card (1160px —
+     * 60px of margin at the floor) were all foreclosed before this geometry
+     * was chosen; see the spec's "Why a strip and not a fifth card".
+     */
+    /** Rail height (px) — the strip's whole box, borders included. */
+    stripHeight: 16,
+    /** Seam (px) between the card row's bottom edge and the rail's top edge. */
+    stripGap: 2,
+    /** The rail's key chip (px) — the mono key-chip family at rail scale. */
+    stripKeyChip: 14,
+    /** Type size (px) for every mark on the rail (HUD micro tier). */
+    stripFontSize: 10,
+    /** Inner padding (px) at the rail's left/right ends. */
+    stripPad: 8,
+    /** Gap (px) between the rail's columns (chip · label · readout · status). */
+    stripColGap: 10,
   },
 
   /**
@@ -903,6 +937,13 @@ export const CLIENT_CONFIG = {
     railWidth: 6,
     /** Dim phosphor track the fill climbs (the empty part of the rail). */
     railTrackAlpha: 0.12,
+    /** DAMAGE CONTROL's incoming-HP band (cycle 44): the still-draining regen
+     *  pool (`OwnShip.repairHp`) painted as a dimmed segment sitting directly
+     *  ON TOP of the live fill, in the fill's own color. Dual-coded by
+     *  POSITION + geometry (a distinct band above the fill line), never by hue
+     *  alone, and deliberately STATIC — it adds no new pulse to a rail whose
+     *  breathing is already the accessibility-capped alarm channel. */
+    railPendingAlpha: 0.32,
     /** BASE fill alpha. This is INFORMATION, not motion: it is exactly what the
      *  rail holds at motion=off, and the pulse only breathes around it. */
     railFillAlpha: 0.85,

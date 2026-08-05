@@ -172,7 +172,7 @@ describe('the belt-and-braces clip (NOT the fix — the pin above is)', () => {
     const you = {
       id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true, ammo: [], sweep: 0,
       cls: 'torpedoBoat' as const, pts: 1, offer: ['cannonAp', 'gunDamage'], boostUntil: 0,
-      boons: ['cannonArcing'], lvl: 0, xp: 0,
+      boons: ['cannonArcing'], lvl: 0, xp: 0, repairHp: 0,
     };
     menu.toggle(offerView(you, false, false)!);
     const card = document.querySelector('#upgrade-menu button') as HTMLElement;

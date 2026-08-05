@@ -21,6 +21,7 @@ export type ToneId =
   | 'fitCommon'
   | 'fitRare'
   | 'fitExclusive'
+  | 'heal'
   | 'burn'
   | 'hitCall'
   | 'slowed'
@@ -90,6 +91,18 @@ export const TONES: Record<ToneId, ToneSpec> = {
   fitCommon: { freqStart: 660, freqMid: 880, freqEnd: 880, duration: 0.1, volume: 0.36, type: 'triangle' },
   fitRare: { freqStart: 550, freqMid: 733, freqEnd: 733, duration: 0.13, volume: 0.45, type: 'triangle' },
   fitExclusive: { freqStart: 440, freqMid: 587, freqEnd: 587, duration: 0.15, volume: 0.52, type: 'triangle' },
+  // --- DAMAGE CONTROL (cycle 44) ---------------------------------------------
+  // A banked level spent on the heal. The fit family's two-note INVERTED: where
+  // a fit steps UP a fourth and holds (a permanent thing acquired), this settles
+  // DOWN onto a held root — a hull steadying, not a capability gained — so the
+  // two can never be confused even though both answer the same keypress family.
+  // A soft sine, deliberately the roundest voice in the catalog: it is neither a
+  // gun (square/noise), nor damage (triangle thud), nor a refusal (the curt
+  // square blat). It sits between the fit weights in pitch and under all of them
+  // in level, because the spend it confirms buys survival rather than power.
+  // Draft spec, UNRATIFIED (the standing draft-copy rule); the visual twin is
+  // the HP rail's jump + its incoming band (audio/twinMap.ts).
+  heal: { freqStart: 620, freqMid: 466, freqEnd: 466, duration: 0.13, volume: 0.34, type: 'sine' },
   // --- THE VICTIM TELLS (Story 2.9) — what a doctrine did TO YOU --------------
   // Burning: a damage tick taken inside an enemy INCENDIARY zone. Deliberately
   // the damage thud's quieter, airier sibling — same triangle family, pitched

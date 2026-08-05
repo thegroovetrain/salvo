@@ -172,6 +172,12 @@ const OVERLAY_STYLE = { fontFamily: MONO, fontSize: 38, fill: AMBER, letterSpaci
 /** Own-ship status the HUD renders beyond raw kinematics. */
 export interface OwnStatus {
   hp: number;
+  /** hp — DAMAGE CONTROL's still-draining regen pool (`OwnShip.repairHp`, cycle
+   *  44); 0 = nothing incoming. Self-private and read verbatim off the server
+   *  frame, never predicted. Drives the HP rail's incoming band and nothing
+   *  else — the authoritative hull number is still `hp`, which the pool pays
+   *  into every server tick. */
+  repairHp: number;
   // Slot-aligned pool count + reload timer (OwnShip.ammo): length SLOT_COUNT,
   // null for an empty slot (the extra slot 3 today).
   ammo: (WeaponAmmo | null)[];
@@ -287,8 +293,22 @@ export function railPulsing(frac: number): boolean {
  * gate had already started breathing it — a pulsing "healthy" rail. Any color or
  * gate transition forces the redraw.
  */
-export function railSig(frac: number): string {
-  return `${frac.toFixed(3)}|${hpColor(frac)}|${railPulsing(frac) ? 1 : 0}`;
+export function railSig(frac: number, pending = 0): string {
+  return `${frac.toFixed(3)}|${hpColor(frac)}|${railPulsing(frac) ? 1 : 0}|${pending.toFixed(3)}`;
+}
+
+/**
+ * Pure: the DAMAGE CONTROL rail's INCOMING band, as a fraction of the bar
+ * (cycle 44). It is what the still-draining regen pool (`OwnShip.repairHp`)
+ * can actually deliver, so it is CLIPPED at the top of the bar exactly as the
+ * server clamps the payout at maxHp — a pool draining against a nearly-full
+ * hull shows only the part that will land, never a band hanging off the end.
+ * Zero whenever there is no pool, no hull, or no room left to heal into.
+ */
+export function repairFraction(hp: number, repairHp: number, maxHp: number): number {
+  if (maxHp <= 0 || repairHp <= 0) return 0;
+  const filled = Math.max(0, Math.min(1, hp / maxHp));
+  return Math.max(0, Math.min(1 - filled, repairHp / maxHp));
 }
 
 /**
@@ -889,10 +909,11 @@ export class Hud {
   private updateHpRail(status: OwnStatus, nowSec: number): void {
     const maxHp = status.stats.maxHp;
     const frac = maxHp > 0 ? Math.max(0, Math.min(1, status.hp / maxHp)) : 0;
-    const sig = railSig(frac);
+    const pending = repairFraction(status.hp, status.repairHp, maxHp);
+    const sig = railSig(frac, pending);
     if (sig !== this.lastRailSig) {
       this.lastRailSig = sig;
-      this.drawRail(frac);
+      this.drawRail(frac, pending);
     }
     const dt = this.lastPulseSec === null ? 0 : nowSec - this.lastPulseSec;
     this.lastPulseSec = nowSec;
@@ -905,11 +926,21 @@ export class Hud {
     }
   }
 
-  private drawRail(frac: number): void {
+  private drawRail(frac: number, pending = 0): void {
     const x = V.width;
     const h = V.height - RAIL_TOP;
     this.railTrack.clear();
     this.railTrack.rect(x, RAIL_TOP, V.railWidth, h).fill({ color: GREEN, alpha: V.railTrackAlpha });
+    // DAMAGE CONTROL's incoming band rides the TRACK, not the fill: the fill
+    // Graphics carries the breathing alarm alpha, and a static "coming to you"
+    // segment must not breathe with it. It sits directly above the fill line,
+    // in the fill's own color — position is the channel, hue is not.
+    if (pending > 0) {
+      const ph = h * pending;
+      this.railTrack
+        .rect(x, RAIL_TOP + h - h * frac - ph, V.railWidth, ph)
+        .fill({ color: hpColor(frac), alpha: V.railPendingAlpha });
+    }
     const fh = h * frac;
     const y = RAIL_TOP + h - fh;
     const color = hpColor(frac);
