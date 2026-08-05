@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-07-25
+# last_updated: 2026-08-04  # cycle 43 (0.17.43), Story 4-3 The Gunnery Conversation
 # project: Hullcracker.io
 # project_key: NOKEY
 # tracking_system: file-system
@@ -101,14 +101,14 @@ development_status:
   epic-3-retrospective: done  # epic-3-retro-2026-08-03.md (live with Eric; carries the ~10-player playtest reads)
 
   # epic-4: Information Texture (GDD E6)
-  epic-4: in-progress  # 4-2 landed 2026-08-04 (dev-auto cycle 41, 0.17.41); 4-1 deferred at its question gate before any spec
+  epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec
   # DEFERRED 2026-08-04 by Eric ruling (bmad-dev-auto-result-4-1-listening-ring-deferred.md;
   # epic-4-context-amendments.md amendment 1): hydrophone sensor tier not built — enough
   # information channels already, active sonar is coming, and the ring's value is contingent on a
   # torpedo/mine rebalance that hasn't happened. Not cut; revivable by a later explicit ruling.
   4-1-the-listening-ring: deferred
   4-2-class-legible-blips: done  # 2026-08-04 dev-auto cycle 41 (0.17.41); PV 19->20; amendments 7-14 ratified pre-implementation (TRUE-SCALE silhouette blips supersede the DESIGN.md px table/floor-clamp/3x ML notch; 3-paint persistence; decoy = radar reflector at frozen pose, speed 0; algorithmic luminance floor)
-  4-3-the-gunnery-conversation: backlog
+  4-3-the-gunnery-conversation: done  # 2026-08-04 dev-auto cycle 43 (0.17.43); PV 21->22; amendments 15-20 ratified pre-implementation (muzzle flash carries to a DERIVED SIGHT*1.5 495u halo, LOS-blocked — not radar range, not map-wide; fall-of-shot splash SELF-PRIVATE and gun-family only, resolving FR16 "own" vs EXPERIENCE.md:181's unqualified line in FR16's favor; the Hit Call is SHOOTER-ONLY and knowingly SUPERSEDES the boom row's "hit confirmation beyond sight would leak contact presence" rule for the owner-hit case, because the ratified decoy oracle depends on it; Hit Call covers ALL ordnance incl. mines; the flash is NEUTRAL — position only, never who or which weapon, DESIGN.md:239 beating UX-DR7 for this signal; flash is gun-family only, upholding the torpedo's shipped "quiet weapon" status). Three declared perception-invariant exceptions, each with its own independent oracle. Also promoted `muzzle`/`spark` OUT of isJuiceEffect (they are information now, so they survive motion=off) — Story 4-8 inherits that changed split
   4-4-wounded-smoke: backlog
   4-5-the-foghorn: backlog
   4-6-the-bounty: backlog
@@ -185,6 +185,10 @@ action_items:
     owner: "spec author (create-story 4-8)"
     status: open
   - epic: 4
-    action: "Weapon cooldown / TTK rebalance is Eric-SIGNALED but NOT scheduled or ratified (torpedo speed FIXED at 60 u/s — lethality must come from damage/reload/delivery; cooldowns likely rising across most weapons). No cycle implements it without an explicit numbers ruling. This is also the natural moment to revisit the 4-1 deferral, since the listening ring's value is contingent on torps/mines being threatening"
+    action: "Weapon cooldown / TTK rebalance — LANDED as interstitial dev-auto cycle 42 (0.17.42, global cooldown reduction): gun 3s->5s, cannon 15s->50s, the seven per-equipment reload cards traded for ONE universal additive 5-copy `shipCooldown` line capping at 50%, and boon grants now rescale in-flight reload timers proportionally. Torpedo speed stayed FIXED at 60 u/s. Two threads it left OPEN: the 4-1 hydrophone deferral was NOT revisited and still needs its own explicit Eric revival ruling, and the rebalance shipped WITHOUT a batch-sim evidence pass, so the early/late TTK spread is wider than any measured configuration"
     owner: "ledger (Eric-gated)"
+    status: done  # landed as cycle 42 (0.17.42); the two threads it left open are named in the action text
+  - epic: 4
+    action: "Aggregate flash budget still has NO global mechanism. The ratified accessibility floor says no element or screen region flashes more than 3x/s regardless of how many compliant events stack — and the accessibility review wrote that rule FOR muzzle flashes and Hit Call blooms specifically. Story 4-3 shipped only the per-source 300ms tone floor; muzzle-carries is the FIRST feature that can actually bind the budget (up to 19 other hulls flashing inside your 495u halo). Story 4-8 owns attention priority and is its natural home. Related: 4-3 promoted `muzzle` and `spark` out of isJuiceEffect, so 4-8 inherits a changed juice/information split"
+    owner: "spec author (create-story 4-8)"
     status: open
