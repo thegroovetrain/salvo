@@ -23,6 +23,7 @@ import {
   transformPolygon,
   segPolygonHit,
   polygonMaxRadius,
+  perpendicularExtent,
   loadoutFor,
   boostedKinematics,
   slowedKinematics,
@@ -80,7 +81,14 @@ describe('shared barrel', () => {
     // two-value enum) plus CONFIG.damageBands and CONFIG.smoke in the welcome
     // config snapshot. Reach reuses CONFIG.vision.muzzleFlash — no new vision
     // constant.
-    expect(PROTOCOL_VERSION).toBe(25);
+    // THE RADAR REALISM CYCLE (PV 26, Eric rulings 2026-08-05, amendments
+    // 51-62): BlipEvent becomes the tagless SilhouetteBlipEvent |
+    // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
+    // range term, amendment 55's anti-cheat bound) and WelcomeMsg gains
+    // required radarGrammar/radarIdentity, the room-wide mode announcement
+    // the client narrows on. One bump covers "a blip may carry either shape"
+    // (amendment 61).
+    expect(PROTOCOL_VERSION).toBe(26);
   });
 
   it('re-exports config, wire tags, and functions', () => {
@@ -146,6 +154,8 @@ describe('shared barrel', () => {
     expect(typeof transformPolygon).toBe('function');
     expect(typeof segPolygonHit).toBe('function');
     expect(typeof polygonMaxRadius).toBe('function');
+    // The return-grammar echo-size primitive (radar realism cycle, PV 26).
+    expect(typeof perpendicularExtent).toBe('function');
     expect(CONFIG.drones.medium.hp).toBe(100);
   });
 

@@ -239,6 +239,30 @@ export function segPolygonHit(
   return best;
 }
 
+/**
+ * The polygon's TOTAL extent projected onto the axis perpendicular to
+ * `bearing` (radians): the width the hull subtends across an observer's line
+ * of sight — the `return`-grammar echo-size primitive (amendment 55). A
+ * battleship bow-on (bearing along the hull axis) projects its beam; the same
+ * hull abeam projects its full length. Max−min of the projections, so it is
+ * translation-invariant (pass a world-posed polygon or a local one, same
+ * answer) and invariant under `bearing + π` (a hull is the same width from
+ * either side). Pure aspect geometry in world units — range attenuation is a
+ * client render concern and never rides the wire.
+ */
+export function perpendicularExtent(poly: readonly Vec2[], bearing: number): number {
+  const ux = -Math.sin(bearing);
+  const uy = Math.cos(bearing);
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of poly) {
+    const d = p.x * ux + p.y * uy;
+    if (d < min) min = d;
+    if (d > max) max = d;
+  }
+  return max - min;
+}
+
 /** Max distance from the local origin to any vert (bounding-circle radius). */
 export function polygonMaxRadius(poly: readonly Vec2[]): number {
   let max = 0;
