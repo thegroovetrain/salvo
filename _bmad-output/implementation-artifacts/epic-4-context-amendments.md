@@ -728,3 +728,44 @@ from.
     (`epics.md:49`) names foghorns as something hull microphones detect, which is moot while
     amendment 1 stands. Also `CLAUDE.md` records `PROTOCOL_VERSION` as "currently 23"; actual after
     this cycle is **26** (see amendments 39 and 50 for the same drift going unfixed twice).
+
+60. **A DENIED HONK IS COMPLETELY SILENT — no tone, no visual, nothing** (Eric ruling, post-review
+    gate, same cycle). The implementation first played the shipped `denied` tone on a press inside
+    the cooldown. The adversarial review confirmed that this made the foghorn **the only `denied`
+    call site in the entire client with no visual twin**: a weapon click flashes the aim arc and
+    reticle, an ability press flashes its hotbar chip, an ability against a full FIFO flashes the
+    chip — and the horn has no surface of its own to flash. The twin table's own `denied` row names
+    that pulse as the cue's visual, so a tone with no pulse is an orphan cue and a deaf or muted
+    captain cannot tell "on cooldown" from "the key is broken".
+
+    Shown three options — a stifled red puff at the own hull (reusing the success bloom, choked),
+    leaving the tone alone as a documented deviation, or dropping the cue entirely — **Eric chose to
+    drop it.** The reasoning of record: rather than invent a new visual surface for a case with no
+    gameplay consequence, remove the thing that needed one. Note this knowingly trades against the
+    house rule that feedback is *"never zero, never two"* (`render/deniedFire.ts` header) — that rule
+    was written for FIRE denial, where a swallowed click costs a shot; a swallowed honk costs
+    nothing, so there is nothing owed. **This SUPERSEDES the spec's own I/O matrix row** as originally
+    written, and it is the reason `handleFoghornPress` must produce no side effect on the denied
+    branch. If a horn surface (a hotbar chip, an emote wheel) ever exists, this is the ruling to
+    revisit — the cue was dropped for want of a surface, not on principle.
+
+61. **Two review-gate defects worth recording, both found by the CROSS-MODEL (Codex) pass and missed
+    by the in-family adversarial reviewer.** Recorded because both are cross-boundary bugs whose
+    shape will recur in any future bearing-grade or cooldown-mirroring signal:
+    - **The chevron's ray must originate where the bearing was MEASURED, not at the viewport centre.**
+      The camera leads up to 110u ahead of the hull (`camera.ts:175`), so an alive captain's ship is
+      not at screen centre; casting the mark's ray from the centre put its edge placement out of
+      agreement with the exact bearing its own rotation was drawing. Origin is now the hull's screen
+      position while alive and the camera centre while spectating — which is correct precisely
+      because the spectator bearing is itself derived from the camera centre at receipt. **Neither
+      side's unit tests could catch this**: each workspace tested its own half against its own
+      assumption.
+    - **A client-side mirror of a server cooldown must reset wherever the server's does.** The server
+      clears `nextHonkAt` on respawn and redeploy; the client's mirror did not, so honking, sinking,
+      and respawning inside 1.5s left the client silently eating a press the server would have
+      accepted. Under amendment 60's silent denial that failure is invisible, which is exactly why it
+      had to be fixed rather than tolerated.
+
+    The general lesson for future cycles: **run the cross-model review even when the in-family gate
+    returns `build-on-it`.** Its verdict here was correct on everything it examined and still missed
+    two confirmed defects.

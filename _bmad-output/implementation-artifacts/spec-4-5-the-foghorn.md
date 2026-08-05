@@ -2,9 +2,10 @@
 title: 'Story 4.5 — The Foghorn'
 type: 'feature'
 created: '2026-08-05'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '73471b9'
-review_loop_iteration: 0
+final_revision: '422c94a'
+review_loop_iteration: 1
 followup_review_recommended: false
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context.md'
@@ -28,7 +29,7 @@ warnings: [oversized]
 - **Islands MUFFLE a honk by exactly one tier** (amendment 54) — they do not block it and they do not ignore it. `losClear()` failing demotes the resolved tier: 1 → 2, 2 → 3, 3 → no event. This is a partial carve-out of the 2026-08-02 "islands block every sensor at all ranges" law, deliberately shaped so terrain stays a working hiding mechanism if a bearing-grade sound sensor is ever revived.
 - The horn's own volume is multiplied by the tier gain and then rides the existing `effects → master → mono` bus, so mute, effects volume, and mono audio all keep working with no special-casing.
 - Every honk gets its visual twin (UX-DR36). The chevron's **presence, direction, and tier weight are INFORMATION** and must survive `motion: 'off'` intact; only any animated flourish is motion-scaled (ratified house rule, `effects.ts:44-53`).
-- Rate limiting is server-authoritative: `CONFIG.foghorn.cooldownMs`. The client mirrors it purely to avoid wire spam and to play the existing predicted `denied` cue on an early press.
+- Rate limiting is server-authoritative: `CONFIG.foghorn.cooldownMs`. The client mirrors it purely to avoid wire spam, and an early press produces NO cue of any kind (Eric ruling, amendment 60). The client must reference the shared constant, never restate it.
 - A new signal row is not done until its own independently reimplemented oracle exists in `server/src/__tests__/perception.test.ts`.
 
 **Block If:**
@@ -55,7 +56,8 @@ warnings: [oversized]
 | Island between, mid | LOS blocked, `d` earns tier 2 | Demoted to tier 3 — horn at 50%, light chevron | No error expected |
 | Island between, far | LOS blocked, `d` earns tier 3 | Demoted out of earshot — no event reaches that observer | No error expected |
 | Spectator | Observer is spectating (free camera, no server-known position) | `{k:'fh', h, x, y}` — omniscient path; client derives the chevron bearing from its own camera and plays at 100% | Record-less spectator (`ctx.me` undefined) still receives it — the spectator branch must short-circuit before any `me` math |
-| Honk on cooldown | F pressed inside `cooldownMs` | Client plays the predicted `denied` cue and sends nothing | Server also drops an early `hornSeq` silently if one arrives |
+| Honk on cooldown | F pressed inside `cooldownMs` | Nothing at all — no tone, no visual, no wire traffic (amendment 60) | Server also drops an early `hornSeq` silently if one arrives |
+| Respawn inside the cooldown | Honk, sink, respawn under 1.5s later, press F | The press IS sent — the client's local cooldown resets on own respawn, matching the server clearing `nextHonkAt` | No error expected |
 | Held F key | OS auto-repeat | Exactly one honk per physical press | Edge-gated at the keyboard dispatcher |
 | Crowded mix | More honks arriving than `maxConcurrent` | Excess honks are dropped from the audio mix; their chevrons still draw | Visual twin never drops — information survives even when the mix is full |
 | Unknown horn id | Event carries an id not in the client catalog (old client, new horn) | Falls back to the default horn voice | No throw, no silence |
@@ -94,27 +96,27 @@ warnings: [oversized]
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` -- add `HORN_IDS` (exactly one entry, `'standard'`), `HornId`, `sanitizeHornId()`, and `CONFIG.foghorn { cooldownMs: 1500 }` -- one catalog and one sanitizer so server and client agree on what a horn id is; cooldown is sim-authoritative so it lives in shared CONFIG.
-- [ ] `shared/src/types.ts` -- add `hornSeq` to `InputMsg` and `FoghornEvent` (`{k:'fh', h: HornId, b?, v?, self?, x?, y?}`) to `GameEvent`, documenting which field group each observer mode gets -- the honk rides the existing per-tick counter channel and the payload's shape is the anti-cheat contract.
-- [ ] `shared/src/index.ts` -- bump `PROTOCOL_VERSION` to 26 -- a new event kind and a new input field are wire-shape changes.
-- [ ] `server/src/game/inputs.ts` -- validate `hornSeq` exactly as `actSeq` is validated -- malformed input drops the whole message, unchanged.
-- [ ] `server/src/game/world.ts` -- add `horn`, `nextHonkAt`, `lastHornSeq` to `ShipRecord`; consume `hornSeq` with `max()`; emit one `fh` into `pending` when alive, not a drone, and `now >= nextHonkAt`, then arm the cooldown -- the server is the only authority on whether a honk happened.
-- [ ] `server/src/game/signals.ts` -- add the `foghorn` row + registry key: spectator short-circuit returns the position payload; the fogged path computes distance, resolves the tier from the three clamped bounds, **demotes it one tier when `losClear()` fails** (tier 3 blocked ⇒ no event), returns bearing + tier + horn id; the honker gets `self:true` -- this is the sixth declared perception exception and the first partial LOS carve-out; the demotion is a single step applied after tier resolution, never a second set of bounds.
-- [ ] `server/src/rooms/roomOptions.ts` + `server/src/rooms/ArenaRoom.ts` -- accept an optional `horn` join option, sanitize it in `onJoin` the way `cls` is sanitized, pass it to `addShip` -- the cosmetic seam; no roster schema field.
-- [ ] `client/src/audio/horns.ts` (new) -- `HornVoice = {kind:'synth', layers, durationS, ...} | {kind:'sample', url}` and `HORNS: Record<HornId, HornVoice>` with the default standard horn as a layered synth voice -- the monetization seam: a future horn is one catalog entry, no wire or protocol change.
-- [ ] `client/src/audio/context.ts` -- add `playHorn(hornId, gain)`: synth path (multi-oscillator + slow attack/long tail, ~1.8 s), sample path (lazy `decodeAudioData` with an in-memory cache), unknown-id and load-failure fallback to the default voice, and a `maxConcurrent` cap on live horns -- horns are longer and richer than any `ToneSpec`, so they get their own play path rather than an exemption to `MAX_TONE_S`.
-- [ ] `client/src/audio/twinMap.ts` -- widen the twin table's key to `AudioCueId = ToneId | 'foghorn'` and add the horn's twin row -- the type-level exhaustiveness check is the accessibility floor's enforcement mechanism; the horn must not escape it.
-- [ ] `client/src/input/keyboard.ts` -- bind F through `edge()` to a new `onFoghorn` hook, respecting overlay suppression and the refit modal -- F stops being inert; auto-repeat cannot machine-gun it.
-- [ ] `client/src/sim/inputSampler.ts` -- carry a `hornSeq` counter incremented per accepted press -- same shape as `fireSeq`/`actSeq`.
-- [ ] `client/src/render/foghorn.ts` (new) -- the screen-edge chevron layer: a server-time-TTL list of `{bearing, tier, t}` marks placed on a margin-inset ellipse in `hudRoot`, weight/alpha by tier, pooled graphics, global cap -- the visual twin, and the bearing surface amendment 4 said this story had to grow.
-- [ ] `client/src/render/effects.ts` -- add a non-juice `horn` effect kind for the own-hull bloom -- your own honk needs a twin too, and it must survive `motion: 'off'`.
-- [ ] `client/src/render/stage.ts` + `client/src/main.ts` -- add the chevron layer to `hudRoot`, wire the keyboard hook and the per-frame render call, and gate presses on alive-and-not-spectating -- standard wiring.
-- [ ] `client/src/net/roomBindings.ts` -- add `case 'fh'`: play the horn at the tier gain (or 100% for self/spectator), spawn the own-hull bloom for self, push a chevron otherwise -- single fan-out point, mirroring `sm`.
-- [ ] `client/src/net/connection.ts` -- send the persisted horn id in join options, sanitized on read -- mirrors how `cls`/`colorPref` already travel.
-- [ ] `client/src/ui/settings.ts` -- replace F's documented absence with a real binding row -- the settings reference must list every bound key.
-- [ ] `client/src/config.ts` -- add `CLIENT_CONFIG.foghorn` (tier gains 1 / 0.75 / 0.5, `maxConcurrent`, chevron geometry, TTL) after the `smoke` block -- presentation knobs stay client-side.
-- [ ] `server/src/__tests__/foghorn.test.ts` (new) + `signals.test.ts` + `perception.test.ts` + `spectator.test.ts` + `goldenFrames.test.ts` -- cover the whole I/O matrix server-side, add the independently reimplemented `fh` oracle, and pin the registry count -- the invariant oracle is this story's definition of done.
-- [ ] `client/src/__tests__/foghorn.test.ts` (new) + `keyboard.test.ts` + `settings.test.ts` + `tones.test.ts`/`twinMap.test.ts` + `roomBindings.test.ts` -- cover tier→gain mapping, fallbacks, the concurrency cap, chevron TTL/placement, F's new behavior, and the twin row; update the two tests that currently pin F as inert and absent -- those two pins are now wrong by design.
+- [x] `shared/src/constants.ts` -- add `HORN_IDS` (exactly one entry, `'standard'`), `HornId`, `sanitizeHornId()`, and `CONFIG.foghorn { cooldownMs: 1500 }` -- one catalog and one sanitizer so server and client agree on what a horn id is; cooldown is sim-authoritative so it lives in shared CONFIG.
+- [x] `shared/src/types.ts` -- add `hornSeq` to `InputMsg` and `FoghornEvent` (`{k:'fh', h: HornId, b?, v?, self?, x?, y?}`) to `GameEvent`, documenting which field group each observer mode gets -- the honk rides the existing per-tick counter channel and the payload's shape is the anti-cheat contract.
+- [x] `shared/src/index.ts` -- bump `PROTOCOL_VERSION` to 26 -- a new event kind and a new input field are wire-shape changes.
+- [x] `server/src/game/inputs.ts` -- validate `hornSeq` exactly as `actSeq` is validated -- malformed input drops the whole message, unchanged.
+- [x] `server/src/game/world.ts` -- add `horn`, `nextHonkAt`, `lastHornSeq` to `ShipRecord`; consume `hornSeq` with `max()`; emit one `fh` into `pending` when alive, not a drone, and `now >= nextHonkAt`, then arm the cooldown -- the server is the only authority on whether a honk happened.
+- [x] `server/src/game/signals.ts` -- add the `foghorn` row + registry key: spectator short-circuit returns the position payload; the fogged path computes distance, resolves the tier from the three clamped bounds, **demotes it one tier when `losClear()` fails** (tier 3 blocked ⇒ no event), returns bearing + tier + horn id; the honker gets `self:true` -- this is the sixth declared perception exception and the first partial LOS carve-out; the demotion is a single step applied after tier resolution, never a second set of bounds.
+- [x] `server/src/rooms/roomOptions.ts` + `server/src/rooms/ArenaRoom.ts` -- accept an optional `horn` join option, sanitize it in `onJoin` the way `cls` is sanitized, pass it to `addShip` -- the cosmetic seam; no roster schema field.
+- [x] `client/src/audio/horns.ts` (new) -- `HornVoice = {kind:'synth', layers, durationS, ...} | {kind:'sample', url}` and `HORNS: Record<HornId, HornVoice>` with the default standard horn as a layered synth voice -- the monetization seam: a future horn is one catalog entry, no wire or protocol change.
+- [x] `client/src/audio/context.ts` -- add `playHorn(hornId, gain)`: synth path (multi-oscillator + slow attack/long tail, ~1.8 s), sample path (lazy `decodeAudioData` with an in-memory cache), unknown-id and load-failure fallback to the default voice, and a `maxConcurrent` cap on live horns -- horns are longer and richer than any `ToneSpec`, so they get their own play path rather than an exemption to `MAX_TONE_S`.
+- [x] `client/src/audio/twinMap.ts` -- widen the twin table's key to `AudioCueId = ToneId | 'foghorn'` and add the horn's twin row -- the type-level exhaustiveness check is the accessibility floor's enforcement mechanism; the horn must not escape it.
+- [x] `client/src/input/keyboard.ts` -- bind F through `edge()` to a new `onFoghorn` hook, respecting overlay suppression and the refit modal -- F stops being inert; auto-repeat cannot machine-gun it.
+- [x] `client/src/sim/inputSampler.ts` -- carry a `hornSeq` counter incremented per accepted press -- same shape as `fireSeq`/`actSeq`.
+- [x] `client/src/render/foghorn.ts` (new) -- the screen-edge chevron layer: a server-time-TTL list of `{bearing, tier, t}` marks placed on a margin-inset ellipse in `hudRoot`, weight/alpha by tier, pooled graphics, global cap -- the visual twin, and the bearing surface amendment 4 said this story had to grow.
+- [x] `client/src/render/effects.ts` -- add a non-juice `horn` effect kind for the own-hull bloom -- your own honk needs a twin too, and it must survive `motion: 'off'`.
+- [x] `client/src/render/stage.ts` + `client/src/main.ts` -- add the chevron layer to `hudRoot`, wire the keyboard hook and the per-frame render call, and gate presses on alive-and-not-spectating -- standard wiring.
+- [x] `client/src/net/roomBindings.ts` -- add `case 'fh'`: play the horn at the tier gain (or 100% for self/spectator), spawn the own-hull bloom for self, push a chevron otherwise -- single fan-out point, mirroring `sm`.
+- [x] `client/src/net/connection.ts` -- send the persisted horn id in join options, sanitized on read -- mirrors how `cls`/`colorPref` already travel.
+- [x] `client/src/ui/settings.ts` -- replace F's documented absence with a real binding row -- the settings reference must list every bound key.
+- [x] `client/src/config.ts` -- add `CLIENT_CONFIG.foghorn` (tier gains 1 / 0.75 / 0.5, `maxConcurrent`, chevron geometry, TTL) after the `smoke` block -- presentation knobs stay client-side.
+- [x] `server/src/__tests__/foghorn.test.ts` (new) + `signals.test.ts` + `perception.test.ts` + `spectator.test.ts` + `goldenFrames.test.ts` -- cover the whole I/O matrix server-side, add the independently reimplemented `fh` oracle, and pin the registry count -- the invariant oracle is this story's definition of done.
+- [x] `client/src/__tests__/foghorn.test.ts` (new) + `keyboard.test.ts` + `settings.test.ts` + `tones.test.ts`/`twinMap.test.ts` + `roomBindings.test.ts` -- cover tier→gain mapping, fallbacks, the concurrency cap, chevron TTL/placement, F's new behavior, and the twin row; update the two tests that currently pin F as inert and absent -- those two pins are now wrong by design.
 
 **Acceptance Criteria:**
 - Given a captain in a live match, when they press F, then a ~1.8 s horn sounds for them at full volume, an own-hull bloom appears, and no chevron is drawn for their own honk.
@@ -122,9 +124,47 @@ warnings: [oversized]
 - Given any fogged listener, when a honk reaches them, then the frame's payload contains no `x`, no `y`, no ship id, and no field from which the honker's position can be reconstructed — only bearing, tier, and horn id.
 - Given the perception invariant suite, when it runs, then `fh` is enumerated as a declared exception with its own oracle, and the master invariant test still passes for every other row.
 - Given `motion: 'off'`, when a honk arrives, then the chevron still appears, points the same way, and carries the same tier weight.
-- Given a captain who honks twice inside the cooldown, when the second press lands, then the `denied` cue plays, nothing goes on the wire, and no second horn sounds.
+- Given a captain who honks twice inside the cooldown, when the second press lands, then absolutely nothing happens — no tone, no visual, no wire traffic, no second horn.
+- Given a chevron drawn while alive, when the camera is leading ahead of the hull, then the mark's ray originates at the hull's own screen position rather than the viewport centre, so its edge placement agrees with the bearing its rotation draws.
 - Given a horn id the client does not know, when the event arrives, then the default horn plays rather than silence or a throw.
 - Given `npm run check`, when it runs, then lint, all three type-checks, and the full suite pass with the new tests included.
+
+## Spec Change Log
+
+### 2026-08-05 — Eric ruling mid-run: islands MUFFLE rather than let sound through
+
+**Trigger:** Eric reversed his own pre-implementation answer before any code existed. The gate had settled on the full carve-out ("sound goes around — heard anyway, same volume"); he replaced it with *"lets actually muffle the foghorn if its behind an island. That way if we add sound indicators again then islands remain useful as a hiding mechanism."*
+
+**Amended:** the Always constraint, three I/O matrix rows (one row became three — tier 1→2, 2→3, 3→gone), the signal-row task, one AC, and the Design Notes rationale. Recorded durably as amendment 54.
+
+**Known-bad state avoided:** a foghorn that ignores terrain would have shipped the LOS law's first *total* exception, and a future revived bearing-grade sound sensor would then arrive in a world where islands already mean nothing to audio.
+
+**KEEP on any re-derivation:** the demotion is ONE step applied AFTER the distance tier resolves, so exactly one `losClear()` call and exactly one set of bounds exist in the row. A second threshold set is the failure mode this shape exists to prevent.
+
+### 2026-08-05 — Eric ruling post-review: a denied honk is completely silent
+
+**Trigger:** the adversarial review gate confirmed the foghorn was the only `denied`-tone site in the client with no visual twin (weapons flash the aim arc, abilities flash their hotbar chip; the horn has no surface of its own). Shown three options, Eric chose to drop the cue entirely rather than invent a visual.
+
+**Amended:** the rate-limiting constraint, the cooldown I/O row, and its AC. A new I/O row and AC cover the respawn-inside-cooldown case and the observer-anchored chevron ray, both found by the cross-model review. Recorded durably as amendments 60 and 61.
+
+**Known-bad state avoided:** an orphan audio cue — a deaf or muted captain hearing nothing and seeing nothing, unable to distinguish "on cooldown" from "the key is broken".
+
+**KEEP on any re-derivation:** the denied branch of `handleFoghornPress` must produce NO side effect of any kind. If a horn surface (a hotbar chip, an emote wheel) is ever added, this ruling is the one to revisit — the cue was dropped for want of a surface, not on principle.
+
+## Review Triage Log
+
+### Pass 1 — 2026-08-05 (adversarial gate: Fable, in-family) + cross-model gate (Codex)
+
+**Decision counts:** intent_gap 0 · bad_spec 0 · patch 3 (1 high, 2 medium) · defer 0 · reject 0.
+
+**Fable verdict:** `build-on-it`. Cleared on independent tracing: the bearing convention across the wire (server `bearing()` is plain `atan2` in the same frame the client's rotation-free, flip-free camera transform uses, and both halves carry numeric cardinal pins); the tier math's monotonicity under every reachable dazzle/boon combination; the one-step post-resolution island demotion; anti-cheat payload purity (fresh literals, no subject forwarding, `Object.keys` pins plus an independent fuzz oracle); the horn concurrency counter's every in/out path; cooldown and reconnect plumbing including the deliberate non-reset of `lastHornSeq`; `motion:'off'` behavior; amendment scope compliance; and oracle independence (non-circular, non-vacuous — the fuzz forces a honk from every ship).
+
+**Findings addressed:**
+1. **[high, patch]** The denied honk played the `denied` tone with no visual twin — the only such site in the client. Escalated to Eric as a surface decision; resolved by dropping the cue (amendment 60).
+2. **[medium, patch]** *(Codex only, confirmed by inspection)* The chevron's ray was cast from the viewport centre while the camera leads up to 110u ahead of the hull, so the mark's edge placement disagreed with the bearing its own rotation drew. Fixed by anchoring the ray at the point the bearing was measured from — the hull's screen position while alive, the camera centre while spectating.
+3. **[medium, patch]** *(Codex only, confirmed by inspection)* The client's local honk cooldown survived respawn while the server cleared its authoritative one, silently eating a legitimate press for up to 1.5s into a new life. Fixed at the existing own-spawn hook.
+
+**Cross-model agreement picture:** Fable and Codex agreed on the anti-cheat verdict (no leak) and on the absence of resource leaks. Codex alone raised findings 2 and 3, both of which I confirmed against the code before dispatching fixes; Fable had seen finding 2 and classified it as cosmetic, and I adjudicated against that reading because the fix is small and unambiguously correct. Fable alone raised finding 1. All three regression tests were proven red against the pre-fix code before the fixes landed.
 
 ## Design Notes
 
