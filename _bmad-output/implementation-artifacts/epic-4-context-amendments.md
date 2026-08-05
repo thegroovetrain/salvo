@@ -194,7 +194,98 @@ satisfied the story, which is the same instinct that produced amendment 1 (the 4
     weapon-type enumeration anywhere — so the server never needs a per-weapon flash table, and no
     weapon identity can leak through one.
 
-## 2026-08-04 — Eric rulings, the Public Register cycle (bmad-dev-auto, interstitial — cycle 44)
+## 2026-08-04 — Eric rulings, interstitial weapon balance pass (bmad-dev-auto, cycle 44)
+
+Source: Eric, invocation intent plus a four-question pre-implementation gate (AskUserQuestion,
+all four answered on the recommended option). Spec of record:
+`spec-weapon-balance-and-radar-vector-length.md`. Evidence:
+`batch-sim-evidence-2026-08-04.md`. This is the SECOND half of the rebalance amendment 3 predicted
+as design direction — cycle 42 moved cooldowns globally, this cycle moves per-weapon damage,
+per-weapon cooldowns, and the mine rack depth.
+
+21. **The retuned armory (Eric, verbatim intent).** `gun.damage` 25 → **15** and
+    `gun.contactDamage` 10 → **6**; `torpedo.damage` 55 → **70** with `reloadMs` 12000 → **30000**;
+    `cannon.damage` 50 → **65** with `reloadMs` 50000 → **45000**; `mine.damage` 45 → **55**,
+    `reloadMs` 8000 → **15000**, and `maxAmmo` 1 → **2**. The shape is explicit: the permanently
+    fitted default weapon gets weaker, the committed skillshots get heavier and slower, and the
+    cannon's same-day 50s retune is walked back 5s as an overshoot. `contactDamage` was scaled with
+    the burst (Eric ruling) to hold the bodyblock at 40% of a full hit rather than letting the nerf
+    silently buff interception. **`torpedo.speed` stays 60** — amendment 2 is untouched and remains
+    in force.
+
+22. **The 2-deep mine rack is a BASE change, not a card.** `mine.maxAmmo: 2` ships as the base fit,
+    explicitly modelled on what `torpedoTube` does for the bow tube — Eric's framing was "as if it
+    had something similar to the torpedo extra tube enhancement", and the ruling makes it standard
+    equipment rather than a boon. It reuses the shared pool state machine
+    (`server/src/game/equipment/ammo.ts`) **verbatim, with zero code changes**: one round refills
+    per `reloadMs` with overshoot carry, so the rack returns to 1/2 at 15s and 2/2 at 30s. Eric
+    confirmed this per-round cadence over a whole-rack refill specifically because the latter would
+    have made mines the only weapon in the game with bespoke ammo machinery. `mine.maxLive` (5)
+    is UNTOUCHED and remains a distinct cap — the pool bounds drops before reloading, `maxLive`
+    bounds hulls on the board. The `mine.maxAmmo` stat path stays whitelisted-but-uncarded so a
+    future rack card can still compose on top.
+
+23. **Two catalog ladder steps SHRINK to keep the one-hit-kill law.** `torpedoDamage` +2 → **+1**
+    and `cannonDamage` +3 → **+2** per card (both still 5 copies). At the retuned bases those
+    ladders would otherwise have topped out at exactly **80** — precisely the hp of the small drone,
+    the lightest hull afloat since the 2026-08-03 toughness ladder — and one-shot an undamaged hull,
+    which `HULLCRACKER_NOTES.md:83` forbids ("nothing should be a 1-hit kill on an otherwise
+    undamaged ship") and `damageGuardrail.test.ts` enforces. Eric chose shrinking the steps over
+    three alternatives that were explicitly REJECTED: lowering the requested bases by 5 each, raising
+    drone hp to lift the guardrail ceiling, and relaxing the law to protect only player hulls (125hp
+    TB) while accepting that a max-stacked fish deletes a drone. Ratified max-stack endpoints are now
+    **gun 30 / cannon 75 / torpedo 75 / mine 75**, all strictly under 80. Consequence of record: the
+    upgrade curve on those two lines is deliberately flatter — the base number is the ratified one,
+    so the step gives.
+
+24. **The ARPA speed vector halves in ALL THREE knobs.** `CLIENT_CONFIG.blip.vector`
+    `seconds` 3 → **1.5**, `minLength` 24 → **12**, `maxLength` 150 → **75**. Eric's signal was that
+    the Story 4.2 vector "is too long, maybe cut the scaling in half"; the ruling scales the whole
+    mark rather than only its rate, because halving `seconds` alone would leave the 24u floor
+    dominating every contact under 16 u/s (a crawler's stub reading proportionally LONGER than a
+    cruiser's shaft) and strand `maxLength` beyond the reach of any hull in the game. The ARPA
+    meaning is preserved exactly — the tip is still where the contact will be in `seconds` — only
+    the horizon shortens. Amendment 10 stands; this retunes its geometry, it does not supersede it.
+    Client-only, no wire change.
+
+25. **Scope discipline of record.** This cycle is values-only: **no `PROTOCOL_VERSION` bump**
+    (22 stands — no wire shape changed), no new machinery, no new catalog cards, no changes to
+    drone/class hp, torpedo speed, `mine.maxLive`, `gun.maxAmmo`, or any range/geometry constant.
+    Two smoke-harness wall-clock budgets WERE widened (`weaponsSmoke` torpedo phase 120s → 240s,
+    `dronesSmoke` drone-kill phase 170s → 300s) because the 12s → 30s torpedo reload cut their miss
+    margin from roughly seven spare fish to one; the assertions are unchanged, only the patience.
+    This was proven necessary, not precautionary: the post-retune `weaponsSmoke` run needed 4
+    torpedoes / 3 hits to sink a 125hp hull, which would have blown the old 120s budget outright.
+
+26. **Post-evidence rulings — the retune STANDS, and pacing is accepted as-is.** Eric, shown the
+    cycle-44 batch-sim evidence (endgame resolved p50 830.0s → 925.7s, crossing the ~15:00
+    contract): *"match time is fine."* The three options the evidence recorded are resolved on
+    **accept** — no gun-damage claw-back, no storm-timeline change, no renegotiated contract. The
+    ~15:00 figure is henceforth a soft pacing reference, NOT a bar the tuning is held to; a future
+    cycle must not "fix" match length by citing it. The Story 3.4 no-stalemate guarantee is
+    untouched and still measured the way amendment 24 ratified (matches conclude; 50/50 did).
+
+27. **Storm-attributed kills are CORRECT as shipped.** Eric: *"if I'm keeping someone in the storm
+    and that is what kills them, then I'm fine with it registering as a storm kill."* No change to
+    kill attribution. Recorded because the cycle-44 review surfaced storm kills as a
+    behavior-vs-intent question; the answer is that the behavior is the intent. Note for precision:
+    this does NOT resolve the `matchSmoke` step-4 failure, which asserts kill CREDIT plumbing
+    (winner id, placement, results rows) rather than whether storm kills are acceptable — that stays
+    ledgered as a pre-existing harness flake this retune aggravated.
+
+28. **SUDDEN DEATH is reaffirmed, sharpened, and still PARKED — explicitly "not today".** Eric,
+    unprompted, in the same message: *"I'm actually heavily considering 'sudden death' at 15 minutes
+    that fully closes the ring in until it is all storm at 16 minutes. someone will win at that
+    point pretty quick. but not today!"* This SHARPENS the epic-3-retro contingency from "fully
+    close the ring at ~15:00" to a **one-minute ramp: sudden death opens at 15:00, all storm by
+    16:00**. The gate is UNCHANGED and absolute: it is a forcing mechanic that would **supersede
+    epic-3 amendment 24's geometric no-stalemate bar**, and "not today" is an explicit deferral —
+    **no cycle may build it without a further explicit Eric ruling authorizing the work.** One
+    thing did shift: the original revisit trigger was "live play shows matches failing to conclude,"
+    but Eric is weighing this while matches DO conclude, so the motivation is now pacing and
+    decisiveness rather than stalemate rescue. Any future spec must argue from that premise.
+
+## 2026-08-04 — Eric rulings, the Public Register cycle (bmad-dev-auto, interstitial — cycle 45)
 
 Source: Eric, live design conversation during the global-kill-feed run (two AskUserQuestion rounds and
 three mid-run interruptions, all 2026-08-04). Spec of record: `spec-global-kill-feed.md`. Starting
@@ -204,11 +295,11 @@ reversed himself twice on drone status before settling — so the amendments bel
 state AND the reasoning path, because the discarded branches are the ones a future cycle will
 re-propose.
 
-21. **`sunk` is THE PUBLIC REGISTER — the 4th DECLARED exception to the master perception invariant**
+29. **`sunk` is THE PUBLIC REGISTER — the 4th DECLARED exception to the master perception invariant**
     (joining Story 4.3's `sp`/`hc`/`mz`), with its own independently-reimplemented oracle in
     `perception.test.ts`. Every COMBATANT sinking now reaches every client regardless of sight, by any
     cause — player hand, storm, or a future PvE ship. The gate is three clauses: WITNESSED (today's
-    rule, extracted verbatim and unchanged), CREDITED TO YOU (amendment 22), or THE VICTIM IS A
+    rule, extracted verbatim and unchanged), CREDITED TO YOU (amendment 30), or THE VICTIM IS A
     COMBATANT (`!wreck.isDrone` — the single site a future PvE/combat-bot distinction changes).
 
     **This is a reconciliation, not a widening.** The row's own shipped comment already ratified the
@@ -224,7 +315,7 @@ re-propose.
     EVERYTHING SPATIAL on it — the sink plume and the contact-view teardown — so an unwitnessed kill
     can never draw a plume at a stale last-known position. `PROTOCOL_VERSION` 22 → 23.
 
-22. **The killer always learns what they sank — at any range, through any fog, combatant or not.**
+30. **The killer always learns what they sank — at any range, through any fog, combatant or not.**
     Eric, verbatim: *"I at least want to know when *I* (or a teammate, in the future) kill anything,
     even if its a non-combatant/PvE ship/whatever. But I don't care if other teams kill these
     entities. But I want to know every time a combatant dies."* This is **amendment 17's principle at
@@ -242,7 +333,7 @@ re-propose.
     Non-combatant sinkings therefore reach exactly two audiences — the witness and the killer — and
     are never public. Eric: *"If someone else kills them, meh."*
 
-23. **Drones are NOT combatants — and this was reversed twice before it settled.** Eric first ruled
+31. **Drones are NOT combatants — and this was reversed twice before it settled.** Eric first ruled
     drones out (*"I don't care about drone or PvE ship deaths"*), then reversed on discovering they
     gate the win (*"Right now, you have to kill all the drone ships to end the game. So right now they
     technically count as combatants... BY VIRTUE of them being de-facto combatants, not by virtue of
@@ -264,23 +355,23 @@ re-propose.
     dropping it outright would have broken the solo battle-royale path that `drones.test.ts` and
     `dronesSmoke.mjs` pin at `minHumans: 1`. 6-3 must solve solo-mode termination as part of its work.
 
-24. **`n AFLOAT` counts CAPTAINS ONLY — this SUPERSEDES epic-3 amendment 19.** The Story 3.3 doctrine
+32. **`n AFLOAT` counts CAPTAINS ONLY — this SUPERSEDES epic-3 amendment 19.** The Story 3.3 doctrine
     note in `client/src/score.ts` argued the opposite at length ("AFLOAT counts HULLS ON THE WATER…
     a solo captain's match reads 20 → 1 exactly as it looks out the window") and has been rewritten,
     not deleted. `isAfloatHull` now takes the same `droneHue` sentinel `isLiveRival` uses. **The other
     half of the ratified asymmetry SURVIVES: AFLOAT still counts the LOCAL PLAYER, which the rival
     count still excludes.**
 
-    Interim inconsistency, flagged and knowingly accepted: because amendment 23 deferred the win
+    Interim inconsistency, flagged and knowingly accepted: because amendment 31 deferred the win
     change, AFLOAT today reads as *"rivals left"* rather than *"hulls left to clear"* — a 4-human /
     16-drone room reads `4 AFLOAT` while all 16 drones still gate the ending. It becomes literally
     true when Story 6-3 lands. Eric was shown this framing and chose humans-only anyway.
 
-25. **Presentation is UNCHANGED — a kill is a kill.** Eric rejected any witnessed-vs-reported visual
+33. **Presentation is UNCHANGED — a kill is a kill.** Eric rejected any witnessed-vs-reported visual
     distinction, so no new grammar row exists and no witnessed/reported flag reaches the DOM. Feed
     capacity rises to **6 lines / 8s TTL** (was 5 / 6s) for the higher event rate.
 
-26. **Doc drift added to the Eric-gated 7-5 batch by this ruling** (house rule: no design-doc edits
+34. **Doc drift added to the Eric-gated 7-5 batch by this ruling** (house rule: no design-doc edits
     in-cycle): UX-DR17's "max 5 lines, 6 s TTL" (`epics.md:160` and the matching `DESIGN.md` kill-feed
-    block) and the Story 1.12 restyle AC at `epics.md:534` are superseded by amendment 25; epic-3
-    amendment 19's AFLOAT rule is superseded by amendment 24 wherever it is restated in design docs.
+    block) and the Story 1.12 restyle AC at `epics.md:534` are superseded by amendment 33; epic-3
+    amendment 19's AFLOAT rule is superseded by amendment 32 wherever it is restated in design docs.

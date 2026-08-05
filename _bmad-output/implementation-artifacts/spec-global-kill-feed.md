@@ -29,7 +29,7 @@ warnings: []
 - Non-combatant (drone) victims are delivered on exactly two paths: **witnessed** (today's rule, unchanged) or **you are the killer** (`e.by === ctx.me.id`). Never globally.
 - The killer clause is the same principle Story 4.3 amendment 17 ratified for the Hit Call — shooter-only confirmation that something of yours connected, deliberately reaching past sight. It must be written as one named predicate so the future "or the killer's TEAM" extension changes at a single site.
 - `sunk` becomes the **4th declared exception** to the master perception invariant (joining `sp`/`hc`/`mz` from Story 4.3). It needs its own independently-reimplemented oracle in `perception.test.ts`, and the completeness suite must still pass.
-- `PROTOCOL_VERSION` bumps 22 → 23 (wire payload gained a field). `VERSION` bumps 0.17.43 → 0.17.44 (cycle 44).
+- `PROTOCOL_VERSION` bumps 22 → 23 (wire payload gained a field). `VERSION` bumps to 0.17.45 (cycle 45 — cycle 44/0.17.44 was the per-weapon balance pass, developed in parallel and landed first; this spec was written against 0.17.43 and renumbered on merge).
 - Signal-registry row count stays **18** — this amends a row, it does not add one.
 - Wire key order is load-bearing: `k, id, by?, seen?`. Never emit a key with an `undefined` value.
 
@@ -77,7 +77,7 @@ warnings: []
 - `server/src/__tests__/spectator.test.ts:307-309` -- the spectator-path verifier.
 - `client/src/__tests__/killFeed.test.ts` -- cap/TTL assertions.
 - `client/src/__tests__/roomBindings.test.ts:293-330` -- own-`sunk` handling.
-- `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` -- amendments 21-26 (append only).
+- `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` -- amendments 29-34 (append only).
 - `_bmad-output/implementation-artifacts/sprint-status.yaml`, `_bmad-output/gds-workflow-status.yaml`, `_bmad-output/implementation-artifacts/deferred-work.md`, `VERSION`, `package.json`, `CLAUDE.md` -- cycle bookkeeping.
 
 ## Tasks & Acceptance
@@ -96,10 +96,10 @@ warnings: []
 - [x] `server/src/__tests__/frames.test.ts`, `server/src/__tests__/spectator.test.ts` -- update to the new delivery rule; spectators always carry `seen: true`.
 - [x] `client/src/__tests__/roomBindings.test.ts` -- assert an unseen `sunk` prints a feed line but spawns no sink effect and calls no `markSunk`, and that a `seen` one does both; assert an own fog kill still plays the `kill` tone and reaches `onSunkObserved`.
 - [x] `client/src/__tests__/killFeed.test.ts` -- update the cap test to 6 lines and the TTL expectation to 8s.
-- [x] `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` -- append amendments 21-26 recording the Eric rulings verbatim-sourced (including the two reversals on drone status and the reasoning path, since the discarded branches are what a future cycle will re-propose), plus the declared-exception note and the UX-DR17 doc drift -- ratified corrections must live in the durable file, never only in regenerable context.
-- [x] `VERSION`, `package.json` (+ workspace manifests if they carry the version) -- 0.17.43 → 0.17.44 -- cycle 44.
+- [x] `_bmad-output/implementation-artifacts/epic-4-context-amendments.md` -- append amendments 29-34 recording the Eric rulings verbatim-sourced (including the two reversals on drone status and the reasoning path, since the discarded branches are what a future cycle will re-propose), plus the declared-exception note and the UX-DR17 doc drift -- ratified corrections must live in the durable file, never only in regenerable context.
+- [x] `VERSION`, `package.json` (+ workspace manifests if they carry the version) -- 0.17.43 → 0.17.45 -- cycle 45 (renumbered on merge; see the note above).
 - [x] `CLAUDE.md` -- update `PROTOCOL_VERSION` to 23 and add a Key Decision bullet for the public register -- CLAUDE.md is the standing architecture brief.
-- [x] `_bmad-output/implementation-artifacts/sprint-status.yaml` and `_bmad-output/gds-workflow-status.yaml` -- record cycle 44 -- both trackers must move in the same PR.
+- [x] `_bmad-output/implementation-artifacts/sprint-status.yaml` and `_bmad-output/gds-workflow-status.yaml` -- record cycle 45 -- both trackers must move in the same PR.
 - [x] `_bmad-output/implementation-artifacts/deferred-work.md` -- ledger the UX-DR17 (`DESIGN.md`) and `epics.md:534` 5-lines/6s drift into the 7-5 doc-sync batch -- no design-doc edits in-cycle.
 
 **Acceptance Criteria:**
@@ -174,7 +174,7 @@ function sunkCreditedTo(ctx: SignalContext, e: SunkEvent): boolean {
 
 ## Auto Run Result
 
-Status: **done**. Cycle 44 (0.17.44). Branch `worktree-dev-auto-global-kill-feed`.
+Status: **done**. Cycle 45 (0.17.45). Branch `worktree-dev-auto-global-kill-feed`.
 
 **What shipped.** The kill feed is global. The `sunk` registry row became the 4th declared exception to
 the master perception invariant, gated by three clauses — witnessed (the historical rule, extracted
@@ -184,7 +184,7 @@ the witness predicate holds, keeps everything SPATIAL as gated as before. `n AFL
 captains only. PROTOCOL_VERSION 22 → 23.
 
 **Design gate.** Four rounds with Eric (two AskUserQuestion rounds, three mid-run interruptions),
-recorded as amendments 21-26. He reversed himself twice on drone status before settling — the
+recorded as amendments 29-34. He reversed himself twice on drone status before settling — the
 amendments record the reasoning path, not just the outcome, because the discarded branches are what a
 future cycle will re-propose. Two consequential deferrals came out of it: the matching win-condition
 change went to Story 6-3 (dropping the drone guard outright makes a solo match finish the instant it

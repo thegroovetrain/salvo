@@ -492,14 +492,16 @@ describe('doctrine swap — free replace, rival card returns, ping-pong (amendme
     stack(w, a, 'torpedoDamage', 2); // stat stacks fitted first
     w.applyBoon(a, 'torpedoHoming');
     expect(a.stats.torpedo.mode).toBe('homing');
-    expect(a.stats.torpedo.damage).toBe(CONFIG.torpedo.damage + 4);
+    // Two HEAVY WARHEAD copies at the retuned +1/card step (Eric ruling
+    // 2026-08-04, the weapon balance pass; was +2/card).
+    expect(a.stats.torpedo.damage).toBe(CONFIG.torpedo.damage + 2);
     w.applyBoon(a, 'torpedoCommand'); // swap...
     expect(a.boons).toEqual(['torpedoDamage', 'torpedoDamage', 'torpedoCommand']);
     expect(a.stats.torpedo.mode).toBe('command');
     w.applyBoon(a, 'torpedoHoming'); // ...and back (ping-pong legal)
     expect(a.boons).toEqual(['torpedoDamage', 'torpedoDamage', 'torpedoHoming']);
     expect(a.stats.torpedo.mode).toBe('homing');
-    expect(a.stats.torpedo.damage).toBe(CONFIG.torpedo.damage + 4); // stacks survive every swap
+    expect(a.stats.torpedo.damage).toBe(CONFIG.torpedo.damage + 2); // stacks survive every swap
   });
 });
 
@@ -775,28 +777,28 @@ describe('effective weapon stats in the fire path (catalog ladders)', () => {
     expect(a.loadout[SLOT_TORPEDO].state!.reloadMsLeft).toBeLessThan(CONFIG.torpedo.reloadMs);
   });
 
-  it('shipCooldown: the CANNON reads the same global scale (50s -> 25s) off the Battleship fit', () => {
+  it('shipCooldown: the CANNON reads the same global scale (45s -> 22.5s) off the Battleship fit', () => {
     const w = bareWorld();
     const bb = place(w, 'a', 0, 0, 0, 'battleship'); // [gun, cannon, starShells, empty]
     stack(w, bb, 'shipCooldown', 5);
-    expect(bb.stats.cannon.reloadMs).toBe(25000); // 50000 base -> 25000
+    expect(bb.stats.cannon.reloadMs).toBe(22500); // 45000 base -> 22500 (Eric ruling 2026-08-04)
     fire(bb, 1, SLOT_CANNON, 400);
     w.step();
     expect(bb.loadout[SLOT_CANNON].state!.n).toBe(0);
     expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBe(CONFIG.cannon.reloadMs * 0.5);
     expect(bb.loadout[SLOT_CANNON].state!.reloadMsLeft).toBeLessThan(CONFIG.cannon.reloadMs);
 
-    // ...and the authoritative tick really returns the round on the 25s clock:
-    // still empty at 24 950ms, back at exactly 25 000ms — 25s short of the 50s
-    // base, and exactly 500 ticks (not 501 — the rounding fix's tick-count
-    // pin: reloadMsLeft is exactly 25000, so it takes exactly 500 * 50ms
-    // decrements to cross zero, never one tick of float-dust slop).
+    // ...and the authoritative tick really returns the round on the 22.5s
+    // clock: still empty at 22 450ms, back at exactly 22 500ms — 22.5s short of
+    // the 45s base, and exactly 450 ticks (not 451 — the rounding fix's
+    // tick-count pin: reloadMsLeft is exactly 22500, so it takes exactly
+    // 450 * 50ms decrements to cross zero, never one tick of float-dust slop).
     bb.input = { ...bb.input!, fireSeq: 0, seq: 2 };
-    for (let i = 0; i < 499; i++) w.step();
+    for (let i = 0; i < 449; i++) w.step();
     expect(bb.loadout[SLOT_CANNON].state!.n).toBe(0);
     w.step();
     expect(bb.loadout[SLOT_CANNON].state!.n).toBe(1);
-    expect(501 * DT).toBeLessThan(CONFIG.cannon.reloadMs); // 25 050 < 50 000
+    expect(451 * DT).toBeLessThan(CONFIG.cannon.reloadMs); // 22 550 < 45 000
   });
 
   it('shipCooldown: the AUTHORITATIVE ammo tick restores the round on the SCALED clock (exactly 2.5s), not the 5.0s base', () => {

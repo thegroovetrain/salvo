@@ -114,7 +114,7 @@ describe('shared barrel', () => {
   it('re-exports the universal standard gun model (single-shot pin retired in 2.8)', () => {
     expect(CONFIG.gun.maxAmmo).toBe(1); // still the BASE — gunTurret raises it via stats
     expect(CONFIG.gun.burstRadius).toBe(15);
-    expect(CONFIG.gun.contactDamage).toBe(10);
+    expect(CONFIG.gun.contactDamage).toBe(6); // RETUNED 10 -> 6 (Eric ruling 2026-08-04)
     expect(typeof burstVictims).toBe('function');
     expect(typeof pierceDamage).toBe('function');
     expect('shellRange' in CONFIG.gun).toBe(false);
@@ -163,8 +163,10 @@ describe('shared barrel', () => {
       arc: 'full',
       shellSpeed: 500,
       maxAmmo: 1,
-      reloadMs: 50000, // RETUNED 15000 -> 50000 (Eric ruling 2026-08-04)
-      damage: 50,
+      // RETUNED 15000 -> 50000 -> 45000 (Eric rulings 2026-08-04: the
+      // global-cooldown cycle, then the weapon balance pass).
+      reloadMs: 45000,
+      damage: 65, // RETUNED 50 -> 65 (Eric ruling 2026-08-04, balance pass)
       contactDamage: 20,
       burstRadius: 30,
       shellRadius: 2,
@@ -196,7 +198,7 @@ describe('shared barrel', () => {
     expect(CONFIG.mine.blastRadius).toBe(48);
     expect(CONFIG.mine.blastRadius).toBeGreaterThan(CONFIG.mine.triggerRadius);
     expect(CONFIG.mine.maxLive).toBe(5);
-    expect(CONFIG.mine.damage).toBe(45);
+    expect(CONFIG.mine.damage).toBe(55); // RETUNED 45 -> 55 (Eric ruling 2026-08-04)
     // The placement leash (Eric ruling 2026-08-02): 90u put the drop point
     // inside your own wake; 150u lets a Mine Layer actually seed water.
     expect(CONFIG.mine.placeRange).toBe(150);

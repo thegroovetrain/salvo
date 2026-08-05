@@ -105,8 +105,9 @@ describe('ARMOR-PIERCING (cannonAp) — pierce order, 100/50/25 falloff, island 
     run(w);
     // Two pierces only — each hull hit exactly once despite the shell crossing
     // its whole silhouette; the shell then flew on to range end.
-    expect(targets[0].hp).toBeCloseTo(targets[0].stats.maxHp - 50, 6);
-    expect(targets[1].hp).toBeCloseTo(targets[1].stats.maxHp - 25, 6);
+    // Base cannon 65 (RETUNED 50 -> 65, Eric ruling 2026-08-04) at 100% / 50%.
+    expect(targets[0].hp).toBeCloseTo(targets[0].stats.maxHp - 65, 6);
+    expect(targets[1].hp).toBeCloseTo(targets[1].stats.maxHp - 32.5, 6);
     expect(w.shells.size).toBe(0); // ran out its full range
   });
 
@@ -644,14 +645,14 @@ describe('vacated owner — mines fall back to CONFIG bases (pinned)', () => {
   it('a boosted-damage owner leaves; the orphan mine detonates at CONFIG.mine.damage', () => {
     const w = bareWorld();
     const o = place(w, 'o', 600, 600, 0, 'mineLayer');
-    for (let i = 0; i < 5; i++) w.applyBoon(o, 'mineDamage'); // 45 → 65
+    for (let i = 0; i < 5; i++) w.applyBoon(o, 'mineDamage'); // 55 → 75 (base retuned 2026-08-04)
     expect(o.stats.mine.damage).toBe(CONFIG.mine.damage + 20);
     w.mines.set('m1', { id: 'm1', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     w.removeShip('o'); // the owner VACATES; the mine survives
     const b = place(w, 'b', 0, 10);
     w.step();
     expect(w.mines.size).toBe(0); // still trips
-    expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage); // base damage, not the booned 65
+    expect(b.hp).toBe(b.stats.maxHp - CONFIG.mine.damage); // base damage, not the booned 75
   });
 });
 

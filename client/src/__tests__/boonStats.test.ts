@@ -152,12 +152,15 @@ describe('HUD denominators react to effective stats', () => {
   // The HUD/hotbar surface reads the SAME scaled numbers the sim does — the
   // firewall's post-fold multiply is the only place the scale is applied, so a
   // full 5-stack build (Eric ruling 2026-08-04: copies 4 → 5, cap 0.6 → 0.5)
-  // lands the ratified 2.5s gun / 25s cannon on the chips.
-  it('a FULL shipCooldown stack lands the ratified 2.5s gun and 25s cannon on the chips', () => {
+  // lands the ratified 2.5s gun / 22.5s cannon on the chips (the cannon figure
+  // was 25s until the same-day balance pass retuned its base 50000 → 45000).
+  it('a FULL shipCooldown stack lands the ratified 2.5s gun and 22.5s cannon on the chips', () => {
     const maxed = statsFor('battleship', { shipCooldown: 5 });
     expect(equipmentReloadMs(maxed, 'gun')).toBe(2500);
-    expect(equipmentReloadMs(maxed, 'cannon')).toBe(25000);
-    // Additive-linear, never 0.9^5 (which would land 2952/29525).
+    // 45000 base -> 22500 (cannon base retuned 50000 -> 45000, Eric ruling
+    // 2026-08-04, the weapon balance pass).
+    expect(equipmentReloadMs(maxed, 'cannon')).toBe(22500);
+    // Additive-linear, never 0.9^5 (which would land 2952/26572).
     expect(maxed.cooldownScale).toBe(0.5);
     // The 5th rung has ratified copy — the card can name the stack it just took.
     expect(boonName('shipCooldown', 4)).toBe('GUNNERY PENNANT');
