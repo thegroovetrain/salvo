@@ -13,7 +13,7 @@ const input = (seq: number, extra = {}) => ({
   slot: 0,
   fireT: 0,
   actSeq: 0,
-  actSlot: 0,
+  actSlot: 0, hornSeq: 0,
   ...extra,
 });
 

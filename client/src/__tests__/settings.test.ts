@@ -282,8 +282,14 @@ describe('bindingRows — current truth (amendments 1–13), view-only', () => {
     expect(text).toContain('Z / X');
   });
 
-  it('omits F — reserved for the Foghorn, not a binding', () => {
-    expect(rows.some((r) => r.keys.trim() === 'F')).toBe(false);
+  it('LISTS F — the Foghorn (Story 4.5, amendment 56: the reservation closed)', () => {
+    // This pin used to assert F's ABSENCE, which was correct for exactly as
+    // long as F was reserved-and-inert. UX open question #20 is closed and F is
+    // bound, so the absence pin is wrong by design; the reference must list
+    // every bound key or it is a reference to a scheme that does not exist.
+    const f = rows.find((r) => r.keys.trim() === 'F');
+    expect(f).toBeDefined();
+    expect(f?.action).toContain('FOGHORN');
   });
 
   it('never advertises the superseded SPACE-hold refit or a CTRL spend window', () => {

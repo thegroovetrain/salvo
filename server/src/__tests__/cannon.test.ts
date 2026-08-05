@@ -32,7 +32,7 @@ function place(w: World, id: string, hull: 'battleship' | 'torpedoBoat' | 'mineL
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...patch };
 }
 
 describe('cannon — server loadout + shell construction', () => {
@@ -114,7 +114,7 @@ describe('cannon — burst + interceptor outcomes (end-to-end steps)', () => {
   /** Click for `firer` via the real input channel and step until a burst or
    *  boom lands (or `maxTicks`). Returns the events seen. */
   function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTicks = 80): string[] {
-    w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_CANNON, fireT: 0, actSeq: 0, actSlot: 0, ...input });
+    w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_CANNON, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...input });
     const seen: string[] = [];
     for (let i = 0; i < maxTicks; i++) {
       w.step();
@@ -179,7 +179,7 @@ describe('cannon — denials + cross-hull parity', () => {
     const bb = place(w, 'a', 'battleship', 0, 0);
     expect(w.sinkingActivationGate(bb, SLOT_EMPTY)).toEqual({ ok: false, reason: 'empty-slot' });
     // Through the real click channel: nothing fires, nothing throws.
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: SLOT_EMPTY, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: SLOT_EMPTY, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     w.step();
     expect(w.shells.size).toBe(0);
   });
@@ -205,7 +205,7 @@ describe('cannon — denials + cross-hull parity', () => {
     // channel the weapon-only wall keeps it inert (no shell, no mine, no drain).
     const ml = place(w, 'ml', 'mineLayer', 0, 300);
     expect(ml.loadout[1].equipmentId).toBe('mine');
-    w.submitInput('ml', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('ml', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     w.step();
     expect(w.mines.size).toBe(0);
     expect([...w.shells.values()].some((s) => s.kind !== 'torp')).toBe(false); // still never a cannon shell

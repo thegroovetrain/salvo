@@ -17,7 +17,10 @@
 //   Q / E / R      loadout slots 1 / 2 / 3 — weapons switch-to (prime toggle),
 //                  abilities activate immediately; R inert while slot 3 is
 //                  empty; ALL suspended while the refit modal is open
-//   F              reserved for the Foghorn — fully inert, still prevented
+//   F              FOGHORN (Story 4.5, amendment 56 — the reservation closed):
+//                  one honk per physical press (edge-gated, so OS auto-repeat
+//                  cannot machine-gun it), suspended with Q/E/R while the refit
+//                  modal is open and swallowed by a focused overlay
 //   TAB            toggles the refit modal (main.ts owns open/close policy)
 //   1–4            pick a refit card ONLY while the modal is open
 //                  (refit-or-nothing; meaning evaluated at its own keydown)
@@ -240,6 +243,15 @@ export interface KeyboardHooks {
   /** A press hit the full FIFO (pendingActs at SLOT_COUNT): the press is
    *  dropped and this fires INSTEAD — denied feedback, never silence. */
   onAbilityCapped?: (slot: number) => void;
+  /**
+   * F — a FOGHORN press edge (Story 4.5, amendment 56). Fires once per physical
+   * press: never on OS auto-repeat, never while a focused overlay is up, and
+   * never while the refit modal is open (F suspends with Q/E/R — a captain
+   * picking a card is not conning). Everything else — alive, spectating,
+   * cooldown — is main.ts's call, exactly as the slot keys leave the ammo and
+   * sinking verdicts to it; the chokepoint only reports the press.
+   */
+  onFoghorn?: () => void;
   /** Is the refit modal open? While true: Q/E/R/F are suspended and digits
    *  pick cards; helm/zoom/M/P stay live. */
   isModalOpen?: () => boolean;
@@ -314,8 +326,12 @@ export class KeyboardInput {
     bind([...LEFT, ...RIGHT], this.handleRudderKey);
     bind(Object.keys(SLOT_KEY_CODES), this.handleSlotKey);
     bind(Object.keys(REFIT_DIGIT_CODES), this.handleDigitKey);
-    // F (Foghorn-reserved) and Space are BOUND-INERT: prevented, no action.
-    bind(['KeyF', 'Space'], () => undefined);
+    // F: the FOGHORN (Story 4.5) — edge-gated so a held key is ONE honk, and
+    // suspended by the refit modal exactly as Q/E/R are (handleSlotKey's rule,
+    // reused rather than re-derived). Space stays BOUND-INERT: prevented (page
+    // scroll), no action.
+    bind(['KeyF'], this.edge(() => this.handleFoghorn()));
+    bind(['Space'], () => undefined);
     bind(['Tab'], this.edge(() => this.hooks.onRefitToggle?.()));
     bind(['Escape'], this.edge(() => this.hooks.onEscape?.()));
     // ENTER (both keys): confirm the topmost surface — the results screen's
@@ -451,6 +467,17 @@ export class KeyboardInput {
       return;
     }
     this.primed = nextPrimedSlot(this.primed, slot);
+  }
+
+  /**
+   * F: one honk per press edge. The refit modal suspends it (prevented-inert)
+   * the same way it suspends the slot keys — full combat lockout, and the
+   * foghorn is a broadcast made from the conning position, not from the
+   * refit window.
+   */
+  private handleFoghorn(): void {
+    if (this.hooks.isModalOpen?.() === true) return;
+    this.hooks.onFoghorn?.();
   }
 
   /** Digits 1–5: a refit pick while the modal is open — a card (1–4) or the

@@ -4,6 +4,7 @@ import {
   InputSampler,
   abilityPressDenied,
   buildInput,
+  hornPressVerdict,
   primeFireable,
   shouldConsumePrime,
   type Aiming,
@@ -15,7 +16,7 @@ const AIM: Aiming = { aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, 
 describe('buildInput', () => {
   it('carries aim/fireSeq/aimDist/slot/fireT from the mouse + prime sample', () => {
     const msg = buildInput(3, { throttle: 1, rudder: -1 }, AIM);
-    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0 });
+    expect(msg).toEqual({ seq: 3, throttle: 1, rudder: -1, aim: 0.5, fireSeq: 4, aimDist: 260, slot: 0, fireT: 1234, actSeq: 0, actSlot: 0, hornSeq: 0 });
   });
 
   it('carries a primed slot (the click resolves the skillshot on the wire)', () => {
@@ -141,6 +142,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
       fireT: AIM.fireT,
       actSeq: AIM.actSeq,
       actSlot: AIM.actSlot,
+      hornSeq: 0,
     });
     expect(sent).toHaveLength(2);
     expect(sent[1].type).toBe(MSG.input);
@@ -207,7 +209,7 @@ describe('InputSampler.sendNeutralNow — preserves the throttle order', () => {
   it('works before any sample() call, defaulting aim/fireSeq/aimDist/slot/fireT to zero', () => {
     const sampler = new InputSampler(() => undefined);
     const msg = sampler.sendNeutralNow(0);
-    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+    expect(msg).toEqual({ seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   });
 });
 
@@ -305,5 +307,93 @@ describe('ability activation reaches the wire one-per-input (KeyboardInput + Inp
     const seqs = [tick(kb, sampler).actSeq, tick(kb, sampler).actSeq, tick(kb, sampler).actSeq];
     expect(seqs).toEqual([1, 2, 3]); // strictly +1 each, never a jump
     kb.detach();
+  });
+});
+
+// --- the FOGHORN counter (Story 4.5, amendments 56/58) ----------------------
+//
+// A plain counter, deliberately NOT the ability FIFO. The whole justification
+// is the 1.5s server cooldown: two ACCEPTED honks can never land inside one
+// 50ms tick, so there is nothing to queue.
+
+describe('hornSeq — the sampler carries its own honk counter', () => {
+  it('sends the 0 "never honked" sentinel until a honk is accepted', () => {
+    const sampler = new InputSampler(() => undefined);
+    expect(sampler.hornSeq).toBe(0);
+    expect(sampler.sample({ throttle: 0, rudder: 0 }, AIM).hornSeq).toBe(0);
+  });
+
+  it('advances by exactly one per accepted honk and rides the NEXT input', () => {
+    const sampler = new InputSampler(() => undefined);
+    sampler.honk();
+    expect(sampler.sample({ throttle: 0, rudder: 0 }, AIM).hornSeq).toBe(1);
+    sampler.honk();
+    sampler.honk();
+    expect(sampler.sample({ throttle: 0, rudder: 0 }, AIM).hornSeq).toBe(3);
+  });
+
+  it('re-sends the last value as the honest "no new honk" signal', () => {
+    const sampler = new InputSampler(() => undefined);
+    sampler.honk();
+    const seqs = [
+      sampler.sample({ throttle: 0, rudder: 0 }, AIM).hornSeq,
+      sampler.sample({ throttle: 0, rudder: 0 }, AIM).hornSeq,
+    ];
+    expect(seqs).toEqual([1, 1]); // the server consumes with max() — a repeat is not a press
+  });
+
+  it('carries a gap-honk out on the tab-hide neutral send, not on refocus', () => {
+    // The fireSeq treatment, arrived at for free: the counter lives on the
+    // sampler, so a press landing in the <=1-tick gap before the tab hid is
+    // already reflected in the neutral input.
+    const sampler = new InputSampler(() => undefined);
+    sampler.sample({ throttle: 0, rudder: 0 }, AIM);
+    sampler.honk();
+    expect(sampler.sendNeutralNow(0).hornSeq).toBe(1);
+  });
+
+  it('is never reset — a monotonic counter is what keeps the next honk audible', () => {
+    // The server consumes hornSeq with max() and deliberately does NOT reset
+    // lastHornSeq on respawn (world.ts). A client-side reset would make every
+    // post-respawn honk read as stale and silently vanish.
+    const sampler = new InputSampler(() => undefined);
+    sampler.honk();
+    sampler.honk();
+    sampler.sendNeutralNow(0);
+    sampler.sample({ throttle: 0, rudder: 0 }, AIM);
+    expect(sampler.hornSeq).toBe(2);
+  });
+});
+
+describe('hornPressVerdict — what one F press means', () => {
+  it('IGNORES the press while spectating or sunk (the server refuses both)', () => {
+    expect(hornPressVerdict(true, true, 10_000, 0)).toBe('ignore'); // spectating
+    expect(hornPressVerdict(false, false, 10_000, 0)).toBe('ignore'); // sunk
+    expect(hornPressVerdict(false, true, 10_000, 0)).toBe('ignore');
+  });
+
+  it('HONKS when alive, conning, and the cooldown has elapsed', () => {
+    expect(hornPressVerdict(true, false, 0, 0)).toBe('honk'); // 0 = never honked
+    expect(hornPressVerdict(true, false, 1500, 1500)).toBe('honk'); // exactly at the boundary
+    expect(hornPressVerdict(true, false, 9999, 1500)).toBe('honk');
+  });
+
+  it('DENIES a press inside the cooldown — the predicted `denied` cue, nothing sent', () => {
+    expect(hornPressVerdict(true, false, 1499, 1500)).toBe('denied');
+    expect(hornPressVerdict(true, false, 0, 1500)).toBe('denied');
+  });
+
+  it('answers the dead/spectating case BEFORE the cooldown one', () => {
+    // A corpse on cooldown must read `ignore`, not `denied`: there is no horn
+    // to be denied, and a denial tone would teach a rule the sim does not have.
+    expect(hornPressVerdict(false, false, 0, 1500)).toBe('ignore');
+  });
+
+  it('is deliberately blind to match phase (the server honks in the ready room)', () => {
+    // world.ts consumeHonk has no phase test — it gates on alive/drone/cooldown
+    // only — and render/deniedFire.ts records why a client-only phase gate is a
+    // bug: it makes the UI contradict what the sim actually did. There is no
+    // phase parameter here, and adding one would be the regression.
+    expect(hornPressVerdict.length).toBe(4);
   });
 });

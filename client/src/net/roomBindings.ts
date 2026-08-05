@@ -19,6 +19,7 @@ import {
   type BoonFitEvent,
   type BurstEvent,
   type DeniedView,
+  type FoghornEvent,
   type FrameMsg,
   type GameEvent,
   type HealEvent,
@@ -44,6 +45,7 @@ import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
 import type { Smoke } from '../render/smoke.js';
+import { bearingTo, tierGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
@@ -89,6 +91,17 @@ export interface RoomBindingDeps {
   /** Wounded-smoke plumes (render/smoke.ts) — accumulated from the anonymous
    *  `sm` pulses, exactly as radar blips are accumulated from `blip`. */
   smoke: Smoke;
+  /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
+   *  visual twin, accumulated from `fh` exactly as plumes are from `sm`. */
+  foghorn: Foghorn;
+  /**
+   * The camera's CURRENT world-space centre — the SPECTATOR foghorn path's only
+   * consumer (a spectator's honk arrives as a position, not a bearing, because
+   * the free camera has no server-known position for the server to take one
+   * from). A function, not a value: the camera moves every frame, and the
+   * bearing must be taken at the instant the honk arrives.
+   */
+  cameraCenter: () => { x: number; y: number };
   mines: Mines;
   /** Star-shell lit-zone glow overlay (render/litZones.ts) — synced contact-like
    *  from FrameMsg.litZones every tick, exactly like mines. */
@@ -100,7 +113,16 @@ export interface RoomBindingDeps {
   shake: ShakeDriver;
   /** Tone player (audio/context.ts) — a minimal play-only surface here. The
    *  optional `detune` (cents) carries the fit cue's per-category transposition. */
-  audio: { play: (id: ToneId, opts?: { detune?: number }) => void };
+  audio: {
+    play: (id: ToneId, opts?: { detune?: number }) => void;
+    /** Story 4.5: the foghorn's own play path (audio/context.ts). `hornId` is
+     *  typed `string`, NOT `HornId`, on purpose — an id from a newer server
+     *  must fall back to the default voice at runtime rather than fail a
+     *  compile here (amendment 52's unknown-id rule). `gain` is the observer's
+     *  tier multiplier, 0..1. The call can silently drop the honk at the mix's
+     *  concurrency cap, which is why the chevron never rides on its result. */
+    playHorn: (hornId: string, gain: number) => void;
+  };
   /**
    * THE OWN-FIRE CORRELATION (Story 2.9). CLAIMS the click-time own-fire latch
    * (sim/ownFire.ts): which weapon the local captain fired a moment ago —
@@ -169,6 +191,19 @@ export interface RoomBindingDeps {
    * the player's first click back (they expect the default gun).
    */
   resetPrime: () => void;
+  /**
+   * Reset the client's local foghorn cooldown gate (`Game.nextHonkAt`) to 0 —
+   * ready. Called on own spawn ONLY (review fix), mirroring the server, which
+   * clears `nextHonkAt` on both respawn and redeploy (world.ts). Deliberately
+   * NOT called on reconnect (unlike resetPrime): a reconnect resumes an
+   * in-progress life, and a mid-life cooldown the server still enforces must
+   * keep holding, or the client would show a false-ready foghorn the very next
+   * press would silently eat. Without this, dying and respawning inside the
+   * old cooldown window leaves the client eating an otherwise-accepted press
+   * with zero feedback (a denied honk is now silent by design — see
+   * handleFoghornPress in main.ts — so a stale local gate would be invisible).
+   */
+  resetHonkCooldown: () => void;
   /** Roster name lookup (public schema) for the kill feed: the synced callsign,
    *  or null on a roster miss (a victim/killer who already left the room).
    *  NEVER a raw session id — handleSunk substitutes the neutral
@@ -502,8 +537,8 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
 }
 
 /**
- * THE ACCUMULATED SENSOR PULSES — the two rows where THE SERVER KEEPS NO
- * HISTORY AT ALL and the client synthesizes the persistence itself. Both are
+ * THE ACCUMULATED PULSES — the three rows where THE SERVER KEEPS NO
+ * HISTORY AT ALL and the client synthesizes the persistence itself. All are
  * anonymous-by-construction in the sense that matters to the renderer: nothing
  * downstream may correlate one pulse to the next except through the row's own
  * declared key (a `blip` carries a contact id; `sm` carries NOTHING, by
@@ -517,13 +552,66 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
  *     plume (render/smoke.ts), which is deliberately the BLIP's arrangement and
  *     not a contact's. `f.t` is the pulse's timestamp — the row carries no time
  *     of its own and the decay is server-clock math, never accumulated dt.
+ *   • `fh` THE FOGHORN (Story 4.5) — a captain SPENT a bearing. The first row
+ *     whose payload varies by observer in substance (amendment 51): `self` for
+ *     the honker, `b`+`v` for a fogged listener, `x`+`y` for a spectator.
+ *     Accumulated into fading screen-edge chevrons (render/foghorn.ts) on the
+ *     same server-clock timestamp math.
  */
 function handlePulseEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindState): void {
   switch (e.k) {
     case 'blip': deps.radar.onBlip(e); return;
     case 'sm': deps.smoke.onSmoke(e, f.t); return;
+    case 'fh': handleFoghorn(e, f, deps); return;
   }
   handleGunneryEvent(e, f, deps, s);
+}
+
+/**
+ * A honk arrived. THREE SHAPES, and the branch order is the contract:
+ *
+ *   • `self` — the honker's own copy. Play at 100% and bloom the own hull. NO
+ *     CHEVRON: a bearing to yourself is meaningless (amendment 55). This is
+ *     also the ONLY time the local captain hears their own horn — own honks are
+ *     never client-predicted (amendment 58), so exactly one code path serves
+ *     every listener and no dedup machinery exists or is needed.
+ *   • `x`/`y` — the omniscient SPECTATOR path. The free camera has no
+ *     server-known position, so the bearing is derived here from the camera
+ *     centre and FIXED AT RECEIPT (see bearingTo): a bearing re-derived per
+ *     frame would swing as the spectator panned.
+ *   • `b`/`v` — a fogged listener. Bearing and volume tier, and nothing else on
+ *     the whole row (no x, no y, no id, no correlation handle of any kind).
+ *
+ * THE CHEVRON IS PUSHED BEFORE THE AUDIO, AND UNCONDITIONALLY OF IT. `playHorn`
+ * silently drops the honk at its 3-horn concurrency cap, and amendment 56 is
+ * explicit that the cap drops HORNS, never CHEVRONS — the visual twin has to
+ * survive exactly the crowded room that makes bearings worth having. Ordering
+ * the two this way makes that structural rather than a comment.
+ *
+ * A row carrying neither a position nor a bearing (a malformed or future shape)
+ * still SOUNDS and simply draws no mark: a chevron at a defaulted bearing of 0
+ * would point confidently at the wrong horizon, which is worse than none.
+ */
+function handleFoghorn(e: FoghornEvent, f: FrameMsg, deps: RoomBindingDeps): void {
+  if (e.self === true) {
+    const you = deps.state.net.you;
+    if (you) deps.effects.spawnEffect('horn', you.x, you.y);
+    deps.audio.playHorn(e.h, 1);
+    return;
+  }
+  const bearing = honkBearing(e, deps);
+  if (bearing !== null) deps.foghorn.onHonk(bearing, e.v, f.t);
+  deps.audio.playHorn(e.h, tierGain(e.v));
+}
+
+/** The bearing to draw for a non-self honk: derived from the camera for the
+ *  spectator's position payload, taken verbatim from the wire otherwise. */
+function honkBearing(e: FoghornEvent, deps: RoomBindingDeps): number | null {
+  if (e.x !== undefined && e.y !== undefined) {
+    const c = deps.cameraCenter();
+    return bearingTo(c.x, c.y, e.x, e.y);
+  }
+  return e.b ?? null;
 }
 
 /**
@@ -1011,6 +1099,7 @@ function handleSpawn(e: SpawnEvent, deps: RoomBindingDeps): void {
     deps.resetThrottle(); // spawn/teleport starts stopped — the setting doesn't carry over
     deps.ownBuffer.clear(); // teleport: snap, don't interpolate across the map
     deps.predictor.forceSnap(); // re-init prediction from the next frame
+    deps.resetHonkCooldown(); // the server clears nextHonkAt on respawn too (review fix)
     deps.onOwnSpawn(e.x, e.y);
   } else {
     deps.contacts.clear(e.id); // same snap rule for a respawning contact

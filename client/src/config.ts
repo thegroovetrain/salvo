@@ -45,7 +45,7 @@ const COLORS = {
   damageMarker: 0xff6666,
   islandFill: 0x2a2410,
   islandStroke: 0x8b7520,
-  // RADAR ECHO SCALE (cycle 50, amendment 74 — Eric's Garmin ruling). The three
+  // RADAR ECHO SCALE (cycle 51, amendment 74 — Eric's Garmin ruling). The three
   // ends of the `return`-grammar strength ramp; the GREEN stop in the middle is
   // `phosphor` itself, which is the point — the scale passes straight through
   // the scope's own green, so a mid-strength echo and the sweep agree while a
@@ -1244,7 +1244,7 @@ export const CLIENT_CONFIG = {
       barbAngle: 0.45,
     },
     /**
-     * `return`-GRAMMAR ECHO KNOBS (cycle 50, amendments 62-70). Inert unless the
+     * `return`-GRAMMAR ECHO KNOBS (cycle 51, amendments 62-70). Inert unless the
      * SERVER announces `radarGrammar: 'return'` in the welcome — the grammar is
      * a server flag (amendment 63), never a client choice, because a client-side
      * switch would force the wire to carry the identity superset in both modes
@@ -1460,6 +1460,74 @@ export const CLIENT_CONFIG = {
     },
   },
 
+  /**
+   * THE FOGHORN's presentation (Story 4.5, amendments 51-58). Every knob here
+   * is CLIENT-ONLY. The one gameplay-authoritative foghorn number —
+   * `CONFIG.foghorn.cooldownMs` — is DELIBERATELY ABSENT: the press gate in
+   * main.ts reads it straight off shared CONFIG, because a second copy of a
+   * gameplay number is exactly what amendment 41 (the `damageBands` precedent)
+   * forbids. Reach is absent for the same reason — the volume tiers are
+   * resolved SERVER-side from the listener's own effective ranges (amendment
+   * 53) and arrive pre-decided as `v`; nothing here may decide who hears what.
+   */
+  foghorn: {
+    /**
+     * WIRE TIER → AUDIO GAIN. The three bands Eric named (amendment 53):
+     * 100% inside truesight, 75% out to the muzzle-flash halo, 50% out to
+     * radar. The tier is an ENUM resolved by the server against the LISTENER's
+     * ranges; this table only says how loud each band plays. An unknown/absent
+     * tier is the caller's problem (roomBindings falls back to full gain for
+     * the self and spectator shapes, which carry no tier at all).
+     */
+    tierGain: { 1: 1, 2: 0.75, 3: 0.5 },
+    /**
+     * THE SCREEN-EDGE CHEVRON (amendment 55) — the honk's visual twin and the
+     * bearing surface amendment 4 said this story had to grow. Rejected
+     * alternatives (an arc tick on the truesight ring; reviving the 48-pip
+     * compass rose) are recorded in the amendment; this surface is deliberately
+     * foghorn-shaped, not sensor-shaped.
+     *
+     * UX-DR36 BINDING, and it is why `popMs`/`popScale` are the ONLY
+     * motion-scaled knobs in this block: the chevron's PRESENCE, DIRECTION and
+     * TIER WEIGHT are INFORMATION and survive `motion: 'off'` intact. The TTL
+     * fade is not "motion" either — it is how long the fact stays true.
+     */
+    chevron: {
+      /** How far in from the viewport edge the mark is pinned, px. Big enough
+       *  that the whole glyph clears the edge at every tier size below. */
+      insetPx: 54,
+      /** How long one chevron lives, ms — the ~1.2s amendment 55 named. Aged
+       *  against SERVER time (the smoke.ts precedent), never accumulated dt. */
+      ttlMs: 1200,
+      /**
+       * Global backstop on live chevrons. Per-source capping is impossible by
+       * construction — the wire carries NO correlation handle (amendment 51
+       * applies amendment 45's rule verbatim), so marks cannot be grouped by
+       * the hull that made them. Sized past the worst legitimate case: 20 hulls
+       * × a 1.5s cooldown against a 1.2s TTL means at most ~16 can overlap, and
+       * a screen with 16 live bearings is already noise — 8 keeps the newest
+       * facts and drops the stale ones (`capOldest`).
+       */
+      maxMarks: 8,
+      /** POP-IN: the one animated flourish, and the only motion-scaled knob
+       *  here. At `motion: 'off'` the chevron simply appears at true size —
+       *  same place, same weight, same fade. */
+      popMs: 140,
+      popScale: 1.4,
+      /**
+       * PER-TIER WEIGHT. The three bands must be separable at a glance without
+       * hue (the wounded-smoke rule: severity survives a colorblind read), so
+       * they differ in SIZE, STROKE and ALPHA at once. Size is the half-width
+       * of the chevron's arms in px.
+       */
+      tiers: {
+        1: { size: 22, thickness: 3, alpha: 0.95 },
+        2: { size: 17, thickness: 2.4, alpha: 0.72 },
+        3: { size: 13, thickness: 1.8, alpha: 0.5 },
+      },
+    },
+  },
+
   /** Netcode render delays (ms behind estimated server time). */
   net: {
     /** Remote contacts interpolate this far behind serverNow(). */
@@ -1469,7 +1537,7 @@ export const CLIENT_CONFIG = {
   },
 } as const;
 
-// VARIANT P IS RETIRED (cycle 50, amendment 63). The build-time
+// VARIANT P IS RETIRED (cycle 51, amendment 63). The build-time
 // `__BLIP_VARIANT_P__` define and its `BLIP_VARIANT_P` export lived here to A/B
 // a phosphor-anonymous scope against the personal-hue one. Both are superseded
 // by the SERVER-side flag pair `HC_RADAR_GRAMMAR` / `HC_RADAR_IDENTITY`, which

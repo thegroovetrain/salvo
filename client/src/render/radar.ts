@@ -3,7 +3,7 @@
 // chartRoot (fog-immune, camera-transformed), so blips/sweep stay readable
 // over the fogged ocean while remaining in world coordinates.
 //
-// TWO RADAR GRAMMARS LIVE HERE (cycle 50, amendments 62-70 + 63), selected by the
+// TWO RADAR GRAMMARS LIVE HERE (cycle 51, amendments 62-70 + 63), selected by the
 // SERVER and announced once in the welcome handshake. The room picks one for the
 // whole match, so `BlipEvent` is a TAGLESS union and this file narrows on the
 // announced mode — never by probing which fields an event carries.

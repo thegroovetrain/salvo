@@ -24,7 +24,8 @@
 // k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,mode;
 // DecoyView: id,x,y,until,own,by; SplashEvent/HitCallEvent: k,id,x,y;
 // MuzzleEvent: k,x,y — Story 4.3; SmokeEvent: k,x,y,tier — Story 4.4;
-// SunkEvent: k,id,by?,seen? — the public
+// FoghornEvent: k,h then self? (honker) / x,y (spectator) / b,v (fogged
+// listener) — Story 4.5; SunkEvent: k,id,by?,seen? — the public
 // register, absent keys OMITTED). Do not reorder keys — `by` (Story 1.12) is
 // appended LAST on mine/decoy, `mode` (Story 2.9) after it on litzone, so the
 // historical prefix stays byte-stable.
@@ -46,6 +47,7 @@ import {
   type Contact,
   type DamageEvent,
   type DecoyView,
+  type FoghornEvent,
   type GameEvent,
   type HealEvent,
   type HitCallEvent,
@@ -938,6 +940,89 @@ const woundedSmokeSignal: SignalSpec<SmokeEvent, SmokeEvent> = {
   },
 };
 
+/** The world-emitted foghorn SUBJECT (Story 4.5): World.consumeHonk always
+ *  stamps the honker's true position and id onto the internal event —
+ *  server-private inputs the row consumes and NEVER forwards (see the row). */
+type FoghornSubject = FoghornEvent & { x: number; y: number; id: string };
+
+/**
+ * The fogged listener's VOLUME TIER for a honk, or null = inaudible (Story
+ * 4.5, amendments 53/54) — THE one tier resolver: visible() and materialize()
+ * both call this, so the gate and the wire can never drift. Bounds come from
+ * the OBSERVER'S own effective ranges, resolved distance-first:
+ *   tier 1: d ≤ sightOf(me) (dazzle-scaled, boon-widened — the observer's
+ *           live sight bubble);
+ *   tier 2: d ≤ max(1.5 × sightOf(me), CONFIG.vision.muzzleFlash);
+ *   tier 3: d ≤ max(stats.radarRange, the tier-2 bound);
+ *   beyond: inaudible (no event for this observer at all).
+ * The max() clamps are LOAD-BEARING, not defensive: muzzleFlash is a flat
+ * 495u constant while sightOf is dazzle-scaled and radarRange boon-widened,
+ * so the raw bounds are not monotone by construction — the clamps keep the
+ * bands nested when intel boons push sight past 495u, and stop star-shell
+ * dazzle from also DEAFENING a captain (amendment 53: a dazzled listener
+ * keeps the 495/660 outer bands). Squared-distance comparisons, boundaries
+ * inclusive — the mz row's discipline.
+ *
+ * ISLANDS MUFFLE, NEVER BLOCK (amendment 54 — the first partial carve-out of
+ * the 2026-08-02 "islands block every sensor" law): after the distance tier
+ * resolves, a failed losClear() demotes by EXACTLY one step — 1→2, 2→3,
+ * 3→inaudible. One losClear call, one set of bounds; the demotion is applied
+ * once, post-resolution, never via a second threshold set.
+ */
+function hornTierFor(me: ShipRecord, subject: FoghornSubject, islands: readonly Circle[], now: number): 1 | 2 | 3 | null {
+  const dx = subject.x - me.state.x;
+  const dy = subject.y - me.state.y;
+  const d2 = dx * dx + dy * dy;
+  const sight = sightOf(me, now);
+  const mid = Math.max(1.5 * sight, CONFIG.vision.muzzleFlash);
+  const far = Math.max(me.stats.radarRange, mid);
+  let tier: 1 | 2 | 3;
+  if (d2 <= sight * sight) tier = 1;
+  else if (d2 <= mid * mid) tier = 2;
+  else if (d2 <= far * far) tier = 3;
+  else return null;
+  if (losClear(me.state, subject, islands)) return tier;
+  return tier === 3 ? null : ((tier + 1) as 2 | 3);
+}
+
+/**
+ * `fh` — THE FOGHORN (Story 4.5, amendments 51-58): a captain chose to sound
+ * their horn. The SIXTH declared exception to the master perception
+ * invariant (after 4.3's sp/hc/mz, PV 23's public sunk register, and 4.4's
+ * sm), with its own independently-reimplemented oracle in perception.test.ts.
+ * Three observer shapes, each a FRESH object literal (the mz discipline —
+ * materialize NEVER forwards or spreads the subject, so the server-private
+ * x/y/id can never ride along by accident):
+ *   honker    → {k,h,self:true} — their own horn back, no distance/LOS test,
+ *               checked FIRST in both gates (before any spectator or me math);
+ *   spectator → {k,h,x,y} — the omniscient path (the client aims the chevron
+ *               from its own camera); short-circuits BEFORE any ctx.me read,
+ *               since a record-less spectator has me === undefined;
+ *   fogged    → {k,h,b,v} — bearing (wrapPositive [0, 2π)) + volume tier from
+ *               hornTierFor above. NO x, NO y, NO ship id, and no correlation
+ *               handle of any kind (amendment 45's rule verbatim): a honk is
+ *               a bearing the honker chose to give away, and nothing more.
+ * `h` is the horn variant — the row's ONLY identity-adjacent field, a knowing
+ * narrow break with mz/sm's neutral-signal rule (amendment 52: a distinctive
+ * purchased horn being recognizable at 660u is the point of buying one).
+ */
+const foghornSignal: SignalSpec<FoghornSubject, FoghornEvent> = {
+  eventType: 'fh',
+  visible(ctx, e) {
+    if (e.id === ctx.observerId) return true; // the honker always hears their own horn
+    if (ctx.mode === 'spectator') return true; // before any ctx.me math (me may be undefined)
+    return hornTierFor(ctx.me, e, ctx.islands, ctx.now) !== null;
+  },
+  materialize(ctx, e) {
+    if (e.id === ctx.observerId) return { k: 'fh', h: e.h, self: true };
+    if (ctx.mode === 'spectator') return { k: 'fh', h: e.h, x: e.x, y: e.y };
+    // visible() passed, so the tier is non-null — the ONE shared resolver
+    // guarantees the gate and this payload agree.
+    const v = hornTierFor(ctx.me, e, ctx.islands, ctx.now) as 1 | 2 | 3;
+    return { k: 'fh', h: e.h, b: wrapPositive(bearing(ctx.me.state, e)), v };
+  },
+};
+
 // ---------------------------------------------------------------------------
 // The registry: every spatial signal channel, one row each.
 // ---------------------------------------------------------------------------
@@ -990,6 +1075,9 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   // Story 4.4 (amendments 40-50): wounded smoke — the fifth declared fog
   // exception, anonymous by construction (see the row above).
   sm: woundedSmokeSignal,
+  // Story 4.5 (amendments 51-58): the foghorn — the sixth declared fog
+  // exception and the first partial LOS carve-out (islands muffle one tier).
+  fh: foghornSignal,
 });
 
 /**

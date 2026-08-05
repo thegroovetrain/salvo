@@ -41,7 +41,7 @@ export interface GameState {
   killerId: string | null;
   /** True once the results broadcast arrived (drives auto-return on disconnect). */
   matchOver: boolean;
-  /** Which `BlipEvent` member this room emits (cycle 50, amendment 63) — a
+  /** Which `BlipEvent` member this room emits (cycle 51, amendment 63) — a
    *  SERVER flag, announced once in the welcome and constant for the match.
    *  Every blip narrows on this, never on which fields an event carries. */
   radarGrammar: RadarGrammar;

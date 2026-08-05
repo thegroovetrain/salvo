@@ -116,14 +116,17 @@ const REGISTRY_KEYS = [
   // Story 4.4 — wounded smoke, the fifth declared fog exception (anonymous
   // {k,x,y,tier} pulse inside the constant muzzle-flash halo).
   'sm',
+  // Story 4.5 — the foghorn, the sixth declared fog exception (bearing + tier
+  // for fogged listeners; islands muffle by exactly one tier).
+  'fh',
 ];
 
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 20 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added)', () => {
+  it('has exactly the 21 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(20);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(21);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; counterIntel lives ONLY on the blip row (Story 1.8)', () => {

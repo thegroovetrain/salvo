@@ -1,14 +1,14 @@
 ---
 status: done
-cycle: 50
-version: 0.17.50
-protocol_version: 25 -> 26
+cycle: 51
+version: 0.17.51
+protocol_version: 26 -> 27
 baseline_revision: 8f231b6
 final_revision: HEAD
 warnings: []
 ---
 
-# Spec: The Radar Realism Cycle (cycle 50)
+# Spec: The Radar Realism Cycle (cycle 51)
 
 **Design contract:** amendments **62–73** in
 `_bmad-output/implementation-artifacts/epic-4-context-amendments.md`. Those amendments are the
@@ -222,9 +222,28 @@ pre-cycle build (silhouettes, hues, ARPA vectors, `blipCool` grey ramp).
 
 ## Auto Run Result
 
-**Status: done.** Landed as cycle 50 (0.17.50), PV 25 → 26. `npm run check` green: 0 lint errors
-(2 pre-existing `max-lines-per-function` warnings, baseline unchanged), three clean `tsc` projects,
-**130 test files / 2,975 tests**.
+**Status: done.** Landed as cycle 51 (0.17.51), **PV 26 → 27**. `npm run check` green: 0 lint errors,
+three clean `tsc` projects, **134 test files / 3,135 tests** (post-merge totals, including Story
+4.5's).
+
+**Renumbered on merge.** This cycle was built as cycle 50 / PV 26 / amendments 51-64. Story 4.5
+(The Foghorn) developed in parallel, branched from the same PV 25, and merged first — taking cycle
+50, PV 26, and amendments 51-61. This cycle therefore became **cycle 51 / PV 27 / amendments 62-75**.
+The renumber was done surgically rather than by find-and-replace, because epic-2 had already used
+amendment numbers 51-64 in prose and two of those references live in files this cycle also touched
+(`client/src/main.ts`, `shared/src/__tests__/barrel.test.ts`); both were sentinel-protected and
+verified byte-identical afterwards. Story 4.5's own records were never renumbered.
+
+**One integration seam.** Adding `radarGrammar`/`radarIdentity`/`pseudonymOf` to `SignalContext`
+broke 4.5's brand-new `foghorn.test.ts`, which built context literals without them. Fixed by passing
+the World's own values through a shared `radarCtx(w)` helper rather than hardcoding a grammar — the
+`fh` row reads none of it, but the context type carries it for every row.
+
+**Known warning, deliberately not fixed:** `world.ts addShip` now trips `max-lines-per-function` at
+51 (limit 50) — the joint result of 4.5's horn fields and this cycle's eager track-id assignment.
+Getting under the limit means extracting the record literal, a real refactor of a hot constructor
+that the golden-frames snapshot pins, which does not belong in a merge commit. It is a WARNING, not
+an error; the gate passes.
 
 **Late ruling folded in (amendments 74–75):** after seeing the monochrome grammar on water, Eric
 ruled *"keep the radar sweep color green but change the detected entity color to the red/blue/green
@@ -278,7 +297,7 @@ Two reviewers ran against `8f231b6..HEAD`: a Fable adversarial hunter and a Code
 - **Coast marks painted past the radar ring** (677u at radar 660) because range was gated on the
   island's nearest point while the near arc extends beyond it. Fixed: per-sample range check.
 
-**Ledgered, not fixed** (see `deferred-work.md`, cycle-50 block): the beam-discontinuity coast-mark
+**Ledgered, not fixed** (see `deferred-work.md`, cycle-51 block): the beam-discontinuity coast-mark
 flash (fixing it would touch the shipped `silhouette` path, and byte-identity of the default was
 this cycle's governing discipline), and the all-amber `silhouette`+`pseudonym` flag combo (a design
 call, not a defect).

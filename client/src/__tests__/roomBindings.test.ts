@@ -334,6 +334,92 @@ describe('bindRoom own sunk', () => {
   });
 });
 
+// --- own spawn resets the LOCAL foghorn cooldown gate (review fix) ----------
+//
+// The server clears `nextHonkAt` on respawn AND redeploy (world.ts:2620,
+// :879-886), but the client's mirror (`Game.nextHonkAt`) only ever advances —
+// nothing reset it. Concrete failure this closes: honk, die immediately,
+// respawn inside the 1.5s cooldown window. The server would accept the press
+// (its own gate reset at spawn too), but the client's stale gate silently ate
+// it — and since a denied honk is now silent by design (Eric ruling
+// 2026-08-05, main.ts handleFoghornPress), the player got NOTHING with no
+// explanation at all.
+//
+// Deliberately NOT wired through reconnect (unlike resetPrime): a reconnect
+// resumes an IN-PROGRESS life, and a mid-life cooldown the server still
+// enforces must keep holding.
+
+describe('bindRoom own spawn resets the honk cooldown', () => {
+  function setupSpawn() {
+    const room = fakeRoom();
+    const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const resetThrottle = vi.fn();
+    const resetHonkCooldown = vi.fn();
+    const onOwnSpawn = vi.fn();
+    const forceSnap = vi.fn();
+    const ownBufferClear = vi.fn();
+    const deps = {
+      state: { net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 }, spectating: false, phase: '', respawnEta: null, mode: 'interp' },
+      clock: { addSample: vi.fn() },
+      contacts: { pushFrame: vi.fn(), clear: vi.fn() },
+      contactViews: { markSpawn: vi.fn() },
+      ownBuffer: { clear: ownBufferClear },
+      predictor: { forceSnap },
+      mines: { sync: vi.fn() },
+      ownBurstRadius: () => undefined,
+      ownMineRings: () => undefined,
+      litZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      resetThrottle,
+      resetHonkCooldown,
+      onOwnSpawn,
+      colors: () => null,
+      ordnanceHue: () => 0,
+    } as unknown as RoomBindingDeps;
+    bindRoom(conn, deps);
+    return { sink, resetThrottle, resetHonkCooldown, onOwnSpawn, forceSnap, ownBufferClear };
+  }
+
+  const spawnFrame = (e: unknown): unknown => ({ t: 300, tick: 3, ackSeq: 0, contacts: [], mines: [], events: [e] });
+
+  it('resets nextHonkAt on the OWN spawn, alongside the existing resetThrottle/forceSnap trio', () => {
+    const { sink, resetThrottle, resetHonkCooldown, onOwnSpawn, forceSnap, ownBufferClear } = setupSpawn();
+    sink.handler(spawnFrame({ k: 'spawn', id: 'me', x: 10, y: 20 }));
+    expect(resetHonkCooldown).toHaveBeenCalledTimes(1);
+    // Mirrors the existing own-spawn side effects it hangs alongside — proves
+    // this is the same branch, not a new one.
+    expect(resetThrottle).toHaveBeenCalledTimes(1);
+    expect(forceSnap).toHaveBeenCalledTimes(1);
+    expect(ownBufferClear).toHaveBeenCalledTimes(1);
+    expect(onOwnSpawn).toHaveBeenCalledWith(10, 20);
+  });
+
+  it('does NOT reset on a CONTACT spawn (someone else respawning)', () => {
+    const { sink, resetHonkCooldown, onOwnSpawn } = setupSpawn();
+    sink.handler(spawnFrame({ k: 'spawn', id: 'someone-else', x: 10, y: 20 }));
+    expect(resetHonkCooldown).not.toHaveBeenCalled();
+    expect(onOwnSpawn).not.toHaveBeenCalled();
+  });
+
+  it('regression: the local cooldown gate would otherwise survive a death, eating an accepted respawn honk with zero feedback', () => {
+    // This is the exact bug scenario, expressed against handleFoghornPress's
+    // OWN logic (sim/inputSampler.ts hornPressVerdict) rather than re-deriving
+    // it: a stale g.nextHonkAt from before death reads as "still cooling" on
+    // the very next tick after respawn unless something zeroes it.
+    const { sink, resetHonkCooldown } = setupSpawn();
+    let nextHonkAt = 1_000_000; // armed by a honk just before death
+    resetHonkCooldown.mockImplementation(() => {
+      nextHonkAt = 0;
+    });
+    sink.handler(spawnFrame({ k: 'spawn', id: 'me', x: 0, y: 0 }));
+    // Respawning "inside" the old cooldown window (server time barely moved)
+    // must now read as ready, because the gate was reset at spawn.
+    const now = 1_000_050; // well before the OLD nextHonkAt, well after 0
+    expect(now >= nextHonkAt).toBe(true); // 'honk', not 'denied' — the press IS sent
+  });
+});
+
 // --- the public register (PV 23): `seen` gates the spatial half --------------
 
 describe('bindRoom sunk — seen gates the sink plume and the contact teardown', () => {
@@ -1320,5 +1406,74 @@ describe('the fit cue is transposed by CATEGORY (Story 2.9 carry-over)', () => {
     const { sink, play } = setupToasts();
     sink.handler(rewardFrame({ k: 'bn', id: 'me', boon: 'notARealBoon' }, { alive: true, boons: ['x'] }));
     expect(play).toHaveBeenCalledWith('fitCommon', { detune: 0 });
+  });
+});
+
+// --- the accumulated-pulse switch now carries THREE rows (Story 4.5) --------
+//
+// `fh` joins `blip` and `sm` in handlePulseEvent — the rows where the server
+// keeps no history and the client synthesizes the persistence. The row's own
+// behavior is covered exhaustively in foghorn.test.ts; what belongs HERE is
+// that adding it did not cost the other two their fan-out, and that a honk
+// never falls through into the gunnery or reward switches below it.
+
+describe('bindRoom pulse fan-out with the foghorn row present', () => {
+  function setupPulses() {
+    const room = fakeRoom();
+    const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const onBlip = vi.fn();
+    const onSmoke = vi.fn();
+    const onHonk = vi.fn();
+    const playHorn = vi.fn();
+    const play = vi.fn();
+    const spawnEffect = vi.fn();
+    const deps = {
+      state: { net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 }, spectating: true, phase: '', respawnEta: null, mode: 'interp' },
+      clock: { addSample: vi.fn() },
+      contacts: { pushFrame: vi.fn() },
+      mines: { sync: vi.fn() },
+      litZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      ownBurstRadius: () => undefined,
+      ownMineRings: () => undefined,
+      radar: { onSweepSample: vi.fn(), onBlip },
+      smoke: { onSmoke },
+      foghorn: { onHonk },
+      cameraCenter: () => ({ x: 0, y: 0 }),
+      effects: { spawnEffect },
+      audio: { play, playHorn },
+      onSunkObserved: vi.fn(),
+      onSpectate: vi.fn(),
+      colors: vi.fn(() => null),
+      ordnanceHue: vi.fn(() => 0),
+    } as unknown as RoomBindingDeps;
+    bindRoom(conn, deps);
+    return { sink, onBlip, onSmoke, onHonk, playHorn, play };
+  }
+
+  it('fans blip, sm and fh out of ONE frame, each to its own subsystem', () => {
+    const { sink, onBlip, onSmoke, onHonk, playHorn } = setupPulses();
+    sink.handler({
+      t: 400, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [],
+      events: [
+        { k: 'blip', id: 'c1', x: 10, y: 20, heading: 0, speed: 0, cls: 'torpedoBoat' },
+        { k: 'sm', x: 30, y: 40, tier: 1 },
+        { k: 'fh', h: 'standard', b: 1.25, v: 2 },
+      ],
+    });
+    expect(onBlip).toHaveBeenCalledTimes(1);
+    expect(onSmoke).toHaveBeenCalledTimes(1);
+    expect(onHonk).toHaveBeenCalledWith(1.25, 2, 400); // the FRAME's timestamp
+    expect(playHorn).toHaveBeenCalledTimes(1);
+  });
+
+  it('a honk plays on its OWN path — never through the short-tone table', () => {
+    // A horn is ~1.8s and multi-layered; `play()` is the 150ms-capped ToneSpec
+    // path (amendment 57). Routing a honk through it would silently truncate it.
+    const { sink, play, playHorn } = setupPulses();
+    sink.handler({ t: 400, tick: 4, ackSeq: 0, spec: true, contacts: [], mines: [], events: [{ k: 'fh', h: 'standard', b: 0, v: 1 }] });
+    expect(playHorn).toHaveBeenCalledTimes(1);
+    expect(play).not.toHaveBeenCalled();
   });
 });

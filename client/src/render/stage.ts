@@ -5,7 +5,7 @@
 //   plateRoot   (screen space)        — truesight nameplates (render/nameplates.ts)
 //   fogSprite   (screen space)        — fog overlay + sight hole (render/fog.ts)
 //   chartRoot   (camera-transformed): map, smoke, blip, aim, burstFx, sweep   (fog-immune: above fog)
-//   hudRoot     (screen space)        — telegraph HUD
+//   hudRoot     (screen space)        — telegraph HUD, then foghorn chevrons
 //
 // worldRoot and chartRoot share the same camera transform; plateRoot, fogSprite,
 // and hudRoot stay in screen space. plateRoot sits BELOW the fog composite so the
@@ -64,6 +64,18 @@ export interface StageLayers {
    *  storm palette landed, not the old red; behind the HUD readouts. */
   vignette: Container;
   hud: Container;
+  /**
+   * FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — screen-space,
+   * ABOVE `hud`. A bearing mark that a HUD readout could occlude is a bearing
+   * mark you can miss, and the chevron lives at the viewport edge precisely
+   * where the chrome bar, the vitals cluster and the hotbar all sit.
+   *
+   * Deliberately NOT inside `hud` and therefore NOT UI-scaled (main.ts's
+   * applyUiScale scales `layers.hud` alone): the chevron is anchored to the
+   * real viewport edge by an absolute px inset, exactly like `vignette`'s
+   * full-viewport wash, and scaling it would walk the mark inward off its edge.
+   */
+  foghorn: Container;
 }
 
 export interface Stage {
@@ -159,6 +171,7 @@ export async function createStage(): Promise<Stage> {
     sweep: child(chartRoot),
     vignette: child(hudRoot),
     hud: child(hudRoot),
+    foghorn: child(hudRoot), // added last == drawn above the HUD readouts
   };
 
   return { app, worldRoot, chartRoot, fogSprite, plateRoot, hudRoot, layers };

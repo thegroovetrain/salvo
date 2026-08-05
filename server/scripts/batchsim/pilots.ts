@@ -445,7 +445,7 @@ class GunnerPilot implements CaptainPilot {
       slot: 0,
       fireT: 0,
       actSeq: 0,
-      actSlot: 0,
+      actSlot: 0, hornSeq: 0,
     };
   }
 
@@ -473,7 +473,7 @@ class GunnerPilot implements CaptainPilot {
       slot: 0, // the universal standard gun
       fireT: 0, // in-process: no latency, no claim (zero compensation)
       actSeq: 0,
-      actSlot: 0,
+      actSlot: 0, hornSeq: 0,
     };
   }
 

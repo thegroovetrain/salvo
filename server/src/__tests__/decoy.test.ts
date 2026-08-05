@@ -48,7 +48,7 @@ function place(w: World, id: string, x: number, y: number, heading = 0, hull: Pa
 
 /** Submit one fresh ability press (actSeq advance) on `actSlot` for `id`. */
 function press(w: World, id: string, seq: number, actSlot: number): void {
-  w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: seq, actSlot });
+  w.submitInput(id, { seq, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: seq, actSlot, hornSeq: 0 });
 }
 
 /** Open the observer's paint window around a bearing (without stepping). */
@@ -91,7 +91,7 @@ describe('decoy buoy — placement lifecycle', () => {
     press(w, 'a', 1, SLOT_DECOY);
     w.step();
     const before = { ...[...w.decoys.values()][0] };
-    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_DECOY });
+    w.submitInput('a', { seq: 2, throttle: 1, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: SLOT_DECOY, hornSeq: 0 });
     for (let i = 0; i < 40; i++) w.step(); // 2s full ahead
     const after = [...w.decoys.values()][0];
     expect({ x: after.x, y: after.y }).toEqual({ x: before.x, y: before.y });
@@ -440,7 +440,7 @@ describe('decoy buoy — never a collision subject (sanctioned disambiguation)',
     const w = bareWorld(36);
     place(w, 'a', 0, 0, 0, 'mineLayer');
     injectDecoy(w, 'd1', 'z', 300, 0);
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     let sawBurst = false;
     const dmg: unknown[] = [];
     for (let i = 0; i < 60 && !sawBurst; i++) {

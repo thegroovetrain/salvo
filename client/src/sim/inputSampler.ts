@@ -64,8 +64,42 @@ export function abilityPressDenied(alive: boolean, loaded: boolean): boolean {
   return !alive || !loaded;
 }
 
-/** Pure: build the wire input for one tick. Exported for tests. */
-export function buildInput(seq: number, axes: Axes, aiming: Aiming): InputMsg {
+/**
+ * Pure: the verdict for ONE foghorn keypress (Story 4.5, amendments 56/58).
+ * Three outcomes, and the split matters:
+ *  - `'ignore'` — the press never happened as far as anything is concerned. A
+ *    spectator or a sunk hull has no horn (the server refuses both: world.ts
+ *    consumeHonk gates on `ship.alive`), and feeding back a denial for a horn
+ *    you do not have would teach the wrong rule.
+ *  - `'denied'` — a real horn, pressed inside the cooldown. Plays the shipped
+ *    predicted `denied` cue and sends NOTHING (the server would silently drop
+ *    it anyway).
+ *  - `'honk'` — send it.
+ *
+ * DELIBERATELY NOT GATED ON MATCH PHASE. The server honks in the weapons-safe
+ * ready room exactly as it fires there (consumeHonk has no phase test), and
+ * render/deniedFire.ts's header records why a client-only phase gate is a bug
+ * and not a safety: it makes the UI contradict what the sim actually did. The
+ * results phase needs no gate of its own — a finished match puts this client
+ * in `spectating`, which the first clause already answers.
+ *
+ * `now` and `nextHonkAt` are SERVER-CLOCK estimates (the cooldown the server
+ * enforces is measured in server time; see the caller in main.ts).
+ */
+export function hornPressVerdict(
+  alive: boolean,
+  spectating: boolean,
+  now: number,
+  nextHonkAt: number,
+): 'ignore' | 'denied' | 'honk' {
+  if (spectating || !alive) return 'ignore';
+  return now >= nextHonkAt ? 'honk' : 'denied';
+}
+
+/** Pure: build the wire input for one tick. Exported for tests. `hornSeq` is
+ *  the sampler's own cumulative honk counter (see InputSampler.honk) rather
+ *  than an `Aiming` field: a honk is not aimed and carries no slot. */
+export function buildInput(seq: number, axes: Axes, aiming: Aiming, hornSeq = 0): InputMsg {
   return {
     seq,
     throttle: clamp(axes.throttle, -1, 1),
@@ -77,6 +111,7 @@ export function buildInput(seq: number, axes: Axes, aiming: Aiming): InputMsg {
     fireT: aiming.fireT,
     actSeq: aiming.actSeq,
     actSlot: aiming.actSlot,
+    hornSeq,
   };
 }
 
@@ -84,6 +119,20 @@ export function buildInput(seq: number, axes: Axes, aiming: Aiming): InputMsg {
 export class InputSampler {
   private seq = 0;
   private lastAiming: Aiming = { aim: 0, fireSeq: 0, aimDist: 0, slot: SLOT_GUN, fireT: 0, actSeq: 0, actSlot: 0 };
+  /**
+   * Cumulative FOGHORN counter (InputMsg.hornSeq); 0 = never honked, the
+   * sentinel every non-honking driver keeps sending.
+   *
+   * A PLAIN COUNTER, deliberately not the ability FIFO: `actSeq` needs a queue
+   * because several ability presses can legitimately land inside one 50ms
+   * sample window and the wire carries one per input, whereas the foghorn's
+   * 1.5s server cooldown (CONFIG.foghorn.cooldownMs) makes two ACCEPTED honks
+   * in one tick impossible — there is never anything to queue. Monotonic and
+   * never reset: the server consumes it with max(), so a reset would read as a
+   * stale counter and silently swallow the next honk (world.ts records the same
+   * reasoning for lastHornSeq).
+   */
+  private hornCount = 0;
 
   constructor(private readonly send: (type: string, msg: InputMsg) => void) {}
 
@@ -92,10 +141,26 @@ export class InputSampler {
     return this.seq;
   }
 
+  /** Cumulative honk counter for the wire (InputMsg.hornSeq). */
+  get hornSeq(): number {
+    return this.hornCount;
+  }
+
+  /**
+   * A honk was ACCEPTED locally (alive, not spectating, off cooldown): advance
+   * the counter so the next input — the regular tick sample or a tab-hide
+   * neutral send — carries it. Nothing is played here: an own honk is NEVER
+   * client-predicted (amendment 58); the honker hears their own horn from the
+   * server's self-addressed `fh`, exactly once.
+   */
+  honk(): void {
+    this.hornCount += 1;
+  }
+
   /** Build + send this tick's input. Returns the message for local prediction. */
   sample(axes: Axes, aiming: Aiming): InputMsg {
     this.seq += 1;
-    const msg = buildInput(this.seq, axes, aiming);
+    const msg = buildInput(this.seq, axes, aiming, this.hornCount);
     this.lastAiming = { ...aiming };
     this.send(MSG.input, msg);
     return msg;
@@ -141,7 +206,11 @@ export class InputSampler {
     const actSeq = live ? (currentActSeq ?? 0) : this.lastAiming.actSeq;
     const actSlot = live ? (currentActSlot ?? this.lastAiming.actSlot) : this.lastAiming.actSlot;
     this.lastAiming = { ...this.lastAiming, fireSeq, fireT, actSeq, actSlot };
-    const msg = buildInput(this.seq, { throttle, rudder: 0 }, this.lastAiming);
+    // The honk counter needs no gap-handling parameter: it lives on the sampler
+    // itself, so a press landing in the <=1-tick gap before the tab hid is
+    // already reflected here and sounds NOW rather than on refocus (the fireSeq
+    // treatment, arrived at for free).
+    const msg = buildInput(this.seq, { throttle, rudder: 0 }, this.lastAiming, this.hornCount);
     this.send(MSG.input, msg);
     return msg;
   }

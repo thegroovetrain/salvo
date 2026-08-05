@@ -27,6 +27,7 @@ import {
   burstVictims,
   consumeAcquisition,
   drawOffer,
+  DEFAULT_HORN_ID,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
@@ -66,6 +67,7 @@ import {
   type HookRegistry,
   type GameEvent,
   type GameMap,
+  type HornId,
   type HullEnvelope,
   type HullId,
   type HullTarget,
@@ -409,6 +411,38 @@ export interface ShipRecord {
    * after respawn). Initialized to 0 in addShip only.
    */
   lastActSeq: number;
+  /**
+   * Highest InputMsg.hornSeq the foghorn control has consumed (Story 4.5 —
+   * the hornSeq sibling of lastFireSeq/lastActSeq, same monotonic grammar). A
+   * stored value newer than this is one pending honk; consumption happens
+   * EVERY tick (even dead, droned, or on cooldown — the press is consumed and
+   * silently dropped, exactly as malformed input is), so a press is never
+   * queued. Like its siblings it is deliberately NOT reset on respawn/redeploy
+   * — the live input still carries the old counter, and a reset would make it
+   * read as a fresh press (a phantom honk on the tick after respawn).
+   * Initialized to 0 in addShip only.
+   */
+  lastHornSeq: number;
+  /**
+   * ms — server time this ship may sound its next FOGHORN (Story 4.5);
+   * 0 = eligible immediately. Armed by consumeHonk to
+   * now + CONFIG.foghorn.cooldownMs on each accepted honk — the
+   * server-authoritative rate limit (an early press is consumed and silently
+   * dropped; the client's mirror of the same number exists only to avoid wire
+   * spam). SERVER-PRIVATE, never on the wire. RESET to 0 on respawn/redeploy
+   * (the nextSmokeAt rule) so a fresh life never inherits a stale cooldown;
+   * dead hulls never honk (consumeHonk's alive gate), so no sink-time reset
+   * is needed.
+   */
+  nextHonkAt: number;
+  /**
+   * The equipped foghorn variant (Story 4.5, amendment 52) — rides every `fh`
+   * event this ship sounds (`FoghornEvent.h`), the cosmetic seam for a future
+   * purchasable horn. Fixed at join (sanitizeHornId over the join option);
+   * deliberately NOT a PlayerMeta/roster field — a horn is only ever public
+   * at the moment it sounds.
+   */
+  horn: HornId;
   /**
    * ms — server-clock time the active speed-boost window ends (Story 1.6);
    * 0 = inactive. Written ONLY by the speedBoost Equipment row's activate();
@@ -821,8 +855,10 @@ export class World {
 
   /** Spawn a new ship on the ring, max-distance from existing ships. Players
    *  pass their picked ShipClassId; drones pass a drone hull id — the envelope
-   *  source (hullEnvelope) is the ONLY thing that differs between them. */
-  addShip(id: string, name: string, isDrone = false, hullId: HullId = 'torpedoBoat'): ShipRecord {
+   *  source (hullEnvelope) is the ONLY thing that differs between them.
+   *  `horn` is the sanitized foghorn variant from the join option (Story 4.5);
+   *  drones keep the default (they never honk — consumeHonk gates them). */
+  addShip(id: string, name: string, isDrone = false, hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID): ShipRecord {
     const p = pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng);
     const cls = hullEnvelope(hullId);
     const stats = effectiveStats(cls);
@@ -854,6 +890,8 @@ export class World {
       lastAckSeq: 0,
       lastFireSeq: 0,
       lastActSeq: 0,
+      // Foghorn (Story 4.5): fresh counter + cooldown, join-time variant.
+      lastHornSeq: 0, nextHonkAt: 0, horn,
       // A fresh hull carries no open windows — boost, DAMAGE CONTROL pool
       // (2026-08-04), prop-fouling slow, dazzle — the same four zeroed together
       // at every other life boundary (sinkShip / respawn / redeployShip).
@@ -872,11 +910,7 @@ export class World {
       damageDealt: 0,
     };
     this.ships.set(id, rec);
-    // Assign the stable per-match track id eagerly (R3) — every ship has one
-    // regardless of mode (the roll rides its own private stream, so it can
-    // never shift any other stream), and it survives removeShip by design
-    // (see trackIds: a decoy impersonates its owner past the owner's leave).
-    this.pseudonymFor(id);
+    this.pseudonymFor(id); // eager track id (R3) — see pseudonymFor / trackIds
     if (isDrone) this.drones.add(id);
     this.pending.push({ k: 'spawn', id, x: p.x, y: p.y });
     return rec;
@@ -962,11 +996,14 @@ export class World {
     ship.repairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
-    // A fresh match never inherits a stale smoke timer (Story 4.4).
+    // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
+    // stale foghorn cooldown (Story 4.5).
     ship.nextSmokeAt = 0;
-    // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a
-    // phantom shot / phantom boost (the stored input's fireSeq/actSeq would read
-    // as a fresh click/press on this tick).
+    ship.nextHonkAt = 0;
+    // lastFireSeq / lastActSeq / lastHornSeq are deliberately NOT reset — a
+    // reset fires a phantom shot / phantom boost / phantom honk (the stored
+    // input's fireSeq/actSeq/hornSeq would read as a fresh click/press on
+    // this tick).
     ship.seenBallistics.clear();
     ship.torpDirs.clear();
     ship.loadout = loadoutFor(ship.hullId, ship.stats);
@@ -1392,6 +1429,11 @@ export class World {
     // in the same step-order position — both turn this tick's stored input intent
     // into activations through the single sinking gate.
     this.activationControl();
+    // Foghorn (Story 4.5): the hornSeq sibling, resolved in the same
+    // step-order position — post-move, so a honk sounds at the ship's TRUE
+    // position this tick. An emote, never an activation: it goes nowhere near
+    // the sinking gate, the equipment rows, or the denial queue.
+    this.hornControl();
     // Radar: the sweep advances here; the per-observer paint (blips) happens
     // at frame-build time in perception.ts using [prevSweepAngle, sweepAngle).
     this.advanceSweeps(dtMs);
@@ -2359,6 +2401,42 @@ export class World {
   }
 
   /**
+   * Foghorn control (Story 4.5) — the hornSeq sibling of activationControl,
+   * same intent-queue walk: every accepted input's honk intent is evaluated in
+   * seq order (tickIntents), then the stored latest input as the direct-
+   * assignment (test) backstop, so a press coalesced into a busy tick is never
+   * silently swallowed.
+   */
+  private hornControl(): void {
+    for (const ship of this.ships.values()) {
+      for (const intent of ship.tickIntents) this.consumeHonk(ship, intent);
+      this.consumeHonk(ship, ship.input);
+    }
+  }
+
+  /**
+   * Evaluate ONE accepted input's honk intent (hornSeq grammar) — the
+   * consumePress sibling: unconditional consumption (lastHornSeq advances
+   * even dead, droned, or on cooldown, so a stale/replayed counter never
+   * re-reads as a fresh press) + at-most-once evaluation. An eligible press
+   * emits ONE `fh` SUBJECT into pending — {k,h,x,y,id}, the ship's true
+   * current position and id, which the signals.ts foghorn row consumes to
+   * compute each observer's bearing/tier and NEVER forwards (materialize
+   * builds a fresh per-observer payload; x/y reach spectators only, id
+   * reaches no one) — and arms the cooldown. An early or ineligible press
+   * (dead, drone, inside cooldownMs) is consumed and silently dropped,
+   * exactly as malformed input is: no denial, no event, no state beyond the
+   * counter.
+   */
+  private consumeHonk(ship: ShipRecord, input: InputMsg): void {
+    const pressed = input.hornSeq > ship.lastHornSeq;
+    ship.lastHornSeq = Math.max(ship.lastHornSeq, input.hornSeq);
+    if (!pressed || !ship.alive || ship.isDrone || this.now < ship.nextHonkAt) return;
+    ship.nextHonkAt = this.now + CONFIG.foghorn.cooldownMs;
+    this.pending.push({ k: 'fh', h: ship.horn, x: ship.state.x, y: ship.state.y, id: ship.id });
+  }
+
+  /**
    * THE sinking-activation gate — the ONLY call path to Equipment.activate()
    * anywhere. Takes the SELECTED slot INDEX and resolves the slot on THIS
    * ship internally, so a caller can never hand it ship A plus ship B's slot
@@ -2659,9 +2737,12 @@ export class World {
     // this, a hull that puffed just before sinking would owe the remainder of
     // the old interval on its next life.
     ship.nextSmokeAt = 0;
-    // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a
-    // phantom shot / phantom boost (the stored input's fireSeq/actSeq would read
-    // as a fresh click/press on this tick).
+    // ...nor a stale foghorn cooldown (Story 4.5, the same rule).
+    ship.nextHonkAt = 0;
+    // lastFireSeq / lastActSeq / lastHornSeq are deliberately NOT reset — a
+    // reset fires a phantom shot / phantom boost / phantom honk (the stored
+    // input's fireSeq/actSeq/hornSeq would read as a fresh click/press on
+    // this tick).
     // Boons AND the deck PERSIST across a waiting-phase respawn, so the fresh
     // loadout re-derives with their slot effects replayed — the SAME shared
     // derivation the client runs (slotsWithBoons ≡ loadoutFor at zero boons,

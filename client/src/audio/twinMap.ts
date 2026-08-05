@@ -16,8 +16,20 @@
 
 import type { ToneId } from './tones.js';
 
-/** ToneId -> the visual channel that carries the SAME information, muted. */
-export const TONE_TWINS: Record<ToneId, string> = {
+/**
+ * Every cue the client can SOUND, whichever engine path plays it (Story 4.5).
+ *
+ * The table's key widened from `ToneId` to this the moment the foghorn shipped
+ * on its own play path (`Audio.playHorn`, outside the `TONES` table): the
+ * accessibility floor is a property of AUDIBLE CUES, not of one code path, so a
+ * cue that dodges `ToneSpec` must not thereby dodge its visual twin. The name
+ * `TONE_TWINS` is kept deliberately — the law is unchanged and no call site
+ * should have to move for a type widening.
+ */
+export type AudioCueId = ToneId | 'foghorn';
+
+/** AudioCueId -> the visual channel that carries the SAME information, muted. */
+export const TONE_TWINS: Record<AudioCueId, string> = {
   fireGun: 'muzzle flash on the firing hull + the shell leaving under dead reckoning (render/effects, projectiles)',
   fireTorp: 'the fish itself + its wake trail on the water (render/projectiles, effects torpwake)',
   fireMine: 'the armed mine marker appearing on the chart (render/mines)',
@@ -44,9 +56,18 @@ export const TONE_TWINS: Record<ToneId, string> = {
   stormWarn: 'the storm vignette closing in + the OUTSIDE tag in the HUD (render/zone, hud)',
   telegraphUp: 'the engine-order detent stepping AHEAD on the helm telegraph (render/hud, input/telegraph)',
   telegraphDown: 'the engine-order detent stepping ASTERN on the helm telegraph (render/hud, input/telegraph)',
+  // --- THE FOGHORN (Story 4.5, amendment 55) ---------------------------------
+  // A honk is BEARING-ONLY information, so its twin has to carry a bearing and
+  // nothing more: a marker pinned to the viewport edge pointing down the honk,
+  // its weight set by the volume tier the listener earned. Presence, direction
+  // and tier weight are INFORMATION and survive `motion: 'off'` intact (UX-DR36);
+  // only the fade is a flourish. Your OWN honk gets the hull bloom instead — a
+  // bearing to yourself is meaningless — which is why both surfaces are named.
+  foghorn:
+    'the screen-edge bearing chevron pointing down the honk, weighted by volume tier (render/foghorn), plus the own-hull bloom for your own honk (render/effects)',
 };
 
-/** Pure: the visual twin named for a tone (the table is total over ToneId). */
-export function toneTwin(id: ToneId): string {
+/** Pure: the visual twin named for a cue (the table is total over AudioCueId). */
+export function toneTwin(id: AudioCueId): string {
   return TONE_TWINS[id];
 }

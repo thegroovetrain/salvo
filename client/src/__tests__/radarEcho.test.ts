@@ -1,5 +1,5 @@
-// The `return`-grammar acquire path of render/radar.ts (cycle 50, amendments
-// 51-59) — the Pixi adapter around returnMarks.ts, exercised through the real
+// The `return`-grammar acquire path of render/radar.ts (cycle 51, amendments
+// 62-70) — the Pixi adapter around returnMarks.ts, exercised through the real
 // scene graph.
 //
 // WHAT IS CONTRACT HERE, not coverage:

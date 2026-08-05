@@ -11,10 +11,13 @@
 // a witness or its killer, and the per-observer `seen` flag may be present
 // only when the witness predicate holds — see verifySunk; plus DAMAGE
 // CONTROL's healer-private `heal` and the owner-only `repairHp` pool,
-// neither of which may ever reach another observer; and Story 4.4's FIFTH
+// neither of which may ever reach another observer; Story 4.4's FIFTH
 // declared exception, the anonymous `sm` wounded-smoke pulse inside the same
 // constant SIGHT*1.5 halo with island LOS — identity-free for EVERY observer,
-// see the sm verifier). The checks below
+// see the sm verifier; and Story 4.5's SIXTH declared exception, the
+// bearing-only `fh` foghorn — bearing + volume tier from the LISTENER'S own
+// effective ranges, islands muffling by exactly one tier, never a position
+// or id for any fogged observer, see the fh verifier). The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -24,6 +27,7 @@ import {
   BOON_CATALOG,
   CONFIG,
   HEAL_CHOICE,
+  HORN_IDS,
   bearing,
   effectiveStats,
   hullSilhouette,
@@ -604,7 +608,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
   it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
     let burst: GameEvent | undefined;
     for (let i = 0; i < 120 && !burst; i++) {
       w.step();
@@ -1220,6 +1224,30 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   }
 }
 
+/**
+ * The foghorn VOLUME-TIER oracle (Story 4.5, amendments 53/54), reimplemented
+ * test-locally from the amendment text — NEVER the production hornTierFor.
+ * Bands from the LISTENER'S own effective ranges (this file's effSight /
+ * effRadar reimplementations): tier 1 d ≤ effSight; tier 2 d ≤
+ * max(1.5 × effSight, SIGHT × 1.5 — the 495u constant re-derived as a literal,
+ * the clamp that stops dazzle from also deafening); tier 3 d ≤ max(effRadar,
+ * the tier-2 bound); beyond → inaudible. Islands MUFFLE by exactly one tier
+ * (1→2, 2→3, 3→inaudible), applied once after the distance tier resolves.
+ */
+function hornTierOracle(w: World, me: ShipRecord, p: { x: number; y: number }): number | null {
+  const d = dist(me.state, p);
+  const sight = effSight(me, w.now);
+  const mid = Math.max(1.5 * sight, SIGHT * 1.5);
+  const far = Math.max(effRadar(me), mid);
+  let tier: number;
+  if (d <= sight) tier = 1;
+  else if (d <= mid) tier = 2;
+  else if (d <= far) tier = 3;
+  else return null;
+  if (clearLos(me.state, p, w.map.islands)) return tier;
+  return tier === 3 ? null : tier + 1;
+}
+
 const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   blip: verifyBlip,
   shell: verifyBallistic,
@@ -1294,6 +1322,39 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     expect([1, 2]).toContain(ev.tier);
     expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.5);
     expect(clearLos(me.state, ev, w.map.islands)).toBe(true);
+  },
+  fh: (w, me, e) => {
+    // THE FOGHORN (Story 4.5, amendments 51-58) — the SIXTH declared
+    // exception, reimplemented here independently of its registry row (see
+    // hornTierOracle below — never the production hornTierFor). The payload
+    // KEY SET is the anti-leak oracle: {k,h,self} for the honker, {k,h,b,v}
+    // for a fogged listener — and NO fogged observer's payload may EVER carry
+    // an `id`, `x`, or `y` key (x/y are the spectator path's alone), nor any
+    // correlation handle (amendment 45's rule verbatim). Every payload must
+    // also be JUSTIFIED by a real honk this tick: a world-internal `fh`
+    // subject whose independently-computed tier and bearing for THIS observer
+    // match the wire exactly.
+    const ev = e as { k: 'fh'; h: string; self?: true; b?: number; v?: number };
+    expect((HORN_IDS as readonly string[]).includes(ev.h)).toBe(true);
+    for (const forbidden of ['id', 'x', 'y']) expect(Object.hasOwn(ev, forbidden)).toBe(false);
+    const subjects = w.tickEvents.filter((t) => t.k === 'fh') as Array<{ k: 'fh'; h: string; x: number; y: number; id: string }>;
+    if (ev.self === true) {
+      expect(Object.keys(ev).sort()).toEqual(['h', 'k', 'self']);
+      expect(subjects.some((s) => s.id === me.id && s.h === ev.h)).toBe(true);
+      return;
+    }
+    expect(Object.keys(ev).sort()).toEqual(['b', 'h', 'k', 'v']);
+    expect([1, 2, 3]).toContain(ev.v);
+    expect(ev.b).toBeGreaterThanOrEqual(0);
+    expect(ev.b).toBeLessThan(2 * Math.PI);
+    const justified = subjects.some(
+      (s) =>
+        s.id !== me.id &&
+        s.h === ev.h &&
+        hornTierOracle(w, me, s) === ev.v &&
+        wrapPositive(bearing(me.state, s)) === ev.b,
+    );
+    expect(justified).toBe(true);
   },
   torpU: (w, me, e) => {
     // A homing-track UPDATE (Story 2.8): only a LIVE steering torpedo the
@@ -1437,6 +1498,14 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             // repeated presses drain the 1-charge pool into no-ammo denials.
             actSeq: rng.float(0, 1) < 0.3 ? tick : 0,
             actSlot: 2,
+            // THE FOGHORN (Story 4.5): every ship honks on tick 1 (the fh
+            // oracle is EXERCISED, never vacuous — the honker's own self
+            // payload is guaranteed, and cross-ship deliveries land at random
+            // distances/LOS so all three tiers and the island muffle get
+            // fuzzed), plus ~30% random later presses (which the 1500ms
+            // cooldown consumes and drops inside this 300ms run — the
+            // stale/early-press path is fuzzed too).
+            hornSeq: tick === 1 || rng.float(0, 1) < 0.3 ? tick : 0,
           });
         }
         // DAMAGE CONTROL (2026-08-04): drive REAL heal spends through the fuzz
@@ -1471,17 +1540,18 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // litZones/decoys frame channels (verifyFrame/verifyMine/verifyLitZone/
   // verifyDecoy), not through EVENT_VERIFIERS.
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
-  // The 16 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
+  // The 17 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
   // CONTROL strip brought 'heal' BACK, on stricter no-severity terms; Story
-  // 4.4 added the anonymous wounded-smoke row 'sm').
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm'];
+  // 4.4 added the anonymous wounded-smoke row 'sm'; Story 4.5 added the
+  // bearing-only foghorn row 'fh').
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 20 expected channel keys (16 event kinds + contact + mine + litzone + decoy)', () => {
+  it('has exactly the 21 expected channel keys (17 event kinds + contact + mine + litzone + decoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(20);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(21);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {

@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-05  # cycle 50 (0.17.50), the radar realism cycle (interstitial — playtest-driven)
+# last_updated: 2026-08-05  # cycle 51 (0.17.51), the radar realism cycle (interstitial — playtest-driven; landed in parallel with Story 4-5, which took cycle 50)
 #                          # cycle 46 (0.17.46), DAMAGE CONTROL heal strip (interstitial)
 #                          # cycle 45 (0.17.45) was the Public Register (interstitial — global kill feed), landed in parallel.
 #                          # cycle 44 (0.17.44) was the per-weapon balance pass, landed in parallel.
@@ -104,9 +104,11 @@ development_status:
   epic-3-retrospective: done  # epic-3-retro-2026-08-03.md (live with Eric; carries the ~10-player playtest reads)
 
   # epic-4: Information Texture (GDD E6)
-  epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 50 (0.17.50) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
-  # INTERSTITIAL 2026-08-05 (dev-auto cycle 50, 0.17.50) — THE RADAR REALISM CYCLE. PV 25->26.
-  # Amendments 62-73. NOT an epic story: driven by playtest feedback from ohzie (day-one player)
+  epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-05 (dev-auto cycle 51, 0.17.51) — THE RADAR REALISM CYCLE. PV 26->27.
+  # Landed in PARALLEL with Story 4-5 (the foghorn): both branched from PV 25 and both claimed 26,
+  # 4-5 merged first, so this cycle renumbered to 51/PV 27 and its amendments 51-64 -> 62-75.
+  # Amendments 62-75. NOT an epic story: driven by playtest feedback from ohzie (day-one player)
   # — "It's almost too much information ... I can tell what you are and whether you're a player ...
   # when everyone's just a blip, chasing a blip is a risk, and risks get your blood up."
   # A SECOND radar grammar ships ALONGSIDE story 4-2's silhouette grammar, selected by two
@@ -123,9 +125,11 @@ development_status:
   # easy"), drones are INDISTINGUISHABLE from captains, and the ARPA speed vector dies — course and
   # speed demote from readout to INFERENCE off the 3-paint ghost track, which is exactly the ground
   # amendment 9 stood on. Islands now paint coast returns (client-only, from the map seed, near-arc
-  # with cross-island LOS). Hue is respent from IDENTITY to SENSOR PROVENANCE (amendment 65):
-  # radar is monochrome phosphor green and AMBER IS RESERVED-BUT-UNASSIGNED for a future sound
-  # sensor — anything spending amber on the water must read amendment 71 first.
+  # with cross-island LOS). Hue is respent from IDENTITY to RETURN STRENGTH: amendment 65 first made
+  # radar monochrome, then Eric saw it on water and ruled the Garmin echo scale (amendments 74-75) —
+  # return-mode echoes run blue->green->yellow->red by strength while the SWEEP stays phosphor green.
+  # The ramp passes THROUGH the reserved amber and red bands, so amber is not visually free even
+  # though the amber TOKEN is still unspent and reserved for a future sound sensor (amendment 71).
   # THREE QUESTIONS DELIBERATELY LEFT OPEN by Eric, all ledgered in deferred-work.md: Bounty Bloom
   # (blocks/reshapes STORY 4-6 — see the note on that line), the colorblind assist under `return`
   # mode, and the sonar hue vs the listening ring.
@@ -148,8 +152,8 @@ development_status:
   # Eric to Story 6-3 below. Match.checkWin() is untouched — see amendment 23 for why the naive
   # removal breaks the solo path (drones.test.ts / dronesSmoke.mjs at minHumans:1).
   4-4-wounded-smoke: done  # 2026-08-05 dev-auto cycle 49 (0.17.49); PV 24->25; amendments 40-50 ratified pre-implementation. `sm` is the FIFTH declared perception-invariant exception (joining 4.3's sp/hc/mz and cycle 45's sunk) and is a first TWICE OVER: the first enemy-HP-derived information ever put on the wire, and the first PERSISTENT fog-piercing signal (the other four are one-tick pulses). Eric's own question — "don't we have the HP bar turning yellow or red already?" — reframed the story mid-gate and moved him OFF his first answer (truesight-only texture) onto a real fog-piercing channel: smoke tiers ARE the own-vitals rail bands (light <50%, heavy <25%), so `CONFIG.damageBands` was PROMOTED to shared and `CLIENT_CONFIG.vitals` now REFERENCES it — exactly one set of 0.5/0.25 exists in the codebase and a future rail retune moves the smoke with it. Reach reuses `CONFIG.vision.muzzleFlash` (495u) rather than adding a fourth vision constant, so all new disclosure happens in the 330-495u annulus and radar stays the only long-range sensor. The plume is ATTACHED and drifting (not a track), NEUTRAL (no id/hue/class for anyone, so no correlation handle exists on the wire and the client synthesizes persistence the phosphor way), islands BLOCK it, you see your OWN plume, and every hull with hp smokes incl. drones. No audio twin — 4.7 owns that.
-  4-5-the-foghorn: backlog
-  4-6-the-bounty: backlog  # SCOPE CHANGED 2026-08-05 (cycle 50, amendment 71): DESIGN.md:237's Bounty Bloom is specced as "an expanding ring in the leader's personal color around their class blip at true position" — and `HC_RADAR_GRAMMAR=return` deletes BOTH of those channels (personal hue on radar, and the class blip). 4-6 must resolve it, and Eric declined to rule at cycle 50's gate: "I don't know honestly because I haven't addressed the 'bounty' story at all yet. I'm not sure I want the kill leader's position to be known globally, for example." Note the deeper question that raises is NOT a rendering question — whether a global position broadcast should exist at all is a fog-of-war call that would touch the master perception invariant's declared-exception list (currently 5: sp/hc/mz/sunk/sm). Options surfaced and NOT chosen: a hueless expanding ring on an anonymous return (keeps "someone is leading, over there", loses "who"), a sanctioned identity exception on radar, or dropping the feature. See deferred-work.md, cycle-50 block.
+  4-5-the-foghorn: done  # 2026-08-05 dev-auto cycle 50 (0.17.50); PV 25->26; amendments 51-61 ratified (51-59 at a pre-implementation gate, 60-61 post-review). The foghorn SHIPS — 4-5 does NOT defer, and amendment 4's open question is CLOSED: it grew its own bearing surface. `fh` is the SIXTH declared perception-invariant exception and the FIRST signal whose payload varies BY OBSERVER in substance rather than by a flag — a fogged listener gets bearing + volume tier ONLY (no position, no id, no correlation handle), the honker gets {self}, a spectator gets position. Volume tiers scale with the LISTENER's effective ranges (sightOf / max(1.5*sight, muzzleFlash) / radarRange, max()-clamped monotone so an intel build hears farther and DAZZLE CANNOT ALSO DEAFEN). ISLANDS MUFFLE BY EXACTLY ONE TIER (1->2, 2->3, 3->inaudible) — the FIRST dent in the 2026-08-02 "islands block every sensor" law, and Eric reversed his own full-carve-out answer mid-run to get it, because terrain must keep working as a hiding mechanism if a bearing-grade sound sensor is ever revived. Visual twin is a SCREEN-EDGE CHEVRON (deliberately foghorn-shaped, not sensor-shaped — a revived 4-1 inherits nothing). Key is F as reserved, closing UX open question #20; 1.5s cooldown; a denied press is COMPLETELY SILENT (amendment 60 — the horn was the only `denied` site in the client with no visual twin, so Eric dropped the orphan cue rather than invent a surface). THE WIRE CARRIES A HORN VARIANT ID — a knowing, narrow break with amendments 19/45's neutral-signal rule, justified because an emote is information a captain SPENDS, not leaks — behind a sample-capable audio seam with EXACTLY ONE synthesized horn shipped. ADDING HORN VARIANTS IS ERIC-GATED CONTENT. Own honks are never client-predicted.
+  4-6-the-bounty: backlog  # SCOPE CHANGED 2026-08-05 (cycle 51, amendment 71): DESIGN.md:237's Bounty Bloom is specced as "an expanding ring in the leader's personal color around their class blip at true position" — and `HC_RADAR_GRAMMAR=return` deletes BOTH of those channels (personal hue on radar, and the class blip). 4-6 must resolve it, and Eric declined to rule at cycle 51's gate: "I don't know honestly because I haven't addressed the 'bounty' story at all yet. I'm not sure I want the kill leader's position to be known globally, for example." Note the deeper question that raises is NOT a rendering question — whether a global position broadcast should exist at all is a fog-of-war call that would touch the master perception invariant's declared-exception list (now 6 after 4-5's `fh`: sp/hc/mz/sunk/sm/fh). Options surfaced and NOT chosen: a hueless expanding ring on an anonymous return (keeps "someone is leading, over there", loses "who"), a sanctioned identity exception on radar, or dropping the feature. See deferred-work.md, cycle-51 block.
   4-7-the-real-time-sound-map: backlog
   4-8-attention-priority-the-readability-gate: backlog
   epic-4-retrospective: optional
@@ -219,9 +223,9 @@ action_items:
     owner: "ledger (playtest checkpoint)"
     status: open
   - epic: 4
-    action: "Story 4-5 (The Foghorn) lost its ratified display surface to the 4-1 deferral — the honk's arc sweep lit every hull's listening ring, which no longer exists. 4-5 must grow its own bearing surface or defer alongside 4-1; settle with Eric BEFORE create-story 4-5, not during it (Eric ruling 2026-08-04, epic-4 amendment 4)"
+    action: "RESOLVED 2026-08-05 (dev-auto cycle 50, epic-4 amendment 55): Story 4-5 grew its OWN bearing surface — a screen-edge chevron — and shipped rather than deferring alongside 4-1. Rejected at the gate: an arc tick on the truesight ring (competes with the sight boundary's own meaning) and reviving the ratified 48-pip compass rose for honks alone (would pre-commit the shape of a revived listening ring). The chevron is deliberately foghorn-shaped, not sensor-shaped, so a revived 4-1 inherits nothing from it"
     owner: "spec author (create-story 4-5)"
-    status: open
+    status: resolved
   - epic: 4
     action: "Story 4-8 must not pin a listening-ring Tier-1 attention channel (deferred with 4-1); shipped Tier-1 set is the low-HP rail pulse + live denied pulse. Still owns resolving the tier-table <25%-vs-50% doc drift with Eric rather than inheriting the stale number"
     owner: "spec author (create-story 4-8)"

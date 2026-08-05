@@ -28,8 +28,13 @@ const MAP_R = 900;
 const TB = CONFIG.shipClasses.torpedoBoat;
 const TB_POLY = hullSilhouette('torpedoBoat');
 
+// `hornSeq: 0` is the "never honked" sentinel (Story 4.5). Prediction never
+// reads it — a honk is an emote with no kinematic consequence, so it rides the
+// input purely as wire cargo — but InputMsg requires it, and pinning the
+// sentinel here is what would make a future honk that DID move a hull fail
+// loudly instead of quietly desyncing prediction.
 function input(seq: number, throttle = 1, rudder = 0, actSeq = 0): InputMsg {
-  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq, actSlot: actSeq > 0 ? 2 : 0 };
+  return { seq, throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq, actSlot: actSeq > 0 ? 2 : 0, hornSeq: 0 };
 }
 
 function kin(s: ShipState) {
