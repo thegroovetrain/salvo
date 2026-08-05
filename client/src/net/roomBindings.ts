@@ -569,6 +569,13 @@ function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): vo
 function handleHeal(e: HealEvent, deps: RoomBindingDeps): void {
   if (e.id !== deps.state.net.sessionId) return;
   deps.audio.play('heal');
+  // ALSO the spend latch's ack, for the same reason `bn` is one (see
+  // handleBoonFit): a heal is the OTHER way a spend can land, and every other
+  // release clause is an inference off `you` that a same-frame passive bank can
+  // mask. Without this, a heal spent with a second level queued behind an
+  // identical-signature offer releases as 'failed' at the 1.5s timeout and
+  // pulses a DENIAL over a heal the server actually granted.
+  deps.onSpendAck();
 }
 
 /**

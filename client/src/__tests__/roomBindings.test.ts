@@ -563,10 +563,30 @@ describe('bindRoom reward toasts', () => {
     expect(onSpendAck).toHaveBeenCalledTimes(1);
   });
 
-  it('a level-up bank is NOT a spend ack (only `bn` is)', () => {
+  it('a level-up bank is NOT a spend ack (only `bn` and `heal` are)', () => {
     document.body.replaceChildren();
     const { sink, onSpendAck } = setupToasts();
     sink.handler(rewardFrame({ k: 'pt', id: 'me' }, { alive: true }));
+    expect(onSpendAck).not.toHaveBeenCalled();
+  });
+
+  // CYCLE 44 REVIEW-GATE REGRESSION (flagged by BOTH review models): a heal is
+  // the OTHER way a spend can land, so it must ack the latch exactly as `bn`
+  // does. Without the ack, `spendOutcome` falls back to inference off `you` —
+  // and a heal spent with a second level queued behind an IDENTICAL-signature
+  // offer leaves both `pts` and the front-offer signature unchanged, so the
+  // latch times out at 1.5s and pulses a DENIAL over a heal the server granted.
+  it('routes a SELF heal to deps.onSpendAck (the spend latch receipt)', () => {
+    document.body.replaceChildren();
+    const { sink, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'heal', id: 'me' }, { alive: true }));
+    expect(onSpendAck).toHaveBeenCalledTimes(1);
+  });
+
+  it("another ship's heal never acks OUR spend latch", () => {
+    document.body.replaceChildren();
+    const { sink, onSpendAck } = setupToasts();
+    sink.handler(rewardFrame({ k: 'heal', id: 'someone-else' }, { alive: true }));
     expect(onSpendAck).not.toHaveBeenCalled();
   });
 });
