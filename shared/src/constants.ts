@@ -190,8 +190,16 @@ export const CONFIG = {
     // often for its payload. A max shipCooldown build (5 copies, cooldownScale
     // 0.5 — the ONE global reduction line) lands it at 2.5s.
     reloadMs: 5000,
-    damage: 25, // hp per burst victim — THE gun-damage tunable (pinned by damageGuardrail.test)
-    contactDamage: 10, // hp to an early interceptor outside the blast (bodyblock)
+    // hp per burst victim — THE gun-damage tunable (pinned by
+    // damageGuardrail.test). RETUNED 25 → 15 (Eric ruling 2026-08-04, the
+    // weapon balance pass): a permanently-fitted default weapon hit far too
+    // hard. HEAVY SHELLS ×5 (+3/card) tops the ladder at 30, still well under
+    // the 80hp one-hit-kill floor.
+    damage: 15,
+    // hp to an early interceptor outside the blast (bodyblock). RETUNED 10 → 6
+    // (Eric ruling 2026-08-04, weapon balance pass) — held at 40% of `damage`,
+    // the ratio the bodyblock was tuned at.
+    contactDamage: 6,
     burstRadius: 15, // u — blast radius around the clicked point
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)
   },
@@ -199,8 +207,9 @@ export const CONFIG = {
   /**
    * Torpedoes (slot 1): bow tube. Never painted by radar. One-deep ammo pool
    * (owner play test 2026-07-13: two tubes fired both fish within ~2 ticks of
-   * one click, masking the 12s reload; one fish per click + a real reload is
-   * the intended commitment-spike feel). The bow tube is now just the pool.
+   * one click, masking the reload — 12s at the time, 30s since the 2026-08-04
+   * balance pass; one fish per click + a real reload is the intended
+   * commitment-spike feel). The bow tube is now just the pool.
    */
   torpedo: {
     offset: deg(0), // bow-centered — RATIFIED class-era sector (Eric 2026-07-23; see sim/arcs.ts)
@@ -212,9 +221,17 @@ export const CONFIG = {
     // deliberate balance change: torps are harder to dodge (owner call,
     // 2026-07-14 self-hit fix session).
     speed: 60, // u/s
-    damage: 55, // hp
+    // hp. RETUNED 55 → 70 (Eric ruling 2026-08-04, the weapon balance pass): a
+    // heavier fish on a much longer commitment cycle. HEAVY WARHEAD ×5 was
+    // simultaneously cut to +1/card so the ladder tops at 75 — strictly under
+    // the 80hp one-hit-kill floor (see sim/boons.ts torpedoDamage).
+    damage: 70,
     maxAmmo: 1, // one fish in the tube pool
-    reloadMs: 12000, // ms — reload between fish (commitment spike)
+    // ms — reload between fish (commitment spike). RETUNED 12000 → 30000 (Eric
+    // ruling 2026-08-04, weapon balance pass): the heavier warhead buys a much
+    // longer commitment cycle. A max shipCooldown build (5 copies,
+    // cooldownScale 0.5) lands it at 15s.
+    reloadMs: 30000,
     hitRadius: 2, // u — torpedo collision radius added to the hull capsule
     // --- ACOUSTIC HOMING doctrine (Story 2.8, exclusive boon) — DRAFT values,
     // 2.10 tunes. A homing fish steers toward the nearest non-owner hull within
@@ -282,9 +299,21 @@ export const CONFIG = {
     // u — full damage to every non-owner hull within it; > triggerRadius by
     // design (the trip is the detection ring; the blast reaches farther).
     blastRadius: 48,
-    damage: 45, // hp
-    maxAmmo: 1, // stored drops in the ammo pool (one per reload)
-    reloadMs: 8000, // ms — reload between drops
+    // hp. RETUNED 45 → 55 (Eric ruling 2026-08-04, the weapon balance pass).
+    // TNT → RDX FILLER ×5 (+4/card) tops the ladder at 75 — strictly under the
+    // 80hp one-hit-kill floor.
+    damage: 55,
+    // stored drops in the ammo pool (one refilled per reload). RETUNED 1 → 2
+    // (Eric ruling 2026-08-04, weapon balance pass): a Mine Layer could not lay
+    // a FIELD with a one-deep rack. This is a BASE change with no new
+    // machinery — the same shared pool path torpedoTube already exercises for a
+    // 2-deep pool — and deliberately NOT a new catalog card. `maxLive` (5) is
+    // untouched and remains a distinct cap (see below).
+    maxAmmo: 2,
+    // ms — reload between drops. RETUNED 8000 → 15000 (Eric ruling 2026-08-04,
+    // weapon balance pass): the rack got deeper, so each round costs more. A
+    // max shipCooldown build (5 copies, cooldownScale 0.5) lands it at 7.5s.
+    reloadMs: 15000,
     // maxLive is DISTINCT from the ammo pool: the drop pool caps how many you
     // can drop before reloading; maxLive caps how many stay LIVE on the board at
     // once (oldest evicted past it). Separate stat, separate upgrade later.
@@ -345,10 +374,17 @@ export const CONFIG = {
     // ms — cooldown between shots (the commitment spike). RETUNED 15000 →
     // 50000 (Eric ruling 2026-08-04, the global-cooldown-reduction cycle): a
     // 500 u/s shell at a 15s cadence gave no reaction window, making the
-    // cannon the strongest weapon in the game. A max shipCooldown build
-    // (5 copies, cooldownScale 0.5) lands it at 25s.
-    reloadMs: 50000,
-    damage: 50, // hp per burst victim (pinned by damageGuardrail.test)
+    // cannon the strongest weapon in the game.
+    // AMENDED 50000 → 45000 (Eric ruling 2026-08-04, the weapon balance pass):
+    // the same-day 50s retune overshot; 45s keeps the commitment spike without
+    // benching the slot. A max shipCooldown build (5 copies, cooldownScale 0.5)
+    // now lands it at 22.5s (it was 25s under the 50s base).
+    reloadMs: 45000,
+    // hp per burst victim (pinned by damageGuardrail.test). RETUNED 50 → 65
+    // (Eric ruling 2026-08-04, weapon balance pass). HEAVY CHARGE ×5 was
+    // simultaneously cut to +2/card so the ladder tops at 75 — strictly under
+    // the 80hp one-hit-kill floor (see sim/boons.ts cannonDamage).
+    damage: 65,
     contactDamage: 20, // hp to an early interceptor outside the blast (bodyblock)
     burstRadius: 30, // u — blast radius around the clicked point
     shellRadius: 2, // u — shell collision radius (added to hull capsule radius)

@@ -1130,14 +1130,22 @@ export const CLIENT_CONFIG = {
       /** Seconds of travel the shaft represents: the tip IS where the contact
        *  will be in this long, which is the ARPA convention and makes the mark
        *  a deduction input rather than decoration. A 35 u/s battleship gets
-       *  ~105u — a bit under one hull length. */
-      seconds: 3,
-      /** Shortest drawable shaft — a crawling contact still shows a course. */
-      minLength: 24,
-      /** Longest drawable shaft. Above the fastest hull's 3s of travel (45 u/s
-       *  → 135u) plus upgrade headroom, so the clamp bites only on absurd
-       *  speeds and never lets linework overwhelm the silhouette. */
-      maxLength: 150,
+       *  ~52.5u — a bit under half a hull length.
+       *
+       *  RETUNED 3 → 1.5 (Eric ruling 2026-08-04, the weapon balance pass): the
+       *  Story 4.2 vector drew long enough to overwhelm the silhouette it
+       *  annotates. All THREE knobs halve together — halving `seconds` alone
+       *  would leave the 24u floor dominating everything under 16 u/s and
+       *  strand `maxLength` beyond any hull's reach. */
+      seconds: 1.5,
+      /** Shortest drawable shaft — a crawling contact still shows a course.
+       *  Halved 24 → 12 with `seconds` (Eric ruling 2026-08-04). */
+      minLength: 12,
+      /** Longest drawable shaft. Above the fastest hull's 1.5s of travel (45
+       *  u/s → 67.5u) plus upgrade headroom, so the clamp bites only on absurd
+       *  speeds and never lets linework overwhelm the silhouette. Halved
+       *  150 → 75 with `seconds` (Eric ruling 2026-08-04). */
+      maxLength: 75,
       /** At or below this speed (u/s) NO vector is drawn — a stationary return
        *  has no course, and drawing the min-length stub for a decoy buoy
        *  (`speed` exactly 0) would have the RENDER invent the lie the wire

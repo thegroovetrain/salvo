@@ -146,7 +146,7 @@ describe('isLiveRival — placement counts HUMANS, never drones', () => {
   });
 });
 
-describe('afloatCount — the chrome bar counts HULLS, drones included (Story 3.3, amendment 19)', () => {
+describe('afloatCount — the chrome bar counts CAPTAINS: humans only, us included (PV 23)', () => {
   const DRONE = 255;
   // A solo captain's field: our hull, one human rival, five drones.
   const field = [
@@ -155,31 +155,43 @@ describe('afloatCount — the chrome bar counts HULLS, drones included (Story 3.
     ...[0, 1, 2, 3, 4].map((n) => ({ id: `drone${n}`, alive: true, color: DRONE })),
   ];
 
-  it('counts every alive hull — drones AND our own', () => {
-    expect(afloatCount(field)).toBe(7);
-    expect(isAfloatHull({ id: 'd', alive: true, color: DRONE })).toBe(true);
-    expect(isAfloatHull({ id: OWN, alive: true, color: 1 })).toBe(true);
+  it('excludes DRONES (not combatants) but still counts the LOCAL PLAYER', () => {
+    expect(afloatCount(field, DRONE)).toBe(2); // us + the one human rival
+    expect(isAfloatHull({ id: 'd', alive: true, color: DRONE }, DRONE)).toBe(false);
+    expect(isAfloatHull({ id: OWN, alive: true, color: 1 }, DRONE)).toBe(true);
   });
 
-  it('thins as the field dies — that IS the readout', () => {
-    const sunk = field.map((m, i) => (i > 3 ? { ...m, alive: false } : m));
-    expect(afloatCount(sunk)).toBe(4);
-    expect(afloatCount(field.map((m) => ({ ...m, alive: false })))).toBe(0);
+  it('thins as the CAPTAINS die — drones sinking never move the number', () => {
+    // The human rival goes down: 2 → 1. Every drone going down changes nothing.
+    const rivalDown = field.map((m) => (m.id === 'human' ? { ...m, alive: false } : m));
+    expect(afloatCount(rivalDown, DRONE)).toBe(1);
+    const dronesDown = field.map((m) => (m.color === DRONE ? { ...m, alive: false } : m));
+    expect(afloatCount(dronesDown, DRONE)).toBe(2);
+    expect(afloatCount(field.map((m) => ({ ...m, alive: false })), DRONE)).toBe(0);
+  });
+
+  it('a room of 4 humans and 16 drones all alive reads 4 AFLOAT', () => {
+    const room = [
+      { id: OWN, alive: true, color: 1 },
+      ...[2, 3, 4].map((n) => ({ id: `h${n}`, alive: true, color: n })),
+      ...Array.from({ length: 16 }, (_, n) => ({ id: `drone${n}`, alive: true, color: DRONE })),
+    ];
+    expect(afloatCount(room, DRONE)).toBe(4);
   });
 
   it('excludes the dead, and an entry the roster has not synced yet', () => {
-    expect(isAfloatHull({ id: 'a', alive: false, color: 3 })).toBe(false);
-    expect(isAfloatHull({ id: 'a' })).toBe(false); // `alive` undefined is not afloat
-    expect(afloatCount([])).toBe(0);
+    expect(isAfloatHull({ id: 'a', alive: false, color: 3 }, DRONE)).toBe(false);
+    expect(isAfloatHull({ id: 'a' }, DRONE)).toBe(false); // `alive` undefined is not afloat
+    expect(afloatCount([], DRONE)).toBe(0);
   });
 
-  it('DISAGREES with the placement count on purpose — two questions, two answers', () => {
-    // THE ratified asymmetry (amendment 19): placement ranks CONTESTANTS
-    // (humans, us excluded), the bar counts HULLS ON THE WATER. Neither may be
-    // "fixed" into the other; this test is the guard on that.
+  it('still DISAGREES with the placement count — the LOCAL-PLAYER half of the asymmetry survives', () => {
+    // The surviving half of the old asymmetry: placement ranks the OTHER
+    // contestants (us excluded), AFLOAT includes our own hull. The drone half
+    // is gone — both counts now exclude drones (the public-register ruling).
     const rivals = field.filter((m) => isLiveRival(m, OWN, DRONE)).length;
     expect(rivals).toBe(1); // the one human rival
-    expect(afloatCount(field)).toBe(7); // ...but seven hulls are still afloat
+    expect(afloatCount(field, DRONE)).toBe(2); // ...but TWO captains are afloat (them + us)
     expect(placementFor(rivals)).toBe(2); // and the placement number is unchanged
   });
 });

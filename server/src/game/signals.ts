@@ -23,7 +23,8 @@
 // id,x,y,heading,speed,cls; BallisticEvent: k,id,x,y,vx,vy,t; stripped boom:
 // k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,mode;
 // DecoyView: id,x,y,until,own,by; SplashEvent/HitCallEvent: k,id,x,y;
-// MuzzleEvent: k,x,y — Story 4.3). Do not reorder keys — `by` (Story 1.12) is
+// MuzzleEvent: k,x,y — Story 4.3; SunkEvent: k,id,by?,seen? — the public
+// register, absent keys OMITTED). Do not reorder keys — `by` (Story 1.12) is
 // appended LAST on mine/decoy, `mode` (Story 2.9) after it on litzone, so the
 // historical prefix stays byte-stable.
 
@@ -632,24 +633,79 @@ const burstSignal: SignalSpec<BurstSubject, BurstEvent> = {
 };
 
 /**
- * `sunk` — visible to the victim itself, and to anyone who can see the sinking
- * ship's position (wreck position: sight + LOS, or inside a lit zone the
- * observer OWNS — Story 1.7 truesight parity, so a firer watches a
- * zone-revealed hull actually go down). Everyone still learns
- * alive/kills/deaths from the public roster schema — sinking is public
- * knowledge, its LOCATION is not. Spectators get the raw event.
+ * The observer legitimately WITNESSED the wreck — today's historical sunk
+ * gate, extracted verbatim: spectator, the observer's own hull, or the wreck
+ * position sighted (sight + LOS) / inside a lit zone the observer OWNS
+ * (Story 1.7 truesight parity, so a firer watches a zone-revealed hull
+ * actually go down). Fail-closed on a missing wreck record. This predicate is
+ * BOTH a visibility clause and the per-observer `seen` stamp (materialize
+ * below), so today's gate keeps its exact meaning and simply becomes a flag
+ * instead of a filter.
+ */
+function sunkWitnessed(ctx: SignalContext, e: SunkEvent): boolean {
+  if (ctx.mode === 'spectator' || e.id === ctx.me.id) return true;
+  const wreck = ctx.ships.get(e.id);
+  if (wreck === undefined) return false;
+  return pointSighted(ctx.me, wreck.state, ctx.islands, ctx.now) || ownZoneCovers(ctx, wreck.state);
+}
+
+/**
+ * The sinking is CREDITED TO this observer — your kill, at any range and
+ * through any fog (the amendment 17 principle, terminal case: "your target
+ * went down" is the end of the same shooter-only conversation the Hit Call
+ * opened). THE single site the future "or a teammate's kill" extension
+ * changes — nothing else may re-derive kill credit.
+ */
+function sunkCreditedTo(ctx: SignalContext, e: SunkEvent): boolean {
+  return e.by !== undefined && e.by === ctx.me?.id;
+}
+
+/**
+ * `sunk` — THE PUBLIC REGISTER (global kill feed): the 4th DECLARED exception
+ * to the master perception invariant (joining Story 4.3's `sp`/`hc`/`mz`),
+ * with its own independently-reimplemented oracle in perception.test.ts.
+ * Three clauses, three separate reasons:
+ *   • WITNESSED (sunkWitnessed — today's rule, unchanged): spectator, own
+ *     hull, or wreck position sighted / owned-zone-covered;
+ *   • CREDITED TO YOU (sunkCreditedTo — the amendment 17 shooter-only
+ *     principle): you learn that anything you sank went down, drone included;
+ *   • THE VICTIM IS A COMBATANT (`!wreck.isDrone`): every human captain's
+ *     sinking reaches every client. This is the single site a future
+ *     PvE/combat-bot distinction changes.
+ * ANTI-LEAK RATIONALE for the public clause: the payload is IDENTITY ONLY
+ * ({k,id,by?} — no position, class, hue, damage, or weapon field), and
+ * ArenaRoom.syncRoster() already makes the FACT of every sinking public —
+ * alive/kills/deaths mirror to every client. What this row adds beyond the
+ * schema is precision, and that is the honest scope of the ratification: the
+ * event is a SAME-TICK channel (frame events send synchronously each tick;
+ * schema patches ride Colyseus's patch-rate timer), and it PAIRS killer to
+ * victim explicitly via `by` — two same-tick kills by different killers
+ * aggregate in the counters as (+1, +1) and cannot be paired back from
+ * deltas. So the public clause makes ATTRIBUTION explicit and same-tick;
+ * it does not merely restate the schema. Drone sinkings are NOT public
+ * (drones are not contestants — a
+ * drone kill is a fraction of a level via CONFIG.xp.droneTierLevels where a
+ * captain is a full one); they arrive only witnessed or credited.
+ * materialize() stamps the per-observer `seen: true` exactly when
+ * sunkWitnessed holds — the client gates everything SPATIAL (sink VFX,
+ * contact teardown) on it, so location stays as protected as it is today.
  */
 const sunkSignal: SignalSpec<SunkEvent, SunkEvent> = {
   eventType: 'sunk',
   visible(ctx, e) {
-    if (ctx.mode === 'spectator') return true;
-    if (e.id === ctx.me.id) return true;
+    if (sunkWitnessed(ctx, e) || sunkCreditedTo(ctx, e)) return true;
     const wreck = ctx.ships.get(e.id);
-    if (wreck === undefined) return false;
-    return pointSighted(ctx.me, wreck.state, ctx.islands, ctx.now) || ownZoneCovers(ctx, wreck.state);
+    return wreck !== undefined && !wreck.isDrone; // the public register: combatants only
   },
-  materialize(_ctx, e) {
-    return e;
+  materialize(ctx, e) {
+    // ALWAYS a fresh object (the burstSignal discipline): KEY ORDER IS
+    // LOAD-BEARING (msgpack): k,id,by?,seen? — and NEVER a key whose value is
+    // undefined (msgpack encodes it; world-emitted storm deaths carry
+    // `by: undefined`, which must leave the wire as an ABSENT key).
+    const out: SunkEvent = { k: 'sunk', id: e.id };
+    if (e.by !== undefined) out.by = e.by;
+    if (sunkWitnessed(ctx, e)) out.seen = true; // per-observer; spectators always carry it
+    return out;
   },
 };
 

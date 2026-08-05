@@ -233,14 +233,14 @@ function scnPtBn(g: Golden): void {
   const w = bareWorld(1003);
   const a = place(w, 'a', 0, 0);
   place(w, 'b', 400, 0); // far (out of a's sight); sunk to bank a a level
-  w.sinkShip('b', 'a'); // sunk(b) + pt(a)
+  w.sinkShip('b', 'a'); // sunk(b) + pt(a) — the sunk now reaches a UNSEEN (PV 23: credited killer)
   a.hp -= 30; // damaged — a non-heal spend may not restore this
   a.offers[0] = ['gunDamage', 'shipCooldown', 'intelSweep', 'torpedoSpeed']; // fixed non-heal hand
   const hpBefore = a.hp;
   expect(w.spendPoint('a', 3)).toBe(true); // the fourth card — bn(a)
   expect(a.hp).toBe(hpBefore); // a non-heal spend never heals
   w.step();
-  cap(g, w, 'a'); // spawn(a) + pt + bn (b's spawn/sunk are out of sight)
+  cap(g, w, 'a'); // spawn(a) + pt + bn + the unseen sunk(b) (b's spawn stays out of sight)
 }
 
 /** mine channel: own mine always, enemy mine in sight, enemy mine in fog hidden. */
@@ -886,8 +886,13 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     // byte-identical).
     scnGunnery(g);
     scnGunneryDecoy(g);
+    // PV 23 (the public register — snapshot regenerated KNOWINGLY): witnessed
+    // `sunk` rows gain the trailing per-observer `seen: true`, and previously
+    // absent sunk rows appear unseen where an observer is the credited killer
+    // or the victim is a human captain. Every other channel must stay
+    // byte-identical.
     // DAMAGE CONTROL addition (appended KNOWINGLY — the snapshot regenerated
-    // with PV 23: every `you` row gains the required `repairHp` key, and this
+    // with PV 24: every `you` row gains the required `repairHp` key, and this
     // scenario adds the self-private `heal` channel).
     scnHeal(g);
 

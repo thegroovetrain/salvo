@@ -184,17 +184,23 @@ describe('buildFrame — events (fogged via perception)', () => {
     expect(buildFrame(w, 'a').events).toEqual([]);
   });
 
-  it('emits sunk events to the victim and to viewers who can see the wreck', () => {
+  it('emits sunk to every client (PV 23), stamping seen only for witnesses', () => {
     const w = makeWorld();
+    place(w, 'c', 2000, 0); // a distant third party, far beyond sight and radar
     w.step(); // flush join spawns
     w.sinkShip('b', 'a');
     w.step();
-    const sunk = { k: 'sunk', id: 'b', by: 'a' };
+    const seen = { k: 'sunk', id: 'b', by: 'a', seen: true };
     // The killer additionally gets its self-private banked-point pt event.
     const aEvents = buildFrame(w, 'a').events;
-    expect(aEvents.filter((e) => e.k === 'sunk')).toEqual([sunk]); // wreck 100u away — visible
+    expect(aEvents.filter((e) => e.k === 'sunk')).toEqual([seen]); // wreck 100u away — witnessed
     expect(aEvents.filter((e) => e.k === 'pt')).toEqual([{ k: 'pt', id: 'a' }]);
-    expect(buildFrame(w, 'b').events).toEqual([sunk]); // victim always told, never the killer's point
+    expect(buildFrame(w, 'b').events).toEqual([seen]); // victim always told (own hull ⇒ seen), never the killer's point
+    // The public register: c never saw the wreck — the feed line's identity
+    // arrives, the spatial license does not.
+    expect(buildFrame(w, 'c').events.filter((e) => e.k === 'sunk')).toEqual([
+      { k: 'sunk', id: 'b', by: 'a' },
+    ]);
   });
 
   it('spawn events carry the spawn position', () => {

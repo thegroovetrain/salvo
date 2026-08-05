@@ -3,7 +3,7 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  23: DAMAGE CONTROL (Eric rulings 2026-08-04) — the heal spend returns as
+ *  24: DAMAGE CONTROL (Eric rulings 2026-08-04) — the heal spend returns as
  *  an ALWAYS-AVAILABLE spend, NOT a card: nothing enters BOON_CATALOG and
  *  deck composition is byte-identical (CONFIG.offer.size stays 4).
  *  `SpendMsg.choice` gains the reserved NEGATIVE sentinel HEAL_CHOICE (-1;
@@ -13,6 +13,14 @@
  *  self-private `heal` GameEvent ({k,id} — the instant application at spend
  *  time, the pt/bn gate); new CONFIG.damageControl block
  *  (instantHp/regenHp/regenMs) rides the welcome config snapshot.
+ *  23: the public register (global kill feed) — SunkEvent gains an optional
+ *  per-observer `seen?: true` flag, stamped by the sunk row's materialize()
+ *  when the observer legitimately witnessed the wreck (sight+LOS / owned lit
+ *  zone / own hull / spectator). The sunk row's gate widens to three clauses
+ *  (witnessed, OR the victim is a human captain — identity-only public
+ *  delivery, OR you are the credited killer), making `sunk` the 4th declared
+ *  exception to the master perception invariant. Key order k,id,by?,seen?;
+ *  absent keys are omitted entirely (never an undefined value).
  *  22: the gunnery conversation (Story 4.3, amendments 15-20) — three new
  *  GameEvent kinds, each its own declared fog exception in the signal
  *  registry: `sp` (SplashEvent {k,id,x,y} — fall of shot, self-private to
@@ -157,7 +165,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 23;
+export const PROTOCOL_VERSION = 24;
 
 // Tunables
 export * from './constants.js';

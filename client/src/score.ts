@@ -15,12 +15,17 @@
 //   • placement — the public roster's alive count at the moment you went down
 //                 (k contestants still floating ⇒ you placed k+1)
 //
-// BEST-EFFORT BY CONSTRUCTION (documented, not a defect): `sunk` events are
-// LOS-gated by perception.ts, so a kill you never SAW (a mine, a torpedo run
-// beyond your sight bubble) contributes to the authoritative roster tally but
-// cannot contribute a NAME to the list. The tally is therefore the truth and the
-// list is "the ones you watched go down" — closing that gap would need a wire
-// change, which this story explicitly forbids.
+// COMPLETE WHILE CONNECTED (the public register, PV 23): `sunk` delivery was
+// historically LOS-gated, so a kill you never SAW was missing a NAME here. The
+// sunk row now always delivers YOUR OWN kills (the credited-killer clause,
+// amendment 17's principle) and every human captain's sinking besides, so a
+// mine trip or a torpedo run beyond your sight bubble reaches recordSunk like
+// any other kill. Two deliberate exceptions keep the NAME roll narrower than
+// the authoritative roster tally: a RECONNECT wipes the roll
+// (scoreAfterReconnect — the outage may have swallowed `sunk` events, and a
+// clean list beats a wrong one), and a victim whose roster entry is already
+// gone has no callsign and is left OFF the list (recordSunk). In both cases
+// the kill COUNT stays the roster's authoritative figure.
 //
 // Pure functions over a plain state object; main.ts owns the single instance and
 // resets it at every hard boundary (match start, return to port, reconnect).
@@ -114,24 +119,36 @@ export function isLiveRival(meta: RosterEntry, ownId: string, droneHue: number):
 }
 
 /**
- * Pure: does this roster entry count as a hull still AFLOAT? Only one thing is
- * asked — is it alive.
+ * Pure: does this roster entry count toward `n AFLOAT`? Alive, and NOT a drone
+ * (the same `droneHue` sentinel `isLiveRival` above reads).
  *
- * THE DELIBERATE ASYMMETRY (Story 3.3, amendment 19). This counts DRONES, and
- * it counts the LOCAL PLAYER, both of which `isLiveRival` above deliberately
- * excludes. The two numbers answer different questions and are ratified to
- * disagree:
- *   • PLACEMENT ranks CONTESTANTS. The win check is human-gated and the results
- *     table lists humans only, so a placement that counted drones would report a
- *     number matching nothing else the player is ever shown.
- *   • `n AFLOAT` counts HULLS ON THE WATER. It is the BR-genre field readout —
- *     it must visibly thin as the field dies, and a solo captain's match reads
- *     20 → 1 exactly as it looks out the window. It is also consistent with
- *     `n KILLS` beside it, which already counts drones on the server tally.
- * Neither rule may be "fixed" into the other; this comment is the reason.
+ * THE RULE (the public-register cycle, superseding amendment 19's all-hulls
+ * count): DRONES ARE NOT COMBATANTS — a drone kill is worth a fraction of a
+ * level (CONFIG.xp.droneTierLevels) where a captain is a full one, drone
+ * sinkings never reach the public kill feed, and the results table lists
+ * humans only. So the bar's field readout counts RIVET-AND-CREW captains, not
+ * target drones. The LOCAL PLAYER is still counted — that half of the old
+ * asymmetry with `isLiveRival` SURVIVES: placement ranks the OTHER contestants
+ * (you place behind the k rivals still floating), while AFLOAT includes your
+ * own hull because you are on the water too.
+ *
+ * NOTE (Eric deferral): the WIN CONDITION still counts drones today —
+ * Match.checkWin() is untouched by this cycle and belongs to Story 6-3 ("The
+ * Participants-Only Win Check"). Until 6-3 lands, AFLOAT reads as "rivals
+ * left" (plus you); when 6-3 lands it becomes literally "hulls left to clear".
+ *
+ * THE SENTINEL CONTRACT this predicate leans on: REGATTA_NO_HUE (255) is
+ * dual-purpose — it means "drone" AND "hue not assigned yet" — and RosterEntry
+ * declares `color` optional, so an `alive: true` entry whose `color` is still
+ * undefined counts as a CAPTAIN here. That default is CORRECT and deliberate,
+ * not an accident: hue assignment is synchronous in ArenaRoom.onJoin (a
+ * captain's meta carries a real wheel index before it ever enters the roster)
+ * and drones carry the sentinel from creation (the PlayerMeta schema default),
+ * so an absent/undefined colour can only be a captain whose entry has not
+ * fully patched in — and a captain mid-patch should count.
  */
-export function isAfloatHull(meta: RosterEntry): boolean {
-  return meta.alive === true;
+export function isAfloatHull(meta: RosterEntry, droneHue: number): boolean {
+  return meta.alive === true && meta.color !== droneHue;
 }
 
 /** A roster the count can walk (structural — the real one is a Colyseus
@@ -140,13 +157,13 @@ export interface RosterScan {
   forEach(fn: (meta: RosterEntry) => void): void;
 }
 
-/** Pure: hulls still afloat, humans AND drones (see isAfloatHull's doctrine
- *  note). Walks the roster in place — no intermediate array, because this runs
- *  every rendered frame. */
-export function afloatCount(roster: RosterScan): number {
+/** Pure: captains still afloat — humans only, the local player included (see
+ *  isAfloatHull's doctrine note). Walks the roster in place — no intermediate
+ *  array, because this runs every rendered frame. */
+export function afloatCount(roster: RosterScan, droneHue: number): number {
   let n = 0;
   roster.forEach((meta) => {
-    if (isAfloatHull(meta)) n += 1;
+    if (isAfloatHull(meta, droneHue)) n += 1;
   });
   return n;
 }

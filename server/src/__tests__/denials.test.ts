@@ -105,8 +105,10 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'blocked', seq: 1 }]);
-    // Charge AND reload untouched — the previously wasted charge is kept.
-    expect(a.loadout[1].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    // Charge AND reload untouched — the previously wasted charge is kept. The
+    // rack is 2-deep at base since the 2026-08-04 balance pass, so "untouched"
+    // means BOTH drops still aboard.
+    expect(a.loadout[1].state).toEqual({ n: 2, reloadMsLeft: 0 });
     expect(w.mines.size).toBe(0);
   });
 
@@ -129,7 +131,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: 0, aimDist: 60 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'blocked', seq: 1 }]);
-    expect(a.loadout[1].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.loadout[1].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
   });
 
   it("out-of-arc: a mine click at the BOW (or past placeRange) denies {'out-of-arc'} (Story 2.8 rear placement arc)", () => {
@@ -141,7 +143,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
     w.submitInput('a', input(2, { fireSeq: 2, slot: 1, aim: Math.PI, aimDist: CONFIG.mine.placeRange + 50 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'out-of-arc', seq: 2 }]);
-    expect(a.loadout[1].state).toEqual({ n: 1, reloadMsLeft: 0 });
+    expect(a.loadout[1].state).toEqual({ n: 2, reloadMsLeft: 0 }); // 2-deep rack, untouched
     expect(w.mines.size).toBe(0);
   });
 });
@@ -190,11 +192,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 22→23 bump (DAMAGE CONTROL: HEAL_CHOICE + OwnShip.repairHp + the heal event) is enforced at matchmake', () => {
-  it('rejects pv-22 and pv-21 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(23);
+describe('pv join gate — the 23→24 bump (PV 23: the public register — SunkEvent.seen + the widened sunk row; PV 24: DAMAGE CONTROL — HEAL_CHOICE + OwnShip.repairHp + the heal event) is enforced at matchmake', () => {
+  it('rejects pv-23 and pv-22 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(24);
+    expect(protocolVersionError(23)).toMatch(/refresh/);
     expect(protocolVersionError(22)).toMatch(/refresh/);
-    expect(protocolVersionError(21)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });
