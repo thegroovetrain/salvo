@@ -12,6 +12,7 @@ import {
   advancePulsePhase,
   railPulsing,
   railSig,
+  repairFraction,
   rudderTickCenter,
   vitalsLayout,
   reloadFraction,
@@ -252,6 +253,45 @@ describe('railSig — the rail geometry redraw guard', () => {
   it('still skips the redraw while the hull is steady', () => {
     expect(railSig(0.8)).toBe(railSig(0.8));
     expect(railSig(0.8)).toBe(railSig(0.80004)); // sub-quantum jitter, same band
+  });
+
+  // DAMAGE CONTROL (cycle 46): the incoming band is part of the rail's geometry,
+  // so a pool that drains while the hull sits steady (the exact case at full
+  // health with a wasted pool) must still force the redraw that shrinks it.
+  it('carries the incoming band, so a draining pool alone redraws the rail', () => {
+    expect(railSig(0.8, 0.14)).not.toBe(railSig(0.8, 0.13));
+    expect(railSig(0.8, 0)).toBe(railSig(0.8)); // no pool = the pre-44 signature
+  });
+});
+
+// DAMAGE CONTROL's incoming band (cycle 46) — the still-draining regen pool
+// drawn above the fill. It shows what will LAND, so it is clipped at the top of
+// the bar exactly as the server clamps the payout at maxHp.
+describe('repairFraction — the HP rail\'s incoming band', () => {
+  it('is the pool as a fraction of the bar while there is room for it', () => {
+    expect(repairFraction(50, 25, 100)).toBeCloseTo(0.25);
+    expect(repairFraction(0, 25, 100)).toBeCloseTo(0.25);
+  });
+
+  it('CLIPS at the top of the bar — a pool draining into a nearly-full hull', () => {
+    expect(repairFraction(90, 25, 100)).toBeCloseTo(0.1); // only 10 can land
+    expect(repairFraction(100, 25, 100)).toBe(0); // full hull: nothing lands
+  });
+
+  it('is zero with no pool, no hull points, and never negative', () => {
+    expect(repairFraction(50, 0, 100)).toBe(0);
+    expect(repairFraction(50, -5, 100)).toBe(0);
+    expect(repairFraction(50, 25, 0)).toBe(0);
+    expect(repairFraction(-5, 25, 100)).toBeCloseTo(0.25); // an overkilled hp never inverts it
+  });
+
+  it('never exceeds the empty part of the bar (fill + incoming ≤ the whole rail)', () => {
+    for (const hp of [0, 1, 33, 74, 99.6, 100]) {
+      for (const pool of [0, 5, 25, 500]) {
+        const frac = Math.max(0, Math.min(1, hp / 100));
+        expect(frac + repairFraction(hp, pool, 100)).toBeLessThanOrEqual(1);
+      }
+    }
   });
 });
 
@@ -836,6 +876,7 @@ describe('Hud shell — a live frame, a sunk frame, and a spectate frame', () =>
   const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
   const status: OwnStatus = {
     hp: 40,
+    repairHp: 0,
     ammo: [null, null, null, null],
     primedSlot: 0,
     alive: true,
@@ -959,6 +1000,7 @@ describe('Hud — the BR chrome bar survives the hull (Story 3.3)', () => {
   const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
   const status: OwnStatus = {
     hp: 80,
+    repairHp: 0,
     ammo: [null, null, null, null],
     primedSlot: 0,
     alive: true,
@@ -1163,6 +1205,7 @@ describe('Hud — the tells on a live frame', () => {
   const stats = effectiveStats(CONFIG.shipClasses.torpedoBoat);
   const base: OwnStatus = {
     hp: 80,
+    repairHp: 0,
     ammo: [null, null, null, null],
     primedSlot: 0,
     alive: true,

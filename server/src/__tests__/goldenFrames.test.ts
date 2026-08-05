@@ -20,6 +20,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
+  HEAL_CHOICE,
   wrapPositive,
   type BallisticEvent,
   type FrameMsg,
@@ -37,15 +38,16 @@ const SIGHT = CONFIG.vision.sight;
 // by the first post-step window [0, δ).
 const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
 
-// The full set of channels the fixture MUST exercise: the 14 GameEvent kinds
+// The full set of channels the fixture MUST exercise: the 15 GameEvent kinds
 // (Story 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added the
 // self-private 'bn' boon-fit event; Story 2.8 stripped 'upg' and added the
 // homing-track update 'torpU'; Story 4.3 added the gunnery conversation's
-// 'sp'/'hc'/'mz') plus the four contact-like channels
-// (contact/mine/litzone/decoy) and the spectator frame.
+// 'sp'/'hc'/'mz'; the 2026-08-04 DAMAGE CONTROL strip brought 'heal' BACK)
+// plus the four contact-like channels (contact/mine/litzone/decoy) and the
+// spectator frame.
 const EXPECTED_CHANNELS = [
-  'blip', 'bn', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'hc', 'litzone', 'mine',
-  'mz', 'pt', 'shell', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU',
+  'blip', 'bn', 'boom', 'burst', 'contact', 'decoy', 'denied', 'dmg', 'hc', 'heal', 'litzone',
+  'mine', 'mz', 'pt', 'shell', 'sp', 'spawn', 'spec', 'sunk', 'torp', 'torpU',
 ];
 
 // Targeted sub-cases the APPENDED scenarios (island LOS, non-owner + spectator
@@ -66,6 +68,9 @@ const EXPECTED_SUBCASES = [
   'gunnery-decoy-splash-no-hitcall',
   'gunnery-hitcall-beyond-sight',
   'gunnery-miss-own-splash',
+  'heal-event-healer-only',
+  'heal-pool-drains-on-the-wire',
+  'heal-repairhp-never-off-you',
   'island-allows-radar-blip',
   'island-allows-sight-contact',
   'island-blocks-radar-blip',
@@ -807,6 +812,47 @@ function scnGunneryDecoy(g: Golden): void {
   );
 }
 
+/**
+ * DAMAGE CONTROL on the wire (Eric rulings 2026-08-04): `a` banks a level,
+ * takes damage, and spends the heal. Its own frame carries the self-private
+ * `heal` event and a live `you.repairHp`; `b` — a sighted neighbour hull-to-
+ * hull with it — gets NEITHER, and the string `repairHp` appears nowhere in
+ * b's serialized frame. A later frame proves the pool visibly drains on the
+ * wire without any further event.
+ */
+function scnHeal(g: Golden): void {
+  const w = bareWorld(1021);
+  const a = place(w, 'a', 0, 0);
+  place(w, 'b', 60, 0); // hull-to-hull: fully sighted, and still told nothing
+  place(w, 'z', 900, 900); // far away; sunk to bank `a` a level
+  w.sinkShip('z', 'a');
+  a.hp -= 60;
+  a.offers[0] = ['gunDamage', 'shipCooldown', 'intelSweep', 'torpedoSpeed']; // fixed hand (content-stable)
+  expect(w.spendPoint('a', HEAL_CHOICE)).toBe(true);
+  w.step();
+  const fa = cap(g, w, 'a');
+  const fb = cap(g, w, 'b');
+  prove(
+    g,
+    'heal-event-healer-only',
+    fa.events.some((e) => e.k === 'heal' && e.id === 'a') && !fb.events.some((e) => e.k === 'heal'),
+  );
+  prove(
+    g,
+    'heal-repairhp-never-off-you',
+    fa.you!.repairHp > 0 && !JSON.stringify({ ...fb, you: undefined }).includes('repairHp'),
+  );
+  const poolAfterSpend = fa.you!.repairHp;
+  w.step();
+  w.step();
+  const fa2 = cap(g, w, 'a');
+  prove(
+    g,
+    'heal-pool-drains-on-the-wire',
+    fa2.you!.repairHp < poolAfterSpend && !fa2.events.some((e) => e.k === 'heal'),
+  );
+}
+
 // ---------- the fixture -------------------------------------------------------
 
 describe('golden frames — byte-identity gate for the perception refactor', () => {
@@ -845,6 +891,10 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
     // absent sunk rows appear unseen where an observer is the credited killer
     // or the victim is a human captain. Every other channel must stay
     // byte-identical.
+    // DAMAGE CONTROL addition (appended KNOWINGLY — the snapshot regenerated
+    // with PV 24: every `you` row gains the required `repairHp` key, and this
+    // scenario adds the self-private `heal` channel).
+    scnHeal(g);
 
     // Self-validating coverage: the fixture can never silently lose a channel.
     expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);

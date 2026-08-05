@@ -29,6 +29,7 @@
 //     can only pack MORE per line — so the model's line count is an upper bound
 //     on the rendered one, never an under-count.
 
+import { CONFIG } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 
 const R = CLIENT_CONFIG.refit;
@@ -120,6 +121,69 @@ export function widestToken(text: string, fontPx: number, letterSpacingPx = 0): 
 export function refitCardInnerBox(): { w: number; h: number } {
   const chrome = 2 * (R.pad + REFIT_TYPE.border);
   return { w: R.card - chrome, h: R.cardHeight - chrome };
+}
+
+// --- THE DAMAGE CONTROL STRIP (cycle 46) ---------------------------------------
+//
+// The strip is the same shape of problem as the card, one axis at a time: a
+// FIXED box (924 × `stripHeight`) holding mono text whose length is CONFIG-
+// driven (the amounts are printed from `CONFIG.damageControl`, never hardcoded,
+// so a retune moves the copy). It is measured here for the same reason the card
+// is — so the amendment-47 pin is arithmetic over the real strings rather than a
+// hope — and it is the VERTICAL axis that is scarce here: at the 1280×614
+// logical floor the card row leaves 22px under itself, full stop.
+
+/** The rail's full width — the ratified row's width, since the strip renders as
+ *  the row's sibling and stretches under it (`align-self: stretch`). DERIVED
+ *  from the same card/gap register and the same wire-contract slot count the
+ *  row is laid out from (`CONFIG.offer.size`), never restated as a literal. */
+const STRIP_ROW_W = CONFIG.offer.size * R.card + (CONFIG.offer.size - 1) * R.gap;
+
+/** The strip's INNER content box (px): the rail minus its end padding and its
+ *  1px border on all four sides (box-sizing: border-box). */
+export function refitStripInnerBox(): { w: number; h: number } {
+  const border = 2 * REFIT_TYPE.border;
+  return { w: STRIP_ROW_W - 2 * (R.stripPad + REFIT_TYPE.border), h: R.stripHeight - border };
+}
+
+/** The rail's columns, left to right — exactly what ui/upgradeMenu builds. */
+export interface RefitStripCopy {
+  /** Key-chip glyph ('5'). */
+  key: string;
+  label: string;
+  readout: string;
+  /** The dual-coding status word — '' while ARMED (the absence IS the state). */
+  status: string;
+}
+
+export interface RefitStripMetrics {
+  innerW: number;
+  innerH: number;
+  /** Total width (px) of chip + gaps + every text column. */
+  contentWidth: number;
+  /** Rendered height (px) of the tallest mark on the rail — the taller of the
+   *  text line box and the key chip, since both sit in the same flex row. */
+  contentHeight: number;
+  /** contentWidth − innerW: > 0 is a horizontal amendment-47 violation. */
+  overflowX: number;
+  /** contentHeight − innerH: > 0 is a vertical amendment-47 violation. */
+  overflowY: number;
+}
+
+/**
+ * Pure: the rail's rendered content against its fixed inner box. Mirrors the
+ * DOM in ui/upgradeMenu.ts exactly — key chip, label, readout, optional status
+ * word, with `stripColGap` between every pair that is actually built (an ARMED
+ * strip builds no status span, so it spends no gap on one).
+ */
+export function refitStripMetrics(copy: RefitStripCopy): RefitStripMetrics {
+  const { w: innerW, h: innerH } = refitStripInnerBox();
+  const text = (s: string): number => monoTextWidth(s, R.stripFontSize, REFIT_TYPE.categoryLetterSpacing);
+  const cols = [text(copy.label), text(copy.readout), ...(copy.status ? [text(copy.status)] : [])];
+  const contentWidth =
+    R.stripKeyChip + cols.reduce((a, b) => a + b, 0) + cols.length * R.stripColGap;
+  const contentHeight = Math.max(R.stripKeyChip, lineBox(R.stripFontSize, REFIT_TYPE.lineHeight));
+  return { innerW, innerH, contentWidth, contentHeight, overflowX: contentWidth - innerW, overflowY: contentHeight - innerH };
 }
 
 /** The copy a card face carries — structurally the ui/upgradeMenu OfferCard,

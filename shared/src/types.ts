@@ -118,16 +118,27 @@ export interface PongMsg {
 }
 
 /**
- * Client -> server spend ("u"): consume one banked level. `choice` is 0..3 for
- * the current offer's slot (see OwnShip.offer / BoonOffer — Story 2.7 grew the
- * offer to four boon cards, so digit 4 is live). Deliberately a DISCRETE
- * reliable message, NOT a field on the per-tick InputMsg: the
- * latest-input-wins coalescing there would silently drop back-to-back spends
- * (two quick kills → two spends). The server bound is the FRONT offer's actual
- * length, so an out-of-range choice is always rejected with the level intact.
+ * SpendMsg.choice sentinel for the DAMAGE CONTROL heal (Eric rulings
+ * 2026-08-04): EXACTLY -1 = spend the level on the always-available heal
+ * strip instead of a card. Deliberately a reserved NEGATIVE value: a positive
+ * sentinel (e.g. 4) would collide with a real card index the moment
+ * CONFIG.offer.size moves — a negative can never alias an offer slot, since
+ * card choices are 0..length-1 by construction.
+ */
+export const HEAL_CHOICE = -1;
+
+/**
+ * Client -> server spend ("u"): consume one banked level. `choice` is either
+ * a card index — 0..N-1, bounded by the FRONT offer's actual length (see
+ * OwnShip.offer / BoonOffer) — or EXACTLY `HEAL_CHOICE` (-1) for the
+ * always-available DAMAGE CONTROL heal (Eric rulings 2026-08-04). EVERYTHING
+ * else (out-of-range, other negatives, non-integers) is rejected with the
+ * level intact. Deliberately a DISCRETE reliable message, NOT a field on the
+ * per-tick InputMsg: the latest-input-wins coalescing there would silently
+ * drop back-to-back spends (two quick kills → two spends).
  */
 export interface SpendMsg {
-  choice: number; // 0..3 = offer slot (bounded by the front offer's length)
+  choice: number; // 0..N-1 = offer slot (front-offer-bounded) | HEAL_CHOICE (-1) = heal
 }
 
 /**
@@ -223,6 +234,18 @@ export interface OwnShip {
    * accrual exists). Self-private exactly like `lvl`.
    */
   xp: number;
+  /**
+   * hp — remaining DAMAGE CONTROL regen pool (Eric rulings 2026-08-04); `0`
+   * = no pool draining. Each heal spend adds CONFIG.damageControl.regenHp
+   * here; the server drains it at the fixed regenHp/regenMs rate (pools ADD,
+   * the rate never changes) and it resets to 0 wherever boostUntil does
+   * (spawn, sink, respawn, match boundary). SELF-PRIVATE BY CONSTRUCTION (the
+   * boostUntil precedent): this field rides `you` and NOTHING else — it never
+   * appears on a Contact, blip, ballistic event, boom, or spectator payload.
+   * An enemy observer reads a healing hull ONLY through its observed
+   * persistence under fire; the heal's timing and existence stay self-private.
+   */
+  repairHp: number;
   /**
    * ms — server-clock time the PROP-FOULING slow on this ship ends (Story
    * 2.8); absent/0 = not slowed. The victim is slowed while `serverNow <
@@ -521,6 +544,20 @@ export interface BoonFitEvent {
 }
 
 /**
+ * A DAMAGE CONTROL heal spent (Eric rulings 2026-08-04): marks the INSTANT
+ * application at spend time. SELF-PRIVATE: `id` is the healing ship's id and
+ * perception forwards the event ONLY to that observer — the same gate as
+ * `pt`/`bn`, so a heal never rides another observer's frame. Purely UX (tone
+ * + HUD flash): the authoritative numbers self-sync every frame via
+ * OwnShip.hp / OwnShip.repairHp. ANTI-CHEAT — deliberately omitted: any hp
+ * amount or total, any victim id, anything derivable about another ship.
+ */
+export interface HealEvent {
+  k: 'heal';
+  id: string; // the healer (= the only observer this is ever delivered to)
+}
+
+/**
  * A mine visible to this viewer, synced as CONTACT-LIKE state (not an event):
  * FrameMsg.mines is recomputed per observer every tick, exactly like contacts.
  * Owner sees ALL own mines always; others see a mine only when it is within
@@ -643,6 +680,7 @@ export type GameEvent =
   | SpawnEvent
   | PointEvent
   | BoonFitEvent
+  | HealEvent
   | SplashEvent
   | HitCallEvent
   | MuzzleEvent;

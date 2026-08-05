@@ -7,12 +7,17 @@
 // release predicate + its new outcome classifier. jsdom.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { BOON_CATALOG, CONFIG, type OwnShip } from '@salvo/shared';
+import { BOON_CATALOG, CONFIG, HEAL_CHOICE, effectiveStats, resolveBoons, type OwnShip } from '@salvo/shared';
 import {
+  HEAL_LABEL,
+  HEAL_STATUS_FULL,
+  HEAL_STATUS_SUNK,
   SPEND_LATCH_TIMEOUT_MS,
   UpgradeMenu,
   canLatchSpend,
   frontOfferSignature,
+  healReadout,
+  healView,
   offerView,
   refitBandLayout,
   spendLatchReleased,
@@ -22,6 +27,7 @@ import {
   type RefitBox,
   type SpendLatch,
 } from '../ui/upgradeMenu.js';
+import { refitStripInnerBox, refitStripMetrics } from '../ui/refitCardFit.js';
 import { boonFitToastLine, boonName } from '../ui/boonCopy.js';
 import { vitalsLayout } from '../render/hud.js';
 import { hotbarLayout } from '../render/hotbar.js';
@@ -39,10 +45,16 @@ function ownShip(over: Partial<OwnShip> = {}): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 80, alive: true,
     ammo: [], sweep: 0, cls: 'torpedoBoat', pts: 1, offer: [...OFFER],
-    boostUntil: 0, boons: [], lvl: 0, xp: 0,
+    boostUntil: 0, boons: [], lvl: 0, xp: 0, repairHp: 0,
     ...over,
   };
 }
+
+/** The own hull's max HP through the SAME derivation the strip uses (the
+ *  shared effectiveStats firewall) — never a literal, so a class retune can
+ *  never leave these tests asserting a stale full-hull number. */
+const maxHpOf = (cls: OwnShip['cls'], boons: readonly string[] = []): number =>
+  effectiveStats(CONFIG.shipClasses[cls], resolveBoons([...boons])).maxHp;
 
 // --- band geometry --------------------------------------------------------------
 //
@@ -125,6 +137,72 @@ describe('refitBandLayout — the below-center card band (UX-DR14 geometry)', ()
       expect(L.cards[0].h, name).toBe(R.cardHeight);
       expect(L.band.y + L.band.h, name).toBeLessThanOrEqual(h); // no clip off the bottom
     }
+  });
+
+  // --- THE DAMAGE CONTROL RAIL (cycle 46) --------------------------------------
+  //
+  // THE REGRESSION PIN THAT MATTERS MOST. The heal is a SIBLING of the row, not
+  // a fifth card: the four cards stay 216px, the gaps stay 20px, the row stays
+  // exactly 924px, and CONFIG.offer.size stays 4 — with the rail present. A
+  // five-card row would be 1160px, leaving 60px of margin at the 1280×614
+  // logical floor and superseding the ratified UX-DR14 geometry outright.
+  it('leaves the four-card row BYTE-IDENTICAL with the rail present (the untouchable row)', () => {
+    for (const { name, w, h } of FLOORS) {
+      const L = refitBandLayout(w, h);
+      expect(CONFIG.offer.size, name).toBe(4);
+      expect(L.cards, name).toHaveLength(4);
+      expect(L.row.w, name).toBe(4 * 216 + 3 * 20);
+      expect(L.row.w, name).toBe(924);
+      expect(L.row.h, name).toBe(236);
+      for (const c of L.cards) {
+        expect(c.w, name).toBe(216);
+        expect(c.h, name).toBe(236);
+        expect(c.y, name).toBe(L.row.y); // still ONE row, one baseline
+      }
+      for (let i = 1; i < L.cards.length; i += 1) {
+        expect(L.cards[i].x - (L.cards[i - 1].x + 216), name).toBe(20);
+      }
+      // ...and the row's ANCHOR is untouched: no band lift bought the rail room.
+      expect(L.row.y, name).toBe(Math.round(h * R.bandTopFrac));
+      expect(L.pips.y, name).toBe(L.row.y - R.pipsAbove);
+    }
+  });
+
+  it('hangs the rail BELOW the row, exactly as wide, never overlapping a card', () => {
+    const L = refitBandLayout(1366, 768);
+    expect(L.strip.y).toBe(L.row.y + L.row.h + R.stripGap);
+    expect(L.strip.y).toBeGreaterThanOrEqual(L.row.y + L.row.h); // strictly below
+    expect(L.strip.x).toBe(L.row.x);
+    expect(L.strip.w).toBe(L.row.w);
+    expect(L.strip.h).toBe(R.stripHeight);
+    for (const c of L.cards) expect(overlaps(L.strip, c)).toBe(false);
+    // The band now covers the rail too — the keep-out checks measure the whole
+    // thing, so nothing can be laid out over a strip the band forgot to declare.
+    expect(L.band.y + L.band.h).toBe(L.strip.y + L.strip.h);
+  });
+
+  // THE CONTAINER-FIT LAW (amendment 47) at both ratified floors. This is the
+  // constraint the rail's whole geometry was derived from: at 1280×614 the card
+  // row already ends 22px above the viewport edge, and the rail lives in that
+  // 22px or it does not ship.
+  for (const { name, w, h } of FLOORS) {
+    it(`fits the rail inside the viewport with nothing clipped at ${name}`, () => {
+      const L = refitBandLayout(w, h);
+      expect(L.strip.y + L.strip.h, `${name}: rail clipped off the bottom`).toBeLessThanOrEqual(h);
+      expect(L.band.y + L.band.h, `${name}: band clipped off the bottom`).toBeLessThanOrEqual(h);
+      expect(L.strip.x, name).toBeGreaterThanOrEqual(0);
+      expect(L.strip.x + L.strip.w, name).toBeLessThanOrEqual(w);
+    });
+  }
+
+  it('fits every mark INSIDE the rail box (the horizontal half of the law)', () => {
+    // Measured from the live copy, which prints CONFIG.damageControl's own
+    // numbers — a retune of the ruling moves the string and this pin with it.
+    const worst = { key: '5', label: HEAL_LABEL, readout: healReadout(), status: HEAL_STATUS_FULL };
+    const m = refitStripMetrics(worst);
+    expect(m.overflowX, `rail content overflows by ${m.overflowX}px`).toBeLessThanOrEqual(0);
+    expect(m.overflowY, `rail content is ${m.overflowY}px taller than its box`).toBeLessThanOrEqual(0);
+    expect(refitStripInnerBox().w).toBeLessThan(924); // the box is the ROW's, minus chrome
   });
 
   // DELIBERATE PIN, NOT AN ASPIRATION. The ratified UX-DR14 row (924px) and the
@@ -262,6 +340,71 @@ describe('offerView — pure spend-view derivation over BOON ids', () => {
   });
 });
 
+// --- healView: the DAMAGE CONTROL rail's pure state ------------------------------
+
+describe('healView — the rail is ARMED only where the server would honor the pick', () => {
+  it('is ARMED on a damaged, living hull, with no status word', () => {
+    const h = healView(ownShip({ hp: 80 }), false);
+    expect(h.state).toBe('armed');
+    expect(h.status).toBe(''); // the ABSENCE of a word is the armed channel
+    expect(h.label).toBe('DAMAGE CONTROL');
+  });
+
+  it('is INERT at exactly full HP — the server rejects it and banks the level', () => {
+    const full = maxHpOf('torpedoBoat');
+    expect(healView(ownShip({ hp: full }), false).state).toBe('inert');
+    expect(healView(ownShip({ hp: full }), false).status).toBe(HEAL_STATUS_FULL);
+    // ...and one point below full is still spendable (the guard is `>=`, and
+    // an overflowing heal is ruled to waste the remainder, not to be refused).
+    expect(healView(ownShip({ hp: full - 1 }), false).state).toBe('armed');
+  });
+
+  it('reads full HP through effectiveStats — a fitted hull line MOVES the threshold', () => {
+    const boons = ['shipHull', 'shipHull'];
+    const base = maxHpOf('torpedoBoat');
+    const grown = maxHpOf('torpedoBoat', boons);
+    expect(grown).toBeGreaterThan(base); // the card ladder really does move it
+    // At the BASE max with a grown hull the ship is damaged: armed, not inert.
+    expect(healView(ownShip({ hp: base, boons }), false).state).toBe('armed');
+    expect(healView(ownShip({ hp: grown, boons }), false).state).toBe('inert');
+  });
+
+  it('is INERT on a dead hull, and with no own ship at all', () => {
+    expect(healView(ownShip({ alive: false, hp: 0 }), false).state).toBe('inert');
+    expect(healView(ownShip({ alive: false, hp: 0 }), false).status).toBe(HEAL_STATUS_SUNK);
+    expect(healView(null, false).state).toBe('inert');
+    expect(healView(undefined, false).state).toBe('inert');
+  });
+
+  it('is INERT while a spend is in flight — transient, so it names no reason', () => {
+    const h = healView(ownShip({ hp: 80 }), true);
+    expect(h.state).toBe('inert');
+    expect(h.status).toBe('');
+  });
+
+  it('prints the amounts from CONFIG.damageControl, never a hardcoded 25/25/5', () => {
+    const dc = CONFIG.damageControl;
+    const line = healReadout();
+    expect(line).toContain(`+${dc.instantHp} HP`);
+    expect(line).toContain(`+${dc.regenHp} HP`);
+    expect(line).toContain(`${dc.regenMs / 1000}S`);
+  });
+
+  it('never echoes the shipHull ladder\'s vocabulary in its label', () => {
+    // "HULL" belongs to the +maxHp card line; the rail must not borrow it.
+    expect(HEAL_LABEL).toBe('DAMAGE CONTROL');
+    expect(HEAL_LABEL).not.toContain('HULL');
+  });
+
+  it('rides offerView as a SIBLING of the cards, never as a fifth option', () => {
+    const v = offerView(ownShip({ hp: 80 }), false, false);
+    expect(v?.options).toHaveLength(CONFIG.offer.size);
+    expect(v?.options.map((o) => o.id)).toEqual(OFFER); // no heal entry among them
+    expect(v?.heal.state).toBe('armed');
+    expect(offerView(ownShip({ hp: maxHpOf('torpedoBoat') }), false, false)?.heal.state).toBe('inert');
+  });
+});
+
 // --- DOM adapter -----------------------------------------------------------------
 
 describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
@@ -280,12 +423,17 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     }));
 
   const view = (over: Partial<OfferView> = {}): OfferView => ({
-    pts: 1, options: cardsOf(OFFER), locked: false, ...over,
+    pts: 1, options: cardsOf(OFFER), locked: false, heal: healView(ownShip(), false), ...over,
   });
 
+  /** The CARDS — scoped to the row, deliberately. The DAMAGE CONTROL rail is a
+   *  button too, and it is the band's SIBLING of the row, not a member of it:
+   *  a query that swept it up with the cards would be the very conflation the
+   *  strip exists to avoid. */
   function cards(): HTMLButtonElement[] {
-    return [...document.querySelectorAll('#upgrade-menu button')] as HTMLButtonElement[];
+    return [...document.querySelectorAll('#upgrade-menu > div:nth-child(2) button')] as HTMLButtonElement[];
   }
+  const strip = (): HTMLButtonElement => document.getElementById('refit-damage-control') as HTMLButtonElement;
   function pips(): HTMLElement[] {
     const strip = document.querySelector('#upgrade-menu > div');
     return [...(strip?.children ?? [])] as HTMLElement[];
@@ -536,6 +684,105 @@ describe('UpgradeMenu — DOM adapter (the TAB-toggled band)', () => {
     menu.pulseDenied(1, 1000 + 1);
     expect(menu.deniedActive(1000 + 1)).toBe(true);
     expect(cards()[1].style.borderColor).toBe('var(--hc-denied)');
+  });
+
+  // --- THE DAMAGE CONTROL RAIL, in the DOM ------------------------------------
+
+  it('renders ONE rail below the row — never a fifth card in it', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view());
+    expect(cards()).toHaveLength(4);
+    expect(document.querySelectorAll('#refit-damage-control')).toHaveLength(1);
+    // The rail is the PANEL's third child (pips, row, rail) — outside the row.
+    const panel = document.getElementById('upgrade-menu')!;
+    expect(panel.children).toHaveLength(3);
+    expect(panel.children[2]).toBe(strip());
+    expect(strip().parentElement).toBe(panel);
+    expect(strip().textContent).toContain(HEAL_LABEL);
+    expect(strip().textContent).toContain(healReadout());
+    expect((strip().firstElementChild as HTMLElement).textContent).toBe('5'); // the key chip
+  });
+
+  it('routes a rail click to HEAL_CHOICE — the same path digit 5 takes', () => {
+    const spends: number[] = [];
+    const menu = new UpgradeMenu((c) => spends.push(c));
+    menu.toggle(view());
+    strip().click();
+    expect(spends).toEqual([HEAL_CHOICE]);
+    expect(HEAL_CHOICE).toBe(-1); // never an index into the offer
+  });
+
+  it('the rail never retains focus: mousedown is prevented and click blurs', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view());
+    const el = strip();
+    const down = new MouseEvent('mousedown', { bubbles: true, cancelable: true });
+    expect(el.dispatchEvent(down)).toBe(false); // preventDefault — focus never taken
+    el.focus();
+    el.click();
+    expect(document.activeElement).not.toBe(el);
+  });
+
+  it('renders INERT dual-coded: dimmed AND disabled AND carrying the reason word', () => {
+    const spends: number[] = [];
+    const menu = new UpgradeMenu((c) => spends.push(c));
+    menu.toggle(view({ heal: healView(ownShip({ hp: maxHpOf('torpedoBoat') }), false) }));
+    expect(strip().disabled).toBe(true);
+    expect(strip().style.opacity).toBe(String(R.lockedAlpha));
+    expect(strip().textContent).toContain(HEAL_STATUS_FULL); // never hue alone
+    strip().click();
+    expect(spends).toEqual([]); // a disabled rail fires nothing
+  });
+
+  it('live-swaps between armed and inert without rebuilding the rail', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view());
+    const el = strip();
+    expect(el.disabled).toBe(false);
+    menu.update(view({ heal: healView(ownShip({ alive: false, hp: 0 }), false) }));
+    expect(strip()).toBe(el); // the same node — the rail is never drawn or discarded
+    expect(el.disabled).toBe(true);
+    expect(el.textContent).toContain(HEAL_STATUS_SUNK);
+    menu.update(view());
+    expect(el.disabled).toBe(false);
+    expect(el.textContent).not.toContain(HEAL_STATUS_SUNK);
+  });
+
+  it('arms amber on hover and drops back on leave (the card grammar, one line high)', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view());
+    strip().dispatchEvent(new MouseEvent('mouseenter'));
+    expect(strip().style.borderColor).toBe('var(--hc-amber)');
+    expect(strip().style.boxShadow).toContain('var(--hc-amber)');
+    strip().dispatchEvent(new MouseEvent('mouseleave'));
+    expect(strip().style.borderColor).toBe('var(--hc-hairline)');
+  });
+
+  it('fires the SAME 80ms denied pulse on the rail for a rejected heal', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view());
+    menu.pulseDenied(HEAL_CHOICE, 1000);
+    expect(menu.deniedActive(1000)).toBe(true);
+    expect(strip().style.borderColor).toBe('var(--hc-denied)');
+    expect(cards()[0].style.borderColor).not.toBe('var(--hc-denied)'); // cards untouched
+    expect(menu.deniedActive(1000 + R.deniedPulseMs)).toBe(false);
+  });
+
+  it('a lit rail pulse survives a card-row rebuild (the rail outlives every offer)', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view({ pts: 2 }));
+    menu.pulseDenied(HEAL_CHOICE, 1000);
+    menu.update(view({ pts: 1, options: cardsOf(OFFER_B) }));
+    expect(menu.deniedActive(1000)).toBe(true);
+    expect(strip().style.borderColor).toBe('var(--hc-denied)');
+  });
+
+  it('a hover cannot paint a lit rail refusal away mid-pulse', () => {
+    const menu = new UpgradeMenu(() => {});
+    menu.toggle(view());
+    menu.pulseDenied(HEAL_CHOICE, 1000);
+    strip().dispatchEvent(new MouseEvent('mouseenter'));
+    expect(strip().style.borderColor).toBe('var(--hc-denied)');
   });
 
   it('closing the band drops a LIT denied edge (a reopened band starts at rest)', () => {

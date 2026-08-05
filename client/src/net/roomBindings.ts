@@ -22,6 +22,7 @@ import {
   type DeniedView,
   type FrameMsg,
   type GameEvent,
+  type HealEvent,
   type HitCallEvent,
   type LitZoneView,
   type MuzzleEvent,
@@ -548,15 +549,37 @@ function handleHitCall(e: HitCallEvent, f: FrameMsg, deps: RoomBindingDeps, s: B
   if (s.hitCallTone.request(f.t)) deps.audio.play('hitCall');
 }
 
-/** Self-private reward events: the banked level and the fitted boon. (The
- *  'heal' event left the wire with the REPAIR spend — Story 2.1, PV 12; the
- *  killer-private 'upg' grant left with the legacy upgrade strip — Story 2.8,
- *  PV 16.) */
+/** Self-private reward events: the banked level, the fitted boon, and (cycle
+ *  44) the DAMAGE CONTROL heal. (The 'heal' row left the wire with the
+ *  interregnum REPAIR spend — Story 2.1, PV 12 — and comes back at PV 23 as the
+ *  always-available rail's confirmation; the killer-private 'upg' grant left
+ *  with the legacy upgrade strip — Story 2.8, PV 16.) */
 function handleRewardEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps): void {
   switch (e.k) {
     case 'pt': handlePoint(e, f, deps); return;
     case 'bn': handleBoonFit(e, deps); return;
+    case 'heal': handleHeal(e, deps); return;
   }
+}
+
+/**
+ * A heal LANDED (cycle 46). `heal` is self-private — perception forwards it only
+ * to the healer — so the id check is defensive, not load-bearing, exactly like
+ * `pt`/`bn`. Deliberately NOT dead-gated and carrying no numbers of its own: the
+ * event is a pure confirmation cue, and every authoritative number (the new hp,
+ * the remaining pool) self-syncs on `you` every frame. The visual twin is the
+ * rail's jump plus its incoming band, so a muted player loses nothing.
+ */
+function handleHeal(e: HealEvent, deps: RoomBindingDeps): void {
+  if (e.id !== deps.state.net.sessionId) return;
+  deps.audio.play('heal');
+  // ALSO the spend latch's ack, for the same reason `bn` is one (see
+  // handleBoonFit): a heal is the OTHER way a spend can land, and every other
+  // release clause is an inference off `you` that a same-frame passive bank can
+  // mask. Without this, a heal spent with a second level queued behind an
+  // identical-signature offer releases as 'failed' at the 1.5s timeout and
+  // pulses a DENIAL over a heal the server actually granted.
+  deps.onSpendAck();
 }
 
 /**

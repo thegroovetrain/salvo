@@ -521,6 +521,24 @@ export const CONFIG = {
   },
 
   /**
+   * DAMAGE CONTROL (Eric rulings 2026-08-04) — the always-available heal
+   * spend: a permanent strip beneath the refit band's four-card row. NOT a
+   * card: never drawn, never in the deck (BOON_CATALOG / CONFIG.deck /
+   * CONFIG.offer untouched — deck composition is byte-identical). Spending
+   * one banked level restores `instantHp` immediately (clamped to maxHp) and
+   * adds `regenHp` to a regen pool that drains at the fixed rate
+   * regenHp/regenMs (5 hp/s). Pools ADD, never accelerate: two heals run 10s
+   * at 5 hp/s, never 5s at 10 hp/s. Amounts are FLAT on every hull — no
+   * maxHp scaling, no upgrade scaling, no class variation. Every number is a
+   * DESIGN TARGET, tunable.
+   */
+  damageControl: {
+    instantHp: 25, // hp restored immediately at spend time (clamped to maxHp)
+    regenHp: 25, // hp added to the regen pool per heal spend
+    regenMs: 5000, // ms — payout time of one regenHp pool (the 5 hp/s rate)
+  },
+
+  /**
    * Storm circle / battle-royale zone — the PHASED ring timeline (Story 3.1).
    * ringSteps.length + 1 ring groups, each a four-beat rhythm of beatMs per
    * beat (clear → reserved structural slot → next ring revealed → ring closes

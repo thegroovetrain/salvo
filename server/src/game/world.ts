@@ -17,6 +17,7 @@ import {
   BOON_CATALOG,
   CONFIG,
   EQUIPMENT_IS_WEAPON,
+  HEAL_CHOICE,
   HOOK_REGISTRY,
   NO_BOONS,
   applySlotEffect,
@@ -369,6 +370,16 @@ export interface ShipRecord {
    * respawn/redeploy so a fresh life never inherits a still-open window.
    */
   boostUntil: number;
+  /**
+   * hp — the REMAINING DAMAGE CONTROL regen pool (Eric rulings 2026-08-04);
+   * 0 = nothing draining. Written ONLY by the heal branch of spendPoint
+   * (`repairHp += CONFIG.damageControl.regenHp` — pools ADD, the rate never
+   * changes) and drained by tickRepairs at the fixed
+   * regenHp/regenMs (5 hp/s) WALL-CLOCK rate; mirrored onto OwnShip.repairHp
+   * (owner-only) by frames.ts. RESET to 0 on spawn/sink/respawn/redeploy
+   * exactly where boostUntil resets — a pool must never survive the death gap.
+   */
+  repairHp: number;
   /**
    * ms — server time the PROP-FOULING slow on this ship ends (Story 2.8);
    * 0 = not slowed. Written by detonateMine when a propFouling owner's blast
@@ -724,9 +735,10 @@ export class World {
       lastAckSeq: 0,
       lastFireSeq: 0,
       lastActSeq: 0,
-      boostUntil: 0,
-      slowedUntil: 0,
-      dazzledUntil: 0,
+      // A fresh hull carries no open windows — boost, DAMAGE CONTROL pool
+      // (2026-08-04), prop-fouling slow, dazzle — the same four zeroed together
+      // at every other life boundary (sinkShip / respawn / redeployShip).
+      boostUntil: 0, repairHp: 0, slowedUntil: 0, dazzledUntil: 0,
       rttMs: null,
       lastFireT: 0,
       respawnAt: 0,
@@ -819,6 +831,10 @@ export class World {
     ship.respawnAt = 0;
     // A fresh life never inherits an open boost window — nor a slow or dazzle.
     ship.boostUntil = 0;
+    // ...nor a DAMAGE CONTROL pool: hp is already full here, so a surviving
+    // pool would drain entirely into the maxHp clamp — but the wire field would
+    // still tick down on a brand-new match's HUD (the boostUntil rule).
+    ship.repairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
     // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a
@@ -860,6 +876,10 @@ export class World {
     // where it would paint active-boost HUD chrome on a dead ship. The slow and
     // dazzle marks die with it (Story 2.8) — same dead-chrome rule.
     ship.boostUntil = 0;
+    // The DAMAGE CONTROL pool dies with the hull (2026-08-04): nothing carries
+    // through the death gap, so a wreck can never trickle hp back and a fresh
+    // life never inherits a stranger's repair.
+    ship.repairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
     ship.deaths += 1;
@@ -1080,15 +1100,54 @@ export class World {
    * the SELF-PRIVATE `bn` event is queued HERE, not inside applyBoon: a
    * directed applyBoon (tests, future scripted grants) must stay event-free —
    * "a spend happened" is a property of this path only.
+   *
+   * DAMAGE CONTROL (Eric rulings 2026-08-04): the accept set widens by exactly
+   * ONE reserved value — `HEAL_CHOICE` (-1), the always-available heal strip.
+   * It is a NEGATIVE sentinel deliberately (a positive one would collide the
+   * day CONFIG.offer.size moves), so the ordinary bound stays `0 ≤ choice <
+   * front.length` and every other negative (-2, -99) is still malformed. The
+   * heal is NOT a card and never reaches applyBoon.
    */
   spendPoint(id: string, rawChoice: unknown): boolean {
     const ship = this.ships.get(id);
     if (!ship || ship.offers.length === 0) return false;
     if (typeof rawChoice !== 'number' || !Number.isInteger(rawChoice)) return false;
     const front = ship.offers[0];
+    if (rawChoice === HEAL_CHOICE) return this.spendHeal(ship, front);
     if (rawChoice < 0 || rawChoice >= front.length) return false;
     ship.offers.shift();
     this.settleSpend(ship, front, rawChoice);
+    return true;
+  }
+
+  /**
+   * The DAMAGE CONTROL spend (Eric rulings 2026-08-04) — a sibling of
+   * settleSpend, never a path into applyBoon: the heal is not a boon, so it
+   * must not run grant-time effects, reconcilePools, or rescaleReloadTimers.
+   *
+   * FAIL-CLOSED, checked BEFORE anything is consumed: a dead hull or one
+   * already at full effective hp is REJECTED with the queue and the pool
+   * completely untouched — the level stays banked (the client renders the strip
+   * inert + a denied pulse). This is the one asymmetry with a card pick, which
+   * is legal while dead because a build persists across the death gap; a heal
+   * cannot, because tickRepairs only ticks living hulls and sinkShip zeroes the
+   * pool.
+   *
+   * On success exactly ONE level is consumed and the ENTIRE front offer returns
+   * to the deck — unlike a card pick, which withholds the chosen card. No card
+   * leaves the deck, so a heal costs progression time and nothing else: the
+   * four cards you passed on can be drawn again.
+   */
+  private spendHeal(ship: ShipRecord, front: BoonOffer): boolean {
+    if (!ship.alive || ship.hp >= ship.stats.maxHp) return false;
+    ship.offers.shift();
+    ship.deck = returnCards(ship.deck, front);
+    const dc = CONFIG.damageControl;
+    ship.hp = Math.min(ship.hp + dc.instantHp, ship.stats.maxHp);
+    // Pools ADD, the RATE never changes (the ratified anti-flask rule): a second
+    // heal makes the drain run twice as LONG, never twice as fast.
+    ship.repairHp += dc.regenHp;
+    this.pending.push({ k: 'heal', id: ship.id });
     return true;
   }
 
@@ -1170,6 +1229,21 @@ export class World {
     // marking, against post-move centers, BEFORE the expiry sweep so a zone
     // burns/dazzles through its final tick.
     this.applyZoneEffects(dt);
+    // DAMAGE CONTROL regen (Eric rulings 2026-08-04) — DELIBERATE step-order
+    // position: dead LAST among the hp movers, after EVERY damage source this
+    // tick (storm, ballistics, mine blasts, the incendiary DoT) has already
+    // bitten and any lethal bite has already routed through sinkShip. Two
+    // things follow, both intended. (1) The alive gate reads POST-DAMAGE truth
+    // — a hull the storm sank this very tick is already `alive: false` with its
+    // pool zeroed, so a regen pool can never un-sink a hull at 0 hp; damage
+    // wins the tie by construction, with no explicit tie-break code. (2) The
+    // storm overlap nets exactly (regen rate − stormDps) per tick, because both
+    // integrate the same dt against the same float hp in a fixed order. It sits
+    // BEFORE processRespawns for the same reason tickXp sits after: a respawn
+    // restores full hp and zeroes the pool, so anything paid to a wreck here
+    // would be overwritten rather than banked. Nothing downstream in the step
+    // reads hp or repairHp, so no other system depends on this position.
+    this.tickRepairs(dtMs);
     // Lit zones (Story 1.7): natural-expiry sweep, positioned with the other
     // static-entity resolution (the mines precedent). Zones are SPAWNED inside
     // stepShells (resolveBurst on a star shell) and deliberately survive their
@@ -1339,6 +1413,34 @@ export class World {
       if (!ship.alive || !isOutside(ship.state, ring.cx, ring.cy, ring.r)) continue;
       ship.hp -= bite;
       if (ship.hp <= 0) this.sinkShip(ship.id); // by=undefined — the storm has no killer
+    }
+  }
+
+  /**
+   * DAMAGE CONTROL regen (Eric rulings 2026-08-04) — applyStorm's structural
+   * INVERSE: per-tick fractional hp against the same float, clamped, with NO
+   * per-tick event (that would spam ~20/s; the owner already receives live
+   * `hp` AND `repairHp` on every frame via OwnShip, so the HUD stays exact).
+   *
+   * The pool drains on the WALL CLOCK at the fixed rate regenHp/regenMs
+   * (5 hp/s): `repairHp` decrements by the elapsed budget WHETHER OR NOT the hp
+   * lands. Overflow past maxHp is therefore LOST, not banked — the ruled
+   * behavior (a full-bar hull burns its pool for nothing), and the reason the
+   * spend itself is guarded at full hp. Pools ADD but the rate NEVER changes,
+   * so two heals run 10s at 5 hp/s rather than 5s at 10 hp/s: that property
+   * lives entirely in `repairHp += regenHp` at spend time, not here.
+   *
+   * Only LIVING hulls tick — a wreck's pool is already zeroed by sinkShip, so
+   * the alive gate is belt-and-braces against a directed caller.
+   */
+  private tickRepairs(dtMs: number): void {
+    const dc = CONFIG.damageControl;
+    const budget = (dc.regenHp / dc.regenMs) * dtMs;
+    for (const ship of this.ships.values()) {
+      if (!ship.alive || ship.repairHp <= 0) continue;
+      const paid = Math.min(budget, ship.repairHp);
+      ship.repairHp -= paid; // wall-clock drain: spent even when the hp is clamped away
+      ship.hp = Math.min(ship.hp + paid, ship.stats.maxHp);
     }
   }
 
@@ -2412,9 +2514,11 @@ export class World {
     ship.hp = ship.stats.maxHp;
     ship.alive = true;
     ship.respawnAt = 0;
-    // A fresh life never inherits an open boost window — nor a slow or dazzle
-    // (sinkShip already zeroed them; kept symmetric for directed callers).
+    // A fresh life never inherits an open boost window — nor a slow, a dazzle,
+    // or a DAMAGE CONTROL pool (sinkShip already zeroed them; kept symmetric
+    // for directed callers).
     ship.boostUntil = 0;
+    ship.repairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
     // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a

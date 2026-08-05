@@ -8,7 +8,7 @@
 // modifier chords stay native.
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { SLOT_GUN } from '@salvo/shared';
+import { HEAL_CHOICE, SLOT_GUN } from '@salvo/shared';
 import {
   rudderFrom,
   panAxesFrom,
@@ -71,6 +71,18 @@ describe('the ratified binding tables', () => {
     expect(REFIT_DIGIT_CODES.Digit4).toBe(3);
     expect(REFIT_DIGIT_CODES.Numpad1).toBe(0);
     expect(REFIT_DIGIT_CODES.Numpad4).toBe(3);
+  });
+
+  // DAMAGE CONTROL (cycle 46): digit 5 is the always-available heal, addressed
+  // by the reserved NEGATIVE wire sentinel rather than an index — a positive
+  // one would collide with a real card the moment CONFIG.offer.size moved.
+  it('digit 5 (top row + numpad) maps to HEAL_CHOICE, never to an offer index', () => {
+    expect(REFIT_DIGIT_CODES.Digit5).toBe(HEAL_CHOICE);
+    expect(REFIT_DIGIT_CODES.Numpad5).toBe(HEAL_CHOICE);
+    expect(HEAL_CHOICE).toBeLessThan(0);
+    for (const [code, choice] of Object.entries(REFIT_DIGIT_CODES)) {
+      if (code !== 'Digit5' && code !== 'Numpad5') expect(choice, code).toBeGreaterThanOrEqual(0);
+    }
   });
 });
 
@@ -496,6 +508,30 @@ describe('KeyboardInput — refit modal keys (TAB / ESC / digits) + suspension',
     press('Digit3');
     press('Numpad4');
     expect(picks).toEqual([0, 2, 3]); // open → picks (digit meaning at ITS OWN keydown)
+  });
+
+  it('digit 5 is refit-or-nothing too: the heal only ever fires INSIDE the modal', () => {
+    const picks: number[] = [];
+    let open = false;
+    kb = new KeyboardInput({ isModalOpen: () => open, onRefitPick: (c) => picks.push(c) });
+    kb.attach();
+    // Bound (so it is prevented — focus can never escape the canvas) but inert.
+    expect(press('Digit5')).toBe(true);
+    expect(press('Numpad5')).toBe(true);
+    expect(picks).toEqual([]);
+    open = true;
+    press('Digit5');
+    press('Numpad5');
+    expect(picks).toEqual([HEAL_CHOICE, HEAL_CHOICE]);
+  });
+
+  it('digit 5 fires once per physical press — OS auto-repeat never re-spends', () => {
+    const picks: number[] = [];
+    kb = new KeyboardInput({ isModalOpen: () => true, onRefitPick: (c) => picks.push(c) });
+    kb.attach();
+    press('Digit5');
+    press('Digit5', { repeat: true });
+    expect(picks).toEqual([HEAL_CHOICE]);
   });
 
   it('slot keys (Q/E/R) are SUSPENDED while the modal is open — full combat lockout', () => {

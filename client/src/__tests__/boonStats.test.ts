@@ -32,7 +32,7 @@ function statsFor(cls: OwnShip['cls'], boons: Record<string, number> = {}) {
 function ownShip(cls: OwnShip['cls'], boons: string[] = []): OwnShip {
   return {
     id: 'me', x: 0, y: 0, heading: 0, speed: 0, hp: 100, alive: true,
-    ammo: [], sweep: 0, cls, pts: 0, offer: [], boostUntil: 0, boons, lvl: 0, xp: 0,
+    ammo: [], sweep: 0, cls, pts: 0, offer: [], boostUntil: 0, boons, lvl: 0, xp: 0, repairHp: 0,
   };
 }
 
