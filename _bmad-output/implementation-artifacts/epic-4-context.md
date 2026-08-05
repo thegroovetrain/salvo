@@ -98,3 +98,18 @@ planning-artifact-derived content above, **the amendment WINS**. Summary of entr
    remotely that a trap sprung); the flash is NEUTRAL — position only, never who fired and never
    which weapon (DESIGN.md:239 beats UX-DR7 for this signal); the flash fires for the gun family
    only, upholding the torpedo's shipped "quiet weapon" status.
+9. **Story 4.4 rulings (amendments 40-50):** wounded smoke is the FIFTH declared exception to the
+   master perception invariant, and the first enemy-HP-derived signal AND first persistent
+   fog-piercing signal the game has ever shipped. Two tiers at the HP rail's own ratified bands —
+   light <50%, heavy <25% — because the coloured own-vitals rail already speaks that vocabulary and
+   smoke is its enemy-facing half (a tier ENUM on the wire, never a fraction or hp value). Reach is
+   `SIGHT * 1.5` (495u), reusing `CONFIG.vision.muzzleFlash` rather than adding a fourth vision
+   constant, so all the new work happens in the 330–495u annulus and radar stays the only long-range
+   sensor. The plume is ATTACHED and drifting — where they are, never where they've been (puff life
+   must stay short or the ruling silently inverts). Islands BLOCK it, upholding the 2026-08-02 LOS
+   law against the realism argument for the first time. The plume is NEUTRAL — position and severity
+   only, no id, hue, or class for anyone, so no correlation handle exists on the wire and the client
+   synthesizes persistence the way phosphor blips do. You DO see your own plume (you must know you
+   are broadcasting). Every hull with hp smokes, drones included; decoys have no hp and so no plume,
+   which is not a tell. PV bumps 24 → 25; no combat tunable moves; no audio twin this cycle (4.7
+   owns that); `motion: off` removes the drift, never the plume.

@@ -3,6 +3,17 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  25: WOUNDED SMOKE (Story 4.4, Eric rulings 2026-08-05) — new `sm`
+ *  GameEvent ({k,x,y,tier}: a hull is hurt HERE, this hurt), the FIFTH
+ *  declared exception to the master perception invariant and the first
+ *  enemy-hp-derived information ever put on the wire. The payload carries NO
+ *  identity of any kind for ANY observer (amendment 45) and `tier` is a
+ *  two-value ENUM, never a fraction or hp value (amendment 41). New
+ *  CONFIG.damageBands block (amberBelow/criticalBelow — the own-vitals HP
+ *  rail's shipped thresholds promoted unchanged, now the ONE source for both
+ *  the rail and the smoke tiers) and CONFIG.smoke block (puffIntervalMs);
+ *  both ride the welcome config snapshot. Reach adds NO vision constant — it
+ *  reuses CONFIG.vision.muzzleFlash verbatim (amendment 42).
  *  24: DAMAGE CONTROL (Eric rulings 2026-08-04) — the heal spend returns as
  *  an ALWAYS-AVAILABLE spend, NOT a card: nothing enters BOON_CATALOG and
  *  deck composition is byte-identical (CONFIG.offer.size stays 4).
@@ -165,7 +176,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 24;
+export const PROTOCOL_VERSION = 25;
 
 // Tunables
 export * from './constants.js';

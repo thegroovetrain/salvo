@@ -479,6 +479,44 @@ export interface MuzzleEvent {
   y: number; // u
 }
 
+/**
+ * WOUNDED SMOKE (Story 4.4, amendments 41/45): a hull is hurt HERE, this
+ * hurt — position and severity band, and nothing else. Emitted on the
+ * CONFIG.smoke.puffIntervalMs cadence at the hull's TRUE CURRENT POSITION for
+ * as long as it stays below a band, and visible to any observer within the
+ * derived CONFIG.vision.muzzleFlash halo (SIGHT * 1.5) with island LOS clear
+ * — the muzzle flash's reach reused verbatim, never a fourth vision constant
+ * (amendment 42), and islands block this sensor exactly as they block every
+ * other (amendment 44). A declared, narrowly-scoped fog exception: the FIFTH,
+ * and the first enemy-hp-derived information the game has ever put on the
+ * wire. The server keeps NO plume history — the client accumulates these
+ * anonymous pulses into a drifting plume, the way it accumulates phosphor
+ * blips.
+ *
+ * `tier` is an ENUM, never a fraction and never an hp value: 1 = light (hp
+ * fraction below CONFIG.damageBands.amberBelow), 2 = heavy (below
+ * criticalBelow). Sending hp/maxHp would be a real HP gauge and is
+ * FORBIDDEN — two named conditions is a state, not a number (amendment 41).
+ *
+ * ANTI-CHEAT — deliberately omitted: EVERY identity channel, for EVERY
+ * observer without exception — enemies, the smoking ship's OWN captain, and
+ * spectators alike. No ship id, no personal hue, no class, no hp, no damage
+ * amount, no fraction, no heading. The plume says "a hull is hurt, this hurt,
+ * right there" and answers nothing else. Load-bearing consequence: NO
+ * CORRELATION HANDLE EXISTS and none may be invented — not the real ship id,
+ * not a per-observer alias, not a stable anonymous key (amendment 45) — so
+ * per-source puff capping is impossible by construction and the client may
+ * cap globally only. Own smoke rides this same row with no special case
+ * (amendment 46), as does a drone's (amendment 47). KEY ORDER IS LOAD-BEARING
+ * (msgpack): k,x,y,tier.
+ */
+export interface SmokeEvent {
+  k: 'sm';
+  x: number; // u — the smoking hull's TRUE current position (never a reveal point)
+  y: number; // u
+  tier: 1 | 2; // 1 = light (< amberBelow), 2 = heavy (< criticalBelow) — an ENUM, never a fraction
+}
+
 /** A ship took damage. `hp` is its resulting hit points. */
 export interface DamageEvent {
   k: 'dmg';
@@ -683,7 +721,8 @@ export type GameEvent =
   | HealEvent
   | SplashEvent
   | HitCallEvent
-  | MuzzleEvent;
+  | MuzzleEvent
+  | SmokeEvent;
 
 /**
  * Server -> client per-tick frame ("f"). Built per client by buildFrame().
