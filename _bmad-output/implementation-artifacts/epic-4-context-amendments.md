@@ -579,3 +579,152 @@ disclosure rather than a decoration.
     target)"* is singular where amendment 41 ratified two. Also `CLAUDE.md` records
     `PROTOCOL_VERSION` as "currently 23"; actual after this cycle is **25** (it was already 24 before
     this cycle began — see amendment 39).
+
+## 2026-08-05 — Eric rulings, Story 4-5 pre-implementation question gate (bmad-dev-auto, cycle 50)
+
+Source: Eric, live design conversation during the Story 4-5 run (invocation intent, two
+AskUserQuestion rounds of four questions each, plus one mid-run reversal). Spec of record:
+`spec-4-5-the-foghorn.md`. Starting intent, verbatim: *"FOGHORN TIME! I want an *actual* fucking
+foghorn sound effect! I always hear my own at full volume. I always hear anyone's within truesight
+range (LOS) at full volume. If they are within muzzle flash range (1.5x LOS), i should hear it at 75%
+volume. If they are in radar range, I should hear it at 50% volume. Beyond that, I should not hear
+it."* — plus, unprompted and emphatic: *"FOGHORNS ARE A GREAT MONETIZATION OPTION!!!!!!"*
+
+The shape of this ruling set BREAKS the pattern of amendments 1, 15-20 and 40-48, where Eric
+consistently took the smallest new information channel. Here he took the LARGER option three times
+(the sample seam over synth-only, the variant id over a neutral signal, build-scaled tiers over flat
+constants) — because a foghorn is an EMOTE, a chosen self-disclosure, not a sensor return. That
+distinction is the through-line of every ruling below and is the premise any future change must argue
+from.
+
+51. **THE FOGHORN IS THE SIXTH DECLARED EXCEPTION to the master perception invariant** — joining
+    Story 4.3's `sp`/`hc`/`mz`, cycle 45's `sunk`, and Story 4.4's `sm`. Its payload for a fogged
+    listener is **BEARING AND VOLUME TIER ONLY — no position, no ship id, no correlation handle of
+    any kind.** Explicitly REJECTED: true `x`/`y` the way `mz` and `sm` carry it, which would have
+    made a honk the single largest disclosure in the game (wounded smoke, the current record holder,
+    reaches 495u; a honk reaches 660u). Rationale of record is the story's own line — *"every honk is
+    a bearing I chose to give away"* — and it lands the foghorn on the contract the DEFERRED listening
+    ring was specced to use (bearing-grade, never range-derivable), so a revived hydrophone tier would
+    inherit a signal already shaped for it.
+
+    Consequence of record: the honk is the FIRST signal whose payload VARIES BY OBSERVER in substance
+    rather than by a flag. `sunk` stamps a per-observer `seen`; the foghorn computes a per-observer
+    bearing and tier. `materialize(ctx, subject)` already takes the context, so this is legal within
+    the shipped registry contract and needs no new machinery — but it does mean the row cannot be
+    snapshot-tested from a single vantage point.
+
+52. **THE WIRE CARRIES A HORN VARIANT ID — the monetization seam is built now.** Eric chose this over
+    a neutral one-horn signal and over an own-ears-only skin. Others hear the horn you have equipped,
+    which is what makes a purchased horn worth purchasing. **This is a knowing, narrow break with
+    amendments 19 and 45** (the muzzle flash *"says someone fired, never who"*; the plume says *"a
+    hull is hurt, right there"* and nothing more): a distinctive horn IS a soft identity tell at up to
+    660u, and people will learn to recognize it. The break is justified on the emote distinction —
+    every neutral-signal ruling protected information the ship LEAKS, whereas a honk is information
+    the captain SPENDS.
+
+    Scope of the seam, binding: **exactly ONE horn ships this cycle** (`'standard'`, synthesized), and
+    the id is validated against a shared catalog with an unknown-id fallback to the default, so an old
+    client hearing a new horn degrades to a sound rather than to silence or a throw. **Adding a second
+    horn is CONTENT and needs an Eric ruling** — no cycle may invent horn variants. The id rides the
+    honk event only; **no `PlayerMeta`/roster schema field was added**, because a horn is only ever
+    public at the moment it sounds.
+
+53. **VOLUME TIERS SCALE WITH THE LISTENER'S EFFECTIVE RANGES, not flat constants.** Tier 1 (100%) is
+    `sightOf(me, now)`, tier 2 (75%) is `max(1.5 × sightOf(me, now), CONFIG.vision.muzzleFlash)`, tier
+    3 (50%) is `max(me.stats.radarRange, tier-2 bound)`, and beyond tier 3 no event is emitted to that
+    observer at all. At base stats these are exactly the 330 / 495 / 660 Eric named. Explicitly
+    REJECTED: flat 330/495/660 for everyone, which would have made hearing a property of sound rather
+    than of the listener — Eric chose consistency with every other sensor instead, so an intel build
+    hears farther and a dazzled captain hears less.
+
+    **The `max()` clamps are load-bearing, not defensive coding.** `CONFIG.vision.muzzleFlash` is a
+    FLAT 495u constant while `sightOf` is dazzle-scaled and `radarRange` is boon-widened, so the three
+    bounds are not monotone by construction: a heavily intel-boosted listener can have `sight > 495`
+    (inverting tiers 2 and 3) and a star-shelled listener can have `sight` far below it. The clamps
+    resolve both, and the dazzle case has a design meaning worth preserving — **dazzle must not also
+    deafen**, so a blinded captain still hears at 75% out to the full 495u halo. Amendment 42's "no
+    fourth vision constant" rule is upheld: tier 2 reuses `muzzleFlash`, exactly as wounded smoke does.
+
+54. **ISLANDS MUFFLE A HONK BY EXACTLY ONE TIER — a PARTIAL carve-out of the 2026-08-02 LOS law, and
+    Eric REVERSED HIMSELF to get here.** Blocked LOS demotes the resolved tier: 1 → 2, 2 → 3, 3 → no
+    event. His first answer was the full carve-out (*"sound goes around — heard anyway, same
+    volume"*), which he overturned mid-run before any code existed, verbatim: *"lets actually muffle
+    the foghorn if its behind an island. That way if we add sound indicators again then islands remain
+    useful as a hiding mechanism."*
+
+    **The reversal's reasoning is FORWARD-LOOKING, not physical, and that is the durable part.** Sound
+    genuinely diffracts around rock, which is why a hard block was rejected — but the deciding argument
+    is that terrain must keep working as a hiding mechanism, or a future revived bearing-grade sound
+    sensor (the deferred hydrophone tier, or active sonar) arrives in a world where islands already
+    mean nothing to audio. One tier of demotion buys both readings: you can still be heard from behind
+    a rock, but a rock always costs the honker reach, and at the outer band it costs them the honk
+    entirely. **This is the first time the LOS law has been dented at all** — amendment 44 declined to
+    open a carve-out for wounded smoke on a pure realism argument, and the difference is that this one
+    arrives with a mechanism that keeps islands meaningful rather than merely excusing them.
+
+    Binding implementation consequence: the demotion is ONE step applied AFTER the distance tier
+    resolves, so exactly one `losClear()` test exists in the row and no second set of bounds can drift
+    from the first. Explicitly REJECTED: a hard block (which would have made terrain able to silence
+    an emote outright) and the unattenuated carve-out (Eric's own first pick).
+
+55. **THE VISUAL TWIN IS A SCREEN-EDGE CHEVRON — and it is the bearing surface amendment 4 said this
+    story had to grow.** A marker pinned to the viewport edge pointing down the honk's bearing, fading
+    over ~1.2s, weight by tier. Explicitly REJECTED: an arc tick on the truesight ring (diegetic and
+    cheaper, but it lives at a fixed world radius and so competes with the sight boundary's own
+    meaning) and reviving the ratified 48-pip compass rose for honks alone (most faithful to the
+    original design, but it puts a sensor-looking ring on screen that would sit empty almost always,
+    and it would pre-commit the shape of a revived listening ring).
+
+    This CLOSES the open item amendment 4 flagged and the sprint tracker has carried since 2026-08-04
+    (*"4-5 must grow its own bearing surface or defer alongside 4-1"*): 4-5 grows its own surface and
+    does NOT defer. The surface is deliberately foghorn-shaped, not sensor-shaped — a revived 4.1 is
+    free to build the compass rose without inheriting this chevron. **UX-DR36 binding:** the chevron's
+    presence, direction and tier weight are INFORMATION and survive `motion: 'off'` intact; only
+    animated flourish is motion-scaled. Your own honk gets an own-hull bloom instead of a chevron (a
+    bearing to yourself is meaningless).
+
+56. **THE KEY IS F, as reserved — UX open question #20 is CLOSED.** F has sat bound-inert for exactly
+    this story since Epic 2 (`keyboard.ts:20` header comment, the bind site's *"F
+    (Foghorn-reserved)"*, a test pinning its inertness, and `settings.ts:78` deliberately omitting it
+    from the binding reference). Both of those pins are now wrong by design and are updated. Rejected:
+    H ("Horn" is the better mnemonic and would keep the honk away from the Q/E/R weapon cluster) —
+    Eric kept the reservation. **Cooldown is 1.5s** with the existing predicted `denied` cue on an
+    early press, chosen over 3s and 5s explicitly so captains can have honk CONVERSATIONS: *"let them
+    be silly"* was the option's framing and the fast tier is the one he took. The mix is protected by
+    a client-side `maxConcurrent` cap rather than by a slower cooldown — and the cap drops HORNS, never
+    CHEVRONS, so the visual twin survives a crowded room even when the audio cannot.
+
+57. **AN ACTUAL HORN, SHIPPED AS A SYNTH VOICE BEHIND A SAMPLE-CAPABLE SEAM.** The audio engine has
+    been oscillator-and-noise-only since Epic 1 (`context.ts:2-3`, *"no audio assets"*) with tones
+    capped at 150ms (`MAX_TONE_S`; `sink` is the lone 450ms exemption), so an ~1.8s horn blast had
+    nowhere to live. Eric chose building the loader seam AND shipping a synthesized horn now, over
+    synth-only and over blocking on a real recording. The horn gets its OWN play path rather than an
+    exemption to `MAX_TONE_S` — that ceiling stays meaningful for the 24 short cues it was written
+    for — and `HornVoice` is a discriminated union (`{kind:'synth'} | {kind:'sample', url}`) so a
+    licensed recording later is a file plus one catalog line with **no code, wire, or protocol
+    change**.
+
+    **Recorded as a real constraint, not a caveat:** no licensed or CC0 foghorn recording exists in
+    this repo and none may be sourced unattended, so the sample path ships EXERCISED BY TESTS ONLY.
+    Any future cycle that wants the real thing needs Eric to supply or approve the asset first. The
+    synth voice is not a beep — a ship's horn is a few low partials with slight detuning (the beating
+    is the character), a slow attack and a long tail, which is what a horn synth actually does.
+
+58. **Scope discipline of record.** `PROTOCOL_VERSION` **bumps 25 → 26** (a new event kind and a new
+    `InputMsg` field are both wire-shape changes). No combat tunable moves: no damage, reload, hp,
+    range, catalog step, or `CONFIG.vision` constant is touched, and the honk has NO kill-feed line,
+    NO XP, and no match-state consequence of any kind — it is an emote. Drones never honk; dead
+    captains and spectators never honk. **Own honks are NOT client-predicted** — the honker hears
+    their own horn from a self-addressed server event, exactly once, so one code path serves every
+    listener and no dedup machinery is needed; only the `denied` cue on an early press is predicted,
+    which is the shipped pattern.
+
+59. **Doc drift added to the Eric-gated 7-5 batch by this ruling** (house rule: no design-doc edits
+    in-cycle): `epics.md:180` (UX-DR31) still lists the foghorn emote as *"specced but unbound (open
+    question)"* — amendment 56 closes it on F. The Story 4.5 acceptance criteria at `epics.md:861-864`
+    still describe the honk lighting *"an arc sweep along its bearing on every listening ring in
+    earshot"* and bound its payload by *"the listening tier's bearing contract"*; amendments 51 and 55
+    supersede both — there is no listening ring, and the surface is a screen-edge chevron. `FR13`
+    (`epics.md:49`) names foghorns as something hull microphones detect, which is moot while
+    amendment 1 stands. Also `CLAUDE.md` records `PROTOCOL_VERSION` as "currently 23"; actual after
+    this cycle is **26** (see amendments 39 and 50 for the same drift going unfixed twice).
