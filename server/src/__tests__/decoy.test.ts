@@ -14,6 +14,7 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, wrapPositive, type BlipEvent, type FrameMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 const SIGHT = CONFIG.vision.sight;
@@ -210,7 +211,7 @@ describe('decoy buoy — radar deception (the EXACT ship-blip gate, owner-id sub
 
   it('an island blocks the decoy blip exactly like a ship (LOS parity)', () => {
     const { w, b } = observed();
-    w.map.islands.push({ x: 200, y: 0, r: 40 });
+    w.map.islands.push(circleIsland(200, 0, 40));
     injectDecoy(w, 'd1', 'a', 400, 0);
     windowAround(b, 0);
     expect(blipsOf(buildFrame(w, 'b'))).toEqual([]);
@@ -433,7 +434,7 @@ describe('decoy buoy — decoys channel tiers (the truth)', () => {
     const w = bareWorld(40);
     place(w, 'a', -2000, 0, 0, 'mineLayer');
     place(w, 'e', 0, 0);
-    w.map.islands.push({ x: 60, y: 0, r: 25 });
+    w.map.islands.push(circleIsland(60, 0, 25));
     injectDecoy(w, 'd1', 'a', 120, 0); // inside sight range but behind the rock
     expect('decoys' in buildFrame(w, 'e')).toBe(false);
   });

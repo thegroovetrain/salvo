@@ -16,6 +16,7 @@ import {
   type FoggedSignalContext,
   type SpectatorSignalContext,
 } from '../game/signals.js';
+import { circleIsland } from './islandFixture.js';
 
 const SIGHT = CONFIG.vision.sight;
 const RADAR = CONFIG.vision.radar;
@@ -409,7 +410,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(row.visible(foggedCtx(w, at), e)).toBe(true);
     // Island LOS blocks the flash exactly like every other sensor
     // (Eric ruling 2026-08-02).
-    w.map.islands.push({ x: 200, y: 0, r: 40 });
+    w.map.islands.push(circleIsland(200, 0, 40));
     expect(row.visible(foggedCtx(w, at), e)).toBe(false);
   });
 
@@ -465,7 +466,7 @@ describe('SIGNAL_REGISTRY — sm row (Story 4.4: wounded smoke, the fifth declar
     // the halo is the raw constant, deliberately not sightOf).
     a.dazzledUntil = w.now + 10_000;
     expect(row.visible(foggedCtx(w, a), e)).toBe(true);
-    w.map.islands.push({ x: 200, y: 0, r: 40 }); // on the segment
+    w.map.islands.push(circleIsland(200, 0, 40)); // on the segment
     expect(row.visible(foggedCtx(w, a), e)).toBe(false);
   });
 
@@ -530,7 +531,7 @@ describe('SIGNAL_REGISTRY — litzone row visibility (owner always, else radar-g
 
   it('no LOS gate: an island between observer and zone center never hides the circle', () => {
     const w = bareWorld();
-    w.map.islands.push({ x: 200, y: 0, r: 40 }); // would block sight AND radar paint
+    w.map.islands.push(circleIsland(200, 0, 40)); // would block sight AND radar paint
     const b = place(w, 'b', 0, 0);
     injectZone(w, 'z1', 'a', 400, 0);
     expect(SIGNAL_REGISTRY.litzone.visible(foggedCtx(w, b), w.litZones.get('z1')!)).toBe(true);

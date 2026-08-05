@@ -17,7 +17,8 @@
 import { CONFIG, type HullId } from '../constants.js';
 import { pointInCircle, segCircleExit } from '../math/geom.js';
 import type { Vec2 } from '../math/vec.js';
-import type { Circle } from '../types.js';
+import type { Island } from '../types.js';
+import { pointInIsland } from './island.js';
 import { hullSilhouette, polygonMaxRadius, segPolygonHit, transformPolygon } from './silhouette.js';
 
 /** The minimum a firing pose needs to be: world position + heading. */
@@ -184,16 +185,19 @@ export function minCommandDistance(hullLength: number): number {
 
 /**
  * Is a placement/drop point ILLEGAL water (Story 1.10 'blocked')? True when the
- * point lands inside any island circle or outside the water disk. The mine AND
- * decoy rows refuse a blocked point WITHOUT consuming anything, so the client's
- * mine-placement preview reads the SAME predicate to draw its blocked tell —
- * promoted here (from equipment/mines.ts dropBlocked) so the two can never
- * disagree about which water is legal. Built on the shared circle primitives.
+ * point lands on any island's LAND (inside its coastline polygon) or outside
+ * the water disk. The mine AND decoy rows refuse a blocked point WITHOUT
+ * consuming anything, so the client's mine-placement preview reads the SAME
+ * predicate to draw its blocked tell — promoted here (from equipment/mines.ts
+ * dropBlocked) so the two can never disagree about which water is legal.
+ * Islands go through the island.ts seam (bounding-circle broadphase, then the
+ * exact polygon test); the WATER DISK stays a circle — the map edge is not a
+ * polygon and never becomes one.
  */
-export function blockedWater(p: Vec2, islands: readonly Circle[], mapRadius: number): boolean {
+export function blockedWater(p: Vec2, islands: readonly Island[], mapRadius: number): boolean {
   if (!pointInCircle(p, MAP_ORIGIN, mapRadius)) return true; // off the water disk
   for (const isle of islands) {
-    if (pointInCircle(p, isle, isle.r)) return true; // inside a rock
+    if (pointInIsland(p, isle)) return true; // on the rock
   }
   return false;
 }

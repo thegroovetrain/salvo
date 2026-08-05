@@ -25,6 +25,7 @@ import { clampToArc, gunTarget } from '../game/combat.js';
 import type { ShipRecord } from '../game/world.js';
 import { World } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { circleIsland } from './islandFixture.js';
 
 const HALF_PI = Math.PI / 2;
 const SLOT_GUN = 0;
@@ -332,7 +333,7 @@ describe('World combat — burst at the clicked point', () => {
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B');
     b.state = { x: 0, y: 300, heading: 0, speed: 0 };
-    (w.map.islands as { x: number; y: number; r: number }[]).push({ x: 0, y: 100, r: 30 });
+    w.map.islands.push(circleIsland(0, 100, 30));
     w.submitInput('a', gunInput(HALF_PI, 300));
     const events = stepCollect(w, 60);
     expect(burstsOf(events)).toEqual([]);
@@ -347,7 +348,7 @@ describe('World combat — burst at the clicked point', () => {
     const { w, a } = armed(2);
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     // Island surface reaches to within burstRadius of the 500u click point.
-    (w.map.islands as { x: number; y: number; r: number }[]).push({ x: 0, y: 480, r: 30 });
+    w.map.islands.push(circleIsland(0, 480, 30));
     w.submitInput('a', gunInput(HALF_PI, 500));
     const events = stepCollect(w, 90);
     const bursts = burstsOf(events);
@@ -605,7 +606,7 @@ describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
     a.state = { x: 0, y: 0, heading: 0, speed: 0 };
     const b = w.addShip('b', 'B'); // the "escaped" victim, now safely behind a rock
     b.state = { x: 0, y: 40, heading: 0, speed: 0 };
-    (w.map.islands as { x: number; y: number; r: number }[]).push({ x: 0, y: 15, r: 5 });
+    w.map.islands.push(circleIsland(0, 15, 5));
     w.submitInput('a', { ...slotInput(0, 0, 1), aimDist: 0 });
     for (let i = 0; i < 4; i++) w.step(); // now = 200
     w.submitInput('a', gunInput(HALF_PI, 40, 1, 2, 100)); // click ON b, back-dated 150ms

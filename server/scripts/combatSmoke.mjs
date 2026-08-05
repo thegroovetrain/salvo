@@ -13,7 +13,7 @@
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/combatSmoke.mjs
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, generateMap, bearing, angleDiff, segCircleHit } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, generateMap, bearing, angleDiff, islandBlocksSegment } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const HALF_PI = Math.PI / 2;
@@ -115,10 +115,15 @@ function engage(ctx, inp, target, fireAllowed) {
   if (fireAllowed) inp.fireSeq = ++ctx.fireSeq;
 }
 
-/** True iff the island lies on the segment from `from` to `to` (blocks LOS). */
+/**
+ * True iff the island lies on the segment from `from` to `to` (blocks LOS).
+ * Uses the shared polygon LOS seam — the SAME primitive perception.ts runs, so
+ * the smoke's expectation matches the server exactly. (The old bounding-circle
+ * test over-blocked: islands are fractal polygons inscribed in `isle.r`.)
+ */
 function blockedBy(from, to, isle) {
   if (!from || !to) return false;
-  return segCircleHit(from, to, isle, isle.r) !== null;
+  return islandBlocksSegment(from, to, isle);
 }
 
 /**

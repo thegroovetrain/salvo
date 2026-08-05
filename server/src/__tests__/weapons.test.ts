@@ -25,6 +25,7 @@ import {
   slotAmmo,
   type MineState,
 } from '../game/equipment/index.js';
+import { circleIsland } from './islandFixture.js';
 
 // Slot indices under the universal fit (loadout order: gun / torpedo / mine).
 const SLOT_GUN = 0;
@@ -107,7 +108,7 @@ describe('torpedoes — island block + ship hit', () => {
     a.input = { ...a.input, aim: HALF_PI };
     const b = w.addShip('b', 'B');
     b.state = { x: 0, y: 160, heading: 0, speed: 0 };
-    w.map.islands.push({ x: 0, y: 70, r: 30 }); // squarely on the run
+    w.map.islands.push(circleIsland(0, 70, 30)); // squarely on the run
     const events = [];
     for (let i = 0; i < 60; i++) {
       w.step();

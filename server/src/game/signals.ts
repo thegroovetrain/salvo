@@ -8,8 +8,12 @@
 // outside a row.
 //
 // THE LOS RULE (one rule for everything): a point is line-of-sight-clear from
-// the observer iff the segment observer→point crosses no island circle
-// (segCircleHit). Sight, radar, shells, booms, spawns, and sinks all use it.
+// the observer iff the segment observer→point crosses no island COASTLINE
+// (islandBlocksSegment — bounding-circle broadphase, `core` early-out, then
+// the exact polygon test). Sight, radar, shells, booms, spawns, and sinks all
+// use it. ALL island-geometry branching stays inside losClear: no visible()/
+// materialize() row may iterate polygon edges itself, or the 14 rows blow the
+// ESLint complexity ceiling.
 //
 // Rows see a NARROW SignalContext (the ActivationContext pattern from
 // equipment/index.ts) — the observer's ship record, tick time, islands for LOS,
@@ -32,14 +36,13 @@
 import {
   CONFIG,
   bearing,
-  segCircleHit,
+  islandBlocksSegment,
   wrapAngle,
   wrapPositive,
   type BallisticEvent,
   type BlipEvent,
   type BoomEvent,
   type BurstEvent,
-  type Circle,
   type Contact,
   type DamageEvent,
   type DecoyView,
@@ -47,6 +50,7 @@ import {
   type HealEvent,
   type HitCallEvent,
   type HullId,
+  type Island,
   type LitZoneView,
   type MineView,
   type MuzzleEvent,
@@ -73,8 +77,8 @@ interface SignalContextBase {
   observerId: string;
   /** Server time this tick (ms) — stamped on blips and ballistic reveals. */
   now: number;
-  /** Island circles for the one LOS rule. */
-  islands: readonly Circle[];
+  /** Island landmasses for the one LOS rule (bounding circle + coastline). */
+  islands: readonly Island[];
   /** Ship records by id — victim/wreck lookups (boom stripping, sunk gating). */
   ships: ReadonlyMap<string, ShipRecord>;
   /** All ACTIVE star-shell lit zones (Story 1.7) — the owned-zone truesight
@@ -139,10 +143,21 @@ export interface SignalSpec<S = unknown, O = unknown, CI = S> {
 // Shared predicates (the vision math every row builds on).
 // ---------------------------------------------------------------------------
 
-/** True iff the segment a→b crosses no island circle (the one LOS rule). */
-export function losClear(a: Vec2, b: Vec2, islands: readonly Circle[]): boolean {
+/**
+ * True iff the segment a→b crosses no island coastline (the one LOS rule).
+ *
+ * THE ANTI-CHEAT CHOKEPOINT: this must stay EXACT — an approximation that
+ * over-blocks hides a contact the observer has earned, one that under-blocks
+ * leaks a contact behind land. `islandBlocksSegment` is exact (its bounding-
+ * circle broadphase and `core` early-out only skip work in cases whose answer
+ * is already decided), and it is the ONLY island-geometry branching on this
+ * path — every visible()/materialize() row delegates here rather than
+ * iterating polygon edges, which is what keeps those 14 rows under ESLint
+ * complexity 10.
+ */
+export function losClear(a: Vec2, b: Vec2, islands: readonly Island[]): boolean {
   for (const isle of islands) {
-    if (segCircleHit(a, b, isle, isle.r) !== null) return false;
+    if (islandBlocksSegment(a, b, isle)) return false;
   }
   return true;
 }
@@ -167,7 +182,7 @@ function sightOf(me: ShipRecord, now: number): number {
  *  (inclusive, dazzle-scaled — sightOf) + LOS-clear. Takes the ShipRecord so
  *  the sightRange boons apply to every point-sighted gate (ballistics, mines,
  *  booms, wrecks, spawns) uniformly. */
-function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Circle[], now: number): boolean {
+function pointSighted(me: ShipRecord, p: Vec2, islands: readonly Island[], now: number): boolean {
   const dx = p.x - me.state.x;
   const dy = p.y - me.state.y;
   const sight = sightOf(me, now);
@@ -231,7 +246,7 @@ function inRadarAnnulus(me: ShipRecord, p: Vec2, now: number): boolean {
  * buoy paints exactly when a ship at that position would — same tick, same
  * boundaries, same LOS shadowing. Do not fork it.
  */
-function blipGate(me: ShipRecord, p: Vec2, islands: readonly Circle[], now: number): boolean {
+function blipGate(me: ShipRecord, p: Vec2, islands: readonly Island[], now: number): boolean {
   return inRadarAnnulus(me, p, now) && sweptThisTick(me, bearing(me.state, p)) && losClear(me.state, p, islands);
 }
 

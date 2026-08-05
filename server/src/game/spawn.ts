@@ -13,9 +13,10 @@ import {
   HULL_IDS,
   dist,
   hullSilhouette,
+  islandDistance,
   polygonMaxRadius,
-  type Circle,
   type GameMap,
+  type Island,
   type Rng,
   type Vec2,
 } from '@salvo/shared';
@@ -38,17 +39,25 @@ const MAX_HULL_RADIUS = Math.max(...HULL_IDS.map((id) => polygonMaxRadius(hullSi
 /** Min clearance between a spawn point and any island edge (max hull radius). */
 export const SPAWN_ISLAND_CLEARANCE = MAX_HULL_RADIUS;
 
-/** Signed clearance from `p` to the nearest island edge (negative = inside). */
-function islandClearance(p: Vec2, islands: readonly Circle[]): number {
+/**
+ * Signed clearance from `p` to the nearest island COASTLINE (negative =
+ * ashore). `islandDistance` carries the mandatory bounding-circle broadphase
+ * itself: past `r + ISLAND_DIST_SLACK` (128u) it returns the cheap
+ * conservative lower bound `dist - r` without touching an edge, and that slack
+ * comfortably exceeds SPAWN_ISLAND_CLEARANCE (≈62.29u) so the bound is
+ * decision-equivalent here. That matters: bestOnCircle runs this 256
+ * candidates × 9 rings × every island.
+ */
+function islandClearance(p: Vec2, islands: readonly Island[]): number {
   let min = Infinity;
-  for (const c of islands) {
-    const gap = dist(p, c) - c.r;
+  for (const isle of islands) {
+    const gap = islandDistance(p, isle);
     if (gap < min) min = gap;
   }
   return min;
 }
 
-function clearOfIslands(p: Vec2, islands: readonly Circle[]): boolean {
+function clearOfIslands(p: Vec2, islands: readonly Island[]): boolean {
   return islandClearance(p, islands) > SPAWN_ISLAND_CLEARANCE;
 }
 
@@ -65,8 +74,10 @@ function ringPoint(map: GameMap, angle: number): Vec2 {
   return { x: Math.cos(angle) * map.spawnRing, y: Math.sin(angle) * map.spawnRing };
 }
 
-/** Best island-clear point on a circle of radius `r`, or null if none clears. */
-function bestOnCircle(r: number, occupied: readonly Vec2[], islands: readonly Circle[], offset: number): Vec2 | null {
+/** Best island-clear point on a circle of radius `r`, or null if none clears.
+ *  256 candidates × every island — islandClearance's broadphase is what keeps
+ *  this affordable now that clearance is polygon-exact. */
+function bestOnCircle(r: number, occupied: readonly Vec2[], islands: readonly Island[], offset: number): Vec2 | null {
   let best: Vec2 | null = null;
   let bestScore = -Infinity;
   for (let i = 0; i < FALLBACK_CANDIDATES; i++) {

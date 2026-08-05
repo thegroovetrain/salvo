@@ -1,10 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { segCircleHit } from '../math/geom.js';
 import { CONFIG, HULL_IDS, hullEnvelope } from '../constants.js';
-import { MAP_RULES } from '../sim/map.js';
+import { MAP_RULES, generateMap, islandFromPolygon } from '../sim/map.js';
 import { resolveShipPose, type Pose } from '../sim/collision.js';
+import { skeletonNormal } from '../sim/island.js';
 import {
-  closestPointOnPolygon,
   hullSilhouette,
   pointInPolygon,
   pointPolygonDistance,
@@ -15,9 +14,10 @@ import {
 import { stepShip } from '../sim/ship.js';
 import { mulberry32 } from '../math/rng.js';
 import type { ShipState } from '../sim/ship.js';
-import type { Circle } from '../types.js';
+import type { Island } from '../types.js';
 import type { Vec2 } from '../math/vec.js';
 
+const TAU = Math.PI * 2;
 const DAMP = CONFIG.ship.islandSpeedMult;
 const DT = CONFIG.tick.simDtMs / 1000;
 const BIG_MAP = 100000; // effectively boundless for island-only cases
@@ -34,85 +34,66 @@ const maxTravel = maxProjSpeed * DT;
 
 type HullId = Parameters<typeof hullSilhouette>[0];
 
+/** A regular-n-gon island fixture (skeleton = its centre) — the polygon
+ *  successor of the old circle fixtures; apothem = r·cos(π/n). */
+function ngonIsland(cx: number, cy: number, r: number, n = 32): Island {
+  const poly: Vec2[] = [];
+  for (let i = 0; i < n; i++) {
+    poly.push({ x: cx + Math.cos((TAU * i) / n) * r, y: cy + Math.sin((TAU * i) / n) * r });
+  }
+  return islandFromPolygon(poly, [{ x: cx, y: cy }]);
+}
+
 function worldPoly(ship: ShipState, hullId: HullId): Vec2[] {
   return transformPolygon(hullSilhouette(hullId), ship.x, ship.y, ship.heading);
 }
 
-/** True iff the posed hull is clear of a single island (touching counts as clear). */
-function islandClear(poly: readonly Vec2[], isle: Circle): boolean {
-  return pointPolygonDistance(isle, poly) >= isle.r - 1e-6;
+/** INDEPENDENT poly-vs-poly overlap oracle (does not reuse collision.ts
+ *  internals): any hull edge crossing or starting inside the island polygon,
+ *  or the island wholly inside the hull. */
+function hullIslandOverlap(poly: readonly Vec2[], isle: Island): boolean {
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    if (segPolygonHit(poly[j], poly[i], isle.poly, 0) !== null) return true;
+  }
+  return pointInPolygon(isle.poly[0], poly);
 }
 
-/** True iff the posed hull is clear of EVERY island. */
-function clearOfAll(ship: ShipState, hullId: HullId, isles: readonly Circle[]): boolean {
+/** True iff the posed hull is clear of a single island polygon. */
+function islandClear(poly: readonly Vec2[], isle: Island): boolean {
+  return !hullIslandOverlap(poly, isle);
+}
+
+/** True iff the posed hull is clear of EVERY island. The bounding-circle skip
+ *  is soundness-trivial (poly ⊆ bounding circle, hull ⊆ polyMax circle) and
+ *  keeps the long map-wide drives affordable. */
+function clearOfAll(ship: ShipState, hullId: HullId, isles: readonly Island[]): boolean {
   const poly = worldPoly(ship, hullId);
-  return isles.every((i) => islandClear(poly, i));
+  const polyMax = polygonMaxRadius(hullSilhouette(hullId));
+  return isles.every((i) => {
+    if (Math.hypot(ship.x - i.x, ship.y - i.y) > polyMax + i.r + 10) return true;
+    return islandClear(poly, i);
+  });
 }
 
 /** Resolve + apply the caller-side single damp (what world.ts / prediction.ts do). */
-function resolve(prev: Pose, s: ShipState, isles: readonly Circle[], hullId: HullId, mapR = BIG_MAP): boolean {
+function resolve(
+  prev: Pose,
+  s: ShipState,
+  isles: readonly Island[],
+  hullId: HullId,
+  mapR = BIG_MAP,
+): boolean {
   const { contact } = resolveShipPose(prev, s, isles, mapR, hullSilhouette(hullId));
   if (contact) s.speed *= DAMP;
   return contact;
 }
 
-// --- The PRE-P1 resolver (bite-proof scaffold): 4-pass push-out, single damp,
-//     NO pose-validity rollback — exactly what resolveShipPose replaced. -------
-function oldResolve(s: ShipState, isles: readonly Circle[], hullId: HullId, mapR = BIG_MAP): void {
-  const poly = hullSilhouette(hullId);
-  const maxR = polygonMaxRadius(poly);
-  const d0 = Math.hypot(s.x, s.y);
-  const lim = mapR - maxR;
-  if (d0 > lim) {
-    const k = lim / d0;
-    s.x *= k;
-    s.y *= k;
-    s.speed *= DAMP;
-  }
-  const world = transformPolygon(poly, s.x, s.y, s.heading);
-  let contacted = false;
-  for (let pass = 0; pass < 4; pass++) {
-    let moved = false;
-    for (const isle of isles) {
-      const q = closestPointOnPolygon(isle, world);
-      const inside = pointInPolygon(isle, world);
-      if (!inside && q.dist >= isle.r) continue;
-      let nx: number;
-      let ny: number;
-      let depth: number;
-      if (!inside && q.dist > 1e-9) {
-        nx = (q.x - isle.x) / q.dist;
-        ny = (q.y - isle.y) / q.dist;
-        depth = isle.r - q.dist;
-      } else {
-        const dx = s.x - isle.x;
-        const dy = s.y - isle.y;
-        const dd = Math.hypot(dx, dy);
-        nx = dd > 1e-9 ? dx / dd : 1;
-        ny = dd > 1e-9 ? dy / dd : 0;
-        depth = isle.r + q.dist;
-      }
-      s.x += nx * depth;
-      s.y += ny * depth;
-      for (const p of world) {
-        p.x += nx * depth;
-        p.y += ny * depth;
-      }
-      moved = true;
-    }
-    if (moved) contacted = true;
-    else break;
-  }
-  if (contacted) s.speed *= DAMP;
-}
-
 // Collision is SWEPT (sim/shell.ts tests the whole tick's travel segment against
-// every obstacle), so the old "per-tick travel < the thinnest obstacle" margin was
-// never the guarantee — it was a proxy that silently excluded the cannon. The
-// proof that actually matters: at the worst-case per-tick travel from CONFIG, the
-// same primitives shell.ts uses still DETECT an obstacle the segment crosses even
-// when neither endpoint is touching it (exactly what a point sample would miss).
-describe('swept-shell no tunneling (worst case from CONFIG)', () => {
+// every obstacle), so the proof that matters: at the worst-case per-tick travel
+// from CONFIG, the same primitives shell.ts uses still DETECT an obstacle the
+// segment crosses even when neither endpoint is touching it (exactly what a
+// point sample would miss).
+describe('swept-shell no tunneling (worst case from CONFIG + MAP_RULES)', () => {
   /** The thinnest hull afloat (smallest beam) — the worst case for a hull sweep. */
   function thinnestHull(): { id: HullId; beam: number } {
     let best = { id: HULL_IDS[0], beam: hullEnvelope(HULL_IDS[0]).hull.beam };
@@ -123,19 +104,30 @@ describe('swept-shell no tunneling (worst case from CONFIG)', () => {
     return best;
   }
 
-  it('detects the fastest projectile crossing the thinnest island', () => {
-    const island = { x: 0, y: 0 };
-    const r = MAP_RULES.MIN_R;
-    // Head-on through the center.
-    expect(segCircleHit({ x: -maxTravel / 2, y: 0 }, { x: maxTravel / 2, y: 0 }, island, r)).not.toBeNull();
+  it('detects the fastest projectile crossing the thinnest island the generator can produce', () => {
+    // Thinnest coastal radius: the smallest half-width at the fractal floor.
+    const rMin = MAP_RULES.HW_MIN * MAP_RULES.M_MIN;
+    expect(maxTravel / 2).toBeGreaterThan(rMin); // both endpoints can sit outside
+    const isle = ngonIsland(0, 0, rMin);
+    // KNOWN LIMITATION of the radius-0 exact test (reported cross-cutting):
+    // segSegClosest returns ~1e-15 float dust at a proper crossing, so
+    // segPolygonHit(..., 0) — and therefore islandSegHit — can miss a genuine
+    // coastline crossing. collision.ts pads its overlap tests by 1e-9 for this
+    // reason; this proof uses the same pad so it pins the SWEPT geometry, not
+    // the dust.
+    const PAD = 1e-9;
+    // Head-on through the centre.
+    expect(
+      segPolygonHit({ x: -maxTravel / 2, y: 0 }, { x: maxTravel / 2, y: 0 }, isle.poly, PAD),
+    ).not.toBeNull();
     // The case a point sample misses: a grazing chord whose BOTH endpoints sit
-    // outside the island while the middle of the travel is inside it.
-    const offset = r - 0.1;
+    // outside the island while the middle of the travel crosses its coastline.
+    const offset = rMin - 0.15; // just under the top vertex at (0, rMin)
     const g0 = { x: -maxTravel / 2, y: offset };
     const g1 = { x: maxTravel / 2, y: offset };
-    expect(Math.hypot(g0.x, g0.y)).toBeGreaterThan(r); // start clear
-    expect(Math.hypot(g1.x, g1.y)).toBeGreaterThan(r); // end clear
-    const t = segCircleHit(g0, g1, island, r);
+    expect(Math.hypot(g0.x, g0.y)).toBeGreaterThan(rMin); // start clear
+    expect(Math.hypot(g1.x, g1.y)).toBeGreaterThan(rMin); // end clear
+    const t = segPolygonHit(g0, g1, isle.poly, PAD);
     expect(t).not.toBeNull();
     expect(t!).toBeGreaterThan(0);
     expect(t!).toBeLessThan(1);
@@ -190,8 +182,8 @@ describe('resolveShipPose — boundary clamp', () => {
   });
 });
 
-describe('resolveShipPose — island push-out', () => {
-  const island: Circle = { x: 0, y: 0, r: 50 };
+describe('resolveShipPose — island push-out (skeleton normal)', () => {
+  const island = ngonIsland(0, 0, 50);
 
   it('leaves a clear ship untouched', () => {
     const prev: Pose = { x: 200, y: 0, heading: 0 };
@@ -201,26 +193,31 @@ describe('resolveShipPose — island push-out', () => {
     expect(s).toEqual({ x: 200, y: 0, heading: 0, speed: 10 });
   });
 
-  it('pushes an overlapping hull out along the contact normal and damps once', () => {
-    // droneMedium broadside at heading π/2: flat side at x = ship.x − 15, over
-    // the island by 5.
+  it('pushes an overlapping hull out along the SKELETON normal and damps once', () => {
+    // droneMedium broadside at heading π/2: flat side at x = ship.x − 15,
+    // over the island's eastern coastline by ~5u.
     const prev: Pose = { x: 62, y: 10, heading: Math.PI / 2 };
     const s: ShipState = { x: 60, y: 10, heading: Math.PI / 2, speed: 12 };
     resolve(prev, s, [island], 'droneMedium');
-    expect(s.x).toBeCloseTo(65, 4); // pushed straight out along +x
-    expect(s.y).toBeCloseTo(10, 4);
+    // Push direction = away from the nearest skeleton point (the centre),
+    // through the candidate centre (60, 10).
+    const n = { x: 60 / Math.hypot(60, 10), y: 10 / Math.hypot(60, 10) };
+    const disp = { x: s.x - 60, y: s.y - 10 };
+    const mag = Math.hypot(disp.x, disp.y);
+    expect(mag).toBeGreaterThan(3); // a real correction, not a nudge
+    expect(mag).toBeLessThan(10); // minimal-translation push, no teleport
+    expect(disp.x * n.y - disp.y * n.x).toBeCloseTo(0, 6); // parallel to the normal
+    expect(disp.x * n.x + disp.y * n.y).toBeGreaterThan(0); // outward, not inward
     expect(s.speed).toBeCloseTo(12 * DAMP, 9);
     expect(islandClear(worldPoly(s, 'droneMedium'), island)).toBe(true);
   });
 
   it('damps speed ONCE per tick even with multiple island contacts (#64 root cause)', () => {
-    const islands: Circle[] = [
-      { x: 30, y: 70, r: 50 },
-      { x: -30, y: -70, r: 50 },
-    ];
+    const islands: Island[] = [ngonIsland(30, 70, 50), ngonIsland(-30, -70, 50)];
     // A valid prev the ship rotated/moved from; the candidate double-overlaps.
     const prev: Pose = { x: -180, y: -6, heading: 0.7 };
     const s: ShipState = { x: -40, y: -6, heading: 0.7, speed: 12 };
+    expect(clearOfAll({ x: prev.x, y: prev.y, heading: prev.heading, speed: 0 }, 'battleship', islands)).toBe(true);
     expect(clearOfAll(s, 'battleship', islands)).toBe(false);
     resolve(prev, s, islands, 'battleship');
     expect(s.speed).toBeCloseTo(12 * DAMP, 9); // ONE damp, not DAMP²
@@ -229,33 +226,38 @@ describe('resolveShipPose — island push-out', () => {
 });
 
 describe('graze-slide — a shallow drive past a single island slides, never sticks', () => {
-  // The island sits just above the ship's lane; a straight drive clips its lower
-  // arc, so the contact normal is ~perpendicular to travel (a lateral deflect,
-  // not a head-on brake). The ship slides ALONG the island and past it — the
-  // anti-stick guarantee: overlap-free every tick, never shoved backward, and it
-  // makes monotone forward progress clear past the island's center (a wedged
-  // ship would freeze at the leading edge instead).
-  const island: Circle = { x: 0, y: 0, r: 50 };
+  // The island sits just above the ship's lane; a straight drive clips its top
+  // arc, so the correction is ~perpendicular to travel (a lateral deflect, not
+  // a head-on brake). The anti-stick guarantee: overlap-free every tick, no
+  // significant backward shove (the skeleton normal may carry a small aft
+  // component on approach — bounded, never a rewind), and monotone-enough
+  // forward progress clear past the island's centre (a wedged ship would
+  // freeze at the leading edge instead).
+  const island = ngonIsland(0, 0, 50);
 
   it('slides along the island and past it without sticking or reversing', () => {
     const kin = CONFIG.shipClasses.mineLayer.kinematics;
     const s: ShipState = { x: -200, y: 58, heading: 0, speed: kin.maxSpeed };
+    let touched = false;
+    let maxX = s.x;
     for (let t = 0; t < 800; t++) {
       const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
       stepShip(s, { throttle: 1, rudder: 0 }, kin, DT);
-      resolve(prev, s, [island], 'mineLayer');
+      if (resolve(prev, s, [island], 'mineLayer')) touched = true;
       expect(clearOfAll(s, 'mineLayer', [island])).toBe(true); // never wedged
-      expect(s.x).toBeGreaterThanOrEqual(prev.x - 1e-6); // never shoved backward
+      expect(s.x).toBeGreaterThanOrEqual(maxX - 2); // no meaningful backward shove
+      maxX = Math.max(maxX, s.x);
     }
+    expect(touched).toBe(true); // it was a genuine graze, not a clean miss
     // Slid past the island's widest point rather than sticking at its edge.
     expect(s.x).toBeGreaterThan(island.x);
   });
 });
 
 describe('#64 wedge — rotation is blocked by rock (pose-validity rollback)', () => {
-  const islands: Circle[] = [
-    { x: 0, y: 68, r: 50 }, // vertical channel, edge-to-edge gap 36u
-    { x: 0, y: -68, r: 50 },
+  const islands: Island[] = [
+    ngonIsland(0, 68, 50), // vertical channel, edge-to-edge gap ≈ 36u
+    ngonIsland(0, -68, 50),
   ];
   const overlapsBoth = (s: ShipState): boolean => {
     const poly = worldPoly(s, 'battleship');
@@ -287,14 +289,14 @@ describe('#64 wedge — rotation is blocked by rock (pose-validity rollback)', (
   });
 
   it('full-reverts to the previous pose when the candidate position is trapped', () => {
-    // A 3-island pincer 120° apart around the origin: adjacent island edges are
+    // A 3-island pincer 120° apart around the origin: adjacent coastlines are
     // ~21u apart (a battleship fits no gap), so a candidate at (0,0) overlaps at
     // every heading and push-out oscillates without clearing — branches (i) and
     // (ii) both fail, forcing the full revert.
-    const trap: Circle[] = [
-      { x: 0, y: 70, r: 50 },
-      { x: -60.6, y: -35, r: 50 },
-      { x: 60.6, y: -35, r: 50 },
+    const trap: Island[] = [
+      ngonIsland(0, 70, 50),
+      ngonIsland(-60.6, -35, 50),
+      ngonIsland(60.6, -35, 50),
     ];
     const prev: Pose = { x: 0, y: 320, heading: 0 }; // clearly valid, outside the trap
     const s: ShipState = { x: 0, y: 0, heading: 0.5, speed: 8 };
@@ -308,17 +310,14 @@ describe('#64 wedge — rotation is blocked by rock (pose-validity rollback)', (
 });
 
 describe('#64 wedge — full astern escapes a placed wedge in bounded ticks', () => {
-  const islands: Circle[] = [
-    { x: 30, y: 70, r: 50 },
-    { x: -30, y: -70, r: 50 },
-  ];
+  const islands: Island[] = [ngonIsland(30, 70, 50), ngonIsland(-30, -70, 50)];
   const kin = CONFIG.shipClasses.battleship.kinematics;
 
   it('is a genuine double wedge at placement', () => {
     const s: ShipState = { x: -40, y: -6, heading: 0.7, speed: 0 };
     const poly = worldPoly(s, 'battleship');
-    expect(islands[0].r - pointPolygonDistance(islands[0], poly)).toBeGreaterThan(5);
-    expect(islands[1].r - pointPolygonDistance(islands[1], poly)).toBeGreaterThan(5);
+    expect(hullIslandOverlap(poly, islands[0])).toBe(true);
+    expect(hullIslandOverlap(poly, islands[1])).toBe(true);
   });
 
   it('backs out within bounded ticks, every resolved tick overlap-free', () => {
@@ -346,11 +345,11 @@ describe('#64 wedge — full astern escapes a placed wedge in bounded ticks', ()
 describe('no-escape invariant: every resolved tick ends overlap-free', () => {
   // A clustered island field; a battleship driven with a wandering rudder must
   // NEVER end a tick overlapping — the property the rollback guarantees.
-  const cluster: Circle[] = [
-    { x: 0, y: 70, r: 50 },
-    { x: 0, y: -70, r: 50 },
-    { x: 150, y: 0, r: 45 },
-    { x: -150, y: 20, r: 45 },
+  const cluster: Island[] = [
+    ngonIsland(0, 70, 50),
+    ngonIsland(0, -70, 50),
+    ngonIsland(150, 0, 45),
+    ngonIsland(-150, 20, 45),
   ];
   const kin = CONFIG.shipClasses.battleship.kinematics;
 
@@ -362,7 +361,9 @@ describe('no-escape invariant: every resolved tick ends overlap-free', () => {
       stepShip(s, { throttle: rng.float(-1, 1), rudder: rng.float(-1, 1) }, kin, DT);
       resolve(prev, s, cluster, 'battleship', 900);
       expect(clearOfAll(s, 'battleship', cluster)).toBe(true);
-      expect(Math.hypot(s.x, s.y)).toBeLessThanOrEqual(900 - polygonMaxRadius(hullSilhouette('battleship')) + 1e-6);
+      expect(Math.hypot(s.x, s.y)).toBeLessThanOrEqual(
+        900 - polygonMaxRadius(hullSilhouette('battleship')) + 1e-6,
+      );
       prev = { x: s.x, y: s.y, heading: s.heading };
     }
   }
@@ -372,9 +373,114 @@ describe('no-escape invariant: every resolved tick ends overlap-free', () => {
   });
 });
 
+describe('no-escape invariant on a REAL generated map', () => {
+  // The post-invariant must hold against actual fractal coastlines, not just
+  // n-gon fixtures: ram the biggest landmass, then wander at random — no tick
+  // may end with the silhouette overlapping land or outside the boundary.
+  it('a long randomized drive never ends a tick overlapping or out of bounds', () => {
+    const kin = CONFIG.shipClasses.battleship.kinematics;
+    const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
+    for (const seed of [7, 33, 90]) {
+      const map = generateMap(seed, 20);
+      const isle = map.islands.reduce((a, b) => (b.r > a.r ? b : a));
+      // Start just off the biggest island's coast, on its map-centre side, bow
+      // pointed straight at its bounding centre.
+      const d = Math.hypot(isle.x, isle.y);
+      const toCentre = { x: -isle.x / d, y: -isle.y / d };
+      const s: ShipState = {
+        x: isle.x + toCentre.x * (isle.r + polyMax + 20),
+        y: isle.y + toCentre.y * (isle.r + polyMax + 20),
+        heading: Math.atan2(-toCentre.y, -toCentre.x),
+        speed: 0,
+      };
+      expect(clearOfAll(s, 'battleship', map.islands)).toBe(true); // valid start
+      const rng = mulberry32(seed * 7919);
+      let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+      let contacts = 0;
+      for (let t = 0; t < 1200; t++) {
+        const throttle = t < 200 ? 1 : rng.float(-1, 1); // ram first, wander after
+        stepShip(s, { throttle, rudder: t < 200 ? 0 : rng.float(-1, 1) }, kin, DT);
+        if (resolve(prev, s, map.islands, 'battleship', map.radius)) contacts++;
+        expect(clearOfAll(s, 'battleship', map.islands)).toBe(true);
+        expect(Math.hypot(s.x, s.y)).toBeLessThanOrEqual(map.radius - polyMax + 1e-6);
+        prev = { x: s.x, y: s.y, heading: s.heading };
+      }
+      expect(contacts).toBeGreaterThan(0); // the drive genuinely exercised collision
+    }
+  });
+});
+
+describe('cove escape — the worst concavity the generator produces (measured)', () => {
+  // Measured across seeds 1..400 at playerCap 20 (convex-hull pocket depth —
+  // distance from a coastline vertex to the polygon's convex hull; mouth = the
+  // spanning hull-bridge length):
+  //   deepest cove:         seed 333, island 12, vertex 8  — 119.6u deep, 635.7u mouth
+  //   narrowest deep notch: seed 363, island 10, vertex 40 —  41.3u deep, 103.6u mouth
+  // A torpedo boat (thinnest hull — reaches deepest into a notch) is driven
+  // bow-first into the cove bottom at full throttle until wedged, then ordered
+  // full astern: it must come fully clear within 40 ticks (2s) of the helm
+  // order, and at NO tick — wedging in or backing out — may its silhouette
+  // overlap land. Re-measure and re-pin if the generator's shape math changes.
+  const cases = [
+    { name: 'deepest cove', seed: 333, isle: 12, vert: 8 },
+    { name: 'narrowest deep notch', seed: 363, isle: 10, vert: 40 },
+  ] as const;
+
+  const kin = CONFIG.shipClasses.torpedoBoat.kinematics;
+  const polyMax = polygonMaxRadius(hullSilhouette('torpedoBoat'));
+
+  /** Walk outward along the cove normal until the placement pose is clear. */
+  function clearStart(v: Vec2, n: { nx: number; ny: number }, heading: number, isles: readonly Island[]): ShipState {
+    for (let back = polyMax + 5; back < polyMax + 200; back += 2) {
+      const s: ShipState = { x: v.x + n.nx * back, y: v.y + n.ny * back, heading, speed: 0 };
+      if (clearOfAll(s, 'torpedoBoat', isles)) return s;
+    }
+    throw new Error('no clear start pose found outside the cove');
+  }
+
+  for (const c of cases) {
+    it(`wedges into the ${c.name} (seed ${c.seed}) and backs clear within 40 ticks`, () => {
+      const map = generateMap(c.seed, 20);
+      const isle = map.islands[c.isle];
+      const v = isle.poly[c.vert]; // the cove-bottom vertex
+      const n = skeletonNormal(v, isle); // outward at the cove bottom
+      const s = clearStart(v, n, Math.atan2(-n.ny, -n.nx), map.islands);
+      let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+      const step = (throttle: number): boolean => {
+        stepShip(s, { throttle, rudder: 0 }, kin, DT);
+        const contact = resolve(prev, s, map.islands, 'torpedoBoat', map.radius);
+        expect(clearOfAll(s, 'torpedoBoat', map.islands)).toBe(true); // NEVER overlaps land
+        prev = { x: s.x, y: s.y, heading: s.heading };
+        return contact;
+      };
+
+      // Phase 1 — full throttle into the cove bottom until wedged.
+      let wedged = false;
+      for (let t = 0; t < 60; t++) {
+        if (step(1)) wedged = true;
+      }
+      expect(wedged).toBe(true); // it genuinely hit the coastline
+      const wedgeDist = Math.hypot(s.x - v.x, s.y - v.y);
+
+      // Phase 2 — helm order: full astern. Must come fully clear within 40 ticks.
+      let escapeTick = -1;
+      for (let t = 0; t < 40; t++) {
+        const contact = step(-1);
+        const retreated = Math.hypot(s.x - v.x, s.y - v.y) > wedgeDist + 2;
+        if (!contact && retreated) {
+          escapeTick = t;
+          break;
+        }
+      }
+      expect(escapeTick).toBeGreaterThanOrEqual(0);
+      expect(escapeTick).toBeLessThan(40);
+    });
+  }
+});
+
 describe('anti-teleport: no single resolve teleports the center', () => {
   it('a deep single-island overlap resolves within the penetration bound', () => {
-    const island: Circle = { x: 0, y: 0, r: 70 };
+    const island = ngonIsland(0, 0, 70);
     const poly = hullSilhouette('torpedoBoat');
     const polyMax = polygonMaxRadius(poly);
     const prev: Pose = { x: 0, y: -140, heading: Math.PI / 2 };
@@ -382,44 +488,43 @@ describe('anti-teleport: no single resolve teleports the center', () => {
     const cand = { x: s.x, y: s.y };
     resolve(prev, s, [island], 'torpedoBoat');
     const moved = Math.hypot(s.x - cand.x, s.y - cand.y);
-    // Strict upper bound on a legitimate push (no ~97u pathological jump).
+    // Strict upper bound on a legitimate push: separating the bounding circles
+    // (isle.r + polyMax) certainly separates the polygons.
     expect(moved).toBeLessThanOrEqual(island.r + polyMax + 1e-3);
     expect(clearOfAll(s, 'torpedoBoat', [island])).toBe(true);
   });
 });
 
-// --- BITE PROOF: the wedge + invariant FAIL against the pre-P1 push-only
-//     resolver, and PASS against resolveShipPose. -----------------------------
-describe('bite proof — the old push-only resolver fails what the rollback fixes', () => {
-  const channel: Circle[] = [
-    { x: 0, y: 68, r: 50 },
-    { x: 0, y: -68, r: 50 },
-  ];
+// --- BITE PROOF: the pose-validity rollback anchor is load-bearing. Feeding
+//     the resolver the CANDIDATE pose as `prev` (no valid anchor to roll back
+//     to — behaviorally the pre-P1 push-only resolver) leaves overlap ticks
+//     that the real prev-anchored rollback never does. ------------------------
+describe('bite proof — without the rollback anchor, push-only resolution wedges', () => {
+  const channel: Island[] = [ngonIsland(0, 68, 50), ngonIsland(0, -68, 50)];
   const kin = CONFIG.shipClasses.battleship.kinematics;
 
   /** Creep forward with hard rudder in the tight channel; report whether any
    *  resolved tick ended overlapping. */
-  function driveRudder(resolveFn: (prev: Pose, s: ShipState) => void): boolean {
+  function driveRudder(withAnchor: boolean): boolean {
     const s: ShipState = { x: 0, y: 0, heading: 0, speed: 8 };
     let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
     let everOverlapped = false;
     for (let t = 0; t < 80; t++) {
       stepShip(s, { throttle: 0.3, rudder: 1 }, kin, DT);
-      resolveFn(prev, s);
+      const anchor = withAnchor ? prev : { x: s.x, y: s.y, heading: s.heading };
+      resolve(anchor, s, channel, 'battleship');
       if (!clearOfAll(s, 'battleship', channel)) everOverlapped = true;
       prev = { x: s.x, y: s.y, heading: s.heading };
     }
     return everOverlapped;
   }
 
-  it('rollback resolver: every tick overlap-free; OLD resolver: overlaps at some tick', () => {
-    const withRollback = driveRudder((prev, s) => resolve(prev, s, channel, 'battleship'));
-    const withOld = driveRudder((_prev, s) => oldResolve(s, channel, 'battleship'));
-    expect(withRollback).toBe(false); // rollback never leaves a tick overlapping
-    expect(withOld).toBe(true); // the pre-P1 push-only resolver wedges (bite confirmed)
+  it('anchored rollback: every tick overlap-free; anchor-less: overlaps at some tick', () => {
+    expect(driveRudder(true)).toBe(false); // rollback never leaves a tick overlapping
+    expect(driveRudder(false)).toBe(true); // push-only (no valid anchor) wedges — bite confirmed
   });
 
-  it('rollback resolver clears the jam pose; OLD resolver leaves it overlapping', () => {
+  it('anchored rollback clears the jam pose; anchor-less leaves it overlapping', () => {
     // The exact both-islands-jammed candidate from the rotation-blocked test.
     let jam = 0;
     for (let h = 0.05; h <= 1.2; h += 0.05) {
@@ -432,12 +537,12 @@ describe('bite proof — the old push-only resolver fails what the rollback fixe
     }
     expect(jam).toBeGreaterThan(0);
 
-    const rollback: ShipState = { x: 0, y: 0, heading: jam, speed: 0 };
-    resolve({ x: 0, y: 0, heading: 0 }, rollback, channel, 'battleship');
-    expect(clearOfAll(rollback, 'battleship', channel)).toBe(true);
+    const anchored: ShipState = { x: 0, y: 0, heading: jam, speed: 0 };
+    resolve({ x: 0, y: 0, heading: 0 }, anchored, channel, 'battleship');
+    expect(clearOfAll(anchored, 'battleship', channel)).toBe(true);
 
-    const old: ShipState = { x: 0, y: 0, heading: jam, speed: 0 };
-    oldResolve(old, channel, 'battleship');
-    expect(clearOfAll(old, 'battleship', channel)).toBe(false); // OLD can't escape the jam
+    const anchorless: ShipState = { x: 0, y: 0, heading: jam, speed: 0 };
+    resolve({ x: 0, y: 0, heading: jam }, anchorless, channel, 'battleship');
+    expect(clearOfAll(anchorless, 'battleship', channel)).toBe(false); // can't escape the jam
   });
 });

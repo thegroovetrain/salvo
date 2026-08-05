@@ -29,14 +29,14 @@ import {
   burstPointAlong,
   clampInsideMap,
   hullEnvelope,
+  islandSegHit,
   minCommandDistance,
   muzzleOrTarget,
-  segCircleHit,
   torpedoSpawn,
-  type Circle,
   type EffectiveStats,
   type EquipmentId,
   type HullId,
+  type Island,
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
@@ -64,7 +64,7 @@ export interface AimPreviewInput {
   aimDist: number; // u — clicked distance from the ship CENTRE
   stats: EffectiveStats;
   mapRadius: number;
-  islands: readonly Circle[];
+  islands: readonly Island[];
   legal: boolean;
 }
 
@@ -135,18 +135,19 @@ interface BurstSpec {
 
 /**
  * Clip a travel segment at the first island it meets. Uses the SAME primitive
- * the sim's flight resolution does (segCircleHit against the island circle), so
- * the drawn stop point is the shell's stop point. Returns the endpoint and
- * whether anything actually got in the way.
+ * the sim's flight resolution does (islandSegHit — bounding-circle broadphase
+ * then exact coastline test against `isle.poly`), so the drawn stop point is
+ * the shell's stop point. Returns the endpoint and whether anything actually
+ * got in the way.
  */
 export function clipAtIslands(
   from: Vec2,
   to: Vec2,
-  islands: readonly Circle[],
+  islands: readonly Island[],
 ): { point: Vec2; clipped: boolean } {
   let best: number | null = null;
   for (const isle of islands) {
-    const t = segCircleHit(from, to, isle, isle.r);
+    const t = islandSegHit(from, to, isle);
     if (t !== null && (best === null || t < best)) best = t;
   }
   if (best === null) return { point: to, clipped: false };

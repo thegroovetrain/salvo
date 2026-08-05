@@ -140,7 +140,9 @@ import {
   CONFIG,
   angleDiff,
   mulberry32,
+  nearestCoastPoint,
   type InputMsg,
+  type Island,
   type Rng,
   type Vec2,
 } from '@salvo/shared';
@@ -255,16 +257,44 @@ function forwardCross(self: ShipRecord, px: number, py: number): number {
 }
 
 /**
+ * THE shared coastline threat probe behind both islandAvoid and
+ * asternTurnRudder (cycle 51): the nearest point on this island's real COAST,
+ * with the forward cross sign to it — or null when the island is not a threat
+ * ahead. Keying on the coast rather than the bounding-circle centre is what
+ * makes a pilot hug the shape of a ridge or a cove mouth instead of arcing
+ * around a phantom circle (a long landmass's tip can be dead ahead while its
+ * centre is abeam).
+ *
+ * BROADPHASE IS MANDATORY (this runs per pilot per island per tick): the
+ * bounding circle rejects before any polygon edge is visited. The forward
+ * HALF-DISC filter both callers share is preserved exactly — dot(heading,
+ * bearing) > 0, within ISLAND_LOOKAHEAD_U of the LAND (the old gate
+ * `|toCentre| <= ISLAND_LOOKAHEAD_U + isle.r` said "within LOOKAHEAD of the
+ * rim"; `coast.dist <= ISLAND_LOOKAHEAD_U` says it exactly).
+ */
+function coastThreat(self: ShipRecord, isle: Island): { cross: number; d: number } | null {
+  const { x, y, heading } = self.state;
+  if (Math.hypot(isle.x - x, isle.y - y) > ISLAND_LOOKAHEAD_U + isle.r) return null;
+  const coast = nearestCoastPoint({ x, y }, isle);
+  if (coast.dist > ISLAND_LOOKAHEAD_U) return null;
+  const fx = Math.cos(heading);
+  const fy = Math.sin(heading);
+  const dx = coast.x - x;
+  const dy = coast.y - y;
+  if (dx * fx + dy * fy <= 0) return null;
+  return { cross: forwardCross(self, coast.x, coast.y), d: coast.dist };
+}
+
+/**
  * The rudder to hold through an un-beach burst (amendment 25 v2), chosen so the
- * BOW swings AWAY from the island that is blocking the bow. Both this function
- * and islandAvoid apply the SAME forward HALF-DISC filter (dot(heading, bearing)
- * > 0, within ISLAND_LOOKAHEAD_U + island radius), so the two agree on what
- * counts as "ahead" — but they do NOT agree on aggregation: islandAvoid SUMS a
- * bias contribution over every qualifying island, while this function picks
- * only the single NEAREST qualifying island as "the" blocker. Deterministic
- * (nearest wins, first-in-array on ties) and rng-free; +1 when no island
- * qualifies (beached bow-on to nothing either function can see), never a
- * random pick.
+ * BOW swings AWAY from the coastline that is blocking the bow. Both this
+ * function and islandAvoid apply the SAME forward half-disc filter via
+ * coastThreat, so the two agree on what counts as "ahead" — but they do NOT
+ * agree on aggregation: islandAvoid SUMS a bias contribution over every
+ * qualifying island, while this function picks only the single NEAREST
+ * qualifying coastline as "the" blocker. Deterministic (nearest wins,
+ * first-in-array on ties) and rng-free; +1 when no island qualifies (beached
+ * bow-on to nothing either function can see), never a random pick.
  *
  * SIGN NOTE — this is a REVERSE rudder: stepShip scales rudder authority by
  * `speed / steerageSpeed` with a SIGNED speed ("sign flips in reverse"), so a
@@ -273,30 +303,22 @@ function forwardCross(self: ShipRecord, px: number, py: number): number {
  * idiom); backing, we command its NEGATION to get the same bow swing.
  */
 function asternTurnRudder(world: World, self: ShipRecord): number {
-  const fx = Math.cos(self.state.heading);
-  const fy = Math.sin(self.state.heading);
   let blocker: { cross: number; d: number } | null = null;
   for (const isle of world.map.islands) {
-    const dx = isle.x - self.state.x;
-    const dy = isle.y - self.state.y;
-    const d = Math.hypot(dx, dy);
-    if (dx * fx + dy * fy <= 0 || d > ISLAND_LOOKAHEAD_U + isle.r) continue;
-    if (blocker === null || d < blocker.d) blocker = { cross: forwardCross(self, isle.x, isle.y), d };
+    const threat = coastThreat(self, isle);
+    if (threat === null) continue;
+    if (blocker === null || threat.d < blocker.d) blocker = threat;
   }
   if (blocker === null) return UNBEACH_FALLBACK_RUDDER;
   return blocker.cross > 0 ? 1 : -1; // negation of the forward-sense away turn
 }
 
-/** Rudder bias steering clear of islands dead ahead (dronesSmoke islandAvoid). */
+/** Rudder bias steering clear of coastline dead ahead (dronesSmoke islandAvoid). */
 function islandAvoid(world: World, self: ShipRecord): number {
-  const fx = Math.cos(self.state.heading);
-  const fy = Math.sin(self.state.heading);
   let bias = 0;
   for (const isle of world.map.islands) {
-    const dx = isle.x - self.state.x;
-    const dy = isle.y - self.state.y;
-    if (dx * fx + dy * fy <= 0 || Math.hypot(dx, dy) > ISLAND_LOOKAHEAD_U + isle.r) continue;
-    bias += fx * dy - fy * dx > 0 ? -0.9 : 0.9;
+    const threat = coastThreat(self, isle);
+    if (threat !== null) bias += threat.cross > 0 ? -0.9 : 0.9;
   }
   return bias;
 }

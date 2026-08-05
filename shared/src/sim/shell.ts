@@ -16,8 +16,8 @@
 //     which case the shell bursts for full damage anyway, always centered on
 //     the target point (no double-dipping: a burst victim takes burst damage,
 //     not contact + burst). Early island contact stops the shell dead — no
-//     damage, no burst — unless the island surface is within the blast radius
-//     of the target (plain radius query, no LOS inside the small burst).
+//     damage, no burst — unless the island COASTLINE is within the blast radius
+//     of the target (plain distance query, no LOS inside the small burst).
 //   - Torpedo (contact-only: no target, burstRadius 0): today's behavior
 //     byte-for-byte — first non-owner contact hits for full damage
 //     (contactDamage = damage), islands stop it, it runs until impact/edge.
@@ -25,8 +25,11 @@
 //   burst rule with different numbers.)
 //
 // Swept collision (no tunneling even at max closing speed): the tick's travel is
-// a segment p0->p1. Against islands it is seg-vs-circle (segCircleHit → entry
-// fraction t). Against hulls it is seg-vs-silhouette-polygon (segPolygonHit):
+// a segment p0->p1. Against islands it is seg-vs-COASTLINE (islandSegHit — the
+// island.ts query seam: bounding-circle broadphase, then the exact polygon test
+// at radius 0, so a concave cove mouth is genuinely missable and no bounding
+// circle ever stops a shell that threaded it). Against hulls it is
+// seg-vs-silhouette-polygon (segPolygonHit):
 // a hit iff the travel segment comes within the projectile's radius of any
 // polygon edge (or starts inside), at the closest-approach fraction along the
 // shell segment. Concave-safe — the Torpedo Boat stern notch and Mine Layer
@@ -37,11 +40,12 @@
 // PERMANENTLY immune to its own projectile — own weapons never damage the owner
 // (Eric ruling 2026-07-19): never intercepted by it, never a burst victim.
 
-import { segCircleExit, segCircleHit } from '../math/geom.js';
+import { segCircleExit } from '../math/geom.js';
 import { wrapAngle } from '../math/angle.js';
+import { islandDistance, islandSegHit } from './island.js';
 import { pointPolygonDistance, segPolygonHit } from './silhouette.js';
 import type { Vec2 } from '../math/vec.js';
-import type { Circle } from '../types.js';
+import type { Island } from '../types.js';
 
 /** Map is centered at world origin (the boundary clamp treats origin as center). */
 const MAP_CENTER: Vec2 = { x: 0, y: 0 };
@@ -134,7 +138,7 @@ export interface HullTarget {
 
 /** Everything stepShell needs about the world this tick. */
 export interface ShellContext {
-  islands: readonly Circle[];
+  islands: readonly Island[];
   hulls: readonly HullTarget[];
   now: number; // ms — server time this tick
   dt: number; // s — fixed step
@@ -165,15 +169,21 @@ interface Hit {
   frac: number; // fraction along the shell segment [0,1]
   victimId?: string; // set for a hull hit
   poly?: readonly Vec2[]; // the struck hull's world polygon (blast-membership test)
-  island?: Circle; // set for an island hit (blast-proximity test)
+  island?: Island; // set for an island hit (blast-proximity test)
   edge?: boolean; // set when the map edge is the winning obstacle
 }
 
-/** Earliest island entry along p0->p1, or null. */
-function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Circle[]): Hit | null {
+/**
+ * Earliest COASTLINE entry along p0->p1, or null. islandSegHit runs the
+ * bounding-circle broadphase then the exact polygon test, so a path that
+ * threads a cove mouth without touching an edge (and without entering the
+ * interior) returns null here — concave cavities are genuinely missable.
+ * Scans every island: the EARLIEST hit wins, so there is no early-out.
+ */
+function earliestIsland(p0: Vec2, p1: Vec2, islands: readonly Island[]): Hit | null {
   let best: Hit | null = null;
   for (const isle of islands) {
-    const t = segCircleHit(p0, p1, isle, isle.r);
+    const t = islandSegHit(p0, p1, isle);
     if (t !== null && (best === null || t < best.frac)) best = { frac: t, island: isle };
   }
   return best;
@@ -224,17 +234,15 @@ function polyInBlast(center: Vec2, radius: number, poly: readonly Vec2[]): boole
 
 /**
  * Would this interception happen inside the would-be blast around the shell's
- * target point? Hulls use the burst-membership predicate; islands use plain
- * circle-surface proximity. Always false for point-less projectiles.
+ * target point? Hulls use the burst-membership predicate; islands use the same
+ * shape of test against the COASTLINE (islandDistance — signed, negative when
+ * the target sits on the land itself). Always false for point-less projectiles.
  */
 function interceptedInBlast(shell: ShellState, hit: Hit): boolean {
   if (shell.targetX === null || shell.targetY === null) return false;
   const center: Vec2 = { x: shell.targetX, y: shell.targetY };
   if (hit.poly !== undefined) return polyInBlast(center, shell.burstRadius, hit.poly);
-  if (hit.island !== undefined) {
-    const d = Math.hypot(center.x - hit.island.x, center.y - hit.island.y) - hit.island.r;
-    return d <= shell.burstRadius;
-  }
+  if (hit.island !== undefined) return islandDistance(center, hit.island) <= shell.burstRadius;
   return false;
 }
 

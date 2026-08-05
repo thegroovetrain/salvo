@@ -80,7 +80,11 @@ describe('shared barrel', () => {
     // two-value enum) plus CONFIG.damageBands and CONFIG.smoke in the welcome
     // config snapshot. Reach reuses CONFIG.vision.muzzleFlash — no new vision
     // constant.
-    expect(PROTOCOL_VERSION).toBe(25);
+    // FRACTAL ISLANDS (PV 26, cycle 51): islands became polygon coastlines, so
+    // the SAME mapSeed now builds a different ocean — an un-bumped old client
+    // would generate circles where the server has coastlines and desync
+    // catastrophically. Map geometry still never travels on the wire.
+    expect(PROTOCOL_VERSION).toBe(26);
   });
 
   it('re-exports config, wire tags, and functions', () => {

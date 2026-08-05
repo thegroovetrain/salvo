@@ -6,6 +6,7 @@ import {
   zoneStateAt,
   type ZoneRing,
   type ZoneTimeline,
+  pointPolygonDistance,
 } from '@salvo/shared';
 import { World } from '../game/world.js';
 
@@ -38,7 +39,9 @@ function placeClear(world: World, id: string, d: number): void {
     const a = (i * Math.PI) / 180;
     const x = Math.cos(a) * d;
     const y = Math.sin(a) * d;
-    const clear = world.map.islands.every((is) => Math.hypot(x - is.x, y - is.y) > is.r + CONFIG.shipClasses.torpedoBoat.hull.length);
+    const clear = world.map.islands.every(
+      (is) => pointPolygonDistance({ x, y }, is.poly) > CONFIG.shipClasses.torpedoBoat.hull.length,
+    );
     if (clear) {
       ship.state.x = x;
       ship.state.y = y;

@@ -11,7 +11,10 @@ import {
   type ShellContext,
 } from '../sim/shell.js';
 import { hullSilhouette, transformPolygon } from '../sim/silhouette.js';
+import { islandFromPolygon } from '../sim/map.js';
+import { segCircleHit } from '../math/geom.js';
 import { CONFIG, type HullId } from '../constants.js';
+import type { Island } from '../types.js';
 
 const DT = CONFIG.tick.simDtMs / 1000;
 
@@ -32,6 +35,26 @@ function ctx(o: Partial<ShellContext> = {}): ShellContext {
  *  broadside across a +x shell path. */
 function hullAt(x: number, y: number, heading: number, id = 'victim', hullId: HullId = 'droneMedium'): HullTarget {
   return { id, poly: transformPolygon(hullSilhouette(hullId), x, y, heading) };
+}
+
+/**
+ * A ROCK — the polygon successor to the retired `{x, y, r}` island literal
+ * (cycle 51: islands are fractal coastlines, `x/y/r` is only their bounding
+ * circle). An axis-aligned square of half-width `r` centred on (x, y), so its
+ * coastline sits exactly `r` from the centre along the +x path every case here
+ * fires down: each ported case keeps its original centre, axial extent, entry
+ * distance, and target-to-surface distance byte-for-byte.
+ */
+function rock(x: number, y: number, r: number): Island {
+  return islandFromPolygon(
+    [
+      { x: x - r, y: y - r },
+      { x: x + r, y: y - r },
+      { x: x + r, y: y + r },
+      { x: x - r, y: y + r },
+    ],
+    [{ x, y }],
+  );
 }
 
 /**
@@ -122,7 +145,7 @@ describe('stepShell — map-edge terminator', () => {
   it('an island just inside the boundary beats the edge', () => {
     const r = 100;
     // Island centered inside the disk on the path; its entry frac < edge frac.
-    const island = { x: r - 20, y: 0, r: 10 };
+    const island = rock(r - 20, 0, 10);
     const s = shell({ x: 0, y: 0 });
     let out = stepShell(s, ctx({ islands: [island], mapRadius: r }));
     while (out.kind === 'travel') out = stepShell(s, ctx({ islands: [island], mapRadius: r }));
@@ -133,7 +156,7 @@ describe('stepShell — map-edge terminator', () => {
 
 describe('stepShell — swept island collision (no tunnel at max speed)', () => {
   it('detects the thinnest island straight ahead even at max shell speed', () => {
-    const island = { x: 5, y: 0, r: 25 }; // thin island
+    const island = rock(5, 0, 25); // thin island
     const s = shell();
     let out = stepShell(s, ctx({ islands: [island] }));
     // Within a couple ticks it must register a hit (never sail through).
@@ -148,10 +171,48 @@ describe('stepShell — swept island collision (no tunnel at max speed)', () => 
   it('a fast shell cannot skip a thin island in a single tick', () => {
     // Position the island one tick's travel ahead; a swept test catches it.
     const travel = CONFIG.gun.shellSpeed * DT;
-    const island = { x: travel * 0.5, y: 0, r: 25 };
+    const island = rock(travel * 0.5, 0, 25);
     const s = shell();
     const out = stepShell(s, ctx({ islands: [island] }));
     expect(out.kind).toBe('hitIsland');
+  });
+
+  // CONCAVE COVES ARE GENUINELY MISSABLE (cycle 51 ruling). A C-shaped
+  // landmass: solid block x ∈ [0, 100], y ∈ [−60, 60] with a cove bitten out
+  // of its western face — x ∈ [0, 70], y ∈ [−20, 20] is OPEN WATER. A shell
+  // running up the cove centerline (y = 0) never comes within 0 of an edge and
+  // never enters the interior, so it flies through. The bounding circle covers
+  // the whole cove, which is the point: the broadphase must never be allowed
+  // to decide a hit on its own.
+  const coveIsland = (): Island =>
+    islandFromPolygon([
+      { x: 0, y: -60 },
+      { x: 100, y: -60 },
+      { x: 100, y: 60 },
+      { x: 0, y: 60 },
+      { x: 0, y: 20 },
+      { x: 70, y: 20 },
+      { x: 70, y: -20 },
+      { x: 0, y: -20 },
+    ]);
+
+  it('a shell into a cove MOUTH flies through — the bounding circle never stops it', () => {
+    const isle = coveIsland();
+    // The broadphase alone WOULD have called this a hit...
+    expect(segCircleHit({ x: -40, y: 0 }, { x: 50, y: 0 }, isle, isle.r)).not.toBeNull();
+    // ...but the coastline is 20u away on both flanks the whole way in.
+    const s = shell({ x: -40, y: 0, distLeft: 90 }); // range ends at x = 50, in the cove
+    const out = stepToOutcome(s, ctx({ islands: [isle] }));
+    expect(out.kind).toBe('expired'); // ran out of range INSIDE the cove — no hit
+    if (out.kind === 'expired') expect(out.x).toBeCloseTo(50, 6);
+  });
+
+  it('the SAME cove stops a shell that reaches its back wall (the cavity is real land, not a hole)', () => {
+    const isle = coveIsland();
+    const s = shell({ x: -40, y: 0, distLeft: 400 }); // enough range to reach x = 70
+    const out = stepToOutcome(s, ctx({ islands: [isle] }));
+    expect(out.kind).toBe('hitIsland');
+    if (out.kind === 'hitIsland') expect(out.x).toBeCloseTo(70, 6);
   });
 });
 
@@ -213,7 +274,7 @@ describe('stepShell — parameterized for torpedoes (no tunnel at torp speed)', 
 
   it('a torpedo cannot skip a thin island placed one tick ahead', () => {
     const travel = CONFIG.torpedo.speed * TORP_DT;
-    const island = { x: travel * 0.5, y: 0, r: 20 };
+    const island = rock(travel * 0.5, 0, 20);
     const out = stepShell(torp(), ctx({ islands: [island], dt: TORP_DT }));
     expect(out.kind).toBe('hitIsland');
   });
@@ -285,7 +346,7 @@ describe('stepShell — per-hull silhouette thresholds', () => {
 
 describe('stepShell — earliest hit wins', () => {
   it('an island in front of a hull resolves as the island', () => {
-    const island = { x: 4, y: 0, r: 2 };
+    const island = rock(4, 0, 2);
     const h = hullAt(22, 0, Math.PI / 2); // broadside at x = 7, behind the island
     const s = shell({ x: 0 });
     // Move until something resolves.
@@ -379,20 +440,20 @@ describe('stepShell — bodyblock (early interception) vs proximity exception', 
 
 describe('stepShell — island interception of a targeted shell', () => {
   it('an island far from the target stops the shell dead — no damage, no burst', () => {
-    const island = { x: 150, y: 0, r: 20 }; // surface 130u from the target
+    const island = rock(150, 0, 20); // surface 130u from the target
     const out = stepToOutcome(gunShell(300), ctx({ islands: [island] }));
     expect(out.kind).toBe('hitIsland');
     if (out.kind === 'hitIsland') expect(out.x).toBeLessThan(135);
   });
 
   it('an island whose surface is within burstRadius of the target bursts anyway', () => {
-    const island = { x: 280, y: 0, r: 10 }; // surface 10u from (300,0) — inside the 15u blast
+    const island = rock(280, 0, 10); // surface 10u from (300,0) — inside the 15u blast
     const out = stepToOutcome(gunShell(300), ctx({ islands: [island] }));
     expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
   });
 
   it('a target point ON an island bursts on early island contact (plain radius query, no LOS)', () => {
-    const island = { x: 300, y: 0, r: 30 }; // the target sits inside the island circle
+    const island = rock(300, 0, 30); // the target sits ON the island's land
     const out = stepToOutcome(gunShell(300), ctx({ islands: [island] }));
     expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
   });
@@ -434,13 +495,13 @@ describe('burstVictims — blast membership (silhouette within burstRadius, owne
 describe('stepShell — arcing shells overfly everything and burst at the click', () => {
   it('an island AND a hull between muzzle and target never intercept — burst exactly at the target', () => {
     const s = gunShell(300, { arcing: true });
-    const out = stepToOutcome(s, ctx({ islands: [{ x: 150, y: 0, r: 20 }], hulls: [hullAt(220, 0, Math.PI / 2, 'blocker')] }));
+    const out = stepToOutcome(s, ctx({ islands: [rock(150, 0, 20)], hulls: [hullAt(220, 0, Math.PI / 2, 'blocker')] }));
     expect(out).toEqual({ kind: 'burst', x: 300, y: 0 });
     expect(s.x).toBe(300);
   });
 
   it('the SAME geometry without arcing is intercepted (the flag is the whole difference)', () => {
-    const out = stepToOutcome(gunShell(300), ctx({ islands: [{ x: 150, y: 0, r: 20 }] }));
+    const out = stepToOutcome(gunShell(300), ctx({ islands: [rock(150, 0, 20)] }));
     expect(out.kind).toBe('hitIsland');
   });
 
@@ -525,7 +586,7 @@ describe('stepShell — AP pierce (falloff order, island stop, max 3, no re-hit)
 
   it('an island STOPS an AP shell dead (after any earlier pierces)', () => {
     const hulls = [hullAt(100, 0, Math.PI / 2, 'h1')];
-    const islands = [{ x: 250, y: 0, r: 30 }];
+    const islands = [rock(250, 0, 30)];
     const { hits, last } = stepPierceToEnd(apShell(), ctx({ hulls, islands }));
     expect(hits.map((h) => h.victimId)).toEqual(['h1']);
     // The stop arrives either as a plain hitIsland tick or as the spent flag
@@ -536,7 +597,7 @@ describe('stepShell — AP pierce (falloff order, island stop, max 3, no re-hit)
   it('a hull and island in the SAME tick sweep resolve in segment order (hull first, island stops)', () => {
     // Broadside at x = 85, island surface at x = 90: one 25u tick crosses both.
     const s = apShell({ x: 80 });
-    const out = stepShell(s, ctx({ hulls: [hullAt(100, 0, Math.PI / 2, 'h1')], islands: [{ x: 120, y: 0, r: 30 }] }));
+    const out = stepShell(s, ctx({ hulls: [hullAt(100, 0, Math.PI / 2, 'h1')], islands: [rock(120, 0, 30)] }));
     expect(out.kind).toBe('pierced');
     if (out.kind === 'pierced') {
       expect(out.hits.map((h) => h.victimId)).toEqual(['h1']);

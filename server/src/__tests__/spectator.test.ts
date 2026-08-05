@@ -13,9 +13,9 @@ import {
   CONFIG,
   bearing,
   mulberry32,
-  segCircleHit,
+  segPolygonHit,
   wrapPositive,
-  type Circle,
+  type Island,
   type FrameMsg,
   type GameEvent,
   type MatchPhase,
@@ -29,8 +29,12 @@ const RADAR = CONFIG.vision.radar;
 
 // ---------- test-local visibility reimplementation ---------------------------
 
-function clearLos(a: { x: number; y: number }, b: { x: number; y: number }, islands: readonly Circle[]): boolean {
-  return islands.every((isle) => segCircleHit(a, b, isle, isle.r) === null);
+/** THE anti-cheat oracle for island LOS, INDEPENDENTLY REIMPLEMENTED: the raw
+ *  concave-safe polygon test with NONE of islandBlocksSegment's broadphase or
+ *  `core` early-outs. If either optimization ever changed an answer, this
+ *  oracle would disagree and the invariant suite would fail. */
+function clearLos(a: { x: number; y: number }, b: { x: number; y: number }, islands: readonly Island[]): boolean {
+  return islands.every((isle) => segPolygonHit(a, b, isle.poly, 0) === null);
 }
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {

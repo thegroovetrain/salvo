@@ -26,7 +26,7 @@ import {
   REGATTA_NO_HUE,
   SLOT_COUNT,
   type BoonDef,
-  type Circle,
+  type Island,
   type DecoyView,
   type DeniedView,
   type EffectiveStats,
@@ -217,7 +217,7 @@ interface Game {
   /** The island circles, rebuilt locally from the welcome map seed. Retained on
    *  the game because the aim preview clips its travel lines against them (the
    *  renderer's map layer had been the only holder). */
-  islands: readonly Circle[];
+  islands: readonly Island[];
   cameraSnapped: boolean;
   lastOwn: { x: number; y: number };
   /** Spectate-mode render state (death → spectate, active phase). */

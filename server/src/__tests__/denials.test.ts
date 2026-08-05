@@ -15,6 +15,7 @@ import { CONFIG, PROTOCOL_VERSION, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { protocolVersionError } from '../rooms/roomOptions.js';
+import { circleIsland } from './islandFixture.js';
 
 /** World with no islands (directed cases add their own geometry). */
 function bareWorld(seed = 7): World {
@@ -101,7 +102,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   it("blocked (island): a MINE click onto a rock (Story 2.8 aimed placement) denies {'blocked'} and consumes NOTHING", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // heading 0 ⇒ rear sector centers on π
-    w.map.islands.push({ x: -60, y: 0, r: 20 }); // the rock the click lands on
+    w.map.islands.push(circleIsland(-60, 0, 20)); // the rock the click lands on
     w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'blocked', seq: 1 }]);
@@ -115,7 +116,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   it("blocked (island): a DECOY stern drop into a rock denies {'blocked'} and consumes NOTHING", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // stern rack drops at (-76, 0)
-    w.map.islands.push({ x: -76, y: 0, r: 20 }); // the rock the stern is backed against
+    w.map.islands.push(circleIsland(-76, 0, 20)); // the rock the stern is backed against
     w.submitInput('a', input(1, { actSeq: 1, actSlot: 2 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 2, reason: 'blocked', seq: 1 }]);
@@ -192,11 +193,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 24→25 bump (PV 24: DAMAGE CONTROL — HEAL_CHOICE + OwnShip.repairHp + the heal event; PV 25: WOUNDED SMOKE — the anonymous `sm` signal, Story 4.4) is enforced at matchmake', () => {
-  it('rejects pv-24 and pv-23 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(25);
+describe('pv join gate — the 25→26 bump (PV 25: WOUNDED SMOKE — the anonymous `sm` signal, Story 4.4; PV 26: FRACTAL ISLANDS — the same mapSeed now builds polygon coastlines, so an un-bumped client would sail a different ocean) is enforced at matchmake', () => {
+  it('rejects pv-25 and pv-24 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(26);
+    expect(protocolVersionError(25)).toMatch(/refresh/);
     expect(protocolVersionError(24)).toMatch(/refresh/);
-    expect(protocolVersionError(23)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });
@@ -206,7 +207,7 @@ describe('blocked-drop geometry sanity (Story 2.8: clicked placement + the decoy
   it('an ML clicking open water astern still places normally (the check refuses only illegal water)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0, 0, 'mineLayer');
-    w.map.islands.push({ x: 200, y: 200, r: 40 }); // a rock nowhere near the click
+    w.map.islands.push(circleIsland(200, 200, 40)); // a rock nowhere near the click
     w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(w.mines.size).toBe(1);
