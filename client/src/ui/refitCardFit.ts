@@ -130,8 +130,16 @@ export function refitCardInnerBox(): { w: number; h: number } {
 // driven (the amounts are printed from `CONFIG.damageControl`, never hardcoded,
 // so a retune moves the copy). It is measured here for the same reason the card
 // is — so the amendment-47 pin is arithmetic over the real strings rather than a
-// hope — and it is the VERTICAL axis that is scarce here: at the 1280×614
-// logical floor the card row leaves 22px under itself, full stop.
+// hope.
+//
+// The VERTICAL axis is still the scarce one, but the scarcity moved up a level
+// in cycle 47: the rail is no longer squeezed into whatever the card row left
+// over (22px), it is a ruled 40px and the BAND ANCHOR absorbed the cost. Inside
+// the rail, the 22px key chip is the tallest mark and therefore sets the inner
+// box; `stripPadY` is real padding around it rather than the zero cycle 46 had
+// to live with. Horizontally the rail is now comfortable — the widest copy
+// spends roughly 705 of 894px — so this model's live job is to keep BOTH of
+// those true as the copy and the type register drift.
 
 /** The rail's full width — the ratified row's width, since the strip renders as
  *  the row's sibling and stretches under it (`align-self: stretch`). DERIVED
@@ -139,11 +147,15 @@ export function refitCardInnerBox(): { w: number; h: number } {
  *  row is laid out from (`CONFIG.offer.size`), never restated as a literal. */
 const STRIP_ROW_W = CONFIG.offer.size * R.card + (CONFIG.offer.size - 1) * R.gap;
 
-/** The strip's INNER content box (px): the rail minus its end padding and its
- *  1px border on all four sides (box-sizing: border-box). */
+/** The strip's INNER content box (px): the rail minus its padding and its 1px
+ *  border on all four sides (box-sizing: border-box). The VERTICAL padding is
+ *  load-bearing here — omitting it would let the model report a fitting rail
+ *  whose marks actually paint into (or through) the padding cycle 47 added. */
 export function refitStripInnerBox(): { w: number; h: number } {
-  const border = 2 * REFIT_TYPE.border;
-  return { w: STRIP_ROW_W - 2 * (R.stripPad + REFIT_TYPE.border), h: R.stripHeight - border };
+  return {
+    w: STRIP_ROW_W - 2 * (R.stripPad + REFIT_TYPE.border),
+    h: R.stripHeight - 2 * (R.stripPadY + REFIT_TYPE.border),
+  };
 }
 
 /** The rail's columns, left to right — exactly what ui/upgradeMenu builds. */

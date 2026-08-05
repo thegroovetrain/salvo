@@ -139,11 +139,18 @@ const CARD_SLOTS = CONFIG.offer.size;
  * (1366×768 at 100%, and the 1280×614 logical floor of the ≥1600px-gated 125%
  * tier).
  *
- * CYCLE 44 adds the DAMAGE CONTROL rail below the row and NOTHING else: the
- * row, the cards and the pips come out byte-identical, and only `band.h` grows
- * (by `stripGap + stripHeight`) to keep covering everything the band paints.
- * The rail's whole 18px budget is what was left under the row at the 1280×614
- * logical floor — see CLIENT_CONFIG.refit.stripHeight for the arithmetic.
+ * CYCLE 46 added the DAMAGE CONTROL rail below the row and NOTHING else: the
+ * row and the cards come out byte-identical, and only `band.h` grows (by
+ * `stripGap + stripHeight`) to keep covering everything the band paints.
+ *
+ * CYCLE 47 (Eric amendment 65) grew the rail from a 16px seam to a 40px
+ * choosable button and paid for it by LIFTING the anchor — `bandTopFrac` 0.58 →
+ * 0.534 — rather than by touching the row. The row, the cards, the gaps and the
+ * pip offset are all still byte-identical; only where the whole band sits moved.
+ * That anchor is now wedged between two hard constraints at the 1280×614 floor
+ * (below-center keep-out above, container-fit law below) with five pixels of
+ * total slack — see CLIENT_CONFIG.refit.bandTopFrac for the arithmetic, and the
+ * geometry suite for the pins that make a future drift fail loudly.
  */
 export function refitBandLayout(screenW: number, screenH: number, cards = CARD_SLOTS): RefitBandLayout {
   const rowW = cards * R.card + (cards - 1) * R.gap;
@@ -219,12 +226,17 @@ export const HEAL_LABEL = 'DAMAGE CONTROL';
 export const HEAL_STATUS_FULL = 'AT FULL HP';
 export const HEAL_STATUS_SUNK = 'SUNK';
 
-/** Pure: the rail's amounts line, straight off the shared config. */
+/** Pure: the rail's amounts line, straight off the shared config. Cycle 47 moved
+ *  the voice from a bare stat line (`+25 HP NOW · +25 HP OVER 5S`) to a sentence
+ *  at Eric's direction — *"Restores 25 HP now and 25 HP/5s or something"* — the
+ *  same instinct as the rail's resize: say plainly what pressing it does. The
+ *  numbers are still composed from CONFIG.damageControl and never hardcoded, so
+ *  a retune of the ruling keeps moving the copy with it. */
 export function healReadout(): string {
   const dc = CONFIG.damageControl;
   const secs = dc.regenMs / 1000;
   const s = Number.isInteger(secs) ? `${secs}` : secs.toFixed(1);
-  return `+${dc.instantHp} HP NOW · +${dc.regenHp} HP OVER ${s}S`;
+  return `RESTORES ${dc.instantHp} HP NOW AND ${dc.regenHp} HP OVER ${s}S`;
 }
 
 /**
@@ -584,17 +596,18 @@ const KEY_CHIP_CSS = [
 // --- THE DAMAGE CONTROL RAIL (cycle 46) ----------------------------------------
 //
 // A one-line rail under the row, in the card's own grammar (square corners,
-// hairline edge, panel bed, amber-on-armed, 80ms denied edge pulse) at rail
-// scale. It is a real <button>: pointer-events live on it, it is keyboard- and
-// AT-reachable, and it goes genuinely `disabled` when the server would refuse
-// the pick. Focus hygiene is the card's, verbatim (mousedown preventDefault +
-// post-click blur), so a strip click can never fire the gun (MouseInput only
-// counts canvas-target clicks) and can never retain focus.
+// hairline edge, panel bed, amber-on-armed, 80ms denied edge pulse) — at FULL
+// scale since cycle 47, not at "rail scale". It is a real <button>:
+// pointer-events live on it, it is keyboard- and AT-reachable, and it goes
+// genuinely `disabled` when the server would refuse the pick. Focus hygiene is
+// the card's, verbatim (mousedown preventDefault + post-click blur), so a strip
+// click can never fire the gun (MouseInput only counts canvas-target clicks)
+// and can never retain focus.
 const STRIP_CSS = [
   'position:relative',
   `height:${R.stripHeight}px`,
   'align-self:stretch', // the rail is exactly as wide as the ratified row
-  `padding:0 ${R.stripPad}px`,
+  `padding:${R.stripPadY}px ${R.stripPad}px`,
   'box-sizing:border-box',
   'border-width:1px',
   'border-style:solid',
@@ -611,9 +624,12 @@ const STRIP_CSS = [
   'overflow:hidden', // amendment-47 belt and braces; the fit model is the fix
 ].join(';');
 
-/** The rail's key chip: the mono key-chip family at rail scale (the DESIGN.md
- *  "proportional below" precedent — a 22px chip cannot fit a 16px rail). Rides
- *  currentColor, so the rail's rest/armed state cascades into it. */
+/** The rail's key chip: the ONE mono key-chip family at FAMILY size since cycle
+ *  47 — the 40px rail has the room the 16px one did not, so the "proportional
+ *  below" carve-out is retired. Rides currentColor, so the rail's rest/armed
+ *  state cascades into it. Unlike the card's chip this one sits INSIDE the box
+ *  (no corner overhang): the rail is a single flex row, and an overhanging chip
+ *  would collide with the card row's bottom edge one `stripGap` above it. */
 const STRIP_CHIP_CSS = [
   `width:${R.stripKeyChip}px`,
   `height:${R.stripKeyChip}px`,
