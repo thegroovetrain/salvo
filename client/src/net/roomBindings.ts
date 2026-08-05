@@ -788,8 +788,16 @@ function handleBurst(e: BurstEvent, deps: RoomBindingDeps): void {
 }
 
 function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
-  const pos = sunkPosition(e.id, deps);
-  if (pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
+  // THE PUBLIC REGISTER (PV 23): a `sunk` may now arrive for a wreck this
+  // observer never saw. Everything SPATIAL is gated on the server's
+  // per-observer `seen` stamp — a stale last-known contact position must
+  // never draw a sink plume for a kill we did not witness. The feed line, the
+  // score credit, the `kill` tone, and the own-death branch stay
+  // UNCONDITIONAL: identity is public, location is not.
+  if (e.seen) {
+    const pos = sunkPosition(e.id, deps);
+    if (pos) deps.effects.spawnEffect('sink', pos.x, pos.y);
+  }
   const killer = e.by ? { name: deps.names(e.by), id: e.by } : null;
   pushKillLine(killLine({ name: deps.names(e.id), id: e.id }, killer), deps.colors);
   const sessionId = deps.state.net.sessionId;
@@ -805,8 +813,8 @@ function handleSunk(e: SunkEvent, t: number, deps: RoomBindingDeps): void {
     deps.resetPrime(); // and the primed skillshot reverts to the gun for the next life
     deps.audio.play('sink');
   } else {
-    deps.contactViews.markSunk(e.id);
-    if (e.by === sessionId) deps.audio.play('kill'); // your victim went down
+    if (e.seen) deps.contactViews.markSunk(e.id); // teardown is spatial — witnessed only
+    if (e.by === sessionId) deps.audio.play('kill'); // your victim went down — fog or not
   }
 }
 

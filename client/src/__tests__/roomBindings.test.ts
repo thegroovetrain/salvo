@@ -333,6 +333,84 @@ describe('bindRoom own sunk', () => {
   });
 });
 
+// --- the public register (PV 23): `seen` gates the spatial half --------------
+
+describe('bindRoom sunk — seen gates the sink plume and the contact teardown', () => {
+  function setupSunk() {
+    const room = fakeRoom();
+    const sink: { handler: (f: unknown) => void } = { handler: () => undefined };
+    const conn = { room, welcome: {}, sink } as unknown as Connection;
+    const spawnEffect = vi.fn();
+    const markSunk = vi.fn();
+    const play = vi.fn();
+    const onSunkObserved = vi.fn();
+    const deps = {
+      state: {
+        net: { you: null, sessionId: 'me', tick: 0, ackSeq: 0 },
+        spectating: true, phase: '', respawnEta: null, killerId: null, mode: 'interp',
+      },
+      clock: { addSample: vi.fn() },
+      contacts: {
+        pushFrame: vi.fn(),
+        // The stale last-known snapshot ALWAYS resolves a position here — the
+        // point of the suite is that `seen` (not availability) gates its use.
+        get: () => ({ newest: { x: 40, y: 50 } }),
+      },
+      contactViews: { markSunk, flash: vi.fn(), markSpawn: vi.fn() },
+      mines: { sync: vi.fn() },
+      ownBurstRadius: () => undefined,
+      ownMineRings: () => undefined,
+      litZones: { sync: vi.fn() },
+      decoys: { sync: vi.fn() },
+      effects: { spawnEffect },
+      audio: { play },
+      names: (id: string) => id.toUpperCase(),
+      colors: () => null,
+      ordnanceHue: () => 0,
+      resetThrottle: vi.fn(),
+      resetPrime: vi.fn(),
+      onSunkObserved,
+    } as unknown as RoomBindingDeps;
+    bindRoom(conn, deps);
+    document.getElementById('kill-feed')?.remove();
+    return { sink, spawnEffect, markSunk, play, onSunkObserved };
+  }
+
+  const sunkFrame = (event: unknown): unknown =>
+    ({ t: 500, tick: 5, ackSeq: 0, spec: true, contacts: [], mines: [], events: [event] });
+
+  const feedLines = (): string[] => {
+    const feed = document.getElementById('kill-feed');
+    return [...(feed?.children ?? [])].map((el) => el.textContent ?? '');
+  };
+
+  it('an UNSEEN sunk prints the feed line but spawns NO sink effect and calls NO markSunk', () => {
+    const { sink, spawnEffect, markSunk, onSunkObserved } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer' }));
+    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']); // identity is public...
+    expect(spawnEffect).not.toHaveBeenCalled(); // ...but a stale position never draws a plume
+    expect(markSunk).not.toHaveBeenCalled();
+    expect(onSunkObserved).toHaveBeenCalledWith('victim', 'killer'); // score rides regardless
+  });
+
+  it('a SEEN sunk does both — the plume at the last-known position, and the teardown', () => {
+    const { sink, spawnEffect, markSunk } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'killer', seen: true }));
+    expect(feedLines()).toEqual(['VICTIM SUNK BY KILLER']);
+    expect(spawnEffect).toHaveBeenCalledWith('sink', 40, 50);
+    expect(markSunk).toHaveBeenCalledWith('victim');
+  });
+
+  it('an OWN fog kill still plays the kill tone and reaches onSunkObserved', () => {
+    const { sink, spawnEffect, markSunk, play, onSunkObserved } = setupSunk();
+    sink.handler(sunkFrame({ k: 'sunk', id: 'victim', by: 'me' })); // no seen — fog kill
+    expect(play).toHaveBeenCalledWith('kill'); // your victim went down, witnessed or not
+    expect(onSunkObserved).toHaveBeenCalledWith('victim', 'me'); // "SHIPS YOU SANK" credit
+    expect(spawnEffect).not.toHaveBeenCalled(); // still no spatial render
+    expect(markSunk).not.toHaveBeenCalled();
+  });
+});
+
 describe('bindRoom denial channel (Story 1.10)', () => {
   it('routes each self-private denied entry to deps.onDenied, in wire order', () => {
     const { sink, onDenied } = setup();

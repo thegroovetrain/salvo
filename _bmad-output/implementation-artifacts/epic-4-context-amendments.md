@@ -193,3 +193,94 @@ satisfied the story, which is the same instinct that produced amendment 1 (the 4
     wire kind is `shell`", which selects gun + cannon + star shells and excludes `torp` with no
     weapon-type enumeration anywhere — so the server never needs a per-weapon flash table, and no
     weapon identity can leak through one.
+
+## 2026-08-04 — Eric rulings, the Public Register cycle (bmad-dev-auto, interstitial — cycle 44)
+
+Source: Eric, live design conversation during the global-kill-feed run (two AskUserQuestion rounds and
+three mid-run interruptions, all 2026-08-04). Spec of record: `spec-global-kill-feed.md`. Starting
+intent, verbatim: *"as a player, if a another player kills another player, i want to know about it in
+the kill feed, even if i didn't see it happen."* The ruling set arrived by visible REVISION — Eric
+reversed himself twice on drone status before settling — so the amendments below record the final
+state AND the reasoning path, because the discarded branches are the ones a future cycle will
+re-propose.
+
+21. **`sunk` is THE PUBLIC REGISTER — the 4th DECLARED exception to the master perception invariant**
+    (joining Story 4.3's `sp`/`hc`/`mz`), with its own independently-reimplemented oracle in
+    `perception.test.ts`. Every COMBATANT sinking now reaches every client regardless of sight, by any
+    cause — player hand, storm, or a future PvE ship. The gate is three clauses: WITNESSED (today's
+    rule, extracted verbatim and unchanged), CREDITED TO YOU (amendment 22), or THE VICTIM IS A
+    COMBATANT (`!wreck.isDrone` — the single site a future PvE/combat-bot distinction changes).
+
+    **This is a reconciliation, not a widening.** The row's own shipped comment already ratified the
+    principle — *"Everyone still learns alive/kills/deaths from the public roster schema — sinking is
+    public knowledge, its LOCATION is not"* — and `ArenaRoom.syncRoster()` has always mirrored
+    `alive`/`kills`/`deaths` to every client every tick. A client could already derive "A killed B"
+    from schema deltas at tick precision; only the FEED LINE was withheld. The payload is IDENTITY
+    ONLY (`{k, id, by?}` — no position, class, hue, damage, or weapon field), so the public clause
+    says out loud what the schema already whispered.
+
+    Location stays exactly as protected as before via a new per-observer `seen?: true` field stamped
+    by `materialize()` precisely when the historical witness predicate holds. The client gates
+    EVERYTHING SPATIAL on it — the sink plume and the contact-view teardown — so an unwitnessed kill
+    can never draw a plume at a stale last-known position. `PROTOCOL_VERSION` 22 → 23.
+
+22. **The killer always learns what they sank — at any range, through any fog, combatant or not.**
+    Eric, verbatim: *"I at least want to know when *I* (or a teammate, in the future) kill anything,
+    even if its a non-combatant/PvE ship/whatever. But I don't care if other teams kill these
+    entities. But I want to know every time a combatant dies."* This is **amendment 17's principle at
+    its terminal case**: the Hit Call already ratified shooter-only confirmation that your ordnance
+    connected, knowingly superseding the `boom` row's anti-leak rule for the owner-hit case. "Your
+    target went down" is the end of that same conversation, not a new principle. Implemented as a
+    NAMED predicate (`sunkCreditedTo`) so the future *"or a teammate's kill"* extension changes at one
+    site and nothing else re-derives kill credit.
+
+    Consequence of record: a fog kill now also reaches `recordSunk`, closing a real shipped gap — a
+    kill you could not see was counted in the server's roster tally but was MISSING from the player's
+    own "SHIPS YOU SANK" card. Eric ruled the full confirmation set (**feed line + kill tone + score
+    credit**), rejecting the quieter feed-line-only and no-tone variants.
+
+    Non-combatant sinkings therefore reach exactly two audiences — the witness and the killer — and
+    are never public. Eric: *"If someone else kills them, meh."*
+
+23. **Drones are NOT combatants — and this was reversed twice before it settled.** Eric first ruled
+    drones out (*"I don't care about drone or PvE ship deaths"*), then reversed on discovering they
+    gate the win (*"Right now, you have to kill all the drone ships to end the game. So right now they
+    technically count as combatants... BY VIRTUE of them being de-facto combatants, not by virtue of
+    being drones"*), then reversed again by attacking the premise instead of the consequence:
+    *"lets just instead switch it so that killing all the drones isn't required for winning. That
+    would mean setting them so they are not 'combatants'... They aren't worth full XP anyway (killing
+    another player/combatant ship is worth a full level)."*
+
+    The XP argument is the durable one and is the rationale of record: the economy has ALWAYS treated
+    drones as non-contestants — a drone kill pays a fraction of a level via `CONFIG.xp.droneTierLevels`
+    where a captain pays a full one (`CONFIG.xp.killLevels`). The public register simply stops
+    contradicting the economy.
+
+    **The matching win-condition change is DEFERRED to Story 6-3 ("The Participants-Only Win Check"),
+    which already exists in the backlog for exactly this.** `Match.checkWin()` is UNTOUCHED this cycle
+    and drones still gate the win today. The deferral was Eric's explicit pick over two alternatives
+    shown to him, and it was the right one: the guard he proposed removing exists to stop a solo match
+    insta-finishing at activation (`humans.length <= 1` is already true at 1 human + 5 drones), so
+    dropping it outright would have broken the solo battle-royale path that `drones.test.ts` and
+    `dronesSmoke.mjs` pin at `minHumans: 1`. 6-3 must solve solo-mode termination as part of its work.
+
+24. **`n AFLOAT` counts CAPTAINS ONLY — this SUPERSEDES epic-3 amendment 19.** The Story 3.3 doctrine
+    note in `client/src/score.ts` argued the opposite at length ("AFLOAT counts HULLS ON THE WATER…
+    a solo captain's match reads 20 → 1 exactly as it looks out the window") and has been rewritten,
+    not deleted. `isAfloatHull` now takes the same `droneHue` sentinel `isLiveRival` uses. **The other
+    half of the ratified asymmetry SURVIVES: AFLOAT still counts the LOCAL PLAYER, which the rival
+    count still excludes.**
+
+    Interim inconsistency, flagged and knowingly accepted: because amendment 23 deferred the win
+    change, AFLOAT today reads as *"rivals left"* rather than *"hulls left to clear"* — a 4-human /
+    16-drone room reads `4 AFLOAT` while all 16 drones still gate the ending. It becomes literally
+    true when Story 6-3 lands. Eric was shown this framing and chose humans-only anyway.
+
+25. **Presentation is UNCHANGED — a kill is a kill.** Eric rejected any witnessed-vs-reported visual
+    distinction, so no new grammar row exists and no witnessed/reported flag reaches the DOM. Feed
+    capacity rises to **6 lines / 8s TTL** (was 5 / 6s) for the higher event rate.
+
+26. **Doc drift added to the Eric-gated 7-5 batch by this ruling** (house rule: no design-doc edits
+    in-cycle): UX-DR17's "max 5 lines, 6 s TTL" (`epics.md:160` and the matching `DESIGN.md` kill-feed
+    block) and the Story 1.12 restyle AC at `epics.md:534` are superseded by amendment 25; epic-3
+    amendment 19's AFLOAT rule is superseded by amendment 24 wherever it is restated in design docs.

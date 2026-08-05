@@ -17,8 +17,10 @@ import { ellipsizeName } from '../util/text.js';
 export { ellipsizeName };
 
 const FEED_ID = 'kill-feed';
-const LINE_TTL_MS = 6000;
-const MAX_LINES = 5;
+// A GLOBAL feed (PV 23) carries every captain's sinking, not just the ones in
+// sight — more traffic needs the headroom (Eric ruling): 8s TTL, 6 lines.
+const LINE_TTL_MS = 8000;
+const MAX_LINES = 6;
 
 /** A vessel reference in a feed line — its display name + roster id (for color). */
 export interface NameRef {
