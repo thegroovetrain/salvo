@@ -85,15 +85,32 @@ export function smokeTier(tier: SmokeEvent['tier']): PuffTier {
 /**
  * Pure: a puff's opacity at `ageMs` — blooms in over `riseFraction` of its
  * life, then fades linearly to nothing across the whole life. Dead (0) at a
- * full life and beyond; a negative age (clock jitter) reads as newborn.
+ * full life and beyond.
+ *
+ * A NON-POSITIVE age (clock jitter — the observer's `serverNow` estimate
+ * briefly reads BEHIND the pulse's own spawn timestamp) is CLAMPED TO ZERO, so
+ * it reads as exactly newborn: the puff sits at the foot of its bloom-in ramp
+ * and rises from there. Note the deliberate difference from `phosphor.ts`'s
+ * `blipAlpha`, which resolves the same condition to FULL brightness: a blip has
+ * no bloom-in ramp, so "newborn" and "full" coincide for it and diverge here.
+ * Returning full alpha at age <= 0 would put a discontinuity at the origin —
+ * full, then near-zero one millisecond later — which reads as a bright pop
+ * followed by a fade-in every time the clock slews backward.
+ *
+ * Being 0 at age 0 is SAFE only because `render()` retires on AGE, never on
+ * alpha; an alpha-based retirement would delete every puff at birth.
  *
  * `peak` is the TIER's peak alpha and is deliberately NOT motion-scaled: it is
  * the plume's presence, which `motion: 'off'` may not touch.
  */
 export function puffAlpha(ageMs: number, lifeMs: number, peak: number): number {
   if (ageMs >= lifeMs) return 0;
-  const t = clamp01(ageMs / lifeMs);
-  const rise = S.riseFraction > 0 ? clamp01(t / S.riseFraction) : 1;
+  // Clamp jitter-negative ages to exactly newborn, so the curve is CONTINUOUS
+  // at the origin (see the docstring). Everything below reads `age`, not
+  // `ageMs`.
+  const age = ageMs > 0 ? ageMs : 0;
+  const t = clamp01(age / lifeMs);
+  const rise = S.riseFraction > 0 ? clamp01(age / (lifeMs * S.riseFraction)) : 1;
   return peak * rise * (1 - t);
 }
 
@@ -242,12 +259,17 @@ export class Smoke {
     for (let i = this.puffs.length - 1; i >= 0; i--) {
       const p = this.puffs[i];
       const age = serverNow - p.t;
-      const alpha = puffAlpha(age, life, p.tier.peakAlpha);
-      if (alpha <= 0) {
+      // Retire on AGE, not on alpha: `puffAlpha` legitimately returns 0 at
+      // both ends of a puff's life (the pre-bloom instant and the post-fade
+      // one), so gating retirement on `alpha <= 0` could delete a puff that
+      // is merely between frames, not actually dead. `age >= life` is the
+      // same condition `puffAlpha` itself uses to report "dead".
+      if (age >= life) {
         this.retire([p]);
         this.puffs.splice(i, 1);
         continue;
       }
+      const alpha = puffAlpha(age, life, p.tier.peakAlpha);
       const r = puffRadius(age, life, p.tier.r0, p.tier.r1) * puffBillow(age, intensity, p.phase);
       const { dx, dy } = puffDrift(age, S.wind, intensity);
       p.gfx.alpha = alpha;

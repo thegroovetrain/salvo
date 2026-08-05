@@ -16,6 +16,7 @@
 //     exist. There is deliberately no key here to test.
 
 import { describe, it, expect } from 'vitest';
+import { Container } from 'pixi.js';
 import { CONFIG, type SmokeEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import {
@@ -25,6 +26,7 @@ import {
   puffRadius,
   puffSpawnTimes,
   smokeTier,
+  Smoke,
 } from '../render/smoke.js';
 import { capOldest } from '../util/pool.js';
 import { motionIntensity } from '../settings/store.js';
@@ -95,8 +97,10 @@ describe('puffAlpha — bloom in, then fade to nothing across the life', () => {
     expect(puffAlpha(LIFE * 3, LIFE, 1)).toBe(0);
   });
 
-  it('blooms from ~nothing at birth to the tier peak at the top of the rise', () => {
-    expect(puffAlpha(0, LIFE, 1)).toBe(0);
+  it('blooms from ~nothing just after birth to the tier peak at the top of the rise', () => {
+    // Age 0 itself is the non-positive floor (see the next describe block) and
+    // reads as fully risen; the ascending ramp is only visible strictly after it.
+    expect(puffAlpha(1, LIFE, 1)).toBeCloseTo(0, 1);
     const top = LIFE * S.riseFraction;
     // At the top of the rise the only remaining factor is the linear fade.
     expect(puffAlpha(top, LIFE, 1)).toBeCloseTo(1 - S.riseFraction, 12);
@@ -122,9 +126,61 @@ describe('puffAlpha — bloom in, then fade to nothing across the life', () => {
     }
   });
 
-  it('treats a negative age (clock jitter) as newborn rather than throwing', () => {
-    expect(puffAlpha(-200, LIFE, 1)).toBe(0);
+  it('treats a negative age (clock jitter) as exactly newborn, and finite', () => {
+    // See the dedicated regression describe block below for the full story.
+    // The alpha at a non-positive age is legitimately 0 — it is the foot of
+    // the bloom-in ramp. What must NEVER happen is that 0 being read as
+    // "dead": `render()` retires on AGE, so a newborn puff survives to rise.
+    expect(puffAlpha(-200, LIFE, 1)).toBe(puffAlpha(0, LIFE, 1));
     expect(Number.isFinite(puffAlpha(-200, LIFE, 1))).toBe(true);
+  });
+});
+
+// --- REGRESSION: a puff born at non-positive age must not be destroyed forever --
+//
+// The server-clock estimate slews toward a rolling-min offset; whenever
+// network transit improves mid-match, an incoming `sm` pulse's spawn
+// timestamp can briefly read AHEAD of the observer's own serverNow, which is
+// a NEGATIVE age on that puff's first render. `puffAlpha` collapsing that to
+// exactly 0 combined with `render()` retiring on `alpha <= 0` deleted the
+// puff permanently — losing its entire disclosure window rather than one
+// frame of it. See the file header of render/smoke.ts.
+
+describe('a puff born at non-positive age is disclosed, not deleted (adjudicated fix)', () => {
+  it('puffAlpha treats a negative age as exactly newborn — continuous at the origin', () => {
+    // The fix is a CLAMP, not a special case: a jitter-negative age must land
+    // on exactly the same point of the bloom-in ramp as age 0, so the curve has
+    // no discontinuity at the origin. Returning FULL alpha for age <= 0 (the
+    // `blipAlpha` shape) would pop the puff bright for one frame and then drop
+    // it to near-nothing a millisecond later, which is a visible artifact
+    // precisely when the clock is already slewing.
+    const atZero = puffAlpha(0, LIFE, HEAVY.peakAlpha);
+    expect(puffAlpha(-30, LIFE, HEAVY.peakAlpha)).toBe(atZero);
+    expect(puffAlpha(-5_000, LIFE, HEAVY.peakAlpha)).toBe(atZero);
+    // ...and the ramp still ASCENDS out of the origin rather than starting lit.
+    expect(puffAlpha(LIFE * 0.05, LIFE, HEAVY.peakAlpha)).toBeGreaterThan(atZero);
+  });
+
+  it('a puff whose first render lands at a negative age survives that frame instead of being retired', () => {
+    const smoke = new Smoke(new Container());
+    const e: SmokeEvent = { k: 'sm', x: 100, y: -40, tier: 2 };
+    const spawnT = 10_000;
+    smoke.onSmoke(e, spawnT);
+    const spawnedCount = smoke.livePuffs;
+    expect(spawnedCount).toBeGreaterThan(0);
+
+    // The observer's serverNow is BEHIND the pulse's own spawn timestamp on
+    // its first render — exactly the clock-slew scenario this fix covers.
+    smoke.render(spawnT - 30);
+    expect(smoke.livePuffs).toBe(spawnedCount); // nothing deleted for one bad frame
+
+    // It keeps aging normally afterward...
+    smoke.render(spawnT + LIFE / 2);
+    expect(smoke.livePuffs).toBeGreaterThan(0);
+
+    // ...and still retires on schedule once its life is actually up.
+    smoke.render(spawnT + LIFE + 1);
+    expect(smoke.livePuffs).toBe(0);
   });
 });
 

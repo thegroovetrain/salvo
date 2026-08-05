@@ -1039,6 +1039,12 @@ function makeGameReturnToPort(getG: () => Game | null): () => void {
       if (!g) return;
       g.returning = true; // handleRoomLeave: the reload is already on its way
       cancelZoomFogRebake(g); // no trailing re-bake against a torn-down stage
+      // Defensive: today the chain always ends in location.reload(), which
+      // wipes every plume for free — but a plume is drawn at a hull's TRUE
+      // world position, so if a future match-restart path ever skips the
+      // reload, stale smoke must not survive to render at pre-reset
+      // coordinates on the next match.
+      g.smoke.clear();
     },
   });
 }
