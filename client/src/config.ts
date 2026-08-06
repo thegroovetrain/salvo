@@ -43,8 +43,32 @@ const COLORS = {
   denied: 0xff3b3b, // the single denied red (consolidates the legacy DOM red)
   damage: 0x8b0000,
   damageMarker: 0xff6666,
+  // Pre-join AMBIENT terrain only (render/ambient.ts's CIC scene). DESIGN.md:41
+  // marks these a "provisional carry-over — Open Question"; the in-match chart
+  // no longer reads them (see `terrain` below, cycle 59).
   islandFill: 0x2a2410,
   islandStroke: 0x8b7520,
+  /**
+   * THE HYPSOMETRIC TERRAIN RAMP (cycle 59, Eric ruling 2026-08-06) — the four
+   * elevation bands of a height-field island, chosen from rendered comparison
+   * on real generator output and superseding the provisional `islandStroke`
+   * yellow for in-match terrain.
+   *
+   * INDEX IS THE BAND LEVEL: 0 shore (the coastline polygon the sim actually
+   * collides against) through 3 summit (the innermost isoline). The ratified
+   * grammar is one sentence — each band is OUTLINED in its solid scale colour
+   * and FILLED with a darker, less intense version of that same colour — so the
+   * pair is authored together per level and never recombined across rows.
+   *
+   * Four is the ceiling, not a default: "I don't want too many different
+   * heights". A fifth band would need a ruling, not a fifth literal.
+   */
+  terrain: [
+    { stroke: 0x4a6b33, fill: 0x242f22 }, // 0 — shore
+    { stroke: 0x7b8a3e, fill: 0x363c29 }, // 1 — low slope
+    { stroke: 0xae9c58, fill: 0x484534 }, // 2 — upland
+    { stroke: 0xdcd2ac, fill: 0x5b5a52 }, // 3 — summit
+  ],
   // RADAR HEATMAP BANDS (cycle 52, amendment 77 — Eric's three-color ruling,
   // superseding cycle 51's continuous blue→green→yellow→red Garmin ramp). These
   // are the ONLY three colors the `return` layer can ever paint, and a pixel is
@@ -504,6 +528,37 @@ export const CLIENT_CONFIG = {
     keyStep: 0.1,
     /** Factor per wheel deltaY unit (matches spectate's 0.0008 feel). */
     wheelRate: 0.0008,
+  },
+
+  /**
+   * CHARTED TERRAIN (cycle 59) — how the static island layer draws the height
+   * field's elevation bands. Colours are NOT here: render/map.ts reads the
+   * `colors.terrain` ramp. Nothing in this group is gameplay authoritative —
+   * contours are RENDER-ONLY isolines, never collided and never LOS-tested, and
+   * the level-0 outline is the sim's own `isle.poly`, vertex for vertex.
+   */
+  terrain: {
+    /**
+     * SCREEN-LOCKED stroke widths (px), divided by the camera zoom at draw time
+     * exactly like the storm plane's edges (the same `strokeWorldWidth`). A
+     * fixed world width would thin the coastline to 0.7px at the 0.5× end of
+     * the shipped user-zoom range — a hairline at precisely the moment the
+     * player has asked to see more terrain at once.
+     *
+     * The contour line is SUBORDINATE to the coastline: the coast is the one
+     * mark that is also sim truth (it is what you run aground on), the isolines
+     * above it are elevation reading.
+     */
+    coastPx: 2,
+    contourPx: 1.5,
+    /**
+     * Redraw throttle for the static island layer — the same discipline the
+     * storm plane runs, minus the radius clause (terrain geometry never moves,
+     * so CAMERA ZOOM is the only thing that can invalidate the drawn stroke).
+     * A 2% zoom change is a sub-pixel width error at 2px, so anything under it
+     * is not worth re-tessellating ~1,100 vertices for.
+     */
+    redrawZoomFrac: 0.02,
   },
 
   /**

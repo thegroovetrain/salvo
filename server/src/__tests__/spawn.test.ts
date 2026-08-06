@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG, dist, generateMap, mulberry32, pointPolygonDistance } from '@salvo/shared';
+import { CONFIG, dist, generateMap, mulberry32, pointPolygonDistance, type MapShape } from '@salvo/shared';
 import { circleIsland } from './islandFixture.js';
 import { pickSpawn, SPAWN_ISLAND_CLEARANCE } from '../game/spawn.js';
 import { World } from '../game/world.js';
@@ -72,7 +72,7 @@ describe('pickSpawn — placement constraints across seeds', () => {
       const a = (i * 2 * Math.PI) / 24;
       return circleIsland(Math.cos(a) * spawnRing, Math.sin(a) * spawnRing, 120);
     });
-    const map = { radius: 900, spawnRing, islands };
+    const map: MapShape = { radius: 900, spawnRing, islands };
     const rng = mulberry32(0xdead);
     const p = pickSpawn(map, [], rng);
     const clearance = Math.min(...islands.map((isle) => pointPolygonDistance(p, isle.poly)));

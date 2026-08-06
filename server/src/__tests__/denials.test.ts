@@ -193,11 +193,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 27→28 bump (PV 27: the radar realism cycle — a blip may carry either wire shape, and the welcome announces radarGrammar/radarIdentity; PV 28: FRACTAL ISLANDS — the same mapSeed now builds polygon coastlines, so an un-bumped client would sail a different ocean) is enforced at matchmake', () => {
-  it('rejects pv-27 and pv-26 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(28);
+describe('pv join gate — the 28→29 bump (PV 28: FRACTAL ISLANDS — the same mapSeed now built polygon coastlines; PV 29: the fBm height field — the same mapSeed now builds a completely different ocean off a genuine height field instead of the capsule generator, so an un-bumped client would sail a different ocean) is enforced at matchmake', () => {
+  it('rejects pv-28 and pv-27 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(29);
+    expect(protocolVersionError(28)).toMatch(/refresh/);
     expect(protocolVersionError(27)).toMatch(/refresh/);
-    expect(protocolVersionError(26)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });
