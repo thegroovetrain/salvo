@@ -116,6 +116,29 @@ export class Camera {
   }
 
   /**
+   * THE WORLD RECTANGLE CURRENTLY ON SCREEN: the camera centre plus half-extents
+   * in world units (screen px ÷ 2 ÷ zoom). Composed from the live `zoom`, so it
+   * answers correctly under the base radar fit, a spectator zoom-out and an
+   * alive user zoom alike.
+   *
+   * Its consumer is the radar heatmap buffer (render/radar.ts, amendment 96),
+   * which is sized and centred on this rect and on nothing else. SHAKE IS
+   * DELIBERATELY EXCLUDED: it is a few screen pixels of transient offset, the
+   * buffer carries whole cells of slack past this rect, and folding a jittering
+   * term into a buffer extent would churn allocations every frame for something
+   * no one can see.
+   */
+  get worldView(): { x: number; y: number; halfW: number; halfH: number } {
+    const z = this.zoom;
+    return {
+      x: this.center.x,
+      y: this.center.y,
+      halfW: this.viewW / 2 / z,
+      halfH: this.viewH / 2 / z,
+    };
+  }
+
+  /**
    * Set the viewport size (px) and recompute the base zoom so the full radar
    * diameter (2 * radarRange) fits the screen's short axis. Call on init and
    * resize.

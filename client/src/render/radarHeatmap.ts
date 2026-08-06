@@ -37,7 +37,7 @@
 // read, live or frozen. Everything else it forbids still stands, and R7's new
 // contact-derived source is born under it like every other paint.
 //
-// THE SIX RULINGS THIS FILE IMPLEMENTS:
+// THE RULINGS THIS FILE IMPLEMENTS:
 //
 //   • R1 — HISTORY LIVES IN A PAINT LIST, NOT IN THE BUFFER. Nothing here ever
 //     decays a persistent buffer in place: the observer moves, so an in-place
@@ -51,6 +51,39 @@
 //     the WORLD, not to the ship. Without the snap every cell's world position
 //     would slide with the observer and a static coastline would shimmer as you
 //     steamed past it.
+//
+//   • R8 — AND IT IS SIZED TO THE VIEWPORT, NOT TO THE RADAR RING (cycle 58,
+//     amendments 95-99). The buffer is a SCRATCH SURFACE, not storage: R1
+//     already put every byte of history in the paint list and re-rasterizes the
+//     whole list every frame, so the buffer only ever needs to cover WHAT IS ON
+//     SCREEN. Anything off-screen is not visible, so not rasterizing it costs
+//     nothing and it reappears the moment it scrolls back into view.
+//
+//     THIS FIXES A REAL CLIPPING BUG. A ring-sized buffer re-centred on the
+//     observer clipped any paint the observer had sailed away from — Eric saw a
+//     "box" around the radar ring when zoomed out, and paints vanished and came
+//     back as he manoeuvred, which amendment 83 forbids outright ("if it gets
+//     painted it stays painted until it decays").
+//
+//     WHAT THIS MODULE OWES THE ADAPTER IS THE SNAP, AND ONLY THE SNAP. The
+//     centre handed to `anchorGrid` is now the CAMERA rather than the ship, and
+//     `Math.floor` is what makes that safe: cell (gx, gy) covers the same world
+//     square no matter where the camera stands, so a paint's cells hold still
+//     while the camera slides over them. Cycle 57 was reverted from production
+//     for losing exactly that property — it re-centred a paint-driven sub-rect
+//     every frame and placed the sprite at that moving origin, so islands
+//     drifted with the boat.
+//
+//     NOTHING VIEWPORT-DERIVED MAY EVER REACH PAINT CREATION OR RETIREMENT
+//     (amendment 97). The camera decides ONE thing: which rectangle of world is
+//     drawn this frame. Creation stays gated only by sweep + radar range + LOS;
+//     retirement stays gated only by time; the paint list is never culled by
+//     visibility. That is what makes Eric's stated requirement hold for free —
+//     *"if I am zoomed in when it paints and then I zoom out, it still shows me
+//     everything that would have been there"* — because the viewport was never
+//     consulted when the paint was recorded. Note that not one function in this
+//     module takes a viewport, a zoom or a camera: the only surface that knows
+//     the buffer changed size is `gridSpan`.
 //
 //   • R3 — INTENSITY FALLS OFF FROM THE CORE, PLUS NOISE. A ship echo is a
 //     paraboloid dome over its aspect ellipse; an island's landmass reads
@@ -231,17 +264,43 @@ export interface HeatGrid {
 }
 
 /**
- * Allocate a square buffer covering `2 × radiusU` (ruling R2) at `cellU`
- * resolution, plus two cells of slack so a snapped origin can never leave the
- * far edge short.
+ * Cell quantum for a buffer span (ruling R8). Spans are rounded UP to a multiple
+ * of this, so a continuously-varying viewport (a wheel zoom, a window drag) does
+ * not reallocate the texture on every intermediate value — and the rounding is
+ * always slack, never a crop.
  */
-export function makeGrid(radiusU: number, cellU: number): HeatGrid {
-  const cols = Math.max(1, Math.ceil((2 * radiusU) / cellU) + 2);
-  const n = cols * cols;
+export const GRID_QUANTUM = 16;
+
+/**
+ * Cells needed to cover `2 × halfU` at `cellU` resolution: the exact span, plus
+ * two cells of slack so a snapped origin can never leave the far edge short,
+ * rounded up to `GRID_QUANTUM`. A non-finite or non-positive input answers the
+ * quantum rather than NaN — a rogue viewport must not size a buffer to garbage.
+ */
+export function gridSpan(halfU: number, cellU: number): number {
+  if (!(halfU > 0) || !(cellU > 0)) return GRID_QUANTUM;
+  const need = Math.ceil((2 * halfU) / cellU) + 2;
+  return Math.max(GRID_QUANTUM, Math.ceil(need / GRID_QUANTUM) * GRID_QUANTUM);
+}
+
+/**
+ * Allocate a buffer covering `2 × halfWU` by `2 × halfHU` (rulings R2 + R8) at
+ * `cellU` resolution.
+ *
+ * THE BUFFER IS A SCRATCH SURFACE, NOT STORAGE (ruling R8, amendment 96). Its
+ * extent is a rendering decision and nothing else: history lives in the paint
+ * list, which is re-rasterized in full every frame, so a region the buffer does
+ * not cover this frame is simply not DRAWN this frame — never forgotten, and
+ * back the instant it is covered again.
+ */
+export function makeGrid(halfWU: number, halfHU: number, cellU: number): HeatGrid {
+  const cols = gridSpan(halfWU, cellU);
+  const rows = gridSpan(halfHU, cellU);
+  const n = cols * rows;
   return {
     cellU,
     cols,
-    rows: cols,
+    rows,
     baseGx: 0,
     baseGy: 0,
     originX: 0,
@@ -267,13 +326,24 @@ export function makeGrid(radiusU: number, cellU: number): HeatGrid {
  * frame, which is precisely how a receding sight bubble came to paint coastline
  * no beam had swept; cycle 56 retired the sight verdict outright, but the
  * discipline that removed it from here is the governing invariant and stands.
+ *
+ * WHAT IT IS CENTRED ON IS NOW THE CAMERA (ruling R8, amendment 96), and that
+ * changes NOTHING here: the centre has always been a pure windowing input, and
+ * the floor below is what keeps the lattice world-locked no matter what is
+ * handed in. A centre that is not snapped would slide every cell's world square
+ * under the paints — the exact regression cycle 57 shipped.
  */
 export function anchorGrid(g: HeatGrid, cx: number, cy: number): void {
-  const half = (g.cols * g.cellU) / 2;
-  g.baseGx = Math.floor((cx - half) / g.cellU);
-  g.baseGy = Math.floor((cy - half) / g.cellU);
+  g.baseGx = Math.floor((cx - (g.cols * g.cellU) / 2) / g.cellU);
+  g.baseGy = Math.floor((cy - (g.rows * g.cellU) / 2) / g.cellU);
   g.originX = g.baseGx * g.cellU;
   g.originY = g.baseGy * g.cellU;
+  clearGrid(g);
+}
+
+/** Blank every cell, leaving the anchor alone. Used on the frames that draw
+ *  nothing at all, so a hidden buffer can never answer with last frame's cells. */
+export function clearGrid(g: HeatGrid): void {
   g.w.fill(0);
   g.a.fill(0);
 }
@@ -327,18 +397,22 @@ export function sampleGrid(g: HeatGrid, x: number, y: number): { w: number; a: n
  * Every lit pixel takes its band color VERBATIM. The only continuous quantity
  * that survives to the screen is opacity, which carries age exactly as it has
  * since Story 4.2 — never a hue.
+ *
+ * BLANK FIRST, THEN WRITE ONLY WHAT IS LIT. Output is identical to clearing each
+ * transparent pixel in the loop, but a viewport-sized buffer (ruling R8) is
+ * mostly empty most of the time — a screen at min zoom is ~350k cells of which a
+ * few thousand carry a return — so a single typed-array `fill` plus a scalar
+ * reject beats four byte stores and a band lookup per dead cell. Measured at
+ * roughly half the per-frame cost of the buffer at min zoom.
  */
 export function quantizeInto(g: HeatGrid, bands: readonly HeatBand[], out: Uint8Array): void {
+  out.fill(0);
   for (let i = 0, n = g.cols * g.rows; i < n; i++) {
+    const w = g.w[i];
+    if (!(w > 0)) continue; // the overwhelming majority: already blank
+    const b = bandIndex(w, bands);
+    if (b < 0) continue;
     const o = i * 4;
-    const b = bandIndex(g.w[i], bands);
-    if (b < 0) {
-      out[o] = 0;
-      out[o + 1] = 0;
-      out[o + 2] = 0;
-      out[o + 3] = 0;
-      continue;
-    }
     const band = bands[b];
     out[o] = (band.color >> 16) & 0xff;
     out[o + 1] = (band.color >> 8) & 0xff;

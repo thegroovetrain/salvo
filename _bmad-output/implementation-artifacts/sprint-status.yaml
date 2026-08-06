@@ -1,5 +1,7 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-06  # cycle 56 (0.17.56), THE SCOPE PAINTS EVERYTHING IN RANGE (interstitial — sight exclusion retired; sighted ships painted client-side from their Contact; client-only, PV unchanged at 28)
+# last_updated: 2026-08-06  # cycle 58 (0.17.57), THE BUFFER FOLLOWS THE VIEWPORT (interstitial — the no-clip fix, redone after cycle 57 was REVERTED for a live rendering regression; client-only, PV unchanged at 28)
+#                          # cycle 57 (0.17.57) REVERTED (PR #108) — derived-extent no-clip attempt; broke world-locking on live. Version number reused by cycle 58.
+#                          # cycle 56 (0.17.56), THE SCOPE PAINTS EVERYTHING IN RANGE (interstitial — sight exclusion retired; sighted ships painted client-side from their Contact; client-only, PV unchanged at 28)
 #                          # cycle 55 (0.17.55), A PAINT IS A HISTORICAL RECORD (interstitial — the sight verdict freezes at paint creation; the sweep is the only thing that paints; client-only, PV unchanged at 28)
 #                          # cycle 54 (0.17.54), the sight-bubble radar gate (interstitial — radar paints nothing inside truesight, per-CELL so straddlers keep their outside portion; client-only, PV unchanged at 28)
 #                          # cycle 53 (0.17.53), the radar heatmap correction (interstitial — Eric's live feedback on cycle 51; client-only, PV unchanged at 28)
@@ -110,6 +112,32 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-06 (dev-auto cycle 58, 0.17.57) — THE BUFFER FOLLOWS THE VIEWPORT.
+  # Amendments 95-99. Client-only; PV unchanged at 28. The no-clip fix, REDONE after cycle 57 was
+  # reverted (PR #108) for a live rendering regression — islands drifting with the boat, paints
+  # diffused and misplaced. Cycle 57's root cause, recorded because it is the lesson: it recomputed
+  # and RE-CENTRED a paint-driven rect every frame and placed the sprite at that moving origin, so
+  # the cell<->world mapping stopped being world-locked; it reached production because a green PURE
+  # -module suite was accepted as proof that ADAPTER PLACEMENT was right. It is not (amendment 98).
+  # THE REPLACEMENT IS ERIC'S OWN FRAMING and is simpler: the buffer is a SCRATCH SURFACE, not
+  # storage. History lives in the world-positioned paint list, re-rasterized every frame, so the
+  # buffer only needs to cover the VIEWPORT — origin following the camera, SNAPPED to whole world
+  # cells (that snap is what keeps a paint's cells still while the camera moves over them). No
+  # worst-case allocation, no derived speed bound, no paint-driven rect that can drift. Note the
+  # placement EXPRESSION is byte-for-byte what shipped pre-57; only the centre and extent changed.
+  # ERIC'S CONSTRAINT, stated and confirmed: paint recorded while zoomed IN must appear on zoom-OUT.
+  # It holds because the viewport is never consulted at record time, which is now the invariant:
+  # NOTHING VIEWPORT-DERIVED MAY TOUCH PAINT CREATION OR RETIREMENT. Creation stays gated on sweep +
+  # radar range + LOS; retirement on time alone. Pinned behaviourally — three radars at three zooms
+  # and camera positions produce byte-identical paint lists.
+  # KNOWN PERF CEILING, flagged not hidden: cost scales with VISIBLE AREA (amendment 99). Typical
+  # play is FASTER than the old ring-sized square (0.18-0.50ms vs 0.24-0.26), and base zoom-out is
+  # ~0.95ms — but a MAXED INTEL RADAR (radarRange 1327.5, which zooms the camera out proportionally)
+  # at 0.5x measures ~7ms/frame CPU on a 16.7ms budget, plus a 5.4MB/frame texture upload that jsdom
+  # could NOT measure. Late-game, opt-in, and not a correctness risk, but it needs a real-browser
+  # check. Cheapest lever if it bites: CLIENT_CONFIG.blip.heatmap.cellU (coarsen the paint as the
+  # visible area grows). Anything smarter is either paint-driven (cycle 57) or puts the viewport into
+  # creation (amendment 97) — so it would need an Eric ruling, not an implementer's judgment.
   # INTERSTITIAL 2026-08-06 (dev-auto cycle 56, 0.17.56) — THE SCOPE PAINTS EVERYTHING IN RANGE.
   # Amendments 88-91. Client-only; PV unchanged at 28. RETIRES amendment 81 (cycles 54-55's sight
   # exclusion): radar now paints everything within radar range, INCLUDING inside truesight, so a

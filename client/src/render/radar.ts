@@ -87,6 +87,35 @@
 // blipping the annulus it just opened, and the client stops synthesizing there.
 // `silhouette` mode has no buffer and no synthesis, so none of this reaches it.
 //
+// THE BUFFER FOLLOWS THE VIEWPORT, NOT THE RADAR RING (cycle 58, amendments
+// 95-99). It used to be a square of half-extent exactly `radarRange`, re-centred
+// on the observer every frame — which CLIPPED any paint the ship had sailed away
+// from, so a mark near the rim vanished and came back as you manoeuvred and the
+// scope wore a visible "box" when zoomed out. Amendment 83 forbids that outright:
+// if it gets painted it stays painted until it decays.
+//
+// The fix is to stop treating the buffer as storage. History lives in the PAINT
+// LIST, which is re-rasterized in full every frame, so the buffer only has to
+// cover WHAT IS ON SCREEN: `render` takes the camera's world rect, `fitHeat`
+// sizes the surface to it (quantized, so a wheel zoom does not churn textures),
+// and `anchorGrid` centres it there — snapped to a whole world cell, which is
+// what keeps a paint's cells still while the camera slides over them.
+//
+// NOTHING VIEWPORT-DERIVED TOUCHES PAINT CREATION OR RETIREMENT (amendment 97).
+// `view` is read in `paintHeat` and nowhere else: `sweepIslands`, `sweepContacts`,
+// `resolvePending`, `enrollPaint` and `prunePaints` cannot see it. That is what
+// makes Eric's requirement hold for free — *"if I am zoomed in when it paints and
+// then I zoom out, it still shows me everything that would have been there"* —
+// and it is the line to hold if this file ever grows a culling optimization.
+//
+// CYCLE 57 (REVERTED, PR 108) IS THE CAUTIONARY TALE. It sized the buffer for a
+// worst-case ship-speed excursion and confined work to a paint-driven sub-rect
+// that was re-centred every frame, placing the sprite at that MOVING origin —
+// so the cell↔world mapping stopped being world-locked, islands drifted with the
+// boat and a resized `subarray` smeared rows. Its pure-rasterizer tests all
+// passed, because the break was in this adapter's PLACEMENT. Hence amendment 98:
+// placement is pinned here, at both zoom extremes and with the camera moving.
+//
 // Persistence is unchanged in both grammars: alpha/tint are pure functions of
 // serverNow − paint time (phosphor.ts), three sweeps of paints per track
 // (amendment 9), so a contact leaves a plottable track whose ghost SPACING
@@ -126,7 +155,9 @@ import {
   arcOverlaps,
   bandIndex,
   buildIslandCoverage,
+  clearGrid,
   contactEcho,
+  gridSpan,
   islandBearingSpan,
   makeGrid,
   paintSeed,
@@ -203,6 +234,29 @@ interface OwnPoint {
   y: number;
 }
 
+/**
+ * THE WORLD RECTANGLE THE CAMERA IS SHOWING (cycle 58, amendments 95-99) — the
+ * heatmap buffer's extent, and the ONLY thing in this file the camera touches.
+ *
+ * Centre is the camera centre (NOT the ship: at speed the follow-lead puts the
+ * hull well off centre, and it is the SCREEN that has to be covered); the half-
+ * extents are half the viewport in world units, i.e. screen pixels ÷ zoom.
+ *
+ * IT REACHES `paintHeat` AND NOTHING ELSE. Paint creation is gated only by the
+ * sweep, radar range and LOS; retirement only by time; the paint list is never
+ * culled by visibility. So a paint recorded off-screen while zoomed in is fully
+ * recorded, and zooming out simply draws a rectangle that now contains it —
+ * amendment 97, which is Eric's stated requirement.
+ */
+export interface ViewRect {
+  /** Camera centre (world u). */
+  x: number;
+  y: number;
+  /** Half the visible width/height (world u) = screen px ÷ 2 ÷ zoom. */
+  halfW: number;
+  halfH: number;
+}
+
 /** The decay inputs shared by every live mark for one frame. */
 interface DecayFrame {
   life: number;
@@ -256,6 +310,10 @@ export class Radar {
    *  own pose is unknown), in which case an echo's geometry is DEFERRED rather
    *  than guessed. */
   private own: OwnPoint | null = null;
+  /** The world rect the camera is showing this frame (amendment 96), or null
+   *  when the caller has no camera. READ IN EXACTLY ONE PLACE — `paintHeat` —
+   *  and never by anything that creates or retires a paint (amendment 97). */
+  private view: ViewRect | null = null;
   // Effective vision numbers (Stage D upgrades), swapped via setRanges();
   // bases = CONFIG.vision. sweepPeriodMs drives both the wedge rotation rate
   // and the blip phosphor decay, so upgraded paints fade on the upgraded beat.
@@ -295,9 +353,13 @@ export class Radar {
 
   /**
    * Adopt the observer's effective vision stats (sight/radar range + sweep
-   * period): redraws the range rings, rescales the baked sweep wedge to the new
-   * radar radius, and (in `return` mode) re-sizes the heatmap buffer, which is
-   * defined as covering 2 × radar range. Called only when the own stats change.
+   * period): redraws the range rings and rescales the baked sweep wedge to the
+   * new radar radius. Called only when the own stats change.
+   *
+   * IT NO LONGER SIZES THE HEATMAP (amendment 96). The buffer follows the
+   * VIEWPORT now, so a radarRange upgrade reaches it only through the camera —
+   * `Camera.setRadarRange` zooms out, the view rect grows, and `fitHeat` adopts
+   * it on the next frame.
    */
   setRanges(sightRange: number, radarRange: number, sweepPeriodMs: number): void {
     this.sightRange = sightRange;
@@ -353,16 +415,27 @@ export class Radar {
     this.rings.circle(0, 0, this.sightRange).stroke({ width: 2, color: RING_SIGHT_COLOR, alpha: 0.12 });
     this.rings.circle(0, 0, this.radarRange).stroke({ width: 2, color: RING_RADAR_COLOR, alpha: 0.07 });
     this.sweep.scale.set(this.radarRange / SWEEP_TEXTURE_RADIUS);
-    if (this.grammar === 'return') this.buildHeat();
   }
 
-  /** (Re)allocate the world-anchored heatmap surface for the current radar
-   *  range. Idempotent: an unchanged span keeps the existing buffer, so a
-   *  no-op `setRanges` never churns a texture. */
-  private buildHeat(): void {
+  /**
+   * (Re)allocate the heatmap surface to cover a view rect (amendment 96).
+   *
+   * IDEMPOTENT ON THE CELL SPAN, which is what makes this safe to call every
+   * frame: `gridSpan` rounds up to `GRID_QUANTUM`, so a wheel zoom or a window
+   * drag walks through many world extents and only a few actual allocations,
+   * and a steady camera never churns a texture at all. Reallocating is the ONLY
+   * way the buffer changes size — nothing ever resizes a view over a live
+   * typed array (cycle 57's `subarray` smeared rows doing exactly that).
+   */
+  private fitHeat(halfWU: number, halfHU: number): void {
     const cfg = CLIENT_CONFIG.blip.heatmap;
-    const grid = makeGrid(this.radarRange, cfg.cellU);
-    if (this.heat !== null && this.heat.grid.cols === grid.cols) return;
+    // Span first, allocation second: this runs every frame, and building a grid
+    // just to compare its dimensions would throw two typed arrays away 60 times
+    // a second.
+    const cols = gridSpan(halfWU, cfg.cellU);
+    const rows = gridSpan(halfHU, cfg.cellU);
+    if (this.heat !== null && this.heat.grid.cols === cols && this.heat.grid.rows === rows) return;
+    const grid = makeGrid(halfWU, halfHU, cfg.cellU);
     this.heat?.sprite.destroy();
     this.heat?.source.destroy();
     const rgba = new Uint8Array(grid.cols * grid.rows * 4);
@@ -411,6 +484,19 @@ export class Radar {
   }
 
   /**
+   * THE PAINT LIST ITSELF — the assertion surface for amendment 97.
+   *
+   * Nothing viewport-derived may ever reach paint creation or retirement, and
+   * the way that is PROVEN rather than asserted is by driving two radars with
+   * identical world state through different cameras and comparing this list
+   * byte for byte. Read-only: the list is the history, and only the sweep and
+   * the clock may write it.
+   */
+  get paintList(): readonly RadarPaint[] {
+    return this.paints;
+  }
+
+  /**
    * Which quantized band the heatmap is painting at a world point, or -1 for
    * fully transparent. THE observation seam for the bitmap: the buffer is a pure
    * function of the paint list, so a test can assert the exact three-color
@@ -424,6 +510,13 @@ export class Radar {
   /** The raw (unquantized) intensity at a world point (debug/tests). */
   intensityAt(x: number, y: number): number {
     return this.heat === null ? 0 : sampleGrid(this.heat.grid, x, y).w;
+  }
+
+  /** Current buffer dimensions in cells, or null before the first `return`
+   *  frame. The perf seam: cost per frame scales with cols × rows, which is why
+   *  amendment 99 requires it measured at both zoom extremes. */
+  get heatDims(): { cols: number; rows: number } | null {
+    return this.heat === null ? null : { cols: this.heat.grid.cols, rows: this.heat.grid.rows };
   }
 
   private makeBlipGraphics(layer: Container): Graphics {
@@ -617,7 +710,7 @@ export class Radar {
     this.paints.length = 0;
     this.pending.length = 0;
     this.opening.clear();
-    if (this.heat !== null) this.heat.sprite.visible = false;
+    this.hideHeat();
   }
 
   /** Per-frame: rotate/position the sweep + rings, advance the beam across the
@@ -626,9 +719,21 @@ export class Radar {
    *
    *  `contacts` is the truesight contact store (net/snapshots.ts) — the second
    *  source of ship paints (amendment 89). Optional and unread in `silhouette`
-   *  mode, where a sighted hull has never painted and does not start now. */
-  render(own: OwnPoint | null, serverNow: number, contacts: ContactStore | null = null): void {
+   *  mode, where a sighted hull has never painted and does not start now.
+   *
+   *  `view` is the world rectangle the camera is showing (amendment 96) — the
+   *  heatmap buffer's extent, used by `paintHeat` and by NOTHING else on this
+   *  path. Omitting it falls back to a radar-ring-sized window on the own ship,
+   *  which is the pre-cycle-58 behaviour and covers any caller that has no
+   *  camera (tests, and the `silhouette` grammar, which has no buffer at all). */
+  render(
+    own: OwnPoint | null,
+    serverNow: number,
+    contacts: ContactStore | null = null,
+    view: ViewRect | null = null,
+  ): void {
     this.own = own;
+    this.view = view;
     const rot = this.updateSweep(own, serverNow);
     if (this.grammar === 'return') this.renderReturn(own, rot, serverNow, contacts);
     this.lastRotation = rot;
@@ -792,13 +897,49 @@ export class Radar {
   }
 
   /**
+   * THE WINDOW ONTO THE WORLD, this frame (amendment 96): the camera's rect when
+   * the caller supplied one, else a radar-ring-sized square on the own ship (the
+   * pre-cycle-58 fallback, for callers with no camera). Null when there is no own
+   * pose at all, which is the one case where nothing is drawn.
+   *
+   * THIS IS THE ONLY PLACE THE VIEWPORT ENTERS THE GRAMMAR. It decides which
+   * rectangle of world is drawn — never which paints exist, never how long they
+   * live, never what they look like.
+   */
+  /** No own pose: hide the surface and blank it, so a stale cell can neither
+   *  answer `bandAt` nor flash back when the sprite is shown again. */
+  private hideHeat(): void {
+    if (this.heat === null) return;
+    this.heat.sprite.visible = false;
+    clearGrid(this.heat.grid);
+  }
+
+  private windowFor(own: OwnPoint | null): ViewRect | null {
+    if (own === null) return null;
+    if (this.view !== null) return this.view;
+    return { x: own.x, y: own.y, halfW: this.radarRange, halfH: this.radarRange };
+  }
+
+  /**
    * Re-rasterize the heatmap from the paint list and upload it (ruling R1).
    *
-   * Clear → stamp every live paint → quantize → upload. Nothing decays in place:
-   * the buffer is a pure function of (paint list, serverNow), which is what stops
-   * old paints smearing or dragging along with the camera as the observer moves.
+   * Size to the window → anchor (which clears) → stamp every live paint →
+   * quantize → upload. Nothing decays in place: the buffer is a pure function of
+   * (paint list, window, serverNow), which is what stops old paints smearing or
+   * dragging along with the camera as the observer moves.
+   *
+   * PLACEMENT, IN FULL, BECAUSE THIS IS THE SEAM CYCLE 57 BROKE. `anchorGrid`
+   * floors the window's top-left corner to a whole world cell and reports it as
+   * `originX`/`originY`; the sprite is positioned at exactly that world point and
+   * scaled so one texel is one world cell. Cell (gx, gy) therefore covers world
+   * square [gx·cellU, (gx+1)·cellU) forever, whatever the camera is doing —
+   * which is the whole reason the snap exists and the property to assert at the
+   * ADAPTER, not in the rasterizer (amendment 98).
    */
   private paintHeat(own: OwnPoint | null, serverNow: number): void {
+    const win = this.windowFor(own);
+    if (win === null) return this.hideHeat();
+    this.fitHeat(win.halfW, win.halfH);
     const heat = this.heat;
     if (heat === null) return;
     // Anchor (which CLEARS) before the visibility early-out: hiding the sprite
@@ -809,9 +950,9 @@ export class Radar {
     // nothing and judges nothing: every judgement about a paint was made at its
     // own creation (amendment 83), so this call is handed no observer state and
     // the rasterizer has none to consult.
-    if (own !== null) anchorGrid(heat.grid, own.x, own.y);
-    heat.sprite.visible = own !== null && this.paints.length > 0;
-    if (!heat.sprite.visible || own === null) return;
+    anchorGrid(heat.grid, win.x, win.y);
+    heat.sprite.visible = this.paints.length > 0;
+    if (!heat.sprite.visible) return;
     const cfg = CLIENT_CONFIG.blip.heatmap;
     rasterize(heat.grid, this.paints, {
       now: serverNow,

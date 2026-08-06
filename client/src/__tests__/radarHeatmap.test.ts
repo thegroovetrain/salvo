@@ -94,7 +94,7 @@ const RADAR = 660; // CONFIG.vision.radar at base stats
 const LIFE = blipLifeMs(4000); // 15rpm × persistSweeps
 
 function grid(opts: HeatmapOpts = CLEAN, ownX = 0, ownY = 0): HeatGrid {
-  const g = makeGrid(RADAR, opts.cellU);
+  const g = makeGrid(RADAR, RADAR, opts.cellU);
   anchorGrid(g, ownX, ownY);
   return g;
 }

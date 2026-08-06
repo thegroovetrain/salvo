@@ -1270,12 +1270,21 @@ export const CLIENT_CONFIG = {
     heatmap: {
       /**
        * World units per bitmap cell — the buffer's resolution, and the ONE knob
-       * that trades look against cost. The buffer covers 2 × radar range (1320u
-       * at base), so 6u/cell is a 222 × 222 texture: ~49k cells cleared,
-       * stamped and quantized per frame, ~197KB uploaded. At the base camera
-       * framing one cell is ~5 screen px, which is deliberately chunky — a
-       * quantized bitmap should read as a bitmap, not as a smooth glow. Halving
-       * this QUADRUPLES every per-frame cost, so it is not a free knob.
+       * that trades look against cost. At the base camera framing one cell is
+       * ~5 screen px, which is deliberately chunky: a quantized bitmap should
+       * read as a bitmap, not as a smooth glow.
+       *
+       * COST SCALES WITH VISIBLE AREA (cycle 58, amendment 99): the buffer
+       * covers the VIEWPORT, not the radar ring, so zooming out costs more.
+       * Measured on a 16:9 screen at 6u/cell — the world extent depends only on
+       * aspect ratio and zoom, not on the pixel resolution, because the base
+       * zoom fits 2 × radar range to the short axis:
+       *   1.5× (zoomed in)  272 × 160 = 44k cells, 170KB, ~0.2 ms/frame
+       *   1.0× (base)       400 × 224 = 90k cells, 350KB, ~0.5 ms/frame
+       *   0.5× (zoomed out) 800 × 448 = 358k cells, 1.4MB, ~0.95 ms/frame
+       * Halving this knob QUADRUPLES every one of those numbers, so it is not a
+       * free knob — and it is now the lever to reach for if the zoomed-out case
+       * ever needs to get cheaper.
        */
       cellU: 6,
       /**
