@@ -29,6 +29,7 @@
 
 import {
   angleDiff,
+  applyGroundingDamp,
   boostedKinematics,
   hookKinematics,
   slowedKinematics,
@@ -468,10 +469,14 @@ export class Predictor {
    * Ship vs island + map edge via the SAME shared pose-validity rollback the
    * server runs in world.ts, with the SAME arguments (prev pose, silhouette
    * polygon, map radius), so prediction never diverges on rocks or the
-   * boundary. islandSpeedMult is applied once on contact, matching the server.
+   * boundary. The speed response is the SHARED applyGroundingDamp — one
+   * implementation, called here with `this.kin.maxSpeed` (the hull's RATED
+   * effective max, exactly what the server passes from
+   * ship.stats.kinematics.maxSpeed; deliberately NOT the per-tick
+   * boosted/slowed value, so the two sides read the identical number).
    */
   private resolveCollisions(s: ShipState, prev: Pose): void {
-    const { contact } = resolveShipPose(
+    const res = resolveShipPose(
       prev,
       s,
       this.map.islands,
@@ -479,6 +484,6 @@ export class Predictor {
       this.localPoly,
       this.scratch,
     );
-    if (contact) s.speed *= CONFIG.ship.islandSpeedMult;
+    applyGroundingDamp(s, res, this.kin.maxSpeed);
   }
 }

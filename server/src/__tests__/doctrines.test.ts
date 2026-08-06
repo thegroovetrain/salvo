@@ -526,7 +526,13 @@ describe('SELF-PROPELLED MINES (mineSelfPropelled) — armed creep toward the ne
     // A rock hard against the rim, the mine sitting on it: the push-out ray
     // points straight out of the map.
     w.map.islands.push(circleIsland(r - 20, 0, 25));
-    place(w, 'prey', r - 30, 40, Math.PI / 2); // inside acquire range, pulls it about
+    // Inside acquire range, outside the trigger ring, so it pulls the mine
+    // about without tripping it. Pinned at r − 50 explicitly: pre-cycle-59 this
+    // read `r − 30` and relied on the boundary clamp yanking the hull 20u
+    // inward (the heading-independent `radius − polygonMaxRadius` wall). The
+    // clamp is heading-aware now — a hull lying parallel to the rim is barely
+    // held off at all — so the fixture states the geometry it always meant.
+    place(w, 'prey', r - 50, 40, Math.PI / 2);
     w.mines.set('m', { id: 'm', ownerId: 'o', x: r - 10, y: 0, armedAt: 0 });
     for (let i = 0; i < 20; i++) {
       w.step();

@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG, HULL_IDS, hullEnvelope } from '../constants.js';
 import { MAP_RULES, generateMap, islandFromPolygon } from '../sim/map.js';
-import { resolveShipPose, type Pose } from '../sim/collision.js';
+import {
+  applyGroundingDamp,
+  groundingSpeedFactor,
+  resolveShipPose,
+  type Pose,
+  type ShipPoseResult,
+} from '../sim/collision.js';
 import { skeletonNormal } from '../sim/island.js';
 import {
   hullSilhouette,
@@ -12,6 +18,7 @@ import {
   transformPolygon,
 } from '../sim/silhouette.js';
 import { stepShip } from '../sim/ship.js';
+import { wrapAngle } from '../math/angle.js';
 import { mulberry32 } from '../math/rng.js';
 import type { ShipState } from '../sim/ship.js';
 import type { Island } from '../types.js';
@@ -75,17 +82,33 @@ function clearOfAll(ship: ShipState, hullId: HullId, isles: readonly Island[]): 
   });
 }
 
-/** Resolve + apply the caller-side single damp (what world.ts / prediction.ts do). */
+/** Resolve + apply the SHARED grounding damp (exactly what world.ts /
+ *  prediction.ts do — one implementation, called with the hull's rated max). */
 function resolve(
   prev: Pose,
   s: ShipState,
   isles: readonly Island[],
   hullId: HullId,
   mapR = BIG_MAP,
-): boolean {
-  const { contact } = resolveShipPose(prev, s, isles, mapR, hullSilhouette(hullId));
-  if (contact) s.speed *= DAMP;
-  return contact;
+): ShipPoseResult {
+  const res = resolveShipPose(prev, s, isles, mapR, hullSilhouette(hullId));
+  applyGroundingDamp(s, res, hullEnvelope(hullId).kinematics.maxSpeed);
+  return res;
+}
+
+/** The speed a contact of this head-on-ness caps `hullId` at (u/s). */
+function groundedCap(hullId: HullId, headOn: number): number {
+  return hullEnvelope(hullId).kinematics.maxSpeed * groundingSpeedFactor(headOn);
+}
+
+/** Distance from the map centre to the FURTHEST hull vert at this pose. */
+function maxVertRadius(s: ShipState, hullId: HullId): number {
+  return Math.max(...worldPoly(s, hullId).map((p) => Math.hypot(p.x, p.y)));
+}
+
+/** True iff every vert of the posed hull sits inside the map circle. */
+function insideMapCircle(s: ShipState, hullId: HullId, mapR: number): boolean {
+  return worldPoly(s, hullId).every((p) => Math.hypot(p.x, p.y) <= mapR + 1e-6);
 }
 
 // Collision is SWEPT (sim/shell.ts tests the whole tick's travel segment against
@@ -162,23 +185,215 @@ describe('swept-shell no tunneling (worst case from CONFIG + MAP_RULES)', () => 
   });
 });
 
-describe('resolveShipPose — boundary clamp', () => {
+// The map edge is a WALL, not ground (Eric ruling 2026-08-06). Pre-fix this
+// block asserted the opposite — `contact: true` plus a full damp on a pure
+// boundary press, and a clamp at `mapRadius − polygonMaxRadius` regardless of
+// heading. Both assertions are DELIBERATELY inverted here: they encoded the
+// two mechanisms of the "pinned in open ocean" bug.
+describe('resolveShipPose — boundary clamp (heading-aware, never grounding)', () => {
   it('leaves a ship well inside the map untouched (no contact, no damp)', () => {
     const prev: Pose = { x: 100, y: 0, heading: 0 };
     const s: ShipState = { x: 100, y: 0, heading: 0, speed: 10 };
-    const contact = resolve(prev, s, [], 'torpedoBoat', 900);
-    expect(contact).toBe(false);
+    const res = resolve(prev, s, [], 'torpedoBoat', 900);
+    expect(res.contact).toBe(false);
     expect(s).toEqual({ x: 100, y: 0, heading: 0, speed: 10 });
   });
 
-  it('clamps a ship past the edge so the whole silhouette fits, and the caller damps', () => {
-    const maxR = polygonMaxRadius(hullSilhouette('battleship')); // ≈62.3 (stern corner)
+  it('clamps a ship past the edge without reporting grounding or touching speed', () => {
     const prev: Pose = { x: 800, y: 0, heading: 0 };
     const s: ShipState = { x: 900, y: 0, heading: 0, speed: 20 };
-    const contact = resolve(prev, s, [], 'battleship', 900);
-    expect(contact).toBe(true);
-    expect(Math.hypot(s.x, s.y)).toBeCloseTo(900 - maxR, 6);
-    expect(s.speed).toBeCloseTo(20 * DAMP, 9);
+    const res = resolve(prev, s, [], 'battleship', 900);
+    expect(res.contact).toBe(false); // the edge is not ground
+    expect(res.headOn).toBe(0);
+    expect(s.speed).toBe(20); // and it costs no way at all
+    expect(insideMapCircle(s, 'battleship', 900)).toBe(true);
+  });
+
+  it('clamps by the hull FIT at its pose, not by the bounding radius', () => {
+    const local = hullSilhouette('battleship');
+    const maxR = polygonMaxRadius(local); // ≈62.3 — the old heading-independent wall
+    const bow = Math.max(...local.map((p) => p.x)); // reach when driving at the edge
+    const beam = Math.max(...local.map((p) => Math.abs(p.y))); // reach when parallel to it
+    expect(beam).toBeLessThan(maxR - 30); // the wall stood materially inside the drawn edge
+
+    // Bow-on: the hull stops with its BOW on the boundary, not its bounding circle.
+    const head: ShipState = { x: 900, y: 0, heading: 0, speed: 20 };
+    resolve({ x: 800, y: 0, heading: 0 }, head, [], 'battleship', 900);
+    expect(Math.hypot(head.x, head.y)).toBeCloseTo(900 - bow, 6);
+    expect(maxVertRadius(head, 'battleship')).toBeCloseTo(900, 6); // exactly touching
+
+    // Parallel to the edge: it may come ~(maxR − beam) ≈ 46u closer than before,
+    // and the clamp is still exact — the outboard side just kisses the circle.
+    const along: ShipState = { x: 900, y: 0, heading: Math.PI / 2, speed: 20 };
+    resolve({ x: 800, y: 0, heading: Math.PI / 2 }, along, [], 'battleship', 900);
+    expect(Math.hypot(along.x, along.y)).toBeGreaterThan(900 - maxR + 30);
+    expect(maxVertRadius(along, 'battleship')).toBeCloseTo(900, 6);
+    expect(insideMapCircle(along, 'battleship', 900)).toBe(true); // still impenetrable
+  });
+
+  it('holds the edge impenetrable at every heading (sampled all round)', () => {
+    for (let h = 0; h < TAU; h += TAU / 64) {
+      for (const bearing of [0, 1.1, 2.7, 4.3]) {
+        const s: ShipState = {
+          x: Math.cos(bearing) * 5000,
+          y: Math.sin(bearing) * 5000,
+          heading: h,
+          speed: 20,
+        };
+        resolve({ x: 0, y: 0, heading: h }, s, [], 'battleship', 900);
+        expect(insideMapCircle(s, 'battleship', 900)).toBe(true);
+      }
+    }
+  });
+});
+
+// --- THE OPEN-OCEAN PIN (cycle 59 regression) -------------------------------
+// The investigation repro, verbatim: seed 1, battleship at (1200, 0), heading
+// 0, full ahead, rudder amidships, driven onto the map edge. Pre-fix it
+// settled at distFromCenter = mapRadius − 62.29 (the heading-independent
+// bounding radius) doing 0.083 u/s — rudder authority 0.24 deg/s, a
+// SIX-MINUTE 90° turn — with the nearest land 368u away, because the boundary
+// press reported as grounding and the per-tick damp compounded every tick the
+// player held throttle.
+describe('open-ocean pin — pressing the map edge is not grounding', () => {
+  const kin = CONFIG.shipClasses.battleship.kinematics;
+  const polyMax = polygonMaxRadius(hullSilhouette('battleship'));
+  /** The pre-fix fixed point of the per-tick multiplier: accel·dt·m/(1−m). */
+  const OLD_PINNED_SPEED = (kin.accel * DT * DAMP) / (1 - DAMP);
+  /** Rudder authority there (deg/s) — the six-minute 90° turn. */
+  const OLD_PINNED_TURN = ((OLD_PINNED_SPEED / kin.steerageSpeed) * kin.turnRate * 180) / Math.PI;
+
+  const map = generateMap(1, 10);
+  /** Clearance from the hull's bounding circle to the nearest coastline. */
+  const landGap = (s: ShipState): number =>
+    Math.min(...map.islands.map((i) => Math.hypot(s.x - i.x, s.y - i.y) - i.r - polyMax));
+
+  /** Drive the repro and return the final state. */
+  function pressEdge(ticks: number, rudder: number): ShipState {
+    const s: ShipState = { x: 1200, y: 0, heading: 0, speed: kin.maxSpeed };
+    let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+    for (let t = 0; t < ticks; t++) {
+      stepShip(s, { throttle: 1, rudder }, kin, DT);
+      resolve(prev, s, map.islands, 'battleship', map.radius);
+      expect(insideMapCircle(s, 'battleship', map.radius)).toBe(true); // edge stays a wall
+      prev = { x: s.x, y: s.y, heading: s.heading };
+    }
+    return s;
+  }
+
+  it('the pre-fix numbers really were a pin (documented, not asserted behavior)', () => {
+    expect(OLD_PINNED_SPEED).toBeLessThan(0.1);
+    expect(OLD_PINNED_TURN).toBeLessThan(0.3); // deg/s — 90° in ~6 minutes
+  });
+
+  it('keeps full way and full helm authority pinned against the edge', () => {
+    const s = pressEdge(600, 0);
+    // Hard against the edge, bow ON the boundary (not 62.3u inside it) …
+    expect(map.radius - Math.hypot(s.x, s.y)).toBeLessThan(polyMax);
+    expect(maxVertRadius(s, 'battleship')).toBeCloseTo(map.radius, 6);
+    // … in genuinely open water: nothing to ground on for hundreds of units.
+    expect(landGap(s)).toBeGreaterThan(200);
+    // THE FIX: full way, and therefore full rudder authority.
+    expect(s.speed).toBeCloseTo(kin.maxSpeed, 6);
+    expect(s.speed / kin.steerageSpeed).toBeGreaterThanOrEqual(1);
+  });
+
+  it('turns away from the edge in a few seconds, not six minutes', () => {
+    const s = pressEdge(600, 0); // pinned bow-on, heading 0
+    let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+    let turnTick = -1;
+    for (let t = 0; t < 200; t++) {
+      stepShip(s, { throttle: 1, rudder: 1 }, kin, DT);
+      resolve(prev, s, map.islands, 'battleship', map.radius);
+      expect(insideMapCircle(s, 'battleship', map.radius)).toBe(true);
+      prev = { x: s.x, y: s.y, heading: s.heading };
+      if (Math.abs(wrapAngle(s.heading)) >= Math.PI / 2) {
+        turnTick = t;
+        break;
+      }
+    }
+    expect(turnTick).toBeGreaterThanOrEqual(0);
+    // 78 ticks measured (3.9 s) at the full 0.4 rad/s; the pre-fix pin needed
+    // ~6 minutes at 0.24 deg/s, i.e. >7000 ticks.
+    expect(turnTick).toBeLessThan(100);
+    expect(s.speed).toBeGreaterThan(kin.steerageSpeed); // never lost steerage
+  });
+});
+
+// --- COASTAL GROUNDING (cycle 59) -------------------------------------------
+// The other half of the ruling: driven hard into a REAL generated coastline the
+// hull is stopped without penetration, but the directional damp leaves it
+// enough way to keep steerage, so helm alone recovers it in bounded time.
+describe('coastal grounding — stopped, never pinned', () => {
+  const kin = CONFIG.shipClasses.battleship.kinematics;
+  const map = generateMap(1, 20); // production ocean size (fillTo = 20)
+
+  it('grounds on a real coastline, holds steerage, and turns off it in bounded ticks', () => {
+    const s: ShipState = { x: 1200, y: 0, heading: 0, speed: kin.maxSpeed };
+    let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+    let groundTick = -1;
+    let last: ShipPoseResult = { contact: false, headOn: 0 };
+    let travel = 0;
+    for (let t = 0; t < 900; t++) {
+      const before = { x: s.x, y: s.y };
+      stepShip(s, { throttle: 1, rudder: 0 }, kin, DT);
+      last = resolve(prev, s, map.islands, 'battleship', map.radius);
+      expect(clearOfAll(s, 'battleship', map.islands)).toBe(true); // NEVER penetrates
+      prev = { x: s.x, y: s.y, heading: s.heading };
+      if (last.contact && groundTick === -1) groundTick = t;
+      if (t >= 850) travel += Math.hypot(s.x - before.x, s.y - before.y);
+    }
+    expect(groundTick).toBeGreaterThan(0); // it genuinely drove onto land
+    expect(last.contact).toBe(true); // still aground at the end
+    expect(last.headOn).toBeGreaterThan(0.9); // a near-square ram
+    // STOPPED: over the last 50 ticks (2.5s) at full throttle it makes barely a
+    // hull-width of ground — the rock, not the damp, is what holds it.
+    expect(travel).toBeLessThan(20);
+    expect(s.speed).toBeLessThanOrEqual(groundedCap('battleship', last.headOn) + 1e-9);
+    // … but the cap keeps it at steerage speed, so the helm still answers.
+    expect(s.speed).toBeGreaterThanOrEqual(kin.steerageSpeed);
+
+    const h0 = s.heading;
+    let freeTick = -1;
+    for (let t = 0; t < 200; t++) {
+      stepShip(s, { throttle: 1, rudder: 1 }, kin, DT);
+      const res = resolve(prev, s, map.islands, 'battleship', map.radius);
+      expect(clearOfAll(s, 'battleship', map.islands)).toBe(true);
+      prev = { x: s.x, y: s.y, heading: s.heading };
+      if (!res.contact && Math.abs(wrapAngle(s.heading - h0)) > 0.5) {
+        freeTick = t;
+        break;
+      }
+    }
+    expect(freeTick).toBeGreaterThanOrEqual(0);
+    expect(freeTick).toBeLessThan(200); // ≤10s of helm, measured ~4s
+    expect(s.speed).toBeGreaterThan(kin.steerageSpeed); // and it is making way again
+  });
+
+  it('a dead-astern order still backs a rammed hull off (the shipped escape)', () => {
+    const rock = ngonIsland(0, 0, 140);
+    const s: ShipState = { x: -220, y: 0, heading: 0, speed: kin.maxSpeed };
+    let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+    for (let t = 0; t < 60; t++) {
+      stepShip(s, { throttle: 1, rudder: 0 }, kin, DT);
+      resolve(prev, s, [rock], 'battleship');
+      expect(clearOfAll(s, 'battleship', [rock])).toBe(true);
+      prev = { x: s.x, y: s.y, heading: s.heading };
+    }
+    const aground = s.x;
+    let freeTick = -1;
+    for (let t = 0; t < 120; t++) {
+      stepShip(s, { throttle: -1, rudder: 0 }, kin, DT);
+      const res = resolve(prev, s, [rock], 'battleship');
+      expect(clearOfAll(s, 'battleship', [rock])).toBe(true);
+      prev = { x: s.x, y: s.y, heading: s.heading };
+      if (!res.contact && s.x < aground - 5) {
+        freeTick = t;
+        break;
+      }
+    }
+    expect(freeTick).toBeGreaterThanOrEqual(0);
+    expect(freeTick).toBeLessThan(120);
   });
 });
 
@@ -188,17 +403,17 @@ describe('resolveShipPose — island push-out (skeleton normal)', () => {
   it('leaves a clear ship untouched', () => {
     const prev: Pose = { x: 200, y: 0, heading: 0 };
     const s: ShipState = { x: 200, y: 0, heading: 0, speed: 10 };
-    const contact = resolve(prev, s, [island], 'torpedoBoat');
-    expect(contact).toBe(false);
+    const res = resolve(prev, s, [island], 'torpedoBoat');
+    expect(res.contact).toBe(false);
     expect(s).toEqual({ x: 200, y: 0, heading: 0, speed: 10 });
   });
 
-  it('pushes an overlapping hull out along the SKELETON normal and damps once', () => {
+  it('pushes an overlapping hull out along the SKELETON normal, GRAZING costs no way', () => {
     // droneMedium broadside at heading π/2: flat side at x = ship.x − 15,
     // over the island's eastern coastline by ~5u.
     const prev: Pose = { x: 62, y: 10, heading: Math.PI / 2 };
     const s: ShipState = { x: 60, y: 10, heading: Math.PI / 2, speed: 12 };
-    resolve(prev, s, [island], 'droneMedium');
+    const res = resolve(prev, s, [island], 'droneMedium');
     // Push direction = away from the nearest skeleton point (the centre),
     // through the candidate centre (60, 10).
     const n = { x: 60 / Math.hypot(60, 10), y: 10 / Math.hypot(60, 10) };
@@ -208,20 +423,44 @@ describe('resolveShipPose — island push-out (skeleton normal)', () => {
     expect(mag).toBeLessThan(10); // minimal-translation push, no teleport
     expect(disp.x * n.y - disp.y * n.x).toBeCloseTo(0, 6); // parallel to the normal
     expect(disp.x * n.x + disp.y * n.y).toBeGreaterThan(0); // outward, not inward
-    expect(s.speed).toBeCloseTo(12 * DAMP, 9);
+    // DIRECTIONAL DAMP (Eric ruling 2026-08-06): the hull is travelling ~along
+    // the coast (heading π/2 against a near-+x escape normal), so the contact
+    // is a graze and costs no way at all. Pre-fix this asserted 12 × 0.25.
+    expect(res.contact).toBe(true);
+    expect(res.headOn).toBe(0);
+    expect(s.speed).toBe(12);
     expect(islandClear(worldPoly(s, 'droneMedium'), island)).toBe(true);
   });
 
-  it('damps speed ONCE per tick even with multiple island contacts (#64 root cause)', () => {
+  it('applies ONE damp per tick even with multiple island contacts (#64 root cause)', () => {
     const islands: Island[] = [ngonIsland(30, 70, 50), ngonIsland(-30, -70, 50)];
     // A valid prev the ship rotated/moved from; the candidate double-overlaps.
     const prev: Pose = { x: -180, y: -6, heading: 0.7 };
     const s: ShipState = { x: -40, y: -6, heading: 0.7, speed: 12 };
     expect(clearOfAll({ x: prev.x, y: prev.y, heading: prev.heading, speed: 0 }, 'battleship', islands)).toBe(true);
     expect(clearOfAll(s, 'battleship', islands)).toBe(false);
-    resolve(prev, s, islands, 'battleship');
-    expect(s.speed).toBeCloseTo(12 * DAMP, 9); // ONE damp, not DAMP²
+    const res = resolve(prev, s, islands, 'battleship');
+    // ONE damp for the whole tick, from the NET escape of both islands — never
+    // a per-contact stack (the #64 collapse). The cap is the ruled
+    // maxSpeed-relative one, so it is also idempotent by construction.
+    expect(res.contact).toBe(true);
+    expect(s.speed).toBeCloseTo(Math.min(12, groundedCap('battleship', res.headOn)), 9);
     expect(clearOfAll(s, 'battleship', islands)).toBe(true); // tick ends overlap-free
+  });
+
+  it('caps a DEAD-ON ram at islandSpeedMult × rated max, keeping steerage', () => {
+    const kin = CONFIG.shipClasses.battleship.kinematics;
+    const rock = ngonIsland(0, 0, 120);
+    // Bow pointed at the island centre, driving straight in at full ahead.
+    const prev: Pose = { x: -200, y: 0, heading: 0 };
+    const s: ShipState = { x: -160, y: 0, heading: 0, speed: kin.maxSpeed };
+    const res = resolve(prev, s, [rock], 'battleship');
+    expect(res.contact).toBe(true);
+    expect(res.headOn).toBeCloseTo(1, 6); // square-on
+    expect(s.speed).toBeCloseTo(kin.maxSpeed * DAMP, 9); // the ruled tunable
+    // THE POINT of the cap: even fully aground the hull keeps rudder authority
+    // (pre-fix the multiplier drove it to 0.083 u/s = 0.24 deg/s).
+    expect(s.speed).toBeGreaterThanOrEqual(kin.steerageSpeed);
   });
 });
 
@@ -281,7 +520,7 @@ describe('broadside ram — the push-out never slides a hull along the coast', (
             for (let t = 0; t < 40; t++) {
               s.speed = kin.maxSpeed; // pinned at full ahead: no damping reprieve
               stepShip(s, { throttle: 1, rudder: 0 }, kin, DT);
-              if (resolve(prev, s, map.islands, 'battleship', map.radius)) contacts++;
+              if (resolve(prev, s, map.islands, 'battleship', map.radius).contact) contacts++;
               if (!clearOfAll(s, 'battleship', map.islands)) overlaps++;
               const moved = Math.hypot(s.x - prev.x, s.y - prev.y);
               if (moved > worst) {
@@ -324,7 +563,7 @@ describe('graze-slide — a shallow drive past a single island slides, never sti
     for (let t = 0; t < 800; t++) {
       const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
       stepShip(s, { throttle: 1, rudder: 0 }, kin, DT);
-      if (resolve(prev, s, [island], 'mineLayer')) touched = true;
+      if (resolve(prev, s, [island], 'mineLayer').contact) touched = true;
       expect(clearOfAll(s, 'mineLayer', [island])).toBe(true); // never wedged
       expect(s.x).toBeGreaterThanOrEqual(maxX - 2); // no meaningful backward shove
       maxX = Math.max(maxX, s.x);
@@ -361,8 +600,8 @@ describe('#64 wedge — rotation is blocked by rock (pose-validity rollback)', (
 
     const prev: Pose = { x: 0, y: 0, heading: 0 };
     const s: ShipState = { x: 0, y: 0, heading: jam, speed: 10 };
-    const contact = resolve(prev, s, islands, 'battleship');
-    expect(contact).toBe(true);
+    const res = resolve(prev, s, islands, 'battleship');
+    expect(res.contact).toBe(true);
     expect(clearOfAll(s, 'battleship', islands)).toBe(true); // ended overlap-free
     expect(s.heading).toBe(0); // rudder blocked — previous heading kept
     expect(s.x).toBeCloseTo(0, 9); // movement (position) preserved
@@ -382,8 +621,8 @@ describe('#64 wedge — rotation is blocked by rock (pose-validity rollback)', (
     const prev: Pose = { x: 0, y: 320, heading: 0 }; // clearly valid, outside the trap
     const s: ShipState = { x: 0, y: 0, heading: 0.5, speed: 8 };
     expect(clearOfAll(s, 'battleship', trap)).toBe(false); // candidate is trapped
-    const contact = resolve(prev, s, trap, 'battleship');
-    expect(contact).toBe(true);
+    const res = resolve(prev, s, trap, 'battleship');
+    expect(res.contact).toBe(true);
     expect(s.x).toBeCloseTo(prev.x, 9);
     expect(s.y).toBeCloseTo(prev.y, 9);
     expect(s.heading).toBeCloseTo(prev.heading, 9);
@@ -442,9 +681,12 @@ describe('no-escape invariant: every resolved tick ends overlap-free', () => {
       stepShip(s, { throttle: rng.float(-1, 1), rudder: rng.float(-1, 1) }, kin, DT);
       resolve(prev, s, cluster, 'battleship', 900);
       expect(clearOfAll(s, 'battleship', cluster)).toBe(true);
-      expect(Math.hypot(s.x, s.y)).toBeLessThanOrEqual(
-        900 - polygonMaxRadius(hullSilhouette('battleship')) + 1e-6,
-      );
+      // The boundary invariant is now stated on the HULL, not on its bounding
+      // circle: the clamp is heading-aware (cycle 59), so a hull running
+      // parallel to the edge legitimately sits closer than
+      // `mapRadius − polygonMaxRadius` — while still fitting inside the disc,
+      // which is the impenetrability that actually matters.
+      expect(insideMapCircle(s, 'battleship', 900)).toBe(true);
       prev = { x: s.x, y: s.y, heading: s.heading };
     }
   }
@@ -481,9 +723,9 @@ describe('no-escape invariant on a REAL generated map', () => {
       for (let t = 0; t < 1200; t++) {
         const throttle = t < 200 ? 1 : rng.float(-1, 1); // ram first, wander after
         stepShip(s, { throttle, rudder: t < 200 ? 0 : rng.float(-1, 1) }, kin, DT);
-        if (resolve(prev, s, map.islands, 'battleship', map.radius)) contacts++;
+        if (resolve(prev, s, map.islands, 'battleship', map.radius).contact) contacts++;
         expect(clearOfAll(s, 'battleship', map.islands)).toBe(true);
-        expect(Math.hypot(s.x, s.y)).toBeLessThanOrEqual(map.radius - polyMax + 1e-6);
+        expect(insideMapCircle(s, 'battleship', map.radius)).toBe(true); // hull-exact edge invariant
         prev = { x: s.x, y: s.y, heading: s.heading };
       }
       expect(contacts).toBeGreaterThan(0); // the drive genuinely exercised collision
@@ -536,7 +778,7 @@ describe('cove escape — the worst concavity the generator produces (measured)'
       let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
       const step = (throttle: number): boolean => {
         stepShip(s, { throttle, rudder: 0 }, kin, DT);
-        const contact = resolve(prev, s, map.islands, 'torpedoBoat', map.radius);
+        const contact = resolve(prev, s, map.islands, 'torpedoBoat', map.radius).contact;
         expect(clearOfAll(s, 'torpedoBoat', map.islands)).toBe(true); // NEVER overlaps land
         prev = { x: s.x, y: s.y, heading: s.heading };
         return contact;

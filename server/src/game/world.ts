@@ -20,6 +20,7 @@ import {
   HEAL_CHOICE,
   HOOK_REGISTRY,
   NO_BOONS,
+  applyGroundingDamp,
   applySlotEffect,
   boonBehaviors,
   boostedKinematics,
@@ -1554,14 +1555,17 @@ export class World {
    * Resolve each candidate pose against islands + the map edge via the shared
    * pose-validity rollback (sim/collision.ts) — the SAME function the client
    * Predictor runs, so prediction never diverges on rocks or the boundary.
-   * islandSpeedMult is applied ONCE per tick here (the call site) when the ship
-   * touched an island or pressed the boundary. hullPoly doubles as the transform
-   * scratch (aliveHulls rewrites it for this tick's ballistic/mine tests).
+   * The speed response is the SHARED applyGroundingDamp (Eric ruling
+   * 2026-08-06: directional, land-only, a cap rather than a per-tick
+   * multiplier) called with the hull's RATED effective max speed — the exact
+   * number the predictor passes — so the two sides stay byte-identical.
+   * hullPoly doubles as the transform scratch (aliveHulls rewrites it for this
+   * tick's ballistic/mine tests).
    */
   private resolveCollisions(): void {
     for (const ship of this.ships.values()) {
       if (!ship.alive) continue;
-      const { contact } = resolveShipPose(
+      const res = resolveShipPose(
         ship.prevPose,
         ship.state,
         this.map.islands,
@@ -1569,7 +1573,7 @@ export class World {
         hullSilhouette(ship.hullId),
         ship.hullPoly,
       );
-      if (contact) ship.state.speed *= CONFIG.ship.islandSpeedMult;
+      applyGroundingDamp(ship.state, res, ship.stats.kinematics.maxSpeed);
     }
   }
 

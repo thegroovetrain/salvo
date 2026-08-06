@@ -7,6 +7,7 @@ import {
   hullSilhouette,
   islandDistance,
   islandFromPolygon,
+  applyGroundingDamp,
   resolveShipPose,
   stepShip,
   transformPolygon,
@@ -45,16 +46,18 @@ function kin(s: ShipState) {
   return { x: s.x, y: s.y, heading: s.heading, speed: s.speed };
 }
 
-/** Reference "server": shared stepShip with the given class + boundary clamp. */
-function serverStep(s: ShipState, inp: InputMsg, cfg: ShipConfig = TB.kinematics): void {
+/** Reference "server": shared stepShip with the given class, resolved through
+ *  the SAME shared collision + grounding damp the predictor runs (cycle 59:
+ *  one implementation, so a mirrored copy here could never drift from it). */
+function serverStep(
+  s: ShipState,
+  inp: InputMsg,
+  cfg: ShipConfig = TB.kinematics,
+  poly: readonly Vec2[] = TB_POLY,
+): void {
+  const prev: Pose = { x: s.x, y: s.y, heading: s.heading };
   stepShip(s, inp, cfg, DT);
-  const d = Math.hypot(s.x, s.y);
-  if (d > MAP_R) {
-    const k = MAP_R / d;
-    s.x *= k;
-    s.y *= k;
-    s.speed *= CONFIG.ship.islandSpeedMult;
-  }
+  applyGroundingDamp(s, resolveShipPose(prev, s, [], MAP_R, poly), cfg.maxSpeed);
 }
 
 function makeInitialized(spawn: ShipState): Predictor {
@@ -178,14 +181,19 @@ describe('Predictor error absorption', () => {
 });
 
 describe('Predictor boundary clamp (mirror of server world.ts)', () => {
-  it('never predicts past the map edge and damps speed there', () => {
+  // Cycle 59 (Eric ruling 2026-08-06): the map edge is a WALL, not ground. This
+  // test previously asserted `speed < maxSpeed` at the edge — the boundary damp
+  // that pinned hulls in open ocean. It is DELIBERATELY inverted: the hull is
+  // still stopped by the edge (never predicts past it) but keeps every knot,
+  // and therefore its helm.
+  it('never predicts past the map edge, and keeps its way there', () => {
     // Start near the edge, full ahead pointing straight out.
     const spawn: ShipState = { x: MAP_R - 10, y: 0, heading: 0, speed: TB.kinematics.maxSpeed };
     const p = makeInitialized(spawn);
     for (let seq = 1; seq <= 40; seq++) p.localTick(input(seq, 1, 0), 0);
-    const d = Math.hypot(p.predicted.x, p.predicted.y);
-    expect(d).toBeLessThanOrEqual(MAP_R + 1e-9);
-    expect(Math.abs(p.predicted.speed)).toBeLessThan(TB.kinematics.maxSpeed);
+    const world = transformPolygon(TB_POLY, p.predicted.x, p.predicted.y, p.predicted.heading);
+    for (const v of world) expect(Math.hypot(v.x, v.y)).toBeLessThanOrEqual(MAP_R + 1e-6);
+    expect(p.predicted.speed).toBeCloseTo(TB.kinematics.maxSpeed, 9);
   });
 });
 
@@ -231,8 +239,8 @@ describe('Predictor island collision (polygon parity with shared collision)', ()
       p.localTick(inp, 0);
       const prev: Pose = { x: server.x, y: server.y, heading: server.heading };
       stepShip(server, inp, TB.kinematics, DT);
-      const { contact } = resolveShipPose(prev, server, [island], MAP_R, TB_POLY);
-      if (contact) server.speed *= CONFIG.ship.islandSpeedMult;
+      const res = resolveShipPose(prev, server, [island], MAP_R, TB_POLY);
+      applyGroundingDamp(server, res, TB.kinematics.maxSpeed);
       if (seq % 3 === 0) p.onServerState(kin(server), seq);
       if (hullClearance(server, TB_POLY, island) < 1) grazed = true;
     }
@@ -244,6 +252,71 @@ describe('Predictor island collision (polygon parity with shared collision)', ()
     expect(grazed).toBe(true);
     // ...and the predicted hull ends overlap-free (no vertex inside the circle).
     expect(hullClearance(p.predicted, TB_POLY, island)).toBeGreaterThanOrEqual(-1e-6);
+  });
+
+  // CYCLE 59 PARITY (Eric ruling 2026-08-06). The grounding damp now lives in
+  // ONE shared function both sides call, so this drives the two regimes the
+  // ruling touches — a dead-on beaching and a sustained boundary press — and
+  // demands BIT-EQUAL speed as well as pose. Reconciling only every 5 ticks
+  // means the predictor's own localTick damp (and its replay of it) must agree
+  // with the reference server's, tick for tick.
+  /** Drive a predictor and a reference server through the SAME shared collision
+   *  + grounding damp, asserting bit-equal pose AND speed every tick. */
+  function parityDrive(
+    islands: Island[],
+    spawn: ShipState,
+    ticks: number,
+    rudderAt: (seq: number) => number,
+  ): { server: ShipState; aground: number } {
+    const BB = CONFIG.shipClasses.battleship;
+    const BB_POLY = hullSilhouette('battleship');
+    const server: ShipState = { ...spawn };
+    const p = new Predictor({ radius: MAP_R, islands }, BB.kinematics, BB_POLY);
+    p.onServerState(kin(spawn), 0);
+    let aground = 0;
+    for (let seq = 1; seq <= ticks; seq++) {
+      const inp = input(seq, 1, rudderAt(seq));
+      p.localTick(inp, 0);
+      const prev: Pose = { x: server.x, y: server.y, heading: server.heading };
+      stepShip(server, inp, BB.kinematics, DT);
+      const res = resolveShipPose(prev, server, islands, MAP_R, BB_POLY);
+      applyGroundingDamp(server, res, BB.kinematics.maxSpeed);
+      if (res.contact) aground++;
+      if (seq % 5 === 0) p.onServerState(kin(server), seq); // reconcile sparsely
+      expect(p.predicted.x).toBeCloseTo(server.x, 9);
+      expect(p.predicted.y).toBeCloseTo(server.y, 9);
+      expect(p.predicted.heading).toBeCloseTo(server.heading, 9);
+      expect(p.predicted.speed).toBeCloseTo(server.speed, 9);
+    }
+    return { server, aground };
+  }
+
+  it('server and client agree bit-for-bit while grounded on a coastline', () => {
+    const BB = CONFIG.shipClasses.battleship;
+    const island = circleIsland(300, 0, 120); // dead ahead of the spawn
+    // Ram it head-on for 10s, then put the helm hard over and drive off.
+    const { server, aground } = parityDrive(
+      [island],
+      { x: 0, y: 0, heading: 0, speed: 0 },
+      320,
+      (seq) => (seq > 200 ? 1 : 0),
+    );
+    expect(aground).toBeGreaterThan(20); // it really did ground and hold there
+    // The hull ends free, with way on and full helm — not pinned.
+    expect(hullClearance(server, hullSilhouette('battleship'), island)).toBeGreaterThan(0);
+    expect(server.speed).toBeGreaterThanOrEqual(BB.kinematics.steerageSpeed);
+  });
+
+  it('server and client agree bit-for-bit while pressed on the map edge', () => {
+    const BB = CONFIG.shipClasses.battleship;
+    // The "pinned in open ocean" input pattern: full ahead into the boundary,
+    // throttle held, no land anywhere.
+    const spawn = { x: 820, y: 0, heading: 0, speed: BB.kinematics.maxSpeed };
+    const { server, aground } = parityDrive([], spawn, 120, () => 0);
+    expect(aground).toBe(0); // the edge is never grounding
+    expect(server.speed).toBeCloseTo(BB.kinematics.maxSpeed, 9); // and costs no way
+    const world = transformPolygon(hullSilhouette('battleship'), server.x, server.y, server.heading);
+    for (const v of world) expect(Math.hypot(v.x, v.y)).toBeLessThanOrEqual(MAP_R + 1e-6);
   });
 });
 

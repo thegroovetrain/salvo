@@ -285,6 +285,42 @@ export function perpendicularExtent(poly: readonly Vec2[], bearing: number): num
   return max - min;
 }
 
+/**
+ * How far the polygon's ORIGIN may sit from a circle's centre, along the unit
+ * direction `(ux, uy)`, with the polygon rotated to `heading`, before any vert
+ * leaves that circle. The heading-aware companion to `polygonMaxRadius`: the
+ * bounding radius answers the same question for the WORST heading, this one
+ * for the actual pose (a hull running parallel to the map edge is held off by
+ * its beam, not by its stern-corner diagonal).
+ *
+ * EXACT, not a tangent-line approximation: for each vert `v` the constraint
+ * |L·u + v| ≤ radius is a quadratic in L whose only non-negative root is
+ * √((u·v)² + radius² − |v|²) − (u·v) (the other root is negative whenever the
+ * vert fits in the circle at all), so the limit is the MIN of those over the
+ * verts. One sqrt per vert, no allocation.
+ */
+export function polygonFitLimit(
+  poly: readonly Vec2[],
+  heading: number,
+  ux: number,
+  uy: number,
+  radius: number,
+): number {
+  const c = Math.cos(heading);
+  const s = Math.sin(heading);
+  const r2 = radius * radius;
+  let limit = Infinity;
+  for (const p of poly) {
+    const vx = c * p.x - s * p.y;
+    const vy = s * p.x + c * p.y;
+    const dot = ux * vx + uy * vy;
+    const disc = dot * dot + r2 - (vx * vx + vy * vy);
+    const l = disc <= 0 ? 0 : Math.sqrt(disc) - dot;
+    if (l < limit) limit = l;
+  }
+  return limit > 0 ? limit : 0;
+}
+
 /** Max distance from the local origin to any vert (bounding-circle radius). */
 export function polygonMaxRadius(poly: readonly Vec2[]): number {
   let max = 0;
