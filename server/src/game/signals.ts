@@ -28,7 +28,8 @@
 // k,id,x,y; MineView: id,x,y,own,by; LitZoneView: id,x,y,r,until,by,mode;
 // DecoyView: id,x,y,until,own,by; SplashEvent/HitCallEvent: k,id,x,y;
 // MuzzleEvent: k,x,y — Story 4.3; SmokeEvent: k,x,y,tier — Story 4.4;
-// SunkEvent: k,id,by?,seen? — the public
+// FoghornEvent: k,h then self? (honker) / x,y (spectator) / b,v (fogged
+// listener) — Story 4.5; SunkEvent: k,id,by?,seen? — the public
 // register, absent keys OMITTED). Do not reorder keys — `by` (Story 1.12) is
 // appended LAST on mine/decoy, `mode` (Story 2.9) after it on litzone, so the
 // historical prefix stays byte-stable.
@@ -36,7 +37,10 @@
 import {
   CONFIG,
   bearing,
+  hullSilhouette,
   islandBlocksSegment,
+  perpendicularExtent,
+  transformPolygon,
   wrapAngle,
   wrapPositive,
   type BallisticEvent,
@@ -46,6 +50,7 @@ import {
   type Contact,
   type DamageEvent,
   type DecoyView,
+  type FoghornEvent,
   type GameEvent,
   type HealEvent,
   type HitCallEvent,
@@ -56,6 +61,8 @@ import {
   type MuzzleEvent,
   type BoonFitEvent,
   type PointEvent,
+  type RadarGrammar,
+  type RadarIdentity,
   type ShellState,
   type SmokeEvent,
   type SpawnEvent,
@@ -87,6 +94,17 @@ interface SignalContextBase {
   /** All LIVE decoy buoys (Story 1.8) — the decoy row's scan subjects AND the
    *  blip row's counterIntel subjects (the radar-double deception). */
   decoys: ReadonlyMap<string, Decoy>;
+  /** Which blip wire shape this room emits (the radar realism cycle, amendment
+   *  63) — the blipShape branch key. The GATE never reads it: only the wire
+   *  SHAPE branches on grammar, never who can see what. */
+  radarGrammar: RadarGrammar;
+  /** Which id namespace blips carry (amendment 63): 'roster' = the painted
+   *  ship's real id (today's behavior), 'pseudonym' = pseudonymOf(shipId). */
+  radarIdentity: RadarIdentity;
+  /** Ship id → stable per-match track id (World.pseudonymFor — the server-
+   *  private stream; see World.trackIds for the honest correlation bound).
+   *  Consulted by blipShape ONLY in pseudonym mode. */
+  pseudonymOf(shipId: string): string;
 }
 
 /** The fogged observe() path: rows apply full fog-of-war. observe() fail-closes
@@ -250,17 +268,54 @@ function blipGate(me: ShipRecord, p: Vec2, islands: readonly Island[], now: numb
   return inRadarAnnulus(me, p, now) && sweptThisTick(me, bearing(me.state, p)) && losClear(me.state, p, islands);
 }
 
+/** Scratch polygon for the `ext` computation (transformPolygon's `out` reuse —
+ *  allocation-light; consumed synchronously inside blipShape, never retained). */
+const EXT_SCRATCH: Vec2[] = [];
+
+/**
+ * The `return`-grammar echo extent (amendment 66, R2): the hull silhouette's
+ * total extent projected PERPENDICULAR to the observer→target bearing, in
+ * world units. Posed at the ORIGIN (extent is translation-invariant) with the
+ * paint's heading only. ANTI-CHEAT BOUND (absolute): `ext` derives from hull
+ * geometry + relative bearing ONLY — never boons, hp, damage state, or any
+ * range-derivable flight quantity. There is deliberately NO range term
+ * server-side: range attenuation is client render math (R2), computed from
+ * the paint position the observer already holds.
+ */
+function echoExtent(me: ShipRecord, p: Vec2, cls: HullId, heading: number): number {
+  return perpendicularExtent(transformPolygon(hullSilhouette(cls), 0, 0, heading, EXT_SCRATCH), bearing(me.state, p));
+}
+
 /** THE blip wire shaper (one function, two callers — FR10's wire
- *  indistinguishability by construction): KEY ORDER IS LOAD-BEARING
- *  (k,id,x,y,t,cls,heading,speed — Story 4.2 appends the class-legible pose
- *  AFTER `t`, so the historical prefix stays byte-stable). A genuine paint
- *  passes the ship's id/position and LIVE pose; the decoy counterIntel passes
- *  the OWNER'S ship id with the buoy's position and its FROZEN drop-time
- *  cls/heading at speed 0 (a radar reflector reports true stationary values —
- *  see the Decoy record's anti-cheat note) — byte-for-byte the same shape
- *  either way. */
-function blipShape(id: string, p: Vec2, now: number, cls: HullId, heading: number, speed: number): BlipEvent {
-  return { k: 'blip', id, x: p.x, y: p.y, t: now, cls, heading, speed };
+ *  indistinguishability by construction), branched per the room's radar modes
+ *  (the radar realism cycle, amendments 62-68 — ONLY the wire shape branches;
+ *  blipGate is untouched). KEY ORDER IS LOAD-BEARING: silhouette grammar
+ *  emits k,id,x,y,t,cls,heading,speed (Story 4.2 — the class-legible pose
+ *  APPENDED after `t`); return grammar emits k,id,x,y,t,ext (the one aspect
+ *  scalar appended after the same byte-stable {k,id,x,y,t} prefix). In
+ *  pseudonym identity mode `id` is the ship's stable per-match track id
+ *  (ctx.pseudonymOf) — a genuine paint resolves the SHIP's id, the decoy
+ *  counterIntel resolves the OWNER's, so the buoy paints under exactly the id
+ *  the owner's own hull would (the Story 1.8 indistinguishability law,
+ *  preserved under both flags). A genuine paint passes the ship's id/position
+ *  and LIVE pose; the decoy counterIntel passes the OWNER'S ship id with the
+ *  buoy's position and its FROZEN drop-time cls/heading at speed 0 (a radar
+ *  reflector reports true stationary values — see the Decoy record's
+ *  anti-cheat note) — byte-for-byte the same shape either way. */
+function blipShape(
+  ctx: SignalContext,
+  me: ShipRecord,
+  shipId: string,
+  p: Vec2,
+  cls: HullId,
+  heading: number,
+  speed: number,
+): BlipEvent {
+  const id = ctx.radarIdentity === 'pseudonym' ? ctx.pseudonymOf(shipId) : shipId;
+  if (ctx.radarGrammar === 'return') {
+    return { k: 'blip', id, x: p.x, y: p.y, t: ctx.now, ext: echoExtent(me, p, cls, heading) };
+  }
+  return { k: 'blip', id, x: p.x, y: p.y, t: ctx.now, cls, heading, speed };
 }
 
 // ---------------------------------------------------------------------------
@@ -432,7 +487,9 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
   materialize(ctx, target) {
     // Live pose (Story 4.2, FR14): hull id, heading, and the raw signed speed
     // scalar at paint time — never a derived cap or boost flag (build leak).
-    return blipShape(target.id, target.state, ctx.now, target.hullId, target.state.heading, target.state.speed);
+    // The blip row only ever materializes fogged (visible() requires it), so
+    // ctx.me is always set; the non-null assertion mirrors that gate.
+    return blipShape(ctx, ctx.me!, target.id, target.state, target.hullId, target.state.heading, target.state.speed);
   },
   counterIntel(ctx, decoy) {
     // Spectators are unfogged — they get the truth (the decoy row), never a lie.
@@ -462,8 +519,12 @@ const blipSignal: SignalSpec<ShipRecord, BlipEvent, Decoy> = {
     // (the buoy outlives its owner by up to 30s and must keep painting; a live
     // read would also leak the fogged owner's course/speed at a false
     // position). Unmasking the lie is BEHAVIORAL — it never moves — not a
-    // payload difference.
-    return blipShape(decoy.ownerId, decoy, ctx.now, decoy.hullId, decoy.heading, 0);
+    // payload difference. In pseudonym mode blipShape resolves the OWNER's
+    // pseudonym from ownerId, so the lie rides exactly the track id the
+    // owner's own hull paints under; in return grammar it carries the
+    // owner-hull extent at the frozen drop heading — indistinguishable under
+    // every flag combination.
+    return blipShape(ctx, me, decoy.ownerId, decoy, decoy.hullId, decoy.heading, 0);
   },
 };
 
@@ -894,6 +955,89 @@ const woundedSmokeSignal: SignalSpec<SmokeEvent, SmokeEvent> = {
   },
 };
 
+/** The world-emitted foghorn SUBJECT (Story 4.5): World.consumeHonk always
+ *  stamps the honker's true position and id onto the internal event —
+ *  server-private inputs the row consumes and NEVER forwards (see the row). */
+type FoghornSubject = FoghornEvent & { x: number; y: number; id: string };
+
+/**
+ * The fogged listener's VOLUME TIER for a honk, or null = inaudible (Story
+ * 4.5, amendments 53/54) — THE one tier resolver: visible() and materialize()
+ * both call this, so the gate and the wire can never drift. Bounds come from
+ * the OBSERVER'S own effective ranges, resolved distance-first:
+ *   tier 1: d ≤ sightOf(me) (dazzle-scaled, boon-widened — the observer's
+ *           live sight bubble);
+ *   tier 2: d ≤ max(1.5 × sightOf(me), CONFIG.vision.muzzleFlash);
+ *   tier 3: d ≤ max(stats.radarRange, the tier-2 bound);
+ *   beyond: inaudible (no event for this observer at all).
+ * The max() clamps are LOAD-BEARING, not defensive: muzzleFlash is a flat
+ * 495u constant while sightOf is dazzle-scaled and radarRange boon-widened,
+ * so the raw bounds are not monotone by construction — the clamps keep the
+ * bands nested when intel boons push sight past 495u, and stop star-shell
+ * dazzle from also DEAFENING a captain (amendment 53: a dazzled listener
+ * keeps the 495/660 outer bands). Squared-distance comparisons, boundaries
+ * inclusive — the mz row's discipline.
+ *
+ * ISLANDS MUFFLE, NEVER BLOCK (amendment 54 — the first partial carve-out of
+ * the 2026-08-02 "islands block every sensor" law): after the distance tier
+ * resolves, a failed losClear() demotes by EXACTLY one step — 1→2, 2→3,
+ * 3→inaudible. One losClear call, one set of bounds; the demotion is applied
+ * once, post-resolution, never via a second threshold set.
+ */
+function hornTierFor(me: ShipRecord, subject: FoghornSubject, islands: readonly Island[], now: number): 1 | 2 | 3 | null {
+  const dx = subject.x - me.state.x;
+  const dy = subject.y - me.state.y;
+  const d2 = dx * dx + dy * dy;
+  const sight = sightOf(me, now);
+  const mid = Math.max(1.5 * sight, CONFIG.vision.muzzleFlash);
+  const far = Math.max(me.stats.radarRange, mid);
+  let tier: 1 | 2 | 3;
+  if (d2 <= sight * sight) tier = 1;
+  else if (d2 <= mid * mid) tier = 2;
+  else if (d2 <= far * far) tier = 3;
+  else return null;
+  if (losClear(me.state, subject, islands)) return tier;
+  return tier === 3 ? null : ((tier + 1) as 2 | 3);
+}
+
+/**
+ * `fh` — THE FOGHORN (Story 4.5, amendments 51-58): a captain chose to sound
+ * their horn. The SIXTH declared exception to the master perception
+ * invariant (after 4.3's sp/hc/mz, PV 23's public sunk register, and 4.4's
+ * sm), with its own independently-reimplemented oracle in perception.test.ts.
+ * Three observer shapes, each a FRESH object literal (the mz discipline —
+ * materialize NEVER forwards or spreads the subject, so the server-private
+ * x/y/id can never ride along by accident):
+ *   honker    → {k,h,self:true} — their own horn back, no distance/LOS test,
+ *               checked FIRST in both gates (before any spectator or me math);
+ *   spectator → {k,h,x,y} — the omniscient path (the client aims the chevron
+ *               from its own camera); short-circuits BEFORE any ctx.me read,
+ *               since a record-less spectator has me === undefined;
+ *   fogged    → {k,h,b,v} — bearing (wrapPositive [0, 2π)) + volume tier from
+ *               hornTierFor above. NO x, NO y, NO ship id, and no correlation
+ *               handle of any kind (amendment 45's rule verbatim): a honk is
+ *               a bearing the honker chose to give away, and nothing more.
+ * `h` is the horn variant — the row's ONLY identity-adjacent field, a knowing
+ * narrow break with mz/sm's neutral-signal rule (amendment 52: a distinctive
+ * purchased horn being recognizable at 660u is the point of buying one).
+ */
+const foghornSignal: SignalSpec<FoghornSubject, FoghornEvent> = {
+  eventType: 'fh',
+  visible(ctx, e) {
+    if (e.id === ctx.observerId) return true; // the honker always hears their own horn
+    if (ctx.mode === 'spectator') return true; // before any ctx.me math (me may be undefined)
+    return hornTierFor(ctx.me, e, ctx.islands, ctx.now) !== null;
+  },
+  materialize(ctx, e) {
+    if (e.id === ctx.observerId) return { k: 'fh', h: e.h, self: true };
+    if (ctx.mode === 'spectator') return { k: 'fh', h: e.h, x: e.x, y: e.y };
+    // visible() passed, so the tier is non-null — the ONE shared resolver
+    // guarantees the gate and this payload agree.
+    const v = hornTierFor(ctx.me, e, ctx.islands, ctx.now) as 1 | 2 | 3;
+    return { k: 'fh', h: e.h, b: wrapPositive(bearing(ctx.me.state, e)), v };
+  },
+};
+
 // ---------------------------------------------------------------------------
 // The registry: every spatial signal channel, one row each.
 // ---------------------------------------------------------------------------
@@ -946,6 +1090,9 @@ export const SIGNAL_REGISTRY = deepFreezeRows({
   // Story 4.4 (amendments 40-50): wounded smoke — the fifth declared fog
   // exception, anonymous by construction (see the row above).
   sm: woundedSmokeSignal,
+  // Story 4.5 (amendments 51-58): the foghorn — the sixth declared fog
+  // exception and the first partial LOS carve-out (islands muffle one tier).
+  fh: foghornSignal,
 });
 
 /**

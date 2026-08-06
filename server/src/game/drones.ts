@@ -134,7 +134,9 @@ export class DroneController {
     // click anyway) always ride the zero-compensation path. actSeq: 0 is the
     // never-activated sentinel (Story 1.6): structurally inert, same argument as
     // fireSeq: 0 — a constant counter can never out-run the ship's consumed one.
-    return { seq: mind.seq, throttle: mind.throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 };
+    // hornSeq: 0 is the never-honked sentinel (Story 4.5): drones never honk,
+    // and the World's !isDrone gate backstops it anyway.
+    return { seq: mind.seq, throttle: mind.throttle, rudder, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
   }
 
   /** Bearing the drone wants to hold, applying the zone/waypoint overrides. */

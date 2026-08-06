@@ -7,13 +7,18 @@
 // at. That is this suite.
 
 import { describe, expect, it } from 'vitest';
-import { TONE_TWINS, toneTwin } from '../audio/twinMap.js';
+import { TONE_TWINS, toneTwin, type AudioCueId } from '../audio/twinMap.js';
 import { TONES, type ToneId } from '../audio/tones.js';
 
-const IDS = Object.keys(TONES) as ToneId[];
+/** Every cue that can SOUND — the tone table plus the cues on their own engine
+ *  paths. The horn is the first of the latter (Story 4.5): it is not a ToneSpec,
+ *  and the whole point of widening the key was that dodging `TONES` must not let
+ *  a cue dodge its twin. */
+const OFF_TABLE: AudioCueId[] = ['foghorn'];
+const IDS = [...(Object.keys(TONES) as ToneId[]), ...OFF_TABLE];
 
-describe('every tone has a visual twin', () => {
-  it('covers the tone table exactly — no missing row, no orphan row', () => {
+describe('every audio cue has a visual twin', () => {
+  it('covers every soundable cue exactly — no missing row, no orphan row', () => {
     expect(Object.keys(TONE_TWINS).sort()).toEqual([...IDS].sort());
   });
 
@@ -34,5 +39,14 @@ describe('every tone has a visual twin', () => {
       expect(twin).toContain('fit flash');
       expect(twin).toContain('tooltip row');
     }
+  });
+
+  it('gives the FOGHORN a twin that carries a BEARING — the only thing the honk says', () => {
+    const twin = toneTwin('foghorn');
+    expect(twin).toMatch(/bearing/i);
+    expect(twin).toMatch(/chevron/i);
+    // Your own honk gets a hull bloom instead of a chevron (amendment 55), so
+    // the row has to name both surfaces or the muted own-honk has no twin.
+    expect(twin).toMatch(/bloom/i);
   });
 });

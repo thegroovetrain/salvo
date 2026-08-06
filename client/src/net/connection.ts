@@ -9,9 +9,13 @@ import {
   MSG,
   PROTOCOL_VERSION,
   REGATTA_HUES,
+  sanitizeHornId,
   type FrameMsg,
+  type HornId,
   type GameMap,
   type PingMsg,
+  type RadarGrammar,
+  type RadarIdentity,
   type WelcomeMsg,
 } from '@salvo/shared';
 
@@ -39,6 +43,31 @@ export function loadColorPref(): number | undefined {
     return Number.isInteger(n) && n >= 0 && n < REGATTA_HUES.length ? n : undefined;
   } catch {
     return undefined;
+  }
+}
+
+/** localStorage key for the persisted foghorn variant — the same
+ *  `hullcracker.*` family as the name/class/color keys. */
+export const HORN_PREF_KEY = 'hullcracker.horn';
+
+/**
+ * The persisted foghorn variant (Story 4.5, amendment 52) — the cosmetic seam
+ * for a future purchasable horn, PLUMBED ONLY. Exactly one horn ships this
+ * cycle and **NO UI WRITES THIS KEY**: adding horn variants is CONTENT and
+ * needs an Eric ruling, so a picker is out of scope by construction, not by
+ * omission. `loadColorPref`'s Story 1.12 shape exactly — a plumbed join option
+ * ahead of the surface that will one day set it.
+ *
+ * `sanitizeHornId` is fail-open, so a corrupt, stale, or absent key resolves to
+ * the default horn rather than to an error; the server re-sanitizes the value
+ * in `onJoin` regardless. The try/catch covers blocked/private-mode storage,
+ * where `getItem` itself throws (loadColorPref's precedent).
+ */
+export function loadHornPref(): HornId {
+  try {
+    return sanitizeHornId(localStorage.getItem(HORN_PREF_KEY));
+  } catch {
+    return sanitizeHornId(undefined);
   }
 }
 
@@ -194,9 +223,14 @@ export async function connect(name?: string, cls?: string): Promise<Connection> 
   // or mismatched PROTOCOL_VERSION with a "version mismatch" ServerError that
   // startGame() surfaces on the menu status line. Reconnects bypass onAuth, so
   // they are never re-gated.
-  const opts: { pv: number; name?: string; cls?: string; colorPref?: number } = { pv: PROTOCOL_VERSION };
+  const opts: { pv: number; name?: string; cls?: string; colorPref?: number; horn?: string } =
+    { pv: PROTOCOL_VERSION };
   if (name) opts.name = name;
   if (cls) opts.cls = cls;
+  // Story 4.5: the equipped foghorn variant, alongside cls/colorPref. Always
+  // forwarded (loadHornPref never returns undefined) and re-sanitized server-
+  // side in onJoin exactly as `cls` is.
+  opts.horn = loadHornPref();
   // Story 1.12/1.14: always forward the resolved color preference — `ensureColorPref()`
   // never returns undefined (stored value, session-cached roll, or a fresh roll),
   // so the hue the home/bay chrome tinted with is the exact hue the server assigns,
@@ -255,6 +289,41 @@ export function connectErrorStatus(err: unknown): string {
   const isVersionGate = code === 525 || (code == null && /version mismatch/i.test(msg));
   if (isVersionGate) return 'VERSION MISMATCH — PLEASE REFRESH THE PAGE';
   return 'CONNECTION FAILED — IS THE SERVER RUNNING ON :2567?';
+}
+
+/** The room's radar modes, as announced ONCE in the welcome handshake. */
+export interface RadarModes {
+  grammar: RadarGrammar;
+  identity: RadarIdentity;
+}
+
+/** Today's shipped behavior — the fallback both fields resolve to. */
+const DEFAULT_RADAR_MODES: RadarModes = { grammar: 'silhouette', identity: 'roster' };
+
+/**
+ * The room's radar grammar + identity, read off the welcome (cycle 51,
+ * amendment 63). These are SERVER flags: the room picks one grammar for the
+ * whole match and announces it here, which is why `BlipEvent` can be a TAGLESS
+ * union — every blip in a given match has the same shape and a per-event
+ * discriminator would be dead weight on a 20Hz channel.
+ *
+ * The client therefore narrows every blip on THIS value and never by probing
+ * which fields happen to exist on an event. Field-probing would be a second,
+ * silently-diverging source of truth for the same question, and it would happily
+ * mis-read a `return` blip that legitimately carried `ext: 0`.
+ *
+ * Unrecognized or absent values fall back to today's behavior — fail-safe, never
+ * fail-open, the same posture the server takes when reading its env vars. The
+ * fields are REQUIRED by `WelcomeMsg` and the PV gate gives both sides the same
+ * union, so this can only fire against a non-conforming server; when it does, the
+ * shipped grammar is the safe landing.
+ */
+export function radarModes(welcome: WelcomeMsg): RadarModes {
+  const w = welcome as Partial<WelcomeMsg>;
+  return {
+    grammar: w.radarGrammar === 'return' ? 'return' : DEFAULT_RADAR_MODES.grammar,
+    identity: w.radarIdentity === 'pseudonym' ? 'pseudonym' : DEFAULT_RADAR_MODES.identity,
+  };
 }
 
 /**

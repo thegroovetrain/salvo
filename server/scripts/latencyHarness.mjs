@@ -545,7 +545,7 @@ function buildInput(ctx) {
     // Story 1.6 ability-activation fields: the harness never activates an
     // ability, so it rides the inert sentinels on every input.
     actSeq: 0,
-    actSlot: 0,
+    actSlot: 0, hornSeq: 0,
   };
 }
 

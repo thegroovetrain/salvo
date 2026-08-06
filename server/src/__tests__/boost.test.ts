@@ -37,12 +37,12 @@ function place(w: World, id: string, hull: ShipClassId = 'torpedoBoat', heading 
 
 /** A full, valid input; fireSeq 0 / actSeq 0 mean no click / no activation. */
 function makeInput(patch: Partial<InputMsg>): InputMsg {
-  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, ...patch };
+  return { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...patch };
 }
 
 /** Submit an activation press (actSeq advance) for `id`. */
 function pressActivate(w: World, id: string, seq: number, actSeq: number, actSlot: number, throttle = 0): void {
-  w.submitInput(id, makeInput({ seq, throttle, actSeq, actSlot }));
+  w.submitInput(id, makeInput({ seq, throttle, actSeq, actSlot, hornSeq: 0 }));
 }
 
 // ---------- structural invariant ---------------------------------------------
@@ -233,9 +233,9 @@ describe('the actSeq gate is monotonic', () => {
     expect(openWindow).toBeGreaterThan(0);
     expect(a.lastActSeq).toBe(5);
     // Repeat the SAME counter (5) then a LOWER one (3): neither out-runs lastActSeq.
-    w.submitInput('a', makeInput({ seq: 2, actSeq: 5, actSlot: SLOT_BOOST }));
+    w.submitInput('a', makeInput({ seq: 2, actSeq: 5, actSlot: SLOT_BOOST, hornSeq: 0 }));
     w.step();
-    w.submitInput('a', makeInput({ seq: 3, actSeq: 3, actSlot: SLOT_BOOST }));
+    w.submitInput('a', makeInput({ seq: 3, actSeq: 3, actSlot: SLOT_BOOST, hornSeq: 0 }));
     w.step();
     expect(a.lastActSeq).toBe(5); // never regressed
     // Even if the pool had a charge, no NEW activation happened (window unchanged

@@ -5,7 +5,7 @@
 // Messages: "w" welcome (once), "i" input (client->server), "f" frame
 // (server->client, every tick).
 
-import type { GameConfig, HullId, ShipClassId } from './constants.js';
+import type { GameConfig, HornId, HullId, ShipClassId } from './constants.js';
 import type { Vec2 } from './math/vec.js';
 import type { StarShellsMode } from './sim/stats.js';
 
@@ -117,6 +117,19 @@ export interface InputMsg {
    * structurally inert. Validated server-side like every field.
    */
   actSlot: number;
+  /**
+   * Client-side monotonic FOGHORN counter, mirroring fireSeq/actSeq's grammar
+   * (Story 4.5). A value newer than the last the server consumed requests
+   * exactly ONE honk; `0` is the explicit "never honked" sentinel, so every
+   * existing driver (and every drone — drones never honk) keeps sending 0 and
+   * never sounds. The server consumes it with max(), so a stale or replayed
+   * value reads as "no new press" and a spoofed jump (`hornSeq += 1000`)
+   * gains nothing — at most one gated honk resolves per tick, and it is
+   * gated again on CONFIG.foghorn.cooldownMs. The honk is NOT aimed and NEVER
+   * primes: it is an emote, with no XP, damage, or match-state consequence.
+   * Validated server-side like every field (finite int ≥ 0, monotonic).
+   */
+  hornSeq: number;
 }
 
 /**
@@ -332,7 +345,7 @@ export interface Contact {
  * KEY ORDER: the three fields are APPENDED after `t` (msgpack key-insertion
  * order) so the historical {k,id,x,y,t} prefix stays byte-stable.
  */
-export interface BlipEvent {
+export interface SilhouetteBlipEvent {
   k: 'blip';
   id: string;
   x: number; // u — position at paint time
@@ -342,6 +355,53 @@ export interface BlipEvent {
   heading: number; // rad — at paint time
   speed: number; // u/s (signed, the raw scalar) — at paint time
 }
+
+/**
+ * Radar paint, `return` grammar (the radar realism cycle, Eric rulings
+ * 2026-08-05, amendments 62-68): a real marine set paints an indiscriminate
+ * echo, not a readout. The 4.2 pose channels (`cls`/`heading`/`speed`) are
+ * DELETED from this shape — course and speed DEMOTE from readout to inference
+ * off ghost-paint spacing (amendment 67), and class DEMOTES to a learnable
+ * skill (amendment 68: drones and captains are indistinguishable). What
+ * replaces them is ONE continuous scalar, `ext`: the hull silhouette's total
+ * extent projected PERPENDICULAR to the observer→target bearing, in world
+ * units (sim/silhouette.ts perpendicularExtent). A battleship bow-on paints
+ * narrow; a torpedo boat abeam paints broad — so size stops mapping cleanly
+ * to class, by physics rather than a fudge (amendment 66 rejected a size
+ * enum as a class bucket with extra steps).
+ *
+ * ANTI-CHEAT (amendment 66's bound): `ext` derives from hull geometry +
+ * relative bearing ONLY — never boons, hp, damage state, or any
+ * range-derivable flight quantity. There is deliberately NO range term on
+ * the wire: range attenuation (farther = weaker return) is a client render
+ * concern, computed from the paint position the observer already holds — a
+ * server-side range fold would put a redundant, solvable quantity on a 20Hz
+ * channel for zero information the client can't derive itself. A decoy
+ * buoy's paint carries its owner-hull extent at the frozen drop heading
+ * through the same shaper (the Story 1.8 indistinguishability law).
+ *
+ * KEY ORDER: `ext` is APPENDED after `t` (msgpack key-insertion order) so
+ * the historical {k,id,x,y,t} prefix stays byte-stable, exactly as the 4.2
+ * pose fields were.
+ */
+export interface ReturnBlipEvent {
+  k: 'blip';
+  id: string;
+  x: number; // u — position at paint time
+  y: number; // u
+  t: number; // ms — server time the blip was painted (drives phosphor decay)
+  ext: number; // u — aspect-projected echo extent (pure geometry, no range term)
+}
+
+/**
+ * The blip wire shape — a two-member union with NO per-event discriminator
+ * beyond the shared `k: 'blip'`. The server picks ONE grammar for the whole
+ * room (`HC_RADAR_GRAMMAR`, amendment 63) and announces it in the welcome
+ * handshake (`WelcomeMsg.radarGrammar`), so every blip in a given match has
+ * the same shape and the client narrows on the ANNOUNCED mode, never by
+ * probing fields — a per-event tag would be dead weight on a 20Hz channel.
+ */
+export type BlipEvent = SilhouetteBlipEvent | ReturnBlipEvent;
 
 /**
  * A ballistic projectile entering your vision, sent once — position and
@@ -537,6 +597,73 @@ export interface SmokeEvent {
   x: number; // u — the smoking hull's TRUE current position (never a reveal point)
   y: number; // u
   tier: 1 | 2; // 1 = light (< amberBelow), 2 = heavy (< criticalBelow) — an ENUM, never a fraction
+}
+
+/**
+ * THE FOGHORN (Story 4.5, amendments 51-58): a captain sounded their horn —
+ * a BEARING they chose to give away, and never a position. The SIXTH declared
+ * exception to the master perception invariant, and the FIRST signal whose
+ * payload varies BY OBSERVER in substance rather than by a flag (`sunk`
+ * stamps a per-observer `seen`; this row computes a per-observer bearing and
+ * tier). A honk is an EMOTE — information the captain SPENDS — which is the
+ * premise that licenses everything below and the one any future change must
+ * argue from.
+ *
+ * THREE PAYLOAD SHAPES, exhaustively:
+ *   - Fogged listener:  {k, h, b, v}       — bearing + volume tier + horn id.
+ *   - The honker (self): {k, h, self}      — no bearing (a bearing to
+ *                                            yourself is meaningless); the
+ *                                            client blooms an own-hull mark.
+ *   - Spectator:        {k, h, x, y}       — the omniscient path only; the
+ *                                            free camera has no server-known
+ *                                            position to take a bearing from,
+ *                                            so it derives one client-side.
+ * A fogged listener NEVER receives x, y, self, or id in any combination.
+ *
+ * VOLUME TIERS derive from the LISTENER's effective ranges, not flat
+ * constants (amendment 53): 1 (100%) `d ≤ sightOf(me)`, 2 (75%)
+ * `d ≤ max(1.5 × sightOf(me), CONFIG.vision.muzzleFlash)`, 3 (50%)
+ * `d ≤ max(me.stats.radarRange, tier-2 bound)`; beyond that NO event is
+ * emitted to that observer at all. The max() clamps are load-bearing — they
+ * keep the bands monotone when intel boons widen sight past 495u and stop
+ * star-shell dazzle from also DEAFENING a captain. No fourth vision constant
+ * was added (amendment 42). ISLANDS MUFFLE BY EXACTLY ONE TIER rather than
+ * blocking (amendment 54, the first dent in the 2026-08-02 LOS law): a failed
+ * losClear() demotes 1→2, 2→3, and 3→no event, applied ONCE after the
+ * distance tier resolves.
+ *
+ * `h` is the equipped horn variant (amendment 52) — the ONLY identity-adjacent
+ * field on this row, and a KNOWING, NARROW break with the neutral-signal rule
+ * of `mz`/`sm`: a distinctive horn is a soft identity tell at up to 660u, and
+ * that is the point of a purchasable horn. An unknown id must fall back to the
+ * default voice client-side (sanitizeHornId), never to silence or a throw.
+ *
+ * ANTI-CHEAT — deliberately omitted for a fogged listener: EVERY positional
+ * and identity channel except `h`. No x, no y, no ship id, no personal hue,
+ * no class, no name, no range-derivable field — and NO CORRELATION HANDLE of
+ * any kind, not a per-observer alias and not a stable anonymous key
+ * (amendment 45's rule applies here verbatim). No kill-feed line, no roster
+ * schema field, no XP or damage.
+ *
+ * SERVER-INTERNAL ONLY: the SUBJECT this row is built from additionally
+ * carries `x`, `y` and `id` (the honker's true position, used to compute each
+ * observer's bearing/distance, and the honker's id, used to decide `self`).
+ * materialize() MUST NEVER FORWARD THE SUBJECT — it returns a FRESH object per
+ * observer, exactly as the `mz` row does. `x`/`y` reach a spectator only;
+ * `id` reaches NO observer, ever.
+ *
+ * KEY ORDER IS LOAD-BEARING (msgpack; see the signals.ts header): k,h,self?,
+ * b?,v?,x?,y? — absent keys are omitted entirely, never sent as undefined.
+ */
+export interface FoghornEvent {
+  k: 'fh';
+  h: HornId; // which horn sounded — the ONLY identity-adjacent field, deliberate (amendment 52)
+  self?: true; // the honker's own copy (always `true` when present, never `false`)
+  b?: number; // rad — bearing FROM observer TO honker, wrapPositive [0, 2π). FOGGED LISTENERS ONLY
+  v?: 1 | 2 | 3; // volume tier: 1 = 100%, 2 = 75%, 3 = 50%. FOGGED LISTENERS ONLY
+  x?: number; // u — SUBJECT-SIDE + SPECTATOR ONLY. Never reaches a fogged listener
+  y?: number; // u — SUBJECT-SIDE + SPECTATOR ONLY. Never reaches a fogged listener
+  id?: string; // the honker's id — SUBJECT-SIDE ONLY, read by the row to decide `self`. NEVER on the wire, for ANY observer
 }
 
 /** A ship took damage. `hp` is its resulting hit points. */
@@ -744,7 +871,8 @@ export type GameEvent =
   | SplashEvent
   | HitCallEvent
   | MuzzleEvent
-  | SmokeEvent;
+  | SmokeEvent
+  | FoghornEvent;
 
 /**
  * Server -> client per-tick frame ("f"). Built per client by buildFrame().
@@ -789,9 +917,32 @@ export interface ResultsMsg {
 }
 
 /**
+ * Which blip wire shape this room speaks (amendment 63): 'silhouette' is the
+ * shipped 4.2 grammar (SilhouetteBlipEvent — pose on the wire), 'return' the
+ * realism grammar (ReturnBlipEvent — one aspect-projected extent scalar).
+ * Server-picked per room (`HC_RADAR_GRAMMAR`, default 'silhouette'), announced
+ * once in the welcome; the client narrows every BlipEvent on this, never by
+ * probing fields.
+ */
+export type RadarGrammar = 'silhouette' | 'return';
+
+/**
+ * Which id namespace blips carry (amendment 63): 'roster' is today's behavior
+ * (blip.id is the painted ship's roster id), 'pseudonym' maps each ship to a
+ * stable per-match track id rolled on the server's private stream (the zone
+ * nonce posture), a decoy emitting under its OWNER's pseudonym. Orthogonal to
+ * RadarGrammar by design — presentation and identity are independent questions
+ * and a single flag would foreclose the happy medium the ruling exists to
+ * enable. Server-picked per room (`HC_RADAR_IDENTITY`, default 'roster').
+ */
+export type RadarIdentity = 'roster' | 'pseudonym';
+
+/**
  * Server -> client handshake ("w"), sent once on join. Carries the map seed for
  * deterministic client-side island generation plus a CONFIG snapshot so the
- * client shares every tunable.
+ * client shares every tunable — and, as of the radar realism cycle, the room's
+ * radar grammar/identity modes, the ONLY place they travel (blips themselves
+ * are deliberately tagless; see BlipEvent).
  */
 export interface WelcomeMsg {
   sessionId: string;
@@ -800,4 +951,6 @@ export interface WelcomeMsg {
   playerCap: number; // the cap the server sized the map against (feeds generateMap)
   t: number; // ms — server time at welcome (seeds the client clock)
   config: GameConfig;
+  radarGrammar: RadarGrammar; // which BlipEvent member this room emits
+  radarIdentity: RadarIdentity; // which id namespace blips carry
 }

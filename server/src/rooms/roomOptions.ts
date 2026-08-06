@@ -35,6 +35,16 @@ export interface JoinOptions {
    */
   colorPref?: number;
   /**
+   * Client-chosen foghorn variant (Story 4.5, amendment 52) — the cosmetic
+   * seam for a future purchased horn. A plain join option (NOT gated by
+   * HC_DEV_OPTIONS, like `cls`): onJoin runs it through the shared
+   * sanitizeHornId, so any garbage/absent/unknown value falls back to
+   * DEFAULT_HORN_ID ('standard'). Deliberately NO PlayerMeta/roster schema
+   * field — a horn is only ever public at the moment it sounds (it rides the
+   * `fh` event's `h`, nothing else).
+   */
+  horn?: string;
+  /**
    * Client bundle's PROTOCOL_VERSION. Validated by ArenaRoom's static onAuth
    * (via protocolVersionError below) BEFORE any room lookup or seat
    * reservation — a stale bundle is rejected at matchmake time with a

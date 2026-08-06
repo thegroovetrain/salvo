@@ -28,7 +28,7 @@ import {
   type HitCallEvent,
   type MatchPhase,
 } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { circleIsland } from './islandFixture.js';
 
@@ -139,9 +139,20 @@ function cap(g: Golden, w: World, id: string, phase?: MatchPhase): FrameMsg {
 
 // ---------- world construction helpers (mirror perception.test) ---------------
 
+/**
+ * The radar-mode options every scenario world is built with (R6 — the
+ * golden-frames battery runs once per GRAMMAR). Module-scoped so the scenario
+ * functions stay signature-stable; set by each `it` before running the
+ * battery and restored to the default after. Identity stays 'roster' in both
+ * runs: several scenarios pin blip ids against roster ids ('a'), which is the
+ * shipped default — pseudonym identity is covered by the invariant fuzz and
+ * the directed radarModes/decoy suites.
+ */
+let WORLD_OPTS: WorldOptions = {};
+
 /** World with a fixed seed and no islands (fog stays out of the geometry). */
 function bareWorld(seed: number): World {
-  const w = new World(seed);
+  const w = new World(seed, CONFIG.match.fillTo, CONFIG.zone, WORLD_OPTS);
   w.map.islands.length = 0;
   return w;
 }
@@ -395,7 +406,7 @@ function scnBurst(g: Golden): void {
   place(w, 'a', 0, 0);
   const b = place(w, 'b', 120, 0);
   b.hp = 100; // survives the 25 burst — a clean dmg, no sunk
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 120, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   let burst = false;
   for (let i = 0; i < 30 && !burst; i++) {
     w.step();
@@ -427,7 +438,7 @@ function scnStarShell(g: Golden): void {
   place(w, 'h', flareDist, 40, 1.1); // inside the future zone, beyond a's sight
   place(w, 'c', flareDist, -CONFIG.vision.radar); // dist to zone center = radar exactly — at radar range
   place(w, 'd', -400, 0); // dist to zone center (flareDist,0) = 810 — beyond radar
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: flareDist, slot: 2, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: flareDist, slot: 2, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.step(); // consumes the click; the flare spawns and starts flying
   cap(g, w, 'a'); // launch tick: own shell reveal, no zone yet
   let zoneUp = false;
@@ -501,7 +512,7 @@ function scnMineBlast(g: Golden): void {
   const a = place(w, 'a', 0, 0, 0, 'mineLayer');
   const b = place(w, 'b', -76, 10); // hull over the future clicked point — trips it
   const c = place(w, 'c', -76, -40); // second victim: hull within the 48u blast
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 76, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.step(); // the click places the mine at the clicked point (weapon channel)
   expect(w.mines.size).toBe(1);
   cap(g, w, 'a'); // own mine view + spawns/contacts
@@ -533,7 +544,7 @@ function scnMineBurstDetonation(g: Golden): void {
   const w = bareWorld(1014);
   const a = place(w, 'a', 0, 0, 0, 'mineLayer');
   injectMine(w, 'om', 'a', 300, 0); // a's own armed mine, up-range
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 300, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   let detonated = false;
   for (let i = 0; i < 60 && !detonated; i++) {
     w.step();
@@ -561,7 +572,7 @@ function scnDecoy(g: Golden): void {
   const a = place(w, 'a', 0, 0, 0, 'mineLayer');
   const e = place(w, 'e', -76, 60); // truesight enemy: 60u from the drop point
   const c = place(w, 'c', 0, -400); // third party: buoy at ~407u — radar annulus
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 2 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 2, hornSeq: 0 });
   w.step(); // the press drops the buoy astern at (-76, 0)
   expect(w.decoys.size).toBe(1);
   const buoy = [...w.decoys.values()][0];
@@ -614,8 +625,8 @@ function scnDenied(g: Golden): void {
   const m = place(w, 'm', 400, 0, 0, 'mineLayer'); // stern rack drops at (324, 0)
   w.map.islands.push(circleIsland(324, 0, 20)); // the rock behind m's stern
   // Tick 1: a clicks the torpedo dead astern; m presses its DECOY into the rock.
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
-  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 2 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
+  w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 2, hornSeq: 0 });
   w.step();
   const fa1 = cap(g, w, 'a');
   const fm1 = cap(g, w, 'm');
@@ -628,11 +639,11 @@ function scnDenied(g: Golden): void {
   );
   prove(g, 'denied-blocked-stern-drop', (fm1.denied ?? []).some((d) => d.reason === 'blocked' && d.slot === 2) && w.decoys.size === 0);
   // Tick 2: a fires the gun (spends the round) + activates the boost (spends the charge).
-  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, actSlot: 2 });
+  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 100, slot: 0, fireT: 0, actSeq: 1, actSlot: 2, hornSeq: 0 });
   w.step();
   cap(g, w, 'a'); // no denial: the shell reveal + a clean frame
   // Tick 3: both channels re-press against their empty pools.
-  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 3, aimDist: 100, slot: 0, fireT: 0, actSeq: 2, actSlot: 2 });
+  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: 0, fireSeq: 3, aimDist: 100, slot: 0, fireT: 0, actSeq: 2, actSlot: 2, hornSeq: 0 });
   w.step();
   const fa3 = cap(g, w, 'a');
   prove(g, 'denied-cooling-weapon', (fa3.denied ?? [])[0]?.reason === 'cooling' && (fa3.denied ?? [])[0]?.seq === 3);
@@ -659,7 +670,7 @@ function scnHoming(g: Golden): void {
     s.prevSweepAngle = Math.PI; // park the beams away from the action
     s.sweepAngle = Math.PI + 1e-4;
   }
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   let cReveals = 0;
   let cUpdates = 0;
   let dBytes = 0;
@@ -732,7 +743,7 @@ function scnGunnery(g: Golden): void {
   place(w, 'o3', 400, 0); // inside the halo but behind the island
   place(w, 'b', -500, 0); // the fogged victim of the second shot
   // Shot 1 — a miss into empty water at bearing pi/4 (clear of the island).
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 1, aimDist: 560, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 1, aimDist: 560, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.step(); // the click fires: mz + shell reveal ride this tick
   cap(g, w, 'a'); // shooter: own mz + own shell reveal
   const fo1 = cap(g, w, 'o1');
@@ -757,7 +768,7 @@ function scnGunnery(g: Golden): void {
       !fo1Miss.events.some((e) => e.k === 'sp'),
   );
   // The torpedo launch — the ratified quiet weapon: no mz for anyone.
-  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: 0, fireSeq: 2, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.step();
   cap(g, w, 'a'); // own torp reveal, no mz
   const fo1Torp = cap(g, w, 'o1');
@@ -765,7 +776,7 @@ function scnGunnery(g: Golden): void {
   // Ride out the gun reload, then shot 2 — centered on the fogged hull b.
   const reloadTicks = Math.ceil(CONFIG.gun.reloadMs / DT) + 1;
   for (let i = 0; i < reloadTicks; i++) w.step();
-  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 3, aimDist: 500, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput('a', { seq: 3, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 3, aimDist: 500, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   let hit = false;
   for (let i = 0; i < 40 && !hit; i++) {
     w.step();
@@ -796,7 +807,7 @@ function scnGunneryDecoy(g: Golden): void {
   const w = bareWorld(1020);
   place(w, 'a', 0, 0);
   w.decoys.set('d1', { id: 'd1', ownerId: 'z', x: 400, y: 0, hullId: 'mineLayer', heading: 0, until: 999_999 });
-  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 });
+  w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   let burst = false;
   for (let i = 0; i < 40 && !burst; i++) {
     w.step();
@@ -856,55 +867,80 @@ function scnHeal(g: Golden): void {
 
 // ---------- the fixture -------------------------------------------------------
 
+/** The full scenario battery + the self-validating coverage assertions —
+ *  shared verbatim by both grammar runs (R6). Returns the serialized frames
+ *  for the caller's own snapshot. */
+function runBattery(): string[] {
+  const g: Golden = { frames: [], channels: new Set(), subcases: new Set() };
+  runScenarios(g);
+  // Self-validating coverage: the fixture can never silently lose a channel.
+  expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);
+  // Strengthened coverage: every appended scenario's mandatory sub-cases were
+  // actually OBSERVED (each tag is recorded only when its fact held), so a
+  // regression or a removed scenario fails here.
+  expect([...g.subcases].sort()).toEqual(EXPECTED_SUBCASES);
+  return g.frames;
+}
+
 describe('golden frames — byte-identity gate for the perception refactor', () => {
   it('serializes every signal channel across observers and ticks, deterministically', () => {
-    const g: Golden = { frames: [], channels: new Set(), subcases: new Set() };
-    scnSightSpawnBlip(g);
-    scnCombat(g);
-    scnPtBn(g);
-    scnMines(g);
-    scnSpectator(g);
-    scnStraddleBoom(g);
-    // Appended scenarios (must not disturb the six above or their snapshot rows).
-    scnIslandLos(g);
-    scnBallisticReveal(g);
-    scnSpectatorBallistic(g);
-    scnBurst(g);
-    scnStarShell(g);
-    scnZoneKill(g);
-    scnMineBlast(g);
-    scnMineBurstDetonation(g);
-    scnDecoy(g);
-    scnDenied(g);
-    // Story 2.8 additions (appended KNOWINGLY — the snapshot regenerated with
-    // the strip + deck economy; every earlier scenario's rows changed shape
-    // through you.upg leaving and you.offer going deck-drawn).
-    scnHoming(g);
-    scnDebuffs(g);
-    // Story 4.3 additions (appended KNOWINGLY — the snapshot regenerated with
-    // the gunnery conversation: earlier scenarios' rows gain sp/hc/mz where
-    // their existing shots always earned them; every other channel must stay
-    // byte-identical).
-    scnGunnery(g);
-    scnGunneryDecoy(g);
-    // PV 23 (the public register — snapshot regenerated KNOWINGLY): witnessed
-    // `sunk` rows gain the trailing per-observer `seen: true`, and previously
-    // absent sunk rows appear unseen where an observer is the credited killer
-    // or the victim is a human captain. Every other channel must stay
-    // byte-identical.
-    // DAMAGE CONTROL addition (appended KNOWINGLY — the snapshot regenerated
-    // with PV 24: every `you` row gains the required `repairHp` key, and this
-    // scenario adds the self-private `heal` channel).
-    scnHeal(g);
+    // Default grammar (silhouette/roster): this snapshot key predates the
+    // radar realism cycle and MUST stay byte-identical (AC4).
+    WORLD_OPTS = {};
+    expect(runBattery()).toMatchSnapshot();
+  });
 
-    // Self-validating coverage: the fixture can never silently lose a channel.
-    expect([...g.channels].sort()).toEqual(EXPECTED_CHANNELS);
-    // Strengthened coverage: every appended scenario's mandatory sub-cases were
-    // actually OBSERVED (each tag is recorded only when its fact held), so a
-    // regression or a removed scenario fails here.
-    expect([...g.subcases].sort()).toEqual(EXPECTED_SUBCASES);
-    // The byte-identity gate itself: the committed snapshot pins every frame's
-    // serialized form (JSON key order => msgpack key order on the wire).
-    expect(g.frames).toMatchSnapshot();
+  it('RETURN grammar (R6): the same battery under HC_RADAR_GRAMMAR=return semantics', () => {
+    // Every scenario, prove(), and coverage assertion runs unchanged — only
+    // the blip wire shape branches ({k,id,x,y,t,ext}; ids stay roster). Its
+    // own snapshot keeps the new path from rotting silently.
+    WORLD_OPTS = { radarGrammar: 'return' };
+    try {
+      expect(runBattery()).toMatchSnapshot();
+    } finally {
+      WORLD_OPTS = {};
+    }
   });
 });
+
+/** Every scenario in fixture order (extracted verbatim from the original
+ *  single `it` — the ordering comments still govern). */
+function runScenarios(g: Golden): void {
+  scnSightSpawnBlip(g);
+  scnCombat(g);
+  scnPtBn(g);
+  scnMines(g);
+  scnSpectator(g);
+  scnStraddleBoom(g);
+  // Appended scenarios (must not disturb the six above or their snapshot rows).
+  scnIslandLos(g);
+  scnBallisticReveal(g);
+  scnSpectatorBallistic(g);
+  scnBurst(g);
+  scnStarShell(g);
+  scnZoneKill(g);
+  scnMineBlast(g);
+  scnMineBurstDetonation(g);
+  scnDecoy(g);
+  scnDenied(g);
+  // Story 2.8 additions (appended KNOWINGLY — the snapshot regenerated with
+  // the strip + deck economy; every earlier scenario's rows changed shape
+  // through you.upg leaving and you.offer going deck-drawn).
+  scnHoming(g);
+  scnDebuffs(g);
+  // Story 4.3 additions (appended KNOWINGLY — the snapshot regenerated with
+  // the gunnery conversation: earlier scenarios' rows gain sp/hc/mz where
+  // their existing shots always earned them; every other channel must stay
+  // byte-identical).
+  scnGunnery(g);
+  scnGunneryDecoy(g);
+  // PV 23 (the public register — snapshot regenerated KNOWINGLY): witnessed
+  // `sunk` rows gain the trailing per-observer `seen: true`, and previously
+  // absent sunk rows appear unseen where an observer is the credited killer
+  // or the victim is a human captain. Every other channel must stay
+  // byte-identical.
+  // DAMAGE CONTROL addition (appended KNOWINGLY — the snapshot regenerated
+  // with PV 24: every `you` row gains the required `repairHp` key, and this
+  // scenario adds the self-private `heal` channel).
+  scnHeal(g);
+}

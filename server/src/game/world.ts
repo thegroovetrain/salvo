@@ -27,6 +27,7 @@ import {
   burstVictims,
   consumeAcquisition,
   drawOffer,
+  DEFAULT_HORN_ID,
   effectiveStats,
   equipmentMaxAmmo,
   equipmentReloadMs,
@@ -69,11 +70,14 @@ import {
   type HookRegistry,
   type GameEvent,
   type GameMap,
+  type HornId,
   type HullEnvelope,
   type HullId,
   type HullTarget,
   type InputMsg,
   type LoadoutSlot,
+  type RadarGrammar,
+  type RadarIdentity,
   type Rng,
   type ShellOutcome,
   type ShellState,
@@ -101,6 +105,27 @@ import { DroneController } from './drones.js';
 import { pickSpawn } from './spawn.js';
 
 const TAU = Math.PI * 2;
+
+/**
+ * Resolve the raw HC_RADAR_GRAMMAR env value into a RadarGrammar (the radar
+ * realism cycle, amendment 63). PURE — the env var itself is read in the
+ * adapter (ArenaRoom), never here; World stays free of process.env exactly as
+ * it stays free of Colyseus. FAIL-SAFE, never fail-open: only the exact string
+ * 'return' selects the new grammar — absent, empty, mis-cased, or garbage
+ * values all fall back to today's shipped behavior ('silhouette').
+ */
+export function resolveRadarGrammar(raw: string | undefined): RadarGrammar {
+  return raw === 'return' ? 'return' : 'silhouette';
+}
+
+/**
+ * Resolve the raw HC_RADAR_IDENTITY env value into a RadarIdentity (amendment
+ * 63). Same contract as resolveRadarGrammar: pure, adapter-read, fail-safe —
+ * only the exact string 'pseudonym' leaves the default 'roster' namespace.
+ */
+export function resolveRadarIdentity(raw: string | undefined): RadarIdentity {
+  return raw === 'pseudonym' ? 'pseudonym' : 'roster';
+}
 
 /** The frozen zero-boon behavior list — one shared identity so every
  *  boon-less ShipRecord's per-tick hook fold is allocation-free. */
@@ -157,6 +182,30 @@ export interface WorldOptions {
    * production room: mapSeed is client-known.
    */
   zoneSeeds?: readonly number[];
+  /**
+   * Which blip wire shape this room emits (the radar realism cycle, amendment
+   * 63): 'silhouette' (default — the shipped 4.2 pose grammar) or 'return'
+   * (the realism grammar: one aspect-projected `ext` scalar). Resolved from
+   * HC_RADAR_GRAMMAR by the ADAPTER (resolveRadarGrammar) — World never reads
+   * process.env. Announced to clients in the welcome handshake.
+   */
+  radarGrammar?: RadarGrammar;
+  /**
+   * Which id namespace blips carry (amendment 63): 'roster' (default — the
+   * painted ship's real id) or 'pseudonym' (a stable per-match track id from
+   * the server-private pseudonym stream). Resolved from HC_RADAR_IDENTITY by
+   * the ADAPTER (resolveRadarIdentity). Orthogonal to radarGrammar by design.
+   */
+  radarIdentity?: RadarIdentity;
+  /**
+   * Seed material of the SERVER-PRIVATE pseudonym stream (R3 — the zone-nonce
+   * posture): track ids must never be derivable from the client-known map
+   * seed. ArenaRoom passes fresh per-room entropy (adapter-layer, like
+   * zoneSeeds); omitted => a fixed derivation of the map seed — fine for
+   * standalone Worlds (unit tests, smokes), NEVER acceptable for a production
+   * room in pseudonym mode.
+   */
+  pseudonymSeed?: number;
 }
 
 /** The equipment id fitted in `loadout[slotIndex]`, or null when the slot is
@@ -366,6 +415,38 @@ export interface ShipRecord {
    */
   lastActSeq: number;
   /**
+   * Highest InputMsg.hornSeq the foghorn control has consumed (Story 4.5 —
+   * the hornSeq sibling of lastFireSeq/lastActSeq, same monotonic grammar). A
+   * stored value newer than this is one pending honk; consumption happens
+   * EVERY tick (even dead, droned, or on cooldown — the press is consumed and
+   * silently dropped, exactly as malformed input is), so a press is never
+   * queued. Like its siblings it is deliberately NOT reset on respawn/redeploy
+   * — the live input still carries the old counter, and a reset would make it
+   * read as a fresh press (a phantom honk on the tick after respawn).
+   * Initialized to 0 in addShip only.
+   */
+  lastHornSeq: number;
+  /**
+   * ms — server time this ship may sound its next FOGHORN (Story 4.5);
+   * 0 = eligible immediately. Armed by consumeHonk to
+   * now + CONFIG.foghorn.cooldownMs on each accepted honk — the
+   * server-authoritative rate limit (an early press is consumed and silently
+   * dropped; the client's mirror of the same number exists only to avoid wire
+   * spam). SERVER-PRIVATE, never on the wire. RESET to 0 on respawn/redeploy
+   * (the nextSmokeAt rule) so a fresh life never inherits a stale cooldown;
+   * dead hulls never honk (consumeHonk's alive gate), so no sink-time reset
+   * is needed.
+   */
+  nextHonkAt: number;
+  /**
+   * The equipped foghorn variant (Story 4.5, amendment 52) — rides every `fh`
+   * event this ship sounds (`FoghornEvent.h`), the cosmetic seam for a future
+   * purchasable horn. Fixed at join (sanitizeHornId over the join option);
+   * deliberately NOT a PlayerMeta/roster field — a horn is only ever public
+   * at the moment it sounds.
+   */
+  horn: HornId;
+  /**
    * ms — server-clock time the active speed-boost window ends (Story 1.6);
    * 0 = inactive. Written ONLY by the speedBoost Equipment row's activate();
    * read by stepShips (now < boostUntil => boosted kinematics cap) and mirrored
@@ -476,6 +557,13 @@ export class World {
   readonly inputs = new InputStore();
   /** Drives drone hulls through the normal input path (see game/drones.ts). */
   readonly drones: DroneController;
+  /** Which blip wire shape this room emits (amendment 63) — fixed at
+   *  construction, announced in the welcome, threaded into every
+   *  SignalContext. Default 'silhouette' = the shipped 4.2 behavior. */
+  readonly radarGrammar: RadarGrammar;
+  /** Which id namespace blips carry (amendment 63) — fixed at construction,
+   *  announced in the welcome. Default 'roster' = today's behavior. */
+  readonly radarIdentity: RadarIdentity;
 
   /** ms since world creation — the one server clock. */
   now = 0;
@@ -539,6 +627,26 @@ export class World {
   private mineSeq = 0;
   private litZoneSeq = 0;
   private decoySeq = 0;
+  /**
+   * THE PSEUDONYM MAP (R3, radar realism cycle): ship id → stable per-match
+   * track id, rolled on the SERVER-PRIVATE pseudonym stream (pseudonymRng —
+   * the zone-nonce posture: never derivable from the client-known map seed).
+   * Entries are assigned at addShip and NEVER pruned — a decoy buoy outlives
+   * its owner by up to 30s and must keep painting under the OWNER's pseudonym
+   * even after removeShip (the Story 1.8 indistinguishability law), so the map
+   * is append-only for the room's lifetime (bounded by joins per room).
+   *
+   * HONEST BOUND (do not overclaim): a stable pseudonym does NOT make tracks
+   * uncorrelatable. A client that watches a ship leave truesight (real id, via
+   * `Contact`) and reappear at radar range can re-link it by trajectory. Fully
+   * breaking that would require per-paint random ids, which would destroy
+   * ghost-track linking — the entire course-inference channel amendment 67
+   * depends on. What the pseudonym buys is that the ROSTER link is not free
+   * and not instant.
+   */
+  private readonly trackIds = new Map<string, string>();
+  /** The private pseudonym stream (see trackIds / WorldOptions.pseudonymSeed). */
+  private readonly pseudonymRng: Rng;
   /** Zone timeline (default CONFIG.zone; overridable for smokes/tests only). */
   private readonly zoneCfg: ZoneTimeline;
   /** Server ms the storm timeline was anchored at; null = idle (not started). */
@@ -594,8 +702,53 @@ export class World {
     this.rng = mulberry32((seed ^ 0x9e3779b9) >>> 0); // spawn stream, decorrelated from mapgen
     this.zoneCfg = zoneCfg;
     this.zoneSeeds = opts.zoneSeeds;
+    // Radar realism cycle (amendment 63): both modes default to the shipped
+    // behavior — production is byte-identical until a flag is flipped.
+    this.radarGrammar = opts.radarGrammar ?? 'silhouette';
+    this.radarIdentity = opts.radarIdentity ?? 'roster';
+    // Pseudonym stream: caller-supplied private material, or the TEST-ONLY
+    // map-seed fallback (0x1b873593 is unused by any other stream).
+    this.pseudonymRng = mulberry32((opts.pseudonymSeed ?? (seed ^ 0x1b873593)) >>> 0);
     // Drone steering stream, decorrelated again from mapgen + spawn.
     this.drones = new DroneController(this, (seed ^ 0x85ebca6b) >>> 0);
+  }
+
+  /** The pseudonym map, read-only — for perception context threading and
+   *  tests. See trackIds for the honest correlation bound. */
+  get pseudonyms(): ReadonlyMap<string, string> {
+    return this.trackIds;
+  }
+
+  /**
+   * The stable per-match track id for `shipId` (R3), rolling one on first
+   * request. Roll-on-demand (not only at addShip) covers the decoy edge: a
+   * buoy's ownerId can name a ship whose record predates this room's map (or
+   * was injected by a test) — its counterIntel paint must still emit a
+   * pseudonym, never fall open to the roster id.
+   */
+  pseudonymFor(shipId: string): string {
+    let track = this.trackIds.get(shipId);
+    if (track === undefined) {
+      track = this.rollTrackId();
+      this.trackIds.set(shipId, track);
+    }
+    return track;
+  }
+
+  /** One fresh track id off the private stream: 'trk-' + 8 hex chars —
+   *  structurally distinct from Colyseus session ids and 'drone-N' ids, and
+   *  re-rolled on the (astronomically unlikely) collision with an existing
+   *  track id or ship id. */
+  private rollTrackId(): string {
+    for (;;) {
+      const id = `trk-${this.pseudonymRng.int(0, 0xffffffff).toString(16).padStart(8, '0')}`;
+      if (this.ships.has(id)) continue;
+      let taken = false;
+      for (const existing of this.trackIds.values()) {
+        if (existing === id) { taken = true; break; }
+      }
+      if (!taken) return id;
+    }
   }
 
   /**
@@ -705,8 +858,10 @@ export class World {
 
   /** Spawn a new ship on the ring, max-distance from existing ships. Players
    *  pass their picked ShipClassId; drones pass a drone hull id — the envelope
-   *  source (hullEnvelope) is the ONLY thing that differs between them. */
-  addShip(id: string, name: string, isDrone = false, hullId: HullId = 'torpedoBoat'): ShipRecord {
+   *  source (hullEnvelope) is the ONLY thing that differs between them.
+   *  `horn` is the sanitized foghorn variant from the join option (Story 4.5);
+   *  drones keep the default (they never honk — consumeHonk gates them). */
+  addShip(id: string, name: string, isDrone = false, hullId: HullId = 'torpedoBoat', horn: HornId = DEFAULT_HORN_ID): ShipRecord {
     const p = pickSpawn(this.map, [...this.ships.values()].map((s) => ({ x: s.state.x, y: s.state.y })), this.rng);
     const cls = hullEnvelope(hullId);
     const stats = effectiveStats(cls);
@@ -738,6 +893,8 @@ export class World {
       lastAckSeq: 0,
       lastFireSeq: 0,
       lastActSeq: 0,
+      // Foghorn (Story 4.5): fresh counter + cooldown, join-time variant.
+      lastHornSeq: 0, nextHonkAt: 0, horn,
       // A fresh hull carries no open windows — boost, DAMAGE CONTROL pool
       // (2026-08-04), prop-fouling slow, dazzle — the same four zeroed together
       // at every other life boundary (sinkShip / respawn / redeployShip).
@@ -756,6 +913,7 @@ export class World {
       damageDealt: 0,
     };
     this.ships.set(id, rec);
+    this.pseudonymFor(id); // eager track id (R3) — see pseudonymFor / trackIds
     if (isDrone) this.drones.add(id);
     this.pending.push({ k: 'spawn', id, x: p.x, y: p.y });
     return rec;
@@ -841,11 +999,14 @@ export class World {
     ship.repairHp = 0;
     ship.slowedUntil = 0;
     ship.dazzledUntil = 0;
-    // A fresh match never inherits a stale smoke timer (Story 4.4).
+    // A fresh match never inherits a stale smoke timer (Story 4.4) — nor a
+    // stale foghorn cooldown (Story 4.5).
     ship.nextSmokeAt = 0;
-    // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a
-    // phantom shot / phantom boost (the stored input's fireSeq/actSeq would read
-    // as a fresh click/press on this tick).
+    ship.nextHonkAt = 0;
+    // lastFireSeq / lastActSeq / lastHornSeq are deliberately NOT reset — a
+    // reset fires a phantom shot / phantom boost / phantom honk (the stored
+    // input's fireSeq/actSeq/hornSeq would read as a fresh click/press on
+    // this tick).
     ship.seenBallistics.clear();
     ship.torpDirs.clear();
     ship.loadout = loadoutFor(ship.hullId, ship.stats);
@@ -1271,6 +1432,11 @@ export class World {
     // in the same step-order position — both turn this tick's stored input intent
     // into activations through the single sinking gate.
     this.activationControl();
+    // Foghorn (Story 4.5): the hornSeq sibling, resolved in the same
+    // step-order position — post-move, so a honk sounds at the ship's TRUE
+    // position this tick. An emote, never an activation: it goes nowhere near
+    // the sinking gate, the equipment rows, or the denial queue.
+    this.hornControl();
     // Radar: the sweep advances here; the per-observer paint (blips) happens
     // at frame-build time in perception.ts using [prevSweepAngle, sweepAngle).
     this.advanceSweeps(dtMs);
@@ -2237,6 +2403,42 @@ export class World {
   }
 
   /**
+   * Foghorn control (Story 4.5) — the hornSeq sibling of activationControl,
+   * same intent-queue walk: every accepted input's honk intent is evaluated in
+   * seq order (tickIntents), then the stored latest input as the direct-
+   * assignment (test) backstop, so a press coalesced into a busy tick is never
+   * silently swallowed.
+   */
+  private hornControl(): void {
+    for (const ship of this.ships.values()) {
+      for (const intent of ship.tickIntents) this.consumeHonk(ship, intent);
+      this.consumeHonk(ship, ship.input);
+    }
+  }
+
+  /**
+   * Evaluate ONE accepted input's honk intent (hornSeq grammar) — the
+   * consumePress sibling: unconditional consumption (lastHornSeq advances
+   * even dead, droned, or on cooldown, so a stale/replayed counter never
+   * re-reads as a fresh press) + at-most-once evaluation. An eligible press
+   * emits ONE `fh` SUBJECT into pending — {k,h,x,y,id}, the ship's true
+   * current position and id, which the signals.ts foghorn row consumes to
+   * compute each observer's bearing/tier and NEVER forwards (materialize
+   * builds a fresh per-observer payload; x/y reach spectators only, id
+   * reaches no one) — and arms the cooldown. An early or ineligible press
+   * (dead, drone, inside cooldownMs) is consumed and silently dropped,
+   * exactly as malformed input is: no denial, no event, no state beyond the
+   * counter.
+   */
+  private consumeHonk(ship: ShipRecord, input: InputMsg): void {
+    const pressed = input.hornSeq > ship.lastHornSeq;
+    ship.lastHornSeq = Math.max(ship.lastHornSeq, input.hornSeq);
+    if (!pressed || !ship.alive || ship.isDrone || this.now < ship.nextHonkAt) return;
+    ship.nextHonkAt = this.now + CONFIG.foghorn.cooldownMs;
+    this.pending.push({ k: 'fh', h: ship.horn, x: ship.state.x, y: ship.state.y, id: ship.id });
+  }
+
+  /**
    * THE sinking-activation gate — the ONLY call path to Equipment.activate()
    * anywhere. Takes the SELECTED slot INDEX and resolves the slot on THIS
    * ship internally, so a caller can never hand it ship A plus ship B's slot
@@ -2537,9 +2739,12 @@ export class World {
     // this, a hull that puffed just before sinking would owe the remainder of
     // the old interval on its next life.
     ship.nextSmokeAt = 0;
-    // lastFireSeq / lastActSeq are deliberately NOT reset — a reset fires a
-    // phantom shot / phantom boost (the stored input's fireSeq/actSeq would read
-    // as a fresh click/press on this tick).
+    // ...nor a stale foghorn cooldown (Story 4.5, the same rule).
+    ship.nextHonkAt = 0;
+    // lastFireSeq / lastActSeq / lastHornSeq are deliberately NOT reset — a
+    // reset fires a phantom shot / phantom boost / phantom honk (the stored
+    // input's fireSeq/actSeq/hornSeq would read as a fresh click/press on
+    // this tick).
     // Boons AND the deck PERSIST across a waiting-phase respawn, so the fresh
     // loadout re-derives with their slot effects replayed — the SAME shared
     // derivation the client runs (slotsWithBoons ≡ loadoutFor at zero boons,

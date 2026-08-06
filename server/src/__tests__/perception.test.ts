@@ -11,10 +11,13 @@
 // a witness or its killer, and the per-observer `seen` flag may be present
 // only when the witness predicate holds — see verifySunk; plus DAMAGE
 // CONTROL's healer-private `heal` and the owner-only `repairHp` pool,
-// neither of which may ever reach another observer; and Story 4.4's FIFTH
+// neither of which may ever reach another observer; Story 4.4's FIFTH
 // declared exception, the anonymous `sm` wounded-smoke pulse inside the same
 // constant SIGHT*1.5 halo with island LOS — identity-free for EVERY observer,
-// see the sm verifier). The checks below
+// see the sm verifier; and Story 4.5's SIXTH declared exception, the
+// bearing-only `fh` foghorn — bearing + volume tier from the LISTENER'S own
+// effective ranges, islands muffling by exactly one tier, never a position
+// or id for any fogged observer, see the fh verifier). The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -24,14 +27,19 @@ import {
   BOON_CATALOG,
   CONFIG,
   HEAL_CHOICE,
+  HORN_IDS,
   bearing,
   effectiveStats,
+  hullSilhouette,
   mulberry32,
   resolveBoons,
   segPolygonHit,
   wrapPositive,
   type BallisticEvent,
   type BlipEvent,
+  type HullId,
+  type ReturnBlipEvent,
+  type SilhouetteBlipEvent,
   type BoomEvent,
   type BoonFitEvent,
   type BurstEvent,
@@ -47,7 +55,7 @@ import {
   type SunkEvent,
   type TorpedoUpdateEvent,
 } from '@salvo/shared';
-import { World, type ShipRecord } from '../game/world.js';
+import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 // Registry symbols are imported ONLY to ENUMERATE keys/rows for the completeness
 // block below — never as a behavior oracle. Every visibility predicate in this
@@ -605,7 +613,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
   it('END-TO-END: a real gun burst reaches the fogged owner as {k,id,x,y} only', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0 };
+    a.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 600, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 };
     let burst: GameEvent | undefined;
     for (let i = 0; i < 120 && !burst; i++) {
       w.step();
@@ -1012,15 +1020,66 @@ function blipPredicate(w: World, me: ShipRecord, p: { x: number; y: number }): b
   );
 }
 
+/** Test-local reverse pseudonym resolution (radar realism cycle, R3): the
+ *  roster ship id a blip id names under the world's identity mode. In roster
+ *  mode the blip id IS the roster id; in pseudonym mode we invert the world's
+ *  track map (read-only — never the production pseudonymOf resolver path). */
+function rosterIdOf(w: World, blipId: string): string | undefined {
+  if (w.radarIdentity === 'roster') return blipId;
+  for (const [shipId, track] of w.pseudonyms) {
+    if (track === blipId) return shipId;
+  }
+  return undefined;
+}
+
+/** Test-local `ext` oracle (radar realism cycle, amendment 66): the hull
+ *  silhouette rotated by `heading`, projected on the axis PERPENDICULAR to
+ *  the observer→target bearing, max−min. Deliberately reimplemented from the
+ *  raw vert list (hullSilhouette is the single shared geometry source) —
+ *  never via the production transformPolygon/perpendicularExtent pipeline. */
+function extOracle(cls: HullId, heading: number, brg: number): number {
+  const ux = -Math.sin(brg);
+  const uy = Math.cos(brg);
+  const c = Math.cos(heading);
+  const s = Math.sin(heading);
+  let min = Infinity;
+  let max = -Infinity;
+  for (const p of hullSilhouette(cls)) {
+    const wx = c * p.x - s * p.y;
+    const wy = s * p.x + c * p.y;
+    const d = wx * ux + wy * uy;
+    if (d < min) min = d;
+    if (d > max) max = d;
+  }
+  return max - min;
+}
+
+/** Grammar-branched pose check for one blip against a (cls, heading, speed)
+ *  truth source: silhouette mode carries the values verbatim (Story 4.2);
+ *  return mode carries ONLY the aspect-projected `ext` (amendment 66 — never
+ *  a pose field), verified against the independent oracle above at the
+ *  observer→paint bearing. */
+function blipPoseMatches(w: World, me: ShipRecord, ev: BlipEvent, cls: HullId, heading: number, speed: number): boolean {
+  if (w.radarGrammar === 'return') {
+    const r = ev as ReturnBlipEvent;
+    return r.ext === extOracle(cls, heading, bearing(me.state, ev));
+  }
+  const sil = ev as SilhouetteBlipEvent;
+  return sil.cls === cls && sil.heading === heading && sil.speed === speed;
+}
+
 /** True iff `ev` is a legitimate GENUINE ship paint: a live non-self ship at
  *  exactly the blip position passing the ship-blip predicate, carrying the
  *  ship's LIVE pose verbatim (Story 4.2 — cls/heading/speed must be the raw
- *  sim values; anything derived or shifted fails the invariant). */
+ *  sim values; anything derived or shifted fails the invariant) or, in
+ *  `return` grammar, its aspect extent alone (amendment 66). */
 function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
-  const target = w.ships.get(ev.id);
+  const rosterId = rosterIdOf(w, ev.id);
+  if (rosterId === undefined) return false;
+  const target = w.ships.get(rosterId);
   if (!target || !target.alive || target.id === me.id) return false;
   if (target.state.x !== ev.x || target.state.y !== ev.y) return false;
-  if (ev.cls !== target.hullId || ev.heading !== target.state.heading || ev.speed !== target.state.speed) return false;
+  if (!blipPoseMatches(w, me, ev, target.hullId, target.state.heading, target.state.speed)) return false;
   return blipPredicate(w, me, target.state);
 }
 
@@ -1042,12 +1101,16 @@ function ownerContactVisible(w: World, me: ShipRecord, ownerId: string): boolean
  *  coexistence guard above), and the ship-blip predicate holds at the BUOY's
  *  position. */
 function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
+  const rosterId = rosterIdOf(w, ev.id);
+  if (rosterId === undefined) return false;
   for (const decoy of w.decoys.values()) {
-    if (decoy.ownerId !== ev.id || decoy.x !== ev.x || decoy.y !== ev.y) continue;
+    if (decoy.ownerId !== rosterId || decoy.x !== ev.x || decoy.y !== ev.y) continue;
     // The pose must be the record's FROZEN drop-time snapshot at speed 0
     // (Story 4.2, amendment 11) — a live owner value here would mean the
     // counterIntel path read ctx.ships.get(ownerId), which it must never do.
-    if (ev.cls !== decoy.hullId || ev.heading !== decoy.heading || ev.speed !== 0) continue;
+    // In `return` grammar the same law holds through the extent: the OWNER's
+    // hull at the frozen drop heading, at the observer→BUOY bearing.
+    if (!blipPoseMatches(w, me, ev, decoy.hullId, decoy.heading, 0)) continue;
     if (w.now >= decoy.until) continue;
     if (decoy.ownerId === me.id) continue;
     if (ownerContactVisible(w, me, decoy.ownerId)) continue;
@@ -1056,9 +1119,22 @@ function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   return false;
 }
 
+/** The exact per-grammar blip key sets — the return grammar's DELETION of the
+ *  pose channels (cls/heading/speed), pinned structurally on every blip the
+ *  fuzz ever sees. */
+const SILHOUETTE_BLIP_KEYS = ['cls', 'heading', 'id', 'k', 'speed', 't', 'x', 'y'];
+const RETURN_BLIP_KEYS = ['ext', 'id', 'k', 't', 'x', 'y'];
+
 function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BlipEvent;
   expect(ev.t).toBe(w.now);
+  // Grammar shape gate (radar realism cycle): a `return`-mode frame may carry
+  // NO cls/heading/speed on any blip — the actual deletion, pinned — and a
+  // silhouette-mode frame carries exactly the 4.2 shape.
+  expect(Object.keys(ev).sort()).toEqual(w.radarGrammar === 'return' ? RETURN_BLIP_KEYS : SILHOUETTE_BLIP_KEYS);
+  // Identity gate (R3): in pseudonym mode a blip id must NEVER be a roster
+  // ship id — the roster link is deliberately not free.
+  if (w.radarIdentity === 'pseudonym') expect(w.ships.has(ev.id)).toBe(false);
   // Every blip in a frame must be JUSTIFIED as exactly one of the two legal
   // sources: a genuine ship paint, or a decoy counter-intel paint whose owner
   // id it carries. Anything else — a fabricated id, a wrong position, an
@@ -1153,6 +1229,30 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
   }
 }
 
+/**
+ * The foghorn VOLUME-TIER oracle (Story 4.5, amendments 53/54), reimplemented
+ * test-locally from the amendment text — NEVER the production hornTierFor.
+ * Bands from the LISTENER'S own effective ranges (this file's effSight /
+ * effRadar reimplementations): tier 1 d ≤ effSight; tier 2 d ≤
+ * max(1.5 × effSight, SIGHT × 1.5 — the 495u constant re-derived as a literal,
+ * the clamp that stops dazzle from also deafening); tier 3 d ≤ max(effRadar,
+ * the tier-2 bound); beyond → inaudible. Islands MUFFLE by exactly one tier
+ * (1→2, 2→3, 3→inaudible), applied once after the distance tier resolves.
+ */
+function hornTierOracle(w: World, me: ShipRecord, p: { x: number; y: number }): number | null {
+  const d = dist(me.state, p);
+  const sight = effSight(me, w.now);
+  const mid = Math.max(1.5 * sight, SIGHT * 1.5);
+  const far = Math.max(effRadar(me), mid);
+  let tier: number;
+  if (d <= sight) tier = 1;
+  else if (d <= mid) tier = 2;
+  else if (d <= far) tier = 3;
+  else return null;
+  if (clearLos(me.state, p, w.map.islands)) return tier;
+  return tier === 3 ? null : tier + 1;
+}
+
 const EVENT_VERIFIERS: Record<string, EventVerifier> = {
   blip: verifyBlip,
   shell: verifyBallistic,
@@ -1228,6 +1328,39 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.5);
     expect(clearLos(me.state, ev, w.map.islands)).toBe(true);
   },
+  fh: (w, me, e) => {
+    // THE FOGHORN (Story 4.5, amendments 51-58) — the SIXTH declared
+    // exception, reimplemented here independently of its registry row (see
+    // hornTierOracle below — never the production hornTierFor). The payload
+    // KEY SET is the anti-leak oracle: {k,h,self} for the honker, {k,h,b,v}
+    // for a fogged listener — and NO fogged observer's payload may EVER carry
+    // an `id`, `x`, or `y` key (x/y are the spectator path's alone), nor any
+    // correlation handle (amendment 45's rule verbatim). Every payload must
+    // also be JUSTIFIED by a real honk this tick: a world-internal `fh`
+    // subject whose independently-computed tier and bearing for THIS observer
+    // match the wire exactly.
+    const ev = e as { k: 'fh'; h: string; self?: true; b?: number; v?: number };
+    expect((HORN_IDS as readonly string[]).includes(ev.h)).toBe(true);
+    for (const forbidden of ['id', 'x', 'y']) expect(Object.hasOwn(ev, forbidden)).toBe(false);
+    const subjects = w.tickEvents.filter((t) => t.k === 'fh') as Array<{ k: 'fh'; h: string; x: number; y: number; id: string }>;
+    if (ev.self === true) {
+      expect(Object.keys(ev).sort()).toEqual(['h', 'k', 'self']);
+      expect(subjects.some((s) => s.id === me.id && s.h === ev.h)).toBe(true);
+      return;
+    }
+    expect(Object.keys(ev).sort()).toEqual(['b', 'h', 'k', 'v']);
+    expect([1, 2, 3]).toContain(ev.v);
+    expect(ev.b).toBeGreaterThanOrEqual(0);
+    expect(ev.b).toBeLessThan(2 * Math.PI);
+    const justified = subjects.some(
+      (s) =>
+        s.id !== me.id &&
+        s.h === ev.h &&
+        hornTierOracle(w, me, s) === ev.v &&
+        wrapPositive(bearing(me.state, s)) === ev.b,
+    );
+    expect(justified).toBe(true);
+  },
   torpU: (w, me, e) => {
     // A homing-track UPDATE (Story 2.8): only a LIVE steering torpedo the
     // observer has ALREADY been revealed may re-emit, at its current pos, in
@@ -1264,11 +1397,22 @@ function verifyEvent(w: World, me: ShipRecord, e: GameEvent): void {
   EVENT_VERIFIERS[e.k](w, me, e);
 }
 
+/** Every flag combination the radar realism cycle ships (amendment 63 — the
+ *  two modes are orthogonal, so the invariant must hold under all four).
+ *  Labels feed it.each; the default combo runs FIRST so a regression in the
+ *  shipped behavior reads first in the output. */
+const MODE_COMBOS: [string, WorldOptions][] = [
+  ['silhouette/roster (default)', {}],
+  ['return/roster', { radarGrammar: 'return' }],
+  ['silhouette/pseudonym', { radarIdentity: 'pseudonym' }],
+  ['return/pseudonym', { radarGrammar: 'return', radarIdentity: 'pseudonym' }],
+];
+
 describe('perception — THE INVARIANT (random worlds, seeded)', () => {
-  it('no frame ever references anything outside sight ∪ this-tick paints', () => {
+  it.each(MODE_COMBOS)('no frame ever references anything outside sight ∪ this-tick paints [%s]', (_label, modeOpts) => {
     const rng = mulberry32(0x5eed_f0f0);
     for (let world = 0; world < 20; world++) {
-      const w = new World(rng.int(0, 2 ** 31 - 1));
+      const w = new World(rng.int(0, 2 ** 31 - 1), CONFIG.match.fillTo, CONFIG.zone, modeOpts);
       const ids: string[] = [];
       const shipCount = rng.int(3, 6);
       for (let i = 0; i < shipCount; i++) {
@@ -1359,6 +1503,14 @@ describe('perception — THE INVARIANT (random worlds, seeded)', () => {
             // repeated presses drain the 1-charge pool into no-ammo denials.
             actSeq: rng.float(0, 1) < 0.3 ? tick : 0,
             actSlot: 2,
+            // THE FOGHORN (Story 4.5): every ship honks on tick 1 (the fh
+            // oracle is EXERCISED, never vacuous — the honker's own self
+            // payload is guaranteed, and cross-ship deliveries land at random
+            // distances/LOS so all three tiers and the island muffle get
+            // fuzzed), plus ~30% random later presses (which the 1500ms
+            // cooldown consumes and drops inside this 300ms run — the
+            // stale/early-press path is fuzzed too).
+            hornSeq: tick === 1 || rng.float(0, 1) < 0.3 ? tick : 0,
           });
         }
         // DAMAGE CONTROL (2026-08-04): drive REAL heal spends through the fuzz
@@ -1393,17 +1545,18 @@ describe('perception — SIGNAL REGISTRY completeness', () => {
   // litZones/decoys frame channels (verifyFrame/verifyMine/verifyLitZone/
   // verifyDecoy), not through EVENT_VERIFIERS.
   const CONTACT_LIKE = ['contact', 'mine', 'litzone', 'decoy'];
-  // The 16 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
+  // The 17 GameEvent kinds — each MUST have an EVENT_VERIFIERS entry (Story
   // 2.1 deleted 'heal' with the REPAIR spend; Story 2.7 added self-private
   // 'bn'; Story 4.3 added the gunnery rows 'sp'/'hc'/'mz'; 2026-08-04's DAMAGE
   // CONTROL strip brought 'heal' BACK, on stricter no-severity terms; Story
-  // 4.4 added the anonymous wounded-smoke row 'sm').
-  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm'];
+  // 4.4 added the anonymous wounded-smoke row 'sm'; Story 4.5 added the
+  // bearing-only foghorn row 'fh').
+  const EVENT_KINDS = ['blip', 'shell', 'torp', 'torpU', 'boom', 'burst', 'sunk', 'spawn', 'dmg', 'pt', 'bn', 'sp', 'hc', 'mz', 'heal', 'sm', 'fh'];
   const EXPECTED_KEYS = [...CONTACT_LIKE, ...EVENT_KINDS];
 
-  it('has exactly the 20 expected channel keys (16 event kinds + contact + mine + litzone + decoy)', () => {
+  it('has exactly the 21 expected channel keys (17 event kinds + contact + mine + litzone + decoy)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...EXPECTED_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(20);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(21);
   });
 
   it('every row keys itself: row.eventType === its registry key', () => {

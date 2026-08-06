@@ -5,9 +5,9 @@
 // in __tests__/perception.test.ts: no contact or event in any frame may
 // reference anything outside sight ∪ (this-tick radar paints) — beyond the
 // DECLARED per-row exceptions (self-directed events, owner-authored points,
-// Story 4.3's sp/hc/mz gunnery rows, and Story 4.4's anonymous `sm` wounded
-// smoke), each codified by its own independently-reimplemented oracle in that
-// suite.
+// Story 4.3's sp/hc/mz gunnery rows, Story 4.4's anonymous `sm` wounded
+// smoke, and Story 4.5's bearing-only `fh` foghorn), each codified by its own
+// independently-reimplemented oracle in that suite.
 //
 // THE RULES LIVE IN THE SIGNAL REGISTRY (signals.ts): every signal channel —
 // the 16 GameEvent kinds plus the contact/mine/litzone/decoy frame channels —
@@ -62,6 +62,12 @@ function foggedContext(world: World, me: ShipRecord): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     decoys: world.decoys,
+    // Radar realism cycle (amendment 63): the room's modes + the pseudonym
+    // resolver, threaded from the World (which the ADAPTER configured — no
+    // process.env anywhere on this path).
+    radarGrammar: world.radarGrammar,
+    radarIdentity: world.radarIdentity,
+    pseudonymOf: (id: string) => world.pseudonymFor(id),
   };
 }
 
@@ -77,6 +83,11 @@ function spectatorContext(world: World, observerId: string): SignalContext {
     ships: world.ships,
     litZones: world.litZones,
     decoys: world.decoys,
+    // Modes ride every context uniformly (spectators get live contacts, never
+    // blips — these are inert here, but the context stays one shape).
+    radarGrammar: world.radarGrammar,
+    radarIdentity: world.radarIdentity,
+    pseudonymOf: (id: string) => world.pseudonymFor(id),
   };
 }
 

@@ -47,7 +47,7 @@ describe('clampToArc (kept for the torpedo bow arc)', () => {
 /** A gun-click input aimed at `aim` with a click distance of `aimDist`.
  *  fireT defaults to the no-claim sentinel (zero latency compensation). */
 const gunInput = (aim: number, aimDist = 1000, fireSeq = 1, seq = 1, fireT = 0) =>
-  ({ seq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot: SLOT_GUN as 0, fireT, actSeq: 0, actSlot: 0 });
+  ({ seq, throttle: 0, rudder: 0, aim, fireSeq, aimDist, slot: SLOT_GUN as 0, fireT, actSeq: 0, actSlot: 0, hornSeq: 0 });
 
 /** A bare world (islands cleared) with one ship pinned at the origin. */
 function armed(seed = 5, hullId: HullId = 'torpedoBoat'): { w: World; a: ShipRecord } {
@@ -513,7 +513,7 @@ const SLOT_MINE_ML = 1;
 
 /** A slot-1/2 click input (torpedo/mine are direction-only; aimDist ignored). */
 const slotInput = (slot: number, fireSeq = 1, seq = 1, fireT = 0) =>
-  ({ seq, throttle: 0, rudder: 0, aim: 0, fireSeq, aimDist: 0, slot, fireT, actSeq: 0, actSlot: 0 });
+  ({ seq, throttle: 0, rudder: 0, aim: 0, fireSeq, aimDist: 0, slot, fireT, actSeq: 0, actSlot: 0, hornSeq: 0 });
 
 describe('D1 back-dated fire — honest pre-step, never a teleport', () => {
   it('an honored claim pre-advances the shell by comp along its velocity; the WIRE reveal (frames/perception) shows it further along its flight', () => {

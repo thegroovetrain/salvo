@@ -579,3 +579,374 @@ disclosure rather than a decoration.
     target)"* is singular where amendment 41 ratified two. Also `CLAUDE.md` records
     `PROTOCOL_VERSION` as "currently 23"; actual after this cycle is **25** (it was already 24 before
     this cycle began — see amendment 39).
+
+## 2026-08-05 — Eric rulings, Story 4-5 pre-implementation question gate (bmad-dev-auto, cycle 50)
+
+Source: Eric, live design conversation during the Story 4-5 run (invocation intent, two
+AskUserQuestion rounds of four questions each, plus one mid-run reversal). Spec of record:
+`spec-4-5-the-foghorn.md`. Starting intent, verbatim: *"FOGHORN TIME! I want an *actual* fucking
+foghorn sound effect! I always hear my own at full volume. I always hear anyone's within truesight
+range (LOS) at full volume. If they are within muzzle flash range (1.5x LOS), i should hear it at 75%
+volume. If they are in radar range, I should hear it at 50% volume. Beyond that, I should not hear
+it."* — plus, unprompted and emphatic: *"FOGHORNS ARE A GREAT MONETIZATION OPTION!!!!!!"*
+
+The shape of this ruling set BREAKS the pattern of amendments 1, 15-20 and 40-48, where Eric
+consistently took the smallest new information channel. Here he took the LARGER option three times
+(the sample seam over synth-only, the variant id over a neutral signal, build-scaled tiers over flat
+constants) — because a foghorn is an EMOTE, a chosen self-disclosure, not a sensor return. That
+distinction is the through-line of every ruling below and is the premise any future change must argue
+from.
+
+51. **THE FOGHORN IS THE SIXTH DECLARED EXCEPTION to the master perception invariant** — joining
+    Story 4.3's `sp`/`hc`/`mz`, cycle 45's `sunk`, and Story 4.4's `sm`. Its payload for a fogged
+    listener is **BEARING AND VOLUME TIER ONLY — no position, no ship id, no correlation handle of
+    any kind.** Explicitly REJECTED: true `x`/`y` the way `mz` and `sm` carry it, which would have
+    made a honk the single largest disclosure in the game (wounded smoke, the current record holder,
+    reaches 495u; a honk reaches 660u). Rationale of record is the story's own line — *"every honk is
+    a bearing I chose to give away"* — and it lands the foghorn on the contract the DEFERRED listening
+    ring was specced to use (bearing-grade, never range-derivable), so a revived hydrophone tier would
+    inherit a signal already shaped for it.
+
+    Consequence of record: the honk is the FIRST signal whose payload VARIES BY OBSERVER in substance
+    rather than by a flag. `sunk` stamps a per-observer `seen`; the foghorn computes a per-observer
+    bearing and tier. `materialize(ctx, subject)` already takes the context, so this is legal within
+    the shipped registry contract and needs no new machinery — but it does mean the row cannot be
+    snapshot-tested from a single vantage point.
+
+52. **THE WIRE CARRIES A HORN VARIANT ID — the monetization seam is built now.** Eric chose this over
+    a neutral one-horn signal and over an own-ears-only skin. Others hear the horn you have equipped,
+    which is what makes a purchased horn worth purchasing. **This is a knowing, narrow break with
+    amendments 19 and 45** (the muzzle flash *"says someone fired, never who"*; the plume says *"a
+    hull is hurt, right there"* and nothing more): a distinctive horn IS a soft identity tell at up to
+    660u, and people will learn to recognize it. The break is justified on the emote distinction —
+    every neutral-signal ruling protected information the ship LEAKS, whereas a honk is information
+    the captain SPENDS.
+
+    Scope of the seam, binding: **exactly ONE horn ships this cycle** (`'standard'`, synthesized), and
+    the id is validated against a shared catalog with an unknown-id fallback to the default, so an old
+    client hearing a new horn degrades to a sound rather than to silence or a throw. **Adding a second
+    horn is CONTENT and needs an Eric ruling** — no cycle may invent horn variants. The id rides the
+    honk event only; **no `PlayerMeta`/roster schema field was added**, because a horn is only ever
+    public at the moment it sounds.
+
+53. **VOLUME TIERS SCALE WITH THE LISTENER'S EFFECTIVE RANGES, not flat constants.** Tier 1 (100%) is
+    `sightOf(me, now)`, tier 2 (75%) is `max(1.5 × sightOf(me, now), CONFIG.vision.muzzleFlash)`, tier
+    3 (50%) is `max(me.stats.radarRange, tier-2 bound)`, and beyond tier 3 no event is emitted to that
+    observer at all. At base stats these are exactly the 330 / 495 / 660 Eric named. Explicitly
+    REJECTED: flat 330/495/660 for everyone, which would have made hearing a property of sound rather
+    than of the listener — Eric chose consistency with every other sensor instead, so an intel build
+    hears farther and a dazzled captain hears less.
+
+    **The `max()` clamps are load-bearing, not defensive coding.** `CONFIG.vision.muzzleFlash` is a
+    FLAT 495u constant while `sightOf` is dazzle-scaled and `radarRange` is boon-widened, so the three
+    bounds are not monotone by construction: a heavily intel-boosted listener can have `sight > 495`
+    (inverting tiers 2 and 3) and a star-shelled listener can have `sight` far below it. The clamps
+    resolve both, and the dazzle case has a design meaning worth preserving — **dazzle must not also
+    deafen**, so a blinded captain still hears at 75% out to the full 495u halo. Amendment 42's "no
+    fourth vision constant" rule is upheld: tier 2 reuses `muzzleFlash`, exactly as wounded smoke does.
+
+54. **ISLANDS MUFFLE A HONK BY EXACTLY ONE TIER — a PARTIAL carve-out of the 2026-08-02 LOS law, and
+    Eric REVERSED HIMSELF to get here.** Blocked LOS demotes the resolved tier: 1 → 2, 2 → 3, 3 → no
+    event. His first answer was the full carve-out (*"sound goes around — heard anyway, same
+    volume"*), which he overturned mid-run before any code existed, verbatim: *"lets actually muffle
+    the foghorn if its behind an island. That way if we add sound indicators again then islands remain
+    useful as a hiding mechanism."*
+
+    **The reversal's reasoning is FORWARD-LOOKING, not physical, and that is the durable part.** Sound
+    genuinely diffracts around rock, which is why a hard block was rejected — but the deciding argument
+    is that terrain must keep working as a hiding mechanism, or a future revived bearing-grade sound
+    sensor (the deferred hydrophone tier, or active sonar) arrives in a world where islands already
+    mean nothing to audio. One tier of demotion buys both readings: you can still be heard from behind
+    a rock, but a rock always costs the honker reach, and at the outer band it costs them the honk
+    entirely. **This is the first time the LOS law has been dented at all** — amendment 44 declined to
+    open a carve-out for wounded smoke on a pure realism argument, and the difference is that this one
+    arrives with a mechanism that keeps islands meaningful rather than merely excusing them.
+
+    Binding implementation consequence: the demotion is ONE step applied AFTER the distance tier
+    resolves, so exactly one `losClear()` test exists in the row and no second set of bounds can drift
+    from the first. Explicitly REJECTED: a hard block (which would have made terrain able to silence
+    an emote outright) and the unattenuated carve-out (Eric's own first pick).
+
+55. **THE VISUAL TWIN IS A SCREEN-EDGE CHEVRON — and it is the bearing surface amendment 4 said this
+    story had to grow.** A marker pinned to the viewport edge pointing down the honk's bearing, fading
+    over ~1.2s, weight by tier. Explicitly REJECTED: an arc tick on the truesight ring (diegetic and
+    cheaper, but it lives at a fixed world radius and so competes with the sight boundary's own
+    meaning) and reviving the ratified 48-pip compass rose for honks alone (most faithful to the
+    original design, but it puts a sensor-looking ring on screen that would sit empty almost always,
+    and it would pre-commit the shape of a revived listening ring).
+
+    This CLOSES the open item amendment 4 flagged and the sprint tracker has carried since 2026-08-04
+    (*"4-5 must grow its own bearing surface or defer alongside 4-1"*): 4-5 grows its own surface and
+    does NOT defer. The surface is deliberately foghorn-shaped, not sensor-shaped — a revived 4.1 is
+    free to build the compass rose without inheriting this chevron. **UX-DR36 binding:** the chevron's
+    presence, direction and tier weight are INFORMATION and survive `motion: 'off'` intact; only
+    animated flourish is motion-scaled. Your own honk gets an own-hull bloom instead of a chevron (a
+    bearing to yourself is meaningless).
+
+56. **THE KEY IS F, as reserved — UX open question #20 is CLOSED.** F has sat bound-inert for exactly
+    this story since Epic 2 (`keyboard.ts:20` header comment, the bind site's *"F
+    (Foghorn-reserved)"*, a test pinning its inertness, and `settings.ts:78` deliberately omitting it
+    from the binding reference). Both of those pins are now wrong by design and are updated. Rejected:
+    H ("Horn" is the better mnemonic and would keep the honk away from the Q/E/R weapon cluster) —
+    Eric kept the reservation. **Cooldown is 1.5s** with the existing predicted `denied` cue on an
+    early press, chosen over 3s and 5s explicitly so captains can have honk CONVERSATIONS: *"let them
+    be silly"* was the option's framing and the fast tier is the one he took. The mix is protected by
+    a client-side `maxConcurrent` cap rather than by a slower cooldown — and the cap drops HORNS, never
+    CHEVRONS, so the visual twin survives a crowded room even when the audio cannot.
+
+57. **AN ACTUAL HORN, SHIPPED AS A SYNTH VOICE BEHIND A SAMPLE-CAPABLE SEAM.** The audio engine has
+    been oscillator-and-noise-only since Epic 1 (`context.ts:2-3`, *"no audio assets"*) with tones
+    capped at 150ms (`MAX_TONE_S`; `sink` is the lone 450ms exemption), so an ~1.8s horn blast had
+    nowhere to live. Eric chose building the loader seam AND shipping a synthesized horn now, over
+    synth-only and over blocking on a real recording. The horn gets its OWN play path rather than an
+    exemption to `MAX_TONE_S` — that ceiling stays meaningful for the 24 short cues it was written
+    for — and `HornVoice` is a discriminated union (`{kind:'synth'} | {kind:'sample', url}`) so a
+    licensed recording later is a file plus one catalog line with **no code, wire, or protocol
+    change**.
+
+    **Recorded as a real constraint, not a caveat:** no licensed or CC0 foghorn recording exists in
+    this repo and none may be sourced unattended, so the sample path ships EXERCISED BY TESTS ONLY.
+    Any future cycle that wants the real thing needs Eric to supply or approve the asset first. The
+    synth voice is not a beep — a ship's horn is a few low partials with slight detuning (the beating
+    is the character), a slow attack and a long tail, which is what a horn synth actually does.
+
+58. **Scope discipline of record.** `PROTOCOL_VERSION` **bumps 25 → 26** (a new event kind and a new
+    `InputMsg` field are both wire-shape changes). No combat tunable moves: no damage, reload, hp,
+    range, catalog step, or `CONFIG.vision` constant is touched, and the honk has NO kill-feed line,
+    NO XP, and no match-state consequence of any kind — it is an emote. Drones never honk; dead
+    captains and spectators never honk. **Own honks are NOT client-predicted** — the honker hears
+    their own horn from a self-addressed server event, exactly once, so one code path serves every
+    listener and no dedup machinery is needed; only the `denied` cue on an early press is predicted,
+    which is the shipped pattern.
+
+59. **Doc drift added to the Eric-gated 7-5 batch by this ruling** (house rule: no design-doc edits
+    in-cycle): `epics.md:180` (UX-DR31) still lists the foghorn emote as *"specced but unbound (open
+    question)"* — amendment 56 closes it on F. The Story 4.5 acceptance criteria at `epics.md:861-864`
+    still describe the honk lighting *"an arc sweep along its bearing on every listening ring in
+    earshot"* and bound its payload by *"the listening tier's bearing contract"*; amendments 51 and 55
+    supersede both — there is no listening ring, and the surface is a screen-edge chevron. `FR13`
+    (`epics.md:49`) names foghorns as something hull microphones detect, which is moot while
+    amendment 1 stands. Also `CLAUDE.md` records `PROTOCOL_VERSION` as "currently 23"; actual after
+    this cycle is **26** (see amendments 39 and 50 for the same drift going unfixed twice).
+
+60. **A DENIED HONK IS COMPLETELY SILENT — no tone, no visual, nothing** (Eric ruling, post-review
+    gate, same cycle). The implementation first played the shipped `denied` tone on a press inside
+    the cooldown. The adversarial review confirmed that this made the foghorn **the only `denied`
+    call site in the entire client with no visual twin**: a weapon click flashes the aim arc and
+    reticle, an ability press flashes its hotbar chip, an ability against a full FIFO flashes the
+    chip — and the horn has no surface of its own to flash. The twin table's own `denied` row names
+    that pulse as the cue's visual, so a tone with no pulse is an orphan cue and a deaf or muted
+    captain cannot tell "on cooldown" from "the key is broken".
+
+    Shown three options — a stifled red puff at the own hull (reusing the success bloom, choked),
+    leaving the tone alone as a documented deviation, or dropping the cue entirely — **Eric chose to
+    drop it.** The reasoning of record: rather than invent a new visual surface for a case with no
+    gameplay consequence, remove the thing that needed one. Note this knowingly trades against the
+    house rule that feedback is *"never zero, never two"* (`render/deniedFire.ts` header) — that rule
+    was written for FIRE denial, where a swallowed click costs a shot; a swallowed honk costs
+    nothing, so there is nothing owed. **This SUPERSEDES the spec's own I/O matrix row** as originally
+    written, and it is the reason `handleFoghornPress` must produce no side effect on the denied
+    branch. If a horn surface (a hotbar chip, an emote wheel) ever exists, this is the ruling to
+    revisit — the cue was dropped for want of a surface, not on principle.
+
+61. **Two review-gate defects worth recording, both found by the CROSS-MODEL (Codex) pass and missed
+    by the in-family adversarial reviewer.** Recorded because both are cross-boundary bugs whose
+    shape will recur in any future bearing-grade or cooldown-mirroring signal:
+    - **The chevron's ray must originate where the bearing was MEASURED, not at the viewport centre.**
+      The camera leads up to 110u ahead of the hull (`camera.ts:175`), so an alive captain's ship is
+      not at screen centre; casting the mark's ray from the centre put its edge placement out of
+      agreement with the exact bearing its own rotation was drawing. Origin is now the hull's screen
+      position while alive and the camera centre while spectating — which is correct precisely
+      because the spectator bearing is itself derived from the camera centre at receipt. **Neither
+      side's unit tests could catch this**: each workspace tested its own half against its own
+      assumption.
+    - **A client-side mirror of a server cooldown must reset wherever the server's does.** The server
+      clears `nextHonkAt` on respawn and redeploy; the client's mirror did not, so honking, sinking,
+      and respawning inside 1.5s left the client silently eating a press the server would have
+      accepted. Under amendment 60's silent denial that failure is invisible, which is exactly why it
+      had to be fixed rather than tolerated.
+
+    The general lesson for future cycles: **run the cross-model review even when the in-family gate
+    returns `build-on-it`.** Its verdict here was correct on everything it examined and still missed
+    two confirmed defects.
+
+## 2026-08-05 — Eric rulings, the radar realism cycle (bmad-dev-auto, interstitial — cycle 51)
+
+Source: Eric, live design conversation across four exchanges (investigation gate → color design chat →
+pre-implementation question gate → rulings), driven by **playtest feedback from ohzie**, a day-one
+player. Investigation of record:
+`bmad-dev-auto-result-radar-realism-investigation.md`. The governing player quote:
+
+> *"It's almost too much information, right? Like the fact that I can tell what you are and whether
+> you're a player … I like the heading, but not the ship outline or color … when everyone's just a
+> blip, **chasing a blip is a risk**, and risks get your blood up. it's a pvp game."*
+
+And Eric's, verbatim: *"what if we just made it really work like a real radar? Indiscriminate, kinda
+fuzzy shapes roughly the size of the object based on what the radar 'sees' that don't transmit any
+information about what the target is"* — with heading/speed left inferable from ghost paints,
+*"as that is still real."*
+
+62. **THE 4.2 SILHOUETTE GRAMMAR IS REVERSED ON PLAYTEST EVIDENCE — but kept, not deleted.** This is
+    the option amendment 8 explicitly declined (*"Eric chose this over full realism (size-scaled blobs
+    with no class on the wire)"*). It returns because a day-one player's objection landed on exactly
+    the three channels that are NOT real radar behavior. Amendments 7, 8, 10, 12 and 13 are therefore
+    **conditionally superseded** — superseded in the new `return` grammar, untouched in the retained
+    `silhouette` grammar. Nothing is retired outright this cycle. Precedent for reversing on a realism
+    argument: amendment 9 did the same to Eric's own provisional one-sweep-decay pick.
+
+63. **BOTH GRAMMARS SHIP SIDE BY SIDE, BEHIND TWO SERVER-SIDE FLAGS.** Eric: *"I'd like to keep the
+    current implementation as well for now until this is tested, so we can switch back and/or build a
+    happy medium more easily."* Two INDEPENDENT flags, not one — `HC_RADAR_GRAMMAR`
+    (`silhouette` | `return`) and `HC_RADAR_IDENTITY` (`roster` | `pseudonym`) — because presentation
+    and identity are orthogonal questions and a single flag would foreclose the very happy medium the
+    ruling exists to enable. Both default to TODAY's behavior, so production is byte-identical until a
+    flag is flipped. **The flags MUST live on the server** (env vars honored the way `HC_DEV_OPTIONS`
+    is, with the active mode announced in the welcome handshake). Rationale of record: a client-side
+    flag would force the wire to carry the SUPERSET in both modes, leaving identity on the wire in
+    realism mode and reducing the entire anti-cheat argument to cosmetics. Accepted consequence: the
+    dual path makes this cycle BIGGER than a replacement would be (`speedVector` and `luminanceFloor`
+    stay alive, the signal shaper grows a branch, golden frames need both modes).
+
+64. **THE THREE-CHANNEL INFORMATION SPLIT** — one quantity per channel, zero overlap:
+    **size = return strength**, **brightness = age**, **hue = which sensor painted it.** This
+    resolves a real conflict: brightness was ALREADY spent on phosphor decay, so letting it also carry
+    echo strength would make a fresh weak return and an old strong return identical. Note the
+    convergence — DESIGN.md:236 already ratified exactly this grammar for the Listening Ring
+    (*"pure intensity grammar: more/closer = brighter … deliberately source-ambiguous — it never
+    encodes what a noise is, only where and how loud"*). Radar is being brought ONTO the design
+    language the doc already holds for the acoustic sensor, not given a new one.
+
+65. **COLOR IS SPENT ON SENSOR PROVENANCE, NOT ECHO STRENGTH — monochrome per sensor.** Garmin-style
+    red/yellow/green was considered and REJECTED: on a real marine set that palette is a GAIN
+    DIAGNOSTIC, and here it would be a second, redundant encoding of the quantity blob size already
+    carries — clutter measured against DESIGN.md:122's guardrail *"information noise must never bury
+    the hunt."* Provenance is the one thing on the scope no other channel can carry. Radar is phosphor
+    green (`blip-fresh`/`blip-faded` already exist as tokens, DESIGN.md:138). **Amber is RESERVED and
+    left UNASSIGNED** (see amendment 71). This change also FREES amber: its only on-water use today is
+    the hue-latch boot color for unresolved contacts, which retires with the hue system in `return`
+    mode. Colorblind note of record: hue must never be provenance's SOLE carrier — a second sensor
+    should also differ in persistence and edge character, which it wants to anyway on realism grounds.
+
+66. **RETURN SIZE IS ASPECT-DEPENDENT — one continuous `ext` scalar, never a class bucket.** A size
+    enum (`sz: 0|1|2`) was REJECTED as channel C with extra steps: three buckets, three classes, class
+    readout restored. Instead `ext` = the hull silhouette's extent PROJECTED PERPENDICULAR to the
+    observer→target bearing, computed from the polygon already in `shared/src/sim/silhouette.ts`. A
+    battleship bow-on paints narrow; a torpedo boat abeam paints broad. Size therefore stops mapping
+    cleanly to class, which is the mysticism ohzie asked for delivered by physics rather than a fudge.
+    `ext` folds in range attenuation (farther = weaker return) — both are the one quantity "how big is
+    the echo." **Anti-cheat bound:** `ext` derives from hull geometry + relative bearing + range ONLY.
+    It must never reflect boons, hp, damage state, or any range-derivable flight quantity.
+
+67. **THE ARPA SPEED VECTOR DIES IN `return` MODE** (it survives untouched in `silhouette` mode).
+    This overrides the one thing ohzie asked to KEEP (*"I like the heading"*), knowingly. It is
+    defensible because amendment 9's three-paint persistence was justified on precisely this ground:
+    *"long-persistence phosphor is how course and speed are actually plotted off a scope … ghost
+    SPACING encodes speed."* Removing `heading`/`speed` from the wire does not destroy the
+    information — it DEMOTES it from readout to inference, which is the entire stated goal. Course is
+    additionally inferable a second way: returns pulse in size as a contact turns (amendment 66).
+
+68. **DRONES ARE INDISTINGUISHABLE FROM CAPTAINS ON RADAR, and class is LEARNABLE rather than
+    stated.** Eric, verbatim: *"Indistinguishable. Its purely a 'rough size/shape' thing. If you learn
+    what a particular ship class looks like under radar, then that's player skill because it should
+    not be easy."* This is a ruling that class inference is DESIGNED-IN, not a leak to be sealed — the
+    aspect-dependent scalar makes it learnable but never free. It directly answers ohzie's "whether
+    you're a player" complaint and strengthens the solo-match illusion. Supersedes amendment 12 in
+    `return` mode (drones keep the legacy chevron in `silhouette` mode).
+
+69. **ISLANDS PAINT RETURNS — IN THIS CYCLE.** Eric: *"Lets say yes, that will make your radar range's
+    terrain a bit more prominant."* A real marine scope is mostly coastline. Cost is far lower than it
+    sounds and carries **zero disclosure**: islands are already client-known from the map seed
+    (`generateMap`), so this is PURE CLIENT PRESENTATION — no wire field, no server work, no
+    perception-invariant surface. Radar paints only the island's NEAR arc, with everything behind it
+    in shadow, which is not a new rule but the existing one (Eric ruling 2026-08-02: islands block
+    every sensor at all ranges). Island returns obey the sweep and the phosphor decay exactly as ship
+    returns do.
+
+70. **BLOB GRAMMAR — a seeded irregular polygon, as the tweakable baseline.** Jitter derived from
+    (track id, paint time) so a given paint is STABLE while it decays but the NEXT paint of the same
+    contact differs slightly: real scope shimmer without frame-to-frame noise, and no two returns of
+    one hull look identical, which reinforces the ambiguity. Eric: *"I think I like your rec, we can
+    start with that and tweak from that baseline."* The alternative (a soft-edged sprite scaled by
+    `ext`) was cheaper but reads as game glow rather than echo. **Collision to hold:** DESIGN.md:145
+    warns *"a phosphor-ish splash is a fake blip"* — Story 4.3's fall-of-shot `sp` mark must stay in
+    `{colors.splash}` and visually separable from a green return, a constraint that TIGHTENS under
+    monochrome, not loosens.
+
+71. **THREE QUESTIONS DELIBERATELY LEFT OPEN — recorded, ledgered, and NOT resolved by this cycle.**
+    Eric declined to rule on all three, and inventing answers would violate the house rule against
+    inventing game mechanics:
+    - **Bounty Bloom** (DESIGN.md:237, GDD E6 #47, unbuilt) requires both deleted channels — personal
+      hue on radar and a class blip. Eric: *"I don't know honestly because I haven't addressed the
+      'bounty' story at all yet. I'm not sure I want the kill leader's position to be known globally."*
+      The bounty story owns it; this cycle neither builds nor re-grammars it.
+    - **Colorblind assist under `return` mode.** DESIGN.md:163 defines the assist's blip behavior as
+      boosting OUTLINES and raising decayed opacity; blobs have no outlines. Eric: *"Colorblind mode
+      should address this, we should make a note to circle back to this question in the future."*
+      Interim: the raised decayed-opacity floor is kept, the outline clause is inert in `return` mode,
+      and the family-palette work for hulls/nameplates/kill-feed is untouched.
+    - **Sonar hue and the Listening Ring.** Eric: *"I don't know yet, I'm thinking about how to
+      represent sound information but I'm not sold on the 'listening ring' concept entirely."* Amber
+      stays reserved but UNASSIGNED — this cycle spends no hue on a sensor that does not exist.
+
+72. **Scope discipline of record.** `PROTOCOL_VERSION` **bumps 26 → 27** — one bump covering "a blip
+    may carry either shape." **Renumbered post-merge:** this cycle branched from PV 25 and originally
+    claimed 26, but Story 4.5 (the foghorn) landed first and took 26, so this cycle became 27 — and
+    its amendments moved 51-64 → 62-75 for the same reason. **Correction:** `CLAUDE.md` still records
+    PV as "currently 23"; the actual pre-cycle value was **25** (amendment 49 already flagged the
+    staleness) and is **27** after this cycle. Persistence stays
+    at `persistSweeps: 3` / `paintsPerContact: 3` — they become THE course-and-speed channel in
+    `return` mode, so retuning is a deliberate post-playtest job, not a guess made in-cycle. No CONFIG
+    combat tunable moves: no damage, reload, hp, or range value changes, and `CONFIG.vision` gains no
+    new constant. The master perception invariant and its declared exceptions (`sp`, `hc`, `mz`,
+    `sunk`, `sm`, and now 4.5's `fh`) are UNTOUCHED — this change only ever REMOVES fields from
+    frames, so the anti-cheat posture strictly improves.
+
+73. **Doc drift added to the Eric-gated 7-5 batch by this ruling** (house rule: no design-doc edits
+    in-cycle). This lands ON TOP of the 4.2 drift amendment 14 already queued: `DESIGN.md:169` (*"radar
+    blips carry the hull outline, so class must read at blip scale"*) and `DESIGN.md:262` (*"keep
+    silhouette geometry consistent everywhere a hull appears (water, blip, class card, results)"*) are
+    both false in `return` mode and must gain the two-grammar split. `DESIGN.md:160`'s propagation
+    line ("radar blips + kill-feed names (Variant C, the preferred default)") and its Variant P
+    sentence are superseded by the flag pair in amendment 63. `DESIGN.md:163`'s assist clause needs
+    the amendment 71 carve-out. `DESIGN.md:179`'s blip rule is now doubly superseded (amendment 7 then
+    55). `DESIGN.md:237`'s Bounty Bloom entry must record its dependency on a channel that no longer
+    exists in `return` mode.
+
+## 2026-08-05 — Eric ruling, the Garmin echo scale (cycle 51, post-implementation)
+
+Source: Eric, live, after seeing the shipped monochrome return grammar. Verbatim: *"Lets actually
+keep the radar sweep color green but we'll change the detected entity color to the red/blue/green
+scale like in the garmin radar."*
+
+74. **RETURN-MODE ECHOES ARE COLORED BY STRENGTH ON A GARMIN-STYLE SCALE; THE SWEEP STAYS PHOSPHOR
+    GREEN.** This **SUPERSEDES amendment 65's monochrome clause for radar returns** and nothing else:
+    54's finding that a marine palette is a GAIN DIAGNOSTIC still stands as description — Eric has
+    simply ruled that he wants that diagnostic on his scope. The split is now explicit: the SWEEP
+    (conic wedge, range rings, all radar chrome) stays `{colors.phosphor}` green, and only the
+    DETECTED ENTITY carries the scale. Weak → strong runs blue → green → yellow → red, matching the
+    reference screenshots. **Coast returns take the same scale** (terrain is just a strong return —
+    which is why the reference images are mostly red and green coastline). `silhouette` mode is
+    UNTOUCHED: personal hues remain its identity channel.
+
+    **The scale encodes RETURN STRENGTH — the same quantity blob size already carries** (aspect-
+    projected `ext`, attenuated by range). That redundancy is authentic rather than accidental: on a
+    real set, size and color both fall out of the echo. It is also a genuine accessibility win and a
+    PARTIAL answer to the colorblind question amendment 71 left open — size dual-codes strength, so
+    a CVD player loses none of the information the color carries.
+
+    **Implementation consequence (the Story 4.2 trap, avoided):** the phosphor decay ramp
+    (`blipTint`) SETS color, so it cannot drive a colored echo — it would erase the very scale this
+    ruling adds. Return mode must decay through the hue-PRESERVING multiplier (`blipCool`), which
+    exists for exactly this reason: Story 4.2 hit the identical problem when hue first became a
+    channel (`CLIENT_CONFIG.blip.coolFloor`'s comment records it). Channels after this ruling:
+    **hue = return strength, alpha = age, size = return strength.**
+
+75. **No wire change, no PV bump — this is PURE PRESENTATION.** The client already holds `ext` and
+    computes range from its own position and the paint position, so mapping those to a color
+    discloses NOTHING new: `PROTOCOL_VERSION` stays **26** and the server is untouched. Amendment
+    65's provenance idea is not dead but is DEFERRED with the rest of the sound-sensor question
+    (amendment 71): if a second sensor ever ships, provenance must ride a channel other than a single
+    hue — the natural form is a distinct RAMP per sensor (radar blue→red, sonar some other ramp) so
+    palette identity rather than one color carries it. **Amber remains reserved and unassigned;
+    nothing in this ruling spends it.**
+

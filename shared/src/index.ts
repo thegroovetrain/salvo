@@ -3,7 +3,7 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
- *  26: FRACTAL ISLANDS (cycle 51, Eric ruling 2026-08-05) — islands become
+ *  28: FRACTAL ISLANDS (cycle 52, Eric ruling 2026-08-05) — islands become
  *  true polygon coastlines: generateMap's circle-packing generator is
  *  REPLACED by the fractal capsule-offset generator (new `Island` type:
  *  bounding circle x/y/r + CCW boundary poly + 1-3 pt skeleton + core
@@ -12,6 +12,46 @@
  *  un-bumped old client would rebuild a different map and desync
  *  catastrophically. New sim/island.ts query seam (broadphase-first island
  *  geometry for every consumer) rides the barrel.
+ *  CONSEQUENCE FOR EVERY LOS-GATED SENSOR (radar paint, truesight, muzzle
+ *  flash, wounded smoke, and the foghorn's one-tier muffle): LOS is now
+ *  polygon-EXACT where it was bounding-circle conservative, so islands block
+ *  strictly LESS than they did. Every sensor reaches marginally further past
+ *  a coastline; nothing reaches less far. This is the 2026-08-02 "islands
+ *  block every sensor" law applied to the true coastline instead of a
+ *  circumscribed circle.
+ *  27: THE RADAR REALISM CYCLE (Eric rulings 2026-08-05, amendments 62-75) —
+ *  one bump covering "a blip may carry either shape" (amendment 72). Landed in
+ *  PARALLEL with Story 4.5 (the foghorn, 26 below): both cycles branched from
+ *  PV 25 and both claimed 26; 4.5 merged first, so this cycle renumbered to 27
+ *  and its amendments from 51-64 to 62-75.
+ *  BlipEvent becomes a two-member union with NO per-event discriminator:
+ *  SilhouetteBlipEvent (the shipped 4.2 shape, byte-stable {k,id,x,y,t}
+ *  prefix then cls/heading/speed, unchanged) | ReturnBlipEvent
+ *  ({k,id,x,y,t,ext} — ext the hull silhouette's extent projected
+ *  perpendicular to the observer→target bearing, pure aspect geometry in
+ *  world units, no range term; amendment 66's anti-cheat bound: never boons,
+ *  hp, damage state, or any range-derivable flight quantity). The server
+ *  picks ONE grammar per room and announces it in the welcome — WelcomeMsg
+ *  gains required radarGrammar ('silhouette'|'return') and radarIdentity
+ *  ('roster'|'pseudonym'), both defaulting to today's behavior so production
+ *  is byte-identical until a server flag flips (amendment 63). CONFIG is
+ *  untouched (CONFIG.vision gains no new constant).
+ *  26: THE FOGHORN (Story 4.5, Eric rulings 2026-08-05, amendments 51-58) —
+ *  two wire-shape changes in one bump: (1) new `fh` GameEvent (FoghornEvent
+ *  {k,h,self?,b?,v?,x?,y?}), the SIXTH declared exception to the master
+ *  perception invariant and the FIRST row whose payload varies BY OBSERVER in
+ *  substance — a fogged listener gets BEARING + VOLUME TIER + horn id and
+ *  NEVER a position, ship id, or correlation handle (amendment 51), the
+ *  honker gets {k,h,self}, and only the omniscient spectator path gets x/y;
+ *  and (2) InputMsg gains required `hornSeq` (cumulative honk counter,
+ *  max()-consumed, the fireSeq/actSeq grammar). Tiers derive from the
+ *  LISTENER's effective ranges, so no vision constant was added (amendments
+ *  42/53); islands MUFFLE by one tier instead of blocking (amendment 54). New
+ *  shared HORN_IDS/HornId/DEFAULT_HORN_ID/sanitizeHornId catalog (exactly one
+ *  horn, 'standard' — a second horn is Eric-gated content, amendment 52) and
+ *  a new CONFIG.foghorn block (cooldownMs) riding the welcome config
+ *  snapshot; join options gain an optional `horn`. No roster/PlayerMeta
+ *  schema field, no kill-feed line, no XP or damage — it is an emote.
  *  25: WOUNDED SMOKE (Story 4.4, Eric rulings 2026-08-05) — new `sm`
  *  GameEvent ({k,x,y,tier}: a hull is hurt HERE, this hurt), the FIFTH
  *  declared exception to the master perception invariant and the first
@@ -185,7 +225,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 26;
+export const PROTOCOL_VERSION = 28;
 
 // Tunables
 export * from './constants.js';

@@ -40,9 +40,23 @@ function place(w: World, id: string, x: number, y: number, heading = 0): ShipRec
   return rec;
 }
 
-/** A fogged SignalContext for `me`, reading time/islands/ships/zones/decoys off the world. */
+/** A fogged SignalContext for `me`, reading time/islands/ships/zones/decoys —
+ *  and the radar modes + pseudonym resolver (radar realism cycle) — off the world. */
 function foggedCtx(w: World, me: ShipRecord, now = w.now): FoggedSignalContext {
-  return { mode: 'fogged', observerId: me.id, now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me };
+  return {
+    mode: 'fogged', observerId: me.id, now, islands: w.map.islands, ships: w.ships,
+    litZones: w.litZones, decoys: w.decoys, me,
+    radarGrammar: w.radarGrammar, radarIdentity: w.radarIdentity, pseudonymOf: (id) => w.pseudonymFor(id),
+  };
+}
+
+/** The spectator sibling of foggedCtx (the record-less 'ghost' observer). */
+function specCtx(w: World, observerId = 'ghost'): SpectatorSignalContext {
+  return {
+    mode: 'spectator', observerId, now: w.now, islands: w.map.islands, ships: w.ships,
+    litZones: w.litZones, decoys: w.decoys, me: undefined,
+    radarGrammar: w.radarGrammar, radarIdentity: w.radarIdentity, pseudonymOf: (id) => w.pseudonymFor(id),
+  };
 }
 
 /** Drop a lit zone directly into world state (Story 1.7). */
@@ -103,14 +117,17 @@ const REGISTRY_KEYS = [
   // Story 4.4 — wounded smoke, the fifth declared fog exception (anonymous
   // {k,x,y,tier} pulse inside the constant muzzle-flash halo).
   'sm',
+  // Story 4.5 — the foghorn, the sixth declared fog exception (bearing + tier
+  // for fogged listeners; islands muffle by exactly one tier).
+  'fh',
 ];
 
 // ---------- row shape ----------------------------------------------------
 
 describe('SIGNAL_REGISTRY — row shape', () => {
-  it('has exactly the 20 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added)', () => {
+  it('has exactly the 21 known channels (Story 2.8: `upg` stripped, `torpU` added; Story 4.3: `sp`/`hc`/`mz` added; 2026-08-04: `heal` returns; Story 4.4: `sm` added; Story 4.5: `fh` added)', () => {
     expect(Object.keys(SIGNAL_REGISTRY).sort()).toEqual([...REGISTRY_KEYS].sort());
-    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(20);
+    expect(Object.keys(SIGNAL_REGISTRY)).toHaveLength(21);
   });
 
   it('every row: eventType matches its registry key, visible/materialize are callable; counterIntel lives ONLY on the blip row (Story 1.8)', () => {
@@ -307,9 +324,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     place(w, 'a', 0, 0);
     const e: BurstSubject = { k: 'burst', id: 's1', x: 500, y: 0, own: 'a' };
     const row = signalFor('burst')!;
-    const ctx: SpectatorSignalContext = {
-      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
-    };
+    const ctx = specCtx(w);
     expect(row.visible(ctx, e)).toBe(true);
     const wire = row.materialize(ctx, e) as BurstEvent;
     expect(Object.keys(wire)).toEqual(['k', 'id', 'x', 'y']);
@@ -347,9 +362,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
   it('sp/hc rows are spectator-public (the dmg precedent), materializing the same verbatim shape', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    const ctx: SpectatorSignalContext = {
-      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
-    };
+    const ctx = specCtx(w);
     const sp: SplashEvent = { k: 'sp', id: 'a', x: 900, y: 0 };
     const hc: HitCallEvent = { k: 'hc', id: 'a', x: 900, y: 0 };
     expect(signalFor('sp')!.visible(ctx, sp)).toBe(true);
@@ -366,9 +379,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const row = signalFor('heal')!;
     expect(row.visible(foggedCtx(w, a), e)).toBe(true); // the healer alone
     expect(row.visible(foggedCtx(w, b), e)).toBe(false); // proximity is irrelevant — no observer cue
-    const spec: SpectatorSignalContext = {
-      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
-    };
+    const spec = specCtx(w);
     // The pt/bn terms, NOT dmg's: a spectator may watch hp move, but must never
     // learn a living hull converted a banked level into survival.
     expect(row.visible(spec, e)).toBe(false);
@@ -389,9 +400,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     const wire = row.materialize(ctx, e) as MuzzleEvent;
     expect(Object.keys(wire)).toEqual(['k', 'x', 'y']);
     expect('id' in wire).toBe(false); // no identity channel, period (amendment 19)
-    const spec: SpectatorSignalContext = {
-      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
-    };
+    const spec = specCtx(w);
     expect(row.visible(spec, e)).toBe(true);
     expect(Object.keys(row.materialize(spec, e) as object)).toEqual(['k', 'x', 'y']);
   });
@@ -490,9 +499,7 @@ describe('SIGNAL_REGISTRY — sm row (Story 4.4: wounded smoke, the fifth declar
   it('spectators see every puff, and the spectator payload carries no id either', () => {
     const w = bareWorld();
     const e: SmokeEvent = { k: 'sm', x: 9_000, y: 9_000, tier: 2 }; // absurdly far from everything
-    const ctx: SpectatorSignalContext = {
-      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
-    };
+    const ctx = specCtx(w);
     expect(row.visible(ctx, e)).toBe(true);
     const wire = row.materialize(ctx, e) as SmokeEvent;
     expect(wire).not.toBe(e);
@@ -549,9 +556,7 @@ describe('SIGNAL_REGISTRY — litzone row visibility (owner always, else radar-g
   it('spectators see every zone', () => {
     const w = bareWorld();
     injectZone(w, 'z1', 'a', 9_000, 9_000); // absurdly far from everything
-    const ctx: SpectatorSignalContext = {
-      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
-    };
+    const ctx = specCtx(w);
     expect(SIGNAL_REGISTRY.litzone.visible(ctx, w.litZones.get('z1')!)).toBe(true);
   });
 });
@@ -734,9 +739,7 @@ describe('SIGNAL_REGISTRY — sunk: the public register (PV 23, 4th declared exc
     const w = bareWorld();
     place(w, 'b', 2000, 0);
     w.sinkShip('b', 'a');
-    const ctx: SpectatorSignalContext = {
-      mode: 'spectator', observerId: 'ghost', now: w.now, islands: w.map.islands, ships: w.ships, litZones: w.litZones, decoys: w.decoys, me: undefined,
-    };
+    const ctx = specCtx(w);
     const e: SunkEvent = { k: 'sunk', id: 'b', by: 'a' };
     expect(row.visible(ctx, e)).toBe(true);
     const wire = row.materialize(ctx, e) as SunkEvent;

@@ -22,6 +22,7 @@ const valid = (seq = 1) => ({
   fireT: 850,
   actSeq: 5,
   actSlot: 2,
+  hornSeq: 7,
 });
 
 describe('sanitizeInput — validation table', () => {
@@ -85,6 +86,15 @@ describe('sanitizeInput — validation table', () => {
     ['NaN actSlot', { ...valid(), actSlot: NaN }],
     ['Infinity actSlot', { ...valid(), actSlot: Infinity }],
     ['string actSlot', { ...valid(), actSlot: '1' }],
+    // Story 4.5 foghorn counter: validated EXACTLY as actSeq (finite int >= 0),
+    // whole message dropped on anything malformed — the same sanitize law.
+    ['missing hornSeq', { ...valid(), hornSeq: undefined }],
+    ['NaN hornSeq', { ...valid(), hornSeq: NaN }],
+    ['Infinity hornSeq', { ...valid(), hornSeq: Infinity }],
+    ['negative hornSeq', { ...valid(), hornSeq: -1 }],
+    ['fractional hornSeq', { ...valid(), hornSeq: 1.5 }],
+    ['string hornSeq', { ...valid(), hornSeq: '7' }],
+    ['boolean hornSeq', { ...valid(), hornSeq: true }],
   ];
   it.each(rejects)('drops %s', (_label, raw) => {
     expect(sanitizeInput(raw, 0)).toBeNull();
@@ -137,6 +147,11 @@ describe('sanitizeInput — validation table', () => {
     for (let actSlot = 0; actSlot < SLOT_COUNT; actSlot++) {
       expect(sanitizeInput({ ...valid(), actSlot }, 0)?.actSlot).toBe(actSlot);
     }
+  });
+
+  it('accepts the hornSeq sentinel (0) and positive counters verbatim (Story 4.5)', () => {
+    expect(sanitizeInput({ ...valid(), hornSeq: 0 }, 0)?.hornSeq).toBe(0);
+    expect(sanitizeInput({ ...valid(), hornSeq: 42 }, 0)?.hornSeq).toBe(42);
   });
 
   it('wraps aim into [-pi, pi)', () => {
@@ -280,7 +295,7 @@ describe('InputStore', () => {
   it('neutralInput is a fresh zeroed input (fireT 0 = the no-claim sentinel)', () => {
     const a = neutralInput();
     expect(a).toEqual({
-      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0,
+      seq: 0, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0,
     });
     expect(neutralInput()).not.toBe(a);
   });

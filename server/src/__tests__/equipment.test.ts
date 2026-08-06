@@ -57,7 +57,7 @@ function place(w: World, id: string, heading = 0): ShipRecord {
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...patch };
 }
 
 /** Assert a ship carries the fresh universal loadout (matches loadoutFor for a
@@ -213,7 +213,7 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
     const w = bareWorld();
     const ship = place(w, 'a'); // universal fit: mine at slot 2; heading 0 ⇒ astern = π
     // CLICK (weapon channel): places at the clicked point.
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     w.step();
     expect(w.mines.size).toBe(1);
     const [mine] = [...w.mines.values()];
@@ -223,7 +223,7 @@ describe('mine dispatch — the fire (fireSeq) channel, never activation (Story 
     // A FULL rack (2-deep at base since the 2026-08-04 balance pass) with an
     // idle timer — so the only thing that could move the pool is the press.
     ship.loadout[SLOT_MINE].state = { n: CONFIG.mine.maxAmmo, reloadMsLeft: 0 };
-    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, actSlot: SLOT_MINE });
+    w.submitInput('a', { seq: 2, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 50, slot: SLOT_MINE, fireT: 0, actSeq: 1, actSlot: SLOT_MINE, hornSeq: 0 });
     w.step();
     expect(w.mines.size).toBe(1); // no second mine — presses never reach a weapon
     expect(ship.loadout[SLOT_MINE].state).toEqual({ n: 2, reloadMsLeft: 0 }); // charges intact

@@ -35,13 +35,13 @@ function place(w: World, id: string, hull: 'battleship' | 'torpedoBoat' | 'mineL
 
 /** Set a full, valid InputMsg on a ship (fireSeq 0 => no click by default). */
 function setInput(ship: ShipRecord, patch: Partial<InputMsg>): void {
-  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, ...patch };
+  ship.input = { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...patch };
 }
 
 /** Click for `firer` via the real input channel and step until the burst (or
  *  a boom) resolves. Returns the world time the terminal event landed. */
 function fireAndResolve(w: World, firer: string, input: Partial<InputMsg>, maxTicks = 120): { seen: string[]; at: number } {
-  w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, ...input });
+  w.submitInput(firer, { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 0, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0, ...input });
   const seen: string[] = [];
   for (let i = 0; i < maxTicks; i++) {
     w.step();
@@ -125,7 +125,7 @@ describe('star shells — burst damage + zone spawn (end-to-end)', () => {
     // guarantees presentation can never disagree with what the zone does.
     const w = bareWorld();
     const a = place(w, 'a', 'battleship', 0, 0);
-    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 650, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 650, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     w.step(); // consumes the click; the flare is airborne, fired UNDER 'standard'
     expect(w.shells.size).toBe(1);
     expect(a.stats.starShells.mode).toBe('standard');
@@ -231,7 +231,7 @@ describe('star shells — denials', () => {
     const w = bareWorld();
     const tb = place(w, 'tb', 'torpedoBoat', 0, 0);
     expect(tb.loadout[SLOT_STAR].equipmentId).toBe('speedBoost');
-    w.submitInput('tb', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0 });
+    w.submitInput('tb', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 1, aimDist: 400, slot: SLOT_STAR, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
     w.step();
     expect(tb.boostUntil).toBe(0); // the click never reached the ability row
     expect(tb.loadout[SLOT_STAR].state).toEqual({ n: CONFIG.speedBoost.maxAmmo, reloadMsLeft: 0 });
