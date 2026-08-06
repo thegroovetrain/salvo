@@ -950,7 +950,7 @@ scale like in the garmin radar."*
     palette identity rather than one color carries it. **Amber remains reserved and unassigned;
     nothing in this ruling spends it.**
 
-## 2026-08-05 — Eric rulings, the radar heatmap correction (cycle 52, post-live)
+## 2026-08-05 — Eric rulings, the radar heatmap correction (cycle 53, post-live)
 
 Source: Eric, live, after seeing cycle 51's return grammar in production. Two complaints and a
 reframing, verbatim:
@@ -1000,7 +1000,9 @@ reframing, verbatim:
     what changes is that the near face is FILLED rather than sampled.
 
 79. **Scope discipline.** Client-only presentation: no wire change, no server change, **`PROTOCOL_
-    VERSION` stays 27**, no CONFIG combat tunable moves. `silhouette` mode is UNTOUCHED — it keeps
+    VERSION` is UNCHANGED by this cycle** (it reads **28**, not the 27 this amendment first recorded —
+    the fractal-island cycle landed 27 → 28 in parallel and took cycle number 52, so this correction
+    became cycle 53), no CONFIG combat tunable moves. `silhouette` mode is UNTOUCHED — it keeps
     hull outlines, personal hues and ARPA vectors, and remains the fail-safe default in code.
     Production has both flags ON as of PR #101, so this correction reaches live on merge.
 
