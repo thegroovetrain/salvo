@@ -330,3 +330,157 @@ export function polygonMaxRadius(poly: readonly Vec2[]): number {
   }
   return max;
 }
+
+// --- Visvalingam-Whyatt simplification (island coastline vertex budget) ----
+//
+// Ported from the fBm-terrain prototype (`tmp-fbm/poly.mjs`), extended with a
+// self-intersection guard the prototype didn't need (its callers accepted the
+// small measured failure rate; the production seam does not).
+
+/** Twice the (unsigned) area of triangle a-b-c — the VW "effective area" of `b`. */
+function triArea2(a: Vec2, b: Vec2, c: Vec2): number {
+  const v = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  return v < 0 ? -v : v;
+}
+
+/** Signed area x2 of a-b-c; sign gives turn direction. Building block for segmentsCross. */
+function orient(a: Vec2, b: Vec2, c: Vec2): number {
+  return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+/**
+ * True iff segments a-b and c-d cross transversally. A shared/touching
+ * endpoint is NOT a crossing (both `orient` products land at 0, failing the
+ * strict `< 0`), which is the right call for adjacent polygon edges — they
+ * are SUPPOSED to touch at their shared vertex.
+ */
+function segmentsCross(a: Vec2, b: Vec2, c: Vec2, d: Vec2): boolean {
+  const o1 = orient(a, b, c);
+  const o2 = orient(a, b, d);
+  const o3 = orient(c, d, a);
+  const o4 = orient(c, d, b);
+  return o1 * o2 < 0 && o3 * o4 < 0;
+}
+
+/**
+ * True iff collapsing vertex `i` of the linked-list polygon (replacing edges
+ * prev(i)->i->next(i) with a single prev(i)->next(i) edge) would cross some
+ * OTHER edge of the polygon. Walks the ring from the vertex after next(i) up
+ * to (excluding) the vertex before prev(i) — precisely the edges that don't
+ * already share an endpoint with the new edge, since a shared-endpoint edge
+ * can only touch it at a corner, never cross it. O(n) per candidate, so the
+ * simplification loop below stays O(n^2) overall, same order as vertex
+ * selection alone.
+ */
+function removalCrosses(pts: readonly Vec2[], prev: Int32Array, next: Int32Array, i: number): boolean {
+  const a = prev[i];
+  const b = next[i];
+  const pa = pts[a];
+  const pb = pts[b];
+  let k = next[b];
+  while (next[k] !== a) {
+    if (segmentsCross(pa, pb, pts[k], pts[next[k]])) return true;
+    k = next[k];
+  }
+  return false;
+}
+
+/**
+ * Lowest-area ALIVE & UNLOCKED vertex; ties broken by lowest index — the scan
+ * runs ascending and only a STRICTLY smaller area replaces the incumbent, so
+ * an equal-area later candidate never wins. Returns -1 once none remain.
+ */
+function pickLeastArea(n: number, alive: Uint8Array, locked: Uint8Array, area: Float64Array): number {
+  let best = -1;
+  let bestArea = Infinity;
+  for (let i = 0; i < n; i++) {
+    if (!alive[i] || locked[i]) continue;
+    if (area[i] < bestArea) {
+      bestArea = area[i];
+      best = i;
+    }
+  }
+  return best;
+}
+
+/**
+ * Visvalingam-Whyatt simplification of a CLOSED loop, reducing it to at most
+ * `targetCount` vertices (never below 3, never above the input length).
+ *
+ * Chosen over Douglas-Peucker: vertex COUNT is the scarce resource here —
+ * every island vertex is paid per tick by LOS and ship-island collision, and
+ * per frame by the client radar terrain bake. VW removes vertices in
+ * ascending order of "effective area" (the area of the triangle a vertex
+ * forms with its two neighbors), which gives a direct count dial; DP's
+ * distance tolerance only controls count indirectly, and swings wildly
+ * between a smooth lobe and a ragged headland at the same tolerance.
+ *
+ * CLOSED, not open-polyline VW: the neighbor lookup wraps mod n like every
+ * other polygon walk in this file, and every vertex (including index 0) is
+ * exactly as removable as any other — no fixed endpoints.
+ *
+ * Deterministic: `pickLeastArea` breaks ties by lowest index, never by
+ * Set/Map iteration order or a float comparison that could flip between
+ * engines. Same input -> byte-identical output, every run, every engine.
+ *
+ * Self-intersection guard: removing a vertex can fold a concave stretch of
+ * the boundary across another part of it (verified against a real failing
+ * case in this function's test suite — a naive count-only VW pass produces a
+ * crossing there). Before a removal is committed, `removalCrosses` checks the
+ * replacement edge against every other current edge; a vertex that would
+ * break simplicity is LOCKED (not removed on this call, ever) and the search
+ * moves to the next-lowest-area candidate. Locking rather than
+ * skip-and-retry is what guarantees termination — each while-loop iteration
+ * either removes a vertex or permanently shrinks the removable set, so the
+ * loop can never spin on a vertex whose neighbors haven't changed. One
+ * consequence: if enough vertices lock, the result can land ABOVE
+ * `targetCount` — a safety floor, not a bug.
+ *
+ * Pure: returns a new array; never mutates `poly` or its Vec2 elements.
+ */
+export function simplifyLoop(poly: readonly Vec2[], targetCount: number): Vec2[] {
+  const n = poly.length;
+  const minVerts = 3;
+  const target = Math.max(minVerts, Math.floor(targetCount));
+  if (n <= target) return poly.slice();
+
+  const pts = poly;
+  const alive = new Uint8Array(n).fill(1);
+  const locked = new Uint8Array(n);
+  const prev = new Int32Array(n);
+  const next = new Int32Array(n);
+  const area = new Float64Array(n);
+  for (let i = 0; i < n; i++) {
+    prev[i] = (i - 1 + n) % n;
+    next[i] = (i + 1) % n;
+  }
+  for (let i = 0; i < n; i++) area[i] = triArea2(pts[prev[i]], pts[i], pts[next[i]]);
+
+  let count = n;
+  while (count > target) {
+    const best = pickLeastArea(n, alive, locked, area);
+    if (best < 0) break; // every remaining vertex is locked — cannot simplify further
+    if (removalCrosses(pts, prev, next, best)) {
+      locked[best] = 1;
+      continue;
+    }
+    alive[best] = 0;
+    count--;
+    const p = prev[best];
+    const q = next[best];
+    next[p] = q;
+    prev[q] = p;
+    area[p] = triArea2(pts[prev[p]], pts[p], pts[next[p]]);
+    area[q] = triArea2(pts[prev[q]], pts[q], pts[next[q]]);
+  }
+
+  const out: Vec2[] = [];
+  let start = 0;
+  while (!alive[start]) start++;
+  let i = start;
+  do {
+    out.push(pts[i]);
+    i = next[i];
+  } while (i !== start);
+  return out;
+}
