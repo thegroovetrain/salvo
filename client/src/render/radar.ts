@@ -56,6 +56,20 @@
 // geometry is exact instead of a bounding circle that can sit hundreds of units
 // offshore.
 //
+// THE SIGHT GATE (cycle 54, amendments 80-82). The heatmap paints NOTHING
+// inside the truesight bubble: inside it you are looking, and the scope adds
+// nothing there. The rule is PER-CELL (radarHeatmap.ts ruling R6), so an island
+// straddling the boundary paints only the portion beyond it and a hull at the
+// very edge paints the part that lies outside — Eric's nuance, and the case an
+// object-level exclusion would have deleted. The cutoff is `fogHoleRadiusU()`
+// — literally the function that bakes the visible fog hole — because a
+// suppression boundary that merely approximated the drawn hole would read as a
+// rendering bug at the seam. That is also why `setDazzled` exists on this class
+// at all: the fog hole shrinks while a dazzle burst holds, so the suppression
+// disc has to shrink with it, or a dazzled observer gets a dead annulus that is
+// fogged AND unpainted. `silhouette` mode has no buffer, so none of this
+// reaches it.
+//
 // Persistence is unchanged in both grammars: alpha/tint are pure functions of
 // serverNow − paint time (phosphor.ts), three sweeps of paints per track
 // (amendment 9), so a contact leaves a plottable track whose ghost SPACING
@@ -86,6 +100,7 @@ import { CLIENT_CONFIG } from '../config.js';
 import { settings } from '../settings/store.js';
 import { Pool, capOldest, capOldestByKey } from '../util/pool.js';
 import { extentAlong, luminanceFloor, speedVector, type SpeedVector } from './blipMarks.js';
+import { fogHoleRadiusU } from './fog.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 import { blipAlpha, blipCool, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
@@ -228,6 +243,11 @@ export class Radar {
   private sightRange: number = CONFIG.vision.sight;
   private radarRange: number = CONFIG.vision.radar;
   private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
+  /** Is the own ship inside an enemy DAZZLE BURST right now (Story 2.8)? The
+   *  SAME flag `Fog` carries, plumbed from the same place in main.ts — the
+   *  suppression disc and the drawn fog hole are one radius (amendment 81), so
+   *  they cannot be allowed to disagree about dazzle. */
+  private dazzled = false;
 
   constructor(
     blipLayer: Container,
@@ -263,6 +283,37 @@ export class Radar {
     this.radarRange = radarRange;
     this.sweepPeriodMs = sweepPeriodMs;
     this.applyRanges();
+  }
+
+  /**
+   * Adopt the DAZZLE state (Story 2.8) — the radar half of the plumbing `Fog`
+   * has always had. Returns TRUE when the state actually flipped, mirroring
+   * `Fog.setDazzled`'s changed-flag contract so one call site can drive both;
+   * unlike the fog there is nothing to rebake, because the suppression disc is
+   * re-derived from scratch inside every `paintHeat`, so this radar's caller is
+   * free to ignore the result.
+   */
+  setDazzled(dazzled: boolean): boolean {
+    if (dazzled === this.dazzled) return false;
+    this.dazzled = dazzled;
+    return true;
+  }
+
+  /** Is the dazzle currently held? Test/observation seam (mirrors `Fog`). */
+  get isDazzled(): boolean {
+    return this.dazzled;
+  }
+
+  /**
+   * The radius (u) inside which the heatmap paints nothing (amendments 80-81).
+   *
+   * It is `fogHoleRadiusU` — the very function that bakes the visible fog hole,
+   * called rather than re-derived, so the suppression boundary IS the drawn hole
+   * by construction and no future change to one can silently desync the other.
+   * Exposed for tests and for exactly that equality assertion.
+   */
+  get sightHoleU(): number {
+    return fogHoleRadiusU(this.sightRange, this.dazzled);
   }
 
   private applyRanges(): void {
@@ -658,7 +709,11 @@ export class Radar {
     // must not leave the last frame's cells in the buffer, or a paint that aged
     // out would still answer `bandAt` — and would flash back the instant the
     // next paint made the sprite visible again.
-    if (own !== null) anchorGrid(heat.grid, own.x, own.y);
+    // Anchoring also ARMS THE SIGHT GATE for this frame (amendments 80-81):
+    // the disc is re-established from the LIVE observer position every frame,
+    // never baked into a paint — an island's coverage is cached for a whole
+    // revolution while the ship keeps moving, so a baked gate would lag.
+    if (own !== null) anchorGrid(heat.grid, own.x, own.y, this.sightHoleU);
     heat.sprite.visible = own !== null && this.paints.length > 0;
     if (!heat.sprite.visible || own === null) return;
     const cfg = CLIENT_CONFIG.blip.heatmap;

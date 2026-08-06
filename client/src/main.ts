@@ -2140,9 +2140,21 @@ function dazzleActive(g: Game, now: number): boolean {
  * reveals nothing in. The rebake only runs on the two frames per dazzle event
  * where the state actually flips (Fog.setDazzled reports staleness), the same
  * path a resize / sight-stat change takes.
+ *
+ * THE RADAR TAKES THE SAME FLAG, from this one place (amendment 81). Its
+ * heatmap suppresses everything inside `fogHoleRadiusU()` — the identical
+ * radius, by the identical function — so a dazzle state the radar did not hear
+ * about would leave a shrunken fog hole ringed by an unshrunken suppression
+ * circle: a dead annulus that is fogged AND unpainted, which is the exact seam
+ * the sight gate exists to remove. It is set UNCONDITIONALLY and before the
+ * fog's changed-flag early-return, because that flag guards the expensive
+ * rebake and nothing else; the radar re-derives its disc every frame and has
+ * nothing to rebake, so its own changed-flag is deliberately unused here.
  */
-function updateDazzleFog(g: Game, now: number): void {
-  if (!g.fog.setDazzled(dazzleActive(g, now))) return;
+function updateDazzle(g: Game, now: number): void {
+  const dazzled = dazzleActive(g, now);
+  g.radar.setDazzled(dazzled);
+  if (!g.fog.setDazzled(dazzled)) return;
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
 
@@ -2252,6 +2264,12 @@ function renderAlive(
   // Own pose feeds the shell sight-bubble cull; own active zones keep a shell
   // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
+  // AHEAD OF THE RADAR ON PURPOSE (amendment 81): the heatmap's sight-gate disc
+  // and the fog hole are one radius, and the radar bakes its disc during
+  // render() — so a dazzle flip adopted after this line would leave the scope
+  // one frame behind the fog, which is the disagreement the gate exists to
+  // prevent. Camera zoom (which the fog rebake reads) was updated in renderOwn.
+  updateDazzle(g, now);
   g.radar.render(pose, now);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
@@ -2271,7 +2289,6 @@ function renderAlive(
   // The fog hole tracks the own ship's screen position (post camera update).
   const hole = pose ? g.camera.worldToScreen(pose) : g.camera.screenCenter;
   g.fog.update(hole.x, hole.y);
-  updateDazzleFog(g, now);
   g.fog.updateHoles(ownZoneFogHoles(g, ownZones, now)); // clear fog over owned lit zones
 }
 

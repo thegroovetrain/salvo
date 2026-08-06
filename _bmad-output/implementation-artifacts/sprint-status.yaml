@@ -1,5 +1,6 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-05  # cycle 53 (0.17.53), the radar heatmap correction (interstitial — Eric's live feedback on cycle 51; client-only, PV unchanged at 28)
+# last_updated: 2026-08-06  # cycle 54 (0.17.54), the sight-bubble radar gate (interstitial — radar paints nothing inside truesight, per-CELL so straddlers keep their outside portion; client-only, PV unchanged at 28)
+#                          # cycle 53 (0.17.53), the radar heatmap correction (interstitial — Eric's live feedback on cycle 51; client-only, PV unchanged at 28)
 #                          # cycle 52 (0.17.52), Fractal Island Generation (interstitial — polygon coastlines; PV 27->28)
 #                          # cycle 51 (0.17.51), the radar realism cycle (interstitial — playtest-driven; landed in parallel with Story 4-5, which took cycle 50)
 #                          # cycle 46 (0.17.46), DAMAGE CONTROL heal strip (interstitial)
@@ -107,6 +108,20 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-06 (dev-auto cycle 54, 0.17.54) — THE SIGHT-BUBBLE RADAR GATE.
+  # Amendments 80-82. Client-only; PV unchanged at 28. Closes an inconsistency cycle 53 left: ship
+  # echoes never appeared inside truesight (the SERVER's `blipGate` has always excluded dist <=
+  # sightRange, since a sighted hull is a full Contact) but island coverage is client presentation
+  # off the map seed and had no sight term, so coastline painted straight through the bubble.
+  # Eric closed it toward NONE — inside truesight you are LOOKING, and the scope adds nothing.
+  # THE GATE IS PER-CELL, NOT PER-OBJECT, which is the load-bearing detail: a straddling island or a
+  # hull at the boundary still paints the portion OUTSIDE sight. That is only expressible because
+  # amendment 76 moved to per-pixel intensity — a polygon carries one fill and would have had to be
+  # wholly in or wholly out. Cutoff calls `fogHoleRadiusU()` itself rather than re-deriving it, so
+  # the suppression edge IS the drawn fog hole; dazzle had to be plumbed into the radar (it reached
+  # only the fog before), or a dazzled observer would get a shrunken hole against an unshrunken
+  # suppression disc — a dead annulus, fogged AND unpainted. Gate lives at STAMP time, not bake:
+  # island coverage is cached per beam revolution while the observer moves continuously.
   # INTERSTITIAL 2026-08-05 (dev-auto cycle 53, 0.17.53) — THE RADAR HEATMAP CORRECTION.
   # Amendments 76-79. Client-only; PV UNCHANGED at 28. Eric's live feedback on cycle 51's return
   # grammar, and it is a GRAMMAR replacement, not a tuning pass: the per-blip POLYGON model is gone.
