@@ -56,19 +56,29 @@
 // geometry is exact instead of a bounding circle that can sit hundreds of units
 // offshore.
 //
-// THE SIGHT GATE (cycle 54, amendments 80-82). The heatmap paints NOTHING
-// inside the truesight bubble: inside it you are looking, and the scope adds
-// nothing there. The rule is PER-CELL (radarHeatmap.ts ruling R6), so an island
-// straddling the boundary paints only the portion beyond it and a hull at the
-// very edge paints the part that lies outside — Eric's nuance, and the case an
-// object-level exclusion would have deleted. The cutoff is `fogHoleRadiusU()`
-// — literally the function that bakes the visible fog hole — because a
-// suppression boundary that merely approximated the drawn hole would read as a
-// rendering bug at the seam. That is also why `setDazzled` exists on this class
-// at all: the fog hole shrinks while a dazzle burst holds, so the suppression
-// disc has to shrink with it, or a dazzled observer gets a dead annulus that is
-// fogged AND unpainted. `silhouette` mode has no buffer, so none of this
-// reaches it.
+// THE SIGHT GATE (cycle 54 amendments 80-82, corrected by cycle 55 amendments
+// 83-87). The heatmap paints NOTHING inside the truesight bubble THE BEAM SWEPT
+// IT FROM: inside it you are looking, and the scope adds nothing there. The rule
+// is PER-CELL (radarHeatmap.ts ruling R6), so an island straddling the boundary
+// paints only the portion beyond it and a hull at the very edge paints the part
+// that lies outside — Eric's nuance, and the case an object-level exclusion
+// would have deleted. The cutoff is `fogHoleRadiusU()` — literally the function
+// that bakes the visible fog hole — because a suppression boundary that merely
+// approximated the drawn hole would read as a rendering bug at the seam. That is
+// also why `setDazzled` exists on this class at all: the fog hole shrinks while
+// a dazzle burst holds, so the suppression radius a NEW paint freezes has to
+// shrink with it, or a dazzled observer gets a dead annulus that is fogged AND
+// unpainted. `silhouette` mode has no buffer, so none of this reaches it.
+//
+// THE VERDICT IS FROZEN ONTO THE PAINT, NOT RE-TAKEN EACH FRAME (amendment 85).
+// This adapter reads `sightHoleU` at exactly two moments — when a ship echo is
+// RESOLVED (`resolvePending`) and when an island coverage is BAKED
+// (`openIslandPaint`) — and never again for that paint. The sight bubble merely
+// receding therefore paints nothing: THE RADAR SWEEP IS THE ONLY THING THAT
+// PAINTS. The accepted consequence (amendment 86) is that a legitimately swept
+// ghost may keep decaying inside the current bubble; that is phosphor, not a
+// leak, and erasing it would restore exactly the live re-evaluation cycle 55
+// removed.
 //
 // Persistence is unchanged in both grammars: alpha/tint are pure functions of
 // serverNow − paint time (phosphor.ts), three sweeps of paints per track
@@ -108,6 +118,7 @@ import {
   arcOverlaps,
   bandIndex,
   buildIslandCoverage,
+  freezeSight,
   islandBearingSpan,
   makeGrid,
   paintSeed,
@@ -245,8 +256,10 @@ export class Radar {
   private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
   /** Is the own ship inside an enemy DAZZLE BURST right now (Story 2.8)? The
    *  SAME flag `Fog` carries, plumbed from the same place in main.ts — the
-   *  suppression disc and the drawn fog hole are one radius (amendment 81), so
-   *  they cannot be allowed to disagree about dazzle. */
+   *  suppression radius and the drawn fog hole are one number (amendment 81), so
+   *  they cannot be allowed to disagree about dazzle. It is read at paint
+   *  creation only, so a dazzle changes what the NEXT sweep paints and never
+   *  retroactively edits a paint already on the scope (amendment 85). */
   private dazzled = false;
 
   constructor(
@@ -289,9 +302,15 @@ export class Radar {
    * Adopt the DAZZLE state (Story 2.8) — the radar half of the plumbing `Fog`
    * has always had. Returns TRUE when the state actually flipped, mirroring
    * `Fog.setDazzled`'s changed-flag contract so one call site can drive both;
-   * unlike the fog there is nothing to rebake, because the suppression disc is
-   * re-derived from scratch inside every `paintHeat`, so this radar's caller is
-   * free to ignore the result.
+   * unlike the fog there is nothing to rebake, so this radar's caller is free to
+   * ignore the result.
+   *
+   * A DAZZLE MOVES THE BOUNDARY FOR FUTURE PAINTS ONLY (amendment 85). The
+   * shrunken hole is frozen onto every paint created while it holds — so the
+   * scope legitimately takes over the annulus the eye just lost, on the next
+   * sweep across it — while paints already decaying keep the radius they were
+   * born with. Re-judging them would be live re-evaluation, which is the exact
+   * defect cycle 55 removed.
    */
   setDazzled(dazzled: boolean): boolean {
     if (dazzled === this.dazzled) return false;
@@ -305,12 +324,14 @@ export class Radar {
   }
 
   /**
-   * The radius (u) inside which the heatmap paints nothing (amendments 80-81).
+   * The radius (u) inside which a paint CREATED RIGHT NOW would paint nothing
+   * (amendments 80-81, 85).
    *
    * It is `fogHoleRadiusU` — the very function that bakes the visible fog hole,
    * called rather than re-derived, so the suppression boundary IS the drawn hole
    * by construction and no future change to one can silently desync the other.
-   * Exposed for tests and for exactly that equality assertion.
+   * Exposed for tests and for exactly that equality assertion. Note the tense:
+   * this is the value a NEW paint freezes, not a live property of the buffer.
    */
   get sightHoleU(): number {
     return fogHoleRadiusU(this.sightRange, this.dazzled);
@@ -463,10 +484,15 @@ export class Radar {
   /** Turn every parked echo into a paint, ONCE an own pose exists. Geometry is
    *  frozen from then on — a phosphor paint is a historical snapshot, so it must
    *  not re-pose as the observer moves; the deferral exists only to stop a paint
-   *  being born wrong. */
+   *  being born wrong.
+   *
+   *  THE OBSERVER AND ITS SIGHT RADIUS FREEZE HERE TOO (amendment 85), alongside
+   *  the bearing and range that have frozen here since cycle 52. This is one of
+   *  the only two places in the grammar that may read `sightHoleU` at all. */
   private resolvePending(): void {
     const own = this.own;
     if (own === null || this.pending.length === 0) return;
+    const sight = freezeSight(own, this.sightHoleU);
     for (const e of this.pending) {
       const dx = e.x - own.x;
       const dy = e.y - own.y;
@@ -480,6 +506,7 @@ export class Radar {
         dist: Math.hypot(dx, dy),
         t: e.t,
         seed: paintSeed(e.id, e.t),
+        ...sight,
       });
     }
     this.pending.length = 0;
@@ -663,7 +690,11 @@ export class Radar {
   }
 
   /** Bake one island paint: its observer-facing landmass, from the REAL polygon,
-   *  frozen against the observer position at paint time. */
+   *  frozen against the observer position AND sight radius at paint time. Cells
+   *  inside truesight when the beam swept them never enter `cover` at all, so
+   *  the bubble later receding cannot resurrect them (amendment 85) — and the
+   *  coverage list is smaller for the paint's whole life. This is the second and
+   *  last place the grammar reads `sightHoleU`. */
   private openIslandPaint(
     isle: Island,
     own: OwnPoint,
@@ -680,7 +711,15 @@ export class Radar {
       to,
       full: false,
       t: serverNow,
-      cover: buildIslandCoverage(isle, this.islands, own, this.radarRange, seed, cfg),
+      cover: buildIslandCoverage(
+        isle,
+        this.islands,
+        own,
+        this.radarRange,
+        seed,
+        cfg,
+        this.sightHoleU,
+      ),
     };
     this.opening.set(isle, paint);
     this.enrollPaint(paint);
@@ -709,11 +748,11 @@ export class Radar {
     // must not leave the last frame's cells in the buffer, or a paint that aged
     // out would still answer `bandAt` — and would flash back the instant the
     // next paint made the sprite visible again.
-    // Anchoring also ARMS THE SIGHT GATE for this frame (amendments 80-81):
-    // the disc is re-established from the LIVE observer position every frame,
-    // never baked into a paint — an island's coverage is cached for a whole
-    // revolution while the ship keeps moving, so a baked gate would lag.
-    if (own !== null) anchorGrid(heat.grid, own.x, own.y, this.sightHoleU);
+    // Anchoring decides ONLY which cells are in bounds this frame. It arms
+    // nothing and judges nothing: the sight verdict was frozen onto each paint
+    // at its own creation (amendment 85), so this call is handed no observer
+    // state and the rasterizer has none to consult.
+    if (own !== null) anchorGrid(heat.grid, own.x, own.y);
     heat.sprite.visible = own !== null && this.paints.length > 0;
     if (!heat.sprite.visible || own === null) return;
     const cfg = CLIENT_CONFIG.blip.heatmap;

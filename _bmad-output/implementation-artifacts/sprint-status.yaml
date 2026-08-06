@@ -1,5 +1,6 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-06  # cycle 54 (0.17.54), the sight-bubble radar gate (interstitial — radar paints nothing inside truesight, per-CELL so straddlers keep their outside portion; client-only, PV unchanged at 28)
+# last_updated: 2026-08-06  # cycle 55 (0.17.55), A PAINT IS A HISTORICAL RECORD (interstitial — the sight verdict freezes at paint creation; the sweep is the only thing that paints; client-only, PV unchanged at 28)
+#                          # cycle 54 (0.17.54), the sight-bubble radar gate (interstitial — radar paints nothing inside truesight, per-CELL so straddlers keep their outside portion; client-only, PV unchanged at 28)
 #                          # cycle 53 (0.17.53), the radar heatmap correction (interstitial — Eric's live feedback on cycle 51; client-only, PV unchanged at 28)
 #                          # cycle 52 (0.17.52), Fractal Island Generation (interstitial — polygon coastlines; PV 27->28)
 #                          # cycle 51 (0.17.51), the radar realism cycle (interstitial — playtest-driven; landed in parallel with Story 4-5, which took cycle 50)
@@ -108,6 +109,24 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-06 (dev-auto cycle 55, 0.17.55) — A PAINT IS A HISTORICAL RECORD.
+  # Amendments 83-87. Client-only; PV unchanged at 28. Corrects cycle 54's EVALUATION TIME (its
+  # intent stands): the per-cell sight test ran in `writeCell` against the LIVE grid anchor every
+  # frame, so an island cell already inside the swept arc lit up the moment the observer moved away
+  # — painting with no sweep, which Eric ruled out flatly: "THE RADAR SWEEP IS THE ONLY THING THAT
+  # PAINTS. EVER." The fix freezes the observer position + sight radius onto each PAINT at creation
+  # and tests against those, never live state. This follows precedent rather than inventing one:
+  # ShipPaint already froze bearing/dist (which is why range attenuation never changed as you sailed
+  # away) and IslandPaint.cover already baked intensity and faceShadow from the observer at paint
+  # open — the sight verdict simply joins them. HeatGrid's live obsX/obsY/sightR2 are DELETED.
+  # THE GOVERNING INVARIANT, and the thing to check first for any new radar behavior (amendment 83):
+  # a paint is a historical record — position, intensity, band, and whether a cell paints at all are
+  # decided ONCE at creation; only alpha changes afterward, via time-based phosphor decay
+  # (blipAlpha over sweepPeriodMs x persistSweeps, ~12s; range and beam play no part, so anything
+  # leaving radar range still fades out on its own).
+  # ACCEPTED CONSEQUENCE, not a regression (amendment 86): a decaying ghost MAY sit inside the sight
+  # bubble if it was legitimately swept from outside and the observer then closed on it. Erasing it
+  # would reintroduce the very live re-evaluation this cycle removes. Pinned by test.
   # INTERSTITIAL 2026-08-06 (dev-auto cycle 54, 0.17.54) — THE SIGHT-BUBBLE RADAR GATE.
   # Amendments 80-82. Client-only; PV unchanged at 28. Closes an inconsistency cycle 53 left: ship
   # echoes never appeared inside truesight (the SERVER's `blipGate` has always excluded dist <=

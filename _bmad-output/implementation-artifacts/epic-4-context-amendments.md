@@ -1046,3 +1046,53 @@ Source: Eric, live, on the cycle-53 heatmap. Verbatim:
     sighted hull is a contact rather than a blip is already correct and is what this aligns islands
     to. `silhouette` mode is UNTOUCHED (it has no coverage grid at all, so it never had the bug).
 
+## 2026-08-06 — Eric ruling, A PAINT IS A HISTORICAL RECORD (cycle 55)
+
+Source: Eric, live, on the cycle-54 build. Two messages, verbatim:
+
+> *"islands are being painted as soon as they leave sight range, rather than when the radar sweeps
+> them. **THE RADAR SWEEP IS THE ONLY THING THAT PAINTS. EVER.** Lets just say this: if its OUTSIDE
+> of sight range and its detected by radar, then radar paints it, and this includes the part of ships
+> you can't see. If its INSIDE of sight range, then we don't need to radar paint it."*
+
+> *"just because it leaves radar range doesn't mean it gets un-painted. the phosphor decays
+> naturally, right?"*
+
+83. **THE GOVERNING INVARIANT: A PAINT IS A HISTORICAL RECORD.** Everything about a paint —
+    position, intensity, which band a cell lands in, and **whether a given cell paints at all** — is
+    decided ONCE, at paint creation, from the observer's state at that moment. The ONLY property that
+    changes afterward is alpha, via phosphor decay. Nothing about a paint may ever be re-evaluated
+    against live state. This single rule subsumes all three of Eric's complaints and is the thing to
+    check first whenever a new radar behavior is added.
+
+84. **THE BUG: cycle 54 put the sight test at STAMP time, so the bubble receding PAINTED things.**
+    Amendment 81 gated per-cell in `writeCell` against the LIVE grid anchor, re-evaluated every
+    frame. So an island cell already inside the swept arc but suppressed for being inside truesight
+    would light up the instant the observer moved away — no sweep involved, which is exactly what
+    Eric saw and exactly what *"THE RADAR SWEEP IS THE ONLY THING THAT PAINTS. EVER"* forbids.
+    Amendment 81's *intent* (radar adds nothing inside truesight) stands and is unchanged; only its
+    EVALUATION TIME was wrong. Cycle 54's stated reasoning for choosing stamp time — that a bake-time
+    gate "would go stale as the observer moves" — inverted the truth: staleness is CORRECT here,
+    because a paint is history.
+
+85. **THE FIX: freeze the observer onto the paint.** Each paint carries the observer position and
+    sight radius as of its own creation, and the sight test runs against THOSE frozen values, never
+    against the live grid. A cell inside truesight when the beam crossed it never enters the paint at
+    all; a cell outside truesight when swept is painted and thereafter only decays. Note the rest of
+    the design was ALREADY built this way and is the precedent being followed, not a new idea:
+    `ShipPaint` already freezes `bearing`/`dist` at paint time (so range attenuation never changes as
+    you sail away), and `IslandPaint.cover` already bakes per-cell intensity and `faceShadow` from
+    the observer at paint open. The sight verdict simply joins the set of things already frozen
+    there. `HeatGrid`'s live `obsX`/`obsY`/`sightR2` fields exist only to serve the wrong model and
+    go away with it.
+
+86. **ACCEPTED CONSEQUENCE, recorded so it is not later mistaken for a regression: a decaying ghost
+    may sit INSIDE the sight bubble.** If a cell is legitimately swept while outside truesight and
+    the observer then closes on it, the paint keeps decaying in place rather than being erased. That
+    is correct — *"the phosphor decays naturally"* — and erasing it would reintroduce exactly the
+    live re-evaluation amendment 83 forbids. Leaving RADAR range likewise never un-paints anything
+    (already true for ships via the frozen `dist`; now uniformly true).
+
+87. **Scope.** Client-only presentation: no wire change, no server change, `PROTOCOL_VERSION`
+    unchanged, no CONFIG combat tunable moves. `blipGate` untouched. `silhouette` mode untouched.
+
