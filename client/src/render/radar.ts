@@ -87,6 +87,25 @@
 // blipping the annulus it just opened, and the client stops synthesizing there.
 // `silhouette` mode has no buffer and no synthesis, so none of this reaches it.
 //
+// NO CLIPPING, NO EXCEPTIONS (cycle 57, amendments 92-94). Eric, on the cycle-56
+// build: *"there's basically a 'box' around my radar ring, and anything not in
+// that 'box' will be unpainted immediately once it leaves… If it gets painted,
+// it STAYS painted until it decays, NO EXCEPTIONS."* The box was this file's
+// buffer: `makeGrid(this.radarRange, …)`, re-anchored on the observer every
+// frame, so a rim paint fell out of it the instant the observer sailed outward.
+// That was the THIRD violation of amendment 83 in this family, and its scope now
+// explicitly covers anything that can drop a paint at DRAW time.
+//
+// The allocation is now the DERIVED bound (`heatExtentU`): radar range + the
+// farthest a maxed, boosted hull can sail inside one paint's life + the kernel's
+// own overhang, every term out of CONFIG/`effectiveStats` and none of them a
+// literal. That square is several times the old one, so the per-frame work moved
+// OFF it: `paintHeat` computes an ACTIVE SUB-RECT from the live paints
+// themselves (`liveRect`) and clears, stamps, quantizes and uploads only that.
+// Both the texture size and the sprite's world position follow that rect, which
+// is why `uploadHeat` exists at all. Typical play — paints near the observer —
+// costs a couple of buckets, less than the old radar-range square.
+//
 // Persistence is unchanged in both grammars: alpha/tint are pure functions of
 // serverNow − paint time (phosphor.ts), three sweeps of paints per track
 // (amendment 9), so a contact leaves a plottable track whose ghost SPACING
@@ -122,13 +141,19 @@ import { fogHoleRadiusU } from './fog.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 import { blipAlpha, blipCool, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
-  anchorGrid,
+  EMPTY_RECT,
+  anchorRect,
   arcOverlaps,
   bandIndex,
   buildIslandCoverage,
   contactEcho,
+  coverBox,
+  gridCols,
+  heatExtentU,
   islandBearingSpan,
+  liveRect,
   makeGrid,
+  RECT_BUCKET,
   paintSeed,
   quantizeInto,
   rasterize,
@@ -136,6 +161,7 @@ import {
   type HeatGrid,
   type IslandPaint,
   type RadarPaint,
+  type RasterCtx,
 } from './radarHeatmap.js';
 import { SWEEP_TEXTURE_RADIUS, bakeSweepTexture } from './textures.js';
 
@@ -203,6 +229,16 @@ interface OwnPoint {
   y: number;
 }
 
+/** The heatmap surface: the worst-case-sized buffer (amendment 93) and the one
+ *  texture + sprite that carry its ACTIVE RECT to the screen. Created only in
+ *  `return` mode. */
+interface HeatSurface {
+  grid: HeatGrid;
+  rgba: Uint8Array;
+  source: BufferImageSource;
+  sprite: Sprite;
+}
+
 /** The decay inputs shared by every live mark for one frame. */
 interface DecayFrame {
   life: number;
@@ -239,8 +275,7 @@ export class Radar {
   private bakeCursor = 0;
   /** The heatmap surface — created ONLY in `return` mode, so `silhouette` mode
    *  allocates no buffer, uploads no texture and adds no child. */
-  private heat: { grid: HeatGrid; rgba: Uint8Array; source: BufferImageSource; sprite: Sprite } | null =
-    null;
+  private heat: HeatSurface | null = null;
   private readonly blipLayer: Container;
   /** Scratch for the pose transform — consumed synchronously by the trace, so
    *  one array serves every blip (the 20Hz loop stays allocation-light). */
@@ -296,8 +331,10 @@ export class Radar {
   /**
    * Adopt the observer's effective vision stats (sight/radar range + sweep
    * period): redraws the range rings, rescales the baked sweep wedge to the new
-   * radar radius, and (in `return` mode) re-sizes the heatmap buffer, which is
-   * defined as covering 2 × radar range. Called only when the own stats change.
+   * radar radius, and (in `return` mode) re-sizes the heatmap buffer. The SWEEP
+   * PERIOD is an input to that size as of cycle 57 — it sets a paint's life, and
+   * therefore how far the observer can sail while one is still on the scope
+   * (amendment 93). Called only when the own stats change.
    */
   setRanges(sightRange: number, radarRange: number, sweepPeriodMs: number): void {
     this.sightRange = sightRange;
@@ -356,23 +393,43 @@ export class Radar {
     if (this.grammar === 'return') this.buildHeat();
   }
 
-  /** (Re)allocate the world-anchored heatmap surface for the current radar
-   *  range. Idempotent: an unchanged span keeps the existing buffer, so a
-   *  no-op `setRanges` never churns a texture. */
+  /**
+   * (Re)allocate the world-anchored heatmap surface.
+   *
+   * THE ALLOCATION IS THE WORST-CASE BOUND, NOT THE RADAR RANGE (amendment 93):
+   * `heatExtentU` = radar range + the farthest the observer can sail inside one
+   * paint's life + the kernel's own overhang. Through cycle 56 this was
+   * `makeGrid(this.radarRange, …)` and a rim paint was clipped the instant the
+   * observer sailed outward — the "box around the radar ring" Eric saw. Nothing
+   * per-frame touches this much of the buffer: `paintHeat` works over the active
+   * sub-rect.
+   *
+   * Idempotent: an unchanged span keeps the existing buffer, so a no-op
+   * `setRanges` never churns a texture. The size is computed BEFORE allocating,
+   * because the worst-case arrays are megabytes and building one to throw it
+   * away would be a real allocation per call.
+   */
   private buildHeat(): void {
     const cfg = CLIENT_CONFIG.blip.heatmap;
-    const grid = makeGrid(this.radarRange, cfg.cellU);
-    if (this.heat !== null && this.heat.grid.cols === grid.cols) return;
+    const extent = heatExtentU(this.radarRange, blipLifeMs(this.sweepPeriodMs), cfg);
+    const cols = gridCols(extent, cfg.cellU);
+    if (this.heat !== null && this.heat.grid.capCols === cols) return;
     this.heat?.sprite.destroy();
     this.heat?.source.destroy();
-    const rgba = new Uint8Array(grid.cols * grid.rows * 4);
+    const grid = makeGrid(extent, cfg.cellU);
+    const rgba = new Uint8Array(grid.capCols * grid.capCols * 4);
+    // The TEXTURE follows the ACTIVE RECT, not the allocation — it is created at
+    // one bucket and resized by `uploadHeat` as the scope's footprint changes.
+    // Sizing it to the allocation would put the whole worst-case square on the
+    // GPU and upload it every frame, which is the cost amendment 93 forbids.
     // NEAREST scaling and nothing else: the whole ruling is that there is no
     // interpolation between the three bands, and a linear filter would invent
     // exactly the blends amendment 77 forbids.
+    const side = Math.min(grid.capCols, RECT_BUCKET);
     const source = new BufferImageSource({
-      resource: rgba,
-      width: grid.cols,
-      height: grid.rows,
+      resource: rgba.subarray(0, side * side * 4),
+      width: side,
+      height: side,
       scaleMode: 'nearest',
       alphaMode: 'premultiply-alpha-on-upload',
     });
@@ -410,6 +467,20 @@ export class Radar {
     return this.paints.filter((p) => p.kind === 'island').length;
   }
 
+  /** ALLOCATION side length of the heatmap buffer, in cells; 0 in `silhouette`
+   *  mode, which allocates none. The observation seam for amendment 93's bound:
+   *  `heatCapCols × cellU / 2` is the half-extent the buffer covers, and a test
+   *  pins it against the independently derived worst case. */
+  get heatCapCols(): number {
+    return this.heat?.grid.capCols ?? 0;
+  }
+
+  /** Cells in the ACTIVE SUB-RECT of the last frame — the per-frame cost, which
+   *  must NOT scale with the allocation (amendment 93). Test/debug seam. */
+  get heatRectCells(): number {
+    return this.heat === null ? 0 : this.heat.grid.cols * this.heat.grid.rows;
+  }
+
   /**
    * Which quantized band the heatmap is painting at a world point, or -1 for
    * fully transparent. THE observation seam for the bitmap: the buffer is a pure
@@ -424,6 +495,28 @@ export class Radar {
   /** The raw (unquantized) intensity at a world point (debug/tests). */
   intensityAt(x: number, y: number): number {
     return this.heat === null ? 0 : sampleGrid(this.heat.grid, x, y).w;
+  }
+
+  /**
+   * The UPLOADED RGBA at a world point, resolved through the sprite's placement
+   * and the texture's own stride — null when that point is off the texture.
+   *
+   * THE PLACEMENT SEAM (amendment 93). `bandAt` reads the buffer directly and so
+   * cannot catch a misplaced sprite; this walks the path a pixel actually takes
+   * to the screen — sprite position, sprite scale, texture width — which is
+   * exactly the set of things a rect that moves and resizes every frame can get
+   * wrong. Get it wrong and every echo lands somewhere other than the water it
+   * was painted on.
+   */
+  texelAt(x: number, y: number): readonly number[] | null {
+    const heat = this.heat;
+    if (heat === null || !heat.sprite.visible) return null;
+    const cx = Math.floor((x - heat.sprite.position.x) / heat.sprite.scale.x);
+    const cy = Math.floor((y - heat.sprite.position.y) / heat.sprite.scale.y);
+    const w = heat.source.pixelWidth;
+    if (cx < 0 || cy < 0 || cx >= w || cy >= heat.source.pixelHeight) return null;
+    const i = (cy * w + cx) * 4;
+    return [heat.rgba[i], heat.rgba[i + 1], heat.rgba[i + 2], heat.rgba[i + 3]];
   }
 
   private makeBlipGraphics(layer: Container): Graphics {
@@ -769,6 +862,7 @@ export class Radar {
   ): void {
     const cfg = CLIENT_CONFIG.blip.heatmap;
     const seed = paintSeed(`i${isle.x.toFixed(0)},${isle.y.toFixed(0)}`, serverNow);
+    const cover = buildIslandCoverage(isle, this.islands, own, this.radarRange, seed, cfg);
     const paint: IslandPaint = {
       kind: 'island',
       isle,
@@ -776,7 +870,11 @@ export class Radar {
       to,
       full: false,
       t: serverNow,
-      cover: buildIslandCoverage(isle, this.islands, own, this.radarRange, seed, cfg),
+      cover,
+      // Baked WITH the cover and frozen with it: the active-rect union reads it
+      // every frame, and rescanning `cover` there would double the per-frame
+      // island cost for a number that can never change (amendment 93).
+      box: coverBox(cover),
     };
     this.opening.set(isle, paint);
     this.enrollPaint(paint);
@@ -801,28 +899,59 @@ export class Radar {
   private paintHeat(own: OwnPoint | null, serverNow: number): void {
     const heat = this.heat;
     if (heat === null) return;
-    // Anchor (which CLEARS) before the visibility early-out: hiding the sprite
-    // must not leave the last frame's cells in the buffer, or a paint that aged
-    // out would still answer `bandAt` — and would flash back the instant the
-    // next paint made the sprite visible again.
-    // Anchoring decides ONLY which cells are in bounds this frame. It arms
-    // nothing and judges nothing: every judgement about a paint was made at its
-    // own creation (amendment 83), so this call is handed no observer state and
-    // the rasterizer has none to consult.
-    if (own !== null) anchorGrid(heat.grid, own.x, own.y);
-    heat.sprite.visible = own !== null && this.paints.length > 0;
-    if (!heat.sprite.visible || own === null) return;
     const cfg = CLIENT_CONFIG.blip.heatmap;
-    rasterize(heat.grid, this.paints, {
+    const ctx: RasterCtx = {
       now: serverNow,
       lifeMs: blipLifeMs(this.sweepPeriodMs),
       alphaFloor: this.assist ? CLIENT_CONFIG.blip.assistMinAlpha : CLIENT_CONFIG.blip.minAlpha,
       radarRange: this.radarRange,
       opts: cfg,
-    });
+    };
+    // THE ACTIVE RECT IS CHOSEN BY THE PAINTS, NOT BY THE OBSERVER (amendment
+    // 93). It is the union of the footprints the stampers are about to walk, so
+    // it cannot drop one of them; the allocation, sized to the worst case a
+    // paint's life can reach, is what keeps its clamp out of reach.
+    const rect = own === null ? null : liveRect(heat.grid, this.paints, ctx);
+    // Anchor (which CLEARS) before the visibility early-out: hiding the sprite
+    // must not leave the last frame's cells in the buffer, or a paint that aged
+    // out would still answer `bandAt` — and would flash back the instant the
+    // next paint made the sprite visible again. The empty rect clears nothing
+    // BECAUSE it holds nothing: every sample against it misses.
+    anchorRect(heat.grid, rect ?? EMPTY_RECT);
+    heat.sprite.visible = rect !== null;
+    if (rect === null) return;
+    // Anchoring decides ONLY which cells are in bounds this frame. It arms
+    // nothing and judges nothing: every judgement about a paint was made at its
+    // own creation (amendment 83), so the rasterizer is handed no observer state
+    // and has none to consult.
+    rasterize(heat.grid, this.paints, ctx);
     quantizeInto(heat.grid, cfg.bands, heat.rgba);
-    heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
-    heat.source.update();
+    this.uploadHeat(heat);
+  }
+
+  /**
+   * Push the quantized bytes and put the sprite where the rect actually is.
+   *
+   * BOTH HALVES FOLLOW THE ACTIVE RECT (amendment 93). The texture is resized to
+   * the rect's cell dims — it is no longer a fixed square centred on the ship —
+   * and the sprite sits at the rect's world origin, which is what keeps every
+   * echo on the water where it was painted while the rect moves and resizes
+   * underneath it. `scale = cellU` is unchanged: one texel is still one cell.
+   *
+   * The resource is re-viewed onto the same backing buffer rather than copied:
+   * the GL uploader hands `source.resource` straight to `texImage2D`, so its
+   * length has to match the declared dims exactly. `resize` is a no-op (and
+   * returns false) when the dims did not move, which is the ordinary frame —
+   * `RECT_BUCKET` is what makes that the ordinary frame.
+   */
+  private uploadHeat(heat: HeatSurface): void {
+    const { grid, sprite, source } = heat;
+    if (source.pixelWidth !== grid.cols || source.pixelHeight !== grid.rows) {
+      source.resource = heat.rgba.subarray(0, grid.cols * grid.rows * 4);
+      source.resize(grid.cols, grid.rows);
+    }
+    sprite.position.set(grid.originX, grid.originY);
+    source.update();
   }
 
   private updateBlips(serverNow: number): void {

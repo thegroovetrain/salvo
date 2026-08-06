@@ -1149,3 +1149,43 @@ Source: Eric, live, on the cycle-55 build. Verbatim:
     (Story 1.8, amendment 11) and Eric has flagged it for *"big changes soon"*, so it should be left
     alone rather than re-plumbed here.
 
+## 2026-08-06 — Eric ruling, NO CLIPPING, NO EXCEPTIONS (cycle 57)
+
+Source: Eric, live, on the cycle-56 build. Verbatim:
+
+> *"I had said that I don't want any pixels to de-render for any reason that isn't 'natural'
+> phosphor decay. When I zoom out, I am noticing that there's basically a 'box' around my radar ring,
+> and anything not in that 'box' will be unpainted immediately once it leaves, and then re-render if
+> it comes back into that 'box.' I don't want that behavior **at all**. If it gets painted, it
+> **stays** painted until it decays, **NO EXCEPTIONS.**"*
+
+92. **THE BUFFER EXTENT IS THE THIRD VIOLATION OF AMENDMENT 83, and the invariant is now absolute.**
+    The heatmap buffer is allocated as `makeGrid(radarRange, cellU)` — a square of half-extent
+    exactly `radarRange`, re-anchored on the observer every frame. So a paint created near the edge
+    of radar range is CLIPPED the moment the observer sails outward, and reappears if they sail back:
+    de-rendering for a reason that is not decay. Amendment 83 said position, intensity, band and
+    whether a cell paints are decided once at creation; **the buffer was silently overriding that at
+    draw time.** Eric's rule now reads, in full: *if it gets painted, it stays painted until it
+    decays, NO EXCEPTIONS* — and "the buffer is too small" is not an exception.
+
+93. **THE FIX IS A DERIVED EXTENT WITH A PINNED BOUND, not a bigger magic number.** A paint's maximum
+    possible distance from the observer at the end of its life is bounded and computable:
+    `radarRange` (the farthest a paint can be created) `+ maxObserverSpeed × maxPaintLife` (the
+    farthest the observer can sail before it decays). Both terms must be DERIVED from CONFIG and
+    `effectiveStats` — including engine boons and boost, since a maxed hull under boost is the worst
+    case — and never hardcoded. A test MUST pin that the allocated extent covers that bound, so
+    retuning ship speed, `sweepRpm`, or `persistSweeps` can never silently reintroduce clipping.
+
+    **Per-frame cost must NOT scale with the worst case.** The worst-case square is several times the
+    current one, and clearing and quantizing all of it every frame would be a real regression. The
+    per-frame work belongs to the ACTIVE sub-rect — the region live paints actually occupy — while
+    the ALLOCATION covers the bound. Typical play keeps paints near the observer and should cost what
+    it costs today.
+
+94. **Scope.** Client-only presentation: no wire change, no server change, `PROTOCOL_VERSION`
+    unchanged, no CONFIG combat tunable moves. `silhouette` mode untouched (it has no buffer). This
+    is the THIRD correction in the same family — cycle 55 (gate evaluated live), cycle 56 (sight
+    exclusion retired), and now the buffer extent. Amendment 83 remains the single thing to check,
+    and its scope now explicitly includes anything that can drop a paint at DRAW time, not just
+    anything that can re-decide it.
+
