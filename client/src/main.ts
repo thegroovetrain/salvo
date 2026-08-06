@@ -2141,15 +2141,18 @@ function dazzleActive(g: Game, now: number): boolean {
  * where the state actually flips (Fog.setDazzled reports staleness), the same
  * path a resize / sight-stat change takes.
  *
- * THE RADAR TAKES THE SAME FLAG, from this one place (amendment 81). Its
- * heatmap suppresses everything inside `fogHoleRadiusU()` — the identical
- * radius, by the identical function — so a dazzle state the radar did not hear
- * about would leave a shrunken fog hole ringed by an unshrunken suppression
- * circle: a dead annulus that is fogged AND unpainted, which is the exact seam
- * the sight gate exists to remove. It is set UNCONDITIONALLY and before the
- * fog's changed-flag early-return, because that flag guards the expensive
- * rebake and nothing else; the radar re-derives its disc every frame and has
- * nothing to rebake, so its own changed-flag is deliberately unused here.
+ * THE RADAR TAKES THE SAME FLAG, from this one place (amendment 89). It uses
+ * `fogHoleRadiusU()` — the identical radius, by the identical function — as the
+ * SEAM between its two sources of ship paints: inside it the client synthesizes
+ * an echo from the hull's `Contact`, outside it the echo arrives as a wire blip
+ * the server sent. That radius is also, by construction, the dazzle-scaled
+ * truesight the SERVER decides the same question with, so a dazzle state the
+ * radar did not hear about would have the client still synthesizing an annulus
+ * the server had already started blipping — one hull, two echoes. It is set
+ * UNCONDITIONALLY and before the fog's changed-flag early-return, because that
+ * flag guards the expensive rebake and nothing else; the radar re-reads the
+ * radius when a paint is created and has nothing to rebake, so its own
+ * changed-flag is deliberately unused here.
  */
 function updateDazzle(g: Game, now: number): void {
   const dazzled = dazzleActive(g, now);
@@ -2264,13 +2267,18 @@ function renderAlive(
   // Own pose feeds the shell sight-bubble cull; own active zones keep a shell
   // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
   g.projectiles.render(now, pose ?? undefined, ownZones);
-  // AHEAD OF THE RADAR ON PURPOSE (amendment 81): the heatmap's sight-gate disc
-  // and the fog hole are one radius, and the radar bakes its disc during
-  // render() — so a dazzle flip adopted after this line would leave the scope
-  // one frame behind the fog, which is the disagreement the gate exists to
-  // prevent. Camera zoom (which the fog rebake reads) was updated in renderOwn.
+  // AHEAD OF THE RADAR ON PURPOSE (amendment 89): the seam between the radar's
+  // two ship-paint sources and the fog hole are one radius, and the radar reads
+  // it during render() — so a dazzle flip adopted after this line would leave
+  // the scope one frame behind the fog and the server, which is the
+  // disagreement that radius exists to prevent. Camera zoom (which the fog
+  // rebake reads) was updated in renderOwn.
   updateDazzle(g, now);
-  g.radar.render(pose, now);
+  // The contact store is the radar's SECOND source of ship paints (amendment
+  // 89): a hull inside truesight is delivered as a `Contact` and never as a
+  // blip, so the scope synthesizes its echo from that store when the beam
+  // crosses it. Read-only here — the radar samples poses, nothing more.
+  g.radar.render(pose, now, g.contacts);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
   // own pose for a frame, and a plume that stopped drifting whenever our own

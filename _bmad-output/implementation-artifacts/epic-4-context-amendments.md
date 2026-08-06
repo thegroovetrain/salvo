@@ -1096,3 +1096,56 @@ Source: Eric, live, on the cycle-54 build. Two messages, verbatim:
 87. **Scope.** Client-only presentation: no wire change, no server change, `PROTOCOL_VERSION`
     unchanged, no CONFIG combat tunable moves. `blipGate` untouched. `silhouette` mode untouched.
 
+## 2026-08-06 — Eric ruling, THE SCOPE PAINTS EVERYTHING IN RANGE (cycle 56)
+
+Source: Eric, live, on the cycle-55 build. Verbatim:
+
+> *"I think I love it but I also think maybe we should paint **everything** in radar range, even if
+> its in LOS. Just that if its in LOS (truesight) range, then you also see the actual ship in
+> realtime."*
+
+88. **RADAR PAINTS EVERYTHING WITHIN RADAR RANGE — the sight exclusion is RETIRED.** This
+    **SUPERSEDES amendment 81** (cycle 54's sight-bubble gate) and the sight half of amendments 84-85
+    outright. Inside truesight you now get BOTH channels at once: the live hull, drawn in realtime,
+    AND its radar echo painted by the sweep. Rationale of record: a real scope does not stop painting
+    what you can also see out the window, and the doubled read is information, not noise — the echo
+    tells you when the beam last touched it, which the live hull does not.
+
+    **Amendment 83 is UNAFFECTED and still governs.** "A paint is a historical record" was never
+    about sight; it is about evaluation time, and every part of it stands. What is deleted is the
+    frozen sight VERDICT, not the freezing discipline. Amendment 86's accepted consequence (a ghost
+    decaying inside the bubble) stops being an edge case and becomes the ordinary case.
+
+89. **SIGHTED SHIPS ARE PAINTED CLIENT-SIDE FROM THEIR `Contact` — no wire change.** The server has
+    never sent a blip for a ship inside sight: `blipGate` excludes `dist <= sightRange` because a
+    sighted hull is delivered as a full `Contact` instead, and that is correct and MUST NOT CHANGE
+    (it is a perception-invariant surface). So the echo for a sighted ship is synthesized on the
+    CLIENT from the `Contact` it already holds — which carries `cls` and `heading` (`types.ts:304`),
+    everything `perpendicularExtent` needs. This discloses NOTHING new: a sighted hull is already
+    fully visible, so painting an echo from it adds no information the client did not have.
+
+    **The sweep still gates it (amendment 83).** A contact-derived echo is created when the BEAM
+    CROSSES its bearing, exactly like a wire blip — not every frame, and not on contact arrival.
+    `blipGate` and every server-side rule are untouched; this is purely a second client-side source
+    of paints feeding the existing paint list.
+
+90. **Scope.** Client-only: no wire change, no server change, `PROTOCOL_VERSION` unchanged, no CONFIG
+    combat tunable moves. `silhouette` mode untouched.
+
+91. **DEFERRED TO ITS OWN CYCLE, ruled but NOT built here: above-surface projectiles paint on radar.**
+    Eric, same message: *"above-surface projectiles should get picked up on radar if they are swept
+    over while in the air (this would currently apply to gun, cannon, star shells, and the decoy buoy
+    [which is going to get some big changes soon!]) and show up as 'weaker' returns."* Deferred
+    because — unlike amendment 88 — it is NOT a render change: ballistics are currently revealed ONLY
+    inside the observer's sight bubble (`types.ts`: *"position and velocity AT REVEAL TIME (launch for
+    the owner, first-sight for everyone else)"*), so painting them at radar range requires the SERVER
+    to disclose ballistics further out. That is a wire change, a `PROTOCOL_VERSION` bump, and a
+    genuine new combat-information channel — you would see incoming fire before it reaches truesight.
+    Constraints that cycle must hold: the existing anti-cheat rule that a ballistic reveal carries NO
+    range-derivable field (so the wire can never be solved back to the muzzle) applies unchanged at
+    the wider radius; the reveal must be gated by the same annulus + island LOS + swept-this-tick
+    test `blipGate` uses; torpedoes stay excluded (underwater — the shipped "quiet weapon") and mines
+    stay excluded (not above surface). The DECOY BUOY already emits a counter-intel blip by design
+    (Story 1.8, amendment 11) and Eric has flagged it for *"big changes soon"*, so it should be left
+    alone rather than re-plumbed here.
+
