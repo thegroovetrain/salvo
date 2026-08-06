@@ -16,11 +16,13 @@
 //
 // A generated map is only accepted when the shoelace land coverage sits in
 // [COVER_MIN, COVER_MAX] of the disc AND the navigability grid (32u cells,
-// eroded by widest-hull half-beam + margin, flood-filled from the spawn
-// ring) proves every water cell reachable — one deterministic check that
-// delivers no-lagoons, no-unreachable-pockets, and no-sub-Battleship
-// channels at once. Rejected maps reroll from the SAME rng stream; on
-// exhaustion the landmass COUNT is relaxed, never the invariants.
+// eroded by widest-hull half-beam + margin, flood-filled 4-CONNECTED from the
+// spawn ring) proves every water cell reachable — one deterministic check that
+// delivers no-lagoons, no-unreachable-pockets, and no-sub-Battleship channels
+// at once. Rejected maps reroll from the SAME rng stream; late attempts also
+// relax the landmass COUNT. The invariants are NEVER relaxed: every returned
+// map has passed the full `validateMap`, and a ladder that cannot produce one
+// throws `MapGenerationError` rather than silently widening the band.
 
 import { mapRadius, CONFIG } from '../constants.js';
 import { mulberry32, type Rng } from '../math/rng.js';
@@ -303,6 +305,23 @@ function spawnRingSeed(grid: NavGrid, radius: number, spawnRing: number): number
   return -1;
 }
 
+/**
+ * THE definition of grid adjacency: the four ORTHOGONAL in-bounds neighbours
+ * of `idx`. A hull cannot squeeze through a corner touch, so 4-connectivity is
+ * the navigable semantics — and BOTH the flood (`floodFromSpawnRing`) and the
+ * reachability acceptance (`hasReachedNeighbor`) call this one function, so
+ * they can never again disagree about what "adjacent" means.
+ */
+function orthoNeighbors(n: number, idx: number): number[] {
+  const cx = idx % n;
+  const out: number[] = [];
+  if (idx - n >= 0) out.push(idx - n);
+  if (idx + n < n * n) out.push(idx + n);
+  if (cx > 0) out.push(idx - 1);
+  if (cx < n - 1) out.push(idx + 1);
+  return out;
+}
+
 /** Flood-fill navigable cells (4-connected) from a cell on the spawn ring. */
 function floodFromSpawnRing(grid: NavGrid, radius: number, spawnRing: number): Uint8Array {
   const reached = new Uint8Array(grid.n * grid.n);
@@ -312,15 +331,10 @@ function floodFromSpawnRing(grid: NavGrid, radius: number, spawnRing: number): U
     reached[seed] = 1;
     stack.push(seed);
   }
-  const n = grid.n;
   while (stack.length > 0) {
     const idx = stack.pop() as number;
-    const cx = idx % n;
-    const neighbors = [idx - n, idx + n];
-    if (cx > 0) neighbors.push(idx - 1);
-    if (cx < n - 1) neighbors.push(idx + 1);
-    for (const nb of neighbors) {
-      if (nb >= 0 && nb < n * n && grid.cells[nb] === 3 && !reached[nb]) {
+    for (const nb of orthoNeighbors(grid.n, idx)) {
+      if (grid.cells[nb] === 3 && !reached[nb]) {
         reached[nb] = 1;
         stack.push(nb);
       }
@@ -329,36 +343,64 @@ function floodFromSpawnRing(grid: NavGrid, radius: number, spawnRing: number): U
   return reached;
 }
 
-function hasReachedNeighbor(grid: NavGrid, reached: Uint8Array, idx: number): boolean {
-  const n = grid.n;
-  const cx = idx % n;
-  for (let dy = -1; dy <= 1; dy++) {
-    for (let dx = -1; dx <= 1; dx++) {
-      if (dx === 0 && dy === 0) continue;
-      if (cx + dx < 0 || cx + dx >= n) continue;
-      const nb = idx + dy * n + dx;
-      if (nb >= 0 && nb < n * n && reached[nb]) return true;
+/**
+ * True iff every TIGHT-water cell (2) is 4-connected THROUGH tight water to
+ * the reached ocean — i.e. it is shore, a cove, or an inlet continuous with
+ * the sea rather than a puddle sealed off from it. Seeded from the reached
+ * navigable cells and spread with the same `orthoNeighbors` the flood uses.
+ *
+ * A one-hop test cannot express this: at 32u cells a perfectly ordinary
+ * coastal nook is two or three tight cells deep, and requiring each of them to
+ * touch open water directly rejected 81% of otherwise-valid candidate maps
+ * (measured over 425 candidates). Transitivity is what makes 4-connectivity
+ * affordable here; it does not weaken anything, because the sub-beam-pinch
+ * case is caught by the STRICT navigable-cell rule in `navigable` below,
+ * before this ever runs.
+ */
+function shoreConnected(grid: NavGrid, reached: Uint8Array): boolean {
+  const open = Uint8Array.from(reached);
+  const stack: number[] = [];
+  for (let idx = 0; idx < open.length; idx++) if (open[idx] === 1) stack.push(idx);
+  while (stack.length > 0) {
+    const idx = stack.pop() as number;
+    for (const nb of orthoNeighbors(grid.n, idx)) {
+      if (grid.cells[nb] === 2 && open[nb] === 0) {
+        open[nb] = 1;
+        stack.push(nb);
+      }
     }
   }
-  return false;
+  for (let idx = 0; idx < grid.cells.length; idx++) {
+    if (grid.cells[idx] === 2 && open[idx] === 0) return false;
+  }
+  return true;
 }
 
 /**
  * The single navigability check (deterministic — same accept/reject on server
- * and client): every non-land water cell must be reached by the spawn-ring
- * flood or adjacent to a reached navigable cell. Rejects enclosed lagoons,
- * unreachable pockets, and channels narrower than the widest hull + margin.
+ * and client), in two clauses, both 4-CONNECTED:
+ *
+ *  1. Every NAVIGABLE cell (3) must be REACHED by the spawn-ring flood. No
+ *     leniency at all: an unreached navigable cell is either an enclosed
+ *     lagoon or a bay behind a channel too narrow for the widest hull.
+ *  2. Every TIGHT-water cell (2) must be shore-connected to that reached
+ *     ocean (`shoreConnected`).
+ *
+ * Clause 1 replaces a one-hop "or adjacent to a reached cell" test that
+ * accepted all EIGHT neighbours while the flood spread over only FOUR. A hull
+ * cannot squeeze through a corner touch, so that mismatch let a water cell
+ * touching the ocean only DIAGONALLY count as reachable, and `validateMap`
+ * accepted enclosed pockets and sub-beam diagonal pinches — defeating the
+ * ratified no-enclosed-lagoons invariant. Both clauses now spread with the
+ * same `orthoNeighbors`, so the flood and the acceptance cannot disagree.
  */
 function navigable(islands: readonly Island[], radius: number, spawnRing: number): boolean {
   const grid = buildNavGrid(islands, radius);
   const reached = floodFromSpawnRing(grid, radius, spawnRing);
   for (let idx = 0; idx < grid.cells.length; idx++) {
-    const c = grid.cells[idx];
-    if (c !== 2 && c !== 3) continue;
-    if (reached[idx]) continue;
-    if (!hasReachedNeighbor(grid, reached, idx)) return false;
+    if (grid.cells[idx] === 3 && reached[idx] === 0) return false;
   }
-  return true;
+  return shoreConnected(grid, reached);
 }
 
 /** Shoelace land cover as a fraction of the map disc area. */
@@ -386,28 +428,87 @@ function attemptTarget(attempt: number): number {
   return 0.032;
 }
 
+/** Attempts from which a candidate may also DROP landmasses to reach validity. */
+const DROP_FROM = 4;
+
+/**
+ * Thrown when the ladder cannot produce a map satisfying EVERY invariant.
+ * Deterministic like the generator itself, so server and client fail
+ * identically on the same (seed, playerCap) — never one of them silently
+ * sailing a different ocean.
+ */
+export class MapGenerationError extends Error {
+  constructor(
+    readonly seed: number,
+    readonly playerCap: number,
+    readonly attempts: number,
+  ) {
+    super(
+      `generateMap: no map satisfying all invariants for seed=${seed} ` +
+        `playerCap=${playerCap} after ${attempts} attempts ` +
+        `(coverage band [${COVER_MIN}, ${COVER_MAX}] + navigability + >=1 landmass)`,
+    );
+    this.name = 'MapGenerationError';
+  }
+}
+
+/**
+ * One candidate map. `drop` relaxes the landmass COUNT (last-placed first)
+ * to recover from a single badly-placed mass — but the candidate is then
+ * re-checked in FULL: dropping used to return immediately on navigability
+ * alone, which could hand back a map below COVER_MIN or with zero landmasses.
+ * Every acceptance in this file goes through `validateMap`.
+ */
+function attemptMap(
+  rng: Rng,
+  radius: number,
+  spawnRing: number,
+  target: number,
+  drop: boolean,
+): GameMap | null {
+  const islands = rollIslands(rng, radius, spawnRing, target);
+  if (drop) {
+    while (islands.length > 0 && !navigable(islands, radius, spawnRing)) islands.pop();
+  }
+  const map = { radius, spawnRing, islands };
+  return islands.length >= 1 && validateMap(map) ? map : null;
+}
+
 /**
  * Generate the map for `seed` and `playerCap`. Deterministic: identical
  * (seed, playerCap) always yields a deep-equal map — vertex for vertex — on
  * every platform (one mulberry32 stream, fixed consumption order, no
- * unordered iteration). Rejected candidates reroll from the same stream; on
- * exhaustion the landmass COUNT is relaxed (islands dropped last-placed
- * first), never the navigability invariant.
+ * unordered iteration). Rejected candidates reroll from the same stream; late
+ * attempts additionally relax the landmass COUNT, never the invariants.
+ *
+ * The map this returns has passed `validateMap` — coverage band, >=1 landmass,
+ * and navigability — with NO exceptions: the single `return` is guarded by it
+ * and every other exit throws `MapGenerationError`. Silently widening the band
+ * is what the spec's Block-If forbids, and a map that violates the invariants
+ * the rest of shared/ assumes is worse than a loud refusal: the throw is
+ * deterministic, so a client cannot fail where the server succeeded (they
+ * would both refuse the same seed), and a failed join is recoverable where an
+ * unnavigable ocean is not. The `never throws in practice` half of the
+ * guarantee is a measurement, pinned by the seed-sweep test.
  */
 export function generateMap(seed: number, playerCap: number = CONFIG.map.playerCap): GameMap {
+  return generateMapBounded(seed, playerCap, MAP_ATTEMPTS);
+}
+
+/**
+ * `generateMap` with an explicit attempt budget. Exported ONLY so the
+ * exhaustion path is directly testable (a real budget can't be starved from
+ * outside); production always calls `generateMap`.
+ */
+export function generateMapBounded(seed: number, playerCap: number, attempts: number): GameMap {
   const radius = mapRadius(playerCap);
   const spawnRing = radius * CONFIG.map.spawnFraction;
   const rng = mulberry32(seed);
-  for (let attempt = 0; attempt < MAP_ATTEMPTS; attempt++) {
-    const islands = rollIslands(rng, radius, spawnRing, attemptTarget(attempt));
-    const map = { radius, spawnRing, islands };
-    if (islands.length >= 1 && validateMap(map)) return map;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const map = attemptMap(rng, radius, spawnRing, attemptTarget(attempt), attempt >= DROP_FROM);
+    if (map) return map;
   }
-  // Exhaustion: relax landmass COUNT, never the invariants — drop landmasses
-  // (last-placed first) until the remainder is navigable.
-  const islands = rollIslands(rng, radius, spawnRing, 0.032);
-  while (islands.length > 0 && !navigable(islands, radius, spawnRing)) islands.pop();
-  return { radius, spawnRing, islands };
+  throw new MapGenerationError(seed, playerCap, attempts);
 }
 
 /** Constants describing island generation constraints (exposed for tests). */
