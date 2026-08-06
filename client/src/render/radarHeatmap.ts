@@ -37,7 +37,7 @@
 // read, live or frozen. Everything else it forbids still stands, and R7's new
 // contact-derived source is born under it like every other paint.
 //
-// THE RULINGS THIS FILE IMPLEMENTS:
+// THE SIX RULINGS THIS FILE IMPLEMENTS:
 //
 //   • R1 — HISTORY LIVES IN A PAINT LIST, NOT IN THE BUFFER. Nothing here ever
 //     decays a persistent buffer in place: the observer moves, so an in-place
@@ -117,16 +117,6 @@
 //     ruling 2026-08-02), which is what keeps a lit-zone contact behind a
 //     headland from painting an echo no beam could have returned.
 //
-//   • R8 — THE BUFFER MAY NEVER DROP A PAINT (cycle 57, amendments 92-94). The
-//     allocation is the DERIVED worst case (`heatExtentU`, section 9), not radar
-//     range: a paint born at the rim must survive the observer sailing away from
-//     it for the paint's whole life. Amendment 83's scope now explicitly
-//     includes anything that can drop a paint at DRAW time, which is what the
-//     old radar-range square was quietly doing. Because that square is several
-//     times bigger, the per-frame work moved onto an ACTIVE SUB-RECT derived
-//     FROM the live paints (`liveRect`) — a cost boundary that, by construction,
-//     contains every cell the stampers are about to write.
-//
 // THE NEAR FACE, EXACTLY (amendments 69 + 78, and cycle 51's review gate). A
 // radar sees the near surface; the far side is the island's own shadow. The
 // criterion generalizes the tangent rule to interior points: for a point P at
@@ -139,9 +129,6 @@
 // as a drawn edge.
 
 import {
-  BOON_CATALOG,
-  CONFIG,
-  effectiveStats,
   hullSilhouette,
   islandBlocksSegment,
   pointInIsland,
@@ -150,8 +137,6 @@ import {
   segCircleHit,
   transformPolygon,
   wrapPositive,
-  type BoonDef,
-  type BoonEffect,
   type HullId,
   type Island,
   type Vec2,
@@ -212,18 +197,6 @@ export function bandIndex(intensity: number, bands: readonly HeatBand[]): number
 // --- 2. the world-anchored grid ----------------------------------------------
 
 /**
- * A rectangle of ABSOLUTE world cells: top-left index plus a size. The unit the
- * per-frame cost is expressed in (amendment 93) — the buffer is allocated for
- * the worst case and worked over one of these.
- */
-export interface CellRect {
-  gx0: number;
-  gy0: number;
-  cols: number;
-  rows: number;
-}
-
-/**
  * The intensity buffer. Two parallel per-cell channels, and they carry DIFFERENT
  * quantities on purpose:
  *
@@ -243,23 +216,12 @@ export interface CellRect {
 export interface HeatGrid {
   /** World units per cell. */
   cellU: number;
-  /**
-   * THE ALLOCATION side length, in cells (amendment 93). The backing arrays are
-   * `capCols × capCols` and are sized ONCE, from the worst-case bound
-   * `heatExtentU()` — never from what is on screen. Nothing per-frame may touch
-   * this much of the buffer; `cols`/`rows` below are what a frame actually
-   * costs.
-   */
-  capCols: number;
-  /** ACTIVE rect width this frame, in cells (≤ capCols). Also the row STRIDE of
-   *  `w`/`a` and of the quantized RGBA. */
   cols: number;
-  /** ACTIVE rect height this frame, in cells (≤ capCols). */
   rows: number;
-  /** ABSOLUTE world cell index of column 0 / row 0 of the ACTIVE rect. */
+  /** ABSOLUTE world cell index of column 0 / row 0 (see `anchorGrid`). */
   baseGx: number;
   baseGy: number;
-  /** World coordinate of the ACTIVE rect's top-left corner (= baseG* × cellU). */
+  /** World coordinate of the grid's top-left corner (= baseG* × cellU). */
   originX: number;
   originY: number;
   /** Per-cell intensity — the quantization input. */
@@ -268,30 +230,16 @@ export interface HeatGrid {
   a: Float32Array;
 }
 
-/** Side length in cells of the square buffer covering `2 × radiusU`, plus two
- *  cells of slack so a snapped origin can never leave the far edge short. */
-export function gridCols(radiusU: number, cellU: number): number {
-  return Math.max(1, Math.ceil((2 * radiusU) / cellU) + 2);
-}
-
 /**
  * Allocate a square buffer covering `2 × radiusU` (ruling R2) at `cellU`
- * resolution.
- *
- * `radiusU` IS THE WORST-CASE BOUND, NOT THE RADAR RANGE (amendment 93). The
- * caller passes `heatExtentU()`: the farthest a paint can be created PLUS the
- * farthest the observer can sail before it decays. Sizing this square to radar
- * range — what shipped through cycle 56 — clipped any paint the observer sailed
- * away from and un-clipped it if they sailed back, which is de-rendering for a
- * reason that is not decay. The allocation is deliberately several times the
- * region a frame draws; `anchorRect` is what keeps the per-frame cost off it.
+ * resolution, plus two cells of slack so a snapped origin can never leave the
+ * far edge short.
  */
 export function makeGrid(radiusU: number, cellU: number): HeatGrid {
-  const cols = gridCols(radiusU, cellU);
+  const cols = Math.max(1, Math.ceil((2 * radiusU) / cellU) + 2);
   const n = cols * cols;
   return {
     cellU,
-    capCols: cols,
     cols,
     rows: cols,
     baseGx: 0,
@@ -304,23 +252,15 @@ export function makeGrid(radiusU: number, cellU: number): HeatGrid {
 }
 
 /**
- * Point the grid at an ACTIVE RECT of absolute world cells and clear exactly
- * that much of it.
+ * Re-centre the grid on (cx, cy) and clear it.
  *
- * THE SNAP IS THE POINT (ruling R2). The rect is expressed in whole ABSOLUTE
- * cell indices, so cell (gx, gy) always covers the same world square no matter
- * where the rect sits — which is what makes `cellNoise(seed, gx, gy)` a stable
+ * THE SNAP IS THE POINT (ruling R2). The origin is floored to a whole cell, so
+ * cell (gx, gy) always covers the same world square no matter where the
+ * observer stands — which is what makes `cellNoise(seed, gx, gy)` a stable
  * property of a place rather than a flicker that re-rolls every frame.
  *
- * THE RECT IS A COST BOUNDARY, NOT A VISIBILITY RULE (amendment 93). It is
- * chosen from the LIVE PAINTS THEMSELVES (`liveRect`), so it always contains
- * every cell every live paint writes: nothing can be dropped by it in the
- * bounded case. The clamp to `capCols` exists only for the unbounded one (a
- * respawn teleports the observer), and the allocation is sized so ordinary
- * sailing can never reach it.
- *
- * THE GRID CARRIES NO OBSERVER (amendment 85, and still true after 88 and 93).
- * It is a window onto the world, nothing more: where it sits decides only which
+ * THE GRID CARRIES NO OBSERVER (amendment 85, and still true after 88). It is a
+ * window onto the world, nothing more: where it is centred decides only which
  * cells are IN BOUNDS this frame. Every judgement about a paint — including
  * whether a cell paints at all — belongs to the paint, taken at its own
  * creation. Cycle 54's `obsX`/`obsY`/`sightR2` lived here and were re-read every
@@ -328,34 +268,14 @@ export function makeGrid(radiusU: number, cellU: number): HeatGrid {
  * no beam had swept; cycle 56 retired the sight verdict outright, but the
  * discipline that removed it from here is the governing invariant and stands.
  */
-export function anchorRect(g: HeatGrid, r: CellRect): void {
-  g.cols = Math.max(0, Math.min(r.cols, g.capCols));
-  g.rows = Math.max(0, Math.min(r.rows, g.capCols));
-  g.baseGx = r.gx0;
-  g.baseGy = r.gy0;
-  g.originX = r.gx0 * g.cellU;
-  g.originY = r.gy0 * g.cellU;
-  const n = g.cols * g.rows;
-  g.w.fill(0, 0, n);
-  g.a.fill(0, 0, n);
-}
-
-/**
- * Re-centre the FULL allocation on (cx, cy) and clear it — the whole-buffer
- * anchor, kept for the observation/test seam and for the "no rect yet" case.
- *
- * The per-frame path does NOT use this: it costs the whole worst-case square,
- * which is exactly what amendment 93 forbids paying every frame. `liveRect` +
- * `anchorRect` is the frame path.
- */
 export function anchorGrid(g: HeatGrid, cx: number, cy: number): void {
-  const half = (g.capCols * g.cellU) / 2;
-  anchorRect(g, {
-    gx0: Math.floor((cx - half) / g.cellU),
-    gy0: Math.floor((cy - half) / g.cellU),
-    cols: g.capCols,
-    rows: g.capCols,
-  });
+  const half = (g.cols * g.cellU) / 2;
+  g.baseGx = Math.floor((cx - half) / g.cellU);
+  g.baseGy = Math.floor((cy - half) / g.cellU);
+  g.originX = g.baseGx * g.cellU;
+  g.originY = g.baseGy * g.cellU;
+  g.w.fill(0);
+  g.a.fill(0);
 }
 
 /** World cell index containing world coordinate `v`. */
@@ -594,26 +514,6 @@ export interface ShipPaint {
 }
 
 /**
- * How far (u) a ship kernel reaches from its own centre — the half-extent of
- * the cell box `stampShip` walks, and therefore the ONE number the active-rect
- * bound has to agree with.
- *
- * Extracted so the stamper and the footprint calculation cannot drift: if this
- * ever under-reported, `liveRect` would return a rect the stamper writes
- * outside of, and `writeCell` would silently drop the overhang — the exact
- * clipping amendment 93 exists to kill, re-created one layer down.
- */
-export function shipReachU(
-  p: ShipPaint,
-  cellU: number,
-  radarRange: number,
-  o: HeatmapOpts,
-): number {
-  const { across, along } = shipAxes(p.ext, p.dist, radarRange, o.ship);
-  return Math.max(cellU * 0.85, Math.max(across, along) / 2);
-}
-
-/**
  * Stamp one contact echo: a paraboloid dome over the aspect ellipse.
  *
  * `1 − q²` (no sqrt, no pow) falls from `peak` at the core to 0 at the ellipse
@@ -646,7 +546,7 @@ export function stampShip(
   const peak = shipPeak(p.ext, p.dist, radarRange, o.ship);
   const cos = Math.cos(p.bearing);
   const sin = Math.sin(p.bearing);
-  const reach = shipReachU(p, g.cellU, radarRange, o);
+  const reach = Math.max(ax, ay);
   const gy1 = cellOf(p.y + reach, g.cellU);
   const gx1 = cellOf(p.x + reach, g.cellU);
   for (let gy = cellOf(p.y - reach, g.cellU); gy <= gy1; gy++) {
@@ -697,29 +597,6 @@ export interface IslandPaint {
    *  re-evaluated against live state (amendment 83). There is no sight term in
    *  it any more — the scope paints everything in radar range (amendment 88). */
   cover: readonly CoverCell[];
-  /** The cover's absolute-cell bounding rect, baked ALONGSIDE it (`coverBox`).
-   *  Frozen like everything else on a paint, and precomputed rather than
-   *  rescanned: the active-rect union runs every frame, and re-deriving this
-   *  from `cover` there would double the per-frame island cost for a number that
-   *  can never change. Empty cover ⇒ a zero-size rect, which unions away. */
-  box: CellRect;
-}
-
-/** The absolute-cell bounding rect of a baked coverage list — the island half of
- *  the active-rect union. A zero-size rect for empty cover. */
-export function coverBox(cover: readonly CoverCell[]): CellRect {
-  if (cover.length === 0) return { gx0: 0, gy0: 0, cols: 0, rows: 0 };
-  let gx0 = cover[0].gx;
-  let gy0 = cover[0].gy;
-  let gx1 = gx0;
-  let gy1 = gy0;
-  for (const c of cover) {
-    if (c.gx < gx0) gx0 = c.gx;
-    else if (c.gx > gx1) gx1 = c.gx;
-    if (c.gy < gy0) gy0 = c.gy;
-    else if (c.gy > gy1) gy1 = c.gy;
-  }
-  return { gx0, gy0, cols: gx1 - gx0 + 1, rows: gy1 - gy0 + 1 };
 }
 
 export type RadarPaint = ShipPaint | IslandPaint;
@@ -935,101 +812,6 @@ export function rasterize(g: HeatGrid, paints: readonly RadarPaint[], ctx: Raste
   }
 }
 
-/**
- * Rect QUANTIZATION STEP, in cells. The active rect is rounded UP to a multiple
- * of this before it is used.
- *
- * Why round at all: the rect is recomputed from the live paints every frame, so
- * without a step it would change by a cell or two constantly — and every change
- * in its SIZE reallocates the GPU texture (Pixi's `TextureSource.resize` bumps
- * the resource id). Rounding to a coarse step makes the size change only when
- * the scope's real footprint grows or shrinks by a meaningful amount, at a cost
- * of at most one step of extra cells per axis. Position is free to move every
- * frame — that is one sprite transform, not an upload.
- */
-export const RECT_BUCKET = 32;
-
-/** Round `n` up to a multiple of `q` (`q <= 1` = no rounding). */
-export function bucketUp(n: number, q: number): number {
-  const v = Math.max(0, Math.ceil(n));
-  return q > 1 ? Math.ceil(v / q) * q : v;
-}
-
-/** The absolute-cell rect ONE paint can write into — its exact footprint. */
-export function paintRect(p: RadarPaint, cellU: number, ctx: RasterCtx): CellRect {
-  if (p.kind === 'island') return p.box;
-  const reach = shipReachU(p, cellU, ctx.radarRange, ctx.opts);
-  const gx0 = cellOf(p.x - reach, cellU);
-  const gy0 = cellOf(p.y - reach, cellU);
-  return {
-    gx0,
-    gy0,
-    cols: cellOf(p.x + reach, cellU) - gx0 + 1,
-    rows: cellOf(p.y + reach, cellU) - gy0 + 1,
-  };
-}
-
-/** Smallest rect containing both (a zero-size rect contributes nothing). */
-export function unionRect(a: CellRect | null, b: CellRect): CellRect | null {
-  if (b.cols <= 0 || b.rows <= 0) return a;
-  if (a === null) return b;
-  const gx0 = Math.min(a.gx0, b.gx0);
-  const gy0 = Math.min(a.gy0, b.gy0);
-  return {
-    gx0,
-    gy0,
-    cols: Math.max(a.gx0 + a.cols, b.gx0 + b.cols) - gx0,
-    rows: Math.max(a.gy0 + a.rows, b.gy0 + b.rows) - gy0,
-  };
-}
-
-/**
- * THE ACTIVE SUB-RECT for this frame: the union of every LIVE paint's footprint,
- * rounded out to `RECT_BUCKET` and clamped to the allocation — or null when
- * nothing is live.
- *
- * THIS IS THE WHOLE PER-FRAME COST STORY (amendment 93). The buffer is allocated
- * for the worst case a paint's life can reach, which is several times the old
- * radar-range square; clearing, quantizing and uploading all of that every frame
- * would be a real regression. So the frame works over the region the paints
- * ACTUALLY occupy, which in ordinary play is a small box around the observer and
- * costs what it cost before the allocation grew.
- *
- * IT CAN NEVER DROP A PAINT, and that is a structural property, not a tuning
- * choice: the rect is derived FROM the paint list, by unioning the same
- * footprint each paint's stamper walks. The only way out of the rect is the
- * `capCols` clamp, which the allocation bound puts out of reach of any observer
- * that got where it is by sailing.
- *
- * The centring on clamp keeps the middle of the union rather than an edge, so
- * the unbounded case (a respawn teleport) degrades symmetrically instead of
- * lopping one side off.
- */
-export function liveRect(
-  g: HeatGrid,
-  paints: readonly RadarPaint[],
-  ctx: RasterCtx,
-): CellRect | null {
-  let box: CellRect | null = null;
-  for (const p of paints) {
-    if (blipAlpha(ctx.now - p.t, ctx.lifeMs, ctx.alphaFloor) <= 0) continue;
-    box = unionRect(box, paintRect(p, g.cellU, ctx));
-  }
-  if (box === null) return null;
-  const cols = Math.min(g.capCols, bucketUp(box.cols, RECT_BUCKET));
-  const rows = Math.min(g.capCols, bucketUp(box.rows, RECT_BUCKET));
-  return {
-    gx0: box.gx0 - Math.floor((cols - box.cols) / 2),
-    gy0: box.gy0 - Math.floor((rows - box.rows) / 2),
-    cols,
-    rows,
-  };
-}
-
-/** The rect that means "nothing is live": zero cells, so every sample misses,
- *  every clear is free and `bandAt` answers -1 (see radar.ts paintHeat). */
-export const EMPTY_RECT: CellRect = { gx0: 0, gy0: 0, cols: 0, rows: 0 };
-
 // --- 7. sweep bookkeeping -------------------------------------------------------
 
 /**
@@ -1172,124 +954,4 @@ export function contactEcho(
     t,
     seed: paintSeed(c.id, t),
   };
-}
-
-// --- 9. the allocation bound (amendment 93) -------------------------------------
-//
-// NO CLIPPING, NO EXCEPTIONS. Eric, on the cycle-56 build: *"If it gets painted,
-// it STAYS painted until it decays, NO EXCEPTIONS."* Through cycle 56 the buffer
-// was allocated as a square of half-extent exactly `radarRange`, re-anchored on
-// the observer every frame — so a paint born near the rim was clipped the moment
-// the observer sailed outward and reappeared if they sailed back. That is
-// de-rendering for a reason that is not decay, and it was the THIRD violation of
-// amendment 83 in this family (cycle 55: the gate was evaluated live; cycle 56:
-// the sight exclusion; now: the buffer extent). Amendment 83's scope now
-// explicitly covers anything that can drop a paint at DRAW time, not just
-// anything that can re-decide one.
-//
-// THE ANSWER IS A DERIVED BOUND, NOT A BIGGER MAGIC NUMBER. A paint's maximum
-// possible distance from the observer at the END of its life is computable:
-//
-//     radarRange                     — the farthest a paint can be CREATED
-//   + maxObserverSpeedU × paintLife  — the farthest the observer can then sail
-//   + maxKernelReachU                — the kernel's own overhang past its centre
-//
-// Every term is derived from CONFIG / effectiveStats and none is a literal, so
-// retuning ship speed, `sweepRpm`, `persistSweeps`, the hull table or the boon
-// catalog moves the allocation with them. The bound test in
-// radarHeatmap.test.ts re-derives all three independently and asserts the
-// allocation covers them — which is what makes a future retune fail a test
-// instead of silently reintroducing the clip.
-//
-// WHY THE LIVE SWEEP PERIOD IS THE RIGHT LIFE TERM, not the base one: a paint is
-// pruned against the LIVE life (`prunePaints`), so a paint still alive at age t
-// has t < life-now by definition, and the distance it can have opened up is
-// therefore under `speed × life-now` whatever the life used to be. A sweep boon
-// that shortens the life shortens the bound honestly.
-//
-// THE ONE DISCONTINUITY THE BOUND DOES NOT COVER is a teleport — a respawn moves
-// the observer without sailing. `liveRect`'s clamp handles it (it can only ever
-// bite past the bound), and the death path clears the paint list anyway.
-
-/** Does this effect RAISE one of the two speed terms? A hypothetical card that
- *  lowered them would only shrink the worst case, so it is excluded rather than
- *  folded in. */
-function raisesSpeed(e: BoonEffect): boolean {
-  if (e.kind !== 'stat') return false;
-  if (e.path !== 'kinematics.maxSpeed' && e.path !== 'boost.speedBonus') return false;
-  return (e.mult ?? 1) > 1 || (e.add ?? 0) > 0;
-}
-
-/** Every speed-raising card in the catalog, at its full physical copy count —
- *  the fastest legal build, assembled FROM the catalog rather than described. */
-function maxSpeedFit(): BoonDef[] {
-  const out: BoonDef[] = [];
-  for (const def of Object.values(BOON_CATALOG)) {
-    if (!def.effects.some(raisesSpeed)) continue;
-    for (let i = 0; i < def.copies; i++) out.push(def);
-  }
-  return out;
-}
-
-/**
- * THE WORST-CASE OBSERVER SPEED (u/s): the fastest pickable hull, with every
- * speed-raising boon at full stack, under boost.
- *
- * Derived, never written down. `effectiveStats` is the one legal path from
- * (class + boons) to a derived number — the desync firewall — so the fold order,
- * the multiplicative stacking of `shipSpeed` and the additive stacking of
- * `boostMax` are all whatever the sim says they are, not whatever this file
- * assumed. The boost bonus is ADDED rather than folded because that is exactly
- * what `boostedKinematics` does per tick (sim/boost.ts): `maxSpeed + bonus`.
- *
- * DRONES ARE EXCLUDED ON PURPOSE. `CONFIG.drones.small` is nominally faster than
- * any ship class, but the observer is always the local player and OwnShip.cls is
- * a ShipClassId — constants.ts: *"you can never BE a drone"*. The worst case is
- * over the hulls a client can actually steer.
- *
- * KNOWN LIMIT, recorded rather than guessed around: a future `kinematics`
- * BEHAVIOR hook (sim/hooks.ts, HOOK_REGISTRY ships empty) could raise the cap
- * with no stat path to read. Nothing can derive that today; a hook that does it
- * must extend this function.
- */
-export function maxObserverSpeedU(): number {
-  const fit = maxSpeedFit();
-  let best = 0;
-  for (const cls of Object.values(CONFIG.shipClasses)) {
-    const s = effectiveStats(cls, fit);
-    best = Math.max(best, s.kinematics.maxSpeed + s.boost.speedBonus);
-  }
-  return best;
-}
-
-/** The largest aspect extent (u) any hull can present — bounded by the diagonal
- *  of its silhouette's bounding box, over EVERY hull that can paint (drones
- *  included here: a drone is never the observer but is very much a contact). */
-export function maxHullExtentU(): number {
-  let best = 0;
-  const hulls = [...Object.values(CONFIG.shipClasses), ...Object.values(CONFIG.drones)];
-  for (const h of hulls) best = Math.max(best, Math.hypot(h.hull.length, h.hull.beam));
-  return best;
-}
-
-/**
- * The largest distance (u) a ship kernel can reach past its own centre — the
- * `shipReachU` of the biggest hull at zero attenuation. Range attenuation only
- * ever shrinks the axes, so this is a true ceiling.
- */
-export function maxKernelReachU(o: HeatmapOpts): number {
-  const across = Math.max(o.ship.minExtent, maxHullExtentU());
-  const along = Math.max(o.ship.minDepth, across * o.ship.depthFrac);
-  return Math.max(o.cellU * 0.85, Math.max(across, along) / 2);
-}
-
-/**
- * THE ALLOCATION HALF-EXTENT (u) the heatmap buffer must cover: the farthest any
- * cell of any live paint can sit from the observer, ever. `makeGrid`'s argument.
- *
- * `lifeMs` is the phosphor life the caller prunes against (`blipLifeMs` of the
- * observer's effective sweep period), so the bound tracks a sweep upgrade.
- */
-export function heatExtentU(radarRange: number, lifeMs: number, o: HeatmapOpts): number {
-  return radarRange + (maxObserverSpeedU() * Math.max(0, lifeMs)) / 1000 + maxKernelReachU(o);
 }

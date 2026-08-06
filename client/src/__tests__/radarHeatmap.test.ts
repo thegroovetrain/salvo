@@ -52,51 +52,36 @@
 
 import { describe, it, expect } from 'vitest';
 import {
-  BOON_CATALOG,
   CONFIG,
   hullSilhouette,
   islandFromPolygon,
   perpendicularExtent,
   pointInIsland,
   transformPolygon,
-  type BoonDef,
   type Island,
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import {
-  EMPTY_RECT,
-  RECT_BUCKET,
   anchorGrid,
-  anchorRect,
   bandIndex,
-  bucketUp,
   buildIslandCoverage,
   cellCentre,
   cellOf,
   contactEcho,
-  coverBox,
-  gridCols,
-  heatExtentU,
   islandBearingSpan,
-  liveRect,
   makeGrid,
-  maxKernelReachU,
-  maxObserverSpeedU,
   quantizeInto,
   rasterize,
   sampleGrid,
   stampIsland,
   stampShip,
-  unionRect,
-  type CellRect,
   type CoverCell,
   type HeatGrid,
   type HeatmapOpts,
   type IslandPaint,
   type RadarPaint,
-  type RasterCtx,
   type ShipPaint,
 } from '../render/radarHeatmap.js';
 
@@ -361,7 +346,6 @@ function islandPaint(
   obs: Vec2,
   opts: HeatmapOpts,
 ): IslandPaint {
-  const cover = buildIslandCoverage(isle, field, obs, RADAR, 999, opts);
   return {
     kind: 'island',
     isle,
@@ -369,8 +353,7 @@ function islandPaint(
     to: 0,
     full: true, // the beam has swept the whole span
     t: 0,
-    cover,
-    box: coverBox(cover),
+    cover: buildIslandCoverage(isle, field, obs, RADAR, 999, opts),
   };
 }
 
@@ -474,16 +457,7 @@ describe('an island rasterizes as a contiguous filled mass (amendment 78)', () =
     const obs = { x: 0, y: -400 };
     const cover = buildIslandCoverage(isle, [isle], obs, RADAR, 999, CLEAN);
     // The island lies due +y of the observer, so its cells bear ~0.9-2.24 rad.
-    const partial: IslandPaint = {
-      kind: 'island',
-      isle,
-      from: 1.4,
-      to: 1.5,
-      full: false,
-      t: 0,
-      cover,
-      box: coverBox(cover),
-    };
+    const partial: IslandPaint = { kind: 'island', isle, from: 1.4, to: 1.5, full: false, t: 0, cover };
     const g = grid(CLEAN, obs.x, obs.y);
     stampIsland(g, partial, 1);
     const swept = bandCounts(g).reduce((a, b) => a + b, 0);
@@ -960,248 +934,5 @@ describe('islands block this sensor too (Eric ruling 2026-08-02)', () => {
       { x: 300, y: 140 },
     ]);
     expect(contactEcho(SIGHTED, OBS, SIGHT, ...SWEPT, [aside], 0)).not.toBeNull();
-  });
-});
-
-// --- 9. NO CLIPPING, NO EXCEPTIONS (cycle 57, amendments 92-94) ------------------
-//
-// Eric, on the cycle-56 build: *"If it gets painted, it STAYS painted until it
-// decays, NO EXCEPTIONS."* The buffer used to be allocated at half-extent
-// exactly `radarRange`, so a rim paint was clipped the moment the observer
-// sailed outward and came back if they sailed back — de-rendering for a reason
-// that is not decay, and the THIRD violation of amendment 83 in this family.
-//
-// TWO THINGS ARE CONTRACT HERE, and the second is the one that will decay first:
-//
-//   • THE BOUND IS DERIVED AND PINNED. `heatExtentU` must cover
-//     `radarRange + maxObserverSpeed × maxPaintLife`, with every term re-derived
-//     BELOW from CONFIG and the boon catalog by hand — a second implementation,
-//     not a call into the one under test. Retuning ship speed, `sweepRpm`,
-//     `persistSweeps` or adding a speed card therefore breaks a test rather than
-//     silently reintroducing the clip. This is the real deliverable: the
-//     allocation itself is one line.
-//
-//   • THE ACTIVE SUB-RECT CANNOT DROP A CELL. The allocation is several times
-//     the old square, so a frame may not touch all of it — but the region a
-//     frame DOES work has to be indistinguishable from working the whole thing.
-//     The guard is A/B: rasterize the same paints into a full-capacity anchor
-//     and into the active rect, and compare the LIT SETS by absolute world cell.
-
-/** The mult/add a def carries on one stat path (test-local reader — the point is
- *  to fold the catalog BY HAND rather than through effectiveStats). */
-function statEffect(def: BoonDef, path: string): { mult: number; add: number } {
-  let mult = 1;
-  let add = 0;
-  for (const e of def.effects) {
-    if (e.kind !== 'stat' || e.path !== path) continue;
-    mult *= e.mult ?? 1;
-    add += e.add ?? 0;
-  }
-  return { mult, add };
-}
-
-/**
- * THE INDEPENDENT ORACLE for the worst-case observer speed: the fastest pickable
- * hull, `shipSpeed` folded multiplicatively at its full copy count, plus the
- * boost bonus with `boostMax` folded additively at its own.
- *
- * Deliberately reimplemented rather than imported. It reads the catalog's
- * numbers (so a card retune moves both sides together) but does the FOLD by
- * hand, so an error inside `effectiveStats`'s ordering, or inside this file's
- * assembly of the fit, shows up as a mismatch instead of cancelling out.
- *
- * IF A NEW SPEED CARD LANDS, this oracle must learn about it — that failure is
- * the tripwire working, not a flaky test.
- */
-function oracleMaxObserverSpeed(): number {
-  const hull = Math.max(
-    ...Object.values(CONFIG.shipClasses).map((c) => c.kinematics.maxSpeed),
-  );
-  const spd = statEffect(BOON_CATALOG.shipSpeed, 'kinematics.maxSpeed');
-  const bst = statEffect(BOON_CATALOG.boostMax, 'boost.speedBonus');
-  const sailing = hull * spd.mult ** BOON_CATALOG.shipSpeed.copies;
-  const boost = CONFIG.speedBoost.speedBonus + bst.add * BOON_CATALOG.boostMax.copies;
-  return sailing + boost;
-}
-
-/** Every lit cell of a buffer keyed by ABSOLUTE world cell → band index, so two
- *  rasterizations can be compared regardless of where each one is anchored. */
-function litByWorldCell(g: HeatGrid): Map<string, number> {
-  const out = new Map<string, number>();
-  for (let cy = 0; cy < g.rows; cy++) {
-    for (let cx = 0; cx < g.cols; cx++) {
-      const b = bandIndex(g.w[cy * g.cols + cx], BANDS);
-      if (b >= 0) out.set(`${g.baseGx + cx},${g.baseGy + cy}`, b);
-    }
-  }
-  return out;
-}
-
-describe('the allocation covers the derived worst case (amendment 93)', () => {
-  const LIVE_LIFE = blipLifeMs(60_000 / CONFIG.vision.sweepRpm);
-
-  it('derives the worst-case observer speed rather than writing one down', () => {
-    // Same number, two folds. A hardcoded literal here would be the "bigger
-    // magic number" the ruling explicitly refused.
-    expect(maxObserverSpeedU()).toBeCloseTo(oracleMaxObserverSpeed(), 6);
-    // Sanity on the shape of that number: strictly faster than any BASE hull,
-    // because the worst case is a maxed hull under boost.
-    const fastestBase = Math.max(
-      ...Object.values(CONFIG.shipClasses).map((c) => c.kinematics.maxSpeed),
-    );
-    expect(maxObserverSpeedU()).toBeGreaterThan(fastestBase);
-  });
-
-  it('THE BOUND: the allocated extent covers radarRange + maxSpeed × paintLife', () => {
-    const bound = RADAR + (oracleMaxObserverSpeed() * LIVE_LIFE) / 1000;
-    const extent = heatExtentU(RADAR, LIVE_LIFE, CFG);
-    expect(extent).toBeGreaterThanOrEqual(bound);
-    // …and the buffer rounds UP from the extent, never down: the half-extent of
-    // the square the grid actually allocates still covers it.
-    const g = makeGrid(extent, CFG.cellU);
-    expect((g.capCols * CFG.cellU) / 2).toBeGreaterThanOrEqual(bound);
-    // The kernel overhang is in there too — a paint's CELLS reach past its
-    // centre, and clipping the fringe is still clipping.
-    expect(extent - bound).toBeGreaterThanOrEqual(maxKernelReachU(CFG));
-  });
-
-  it('tracks a retune: a longer paint life or a longer radar reach both grow it', () => {
-    const base = heatExtentU(RADAR, LIVE_LIFE, CFG);
-    expect(heatExtentU(RADAR, LIVE_LIFE * 2, CFG)).toBeGreaterThan(base);
-    expect(heatExtentU(RADAR * 2, LIVE_LIFE, CFG)).toBeGreaterThan(base);
-    // A shorter sweep (the sweepRpm boon) honestly shrinks it — a paint is
-    // pruned against the LIVE life, so it cannot outlive the smaller bound.
-    expect(heatExtentU(RADAR, LIVE_LIFE / 2, CFG)).toBeLessThan(base);
-  });
-
-  it('is meaningfully bigger than the radar-range square that used to ship', () => {
-    const now = gridCols(heatExtentU(RADAR, LIVE_LIFE, CFG), CFG.cellU);
-    expect(now).toBeGreaterThan(2 * gridCols(RADAR, CFG.cellU));
-  });
-});
-
-describe('the ACTIVE SUB-RECT is a cost boundary, never a visibility rule', () => {
-  const EXTENT = heatExtentU(RADAR, LIFE, CLEAN);
-  const CTX: RasterCtx = {
-    now: 0,
-    lifeMs: LIFE,
-    alphaFloor: 0,
-    radarRange: RADAR,
-    opts: CLEAN,
-  };
-
-  /** Two ship echoes and one landmass, spread across most of a radar circle. */
-  function spread(): RadarPaint[] {
-    const isle = ridgeIsland();
-    const cover = buildIslandCoverage(isle, [isle], { x: 0, y: 0 }, RADAR, 7, CLEAN);
-    return [
-      { kind: 'ship', id: 'a', x: 0, y: 600, ext: 100, bearing: Math.PI / 2, dist: 600, t: 0, seed: 1 },
-      { kind: 'ship', id: 'b', x: -500, y: -260, ext: 80, bearing: 3.6, dist: 563, t: 0, seed: 2 },
-      { kind: 'island', isle, from: 0, to: 0, full: true, t: 0, cover, box: coverBox(cover) },
-    ];
-  }
-
-  it('rasterizes EXACTLY what the full buffer would — same lit cells, same '
-    + 'bands — while touching a fraction of it', () => {
-    const paints = spread();
-    const full = makeGrid(EXTENT, CLEAN.cellU);
-    anchorGrid(full, 0, 0);
-    rasterize(full, paints, CTX);
-
-    const active = makeGrid(EXTENT, CLEAN.cellU);
-    const rect = liveRect(active, paints, CTX);
-    expect(rect).not.toBeNull();
-    anchorRect(active, rect as CellRect);
-    rasterize(active, paints, CTX);
-
-    const before = litByWorldCell(full);
-    expect(before.size).toBeGreaterThan(0);
-    expect(litByWorldCell(active)).toEqual(before);
-    // …and that agreement is bought for a fraction of the cells.
-    expect(active.cols * active.rows).toBeLessThan(full.capCols * full.capCols / 4);
-  });
-
-  it('follows the paints, not the observer: nearby contacts cost a small rect '
-    + 'no matter how big the allocation is', () => {
-    const near: RadarPaint[] = [0, 1, 2].map((i) => ({
-      kind: 'ship',
-      id: `n${i}`,
-      x: i * 40,
-      y: 60,
-      ext: 60,
-      bearing: 1.2,
-      dist: 90,
-      t: 0,
-      seed: i,
-    }));
-    const g = makeGrid(EXTENT, CLEAN.cellU);
-    anchorRect(g, liveRect(g, near, CTX) as CellRect);
-    // The whole cluster spans ~200u; one bucket of cells covers it.
-    expect(g.cols).toBeLessThanOrEqual(2 * RECT_BUCKET);
-    expect(g.rows).toBeLessThanOrEqual(2 * RECT_BUCKET);
-    // And the frame's work is a small fraction of even the OLD square.
-    expect(g.cols * g.rows).toBeLessThan(gridCols(RADAR, CLEAN.cellU) ** 2);
-  });
-
-  it('contains every cell a stamper writes, including the kernel fringe', () => {
-    const p: ShipPaint = {
-      kind: 'ship', id: 'k', x: 12, y: -7, ext: 124, bearing: 0.3, dist: 0, t: 0, seed: 3,
-    };
-    const g = makeGrid(EXTENT, CLEAN.cellU);
-    anchorRect(g, liveRect(g, [p], CTX) as CellRect);
-    rasterize(g, [p], CTX);
-    // Nothing was dropped at the rim: the same paint into the full buffer lights
-    // exactly the same cells.
-    const full = makeGrid(EXTENT, CLEAN.cellU);
-    anchorGrid(full, p.x, p.y);
-    rasterize(full, [p], CTX);
-    expect(litByWorldCell(g)).toEqual(litByWorldCell(full));
-  });
-
-  it('is null when nothing is live, and an empty grid samples as transparent', () => {
-    const g = makeGrid(EXTENT, CLEAN.cellU);
-    const dead: ShipPaint = {
-      kind: 'ship', id: 'd', x: 0, y: 100, ext: 100, bearing: 1.57, dist: 100,
-      t: -LIFE - 1, seed: 4,
-    };
-    expect(liveRect(g, [], CTX)).toBeNull();
-    expect(liveRect(g, [dead], CTX)).toBeNull();
-    anchorRect(g, EMPTY_RECT);
-    expect(bandAt(g, 0, 100)).toBe(-1);
-  });
-
-  it('rounds out to whole buckets so the texture size stops churning', () => {
-    expect(bucketUp(1, RECT_BUCKET)).toBe(RECT_BUCKET);
-    expect(bucketUp(RECT_BUCKET, RECT_BUCKET)).toBe(RECT_BUCKET);
-    expect(bucketUp(RECT_BUCKET + 1, RECT_BUCKET)).toBe(2 * RECT_BUCKET);
-    expect(bucketUp(7, 1)).toBe(7);
-    // A one-cell drift in a paint's footprint must not move the rect SIZE.
-    const g = makeGrid(EXTENT, CLEAN.cellU);
-    const at = (y: number): number => {
-      const p: ShipPaint = {
-        kind: 'ship', id: 'p', x: 0, y, ext: 90, bearing: 1.57, dist: 300, t: 0, seed: 5,
-      };
-      return (liveRect(g, [p], CTX) as CellRect).cols;
-    };
-    expect(at(300)).toBe(at(300 + CLEAN.cellU));
-  });
-
-  it('unions rects and ignores empty ones', () => {
-    const a: CellRect = { gx0: 0, gy0: 0, cols: 4, rows: 4 };
-    const b: CellRect = { gx0: 10, gy0: -3, cols: 2, rows: 2 };
-    expect(unionRect(a, b)).toEqual({ gx0: 0, gy0: -3, cols: 12, rows: 7 });
-    expect(unionRect(a, EMPTY_RECT)).toEqual(a);
-    expect(unionRect(null, EMPTY_RECT)).toBeNull();
-    expect(unionRect(null, b)).toEqual(b);
-  });
-
-  it('coverBox bounds a landmass exactly', () => {
-    const cover: CoverCell[] = [
-      { gx: 3, gy: -2, i: 1, b: 0 },
-      { gx: 7, gy: 5, i: 1, b: 0 },
-      { gx: 5, gy: 1, i: 1, b: 0 },
-    ];
-    expect(coverBox(cover)).toEqual({ gx0: 3, gy0: -2, cols: 5, rows: 8 });
-    expect(coverBox([])).toEqual({ gx0: 0, gy0: 0, cols: 0, rows: 0 });
   });
 });

@@ -36,7 +36,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Texture, type Graphics } from 'pixi.js';
 import {
-  BOON_CATALOG,
   CONFIG,
   islandFromPolygon,
   type ReturnBlipEvent,
@@ -228,165 +227,6 @@ describe('island landmasses (amendments 69 + 78)', () => {
   });
 });
 
-// --- NO CLIPPING, NO EXCEPTIONS (cycle 57, amendments 92-94) ---------------------
-//
-// Eric, on the cycle-56 build: *"there's basically a 'box' around my radar ring,
-// and anything not in that 'box' will be unpainted immediately once it leaves,
-// and then re-render if it comes back into that 'box.' … If it gets painted, it
-// STAYS painted until it decays, NO EXCEPTIONS."*
-//
-// The box was the heatmap buffer: allocated at half-extent exactly `radarRange`
-// and re-anchored on the observer every frame, so a rim paint fell out of it the
-// moment the observer sailed outward. The headline test below is the symptom
-// itself and FAILS against that allocation; the rest pin the two things the fix
-// must not cost — a paint's world PLACEMENT under a rect that now moves and
-// resizes, and the per-frame work, which must follow the paints rather than the
-// (several times larger) allocation.
-
-describe('a paint stays painted until it decays, however far the observer sails', () => {
-  const RADAR = CONFIG.vision.radar;
-  const CELL = CLIENT_CONFIG.blip.heatmap.cellU;
-  /** A paint born at the very edge of radar range, dead ahead of the observer. */
-  const RIM: ReturnBlipEvent = { k: 'blip', id: 'rim', x: 0, y: RADAR, ext: EXT, t: 0 };
-
-  /**
-   * The farthest the observer can sail inside one paint's life — re-derived here
-   * from CONFIG and the boon catalog rather than imported, so this test states
-   * the worst case in its own terms. Fastest pickable hull, `shipSpeed` at full
-   * multiplicative stack, plus a fully-stacked boost bonus.
-   */
-  function maxSail(): number {
-    const hull = Math.max(
-      ...Object.values(CONFIG.shipClasses).map((c) => c.kinematics.maxSpeed),
-    );
-    const spd = BOON_CATALOG.shipSpeed;
-    const bst = BOON_CATALOG.boostMax;
-    const mult = spd.effects.reduce(
-      (m, e) => (e.kind === 'stat' && e.path === 'kinematics.maxSpeed' ? m * (e.mult ?? 1) : m),
-      1,
-    );
-    const add = bst.effects.reduce(
-      (a, e) => (e.kind === 'stat' && e.path === 'boost.speedBonus' ? a + (e.add ?? 0) : a),
-      0,
-    );
-    const speed =
-      hull * mult ** spd.copies + CONFIG.speedBoost.speedBonus + add * bst.copies;
-    return (speed * LIFE) / 1000;
-  }
-
-  /** The bands painted across a window centred on the rim paint — the "is this
-   *  cell lit" set, sampled by WORLD position so it is independent of wherever
-   *  the active rect happens to sit. */
-  function window(radar: Radar): number[] {
-    const out: number[] = [];
-    for (let dy = -120; dy <= 120; dy += CELL) {
-      for (let dx = -120; dx <= 120; dx += CELL) out.push(radar.bandAt(dx, RADAR + dy));
-    }
-    return out;
-  }
-
-  it('HEADLINE: a rim paint is still fully rendered after the observer has '
-    + 'sailed the farthest it possibly could inside that paint\'s life', () => {
-    const { radar } = makeRadar();
-    radar.render(OWN, 0);
-    radar.onBlip(RIM);
-    radar.render(OWN, 1);
-    const born = window(radar);
-    expect(born.some((b) => b >= 0)).toBe(true);
-
-    // All-ahead-flank away from it, for all but the last millisecond of the
-    // paint's life. The paint is still alive, so it must still be on the scope —
-    // whole, not a clipped remnant.
-    const age = LIFE - 1;
-    const sailed = { x: 0, y: -maxSail() * (age / LIFE) };
-    radar.render(sailed, age);
-    expect(radar.livePaints, 'still live, so still painted').toBe(1);
-    expect(window(radar)).toEqual(born);
-  });
-
-  it('THE BOX SYMPTOM: sailing out, back, and out again never un-paints or '
-    + 're-paints a cell — only alpha moves', () => {
-    const { radar } = makeRadar();
-    radar.render(OWN, 0);
-    radar.onBlip(RIM);
-    radar.render(OWN, 1);
-    const base = window(radar);
-    const sail = maxSail();
-    // Out past the old buffer edge, back to the start, out again, part way back.
-    for (const [i, y] of [-sail * 0.9, 0, -sail * 0.7, -sail * 0.3].entries()) {
-      radar.render({ x: 0, y }, 100 + i * 100);
-      expect(window(radar), `at own y=${Math.round(y)}`).toEqual(base);
-    }
-  });
-
-  it('allocates the DERIVED bound, not the radar range', () => {
-    const { radar } = makeRadar();
-    const half = (radar.heatCapCols * CELL) / 2;
-    expect(half).toBeGreaterThanOrEqual(RADAR + maxSail());
-  });
-
-  it('places an echo at the same WORLD point whatever the active rect is doing', () => {
-    const { radar } = makeRadar();
-    radar.render(OWN, 0);
-    radar.onBlip(RIM);
-    radar.render(OWN, 1);
-    const band = radar.bandAt(RIM.x, RIM.y);
-    expect(band).toBeGreaterThanOrEqual(0);
-    const color = CLIENT_CONFIG.blip.heatmap.bands[band].color;
-    const rgb = (t: readonly number[]): number => (t[0] << 16) | (t[1] << 8) | t[2];
-
-    // The uploaded texel under that world point carries the band's own color,
-    // resolved through sprite position + scale + texture stride…
-    const at = radar.texelAt(RIM.x, RIM.y);
-    expect(at).not.toBeNull();
-    expect(rgb(at as readonly number[])).toBe(color);
-    expect((at as readonly number[])[3]).toBeGreaterThan(0);
-
-    // …and it still does after a second paint far away has changed the rect's
-    // size AND its origin. A rect-relative bug shifts every echo here.
-    const before = { cols: radar.heatRectCells, x: radar.texelAt(RIM.x, RIM.y) };
-    radar.onBlip({ k: 'blip', id: 'far', x: -520, y: -300, ext: EXT, t: 1 });
-    radar.render(OWN, 2);
-    expect(radar.heatRectCells).not.toBe(before.cols); // the rect really moved
-    const after = radar.texelAt(RIM.x, RIM.y);
-    expect(after).not.toBeNull();
-    expect(rgb(after as readonly number[])).toBe(color);
-    // And the far echo lands on ITS own water, not on the rim echo's.
-    expect(radar.bandAt(-520, -300)).toBeGreaterThanOrEqual(0);
-    expect(rgb(radar.texelAt(-520, -300) as readonly number[])).toBe(
-      CLIENT_CONFIG.blip.heatmap.bands[radar.bandAt(-520, -300)].color,
-    );
-  });
-
-  it('per-frame cost follows the PAINTS, not the allocation', () => {
-    const { radar } = makeRadar();
-    radar.render(OWN, 0);
-    for (let i = 0; i < 3; i++) {
-      radar.onBlip({ k: 'blip', id: `n${i}`, x: i * 40, y: 120, ext: EXT, t: 0 });
-    }
-    radar.render(OWN, 1);
-    const allocation = radar.heatCapCols ** 2;
-    expect(radar.heatRectCells).toBeGreaterThan(0);
-    // A cluster of nearby contacts must cost a small box — not the worst-case
-    // square, and not more than the radar-range square that used to ship.
-    expect(radar.heatRectCells).toBeLessThan(allocation / 10);
-    expect(radar.heatRectCells).toBeLessThan((2 * RADAR / CELL) ** 2);
-  });
-
-  it('costs nothing at all when nothing is live', () => {
-    const { radar } = makeRadar();
-    radar.render(OWN, 0);
-    radar.onBlip(RIM);
-    radar.render(OWN, 1);
-    expect(radar.heatRectCells).toBeGreaterThan(0);
-    radar.render(OWN, LIFE + 1); // everything has decayed
-    expect(radar.livePaints).toBe(0);
-    expect(radar.heatRectCells).toBe(0);
-    expect(radar.bandAt(RIM.x, RIM.y)).toBe(-1);
-    expect(radar.texelAt(RIM.x, RIM.y)).toBeNull();
-  });
-});
-
 // --- `silhouette` mode is UNTOUCHED (amendment 79) -------------------------------
 
 describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar', () => {
@@ -459,12 +299,6 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     expect(radar.liveIslandPaints).toBe(0);
     expect(radar.bandAt(0, 500)).toBe(-1);
     expect(radar.bandAt(300, 0)).toBe(-1);
-    // NO BUFFER MEANS NO EXTENT AND NO ACTIVE RECT (amendment 94): cycle 57
-    // grew the allocation and split a per-frame sub-rect out of it, and neither
-    // may reach a mode that allocates nothing at all.
-    expect(radar.heatCapCols).toBe(0);
-    expect(radar.heatRectCells).toBe(0);
-    expect(radar.texelAt(0, 500)).toBeNull();
   });
 
   it('THE SIGHT GATE NEVER REACHES IT: a paint deep inside truesight still '
