@@ -206,7 +206,13 @@ export function pointPolygonDistance(p: Vec2, poly: readonly Vec2[]): number {
   return closestPointOnPolygon(p, poly).dist;
 }
 
-/** Min distance from segment a0->a1 to the polygon (0 when intersecting or inside). */
+/**
+ * Min distance from segment a0->a1 to the polygon (0 when intersecting or
+ * inside). NOTE for callers: "0 when intersecting" is 0 up to float dust —
+ * segSegClosest returns ~1e-16 (scaling with coordinate magnitude) rather
+ * than exactly 0 for a real crossing, so never test this result with `=== 0`
+ * or `<= 0`; compare against a tolerance, as segPolygonHit does with EPS.
+ */
 export function segPolygonDistance(a0: Vec2, a1: Vec2, poly: readonly Vec2[]): number {
   if (pointInPolygon(a0, poly)) return 0;
   let best = Infinity;
@@ -234,7 +240,23 @@ export function segPolygonHit(
   let best: number | null = null;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const c = segSegClosest(a0, a1, poly[j], poly[i]);
-    if (c.dist <= radius && (best === null || c.s < best)) best = c.s;
+    // `radius + EPS`, not `radius`. At radius 0 — the island LOS / shell /
+    // aim-preview path — a bare `<= radius` is an exact float comparison
+    // against zero, and segSegClosest never returns exactly zero for a real
+    // crossing: it solves for the closest-approach parameters and multiplies
+    // BACK to a point before Math.hypot, so a genuine transversal returns
+    // float dust (measured 7.2e-16 at coords ~10, scaling with coordinate
+    // magnitude to ~2e-13 at the 2400u board edge). Axis-aligned integer
+    // fixtures happen to cancel to 0.0 and hid this; real fractal islands do
+    // not, and 38%/32% of provably-crossing segments read as clean misses for
+    // shells and LOS respectively. EPS (1e-9) clears the worst-case dust by
+    // ~4 orders of magnitude while staying far below any gameplay-observable
+    // threshold for radius > 0 callers (hull tests pass beam/2 + shellRadius,
+    // several world units). The tolerance belongs HERE, at the comparison —
+    // segSegClosest is a general-purpose primitive and must not snap its own
+    // output to zero. It does not make a cove solid: a 1e-9 widening of the
+    // coastline leaves every real cavity genuinely missable.
+    if (c.dist <= radius + EPS && (best === null || c.s < best)) best = c.s;
   }
   return best;
 }

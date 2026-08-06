@@ -5,14 +5,18 @@ import {
   hookKinematics,
   slowedKinematics,
   hullSilhouette,
+  islandDistance,
+  islandFromPolygon,
   resolveShipPose,
   stepShip,
   transformPolygon,
   type HookRegistry,
   type InputMsg,
+  type Island,
   type Pose,
   type ShipConfig,
   type ShipState,
+  type Vec2,
 } from '@salvo/shared';
 import {
   Predictor,
@@ -185,12 +189,27 @@ describe('Predictor boundary clamp (mirror of server world.ts)', () => {
   });
 });
 
-/** Min distance from a posed hull polygon to an island center (negative when
- *  a vertex is inside the circle) — proves the resolved hull is overlap-free. */
-function hullClearance(s: ShipState, poly: readonly { x: number; y: number }[], isle: { x: number; y: number; r: number }): number {
+/** A polygon Island approximating a circle of radius `r` centered at (cx, cy):
+ *  a regular 32-gon. `resolveShipPose`'s island math is polygon-exact
+ *  (hull-vs-coastline overlap, not a circle test), so this is a REAL
+ *  coastline the hull can graze and slip past — not just a stand-in type. */
+function circleIsland(cx: number, cy: number, r: number): Island {
+  const N = 32;
+  const poly: Vec2[] = [];
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    poly.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r });
+  }
+  return islandFromPolygon(poly);
+}
+
+/** Min SIGNED distance from a posed hull polygon to the island's coastline
+ *  (negative when a vertex is inside the polygon) — proves the resolved hull
+ *  is overlap-free against the EXACT coastline, not a bounding-circle proxy. */
+function hullClearance(s: ShipState, poly: readonly { x: number; y: number }[], isle: Island): number {
   const world = transformPolygon(poly, s.x, s.y, s.heading);
   let min = Infinity;
-  for (const v of world) min = Math.min(min, Math.hypot(v.x - isle.x, v.y - isle.y) - isle.r);
+  for (const v of world) min = Math.min(min, islandDistance(v, isle));
   return min;
 }
 
@@ -202,7 +221,7 @@ describe('Predictor island collision (polygon parity with shared collision)', ()
     // damp; reconciling only every 3 ticks forces the predictor's own localTick
     // collision + replay to agree with the server tick-for-tick, which can only
     // hold if both call the same polygon code.
-    const island = { x: 120, y: 6, r: 40 };
+    const island = circleIsland(120, 6, 40);
     const p = new Predictor({ radius: MAP_R, islands: [island] });
     const server: ShipState = { x: 40, y: 0, heading: 0, speed: 0 };
     p.onServerState(kin(server), 0);

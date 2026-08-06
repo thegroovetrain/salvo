@@ -39,9 +39,9 @@ import {
   CONFIG,
   HOOK_REGISTRY,
   SHIP_CLASS_IDS,
-  type Circle,
   type HookRegistry,
   type InputMsg,
+  type Island,
   type KinematicsBehavior,
   type Pose,
   type ShipConfig,
@@ -53,7 +53,7 @@ import { lerp, lerpAngle } from '../util/math.js';
 /** Collision inputs the predictor shares with the server sim (radius + rocks). */
 export interface CollisionMap {
   radius: number;
-  islands: readonly Circle[];
+  islands: readonly Island[];
 }
 
 /** Pending-input ring capacity (~64 ticks = 3.2s of un-acked input). */

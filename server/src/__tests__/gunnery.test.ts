@@ -9,6 +9,7 @@
 import { describe, it, expect } from 'vitest';
 import { CONFIG, type GameEvent, type HitCallEvent, type MuzzleEvent, type ShellState, type SplashEvent } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
+import { circleIsland } from './islandFixture.js';
 
 /** World whose islands are cleared, for exact-geometry cases. */
 function bareWorld(seed = 1): World {
@@ -229,7 +230,7 @@ describe('gunnery — sp/hc emission (victim resolution; exactly one per shell)'
 
   it('an island stop is a miss: sp, no hc', () => {
     const w = bareWorld();
-    w.map.islands.push({ x: 100, y: 0, r: 30 });
+    w.map.islands.push(circleIsland(100, 0, 30));
     place(w, 'a', 0, -900);
     injectShell(w, { id: 's1', ownerId: 'a', x: 20, y: 0 });
     const acc = stepCollect(w, 10, (evs) => ofKind(evs, 'boom').length > 0);

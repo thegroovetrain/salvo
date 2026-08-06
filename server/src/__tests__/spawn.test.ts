@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG, dist, generateMap, mulberry32 } from '@salvo/shared';
+import { CONFIG, dist, generateMap, mulberry32, pointPolygonDistance } from '@salvo/shared';
+import { circleIsland } from './islandFixture.js';
 import { pickSpawn, SPAWN_ISLAND_CLEARANCE } from '../game/spawn.js';
 import { World } from '../game/world.js';
 
@@ -23,7 +24,9 @@ describe('pickSpawn — placement constraints across seeds', () => {
       for (let i = 0; i < 6; i++) {
         const p = pickSpawn(map, placed, rng);
         for (const island of map.islands) {
-          expect(dist(p, island)).toBeGreaterThan(island.r + SPAWN_ISLAND_CLEARANCE);
+          // Oracle: raw polygon distance, no broadphase — the same intent as
+          // the old `dist(p, c) - c.r`, now against the real coastline.
+          expect(pointPolygonDistance(p, island.poly)).toBeGreaterThan(SPAWN_ISLAND_CLEARANCE);
         }
         placed.push(p);
       }
@@ -67,12 +70,12 @@ describe('pickSpawn — placement constraints across seeds', () => {
     const spawnRing = 720;
     const islands = Array.from({ length: 24 }, (_, i) => {
       const a = (i * 2 * Math.PI) / 24;
-      return { x: Math.cos(a) * spawnRing, y: Math.sin(a) * spawnRing, r: 120 };
+      return circleIsland(Math.cos(a) * spawnRing, Math.sin(a) * spawnRing, 120);
     });
     const map = { radius: 900, spawnRing, islands };
     const rng = mulberry32(0xdead);
     const p = pickSpawn(map, [], rng);
-    const clearance = Math.min(...islands.map((c) => dist(p, c) - c.r));
+    const clearance = Math.min(...islands.map((isle) => pointPolygonDistance(p, isle.poly)));
     expect(clearance).toBeGreaterThan(SPAWN_ISLAND_CLEARANCE);
   });
 });

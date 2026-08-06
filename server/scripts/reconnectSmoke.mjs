@@ -32,7 +32,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, angleDiff, bearing, generateMap, segCircleHit } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, angleDiff, bearing, generateMap, segPolygonHit } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2601;
@@ -134,9 +134,12 @@ function corridorClear(ctx, pos, brg) {
   const end = { x: pos.x + Math.cos(brg) * 500, y: pos.y + Math.sin(brg) * 500 };
   if (Math.hypot(end.x, end.y) > ctx.mapRadius - 40) return false;
   for (const isle of ctx.islands) {
-    // segCircleHit returns 0 (falsy) when p0 is already inside the padded
-    // circle — compare against null explicitly.
-    if (segCircleHit(pos, end, isle, isle.r + 20) !== null) return false;
+    // Polygon coastline, not the bounding circle: islands are fractal polygons
+    // inscribed in `isle.r`, so the circle test rejected corridors that are in
+    // fact clear water. This is a NAVIGATION clearance test, not LOS, so it
+    // keeps its 20u pad — segPolygonHit's `radius` is exactly that pad.
+    // It returns 0 (falsy) when `pos` already sits inside — compare to null.
+    if (segPolygonHit(pos, end, isle.poly, 20) !== null) return false;
   }
   return true;
 }

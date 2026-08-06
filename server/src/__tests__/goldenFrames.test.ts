@@ -30,6 +30,7 @@ import {
 } from '@salvo/shared';
 import { World, type ShipRecord, type WorldOptions } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { circleIsland } from './islandFixture.js';
 
 const TAU = Math.PI * 2;
 const DT = CONFIG.tick.simDtMs;
@@ -313,7 +314,7 @@ function scnStraddleBoom(g: Golden): void {
  */
 function scnIslandLos(g: Golden): void {
   const w = bareWorld(1007);
-  w.map.islands.push({ x: 75, y: 0, r: 30 }); // blocks the +x axis out past sight
+  w.map.islands.push(circleIsland(75, 0, 30)); // blocks the +x axis out past sight
   place(w, 'a', 0, 0);
   place(w, 'b', 150, 0, 1.5); // inside sight, behind the island -> no contact
   place(w, 'c', 100, 100); // inside sight, LOS-clear -> contact (sight control)
@@ -622,7 +623,7 @@ function scnDenied(g: Golden): void {
   place(w, 'a', 0, 0, 0); // TB: gun / torpedo / speedBoost
   place(w, 'b', 120, 0); // sighted second captain — proves owner-only
   const m = place(w, 'm', 400, 0, 0, 'mineLayer'); // stern rack drops at (324, 0)
-  w.map.islands.push({ x: 324, y: 0, r: 20 }); // the rock behind m's stern
+  w.map.islands.push(circleIsland(324, 0, 20)); // the rock behind m's stern
   // Tick 1: a clicks the torpedo dead astern; m presses its DECOY into the rock.
   w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI, fireSeq: 1, aimDist: 0, slot: 1, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
   w.submitInput('m', { seq: 1, throttle: 0, rudder: 0, aim: 0, fireSeq: 0, aimDist: 0, slot: 0, fireT: 0, actSeq: 1, actSlot: 2, hornSeq: 0 });
@@ -735,7 +736,7 @@ function scnDebuffs(g: Golden): void {
  */
 function scnGunnery(g: Golden): void {
   const w = bareWorld(1019);
-  w.map.islands.push({ x: 200, y: 0, r: 40 }); // the o3 LOS blocker
+  w.map.islands.push(circleIsland(200, 0, 40)); // the o3 LOS blocker
   place(w, 'a', 0, 0); // the shooter
   place(w, 'o1', 0, 400); // inside the muzzle halo
   place(w, 'o2', 0, -600); // beyond the 495u halo

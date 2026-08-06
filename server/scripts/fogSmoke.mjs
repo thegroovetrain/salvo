@@ -24,7 +24,7 @@
 //   HC_DEV_OPTIONS=1 npm run dev -w server   (separate terminal)
 //   node server/scripts/fogSmoke.mjs
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, generateMap, bearing, angleDiff, segCircleHit } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, generateMap, bearing, angleDiff, islandBlocksSegment } from '@salvo/shared';
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const SIGHT = CONFIG.vision.sight;
@@ -89,9 +89,14 @@ function onFrame(ctx, f) {
   }
 }
 
-/** True iff the island lies on the segment from `from` to `to`. */
+/**
+ * True iff the island lies on the segment from `from` to `to`. Uses the shared
+ * polygon LOS seam — the SAME primitive perception.ts runs, so the smoke agrees
+ * with the server. (The old bounding-circle test over-blocked: islands are
+ * fractal polygons inscribed in `isle.r`.)
+ */
 function blockedBy(from, to, isle) {
-  return segCircleHit(from, to, isle, isle.r) !== null;
+  return islandBlocksSegment(from, to, isle);
 }
 
 // ---------------------------------------------------------------- piloting ---
@@ -210,7 +215,7 @@ function standoffPoint(a, b, islands, standoff) {
   for (let k = 0; k < 12; k++) {
     const ang = base + k * (Math.PI / 9) * (k % 2 ? 1 : -1);
     const p = { x: b.you.x + Math.cos(ang) * standoff, y: b.you.y + Math.sin(ang) * standoff };
-    if (islands.every((i) => segCircleHit(p, b.you, i, i.r) === null)) return p;
+    if (islands.every((i) => !islandBlocksSegment(p, b.you, i))) return p;
   }
   throw new Error('no LOS-clear standoff point found');
 }
