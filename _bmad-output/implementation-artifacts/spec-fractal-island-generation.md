@@ -2,7 +2,7 @@
 title: 'Fractal Island Generation — Polygon Landmasses'
 type: 'feature'
 created: '2026-08-05'
-status: 'in-progress'
+status: 'done'
 baseline_revision: '026e1bfa9fb5aaec58034224df651fcc9a40a9d8'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -121,7 +121,29 @@ warnings: [oversized]
 
 ## Spec Change Log
 
+**2026-08-05 — representation ruled by Eric at the pre-implementation gate.** Four questions were surfaced before any code was written. Eric chose TRUE POLYGON COASTLINES over the cheaper circle-union option, all four shape grammars (organic blobs, archipelagos with channels, ridges/peninsulas, scale variety), a 3–5% land budget, and all four hard invariants. Recorded because the polygon choice is what made this a ~20-call-site refactor through the anti-cheat core rather than a `map.ts`-only change.
+
+**2026-08-05 — the estimate given to Eric at that gate was pessimistic.** The question framed polygons as needing new primitives (`segPolyHit`, `polyPushOut`, `pointInPolygon`, `polyClearance`). In fact `shared/src/sim/silhouette.ts` already shipped all of them, concave-safe, because the hull silhouette IS the hitbox. The only genuinely new math was polygon push-out. Eric was told this immediately; the decision stood.
+
+**2026-08-05 — cycle renumbered 51 → 52, PV 26 → 28.** Two cycles landed on main mid-flight (Story 4.5 the foghorn took cycle 50/PV 26; the radar realism cycle took 51/PV 27), then a third promoted the new radar to production. Version and PV re-derived after merging main at `3e7f6ed`.
+
+**2026-08-05 — RADAR COAST RETURNS DESCOPED BY ERIC (handoff, NOT fixed here).** The radar realism cycle added coast returns — the scope paints island coastline echoes — and `client/src/render/returnMarks.ts` `nearArcSamples()` samples `island.x + cos(θ) * island.r`, the **bounding circle**. Against polygon coastlines the bounding circle circumscribes the real shape, so the scope paints land over water a player can legitimately sail and shoot through, and the scope disagrees with `render/map.ts`, which draws the true polygon. `losClearOfOthers()` has the same problem for cross-island occlusion (`segCircleHit` on `isle.r`), over-blocking rather than occluding exactly. Because `Island` is structurally assignable to `Circle`, **all of this compiles and every test passes** — the compiler will not surface it.
+> This is UNFIXED and deliberately so. Eric's ruling: *"DO NOT MAKE ANY CHANGES TO RADAR SYSTEMS. The ENTIRE THING is changing RIGHT NOW."* The radar system is under active parallel rework and owns this fix. The shape of the fix, if useful: walk `isle.poly`, keep front-facing edges (outward normal toward the observer), sample along them at `arcStepU` spacing with `maxSamples` as a hard cap, keep the bounding circle as broadphase only, and route occlusion through `islandBlocksSegment` from the `shared/src/sim/island.ts` seam. Note also that `dist <= island.r` no longer means "observer aground" — an observer can sit inside the bounding circle while afloat in a cove; use `pointInIsland`.
+
 ## Review Triage Log
+
+**Pass 1 (2026-08-05) — two independent gates: Fable adversarial + Codex cross-model.**
+
+Counts: intent_gap 0 · bad_spec 0 · patch 4 (1 high, 3 medium) · defer 2 (1 medium, 1 low) · reject 0.
+
+| # | Finding | Source | Verdict | Disposition |
+|---|---|---|---|---|
+| 1 | `segPolygonHit` compared `c.dist <= radius` — an exact float equality against 0 on the radius-0 island path — while `segSegClosest` returns ~1e-16 dust at a true crossing. Measured on 920 segments ending on land: **38.5% of shell hits missed, 31.8% of LOS checks read CLEAR THROUGH SOLID LAND** (a fog-of-war leak at the anti-cheat chokepoint). | 3 implementation agents independently, reproduced by the orchestrator | CONFIRMED (high) | PATCHED — tolerance moved to the comparison site using the file's existing `EPS`. Regression tests use generator-produced polygons; the pre-existing axis-aligned square fixtures cancel to exactly 0.0 and hid the defect entirely. |
+| 2 | Star-shape escape guarantee violated on shipped maps: `skeletonNormal` took its direction from the nearest skeleton POINT while `isStarShaped` validated about the skeleton POLYLINE, and the validator sampled vertices only. Hull slid **30.19u in one 50ms tick**. | Fable gate (F1) | CONFIRMED (high) | PATCHED — `nearestOnSkeleton` exported and shared by both sides so they cannot disagree again; validator samples edge midpoints + an escape-ray family. Re-entries 342/314,551 → 3/306,624; blob and 2-point-ridge failure class eliminated; worst slide 169u → 1.2u. |
+| 3 | Corner-only water pockets passed navigability: the flood marked 4-connected cells but acceptance accepted all 8, so enclosed pockets slipped through. | Codex [P2] | CONFIRMED (medium) | PATCHED — one shared adjacency definition (`orthoNeighbors`). NOTE the fix is BROADER than specified: a literal 4-neighbour test rejected 81% of otherwise-valid maps, so acceptance became strict-navigable + transitive `shoreConnected`. **Awaiting Eric's ratification.** Codex's stated reason was also wrong (the centre row is connected at 32u); the real mechanism is four diagonal pockets, and the test pins that. |
+| 4 | Fallback path skipped revalidation — on attempt exhaustion it popped islands until navigable and returned without rerunning `validateMap`, so it could yield a below-`COVER_MIN` or zero-island map. | Fable (F4) AND Codex [P2] — flagged independently by both | CONFIRMED (medium) | PATCHED — every acceptance routes through `validateMap`; exhaustion throws `MapGenerationError`. Deterministic, so server and client refuse the same seed (never a split-brain ocean). 0 throws in 1,500 maps. |
+| 5 | Cross-engine float determinism: `Math.cos/sin` are implementation-approximated per ECMA-262, so V8 and JavaScriptCore may differ by 1 ulp. The generator gates RNG consumption on thousands of geometric sign tests, so one flipped branch yields a COMPLETELY different ocean — silent and catastrophic (a Safari client would sail through invisible islands). | Fable (F3) | PLAUSIBLE (medium) | DEFERRED — pre-existing in kind (the old circle generator also gated RNG on float comparisons) but far more sensitive now. Needs an Eric ruling; hardening options are software transcendentals or integer-snapped geometry. |
+| 6 | `generateMap` can now throw, and it is called unguarded at `client/src/net/connection.ts:336` — a throw there is a failed join. | Orchestrator, from finding 4's fix | PLAUSIBLE (low) | DEFERRED — measured unreachable (0/1,500) and deterministic. Needs an Eric ruling on whether to add a guarded join-rejection path. |
 
 ## Design Notes
 
