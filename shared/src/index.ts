@@ -3,6 +3,21 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  29: THE HEIGHT FIELD (cycle 59, Eric ruling 2026-08-06) — the capsule
+ *  island generator is REPLACED by a genuine fBm height field: layered
+ *  integer-hashed gradient noise with domain warping, thresholded at a
+ *  rank-selected sea level for the coastline, with higher isolines of the
+ *  SAME field as render-only elevation contours. `Island` loses `skeleton`
+ *  and gains `pole` (pole of inaccessibility) + `contours`; `core` is now
+ *  measured about the pole (a hook's centroid falls in its own bay). GameMap
+ *  gains the retained quantized height raster + max-height pyramid (the
+ *  future radar-shadow substrate — Eric ruling 2026-08-06). Land coverage
+ *  retunes 3-5% -> 2-3%. Map geometry still never travels on the wire — only
+ *  `mapSeed` does — but the same seed now builds a COMPLETELY different
+ *  ocean, so an un-bumped old client would rebuild a different map and desync
+ *  catastrophically. The star-shape invariant is RETIRED: lagoons are
+ *  eliminated by a generation-time closure pass, and collision push-out aims
+ *  at the nearest boundary point instead of a skeleton normal.
  *  28: FRACTAL ISLANDS (cycle 52, Eric ruling 2026-08-05) — islands become
  *  true polygon coastlines: generateMap's circle-packing generator is
  *  REPLACED by the fractal capsule-offset generator (new `Island` type:
@@ -225,7 +240,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 28;
+export const PROTOCOL_VERSION = 29;
 
 // Tunables
 export * from './constants.js';
@@ -256,4 +271,6 @@ export * from './sim/island.js';
 export * from './sim/aim.js';
 export * from './sim/shell.js';
 export * from './sim/map.js';
+export * from './sim/noise.js';
+export * from './sim/heightField.js';
 export * from './sim/zone.js';

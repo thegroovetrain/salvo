@@ -81,6 +81,13 @@ describe('shared barrel', () => {
     // two-value enum) plus CONFIG.damageBands and CONFIG.smoke in the welcome
     // config snapshot. Reach reuses CONFIG.vision.muzzleFlash — no new vision
     // constant.
+    // THE HEIGHT FIELD (PV 29, cycle 59, Eric ruling 2026-08-06): the capsule
+    // generator is replaced by a genuine fBm height field — Island loses
+    // `skeleton`, gains `pole`/`contours`, coverage retunes 3-5% -> 2-3%, and
+    // GameMap gains the retained height raster + max pyramid. The SAME
+    // mapSeed builds a COMPLETELY different ocean, so an un-bumped client
+    // would desync catastrophically. Map geometry still never travels on the
+    // wire.
     // FRACTAL ISLANDS (PV 28, cycle 52): islands became polygon coastlines, so
     // the SAME mapSeed now builds a different ocean — an un-bumped old client
     // would generate circles where the server has coastlines and desync
@@ -88,7 +95,7 @@ describe('shared barrel', () => {
     // LOS-gated sensor (radar paint, truesight, muzzle flash, wounded smoke,
     // the foghorn's one-tier muffle) is now polygon-EXACT where it was
     // bounding-circle conservative, so islands block strictly less.
-    expect(PROTOCOL_VERSION).toBe(28);
+    expect(PROTOCOL_VERSION).toBe(29);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no

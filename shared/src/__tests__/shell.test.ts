@@ -46,15 +46,12 @@ function hullAt(x: number, y: number, heading: number, id = 'victim', hullId: Hu
  * distance, and target-to-surface distance byte-for-byte.
  */
 function rock(x: number, y: number, r: number): Island {
-  return islandFromPolygon(
-    [
-      { x: x - r, y: y - r },
-      { x: x + r, y: y - r },
-      { x: x + r, y: y + r },
-      { x: x - r, y: y + r },
-    ],
-    [{ x, y }],
-  );
+  return islandFromPolygon([
+    { x: x - r, y: y - r },
+    { x: x + r, y: y - r },
+    { x: x + r, y: y + r },
+    { x: x - r, y: y + r },
+  ]);
 }
 
 /**

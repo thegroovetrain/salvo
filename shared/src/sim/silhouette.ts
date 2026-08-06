@@ -180,7 +180,16 @@ export function pointInPolygon(p: Vec2, poly: readonly Vec2[]): boolean {
   return inside;
 }
 
-/** Closest point on the polygon BOUNDARY to `p`, with the boundary distance. */
+/**
+ * Closest point on the polygon BOUNDARY to `p`, with the boundary distance.
+ *
+ * Uses `Math.sqrt(dx²+dy²)`, NOT `Math.hypot`: this primitive sits on the map
+ * GENERATION path (pole of inaccessibility, navigability classification, the
+ * repair loop), where cross-engine byte-determinism is absolute. sqrt is
+ * IEEE-754 correctly rounded on every engine; hypot is a library approximation
+ * that V8 and JavaScriptCore may disagree on by an ulp, which is enough to
+ * flip a nearest-edge comparison and desync the generated coastline.
+ */
 export function closestPointOnPolygon(p: Vec2, poly: readonly Vec2[]): Vec2 & { dist: number } {
   let best = { x: poly[0].x, y: poly[0].y, dist: Infinity };
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -194,7 +203,9 @@ export function closestPointOnPolygon(p: Vec2, poly: readonly Vec2[]): Vec2 & { 
     else if (t > 1) t = 1;
     const qx = a.x + dx * t;
     const qy = a.y + dy * t;
-    const d = Math.hypot(p.x - qx, p.y - qy);
+    const ddx = p.x - qx;
+    const ddy = p.y - qy;
+    const d = Math.sqrt(ddx * ddx + ddy * ddy);
     if (d < best.dist) best = { x: qx, y: qy, dist: d };
   }
   return best;
@@ -319,6 +330,34 @@ export function polygonFitLimit(
     if (l < limit) limit = l;
   }
   return limit > 0 ? limit : 0;
+}
+
+/**
+ * Signed shoelace area (positive = CCW). Moved here from islandShape.ts with
+ * the cycle-59 capsule deletion — this file is THE one polygon library.
+ */
+export function polygonArea(poly: readonly Vec2[]): number {
+  let s = 0;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    s += poly[j].x * poly[i].y - poly[i].x * poly[j].y;
+  }
+  return s / 2;
+}
+
+/**
+ * True iff no two non-adjacent edges properly intersect (simple polygon).
+ * Moved here from islandShape.ts with the cycle-59 capsule deletion; shares
+ * the private `segmentsCross`/`orient` below with simplifyLoop's guard.
+ */
+export function polygonIsSimple(poly: readonly Vec2[]): boolean {
+  const n = poly.length;
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 2; j < n; j++) {
+      if (i === 0 && j === n - 1) continue; // adjacent through the wrap
+      if (segmentsCross(poly[i], poly[(i + 1) % n], poly[j], poly[(j + 1) % n])) return false;
+    }
+  }
+  return true;
 }
 
 /** Max distance from the local origin to any vert (bounding-circle radius). */

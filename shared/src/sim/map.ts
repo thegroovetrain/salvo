@@ -1,61 +1,70 @@
-// Deterministic FRACTAL map generation (cycle 51, Eric ruling 2026-08-05) —
-// the ORCHESTRATOR: landmass budget, archetype rolls, placement, and
-// navigability validation. The landmass shape builder (skeleton -> capsule ->
-// periodic-midpoint-displacement coastline) lives in sim/islandShape.ts.
+// Deterministic HEIGHT-FIELD map generation (cycle 59, Eric ruling 2026-08-06)
+// — the ORCHESTRATOR: sea level, coverage control, lagoon closure, extraction,
+// navigability repair, contours, and the retained height raster. The field
+// itself lives in sim/heightField.ts (+ sim/noise.ts); the mask/trace/closure
+// machinery in sim/islandShape.ts. This replaces the cycle-51 capsule
+// generator's budget/placement/reroll loop wholesale.
 //
-// From a seed + player cap, produces the map radius, a spawn ring, and
-// polygon-coastline landmasses (Island). The client regenerates the identical
-// map from `mapSeed`, so island geometry never travels on the wire.
+// From a seed + player cap, produces the map radius, a spawn ring, polygon
+// coastline landmasses (Island — with pole of inaccessibility, pole-centred
+// core, and render-only elevation contours), and the quantized height raster
+// plus max-height pyramid (the future radar-shadow substrate — Eric ruling
+// 2026-08-06: raster + pyramid, never contour polygons, is the elevation
+// authority). The client regenerates the identical map from `mapSeed`, so
+// none of it travels on the wire.
 //
-// Archetypes: blob (1-pt skeleton), ridge (2-3 pt skeleton), and archipelago
-// — a GROUP concept, not a shape: 2-4 separate landmasses around a common
-// anchor with inter-member gaps in [CHANNEL_MIN, CHANNEL_MIN*3]. Channels
-// come from gaps between polygons, never from a concavity in one polygon.
-// Half-widths follow a power-law-ish distribution (many small rocks, some
-// mid, a few large masses) capped by the remaining coverage headroom.
+// Pipeline: field -> sea level by histogram RANK SELECTION (coverage on
+// target by construction — no reroll loop) -> lagoon closure (fill water no
+// hull can reach) -> marching squares -> per-island vertex budget
+// (Visvalingam-Whyatt, perimeter-proportional) -> pole/core -> the RATIFIED
+// 32u navigability check, REPAIRED (offending cells sealed with smooth land
+// domes) rather than rerolled -> contours -> height raster. The raster is
+// built LAST, after sea level is chosen and after every repair, so it agrees
+// with the shipped coastline byte for byte.
 //
-// A generated map is only accepted when the shoelace land coverage sits in
-// [COVER_MIN, COVER_MAX] of the disc AND the navigability grid (32u cells,
-// eroded by widest-hull half-beam + margin, flood-filled 4-CONNECTED from the
-// spawn ring) proves every water cell reachable — one deterministic check that
-// delivers no-lagoons, no-unreachable-pockets, and no-sub-Battleship channels
-// at once. Rejected maps reroll from the SAME rng stream; late attempts also
-// relax the landmass COUNT. The invariants are NEVER relaxed: every returned
-// map has passed the full `validateMap`, and a ladder that cannot produce one
-// throws `MapGenerationError` rather than silently widening the band.
+// DETERMINISM IS ABSOLUTE: no unseeded randomness, no clock, and no
+// transcendental on the generation path (Math.sqrt is IEEE-exact and allowed;
+// PI below is the pi double inlined as a literal so the source-scanning guard
+// in map.test.ts stays uniform with noise.ts/heightField.ts). Identical
+// (seed, playerCap) yields a deep-equal map — vertex, pole, contour and
+// height cell — on every engine.
 
-import { mapRadius, CONFIG } from '../constants.js';
-import { mulberry32, type Rng } from '../math/rng.js';
+import { CONFIG, mapRadius } from '../constants.js';
 import type { Vec2 } from '../math/vec.js';
-import type { Island } from '../types.js';
-import { closestPointOnPolygon, pointInPolygon } from './silhouette.js';
+import type { Contour, Island } from '../types.js';
 import {
-  buildShape,
-  polygonArea,
-  M_MIN,
-  M_MAX,
-  MAX_CONCAVITY,
-  ROUGHNESS,
-  type Shape,
+  buildField,
+  buildHeightRaster,
+  TERRAIN_PARAMS,
+  type HeightField,
+  type HeightRaster,
+} from './heightField.js';
+import {
+  buildMask,
+  closeUnreachableWater,
+  forceLandDisc,
+  makeGrid,
+  poleOfInaccessibility,
+  ringProbes,
+  traceLoops,
+  type ExtractionGrid,
 } from './islandShape.js';
+import {
+  closestPointOnPolygon,
+  pointInPolygon,
+  polygonArea,
+  polygonIsSimple,
+  simplifyLoop,
+} from './silhouette.js';
 
-// Re-exported shape-builder surface (tests + consumer fixtures import via here).
-export { fractalOffsets, polygonArea, polygonIsSimple, islandFromPolygon } from './islandShape.js';
+const P = TERRAIN_PARAMS;
 
-const TAU = Math.PI * 2;
+/** The pi double verbatim — a literal, so the source guard stays uniform. */
+const PI = 3.141592653589793;
+/** The sqrt(2) double verbatim — same rule. */
+const SQRT2 = 1.4142135623730951;
 
 // --- Ratified constants (MAP_RULES) -----------------------------------------
-
-const INNER_FRACTION = 0.15; // no islands within this fraction of center
-const OUTER_FRACTION = 0.9; // islands stay inside this fraction of radius
-const SPAWN_MARGIN = 64; // u — min clearance from the spawn ring (>= max hull bounding radius 62.29)
-const CHANNEL_MIN = 48; // u — min bounding-circle gap between landmasses (> every hull beam; widest is 35)
-const COVER_MIN = 0.03; // shoelace land area / map disc area, lower bound
-const COVER_MAX = 0.05; // upper bound
-const COVER_TARGET = 0.04; // the budget loop stops once realized cover crosses this
-const HW_MIN = 25; // u — smallest landmass half-width (single rocks)
-const HW_MAX = 260; // u — largest landmass half-width
-const HW_POWER = 2.2; // power-law skew: many small, some mid, few large
 
 /** Widest hull beam across ship classes AND drones (order-independent max). */
 const WIDEST_BEAM = Math.max(
@@ -63,216 +72,239 @@ const WIDEST_BEAM = Math.max(
   ...Object.values(CONFIG.drones).map((d) => d.hull.beam),
 );
 
-const NAV_CELL = 32; // u — navigability raster cell size
+const NAV_CELL = 32; // u — ratified navigability raster cell size
 const NAV_MARGIN = 6; // u — hull half-beam slack in the navigability erosion
-/** Erosion radius: a cell is navigable iff its centre clears every polygon by
- *  this. Must stay <= CHANNEL_MIN / 2 so a CHANNEL_MIN channel's centerline
- *  stays navigable (pinned by tests). */
+/** Erosion radius: a cell is navigable iff its centre clears every polygon by this. */
 const NAV_CLEAR = WIDEST_BEAM / 2 + NAV_MARGIN;
+const SPAWN_MARGIN = P.spawnMargin; // u — min coastline clearance from the spawn ring
 
-const PLACE_ATTEMPTS = 12; // placement retries per landmass
-const MAP_ATTEMPTS = 10; // whole-map rerolls before count relaxation
-const GROUP_FAIL_LIMIT = 20; // consecutive group failures before giving up an attempt
+/**
+ * Minimum local coastline feature size (u): the marching-squares corner clamp
+ * (t in [0.25, 0.75]) bounds any two crossings on edges meeting at a grid
+ * corner to at least 0.25·√2·cell apart (~4.9u at cell 14) — what makes
+ * nearest-boundary push-out safe against needle features.
+ */
+const MIN_FEATURE = 0.25 * SQRT2 * P.cell;
 
-/** A generated map: radius, spawn ring radius, and island landmasses. */
+/** A generated map: radius, spawn ring, islands, and the retained elevation. */
 export interface GameMap {
   radius: number; // u
   spawnRing: number; // u — radius of the ship spawn ring
   islands: Island[];
+  /**
+   * The RETAINED quantized height raster + max-height pyramid (cycle 59, Eric
+   * ruling 2026-08-06): the substrate a future cycle raymarches for radar
+   * shadows. Built AFTER sea level and every navigability repair, so it
+   * agrees with the shipped coastline. Rebuilt from the seed on both sides;
+   * never on the wire. Nothing reads it yet.
+   */
+  heightRaster: HeightRaster;
 }
 
-// --- Placement ---------------------------------------------------------------
+/** The subset of GameMap the validators need (fixture maps skip the raster). */
+export type MapShape = Pick<GameMap, 'radius' | 'spawnRing' | 'islands'>;
 
-function ringBandBlocked(d: number, rLocal: number, spawnRing: number): boolean {
-  return Math.abs(d - spawnRing) < rLocal + SPAWN_MARGIN;
+// --- Sea level ---------------------------------------------------------------
+
+/**
+ * Select the field level that puts `cover` of the disc above it, by histogram
+ * RANK SELECTION over the in-disc samples. This is the whole coverage control
+ * system: two linear passes, no reroll loop, on target by construction. The
+ * retired generator instead placed landmasses until a running area budget was
+ * met and threw the whole map away when it missed the band.
+ */
+function levelForCover(g: ExtractionGrid, cover: number, bins = 4096): number {
+  const v = g.field.v;
+  const list = g.idxList;
+  let min = Infinity;
+  let max = -Infinity;
+  for (let k = 0; k < list.length; k++) {
+    const val = v[list[k]];
+    if (val < min) min = val;
+    if (val > max) max = val;
+  }
+  const hist = new Int32Array(bins);
+  const scale = (bins - 1) / (max - min);
+  for (let k = 0; k < list.length; k++) hist[((v[list[k]] - min) * scale) | 0]++;
+  const want = Math.round(cover * list.length);
+  let acc = 0;
+  for (let b = bins - 1; b >= 0; b--) {
+    acc += hist[b];
+    if (acc >= want) return min + b / scale;
+  }
+  return min;
 }
 
-/** Draw a centre position honoring inner/outer fractions + the spawn-ring band. */
-function drawPlacement(rng: Rng, rLocal: number, radius: number, spawnRing: number): Vec2 | null {
-  const lo = radius * INNER_FRACTION + rLocal;
-  const hi = radius * OUTER_FRACTION - rLocal;
-  const bandLo = spawnRing - rLocal - SPAWN_MARGIN;
-  const bandHi = spawnRing + rLocal + SPAWN_MARGIN;
-  const len1 = Math.max(0, Math.min(hi, bandLo) - lo);
-  const len2 = Math.max(0, hi - Math.max(lo, bandHi));
-  if (len1 + len2 <= 0) return null;
-  const u = rng.float(0, len1 + len2);
-  const d = u < len1 ? lo + u : Math.max(lo, bandHi) + (u - len1);
-  const ang = rng.float(0, TAU);
-  return { x: Math.cos(ang) * d, y: Math.sin(ang) * d };
+/** Highest field value inside the disc (out-of-disc cells sit deep negative). */
+function fieldMax(g: ExtractionGrid): number {
+  const v = g.field.v;
+  let max = -Infinity;
+  for (let k = 0; k < g.idxList.length; k++) {
+    const val = v[g.idxList[k]];
+    if (val > max) max = val;
+  }
+  return max;
 }
 
-/** Bounding-circle gap >= CHANNEL_MIN against every placed island. */
-function clearsAll(pos: Vec2, rLocal: number, islands: readonly Island[]): boolean {
-  return islands.every(
-    (isle) => Math.hypot(pos.x - isle.x, pos.y - isle.y) >= rLocal + isle.r + CHANNEL_MIN,
-  );
+// --- Island extraction --------------------------------------------------------
+
+/** Perimeter of a closed loop (u). */
+function loopPerimeter(loop: readonly Vec2[]): number {
+  let per = 0;
+  for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+    const dx = loop[i].x - loop[j].x;
+    const dy = loop[i].y - loop[j].y;
+    per += Math.sqrt(dx * dx + dy * dy);
+  }
+  return per;
 }
 
-function toWorldIsland(shape: Shape, pos: Vec2): Island {
+/**
+ * The vertex budget is proportional to PERIMETER at a fixed target vertex
+ * SPACING, clamped to [minVerts, hardCap]: LOS, collision and the client's
+ * radar bake all pay for every vertex on the board, and a 60u rock does not
+ * need what a 700u landmass needs.
+ */
+function vertCapFor(loop: readonly Vec2[], hardCap: number, minVerts: number): number {
+  const cap = Math.round(loopPerimeter(loop) / P.vertSpacing);
+  return Math.max(minVerts, Math.min(hardCap, cap));
+}
+
+/**
+ * Simplify a raw coastline loop to its vertex budget. simplifyLoop's
+ * self-intersection guard keeps a simple input simple, so the explicit check
+ * is a belt-and-braces drop, not a retry loop.
+ */
+function simplifyIsland(loop: readonly Vec2[]): Vec2[] | null {
+  const s = simplifyLoop(loop, vertCapFor(loop, P.vertHardCap, P.minVerts));
+  if (s.length < 4 || !polygonIsSimple(s)) return null;
+  return polygonArea(s) < 0 ? s.reverse() : s;
+}
+
+/**
+ * Assemble an Island from a WORLD-SPACE CCW polygon: bounding circle about
+ * the vertex centroid, pole of inaccessibility, pole-centred core. Contours
+ * are attached by the generator afterwards ([] here). Exported for consumer
+ * test fixtures — the cycle-51 skeleton parameter is retired.
+ */
+export function islandFromPolygon(poly: readonly Vec2[]): Island {
+  let cx = 0;
+  let cy = 0;
+  for (const p of poly) {
+    cx += p.x;
+    cy += p.y;
+  }
+  cx /= poly.length;
+  cy /= poly.length;
+  let r = 0;
+  for (const p of poly) {
+    const dx = p.x - cx;
+    const dy = p.y - cy;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d > r) r = d;
+  }
+  const pole = poleOfInaccessibility(poly);
   return {
-    x: pos.x,
-    y: pos.y,
-    r: shape.rLocal,
-    poly: shape.poly.map((p) => ({ x: p.x + pos.x, y: p.y + pos.y })),
-    skeleton: shape.skel.map((p) => ({ x: p.x + pos.x, y: p.y + pos.y })),
-    core: shape.core,
+    x: cx,
+    y: cy,
+    r,
+    poly: poly.map((p) => ({ x: p.x, y: p.y })),
+    pole: { x: pole.x, y: pole.y },
+    core: pole.r,
+    contours: [],
   };
 }
 
-function placeShape(
-  rng: Rng,
-  shape: Shape,
-  islands: readonly Island[],
-  radius: number,
-  spawnRing: number,
-): Island | null {
-  for (let a = 0; a < PLACE_ATTEMPTS; a++) {
-    const pos = drawPlacement(rng, shape.rLocal, radius, spawnRing);
-    if (!pos) return null;
-    if (clearsAll(pos, shape.rLocal, islands)) return toWorldIsland(shape, pos);
-  }
-  return null;
-}
-
-function fitsBoard(pos: Vec2, rLocal: number, radius: number, spawnRing: number): boolean {
-  const d = Math.hypot(pos.x, pos.y);
-  return (
-    d - rLocal >= radius * INNER_FRACTION &&
-    d + rLocal <= radius * OUTER_FRACTION &&
-    !ringBandBlocked(d, rLocal, spawnRing)
-  );
-}
-
-/** Place an archipelago member next to an already-placed group member. */
-function placeMemberNear(
-  rng: Rng,
-  shape: Shape,
-  group: readonly Island[],
-  islands: readonly Island[],
-  radius: number,
-  spawnRing: number,
-): Island | null {
-  for (let a = 0; a < PLACE_ATTEMPTS; a++) {
-    const anchor = rng.pick(group);
-    const gap = rng.float(CHANNEL_MIN, CHANNEL_MIN * 3);
-    const ang = rng.float(0, TAU);
-    const d = anchor.r + shape.rLocal + gap;
-    const pos = { x: anchor.x + Math.cos(ang) * d, y: anchor.y + Math.sin(ang) * d };
-    if (!fitsBoard(pos, shape.rLocal, radius, spawnRing)) continue;
-    if (clearsAll(pos, shape.rLocal, islands)) return toWorldIsland(shape, pos);
-  }
-  return null;
-}
-
-// --- The landmass budget ------------------------------------------------------
-
-/** Power-law half-width draw, capped by the remaining coverage headroom. */
-function drawHalfWidth(rng: Rng, headroom: number, radius: number): number | null {
-  const byHeadroom = Math.sqrt((0.8 * headroom) / Math.PI);
-  const cap = Math.min(HW_MAX, byHeadroom, radius * 0.15);
-  if (cap < HW_MIN) return null;
-  const u = rng.next();
-  const hw = HW_MIN * (HW_MAX / HW_MIN) ** (u ** HW_POWER);
-  return Math.min(hw, cap);
-}
-
-/** Roll + place one archipelago GROUP (2-4 members, drop a member on exhaustion). */
-function rollArchipelago(
-  rng: Rng,
-  hw: number,
-  islands: Island[],
-  radius: number,
-  spawnRing: number,
-  capArea: number,
-  covered: number,
-): number {
-  const members = rng.int(2, 4);
-  const group: Island[] = [];
-  let added = 0;
-  for (let i = 0; i < members; i++) {
-    const mhw = Math.max(HW_MIN, hw * rng.float(0.35, 0.75));
-    const kind = rng.next() < 0.75 ? 'blob' : 'ridge';
-    const shape = buildShape(rng, kind === 'ridge' ? Math.max(HW_MIN, mhw * 0.6) : mhw, kind);
-    if (!shape || covered + added + shape.area > capArea) continue;
-    const isle =
-      group.length === 0
-        ? placeShape(rng, shape, islands, radius, spawnRing)
-        : placeMemberNear(rng, shape, group, islands, radius, spawnRing);
-    if (!isle) continue;
-    group.push(isle);
-    islands.push(isle);
-    added += shape.area;
-  }
-  return added;
-}
-
-/** Roll + place one landmass group; returns the shoelace area actually added. */
-function rollOneGroup(
-  rng: Rng,
-  islands: Island[],
-  radius: number,
-  spawnRing: number,
-  capArea: number,
-  covered: number,
-): number {
-  const hw = drawHalfWidth(rng, capArea - covered, radius);
-  if (hw === null) return 0;
-  const roll = rng.next();
-  if (roll >= 0.8) {
-    return rollArchipelago(rng, hw, islands, radius, spawnRing, capArea, covered);
-  }
-  const kind = roll < 0.5 ? 'blob' : 'ridge';
-  const shape = buildShape(rng, kind === 'ridge' ? Math.max(HW_MIN, hw * 0.6) : hw, kind);
-  if (!shape || covered + shape.area > capArea) return 0;
-  const isle = placeShape(rng, shape, islands, radius, spawnRing);
-  if (!isle) return 0;
-  islands.push(isle);
-  return shape.area;
-}
-
-/** Place landmasses until realized shoelace cover crosses `targetCover`. */
-function rollIslands(rng: Rng, radius: number, spawnRing: number, targetCover: number): Island[] {
-  const discArea = Math.PI * radius * radius;
-  const target = targetCover * discArea;
-  const capArea = COVER_MAX * 0.96 * discArea;
+/** One extraction pass: mask -> closure -> trace -> simplify -> Island[]. */
+function extractIslands(g: ExtractionGrid, level: number, spawnRing: number): Island[] {
+  buildMask(g, level);
+  closeUnreachableWater(g, spawnRing, P.navClear);
   const islands: Island[] = [];
-  let covered = 0;
-  let failures = 0;
-  while (covered < target && failures < GROUP_FAIL_LIMIT) {
-    const added = rollOneGroup(rng, islands, radius, spawnRing, capArea, covered);
-    if (added > 0) {
-      covered += added;
-      failures = 0;
-    } else {
-      failures++;
-    }
+  for (const loop of traceLoops(g, level)) {
+    const a = polygonArea(loop);
+    if (a <= 0 || a < P.minIslandArea) continue; // holes and sub-rock specks
+    const s = simplifyIsland(loop);
+    if (!s || polygonArea(s) < P.minIslandArea) continue;
+    islands.push(islandFromPolygon(s));
   }
   return islands;
 }
 
-// --- Navigability validation --------------------------------------------------
+/** Total shoelace land area of a set of islands (u²). */
+function totalLandArea(islands: readonly Island[]): number {
+  let area = 0;
+  for (const isle of islands) {
+    const a = polygonArea(isle.poly);
+    area += a < 0 ? -a : a;
+  }
+  return area;
+}
+
+/**
+ * Re-pick sea level from the SAME field (no re-noise, no reroll) until the
+ * realized polygon coverage lands in [coverMin, coverMax] — up to two extra
+ * passes; the histogram target is already on the money almost always.
+ */
+function retargetCover(
+  g: ExtractionGrid,
+  spawnRing: number,
+  level0: number,
+  islands0: Island[],
+): { level: number; islands: Island[] } {
+  const discArea = PI * g.radius * g.radius;
+  let level = level0;
+  let islands = islands0;
+  let cover = P.coverTarget;
+  for (let pass = 0; pass < 2; pass++) {
+    const realized = totalLandArea(islands) / discArea;
+    if (realized >= P.coverMin && realized <= P.coverMax) break;
+    cover *= realized > 0 ? Math.min(1.6, Math.max(0.6, P.coverTarget / realized)) : 1.4;
+    level = levelForCover(g, cover);
+    islands = extractIslands(g, level, spawnRing);
+  }
+  return { level, islands };
+}
+
+// --- The RATIFIED navigability check (32u lattice, 4-connected) ---------------
 
 interface NavGrid {
   n: number; // cells per side
-  cells: Uint8Array; // 0 = outside disc, 1 = land, 2 = water (non-navigable), 3 = navigable
+  cells: Uint8Array; // 0 = outside disc, 1 = land, 2 = tight water, 3 = navigable
 }
 
-/** 1 = land, 2 = water too close to a coast, 3 = navigable water. */
-function classifyCell(x: number, y: number, islands: readonly Island[]): 1 | 2 | 3 {
-  let tight = false;
-  for (const isle of islands) {
-    const dx = x - isle.x;
-    const dy = y - isle.y;
-    const reach = isle.r + NAV_CLEAR;
-    if (dx * dx + dy * dy >= reach * reach) continue;
-    const p = { x, y };
-    if (pointInPolygon(p, isle.poly)) return 1;
-    if (closestPointOnPolygon(p, isle.poly).dist < NAV_CLEAR) tight = true;
+/** Downgrade the cells inside one island's grown bounding box. */
+function downgradeCells(grid: NavGrid, isle: Island, radius: number): void {
+  const { n, cells } = grid;
+  const reach = isle.r + NAV_CLEAR;
+  const lo = Math.max(0, Math.floor((isle.x - reach + radius) / NAV_CELL));
+  const hi = Math.min(n - 1, Math.ceil((isle.x + reach + radius) / NAV_CELL));
+  const lo2 = Math.max(0, Math.floor((isle.y - reach + radius) / NAV_CELL));
+  const hi2 = Math.min(n - 1, Math.ceil((isle.y + reach + radius) / NAV_CELL));
+  const reach2 = reach * reach;
+  for (let cy = lo2; cy <= hi2; cy++) {
+    const y = -radius + (cy + 0.5) * NAV_CELL;
+    for (let cx = lo; cx <= hi; cx++) {
+      const idx = cy * n + cx;
+      if (cells[idx] === 0 || cells[idx] === 1) continue;
+      const x = -radius + (cx + 0.5) * NAV_CELL;
+      const dx = x - isle.x;
+      const dy = y - isle.y;
+      if (dx * dx + dy * dy >= reach2) continue;
+      const p = { x, y };
+      if (pointInPolygon(p, isle.poly)) cells[idx] = 1;
+      else if (closestPointOnPolygon(p, isle.poly).dist < NAV_CLEAR) cells[idx] = 2;
+    }
   }
-  return tight ? 2 : 3;
 }
 
+/**
+ * Same classification as the retired generator's `classifyCell`, with the
+ * loop INVERTED: start every in-disc cell at 3 (navigable) and let each
+ * island downgrade only the cells inside its own bounding box, grown by
+ * NAV_CLEAR. Identical output, measured ~7x faster in the prototype — which
+ * is what makes running the check INSIDE the generator (and repairing)
+ * affordable.
+ */
 function buildNavGrid(islands: readonly Island[], radius: number): NavGrid {
   const n = Math.ceil((radius * 2) / NAV_CELL);
   const cells = new Uint8Array(n * n);
@@ -281,36 +313,19 @@ function buildNavGrid(islands: readonly Island[], radius: number): NavGrid {
     for (let cx = 0; cx < n; cx++) {
       const x = -radius + (cx + 0.5) * NAV_CELL;
       const y = -radius + (cy + 0.5) * NAV_CELL;
-      if (x * x + y * y > r2) continue;
-      cells[cy * n + cx] = classifyCell(x, y, islands);
+      if (x * x + y * y <= r2) cells[cy * n + cx] = 3;
     }
   }
-  return { n, cells };
-}
-
-function cellIndexAt(grid: NavGrid, radius: number, x: number, y: number): number {
-  const cx = Math.floor((x + radius) / NAV_CELL);
-  const cy = Math.floor((y + radius) / NAV_CELL);
-  if (cx < 0 || cy < 0 || cx >= grid.n || cy >= grid.n) return -1;
-  return cy * grid.n + cx;
-}
-
-/** First navigable cell on the spawn ring (64 deterministic probe angles), or -1. */
-function spawnRingSeed(grid: NavGrid, radius: number, spawnRing: number): number {
-  for (let k = 0; k < 64; k++) {
-    const ang = (TAU * k) / 64;
-    const idx = cellIndexAt(grid, radius, Math.cos(ang) * spawnRing, Math.sin(ang) * spawnRing);
-    if (idx >= 0 && grid.cells[idx] === 3) return idx;
-  }
-  return -1;
+  const grid = { n, cells };
+  for (const isle of islands) downgradeCells(grid, isle, radius);
+  return grid;
 }
 
 /**
- * THE definition of grid adjacency: the four ORTHOGONAL in-bounds neighbours
- * of `idx`. A hull cannot squeeze through a corner touch, so 4-connectivity is
- * the navigable semantics — and BOTH the flood (`floodFromSpawnRing`) and the
- * reachability acceptance (`hasReachedNeighbor`) call this one function, so
- * they can never again disagree about what "adjacent" means.
+ * THE definition of grid adjacency: the four ORTHOGONAL in-bounds neighbours.
+ * A hull cannot squeeze through a corner touch, so 4-connectivity is the
+ * navigable semantics — BOTH the flood and the shore spread use this one
+ * function, so they can never disagree about what "adjacent" means.
  */
 function orthoNeighbors(n: number, idx: number): number[] {
   const cx = idx % n;
@@ -322,120 +337,209 @@ function orthoNeighbors(n: number, idx: number): number[] {
   return out;
 }
 
-/** Flood-fill navigable cells (4-connected) from a cell on the spawn ring. */
-function floodFromSpawnRing(grid: NavGrid, radius: number, spawnRing: number): Uint8Array {
-  const reached = new Uint8Array(grid.n * grid.n);
-  const stack: number[] = [];
-  const seed = spawnRingSeed(grid, radius, spawnRing);
-  if (seed >= 0) {
-    reached[seed] = 1;
-    stack.push(seed);
+/** First navigable cell under the deterministic spawn-ring probes, or -1. */
+function spawnRingSeed(grid: NavGrid, radius: number, spawnRing: number): number {
+  for (const p of ringProbes(spawnRing, 128)) {
+    const cx = Math.floor((p.x + radius) / NAV_CELL);
+    const cy = Math.floor((p.y + radius) / NAV_CELL);
+    if (cx < 0 || cy < 0 || cx >= grid.n || cy >= grid.n) continue;
+    const idx = cy * grid.n + cx;
+    if (grid.cells[idx] === 3) return idx;
   }
+  return -1;
+}
+
+/** Flood-fill cells matching `kind` (4-connected) from the stacked seeds. */
+function floodCells(grid: NavGrid, reached: Uint8Array, stack: number[], kind: number): void {
   while (stack.length > 0) {
     const idx = stack.pop() as number;
     for (const nb of orthoNeighbors(grid.n, idx)) {
-      if (grid.cells[nb] === 3 && !reached[nb]) {
+      if (grid.cells[nb] === kind && !reached[nb]) {
         reached[nb] = 1;
         stack.push(nb);
       }
     }
   }
-  return reached;
 }
 
-/**
- * True iff every TIGHT-water cell (2) is 4-connected THROUGH tight water to
- * the reached ocean — i.e. it is shore, a cove, or an inlet continuous with
- * the sea rather than a puddle sealed off from it. Seeded from the reached
- * navigable cells and spread with the same `orthoNeighbors` the flood uses.
- *
- * A one-hop test cannot express this: at 32u cells a perfectly ordinary
- * coastal nook is two or three tight cells deep, and requiring each of them to
- * touch open water directly rejected 81% of otherwise-valid candidate maps
- * (measured over 425 candidates). Transitivity is what makes 4-connectivity
- * affordable here; it does not weaken anything, because the sub-beam-pinch
- * case is caught by the STRICT navigable-cell rule in `navigable` below,
- * before this ever runs.
- */
-function shoreConnected(grid: NavGrid, reached: Uint8Array): boolean {
-  const open = Uint8Array.from(reached);
-  const stack: number[] = [];
-  for (let idx = 0; idx < open.length; idx++) if (open[idx] === 1) stack.push(idx);
-  while (stack.length > 0) {
-    const idx = stack.pop() as number;
-    for (const nb of orthoNeighbors(grid.n, idx)) {
-      if (grid.cells[nb] === 2 && open[nb] === 0) {
-        open[nb] = 1;
-        stack.push(nb);
-      }
-    }
-  }
-  for (let idx = 0; idx < grid.cells.length; idx++) {
-    if (grid.cells[idx] === 2 && open[idx] === 0) return false;
-  }
-  return true;
+/** World centre of a nav cell. */
+function cellCentre(grid: NavGrid, radius: number, idx: number): Vec2 {
+  const cx = idx % grid.n;
+  const cy = (idx - cx) / grid.n;
+  return { x: -radius + (cx + 0.5) * NAV_CELL, y: -radius + (cy + 0.5) * NAV_CELL };
 }
 
 /**
  * The single navigability check (deterministic — same accept/reject on server
- * and client), in two clauses, both 4-CONNECTED:
+ * and client), in two clauses, both 4-CONNECTED via `orthoNeighbors`:
  *
- *  1. Every NAVIGABLE cell (3) must be REACHED by the spawn-ring flood. No
- *     leniency at all: an unreached navigable cell is either an enclosed
- *     lagoon or a bay behind a channel too narrow for the widest hull.
+ *  1. Every NAVIGABLE cell (3) must be REACHED by the spawn-ring flood — an
+ *     unreached navigable cell is an enclosed lagoon or a bay behind a
+ *     channel too narrow for the widest hull.
  *  2. Every TIGHT-water cell (2) must be shore-connected to that reached
- *     ocean (`shoreConnected`).
+ *     ocean (transitively through tight water — a coastal nook several cells
+ *     deep is continuous with the sea, not a sealed puddle).
  *
- * Clause 1 replaces a one-hop "or adjacent to a reached cell" test that
- * accepted all EIGHT neighbours while the flood spread over only FOUR. A hull
- * cannot squeeze through a corner touch, so that mismatch let a water cell
- * touching the ocean only DIAGONALLY count as reachable, and `validateMap`
- * accepted enclosed pockets and sub-beam diagonal pinches — defeating the
- * ratified no-enclosed-lagoons invariant. Both clauses now spread with the
- * same `orthoNeighbors`, so the flood and the acceptance cannot disagree.
+ * Returns the offending cells' WORLD positions — what the generator's repair
+ * loop seals with land domes.
  */
-function navigable(islands: readonly Island[], radius: number, spawnRing: number): boolean {
+function navigableCheck(
+  islands: readonly Island[],
+  radius: number,
+  spawnRing: number,
+): { ok: boolean; offenders: Vec2[] } {
   const grid = buildNavGrid(islands, radius);
-  const reached = floodFromSpawnRing(grid, radius, spawnRing);
-  for (let idx = 0; idx < grid.cells.length; idx++) {
-    if (grid.cells[idx] === 3 && reached[idx] === 0) return false;
+  const reached = new Uint8Array(grid.n * grid.n);
+  const seed = spawnRingSeed(grid, radius, spawnRing);
+  if (seed >= 0) {
+    reached[seed] = 1;
+    floodCells(grid, reached, [seed], 3);
   }
-  return shoreConnected(grid, reached);
+  const offenders: Vec2[] = [];
+  for (let idx = 0; idx < grid.cells.length; idx++) {
+    if (grid.cells[idx] === 3 && reached[idx] === 0) {
+      offenders.push(cellCentre(grid, radius, idx));
+    }
+  }
+  const shore = Uint8Array.from(reached);
+  const seeds: number[] = [];
+  for (let idx = 0; idx < shore.length; idx++) if (shore[idx] === 1) seeds.push(idx);
+  floodCells(grid, shore, seeds, 2);
+  for (let idx = 0; idx < grid.cells.length; idx++) {
+    if (grid.cells[idx] === 2 && shore[idx] === 0) offenders.push(cellCentre(grid, radius, idx));
+  }
+  return { ok: offenders.length === 0, offenders };
 }
+
+/**
+ * ENFORCE the ratified acceptance test, don't just hope to pass it. The 14u
+ * closure already guarantees every water body is hull-reachable at ITS
+ * resolution, but the ratified check reasons on a 32u lattice with a
+ * 4-connected flood, and a cove throat can be threadable at 14u while having
+ * no orthogonally adjacent chain of 32u navigable cell centres. That is a
+ * false positive of the test rather than a real enclosed lagoon — but the
+ * test is the ratified invariant, so the generator satisfies it by sealing
+ * the offending cells and re-extracting, instead of rerolling the whole map.
+ * Land only ever grows, so the loop is monotone and terminates.
+ */
+function repairNavigability(
+  g: ExtractionGrid,
+  level: number,
+  spawnRing: number,
+  islands0: Island[],
+): Island[] {
+  let islands = islands0;
+  for (let attempt = 0; attempt < P.navRepairAttempts; attempt++) {
+    const nv = navigableCheck(islands, g.radius, spawnRing);
+    if (nv.ok) break;
+    for (const o of nv.offenders) forceLandDisc(g, o.x, o.y, P.navRepairRadius, level);
+    islands = extractIslands(g, level, spawnRing);
+  }
+  return islands;
+}
+
+// --- Contours (render-only elevation bands) -----------------------------------
+
+/** Simplify a contour loop to its perimeter-proportional budget. */
+function simplifyContour(loop: readonly Vec2[]): Vec2[] | null {
+  const s = simplifyLoop(loop, vertCapFor(loop, P.contourMaxVerts, 5));
+  if (s.length < 3 || !polygonIsSimple(s)) return null;
+  return polygonArea(s) < 0 ? s.reverse() : s;
+}
+
+/** True iff every vertex of `loop` lies inside `poly`. */
+function loopInside(loop: readonly Vec2[], poly: readonly Vec2[]): boolean {
+  for (const p of loop) {
+    if (!pointInPolygon(p, poly)) return false;
+  }
+  return true;
+}
+
+/** The island whose coastline strictly contains `loop`, or null. */
+function findParentIsland(islands: readonly Island[], loop: readonly Vec2[]): Island | null {
+  const p0 = loop[0];
+  for (const isle of islands) {
+    const dx = p0.x - isle.x;
+    const dy = p0.y - isle.y;
+    if (dx * dx + dy * dy > isle.r * isle.r) continue; // broadphase
+    if (loopInside(loop, isle.poly)) return isle;
+  }
+  return null;
+}
+
+/** True iff `loop` sits wholly inside ONE poly of the island's level-k band. */
+function insideParentBand(isle: Island, level: number, loop: readonly Vec2[]): boolean {
+  const parent = isle.contours.find((c) => c.level === level);
+  if (!parent) return false;
+  return parent.polys.some((poly) => loopInside(loop, poly));
+}
+
+/** The island's contour entry for `level`, created on first use. */
+function contourEntry(isle: Island, level: number): Contour {
+  let entry = isle.contours.find((c) => c.level === level);
+  if (!entry) {
+    entry = { level, polys: [] };
+    isle.contours.push(entry);
+  }
+  return entry;
+}
+
+/** Place one simplified contour loop on its parent island, or drop it. */
+function attachLoop(islands: readonly Island[], level: number, loop: readonly Vec2[]): void {
+  const a = polygonArea(loop);
+  if (a <= 0 || a < P.contourMinArea) return; // holes (craters) and specks dropped
+  const s = simplifyContour(loop);
+  if (!s) return;
+  const isle = findParentIsland(islands, s);
+  if (!isle) return; // strict containment is the invariant; orphans are dropped
+  if (level > 1 && !insideParentBand(isle, level - 1, s)) return;
+  contourEntry(isle, level).polys.push(s);
+}
+
+/**
+ * Isolines above sea level, from THE SAME field the coastline was cut from —
+ * up to `contourLevels` bands (3 => 4 visual bands with the base coastline,
+ * the ratified cap). A band may split into multiple peak polys (desired).
+ * RENDER-ONLY: contours are never collided and never LOS-tested; the height
+ * raster is the elevation authority.
+ *
+ * Both sides build them (deliberately — see generateMap: the refinement band
+ * and therefore the raster bytes depend on the contour levels, and the map
+ * must be deep-equal on server and client).
+ */
+function attachContours(g: ExtractionGrid, seaLevel: number, islands: readonly Island[]): void {
+  const span = fieldMax(g) - seaLevel;
+  for (let k = 1; k <= P.contourLevels; k++) {
+    const lvl = seaLevel + span * P.contourStep * k;
+    buildMask(g, lvl);
+    for (const loop of traceLoops(g, lvl)) attachLoop(islands, k, loop);
+  }
+}
+
+// --- Coverage + validation ----------------------------------------------------
 
 /** Shoelace land cover as a fraction of the map disc area. */
-export function landCoverage(map: GameMap): number {
-  const land = map.islands.reduce((s, isle) => s + Math.abs(polygonArea(isle.poly)), 0);
-  return land / (Math.PI * map.radius * map.radius);
+export function landCoverage(map: MapShape): number {
+  return totalLandArea(map.islands) / (PI * map.radius * map.radius);
 }
 
 /**
- * Full acceptance check for a generated map: coverage band + navigability.
- * Exposed for tests; generateMap uses the same pieces internally.
+ * Full acceptance check for a generated map: coverage band + the ratified
+ * navigability invariant. Exposed for tests; generateMap enforces the same
+ * pieces internally (by construction + repair rather than reroll).
  */
-export function validateMap(map: GameMap): boolean {
+export function validateMap(map: MapShape): boolean {
   const cover = landCoverage(map);
-  if (cover < COVER_MIN || cover > COVER_MAX) return false;
-  return navigable(map.islands, map.radius, map.spawnRing);
+  if (cover < P.coverMin || cover > P.coverMax) return false;
+  return navigableCheck(map.islands, map.radius, map.spawnRing).ok;
 }
-
-// --- The generator ------------------------------------------------------------
-
-/** Per-attempt coverage target: relaxes toward COVER_MIN (never below the band). */
-function attemptTarget(attempt: number): number {
-  if (attempt < 4) return COVER_TARGET;
-  if (attempt < 7) return 0.036;
-  return 0.032;
-}
-
-/** Attempts from which a candidate may also DROP landmasses to reach validity. */
-const DROP_FROM = 4;
 
 /**
- * Thrown when the ladder cannot produce a map satisfying EVERY invariant.
- * Deterministic like the generator itself, so server and client fail
- * identically on the same (seed, playerCap) — never one of them silently
- * sailing a different ocean.
+ * Thrown when generation cannot satisfy EVERY invariant (coverage band,
+ * >=1 landmass, navigability after repair). Deterministic like the generator
+ * itself, so server and client fail identically on the same (seed, playerCap)
+ * — never one of them silently sailing a different ocean. Measured never to
+ * fire across the test sweeps; the throw is the guarantee's teeth.
  */
 export class MapGenerationError extends Error {
   constructor(
@@ -445,88 +549,63 @@ export class MapGenerationError extends Error {
   ) {
     super(
       `generateMap: no map satisfying all invariants for seed=${seed} ` +
-        `playerCap=${playerCap} after ${attempts} attempts ` +
-        `(coverage band [${COVER_MIN}, ${COVER_MAX}] + navigability + >=1 landmass)`,
+        `playerCap=${playerCap} after ${attempts} repair attempts ` +
+        `(coverage band [${P.coverMin}, ${P.coverMax}] + navigability + >=1 landmass)`,
     );
     this.name = 'MapGenerationError';
   }
 }
 
-/**
- * One candidate map. `drop` relaxes the landmass COUNT (last-placed first)
- * to recover from a single badly-placed mass — but the candidate is then
- * re-checked in FULL: dropping used to return immediately on navigability
- * alone, which could hand back a map below COVER_MIN or with zero landmasses.
- * Every acceptance in this file goes through `validateMap`.
- */
-function attemptMap(
-  rng: Rng,
-  radius: number,
-  spawnRing: number,
-  target: number,
-  drop: boolean,
-): GameMap | null {
-  const islands = rollIslands(rng, radius, spawnRing, target);
-  if (drop) {
-    while (islands.length > 0 && !navigable(islands, radius, spawnRing)) islands.pop();
-  }
-  const map = { radius, spawnRing, islands };
-  return islands.length >= 1 && validateMap(map) ? map : null;
+// --- The generator ------------------------------------------------------------
+
+/** Throw (deterministically) unless every invariant holds on the final map. */
+function assertValid(seed: number, playerCap: number, map: MapShape): void {
+  if (map.islands.length >= 1 && validateMap(map)) return;
+  throw new MapGenerationError(seed, playerCap, P.navRepairAttempts);
 }
 
 /**
  * Generate the map for `seed` and `playerCap`. Deterministic: identical
- * (seed, playerCap) always yields a deep-equal map — vertex for vertex — on
- * every platform (one mulberry32 stream, fixed consumption order, no
- * unordered iteration). Rejected candidates reroll from the same stream; late
- * attempts additionally relax the landmass COUNT, never the invariants.
+ * (seed, playerCap) always yields a deep-equal map — vertex, pole, contour
+ * and height cell — on every platform (integer-hashed noise, fixed pass
+ * order, no transcendentals, no unordered iteration).
  *
- * The map this returns has passed `validateMap` — coverage band, >=1 landmass,
- * and navigability — with NO exceptions: the single `return` is guarded by it
- * and every other exit throws `MapGenerationError`. Silently widening the band
- * is what the spec's Block-If forbids, and a map that violates the invariants
- * the rest of shared/ assumes is worse than a loud refusal: the throw is
- * deterministic, so a client cannot fail where the server succeeded (they
- * would both refuse the same seed), and a failed join is recoverable where an
- * unnavigable ocean is not. The `never throws in practice` half of the
- * guarantee is a measurement, pinned by the seed-sweep test.
+ * Contours are ALWAYS built, on the server too: the field's refinement band
+ * includes the contour isolines, so skipping them would change which cells
+ * hold true samples and the height raster — the future radar-shadow authority
+ * — would differ between the two sides. (~5ms of the budget; the deep-equal
+ * guarantee is worth more.)
  */
 export function generateMap(seed: number, playerCap: number = CONFIG.map.playerCap): GameMap {
-  return generateMapBounded(seed, playerCap, MAP_ATTEMPTS);
-}
-
-/**
- * `generateMap` with an explicit attempt budget. Exported ONLY so the
- * exhaustion path is directly testable (a real budget can't be starved from
- * outside); production always calls `generateMap`.
- */
-export function generateMapBounded(seed: number, playerCap: number, attempts: number): GameMap {
   const radius = mapRadius(playerCap);
   const spawnRing = radius * CONFIG.map.spawnFraction;
-  const rng = mulberry32(seed);
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    const map = attemptMap(rng, radius, spawnRing, attemptTarget(attempt), attempt >= DROP_FROM);
-    if (map) return map;
-  }
-  throw new MapGenerationError(seed, playerCap, attempts);
+  const field: HeightField = buildField(seed, radius, spawnRing, P);
+  const g = makeGrid(field, radius);
+  g.navPad = P.navPadCells;
+
+  let level = levelForCover(g, P.coverTarget);
+  let islands = extractIslands(g, level, spawnRing);
+  ({ level, islands } = retargetCover(g, spawnRing, level, islands));
+  islands = repairNavigability(g, level, spawnRing, islands);
+  assertValid(seed, playerCap, { radius, spawnRing, islands });
+
+  islands.sort((a, b) => a.x - b.x || a.y - b.y);
+  attachContours(g, level, islands);
+  // LAST: quantize the (possibly repaired) field, so raster == shipped coast.
+  return { radius, spawnRing, islands, heightRaster: buildHeightRaster(field, level) };
 }
 
 /** Constants describing island generation constraints (exposed for tests). */
 export const MAP_RULES = {
-  INNER_FRACTION,
-  OUTER_FRACTION,
+  COVER_MIN: P.coverMin,
+  COVER_MAX: P.coverMax,
   SPAWN_MARGIN,
-  CHANNEL_MIN,
-  COVER_MIN,
-  COVER_MAX,
-  MAX_CONCAVITY,
-  M_MIN,
-  M_MAX,
-  HW_MIN,
-  HW_MAX,
-  ROUGHNESS,
   WIDEST_BEAM,
   NAV_CELL,
   NAV_MARGIN,
   NAV_CLEAR,
+  MIN_FEATURE,
+  MIN_ISLAND_AREA: P.minIslandArea,
+  VERT_HARD_CAP: P.vertHardCap,
+  CONTOUR_LEVELS: P.contourLevels,
 } as const;

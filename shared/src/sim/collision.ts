@@ -45,7 +45,7 @@
 // hull-polygon vs island-polygon overlap test (any hull edge crossing or
 // entering the coastline, or the island wholly inside the hull), built from
 // the silhouette.ts primitives (segPolygonHit at OVERLAP_PAD — see the
-// constant for why radius 0 is not exact) with skeletonNormal from the
+// constant for why radius 0 is not exact) with coastNormal from the
 // island.ts seam — no second polygon library.
 //
 // ALGORITHM — pose-validity rollback (playtest finding #64: "boats should be
@@ -62,20 +62,24 @@
 //      the extent, unchanged) and `withinBoundary` re-checks it after every
 //      push-out.
 //   2. (i)  candidate pose, then up to MAX_PASSES push-out passes over all
-//           islands. The push DIRECTION is the SKELETON NORMAL — away from the
-//           nearest point of the island's skeleton (island.ts skeletonNormal).
-//           Every island polygon is star-shaped about its skeleton (a map-gen
-//           invariant), so that direction is ALWAYS a valid escape — including
-//           from inside a concave cove, where a nearest-edge normal could wedge
-//           the hull against the far arm. The push DISTANCE is the minimal
-//           translation along that normal that clears the island (bisection on
-//           the exact overlap test, DEPTH_TOL), capped at the strict upper
-//           bound on true penetration `isle.r + polyMax − dist(center,
-//           bounding centre)` — the polygon analogue of the old circle cap
-//           (bounding circles separated ⟹ polygons separated), so no single
-//           pass can teleport the hull. When even the capped translation
-//           cannot clear (a cove arm in the way), the full cap is applied and
-//           the next pass re-aims from the new nearest skeleton point.
+//           islands. The push DIRECTION is the NEAREST-BOUNDARY normal —
+//           toward the closest point of the island's coastline from inside,
+//           away from it from outside (island.ts coastNormal; cycle 59 — the
+//           skeleton normal retired with the star-shape invariant, since a
+//           thresholded height field has arbitrary topology). The generator
+//           bounds the minimum local coastline feature at ~4.9u (marching-
+//           squares corner clamp), which is what keeps the nearest boundary a
+//           safe aim; the rollback below makes the residual bad-direction
+//           case (measured 0.004% of 260k prototype trials) non-fatal. The
+//           push DISTANCE is the minimal translation along that normal that
+//           clears the island (bisection on the exact overlap test,
+//           DEPTH_TOL), capped at the strict upper bound on true penetration
+//           `isle.r + polyMax − dist(center, bounding centre)` — the polygon
+//           analogue of the old circle cap (bounding circles separated ⟹
+//           polygons separated), so no single pass can teleport the hull.
+//           When even the capped translation cannot clear (a cove arm in the
+//           way), the full cap is applied and the next pass re-aims from the
+//           new nearest boundary point.
 //      (ii) candidate x/y with the PREVIOUS heading — the rudder is blocked by
 //           rock while forward motion is kept (this is what stops a hull
 //           rotating THROUGH an island into a perpendicular wedge with no
@@ -95,7 +99,7 @@ import type { Island } from '../types.js';
 import type { Vec2 } from '../math/vec.js';
 import type { ShipState } from './ship.js';
 import { segCircleHit } from '../math/geom.js';
-import { skeletonNormal } from './island.js';
+import { coastNormal } from './island.js';
 import {
   pointInPolygon,
   polygonFitLimit,
@@ -368,28 +372,40 @@ function clampCenter(ship: ShipState, mapRadius: number, localPoly: readonly Vec
  * Push the ship's world polygon (and center) out of one island polygon.
  * Positional only; returns true when an overlap was corrected.
  *
- * Direction: the SKELETON NORMAL — from the nearest point of the island's
- * skeleton toward the ship center. Star-shapedness about the skeleton (map-gen
- * invariant) makes this always a valid escape direction, even from inside a
- * concave cove.
+ * Direction: the NEAREST-BOUNDARY normal — toward the closest coastline point
+ * from inside the polygon, away from it from outside (island.ts coastNormal).
+ * The cycle-59 successor of the retired skeleton normal: the generator's
+ * ~4.9u minimum local feature size keeps this a safe aim, and the caller's
+ * rollback ladder absorbs the vanishing residual where it is not.
  *
  * Distance: the minimal translation along that normal that clears the island
  * (bisection on the exact overlap test), capped at the strict upper bound on
  * true penetration `isle.r + polyMax − dist(center, bounding centre)` — the
  * polygon analogue of the old circle cap: separating the bounding circles
  * certainly separates the polygons, and the bound is > 0 whenever the shapes
- * overlap. No single pass can teleport the hull; if the cap itself cannot
- * clear (an overhanging cove arm), the full cap is applied and the next pass
- * re-aims from the new nearest skeleton point.
+ * overlap. No single pass can teleport the hull.
+ *
+ * When NO translation along the normal clears the island — a hull wedged
+ * between the two arms of one bay, where pushing off one arm presses into the
+ * other — nothing is applied and the overlap is left for the caller's
+ * ROLLBACK ladder (the previous pose is valid by induction, so the hull
+ * simply stops, headOn = 1). The retired star-shape era instead applied the
+ * FULL cap here and re-aimed next pass, which was safe when every escape ray
+ * was structurally valid; on real hook/bay topology it accepted a cleared
+ * pose ~190u away — a teleport straight across the landmass (measured by the
+ * ram-and-escape suite). Failing into the rollback is the behavior the
+ * anti-teleport bound actually promises.
  */
 function pushOutOf(ship: ShipState, world: Vec2[], isle: Island, polyMax: number): boolean {
   const dc = Math.hypot(ship.x - isle.x, ship.y - isle.y);
   if (dc > polyMax + isle.r) return false; // bounding-circle broadphase
   if (!hullOverlapsIsland(world, 0, 0, isle)) return false;
 
-  const { nx, ny } = skeletonNormal(ship, isle);
+  const { nx, ny } = coastNormal(ship, isle);
   const cap = isle.r + polyMax - dc;
-  const depth = escapeDepth(world, isle, nx, ny, cap) + PUSH_EPS;
+  const clearing = escapeDepth(world, isle, nx, ny, cap);
+  if (clearing === null) return true; // wedged: leave it to the rollback ladder
+  const depth = clearing + PUSH_EPS;
   ACC.x += nx * depth;
   ACC.y += ny * depth;
   ship.x += nx * depth;
@@ -401,16 +417,45 @@ function pushOutOf(ship: ShipState, world: Vec2[], isle: Island, polyMax: number
   return true;
 }
 
+/** First bracket step of the exponential clearing search (u) — comfortably
+ *  below any real single-tick penetration, so the common case costs one
+ *  overlap test more than plain bisection did. */
+const ESCAPE_STEP = 0.5;
+
 /**
- * Minimal translation along (nx, ny), within [0, cap], that clears the hull of
- * the island — found by bisection against the exact overlap test (the hull is
- * KNOWN to overlap at 0). Returns `cap` when even the capped translation still
- * overlaps (the caller's multi-pass loop re-aims next pass).
+ * Minimal translation along (nx, ny), within [0, cap], that clears the hull
+ * of the island (the hull is KNOWN to overlap at 0). Returns null when no
+ * translation up to `cap` clears: the caller falls through to the rollback
+ * ladder rather than teleporting.
+ *
+ * EXPONENTIAL BRACKET, then bisection — not plain bisection over [0, cap].
+ * Plain bisection assumes overlap is monotone along the push direction, which
+ * the retired star-shape invariant used to guarantee; on a real hook island a
+ * hull in a bay sees overlap-clear-overlap-clear along the normal (the far
+ * arm), the cap/2 midpoint lands on a far overlap, and bisection converges to
+ * a crossing on the island's FAR SIDE — a "minimal" push of ~190u straight
+ * across the landmass (measured by the ram-and-escape suite). Doubling a
+ * bracket from ESCAPE_STEP finds the FIRST clear translation instead, so the
+ * result is within 2x of the true penetration; the interior of the final
+ * bracket spans [pen, 2·pen] and cannot skip past an arm.
  */
-function escapeDepth(world: readonly Vec2[], isle: Island, nx: number, ny: number, cap: number): number {
-  if (hullOverlapsIsland(world, nx * cap, ny * cap, isle)) return cap;
+function escapeDepth(
+  world: readonly Vec2[],
+  isle: Island,
+  nx: number,
+  ny: number,
+  cap: number,
+): number | null {
   let lo = 0;
-  let hi = cap;
+  let hi = ESCAPE_STEP;
+  while (hi < cap && hullOverlapsIsland(world, nx * hi, ny * hi, isle)) {
+    lo = hi;
+    hi *= 2;
+  }
+  if (hi >= cap) {
+    if (hullOverlapsIsland(world, nx * cap, ny * cap, isle)) return null;
+    hi = cap;
+  }
   while (hi - lo > DEPTH_TOL) {
     const mid = (lo + hi) / 2;
     if (hullOverlapsIsland(world, nx * mid, ny * mid, isle)) lo = mid;
