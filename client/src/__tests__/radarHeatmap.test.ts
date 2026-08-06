@@ -33,8 +33,12 @@
 //     The far side is the island's own shadow, and an island behind another
 //     island paints nothing at all.
 //
-//   • A PAINT IS A HISTORICAL SNAPSHOT. Its rasterization is byte-stable across
-//     its whole decay; only opacity moves.
+//   • A PAINT IS A HISTORICAL RECORD (cycle 55, amendment 83 — the governing
+//     invariant). Its rasterization is byte-stable across its whole decay and
+//     only opacity moves; and that now explicitly includes WHETHER A CELL PAINTS
+//     AT ALL, which cycle 54 re-decided every frame against the live grid anchor
+//     (sections 6 and 7). Nothing about a paint may be re-evaluated against live
+//     state, so the grid carries no observer for anything to read.
 
 import { describe, it, expect } from 'vitest';
 import { CONFIG, islandFromPolygon, pointInIsland, type Island, type Vec2 } from '@salvo/shared';
@@ -46,6 +50,7 @@ import {
   buildIslandCoverage,
   cellCentre,
   cellOf,
+  freezeSight,
   islandBearingSpan,
   makeGrid,
   quantizeInto,
@@ -67,9 +72,9 @@ const BANDS = CFG.bands;
 const RADAR = 660; // CONFIG.vision.radar at base stats
 const LIFE = blipLifeMs(4000); // 15rpm × persistSweeps
 
-function grid(opts: HeatmapOpts = CLEAN, ownX = 0, ownY = 0, sightHoleU = 0): HeatGrid {
+function grid(opts: HeatmapOpts = CLEAN, ownX = 0, ownY = 0): HeatGrid {
   const g = makeGrid(RADAR, opts.cellU);
-  anchorGrid(g, ownX, ownY, sightHoleU);
+  anchorGrid(g, ownX, ownY);
   return g;
 }
 
@@ -89,39 +94,58 @@ function bandAt(g: HeatGrid, x: number, y: number): number {
 }
 
 /**
- * Every LIT cell in the buffer, as its world centre plus its distance from the
- * observer the grid is anchored on.
+ * Every LIT cell in the buffer, as its world centre plus its distance from
+ * `obs`.
  *
  * This is the seam the PER-CELL sight gate has to be asserted through. A
  * point-probe pair ("this point is dark, that one is lit") could pass against an
  * object-level exclusion that happened to keep the right object; partitioning
- * EVERY lit cell of one rasterization by its distance cannot.
+ * EVERY lit cell of one rasterization by its distance cannot. The observer is an
+ * explicit argument because the GRID NO LONGER CARRIES ONE (amendment 85) — the
+ * observer a verdict was taken from belongs to the PAINT, and the tests below
+ * have to be able to name one that differs from where the buffer is centred.
  */
-function litCells(g: HeatGrid): { x: number; y: number; d: number }[] {
+function litCells(g: HeatGrid, obs: Vec2 = { x: 0, y: 0 }): { x: number; y: number; d: number }[] {
   const out: { x: number; y: number; d: number }[] = [];
   for (let cy = 0; cy < g.rows; cy++) {
     for (let cx = 0; cx < g.cols; cx++) {
       if (bandIndex(g.w[cy * g.cols + cx], BANDS) < 0) continue;
       const x = cellCentre(g.baseGx + cx, g.cellU);
       const y = cellCentre(g.baseGy + cy, g.cellU);
-      out.push({ x, y, d: Math.hypot(x - g.obsX, y - g.obsY) });
+      out.push({ x, y, d: Math.hypot(x - obs.x, y - obs.y) });
     }
   }
   return out;
 }
 
-/** How many lit cells fall strictly inside / outside a suppression radius. */
-function split(g: HeatGrid, holeU: number): { inside: number; outside: number } {
-  const lit = litCells(g);
+/** How many lit cells fall strictly inside / outside a suppression radius
+ *  measured from `obs`. */
+function split(g: HeatGrid, holeU: number, obs: Vec2 = { x: 0, y: 0 }): {
+  inside: number;
+  outside: number;
+} {
+  const lit = litCells(g, obs);
   return {
     inside: lit.filter((c) => c.d <= holeU).length,
     outside: lit.filter((c) => c.d > holeU).length,
   };
 }
 
-/** A contact paint due +y of an observer at the origin. */
-function shipPaint(ext: number, dist: number, t = 0): ShipPaint {
-  return { kind: 'ship', id: 'trk-1', x: 0, y: dist, ext, bearing: Math.PI / 2, dist, t, seed: 12345 };
+/** A contact paint due +y of an observer at the origin, carrying the sight
+ *  radius that observer had AT PAINT TIME (0 = un-gated). */
+function shipPaint(ext: number, dist: number, t = 0, sightHoleU = 0): ShipPaint {
+  return {
+    kind: 'ship',
+    id: 'trk-1',
+    x: 0,
+    y: dist,
+    ext,
+    bearing: Math.PI / 2,
+    dist,
+    t,
+    seed: 12345,
+    ...freezeSight({ x: 0, y: 0 }, sightHoleU),
+  };
 }
 
 function raster(g: HeatGrid, paints: RadarPaint[], opts: HeatmapOpts, now = 0): void {
@@ -278,7 +302,15 @@ function straddleRidge(): Island {
   ]);
 }
 
-function islandPaint(isle: Island, field: readonly Island[], obs: Vec2, opts: HeatmapOpts): IslandPaint {
+/** An island paint whose beam has swept the whole span, baked from `obs` with
+ *  the sight radius that observer held at BAKE time (0 = un-gated). */
+function islandPaint(
+  isle: Island,
+  field: readonly Island[],
+  obs: Vec2,
+  opts: HeatmapOpts,
+  sightHoleU = 0,
+): IslandPaint {
   return {
     kind: 'island',
     isle,
@@ -286,7 +318,7 @@ function islandPaint(isle: Island, field: readonly Island[], obs: Vec2, opts: He
     to: 0,
     full: true, // the beam has swept the whole span
     t: 0,
-    cover: buildIslandCoverage(isle, field, obs, RADAR, 999, opts),
+    cover: buildIslandCoverage(isle, field, obs, RADAR, 999, opts, sightHoleU),
   };
 }
 
@@ -493,63 +525,75 @@ describe('the buffer is WORLD-anchored, so paints do not shimmer with the camera
   });
 });
 
-// --- 6. the sight gate (ruling R6, amendments 80-82) -----------------------------
+// --- 6. the sight verdict (ruling R6, amendments 80-86) --------------------------
 //
 // WHAT IS CONTRACT HERE:
 //
-//   • NOTHING PAINTS INSIDE THE BUBBLE, for ships AND islands alike. Cycle 53
-//     shipped the inconsistency this closes: the SERVER's `blipGate` has always
-//     excluded `dist <= sightRange`, so ship echoes never reached the bubble,
-//     but island coverage is client-side off the map seed and had no sight term
-//     at all — coastline painted straight through it.
+//   • A PAINT IS A HISTORICAL RECORD (amendment 83). Whether a cell paints at
+//     all is decided ONCE, at paint creation, against the observer position and
+//     sight radius of THAT MOMENT — never against live state. Only alpha moves
+//     afterward. The grid carries no observer at all any more, which is the
+//     structural half of the guarantee: there is nothing live left to consult.
 //
-//   • THE STRADDLE CASE IS THE HEADLINE, and it is why the gate is per-CELL.
-//     Eric: *"ships that are partially seen and partially in radar range should
-//     definitely still be painted."* Every straddle test below asserts BOTH
-//     halves of one rasterization — zero lit cells inside, some outside — and
-//     each carries its own un-gated A/B control proving the object really did
-//     overlap the bubble, so the "inside = 0" half can never pass by accident.
-//     An object-level exclusion ("skip paints whose centre is inside") passes
-//     the suppression half and fails the A/B half; that asymmetry is the point.
+//   • NOTHING PAINTS INSIDE THE BUBBLE THE BEAM SWEPT IT FROM, for ships AND
+//     islands alike. Cycle 53 shipped the inconsistency this closes: the
+//     SERVER's `blipGate` has always excluded `dist <= sightRange`, so ship
+//     echoes never reached the bubble, but island coverage is client-side off
+//     the map seed and had no sight term at all — coastline painted straight
+//     through it. Cycle 54's intent stands; only its evaluation TIME was wrong.
+//
+//   • THE STRADDLE CASE, and it is why the verdict is per-CELL. Eric: *"ships
+//     that are partially seen and partially in radar range should definitely
+//     still be painted."* Every straddle test below asserts BOTH halves of one
+//     rasterization — zero lit cells inside, some outside — and each carries its
+//     own un-gated A/B control proving the object really did overlap the bubble,
+//     so the "inside = 0" half can never pass by accident. An object-level
+//     exclusion ("skip paints whose centre is inside") passes the suppression
+//     half and fails the A/B half; that asymmetry is the point.
+//
+//   • THE SWEEP IS THE ONLY THING THAT PAINTS (amendment 84 — the cycle-54 bug).
+//     The headline guard in section 7 rasterizes ONE paint list at two observer
+//     positions and demands the suppressed cell be dark in BOTH. Under cycle 54
+//     the second of those lit up with no beam involved.
 
-/** Base truesight (u) — the radius the gate is armed at in these tests. */
+/** Base truesight (u) — the radius the verdicts below are frozen at. */
 const HOLE = 330;
 
 describe('the heatmap paints NOTHING inside the sight bubble (amendment 80)', () => {
   it('suppresses a ship echo wholly inside truesight — and painted it before', () => {
-    const paint = shipPaint(124, 150); // 150u out: deep inside the bubble
-    const gated = grid(CLEAN, 0, 0, HOLE);
+    const paint = shipPaint(124, 150, 0, HOLE); // 150u out: deep inside the bubble
+    const gated = grid(CLEAN);
     raster(gated, [paint], CLEAN);
     expect(bandCounts(gated)).toEqual([0, 0, 0]);
 
-    // A/B: the SAME paint, gate disarmed — the cycle-53 behavior.
-    const open = grid(CLEAN, 0, 0);
-    raster(open, [paint], CLEAN);
+    // A/B: the SAME echo with no sight radius frozen on it — the cycle-53
+    // behavior.
+    const open = grid(CLEAN);
+    raster(open, [shipPaint(124, 150)], CLEAN);
     expect(bandCounts(open).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
   });
 
-  it('still paints the same echo outside the bubble — the gate is a bubble, not a mute', () => {
-    const g = grid(CLEAN, 0, 0, HOLE);
-    raster(g, [shipPaint(124, 500)], CLEAN);
+  it('still paints the same echo outside the bubble — a bubble, not a mute', () => {
+    const g = grid(CLEAN);
+    raster(g, [shipPaint(124, 500, 0, HOLE)], CLEAN);
     expect(bandCounts(g).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
   });
 
   it('THE STRADDLE: a ship echo across the boundary paints its OUTSIDE half only', () => {
     // A big broadside contact sitting exactly on the sight boundary: its kernel
     // is ~72u deep in range, so it genuinely spans both sides.
-    const paint = shipPaint(200, HOLE);
-    const gated = grid(CLEAN, 0, 0, HOLE);
-    raster(gated, [paint], CLEAN);
+    const gated = grid(CLEAN);
+    raster(gated, [shipPaint(200, HOLE, 0, HOLE)], CLEAN);
     const cut = split(gated, HOLE);
     // Both halves of the ruling, in ONE rasterization.
     expect(cut.inside, 'inside truesight').toBe(0);
     expect(cut.outside, 'beyond truesight').toBeGreaterThan(0);
 
     // The A/B that makes "inside = 0" mean something: un-gated, this very kernel
-    // puts real cells on the inside. The gate removed them; it did not merely
+    // puts real cells on the inside. The verdict removed them; it did not merely
     // decline to visit them.
-    const open = grid(CLEAN, 0, 0);
-    raster(open, [paint], CLEAN);
+    const open = grid(CLEAN);
+    raster(open, [shipPaint(200, HOLE)], CLEAN);
     const before = split(open, HOLE);
     expect(before.inside, 'the kernel really does straddle').toBeGreaterThan(0);
     expect(before.outside).toBe(cut.outside); // and the outside half is untouched
@@ -558,11 +602,9 @@ describe('the heatmap paints NOTHING inside the sight bubble (amendment 80)', ()
   it('THE STRADDLE: an island across the boundary paints its OUTSIDE portion only', () => {
     const isle = straddleRidge();
     const obs = { x: 0, y: 0 };
-    const paint = islandPaint(isle, [isle], obs, CLEAN);
-
-    const gated = grid(CLEAN, obs.x, obs.y, HOLE);
-    stampIsland(gated, paint, 1);
-    const cut = split(gated, HOLE);
+    const gated = grid(CLEAN, obs.x, obs.y);
+    stampIsland(gated, islandPaint(isle, [isle], obs, CLEAN, HOLE), 1);
+    const cut = split(gated, HOLE, obs);
     expect(cut.inside, 'coastline inside truesight').toBe(0);
     expect(cut.outside, 'coastline beyond truesight').toBeGreaterThan(0);
 
@@ -570,41 +612,38 @@ describe('the heatmap paints NOTHING inside the sight bubble (amendment 80)', ()
     expect(pointInIsland({ x: 0, y: HOLE - 60 }, isle)).toBe(true);
     expect(pointInIsland({ x: 0, y: HOLE + 40 }, isle)).toBe(true);
 
-    // A/B: un-gated, the inside portion paints — which is precisely the bug.
+    // A/B: baked with no sight radius, the inside portion paints — the bug.
     const open = grid(CLEAN, obs.x, obs.y);
-    stampIsland(open, paint, 1);
-    const before = split(open, HOLE);
+    stampIsland(open, islandPaint(isle, [isle], obs, CLEAN), 1);
+    const before = split(open, HOLE, obs);
     expect(before.inside, 'the landmass really does straddle').toBeGreaterThan(0);
     expect(before.outside).toBe(cut.outside); // the outside portion is unchanged
   });
 
   it('REGRESSION GUARD: an island wholly inside sight paints ZERO cells — and '
     + 'the old behavior painted a full mass', () => {
-    // The exact shipped bug: coastline inside the bubble, while a hull at the
+    // The exact cycle-53 bug: coastline inside the bubble, while a hull at the
     // same range was never sent as a blip at all.
     const isle = ridgeIsland(); // r = 250 about the origin
     const obs = { x: 0, y: -260 }; // every cell of its LIT near face is < 330u away
-    const paint = islandPaint(isle, [isle], obs, CLEAN);
 
-    const gated = grid(CLEAN, obs.x, obs.y, HOLE);
-    stampIsland(gated, paint, 1);
+    const gated = grid(CLEAN, obs.x, obs.y);
+    stampIsland(gated, islandPaint(isle, [isle], obs, CLEAN, HOLE), 1);
     expect(bandCounts(gated)).toEqual([0, 0, 0]);
 
     const open = grid(CLEAN, obs.x, obs.y);
-    stampIsland(open, paint, 1);
+    stampIsland(open, islandPaint(isle, [isle], obs, CLEAN), 1);
     const mass = bandCounts(open).reduce((a, b) => a + b, 0);
     expect(mass, 'cycle 53 painted a full landmass here').toBeGreaterThan(1000);
-    expect(litCells(open).every((c) => c.d <= HOLE), 'all of it inside sight').toBe(true);
+    expect(litCells(open, obs).every((c) => c.d <= HOLE), 'all of it inside sight').toBe(true);
   });
 
-  it('the boundary is the RADIUS it was armed with, and 0 disarms it entirely', () => {
+  it('the boundary is the RADIUS the paint froze, and 0 disarms it entirely', () => {
     // One echo deep inside the dazzled disc, one straddling the un-dazzled
     // boundary — so each step of the radius has cells to take.
-    const paints = [shipPaint(200, 100), shipPaint(200, HOLE)];
-    // Shrinking the disc (what a DAZZLE does) hands cells back, monotonically.
     const counts = [0, HOLE * CONFIG.starShells.dazzleSightFactor, HOLE].map((r) => {
-      const g = grid(CLEAN, 0, 0, r);
-      raster(g, paints, CLEAN);
+      const g = grid(CLEAN);
+      raster(g, [shipPaint(200, 100, 0, r), shipPaint(200, HOLE, 0, r)], CLEAN);
       return bandCounts(g).reduce((a, b) => a + b, 0);
     });
     expect(counts[0], 'disarmed').toBeGreaterThan(counts[1]);
@@ -612,13 +651,199 @@ describe('the heatmap paints NOTHING inside the sight bubble (amendment 80)', ()
     expect(counts[2]).toBeGreaterThan(0);
   });
 
-  it('the disc is centred on the OBSERVER, not on the world origin', () => {
-    // Same paint geometry, observer moved: the suppression follows the ship.
+  it("the disc is centred on the PAINT'S observer, not on the world origin", () => {
+    // Same paint geometry, observer moved: the suppression follows the observer
+    // the paint was created from.
     const obs = { x: 1200, y: -800 };
-    const g = grid(CLEAN, obs.x, obs.y, HOLE);
-    raster(g, [{ ...shipPaint(200, HOLE), x: obs.x, y: obs.y + HOLE }], CLEAN);
-    const lit = litCells(g);
+    const g = grid(CLEAN, obs.x, obs.y);
+    const paint: ShipPaint = {
+      ...shipPaint(200, HOLE),
+      x: obs.x,
+      y: obs.y + HOLE,
+      ...freezeSight(obs, HOLE),
+    };
+    raster(g, [paint], CLEAN);
+    const lit = litCells(g, obs);
     expect(lit.length).toBeGreaterThan(0);
     expect(lit.every((c) => c.d > HOLE)).toBe(true);
   });
 });
+
+// --- 7. A PAINT IS A HISTORICAL RECORD (cycle 55, amendments 83-86) --------------
+
+describe('THE HEADLINE GUARD: the sight verdict is frozen at paint creation '
+  + '(amendments 83-85)', () => {
+  it('an island cell inside truesight at PAINT time stays dark after the '
+    + 'observer sails far away — no sweep, no paint', () => {
+    // THE CYCLE-54 BUG, exactly. The beam sweeps a coastline that is inside the
+    // bubble, so it must paint nothing there. The ship then leaves. Under cycle
+    // 54 the verdict was re-taken every frame against the LIVE grid anchor, so
+    // that same coastline lit up the instant it fell outside the receding
+    // bubble — a paint with no sweep behind it, which is precisely what
+    // *"THE RADAR SWEEP IS THE ONLY THING THAT PAINTS. EVER"* forbids.
+    const isle = ridgeIsland(); // r = 250 about the origin
+    const obs = { x: 0, y: -260 }; // its whole lit near face is inside truesight
+    const probe = { x: 0, y: -120 }; // land, on the near face, ~140u from `obs`
+    expect(pointInIsland(probe, isle), 'the probe IS land').toBe(true);
+    expect(Math.hypot(probe.x - obs.x, probe.y - obs.y), 'and it was sighted').toBeLessThan(HOLE);
+
+    const paints = [islandPaint(isle, [isle], obs, CLEAN, HOLE)];
+
+    // Frame 1: the observer is still where the beam swept from.
+    const near = grid(CLEAN, obs.x, obs.y);
+    raster(near, paints, CLEAN);
+    expect(bandAt(near, probe.x, probe.y), 'suppressed at paint time').toBe(-1);
+
+    // Frame 2: the SAME paint list, the observer withdrawn to 480u off the
+    // probe — every lit cell of that coastline is now OUTSIDE the live bubble,
+    // and the whole landmass is still inside the buffer. It must STILL be dark:
+    // nothing swept it.
+    const away = { x: 0, y: -600 };
+    expect(Math.hypot(probe.x - away.x, probe.y - away.y), 'now beyond truesight')
+      .toBeGreaterThan(HOLE);
+    const far = grid(CLEAN, away.x, away.y);
+    raster(far, paints, CLEAN);
+    expect(bandAt(far, probe.x, probe.y), 'still dark: no beam has swept it').toBe(-1);
+    expect(bandCounts(far), 'and the paint contributes NOTHING at all').toEqual([0, 0, 0]);
+
+    // A/B — THE CYCLE-54 BEHAVIOR REPRODUCED. Its coverage kept every cell
+    // (nothing was filtered at bake time) and its gate read the LIVE anchor, so
+    // at this anchor the very same cells lit up with no beam involved. This half
+    // is what makes the `[0, 0, 0]` above a regression guard rather than an
+    // assertion about an empty buffer.
+    const cycle54 = [islandPaint(isle, [isle], obs, CLEAN)]; // un-gated bake = its cover
+    const old = grid(CLEAN, away.x, away.y);
+    raster(old, cycle54, CLEAN); // a live gate at `away` would suppress nothing here
+    expect(bandAt(old, probe.x, probe.y), 'cycle 54 lit it with no sweep').toBeGreaterThanOrEqual(0);
+    expect(bandCounts(old).reduce((a, b) => a + b, 0), 'a whole mass of it').toBeGreaterThan(1000);
+  });
+
+  it('the same freeze holds for a ship kernel: suppressed at paint time stays '
+    + 'suppressed wherever the observer goes', () => {
+    const paint = shipPaint(200, 150, 0, HOLE); // deep inside the bubble
+    for (const [ox, oy] of [[0, 0], [0, -3000], [2500, 2500]]) {
+      const g = grid(CLEAN, ox, oy);
+      raster(g, [paint], CLEAN);
+      expect(bandCounts(g), `observer ${ox},${oy}`).toEqual([0, 0, 0]);
+    }
+  });
+});
+
+describe('a legitimately swept paint is never taken away — only time '
+  + 'retires it (amendment 86)', () => {
+  it('ACCEPTED CONSEQUENCE: a ghost swept OUTSIDE truesight keeps decaying in '
+    + 'place when the observer closes on it — do NOT "fix" this', () => {
+    // Eric: *"just because it leaves radar range doesn't mean it gets
+    // un-painted. the phosphor decays naturally, right?"* Erasing a ghost the
+    // observer has since closed on would be live re-evaluation, which is the
+    // exact defect cycle 55 removed. So the paint stays, at the same cells and
+    // the same bands, and only its alpha falls.
+    const paint = shipPaint(200, 500, 0, HOLE); // swept at 500u: legitimately outside
+    const swept = grid(CLEAN);
+    raster(swept, [paint], CLEAN);
+    const bands = bandCounts(swept);
+    expect(bands.reduce((a, b) => a + b, 0), 'it painted when swept').toBeGreaterThan(0);
+    expect(bandAt(swept, 0, 500)).toBeGreaterThanOrEqual(0);
+
+    // The observer now sits 20u from the echo — deep inside its own truesight.
+    const closed = { x: 0, y: 480 };
+    const near = grid(CLEAN, closed.x, closed.y);
+    raster(near, [paint], CLEAN);
+    expect(
+      litCells(near, closed).every((c) => c.d < HOLE),
+      'the ghost is inside the CURRENT bubble',
+    ).toBe(true);
+    expect(bandCounts(near), 'and it is untouched — same cells, same bands').toEqual(bands);
+
+    // ...and it is ALPHA, not membership, that moves as it ages.
+    const older = grid(CLEAN, closed.x, closed.y);
+    raster(older, [paint], CLEAN, LIFE * 0.75);
+    expect(bandCounts(older)).toEqual(bands);
+    expect(sampleGrid(older, 0, 500).a).toBeLessThan(sampleGrid(near, 0, 500).a);
+  });
+
+  it('leaving RADAR range does not un-paint either — a ship latches its `dist`', () => {
+    // Attenuation is computed from the FROZEN range, so sailing away cannot dim
+    // or erase a mark. Same paint, four observer anchors out to the edge of the
+    // buffer (which is only 2 × radar range wide, so a full departure clips the
+    // mark for reasons of extent rather than of policy): identical cells,
+    // identical bands, identical intensities every time.
+    const paint = shipPaint(124, 500, 0, HOLE); // swept beyond truesight
+    const ref = grid(CLEAN);
+    raster(ref, [paint], CLEAN);
+    expect(bandCounts(ref).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+    for (const [ox, oy] of [[0, 1050], [450, 850], [-500, 150]]) {
+      const g = grid(CLEAN, ox, oy);
+      raster(g, [paint], CLEAN);
+      expect(bandCounts(g), `observer ${ox},${oy}`).toEqual(bandCounts(ref));
+      expect(sampleGrid(g, 0, 500).w).toBe(sampleGrid(ref, 0, 500).w);
+    }
+    // And the latched range really is the attenuation channel: the same hull at
+    // the same PLACE, frozen at a longer range, reads weaker — a smaller kernel
+    // (the saturated core cell reads 1.0 either way, so the footprint is where
+    // the attenuation shows).
+    const farLatch: ShipPaint = { ...paint, dist: 650 };
+    const weak = grid(CLEAN);
+    raster(weak, [farLatch], CLEAN);
+    expect(bandCounts(weak).reduce((a, b) => a + b, 0))
+      .toBeLessThan(bandCounts(ref).reduce((a, b) => a + b, 0));
+  });
+
+  it('but TIME does retire it: the decay path still empties the buffer', () => {
+    // The one thing that may take a paint away. `blipAlpha` is age-only, so the
+    // whole mark leaves at end of life regardless of range or beam position.
+    const paint = shipPaint(124, 500, 0, HOLE);
+    const alive = grid(CLEAN);
+    raster(alive, [paint], CLEAN, LIFE - 1);
+    expect(bandCounts(alive).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+    const dead = grid(CLEAN);
+    raster(dead, [paint], CLEAN, LIFE + 1);
+    expect(bandCounts(dead)).toEqual([0, 0, 0]);
+  });
+});
+
+describe('DAZZLE moves the boundary for NEW paints, never for existing ones', () => {
+  const DAZZLED = HOLE * CONFIG.starShells.dazzleSightFactor;
+  /** In the annulus a dazzle hands to the scope: fogged, but beyond the
+   *  shrunken hole. */
+  const MID = (DAZZLED + HOLE) / 2;
+
+  it('an echo frozen at the UN-dazzled radius stays suppressed for its whole '
+    + 'life, however the dazzle flickers afterward', () => {
+    // The radius is captured at paint time, so nothing that happens later can
+    // reach back into this paint. Its suppression is as historical as its
+    // bearing.
+    const paint = shipPaint(200, MID, 0, HOLE);
+    for (const now of [0, LIFE * 0.25, LIFE * 0.9]) {
+      const g = grid(CLEAN);
+      raster(g, [paint], CLEAN, now);
+      expect(bandCounts(g), `t=${now}`).toEqual([0, 0, 0]);
+    }
+  });
+
+  it('while a NEW echo in the same annulus, frozen while dazzled, DOES paint — '
+    + 'no dead ring that is fogged AND unpainted', () => {
+    const g = grid(CLEAN);
+    raster(g, [shipPaint(200, MID, 0, DAZZLED)], CLEAN);
+    expect(bandCounts(g).reduce((a, b) => a + b, 0)).toBeGreaterThan(0);
+  });
+
+  it('and the two coexist in ONE rasterization — the older mark is not revived '
+    + 'by its dazzled neighbour, nor the newer one suppressed by it', () => {
+    // Two echoes at the same range on opposite bearings: each answers to the
+    // radius IT froze, in the same buffer, on the same frame.
+    const oldMark: ShipPaint = { ...shipPaint(200, MID, 0, HOLE), id: 'trk-old' };
+    const newMark: ShipPaint = {
+      ...shipPaint(200, MID, 0, DAZZLED),
+      id: 'trk-new',
+      x: 0,
+      y: -MID,
+      bearing: -Math.PI / 2,
+    };
+    const g = grid(CLEAN);
+    raster(g, [oldMark, newMark], CLEAN);
+    expect(bandAt(g, 0, MID), 'frozen un-dazzled: still dark').toBe(-1);
+    expect(bandAt(g, 0, -MID), 'frozen dazzled: paints').toBeGreaterThanOrEqual(0);
+  });
+});
+

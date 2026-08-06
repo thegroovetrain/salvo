@@ -14,6 +14,22 @@
 // polygons along its arc, which is exactly the "little circles around the edge"
 // Eric saw. Both complaints have one root: the wrong drawing primitive.
 //
+// THE GOVERNING INVARIANT — A PAINT IS A HISTORICAL RECORD (cycle 55,
+// amendment 83). Everything about a paint — its position, its intensity, which
+// band a cell lands in, and WHETHER A GIVEN CELL PAINTS AT ALL — is decided
+// ONCE, at paint creation, from the observer's state at that moment. The ONLY
+// property that changes afterward is alpha, via time-based phosphor decay.
+// Nothing about a paint may EVER be re-evaluated against live state: not the
+// live observer position, not the live sight radius, not the live beam angle,
+// not the live grid anchor. THE RADAR SWEEP IS THE ONLY THING THAT PAINTS.
+//
+// This rule is the first thing to check whenever a new radar behavior is added,
+// and it is the rule cycle 54 broke: it gated cells against the LIVE grid
+// anchor, so the sight bubble merely RECEDING lit up coastline the beam had
+// never re-swept (amendment 84). Staleness is not a bug here — staleness is the
+// whole contract. If a quantity can differ between the frame a paint was born
+// and the frame it is stamped, it belongs ON THE PAINT, not on the grid.
+//
 // THE FIVE RULINGS THIS FILE IMPLEMENTS:
 //
 //   • R1 — HISTORY LIVES IN A PAINT LIST, NOT IN THE BUFFER. Nothing here ever
@@ -54,14 +70,16 @@
 //     after fractal islands landed and happily painted coastline on a bounding
 //     circle that can sit hundreds of units offshore of the real coast.
 //
-//   • R6 — NOTHING PAINTS INSIDE THE SIGHT BUBBLE, AND THE RULE IS PER-CELL
-//     (cycle 54, amendments 80-82). Inside truesight you are LOOKING, and the
-//     scope adds nothing there. Cycle 53 left a real inconsistency: ship echoes
-//     never appeared inside truesight (the SERVER's `blipGate` has always
-//     excluded `dist <= sightRange`, because a sighted hull arrives as a full
-//     `Contact` instead), but island coverage is pure client presentation off
-//     the map seed and had no sight term at all — so coastline painted straight
-//     through the bubble while hulls did not. This closes it toward NONE.
+//   • R6 — NOTHING PAINTS INSIDE THE SIGHT BUBBLE THE BEAM SWEPT IT FROM, AND
+//     THE RULE IS PER-CELL (cycle 54 amendments 80-82, corrected by cycle 55
+//     amendments 83-86). Inside truesight you are LOOKING, and the scope adds
+//     nothing there. Cycle 53 left a real inconsistency: ship echoes never
+//     appeared inside truesight (the SERVER's `blipGate` has always excluded
+//     `dist <= sightRange`, because a sighted hull arrives as a full `Contact`
+//     instead), but island coverage is pure client presentation off the map seed
+//     and had no sight term at all — so coastline painted straight through the
+//     bubble while hulls did not. That intent is unchanged and closes toward
+//     NONE.
 //
 //     PER-CELL, not per-object, is the whole nuance: *"ships that are partially
 //     seen and partially in radar range should definitely still be painted"*. An
@@ -71,10 +89,24 @@
 //     per-pixel intensity makes it expressible at all — a polygon carries one
 //     fill and would have had to be wholly in or wholly out.
 //
-//     The gate lives ON THE GRID (`anchorGrid` sets it, `writeCell` enforces
-//     it): that is the single unbypassable write chokepoint, and it folds into
-//     the bounds check that every candidate cell already pays. See `insideSight`
-//     for why it is a STAMP-time and not a BAKE-time rule.
+//     THE OBSERVER IS FROZEN ONTO THE PAINT (amendment 85). The verdict is taken
+//     ONCE, from the observer's position and sight radius at that paint's own
+//     creation, and never re-taken: a cell inside truesight when the beam crossed
+//     it never enters the paint at all, and a cell outside truesight when swept
+//     is painted and thereafter only decays. For islands the verdict lives in the
+//     `cover` bake (a suppressed cell is simply not emitted); for ships it lives
+//     in `ShipPaint`'s own `obsX`/`obsY`/`sightR2`, tested in `stampShip`. This
+//     is not a new model — `ShipPaint` already froze `bearing`/`dist`, and
+//     `IslandPaint.cover` already baked per-cell intensity and `faceShadow` from
+//     the observer at paint open. The sight verdict simply joins them.
+//
+//     ACCEPTED CONSEQUENCE (amendment 86): a decaying ghost may sit INSIDE the
+//     current sight bubble. A cell legitimately swept while outside truesight
+//     keeps decaying in place when the observer closes on it, rather than being
+//     erased — *"the phosphor decays naturally."* Erasing it would reintroduce
+//     exactly the live re-evaluation the governing invariant forbids. Leaving
+//     RADAR range likewise never un-paints anything (already true for ships via
+//     the frozen `dist`; now uniformly true).
 //
 // THE NEAR FACE, EXACTLY (amendments 69 + 78, and cycle 51's review gate). A
 // radar sees the near surface; the far side is the island's own shadow. The
@@ -183,14 +215,23 @@ export interface HeatGrid {
   w: Float32Array;
   /** Per-cell age opacity of the paint that won that cell. */
   a: Float32Array;
-  /** THE OBSERVER this frame (= the centre `anchorGrid` was called with), and
-   *  the centre of the sight-suppression disc (ruling R6). */
+}
+
+/**
+ * THE OBSERVER, FROZEN ONTO A PAINT (ruling R6, amendment 85).
+ *
+ * Where the observer stood and how far it could SEE at the instant this paint
+ * was created — never the live values. Carried by `ShipPaint`; for an island the
+ * same freeze is applied once during `buildIslandCoverage` and then thrown away,
+ * because a suppressed cell simply never enters `cover`.
+ *
+ * `sightR2` is the SQUARED suppression radius (u²) so the per-cell test is a
+ * multiply-compare with no sqrt. 0 disarms the gate entirely — the un-gated path
+ * every geometry test that is not ABOUT the gate uses.
+ */
+export interface SightFreeze {
   obsX: number;
   obsY: number;
-  /** SQUARED radius (u²) of the suppression disc — the fog hole, pre-squared
-   *  once per frame so the per-cell test is a multiply-compare with no sqrt.
-   *  0 disables the gate entirely (the un-gated `anchorGrid` overload, which is
-   *  what every geometry test that is not ABOUT the gate uses). */
   sightR2: number;
 }
 
@@ -212,10 +253,13 @@ export function makeGrid(radiusU: number, cellU: number): HeatGrid {
     originY: 0,
     w: new Float32Array(n),
     a: new Float32Array(n),
-    obsX: 0,
-    obsY: 0,
-    sightR2: 0,
   };
+}
+
+/** Pre-square a suppression radius into a `SightFreeze` for `obs`. `<= 0` (or a
+ *  non-finite radius) disarms the gate. */
+export function freezeSight(obs: Vec2, sightHoleU: number): SightFreeze {
+  return { obsX: obs.x, obsY: obs.y, sightR2: sightHoleU > 0 ? sightHoleU * sightHoleU : 0 };
 }
 
 /**
@@ -226,21 +270,19 @@ export function makeGrid(radiusU: number, cellU: number): HeatGrid {
  * observer stands — which is what makes `cellNoise(seed, gx, gy)` a stable
  * property of a place rather than a flicker that re-rolls every frame.
  *
- * `sightHoleU` ARMS THE SIGHT GATE (ruling R6) for the frame about to be
- * stamped. The centre is (cx, cy) — which IS the observer, since the buffer is
- * defined as covering 2 × radar range about the own ship — so the suppression
- * disc is re-established from the LIVE observer position on every single frame.
- * Omit it (or pass 0) for an un-gated raster.
+ * THE GRID CARRIES NO OBSERVER (amendment 85). It is a window onto the world,
+ * nothing more: where it is centred decides only which cells are IN BOUNDS this
+ * frame. Every judgement about a paint — including whether a cell paints at all
+ * — belongs to the paint, taken at its own creation. Cycle 54's `obsX`/`obsY`/
+ * `sightR2` lived here and were re-read every frame, which is precisely how a
+ * receding sight bubble came to paint coastline no beam had swept.
  */
-export function anchorGrid(g: HeatGrid, cx: number, cy: number, sightHoleU = 0): void {
+export function anchorGrid(g: HeatGrid, cx: number, cy: number): void {
   const half = (g.cols * g.cellU) / 2;
   g.baseGx = Math.floor((cx - half) / g.cellU);
   g.baseGy = Math.floor((cy - half) / g.cellU);
   g.originX = g.baseGx * g.cellU;
   g.originY = g.baseGy * g.cellU;
-  g.obsX = cx;
-  g.obsY = cy;
-  g.sightR2 = sightHoleU > 0 ? sightHoleU * sightHoleU : 0;
   g.w.fill(0);
   g.a.fill(0);
 }
@@ -256,29 +298,30 @@ export function cellCentre(gx: number, cellU: number): number {
 }
 
 /**
- * IS CELL (gx, gy) INSIDE THE OBSERVER'S SIGHT BUBBLE? (ruling R6.)
+ * WAS CELL (gx, gy) INSIDE THE SIGHT BUBBLE THIS PAINT WAS CREATED FROM?
+ * (ruling R6.)
  *
  * The cell's CENTRE decides — the same point every other per-cell quantity in
  * this file is evaluated at (intensity, solidity, noise), so the gate cannot
  * disagree with the value it is suppressing. `<=` mirrors the server's
  * `blipGate`, which excludes `dist <= sightRange` exactly.
  *
- * WHY THIS IS A STAMP-TIME AND NOT A BAKE-TIME RULE — the load-bearing choice.
- * An island's coverage is baked ONCE per beam revolution and then cached in
- * ABSOLUTE world cells for the paint's whole ~12s phosphor life (three live
- * paints per island). The observer, meanwhile, moves continuously. Baking the
- * gate into `CoverCell.i` would freeze the suppression disc at the position the
- * ship held when the beam swept that coastline, and seconds later it would be
- * suppressing water the ship has left behind while painting coastline the ship
- * has since sailed into — the seam amendment 81 exists to remove, just lagging
- * instead of offset. Evaluating here re-derives it from the live observer every
- * frame, which is exactly the cadence the drawn fog hole moves at.
+ * `sight` IS ALWAYS A FROZEN RECORD, never the live observer (amendment 85).
+ * That is the whole correction of cycle 55: cycle 54 read this off the live grid
+ * anchor every frame, so a cell suppressed for being inside truesight lit up the
+ * instant the observer moved away — a paint appearing with no sweep, which
+ * *"THE RADAR SWEEP IS THE ONLY THING THAT PAINTS. EVER"* forbids. Cycle 54's
+ * stated reasoning — that a frozen gate "would go stale as the observer moves" —
+ * inverted the truth: staleness is CORRECT here, because a paint is history.
+ * Both callers therefore pass a `SightFreeze` taken at paint creation:
+ * `stampShip` from `ShipPaint` itself, `buildIslandCoverage` from the observer
+ * the coverage is being baked against.
  */
-export function insideSight(g: HeatGrid, gx: number, gy: number): boolean {
-  if (!(g.sightR2 > 0)) return false;
-  const dx = cellCentre(gx, g.cellU) - g.obsX;
-  const dy = cellCentre(gy, g.cellU) - g.obsY;
-  return dx * dx + dy * dy <= g.sightR2;
+export function insideSight(sight: SightFreeze, cellU: number, gx: number, gy: number): boolean {
+  if (!(sight.sightR2 > 0)) return false;
+  const dx = cellCentre(gx, cellU) - sight.obsX;
+  const dy = cellCentre(gy, cellU) - sight.obsY;
+  return dx * dx + dy * dy <= sight.sightR2;
 }
 
 /**
@@ -288,18 +331,15 @@ export function insideSight(g: HeatGrid, gx: number, gy: number): boolean {
  * the other direction. Out-of-grid writes are dropped silently — a paint at the
  * rim legitimately overhangs the buffer.
  *
- * THIS IS ALSO WHERE THE SIGHT GATE BITES (ruling R6), for two reasons. It is
- * the single chokepoint every stamped cell in the module already passes through,
- * so no present or future paint kind can route around it; and it rides the
- * bounds check that candidate cell already pays, so the gate costs one squared
- * distance compare on cells that were going to be touched anyway — never a
- * second pass over the buffer.
+ * NO GATE LIVES HERE ANY MORE (amendment 85). A write chokepoint is the wrong
+ * home for any judgement about a paint, because it runs every frame while the
+ * paint was born once: whatever it consults is by construction LIVE state. The
+ * sight verdict moved to the two places a paint is CREATED.
  */
 export function writeCell(g: HeatGrid, gx: number, gy: number, intensity: number, alpha: number): void {
   const cx = gx - g.baseGx;
   const cy = gy - g.baseGy;
   if (cx < 0 || cy < 0 || cx >= g.cols || cy >= g.rows) return;
-  if (insideSight(g, gx, gy)) return;
   const i = cy * g.cols + cx;
   if (!(intensity > g.w[i])) return;
   g.w[i] = intensity;
@@ -477,8 +517,15 @@ export function shipAxes(
   return { across, along: Math.max(o.minDepth, across * o.depthFrac) };
 }
 
-/** One resolved contact echo in the paint list (world geometry + server time). */
-export interface ShipPaint {
+/**
+ * One resolved contact echo in the paint list (world geometry + server time).
+ *
+ * It extends `SightFreeze` because the sight verdict is exactly as historical as
+ * `bearing` and `dist`, which this record has frozen since cycle 52 — that
+ * freeze is why range attenuation correctly never changes as you sail away, and
+ * it is the precedent amendment 85 extends rather than a new model.
+ */
+export interface ShipPaint extends SightFreeze {
   kind: 'ship';
   /** Contact id — the per-track cap key. */
   id: string;
@@ -507,6 +554,14 @@ export interface ShipPaint {
  * The semi-axes are floored at 0.85 cells so the smallest echo still lights its
  * own cell: at exactly half a cell, a paint sitting on a cell corner would land
  * at q² = 2 and stamp nothing at all.
+ *
+ * THE SIGHT GATE IS PER-CELL AND FROZEN (ruling R6). It tests `p` itself — the
+ * observer and sight radius as of THIS paint's creation — so a kernel straddling
+ * the boundary keeps its outside half and loses its inside half, permanently and
+ * identically on every later frame. A ship kernel is a handful of cells and is
+ * re-stamped each frame anyway, so unlike an island there is nothing to gain by
+ * pre-filtering it; what matters is only that the values tested are the paint's,
+ * never the grid's.
  */
 export function stampShip(
   g: HeatGrid,
@@ -533,6 +588,7 @@ export function stampShip(
       const v = (wy * cos - wx * sin) / ay;
       const q2 = u * u + v * v;
       if (q2 >= 1) continue;
+      if (insideSight(p, g.cellU, gx, gy)) continue;
       writeCell(g, gx, gy, peak * (1 - q2) * noiseMul(p.seed, gx, gy, o.noise), alpha);
     }
   }
@@ -540,9 +596,12 @@ export function stampShip(
   // ellipse edge, so the smallest echo — whose semi-axes are the cell floor —
   // can otherwise sit near a cell CORNER, land at q² > 1 in every neighbour and
   // paint nothing at all. `writeCell` is max-wins, so this can only ever add the
-  // core the profile already intends.
+  // core the profile already intends — and it is gated exactly like every other
+  // cell of the kernel, or an echo dead centre of the bubble would smuggle one
+  // lit cell past the ruling.
   const cgx = cellOf(p.x, g.cellU);
   const cgy = cellOf(p.y, g.cellU);
+  if (insideSight(p, g.cellU, cgx, cgy)) return;
   writeCell(g, cgx, cgy, peak * noiseMul(p.seed, cgx, cgy, o.noise), alpha);
 }
 
@@ -568,7 +627,10 @@ export interface IslandPaint {
   /** True once the beam has left the island's span — the arc test is then moot. */
   full: boolean;
   t: number;
-  /** Baked coverage (built once, from the observer at paint time). */
+  /** Baked coverage (built once, from the observer at paint time). The bake
+   *  freezes intensity, `faceShadow`, cross-island LOS **and the sight verdict**
+   *  — a cell inside truesight when the beam swept it is simply absent from this
+   *  list, so no later frame can resurrect it (amendment 85). */
   cover: readonly CoverCell[];
 }
 
@@ -688,6 +750,14 @@ function coverIntensity(
  * occluder shortlist so the LOS test is normally skipped entirely. Cells are
  * stored in ABSOLUTE world indices, so the list survives every re-anchor of the
  * grid and is never rebuilt as the observer moves.
+ *
+ * `sightHoleU` IS THE SIGHT VERDICT, TAKEN HERE AND ONLY HERE (ruling R6,
+ * amendment 85). A cell inside truesight at bake time is never EMITTED, so it
+ * does not exist to be re-judged later — which is both the correctness fix and a
+ * cost saving: those cells drop out of the coverage list once instead of paying
+ * a distance compare on every frame of the paint's ~12s life. It joins the
+ * per-cell intensity and `faceShadow` this bake has always frozen from the
+ * observer at paint open. Omit it (or pass 0) for an un-gated bake.
  */
 export function buildIslandCoverage(
   isle: Island,
@@ -696,9 +766,11 @@ export function buildIslandCoverage(
   radarRange: number,
   seed: number,
   o: HeatmapOpts,
+  sightHoleU = 0,
 ): CoverCell[] {
   const out: CoverCell[] = [];
   const occ = occluderCandidates(isle, field, obs);
+  const sight = freezeSight(obs, sightHoleU);
   const r2 = isle.r * isle.r;
   const range2 = radarRange * radarRange;
   const gx0 = cellOf(isle.x - isle.r, o.cellU);
@@ -713,6 +785,7 @@ export function buildIslandCoverage(
       // the bounding circle nor in radar range, and paying a Vec2 plus a
       // function call for each of those cells was the whole bake's cost.
       if (!inBroadphase(x, y, isle, obs, r2, range2)) continue;
+      if (insideSight(sight, o.cellU, gx, gy)) continue;
       const p = { x, y };
       const i = coverIntensity(p, isle, obs, radarRange, o, occ) * noiseMul(seed, gx, gy, o.noise);
       if (i > 0) out.push({ gx, gy, i, b: Math.atan2(y - obs.y, x - obs.x) });
@@ -739,7 +812,9 @@ function inBroadphase(
   return ox * ox + oy * oy <= range2;
 }
 
-/** Stamp an island paint: every covered cell whose bearing the beam has reached. */
+/** Stamp an island paint: every covered cell whose bearing the beam has reached.
+ *  No sight test runs here — `cover` was filtered at bake time, which is what
+ *  makes the verdict historical rather than live (amendment 85). */
 export function stampIsland(g: HeatGrid, p: IslandPaint, alpha: number): void {
   const span = wrapPositive(p.to - p.from);
   for (const c of p.cover) {
