@@ -1149,3 +1149,57 @@ Source: Eric, live, on the cycle-55 build. Verbatim:
     (Story 1.8, amendment 11) and Eric has flagged it for *"big changes soon"*, so it should be left
     alone rather than re-plumbed here.
 
+## 2026-08-06 — Eric ruling, THE BUFFER FOLLOWS THE VIEWPORT (cycle 58)
+
+Source: Eric, live, after cycle 57 was reverted for a rendering regression. His own framing of the
+fix, verbatim:
+
+> *"Honestly all you had to do was fix the 'box' to the edges of the users viewport rather than the
+> edges of the radar ring."*
+
+And the constraint he made explicit, and confirmed after it was repeated back to him:
+
+> *"if I am zoomed in when it paints and then I zoom out, it still shows me everything that *would*
+> have been there."*
+
+95. **CYCLE 57 IS REVERTED (PR #108) AND ITS APPROACH IS ABANDONED.** Amendments 92-94's PROBLEM
+    statement stands — the buffer must never clip a paint — but their SOLUTION (a worst-case
+    allocation derived from boon-maxed ship speed, worked through a paint-driven active sub-rect) is
+    withdrawn. Root cause of record: the active rect was recomputed and RE-CENTRED every frame and
+    the sprite was placed at that moving origin, so the cell↔world mapping stopped being world-locked
+    — islands drifted with the observer, and the texture's `subarray` view smeared rows when the rect
+    resized underneath it. The tests missed it because they exercised the PURE rasterizer, where
+    cell→world is a clean function; the break was in the Pixi ADAPTER's placement.
+
+96. **THE BUFFER IS A SCRATCH SURFACE, NOT STORAGE — and it follows the VIEWPORT.** History lives in
+    the world-positioned PAINT LIST, which is re-rasterized from scratch every frame (amendment 83).
+    The buffer only needs to cover what is on screen: anything off-screen is not visible, so not
+    rasterizing it costs nothing, and it reappears the moment it scrolls back into view. This needs
+    no worst-case allocation, no derived speed bound, and no paint-driven rect that can drift.
+
+    The buffer's origin therefore follows the CAMERA, **snapped to whole world cells** so the pixel
+    lattice stays world-locked exactly as it does today. That snapping is the load-bearing detail:
+    it is what keeps a paint's cells still while the camera moves over them.
+
+97. **THE ZOOM CONSTRAINT: paint recorded while zoomed in MUST appear on zoom-out.** Eric's
+    requirement in full — a paint made off-screen at high zoom is still recorded, and zooming out
+    must reveal it. This holds automatically under amendment 96 because the viewport was never
+    consulted at record time, and it yields the invariant that governs this cycle:
+
+    **NOTHING VIEWPORT-DERIVED MAY EVER TOUCH PAINT CREATION OR PAINT RETIREMENT.** The camera
+    influences exactly one thing: which rectangle of world is drawn this frame. Creation stays gated
+    only by the sweep, radar range and LOS; retirement stays gated only by time. Verified at ruling
+    time: `render/radar.ts` has no camera, viewport or zoom reference outside doc comments.
+
+98. **THE ADAPTER SEAM IS THE RISK, AND MUST BE TESTED AT THE ADAPTER.** Cycle 57's regression
+    reached production because a green PURE-module suite was accepted as proof that PLACEMENT was
+    right. This cycle must pin, at the Pixi adapter level, that an echo at a known world position
+    renders at that world position — at BOTH zoom extremes (`USER_ZOOM_MIN` 0.5 / `USER_ZOOM_MAX`
+    1.5, `render/camera.ts`) and while the camera is moving. A pure-rasterizer test does not
+    discharge this.
+
+99. **Scope.** Client-only: no wire change, no server change, `PROTOCOL_VERSION` unchanged, no CONFIG
+    combat tunable moves. `silhouette` mode untouched. Accepted consequence: per-frame cost scales
+    with VISIBLE AREA, so zooming out costs more — it must be measured at both zoom extremes and
+    reported, not assumed.
+
