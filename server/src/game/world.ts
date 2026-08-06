@@ -34,7 +34,10 @@ import {
   generateMap,
   hookKinematics,
   isAcquisitionDef,
+  islandDistance,
   loadoutFor,
+  nearestCoastPoint,
+  pointInIsland,
   slotsWithBoons,
   hullEnvelope,
   hullSilhouette,
@@ -1736,8 +1739,8 @@ export class World {
 
   /**
    * Clamp a creeping mine's candidate point: never outside the water disk
-   * (scaled back to the rim) and never inside an island circle (pushed to the
-   * rim along the island-center ray; a degenerate center hit keeps `prev`).
+   * (scaled back to the rim) and never ashore (projected to the NEAREST point
+   * on that island's coastline; a degenerate projection keeps `prev`).
    *
    * REJECT-ON-FAILURE (Story 2.8 review, P10): the clamp is a SINGLE pass, so
    * in a pinch (two islands, or an island hard against the rim) a push-out can
@@ -1755,25 +1758,24 @@ export class World {
       y = (y / r) * this.map.radius;
     }
     for (const isle of this.map.islands) {
-      const dx = x - isle.x;
-      const dy = y - isle.y;
-      const d = Math.hypot(dx, dy);
-      if (d >= isle.r) continue;
-      if (d <= 0) return { x: prev.x, y: prev.y }; // dead-center: hold position
-      x = isle.x + (dx / d) * isle.r;
-      y = isle.y + (dy / d) * isle.r;
+      if (!pointInIsland({ x, y }, isle)) continue;
+      const coast = nearestCoastPoint({ x, y }, isle);
+      if (coast.dist <= 0) return { x: prev.x, y: prev.y }; // degenerate: hold position
+      x = coast.x;
+      y = coast.y;
     }
     return this.minePointLegal(x, y) ? { x, y } : { x: prev.x, y: prev.y };
   }
 
-  /** Is a mine point legal to REST at: inside the water disk and outside every
-   *  island circle? A hair of float tolerance so a point the clamp above placed
-   *  exactly ON a rim reads as legal. */
+  /** Is a mine point legal to REST at: inside the water disk and off every
+   *  island's land? A hair of float tolerance so a point the clamp above placed
+   *  exactly ON the rim / the coastline reads as legal (islandDistance is
+   *  signed — negative ashore — and broadphase-gated). */
   private minePointLegal(x: number, y: number): boolean {
     const EPS = 1e-6;
     if (Math.hypot(x, y) > this.map.radius + EPS) return false;
     for (const isle of this.map.islands) {
-      if (Math.hypot(x - isle.x, y - isle.y) < isle.r - EPS) return false;
+      if (islandDistance({ x, y }, isle) < -EPS) return false;
     }
     return true;
   }

@@ -10,6 +10,7 @@ import { describe, it, expect } from 'vitest';
 import { CONFIG, HULL_IDS, hullEnvelope, type GameEvent, type InputMsg, type ShipClassId } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
+import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 
@@ -43,7 +44,7 @@ describe('PLUNGING FIRE (cannonArcing) — overflight, always bursts at the clic
     const a = place(w, 'a', 0, 0, 0, 'battleship');
     w.applyBoon(a, 'cannonArcing');
     expect(a.stats.cannon.mode).toBe('arcing');
-    w.map.islands.push({ x: 150, y: 0, r: 30 }); // a rock on the flight path
+    w.map.islands.push(circleIsland(150, 0, 30)); // a rock on the flight path
     const blocker = place(w, 'blocker', 250, 0); // a hull on the flight path
     const victim = place(w, 'victim', 400, 20); // inside the 30u burst at the click
     setInput(a, { aim: 0, aimDist: 400, slot: 1, fireSeq: 1, seq: 2 });
@@ -68,7 +69,7 @@ describe('ARMOR-PIERCING (cannonAp) — pierce order, 100/50/25 falloff, island 
     const a = place(w, 'a', 0, 0, 0, 'battleship');
     w.applyBoon(a, 'cannonAp');
     expect(a.stats.cannon.mode).toBe('ap');
-    if (withIsland) w.map.islands.push({ x: 150, y: 0, r: 20 });
+    if (withIsland) w.map.islands.push(circleIsland(150, 0, 20));
     const targets: ShipRecord[] = [];
     for (let i = 0; i < n; i++) targets.push(place(w, `t${i}`, 220 + i * 120, 0));
     setInput(a, { aim: 0, aimDist: 100, slot: 1, fireSeq: 1, seq: 2 }); // aimDist deliberately ignored by AP
@@ -488,7 +489,7 @@ describe('SELF-PROPELLED MINES (mineSelfPropelled) — armed creep toward the ne
   it('a creeping mine STOPS at an island rim — mines float, they never climb rocks', () => {
     const { w } = creepBoard();
     place(w, 'prey', 55, 0, Math.PI / 2); // beam-on: attracts without tripping
-    w.map.islands.push({ x: 8, y: 0, r: 5 }); // a rock between mine and prey (rim at x=3)
+    w.map.islands.push(circleIsland(8, 0, 5)); // a rock between mine and prey (rim at x=3)
     w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     for (let i = 0; i < 40; i++) w.step();
     const m = w.mines.get('m')!;
@@ -507,8 +508,8 @@ describe('SELF-PROPELLED MINES (mineSelfPropelled) — armed creep toward the ne
   it('a two-island PINCH rejects the step instead of shoving the mine to an illegal rest point', () => {
     const { w } = creepBoard();
     place(w, 'prey', 55, 0, Math.PI / 2); // pulls the mine toward +x
-    w.map.islands.push({ x: -5, y: 0, r: 8 }); // A — the rock the mine sits on
-    w.map.islands.push({ x: 6, y: 0, r: 4 }); // B — shoves A's exit point back INTO A
+    w.map.islands.push(circleIsland(-5, 0, 8)); // A — the rock the mine sits on
+    w.map.islands.push(circleIsland(6, 0, 4)); // B — shoves A's exit point back INTO A
     w.mines.set('m', { id: 'm', ownerId: 'o', x: 0, y: 0, armedAt: 0 });
     for (let i = 0; i < 10; i++) {
       w.step();
@@ -524,7 +525,7 @@ describe('SELF-PROPELLED MINES (mineSelfPropelled) — armed creep toward the ne
     const r = w.map.radius;
     // A rock hard against the rim, the mine sitting on it: the push-out ray
     // points straight out of the map.
-    w.map.islands.push({ x: r - 20, y: 0, r: 25 });
+    w.map.islands.push(circleIsland(r - 20, 0, 25));
     place(w, 'prey', r - 30, 40, Math.PI / 2); // inside acquire range, pulls it about
     w.mines.set('m', { id: 'm', ownerId: 'o', x: r - 10, y: 0, armedAt: 0 });
     for (let i = 0; i < 20; i++) {

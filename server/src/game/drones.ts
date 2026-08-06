@@ -31,9 +31,11 @@ import {
   bearing,
   dist,
   isOutside,
+  islandDistance,
   mulberry32,
-  type Circle,
+  nearestCoastPoint,
   type InputMsg,
+  type Island,
   type Rng,
   type Vec2,
 } from '@salvo/shared';
@@ -182,19 +184,21 @@ export class DroneController {
     return { x: ring.cx, y: ring.cy };
   }
 
-  /** True iff `p` sits inside (or hugging) any island. */
+  /** True iff `p` sits ashore on (or hugging the coast of) any island.
+   *  `islandDistance` is SIGNED (negative ashore) and carries its own
+   *  bounding-circle broadphase, so distant islands cost one hypot. */
   private insideIsland(p: Vec2): boolean {
-    return this.world.map.islands.some((c) => dist(p, c) <= c.r + ISLAND_CLEARANCE);
+    return this.world.map.islands.some((isle) => islandDistance(p, isle) <= ISLAND_CLEARANCE);
   }
 
-  /** Override 2: sum a rudder bias steering away from every island ahead. */
+  /** Override 2: sum a rudder bias steering away from every coastline ahead. */
   private avoidIslands(ship: ShipRecord): number {
     const { x, y, heading } = ship.state;
     const fx = Math.cos(heading);
     const fy = Math.sin(heading);
     let bias = 0;
-    for (const c of this.world.map.islands) {
-      bias += islandBias(c, x, y, fx, fy);
+    for (const isle of this.world.map.islands) {
+      bias += islandBias(isle, x, y, fx, fy);
     }
     return bias;
   }
@@ -207,13 +211,30 @@ export class DroneController {
   }
 }
 
-/** Rudder bias steering away from one island, or 0 if it is not a threat ahead. */
-function islandBias(c: Circle, x: number, y: number, fx: number, fy: number): number {
-  const dx = c.x - x;
-  const dy = c.y - y;
-  const ahead = dx * fx + dy * fy; // projection onto heading
-  if (ahead <= 0 || Math.hypot(dx, dy) > ISLAND_LOOKAHEAD + c.r) return 0;
-  // cross(heading, toIsland) > 0 => island is to port (left); steer starboard
+/**
+ * Rudder bias steering away from one island's COASTLINE, or 0 if it is not a
+ * threat ahead. Keyed on the nearest point on the real coast rather than the
+ * bounding-circle centre, so a drone hugs the shape of a ridge or a cove mouth
+ * instead of arcing around a phantom circle (the tip of a long landmass can be
+ * dead ahead while its centre is abeam — the centre test missed exactly that).
+ *
+ * BROADPHASE (mandatory — this runs per drone per island per tick): the
+ * bounding circle rejects before any edge is visited. Only on a bounding hit
+ * is the exact coast point computed. The `ISLAND_LOOKAHEAD` semantics are
+ * preserved: the old gate `|toCentre| <= LOOKAHEAD + r` meant "within
+ * LOOKAHEAD of the rim", which is now stated exactly as `coast.dist <=
+ * ISLAND_LOOKAHEAD`.
+ */
+function islandBias(isle: Island, x: number, y: number, fx: number, fy: number): number {
+  const cdx = isle.x - x;
+  const cdy = isle.y - y;
+  if (Math.hypot(cdx, cdy) > ISLAND_LOOKAHEAD + isle.r) return 0; // bounding-circle broadphase
+  const coast = nearestCoastPoint({ x, y }, isle);
+  if (coast.dist > ISLAND_LOOKAHEAD) return 0;
+  const dx = coast.x - x;
+  const dy = coast.y - y;
+  if (dx * fx + dy * fy <= 0) return 0; // the coast point is astern
+  // cross(heading, toCoast) > 0 => land is to port (left); steer starboard
   // (negative rudder = clockwise) and vice-versa.
   const side = fx * dy - fy * dx;
   return side > 0 ? -AVOID_STRENGTH : AVOID_STRENGTH;

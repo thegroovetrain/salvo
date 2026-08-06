@@ -14,10 +14,11 @@ import {
   burstPointAlong,
   effectiveStats,
   hullEnvelope,
+  islandFromPolygon,
   resolveBoons,
   torpedoSpawn,
-  type Circle,
   type EffectiveStats,
+  type Island,
 } from '@salvo/shared';
 import {
   clipAtIslands,
@@ -30,6 +31,21 @@ import {
 
 const SHIP = { x: 0, y: 0, heading: 0, cls: 'battleship' as const };
 const MAP_R = 2400;
+
+/** A test "rock" fixture built as a real Island polygon: an axis-aligned
+ *  square of half-width `half` centered at (cx, cy). Every clipping test
+ *  below fires along y = cy from the west, so the square's LEFT EDGE sits at
+ *  exactly `cx - half` — reproducing the pre-fractal circle fixtures' clip
+ *  coordinates bit-for-bit; only the broadphase bounding circle grows (a
+ *  square's corner-to-centre distance exceeds its half-width). */
+function squareIsland(cx: number, cy: number, half: number): Island {
+  return islandFromPolygon([
+    { x: cx - half, y: cy - half },
+    { x: cx + half, y: cy - half },
+    { x: cx + half, y: cy + half },
+    { x: cx - half, y: cy + half },
+  ]);
+}
 
 function stats(...boons: string[]): EffectiveStats {
   return effectiveStats(CONFIG.shipClasses.battleship, resolveBoons(boons));
@@ -99,7 +115,7 @@ describe('the gun — burst circle at the SERVER-TRUTH burst point', () => {
 });
 
 describe('island clipping — and the PLUNGING FIRE exemption', () => {
-  const rock: Circle[] = [{ x: 150, y: 0, r: 30 }];
+  const rock: Island[] = [squareIsland(150, 0, 30)];
 
   it('clips the line at the rock and DIMS the burst circle (the blocked tell)', () => {
     const m = computeAimPreview(input({ islands: rock, aimDist: 400 }));
@@ -130,7 +146,7 @@ describe('island clipping — and the PLUNGING FIRE exemption', () => {
   });
 
   it('clipAtIslands reports a clean path untouched', () => {
-    const clip = clipAtIslands({ x: 0, y: 0 }, { x: 100, y: 0 }, [{ x: 0, y: 500, r: 40 }]);
+    const clip = clipAtIslands({ x: 0, y: 0 }, { x: 100, y: 0 }, [squareIsland(0, 500, 40)]);
     expect(clip).toEqual({ point: { x: 100, y: 0 }, clipped: false });
   });
 });
@@ -149,7 +165,7 @@ describe('ARMOR-PIERCING — a direction shot with no blast', () => {
   });
 
   it('is still stopped dead by an island', () => {
-    const [l] = computeAimPreview({ ...ap(), islands: [{ x: 300, y: 0, r: 40 }] }).lines;
+    const [l] = computeAimPreview({ ...ap(), islands: [squareIsland(300, 0, 40)] }).lines;
     expect(l.x2).toBeCloseTo(260, 3);
   });
 });
@@ -168,7 +184,7 @@ describe('torpedoes — gated by ID, never by the gun-range fallback', () => {
   });
 
   it('stops the track at the first island', () => {
-    const [l] = computeAimPreview(input({ id: 'torpedo', islands: [{ x: 800, y: 0, r: 50 }] })).lines;
+    const [l] = computeAimPreview(input({ id: 'torpedo', islands: [squareIsland(800, 0, 50)] })).lines;
     expect(l.x2).toBeCloseTo(750, 3);
   });
 
@@ -223,7 +239,7 @@ describe('mine placement — both rings at the drop point', () => {
 
   it('flags a drop point the server would REFUSE (a rock, or off the water)', () => {
     const onRock = computeAimPreview(
-      input({ id: 'mine', aimDist: 60, islands: [{ x: 60, y: 0, r: 20 }] }),
+      input({ id: 'mine', aimDist: 60, islands: [squareIsland(60, 0, 20)] }),
     );
     expect(onRock.place!.blocked).toBe(true);
     const offMap = computeAimPreview(
@@ -283,7 +299,7 @@ describe('star shells — the lit radius is the preview', () => {
   // NOTHING, so the dim tell here is not cosmetic, it is the warning.
   it('DIMS the circle when a rock stops the flare short (a blocked flare lights nothing)', () => {
     const m = computeAimPreview(
-      input({ id: 'starShells', aimDist: 400, islands: [{ x: 150, y: 0, r: 30 }] }),
+      input({ id: 'starShells', aimDist: 400, islands: [squareIsland(150, 0, 30)] }),
     );
     expect(m.bursts[0].blocked).toBe(true);
     expect(m.lines[0].x2).toBeCloseTo(120, 3); // the line still clips at the rock

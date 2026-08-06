@@ -12,6 +12,7 @@ import { World, type ShipRecord } from '../game/world.js';
 import { neutralInput } from '../game/inputs.js';
 import { buildFrame } from '../game/frames.js';
 import { signalFor, type FoggedSignalContext, type SpectatorSignalContext } from '../game/signals.js';
+import { circleIsland } from './islandFixture.js';
 
 const SIGHT = CONFIG.vision.sight; // 330 — the tier-1 bound at base stats
 const MID = CONFIG.vision.muzzleFlash; // 495 — the tier-2 clamp floor
@@ -211,7 +212,7 @@ describe('SIGNAL_REGISTRY — fh row: the honker\'s own copy', () => {
   it('bypasses every distance and LOS test and materializes exactly {k,h,self:true} — a FRESH object, no id', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    w.map.islands.push({ x: 100, y: 0, r: 40 });
+    w.map.islands.push(circleIsland(100, 0, 40));
     const e = subject(5000, 5000, 'a'); // absurdly far AND LOS-blocked — self doesn't care
     const ctx = foggedCtx(w, a);
     expect(row.visible(ctx, e)).toBe(true);
@@ -314,7 +315,7 @@ describe('SIGNAL_REGISTRY — fh row: islands MUFFLE by exactly one tier (amendm
   const blockedWorld = (listenerX: number): { w: World; l: ShipRecord } => {
     const w = bareWorld();
     const l = place(w, 'l', listenerX, 0);
-    w.map.islands.push({ x: 150, y: 0, r: 40 }); // squarely on the segment honker→listener
+    w.map.islands.push(circleIsland(150, 0, 40)); // squarely on the segment honker→listener
     return { w, l };
   };
   const e = subject(0, 0, 'honker');

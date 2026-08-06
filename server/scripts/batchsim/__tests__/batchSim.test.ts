@@ -20,6 +20,7 @@ import { MatchCollector, capSample, runBatch, type CaptainSample, type MatchSamp
 import { buildAggregate, renderBatchReport } from '../report.js';
 import { runDeckSim } from '../deckSim.js';
 import { mulberry32 } from '@salvo/shared';
+import { circleIsland } from '../../../src/__tests__/islandFixture.js';
 
 describe('args — CLI parsing', () => {
   it('parses the full flag set', () => {
@@ -523,7 +524,7 @@ describe('pilots — un-beach seamanship (Story 3.4, amendment 25)', () => {
     const pose = { x: cap.state.x, y: cap.state.y };
     if (opts.islandOffsetRad !== undefined) {
       const brg = cap.state.heading + opts.islandOffsetRad;
-      w.map.islands.push({ x: pose.x + Math.cos(brg) * 100, y: pose.y + Math.sin(brg) * 100, r: 40 });
+      w.map.islands.push(circleIsland(pose.x + Math.cos(brg) * 100, pose.y + Math.sin(brg) * 100, 40));
     }
     const pilot = factory('cap-1', 42);
     const throttles: number[] = [];

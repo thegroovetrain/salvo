@@ -15,6 +15,7 @@ import { CONFIG, PROTOCOL_VERSION, type InputMsg } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { buildFrame } from '../game/frames.js';
 import { protocolVersionError } from '../rooms/roomOptions.js';
+import { circleIsland } from './islandFixture.js';
 
 /** World with no islands (directed cases add their own geometry). */
 function bareWorld(seed = 7): World {
@@ -101,7 +102,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   it("blocked (island): a MINE click onto a rock (Story 2.8 aimed placement) denies {'blocked'} and consumes NOTHING", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // heading 0 ⇒ rear sector centers on π
-    w.map.islands.push({ x: -60, y: 0, r: 20 }); // the rock the click lands on
+    w.map.islands.push(circleIsland(-60, 0, 20)); // the rock the click lands on
     w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 1, reason: 'blocked', seq: 1 }]);
@@ -115,7 +116,7 @@ describe('denial channel — the four wire reasons (I/O matrix)', () => {
   it("blocked (island): a DECOY stern drop into a rock denies {'blocked'} and consumes NOTHING", () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0, 0, 'mineLayer'); // stern rack drops at (-76, 0)
-    w.map.islands.push({ x: -76, y: 0, r: 20 }); // the rock the stern is backed against
+    w.map.islands.push(circleIsland(-76, 0, 20)); // the rock the stern is backed against
     w.submitInput('a', input(1, { actSeq: 1, actSlot: 2, hornSeq: 0 }));
     w.step();
     expect(buildFrame(w, 'a').denied).toEqual([{ slot: 2, reason: 'blocked', seq: 1 }]);
@@ -192,11 +193,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 26→27 bump (PV 26: THE FOGHORN — the `fh` signal + InputMsg.hornSeq, Story 4.5; PV 27: the radar realism cycle — a blip may carry either wire shape, and the welcome announces radarGrammar/radarIdentity) is enforced at matchmake', () => {
-  it('rejects pv-26 and pv-25 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(27);
+describe('pv join gate — the 27→28 bump (PV 27: the radar realism cycle — a blip may carry either wire shape, and the welcome announces radarGrammar/radarIdentity; PV 28: FRACTAL ISLANDS — the same mapSeed now builds polygon coastlines, so an un-bumped client would sail a different ocean) is enforced at matchmake', () => {
+  it('rejects pv-27 and pv-26 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(28);
+    expect(protocolVersionError(27)).toMatch(/refresh/);
     expect(protocolVersionError(26)).toMatch(/refresh/);
-    expect(protocolVersionError(25)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });
@@ -206,7 +207,7 @@ describe('blocked-drop geometry sanity (Story 2.8: clicked placement + the decoy
   it('an ML clicking open water astern still places normally (the check refuses only illegal water)', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0, 0, 'mineLayer');
-    w.map.islands.push({ x: 200, y: 200, r: 40 }); // a rock nowhere near the click
+    w.map.islands.push(circleIsland(200, 200, 40)); // a rock nowhere near the click
     w.submitInput('a', input(1, { fireSeq: 1, slot: 1, aim: Math.PI, aimDist: 60 }));
     w.step();
     expect(w.mines.size).toBe(1);

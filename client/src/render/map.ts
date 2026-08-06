@@ -32,10 +32,12 @@ function drawBoundaryAndRings(g: Graphics, radius: number): void {
   g.circle(0, 0, radius).stroke({ width: 2.5, color: BOUNDARY, alpha: 0.35 });
 }
 
-/** Draw island circles into the chart (charted terrain). */
+/** Draw island coastline polygons into the chart (charted terrain). Render
+ *  geometry must equal sim geometry exactly — the SAME `isle.poly` vertices
+ *  the sim collides against, no smoothing, no curve fitting, no inflation. */
 function drawIslands(g: Graphics, map: GameMap): void {
   for (const isle of map.islands) {
-    g.circle(isle.x, isle.y, isle.r)
+    g.poly(isle.poly, true)
       .fill({ color: ISLAND_FILL, alpha: 1 })
       .stroke({ width: 2, color: ISLAND_STROKE, alpha: 0.8 });
   }

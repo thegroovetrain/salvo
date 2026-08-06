@@ -3,6 +3,22 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  28: FRACTAL ISLANDS (cycle 52, Eric ruling 2026-08-05) — islands become
+ *  true polygon coastlines: generateMap's circle-packing generator is
+ *  REPLACED by the fractal capsule-offset generator (new `Island` type:
+ *  bounding circle x/y/r + CCW boundary poly + 1-3 pt skeleton + core
+ *  radius). Map geometry still never travels on the wire — only `mapSeed`
+ *  does — but the same seed now yields a COMPLETELY different ocean, so an
+ *  un-bumped old client would rebuild a different map and desync
+ *  catastrophically. New sim/island.ts query seam (broadphase-first island
+ *  geometry for every consumer) rides the barrel.
+ *  CONSEQUENCE FOR EVERY LOS-GATED SENSOR (radar paint, truesight, muzzle
+ *  flash, wounded smoke, and the foghorn's one-tier muffle): LOS is now
+ *  polygon-EXACT where it was bounding-circle conservative, so islands block
+ *  strictly LESS than they did. Every sensor reaches marginally further past
+ *  a coastline; nothing reaches less far. This is the 2026-08-02 "islands
+ *  block every sensor" law applied to the true coastline instead of a
+ *  circumscribed circle.
  *  27: THE RADAR REALISM CYCLE (Eric rulings 2026-08-05, amendments 62-75) —
  *  one bump covering "a blip may carry either shape" (amendment 72). Landed in
  *  PARALLEL with Story 4.5 (the foghorn, 26 below): both cycles branched from
@@ -209,7 +225,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 27;
+export const PROTOCOL_VERSION = 28;
 
 // Tunables
 export * from './constants.js';
@@ -236,6 +252,7 @@ export * from './sim/offers.js';
 export * from './sim/deck.js';
 export * from './sim/collision.js';
 export * from './sim/silhouette.js';
+export * from './sim/island.js';
 export * from './sim/aim.js';
 export * from './sim/shell.js';
 export * from './sim/map.js';

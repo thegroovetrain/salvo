@@ -33,7 +33,7 @@ import {
   hullSilhouette,
   mulberry32,
   resolveBoons,
-  segCircleHit,
+  segPolygonHit,
   wrapPositive,
   type BallisticEvent,
   type BlipEvent,
@@ -43,7 +43,7 @@ import {
   type BoomEvent,
   type BoonFitEvent,
   type BurstEvent,
-  type Circle,
+  type Island,
   type DamageEvent,
   type GameEvent,
   type FrameMsg,
@@ -62,6 +62,7 @@ import { buildFrame } from '../game/frames.js';
 // file stays independently reimplemented (see the header), so a perception
 // refactor cannot silently agree with its own bug via a row's own visible().
 import { SIGNAL_REGISTRY } from '../game/signals.js';
+import { circleIsland } from './islandFixture.js';
 
 const TAU = Math.PI * 2;
 const SIGHT = CONFIG.vision.sight;
@@ -73,8 +74,12 @@ const TICKS_PER_REV = Math.round(SWEEP_PERIOD / DT);
 
 // ---------- test-local visibility reimplementation --------------------------
 
-function clearLos(a: { x: number; y: number }, b: { x: number; y: number }, islands: readonly Circle[]): boolean {
-  return islands.every((isle) => segCircleHit(a, b, isle, isle.r) === null);
+/** THE anti-cheat oracle for island LOS, INDEPENDENTLY REIMPLEMENTED: the raw
+ *  concave-safe polygon test with NONE of islandBlocksSegment's broadphase or
+ *  `core` early-outs. If either optimization ever changed an answer, this
+ *  oracle would disagree and the invariant suite would fail. */
+function clearLos(a: { x: number; y: number }, b: { x: number; y: number }, islands: readonly Island[]): boolean {
+  return islands.every((isle) => segPolygonHit(a, b, isle.poly, 0) === null);
 }
 
 function dist(a: { x: number; y: number }, b: { x: number; y: number }): number {
@@ -251,7 +256,7 @@ describe('perception — sight tier boundaries (exact)', () => {
 
   it('a ship inside sight but behind an island is invisible (LOS rule)', () => {
     const w = bareWorld();
-    w.map.islands.push({ x: 75, y: 0, r: 30 });
+    w.map.islands.push(circleIsland(75, 0, 30));
     place(w, 'a', 0, 0);
     place(w, 'b', 150, 0);
     expect(buildFrame(w, 'a').contacts).toEqual([]);
@@ -318,7 +323,7 @@ describe('perception — radar paint window (exact)', () => {
 
   it('an island blocks radar exactly like sight', () => {
     const w = bareWorld();
-    w.map.islands.push({ x: 200, y: 0, r: 40 });
+    w.map.islands.push(circleIsland(200, 0, 40));
     const a = place(w, 'a', 0, 0);
     place(w, 'b', 400, 0);
     windowAround(a, 0);
@@ -392,7 +397,7 @@ describe('perception — shell events (per-observer, exactly once)', () => {
 
   it('a shell behind an island is not visible', () => {
     const w = bareWorld();
-    w.map.islands.push({ x: 100, y: 0, r: 40 });
+    w.map.islands.push(circleIsland(100, 0, 40));
     place(w, 'a', 0, 0);
     place(w, 'b', 600, 0);
     injectShell(w, 's1', 'b', 200, 0, Math.PI / 2, 10); // in range but behind the rock
@@ -599,7 +604,7 @@ describe('perception — burst visibility (owner always, else burst point sighte
 
   it('a non-owner behind an island never receives it (LOS rule)', () => {
     const w = bareWorld();
-    w.map.islands.push({ x: 100, y: 0, r: 40 });
+    w.map.islands.push(circleIsland(100, 0, 40));
     place(w, 'c', 0, 0);
     emitBurst(w, 'b1', 'a', 200, 0); // inside sight range but behind the rock
     expect(buildFrame(w, 'c').events.filter((e) => e.k === 'burst')).toEqual([]);
@@ -644,7 +649,7 @@ describe('perception — mine visibility (owner-always, else sight+LOS, never ra
 
   it('an enemy mine behind an island is invisible (LOS rule)', () => {
     const w = bareWorld();
-    w.map.islands.push({ x: 60, y: 0, r: 25 });
+    w.map.islands.push(circleIsland(60, 0, 25));
     place(w, 'a', 0, 0);
     injectMine(w, 'm1', 'b', 120, 0); // inside sight range but behind the rock
     expect(buildFrame(w, 'a').mines).toEqual([]);
@@ -724,7 +729,7 @@ describe('perception — lit zones: firer-only truesight parity ("lit from above
 
   it('a ship BEHIND AN ISLAND inside the zone is still revealed to the firer (no LOS term)', () => {
     const w = bareWorld();
-    w.map.islands.push({ x: 400, y: 0, r: 60 }); // squarely between a and b
+    w.map.islands.push(circleIsland(400, 0, 60)); // squarely between a and b
     place(w, 'a', 0, 0);
     place(w, 'b', 800, 0);
     injectZone(w, 'z1', 'a', 800, 0);
@@ -812,7 +817,7 @@ describe('perception — litZones channel (owner always, else radar-gated; frame
 
   it('no LOS and no sweep gate on the circle (a flare in the sky)', () => {
     const w = bareWorld();
-    w.map.islands.push({ x: 200, y: 0, r: 40 }); // blocks sight AND radar paint on the axis
+    w.map.islands.push(circleIsland(200, 0, 40)); // blocks sight AND radar paint on the axis
     const c = place(w, 'c', 0, 0);
     c.prevSweepAngle = Math.PI; // beam on the far side — never crossed bearing 0
     c.sweepAngle = Math.PI + 0.001;

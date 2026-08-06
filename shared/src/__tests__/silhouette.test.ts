@@ -23,6 +23,7 @@ import {
   pointSegmentDistance,
 } from '../index.js';
 import type { Vec2 } from '../index.js';
+import { segSegClosest } from '../math/geom.js';
 
 function extents(poly: readonly Vec2[]): { minX: number; maxX: number; minY: number; maxY: number } {
   return {
@@ -240,5 +241,27 @@ describe('segPolygonHit — swept projectile vs silhouette', () => {
   it('a crossing path still hits even when both endpoints are outside (swept, not sampled)', () => {
     const frac = segPolygonHit({ x: 0, y: -200 }, { x: 0, y: 200 }, ml, 0.1);
     expect(frac).not.toBeNull();
+  });
+
+  it('radius 0: a transversal crossing whose closest approach is float dust still hits', () => {
+    // The island LOS / shell / aim-preview path calls in at radius 0, where
+    // `dist <= radius` is an exact float comparison against zero. segSegClosest
+    // solves for the crossing parameters and multiplies BACK to a point before
+    // Math.hypot, so a genuine crossing of an oblique edge returns dust (~1e-16
+    // scaled by coordinate magnitude), never 0. A skewed, non-integer triangle
+    // reproduces that; an axis-aligned integer fixture computes to exactly 0
+    // and would pass either way.
+    const tri = [
+      { x: 0.3, y: -5.7 },
+      { x: 7.1, y: 0.9 },
+      { x: -1.3, y: 6.2 },
+    ];
+    const edgeDust = segSegClosest({ x: -10, y: 0.4 }, { x: 10, y: 0.4 }, tri[0], tri[1]).dist;
+    expect(edgeDust).toBeGreaterThan(0); // the crossing does NOT solve to zero
+    expect(edgeDust).toBeLessThan(1e-9); // ...but is far below the tolerance
+    const frac = segPolygonHit({ x: -10, y: 0.4 }, { x: 10, y: 0.4 }, tri, 0);
+    expect(frac).not.toBeNull();
+    expect(frac!).toBeGreaterThan(0);
+    expect(frac!).toBeLessThan(1);
   });
 });

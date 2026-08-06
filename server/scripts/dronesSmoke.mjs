@@ -25,7 +25,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap, pointInIsland } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2599;
@@ -132,7 +132,11 @@ function recordDronePos(ctx, id, x, y) {
   // In-bounds invariants for every observed drone position.
   assert(Math.hypot(x, y) <= ctx.mapRadius + 2, `drone ${id} observed outside the map`);
   for (const isle of ctx.islands) {
-    assert(dist({ x, y }, isle) > isle.r, `drone ${id} observed inside an island`);
+    // Polygon containment, not the bounding circle: islands are fractal
+    // polygons inscribed in `isle.r`, so open water inside `r` (a cove, a
+    // concave shoreline) is a LEGAL drone position. The old circle test
+    // asserted the wrong invariant and would false-fail on it.
+    assert(!pointInIsland({ x, y }, isle), `drone ${id} observed inside an island`);
   }
 }
 

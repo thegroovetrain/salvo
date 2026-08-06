@@ -7,9 +7,10 @@
 // drone can never win.
 
 import { describe, it, expect } from 'vitest';
-import { CONFIG, dist, type ZoneTimeline } from '@salvo/shared';
+import { CONFIG, dist, pointPolygonDistance, type ZoneTimeline } from '@salvo/shared';
 import { World, type ShipRecord } from '../game/world.js';
 import { Match, type MatchHooks, type MatchTimings } from '../game/match.js';
+import { circleIsland } from './islandFixture.js';
 
 const DT = CONFIG.tick.simDtMs;
 
@@ -93,7 +94,7 @@ describe('drones — waypoint sailing', () => {
 
   it('never picks a waypoint that sits inside an island', () => {
     const w = bareWorld(21);
-    w.map.islands.push({ x: 120, y: 0, r: 80 }, { x: -200, y: 150, r: 60 });
+    w.map.islands.push(circleIsland(120, 0, 80), circleIsland(-200, 150, 60));
     const ids = ['a', 'b', 'c', 'd'];
     for (const id of ids) addDrone(w, id);
     for (let t = 0; t < 500; t++) {
@@ -102,7 +103,7 @@ describe('drones — waypoint sailing', () => {
         const wp = w.drones.waypointOf(id);
         if (!wp) continue;
         for (const isle of w.map.islands) {
-          expect(dist(wp, isle)).toBeGreaterThan(isle.r);
+          expect(pointPolygonDistance(wp, isle.poly)).toBeGreaterThan(0); // never ashore
         }
       }
     }
@@ -113,7 +114,7 @@ describe('drones — avoidance', () => {
   it('never ends a tick inside an island (property over several seeds)', () => {
     for (const seed of [1, 2, 3, 7, 42, 99]) {
       const w = bareWorld(seed);
-      w.map.islands.push({ x: 100, y: 0, r: 70 }, { x: -120, y: -80, r: 55 });
+      w.map.islands.push(circleIsland(100, 0, 70), circleIsland(-120, -80, 55));
       const ids = ['a', 'b', 'c', 'd', 'e'];
       for (const id of ids) addDrone(w, id);
       for (let t = 0; t < 400; t++) {
@@ -121,7 +122,7 @@ describe('drones — avoidance', () => {
         for (const id of ids) {
           const s = w.ships.get(id)!;
           for (const isle of w.map.islands) {
-            expect(dist(s.state, isle)).toBeGreaterThan(isle.r);
+            expect(pointPolygonDistance(s.state, isle.poly)).toBeGreaterThan(0); // never ashore
           }
         }
       }

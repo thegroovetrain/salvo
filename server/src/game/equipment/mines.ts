@@ -28,7 +28,7 @@ import {
   sectorArcFor,
   transformPolygon,
   wrapAngle,
-  type Circle,
+  type Island,
   type HullTarget,
   type Vec2,
 } from '@salvo/shared';
@@ -121,7 +121,7 @@ export function minePlacePoint(ship: ShipRecord): Vec2 {
  * (blockedWater) because the client's mine-placement preview draws its blocked
  * tell off the same predicate; this stays as the row's named seam.
  */
-export function dropBlocked(p: Vec2, islands: readonly Circle[], mapRadius: number): boolean {
+export function dropBlocked(p: Vec2, islands: readonly Island[], mapRadius: number): boolean {
   return blockedWater(p, islands, mapRadius);
 }
 

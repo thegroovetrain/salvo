@@ -14,7 +14,7 @@
 // helpers; the World owns storage (shells/mines maps) and event emission,
 // exposed to rows through the narrow ActivationContext capabilities.
 
-import { type Circle, type EquipmentId, type LoadoutSlot, type ShellState, type WeaponAmmo } from '@salvo/shared';
+import { type EquipmentId, type Island, type LoadoutSlot, type ShellState, type WeaponAmmo } from '@salvo/shared';
 import type { ShipRecord } from '../world.js';
 import { gunEquipment } from './guns.js';
 import { torpedoEquipment } from './torpedoes.js';
@@ -45,10 +45,11 @@ export interface ActivationContext {
    *  ship firing outward bursts in-bounds rather than expiring at the edge;
    *  the stern rack refuses a drop point outside it (Story 1.10 'blocked'). */
   mapRadius: number;
-  /** Island circles — the stern rack (mine/decoy) refuses a drop point inside
-   *  one (Story 1.10 'blocked'); no other row reads them (gun/cannon muzzle
-   *  island-blindness stays deliberately out of scope — see the ledger). */
-  islands: readonly Circle[];
+  /** Island landmasses — the stern rack (mine/decoy) refuses a drop point
+   *  ashore on one (Story 1.10 'blocked'); no other row reads them (gun/cannon
+   *  muzzle island-blindness stays deliberately out of scope — see the
+   *  ledger). */
+  islands: readonly Island[];
   mkId: () => string;
   spawnBallistic: (shell: ShellState) => void;
   dropMine: (x: number, y: number) => void;

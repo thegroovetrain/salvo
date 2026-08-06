@@ -81,6 +81,14 @@ describe('shared barrel', () => {
     // two-value enum) plus CONFIG.damageBands and CONFIG.smoke in the welcome
     // config snapshot. Reach reuses CONFIG.vision.muzzleFlash — no new vision
     // constant.
+    // FRACTAL ISLANDS (PV 28, cycle 52): islands became polygon coastlines, so
+    // the SAME mapSeed now builds a different ocean — an un-bumped old client
+    // would generate circles where the server has coastlines and desync
+    // catastrophically. Map geometry still never travels on the wire. Every
+    // LOS-gated sensor (radar paint, truesight, muzzle flash, wounded smoke,
+    // the foghorn's one-tier muffle) is now polygon-EXACT where it was
+    // bounding-circle conservative, so islands block strictly less.
+    expect(PROTOCOL_VERSION).toBe(28);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
@@ -95,7 +103,6 @@ describe('shared barrel', () => {
     // perception exception and the first per-observer-varying payload) plus
     // required InputMsg.hornSeq, the shared HORN_IDS catalog, and
     // CONFIG.foghorn in the welcome config snapshot. No vision constant added.
-    expect(PROTOCOL_VERSION).toBe(27);
   });
 
   it('re-exports config, wire tags, and functions', () => {

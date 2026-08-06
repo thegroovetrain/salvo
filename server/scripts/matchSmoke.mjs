@@ -28,7 +28,7 @@ import net from 'node:net';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Client } from '@colyseus/sdk';
-import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap, segCircleHit } from '@salvo/shared';
+import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap, islandBlocksSegment } from '@salvo/shared';
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const PORT = 2599;
@@ -268,10 +268,15 @@ function islandBias(you, maxDist = Infinity) {
   return clamp(bias, -1, 1);
 }
 
-/** True iff the segment from→to crosses no island — a clear torpedo lane. */
+/**
+ * True iff the segment from→to crosses no island — a clear torpedo lane.
+ * Polygon LOS (the shared seam the server itself runs), not the bounding
+ * circle: islands are fractal polygons inscribed in `isle.r`, so the circle
+ * test rejected lanes that are in fact clear water.
+ */
 function losClear(from, to) {
   for (const c of ISLANDS) {
-    if (segCircleHit(from, to, c, c.r) !== null) return false;
+    if (islandBlocksSegment(from, to, c)) return false;
   }
   return true;
 }
