@@ -1,5 +1,6 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-06  # cycle 55 (0.17.55), A PAINT IS A HISTORICAL RECORD (interstitial — the sight verdict freezes at paint creation; the sweep is the only thing that paints; client-only, PV unchanged at 28)
+# last_updated: 2026-08-06  # cycle 56 (0.17.56), THE SCOPE PAINTS EVERYTHING IN RANGE (interstitial — sight exclusion retired; sighted ships painted client-side from their Contact; client-only, PV unchanged at 28)
+#                          # cycle 55 (0.17.55), A PAINT IS A HISTORICAL RECORD (interstitial — the sight verdict freezes at paint creation; the sweep is the only thing that paints; client-only, PV unchanged at 28)
 #                          # cycle 54 (0.17.54), the sight-bubble radar gate (interstitial — radar paints nothing inside truesight, per-CELL so straddlers keep their outside portion; client-only, PV unchanged at 28)
 #                          # cycle 53 (0.17.53), the radar heatmap correction (interstitial — Eric's live feedback on cycle 51; client-only, PV unchanged at 28)
 #                          # cycle 52 (0.17.52), Fractal Island Generation (interstitial — polygon coastlines; PV 27->28)
@@ -109,6 +110,28 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-06 (dev-auto cycle 56, 0.17.56) — THE SCOPE PAINTS EVERYTHING IN RANGE.
+  # Amendments 88-91. Client-only; PV unchanged at 28. RETIRES amendment 81 (cycles 54-55's sight
+  # exclusion): radar now paints everything within radar range, INCLUDING inside truesight, so a
+  # sighted hull shows both channels — the live ship AND its echo. Amendment 83 (a paint is a
+  # historical record) is UNAFFECTED: one frozen FIELD was removed, not the freezing discipline.
+  # THE PART THAT IS NOT OBVIOUS: the server has never sent a blip for a sighted ship (`blipGate`
+  # excludes dist <= sightRange — it is delivered as a full Contact instead), and that is a
+  # perception-invariant surface that MUST NOT CHANGE. So sighted ships are painted CLIENT-side,
+  # synthesized from the Contact (which carries cls + heading, all `perpendicularExtent` needs).
+  # Discloses nothing — a sighted hull is already fully visible. The sweep still gates creation.
+  # The two sources are exact complements off ONE radius (`fogHoleRadiusU`), which therefore keeps a
+  # job but changes it: source SELECTOR, not suppressor — and the dazzle plumbing from cycle 54 is
+  # now load-bearing for CORRECTNESS, since a dazzled client would otherwise synthesize an annulus
+  # the server had already begun blipping. Pinned by a 1-660u total-partition test.
+  # KNOWN ARTIFACT, inherent and not fixable client-side: under HC_RADAR_IDENTITY=pseudonym (the
+  # PRODUCTION setting) wire blips carry trk-xxxx while contacts carry the real ship id, so a hull
+  # crossing the sight boundary can briefly hold TWO ghost trains (<=6). Joining them would require
+  # disclosing the pseudonym mapping, which is the thing anonymization exists to prevent. In roster
+  # identity the keys are identical and the cap is shared.
+  # Amendment 91 DEFERS the matching projectile work to its own cycle: painting shells on radar is
+  # NOT a render change (ballistics are revealed only inside sight today), so it needs server-side
+  # disclosure, a PV bump, and the no-range-derivable-field rule held at the wider radius.
   # INTERSTITIAL 2026-08-06 (dev-auto cycle 55, 0.17.55) — A PAINT IS A HISTORICAL RECORD.
   # Amendments 83-87. Client-only; PV unchanged at 28. Corrects cycle 54's EVALUATION TIME (its
   # intent stands): the per-cell sight test ran in `writeCell` against the LIVE grid anchor every

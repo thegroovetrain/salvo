@@ -56,29 +56,36 @@
 // geometry is exact instead of a bounding circle that can sit hundreds of units
 // offshore.
 //
-// THE SIGHT GATE (cycle 54 amendments 80-82, corrected by cycle 55 amendments
-// 83-87). The heatmap paints NOTHING inside the truesight bubble THE BEAM SWEPT
-// IT FROM: inside it you are looking, and the scope adds nothing there. The rule
-// is PER-CELL (radarHeatmap.ts ruling R6), so an island straddling the boundary
-// paints only the portion beyond it and a hull at the very edge paints the part
-// that lies outside — Eric's nuance, and the case an object-level exclusion
-// would have deleted. The cutoff is `fogHoleRadiusU()` — literally the function
-// that bakes the visible fog hole — because a suppression boundary that merely
-// approximated the drawn hole would read as a rendering bug at the seam. That is
-// also why `setDazzled` exists on this class at all: the fog hole shrinks while
-// a dazzle burst holds, so the suppression radius a NEW paint freezes has to
-// shrink with it, or a dazzled observer gets a dead annulus that is fogged AND
-// unpainted. `silhouette` mode has no buffer, so none of this reaches it.
+// THE SCOPE PAINTS EVERYTHING IN RADAR RANGE (cycle 56, amendments 88-90,
+// superseding cycle 54's sight-bubble gate). Eric: *"maybe we should paint
+// everything in radar range, even if its in LOS. Just that if its in LOS
+// (truesight) range, then you also see the actual ship in realtime."* Inside
+// truesight you now get both channels at once — the live hull AND its echo — so
+// the sight verdict is gone from the paint model entirely. What is NOT gone is
+// the freezing discipline it briefly rode on: amendment 83 still governs, a
+// paint's geometry is still decided once at creation, and the accepted
+// consequence that a ghost may decay inside the bubble (amendment 86) is now
+// simply the ordinary case.
 //
-// THE VERDICT IS FROZEN ONTO THE PAINT, NOT RE-TAKEN EACH FRAME (amendment 85).
-// This adapter reads `sightHoleU` at exactly two moments — when a ship echo is
-// RESOLVED (`resolvePending`) and when an island coverage is BAKED
-// (`openIslandPaint`) — and never again for that paint. The sight bubble merely
-// receding therefore paints nothing: THE RADAR SWEEP IS THE ONLY THING THAT
-// PAINTS. The accepted consequence (amendment 86) is that a legitimately swept
-// ghost may keep decaying inside the current bubble; that is phosphor, not a
-// leak, and erasing it would restore exactly the live re-evaluation cycle 55
-// removed.
+// TWO SOURCES OF SHIP PAINTS, COMPLEMENTARY BY RANGE (amendment 89). The server
+// has never sent a blip for a sighted hull — `blipGate` excludes
+// `dist <= sightRange`, because such a hull is delivered as a full `Contact`
+// instead — and that rule is a perception-invariant surface this cycle does not
+// touch. So beyond truesight an echo comes off the WIRE (`resolvePending`), and
+// inside it the client SYNTHESIZES one from the `Contact` it already holds
+// (`sweepContacts` → `contactEcho`), gated by the same beam crossing, carrying
+// the same contact id, and feeding the same paint list under the same per-track
+// cap. Nothing new is disclosed: a sighted hull is already fully visible.
+//
+// WHICH IS WHY `sightHoleU` AND `setDazzled` SURVIVE, WITH A NEW JOB. The radius
+// is no longer a suppression boundary; it is the SOURCE SELECTOR that keeps the
+// two sources from overlapping. It stays `fogHoleRadiusU()` — the very function
+// that bakes the visible fog hole, and by construction the same dazzle-scaled
+// number the server's own `sightOf` uses — because if the client's idea of
+// truesight ever drifted from the server's, a hull at the seam would be painted
+// twice or not at all. A dazzle shrinks BOTH sides together: the server starts
+// blipping the annulus it just opened, and the client stops synthesizing there.
+// `silhouette` mode has no buffer and no synthesis, so none of this reaches it.
 //
 // Persistence is unchanged in both grammars: alpha/tint are pure functions of
 // serverNow − paint time (phosphor.ts), three sweeps of paints per track
@@ -107,6 +114,7 @@ import {
   type Vec2,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
+import type { ContactStore } from '../net/snapshots.js';
 import { settings } from '../settings/store.js';
 import { Pool, capOldest, capOldestByKey } from '../util/pool.js';
 import { extentAlong, luminanceFloor, speedVector, type SpeedVector } from './blipMarks.js';
@@ -118,7 +126,7 @@ import {
   arcOverlaps,
   bandIndex,
   buildIslandCoverage,
-  freezeSight,
+  contactEcho,
   islandBearingSpan,
   makeGrid,
   paintSeed,
@@ -256,10 +264,10 @@ export class Radar {
   private sweepPeriodMs: number = 60000 / CONFIG.vision.sweepRpm;
   /** Is the own ship inside an enemy DAZZLE BURST right now (Story 2.8)? The
    *  SAME flag `Fog` carries, plumbed from the same place in main.ts — the
-   *  suppression radius and the drawn fog hole are one number (amendment 81), so
-   *  they cannot be allowed to disagree about dazzle. It is read at paint
-   *  creation only, so a dazzle changes what the NEXT sweep paints and never
-   *  retroactively edits a paint already on the scope (amendment 85). */
+   *  source seam and the drawn fog hole are one number (amendment 89), so they
+   *  cannot be allowed to disagree about dazzle. It is read at paint creation
+   *  only, so a dazzle changes which source paints the NEXT sweep and never
+   *  retroactively edits a paint already on the scope (amendment 83). */
   private dazzled = false;
 
   constructor(
@@ -305,12 +313,12 @@ export class Radar {
    * unlike the fog there is nothing to rebake, so this radar's caller is free to
    * ignore the result.
    *
-   * A DAZZLE MOVES THE BOUNDARY FOR FUTURE PAINTS ONLY (amendment 85). The
-   * shrunken hole is frozen onto every paint created while it holds — so the
-   * scope legitimately takes over the annulus the eye just lost, on the next
-   * sweep across it — while paints already decaying keep the radius they were
-   * born with. Re-judging them would be live re-evaluation, which is the exact
-   * defect cycle 55 removed.
+   * A DAZZLE MOVES THE SOURCE SEAM, NOT THE SCOPE (amendments 88-89). While it
+   * holds, the SERVER's truesight shrinks and it starts sending wire blips for
+   * the annulus the eye just lost; this flag is what makes the client stop
+   * synthesizing contact echoes there on the same beat. Nothing is suppressed
+   * either way — a hull in that annulus paints throughout; only which source
+   * paints it changes. Paints already on the scope are never re-judged.
    */
   setDazzled(dazzled: boolean): boolean {
     if (dazzled === this.dazzled) return false;
@@ -324,14 +332,17 @@ export class Radar {
   }
 
   /**
-   * The radius (u) inside which a paint CREATED RIGHT NOW would paint nothing
-   * (amendments 80-81, 85).
+   * THE SOURCE SEAM (u): the effective truesight radius, inside which a ship
+   * echo is SYNTHESIZED from its `Contact` and outside which it arrives as a
+   * wire blip (amendment 89). Nothing is suppressed on either side of it — the
+   * scope paints everything in radar range (amendment 88).
    *
    * It is `fogHoleRadiusU` — the very function that bakes the visible fog hole,
-   * called rather than re-derived, so the suppression boundary IS the drawn hole
-   * by construction and no future change to one can silently desync the other.
-   * Exposed for tests and for exactly that equality assertion. Note the tense:
-   * this is the value a NEW paint freezes, not a live property of the buffer.
+   * called rather than re-derived — because that is also, by construction, the
+   * dazzle-scaled number the server's own `sightOf` uses to decide the same
+   * question from the other side. If the two ever disagreed, a hull at the seam
+   * would be painted twice or dropped entirely. Exposed for tests and for
+   * exactly that equality assertion.
    */
   get sightHoleU(): number {
     return fogHoleRadiusU(this.sightRange, this.dazzled);
@@ -486,13 +497,13 @@ export class Radar {
    *  not re-pose as the observer moves; the deferral exists only to stop a paint
    *  being born wrong.
    *
-   *  THE OBSERVER AND ITS SIGHT RADIUS FREEZE HERE TOO (amendment 85), alongside
-   *  the bearing and range that have frozen here since cycle 52. This is one of
-   *  the only two places in the grammar that may read `sightHoleU` at all. */
+   *  THIS IS THE BEYOND-TRUESIGHT SOURCE. Everything arriving here came through
+   *  the server's `blipGate`, which excludes `dist <= sightRange`; the inside-
+   *  truesight half of the scope is synthesized in `sweepContacts` instead
+   *  (amendment 89). */
   private resolvePending(): void {
     const own = this.own;
     if (own === null || this.pending.length === 0) return;
-    const sight = freezeSight(own, this.sightHoleU);
     for (const e of this.pending) {
       const dx = e.x - own.x;
       const dy = e.y - own.y;
@@ -506,13 +517,17 @@ export class Radar {
         dist: Math.hypot(dx, dy),
         t: e.t,
         seed: paintSeed(e.id, e.t),
-        ...sight,
       });
     }
     this.pending.length = 0;
   }
 
-  /** Add a paint and apply the per-track then global caps. */
+  /** Add a paint and apply the per-track then global caps.
+   *
+   *  ONE CAP KEY PER TRACK, ACROSS BOTH SHIP SOURCES (amendment 89). A ship
+   *  paint keys on the contact id whether it came off the wire or out of
+   *  `contactEcho`, so a hull crossing the truesight seam keeps ONE ghost train
+   *  of `paintsPerContact` marks rather than starting a second one. */
   private enrollPaint(p: RadarPaint): void {
     this.paints.push(p);
     const per =
@@ -606,23 +621,75 @@ export class Radar {
   }
 
   /** Per-frame: rotate/position the sweep + rings, advance the beam across the
-   *  island field, then decay every live mark and re-rasterize the heatmap. */
-  render(own: OwnPoint | null, serverNow: number): void {
+   *  island field AND the sighted contacts, then decay every live mark and
+   *  re-rasterize the heatmap.
+   *
+   *  `contacts` is the truesight contact store (net/snapshots.ts) — the second
+   *  source of ship paints (amendment 89). Optional and unread in `silhouette`
+   *  mode, where a sighted hull has never painted and does not start now. */
+  render(own: OwnPoint | null, serverNow: number, contacts: ContactStore | null = null): void {
     this.own = own;
     const rot = this.updateSweep(own, serverNow);
-    if (this.grammar === 'return') this.renderReturn(own, rot, serverNow);
+    if (this.grammar === 'return') this.renderReturn(own, rot, serverNow, contacts);
     this.lastRotation = rot;
     this.updateBlips(serverNow);
   }
 
-  /** The whole `return` frame: resolve parked echoes, advance island arcs, drop
-   *  dead paints, re-rasterize the buffer from the survivors, upload. */
-  private renderReturn(own: OwnPoint | null, rot: number | null, serverNow: number): void {
+  /** The whole `return` frame: resolve parked echoes, advance the beam across
+   *  the islands and the sighted contacts, drop dead paints, re-rasterize the
+   *  buffer from the survivors, upload. */
+  private renderReturn(
+    own: OwnPoint | null,
+    rot: number | null,
+    serverNow: number,
+    contacts: ContactStore | null,
+  ): void {
     this.resolvePending();
     const from = this.lastRotation;
-    if (own !== null && rot !== null && from !== null) this.sweepIslands(own, from, rot, serverNow);
+    if (own !== null && rot !== null && from !== null) {
+      this.sweepIslands(own, from, rot, serverNow);
+      this.sweepContacts(own, from, rot, serverNow, contacts);
+    }
     this.prunePaints(serverNow);
     this.paintHeat(own, serverNow);
+  }
+
+  /**
+   * Advance the beam across the SIGHTED CONTACTS (amendment 89) — the inside-
+   * truesight half of the scope, synthesized client-side because the server
+   * deliberately sends no blip for a hull it is already sending as a `Contact`.
+   *
+   * Every gate lives in the pure `contactEcho` (radarHeatmap.ts ruling R7),
+   * including the range term that makes this source the EXACT complement of the
+   * wire's; this method only supplies the frame's beam arc and the contact poses
+   * to test it against. Cost is one buffer sample plus a distance and an angle
+   * compare per contact per frame; the LOS test and the extent computation are
+   * paid only on the frame the beam actually crosses a contact, i.e. once per
+   * contact per revolution.
+   *
+   * Poses are sampled at the SAME interp-delayed time the hull renderer draws
+   * them, so an echo lands on the hull the player can see rather than ~100ms
+   * ahead of it. (The observer is the live predicted own pose — the identical
+   * pairing every other world-space overlay already draws with.)
+   */
+  private sweepContacts(
+    own: OwnPoint,
+    from: number,
+    to: number,
+    serverNow: number,
+    contacts: ContactStore | null,
+  ): void {
+    if (contacts === null) return;
+    const sight = this.sightHoleU;
+    const at = serverNow - CLIENT_CONFIG.net.interpDelayMs;
+    for (const id of contacts.ids()) {
+      const s = contacts.get(id)?.sampleAt(at);
+      const cls = contacts.classOf(id);
+      if (s === null || s === undefined || cls === undefined) continue;
+      const c = { id, x: s.x, y: s.y, heading: s.heading, cls };
+      const paint = contactEcho(c, own, sight, from, to, this.islands, serverNow);
+      if (paint !== null) this.enrollPaint(paint);
+    }
   }
 
   /** Position/rotate the sweep + rings; returns the beam angle this frame, or
@@ -690,11 +757,9 @@ export class Radar {
   }
 
   /** Bake one island paint: its observer-facing landmass, from the REAL polygon,
-   *  frozen against the observer position AND sight radius at paint time. Cells
-   *  inside truesight when the beam swept them never enter `cover` at all, so
-   *  the bubble later receding cannot resurrect them (amendment 85) — and the
-   *  coverage list is smaller for the paint's whole life. This is the second and
-   *  last place the grammar reads `sightHoleU`. */
+   *  frozen against the observer position at paint time. There is no sight term
+   *  in the bake any more (amendment 88) — a coastline inside the bubble paints
+   *  like any other, so the whole near face enters `cover`. */
   private openIslandPaint(
     isle: Island,
     own: OwnPoint,
@@ -711,15 +776,7 @@ export class Radar {
       to,
       full: false,
       t: serverNow,
-      cover: buildIslandCoverage(
-        isle,
-        this.islands,
-        own,
-        this.radarRange,
-        seed,
-        cfg,
-        this.sightHoleU,
-      ),
+      cover: buildIslandCoverage(isle, this.islands, own, this.radarRange, seed, cfg),
     };
     this.opening.set(isle, paint);
     this.enrollPaint(paint);
@@ -749,9 +806,9 @@ export class Radar {
     // out would still answer `bandAt` — and would flash back the instant the
     // next paint made the sprite visible again.
     // Anchoring decides ONLY which cells are in bounds this frame. It arms
-    // nothing and judges nothing: the sight verdict was frozen onto each paint
-    // at its own creation (amendment 85), so this call is handed no observer
-    // state and the rasterizer has none to consult.
+    // nothing and judges nothing: every judgement about a paint was made at its
+    // own creation (amendment 83), so this call is handed no observer state and
+    // the rasterizer has none to consult.
     if (own !== null) anchorGrid(heat.grid, own.x, own.y);
     heat.sprite.visible = own !== null && this.paints.length > 0;
     if (!heat.sprite.visible || own === null) return;
