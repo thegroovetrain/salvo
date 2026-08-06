@@ -2278,7 +2278,12 @@ function renderAlive(
   // 89): a hull inside truesight is delivered as a `Contact` and never as a
   // blip, so the scope synthesizes its echo from that store when the beam
   // crosses it. Read-only here — the radar samples poses, nothing more.
-  g.radar.render(pose, now, g.contacts);
+  // The fourth argument is the camera's world rect (amendment 96): the heatmap
+  // buffer is sized and centred on WHAT IS ON SCREEN, so a paint can never be
+  // clipped by a ring-sized box around the ship. It reaches the buffer extent
+  // and nothing else — no paint is created, retired or culled by it — which is
+  // what makes a paint recorded while zoomed in appear when you zoom out.
+  g.radar.render(pose, now, g.contacts, g.camera.worldView);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
   // own pose for a frame, and a plume that stopped drifting whenever our own
