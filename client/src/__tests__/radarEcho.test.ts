@@ -33,6 +33,7 @@ import {
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { Radar } from '../render/radar.js';
+import { fogHoleRadiusU } from '../render/fog.js';
 import { blipCool, blipLifeMs } from '../render/phosphor.js';
 
 // jsdom has no 2d canvas, so the baked sweep wedge can't rasterize here; the
@@ -158,7 +159,14 @@ describe('the paint list is the history and the buffer is derived (ruling R1)', 
 });
 
 describe('island landmasses (amendments 69 + 78)', () => {
-  const ISLE = ridge(300, 0, 120, 90);
+  // BEYOND TRUESIGHT ON PURPOSE (cycle 54, amendments 80-82). This fixture used
+  // to sit at x = 300 — INSIDE the 330u sight bubble — which is precisely the
+  // bug that cycle closed: coastline painted straight through the bubble while
+  // a hull at the same range was never sent as a blip at all. These tests are
+  // about the landmass grammar, so the island moves out to where the scope is
+  // the sensor; the gate itself is pinned in radarHeatmap.test.ts section 6 and
+  // by the dazzle block below.
+  const ISLE = ridge(600, 0, 120, 90);
 
   it('paints the landmass the beam swept, and paints it SOLID', () => {
     const { radar } = makeRadar();
@@ -168,8 +176,8 @@ describe('island landmasses (amendments 69 + 78)', () => {
     radar.render(OWN, 900); // beam advances ~1.4 rad across bearing 0
     expect(radar.liveIslandPaints).toBe(1);
     // A point deep inside the near face reads as land, not as a rim sample.
-    expect(radar.bandAt(220, 0)).toBeGreaterThanOrEqual(0);
-    expect(radar.bandAt(240, 0)).toBeGreaterThanOrEqual(0);
+    expect(radar.bandAt(520, 0)).toBeGreaterThanOrEqual(0);
+    expect(radar.bandAt(540, 0)).toBeGreaterThanOrEqual(0);
   });
 
   it('opens ONE paint per island per revolution, not one per frame', () => {
@@ -187,10 +195,13 @@ describe('island landmasses (amendments 69 + 78)', () => {
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0);
     radar.render(OWN, 900);
-    // 300 ± 150 in y is inside the bounding circle (r = 150) and outside the
-    // 120 × 90 rectangle. The retired code painted coast samples exactly there.
-    expect(radar.bandAt(300, 140)).toBe(-1);
-    expect(radar.bandAt(300, -140)).toBe(-1);
+    // 600 ± 140 in y is inside the bounding circle (r = 150) and outside the
+    // 120 × 90 rectangle — and comfortably beyond the sight bubble, so the
+    // sight gate is not what is answering here. The retired code painted coast
+    // samples exactly there.
+    expect(Math.hypot(600, 140)).toBeGreaterThan(CONFIG.vision.sight);
+    expect(radar.bandAt(600, 140)).toBe(-1);
+    expect(radar.bandAt(600, -140)).toBe(-1);
   });
 
   it('a landmass never evicts a contact paint from the scope', () => {
@@ -277,5 +288,101 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     expect(radar.liveIslandPaints).toBe(0);
     expect(radar.bandAt(0, 500)).toBe(-1);
     expect(radar.bandAt(300, 0)).toBe(-1);
+  });
+
+  it('THE SIGHT GATE NEVER REACHES IT: a paint deep inside truesight still '
+    + 'draws its full outline, dazzled or not (amendment 82)', () => {
+    // `silhouette` has no coverage grid and never had the bug, so the gate must
+    // be structurally invisible to it. A hull 120u out — well inside the bubble,
+    // and inside even the DAZZLED bubble — still draws exactly as it always did.
+    const close: SilhouetteBlipEvent = { ...POSE, y: 120 };
+    const { radar, layer } = makeSilhouette();
+    radar.render(OWN, 900);
+    radar.onBlip(close);
+    const g = layer.children[0] as Graphics;
+    const stroked = strokeColor(g);
+    const bounds = g.getLocalBounds().width;
+    expect(radar.liveBlips).toBe(1);
+    expect(bounds).toBeGreaterThan(0);
+
+    radar.setDazzled(true);
+    radar.render(OWN, 1000);
+    expect(radar.liveBlips).toBe(1);
+    expect(g.visible).toBe(true);
+    expect(strokeColor(g)).toBe(stroked);
+    expect(g.getLocalBounds().width).toBe(bounds);
+    // ...and still no buffer exists to gate.
+    expect(radar.bandAt(close.x, close.y)).toBe(-1);
+  });
+});
+
+// --- the sight gate, through the adapter (cycle 54, amendments 80-82) ------------
+
+describe('the sight gate is the DRAWN fog hole, dazzle included (amendment 81)', () => {
+  const SIGHT = CONFIG.vision.sight;
+  const DAZZLE = CONFIG.starShells.dazzleSightFactor;
+  /** Between the dazzled hole and the un-dazzled one: the annulus that is fogged
+   *  and unpainted unless the radar hears about the dazzle. */
+  const MID = SIGHT * ((1 + DAZZLE) / 2);
+
+  it('the suppression radius IS fogHoleRadiusU, at base stats and dazzled', () => {
+    const { radar } = makeRadar();
+    // Called, not re-derived: if either side ever changes, this equality is the
+    // thing that breaks, rather than a seam appearing on the water.
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(SIGHT, false));
+    expect(radar.setDazzled(true)).toBe(true); // mirrors Fog's changed-flag
+    expect(radar.isDazzled).toBe(true);
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(SIGHT, true));
+    // And that IS a shrink, by exactly the ratified factor.
+    expect(radar.sightHoleU).toBe(SIGHT * DAZZLE);
+    expect(radar.setDazzled(true)).toBe(false); // no-op flip reports no change
+  });
+
+  it('an echo in the dazzle annulus is suppressed normally and PAINTS while '
+    + 'dazzled — no dead ring that is fogged AND unpainted', () => {
+    const echo: ReturnBlipEvent = { ...PAINT, y: MID };
+    expect(MID).toBeGreaterThan(SIGHT * DAZZLE);
+    expect(MID).toBeLessThan(SIGHT);
+
+    const { radar } = makeRadar();
+    radar.render(OWN, 900);
+    radar.onBlip(echo);
+    radar.render(OWN, 1000);
+    expect(radar.bandAt(echo.x, echo.y), 'inside truesight: dark').toBe(-1);
+
+    radar.setDazzled(true);
+    radar.render(OWN, 1000);
+    expect(radar.bandAt(echo.x, echo.y), 'dazzled: the scope takes over').toBeGreaterThanOrEqual(0);
+
+    // ...and the disc comes straight back when the dazzle lifts. The paint list
+    // is untouched throughout — the gate suppresses the RASTER, never the paint.
+    radar.setDazzled(false);
+    radar.render(OWN, 1000);
+    expect(radar.bandAt(echo.x, echo.y)).toBe(-1);
+    expect(radar.livePaints).toBe(1);
+  });
+
+  it('the disc follows the LIVE observer, not the position a paint was baked '
+    + 'from — which is why it is a stamp-time rule', () => {
+    // An island baked while it was beyond truesight must go dark once the ship
+    // sails into it, even though its coverage list is frozen for the whole
+    // revolution. A bake-time gate would keep painting it.
+    const isle = ridge(600, 0, 120, 90);
+    const { radar } = makeRadar();
+    radar.setIslands([isle]);
+    radar.onSweepSample(-0.6, 0);
+    radar.render(OWN, 0);
+    radar.render(OWN, 900);
+    expect(radar.liveIslandPaints).toBe(1);
+    expect(radar.bandAt(520, 0), 'baked from 520u out: painted').toBeGreaterThanOrEqual(0);
+
+    // Steam to within truesight of that same coastline; the paint is unchanged.
+    radar.render({ x: 400, y: 0 }, 1000);
+    expect(radar.liveIslandPaints).toBe(1);
+    expect(radar.bandAt(520, 0), 'now 120u away: the eye has it').toBe(-1);
+
+    // ...and back out again, from the same frozen coverage.
+    radar.render(OWN, 1100);
+    expect(radar.bandAt(520, 0)).toBeGreaterThanOrEqual(0);
   });
 });

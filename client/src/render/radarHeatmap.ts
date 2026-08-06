@@ -54,6 +54,28 @@
 //     after fractal islands landed and happily painted coastline on a bounding
 //     circle that can sit hundreds of units offshore of the real coast.
 //
+//   • R6 — NOTHING PAINTS INSIDE THE SIGHT BUBBLE, AND THE RULE IS PER-CELL
+//     (cycle 54, amendments 80-82). Inside truesight you are LOOKING, and the
+//     scope adds nothing there. Cycle 53 left a real inconsistency: ship echoes
+//     never appeared inside truesight (the SERVER's `blipGate` has always
+//     excluded `dist <= sightRange`, because a sighted hull arrives as a full
+//     `Contact` instead), but island coverage is pure client presentation off
+//     the map seed and had no sight term at all — so coastline painted straight
+//     through the bubble while hulls did not. This closes it toward NONE.
+//
+//     PER-CELL, not per-object, is the whole nuance: *"ships that are partially
+//     seen and partially in radar range should definitely still be painted"*. An
+//     island straddling the boundary paints only the portion beyond it; a hull
+//     at the very edge paints the part that lies outside. Skipping whole objects
+//     whose centre is inside would delete exactly that case. Only amendment 76's
+//     per-pixel intensity makes it expressible at all — a polygon carries one
+//     fill and would have had to be wholly in or wholly out.
+//
+//     The gate lives ON THE GRID (`anchorGrid` sets it, `writeCell` enforces
+//     it): that is the single unbypassable write chokepoint, and it folds into
+//     the bounds check that every candidate cell already pays. See `insideSight`
+//     for why it is a STAMP-time and not a BAKE-time rule.
+//
 // THE NEAR FACE, EXACTLY (amendments 69 + 78, and cycle 51's review gate). A
 // radar sees the near surface; the far side is the island's own shadow. The
 // criterion generalizes the tangent rule to interior points: for a point P at
@@ -161,6 +183,15 @@ export interface HeatGrid {
   w: Float32Array;
   /** Per-cell age opacity of the paint that won that cell. */
   a: Float32Array;
+  /** THE OBSERVER this frame (= the centre `anchorGrid` was called with), and
+   *  the centre of the sight-suppression disc (ruling R6). */
+  obsX: number;
+  obsY: number;
+  /** SQUARED radius (u²) of the suppression disc — the fog hole, pre-squared
+   *  once per frame so the per-cell test is a multiply-compare with no sqrt.
+   *  0 disables the gate entirely (the un-gated `anchorGrid` overload, which is
+   *  what every geometry test that is not ABOUT the gate uses). */
+  sightR2: number;
 }
 
 /**
@@ -181,6 +212,9 @@ export function makeGrid(radiusU: number, cellU: number): HeatGrid {
     originY: 0,
     w: new Float32Array(n),
     a: new Float32Array(n),
+    obsX: 0,
+    obsY: 0,
+    sightR2: 0,
   };
 }
 
@@ -191,13 +225,22 @@ export function makeGrid(radiusU: number, cellU: number): HeatGrid {
  * cell (gx, gy) always covers the same world square no matter where the
  * observer stands — which is what makes `cellNoise(seed, gx, gy)` a stable
  * property of a place rather than a flicker that re-rolls every frame.
+ *
+ * `sightHoleU` ARMS THE SIGHT GATE (ruling R6) for the frame about to be
+ * stamped. The centre is (cx, cy) — which IS the observer, since the buffer is
+ * defined as covering 2 × radar range about the own ship — so the suppression
+ * disc is re-established from the LIVE observer position on every single frame.
+ * Omit it (or pass 0) for an un-gated raster.
  */
-export function anchorGrid(g: HeatGrid, cx: number, cy: number): void {
+export function anchorGrid(g: HeatGrid, cx: number, cy: number, sightHoleU = 0): void {
   const half = (g.cols * g.cellU) / 2;
   g.baseGx = Math.floor((cx - half) / g.cellU);
   g.baseGy = Math.floor((cy - half) / g.cellU);
   g.originX = g.baseGx * g.cellU;
   g.originY = g.baseGy * g.cellU;
+  g.obsX = cx;
+  g.obsY = cy;
+  g.sightR2 = sightHoleU > 0 ? sightHoleU * sightHoleU : 0;
   g.w.fill(0);
   g.a.fill(0);
 }
@@ -213,16 +256,50 @@ export function cellCentre(gx: number, cellU: number): number {
 }
 
 /**
+ * IS CELL (gx, gy) INSIDE THE OBSERVER'S SIGHT BUBBLE? (ruling R6.)
+ *
+ * The cell's CENTRE decides — the same point every other per-cell quantity in
+ * this file is evaluated at (intensity, solidity, noise), so the gate cannot
+ * disagree with the value it is suppressing. `<=` mirrors the server's
+ * `blipGate`, which excludes `dist <= sightRange` exactly.
+ *
+ * WHY THIS IS A STAMP-TIME AND NOT A BAKE-TIME RULE — the load-bearing choice.
+ * An island's coverage is baked ONCE per beam revolution and then cached in
+ * ABSOLUTE world cells for the paint's whole ~12s phosphor life (three live
+ * paints per island). The observer, meanwhile, moves continuously. Baking the
+ * gate into `CoverCell.i` would freeze the suppression disc at the position the
+ * ship held when the beam swept that coastline, and seconds later it would be
+ * suppressing water the ship has left behind while painting coastline the ship
+ * has since sailed into — the seam amendment 81 exists to remove, just lagging
+ * instead of offset. Evaluating here re-derives it from the live observer every
+ * frame, which is exactly the cadence the drawn fog hole moves at.
+ */
+export function insideSight(g: HeatGrid, gx: number, gy: number): boolean {
+  if (!(g.sightR2 > 0)) return false;
+  const dx = cellCentre(gx, g.cellU) - g.obsX;
+  const dy = cellCentre(gy, g.cellU) - g.obsY;
+  return dx * dx + dy * dy <= g.sightR2;
+}
+
+/**
  * Write one cell, MAX-WINS. Overlapping paints never sum: additive accumulation
  * would let two weak ghosts of one contact fabricate a red core that neither
  * return earned, which is the same "color is lying about strength" failure from
  * the other direction. Out-of-grid writes are dropped silently — a paint at the
  * rim legitimately overhangs the buffer.
+ *
+ * THIS IS ALSO WHERE THE SIGHT GATE BITES (ruling R6), for two reasons. It is
+ * the single chokepoint every stamped cell in the module already passes through,
+ * so no present or future paint kind can route around it; and it rides the
+ * bounds check that candidate cell already pays, so the gate costs one squared
+ * distance compare on cells that were going to be touched anyway — never a
+ * second pass over the buffer.
  */
 export function writeCell(g: HeatGrid, gx: number, gy: number, intensity: number, alpha: number): void {
   const cx = gx - g.baseGx;
   const cy = gy - g.baseGy;
   if (cx < 0 || cy < 0 || cx >= g.cols || cy >= g.rows) return;
+  if (insideSight(g, gx, gy)) return;
   const i = cy * g.cols + cx;
   if (!(intensity > g.w[i])) return;
   g.w[i] = intensity;

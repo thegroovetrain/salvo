@@ -1006,3 +1006,43 @@ reframing, verbatim:
     hull outlines, personal hues and ARPA vectors, and remains the fail-safe default in code.
     Production has both flags ON as of PR #101, so this correction reaches live on merge.
 
+## 2026-08-06 — Eric ruling, the sight-bubble radar gate (cycle 54)
+
+Source: Eric, live, on the cycle-53 heatmap. Verbatim:
+
+> *"islands are being radar painted in sight range, while ships are not. It should be all or none,
+> and I am leaning towards none. But ships that are partially seen and partially in radar range
+> should definitely still be painted. so lets say, the very edge of sight range, yes, but for the
+> most part no."*
+
+80. **RADAR PAINTS NOTHING INSIDE THE SIGHT BUBBLE — and the rule is PER-CELL, not per-object.**
+    Cycle 53 left a real inconsistency: ship echoes never appear inside truesight (the SERVER's
+    `blipGate` has always excluded `dist <= sightRange`, because a sighted hull is a full `Contact`
+    instead), but island coverage is pure client presentation off the map seed and had no sight term
+    at all — so coastline painted straight through the bubble while hulls did not. Eric ruled the
+    inconsistency closed toward **none**: inside truesight you are LOOKING, and the scope adds
+    nothing there.
+
+    The nuance he attached — *"ships that are partially seen and partially in radar range should
+    definitely still be painted"* — is why this is a **per-CELL** gate and not an object-level
+    exclusion. An island straddling the boundary paints only the portion beyond it; a hull at the
+    very edge paints the part that lies outside. This is only expressible because amendment 76 moved
+    to per-pixel intensity: the polygon grammar could not have delivered it, since a polygon carries
+    one fill and would have had to be wholly in or wholly out.
+
+81. **THE CUTOFF IS `fogHoleRadiusU()` — the SAME function that draws the visible hole.** The
+    suppression boundary must be the drawn fog hole exactly, not an approximation of it, or the seam
+    reads as a rendering bug. `render/fog.ts` `fogHoleRadiusU(sightRange, dazzled)` is the one source
+    and it is already dazzle-aware (`CONFIG.starShells.dazzleSightFactor`).
+
+    **Consequence that must be implemented, not assumed:** the radar currently receives
+    `stats.sightRange` (boon-aware) but NOT dazzle — `main.ts` plumbs dazzle only into the fog
+    (`g.fog.setDazzled(...)`). So a DAZZLED observer would get a shrunken fog hole with an unshrunken
+    suppression circle, leaving a dead annulus that is fogged AND unpainted — the exact seam this
+    ruling exists to remove. Dazzle must be plumbed into the radar the same way it is into the fog.
+
+82. **Scope.** Client-only presentation: no wire change, no server change, `PROTOCOL_VERSION`
+    unchanged, no CONFIG combat tunable moves. `blipGate` is NOT touched — the server rule that a
+    sighted hull is a contact rather than a blip is already correct and is what this aligns islands
+    to. `silhouette` mode is UNTOUCHED (it has no coverage grid at all, so it never had the bug).
+
