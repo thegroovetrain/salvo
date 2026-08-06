@@ -1,5 +1,6 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-06  # cycle 56 (0.17.56), THE SCOPE PAINTS EVERYTHING IN RANGE (interstitial — sight exclusion retired; sighted ships painted client-side from their Contact; client-only, PV unchanged at 28)
+# last_updated: 2026-08-06  # cycle 57 (0.17.57), NO CLIPPING NO EXCEPTIONS (interstitial — the heatmap buffer was clipping paints at radar range; extent now DERIVED and bound-pinned; client-only, PV unchanged at 28)
+#                          # cycle 56 (0.17.56), THE SCOPE PAINTS EVERYTHING IN RANGE (interstitial — sight exclusion retired; sighted ships painted client-side from their Contact; client-only, PV unchanged at 28)
 #                          # cycle 55 (0.17.55), A PAINT IS A HISTORICAL RECORD (interstitial — the sight verdict freezes at paint creation; the sweep is the only thing that paints; client-only, PV unchanged at 28)
 #                          # cycle 54 (0.17.54), the sight-bubble radar gate (interstitial — radar paints nothing inside truesight, per-CELL so straddlers keep their outside portion; client-only, PV unchanged at 28)
 #                          # cycle 53 (0.17.53), the radar heatmap correction (interstitial — Eric's live feedback on cycle 51; client-only, PV unchanged at 28)
@@ -110,6 +111,23 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-06 (dev-auto cycle 57, 0.17.57) — NO CLIPPING, NO EXCEPTIONS.
+  # Amendments 92-94. Client-only; PV unchanged at 28. THE THIRD violation of amendment 83 in this
+  # family, and the one that widened its scope: the buffer was allocated at half-extent = radarRange
+  # and re-anchored on the observer every frame, so a paint created near the rim was CLIPPED the
+  # instant you sailed outward and reappeared if you sailed back. Eric, seeing the box while zoomed
+  # out: "If it gets painted, it STAYS painted until it decays, NO EXCEPTIONS." Amendment 83 now
+  # explicitly covers anything that can drop a paint at DRAW time, not just anything that re-decides
+  # it — the earlier two violations were a live gate and a sight exclusion; this one was geometry.
+  # THE EXTENT IS NOW DERIVED, NOT A BIGGER MAGIC NUMBER: radarRange + maxObserverSpeed x maxPaintLife
+  # + maxKernelReach, where maxObserverSpeed is assembled FROM BOON_CATALOG (every card raising
+  # maxSpeed or boost.speedBonus) folded through effectiveStats — 77.43 u/s for a maxed boosting
+  # torpedo boat — giving 1653u vs the old 660u. A test PINS that the allocation covers the bound, so
+  # retuning ship speed, sweepRpm or persistSweeps breaks the test instead of the rendering.
+  # COST DID NOT REGRESS, IT IMPROVED: allocation grew to ~3.6MB one-time (554^2 cells), but per-frame
+  # work is confined to an ACTIVE SUB-RECT unioned from the live paints' own footprints, so typical
+  # play measures 0.155ms/frame against the old fixed square's 0.410ms. The rect is derived FROM the
+  # paints, so it structurally cannot drop one.
   # INTERSTITIAL 2026-08-06 (dev-auto cycle 56, 0.17.56) — THE SCOPE PAINTS EVERYTHING IN RANGE.
   # Amendments 88-91. Client-only; PV unchanged at 28. RETIRES amendment 81 (cycles 54-55's sight
   # exclusion): radar now paints everything within radar range, INCLUDING inside truesight, so a

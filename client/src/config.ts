@@ -1270,12 +1270,21 @@ export const CLIENT_CONFIG = {
     heatmap: {
       /**
        * World units per bitmap cell — the buffer's resolution, and the ONE knob
-       * that trades look against cost. The buffer covers 2 × radar range (1320u
-       * at base), so 6u/cell is a 222 × 222 texture: ~49k cells cleared,
-       * stamped and quantized per frame, ~197KB uploaded. At the base camera
-       * framing one cell is ~5 screen px, which is deliberately chunky — a
-       * quantized bitmap should read as a bitmap, not as a smooth glow. Halving
-       * this QUADRUPLES every per-frame cost, so it is not a free knob.
+       * that trades look against cost. At the base camera framing 6u/cell is
+       * ~5 screen px, which is deliberately chunky: a quantized bitmap should
+       * read as a bitmap, not as a smooth glow.
+       *
+       * IT SCALES TWO DIFFERENT THINGS, and cycle 57 split them apart
+       * (amendment 93). The ALLOCATION covers the worst case a paint's life can
+       * reach — radar range plus the farthest a maxed, boosted hull can sail
+       * before it decays (`heatExtentU`), ~1653u at base, so 6u/cell allocates a
+       * 554 × 554 grid (~307k cells: 2.3MB of intensity, 1.2MB of RGBA). That is
+       * a one-time cost and it is what makes a paint stay painted until it
+       * decays, whatever the observer does. The PER-FRAME cost is the ACTIVE
+       * SUB-RECT — the region the live paints actually occupy, a couple of
+       * `RECT_BUCKET` boxes in ordinary play — and it is the only part that
+       * repeats at 60fps. Halving this knob QUADRUPLES both, so it is not free
+       * either way.
        */
       cellU: 6,
       /**
