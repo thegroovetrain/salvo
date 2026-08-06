@@ -950,3 +950,59 @@ scale like in the garmin radar."*
     palette identity rather than one color carries it. **Amber remains reserved and unassigned;
     nothing in this ruling spends it.**
 
+## 2026-08-05 — Eric rulings, the radar heatmap correction (cycle 53, post-live)
+
+Source: Eric, live, after seeing cycle 51's return grammar in production. Two complaints and a
+reframing, verbatim:
+
+> *"it seems like the edges of islands are just being detected as little circles around the edge of
+> the island, which is **not** what I wanted. I wanted the entire island painted like a fucking
+> massive object."*
+
+> *"everything you are painting is just one color, and it seems random … here's a red object, here's
+> an amber object. Next sweep, here's that red thing again but over here … If it leaves radar range
+> and comes back in, its a completely different color. **A single object could potentially have bits
+> that are red, blue, or green!**"*
+
+> *"If its possible to make the radar layer a bitmap, and essentially a 'radar heatmap' that uses
+> exactly three colors (and no blends of them at all) … The most certain 'this is a thing here'
+> results (probably most of the large object) are just red. The stuff that's like, 'there's probably
+> a thing here but it could be fuzzy' is blue. The 'we're honestly not sure, it could be a really
+> small thing but here you go' results are green."*
+
+76. **THE RETURN LAYER BECOMES A BITMAP HEATMAP, NOT POLYGONS.** This **SUPERSEDES amendment 70's
+    seeded-irregular-polygon blob grammar** and the per-blip `Graphics` model behind it. Returns are
+    rasterized into an intensity buffer that is quantized to color and drawn as ONE texture. The
+    polygon model was the root cause of both complaints: a polygon can only carry one fill, so color
+    became a per-object LABEL, and an island could only be approximated by scattering small polygons
+    along its arc. Diagnosis of record — the "random" color Eric saw was real and inherent:
+    `echoColor(returnStrength(ext, dist))` is per-object, and `ext` swings with aspect (a battleship
+    reads 32u bow-on and 124u abeam), so the SAME hull legitimately changed color as it turned or
+    re-entered range. Nothing was random; the channel was simply wrong.
+
+77. **COLOR IS INTERNAL TEXTURE, NOT AN OBJECT LABEL — exactly three colors, NO blends.** Intensity
+    is computed per PIXEL and quantized into exactly three buckets, so a single return can and should
+    show all three at once: a strong core reading red, a fuzzier surround reading blue, and an
+    uncertain fringe reading green. **This SUPERSEDES amendment 74's continuous blue→green→yellow→red
+    ramp** (which was a smooth per-object gradient — the wrong axis entirely) while KEEPING its
+    parent ruling that hue on the scope encodes RETURN STRENGTH rather than identity (amendment 65).
+    Eric's mapping, verbatim in his terms: **red = "this is definitely a thing"**, **blue = "probably
+    a thing, but fuzzy"**, **green = "honestly not sure, could be something tiny."** He hedged the
+    ordering himself — *"Or whatever the ACTUAL RADAR would look like"* — so the three colors and
+    their thresholds ship as a CONFIG array and reordering is a one-line change, deliberately, in
+    case he wants the more conventional marine red/yellow/green on seeing it.
+
+78. **AN ISLAND PAINTS AS ONE MASSIVE CONTIGUOUS RETURN, not sampled points.** Its whole
+    observer-facing landmass rasterizes as solid returns — a big island should read as a big red mass
+    with softer edges, which is what the Garmin reference plates actually look like (mostly
+    coastline). The near-arc-only rule from amendment 69 STANDS as physics (radar sees the near face;
+    the far side stays shadow, and cross-island occlusion from cycle 51's review gate is unchanged) —
+    what changes is that the near face is FILLED rather than sampled.
+
+79. **Scope discipline.** Client-only presentation: no wire change, no server change, **`PROTOCOL_
+    VERSION` is UNCHANGED by this cycle** (it reads **28**, not the 27 this amendment first recorded —
+    the fractal-island cycle landed 27 → 28 in parallel and took cycle number 52, so this correction
+    became cycle 53), no CONFIG combat tunable moves. `silhouette` mode is UNTOUCHED — it keeps
+    hull outlines, personal hues and ARPA vectors, and remains the fail-safe default in code.
+    Production has both flags ON as of PR #101, so this correction reaches live on merge.
+

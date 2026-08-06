@@ -1,5 +1,6 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-05  # cycle 52 (0.17.52), Fractal Island Generation (interstitial — polygon coastlines; PV 27->28)
+# last_updated: 2026-08-05  # cycle 53 (0.17.53), the radar heatmap correction (interstitial — Eric's live feedback on cycle 51; client-only, PV unchanged at 28)
+#                          # cycle 52 (0.17.52), Fractal Island Generation (interstitial — polygon coastlines; PV 27->28)
 #                          # cycle 51 (0.17.51), the radar realism cycle (interstitial — playtest-driven; landed in parallel with Story 4-5, which took cycle 50)
 #                          # cycle 46 (0.17.46), DAMAGE CONTROL heal strip (interstitial)
 #                          # cycle 45 (0.17.45) was the Public Register (interstitial — global kill feed), landed in parallel.
@@ -106,6 +107,22 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-05 (dev-auto cycle 53, 0.17.53) — THE RADAR HEATMAP CORRECTION.
+  # Amendments 76-79. Client-only; PV UNCHANGED at 28. Eric's live feedback on cycle 51's return
+  # grammar, and it is a GRAMMAR replacement, not a tuning pass: the per-blip POLYGON model is gone.
+  # Two complaints, one root cause — a polygon carries ONE fill, so color became a per-OBJECT label
+  # (and `ext` legitimately swings with aspect, so the same hull really did change color as it
+  # turned), and an island could only be APPROXIMATED by scattering small polygons along its arc.
+  # Returns are now rasterized into a WORLD-ANCHORED intensity grid (6u cells over 2x radar range,
+  # origin snapped to a whole cell so a coastline does not shimmer as you steam past) and quantized
+  # into EXACTLY THREE colors with NO blending: green "could be something tiny" / blue "probably a
+  # thing, but fuzzy" / red "definitely a thing". A single object now spans all three — that is the
+  # headline requirement and it is pinned by test. History lives in a PAINT LIST re-rasterized every
+  # frame, never a decayed-in-place buffer (the observer moves, so in-place would smear or drag).
+  # ISLANDS PAINT AS SOLID MASSES OFF THEIR REAL `poly` — this also FIXES a defect cycle 52 created
+  # silently: `Island` is structurally assignable to `Circle`, so the radar kept compiling and its
+  # tests kept passing while painting the BOUNDING CIRCLE, which can sit well offshore of a fractal
+  # coastline. Guard test fails by construction against the old behavior.
   # INTERSTITIAL 2026-08-05 (dev-auto cycle 51, 0.17.51) — THE RADAR REALISM CYCLE. PV 26->27.
   # Landed in PARALLEL with Story 4-5 (the foghorn): both branched from PV 25 and both claimed 26,
   # 4-5 merged first, so this cycle renumbered to 51/PV 27 and its amendments 51-64 -> 62-75.

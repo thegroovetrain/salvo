@@ -45,17 +45,19 @@ const COLORS = {
   damageMarker: 0xff6666,
   islandFill: 0x2a2410,
   islandStroke: 0x8b7520,
-  // RADAR ECHO SCALE (cycle 51, amendment 74 — Eric's Garmin ruling). The three
-  // ends of the `return`-grammar strength ramp; the GREEN stop in the middle is
-  // `phosphor` itself, which is the point — the scale passes straight through
-  // the scope's own green, so a mid-strength echo and the sweep agree while a
-  // weak one cools to blue and a strong one burns to red. These are FUNCTIONAL
-  // colors on a sensor readout, never combatant identity: `return` mode carries
-  // no personal hue at all (amendment 62), so nothing here competes with the
-  // Regatta wheel. Ramp stops live in `blip.returns.ramp`.
-  echoWeak: 0x1e5cff, // weakest return — deep radar blue (~223°)
-  echoWarm: 0xffd400, // strong return — yellow (~50°)
-  echoHot: 0xff2a00, // strongest return — red (~10°)
+  // RADAR HEATMAP BANDS (cycle 52, amendment 77 — Eric's three-color ruling,
+  // superseding cycle 51's continuous blue→green→yellow→red Garmin ramp). These
+  // are the ONLY three colors the `return` layer can ever paint, and a pixel is
+  // one of them or it is fully transparent: there is no blend, no gradient and
+  // no fourth state anywhere between here and the screen. They are CERTAINTY
+  // labels in Eric's own words, not object labels and not identity — `return`
+  // mode carries no personal hue at all (amendment 62), so nothing here competes
+  // with the Regatta wheel. Thresholds and ORDER live in `blip.heatmap.bands`;
+  // Eric hedged the ordering himself ("or whatever the ACTUAL RADAR would look
+  // like"), so reordering is a one-line edit there, deliberately.
+  echoFaint: 0x1ee06e, // "honestly not sure, could be something tiny" — green (~145°)
+  echoFuzzy: 0x1e5cff, // "probably a thing, but fuzzy" — deep radar blue (~223°)
+  echoSolid: 0xff2a00, // "this is definitely a thing" — red (~10°)
   // combat effects
   splash: 0xb8ccc6, // miss splash — replaces retired #66FFAA double-duty
   muzzle: 0xe8f2ec,
@@ -1244,126 +1246,148 @@ export const CLIENT_CONFIG = {
       barbAngle: 0.45,
     },
     /**
-     * `return`-GRAMMAR ECHO KNOBS (cycle 51, amendments 62-70). Inert unless the
-     * SERVER announces `radarGrammar: 'return'` in the welcome — the grammar is
-     * a server flag (amendment 63), never a client choice, because a client-side
-     * switch would force the wire to carry the identity superset in both modes
-     * and reduce the whole anti-cheat argument to cosmetics.
+     * `return`-GRAMMAR HEATMAP KNOBS (cycle 52, amendments 76-79 — superseding
+     * cycle 51's polygon-blob knobs entirely). Inert unless the SERVER announces
+     * `radarGrammar: 'return'` in the welcome — the grammar is a server flag
+     * (amendment 63), never a client choice, because a client-side switch would
+     * force the wire to carry the identity superset in both modes and reduce the
+     * whole anti-cheat argument to cosmetics.
      *
-     * Every value here is PRESENTATION. Amendment 72 forbids `CONFIG.vision`
-     * gaining a new constant this cycle, and the range-attenuation curve in
-     * particular belongs here on its own merits: the server sends pure aspect
-     * geometry (`ext`, world units, no range term) and the client — which knows
-     * both its own position and the paint position — does the falloff at render
-     * time (orchestrator ruling R2).
+     * Every value here is PRESENTATION. No wire field, no server work, no
+     * perception-invariant surface: the server sends pure aspect geometry
+     * (`ext`, world units, no range term) and the islands are already
+     * client-known from the map seed, so everything below is computed on this
+     * side of the wire. `PROTOCOL_VERSION` is untouched by this whole block.
      *
-     * The baseline is explicitly TWEAKABLE: Eric ratified the seeded-polygon
-     * blob as a starting point ("we can start with that and tweak from that
-     * baseline"), so these numbers are expected to move after playtest.
-     * `persistSweeps`/`paintsPerContact` above are NOT in that set — in `return`
-     * mode they become the entire course-and-speed channel (amendment 67 kills
-     * the ARPA vector), so retuning them is a deliberate post-playtest job.
+     * THE BASELINE IS EXPLICITLY TWEAKABLE and `bands` is the first thing Eric
+     * will retune — he hedged the color ORDER himself ("Or whatever the ACTUAL
+     * RADAR would look like"), so the array is ordered, self-describing, and a
+     * reorder is one line. `persistSweeps`/`paintsPerContact` above are NOT in
+     * that set — in `return` mode they are the entire course-and-speed channel
+     * (amendment 67 kills the ARPA vector), so retuning them is a deliberate
+     * post-playtest job.
      */
-    returns: {
-      /** Vertices around one echo. Enough to read as an irregular smear, few
-       *  enough that the jitter stays visible instead of averaging to a circle. */
-      vertices: 12,
-      /** Per-vertex radial jitter, ± as a fraction of the base radius. This is
-       *  the shimmer amendment 70 asked for; push it up and returns stop reading
-       *  as objects, push it to 0 and every hull paints the same clean ellipse —
-       *  which is the class readout the cycle exists to delete. */
-      jitter: 0.22,
-      /** Fill opacity of the blob body (the 1px edge stays at full alpha). A
-       *  radar return is a FILLED echo, not an outline: amendment 71 leaves the
-       *  colorblind assist's outline-boost clause inert here precisely because
-       *  blobs have no outline to boost. */
-      fillAlpha: 0.5,
-      /** Smallest drawable ACROSS extent (u). A needle bow-on at the rim is a
-       *  weak contact, never an absent one. */
-      minExtent: 10,
-      /** Range depth as a fraction of the across extent — a scope smears an
-       *  echo in range as well as azimuth, and a zero-depth blob reads as a
-       *  line rather than a return. */
-      depthFrac: 0.5,
-      /** Smallest drawable range depth (u). */
-      minDepth: 7,
-      /** Asymptotic floor of the attenuation curve — the scale a return at
-       *  infinite range would approach, never reach. Deliberately an asymptote
-       *  and not a `Math.max` clamp: a hard floor would make two different
-       *  ranges paint at identical size, colliding with amendment 64's rule that
-       *  size carries return strength and nothing else shares that channel. */
-      attenFloor: 0.45,
-      /** Range at which the above-floor part of the curve has halved, as a
-       *  fraction of the observer's radar range. At 0.5 a rim contact paints at
-       *  ~0.63 of its point-blank size — a clear read on "far", well short of
-       *  the vanishing act a physical 1/r⁴ law would produce. */
-      attenHalfRange: 0.5,
-      /** Attenuated ACROSS extent (u) that reads as a full-strength return —
-       *  the denominator of `returnStrength`, at or above which an echo paints
-       *  the hot end of the ramp. 60u is deliberately well under a broadside
-       *  battleship (124u) and well over a bow-on needle: the scale has to
-       *  SATURATE on genuinely big echoes rather than reserve its top end for a
-       *  hull nobody ever presents. It also lands a coast sample
-       *  (`arcStepU × extFactor` = 30.6u, attenuated) in the green middle, which
-       *  is why the Garmin reference plates read as green coastline with red
-       *  where the shore is closest and broadest. */
-      strongExtent: 60,
+    heatmap: {
       /**
-       * THE GARMIN ECHO RAMP (amendment 74). Weak → strong runs blue → green →
-       * yellow → red, keyed on `returnStrength` — the SAME quantity blob size
-       * carries (aspect-projected `ext`, attenuated by range). That redundancy
-       * is authentic rather than accidental: on a real set, size and color both
-       * fall out of the echo, and it dual-codes the channel so a CVD player
-       * loses nothing the color says (the partial answer to the colorblind
-       * question amendment 71 left open).
-       *
-       * Amendment 74 SUPERSEDES amendment 65's monochrome clause FOR RETURNS
-       * ONLY: the sweep wedge, the range rings and every other piece of radar
-       * chrome stay `{colors.phosphor}` green. Only the detected entity carries
-       * the scale — coastline included (terrain is just a strong return).
-       *
-       * THE TRAP THIS RAMP MUST NEVER FALL INTO: the phosphor decay ramp
-       * (`blipTint`) SETS the color, so it cannot drive a colored echo without
-       * erasing this scale. `return` marks decay through the hue-PRESERVING
-       * multiplier `blipCool` instead — see its `coolFloor` comment above, which
-       * records Story 4.2 hitting the identical problem the first time hue
-       * became an information channel. Channels are now hue = return strength,
-       * alpha = age, size = return strength.
-       *
-       * Stops are (`at` = strength in [0,1], `color` = token) and MUST be sorted
-       * ascending; `render/returnMarks.echoColor` lerps between neighbours and
-       * clamps outside the ends. The middle stop is `phosphor` on purpose — the
-       * scale runs straight through the scope's own green.
+       * World units per bitmap cell — the buffer's resolution, and the ONE knob
+       * that trades look against cost. The buffer covers 2 × radar range (1320u
+       * at base), so 6u/cell is a 222 × 222 texture: ~49k cells cleared,
+       * stamped and quantized per frame, ~197KB uploaded. At the base camera
+       * framing one cell is ~5 screen px, which is deliberately chunky — a
+       * quantized bitmap should read as a bitmap, not as a smooth glow. Halving
+       * this QUADRUPLES every per-frame cost, so it is not a free knob.
        */
-      ramp: [
-        { at: 0, color: COLORS.echoWeak },
-        { at: 0.4, color: COLORS.phosphor },
-        { at: 0.7, color: COLORS.echoWarm },
-        { at: 1, color: COLORS.echoHot },
+      cellU: 6,
+      /**
+       * THE THREE COLORS AND THEIR THRESHOLDS (amendment 77) — ordered ASCENDING
+       * by intensity, and the whole of the color contract. Below `bands[0].at` a
+       * pixel is fully transparent; at or above a band's `at` it takes that
+       * band's color VERBATIM. Nothing between here and the screen interpolates,
+       * so a single object shows all three at once — a strong core reading red,
+       * a fuzzier surround reading blue, an uncertain fringe reading green —
+       * which is the entire point of the correction. Eric's mapping, verbatim in
+       * his terms: red = "this is definitely a thing", blue = "probably a thing,
+       * but fuzzy", green = "honestly not sure, could be something tiny".
+       *
+       * `alpha` is each band's PEAK opacity for a fresh pixel; the phosphor age
+       * ramp scales it down from there. Age therefore rides opacity and NEVER
+       * intensity — an age term in intensity would make one object drift red →
+       * blue → green as it decayed, which is amendment 76's complaint re-created
+       * on the time axis (see the `HeatGrid` comment in render/radarHeatmap.ts).
+       */
+      bands: [
+        { at: 0.12, color: COLORS.echoFaint, alpha: 0.5 },
+        { at: 0.36, color: COLORS.echoFuzzy, alpha: 0.7 },
+        { at: 0.7, color: COLORS.echoSolid, alpha: 0.9 },
       ],
-      /** ISLAND COASTLINE RETURNS (amendment 69, ruling R4). Pure client
-       *  presentation: islands are already client-known from the map seed, so
-       *  no wire field and no server work exist for this at all. */
+      /**
+       * Per-cell intensity jitter, ± as a fraction. THIS is what makes the three
+       * bands interleave into ragged, noisy edges instead of three clean
+       * concentric rings — the difference between a radar return and a target
+       * reticle. Seeded on (paint, absolute world cell), so a paint's speckle is
+       * frozen for its whole decay and does not boil as the ship moves. Push it
+       * to 0 for clean bands (and for deterministic geometry tests).
+       */
+      noise: 0.3,
+      /** CONTACT ECHO KERNEL (ruling R4). The aspect channel amendment 66
+       *  ratified, unchanged — hull geometry × relative bearing × range and
+       *  nothing else. What is new is that the kernel has INTERNAL structure. */
+      ship: {
+        /** Smallest drawable ACROSS extent (u). A needle bow-on at the rim is a
+         *  weak contact, never an absent one. */
+        minExtent: 10,
+        /** Range depth as a fraction of the across extent — a scope smears an
+         *  echo in range as well as azimuth, and a zero-depth kernel reads as a
+         *  line rather than a return. */
+        depthFrac: 0.5,
+        /** Smallest drawable range depth (u). */
+        minDepth: 7,
+        /** Asymptotic floor of the attenuation curve — the strength a return at
+         *  infinite range would approach, never reach. Deliberately an asymptote
+         *  and not a `Math.max` clamp: a hard floor would make two different
+         *  ranges paint identically, colliding with amendment 64's rule that one
+         *  channel carries return strength and nothing else shares it. */
+        attenFloor: 0.45,
+        /** Range at which the above-floor part of the curve has halved, as a
+         *  fraction of the observer's radar range. At 0.5 a rim contact reads at
+         *  ~0.63 of its point-blank strength — a clear "far", well short of the
+         *  vanishing act a physical 1/r⁴ law would produce. */
+        attenHalfRange: 0.5,
+        /** Attenuated ACROSS extent (u) whose kernel peaks at full intensity —
+         *  i.e. earns a red core. 60u is deliberately well under a broadside
+         *  battleship (124u) and well over a bow-on needle: the scale has to
+         *  SATURATE on genuinely big echoes rather than reserve its top end for
+         *  a hull nobody ever presents. */
+        strongExtent: 60,
+        /** Floor on a kernel's PEAK intensity. Above `bands[0].at` with enough
+         *  headroom that the noise multiplier cannot push the weakest legitimate
+         *  return under the transparent threshold: 0.2 × (1 − 0.3) = 0.14 > 0.12.
+         *  Raising `noise` past ~0.4 without raising this makes faint contacts
+         *  flicker in and out of existence between paints. */
+        minPeak: 0.2,
+      },
+      /** ISLAND LANDMASS FILL (amendments 69 + 78, ruling R5). Pure client
+       *  presentation: islands are client-known from the map seed, so there is
+       *  no wire field and no server work for any of this. Geometry comes from
+       *  the REAL polygon via shared `sim/island.ts` — never the bounding
+       *  circle, which after fractal islands can sit well offshore of the coast. */
       island: {
-        /** Target spacing between near-arc samples (u of arc length). */
-        arcStepU: 34,
-        /** Hard cap on samples per island, so a large island close aboard can
-         *  never turn one frame into a hundred Graphics. */
-        maxSamples: 14,
-        /** Each coast sample's echo extent as a fraction of `arcStepU` — just
-         *  under 1 so consecutive marks nearly touch and read as broken
-         *  coastline rather than a dotted line of contacts. */
-        extFactor: 0.9,
-        /** Global cap on live coast marks. Coast marks live in their OWN list
-         *  with their own cap so an island field can never evict a ship paint
-         *  from the contact scope (`MAX_LIVE_BLIPS` in render/radar.ts). */
-        maxMarks: 128,
-        /** Live marks retained per coast SAMPLE. 1, not `paintsPerContact`: a
-         *  coast sample never moves, so stacked ghosts at one spot would only
-         *  make terrain burn brighter than contacts under additive blend — the
-         *  opposite of "information noise must never bury the hunt". The beam
-         *  re-brightening a decaying echo each sweep is what a scope does. */
-        paintsPerSample: 1,
+        /**
+         * Depth (u) inside the coastline at which land reads at full intensity.
+         * This is the "big red mass with softer edges" knob (amendment 78): the
+         * interior of a real island saturates while a ~70u fringe grades down
+         * through blue to green at the water's edge. A lone 25u rock never gets
+         * deep enough to reach red at all, which is the literally correct read —
+         * "could be something tiny".
+         */
+        depthFullU: 70,
+        /** Solidity floor AT THE WATERLINE. Land is land: a coastline cell must
+         *  still return something, or a big island would paint a hole in its own
+         *  outline and read a couple of cells smaller than it is. Remapped, not
+         *  clamped — the interior keeps the whole scale above this. */
+        minLand: 0.3,
+        /** Gain applied to solidity before range attenuation (the product is
+         *  clamped to 1). Without it a solid interior slides from red to blue
+         *  past ~370u and Eric's "big red mass" would only be red when you were
+         *  on top of it; at 1.4 a fully solid interior stays red out to the rim
+         *  while the fringe still grades blue → green. */
+        gain: 1.4,
+        /** Terminator ramp width as a fraction of the island's bounding radius:
+         *  how far PAST the near-face horizon the fill takes to reach zero. 0
+         *  gives a hard shadow line; this softens it so the far side reads as
+         *  shadow rather than as a drawn edge. Beyond the ramp the far side
+         *  paints NOTHING — the near-face-only physics is unchanged. */
+        terminator: 0.3,
+        /** Hard cap on covered cells baked per island paint. At 6u cells that is
+         *  ~93,600u² of solid land, comfortably past the largest landmass the
+         *  generator can produce; it exists so a future map retune cannot turn
+         *  one coverage bake into an unbounded loop. */
+        maxCells: 2600,
+        /** Live island paints retained per island. Each revolution of the beam
+         *  opens exactly one, so this is the island equivalent of
+         *  `paintsPerContact` and lands at the same `persistSweeps` depth: the
+         *  coastline holds its ghosts for as long as a contact does. */
+        paintsPerIsland: 3,
       },
     },
   },

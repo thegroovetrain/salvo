@@ -24,7 +24,6 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { CLIENT_CONFIG } from '../config.js';
-import { echoColor } from '../render/returnMarks.js';
 import { cssHex, cssRgba, contrastRatio, textSafe } from '../util/color.js';
 
 // vitest's root is the client workspace dir, so process.cwd() === client/.
@@ -436,11 +435,10 @@ function inGreenBand(color: number): boolean {
   return sat >= BAND_MIN_SAT && off <= BAND_HALF;
 }
 
-/** Every color the `return` grammar can paint an echo, sampled across the scale.
- *  This is the set a splash must stay separable from — not just the green. */
-const RAMP_SAMPLES: number[] = Array.from({ length: 101 }, (_, i) =>
-  echoColor(i / 100, CLIENT_CONFIG.blip.returns.ramp),
-);
+/** Every color the `return` grammar can paint — the THREE quantized heatmap
+ *  bands and nothing else (amendment 77: no blends, so this really is the whole
+ *  set). This is what a splash must stay separable from, not just the green. */
+const RAMP_SAMPLES: number[] = CLIENT_CONFIG.blip.heatmap.bands.map((b) => b.color);
 
 /** Does this color read as a radar echo — i.e. is it saturated enough that the
  *  eye takes it for a lit, colored mark rather than a near-grey ring? */
@@ -480,44 +478,45 @@ describe('(e) the splash stays separable from a phosphor return (amendment 70)',
     }
   });
 
-  // --- the same constraint against the WHOLE Garmin scale (amendment 74) -----
+  // --- the same constraint against the THREE HEATMAP BANDS (amendment 77) ----
 
-  it('the ramp runs THROUGH the phosphor band, so hue distance cannot be the '
+  it('one band sits INSIDE the phosphor band, so hue distance cannot be the '
     + 'separator any more', () => {
-    // The middle stop IS `phosphor` — stated here as the premise of everything
+    // The faint band is a green — stated here as the premise of everything
     // below, not as an accident to be fixed. A splash cannot be defended by
-    // sitting off the green when green is only one point on the scale.
+    // sitting off the green when green is one of the three colors on the scope.
     expect(RAMP_SAMPLES.some(inGreenBand)).toBe(true);
     expect(RAMP_SAMPLES.some((c) => !inGreenBand(c))).toBe(true);
   });
 
-  it('EVERY strength on the scale reads as an echo — the whole ramp is vivid', () => {
+  it('EVERY band reads as an echo — all three colors are vivid', () => {
     for (let i = 0; i < RAMP_SAMPLES.length; i++) {
-      expect(readsAsEcho(RAMP_SAMPLES[i]), `strength ${i / 100}`).toBe(true);
+      expect(readsAsEcho(RAMP_SAMPLES[i]), `band ${i}`).toBe(true);
     }
   });
 
-  it('the splash reads as an echo at NO strength — it is near-grey, they are not', () => {
+  it('the splash reads as an echo at NO band — it is near-grey, they are not', () => {
     // The actual acceptance: DESIGN.md:145's "a phosphor-ish splash is a fake
-    // blip", generalized from one green to the entire scale.
+    // blip", generalized from one green to the whole three-color set.
     expect(readsAsEcho(CLIENT_CONFIG.colors.splash)).toBe(false);
     const weakest = Math.min(...RAMP_SAMPLES.map((c) => hsv(c).sat));
     expect(hsv(CLIENT_CONFIG.colors.splash).sat).toBeLessThan(0.2);
-    // Margin, not a hairline: the dullest echo on the scale is >3x the splash's
+    // Margin, not a hairline: the dullest echo on the scope is >3x the splash's
     // chroma, so a nudge toward color fails here before it reaches the water.
     expect(weakest).toBeGreaterThan(hsv(CLIENT_CONFIG.colors.splash).sat * 3);
   });
 
-  it('the three echo tokens are the ramp ends and are all fully saturated', () => {
+  it('the three echo tokens ARE the three bands, in order, all fully saturated', () => {
     const C = CLIENT_CONFIG.colors;
     for (const [name, color] of Object.entries({
-      echoWeak: C.echoWeak,
-      echoWarm: C.echoWarm,
-      echoHot: C.echoHot,
+      echoFaint: C.echoFaint,
+      echoFuzzy: C.echoFuzzy,
+      echoSolid: C.echoSolid,
     })) {
       expect(hsv(color).sat, name).toBeGreaterThan(0.85);
     }
-    expect(RAMP_SAMPLES[0]).toBe(C.echoWeak);
-    expect(RAMP_SAMPLES[RAMP_SAMPLES.length - 1]).toBe(C.echoHot);
+    // Exactly three, and they are the tokens — a fourth band, or a band whose
+    // color escaped the token table, fails here.
+    expect(RAMP_SAMPLES).toEqual([C.echoFaint, C.echoFuzzy, C.echoSolid]);
   });
 });
