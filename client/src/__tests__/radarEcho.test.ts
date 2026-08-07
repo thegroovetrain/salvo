@@ -44,6 +44,7 @@ import {
 import { CLIENT_CONFIG } from '../config.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Radar } from '../render/radar.js';
+import { POINT, attenuation } from '../render/radarFalloff.js';
 import { fogHoleRadiusU } from '../render/fog.js';
 import { blipCool, blipLifeMs } from '../render/phosphor.js';
 
@@ -113,9 +114,12 @@ describe('`return` paints are posed from a real observer or not at all', () => {
     const across = litSpan(radar, 'x', 0, 500);
     const along = litSpan(radar, 'y', 500, 0);
     expect(across).toBeGreaterThan(along);
-    // And attenuated for a 500u range rather than drawn at point-blank size.
-    const o = CLIENT_CONFIG.blip.heatmap.ship;
-    const atten = o.attenFloor + (1 - o.attenFloor) / (1 + 500 / (o.attenHalfRange * 660));
+    // And attenuated for a 500u range rather than drawn at point-blank size —
+    // now on the model's POINT curve (Story 4.10), which is a far steeper fall
+    // than cycle 52's hyperbola, so the bound tracks the model rather than a
+    // number typed in here.
+    const cfg = CLIENT_CONFIG.blip.heatmap;
+    const atten = attenuation(500, cfg.model.pointRef, POINT, cfg.ship.attenFloor);
     expect(across).toBeLessThan(EXT);
     expect(across).toBeGreaterThan(EXT * atten * 0.6);
   });
@@ -223,7 +227,7 @@ describe('island landmasses (amendments 69 + 78)', () => {
     radar.onBlip({ ...PAINT, t: 0 });
     radar.render(OWN, 900);
     expect(radar.liveIslandPaints).toBe(1);
-    expect(radar.livePaints - radar.liveIslandPaints).toBe(1);
+    expect(radar.liveShipPaints).toBe(1);
   });
 });
 
@@ -427,7 +431,7 @@ describe('a sighted ship paints from its Contact when the beam crosses it', () =
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0, store); // arms lastRotation
     radar.render(OWN, 900, store); // beam crosses bearing 0
-    expect(radar.livePaints, 'one synthesized echo').toBe(1);
+    expect(radar.liveShipPaints, 'one synthesized echo').toBe(1);
     expect(radar.bandAt(200, 0)).toBeGreaterThanOrEqual(0);
   });
 
@@ -438,7 +442,7 @@ describe('a sighted ship paints from its Contact when the beam crosses it', () =
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0, store);
     radar.render(OWN, 200, store); // beam still short of bearing 0
-    expect(radar.livePaints, 'a contact is not a paint trigger').toBe(0);
+    expect(radar.liveShipPaints, 'a contact is not a paint trigger').toBe(0);
     expect(radar.bandAt(200, 0)).toBe(-1);
   });
 
@@ -448,7 +452,7 @@ describe('a sighted ship paints from its Contact when the beam crosses it', () =
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0, store);
     for (let t = 100; t <= 900; t += 100) radar.render(OWN, t, store);
-    expect(radar.livePaints).toBe(1);
+    expect(radar.liveShipPaints).toBe(1);
   });
 
   it('a contact BEYOND truesight is left to the wire — the client never '
@@ -458,7 +462,7 @@ describe('a sighted ship paints from its Contact when the beam crosses it', () =
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0, store);
     radar.render(OWN, 900, store);
-    expect(radar.livePaints).toBe(0);
+    expect(radar.liveShipPaints).toBe(0);
     expect(radar.bandAt(500, 0)).toBe(-1);
   });
 
@@ -470,7 +474,7 @@ describe('a sighted ship paints from its Contact when the beam crosses it', () =
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0, store);
     radar.render(OWN, 900, store);
-    expect(radar.livePaints - radar.liveIslandPaints, 'no hull echo').toBe(0);
+    expect(radar.liveShipPaints, 'no hull echo').toBe(0);
   });
 
   it('and nothing at all is synthesized in `silhouette` mode', () => {
@@ -499,12 +503,12 @@ describe('the two ship-paint sources share ONE per-track cap (no second ghost '
     const trail = [400, 500, 600];
     trail.forEach((x, i) => radar.onBlip({ k: 'blip', id: ID, x, y: 0, ext: 100, t: 100 + i * 10 }));
     radar.render(OWN, 200, store);
-    expect(radar.livePaints).toBe(CLIENT_CONFIG.blip.paintsPerContact);
+    expect(radar.liveShipPaints).toBe(CLIENT_CONFIG.blip.paintsPerContact);
     for (const x of trail) expect(radar.bandAt(x, 0), `wire ghost at ${x}`).toBeGreaterThanOrEqual(0);
     // Now the hull closes inside truesight and the beam crosses it: the
     // synthesized echo joins the SAME track and evicts the oldest wire paint.
     radar.render(OWN, 900, store);
-    expect(radar.livePaints, 'still one train').toBe(CLIENT_CONFIG.blip.paintsPerContact);
+    expect(radar.liveShipPaints, 'still one train').toBe(CLIENT_CONFIG.blip.paintsPerContact);
     expect(radar.bandAt(200, 0), 'and the new echo is on the scope')
       .toBeGreaterThanOrEqual(0);
     expect(radar.bandAt(400, 0), 'while the oldest wire ghost was evicted').toBe(-1);
@@ -545,14 +549,14 @@ describe('the source seam is `fogHoleRadiusU`, so client and server agree', () =
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0, store);
     radar.render(OWN, 900, store);
-    expect(radar.livePaints, 'un-dazzled: ours to synthesize').toBe(1);
+    expect(radar.liveShipPaints, 'un-dazzled: ours to synthesize').toBe(1);
 
     const dazzled = makeRadar().radar;
     dazzled.setDazzled(true);
     dazzled.onSweepSample(-0.6, 0);
     dazzled.render(OWN, 0, store);
     dazzled.render(OWN, 900, store);
-    expect(dazzled.livePaints, 'dazzled: the wire covers it').toBe(0);
+    expect(dazzled.liveShipPaints, 'dazzled: the wire covers it').toBe(0);
   });
 
   it('and a dazzle never reaches back into a paint already on the scope', () => {

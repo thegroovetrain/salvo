@@ -2,7 +2,8 @@
 title: 'Story 4.10 — The Physical Return Model'
 type: 'feature'
 created: '2026-08-07'
-status: 'ready-for-dev'
+status: 'in-review'
+baseline_revision: '47b5575'
 review_loop_iteration: 0
 followup_review_recommended: false
 context:
@@ -109,51 +110,51 @@ existing sweep/decay/freeze rules.
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `client/src/render/radarFalloff.ts` -- NEW pure module: the ONE model. Exports the geometry
+- [x] `client/src/render/radarFalloff.ts` -- NEW pure module: the ONE model. Exports the geometry
   exponents (`POINT` 4 / `SURFACE` 3 / `VOLUME` 2), `attenuation(dist, ref, exponent, floor)` as the
   generalized form of the shipped curve (`floor + (1-floor)/(1 + (d/ref)^n)` — today's curve is exactly
   `n = 1`), `fitPointRef(...)` solving for the reference range that puts the calibration hull's peak on
   the red→blue boundary at a given crossover distance, and `heightReflectivity(h, opts)`. Integer powers
   by multiplication, no `Math.pow`. -- A separate module is what makes "one model" structurally true
   rather than a claim; every source imports from here.
-- [ ] `client/src/config.ts` -- extend `blip.heatmap` with a `model` block: per-material coefficients
+- [x] `client/src/config.ts` -- extend `blip.heatmap` with a `model` block: per-material coefficients
   (ship, land-flat, land-steep, surf, clutter, storm), the surface/volume reference ranges, `refHeight`,
   `surfBandU`, `clutterRangeU`, `stormBandU`, and `pointRef` computed by `fitPointRef` from
   `CONFIG.vision.farRadar`. Lower `ship.attenFloor` from 0.45 to a small asymptote and document why:
   under `n = 4` the old floor sits so close to the crossover value that the calibration becomes
   ill-conditioned. `minPeak` is UNCHANGED and is now the real visibility guarantee (amendment 127). --
   Every number this story adds is a tunable in one place; the fit is evaluated once, not per frame.
-- [ ] `client/src/render/radarHeatmap.ts` -- swap `rangeAttenuation` to the model: ships take POINT,
+- [x] `client/src/render/radarHeatmap.ts` -- swap `rangeAttenuation` to the model: ships take POINT,
   island coverage takes SURFACE. Multiply a `heightReflectivity(sampleHeight(...))` term into
   `coverIntensity` alongside the existing `solidity` (amendment 129 — multiply, never replace). Extend
   the island bake to also emit SURF cells: widen the bbox scan by `surfBandU`, and for water cells
   within that distance of the coast emit a weak surface return inheriting the same `faceShadow` and
   cross-island LOS. Thread the raster through `buildIslandCoverage`. -- The island bake is already the
   right loop for surf; a second scan would double the only expensive thing in the file.
-- [ ] `client/src/render/radarSources.ts` -- NEW: `ClutterPaint` and `StormPaint` records plus their
+- [x] `client/src/render/radarSources.ts` -- NEW: `ClutterPaint` and `StormPaint` records plus their
   stamps. Both freeze observer position (and the ring's centre/radius) at creation and are arc-gated by
   the same `sweepCrossed`/`arcOverlaps` bookkeeping islands use. Clutter stamps procedurally over a
   bounded disc (no baked cover list); the storm stamps the band, clipped to radar range from the frozen
   observer. -- Keeps `radarHeatmap.ts` from growing a third and fourth concern; both are weather-ish
   sources with the same shape.
-- [ ] `client/src/render/radar.ts` -- add `setHeightRaster()` and accept a `ZoneView` in `render()`;
+- [x] `client/src/render/radar.ts` -- add `setHeightRaster()` and accept a `ZoneView` in `render()`;
   open/advance/prune clutter and storm paints inside `renderReturn` alongside `sweepIslands`; extend
   `rasterize`'s dispatch to the two new paint kinds. -- One place already owns paint lifetime; the new
   sources join it rather than inventing a parallel path.
-- [ ] `client/src/main.ts` -- pass `map.heightRaster` at the existing `setIslands` site and the already-
+- [x] `client/src/main.ts` -- pass `map.heightRaster` at the existing `setIslands` site and the already-
   computed `ZoneView` into `g.radar.render(...)`. -- Both values exist at those call sites already.
-- [ ] `client/src/__tests__/radarFalloff.test.ts` -- NEW: pin the exponents, the curve's monotonicity and
+- [x] `client/src/__tests__/radarFalloff.test.ts` -- NEW: pin the exponents, the curve's monotonicity and
   strict decrease, that `n = 1` reproduces the shipped curve, the fit's crossover landing, and
   `heightReflectivity`'s clamped ends. -- The model is the story; it gets its own suite.
-- [ ] `client/src/__tests__/radarHeatmap.test.ts` -- extend with the I/O matrix rows: the crossover, the
+- [x] `client/src/__tests__/radarHeatmap.test.ts` -- extend with the I/O matrix rows: the crossover, the
   rim floor, the big-hull-at-rim read, steep-vs-flat islands of equal size, the amendment-78 big-red-mass
   regression pin, surf placement (seaward only, near face only), and the clutter-never-outranks pin
   asserted against `bands[0].at` at the worst-case noise draw. -- The I/O matrix's edge cases, tested.
-- [ ] `client/src/__tests__/radarViewport.test.ts` -- extend the ADAPTER-level pins to the new sources: a
+- [x] `client/src/__tests__/radarViewport.test.ts` -- extend the ADAPTER-level pins to the new sources: a
   storm-wall cell and a clutter cell at known world positions render at those world positions, at both
   `USER_ZOOM_MIN` and `USER_ZOOM_MAX` and while the camera moves. -- Amendment 98: a pure-rasterizer
   test does not discharge placement, and that is exactly how cycle 57 reached production.
-- [ ] `client/src/config.ts` (perf note) -- after measuring, update the `cellU` cost table comment with
+- [x] `client/src/config.ts` (perf note) -- after measuring, update the `cellU` cost table comment with
   the new per-frame numbers at 1.5× / 1.0× / 0.5×. -- Amendment 99 requires the measurement to be
   reported, and that comment is where the last one lives.
 

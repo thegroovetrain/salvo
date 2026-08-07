@@ -58,6 +58,7 @@ import {
   perpendicularExtent,
   pointInIsland,
   transformPolygon,
+  type HeightRaster,
   type Island,
   type Vec2,
 } from '@salvo/shared';
@@ -85,6 +86,14 @@ import {
   type RadarPaint,
   type ShipPaint,
 } from '../render/radarHeatmap.js';
+import {
+  buildStormBand,
+  clutterIntensity,
+  openClutter,
+  rasterizeWeather,
+  weatherCycled,
+  type StormPaint,
+} from '../render/radarSources.js';
 
 const CFG: HeatmapOpts = CLIENT_CONFIG.blip.heatmap;
 /** The shipped knobs with the speckle switched off — geometry tests need a
@@ -187,7 +196,9 @@ function cycle55Cover(cover: readonly CoverCell[], obs: Vec2, holeU: number): Co
 }
 
 function raster(g: HeatGrid, paints: RadarPaint[], opts: HeatmapOpts, now = 0): void {
-  rasterize(g, paints, { now, lifeMs: LIFE, alphaFloor: 0, radarRange: RADAR, opts });
+  const ctx = { now, lifeMs: LIFE, alphaFloor: 0, opts };
+  rasterize(g, paints, ctx);
+  rasterizeWeather(g, paints, ctx); // the second pass render/radar.ts makes
 }
 
 // --- 1. the hard-quantization contract ---------------------------------------
@@ -906,9 +917,9 @@ describe('a contact-derived echo is geometrically a wire blip', () => {
     const p = contactEcho(SIGHTED, OBS, SIGHT, ...SWEPT, [], 0);
     const wire: ShipPaint = { ...shipPaint(p?.ext ?? 0, 200), seed: p?.seed ?? 0 };
     const a = grid(CLEAN);
-    if (p !== null) stampShip(a, p, 1, RADAR, CLEAN);
+    if (p !== null) stampShip(a, p, 1, CLEAN);
     const b = grid(CLEAN);
-    stampShip(b, wire, 1, RADAR, CLEAN);
+    stampShip(b, wire, 1, CLEAN);
     expect(bandCounts(a).reduce((x, y) => x + y, 0)).toBeGreaterThan(0);
     expect([...a.w]).toEqual([...b.w]);
   });
@@ -972,10 +983,21 @@ function centreKeyed(isle: Island): Island {
   return { ...isle, pole: { x: isle.x, y: isle.y } };
 }
 
-/** Cells in `cover` whose centre is NOT on the island — i.e. painted water. */
+/**
+ * Cells in `cover` whose centre is NOT on the island AND which paint stronger
+ * than SURF possibly can — i.e. water painted as LANDMASS.
+ *
+ * The intensity clause is what keeps this guard sharp now that Story 4.10 puts a
+ * legitimate surf fringe on the water (amendment 131). A surf cell's ceiling is
+ * its coefficient (the taper, the terminator and the attenuation are all ≤ 1),
+ * so anything above it on open water can only have come from the LAND path —
+ * which is exactly the failure a centre-keyed `core` early-IN produces.
+ */
 function wetCells(isle: Island, cover: readonly CoverCell[]): number {
+  const surfMax = CLEAN.model.surf;
   return cover.filter(
     (c) =>
+      c.i > surfMax + 1e-9 &&
       !pointInIsland({ x: cellCentre(c.gx, CLEAN.cellU), y: cellCentre(c.gy, CLEAN.cellU) }, isle),
   ).length;
 }
@@ -1018,14 +1040,325 @@ describe('core is measured about the POLE, not the bounding centre (cycle 59)', 
   });
 
   it('the coverage bake paints no cell that is not on the polygon', () => {
+    // `maxCells` is raised for this fixture ALONE: the hook is 600 × 600 of
+    // land, several times the shipped cap, and a truncated bake would stop
+    // scanning before it ever reached the bay — leaving the A/B half green for
+    // the wrong reason. The cap is a runaway guard, not part of this contract.
+    const DEEP: HeatmapOpts = { ...CLEAN, island: { ...CLEAN.island, maxCells: 40000 } };
     const isle = hookIsland();
-    const cover = buildIslandCoverage(isle, [isle], OBS, RADAR, 999, CLEAN);
+    const cover = buildIslandCoverage(isle, [isle], OBS, RADAR, 999, DEEP);
     expect(cover.length, 'the island does paint').toBeGreaterThan(100);
     expect(wetCells(isle, cover), 'no sailable water painted as land').toBe(0);
 
     // A/B: the centre-keyed `core` early-IN returns true before the polygon is
     // ever consulted, so the bay lights up as solid landmass.
     const bad = centreKeyed(isle);
-    expect(wetCells(isle, buildIslandCoverage(bad, [bad], OBS, RADAR, 999, CLEAN))).toBeGreaterThan(0);
+    expect(wetCells(isle, buildIslandCoverage(bad, [bad], OBS, RADAR, 999, DEEP))).toBeGreaterThan(0);
+  });
+});
+
+// --- 9. THE PHYSICAL RETURN MODEL (Story 4.10, amendments 105-106, 127-132) -----
+//
+// WHAT IS CONTRACT HERE:
+//
+//   • HEIGHT MULTIPLIES DEPTH, IT DOES NOT REPLACE IT (amendment 129). Two
+//     islands of IDENTICAL geometry, one high and one at sea level, must not
+//     paint identically — and the tall one must still read as a big red mass out
+//     to the rim, which is amendment 78 and is pinned here as a regression.
+//
+//   • SURF IS A SEAWARD FRINGE, NEAR FACE ONLY (amendment 131). Outside the
+//     polygon, within `surfBandU`, inheriting the island's own terminator — and
+//     GREEN at every range, never blue.
+//
+//   • CLUTTER CAN NEVER OUTRANK A REAL RETURN (amendment 130). Its peak stays
+//     strictly below `bands[0].at` at the noise multiplier's most favourable
+//     draw. This is the assertion that stops a future coefficient raise from
+//     silently inverting a ruling Eric made.
+//
+//   • THE STORM PAINTS ITS WALL, NOT ITS AREA (amendment 128) — a fixed-thickness
+//     band on the LIVE ring, clipped to radar range from the frozen observer, and
+//     never strong enough to out-read a hull.
+
+/** A uniform synthetic height raster covering the whole test map. `sampleHeight`
+ *  reads `n`/`cell`/`x0`/`y0`/`height` and nothing else, so the pyramid is a
+ *  formality here (Story 4.11 is the pass that will consume it). */
+function flatRaster(h: number): HeightRaster {
+  const n = 128;
+  const height = new Uint8Array(n * n).fill(h);
+  return { n, cell: 32, x0: -2048, y0: -2048, seaLevel: 0, peak: 255, height, pyramid: [{ n, cells: height }] };
+}
+
+/** Total lit cells in the buffer. */
+function litCount(g: HeatGrid): number {
+  return bandCounts(g).reduce((a, b) => a + b, 0);
+}
+
+/** An island paint baked against a synthetic raster. */
+function islandOn(isle: Island, obs: Vec2, raster: HeightRaster | null): IslandPaint {
+  return {
+    kind: 'island',
+    isle,
+    from: 0,
+    to: 0,
+    full: true,
+    t: 0,
+    cover: buildIslandCoverage(isle, [isle], obs, RADAR, 999, CLEAN, raster),
+  };
+}
+
+describe('terrain HEIGHT multiplies the depth rule (amendment 129)', () => {
+  const OBS_H = { x: 0, y: -400 };
+
+  function ridgeAt(h: number): HeatGrid {
+    const isle = ridgeIsland();
+    const g = grid(CLEAN, OBS_H.x, OBS_H.y);
+    stampIsland(g, islandOn(isle, OBS_H, flatRaster(h)), 1);
+    return g;
+  }
+
+  it('two islands of EQUAL size paint differently when one is steep and one is '
+    + 'flat — the whole point of the channel', () => {
+    const steep = ridgeAt(200); // well above `refHeight`
+    const flat = ridgeAt(2); // barely above sea level
+    expect(bandCounts(steep)[2], 'steep: a red core').toBeGreaterThan(0);
+    expect(bandCounts(flat)[2], 'flat: no red anywhere').toBe(0);
+    // ...and the flat one is not merely a weaker version of nothing: the depth
+    // rule is untouched, so it still paints as a MASS, in weaker bands. (It
+    // loses a thin outer fringe whose cells fall under `bands[0].at` once the
+    // flat coefficient is applied — which is the honest read of a mudflat's
+    // waterline, not a lost landmass.)
+    expect(litCount(flat), 'still a mass').toBeGreaterThan(litCount(steep) * 0.85);
+    expect(bandAt(steep, 0, -60), 'steep interior').toBe(2);
+    expect(bandAt(flat, 0, -60), 'flat interior').toBeLessThan(2);
+    expect(bandAt(flat, 0, -60), 'but still land, not water').toBeGreaterThanOrEqual(0);
+  });
+
+  it('and with NO raster the fill is the pre-4.10 one — the height channel adds, '
+    + 'it never subtracts', () => {
+    const isle = ridgeIsland();
+    const none = buildIslandCoverage(isle, [isle], OBS_H, RADAR, 999, CLEAN);
+    const steep = buildIslandCoverage(isle, [isle], OBS_H, RADAR, 999, CLEAN, flatRaster(255));
+    expect(none.map((c) => c.i)).toEqual(steep.map((c) => c.i));
+  });
+
+  it('AMENDMENT 78 REGRESSION PIN: a big tall island\'s interior still reads RED '
+    + 'at 640u — a big red mass, not one that is only red up close', () => {
+    const isle = ridgeIsland();
+    const obs = { x: 0, y: -680 };
+    const probe = { x: 0, y: -40 }; // 640u out, deep inside the landmass
+    expect(pointInIsland(probe, isle)).toBe(true);
+    expect(Math.hypot(probe.x - obs.x, probe.y - obs.y)).toBeCloseTo(640, 6);
+    const g = grid(CLEAN, obs.x, obs.y);
+    stampIsland(g, islandOn(isle, obs, flatRaster(200)), 1);
+    expect(bandAt(g, probe.x, probe.y)).toBe(2);
+  });
+});
+
+describe('SURF is a seaward fringe on the near face (amendment 131)', () => {
+  const OBS_S = { x: 0, y: -400 };
+  const BAND = CLEAN.model.surfBandU;
+
+  function surfGrid(): HeatGrid {
+    const isle = ridgeIsland();
+    const g = grid(CLEAN, OBS_S.x, OBS_S.y);
+    stampIsland(g, islandPaint(isle, [isle], OBS_S, CLEAN), 1);
+    return g;
+  }
+
+  it('paints just SEAWARD of the near coast — outside the polygon', () => {
+    const isle = ridgeIsland();
+    const p = { x: 0, y: -HALF_H - BAND / 2 };
+    expect(pointInIsland(p, isle), 'the probe is on the WATER').toBe(false);
+    expect(bandAt(surfGrid(), p.x, p.y)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('and stops at `surfBandU` — open water beyond the band is open water', () => {
+    const g = surfGrid();
+    expect(bandAt(g, 0, -HALF_H - BAND * 2)).toBe(-1);
+    expect(bandAt(g, 0, -HALF_H - BAND * 4)).toBe(-1);
+  });
+
+  it('paints NOTHING on the far face — it inherits the island\'s own terminator '
+    + 'rather than growing a second one', () => {
+    const g = surfGrid();
+    const far = { x: 0, y: HALF_H + BAND / 2 };
+    expect(pointInIsland(far, ridgeIsland())).toBe(false);
+    expect(bandAt(g, far.x, far.y)).toBe(-1);
+  });
+
+  it('and is GREEN at every range — a line of breakers may never read as '
+    + '"probably a thing"', () => {
+    const isle = ridgeIsland();
+    for (const obs of [{ x: 0, y: -200 }, { x: 0, y: -400 }, { x: 0, y: -640 }]) {
+      const cover = buildIslandCoverage(isle, [isle], obs, RADAR, 999, CLEAN);
+      const surf = cover.filter(
+        (c) =>
+          !pointInIsland({ x: cellCentre(c.gx, CLEAN.cellU), y: cellCentre(c.gy, CLEAN.cellU) }, isle),
+      );
+      expect(surf.length, `surf cells from ${obs.y}`).toBeGreaterThan(0);
+      for (const c of surf) expect(c.i, 'never reaches the blue band').toBeLessThan(BANDS[1].at);
+    }
+  });
+
+  it('a LAND cell at the waterline still takes the land path — surf does not '
+    + 'replace the coastline, it sits outside it', () => {
+    const g = surfGrid();
+    const coast = { x: 0, y: -HALF_H + CLEAN.cellU };
+    expect(pointInIsland(coast, ridgeIsland())).toBe(true);
+    expect(sampleGrid(g, coast.x, coast.y).w).toBeGreaterThan(
+      sampleGrid(g, 0, -HALF_H - BAND / 2).w,
+    );
+  });
+});
+
+describe('SEA CLUTTER is texture and nothing else (amendment 130)', () => {
+  const M = CFG.model;
+
+  it('UPPER BOUND: it is GREEN at every range and can never reach blue, even at '
+    + 'the noise multiplier\'s most favourable draw', () => {
+    // At zero range the attenuation term is 1, so this IS the ceiling.
+    const peak = clutterIntensity(0, M);
+    expect(peak).toBeGreaterThan(0); // the source is real, not disabled
+    expect(peak * (1 + CFG.noise), 'the luckiest cell in the game').toBeLessThan(BANDS[1].at);
+  });
+
+  it('LOWER BOUND: it STRADDLES `bands[0].at`, so the noise speckles it into a '
+    + 'haze instead of a solid disc or nothing at all (amendment 133)', () => {
+    const peak = clutterIntensity(0, M);
+    expect(peak * (1 - CFG.noise), 'the unluckiest cell must go dark').toBeLessThan(BANDS[0].at);
+    expect(peak * (1 + CFG.noise), 'the luckiest cell must light').toBeGreaterThan(BANDS[0].at);
+  });
+
+  it('so a full haze paints a SPECKLED GREEN field — some cells lit, some not, '
+    + 'and not one of them blue or red', () => {
+    const g = grid(CFG);
+    const haze = openClutter({ x: 0, y: 0 }, 0, 0, 0, 4242);
+    haze.full = true;
+    rasterizeWeather(g, [haze], { now: 0, lifeMs: LIFE, alphaFloor: 0, opts: CFG });
+    const [green, blue, red] = bandCounts(g);
+    expect(green, 'the haze must be visible').toBeGreaterThan(0);
+    expect(blue, 'never "probably a thing" on empty water').toBe(0);
+    expect(red).toBe(0);
+    // SPECKLE, not a solid disc: the noise must leave a real share of the disc
+    // dark, or the haze reads as a drawn circle around own hull. `covered` is
+    // every cell the haze reached in the INTENSITY field; `green` is the subset
+    // that cleared the threshold.
+    let covered = 0;
+    for (let i = 0; i < g.w.length; i++) if (g.w[i] > 0) covered++;
+    expect(covered, 'the haze must reach cells at all').toBeGreaterThan(green);
+    expect(green, 'a solid disc is the wrong look').toBeLessThan(covered * 0.9);
+  });
+
+  it('and a `minPeak` echo sharing a cell with it wins outright (max-wins)', () => {
+    const faint = shipPaint(0, 60); // the weakest legitimate return there is
+    const haze = openClutter({ x: 0, y: 0 }, 0, 0, 0, 4242);
+    haze.full = true;
+    const alone = grid(CLEAN);
+    raster(alone, [faint], CLEAN);
+    const both = grid(CLEAN);
+    raster(both, [faint, haze], CLEAN);
+    expect(sampleGrid(both, 0, 60).w, 'clutter did not raise the cell').toBe(
+      sampleGrid(alone, 0, 60).w,
+    );
+    expect(bandAt(both, 0, 60), 'and the echo still paints').toBeGreaterThanOrEqual(0);
+  });
+
+  it('falls off with range out of the SURFACE curve rather than a hand-placed '
+    + 'radius', () => {
+    expect(clutterIntensity(200, M)).toBeLessThan(clutterIntensity(0, M));
+    expect(clutterIntensity(2000, M)).toBeLessThan(clutterIntensity(200, M));
+  });
+});
+
+describe('THE STORM WALL (amendment 128): a band on the LIVE ring', () => {
+  const OBS_Z = { x: 0, y: 0 };
+  const RING = { cx: 0, cy: 0, r: 400 };
+
+  function stormPaint(cover: CoverCell[], from = 0, to = 0, full = true): StormPaint {
+    return { kind: 'storm', from, to, full, t: 0, cover };
+  }
+
+  function stampWeather(g: HeatGrid, paints: RadarPaint[], opts: HeatmapOpts): void {
+    rasterizeWeather(g, paints, { now: 0, lifeMs: LIFE, alphaFloor: 0, opts });
+  }
+
+  it('bakes a fixed-thickness band on the ring radius, and nothing off it', () => {
+    const cover = buildStormBand(RING, OBS_Z, RADAR, 7, CLEAN);
+    expect(cover.length).toBeGreaterThan(100);
+    const half = CLEAN.model.stormBandU / 2 + CLEAN.cellU;
+    for (const c of cover) {
+      const x = cellCentre(c.gx, CLEAN.cellU);
+      const y = cellCentre(c.gy, CLEAN.cellU);
+      const d = Math.hypot(x - RING.cx, y - RING.cy);
+      expect(Math.abs(d - RING.r), `cell at ${x},${y}`).toBeLessThanOrEqual(half);
+      expect(Number.isFinite(c.i) && c.i > 0, 'no NaN reaches writeCell').toBe(true);
+    }
+  });
+
+  it('is clipped to RADAR RANGE from the frozen observer', () => {
+    // The observer stands off to one side: the near arc is in range, the far arc
+    // (700u away) is not, and must simply not exist in the bake.
+    const obs = { x: -300, y: 0 };
+    const cover = buildStormBand(RING, obs, RADAR, 7, CLEAN);
+    expect(cover.length).toBeGreaterThan(50);
+    for (const c of cover) {
+      const x = cellCentre(c.gx, CLEAN.cellU);
+      const y = cellCentre(c.gy, CLEAN.cellU);
+      expect(Math.hypot(x - obs.x, y - obs.y)).toBeLessThanOrEqual(RADAR + CLEAN.cellU);
+    }
+    // A/B that the clip actually BIT: from the ring's own centre the whole
+    // circumference is in range and the bake is strictly bigger.
+    expect(cover.length).toBeLessThan(buildStormBand(RING, OBS_Z, RADAR, 7, CLEAN).length);
+    // And the far arc — the point of the ring diametrically opposite, 700u out —
+    // is genuinely absent rather than merely dim.
+    const farthest = Math.max(...cover.map((c) => cellCentre(c.gx, CLEAN.cellU)));
+    expect(farthest, 'nothing baked past the range horizon').toBeLessThan(RING.r - CLEAN.cellU);
+  });
+
+  it('a ring wholly out of radar range bakes NOTHING', () => {
+    expect(buildStormBand({ cx: 0, cy: 0, r: 2000 }, OBS_Z, RADAR, 7, CLEAN)).toEqual([]);
+    expect(buildStormBand({ cx: 4000, cy: 0, r: 400 }, OBS_Z, RADAR, 7, CLEAN)).toEqual([]);
+  });
+
+  it('a degenerate ring bakes nothing rather than NaN — or a hung frame', () => {
+    // The infinities are not hypothetical hygiene: the radial walk advances by a
+    // fixed step, so `Infinity + step === Infinity` would spin forever inside a
+    // render frame. This case is the reason `buildStormBand` tests finiteness
+    // before it tests sign.
+    for (const r of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(buildStormBand({ cx: 0, cy: 0, r }, OBS_Z, RADAR, 7, CLEAN), `r=${r}`).toEqual([]);
+    }
+    expect(buildStormBand({ cx: Number.NaN, cy: 0, r: 400 }, OBS_Z, RADAR, 7, CLEAN)).toEqual([]);
+    expect(buildStormBand(RING, OBS_Z, 0, 7, CLEAN)).toEqual([]);
+  });
+
+  it('reads BLUE with a green shoulder — legible across the map, and never '
+    + 'strong enough to out-read a hull', () => {
+    const g = grid(CLEAN);
+    stampWeather(g, [stormPaint(buildStormBand(RING, OBS_Z, RADAR, 7, CLEAN))], CLEAN);
+    const counts = bandCounts(g);
+    expect(counts[1], 'a blue wall').toBeGreaterThan(0);
+    expect(counts[0], 'with a green shoulder').toBeGreaterThan(0);
+    expect(counts[2], 'and never red — weather may not out-read a hull').toBe(0);
+    // The wall is on the ring, so the water inside the scope stays clear.
+    expect(bandAt(g, 0, 0), 'inside the ring is open water').toBe(-1);
+    expect(bandAt(g, 0, RING.r), 'and the wall is where the ring is').toBeGreaterThanOrEqual(0);
+  });
+
+  it('and it obeys the arc gate like every other paint — nothing paints ahead of '
+    + 'the beam', () => {
+    const cover = buildStormBand(RING, OBS_Z, RADAR, 7, CLEAN);
+    const g = grid(CLEAN);
+    stampWeather(g, [stormPaint(cover, 0, 0.4, false)], CLEAN);
+    const swept = litCount(g);
+    const all = grid(CLEAN);
+    stampWeather(all, [stormPaint(cover)], CLEAN);
+    expect(swept).toBeGreaterThan(0);
+    expect(swept).toBeLessThan(litCount(all));
+  });
+
+  it('a stalled beam opens no weather paint at all (the zero-width advance)', () => {
+    expect(weatherCycled(1.2, 1.2)).toBe(false);
+    expect(weatherCycled(-0.2, 0.2), 'but crossing the anchor does').toBe(true);
   });
 });

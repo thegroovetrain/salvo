@@ -1866,3 +1866,65 @@ four times in a row.
      all govern unchanged. Per-frame cost is MEASURED at both zoom extremes and REPORTED (amendment
      99) — this cycle adds three new return sources to a buffer that already costs ~0.95ms at min
      zoom, so the measurement is a gate, not a formality.
+
+## 2026-08-07 — Correction of record, in-cycle (bmad-dev-auto, cycle 61 — mid-implementation)
+
+133. **AMENDMENT 130's BINDING CLAUSE WAS WRONG AND IS CORRECTED HERE. Eric's RULING is unchanged;
+     only my derivation from it was.** Amendment 130 translated *"clutter is texture and nothing else,
+     it may never hide a return"* into the implementation bound *"clutter's peak must stay strictly
+     below `bands[0].at`."* That bound was written by the spec author, not by Eric, and it is a
+     NON-SEQUITUR: `bands[0].at` is the TRANSPARENCY threshold, so the bound does not make clutter
+     safe — it makes clutter **invisible**. The implementation followed it faithfully and produced a
+     haze that contributes to the intensity field and lights not one pixel. That is neither option
+     Eric was shown: he chose "textural only", and he explicitly declined "no clutter this cycle".
+     Shipping invisible clutter delivers the rejected third thing.
+
+     **The masking fear the bound was defending against does not exist at any level.** `writeCell` is
+     MAX-WINS (`if (!(intensity > g.w[i])) return`), so a clutter cell can only ever RAISE a cell no
+     return had claimed — it can never lower, erase or dim a genuine echo, at any coefficient. The
+     real risk clutter carries is different and is about READING, not hiding: if clutter can reach the
+     same band as a real contact, the operator cannot tell sea state from a hull, which is the "you
+     can't pick it out" complaint in substance.
+
+     **THE CORRECTED BOUND IS TWO-SIDED, and both sides are load-bearing:**
+     - **UPPER — clutter must be GREEN AT EVERY RANGE and can never reach blue:**
+       `clutter × (1 + noise) < bands[1].at`. This is what actually discharges Eric's ruling. Green is
+       *"honestly not sure, could be something tiny"* (amendment 77) — the literally correct register
+       for sea state. Blue would put *"probably a thing"* on empty water, which IS the disclosure
+       failure worth preventing. Note the shipped `surf` coefficient one line above it in
+       `client/src/config.ts` is bounded by exactly this rule and was already correct — clutter should
+       have followed its sibling.
+     - **LOWER — clutter must STRADDLE `bands[0].at` so the noise multiplier SPECKLES it.** A
+       coefficient safely above the threshold paints a solid, uniform green disc around own hull (band
+       colour is verbatim and alpha carries age, not intensity — so every lit clutter cell is the
+       SAME pixel), which reads as a drawn circle, not as sea. A coefficient safely below paints
+       nothing. Only a peak positioned so that `peak × (1 − noise) < bands[0].at < peak × (1 + noise)`
+       makes roughly half the cells light and half stay dark, which is what a haze IS. Sea clutter is
+       therefore the one coefficient in this block that is deliberately tuned to sit ON a threshold
+       rather than clear of one, and that is not sloppiness — it is the mechanism.
+
+     Shipped value: `clutter: 0.13` against `bands[0].at` 0.12, `bands[1].at` 0.36 and `noise` 0.3 —
+     cells range 0.091 to 0.169, so the haze speckles and can never leave the green band. **Both
+     bounds are asserted directly in `client/src/__tests__/radarHeatmap.test.ts`**, including the
+     lower one, because the failure it prevents (invisible clutter) is exactly the defect this
+     amendment exists to correct and a one-sided assertion would not have caught it.
+
+     **General lesson worth keeping, because this shape will recur:** an amendment that states a
+     ruling AND its implementation bound can be right about the ruling and wrong about the bound, and
+     the bound is what gets implemented. When a future amendment translates one of Eric's rulings into
+     a numeric constraint, the constraint is the spec author's claim and is reviewable — it does not
+     inherit the ruling's authority.
+
+134. **`ship.attenHalfRange` IS DELETED, and the gameplay consequence is ALIGNED with a standing
+     principle rather than merely tolerated.** The retired knob scaled the old curve's reference by the
+     observer's LIVE radar range, so an `intelRadar` boon stretched the falloff and made every contact
+     read STRONGER at a given distance. Under the fitted model the point reference is a fixed
+     `pointRef` (558.5u, solved from `CONFIG.vision.farRadar`), so a boosted scope buys REACH and
+     nothing else — the echo from 500u is the same echo whoever is listening.
+
+     That is amendment 116's *"sensor upgrades buy REACH"* principle holding one level deeper than it
+     was written for, and it is a genuine strengthening of amendment 83: no live observer stat reaches
+     the rasterizer at all any more (`RasterCtx.radarRange` is gone with it), so there is one less
+     quantity that could be re-evaluated against live state. Recorded because it IS a real change to
+     what an intel build feels like, and a future cycle should not "restore" it without arguing
+     against 116.

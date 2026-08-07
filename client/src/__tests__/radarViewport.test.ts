@@ -131,6 +131,14 @@ interface Measured {
   cells: number;
 }
 
+/** A world-space disc `measure` ignores — used to keep the sea-clutter haze
+ *  around own hull out of an assertion about where an ISLAND landed. */
+interface Skip {
+  x: number;
+  y: number;
+  r: number;
+}
+
 /**
  * WHERE THE ECHO ACTUALLY LANDS, in world units, measured the long way.
  *
@@ -140,27 +148,38 @@ interface Measured {
  * (sprite position, sprite scale, grid origin, texel indexing) is in that path,
  * and the reference at the end of it (`screenToWorld`) shares none of them.
  */
-function measure(layer: Container, chart: Container, cam: Camera): Measured {
+function measure(layer: Container, chart: Container, cam: Camera, skip?: Skip): Measured {
   const sprite = heatSprite(layer);
   const lit = litTexels(sprite);
   if (lit.length === 0) throw new Error('nothing lit');
+  applyCamera(cam, chart);
+  // Texel space → screen (the live scene-graph transform) → world (the camera's
+  // own inverse). The transform is scale + translate only, so the bounding box
+  // maps corner-wise.
+  const at = (tx: number, ty: number) => cam.screenToWorld(sprite.toGlobal({ x: tx, y: ty }));
+  // SEA CLUTTER LEGITIMATELY LIGHTS THE NEAR FIELD (Story 4.10, amendments 130 +
+  // 133), so a test measuring where an ISLAND landed must exclude the haze disc
+  // around own hull or it measures the ship instead. This is a test-rig concern
+  // only: the haze is a real, wanted return, it is simply not what these
+  // placement assertions are about.
+  const keep = lit.filter((t) => {
+    if (skip === undefined) return true;
+    const w = at(t.tx + 0.5, t.ty + 0.5);
+    return Math.hypot(w.x - skip.x, w.y - skip.y) > skip.r;
+  });
+  if (keep.length === 0) throw new Error('nothing lit outside the skip disc');
   let sw = 0;
   let sx = 0;
   let sy = 0;
   let lo = { tx: Infinity, ty: Infinity };
   let hi = { tx: -Infinity, ty: -Infinity };
-  for (const t of lit) {
+  for (const t of keep) {
     sw += t.a;
     sx += t.a * (t.tx + 0.5);
     sy += t.a * (t.ty + 0.5);
     lo = { tx: Math.min(lo.tx, t.tx), ty: Math.min(lo.ty, t.ty) };
     hi = { tx: Math.max(hi.tx, t.tx + 1), ty: Math.max(hi.ty, t.ty + 1) };
   }
-  applyCamera(cam, chart);
-  // Texel space → screen (the live scene-graph transform) → world (the camera's
-  // own inverse). The transform is scale + translate only, so the bounding box
-  // maps corner-wise.
-  const at = (tx: number, ty: number) => cam.screenToWorld(sprite.toGlobal({ x: tx, y: ty }));
   const c = at(sx / sw, sy / sw);
   const a = at(lo.tx, lo.ty);
   const b = at(hi.tx, hi.ty);
@@ -296,19 +315,33 @@ describe('a paint holds its world position while the camera moves over it', () =
     frame(radar, cam, { x: 0, y: 0 }, 0);
     frame(radar, cam, { x: 0, y: 0 }, 900); // beam crosses bearing 0, bakes the paint
     expect(radar.liveIslandPaints).toBe(1);
-    const first = measure(layer, chart, cam);
+    // The observer sits at the origin and steams west to x = -330.25 below, and
+    // sea clutter paints a `clutterRangeU` disc about wherever it was when the
+    // beam crossed — with 3-deep persistence, every one of those discs stays lit.
+    // HAZE is the union of them all, and it is nowhere near the 380..620 ridge
+    // this test is measuring (nearest approach is 545u), so excluding it isolates
+    // the landmass without weakening a single bound.
+    const HAZE = { x: -165, y: 0, r: 300 };
+    const first = measure(layer, chart, cam, HAZE);
     // ABSOLUTE first: the lit mass sits on the REAL coastline. The near face of
     // a 380..620 × -90..90 ridge seen from the origin runs the full height at
-    // its western edge, so the rendered bounds must open at x = 380 and span the
-    // full y extent — not merely be self-consistent frame to frame.
-    expect(Math.abs(first.minX - 380), 'west coast where the polygon has it').toBeLessThan(TOL);
-    expect(Math.abs(first.minY - -90), 'south coast').toBeLessThan(TOL);
-    expect(Math.abs(first.maxY - 90), 'north coast').toBeLessThan(TOL);
+    // its western edge, so the rendered bounds must open at x = 380 — not merely
+    // be self-consistent frame to frame.
+    //
+    // PLUS THE SURF FRINGE (Story 4.10, amendment 131): breakers paint up to
+    // `surfBandU` SEAWARD of that coastline, so the lit region legitimately opens
+    // a band's width further west and cannot open any further than that. Both
+    // bounds are asserted, which pins the fringe's placement as well as the
+    // coast's — a fringe on the wrong side, or one that ran on for a hundred
+    // units, fails here.
+    const SURF = CLIENT_CONFIG.blip.heatmap.model.surfBandU;
+    expect(first.minX, 'no lit cell west of the surf band').toBeGreaterThan(380 - SURF - TOL);
+    expect(first.minX, 'and the fringe does reach out past the coast').toBeLessThan(380);
     expect(first.maxX, 'and the far side stays in shadow').toBeLessThan(620);
     // ...then STABLE: steaming away must not move one cell of it.
     for (const step of [40, 90.5, 210, 330.25]) {
       frame(radar, cam, { x: -step, y: 0 }, 950);
-      const m = measure(layer, chart, cam);
+      const m = measure(layer, chart, cam, HAZE);
       expect(Math.abs(m.x - first.x), `landmass x after ${step}u`).toBeLessThan(TOL);
       expect(Math.abs(m.y - first.y), `landmass y after ${step}u`).toBeLessThan(TOL);
       expect(Math.abs(m.minX - first.minX), `west coast after ${step}u`).toBeLessThan(TOL);
@@ -393,7 +426,7 @@ describe('a paint recorded while zoomed IN appears when you zoom OUT', () => {
  *  radars sharing one island field compare structurally rather than by identity. */
 function listOf(radar: Radar, field: readonly unknown[]): string {
   return JSON.stringify(
-    radar.paintList.map((p) => (p.kind === 'ship' ? p : { ...p, isle: field.indexOf(p.isle) })),
+    radar.paintList.map((p) => (p.kind === 'island' ? { ...p, isle: field.indexOf(p.isle) } : p)),
   );
 }
 
@@ -503,6 +536,156 @@ describe('buffer sizing and the load-bearing snap', () => {
       anchorGrid(g, d, 0);
       expect(Number.isInteger(g.baseGx - base)).toBe(true);
       expect(g.baseGx - base).toBe(Math.floor(d / 6));
+    }
+  });
+});
+
+// --- 6b. THE TWO NEW SOURCES, PINNED AT THE ADAPTER (Story 4.10 + amendment 98) --
+//
+// Same standing order, new paints: a pure-rasterizer test does NOT discharge
+// placement, so the storm wall and the sea-clutter haze are measured HERE,
+// through the real sprite transform, at both zoom extremes and with the camera
+// moving. Cycle 57 shipped a placement regression under green pure tests; these
+// blocks exist so a fifth and sixth source cannot repeat it.
+//
+// ONE HONEST ASYMMETRY, and it is a consequence of a ruling rather than a gap:
+// CLUTTER LIGHTS NO TEXEL. Amendment 130 bounds its peak strictly below
+// `bands[0].at` at the luckiest noise draw, so it is present in the intensity
+// field and below the threshold the palette draws — there is no lit pixel to
+// round-trip. Its placement is therefore pinned on the world-addressed grid
+// (`intensityAt`, which reads through the same anchor the sprite is positioned
+// at), plus the bound itself, at the same zooms.
+
+/** Render one frame with a zone view (the storm wall's input). */
+function frameZone(
+  radar: Radar,
+  cam: Camera,
+  own: { x: number; y: number },
+  t: number,
+  zone: { state: string; cur: { cx: number; cy: number; r: number } } | null,
+): void {
+  cam.snapTo(own);
+  radar.render(own, t, null, cam.worldView, zone);
+}
+
+/**
+ * Run a whole beam revolution so a weather paint opens AND fills its arc.
+ *
+ * The beam starts just short of the weather anchor bearing, so the paint opens
+ * early in the run and its arc has a full revolution to grow — a weather paint
+ * fills in behind the beam exactly as an island's does, so a half-swept scope is
+ * a half-drawn ring by design, not a bug to test around.
+ */
+function revolution(
+  radar: Radar,
+  cam: Camera,
+  own: { x: number; y: number },
+  zone: { state: string; cur: { cx: number; cy: number; r: number } } | null,
+): void {
+  radar.onSweepSample(-0.6, 0);
+  for (let t = 0; t <= 4600; t += 100) frameZone(radar, cam, own, t, zone);
+}
+
+describe('the STORM WALL renders on the live ring, in world coordinates', () => {
+  const OWN = { x: 400, y: -250 }; // nowhere near the origin: an origin bug hides there
+  const RING = { cx: OWN.x, cy: OWN.y, r: 300 };
+  const ZONE = { state: 'closing', cur: RING };
+  const HALF = CLIENT_CONFIG.blip.heatmap.model.stormBandU / 2;
+
+  for (const [label, z] of [['USER_ZOOM_MIN', USER_ZOOM_MIN], ['USER_ZOOM_MAX', USER_ZOOM_MAX]] as const) {
+    it(`puts the band on the ring at ${label} (${z}×)`, () => {
+      const { radar, layer, chart } = harness();
+      const cam = camera(z);
+      revolution(radar, cam, OWN, ZONE);
+      const m = measure(layer, chart, cam);
+      expect(m.cells, 'the wall lit texels').toBeGreaterThan(50);
+      // A full annulus about the ring centre: its centroid is the centre and its
+      // bounds open exactly one ring radius (plus half a band) either side. A
+      // sprite placed at the wrong world point moves all four.
+      expect(Math.abs(m.x - RING.cx), `centroid x at ${label}`).toBeLessThan(TOL);
+      expect(Math.abs(m.y - RING.cy), `centroid y at ${label}`).toBeLessThan(TOL);
+      expect(Math.abs(m.minX - (RING.cx - RING.r - HALF)), 'west edge').toBeLessThan(TOL);
+      expect(Math.abs(m.maxX - (RING.cx + RING.r + HALF)), 'east edge').toBeLessThan(TOL);
+      expect(Math.abs(m.minY - (RING.cy - RING.r - HALF)), 'south edge').toBeLessThan(TOL);
+      expect(Math.abs(m.maxY - (RING.cy + RING.r + HALF)), 'north edge').toBeLessThan(TOL);
+    });
+  }
+
+  it('and holds that world position while the camera moves over it — the wall is '
+    + 'a record of where the ring WAS, not a chart overlay that follows you', () => {
+    const { radar, layer, chart } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    revolution(radar, cam, OWN, ZONE);
+    const first = measure(layer, chart, cam);
+    for (const step of [7.5, 44, 130.25, 260]) {
+      // Inside ONE further revolution, so no new wall is opened from the new
+      // observer: this is the ORIGINAL paint, measured from a moved camera.
+      frameZone(radar, cam, { x: OWN.x - step, y: OWN.y + step * 0.5 }, 4500 + step, ZONE);
+      const m = measure(layer, chart, cam);
+      expect(Math.abs(m.x - first.x), `wall x after ${step}u`).toBeLessThan(TOL);
+      expect(Math.abs(m.y - first.y), `wall y after ${step}u`).toBeLessThan(TOL);
+      expect(Math.abs(m.minX - first.minX), `west edge after ${step}u`).toBeLessThan(TOL);
+    }
+  });
+
+  it('THE TELEGRAPH DOES NOT PAINT: only the LIVE ring is a physical object', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    // A revealed next ring, well inside the live one and comfortably in range.
+    const withNext = { state: 'closing', cur: RING, next: { cx: OWN.x, cy: OWN.y, r: 150 } };
+    revolution(radar, cam, OWN, withNext);
+    expect(radar.bandAt(OWN.x, OWN.y + RING.r), 'the live ring paints').toBeGreaterThanOrEqual(0);
+    for (const a of [0, 1, 2, 3, 4, 5]) {
+      const x = OWN.x + Math.cos(a) * withNext.next.r;
+      const y = OWN.y + Math.sin(a) * withNext.next.r;
+      expect(radar.bandAt(x, y), `dashed telegraph at ${a} rad`).toBe(-1);
+    }
+  });
+
+  it('and an idle timeline (or no zone at all) paints no wall', () => {
+    for (const zone of [null, { state: 'idle', cur: RING }]) {
+      const { radar } = harness();
+      const cam = camera(USER_ZOOM_MIN);
+      revolution(radar, cam, OWN, zone);
+      expect(radar.bandAt(OWN.x, OWN.y + RING.r)).toBe(-1);
+      expect(radar.paintList.some((p) => p.kind === 'storm'), 'no storm paint').toBe(false);
+    }
+  });
+});
+
+describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
+  const OWN = { x: -600, y: 900 };
+  const REACH = CLIENT_CONFIG.blip.heatmap.model.clutterRangeU;
+  const FUZZY = CLIENT_CONFIG.blip.heatmap.bands[1].at;
+
+  for (const [label, z] of [['USER_ZOOM_MIN', USER_ZOOM_MIN], ['USER_ZOOM_MAX', USER_ZOOM_MAX]] as const) {
+    it(`fills its disc about the ship and stops at ${'`clutterRangeU`'} at ${label}`, () => {
+      const { radar } = harness();
+      const cam = camera(z);
+      revolution(radar, cam, OWN, null);
+      for (const d of [6, REACH * 0.5, REACH * 0.9]) {
+        const w = radar.intensityAt(OWN.x + d, OWN.y);
+        expect(w, `intensity at ${d}u`).toBeGreaterThan(0);
+        // Amendments 130 + 133: the haze is GREEN texture. It may light a pixel
+        // — that is the point of it — but it can never reach blue, which would
+        // put "probably a thing" on empty water.
+        expect(w, 'and never strong enough to read blue').toBeLessThan(FUZZY);
+      }
+      expect(radar.intensityAt(OWN.x + REACH * 1.5, OWN.y), 'beyond the disc').toBe(0);
+      expect(radar.bandAt(OWN.x + 6, OWN.y), 'never above the weakest band')
+        .toBeLessThan(1);
+    });
+  }
+
+  it('stays where it was frozen as the camera moves — the haze does not follow '
+    + 'the boat within a revolution', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    revolution(radar, cam, OWN, null);
+    for (const step of [12, 90, 240]) {
+      frameZone(radar, cam, { x: OWN.x + step, y: OWN.y }, 4500 + step, null);
+      expect(radar.intensityAt(OWN.x + 6, OWN.y), `still at the old ship at ${step}u`)
+        .toBeGreaterThan(0);
     }
   });
 });
