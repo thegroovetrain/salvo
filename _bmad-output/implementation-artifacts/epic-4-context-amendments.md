@@ -1928,3 +1928,71 @@ four times in a row.
      quantity that could be re-evaluated against live state. Recorded because it IS a real change to
      what an intel build feels like, and a future cycle should not "restore" it without arguing
      against 116.
+
+## 2026-08-07 — Cycle 61 review gate: THE NOISE-BOUND LESSON
+
+135. **EVERY COEFFICIENT BOUND ON THE HEATMAP MUST BE PROVED AT THE WORST NOISE DRAW, AND PINNED BY A
+     NOISE-ON TEST.** The cycle-61 review gate found the same defect in two of the three new return
+     sources, and it is the single most reusable finding of this cycle.
+
+     `noiseMul` multiplies a cell's intensity by `1 ± noise` (shipped `noise` 0.3, so up to ×1.3) AFTER
+     the coefficient's bound was computed. Clutter's bound was written noise-aware and was safe; **surf
+     and storm were bounded at their nominal value and shipped over the line:**
+     - `surf` 0.3 × 1.3 = **0.39 > `bands[1].at` (0.36)** — surf painted BLUE, putting *"probably a
+       thing"* on open water within ~310u of the observer.
+     - `storm` 0.6 × 1.3 = **0.78 > `bands[2].at` (0.7)** — the storm wall painted RED, out-reading a
+       hull, in direct contradiction of amendment 128 AND of the config comment asserting it was
+       *"below `bands[2].at` by construction"*.
+
+     **The reason both survived a green 1,868-test suite is the part worth remembering: every bound
+     assertion ran against the noise-OFF `CLEAN` fixture.** The suite proved a strictly weaker
+     statement than the ruling it cited, and did so while reading as thorough. That is the same shape
+     as the cycles 54/55/57 failures (amendments 84, 95, 98) — a green suite exercising the easy path
+     of the thing that actually breaks. Shipped values are now `surf: 0.26`, `storm: 0.5`,
+     `clutter: 0.105`, each bounded with the `× (1 + noise)` factor explicit in its comment, and each
+     re-pinned by a rasterized band-histogram test at the SHIPPED noise level.
+
+     **Standing rule for any future coefficient added to `blip.heatmap.model`:** state the bound as
+     `coefficient × (1 + noise) < threshold`, and pin it with a test that rasterizes at shipped noise
+     and asserts the forbidden band's cell count is ZERO. A bound proved at nominal is not proved.
+
+136. **CLUTTER'S THIRD BOUND, and a correction to amendment 133's cited value.** Amendment 133 ratified
+     the two-sided bound and cited `clutter: 0.13`; the review added a THIRD constraint that moves the
+     shipped value to **0.105**. The bound itself is unchanged — only the number is corrected here.
+
+     The new constraint: `writeCell` is max-wins and hands the winner BOTH intensity and alpha, so a
+     lucky clutter cell (0.13 × 1.3 = 0.169) could outrank the *unluckiest cell of the faintest
+     legitimate echo* (`minPeak` 0.2 × 0.7 = 0.14) and claim its ALPHA — re-aging a decaying echo's
+     cell every revolution. Amendment 133's claim that *"a clutter cell can only ever RAISE a cell no
+     return had claimed"* was therefore not true cell-for-cell. At 0.105 the worst case is 0.1365 <
+     0.14 and the guarantee holds outright. All three bounds now hold simultaneously: straddles
+     `bands[0].at` so the noise speckles it, never reaches blue, never outranks any real return.
+
+     Two further clutter corrections from the same gate, both recorded because they were ruled behaviour
+     that the implementation had only approximated:
+     - **The haze's edge is now curve-decided, not a drawn circle.** Amendment 130 required the
+       near-field concentration to FALL OUT of the 1/d³ falloff rather than a hand-placed radius. With
+       the shared `surfaceRef` (700u) the haze sat at 99.7% of peak at its 100u cutoff, so speckle
+       density stepped from ~26% straight to 0 at a hard radius — exactly the drawn circle the ruling
+       forbade. A clutter-specific `clutterRef` (150u) makes it fade to nothing on its own at ~79u, so
+       `clutterRangeU` is now a pure compute bound with nothing visible at it.
+     - **Sea clutter is SEA state: it no longer paints on land or through islands.** It now carries a
+       frozen occluder shortlist and skips land cells and LOS-blocked cells, which is the standing
+       2026-08-02 "islands block every sensor" ruling applied to it. **The STORM WALL deliberately does
+       NOT get this** — it is ledgered to Story 4.11, which owns occlusion wholesale and will do it
+       against the height raster rather than with a second bounding-circle test.
+     - **One stable seed across clutter paints.** Three live paints with independent seeds lit ~87% of
+       the disc under max-wins instead of ~26%, re-creating the solid disc the straddle exists to
+       prevent. A single stable seed makes stacking idempotent and makes the speckle a property of the
+       PLACE — which is `cellNoise`'s own stated design rationale, so this is the module's existing
+       philosophy applied rather than a new idea.
+
+137. **A ONE-FRAME WEATHER COLLAPSE, found only because the adapter was tested at the adapter
+     (amendment 98 earning its keep).** Both new weather paints opened with the frame's own `from`
+     bearing, a sliver short of the anchor; on the last frame of a revolution the live rotation landed
+     in that gap and `wrapPositive(to − from)` wrapped a nearly-full arc down to ~0.03 rad. Measured:
+     the scope dropped from **3,574 lit texels to 17 for one frame, roughly every other revolution.**
+     Fixed structurally — `openClutter`/`openStorm` now set the anchor internally and no longer accept
+     a `from` argument, so the bug is unrepresentable rather than merely corrected. Recorded because
+     the failure was invisible to every pure-rasterizer test and is precisely the class amendment 98
+     was written for.

@@ -41,18 +41,35 @@
 // there yet to reflect off. `openStorm` takes the live ring alone; the caller
 // never passes `ZoneView.next`.
 //
-// WHY CLUTTER CAN NEVER MASK ANYTHING (amendment 130). Sea clutter is TEXTURE
-// AND NOTHING ELSE. Its coefficient is bounded so that its peak stays strictly
-// below `bands[0].at` even at the noise multiplier's most favourable draw, which
-// makes "a real return always outranks clutter under `writeCell`'s max-wins
-// rule" true by arithmetic rather than by hope. Clutter strong enough to swallow
-// weak returns close in was put to Eric as a real mechanic and DECLINED — the
-// effect only bites inside truesight, where the hull is already visible out the
-// window, so it buys a readability cost and almost no gameplay. Raising the
-// coefficient is a DESIGN change, not a tuning change; the bound is asserted in
-// __tests__/radarHeatmap.test.ts.
+// WHY CLUTTER CAN NEVER MASK ANYTHING (amendments 130 + 133). Sea clutter is
+// TEXTURE AND NOTHING ELSE, and its coefficient carries THREE bounds, every one
+// of them stated at the noise multiplier's most favourable draw (a bound written
+// noise-blind is not a bound — the shipped `surf` and `storm` coefficients were
+// both wrong that way): it STRADDLES `bands[0].at` so the speckle exists at all,
+// it stays below `bands[1].at` so it is green at every range, and it stays below
+// `ship.minPeak`'s WORST draw so it cannot outrank the faintest legitimate echo
+// under `writeCell`'s max-wins rule — which matters because the winner takes the
+// cell's alpha as well as its intensity, so a clutter cell that won would also
+// re-age a decaying echo. Clutter strong enough to swallow weak returns close in
+// was put to Eric as a real mechanic and DECLINED — the effect only bites inside
+// truesight, where the hull is already visible out the window, so it buys a
+// readability cost and almost no gameplay. Raising the coefficient is a DESIGN
+// change, not a tuning change; all three bounds are asserted, at the worst-case
+// draw AND through a rasterized band histogram, in __tests__/radarHeatmap.test.ts.
+//
+// AND IT IS SEA CLUTTER, SO IT PAINTS ONLY ON SEA. The haze skips any cell that
+// is on land or behind an island (`clutterMasked`) — islands block every sensor
+// at all ranges, Eric ruling 2026-08-02. The disc is ~870 cells and its occluder
+// shortlist is empty in open water, so the sea-state source can afford the LOS
+// the storm wall defers to Story 4.11 (which owns occlusion wholesale).
 
-import { wrapPositive, type Vec2 } from '@salvo/shared';
+import {
+  islandBlocksSegment,
+  pointInIsland,
+  wrapPositive,
+  type Island,
+  type Vec2,
+} from '@salvo/shared';
 import { clamp01 } from '../util/math.js';
 import { blipAlpha } from './phosphor.js';
 import { SURFACE, VOLUME, attenuation } from './radarFalloff.js';
@@ -60,6 +77,7 @@ import {
   cellCentre,
   cellOf,
   noiseMul,
+  paintSeed,
   stampCover,
   sweepCrossed,
   writeCell,
@@ -71,9 +89,11 @@ import {
   type ReturnModelOpts,
 } from './radarHeatmap.js';
 
+const TAU = Math.PI * 2;
+
 /**
  * The bearing whose crossing opens a fresh weather paint — one per beam
- * revolution, for each source.
+ * revolution, for each source — AND the bearing every weather arc starts from.
  *
  * Both sources SURROUND the observer (the haze is a disc about the ship; the
  * wall is a ring the ship is normally inside), so unlike an island there is no
@@ -81,8 +101,41 @@ import {
  * Anchoring the cycle on a fixed bearing gives the same behaviour an island gets
  * for free — the paint opens once per revolution, its arc grows behind the beam,
  * and the previous revolution's paint decays underneath it.
+ *
+ * IT IS ALSO THE ARC'S ORIGIN, AND THAT IS A FIX, NOT A TIDY-UP (Story 4.10
+ * review gate). A weather paint used to be opened with the FRAME's `from` — the
+ * beam bearing on the frame BEFORE the crossing, i.e. a hair SHORT of the
+ * anchor. `stampCover` measures the swept arc as `wrapPositive(to − from)`, so
+ * once the beam came all the way round and landed in that sliver between `from`
+ * and the anchor — which is the last frame of most revolutions — a nearly-full
+ * arc wrapped to almost nothing and the whole haze and wall vanished for one
+ * frame, roughly every other revolution. Starting every weather arc at the
+ * anchor makes the span `wrapPositive(to)`, which grows monotonically across the
+ * revolution and has no gap to fall into. This is a UNIQUELY WEATHER problem: an
+ * island paint is closed the moment the beam leaves its bearing span, so its arc
+ * never approaches a full turn.
  */
-const WEATHER_ANCHOR = 0;
+export const WEATHER_ANCHOR = 0;
+
+/**
+ * THE ONE SEED EVERY CLUTTER PAINT USES — a module constant, deliberately not
+ * `paintSeed(key, t)`.
+ *
+ * A per-paint seed re-rolled the speckle every revolution, and because up to
+ * three hazes are live at once under `writeCell`'s max-wins rule, three
+ * INDEPENDENT ~26% draws over the same disc light ~60% of it — the solid-disc
+ * look amendment 133's straddle exists to prevent, rebuilt by stacking. One
+ * stable seed makes the speckle a property of the PLACE (which is `cellNoise`'s
+ * own stated design: it hashes the ABSOLUTE world cell so a paint's ragged edges
+ * do not boil as the ship moves), so the same cells light every revolution and
+ * stacking is IDEMPOTENT: N hazes light exactly the cells one haze lights.
+ *
+ * Written as the grammar's own `paintSeed` frozen at t = 0 rather than as a
+ * literal: it stays on the same hash the rest of the module uses, and the token
+ * guard (tokens.test.ts) reads an 8-digit hex literal in client/src as a colour
+ * escaping the token source.
+ */
+const CLUTTER_SEED = paintSeed('clutter', 0);
 
 /** Fraction of full strength the storm wall keeps at the seaward/landward EDGE
  *  of its band, so the wall reads as a wall with soft shoulders rather than as a
@@ -90,16 +143,40 @@ const WEATHER_ANCHOR = 0;
 const STORM_EDGE = 0.35;
 
 /**
- * Hard cap on baked storm-band cells — a runaway guard, never the thing that
- * trims a real wall.
- *
- * The worst LEGITIMATE case is the endgame: a terminal ring the observer sits
- * inside, so the whole circumference is in range. At the shipped numbers that is
- * `2π × 660 × 60 / 6²` ≈ 6,900 cells, so 8,000 leaves the cap slack. A ring
- * bigger than the scope is cheaper, not dearer — only the arc within radar range
- * is ever walked.
+ * ABSOLUTE ceiling on baked storm-band cells — a runaway backstop against a
+ * degenerate config, and nothing else. The real cap is DERIVED per bake (see
+ * `stormCellCap`); this only bounds what a nonsense `cellU` could ask for.
  */
-const STORM_MAX_CELLS = 8000;
+const STORM_ABS_MAX = 100_000;
+
+/**
+ * Slack factor on the derived cap: the walk visits a cell three or four times
+ * and dedups, and the band's inner and outer radii are walked as concentric
+ * circles, so the exact cell count sits a little above the annulus area over the
+ * cell area. 1.25 covers that without letting the cap become a trim.
+ */
+const STORM_CAP_SLACK = 1.25;
+
+/**
+ * The cap for ONE bake, derived from the geometry that decides the cell count —
+ * never a fixed constant (Story 4.10 review gate).
+ *
+ * The worst legitimate case is the endgame: a ring the observer sits inside, so
+ * the whole circumference is in range and the band is an annulus of area
+ * `2π × radarRange × stormBandU`, i.e. `that / cellU²` cells. The shipped 8,000
+ * was that number computed against BASE radar range (660u) — but `radarRange` at
+ * the call site is the BOON-SCALED stat, up to ~2.01× (≈1,327u), and `cellU` is
+ * the documented perf lever, which quadruples the count when halved. In both
+ * cases the bake hit the fixed cap and `break`s BETWEEN radius walks, so it
+ * silently dropped the wall's outer radii — a thinner wall on exactly the build
+ * that paid for a bigger scope. Deriving it removes the coupling entirely.
+ */
+function stormCellCap(radarRange: number, o: HeatmapOpts): number {
+  const cellArea = o.cellU * o.cellU;
+  if (!(cellArea > 0)) return STORM_ABS_MAX;
+  const annulus = TAU * radarRange * o.model.stormBandU;
+  return Math.min(STORM_ABS_MAX, Math.ceil((annulus / cellArea) * STORM_CAP_SLACK));
+}
 
 /** The live storm ring, structurally — the `ZoneView.cur` fields this needs and
  *  nothing else, so this module never imports the zone layer. */
@@ -127,32 +204,94 @@ export interface ClutterPaint {
   /** Observer position AT PAINT TIME — the haze does not follow the ship. */
   ox: number;
   oy: number;
-  /** Beam bearing when this paint opened, and where the beam has reached. */
+  /** Beam bearing when this paint opened (always `WEATHER_ANCHOR`), and where
+   *  the beam has reached. */
   from: number;
   to: number;
   /** True once the beam has swept a whole revolution across it. */
   full: boolean;
   t: number;
   seed: number;
+  /** The islands that can mask this disc, SHORTLISTED AND FROZEN at paint time
+   *  (amendment 83) — clutter is SEA state, so it paints on neither land nor
+   *  water an island stands in front of. */
+  isles: readonly Island[];
 }
 
 /** Clutter's intensity at a range, before noise: the tiny surface coefficient on
- *  the SURFACE curve. The near-ship CONCENTRATION falls out of that pairing
- *  (amendment 130) rather than out of a hand-placed radius. */
+ *  the SURFACE curve, against the haze's OWN reference range (`clutterRef`, much
+ *  shorter than the coastline's). The near-ship CONCENTRATION and the fade at
+ *  its edge both fall out of that pairing (amendment 130) rather than out of a
+ *  hand-placed radius: on the shared `surfaceRef` the return was still at 99.7%
+ *  of peak at the compute bound, so the speckle stopped at a drawn circle. */
 export function clutterIntensity(dist: number, m: ReturnModelOpts): number {
-  return clamp01(m.clutter * attenuation(dist, m.surfaceRef, SURFACE, m.floor));
+  return clamp01(m.clutter * attenuation(dist, m.clutterRef, SURFACE, m.floor));
 }
 
-/** Open a clutter paint from the observer at this instant. */
-export function openClutter(obs: Vec2, from: number, to: number, t: number, seed: number): ClutterPaint {
-  return { kind: 'clutter', ox: obs.x, oy: obs.y, from, to, full: false, t, seed };
+/**
+ * The islands that could mask a haze about `obs` — the same shortlist discipline
+ * `occluderCandidates` applies to an island bake, for a disc instead of an
+ * island. A bounding circle further than `reach` from the observer cannot
+ * contain, or stand in front of, any cell of the disc.
+ */
+export function clutterOccluders(
+  obs: Vec2,
+  field: readonly Island[],
+  reach: number,
+): readonly Island[] {
+  return field.filter((isle) => Math.hypot(isle.x - obs.x, isle.y - obs.y) <= isle.r + reach);
+}
+
+/**
+ * Open a clutter paint from the observer at this instant.
+ *
+ * The arc starts at `WEATHER_ANCHOR`, not at the frame's beam bearing — see the
+ * anchor's own comment for the one-frame collapse that fixes. The seed is the
+ * module's stable `CLUTTER_SEED`, so stacked hazes are idempotent.
+ */
+export function openClutter(
+  obs: Vec2,
+  to: number,
+  t: number,
+  field: readonly Island[],
+  reach: number,
+): ClutterPaint {
+  return {
+    kind: 'clutter',
+    ox: obs.x,
+    oy: obs.y,
+    from: WEATHER_ANCHOR,
+    to,
+    full: false,
+    t,
+    seed: CLUTTER_SEED,
+    isles: clutterOccluders(obs, field, reach),
+  };
+}
+
+/**
+ * Is this cell of the haze MASKED? Clutter is sea state: it cannot paint on a
+ * landmass, and it cannot paint on water an island stands in front of.
+ *
+ * Islands block every sensor at all ranges (Eric ruling 2026-08-02) and this is
+ * the same rule the island bake's own per-cell LOS filter applies — the disc is
+ * only ~870 cells and the shortlist is empty in open water, so the sea-state
+ * source can afford the honesty the storm wall defers to Story 4.11.
+ */
+function clutterMasked(p: ClutterPaint, x: number, y: number): boolean {
+  for (const isle of p.isles) {
+    const cell = { x, y };
+    if (pointInIsland(cell, isle)) return true;
+    if (islandBlocksSegment({ x: p.ox, y: p.oy }, cell, isle)) return true;
+  }
+  return false;
 }
 
 /**
  * Stamp the haze: every cell of the frozen disc whose bearing the beam has
  * reached. `writeCell` is max-wins, so a clutter cell can only ever lose to a
- * real return — and by amendment 130's bound it is below the visible threshold
- * in any case.
+ * real return — and by the coefficient's third bound it cannot even beat the
+ * faintest legitimate echo's core at any noise draw.
  *
  * THIS RUNS EVERY FRAME FOR EVERY LIVE HAZE, so the loop is written for that: a
  * SQUARED-distance reject on raw scalars rejects the ~21% of the bounding box
@@ -160,7 +299,8 @@ export function openClutter(obs: Vec2, from: number, to: number, t: number, seed
  * a `sqrt` rather than `Math.hypot` (which is far slower for the same answer
  * here — there is no overflow range to protect). The `!p.full` short-circuit
  * keeps the `atan2` off the path entirely for a completed haze, which is what
- * two of every three live hazes are.
+ * two of every three live hazes are, and `p.isles` is empty in open water so the
+ * island mask is a zero-length loop on almost every cell in the game.
  */
 export function stampClutter(g: HeatGrid, p: ClutterPaint, alpha: number, o: HeatmapOpts): void {
   const m = o.model;
@@ -178,6 +318,7 @@ export function stampClutter(g: HeatGrid, p: ClutterPaint, alpha: number, o: Hea
       const d2 = wx * wx + wy * wy;
       if (d2 > reach2) continue;
       if (!p.full && wrapPositive(Math.atan2(wy, wx) - p.from) > span) continue;
+      if (p.isles.length > 0 && clutterMasked(p, p.ox + wx, p.oy + wy)) continue;
       const i = clutterIntensity(Math.sqrt(d2), m) * noiseMul(p.seed, gx, gy, o.noise);
       writeCell(g, gx, gy, i, alpha);
     }
@@ -307,22 +448,26 @@ export function buildStormBand(
   if (!(ring.r > 0) || !(half > 0) || !(radarRange > 0)) return [];
   const cells = new Map<number, CoverCell>();
   const ctx = { obs, radarRange, seed, o, half };
+  const cap = stormCellCap(radarRange, o);
   const step = Math.max(o.cellU / 2, 1);
   for (let rho = Math.max(1, ring.r - half); rho <= ring.r + half; rho += step) {
     walkRing(cells, ring, rho, ctx);
-    if (cells.size > STORM_MAX_CELLS) break;
+    if (cells.size > cap) break;
   }
   return [...cells.values()];
 }
 
 /** Open a storm paint for the LIVE ring, or null when there is nothing in range
  *  to paint (which is the ordinary case early in a match, when the wall is the
- *  map boundary and the scope is nowhere near it). */
+ *  map boundary and the scope is nowhere near it).
+ *
+ *  The arc starts at `WEATHER_ANCHOR` for the same reason the haze's does — see
+ *  the anchor's comment for the one-frame collapse a frame-derived `from`
+ *  produced. */
 export function openStorm(
   ring: StormRing,
   obs: Vec2,
   radarRange: number,
-  from: number,
   to: number,
   t: number,
   seed: number,
@@ -330,7 +475,7 @@ export function openStorm(
 ): StormPaint | null {
   const cover = buildStormBand(ring, obs, radarRange, seed, o);
   if (cover.length === 0) return null;
-  return { kind: 'storm', from, to, full: false, t, cover };
+  return { kind: 'storm', from: WEATHER_ANCHOR, to, full: false, t, cover };
 }
 
 /** Stamp the wall — the baked cover list under its arc gate, the same primitive

@@ -853,9 +853,17 @@ export class Radar {
    * test — the cycle is anchored on a fixed bearing instead: one paint of each
    * per beam revolution, its arc growing behind the beam, the previous
    * revolution's decaying underneath. Everything either paint will ever read is
-   * frozen at this instant (the observer for both, and the ring's centre and
-   * radius for the wall), so a closing ring never retroactively moves a wall
-   * already on the scope (amendment 83).
+   * frozen at this instant (the observer and the island shortlist for the haze,
+   * the ring's centre and radius for the wall), so a closing ring never
+   * retroactively moves a wall already on the scope (amendment 83).
+   *
+   * THE FRAME'S `from` IS DELIBERATELY NOT PASSED ON. Both paints start their
+   * arc at the weather ANCHOR bearing (render/radarSources.ts): the frame's
+   * `from` sits a hair SHORT of it, and `stampCover`'s `wrapPositive(to − from)`
+   * then wrapped a nearly-full arc down to a sliver on the last frame of most
+   * revolutions, collapsing the haze and the wall for one frame. `from` still
+   * decides WHEN to open (`weatherCycled`); it no longer decides where the arc
+   * begins.
    */
   private sweepWeather(
     own: OwnPoint,
@@ -868,16 +876,21 @@ export class Radar {
     if (this.openStormPaint !== null) this.openStormPaint.to = to;
     if (!weatherCycled(from, to)) return;
     this.closeWeather();
-    this.openClutterPaint = openClutter(own, from, to, serverNow, paintSeed('clutter', serverNow));
+    this.openClutterPaint = openClutter(
+      own,
+      to,
+      serverNow,
+      this.islands,
+      CLIENT_CONFIG.blip.heatmap.model.clutterRangeU,
+    );
     this.enrollPaint(this.openClutterPaint);
-    this.openStormWall(own, from, to, serverNow, zone);
+    this.openStormWall(own, to, serverNow, zone);
   }
 
   /** Bake the wall for the LIVE ring, if there is one and any of it is in radar
    *  range. `state === 'idle'` (no timeline yet) paints nothing at all. */
   private openStormWall(
     own: OwnPoint,
-    from: number,
     to: number,
     serverNow: number,
     zone: ZoneLike | null,
@@ -887,7 +900,6 @@ export class Radar {
       zone.cur,
       own,
       this.radarRange,
-      from,
       to,
       serverNow,
       paintSeed('storm', serverNow),

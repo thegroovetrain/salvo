@@ -548,13 +548,14 @@ describe('buffer sizing and the load-bearing snap', () => {
 // moving. Cycle 57 shipped a placement regression under green pure tests; these
 // blocks exist so a fifth and sixth source cannot repeat it.
 //
-// ONE HONEST ASYMMETRY, and it is a consequence of a ruling rather than a gap:
-// CLUTTER LIGHTS NO TEXEL. Amendment 130 bounds its peak strictly below
-// `bands[0].at` at the luckiest noise draw, so it is present in the intensity
-// field and below the threshold the palette draws — there is no lit pixel to
-// round-trip. Its placement is therefore pinned on the world-addressed grid
-// (`intensityAt`, which reads through the same anchor the sprite is positioned
-// at), plus the bound itself, at the same zooms.
+// AND THAT INCLUDES CLUTTER. An earlier draft of this file excused the haze on
+// the grounds that it "lights no texel" — the retired amendment-130 bound, which
+// amendment 133 corrected precisely because a haze that lights nothing is the
+// option Eric declined. Clutter lights real texels, so its placement is
+// round-tripped through the sprite like everything else here; pinning it with
+// `intensityAt` alone would read the world-addressed grid and skip the Pixi
+// transform entirely, which is amendment 98's exact trap (cycle 57's regression
+// lived in the placement, and its pure tests were green).
 
 /** Render one frame with a zone view (the storm wall's input). */
 function frameZone(
@@ -659,16 +660,34 @@ describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
   const FUZZY = CLIENT_CONFIG.blip.heatmap.bands[1].at;
 
   for (const [label, z] of [['USER_ZOOM_MIN', USER_ZOOM_MIN], ['USER_ZOOM_MAX', USER_ZOOM_MAX]] as const) {
-    it(`fills its disc about the ship and stops at ${'`clutterRangeU`'} at ${label}`, () => {
+    it(`lands on the ship, in world coordinates, at ${label} (${z}×)`, () => {
+      const { radar, layer, chart } = harness();
+      const cam = camera(z);
+      revolution(radar, cam, OWN, null);
+      // THROUGH THE SPRITE, at both zooms — the haze is the only thing on the
+      // scope in this run, so the lit region IS the haze. An origin bug, a
+      // scale bug or an unsnapped anchor moves the centroid off the ship.
+      const m = measure(layer, chart, cam);
+      expect(m.cells, 'the haze lit texels').toBeGreaterThan(20);
+      expect(Math.abs(m.x - OWN.x), `centroid x at ${label}`).toBeLessThan(TOL);
+      expect(Math.abs(m.y - OWN.y), `centroid y at ${label}`).toBeLessThan(TOL);
+      // It is a DISC about the ship, and it ends inside the compute bound (the
+      // 1/d³ curve takes it under `bands[0].at` at ~79u — amendment 130's
+      // "the concentration falls out of the falloff, not out of a radius").
+      expect(m.maxX - m.minX, 'a real disc, not one cell').toBeGreaterThan(REACH * 0.5);
+      expect(m.minX, 'nothing lit west of the bound').toBeGreaterThan(OWN.x - REACH - TOL);
+      expect(m.maxX, 'nothing lit east of it').toBeLessThan(OWN.x + REACH + TOL);
+      expect(m.minY).toBeGreaterThan(OWN.y - REACH - TOL);
+      expect(m.maxY).toBeLessThan(OWN.y + REACH + TOL);
+    });
+
+    it(`stays GREEN texture at ${label} — never "probably a thing" on water`, () => {
       const { radar } = harness();
       const cam = camera(z);
       revolution(radar, cam, OWN, null);
-      for (const d of [6, REACH * 0.5, REACH * 0.9]) {
+      for (const d of [6, REACH * 0.3, REACH * 0.6]) {
         const w = radar.intensityAt(OWN.x + d, OWN.y);
         expect(w, `intensity at ${d}u`).toBeGreaterThan(0);
-        // Amendments 130 + 133: the haze is GREEN texture. It may light a pixel
-        // — that is the point of it — but it can never reach blue, which would
-        // put "probably a thing" on empty water.
         expect(w, 'and never strong enough to read blue').toBeLessThan(FUZZY);
       }
       expect(radar.intensityAt(OWN.x + REACH * 1.5, OWN.y), 'beyond the disc').toBe(0);
@@ -679,13 +698,58 @@ describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
 
   it('stays where it was frozen as the camera moves — the haze does not follow '
     + 'the boat within a revolution', () => {
-    const { radar } = harness();
+    const { radar, layer, chart } = harness();
     const cam = camera(USER_ZOOM_MIN);
     revolution(radar, cam, OWN, null);
+    const first = measure(layer, chart, cam);
     for (const step of [12, 90, 240]) {
       frameZone(radar, cam, { x: OWN.x + step, y: OWN.y }, 4500 + step, null);
       expect(radar.intensityAt(OWN.x + 6, OWN.y), `still at the old ship at ${step}u`)
         .toBeGreaterThan(0);
+      const m = measure(layer, chart, cam);
+      expect(Math.abs(m.x - first.x), `haze x after ${step}u of camera travel`)
+        .toBeLessThan(TOL);
+      expect(Math.abs(m.y - first.y), `haze y after ${step}u`).toBeLessThan(TOL);
+    }
+  });
+});
+
+// --- 6c. THE WEATHER ARC NEVER COLLAPSES, AT THE ADAPTER ------------------------
+//
+// The bookkeeping that fills a weather arc in behind the beam lives in this
+// adapter, not in the pure sources, so it is pinned here: walk many frames
+// across the anchor bearing and watch the lit-texel count. A paint opened at the
+// FRAME's `from` — a hair short of the anchor — made `wrapPositive(to − from)`
+// wrap a nearly-full arc down to a sliver on the last frame of most revolutions,
+// so the haze and the wall blinked out for one frame roughly every other turn.
+
+describe('the haze and the wall never blink out for a frame', () => {
+  const OWN = { x: 250, y: -150 };
+  const ZONE = { state: 'closing', cur: { cx: OWN.x, cy: OWN.y, r: 300 } };
+
+  it('the lit-texel count never collapses across three whole revolutions', () => {
+    const { radar, layer } = harness();
+    const cam = camera(USER_ZOOM_MAX);
+    radar.onSweepSample(-0.6, 0);
+    // 4s per revolution at 15rpm, walked in 30ms steps. The step deliberately
+    // does NOT divide the revolution: the frame that lands nearest the wrap
+    // drifts every turn, which is exactly how the retired form hid — it
+    // collapsed on roughly every other revolution, never on all of them.
+    const counts: number[] = [];
+    for (let t = 0; t <= 12_000; t += 30) {
+      frameZone(radar, cam, OWN, t, ZONE);
+      counts.push(litTexels(heatSprite(layer)).length);
+    }
+    const peak = Math.max(...counts);
+    expect(peak, 'the scope does paint').toBeGreaterThan(200);
+    // The window opens the moment the FIRST revolution's arc has substantially
+    // filled in — deliberately before a second paint exists to prop the count
+    // up. That is where the collapse is fatal rather than merely dim: with one
+    // live paint, a sliver arc is a blank scope.
+    const first = counts.findIndex((n) => n > peak * 0.6);
+    expect(first, 'the arc fills in').toBeGreaterThan(0);
+    for (let i = first; i < counts.length; i++) {
+      expect(counts[i], `frame ${i} collapsed`).toBeGreaterThan(peak * 0.3);
     }
   });
 });

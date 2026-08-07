@@ -1415,25 +1415,28 @@ export const CLIENT_CONFIG = {
        * needs to get cheaper.
        *
        * STORY 4.10 RE-MEASURED, WITH THREE NEW SOURCES IN THE FRAME (amendment
-       * 99 requires the number, not a guess). A full `Radar.render` — ~18-island
-       * field with coastline AND surf, six ship echoes, the sea-clutter haze and
-       * a live storm wall, at the shipped 3-deep persistence — against the same
-       * frame with the two new weather sources absent, on one machine, in the
-       * headless test environment:
-       *              buffer only    + clutter + storm wall
-       *   1.5×          0.44 ms            1.25 ms
-       *   1.0×          0.57 ms            1.28 ms
-       *   0.5×          1.65 ms            2.20 ms
-       * So the weather sources cost ~0.55 ms/frame at min zoom, most of it the
-       * wall (three live paints × ~4.6k baked band cells). Read those absolutes
-       * with the note that the pre-4.10 rows above were measured on the
+       * 99 requires the number, not a guess), AND RE-MEASURED AGAIN AT THE
+       * REVIEW GATE because `clutterRef` and the derived storm cap both move the
+       * cell counts. A full `Radar.render` — a generated ~18-island field with
+       * coastline AND surf, six ship echoes, the sea-clutter haze and a live
+       * storm wall, at the shipped 3-deep persistence, warmed through three whole
+       * revolutions and then averaged over 240 frames, in the headless test
+       * environment on one machine:
+       *              buffer only   + clutter   + clutter + storm wall
+       *   1.5×          0.18 ms      0.58 ms          0.90 ms
+       *   1.0×          0.28 ms      0.65 ms          1.10 ms
+       *   0.5×          0.88 ms      1.29 ms          1.70 ms
+       * So the weather sources cost ~0.8 ms/frame at min zoom, split roughly
+       * evenly between the haze (three live discs stamped procedurally every
+       * frame) and the wall (three live paints × baked band cells). Read the
+       * absolutes with the note that the pre-4.10 rows above were measured on the
        * reference DEVICE at ~0.95 ms for the 0.5× buffer, where this run reads
-       * 1.65 ms for the same work — i.e. this harness is ~1.7× slower, which
-       * puts the reference-device equivalent of the full frame near 1.3 ms.
+       * 0.88 ms for the same work, so the two are now comparable within noise.
        *
        * The two levers if it ever needs to come down, in order: `clutterRangeU`
-       * (procedural, every frame, and by amendment 130 it lights no pixel at
-       * all) and `stormBandU` (cells scale linearly with band thickness).
+       * (procedural, every frame, and by `clutterRef` nothing is even visible at
+       * its outer ~20u) and `stormBandU` (cells scale linearly with band
+       * thickness).
        */
       cellU: 6,
       /**
@@ -1507,47 +1510,67 @@ export const CLIENT_CONFIG = {
          *  reads as land rather than as sea state. */
         landFlat: 0.35,
         /** Breaking surf. Sized so the fringe is GREEN EVERYWHERE and can never
-         *  reach blue: `surf < bands[1].at` bounds it at zero range, where the
-         *  attenuation term is ~1. A surf line that could read blue would put a
-         *  "probably a thing" register on empty water. */
-        surf: 0.3,
+         *  reach blue — and THE BOUND IS STATED WITH THE NOISE FACTOR IN IT,
+         *  exactly the way `clutter` states its own: `surf × (1 + noise) <
+         *  bands[1].at` → 0.26 × 1.3 = 0.338 < 0.36. The zero-range attenuation
+         *  term is ~1, so that IS the ceiling. The shipped 0.3 was bounded
+         *  noise-BLIND (0.3 < 0.36 held, but 0.3 × 1.3 = 0.39 did not) and put a
+         *  "probably a thing" register on open water within ~310u of every
+         *  coastline; every test that would have caught it ran the noise-OFF
+         *  fixture. Both halves are now asserted at the worst-case draw AND
+         *  through a rasterized band histogram with the shipped speckle on. */
+        surf: 0.26,
         /**
          * Sea clutter. **DESIGN-LOAD-BEARING — NOT A FREE KNOB (amendments 130 +
          * 133).** This is the ONE coefficient here deliberately tuned to sit ON a
-         * threshold rather than clear of one, and the bound is TWO-SIDED.
+         * threshold rather than clear of one, and it now satisfies THREE bounds
+         * at once. All three are stated WITH the noise factor, because the
+         * multiplier is applied to a cell's intensity AFTER every coefficient
+         * here is chosen — a bound written noise-blind is not a bound.
          *
-         * UPPER — clutter must be GREEN AT EVERY RANGE and can never reach blue:
-         * `clutter × (1 + noise) < bands[1].at` → 0.13 × 1.3 = 0.169 < 0.36. This
-         * is what discharges Eric's ruling that clutter is texture and may never
-         * hide a return. Green is "honestly not sure, could be something tiny" —
-         * the correct register for sea state; blue would put "probably a thing"
-         * on empty water. Note `surf` above is bounded by exactly this rule.
+         * 1. STRADDLE — `peak × (1 − noise) < bands[0].at < peak × (1 + noise)` →
+         *    0.105 × 0.7 = 0.0735 < 0.12 < 0.105 × 1.3 = 0.1365. That speckle IS
+         *    the haze. A coefficient safely ABOVE the threshold paints a solid
+         *    uniform green disc around own hull (band colour is verbatim and
+         *    alpha carries age, not intensity — every lit clutter cell is the
+         *    same pixel), which reads as a drawn circle rather than as sea. A
+         *    coefficient safely BELOW paints nothing at all, which is the defect
+         *    amendment 133 exists to correct.
+         * 2. NEVER BLUE — `peak × (1 + noise) < bands[1].at` → 0.1365 < 0.36.
+         *    This is what discharges Eric's ruling that clutter is texture and
+         *    may never hide a return. Green is "honestly not sure, could be
+         *    something tiny" — the correct register for sea state; blue would put
+         *    "probably a thing" on empty water. Note `surf` above is bounded by
+         *    exactly this rule.
+         * 3. NEVER OUTRANKS THE FAINTEST LEGITIMATE ECHO — `peak × (1 + noise) <
+         *    ship.minPeak × (1 − noise)` → 0.1365 < 0.2 × 0.7 = 0.14. `writeCell`
+         *    is max-wins and hands the WINNER both the intensity AND the alpha,
+         *    so a clutter cell that beat a decaying echo's core would also re-age
+         *    it — a ghost would stop reading as a ghost. This bound closes that;
+         *    it is the reason 0.13 (whose luckiest cell reads 0.169, above the
+         *    unluckiest real core) could not stand.
+         *
          * Raising this past the blue threshold is a DESIGN change requiring a
          * fresh ruling: Eric was shown "clutter strong enough to swallow weak
          * returns close in" as a real mechanic and DECLINED it.
          *
-         * LOWER — clutter must STRADDLE `bands[0].at` so the noise multiplier
-         * SPECKLES it: `peak × (1 − noise) < bands[0].at < peak × (1 + noise)` →
-         * cells range 0.091 to 0.169 across 0.12, so roughly half light and half
-         * stay dark. That speckle IS the haze. A coefficient safely ABOVE the
-         * threshold paints a solid uniform green disc around own hull (band
-         * colour is verbatim and alpha carries age, not intensity — every lit
-         * clutter cell is the same pixel), which reads as a drawn circle rather
-         * than as sea. A coefficient safely BELOW paints nothing at all, which is
-         * the defect amendment 133 exists to correct.
-         *
-         * BOTH bounds are asserted in __tests__/radarHeatmap.test.ts. The lower
-         * one matters as much as the upper: a one-sided assertion is exactly what
+         * ALL THREE bounds are asserted in __tests__/radarHeatmap.test.ts, at the
+         * worst-case noise draw and through a rasterized band histogram with the
+         * shipped speckle on. A one-sided, noise-blind assertion is exactly what
          * let invisible clutter pass its own test.
-         *
-         * Clutter can never DIM a real echo at any coefficient — `writeCell` is
-         * max-wins, so it only ever raises a cell no return had claimed.
          */
-        clutter: 0.13,
-        /** The storm wall. Below `bands[2].at` by construction, so the weather
-         *  can never out-read a hull: the wall is a solid BLUE band with a green
-         *  shoulder at every range inside the scope (amendment 128). */
-        storm: 0.6,
+        clutter: 0.105,
+        /**
+         * The storm wall. Bounded the same way its siblings are — WITH the noise
+         * factor: `storm × (1 + noise) < bands[2].at` → 0.5 × 1.3 = 0.65 < 0.7.
+         *
+         * The shipped 0.6 claimed to be below the red threshold "by construction"
+         * and was not: 0.6 × 1.3 = 0.78, so the wall's spine painted RED and the
+         * weather out-read a hull, directly against amendment 128. At 0.5 the
+         * wall is a solid BLUE band with a green shoulder at every range inside
+         * the scope and can never reach red at any draw.
+         */
+        storm: 0.5,
         /**
          * Reference range (u) of the POINT curve — SOLVED, never typed in. See
          * the HEAT_POINT_REF comment above the object: this is the only place in
@@ -1567,6 +1590,25 @@ export const CLIENT_CONFIG = {
          * FLAT one at the same range lands in blue/green.
          */
         surfaceRef: 700,
+        /**
+         * Reference range (u) of the SURFACE curve FOR SEA CLUTTER ONLY — and it
+         * exists because amendment 130 requires the haze's concentration to fall
+         * out of the 1/d³ curve rather than out of a hand-placed radius.
+         *
+         * On the shared `surfaceRef` of 700 the clutter return is still at 99.7%
+         * of its peak at the 100u compute bound, so the speckle density held flat
+         * across the whole disc and then STOPPED at a hard circle — the drawn
+         * edge the amendment forbids, dressed up as a falloff. At 150 the curve
+         * does the work: 0.105 at the ship, 0.082 at 100u whose luckiest draw is
+         * 0.107 < `bands[0].at`, so the density grades from ~26% of cells lit at
+         * the hull to ZERO at ~79u. The haze ends where the physics ends.
+         *
+         * Coast and surf keep `surfaceRef` — they are the extended targets that
+         * reference was fitted for. Sea state is the near-field return of the
+         * water immediately around the hull, and a shorter reference is what says
+         * so.
+         */
+        clutterRef: 150,
         /** Reference range (u) of the VOLUME curve (the storm wall). Longest of
          *  the three on the shallowest exponent: a squall genuinely does stay
          *  legible clear across the map, which is precisely why amendment 128
@@ -1595,16 +1637,19 @@ export const CLIENT_CONFIG = {
          */
         surfBandU: 30,
         /**
-         * COMPUTE bound (u) on the clutter disc, not its visual extent — the
-         * concentration falls out of the 1/d³ curve (amendment 130), and this is
-         * only where the return has fallen so far below the band scale that
-         * stamping it is wasted work.
+         * PURE COMPUTE bound (u) on the clutter disc — and with `clutterRef` in
+         * place, NOTHING IS VISIBLE AT IT. The haze's own curve takes the
+         * luckiest draw below `bands[0].at` at ~79u (0.082 × 1.3 = 0.107 < 0.12),
+         * so the fade is decided by the falloff exactly as amendment 130 requires
+         * and this number only decides where the loop stops paying for cells that
+         * cannot light. 100u leaves ~21u of slack past the last lit cell, so a
+         * retune of `clutter`, `noise` or `bands[0].at` has room to move before
+         * the disc edge could become visible.
          *
-         * Kept SMALL on purpose, and it is the one knob here with a per-frame
-         * price tag: clutter stamps PROCEDURALLY every frame (no baked list), for
-         * every live haze, so its cost is `π × r² / cellU²` cells × the paint
-         * depth. At 100u that is ~870 cells per haze; doubling the radius
-         * quadruples that.
+         * It is still the one knob here with a per-frame price tag: clutter
+         * stamps PROCEDURALLY every frame (no baked list), for every live haze,
+         * so its cost is `π × r² / cellU²` cells × the paint depth. At 100u that
+         * is ~870 cells per haze; doubling the radius quadruples that.
          */
         clutterRangeU: 100,
         /** Full thickness (u) of the storm wall band, centred on the live ring
@@ -1695,11 +1740,26 @@ export const CLIENT_CONFIG = {
          *  shadow rather than as a drawn edge. Beyond the ramp the far side
          *  paints NOTHING — the near-face-only physics is unchanged. */
         terminator: 0.3,
-        /** Hard cap on covered cells baked per island paint. At 6u cells that is
-         *  ~93,600u² of solid land, comfortably past the largest landmass the
-         *  generator can produce; it exists so a future map retune cannot turn
-         *  one coverage bake into an unbounded loop. */
+        /** Hard cap on covered LAND cells baked per island paint. At 6u cells
+         *  that is ~93,600u² of solid land, comfortably past the largest landmass
+         *  the generator can produce; it exists so a future map retune cannot
+         *  turn one coverage bake into an unbounded loop.
+         *
+         *  IT IS LAND-ONLY, AND THAT IS THE FIX (Story 4.10 review gate). Surf
+         *  rides the same bake, so a single shared budget put the fringe in
+         *  competition with the coastline — and because the scan is ROW-MAJOR,
+         *  the cells a big island lost were its southern edge, silently. Land
+         *  coverage must not be a function of whether surf is enabled, so the two
+         *  sources now draw on separate budgets and neither can starve the other. */
         maxCells: 2600,
+        /** Hard cap on covered SURF cells per island paint — the fringe's own
+         *  runaway guard, sized against the geometry rather than guessed. A near
+         *  face at the land cap has a coastline on the order of 2,000u; a
+         *  `surfBandU` (30u) fringe on it is ~60,000u², i.e. ~1,650 cells at 6u.
+         *  1,800 clears that with slack while staying well under the land budget,
+         *  which is the right ordering: the coastline is the object, the surf is
+         *  its trim. */
+        surfMaxCells: 1800,
         /** Live island paints retained per island. Each revolution of the beam
          *  opens exactly one, so this is the island equivalent of
          *  `paintsPerContact` and lands at the same `persistSweeps` depth: the

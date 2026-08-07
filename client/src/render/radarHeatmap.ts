@@ -517,8 +517,11 @@ export interface IslandEchoOpts {
   gain: number;
   /** Terminator ramp width, as a fraction of the island's bounding radius. */
   terminator: number;
-  /** Hard cap on covered cells per island paint. */
+  /** Hard cap on covered LAND cells per island paint. */
   maxCells: number;
+  /** Hard cap on covered SURF cells per island paint — a SEPARATE budget, so
+   *  the fringe can never starve the coastline out of a row-major scan. */
+  surfMaxCells: number;
 }
 
 /**
@@ -544,8 +547,11 @@ export interface ReturnModelOpts {
   storm: number;
   /** Reference range (u) of the POINT curve — FITTED, never typed in. */
   pointRef: number;
-  /** Reference range (u) of the SURFACE curve. */
+  /** Reference range (u) of the SURFACE curve (coastline + surf). */
   surfaceRef: number;
+  /** Reference range (u) of the SURFACE curve for SEA CLUTTER — shorter, so the
+   *  haze's near-field concentration and its fade both fall out of the curve. */
+  clutterRef: number;
   /** Reference range (u) of the VOLUME curve. */
   volumeRef: number;
   /** Asymptotic floor shared by the SURFACE and VOLUME curves. */
@@ -801,14 +807,29 @@ export function solidity(p: Vec2, isle: Island, depthFullU: number): number {
  * than this island's far side AND its bounding circle must lie across the
  * observer→island corridor. On a map whose landmasses are placed with a
  * CHANNEL_MIN gap this is almost always empty.
+ *
+ * `pad` WIDENS THE CORRIDOR, and it is not optional book-keeping (Story 4.10
+ * review gate). The bake now covers cells up to `surfBandU` OUTSIDE the island's
+ * bounding circle, so a shortlist drawn at exactly `isle.r` can miss an occluder
+ * that only crosses the observer→surf-cell corridor within that annulus — and a
+ * missed candidate is not a slack answer, it is a per-cell LOS test that never
+ * runs at all. The shortlist is the ONLY thing standing between a surf cell and
+ * an island it is genuinely behind, so it is widened by exactly what the scan
+ * was widened by.
  */
-export function occluderCandidates(isle: Island, field: readonly Island[], obs: Vec2): Island[] {
+export function occluderCandidates(
+  isle: Island,
+  field: readonly Island[],
+  obs: Vec2,
+  pad = 0,
+): Island[] {
+  const reach = isle.r + Math.max(0, pad);
   const d = Math.hypot(isle.x - obs.x, isle.y - obs.y);
   return field.filter(
     (other) =>
       other !== isle &&
-      Math.hypot(other.x - obs.x, other.y - obs.y) < d + isle.r &&
-      segCircleHit(obs, isle, other, other.r + isle.r) !== null,
+      Math.hypot(other.x - obs.x, other.y - obs.y) < d + reach &&
+      segCircleHit(obs, isle, other, other.r + reach) !== null,
   );
 }
 
@@ -891,23 +912,32 @@ function surfIntensity(coast: number, dist: number, shadow: number, o: HeatmapOp
 }
 
 /**
+ * Per-bake scratch: the occluder shortlist, the height raster, and `land` — the
+ * OUT-parameter that tells the caller which budget the cell it just priced draws
+ * on. It is a field on an object the bake allocates once rather than a returned
+ * pair because `coverIntensity` runs per CELL and a per-cell allocation is
+ * exactly the cost the scan is written to avoid.
+ */
+interface BakeCtx {
+  occ: readonly Island[];
+  raster: HeightRaster | null;
+  /** Set by `coverIntensity`: was the last priced cell LAND (vs. surf)? */
+  land: boolean;
+}
+
+/**
  * Intensity of one candidate cell of an island paint — LAND or SURF — or 0 if
- * it does not paint at all.
+ * it does not paint at all. Also records which of the two it was on `ctx.land`.
  *
  * Ordered cheapest-first, and the ordering is the perf contract: the terminator
  * is scalar arithmetic, membership is a broadphased polygon test, the coastline
  * distance is a polygon walk, and the LOS shortlist is normally empty.
  */
-function coverIntensity(
-  p: Vec2,
-  isle: Island,
-  obs: Vec2,
-  o: HeatmapOpts,
-  ctx: { occ: readonly Island[]; raster: HeightRaster | null },
-): number {
+function coverIntensity(p: Vec2, isle: Island, obs: Vec2, o: HeatmapOpts, ctx: BakeCtx): number {
   const shadow = faceShadow(p, isle, obs, o.island.terminator);
   if (shadow <= 0) return 0;
   const land = inLand(p, isle);
+  ctx.land = land;
   const coast = land ? 0 : nearestCoastPoint(p, isle).dist;
   if (!land && coast > o.model.surfBandU) return 0;
   for (const other of ctx.occ) if (islandBlocksSegment(obs, p, other)) return 0;
@@ -915,6 +945,38 @@ function coverIntensity(
   return land
     ? landIntensity(p, isle, dist, shadow, o, ctx.raster)
     : surfIntensity(coast, dist, shadow, o);
+}
+
+/** The two INDEPENDENT cell budgets one bake draws on. */
+interface CellBudget {
+  land: number;
+  surf: number;
+}
+
+/** Is either budget still open? The scan stops only when BOTH are spent — a
+ *  land-full island must keep scanning for surf, and vice versa. */
+function budgetOpen(b: CellBudget): boolean {
+  return b.land > 0 || b.surf > 0;
+}
+
+/**
+ * Draw one cell from the LAND or the SURF budget, or refuse.
+ *
+ * SEPARATE BUDGETS ARE THE WHOLE POINT (Story 4.10 review gate). Surf rides the
+ * island bake, so one shared cap put the fringe in competition with the
+ * coastline; the scan is ROW-MAJOR, so what a big island lost to its own surf
+ * was the last rows it reached — its southern edge — with nothing to show for
+ * it. Land coverage must not depend on whether surf is enabled.
+ */
+function takeCell(b: CellBudget, land: boolean): boolean {
+  if (land) {
+    if (b.land <= 0) return false;
+    b.land--;
+    return true;
+  }
+  if (b.surf <= 0) return false;
+  b.surf--;
+  return true;
 }
 
 /**
@@ -940,6 +1002,13 @@ function coverIntensity(
  * neighbourhood: identical terminator, identical occluders, identical range
  * gate. A second pass would double the only expensive thing in this file.
  *
+ * BUT IT DOES NOT RIDE THE SAME BUDGET. Land and surf draw on two independent
+ * caps (`island.maxCells` / `island.surfMaxCells`) and the scan stops only when
+ * BOTH are spent, so land coverage is byte-identical whether surf is enabled or
+ * not. With one shared cap a big island's fringe could consume the budget its
+ * own southern rows needed — a row-major scan loses the LAST rows it reaches,
+ * which is the least visible way to lose a coastline and therefore the worst.
+ *
  * `raster` is the cycle-59 height field (amendment 129), or null for a caller
  * that has none — in which case land reflectivity is `landSteep`, i.e. exactly
  * the pre-4.10 fill.
@@ -954,7 +1023,15 @@ export function buildIslandCoverage(
   raster: HeightRaster | null = null,
 ): CoverCell[] {
   const out: CoverCell[] = [];
-  const ctx = { occ: occluderCandidates(isle, field, obs), raster };
+  // The shortlist is widened by the SAME band the scan is (see
+  // `occluderCandidates`): a surf cell outside the bounding circle is still a
+  // cell an island can stand in front of.
+  const ctx: BakeCtx = {
+    occ: occluderCandidates(isle, field, obs, o.model.surfBandU),
+    raster,
+    land: false,
+  };
+  const budget: CellBudget = { land: o.island.maxCells, surf: o.island.surfMaxCells };
   // The scan reaches PAST the coastline by the surf band — and so does the
   // broadphase radius, or the fringe would be clipped to the bounding circle.
   const reach = isle.r + o.model.surfBandU;
@@ -963,9 +1040,9 @@ export function buildIslandCoverage(
   const gx0 = cellOf(isle.x - reach, o.cellU);
   const gx1 = cellOf(isle.x + reach, o.cellU);
   const gy1 = cellOf(isle.y + reach, o.cellU);
-  for (let gy = cellOf(isle.y - reach, o.cellU); gy <= gy1 && out.length < o.island.maxCells; gy++) {
+  for (let gy = cellOf(isle.y - reach, o.cellU); gy <= gy1 && budgetOpen(budget); gy++) {
     const y = cellCentre(gy, o.cellU);
-    for (let gx = gx0; gx <= gx1 && out.length < o.island.maxCells; gx++) {
+    for (let gx = gx0; gx <= gx1 && budgetOpen(budget); gx++) {
       const x = cellCentre(gx, o.cellU);
       // The two scalar rejections run on raw numbers BEFORE anything allocates a
       // point or calls into polygon math. Most of a bounding box is neither in
@@ -973,7 +1050,8 @@ export function buildIslandCoverage(
       // function call for each of those cells was the whole bake's cost.
       if (!inBroadphase(x, y, isle, obs, r2, range2)) continue;
       const i = coverIntensity({ x, y }, isle, obs, o, ctx) * noiseMul(seed, gx, gy, o.noise);
-      if (i > 0) out.push({ gx, gy, i, b: Math.atan2(y - obs.y, x - obs.x) });
+      if (!(i > 0) || !takeCell(budget, ctx.land)) continue;
+      out.push({ gx, gy, i, b: Math.atan2(y - obs.y, x - obs.x) });
     }
   }
   return out;

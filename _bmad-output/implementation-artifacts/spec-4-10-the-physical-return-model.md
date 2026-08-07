@@ -2,10 +2,10 @@
 title: 'Story 4.10 — The Physical Return Model'
 type: 'feature'
 created: '2026-08-07'
-status: 'in-review'
+status: 'done'
 baseline_revision: '47b5575'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context.md'
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context-amendments.md'
@@ -46,8 +46,12 @@ existing sweep/decay/freeze rules.
   against it — anywhere on a paint path is a failed AC.
 - **Amendment 78 survives:** a large island still reads as a big red mass with softer edges, red out to
   the rim.
-- **Clutter can never outrank a real return** (amendment 130) — its peak must stay strictly below
-  `bands[0].at` even at the noise multiplier's most favourable draw.
+- **Clutter can never outrank a real return** (amendment 130). *(CORRECTED IN-CYCLE by amendments 133
+  and 136 — see the Spec Change Log. The bound as first written here, "strictly below `bands[0].at`",
+  was a mis-derivation: that is the TRANSPARENCY threshold, so it made clutter invisible rather than
+  safe. The ruling is unchanged; the bound is now three-sided — clutter must straddle `bands[0].at` so
+  the noise speckles it, never reach `bands[1].at`, and never exceed the faintest real echo's worst
+  draw.)*
 - Reuse the shared geometry seam (`pointInIsland`, `nearestCoastPoint`, `islandBlocksSegment`,
   `sampleHeight`); never re-implement polygon or raster math locally, never use the bounding circle as
   the coastline, never key a `core` early-out on `isle.x/y` instead of `isle.pole`.
@@ -80,7 +84,7 @@ existing sweep/decay/freeze rules.
 | Large island interior at the rim | Big tall island, interior cell, 640u out | Still red (amendment 78 regression pin) | No error expected |
 | Surf fringe | Water cell within `surfBandU` seaward of a coastline, near face, swept | Weak (green-band) return outside the polygon | Cells landward of the coast take the land path, not surf |
 | Surf on the far face | Water cell seaward of the coast but past the terminator | Paints nothing — inherits the island's `faceShadow` | No error expected |
-| Clutter vs a faint echo | Clutter cell coincident with a `minPeak` ship kernel cell | The ship wins `writeCell` (max-wins); clutter never raises the cell | Pin clutter peak < `bands[0].at` |
+| Clutter vs a faint echo | Clutter cell coincident with a `minPeak` ship kernel cell | The ship wins `writeCell` (max-wins) at every noise draw | Pin `clutter × (1+noise) < minPeak × (1−noise)`, and the straddle/green bounds (amendments 133, 136) |
 | Storm wall in range | Live ring, band cells within radar range, beam has crossed their bearing | Volume-falloff return along the band | Ring absent / `state: 'idle'` → no paint at all |
 | Storm wall out of range | Band cells beyond `radarRange` from the frozen observer | Not baked | No error expected |
 | Next-ring telegraph | Revealed but not-yet-live ring | Paints nothing | No error expected |
@@ -176,7 +180,112 @@ existing sweep/decay/freeze rules.
 
 ## Spec Change Log
 
+### 2026-08-07 — clutter bound corrected mid-implementation (amendments 133, 136)
+
+**Triggering finding:** the first implementation followed this spec's clutter bound faithfully and
+produced a haze that contributes to the intensity field and lights **zero pixels**. `bands[0].at` is
+the TRANSPARENCY threshold, so "peak strictly below `bands[0].at`" does not make clutter safe — it
+makes it invisible. That is neither option Eric was shown at the question gate (he chose "textural
+only" and explicitly declined "no clutter this cycle").
+
+**What was amended:** the bound only — Eric's ruling is untouched. It is now three-sided: clutter must
+STRADDLE `bands[0].at` so the noise speckles it into a haze, must never reach `bands[1].at` (green
+only — blue would put "probably a thing" on empty water), and must never exceed the faintest real
+echo's worst draw (`minPeak × (1 − noise)`), because `writeCell` is max-wins on intensity and hands
+the winner its ALPHA too. Shipped at `clutter: 0.105`. The corresponding clause inside
+`<intent-contract>` was annotated rather than silently rewritten, so the mis-derivation stays visible.
+
+**Known-bad state avoided:** shipping a mechanic Eric chose, in a form he was never offered — and the
+subtler one, a coefficient "safely" above the threshold, which paints a solid uniform green disc
+around own hull (band colour is verbatim and alpha carries age, not intensity, so every lit clutter
+cell is the same pixel) and reads as a drawn circle rather than as sea.
+
+**KEEP (must survive any re-derivation):** the clutter coefficient is the ONE value in this block
+deliberately tuned to sit ON a threshold rather than clear of one — that is the mechanism, not
+sloppiness. Both sides of the straddle must be asserted; a one-sided assertion is exactly what let the
+invisible version pass its own test.
+
+**General lesson recorded in amendment 133:** an amendment that states a ruling AND its implementation
+bound can be right about the ruling and wrong about the bound — and the bound is what gets
+implemented. A numeric constraint is the spec author's claim and is reviewable; it does not inherit
+the ruling's authority.
+
 ## Review Triage Log
+
+### 2026-08-07 — Review pass (Blind Hunter + Edge Case Hunter, run at Fable)
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 17: (high 5, medium 10, low 2)
+- defer: 2: (high 0, medium 2, low 0)
+- reject: 0
+- addressed_findings:
+  - `[high]` `[patch]` **Surf painted BLUE on open water.** `surf` 0.3 × noise 1.3 = 0.39 > `bands[1].at` 0.36 within ~310u. Coefficient → 0.26 and the comment restated with the noise factor.
+  - `[high]` `[patch]` **The storm wall painted RED, out-reading a hull** (against amendment 128, and against its own comment claiming it was below the ceiling "by construction"). `storm` 0.6 × 1.3 = 0.78 > 0.7. Coefficient → 0.5.
+  - `[high]` `[patch]` **Every bound assertion ran the noise-OFF `CLEAN` fixture**, which is why the two above survived a green 1,868-test suite — the cycles 54/55/57 shape again. Added worst-draw arithmetic bounds and a rasterized band-histogram test per source at SHIPPED noise. Recorded as amendment 135.
+  - `[high]` `[patch]` **One-frame weather collapse.** Both weather paints opened with the frame's `from`, a sliver short of the anchor; on the last frame of a revolution `wrapPositive(to − from)` wrapped a near-full arc to ~0.03 rad — measured at 3,574 lit texels → 17, roughly every other revolution. Fixed structurally (the anchor is set internally; `from` is no longer an argument) so it is unrepresentable rather than merely corrected.
+  - `[high]` `[patch]` **`VERSION`/`package.json` were not bumped for cycle 61, and neither tracker was updated.** Both trackers and the version now land in this PR.
+  - `[medium]` `[patch]` Clutter could claim a faint echo's cell AND its alpha (0.169 vs 0.14), re-aging a decaying return. Coefficient → 0.105; the guarantee now holds outright.
+  - `[medium]` `[patch]` Clutter's disc edge was a hand-placed circle, not a curve-decided fade (99.7% of peak at the cutoff) — against amendment 130. Added `clutterRef: 150`, so the haze dies at ~79u on its own and `clutterRangeU` is a pure compute bound.
+  - `[medium]` `[patch]` Clutter painted on LAND and through islands. It is SEA state — now carries a frozen occluder shortlist and masks both.
+  - `[medium]` `[patch]` Three live clutter paints with independent seeds lit ~87% of the disc under max-wins instead of ~26%, re-creating the solid disc the straddle prevents. One stable seed makes stacking idempotent and the speckle a property of the PLACE.
+  - `[medium]` `[patch]` `STORM_MAX_CELLS` was a fixed 8,000 sized against BASE radar range; a boosted scope (~1327u) or a lowered `cellU` blew past it and the bake silently dropped the wall's outer radii. Cap now derived at bake time, with an absolute runaway backstop.
+  - `[medium]` `[patch]` `occluderCandidates` was not widened by `surfBandU`, so an occluder crossing only the obs→surf-cell corridor was missed and the per-cell LOS test never ran.
+  - `[medium]` `[patch]` `maxCells: 2600` was shared between land and surf on a widened scan, so a big island could truncate row-major and lose its southern edge. Surf given its own budget.
+  - `[medium]` `[patch]` The clutter placement test pinned via `radar.intensityAt` — a grid-space read that bypasses the sprite transform entirely, which is amendment 98's exact trap. Now round-trips lit texels through `measure()` at both zoom extremes.
+  - `[medium]` `[patch]` The `wetCells` regression oracle was weakened by an INTENSITY filter (≤ `model.surf`), which would excuse a future land-path leak onto open water. Now filters POSITIONALLY (within `surfBandU` of the coast).
+  - `[medium]` `[patch]` A stale header comment in `radarViewport.test.ts` asserted "CLUTTER LIGHTS NO TEXEL" (the retired amendment-130 bound) while the same file carried skip-disc machinery that exists because it does. Deleted.
+  - `[low]` `[patch]` Spec Design Notes drift: "saturates red by ~330u" vs the shipped ~465u, and the clutter pin cited `bands[0].at`. Both corrected.
+  - `[low]` `[patch]` The perf gate had been discharged by cross-environment extrapolation. Re-measured after the fixes: the harness's buffer-only figure now agrees with the reference-device number within noise, and the full frame is 1.70 ms at 0.5× — inside the 2.0 ms Block-If, taken rather than inferred.
+
+## Auto Run Result
+
+Status: **done**
+
+**Implemented change.** Story 4.10 replaces the `return` heatmap's hand-tuned intensity lookup with
+ONE physical model: a per-material reflectivity coefficient × a falloff whose exponent is chosen by
+the target's geometry (point/ship 1/d⁴, surface/coast+surf+clutter 1/d³, volume/storm 1/d²), in one
+new pure module every return source calls. The curve generalizes the shipped one, so `n = 1`
+reproduces cycle 52's hyperbola exactly and that identity is pinned as the safety net. Coast strength
+now multiplies terrain height into the existing depth solidity; surf, sea clutter and the storm wall
+join as three new paint sources under the existing sweep/freeze/decay rules.
+
+**Files changed.**
+- `client/src/render/radarFalloff.ts` (new) — the one model: geometry exponents, the generalized
+  attenuation, `fitPointRef`, `heightReflectivity`.
+- `client/src/render/radarSources.ts` (new) — `ClutterPaint` and `StormPaint` records and stamps.
+- `client/src/render/radarHeatmap.ts` — ships on POINT, coast on SURFACE, height folded into
+  `coverIntensity`, surf emitted from the island bake, separate land/surf budgets, padded occluder
+  shortlist.
+- `client/src/render/radar.ts` — height raster and `ZoneView` inputs; weather paint lifetime.
+- `client/src/config.ts` — the `model` block, the fitted `pointRef`, re-measured cost table.
+- `client/src/main.ts` — plumbs the raster and the zone view at the two existing call sites.
+- `client/src/__tests__/radarFalloff.test.ts` (new) + extensions to `radarHeatmap`, `radarViewport`,
+  `radarEcho` — including the noise-ON fixtures that were the review's central lesson.
+- `VERSION`, `package.json`, `package-lock.json` → 0.17.61; both trackers; amendments 127-137;
+  two deferred-work entries.
+
+**Verification.** `npm run check` green — **3,456 tests** (shared 571 / server 997 / client 1,888),
+0 lint errors (3 pre-existing `max-lines-per-function` warnings, untouched).
+`grep -rn "farRadar" client/src/render/` empty. `git diff --stat origin/main -- server/ shared/`
+empty; `PROTOCOL_VERSION` 30. Per-frame heatmap cost measured at all three zoom levels; 1.70 ms at
+0.5× against the 2.0 ms gate.
+
+**Residual risks.**
+- The storm wall has no island LOS (deferred to 4.11, ledgered) — it is the one return that paints
+  through terrain.
+- The per-frame budget has still never been taken on the reference device (ledgered); the harness now
+  agrees with the recorded reference figure within noise, which is why this cycle's gate was passed on
+  measurement rather than extrapolation.
+- Every number in the coefficient table is expected to be tuned on sight (amendment 118); the three
+  band-bound relationships are what is pinned, not the values.
+
+**Follow-up review recommended: true.** The review pass applied 17 patches across five source files
+and four test files, two of them high-severity band-ceiling violations that changed shipped
+coefficients, one a structural fix to paint lifetime, plus a mid-cycle correction to a ratified
+amendment. That is enough breadth and consequence to be worth an independent look — and this cycle's
+own record (amendment 61) says to run the cross-model gate even when the in-family gate comes back
+clean.
 
 ## Design Notes
 
@@ -201,10 +310,16 @@ directly rather than trusting the curve.
 
 **Worked calibration (the shape, not the final numbers — amendment 118 expects tuning).** Solving
 `ext × atten₄(farRadar) / strongExtent = bands[2].at` for the Mine Layer broadside (`ext` 88,
-`strongExtent` 60, red at 0.7) puts the point reference in the high-500s u. At that fit a mid hull
-saturates red by ~330u and still reads blue at the 660u rim; a `minExtent` needle at the rim falls to
-`minPeak` and paints green; a battleship broadside still reads red at the rim. Those four readings are
-the matrix rows above and are what the suite pins — not the intermediate constant.
+`strongExtent` 60, red at 0.7) puts the point reference at **558.505u**. At that fit a mid hull
+saturates red at ~465u and still reads blue (0.5165) at the 660u rim; a `minExtent` needle at the rim
+falls to `minPeak` and paints green; a battleship broadside still reads red (0.7279) at the rim. Those
+four readings are the matrix rows above and are what the suite pins — not the intermediate constant.
+
+**Every coefficient bound must carry the noise factor.** `noiseMul` multiplies a cell's intensity by
+`1 ± noise` AFTER the coefficient is applied, so a bound written at the nominal value is not a bound.
+State each as `coefficient × (1 + noise) < threshold` and pin it with a test that rasterizes at the
+SHIPPED noise level and asserts the forbidden band's cell count is zero — a noise-off fixture proves a
+strictly weaker statement (amendment 135, learned the hard way at this cycle's review gate).
 
 **Height folds in as reflectivity, not as geometry.** `coverIntensity` gains one factor:
 `heightReflectivity(sampleHeight(raster, x, y))`, lerping a flat-terrain coefficient toward a steep one
