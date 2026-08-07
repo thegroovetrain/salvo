@@ -38,9 +38,9 @@ export interface StageLayers {
    *  beneath the tactical markers so blips/mines/reticle stay readable on top. */
   litZone: Container;
   /** WOUNDED SMOKE plumes (render/smoke.ts) — fog-immune for the same reason
-   *  the burst ring and the reticle are: a hurt hull is disclosed out to 495u,
-   *  well past the 330u sight bubble, so a plume drawn UNDER the fog would be
-   *  invisible in exactly the 330-495u annulus where the whole signal lives.
+   *  the burst ring and the reticle are: a hurt hull is disclosed out to 412.5u,
+   *  past the 330u sight bubble, so a plume drawn UNDER the fog would be
+   *  invisible in exactly the 330-412.5u annulus where the whole signal lives.
    *  Placed directly above `litZone` and BENEATH the tactical marks for
    *  litZone's own stated reason — blips, mines and the reticle must stay
    *  readable on top of it, and a plume is soft ambient texture, not a mark. */

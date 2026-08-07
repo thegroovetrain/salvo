@@ -19,8 +19,8 @@
 // the bearing-only `fh` foghorn — bearing + a 4..8 volume BAND resolved as
 // eighths of the LISTENER'S own intel range (Story 4.9, amendment 122) and
 // floored at 4 on the wire, since bands 1-4 are one indistinguishable 100%
-// plateau for every honest client (review fix), islands muffling to
-// max(5, band + 2), never a position or id for any
+// plateau for every honest client (review fix), islands muffling the FLOORED
+// band to max(5, floored + 2), never a position or id for any
 // fogged observer, see the fh verifier). Story 4.9 also TIGHTENS three rows
 // WITHIN the invariant: mines, torpedoes, and torpU updates now reveal at
 // the DETECT range — 0.75 × the observer's effective sight, a strict subset
@@ -1365,23 +1365,30 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
  * once, post-resolution, to max(5, band + 2) — silent past 8. Amendment 53's
  * max() clamps are RETIRED; nothing here reads effSight or muzzleFlash.
  *
- * THE PLATEAU FLOOR (review fix, anti-cheat): the EMITTED value is
- * `max(band, 4)`. Bands 1-4 are indistinguishable in every honest client
- * surface (gain 1.0 and the same chevron weight for all four), so transmitting
- * which of them a honker sits in is pure range resolution for a modified
- * client and nothing else — amendment 51 bounds the disclosure to bearing and
- * VOLUME TIER. Re-derived here from that reasoning, not read off production:
- * the floor lands on the emitted value AFTER the muffle, which is why it is a
- * no-op on the blocked path (`max(5, …)` is already ≥ 5) and muffled reach is
- * byte-identical. The DOMAIN CHECK is the second half of the same fail-closed
- * discipline: only a finite integer in 1..8 is a band at all.
+ * THE PLATEAU FLOOR (review fix, anti-cheat): the RAW band is floored to
+ * `max(band, 4)` BEFORE the muffle. Bands 1-4 are indistinguishable in every
+ * honest client surface (gain 1.0 and the same chevron weight for all four), so
+ * transmitting which of them a honker sits in is pure range resolution for a
+ * modified client and nothing else — amendment 51 bounds the disclosure to
+ * bearing and VOLUME TIER. Re-derived here from that reasoning, not read off
+ * production: flooring the EMITTED value instead would leak the very bit the
+ * floor removes (a blocked raw 1-3 landing at 5 while a blocked raw 4 lands at
+ * 6 differences straight back to the plateau), and would put a blocked
+ * point-blank honk at 87.5% when amendment 54 ratifies 75% at the truesight
+ * edge. The DOMAIN CHECK is the second half of the same fail-closed discipline:
+ * only a POSITIVE FINITE listener range — tested before the `d === 0`
+ * short-circuit, which never reads it — and a finite integer in 1..8 is a band
+ * at all.
  */
 function hornBandOracle(w: World, me: ShipRecord, p: { x: number; y: number }): number | null {
+  const intel = effRadar(me);
+  if (!Number.isFinite(intel) || intel <= 0) return null;
   const d = dist(me.state, p);
-  const band = d === 0 ? 1 : Math.ceil((8 * d) / effRadar(me));
+  const band = d === 0 ? 1 : Math.ceil((8 * d) / intel);
   if (!Number.isInteger(band) || band < 1 || band > 8) return null;
-  const emitted = clearLos(me.state, p, w.map.islands) ? band : Math.max(5, band + 2);
-  return emitted > 8 ? null : Math.max(emitted, 4);
+  const floored = Math.max(band, 4);
+  const emitted = clearLos(me.state, p, w.map.islands) ? floored : Math.max(5, floored + 2);
+  return emitted > 8 ? null : emitted;
 }
 
 const EVENT_VERIFIERS: Record<string, EventVerifier> = {

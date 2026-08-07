@@ -663,8 +663,9 @@ export interface SmokeEvent {
  *
  * GAIN IS NOT ON THE WIRE AND MUST NEVER BE. `v` is an OPAQUE ENUM: the band
  * → gain mapping (1.0 / 1.0 / 1.0 / 1.0 / 0.875 / 0.75 / 0.625 / 0.5 — flat
- * through band 4 = truesight at base stats, then one eighth of the 100→50%
- * span per band, hitting 50% at the radar edge) is a CLIENT-SIDE LOOKUP in
+ * through band 4 = truesight at base stats, then a 12.5-percentage-point step
+ * per band, one eighth of FULL SCALE and one quarter of the 100→50% span, in
+ * four steps from band 4 to the 50% radar edge) is a CLIENT-SIDE LOOKUP in
  * CLIENT_CONFIG. Putting a gain fraction on the wire would make hearing a
  * property of the sound rather than of the listener.
  *
@@ -673,20 +674,24 @@ export interface SmokeEvent {
  * is inherent to sending a volume tier at all (amendment 51 ratified exactly
  * that — BEARING AND VOLUME TIER ONLY). The rule the wire actually holds is
  * that the band's resolution is NEVER FINER THAN THE GAIN CURVE CONSUMES: the
- * server emits `max(band, 4)`, because bands 1-4 share one gain (1.0) and one
- * chevron weight, so a finer value would carry range information no honest
- * client could use and only a modified one could read. Emitted values are
+ * server floors the RAW band to `max(band, 4)` before anything else touches it,
+ * because bands 1-4 share one gain (1.0) and one chevron weight, so a finer
+ * value would carry range information no honest client could use and only a
+ * modified one could read. Emitted values are
  * therefore 4..8 — a 330u plateau at base stats, then 82.5u steps that each
  * correspond to a real, audible difference. Any future retune of the gain
  * curve must move this floor with it, in both directions.
  *
  * ISLANDS MUFFLE rather than block (amendment 54, the first dent in the
  * 2026-08-02 LOS law), preserved in meaning across the rebase: a failed
- * losClear() resolves to `max(5, band + 2)`, silent when that would exceed 8.
- * Two bands is the width of one old tier, so the demotion reproduces the old
- * behavior at its boundaries; the floor of 5 is what keeps *a rock ALWAYS
- * costs the honker reach* true inside the flat 100% plateau. Applied ONCE,
- * after the distance band resolves, from exactly one losClear() call.
+ * losClear() resolves to `max(5, floored + 2)`, silent when that would exceed
+ * 8. Two bands is the width of one old tier, so the demotion reproduces the old
+ * behavior at its boundaries — the whole 100% plateau lands at band 6 (75%)
+ * behind rock, which is amendment 54's ruling at the truesight edge exactly,
+ * and *a rock ALWAYS costs the honker reach* stays true. Applied ONCE, to the
+ * ALREADY-FLOORED band, from exactly one losClear() call: muffling the raw band
+ * instead would let a blocked honk be differenced back into the plateau
+ * resolution the floor exists to remove.
  *
  * `h` is the equipped horn variant (amendment 52) — the ONLY identity-adjacent
  * field on this row, and a KNOWING, NARROW break with the neutral-signal rule

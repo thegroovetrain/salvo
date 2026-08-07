@@ -122,6 +122,17 @@ describe('bandGain — the eighths ladder, both of Eric’s anchors intact', () 
     expect(bandGain(undefined)).toBe(1);
   });
 
+  it('falls back to the QUIETEST band for an OUT-OF-DOMAIN value, never to full gain (review fix)', () => {
+    // `undefined` is the self/spectator path and keeps full gain above. A number
+    // OUTSIDE 1..8 is something else entirely: the least trustworthy input the
+    // channel can carry, so the fallback must be the least salient answer, not
+    // the loudest one. Failing LOUD while the docblock claimed a closed failure
+    // is what this pins.
+    for (const bad of [0, 9, -1, 99, 1.5, NaN, Infinity] as unknown as HornBand[]) {
+      expect(bandGain(bad)).toBe(bandGain(8));
+    }
+  });
+
   it('carries no reach knob — who hears what is resolved server-side', () => {
     // Amendment 122: the band is which eighth of the LISTENER's own intel range
     // the honker sits in, resolved server-side and arriving pre-decided as `v`.
@@ -225,6 +236,11 @@ describe('chevronWeight — the visual twin rides the SAME band curve', () => {
       expect(w.size).toBeGreaterThan(0);
       expect(w.thickness).toBeGreaterThan(0);
       expect(w.alpha).toBeGreaterThan(0);
+      // ...and it is the FAINTEST band, not the loudest (review fix): an
+      // out-of-domain value is the least trustworthy input the row carries, so
+      // it must not be drawn at maximum salience. `undefined` — the honest
+      // self/spectator shape — keeps its full weight, tested above.
+      expect(w).toEqual(chevronWeight(8));
     }
   });
 

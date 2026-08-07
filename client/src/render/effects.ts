@@ -81,7 +81,7 @@ export function effectPeakAlpha(kind: EffectKind, baseAlpha: number, intensity: 
  * `splash` is your own fall of shot at its true impact point (bracket-and-walk
  * fire is the whole point — a miss you cannot see is the one you most need to
  * see), `spark` is the Hit Call bloom confirming a connection at a hull the fog
- * is hiding, and `muzzle` is a shooter inside the 495u flash halo but outside
+ * is hiding, and `muzzle` is a shooter inside the 412.5u flash halo but outside
  * your 330u bubble. Drawing any of the three UNDER the fog would render them
  * exactly where they are already useless.
  *

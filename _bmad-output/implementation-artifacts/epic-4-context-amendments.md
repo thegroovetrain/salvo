@@ -1660,9 +1660,18 @@ implicit and record one consequence that a future cycle will otherwise mistake f
      That is precisely the disclosure amendment 51 exists to bound, and it bit hardest exactly where
      it matters: a DAZZLED or `intelRadar`-boosted listener can receive an inner band for a honker
      they cannot see, which is the fog the flat-100%-plateau presentation was supposed to be hiding.
-     The floor is applied to the EMITTED value after the muffle resolves, so amendment 54's demotion
-     is a no-op by construction (`max(5, band + 2)` is already ≥ 5) and a point-blank honk behind
-     rock still lands at 5.
+
+     **CORRECTED BY THE STEP-04 REVIEW, SAME CYCLE: the floor is applied to the RAW band FIRST, then
+     the muffle.** The first implementation floored the EMITTED value after the muffle, which was
+     wrong twice over and both hunters' findings converge here. It leaked the very plateau bit the
+     floor exists to suppress — a blocked honk resolved raw bands 1-3 to 5 but raw band 4 to 6, so a
+     modified client that knows an island intervenes (it holds the map seed and both positions) still
+     recovered "inside 247.5u" vs "in the 247.5-330u shell". And it silently WEAKENED amendment 54:
+     a blocked point-blank honk landed at 87.5% where the ratified rule is that a rock costs one old
+     tier, i.e. 75%. Flooring first fixes both — the truth table is now raw 1-4 → 4 clear / **6**
+     blocked (0.75, amendment 54 restored exactly), 5 → 5/7, 6 → 6/8, 7 and 8 → themselves clear and
+     SILENT blocked. The blocked path now carries no more resolution than the clear one, which is the
+     property to preserve on any future edit.
 
      Standing principle this establishes, worth applying to any future signal: **the wire may carry
      no finer resolution than the presentation actually consumes.** A quantised channel's bucket

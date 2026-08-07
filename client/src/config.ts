@@ -1566,8 +1566,9 @@ export const CLIENT_CONFIG = {
      * server; this table only says how loud each band plays.
      *
      * THE CURVE IS FLAT AT FULL VOLUME THROUGH TRUESIGHT (band 4 = 330u at
-     * base stats) and then steps down one eighth of the 100→50% span per band
-     * to the radar edge (band 8 = 660u at base). BOTH ANCHORS ARE ERIC'S
+     * base stats) and then steps down 12.5 percentage points per band — one
+     * eighth of FULL SCALE, i.e. one quarter of the 100→50% span, in four steps
+     * — to the radar edge (band 8 = 660u at base). BOTH ANCHORS ARE ERIC'S
      * ORIGINAL FOGHORN RULING — *"within truesight range at full volume"* and
      * 50% at the radar edge — and must survive any retune of the middle.
      *

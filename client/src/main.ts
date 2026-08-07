@@ -167,7 +167,7 @@ interface Game {
   radar: Radar;
   /** WOUNDED SMOKE plumes (render/smoke.ts, Story 4.4) — accumulated from
    *  the anonymous `sm` pulses on the fog-immune chart, since a hurt hull is
-   *  disclosed out to 495u and the plume must read past the sight bubble. */
+   *  disclosed out to 412.5u and the plume must read past the sight bubble. */
   smoke: Smoke;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
@@ -2283,9 +2283,6 @@ function renderAlive(
     g.xpRail.hideTransient();
   }
   updateZone(g, zv, inStorm, tier1, now, nowMs);
-  // Own pose feeds the shell sight-bubble cull; own active zones keep a shell
-  // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
-  g.projectiles.render(now, pose ?? undefined, ownZones);
   // AHEAD OF THE RADAR ON PURPOSE (amendment 89): the seam between the radar's
   // two ship-paint sources and the fog hole are one radius, and the radar reads
   // it during render() — so a dazzle flip adopted after this line would leave
@@ -2293,6 +2290,12 @@ function renderAlive(
   // disagreement that radius exists to prevent. Camera zoom (which the fog
   // rebake reads) was updated in renderOwn.
   updateDazzle(g, now);
+  // AND AHEAD OF THE PROJECTILES, for the same reason (review fix): their two
+  // ENEMY cull rings are dazzle-scaled, so a render taken before the flip was
+  // adopted would cull against the PREVIOUS frame's rings while the fog and the
+  // radar had already moved. Own pose feeds the cull; own active zones keep a
+  // shell revealed by our flare from being culled (exactly-once — Story 1.7).
+  g.projectiles.render(now, pose ?? undefined, ownZones);
   // The contact store is the radar's SECOND source of ship paints (amendment
   // 89): a hull inside truesight is delivered as a `Contact` and never as a
   // blip, so the scope synthesizes its echo from that store when the beam

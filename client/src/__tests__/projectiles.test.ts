@@ -334,6 +334,55 @@ describe('Projectiles.setDazzled — both cull rings shrink with the observer (r
   });
 });
 
+// --- REVIEW FIX: DAZZLE must not shrink the ring for OWNER-fired ordnance -----
+//
+// The server's ballistic rows short-circuit on `shell.ownerId === me.id` BEFORE
+// any range test at all (signals.ts `ballisticSignal` and `torpedoUpdateSignal`),
+// so the server NEVER stops revealing or correcting our OWN shell or fish —
+// dazzled or not. Shrinking the own ring under a dazzle is therefore a cull with
+// no server basis: a dazzled captain's own tracer would vanish at 205u instead
+// of 370u, the same class of error as applying the DETECT ring to an own fish.
+// A track the client believes is its own rides the UN-dazzled, sight-derived
+// ring — exactly its pre-Story-4.9 behavior; everything else rides the
+// dazzle-scaled ring, detect-derived for torpedoes.
+
+describe('Projectiles — an OWN track keeps the un-dazzled ring (review fix)', () => {
+  const origin = { x: 0, y: 0 };
+  const DZ = CONFIG.starShells.dazzleSightFactor;
+  const OWN_CULL = CONFIG.vision.sight + 40; // 370u — un-dazzled truesight + margin
+  const dazzledSightCull = CONFIG.vision.sight * DZ + 40; // 205u at base stats
+  const at = (k: 'shell' | 'torp', x: number): BallisticEvent => ({ k, id: 'p1', x, y: 0, vx: 0, vy: 0, t: 0 });
+
+  const live = (ev: BallisticEvent, own: 'gun' | 'torpedo' | null): number => {
+    const p = new Projectiles(900, new Container());
+    p.setSightRange(CONFIG.vision.sight);
+    p.setDazzled(true);
+    p.onShell(ev, own, own);
+    p.render(1, origin, []);
+    return p.liveCount;
+  };
+
+  it('KEEPS a DAZZLED captain\'s OWN shell past the dazzled ring — the server never stopped revealing it', () => {
+    expect(live(at('shell', dazzledSightCull + 1), 'gun')).toBe(1);
+    expect(live(at('shell', OWN_CULL - 1), 'gun')).toBe(1);
+  });
+
+  it('KEEPS a DAZZLED captain\'s OWN fish out to the same truesight ring (never the detect ring either)', () => {
+    expect(live(at('torp', dazzledSightCull + 1), 'torpedo')).toBe(1);
+    expect(live(at('torp', OWN_CULL - 1), 'torpedo')).toBe(1);
+  });
+
+  it('...and still culls an own track at ITS ring — un-dazzled truesight, exactly as before this story', () => {
+    expect(live(at('shell', OWN_CULL + 1), 'gun')).toBe(0);
+    expect(live(at('torp', OWN_CULL + 1), 'torpedo')).toBe(0);
+  });
+
+  it('leaves the ENEMY rings dazzle-scaled — the fork is on OWNERSHIP, not on the dazzle', () => {
+    expect(live(at('shell', dazzledSightCull + 1), null)).toBe(0);
+    expect(live(at('torp', CONFIG.vision.sight * DZ * CONFIG.vision.detectFactor + 40 + 1), null)).toBe(0);
+  });
+});
+
 describe('main.updateDazzle — the dazzle actually reaches the projectile renderer (review fix)', () => {
   // main.ts boots the whole app at module load and is never imported by a test
   // (see foghorn.test.ts's note); this is the same SOURCE-SCAN technique. The
@@ -354,6 +403,19 @@ describe('main.updateDazzle — the dazzle actually reaches the projectile rende
   it('sets it BEFORE the fog\'s changed-flag early-return, exactly as the radar is', () => {
     const body = updateDazzle.slice(0, updateDazzle.indexOf('\n}'));
     expect(body.indexOf('g.projectiles.setDazzled')).toBeLessThan(body.indexOf('if (!g.fog.setDazzled'));
+  });
+
+  it('runs BEFORE the projectile render, so the cull rings never lag the fog by a frame (review fix)', () => {
+    // The alive render path called `g.projectiles.render(...)` first and adopted
+    // the frame's dazzle state only afterwards, so on the frame a dazzle flips
+    // the projectiles culled against the PREVIOUS frame's rings while the fog
+    // and the radar had already moved. Same rule the neighbouring comment block
+    // ratifies for the radar: updateDazzle precedes its consumers.
+    const render = MAIN_TS.indexOf('g.projectiles.render(now, pose ?? undefined, ownZones)');
+    const dazzle = MAIN_TS.indexOf('updateDazzle(g, now);');
+    expect(render).toBeGreaterThan(-1);
+    expect(dazzle).toBeGreaterThan(-1);
+    expect(dazzle).toBeLessThan(render);
   });
 });
 

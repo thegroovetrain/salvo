@@ -998,7 +998,7 @@ describe('pierce identity (Story 2.9) — the derived AP boom id', () => {
 // --- STORY 4.3: THE GUNNERY CONVERSATION ---------------------------------------
 //
 // Three server rows replace three client-side guesses. `mz` says a gun-family
-// weapon fired HERE (for anyone in the 495u halo, and deliberately anonymous),
+// weapon fired HERE (for anyone in the 412.5u halo, and deliberately anonymous),
 // `sp` is our own fall of shot through any fog, `hc` is "something you fired
 // connected" with no severity of any kind. The two impact rows CLAIM their
 // point, so a shooter who can see their own impact draws one mark, not two.

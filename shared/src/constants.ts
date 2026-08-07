@@ -182,10 +182,12 @@ export const CONFIG = {
     // mine sits in the water. A mine's or torpedo's BOOM/BURST also stays on
     // truesight: you can watch an explosion you never saw the ordnance for.
     //
-    // This is the BASE-STATS rung — what the ladder pin and the tests read. At
-    // RUNTIME the gate is OBSERVER-SCALED (amendment 121): the server resolves
-    // it as `sightOf(me, now) * detectFactor`, so a star-shell dazzle halves it
-    // and an intelTruesight boon widens it, with island LOS applied unchanged.
+    // This is the BASE-STATS rung — the value the ladder PINS, read by the
+    // constraint tests and the weapons smoke and by NO production code: at
+    // RUNTIME the gate is OBSERVER-SCALED (amendment 121) and multiplies by
+    // `detectFactor` below, never by this. The server resolves it as
+    // `sightOf(me, now) * detectFactor`, so a star-shell dazzle halves it and
+    // an intelTruesight boon widens it, with island LOS applied unchanged.
     detect: SIGHT * 0.75,
     // The runtime scale the detect gate multiplies an observer's own
     // dazzle-scaled, boon-widened sight by. It is the SAME number as detect's
@@ -218,9 +220,12 @@ export const CONFIG = {
     // than RED. DERIVED: 1.75 × base truesight.
     //
     // !!! THIS RUNG SHIPS DELIBERATELY UNCONSUMED, AND THAT IS CORRECT. !!!
-    // It has no caller today. Naming the rung is what makes the ladder
-    // complete and checkable (amendment 123 — the one place the arc knowingly
-    // ships a constant with no consumer). It exists as STORY 4.10's
+    // It has no caller at all — not production, not tests beyond the ladder
+    // pins. Naming the rung is what makes the ladder complete and checkable
+    // (amendment 123). It is not quite the ONLY consumer-less constant here:
+    // `detect` above has no PRODUCTION consumer either (runtime multiplies by
+    // `detectFactor`), but it IS read — by the ladder pins and the weapons
+    // smoke — whereas this one is read by nothing. It exists as STORY 4.10's
     // CALIBRATION TARGET: under amendment 106 the radar red→blue crossover
     // must EMERGE from the 1/d⁴ falloff curve fitted to cross here, never from
     // a threshold branch. Writing `if (d > farRadar)` — or any other

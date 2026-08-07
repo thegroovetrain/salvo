@@ -464,6 +464,23 @@ describe('SIGNAL_REGISTRY — fh row: a degenerate intel range emits NOTHING (re
     expect(row.visible(foggedCtx(w, l), subject(NaN, 0, 'honker'))).toBe(false);
   });
 
+  // REVIEW FIX: the d === 0 short-circuit BYPASSED the domain check. `band = 1`
+  // is taken without ever touching radarRange, so a co-located honker plus a
+  // NaN/zero/negative intel range still laundered a garbage listener into a
+  // legal band — the exact thing the docblock claims can never happen. The
+  // guard belongs on `radarRange` itself, BEFORE the distance branch.
+  it.each([
+    ['NaN', NaN],
+    ['negative', -660],
+    ['zero', 0],
+    ['Infinity', Infinity],
+  ])('%s radarRange is inaudible even CO-LOCATED — the d === 0 branch cannot bypass the guard', (_label, radarRange) => {
+    const w = bareWorld();
+    const l = place(w, 'l', 0, 0);
+    l.stats = { ...l.stats, radarRange };
+    expect(row.visible(foggedCtx(w, l), subject(0, 0, 'honker'))).toBe(false);
+  });
+
   it('a healthy intel range is unaffected — the guard is a domain check, not a retune', () => {
     const { w, l } = withRadar(RADAR);
     expect(row.visible(foggedCtx(w, l), e)).toBe(true);
@@ -471,7 +488,19 @@ describe('SIGNAL_REGISTRY — fh row: a degenerate intel range emits NOTHING (re
   });
 });
 
-describe('SIGNAL_REGISTRY — fh row: islands MUFFLE to max(5, band + 2) — one step, applied once (amendments 54/122)', () => {
+// REVIEW FIX — THE FLOOR IS APPLIED TO THE RAW BAND, THEN THE MUFFLE. Applying
+// the plateau floor to the EMITTED value (after the muffle) had two wrong
+// consequences at once. (1) It LEAKED the plateau resolution the floor exists to
+// suppress: a blocked honk resolved raw bands 1-3 to 5 but raw band 4 to 6, so a
+// modified client that knows an island intervenes recovered exactly the bit the
+// floor removes. (2) It WEAKENED amendment 54: that ruling puts a blocked honk
+// at the truesight edge at 75%, and a blocked point-blank honk was landing at
+// 87.5% — the muffle was weaker inside truesight than before this story.
+// Flooring first makes the whole plateau resolve to 6 (= 0.75) when blocked,
+// which restores amendment 54 exactly and makes the blocked path carry no more
+// resolution than the clear one.
+
+describe('SIGNAL_REGISTRY — fh row: islands MUFFLE the FLOORED band — max(5, floor(band) + 2), one step, applied once (amendments 54/122)', () => {
   const blockedWorld = (listenerX: number): { w: World; l: ShipRecord } => {
     const w = bareWorld();
     const l = place(w, 'l', listenerX, 0);
@@ -480,21 +509,23 @@ describe('SIGNAL_REGISTRY — fh row: islands MUFFLE to max(5, band + 2) — one
   };
   const e = subject(0, 0, 'honker');
 
-  it('THE PLATEAU FLOOR: a band-1 honk behind a rock resolves to band 5, not band 3 — a rock always costs the honker reach', () => {
-    const { w, l } = blockedWorld(80); // band 1 by distance (≤ 82.5)
-    expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(5);
-  });
-
-  it('the floor holds across the whole 100% plateau: bands 2 and 3 behind a rock also land at 5', () => {
-    for (const d of [150, 240]) { // band 2 (≤165) and band 3 (≤247.5) by distance
+  it('THE WHOLE 100% PLATEAU behind a rock lands at band 6 — 75%, amendment 54\'s ruling restored exactly', () => {
+    // Raw bands 1, 2, 3 and 4 are ONE region on the wire, blocked or clear: the
+    // floor runs first, so all four muffle to max(5, 4 + 2) = 6. A blocked honk
+    // can therefore no longer be differenced against a clear one to recover
+    // which eighth of the plateau the honker sat in.
+    for (const d of [80, 150, 240, 300]) { // raw bands 1, 2, 3, 4 by distance
       const { w, l } = blockedWorld(d);
-      expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(5);
+      expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(6);
     }
   });
 
-  it('a band-4 honk (the truesight edge) behind a rock lands at band 6 — 75%, exactly the old tier boundary behavior', () => {
-    const { w, l } = blockedWorld(300); // band 4 by distance (≤ 330)
-    expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(6);
+  it('a point-blank blocked honk is no LOUDER than a truesight-edge one — the muffle never weakens with closeness', () => {
+    const near = blockedWorld(80);
+    const edge = blockedWorld(300);
+    const vNear = (row.materialize(foggedCtx(near.w, near.l), e) as FoghornEvent).v as number;
+    const vEdge = (row.materialize(foggedCtx(edge.w, edge.l), e) as FoghornEvent).v as number;
+    expect(vNear).toBe(vEdge); // 6 and 6 — one band, one gain (0.75)
   });
 
   it('bands 5 and 6 behind a rock step to 7 and 8 (band + 2 past the floor)', () => {
@@ -508,6 +539,29 @@ describe('SIGNAL_REGISTRY — fh row: islands MUFFLE to max(5, band + 2) — one
     for (const d of [550, 650]) { // band 7 (≤577.5) and band 8 (≤660) by distance
       const { w, l } = blockedWorld(d);
       expect(row.visible(foggedCtx(w, l), e)).toBe(false);
+    }
+  });
+
+  it('THE WHOLE TRUTH TABLE, raw band → emitted, clear and blocked (the one statement of the row)', () => {
+    // raw band (by a representative distance) → [clear, blocked]
+    const table: Array<[number, number, number | null]> = [
+      [80, 4, 6], // raw 1 → floored 4 → max(5, 6) = 6
+      [150, 4, 6], // raw 2
+      [240, 4, 6], // raw 3
+      [300, 4, 6], // raw 4 — amendment 54's anchor: 75% behind rock
+      [400, 5, 7], // raw 5
+      [480, 6, 8], // raw 6
+      [550, 7, null], // raw 7 → 9 > 8 → silent
+      [650, 8, null], // raw 8 → 10 > 8 → silent
+    ];
+    for (const [d, clear, blocked] of table) {
+      const open = bareWorld();
+      const lo = place(open, 'l', d, 0);
+      expect((row.materialize(foggedCtx(open, lo), e) as FoghornEvent).v).toBe(clear);
+
+      const { w, l } = blockedWorld(d);
+      if (blocked === null) expect(row.visible(foggedCtx(w, l), e)).toBe(false);
+      else expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(blocked);
     }
   });
 });

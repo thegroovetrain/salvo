@@ -2,7 +2,8 @@
 // FIFTH declared perception exception. The server emits an anonymous
 // `{k:'sm',x,y,tier}` pulse at a hurt hull's TRUE position every
 // `CONFIG.smoke.puffIntervalMs`, within the derived `CONFIG.vision.muzzleFlash`
-// halo (495u) with island LOS clear, and keeps NO plume history whatsoever. All
+// halo (412.5u — the ladder's 5/8 rung since Story 4.9) with island LOS clear,
+// and keeps NO plume history whatsoever. All
 // persistence is synthesized here — the shipped phosphor-blip arrangement
 // (render/phosphor.ts pure + render/radar.ts adapter) applied to a second
 // anonymous pulse, which is exactly what amendment 45 requires: the plume is

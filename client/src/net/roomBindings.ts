@@ -546,7 +546,7 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
  *   • `blip` RADAR PAINT — the beam crossed a contact's bearing this tick.
  *     Accumulated into decaying phosphor (render/radar.ts + phosphor.ts).
  *   • `sm` WOUNDED SMOKE (Story 4.4) — a hull is hurt HERE, this hurt, inside
- *     the 495u halo with LOS clear. Position and severity band, and nothing
+ *     the 412.5u halo with LOS clear. Position and severity band, and nothing
  *     else: no id, no hue, no class, no hp, no fraction, for ANY observer
  *     including the smoking captain and spectators. Accumulated into a drifting
  *     plume (render/smoke.ts), which is deliberately the BLIP's arrangement and
@@ -620,7 +620,7 @@ function honkBearing(e: FoghornEvent, deps: RoomBindingDeps): number | null {
  * THE GUNNERY CONVERSATION (Story 4.3) — the three rows that make firing an
  * exchange of information instead of a private guess:
  *   • `mz` MUZZLE FLASH — someone fired a gun-family weapon HERE, inside the
- *     495u halo with LOS clear. For ANYONE, and deliberately anonymous: no id,
+ *     412.5u halo with LOS clear. For ANYONE, and deliberately anonymous: no id,
  *     no hue, no class, no weapon weight (amendment 19 — the flash must create
  *     a question, never answer one). Nothing to dedupe: the server already caps
  *     it at one per tick per shooter, and a flash is not an impact mark.

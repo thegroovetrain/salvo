@@ -103,12 +103,23 @@ export interface ScreenPoint {
  * at base stats), then one step down per band to 50% at band 8 (the radar
  * edge): 1 / 1 / 1 / 1 / 0.875 / 0.75 / 0.625 / 0.5 (amendment 122). The band
  * itself is resolved SERVER-side against the listener's own intel range; this
- * only says how loud each band plays. An absent or unknown band (the `self` and
- * spectator shapes carry none) resolves to FULL gain: both of those observers
- * are at the honk, not in a band, and silence would be the one wrong answer.
+ * only says how loud each band plays.
+ *
+ * AN ABSENT BAND IS FULL GAIN; AN OUT-OF-DOMAIN ONE IS THE QUIETEST BAND. The
+ * two are different facts and get different answers (review fix). `undefined` is
+ * the honest `self` and spectator shape — neither carries a `v` because neither
+ * observer is IN a band, and silence would be the one wrong answer there. A
+ * NUMBER outside 1..8 is instead the least trustworthy input this row can carry,
+ * so it degrades to band 8's gain: still audible (a honk that arrived is a fact
+ * worth playing) but never the loudest answer for the worst-known input. The
+ * server fails closed on its own side too (`hornBandFor` emits nothing unless
+ * the band is a finite integer in range), so this is unreachable from an honest
+ * server; the two guards are deliberately INDEPENDENT.
  */
 export function bandGain(v: HornBand | undefined): number {
-  return v === undefined ? 1 : (F.bandGain[v] ?? 1);
+  if (v === undefined) return 1;
+  const gains: Record<number, number | undefined> = F.bandGain;
+  return gains[v] ?? F.bandGain[8];
 }
 
 /**
@@ -118,14 +129,16 @@ export function bandGain(v: HornBand | undefined): number {
  * spectator shape, which carries a position instead) draws at full weight: a
  * spectator is omniscient, so there is no band to under-draw.
  *
- * FAILS CLOSED ON AN OUT-OF-DOMAIN VALUE, the guard `bandGain` has always had
- * (`?? 1`). Any `v` outside 1..8 — a NaN, a 0, a 9 — used to return `undefined`
- * here, and `drawChevron` then threw on `w.size`: one malformed field taking
- * down the render loop. The server fails closed on its own side too
- * (`hornBandFor` emits nothing unless the band is a finite integer in range),
- * so this is unreachable from an honest server; the two guards are deliberately
- * INDEPENDENT, and this one degrades to the full-weight mark rather than
- * throwing, because a honk that arrived is a fact worth drawing.
+ * FAILS CLOSED ON AN OUT-OF-DOMAIN VALUE — TO THE FAINTEST BAND (review fix,
+ * the same split `bandGain` makes). Any `v` outside 1..8 — a NaN, a 0, a 9 —
+ * used to return `undefined` here, and `drawChevron` then threw on `w.size`: one
+ * malformed field taking down the render loop. It now degrades to band 8's
+ * weight rather than throwing, because a honk that arrived is a fact worth
+ * drawing — but never at band 1's maximum salience, which is the loudest mark on
+ * screen answering the least trustworthy input the row can carry. The server
+ * fails closed on its own side too (`hornBandFor` emits nothing unless the band
+ * is a finite integer in range), so this is unreachable from an honest server;
+ * the two guards are deliberately INDEPENDENT.
  *
  * The table stays complete for 1..8 even though the server now floors the wire
  * at 4 (see FoghornEvent.v): a lower band must still resolve correctly if one
@@ -133,8 +146,9 @@ export function bandGain(v: HornBand | undefined): number {
  * not a narrowing of the vocabulary.
  */
 export function chevronWeight(v: HornBand | undefined): ChevronWeight {
+  if (v === undefined) return CH.bands[1]; // the spectator/self shape: full weight
   const bands: Record<number, ChevronWeight | undefined> = CH.bands;
-  return bands[v ?? 1] ?? CH.bands[1];
+  return bands[v] ?? CH.bands[8];
 }
 
 /**

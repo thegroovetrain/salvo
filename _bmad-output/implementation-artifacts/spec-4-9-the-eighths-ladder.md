@@ -2,7 +2,7 @@
 title: 'Story 4.9 — The Eighths Ladder'
 type: 'feature'
 created: '2026-08-06'
-status: 'in-progress'
+status: 'in-review'
 baseline_revision: 'c7c58033fd01cee16013aefeb401aa88ab325bfe'
 review_loop_iteration: 0
 followup_review_recommended: false
@@ -152,6 +152,25 @@ warnings: ['oversized']
 **Also caught, not a finding but a real hole in the safety net:** the independently-reimplemented `mz`/`sm` perception oracle asserted `dist <= SIGHT * 1.5` and therefore kept passing VACUOUSLY once the halo moved to `SIGHT * 1.25` — an upper-bound-only oracle cannot detect a channel getting smaller. Tightened, with directed 420u cases that fail against the old halo. Recorded as amendment 125.
 
 **Cross-model agreement picture:** both models agreed on the dazzle divergence and the out-of-domain fail-open, and both independently cleared the highest-risk invariant — that exactly three rows moved to `pointDetected` and the other six `pointSighted` consumers are untouched. Fable alone found the wire-resolution surplus and the owner-cull regression, both of which I confirmed against the code before dispatching. Codex alone graded the dazzle divergence as fix-first, which I adopted. Every fix shipped with a regression test proven red against the pre-fix code.
+
+### 2026-08-07 — Review pass
+
+- intent_gap: 0
+- bad_spec: 0
+- patch: 10: (high 0, medium 3, low 7)
+- defer: 4: (high 0, medium 2, low 2)
+- reject: 1: (high 0, medium 0, low 1)
+- addressed_findings:
+  - `[medium]` `[patch]` The dazzle plumbing added at the previous gate shrank the cull ring for the player's OWN ordnance, which has no server basis — `ballisticSignal` and `torpedoUpdateSignal` both short-circuit on `shell.ownerId === me.id` before any range test, so the server never stops correcting your own shell or fish. A dazzled captain's own tracer was vanishing at 205u instead of 370u. A believed-own track now uses the un-dazzled, sight-derived ring; everything else keeps the dazzle-scaled, detect-derived one.
+  - `[medium]` `[patch]` The band-4 floor was applied AFTER the island muffle, which leaked the exact plateau bit the floor exists to suppress (blocked raw bands 1-3 → 5 but raw band 4 → 6) and silently weakened amendment 54 — a blocked point-blank honk landed at 87.5% where the ratified rule is 75%. The floor now runs on the raw band BEFORE the muffle: blocked bands 1-4 all resolve to 6 (0.75), restoring amendment 54 exactly and leaving the blocked path carrying no more resolution than the clear one.
+  - `[medium]` `[patch]` The epic-4 context recompile had dropped ratified constraints this story does not rule on — the accessibility floor and its photosensitivity numbers, the counter-intel wire-indistinguishability law, and per-signal invariant definition-of-done. Restored, plus amendment 124's new standing rule. A range-ladder story must not be the edit that deletes the epic's accessibility floor from the document future cycles read.
+  - `[low]` `[patch]` `updateDazzle` ran AFTER `projectiles.render`, so the cull rings lagged the fog and radar by a frame whenever dazzle flipped — against the neighbouring comment block's own ratified ordering. Render moved after the dazzle update.
+  - `[low]` `[patch]` The degenerate-range guard was bypassed by the `d === 0` short-circuit, which never reads `radarRange`, so a NaN/zero/negative intel range plus exact co-location still emitted a legal band. `radarRange` is now checked for finiteness and positivity before that branch, making the docblock's claim true.
+  - `[low]` `[patch]` The client's out-of-domain fallbacks failed LOUD — `bandGain` returned full volume and `chevronWeight` the largest, brightest mark — while the docblock claimed they failed closed. `undefined` correctly keeps full gain (the self/spectator path); a genuinely out-of-domain value now falls back to the quietest and faintest band.
+  - `[low]` `[patch]` Stale `SIGHT * 1.5` / 495u references left inside the anti-cheat boundary file (`signals.ts`) and a `torpU` gate still described as "currently-sighted" in `perception.ts`, plus seven more stale halo references across the client. In a codebase whose review discipline is comment-driven, a wrong number here gets a bug validated.
+  - `[low]` `[patch]` The gain-curve description was arithmetically wrong in two places ("one eighth of the 100→50% span" — the actual step is 12.5pp, a quarter of that span and an eighth of full scale).
+  - `[low]` `[patch]` The `farRadar` comment claimed it was the one constant shipped with no consumer; `CONFIG.vision.detect` also has no production consumer (runtime reads only `detectFactor`). Corrected, with `detect` annotated as the base rung the ladder pins.
+  - `[low]` `[patch]` `CLAUDE.md` still stated `muzzleFlash = SIGHT * 1.5` (495u) and PROTOCOL_VERSION 29 — both changed by this story — and carried no Key Decisions entry for the ladder, though every comparable ruling has one. Fixed and added.
 
 ## Design Notes
 
