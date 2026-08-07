@@ -41,6 +41,14 @@
 // constant (shared/src/constants.ts, `vision`) says so in as many words, and the
 // grep that proves it holds is run over this whole directory. Fit the curve; do
 // not branch.
+//
+// CYCLE 62 ADDS THE THIRD TERM OF THE MODEL: the SNR NOISE ENVELOPE (amendment
+// 143). Intensity was always `coefficient x falloff x shape`; what the grain does
+// to it is now part of the same model rather than a flat multiplier bolted on
+// afterwards, because how STEADY a return is is itself a reading of signal
+// strength. See `noiseAmplitude`. Nothing else in this file moved: the exponents,
+// the curve, `fitPointRef` and `heightReflectivity` are byte-identical to the
+// cycle-61 model they were tuned as.
 
 /** Fixed cross-section: a hull. Radar equation's 1/d^4. */
 export const POINT = 4;
@@ -141,6 +149,53 @@ export function fitPointRef(o: PointFit): number {
   if (!(a > o.floor) || !(a < 1)) return Math.max(1, o.crossover);
   const ratioN = (1 - a) / (a - o.floor);
   return o.crossover / Math.pow(ratioN, 1 / POINT);
+}
+
+// --- the SNR noise envelope (cycle 62, amendment 143) --------------------------
+
+/**
+ * The grain's shape: how much a cell's intensity is allowed to jitter, as a
+ * function of the intensity itself (CLIENT_CONFIG.blip.heatmap.noise).
+ */
+export interface NoiseEnvelope {
+  /** Peak jitter (±, as a fraction) at the DETECTION FLOOR — a return that is
+   *  barely there is barely stable. */
+  amount: number;
+  /** Intensity at which the grain has fallen to exactly zero. At or above this
+   *  a cell is rock steady, which is what a saturated return looks like. */
+  solidAt: number;
+}
+
+/**
+ * NOISE SCALES WITH WEAKNESS — SNR, not a flat jitter (amendment 143).
+ *
+ * On a real set a solid landmass returns a stable block of the strongest colour
+ * with a graded fringe; the grain lives in LOW SIGNAL-TO-NOISE returns — sea
+ * clutter, rain, distant small targets and the partially-illuminated edge of any
+ * target. Cycle 61's flat ±30% was backwards: it put static in the interior of an
+ * island, the one place a scope is rock-steady, and it was also what smeared
+ * intensity OFF the iso-height lines so colour bands dithered across a landmass
+ * instead of landing on its contours (amendment 142's diagnosis).
+ *
+ * So the amplitude ramps linearly from `amount` at zero signal to ZERO at
+ * `solidAt`. This is a consequence of amendment 105 (colour is intensity), not a
+ * new channel: the grain now reports that a return is MARGINAL, which is
+ * information a real operator reads straight off the scope.
+ *
+ * SEA CLUTTER NEEDS NO SPECIAL CASE. It is deliberately tuned to straddle the
+ * transparency threshold (amendments 133, 136), so it sits at the noisy end BY
+ * CONSTRUCTION — the envelope hands it the biggest amplitude on the scope for
+ * free. Its bound, and every other coefficient's, must be re-proved against THIS
+ * curve rather than against the retired flat one (amendment 135).
+ *
+ * Degenerate inputs answer 0 (perfectly solid) rather than NaN: a non-positive
+ * `solidAt` or `amount` means "no grain", and a negative intensity is treated as
+ * zero signal.
+ */
+export function noiseAmplitude(intensity: number, env: NoiseEnvelope): number {
+  if (!(env.amount > 0) || !(env.solidAt > 0)) return 0;
+  const t = intensity > 0 ? Math.min(1, intensity / env.solidAt) : 0; // NaN -> 0
+  return env.amount * (1 - t);
 }
 
 /** Terrain reflectivity tunables (CLIENT_CONFIG.blip.heatmap.model). */

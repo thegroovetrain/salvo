@@ -28,6 +28,16 @@
 // texel to 1.25 cells failed 6; dropping the `Math.floor` out of `anchorGrid`
 // failed 8, the rim-clipping test among them. All 16 passed again on restore.
 //
+// RE-DERIVED FOR THE BEAM MARCH (cycle 62, amendment 144 — and amendment 98 says
+// in as many words not to assume the old pins carry over, because THE THING BEING
+// PLACED CHANGED). What is placed is no longer a per-object paint but a SLICE: a
+// wedge of world cells the beam crossed, so every fixture below is a height
+// raster or a hull rather than an island polygon, and "the landmass held still"
+// is now asserted over the cells a marched slice froze. The properties being
+// pinned are identical — one texel is one world cell, the sprite sits on the
+// snapped grid origin, and nothing viewport-derived reaches creation or
+// retirement.
+//
 // AND THE OTHER HALF OF THE RULING — amendment 97, Eric's stated requirement:
 // *"if I am zoomed in when it paints and then I zoom out, it still shows me
 // everything that would have been there."* That holds only if NOTHING
@@ -38,13 +48,35 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Sprite, Texture } from 'pixi.js';
-import { CONFIG, islandFromPolygon, type ReturnBlipEvent } from '@salvo/shared';
+import { CONFIG, type HeightRaster, type ReturnBlipEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Camera, USER_ZOOM_MAX, USER_ZOOM_MIN } from '../render/camera.js';
 import { Radar, type ViewRect } from '../render/radar.js';
 import { GRID_QUANTUM, anchorGrid, gridSpan, makeGrid } from '../render/radarHeatmap.js';
 import { blipLifeMs } from '../render/phosphor.js';
+
+/** The shipped generator's height-field sample spacing. */
+const RCELL = 14;
+
+/** A HeightRaster over a square about the origin — the march's ONLY terrain
+ *  input, and the fixture that replaces the retired island field. */
+function rasterFrom(reachU: number, h: (x: number, y: number) => number): HeightRaster {
+  const k = Math.ceil(reachU / RCELL);
+  const n = 2 * k + 1;
+  const x0 = -k * RCELL;
+  const height = new Uint8Array(n * n);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) height[j * n + i] = h(x0 + i * RCELL, x0 + j * RCELL);
+  }
+  return { n, cell: RCELL, x0, y0: x0, seaLevel: 0, peak: 255, height, pyramid: [] };
+}
+
+/** A rectangular slab of land at a uniform height. */
+function slab(cx: number, cy: number, hw: number, hh: number, h: number) {
+  return (x: number, y: number): number =>
+    Math.abs(x - cx) <= hw && Math.abs(y - cy) <= hh ? h : 0;
+}
 
 // jsdom has no 2d canvas, so the baked sweep wedge can't rasterize here; the
 // heatmap buffer (what this file is about) needs no canvas at all.
@@ -142,11 +174,19 @@ interface Skip {
 /**
  * WHERE THE ECHO ACTUALLY LANDS, in world units, measured the long way.
  *
- * Alpha-weighted centroid (and world bounding box) of the lit texels → the
- * sprite's local space → screen px through the live scene-graph transform →
- * world through the camera's own inverse. Every number the adapter chose
- * (sprite position, sprite scale, grid origin, texel indexing) is in that path,
- * and the reference at the end of it (`screenToWorld`) shares none of them.
+ * Centroid (and world bounding box) of the lit texels → the sprite's local space
+ * → screen px through the live scene-graph transform → world through the camera's
+ * own inverse. Every number the adapter chose (sprite position, sprite scale,
+ * grid origin, texel indexing) is in that path, and the reference at the end of it
+ * (`screenToWorld`) shares none of them.
+ *
+ * THE CENTROID IS UNWEIGHTED, and cycle 62 is why. Under the retired primitive a
+ * whole object was one paint at one age, so weighting by alpha sharpened the
+ * measurement. Under the beam march a scope is ~124 slices per revolution at
+ * ~124 different ages, so an alpha-weighted centroid of anything ring-shaped
+ * measures RECENCY as much as position — it leans toward the arc the beam swept
+ * most recently. Counting lit texels equally measures placement and only
+ * placement, which is what these assertions are about.
  */
 function measure(layer: Container, chart: Container, cam: Camera, skip?: Skip): Measured {
   const sprite = heatSprite(layer);
@@ -174,9 +214,9 @@ function measure(layer: Container, chart: Container, cam: Camera, skip?: Skip): 
   let lo = { tx: Infinity, ty: Infinity };
   let hi = { tx: -Infinity, ty: -Infinity };
   for (const t of keep) {
-    sw += t.a;
-    sx += t.a * (t.tx + 0.5);
-    sy += t.a * (t.ty + 0.5);
+    sw += 1;
+    sx += t.tx + 0.5;
+    sy += t.ty + 0.5;
     lo = { tx: Math.min(lo.tx, t.tx), ty: Math.min(lo.ty, t.ty) };
     hi = { tx: Math.max(hi.tx, t.tx + 1), ty: Math.max(hi.ty, t.ty + 1) };
   }
@@ -207,10 +247,18 @@ function frame(radar: Radar, cam: Camera, own: { x: number; y: number }, t: numb
   return view;
 }
 
-/** Placement tolerance: an echo is a noisy kernel quantized onto whole cells,
- *  so its measured centroid is good to about a cell. A placement BUG is never
- *  sub-cell — cycle 57's islands drifted by hundreds of units. */
+/** Placement tolerance: an echo is a grained footprint quantized onto whole
+ *  cells, so its measured centroid is good to about a cell. A placement BUG is
+ *  never sub-cell — cycle 57's islands drifted by hundreds of units. */
 const TOL = CELL * 1.5;
+
+/** THE HAZE AROUND OWN HULL, as a skip disc. Sea clutter is a real, wanted return
+ *  and the beam paints it on every advance, so a test measuring where something
+ *  ELSE landed has to exclude it or it measures the ship. Sized past the compute
+ *  bound; the curve takes the haze under the threshold well inside that. */
+function haze(own: { x: number; y: number }, r = CLIENT_CONFIG.blip.heatmap.model.clutterRangeU + 30): Skip {
+  return { x: own.x, y: own.y, r };
+}
 
 // --- 1. PLACEMENT, at both zoom extremes (amendment 98) -------------------------
 
@@ -225,7 +273,7 @@ describe('an echo renders at the world position it was created at', () => {
       radar.onBlip(e);
       frame(radar, cam, own, 1000);
 
-      const m = measure(layer, chart, cam);
+      const m = measure(layer, chart, cam, haze(own));
       expect(m.cells, 'the echo lit some texels').toBeGreaterThan(0);
       expect(m.x, `x at ${label}`).toBeCloseTo(e.x, -Math.log10(TOL));
       expect(Math.abs(m.x - e.x), `x within ${TOL}u at ${label}`).toBeLessThan(TOL);
@@ -280,9 +328,15 @@ describe('a paint holds its world position while the camera moves over it', () =
     // Steam past it, one frame at a time, through many whole-cell boundaries and
     // several deliberately fractional camera centres (a snap bug shows up as
     // sub-cell jitter that accumulates into a drift).
+    // The beam paints a fresh haze about the observer on EVERY advance, so the
+    // skip disc has to cover the whole track it steams down — not just where it
+    // ended up. The union of hazes lies within `clutterRangeU` of the segment
+    // (0,0)→(-400,200), i.e. inside this disc; the echo at (400,250) is 620u from
+    // its centre and nowhere near it.
+    const TRACK = { x: -200, y: 100, r: 360 };
     for (const step of [0, 3.5, 17.25, 61.9, 120, 233.75, 400]) {
       frame(radar, cam, { x: -step, y: step * 0.5 }, 1000 + step);
-      const m = measure(layer, chart, cam);
+      const m = measure(layer, chart, cam, TRACK);
       expect(Math.abs(m.x - e.x), `x after ${step}u of camera travel`).toBeLessThan(TOL);
       expect(Math.abs(m.y - e.y), `y after ${step}u of camera travel`).toBeLessThan(TOL);
     }
@@ -298,49 +352,41 @@ describe('a paint holds its world position while the camera moves over it', () =
     for (const z of [USER_ZOOM_MAX, 1.2, 1.0, 0.75, USER_ZOOM_MIN, 1.5]) {
       cam.setUserZoom(z);
       frame(radar, cam, own, 1000);
-      const m = measure(layer, chart, cam);
+      const m = measure(layer, chart, cam, haze(own));
       expect(Math.abs(m.x - e.x), `x at ${z}×`).toBeLessThan(TOL);
       expect(Math.abs(m.y - e.y), `y at ${z}×`).toBeLessThan(TOL);
     }
   });
 
-  it('an ISLAND holds still too — the landmass is the thing Eric watched drift', () => {
-    const isle = islandFromPolygon([
-      { x: 380, y: -90 }, { x: 620, y: -90 }, { x: 620, y: 90 }, { x: 380, y: 90 },
-    ]);
+  it('A LANDMASS holds still too — it is the thing Eric watched drift', () => {
+    // A 380..620 x -90..90 ridge, as a height raster: the march's only terrain
+    // input. Steep, so the whole slab saturates and its rendered bounds are its
+    // real bounds rather than a threshold artefact.
+    const raster = rasterFrom(900, slab(500, 0, 120, 90, 255));
     const { radar, layer, chart } = harness();
     const cam = camera(USER_ZOOM_MIN);
-    radar.setIslands([isle]);
+    radar.setHeightRaster(raster);
     radar.onSweepSample(-0.6, 0);
     frame(radar, cam, { x: 0, y: 0 }, 0);
-    frame(radar, cam, { x: 0, y: 0 }, 900); // beam crosses bearing 0, bakes the paint
-    expect(radar.liveIslandPaints).toBe(1);
+    // A whole revolution, so the beam has marched every bearing of the ridge.
+    for (let t = 0; t <= 4200; t += 100) frame(radar, cam, { x: 0, y: 0 }, t);
     // The observer sits at the origin and steams west to x = -330.25 below, and
-    // sea clutter paints a `clutterRangeU` disc about wherever it was when the
-    // beam crossed — with 3-deep persistence, every one of those discs stays lit.
-    // HAZE is the union of them all, and it is nowhere near the 380..620 ridge
-    // this test is measuring (nearest approach is 545u), so excluding it isolates
-    // the landmass without weakening a single bound.
-    const HAZE = { x: -165, y: 0, r: 300 };
+    // sea clutter paints a haze about wherever it was when the beam swept — with
+    // 3-deep persistence every one of those hazes stays lit. HAZE is the union of
+    // them all, and it is nowhere near the 380..620 ridge this test measures, so
+    // excluding it isolates the landmass without weakening a single bound.
+    const HAZE = { x: -165, y: 0, r: 330 };
     const first = measure(layer, chart, cam, HAZE);
-    // ABSOLUTE first: the lit mass sits on the REAL coastline. The near face of
-    // a 380..620 × -90..90 ridge seen from the origin runs the full height at
-    // its western edge, so the rendered bounds must open at x = 380 — not merely
-    // be self-consistent frame to frame.
-    //
-    // PLUS THE SURF FRINGE (Story 4.10, amendment 131): breakers paint up to
-    // `surfBandU` SEAWARD of that coastline, so the lit region legitimately opens
-    // a band's width further west and cannot open any further than that. Both
-    // bounds are asserted, which pins the fringe's placement as well as the
-    // coast's — a fringe on the wrong side, or one that ran on for a hundred
-    // units, fails here.
-    const SURF = CLIENT_CONFIG.blip.heatmap.model.surfBandU;
-    expect(first.minX, 'no lit cell west of the surf band').toBeGreaterThan(380 - SURF - TOL);
-    expect(first.minX, 'and the fringe does reach out past the coast').toBeLessThan(380);
-    expect(first.maxX, 'and the far side stays in shadow').toBeLessThan(620);
+    // ABSOLUTE first: the lit mass sits on the REAL coastline, opening at x = 380
+    // and closing at x = 620 — not merely self-consistent frame to frame. The
+    // slack is one raster sample, because `sampleHeight` is nearest-neighbour on a
+    // 14u grid and the coastline is quantized to it.
+    expect(Math.abs(first.minX - 380), 'west coast').toBeLessThan(RCELL + TOL);
+    expect(Math.abs(first.maxX - 620), 'east coast — the FAR side paints now, '
+      + 'amendment 140').toBeLessThan(RCELL + TOL);
     // ...then STABLE: steaming away must not move one cell of it.
     for (const step of [40, 90.5, 210, 330.25]) {
-      frame(radar, cam, { x: -step, y: 0 }, 950);
+      frame(radar, cam, { x: -step, y: 0 }, 4300 + step);
       const m = measure(layer, chart, cam, HAZE);
       expect(Math.abs(m.x - first.x), `landmass x after ${step}u`).toBeLessThan(TOL);
       expect(Math.abs(m.y - first.y), `landmass y after ${step}u`).toBeLessThan(TOL);
@@ -382,9 +428,11 @@ describe('a paint at the radar rim is not clipped as the observer sails away', (
     frame(radar, cam, { x: 0, y: 0 }, 1000);
     expect(radar.bandAt(e.x, e.y), 'on screen at first').toBeGreaterThanOrEqual(0);
 
+    const held = radar.livePaints;
     frame(radar, cam, { x: 0, y: -2000 }, 1050); // scrolled off the top of the screen
     expect(radar.bandAt(e.x, e.y), 'off screen: not drawn').toBe(-1);
-    expect(radar.livePaints, 'but still RECORDED — never retired by visibility').toBe(1);
+    expect(radar.livePaints, 'but still RECORDED — never retired by visibility')
+      .toBeGreaterThanOrEqual(held);
 
     frame(radar, cam, { x: 0, y: 0 }, 1100); // back
     expect(radar.bandAt(e.x, e.y), 'back on screen: drawn again').toBeGreaterThanOrEqual(0);
@@ -406,14 +454,17 @@ describe('a paint recorded while zoomed IN appears when you zoom OUT', () => {
     for (const e of off) radar.onBlip(e);
     frame(radar, cam, own, 1000);
 
-    expect(radar.livePaints, 'all three RECORDED while zoomed in').toBe(3);
+    // Every wire echo became a slice the moment it arrived, and the beam's own
+    // march has added its own — the count is not the assertion, the RECORD is.
+    const recorded = radar.livePaints;
+    expect(recorded, 'the scope holds paints').toBeGreaterThanOrEqual(3);
     for (const e of off) {
       expect(radar.bandAt(e.x, e.y), `not drawn while zoomed in: ${e.id}`).toBe(-1);
     }
 
     cam.setUserZoom(USER_ZOOM_MIN);
-    frame(radar, cam, own, 1001); // one frame later: no new sweep, no new paint
-    expect(radar.livePaints, 'zooming out creates nothing').toBe(3);
+    frame(radar, cam, own, 1001); // one frame later: under one quantum of beam
+    expect(radar.livePaints, 'zooming out creates nothing').toBe(recorded);
     for (const e of off) {
       expect(radar.bandAt(e.x, e.y), `revealed by zooming out: ${e.id}`).toBeGreaterThanOrEqual(0);
     }
@@ -422,28 +473,28 @@ describe('a paint recorded while zoomed IN appears when you zoom OUT', () => {
 
 // --- 5. NOTHING VIEWPORT-DERIVED REACHES CREATION OR RETIREMENT (amendment 97) ---
 
-/** The paint list as comparable data. `isle` is replaced by its index so two
- *  radars sharing one island field compare structurally rather than by identity. */
-function listOf(radar: Radar, field: readonly unknown[]): string {
-  return JSON.stringify(
-    radar.paintList.map((p) => (p.kind === 'island' ? { ...p, isle: field.indexOf(p.isle) } : p)),
-  );
+/** THE SLICE LIST AS COMPARABLE DATA. A slice is flat typed arrays, so this
+ *  serializes every byte of it: its time, its cell indices and its frozen
+ *  intensities. Two radars that agree here agree on exactly what the beam
+ *  recorded and when. */
+function listOf(radar: Radar): string {
+  return radar.paintList
+    .map((s) => `${s.t}|${s.n}|${[...s.cells].join(',')}|${[...s.w].join(',')}`)
+    .join('\n');
 }
 
 describe('the camera cannot touch what is painted or when it is retired', () => {
-  const ISLE = islandFromPolygon([
-    { x: 380, y: -90 }, { x: 620, y: -90 }, { x: 620, y: 90 }, { x: 380, y: 90 },
-  ]);
-  const FIELD = [ISLE];
+  /** A ridge to the east, as the height raster the march reads. */
+  const RASTER = rasterFrom(900, slab(500, 0, 120, 90, 255));
 
-  /** Identical world state, one camera. Contacts, islands, wire echoes — every
+  /** Identical world state, one camera. Contacts, terrain, wire echoes — every
    *  source of paints in the grammar. */
   function run(view: (own: { x: number; y: number }) => ViewRect | null, times: number[]): Radar {
     const layer = new Container();
     const radar = new Radar(layer, new Container(), () => null, 'return');
     const contacts = new ContactStore();
     contacts.pushFrame(0, [{ id: 'ship-7', x: 200, y: 0, heading: 0, speed: 0, cls: 'battleship' }]);
-    radar.setIslands(FIELD);
+    radar.setHeightRaster(RASTER);
     radar.onSweepSample(-0.6, 0);
     const own = { x: 0, y: 0 };
     for (const t of times) {
@@ -456,7 +507,7 @@ describe('the camera cannot touch what is painted or when it is retired', () => 
   const TIMES = [0, 200, 400, 600, 900];
 
   it('two radars driven through wildly different cameras hold BYTE-IDENTICAL '
-    + 'paint lists', () => {
+    + 'slice lists', () => {
     const tight = run((own) => {
       const c = camera(USER_ZOOM_MAX);
       c.snapTo(own);
@@ -472,8 +523,9 @@ describe('the camera cannot touch what is painted or when it is retired', () => 
     const none = run(() => null, TIMES); // and no camera at all
 
     expect(tight.livePaints).toBeGreaterThan(1); // the comparison is not vacuous
-    expect(listOf(wide, FIELD)).toBe(listOf(tight, FIELD));
-    expect(listOf(none, FIELD)).toBe(listOf(tight, FIELD));
+    expect(tight.livePaintCells, 'and it painted real cells').toBeGreaterThan(100);
+    expect(listOf(wide)).toBe(listOf(tight));
+    expect(listOf(none)).toBe(listOf(tight));
   });
 
   it('and they retire on the same beat — retirement is gated by TIME alone', () => {
@@ -540,13 +592,15 @@ describe('buffer sizing and the load-bearing snap', () => {
   });
 });
 
-// --- 6b. THE TWO NEW SOURCES, PINNED AT THE ADAPTER (Story 4.10 + amendment 98) --
+// --- 6b. THE TWO WEATHER MATERIALS, PINNED AT THE ADAPTER (amendment 98) --------
 //
-// Same standing order, new paints: a pure-rasterizer test does NOT discharge
-// placement, so the storm wall and the sea-clutter haze are measured HERE,
-// through the real sprite transform, at both zoom extremes and with the camera
-// moving. Cycle 57 shipped a placement regression under green pure tests; these
-// blocks exist so a fifth and sixth source cannot repeat it.
+// Same standing order: a pure-rasterizer test does NOT discharge placement, so
+// the storm wall and the sea-clutter haze are measured HERE, through the real
+// sprite transform, at both zoom extremes and with the camera moving. Cycle 57
+// shipped a placement regression under green pure tests; these blocks exist so
+// they cannot repeat it. Cycle 62 turned both from paint KINDS into FIELD
+// MATERIALS, which is exactly the kind of change amendment 98 says not to assume
+// carries over — so they are re-derived against the march rather than adapted.
 //
 // AND THAT INCLUDES CLUTTER. An earlier draft of this file excused the haze on
 // the grounds that it "lights no texel" — the retired amendment-130 bound, which
@@ -570,12 +624,11 @@ function frameZone(
 }
 
 /**
- * Run a whole beam revolution so a weather paint opens AND fills its arc.
+ * Run a whole beam revolution, so the march has walked every bearing.
  *
- * The beam starts just short of the weather anchor bearing, so the paint opens
- * early in the run and its arc has a full revolution to grow — a weather paint
- * fills in behind the beam exactly as an island's does, so a half-swept scope is
- * a half-drawn ring by design, not a bug to test around.
+ * A weather material fills in BEHIND THE BEAM exactly as terrain does — a
+ * half-swept scope is a half-drawn ring by design, not a bug to test around — so
+ * every placement assertion below is taken after a full turn.
  */
 function revolution(
   radar: Radar,
@@ -649,7 +702,11 @@ describe('the STORM WALL renders on the live ring, in world coordinates', () => 
       const cam = camera(USER_ZOOM_MIN);
       revolution(radar, cam, OWN, zone);
       expect(radar.bandAt(OWN.x, OWN.y + RING.r)).toBe(-1);
-      expect(radar.paintList.some((p) => p.kind === 'storm'), 'no storm paint').toBe(false);
+      // ...and nothing anywhere on the ring, at any bearing: an idle timeline is
+      // not a physical object.
+      for (const a of [0.4, 1.9, 3.3, 5.1]) {
+        expect(radar.bandAt(OWN.x + Math.cos(a) * RING.r, OWN.y + Math.sin(a) * RING.r)).toBe(-1);
+      }
     }
   });
 });
@@ -685,14 +742,22 @@ describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
       const { radar } = harness();
       const cam = camera(z);
       revolution(radar, cam, OWN, null);
-      for (const d of [6, REACH * 0.3, REACH * 0.6]) {
-        const w = radar.intensityAt(OWN.x + d, OWN.y);
-        expect(w, `intensity at ${d}u`).toBeGreaterThan(0);
-        expect(w, 'and never strong enough to read blue').toBeLessThan(FUZZY);
+      // THE HAZE IS SPECKLE, so a fixed probe is the wrong instrument: roughly a
+      // sixth of its cells light and the rest are dark BY DESIGN (amendment 133's
+      // straddle). Scan the disc instead and assert the distribution.
+      let lit = 0;
+      let strongest = 0;
+      for (let dx = -REACH; dx <= REACH; dx += CELL) {
+        for (let dy = -REACH; dy <= REACH; dy += CELL) {
+          if (Math.hypot(dx, dy) > REACH) continue;
+          const w = radar.intensityAt(OWN.x + dx, OWN.y + dy);
+          if (w > 0) lit++;
+          strongest = Math.max(strongest, w);
+        }
       }
+      expect(lit, 'the haze lights real cells').toBeGreaterThan(20);
+      expect(strongest, 'and not one of them reads blue').toBeLessThan(FUZZY);
       expect(radar.intensityAt(OWN.x + REACH * 1.5, OWN.y), 'beyond the disc').toBe(0);
-      expect(radar.bandAt(OWN.x + 6, OWN.y), 'never above the weakest band')
-        .toBeLessThan(1);
     });
   }
 
@@ -702,28 +767,32 @@ describe('the SEA CLUTTER haze sits on the observer it was frozen from', () => {
     const cam = camera(USER_ZOOM_MIN);
     revolution(radar, cam, OWN, null);
     const first = measure(layer, chart, cam);
+    // Steam east. The hazes ALREADY on the scope stay where the beam swept them,
+    // so the lit region's WEST edge cannot move: only new cells appear ahead.
     for (const step of [12, 90, 240]) {
       frameZone(radar, cam, { x: OWN.x + step, y: OWN.y }, 4500 + step, null);
-      expect(radar.intensityAt(OWN.x + 6, OWN.y), `still at the old ship at ${step}u`)
-        .toBeGreaterThan(0);
       const m = measure(layer, chart, cam);
-      expect(Math.abs(m.x - first.x), `haze x after ${step}u of camera travel`)
+      expect(Math.abs(m.minX - first.minX), `west edge after ${step}u of travel`)
         .toBeLessThan(TOL);
-      expect(Math.abs(m.y - first.y), `haze y after ${step}u`).toBeLessThan(TOL);
+      expect(m.maxX - first.maxX, 'and the new water ahead does paint')
+        .toBeGreaterThanOrEqual(0);
     }
   });
 });
 
-// --- 6c. THE WEATHER ARC NEVER COLLAPSES, AT THE ADAPTER ------------------------
+// --- 6c. THE SCOPE NEVER BLINKS OUT FOR A FRAME, AT THE ADAPTER -----------------
 //
-// The bookkeeping that fills a weather arc in behind the beam lives in this
-// adapter, not in the pure sources, so it is pinned here: walk many frames
-// across the anchor bearing and watch the lit-texel count. A paint opened at the
-// FRAME's `from` — a hair short of the anchor — made `wrapPositive(to − from)`
-// wrap a nearly-full arc down to a sliver on the last frame of most revolutions,
-// so the haze and the wall blinked out for one frame roughly every other turn.
+// The slice bookkeeping that fills the scope in behind the beam lives in this
+// adapter, not in the pure march, so it is pinned here: walk many frames across
+// the whole revolution and watch the lit-texel count. Cycle 61's weather paints
+// opened their arc at the FRAME's `from`, a hair short of their anchor, and
+// `wrapPositive(to − from)` then wrapped a nearly-full arc down to a sliver on
+// the last frame of most revolutions — the haze and the wall blinked out for one
+// frame, roughly every other turn. The march makes that shape unrepresentable (a
+// slice is a finished record, not a growing arc), and this is the test that says
+// so at the level the failure lived at.
 
-describe('the haze and the wall never blink out for a frame', () => {
+describe('the scope never blinks out for a frame', () => {
   const OWN = { x: 250, y: -150 };
   const ZONE = { state: 'closing', cur: { cx: OWN.x, cy: OWN.y, r: 300 } };
 
@@ -754,6 +823,187 @@ describe('the haze and the wall never blink out for a frame', () => {
   });
 });
 
+// --- 6d. THE CATCH-UP RULE, AT THE ADAPTER (cycle-62 review gate) ---------------
+//
+// THIS IS THE BLOCK THE CYCLE-62 GATE EXISTS FOR, and its shape is the project's
+// recurring failure mode stated one more time: the pure suite pinned
+// `sliceCount`'s internal clamp and was green, while the ADAPTER'S OWN cursor
+// reset — the half of the rule that never appeared in a pure test — made that
+// clamp nearly unreachable and blanked the scope outright on a slow client.
+// Cycles 54, 55 and 57 each shipped a bug of exactly that shape (amendments 84,
+// 95, 98), so the rule is now driven THROUGH `Radar.render`, at frame intervals
+// chosen to land in each regime.
+//
+// THE ARITHMETIC THESE INTERVALS COME FROM. At 15rpm the beam turns 2π per 4s, so
+// one frame of `dt` ms advances `2π·dt/4000` rad. `catchUpRad` is 0.4 and the
+// catch-up arc is 8 quanta = 0.404 rad, so:
+//   • 320ms → 0.503 rad/frame — PAST the bound (a client at ~3.1fps)
+//   • 236ms → 0.371 rad/frame — the NEAR-MISS band, inside the bound but past the
+//     7 quanta the old clamp allowed
+// Both are reachable: 0.4 rad is only ~125ms of sweep at the boon-scaled
+// `sweepRpmMax` of 30, so this is a live-session regime, not a pathology.
+
+describe('the scope keeps painting at every frame rate (catch-up, at the adapter)', () => {
+  const SWEEP_MS = 60_000 / CONFIG.vision.sweepRpm; // 4000ms at 15rpm
+  const QUANTUM = CLIENT_CONFIG.blip.heatmap.march.sliceRad;
+  /** A ring of land at 200-300u, so EVERY bearing has something to paint and a
+   *  slice count is a faithful measure of the arc actually marched. */
+  const RING_OF_LAND = rasterFrom(400, (x, y) => {
+    const d = Math.hypot(x, y);
+    return d > 200 && d < 300 ? 255 : 0;
+  });
+
+  /** Drive `frames` frames `dtMs` apart and report what the beam swept and what
+   *  the march actually emitted. Nothing is pruned inside the phosphor life, so
+   *  the live slice count IS the total emitted. */
+  function run(dtMs: number, frames: number): { swept: number; slices: number; blank: number } {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MAX);
+    const own = { x: 0, y: 0 };
+    radar.setHeightRaster(RING_OF_LAND);
+    radar.onSweepSample(0, 0);
+    let blank = 0;
+    for (let k = 0; k < frames; k++) {
+      frame(radar, cam, own, k * dtMs);
+      if (k > 2 && radar.livePaintCells === 0) blank++;
+    }
+    // The first frame only anchors the cursor, so the arc under test is what the
+    // beam swept AFTER it.
+    return {
+      swept: ((frames - 1) * dtMs * 2 * Math.PI) / SWEEP_MS,
+      slices: radar.livePaints,
+      blank,
+    };
+  }
+
+  it('SUSTAINED FRAMES PAST THE CATCH-UP BOUND STILL PAINT — the defect that '
+    + 'left a bare sweep line rotating over an empty scope', () => {
+    // 35 frames of 320ms = 11.2s, inside the 12s phosphor life so nothing is
+    // pruned. Every frame advances 0.503 rad, past the 0.404 bound; the shipped
+    // adapter reset the cursor to the live beam on every one of them and
+    // therefore emitted NOTHING, for as long as the condition held.
+    const r = run(320, 35);
+    expect(r.slices, 'the beam kept emitting slices').toBeGreaterThan(200);
+    expect(r.blank, 'and the scope was never blank for a frame').toBe(0);
+    // It paints the trailing wedge of every advance: the bound, not zero.
+    expect(r.slices * QUANTUM, 'arc painted').toBeGreaterThan(r.swept * 0.7);
+  });
+
+  it('...and it holds all the way down to a hopeless frame rate', () => {
+    // (At 2000ms frames the run outlasts the 12s phosphor life, so the LIVE count
+    // is what survived decay rather than what was emitted — which is the point:
+    // slices keep arriving faster than they age out, so the scope never empties.)
+    for (const dt of [500, 900, 2000]) {
+      const r = run(dt, 12);
+      expect(r.slices, `${dt}ms frames`).toBeGreaterThan(30);
+      expect(r.blank, `${dt}ms frames left the scope blank`).toBe(0);
+    }
+  });
+
+  it('THE NEAR-MISS BAND LOSES NO ARC: a frame inside `catchUpRad` but past the '
+    + 'old 7-quantum clamp paints everything it swept', () => {
+    // The shipped pair (cap at 7 quanta = 0.354 rad, reset at 0.4 rad) let the
+    // deficit accumulate for two frames and then discarded ~0.4 rad on the third
+    // — about a third of the arc, on a recurring cadence.
+    const r = run(236, 47);
+    expect(r.slices * QUANTUM, 'painted arc vs swept arc')
+      .toBeGreaterThan(r.swept * 0.97);
+    expect(r.slices * QUANTUM, 'and nothing is painted twice')
+      .toBeLessThanOrEqual(r.swept + QUANTUM);
+  });
+
+  it('and an ordinary frame rate is unchanged: every quantum of arc, once', () => {
+    const r = run(16, 300);
+    expect(r.slices * QUANTUM).toBeGreaterThan(r.swept * 0.98);
+    expect(r.slices * QUANTUM).toBeLessThanOrEqual(r.swept + QUANTUM);
+  });
+
+  it('A BACKWARD BEAM CORRECTION EMITS NOTHING — a fresh sweep sample that lands '
+    + 'behind the cursor must not re-march arc the beam already swept', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MAX);
+    const own = { x: 0, y: 0 };
+    radar.setHeightRaster(RING_OF_LAND);
+    radar.onSweepSample(0, 0);
+    frame(radar, cam, own, 0);
+    frame(radar, cam, own, 100); // beam at 0.157 rad, cursor marched up behind it
+    const held = radar.livePaints;
+    expect(held, 'the ordinary path emitted').toBeGreaterThan(0);
+    // A corrected sample: the authoritative beam is a little BEHIND where the
+    // client had extrapolated it to. `wrapPositive` reads that as ~2π, which the
+    // catch-up path would otherwise treat as a hopelessly late frame.
+    radar.onSweepSample(0.1, 150);
+    frame(radar, cam, own, 150);
+    expect(radar.livePaints, 'no duplicate wedge').toBe(held);
+  });
+});
+
+// --- 6e. AN AGROUND OBSERVER MAKES NO PAINTS ------------------------------------
+
+describe('an aground observer creates no paints at all', () => {
+  const ISLAND = rasterFrom(600, slab(0, 0, 200, 200, 200));
+
+  it('a set standing ON a landmass does not paint it from zero range', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    radar.setHeightRaster(ISLAND);
+    radar.onSweepSample(-0.6, 0);
+    for (let t = 0; t <= 4600; t += 100) frame(radar, cam, { x: 0, y: 0 }, t);
+    expect(radar.livePaints, 'a whole revolution, nothing painted').toBe(0);
+    expect(radar.bandAt(60, 60), 'not even the ground underfoot').toBe(-1);
+  });
+
+  it('and a wire echo arriving while aground is not painted either', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    radar.setHeightRaster(ISLAND);
+    frame(radar, cam, { x: 0, y: 0 }, 900);
+    radar.onBlip(echo(400, 0));
+    frame(radar, cam, { x: 0, y: 0 }, 1000);
+    expect(radar.livePaints).toBe(0);
+  });
+
+  it('but the same observer AFLOAT paints normally — the guard is the ground, '
+    + 'not the raster', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    radar.setHeightRaster(ISLAND);
+    radar.onSweepSample(-0.6, 0);
+    for (let t = 0; t <= 4600; t += 100) frame(radar, cam, { x: 0, y: 400 }, t);
+    expect(radar.livePaints).toBeGreaterThan(50);
+  });
+});
+
+// --- 6f. A RIM ECHO PAINTS EVEN WHEN IT IS OUTSIDE THE CLIENT'S OWN RANGE -------
+
+describe('anything the server blips paints (amendment 127), at any range', () => {
+  it('a wire echo BEYOND the client-computed radar range still paints', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    const own = { x: 0, y: 0 };
+    // The server blipped this hull against ITS pose and ITS range; under
+    // prediction divergence or a lag spike the client's own idea of the rim can
+    // sit short of it. The march used to clip every ray to the client's range,
+    // so every ray stopped BEFORE the stamped footprint and the slice was null.
+    const far = echo(RADAR + 40, 0);
+    frame(radar, cam, own, 900);
+    radar.onBlip(far);
+    frame(radar, cam, own, 1000);
+    expect(radar.bandAt(far.x, far.y), 'the rim echo painted').toBeGreaterThanOrEqual(0);
+  });
+
+  it('and so does one just inside it — the widened bound changed nothing there', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    const own = { x: 0, y: 0 };
+    const inside = echo(RADAR - 40, 0);
+    frame(radar, cam, own, 900);
+    radar.onBlip(inside);
+    frame(radar, cam, own, 1000);
+    expect(radar.bandAt(inside.x, inside.y)).toBeGreaterThanOrEqual(0);
+  });
+});
+
 // --- 7. `silhouette` is untouched (amendment 99) ---------------------------------
 
 describe('`silhouette` mode never grows a buffer, camera or not', () => {
@@ -761,9 +1011,7 @@ describe('`silhouette` mode never grows a buffer, camera or not', () => {
     const layer = new Container();
     const radar = new Radar(layer, new Container(), () => null, 'silhouette');
     const cam = camera(USER_ZOOM_MIN);
-    radar.setIslands([islandFromPolygon([
-      { x: 280, y: -90 }, { x: 420, y: -90 }, { x: 420, y: 90 }, { x: 280, y: 90 },
-    ])]);
+    radar.setHeightRaster(rasterFrom(600, slab(350, 0, 70, 90, 255)));
     radar.onSweepSample(-0.6, 0);
     frame(radar, cam, { x: 0, y: 0 }, 0);
     frame(radar, cam, { x: 0, y: 0 }, 900);

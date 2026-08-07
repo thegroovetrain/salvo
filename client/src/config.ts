@@ -1400,7 +1400,9 @@ export const CLIENT_CONFIG = {
        * World units per bitmap cell — the buffer's resolution, and the ONE knob
        * that trades look against cost. At the base camera framing one cell is
        * ~5 screen px, which is deliberately chunky: a quantized bitmap should
-       * read as a bitmap, not as a smooth glow.
+       * read as a bitmap, not as a smooth glow. It is also the scope's RANGE
+       * RESOLUTION: a wire echo's footprint is one cell deep because that is the
+       * finest range a cell-quantized display can resolve.
        *
        * COST SCALES WITH VISIBLE AREA (cycle 58, amendment 99): the buffer
        * covers the VIEWPORT, not the radar ring, so zooming out costs more. The
@@ -1414,29 +1416,38 @@ export const CLIENT_CONFIG = {
        * free knob — and it is the lever to reach for if the zoomed-out case ever
        * needs to get cheaper.
        *
-       * STORY 4.10 RE-MEASURED, WITH THREE NEW SOURCES IN THE FRAME (amendment
-       * 99 requires the number, not a guess), AND RE-MEASURED AGAIN AT THE
-       * REVIEW GATE because `clutterRef` and the derived storm cap both move the
-       * cell counts. A full `Radar.render` — a generated ~18-island field with
-       * coastline AND surf, six ship echoes, the sea-clutter haze and a live
-       * storm wall, at the shipped 3-deep persistence, warmed through three whole
-       * revolutions and then averaged over 240 frames, in the headless test
-       * environment on one machine:
-       *              buffer only   + clutter   + clutter + storm wall
-       *   1.5×          0.18 ms      0.58 ms          0.90 ms
-       *   1.0×          0.28 ms      0.65 ms          1.10 ms
-       *   0.5×          0.88 ms      1.29 ms          1.70 ms
-       * So the weather sources cost ~0.8 ms/frame at min zoom, split roughly
-       * evenly between the haze (three live discs stamped procedurally every
-       * frame) and the wall (three live paints × baked band cells). Read the
-       * absolutes with the note that the pre-4.10 rows above were measured on the
-       * reference DEVICE at ~0.95 ms for the 0.5× buffer, where this run reads
-       * 0.88 ms for the same work, so the two are now comparable within noise.
+       * CYCLE 62 RE-MEASURED FROM SCRATCH, because the primitive changed and the
+       * old table is void (amendments 99 + 144). A full `Radar.render` — a
+       * generated 19-island map with its real height raster, six ship echoes, the
+       * sea-clutter haze and a live storm wall, at the shipped 3-deep
+       * persistence, warmed through three whole revolutions and then averaged
+       * over 240 frames, in the headless test environment on one machine:
+       *              cycle 61 (bakes)   cycle 62 (march)   + review gate
+       *   1.5×          0.90 ms             0.55 ms           0.62 ms
+       *   1.0×          1.10 ms             0.64 ms           0.70 ms
+       *   0.5×          1.70 ms             1.28 ms           1.46 ms
+       * (The middle column is the pre-gate build re-run on the SAME machine and
+       * the same fixture as the third, so the last two are directly comparable;
+       * the cycle-61 column is the figure of record from that cycle.)
        *
-       * The two levers if it ever needs to come down, in order: `clutterRangeU`
-       * (procedural, every frame, and by `clutterRef` nothing is even visible at
-       * its outer ~20u) and `stormBandU` (cells scale linearly with band
-       * thickness).
+       * The march is CHEAPER than the primitive it replaces despite painting far
+       * more of the world: per frame it walks only the arc the beam actually swept
+       * (~3 rays at 60fps), and a slice stores only cells that can light a pixel,
+       * where the retired bakes rescanned an island's whole bounding box on every
+       * revolution and re-stamped a procedural clutter disc every frame for every
+       * live haze. The steady state here is 374 live slices carrying ~17,200 cells
+       * between them — about three revolutions' worth, exactly as `sliceRad` and
+       * `persistSweeps` predict, and INDEPENDENT of frame rate.
+       *
+       * THE REVIEW GATE COST ~0.1 ms AT MIN ZOOM, and it is worth knowing where:
+       * the ray step is now clamped to half a cell (3u rather than 4u at the
+       * shipped `cellU`), which is 33% more samples per ray, and a land sample now
+       * also probes the ship stamp so a hull against a coastline is not
+       * suppressed. Both are per-SAMPLE costs, so they scale with the marched arc
+       * and not with the buffer. What is left at min zoom is still dominated by
+       * the buffer itself — `fill` plus quantize over 358k cells — which `cellU`
+       * is the only lever on, and the whole frame stays well inside the 2.5 ms
+       * min-zoom bar.
        */
       cellU: 6,
       /**
@@ -1455,120 +1466,305 @@ export const CLIENT_CONFIG = {
        * intensity — an age term in intensity would make one object drift red →
        * blue → green as it decayed, which is amendment 76's complaint re-created
        * on the time axis (see the `HeatGrid` comment in render/radarHeatmap.ts).
+       *
+       * ALL THREE DROPPED ~20% IN CYCLE 62 (0.5/0.7/0.9 → 0.4/0.56/0.72), Eric on
+       * the 4.10 build: *"I definitely agree with the translucency, might make it
+       * a tad more translucent"* (amendment 144). The RATIOS are untouched, so the
+       * three registers still separate by opacity exactly as before; the whole
+       * scale simply sits further off the water. It matters more now than it did
+       * under the bakes, because the march paints the FULL extent of everything it
+       * crosses rather than a near face — there is more ink on the chart, so each
+       * mark can afford to be lighter.
        */
       bands: [
-        { at: 0.12, color: COLORS.echoFaint, alpha: 0.5 },
-        { at: 0.36, color: COLORS.echoFuzzy, alpha: 0.7 },
-        { at: HEAT_RED_AT, color: COLORS.echoSolid, alpha: 0.9 },
+        { at: 0.12, color: COLORS.echoFaint, alpha: 0.4 },
+        { at: 0.36, color: COLORS.echoFuzzy, alpha: 0.56 },
+        { at: HEAT_RED_AT, color: COLORS.echoSolid, alpha: 0.72 },
       ],
       /**
-       * Per-cell intensity jitter, ± as a fraction. THIS is what makes the three
-       * bands interleave into ragged, noisy edges instead of three clean
-       * concentric rings — the difference between a radar return and a target
-       * reticle. Seeded on (paint, absolute world cell), so a paint's speckle is
-       * frozen for its whole decay and does not boil as the ship moves. Push it
-       * to 0 for clean bands (and for deterministic geometry tests).
+       * THE SNR GRAIN (cycle 62, amendment 143) — per-cell intensity jitter whose
+       * AMPLITUDE is a function of the intensity itself. This REPLACES the flat
+       * `noise: 0.3` multiplier, and it is a correction rather than a retune:
+       * Eric, on the speckle, *"I want whatever is realistic. Does the garmin
+       * radar display, with its 3 colors, do this at all? Do that."* On a real set
+       * a solid landmass returns a stable block of the strongest colour with a
+       * graded fringe, and the grain lives in LOW SIGNAL-TO-NOISE returns — sea
+       * clutter, rain, distant small targets, the partially-illuminated edges of
+       * anything. The flat jitter had it backwards: it put static in the interior
+       * of an island, the one place a scope is rock-steady, and it was also what
+       * smeared intensity OFF the iso-height lines the colour bands are meant to
+       * land on (amendment 142's diagnosis of why cycle 61's regions dithered
+       * instead of following the contours).
+       *
+       * EVERY COEFFICIENT BOUND BELOW IS PROVED AGAINST THIS ENVELOPE, NOT THE OLD
+       * ONE (amendment 135: a bound proved at nominal is not proved — and a bound
+       * proved against a retired envelope is not proved either). The worst draw
+       * for a material whose pre-grain intensity is `p` is
+       * `p × (1 + amount × (1 − p/solidAt))`, and that is the expression every
+       * bound below states.
+       *
+       * THE GRAIN IS A STABLE STENCIL, NOT SCINTILLATION. The march seeds it on
+       * the ABSOLUTE world cell with ONE seed for the whole match
+       * (`MARCH_SEED`, render/radarMarch.ts), so a given cell draws the same
+       * multiplier on every revolution and a speckled fringe HOLDS STILL between
+       * paints. That is required rather than incidental — independent per-paint
+       * seeds re-create amendment 136's solid-disc bug under max-wins stacking —
+       * and it is why nothing here describes the fringe as crawling.
        */
-      noise: 0.3,
+      noise: {
+        /** Peak ± jitter at the detection floor. Higher than the retired flat 0.3
+         *  on purpose: the grain now has to do all of its work at the weak end,
+         *  where it is the only thing distinguishing "sea state" from "something
+         *  tiny", and it costs nothing at the strong end because it is zero there.
+         *  Raising it past ~0.5 starts to push the faintest legitimate echo
+         *  (`model.minPeak` 0.2, worst draw 0.2 × (1 − 0.5 × 0.714) = 0.129) under
+         *  `bands[0].at`, at which point a share of every weak contact's cells go
+         *  permanently dark — not flickering, since the stencil is stable, but
+         *  eaten, which is the same trap the retired knob carried. */
+        amount: 0.45,
+        /** Intensity at which the grain reaches exactly zero. Pinned to the RED
+         *  threshold, so the rule reads as a sentence: anything strong enough to
+         *  be called "definitely a thing" is drawn rock steady, and everything
+         *  below it is graded by how marginal it is. */
+        solidAt: HEAT_RED_AT,
+      },
       /**
-       * THE PHYSICAL RETURN MODEL (Story 4.10, amendments 105-106, 118, 127-132)
-       * — every coefficient and reference range the ONE model needs. The math
-       * itself is render/radarFalloff.ts; this block is only its tuning.
+       * THE BEAM MARCH (cycle 62, amendments 138-140) — how the rays are spaced
+       * and how far apart the samples on one ray are. These are RESOLUTION knobs
+       * only: nothing here can change what a return READS, only whether the beam
+       * finds it.
+       */
+      march: {
+        /** Arc length (u) between adjacent rays AT THE TERMINUS. One cell, so the
+         *  fan can never open a gap at the rim, which is the coarsest place on
+         *  every ray and therefore the only place a gap can appear. The ANGLE is
+         *  derived from this and the observer's radar range (render/radarMarch.ts
+         *  `rayStep`), so a boon-scaled scope reaching ~2.01× base range simply
+         *  fires more rays rather than painting stripes at its rim — a fixed angle
+         *  would have to be tuned for the widest scope and then waste rays on
+         *  every other one. At base range (660u) this works out at ~0.52°. */
+        raySpacingU: 6,
+        /** Bounds on that derived angle (rad). The floor (~0.17°) caps the ray
+         *  count on an absurdly long scope; the ceiling (~1.15°) stops a
+         *  degenerate near-zero range from fanning a revolution into a handful of
+         *  spokes. Neither is reached at any shipped stat. */
+        minRayRad: 0.003,
+        maxRayRad: 0.02,
+        /** How far a ray advances between samples (u) — two thirds of a cell, so
+         *  consecutive samples land in the same cell or the next one and a ray
+         *  cannot step over a cell it passes through. Samples that repeat a cell
+         *  are priced once (the march dedups against the previous key), so the
+         *  oversampling costs an integer compare rather than a field query. */
+        stepU: 4,
+        /**
+         * The angular quantum ONE SLICE covers (rad, ~2.9°).
+         *
+         * SLICES ARE EMITTED PER QUANTUM, NOT PER FRAME, and that is the whole
+         * reason this number exists: how many records are live at a given moment
+         * then depends on the SWEEP RATE and the persistence depth and not at all
+         * on the frame rate, so a 144Hz machine and a 30Hz machine hold the same
+         * list and pay the same rasterization cost. At 15rpm this is ~124 slices
+         * per revolution and ~373 live at the shipped 3-sweep persistence. Halving
+         * it doubles both and lengthens the list without painting one extra cell;
+         * the visible effect of raising it is that the leading edge of the paint
+         * lags the drawn wedge by up to one quantum.
+         */
+        sliceRad: 0.0505,
+        /**
+         * The most beam (rad, ~23°) one frame may catch up on — about 250ms of
+         * sweep at 15rpm, or 125ms at the boon-scaled `sweepRpmMax` of 30. Past
+         * it the arc is SKIPPED: a backgrounded tab that resumes after a minute
+         * must not stamp fifteen revolutions of slices into one frame, and every
+         * paint it would have made is older than the phosphor life anyway.
+         *
+         * THE SCOPE STILL PAINTS AT EVERY FRAME RATE, and that is a property of
+         * how the bound is applied rather than of this number. A late frame
+         * resumes at `rot − catchUpArc`, NOT at the live beam, so the trailing
+         * wedge is always marched; only the arc beyond the bound is dropped. The
+         * shipped adapter resumed at the live beam, which meant a frame past the
+         * bound emitted NOTHING — and a client sustained under ~3.9fps (~7.9fps
+         * at 30rpm) then never emitted another slice at all and watched the scope
+         * decay to bare water in ~12s. An earlier version of this comment claimed
+         * "even a 4fps frame paints continuously"; that was true only of the
+         * momentary case and false of the sustained one, and false at boon rpm
+         * either way. See `planMarch` (render/radarMarch.ts) for the three
+         * regimes.
+         */
+        catchUpRad: 0.4,
+      },
+      /**
+       * THE PHYSICAL RETURN MODEL (Story 4.10, amendments 105-106, 118, 127-136;
+       * re-tuned by cycle 62) — every coefficient and reference range the ONE
+       * model needs. The math itself is render/radarFalloff.ts; this block is only
+       * its tuning.
        *
        * ONE MODEL, THREE EXPONENTS. Intensity is always
-       * `material coefficient x falloff(geometry) x the source's own shape term`,
-       * and the exponent is chosen by the TARGET'S GEOMETRY, never by its name:
-       * point/ship 1/d⁴, surface/coast+surf+clutter 1/d³, volume/storm 1/d².
-       * That is what makes the taxonomy EMERGENT rather than a lookup — a
-       * warship blazes close and fades far, a squall stays legible across the
-       * map, sea clutter hugs the ship because its COEFFICIENT is tiny even
-       * though it falls off slowly (amendment 105: colour is intensity, NEVER
-       * category).
+       * `material coefficient × falloff(geometry) × grain`, and the exponent is
+       * chosen by the TARGET'S GEOMETRY, never by its name: point/ship 1/d⁴,
+       * surface/coast + clutter 1/d³, volume/storm 1/d². That is what makes the
+       * taxonomy EMERGENT rather than a lookup — a warship blazes close and fades
+       * far, a squall stays legible across the map, sea clutter hugs the ship
+       * because its COEFFICIENT is tiny even though it falls off slowly
+       * (amendment 105: colour is intensity, NEVER category).
        *
        * THE COEFFICIENTS ARE TUNED, NOT COPIED. Amendment 106 supplies a table
-       * (steel 1.0, rock 0.5, mudflat 0.15, surf 0.06, clutter 0.02) and says in
-       * as many words that it is an assistant handwave and the first thing to
-       * tune. What survived from it is the ORDERING and the rough RATIOS; the
-       * absolute values below are fitted against the shipped band thresholds and
-       * the island `gain`, because those are what actually decide what a captain
-       * sees.
+       * (steel 1.0, rock 0.5, mudflat 0.15, clutter 0.02) and says in as many
+       * words that it is an assistant handwave and the first thing to tune. What
+       * survived from it is the ORDERING and the rough RATIOS; the absolute values
+       * below are fitted against the shipped band thresholds.
        */
       model: {
         /** Steel broadside — the table's 1.0 anchor, and the coefficient the
          *  crossover fit is solved against. Moving it re-fits `pointRef`. */
         ship: 1,
-        /** Terrain at or above `refHeight`: a rock headland. Kept at 1 so a tall
-         *  island's interior still saturates through the island `gain` — this is
-         *  amendment 78's "big red mass", which amendment 129 preserves. */
+        /** Terrain at or above `refHeight`: a rock headland. Kept at 1 so genuine
+         *  highland saturates RED — amendment 78's "big red mass", which the march
+         *  now delivers across an island's whole extent rather than its near face. */
         landSteep: 1,
-        /** Terrain at sea level: a mudflat / low sandy island. THE WHOLE POINT of
-         *  amendment 129 is the gap between this and `landSteep` — two islands of
-         *  equal size, one high and one low, must NOT paint identically. At 0.35
-         *  a flat island's interior reads blue near and green far while a steep
-         *  one reads red out to the rim. The handwave table's mudflat/rock ratio
-         *  was 0.3; this is that ratio, tuned up a touch so a low island still
-         *  reads as land rather than as sea state. */
-        landFlat: 0.35,
-        /** Breaking surf. Sized so the fringe is GREEN EVERYWHERE and can never
-         *  reach blue — and THE BOUND IS STATED WITH THE NOISE FACTOR IN IT,
-         *  exactly the way `clutter` states its own: `surf × (1 + noise) <
-         *  bands[1].at` → 0.26 × 1.3 = 0.338 < 0.36. The zero-range attenuation
-         *  term is ~1, so that IS the ceiling. The shipped 0.3 was bounded
-         *  noise-BLIND (0.3 < 0.36 held, but 0.3 × 1.3 = 0.39 did not) and put a
-         *  "probably a thing" register on open water within ~310u of every
-         *  coastline; every test that would have caught it ran the noise-OFF
-         *  fixture. Both halves are now asserted at the worst-case draw AND
-         *  through a rasterized band histogram with the shipped speckle on. */
+        /**
+         * Terrain at sea level: a mudflat / low sandy island. THE WHOLE POINT of
+         * amendment 129 is the gap between this and `landSteep` — two islands of
+         * equal size, one high and one low, must NOT paint identically.
+         *
+         * LOWERED 0.35 → 0.3 by cycle 62, because this number now does the retired
+         * `island.minLand`'s job as well as its own AND has to leave room for
+         * amendment 77's headline requirement. Under the bakes a coast cell's
+         * strength was `depth-solidity × height`, with `minLand` guaranteeing the
+         * waterline still returned SOMETHING; the depth term is gone (amendment
+         * 142 names it as what smeared intensity off the iso-height lines) and the
+         * height field supplies the same grading for free, because the field IS at
+         * sea level on the coast and climbs inland. So this coefficient is now the
+         * whole of what a WATERLINE returns, and it is placed just under
+         * `bands[1].at` on purpose: a real island then spans all three registers at
+         * once — GREEN at the waterline, BLUE across its slopes, RED on genuine
+         * highland — with every boundary landing on an iso-height line, which is
+         * the "colour regions follow the contours" picture amendment 142 promises
+         * comes free on a continuous field. At 0.45 a low coast would have opened
+         * in blue and the green register would have belonged to sea clutter alone.
+         *
+         * LOWERED AGAIN, 0.3 → 0.27, BY THE CYCLE-62 REVIEW GATE, and the reason
+         * is amendment 135 for the third time: 0.3 was proved against the band
+         * threshold at NOMINAL and shipped over it. Both bounds are stated here
+         * with the envelope factor explicit, as the standing rule requires — a
+         * material of pre-grain intensity `p` draws worst at
+         * `p × (1 + 0.45 × (1 − p/0.7))` and best at `p × (1 − 0.45 × (1 − p/0.7))`.
+         *
+         * BOTH ARE STATED AT `heightReflectivity(1)`, NOT AT THIS COEFFICIENT.
+         * `landFlat` is the value at height ZERO, and there is no land at height
+         * zero: the generator quantizes sea to 0 and seals the lowest LAND at 1,
+         * so the faintest cell any island can produce is
+         * `landFlat + (landSteep − landFlat)/refHeight` = 0.27 + 0.73/90 = 0.2781.
+         * Bounding the coefficient instead of the material understates the worst
+         * draw by a whole band's margin, which is how 0.28 passed a first pass of
+         * this same fix and still painted blue.
+         *
+         * 1. THE WATERLINE IS NEVER BLUE — `refl(1) × (1 + a) < bands[1].at` →
+         *    0.2781 × 1.2712 = 0.3535 < 0.36. At the shipped 0.3 this read 0.385:
+         *    a sandbar could draw BLUE, contradicting the sentence above it and
+         *    putting "probably a thing" on a mudflat. Attenuation is ≤ 1
+         *    everywhere (it peaks at exactly 1 at zero range), so the bare
+         *    coefficient IS the worst-case pre-grain intensity at every range.
+         * 2. IT STILL OUTRANKS SEA STATE EVERYWHERE — the weakest land cell in the
+         *    game (the waterline, at the 660u rim) is 0.2781 × 0.7315 = 0.2034
+         *    pre-grain and draws worst at 0.2034 × 0.6808 = 0.1385, above the
+         *    luckiest clutter cell's 0.1319. Land is never mistakable for water.
+         *    This is the bound that stops the coefficient going lower; between
+         *    the two, only about 0.265-0.275 is open.
+         */
+        landFlat: 0.27,
+        /**
+         * Breaking surf (SURFACE) — a weak seaward fringe on water within
+         * `surfBandU` of land (`render/radarField.ts` `surfSample`). RESTORED
+         * by the cycle-62 review gate: it shipped at cycle 60-61 riding the
+         * per-object island bake, fell out unintentionally when that bake was
+         * retired for the beam march, and Story 4.10 amendment 131 already
+         * ratified its shape — Eric: *"I'd love to see some kind of waves up
+         * against coastlines that would get painted green."*
+         *
+         * BOUNDED THE SAME WAY ITS SIBLINGS ARE, against cycle 62's SNR
+         * envelope (amendment 135: a bound proved at nominal is not proved),
+         * which hands a material of pre-grain intensity `p` a worst draw of
+         * `p × (1 + 0.45 × (1 − p/0.7))` — see the `clutter` comment below for
+         * the general form.
+         *
+         * 1. NEVER BLUE, AT ANY RANGE — `surf × (1 + a) < bands[1].at` →
+         *    0.26 × 1.283 = 0.334 < 0.36. Attenuation is <= 1 everywhere (it
+         *    peaks at exactly 1 at zero range), so the bare coefficient IS the
+         *    worst-case pre-grain intensity — nothing closer to the observer
+         *    can push it higher, at any range. A surf line that read blue
+         *    would put "probably a thing" on open water, the same failure
+         *    amendment 135 caught here at cycle 61's flat-noise bound.
+         * 2. NEVER QUIETER THAN SEA CLUTTER — surf's UNLUCKIEST draw must
+         *    still clear clutter's LUCKIEST one, so a coastline fringe can
+         *    never read weaker than open-water haze even at the two
+         *    materials' most adversarial draws: `surf × (1 − a) >
+         *    clutter × (1 + a')` → 0.26 × 0.717 = 0.186 > 0.095 × 1.389 =
+         *    0.132. A breaking coastline is physically a stronger scatterer
+         *    than open sea state, and this is what makes that hold as a
+         *    guarantee rather than as a coincidence of the nominal values.
+         *
+         * THE STRENGTH IS FLAT ACROSS THE BAND, WHICH IS A KNOWN GAP AGAINST
+         * AMENDMENT 131's ruled *weak seaward fringe* — stated here rather than
+         * left silent (the cycle-62 review gate caught it missing). The retired
+         * per-object bake faded the band seaward; the pyramid read that replaced
+         * it cannot, because the band is exactly ONE TILE (level 1, 28u) against
+         * a 14u raster spacing, so every surf sample is within one raster sample
+         * of land and there is no finer read to grade it with. Closing it needs
+         * either a per-sample distance transform or a wider `surfBandU`, and
+         * both are rulings rather than review-gate calls. `surfSample`
+         * (render/radarField.ts) carries the full argument.
+         *
+         * Both bounds are asserted at the worst-case draw AND through a
+         * rasterized band histogram at the shipped envelope in
+         * __tests__/radarHeatmap.test.ts.
+         */
         surf: 0.26,
         /**
          * Sea clutter. **DESIGN-LOAD-BEARING — NOT A FREE KNOB (amendments 130 +
-         * 133).** This is the ONE coefficient here deliberately tuned to sit ON a
-         * threshold rather than clear of one, and it now satisfies THREE bounds
-         * at once. All three are stated WITH the noise factor, because the
-         * multiplier is applied to a cell's intensity AFTER every coefficient
-         * here is chosen — a bound written noise-blind is not a bound.
+         * 133 + 136).** This is the ONE coefficient here deliberately tuned to sit
+         * ON a threshold rather than clear of one, and it satisfies THREE bounds
+         * at once. All three are re-derived against cycle 62's SNR envelope, which
+         * hands a material of pre-grain intensity `p` a worst draw of
+         * `p × (1 + 0.45 × (1 − p/0.7))`; the flat ±30% every previous statement
+         * of these bounds was proved against no longer exists (amendment 135).
          *
-         * 1. STRADDLE — `peak × (1 − noise) < bands[0].at < peak × (1 + noise)` →
-         *    0.105 × 0.7 = 0.0735 < 0.12 < 0.105 × 1.3 = 0.1365. That speckle IS
-         *    the haze. A coefficient safely ABOVE the threshold paints a solid
-         *    uniform green disc around own hull (band colour is verbatim and
-         *    alpha carries age, not intensity — every lit clutter cell is the
-         *    same pixel), which reads as a drawn circle rather than as sea. A
+         * 1. STRADDLE — `peak × (1 − a) < bands[0].at < peak × (1 + a)` →
+         *    0.095 × 0.611 = 0.058 < 0.12 < 0.095 × 1.389 = 0.132. That speckle IS
+         *    the haze: roughly a sixth of the cells at the hull light and the rest
+         *    stay dark. A coefficient safely ABOVE the threshold paints a solid
+         *    uniform green disc around own hull (band colour is verbatim and alpha
+         *    carries age, not intensity — every lit clutter cell is the same
+         *    pixel), which reads as a drawn circle rather than as sea. A
          *    coefficient safely BELOW paints nothing at all, which is the defect
          *    amendment 133 exists to correct.
-         * 2. NEVER BLUE — `peak × (1 + noise) < bands[1].at` → 0.1365 < 0.36.
-         *    This is what discharges Eric's ruling that clutter is texture and
-         *    may never hide a return. Green is "honestly not sure, could be
-         *    something tiny" — the correct register for sea state; blue would put
-         *    "probably a thing" on empty water. Note `surf` above is bounded by
-         *    exactly this rule.
-         * 3. NEVER OUTRANKS THE FAINTEST LEGITIMATE ECHO — `peak × (1 + noise) <
-         *    ship.minPeak × (1 − noise)` → 0.1365 < 0.2 × 0.7 = 0.14. `writeCell`
-         *    is max-wins and hands the WINNER both the intensity AND the alpha,
-         *    so a clutter cell that beat a decaying echo's core would also re-age
-         *    it — a ghost would stop reading as a ghost. This bound closes that;
-         *    it is the reason 0.13 (whose luckiest cell reads 0.169, above the
-         *    unluckiest real core) could not stand.
+         * 2. NEVER BLUE — `peak × (1 + a) < bands[1].at` → 0.132 < 0.36. This is
+         *    what discharges Eric's ruling that clutter is texture and may never
+         *    hide a return. Green is "honestly not sure, could be something tiny",
+         *    the correct register for sea state; blue would put "probably a thing"
+         *    on empty water. Note `surf` above is bounded by exactly this rule,
+         *    plus a second one keeping it from ever reading weaker than clutter.
+         * 3. NEVER OUTRANKS THE FAINTEST LEGITIMATE ECHO — `peak × (1 + a) <
+         *    minPeak × (1 − a')` → 0.132 < 0.2 × 0.679 = 0.136. `writeCell` is
+         *    max-wins and hands the WINNER both the intensity AND the alpha, so a
+         *    clutter cell that beat a decaying echo's core would also re-age it —
+         *    a ghost would stop reading as a ghost. The envelope makes this bound
+         *    TIGHTER than the flat jitter did, from both sides at once (the weak
+         *    clutter cell earns MORE amplitude, the stronger echo less), which is
+         *    exactly why the coefficient had to come down from 0.105.
          *
          * Raising this past the blue threshold is a DESIGN change requiring a
          * fresh ruling: Eric was shown "clutter strong enough to swallow weak
-         * returns close in" as a real mechanic and DECLINED it.
-         *
-         * ALL THREE bounds are asserted in __tests__/radarHeatmap.test.ts, at the
-         * worst-case noise draw and through a rasterized band histogram with the
-         * shipped speckle on. A one-sided, noise-blind assertion is exactly what
-         * let invisible clutter pass its own test.
+         * returns close in" as a real mechanic and DECLINED it. ALL THREE bounds
+         * are asserted in __tests__/radarHeatmap.test.ts, at the worst-case draw
+         * AND through a rasterized band histogram at the shipped envelope.
          */
-        clutter: 0.105,
+        clutter: 0.095,
         /**
-         * The storm wall. Bounded the same way its siblings are — WITH the noise
-         * factor: `storm × (1 + noise) < bands[2].at` → 0.5 × 1.3 = 0.65 < 0.7.
-         *
-         * The shipped 0.6 claimed to be below the red threshold "by construction"
-         * and was not: 0.6 × 1.3 = 0.78, so the wall's spine painted RED and the
-         * weather out-read a hull, directly against amendment 128. At 0.5 the
-         * wall is a solid BLUE band with a green shoulder at every range inside
-         * the scope and can never reach red at any draw.
+         * The storm wall. Bounded the same way its siblings are, against the same
+         * envelope: `storm × (1 + a) < bands[2].at` → 0.5 × 1.129 = 0.564 < 0.7,
+         * so the wall is a solid BLUE band with a green shoulder at every range
+         * inside the scope and can never reach red at any draw. A hull is the only
+         * thing on this scope allowed to be red.
          */
         storm: 0.5,
         /**
@@ -1579,34 +1775,37 @@ export const CLIENT_CONFIG = {
          */
         pointRef: HEAT_POINT_REF,
         /**
-         * Reference range (u) of the SURFACE curve (coast, surf, clutter).
+         * Reference range (u) of the SURFACE curve (coastline).
          *
          * Deliberately LONGER than the point reference and on a shallower
          * exponent, which is the physics doing the work: an extended target's
          * illuminated area grows with range, so coastline holds its strength far
-         * better than a hull does. Tuned so a fully solid STEEP interior still
-         * clears `bands[2].at` at the 660u rim through the island `gain`
-         * (1.4 × 1.0 × 0.57 = 0.79) — amendment 78's regression pin — while a
-         * FLAT one at the same range lands in blue/green.
+         * better than a hull does.
+         *
+         * RAISED 700 → 900 by cycle 62, and it is the same tuning target as
+         * before rather than a new one: the retired island `gain` (1.4×) was what
+         * kept a solid interior RED out to the 660u rim, and the gain went with
+         * the bake that applied it. Putting the reference where the curve ALONE
+         * clears `bands[2].at` at the rim (0.05 + 0.95/(1 + (660/900)³) = 0.73)
+         * restores amendment 78's regression pin — a big tall island is a big red
+         * mass, not one that is only red when you are on top of it — without a
+         * second multiplier nobody could reason about. A FLAT island at the same
+         * range lands at 0.45 × 0.73 = 0.33, i.e. green: the height channel is
+         * still the thing that separates them.
          */
-        surfaceRef: 700,
+        surfaceRef: 900,
         /**
          * Reference range (u) of the SURFACE curve FOR SEA CLUTTER ONLY — and it
          * exists because amendment 130 requires the haze's concentration to fall
          * out of the 1/d³ curve rather than out of a hand-placed radius.
          *
-         * On the shared `surfaceRef` of 700 the clutter return is still at 99.7%
-         * of its peak at the 100u compute bound, so the speckle density held flat
-         * across the whole disc and then STOPPED at a hard circle — the drawn
-         * edge the amendment forbids, dressed up as a falloff. At 150 the curve
-         * does the work: 0.105 at the ship, 0.082 at 100u whose luckiest draw is
-         * 0.107 < `bands[0].at`, so the density grades from ~26% of cells lit at
-         * the hull to ZERO at ~79u. The haze ends where the physics ends.
-         *
-         * Coast and surf keep `surfaceRef` — they are the extended targets that
-         * reference was fitted for. Sea state is the near-field return of the
-         * water immediately around the hull, and a shorter reference is what says
-         * so.
+         * On the shared `surfaceRef` the clutter return would still be at ~99% of
+         * its peak at the compute bound, so the speckle density would hold flat
+         * across the whole disc and then STOP at a hard circle — the drawn edge
+         * the amendment forbids, dressed up as a falloff. At 150 the curve does
+         * the work: 0.095 at the ship, and under the envelope the last cell able
+         * to reach `bands[0].at` on its luckiest draw sits at ~72u. The haze ends
+         * where the physics ends.
          */
         clutterRef: 150,
         /** Reference range (u) of the VOLUME curve (the storm wall). Longest of
@@ -1615,10 +1814,37 @@ export const CLIENT_CONFIG = {
          *  paints the WALL and not the AREA — an area return under this curve
          *  would own half the scope late-match and bury every contact in it. */
         volumeRef: 900,
-        /** Asymptotic floor shared by the SURFACE and VOLUME curves (ships keep
-         *  their own, `ship.attenFloor`, because the fit is solved against it).
-         *  Small for the same conditioning reason, and still an asymptote. */
+        /** Asymptotic floor shared by the SURFACE and VOLUME curves. Small for
+         *  conditioning, and still an asymptote rather than a clamp, so two
+         *  different ranges never attenuate identically (amendment 64's
+         *  one-quantity-per-channel rule). */
         floor: 0.05,
+        /** Asymptotic floor of the POINT curve — see HEAT_SHIP_ATTEN_FLOOR above
+         *  for why the 1/d⁴ fit requires it to be this small, and why the floor
+         *  SURVIVES the physics (amendment 127). */
+        pointFloor: HEAT_SHIP_ATTEN_FLOOR,
+        /** Attenuated ACROSS extent (u) whose return reads at full intensity —
+         *  i.e. earns a red core. 60u is deliberately well under a broadside
+         *  battleship (124u) and well over a bow-on needle: the scale has to
+         *  SATURATE on genuinely big echoes rather than reserve its top end for a
+         *  hull nobody ever presents. It is also the fit's normalizer (see
+         *  HEAT_STRONG_EXTENT): moving it moves the red→blue crossover, which is
+         *  why there is exactly one of it. It SURVIVES the kernel's deletion
+         *  because it is what keeps ASPECT a strength channel and not merely a
+         *  size one — amendment 127 is explicit that a bow-on hull must paint a
+         *  weaker return, not just a smaller one. */
+        strongExtent: HEAT_STRONG_EXTENT,
+        /** Floor on a hull's intensity. Above `bands[0].at` with enough headroom
+         *  that the grain cannot push the weakest legitimate return under the
+         *  transparent threshold: 0.2 × (1 − 0.45 × (1 − 0.2/0.7)) = 0.136 > 0.12.
+         *
+         *  THIS IS THE REAL GUARANTEE, not the asymptote (amendment 127): radar
+         *  range means ONE number for every hull, so anything the server blips —
+         *  or any sighted hull the client synthesizes — still paints at least a
+         *  green speck anywhere inside the scope, at any aspect, at any size.
+         *  Dropping it so signature becomes stealth is a RULED-OUT design, not a
+         *  realism correction; do not re-propose it. */
+        minPeak: 0.2,
         /**
          * Quantized `HeightRaster` height (0-255) at which terrain reaches
          * `landSteep`. Measured against the shipped generator rather than
@@ -1626,30 +1852,45 @@ export const CLIENT_CONFIG = {
          * max 255 across seeds, with per-island peaks from 7 (a sandbar) to 255
          * (a big ridge). 90 therefore puts genuine highland at full reflectivity
          * while leaving the low islands the whole gradient below it.
+         *
+         * THE GRADIENT IS CONTINUOUS AND MUST STAY SO (amendment 142). The raster
+         * already carries 256 levels; clamping them to the four contour terraces
+         * would cost an extra comparison chain to DISCARD 98% of the data, would
+         * step Story 4.11's shadow lengths into four kinds of obstacle, and buys
+         * nothing — on a continuous field a colour-band boundary IS an iso-height
+         * line, so the regions land on the contours by construction.
          */
         refHeight: 90,
         /**
          * How far seaward of a coastline surf paints (u) — a THIN fringe, ~5
-         * cells. It is deliberately narrower than one cell of slack around the
-         * bounding-circle regression fixtures: surf must read as a line ON the
-         * coast, never as a halo that could be mistaken for the island being
-         * bigger than it is.
+         * cells at the shipped `cellU`. Consumed by
+         * `render/radarField.ts`'s `surfPyramidLevel` as a TILE SIZE target,
+         * not a radius: the O(1) proximity test picks the max-height pyramid
+         * level whose tile size is closest to this number — level 1 (28u,
+         * `TERRAIN_PARAMS.cell` 14 doubled once) against this 30u target,
+         * beating level 0 (14u, |14-30|=16) and level 2 (56u, |56-30|=26) —
+         * and reads exactly one `tileCeilingAt` per water sample: never a
+         * neighbourhood scan, never a polygon test.
+         *
+         * THE RESULTING BAND IS TILE-ALIGNED, NOT A TRUE RADIAL DISTANCE, and
+         * that is an intentional trade, not a defect to "fix" into a
+         * per-sample distance transform: a water sample near a tile corner
+         * can be lit by land the read never sees (it belongs to a
+         * neighbouring tile), so the fringe's width varies a little around
+         * the coast as the tile grid falls where it falls. Surf is a
+         * decorative fringe, not a ranging instrument, and the pyramid's own
+         * grain hides the tiling.
          */
         surfBandU: 30,
         /**
          * PURE COMPUTE bound (u) on the clutter disc — and with `clutterRef` in
-         * place, NOTHING IS VISIBLE AT IT. The haze's own curve takes the
-         * luckiest draw below `bands[0].at` at ~79u (0.082 × 1.3 = 0.107 < 0.12),
-         * so the fade is decided by the falloff exactly as amendment 130 requires
-         * and this number only decides where the loop stops paying for cells that
-         * cannot light. 100u leaves ~21u of slack past the last lit cell, so a
-         * retune of `clutter`, `noise` or `bands[0].at` has room to move before
-         * the disc edge could become visible.
-         *
-         * It is still the one knob here with a per-frame price tag: clutter
-         * stamps PROCEDURALLY every frame (no baked list), for every live haze,
-         * so its cost is `π × r² / cellU²` cells × the paint depth. At 100u that
-         * is ~870 cells per haze; doubling the radius quadruples that.
+         * place, NOTHING IS VISIBLE AT IT. The haze's own curve takes even the
+         * luckiest draw below `bands[0].at` at ~72u, so the fade is decided by the
+         * falloff exactly as amendment 130 requires and this number only decides
+         * where the march stops asking the field about cells that cannot light.
+         * 100u leaves ~28u of slack past the last lit cell, so a retune of
+         * `clutter`, the grain or `bands[0].at` has room to move before the disc
+         * edge could become visible.
          */
         clutterRangeU: 100,
         /** Full thickness (u) of the storm wall band, centred on the live ring
@@ -1657,114 +1898,6 @@ export const CLIENT_CONFIG = {
          *  physical object of its own size, not a region whose extent grows as
          *  the ring closes. */
         stormBandU: 60,
-      },
-      /** CONTACT ECHO KERNEL (ruling R4). The aspect channel amendment 66
-       *  ratified, unchanged — hull geometry × relative bearing × range and
-       *  nothing else. What is new is that the kernel has INTERNAL structure,
-       *  and (Story 4.10) that its range term is the model's POINT curve. */
-      ship: {
-        /** Smallest drawable ACROSS extent (u). A needle bow-on at the rim is a
-         *  weak contact, never an absent one. */
-        minExtent: 10,
-        /** Range depth as a fraction of the across extent — a scope smears an
-         *  echo in range as well as azimuth, and a zero-depth kernel reads as a
-         *  line rather than a return. */
-        depthFrac: 0.5,
-        /** Smallest drawable range depth (u). */
-        minDepth: 7,
-        /** Asymptotic floor of the POINT attenuation curve — the strength a
-         *  return at infinite range would approach, never reach. Deliberately an
-         *  asymptote and not a `Math.max` clamp: a hard floor would make two
-         *  different ranges paint identically, colliding with amendment 64's rule
-         *  that one channel carries return strength and nothing else shares it.
-         *  Lowered 0.45 → 0.02 by Story 4.10 — see HEAT_SHIP_ATTEN_FLOOR above
-         *  for why the 1/d⁴ fit requires it and why the floor SURVIVES. */
-        attenFloor: HEAT_SHIP_ATTEN_FLOOR,
-        /** Attenuated ACROSS extent (u) whose kernel peaks at full intensity —
-         *  i.e. earns a red core. 60u is deliberately well under a broadside
-         *  battleship (124u) and well over a bow-on needle: the scale has to
-         *  SATURATE on genuinely big echoes rather than reserve its top end for
-         *  a hull nobody ever presents. It is also the fit's normalizer (see
-         *  HEAT_STRONG_EXTENT): moving it moves the red→blue crossover, which is
-         *  why there is exactly one of it.
-         *
-         *  (Story 4.10 RETIRED the sibling `attenHalfRange`. It scaled the old
-         *  hyperbola by the observer's LIVE radar range; the model's reference is
-         *  `model.pointRef`, fitted once. Consequence of record: an `intelRadar`
-         *  boon now buys REACH without restretching the falloff — a hull at 500u
-         *  reads the same whatever the scope's rim is — and no live observer stat
-         *  reaches the rasterizer any more, which strengthens amendment 83.) */
-        strongExtent: HEAT_STRONG_EXTENT,
-        /** Floor on a kernel's PEAK intensity. Above `bands[0].at` with enough
-         *  headroom that the noise multiplier cannot push the weakest legitimate
-         *  return under the transparent threshold: 0.2 × (1 − 0.3) = 0.14 > 0.12.
-         *  Raising `noise` past ~0.4 without raising this makes faint contacts
-         *  flicker in and out of existence between paints.
-         *
-         *  UNCHANGED BY THE 1/d⁴ MODEL, AND NOW THE REAL GUARANTEE (amendment
-         *  127): the curve got much steeper, so this floor — not the asymptote —
-         *  is what discharges "nothing inside radar range ever paints nothing".
-         *  Dropping it to make signature into stealth is a RULED-OUT design, not
-         *  a realism correction; do not re-propose it. */
-        minPeak: 0.2,
-      },
-      /** ISLAND LANDMASS FILL (amendments 69 + 78, ruling R5). Pure client
-       *  presentation: islands are client-known from the map seed, so there is
-       *  no wire field and no server work for any of this. Geometry comes from
-       *  the REAL polygon via shared `sim/island.ts` — never the bounding
-       *  circle, which after fractal islands can sit well offshore of the coast. */
-      island: {
-        /**
-         * Depth (u) inside the coastline at which land reads at full intensity.
-         * This is the "big red mass with softer edges" knob (amendment 78): the
-         * interior of a real island saturates while a ~70u fringe grades down
-         * through blue to green at the water's edge. A lone 25u rock never gets
-         * deep enough to reach red at all, which is the literally correct read —
-         * "could be something tiny".
-         */
-        depthFullU: 70,
-        /** Solidity floor AT THE WATERLINE. Land is land: a coastline cell must
-         *  still return something, or a big island would paint a hole in its own
-         *  outline and read a couple of cells smaller than it is. Remapped, not
-         *  clamped — the interior keeps the whole scale above this. */
-        minLand: 0.3,
-        /** Gain applied to solidity before range attenuation (the product is
-         *  clamped to 1). Without it a solid interior slides from red to blue
-         *  past ~370u and Eric's "big red mass" would only be red when you were
-         *  on top of it; at 1.4 a fully solid interior stays red out to the rim
-         *  while the fringe still grades blue → green. */
-        gain: 1.4,
-        /** Terminator ramp width as a fraction of the island's bounding radius:
-         *  how far PAST the near-face horizon the fill takes to reach zero. 0
-         *  gives a hard shadow line; this softens it so the far side reads as
-         *  shadow rather than as a drawn edge. Beyond the ramp the far side
-         *  paints NOTHING — the near-face-only physics is unchanged. */
-        terminator: 0.3,
-        /** Hard cap on covered LAND cells baked per island paint. At 6u cells
-         *  that is ~93,600u² of solid land, comfortably past the largest landmass
-         *  the generator can produce; it exists so a future map retune cannot
-         *  turn one coverage bake into an unbounded loop.
-         *
-         *  IT IS LAND-ONLY, AND THAT IS THE FIX (Story 4.10 review gate). Surf
-         *  rides the same bake, so a single shared budget put the fringe in
-         *  competition with the coastline — and because the scan is ROW-MAJOR,
-         *  the cells a big island lost were its southern edge, silently. Land
-         *  coverage must not be a function of whether surf is enabled, so the two
-         *  sources now draw on separate budgets and neither can starve the other. */
-        maxCells: 2600,
-        /** Hard cap on covered SURF cells per island paint — the fringe's own
-         *  runaway guard, sized against the geometry rather than guessed. A near
-         *  face at the land cap has a coastline on the order of 2,000u; a
-         *  `surfBandU` (30u) fringe on it is ~60,000u², i.e. ~1,650 cells at 6u.
-         *  1,800 clears that with slack while staying well under the land budget,
-         *  which is the right ordering: the coastline is the object, the surf is
-         *  its trim. */
-        surfMaxCells: 1800,
-        /** Live island paints retained per island. Each revolution of the beam
-         *  opens exactly one, so this is the island equivalent of
-         *  `paintsPerContact` and lands at the same `persistSweeps` depth: the
-         *  coastline holds its ghosts for as long as a contact does. */
-        paintsPerIsland: 3,
       },
     },
   },

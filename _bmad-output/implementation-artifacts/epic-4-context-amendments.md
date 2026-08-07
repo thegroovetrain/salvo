@@ -1996,3 +1996,203 @@ four times in a row.
      a `from` argument, so the bug is unrepresentable rather than merely corrected. Recorded because
      the failure was invisible to every pure-rasterizer test and is precisely the class amendment 98
      was written for.
+
+## 2026-08-07 — Eric rulings, THE BEAM MARCH (cycle 62, corrective, on seeing 4.10 live)
+
+Source: Eric, live, on the shipped 0.17.61 build, with a screenshot. Four complaints and a governing
+sentence, verbatim:
+
+> *"What I wanted you to accomplish was to have the radar correctly paint **everything** it sweeps
+> over."*
+
+> *"You're basically supposed to be raycasting or ray something, im not sure the proper term. but as
+> the sweep line sweeps, you're supposed to be radar painting that entire line from the ship to the
+> terminus according to how its supposed to show up on radar."*
+
+138. **THE PER-OBJECT BAKE IS RETIRED; THE BEAM MARCH REPLACES IT.** Radar stops asking each object
+     what it looks like and starts asking each BEARING what is out there. As the beam advances, rays
+     are marched from own hull to the radar terminus, sampling a world raster, and every sample paints
+     according to the return model. This SUPERSEDES the paint-generation half of amendments 69, 76, 78
+     and 88 — coverage bakes, `IslandPaint.cover`, the near-face criterion and the per-object kernel
+     all go. **What is NOT superseded and still governs verbatim: amendment 83** (a paint is a
+     historical record — the march freezes its observer and its samples at creation and only alpha
+     changes afterwards), **amendment 97** (nothing viewport-derived reaches paint creation or
+     retirement), **amendment 98** (placement is pinned at the Pixi adapter), **amendment 105** (colour
+     is intensity, never category) and **amendment 106** (reflectivity × falloff by geometry).
+
+     Note this is the architecture amendment 109 floated and left open — Eric: *"Part of me feels like
+     it might make sense to transfer the ships and wakes to the raster in each frame and use that for
+     radar calculation"* — now ruled IN, and the reason it arrives early is that cycle 61 proved the
+     per-object primitive cannot express what the story asked for.
+
+139. **THE `faceShadow` DEFECT OF RECORD, and why the fix is deletion rather than correction.** Eric's
+     screenshot showed large stretches of coastline unpainted, cut off along an arbitrary diagonal.
+     Cause: `faceShadow` scores a point as `m = (t − ρ²/d)/r`, where `t` is the projection toward the
+     observer and `ρ` is the distance from the island's BOUNDING-CIRCLE CENTRE. It is the exact
+     near-face criterion **for a disc**. On an elongated polygon a point at a LATERAL extremity — side
+     on to the observer, not on the far side at all — has `t = 0`, so `m = −ρ²/(d·r)`, which on a
+     typical stretched island is ≈ −0.6 against a 0.3 terminator ramp and clamps to ZERO. **Every long
+     tail and lateral tip of every stretched island was being suppressed regardless of facing.** The
+     math was correct for the capsule islands it was written against (cycle 51) and was invalidated by
+     the cycle-59 fractal generator without anyone noticing, because it degrades gradually rather than
+     failing loudly.
+
+140. **NOTHING OCCLUDES ANYTHING IN THIS CYCLE — PAINT EVERYTHING THE BEAM CROSSES.** Eric: *"the
+     'height aware radar shadows' story is going to address all LOS concerns as well as radar shadow."*
+     So the near-face terminator, the cross-island `islandBlocksSegment` filter added at cycle 51's
+     review gate, and clutter's occluder mask (added at cycle 61's gate) are ALL removed from the paint
+     path. A ray paints every sample along its length, near side and far side alike, and an island
+     behind an island paints too.
+
+     **This is a KNOWING, TEMPORARY regression against the 2026-08-02 "islands block every sensor"
+     ruling, scoped to the radar PAINT LAYER only and accepted by Eric on the explicit promise that
+     Story 4.11 restores it properly** — as a height-derived shadow length rather than a binary segment
+     test, which is a strictly better answer than what is being removed. **It does NOT touch any
+     server-side sensor gate**: `blipGate`, `pointSighted`, `pointDetected`, the muzzle-flash halo, the
+     smoke halo and the foghorn muffle are all UNCHANGED and still enforce LOS. Nothing about what the
+     server discloses moves in this cycle; only what the client draws from what it already holds.
+
+141. **SHIPS ARE STAMPED INTO THE SAME RASTER AND PAINTED BY THE SAME RULES — but they never occlude.**
+     Eric: *"ships do not cast radar shadows and every ship's radar is assumed to be above the level
+     that ships are tracked on, all I want you to do is paint everything in the raymarch."* This
+     RATIFIES amendment 107 a second time and on a second premise (mast height above the tracked
+     plane), and it retires the bespoke `stampShip` ellipse kernel: a hull's return now falls out of
+     its actual footprint in the raster the same way terrain's does. The wire is UNCHANGED — both paint
+     sources (`ReturnBlipEvent` beyond truesight, `contactEcho` inside it) still feed the same list, and
+     `blipGate` is untouched.
+
+142. **CONTINUOUS HEIGHT, NOT TERRACES — and the perf premise for terracing is FALSE.** Eric asked
+     whether radar should clamp to the contour terraces, and gave the deciding rule himself: *"if
+     there's no performance cost to have the entire range of heights and just clamp them to radar
+     return strength ranges and calculate radar shadow based on that instead of clamped terraces, then
+     we should do that."*
+
+     There is no performance cost, and terracing is strictly MORE work: `sampleHeight` is an O(1)
+     `Uint8Array` read that already returns **256 levels**, so terracing means taking that byte and
+     mapping it down to **4 bands** (`contourLevels: 3` plus the coastline) via an extra comparison
+     chain on an identical array read. It costs a little more and discards 98% of the elevation data.
+
+     **Terracing would also actively damage Story 4.11.** Shadow length is
+     `(radarRange²/4)·(1 − h₀/H)/d₀`; with four discrete `h₀` values terrain collapses into four kinds
+     of obstacle, shadow lengths step rather than grade as you sail past a headland, and the hard-cover
+     threshold `H` lands ON a terrace boundary — so an entire band of the map would flip from soft
+     cover to absolute cover at once. Amendment 102's ratified distinction between SOFT cover
+     (situational, range-dependent) and HARD cover depends on that gradient existing.
+
+     **And the look terracing promised comes free anyway:** on a continuous height field a colour-band
+     boundary IS an iso-height line, which is a contour. The regions land on the contours by
+     construction. The reason cycle 61 did not look that way is amendment 143's noise and the
+     `solidity` depth term smearing intensity off the iso-height lines — not the height model.
+
+143. **NOISE SCALES WITH WEAKNESS — SNR, not a flat jitter.** Eric, on the speckle: *"I want whatever
+     is realistic. Does the garmin radar display, with its 3 colors, do this at all? Do that."* On a
+     real set a solid landmass returns a stable, solid block of the strongest colour with a graded
+     fringe; the grain lives in LOW SIGNAL-TO-NOISE returns — sea clutter, rain, distant small targets,
+     and the partially-illuminated edges of any target. Cycle 61's flat ±30% is backwards: it puts
+     static in the interior of an island, the one place a real scope is rock-steady.
+
+     RULING: noise amplitude is a function of the sample's own strength, largest at the detection floor
+     and vanishing toward saturation. Strong cores go solid; fringes, clutter and weak distant returns
+     stay grainy. This is a straight consequence of amendment 105 (colour is intensity) rather than a
+     new channel — the grain is now telling you the return is MARGINAL, which is information a real
+     operator reads. **Sea clutter is deliberately tuned to straddle the visibility threshold
+     (amendments 133, 136), so it sits at the noisy end BY CONSTRUCTION and needs no special case** —
+     but its bound must be re-derived against whatever the new noise envelope is, since amendment 135's
+     rule (a bound proved at nominal is not proved) binds every coefficient here.
+
+144. **Presentation and scope.** The palette goes slightly MORE TRANSLUCENT (Eric: *"I definitely agree
+     with the translucency, might make it a tad more translucent"*) — a band-alpha tuning, no structural
+     change. This lands as **its own corrective cycle BEFORE Story 4.11** (Eric's explicit pick over
+     folding it into 4.11), so the march exists and is verified on the water before shadows are added
+     to it; 4.11 then contributes a term to a march that already works rather than building one.
+     Expected to stay CLIENT-ONLY with `PROTOCOL_VERSION` unchanged — but the march is a genuine
+     rewrite of the paint path, so per-frame cost must be re-measured at both zoom extremes and
+     reported (amendment 99), and the adapter-level placement pins (amendment 98) must be re-derived
+     against the new primitive rather than assumed to carry over.
+
+## 2026-08-07 — Cycle 62 review gate: THE SLOW-CLIENT BLANK SCOPE, and two lessons
+
+145. **THE WORST DEFECT THIS PROJECT HAS SHIPPED INTO A REVIEW GATE: a sustained slow client rendered
+     a PERMANENTLY EMPTY SCOPE.** The adapter's catch-up rule ran BEFORE the slice count and reset the
+     cursor to the LIVE beam (`sliceFrom = rot`), so any frame whose beam advance exceeded `catchUpRad`
+     (0.4 rad) emitted no slice at all. One such frame is harmless; *every* frame being one is not —
+     no slice is ever created, the existing slices decay out in ~12 seconds, and the player watches a
+     sweep line rotate over a black scope with the radar apparently dead. The threshold is sustained
+     **~3.9 fps at base 15rpm — and ~7.9 fps at the boosted `sweepRpmMax` of 30**, which is a stat a
+     player can actually buy. The shipped config comment asserted the opposite in as many words
+     ("even a 4fps frame paints continuously"), which was true only of the MOMENTARY case.
+
+     Fix: the cursor resets to `rot − catchUpArc`, so the trailing wedge still paints, and the whole
+     rule moved into ONE pure function (`planMarch`) that owns both the emission cap and the reset —
+     they are now the same arc by construction, which also closes the near-miss band where advances in
+     (7 × `sliceRad`, `catchUpRad`] accumulated a deficit that was later discarded, silently dropping
+     up to 0.4 rad of world on a recurring cadence.
+
+     **THE TEST LESSON, and it is the third time this exact shape has appeared** (after amendments 98
+     and 135): a test existed for the catch-up bound, and it passed. It pinned `sliceCount`'s INTERNAL
+     clamp — but the adapter's reset fired first and zeroed the span, so the clamp the test proved was
+     nearly dead code on the production path. **A test that exercises a pure function's branch has not
+     tested the behaviour unless the adapter can actually reach that branch.** The suite now drives
+     `Radar.render` itself at sustained above-threshold advances.
+
+146. **Nine further defects, recorded because their shapes generalize.** Each had a regression test that
+     was verified to FAIL before its fix by stashing the change and re-running:
+     - **A server-disclosed wire echo could paint NOTHING at the rim**, violating amendment 127's
+       guarantee that anything the server blips paints at least a speck. The march clipped rays to the
+       client's live `radarRange`, so a prediction divergence or lag spike at a rim blip left every ray
+       stopping short of the footprint. A resolved echo now marches to `max(radarRange, dist + pad)` —
+       the server's disclosure decides that it paints, never the client's own range estimate.
+     - **`radarRange = Infinity` froze the tab** — the guard checked sign but not finiteness, so the
+       march loop never terminated. Every externally-supplied scalar that bounds a loop is now
+       finiteness-checked, and a `MAX_SLICES_PER_FRAME` backstop caps a near-zero `sliceRad` retune.
+     - **Terrain unconditionally outranked a hull**, so a ship hugging a coastline could be suppressed
+       by a mudflat, breaking the `minPeak` floor. The field now takes whichever makes the stronger
+       return AT THAT RANGE — a bare-coefficient compare would invert, because the two materials have
+       different falloff exponents.
+     - **The ship stamp was last-wins where `writeCell` is max-wins**, so two hulls sharing a cell let
+       the later-iterated weaker one overwrite the stronger.
+     - **An aground observer painted its own island from d = 0** at near-full strength.
+     - A full-turn arc folded to zero (`wrapPositive(2π) = 0`), so an echo nearly on top of the
+       observer painted nothing; the ray step could skip cells if `cellU` were retuned below `stepU`;
+       and diagonal echo footprints were only 8-connected, dropping texels at ~45°.
+
+147. **`landFlat` 0.3 → 0.27, and the arithmetic that matters is not the obvious one.** Under the SNR
+     envelope the waterline could paint BLUE (`0.3 × 1.257 = 0.377 > bands[1].at`) while its own
+     comment claimed green — amendment 135's discipline applied to the weather coefficients and then
+     narrated the land coefficient at nominal. The correction is 0.27, **not** the 0.28 a naive solve
+     gives: the real worst case is `heightReflectivity(1)`, because the generator seals the lowest LAND
+     at quantized height 1 rather than 0, so 0.28 still draws 0.363. Recorded because any future
+     re-derivation of a land bound must start from quantized height 1, not from sea level.
+
+148. **TWO DOCUMENTATION CLAIMS WERE FALSE AND ARE NOW CORRECTED — the behaviour was right, the
+     description was not.**
+     - **The grain does not scintillate and cannot.** One module-constant `MARCH_SEED` makes the
+       speckle a fixed spatial stencil; three comments claimed the fringe "crawls". The stable seed is
+       CORRECT — independent per-slice seeds rebuild amendment 136's solid-disc union bug under
+       max-wins stacking — so the behaviour stands and the comments now say what actually happens: the
+       grain is a stable property of PLACE, which is `cellNoise`'s own design rationale.
+     - **Amendment 83 holds at FRAME granularity, not beam granularity.** Every slice owed in a frame —
+       up to the catch-up bound of previously-swept arc — is marched against THAT FRAME's field, so a
+       sample can be skewed from the moment its bearing was actually crossed by up to `catchUpArc`
+       (≤ ~32ms at 60fps). The skew is accepted; the header claiming samples are frozen "at the moment
+       the beam crossed that arc" was not true and now states the real contract. **This module's entire
+       bug history is evaluation-time drift, so an overclaiming comment here is a hazard, not a
+       cosmetic issue.**
+
+149. **SURF HAS NO TAPER, and the reason is structural rather than a shortcut.** Amendment 131 described
+     a fringe that fades seaward. The tile-aligned proximity read cannot express one: the surf pyramid
+     level resolves to 28u against a 14u raster spacing, so the band is **two raster samples wide** and
+     every surf sample already sits within one sample of land on its axis — and level 0 IS the raster
+     cell, which is water by construction on a surf sample, so no finer read exists to grade against.
+     A real gradient needs a per-sample distance transform or a wider `surfBandU`, and both are rulings
+     rather than review-gate calls. The taper was built, measured, and reverted; the fact is pinned by
+     a test so the next agent does not rediscover it. **Surf is currently a flat band — if that reads
+     wrong on the water, the fix is a ruling on `surfBandU` or a distance field, not a coefficient.**
+
+150. **Scope and cost.** CLIENT-ONLY throughout: no server file, no `shared/` change, `PROTOCOL_VERSION`
+     30, `silhouette` untouched, every server-side LOS gate byte-identical. Per-frame cost at 0.5× zoom
+     is **1.46 ms** post-gate (0.70 at 1.0×, 0.62 at 1.5×) against a 2.5 ms Block-If — still cheaper
+     than cycle 61's 1.70 ms despite painting far more of the world. The ~0.1 ms the gate added is the
+     half-cell step clamp (33% more ray samples) plus the ship-stamp probe on land samples, and it was
+     measured against a fresh re-run of the pre-gate build on the same fixture rather than against a
+     recorded number.

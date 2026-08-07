@@ -1528,12 +1528,11 @@ function buildGame(
     ownStats: stats, ownSlots: slotIdsFor(cls, stats, NO_BOONS),
   };
   gRef = g;
-  // Coast returns (amendment 69) read the island field the client already
-  // rebuilt from the map seed — pure presentation, never on the wire. The height
-  // raster rides along for the same reason (Story 4.10, amendment 129): it is
-  // rebuilt from the same seed, never travels, and is what makes a steep
+  // Coast returns (amendment 69) read the HEIGHT RASTER the client already
+  // rebuilt from the map seed — pure presentation, never on the wire. It is the
+  // beam march's only terrain input (cycle 62): its land/water truth is the
+  // shipped coastline's own mask, and its elevation is what makes a steep
   // headland paint red where a low sandy island of the same size paints blue.
-  g.radar.setIslands(map.islands);
   g.radar.setHeightRaster(map.heightRaster);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);

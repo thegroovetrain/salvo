@@ -24,102 +24,94 @@
 //   • an ARPA speed vector (render/blipMarks.ts), astern for a reversing hull.
 // Cycle 52 does not touch one line of it.
 //
-// `return` — THE REALISM GRAMMAR, now a QUANTIZED INTENSITY BITMAP (cycle 52,
-// amendments 76-79, superseding cycle 51's per-blip polygon blobs). There are no
-// per-paint Graphics in this mode at all: contacts and islands go into a PAINT
-// LIST of world geometry + server timestamps, and every frame the whole list is
-// re-rasterized into one world-anchored buffer (render/radarHeatmap.ts),
-// quantized to EXACTLY THREE colors with no blend anywhere, and uploaded as a
-// single texture.
+// `return` — THE REALISM GRAMMAR, a QUANTIZED INTENSITY BITMAP PAINTED BY A BEAM
+// MARCH (cycle 62, amendments 138-144, superseding the per-object bakes of cycles
+// 52-61). There are no per-paint Graphics in this mode at all, and as of this
+// cycle there are no per-object paints either: every frame the sweep advances,
+// this adapter marches rays from own hull to the radar terminus across the arc
+// the beam just crossed, and the SLICES those rays produce are the paint list.
 //
-// WHY THE POLYGONS DIED, in one line each (both are amendment 76's diagnosis,
-// and neither was a bug): a polygon carries ONE fill, so color could only be a
-// per-OBJECT label — and `ext` legitimately swings with aspect, so the same hull
-// really did change color as it turned. And an island could only ever be
-// approximated by scattering small polygons along its arc, which is exactly the
-// "little circles around the edge of the island" Eric saw instead of the massive
-// object he asked for.
+// ERIC, ON THE SHIPPED 4.10 BUILD, and this file's structure is that sentence:
+// *"as the sweep line sweeps, you're supposed to be radar painting that entire
+// line from the ship to the terminus according to how its supposed to show up on
+// radar."* The retired primitive asked each OBJECT what it looked like; the march
+// asks each BEARING what is out there. render/radarField.ts is the one place that
+// answers, render/radarMarch.ts walks the rays, render/radarHeatmap.ts owns the
+// buffer, and this file owns lifetime, sweep bookkeeping and texture upload.
 //
-// COLOR IS NOW INTERNAL TEXTURE (amendment 77). Intensity is per-PIXEL, so one
-// object shows all three bands at once: a red core, a blue surround, a green
-// fringe. Strength still reads — a big broadside contact earns a real red core,
-// a distant needle never leaves green — it just reads as texture rather than as
-// a label. The three colors and their thresholds are an ordered CLIENT_CONFIG
-// array (`blip.heatmap.bands`) because Eric hedged the ordering himself and will
-// retune it first.
+// WHY THE BAKES DIED (amendment 139, and it was not a bug when it was written):
+// the retired near-face criterion was the right rule FOR A DISC, so on an
+// elongated fractal island a point at a LATERAL tip scored below the terminator
+// ramp and clamped to zero — every long tail and side extremity was suppressed
+// regardless of facing, which is the diagonal cut Eric saw across his coastline.
 //
-// ISLANDS FILL, FROM THE REAL POLYGON (amendment 78 + the fractal-island
-// landing). The observer-facing landmass rasterizes SOLID via the shared
-// `pointInIsland` / `islandBlocksSegment` primitives. The near-face-only physics
-// and the cross-island occlusion from cycle 51's review gate are unchanged; what
-// changed is that the near face is FILLED rather than sampled, and that the
-// geometry is exact instead of a bounding circle that can sit hundreds of units
-// offshore.
+// NOTHING OCCLUDES ANYTHING (amendment 140). No near-face terminator, no
+// cross-island LOS filter on a paint path, no clutter occluder mask, no ship
+// shadowing — not one occlusion test survives in any radar render module.
+// A ray paints every sample along its length and an island behind an
+// island paints too. This is a KNOWING, TEMPORARY regression against the
+// 2026-08-02 "islands block every sensor" ruling, scoped to the radar PAINT LAYER
+// and accepted on the explicit promise that Story 4.11 restores it as a
+// height-derived shadow length along the same ray. NOT ONE SERVER-SIDE SENSOR
+// GATE MOVES: `blipGate`, `pointSighted`, `pointDetected`, the muzzle and smoke
+// halos and the foghorn muffle all still enforce LOS, and this cycle changes only
+// what the client DRAWS from what it already holds.
 //
-// THE SCOPE PAINTS EVERYTHING IN RADAR RANGE (cycle 56, amendments 88-90,
-// superseding cycle 54's sight-bubble gate). Eric: *"maybe we should paint
-// everything in radar range, even if its in LOS. Just that if its in LOS
-// (truesight) range, then you also see the actual ship in realtime."* Inside
-// truesight you now get both channels at once — the live hull AND its echo — so
-// the sight verdict is gone from the paint model entirely. What is NOT gone is
-// the freezing discipline it briefly rode on: amendment 83 still governs, a
-// paint's geometry is still decided once at creation, and the accepted
-// consequence that a ghost may decay inside the bubble (amendment 86) is now
-// simply the ordinary case.
+// TWO SOURCES OF HULL RETURNS, COMPLEMENTARY BY RANGE (amendment 89, unchanged;
+// amendment 141 for how they paint). The server has never sent a blip for a
+// sighted hull — `blipGate` excludes `dist <= sightRange`, because such a hull is
+// delivered as a full `Contact` instead — and that rule is a perception-invariant
+// surface this cycle does not touch. So INSIDE truesight the client stamps the
+// hull into the field from the `Contact` it already holds and the beam paints it
+// on the crossing, exactly like terrain; BEYOND truesight the echo arrives on the
+// wire, and `resolvePending` marches THAT hull's own bearing window immediately,
+// through the same field seam and the same intensity model, because the SERVER's
+// beam has already gated it and waiting for the local beam to come round would
+// paint the hull a whole revolution stale. One list, one model, two arrival
+// paths; and no hull can be in both, because the two ranges are exact complements
+// about one dazzle-scaled radius.
 //
-// TWO SOURCES OF SHIP PAINTS, COMPLEMENTARY BY RANGE (amendment 89). The server
-// has never sent a blip for a sighted hull — `blipGate` excludes
-// `dist <= sightRange`, because such a hull is delivered as a full `Contact`
-// instead — and that rule is a perception-invariant surface this cycle does not
-// touch. So beyond truesight an echo comes off the WIRE (`resolvePending`), and
-// inside it the client SYNTHESIZES one from the `Contact` it already holds
-// (`sweepContacts` → `contactEcho`), gated by the same beam crossing, carrying
-// the same contact id, and feeding the same paint list under the same per-track
-// cap. Nothing new is disclosed: a sighted hull is already fully visible.
+// WHICH IS WHY `sightHoleU` AND `setDazzled` SURVIVE, WITH THE JOB THEY HAVE HELD
+// SINCE CYCLE 56. The radius is not a suppression boundary; it is the SOURCE
+// SELECTOR that keeps the two from overlapping. It stays `fogHoleRadiusU()` — the
+// very function that bakes the visible fog hole, and by construction the same
+// dazzle-scaled number the server's own `sightOf` uses — because if the client's
+// idea of truesight ever drifted from the server's, a hull at the seam would be
+// painted twice or not at all.
 //
-// WHICH IS WHY `sightHoleU` AND `setDazzled` SURVIVE, WITH A NEW JOB. The radius
-// is no longer a suppression boundary; it is the SOURCE SELECTOR that keeps the
-// two sources from overlapping. It stays `fogHoleRadiusU()` — the very function
-// that bakes the visible fog hole, and by construction the same dazzle-scaled
-// number the server's own `sightOf` uses — because if the client's idea of
-// truesight ever drifted from the server's, a hull at the seam would be painted
-// twice or not at all. A dazzle shrinks BOTH sides together: the server starts
-// blipping the annulus it just opened, and the client stops synthesizing there.
-// `silhouette` mode has no buffer and no synthesis, so none of this reaches it.
+// TERRAIN COMES FROM THE HEIGHT RASTER, NOT FROM THE ISLAND POLYGONS. The
+// cycle-59 raster is the ratified elevation authority and its land/water truth is
+// the shipped coastline's own mask (`height > 0 ⟺ LAND`), so it answers both
+// "is this land" and "how tall" in one O(1) read — which is why this file no
+// longer holds an island field at all. Height is read CONTINUOUSLY, never
+// terraced to the contour bands, and no contour polygon is ever read (amendment
+// 142).
 //
 // THE BUFFER FOLLOWS THE VIEWPORT, NOT THE RADAR RING (cycle 58, amendments
-// 95-99). It used to be a square of half-extent exactly `radarRange`, re-centred
-// on the observer every frame — which CLIPPED any paint the ship had sailed away
-// from, so a mark near the rim vanished and came back as you manoeuvred and the
-// scope wore a visible "box" when zoomed out. Amendment 83 forbids that outright:
-// if it gets painted it stays painted until it decays.
-//
-// The fix is to stop treating the buffer as storage. History lives in the PAINT
-// LIST, which is re-rasterized in full every frame, so the buffer only has to
-// cover WHAT IS ON SCREEN: `render` takes the camera's world rect, `fitHeat`
-// sizes the surface to it (quantized, so a wheel zoom does not churn textures),
-// and `anchorGrid` centres it there — snapped to a whole world cell, which is
-// what keeps a paint's cells still while the camera slides over them.
+// 95-99). History lives in the SLICE LIST, which is re-rasterized in full every
+// frame, so the buffer only has to cover WHAT IS ON SCREEN: `render` takes the
+// camera's world rect, `fitHeat` sizes the surface to it (quantized, so a wheel
+// zoom does not churn textures), and `anchorGrid` centres it there — snapped to a
+// whole world cell, which is what keeps a paint's cells still while the camera
+// slides over them.
 //
 // NOTHING VIEWPORT-DERIVED TOUCHES PAINT CREATION OR RETIREMENT (amendment 97).
-// `view` is read in `paintHeat` and nowhere else: `sweepIslands`, `sweepContacts`,
-// `resolvePending`, `enrollPaint` and `prunePaints` cannot see it. That is what
-// makes Eric's requirement hold for free — *"if I am zoomed in when it paints and
-// then I zoom out, it still shows me everything that would have been there"* —
-// and it is the line to hold if this file ever grows a culling optimization.
+// `view` is read in `paintHeat` and nowhere else: `marchBeam`, `resolvePending`,
+// `enrollSlice` and `pruneSlices` cannot see it. That is what makes Eric's
+// requirement hold for free — *"if I am zoomed in when it paints and then I zoom
+// out, it still shows me everything that would have been there"* — and it is the
+// line to hold if this file ever grows a culling optimization. CYCLE 57
+// (REVERTED, PR 108) IS THE CAUTIONARY TALE: it confined work to a paint-driven
+// sub-rect re-centred every frame and placed the sprite at that MOVING origin, so
+// islands drifted with the boat. Its pure-rasterizer tests all passed, because the
+// break was in this adapter's PLACEMENT. Hence amendment 98: placement is pinned
+// here, at both zoom extremes and with the camera moving.
 //
-// CYCLE 57 (REVERTED, PR 108) IS THE CAUTIONARY TALE. It sized the buffer for a
-// worst-case ship-speed excursion and confined work to a paint-driven sub-rect
-// that was re-centred every frame, placing the sprite at that MOVING origin —
-// so the cell↔world mapping stopped being world-locked, islands drifted with the
-// boat and a resized `subarray` smeared rows. Its pure-rasterizer tests all
-// passed, because the break was in this adapter's PLACEMENT. Hence amendment 98:
-// placement is pinned here, at both zoom extremes and with the camera moving.
-//
-// Persistence is unchanged in both grammars: alpha/tint are pure functions of
-// serverNow − paint time (phosphor.ts), three sweeps of paints per track
-// (amendment 9), so a contact leaves a plottable track whose ghost SPACING
-// encodes its speed.
+// Persistence is unchanged in both grammars: alpha is a pure function of
+// serverNow − paint time (phosphor.ts), three sweeps deep (amendment 9). In
+// `return` mode that now means the last three revolutions of SLICES, so the scope
+// carries a fading trail behind the beam rather than a fixed number of marks per
+// track.
 //
 // Range rings (documented choice): the plan calls for CIC-style range rings;
 // own-ship-centered beats map-centered for readability, so ONE ring at
@@ -133,11 +125,12 @@ import type { Container } from 'pixi.js';
 import {
   CONFIG,
   hullSilhouette,
+  sampleHeight,
   transformPolygon,
+  wrapPositive,
   type BlipEvent,
   type HeightRaster,
   type HullId,
-  type Island,
   type RadarGrammar,
   type ReturnBlipEvent,
   type SilhouetteBlipEvent,
@@ -152,33 +145,29 @@ import { fogHoleRadiusU } from './fog.js';
 import { resolveHue, retryHue, type HueFor, type HueState } from './hueLatch.js';
 import { blipAlpha, blipCool, blipLifeMs, sweepRotation } from './phosphor.js';
 import {
+  FULL_TURN,
   anchorGrid,
-  arcOverlaps,
   bandIndex,
-  buildIslandCoverage,
   clearGrid,
-  contactEcho,
   gridSpan,
-  islandBearingSpan,
   makeGrid,
-  paintSeed,
   quantizeInto,
   rasterize,
   sampleGrid,
   type HeatGrid,
-  type IslandPaint,
-  type RadarPaint,
   type RasterCtx,
 } from './radarHeatmap.js';
 import {
-  openClutter,
-  openStorm,
-  rasterizeWeather,
-  weatherCycled,
-  type ClutterPaint,
-  type StormPaint,
-  type StormRing,
-} from './radarSources.js';
+  buildField,
+  buildShipStamp,
+  hullSample,
+  shipOnlyField,
+  stampEcho,
+  type EchoHull,
+  type ShipStamp,
+} from './radarField.js';
+import { echoArc, marchSlice, planMarch, type MarchSlice } from './radarMarch.js';
+import type { StormRing } from './radarSources.js';
 import { SWEEP_TEXTURE_RADIUS, bakeSweepTexture } from './textures.js';
 
 export type { HueFor };
@@ -196,10 +185,25 @@ export type { HueFor };
  * 57, not the 114 a per-source reading would suggest. 128 keeps the backstop
  * comfortably above that: it stays a backstop, never the thing that trims a
  * legitimate scope (the per-contact cap does that).
- *
- * The `return` paint list runs the same backstop for the same reason.
  */
 const MAX_LIVE_BLIPS = 128;
+
+/**
+ * Hard cap on live MARCH SLICES — a runaway backstop, and nothing else.
+ *
+ * The real bound is arithmetic: the beam emits one slice per `march.sliceRad` of
+ * arc, so a revolution is `2π / sliceRad` slices and the phosphor holds
+ * `persistSweeps` of them. Deriving the cap from those two numbers is what stops
+ * it silently becoming a TRIM the moment either is retuned — the exact coupling
+ * amendment's-worth of trouble the storm bake's fixed 8,000-cell cap caused in
+ * cycle 61, one level up. The doubling is slack for the wire-echo slices, which
+ * are emitted on network cadence rather than on the quantum.
+ */
+function maxSlices(): number {
+  const { sliceRad } = CLIENT_CONFIG.blip.heatmap.march;
+  const perRev = sliceRad > 0 ? Math.ceil(FULL_TURN / sliceRad) : 1;
+  return perRev * CLIENT_CONFIG.blip.persistSweeps * 2;
+}
 const RING_SIGHT_COLOR = CLIENT_CONFIG.colors.phosphor; // sight ring — HUD chart chrome
 const RING_RADAR_COLOR = CLIENT_CONFIG.colors.silver; // radar ring — neutral linework
 
@@ -304,35 +308,24 @@ export class Radar {
   /** The room's radar grammar, from the welcome handshake. Constant for the
    *  match — the server picks it, the client never infers it. */
   private readonly grammar: RadarGrammar;
-  /** Client-known island field (map seed), for landmass returns. `setIslands`
-   *  supplies it; it is never on the wire and no server ever sees it. */
-  private islands: readonly Island[] = [];
-  /** The cycle-59 height raster (Story 4.10, amendment 129) — the ratified
-   *  elevation authority behind coast reflectivity, so a steep headland reads
-   *  red where a low sandy island of the same size reads blue. Rebuilt locally
-   *  from the map seed exactly as the island field is, so it carries the same
-   *  ZERO disclosure. Null until `setHeightRaster` runs, in which case land
-   *  reflectivity falls back to `landSteep` — the pre-4.10 fill. */
+  /** THE ELEVATION AUTHORITY (cycle 59 ruling; amendment 129) — and, since cycle
+   *  62, the whole of the client's terrain knowledge on this path: its land/water
+   *  truth is the shipped coastline's own mask (`height > 0 ⟺ LAND`), so the
+   *  march needs no island polygons at all. Rebuilt locally from `welcome.mapSeed`
+   *  and never on the wire, so it carries ZERO disclosure. Null until
+   *  `setHeightRaster` runs, in which case the field simply carries no terrain. */
   private heightRaster: HeightRaster | null = null;
-  /** THE `return` PAINT LIST (ruling R1) — world geometry + server timestamps,
-   *  re-rasterized in full every frame. Empty in `silhouette` mode. */
-  private readonly paints: RadarPaint[] = [];
+  /** THE `return` PAINT LIST (ruling R1) — marched slices, re-rasterized in full
+   *  every frame. Empty in `silhouette` mode. */
+  private readonly paints: MarchSlice[] = [];
   /** Echoes waiting for a real own pose before their geometry can be resolved. */
   private readonly pending: PendingEcho[] = [];
-  /** The island paint the beam is CURRENTLY sweeping across, per island. Its
-   *  arc grows each frame until the beam leaves the island's bearing span,
-   *  which is what makes a coastline fill in behind the beam instead of
-   *  appearing whole the instant the beam clips its edge. */
-  private readonly opening = new Map<Island, IslandPaint>();
-  /** The weather paints the beam is CURRENTLY sweeping across (Story 4.10). One
-   *  of each per revolution, opened when the beam crosses the weather anchor
-   *  bearing; their arcs grow behind the beam exactly as an island's does, and
-   *  the previous revolution's paint decays underneath. */
-  private openClutterPaint: ClutterPaint | null = null;
-  private openStormPaint: StormPaint | null = null;
-  /** Rotating start index for the island sweep, so the one-bake-per-frame cap
-   *  cannot starve an island that sits behind a big one in the array. */
-  private bakeCursor = 0;
+  /** Where the NEXT slice's arc begins — the bearing the beam has been marched up
+   *  to. Slices are emitted per fixed angular quantum, so this lags the live beam
+   *  by up to one quantum and never by a frame's worth of anything: the list is a
+   *  function of the sweep rate, not of the frame rate. Null whenever the sweep is
+   *  hidden, so resuming cannot replay a revolution of arc into one frame. */
+  private sliceFrom: number | null = null;
   /** The heatmap surface — created ONLY in `return` mode, so `silhouette` mode
    *  allocates no buffer, uploads no texture and adds no child. */
   private heat: { grid: HeatGrid; rgba: Uint8Array; source: BufferImageSource; sprite: Sprite } | null =
@@ -343,9 +336,8 @@ export class Radar {
   private readonly scratch: Vec2[] = [];
   /** Latest authoritative sweep sample (angle at server time t). */
   private lastSweep: { angle: number; t: number } | null = null;
-  /** Beam angle at the PREVIOUS frame — island paints are born on the arc the
-   *  beam swept between frames. Null whenever the sweep is hidden, so resuming
-   *  never replays a whole revolution's worth of crossings at once. */
+  /** Beam angle at the PREVIOUS frame — the arc the march walks is measured
+   *  against it. Null whenever the sweep is hidden. */
   private lastRotation: number | null = null;
   /** Last rendered own position — the observer an echo's bearing and range are
    *  measured from. Null before the first render (and in any later gap where the
@@ -500,26 +492,17 @@ export class Radar {
   }
 
   /**
-   * Adopt the client-known island field for landmass returns (amendment 69).
-   * Islands are rebuilt locally from `welcome.mapSeed`, so this carries ZERO
-   * disclosure: no wire field, no server work, no perception-invariant surface.
-   * A no-op in `silhouette` mode, where nothing reads it.
-   */
-  setIslands(islands: readonly Island[]): void {
-    this.islands = islands;
-    this.opening.clear();
-  }
-
-  /**
-   * Adopt the client-known HEIGHT RASTER (amendment 129) — the elevation
-   * authority behind coast reflectivity, plumbed from the same place and at the
-   * same moment as the island field it belongs to.
+   * Adopt the client-known HEIGHT RASTER — the elevation authority (cycle 59
+   * ruling, amendment 129) and, since cycle 62, the ONLY terrain input the
+   * `return` grammar has. The retired `setIslands` went with the per-object
+   * bakes: the raster answers both "is this land" (`height > 0 ⟺ the shipped
+   * coastline's own mask says LAND`) and "how tall" in one O(1) read, so a second
+   * polygon field would be a second source of truth for the first question.
    *
-   * Zero disclosure for the same reason: both sides rebuild it from
-   * `welcome.mapSeed` and it never travels on the wire. It is read ONLY inside
-   * a coverage bake (i.e. at paint creation), never per frame — so a raster
-   * arriving late can change what the NEXT sweep records and can never edit a
-   * paint already on the scope (amendment 83).
+   * Zero disclosure: both sides rebuild it from `welcome.mapSeed` and it never
+   * travels on the wire. It is read only when a slice is MARCHED (i.e. at paint
+   * creation), so a raster arriving late can change what the NEXT sweep records
+   * and can never edit a slice already on the scope (amendment 83).
    */
   setHeightRaster(raster: HeightRaster | null): void {
     this.heightRaster = raster;
@@ -530,26 +513,18 @@ export class Radar {
     return this.blips.length;
   }
 
-  /** How many `return` paints are live in the list (debug/tests). */
+  /** How many `return` slices are live in the list (debug/tests). */
   get livePaints(): number {
     return this.paints.length;
   }
 
-  /** How many of those are island landmasses (debug/tests). */
-  get liveIslandPaints(): number {
-    return this.paints.filter((p) => p.kind === 'island').length;
-  }
-
-  /** How many of those are SHIP echoes (debug/tests) — the count most assertions
-   *  about the two contact sources actually mean, now that the list also carries
-   *  landmasses and the two weather sources. */
-  get liveShipPaints(): number {
-    return this.paints.filter((p) => p.kind === 'ship').length;
-  }
-
-  /** How many of those are weather (sea clutter + the storm wall) — debug/tests. */
-  get liveWeatherPaints(): number {
-    return this.paints.filter((p) => p.kind === 'clutter' || p.kind === 'storm').length;
+  /** How many CELLS the live slices carry between them (debug/tests) — the
+   *  count that actually says whether the scope is painting, now that a slice is
+   *  a wedge of the world rather than one object. */
+  get livePaintCells(): number {
+    let n = 0;
+    for (const s of this.paints) n += s.n;
+    return n;
   }
 
   /**
@@ -561,7 +536,7 @@ export class Radar {
    * byte for byte. Read-only: the list is the history, and only the sweep and
    * the clock may write it.
    */
-  get paintList(): readonly RadarPaint[] {
+  get paintList(): readonly MarchSlice[] {
     return this.paints;
   }
 
@@ -648,80 +623,95 @@ export class Radar {
   }
 
   /** The `return` acquire path: park the wire payload until a real own pose can
-   *  resolve its bearing and range, then it becomes a `ShipPaint`. */
+   *  resolve its bearing and range, then march it. */
   private addReturnPaint(e: ReturnBlipEvent): void {
     this.pending.push({ id: e.id, x: e.x, y: e.y, ext: e.ext, t: e.t });
     this.resolvePending();
   }
 
-  /** Turn every parked echo into a paint, ONCE an own pose exists. Geometry is
-   *  frozen from then on — a phosphor paint is a historical snapshot, so it must
-   *  not re-pose as the observer moves; the deferral exists only to stop a paint
-   *  being born wrong.
+  /**
+   * Turn every parked echo into a slice, ONCE an own pose exists.
    *
-   *  THIS IS THE BEYOND-TRUESIGHT SOURCE. Everything arriving here came through
-   *  the server's `blipGate`, which excludes `dist <= sightRange`; the inside-
-   *  truesight half of the scope is synthesized in `sweepContacts` instead
-   *  (amendment 89). */
+   * THIS IS THE BEYOND-TRUESIGHT SOURCE. Everything arriving here came through
+   * the server's `blipGate`, which excludes `dist <= sightRange` — so it is
+   * ALREADY SWEEP-GATED, by the server's own beam on the tick it crossed the
+   * hull. Waiting for the local beam to reach that bearing would paint the hull
+   * on the NEXT revolution instead, i.e. up to a full sweep period stale, which
+   * on a 45 u/s torpedo boat is most of a map away. The inside-truesight half of
+   * the scope has no such problem and is painted by the local beam through the
+   * field (`marchBeam`), exactly like terrain.
+   *
+   * IT IS STILL THE SAME MARCH. The hull is stamped into a one-hull field and
+   * that field is marched across the bearing window it subtends, so its cells,
+   * its intensity, its grain and its slice record all come from the same code as
+   * every other return. Geometry is frozen at that moment — a paint is a
+   * historical snapshot, so it must not re-pose as the observer moves, and the
+   * deferral exists only to stop a slice being born against a guessed observer.
+   */
   private resolvePending(): void {
     const own = this.own;
     if (own === null || this.pending.length === 0) return;
+    if (this.aground(own)) {
+      this.pending.length = 0; // an aground set makes no paints, from any source
+      return;
+    }
     for (const e of this.pending) {
-      const dx = e.x - own.x;
-      const dy = e.y - own.y;
-      this.enrollPaint({
-        kind: 'ship',
-        id: e.id,
-        x: e.x,
-        y: e.y,
-        ext: e.ext,
-        bearing: Math.atan2(dy, dx),
-        dist: Math.hypot(dx, dy),
-        t: e.t,
-        seed: paintSeed(e.id, e.t),
-      });
+      const slice = this.marchEcho(own, e);
+      if (slice !== null) this.enrollSlice(slice);
     }
     this.pending.length = 0;
   }
 
-  /** Add a paint and apply the per-track then global caps.
+  /**
+   * March ONE resolved wire echo through the one-hull field.
    *
-   *  ONE CAP KEY PER TRACK, ACROSS BOTH SHIP SOURCES (amendment 89). A ship
-   *  paint keys on the contact id whether it came off the wire or out of
-   *  `contactEcho`, so a hull crossing the truesight seam keeps ONE ghost train
-   *  of `paintsPerContact` marks rather than starting a second one. */
-  private enrollPaint(p: RadarPaint): void {
-    this.paints.push(p);
-    // Ships key on their contact id; every other source is a SINGLETON TRACK
-    // (one landmass, one haze, one wall), so they all answer to the same
-    // per-track depth — the coastline, the sea state and the storm hold their
-    // ghosts for exactly as long as a contact does.
-    const per =
-      p.kind === 'ship'
-        ? CLIENT_CONFIG.blip.paintsPerContact
-        : CLIENT_CONFIG.blip.heatmap.island.paintsPerIsland;
-    this.trim(p, per);
-    while (this.paints.length > MAX_LIVE_BLIPS) this.dropPaint(this.paints[0]);
+   * THE MARCH BOUND COVERS THE ECHO'S OWN RANGE, NOT MERELY THE LIVE SCOPE, and
+   * that is amendment 127 holding at the rim. `marchSlice` clips every ray to the
+   * range it is handed; the server blipped this hull against ITS radar range and
+   * ITS pose, so under prediction divergence or a lag spike the client's own
+   * `radarRange` can sit a cell or two short of a rim echo's computed distance —
+   * at which point every ray stopped BEFORE the stamped footprint and the slice
+   * came back null. The retired per-object path painted a resolved echo
+   * unconditionally, and nothing was ever ruled to narrow that: anything the
+   * server blips paints at least a speck. Widening the bound cannot paint
+   * anything else, because the field contains this hull and nothing else.
+   */
+  private marchEcho(own: OwnPoint, e: PendingEcho): MarchSlice | null {
+    const cfg = CLIENT_CONFIG.blip.heatmap;
+    const arc = echoArc(own, e.x, e.y, e.ext);
+    const stamp: ShipStamp = new Map();
+    stampEcho(stamp, e.x, e.y, arc.centre, e.ext, hullSample(e.ext, cfg.model), cfg.cellU);
+    const pad = arc.reach + 2 * cfg.cellU;
+    const reach = Math.max(this.radarRange, arc.dist + pad);
+    return marchSlice(
+      own,
+      arc.centre - arc.half,
+      arc.centre + arc.half,
+      shipOnlyField(stamp, cfg.cellU),
+      reach,
+      e.t,
+      cfg,
+      // The radial slab the footprint lives in — a compute bound, so the ray
+      // does not walk the whole scope to find one hull.
+      { fromU: arc.dist - pad, toU: arc.dist + pad },
+    );
   }
 
-  /** Keep at most `per` live paints of this track (oldest-first eviction). */
-  private trim(p: RadarPaint, per: number): void {
-    let seen = 0;
-    for (let i = this.paints.length - 1; i >= 0; i--) {
-      const q = this.paints[i];
-      if (!sameTrack(p, q)) continue;
-      seen++;
-      if (seen > per) this.paints.splice(i, 1);
-    }
-  }
-
-  /** Remove one paint from the list, releasing any open-arc bookkeeping. */
-  private dropPaint(p: RadarPaint): void {
-    const i = this.paints.indexOf(p);
-    if (i >= 0) this.paints.splice(i, 1);
-    if (p.kind === 'island' && this.opening.get(p.isle) === p) this.opening.delete(p.isle);
-    if (this.openClutterPaint === p) this.openClutterPaint = null;
-    if (this.openStormPaint === p) this.openStormPaint = null;
+  /**
+   * Add a slice to the list and apply the runaway backstop.
+   *
+   * THERE IS NO PER-TRACK CAP ANY MORE, and its absence is the point: a slice is
+   * a wedge of the WORLD, not a mark on one object, so "three paints per track"
+   * has nothing left to key on. Depth is now carried by time alone — the phosphor
+   * life is `persistSweeps` sweep periods, so the scope holds exactly the last
+   * three revolutions of arc and a contact still leaves a plottable train of
+   * ghosts whose SPACING encodes its speed (amendment 9's actual requirement).
+   * Retirement is gated by TIME and by nothing else (amendment 97).
+   */
+  private enrollSlice(s: MarchSlice): void {
+    this.paints.push(s);
+    const cap = maxSlices();
+    while (this.paints.length > cap) this.paints.shift();
   }
 
   /** Hide + pool a batch of retired blips. */
@@ -784,19 +774,17 @@ export class Radar {
     this.blips.length = 0;
     this.paints.length = 0;
     this.pending.length = 0;
-    this.opening.clear();
-    this.openClutterPaint = null;
-    this.openStormPaint = null;
+    this.sliceFrom = null;
     this.hideHeat();
   }
 
-  /** Per-frame: rotate/position the sweep + rings, advance the beam across the
-   *  island field AND the sighted contacts, then decay every live mark and
-   *  re-rasterize the heatmap.
+  /** Per-frame: rotate/position the sweep + rings, march the arc the beam just
+   *  swept, then decay every live mark and re-rasterize the heatmap.
    *
-   *  `contacts` is the truesight contact store (net/snapshots.ts) — the second
-   *  source of ship paints (amendment 89). Optional and unread in `silhouette`
-   *  mode, where a sighted hull has never painted and does not start now.
+   *  `contacts` is the truesight contact store (net/snapshots.ts) — the
+   *  inside-truesight source of hull returns (amendment 89). Optional and unread
+   *  in `silhouette` mode, where a sighted hull has never painted and does not
+   *  start now.
    *
    *  `view` is the world rectangle the camera is showing (amendment 96) — the
    *  heatmap buffer's extent, used by `paintHeat` and by NOTHING else on this
@@ -804,11 +792,11 @@ export class Radar {
    *  which is the pre-cycle-58 behaviour and covers any caller that has no
    *  camera (tests, and the `silhouette` grammar, which has no buffer at all).
    *
-   *  `zone` is the client's live zone view (Story 4.10, amendment 128) — the
-   *  fifth and last source of paints. ONLY `zone.cur` is ever read: the live
-   *  ring is a physical object and returns an echo, while the dashed next-ring
-   *  telegraph is a chart annotation and must not. It discloses nothing — ring
-   *  geometry has been on the wire since its reveal beat (Story 3.1). */
+   *  `zone` is the client's live zone view (Story 4.10, amendment 128). ONLY
+   *  `zone.cur` is ever read: the live ring is a physical object and returns an
+   *  echo, while the dashed next-ring telegraph is a chart annotation and must
+   *  not. It discloses nothing — ring geometry has been on the wire since its
+   *  reveal beat (Story 3.1). */
   render(
     own: OwnPoint | null,
     serverNow: number,
@@ -824,9 +812,8 @@ export class Radar {
     this.updateBlips(serverNow);
   }
 
-  /** The whole `return` frame: resolve parked echoes, advance the beam across
-   *  the islands, the sighted contacts and the weather, drop dead paints,
-   *  re-rasterize the buffer from the survivors, upload. */
+  /** The whole `return` frame: resolve parked echoes, march the swept arc, drop
+   *  dead slices, re-rasterize the buffer from the survivors, upload. */
   private renderReturn(
     own: OwnPoint | null,
     rot: number | null,
@@ -835,136 +822,123 @@ export class Radar {
     zone: ZoneLike | null,
   ): void {
     this.resolvePending();
-    const from = this.lastRotation;
-    if (own !== null && rot !== null && from !== null) {
-      this.sweepIslands(own, from, rot, serverNow);
-      this.sweepContacts(own, from, rot, serverNow, contacts);
-      this.sweepWeather(own, from, rot, serverNow, zone);
-    }
-    this.prunePaints(serverNow);
+    if (own !== null && rot !== null) this.marchBeam(own, rot, serverNow, contacts, zone);
+    this.pruneSlices(serverNow);
     this.paintHeat(own, serverNow);
   }
 
   /**
-   * Advance the beam across the two WEATHER sources (Story 4.10, amendments
-   * 128 + 130): the near-field sea-clutter haze and the storm wall.
+   * ADVANCE THE BEAM AND MARCH WHAT IT CROSSED — the whole of the `return`
+   * grammar's paint creation, in one place.
    *
-   * Both surround the observer, so unlike an island there is no bearing span to
-   * test — the cycle is anchored on a fixed bearing instead: one paint of each
-   * per beam revolution, its arc growing behind the beam, the previous
-   * revolution's decaying underneath. Everything either paint will ever read is
-   * frozen at this instant (the observer and the island shortlist for the haze,
-   * the ring's centre and radius for the wall), so a closing ring never
-   * retroactively moves a wall already on the scope (amendment 83).
+   * THE FIELD IS BUILT ONCE PER FRAME AND FROZEN (amendment 83). The observer,
+   * the live ring and every hull's footprint are captured here; each slice then
+   * freezes its own samples out of that field, so nothing a slice contains can
+   * ever be re-evaluated against live state.
    *
-   * THE FRAME'S `from` IS DELIBERATELY NOT PASSED ON. Both paints start their
-   * arc at the weather ANCHOR bearing (render/radarSources.ts): the frame's
-   * `from` sits a hair SHORT of it, and `stampCover`'s `wrapPositive(to − from)`
-   * then wrapped a nearly-full arc down to a sliver on the last frame of most
-   * revolutions, collapsing the haze and the wall for one frame. `from` still
-   * decides WHEN to open (`weatherCycled`); it no longer decides where the arc
-   * begins.
+   * SLICES COME OUT ON A FIXED ANGULAR QUANTUM, NOT PER FRAME. `sliceFrom` is the
+   * bearing the march has reached, and it advances one `sliceRad` at a time until
+   * it catches the live beam — so a 144Hz client and a 30Hz client emit the same
+   * slices at the same bearings, and the list depth is a function of the sweep
+   * rate and the phosphor life alone. A frame that advances less than one quantum
+   * emits nothing and loses nothing; the remainder is simply still owed.
    */
-  private sweepWeather(
+  private marchBeam(
     own: OwnPoint,
-    from: number,
-    to: number,
+    rot: number,
     serverNow: number,
+    contacts: ContactStore | null,
     zone: ZoneLike | null,
   ): void {
-    if (this.openClutterPaint !== null) this.openClutterPaint.to = to;
-    if (this.openStormPaint !== null) this.openStormPaint.to = to;
-    if (!weatherCycled(from, to)) return;
-    this.closeWeather();
-    this.openClutterPaint = openClutter(
-      own,
-      to,
-      serverNow,
-      this.islands,
-      CLIENT_CONFIG.blip.heatmap.model.clutterRangeU,
-    );
-    this.enrollPaint(this.openClutterPaint);
-    this.openStormWall(own, to, serverNow, zone);
+    const cfg = CLIENT_CONFIG.blip.heatmap;
+    // AN AGROUND OBSERVER CREATES NO PAINTS. A ray starts at d = 0, so a set
+    // standing ON a landmass would paint that landmass at zero range — i.e. at
+    // full reflectivity, red, out to its whole coastline — every revolution.
+    if (this.aground(own)) {
+      this.sliceFrom = rot;
+      return;
+    }
+    // CATCH UP FIRST, THEN MARCH — one pure function owns both halves of that
+    // rule (`planMarch`), because splitting the cursor reset from the emission
+    // cap across two modules is exactly how the cycle-62 gate's blank-scope
+    // defect got in.
+    const plan = planMarch(this.sliceFrom ?? rot, rot, cfg.march);
+    this.sliceFrom = plan.from;
+    if (plan.owed <= 0) return;
+    const field = buildField({
+      obs: own,
+      raster: this.heightRaster,
+      ships: this.shipStamp(own, serverNow, contacts),
+      ring: zone === null || zone.state === 'idle' ? null : zone.cur,
+      cellU: cfg.cellU,
+      model: cfg.model,
+    });
+    for (let k = 0; k < plan.owed; k++) {
+      const from = this.sliceFrom ?? rot;
+      const to = from + cfg.march.sliceRad;
+      const slice = marchSlice(own, from, to, field, this.radarRange, serverNow, cfg);
+      if (slice !== null) this.enrollSlice(slice);
+      this.sliceFrom = wrapPositive(to);
+    }
   }
 
-  /** Bake the wall for the LIVE ring, if there is one and any of it is in radar
-   *  range. `state === 'idle'` (no timeline yet) paints nothing at all. */
-  private openStormWall(
-    own: OwnPoint,
-    to: number,
-    serverNow: number,
-    zone: ZoneLike | null,
-  ): void {
-    if (zone === null || zone.state === 'idle') return;
-    const paint = openStorm(
-      zone.cur,
-      own,
-      this.radarRange,
-      to,
-      serverNow,
-      paintSeed('storm', serverNow),
-      CLIENT_CONFIG.blip.heatmap,
-    );
-    if (paint === null) return;
-    this.openStormPaint = paint;
-    this.enrollPaint(paint);
-  }
-
-  /** Retire the open-arc bookkeeping for both weather sources: the paints stay
-   *  in the list and keep decaying, they simply stop growing. */
-  private closeWeather(): void {
-    if (this.openClutterPaint !== null) this.openClutterPaint.full = true;
-    if (this.openStormPaint !== null) this.openStormPaint.full = true;
-    this.openClutterPaint = null;
-    this.openStormPaint = null;
+  /** Is the observer standing on land? Read from the SAME height raster the
+   *  march itself reads (`height > 0 ⟺ LAND`), so there is no second answer to
+   *  the question. With no raster the client knows of no land, and nothing is
+   *  aground. */
+  private aground(own: OwnPoint): boolean {
+    const r = this.heightRaster;
+    return r !== null && sampleHeight(r, own.x, own.y) > 0;
   }
 
   /**
-   * Advance the beam across the SIGHTED CONTACTS (amendment 89) — the inside-
-   * truesight half of the scope, synthesized client-side because the server
-   * deliberately sends no blip for a hull it is already sending as a `Contact`.
+   * THE PER-FRAME SHIP LAYER — the inside-truesight hulls, stamped into the field
+   * so the beam paints them exactly as it paints terrain (amendment 141).
    *
-   * Every gate lives in the pure `contactEcho` (radarHeatmap.ts ruling R7),
-   * including the range term that makes this source the EXACT complement of the
-   * wire's; this method only supplies the frame's beam arc and the contact poses
-   * to test it against. Cost is one buffer sample plus a distance and an angle
-   * compare per contact per frame; the LOS test and the extent computation are
-   * paid only on the frame the beam actually crosses a contact, i.e. once per
-   * contact per revolution.
+   * The range term is the EXACT COMPLEMENT of the server's: `dist <= sightU` here,
+   * `dist > sightU` in `blipGate`, off one dazzle-scaled radius both sides already
+   * agree on (`fogHoleRadiusU` ≡ the server's `sightOf`). That one line is what
+   * keeps the two sources from double-stamping a hull or dropping one between
+   * them; nothing here SUPPRESSES anything, since the scope paints everything in
+   * radar range (amendment 88).
    *
    * Poses are sampled at the SAME interp-delayed time the hull renderer draws
-   * them, so an echo lands on the hull the player can see rather than ~100ms
-   * ahead of it. (The observer is the live predicted own pose — the identical
-   * pairing every other world-space overlay already draws with.)
+   * them, so an echo lands on the hull the player can see rather than ~100ms ahead
+   * of it. (The observer is the live predicted own pose — the identical pairing
+   * every other world-space overlay already draws with.)
+   *
+   * NO LOS TEST (amendment 140). A hull behind a headland is stamped and painted
+   * like anything else this cycle; Story 4.11 owns occlusion wholesale, and the
+   * SERVER-side gates that decide what the client is told about at all are
+   * untouched.
    */
-  private sweepContacts(
-    own: OwnPoint,
-    from: number,
-    to: number,
-    serverNow: number,
-    contacts: ContactStore | null,
-  ): void {
-    if (contacts === null) return;
+  private shipStamp(own: OwnPoint, serverNow: number, contacts: ContactStore | null): ShipStamp {
+    const cfg = CLIENT_CONFIG.blip.heatmap;
+    if (contacts === null) return new Map();
     const sight = this.sightHoleU;
     const at = serverNow - CLIENT_CONFIG.net.interpDelayMs;
+    const hulls: EchoHull[] = [];
     for (const id of contacts.ids()) {
       const s = contacts.get(id)?.sampleAt(at);
       const cls = contacts.classOf(id);
       if (s === null || s === undefined || cls === undefined) continue;
-      const c = { id, x: s.x, y: s.y, heading: s.heading, cls };
-      const paint = contactEcho(c, own, sight, from, to, this.islands, serverNow);
-      if (paint !== null) this.enrollPaint(paint);
+      if (Math.hypot(s.x - own.x, s.y - own.y) > sight) continue;
+      hulls.push({ id, x: s.x, y: s.y, heading: s.heading, cls });
     }
+    return buildShipStamp(hulls, own, cfg.model, cfg.cellU);
   }
 
   /** Position/rotate the sweep + rings; returns the beam angle this frame, or
-   *  null when the sweep is hidden (which also breaks the island arc, so
+   *  null when the sweep is hidden (which also breaks the march's arc, so
    *  resuming can never replay a whole revolution of crossings at once). */
   private updateSweep(own: OwnPoint | null, serverNow: number): number | null {
     const visible = own !== null && this.lastSweep !== null;
     this.sweep.visible = visible;
     this.rings.visible = visible;
-    if (!visible || own === null || this.lastSweep === null) return null;
+    if (!visible || own === null || this.lastSweep === null) {
+      this.sliceFrom = null;
+      return null;
+    }
     this.sweep.position.set(own.x, own.y);
     this.rings.position.set(own.x, own.y);
     const rot = sweepRotation(
@@ -977,90 +951,14 @@ export class Radar {
     return rot;
   }
 
-  /**
-   * Advance the beam across the island field (amendments 69 + 78).
-   *
-   * PURE PRESENTATION — the island field is rebuilt locally from the map seed,
-   * so nothing here touches the wire or the perception invariant. One paint is
-   * opened per island per REVOLUTION, when the beam first reaches its bearing
-   * span, and its arc then grows until the beam leaves — so the landmass fills
-   * in behind the beam rather than appearing whole the instant the beam clips
-   * its edge.
-   *
-   * Cost per frame is one hypot plus a handful of angle compares PER ISLAND: a
-   * 60fps frame advances the beam ~1.5° at 15rpm, so the expensive part — the
-   * coverage bake — runs at most once per island per 4s revolution, and only for
-   * islands actually in radar range.
-   */
-  private sweepIslands(own: OwnPoint, from: number, to: number, serverNow: number): void {
-    const n = this.islands.length;
-    let baked = 0;
-    this.bakeCursor = n > 0 ? (this.bakeCursor + 1) % n : 0;
-    for (let k = 0; k < n; k++) {
-      const isle = this.islands[(this.bakeCursor + k) % n];
-      const span = islandBearingSpan(isle, own, this.radarRange);
-      const open = this.opening.get(isle);
-      if (span === null || !arcOverlaps(from, to, span.centre, span.half)) {
-        if (open !== undefined) {
-          open.full = true;
-          this.opening.delete(isle);
-        }
-        continue;
-      }
-      if (open !== undefined) open.to = to;
-      // AT MOST ONE COVERAGE BAKE PER FRAME. The bake is the only expensive
-      // thing in the whole grammar (a big landmass costs a couple of ms), and
-      // two islands entering the beam on the same frame is rare but real — so
-      // the second waits a frame, at a cost of ~1.5° of arc nobody can see. The
-      // ROTATING START is what stops a big island at a low index starving a
-      // small one that would otherwise cross the beam entirely inside one frame.
-      else if (baked === 0) {
-        this.openIslandPaint(isle, own, from, to, serverNow);
-        baked++;
-      }
-    }
-  }
-
-  /** Bake one island paint: its observer-facing landmass, from the REAL polygon,
-   *  frozen against the observer position at paint time. There is no sight term
-   *  in the bake any more (amendment 88) — a coastline inside the bubble paints
-   *  like any other, so the whole near face enters `cover`. */
-  private openIslandPaint(
-    isle: Island,
-    own: OwnPoint,
-    from: number,
-    to: number,
-    serverNow: number,
-  ): void {
-    const cfg = CLIENT_CONFIG.blip.heatmap;
-    const seed = paintSeed(`i${isle.x.toFixed(0)},${isle.y.toFixed(0)}`, serverNow);
-    const paint: IslandPaint = {
-      kind: 'island',
-      isle,
-      from,
-      to,
-      full: false,
-      t: serverNow,
-      cover: buildIslandCoverage(
-        isle,
-        this.islands,
-        own,
-        this.radarRange,
-        seed,
-        cfg,
-        this.heightRaster,
-      ),
-    };
-    this.opening.set(isle, paint);
-    this.enrollPaint(paint);
-  }
-
-  /** Drop paints that have aged out of the phosphor window. */
-  private prunePaints(serverNow: number): void {
+  /** Drop slices that have aged out of the phosphor window. TIME IS THE ONLY
+   *  THING THAT RETIRES A PAINT (amendment 97) — never visibility, never range,
+   *  never how many of them there are on one bearing. */
+  private pruneSlices(serverNow: number): void {
     const life = blipLifeMs(this.sweepPeriodMs);
     for (let i = this.paints.length - 1; i >= 0; i--) {
       if (blipAlpha(serverNow - this.paints[i].t, life) > 0) continue;
-      this.dropPaint(this.paints[i]);
+      this.paints.splice(i, 1);
     }
   }
 
@@ -1126,14 +1024,11 @@ export class Radar {
       now: serverNow,
       lifeMs: blipLifeMs(this.sweepPeriodMs),
       alphaFloor: this.assist ? CLIENT_CONFIG.blip.assistMinAlpha : CLIENT_CONFIG.blip.minAlpha,
-      opts: cfg,
     };
-    // Two passes over ONE list: ships + islands here, the weather sources in
-    // their own module (render/radarSources.ts). Each module stamps the kinds it
-    // declares, which is what keeps that dependency one-way — see the type-only
-    // import at the top of radarHeatmap.ts.
+    // ONE pass over ONE list. The five paint KINDS the retired grammar carried
+    // (ship, island, surf, clutter, storm) are five MATERIALS in the field now,
+    // so there is one record type left and one stamp for it.
     rasterize(heat.grid, this.paints, ctx);
-    rasterizeWeather(heat.grid, this.paints, ctx);
     quantizeInto(heat.grid, cfg.bands, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
     heat.source.update();
@@ -1184,14 +1079,6 @@ export class Radar {
 /** Track key for the per-track caps (contact id). */
 function keyOf(b: LiveBlip): string {
   return b.id;
-}
-
-/** Do two paints belong to the same track (same contact, same landmass, or the
- *  one haze / the one wall)? */
-function sameTrack(a: RadarPaint, b: RadarPaint): boolean {
-  if (a.kind === 'ship') return b.kind === 'ship' && a.id === b.id;
-  if (a.kind === 'island') return b.kind === 'island' && a.isle === b.isle;
-  return a.kind === b.kind;
 }
 
 /** Trace a closed world-frame polygon (offsets from the blip position). */
