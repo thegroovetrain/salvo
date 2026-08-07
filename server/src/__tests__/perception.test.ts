@@ -326,7 +326,7 @@ describe('perception — radar paint window (exact)', () => {
     const a = place(w, 'a', 0, 0);
     place(w, 'b', RADAR, 0);
     windowAround(a, 0);
-    expect(blipsOf(buildFrame(w, 'a')).map((e) => e.id)).toEqual(['b']);
+    expect(blipsOf(buildFrame(w, 'a')).map((e) => (e as SilhouetteBlipEvent).id)).toEqual(['b']);
     w.ships.get('b')!.state.x = RADAR + 0.01;
     windowAround(a, 0);
     expect(blipsOf(buildFrame(w, 'a'))).toEqual([]);
@@ -372,7 +372,7 @@ describe('perception — exactly once per revolution (incl. 2π wrap)', () => {
       // OwnShip.sweep is the post-advance angle == this tick's window end
       // (identical accumulation => exact equality expected).
       expect(f.you!.sweep).toBe(expectedSweep);
-      for (const e of blipsOf(f)) paints.get(e.id)!.push(tick);
+      for (const e of blipsOf(f)) paints.get((e as SilhouetteBlipEvent).id)!.push(tick);
     }
     expect(paints.get('b')).toEqual([1, 1 + TICKS_PER_REV]);
     expect(paints.get('c')).toEqual([TICKS_PER_REV, 2 * TICKS_PER_REV]);
@@ -1026,7 +1026,7 @@ function verifyFrame(w: World, viewerId: string, f: FrameMsg): void {
   for (const z of f.litZones ?? []) verifyLitZone(w, me, z);
   for (const d of f.decoys ?? []) verifyDecoy(w, me, d);
   for (const d of f.denied ?? []) verifyDenied(me, d);
-  verifyBlipOrdering(f);
+  verifyBlipOrdering(w, f);
 }
 
 /** The Story 1.10 denial oracle: a denial in a frame must be the OBSERVER'S
@@ -1044,15 +1044,28 @@ function verifyDenied(me: ShipRecord, d: { slot: number; reason: string; seq: nu
 }
 
 /** FR10 anti-tell (Story 1.8): the frame's blip SUBSEQUENCE must be ordered by
- *  PUBLIC payload only — (x, then y, then t, then id) — never by source
- *  (genuine ship scan vs decoy counter-intel), or array position would
- *  de-anonymize the deception whenever a hull and its buoy paint the same
- *  tick. Reimplemented test-locally, applied to EVERY verified frame. */
-function verifyBlipOrdering(f: FrameMsg): void {
+ *  PUBLIC payload only — never by source (genuine ship scan vs decoy
+ *  counter-intel), or array position would de-anonymize the deception whenever
+ *  a hull and its buoy paint the same tick. Reimplemented test-locally,
+ *  applied to EVERY verified frame, per grammar: silhouette by (x, y, t, id);
+ *  the cycle-63 `return` footprint by (gx, gy, t, w, h) — its entire public
+ *  payload short of the mask words, which is total up to byte-identical
+ *  payloads (and identical payloads carry no order information to leak). */
+function verifyBlipOrdering(w: World, f: FrameMsg): void {
   const blips = f.events.filter((e): e is BlipEvent => e.k === 'blip');
   for (let i = 1; i < blips.length; i++) {
-    const a = blips[i - 1];
-    const b = blips[i];
+    if (w.radarGrammar === 'return') {
+      const a = blips[i - 1] as ReturnBlipEvent;
+      const b = blips[i] as ReturnBlipEvent;
+      const key = (e: ReturnBlipEvent): number[] => [e.gx, e.gy, e.t, e.w, e.h];
+      const ka = key(a);
+      const kb = key(b);
+      const cmp = ka.map((v, j) => v - kb[j]).find((d) => d !== 0) ?? 0;
+      expect(cmp).toBeLessThanOrEqual(0);
+      continue;
+    }
+    const a = blips[i - 1] as SilhouetteBlipEvent;
+    const b = blips[i] as SilhouetteBlipEvent;
     const ordered =
       a.x < b.x ||
       (a.x === b.x && (a.y < b.y || (a.y === b.y && (a.t < b.t || (a.t === b.t && a.id <= b.id)))));
@@ -1152,54 +1165,104 @@ function rosterIdOf(w: World, blipId: string): string | undefined {
   return undefined;
 }
 
-/** Test-local `ext` oracle (radar realism cycle, amendment 66): the hull
- *  silhouette rotated by `heading`, projected on the axis PERPENDICULAR to
- *  the observer→target bearing, max−min. Deliberately reimplemented from the
- *  raw vert list (hullSilhouette is the single shared geometry source) —
- *  never via the production transformPolygon/perpendicularExtent pipeline. */
-function extOracle(cls: HullId, heading: number, brg: number): number {
-  const ux = -Math.sin(brg);
-  const uy = Math.cos(brg);
+// --- the cycle-63 `return`-grammar COVERAGE oracle (amendment 155) -----------
+//
+// Re-DERIVED against the new payload, not adapted from the retired `ext`
+// oracle: the wire now carries a world-anchored coverage footprint
+// ({k,t,gx,gy,w,h,bits}) rasterized server-side from the true hull polygon,
+// and the oracle below reimplements that rasterization from the amendment
+// text — the raw silhouette verts rotated/translated by hand, a test-local
+// even-odd crossing test (never the production pointInPolygon), the bbox cell
+// rect, the centre-in-polygon rule, the centre-cell fail-safe and the
+// LSB-first packing — so a refactor of sim/radarRaster.ts cannot silently
+// agree with its own bug. Justification is EXACT mask equality (two-sided:
+// every wire bit must be earned AND every earned bit must be on the wire), so
+// this oracle cannot go vacuous by the channel quietly shrinking.
+
+/** The shared radar grid resolution — the wire-contract lattice parameter. */
+const RCELL_U = CONFIG.vision.radarCellU;
+
+/** Test-local even-odd point-in-polygon (ray crossing), reimplemented. */
+function inPolyOracle(px: number, py: number, poly: readonly { x: number; y: number }[]): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const a = poly[i];
+    const b = poly[j];
+    if (a.y > py !== b.y > py && px < ((b.x - a.x) * (py - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+interface MaskOracle { gx: number; gy: number; w: number; h: number; bits: number[] }
+
+/** Test-local coverage rasterization of a hull pose onto the shared grid. */
+function maskOracle(cls: HullId, x: number, y: number, heading: number): MaskOracle {
   const c = Math.cos(heading);
   const s = Math.sin(heading);
-  let min = Infinity;
-  let max = -Infinity;
-  for (const p of hullSilhouette(cls)) {
-    const wx = c * p.x - s * p.y;
-    const wy = s * p.x + c * p.y;
-    const d = wx * ux + wy * uy;
-    if (d < min) min = d;
-    if (d > max) max = d;
+  const poly = hullSilhouette(cls).map((p) => ({ x: x + c * p.x - s * p.y, y: y + s * p.x + c * p.y }));
+  const xs = poly.map((p) => p.x);
+  const ys = poly.map((p) => p.y);
+  const gx = Math.floor(Math.min(...xs) / RCELL_U);
+  const gy = Math.floor(Math.min(...ys) / RCELL_U);
+  const w = Math.floor(Math.max(...xs) / RCELL_U) - gx + 1;
+  const h = Math.floor(Math.max(...ys) / RCELL_U) - gy + 1;
+  const bits = new Array<number>(Math.ceil((w * h) / 32)).fill(0);
+  const set = (i: number): void => { bits[i >>> 5] |= 1 << (i & 31); };
+  for (let row = 0; row < h; row++) {
+    for (let col = 0; col < w; col++) {
+      if (inPolyOracle((gx + col + 0.5) * RCELL_U, (gy + row + 0.5) * RCELL_U, poly)) set(row * w + col);
+    }
   }
-  return max - min;
+  // The centre-cell fail-safe: a return always lights the cell the hull is in.
+  set((Math.floor(y / RCELL_U) - gy) * w + (Math.floor(x / RCELL_U) - gx));
+  return { gx, gy, w, h, bits };
+}
+
+/** EXACT footprint equality — rect and every mask word. */
+function maskEquals(a: MaskOracle, ev: ReturnBlipEvent): boolean {
+  if (a.gx !== ev.gx || a.gy !== ev.gy || a.w !== ev.w || a.h !== ev.h) return false;
+  return a.bits.length === ev.bits.length && a.bits.every((v, i) => v === ev.bits[i]);
 }
 
 /** Grammar-branched pose check for one blip against a (cls, heading, speed)
- *  truth source: silhouette mode carries the values verbatim (Story 4.2);
- *  return mode carries ONLY the aspect-projected `ext` (amendment 66 — never
- *  a pose field), verified against the independent oracle above at the
- *  observer→paint bearing. */
-function blipPoseMatches(w: World, me: ShipRecord, ev: BlipEvent, cls: HullId, heading: number, speed: number): boolean {
+ *  truth source at a position: silhouette mode carries the pose verbatim
+ *  (Story 4.2); `return` mode must carry EXACTLY the coverage footprint the
+ *  independent oracle rasterizes from that pose (cycle 63, amendment 152 —
+ *  never an id, position, extent, or pose field). */
+function blipPoseMatches(
+  w: World,
+  ev: BlipEvent,
+  cls: HullId,
+  p: { x: number; y: number },
+  heading: number,
+  speed: number,
+): boolean {
   if (w.radarGrammar === 'return') {
-    const r = ev as ReturnBlipEvent;
-    return r.ext === extOracle(cls, heading, bearing(me.state, ev));
+    return maskEquals(maskOracle(cls, p.x, p.y, heading), ev as ReturnBlipEvent);
   }
   const sil = ev as SilhouetteBlipEvent;
-  return sil.cls === cls && sil.heading === heading && sil.speed === speed;
+  return sil.x === p.x && sil.y === p.y && sil.cls === cls && sil.heading === heading && sil.speed === speed;
 }
 
-/** True iff `ev` is a legitimate GENUINE ship paint: a live non-self ship at
- *  exactly the blip position passing the ship-blip predicate, carrying the
- *  ship's LIVE pose verbatim (Story 4.2 — cls/heading/speed must be the raw
- *  sim values; anything derived or shifted fails the invariant) or, in
- *  `return` grammar, its aspect extent alone (amendment 66). */
+/** True iff `ev` is a legitimate GENUINE ship paint. Silhouette grammar: the
+ *  id resolves a live non-self ship at exactly the blip position, carrying its
+ *  LIVE pose verbatim (Story 4.2). `return` grammar carries NO id (cycle 63),
+ *  so the justification quantifies over the ships: SOME live non-self ship
+ *  passing the ship-blip predicate must rasterize to exactly this footprint. */
 function blipMatchesShip(w: World, me: ShipRecord, ev: BlipEvent): boolean {
-  const rosterId = rosterIdOf(w, ev.id);
+  if (w.radarGrammar === 'return') {
+    for (const target of w.ships.values()) {
+      if (!target.alive || target.id === me.id) continue;
+      if (!blipPredicate(w, me, target.state)) continue;
+      if (blipPoseMatches(w, ev, target.hullId, target.state, target.state.heading, target.state.speed)) return true;
+    }
+    return false;
+  }
+  const rosterId = rosterIdOf(w, (ev as SilhouetteBlipEvent).id);
   if (rosterId === undefined) return false;
   const target = w.ships.get(rosterId);
   if (!target || !target.alive || target.id === me.id) return false;
-  if (target.state.x !== ev.x || target.state.y !== ev.y) return false;
-  if (!blipPoseMatches(w, me, ev, target.hullId, target.state.heading, target.state.speed)) return false;
+  if (!blipPoseMatches(w, ev, target.hullId, target.state, target.state.heading, target.state.speed)) return false;
   return blipPredicate(w, me, target.state);
 }
 
@@ -1215,22 +1278,22 @@ function ownerContactVisible(w: World, me: ShipRecord, ownerId: string): boolean
 }
 
 /** True iff `ev` is a legitimate DECOY counter-intel paint (Story 1.8): a live
- *  unexpired buoy OWNED by the ship the blip impersonates sits at exactly the
- *  blip position, the observer is NOT the owner (a buoy never lies to its
- *  owner), the OWNER is NOT simultaneously a contact for the observer (the
- *  coexistence guard above), and the ship-blip predicate holds at the BUOY's
- *  position. */
+ *  unexpired buoy sits where the blip claims metal, the observer is NOT the
+ *  owner (a buoy never lies to its owner), the OWNER is NOT simultaneously a
+ *  contact for the observer (the coexistence guard above), and the ship-blip
+ *  predicate holds at the BUOY's position. Silhouette grammar additionally
+ *  binds the wire id to the owner and the pose to the record's FROZEN
+ *  drop-time snapshot at speed 0 (amendment 11 — a live owner value here
+ *  would mean the counterIntel path read ctx.ships.get(ownerId), which it
+ *  must never do). In `return` grammar the same frozen-pose law holds through
+ *  the footprint: the mask must be EXACTLY the owner hull rasterized at the
+ *  buoy position and drop heading. */
 function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
-  const rosterId = rosterIdOf(w, ev.id);
-  if (rosterId === undefined) return false;
+  const rosterId = w.radarGrammar === 'return' ? undefined : rosterIdOf(w, (ev as SilhouetteBlipEvent).id);
+  if (w.radarGrammar !== 'return' && rosterId === undefined) return false;
   for (const decoy of w.decoys.values()) {
-    if (decoy.ownerId !== rosterId || decoy.x !== ev.x || decoy.y !== ev.y) continue;
-    // The pose must be the record's FROZEN drop-time snapshot at speed 0
-    // (Story 4.2, amendment 11) — a live owner value here would mean the
-    // counterIntel path read ctx.ships.get(ownerId), which it must never do.
-    // In `return` grammar the same law holds through the extent: the OWNER's
-    // hull at the frozen drop heading, at the observer→BUOY bearing.
-    if (!blipPoseMatches(w, me, ev, decoy.hullId, decoy.heading, 0)) continue;
+    if (rosterId !== undefined && decoy.ownerId !== rosterId) continue;
+    if (!blipPoseMatches(w, ev, decoy.hullId, decoy, decoy.heading, 0)) continue;
     if (w.now >= decoy.until) continue;
     if (decoy.ownerId === me.id) continue;
     if (ownerContactVisible(w, me, decoy.ownerId)) continue;
@@ -1239,26 +1302,36 @@ function blipMatchesDecoy(w: World, me: ShipRecord, ev: BlipEvent): boolean {
   return false;
 }
 
-/** The exact per-grammar blip key sets — the return grammar's DELETION of the
- *  pose channels (cls/heading/speed), pinned structurally on every blip the
- *  fuzz ever sees. */
+/** The exact per-grammar blip key sets. Silhouette: the 4.2 pose shape.
+ *  `return` (cycle 63, amendment 152): the coverage footprint and NOTHING
+ *  else — pinned as an exact key set, so the deletion of `id`, the position,
+ *  `ext` and every pose channel is structural on every blip the fuzz sees. */
 const SILHOUETTE_BLIP_KEYS = ['cls', 'heading', 'id', 'k', 'speed', 't', 'x', 'y'];
-const RETURN_BLIP_KEYS = ['ext', 'id', 'k', 't', 'x', 'y'];
+const RETURN_BLIP_KEYS = ['bits', 'gx', 'gy', 'h', 'k', 't', 'w'];
+/** Fields the `return` payload must NEVER grow back — asserted by name as well
+ *  as by the exact key set, because each is its own disclosure channel: `id`
+ *  the cross-sweep correlation handle, x/y the exact float position, `ext`
+ *  the derived aspect scalar, cls/heading/speed the 4.2 pose. */
+const RETURN_FORBIDDEN_KEYS = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed'];
 
 function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BlipEvent;
   expect(ev.t).toBe(w.now);
-  // Grammar shape gate (radar realism cycle): a `return`-mode frame may carry
-  // NO cls/heading/speed on any blip — the actual deletion, pinned — and a
-  // silhouette-mode frame carries exactly the 4.2 shape.
+  // Grammar shape gate: exact key sets, both directions.
   expect(Object.keys(ev).sort()).toEqual(w.radarGrammar === 'return' ? RETURN_BLIP_KEYS : SILHOUETTE_BLIP_KEYS);
-  // Identity gate (R3): in pseudonym mode a blip id must NEVER be a roster
-  // ship id — the roster link is deliberately not free.
-  if (w.radarIdentity === 'pseudonym') expect(w.ships.has(ev.id)).toBe(false);
+  if (w.radarGrammar === 'return') {
+    for (const forbidden of RETURN_FORBIDDEN_KEYS) expect(Object.hasOwn(ev, forbidden)).toBe(false);
+  } else if (w.radarIdentity === 'pseudonym') {
+    // Identity gate (R3), silhouette only — the `return` payload has no id at
+    // all, so there is nothing to pseudonymize: in pseudonym mode a blip id
+    // must NEVER be a roster ship id (the roster link is deliberately not free).
+    expect(w.ships.has((ev as SilhouetteBlipEvent).id)).toBe(false);
+  }
   // Every blip in a frame must be JUSTIFIED as exactly one of the two legal
-  // sources: a genuine ship paint, or a decoy counter-intel paint whose owner
-  // id it carries. Anything else — a fabricated id, a wrong position, an
-  // unswept bearing, an out-of-annulus point — fails both and the invariant.
+  // sources: a genuine ship paint, or a decoy counter-intel paint. Anything
+  // else — a fabricated footprint, a wrong rect, a mask that disagrees with
+  // the hull's true silhouette in either direction, an unswept bearing, an
+  // out-of-annulus point — fails both and the invariant.
   if (blipMatchesShip(w, me, ev)) return;
   expect(blipMatchesDecoy(w, me, ev)).toBe(true);
 }

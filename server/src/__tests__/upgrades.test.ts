@@ -19,7 +19,7 @@ import {
   effectiveStats,
   isAcquisitionDef,
   type BallisticEvent,
-  type BlipEvent,
+  type SilhouetteBlipEvent,
   type BoonOffer,
   type FrameMsg,
   type GameEvent,
@@ -80,7 +80,8 @@ function copiesInDeck(ship: ShipRecord, id: string): number {
 
 const bnsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'bn');
 const ptsOf = (events: readonly GameEvent[]) => events.filter((e) => e.k === 'pt');
-const blipsOf = (f: FrameMsg) => f.events.filter((e): e is BlipEvent => e.k === 'blip');
+// Silhouette-grammar worlds only (the default) — narrow straight to the 4.2 shape.
+const blipsOf = (f: FrameMsg) => f.events.filter((e): e is SilhouetteBlipEvent => e.k === 'blip');
 const ballisticsOf = (f: FrameMsg) =>
   f.events.filter((e): e is BallisticEvent => e.k === 'shell' || e.k === 'torp');
 

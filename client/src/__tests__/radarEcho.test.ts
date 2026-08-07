@@ -35,7 +35,9 @@ import { describe, it, expect, vi } from 'vitest';
 import { Container, Texture, type Graphics } from 'pixi.js';
 import {
   CONFIG,
+  rasterizeHullCoverage,
   type HeightRaster,
+  type HullId,
   type ReturnBlipEvent,
   type SilhouetteBlipEvent,
 } from '@salvo/shared';
@@ -52,7 +54,6 @@ vi.mock('../render/textures.js', async (importOriginal) => {
   return { ...actual, bakeSweepTexture: (): Texture => Texture.EMPTY };
 });
 
-const EXT = 100; // aspect-projected extent on the wire (u)
 const OWN = { x: 0, y: 0 };
 const LIFE = blipLifeMs(60_000 / CONFIG.vision.sweepRpm);
 const CELL = CLIENT_CONFIG.blip.heatmap.cellU;
@@ -90,10 +91,21 @@ function revolution(radar: Radar, own = OWN, contacts: ContactStore | null = nul
   for (let t = 0; t <= 4200; t += 100) radar.render(own, t, contacts);
 }
 
-/** A paint 500u due +y of the origin: bearing π/2, so a correctly posed footprint
- *  is WIDER than it is tall (`ext` is measured across the bearing) — and one
- *  posed from a null observer, at bearing 0, is exactly the reverse. */
-const PAINT: ReturnBlipEvent = { k: 'blip', id: 'trk-1', x: 0, y: 500, ext: EXT, t: 1000 };
+/** A wire coverage footprint for a hull pose — the cycle-63 payload, built by
+ *  the SAME shared rasterizer the server runs. The record keeps the pose
+ *  beside the wire event, because the event itself deliberately carries no
+ *  position, class or id any more (amendment 152). */
+interface TestEcho { e: ReturnBlipEvent; x: number; y: number }
+function wireEcho(cls: HullId, x: number, y: number, heading: number, t = 1000): TestEcho {
+  const c = rasterizeHullCoverage(cls, x, y, heading, CELL);
+  return { e: { k: 'blip', t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }, x, y };
+}
+
+/** A battleship 500u due +y of the origin, heading +x (broadside to the
+ *  observer): the true footprint is much WIDER (its 124u length, in x) than it
+ *  is tall (its 48u beam, in y) — a fogged hull finally points the way it is
+ *  headed, which is the complaint this cycle exists to fix. */
+const PAINT: TestEcho = wireEcho('battleship', 0, 500, 0);
 
 /** Extent of the lit region along one world axis through the paint centre. */
 function litSpan(radar: Radar, axis: 'x' | 'y', cross: number, at: number): number {
@@ -109,44 +121,45 @@ function litSpan(radar: Radar, axis: 'x' | 'y', cross: number, at: number): numb
 describe('`return` paints are posed from a real observer or not at all', () => {
   it('holds a paint that arrives before the first render, painting nothing', () => {
     const { radar } = makeRadar();
-    radar.onBlip(PAINT);
+    radar.onBlip(PAINT.e);
     expect(radar.livePaints).toBe(0); // parked, not marched
     expect(radar.bandAt(PAINT.x, PAINT.y)).toBe(-1);
   });
 
-  it('marches it on the FIRST frame with an own pose — the footprint is laid '
-    + 'ACROSS the real bearing', () => {
+  it('marches it on the FIRST frame with an own pose — and the footprint is the '
+    + 'TRUE ORIENTED HULL, not a streak across the bearing', () => {
     const { radar } = makeRadar();
-    radar.onBlip(PAINT); // arrives with no pose available
+    radar.onBlip(PAINT.e); // arrives with no pose available
     radar.render(OWN, 1000);
     expect(radar.livePaints).toBe(1);
     expect(radar.bandAt(PAINT.x, PAINT.y)).toBeGreaterThanOrEqual(0);
-    // Posed at bearing π/2: the extent axis runs ACROSS the observer's line of
-    // sight and the mark is one range cell deep. A bearing-0 fallback is this
-    // transposed, so the comparison is what catches a guessed observer.
+    // The hull heads +x, so the mark runs ALONG +x (its 124u length) and is
+    // only its 48u beam deep in y — the wire mask decides the shape, and the
+    // observer decides nothing about it (cycle 63: the retired `stampEcho`
+    // laid `ext` across the observer's bearing, one cell deep, which is why a
+    // fogged hull never pointed the way it was moving).
     const across = litSpan(radar, 'x', 0, 500);
     const along = litSpan(radar, 'y', 500, 0);
-    expect(across).toBeGreaterThan(along * 3);
-    // The footprint is the hull's REAL aspect extent (amendment 141: a hull's
-    // return falls out of its footprint, like terrain's). The retired kernel
-    // SHRANK the mark with range on top of dimming it; under the march the size
-    // channel is the object and the strength channel is the range.
-    expect(Math.abs(across - EXT), 'the mark is the extent the wire reported')
-      .toBeLessThanOrEqual(2 * CELL);
+    expect(across).toBeGreaterThan(along * 1.8);
+    // The footprint is the hull's REAL length, cell-quantized.
+    expect(Math.abs(across - CONFIG.shipClasses.battleship.hull.length),
+      'the mark is the hull the server rasterized').toBeLessThanOrEqual(2 * CELL);
+    expect(Math.abs(along - CONFIG.shipClasses.battleship.hull.beam),
+      'and its beam across').toBeLessThanOrEqual(2 * CELL);
   });
 
   it('marches immediately when a pose is already known — deferral is the '
     + 'exception, not the cadence', () => {
     const { radar } = makeRadar();
     radar.render(OWN, 900); // pose established first
-    radar.onBlip(PAINT);
+    radar.onBlip(PAINT.e);
     expect(radar.livePaints).toBe(1);
   });
 
   it('freezes the geometry once marched — a paint is a historical snapshot', () => {
     const { radar } = makeRadar();
     radar.render(OWN, 900);
-    radar.onBlip(PAINT);
+    radar.onBlip(PAINT.e);
     radar.render(OWN, 950);
     const before = litSpan(radar, 'x', 0, 500);
     radar.render({ x: 400, y: 400 }, 1100); // observer moves; the paint must not
@@ -161,8 +174,8 @@ describe('`return` paints are posed from a real observer or not at all', () => {
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0);
     // A bearing the beam is nowhere near (it sits at −0.6 rad and advances).
-    const behind: ReturnBlipEvent = { k: 'blip', id: 'w', x: 0, y: -500, ext: EXT, t: 10 };
-    radar.onBlip(behind);
+    const behind = wireEcho('battleship', 0, -500, 0, 10);
+    radar.onBlip(behind.e);
     radar.render(OWN, 20); // the very next frame — the beam has moved 0.03 rad
     expect(radar.bandAt(behind.x, behind.y), 'painted on arrival')
       .toBeGreaterThanOrEqual(0);
@@ -173,10 +186,10 @@ describe('the slice list is the history and the buffer is derived (ruling R1)', 
   it('re-rasterizes from scratch: a paint that ages out leaves NOTHING behind', () => {
     const { radar } = makeRadar();
     radar.render(OWN, 900);
-    radar.onBlip(PAINT);
+    radar.onBlip(PAINT.e);
     radar.render(OWN, 1000);
     expect(radar.bandAt(PAINT.x, PAINT.y)).toBeGreaterThanOrEqual(0);
-    radar.render(OWN, PAINT.t + LIFE + 1);
+    radar.render(OWN, PAINT.e.t + LIFE + 1);
     expect(radar.livePaints).toBe(0);
     expect(radar.bandAt(PAINT.x, PAINT.y)).toBe(-1);
   });
@@ -200,7 +213,7 @@ describe('the slice list is the history and the buffer is derived (ruling R1)', 
   it('clearBlips drops every paint (entering spectate)', () => {
     const { radar } = makeRadar();
     radar.render(OWN, 900);
-    radar.onBlip(PAINT);
+    radar.onBlip(PAINT.e);
     radar.clearBlips();
     radar.render(OWN, 1000);
     expect(radar.livePaints).toBe(0);
@@ -246,7 +259,7 @@ describe('terrain paints from the height raster (amendments 129 + 140 + 142)', (
     radar.setHeightRaster(ISLE);
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0);
-    radar.onBlip({ ...PAINT, t: 0 });
+    radar.onBlip({ ...PAINT.e, t: 0 });
     for (let t = 100; t <= 4200; t += 100) radar.render(OWN, t);
     expect(radar.bandAt(500, 0), 'the landmass').toBeGreaterThanOrEqual(0);
     expect(radar.bandAt(PAINT.x, PAINT.y), 'and the echo').toBeGreaterThanOrEqual(0);
@@ -432,6 +445,52 @@ describe('the source seam is `fogHoleRadiusU`, so client and server agree', () =
     radar.setDazzled(true);
     radar.render(OWN, 4250, store);
     expect(radar.bandAt(MID, 0), 'the existing mark is untouched').toBe(band);
+  });
+
+  it('TWO SOURCES, ONE APPEARANCE (amendment 154): a wire footprint and a '
+    + 'synthesized contact echo of the same pose paint IDENTICAL intensities', () => {
+    // Same hull, same pose, same range, same observer — delivered once as a
+    // `Contact` (undazzled: inside the seam, the client rasterizes it) and
+    // once as the server's wire footprint (dazzled: the same annulus is the
+    // wire's). Both run the one shared rasterizer and the one stamp, so the
+    // buffers must agree cell for cell: the inside/outside split survives but
+    // stops being visible.
+    const pose = { x: MID, y: 0, heading: 0.7, cls: 'battleship' as const };
+    const viaContact = makeRadar().radar;
+    const store = new ContactStore();
+    store.pushFrame(0, [{ id: 's', x: pose.x, y: pose.y, heading: pose.heading, speed: 0, cls: pose.cls }]);
+    revolution(viaContact, OWN, store);
+    const viaWire = makeRadar().radar;
+    viaWire.setDazzled(true);
+    viaWire.render(OWN, 900);
+    const c = rasterizeHullCoverage(pose.cls, pose.x, pose.y, pose.heading, CELL);
+    viaWire.onBlip({ k: 'blip', t: 1000, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits });
+    viaWire.render(OWN, 1000);
+    // Cell-for-cell comparable: the two paths fire DIFFERENT ray sets (the
+    // beam's fixed quanta vs the echo's own bearing window), so a cell's
+    // winning sample can sit up to half a ray step apart in range — a ~1e-3
+    // intensity difference, not a different reading. The pure-level identity
+    // (same rays, byte-equal) is pinned in radarHeatmap.test.ts; HERE the pin
+    // is that both sources light the same footprint at the same strength.
+    let both = 0;
+    let onlyOne = 0;
+    for (let row = 0; row < c.h; row++) {
+      for (let col = 0; col < c.w; col++) {
+        const x = (c.gx + col + 0.5) * CELL;
+        const y = (c.gy + row + 0.5) * CELL;
+        const a = viaContact.intensityAt(x, y);
+        const b = viaWire.intensityAt(x, y);
+        if (a === 0 && b === 0) continue;
+        if (a === 0 || b === 0) {
+          onlyOne++; // a corner-clipped cell one ray set catches and the other misses
+          continue;
+        }
+        both++;
+        expect(Math.abs(b - a), `cell ${col},${row}`).toBeLessThan(0.02);
+      }
+    }
+    expect(both, 'the footprints really overlap').toBeGreaterThan(5);
+    expect(onlyOne, 'and disagree on at most a corner cell or two').toBeLessThanOrEqual(2);
   });
 });
 

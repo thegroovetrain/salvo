@@ -1400,9 +1400,16 @@ export const CLIENT_CONFIG = {
        * World units per bitmap cell — the buffer's resolution, and the ONE knob
        * that trades look against cost. At the base camera framing one cell is
        * ~5 screen px, which is deliberately chunky: a quantized bitmap should
-       * read as a bitmap, not as a smooth glow. It is also the scope's RANGE
-       * RESOLUTION: a wire echo's footprint is one cell deep because that is the
-       * finest range a cell-quantized display can resolve.
+       * read as a bitmap, not as a smooth glow.
+       *
+       * A REFERENCE SINCE CYCLE 63, NOT A LITERAL. The radar grid resolution is
+       * gameplay-authoritative now — the server rasterizes a fogged hull's true
+       * silhouette onto THIS lattice and sends coverage cells
+       * (`ReturnBlipEvent`), so the cell size decides what the wire says. It
+       * therefore lives in shared `CONFIG.vision.radarCellU` and is referenced
+       * here; forking a second constant would let the client's buffer lattice
+       * drift off the wire's cell indices and every footprint would land
+       * misaligned.
        *
        * COST SCALES WITH VISIBLE AREA (cycle 58, amendment 99): the buffer
        * covers the VIEWPORT, not the radar ring, so zooming out costs more. The
@@ -1449,7 +1456,7 @@ export const CLIENT_CONFIG = {
        * is the only lever on, and the whole frame stays well inside the 2.5 ms
        * min-zoom bar.
        */
-      cellU: 6,
+      cellU: CONFIG.vision.radarCellU,
       /**
        * THE THREE COLORS AND THEIR THRESHOLDS (amendment 77) — ordered ASCENDING
        * by intensity, and the whole of the color contract. Below `bands[0].at` a

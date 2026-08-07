@@ -33,7 +33,7 @@
 //     proved at nominal is not proved.
 
 import { describe, it, expect } from 'vitest';
-import { buildHeightRaster, sampleHeight, type HeightField, type HeightRaster, type Vec2 } from '@salvo/shared';
+import { CONFIG, buildHeightRaster, coverageHas, hullSilhouette, perpendicularExtent, rasterizeHullCoverage, sampleHeight, transformPolygon, type HeightField, type HeightRaster, type HullId, type Vec2 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { blipLifeMs } from '../render/phosphor.js';
 import { noiseAmplitude } from '../render/radarFalloff.js';
@@ -52,7 +52,7 @@ import {
   type HeatGrid,
   type HeatmapOpts,
 } from '../render/radarHeatmap.js';
-import { buildField, buildShipStamp, type RadarField } from '../render/radarField.js';
+import { buildField, buildShipStamp, coverageExtent, hullSample, shipOnlyField, stampCoverage, type RadarField, type ShipStamp } from '../render/radarField.js';
 import { marchSlice, returnStrength, type MarchSlice } from '../render/radarMarch.js';
 
 const CFG: HeatmapOpts = CLIENT_CONFIG.blip.heatmap;
@@ -107,7 +107,7 @@ function rasterWithPyramid(reachU: number, h: (x: number, y: number) => number):
 interface FieldParts {
   raster?: HeightRaster | null;
   ring?: { cx: number; cy: number; r: number } | null;
-  hulls?: { id: string; x: number; y: number; heading: number; cls: 'battleship' }[];
+  hulls?: { id: string; x: number; y: number; heading: number; cls: HullId }[];
   model?: typeof MODEL;
 }
 
@@ -738,5 +738,103 @@ describe('a hull is stamped into the same raster and painted by the same rules',
     );
     expect(floorPeak).toBe(MODEL.minPeak);
     expect(best(floorPeak), 'even at the unluckiest draw').toBeGreaterThan(BANDS[0].at);
+  });
+});
+
+// --- 8. THE CORE→EDGE TERM (cycle 63, the amendment-77 pin) --------------------
+//
+// The point of the whole cycle: intensity is per PIXEL again, with "depth
+// inside the coverage mask" as the core→edge term, so one hull shows a strong
+// core and a weaker fringe at once instead of quantizing to a single per-object
+// colour label. These run at the SHIPPED grain — a structural claim proved at
+// nominal is not proved (amendment 135).
+
+describe('one hull spans MORE THAN ONE BAND at the shipped grain, strongest at its core (amendment 77)', () => {
+  const OBS: Vec2 = { x: 0, y: 0 };
+  /** A mine layer broadside at 550u: its core sits above the red threshold
+   *  (unsaturated, so "strongest" is a real comparison) and its one-cell-deep
+   *  fringe halves the coefficient into the blue/green registers. */
+  const HULL = { id: 'a', x: 0, y: 550, heading: 0, cls: 'mineLayer' as HullId };
+
+  function litFootprintBands(g: HeatGrid): { bands: Set<number>; centre: number; strongest: number } {
+    const cov = rasterizeHullCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU);
+    const bands = new Set<number>();
+    let strongest = 0;
+    for (let row = 0; row < cov.h; row++) {
+      for (let col = 0; col < cov.w; col++) {
+        if (!coverageHas(cov, col, row)) continue;
+        const w = sampleGrid(g, (cov.gx + col + 0.5) * CFG.cellU, (cov.gy + row + 0.5) * CFG.cellU).w;
+        if (!(w > 0)) continue;
+        strongest = Math.max(strongest, w);
+        const b = bandIndex(w, BANDS);
+        if (b >= 0) bands.add(b);
+      }
+    }
+    return { bands, centre: sampleGrid(g, HULL.x, HULL.y).w, strongest };
+  }
+
+  it('paints a RED core and a weaker fringe on one hull, at the SHIPPED grain', () => {
+    const g = scope(OBS, { hulls: [HULL] }, CFG); // CFG: the shipped envelope, not CLEAN
+    const { bands, centre, strongest } = litFootprintBands(g);
+    expect(bandAt(g, HULL.x, HULL.y), 'the core reads red').toBe(2);
+    expect(bands.size, 'and the footprint spans more than one band').toBeGreaterThanOrEqual(2);
+    // Strongest at the core: no fringe cell out-reads the hull cell. The core
+    // sits above `noise.solidAt`, so the grain is exactly zero there and this
+    // comparison is deterministic at the shipped envelope.
+    expect(centre).toBeCloseTo(strongest, 9);
+  });
+
+  it('a fogged wire footprint and a client-rasterized contact of the same pose paint IDENTICAL intensities (two sources, one appearance — amendment 154)', () => {
+    // Both sources run the same shared rasterizer and the same stamp, so the
+    // buffers must agree cell for cell — the inside/outside split survives but
+    // stops being visible. The "wire" side stamps the coverage the server
+    // would send; the "contact" side rasterizes from the pose.
+    const viaContact = scope(OBS, { hulls: [HULL] }, CFG);
+    const cov = rasterizeHullCoverage(HULL.cls, HULL.x, HULL.y, HULL.heading, CFG.cellU);
+    const stamp: ShipStamp = new Map();
+    stampCoverage(stamp, cov, OBS, CFG.model, CFG.cellU);
+    const g = grid(CFG, OBS.x, OBS.y);
+    const s = marchSlice(OBS, 0, TAU - 1e-6, shipOnlyField(stamp, CFG.cellU), RADAR, 0, CFG);
+    if (s !== null) raster(g, [s]);
+    for (let row = 0; row < cov.h; row++) {
+      for (let col = 0; col < cov.w; col++) {
+        const x = (cov.gx + col + 0.5) * CFG.cellU;
+        const y = (cov.gy + row + 0.5) * CFG.cellU;
+        expect(sampleGrid(g, x, y).w, `cell ${col},${row}`).toBeCloseTo(sampleGrid(viaContact, x, y).w, 9);
+      }
+    }
+  });
+});
+
+describe('the mask-derived extent preserves the amendment-118 crossover (cycle 63)', () => {
+  const OBS: Vec2 = { x: 0, y: 0 };
+
+  it('coverageExtent of the calibration hull is within one cell of the true perpendicular extent', () => {
+    const at = CONFIG.vision.farRadar; // the 7/8 rung — read here as a test INPUT, never on a paint path
+    const cov = rasterizeHullCoverage('mineLayer', 0, at, 0, CFG.cellU);
+    const ext = coverageExtent(cov, OBS, CFG.cellU);
+    const truth = perpendicularExtent(
+      transformPolygon(hullSilhouette('mineLayer'), 0, at, 0),
+      Math.PI / 2,
+    );
+    expect(truth).toBeCloseTo(CONFIG.shipClasses.mineLayer.hull.length, 9);
+    expect(Math.abs(ext - truth)).toBeLessThanOrEqual(CFG.cellU);
+  });
+
+  it('the red→blue crossover of the mask-fed core lands within ~2.5 cells of where fitPointRef puts it', () => {
+    // Scan the pre-grain core peak outward: the range where it falls under
+    // `bands[2].at` must sit within ~2.5 grid cells of the fitted 7/8 rung —
+    // the cell-quantized extent is the only slack the mask path introduces
+    // (the fit itself is untouched: the radarFalloff readings pin it at the
+    // true extent, and coverageExtent is pinned within one cell of that).
+    const fitAt = CONFIG.vision.farRadar;
+    const cov = rasterizeHullCoverage('mineLayer', 0, fitAt, 0, CFG.cellU);
+    const ext = coverageExtent(cov, OBS, CFG.cellU);
+    let crossed = Number.NaN;
+    for (let d = 400; d <= 700; d += 0.5) {
+      if (returnStrength(hullSample(ext, MODEL), d) < BANDS[2].at) { crossed = d; break; }
+    }
+    expect(Number.isFinite(crossed)).toBe(true);
+    expect(Math.abs(crossed - fitAt)).toBeLessThanOrEqual(2.5 * CFG.cellU + 1);
   });
 });

@@ -10,7 +10,7 @@ import {
   CONFIG,
   hullSilhouette,
   transformPolygon,
-  type BlipEvent,
+  type SilhouetteBlipEvent,
   type FrameMsg,
   type InputMsg,
   type HullTarget,
@@ -57,7 +57,8 @@ const windowAround = (me: ShipRecord, brg: number, h = 0.02): void => {
   me.prevSweepAngle = ((brg - h) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
   me.sweepAngle = ((brg + h) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
 };
-const blipsOf = (f: FrameMsg): BlipEvent[] => f.events.filter((e): e is BlipEvent => e.k === 'blip');
+// Silhouette-grammar worlds only (the default) — narrow straight to the 4.2 shape.
+const blipsOf = (f: FrameMsg): SilhouetteBlipEvent[] => f.events.filter((e): e is SilhouetteBlipEvent => e.k === 'blip');
 
 describe('torpedoes — single-round pool reload', () => {
   it('one launch drains the pool; a second is denied until it reloads', () => {

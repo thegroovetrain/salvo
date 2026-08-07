@@ -3,6 +3,23 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  31: THE SERVER RASTERIZES THE HULL (cycle 63, Eric ruling 2026-08-07,
+ *  amendments 151-155) — the `return`-grammar blip payload is REPLACED:
+ *  {k,id,x,y,t,ext} becomes {k,t,gx,gy,w,h,bits}, a world-anchored coverage
+ *  footprint (absolute cell rect + packed row-major mask) rasterized
+ *  server-side from the true hull polygon on the shared radar grid
+ *  (`CONFIG.vision.radarCellU`, new — promoted from the client-only heatmap
+ *  cell size because it now decides what the wire says; new shared
+ *  sim/radarRaster.ts rides the barrel). This REDUCES disclosure: no `id`
+ *  (no correlation handle across sweeps), no `ext`, no exact position — the
+ *  server does geometry only and the client computes all intensity, with the
+ *  core→edge term coming from depth inside the mask (restoring amendment
+ *  77's per-pixel structure). `blipGate` and the `silhouette` grammar are
+ *  untouched; the decoy counterIntel rasterizes through the same shared
+ *  function from its frozen drop-time pose, so wire-indistinguishability
+ *  holds by construction. A stale client would read `e.ext`/`e.x` off the
+ *  new shape as undefined and paint nothing (or NaN), so the bump is a hard
+ *  compatibility gate, not a courtesy.
  *  30: THE EIGHTHS LADDER (Story 4.9, Eric rulings 2026-08-06, amendments
  *  113/118/119/121/122/123) — CONFIG.vision becomes the one ruler: every
  *  sensor boundary is a named eighth of intel range, derived from SIGHT
@@ -258,7 +275,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 30;
+export const PROTOCOL_VERSION = 31;
 
 // Tunables
 export * from './constants.js';
@@ -285,6 +302,7 @@ export * from './sim/offers.js';
 export * from './sim/deck.js';
 export * from './sim/collision.js';
 export * from './sim/silhouette.js';
+export * from './sim/radarRaster.js';
 export * from './sim/island.js';
 export * from './sim/aim.js';
 export * from './sim/shell.js';

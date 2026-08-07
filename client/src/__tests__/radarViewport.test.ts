@@ -48,7 +48,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Sprite, Texture } from 'pixi.js';
-import { CONFIG, type HeightRaster, type ReturnBlipEvent } from '@salvo/shared';
+import { CONFIG, rasterizeHullCoverage, type HeightRaster, type ReturnBlipEvent } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Camera, USER_ZOOM_MAX, USER_ZOOM_MIN } from '../render/camera.js';
@@ -234,9 +234,15 @@ function measure(layer: Container, chart: Container, cam: Camera, skip?: Skip): 
   };
 }
 
-/** One wire echo at a world point, ext 100u. */
-function echo(x: number, y: number, t = 1000, id = 'trk-1'): ReturnBlipEvent {
-  return { k: 'blip', id, x, y, ext: 100, t };
+/** One wire echo footprint centred on a world point — built by the SAME shared
+ *  rasterizer the server runs (cycle 63: the wire carries a coverage mask and
+ *  nothing else), for a mine layer heading +x. The record keeps the intended
+ *  centre (and a label for messages) beside the wire event, because the event
+ *  itself deliberately carries no position or id any more. */
+interface TestEcho { e: ReturnBlipEvent; x: number; y: number; id: string }
+function echo(x: number, y: number, t = 1000, id = 'trk-1'): TestEcho {
+  const c = rasterizeHullCoverage('mineLayer', x, y, 0, CELL);
+  return { e: { k: 'blip', t, gx: c.gx, gy: c.gy, w: c.w, h: c.h, bits: c.bits }, x, y, id };
 }
 
 /** Render one frame with the camera centred on `own` (the alive framing). */
@@ -270,12 +276,15 @@ describe('an echo renders at the world position it was created at', () => {
       const own = { x: 1200, y: -800 }; // nowhere near the origin: an origin bug hides there
       const e = echo(own.x + 240, own.y - 180);
       frame(radar, cam, own, 900);
-      radar.onBlip(e);
+      radar.onBlip(e.e);
       frame(radar, cam, own, 1000);
 
       const m = measure(layer, chart, cam, haze(own));
       expect(m.cells, 'the echo lit some texels').toBeGreaterThan(0);
-      expect(m.x, `x at ${label}`).toBeCloseTo(e.x, -Math.log10(TOL));
+      // The centroid of a real hull mask is cell-quantized and the silhouette
+      // itself is not point-symmetric, so the pin is the TOL band (±1.5 cells)
+      // rather than a sub-cell equality — a placement BUG is never sub-cell
+      // (cycle 57's islands drifted by hundreds of units).
       expect(Math.abs(m.x - e.x), `x within ${TOL}u at ${label}`).toBeLessThan(TOL);
       expect(Math.abs(m.y - e.y), `y within ${TOL}u at ${label}`).toBeLessThan(TOL);
     });
@@ -288,7 +297,7 @@ describe('an echo renders at the world position it was created at', () => {
       const cam = camera(z);
       const own = { x: 0, y: 0 };
       frame(radar, cam, own, 900);
-      radar.onBlip(echo(300, 0));
+      radar.onBlip(echo(300, 0).e);
       frame(radar, cam, own, 1000);
       const sprite = heatSprite(layer);
       expect(sprite.scale.x, `scale at ${z}×`).toBe(CELL);
@@ -323,7 +332,7 @@ describe('a paint holds its world position while the camera moves over it', () =
     const own = { x: 0, y: 0 };
     const e = echo(400, 250);
     frame(radar, cam, own, 900);
-    radar.onBlip(e);
+    radar.onBlip(e.e);
 
     // Steam past it, one frame at a time, through many whole-cell boundaries and
     // several deliberately fractional camera centres (a snap bug shows up as
@@ -348,7 +357,7 @@ describe('a paint holds its world position while the camera moves over it', () =
     const own = { x: -500, y: 300 };
     const e = echo(own.x + 200, own.y + 100);
     frame(radar, cam, own, 900);
-    radar.onBlip(e);
+    radar.onBlip(e.e);
     for (const z of [USER_ZOOM_MAX, 1.2, 1.0, 0.75, USER_ZOOM_MIN, 1.5]) {
       cam.setUserZoom(z);
       frame(radar, cam, own, 1000);
@@ -404,7 +413,7 @@ describe('a paint at the radar rim is not clipped as the observer sails away', (
     const cam = camera(USER_ZOOM_MIN);
     const rim = echo(RADAR - 10, 0);
     frame(radar, cam, { x: 0, y: 0 }, 900);
-    radar.onBlip(rim);
+    radar.onBlip(rim.e);
     frame(radar, cam, { x: 0, y: 0 }, 1000);
     expect(radar.bandAt(rim.x, rim.y), 'painted at the rim').toBeGreaterThanOrEqual(0);
 
@@ -424,7 +433,7 @@ describe('a paint at the radar rim is not clipped as the observer sails away', (
     const cam = camera(USER_ZOOM_MIN);
     const e = echo(0, 620);
     frame(radar, cam, { x: 0, y: 0 }, 900);
-    radar.onBlip(e);
+    radar.onBlip(e.e);
     frame(radar, cam, { x: 0, y: 0 }, 1000);
     expect(radar.bandAt(e.x, e.y), 'on screen at first').toBeGreaterThanOrEqual(0);
 
@@ -451,7 +460,7 @@ describe('a paint recorded while zoomed IN appears when you zoom OUT', () => {
     // top/bottom of the screen while inside radar range.
     const off = [echo(0, 620, 1000, 'a'), echo(0, -600, 1000, 'b'), echo(120, 640, 1000, 'c')];
     frame(radar, cam, own, 900);
-    for (const e of off) radar.onBlip(e);
+    for (const e of off) radar.onBlip(e.e);
     frame(radar, cam, own, 1000);
 
     // Every wire echo became a slice the moment it arrived, and the beam's own
@@ -498,7 +507,7 @@ describe('the camera cannot touch what is painted or when it is retired', () => 
     radar.onSweepSample(-0.6, 0);
     const own = { x: 0, y: 0 };
     for (const t of times) {
-      if (t === 400) radar.onBlip(echo(500, 300, 400, 'wire-1'));
+      if (t === 400) radar.onBlip(echo(500, 300, 400, 'wire-1').e);
       radar.render(own, t, contacts, view(own));
     }
     return radar;
@@ -958,7 +967,7 @@ describe('an aground observer creates no paints at all', () => {
     const cam = camera(USER_ZOOM_MIN);
     radar.setHeightRaster(ISLAND);
     frame(radar, cam, { x: 0, y: 0 }, 900);
-    radar.onBlip(echo(400, 0));
+    radar.onBlip(echo(400, 0).e);
     frame(radar, cam, { x: 0, y: 0 }, 1000);
     expect(radar.livePaints).toBe(0);
   });
@@ -987,7 +996,7 @@ describe('anything the server blips paints (amendment 127), at any range', () =>
     // so every ray stopped BEFORE the stamped footprint and the slice was null.
     const far = echo(RADAR + 40, 0);
     frame(radar, cam, own, 900);
-    radar.onBlip(far);
+    radar.onBlip(far.e);
     frame(radar, cam, own, 1000);
     expect(radar.bandAt(far.x, far.y), 'the rim echo painted').toBeGreaterThanOrEqual(0);
   });
@@ -998,7 +1007,7 @@ describe('anything the server blips paints (amendment 127), at any range', () =>
     const own = { x: 0, y: 0 };
     const inside = echo(RADAR - 40, 0);
     frame(radar, cam, own, 900);
-    radar.onBlip(inside);
+    radar.onBlip(inside.e);
     frame(radar, cam, own, 1000);
     expect(radar.bandAt(inside.x, inside.y)).toBeGreaterThanOrEqual(0);
   });

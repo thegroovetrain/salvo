@@ -21,8 +21,10 @@ import { describe, it, expect } from 'vitest';
 import {
   CONFIG,
   HEAL_CHOICE,
+  coverageHas,
   wrapPositive,
   type BallisticEvent,
+  type BlipEvent,
   type FrameMsg,
   type GameEvent,
   type HitCallEvent,
@@ -136,6 +138,24 @@ function prove(g: Golden, tag: string, held: boolean): void {
 /** A ballistic reveal event (shell or torp) — the two kinds that ride the
  *  per-observer first-sight reveal. */
 const isBallistic = (e: GameEvent): boolean => e.k === 'shell' || e.k === 'torp';
+
+/** Grammar-aware blip reference test (cycle 63): a silhouette paint matches on
+ *  its exact position; a `return` coverage footprint matches when its mask
+ *  lights the cell containing the point — the wire no longer carries a
+ *  position or an id (amendment 152), so position-by-cell is the strongest
+ *  public reference that exists. */
+function blipRefs(e: BlipEvent, x: number, y: number): boolean {
+  if ('gx' in e) {
+    const cellU = CONFIG.vision.radarCellU;
+    return coverageHas(e, Math.floor(x / cellU) - e.gx, Math.floor(y / cellU) - e.gy);
+  }
+  return e.x === x && e.y === y;
+}
+
+/** Does the frame carry a blip referencing world point (x, y)? */
+function blipAt(f: FrameMsg, x: number, y: number): boolean {
+  return f.events.some((e) => e.k === 'blip' && blipRefs(e, x, y));
+}
 
 /** Build one observer's frame (wire semantics: once per observer per tick). */
 function cap(g: Golden, w: World, id: string, phase?: MatchPhase): FrameMsg {
@@ -333,11 +353,10 @@ function scnIslandLos(g: Golden): void {
   a.sweepAngle = Math.PI / 2 + 0.05;
   const f = cap(g, w, 'a');
   const contactIds = f.contacts.map((c) => c.id);
-  const blipIds = f.events.filter((e) => e.k === 'blip').map((e) => e.id);
   prove(g, 'island-blocks-sight-contact', !contactIds.includes('b'));
   prove(g, 'island-allows-sight-contact', contactIds.includes('c'));
-  prove(g, 'island-blocks-radar-blip', !blipIds.includes('r'));
-  prove(g, 'island-allows-radar-blip', blipIds.includes('p'));
+  prove(g, 'island-blocks-radar-blip', !blipAt(f, 400, 0));
+  prove(g, 'island-allows-radar-blip', blipAt(f, 0, 400));
 }
 
 /**
@@ -603,7 +622,8 @@ function scnDecoy(g: Golden): void {
   prove(
     g,
     'decoy-thirdparty-swept-blip',
-    fc.events.some((ev) => ev.k === 'blip' && ev.id === 'a' && ev.x === buoy.x && ev.y === buoy.y) &&
+    blipAt(fc, buoy.x, buoy.y) &&
+      fc.events.every((ev) => ev.k !== 'blip' || blipRefs(ev, buoy.x, buoy.y)) &&
       (fc.decoys ?? []).length === 0,
   );
   // Truesight enemy: the buoy view (the lie unmasked), no blip.
@@ -613,7 +633,7 @@ function scnDecoy(g: Golden): void {
   prove(
     g,
     'decoy-truesight-view',
-    (fe.decoys ?? []).some((d) => d.id === buoy.id) && !fe.events.some((ev) => ev.k === 'blip' && ev.id === 'a'),
+    (fe.decoys ?? []).some((d) => d.id === buoy.id) && !blipAt(fe, buoy.x, buoy.y),
   );
   // Natural expiry: run out the 30s lifetime — the owner's channel goes silent.
   const steps = Math.ceil(CONFIG.decoyBuoy.durationMs / DT) + 1;
@@ -910,7 +930,8 @@ describe('golden frames — byte-identity gate for the perception refactor', () 
 
   it('RETURN grammar (R6): the same battery under HC_RADAR_GRAMMAR=return semantics', () => {
     // Every scenario, prove(), and coverage assertion runs unchanged — only
-    // the blip wire shape branches ({k,id,x,y,t,ext}; ids stay roster). Its
+    // the blip wire shape branches ({k,t,gx,gy,w,h,bits} since cycle 63: a
+    // server-rasterized coverage footprint carrying no id at all). Its
     // own snapshot keeps the new path from rotting silently.
     WORLD_OPTS = { radarGrammar: 'return' };
     try {

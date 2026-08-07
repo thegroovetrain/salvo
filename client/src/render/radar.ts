@@ -130,6 +130,7 @@ import {
   wrapPositive,
   type BlipEvent,
   type HeightRaster,
+  type HullCoverage,
   type HullId,
   type RadarGrammar,
   type ReturnBlipEvent,
@@ -160,9 +161,9 @@ import {
 import {
   buildField,
   buildShipStamp,
-  hullSample,
+  coverageCentre,
   shipOnlyField,
-  stampEcho,
+  stampCoverage,
   type EchoHull,
   type ShipStamp,
 } from './radarField.js';
@@ -230,17 +231,16 @@ interface LiveBlip {
   pose: BlipPose;
 }
 
-/** A `return` echo whose OBSERVER-RELATIVE geometry (bearing, range) is not
- *  resolved yet: the wire payload alone, held until a frame with a real own
- *  pose can turn it into a `ShipPaint`. A paint arrives on network cadence, so
- *  it can land before the first render (join) or in any later gap where the own
- *  pose is unknown — and geometry is frozen at resolve, so a guessed observer
- *  would be wrong for the paint's whole ~12s life, not for a frame. */
+/** A `return` echo whose OBSERVER-RELATIVE geometry (the range its intensity
+ *  attenuates over) is not resolved yet: the wire coverage footprint alone,
+ *  held until a frame with a real own pose can march it. A paint arrives on
+ *  network cadence, so it can land before the first render (join) or in any
+ *  later gap where the own pose is unknown — and intensity is frozen at
+ *  resolve, so a guessed observer would be wrong for the paint's whole ~12s
+ *  life, not for a frame. (The FOOTPRINT itself is world-anchored on the wire
+ *  since cycle 63 — only the intensity model needs an observer.) */
 interface PendingEcho {
-  id: string;
-  x: number;
-  y: number;
-  ext: number;
+  cov: HullCoverage;
   t: number;
 }
 
@@ -596,8 +596,7 @@ export class Radar {
    * room and announces it in the welcome, so a per-event discriminator would be
    * dead weight on a 20Hz channel. The cast below is therefore keyed on the
    * ANNOUNCED mode and never on which fields happen to be present: field-probing
-   * would be a second source of truth for the same question, and it would
-   * mis-read a legitimate `ext: 0` echo.
+   * would be a second source of truth for the same question.
    */
   onBlip(e: BlipEvent): void {
     if (this.grammar === 'return') this.addReturnPaint(e as ReturnBlipEvent);
@@ -622,10 +621,16 @@ export class Radar {
     this.retire(capOldest(this.blips, MAX_LIVE_BLIPS));
   }
 
-  /** The `return` acquire path: park the wire payload until a real own pose can
-   *  resolve its bearing and range, then march it. */
+  /** The `return` acquire path: park the wire coverage footprint until a real
+   *  own pose can price its cells, then march it. The wire fields are
+   *  structurally validated FIRST — `w`/`h` bound two loops and `bits` sizes
+   *  an array, and while a conforming server can only send real hull masks
+   *  (≤ ~22 cells a side), a scalar off the network that bounds a loop is
+   *  finiteness-checked on this path like everywhere else (the cycle-62
+   *  `radarRange = Infinity` lesson). A malformed footprint is dropped whole. */
   private addReturnPaint(e: ReturnBlipEvent): void {
-    this.pending.push({ id: e.id, x: e.x, y: e.y, ext: e.ext, t: e.t });
+    if (!validCoverage(e)) return;
+    this.pending.push({ cov: { gx: e.gx, gy: e.gy, w: e.w, h: e.h, bits: e.bits }, t: e.t });
     this.resolvePending();
   }
 
@@ -663,7 +668,15 @@ export class Radar {
   }
 
   /**
-   * March ONE resolved wire echo through the one-hull field.
+   * March ONE resolved wire footprint through the one-hull field.
+   *
+   * THE FOOTPRINT IS THE WIRE'S, VERBATIM (cycle 63): the server rasterized
+   * the true hull polygon onto the shared radar grid and the mask's cells are
+   * absolute world cells, so `stampCoverage` lays them down exactly where the
+   * wire put them — the client adds only the intensity model (range falloff
+   * per cell, the core→edge depth term, the SNR grain), through the same
+   * stamp the sighted-contact source uses (amendment 154: two sources, one
+   * appearance).
    *
    * THE MARCH BOUND COVERS THE ECHO'S OWN RANGE, NOT MERELY THE LIVE SCOPE, and
    * that is amendment 127 holding at the rim. `marchSlice` clips every ray to the
@@ -678,9 +691,13 @@ export class Radar {
    */
   private marchEcho(own: OwnPoint, e: PendingEcho): MarchSlice | null {
     const cfg = CLIENT_CONFIG.blip.heatmap;
-    const arc = echoArc(own, e.x, e.y, e.ext);
     const stamp: ShipStamp = new Map();
-    stampEcho(stamp, e.x, e.y, arc.centre, e.ext, hullSample(e.ext, cfg.model), cfg.cellU);
+    stampCoverage(stamp, e.cov, own, cfg.model, cfg.cellU);
+    const c = coverageCentre(e.cov, cfg.cellU);
+    // The footprint's own reach: half its rect diagonal covers every covered
+    // cell at any orientation — echoArc turns it into the bearing window and
+    // the radial slab the march has to walk.
+    const arc = echoArc(own, c.x, c.y, Math.hypot(e.cov.w, e.cov.h) * cfg.cellU);
     const pad = arc.reach + 2 * cfg.cellU;
     const reach = Math.max(this.radarRange, arc.dist + pad);
     return marchSlice(
@@ -1079,6 +1096,21 @@ export class Radar {
 /** Track key for the per-track caps (contact id). */
 function keyOf(b: LiveBlip): string {
   return b.id;
+}
+
+/** The widest coverage rect a legitimate footprint can need, in cells, with
+ *  generous slack: the longest hull (124u) spans ~22 cells at the shared 6u
+ *  grid. NOT a tuning knob — a structural bound on wire input that sizes an
+ *  array and bounds two loops. */
+const MAX_COVERAGE_SPAN = 64;
+
+/** Structural gate on a wire coverage footprint (cycle 63): integer cell
+ *  indices, a sane rect, and a bits array sized exactly to it. Anything else
+ *  is dropped whole — never clamped into something half-drawable. */
+function validCoverage(e: ReturnBlipEvent): boolean {
+  if (![e.gx, e.gy, e.w, e.h].every(Number.isInteger)) return false;
+  if (e.w < 1 || e.h < 1 || e.w > MAX_COVERAGE_SPAN || e.h > MAX_COVERAGE_SPAN) return false;
+  return Array.isArray(e.bits) && e.bits.length === Math.ceil((e.w * e.h) / 32);
 }
 
 /** Trace a closed world-frame polygon (offsets from the blip position). */

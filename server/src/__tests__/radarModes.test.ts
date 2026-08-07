@@ -14,14 +14,13 @@ import { ClientState } from 'colyseus';
 import {
   CONFIG,
   MSG,
-  bearing,
-  hullSilhouette,
+  coverageCellCount,
+  coverageHas,
   mulberry32,
-  perpendicularExtent,
-  transformPolygon,
+  rasterizeHullCoverage,
   wrapPositive,
-  type BlipEvent,
   type FrameMsg,
+  type HullCoverage,
   type ReturnBlipEvent,
   type SilhouetteBlipEvent,
   type WelcomeMsg,
@@ -62,7 +61,12 @@ function windowAround(me: ShipRecord, brg: number, halfWidth = 0.02): void {
   me.sweepAngle = wrapPositive(brg + halfWidth);
 }
 
-const blipsOf = (f: FrameMsg): BlipEvent[] => f.events.filter((e): e is BlipEvent => e.k === 'blip');
+/** Silhouette-grammar frames — narrow straight to the 4.2 shape. */
+const blipsOf = (f: FrameMsg): SilhouetteBlipEvent[] => f.events.filter((e): e is SilhouetteBlipEvent => e.k === 'blip');
+/** `return`-grammar frames — the cycle-63 coverage footprint. */
+const returnBlipsOf = (f: FrameMsg): ReturnBlipEvent[] => f.events.filter((e): e is ReturnBlipEvent => e.k === 'blip');
+/** The footprint half of a wire blip, as a comparable record. */
+const maskOf = (e: ReturnBlipEvent): HullCoverage => ({ gx: e.gx, gy: e.gy, w: e.w, h: e.h, bits: e.bits });
 
 // ---------- the pure resolvers (fail-safe, never fail-open) -------------------
 
@@ -105,10 +109,14 @@ describe('default modes — production behavior is byte-identical until a flag f
   });
 });
 
-// ---------- the return grammar (AC5, R2, amendment 66) -------------------------
+// ---------- the return grammar (cycle 63, amendments 151-155) -------------------
 
-describe('return grammar — the pose deletion and the aspect-only ext scalar', () => {
-  it('a return-mode frame contains NO cls, heading, or speed on ANY blip — and ext matches the shared aspect primitive', () => {
+describe('return grammar — THE SERVER RASTERIZES THE HULL: a coverage footprint and nothing else', () => {
+  const CELL = CONFIG.vision.radarCellU;
+  const RETURN_KEYS = ['k', 't', 'gx', 'gy', 'w', 'h', 'bits'] as const satisfies readonly (keyof ReturnBlipEvent)[];
+  const FORBIDDEN = ['id', 'x', 'y', 'ext', 'cls', 'heading', 'speed'];
+
+  it('a return-mode frame carries EXACTLY {k,t,gx,gy,w,h,bits} on every blip — no id, no position, no ext, no pose (amendment 152)', () => {
     const w = bareWorld(52, { radarGrammar: 'return' });
     const a = place(w, 'a', 0, 0);
     place(w, 'bb', 400, 0, 0.9, 'battleship');
@@ -116,92 +124,111 @@ describe('return grammar — the pose deletion and the aspect-only ext scalar', 
     place(w, 'ml', -450, 0, -0.4, 'mineLayer');
     a.prevSweepAngle = 0; // one window sweeping the full circle minus ε
     a.sweepAngle = wrapPositive(-1e-9);
-    const blips = blipsOf(buildFrame(w, 'a'));
+    const blips = returnBlipsOf(buildFrame(w, 'a'));
     expect(blips).toHaveLength(3);
+    // Each footprint must be the TRUE hull polygon rasterized at its TRUE pose
+    // — matched exactly once each, since the wire no longer says which is which.
+    const expected = [
+      rasterizeHullCoverage('battleship', 400, 0, 0.9, CELL),
+      rasterizeHullCoverage('torpedoBoat', 0, 420, 2.1, CELL),
+      rasterizeHullCoverage('mineLayer', -450, 0, -0.4, CELL),
+    ];
     for (const ev of blips) {
-      // The actual deletion, pinned (AC5): the 4.2 pose channels are GONE.
-      expect(Object.keys(ev)).toEqual(['k', 'id', 'x', 'y', 't', 'ext']);
-      for (const forbidden of ['cls', 'heading', 'speed']) {
-        expect(forbidden in (ev as object)).toBe(false);
-      }
-      // ext = perpendicularExtent(transformPolygon(hull, 0, 0, heading), bearing)
-      // — pure aspect geometry in world units, per the spec's formula verbatim.
-      const target = w.ships.get(ev.id)!;
-      const expected = perpendicularExtent(
-        transformPolygon(hullSilhouette(target.hullId), 0, 0, target.state.heading),
-        bearing(a.state, target.state),
-      );
-      expect((ev as ReturnBlipEvent).ext).toBe(expected);
-      expect((ev as ReturnBlipEvent).ext).toBeGreaterThan(0);
+      // Assert on the object's KEYS, order included (msgpack wire shape) — and
+      // the retired channels are gone by NAME, not merely by count.
+      expect(Object.keys(ev)).toEqual([...RETURN_KEYS]);
+      for (const forbidden of FORBIDDEN) expect(forbidden in (ev as object)).toBe(false);
+      expect(ev.t).toBe(w.now);
+      expect(coverageCellCount(maskOf(ev))).toBeGreaterThan(0); // never an empty mask
+      const hit = expected.findIndex((m) => JSON.stringify(m) === JSON.stringify(maskOf(ev)));
+      expect(hit).toBeGreaterThanOrEqual(0);
+      expected.splice(hit, 1);
     }
+    expect(expected).toHaveLength(0); // all three hulls accounted for, once each
   });
 
-  it('R2: ext carries NO range term — the same hull at the same aspect paints the identical ext near and far', () => {
+  it('the mask is WORLD-ANCHORED and observer-INDEPENDENT: two observers at different positions receive byte-identical footprints', () => {
     const w = bareWorld(53, { radarGrammar: 'return' });
-    const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 360, 0, 1.1, 'battleship'); // just past sight, bearing 0
-    windowAround(a, 0);
-    const near = blipsOf(buildFrame(w, 'a'))[0] as ReturnBlipEvent;
-    b.state.x = RADAR; // same bearing (0), same heading — much farther
-    windowAround(a, 0);
-    const far = blipsOf(buildFrame(w, 'a'))[0] as ReturnBlipEvent;
-    expect(near.ext).toBe(far.ext); // attenuation is CLIENT render math, never the wire
+    const a1 = place(w, 'a1', 0, 0);
+    const a2 = place(w, 'a2', 120, -260);
+    const b = place(w, 'b', 400, 0, 1.1, 'battleship');
+    windowAround(a1, Math.atan2(b.state.y - a1.state.y, b.state.x - a1.state.x));
+    windowAround(a2, Math.atan2(b.state.y - a2.state.y, b.state.x - a2.state.x));
+    const seen1 = returnBlipsOf(buildFrame(w, 'a1'));
+    const seen2 = returnBlipsOf(buildFrame(w, 'a2'));
+    // Compare the footprint that matches b's true raster, which must appear
+    // for BOTH observers, byte-identical — moving the observer moves nothing.
+    const truth = JSON.stringify(rasterizeHullCoverage('battleship', 400, 0, 1.1, CELL));
+    const of1 = seen1.filter((e) => JSON.stringify(maskOf(e)) === truth);
+    const of2 = seen2.filter((e) => JSON.stringify(maskOf(e)) === truth);
+    expect(of1).toHaveLength(1);
+    expect(of2).toHaveLength(1);
   });
 
-  it('ext is aspect-DEPENDENT: the same hull painted bow-on reads smaller than abeam (the design thesis, on the wire)', () => {
+  it('a bow-on hull and a broadside hull of the same class produce DIFFERENT rects — the footprint finally points the way the hull does', () => {
     const w = bareWorld(54, { radarGrammar: 'return' });
     const a = place(w, 'a', 0, 0);
-    const b = place(w, 'b', 400, 0, 0, 'battleship'); // bow-on to the observer (bearing 0, heading 0)
+    const b = place(w, 'b', 400, 0, 0, 'battleship'); // heading +x: long axis in x
     windowAround(a, 0);
-    const bowOn = blipsOf(buildFrame(w, 'a'))[0] as ReturnBlipEvent;
-    b.state.heading = Math.PI / 2; // abeam
+    const bowOn = returnBlipsOf(buildFrame(w, 'a'))[0];
+    b.state.heading = Math.PI / 2; // long axis in y
     windowAround(a, 0);
-    const abeam = blipsOf(buildFrame(w, 'a'))[0] as ReturnBlipEvent;
-    expect(abeam.ext).toBeGreaterThan(bowOn.ext);
+    const abeam = returnBlipsOf(buildFrame(w, 'a'))[0];
+    // Heading +x: the rect is much wider than tall; heading +y: the reverse.
+    expect(bowOn.w).toBeGreaterThan(bowOn.h * 2);
+    expect(abeam.h).toBeGreaterThan(abeam.w * 2);
+    // ...and the covered cells trace the hull, not a line across the bearing:
+    // the mask is deeper than one cell on BOTH axes for a battleship.
+    expect(bowOn.h).toBeGreaterThan(1);
+    expect(abeam.w).toBeGreaterThan(1);
   });
 
-  it("AMENDMENT 66's ANTI-CHEAT BOUND (fail-proven): ext is UNCHANGED by granting boons or changing hp/damage state", () => {
+  it('ANTI-CHEAT (fail-proven): the footprint is UNCHANGED by granting boons or changing hp/damage state', () => {
     const w = bareWorld(55, { radarGrammar: 'return' });
     const a = place(w, 'a', 0, 0);
     const b = place(w, 'b', 400, 0, 0.9, 'battleship');
     windowAround(a, 0);
-    const before = blipsOf(buildFrame(w, 'a'))[0] as ReturnBlipEvent;
+    const before = returnBlipsOf(buildFrame(w, 'a'))[0];
     // Wound the target deep into the tier-2 smoke band AND grant it boons —
     // including shipHull, which moves maxHp and heals — none of which is hull
-    // geometry or relative bearing, so NONE of it may reach the echo.
+    // geometry or pose, so NONE of it may reach the footprint.
     b.hp = b.stats.maxHp * 0.1;
     w.applyBoon(b, 'shipHull');
     w.applyBoon(b, 'gunDamage');
     w.applyBoon(b, 'intelRadar');
     windowAround(a, 0);
-    const after = blipsOf(buildFrame(w, 'a'))[0] as ReturnBlipEvent;
-    expect(after.ext).toBe(before.ext);
+    const after = returnBlipsOf(buildFrame(w, 'a'))[0];
+    expect(maskOf(after)).toEqual(maskOf(before));
     // The OBSERVER's own non-vision boons change nothing either.
     w.applyBoon(a, 'gunDamage');
     windowAround(a, 0);
-    const observed = blipsOf(buildFrame(w, 'a'))[0] as ReturnBlipEvent;
-    expect(observed.ext).toBe(before.ext);
+    const observed = returnBlipsOf(buildFrame(w, 'a'))[0];
+    expect(maskOf(observed)).toEqual(maskOf(before));
   });
 
   it('the gate did NOT move: silhouette and return worlds paint the same ships on the same tick (only the shape branches)', () => {
-    // Two worlds, identical seed and scene, different grammar: who paints is
-    // byte-identical — blipGate is untouched by this cycle (the spec's rule).
-    const scene = (opts: WorldOptions): { ids: string[]; keys: string[][] } => {
+    // Two worlds, identical seed and scene, different grammar: WHO paints is
+    // byte-identical — blipGate is untouched by this cycle (amendment 154).
+    const scene = (opts: WorldOptions): FrameMsg => {
       const w = bareWorld(56, opts);
       const a = place(w, 'a', 0, 0);
       place(w, 'in', 400, 0, 0.3); // annulus, swept — paints
       place(w, 'out', 0, -400, 0.3); // annulus, unswept — silent
       place(w, 'near', 100, 0, 0.3); // inside sight — contact, never a blip
       windowAround(a, 0);
-      const blips = blipsOf(buildFrame(w, 'a'));
-      return { ids: blips.map((e) => e.id), keys: blips.map((e) => Object.keys(e)) };
+      return buildFrame(w, 'a');
     };
-    const sil = scene({});
-    const ret = scene({ radarGrammar: 'return' });
-    expect(sil.ids).toEqual(['in']);
-    expect(ret.ids).toEqual(['in']); // identical visibility…
-    expect(sil.keys).toEqual([['k', 'id', 'x', 'y', 't', 'cls', 'heading', 'speed']]);
-    expect(ret.keys).toEqual([['k', 'id', 'x', 'y', 't', 'ext']]); // …different wire shape
+    const sil = blipsOf(scene({}));
+    expect(sil.map((e) => e.id)).toEqual(['in']);
+    expect(sil.map((e) => Object.keys(e))).toEqual([['k', 'id', 'x', 'y', 't', 'cls', 'heading', 'speed']]);
+    const ret = returnBlipsOf(scene({ radarGrammar: 'return' }));
+    expect(ret).toHaveLength(1); // identical visibility…
+    expect(Object.keys(ret[0])).toEqual([...RETURN_KEYS]); // …different wire shape
+    // The one footprint is the swept ship's, and neither hidden ship leaks:
+    // the mask lights the cell containing (400, 0) and equals that hull's raster.
+    const cellOfU = (v: number): number => Math.floor(v / CELL);
+    expect(coverageHas(maskOf(ret[0]), cellOfU(400) - ret[0].gx, cellOfU(0) - ret[0].gy)).toBe(true);
+    expect(maskOf(ret[0])).toEqual(rasterizeHullCoverage('torpedoBoat', 400, 0, 0.3, CELL));
   });
 });
 

@@ -246,6 +246,16 @@ export const CONFIG = {
     // strip; formerly CONFIG.upgrades.sweepSpeed.maxRpm). Clamped inside the
     // effectiveStats firewall (base + boon fold) — nothing else may re-clamp it.
     sweepRpmMax: 30,
+    // u — THE RADAR GRID RESOLUTION (cycle 63, amendment 152). World units per
+    // radar cell, shared because it is now gameplay-authoritative: the server
+    // rasterizes a fogged hull's true silhouette onto THIS lattice and sends
+    // the coverage cells (`ReturnBlipEvent` — sim/radarRaster.ts), so the cell
+    // size decides what the wire says. Promoted from the client-only
+    // `CLIENT_CONFIG.blip.heatmap.cellU`, which now REFERENCES this value —
+    // never a second constant (the one-ruler rule). Cell indices on the wire
+    // are absolute (`Math.floor(worldU / radarCellU)`), the same lattice the
+    // client heatmap anchors to, so a footprint survives every grid re-anchor.
+    radarCellU: 6,
   },
 
   /**

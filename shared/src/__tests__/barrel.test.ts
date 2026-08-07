@@ -103,7 +103,15 @@ describe('shared barrel', () => {
     // bump is required on two independent grounds: FoghornEvent.v widens from a
     // 3-value tier to an 8-value band, and the client's torpedo dead-reckoning
     // cull becomes detect-derived — a stale client would MISRENDER either way.
-    expect(PROTOCOL_VERSION).toBe(30);
+    // THE SERVER RASTERIZES THE HULL (PV 31, cycle 63, Eric ruling
+    // 2026-08-07, amendments 151-155): the `return`-grammar blip payload is
+    // REPLACED — {k,id,x,y,t,ext} becomes {k,t,gx,gy,w,h,bits}, a
+    // world-anchored coverage footprint rasterized server-side from the true
+    // hull polygon on the shared radar grid (new CONFIG.vision.radarCellU +
+    // sim/radarRaster.ts). Disclosure REDUCES: no id, no ext, no exact
+    // position — a stale client would read the old fields as undefined and
+    // paint nothing, so the bump is a hard gate.
+    expect(PROTOCOL_VERSION).toBe(31);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no
