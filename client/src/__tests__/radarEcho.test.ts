@@ -1,50 +1,47 @@
-// The `return`-grammar acquire path of render/radar.ts (cycle 52, amendments
-// 76-79) — the Pixi adapter around radarHeatmap.ts, exercised through the real
-// scene graph. The band/quantization math itself is pinned in
-// radarHeatmap.test.ts; this file is about the ADAPTER's contracts.
+// The `return`-grammar acquire path of render/radar.ts — the Pixi adapter around
+// the beam march (cycle 62, amendments 138-144), exercised through the real scene
+// graph. The march's own math is pinned in radarMarch.test.ts and the band
+// contract in radarHeatmap.test.ts; PLACEMENT is pinned in radarViewport.test.ts
+// (amendment 98). This file is about the ADAPTER's contracts.
 //
 // WHAT IS CONTRACT HERE, not coverage:
-//   • A PAINT IS POSED FROM A REAL OBSERVER OR NOT AT ALL. Radar paints arrive
-//     on network cadence, not render cadence, so one can land before the first
-//     render (join) or in any later gap where the own pose is unknown. Geometry
-//     is frozen at resolve and the paint then decays for ~12s, so a guessed
-//     observer is not a one-frame cosmetic — it is twelve seconds of a mark
-//     attenuated for the wrong range on a bearing the contact does not hold.
-//   • ONCE RESOLVED IT STAYS FROZEN. The deferral exists to stop a paint being
-//     born wrong, not to make it track the observer: a phosphor paint is a
-//     historical snapshot and must not re-pose as the ship moves.
-//   • THE SCOPE PAINTS EVERYTHING IN RADAR RANGE (cycle 56, amendments 88-90).
-//     The sight exclusion is retired: a coastline or a hull inside truesight
-//     paints exactly like one outside it, and `sightHoleU` survives with a new
-//     job — it is the SOURCE SEAM, not a suppression boundary.
-//   • AND A SIGHTED SHIP'S ECHO IS SYNTHESIZED FROM ITS `Contact` (amendment
-//     89), because the server has never sent a blip for a hull it is already
-//     sending as a contact. The last three blocks pin that second source: the
-//     sweep gates it, the range term is the exact complement of the server's,
-//     both sources share ONE per-track cap, and a dazzle moves the seam for both
-//     sides at once.
-//   • THE PAINT LIST IS THE HISTORY, THE BUFFER IS DERIVED (ruling R1). Nothing
+//   • A PAINT IS POSED FROM A REAL OBSERVER OR NOT AT ALL. Radar paints arrive on
+//     network cadence, not render cadence, so one can land before the first render
+//     (join) or in any later gap where the own pose is unknown. Geometry is frozen
+//     at resolve and the paint then decays for ~12s, so a guessed observer is not
+//     a one-frame cosmetic — it is twelve seconds of a mark attenuated for the
+//     wrong range on a bearing the contact does not hold.
+//   • ONCE MARCHED IT STAYS FROZEN. The deferral exists to stop a paint being born
+//     wrong, not to make it track the observer: a phosphor paint is a historical
+//     snapshot and must not re-pose as the ship moves.
+//   • TWO ARRIVAL PATHS, ONE MODEL AND ONE LIST (amendments 89 + 141). Inside
+//     truesight the client stamps a hull into the field from its `Contact` and the
+//     beam paints it on the crossing; beyond truesight the echo arrives on the
+//     wire ALREADY sweep-gated by the server's own beam, and is marched at once.
+//     `sightHoleU` is the SOURCE SEAM that keeps them from overlapping — never a
+//     suppression boundary.
+//   • THE SLICE LIST IS THE HISTORY, THE BUFFER IS DERIVED (ruling R1). Nothing
 //     decays in place; the buffer is re-rasterized in full every frame from the
-//     surviving paints, which is what stops old paints smearing or dragging with
-//     the camera.
-//   • ISLANDS PAINT AS THE BEAM REACHES THEM (amendments 69 + 78) — one paint
-//     per island per revolution, filling in behind the beam.
+//     surviving slices. Retirement is by TIME and nothing else — there is no
+//     per-track cap left to key on, because a slice is a wedge of the world rather
+//     than a mark on one object.
+//   • TERRAIN COMES FROM THE HEIGHT RASTER, and the beam paints all of it — near
+//     face, far face, and whatever stands behind it (amendment 140).
 //   • `silhouette` MODE IS UNTOUCHED (amendment 79). It keeps hull outlines,
-//     personal hues, ARPA vectors and the hue-preserving `blipCool` decay, and
-//     it allocates no heatmap at all. The last describe block is that guard.
+//     personal hues, ARPA vectors and the hue-preserving `blipCool` decay, and it
+//     allocates no heatmap at all.
 
 import { describe, it, expect, vi } from 'vitest';
 import { Container, Texture, type Graphics } from 'pixi.js';
 import {
   CONFIG,
-  islandFromPolygon,
+  type HeightRaster,
   type ReturnBlipEvent,
   type SilhouetteBlipEvent,
 } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { ContactStore } from '../net/snapshots.js';
 import { Radar } from '../render/radar.js';
-import { POINT, attenuation } from '../render/radarFalloff.js';
 import { fogHoleRadiusU } from '../render/fog.js';
 import { blipCool, blipLifeMs } from '../render/phosphor.js';
 
@@ -58,6 +55,8 @@ vi.mock('../render/textures.js', async (importOriginal) => {
 const EXT = 100; // aspect-projected extent on the wire (u)
 const OWN = { x: 0, y: 0 };
 const LIFE = blipLifeMs(60_000 / CONFIG.vision.sweepRpm);
+const CELL = CLIENT_CONFIG.blip.heatmap.cellU;
+const RCELL = 14; // the shipped generator's height-field sample spacing
 
 function makeRadar(): { radar: Radar; layer: Container } {
   const layer = new Container();
@@ -66,30 +65,43 @@ function makeRadar(): { radar: Radar; layer: Container } {
   return { radar, layer };
 }
 
-/** A rectangular ridge island — its bounding circle holds a lot of open water,
- *  which is the whole reason the polygon has to be the authority. */
-function ridge(cx: number, cy: number, hw: number, hh: number) {
-  return islandFromPolygon([
-    { x: cx - hw, y: cy - hh },
-    { x: cx + hw, y: cy - hh },
-    { x: cx + hw, y: cy + hh },
-    { x: cx - hw, y: cy + hh },
-  ]);
+/** A HeightRaster over a square about the origin — the march's only terrain
+ *  input, and what replaced the retired island field. */
+function rasterFrom(reachU: number, h: (x: number, y: number) => number): HeightRaster {
+  const k = Math.ceil(reachU / RCELL);
+  const n = 2 * k + 1;
+  const x0 = -k * RCELL;
+  const height = new Uint8Array(n * n);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) height[j * n + i] = h(x0 + i * RCELL, x0 + j * RCELL);
+  }
+  return { n, cell: RCELL, x0, y0: x0, seaLevel: 0, peak: 255, height, pyramid: [] };
 }
 
-/** A paint 500u due +y of the origin: bearing π/2, so a correctly posed kernel
+/** A rectangular ridge of land at a uniform height. */
+function ridge(cx: number, cy: number, hw: number, hh: number, h = 255) {
+  return (x: number, y: number): number =>
+    Math.abs(x - cx) <= hw && Math.abs(y - cy) <= hh ? h : 0;
+}
+
+/** Run a whole beam revolution, so the march has walked every bearing. */
+function revolution(radar: Radar, own = OWN, contacts: ContactStore | null = null): void {
+  radar.onSweepSample(-0.6, 0);
+  for (let t = 0; t <= 4200; t += 100) radar.render(own, t, contacts);
+}
+
+/** A paint 500u due +y of the origin: bearing π/2, so a correctly posed footprint
  *  is WIDER than it is tall (`ext` is measured across the bearing) — and one
  *  posed from a null observer, at bearing 0, is exactly the reverse. */
 const PAINT: ReturnBlipEvent = { k: 'blip', id: 'trk-1', x: 0, y: 500, ext: EXT, t: 1000 };
 
 /** Extent of the lit region along one world axis through the paint centre. */
 function litSpan(radar: Radar, axis: 'x' | 'y', cross: number, at: number): number {
-  const step = CLIENT_CONFIG.blip.heatmap.cellU;
   let span = 0;
-  for (let d = -400; d <= 400; d += step) {
+  for (let d = -400; d <= 400; d += CELL) {
     const x = axis === 'x' ? cross + d : at;
     const y = axis === 'x' ? at : cross + d;
-    if (radar.bandAt(x, y) >= 0) span += step;
+    if (radar.bandAt(x, y) >= 0) span += CELL;
   }
   return span;
 }
@@ -98,33 +110,32 @@ describe('`return` paints are posed from a real observer or not at all', () => {
   it('holds a paint that arrives before the first render, painting nothing', () => {
     const { radar } = makeRadar();
     radar.onBlip(PAINT);
-    expect(radar.livePaints).toBe(0); // parked, not posed
+    expect(radar.livePaints).toBe(0); // parked, not marched
     expect(radar.bandAt(PAINT.x, PAINT.y)).toBe(-1);
   });
 
-  it('poses it on the FIRST frame with an own pose — bearing and attenuation '
-    + 'both from the real observer', () => {
+  it('marches it on the FIRST frame with an own pose — the footprint is laid '
+    + 'ACROSS the real bearing', () => {
     const { radar } = makeRadar();
     radar.onBlip(PAINT); // arrives with no pose available
     radar.render(OWN, 1000);
     expect(radar.livePaints).toBe(1);
     expect(radar.bandAt(PAINT.x, PAINT.y)).toBeGreaterThanOrEqual(0);
-    // Posed at bearing π/2: the extent axis runs across the observer's line of
-    // sight, the range smear along it. A bearing-0 fallback is this transposed.
+    // Posed at bearing π/2: the extent axis runs ACROSS the observer's line of
+    // sight and the mark is one range cell deep. A bearing-0 fallback is this
+    // transposed, so the comparison is what catches a guessed observer.
     const across = litSpan(radar, 'x', 0, 500);
     const along = litSpan(radar, 'y', 500, 0);
-    expect(across).toBeGreaterThan(along);
-    // And attenuated for a 500u range rather than drawn at point-blank size —
-    // now on the model's POINT curve (Story 4.10), which is a far steeper fall
-    // than cycle 52's hyperbola, so the bound tracks the model rather than a
-    // number typed in here.
-    const cfg = CLIENT_CONFIG.blip.heatmap;
-    const atten = attenuation(500, cfg.model.pointRef, POINT, cfg.ship.attenFloor);
-    expect(across).toBeLessThan(EXT);
-    expect(across).toBeGreaterThan(EXT * atten * 0.6);
+    expect(across).toBeGreaterThan(along * 3);
+    // The footprint is the hull's REAL aspect extent (amendment 141: a hull's
+    // return falls out of its footprint, like terrain's). The retired kernel
+    // SHRANK the mark with range on top of dimming it; under the march the size
+    // channel is the object and the strength channel is the range.
+    expect(Math.abs(across - EXT), 'the mark is the extent the wire reported')
+      .toBeLessThanOrEqual(2 * CELL);
   });
 
-  it('poses immediately when a pose is already known — deferral is the '
+  it('marches immediately when a pose is already known — deferral is the '
     + 'exception, not the cadence', () => {
     const { radar } = makeRadar();
     radar.render(OWN, 900); // pose established first
@@ -132,7 +143,7 @@ describe('`return` paints are posed from a real observer or not at all', () => {
     expect(radar.livePaints).toBe(1);
   });
 
-  it('freezes the geometry once resolved — a paint is a historical snapshot', () => {
+  it('freezes the geometry once marched — a paint is a historical snapshot', () => {
     const { radar } = makeRadar();
     radar.render(OWN, 900);
     radar.onBlip(PAINT);
@@ -141,16 +152,24 @@ describe('`return` paints are posed from a real observer or not at all', () => {
     radar.render({ x: 400, y: 400 }, 1100); // observer moves; the paint must not
     expect(litSpan(radar, 'x', 0, 500)).toBe(before);
   });
+
+  it('a wire echo is NOT held for the local beam — the server already swept it', () => {
+    // `blipGate` fires on the tick the SERVER's beam crosses the hull, so the
+    // client cannot wait for its own beam to come round: at 15rpm that is up to
+    // four seconds, and a 45 u/s hull is 180u away by then.
+    const { radar } = makeRadar();
+    radar.onSweepSample(-0.6, 0);
+    radar.render(OWN, 0);
+    // A bearing the beam is nowhere near (it sits at −0.6 rad and advances).
+    const behind: ReturnBlipEvent = { k: 'blip', id: 'w', x: 0, y: -500, ext: EXT, t: 10 };
+    radar.onBlip(behind);
+    radar.render(OWN, 20); // the very next frame — the beam has moved 0.03 rad
+    expect(radar.bandAt(behind.x, behind.y), 'painted on arrival')
+      .toBeGreaterThanOrEqual(0);
+  });
 });
 
-describe('the paint list is the history and the buffer is derived (ruling R1)', () => {
-  it('keeps at most `paintsPerContact` live paints of one track', () => {
-    const { radar } = makeRadar();
-    radar.render(OWN, 0);
-    for (let i = 0; i < 8; i++) radar.onBlip({ ...PAINT, t: i * 100, y: 300 + i * 10 });
-    expect(radar.livePaints).toBe(CLIENT_CONFIG.blip.paintsPerContact);
-  });
-
+describe('the slice list is the history and the buffer is derived (ruling R1)', () => {
   it('re-rasterizes from scratch: a paint that ages out leaves NOTHING behind', () => {
     const { radar } = makeRadar();
     radar.render(OWN, 900);
@@ -160,6 +179,22 @@ describe('the paint list is the history and the buffer is derived (ruling R1)', 
     radar.render(OWN, PAINT.t + LIFE + 1);
     expect(radar.livePaints).toBe(0);
     expect(radar.bandAt(PAINT.x, PAINT.y)).toBe(-1);
+  });
+
+  it('holds the last `persistSweeps` revolutions of beam and no more — the depth '
+    + 'is TIME, not a per-track count', () => {
+    const { radar } = makeRadar();
+    radar.onSweepSample(-0.6, 0);
+    // Four whole revolutions at 15rpm. The list should settle at the three the
+    // phosphor keeps, and must not grow without bound.
+    let peak = 0;
+    for (let t = 0; t <= 16_000; t += 50) {
+      radar.render(OWN, t);
+      peak = Math.max(peak, radar.livePaints);
+    }
+    const perRev = Math.ceil((Math.PI * 2) / CLIENT_CONFIG.blip.heatmap.march.sliceRad);
+    expect(peak, 'about three revolutions of slices').toBeLessThan(perRev * 4);
+    expect(peak, 'and genuinely more than one').toBeGreaterThan(perRev);
   });
 
   it('clearBlips drops every paint (entering spectate)', () => {
@@ -173,61 +208,230 @@ describe('the paint list is the history and the buffer is derived (ruling R1)', 
   });
 });
 
-describe('island landmasses (amendments 69 + 78)', () => {
-  // BEYOND TRUESIGHT, BUT NO LONGER FOR POLICY REASONS. This fixture sat at
-  // x = 300 until cycle 54 gated the bubble, moved out to 600 to keep these
-  // landmass-grammar tests clear of that gate, and stays there now that cycle 56
-  // has retired it — a landmass 600u off is simply the plainest case for the
-  // FILL grammar these tests are about. The inside-truesight case is a first-
-  // class citizen again and is pinned by the reversal block near the end of this
-  // file (and in radarHeatmap.test.ts section 6).
-  const ISLE = ridge(600, 0, 120, 90);
+describe('terrain paints from the height raster (amendments 129 + 140 + 142)', () => {
+  const ISLE = rasterFrom(900, ridge(500, 0, 100, 90));
 
   it('paints the landmass the beam swept, and paints it SOLID', () => {
     const { radar } = makeRadar();
-    radar.setIslands([ISLE]);
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0); // arms lastRotation
-    radar.render(OWN, 900); // beam advances ~1.4 rad across bearing 0
-    expect(radar.liveIslandPaints).toBe(1);
-    // A point deep inside the near face reads as land, not as a rim sample.
-    expect(radar.bandAt(520, 0)).toBeGreaterThanOrEqual(0);
-    expect(radar.bandAt(540, 0)).toBeGreaterThanOrEqual(0);
+    radar.setHeightRaster(ISLE);
+    revolution(radar);
+    for (const x of [410, 450, 500, 550, 590]) {
+      expect(radar.bandAt(x, 0), `land at x=${x}`).toBeGreaterThanOrEqual(0);
+    }
   });
 
-  it('opens ONE paint per island per revolution, not one per frame', () => {
+  it('THE WHOLE EXTENT, near face AND far face — nothing occludes anything this '
+    + 'cycle (amendment 140)', () => {
     const { radar } = makeRadar();
-    radar.setIslands([ISLE]);
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0);
-    for (let t = 100; t <= 900; t += 100) radar.render(OWN, t);
-    expect(radar.liveIslandPaints).toBe(1);
+    radar.setHeightRaster(ISLE);
+    revolution(radar);
+    expect(radar.bandAt(405, 0), 'the near shore').toBeGreaterThanOrEqual(0);
+    expect(radar.bandAt(585, 0), 'and the FAR shore, which used to be shadow')
+      .toBeGreaterThanOrEqual(0);
   });
 
-  it('paints nothing inside the bounding circle that is not inside the POLYGON', () => {
+  it('and paints NOTHING on open water beside it — the raster is the authority', () => {
     const { radar } = makeRadar();
-    radar.setIslands([ISLE]);
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0);
-    radar.render(OWN, 900);
-    // 600 ± 140 in y is inside the bounding circle (r = 150) and outside the
-    // 120 × 90 rectangle — and comfortably beyond the sight bubble, so the
-    // sight gate is not what is answering here. The retired code painted coast
-    // samples exactly there.
-    expect(Math.hypot(600, 140)).toBeGreaterThan(CONFIG.vision.sight);
-    expect(radar.bandAt(600, 140)).toBe(-1);
-    expect(radar.bandAt(600, -140)).toBe(-1);
+    radar.setHeightRaster(ISLE);
+    revolution(radar);
+    // 500 ± 140 in y is well clear of the 100 × 90 slab, inside radar range, and
+    // comfortably beyond the sight bubble — so nothing but the raster answers.
+    expect(Math.hypot(500, 140)).toBeGreaterThan(CONFIG.vision.sight);
+    expect(radar.bandAt(500, 140)).toBe(-1);
+    expect(radar.bandAt(500, -140)).toBe(-1);
   });
 
-  it('a landmass never evicts a contact paint from the scope', () => {
+  it('a landmass never evicts a contact echo from the scope', () => {
     const { radar } = makeRadar();
-    radar.setIslands([ISLE]);
+    radar.setHeightRaster(ISLE);
     radar.onSweepSample(-0.6, 0);
     radar.render(OWN, 0);
     radar.onBlip({ ...PAINT, t: 0 });
-    radar.render(OWN, 900);
-    expect(radar.liveIslandPaints).toBe(1);
-    expect(radar.liveShipPaints).toBe(1);
+    for (let t = 100; t <= 4200; t += 100) radar.render(OWN, t);
+    expect(radar.bandAt(500, 0), 'the landmass').toBeGreaterThanOrEqual(0);
+    expect(radar.bandAt(PAINT.x, PAINT.y), 'and the echo').toBeGreaterThanOrEqual(0);
+  });
+
+  it('with NO raster at all the scope still runs — it simply carries no terrain', () => {
+    const { radar } = makeRadar();
+    revolution(radar);
+    expect(radar.bandAt(500, 0)).toBe(-1);
+    expect(radar.livePaints, 'the sea state still paints').toBeGreaterThan(0);
+  });
+});
+
+// --- THE SCOPE PAINTS EVERYTHING IN RANGE, through the adapter (cycle 56) -------
+
+describe('the scope paints INSIDE truesight (amendment 88)', () => {
+  /** A coastline 300u off, all of it under the 330u bubble. Under cycles 54-55
+   *  this island painted NOTHING; it is the fixture the reversal is measured on. */
+  const CLOSE = rasterFrom(600, ridge(300, 0, 120, 90));
+  const PROBE = { x: 220, y: 0 };
+
+  it('an island swept from INSIDE truesight paints', () => {
+    const { radar } = makeRadar();
+    radar.setHeightRaster(CLOSE);
+    revolution(radar);
+    expect(Math.hypot(PROBE.x, PROBE.y), 'the probe is inside truesight')
+      .toBeLessThan(CONFIG.vision.sight);
+    expect(radar.bandAt(PROBE.x, PROBE.y), 'swept inside truesight: PAINTED')
+      .toBeGreaterThanOrEqual(0);
+  });
+
+  it('and the SWEEP is still the only thing that paints it — nothing appears '
+    + 'before the beam arrives (amendment 83)', () => {
+    const { radar } = makeRadar();
+    radar.setHeightRaster(CLOSE);
+    radar.onSweepSample(-0.6, 0);
+    radar.render(OWN, 0);
+    // The beam is short of bearing 0, so the probe's own bearing is unswept.
+    radar.render(OWN, 200);
+    expect(radar.bandAt(PROBE.x, PROBE.y), 'the beam has not reached it').toBe(-1);
+    for (let t = 300; t <= 1200; t += 100) radar.render(OWN, t);
+    expect(radar.bandAt(PROBE.x, PROBE.y)).toBeGreaterThanOrEqual(0);
+  });
+
+  it('and the paint is a record: withdrawing does not change one cell of it '
+    + '(amendment 83)', () => {
+    const { radar } = makeRadar();
+    radar.setHeightRaster(CLOSE);
+    revolution(radar);
+    const band = radar.bandAt(PROBE.x, PROBE.y);
+    expect(band).toBeGreaterThanOrEqual(0);
+    for (const x of [-100, -200, -300]) {
+      radar.render({ x, y: 0 }, 4250);
+      expect(radar.bandAt(PROBE.x, PROBE.y), `withdrawn to x=${x}: same band`).toBe(band);
+    }
+  });
+
+  it('and TIME is the only thing that takes it away', () => {
+    const { radar } = makeRadar();
+    radar.setHeightRaster(rasterFrom(900, ridge(600, 0, 120, 90)));
+    revolution(radar);
+    expect(radar.bandAt(600, 0)).toBeGreaterThanOrEqual(0);
+    radar.render(OWN, 4200 + LIFE + 1);
+    expect(radar.livePaints).toBe(0);
+    expect(radar.bandAt(600, 0)).toBe(-1);
+  });
+
+  it('a ghost the ship has closed on keeps decaying in place (amendment 86, now '
+    + 'the ordinary case)', () => {
+    const { radar } = makeRadar();
+    radar.setHeightRaster(rasterFrom(900, ridge(600, 0, 120, 90)));
+    revolution(radar);
+    expect(radar.bandAt(600, 0), 'swept from 600u out: painted').toBeGreaterThanOrEqual(0);
+    radar.render({ x: 480, y: 0 }, 4250); // now 120u away — deep inside truesight
+    expect(radar.bandAt(600, 0), 'the ghost decays in place').toBeGreaterThanOrEqual(0);
+  });
+});
+
+// --- the SECOND source: sighted ships, from their Contact (amendment 89) --------
+
+/** A static sighted contact at `x` on bearing 0 from the origin. */
+function sightedStore(x: number, id = 'ship-7', heading = 0): ContactStore {
+  const store = new ContactStore();
+  store.pushFrame(0, [{ id, x, y: 0, heading, speed: 0, cls: 'battleship' }]);
+  return store;
+}
+
+describe('a sighted ship paints from its Contact when the beam crosses it', () => {
+  it('a hull inside truesight paints an echo — the server has never sent a blip '
+    + 'for one', () => {
+    const store = sightedStore(200);
+    const { radar } = makeRadar();
+    revolution(radar, OWN, store);
+    expect(radar.bandAt(200, 0), 'the synthesized echo').toBeGreaterThanOrEqual(0);
+  });
+
+  it('and NOT before the beam reaches it — the sweep gate holds for this source', () => {
+    const store = sightedStore(200);
+    const { radar } = makeRadar();
+    radar.onSweepSample(-0.6, 0);
+    radar.render(OWN, 0, store);
+    radar.render(OWN, 200, store); // beam still short of bearing 0
+    expect(radar.bandAt(200, 0), 'a contact is not a paint trigger').toBe(-1);
+  });
+
+  it('a contact BEYOND truesight is left to the wire — the client never '
+    + 'synthesizes in the annulus the server blips', () => {
+    const store = sightedStore(500); // > 330u: the server's territory
+    const { radar } = makeRadar();
+    revolution(radar, OWN, store);
+    expect(radar.bandAt(500, 0)).toBe(-1);
+  });
+
+  it('A HULL BEHIND A HEADLAND STILL PAINTS — the accepted, temporary cost of '
+    + 'amendment 140, recorded so it is not mistaken for a bug', () => {
+    // Islands block every sensor (Eric ruling 2026-08-02) and every SERVER-side
+    // gate still enforces that — `blipGate`, `pointSighted`, `pointDetected`, the
+    // muzzle and smoke halos, the foghorn muffle. What moved is the client's PAINT
+    // layer, for one cycle, on the explicit promise that Story 4.11 restores
+    // occlusion as a height-derived shadow length along the same ray.
+    const store = sightedStore(200);
+    const { radar } = makeRadar();
+    radar.setHeightRaster(rasterFrom(400, ridge(120, 0, 30, 40)));
+    revolution(radar, OWN, store);
+    expect(radar.bandAt(200, 0), 'painted through the headland').toBeGreaterThanOrEqual(0);
+  });
+
+  it('and nothing at all is synthesized in `silhouette` mode', () => {
+    const store = sightedStore(200);
+    const layer = new Container();
+    const radar = new Radar(layer, new Container(), () => null, 'silhouette');
+    revolution(radar, OWN, store);
+    expect(radar.livePaints).toBe(0);
+    expect(radar.liveBlips).toBe(0);
+  });
+});
+
+// --- the SOURCE SEAM is the drawn fog hole, dazzle included (amendment 89) ------
+
+describe('the source seam is `fogHoleRadiusU`, so client and server agree', () => {
+  const SIGHT = CONFIG.vision.sight;
+  const DAZZLE = CONFIG.starShells.dazzleSightFactor;
+  /** Between the dazzled hole and the un-dazzled one: the annulus a dazzle hands
+   *  from the client's synthesis to the server's blips. */
+  const MID = SIGHT * ((1 + DAZZLE) / 2);
+
+  it('the seam radius IS fogHoleRadiusU, at base stats and dazzled', () => {
+    const { radar } = makeRadar();
+    // Called, not re-derived: it is also, by construction, the server's own
+    // dazzle-scaled `sightOf`. If either side ever changes, this equality is the
+    // thing that breaks — rather than a hull at the seam painting twice.
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(SIGHT, false));
+    expect(radar.setDazzled(true)).toBe(true); // mirrors Fog's changed-flag
+    expect(radar.isDazzled).toBe(true);
+    expect(radar.sightHoleU).toBe(fogHoleRadiusU(SIGHT, true));
+    // And that IS a shrink, by exactly the ratified factor.
+    expect(radar.sightHoleU).toBe(SIGHT * DAZZLE);
+    expect(radar.setDazzled(true)).toBe(false); // no-op flip reports no change
+  });
+
+  it('a DAZZLE hands the annulus over: the client stops synthesizing there, '
+    + 'because the server has started blipping it', () => {
+    expect(MID).toBeGreaterThan(SIGHT * DAZZLE);
+    expect(MID).toBeLessThan(SIGHT);
+    const store = sightedStore(MID);
+
+    const { radar } = makeRadar();
+    revolution(radar, OWN, store);
+    expect(radar.bandAt(MID, 0), 'un-dazzled: ours to synthesize').toBeGreaterThanOrEqual(0);
+
+    const dazzled = makeRadar().radar;
+    dazzled.setDazzled(true);
+    revolution(dazzled, OWN, store);
+    expect(dazzled.bandAt(MID, 0), 'dazzled: the wire covers it').toBe(-1);
+  });
+
+  it('and a dazzle never reaches back into a paint already on the scope', () => {
+    const store = sightedStore(MID);
+    const { radar } = makeRadar();
+    revolution(radar, OWN, store);
+    const band = radar.bandAt(MID, 0);
+    expect(band).toBeGreaterThanOrEqual(0);
+    radar.setDazzled(true);
+    radar.render(OWN, 4250, store);
+    expect(radar.bandAt(MID, 0), 'the existing mark is untouched').toBe(band);
   });
 });
 
@@ -294,22 +498,22 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
 
   it('allocates NO heatmap and paints no bitmap cell, ever', () => {
     const { radar } = makeSilhouette();
-    radar.setIslands([ridge(300, 0, 120, 90)]);
+    radar.setHeightRaster(rasterFrom(600, ridge(300, 0, 120, 90)));
     radar.render(OWN, 0);
     radar.render(OWN, 900);
     radar.onBlip(POSE);
     radar.render(OWN, 1000);
     expect(radar.livePaints).toBe(0);
-    expect(radar.liveIslandPaints).toBe(0);
+    expect(radar.heatDims, 'no buffer at all').toBeNull();
     expect(radar.bandAt(0, 500)).toBe(-1);
     expect(radar.bandAt(300, 0)).toBe(-1);
   });
 
   it('THE SIGHT GATE NEVER REACHES IT: a paint deep inside truesight still '
     + 'draws its full outline, dazzled or not (amendment 82)', () => {
-    // `silhouette` has no coverage grid and never had the bug, so the gate must
-    // be structurally invisible to it. A hull 120u out — well inside the bubble,
-    // and inside even the DAZZLED bubble — still draws exactly as it always did.
+    // `silhouette` has no buffer and never had the bug, so the gate must be
+    // structurally invisible to it. A hull 120u out — well inside the bubble, and
+    // inside even the DAZZLED bubble — still draws exactly as it always did.
     const close: SilhouetteBlipEvent = { ...POSE, y: 120 };
     const { radar, layer } = makeSilhouette();
     radar.render(OWN, 900);
@@ -328,247 +532,5 @@ describe('`silhouette` mode is byte-identical to the shipped Story 4.2 grammar',
     expect(g.getLocalBounds().width).toBe(bounds);
     // ...and still no buffer exists to gate.
     expect(radar.bandAt(close.x, close.y)).toBe(-1);
-  });
-});
-
-// --- THE SCOPE PAINTS EVERYTHING IN RANGE, through the adapter (cycle 56) -------
-
-describe('the scope paints INSIDE truesight now (amendment 88 — the reversal)', () => {
-  /** A coastline whose near face runs from x = 180 to x = 420 — all of it under
-   *  the 330u bubble at the moment the beam sweeps it. Under cycles 54-55 this
-   *  island painted NOTHING; it is the fixture the reversal is measured on. */
-  const CLOSE_ISLE = ridge(300, 0, 120, 90);
-  /** A probe on that near face, 220u out: inside truesight, and land. */
-  const PROBE = { x: 220, y: 0 };
-
-  it('THE REVERSAL: an island swept from INSIDE truesight paints — cycles '
-    + '54-55 left it dark', () => {
-    const { radar } = makeRadar();
-    radar.setIslands([CLOSE_ISLE]);
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0); // arms lastRotation
-    radar.render(OWN, 900); // beam crosses bearing 0 and bakes the island paint
-    expect(radar.liveIslandPaints, 'the beam opened a paint').toBe(1);
-    expect(Math.hypot(PROBE.x, PROBE.y), 'and the probe is inside truesight')
-      .toBeLessThan(CONFIG.vision.sight);
-    expect(radar.bandAt(PROBE.x, PROBE.y), 'swept inside truesight: PAINTED')
-      .toBeGreaterThanOrEqual(0);
-  });
-
-  it('and the SWEEP is still the only thing that paints it — nothing appears '
-    + 'before the beam arrives (amendment 83)', () => {
-    const { radar } = makeRadar();
-    radar.setIslands([CLOSE_ISLE]);
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0);
-    // The beam has entered the island's bearing span (a 240u-wide ridge 300u
-    // off subtends ±0.52 rad) but has not yet reached the probe's own bearing,
-    // so the landmass is filling in BEHIND the beam and the probe is still dark.
-    radar.render(OWN, 200);
-    expect(radar.bandAt(PROBE.x, PROBE.y), 'the beam has not reached it').toBe(-1);
-    radar.render(OWN, 900);
-    expect(radar.bandAt(PROBE.x, PROBE.y)).toBeGreaterThanOrEqual(0);
-  });
-
-  it('and the paint is a record: withdrawing does not change one cell of it '
-    + '(amendment 83)', () => {
-    const { radar } = makeRadar();
-    radar.setIslands([CLOSE_ISLE]);
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0);
-    radar.render(OWN, 900);
-    const band = radar.bandAt(PROBE.x, PROBE.y);
-    expect(band).toBeGreaterThanOrEqual(0);
-    for (const x of [-100, -200, -300]) {
-      radar.render({ x, y: 0 }, 950);
-      expect(radar.liveIslandPaints, `at x=${x}`).toBe(1);
-      expect(radar.bandAt(PROBE.x, PROBE.y), `withdrawn to x=${x}: same band`).toBe(band);
-    }
-  });
-
-  it('and TIME is the only thing that takes it away', () => {
-    const isle = ridge(600, 0, 120, 90);
-    const { radar } = makeRadar();
-    radar.setIslands([isle]);
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0);
-    radar.render(OWN, 900);
-    expect(radar.bandAt(520, 0)).toBeGreaterThanOrEqual(0);
-    radar.render(OWN, 900 + LIFE + 1);
-    expect(radar.liveIslandPaints).toBe(0);
-    expect(radar.bandAt(520, 0)).toBe(-1);
-  });
-
-  it('a ghost the ship has closed on keeps decaying in place (amendment 86, '
-    + 'now the ordinary case)', () => {
-    const isle = ridge(600, 0, 120, 90);
-    const { radar } = makeRadar();
-    radar.setIslands([isle]);
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0);
-    radar.render(OWN, 900);
-    expect(radar.bandAt(520, 0), 'baked from 520u out: painted').toBeGreaterThanOrEqual(0);
-    radar.render({ x: 400, y: 0 }, 1000); // now 120u away — deep inside truesight
-    expect(radar.liveIslandPaints).toBe(1);
-    expect(radar.bandAt(520, 0), 'the ghost decays in place').toBeGreaterThanOrEqual(0);
-  });
-});
-
-// --- the SECOND source: sighted ships, from their Contact (amendment 89) --------
-
-/** A static sighted contact at `x` on bearing 0 from the origin. */
-function sightedStore(x: number, id = 'ship-7', heading = 0): ContactStore {
-  const store = new ContactStore();
-  store.pushFrame(0, [{ id, x, y: 0, heading, speed: 0, cls: 'battleship' }]);
-  return store;
-}
-
-describe('a sighted ship paints from its Contact when the beam crosses it', () => {
-  it('THE REVERSAL: a hull inside truesight now paints an echo — the server '
-    + 'has never sent a blip for one', () => {
-    const store = sightedStore(200);
-    const { radar } = makeRadar();
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0, store); // arms lastRotation
-    radar.render(OWN, 900, store); // beam crosses bearing 0
-    expect(radar.liveShipPaints, 'one synthesized echo').toBe(1);
-    expect(radar.bandAt(200, 0)).toBeGreaterThanOrEqual(0);
-  });
-
-  it('and NOT before the beam reaches it — the sweep gate holds for this '
-    + 'source too', () => {
-    const store = sightedStore(200);
-    const { radar } = makeRadar();
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0, store);
-    radar.render(OWN, 200, store); // beam still short of bearing 0
-    expect(radar.liveShipPaints, 'a contact is not a paint trigger').toBe(0);
-    expect(radar.bandAt(200, 0)).toBe(-1);
-  });
-
-  it('one echo per revolution, not one per frame', () => {
-    const store = sightedStore(200);
-    const { radar } = makeRadar();
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0, store);
-    for (let t = 100; t <= 900; t += 100) radar.render(OWN, t, store);
-    expect(radar.liveShipPaints).toBe(1);
-  });
-
-  it('a contact BEYOND truesight is left to the wire — the client never '
-    + 'synthesizes in the annulus the server blips', () => {
-    const store = sightedStore(500); // > 330u: the server's territory
-    const { radar } = makeRadar();
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0, store);
-    radar.render(OWN, 900, store);
-    expect(radar.liveShipPaints).toBe(0);
-    expect(radar.bandAt(500, 0)).toBe(-1);
-  });
-
-  it('an island between us and the hull blocks the echo (islands block every '
-    + 'sensor)', () => {
-    const store = sightedStore(200);
-    const { radar } = makeRadar();
-    radar.setIslands([ridge(120, 0, 30, 40)]); // athwart the bearing, inside the range
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0, store);
-    radar.render(OWN, 900, store);
-    expect(radar.liveShipPaints, 'no hull echo').toBe(0);
-  });
-
-  it('and nothing at all is synthesized in `silhouette` mode', () => {
-    const store = sightedStore(200);
-    const layer = new Container();
-    const radar = new Radar(layer, new Container(), () => null, 'silhouette');
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0, store);
-    radar.render(OWN, 900, store);
-    expect(radar.livePaints).toBe(0);
-    expect(radar.liveBlips).toBe(0);
-  });
-});
-
-describe('the two ship-paint sources share ONE per-track cap (no second ghost '
-  + 'train)', () => {
-  it('a hull crossing the truesight seam keeps `paintsPerContact` marks in '
-    + 'total, not that many from each source', () => {
-    const ID = 'ship-7';
-    const store = sightedStore(200, ID);
-    const { radar } = makeRadar();
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0, store);
-    // Beyond-truesight history first: three wire paints under this id, spaced
-    // far enough apart that no kernel overlaps its neighbour's cell.
-    const trail = [400, 500, 600];
-    trail.forEach((x, i) => radar.onBlip({ k: 'blip', id: ID, x, y: 0, ext: 100, t: 100 + i * 10 }));
-    radar.render(OWN, 200, store);
-    expect(radar.liveShipPaints).toBe(CLIENT_CONFIG.blip.paintsPerContact);
-    for (const x of trail) expect(radar.bandAt(x, 0), `wire ghost at ${x}`).toBeGreaterThanOrEqual(0);
-    // Now the hull closes inside truesight and the beam crosses it: the
-    // synthesized echo joins the SAME track and evicts the oldest wire paint.
-    radar.render(OWN, 900, store);
-    expect(radar.liveShipPaints, 'still one train').toBe(CLIENT_CONFIG.blip.paintsPerContact);
-    expect(radar.bandAt(200, 0), 'and the new echo is on the scope')
-      .toBeGreaterThanOrEqual(0);
-    expect(radar.bandAt(400, 0), 'while the oldest wire ghost was evicted').toBe(-1);
-    expect(radar.bandAt(600, 0), 'and the newer ones survive').toBeGreaterThanOrEqual(0);
-  });
-});
-
-// --- the SOURCE SEAM is the drawn fog hole, dazzle included (amendment 89) ------
-
-describe('the source seam is `fogHoleRadiusU`, so client and server agree', () => {
-  const SIGHT = CONFIG.vision.sight;
-  const DAZZLE = CONFIG.starShells.dazzleSightFactor;
-  /** Between the dazzled hole and the un-dazzled one: the annulus a dazzle hands
-   *  from the client's synthesis to the server's blips. */
-  const MID = SIGHT * ((1 + DAZZLE) / 2);
-
-  it('the seam radius IS fogHoleRadiusU, at base stats and dazzled', () => {
-    const { radar } = makeRadar();
-    // Called, not re-derived: it is also, by construction, the server's own
-    // dazzle-scaled `sightOf`. If either side ever changes, this equality is the
-    // thing that breaks — rather than a hull at the seam painting twice.
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(SIGHT, false));
-    expect(radar.setDazzled(true)).toBe(true); // mirrors Fog's changed-flag
-    expect(radar.isDazzled).toBe(true);
-    expect(radar.sightHoleU).toBe(fogHoleRadiusU(SIGHT, true));
-    // And that IS a shrink, by exactly the ratified factor.
-    expect(radar.sightHoleU).toBe(SIGHT * DAZZLE);
-    expect(radar.setDazzled(true)).toBe(false); // no-op flip reports no change
-  });
-
-  it('a DAZZLE hands the annulus over: the client stops synthesizing there, '
-    + 'because the server has started blipping it', () => {
-    expect(MID).toBeGreaterThan(SIGHT * DAZZLE);
-    expect(MID).toBeLessThan(SIGHT);
-    const store = sightedStore(MID);
-
-    const { radar } = makeRadar();
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0, store);
-    radar.render(OWN, 900, store);
-    expect(radar.liveShipPaints, 'un-dazzled: ours to synthesize').toBe(1);
-
-    const dazzled = makeRadar().radar;
-    dazzled.setDazzled(true);
-    dazzled.onSweepSample(-0.6, 0);
-    dazzled.render(OWN, 0, store);
-    dazzled.render(OWN, 900, store);
-    expect(dazzled.liveShipPaints, 'dazzled: the wire covers it').toBe(0);
-  });
-
-  it('and a dazzle never reaches back into a paint already on the scope', () => {
-    const store = sightedStore(MID);
-    const { radar } = makeRadar();
-    radar.onSweepSample(-0.6, 0);
-    radar.render(OWN, 0, store);
-    radar.render(OWN, 900, store);
-    const band = radar.bandAt(MID, 0);
-    expect(band).toBeGreaterThanOrEqual(0);
-    radar.setDazzled(true);
-    radar.render(OWN, 950, store);
-    expect(radar.bandAt(MID, 0), 'the existing mark is untouched').toBe(band);
   });
 });

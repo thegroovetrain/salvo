@@ -1,5 +1,5 @@
 # generated: 2026-07-17
-# last_updated: 2026-08-06  # cycle 59 (0.17.59), FRACTAL TERRAIN — fBm HEIGHT FIELD (interstitial — the cycle-51/52 capsule generator replaced by a genuine fBm height field; coastline is the sea-level isoline, contours are higher isolines of the SAME field; Island.skeleton deleted, replaced by pole/core; star-shape invariant retired, lagoon-freedom now generation-time closure, push-out is nearest-boundary-point; height raster + max-height pyramid retained as future radar-shadow substrate; zero transcendentals on the generation path; PV 28->29)
+# last_updated: 2026-08-07  # cycle 59 (0.17.59), FRACTAL TERRAIN — fBm HEIGHT FIELD (interstitial — the cycle-51/52 capsule generator replaced by a genuine fBm height field; coastline is the sea-level isoline, contours are higher isolines of the SAME field; Island.skeleton deleted, replaced by pole/core; star-shape invariant retired, lagoon-freedom now generation-time closure, push-out is nearest-boundary-point; height raster + max-height pyramid retained as future radar-shadow substrate; zero transcendentals on the generation path; PV 28->29)
 #                          # cycle 58 (0.17.57), THE BUFFER FOLLOWS THE VIEWPORT (interstitial — the no-clip fix, redone after cycle 57 was REVERTED for a live rendering regression; client-only, PV unchanged at 28)
 #                          # cycle 57 (0.17.57) REVERTED (PR #108) — derived-extent no-clip attempt; broke world-locking on live. Version number reused by cycle 58.
 #                          # cycle 56 (0.17.56), THE SCOPE PAINTS EVERYTHING IN RANGE (interstitial — sight exclusion retired; sighted ships painted client-side from their Contact; client-only, PV unchanged at 28)
@@ -56,7 +56,7 @@
 # Story 1.9 tombstoned (number retired, not reused); later stories keep their numbers.
 
 generated: 2026-07-17
-last_updated: 2026-08-06
+last_updated: 2026-08-07
 project: Hullcracker.io
 project_key: NOKEY
 tracking_system: file-system
@@ -113,6 +113,50 @@ development_status:
 
   # epic-4: Information Texture (GDD E6)
   epic-4: in-progress  # 4-3 landed 2026-08-04 (dev-auto cycle 43, 0.17.43); 4-1 deferred at its question gate before any spec. Two interstitials landed 2026-08-04 in parallel, neither an epic story: cycle 44 (0.17.44) = the per-weapon balance pass (see the cooldown/TTK action below); cycle 45 (0.17.45) = the Public Register / global kill feed (see the block below 4-3). Cycle 51 (0.17.51) = the radar realism cycle, an interstitial that PARTIALLY REVERSES story 4-2 behind flags (see the block below 4-4) and hands story 4-6 an unresolved dependency.
+  # INTERSTITIAL 2026-08-07 (dev-auto cycle 62, 0.17.62) — THE BEAM MARCH.
+  # Amendments 138-144. CLIENT-ONLY; PV UNCHANGED at 30; `silhouette` grammar byte-identical; no
+  # server file touched and no CONFIG.vision or combat tunable moved. CORRECTIVE: Eric, on the
+  # shipped 4.10 build, "What I wanted you to accomplish was to have the radar correctly paint
+  # EVERYTHING it sweeps over... as the sweep line sweeps, you're supposed to be radar painting that
+  # entire line from the ship to the terminus." THE PRIMITIVE IS INVERTED — radar stops asking each
+  # OBJECT what it looks like and asks each BEARING what is out there. Two new pure modules:
+  # render/radarField.ts (ONE queryable world field: terrain from `sampleHeight`, a per-frame
+  # cell-indexed ship stamp, the storm wall, sea clutter — each answer carries its material
+  # coefficient AND its geometry class, so the march never decides what kind of thing it hit) and
+  # render/radarMarch.ts (rays at a derived angular quantum, marched to the terminus, emitting SLICE
+  # records of frozen cells). The per-object bakes are DELETED, not ported.
+  # THE DEFECT OF RECORD (amendment 139): `faceShadow` was the near-face criterion FOR A DISC, so on
+  # an elongated fractal island a LATERAL tip scored ~-0.6 against a 0.3 ramp and clamped to zero —
+  # every long tail and side extremity was suppressed regardless of facing, which is the diagonal cut
+  # Eric saw. Reproduced as an A/B in radarMarch.test.ts (the retired criterion is re-implemented
+  # there and shown to kill >25% of a 520x30 ridge) and then fixed.
+  # FIVE THINGS THAT WILL BITE THE NEXT AGENT.
+  # (1) NOTHING OCCLUDES ANYTHING (amendment 140) — near-face terminator, cross-island segment test
+  # and clutter occluder mask all deleted from the paint path. This is a KNOWING, TEMPORARY
+  # regression against "islands block every sensor", scoped to the client PAINT LAYER and accepted on
+  # the explicit promise that 4-11 restores it as a height-derived shadow LENGTH along the same ray.
+  # NOT ONE SERVER GATE MOVED: blipGate, pointSighted, pointDetected, the muzzle/smoke halos and the
+  # foghorn muffle are byte-identical. A hull behind a headland now paints, and there is a test that
+  # says so on purpose.
+  # (2) THE GRAIN IS SNR NOW (amendment 143): amplitude is largest at the detection floor and ZERO at
+  # `bands[2].at`. That REPLACED the flat +/-30% every coefficient bound was proved against, so all of
+  # them were re-derived (amendment 135 binds twice over) — clutter 0.105 -> 0.095, storm held at 0.5,
+  # landFlat 0.35 -> 0.3, surfaceRef 700 -> 900. The old `noise: 0.3` number no longer exists.
+  # (3) SLICES ARE EMITTED PER ANGULAR QUANTUM, NOT PER FRAME (`march.sliceRad`), so the list depth is
+  # a function of sweep rate and persistence and NOT of fps: ~124 slices/revolution, ~367 live at the
+  # shipped 3-sweep depth. There is no per-track cap any more — a slice is a wedge of the world, not a
+  # mark on an object — so retirement is by TIME alone.
+  # (4) THE TWO HULL SOURCES ARE NO LONGER SYMMETRIC IN TIMING, deliberately: a wire echo is ALREADY
+  # sweep-gated by the SERVER's beam, so it marches on arrival (waiting for the local beam would paint
+  # it up to a revolution stale — 180u on a torpedo boat). A sighted hull is stamped into the field and
+  # painted by the local beam. Same model, same slice list, same footprint machinery.
+  # (5) `setIslands` IS GONE. The march's only terrain input is the cycle-59 HEIGHT RASTER, whose
+  # land/water truth IS the shipped coastline's mask (`height > 0` iff LAND) — so a second polygon
+  # field would be a second source of truth for the same question. Height is read CONTINUOUSLY, never
+  # terraced (amendment 142). SURF was dropped with the bake that carried it (its ratified basis was
+  # "near face only, inheriting the island's terminator", and the terminator is gone).
+  # Measured 1.44 ms at 0.5x zoom, 0.78 at 1.0x, 0.67 at 1.5x — CHEAPER than cycle 61's 1.70/1.10/0.90
+  # despite painting far more of the world, and inside the 2.5 ms gate.
   # INTERSTITIAL 2026-08-06 (dev-auto cycle 58, 0.17.57) — THE BUFFER FOLLOWS THE VIEWPORT.
   # Amendments 95-99. Client-only; PV unchanged at 28. The no-clip fix, REDONE after cycle 57 was
   # reverted (PR #108) for a live rendering regression — islands drifting with the boat, paints

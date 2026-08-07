@@ -41,8 +41,10 @@ import {
   attenuation,
   fitPointRef,
   heightReflectivity,
+  noiseAmplitude,
 } from '../render/radarFalloff.js';
-import { shipPeak } from '../render/radarHeatmap.js';
+import { hullSample } from '../render/radarField.js';
+import { returnStrength } from '../render/radarMarch.js';
 
 const CFG = CLIENT_CONFIG.blip.heatmap;
 const MODEL = CFG.model;
@@ -56,6 +58,16 @@ const CROSS = CONFIG.vision.farRadar; // 7/8 — 577.5u
 const MID_HULL = CONFIG.shipClasses.mineLayer.hull.length;
 /** A battleship presented broadside — the biggest RCS on the water. */
 const BIG_HULL = CONFIG.shipClasses.battleship.hull.length;
+
+/**
+ * A HULL'S PEAK READING at a range — the model's own two seams composed, which is
+ * exactly what the march does per sample. Cycle 62 retired `shipPeak` along with
+ * the kernel that used it; the CALIBRATION it carried did not move, so this is
+ * the same quantity through the surviving path.
+ */
+function hullPeak(ext: number, dist: number): number {
+  return returnStrength(hullSample(ext, MODEL), dist);
+}
 
 /**
  * CYCLE 52's SHIPPED CURVE, RE-IMPLEMENTED HERE AND ONLY HERE.
@@ -141,10 +153,10 @@ describe('the red→blue crossover EMERGES at 7/8 intel range', () => {
       fitPointRef({
         crossover: CROSS,
         ext: MID_HULL,
-        strongExtent: CFG.ship.strongExtent,
+        strongExtent: MODEL.strongExtent,
         band: RED,
         coef: MODEL.ship,
-        floor: CFG.ship.attenFloor,
+        floor: MODEL.pointFloor,
       }),
       12,
     );
@@ -152,46 +164,46 @@ describe('the red→blue crossover EMERGES at 7/8 intel range', () => {
     const wider = fitPointRef({
       crossover: CROSS * 1.2,
       ext: MID_HULL,
-      strongExtent: CFG.ship.strongExtent,
+      strongExtent: MODEL.strongExtent,
       band: RED,
       coef: MODEL.ship,
-      floor: CFG.ship.attenFloor,
+      floor: MODEL.pointFloor,
     });
     expect(wider).toBeCloseTo(MODEL.pointRef * 1.2, 6);
   });
 
   it('READING 1 — the mid hull lands EXACTLY on the red→blue boundary at '
     + `${CROSS}u`, () => {
-    expect(shipPeak(MID_HULL, CROSS, CFG)).toBeCloseTo(RED, 9);
+    expect(hullPeak(MID_HULL, CROSS)).toBeCloseTo(RED, 9);
   });
 
   it('READING 2 — and saturates red well inside the rim', () => {
-    expect(shipPeak(MID_HULL, 330, CFG)).toBe(1);
+    expect(hullPeak(MID_HULL, 330)).toBe(1);
     // Find where it saturates, so the number is observed rather than asserted.
     let sat = 0;
-    for (let d = 0; d <= RIM; d += 1) if (shipPeak(MID_HULL, d, CFG) >= 1) sat = d;
+    for (let d = 0; d <= RIM; d += 1) if (hullPeak(MID_HULL, d) >= 1) sat = d;
     expect(sat, 'saturation range (u)').toBeGreaterThan(400);
     expect(sat).toBeLessThan(CROSS);
   });
 
   it('READING 3 — and still reads BLUE at the 660u rim (not green, not red)', () => {
-    const peak = shipPeak(MID_HULL, RIM, CFG);
+    const peak = hullPeak(MID_HULL, RIM);
     expect(peak).toBeGreaterThanOrEqual(BLUE);
     expect(peak).toBeLessThan(RED);
   });
 
   it('READING 4 — a battleship broadside still reads RED at the rim: a larger '
     + 'RCS legitimately reaches further (amendment 68)', () => {
-    expect(shipPeak(BIG_HULL, RIM, CFG)).toBeGreaterThanOrEqual(RED);
+    expect(hullPeak(BIG_HULL, RIM)).toBeGreaterThanOrEqual(RED);
   });
 
   it('and the crossover is a CONSEQUENCE of the curve — the peak crosses the '
     + 'boundary once, at that range, on a continuous sweep', () => {
     let crossedAt = -1;
     let crossings = 0;
-    let prev = shipPeak(MID_HULL, 0, CFG);
+    let prev = hullPeak(MID_HULL, 0);
     for (let d = 1; d <= RIM; d += 0.5) {
-      const v = shipPeak(MID_HULL, d, CFG);
+      const v = hullPeak(MID_HULL, d);
       if (prev >= RED && v < RED) {
         crossings++;
         crossedAt = d;
@@ -206,23 +218,27 @@ describe('the red→blue crossover EMERGES at 7/8 intel range', () => {
 });
 
 describe('the floors survive the physics (amendment 127)', () => {
-  it('a `minExtent` needle at the rim falls to `minPeak` and STILL PAINTS green', () => {
-    const peak = shipPeak(CFG.ship.minExtent, RIM, CFG);
-    expect(peak).toBe(CFG.ship.minPeak);
-    expect(peak * (1 - CFG.noise), 'even at the worst noise draw').toBeGreaterThan(GREEN);
+  it('a sub-cell needle at the rim falls to `minPeak` and STILL PAINTS green', () => {
+    const peak = hullPeak(8, RIM); // narrower than one 6u display cell, bow-on
+    expect(peak).toBe(MODEL.minPeak);
+    // AT THE WORST DRAW OF THE SHIPPED ENVELOPE, not at nominal (amendment 135):
+    // the grain's amplitude is a function of the intensity it is applied to, so
+    // the bound has to be stated at this peak's own amplitude.
+    expect(peak * (1 - noiseAmplitude(peak, CFG.noise)), 'even at the worst draw')
+      .toBeGreaterThan(GREEN);
   });
 
   it('and so does a ZERO-extent return — nothing inside radar range paints '
     + 'nothing, at any aspect, at any size', () => {
     for (const d of [1, 330, RIM, RIM * 2]) {
-      expect(shipPeak(0, d, CFG), `${d}u`).toBe(CFG.ship.minPeak);
+      expect(hullPeak(0, d), `${d}u`).toBe(MODEL.minPeak);
     }
   });
 
   it('but aspect still MATTERS: a bow-on hull reads far weaker than the same '
     + 'hull abeam at the same range', () => {
     const beam = CONFIG.shipClasses.mineLayer.hull.beam;
-    expect(shipPeak(beam, 480, CFG)).toBeLessThan(shipPeak(MID_HULL, 480, CFG));
+    expect(hullPeak(beam, 480)).toBeLessThan(hullPeak(MID_HULL, 480));
   });
 });
 
@@ -251,6 +267,56 @@ describe('a degenerate fit answers the crossover rather than a garbage range', (
     expect(fitPointRef({ ...base, coef: 0 })).toBe(CROSS);
     expect(fitPointRef({ ...base, strongExtent: 0 })).toBe(CROSS);
     expect(Number.isFinite(fitPointRef({ ...base, band: Number.NaN }))).toBe(true);
+  });
+});
+
+// --- 3b. THE SNR NOISE ENVELOPE (cycle 62, amendment 143) -----------------------
+//
+// The third term of the model, and a CORRECTION rather than a retune: cycle 61's
+// flat ±30% put static in the interior of a landmass, which is the one place a
+// real scope is rock-steady, and smeared intensity off the iso-height lines the
+// colour bands are meant to land on. Amplitude now falls with signal.
+
+describe('grain amplitude is a function of the return\'s own strength', () => {
+  const ENV = CFG.noise;
+
+  it('largest at zero signal, exactly zero at saturation, and never negative', () => {
+    expect(noiseAmplitude(0, ENV)).toBeCloseTo(ENV.amount, 12);
+    expect(noiseAmplitude(ENV.solidAt, ENV)).toBe(0);
+    for (const i of [ENV.solidAt, ENV.solidAt + 0.1, 1, 1e6]) {
+      expect(noiseAmplitude(i, ENV), `past saturation at ${i}`).toBe(0);
+    }
+  });
+
+  it('and falls MONOTONICALLY in between, so grainier always means weaker', () => {
+    let prev = Infinity;
+    for (let i = 0; i <= 1; i += 0.01) {
+      const a = noiseAmplitude(i, ENV);
+      expect(a).toBeLessThanOrEqual(prev + 1e-12);
+      expect(a).toBeGreaterThanOrEqual(0);
+      prev = a;
+    }
+  });
+
+  it('THE REGISTERS, at the shipped envelope: a red return is solid, a threshold '
+    + 'return is heavily grained', () => {
+    expect(noiseAmplitude(RED, ENV), 'red is rock steady').toBe(0);
+    expect(noiseAmplitude(BLUE, ENV), 'blue is lightly textured').toBeGreaterThan(0.2);
+    expect(noiseAmplitude(GREEN, ENV), 'green crawls').toBeGreaterThan(0.35);
+    expect(noiseAmplitude(GREEN, ENV)).toBeGreaterThan(noiseAmplitude(BLUE, ENV));
+  });
+
+  it('a degenerate envelope answers 0 (perfectly solid), never NaN', () => {
+    for (const env of [
+      { amount: 0, solidAt: 0.7 },
+      { amount: -1, solidAt: 0.7 },
+      { amount: 0.45, solidAt: 0 },
+      { amount: Number.NaN, solidAt: 0.7 },
+      { amount: 0.45, solidAt: Number.NaN },
+    ]) {
+      expect(noiseAmplitude(0.3, env)).toBe(0);
+    }
+    expect(Number.isFinite(noiseAmplitude(Number.NaN, ENV))).toBe(true);
   });
 });
 
