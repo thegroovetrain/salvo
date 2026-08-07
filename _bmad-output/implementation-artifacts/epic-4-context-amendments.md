@@ -1216,6 +1216,10 @@ are recorded here so the cycle that resolves them knows what was already conside
      ruling below serves that sentence. Where a realism choice and a convenience choice conflict, the
      realism choice is the default and the departure must be argued explicitly.
 
+     > **SUPERSEDED IN PART BY AMENDMENT 115 — read that before citing this clause.** The first
+     > sentence stands. The "realism is the default" rule does NOT: Eric ruled *"im not really
+     > married to realism, i want semi-realism but fun gameplay."*
+
      The extrapolation license, verbatim: *"we don't have to go with google's exact list, and you're
      correct a lot of things aren't on it, but its meant kind of as a basis to go on, so we can
      extrapolate radar signatures of various things."* The consumer-radar colour taxonomy Eric
@@ -1384,4 +1388,140 @@ are recorded here so the cycle that resolves them knows what was already conside
      *"I don't know? I think your sequence makes sense."* — so this is an assistant recommendation
      Eric accepted, not an independent Eric ruling, and cycle 61 may revisit it if the perf work
      argues otherwise.
+
+## 2026-08-06 — Eric rulings, THE EIGHTHS LADDER + arc corrections (cycle 60, pre-implementation)
+
+Source: Eric, continuing the same conversation, after a party-mode design round. These entries
+CORRECT three things recorded above (amendments 100, 103 and the mast-height proposal) and add the
+range model Eric wants every future cycle to think in.
+
+112. **SCOPE DISCIPLINE: CARDS ARE NOTED, NOT DESIGNED.** Eric: *"I want you simply to make note of
+     the card changes so we can address them later. For now, at least, I want to get the radar
+     painting correctly."* Amendment 117 is a PARKING LOT. No card in it may be built, costed or
+     balanced inside cycles 60-62 without a fresh Eric ruling. Cycle 60's job is the paint.
+
+113. **THE EIGHTHS LADDER — THE RANGE MODEL OF RECORD.** Eric: *"lets imagine a concept of range
+     zones from our ship. Concentric circles... lets go ahead and divide our total intel range into 8
+     concentric circles... That model is how I want to think about range from now on, so definitely
+     make a note of it."*
+
+     **INTEL RANGE is the whole ruler**, and radar range is its full extent (8/8). Every sensor
+     boundary is an eighth of it:
+
+     | band | u (at intel range 660) | meaning | shipped today? |
+     |---|---|---|---|
+     | 8/8 | 660 | radar range | YES — `CONFIG.vision.radar` |
+     | 7/8 | 577.5 | "far radar" — ships read BLUE rather than RED | **NEW** — no constant exists |
+     | 6/8 | 495 | — | shipped `muzzleFlash` sits HERE, not at 5/8 |
+     | 5/8 | 412.5 | muzzle / smoke range (Eric's placement) | **CONFLICTS — see below** |
+     | 4/8 | 330 | truesight | YES — `CONFIG.vision.sight` |
+     | 2/8 | 165 | visually see nearby mines + incoming torpedoes | **CONFLICTS — see below** |
+
+     **TWO CONFLICTS WITH SHIPPED CONSTANTS, BOTH UNRESOLVED. Do not silently pick a side.**
+
+     - **Muzzle/smoke is at 6/8 today, not 5/8.** `CONFIG.vision.muzzleFlash = SIGHT * 1.5` = 495u,
+       which is exactly 6/8 of 660. Smoke reach is that same number reused verbatim (amendment 42 —
+       deliberately never forked into a fourth vision constant), so this one number moves both.
+       `zone.test.ts` pins the derivation and the ordering `sight < muzzleFlash < radar`. Either Eric
+       meant 6/8 (in which case the ladder already describes the shipped game exactly) or he is
+       retuning the flash/smoke halo DOWN by 82.5u. **Ask before moving it.**
+     - **Mines and torpedoes are revealed at 4/8 today, not 2/8.** Both go through `pointSighted` in
+       `server/src/game/signals.ts` at the dazzle-scaled sight range (330u). Dropping them to 165u
+       halves the warning a captain gets on an incoming fish and materially strengthens both the
+       torpedo and the Mine Layer. That is a REAL COMBAT REBALANCE, not a presentation change.
+       **Ask before moving it.**
+
+     What the ladder unambiguously ADDS is 7/8 — the red→blue crossover — which no shipped constant
+     covers and which lands squarely inside cycle 60. See amendment 118.
+
+114. **R AND H ARE FIXED CONSTANTS. THE PER-SEED PERCENTILE IS REJECTED.** The party round proposed
+     deriving the hard-cover threshold `H` from each map's own land-height distribution (a percentile),
+     letting `R` float to absorb it. Eric: *"i definitely do not want max radar range determined from
+     how much of the map happens to be high terrain... lets keep it as an intel range thing, and we
+     just so happen to set R and H so that it hits our target."* RULING: **both `R` and `H` are fixed
+     tuning constants**, chosen so the horizon lands on the intended intel range. Radar range is an
+     INTEL RANGE property (amendment 113) and is never a function of terrain.
+
+     Accepted consequence, and it is fine: the fraction of a given map that is hard cover now VARIES
+     BY SEED. That was a balance problem only while a card could buy into `H` — with the mast-height
+     card dead (amendment 116), nothing purchases its way across the threshold, so per-seed variance
+     is simply map character. Some oceans have more hard cover than others.
+
+     What survives from the party round is the ALGEBRA, which is worth keeping because it removes a
+     variable from every future discussion. Pinning the product `2RH` to the intended range collapses
+     the shadow formula to a scale-free form with no earth radius in it at all:
+
+     ```
+     shadowLength = (radarRange² / 4) · (1 − h₀/H) / d₀      [infinite when h₀ ≥ H]
+     ```
+
+     Everything is `h₀/H` — terrain height as a fraction of the hard-cover threshold. **There is no
+     "small planet commitment"**; that framing was an artifact of writing the equation in the wrong
+     variables, and amendment 103's "illustrative fit" language should be read through this.
+
+115. **SEMI-REALISM, NOT REALISM — THIS SUPERSEDES AMENDMENT 100's DEFAULT CLAUSE.** Eric, verbatim:
+     *"im not really married to realism, i want semi-realism but fun gameplay."* Amendment 100 framed
+     realism as the default with departures requiring an explicit argument. That is now BACKWARDS and
+     must not be cited as written.
+
+     The corrected rule: **realism is the IDEA SOURCE and the tiebreaker on presentation; fun wins on
+     mechanics.** Reach for the physics first because it generates better ideas than invention does
+     (amendment 117's Doppler blind spot is the proof — a genuine mechanic nobody would have designed
+     on purpose), but when the physical answer is boring, unreadable or unfun, take the fun one and
+     do not apologize for it. Realism is a tool here, not a constraint.
+
+116. **THE MAST-HEIGHT UPGRADE CARD IS REJECTED.** Proposed in the party round: reinterpret
+     `intelRadar` as raising antenna height `H`, so radar range grows as `√H` and island shadows
+     shrink. Eric: *"i don't want to increase mast size, that doesnt make much sense."* Dead. Do not
+     re-propose. The findings that killed it are worth keeping anyway, because they apply to ANY
+     future card that touches `H`: at a stack matching the shipped ~2.01× range multiplier, `H` would
+     go 20u → 80u, putting nearly all terrain below the threshold and effectively **deleting hard
+     cover from the map** — a match-winning effect priced as a common.
+
+     Standing principle that falls out of the rejection: **land is sacred.** Sensor upgrades buy
+     REACH; nothing buys its way past terrain. This holds by construction as long as no stat touches
+     `H`, and it is the line to defend when a future card proposal gets clever.
+
+117. **THE PARKING LOT — sensor card ideas, RECORDED ONLY, per amendment 112.** All four are Eric's
+     except where noted. None is approved, costed, or scheduled.
+
+     - **INTEL RANGE CONSOLIDATION.** Eric: *"i was thinking of maybe condensing sight and radar
+       range to an 'Intel Range' stat."* Finding: this is ALREADY most of the architecture —
+       `radar = SIGHT × 2`, `muzzleFlash = SIGHT × 1.5`, and gun/cannon/star-shell range all ride
+       `radarRange`. The only unconsolidated piece is the CARD: `intelRadar` multiplies `radarRange`
+       post-fold, so upgrading radar today does nothing to the sight bubble. Repointing it at `sight`
+       makes the whole family scale together — cheap architecturally, but much stronger, so the
+       ×1.15 would have to come down hard. This is also the natural home for amendment 113's ladder,
+       since the ladder is defined in terms of intel range.
+     - **DOPPLER RADAR.** Eric: *"changes the radar so it indicates speed and direction (towards or
+       away from you) with red and green, perhaps toggleable, perhaps its a second overlay."*
+       Colour-as-velocity COLLIDES head-on with amendment 105 (colour is intensity, never category).
+       Eric's own hedge is the resolution and it matches real hardware: make it a MODE. Inside
+       intensity mode colour is intensity; inside Doppler mode colour is velocity; the mode indicator
+       becomes a correctness surface, not chrome. **The best property is one nobody designed:**
+       Doppler reads only the RADIAL component, so a ship crossing your bearing shows ZERO. Turning
+       perpendicular defeats the sensor — counterplay to equipment, free from the physics, and
+       self-teaching in one match. Build the card for that, not for the colour.
+     - **"GROUND-PENETRATING RADAR" — right mechanic, wrong name.** Eric: *"changes the radar so it
+       can see into the radar shadow but halves its sweep speed."* GPR looks into SOIL and cannot see
+       around terrain; the name will bounce off anyone who knows the hardware. What genuinely fills in
+       behind terrain is LOW FREQUENCY — long waves diffract around obstacles where X-band cannot —
+       and it pays in resolution and scan rate. Rename it a low-band / HF set and the halved sweep
+       stops being an arbitrary tax and becomes the physical consequence, with "fuzzier returns"
+       plugging straight into cycle 60's intensity model at zero new machinery. Two drawbacks means
+       it is not a common.
+     - **ACTIVE SONAR AS A SENSOR SLOT, ON THE `R` KEY.** Eric: *"perhaps [Active Sonar] could
+       potentially also be sensor upgrade that lives in this slot, that could go to the R key (instead
+       of a random pickup weapon), but that is major game system change that i like and warrants more
+       discussion than we can give it here."* Parked at Eric's explicit request. Continuity note: this
+       is NOT a new direction — the 2026-08-04 ruling deferred hydrophones *in favour of* active
+       sonar, so this is that decision's follow-through. Needs its own cycle and its own discussion.
+
+118. **THE LADDER IS CYCLE 60's CALIBRATION TARGET.** Amendment 106's intensity model has a
+     coefficient table that is explicitly an assistant handwave with nothing to calibrate against.
+     Amendment 113's 7/8 band supplies exactly that: tune the falloff so a mid-size hull crosses
+     **red → blue at 7/8 intel range (577.5u)**. Note the reconciliation — under amendment 106 the
+     crossover is a CONSEQUENCE of the 1/d⁴ curve, never a hard-coded radius, so 7/8 is a target the
+     curve is fitted to hit, not a threshold branch in the code. Writing an `if (d > 577.5)` anywhere
+     in the paint path violates amendment 105 and is the wrong implementation of this amendment.
 
