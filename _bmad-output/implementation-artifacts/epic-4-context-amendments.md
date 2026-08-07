@@ -1738,3 +1738,261 @@ Source: Eric, live, shown both consequences in plain terms at the end of the cyc
        quarters would restore roughly the old precision. The wire is already floored at band 4
        (amendment 124) precisely so that no resolution ships beyond what the gain curve consumes —
        that mechanism is the one to reuse, not replace.
+
+## 2026-08-07 — Eric rulings, Story 4-10 pre-implementation question gate (bmad-dev-auto, cycle 61)
+
+Source: Eric, a four-question pre-implementation gate during the Story 4-10 run; all four answered on
+the recommended option. Spec of record: `spec-4-10-the-physical-return-model.md`. The design contract
+this story derives from is amendments 105, 106 and 118; these entries resolve the places where that
+contract collides with something already ratified or already shipped.
+
+The shape of this ruling set is CONSISTENTLY CONSERVATIVE ON INFORMATION AND PERMISSIVE ON TEXTURE:
+at every fork Eric took the option that changes how the scope LOOKS without changing what it TELLS
+you. That is the premise any future change to this cycle's work must argue from, and it is amendment
+115 ("realism is the IDEA SOURCE and the tiebreaker on presentation; fun wins on mechanics") applied
+four times in a row.
+
+127. **PHYSICS SHAPES THE RAMP; THE FLOORS PROTECT THE READ — nothing inside radar range ever paints
+     nothing.** The 1/d⁴ point-target falloff amendment 106 mandates REPLACES the shipped `1/(1+d)`
+     hyperbola as the CURVE, but the two floors that guarantee visibility SURVIVE: `attenFloor` (the
+     asymptote the curve approaches and never reaches) and `minPeak` (the floor on a kernel's peak
+     intensity, sized so the noise multiplier cannot push the weakest legitimate return below
+     `bands[0].at`). Consequence of record, and it is the point: **radar range keeps meaning one
+     number for every hull.** Anything the server blips — or any sighted hull `contactEcho`
+     synthesizes — still paints at least a green speck anywhere inside 660u, at any aspect, at any
+     size.
+
+     Explicitly REJECTED: **dropping the floors so signature becomes stealth**, under which a small
+     hull bow-on would genuinely fade to nothing before the rim and effective detection range would
+     become a function of the target's size and aspect. That option was put to Eric with its upside
+     named in full — a self-teaching stealth mechanic falling straight out of the physics, turning
+     bow-on to shrink your return, which is the same "class is LEARNABLE rather than stated" instinct
+     amendment 68 ratified — and he declined it. **Do not re-propose it as a bug fix or a realism
+     correction; it is a ruled-out design.** Also rejected: a much lower floor as a middle path.
+
+     Note what this does NOT protect. `ext` is still aspect-projected (amendment 66), so a bow-on hull
+     still paints a far weaker, smaller return than a broadside one at the same range — aspect
+     absolutely still matters to how you READ the scope. What the floors buy is that aspect never
+     crosses into invisibility, so the sensor's stated reach and its actual reach are the same number.
+
+128. **THE STORM PAINTS ITS WALL, NOT ITS AREA.** The volume return (1/d², amendment 106) is a
+     fixed-thickness BAND tracking the live ring boundary — the closing wall — and not the whole
+     outside-the-ring region. Rationale of record is the epic's own guardrail (*"information noise
+     must never bury the hunt"*): under a 1/d² law an area return stays legible clear across the map,
+     so late-match the storm would own roughly half the scope at full strength and every contact
+     inside it would be buried. Explicitly REJECTED: **the whole storm area outside the ring** (the
+     physically literal read of a squall region) and **deferring the storm return entirely**.
+
+     Binding consequence: the band's thickness is a CLIENT tunable and the wall paints under the same
+     rules as every other return — sweep-gated, radar-range-gated, phosphor-decaying, and a historical
+     record under amendment 83. It discloses NOTHING: ring geometry is already on the wire from its
+     reveal beat (Story 3.1), so this is presentation of data the client already holds, exactly the
+     posture island returns have held since amendment 69. Only the LIVE ring paints; the dashed
+     next-ring telegraph is a chart annotation, not a physical object, and must not return an echo.
+
+129. **TERRAIN HEIGHT MULTIPLIES THE DEPTH RULE — it does not replace it.** Coast return strength
+     becomes `depth-solidity × height-reflectivity`, so **amendment 78 survives intact**: a big island
+     still reads as a big mass with softer edges, and what height ADDS is that a steep headland reads
+     red where a low sandy island of the SAME SIZE reads blue or green. Both channels are real and
+     neither is subordinate. Height is read from the cycle-59 `HeightRaster` via `sampleHeight` — the
+     ratified elevation authority (Eric ruling 2026-08-06) — and never from the contour polygons,
+     which remain a rendering artifact that is never collided or LOS-tested.
+
+     Explicitly REJECTED: **height replacing depth outright**, which was the most literal read of the
+     story's own AC (*"a low mudflat and a steep headland no longer paint identically"*) and would
+     have prefigured 4.11 by making height the single terrain variable — but it would have SUPERSEDED
+     amendment 78, since a large flat island would then read uniformly weak regardless of size. Also
+     rejected: **height as a hard CEILING with depth filling toward it** (a mudflat could never reach
+     red no matter how deep inland).
+
+     Forward note for Story 4.11: height is now read on the paint path, so the raster access pattern
+     this story establishes is the one shadows inherit. Nothing here computes a shadow, and the
+     `faceShadow` near-face terminator is UNCHANGED — 4.11 owns occlusion.
+
+130. **SEA CLUTTER IS TEXTURE AND NOTHING ELSE — it may never hide a return.** Clutter paints as a
+     weak near-field haze whose concentration FALLS OUT of the 1/d³ surface falloff rather than a
+     hand-placed radius (the story's own AC), and it is tuned weak enough that any real return
+     outranks it under `writeCell`'s max-wins rule. Rationale of record: the reference plates have a
+     bright centre for a real physical reason, so the near field should look like a scope — but the
+     information cost is zero because the region it occupies is inside truesight, where the hull is
+     already visible out the window.
+
+     Explicitly REJECTED: **clutter strong enough to swallow weak returns close in.** It was put to
+     Eric as a real mechanic and declined on the grounds shown with it — the effect only bites inside
+     truesight where you can already see the hull, so it buys a readability cost and almost no
+     gameplay. Also rejected: deferring clutter entirely.
+
+     **Binding implementation consequence, and it is the one that can silently invert this ruling:**
+     clutter's peak intensity must stay strictly below `bands[0].at` even at the noise multiplier's
+     most favourable draw, or a clutter cell can win a `writeCell` against a genuine faint echo and
+     the ruling becomes the option Eric rejected. Any future raise of the clutter coefficient is a
+     DESIGN change, not a tuning change — the same trap amendment 43 flagged for wounded-smoke puff
+     lifetime and amendment 49 flagged for motion scaling.
+
+131. **Assumptions taken by the spec author rather than put to Eric, recorded so they are visible and
+     cheap to overturn.** Both are calibration choices amendment 118 already labels as
+     expected-to-be-tuned, not new mechanics:
+     - **The "mid-size hull" of amendment 118's red→blue crossover is the MINE LAYER AT BROADSIDE**
+       (88u × 20u, so `ext` ≈ 88 at full beam-on aspect). Broadside is the hull as presented at its
+       strongest, which makes the 7/8 crossover the TYPICAL case rather than the best case.
+       Calibrating on bow-on instead would leave a broadside mid hull red past the rim.
+     - **Surf paints as a weak seaward fringe just OUTSIDE the coastline polygon, near-face only**,
+       inheriting the island paint's existing terminator rather than growing a second one. The AC
+       specifies the fringe's location; the near-face inheritance is the consequence of amendments 69
+       and 78 already governing island paints.
+
+132. **Scope discipline of record.** **CLIENT-ONLY: no wire change, no server change,
+     `PROTOCOL_VERSION` UNCHANGED at 30, and the `silhouette` grammar UNTOUCHED** (it has no heatmap
+     at all, so none of this reaches it). No CONFIG combat tunable moves: no damage, reload, hp,
+     range, or catalog value, and **`CONFIG.vision` gains no new constant — Story 4.9 already shipped
+     the one this cycle needs.**
+
+     **THIS CYCLE IS `CONFIG.vision.farRadar`'s FIRST AND ONLY CONSUMER.** Story 4.9 landed that rung
+     (`SIGHT * 1.75`, 577.5u) deliberately unconsumed, naming Story 4.10 as its calibration target in
+     its own source comment. The way it is consumed is load-bearing and narrow: it is an input to
+     FITTING the falloff coefficient, evaluated once where the client tunables are defined, so the
+     crossover EMERGES from the curve and moves automatically if `SIGHT` is ever retuned.
+     **`farRadar` must never appear in a comparison anywhere on the paint path** — not
+     `if (d > farRadar)`, not any other branch against it. Fit the curve; do not branch. That is
+     amendment 118's requirement and 4.9's source comment states it in as many words.
+
+     **Note the sequencing correction:** an earlier draft of this cycle assumed Story 4.9 had not
+     landed and planned to compute 7/8 from `radarRange` locally. 4.9 landed as PR #112 (version
+     0.17.60, PV 29 → 30) before this cycle branched, so the local derivation is REJECTED — a second
+     expression of the same rung is exactly the drift the ladder exists to prevent.
+
+     Amendment 83 (a paint is a historical record), amendment 97 (nothing viewport-derived touches
+     paint creation or retirement) and amendment 98 (the adapter seam must be tested AT THE ADAPTER)
+     all govern unchanged. Per-frame cost is MEASURED at both zoom extremes and REPORTED (amendment
+     99) — this cycle adds three new return sources to a buffer that already costs ~0.95ms at min
+     zoom, so the measurement is a gate, not a formality.
+
+## 2026-08-07 — Correction of record, in-cycle (bmad-dev-auto, cycle 61 — mid-implementation)
+
+133. **AMENDMENT 130's BINDING CLAUSE WAS WRONG AND IS CORRECTED HERE. Eric's RULING is unchanged;
+     only my derivation from it was.** Amendment 130 translated *"clutter is texture and nothing else,
+     it may never hide a return"* into the implementation bound *"clutter's peak must stay strictly
+     below `bands[0].at`."* That bound was written by the spec author, not by Eric, and it is a
+     NON-SEQUITUR: `bands[0].at` is the TRANSPARENCY threshold, so the bound does not make clutter
+     safe — it makes clutter **invisible**. The implementation followed it faithfully and produced a
+     haze that contributes to the intensity field and lights not one pixel. That is neither option
+     Eric was shown: he chose "textural only", and he explicitly declined "no clutter this cycle".
+     Shipping invisible clutter delivers the rejected third thing.
+
+     **The masking fear the bound was defending against does not exist at any level.** `writeCell` is
+     MAX-WINS (`if (!(intensity > g.w[i])) return`), so a clutter cell can only ever RAISE a cell no
+     return had claimed — it can never lower, erase or dim a genuine echo, at any coefficient. The
+     real risk clutter carries is different and is about READING, not hiding: if clutter can reach the
+     same band as a real contact, the operator cannot tell sea state from a hull, which is the "you
+     can't pick it out" complaint in substance.
+
+     **THE CORRECTED BOUND IS TWO-SIDED, and both sides are load-bearing:**
+     - **UPPER — clutter must be GREEN AT EVERY RANGE and can never reach blue:**
+       `clutter × (1 + noise) < bands[1].at`. This is what actually discharges Eric's ruling. Green is
+       *"honestly not sure, could be something tiny"* (amendment 77) — the literally correct register
+       for sea state. Blue would put *"probably a thing"* on empty water, which IS the disclosure
+       failure worth preventing. Note the shipped `surf` coefficient one line above it in
+       `client/src/config.ts` is bounded by exactly this rule and was already correct — clutter should
+       have followed its sibling.
+     - **LOWER — clutter must STRADDLE `bands[0].at` so the noise multiplier SPECKLES it.** A
+       coefficient safely above the threshold paints a solid, uniform green disc around own hull (band
+       colour is verbatim and alpha carries age, not intensity — so every lit clutter cell is the
+       SAME pixel), which reads as a drawn circle, not as sea. A coefficient safely below paints
+       nothing. Only a peak positioned so that `peak × (1 − noise) < bands[0].at < peak × (1 + noise)`
+       makes roughly half the cells light and half stay dark, which is what a haze IS. Sea clutter is
+       therefore the one coefficient in this block that is deliberately tuned to sit ON a threshold
+       rather than clear of one, and that is not sloppiness — it is the mechanism.
+
+     Shipped value: `clutter: 0.13` against `bands[0].at` 0.12, `bands[1].at` 0.36 and `noise` 0.3 —
+     cells range 0.091 to 0.169, so the haze speckles and can never leave the green band. **Both
+     bounds are asserted directly in `client/src/__tests__/radarHeatmap.test.ts`**, including the
+     lower one, because the failure it prevents (invisible clutter) is exactly the defect this
+     amendment exists to correct and a one-sided assertion would not have caught it.
+
+     **General lesson worth keeping, because this shape will recur:** an amendment that states a
+     ruling AND its implementation bound can be right about the ruling and wrong about the bound, and
+     the bound is what gets implemented. When a future amendment translates one of Eric's rulings into
+     a numeric constraint, the constraint is the spec author's claim and is reviewable — it does not
+     inherit the ruling's authority.
+
+134. **`ship.attenHalfRange` IS DELETED, and the gameplay consequence is ALIGNED with a standing
+     principle rather than merely tolerated.** The retired knob scaled the old curve's reference by the
+     observer's LIVE radar range, so an `intelRadar` boon stretched the falloff and made every contact
+     read STRONGER at a given distance. Under the fitted model the point reference is a fixed
+     `pointRef` (558.5u, solved from `CONFIG.vision.farRadar`), so a boosted scope buys REACH and
+     nothing else — the echo from 500u is the same echo whoever is listening.
+
+     That is amendment 116's *"sensor upgrades buy REACH"* principle holding one level deeper than it
+     was written for, and it is a genuine strengthening of amendment 83: no live observer stat reaches
+     the rasterizer at all any more (`RasterCtx.radarRange` is gone with it), so there is one less
+     quantity that could be re-evaluated against live state. Recorded because it IS a real change to
+     what an intel build feels like, and a future cycle should not "restore" it without arguing
+     against 116.
+
+## 2026-08-07 — Cycle 61 review gate: THE NOISE-BOUND LESSON
+
+135. **EVERY COEFFICIENT BOUND ON THE HEATMAP MUST BE PROVED AT THE WORST NOISE DRAW, AND PINNED BY A
+     NOISE-ON TEST.** The cycle-61 review gate found the same defect in two of the three new return
+     sources, and it is the single most reusable finding of this cycle.
+
+     `noiseMul` multiplies a cell's intensity by `1 ± noise` (shipped `noise` 0.3, so up to ×1.3) AFTER
+     the coefficient's bound was computed. Clutter's bound was written noise-aware and was safe; **surf
+     and storm were bounded at their nominal value and shipped over the line:**
+     - `surf` 0.3 × 1.3 = **0.39 > `bands[1].at` (0.36)** — surf painted BLUE, putting *"probably a
+       thing"* on open water within ~310u of the observer.
+     - `storm` 0.6 × 1.3 = **0.78 > `bands[2].at` (0.7)** — the storm wall painted RED, out-reading a
+       hull, in direct contradiction of amendment 128 AND of the config comment asserting it was
+       *"below `bands[2].at` by construction"*.
+
+     **The reason both survived a green 1,868-test suite is the part worth remembering: every bound
+     assertion ran against the noise-OFF `CLEAN` fixture.** The suite proved a strictly weaker
+     statement than the ruling it cited, and did so while reading as thorough. That is the same shape
+     as the cycles 54/55/57 failures (amendments 84, 95, 98) — a green suite exercising the easy path
+     of the thing that actually breaks. Shipped values are now `surf: 0.26`, `storm: 0.5`,
+     `clutter: 0.105`, each bounded with the `× (1 + noise)` factor explicit in its comment, and each
+     re-pinned by a rasterized band-histogram test at the SHIPPED noise level.
+
+     **Standing rule for any future coefficient added to `blip.heatmap.model`:** state the bound as
+     `coefficient × (1 + noise) < threshold`, and pin it with a test that rasterizes at shipped noise
+     and asserts the forbidden band's cell count is ZERO. A bound proved at nominal is not proved.
+
+136. **CLUTTER'S THIRD BOUND, and a correction to amendment 133's cited value.** Amendment 133 ratified
+     the two-sided bound and cited `clutter: 0.13`; the review added a THIRD constraint that moves the
+     shipped value to **0.105**. The bound itself is unchanged — only the number is corrected here.
+
+     The new constraint: `writeCell` is max-wins and hands the winner BOTH intensity and alpha, so a
+     lucky clutter cell (0.13 × 1.3 = 0.169) could outrank the *unluckiest cell of the faintest
+     legitimate echo* (`minPeak` 0.2 × 0.7 = 0.14) and claim its ALPHA — re-aging a decaying echo's
+     cell every revolution. Amendment 133's claim that *"a clutter cell can only ever RAISE a cell no
+     return had claimed"* was therefore not true cell-for-cell. At 0.105 the worst case is 0.1365 <
+     0.14 and the guarantee holds outright. All three bounds now hold simultaneously: straddles
+     `bands[0].at` so the noise speckles it, never reaches blue, never outranks any real return.
+
+     Two further clutter corrections from the same gate, both recorded because they were ruled behaviour
+     that the implementation had only approximated:
+     - **The haze's edge is now curve-decided, not a drawn circle.** Amendment 130 required the
+       near-field concentration to FALL OUT of the 1/d³ falloff rather than a hand-placed radius. With
+       the shared `surfaceRef` (700u) the haze sat at 99.7% of peak at its 100u cutoff, so speckle
+       density stepped from ~26% straight to 0 at a hard radius — exactly the drawn circle the ruling
+       forbade. A clutter-specific `clutterRef` (150u) makes it fade to nothing on its own at ~79u, so
+       `clutterRangeU` is now a pure compute bound with nothing visible at it.
+     - **Sea clutter is SEA state: it no longer paints on land or through islands.** It now carries a
+       frozen occluder shortlist and skips land cells and LOS-blocked cells, which is the standing
+       2026-08-02 "islands block every sensor" ruling applied to it. **The STORM WALL deliberately does
+       NOT get this** — it is ledgered to Story 4.11, which owns occlusion wholesale and will do it
+       against the height raster rather than with a second bounding-circle test.
+     - **One stable seed across clutter paints.** Three live paints with independent seeds lit ~87% of
+       the disc under max-wins instead of ~26%, re-creating the solid disc the straddle exists to
+       prevent. A single stable seed makes stacking idempotent and makes the speckle a property of the
+       PLACE — which is `cellNoise`'s own stated design rationale, so this is the module's existing
+       philosophy applied rather than a new idea.
+
+137. **A ONE-FRAME WEATHER COLLAPSE, found only because the adapter was tested at the adapter
+     (amendment 98 earning its keep).** Both new weather paints opened with the frame's own `from`
+     bearing, a sliver short of the anchor; on the last frame of a revolution the live rotation landed
+     in that gap and `wrapPositive(to − from)` wrapped a nearly-full arc down to ~0.03 rad. Measured:
+     the scope dropped from **3,574 lit texels to 17 for one frame, roughly every other revolution.**
+     Fixed structurally — `openClutter`/`openStorm` now set the anchor internally and no longer accept
+     a `from` argument, so the bug is unrepresentable rather than merely corrected. Recorded because
+     the failure was invisible to every pure-rasterizer test and is precisely the class amendment 98
+     was written for.

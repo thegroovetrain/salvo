@@ -135,6 +135,7 @@ import {
   hullSilhouette,
   transformPolygon,
   type BlipEvent,
+  type HeightRaster,
   type HullId,
   type Island,
   type RadarGrammar,
@@ -167,7 +168,17 @@ import {
   type HeatGrid,
   type IslandPaint,
   type RadarPaint,
+  type RasterCtx,
 } from './radarHeatmap.js';
+import {
+  openClutter,
+  openStorm,
+  rasterizeWeather,
+  weatherCycled,
+  type ClutterPaint,
+  type StormPaint,
+  type StormRing,
+} from './radarSources.js';
 import { SWEEP_TEXTURE_RADIUS, bakeSweepTexture } from './textures.js';
 
 export type { HueFor };
@@ -257,6 +268,24 @@ export interface ViewRect {
   halfH: number;
 }
 
+/**
+ * THE ZONE FIELDS THE STORM WALL READS (Story 4.10, amendment 128) — a
+ * structural subset of `ZoneView` (client/src/sim/zoneView.ts), so this module
+ * never imports the zone layer and main.ts can hand it the already-computed view
+ * verbatim.
+ *
+ * NOTE WHAT IS ABSENT: `next`. Only the LIVE ring is a physical object with
+ * water and wind in it; the dashed next-ring telegraph is a chart annotation and
+ * must never return an echo. Leaving the field off the type is the cheapest
+ * possible enforcement of that.
+ */
+export interface ZoneLike {
+  /** `'idle'` means the timeline is not anchored yet — nothing paints. */
+  state: string;
+  /** The LIVE ring (offset centre, interpolated while closing). */
+  cur: StormRing;
+}
+
 /** The decay inputs shared by every live mark for one frame. */
 interface DecayFrame {
   life: number;
@@ -278,6 +307,13 @@ export class Radar {
   /** Client-known island field (map seed), for landmass returns. `setIslands`
    *  supplies it; it is never on the wire and no server ever sees it. */
   private islands: readonly Island[] = [];
+  /** The cycle-59 height raster (Story 4.10, amendment 129) — the ratified
+   *  elevation authority behind coast reflectivity, so a steep headland reads
+   *  red where a low sandy island of the same size reads blue. Rebuilt locally
+   *  from the map seed exactly as the island field is, so it carries the same
+   *  ZERO disclosure. Null until `setHeightRaster` runs, in which case land
+   *  reflectivity falls back to `landSteep` — the pre-4.10 fill. */
+  private heightRaster: HeightRaster | null = null;
   /** THE `return` PAINT LIST (ruling R1) — world geometry + server timestamps,
    *  re-rasterized in full every frame. Empty in `silhouette` mode. */
   private readonly paints: RadarPaint[] = [];
@@ -288,6 +324,12 @@ export class Radar {
    *  which is what makes a coastline fill in behind the beam instead of
    *  appearing whole the instant the beam clips its edge. */
   private readonly opening = new Map<Island, IslandPaint>();
+  /** The weather paints the beam is CURRENTLY sweeping across (Story 4.10). One
+   *  of each per revolution, opened when the beam crosses the weather anchor
+   *  bearing; their arcs grow behind the beam exactly as an island's does, and
+   *  the previous revolution's paint decays underneath. */
+  private openClutterPaint: ClutterPaint | null = null;
+  private openStormPaint: StormPaint | null = null;
   /** Rotating start index for the island sweep, so the one-bake-per-frame cap
    *  cannot starve an island that sits behind a big one in the array. */
   private bakeCursor = 0;
@@ -468,6 +510,21 @@ export class Radar {
     this.opening.clear();
   }
 
+  /**
+   * Adopt the client-known HEIGHT RASTER (amendment 129) — the elevation
+   * authority behind coast reflectivity, plumbed from the same place and at the
+   * same moment as the island field it belongs to.
+   *
+   * Zero disclosure for the same reason: both sides rebuild it from
+   * `welcome.mapSeed` and it never travels on the wire. It is read ONLY inside
+   * a coverage bake (i.e. at paint creation), never per frame — so a raster
+   * arriving late can change what the NEXT sweep records and can never edit a
+   * paint already on the scope (amendment 83).
+   */
+  setHeightRaster(raster: HeightRaster | null): void {
+    this.heightRaster = raster;
+  }
+
   /** How many blips are currently decaying (debug/tests). `silhouette` only. */
   get liveBlips(): number {
     return this.blips.length;
@@ -481,6 +538,18 @@ export class Radar {
   /** How many of those are island landmasses (debug/tests). */
   get liveIslandPaints(): number {
     return this.paints.filter((p) => p.kind === 'island').length;
+  }
+
+  /** How many of those are SHIP echoes (debug/tests) — the count most assertions
+   *  about the two contact sources actually mean, now that the list also carries
+   *  landmasses and the two weather sources. */
+  get liveShipPaints(): number {
+    return this.paints.filter((p) => p.kind === 'ship').length;
+  }
+
+  /** How many of those are weather (sea clutter + the storm wall) — debug/tests. */
+  get liveWeatherPaints(): number {
+    return this.paints.filter((p) => p.kind === 'clutter' || p.kind === 'storm').length;
   }
 
   /**
@@ -623,6 +692,10 @@ export class Radar {
    *  of `paintsPerContact` marks rather than starting a second one. */
   private enrollPaint(p: RadarPaint): void {
     this.paints.push(p);
+    // Ships key on their contact id; every other source is a SINGLETON TRACK
+    // (one landmass, one haze, one wall), so they all answer to the same
+    // per-track depth — the coastline, the sea state and the storm hold their
+    // ghosts for exactly as long as a contact does.
     const per =
       p.kind === 'ship'
         ? CLIENT_CONFIG.blip.paintsPerContact
@@ -647,6 +720,8 @@ export class Radar {
     const i = this.paints.indexOf(p);
     if (i >= 0) this.paints.splice(i, 1);
     if (p.kind === 'island' && this.opening.get(p.isle) === p) this.opening.delete(p.isle);
+    if (this.openClutterPaint === p) this.openClutterPaint = null;
+    if (this.openStormPaint === p) this.openStormPaint = null;
   }
 
   /** Hide + pool a batch of retired blips. */
@@ -710,6 +785,8 @@ export class Radar {
     this.paints.length = 0;
     this.pending.length = 0;
     this.opening.clear();
+    this.openClutterPaint = null;
+    this.openStormPaint = null;
     this.hideHeat();
   }
 
@@ -725,38 +802,121 @@ export class Radar {
    *  heatmap buffer's extent, used by `paintHeat` and by NOTHING else on this
    *  path. Omitting it falls back to a radar-ring-sized window on the own ship,
    *  which is the pre-cycle-58 behaviour and covers any caller that has no
-   *  camera (tests, and the `silhouette` grammar, which has no buffer at all). */
+   *  camera (tests, and the `silhouette` grammar, which has no buffer at all).
+   *
+   *  `zone` is the client's live zone view (Story 4.10, amendment 128) — the
+   *  fifth and last source of paints. ONLY `zone.cur` is ever read: the live
+   *  ring is a physical object and returns an echo, while the dashed next-ring
+   *  telegraph is a chart annotation and must not. It discloses nothing — ring
+   *  geometry has been on the wire since its reveal beat (Story 3.1). */
   render(
     own: OwnPoint | null,
     serverNow: number,
     contacts: ContactStore | null = null,
     view: ViewRect | null = null,
+    zone: ZoneLike | null = null,
   ): void {
     this.own = own;
     this.view = view;
     const rot = this.updateSweep(own, serverNow);
-    if (this.grammar === 'return') this.renderReturn(own, rot, serverNow, contacts);
+    if (this.grammar === 'return') this.renderReturn(own, rot, serverNow, contacts, zone);
     this.lastRotation = rot;
     this.updateBlips(serverNow);
   }
 
   /** The whole `return` frame: resolve parked echoes, advance the beam across
-   *  the islands and the sighted contacts, drop dead paints, re-rasterize the
-   *  buffer from the survivors, upload. */
+   *  the islands, the sighted contacts and the weather, drop dead paints,
+   *  re-rasterize the buffer from the survivors, upload. */
   private renderReturn(
     own: OwnPoint | null,
     rot: number | null,
     serverNow: number,
     contacts: ContactStore | null,
+    zone: ZoneLike | null,
   ): void {
     this.resolvePending();
     const from = this.lastRotation;
     if (own !== null && rot !== null && from !== null) {
       this.sweepIslands(own, from, rot, serverNow);
       this.sweepContacts(own, from, rot, serverNow, contacts);
+      this.sweepWeather(own, from, rot, serverNow, zone);
     }
     this.prunePaints(serverNow);
     this.paintHeat(own, serverNow);
+  }
+
+  /**
+   * Advance the beam across the two WEATHER sources (Story 4.10, amendments
+   * 128 + 130): the near-field sea-clutter haze and the storm wall.
+   *
+   * Both surround the observer, so unlike an island there is no bearing span to
+   * test — the cycle is anchored on a fixed bearing instead: one paint of each
+   * per beam revolution, its arc growing behind the beam, the previous
+   * revolution's decaying underneath. Everything either paint will ever read is
+   * frozen at this instant (the observer and the island shortlist for the haze,
+   * the ring's centre and radius for the wall), so a closing ring never
+   * retroactively moves a wall already on the scope (amendment 83).
+   *
+   * THE FRAME'S `from` IS DELIBERATELY NOT PASSED ON. Both paints start their
+   * arc at the weather ANCHOR bearing (render/radarSources.ts): the frame's
+   * `from` sits a hair SHORT of it, and `stampCover`'s `wrapPositive(to − from)`
+   * then wrapped a nearly-full arc down to a sliver on the last frame of most
+   * revolutions, collapsing the haze and the wall for one frame. `from` still
+   * decides WHEN to open (`weatherCycled`); it no longer decides where the arc
+   * begins.
+   */
+  private sweepWeather(
+    own: OwnPoint,
+    from: number,
+    to: number,
+    serverNow: number,
+    zone: ZoneLike | null,
+  ): void {
+    if (this.openClutterPaint !== null) this.openClutterPaint.to = to;
+    if (this.openStormPaint !== null) this.openStormPaint.to = to;
+    if (!weatherCycled(from, to)) return;
+    this.closeWeather();
+    this.openClutterPaint = openClutter(
+      own,
+      to,
+      serverNow,
+      this.islands,
+      CLIENT_CONFIG.blip.heatmap.model.clutterRangeU,
+    );
+    this.enrollPaint(this.openClutterPaint);
+    this.openStormWall(own, to, serverNow, zone);
+  }
+
+  /** Bake the wall for the LIVE ring, if there is one and any of it is in radar
+   *  range. `state === 'idle'` (no timeline yet) paints nothing at all. */
+  private openStormWall(
+    own: OwnPoint,
+    to: number,
+    serverNow: number,
+    zone: ZoneLike | null,
+  ): void {
+    if (zone === null || zone.state === 'idle') return;
+    const paint = openStorm(
+      zone.cur,
+      own,
+      this.radarRange,
+      to,
+      serverNow,
+      paintSeed('storm', serverNow),
+      CLIENT_CONFIG.blip.heatmap,
+    );
+    if (paint === null) return;
+    this.openStormPaint = paint;
+    this.enrollPaint(paint);
+  }
+
+  /** Retire the open-arc bookkeeping for both weather sources: the paints stay
+   *  in the list and keep decaying, they simply stop growing. */
+  private closeWeather(): void {
+    if (this.openClutterPaint !== null) this.openClutterPaint.full = true;
+    if (this.openStormPaint !== null) this.openStormPaint.full = true;
+    this.openClutterPaint = null;
+    this.openStormPaint = null;
   }
 
   /**
@@ -881,7 +1041,15 @@ export class Radar {
       to,
       full: false,
       t: serverNow,
-      cover: buildIslandCoverage(isle, this.islands, own, this.radarRange, seed, cfg),
+      cover: buildIslandCoverage(
+        isle,
+        this.islands,
+        own,
+        this.radarRange,
+        seed,
+        cfg,
+        this.heightRaster,
+      ),
     };
     this.opening.set(isle, paint);
     this.enrollPaint(paint);
@@ -954,13 +1122,18 @@ export class Radar {
     heat.sprite.visible = this.paints.length > 0;
     if (!heat.sprite.visible) return;
     const cfg = CLIENT_CONFIG.blip.heatmap;
-    rasterize(heat.grid, this.paints, {
+    const ctx: RasterCtx = {
       now: serverNow,
       lifeMs: blipLifeMs(this.sweepPeriodMs),
       alphaFloor: this.assist ? CLIENT_CONFIG.blip.assistMinAlpha : CLIENT_CONFIG.blip.minAlpha,
-      radarRange: this.radarRange,
       opts: cfg,
-    });
+    };
+    // Two passes over ONE list: ships + islands here, the weather sources in
+    // their own module (render/radarSources.ts). Each module stamps the kinds it
+    // declares, which is what keeps that dependency one-way — see the type-only
+    // import at the top of radarHeatmap.ts.
+    rasterize(heat.grid, this.paints, ctx);
+    rasterizeWeather(heat.grid, this.paints, ctx);
     quantizeInto(heat.grid, cfg.bands, heat.rgba);
     heat.sprite.position.set(heat.grid.originX, heat.grid.originY);
     heat.source.update();
@@ -1013,10 +1186,12 @@ function keyOf(b: LiveBlip): string {
   return b.id;
 }
 
-/** Do two paints belong to the same track (same contact, or same landmass)? */
+/** Do two paints belong to the same track (same contact, same landmass, or the
+ *  one haze / the one wall)? */
 function sameTrack(a: RadarPaint, b: RadarPaint): boolean {
   if (a.kind === 'ship') return b.kind === 'ship' && a.id === b.id;
-  return b.kind === 'island' && a.isle === b.isle;
+  if (a.kind === 'island') return b.kind === 'island' && a.isle === b.isle;
+  return a.kind === b.kind;
 }
 
 /** Trace a closed world-frame polygon (offsets from the blip position). */

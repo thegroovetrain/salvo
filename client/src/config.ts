@@ -4,6 +4,7 @@
 // starts to feel gameplay-load-bearing, promote it to shared CONFIG instead.
 
 import { CONFIG } from '@salvo/shared';
+import { fitPointRef } from './render/radarFalloff.js';
 
 /**
  * Design tokens (Story 1.11) — the single styling source. Colors are authored as
@@ -242,6 +243,78 @@ const TYPE = {
     data: { family: 'mono', tabular: true },
   },
 } as const;
+
+// --- the `return` heatmap's CALIBRATION (Story 4.10, amendments 118 + 127-132) --
+//
+// These four live OUTSIDE the object literal for one reason: `pointRef` is
+// SOLVED from three of them, and a self-reference inside an object literal is
+// not expressible. They are the single source for the values below — nothing
+// re-states them.
+
+/** Attenuated ACROSS extent (u) whose kernel peaks at full intensity — the
+ *  normalizer in `shipPeak`, and one of the fit's three inputs. */
+const HEAT_STRONG_EXTENT = 60;
+
+/** The RED->BLUE boundary: `bands[2].at`, the intensity the calibration hull
+ *  must land on exactly at 7/8 intel range. Stated once, used twice. */
+const HEAT_RED_AT = 0.7;
+
+/**
+ * Asymptotic floor of the POINT (1/d^4) curve — LOWERED 0.45 -> 0.02 by this
+ * story, and the reason is arithmetic, not taste.
+ *
+ * The fit solves `A = bands[2].at * strongExtent / ext` for the attenuation
+ * required at the crossover — for the Mine Layer broadside that is 0.477 — and
+ * then inverts the curve for the reference range. The inversion divides by
+ * `(A - floor)`. At the shipped 0.45 asymptote that denominator is 0.027: a
+ * hundredth of a point of movement in ANY of `bands[2].at`, `strongExtent` or
+ * the calibration hull's `ext` would swing the fitted reference by hundreds of
+ * units, and a floor above 0.477 would make the crossover unreachable at ANY
+ * range. Under `n = 1` the old floor was harmless because the curve did its
+ * work slowly; under `n = 4` it sits on top of the answer.
+ *
+ * THE FLOOR IS NOT DROPPED, ONLY LOWERED (amendment 127 — "signature becomes
+ * stealth" is a RULED-OUT design, not a missing feature). It remains a true
+ * asymptote rather than a clamp, so two different ranges still never attenuate
+ * identically (amendment 64's one-quantity-per-channel rule). What actually
+ * discharges "nothing inside radar range ever paints nothing" is `minPeak`,
+ * which is UNCHANGED at 0.2 and is asserted directly by the suite rather than
+ * trusted to fall out of the curve.
+ */
+const HEAT_SHIP_ATTEN_FLOOR = 0.02;
+
+/**
+ * THE FITTED POINT REFERENCE (u) — amendment 118's calibration, SOLVED, not
+ * typed in. ~558u at the shipped ladder.
+ *
+ * `CONFIG.vision.farRadar` (7/8 intel range = 577.5u) is read HERE AND NOWHERE
+ * ELSE IN THE CLIENT. Story 4.9 shipped that rung deliberately unconsumed and
+ * named this line as its only legitimate consumer: it is an input to FITTING a
+ * coefficient, evaluated once at module load, so the red->blue crossover EMERGES
+ * from the 1/d^4 curve and moves automatically if `SIGHT` is ever retuned.
+ * Writing `if (d > farRadar)` — or any other comparison against that constant —
+ * anywhere on a paint path violates amendment 105 (colour is intensity, never
+ * category) and is the wrong implementation of amendment 118. Fit the curve; do
+ * not branch. `grep -rn farRadar client/src/render/` must stay empty.
+ *
+ * THE CALIBRATION HULL IS THE MINE LAYER AT BROADSIDE (amendment 131): 88u x
+ * 20u, so `ext` = the hull length at full beam-on aspect. Broadside is the hull
+ * as PRESENTED AT ITS STRONGEST, which makes the 7/8 crossover the TYPICAL case
+ * rather than the best one; calibrating bow-on instead would leave a broadside
+ * mid hull red past the rim. The four readings this fit is judged on (pinned in
+ * __tests__/radarFalloff.test.ts, not re-derived here): a mid hull saturates red
+ * by ~465u, still reads blue at the 660u rim, a `minExtent` needle at the rim
+ * falls to `minPeak` and still paints green, and a battleship broadside still
+ * reads red at the rim.
+ */
+const HEAT_POINT_REF = fitPointRef({
+  crossover: CONFIG.vision.farRadar,
+  ext: CONFIG.shipClasses.mineLayer.hull.length,
+  strongExtent: HEAT_STRONG_EXTENT,
+  band: HEAT_RED_AT,
+  coef: 1, // steel broadside is the coefficient table's 1.0 anchor
+  floor: HEAT_SHIP_ATTEN_FLOOR,
+});
 
 export const CLIENT_CONFIG = {
   /** Design tokens (Story 1.11) — the single styling source (see above). */
@@ -1330,16 +1403,40 @@ export const CLIENT_CONFIG = {
        * read as a bitmap, not as a smooth glow.
        *
        * COST SCALES WITH VISIBLE AREA (cycle 58, amendment 99): the buffer
-       * covers the VIEWPORT, not the radar ring, so zooming out costs more.
-       * Measured on a 16:9 screen at 6u/cell — the world extent depends only on
-       * aspect ratio and zoom, not on the pixel resolution, because the base
-       * zoom fits 2 × radar range to the short axis:
-       *   1.5× (zoomed in)  272 × 160 = 44k cells, 170KB, ~0.2 ms/frame
-       *   1.0× (base)       400 × 224 = 90k cells, 350KB, ~0.5 ms/frame
-       *   0.5× (zoomed out) 800 × 448 = 358k cells, 1.4MB, ~0.95 ms/frame
+       * covers the VIEWPORT, not the radar ring, so zooming out costs more. The
+       * cell counts below are exact for a 16:9 screen at 6u/cell — the world
+       * extent depends only on aspect ratio and zoom, not on pixel resolution,
+       * because the base zoom fits 2 × radar range to the short axis:
+       *   1.5× (zoomed in)  272 × 160 = 44k cells, 170KB
+       *   1.0× (base)       400 × 224 = 90k cells, 350KB
+       *   0.5× (zoomed out) 800 × 448 = 358k cells, 1.4MB
        * Halving this knob QUADRUPLES every one of those numbers, so it is not a
-       * free knob — and it is now the lever to reach for if the zoomed-out case
-       * ever needs to get cheaper.
+       * free knob — and it is the lever to reach for if the zoomed-out case ever
+       * needs to get cheaper.
+       *
+       * STORY 4.10 RE-MEASURED, WITH THREE NEW SOURCES IN THE FRAME (amendment
+       * 99 requires the number, not a guess), AND RE-MEASURED AGAIN AT THE
+       * REVIEW GATE because `clutterRef` and the derived storm cap both move the
+       * cell counts. A full `Radar.render` — a generated ~18-island field with
+       * coastline AND surf, six ship echoes, the sea-clutter haze and a live
+       * storm wall, at the shipped 3-deep persistence, warmed through three whole
+       * revolutions and then averaged over 240 frames, in the headless test
+       * environment on one machine:
+       *              buffer only   + clutter   + clutter + storm wall
+       *   1.5×          0.18 ms      0.58 ms          0.90 ms
+       *   1.0×          0.28 ms      0.65 ms          1.10 ms
+       *   0.5×          0.88 ms      1.29 ms          1.70 ms
+       * So the weather sources cost ~0.8 ms/frame at min zoom, split roughly
+       * evenly between the haze (three live discs stamped procedurally every
+       * frame) and the wall (three live paints × baked band cells). Read the
+       * absolutes with the note that the pre-4.10 rows above were measured on the
+       * reference DEVICE at ~0.95 ms for the 0.5× buffer, where this run reads
+       * 0.88 ms for the same work, so the two are now comparable within noise.
+       *
+       * The two levers if it ever needs to come down, in order: `clutterRangeU`
+       * (procedural, every frame, and by `clutterRef` nothing is even visible at
+       * its outer ~20u) and `stormBandU` (cells scale linearly with band
+       * thickness).
        */
       cellU: 6,
       /**
@@ -1362,7 +1459,7 @@ export const CLIENT_CONFIG = {
       bands: [
         { at: 0.12, color: COLORS.echoFaint, alpha: 0.5 },
         { at: 0.36, color: COLORS.echoFuzzy, alpha: 0.7 },
-        { at: 0.7, color: COLORS.echoSolid, alpha: 0.9 },
+        { at: HEAT_RED_AT, color: COLORS.echoSolid, alpha: 0.9 },
       ],
       /**
        * Per-cell intensity jitter, ± as a fraction. THIS is what makes the three
@@ -1373,9 +1470,198 @@ export const CLIENT_CONFIG = {
        * to 0 for clean bands (and for deterministic geometry tests).
        */
       noise: 0.3,
+      /**
+       * THE PHYSICAL RETURN MODEL (Story 4.10, amendments 105-106, 118, 127-132)
+       * — every coefficient and reference range the ONE model needs. The math
+       * itself is render/radarFalloff.ts; this block is only its tuning.
+       *
+       * ONE MODEL, THREE EXPONENTS. Intensity is always
+       * `material coefficient x falloff(geometry) x the source's own shape term`,
+       * and the exponent is chosen by the TARGET'S GEOMETRY, never by its name:
+       * point/ship 1/d⁴, surface/coast+surf+clutter 1/d³, volume/storm 1/d².
+       * That is what makes the taxonomy EMERGENT rather than a lookup — a
+       * warship blazes close and fades far, a squall stays legible across the
+       * map, sea clutter hugs the ship because its COEFFICIENT is tiny even
+       * though it falls off slowly (amendment 105: colour is intensity, NEVER
+       * category).
+       *
+       * THE COEFFICIENTS ARE TUNED, NOT COPIED. Amendment 106 supplies a table
+       * (steel 1.0, rock 0.5, mudflat 0.15, surf 0.06, clutter 0.02) and says in
+       * as many words that it is an assistant handwave and the first thing to
+       * tune. What survived from it is the ORDERING and the rough RATIOS; the
+       * absolute values below are fitted against the shipped band thresholds and
+       * the island `gain`, because those are what actually decide what a captain
+       * sees.
+       */
+      model: {
+        /** Steel broadside — the table's 1.0 anchor, and the coefficient the
+         *  crossover fit is solved against. Moving it re-fits `pointRef`. */
+        ship: 1,
+        /** Terrain at or above `refHeight`: a rock headland. Kept at 1 so a tall
+         *  island's interior still saturates through the island `gain` — this is
+         *  amendment 78's "big red mass", which amendment 129 preserves. */
+        landSteep: 1,
+        /** Terrain at sea level: a mudflat / low sandy island. THE WHOLE POINT of
+         *  amendment 129 is the gap between this and `landSteep` — two islands of
+         *  equal size, one high and one low, must NOT paint identically. At 0.35
+         *  a flat island's interior reads blue near and green far while a steep
+         *  one reads red out to the rim. The handwave table's mudflat/rock ratio
+         *  was 0.3; this is that ratio, tuned up a touch so a low island still
+         *  reads as land rather than as sea state. */
+        landFlat: 0.35,
+        /** Breaking surf. Sized so the fringe is GREEN EVERYWHERE and can never
+         *  reach blue — and THE BOUND IS STATED WITH THE NOISE FACTOR IN IT,
+         *  exactly the way `clutter` states its own: `surf × (1 + noise) <
+         *  bands[1].at` → 0.26 × 1.3 = 0.338 < 0.36. The zero-range attenuation
+         *  term is ~1, so that IS the ceiling. The shipped 0.3 was bounded
+         *  noise-BLIND (0.3 < 0.36 held, but 0.3 × 1.3 = 0.39 did not) and put a
+         *  "probably a thing" register on open water within ~310u of every
+         *  coastline; every test that would have caught it ran the noise-OFF
+         *  fixture. Both halves are now asserted at the worst-case draw AND
+         *  through a rasterized band histogram with the shipped speckle on. */
+        surf: 0.26,
+        /**
+         * Sea clutter. **DESIGN-LOAD-BEARING — NOT A FREE KNOB (amendments 130 +
+         * 133).** This is the ONE coefficient here deliberately tuned to sit ON a
+         * threshold rather than clear of one, and it now satisfies THREE bounds
+         * at once. All three are stated WITH the noise factor, because the
+         * multiplier is applied to a cell's intensity AFTER every coefficient
+         * here is chosen — a bound written noise-blind is not a bound.
+         *
+         * 1. STRADDLE — `peak × (1 − noise) < bands[0].at < peak × (1 + noise)` →
+         *    0.105 × 0.7 = 0.0735 < 0.12 < 0.105 × 1.3 = 0.1365. That speckle IS
+         *    the haze. A coefficient safely ABOVE the threshold paints a solid
+         *    uniform green disc around own hull (band colour is verbatim and
+         *    alpha carries age, not intensity — every lit clutter cell is the
+         *    same pixel), which reads as a drawn circle rather than as sea. A
+         *    coefficient safely BELOW paints nothing at all, which is the defect
+         *    amendment 133 exists to correct.
+         * 2. NEVER BLUE — `peak × (1 + noise) < bands[1].at` → 0.1365 < 0.36.
+         *    This is what discharges Eric's ruling that clutter is texture and
+         *    may never hide a return. Green is "honestly not sure, could be
+         *    something tiny" — the correct register for sea state; blue would put
+         *    "probably a thing" on empty water. Note `surf` above is bounded by
+         *    exactly this rule.
+         * 3. NEVER OUTRANKS THE FAINTEST LEGITIMATE ECHO — `peak × (1 + noise) <
+         *    ship.minPeak × (1 − noise)` → 0.1365 < 0.2 × 0.7 = 0.14. `writeCell`
+         *    is max-wins and hands the WINNER both the intensity AND the alpha,
+         *    so a clutter cell that beat a decaying echo's core would also re-age
+         *    it — a ghost would stop reading as a ghost. This bound closes that;
+         *    it is the reason 0.13 (whose luckiest cell reads 0.169, above the
+         *    unluckiest real core) could not stand.
+         *
+         * Raising this past the blue threshold is a DESIGN change requiring a
+         * fresh ruling: Eric was shown "clutter strong enough to swallow weak
+         * returns close in" as a real mechanic and DECLINED it.
+         *
+         * ALL THREE bounds are asserted in __tests__/radarHeatmap.test.ts, at the
+         * worst-case noise draw and through a rasterized band histogram with the
+         * shipped speckle on. A one-sided, noise-blind assertion is exactly what
+         * let invisible clutter pass its own test.
+         */
+        clutter: 0.105,
+        /**
+         * The storm wall. Bounded the same way its siblings are — WITH the noise
+         * factor: `storm × (1 + noise) < bands[2].at` → 0.5 × 1.3 = 0.65 < 0.7.
+         *
+         * The shipped 0.6 claimed to be below the red threshold "by construction"
+         * and was not: 0.6 × 1.3 = 0.78, so the wall's spine painted RED and the
+         * weather out-read a hull, directly against amendment 128. At 0.5 the
+         * wall is a solid BLUE band with a green shoulder at every range inside
+         * the scope and can never reach red at any draw.
+         */
+        storm: 0.5,
+        /**
+         * Reference range (u) of the POINT curve — SOLVED, never typed in. See
+         * the HEAT_POINT_REF comment above the object: this is the only place in
+         * the client that reads `CONFIG.vision.farRadar`, and it reads it to FIT
+         * a curve rather than to compare against it.
+         */
+        pointRef: HEAT_POINT_REF,
+        /**
+         * Reference range (u) of the SURFACE curve (coast, surf, clutter).
+         *
+         * Deliberately LONGER than the point reference and on a shallower
+         * exponent, which is the physics doing the work: an extended target's
+         * illuminated area grows with range, so coastline holds its strength far
+         * better than a hull does. Tuned so a fully solid STEEP interior still
+         * clears `bands[2].at` at the 660u rim through the island `gain`
+         * (1.4 × 1.0 × 0.57 = 0.79) — amendment 78's regression pin — while a
+         * FLAT one at the same range lands in blue/green.
+         */
+        surfaceRef: 700,
+        /**
+         * Reference range (u) of the SURFACE curve FOR SEA CLUTTER ONLY — and it
+         * exists because amendment 130 requires the haze's concentration to fall
+         * out of the 1/d³ curve rather than out of a hand-placed radius.
+         *
+         * On the shared `surfaceRef` of 700 the clutter return is still at 99.7%
+         * of its peak at the 100u compute bound, so the speckle density held flat
+         * across the whole disc and then STOPPED at a hard circle — the drawn
+         * edge the amendment forbids, dressed up as a falloff. At 150 the curve
+         * does the work: 0.105 at the ship, 0.082 at 100u whose luckiest draw is
+         * 0.107 < `bands[0].at`, so the density grades from ~26% of cells lit at
+         * the hull to ZERO at ~79u. The haze ends where the physics ends.
+         *
+         * Coast and surf keep `surfaceRef` — they are the extended targets that
+         * reference was fitted for. Sea state is the near-field return of the
+         * water immediately around the hull, and a shorter reference is what says
+         * so.
+         */
+        clutterRef: 150,
+        /** Reference range (u) of the VOLUME curve (the storm wall). Longest of
+         *  the three on the shallowest exponent: a squall genuinely does stay
+         *  legible clear across the map, which is precisely why amendment 128
+         *  paints the WALL and not the AREA — an area return under this curve
+         *  would own half the scope late-match and bury every contact in it. */
+        volumeRef: 900,
+        /** Asymptotic floor shared by the SURFACE and VOLUME curves (ships keep
+         *  their own, `ship.attenFloor`, because the fit is solved against it).
+         *  Small for the same conditioning reason, and still an asymptote. */
+        floor: 0.05,
+        /**
+         * Quantized `HeightRaster` height (0-255) at which terrain reaches
+         * `landSteep`. Measured against the shipped generator rather than
+         * guessed: sampled interiors run min 0 / median ~26-45 / p90 ~97-143 /
+         * max 255 across seeds, with per-island peaks from 7 (a sandbar) to 255
+         * (a big ridge). 90 therefore puts genuine highland at full reflectivity
+         * while leaving the low islands the whole gradient below it.
+         */
+        refHeight: 90,
+        /**
+         * How far seaward of a coastline surf paints (u) — a THIN fringe, ~5
+         * cells. It is deliberately narrower than one cell of slack around the
+         * bounding-circle regression fixtures: surf must read as a line ON the
+         * coast, never as a halo that could be mistaken for the island being
+         * bigger than it is.
+         */
+        surfBandU: 30,
+        /**
+         * PURE COMPUTE bound (u) on the clutter disc — and with `clutterRef` in
+         * place, NOTHING IS VISIBLE AT IT. The haze's own curve takes the
+         * luckiest draw below `bands[0].at` at ~79u (0.082 × 1.3 = 0.107 < 0.12),
+         * so the fade is decided by the falloff exactly as amendment 130 requires
+         * and this number only decides where the loop stops paying for cells that
+         * cannot light. 100u leaves ~21u of slack past the last lit cell, so a
+         * retune of `clutter`, `noise` or `bands[0].at` has room to move before
+         * the disc edge could become visible.
+         *
+         * It is still the one knob here with a per-frame price tag: clutter
+         * stamps PROCEDURALLY every frame (no baked list), for every live haze,
+         * so its cost is `π × r² / cellU²` cells × the paint depth. At 100u that
+         * is ~870 cells per haze; doubling the radius quadruples that.
+         */
+        clutterRangeU: 100,
+        /** Full thickness (u) of the storm wall band, centred on the live ring
+         *  radius. A fixed thickness is the whole of amendment 128: the wall is a
+         *  physical object of its own size, not a region whose extent grows as
+         *  the ring closes. */
+        stormBandU: 60,
+      },
       /** CONTACT ECHO KERNEL (ruling R4). The aspect channel amendment 66
        *  ratified, unchanged — hull geometry × relative bearing × range and
-       *  nothing else. What is new is that the kernel has INTERNAL structure. */
+       *  nothing else. What is new is that the kernel has INTERNAL structure,
+       *  and (Story 4.10) that its range term is the model's POINT curve. */
       ship: {
         /** Smallest drawable ACROSS extent (u). A needle bow-on at the rim is a
          *  weak contact, never an absent one. */
@@ -1386,28 +1672,40 @@ export const CLIENT_CONFIG = {
         depthFrac: 0.5,
         /** Smallest drawable range depth (u). */
         minDepth: 7,
-        /** Asymptotic floor of the attenuation curve — the strength a return at
-         *  infinite range would approach, never reach. Deliberately an asymptote
-         *  and not a `Math.max` clamp: a hard floor would make two different
-         *  ranges paint identically, colliding with amendment 64's rule that one
-         *  channel carries return strength and nothing else shares it. */
-        attenFloor: 0.45,
-        /** Range at which the above-floor part of the curve has halved, as a
-         *  fraction of the observer's radar range. At 0.5 a rim contact reads at
-         *  ~0.63 of its point-blank strength — a clear "far", well short of the
-         *  vanishing act a physical 1/r⁴ law would produce. */
-        attenHalfRange: 0.5,
+        /** Asymptotic floor of the POINT attenuation curve — the strength a
+         *  return at infinite range would approach, never reach. Deliberately an
+         *  asymptote and not a `Math.max` clamp: a hard floor would make two
+         *  different ranges paint identically, colliding with amendment 64's rule
+         *  that one channel carries return strength and nothing else shares it.
+         *  Lowered 0.45 → 0.02 by Story 4.10 — see HEAT_SHIP_ATTEN_FLOOR above
+         *  for why the 1/d⁴ fit requires it and why the floor SURVIVES. */
+        attenFloor: HEAT_SHIP_ATTEN_FLOOR,
         /** Attenuated ACROSS extent (u) whose kernel peaks at full intensity —
          *  i.e. earns a red core. 60u is deliberately well under a broadside
          *  battleship (124u) and well over a bow-on needle: the scale has to
          *  SATURATE on genuinely big echoes rather than reserve its top end for
-         *  a hull nobody ever presents. */
-        strongExtent: 60,
+         *  a hull nobody ever presents. It is also the fit's normalizer (see
+         *  HEAT_STRONG_EXTENT): moving it moves the red→blue crossover, which is
+         *  why there is exactly one of it.
+         *
+         *  (Story 4.10 RETIRED the sibling `attenHalfRange`. It scaled the old
+         *  hyperbola by the observer's LIVE radar range; the model's reference is
+         *  `model.pointRef`, fitted once. Consequence of record: an `intelRadar`
+         *  boon now buys REACH without restretching the falloff — a hull at 500u
+         *  reads the same whatever the scope's rim is — and no live observer stat
+         *  reaches the rasterizer any more, which strengthens amendment 83.) */
+        strongExtent: HEAT_STRONG_EXTENT,
         /** Floor on a kernel's PEAK intensity. Above `bands[0].at` with enough
          *  headroom that the noise multiplier cannot push the weakest legitimate
          *  return under the transparent threshold: 0.2 × (1 − 0.3) = 0.14 > 0.12.
          *  Raising `noise` past ~0.4 without raising this makes faint contacts
-         *  flicker in and out of existence between paints. */
+         *  flicker in and out of existence between paints.
+         *
+         *  UNCHANGED BY THE 1/d⁴ MODEL, AND NOW THE REAL GUARANTEE (amendment
+         *  127): the curve got much steeper, so this floor — not the asymptote —
+         *  is what discharges "nothing inside radar range ever paints nothing".
+         *  Dropping it to make signature into stealth is a RULED-OUT design, not
+         *  a realism correction; do not re-propose it. */
         minPeak: 0.2,
       },
       /** ISLAND LANDMASS FILL (amendments 69 + 78, ruling R5). Pure client
@@ -1442,11 +1740,26 @@ export const CLIENT_CONFIG = {
          *  shadow rather than as a drawn edge. Beyond the ramp the far side
          *  paints NOTHING — the near-face-only physics is unchanged. */
         terminator: 0.3,
-        /** Hard cap on covered cells baked per island paint. At 6u cells that is
-         *  ~93,600u² of solid land, comfortably past the largest landmass the
-         *  generator can produce; it exists so a future map retune cannot turn
-         *  one coverage bake into an unbounded loop. */
+        /** Hard cap on covered LAND cells baked per island paint. At 6u cells
+         *  that is ~93,600u² of solid land, comfortably past the largest landmass
+         *  the generator can produce; it exists so a future map retune cannot
+         *  turn one coverage bake into an unbounded loop.
+         *
+         *  IT IS LAND-ONLY, AND THAT IS THE FIX (Story 4.10 review gate). Surf
+         *  rides the same bake, so a single shared budget put the fringe in
+         *  competition with the coastline — and because the scan is ROW-MAJOR,
+         *  the cells a big island lost were its southern edge, silently. Land
+         *  coverage must not be a function of whether surf is enabled, so the two
+         *  sources now draw on separate budgets and neither can starve the other. */
         maxCells: 2600,
+        /** Hard cap on covered SURF cells per island paint — the fringe's own
+         *  runaway guard, sized against the geometry rather than guessed. A near
+         *  face at the land cap has a coastline on the order of 2,000u; a
+         *  `surfBandU` (30u) fringe on it is ~60,000u², i.e. ~1,650 cells at 6u.
+         *  1,800 clears that with slack while staying well under the land budget,
+         *  which is the right ordering: the coastline is the object, the surf is
+         *  its trim. */
+        surfMaxCells: 1800,
         /** Live island paints retained per island. Each revolution of the beam
          *  opens exactly one, so this is the island equivalent of
          *  `paintsPerContact` and lands at the same `persistSweeps` depth: the

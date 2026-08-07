@@ -641,3 +641,13 @@ terms and **both are ACCEPTED AS SHIPPED**: *"Fine on both. That's fine."* They 
 worse than the flaw (it would let dazzle deafen again) and what the real lever on the second is
 (fewer distinct gains, not a wire change). The other two cycle-60 entries — the soft ownership latch
 and the permanently-invisible straight torpedo — remain OPEN.
+
+### 2026-08-07 — cycle 61 (Story 4-10, the physical return model)
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-10-the-physical-return-model.md`
+  summary: THE STORM WALL PAINTS THROUGH ISLANDS — it is the one radar return with no LOS test, and this is deliberate, not an oversight. Ship echoes, coast returns, surf and (as of the cycle-61 review gate) sea clutter all obey the standing 2026-08-02 "islands block every sensor at all ranges" ruling; the storm band does not, so a stretch of the closing wall standing behind a headland still paints. NOT FIXED HERE because Story 4-11 owns occlusion wholesale and will do it against the cycle-59 height raster with a real shadow length — adding a second bounding-circle LOS test now would be work 4-11 immediately deletes, and it would cost per-cell segment tests along the whole in-range arc of a ring that can be thousands of units around.
+  evidence: `client/src/render/radarSources.ts` `walkRing` emits band cells with no `islandBlocksSegment` call and no occluder shortlist, where `buildIslandCoverage` (`radarHeatmap.ts`) and `stampClutter` both carry one. Raised independently by both the blind adversarial hunter and the edge-case hunter at the step-04 gate; the deferral was a spec-level decision, not a miss.
+
+- source_spec: `_bmad-output/implementation-artifacts/spec-4-10-the-physical-return-model.md`
+  summary: THE PER-FRAME COST GATE HAS NEVER BEEN TAKEN ON THE REFERENCE DEVICE, only in a headless harness. Cycle 61 measured 1.70 ms at 0.5x zoom (buffer 0.88 ms + weather ~0.8 ms) against a 2.0 ms budget, and the harness's buffer-only figure (0.88 ms) now agrees with the shipped reference-device number (0.95 ms) within noise — which is why this cycle passed its gate honestly rather than by the cross-environment extrapolation an earlier draft attempted. But amendment 99's standing rule says "on the reference device", and no run on that device exists for any radar cycle since the figure was first recorded. Every arc story re-affirms this rule, and 4-11 adds SERVER cost at 20Hz on top, so the gap compounds.
+  evidence: `client/src/config.ts` `cellU` cost-table comment (harness-measured); amendment 99; the Story 4-10 spec's Block-If names 2.0 ms at min zoom without naming the machine. Raised by the blind adversarial hunter at the step-04 gate.

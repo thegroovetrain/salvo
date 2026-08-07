@@ -177,15 +177,23 @@ import {
   pointInIsland,
   nearestCoastPoint,
   perpendicularExtent,
+  sampleHeight,
   segCircleHit,
   transformPolygon,
   wrapPositive,
+  type HeightRaster,
   type HullId,
   type Island,
   type Vec2,
 } from '@salvo/shared';
 import { clamp01 } from '../util/math.js';
 import { blipAlpha } from './phosphor.js';
+import { POINT, SURFACE, attenuation, heightReflectivity } from './radarFalloff.js';
+// TYPE-ONLY, and that is what keeps the dependency one-way. render/radarSources.ts
+// imports this module's grid primitives at RUNTIME; this module needs only the
+// SHAPE of the two paints it does not stamp, so the import erases at compile time
+// and there is no module cycle. `rasterizeWeather` (over there) stamps them.
+import type { ClutterPaint, StormPaint } from './radarSources.js';
 
 const TAU = Math.PI * 2;
 
@@ -491,10 +499,8 @@ export interface ShipEchoOpts {
   depthFrac: number;
   /** Smallest drawable range depth (u). */
   minDepth: number;
-  /** Asymptotic floor of the attenuation curve (strictly > 0, never reached). */
+  /** Asymptotic floor of the POINT curve (strictly > 0, never reached). */
   attenFloor: number;
-  /** Range at which the above-floor part has halved, as a fraction of radar range. */
-  attenHalfRange: number;
   /** Attenuated ACROSS extent (u) that reads as a full-strength core. */
   strongExtent: number;
   /** Floor on a kernel's PEAK intensity, so the weakest echo still paints. */
@@ -511,8 +517,53 @@ export interface IslandEchoOpts {
   gain: number;
   /** Terminator ramp width, as a fraction of the island's bounding radius. */
   terminator: number;
-  /** Hard cap on covered cells per island paint. */
+  /** Hard cap on covered LAND cells per island paint. */
   maxCells: number;
+  /** Hard cap on covered SURF cells per island paint — a SEPARATE budget, so
+   *  the fringe can never starve the coastline out of a row-major scan. */
+  surfMaxCells: number;
+}
+
+/**
+ * THE PHYSICAL RETURN MODEL's tuning (Story 4.10, amendments 105-106) —
+ * per-material coefficients, the three geometry reference ranges, and the four
+ * world-space extents the new sources need. The MATH is render/radarFalloff.ts;
+ * every source in the grammar composes
+ * `coefficient × falloff(geometry) × its own shape term` through it, and no
+ * source carries a private attenuation formula.
+ */
+export interface ReturnModelOpts {
+  /** Steel broadside — the coefficient table's 1.0 anchor (POINT geometry). */
+  ship: number;
+  /** Terrain at or above `refHeight` (SURFACE). */
+  landSteep: number;
+  /** Terrain at sea level (SURFACE) — amendment 129's other end. */
+  landFlat: number;
+  /** Breaking surf (SURFACE). */
+  surf: number;
+  /** Sea clutter (SURFACE) — bounded by amendment 130, see the config comment. */
+  clutter: number;
+  /** The storm wall (VOLUME). */
+  storm: number;
+  /** Reference range (u) of the POINT curve — FITTED, never typed in. */
+  pointRef: number;
+  /** Reference range (u) of the SURFACE curve (coastline + surf). */
+  surfaceRef: number;
+  /** Reference range (u) of the SURFACE curve for SEA CLUTTER — shorter, so the
+   *  haze's near-field concentration and its fade both fall out of the curve. */
+  clutterRef: number;
+  /** Reference range (u) of the VOLUME curve. */
+  volumeRef: number;
+  /** Asymptotic floor shared by the SURFACE and VOLUME curves. */
+  floor: number;
+  /** Quantized raster height (0-255) at which `landSteep` is reached. */
+  refHeight: number;
+  /** How far seaward of a coastline surf paints (u). */
+  surfBandU: number;
+  /** Compute bound (u) on the clutter disc — not its visual extent. */
+  clutterRangeU: number;
+  /** Full thickness (u) of the storm wall band. */
+  stormBandU: number;
 }
 
 /** Everything the rasterizer needs from CLIENT_CONFIG. */
@@ -520,50 +571,58 @@ export interface HeatmapOpts {
   cellU: number;
   noise: number;
   bands: readonly HeatBand[];
+  model: ReturnModelOpts;
   ship: ShipEchoOpts;
   island: IslandEchoOpts;
 }
 
 /**
- * Range attenuation at `dist` for an observer whose radar reaches `radarRange`.
+ * A SHIP IS A POINT TARGET: 1/d⁴ (amendment 106).
  *
- * Carried forward from the retired returnMarks.ts unchanged, floor and all:
- * STRICTLY DECREASING everywhere, with the floor as an ASYMPTOTE rather than a
- * clamp so two different ranges never attenuate identically.
- *
- *     atten(d) = floor + (1 − floor) / (1 + d / (halfRange · radarRange))
+ * This REPLACES cycle 52's `rangeAttenuation`, whose hyperbola was explicitly
+ * not physical and whose reference was a fraction of the observer's LIVE radar
+ * range. The reference is now `model.pointRef`, fitted once so the red→blue
+ * crossover lands on the 7/8 rung (amendment 118) — so nothing here reads a
+ * live observer stat, and no range constant is ever compared against.
  */
-export function rangeAttenuation(dist: number, radarRange: number, o: ShipEchoOpts): number {
-  const ref = o.attenHalfRange * radarRange;
-  if (!(ref > 0)) return 1;
-  return o.attenFloor + (1 - o.attenFloor) / (1 + Math.max(0, dist) / ref);
+function shipAtten(dist: number, o: HeatmapOpts): number {
+  return attenuation(dist, o.model.pointRef, POINT, o.ship.attenFloor);
+}
+
+/**
+ * COASTLINE, SURF AND CLUTTER ARE SURFACE TARGETS: 1/d³ (amendment 106).
+ * Exported because the island bake and the weather sources are three callers of
+ * one curve — the model is a module, not a copied expression.
+ */
+export function surfaceAtten(dist: number, m: ReturnModelOpts): number {
+  return attenuation(dist, m.surfaceRef, SURFACE, m.floor);
 }
 
 /**
  * The kernel's PEAK intensity — what its core cell reads before noise.
  *
- * Aspect-projected `ext`, attenuated by range, normalized against
- * `strongExtent` (amendment 66's channel, unchanged: hull geometry × relative
- * bearing × range and NOTHING else — never boons, hp or damage state). The
- * `minPeak` floor is what keeps the weakest legitimate return visible as a
- * green speck rather than vanishing under `bands[0].at`.
+ * Aspect-projected `ext` × the material coefficient, attenuated on the POINT
+ * curve, normalized against `strongExtent` (amendment 66's channel, unchanged:
+ * hull geometry × relative bearing × range and NOTHING else — never boons, hp
+ * or damage state). The `minPeak` floor is what keeps the weakest legitimate
+ * return visible as a green speck rather than vanishing under `bands[0].at`,
+ * and under 1/d⁴ it is doing far more work than it used to (amendment 127: the
+ * floors survive the physics — a small hull bow-on at the rim must still
+ * paint).
  */
-export function shipPeak(ext: number, dist: number, radarRange: number, o: ShipEchoOpts): number {
-  const strong = o.strongExtent > 0 ? o.strongExtent : 1;
-  const raw = (Math.max(0, ext) * rangeAttenuation(dist, radarRange, o)) / strong;
-  return clamp01(Math.max(o.minPeak, raw));
+export function shipPeak(ext: number, dist: number, o: HeatmapOpts): number {
+  const strong = o.ship.strongExtent > 0 ? o.ship.strongExtent : 1;
+  const raw = (o.model.ship * Math.max(0, ext) * shipAtten(dist, o)) / strong;
+  return clamp01(Math.max(o.ship.minPeak, raw));
 }
 
 /** The kernel's two semi-axes (u): ACROSS the bearing (the `ext` channel) and
- *  ALONG it (the scope's range smear, floored so a needle still has a body). */
-export function shipAxes(
-  ext: number,
-  dist: number,
-  radarRange: number,
-  o: ShipEchoOpts,
-): { across: number; along: number } {
-  const across = Math.max(o.minExtent, Math.max(0, ext) * rangeAttenuation(dist, radarRange, o));
-  return { across, along: Math.max(o.minDepth, across * o.depthFrac) };
+ *  ALONG it (the scope's range smear, floored so a needle still has a body).
+ *  Size rides the SAME curve as strength — on a real set they are one quantity
+ *  (amendment 74), so a distant hull shrinks as it dims. */
+export function shipAxes(ext: number, dist: number, o: HeatmapOpts): { across: number; along: number } {
+  const across = Math.max(o.ship.minExtent, Math.max(0, ext) * shipAtten(dist, o));
+  return { across, along: Math.max(o.ship.minDepth, across * o.ship.depthFrac) };
 }
 
 /**
@@ -616,18 +675,12 @@ export interface ShipPaint {
  * `dist`, so it is byte-stable across the paint's whole decay and against every
  * later position of the observer.
  */
-export function stampShip(
-  g: HeatGrid,
-  p: ShipPaint,
-  alpha: number,
-  radarRange: number,
-  o: HeatmapOpts,
-): void {
-  const { across, along } = shipAxes(p.ext, p.dist, radarRange, o.ship);
+export function stampShip(g: HeatGrid, p: ShipPaint, alpha: number, o: HeatmapOpts): void {
+  const { across, along } = shipAxes(p.ext, p.dist, o);
   const floor = g.cellU * 0.85;
   const ax = Math.max(floor, along / 2);
   const ay = Math.max(floor, across / 2);
-  const peak = shipPeak(p.ext, p.dist, radarRange, o.ship);
+  const peak = shipPeak(p.ext, p.dist, o);
   const cos = Math.cos(p.bearing);
   const sin = Math.sin(p.bearing);
   const reach = Math.max(ax, ay);
@@ -656,8 +709,10 @@ export function stampShip(
 
 // --- 5. island landmass -------------------------------------------------------
 
-/** One covered land cell of an island paint: absolute world cell, its baked
- *  intensity, and the observer bearing that has to be swept before it paints. */
+/** One covered cell of a baked paint: absolute world cell, its baked intensity,
+ *  and the observer bearing that has to be swept before it paints. Shared by the
+ *  island bake (land + surf) and the storm band (render/radarSources.ts) — the
+ *  arc-gated cover list is one primitive, not one per source. */
 export interface CoverCell {
   gx: number;
   gy: number;
@@ -677,13 +732,20 @@ export interface IslandPaint {
   full: boolean;
   t: number;
   /** Baked coverage (built once, from the observer at paint time). The bake
-   *  freezes intensity, `faceShadow` and cross-island LOS; nothing in it is ever
-   *  re-evaluated against live state (amendment 83). There is no sight term in
-   *  it any more — the scope paints everything in radar range (amendment 88). */
+   *  freezes intensity, `faceShadow`, terrain height and cross-island LOS;
+   *  nothing in it is ever re-evaluated against live state (amendment 83). There
+   *  is no sight term in it any more — the scope paints everything in radar
+   *  range (amendment 88). Story 4.10: it also carries the SURF fringe, which
+   *  rides the same bake because it inherits the same terminator and the same
+   *  occluder shortlist — a second scan would double the only expensive thing in
+   *  this file. */
   cover: readonly CoverCell[];
 }
 
-export type RadarPaint = ShipPaint | IslandPaint;
+/** Every paint the `return` grammar can hold. The last two are declared in
+ *  render/radarSources.ts and stamped there (`rasterizeWeather`); they appear
+ *  here only so the ONE paint list stays a single typed union. */
+export type RadarPaint = ShipPaint | IslandPaint | ClutterPaint | StormPaint;
 
 /**
  * The terminator factor at `p`: 1 on the observer-facing side, ramping to 0
@@ -745,14 +807,29 @@ export function solidity(p: Vec2, isle: Island, depthFullU: number): number {
  * than this island's far side AND its bounding circle must lie across the
  * observer→island corridor. On a map whose landmasses are placed with a
  * CHANNEL_MIN gap this is almost always empty.
+ *
+ * `pad` WIDENS THE CORRIDOR, and it is not optional book-keeping (Story 4.10
+ * review gate). The bake now covers cells up to `surfBandU` OUTSIDE the island's
+ * bounding circle, so a shortlist drawn at exactly `isle.r` can miss an occluder
+ * that only crosses the observer→surf-cell corridor within that annulus — and a
+ * missed candidate is not a slack answer, it is a per-cell LOS test that never
+ * runs at all. The shortlist is the ONLY thing standing between a surf cell and
+ * an island it is genuinely behind, so it is widened by exactly what the scan
+ * was widened by.
  */
-export function occluderCandidates(isle: Island, field: readonly Island[], obs: Vec2): Island[] {
+export function occluderCandidates(
+  isle: Island,
+  field: readonly Island[],
+  obs: Vec2,
+  pad = 0,
+): Island[] {
+  const reach = isle.r + Math.max(0, pad);
   const d = Math.hypot(isle.x - obs.x, isle.y - obs.y);
   return field.filter(
     (other) =>
       other !== isle &&
-      Math.hypot(other.x - obs.x, other.y - obs.y) < d + isle.r &&
-      segCircleHit(obs, isle, other, other.r + isle.r) !== null,
+      Math.hypot(other.x - obs.x, other.y - obs.y) < d + reach &&
+      segCircleHit(obs, isle, other, other.r + reach) !== null,
   );
 }
 
@@ -777,28 +854,129 @@ function inLand(p: Vec2, isle: Island): boolean {
   return pointInIsland(p, isle);
 }
 
-/** Intensity of one candidate land cell, or 0 if it does not paint at all. */
-function coverIntensity(
+/**
+ * How much of its full strength surf keeps at the SEAWARD edge of the band. The
+ * fringe fades outward rather than ending on a drawn line — the same reasoning
+ * as the island terminator's ramp, one scale down.
+ */
+const SURF_EDGE = 0.5;
+
+/**
+ * Intensity of one LAND cell (amendment 129: depth × height, and both are real).
+ *
+ * `minLand` remapped, not clamped: land is land, so the waterline still returns
+ * something, but the interior keeps the full range of the scale above it.
+ * `gain` is what lets a solid interior stay RED out to the rim instead of
+ * sliding to blue with range — amendment 78 asked for a big red mass, not a big
+ * mass that is only red when you are on top of it.
+ *
+ * HEIGHT MULTIPLIES THAT, IT DOES NOT REPLACE IT. Height-replaces-depth was the
+ * most literal read of the story's own AC and was REJECTED, because a large flat
+ * island would then read uniformly weak regardless of size and amendment 78
+ * would be superseded. So a big island is still a big mass, and what height
+ * decides is HOW RED. Elevation comes from the cycle-59 raster via `sampleHeight`
+ * — the ratified authority — and never from the contour polygons. With no raster
+ * (a caller that never supplied one) the term is `landSteep`, i.e. exactly the
+ * pre-4.10 fill, so the height channel adds and never subtracts.
+ */
+function landIntensity(
   p: Vec2,
   isle: Island,
-  obs: Vec2,
-  radarRange: number,
+  dist: number,
+  shadow: number,
   o: HeatmapOpts,
-  occ: readonly Island[],
+  raster: HeightRaster | null,
 ): number {
-  const dist = Math.hypot(p.x - obs.x, p.y - obs.y);
+  const isl = o.island;
+  const sol = isl.minLand + (1 - isl.minLand) * solidity(p, isle, isl.depthFullU);
+  const refl =
+    raster === null ? o.model.landSteep : heightReflectivity(sampleHeight(raster, p.x, p.y), o.model);
+  return clamp01(sol * refl * isl.gain * shadow * surfaceAtten(dist, o.model));
+}
+
+/**
+ * Intensity of one SURF cell: a weak seaward fringe just outside the coastline
+ * (amendment 131), tapering across the band.
+ *
+ * NEAR FACE ONLY, and by INHERITANCE rather than by a second rule — the caller
+ * has already applied the island's own terminator and occluder shortlist, so
+ * surf goes into shadow exactly where the coast it breaks on does. Its
+ * coefficient is bounded below `bands[1].at`, so surf is GREEN at every range:
+ * "honestly not sure, could be something tiny" is the literally correct read of
+ * a line of breakers.
+ */
+function surfIntensity(coast: number, dist: number, shadow: number, o: HeatmapOpts): number {
+  const m = o.model;
+  const taper = 1 - (1 - SURF_EDGE) * clamp01(coast / m.surfBandU);
+  return clamp01(m.surf * taper * shadow * surfaceAtten(dist, m));
+}
+
+/**
+ * Per-bake scratch: the occluder shortlist, the height raster, and `land` — the
+ * OUT-parameter that tells the caller which budget the cell it just priced draws
+ * on. It is a field on an object the bake allocates once rather than a returned
+ * pair because `coverIntensity` runs per CELL and a per-cell allocation is
+ * exactly the cost the scan is written to avoid.
+ */
+interface BakeCtx {
+  occ: readonly Island[];
+  raster: HeightRaster | null;
+  /** Set by `coverIntensity`: was the last priced cell LAND (vs. surf)? */
+  land: boolean;
+}
+
+/**
+ * Intensity of one candidate cell of an island paint — LAND or SURF — or 0 if
+ * it does not paint at all. Also records which of the two it was on `ctx.land`.
+ *
+ * Ordered cheapest-first, and the ordering is the perf contract: the terminator
+ * is scalar arithmetic, membership is a broadphased polygon test, the coastline
+ * distance is a polygon walk, and the LOS shortlist is normally empty.
+ */
+function coverIntensity(p: Vec2, isle: Island, obs: Vec2, o: HeatmapOpts, ctx: BakeCtx): number {
   const shadow = faceShadow(p, isle, obs, o.island.terminator);
   if (shadow <= 0) return 0;
-  if (!inLand(p, isle)) return 0;
-  for (const other of occ) if (islandBlocksSegment(obs, p, other)) return 0;
-  const isl = o.island;
-  // `minLand` remapped, not clamped: land is land, so the waterline still
-  // returns something, but the interior keeps the full range of the scale above
-  // it. `gain` is what lets a solid interior stay RED out to the rim instead of
-  // sliding to blue with range — amendment 78 asked for a big red mass, not a
-  // big mass that is only red when you are on top of it.
-  const sol = isl.minLand + (1 - isl.minLand) * solidity(p, isle, isl.depthFullU);
-  return clamp01(sol * isl.gain * shadow * rangeAttenuation(dist, radarRange, o.ship));
+  const land = inLand(p, isle);
+  ctx.land = land;
+  const coast = land ? 0 : nearestCoastPoint(p, isle).dist;
+  if (!land && coast > o.model.surfBandU) return 0;
+  for (const other of ctx.occ) if (islandBlocksSegment(obs, p, other)) return 0;
+  const dist = Math.hypot(p.x - obs.x, p.y - obs.y);
+  return land
+    ? landIntensity(p, isle, dist, shadow, o, ctx.raster)
+    : surfIntensity(coast, dist, shadow, o);
+}
+
+/** The two INDEPENDENT cell budgets one bake draws on. */
+interface CellBudget {
+  land: number;
+  surf: number;
+}
+
+/** Is either budget still open? The scan stops only when BOTH are spent — a
+ *  land-full island must keep scanning for surf, and vice versa. */
+function budgetOpen(b: CellBudget): boolean {
+  return b.land > 0 || b.surf > 0;
+}
+
+/**
+ * Draw one cell from the LAND or the SURF budget, or refuse.
+ *
+ * SEPARATE BUDGETS ARE THE WHOLE POINT (Story 4.10 review gate). Surf rides the
+ * island bake, so one shared cap put the fringe in competition with the
+ * coastline; the scan is ROW-MAJOR, so what a big island lost to its own surf
+ * was the last rows it reached — its southern edge — with nothing to show for
+ * it. Land coverage must not depend on whether surf is enabled.
+ */
+function takeCell(b: CellBudget, land: boolean): boolean {
+  if (land) {
+    if (b.land <= 0) return false;
+    b.land--;
+    return true;
+  }
+  if (b.surf <= 0) return false;
+  b.surf--;
+  return true;
 }
 
 /**
@@ -814,8 +992,26 @@ function coverIntensity(
  * NO SIGHT TERM (ruling R6, amendment 88). Cycle 54 filtered truesight cells out
  * here and cycle 55 froze that filter to bake time; cycle 56 retired the verdict
  * itself, so a coastline inside the bubble now bakes and paints like any other.
- * What remains frozen at bake time is what always was: per-cell intensity,
- * `faceShadow`, and the cross-island LOS shortlist.
+ * What remains frozen at bake time is what always was, plus what Story 4.10 adds:
+ * per-cell intensity, `faceShadow`, the cross-island LOS shortlist, and now the
+ * terrain HEIGHT sample and the SURF fringe.
+ *
+ * SURF RIDES THIS LOOP (amendment 131). The scan widens by `surfBandU` and a
+ * WATER cell within that distance of the coastline emits a weak surface return
+ * instead of a land one. It is the same loop because it is the same physics
+ * neighbourhood: identical terminator, identical occluders, identical range
+ * gate. A second pass would double the only expensive thing in this file.
+ *
+ * BUT IT DOES NOT RIDE THE SAME BUDGET. Land and surf draw on two independent
+ * caps (`island.maxCells` / `island.surfMaxCells`) and the scan stops only when
+ * BOTH are spent, so land coverage is byte-identical whether surf is enabled or
+ * not. With one shared cap a big island's fringe could consume the budget its
+ * own southern rows needed — a row-major scan loses the LAST rows it reaches,
+ * which is the least visible way to lose a coastline and therefore the worst.
+ *
+ * `raster` is the cycle-59 height field (amendment 129), or null for a caller
+ * that has none — in which case land reflectivity is `landSteep`, i.e. exactly
+ * the pre-4.10 fill.
  */
 export function buildIslandCoverage(
   isle: Island,
@@ -824,33 +1020,45 @@ export function buildIslandCoverage(
   radarRange: number,
   seed: number,
   o: HeatmapOpts,
+  raster: HeightRaster | null = null,
 ): CoverCell[] {
   const out: CoverCell[] = [];
-  const occ = occluderCandidates(isle, field, obs);
-  const r2 = isle.r * isle.r;
+  // The shortlist is widened by the SAME band the scan is (see
+  // `occluderCandidates`): a surf cell outside the bounding circle is still a
+  // cell an island can stand in front of.
+  const ctx: BakeCtx = {
+    occ: occluderCandidates(isle, field, obs, o.model.surfBandU),
+    raster,
+    land: false,
+  };
+  const budget: CellBudget = { land: o.island.maxCells, surf: o.island.surfMaxCells };
+  // The scan reaches PAST the coastline by the surf band — and so does the
+  // broadphase radius, or the fringe would be clipped to the bounding circle.
+  const reach = isle.r + o.model.surfBandU;
+  const r2 = reach * reach;
   const range2 = radarRange * radarRange;
-  const gx0 = cellOf(isle.x - isle.r, o.cellU);
-  const gx1 = cellOf(isle.x + isle.r, o.cellU);
-  const gy1 = cellOf(isle.y + isle.r, o.cellU);
-  for (let gy = cellOf(isle.y - isle.r, o.cellU); gy <= gy1 && out.length < o.island.maxCells; gy++) {
+  const gx0 = cellOf(isle.x - reach, o.cellU);
+  const gx1 = cellOf(isle.x + reach, o.cellU);
+  const gy1 = cellOf(isle.y + reach, o.cellU);
+  for (let gy = cellOf(isle.y - reach, o.cellU); gy <= gy1 && budgetOpen(budget); gy++) {
     const y = cellCentre(gy, o.cellU);
-    for (let gx = gx0; gx <= gx1 && out.length < o.island.maxCells; gx++) {
+    for (let gx = gx0; gx <= gx1 && budgetOpen(budget); gx++) {
       const x = cellCentre(gx, o.cellU);
       // The two scalar rejections run on raw numbers BEFORE anything allocates a
       // point or calls into polygon math. Most of a bounding box is neither in
       // the bounding circle nor in radar range, and paying a Vec2 plus a
       // function call for each of those cells was the whole bake's cost.
       if (!inBroadphase(x, y, isle, obs, r2, range2)) continue;
-      const p = { x, y };
-      const i = coverIntensity(p, isle, obs, radarRange, o, occ) * noiseMul(seed, gx, gy, o.noise);
-      if (i > 0) out.push({ gx, gy, i, b: Math.atan2(y - obs.y, x - obs.x) });
+      const i = coverIntensity({ x, y }, isle, obs, o, ctx) * noiseMul(seed, gx, gy, o.noise);
+      if (!(i > 0) || !takeCell(budget, ctx.land)) continue;
+      out.push({ gx, gy, i, b: Math.atan2(y - obs.y, x - obs.x) });
     }
   }
   return out;
 }
 
-/** Bounding circle + radar range, in raw scalars — the allocation-free prefilter
- *  in front of every exact test. */
+/** Bounding circle (widened by the surf band) + radar range, in raw scalars —
+ *  the allocation-free prefilter in front of every exact test. */
 function inBroadphase(
   x: number,
   y: number,
@@ -867,26 +1075,64 @@ function inBroadphase(
   return ox * ox + oy * oy <= range2;
 }
 
-/** Stamp an island paint: every covered cell whose bearing the beam has reached.
- *  Nothing is judged here — `cover` is a finished record baked at paint open,
- *  and the only live input is which part of the arc the beam has swept. */
-export function stampIsland(g: HeatGrid, p: IslandPaint, alpha: number): void {
-  const span = wrapPositive(p.to - p.from);
-  for (const c of p.cover) {
-    if (!p.full && wrapPositive(c.b - p.from) > span) continue;
+/**
+ * Stamp a BAKED COVER LIST under its arc gate: every covered cell whose bearing
+ * the beam has reached.
+ *
+ * Nothing is judged here — `cover` is a finished record baked at paint open, and
+ * the only live input is which part of the arc the beam has swept. Shared by the
+ * island paint and the storm wall (render/radarSources.ts): two sources, one
+ * stamping primitive, so the arc semantics cannot drift between them.
+ */
+export function stampCover(
+  g: HeatGrid,
+  cover: readonly CoverCell[],
+  from: number,
+  to: number,
+  full: boolean,
+  alpha: number,
+): void {
+  const span = wrapPositive(to - from);
+  const f = wrapPositive(from);
+  for (let k = 0; k < cover.length; k++) {
+    const c = cover[k];
+    // The arc test, inlined. `c.b` is an `atan2` result in [-π, π] and `f` was
+    // wrapped into [0, τ) once above, so the difference lies in [-3π, π] and two
+    // conditional adds wrap it exactly — the same answer `wrapPositive` gives,
+    // without its two modulos, on a path that runs per CELL for every cover
+    // paint on the scope. A COMPLETED arc skips it entirely.
+    if (!full) {
+      let off = c.b - f;
+      if (off < 0) off += TAU;
+      if (off < 0) off += TAU;
+      if (off > span) continue;
+    }
     writeCell(g, c.gx, c.gy, c.i, alpha);
   }
 }
 
+/** Stamp an island paint (land + surf) — the cover list under its arc gate. */
+export function stampIsland(g: HeatGrid, p: IslandPaint, alpha: number): void {
+  stampCover(g, p.cover, p.from, p.to, p.full, alpha);
+}
+
 // --- 6. the frame ---------------------------------------------------------------
 
-/** Per-frame inputs the rasterizer needs beyond the paint list itself. */
+/**
+ * Per-frame inputs the rasterizer needs beyond the paint list itself.
+ *
+ * NOTE WHAT IS NOT HERE ANY MORE: the observer's live `radarRange`. Cycle 52's
+ * ship curve scaled its reference by it, so a mid-decay boon would have
+ * restretched the attenuation of paints already on the scope; Story 4.10's
+ * reference is the fitted `model.pointRef`. The rasterizer now consults NO live
+ * observer state whatsoever, which is amendment 83 holding structurally rather
+ * than by inspection.
+ */
 export interface RasterCtx {
   now: number;
   lifeMs: number;
   /** Colorblind-assist alpha floor (`blipAlpha`'s minAlpha). */
   alphaFloor: number;
-  radarRange: number;
   opts: HeatmapOpts;
 }
 
@@ -897,13 +1143,18 @@ export interface RasterCtx {
  * decays in place; a paint's only per-frame state is its age, which becomes the
  * alpha channel of every cell it wins. Dead paints (alpha 0) are skipped here
  * and pruned by the caller.
+ *
+ * SHIPS AND ISLANDS ONLY. The weather sources (clutter, storm) are stamped by
+ * `rasterizeWeather` in render/radarSources.ts on the same list, right after
+ * this call — two passes over a ≤128-entry array, in exchange for a strictly
+ * one-way module dependency. Each module stamps the kinds it declares.
  */
 export function rasterize(g: HeatGrid, paints: readonly RadarPaint[], ctx: RasterCtx): void {
   for (const p of paints) {
     const alpha = blipAlpha(ctx.now - p.t, ctx.lifeMs, ctx.alphaFloor);
     if (alpha <= 0) continue;
-    if (p.kind === 'ship') stampShip(g, p, alpha, ctx.radarRange, ctx.opts);
-    else stampIsland(g, p, alpha);
+    if (p.kind === 'ship') stampShip(g, p, alpha, ctx.opts);
+    else if (p.kind === 'island') stampIsland(g, p, alpha);
   }
 }
 

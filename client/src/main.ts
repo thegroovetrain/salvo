@@ -1529,8 +1529,12 @@ function buildGame(
   };
   gRef = g;
   // Coast returns (amendment 69) read the island field the client already
-  // rebuilt from the map seed — pure presentation, never on the wire.
+  // rebuilt from the map seed — pure presentation, never on the wire. The height
+  // raster rides along for the same reason (Story 4.10, amendment 129): it is
+  // rebuilt from the same seed, never travels, and is what makes a steep
+  // headland paint red where a low sandy island of the same size paints blue.
   g.radar.setIslands(map.islands);
+  g.radar.setHeightRaster(map.heightRaster);
   g.clock.addSample(welcome.t);
   g.fog.rebake(stage.app.screen.width, stage.app.screen.height, camera.zoom);
   bindGameRoom(g, conn);
@@ -2305,7 +2309,12 @@ function renderAlive(
   // clipped by a ring-sized box around the ship. It reaches the buffer extent
   // and nothing else — no paint is created, retired or culled by it — which is
   // what makes a paint recorded while zoomed in appear when you zoom out.
-  g.radar.render(pose, now, g.contacts, g.camera.worldView);
+  // The fifth argument is the live zone view (Story 4.10, amendment 128): the
+  // storm's closing WALL is a volume return like any other physical object, and
+  // only the LIVE ring paints — the dashed next-ring telegraph is a chart
+  // annotation, not something a beam can bounce off. It discloses nothing: ring
+  // geometry has been on the wire since its reveal beat (Story 3.1).
+  g.radar.render(pose, now, g.contacts, g.camera.worldView, zv);
   // Wounded smoke ages on the SERVER clock, so it is driven here rather than
   // inside renderOwn: a forceSnap gap (respawn / P-toggle) leaves us with no
   // own pose for a frame, and a plume that stopped drifting whenever our own
@@ -2387,7 +2396,10 @@ function renderSpectate(g: Game, frameDt: number, now: number, nowMs: number, zv
   updateZone(g, zv, false, false, now, nowMs);
   g.projectiles.render(now); // no sight cull: spec frames are unfogged
   g.effects.update(frameDt, null);
-  g.radar.render(null, now); // hides the sweep + rings
+  // Hides the sweep + rings. The zone view rides along for consistency with the
+  // alive path, and paints nothing either way: with no own pose there is no
+  // observer to freeze a paint against, so no source opens (Story 4.10).
+  g.radar.render(null, now, null, null, zv);
   g.smoke.render(now); // a spectator receives every `sm` pulse — the plumes keep drifting
   // Spectator origin is the camera centre — honkBearing (roomBindings.ts)
   // derives the spectator bearing from the camera centre too, so origin and
