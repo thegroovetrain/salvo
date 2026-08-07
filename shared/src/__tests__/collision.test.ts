@@ -8,7 +8,7 @@ import {
   type Pose,
   type ShipPoseResult,
 } from '../sim/collision.js';
-import { coastNormal } from '../sim/island.js';
+import { coastNormal, islandDistance } from '../sim/island.js';
 import {
   closestPointOnPolygon,
   hullSilhouette,
@@ -434,15 +434,17 @@ describe('resolveShipPose — island push-out (nearest-boundary normal)', () => 
     const prev: Pose = { x: 62, y: 10, heading: Math.PI / 2 };
     const s: ShipState = { x: 60, y: 10, heading: Math.PI / 2, speed: 12 };
     const res = resolve(prev, s, [island], 'droneMedium');
-    // Push direction = the nearest-boundary normal at the centre (outside the
-    // polygon → away from the coast), which for a near-circular n-gon is
-    // within a few degrees of the outward radial.
+    // Push direction = the nearest-boundary normal at the DEEPEST-PENETRATING
+    // HULL VERTEX (cycle 59 teleport fix — the centre aim let a bow in one
+    // coastal feature take its direction from another). The vertex sits off
+    // the centre radial, so the facet-exact normal may tilt from the centre's
+    // outward radial by the n-gon facet geometry — still solidly outward.
     const rad = { x: 60 / Math.hypot(60, 10), y: 10 / Math.hypot(60, 10) };
     const disp = { x: s.x - 60, y: s.y - 10 };
     const mag = Math.hypot(disp.x, disp.y);
     expect(mag).toBeGreaterThan(3); // a real correction, not a nudge
     expect(mag).toBeLessThan(10); // minimal-translation push, no teleport
-    expect((disp.x * rad.x + disp.y * rad.y) / mag).toBeGreaterThan(0.98); // outward
+    expect((disp.x * rad.x + disp.y * rad.y) / mag).toBeGreaterThan(0.9); // outward
     // DIRECTIONAL DAMP (Eric ruling 2026-08-06): the hull is travelling ~along
     // the coast (heading π/2 against a near-+x escape normal), so the contact
     // is a graze and costs no way at all. Pre-fix this asserted 12 × 0.25.
@@ -476,8 +478,14 @@ describe('resolveShipPose — island push-out (nearest-boundary normal)', () => 
     const s: ShipState = { x: -160, y: 0, heading: 0, speed: kin.maxSpeed };
     const res = resolve(prev, s, [rock], 'battleship');
     expect(res.contact).toBe(true);
-    expect(res.headOn).toBeCloseTo(1, 6); // square-on
-    expect(s.speed).toBeCloseTo(kin.maxSpeed * DAMP, 9); // the ruled tunable
+    // Square-on to within the n-gon facet geometry: the deepest-vertex aim
+    // (cycle 59 teleport fix) reads the facet nearest the BOW, up to half a
+    // facet angle (32-gon: ~5.6°, cos ≈ 0.995) off the idealized centre ray.
+    expect(res.headOn).toBeGreaterThan(0.99);
+    // The ruled cap, at the measured head-on-ness — and within a whisker of
+    // the idealized islandSpeedMult × rated max.
+    expect(s.speed).toBeCloseTo(kin.maxSpeed * groundingSpeedFactor(res.headOn), 9);
+    expect(s.speed).toBeLessThan(kin.maxSpeed * DAMP * 1.05);
     // THE POINT of the cap: even fully aground the hull keeps rudder authority
     // (pre-fix the multiplier drove it to 0.083 u/s = 0.24 deg/s).
     expect(s.speed).toBeGreaterThanOrEqual(kin.steerageSpeed);
@@ -835,6 +843,140 @@ describe('anti-teleport: no single resolve teleports the center', () => {
     // (isle.r + polyMax) certainly separates the polygons.
     expect(moved).toBeLessThanOrEqual(island.r + polyMax + 1e-3);
     expect(clearOfAll(s, 'torpedoBoat', [island])).toBe(true);
+  });
+});
+
+// --- PUSH-OUT TELEPORT (cycle 59 finding) -------------------------------------
+// The push DIRECTION used to come from the hull CENTRE (island.ts coastNormal
+// at ship.x/y). With the bow poked into one coastal feature while the centre's
+// nearest coast lay ABEAM, the normal ran near-PARALLEL to the penetrated arm,
+// and escapeDepth's "first clearing translation" was where that arm ENDED —
+// measured 209.6u due west in ONE tick on seed 555555, and ~1 jump ≥35u per
+// ~6,000 contact-ticks across production seeds. The existing anti-teleport cap
+// (`isle.r + polyMax − dc`) never bound: it scales with ISLAND radius (~300u
+// on a big landmass), not with per-tick motion. Both halves of the fix are
+// pinned below: the DEEPEST-PENETRATING-VERTEX aim (escapeAim) and the
+// TICK-SCALED push limit `|speed|·dt + beam` that falls through to the
+// rollback ladder instead of translating feature-lengths.
+
+/** The tick-scaled per-push limit the resolver enforces (mirrors pushLimit). */
+function tickPushLimit(hullId: HullId, spd: number): number {
+  return Math.abs(spd) * DT + hullEnvelope(hullId).hull.beam;
+}
+
+describe('push-out teleport — seed 555555 arm graze (deterministic repro)', () => {
+  it('resolves the mineLayer bow-in-arm overlap within a tick-scaled bound', () => {
+    const map = generateMap(555555, 20);
+    const kin = CONFIG.shipClasses.mineLayer.kinematics;
+    // Prev pose with the bow a hair inside an east-west coastal arm to the
+    // NORTH while the centre sits on open water 41.2u from its nearest coast
+    // to the EAST — so the retired centre aim pointed due WEST, parallel to
+    // the arm. One 2u step ahead resolved to (-1213.3, -200.4): 209.6u due
+    // west in a single tick.
+    const prev: Pose = { x: -1004.08, y: -202.34, heading: 1.401 };
+    const s: ShipState = {
+      x: prev.x + Math.cos(prev.heading) * 2,
+      y: prev.y + Math.sin(prev.heading) * 2,
+      heading: prev.heading,
+      speed: kin.maxSpeed,
+    };
+    const c0 = { x: s.x, y: s.y };
+    const res = resolve(prev, s, map.islands, 'mineLayer', map.radius);
+    const moved = Math.hypot(s.x - c0.x, s.y - c0.y);
+    // Kinematic-free bound: the resolver may translate at most one tick's own
+    // travel plus one tick-scaled push (or roll back — also inside the bound).
+    expect(moved).toBeLessThanOrEqual(
+      kin.maxSpeed * DT + tickPushLimit('mineLayer', kin.maxSpeed) + 1e-6,
+    );
+    expect(res.contact).toBe(true);
+    expect(clearOfAll(s, 'mineLayer', map.islands)).toBe(true);
+  });
+});
+
+// The ram-and-escape suite drives scripted HEAD-ON rams; the teleport fired
+// under sustained PARALLEL contact — a hull grinding along a coastline with
+// its bow catching arms that the centre's nearest coast does not describe.
+// This drive reproduces that geometry: full throttle along the coasts of
+// every big landmass of seed 7 with a wandering, coast-biased rudder.
+// Pre-fix, THIS controller on THIS seed produced per-tick jumps of 111.4u
+// (torpedoBoat) and 137.3u (mineLayer). The bound asserted on EVERY tick is
+// structural: the tick's own kinematic travel plus at most two tick-scaled
+// pushes (two passes / two features) — 24.8u for a torpedoBoat at full speed,
+// 46u for a mineLayer, both far under the smallest observed teleport (35u).
+describe('sustained parallel coastal grind — every tick is tick-scaled', () => {
+  const GRIND_SEED = 7;
+  const map = generateMap(GRIND_SEED, 20);
+
+  /** A clear start pose just off coastline vertex `vi`, roughly tangential. */
+  function grindStart(isle: Island, vi: number, hullId: HullId): ShipState | null {
+    const polyMax = polygonMaxRadius(hullSilhouette(hullId));
+    const kin = hullEnvelope(hullId).kinematics;
+    const v = isle.poly[vi];
+    const d0 = Math.hypot(v.x - isle.x, v.y - isle.y);
+    const out = { x: (v.x - isle.x) / d0, y: (v.y - isle.y) / d0 };
+    for (let back = polyMax + 5; back < polyMax + 300; back += 6) {
+      const cand: ShipState = {
+        x: v.x + out.x * back,
+        y: v.y + out.y * back,
+        heading: Math.atan2(out.x, -out.y), // tangential: grind, not ram
+        speed: kin.maxSpeed,
+      };
+      const inBounds = Math.hypot(cand.x, cand.y) < map.radius - polyMax - 5;
+      if (inBounds && clearOfAll(cand, hullId, map.islands)) return cand;
+    }
+    return null;
+  }
+
+  /** Drive one island's coast for `ticks`; assert the per-tick bound; return
+   *  how many ticks reported land contact. */
+  function grindIsland(
+    s: ShipState,
+    isle: Island,
+    hullId: HullId,
+    rng: ReturnType<typeof mulberry32>,
+    ticks: number,
+  ): number {
+    const polyMax = polygonMaxRadius(hullSilhouette(hullId));
+    const kin = hullEnvelope(hullId).kinematics;
+    let prev: Pose = { x: s.x, y: s.y, heading: s.heading };
+    let contacts = 0;
+    for (let t = 0; t < ticks; t++) {
+      // Coast-biased wander: steer back toward the island whenever the gap
+      // opens, so contact is sustained and mostly parallel.
+      const toward = islandDistance(s, isle) > polyMax + 12 ? 0.6 : 0;
+      const dh = wrapAngle(Math.atan2(isle.y - s.y, isle.x - s.x) - s.heading);
+      const rudder = Math.max(-1, Math.min(1, rng.float(-0.5, 0.5) + toward * Math.sign(dh)));
+      stepShip(s, { throttle: 1, rudder }, kin, DT);
+      const spd = Math.abs(s.speed); // what the resolver's pushLimit sees
+      if (resolve(prev, s, map.islands, hullId, map.radius).contact) contacts++;
+      const moved = Math.hypot(s.x - prev.x, s.y - prev.y);
+      const bound = spd * DT + 2 * tickPushLimit(hullId, spd) + 1e-6;
+      expect(moved, `${hullId} tick ${t}: ${moved.toFixed(1)}u`).toBeLessThanOrEqual(bound);
+      expect(clearOfAll(s, hullId, map.islands)).toBe(true);
+      prev = { x: s.x, y: s.y, heading: s.heading };
+    }
+    return contacts;
+  }
+
+  it('grinds every big coastline with torpedoBoat and mineLayer inside the bound', () => {
+    // rng stream ids match the cycle-59 investigation sweep (torpedoBoat 0,
+    // mineLayer 2), which is where the pre-fix 111.4u / 137.3u jumps live.
+    for (const [hullId, rngIdx] of [
+      ['torpedoBoat', 0],
+      ['mineLayer', 2],
+    ] as const) {
+      const rng = mulberry32(GRIND_SEED * 31 + rngIdx);
+      let contactTicks = 0;
+      for (const isle of map.islands) {
+        if (isle.r < 60) continue;
+        const vi = Math.floor(rng.float(0, isle.poly.length)) % isle.poly.length;
+        const s = grindStart(isle, vi, hullId);
+        if (!s) continue;
+        contactTicks += grindIsland(s, isle, hullId, rng, 700);
+      }
+      // The drive genuinely ground the coast — sustained contact, not misses.
+      expect(contactTicks).toBeGreaterThan(500);
+    }
   });
 });
 

@@ -209,6 +209,38 @@ describe('buildHeightRaster — quantization and sampling', () => {
   });
 });
 
+describe('buildHeightRaster — the land-mask stamp (closure-sealed lagoons)', () => {
+  // A tiny synthetic field. Sea level 0.5; every sample is water except one
+  // real peak. The closure pass flips a lagoon sample WATER→LAND in the MASK
+  // ONLY — the field stays below sea level there — so cell 5 models exactly
+  // the shipped defect: mask says land, raw quantization says sea.
+  const n = 4;
+  const v = new Float32Array(n * n); // all 0 — below the 0.5 sea level
+  v[10] = 1.5; // one real land sample (the peak)
+  const field: HeightField = { n, cell: 14, x0: 0, y0: 0, v };
+  const land = new Uint8Array(n * n);
+  land[10] = 1; // real land
+  land[5] = 1; // closure-sealed lagoon: field below sea, mask says LAND
+
+  it('stamps masked land that quantizes to sea level up to the minimum land height', () => {
+    const r = buildHeightRaster(field, 0.5, undefined, land);
+    expect(r.height[5]).toBe(1); // solid, but low — never transparent sea
+    expect(r.height[10]).toBe(255); // real land untouched by the stamp
+    expect(r.height[0]).toBe(SEA_HEIGHT); // unmasked water stays sea
+  });
+
+  it('without the mask the lagoon cell reads sea level (the pre-stamp defect)', () => {
+    expect(buildHeightRaster(field, 0.5).height[5]).toBe(SEA_HEIGHT);
+  });
+
+  it('builds the pyramid AFTER the stamp, so tile ceilings see the sealed land', () => {
+    const r = buildHeightRaster(field, 0.5, undefined, land);
+    // Level-1 tile (0,0) covers cells (0..1, 0..1) — the lagoon cell 5.
+    expect(tileCeiling(r, 1, 0, 0)).toBeGreaterThanOrEqual(1);
+    expect(r.pyramid[r.pyramid.length - 1].cells[0]).toBe(255);
+  });
+});
+
 describe('max-height pyramid — the radar-shadow substrate', () => {
   const r = rasterFor(4711);
 

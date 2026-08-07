@@ -402,6 +402,52 @@ describe('the retained height raster (radar-shadow substrate)', () => {
   });
 });
 
+// --- The raster agrees with the shipped coastline (closure-sealed lagoons) ----
+//
+// The lagoon-closure pass flips unreachable water to land in the MASK only;
+// the FIELD stays below sea level there on purpose (raising it would feed
+// back into every later re-extraction). Pre-fix the raster quantized the raw
+// field, so a closure-sealed lagoon — solid land on the shipped coastline —
+// read height 0: transparent SEA inside LAND, contradicting map.ts's own
+// guarantee and poisoning the future radar-shadow raymarch. The land-mask
+// stamp in buildHeightRaster (fed the final sea-level mask by generateMap)
+// restores `height > 0 ⟺ the shipped mask says LAND`.
+describe('height raster ⟷ coastline agreement (closure-sealed lagoons)', () => {
+  /** Sea-level (height 0) cells whose sample sits ≥`depth`u INSIDE a shipped
+   *  island polygon. Depth 30u clears simplification fuzz at the coast. */
+  function seaLevelCellsInsideLand(map: GameMap, depth: number): number {
+    const r = map.heightRaster;
+    let bad = 0;
+    for (const isle of map.islands) {
+      const i0 = Math.max(0, Math.floor((isle.x - isle.r - r.x0) / r.cell));
+      const i1 = Math.min(r.n - 1, Math.ceil((isle.x + isle.r - r.x0) / r.cell));
+      const j0 = Math.max(0, Math.floor((isle.y - isle.r - r.y0) / r.cell));
+      const j1 = Math.min(r.n - 1, Math.ceil((isle.y + isle.r - r.y0) / r.cell));
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          if (r.height[j * r.n + i] !== 0) continue;
+          const p = { x: r.x0 + i * r.cell, y: r.y0 + j * r.cell };
+          if (!pointInPolygon(p, isle.poly)) continue;
+          if (closestPointOnPolygon(p, isle.poly).dist >= depth) bad++;
+        }
+      }
+    }
+    return bad;
+  }
+
+  it('seed 27 lagoon regression: no sea-level cell deep inside any island', () => {
+    // Seed 27 ships a closure-sealed lagoon. Pre-fix: 61 cells ≥30u inside
+    // the shipped coastline read height 0, the deepest 127.9u in.
+    expect(seaLevelCellsInsideLand(sweep[27].map, 30)).toBe(0);
+  });
+
+  it('holds across the sweep sample', () => {
+    for (const { map } of sweep.filter((_, i) => i % 10 === 0)) {
+      expect(seaLevelCellsInsideLand(map, 30)).toBe(0);
+    }
+  });
+});
+
 // --- 4-connectivity: the corner-pocket regression (Codex gate, cycle 51) ------
 //
 // Ported off the skeleton fixtures: four square landmasses whose outer-corner

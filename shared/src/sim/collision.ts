@@ -62,32 +62,48 @@
 //      the extent, unchanged) and `withinBoundary` re-checks it after every
 //      push-out.
 //   2. (i)  candidate pose, then up to MAX_PASSES push-out passes over all
-//           islands. The push DIRECTION is the NEAREST-BOUNDARY normal —
-//           toward the closest point of the island's coastline from inside,
-//           away from it from outside (island.ts coastNormal; cycle 59 — the
+//           islands. The push DIRECTION is the NEAREST-BOUNDARY normal AT THE
+//           DEEPEST-PENETRATING HULL VERTEX (island.ts coastNormal; the
 //           skeleton normal retired with the star-shape invariant, since a
-//           thresholded height field has arbitrary topology). The generator
-//           bounds the minimum local coastline feature at ~4.9u (marching-
-//           squares corner clamp), which is what keeps the nearest boundary a
-//           safe aim; the rollback below makes the residual bad-direction
-//           case (measured 0.004% of 260k prototype trials) non-fatal. The
-//           push DISTANCE is the minimal translation along that normal that
-//           clears the island (bisection on the exact overlap test,
-//           DEPTH_TOL), capped at the strict upper bound on true penetration
-//           `isle.r + polyMax − dist(center, bounding centre)` — the polygon
-//           analogue of the old circle cap (bounding circles separated ⟹
-//           polygons separated), so no single pass can teleport the hull.
-//           When even the capped translation cannot clear (a cove arm in the
-//           way), the full cap is applied and the next pass re-aims from the
-//           new nearest boundary point.
+//           thresholded height field has arbitrary topology). Aiming from the
+//           hull CENTRE — the first cycle-59 form — let a bow poked into one
+//           coastal feature take its direction from a DIFFERENT feature: with
+//           the centre's nearest coast abeam, the normal ran near-PARALLEL to
+//           the penetrated arm and the "minimal clearing translation" was
+//           where that arm ENDED, 209.6u away (seed 555555 — see escapeAim).
+//           The generator bounds the minimum local coastline feature at
+//           ~4.9u (marching-squares corner clamp), which is what keeps the
+//           nearest boundary a safe aim; the rollback below makes the
+//           residual bad-direction case non-fatal. The push DISTANCE is the
+//           minimal translation along that normal that clears the island
+//           (exponential bracket + bisection on the exact overlap test,
+//           DEPTH_TOL), bounded by BOTH the bounding-circle separation bound
+//           `isle.r + polyMax − dist(center, bounding centre)` AND the
+//           TICK-SCALED limit `|speed|·dt + beam` (see pushLimit — the
+//           circle bound scales with island radius, ~300u on a big landmass,
+//           so it never stopped a feature-length slide). When no translation
+//           within those bounds clears — a wedge, or a clearing that would
+//           out-run the tick — NOTHING is applied and the overlap falls to
+//           the rollback ladder below: failing to push is SAFE (the hull
+//           stops for a tick); teleporting is not.
 //      (ii) candidate x/y with the PREVIOUS heading — the rudder is blocked by
 //           rock while forward motion is kept (this is what stops a hull
 //           rotating THROUGH an island into a perpendicular wedge with no
 //           translation escape).
 //      (iii) full revert to the previous pose (x, y, AND heading) — guaranteed
 //           clear by induction.
+//      (iv) LAST RESORT, only when the induction PREcondition itself is broken
+//           — the reverted prev pose STILL overlaps land (an upstream bug or a
+//           test fixture placed the hull inside a coastline; production never
+//           gets here: spawns are island-clear and every tick returns
+//           overlap-free). A capped ladder can never free such a hull (every
+//           needed push exceeds the tick limit, every rollback lands on the
+//           invalid anchor), so the attempts re-run UNCAPPED — the pre-limit
+//           escape semantics, reserved exclusively for the already-broken
+//           state where "failing to push" would mean wedged forever.
 // POST-INVARIANT: on return the ship's silhouette overlaps NO island and the
-// hull fits inside the map circle. There is no silent give-up.
+// hull fits inside the map circle — GIVEN a valid prev; there is no silent
+// give-up. With a broken precondition, step (iv) restores best-effort escape.
 //
 // The damp applies ONCE per tick regardless of how many islands/passes touched
 // the ship — the pre-#64 per-contact damping collapsed speed to ~0 in a
@@ -99,7 +115,7 @@ import type { Island } from '../types.js';
 import type { Vec2 } from '../math/vec.js';
 import type { ShipState } from './ship.js';
 import { segCircleHit } from '../math/geom.js';
-import { coastNormal } from './island.js';
+import { coastNormal, islandDistance } from './island.js';
 import {
   pointInPolygon,
   polygonFitLimit,
@@ -183,23 +199,64 @@ export function resolveShipPose(
   scratch: Vec2[] = [],
 ): ShipPoseResult {
   const polyMax = polygonMaxRadius(localPoly);
+  const heading0 = ship.heading;
   const bx = ship.x;
   const by = ship.y;
 
-  // (i) candidate pose. A pure boundary press clears here having moved nothing
-  //     through the island push-out, so it reports no contact.
-  let r = attemptClear(ship, bx, by, ship.heading, islands, mapRadius, localPoly, polyMax, scratch);
-  if (r.cleared) return landContact(ship, r, false);
-
-  // (ii) candidate position, previous heading — rudder blocked by rock.
-  r = attemptClear(ship, bx, by, prev.heading, islands, mapRadius, localPoly, polyMax, scratch);
-  if (r.cleared) return landContact(ship, r, true);
+  const res = attemptLadder(prev, ship, islands, mapRadius, localPoly, polyMax,
+    pushLimit(ship, localPoly), scratch);
+  if (res !== null) return res;
 
   // (iii) full revert to the previous valid pose: no ground made at all.
   ship.x = prev.x;
   ship.y = prev.y;
   ship.heading = prev.heading;
+
+  // (iv) LAST RESORT — see the file header. Only when the induction
+  // precondition is broken (the reverted prev pose ITSELF overlaps land) does
+  // the ladder re-run UNCAPPED: a capped push can never free a hull that was
+  // PLACED inside a coastline, and every rollback lands back on the invalid
+  // anchor. Production never reaches this branch (spawns are island-clear and
+  // every resolved tick returns overlap-free).
+  const world = transformPolygon(localPoly, prev.x, prev.y, prev.heading, scratch);
+  if (overlapsAny(ship, world, islands, polyMax)) {
+    ship.heading = heading0;
+    ship.x = bx;
+    ship.y = by;
+    const rec = attemptLadder(prev, ship, islands, mapRadius, localPoly, polyMax, Infinity, scratch);
+    if (rec !== null) return rec;
+    ship.x = prev.x;
+    ship.y = prev.y;
+    ship.heading = prev.heading;
+  }
   return { contact: true, headOn: 1 };
+}
+
+/** Ladder steps (i) and (ii) at one push limit; null = both attempts failed.
+ *  `ship` must carry the CANDIDATE pose on entry. */
+function attemptLadder(
+  prev: Pose,
+  ship: ShipState,
+  islands: readonly Island[],
+  mapRadius: number,
+  localPoly: readonly Vec2[],
+  polyMax: number,
+  limit: number,
+  scratch: Vec2[],
+): ShipPoseResult | null {
+  const bx = ship.x;
+  const by = ship.y;
+
+  // (i) candidate pose. A pure boundary press clears here having moved nothing
+  //     through the island push-out, so it reports no contact.
+  let r = attemptClear(ship, bx, by, ship.heading, islands, mapRadius, localPoly, polyMax, limit, scratch);
+  if (r.cleared) return landContact(ship, r, false);
+
+  // (ii) candidate position, previous heading — rudder blocked by rock.
+  r = attemptClear(ship, bx, by, prev.heading, islands, mapRadius, localPoly, polyMax, limit, scratch);
+  if (r.cleared) return landContact(ship, r, true);
+
+  return null;
 }
 
 /**
@@ -267,6 +324,7 @@ function attemptClear(
   mapRadius: number,
   localPoly: readonly Vec2[],
   polyMax: number,
+  limit: number,
   scratch: Vec2[],
 ): Attempt {
   ship.x = baseX;
@@ -274,7 +332,7 @@ function attemptClear(
   ship.heading = heading;
   clampCenter(ship, mapRadius, localPoly);
   const world = transformPolygon(localPoly, ship.x, ship.y, heading, scratch);
-  pushClear(ship, world, islands, polyMax);
+  pushClear(ship, world, islands, polyMax, limit);
   const cleared =
     !overlapsAny(ship, world, islands, polyMax) && withinBoundary(ship, mapRadius, localPoly);
   return { cleared, moved: ACC.moved, nx: ACC.x, ny: ACC.y };
@@ -282,14 +340,20 @@ function attemptClear(
 
 /** Up to MAX_PASSES sweeps pushing the hull out of every island, accumulating
  *  the net escape vector into ACC (read straight back by attemptClear). */
-function pushClear(ship: ShipState, world: Vec2[], islands: readonly Island[], polyMax: number): void {
+function pushClear(
+  ship: ShipState,
+  world: Vec2[],
+  islands: readonly Island[],
+  polyMax: number,
+  limit: number,
+): void {
   ACC.x = 0;
   ACC.y = 0;
   ACC.moved = false;
   for (let pass = 0; pass < MAX_PASSES; pass++) {
     let any = false;
     for (const isle of islands) {
-      if (pushOutOf(ship, world, isle, polyMax)) any = true;
+      if (pushOutOf(ship, world, isle, polyMax, limit)) any = true;
     }
     if (!any) break;
     ACC.moved = true;
@@ -369,25 +433,82 @@ function clampCenter(ship: ShipState, mapRadius: number, localPoly: readonly Vec
 }
 
 /**
- * Push the ship's world polygon (and center) out of one island polygon.
- * Positional only; returns true when an overlap was corrected.
+ * TICK-SCALED upper bound (u) on any single applied push translation: the
+ * hull's own travel this tick (|speed| · the fixed 50ms sim dt — actual
+ * speed, so a boosted hull scales its own bound) plus one full hull BEAM.
  *
- * Direction: the NEAREST-BOUNDARY normal — toward the closest coastline point
- * from inside the polygon, away from it from outside (island.ts coastNormal).
- * The cycle-59 successor of the retired skeleton normal: the generator's
- * ~4.9u minimum local feature size keeps this a safe aim, and the caller's
- * rollback ladder absorbs the vanishing residual where it is not.
+ * WHY THIS FORM. The previous pose is overlap-free by induction, so this
+ * tick's true penetration of any hull point is bounded by the tick's own
+ * translation plus the rotation sweep (≤ polyMax · turnRate · dt, sub-unit
+ * at CONFIG rates). A well-aimed push (escapeAim) needs that depth plus the
+ * geometric slack of oblique contact; one beam is the natural hull-scale
+ * allowance for that slack. Any clearing translation LARGER than the hull's
+ * own motion plus its own beam is no longer resolving this tick's
+ * penetration — it is travelling along a coastal feature, the teleport
+ * signature (measured 209.6u in one tick pre-fix). The bounding-circle cap
+ * alone never bound: it scales with ISLAND radius (~300u on a big landmass),
+ * not with per-tick motion.
+ */
+function pushLimit(ship: ShipState, localPoly: readonly Vec2[]): number {
+  let lo = 0;
+  let hi = 0;
+  for (const p of localPoly) {
+    if (p.y < lo) lo = p.y;
+    if (p.y > hi) hi = p.y;
+  }
+  return Math.abs(ship.speed) * (CONFIG.tick.simDtMs / 1000) + (hi - lo);
+}
+
+/**
+ * Escape direction for a hull known to overlap `isle`: the coastNormal at
+ * the DEEPEST-PENETRATING HULL VERTEX (minimal signed coastline distance —
+ * island.ts islandDistance), NOT at the hull centre. The centre can sit on
+ * open water nearer a DIFFERENT coastal feature than the one the hull
+ * actually penetrated: seed 555555 put a mineLayer's bow inside an east-west
+ * arm while the centre's nearest coast lay abeam, so the centre normal ran
+ * near-parallel to the arm and the "minimal clearing translation" was where
+ * the arm ENDED — 209.6u away. The deepest vertex describes the penetrated
+ * feature itself, so its nearest-boundary normal is the shortest way off it.
+ * When no vertex is inside (a coastal spike through a hull side), the vertex
+ * NEAREST the coast aims the push — still the feature being touched.
+ */
+function escapeAim(world: readonly Vec2[], isle: Island): { nx: number; ny: number } {
+  let best = world[0];
+  let bestDepth = Infinity;
+  for (const p of world) {
+    const d = islandDistance(p, isle); // signed: negative inside the island
+    if (d < bestDepth) {
+      bestDepth = d;
+      best = p;
+    }
+  }
+  return coastNormal(best, isle);
+}
+
+/**
+ * Push the ship's world polygon (and center) out of one island polygon.
+ * Positional only; returns true when an overlap was found (corrected or
+ * deliberately left for the rollback ladder).
+ *
+ * Direction: the NEAREST-BOUNDARY normal at the DEEPEST-PENETRATING HULL
+ * VERTEX (escapeAim above). The generator's ~4.9u minimum local feature size
+ * keeps the nearest boundary a safe aim, and the caller's rollback ladder
+ * absorbs the vanishing residual where it is not.
  *
  * Distance: the minimal translation along that normal that clears the island
- * (bisection on the exact overlap test), capped at the strict upper bound on
- * true penetration `isle.r + polyMax − dist(center, bounding centre)` — the
- * polygon analogue of the old circle cap: separating the bounding circles
- * certainly separates the polygons, and the bound is > 0 whenever the shapes
- * overlap. No single pass can teleport the hull.
+ * (exponential bracket + bisection on the exact overlap test), bounded by
+ * BOTH caps at once:
+ *   - `isle.r + polyMax − dist(center, bounding centre)` — the polygon
+ *     analogue of the old circle cap: separating the bounding circles
+ *     certainly separates the polygons, and the bound is > 0 whenever the
+ *     shapes overlap;
+ *   - the TICK-SCALED limit (pushLimit above) — the circle cap scales with
+ *     island radius, so on a big landmass it allowed a feature-length slide;
+ *     the tick limit is what actually forbids teleports.
  *
- * When NO translation along the normal clears the island — a hull wedged
- * between the two arms of one bay, where pushing off one arm presses into the
- * other — nothing is applied and the overlap is left for the caller's
+ * When NO translation within the caps clears the island — a hull wedged
+ * between the two arms of one bay, or a clearing that would out-run the tick
+ * limit — nothing is applied and the overlap is left for the caller's
  * ROLLBACK ladder (the previous pose is valid by induction, so the hull
  * simply stops, headOn = 1). The retired star-shape era instead applied the
  * FULL cap here and re-aimed next pass, which was safe when every escape ray
@@ -396,15 +517,21 @@ function clampCenter(ship: ShipState, mapRadius: number, localPoly: readonly Vec
  * ram-and-escape suite). Failing into the rollback is the behavior the
  * anti-teleport bound actually promises.
  */
-function pushOutOf(ship: ShipState, world: Vec2[], isle: Island, polyMax: number): boolean {
+function pushOutOf(
+  ship: ShipState,
+  world: Vec2[],
+  isle: Island,
+  polyMax: number,
+  limit: number,
+): boolean {
   const dc = Math.hypot(ship.x - isle.x, ship.y - isle.y);
   if (dc > polyMax + isle.r) return false; // bounding-circle broadphase
   if (!hullOverlapsIsland(world, 0, 0, isle)) return false;
 
-  const { nx, ny } = coastNormal(ship, isle);
-  const cap = isle.r + polyMax - dc;
+  const { nx, ny } = escapeAim(world, isle);
+  const cap = Math.min(isle.r + polyMax - dc, limit);
   const clearing = escapeDepth(world, isle, nx, ny, cap);
-  if (clearing === null) return true; // wedged: leave it to the rollback ladder
+  if (clearing === null) return true; // wedged / over the tick limit: rollback ladder
   const depth = clearing + PUSH_EPS;
   ACC.x += nx * depth;
   ACC.y += ny * depth;

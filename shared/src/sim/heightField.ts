@@ -753,8 +753,27 @@ function fieldPeak(v: Float32Array): number {
  * Quantize `field` to Uint8 above `seaLevel` and build the max-height pyramid.
  * Call this AFTER sea level is chosen and after any generation-time repair to
  * the field, so the raster agrees with the coastline that shipped.
+ *
+ * `land` (optional, 0/1 per sample) is the shipped LAND MASK — the raster's
+ * land/water authority. The lagoon-closure pass flips unreachable water to
+ * land in the MASK only (islandShape.ts closeUnreachableWater), deliberately
+ * leaving the FIELD untouched (raising the field would feed back into every
+ * later re-extraction and move real coastline crossings). Quantizing the raw
+ * field therefore reads a closure-sealed lagoon — solid land on the shipped
+ * coastline — as height 0, transparent sea, and a future radar-shadow
+ * raymarch would see water inside land. Stamping every masked land sample to
+ * the MINIMUM land height (1) restores the exact invariant
+ * `height[i] > 0 ⟺ the shipped mask says LAND`: closure fill is a topology
+ * REPAIR whose elevation the field never defined, so barely-above-sea is the
+ * honest value — solid, but low. (Water samples can never read > 0: the mask
+ * calls a sample WATER precisely when its field value is below sea level.)
  */
-export function buildHeightRaster(field: HeightField, seaLevel: number, peak?: number): HeightRaster {
+export function buildHeightRaster(
+  field: HeightField,
+  seaLevel: number,
+  peak?: number,
+  land?: Uint8Array,
+): HeightRaster {
   const { n, cell, x0, y0, v } = field;
   const top = peak ?? fieldPeak(v);
   const span = top > seaLevel ? top - seaLevel : 1;
@@ -762,7 +781,9 @@ export function buildHeightRaster(field: HeightField, seaLevel: number, peak?: n
   const height = new Uint8Array(n * n);
   for (let i = 0; i < height.length; i++) {
     const q = Math.round((v[i] - seaLevel) * scale);
-    height[i] = Math.min(255, Math.max(0, q));
+    let h = Math.min(255, Math.max(0, q));
+    if (h === 0 && land !== undefined && land[i] !== 0) h = 1; // closure-sealed land
+    height[i] = h;
   }
   return { n, cell, x0, y0, seaLevel, peak: seaLevel + span, height, pyramid: buildPyramid(height, n) };
 }

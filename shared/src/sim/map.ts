@@ -44,6 +44,7 @@ import {
   closeUnreachableWater,
   forceLandDisc,
   makeGrid,
+  MASK,
   poleOfInaccessibility,
   ringProbes,
   traceLoops,
@@ -94,9 +95,12 @@ export interface GameMap {
   /**
    * The RETAINED quantized height raster + max-height pyramid (cycle 59, Eric
    * ruling 2026-08-06): the substrate a future cycle raymarches for radar
-   * shadows. Built AFTER sea level and every navigability repair, so it
-   * agrees with the shipped coastline. Rebuilt from the seed on both sides;
-   * never on the wire. Nothing reads it yet.
+   * shadows. Built AFTER sea level and every navigability repair, and its
+   * land/water truth is the final MASK (closure-sealed lagoons stamped to the
+   * minimum land height — the field alone would read them as sea), so it
+   * agrees with the shipped coastline: `height > 0 ⟺ the mask says LAND`.
+   * Rebuilt from the seed on both sides; never on the wire. Nothing reads it
+   * yet.
    */
   heightRaster: HeightRaster;
 }
@@ -587,12 +591,26 @@ export function generateMap(seed: number, playerCap: number = CONFIG.map.playerC
   let islands = extractIslands(g, level, spawnRing);
   ({ level, islands } = retargetCover(g, spawnRing, level, islands));
   islands = repairNavigability(g, level, spawnRing, islands);
+  // Snapshot the FINAL sea-level mask NOW — the last extractIslands above is
+  // the one whose loops shipped, and attachContours re-thresholds g.mask at
+  // the contour levels. The closure pass flips lagoon cells WATER→LAND in the
+  // mask ONLY (never the field), so the mask — not the raw field — is the
+  // raster's land/water authority (see buildHeightRaster).
+  const land = snapshotLand(g);
   assertValid(seed, playerCap, { radius, spawnRing, islands });
 
   islands.sort((a, b) => a.x - b.x || a.y - b.y);
   attachContours(g, level, islands);
-  // LAST: quantize the (possibly repaired) field, so raster == shipped coast.
-  return { radius, spawnRing, islands, heightRaster: buildHeightRaster(field, level) };
+  // LAST: quantize the (possibly repaired) field, so raster == shipped coast —
+  // closure-sealed lagoons included, via the land-mask stamp.
+  return { radius, spawnRing, islands, heightRaster: buildHeightRaster(field, level, undefined, land) };
+}
+
+/** 0/1 snapshot of the current mask's LAND cells (the raster's authority). */
+function snapshotLand(g: ExtractionGrid): Uint8Array {
+  const land = new Uint8Array(g.NN);
+  for (let i = 0; i < g.NN; i++) land[i] = g.mask[i] === MASK.LAND ? 1 : 0;
+  return land;
 }
 
 /** Constants describing island generation constraints (exposed for tests). */
