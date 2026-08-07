@@ -1203,3 +1203,185 @@ And the constraint he made explicit, and confirmed after it was repeated back to
     with VISIBLE AREA, so zooming out costs more — it must be measured at both zoom extremes and
     reported, not assumed.
 
+## 2026-08-06 — Eric rulings, THE RADAR PHYSICS ARC (cycles 60-62, pre-implementation)
+
+Source: Eric, live design conversation opening the cycle-60 bmad-dev-auto run, immediately after
+cycle 59 (island elevation) landed. This section is the DESIGN CONTRACT for a three-cycle arc; each
+cycle's own spec derives from it. **Amendments 103 and 109 are OPEN QUESTIONS, not rulings** — they
+are recorded here so the cycle that resolves them knows what was already considered.
+
+100. **THE GOVERNING INTENT: REALISTIC RADAR IS THE KILLER FEATURE.** Eric, verbatim: *"honestly I
+     think that having realistic radar operation is going to be the 'killer feature' here in this
+     game. I love it so much. Its *almost* right but we need to really take it seriously."* Every
+     ruling below serves that sentence. Where a realism choice and a convenience choice conflict, the
+     realism choice is the default and the departure must be argued explicitly.
+
+     The extrapolation license, verbatim: *"we don't have to go with google's exact list, and you're
+     correct a lot of things aren't on it, but its meant kind of as a basis to go on, so we can
+     extrapolate radar signatures of various things."* The consumer-radar colour taxonomy Eric
+     supplied is a BASIS, not a spec — most of its entries (fiberglass hulls, kayaks, tugboats,
+     pack ice, buoys, oil platforms) have no referent in Hullcracker and must not be invented to
+     satisfy it.
+
+101. **EVERY SHIP'S ANTENNA IS AT THE SAME HEIGHT.** Eric: *"For simplicity I would actually think
+     we'd argue that every ship's radar is at the same height."* One universal mast height `H`; no
+     per-class antenna, and (by the same ruling) no per-class masthead height for the OCCLUDED side
+     of the calculation either — target and observer are the same height, which is what collapses
+     the shadow math to amendment 102's single term.
+
+102. **THE SHADOW FORMULA, AND THE CORRECTION IT FORCES.** Under a uniform antenna height with earth
+     curvature in play, the earth-flattening transform (subtract `d²/2R` from every height so rays
+     become straight) yields:
+
+     ```
+     h₀ ≥ H  →  shadow is INFINITE
+     h₀ <  H  →  shadowLength = 2R·(H − h₀) / d₀
+     ```
+
+     where `h₀` = terrain height, `d₀` = the OBSERVER's distance to the terrain, `R` = effective
+     earth radius. Verification that pins the derivation: at `h₀ = 0` and `d₀ = √(2RH)` (the sea
+     horizon), total reach is `2√(2RH)` — the textbook masthead-to-masthead radar horizon.
+
+     **CORRECTION OF RECORD.** An earlier statement in this same conversation — that shadow length
+     GROWS with the observer's distance from the island — was flat-earth math with the target at sea
+     level, and it is WRONG under amendment 101. The relationship is INVERSE: **closer to a low
+     island = longer shadow.** Intuition: a low wall at arm's length blocks much of the world; the
+     same wall a mile off blocks almost nothing. Any implementation that reproduces the discarded
+     direction is a bug.
+
+     Design consequences, both accepted: coast-hugging carries a real COST (you acquire a large blind
+     wedge behind the terrain you are hugging, precisely where you must fall back on truesight), and
+     terrain splits into SOFT cover (`h₀ < H`, situational, range-dependent) versus HARD cover
+     (`h₀ ≥ H`, absolute at any range). `H` is therefore the single knob governing how much of a
+     given map is hard cover — the fraction of the fBm field above mast height.
+
+103. **OPEN QUESTION — should `CONFIG.vision.radar` be DERIVED from the horizon?** Today it is
+     `SIGHT × 2` = 660u, a design number. Under amendment 102 the masthead-to-masthead horizon is
+     `2√(2RH)`, so radar range can instead FALL OUT of mast height and world curvature, in the same
+     spirit as the existing `radar = SIGHT × 2` and `muzzleFlash = SIGHT × 1.5` derivations.
+
+     The argument for deriving: `H` and `R` already govern shadow length. If radar range stays an
+     independent literal, the two can drift into contradiction — a scope reaching 660u while the
+     horizon says 400u. Deriving makes that unrepresentable by construction.
+
+     Illustrative fit (NOT a ruling, and NOT a tuned value): `H = 20u` gives `R ≈ 2722u`, a curvature
+     radius close to the map radius (2400u), and sample shadows of 408u (5u bar at 200u), 136u (same
+     bar at 600u), 136u (15u ridge at 200u), infinite (≥20u terrain) — all meaningful fractions of a
+     660u scope. **Resolve in cycle 61; do not encode either option before then.**
+
+104. **THE SHADOW EDGE IS SOFT, NOT A LINE.** A hull sits below its own masthead, so a ship entering
+     a shadow is masked from the waterline up: the hull goes first and the upper works still return.
+     The boundary is therefore a FADE through the weakest colour band, not a binary cutoff — free
+     realism, and it delivers the "fuzzy" quality Eric's cycle-51 quote asked for rather than a hard
+     geometric cut.
+
+105. **COLOUR IS INTENSITY. ALWAYS. NEVER CATEGORY.** This RE-RATIFIES amendment 77 against the pull
+     of the supplied taxonomy. The Google list enumerates OBJECT TYPES, which invites mapping colour
+     to category (ship = red, coast = blue) — precisely the per-object LABEL that amendment 76
+     diagnosed and killed. Object type may influence colour ONLY through physical properties (size,
+     aspect, elevation, material, range) feeding a single intensity scale. The taxonomy then falls
+     out as a CONSEQUENCE — a warship genuinely is the strongest thing on the water, a mudflat
+     genuinely is a weak one — and stays consistent for objects the list never mentioned.
+
+106. **ONE RETURN MODEL: REFLECTIVITY × FALLOFF-BY-GEOMETRY.** The radar equation sets falloff by the
+     target's GEOMETRY, not by its name:
+
+     | target geometry | falloff | why |
+     |---|---|---|
+     | point (ship) | 1/d⁴ | fixed cross-section |
+     | surface (coast, surf, wake, sea clutter) | 1/d³ | illuminated area grows with range |
+     | volume (rain, storm) | 1/d² | illuminated volume grows faster still |
+
+     This is what makes the taxonomy emergent: sea clutter forms a near-ship ring because its
+     coefficient is tiny even though it falls off slowly; a warship blazes close and fades far under
+     the 4th power; a squall stays legible across the map under the 2nd.
+
+     **THE COEFFICIENT TABLE BELOW IS AN ASSISTANT HANDWAVE, NOT AN ERIC RULING, AND IS THE FIRST
+     THING TO TUNE:** steel broadside 1.0, steel bow-on ~0.25, rock cliff 0.5, sand/mudflat 0.15,
+     breaking surf 0.06, wake 0.03, sea clutter 0.02, heavy rain 0.2. Do not treat any of these as
+     ratified, and do not build a balance argument on them.
+
+107. **SHIPS DO NOT SHADOW SHIPS — RATIFIED, AND IT IS ALREADY TRUE.** Eric's premise: *"Radar is
+     usually mounted pretty high on ships, so because of the curvature of the earth, its generally
+     able to distinguish entire ships as well as targets behind those ships, but islands will still
+     cast a distinct radar shadow."* Verified at ruling time: LOS in `server/src/game/signals.ts`
+     iterates ISLANDS ONLY, and no hull-occlusion path exists anywhere in the codebase. This
+     amendment exists so the behaviour reads as DESIGNED rather than omitted — do not "fix" it.
+
+108. **FOG AND RAIN ARE A COMPLEMENTARY PAIR, DEFEATING DIFFERENT SENSORS.** Eric asked for fog as
+     *"a sort of both visual and radar cover"*; the assistant pushed back on the physics (X-band
+     marine radar is ~3cm, fog droplets are tens of microns — attenuation is negligible, which is the
+     very reason radar exists for navigation), and Eric ratified the alternative: *"I love your take
+     on fog/rain, and that allows for more potential interesting map features."*
+
+     - **FOG** — defeats TRUESIGHT; radar is untouched. This is radar's hero moment, the beat where
+       the instrument justifies itself. The counterplay is ALREADY SHIPPED: every return is
+       anonymous (no hue, no class), so in fog you know something is out there but not what or whose.
+     - **RAIN SQUALL** — a moving VOLUME return (amendment 106) that masks contacts inside and behind
+       it. Defeats radar; your eyes still work close in.
+
+     Frequency, per Eric: *"both would be somewhat uncommon-rare map features anyway."* Scope: this
+     is its own feature at epic scale and does NOT ride along with cycles 60-62.
+
+109. **OPEN QUESTION — the wake implementation fork.** Eric asked for ship wakes to paint: *"I'd also
+     like to see the wake left by ships (and perhaps torps) get picked up as green (we could also
+     increase the wake length and add some displaced water at the sides of ships)"*, and on the
+     implementation: *"Part of me feels like it might make sense to transfer the ships and wakes to
+     the raster in each frame and use that for radar calculation. But whether that is client or
+     server or even relevent, i dunno right now. I'm good with whatever is performant."*
+
+     The raster instinct MATCHES the shipped architecture — `render/radarHeatmap.ts` already stamps
+     contacts and islands into a world-anchored raster every frame. The fork is about the SERVER:
+
+     - **Cheap** — the client draws a short trail behind each paint it already holds. No wire change,
+       no server cost, ~90% of the look. You never see a wake without its ship.
+     - **Real** — the server owns wake as world state with its own lifetime, so a wake OUTLIVES the
+       ship's presence in your radar range: you find a trail with nothing attached and must infer
+       heading and age. A genuinely new information channel — course and recency WITHOUT identity —
+       and a new wire row plus a new perception surface.
+
+     **THE PERFORMANCE FINDING THAT MAKES "REAL" AFFORDABLE (assistant analysis, unverified by
+     measurement).** At `sweepRpm` 15 the beam advances ~4.5° per 50ms tick, so a server-side
+     raymarch never needs the whole scope — only the WEDGE the beam just crossed. At ~0.5° spacing
+     that is ~9 rays per observer per tick; with the cycle-59 max-height pyramid letting a ray skip
+     an empty tile in one test, open water is nearly free. This is the same insight that makes
+     amendment 102's shadows affordable server-side, and it is why shadows (cycle 61) is the natural
+     place to resolve this fork. **Measure before committing.**
+
+     Noted for the record, deliberately NOT proposed for any of cycles 60-62: the terminal form of
+     this architecture is the server returning per-bearing (range, intensity) traces — an A-scope —
+     instead of entity events. It is how real radar works and it is ideally anti-cheat-shaped, but it
+     is a wire rewrite and nothing below depends on it.
+
+110. **TORPEDO WAKES ARE TABLED.** Eric: *"I mean arguably they would leave small wakes. I really
+     don't know the right answer, lets table this specifically for now and play it by ear later."*
+     Standing context for whoever picks it up: `CONFIG.torpedo` states in as many words that
+     torpedoes are *"Never painted by radar"*, so this is a REAL BALANCE CHANGE to the shipped quiet
+     weapon, not a realism freebie. Decide it on balance merits, in its own cycle.
+
+111. **THE RATIFIED THREE-CYCLE SEQUENCE.** Eric: *"I think your sequence makes sense. We need to
+     make a note of this sequence though so I can reference it in the subsequent cycles."* Each cycle
+     is one unit of work and one PR; the split exists because the pieces have sharply different costs
+     and only one of them touches the server.
+
+     - **CYCLE 60 — THE PHYSICAL RETURN MODEL.** Amendments 105 + 106 applied to everything the
+       client already holds: terrain-height-driven coast colour, surf fringe (Eric: *"I'd love to see
+       some kind of waves up against coastlines that would get painted green"*), sea clutter, storm
+       returns. **Client-only: no wire change, no server change, `PROTOCOL_VERSION` unchanged.**
+       Establishes the intensity model every later piece plugs into.
+     - **CYCLE 61 — HEIGHT-AWARE SHADOWS.** Amendment 102's formula as ONE shared pure function over
+       the cycle-59 height raster, called by BOTH `server/src/game/signals.ts` and
+       `client/src/render/radarHeatmap.ts` — a second implementation is a desync or a leak. Plus
+       amendment 104's soft edge. Resolves amendment 103 (derived radar range) and amendment 109's
+       fork. **This is the cycle with real server cost at 20Hz; it needs a MEASURED perf budget, and
+       the max-height pyramid exists to provide it.**
+     - **CYCLE 62 — WAKES.** Ship wakes on whichever side amendment 109 resolves to, plus the render
+       work Eric asked for (longer wakes, displaced water at the sides of ships). Torpedoes stay
+       tabled per amendment 110.
+
+     Sequencing rationale of record: model-first, because shadows want amendment 104's soft edge and
+     a soft edge is expressed in INTENSITY, which cycle 60 is what defines. Eric on the ordering:
+     *"I don't know? I think your sequence makes sense."* — so this is an assistant recommendation
+     Eric accepted, not an independent Eric ruling, and cycle 61 may revisit it if the perf work
+     argues otherwise.
+
