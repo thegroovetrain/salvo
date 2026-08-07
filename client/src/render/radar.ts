@@ -125,6 +125,7 @@ import type { Container } from 'pixi.js';
 import {
   CONFIG,
   hullSilhouette,
+  sampleHeight,
   transformPolygon,
   wrapPositive,
   type BlipEvent,
@@ -165,7 +166,7 @@ import {
   type EchoHull,
   type ShipStamp,
 } from './radarField.js';
-import { echoArc, marchSlice, sliceCount, type MarchSlice } from './radarMarch.js';
+import { echoArc, marchSlice, planMarch, type MarchSlice } from './radarMarch.js';
 import type { StormRing } from './radarSources.js';
 import { SWEEP_TEXTURE_RADIUS, bakeSweepTexture } from './textures.js';
 
@@ -650,27 +651,50 @@ export class Radar {
   private resolvePending(): void {
     const own = this.own;
     if (own === null || this.pending.length === 0) return;
-    const cfg = CLIENT_CONFIG.blip.heatmap;
+    if (this.aground(own)) {
+      this.pending.length = 0; // an aground set makes no paints, from any source
+      return;
+    }
     for (const e of this.pending) {
-      const arc = echoArc(own, e.x, e.y, e.ext);
-      const stamp: ShipStamp = new Map();
-      stampEcho(stamp, e.x, e.y, arc.centre, e.ext, hullSample(e.ext, cfg.model), cfg.cellU);
-      const pad = arc.reach + 2 * cfg.cellU;
-      const slice = marchSlice(
-        own,
-        arc.centre - arc.half,
-        arc.centre + arc.half,
-        shipOnlyField(stamp, cfg.cellU),
-        this.radarRange,
-        e.t,
-        cfg,
-        // The radial slab the footprint lives in — a compute bound, so the ray
-        // does not walk the whole scope to find one hull.
-        { fromU: arc.dist - pad, toU: arc.dist + pad },
-      );
+      const slice = this.marchEcho(own, e);
       if (slice !== null) this.enrollSlice(slice);
     }
     this.pending.length = 0;
+  }
+
+  /**
+   * March ONE resolved wire echo through the one-hull field.
+   *
+   * THE MARCH BOUND COVERS THE ECHO'S OWN RANGE, NOT MERELY THE LIVE SCOPE, and
+   * that is amendment 127 holding at the rim. `marchSlice` clips every ray to the
+   * range it is handed; the server blipped this hull against ITS radar range and
+   * ITS pose, so under prediction divergence or a lag spike the client's own
+   * `radarRange` can sit a cell or two short of a rim echo's computed distance —
+   * at which point every ray stopped BEFORE the stamped footprint and the slice
+   * came back null. The retired per-object path painted a resolved echo
+   * unconditionally, and nothing was ever ruled to narrow that: anything the
+   * server blips paints at least a speck. Widening the bound cannot paint
+   * anything else, because the field contains this hull and nothing else.
+   */
+  private marchEcho(own: OwnPoint, e: PendingEcho): MarchSlice | null {
+    const cfg = CLIENT_CONFIG.blip.heatmap;
+    const arc = echoArc(own, e.x, e.y, e.ext);
+    const stamp: ShipStamp = new Map();
+    stampEcho(stamp, e.x, e.y, arc.centre, e.ext, hullSample(e.ext, cfg.model), cfg.cellU);
+    const pad = arc.reach + 2 * cfg.cellU;
+    const reach = Math.max(this.radarRange, arc.dist + pad);
+    return marchSlice(
+      own,
+      arc.centre - arc.half,
+      arc.centre + arc.half,
+      shipOnlyField(stamp, cfg.cellU),
+      reach,
+      e.t,
+      cfg,
+      // The radial slab the footprint lives in — a compute bound, so the ray
+      // does not walk the whole scope to find one hull.
+      { fromU: arc.dist - pad, toU: arc.dist + pad },
+    );
   }
 
   /**
@@ -827,13 +851,20 @@ export class Radar {
     zone: ZoneLike | null,
   ): void {
     const cfg = CLIENT_CONFIG.blip.heatmap;
-    if (this.sliceFrom === null) this.sliceFrom = rot;
-    // CATCH UP FIRST, THEN MARCH. A frame that arrives hopelessly late (a
-    // backgrounded tab) resumes at the LIVE beam rather than replaying a wedge of
-    // arc the beam crossed a minute ago at a bearing it has long since left.
-    this.catchUp(rot, cfg.march.catchUpRad);
-    const owed = sliceCount(this.sliceFrom, rot, cfg.march);
-    if (owed <= 0) return;
+    // AN AGROUND OBSERVER CREATES NO PAINTS. A ray starts at d = 0, so a set
+    // standing ON a landmass would paint that landmass at zero range — i.e. at
+    // full reflectivity, red, out to its whole coastline — every revolution.
+    if (this.aground(own)) {
+      this.sliceFrom = rot;
+      return;
+    }
+    // CATCH UP FIRST, THEN MARCH — one pure function owns both halves of that
+    // rule (`planMarch`), because splitting the cursor reset from the emission
+    // cap across two modules is exactly how the cycle-62 gate's blank-scope
+    // defect got in.
+    const plan = planMarch(this.sliceFrom ?? rot, rot, cfg.march);
+    this.sliceFrom = plan.from;
+    if (plan.owed <= 0) return;
     const field = buildField({
       obs: own,
       raster: this.heightRaster,
@@ -842,8 +873,8 @@ export class Radar {
       cellU: cfg.cellU,
       model: cfg.model,
     });
-    for (let k = 0; k < owed; k++) {
-      const from = this.sliceFrom;
+    for (let k = 0; k < plan.owed; k++) {
+      const from = this.sliceFrom ?? rot;
       const to = from + cfg.march.sliceRad;
       const slice = marchSlice(own, from, to, field, this.radarRange, serverNow, cfg);
       if (slice !== null) this.enrollSlice(slice);
@@ -851,13 +882,13 @@ export class Radar {
     }
   }
 
-  /** Skip the arc a stalled frame owes beyond the catch-up bound. A tab that was
-   *  backgrounded for a minute must not stamp fifteen revolutions of slices into
-   *  one frame, and every paint it would have made is older than the phosphor
-   *  life anyway — so the march simply resumes at the live beam. */
-  private catchUp(rot: number, limit: number): void {
-    if (this.sliceFrom === null) return;
-    if (wrapPositive(rot - this.sliceFrom) > limit) this.sliceFrom = rot;
+  /** Is the observer standing on land? Read from the SAME height raster the
+   *  march itself reads (`height > 0 ⟺ LAND`), so there is no second answer to
+   *  the question. With no raster the client knows of no land, and nothing is
+   *  aground. */
+  private aground(own: OwnPoint): boolean {
+    const r = this.heightRaster;
+    return r !== null && sampleHeight(r, own.x, own.y) > 0;
   }
 
   /**

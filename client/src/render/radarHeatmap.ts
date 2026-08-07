@@ -82,9 +82,20 @@
 //     observer moves. What changed in cycle 62 is the AMPLITUDE: it is no longer
 //     flat. `noiseAmplitude` (render/radarFalloff.ts) makes the grain largest at
 //     the detection floor and zero at saturation, so a landmass interior is rock
-//     steady and its fringe crawls (amendment 143) — the flat jitter put static in
-//     the one place a real scope is solid, and smeared intensity off the
-//     iso-height lines the colour bands are supposed to land on.
+//     steady and its fringe breaks up into a speckle (amendment 143) — the flat
+//     jitter put static in the one place a real scope is solid, and smeared
+//     intensity off the iso-height lines the colour bands are supposed to land on.
+//
+//     THAT SPECKLE DOES NOT SCINTILLATE, and the distinction is worth stating
+//     because earlier prose in this cycle claimed it did. The march uses ONE
+//     seed for the whole match (`MARCH_SEED`, render/radarMarch.ts), so the grain
+//     is a fixed spatial stencil: a given world cell draws the same multiplier on
+//     every revolution and a fringe HOLDS STILL between paints. That is required,
+//     not incidental — independent per-paint seeds re-create amendment 136's
+//     solid-disc bug, because three revolutions of overlapping slices under
+//     max-wins would each light a different lucky quarter and the union would
+//     light nearly all of it. The grain varies intensity across PLACE and never
+//     across time, which is `cellNoise`'s own design rationale.
 //
 // WHAT IS NOT HERE, AND MUST NOT COME BACK: any occlusion test (amendment 140 —
 // no terminator, no cross-island segment test, no clutter occluder mask, no ship
@@ -346,10 +357,17 @@ export function quantizeInto(g: HeatGrid, bands: readonly HeatBand[], out: Uint8
 // --- 3. seeds and grain -------------------------------------------------------
 
 /**
- * The seed for one paint: a 32-bit avalanche of (track key, paint time). Both
- * inputs matter — the KEY stops every paint of one source being the same
- * re-roll, the TIME makes the next paint of that source differ. Carried forward
- * verbatim from the retired returnMarks.blobSeed.
+ * The seed for one paint: a 32-bit avalanche of (track key, paint time). Carried
+ * forward verbatim from the retired `returnMarks.blobSeed`.
+ *
+ * THE TIME INPUT IS NO LONGER USED TO MAKE SUCCESSIVE PAINTS DIFFER, and the old
+ * comment here saying so described a contract cycle 62 retired. The march's only
+ * caller freezes this at `paintSeed('march', 0)` — one seed for the whole match —
+ * precisely so that stacked revolutions are IDEMPOTENT under `writeCell`'s
+ * max-wins rule (amendment 136 found the alternative: independent seeds turn a
+ * speckled haze into a solid disc). The hash still mixes `paintT` because that is
+ * what makes it a general-purpose seed function; what varies a march's grain is
+ * the world CELL, never the time.
  */
 export function paintSeed(key: string, paintT: number): number {
   let h = FNV_OFFSET;

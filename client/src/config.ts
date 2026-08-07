@@ -1418,24 +1418,36 @@ export const CLIENT_CONFIG = {
        *
        * CYCLE 62 RE-MEASURED FROM SCRATCH, because the primitive changed and the
        * old table is void (amendments 99 + 144). A full `Radar.render` — a
-       * generated ~18-island field with its height raster, six ship echoes, the
+       * generated 19-island map with its real height raster, six ship echoes, the
        * sea-clutter haze and a live storm wall, at the shipped 3-deep
        * persistence, warmed through three whole revolutions and then averaged
        * over 240 frames, in the headless test environment on one machine:
-       *              cycle 61 (per-object bakes)   cycle 62 (beam march)
-       *   1.5×               0.90 ms                     0.67 ms
-       *   1.0×               1.10 ms                     0.78 ms
-       *   0.5×               1.70 ms                     1.44 ms
+       *              cycle 61 (bakes)   cycle 62 (march)   + review gate
+       *   1.5×          0.90 ms             0.55 ms           0.62 ms
+       *   1.0×          1.10 ms             0.64 ms           0.70 ms
+       *   0.5×          1.70 ms             1.28 ms           1.46 ms
+       * (The middle column is the pre-gate build re-run on the SAME machine and
+       * the same fixture as the third, so the last two are directly comparable;
+       * the cycle-61 column is the figure of record from that cycle.)
+       *
        * The march is CHEAPER than the primitive it replaces despite painting far
        * more of the world: per frame it walks only the arc the beam actually swept
        * (~3 rays at 60fps), and a slice stores only cells that can light a pixel,
        * where the retired bakes rescanned an island's whole bounding box on every
        * revolution and re-stamped a procedural clutter disc every frame for every
-       * live haze. The steady state here is 367 live slices carrying 20,390 cells
+       * live haze. The steady state here is 374 live slices carrying ~17,200 cells
        * between them — about three revolutions' worth, exactly as `sliceRad` and
-       * `persistSweeps` predict, and INDEPENDENT of frame rate. What is left at min
-       * zoom is dominated by the buffer itself — `fill` plus quantize over 358k
-       * cells — which `cellU` is the only lever on.
+       * `persistSweeps` predict, and INDEPENDENT of frame rate.
+       *
+       * THE REVIEW GATE COST ~0.1 ms AT MIN ZOOM, and it is worth knowing where:
+       * the ray step is now clamped to half a cell (3u rather than 4u at the
+       * shipped `cellU`), which is 33% more samples per ray, and a land sample now
+       * also probes the ship stamp so a hull against a coastline is not
+       * suppressed. Both are per-SAMPLE costs, so they scale with the marched arc
+       * and not with the buffer. What is left at min zoom is still dominated by
+       * the buffer itself — `fill` plus quantize over 358k cells — which `cellU`
+       * is the only lever on, and the whole frame stays well inside the 2.5 ms
+       * min-zoom bar.
        */
       cellU: 6,
       /**
@@ -1490,6 +1502,14 @@ export const CLIENT_CONFIG = {
        * for a material whose pre-grain intensity is `p` is
        * `p × (1 + amount × (1 − p/solidAt))`, and that is the expression every
        * bound below states.
+       *
+       * THE GRAIN IS A STABLE STENCIL, NOT SCINTILLATION. The march seeds it on
+       * the ABSOLUTE world cell with ONE seed for the whole match
+       * (`MARCH_SEED`, render/radarMarch.ts), so a given cell draws the same
+       * multiplier on every revolution and a speckled fringe HOLDS STILL between
+       * paints. That is required rather than incidental — independent per-paint
+       * seeds re-create amendment 136's solid-disc bug under max-wins stacking —
+       * and it is why nothing here describes the fringe as crawling.
        */
       noise: {
         /** Peak ± jitter at the detection floor. Higher than the retired flat 0.3
@@ -1498,8 +1518,9 @@ export const CLIENT_CONFIG = {
          *  tiny", and it costs nothing at the strong end because it is zero there.
          *  Raising it past ~0.5 starts to push the faintest legitimate echo
          *  (`model.minPeak` 0.2, worst draw 0.2 × (1 − 0.5 × 0.714) = 0.129) under
-         *  `bands[0].at`, at which point weak contacts flicker in and out between
-         *  paints — the same trap the retired knob carried. */
+         *  `bands[0].at`, at which point a share of every weak contact's cells go
+         *  permanently dark — not flickering, since the stencil is stable, but
+         *  eaten, which is the same trap the retired knob carried. */
         amount: 0.45,
         /** Intensity at which the grain reaches exactly zero. Pinned to the RED
          *  threshold, so the rule reads as a sentence: anything strong enough to
@@ -1551,11 +1572,23 @@ export const CLIENT_CONFIG = {
         sliceRad: 0.0505,
         /**
          * The most beam (rad, ~23°) one frame may catch up on — about 250ms of
-         * sweep at 15rpm, so even a 4fps frame paints continuously. Past it the
-         * march resumes at the LIVE beam instead of replaying the gap: a
-         * backgrounded tab that resumes after a minute must not stamp fifteen
-         * revolutions of slices into one frame, and every paint it would have made
-         * is older than the phosphor life anyway.
+         * sweep at 15rpm, or 125ms at the boon-scaled `sweepRpmMax` of 30. Past
+         * it the arc is SKIPPED: a backgrounded tab that resumes after a minute
+         * must not stamp fifteen revolutions of slices into one frame, and every
+         * paint it would have made is older than the phosphor life anyway.
+         *
+         * THE SCOPE STILL PAINTS AT EVERY FRAME RATE, and that is a property of
+         * how the bound is applied rather than of this number. A late frame
+         * resumes at `rot − catchUpArc`, NOT at the live beam, so the trailing
+         * wedge is always marched; only the arc beyond the bound is dropped. The
+         * shipped adapter resumed at the live beam, which meant a frame past the
+         * bound emitted NOTHING — and a client sustained under ~3.9fps (~7.9fps
+         * at 30rpm) then never emitted another slice at all and watched the scope
+         * decay to bare water in ~12s. An earlier version of this comment claimed
+         * "even a 4fps frame paints continuously"; that was true only of the
+         * momentary case and false of the sustained one, and false at boon rpm
+         * either way. See `planMarch` (render/radarMarch.ts) for the three
+         * regimes.
          */
         catchUpRad: 0.4,
       },
@@ -1609,12 +1642,36 @@ export const CLIENT_CONFIG = {
          * comes free on a continuous field. At 0.45 a low coast would have opened
          * in blue and the green register would have belonged to sea clutter alone.
          *
-         * IT STILL OUTRANKS SEA STATE EVERYWHERE, which is the bound that matters
-         * on the other side: the weakest land cell in the game (sea level, at the
-         * 660u rim, unluckiest draw) reads 0.3 × 0.732 × 0.69 = 0.151, above the
-         * luckiest clutter cell's 0.132. Land is never mistakable for water.
+         * LOWERED AGAIN, 0.3 → 0.27, BY THE CYCLE-62 REVIEW GATE, and the reason
+         * is amendment 135 for the third time: 0.3 was proved against the band
+         * threshold at NOMINAL and shipped over it. Both bounds are stated here
+         * with the envelope factor explicit, as the standing rule requires — a
+         * material of pre-grain intensity `p` draws worst at
+         * `p × (1 + 0.45 × (1 − p/0.7))` and best at `p × (1 − 0.45 × (1 − p/0.7))`.
+         *
+         * BOTH ARE STATED AT `heightReflectivity(1)`, NOT AT THIS COEFFICIENT.
+         * `landFlat` is the value at height ZERO, and there is no land at height
+         * zero: the generator quantizes sea to 0 and seals the lowest LAND at 1,
+         * so the faintest cell any island can produce is
+         * `landFlat + (landSteep − landFlat)/refHeight` = 0.27 + 0.73/90 = 0.2781.
+         * Bounding the coefficient instead of the material understates the worst
+         * draw by a whole band's margin, which is how 0.28 passed a first pass of
+         * this same fix and still painted blue.
+         *
+         * 1. THE WATERLINE IS NEVER BLUE — `refl(1) × (1 + a) < bands[1].at` →
+         *    0.2781 × 1.2712 = 0.3535 < 0.36. At the shipped 0.3 this read 0.385:
+         *    a sandbar could draw BLUE, contradicting the sentence above it and
+         *    putting "probably a thing" on a mudflat. Attenuation is ≤ 1
+         *    everywhere (it peaks at exactly 1 at zero range), so the bare
+         *    coefficient IS the worst-case pre-grain intensity at every range.
+         * 2. IT STILL OUTRANKS SEA STATE EVERYWHERE — the weakest land cell in the
+         *    game (the waterline, at the 660u rim) is 0.2781 × 0.7315 = 0.2034
+         *    pre-grain and draws worst at 0.2034 × 0.6808 = 0.1385, above the
+         *    luckiest clutter cell's 0.1319. Land is never mistakable for water.
+         *    This is the bound that stops the coefficient going lower; between
+         *    the two, only about 0.265-0.275 is open.
          */
-        landFlat: 0.3,
+        landFlat: 0.27,
         /**
          * Breaking surf (SURFACE) — a weak seaward fringe on water within
          * `surfBandU` of land (`render/radarField.ts` `surfSample`). RESTORED
@@ -1645,6 +1702,17 @@ export const CLIENT_CONFIG = {
          *    0.132. A breaking coastline is physically a stronger scatterer
          *    than open sea state, and this is what makes that hold as a
          *    guarantee rather than as a coincidence of the nominal values.
+         *
+         * THE STRENGTH IS FLAT ACROSS THE BAND, WHICH IS A KNOWN GAP AGAINST
+         * AMENDMENT 131's ruled *weak seaward fringe* — stated here rather than
+         * left silent (the cycle-62 review gate caught it missing). The retired
+         * per-object bake faded the band seaward; the pyramid read that replaced
+         * it cannot, because the band is exactly ONE TILE (level 1, 28u) against
+         * a 14u raster spacing, so every surf sample is within one raster sample
+         * of land and there is no finer read to grade it with. Closing it needs
+         * either a per-sample distance transform or a wider `surfBandU`, and
+         * both are rulings rather than review-gate calls. `surfSample`
+         * (render/radarField.ts) carries the full argument.
          *
          * Both bounds are asserted at the worst-case draw AND through a
          * rasterized band histogram at the shipped envelope in

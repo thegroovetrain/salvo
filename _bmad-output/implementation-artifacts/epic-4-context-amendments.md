@@ -2109,3 +2109,90 @@ sentence, verbatim:
      rewrite of the paint path, so per-frame cost must be re-measured at both zoom extremes and
      reported (amendment 99), and the adapter-level placement pins (amendment 98) must be re-derived
      against the new primitive rather than assumed to carry over.
+
+## 2026-08-07 — Cycle 62 review gate: THE SLOW-CLIENT BLANK SCOPE, and two lessons
+
+145. **THE WORST DEFECT THIS PROJECT HAS SHIPPED INTO A REVIEW GATE: a sustained slow client rendered
+     a PERMANENTLY EMPTY SCOPE.** The adapter's catch-up rule ran BEFORE the slice count and reset the
+     cursor to the LIVE beam (`sliceFrom = rot`), so any frame whose beam advance exceeded `catchUpRad`
+     (0.4 rad) emitted no slice at all. One such frame is harmless; *every* frame being one is not —
+     no slice is ever created, the existing slices decay out in ~12 seconds, and the player watches a
+     sweep line rotate over a black scope with the radar apparently dead. The threshold is sustained
+     **~3.9 fps at base 15rpm — and ~7.9 fps at the boosted `sweepRpmMax` of 30**, which is a stat a
+     player can actually buy. The shipped config comment asserted the opposite in as many words
+     ("even a 4fps frame paints continuously"), which was true only of the MOMENTARY case.
+
+     Fix: the cursor resets to `rot − catchUpArc`, so the trailing wedge still paints, and the whole
+     rule moved into ONE pure function (`planMarch`) that owns both the emission cap and the reset —
+     they are now the same arc by construction, which also closes the near-miss band where advances in
+     (7 × `sliceRad`, `catchUpRad`] accumulated a deficit that was later discarded, silently dropping
+     up to 0.4 rad of world on a recurring cadence.
+
+     **THE TEST LESSON, and it is the third time this exact shape has appeared** (after amendments 98
+     and 135): a test existed for the catch-up bound, and it passed. It pinned `sliceCount`'s INTERNAL
+     clamp — but the adapter's reset fired first and zeroed the span, so the clamp the test proved was
+     nearly dead code on the production path. **A test that exercises a pure function's branch has not
+     tested the behaviour unless the adapter can actually reach that branch.** The suite now drives
+     `Radar.render` itself at sustained above-threshold advances.
+
+146. **Nine further defects, recorded because their shapes generalize.** Each had a regression test that
+     was verified to FAIL before its fix by stashing the change and re-running:
+     - **A server-disclosed wire echo could paint NOTHING at the rim**, violating amendment 127's
+       guarantee that anything the server blips paints at least a speck. The march clipped rays to the
+       client's live `radarRange`, so a prediction divergence or lag spike at a rim blip left every ray
+       stopping short of the footprint. A resolved echo now marches to `max(radarRange, dist + pad)` —
+       the server's disclosure decides that it paints, never the client's own range estimate.
+     - **`radarRange = Infinity` froze the tab** — the guard checked sign but not finiteness, so the
+       march loop never terminated. Every externally-supplied scalar that bounds a loop is now
+       finiteness-checked, and a `MAX_SLICES_PER_FRAME` backstop caps a near-zero `sliceRad` retune.
+     - **Terrain unconditionally outranked a hull**, so a ship hugging a coastline could be suppressed
+       by a mudflat, breaking the `minPeak` floor. The field now takes whichever makes the stronger
+       return AT THAT RANGE — a bare-coefficient compare would invert, because the two materials have
+       different falloff exponents.
+     - **The ship stamp was last-wins where `writeCell` is max-wins**, so two hulls sharing a cell let
+       the later-iterated weaker one overwrite the stronger.
+     - **An aground observer painted its own island from d = 0** at near-full strength.
+     - A full-turn arc folded to zero (`wrapPositive(2π) = 0`), so an echo nearly on top of the
+       observer painted nothing; the ray step could skip cells if `cellU` were retuned below `stepU`;
+       and diagonal echo footprints were only 8-connected, dropping texels at ~45°.
+
+147. **`landFlat` 0.3 → 0.27, and the arithmetic that matters is not the obvious one.** Under the SNR
+     envelope the waterline could paint BLUE (`0.3 × 1.257 = 0.377 > bands[1].at`) while its own
+     comment claimed green — amendment 135's discipline applied to the weather coefficients and then
+     narrated the land coefficient at nominal. The correction is 0.27, **not** the 0.28 a naive solve
+     gives: the real worst case is `heightReflectivity(1)`, because the generator seals the lowest LAND
+     at quantized height 1 rather than 0, so 0.28 still draws 0.363. Recorded because any future
+     re-derivation of a land bound must start from quantized height 1, not from sea level.
+
+148. **TWO DOCUMENTATION CLAIMS WERE FALSE AND ARE NOW CORRECTED — the behaviour was right, the
+     description was not.**
+     - **The grain does not scintillate and cannot.** One module-constant `MARCH_SEED` makes the
+       speckle a fixed spatial stencil; three comments claimed the fringe "crawls". The stable seed is
+       CORRECT — independent per-slice seeds rebuild amendment 136's solid-disc union bug under
+       max-wins stacking — so the behaviour stands and the comments now say what actually happens: the
+       grain is a stable property of PLACE, which is `cellNoise`'s own design rationale.
+     - **Amendment 83 holds at FRAME granularity, not beam granularity.** Every slice owed in a frame —
+       up to the catch-up bound of previously-swept arc — is marched against THAT FRAME's field, so a
+       sample can be skewed from the moment its bearing was actually crossed by up to `catchUpArc`
+       (≤ ~32ms at 60fps). The skew is accepted; the header claiming samples are frozen "at the moment
+       the beam crossed that arc" was not true and now states the real contract. **This module's entire
+       bug history is evaluation-time drift, so an overclaiming comment here is a hazard, not a
+       cosmetic issue.**
+
+149. **SURF HAS NO TAPER, and the reason is structural rather than a shortcut.** Amendment 131 described
+     a fringe that fades seaward. The tile-aligned proximity read cannot express one: the surf pyramid
+     level resolves to 28u against a 14u raster spacing, so the band is **two raster samples wide** and
+     every surf sample already sits within one sample of land on its axis — and level 0 IS the raster
+     cell, which is water by construction on a surf sample, so no finer read exists to grade against.
+     A real gradient needs a per-sample distance transform or a wider `surfBandU`, and both are rulings
+     rather than review-gate calls. The taper was built, measured, and reverted; the fact is pinned by
+     a test so the next agent does not rediscover it. **Surf is currently a flat band — if that reads
+     wrong on the water, the fix is a ruling on `surfBandU` or a distance field, not a coefficient.**
+
+150. **Scope and cost.** CLIENT-ONLY throughout: no server file, no `shared/` change, `PROTOCOL_VERSION`
+     30, `silhouette` untouched, every server-side LOS gate byte-identical. Per-frame cost at 0.5× zoom
+     is **1.46 ms** post-gate (0.70 at 1.0×, 0.62 at 1.5×) against a 2.5 ms Block-If — still cheaper
+     than cycle 61's 1.70 ms despite painting far more of the world. The ~0.1 ms the gate added is the
+     half-cell step clamp (33% more ray samples) plus the ship-stamp probe on land samples, and it was
+     measured against a fresh re-run of the pre-gate build on the same fixture rather than against a
+     recorded number.

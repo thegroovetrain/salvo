@@ -67,7 +67,16 @@ import {
   type RadarField,
   type ShipStamp,
 } from '../render/radarField.js';
-import { marchSlice, rayStep, sliceCount, type MarchSlice } from '../render/radarMarch.js';
+import {
+  MAX_SLICES_PER_FRAME,
+  catchUpArc,
+  echoArc,
+  marchSlice,
+  planMarch,
+  rayStep,
+  sliceCount,
+  type MarchSlice,
+} from '../render/radarMarch.js';
 
 const CFG: HeatmapOpts = CLIENT_CONFIG.blip.heatmap;
 /** The shipped knobs with the grain switched off — geometry tests need a
@@ -532,7 +541,92 @@ describe('the sweep is the only thing that paints', () => {
 
   it('the catch-up bound caps what one frame can emit', () => {
     const o = CLEAN.march;
-    expect(sliceCount(0, TAU - 0.001, o)).toBe(Math.floor(o.catchUpRad / o.sliceRad));
+    expect(sliceCount(0, TAU - 0.001, o)).toBe(Math.ceil(o.catchUpRad / o.sliceRad));
+  });
+});
+
+// --- 6b. THE CATCH-UP PLAN (cycle-62 review gate) ---------------------------------
+//
+// The adapter used to own half of this rule and `sliceCount` the other half, and
+// the two halves disagreed. `planMarch` is now the whole of it, and the three
+// regimes below are the three ways it can be got wrong. The ADAPTER-level
+// consequences — a scope that goes blank on a slow client, and arc dropped on a
+// recurring cadence — are pinned where they actually live, in
+// radarViewport.test.ts: the bug was invisible to this file's predecessor
+// precisely because the clamp tested here was never the thing that broke.
+
+describe('the frame march plan (catch-up)', () => {
+  const O = CLEAN.march;
+
+  it('THE CAP AND THE RESET ARE THE SAME ARC, and it covers the whole ruled '
+    + 'bound — so nothing inside `catchUpRad` can be advanced past unpainted', () => {
+    const arc = catchUpArc(O);
+    expect(arc, 'a whole number of quanta').toBeCloseTo(Math.round(arc / O.sliceRad) * O.sliceRad, 12);
+    expect(arc, 'and it reaches the ruled bound rather than falling short of it')
+      .toBeGreaterThanOrEqual(O.catchUpRad);
+    expect(arc, 'by less than one quantum').toBeLessThan(O.catchUpRad + O.sliceRad);
+    // The emission cap agrees with it exactly, at any advance.
+    expect(sliceCount(0, arc, O)).toBe(Math.round(arc / O.sliceRad));
+    expect(sliceCount(0, arc + 1, O)).toBe(Math.round(arc / O.sliceRad));
+  });
+
+  it('A NORMAL ADVANCE keeps the cursor and carries its remainder', () => {
+    const plan = planMarch(1, 1 + 3.5 * O.sliceRad, O);
+    expect(plan.from, 'the cursor is untouched').toBe(1);
+    expect(plan.owed).toBe(3); // the half-quantum is still owed, not lost
+  });
+
+  it('A LATE FRAME resumes one catch-up arc BEHIND the beam, never AT it — the '
+    + 'defect that blanked the scope on a slow client', () => {
+    const rot = 2;
+    const arc = catchUpArc(O);
+    const plan = planMarch(wrapPositive(rot - 1.5), rot, O); // 1.5 rad in one frame
+    expect(plan.from, 'not the live beam').not.toBeCloseTo(rot, 6);
+    expect(wrapPositive(rot - plan.from), 'exactly the arc it may paint').toBeCloseTo(arc, 9);
+    expect(plan.owed, 'and it really emits it').toBe(Math.round(arc / O.sliceRad));
+  });
+
+  it('...at EVERY advance past the bound, however extreme — a stalled tab still '
+    + 'paints its trailing wedge', () => {
+    for (const adv of [0.41, 1, 3, 5, 40, 4000]) {
+      const plan = planMarch(0, wrapPositive(adv), O);
+      expect(plan.owed, `advance ${adv} rad`).toBe(Math.round(catchUpArc(O) / O.sliceRad));
+    }
+  });
+
+  it('A NON-POSITIVE ADVANCE re-anchors and emits NOTHING — a clock correction '
+    + 'must not re-march arc the beam already swept', () => {
+    for (const back of [1e-6, 0.01, 0.2]) {
+      const plan = planMarch(1, wrapPositive(1 - back), O);
+      expect(plan.owed, `beam ${back} rad behind the cursor`).toBe(0);
+      expect(plan.from, 'and it re-anchors on the live beam').toBeCloseTo(wrapPositive(1 - back), 9);
+    }
+    expect(planMarch(1, 1, O).owed, 'a stalled clock').toBe(0);
+  });
+
+  it('and a non-finite cursor or beam plans nothing rather than NaN', () => {
+    for (const [from, rot] of [[Number.NaN, 1], [1, Number.NaN], [Infinity, 1]]) {
+      expect(planMarch(from, rot, O).owed).toBe(0);
+    }
+  });
+
+  it('THE RUNAWAY BACKSTOP: a degenerate `sliceRad` cannot ask for an unbounded '
+    + 'number of marches in one frame', () => {
+    const tiny = { ...O, sliceRad: 1e-9 };
+    expect(catchUpArc(tiny) / tiny.sliceRad).toBe(MAX_SLICES_PER_FRAME);
+    expect(sliceCount(0, Math.PI, tiny)).toBe(MAX_SLICES_PER_FRAME);
+    // (Through the plan the cursor arithmetic loses a few ulps at this absurd
+    // quantum, so the assertion is the BOUND — which is the whole contract.)
+    expect(planMarch(0, Math.PI, tiny).owed).toBeLessThanOrEqual(MAX_SLICES_PER_FRAME);
+    expect(planMarch(0, Math.PI, tiny).owed).toBeGreaterThan(0);
+    // ...and a non-finite or zero one plans nothing at all.
+    for (const bad of [0, -1, Number.NaN, Infinity]) {
+      expect(sliceCount(0, 1, { ...O, sliceRad: bad }), `sliceRad ${bad}`).toBe(0);
+      expect(planMarch(0, 1, { ...O, sliceRad: bad }).owed, `sliceRad ${bad}`).toBe(0);
+    }
+    for (const bad of [Number.NaN, Infinity]) {
+      expect(catchUpArc({ ...O, catchUpRad: bad }), `catchUpRad ${bad}`).toBe(0);
+    }
   });
 });
 
@@ -655,6 +749,25 @@ describe('no NaN may ever reach a cell write', () => {
     }
   });
 
+  it('a NON-FINITE loop bound answers null instead of hanging the tab — the '
+    + 'guards are on FINITENESS, not merely on sign', () => {
+    const obs: Vec2 = { x: 0, y: -300 };
+    const field = terrainField(RASTER, obs);
+    // `radarRange = Infinity` passes `> 0`, and `marchRay`'s `d <= toU` then
+    // never terminates. This test would not fail — it would never return.
+    expect(marchSlice(obs, 0, 1, field, Number.POSITIVE_INFINITY, 0, CLEAN)).toBeNull();
+    for (const stepU of [Number.POSITIVE_INFINITY, Number.NaN, 0, -1]) {
+      expect(marchSlice(obs, 0, 1, field, RADAR, 0, { ...CLEAN, march: { ...CLEAN.march, stepU } }),
+        `stepU ${stepU}`).toBeNull();
+    }
+    for (const cellU of [Number.POSITIVE_INFINITY, Number.NaN, 0]) {
+      expect(marchSlice(obs, 0, 1, field, RADAR, 0, { ...CLEAN, cellU }), `cellU ${cellU}`).toBeNull();
+    }
+    // A degenerate ray spacing would divide the arc into an unbounded fan.
+    const noRays = { ...CLEAN.march, minRayRad: 0, maxRayRad: 0 };
+    expect(marchSlice(obs, 0, 1, field, RADAR, 0, { ...CLEAN, march: noRays })).toBeNull();
+  }, 5000);
+
   it('and every intensity a real march produces is a finite number in (0, 1]', () => {
     const obs: Vec2 = { x: 0, y: -300 };
     const field = buildField({
@@ -675,6 +788,156 @@ describe('no NaN may ever reach a cell write', () => {
       expect(Number.isFinite(s.w[k])).toBe(true);
       expect(s.w[k]).toBeGreaterThan(0);
       expect(s.w[k]).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+// --- 10. THE CYCLE-62 REVIEW GATE: geometry that dropped paint ------------------
+//
+// Four defects that all had the same shape — a footprint or an arc that the
+// pipeline computed correctly and then failed to PAINT, silently, for a subset of
+// inputs. None of them could be seen from a test that only asked "does something
+// paint"; each block below therefore establishes the case that used to be lost.
+
+describe('an echo inside its own reach subtends a FULL TURN, and paints', () => {
+  it('`echoArc` answers the whole circle when the observer is inside the extent', () => {
+    const arc = echoArc({ x: 0, y: 0 }, 4, 0, 200);
+    expect(arc.half, 'the whole circle').toBeCloseTo(Math.PI, 9);
+    // `wrapPositive(2π)` folds to zero, so the arc `(centre − π, centre + π]` is a
+    // full turn that a naive span computation reads as nothing at all.
+    expect(wrapPositive(arc.centre + arc.half - (arc.centre - arc.half))).toBe(0);
+  });
+
+  it('and the march paints it rather than folding the span to zero', () => {
+    const obs: Vec2 = { x: 0, y: 0 };
+    const ext = 200;
+    const stamp: ShipStamp = new Map();
+    const arc = echoArc(obs, 4, 0, ext);
+    stampEcho(stamp, 4, 0, arc.centre, ext, hullSample(ext, CLEAN.model), CLEAN.cellU);
+    const s = marchSlice(
+      obs, arc.centre - arc.half, arc.centre + arc.half,
+      shipOnlyField(stamp, CLEAN.cellU), RADAR, 0, CLEAN,
+    );
+    expect(s, 'an echo on top of the observer still paints').not.toBeNull();
+    expect(s!.n).toBeGreaterThan(0);
+  });
+});
+
+describe('a wire echo footprint is 4-CONNECTED across the bearing', () => {
+  /** Decode a stamp's keys back to cells (positions are kept positive so the
+   *  packed key stays trivially invertible). */
+  function cellsIn(stamp: ShipStamp): { gx: number; gy: number }[] {
+    return [...stamp.keys()].map((k) => ({ gx: k % 1_000_000, gy: Math.floor(k / 1_000_000) }));
+  }
+
+  /** Are all stamped cells reachable from one another through 4-neighbours? */
+  function connected(stamp: ShipStamp): boolean {
+    const cells = cellsIn(stamp);
+    const have = new Set(cells.map((c) => `${c.gx},${c.gy}`));
+    const seen = new Set<string>();
+    const stack = [`${cells[0].gx},${cells[0].gy}`];
+    while (stack.length > 0) {
+      const at = stack.pop() as string;
+      if (seen.has(at)) continue;
+      seen.add(at);
+      const [gx, gy] = at.split(',').map(Number);
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const k = `${gx + dx},${gy + dy}`;
+        if (have.has(k) && !seen.has(k)) stack.push(k);
+      }
+    }
+    return seen.size === have.size;
+  }
+
+  it('at EVERY bearing — a diagonal footprint used to be 8-connected only, so a '
+    + 'ray crossing it through a 4-neighbour cell found a hole', () => {
+    const s = hullSample(100, CLEAN.model);
+    for (let k = 0; k < 32; k++) {
+      const bearing = (k * Math.PI * 2) / 32;
+      const stamp: ShipStamp = new Map();
+      // Far from the origin and positive, so the packed key inverts cleanly.
+      stampEcho(stamp, 3000, 3000, bearing, 100, s, CLEAN.cellU);
+      expect(connected(stamp), `bearing ${bearing.toFixed(3)}`).toBe(true);
+    }
+  });
+});
+
+describe('the SOLID layers resolve by strength, not by rank', () => {
+  const OBS: Vec2 = { x: 0, y: 0 };
+  /** A hull aground on a mudflat: both layers claim the same cells. */
+  const HULL: EchoHull = { id: 'a', x: 0, y: 400, heading: 0, cls: 'battleship' };
+
+  it('A HULL AGAINST A COASTLINE IS NOT SUPPRESSED BY IT (amendment 127): the '
+    + 'battleship out-reads the mudflat it is sitting on', () => {
+    const raster = rasterFrom(700, box(0, 400, 90, 90, 1)); // a mudflat
+    const field = buildField({
+      obs: OBS,
+      raster,
+      ships: buildShipStamp([HULL], OBS, CLEAN.model, CLEAN.cellU),
+      ring: null,
+      cellU: CLEAN.cellU,
+      model: CLEAN.model,
+    });
+    const withHull = at(marchAll(OBS, field), HULL.x, HULL.y);
+    // The mudflat alone, at the same range — what the shipped terrain-first chain
+    // returned for the hull's own cells.
+    const land = at(marchAll(OBS, terrainField(raster, OBS)), HULL.x, HULL.y);
+    expect(land, 'the mudflat does paint').toBeGreaterThan(0);
+    expect(withHull, 'and the hull paints STRONGER than it').toBeGreaterThan(land + 1e-6);
+  });
+
+  it('and the stronger material wins in BOTH directions — a steep headland is '
+    + 'not out-read by a needle sitting on it', () => {
+    const raster = rasterFrom(700, box(0, 400, 90, 90, 255));
+    const needle: ShipStamp = new Map();
+    // A sub-cell echo: `minPeak`-floored, and genuinely weaker than rock at 400u.
+    stampEcho(needle, HULL.x, HULL.y, Math.PI / 2, 4, hullSample(4, CLEAN.model), CLEAN.cellU);
+    const field = buildField({
+      obs: OBS, raster, ships: needle, ring: null, cellU: CLEAN.cellU, model: CLEAN.model,
+    });
+    const both = at(marchAll(OBS, field), HULL.x, HULL.y);
+    const rock = at(marchAll(OBS, terrainField(raster, OBS)), HULL.x, HULL.y);
+    expect(both, 'the headland keeps the cell').toBeCloseTo(rock, 9);
+    expect(rock, 'and it is genuinely the stronger of the two')
+      .toBeGreaterThan(CLEAN.model.minPeak);
+  });
+
+  it('two hulls sharing a cell keep the STRONGER, whatever order they arrive in', () => {
+    const strong: EchoHull = { id: 'big', x: 0, y: 300, heading: 0, cls: 'battleship' };
+    const weak: EchoHull = { id: 'small', x: 2, y: 302, heading: 0, cls: 'torpedoBoat' };
+    const a = buildShipStamp([strong, weak], OBS, CLEAN.model, CLEAN.cellU);
+    const b = buildShipStamp([weak, strong], OBS, CLEAN.model, CLEAN.cellU);
+    // Each hull's own coefficient, from its own single-hull stamp.
+    const one = (h: EchoHull): number => {
+      const m = buildShipStamp([h], OBS, CLEAN.model, CLEAN.cellU);
+      return Math.max(...[...m.values()].map((s) => s.refl));
+    };
+    const top = Math.max(one(strong), one(weak));
+    expect(one(strong), 'the battleship really is the stronger echo')
+      .toBeGreaterThan(one(weak));
+    const shared = [...a.keys()].filter((k) => b.has(k));
+    expect(shared.length, 'the two footprints really overlap').toBeGreaterThan(10);
+    for (const k of shared) {
+      expect(a.get(k)!.refl, 'strong-then-weak keeps the strong reading').toBeCloseTo(top, 12);
+      expect(b.get(k)!.refl, 'and so does weak-then-strong').toBeCloseTo(top, 12);
+    }
+  });
+});
+
+describe('the ray step is clamped to half a cell, whatever `cellU` is retuned to', () => {
+  it('a ray never jumps two cells on either axis, even at cellU < stepU', () => {
+    const o: HeatmapOpts = { ...CLEAN, cellU: 2 };
+    const solid = rasterFrom(700, () => 255); // land everywhere: no gaps to confuse a jump
+    const obs: Vec2 = { x: 0, y: 0 };
+    // ONE ray (the arc is far under the derived ray spacing), so the slice's cell
+    // order IS the march order along that bearing.
+    const s = marchSlice(obs, 0.7, 0.7 + 1e-5, terrainField(solid, obs, o), 400, 0, o);
+    expect(s, 'the ray painted').not.toBeNull();
+    expect(s!.n, 'and walked a real distance').toBeGreaterThan(100);
+    for (let k = 1; k < s!.n; k++) {
+      const dx = Math.abs(s!.cells[k * 2] - s!.cells[(k - 1) * 2]);
+      const dy = Math.abs(s!.cells[k * 2 + 1] - s!.cells[(k - 1) * 2 + 1]);
+      expect(Math.max(dx, dy), `step ${k} skipped a cell`).toBeLessThanOrEqual(1);
     }
   });
 });

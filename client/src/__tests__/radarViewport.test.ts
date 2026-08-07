@@ -823,6 +823,187 @@ describe('the scope never blinks out for a frame', () => {
   });
 });
 
+// --- 6d. THE CATCH-UP RULE, AT THE ADAPTER (cycle-62 review gate) ---------------
+//
+// THIS IS THE BLOCK THE CYCLE-62 GATE EXISTS FOR, and its shape is the project's
+// recurring failure mode stated one more time: the pure suite pinned
+// `sliceCount`'s internal clamp and was green, while the ADAPTER'S OWN cursor
+// reset — the half of the rule that never appeared in a pure test — made that
+// clamp nearly unreachable and blanked the scope outright on a slow client.
+// Cycles 54, 55 and 57 each shipped a bug of exactly that shape (amendments 84,
+// 95, 98), so the rule is now driven THROUGH `Radar.render`, at frame intervals
+// chosen to land in each regime.
+//
+// THE ARITHMETIC THESE INTERVALS COME FROM. At 15rpm the beam turns 2π per 4s, so
+// one frame of `dt` ms advances `2π·dt/4000` rad. `catchUpRad` is 0.4 and the
+// catch-up arc is 8 quanta = 0.404 rad, so:
+//   • 320ms → 0.503 rad/frame — PAST the bound (a client at ~3.1fps)
+//   • 236ms → 0.371 rad/frame — the NEAR-MISS band, inside the bound but past the
+//     7 quanta the old clamp allowed
+// Both are reachable: 0.4 rad is only ~125ms of sweep at the boon-scaled
+// `sweepRpmMax` of 30, so this is a live-session regime, not a pathology.
+
+describe('the scope keeps painting at every frame rate (catch-up, at the adapter)', () => {
+  const SWEEP_MS = 60_000 / CONFIG.vision.sweepRpm; // 4000ms at 15rpm
+  const QUANTUM = CLIENT_CONFIG.blip.heatmap.march.sliceRad;
+  /** A ring of land at 200-300u, so EVERY bearing has something to paint and a
+   *  slice count is a faithful measure of the arc actually marched. */
+  const RING_OF_LAND = rasterFrom(400, (x, y) => {
+    const d = Math.hypot(x, y);
+    return d > 200 && d < 300 ? 255 : 0;
+  });
+
+  /** Drive `frames` frames `dtMs` apart and report what the beam swept and what
+   *  the march actually emitted. Nothing is pruned inside the phosphor life, so
+   *  the live slice count IS the total emitted. */
+  function run(dtMs: number, frames: number): { swept: number; slices: number; blank: number } {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MAX);
+    const own = { x: 0, y: 0 };
+    radar.setHeightRaster(RING_OF_LAND);
+    radar.onSweepSample(0, 0);
+    let blank = 0;
+    for (let k = 0; k < frames; k++) {
+      frame(radar, cam, own, k * dtMs);
+      if (k > 2 && radar.livePaintCells === 0) blank++;
+    }
+    // The first frame only anchors the cursor, so the arc under test is what the
+    // beam swept AFTER it.
+    return {
+      swept: ((frames - 1) * dtMs * 2 * Math.PI) / SWEEP_MS,
+      slices: radar.livePaints,
+      blank,
+    };
+  }
+
+  it('SUSTAINED FRAMES PAST THE CATCH-UP BOUND STILL PAINT — the defect that '
+    + 'left a bare sweep line rotating over an empty scope', () => {
+    // 35 frames of 320ms = 11.2s, inside the 12s phosphor life so nothing is
+    // pruned. Every frame advances 0.503 rad, past the 0.404 bound; the shipped
+    // adapter reset the cursor to the live beam on every one of them and
+    // therefore emitted NOTHING, for as long as the condition held.
+    const r = run(320, 35);
+    expect(r.slices, 'the beam kept emitting slices').toBeGreaterThan(200);
+    expect(r.blank, 'and the scope was never blank for a frame').toBe(0);
+    // It paints the trailing wedge of every advance: the bound, not zero.
+    expect(r.slices * QUANTUM, 'arc painted').toBeGreaterThan(r.swept * 0.7);
+  });
+
+  it('...and it holds all the way down to a hopeless frame rate', () => {
+    // (At 2000ms frames the run outlasts the 12s phosphor life, so the LIVE count
+    // is what survived decay rather than what was emitted — which is the point:
+    // slices keep arriving faster than they age out, so the scope never empties.)
+    for (const dt of [500, 900, 2000]) {
+      const r = run(dt, 12);
+      expect(r.slices, `${dt}ms frames`).toBeGreaterThan(30);
+      expect(r.blank, `${dt}ms frames left the scope blank`).toBe(0);
+    }
+  });
+
+  it('THE NEAR-MISS BAND LOSES NO ARC: a frame inside `catchUpRad` but past the '
+    + 'old 7-quantum clamp paints everything it swept', () => {
+    // The shipped pair (cap at 7 quanta = 0.354 rad, reset at 0.4 rad) let the
+    // deficit accumulate for two frames and then discarded ~0.4 rad on the third
+    // — about a third of the arc, on a recurring cadence.
+    const r = run(236, 47);
+    expect(r.slices * QUANTUM, 'painted arc vs swept arc')
+      .toBeGreaterThan(r.swept * 0.97);
+    expect(r.slices * QUANTUM, 'and nothing is painted twice')
+      .toBeLessThanOrEqual(r.swept + QUANTUM);
+  });
+
+  it('and an ordinary frame rate is unchanged: every quantum of arc, once', () => {
+    const r = run(16, 300);
+    expect(r.slices * QUANTUM).toBeGreaterThan(r.swept * 0.98);
+    expect(r.slices * QUANTUM).toBeLessThanOrEqual(r.swept + QUANTUM);
+  });
+
+  it('A BACKWARD BEAM CORRECTION EMITS NOTHING — a fresh sweep sample that lands '
+    + 'behind the cursor must not re-march arc the beam already swept', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MAX);
+    const own = { x: 0, y: 0 };
+    radar.setHeightRaster(RING_OF_LAND);
+    radar.onSweepSample(0, 0);
+    frame(radar, cam, own, 0);
+    frame(radar, cam, own, 100); // beam at 0.157 rad, cursor marched up behind it
+    const held = radar.livePaints;
+    expect(held, 'the ordinary path emitted').toBeGreaterThan(0);
+    // A corrected sample: the authoritative beam is a little BEHIND where the
+    // client had extrapolated it to. `wrapPositive` reads that as ~2π, which the
+    // catch-up path would otherwise treat as a hopelessly late frame.
+    radar.onSweepSample(0.1, 150);
+    frame(radar, cam, own, 150);
+    expect(radar.livePaints, 'no duplicate wedge').toBe(held);
+  });
+});
+
+// --- 6e. AN AGROUND OBSERVER MAKES NO PAINTS ------------------------------------
+
+describe('an aground observer creates no paints at all', () => {
+  const ISLAND = rasterFrom(600, slab(0, 0, 200, 200, 200));
+
+  it('a set standing ON a landmass does not paint it from zero range', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    radar.setHeightRaster(ISLAND);
+    radar.onSweepSample(-0.6, 0);
+    for (let t = 0; t <= 4600; t += 100) frame(radar, cam, { x: 0, y: 0 }, t);
+    expect(radar.livePaints, 'a whole revolution, nothing painted').toBe(0);
+    expect(radar.bandAt(60, 60), 'not even the ground underfoot').toBe(-1);
+  });
+
+  it('and a wire echo arriving while aground is not painted either', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    radar.setHeightRaster(ISLAND);
+    frame(radar, cam, { x: 0, y: 0 }, 900);
+    radar.onBlip(echo(400, 0));
+    frame(radar, cam, { x: 0, y: 0 }, 1000);
+    expect(radar.livePaints).toBe(0);
+  });
+
+  it('but the same observer AFLOAT paints normally — the guard is the ground, '
+    + 'not the raster', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    radar.setHeightRaster(ISLAND);
+    radar.onSweepSample(-0.6, 0);
+    for (let t = 0; t <= 4600; t += 100) frame(radar, cam, { x: 0, y: 400 }, t);
+    expect(radar.livePaints).toBeGreaterThan(50);
+  });
+});
+
+// --- 6f. A RIM ECHO PAINTS EVEN WHEN IT IS OUTSIDE THE CLIENT'S OWN RANGE -------
+
+describe('anything the server blips paints (amendment 127), at any range', () => {
+  it('a wire echo BEYOND the client-computed radar range still paints', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    const own = { x: 0, y: 0 };
+    // The server blipped this hull against ITS pose and ITS range; under
+    // prediction divergence or a lag spike the client's own idea of the rim can
+    // sit short of it. The march used to clip every ray to the client's range,
+    // so every ray stopped BEFORE the stamped footprint and the slice was null.
+    const far = echo(RADAR + 40, 0);
+    frame(radar, cam, own, 900);
+    radar.onBlip(far);
+    frame(radar, cam, own, 1000);
+    expect(radar.bandAt(far.x, far.y), 'the rim echo painted').toBeGreaterThanOrEqual(0);
+  });
+
+  it('and so does one just inside it — the widened bound changed nothing there', () => {
+    const { radar } = harness();
+    const cam = camera(USER_ZOOM_MIN);
+    const own = { x: 0, y: 0 };
+    const inside = echo(RADAR - 40, 0);
+    frame(radar, cam, own, 900);
+    radar.onBlip(inside);
+    frame(radar, cam, own, 1000);
+    expect(radar.bandAt(inside.x, inside.y)).toBeGreaterThanOrEqual(0);
+  });
+});
+
 // --- 7. `silhouette` is untouched (amendment 99) ---------------------------------
 
 describe('`silhouette` mode never grows a buffer, camera or not', () => {

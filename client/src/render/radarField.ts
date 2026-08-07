@@ -18,6 +18,15 @@
 //
 // FIVE LAYERS, ONE PRIORITY ORDER (strongest scatterer first):
 //
+// PRIORITY IS NOT A STRICT ORDER BETWEEN LAND AND STEEL (cycle-62 review gate).
+// The first two layers below occupy the same cells whenever a hull hugs a
+// coastline, and a strict terrain-first chain suppressed the SHIP there — which
+// silently breaks amendment 127's `minPeak` guarantee on exactly the water where
+// captains hide. When both answer, the field returns the STRONGER RETURN AT THAT
+// RANGE (`strongerAt`), which is the only comparison that means anything when the
+// two materials sit on different falloff exponents. Everything below layer 2 is
+// mutually exclusive by construction and stays a strict chain.
+//
 //   1. TERRAIN — from `sampleHeight` on the cycle-59 raster, CONTINUOUSLY
 //      (amendment 142). The raster already carries 256 levels and is an O(1)
 //      `Uint8Array` read; terracing it to the four contour bands would cost an
@@ -45,7 +54,10 @@
 //      ceiling sits above sea level, land is somewhere in it, so the sample
 //      paints surf. No neighbourhood of raster cells is ever scanned and no
 //      island-membership polygon test is ever run — this stays off the paint
-//      path exactly as it is off terrain's own land test one layer up.
+//      path exactly as it is off terrain's own land test one layer up. The
+//      strength is FLAT across the band, which is a known gap against amendment
+//      131's ruled seaward taper: `surfSample` records why the read cannot
+//      express one and what changing that would cost.
 //
 // NOTHING OCCLUDES ANYTHING (amendment 140). There is no near-face terminator, no
 // cross-island LOS filter and no clutter occluder mask in this file: a sample
@@ -78,7 +90,7 @@ import {
   type HullId,
   type Vec2,
 } from '@salvo/shared';
-import { POINT, SURFACE, heightReflectivity } from './radarFalloff.js';
+import { POINT, SURFACE, attenuation, heightReflectivity } from './radarFalloff.js';
 import { cellCentre, cellOf, type ReturnModelOpts } from './radarHeatmap.js';
 import { clutterSample, stormSample, type StormRing } from './radarSources.js';
 
@@ -105,9 +117,18 @@ export interface FieldSample {
   min: number;
 }
 
-/** The one query the march makes. `null` is open water: nothing to return. */
+/**
+ * The one query the march makes. `null` is open water: nothing to return.
+ *
+ * `dist` is the sample's range from the observer, and it is here for exactly ONE
+ * reason: when a hull's footprint lands on land cells, the field has to answer
+ * with whichever of the two actually returns more, and "more" is only defined at
+ * a range (a hull is 1/d⁴ and a coast is 1/d³, so the winner genuinely swaps).
+ * It is NOT an intensity channel — the march still applies the whole range term
+ * itself, and every layer still answers in pure material terms.
+ */
 export interface RadarField {
-  sampleAt(x: number, y: number): FieldSample | null;
+  sampleAt(x: number, y: number, dist?: number): FieldSample | null;
 }
 
 /**
@@ -141,6 +162,24 @@ export interface EchoHull {
 /** Scratch polygon for hull footprints — consumed synchronously inside the
  *  stamp, never retained, so one array serves every hull on the scope. */
 const HULL_SCRATCH: Vec2[] = [];
+
+/**
+ * Write one ship cell, MAX-WINS — the same rule `writeCell` applies one level
+ * down, and the reason it has to be stated here too is that `Map.set` is
+ * LAST-WINS. Two hulls overlapping one cell (a shadowing pair, a hull alongside a
+ * decoy) let iteration ORDER decide the reading, so the weaker of the two could
+ * overwrite the stronger purely because it came later in the contact list.
+ *
+ * COMPARING `refl` IS COMPARING THE RETURN. Every hull sample shares one geometry
+ * class, one reference range and one floor (`hullSample`), so the coefficient
+ * orders them identically at every range — there is no exponent swap to worry
+ * about the way there is between steel and rock.
+ */
+function putShip(stamp: ShipStamp, key: number, s: FieldSample): void {
+  const cur = stamp.get(key);
+  if (cur !== undefined && cur.refl >= s.refl) return;
+  stamp.set(key, s);
+}
 
 /**
  * A HULL'S MATERIAL (amendments 118 + 127, unchanged in substance from the
@@ -213,6 +252,22 @@ export function surfPyramidLevel(raster: HeightRaster, surfBandU: number): numbe
  * this read never sees, and the fringe's width varies a little around the
  * coast as the tile grid falls where it falls. Surf is a decorative fringe,
  * not a ranging instrument, and the pyramid's own grain hides the tiling.
+ *
+ * THE STRENGTH IS FLAT ACROSS THE BAND, AND AMENDMENT 131 RULED A *WEAK SEAWARD
+ * FRINGE*, so this is a ruled taper that is deliberately NOT implemented rather
+ * than one that was forgotten — recorded at the cycle-62 review gate, which
+ * caught it missing. THE READ CANNOT EXPRESS ONE. The band is exactly one pyramid
+ * tile: at the shipped numbers `surfPyramidLevel` answers level 1, whose tile is
+ * 28u — i.e. TWO raster samples on a side, against a 14u raster spacing. So every
+ * water sample that paints surf is within one raster sample of land on the axis,
+ * and there is no finer read anywhere in the raster or the pyramid to grade it
+ * with: pyramid level 0 IS the raster cell, and a surf sample's own cell is water
+ * by construction. Producing a genuine seaward gradient would need EITHER a
+ * per-sample distance transform (the thing this seam exists to avoid, and a
+ * per-frame cost on every water cell on the scope) OR a wider fringe from the
+ * next pyramid level up, which doubles the ratified `surfBandU` and is a design
+ * change requiring a ruling. Neither is a review-gate call, so the flat band
+ * ships and the gap is stated here.
  */
 export function surfSample(
   raster: HeightRaster,
@@ -261,10 +316,10 @@ export function stampHull(stamp: ShipStamp, h: EchoHull, s: FieldSample, cellU: 
     const y = cellCentre(gy, cellU);
     for (let gx = gx0; gx <= gx1; gx++) {
       const x = cellCentre(gx, cellU);
-      if (pointInPolygon({ x, y }, poly)) stamp.set(cellKey(gx, gy), s);
+      if (pointInPolygon({ x, y }, poly)) putShip(stamp, cellKey(gx, gy), s);
     }
   }
-  stamp.set(cellKey(cellOf(h.x, cellU), cellOf(h.y, cellU)), s);
+  putShip(stamp, cellKey(cellOf(h.x, cellU), cellOf(h.y, cellU)), s);
 }
 
 /**
@@ -278,6 +333,14 @@ export function stampHull(stamp: ShipStamp, h: EchoHull, s: FieldSample, cellU: 
  * knob here on purpose; the retired `minExtent`/`depthFrac`/`minDepth` trio
  * invented a shape the wire never claimed. A sub-cell extent still lights its own
  * cell, for the same reason `stampHull` writes its centre.
+ *
+ * THE FOOTPRINT IS 4-CONNECTED, NOT MERELY SAMPLED (cycle-62 review gate). Points
+ * half a cell apart along a DIAGONAL bearing can land in cells that touch only at
+ * a corner, and a ray crossing between them then finds nothing — a hole in the
+ * one paint amendment 127 guarantees. The step is under a cell on each axis, so
+ * consecutive cells differ by at most one index per axis; writing the corner cell
+ * whenever BOTH indices moved bridges the diagonal exactly, at the cost of one
+ * extra map write per turn of the staircase.
  */
 export function stampEcho(
   stamp: ShipStamp,
@@ -292,12 +355,17 @@ export function stampEcho(
   const ax = -Math.sin(bearing); // across the bearing
   const ay = Math.cos(bearing);
   const step = cellU / 2;
+  let lastX = Number.NaN;
+  let lastY = Number.NaN;
   for (let t = -half; t <= half; t += step) {
-    const px = x + ax * t;
-    const py = y + ay * t;
-    stamp.set(cellKey(cellOf(px, cellU), cellOf(py, cellU)), s);
+    const gx = cellOf(x + ax * t, cellU);
+    const gy = cellOf(y + ay * t, cellU);
+    if (gx !== lastX && gy !== lastY && !Number.isNaN(lastX)) putShip(stamp, cellKey(gx, lastY), s);
+    putShip(stamp, cellKey(gx, gy), s);
+    lastX = gx;
+    lastY = gy;
   }
-  stamp.set(cellKey(cellOf(x, cellU), cellOf(y, cellU)), s);
+  putShip(stamp, cellKey(cellOf(x, cellU), cellOf(y, cellU)), s);
 }
 
 /**
@@ -365,12 +433,42 @@ function shipAt(f: FieldSpec, x: number, y: number): FieldSample | null {
   return f.ships.get(cellKey(cellOf(x, f.cellU), cellOf(y, f.cellU))) ?? null;
 }
 
+/** The return one sample would make at `dist`, before grain — the same
+ *  expression `returnStrength` evaluates, kept here so the field can compare two
+ *  materials without importing the march (which imports this module). */
+function returnAt(s: FieldSample, dist: number): number {
+  return Math.max(s.min, s.refl * attenuation(dist, s.ref, s.geom, s.floor));
+}
+
+/**
+ * THE SOLID LAYERS — terrain and steel — as ONE answer.
+ *
+ * A hull hugging a coastline puts both in the same cell, and a strict
+ * terrain-first chain suppressed the hull there: a battleship alongside a mudflat
+ * read as mudflat, which is amendment 127's `minPeak` guarantee broken on the
+ * exact water where captains go to hide. So when both answer, the STRONGER
+ * RETURN AT THIS RANGE wins. It has to be at a range: steel falls off as 1/d⁴ and
+ * rock as 1/d³, so a comparison of bare coefficients would pick the wrong one at
+ * one end of the scope or the other.
+ */
+function solidAt(f: FieldSpec, x: number, y: number, dist: number): FieldSample | null {
+  const h = f.raster === null ? 0 : sampleHeight(f.raster, x, y);
+  const ship = shipAt(f, x, y);
+  if (!(h > 0)) return ship;
+  const land = terrainSample(h, f.model);
+  if (ship === null) return land;
+  return returnAt(ship, dist) >= returnAt(land, dist) ? ship : land;
+}
+
 /**
  * Build the queryable field. The returned object closes over the frozen spec and
  * holds no mutable state of its own, so a march can be replayed against it and
  * answer identically.
  *
- * PRIORITY IS BY DOMINANT SCATTERER, and the ordering is also the cost ordering:
+ * PRIORITY IS BY DOMINANT SCATTERER — with the two SOLID layers resolved by
+ * strength rather than by rank (`solidAt`), because they genuinely share cells
+ * and a strict order there suppressed hulls against coastlines. The rest of the
+ * ordering is also the cost ordering:
  * terrain is one `Uint8Array` read, the ship stamp is one `Map` probe skipped
  * entirely when no hull is on the scope, the storm wall is scalar arithmetic,
  * surf is one MORE `Uint8Array`-backed pyramid read (paid only on a water
@@ -391,11 +489,9 @@ export function buildField(f: FieldSpec): RadarField {
   const m = f.model;
   const surfLevel = f.raster === null ? -1 : surfPyramidLevel(f.raster, m.surfBandU);
   return {
-    sampleAt(x: number, y: number): FieldSample | null {
-      const h = f.raster === null ? 0 : sampleHeight(f.raster, x, y);
-      if (h > 0) return terrainSample(h, m);
-      const ship = shipAt(f, x, y);
-      if (ship !== null) return ship;
+    sampleAt(x: number, y: number, dist = 0): FieldSample | null {
+      const solid = solidAt(f, x, y, dist);
+      if (solid !== null) return solid;
       const storm = f.ring === null ? null : stormSample(f.ring, x, y, m);
       if (storm !== null) return storm;
       const surf = f.raster === null ? null : surfSample(f.raster, surfLevel, x, y, m);

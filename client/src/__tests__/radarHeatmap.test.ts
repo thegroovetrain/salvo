@@ -377,15 +377,49 @@ describe('a slice is a historical record: only alpha moves', () => {
 
 // --- 5. SEA CLUTTER: three bounds, at the SHIPPED grain -----------------------
 
-/** The worst (luckiest) draw of a pre-grain intensity under the shipped envelope
- *  — amendment 135's `× (1 + a)`, with `a` now a function of the intensity. */
+/**
+ * THE SNR ENVELOPE, RE-IMPLEMENTED HERE AND ONLY HERE — the oracle every
+ * coefficient bound below is proved against.
+ *
+ * IT DELIBERATELY DOES NOT CALL `noiseAmplitude`. Using production as its own
+ * oracle is how a bound and its assertion move together: reshape the envelope and
+ * every bound silently re-derives to whatever the new shape happens to permit,
+ * which is amendment 135's failure ("a bound proved at nominal is not proved")
+ * wearing a different hat. Written from the RULING instead — amendment 143's
+ * amplitude ramps linearly from `amount` at zero signal to zero at `solidAt`, and
+ * is zero at or above it — in a different algebraic form from the production one,
+ * so a shape bug shows up as a DISAGREEMENT rather than as a shared assumption.
+ * The agreement itself is asserted directly, once, below; that is the same
+ * pattern radarMarch.test.ts uses for the retired `faceShadow` A/B.
+ */
+function envelope(p: number): number {
+  const { amount, solidAt } = CFG.noise;
+  if (!(p > 0)) return amount;
+  if (p >= solidAt) return 0;
+  return (amount * (solidAt - p)) / solidAt;
+}
+
+/** The worst (luckiest) draw of a pre-grain intensity — amendment 135's
+ *  `× (1 + a)`, with `a` a function of the intensity. */
 function worst(peak: number): number {
-  return peak * (1 + noiseAmplitude(peak, CFG.noise));
+  return peak * (1 + envelope(peak));
 }
 /** The unluckiest draw of the same. */
 function best(peak: number): number {
-  return peak * (1 - noiseAmplitude(peak, CFG.noise));
+  return peak * (1 - envelope(peak));
 }
+
+describe('the bound oracle is independent of the code it judges', () => {
+  it('the re-implemented envelope agrees with production at every intensity — so '
+    + 'a shape change fails HERE rather than quietly moving every bound', () => {
+    for (let p = -0.2; p <= 1.2; p += 0.017) {
+      expect(envelope(p), `intensity ${p.toFixed(3)}`)
+        .toBeCloseTo(noiseAmplitude(p, CFG.noise), 12);
+    }
+    expect(envelope(0)).toBeCloseTo(CFG.noise.amount, 12);
+    expect(envelope(CFG.noise.solidAt)).toBe(0);
+  });
+});
 
 describe('SEA CLUTTER is texture and nothing else (amendments 130 + 133 + 136)', () => {
   const OBS: Vec2 = { x: 0, y: 0 };
@@ -456,6 +490,61 @@ describe('SEA CLUTTER is texture and nothing else (amendments 130 + 133 + 136)',
   });
 });
 
+// --- 5a. THE WATERLINE COEFFICIENT, at the shipped grain ----------------------
+//
+// `landFlat` shipped at 0.3 with a comment asserting the waterline reads GREEN,
+// and 0.3 × 1.257 = 0.377 is BLUE. Third time amendment 135's rule has caught a
+// coefficient proved at nominal, and the first where the same value also has a
+// floor under it — so both ends are stated here, at the draw.
+
+describe('the WATERLINE is green and still outranks sea state (amendment 129)', () => {
+  /** THE FAINTEST MATERIAL ANY ISLAND CAN PRODUCE, and the value both bounds are
+   *  stated at. NOT `landFlat`, which is the coefficient at height ZERO and
+   *  therefore at WATER: the generator seals the lowest LAND at quantized height
+   *  1, so the real waterline is one step up the lerp. Bounding the coefficient
+   *  instead of the material is exactly the understatement that let 0.3 ship. */
+  const WATERLINE = MODEL.landFlat + (MODEL.landSteep - MODEL.landFlat) / MODEL.refHeight;
+
+  it('BOUND 1 — a mudflat can never reach the middle band at the luckiest draw, '
+    + 'at ANY range: attenuation is <= 1, so the bare coefficient IS the '
+    + 'worst-case pre-grain intensity', () => {
+    expect(WATERLINE, 'the waterline is above the height-0 coefficient')
+      .toBeGreaterThan(MODEL.landFlat);
+    expect(worst(WATERLINE)).toBeLessThan(BANDS[1].at);
+  });
+
+  it('BOUND 2 — the weakest land cell in the game still outranks the strongest '
+    + 'sea-clutter cell, at the two materials\' most adversarial draws', () => {
+    // The waterline, at the 660u rim: the faintest thing the terrain layer can
+    // produce anywhere on any map.
+    const rim = WATERLINE * (0.05 + 0.95 / (1 + (RADAR / MODEL.surfaceRef) ** 3));
+    expect(best(rim)).toBeGreaterThan(worst(MODEL.clutter));
+  });
+
+  it('RASTERIZED, AT THE SHIPPED GRAIN: a flat island paints GREEN cells and not '
+    + 'one blue — THE FORBIDDEN BAND\'S CELL COUNT IS ZERO', () => {
+    // Sea level exactly (h = 1 is the generator\'s waterline), close in, where
+    // attenuation is nearest 1 and the coefficient is at its most exposed.
+    const flat = rasterFrom(400, box(0, 0, 120, 120, 1));
+    const counts = bandCounts(scope({ x: 0, y: -260 }, { raster: flat }, CFG));
+    expect(counts[0], 'a green waterline').toBeGreaterThan(50);
+    expect(counts[1], 'THE FORBIDDEN BAND: not one blue mudflat cell').toBe(0);
+    expect(counts[2], 'and no red').toBe(0);
+  });
+
+  it('and a real island still spans ALL THREE registers at the shipped grain — '
+    + 'the property the coefficient is placed under `bands[1].at` FOR', () => {
+    const dome = rasterFrom(700, (x, y) => {
+      const d = Math.hypot(x, y);
+      return d > 150 ? 0 : Math.round(255 * (1 - d / 150));
+    });
+    const counts = bandCounts(scope({ x: 0, y: -420 }, { raster: dome }, CFG));
+    expect(counts[2], 'RED on genuine highland').toBeGreaterThan(20);
+    expect(counts[1], 'BLUE across its slopes').toBeGreaterThan(20);
+    expect(counts[0], 'GREEN at the waterline').toBeGreaterThan(20);
+  });
+});
+
 // --- 5b. SURF: restored as a field material, two bounds -----------------------
 
 describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
@@ -476,9 +565,9 @@ describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
     expect(best(MODEL.surf)).toBeGreaterThan(worst(MODEL.clutter));
   });
 
-  it('THE PROXIMITY TEST IS O(1): a water sample adjacent to a coastline reads '
-    + 'surf; one far out to sea reads nothing at all', () => {
-    const field = buildField({
+  /** The coast field, for direct per-point interrogation. */
+  function coastField(): RadarField {
+    return buildField({
       obs: OBS,
       raster: COAST,
       ships: buildShipStamp([], OBS, MODEL, CFG.cellU),
@@ -486,6 +575,11 @@ describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
       cellU: CFG.cellU,
       model: MODEL,
     });
+  }
+
+  it('THE PROXIMITY TEST IS O(1): a water sample adjacent to a coastline reads '
+    + 'surf; one far out to sea reads nothing at all', () => {
+    const field = coastField();
     const near = field.sampleAt(-45, 0); // water, a few units seaward of x=-50
     expect(near, 'a water sample near the coast paints surf').not.toBeNull();
     expect(near!.refl).toBeCloseTo(MODEL.surf, 6);
@@ -493,6 +587,28 @@ describe('SURF (Story 4.10 amendment 131, restored as a field material by the '
     // bound (own hull sits at x=-260, `clutterRangeU` is 100).
     const far = field.sampleAt(300, 0);
     expect(far, 'far out to sea, nothing paints').toBeNull();
+  });
+
+  it('THE BAND IS FLAT, AND THE READ CANNOT MAKE IT OTHERWISE — amendment 131 '
+    + 'ruled a weak SEAWARD fringe, and this pins the reason the shipped band '
+    + 'has no taper rather than leaving the gap silent', () => {
+    const field = coastField();
+    // Every cell the fringe paints reads the same coefficient...
+    const lit: number[] = [];
+    for (let x = -49; x < 200; x += 2) {
+      const s = field.sampleAt(x, 0);
+      if (s !== null && Math.abs(s.refl - MODEL.surf) < 1e-9) lit.push(x);
+    }
+    expect(lit.length, 'the fringe paints').toBeGreaterThan(0);
+    // ...because there is nowhere to put a gradient: the band is ONE pyramid tile
+    // (28u at the shipped `surfBandU`) against a 14u raster spacing, so every
+    // surf sample is within a single raster sample of land on its own axis. There
+    // is no finer read in the raster or the pyramid to grade against.
+    const coast = -50;
+    for (const x of lit) {
+      expect(x - coast, `surf at x=${x} is within one raster sample of the coast`)
+        .toBeLessThanOrEqual(RCELL + 1e-9);
+    }
   });
 
   it('RASTERIZED, AT THE SHIPPED GRAIN: every water cell the fringe paints '

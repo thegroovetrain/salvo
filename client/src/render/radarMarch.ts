@@ -31,11 +31,24 @@
 // one — this module is the thing it contributes a term to.
 //
 // A SLICE IS A HISTORICAL RECORD (amendment 83). Its cells and their intensities
-// are decided ONCE, here, from the observer and the field as they were at the
-// moment the beam crossed that arc. Afterwards only alpha moves, via phosphor
-// decay. Nothing in a slice is ever re-evaluated: not against the live observer,
-// not against the live beam, not against the live grid anchor. Cycles 54, 55 and
-// 57 each shipped a bug on exactly this rule.
+// are decided ONCE, here, and afterwards only alpha moves, via phosphor decay.
+// Nothing in a slice is ever re-evaluated: not against the live observer, not
+// against the live beam, not against the live grid anchor. Cycles 54, 55 and 57
+// each shipped a bug on exactly this rule.
+//
+// THE FREEZE IS AT **FRAME** GRANULARITY, NOT BEAM GRANULARITY, and stating that
+// precisely is the point (cycle 62 review gate). One frame can owe several
+// quanta — up to `catchUpArc`, ~0.35 rad at the shipped knobs — and EVERY slice
+// it emits is marched against THAT FRAME'S field: the current own pose, the
+// current contact poses, the current ring radius. So a slice's samples are the
+// world as it was at the frame that emitted it, which lags the moment the beam
+// actually crossed that bearing by up to the catch-up bound (~93ms at 15rpm, and
+// only on a frame that owes more than one quantum). THE SKEW IS ACCEPTED — it is
+// bounded, it is invisible at any playable frame rate, and the alternative is a
+// per-quantum field rebuild that would cost a full re-stamp of every hull for
+// each one. WHAT IS NOT ACCEPTED is re-evaluating a slice AFTER it is frozen,
+// which is what amendment 83 actually forbids and what this file still holds
+// absolutely.
 //
 // SLICES ARE EMITTED PER ANGULAR QUANTUM, NOT PER FRAME. `sliceCount` and
 // `sliceArc` are pure functions of the swept arc, so how many records exist at a
@@ -50,8 +63,15 @@
 import { wrapPositive, type Vec2 } from '@salvo/shared';
 import { clamp01 } from '../util/math.js';
 import { attenuation, noiseAmplitude, type NoiseEnvelope } from './radarFalloff.js';
-import { cellOf, noiseMul, paintSeed, type HeatmapOpts } from './radarHeatmap.js';
+import { FULL_TURN, cellOf, noiseMul, paintSeed, type HeatmapOpts } from './radarHeatmap.js';
 import { cellKey, type FieldSample, type RadarField } from './radarField.js';
+
+/** A scalar that may bound a loop: finite AND positive. NEGATED comparisons, so
+ *  NaN is rejected rather than propagated — a non-finite `radarRange` would make
+ *  `marchRay`'s `d <= toU` loop never terminate and freeze the tab. */
+function finitePositive(v: number): boolean {
+  return v > 0 && v < Infinity;
+}
 
 /** Tunables for the march itself (CLIENT_CONFIG.blip.heatmap.march). */
 export interface MarchOpts {
@@ -75,6 +95,15 @@ export interface MarchOpts {
 /**
  * ONE STABLE SEED FOR EVERY MARCH — a module constant, deliberately not a
  * per-slice roll.
+ *
+ * SO THE GRAIN DOES NOT SCINTILLATE, AND THAT IS THE DESIGN. The speckle is a
+ * fixed spatial stencil: the same world cell draws the same multiplier on every
+ * revolution, for the whole match. A fringe therefore does not shimmer between
+ * paints — it holds still and the SHAPE it makes is a property of the place, in
+ * exactly the sense `cellNoise` was written for. (Earlier prose in this cycle
+ * said the fringe "crawls"; the implementation cannot produce that and must not,
+ * per the paragraph below. The comments were corrected at the cycle-62 review
+ * gate, not the behaviour.)
  *
  * The speckle is a property of the PLACE (`cellNoise` hashes the ABSOLUTE world
  * cell, which is its own stated design), and under `writeCell`'s max-wins rule
@@ -118,18 +147,97 @@ export interface MarchSlice {
   maxY: number;
 }
 
-/** How many whole slices the beam has earned across an arc, and where the arc
- *  the caller should keep starts. Pure, so slice cadence is testable without a
- *  clock. */
+/**
+ * RUNAWAY BACKSTOP: the most slices ONE FRAME may ever march, whatever the
+ * tunables say. NOT a tuning knob — at the shipped numbers a frame owes at most
+ * 7, so this sits an order of magnitude above anything real and can only ever be
+ * reached by a degenerate retune. A near-zero `sliceRad` would otherwise ask for
+ * `catchUpRad / sliceRad` marches inside one frame and stall the render thread,
+ * which is a hang rather than a visual defect.
+ */
+export const MAX_SLICES_PER_FRAME = 64;
+
+/**
+ * THE ARC ONE FRAME MAY MARCH — the catch-up bound rounded UP to whole quanta
+ * (and down to the backstop above).
+ *
+ * IT IS BOTH THE EMISSION CAP AND THE CURSOR RESET, and that identity is the fix
+ * for the cycle-62 review gate's second finding. Those used to be two different
+ * arcs: `sliceCount` capped the EMISSION at `floor(catchUpRad / sliceRad)` = 7
+ * quanta = 0.354 rad, while the adapter reset the CURSOR whenever the advance
+ * passed `catchUpRad` = 0.4 rad. A frame landing between them advanced past arc
+ * it was not allowed to paint, the deficit accumulated, and the reset then
+ * discarded it — up to 0.4 rad of scope silently unpainted on a recurring
+ * cadence, at any frame rate that happened to land in that window.
+ *
+ * ROUNDING UP is what closes it: the frame may emit `ceil(catchUpRad / sliceRad)`
+ * quanta, which is ≥ `catchUpRad`, so every advance INSIDE the bound is fully
+ * paintable and any remainder is carried rather than dropped. Only an advance
+ * past this arc is skipped, which is the ruled behaviour and is now the only
+ * place arc is ever lost.
+ */
+export function catchUpArc(o: MarchOpts): number {
+  if (!finitePositive(o.sliceRad)) return 0;
+  const limit = finitePositive(o.catchUpRad) ? Math.min(o.catchUpRad, FULL_TURN) : 0;
+  const n = Math.max(0, Math.min(MAX_SLICES_PER_FRAME, Math.ceil(limit / o.sliceRad - 1e-9)));
+  return n * o.sliceRad;
+}
+
+/** How many whole slices the beam has earned across an arc. Pure, so slice
+ *  cadence is testable without a clock. */
 export function sliceCount(from: number, to: number, o: MarchOpts): number {
-  if (!(o.sliceRad > 0)) return 0;
-  const span = Math.min(wrapPositive(to - from), Math.max(0, o.catchUpRad));
+  if (!finitePositive(o.sliceRad)) return 0;
+  const span = Math.min(wrapPositive(to - from), catchUpArc(o));
   // The epsilon is load-bearing, not decoration: the caller advances its cursor
   // by exactly `sliceRad` per slice, so an arc of N quanta accumulates N rounds
   // of float dust and lands a hair under N — and a bare `floor` would owe N−1
   // forever, leaving one quantum of the scope permanently unpainted at every
   // frame rate but the ones that happen to land on the boundary.
-  return Math.floor(span / o.sliceRad + 1e-9);
+  return Math.min(MAX_SLICES_PER_FRAME, Math.floor(span / o.sliceRad + 1e-9));
+}
+
+/**
+ * THE FRAME'S MARCH PLAN: where the cursor starts and how many whole slices it
+ * owes. Pure, and the ONLY place the catch-up rule lives — the adapter used to
+ * carry half of it, which is how the cycle-62 gate's worst defect got in.
+ *
+ * THREE REGIMES, AND THE MIDDLE ONE IS THE BUG THAT WAS SHIPPED:
+ *
+ *   • A NORMAL ADVANCE (under `catchUpArc`) keeps the cursor and owes whatever
+ *     whole quanta it has earned. A frame that advances less than one quantum
+ *     emits nothing and LOSES nothing — the remainder is still owed.
+ *
+ *   • A LATE FRAME (over `catchUpArc`) resumes at `rot − catchUpArc`, NOT at the
+ *     live beam. Resuming at the live beam is what the adapter did, and it meant
+ *     a frame advancing past the bound emitted NOTHING AT ALL: the cursor jumped
+ *     to `rot`, `owed` computed to 0, and if EVERY frame did that — sustained
+ *     below ~3.9fps at base 15rpm, or ~7.9fps at the boon-scaled `sweepRpmMax`
+ *     of 30 — no slice was ever created again, the existing ones decayed out in
+ *     ~12s, and the player watched a bare sweep line rotate over an empty scope.
+ *     Backing off by exactly the arc the frame is allowed to paint keeps the
+ *     trailing wedge painting at ANY frame rate; only the arc BEYOND the bound is
+ *     skipped, which is the ruled behaviour (a tab backgrounded for a minute must
+ *     not stamp fifteen revolutions into one frame, and every paint it would have
+ *     made is older than the phosphor life anyway).
+ *
+ *   • A NON-POSITIVE ADVANCE re-anchors and emits nothing. A fresh `lastSweep`
+ *     sample or a server-clock correction can legitimately put the live beam a
+ *     little BEHIND the cursor; `wrapPositive` reads that as ~2π, which would
+ *     otherwise trip the catch-up path and re-march arc the beam already swept as
+ *     duplicate FRESH slices — re-aging a wedge of the scope on every correction.
+ *     The backward window is the catch-up bound mirrored about the full turn, so
+ *     there is exactly one knob. A forward frame slow enough to land in it (more
+ *     than ~94% of a revolution in one frame — under 0.3fps at 15rpm) is read as
+ *     a correction and re-anchors, which is precisely what the shipped code did
+ *     for that regime anyway.
+ */
+export function planMarch(from: number, rot: number, o: MarchOpts): { from: number; owed: number } {
+  if (!Number.isFinite(from) || !Number.isFinite(rot)) return { from: rot, owed: 0 };
+  const arc = catchUpArc(o);
+  const adv = wrapPositive(rot - from);
+  if (!(adv > 0) || adv > FULL_TURN - Math.min(FULL_TURN / 2, arc)) return { from: rot, owed: 0 };
+  const start = adv > arc ? wrapPositive(rot - arc) : from;
+  return { from: start, owed: sliceCount(start, rot, o) };
 }
 
 /**
@@ -211,8 +319,11 @@ export function returnStrength(s: FieldSample, dist: number): number {
  *
  * The grain is applied LAST and is seeded on the ABSOLUTE world cell, so it is a
  * property of the place rather than of the frame — and its amplitude comes from
- * the pre-grain intensity, so a saturated core is rock steady and a marginal
- * fringe crawls (amendment 143).
+ * the pre-grain intensity, so a saturated core is rock steady while a marginal
+ * fringe breaks up into a stable speckle (amendment 143). STABLE, not crawling:
+ * one seed for the whole match means the stencil never re-rolls, so what the
+ * grain varies is intensity ACROSS PLACE and never across time (see
+ * `MARCH_SEED`).
  */
 function sampleIntensity(
   s: FieldSample,
@@ -249,7 +360,13 @@ function marchRay(bearing: number, c: RunCtx): void {
   const cellU = c.o.cellU;
   const dx = Math.cos(bearing);
   const dy = Math.sin(bearing);
-  const step = c.o.march.stepU;
+  // CLAMPED TO HALF A CELL, so the no-skip claim above survives ANY `cellU`
+  // retune rather than depending on the shipped pairing (stepU 4, cellU 6). With
+  // the step at most half a cell, consecutive samples land in the same cell or an
+  // adjacent one on each axis — never two cells apart — so a ray cannot step over
+  // a cell it passes squarely through. (A ray clipping a cell CORNER can still
+  // miss it, which no fixed-step march can avoid and no consumer depends on.)
+  const step = Math.min(c.o.march.stepU, cellU * 0.5);
   let lastKey = Number.NaN;
   for (let d = c.fromU; d <= c.toU; d += step) {
     const x = c.obs.x + dx * d;
@@ -259,7 +376,7 @@ function marchRay(bearing: number, c: RunCtx): void {
     const key = cellKey(gx, gy);
     if (key === lastKey) continue; // consecutive samples in one cell: price it once
     lastKey = key;
-    const s = c.field.sampleAt(x, y);
+    const s = c.field.sampleAt(x, y, d);
     if (s === null) continue;
     const i = sampleIntensity(s, d, gx, gy, c.o.noise);
     if (!(i >= c.minStore)) continue; // NaN-safe: a non-finite sample stores nothing
@@ -287,6 +404,24 @@ function freeze(t: number, cellU: number): MarchSlice | null {
     maxY = Math.max(maxY, (gy + 1) * cellU);
   }
   return { kind: 'slice', cells, w, n: sN, t, minX, minY, maxX, maxY };
+}
+
+/**
+ * EVERY EXTERNALLY-SUPPLIED SCALAR THAT BOUNDS A LOOP, CHECKED FOR FINITENESS —
+ * not merely for sign. `radarRange = Infinity` passes `> 0` and then `marchRay`'s
+ * `d <= toU` never terminates, which freezes the tab rather than drawing
+ * something wrong; a zero `cellU` divides every sample's cell index to Infinity.
+ * These are inputs from a config object and a stats broadcast, so "no shipped
+ * caller does that" is not the same as "cannot happen".
+ */
+function marchable(obs: Vec2, span: number, radarRange: number, o: HeatmapOpts): boolean {
+  return (
+    span > 0
+    && finitePositive(radarRange)
+    && finitePositive(o.march.stepU)
+    && finitePositive(o.cellU)
+    && Number.isFinite(obs.x + obs.y)
+  );
 }
 
 /** The radial window a march walks, defaulting to "own hull to the terminus". */
@@ -325,11 +460,15 @@ export function marchSlice(
   o: HeatmapOpts,
   win: MarchWindow = {},
 ): MarchSlice | null {
-  const span = wrapPositive(to - from);
-  if (!(span > 0) || !(radarRange > 0) || !Number.isFinite(obs.x + obs.y)) return null;
+  // A FULL TURN IS A FULL TURN, not zero. `wrapPositive(2π)` folds to 0, so an
+  // echo close enough to subtend its own reach — `echoArc` answers `half = π`
+  // there — used to ask for the whole circle and paint nothing at all.
+  const raw = to - from;
+  const span = raw >= FULL_TURN ? FULL_TURN : wrapPositive(raw);
+  if (!marchable(obs, span, radarRange, o)) return null;
   const w = resolveWindow(radarRange, win);
-  if (w === null || !(o.march.stepU > 0)) return null;
   const dTheta = rayStep(radarRange, o.march);
+  if (w === null || !finitePositive(dTheta)) return null;
   const ctx: RunCtx = { obs, field, fromU: w.fromU, toU: w.toU, o, minStore: o.bands[0]?.at ?? 0 };
   SEEN.clear();
   sN = 0;
@@ -354,6 +493,11 @@ export function marchSlice(
  * by the same field and the same model. A slack answer costs time and never
  * correctness; a tight one would clip the footprint, which is why the radial slab
  * carries the extent's own half-width and not merely a cell.
+ *
+ * AN ECHO INSIDE ITS OWN REACH SUBTENDS EVERYTHING (`half = π`), which is a
+ * legitimate answer and not a degenerate one — `marchSlice` recognises the
+ * resulting full turn explicitly rather than letting `wrapPositive` fold 2π back
+ * to zero and paint nothing.
  */
 export function echoArc(
   obs: Vec2,
