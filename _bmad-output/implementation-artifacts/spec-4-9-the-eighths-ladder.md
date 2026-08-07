@@ -2,10 +2,11 @@
 title: 'Story 4.9 — The Eighths Ladder'
 type: 'feature'
 created: '2026-08-06'
-status: 'in-review'
+status: 'done'
 baseline_revision: 'c7c58033fd01cee16013aefeb401aa88ab325bfe'
+final_revision: 'b93caa78f3a98417ded2bc6f5c898529de0749e1'
 review_loop_iteration: 0
-followup_review_recommended: false
+followup_review_recommended: true
 context:
   - '{project-root}/_bmad-output/implementation-artifacts/epic-4-context-amendments.md'
 warnings: ['oversized']
@@ -135,6 +136,18 @@ warnings: ['oversized']
 
 **KEEP on any re-derivation:** the wire may carry no finer resolution than the presentation actually consumes. If two buckets render identically, shipping both is pure disclosure.
 
+### 2026-08-07 — Review gate: the floor runs BEFORE the muffle, not after
+
+**Trigger:** both step-04 hunters converged on the first floor implementation, which clamped the EMITTED value after the island muffle. That leaked the exact plateau bit the floor exists to suppress (blocked raw bands 1-3 resolved to 5 but raw band 4 to 6, so a modified client that knows an island intervenes still recovered "inside 247.5u" vs "in the 247.5–330u shell"), and it silently weakened amendment 54 — a blocked point-blank honk landed at 87.5% where the ratified rule is that a rock costs one old tier, i.e. 75%.
+
+**Amended:** the floor now runs on the RAW band before the muffle. Truth table: raw 1-4 → 4 clear / 6 blocked (0.75, restoring amendment 54 exactly); 5 → 5/7; 6 → 6/8; 7 and 8 → themselves clear, silent blocked. Amendment 124 was corrected in place to record this.
+
+**Divergence from the intent contract, flagged rather than edited:** the I/O matrix row *"Honk blocked inside the plateau … Resolves to band 5 → 87.5%"* is SUPERSEDED by this ruling — the shipped answer is band 6 → 75%. The contract is read-only under the workflow's own rule, so the row stands as written and this entry is the correction of record. Anyone re-deriving from that matrix must take 75%, not 87.5%.
+
+**Known-bad state avoided:** an anti-cheat rule enforced on one of its two paths, and a ratified terrain-muffle penalty quietly halved inside the range where most honks happen.
+
+**KEEP on any re-derivation:** the blocked path must never carry more resolution than the clear one.
+
 ## Review Triage Log
 
 ### Pass 1 — 2026-08-07 (adversarial gate: Fable, in-family) + cross-model gate (Codex CLI)
@@ -193,3 +206,42 @@ warnings: ['oversized']
 
 **Manual checks (if no CLI):**
 - Two clients in one room: honk from just inside and just outside each eighth and confirm the volume steps land where the band table says, and that an island between the two always costs at least one step.
+
+## Auto Run Result
+
+Status: **done** · cycle 60 · VERSION 0.17.60 · PROTOCOL_VERSION 29 → 30
+
+### What shipped
+
+INTEL RANGE becomes the one ruler and every sensor boundary a named eighth of it, all SIGHT-anchored in the derivation style `radar = SIGHT * 2` already used: 3/8 `detect` 247.5u (new), 4/8 `sight` 330u, 5/8 `muzzleFlash` 412.5u (moved from 6/8), 7/8 `farRadar` 577.5u (new, deliberately unconsumed), 8/8 `radar` 660u.
+
+Muzzle-flash carry moved 6/8 → 5/8 and dragged wounded-smoke reach with it, because amendment 42 reuses that one constant rather than forking a fourth — so the annulus beyond the sight bubble, where all of both signals' new work happens, halved from 165u to 82.5u. Mines and torpedoes gained their own detect gate at 3/8 via `pointDetected`, a **sibling** of `pointSighted` rather than a narrowing of it: of that helper's nine call sites exactly three moved, and shells, decoys, booms, bursts, sunk-witness and spawns are byte-identical. The foghorn rebased onto the ladder as eight volume regions of the listener's intel range, retiring amendment 53's clamps — "dazzle cannot deafen" is now structural, since dazzle scales sight and never `radarRange`.
+
+### Files changed
+
+- `shared/src/constants.ts` — the ladder, with a doc block naming every rung and its eighth.
+- `shared/src/index.ts` — PROTOCOL_VERSION 30, justified on two independent grounds.
+- `shared/src/types.ts` — `FoghornEvent.v` widened from a 3-value tier to an 8-value band.
+- `server/src/game/signals.ts` — `pointDetected` and the three rows that ride it; `hornTierFor` → `hornBandFor`.
+- `server/src/game/perception.ts` — `torpU` gate doc corrected to the detect rung.
+- `client/src/config.ts`, `render/foghorn.ts`, `net/roomBindings.ts` — band gain table, chevron weights, fan-out.
+- `client/src/render/projectiles.ts`, `main.ts` — per-track cull ring resolution and dazzle plumbing.
+- `server/scripts/weaponsSmoke.mjs` — the mine bar moved from truesight to detect.
+- Tests across all three workspaces, including a new independent detect oracle and the tightened `mz`/`sm` oracle.
+- `VERSION`, `package.json`, both tracker files, `CLAUDE.md`, epic-4 context and amendments 121-125.
+
+### Review findings
+
+Two gates ran. The orchestration gate (adversarial + Codex cross-model) produced 4 patches; the step-04 gate (blind + edge-case hunters) produced 10 patches, 4 defers, 1 reject. No intent gaps and no spec defects at either gate — the spec was never amended for a defect, only for the amendment-124 ruling.
+
+The four deferred items are in `deferred-work.md` and all need an Eric ruling rather than a patch: the foghorn band reading quieter than truesight on a dedicated intel-truesight build; the honk's range disclosure roughly doubling in resolution as a consequence of eight regions; the own-vs-enemy cull ring depending on a soft 400ms ownership latch; and a straight-running torpedo still able to become permanently invisible.
+
+### Verification
+
+- `npm run check` — exit 0: lint 0 errors (3 pre-existing `max-lines-per-function` warnings in untouched functions), all three type-checks clean, **3386 tests** (shared 571, server 997, client 1818).
+- `weaponsSmoke.mjs` over real sockets against a scratch server on port 2599 — `WEAPONS SMOKE OK`, `leaksBeyondDetect=0`, every enemy mine first seen inside the detect ring. The user's ports were never touched.
+- Every behavioural patch at both gates shipped with a regression test proven red against the pre-fix code.
+
+### Residual risks
+
+The 82.5u muzzle/smoke annulus and the 247.5u detect ring are real combat rebalances Eric asked for by name; neither has batch-sim evidence behind it, and torpedo/mine feel should be read against the standing design direction that weapon cooldowns are likely rising. `farRadar` ships with no consumer by design — the risk it carries is that a future cycle branches on it, which would violate amendment 105 and is called out at the definition site.
