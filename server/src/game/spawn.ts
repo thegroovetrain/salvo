@@ -15,8 +15,8 @@ import {
   hullSilhouette,
   islandDistance,
   polygonMaxRadius,
-  type GameMap,
   type Island,
+  type MapShape,
   type Rng,
   type Vec2,
 } from '@salvo/shared';
@@ -70,7 +70,7 @@ function minDistTo(p: Vec2, others: readonly Vec2[]): number {
   return min;
 }
 
-function ringPoint(map: GameMap, angle: number): Vec2 {
+function ringPoint(map: MapShape, angle: number): Vec2 {
   return { x: Math.cos(angle) * map.spawnRing, y: Math.sin(angle) * map.spawnRing };
 }
 
@@ -106,7 +106,7 @@ function bestOnCircle(r: number, occupied: readonly Vec2[], islands: readonly Is
  */
 const FALLBACK_RINGS = 8;
 
-function fallbackSpawn(map: GameMap, occupied: readonly Vec2[], offset: number): Vec2 {
+function fallbackSpawn(map: MapShape, occupied: readonly Vec2[], offset: number): Vec2 {
   for (let k = 0; k <= FALLBACK_RINGS; k++) {
     const r = (map.spawnRing * (FALLBACK_RINGS - k)) / FALLBACK_RINGS;
     const p = bestOnCircle(r, occupied, map.islands, offset);
@@ -121,7 +121,7 @@ function fallbackSpawn(map: GameMap, occupied: readonly Vec2[], offset: number):
  * With no occupied ships the phase offset makes the pick uniformly random.
  * A validated finer sweep covers the pathological map (see fallbackSpawn).
  */
-export function pickSpawn(map: GameMap, occupied: readonly Vec2[], rng: Rng): Vec2 {
+export function pickSpawn(map: MapShape, occupied: readonly Vec2[], rng: Rng): Vec2 {
   const offset = rng.float(0, TAU);
   let best: Vec2 | null = null;
   let bestScore = -Infinity;

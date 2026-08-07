@@ -36,6 +36,7 @@ import { Container, Graphics, Sprite, Texture } from 'pixi.js';
 import type { ZonePhase, ZoneRing } from '@salvo/shared';
 import { CLIENT_CONFIG } from '../config.js';
 import { motionScaled, settings } from '../settings/store.js';
+import { strokeWorldWidth } from '../util/math.js';
 import { bakeVignetteTexture } from './textures.js';
 
 const Z = CLIENT_CONFIG.zone;
@@ -49,16 +50,13 @@ export const FILL_COLOR = CLIENT_CONFIG.colors.storm;
 export type ZoneDisplay = ZonePhase;
 
 /**
- * Pure: the WORLD-space width a stroke must be drawn at to land on screen at
- * `px` pixels, given the camera's px-per-world-unit `zoom` (chartRoot is scaled
- * by exactly that). This is the codebase's first screen-locked stroke; it stays
- * local to zone.ts until a second consumer exists (the blip 1px retrofit is 4.x
- * scope). A non-finite or non-positive zoom falls back to the raw px so a
- * degenerate camera can never produce a NaN/Infinity stroke width.
+ * The screen-locked stroke, authored here for the storm plane's edges and
+ * PROMOTED to util/math.ts in cycle 59 when the charted terrain layer became
+ * the second consumer (this note used to say it stayed local until one
+ * existed). Re-exported so zone.ts remains the storm plane's single import
+ * surface — there is still exactly one implementation.
  */
-export function strokeWorldWidth(px: number, zoom: number): number {
-  return Number.isFinite(zoom) && zoom > 0 ? px / zoom : px;
-}
+export { strokeWorldWidth };
 
 /** The geometry the storm fill's extent depends on — the subset of a ZoneFrame
  *  `fillOuterRadius` reads (ZoneFrame extends it, so a frame IS a FillView). */

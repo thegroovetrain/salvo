@@ -1,6 +1,8 @@
 // Unit tests for the island geometry query seam (sim/island.ts): broadphase
-// gating, exact polygon delegation, signed distance, skeleton push-out
-// direction — plus the broadphase LOS perf guard over a production map.
+// gating, exact polygon delegation, signed distance, the nearest-boundary
+// push-out direction (cycle 59 — the skeleton normal is retired), the
+// pole-keyed core early-out — plus the broadphase LOS perf guard over a
+// production map.
 import { describe, it, expect } from 'vitest';
 import {
   islandSegHit,
@@ -8,7 +10,7 @@ import {
   pointInIsland,
   islandDistance,
   nearestCoastPoint,
-  skeletonNormal,
+  coastNormal,
   ISLAND_DIST_SLACK,
 } from '../sim/island.js';
 import { generateMap, islandFromPolygon } from '../sim/map.js';
@@ -16,7 +18,7 @@ import { mulberry32 } from '../math/rng.js';
 import type { Vec2 } from '../math/vec.js';
 import type { Island } from '../types.js';
 
-/** 20x20 axis-aligned square about the origin (CCW), centroid skeleton. */
+/** 20x20 axis-aligned square about the origin (CCW). */
 function squareIsland(): Island {
   return islandFromPolygon([
     { x: -10, y: -10 },
@@ -26,27 +28,48 @@ function squareIsland(): Island {
   ]);
 }
 
-describe('islandFromPolygon', () => {
-  it('computes the bounding circle and core about the skeleton centroid', () => {
+/**
+ * A hook (U-shape) whose vertex CENTROID falls in its own bay — the exact
+ * geometry that zeroed the old bounding-centre core and motivated the pole of
+ * inaccessibility (spec ruling 2026-08-06).
+ */
+function hookIsland(): Island {
+  return islandFromPolygon([
+    { x: -30, y: -20 },
+    { x: 30, y: -20 },
+    { x: 30, y: 20 },
+    { x: 10, y: 20 }, // starboard prong tip
+    { x: 10, y: -5 }, // bay floor
+    { x: -10, y: -5 },
+    { x: -10, y: 20 }, // port prong tip
+    { x: -30, y: 20 },
+  ]);
+}
+
+describe('islandFromPolygon (the fixture builder)', () => {
+  it('computes the bounding circle about the vertex centroid', () => {
     const isle = squareIsland();
     expect(isle.x).toBeCloseTo(0);
     expect(isle.y).toBeCloseTo(0);
     expect(isle.r).toBeCloseTo(Math.hypot(10, 10));
-    expect(isle.core).toBeCloseTo(10);
-    expect(isle.skeleton).toHaveLength(1);
+    expect(isle.contours).toEqual([]);
   });
 
-  it('zeroes the core when the skeleton centre is outside the polygon', () => {
-    const isle = islandFromPolygon(
-      [
-        { x: 0, y: 0 },
-        { x: 10, y: 0 },
-        { x: 10, y: 10 },
-        { x: 0, y: 10 },
-      ],
-      [{ x: -50, y: 0 }],
-    );
-    expect(isle.core).toBe(0);
+  it('pole = deepest interior point; core measured about IT, not the centre', () => {
+    const isle = squareIsland();
+    expect(isle.pole.x).toBeCloseTo(0, 1);
+    expect(isle.pole.y).toBeCloseTo(0, 1);
+    expect(isle.core).toBeCloseTo(10, 1);
+  });
+
+  it('a hook keeps core > 0 even though its centroid sits in its own bay', () => {
+    const isle = hookIsland();
+    // The centroid is inside the bay (water) — the shipped bounding-centre
+    // core would have been 0 on exactly this shape.
+    expect(pointInIsland({ x: isle.x, y: isle.y }, isle)).toBe(false);
+    // The pole lands in the solid lower slab and carries a real core.
+    expect(pointInIsland(isle.pole, isle)).toBe(true);
+    expect(isle.core).toBeGreaterThan(5);
   });
 });
 
@@ -86,6 +109,19 @@ describe('islandBlocksSegment', () => {
     expect(isle.core).toBeGreaterThan(0);
     expect(islandBlocksSegment({ x: -30, y: 1 }, { x: 30, y: -1 }, isle)).toBe(true);
   });
+
+  // The cycle-59 seam change: core is measured about the POLE, so the
+  // early-out disc must be centred there too. On a hook the bounding centre
+  // sits in the bay — a core disc about IT would call open bay water solid.
+  it('the core early-out is keyed on the POLE, not the bounding centre', () => {
+    const isle = hookIsland();
+    // A chord through the pole (solid land) is blocked…
+    const p = isle.pole;
+    expect(islandBlocksSegment({ x: p.x - 60, y: p.y }, { x: p.x + 60, y: p.y }, isle)).toBe(true);
+    // …while a segment down the open bay (which passes near the bounding
+    // CENTRE) stays clear: the pole-centred core cannot swallow the bay.
+    expect(islandBlocksSegment({ x: 0, y: 30 }, { x: 0, y: 5 }, isle)).toBe(false);
+  });
 });
 
 describe('pointInIsland', () => {
@@ -123,108 +159,66 @@ describe('nearestCoastPoint', () => {
   });
 });
 
-describe('skeletonNormal (the push-out authority)', () => {
-  it('points from the nearest skeleton point toward p', () => {
-    const n = skeletonNormal({ x: 5, y: 0 }, squareIsland());
+describe('coastNormal (the push-out authority, cycle 59)', () => {
+  it('inside: points toward the nearest boundary (the shortest way OUT)', () => {
+    const n = coastNormal({ x: 5, y: 0 }, squareIsland());
     expect(n.nx).toBeCloseTo(1);
     expect(n.ny).toBeCloseTo(0);
     expect(n.dist).toBeCloseTo(5);
   });
 
-  it('picks the nearest of several skeleton points', () => {
-    const isle = islandFromPolygon(
-      [
-        { x: -40, y: -10 },
-        { x: 40, y: -10 },
-        { x: 40, y: 10 },
-        { x: -40, y: 10 },
-      ],
-      [
-        { x: -30, y: 0 },
-        { x: 30, y: 0 },
-      ],
-    );
-    const n = skeletonNormal({ x: 33, y: 4 }, isle);
+  it('outside: points away from the boundary (increases clearance)', () => {
+    const n = coastNormal({ x: 15, y: 3 }, squareIsland());
+    expect(n.nx).toBeCloseTo(1);
+    expect(n.ny).toBeCloseTo(0);
     expect(n.dist).toBeCloseTo(5);
-    expect(n.nx).toBeCloseTo(3 / 5);
-    expect(n.ny).toBeCloseTo(4 / 5);
   });
 
-  it('degenerates to +x on the skeleton point itself', () => {
-    const n = skeletonNormal({ x: 0, y: 0 }, squareIsland());
-    expect(n.nx).toBe(1);
-    expect(n.ny).toBe(0);
-    expect(n.dist).toBe(0);
-  });
-
-  // THE cycle-51 review-gate regression. This function projects onto the
-  // skeleton POLYLINE — the same `nearestOnSkeleton` islandShape.ts validates
-  // star-shapedness with. When it took the nearest skeleton POINT instead, a
-  // hull amidships a long ridge was aimed at a far ENDPOINT, giving a heavily
-  // tangential push that slid it along the coast instead of off it.
-  it('projects onto skeleton SEGMENTS: amidships a ridge is PERPENDICULAR, not toward an endpoint', () => {
-    // A 400u-long east-west ridge; the skeleton is its two endpoints only.
-    const isle = islandFromPolygon(
-      [
-        { x: -220, y: -40 },
-        { x: 220, y: -40 },
-        { x: 220, y: 40 },
-        { x: -220, y: 40 },
-      ],
-      [
-        { x: -200, y: 0 },
-        { x: 200, y: 0 },
-      ],
-    );
-    // Amidships, 20u off the ridge axis. The nearest skeleton POINT is 200u
-    // away at an endpoint (a ~6-degree, near-tangential aim); the nearest
-    // point on the POLYLINE is the foot 20u directly below.
-    const n = skeletonNormal({ x: 10, y: 20 }, isle);
+  it('amidships a long slab aims PERPENDICULAR to the coast, never at an end', () => {
+    // The successor of the cycle-51 ridge regression: a 440x80 slab; a point
+    // amidships 20u off-axis must escape straight through the near long edge.
+    const isle = islandFromPolygon([
+      { x: -220, y: -40 },
+      { x: 220, y: -40 },
+      { x: 220, y: 40 },
+      { x: -220, y: 40 },
+    ]);
+    const n = coastNormal({ x: 10, y: 20 }, isle);
     expect(n.dist).toBeCloseTo(20);
     expect(n.nx).toBeCloseTo(0);
     expect(n.ny).toBeCloseTo(1);
   });
 
-  it('clamps to the endpoint beyond the ridge ends (the cap region)', () => {
-    const isle = islandFromPolygon(
-      [
-        { x: -60, y: -20 },
-        { x: 60, y: -20 },
-        { x: 60, y: 20 },
-        { x: -60, y: 20 },
-      ],
-      [
-        { x: -40, y: 0 },
-        { x: 40, y: 0 },
-      ],
-    );
-    const n = skeletonNormal({ x: 43, y: 4 }, isle); // past the +x endpoint
-    expect(n.dist).toBeCloseTo(5);
-    expect(n.nx).toBeCloseTo(3 / 5);
-    expect(n.ny).toBeCloseTo(4 / 5);
+  it('inside a hook bay ARM, escapes through the arm side — never across the bay', () => {
+    const isle = hookIsland();
+    // Inside the starboard prong (x in [10, 30]), near its inner wall.
+    const n = coastNormal({ x: 12, y: 10 }, isle);
+    // Nearest boundary is the prong's inner wall at x = 10: escape -x, into
+    // the open bay (water) — a valid exit even from concave geometry.
+    expect(n.nx).toBeCloseTo(-1);
+    expect(n.ny).toBeCloseTo(0);
+    expect(n.dist).toBeCloseTo(2);
+  });
+
+  it('degenerates via the pole direction exactly on the coastline, +x on the pole', () => {
+    const isle = squareIsland();
+    const onEdge = coastNormal({ x: 10, y: 0 }, isle);
+    expect(onEdge.dist).toBe(0);
+    expect(onEdge.nx).toBeCloseTo(1, 1); // away from the pole (origin)
+    const onPole = coastNormal({ x: isle.pole.x, y: isle.pole.y }, isle);
+    expect(Math.hypot(onPole.nx, onPole.ny)).toBeCloseTo(1);
   });
 });
 
 // --- Float-dust regression at the segPolygonHit radius comparison -----------
 //
-// THESE TESTS MUST USE GENERATOR-PRODUCED POLYGONS, and the reason is the
-// whole point of the suite: every fixture above is an axis-aligned INTEGER
-// square. A horizontal probe crossing a vertical edge of such a square solves
-// to a closest approach of EXACTLY 0.0 in IEEE double, so the old
-// `c.dist <= radius` test (radius === 0 on the island LOS / shell / aim path)
-// passed by luck and the defect was invisible.
-//
-// Real islands are fractal polygons with irrational, arbitrarily-oriented
-// edges at board-scale coordinates. There, segSegClosest solves for the
-// closest-approach parameters and multiplies BACK to a point before taking
-// Math.hypot, so a genuine transversal crossing returns float dust
-// (measured 7.216449660063518e-16 at coords ~10; it scales with coordinate
-// magnitude, so ~2e-13 out at the 2400u board edge) and never exactly 0.
-// Against `<= 0` that read as a clean MISS: 38.5% of provably-crossing
-// segments reported no hit for shells/aim preview and 31.8% reported clear
-// line of sight through solid land — through the anti-cheat fog-of-war
-// chokepoint. Only generator geometry exercises that path; hand-built
-// axis-aligned fixtures cannot reproduce it.
+// THESE TESTS MUST USE GENERATOR-PRODUCED POLYGONS: axis-aligned integer
+// fixtures solve to a closest approach of EXACTLY 0.0 and hid the defect.
+// Real islands have irrational, arbitrarily-oriented edges at board-scale
+// coordinates, where a genuine transversal crossing returns float dust
+// (~1e-16..1e-13) and a bare `<= 0` read as a clean miss — 38.5% of
+// provably-crossing segments for shells and 31.8% for LOS, through the
+// anti-cheat fog-of-war chokepoint.
 describe('generator geometry: no crossing may be missed to float dust', () => {
   /** Points genuinely inside `isle`'s polygon, one per sampled bearing. */
   function interiorProbes(isle: Island): { inner: Vec2; outer: Vec2 }[] {
@@ -273,7 +267,7 @@ describe('generator geometry: no crossing may be missed to float dust', () => {
     expect(losMissed).toBe(0);
   });
 
-  it('chords straight through island centres are always blocked', () => {
+  it('chords straight through island POLES are always blocked', () => {
     let chords = 0;
     for (const [seed, cap] of [
       [12345, 20],
@@ -281,14 +275,13 @@ describe('generator geometry: no crossing may be missed to float dust', () => {
       [2026, 30],
     ] as const) {
       for (const isle of generateMap(seed, cap).islands) {
-        // `core > 0` proves the bounding centre is inside the polygon, so a
-        // chord through it is unambiguously a land crossing.
-        if (isle.core <= 0) continue;
+        // The pole is inside the polygon by construction, so a chord through
+        // it is unambiguously a land crossing.
         for (let k = 0; k < 24; k++) {
           const a = (k * Math.PI) / 12;
           const d = isle.r * 3;
-          const a0 = { x: isle.x - Math.cos(a) * d, y: isle.y - Math.sin(a) * d };
-          const a1 = { x: isle.x + Math.cos(a) * d, y: isle.y + Math.sin(a) * d };
+          const a0 = { x: isle.pole.x - Math.cos(a) * d, y: isle.pole.y - Math.sin(a) * d };
+          const a1 = { x: isle.pole.x + Math.cos(a) * d, y: isle.pole.y + Math.sin(a) * d };
           chords++;
           expect(islandBlocksSegment(a0, a1, isle)).toBe(true);
           expect(islandSegHit(a0, a1, isle)).not.toBeNull();
@@ -301,8 +294,7 @@ describe('generator geometry: no crossing may be missed to float dust', () => {
   it('a concave cove is still genuinely missable under the epsilon', () => {
     // The tolerance must not make a cavity solid. A deliberate U with a
     // 20u-wide mouth, rotated by an irrational-ish angle and pushed out to
-    // board-scale coordinates so the epsilon path is genuinely exercised
-    // (an axis-aligned fixture would prove nothing here either).
+    // board-scale coordinates so the epsilon path is genuinely exercised.
     const th = 0.37;
     const c = Math.cos(th);
     const s = Math.sin(th);
@@ -322,7 +314,10 @@ describe('generator geometry: no crossing may be missed to float dust', () => {
         { x: -30, y: 20 },
       ].map(place),
     );
-    expect(isle.core).toBe(0); // the bounding centre sits in the cove (water)
+    // The bounding centre sits in the cove (water) — but the POLE never does,
+    // so the core stays honest and the mouth stays open.
+    expect(pointInIsland({ x: isle.x, y: isle.y }, isle)).toBe(false);
+    expect(isle.core).toBeGreaterThan(0);
     // Down the middle of the mouth, stopping 10u clear of the cove floor and
     // 10u clear of either prong: no edge is touched, no interior is entered.
     const mouth0 = place({ x: 0, y: 30 });

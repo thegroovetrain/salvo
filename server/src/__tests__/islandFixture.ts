@@ -18,9 +18,11 @@
 // degenerate case.
 //
 // A useful consequence: islandFromPolygon derives `core` (largest disc about
-// the centre fully inside the polygon) = the inradius = `r`, so
-// islandBlocksSegment's `core` early-out reproduces the OLD circle LOS answer
-// exactly for any segment that reaches within `r` of the centre.
+// the pole of inaccessibility fully inside the polygon) = the inradius = `r`,
+// so islandBlocksSegment's `core` early-out reproduces the OLD circle LOS
+// answer exactly for any segment that reaches within `r` of the centre — the
+// regular polygon's pole of inaccessibility coincides with its centroid, so
+// `pole` lands exactly at `(x, y)` too.
 
 import { islandFromPolygon, type Island } from '@salvo/shared';
 
@@ -30,8 +32,9 @@ const SIDES = 128;
 
 /**
  * A near-circular island fixture: centre `(x, y)`, coastline exactly `r` from
- * the centre along every cardinal axis (see the module note). The skeleton is
- * the single centre point, so push-out and `Island.x/y` are exact.
+ * the centre along every cardinal axis (see the module note). The polygon is
+ * regular, so its pole of inaccessibility lands exactly at `(x, y)` too —
+ * push-out and `Island.x/y`/`Island.pole` are all exact.
  */
 export function circleIsland(x: number, y: number, r: number, sides = SIDES): Island {
   const phase = Math.PI / sides;
@@ -40,5 +43,5 @@ export function circleIsland(x: number, y: number, r: number, sides = SIDES): Is
     const a = phase + (i * 2 * Math.PI) / sides;
     return { x: x + Math.cos(a) * circum, y: y + Math.sin(a) * circum };
   });
-  return islandFromPolygon(poly, [{ x, y }]);
+  return islandFromPolygon(poly);
 }

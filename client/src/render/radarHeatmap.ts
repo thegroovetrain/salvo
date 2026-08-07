@@ -110,6 +110,16 @@
 //     after fractal islands landed and happily painted coastline on a bounding
 //     circle that can sit hundreds of units offshore of the real coast.
 //
+//     CYCLE 59 REPEAT OF THE SAME TRAP, ONE FIELD OVER: `isle.core` is now the
+//     inscribed radius about `isle.pole`, not about `isle.x/y`. The two cheap
+//     early-outs that ride on it (`solidity`'s depth shortcut, `inLand`'s
+//     early-IN) are keyed on the POLE for that reason — on a hook island the
+//     bounding centre sits in the bay, and a centre-keyed core disc paints
+//     sailable water as solid landmass before the polygon is ever consulted.
+//     Everything else in this file that reads `x/y/r` is using the BOUNDING
+//     CIRCLE deliberately (broadphase, bbox scan, angular span, `faceShadow`'s
+//     terminator) and is correct as written.
+//
 //   • R6 — THE SCOPE PAINTS EVERYTHING WITHIN RADAR RANGE, TRUESIGHT INCLUDED
 //     (cycle 56, amendments 88-90 — SUPERSEDING cycle 54's sight-bubble gate and
 //     the sight half of cycle 55). Eric: *"maybe we should paint everything in
@@ -705,15 +715,21 @@ export function faceShadow(p: Vec2, isle: Island, obs: Vec2, term: number): numb
  * "honestly not sure, could be something tiny" is the literally correct read of
  * a 25u rock.
  *
- * `isle.core` (the largest disc about the bounding centre that is fully inside
- * the polygon) is the cheap early-out: any point inside it is at least
- * `core − |P−C|` from the coastline, so a deep interior cell answers without
+ * `isle.core` is the cheap early-out: any point inside it is at least
+ * `core − |P−pole|` from the coastline, so a deep interior cell answers without
  * touching a single polygon edge. Only cells near the coast pay for
  * `nearestCoastPoint`.
+ *
+ * KEYED ON `isle.pole`, NOT `isle.x/y` (cycle 59). `core` is the inscribed
+ * radius about the POLE OF INACCESSIBILITY, not about the bounding-circle
+ * centre. The two coincided while islands were star-shaped capsules; under the
+ * height-field generator a hook island's bounding centre can sit in its own
+ * BAY, so a disc measured from there covers open water — and this early-out
+ * would report depth-1 solid land in the middle of a sailable inlet.
  */
 export function solidity(p: Vec2, isle: Island, depthFullU: number): number {
   if (!(depthFullU > 0)) return 1;
-  const dc = Math.hypot(p.x - isle.x, p.y - isle.y);
+  const dc = Math.hypot(p.x - isle.pole.x, p.y - isle.pole.y);
   if (isle.core - dc >= depthFullU) return 1;
   return clamp01(nearestCoastPoint(p, isle).dist / depthFullU);
 }
@@ -748,10 +764,15 @@ export function occluderCandidates(isle: Island, field: readonly Island[], obs: 
  * it is by definition wholly inside the polygon, so a point in it is land
  * without visiting one edge. That matters here because the coverage bake is the
  * only expensive thing in this file and the interior is most of it.
+ *
+ * CENTRED ON `isle.pole` (cycle 59) — see `solidity` for why. Keyed on the
+ * bounding centre this early-IN would PAINT SAILABLE WATER AS LAND wherever a
+ * hook island's centroid falls in its own bay, and no amount of exact polygon
+ * work downstream can undo an early return of `true`.
  */
 function inLand(p: Vec2, isle: Island): boolean {
-  const dx = p.x - isle.x;
-  const dy = p.y - isle.y;
+  const dx = p.x - isle.pole.x;
+  const dy = p.y - isle.pole.y;
   if (isle.core > 0 && dx * dx + dy * dy <= isle.core * isle.core) return true;
   return pointInIsland(p, isle);
 }

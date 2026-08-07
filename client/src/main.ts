@@ -40,7 +40,7 @@ import {
 import { CLIENT_CONFIG } from './config.js';
 import { createGameState, type GameState } from './state.js';
 import { createStage, type Stage } from './render/stage.js';
-import { buildMap } from './render/map.js';
+import { buildMap, type MapChart } from './render/map.js';
 import { Camera, canUserZoom } from './render/camera.js';
 import { ShipView, FALLBACK_STYLE, PLAYER_HUES, hullStyle, hueRevision, setColorblindAssist } from './render/ships.js';
 import { ContactViews, type PlateFrame } from './render/contacts.js';
@@ -228,6 +228,10 @@ interface Game {
    *  the game because the aim preview clips its travel lines against them (the
    *  renderer's map layer had been the only holder). */
   islands: readonly Island[];
+  /** The charted map layer (boundary, rings, hypsometric terrain). Still built
+   *  once at join; retained only so the render loop can feed it the camera zoom
+   *  — its contour strokes are screen-locked (cycle 59). */
+  mapChart: MapChart;
   cameraSnapped: boolean;
   lastOwn: { x: number; y: number };
   /** Spectate-mode render state (death → spectate, active phase). */
@@ -1506,7 +1510,10 @@ function buildGame(
     uiScale: 1,
     spendInFlight: null,
     fogZoomTimer: null,
-    room: conn.room, mapRadius: map.radius, islands: map.islands,
+    // The charted map layer is built HERE (not in joinAndPlay) so it can be
+    // seeded with the real camera zoom: its strokes are screen-locked, and a
+    // first frame drawn at a guessed zoom would flash the wrong line weight.
+    room: conn.room, mapRadius: map.radius, islands: map.islands, mapChart: buildMap(map, stage.layers, camera.zoom),
     cameraSnapped: false, lastOwn: { x: 0, y: 0 },
     spectate: { freePan: false, visualsSet: false },
     returning: false, reconnecting: false, returnToPort: makeGameReturnToPort(() => gRef),
@@ -2440,6 +2447,20 @@ function hudPoint(g: Game, p: ScreenPoint): ScreenPoint {
 
 // --- the loop --------------------------------------------------------------------
 
+/**
+ * Advance the frame's CAMERA-derived state: the decaying screen-shake offset,
+ * and the charted terrain layer, which is fed the live zoom because its contour
+ * strokes are screen-locked. The terrain call is self-throttled (two float
+ * compares unless the zoom has meaningfully moved), so this stays a cheap
+ * per-frame step and the map layer stays a build-once graphic.
+ */
+function advanceCameraFrame(g: Game, frameDt: number): void {
+  const shakeOff = g.shake.update(frameDt);
+  g.camera.shake.x = shakeOff.x;
+  g.camera.shake.y = shakeOff.y;
+  g.mapChart.update(g.camera.zoom);
+}
+
 function makeCallbacks(g: Game): LoopCallbacks {
   // Story 1.13: hoist the per-contact nameplate frame — camera + pad are stable
   // and nameOf closes over g, so build it ONCE and reuse it every render frame
@@ -2490,9 +2511,7 @@ function makeCallbacks(g: Game): LoopCallbacks {
       updateScoreEpoch(g); // the ready room's sinkings are not match score
       updateOpenResults(g); // converge an open elimination modal on roster truth
       updateMatchAudioCues(g, now);
-      const shakeOff = g.shake.update(frameDt);
-      g.camera.shake.x = shakeOff.x;
-      g.camera.shake.y = shakeOff.y;
+      advanceCameraFrame(g, frameDt);
       updateOwnColor(g); // recolor own hull/wake once the roster hue syncs (Story 1.12)
       if (g.state.spectating) renderSpectate(g, frameDt, now, nowMs, zv, mu);
       else renderAlive(g, alpha, frameDt, now, nowMs, zv, mu);
@@ -2719,8 +2738,8 @@ async function startGame(
   hideBanner();
 
   // The server's map, regenerated deterministically from the welcome seed + cap.
+  // The chart layer is built inside buildGame — it needs the camera's zoom.
   const map = mapFromWelcome(conn.welcome);
-  buildMap(map, stage.layers);
 
   const game = buildGame(stage, conn, map, audio, cls, portal, settingsOverlay);
   gameRef = game; // the settings overlay's late-bound view of the live match

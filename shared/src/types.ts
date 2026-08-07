@@ -38,24 +38,50 @@ export interface Circle {
 }
 
 /**
- * A fractal-coastline landmass (cycle 51, PV 26). `x/y/r` IS the bounding
- * circle — max distance from (x,y) to any vert — which keeps `Island`
- * structurally assignable to `Circle` (deliberate: every circle-typed
- * consumer keeps compiling, and the bounding circle is the mandatory
- * broadphase in front of every exact polygon test; see sim/island.ts, the
- * single query seam). Map geometry never travels on the wire — both sides
- * rebuild identical islands from `mapSeed` via generateMap.
+ * One elevation band of an island (cycle 59): the isolines of the SAME height
+ * field the coastline was thresholded from, at `level` steps above sea level.
+ * RENDERING ONLY — contours are never collided and never LOS-tested; the
+ * gameplay authority on elevation is the retained height raster (GameMap).
+ * `polys` is a LIST because one band may split into multiple disjoint peaks on
+ * an elongated island — a desired feature, not an error. Each poly is CCW and
+ * strictly inside its parent (the island coastline for level 1, a level-k−1
+ * poly above that); max 4 bands per island (base coastline + levels 1..3).
+ */
+export interface Contour {
+  level: number; // 1..3 — steps above sea level (the coastline itself is band 0)
+  polys: Vec2[][]; // world-space CCW loops, implicitly closed (last -> first)
+}
+
+/**
+ * A height-field landmass (cycle 59, PV 29 — supersedes the cycle-51 capsule
+ * generator's skeleton islands). `x/y/r` IS the bounding circle — max distance
+ * from (x,y) to any vert — which keeps `Island` structurally assignable to
+ * `Circle` (deliberate: every circle-typed consumer keeps compiling, and the
+ * bounding circle is the mandatory broadphase in front of every exact polygon
+ * test; see sim/island.ts, the single query seam). Map geometry never travels
+ * on the wire — both sides rebuild identical islands from `mapSeed` via
+ * generateMap.
+ *
+ * `pole` is the pole of inaccessibility — the interior point furthest from the
+ * coastline, guaranteed inside `poly` — and `core` is the inscribed radius
+ * about `pole`, NOT about `(x,y)`: on a hook island the centroid falls in its
+ * own bay, which would zero the core on exactly the islands whose LOS
+ * early-out matters most. The retired 1-3 point `skeleton` (and the star-shape
+ * invariant that rode on it) is gone: push-out now aims at the nearest
+ * boundary point (sim/collision.ts).
  */
 export interface Island {
-  x: number; // u — bounding-circle centre
+  x: number; // u — bounding-circle centre (polygon vertex centroid)
   y: number; // u
   r: number; // u — bounding-circle radius: max distance from (x,y) to any vert
   /** Closed WORLD-SPACE boundary, CCW, implicitly closed (last -> first). */
   poly: Vec2[];
-  /** 1-3 world-space points; the push-out authority (polygon is star-shaped about these). */
-  skeleton: Vec2[];
-  /** Largest radius about (x,y) fully inside poly; 0 if (x,y) is outside poly. */
+  /** Pole of inaccessibility — deepest interior point, always inside `poly`. */
+  pole: Vec2;
+  /** Largest radius about `pole` fully inside poly; > 0 by construction. */
   core: number;
+  /** Elevation bands (render-only isolines of the height field), levels 1..3. */
+  contours: Contour[];
 }
 
 /**

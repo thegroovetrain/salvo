@@ -132,7 +132,14 @@ export const CONFIG = {
   /** True ship globals shared by every class (no per-class variation). */
   ship: {
     respawnDelay: 3000, // ms — delay before respawn (prototype)
-    islandSpeedMult: 0.25, // speed multiplier on island grazing push-out
+    // Fraction of a hull's RATED max speed it may still make while driving
+    // DEAD-ON into land (sim/collision.ts applyGroundingDamp; Eric ruling
+    // 2026-08-06 "boundary + directional damp"). Scaled by how head-on the
+    // contact is — a graze costs nothing — and applied as a CAP, not a
+    // per-tick multiplier: the old multiplier collapsed to 0.083 u/s under
+    // sustained contact and took rudder authority with it. Pressing the MAP
+    // EDGE is not grounding and is never damped.
+    islandSpeedMult: 0.25,
   },
 
   /** Vision + radar (fog-of-war ranges). */

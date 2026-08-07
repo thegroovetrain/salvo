@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { CONFIG, hullSilhouette, polygonMaxRadius } from '@salvo/shared';
+import { CONFIG, hullSilhouette, polygonMaxRadius, transformPolygon } from '@salvo/shared';
 import { World } from '../game/world.js';
 
 const SIM_DT = CONFIG.tick.simDtMs;
@@ -143,7 +143,12 @@ describe('World step — inputs and motion', () => {
 });
 
 describe('World step — boundary', () => {
-  it('clamps a ship at the map edge and damps its speed', () => {
+  // CYCLE 59 (Eric ruling 2026-08-06): the map edge is a WALL, not ground. This
+  // test previously asserted the clamp at `radius − polygonMaxRadius` (the
+  // heading-INDEPENDENT bounding radius — an invisible wall up to 62u inside
+  // the drawn edge) AND a speed damp on the press. Both assertions are
+  // DELIBERATELY inverted: they were the "pinned in open ocean" bug.
+  it('clamps a ship at the map edge by its bow, and never damps its speed there', () => {
     const w = new World(4);
     const rec = w.addShip('a', 'ALPHA');
     // Aim the ship straight out from center and place it near the edge, fast.
@@ -154,12 +159,17 @@ describe('World step — boundary', () => {
     w.submitInput('a', input(1, 1, 0));
     w.step();
     const d = Math.hypot(rec.state.x, rec.state.y);
-    // The clamp keeps the whole silhouette inside: center stops at
-    // radius - the hull's bounding-circle radius (silhouette max radius).
-    const limit = w.map.radius - polygonMaxRadius(hullSilhouette('torpedoBoat'));
-    expect(d).toBeLessThanOrEqual(limit + 1e-9);
-    expect(d).toBeCloseTo(limit, 6);
-    expect(rec.state.speed).toBeLessThan(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed * 0.5);
+    // Bow-on, the hull stops with its BOW on the boundary — strictly further
+    // out than the old bounding-circle wall, and the silhouette still fits.
+    const local = hullSilhouette('torpedoBoat');
+    const bow = Math.max(...local.map((p) => p.x));
+    expect(d).toBeCloseTo(w.map.radius - bow, 6);
+    expect(d).toBeGreaterThan(w.map.radius - polygonMaxRadius(local));
+    for (const v of transformPolygon(local, rec.state.x, rec.state.y, rec.state.heading)) {
+      expect(Math.hypot(v.x, v.y)).toBeLessThanOrEqual(w.map.radius + 1e-6);
+    }
+    // Full way kept, so full rudder authority: the edge costs nothing.
+    expect(rec.state.speed).toBeCloseTo(CONFIG.shipClasses.torpedoBoat.kinematics.maxSpeed, 9);
   });
 
   it('never lets a ship escape the map over a long full-throttle run', () => {

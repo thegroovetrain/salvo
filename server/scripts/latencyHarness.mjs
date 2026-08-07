@@ -47,6 +47,7 @@ import {
   CONFIG,
   PROTOCOL_VERSION,
   angleDiff,
+  applyGroundingDamp,
   bearing,
   generateMap,
   hullSilhouette,
@@ -298,8 +299,8 @@ function makePredictor(map, cls) {
 function predictorStep(p, s, inp) {
   const prev = { x: s.x, y: s.y, heading: s.heading };
   stepShip(s, inp, p.kin, p.dt);
-  const { contact } = resolveShipPose(prev, s, p.map.islands, p.map.radius, p.poly, p.scratch);
-  if (contact) s.speed *= CONFIG.ship.islandSpeedMult;
+  const res = resolveShipPose(prev, s, p.map.islands, p.map.radius, p.poly, p.scratch);
+  applyGroundingDamp(s, res, p.kin.maxSpeed); // the SHARED damp both sides run
 }
 
 function predictorLocalTick(p, inp) {

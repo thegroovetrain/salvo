@@ -75,6 +75,7 @@ import {
   quantizeInto,
   rasterize,
   sampleGrid,
+  solidity,
   stampIsland,
   stampShip,
   type CoverCell,
@@ -934,5 +935,97 @@ describe('islands block this sensor too (Eric ruling 2026-08-02)', () => {
       { x: 300, y: 140 },
     ]);
     expect(contactEcho(SIGHTED, OBS, SIGHT, ...SWEPT, [aside], 0)).not.toBeNull();
+  });
+});
+
+// --- the pole/core semantic shift (cycle 59) -----------------------------------
+//
+// `Island.core` used to be the inscribed radius about the BOUNDING CENTRE and is
+// now the inscribed radius about `pole`, the pole of inaccessibility. Both are
+// plain numbers on a type that is still structurally assignable to `Circle`, so
+// a site that kept reading `isle.x/y` COMPILES AND SHIPS SILENTLY — which is
+// exactly why the A/B half of every test below swaps the pole back to the
+// bounding centre and demands the failure reappear.
+
+/**
+ * A HOOK island: a thick C whose vertex centroid falls in its own bay. Arms are
+ * 280u thick (core ≈ 140) while the bay slot is only 40u wide, so the retired
+ * centre-keyed `core` disc reaches ~140u of OPEN WATER — the failure is not a
+ * rounding error, it is most of the bay.
+ */
+function hookIsland(): Island {
+  return islandFromPolygon([
+    { x: -300, y: -300 },
+    { x: -20, y: -300 },
+    { x: -20, y: 150 },
+    { x: 20, y: 150 },
+    { x: 20, y: -300 },
+    { x: 300, y: -300 },
+    { x: 300, y: 300 },
+    { x: -300, y: 300 },
+  ]);
+}
+
+/** The same island as a site that never migrated sees it: `core` keyed on the
+ *  bounding centre. The A/B control for every guard in this section. */
+function centreKeyed(isle: Island): Island {
+  return { ...isle, pole: { x: isle.x, y: isle.y } };
+}
+
+/** Cells in `cover` whose centre is NOT on the island — i.e. painted water. */
+function wetCells(isle: Island, cover: readonly CoverCell[]): number {
+  return cover.filter(
+    (c) =>
+      !pointInIsland({ x: cellCentre(c.gx, CLEAN.cellU), y: cellCentre(c.gy, CLEAN.cellU) }, isle),
+  ).length;
+}
+
+describe('core is measured about the POLE, not the bounding centre (cycle 59)', () => {
+  const OBS = { x: 0, y: -500 }; // off the bay mouth, looking into the slot
+
+  it('THE PREMISE: the hook fixture really does put its centroid in the water', () => {
+    const isle = hookIsland();
+    expect(pointInIsland(isle.pole, isle), 'the pole is interior by construction').toBe(true);
+    expect(pointInIsland({ x: isle.x, y: isle.y }, isle), 'the centroid is in the bay').toBe(false);
+    expect(isle.core).toBeGreaterThan(100); // a disc big enough to flood the slot
+  });
+
+  it('the core disc about the POLE is all land; the same disc about the centroid is not', () => {
+    const isle = hookIsland();
+    let wetAboutCentre = 0;
+    for (let a = 0; a < Math.PI * 2; a += Math.PI / 16) {
+      for (const f of [0.25, 0.5, 0.75, 0.95]) {
+        const d = isle.core * f;
+        const pole = { x: isle.pole.x + Math.cos(a) * d, y: isle.pole.y + Math.sin(a) * d };
+        expect(pointInIsland(pole, isle), 'inside the pole disc').toBe(true);
+        const centre = { x: isle.x + Math.cos(a) * d, y: isle.y + Math.sin(a) * d };
+        if (!pointInIsland(centre, isle)) wetAboutCentre++;
+      }
+    }
+    expect(wetAboutCentre, 'the centre-keyed disc covers open water').toBeGreaterThan(0);
+  });
+
+  it('solidity does not report full-solid land in the middle of a bay', () => {
+    const isle = hookIsland();
+    const bay = { x: 0, y: isle.y }; // in the slot, ~20u from each wall
+    const depth = CLEAN.island.depthFullU;
+    // The true answer is the coastline distance — the slot is far shallower
+    // than `depthFullU`, so this cell can never be a saturated interior.
+    expect(solidity(bay, isle, depth)).toBeLessThan(0.5);
+    // A/B: keyed on the bounding centre, the early-out fires and swears it is
+    // the deepest part of a landmass.
+    expect(solidity(bay, centreKeyed(isle), depth)).toBe(1);
+  });
+
+  it('the coverage bake paints no cell that is not on the polygon', () => {
+    const isle = hookIsland();
+    const cover = buildIslandCoverage(isle, [isle], OBS, RADAR, 999, CLEAN);
+    expect(cover.length, 'the island does paint').toBeGreaterThan(100);
+    expect(wetCells(isle, cover), 'no sailable water painted as land').toBe(0);
+
+    // A/B: the centre-keyed `core` early-IN returns true before the polygon is
+    // ever consulted, so the bay lights up as solid landmass.
+    const bad = centreKeyed(isle);
+    expect(wetCells(isle, buildIslandCoverage(bad, [bad], OBS, RADAR, 999, CLEAN))).toBeGreaterThan(0);
   });
 });

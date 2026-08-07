@@ -4,6 +4,21 @@
 
 export { lerpAngle, wrapAngle, angleDiff } from '@salvo/shared';
 
+/**
+ * Pure: the WORLD-space width a stroke must be drawn at to land on screen at
+ * `px` pixels, given the camera's px-per-world-unit `zoom` (chartRoot is scaled
+ * by exactly that). A non-finite or non-positive zoom falls back to the raw px
+ * so a degenerate camera can never produce a NaN/Infinity stroke width.
+ *
+ * Authored in render/zone.ts for the storm plane's edges (Story 3.2, amendment
+ * 14) and promoted here when the charted TERRAIN layer became the second
+ * consumer (cycle 59) — that module's own note said it stayed local only until
+ * one existed. render/zone.ts re-exports it, so this is still ONE screen-lock.
+ */
+export function strokeWorldWidth(px: number, zoom: number): number {
+  return Number.isFinite(zoom) && zoom > 0 ? px / zoom : px;
+}
+
 /** Linear interpolation from a to b, t in [0,1] (not clamped). */
 export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
