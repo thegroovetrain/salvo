@@ -3,6 +3,24 @@
 // the Colyseus server and the Pixi client (client-side prediction).
 
 /** Bumped on any breaking change to the client/server wire protocol.
+ *  30: THE EIGHTHS LADDER (Story 4.9, Eric rulings 2026-08-06, amendments
+ *  113/118/119/121/122/123) — CONFIG.vision becomes the one ruler: every
+ *  sensor boundary is a named eighth of intel range, derived from SIGHT
+ *  exactly as `radar = SIGHT * 2` always was. New `detect` (3/8, SIGHT * 0.75)
+ *  + `detectFactor` (0.75, the observer-scaled runtime multiplier) and new
+ *  `farRadar` (7/8, SIGHT * 1.75, deliberately UNCONSUMED — Story 4.10's
+ *  calibration target); `muzzleFlash` MOVES 6/8 → 5/8 (SIGHT * 1.5 → SIGHT *
+ *  1.25, 495u → 412.5u), which drags wounded-smoke reach with it because
+ *  amendment 42 reuses that one constant. `sight` and `radar` are untouched,
+ *  and no damage, reload, hp, xp or catalog value moves. All of CONFIG.vision
+ *  rides the welcome config snapshot.
+ *  The bump is required on two independent grounds, both of which would make a
+ *  stale client MISRENDER rather than fail: (1) FoghornEvent.v widens from a
+ *  3-value volume TIER to an 8-value volume BAND (which eighth of the
+ *  LISTENER's intel range the honker sits in — gain stays a client-side lookup
+ *  and never travels), and (2) the client's torpedo dead-reckoning cull
+ *  becomes detect-derived, so an un-bumped tab would keep drawing an
+ *  un-corrected torpedo ghost past the range the server stopped updating it.
  *  29: THE HEIGHT FIELD (cycle 59, Eric ruling 2026-08-06) — the capsule
  *  island generator is REPLACED by a genuine fBm height field: layered
  *  integer-hashed gradient noise with domain warping, thresholded at a
@@ -240,7 +258,7 @@
  *  mismatched-or-missing client `pv` at matchmake time with a clean version
  *  error (server/src/rooms/roomOptions.ts protocolVersionError), before any
  *  seat is reserved. */
-export const PROTOCOL_VERSION = 29;
+export const PROTOCOL_VERSION = 30;
 
 // Tunables
 export * from './constants.js';

@@ -4,130 +4,149 @@
 
 ## Goal
 
-Turn fights at radar range into readable, trackable dramas instead of silent HP exchanges. Every trigger pull, every hurt hull, every honk should produce information for somebody: radar blips that carry class and heading so a paint becomes a deduction, splashes and hit calls and muzzle flashes that make gunnery a conversation across the fog, smoke that marks wounded prey, and a bounty that denies the kill leader the right to hide. (The third sensor tier — hull microphones hearing a torpedo run before you can see it — was DEFERRED by Eric ruling 2026-08-04; see amendment 1.) Every one of these is a new row in the signal registry with its own perception-invariant case — the epic adds texture without ever loosening the anti-cheat boundary. The epic's own guardrail is that information noise must never bury the hunt, and it is closed by a dedicated readability-gate story rather than assumed.
+Turn fights at radar range into readable, trackable dramas instead of silent HP exchanges. Every trigger pull, every hurt hull, every honk should produce information for somebody, and every sensor boundary should sit on one coherent physical model instead of a grab-bag of literals. Radar blips carry class and heading so a paint becomes a deduction; splashes, hit calls and muzzle flashes make gunnery a conversation across the fog; smoke marks wounded prey; a bounty denies the kill leader the right to hide. The epic's back half turns the radar scope itself into a physical instrument: one range ladder anchors every sensor boundary to truesight, one reflectivity/falloff model replaces the color lookup table, terrain casts real height-dependent shadows, and ships leave readable wakes. Every signal is a new row in the server's signal registry with its own perception-invariant case — the epic adds texture and realism without ever loosening the anti-cheat boundary. The epic's own guardrail is that information noise must never bury the hunt, closed by a dedicated readability-gate story.
 
 ## Stories
 
-- Story 4.1: The Listening Ring — **DEFERRED** (Eric ruling 2026-08-04, amendment 1; not cut, number not retired)
+- Story 4.1: The Listening Ring — **DEFERRED** (Eric ruling 2026-08-04; not cut, number not retired)
 - Story 4.2: Class-Legible Blips
 - Story 4.3: The Gunnery Conversation
 - Story 4.4: Wounded Smoke
 - Story 4.5: The Foghorn (binds the key with Eric)
-- Story 4.6: The Bounty
-- Story 4.7: The Real-Time Sound Map (design work with Eric)
-- Story 4.8: Attention Priority & the Readability Gate
+- Story 4.6: The Bounty — deferred behind the radar physics arc (4.9-4.12), not cancelled
+- Story 4.7: The Real-Time Sound Map (design work with Eric) — deferred behind the arc
+- Story 4.8: Attention Priority & the Readability Gate — deferred behind the arc
+- Story 4.9: The Eighths Ladder — the range model of record: every sensor boundary derives as an eighth of intel range
+- Story 4.10: The Physical Return Model — radar color falls out of one reflectivity × geometric-falloff model, client-only
+- Story 4.11: Height-Aware Radar Shadows — height-raster-driven, non-binary terrain occlusion, one shared pure function server+client
+- Story 4.12: Radar Wakes — ships paint a weak surface-return wake carrying course and recency but no identity
 
 ## Requirements & Constraints
 
-- **The sensor suite is universal core kit.** Truesight bubble and rotating radar sweep ship on every hull as part of the base information layer — never equipment, never a boon, never class-differentiated. *(SUPERSEDED IN PART by amendment 1: the third tier, hull microphones, is deferred — the suite is two tiers for now. The core-kit law itself is unchanged and governs whatever sensor lands next, including active sonar.)*
-- ~~**Listening events are bearing-only.**~~ *(MOOT while amendment 1 stands — no listening events exist. If the tier is ever revived: bearing plus sound class, nothing else — no position, no range, no field from which range can be reconstructed.)*
-- **Radar paints ships only, and only what the sweep crossed.** Blips become class-legible (hull outline, speed, heading) but the paint rules do not change: one LOS rule everywhere, torpedoes never painted, nothing outside sight ∪ this-tick paints in any frame. Wire-shape change requires a protocol version bump.
-- **The Bounty is the single sanctioned exception** to sweep-only radar paints: the kill leader periodically blooms at true position on everyone's radar and is worth extra XP through the existing economy pipeline. The exception must be declared explicitly in the registry and codified by its invariant case, not slipped in.
-- **Enemy damage is diegetic only.** Wounded smoke conveys hurt, never a number; no enemy HP bars exist anywhere; own damage stays HUD-private.
-- **Projectiles still materialize at the sight boundary** with current position and velocity only — the new gunnery effects must not reintroduce range-derivable fields.
-- **Accessibility floor is non-negotiable.** Every audio cue has a visual twin and vice versa; dual-coding for threat and state meaning; photosensitivity restraint (80 ms one-shot pulses with a 300 ms same-source floor, breathing cycles ≥ 2 s, pulses capped at ~1.1 Hz, aggregate ≤ 3 flashes/s per screen region, no full-screen strobes). *(The ratified backstop for mono-audio players was the listening ring; under amendment 1 it does not exist, so every Epic 4 audio cue must carry a visual twin that stands on its own.)*
-- **Performance.** All new effects must be costed against the per-epic frame budget on the reference device as they land (16.6 ms = sim ≤ 3 ms + render ≤ 10 ms + headroom ≥ 3.6 ms), holding a fully populated match at 60 FPS on low-end hardware.
-- **Numbers are design targets, not contracts.** Thresholds, cadences, and XP values cited in stories are tunable reference values.
+- **The sensor suite is universal core kit** — truesight bubble and rotating radar sweep ship on every hull, never equipment or class-differentiated. Currently two tiers (the third, hull microphones, is deferred).
+- **Radar paints ships only, and only what the sweep crossed** — one LOS rule everywhere, torpedoes never painted, nothing outside sight ∪ this-tick paints in any frame. A wire-shape change requires a protocol version bump; a range-constant change requires an explicit assessment of whether a stale client would misrender (never assumed either way).
+- **Enemy damage and identity stay diegetic** — smoke conveys hurt never a number, no enemy HP bars, radar returns carry no hue/class/identity for anyone (color is always intensity, never category — this governs the return model, shadow rendering, and wake painting alike).
+- **Every sensor boundary now derives from one ruler.** Intel range (radar range) is the whole ruler; every other boundary is a fixed eighth of it, SIGHT-anchored the way `radar` and `muzzleFlash` already are: 7/8 = far-radar red→blue crossover (577.5u, new), 5/8 = muzzle flash + wounded smoke (412.5u, moved from 6/8), 4/8 = truesight (330u), 3/8 = mine/torpedo detect (247.5u, new — replaces the shared truesight gate; shells are unaffected and keep materializing at truesight). This is a real combat rebalance for torpedoes/mines, taken knowingly.
+- **Realism is the idea source and the tiebreaker on presentation, not a hard constraint** — reach for the physical answer first, but take the fun one when the physical one is boring or unreadable; this supersedes an earlier "realism is default" framing.
+- **Land is sacred** — no stat, card, or future upgrade may touch the hard-cover threshold `H` or the curvature constant `R`; both are fixed tuning constants chosen so the horizon lands on intel range, never derived per-map or per-seed from terrain distribution. A mast-height sensor card was explicitly rejected on this ground.
+- **Sensor upgrade card ideas (intel-range consolidation, Doppler mode, low-band/HF, active-sonar slot) are parking-lot only** — recorded, not approved, costed, or scheduled inside the radar-physics-arc stories.
+- **Performance is measured, not assumed**, on the reference device at both zoom extremes for client work and via the swept-wedge/max-height-pyramid budget for the one server-cost story (shadows).
 
 ## Technical Decisions
 
-- **Every spatial signal is a declarative registry row** (`{ eventType, visible(), materialize(), counterIntel? }`) in the server's signal registry; the perception observer is its only caller, and invariant tests iterate the registry so no signal can exist without coverage. Epic 4 only adds rows — the registry itself already landed in Epic 1. Adding a row without its invariant case is the failure mode this design exists to prevent.
-- ~~**The listening ring is a third perception tier computed inside the observer**~~ *(DEFERRED — amendment 1. Retained as the shape any future third tier, e.g. active sonar, must take: computed inside `observe()` alongside sight and radar, never a separate pipeline and never a client-side inference.)*
-- **Counter-intel rows get wire-indistinguishability tests** on payload *and* timing. Any deception entity must be indistinguishable from a genuine ship, so new blip fields automatically flow to the decoy with no special-casing, and shooting a decoy must produce no Hit Call.
-- **Perception-invariant extension is per-signal definition of done** — a new signal is not complete until its invariant test exists.
-- **Listening-ring wire-vs-visual asymmetry: RESOLVED — no change.** *(MOOT while amendment 1 stands; the resolution remains correct if the tier is ever revived.)* The visual's source-ambiguity is an aesthetic choice, not a secrecy rule. Audio tones already legitimately reveal source type to hearing players, and the client needs the sound-class field to select the right tone, so the wire keeps carrying sound class. Do not re-litigate this by stripping the field.
-- **Muzzle flash doubles as latency masking** for back-dated projectile spawn under the fire-time compensation scheme — the two features are deliberately coupled.
-- **Layering.** *(Ring clauses moot under amendment 1.)* The fog-immune chart layer renders above the refit card layer; the refit row is placed so it never occludes own hull.
-- **Rate limiting is a design requirement, not an afterthought** for the foghorn: honk spam must not be able to flood the ring or the audio mix.
+- **Every spatial signal is a declarative registry row** (`{ eventType, visible(), materialize(), counterIntel? }`) in the server's signal registry; invariant tests iterate the registry so no signal can exist without coverage. Wake (4.12), if server-owned, becomes a new such row.
+- **The eighths ladder is the single derivation style going forward** — every boundary is `SIGHT * (n/8)`, extending the existing `radar = SIGHT * 2` / `muzzleFlash` pattern; shared constraint tests pin both the values and the full ordering (`detect < sight < muzzleFlash < radar`).
+- **The return model is one formula, not a lookup table**: intensity = per-material reflectivity coefficient × falloff chosen by target geometry (point/ship 1/d⁴, surface/coast/surf/wake/clutter 1/d³, volume/storm 1/d²). The coefficient table is an explicit unratified handwave. No range-threshold branch may appear in the paint path — thresholds like the 7/8 crossover must emerge from the curve, calibrated to hit that target, never hard-coded.
+- **Terrain shadows use one shared pure function**, called identically by `server/src/game/signals.ts` and `client/src/render/radarHeatmap.ts`; a second implementation is treated as a desync or a leak. `shadowLength = (radarRange² / 4) · (1 − h₀/H) / d₀`, infinite when `h₀ ≥ H`; closer-to-a-low-island means a *longer* shadow (inverse of the discarded flat-earth intuition). The shadow is soft (waterline-up fade) and renders as explicit no-data, never as falsely-clear water. Ships never shadow ships — only terrain occludes, and that stays a designed, tested behavior. The identity `2RH = radarRange² / 4` is pinned as a build-failing assertion because `radarRange` drives gun/cannon/star-shell range.
+- **Muzzle flash doubles as latency masking** for back-dated projectile spawn; wounded smoke deliberately reuses the same constant rather than forking a fourth vision number, so retuning the ladder's 5/8 band moves both together — verify the foghorn's volume-tier `max()` monotonicity whenever this constant changes.
+- **The radar-physics arc is sequenced and each cycle is independently landable**: 4.9 (range model) → 4.10 (return model, client-only, no wire/server/PROTOCOL_VERSION change) → 4.11 (shadows, the one story with real server cost) → 4.12 (wakes, forked on whether wake is client-synthesized or server-owned state — the fork must be resolved explicitly with its perception consequences recorded, not defaulted).
+- **Torpedo wakes stay out of scope** for 4.12 — `CONFIG.torpedo`'s "never painted by radar" is a separate balance ruling Eric owns, not a byproduct of ship-wake work.
 
 ## UX & Interaction Patterns
 
-- ~~**Listening ring grammar**~~ *(DEFERRED — amendment 1. The ratified grammar is preserved in DESIGN.md/EXPERIENCE.md for a future revival: dashed 48-pip compass rose with cardinal ticks at ~half truesight radius, brightness ∝ loudness/closeness, pure intensity, encodes where and how loud but never what.)* Still binding for Epic 4 without the ring: **sight is the confirmation channel** — torpedoes and mines are confirmed visually only at truesight, and the sighting treatment (pale boundary rings plus wake) carries that moment alone now that no pip precedes it.
-- **Blip rendering:** outline-only non-scaling stroke at true heading with an arrowhead heading vector, minimum sizes floor-clamped so class stays readable at blip scale, decay ghosts capped per contact, per-hue luminance floors so dark personal colors survive at blip scale. Blips fly personal colors by default with a phosphor-anonymous build flag retained for playtest swap; drones render a distinct greyscale chevron silhouette no player class wears.
-- **Combat effect color discipline:** splash, muzzle, hit-bloom, sink ring, and wounded smoke each use their own token; never phosphor-adjacent greens (a phosphor-ish splash reads as a fake blip), and smoke is warmed and darkened off drone grey so it never reads as a drone cluster.
-- **Foghorn:** an emote, deliberately loud, with no kill-feed line. **Its ratified display surface — an arc sweep along its bearing on every hull's listening ring — no longer exists under amendment 1**, so Story 4.5 must either grow its own bearing surface or defer alongside 4.1 (open question for Eric, alongside the still-unbound key).
-- **Bounty presentation:** an expanding ring in the leader's personal color around their class blip, visually distinct from sweep paints by the expansion treatment, plus a feed announcement on activation and an audio twin.
-- **Attention priority is a three-tier arbitration.** Threat channels always animate — the shipped set is the low-HP rail pulse and the live denied pulse (pip surges are moot under amendment 1, and 4.8 must not pin a channel that does not exist); match-state channels hold at their lit keyframe while a threat channel is active; economy channels freeze at their dim keyframe while any higher tier is active. Corollary: only the highest-tier active amber channel pulses, so amber keeps meaning "look here" at the climax. All motion respects the reduced/off motion setting tiers.
-- **Reveal survivor set:** own-vitals die with the hull; the chrome bar and kill feed persist through the omniscient reveal. (The listening ring's death-with-the-hull rule is moot under amendment 1.)
-- **Readability check:** a squint test on a staged worst-case fight (multiple contacts, torpedoes inbound, storm closing, bounty active) confirming threat channels read first — the documented gate every feature in this epic must pass.
+- **Blip rendering:** outline-only non-scaling stroke at true heading with a heading arrowhead; personal colors by default with a phosphor-anonymous build flag retained; drones render a distinct greyscale chevron.
+- **Combat effect color discipline:** splash, muzzle, hit-bloom, sink ring, and wounded smoke each use their own token, never phosphor-adjacent greens; smoke is warmed/darkened off drone grey.
+- **Radar readout is a pure intensity display** — brighter/stronger means a physically stronger return (bigger, closer, more reflective, or taller relative to the shadow threshold), never a category label; this now governs coastline, surf, sea clutter, storm walls, shadows, and wakes identically, alongside the existing ship-blip grammar.
+- **Attention priority is a three-tier arbitration** (threat channels always animate; match-state channels hold at their lit keyframe; economy channels freeze dim) — still the closing gate for the epic, not yet built; new radar-physics visuals must be considered against it when 4.8 eventually lands.
+- **Readability check:** a squint test on a staged worst-case fight is the documented gate every Epic 4 feature must pass, including the new radar-physics visuals.
 
 ## Cross-Story Dependencies
 
-- **Epic 1 prerequisites:** the signal registry is the substrate for every story here (each feature = a row + invariant case), the three class silhouettes feed the class-legible blip, the decoy's wire-indistinguishability law constrains blip and Hit Call work, and the muzzle-flash masking closes out Epic 1's fire-time compensation.
-- **Epic 2 prerequisite:** the bounty's extra XP rides the existing leveling/boon pipeline rather than a parallel path.
-- **Epic 3 prerequisite:** the storm-vignette and final-10s ring pulse are the match-state tier that Story 4.8's arbitration must reconcile against the new threat channels.
-- **Within the epic:** Story 4.8 is the closing gate — it can only run once every other Epic 4 channel exists, and it owns the generalized tier system that earlier stories' individual channels plug into. Story 4.7's sound map covers the new events introduced by 4.3, 4.5, and 4.6 (4.1's audible classes leave its scope under amendment 1), so its audio-to-visual twin table depends on those events being specified; conversely no audio event in those stories ships without its row in that table. **Amendment 1 severs the 4.1 → 4.5 link:** the foghorn's arc-sweep surface no longer exists, which is the one hard dependency the deferral breaks.
-- **The torpedo-warning gap is now OPEN-ENDED, not an interregnum.** Amendment 1 means torpedoes have no long-range warning channel for the foreseeable future — truesight (330u, ~5.5s at 60 u/s) is the only warning. Playtest impressions that torpedo ambushes are over-rewarded should be read against that permanent condition, and against the fact that torpedoes are currently under-powered on damage/reload rather than over-powered on delivery.
-- **Downstream:** the deferred submarine class had hydrophones as its designed counterplay; with the tier deferred, **active sonar** is the presumptive answer and should be confirmed whenever the submarine is reconsidered.
+- **Epic 1 prerequisites:** the signal registry is the substrate for every story (each feature = a row + invariant case); the decoy's wire-indistinguishability law constrains blip and Hit Call work.
+- **Within the epic:** 4.6/4.7/4.8 are deferred behind the radar-physics arc (4.9-4.12) but not cancelled — 4.8 remains the eventual closing gate that owns the generalized attention-tier system. 4.9 is the prerequisite range model for 4.10-4.12: 4.10's calibration target (the 7/8 crossover) and 4.11's shadow/detect ranges are both defined in terms of 4.9's ladder. 4.10 must land before 4.11 because a soft shadow edge is expressed in the intensity model 4.10 defines.
+- **cycle-59 dependency:** 4.10 and 4.11 both consume the height raster and max-height pyramid built (but unused) by the fractal-terrain generation work — 4.11 is its first real consumer.
+- **The torpedo/mine detect-range buff (4.9)** compounds with the standing design direction that weapon cooldowns are likely rising — do not read post-4.9 playtest torpedo/mine feel in isolation from that pending rebalance.
 
 ## Ratified Amendments (durable — survives recompiles)
 
-Source of truth: `epic-4-context-amendments.md`. On any conflict between an amendment and
-planning-artifact-derived content above, **the amendment WINS**. Summary of entries in force:
+Source of truth: `epic-4-context-amendments.md` (120 entries). On any conflict between an amendment
+and planning-artifact-derived content above, **the amendment WINS**. Summary of entries in force:
 
-1. **Story 4.1 (The Listening Ring) is DEFERRED** — Eric ruling 2026-08-04. The hydrophone sensor
-   tier is not built; the story is deferred, not cut, and its number is not retired. Rationale: the
-   game already carries enough information channels, active sonar is planned and occupies adjacent
-   design space, and the ring's value was shown to be contingent on a torpedo/mine rebalance that
-   has not happened. Epic 4's sensor suite is TWO tiers (truesight + radar) for now.
-2. **Torpedo speed is not a balance lever** — 60 u/s stands as realistic; lethality changes must come
-   from damage, reload, or delivery.
-3. **Weapon cooldowns are likely going UP** across most or all weapons — recorded as design
-   direction, not a ratified change; no cycle implements it without an explicit numbers ruling.
-4. **Downstream consequences flagged, not decided:** Story 4.5's foghorn loses its display surface
-   (must grow its own or defer); 4.7's sound map narrows; 4.8 must not pin a listening-ring Tier-1
-   channel; the submarine loses its designed counterplay; island shadows stay a total blind spot.
-5. **Correction of record:** Battleship turn rate is 0.4 rad/s (90° in ~3.9s), so existing truesight
-   warning is already sufficient TIME against torpedoes — the gap the ring addressed was ATTENTION.
-6. **Doc drift ledgered, not fixed:** the tone catalog is 22, not the "13" in EXPERIENCE.md:137 and
-   the 4.7 AC; the denied tone shipped (1.10) rather than being deferred; `CLAUDE.md` says
-   PROTOCOL_VERSION 18 but it is 19.
-7. **Story 4.2 rulings (amendments 7-14):** blips paint TRUE-SCALE hull silhouettes at true position
-   and heading (the DESIGN.md px table, 11px floor-clamp and 3× ML notch are RETIRED); radar
-   BEHAVIOR is realistic while the silhouette grammar is the retained conceit; three-paint
-   persistence; ARPA speed vector on raw `speed`; the decoy is a radar reflector reporting frozen
-   drop-time pose at speed 0; drones paint the legacy chevron at true size; the per-hue luminance
-   floor is algorithmic, not a table; Variant P is a build-time define.
-8. **Story 4.3 rulings (amendments 15-20)** — at every fork Eric took the SMALLEST new information
-   channel that still satisfied the story: muzzle flash carries to `SIGHT * 1.5` (495u, derived,
-   LOS-blocked) — NOT radar range and NOT map-wide; fall-of-shot splashes are SELF-PRIVATE own
-   misses only and gun-family only (FR16's "own" wins over EXPERIENCE.md:181's unqualified line);
-   the Hit Call is SHOOTER-ONLY and deliberately OVERRIDES the shipped "hit confirmation beyond
-   sight would leak contact presence" rule for the owner-hit case, which is what keeps the decoy
-   disambiguation oracle alive; Hit Call scope is ALL ordnance including mines (a Mine Layer learns
-   remotely that a trap sprung); the flash is NEUTRAL — position only, never who fired and never
-   which weapon (DESIGN.md:239 beats UX-DR7 for this signal); the flash fires for the gun family
-   only, upholding the torpedo's shipped "quiet weapon" status.
-9. **Story 4.4 rulings (amendments 40-50):** wounded smoke is the FIFTH declared exception to the
-   master perception invariant, and the first enemy-HP-derived signal AND first persistent
-   fog-piercing signal the game has ever shipped. Two tiers at the HP rail's own ratified bands —
-   light <50%, heavy <25% — because the coloured own-vitals rail already speaks that vocabulary and
-   smoke is its enemy-facing half (a tier ENUM on the wire, never a fraction or hp value). Reach is
-   `SIGHT * 1.5` (495u), reusing `CONFIG.vision.muzzleFlash` rather than adding a fourth vision
-   constant, so all the new work happens in the 330–495u annulus and radar stays the only long-range
-   sensor. The plume is ATTACHED and drifting — where they are, never where they've been (puff life
-   must stay short or the ruling silently inverts). Islands BLOCK it, upholding the 2026-08-02 LOS
-   law against the realism argument for the first time. The plume is NEUTRAL — position and severity
-   only, no id, hue, or class for anyone, so no correlation handle exists on the wire and the client
-   synthesizes persistence the way phosphor blips do. You DO see your own plume (you must know you
-   are broadcasting). Every hull with hp smokes, drones included; decoys have no hp and so no plume,
-   which is not a tell. PV bumps 24 → 25; no combat tunable moves; no audio twin this cycle (4.7
-   owns that); `motion: off` removes the drift, never the plume.
-10. **Story 4.5 rulings (amendments 51-61): the foghorn SHIPS — 4.5 does NOT defer.** It is the
-    SIXTH declared exception to the master perception invariant, and the first signal whose payload
-    varies by observer in substance rather than by a flag: a fogged listener gets **bearing + volume
-    tier only** — no position, no id, no correlation handle — while the honker gets `{self}` and a
-    spectator gets position. Tiers scale with the LISTENER's effective ranges (`sightOf` /
-    `max(1.5×sight, muzzleFlash)` / `radarRange`, clamped monotone so dazzle cannot also deafen), and
-    **islands MUFFLE a honk by exactly one tier** — the first, partial dent in the 2026-08-02 LOS law,
-    reversed onto by Eric mid-run so terrain keeps working as a hiding mechanism if a sound sensor is
-    ever revived. Amendment 4's open question is CLOSED: the story grew its own bearing surface, a
-    **screen-edge chevron** (deliberately foghorn-shaped, not sensor-shaped, so a revived 4.1 inherits
-    nothing). The key is **F**, as reserved — UX open question #20 is closed — on a 1.5s cooldown
-    whose denial is **completely silent** (amendment 60: the horn was the only `denied` site with no
-    visual twin, so the orphan cue went rather than a new surface being invented). The wire carries a
-    **horn variant id** — a knowing, narrow break with the neutral-signal rule of amendments 19/45,
-    justified because an emote is information a captain SPENDS rather than leaks — behind a
-    sample-capable audio seam with exactly ONE synthesized horn shipped; **adding horn variants is
-    Eric-gated content.** PV bumps 25 → 26; no combat tunable moves; own honks are never
-    client-predicted.
+1. **Story 4.1 (The Listening Ring) is DEFERRED** (amendment 1) — the hydrophone tier is not built;
+   deferred, not cut. Active sonar occupies the adjacent design space. The suite is TWO tiers.
+2. **Torpedo speed is not a balance lever** (2) — 60 u/s stands; lethality comes from damage,
+   reload, or delivery. **Weapon cooldowns are likely going UP** (3) — design direction only, no
+   cycle implements it without an explicit numbers ruling.
+3. **Downstream consequences of the 4.1 deferral** (4-6): 4.5 grew its own bearing surface; 4.7's
+   sound map narrows; 4.8 must not pin a listening-ring Tier-1 channel; island shadows stay a blind
+   spot until active sonar. Battleship turn rate is 0.4 rad/s, so truesight warning is sufficient
+   TIME against torpedoes — the gap was ATTENTION.
+4. **Story 4.2 rulings (7-14):** blips paint TRUE-SCALE hull silhouettes at true pose (the DESIGN.md
+   px table, 11px floor-clamp and 3× ML notch RETIRED); three-paint persistence; ARPA speed vector on
+   raw `speed`; the decoy is a radar reflector reporting frozen drop-time pose at speed 0; drones
+   paint the legacy chevron at true size; the per-hue luminance floor is algorithmic. **All of this
+   is CONDITIONALLY SUPERSEDED by amendment 62 — it survives only in `silhouette` mode.**
+5. **Story 4.3 rulings (15-20):** muzzle flash carries to a DERIVED halo (LOS-blocked, neutral —
+   position only, never who fired or which weapon), gun-family only; fall-of-shot splashes are
+   SELF-PRIVATE and gun-family only; the Hit Call is SHOOTER-ONLY, deliberately overriding the
+   shipped anti-leak rule for the owner-hit case (this is what keeps the decoy oracle alive), and
+   covers ALL ordnance including mines.
+6. **Cycle 44-48 balance rulings (21-28, 35-39):** the retuned armory (gun weaker, skillshots heavier
+   and slower), the 2-deep mine rack as a BASE change, two catalog ladder steps shrunk to hold the
+   one-hit-kill law, the ARPA vector halved in all three knobs, match pacing accepted as-is, storm
+   kills correct as shipped, SUDDEN DEATH reaffirmed but explicitly PARKED. **Every shell that
+   connects deals full damage** — the same-click salvo single-hit rule is deleted and the
+   one-hit-kill law governs a single SHELL, not a single click.
+7. **The Public Register (29-34):** `sunk` is the 4th declared exception to the master perception
+   invariant, gated by witnessed OR credited-to-you OR victim-is-a-combatant. Identity-only payload;
+   location stays protected by a per-observer `seen` stamp. Drones are NOT combatants; the matching
+   win-condition change is DEFERRED to Story 6-3. `n AFLOAT` counts CAPTAINS ONLY.
+8. **Story 4.4 rulings (40-50):** wounded smoke is the 5th declared exception — the first
+   enemy-HP-derived AND first persistent fog-piercing signal. Two tiers at the HP rail's own bands
+   (<50% light, <25% heavy), a tier ENUM on the wire, never a fraction. Reach REUSES
+   `CONFIG.vision.muzzleFlash` rather than adding a fourth vision constant. The plume is ATTACHED
+   (never a trail), NEUTRAL (no id/hue/class — so no correlation handle exists), islands BLOCK it,
+   you see your own, every hull with hp smokes including drones.
+9. **Story 4.5 rulings (51-61): the foghorn SHIPS.** The 6th declared exception, and the first signal
+   whose payload varies by observer in substance: a fogged listener gets **bearing + volume tier
+   only**. Tiers scale with the LISTENER's effective ranges (`sightOf` / `max(1.5×sight,
+   muzzleFlash)` / `radarRange`, clamped monotone so dazzle cannot also deafen). **Islands MUFFLE by
+   exactly one tier** — the first, partial dent in the LOS law. Surface is a screen-edge chevron; key
+   is **F**; cooldown 1.5s with a **completely silent** denial. The wire carries a **horn variant
+   id** (a knowing break with the neutral-signal rule, justified because an emote is information a
+   captain SPENDS); adding horn variants is Eric-gated content.
+10. **The radar realism reversal (62-75):** the 4.2 silhouette grammar is REVERSED on playtest
+    evidence but KEPT — **both grammars ship behind two independent SERVER-side flags**
+    (`HC_RADAR_GRAMMAR` silhouette|return, `HC_RADAR_IDENTITY` roster|pseudonym). In `return` mode:
+    one continuous aspect-projected `ext` scalar (never a class bucket), the ARPA vector dies, drones
+    are indistinguishable from captains, islands paint returns, and class is LEARNABLE rather than
+    stated. Three questions left explicitly OPEN: Bounty Bloom, colorblind assist under `return`
+    mode, sonar hue (amber stays RESERVED and UNASSIGNED).
+11. **The heatmap corrections (76-90):** the return layer is a **BITMAP HEATMAP, not polygons** —
+    color is INTERNAL TEXTURE quantized to exactly three colors with NO blends, never an object
+    label; an island paints as one massive contiguous return. **A PAINT IS A HISTORICAL RECORD**
+    (83): everything about a paint is decided ONCE at creation from the observer's state at that
+    moment, and only alpha changes afterward — nothing may be re-evaluated against live state. The
+    sight exclusion introduced in cycle 54 is RETIRED (88): radar paints everything within radar
+    range, and sighted ships are painted CLIENT-SIDE from their `Contact` with no wire change.
+12. **The buffer rulings (95-99):** the heatmap buffer is a SCRATCH SURFACE that follows the
+    VIEWPORT, snapped to whole world cells so the lattice stays world-locked. **Nothing
+    viewport-derived may ever touch paint creation or retirement.** The adapter seam is the risk and
+    must be tested AT THE ADAPTER, at both zoom extremes and while the camera moves — a green
+    pure-module suite does not discharge it.
+13. **The radar physics arc design contract (100-120)** — the governing document for stories
+    4.9-4.12. Realistic radar is the killer feature (100), **but realism is the IDEA SOURCE and the
+    tiebreaker on presentation while FUN WINS ON MECHANICS (115 supersedes 100's default clause).**
+    One universal antenna height (101); the shadow formula with its INVERSE relationship — closer to
+    a low island means a LONGER shadow, and the opposite direction is a bug (102); soft shadow edges
+    (104); colour is intensity ALWAYS, never category (105); one reflectivity × geometry-falloff
+    model whose coefficient table is an explicit handwave (106); ships never shadow ships (107); fog
+    and rain defeat different sensors and are their own epic-scale feature (108); the wake fork and
+    torpedo wakes tabled (109-110); **R and H are FIXED constants — the per-seed percentile is
+    REJECTED and LAND IS SACRED, nothing buys its way past terrain (114, 116)**; the mast-height card
+    is dead (116); sensor card ideas are a PARKING LOT, noted not designed (112, 117).
+14. **THE EIGHTHS LADDER (113, 118, 119) — Story 4.9's own contract.** Intel range is the whole
+    ruler and radar range is its full extent (8/8); every sensor boundary is an eighth, and every
+    eighth lands on a clean `SIGHT` multiple so the ladder ADDS no new derivation style. Two ruled
+    changes to shipped constants: **muzzle/smoke moves 6/8 → 5/8** (`SIGHT * 1.5` → `SIGHT * 1.25`,
+    495u → 412.5u), which drags WOUNDED SMOKE REACH with it deliberately because amendment 42 reuses
+    that one constant; and **mines/torpedoes get a detect range at 3/8** (`SIGHT * 0.75`, 247.5u),
+    replacing the truesight gate they share today — a real combat BUFF taken knowingly. **SHELLS DO
+    NOT MOVE.** The foghorn's volume tiers derive from `max(1.5 × sight, muzzleFlash)` and must be
+    re-examined for monotonicity at the new value. The 7/8 band (577.5u) is the red→blue crossover
+    and is **Story 4.10's CALIBRATION TARGET, not a threshold branch** — writing `if (d > 577.5)`
+    anywhere in the paint path violates amendment 105 and is the wrong implementation. A per-weapon
+    `detectRange` stat is explicitly parked, not pre-built.
+15. **The arc is FOUR EPIC-4 STORIES, not an interstitial cycle (120)** — 4.9 → 4.10 → 4.11 → 4.12,
+    superseding amendment 111's cycle framing as to vehicle only; the content split and sequencing
+    rationale are unchanged. 4.6/4.7/4.8 are deferred behind the arc, not cancelled.

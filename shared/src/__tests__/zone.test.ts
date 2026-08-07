@@ -71,13 +71,37 @@ describe('Endgame Guarantee (Story 3.4) — sensor-vs-ring constraints', () => {
     expect(CONFIG.vision.radar).toBe(2 * CONFIG.vision.sight);
   });
 
-  it('muzzleFlash is structurally 1.5 × sight (Story 4.3, amendment 15 — derivation pin)', () => {
-    expect(CONFIG.vision.muzzleFlash).toBe(1.5 * CONFIG.vision.sight);
+  it('muzzleFlash is structurally 1.25 × sight — the ladder 5/8 rung (Story 4.9, amendment 119; was 1.5 / 6/8 — derivation pin)', () => {
+    expect(CONFIG.vision.muzzleFlash).toBe(1.25 * CONFIG.vision.sight);
   });
 
-  it('the flash halo sits strictly between sight and radar: sight < muzzleFlash < radar (amendment 15 — a thin annulus, radar stays the only long-range sensor)', () => {
+  it('detect is structurally 0.75 × sight — the ladder 3/8 rung, mines + torpedoes (Story 4.9, amendment 119 — derivation pin)', () => {
+    expect(CONFIG.vision.detect).toBe(0.75 * CONFIG.vision.sight);
+  });
+
+  it('farRadar is structurally 1.75 × sight — the ladder 7/8 rung (Story 4.9, amendment 118 — derivation pin; deliberately unconsumed, it is 4.10 calibration)', () => {
+    expect(CONFIG.vision.farRadar).toBe(1.75 * CONFIG.vision.sight);
+  });
+
+  it('the detect RUNG and the runtime detectFactor can never drift: detect === sight × detectFactor (amendment 121 — the gate is observer-scaled, the rung is what it equals at base stats)', () => {
+    expect(CONFIG.vision.detectFactor).toBe(0.75);
+    expect(CONFIG.vision.detect).toBe(CONFIG.vision.sight * CONFIG.vision.detectFactor);
+  });
+
+  it('the full eighths ladder is ordered: detect < sight < muzzleFlash < farRadar < radar (amendments 113/119 — one ruler, no rung out of place)', () => {
+    expect(CONFIG.vision.detect).toBeLessThan(CONFIG.vision.sight);
     expect(CONFIG.vision.sight).toBeLessThan(CONFIG.vision.muzzleFlash);
-    expect(CONFIG.vision.muzzleFlash).toBeLessThan(CONFIG.vision.radar);
+    expect(CONFIG.vision.muzzleFlash).toBeLessThan(CONFIG.vision.farRadar);
+    expect(CONFIG.vision.farRadar).toBeLessThan(CONFIG.vision.radar);
+  });
+
+  it('every rung is an EIGHTH of intel range — radar/8 divides each one exactly (the ruler is real, not approximate)', () => {
+    const eighth = CONFIG.vision.radar / 8;
+    expect(CONFIG.vision.detect / eighth).toBe(3);
+    expect(CONFIG.vision.sight / eighth).toBe(4);
+    expect(CONFIG.vision.muzzleFlash / eighth).toBe(5);
+    expect(CONFIG.vision.farRadar / eighth).toBe(7);
+    expect(CONFIG.vision.radar / eighth).toBe(8);
   });
 
   it('radar reaches the terminal ring radius — reduces to terminalSightFactor <= 2 (sight cancels; a truesight-only retune cannot fail this)', () => {

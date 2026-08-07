@@ -566,10 +566,12 @@ export interface HitCallEvent {
  * muzzle), so a D1 back-dated shell that materializes further along its
  * flight is masked by a flash at the hull it left — never at a reveal point,
  * which is the exact anti-cheat leak the Story 1.5 review closed. Visible to
- * any observer within the derived CONFIG.vision.muzzleFlash halo
- * (SIGHT * 1.5) with island LOS clear — a declared, narrowly-scoped fog
+ * any observer within the derived CONFIG.vision.muzzleFlash halo (the eighths
+ * ladder's 5/8 rung, SIGHT * 1.25 — moved down from 6/8 by Story 4.9,
+ * amendment 119) with island LOS clear — a declared, narrowly-scoped fog
  * exception (a flash is a light source: dazzle does not change how far it
- * carries, and no lit zone extends it).
+ * carries, and no lit zone extends it). The halo still comfortably covers the
+ * back-dated spawn above, because it still exceeds the truesight bubble.
  *
  * ANTI-CHEAT — deliberately omitted: EVERY identity channel. No shooter id
  * (not even for the shooter — there is no privileged view of this row), no
@@ -592,7 +594,8 @@ export interface MuzzleEvent {
  * hurt — position and severity band, and nothing else. Emitted on the
  * CONFIG.smoke.puffIntervalMs cadence at the hull's TRUE CURRENT POSITION for
  * as long as it stays below a band, and visible to any observer within the
- * derived CONFIG.vision.muzzleFlash halo (SIGHT * 1.5) with island LOS clear
+ * derived CONFIG.vision.muzzleFlash halo (the ladder's 5/8 rung, SIGHT * 1.25
+ * since Story 4.9) with island LOS clear
  * — the muzzle flash's reach reused verbatim, never a fourth vision constant
  * (amendment 42), and islands block this sensor exactly as they block every
  * other (amendment 44). A declared, narrowly-scoped fog exception: the FIFTH,
@@ -631,12 +634,12 @@ export interface SmokeEvent {
  * exception to the master perception invariant, and the FIRST signal whose
  * payload varies BY OBSERVER in substance rather than by a flag (`sunk`
  * stamps a per-observer `seen`; this row computes a per-observer bearing and
- * tier). A honk is an EMOTE — information the captain SPENDS — which is the
+ * band). A honk is an EMOTE — information the captain SPENDS — which is the
  * premise that licenses everything below and the one any future change must
  * argue from.
  *
  * THREE PAYLOAD SHAPES, exhaustively:
- *   - Fogged listener:  {k, h, b, v}       — bearing + volume tier + horn id.
+ *   - Fogged listener:  {k, h, b, v}       — bearing + volume band + horn id.
  *   - The honker (self): {k, h, self}      — no bearing (a bearing to
  *                                            yourself is meaningless); the
  *                                            client blooms an own-hull mark.
@@ -646,17 +649,34 @@ export interface SmokeEvent {
  *                                            so it derives one client-side.
  * A fogged listener NEVER receives x, y, self, or id in any combination.
  *
- * VOLUME TIERS derive from the LISTENER's effective ranges, not flat
- * constants (amendment 53): 1 (100%) `d ≤ sightOf(me)`, 2 (75%)
- * `d ≤ max(1.5 × sightOf(me), CONFIG.vision.muzzleFlash)`, 3 (50%)
- * `d ≤ max(me.stats.radarRange, tier-2 bound)`; beyond that NO event is
- * emitted to that observer at all. The max() clamps are load-bearing — they
- * keep the bands monotone when intel boons widen sight past 495u and stop
- * star-shell dazzle from also DEAFENING a captain. No fourth vision constant
- * was added (amendment 42). ISLANDS MUFFLE BY EXACTLY ONE TIER rather than
- * blocking (amendment 54, the first dent in the 2026-08-02 LOS law): a failed
- * losClear() demotes 1→2, 2→3, and 3→no event, applied ONCE after the
- * distance tier resolves.
+ * VOLUME BANDS ride THE EIGHTHS LADDER (Story 4.9, amendment 122, superseding
+ * amendment 53's three tiers): `v` is which EIGHTH of the LISTENER's OWN intel
+ * range (`me.stats.radarRange`) the honker sits in — band 1 is the innermost
+ * eighth, band 8 ends at the listener's radar edge, and beyond band 8 NO event
+ * is emitted to that observer at all. Anchoring on intel range rather than on
+ * sight is what RETIRES amendment 53's max() clamps: dazzle never touches
+ * radar range, so *dazzle cannot also DEAFEN* is now true BY CONSTRUCTION
+ * rather than by defensive coding, and no arrangement of dazzle and boons can
+ * invert the bands. Hearing therefore widens with `intelRadar` rather than
+ * with `intelTruesight` — a deliberate trade. No vision constant was added for
+ * the foghorn (amendment 42's rule, still holding).
+ *
+ * GAIN IS NOT ON THE WIRE AND MUST NEVER BE. `v` is an OPAQUE ENUM: the band
+ * → gain mapping (1.0 / 1.0 / 1.0 / 1.0 / 0.875 / 0.75 / 0.625 / 0.5 — flat
+ * through band 4 = truesight at base stats, then one eighth of the 100→50%
+ * span per band, hitting 50% at the radar edge) is a CLIENT-SIDE LOOKUP in
+ * CLIENT_CONFIG. Putting a gain fraction on the wire would make hearing a
+ * property of the sound rather than of the listener, and a listener must not
+ * be able to invert the payload into a range — a band is a region, and
+ * regions are all a listener gets.
+ *
+ * ISLANDS MUFFLE rather than block (amendment 54, the first dent in the
+ * 2026-08-02 LOS law), preserved in meaning across the rebase: a failed
+ * losClear() resolves to `max(5, band + 2)`, silent when that would exceed 8.
+ * Two bands is the width of one old tier, so the demotion reproduces the old
+ * behavior at its boundaries; the floor of 5 is what keeps *a rock ALWAYS
+ * costs the honker reach* true inside the flat 100% plateau. Applied ONCE,
+ * after the distance band resolves, from exactly one losClear() call.
  *
  * `h` is the equipped horn variant (amendment 52) — the ONLY identity-adjacent
  * field on this row, and a KNOWING, NARROW break with the neutral-signal rule
@@ -686,7 +706,7 @@ export interface FoghornEvent {
   h: HornId; // which horn sounded — the ONLY identity-adjacent field, deliberate (amendment 52)
   self?: true; // the honker's own copy (always `true` when present, never `false`)
   b?: number; // rad — bearing FROM observer TO honker, wrapPositive [0, 2π). FOGGED LISTENERS ONLY
-  v?: 1 | 2 | 3; // volume tier: 1 = 100%, 2 = 75%, 3 = 50%. FOGGED LISTENERS ONLY
+  v?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; // volume BAND: which eighth of the LISTENER's intel range the honker sits in (1 = innermost, 8 = the radar edge). An opaque enum — gain is a CLIENT-SIDE lookup and never travels. FOGGED LISTENERS ONLY
   x?: number; // u — SUBJECT-SIDE + SPECTATOR ONLY. Never reaches a fogged listener
   y?: number; // u — SUBJECT-SIDE + SPECTATOR ONLY. Never reaches a fogged listener
   id?: string; // the honker's id — SUBJECT-SIDE ONLY, read by the row to decide `self`. NEVER on the wire, for ANY observer

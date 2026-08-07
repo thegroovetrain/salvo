@@ -1569,3 +1569,82 @@ range model Eric wants every future cycle to think in.
      split and its sequencing rationale are unchanged, and 4.9 is new work that 111 did not cover
      (the ladder post-dates it). 4-6/4-7/4-8 are deferred behind the arc, not cancelled.
 
+## 2026-08-06 — Eric rulings, Story 4-9 pre-implementation question gate (bmad-dev-auto, cycle 60)
+
+Source: Eric, invocation intent plus a two-question pre-implementation gate (AskUserQuestion, both
+answered on the recommended option). Spec of record: `spec-4-9-the-eighths-ladder.md`. Invocation
+intent, verbatim: *"4-9. WRT to foghorn... we can use 1/4's as the volume adjust scale, or split it
+into 8 'volume regions', i dont care."* These entries CLOSE the two questions amendment 119 left
+implicit and record one consequence that a future cycle will otherwise mistake for a regression.
+
+121. **THE 3/8 DETECT RANGE SCALES WITH THE OBSERVER EXACTLY AS SIGHT DOES — it is not a flat rung.**
+     Mine and torpedo detection resolves as `0.75 × sightOf(me, now)`, so a star-shell DAZZLE halves
+     it (247.5u → 123.75u, cutting head-on torpedo warning to ~2s) and `intelTruesight` boons widen
+     it, and island LOS applies unchanged. Amendment 119 states the value as `SIGHT * 0.75`, which
+     reads like a flat constant in the mould of `muzzleFlash`; this ruling resolves that reading
+     toward the observer-scaled one on the grounds that it is the SMALLEST change — it narrows the
+     gate mines and torpedoes already ride (`pointSighted` → `sightOf`) rather than moving them onto
+     a different kind of quantity — and that it keeps the standing principle that **sensor upgrades
+     buy REACH** (amendment 116) applying to detection as it applies to everything else optical.
+
+     Explicitly REJECTED: boon-widened-but-not-dazzle-scaled (which would have made detection the one
+     optical channel a flare cannot touch), and a flat 247.5u for everyone (the most literal reading
+     of the ladder, rejected because it makes mine/torpedo detection the single sensor in the game
+     that nothing can improve or degrade). **Binding implementation consequence:** `pointSighted` has
+     NINE call sites — mines, shells, torpedoes, homing-torpedo updates, decoys, booms, bursts,
+     sunk-witness and spawns all ride it today — so this ruling must land as a SEPARATE parameterized
+     gate used by the mine, torpedo and torpedo-update rows only. Narrowing `pointSighted` itself
+     would silently shrink six unrelated disclosures, and **SHELLS DO NOT MOVE** (amendment 119)
+     even though `shell` and `torp` are literally the same generic row body today.
+
+122. **THE FOGHORN REBASES ONTO THE LADDER AS EIGHT VOLUME REGIONS OF THE LISTENER'S INTEL RANGE.**
+     Eric offered quarters or eighths and delegated the choice; shown the concrete tradeoff he took
+     eighths. The band is which eighth of the LISTENER's own intel range (`stats.radarRange`) the
+     honker sits in, and gain is flat at 100% through band 4 then steps down one eighth of the
+     100→50% span per band: **1.0 / 1.0 / 1.0 / 1.0 / 0.875 / 0.75 / 0.625 / 0.5.** Both anchors from
+     Eric's original foghorn message survive exactly — *"within truesight range at full volume"*
+     (band 4 = 330u at base) and the radar edge at 50% (band 8 = 660u).
+
+     **This RETIRES amendment 53's `max()` clamps, and the clamps' PURPOSE is now satisfied
+     structurally rather than defensively.** Amendment 53 recorded that the clamps were load-bearing
+     because `muzzleFlash` is flat while `sightOf` is dazzle-scaled, so the three bounds were not
+     monotone by construction; the design meaning being protected was **dazzle must not also
+     deafen.** Anchoring the ladder on intel range — which dazzle does not touch — makes that
+     property true BY CONSTRUCTION: there is nothing left to clamp, and no arrangement of dazzle and
+     boons can invert the bands. Note the deliberate trade this carries: hearing now widens with
+     `intelRadar` rather than with `intelTruesight`, so "an intel build hears farther" survives
+     through a different card than before.
+
+     **The island muffle (amendment 54) is PRESERVED IN MEANING, and the one-step rule survives:**
+     blocked LOS resolves to `max(5, band + 2)`, silent when that exceeds 8. Two bands is the width
+     of one old tier, so the demotion reproduces amendment 54 at its boundaries — a honk at the
+     truesight edge blocked by rock lands at 75% exactly as it did before, and the outer bands still
+     lose the honk entirely. The `max(5, …)` floor is what keeps *"a rock ALWAYS costs the honker
+     reach"* true inside the 100% plateau, where a pure band shift would have cost nothing. There is
+     still exactly ONE `losClear()` call and exactly ONE set of bounds in the row.
+
+123. **Scope discipline of record.** `PROTOCOL_VERSION` **bumps 29 → 30**, and the assessment the AC
+     demanded (*"bumped if and only if a stale client would misrender"*) came back YES on two
+     independent grounds, not one: the foghorn's `v` field widens from a 3-value tier to an 8-value
+     band (a genuine wire-shape change), and the client's torpedo dead-reckoning cull
+     (`render/projectiles.ts`, `sightRange + margin`) becomes detect-derived, so a stale tab would
+     keep drawing an un-corrected torpedo ghost past the range the server stopped updating it. The
+     ladder itself changes NO combat tunable beyond the two Eric ruled: no damage, reload, hp, xp or
+     catalog value moves, and `radar = SIGHT * 2` / `sight = SIGHT` are untouched.
+
+     **The 7/8 rung ships as a NAMED CONSTANT but is deliberately UNCONSUMED**, per the AC that lists
+     it among what lands. It carries a loud comment recording amendment 118's constraint: it is Story
+     4.10's CALIBRATION TARGET — the red→blue crossover must EMERGE from the falloff curve — and
+     writing `if (d > farRadar)` anywhere in the paint path violates amendment 105 and is the wrong
+     implementation of it. This is the one place the arc knowingly ships a constant with no caller,
+     because naming the rung is what makes the ladder complete and checkable.
+
+     **Two accepted consequences, recorded so a later cycle does not read them as defects:** the
+     muzzle-flash and wounded-smoke annulus beyond the sight bubble HALVES from 165u (330–495) to
+     82.5u (330–412.5), which is where all of both signals' new work happens — the flash still
+     covers the back-dated shell spawn because 412.5 > 330, so amendment 15's D1 masking coupling
+     holds. And a mine's or torpedo's BOOM/BURST stays on the truesight gate: you can now watch an
+     explosion you never saw the ordnance for, which is correct — an explosion is a far larger thing
+     than the mine that made it. The decoy buoy also stays on `pointSighted`, untouched, per
+     amendment 91's instruction to leave it alone ahead of its own rework.
+
