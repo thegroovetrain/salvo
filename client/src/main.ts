@@ -167,7 +167,7 @@ interface Game {
   radar: Radar;
   /** WOUNDED SMOKE plumes (render/smoke.ts, Story 4.4) — accumulated from
    *  the anonymous `sm` pulses on the fog-immune chart, since a hurt hull is
-   *  disclosed out to 495u and the plume must read past the sight bubble. */
+   *  disclosed out to 412.5u and the plume must read past the sight bubble. */
   smoke: Smoke;
   /** FOGHORN bearing chevrons (render/foghorn.ts, Story 4.5) — the honk's
    *  visual twin, screen-space and above every HUD readout. */
@@ -1616,6 +1616,11 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
   g.camera.setRadarRange(stats.radarRange);
   g.fog.setSightRange(stats.sightRange);
+  // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
+  // cull at truesight, an ENEMY torpedo at the shorter DETECT ring the server
+  // reveals and corrects it within (Story 4.9). Projectiles derives the second
+  // from this same number — adding a `setDetectRange` here would be a second
+  // source of truth. The DAZZLE half rides updateDazzle, like fog and radar.
   g.projectiles.setSightRange(stats.sightRange);
   // Zoom and/or hole radius may have moved: rebake the fog against the current
   // viewport at the new zoom (exactly what the resize handler does).
@@ -2164,6 +2169,13 @@ function dazzleActive(g: Game, now: number): boolean {
 function updateDazzle(g: Game, now: number): void {
   const dazzled = dazzleActive(g, now);
   g.radar.setDazzled(dazzled);
+  // THE PROJECTILE CULL RINGS TAKE IT TOO (review fix). The server reveals and
+  // corrects ballistics inside `sightOf(me, now)` — dazzle-scaled — so a client
+  // holding the un-dazzled ring would go on dead-reckoning a shell or an enemy
+  // fish the server had already stopped correcting. Set UNCONDITIONALLY and
+  // before the fog's changed-flag early-return, for the same reason the radar
+  // is: that flag guards the expensive rebake and nothing else.
+  g.projectiles.setDazzled(dazzled);
   if (!g.fog.setDazzled(dazzled)) return;
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }
@@ -2271,9 +2283,6 @@ function renderAlive(
     g.xpRail.hideTransient();
   }
   updateZone(g, zv, inStorm, tier1, now, nowMs);
-  // Own pose feeds the shell sight-bubble cull; own active zones keep a shell
-  // revealed by our flare from being culled (exactly-once reveal — Story 1.7).
-  g.projectiles.render(now, pose ?? undefined, ownZones);
   // AHEAD OF THE RADAR ON PURPOSE (amendment 89): the seam between the radar's
   // two ship-paint sources and the fog hole are one radius, and the radar reads
   // it during render() — so a dazzle flip adopted after this line would leave
@@ -2281,6 +2290,12 @@ function renderAlive(
   // disagreement that radius exists to prevent. Camera zoom (which the fog
   // rebake reads) was updated in renderOwn.
   updateDazzle(g, now);
+  // AND AHEAD OF THE PROJECTILES, for the same reason (review fix): their two
+  // ENEMY cull rings are dazzle-scaled, so a render taken before the flip was
+  // adopted would cull against the PREVIOUS frame's rings while the fog and the
+  // radar had already moved. Own pose feeds the cull; own active zones keep a
+  // shell revealed by our flare from being culled (exactly-once — Story 1.7).
+  g.projectiles.render(now, pose ?? undefined, ownZones);
   // The contact store is the radar's SECOND source of ship paints (amendment
   // 89): a hull inside truesight is delivered as a `Contact` and never as a
   // blip, so the scope synthesizes its echo from that store when the beam

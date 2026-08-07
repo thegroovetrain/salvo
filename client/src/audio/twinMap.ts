@@ -59,12 +59,13 @@ export const TONE_TWINS: Record<AudioCueId, string> = {
   // --- THE FOGHORN (Story 4.5, amendment 55) ---------------------------------
   // A honk is BEARING-ONLY information, so its twin has to carry a bearing and
   // nothing more: a marker pinned to the viewport edge pointing down the honk,
-  // its weight set by the volume tier the listener earned. Presence, direction
-  // and tier weight are INFORMATION and survive `motion: 'off'` intact (UX-DR36);
+  // its weight set by the volume BAND the listener earned (which eighth of their
+  // own intel range the honker sits in — Story 4.9). Presence, direction and
+  // band weight are INFORMATION and survive `motion: 'off'` intact (UX-DR36);
   // only the fade is a flourish. Your OWN honk gets the hull bloom instead — a
   // bearing to yourself is meaningless — which is why both surfaces are named.
   foghorn:
-    'the screen-edge bearing chevron pointing down the honk, weighted by volume tier (render/foghorn), plus the own-hull bloom for your own honk (render/effects)',
+    'the screen-edge bearing chevron pointing down the honk, weighted by volume band (render/foghorn), plus the own-hull bloom for your own honk (render/effects)',
 };
 
 /** Pure: the visual twin named for a cue (the table is total over AudioCueId). */

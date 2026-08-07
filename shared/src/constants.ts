@@ -142,10 +142,98 @@ export const CONFIG = {
     islandSpeedMult: 0.25,
   },
 
-  /** Vision + radar (fog-of-war ranges). */
+  /**
+   * Vision + radar (fog-of-war ranges) — THE EIGHTHS LADDER.
+   *
+   * INTEL RANGE is the one ruler (Eric ruling 2026-08-06, amendments 113/119:
+   * *"lets go ahead and divide our total intel range into 8 concentric
+   * circles... That model is how I want to think about range from now on"*).
+   * Radar range is the ruler's full extent (8/8) and EVERY sensor boundary in
+   * the game is a named eighth of it. Every rung is a `SIGHT` multiple, in the
+   * derivation style `radar = SIGHT * 2` already used here — so retuning base
+   * truesight moves the whole ladder together and no boundary anywhere in the
+   * codebase is an independent literal.
+   *
+   *   band   multiple        u        rung           consumer
+   *   ----   -------------   -----    ------------   ---------------------------
+   *   8/8    SIGHT * 2       660      radar          radar sweep; gun / cannon /
+   *                                                  star-shell base range;
+   *                                                  foghorn band 8 (50% gain)
+   *   7/8    SIGHT * 1.75    577.5    farRadar       NONE — see the comment on
+   *                                                  the field itself
+   *   5/8    SIGHT * 1.25    412.5    muzzleFlash    muzzle flash + wounded
+   *                                                  smoke (one constant, both)
+   *   4/8    SIGHT           330      sight          true-sight bubble
+   *   3/8    SIGHT * 0.75    247.5    detect         mines + torpedoes
+   *
+   * The unnamed bands (6/8, 2/8, 1/8) are deliberate: a rung earns a constant
+   * only when a sensor actually sits on it. The ordering
+   * `detect < sight < muzzleFlash < farRadar < radar` and every derivation in
+   * the table are pinned by __tests__/zone.test.ts — a one-sided edit to any
+   * rung fails the build.
+   */
   vision: {
-    sight: SIGHT, // u — true-sight bubble (actual ships visible; Eric ruling 2026-07-23, was 220)
-    radar: SIGHT * 2, // u — radar sweep range (paints stale blips) — DERIVED: 2 × base truesight
+    // u — 3/8: the MINE + TORPEDO detection rung (Story 4.9, Eric ruling
+    // 2026-08-06, amendment 119: *"lets split the difference and say its 3/8,
+    // and i can tweak from there. Torpedoes and mines especially need buffs"*).
+    // A real combat buff to the torpedo and the Mine Layer, taken knowingly.
+    // SHELLS DO NOT RIDE THIS — a shell is in the air and still materializes at
+    // the truesight boundary; a torpedo is a wake just under the surface and a
+    // mine sits in the water. A mine's or torpedo's BOOM/BURST also stays on
+    // truesight: you can watch an explosion you never saw the ordnance for.
+    //
+    // This is the BASE-STATS rung — the value the ladder PINS, read by the
+    // constraint tests and the weapons smoke and by NO production code: at
+    // RUNTIME the gate is OBSERVER-SCALED (amendment 121) and multiplies by
+    // `detectFactor` below, never by this. The server resolves it as
+    // `sightOf(me, now) * detectFactor`, so a star-shell dazzle halves it and
+    // an intelTruesight boon widens it, with island LOS applied unchanged.
+    detect: SIGHT * 0.75,
+    // The runtime scale the detect gate multiplies an observer's own
+    // dazzle-scaled, boon-widened sight by. It is the SAME number as detect's
+    // multiple above, by construction: `detect === sight * detectFactor` is
+    // pinned in zone.test.ts precisely so the base rung and the runtime factor
+    // can never drift apart. Never edit one without the other.
+    detectFactor: 0.75,
+    sight: SIGHT, // u — 4/8: true-sight bubble (actual ships visible; Eric ruling 2026-07-23, was 220)
+    // u — 5/8: muzzle-flash carry (Story 4.3, amendment 15; MOVED from 6/8 to
+    // 5/8 by Story 4.9, Eric ruling 2026-08-06, amendment 119: *"5/8 for
+    // muzzle/smoke"* — 495u → 412.5u). DERIVED: 1.25 × base truesight, exactly
+    // as radar below, so retuning SIGHT moves the flash halo with it (never an
+    // independent literal; the constraint test in zone.test.ts pins the
+    // derivation and the full ladder ordering). THIS ONE NUMBER ALSO CARRIES
+    // WOUNDED SMOKE (amendment 42 — never forked into a fourth vision
+    // constant), so Eric's "muzzle/smoke" band moves both signals together;
+    // that coupling is doing exactly what it was designed to do.
+    //
+    // The annulus beyond the base bubble is now a deliberately THIN 82.5u
+    // (330–412.5, halved from 165u — an ACCEPTED consequence of the ladder,
+    // not a defect): a shooter just outside your sight gives themselves away,
+    // but a radar-range duel stays anonymous — radar remains the ONLY
+    // long-range sensor. The flash still covers the D1 back-dated shell spawn
+    // because 412.5 > 330, so amendment 15's masking coupling holds. Island
+    // LOS applies (Eric ruling 2026-08-02: islands block EVERY sensor at ALL
+    // ranges); dazzle does NOT (a flash is a light source, not an illuminated
+    // object — signals.ts muzzleFlashSignal).
+    muzzleFlash: SIGHT * 1.25,
+    // u — 7/8: "far radar", where a mid-size hull's return reads BLUE rather
+    // than RED. DERIVED: 1.75 × base truesight.
+    //
+    // !!! THIS RUNG SHIPS DELIBERATELY UNCONSUMED, AND THAT IS CORRECT. !!!
+    // It has no caller at all — not production, not tests beyond the ladder
+    // pins. Naming the rung is what makes the ladder complete and checkable
+    // (amendment 123). It is not quite the ONLY consumer-less constant here:
+    // `detect` above has no PRODUCTION consumer either (runtime multiplies by
+    // `detectFactor`), but it IS read — by the ladder pins and the weapons
+    // smoke — whereas this one is read by nothing. It exists as STORY 4.10's
+    // CALIBRATION TARGET: under amendment 106 the radar red→blue crossover
+    // must EMERGE from the 1/d⁴ falloff curve fitted to cross here, never from
+    // a threshold branch. Writing `if (d > farRadar)` — or any other
+    // comparison against this constant — anywhere in a radar paint path
+    // VIOLATES amendment 105 (colour is intensity, never category) and is the
+    // wrong implementation of amendment 118. Fit the curve; do not branch.
+    farRadar: SIGHT * 1.75,
+    radar: SIGHT * 2, // u — 8/8: radar sweep range (paints stale blips) — DERIVED: 2 × base truesight
     // (Eric ruling 2026-08-02, epic-3 amendment 22; resolves the radar-650-vs-660
     // marginality: radar from the terminal-ring center exactly covers the 660u
     // endgame ring). Gun base range and star-shell flare range ride this same
@@ -153,17 +241,6 @@ export const CONFIG = {
     // terminalSightFactor × sight) is an INDEPENDENT derivation that happens to
     // share the factor 2 — the constraint test in zone.test.ts is what binds the
     // two together; don't conflate them as the same derivation.
-    // u — muzzle-flash carry (Story 4.3, amendment 15) — DERIVED: 1.5 × base
-    // truesight, exactly as radar above, so retuning SIGHT moves the flash
-    // halo with it (never an independent literal; the constraint test in
-    // zone.test.ts pins the derivation and sight < muzzleFlash < radar). A
-    // deliberately THIN annulus beyond the base bubble (165u today): a
-    // shooter just outside your sight gives themselves away, but a
-    // radar-range duel stays anonymous — radar remains the ONLY long-range
-    // sensor. Island LOS applies (Eric ruling 2026-08-02: islands block
-    // EVERY sensor at ALL ranges); dazzle does NOT (a flash is a light
-    // source, not an illuminated object — signals.ts muzzleFlashSignal).
-    muzzleFlash: SIGHT * 1.5,
     sweepRpm: 15, // rev/min — radar rotation rate (15 rpm = one 4 s revolution); keep ≤ sweepRpmMax — the effectiveStats clamp caps the TOTAL
     // rev/min — THE ratified sweep-rate ceiling (survives the 2.8 legacy-upgrade
     // strip; formerly CONFIG.upgrades.sweepSpeed.maxRpm). Clamped inside the
@@ -196,8 +273,10 @@ export const CONFIG = {
   /**
    * Wounded smoke (Story 4.4) — the SERVER emission cadence, and nothing
    * else. Reach is deliberately NOT here: it is CONFIG.vision.muzzleFlash
-   * (SIGHT * 1.5, 495u) reused verbatim, never forked into a fourth vision
-   * constant (amendment 42). The tiers are CONFIG.damageBands (amendment 41).
+   * (the 5/8 rung, SIGHT * 1.25, 412.5u) reused verbatim, never forked into a
+   * fourth vision constant (amendment 42) — so Story 4.9's move of that band
+   * from 6/8 to 5/8 shortened the plume's reach in the same edit, deliberately
+   * (amendment 119). The tiers are CONFIG.damageBands (amendment 41).
    * Puff lifetime, drift, billow and every other presentation knob are
    * CLIENT-ONLY (CLIENT_CONFIG.smoke): the server keeps no plume history at
    * all, exactly as it keeps no radar-blip history — the client synthesizes
@@ -220,12 +299,15 @@ export const CONFIG = {
    * NEVER client-predicted (amendment 58); the honker hears their own horn
    * from the self-addressed server event, exactly once.
    *
-   * Reach is deliberately NOT here: the volume tiers derive from the
-   * LISTENER's effective ranges (sightOf / muzzleFlash / radarRange —
-   * amendment 53), never from flat foghorn constants, and no fourth
-   * CONFIG.vision constant was added (amendment 42). Horn voices, tier gains,
-   * mix concurrency cap, chevron geometry and TTL are all CLIENT-ONLY
-   * presentation (CLIENT_CONFIG.foghorn + client/src/audio/horns.ts).
+   * Reach is deliberately NOT here: the volume BANDS are eighths of the
+   * LISTENER's own intel range (`stats.radarRange`) on the eighths ladder
+   * above (Story 4.9, amendment 122 — superseding amendment 53's sightOf /
+   * muzzleFlash / radarRange tiers and retiring its max() clamps, since intel
+   * range is a quantity dazzle cannot touch). Never a flat foghorn constant,
+   * and no CONFIG.vision constant was added for the horn (amendment 42). Horn
+   * voices, the band → gain table, mix concurrency cap, chevron geometry and
+   * TTL are all CLIENT-ONLY presentation (CLIENT_CONFIG.foghorn +
+   * client/src/audio/horns.ts).
    */
   foghorn: {
     // ms between accepted honks, server-gated. 1.5s (Eric ruling, amendment

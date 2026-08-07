@@ -45,7 +45,7 @@ import type { Projectiles } from '../render/projectiles.js';
 import type { Effects } from '../render/effects.js';
 import type { Radar } from '../render/radar.js';
 import type { Smoke } from '../render/smoke.js';
-import { bearingTo, tierGain, type Foghorn } from '../render/foghorn.js';
+import { bearingTo, bandGain, type Foghorn } from '../render/foghorn.js';
 import type { Mines, OwnMineRings } from '../render/mines.js';
 import type { LitZones } from '../render/litZones.js';
 import type { Decoys } from '../render/decoys.js';
@@ -546,7 +546,7 @@ function handleEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: BindSt
  *   • `blip` RADAR PAINT — the beam crossed a contact's bearing this tick.
  *     Accumulated into decaying phosphor (render/radar.ts + phosphor.ts).
  *   • `sm` WOUNDED SMOKE (Story 4.4) — a hull is hurt HERE, this hurt, inside
- *     the 495u halo with LOS clear. Position and severity band, and nothing
+ *     the 412.5u halo with LOS clear. Position and severity band, and nothing
  *     else: no id, no hue, no class, no hp, no fraction, for ANY observer
  *     including the smoking captain and spectators. Accumulated into a drifting
  *     plume (render/smoke.ts), which is deliberately the BLIP's arrangement and
@@ -579,8 +579,10 @@ function handlePulseEvent(e: GameEvent, f: FrameMsg, deps: RoomBindingDeps, s: B
  *     server-known position, so the bearing is derived here from the camera
  *     centre and FIXED AT RECEIPT (see bearingTo): a bearing re-derived per
  *     frame would swing as the spectator panned.
- *   • `b`/`v` — a fogged listener. Bearing and volume tier, and nothing else on
- *     the whole row (no x, no y, no id, no correlation handle of any kind).
+ *   • `b`/`v` — a fogged listener. Bearing and volume BAND (which eighth of our
+ *     own intel range the honker sits in, server-resolved — amendment 122), and
+ *     nothing else on the whole row (no x, no y, no id, no correlation handle
+ *     of any kind).
  *
  * THE CHEVRON IS PUSHED BEFORE THE AUDIO, AND UNCONDITIONALLY OF IT. `playHorn`
  * silently drops the honk at its 3-horn concurrency cap, and amendment 56 is
@@ -601,7 +603,7 @@ function handleFoghorn(e: FoghornEvent, f: FrameMsg, deps: RoomBindingDeps): voi
   }
   const bearing = honkBearing(e, deps);
   if (bearing !== null) deps.foghorn.onHonk(bearing, e.v, f.t);
-  deps.audio.playHorn(e.h, tierGain(e.v));
+  deps.audio.playHorn(e.h, bandGain(e.v));
 }
 
 /** The bearing to draw for a non-self honk: derived from the camera for the
@@ -618,7 +620,7 @@ function honkBearing(e: FoghornEvent, deps: RoomBindingDeps): number | null {
  * THE GUNNERY CONVERSATION (Story 4.3) — the three rows that make firing an
  * exchange of information instead of a private guess:
  *   • `mz` MUZZLE FLASH — someone fired a gun-family weapon HERE, inside the
- *     495u halo with LOS clear. For ANYONE, and deliberately anonymous: no id,
+ *     412.5u halo with LOS clear. For ANYONE, and deliberately anonymous: no id,
  *     no hue, no class, no weapon weight (amendment 19 — the flash must create
  *     a question, never answer one). Nothing to dedupe: the server already caps
  *     it at one per tick per shooter, and a flash is not an impact mark.

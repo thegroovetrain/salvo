@@ -42,9 +42,12 @@ describe('CONFIG.damageBands — the one set of damage thresholds (amendment 41)
 
 describe('wounded smoke reach + cadence (amendment 42)', () => {
   it('reach IS CONFIG.vision.muzzleFlash — no fourth vision constant was added', () => {
-    // Re-derived independently here (1.5 × sight) so a one-sided edit to
-    // either the constant or the derivation fails loudly.
-    expect(CONFIG.vision.muzzleFlash).toBe(CONFIG.vision.sight * 1.5);
+    // Re-derived independently here (1.25 × sight — the eighths ladder's 5/8
+    // rung since Story 4.9, amendment 119; was 1.5) so a one-sided edit to
+    // either the constant or the derivation fails loudly. The plume's reach
+    // moving with the flash is the POINT of the shared constant, not a
+    // regression: Eric named the band "muzzle/smoke".
+    expect(CONFIG.vision.muzzleFlash).toBe(CONFIG.vision.sight * 1.25);
     expect(Object.keys(CONFIG.vision)).not.toContain('smoke');
     expect(Object.keys(CONFIG.smoke)).not.toContain('range');
   });

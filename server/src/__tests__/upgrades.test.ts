@@ -961,12 +961,15 @@ describe('per-observer sight (intelTruesight)', () => {
     void base;
   });
 
-  it('a sight-booned observer sees an enemy MINE at the wider radius', () => {
+  it('a sight-booned observer sees an enemy MINE at the wider DETECT radius (Story 4.9: mines ride 0.75×sight, so the boon widens detect too — amendment 121)', () => {
+    // Between base detect (330 × 0.75 = 247.5) and one-stack detect
+    // (330 × 1.12 × 0.75 = 277.2) — factors re-derived as literals.
+    const mineAt = SIGHT * 0.75 + 20;
     const w = bareWorld();
     const up = place(w, 'up', 0, 0);
     place(w, 'base', 0, 0);
     stack(w, up, 'intelTruesight', 1);
-    w.mines.set('m1', { id: 'm1', ownerId: 'x', x: target, y: 0, armedAt: 0 });
+    w.mines.set('m1', { id: 'm1', ownerId: 'x', x: mineAt, y: 0, armedAt: 0 });
     expect(buildFrame(w, 'up').mines.map((m) => m.id)).toEqual(['m1']);
     expect(buildFrame(w, 'base').mines).toEqual([]);
   });

@@ -117,8 +117,8 @@ const REGISTRY_KEYS = [
   // Story 4.4 — wounded smoke, the fifth declared fog exception (anonymous
   // {k,x,y,tier} pulse inside the constant muzzle-flash halo).
   'sm',
-  // Story 4.5 — the foghorn, the sixth declared fog exception (bearing + tier
-  // for fogged listeners; islands muffle by exactly one tier).
+  // Story 4.5 — the foghorn, the sixth declared fog exception (bearing + a
+  // 1..8 volume band as of Story 4.9; islands muffle to max(5, band + 2)).
   'fh',
 ];
 
@@ -392,7 +392,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
 
   it('mz row (Story 4.3): [k,x,y] with NO id for ANY observer — fogged, shooter, and spectator alike', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 0, 400); // 400u from the flash — inside the 495u halo
+    const a = place(w, 'a', 0, 300); // 300u from the flash — unambiguously inside the 412.5u halo (Story 4.9: a 400u placement would sit 12.5u under it)
     const e: MuzzleEvent = { k: 'mz', x: 0, y: 0 };
     const row = signalFor('mz')!;
     const ctx = foggedCtx(w, a);
@@ -405,7 +405,7 @@ describe('SIGNAL_REGISTRY — materialized key order (msgpack wire shape)', () =
     expect(Object.keys(row.materialize(spec, e) as object)).toEqual(['k', 'x', 'y']);
   });
 
-  it('mz row visibility: the CONSTANT SIGHT*1.5 halo (boundary inclusive), island LOS applies, dazzle does NOT shrink it', () => {
+  it('mz row visibility: the CONSTANT SIGHT*1.25 halo (Story 4.9 — boundary inclusive), island LOS applies, dazzle does NOT shrink it', () => {
     const w = bareWorld();
     const at = place(w, 'at', CONFIG.vision.muzzleFlash, 0); // exactly at the halo — inclusive
     const past = place(w, 'past', CONFIG.vision.muzzleFlash + 0.01, 0); // a hair beyond
@@ -469,7 +469,7 @@ describe('SIGNAL_REGISTRY — sm row (Story 4.4: wounded smoke, the fifth declar
 
   it('island LOS blocks the plume exactly like every other sensor; dazzle does NOT shrink the halo', () => {
     const w = bareWorld();
-    const a = place(w, 'a', 400, 0); // inside the 495u halo
+    const a = place(w, 'a', 300, 0); // unambiguously inside the 412.5u halo (Story 4.9)
     const e: SmokeEvent = { k: 'sm', x: 0, y: 0, tier: 1 };
     // Dazzle shrinks the observer's SIGHT, never the smoke halo (the mz rule:
     // the halo is the raw constant, deliberately not sightOf).
@@ -482,7 +482,7 @@ describe('SIGNAL_REGISTRY — sm row (Story 4.4: wounded smoke, the fifth declar
   it('an OWNED lit zone over the puff does NOT extend the halo (no ownZoneCovers term, the mz rule)', () => {
     const w = bareWorld();
     const a = place(w, 'a', 0, 0);
-    injectZone(w, 'z1', 'a', 900, 0); // a's own zone, far beyond the 495u halo
+    injectZone(w, 'z1', 'a', 900, 0); // a's own zone, far beyond the 412.5u halo
     const e: SmokeEvent = { k: 'sm', x: 900, y: 0, tier: 2 }; // puff dead-center in a's zone
     expect(row.visible(foggedCtx(w, a), e)).toBe(false);
   });
@@ -640,7 +640,7 @@ describe('SIGNAL_REGISTRY — owned-zone parity: boom/burst/sunk/spawn see into 
   });
 
   it('mz: an OWNED zone over the flash point does NOT extend the halo (Story 4.3 — deliberate absence: a flare does not help you see a distant flash)', () => {
-    const { w, a } = zoneWorld(); // a owns a zone at (900,0), far beyond the 495u halo
+    const { w, a } = zoneWorld(); // a owns a zone at (900,0), far beyond the 412.5u halo
     const e: MuzzleEvent = { k: 'mz', x: 900, y: 0 }; // flash dead-center in a's own zone
     expect(signalFor('mz')!.visible(foggedCtx(w, a), e)).toBe(false); // no ownZoneCovers term, by ruling
   });
@@ -810,6 +810,72 @@ describe('SIGNAL_REGISTRY — ballistic reveal is exactly-once per observer', ()
     expect(a.seenBallistics.has('t1')).toBe(false); // pure — no mutation
     a.seenBallistics.add('t1'); // the scan marks it
     expect(row.visible(ctx, torp)).toBe(false);
+  });
+});
+
+// ---------- the Story 4.9 detect gate (mine / torp / torpU — and ONLY those) --
+
+describe('SIGNAL_REGISTRY — the DETECT gate (Story 4.9, amendments 119/121): mine, torp, and torpU rows only', () => {
+  // The 3/8 rung, independently re-derived as a literal — never
+  // CONFIG.vision.detect / detectFactor (the perception-suite oracle rule,
+  // applied here too so a constants edit cannot silently agree with a bug).
+  const DETECT = SIGHT * 0.75;
+
+  it('mine row: an enemy mine at the detect boundary is visible (inclusive); inside sight but beyond detect it is NOT', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const row = SIGNAL_REGISTRY.mine;
+    expect(row.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: DETECT, y: 0 }))).toBe(true);
+    expect(row.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: DETECT + 0.01, y: 0 }))).toBe(false);
+    expect(row.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 300, y: 0 }))).toBe(false); // sighted ≠ detected
+    expect(row.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: SIGHT, y: 0 }))).toBe(false); // the old gate is gone
+  });
+
+  it('torp row: the detect boundary, inclusive — while the SHELL row still reveals at truesight (the sibling fork)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const torpRow = signalFor('torp')!;
+    const shellRow = signalFor('shell')!;
+    expect(torpRow.visible(foggedCtx(w, a), makeShell({ id: 't1', ownerId: 'z', kind: 'torp', x: DETECT, y: 0 }))).toBe(true);
+    expect(torpRow.visible(foggedCtx(w, a), makeShell({ id: 't2', ownerId: 'z', kind: 'torp', x: 300, y: 0 }))).toBe(false);
+    expect(torpRow.visible(foggedCtx(w, a), makeShell({ id: 't3', ownerId: 'z', kind: 'torp', x: SIGHT, y: 0 }))).toBe(false);
+    // SHELLS DO NOT MOVE: same owner, same positions, wire kind 'shell'.
+    expect(shellRow.visible(foggedCtx(w, a), makeShell({ id: 's1', ownerId: 'z', kind: 'shell', x: 300, y: 0 }))).toBe(true);
+    expect(shellRow.visible(foggedCtx(w, a), makeShell({ id: 's2', ownerId: 'z', kind: 'shell', x: SIGHT, y: 0 }))).toBe(true);
+    expect(shellRow.visible(foggedCtx(w, a), makeShell({ id: 's3', ownerId: 'z', kind: 'shell', x: SIGHT + 0.01, y: 0 }))).toBe(false);
+  });
+
+  it('torpU row: updates stop at the detect boundary, matching the torp reveal gate', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    const row = signalFor('torpU')!;
+    const homing = { turnRate: 1, acquireRange: 300 };
+    // A revealed track whose direction has drifted far past the threshold:
+    // baseline dir 0, live velocity due +y (π/2).
+    const drifted = (id: string, x: number, y: number) =>
+      makeShell({ id, ownerId: 'z', kind: 'torp', x, y, vx: 0, vy: 60, homing });
+    for (const [id, x, visible] of [['u1', DETECT, true], ['u2', DETECT + 0.01, false], ['u3', 300, false]] as const) {
+      a.seenBallistics.add(id);
+      a.torpDirs.set(id, 0);
+      expect(row.visible(foggedCtx(w, a), drifted(id, x, 0))).toBe(visible);
+    }
+  });
+
+  it('detect is the OBSERVER\'S OWN scaled sight (amendment 121): dazzle halves it on all three rows', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    a.dazzledUntil = w.now + 10_000; // detect collapses to 0.75 × 165 = 123.75
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 200, y: 0 }))).toBe(false);
+    expect(SIGNAL_REGISTRY.mine.visible(foggedCtx(w, a), makeMine({ ownerId: 'z', x: 120, y: 0 }))).toBe(true);
+    expect(signalFor('torp')!.visible(foggedCtx(w, a), makeShell({ id: 'tz', ownerId: 'z', kind: 'torp', x: 200, y: 0 }))).toBe(false);
+  });
+
+  it('the decoy row does NOT ride detect — it stays on truesight, untouched (amendment 91)', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    w.decoys.set('d1', { id: 'd1', ownerId: 'z', x: 300, y: 0, hullId: 'mineLayer', heading: 0, until: 999_999 });
+    // 300u: beyond detect (247.5) but inside sight (330) — the buoy is SEEN.
+    expect(SIGNAL_REGISTRY.decoy.visible(foggedCtx(w, a), w.decoys.get('d1')!)).toBe(true);
   });
 });
 

@@ -151,8 +151,9 @@ function ballisticScan(world: World, ctx: SignalContext): BallisticEvent[] {
 }
 
 /** Per-observer HOMING-track updates (Story 2.8): every live steering torpedo
- *  is offered to the torpU row (already-revealed + currently-sighted +
- *  direction drift ≥ threshold — the row owns the rules); an emission advances
+ *  is offered to the torpU row (already-revealed + currently-DETECTED — the
+ *  3/8 rung since Story 4.9, not the truesight bubble — + direction drift ≥
+ *  threshold; the row owns the rules); an emission advances
  *  this observer's direction baseline HERE (the seenBallistics mark precedent
  *  — materialize stays a pure wire-shaper). The 'exactly-once' ballistic
  *  convention is deliberately relaxed for THIS channel alone: updates re-key

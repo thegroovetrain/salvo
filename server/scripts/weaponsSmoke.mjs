@@ -11,12 +11,13 @@
 //      DISJOINT (a torpedo can never appear on the scope).
 //   3. Mine visibility + oldest-despawn: B — the MINE LAYER (mines are its
 //      click-aimed rear-arc slot 1 as of Story 2.8) — holds station clicking
-//      drops astern while A loiters within sight but outside trigger range.
-//      Asserts A never sees an enemy mine beyond sight range (no radar/fog
-//      leak), never sees more than maxLive of B's mines at once, yet sees
-//      >maxLive distinct ids over time (oldest-despawn proven).
+//      drops astern while A loiters within detect range but outside trigger
+//      range. Asserts A never sees an enemy mine beyond DETECT range (Story
+//      4.9: the 3/8 rung, 0.75 × sight — the truesight bar is retired; no
+//      radar/fog leak), never sees more than maxLive of B's mines at once,
+//      yet sees >maxLive distinct ids over time (oldest-despawn proven).
 //   4. Mine ambush: A sails onto a live armed mine — asserts 55 damage + a
-//      boom, and that A first saw that mine only from within sight range.
+//      boom, and that A first saw that mine only from within detect range.
 //
 // Run against a booted server (tsx server/src/index.ts + shared/dist built),
 // with HC_DEV_OPTIONS=1 in ITS env — this smoke's sandbox matchOverride +
@@ -29,6 +30,7 @@ import { CONFIG, PROTOCOL_VERSION, bearing, angleDiff, generateMap } from '@salv
 
 const endpoint = process.env.WS_URL || 'ws://localhost:2567';
 const SIGHT = CONFIG.vision.sight;
+const DETECT = CONFIG.vision.detect; // Story 4.9: the mine/torpedo 3/8 detect rung (247.5u)
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -62,7 +64,7 @@ async function joinClient(name, cls = 'torpedoBoat') {
     fireSeq: 0,
     goal: { mode: 'idle' },
     // Mine-visibility trackers (updated every frame):
-    mineLeakBeyondSight: 0, // enemy mine seen at dist > sight (must stay 0)
+    mineLeakBeyondDetect: 0, // enemy mine seen at dist > detect (must stay 0 — Story 4.9)
     maxConcurrentEnemy: 0, // most of A's mines seen at once
     distinctEnemy: new Set(),
     firstSeenDist: new Map(), // mineId -> distance at first sighting
@@ -99,7 +101,7 @@ function trackEnemyMines(ctx) {
     ctx.distinctEnemy.add(m.id);
     const d = dist(ctx.you, m);
     if (!ctx.firstSeenDist.has(m.id)) ctx.firstSeenDist.set(m.id, d);
-    if (d > SIGHT + 1) ctx.mineLeakBeyondSight++;
+    if (d > DETECT + 1) ctx.mineLeakBeyondDetect++;
   }
   if (concurrent > ctx.maxConcurrentEnemy) ctx.maxConcurrentEnemy = concurrent;
 }
@@ -140,22 +142,30 @@ function steerToward(ctx, inp, target, throttle) {
   inp.throttle = throttle;
 }
 
-/** Station-keep near a point: creep in if far, coast if close. */
+/** Station-keep near a point: creep in if far, coast if close. islandAvoid
+ *  rides the rudder (harness robustness, the engageTorp fix's sibling) so a
+ *  trailing station-keeper can't pin itself nose-on against a rock. */
 function holdAt(ctx, inp, target) {
   if (!ctx.you || !target) return;
   const d = dist(ctx.you, target);
   const want = bearing(ctx.you, target);
-  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 2, -1, 1);
+  inp.rudder = clamp(angleDiff(ctx.you.heading, want) * 2 + islandAvoid(ctx), -1, 1);
   inp.throttle = d > 40 ? 0.4 : 0;
 }
 
-/** Point the bow at the target and loose torpedoes when it bears in the arc. */
+/** Point the bow at the target and loose torpedoes when it bears in the arc.
+ *  islandAvoid rides the rudder here too (harness robustness): without it a
+ *  center island between the pair pins the shooter nose-on forever (the
+ *  cycle-59 grounding cap holds it at the coast while the steering keeps
+ *  re-aiming THROUGH the rock) and every fish dies on the island. And below
+ *  ~60u the throttle drops to 0: a hull-to-hull scrum puts the target inside
+ *  the fish's bow clearance, where no launch can ever connect. */
 function engageTorp(ctx, inp, target) {
   if (!ctx.you || !target) return;
   const brg = bearing(ctx.you, target);
-  inp.rudder = clamp(angleDiff(ctx.you.heading, brg) * 3, -1, 1);
+  inp.rudder = clamp(angleDiff(ctx.you.heading, brg) * 3 + islandAvoid(ctx), -1, 1);
   const range = dist(ctx.you, target);
-  inp.throttle = range > 110 ? 0.6 : 0.15; // close then keep steerageway
+  inp.throttle = range > 110 ? 0.6 : range > 60 ? 0.15 : 0; // close, keep steerageway, never scrum
   inp.aim = brg;
   inp.slot = 1; // torpedoes
   // Click every tick while the tube bears — the reload paces launches.
@@ -231,23 +241,28 @@ async function torpedoPhase(a, b, log) {
 async function minePhase(a, b, log) {
   await rendezvous(a, b, log);
   // Reset visibility trackers now that B is in position.
-  b.mineLeakBeyondSight = 0;
+  b.mineLeakBeyondDetect = 0;
   b.maxConcurrentEnemy = 0;
   b.distinctEnemy.clear();
   b.firstSeenDist.clear();
-  // A holds station dropping mines; B loiters within sight, outside trigger.
+  // A holds station dropping mines; B loiters within detect range (Story 4.9:
+  // the 120u trail sits well inside the 247.5u rung), outside trigger.
   // B's loiter point TRAILS A (recomputed every tick): even at minimum
-  // steerageway A drifts ~4.6 u/s, so a fixed point drops out of sight range
+  // steerageway A drifts ~4.6 u/s, so a fixed point drops out of detect range
   // of the later drops and the distinct-id count stalls below maxLive+1.
   await pilotUntil([a, b], () => {
     a.goal = { mode: 'dropMines' };
     b.goal = { mode: 'hold', target: a.you ? { x: a.you.x, y: a.you.y + 120 } : null };
-  }, () => b.distinctEnemy.size > CONFIG.mine.maxLive, 90000, 'A drop >maxLive mines');
+  // Budget WIDENED 90s -> 150s with the detect bar (Story 4.9): under the old
+  // 330u gate the trailing observer counted drops from the phase's first tick;
+  // under 247.5u it only counts them once the trail closes inside
+  // detect − dropDistance (~157u), which costs the first ~25s of the window.
+  }, () => b.distinctEnemy.size > CONFIG.mine.maxLive, 150000, 'A drop >maxLive mines');
   log.push(
     `mines: B saw ${b.distinctEnemy.size} distinct A-mines, max ${b.maxConcurrentEnemy} at once, ` +
-      `leaksBeyondSight=${b.mineLeakBeyondSight}`,
+      `leaksBeyondDetect=${b.mineLeakBeyondDetect}`,
   );
-  assert(b.mineLeakBeyondSight === 0, 'B saw an enemy mine beyond sight range (radar/fog leak)');
+  assert(b.mineLeakBeyondDetect === 0, 'B saw an enemy mine beyond detect range (radar/fog leak — Story 4.9 bar)');
   assert(b.maxConcurrentEnemy <= CONFIG.mine.maxLive, `B saw > maxLive (${b.maxConcurrentEnemy}) mines at once`);
   assert(b.distinctEnemy.size > CONFIG.mine.maxLive, 'never observed a 4th mine / oldest-despawn');
 }
@@ -264,9 +279,11 @@ async function ambushPhase(a, b, log) {
   const boomed = b.booms.length > booms0;
   log.push(`ambush: B.hp ${hp0}->${b.you?.hp} boom=${boomed}`);
   assert(boomed, 'no boom on mine detonation');
-  // Every enemy mine B ever saw was first seen from within sight range.
-  for (const [id, d] of b.firstSeenDist) assert(d <= SIGHT + 1, `mine ${id} first seen at ${d.toFixed(0)}u (> sight)`);
-  log.push('ambush: all enemy mines first seen within sight range');
+  // Every enemy mine B ever saw was first seen from within DETECT range
+  // (Story 4.9: the 3/8 rung — a first sighting in the 247.5–330u band would
+  // mean the old truesight gate leaked back in).
+  for (const [id, d] of b.firstSeenDist) assert(d <= DETECT + 1, `mine ${id} first seen at ${d.toFixed(0)}u (> detect)`);
+  log.push('ambush: all enemy mines first seen within detect range');
 }
 
 function nearestEnemyMine(b) {

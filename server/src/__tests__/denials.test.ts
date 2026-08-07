@@ -193,11 +193,11 @@ describe('denial channel — lifecycle + privacy edges', () => {
   });
 });
 
-describe('pv join gate — the 28→29 bump (PV 28: FRACTAL ISLANDS — the same mapSeed now built polygon coastlines; PV 29: the fBm height field — the same mapSeed now builds a completely different ocean off a genuine height field instead of the capsule generator, so an un-bumped client would sail a different ocean) is enforced at matchmake', () => {
-  it('rejects pv-28 and pv-27 (previous protocols) and a missing pv; accepts the current one', () => {
-    expect(PROTOCOL_VERSION).toBe(29);
+describe('pv join gate — the 29→30 bump (PV 30: THE EIGHTHS LADDER — FoghornEvent.v widened from a 3-value tier to a 1..8 band, and the client torpedo dead-reckoning cull became detect-derived, so a stale client would misrender both) is enforced at matchmake', () => {
+  it('rejects pv-29 and pv-28 (previous protocols) and a missing pv; accepts the current one', () => {
+    expect(PROTOCOL_VERSION).toBe(30);
+    expect(protocolVersionError(29)).toMatch(/refresh/);
     expect(protocolVersionError(28)).toMatch(/refresh/);
-    expect(protocolVersionError(27)).toMatch(/refresh/);
     expect(protocolVersionError(undefined)).toMatch(/refresh/);
     expect(protocolVersionError(PROTOCOL_VERSION)).toBeNull();
   });

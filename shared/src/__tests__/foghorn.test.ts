@@ -12,10 +12,11 @@ import {
 // server and client BOTH have to agree on lives here: the horn id space, its
 // fail-open sanitizer, and the one sim-authoritative cadence.
 //
-// What is deliberately NOT pinned here: the volume-tier bounds and the
-// island muffle, which are per-observer server logic (signals.ts) verified by
-// their own independently-reimplemented oracle in
-// server/src/__tests__/perception.test.ts; and every presentation knob (tier
+// What is deliberately NOT pinned here: the volume-band bounds (eighths of
+// the listener's intel range — Story 4.9, amendment 122) and the island
+// muffle, which are per-observer server logic (signals.ts) verified by their
+// own independently-reimplemented oracle in
+// server/src/__tests__/perception.test.ts; and every presentation knob (band
 // gains, mix cap, chevron geometry/TTL, horn voices), which is client-only.
 
 describe('the horn catalog (amendment 52)', () => {
@@ -75,10 +76,10 @@ describe('CONFIG.foghorn — the sim-authoritative cadence, and nothing else', (
     expect(CONFIG.foghorn.cooldownMs).toBeGreaterThan(0);
   });
 
-  it('carries NO reach and NO presentation knob — tiers derive from the listener (amendments 42/53)', () => {
-    // Reach is the LISTENER's own sightOf/muzzleFlash/radarRange, so no
-    // foghorn range constant may exist; and no FOURTH vision constant was
-    // added for it either.
+  it('carries NO reach and NO presentation knob — bands derive from the listener (amendments 42/53/122)', () => {
+    // Reach is the LISTENER's own intel range (stats.radarRange, cut into
+    // eighths — Story 4.9), so no foghorn range constant may exist; and no
+    // FOURTH vision constant was added for it either.
     expect(Object.keys(CONFIG.foghorn)).toEqual(['cooldownMs']);
     expect(Object.keys(CONFIG.vision)).not.toContain('foghorn');
     expect(Object.keys(CONFIG.vision)).not.toContain('horn');
@@ -108,13 +109,14 @@ describe('FoghornEvent wire shape (amendments 51/52)', () => {
     expect(Object.keys(spec)).not.toContain('id');
   });
 
-  it('the volume tier is a THREE-value enum, never a gain fraction', () => {
-    const tiers: NonNullable<FoghornEvent['v']>[] = [1, 2, 3];
-    expect(tiers).toEqual([1, 2, 3]);
-    // Gains (1 / 0.75 / 0.5) are CLIENT-side presentation; putting one on the
-    // wire would make hearing a property of sound rather than of the listener,
-    // which is exactly what amendment 53 rejected.
-    for (const v of tiers) expect(Number.isInteger(v)).toBe(true);
+  it('the volume band is an EIGHT-value enum (Story 4.9, amendment 122), never a gain fraction', () => {
+    const bands: NonNullable<FoghornEvent['v']>[] = [1, 2, 3, 4, 5, 6, 7, 8];
+    expect(bands).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    // Gains (1 / 1 / 1 / 1 / 0.875 / 0.75 / 0.625 / 0.5 for bands 1-8) are
+    // CLIENT-side presentation; putting one on the wire would make hearing a
+    // property of sound rather than of the listener, which is exactly what
+    // amendment 53 rejected — a rule the eighths rebase keeps.
+    for (const v of bands) expect(Number.isInteger(v)).toBe(true);
   });
 
   it('`h` is typed to the catalog, so an invented variant cannot reach the wire', () => {

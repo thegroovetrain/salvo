@@ -95,7 +95,15 @@ describe('shared barrel', () => {
     // LOS-gated sensor (radar paint, truesight, muzzle flash, wounded smoke,
     // the foghorn's one-tier muffle) is now polygon-EXACT where it was
     // bounding-circle conservative, so islands block strictly less.
-    expect(PROTOCOL_VERSION).toBe(29);
+    // THE EIGHTHS LADDER (PV 30, Story 4.9, Eric rulings 2026-08-06,
+    // amendments 113/118/119/121/122/123): CONFIG.vision becomes one ruler of
+    // SIGHT-derived eighths — new `detect` (3/8) + `detectFactor` and new
+    // `farRadar` (7/8, deliberately unconsumed), `muzzleFlash` moves 6/8 -> 5/8
+    // (dragging wounded-smoke reach with it), `sight`/`radar` untouched. The
+    // bump is required on two independent grounds: FoghornEvent.v widens from a
+    // 3-value tier to an 8-value band, and the client's torpedo dead-reckoning
+    // cull becomes detect-derived — a stale client would MISRENDER either way.
+    expect(PROTOCOL_VERSION).toBe(30);
     // THE RADAR REALISM CYCLE (PV 27, Eric rulings 2026-08-05, amendments
     // 62-75): BlipEvent becomes the tagless SilhouetteBlipEvent |
     // ReturnBlipEvent union ({k,id,x,y,t,ext} — ext pure aspect geometry, no

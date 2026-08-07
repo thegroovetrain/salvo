@@ -114,20 +114,20 @@ describe('the standard horn — a ship, not a beep (amendment 57)', () => {
   });
 });
 
-describe('hornGain — voice level x the listener tier multiplier', () => {
+describe('hornGain — voice level x the listener band multiplier', () => {
   it('multiplies the two, unclamped in the normal range', () => {
     expect(hornGain(STANDARD, 1)).toBeCloseTo(STANDARD.volume, 6);
     expect(hornGain(STANDARD, 0.75)).toBeCloseTo(STANDARD.volume * 0.75, 6);
     expect(hornGain(STANDARD, 0.5)).toBeCloseTo(STANDARD.volume * 0.5, 6);
   });
 
-  it('is monotone across the three earshot tiers', () => {
+  it('is monotone across the earshot bands', () => {
     const [t1, t2, t3] = [1, 0.75, 0.5].map((g) => hornGain(STANDARD, g));
     expect(t1).toBeGreaterThan(t2);
     expect(t2).toBeGreaterThan(t3);
   });
 
-  it('clamps a tier multiplier outside 0..1 instead of trusting it', () => {
+  it('clamps a band multiplier outside 0..1 instead of trusting it', () => {
     expect(hornGain(STANDARD, 4)).toBeCloseTo(STANDARD.volume, 6);
     expect(hornGain(STANDARD, -1)).toBe(0);
   });

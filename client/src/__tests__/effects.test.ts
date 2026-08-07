@@ -16,7 +16,7 @@ describe('isFogImmuneEffect — the marks that must read above the fog', () => {
     expect(isFogImmuneEffect('splash')).toBe(true);
     // spark = the Hit Call bloom, confirming a connection at a fogged hull.
     expect(isFogImmuneEffect('spark')).toBe(true);
-    // muzzle = a shooter inside the 495u flash halo but outside the 330u bubble.
+    // muzzle = a shooter inside the 412.5u flash halo but outside the 330u bubble.
     expect(isFogImmuneEffect('muzzle')).toBe(true);
   });
 
