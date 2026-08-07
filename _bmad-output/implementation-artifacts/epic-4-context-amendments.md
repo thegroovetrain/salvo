@@ -1709,3 +1709,32 @@ implicit and record one consequence that a future cycle will otherwise mistake f
        with no ruling behind it. The detect cull is now ENEMY-ONLY. Generalisable: a gate copied from
        the observer path onto the owner path inherits an argument that was never about owners.
 
+
+## 2026-08-07 — Eric ruling, the two ledgered foghorn consequences are ACCEPTED (cycle 60, post-review)
+
+Source: Eric, live, shown both consequences in plain terms at the end of the cycle-60 run. Verbatim:
+*"Oh. Fine on both. That's fine."* — followed by the instruction to merge.
+
+126. **BOTH LEDGERED FOGHORN CONSEQUENCES ARE ACCEPTED AS SHIPPED. They are CLOSED, not open.** A
+     future cycle must not "fix" either one without a fresh ruling, because both are now deliberate.
+
+     - **A visible enemy can sound quiet on an eyesight-heavy build.** Bands ride `stats.radarRange`,
+       so a full `intelTruesight` stack with no `intelRadar` pushes truesight (581.5u) well past the
+       band-4 edge (330u) and a hull you can plainly see at 500u plays at 62.5%. **Accepted.** The
+       reason it must stay accepted is the fix, not the flaw: clamping to full volume inside `sightOf`
+       would put a dazzle-scaled term back into the band resolver, and dazzle would then DEAFEN — the
+       precise property amendment 122 bought by anchoring on intel range. The oddity is the price of
+       a structural guarantee, and it is the cheaper of the two.
+     - **The honk's range resolution roughly doubled.** Eight volume regions means a fogged listener
+       localises a honker to an ~82.5u annulus where three tiers gave ~165u, alongside the exact
+       bearing the row already carried. **Accepted**, and it is worth being precise about what was
+       ratified: Eric chose eight regions over quarters at the cycle-60 question gate WITHOUT this
+       consequence being surfaced, was shown it explicitly afterwards, and did not reverse. Amendment
+       51's letter is unchanged (bearing and volume only — no position, no id, no correlation handle);
+       what grew is the precision of the volume channel itself.
+
+       **The lever, recorded for whoever revisits it: fewer DISTINCT GAINS, not a wire change.** The
+       disclosure is a function of how many volume levels are distinguishable, so reverting toward
+       quarters would restore roughly the old precision. The wire is already floored at band 4
+       (amendment 124) precisely so that no resolution ships beyond what the gain curve consumes —
+       that mechanism is the one to reuse, not replace.

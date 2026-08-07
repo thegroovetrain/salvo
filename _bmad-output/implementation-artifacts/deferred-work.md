@@ -631,3 +631,13 @@ The maintenance patch (Eric-invoked, five ruled changes + three AskUserQuestion 
 - source_spec: `_bmad-output/implementation-artifacts/spec-4-9-the-eighths-ladder.md`
   summary: A STRAIGHT-RUNNING ENEMY TORPEDO CAN BECOME PERMANENTLY INVISIBLE, and the shorter detect ring makes it easier to reach. Ballistic reveal is exactly-once (`seenBallistics`), the cull is client-side, and only HOMING torpedoes emit a `torpU` that can resurrect a culled track. So a straight fish revealed at the detect boundary, then culled when it leaves the client's ring, is never drawn again even if the observer's own movement re-encloses it — and it can hit unseen. This existed before Story 4.9 at the wider ring; shrinking the ring to 287.5u means an observer's own speed opens and closes that gap far more often. NOT FIXED because the honest fix is a server-side re-reveal rule for ballistics that have gone out and come back, which is a perception-invariant change needing its own story and its own oracle.
   evidence: Blind adversarial hunter at the step-04 gate, traced. `server/src/game/perception.ts` (exactly-once `seenBallistics`; the `torpU` scan skips `shell.homing === undefined`), `client/src/render/projectiles.ts` (client-side cull, `spawnFromUpdate` resurrect path is homing-only).
+
+### 2026-08-07 — RESOLVED by Eric ruling (amendment 126), same day they were filed
+
+The first two cycle-60 entries above — the foghorn band reading quieter than truesight on a dedicated
+intel-truesight build, and the honk's range resolution roughly doubling — were put to Eric in plain
+terms and **both are ACCEPTED AS SHIPPED**: *"Fine on both. That's fine."* They are CLOSED. Do not
+"fix" either without a fresh ruling; amendment 126 records why the obvious fix to the first one is
+worse than the flaw (it would let dazzle deafen again) and what the real lever on the second is
+(fewer distinct gains, not a wire change). The other two cycle-60 entries — the soft ownership latch
+and the permanently-invisible straight torpedo — remain OPEN.
