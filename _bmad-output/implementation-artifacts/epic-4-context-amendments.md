@@ -2196,3 +2196,92 @@ sentence, verbatim:
      half-cell step clamp (33% more ray samples) plus the ship-stamp probe on land samples, and it was
      measured against a fresh re-run of the pre-gate build on the same fixture rather than against a
      recorded number.
+
+## 2026-08-07 — Eric ruling, THE SERVER RASTERIZES THE HULL (cycle 63)
+
+Source: Eric, live, on the 0.17.62 build with a screenshot. Two complaints and the architectural
+answer, all his:
+
+> *"parts of ships are still being occluded. also i'm not sure why some are blue and some are red?"*
+
+> *"when the ship painted on radar isn't even 'pointed' the same direction it is moving. I told you to
+> RASTERIZE THE SHIP didn't I? … My assumption is that you're going to take the actual outline of the
+> ship and project it down to the much lower resolution raster."*
+
+> *"The server can simply provide the radar raster can't it? then the server doesn't have to include
+> hull information."*
+
+151. **THE TWO REPORTED DEFECTS ARE ONE ROOT CAUSE: the client had the hull's OUTLINE inside truesight
+     and only a WIDTH outside it.** Inside the bubble the client rasterizes the real
+     `hullSilhouette` polygon at true heading from the `Contact`'s `cls`/`heading`. Beyond it, the wire
+     carries only `ext` — the width projected perpendicular to the line of sight — because amendment 67
+     deliberately stripped heading and class from the `return` grammar on ohzie's playtest feedback.
+     With a width and no second axis, `stampEcho` could only lay a **one-cell-deep line across the
+     bearing**, so a fogged hull (a) never pointed the way it was moving, since the mark is oriented to
+     the OBSERVER's bearing rather than to the hull, and (b) read as a thin broken streak next to the
+     filled blob the same ship becomes on crossing into truesight. Nothing was occluded; the footprint
+     was a line. The hooked shapes were the cycle-62 gate's diagonal-bridging turning that line into an
+     L.
+
+     **The blue-vs-red half is a REGRESSION AGAINST AMENDMENT 77**, and it is Eric's own cycle-53
+     complaint returning. `hullSample()` returns ONE reflectivity for the whole hull, so every cell of a
+     ship carries the same intensity and the entire hull quantizes to a SINGLE band whose colour is set
+     by aspect and range — a broadside hull reads red, a bow-on hull reads blue. Amendment 77 ruled the
+     opposite in as many words: *"intensity is computed per PIXEL … a single return can and should show
+     all three at once."* The retired ellipse kernel delivered that with a paraboloid dome; the cycle-62
+     raster took the structure with it and nothing replaced it, so colour went back to being a
+     per-object LABEL — exactly what amendment 76 diagnosed and killed.
+
+152. **THE SERVER RASTERIZES THE HULL AND SENDS CELLS. Identity stops leaving the server at all.** This
+     is Eric's ruling and it is the architecture amendment 109 recorded as the terminal form of this
+     system — *"the server returning per-bearing (range, intensity) traces … it is how real radar works
+     and it is ideally anti-cheat-shaped"* — parked then as a wire rewrite, and now justified by a
+     defect that has no clean fix without it.
+
+     **This REDUCES disclosure rather than widening it, which is why it is the right answer to a
+     question about leaking orientation.** Today the wire carries `ext`, a derived scalar a modified
+     client can reason about, plus an `id` that correlates a contact across sweeps. After this the wire
+     carries a **coverage footprint in world cells and nothing else** — no `cls`, no `heading`, no
+     `ext`, and **no `id`**. There is no correlation handle to drop because none is sent, which is the
+     phosphor-blip philosophy (the server keeps no history; the client synthesises persistence) applied
+     to the last row that still violated it. What a lit cell says is "there is metal here," which is
+     precisely and only what a radar says.
+
+     **The client keeps the whole INTENSITY model; the server does only GEOMETRY.** Coverage is
+     projected from the true hull polygon onto the low-resolution radar grid — Eric: *"take the actual
+     outline of the ship and project it down to the much lower resolution raster"* — and the client
+     computes strength from each covered cell's own range plus its depth inside the covered set. That
+     split is deliberate: it keeps `radarFalloff.ts` the one model (amendment 106), and it restores
+     amendment 77's per-pixel structure for free, because "distance into the coverage" is exactly the
+     core→edge term the flat `hullSample` lost. Aspect and range survive as amendment 66 requires — they
+     now show as HOW MUCH RED CORE a hull has rather than as which single colour it is.
+
+153. **HULLS ONLY — TERRAIN STAYS CLIENT-SIDE.** Eric's explicit pick. The client already builds the
+     byte-identical height raster from the map seed (cycle 59), so terrain costs nothing locally and
+     sending it would be waste on a 20Hz channel. The server rasterizes only what the client genuinely
+     cannot derive: where metal is. Explicitly REJECTED for now: the full A-scope (the server marching
+     the whole wedge including coastline), and deferring the whole thing to 4.11 — though 4.11 must
+     revisit the question, since it has to march terrain server-side for shadows anyway and may find
+     the two channels want to merge.
+
+     Cost of record, and it is why this is affordable: at 15 rpm on a 20 Hz tick the beam advances
+     ~4.5° per tick, so a given hull sits in one observer's wedge for roughly ONE TICK PER
+     FOUR-SECOND REVOLUTION. Expected hulls-in-wedge per observer per tick is well under one even in a
+     full room, and a battleside broadside at 6u cells is ~100 cells — a coverage bitmask of ~16 bytes,
+     sent only on the tick the beam crosses it.
+
+154. **`blipGate` IS UNTOUCHED, and the inside/outside split SURVIVES — but stops being visible.** The
+     server still sends no blip for a hull inside truesight (a sighted hull is delivered as a `Contact`
+     instead); that is a perception-invariant surface and amendment 89 still governs it. The client goes
+     on rasterizing sighted hulls from their `Contact`. What changes is that BOTH paths now produce a
+     true, oriented, structured footprint, so the asymmetry stops being something a player can see. Two
+     sources, one appearance.
+
+155. **Scope.** `PROTOCOL_VERSION` **BUMPS 30 → 31** — a wire shape change. The `blip` registry row's
+     payload changes and its independently-reimplemented oracle must be re-derived against the new
+     shape, not adapted. The decoy's wire-indistinguishability law (amendment 11) binds unchanged: a
+     decoy must produce a coverage footprint indistinguishable from a genuine paint, which it does by
+     construction since it is rasterized by the same code from its frozen drop-time pose. `silhouette`
+     grammar is UNTOUCHED — it keeps its own blip shape and the server picks one grammar per room
+     (amendment 63). Nothing occludes anything (amendment 140 still stands; 4.11 owns occlusion).
+     Amendments 83, 97, 98 and 135 all govern unchanged.
