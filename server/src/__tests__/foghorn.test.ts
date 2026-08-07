@@ -241,14 +241,19 @@ describe('SIGNAL_REGISTRY — fh row: the eight volume bands (eighths of the LIS
   it('base stats: all eight 82.5u bands — each outer edge inclusive, a hair beyond each steps down; past band 8, silence', () => {
     const w = bareWorld();
     const e = subject(0, 0, 'honker');
+    // BANDS 1-3 ARE NOT ON THE WIRE (review fix): they are indistinguishable
+    // from band 4 in every honest surface, so the emitted value is floored to 4
+    // across the whole 100% plateau (see the plateau-floor describe below). The
+    // DISTANCE bands themselves are unchanged and the gain curve is
+    // byte-identical; only the cheat-readable resolution is gone.
     const cases: Array<[number, number | null]> = [
-      [40, 1], // deep inside band 1
-      [BAND, 1], // exactly at 82.5 — inclusive
-      [BAND + 0.01, 2],
-      [2 * BAND, 2], // 165
-      [3 * BAND, 3], // 247.5
+      [40, 4], // deep inside the plateau (raw band 1)
+      [BAND, 4], // exactly at 82.5 — inclusive (raw band 1)
+      [BAND + 0.01, 4], // raw band 2
+      [2 * BAND, 4], // 165 (raw band 2)
+      [3 * BAND, 4], // 247.5 (raw band 3)
       [SIGHT, 4], // ANCHOR: band 4 ends exactly at truesight 330 — full volume through here
-      [SIGHT + 0.01, 5],
+      [SIGHT + 0.01, 5], // ...and the first band that is genuinely quieter IS transmitted
       [5 * BAND, 5], // 412.5
       [6 * BAND, 6], // 495
       [7 * BAND, 7], // 577.5
@@ -267,13 +272,15 @@ describe('SIGNAL_REGISTRY — fh row: the eight volume bands (eighths of the LIS
     }
   });
 
-  it('a honk at distance ZERO (co-located) resolves to band 1, never NaN or 0', () => {
+  it('a honk at distance ZERO (co-located) resolves to a legal FULL-VOLUME band, never NaN or 0', () => {
     const w = bareWorld();
     const l = place(w, 'l', 123, -45);
     const ctx = foggedCtx(w, l);
     const e = subject(123, -45, 'honker'); // exactly on top of the listener
     expect(row.visible(ctx, e)).toBe(true);
-    expect((row.materialize(ctx, e) as FoghornEvent).v).toBe(1);
+    // The distance math still resolves d === 0 to raw band 1; the wire carries
+    // the plateau floor (review fix), which is the same 100% gain either way.
+    expect((row.materialize(ctx, e) as FoghornEvent).v).toBe(4);
   });
 
   it('the fogged payload is exactly {k,h,b,v} — a FRESH object; no id, x, or y for ANY fogged listener', () => {
@@ -302,9 +309,11 @@ describe('SIGNAL_REGISTRY — fh row: the eight volume bands (eighths of the LIS
   it('DAZZLE CANNOT DEAFEN — BY CONSTRUCTION: a dazzled listener\'s band is identical to an undazzled one at every distance (amendment 122 retires amendment 53\'s clamps)', () => {
     const w = bareWorld();
     const l = place(w, 'l', 0, 0);
-    // One probe per band region plus the outer silence — resolved UNDAZZLED...
+    // One probe per band region plus the outer silence — resolved UNDAZZLED.
+    // The first four sit on the wire's plateau floor of 4 (review fix): they
+    // are the same 100% gain, so the property under test is untouched.
     const probes: Array<[number, number | null]> = [
-      [40, 1], [150, 2], [200, 3], [300, 4], [400, 5], [480, 6], [550, 7], [600, 8], [RADAR + 1, null],
+      [40, 4], [150, 4], [200, 4], [300, 4], [400, 5], [480, 6], [550, 7], [600, 8], [RADAR + 1, null],
     ];
     for (const [d, want] of probes) {
       const un = row.visible(foggedCtx(w, l), subject(d, 0, `u${d}`));
@@ -345,6 +354,120 @@ describe('SIGNAL_REGISTRY — fh row: the eight volume bands (eighths of the LIS
     const ctx = foggedCtx(w, l);
     expect((row.materialize(ctx, subject(500, 0, 'h1')) as FoghornEvent).v).toBe(7); // ceil(8×500/660), NOT band 1
     expect(row.visible(ctx, subject(RADAR + 0.01, 0, 'h2'))).toBe(false); // still deaf past 660
+  });
+});
+
+// ---------- the plateau floor: no wire resolution without a honest consumer ---
+//
+// REVIEW FIX (anti-cheat). Bands 1-4 are INDISTINGUISHABLE in every honest
+// surface: gain is 1.0 for all four (CLIENT_CONFIG.foghorn.bandGain) and the
+// chevron weight is the identical {22, 3, 0.95} for all four
+// (CLIENT_CONFIG.foghorn.chevron.bands). Transmitting WHICH of bands 1-4 a
+// honker sits in therefore hands a MODIFIED client two extra bits of range
+// resolution — localising the honker to an 82.5u annulus instead of the 330u
+// plateau — with no honest consumer whatsoever, and it bites hardest for a
+// DAZZLED or intelRadar-boosted listener who can receive a low band for a
+// honker they cannot see. That is exactly the disclosure amendment 51 exists
+// to bound (BEARING AND VOLUME TIER ONLY). The fogged path therefore emits
+// `max(band, 4)`: the COARSEST value that reproduces the ratified gain curve
+// EXACTLY, so honest output is byte-identical and only the cheat-readable
+// surplus goes away.
+
+describe('SIGNAL_REGISTRY — fh row: the wire carries no band resolution an honest client cannot consume (review fix)', () => {
+  const e = subject(0, 0, 'honker');
+
+  it('FLOORS the whole 100% plateau to band 4 — every clear-LOS honker inside truesight is one indistinguishable region', () => {
+    const w = bareWorld();
+    for (const d of [0.5, 40, BAND, BAND + 0.01, 150, 2 * BAND, 240, 3 * BAND, 300, SIGHT]) {
+      const l = place(w, `l${d}`, d, 0);
+      const ctx = foggedCtx(w, l);
+      expect(row.visible(ctx, e)).toBe(true);
+      expect((row.materialize(ctx, e) as FoghornEvent).v).toBe(4);
+    }
+  });
+
+  it('a co-located honk resolves to band 4 as well — the floor is on the WIRE value, not on the distance math', () => {
+    const w = bareWorld();
+    const l = place(w, 'l', 123, -45);
+    const ctx = foggedCtx(w, l);
+    expect((row.materialize(ctx, subject(123, -45, 'honker')) as FoghornEvent).v).toBe(4);
+  });
+
+  it('leaves bands 5-8 at FULL resolution — those four genuinely differ in gain and in chevron weight', () => {
+    const w = bareWorld();
+    for (const [d, want] of [[SIGHT + 0.01, 5], [5 * BAND, 5], [6 * BAND, 6], [7 * BAND, 7], [RADAR, 8]] as const) {
+      const l = place(w, `l${d}`, d, 0);
+      expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(want);
+    }
+  });
+
+  it('a DAZZLED listener cannot resolve a plateau honker any finer either — the surplus is gone for every observer', () => {
+    const w = bareWorld();
+    const l = place(w, 'l', 100, 0); // raw band 2 by distance
+    l.dazzledUntil = w.now + 10_000;
+    expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(4);
+  });
+
+  it('an intelRadar-widened listener cannot either — a 1200u intel range still floors its first four bands', () => {
+    const w = bareWorld();
+    const l = place(w, 'l', 500, 0); // ceil(8×500/1200) = 4 by distance...
+    l.stats = { ...l.stats, radarRange: 1200 };
+    expect((row.materialize(foggedCtx(w, l), subject(0, 0, 'h1')) as FoghornEvent).v).toBe(4);
+    const near = place(w, 'l2', 100, 0); // ...and a raw band 1 lands on the same floor
+    near.stats = { ...near.stats, radarRange: 1200 };
+    expect((row.materialize(foggedCtx(w, near), subject(0, 0, 'h2')) as FoghornEvent).v).toBe(4);
+  });
+
+  it('emits NO band below 4 at ANY distance, clear or blocked — the exhaustive statement of the bound', () => {
+    const w = bareWorld();
+    w.map.islands.push(circleIsland(0, 400, 60)); // off the +x axis probes; used by the blocked sweep below
+    for (let d = 1; d <= RADAR; d += 7) {
+      const l = place(w, `s${d}`, d, 0);
+      const ctx = foggedCtx(w, l);
+      if (!row.visible(ctx, e)) continue;
+      expect((row.materialize(ctx, e) as FoghornEvent).v).toBeGreaterThanOrEqual(4);
+    }
+  });
+});
+
+// ---------- fail-closed on a degenerate intel range --------------------------
+//
+// REVIEW FIX. `ceil(8 × d / radarRange)` is only a band for a POSITIVE FINITE
+// radarRange. A zero/negative/NaN/Infinite one yields Infinity, a negative, NaN
+// or 0 — and `NaN > 8` is false, so the old single upper-bound check let a NaN,
+// a negative and a 0 reach the wire, where the client's chevron table has no
+// entry for them. Unreachable from an honest current server, which is exactly
+// why it must fail CLOSED (no event) rather than emit a non-band.
+
+describe('SIGNAL_REGISTRY — fh row: a degenerate intel range emits NOTHING (review fix, fail closed)', () => {
+  const e = subject(0, 0, 'honker');
+  const withRadar = (radarRange: number): { w: World; l: ShipRecord } => {
+    const w = bareWorld();
+    const l = place(w, 'l', 200, 0);
+    l.stats = { ...l.stats, radarRange };
+    return { w, l };
+  };
+
+  it.each([
+    ['NaN', NaN],
+    ['negative', -660],
+    ['zero', 0],
+    ['Infinity', Infinity],
+  ])('%s radarRange → inaudible, never a non-band on the wire', (_label, radarRange) => {
+    const { w, l } = withRadar(radarRange);
+    expect(row.visible(foggedCtx(w, l), e)).toBe(false);
+  });
+
+  it('a NaN honker position is inaudible too — the domain check catches the distance as well as the range', () => {
+    const w = bareWorld();
+    const l = place(w, 'l', 0, 0);
+    expect(row.visible(foggedCtx(w, l), subject(NaN, 0, 'honker'))).toBe(false);
+  });
+
+  it('a healthy intel range is unaffected — the guard is a domain check, not a retune', () => {
+    const { w, l } = withRadar(RADAR);
+    expect(row.visible(foggedCtx(w, l), e)).toBe(true);
+    expect((row.materialize(foggedCtx(w, l), e) as FoghornEvent).v).toBe(4);
   });
 });
 

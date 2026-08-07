@@ -1648,3 +1648,55 @@ implicit and record one consequence that a future cycle will otherwise mistake f
      than the mine that made it. The decoy buoy also stays on `pointSighted`, untouched, per
      amendment 91's instruction to leave it alone ahead of its own rework.
 
+124. **THE FOGHORN WIRE IS FLOORED AT BAND 4 — the emitted domain is 4..8, not 1..8.** This
+     NARROWS amendment 122's *"band 1 is the innermost eighth"* on the WIRE while leaving its ruling
+     — the eight-region gain curve — untouched and exactly reproduced. Found at the review gate by
+     the in-family adversarial pass and adopted as an orchestrator ruling.
+
+     The reasoning is that bands 1-4 are IDENTICAL in every honest surface: gain is 1.0 for all four
+     and the chevron weight is the shipped tier-1 weight for all four. So transmitting *which* of
+     bands 1-4 a honker occupies handed a modified client two extra bits of range resolution — an
+     82.5u annulus where the old three-tier wire gave 330u — with **no honest consumer at all.**
+     That is precisely the disclosure amendment 51 exists to bound, and it bit hardest exactly where
+     it matters: a DAZZLED or `intelRadar`-boosted listener can receive an inner band for a honker
+     they cannot see, which is the fog the flat-100%-plateau presentation was supposed to be hiding.
+     The floor is applied to the EMITTED value after the muffle resolves, so amendment 54's demotion
+     is a no-op by construction (`max(5, band + 2)` is already ≥ 5) and a point-blank honk behind
+     rock still lands at 5.
+
+     Standing principle this establishes, worth applying to any future signal: **the wire may carry
+     no finer resolution than the presentation actually consumes.** A quantised channel's bucket
+     count is an anti-cheat parameter, not just a rendering one — if two buckets render identically,
+     shipping both is pure disclosure. No `PROTOCOL_VERSION` change is warranted: this is a
+     sender-side tightening inside the already-bumped PV 30, and `FoghornEvent.v`'s TYPE stays 1..8
+     so a band below 4 still resolves correctly if one ever arrives.
+
+125. **Three defects the review gate caught that are worth recording, because their shape will
+     recur.** All three were confirmed against the code before any fix was dispatched; the first was
+     flagged by BOTH the in-family and the cross-model (Codex) reviewer independently.
+
+     - **A dazzle-scaled server ring was mirrored by an un-dazzled client ring.** The server reveals
+       and corrects ballistics inside `sightOf(me, now)`, which IS dazzle-scaled; the client derived
+       its dead-reckoning cull from the raw `stats.sightRange`, and `updateDazzle` plumbed dazzle to
+       the fog and the radar but never to the projectile renderer. A dazzled captain therefore kept
+       dead-reckoning a fish the server had stopped correcting — **the client inventing information
+       it does not have.** This is the amendment-81 bug class exactly, one story later, in a
+       different renderer. The gap PRE-DATED this story on the shell path; what this story added was
+       a comment and a unit test ASSERTING dazzle-scaling that did not exist, which is what made
+       fixing it mandatory rather than optional. Dazzle is now plumbed into `Projectiles` the same
+       way it reaches the fog and the radar, so both cull rings shrink and the shell-side gap closes
+       too. **The durable lesson: whenever the server gates something on `sightOf`, any client
+       mirror of that gate must receive dazzle, or the two silently disagree.**
+     - **A perception oracle can pass VACUOUSLY.** The independently-reimplemented `mz`/`sm` oracle
+       hardcodes its bound by design (it must not read the production constant), and it asserted
+       `dist <= SIGHT * 1.5`. When the halo moved to `SIGHT * 1.25`, every emission still satisfied
+       the looser bound, so the suite stayed green while silently ceasing to be independent between
+       412.5u and 495u. An oracle that only ever checks an upper bound cannot detect a channel
+       getting SMALLER. Tightened, with directed cases at 420u that fail against the old halo.
+     - **A cull applied to the owner's own ordnance on a rationale that is false for owners.** The
+       server's owner path short-circuits BEFORE the detect gate, so an owner's own torpedo is
+       revealed and corrected at any range — yet the new detect-derived cull was applied to every
+       torpedo including the player's own, silently cutting own-fish feedback from 370u to 287.5u
+       with no ruling behind it. The detect cull is now ENEMY-ONLY. Generalisable: a gate copied from
+       the observer path onto the owner path inherits an argument that was never about owners.
+

@@ -16,9 +16,11 @@
 // declared exception, the anonymous `sm` wounded-smoke pulse inside the same
 // constant SIGHT*1.25 halo with island LOS — identity-free for EVERY
 // observer, see the sm verifier; and Story 4.5's SIXTH declared exception,
-// the bearing-only `fh` foghorn — bearing + a 1..8 volume BAND resolved as
-// eighths of the LISTENER'S own intel range (Story 4.9, amendment 122),
-// islands muffling to max(5, band + 2), never a position or id for any
+// the bearing-only `fh` foghorn — bearing + a 4..8 volume BAND resolved as
+// eighths of the LISTENER'S own intel range (Story 4.9, amendment 122) and
+// floored at 4 on the wire, since bands 1-4 are one indistinguishable 100%
+// plateau for every honest client (review fix), islands muffling to
+// max(5, band + 2), never a position or id for any
 // fogged observer, see the fh verifier). Story 4.9 also TIGHTENS three rows
 // WITHIN the invariant: mines, torpedoes, and torpU updates now reveal at
 // the DETECT range — 0.75 × the observer's effective sight, a strict subset
@@ -1362,14 +1364,24 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
  * 0 → band 1, boundaries inclusive; beyond band 8 → inaudible. Islands MUFFLE
  * once, post-resolution, to max(5, band + 2) — silent past 8. Amendment 53's
  * max() clamps are RETIRED; nothing here reads effSight or muzzleFlash.
+ *
+ * THE PLATEAU FLOOR (review fix, anti-cheat): the EMITTED value is
+ * `max(band, 4)`. Bands 1-4 are indistinguishable in every honest client
+ * surface (gain 1.0 and the same chevron weight for all four), so transmitting
+ * which of them a honker sits in is pure range resolution for a modified
+ * client and nothing else — amendment 51 bounds the disclosure to bearing and
+ * VOLUME TIER. Re-derived here from that reasoning, not read off production:
+ * the floor lands on the emitted value AFTER the muffle, which is why it is a
+ * no-op on the blocked path (`max(5, …)` is already ≥ 5) and muffled reach is
+ * byte-identical. The DOMAIN CHECK is the second half of the same fail-closed
+ * discipline: only a finite integer in 1..8 is a band at all.
  */
 function hornBandOracle(w: World, me: ShipRecord, p: { x: number; y: number }): number | null {
   const d = dist(me.state, p);
   const band = d === 0 ? 1 : Math.ceil((8 * d) / effRadar(me));
-  if (band > 8) return null;
-  if (clearLos(me.state, p, w.map.islands)) return band;
-  const muffled = Math.max(5, band + 2);
-  return muffled > 8 ? null : muffled;
+  if (!Number.isInteger(band) || band < 1 || band > 8) return null;
+  const emitted = clearLos(me.state, p, w.map.islands) ? band : Math.max(5, band + 2);
+  return emitted > 8 ? null : Math.max(emitted, 4);
 }
 
 const EVENT_VERIFIERS: Record<string, EventVerifier> = {
@@ -1474,7 +1486,10 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
       return;
     }
     expect(Object.keys(ev).sort()).toEqual(['b', 'h', 'k', 'v']);
-    expect([1, 2, 3, 4, 5, 6, 7, 8]).toContain(ev.v);
+    // 4..8, not 1..8: the plateau floor means bands 1-3 never reach the wire
+    // (review fix — they carry no gain or chevron-weight difference, so they
+    // were pure range resolution for a modified client).
+    expect([4, 5, 6, 7, 8]).toContain(ev.v);
     expect(ev.b).toBeGreaterThanOrEqual(0);
     expect(ev.b).toBeLessThan(2 * Math.PI);
     const justified = subjects.some(

@@ -1616,10 +1616,11 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
   g.camera.setRadarRange(stats.radarRange);
   g.fog.setSightRange(stats.sightRange);
-  // ONE plumbed value, TWO dead-reckoning cull rings: shells cull at truesight,
-  // torpedoes at the shorter DETECT ring the server reveals and corrects them
-  // within (Story 4.9). Projectiles derives the second from this same number —
-  // adding a `setDetectRange` here would be a second source of truth.
+  // ONE plumbed value, TWO dead-reckoning cull rings: shells and our OWN fish
+  // cull at truesight, an ENEMY torpedo at the shorter DETECT ring the server
+  // reveals and corrects it within (Story 4.9). Projectiles derives the second
+  // from this same number — adding a `setDetectRange` here would be a second
+  // source of truth. The DAZZLE half rides updateDazzle, like fog and radar.
   g.projectiles.setSightRange(stats.sightRange);
   // Zoom and/or hole radius may have moved: rebake the fog against the current
   // viewport at the new zoom (exactly what the resize handler does).
@@ -2168,6 +2169,13 @@ function dazzleActive(g: Game, now: number): boolean {
 function updateDazzle(g: Game, now: number): void {
   const dazzled = dazzleActive(g, now);
   g.radar.setDazzled(dazzled);
+  // THE PROJECTILE CULL RINGS TAKE IT TOO (review fix). The server reveals and
+  // corrects ballistics inside `sightOf(me, now)` — dazzle-scaled — so a client
+  // holding the un-dazzled ring would go on dead-reckoning a shell or an enemy
+  // fish the server had already stopped correcting. Set UNCONDITIONALLY and
+  // before the fog's changed-flag early-return, for the same reason the radar
+  // is: that flag guards the expensive rebake and nothing else.
+  g.projectiles.setDazzled(dazzled);
   if (!g.fog.setDazzled(dazzled)) return;
   g.fog.rebake(g.stage.app.screen.width, g.stage.app.screen.height, g.camera.zoom);
 }

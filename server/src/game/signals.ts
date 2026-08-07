@@ -1024,14 +1024,42 @@ type FoghornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
  * keeps "a rock ALWAYS costs the honker reach" true inside the 100% plateau.
  * Exactly ONE losClear call and ONE set of bounds; the demotion is applied
  * once, post-resolution, never via a second threshold set.
+ *
+ * THE PLATEAU FLOOR — `Math.max(…, 4)` ON THE EMITTED VALUE (review fix,
+ * anti-cheat). Bands 1-4 are INDISTINGUISHABLE in every honest surface: gain is
+ * 1.0 for all four (CLIENT_CONFIG.foghorn.bandGain) and the chevron weight is
+ * the identical {22, 3, 0.95} for all four (…chevron.bands). Sending WHICH of
+ * bands 1-4 a honker sits in would hand a MODIFIED client two extra bits of
+ * range resolution — an 82.5u annulus rather than the 330u plateau, and worst
+ * for a DAZZLED or intelRadar-boosted listener who can receive a low band for a
+ * hull they cannot see — with NO honest consumer at all. That is precisely the
+ * disclosure amendment 51 bounds (BEARING AND VOLUME TIER ONLY, no position, no
+ * correlation handle). So the wire carries the band floor-clamped to the
+ * COARSEST value that reproduces the ratified gain curve EXACTLY: honest client
+ * output is byte-identical (same gain, same chevron weight) and only the
+ * cheat-readable surplus is gone. The clamp is applied to the EMITTED value,
+ * AFTER the muffle resolves, so it is a no-op on the muffle path by
+ * construction (`max(5, band + 2)` is already ≥ 5) — muffled reach is
+ * unchanged, and a raw band-1 honk behind a rock still lands at 5, not 6.
+ *
+ * FAIL CLOSED ON A DEGENERATE INTEL RANGE (review fix). `ceil(8 × d /
+ * radarRange)` is only a band for a POSITIVE FINITE radarRange and a finite d;
+ * a zero/negative/NaN/Infinite one yields Infinity, a negative, NaN or 0, and
+ * `NaN > 8` is FALSE — so a lone upper-bound check would let a non-band reach
+ * the wire, where the client's tables have no entry for it. The explicit domain
+ * test below runs on the RAW band, BEFORE the plateau floor, so a garbage value
+ * can never be laundered into a legal 4. Unreachable from an honest server
+ * today; that is exactly why it must return null rather than throw.
  */
 function hornBandFor(me: ShipRecord, subject: FoghornSubject, islands: readonly Island[]): FoghornBand | null {
   const d = Math.hypot(subject.x - me.state.x, subject.y - me.state.y);
   const band = d === 0 ? 1 : Math.ceil((8 * d) / me.stats.radarRange);
-  if (band > 8) return null;
-  if (losClear(me.state, subject, islands)) return band as FoghornBand;
-  const muffled = Math.max(5, band + 2); // one step, applied once (amendment 54)
-  return muffled > 8 ? null : (muffled as FoghornBand);
+  if (!Number.isInteger(band) || band < 1 || band > 8) return null;
+  const emitted = losClear(me.state, subject, islands)
+    ? band
+    : Math.max(5, band + 2); // one step, applied once (amendment 54)
+  if (emitted > 8) return null;
+  return Math.max(emitted, 4) as FoghornBand; // the plateau floor — a no-op past band 4
 }
 
 /**

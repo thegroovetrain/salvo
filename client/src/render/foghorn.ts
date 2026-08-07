@@ -72,8 +72,14 @@ const CH = F.chevron;
 /**
  * The eight volume BANDS as they arrive on the wire (`FoghornEvent.v`) — which
  * eighth of the LISTENER's own intel range the honker sits in, 1 = innermost,
- * 8 = the radar edge (Story 4.9, amendment 122). An opaque enum: the client
- * looks it up, never inverts it back into a range.
+ * 8 = the radar edge (Story 4.9, amendment 122). The client looks it up and
+ * never re-derives a distance from it.
+ *
+ * THE SERVER EMITS 4..8 ONLY (review fix — see FoghornEvent.v): bands 1-4 share
+ * one gain and one chevron weight, so a finer value would be range resolution
+ * with no honest consumer. The tables here stay COMPLETE for 1..8 all the same
+ * — the floor is a bound on the sender, not a narrowing of the vocabulary, and
+ * a band-1..3 value must still resolve correctly if one ever arrives.
  */
 export type HornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
@@ -111,9 +117,24 @@ export function bandGain(v: HornBand | undefined): number {
  * identical across all eight (the wounded-smoke tier rule). An absent band (the
  * spectator shape, which carries a position instead) draws at full weight: a
  * spectator is omniscient, so there is no band to under-draw.
+ *
+ * FAILS CLOSED ON AN OUT-OF-DOMAIN VALUE, the guard `bandGain` has always had
+ * (`?? 1`). Any `v` outside 1..8 — a NaN, a 0, a 9 — used to return `undefined`
+ * here, and `drawChevron` then threw on `w.size`: one malformed field taking
+ * down the render loop. The server fails closed on its own side too
+ * (`hornBandFor` emits nothing unless the band is a finite integer in range),
+ * so this is unreachable from an honest server; the two guards are deliberately
+ * INDEPENDENT, and this one degrades to the full-weight mark rather than
+ * throwing, because a honk that arrived is a fact worth drawing.
+ *
+ * The table stays complete for 1..8 even though the server now floors the wire
+ * at 4 (see FoghornEvent.v): a lower band must still resolve correctly if one
+ * ever legitimately arrives — the floor is a disclosure bound on the sender,
+ * not a narrowing of the vocabulary.
  */
 export function chevronWeight(v: HornBand | undefined): ChevronWeight {
-  return CH.bands[v ?? 1];
+  const bands: Record<number, ChevronWeight | undefined> = CH.bands;
+  return bands[v ?? 1] ?? CH.bands[1];
 }
 
 /**

@@ -651,9 +651,9 @@ export interface SmokeEvent {
  *
  * VOLUME BANDS ride THE EIGHTHS LADDER (Story 4.9, amendment 122, superseding
  * amendment 53's three tiers): `v` is which EIGHTH of the LISTENER's OWN intel
- * range (`me.stats.radarRange`) the honker sits in — band 1 is the innermost
- * eighth, band 8 ends at the listener's radar edge, and beyond band 8 NO event
- * is emitted to that observer at all. Anchoring on intel range rather than on
+ * range (`me.stats.radarRange`) the honker sits in — band 8 ends at the
+ * listener's radar edge, and beyond band 8 NO event is emitted to that observer
+ * at all. Anchoring on intel range rather than on
  * sight is what RETIRES amendment 53's max() clamps: dazzle never touches
  * radar range, so *dazzle cannot also DEAFEN* is now true BY CONSTRUCTION
  * rather than by defensive coding, and no arrangement of dazzle and boons can
@@ -666,9 +666,19 @@ export interface SmokeEvent {
  * through band 4 = truesight at base stats, then one eighth of the 100→50%
  * span per band, hitting 50% at the radar edge) is a CLIENT-SIDE LOOKUP in
  * CLIENT_CONFIG. Putting a gain fraction on the wire would make hearing a
- * property of the sound rather than of the listener, and a listener must not
- * be able to invert the payload into a range — a band is a region, and
- * regions are all a listener gets.
+ * property of the sound rather than of the listener.
+ *
+ * WHAT BOUNDS THE DISCLOSURE IS RESOLUTION, NOT OPACITY. A band IS invertible:
+ * any listener can map it back to a region of their OWN intel range, and that
+ * is inherent to sending a volume tier at all (amendment 51 ratified exactly
+ * that — BEARING AND VOLUME TIER ONLY). The rule the wire actually holds is
+ * that the band's resolution is NEVER FINER THAN THE GAIN CURVE CONSUMES: the
+ * server emits `max(band, 4)`, because bands 1-4 share one gain (1.0) and one
+ * chevron weight, so a finer value would carry range information no honest
+ * client could use and only a modified one could read. Emitted values are
+ * therefore 4..8 — a 330u plateau at base stats, then 82.5u steps that each
+ * correspond to a real, audible difference. Any future retune of the gain
+ * curve must move this floor with it, in both directions.
  *
  * ISLANDS MUFFLE rather than block (amendment 54, the first dent in the
  * 2026-08-02 LOS law), preserved in meaning across the rebase: a failed
@@ -706,7 +716,7 @@ export interface FoghornEvent {
   h: HornId; // which horn sounded — the ONLY identity-adjacent field, deliberate (amendment 52)
   self?: true; // the honker's own copy (always `true` when present, never `false`)
   b?: number; // rad — bearing FROM observer TO honker, wrapPositive [0, 2π). FOGGED LISTENERS ONLY
-  v?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; // volume BAND: which eighth of the LISTENER's intel range the honker sits in (1 = innermost, 8 = the radar edge). An opaque enum — gain is a CLIENT-SIDE lookup and never travels. FOGGED LISTENERS ONLY
+  v?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8; // volume BAND: which eighth of the LISTENER's intel range the honker sits in (8 = the radar edge). The SERVER emits 4..8 only — bands 1-4 share one gain and one chevron weight, so the wire is floored at 4 and carries no resolution an honest client cannot consume; the CLIENT's tables stay complete for 1..8 so a lower value still resolves if one ever arrives. Gain is a CLIENT-SIDE lookup and never travels. FOGGED LISTENERS ONLY
   x?: number; // u — SUBJECT-SIDE + SPECTATOR ONLY. Never reaches a fogged listener
   y?: number; // u — SUBJECT-SIDE + SPECTATOR ONLY. Never reaches a fogged listener
   id?: string; // the honker's id — SUBJECT-SIDE ONLY, read by the row to decide `self`. NEVER on the wire, for ANY observer

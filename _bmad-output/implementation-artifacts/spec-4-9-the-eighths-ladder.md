@@ -99,19 +99,19 @@ warnings: ['oversized']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `shared/src/constants.ts` -- move `muzzleFlash` to `SIGHT * 1.25`, add `detect: SIGHT * 0.75`, `detectFactor: 0.75`, and `farRadar: SIGHT * 1.75`, and write the ladder doc block naming every rung -- one ruler, expressed in the derivation style the file already uses; `farRadar` carries the loud comment that it is 4.10's calibration target and must never be branched on.
-- [ ] `shared/src/index.ts` -- bump `PROTOCOL_VERSION` to 30 -- the foghorn's `v` field changes shape and the client's torpedo cull becomes detect-derived.
-- [ ] `shared/src/types.ts` -- widen `FoghornEvent.v` to the 1..8 band and document that gain is a client-side lookup, never on the wire -- the payload stays an opaque enum the listener cannot invert into a range.
-- [ ] `server/src/game/signals.ts` -- add `pointDetected(me, p, islands, now)` as `pointSighted`'s sibling using `sightOf(me, now) * CONFIG.vision.detectFactor`; point `mineSignal`, `ballisticSignal`'s `torp` branch, and `torpedoUpdateSignal` at it and nothing else -- narrowing the shared helper would silently shrink six unrelated disclosures, and shells must not move.
-- [ ] `server/src/game/signals.ts` -- replace `hornTierFor` with a band resolver over `me.stats.radarRange`, returning `max(5, band + 2)` when LOS is blocked and null above 8 -- the ladder makes "dazzle cannot deafen" structural, so amendment 53's clamps retire; the muffle stays one post-resolution step with one `losClear()` call.
-- [ ] `client/src/config.ts` -- replace `foghorn.tierGain` with an 8-entry band gain table and re-key the chevron weights -- presentation stays client-side; the server still decides who hears what.
-- [ ] `client/src/net/roomBindings.ts` + `client/src/render/foghorn.ts` -- map band → gain and band → chevron weight -- single fan-out point, unchanged in shape.
-- [ ] `client/src/render/projectiles.ts` + `client/src/main.ts` -- give torpedoes a detect-derived cull radius alongside the existing sight-derived one -- otherwise the client dead-reckons an un-corrected torpedo ghost past the range the server stopped updating it.
-- [ ] `shared/src/__tests__/zone.test.ts` + `shared/src/__tests__/damageBands.test.ts` -- update the `1.5` literals to `1.25`, pin every new rung's derivation, pin `detect === sight * detectFactor`, and pin the full ordering `detect < sight < muzzleFlash < farRadar < radar` -- the ladder is only real if a drift fails the build.
-- [ ] `server/src/__tests__/perception.test.ts` -- update the three hardcoded `1.5` literals in the independent oracle and add a detect-range oracle for mines and torpedoes that does NOT import the production gate -- the oracle's independence is the anti-cheat guarantee; it must be re-derived, not aliased.
-- [ ] `server/src/__tests__/foghorn.test.ts` -- cover all eight bands, both anchors, every blocked-LOS case including the plateau floor and the outer-band silence, and dazzle-does-not-deafen -- the band table is the story's most behavior-visible change.
-- [ ] `server/src/__tests__/signals.test.ts` + `goldenFrames.test.ts` -- re-aim mine/torpedo boundary tests at the detect range, prove shells still reveal at truesight, and widen the shrunken 12.5u placement margins -- the golden scenarios pass today only by 12.5u and that is not a margin worth trusting.
-- [ ] `server/scripts/weaponsSmoke.mjs` -- assert enemy mines are first seen at the detect range rather than `SIGHT` -- the live socket smoke is the one place the whole gate is exercised end to end.
+- [x] `shared/src/constants.ts` -- move `muzzleFlash` to `SIGHT * 1.25`, add `detect: SIGHT * 0.75`, `detectFactor: 0.75`, and `farRadar: SIGHT * 1.75`, and write the ladder doc block naming every rung -- one ruler, expressed in the derivation style the file already uses; `farRadar` carries the loud comment that it is 4.10's calibration target and must never be branched on.
+- [x] `shared/src/index.ts` -- bump `PROTOCOL_VERSION` to 30 -- the foghorn's `v` field changes shape and the client's torpedo cull becomes detect-derived.
+- [x] `shared/src/types.ts` -- widen `FoghornEvent.v` to the 1..8 band and document that gain is a client-side lookup, never on the wire -- the payload stays an opaque enum the listener cannot invert into a range.
+- [x] `server/src/game/signals.ts` -- add `pointDetected(me, p, islands, now)` as `pointSighted`'s sibling using `sightOf(me, now) * CONFIG.vision.detectFactor`; point `mineSignal`, `ballisticSignal`'s `torp` branch, and `torpedoUpdateSignal` at it and nothing else -- narrowing the shared helper would silently shrink six unrelated disclosures, and shells must not move.
+- [x] `server/src/game/signals.ts` -- replace `hornTierFor` with a band resolver over `me.stats.radarRange`, returning `max(5, band + 2)` when LOS is blocked and null above 8 -- the ladder makes "dazzle cannot deafen" structural, so amendment 53's clamps retire; the muffle stays one post-resolution step with one `losClear()` call.
+- [x] `client/src/config.ts` -- replace `foghorn.tierGain` with an 8-entry band gain table and re-key the chevron weights -- presentation stays client-side; the server still decides who hears what.
+- [x] `client/src/net/roomBindings.ts` + `client/src/render/foghorn.ts` -- map band → gain and band → chevron weight -- single fan-out point, unchanged in shape.
+- [x] `client/src/render/projectiles.ts` + `client/src/main.ts` -- give torpedoes a detect-derived cull radius alongside the existing sight-derived one -- otherwise the client dead-reckons an un-corrected torpedo ghost past the range the server stopped updating it.
+- [x] `shared/src/__tests__/zone.test.ts` + `shared/src/__tests__/damageBands.test.ts` -- update the `1.5` literals to `1.25`, pin every new rung's derivation, pin `detect === sight * detectFactor`, and pin the full ordering `detect < sight < muzzleFlash < farRadar < radar` -- the ladder is only real if a drift fails the build.
+- [x] `server/src/__tests__/perception.test.ts` -- update the three hardcoded `1.5` literals in the independent oracle and add a detect-range oracle for mines and torpedoes that does NOT import the production gate -- the oracle's independence is the anti-cheat guarantee; it must be re-derived, not aliased.
+- [x] `server/src/__tests__/foghorn.test.ts` -- cover all eight bands, both anchors, every blocked-LOS case including the plateau floor and the outer-band silence, and dazzle-does-not-deafen -- the band table is the story's most behavior-visible change.
+- [x] `server/src/__tests__/signals.test.ts` + `goldenFrames.test.ts` -- re-aim mine/torpedo boundary tests at the detect range, prove shells still reveal at truesight, and widen the shrunken 12.5u placement margins -- the golden scenarios pass today only by 12.5u and that is not a margin worth trusting.
+- [x] `server/scripts/weaponsSmoke.mjs` -- assert enemy mines are first seen at the detect range rather than `SIGHT` -- the live socket smoke is the one place the whole gate is exercised end to end.
 
 **Acceptance Criteria:**
 - Given `CONFIG.vision`, when the ladder lands, then every sensor boundary is a named `SIGHT` multiple on the eighths ladder and no boundary anywhere in the codebase is an independent literal.
@@ -125,7 +125,33 @@ warnings: ['oversized']
 
 ## Spec Change Log
 
+### 2026-08-07 — Review gate: the wire is floored at band 4
+
+**Trigger:** the adversarial gate found that bands 1-4 render identically in every honest surface (gain 1.0, the shipped tier-1 chevron weight), so transmitting which of them a honker occupied handed a modified client an 82.5u range bucket where the old three-tier wire gave 330u — with no honest consumer.
+
+**Amended:** the foghorn's emitted wire domain narrows from 1..8 to 4..8 (the floor is applied AFTER the muffle resolves, so amendment 54's demotion is untouched by construction). Recorded durably as amendment 124. `FoghornEvent.v`'s TYPE stays 1..8 and the client's band table stays complete, so a lower band still resolves correctly if one ever arrives. No PROTOCOL_VERSION change — a sender-side tightening inside the already-bumped PV 30.
+
+**Known-bad state avoided:** a dazzled or intelRadar-boosted listener receiving an inner band for a honker they cannot see — the exact fog the flat-100%-plateau presentation exists to preserve.
+
+**KEEP on any re-derivation:** the wire may carry no finer resolution than the presentation actually consumes. If two buckets render identically, shipping both is pure disclosure.
+
 ## Review Triage Log
+
+### Pass 1 — 2026-08-07 (adversarial gate: Fable, in-family) + cross-model gate (Codex CLI)
+
+**Decision counts:** intent_gap 0 · bad_spec 0 · patch 4 (2 high, 2 medium) · defer 0 · reject 0.
+
+**Fable verdict:** `build-on-it`. **Codex verdict:** `fix-first`. Both were dispatched against the same two-commit diff. Adjudicated toward Codex's severity on the one finding they shared and toward Fable on the two it alone found, all four confirmed against the code before any fix was dispatched.
+
+**Findings addressed:**
+1. **[high, patch]** *(BOTH models — Codex CONFIRMED, Fable as a documentation/test-fidelity defect)* The server gates ballistic reveal on the dazzle-scaled `sightOf`, while the client derived its dead-reckoning cull from the raw `stats.sightRange` and `updateDazzle` never reached the projectile renderer — so a dazzled captain kept dead-reckoning a fish the server had stopped correcting. Fable was right that the gap pre-dated this story on the shell path; Codex was right that it now mattered, because this story added a comment and a test asserting dazzle-scaling that did not exist. Fixed by actually plumbing dazzle into `Projectiles`, which closes the shell-side gap too.
+2. **[high, patch]** *(Fable only, verified by inspection)* The wire carried band resolution no honest client consumes — see the Spec Change Log entry above and amendment 124.
+3. **[medium, patch]** *(Fable only, verified by inspection)* The detect-derived cull was applied to the OWNER's own torpedo on a rationale that is false for owners: the server's owner path short-circuits before the detect gate, so an own fish is never un-corrected. Own-fish feedback had silently dropped 370u → 287.5u. The detect cull is now enemy-only, and `spawnFromUpdate` reads the existing claim tombstone so a resurrected own fish keeps its ownership.
+4. **[medium, patch]** *(BOTH models)* Out-of-domain fail-open on both sides: `chevronWeight` returned `undefined` for any band outside 1..8 and then threw in `drawChevron`, and `hornBandFor` only rejected `band > 8`, so a degenerate `radarRange` (0/negative/NaN) could put a non-band on the wire. Both now fail closed.
+
+**Also caught, not a finding but a real hole in the safety net:** the independently-reimplemented `mz`/`sm` perception oracle asserted `dist <= SIGHT * 1.5` and therefore kept passing VACUOUSLY once the halo moved to `SIGHT * 1.25` — an upper-bound-only oracle cannot detect a channel getting smaller. Tightened, with directed 420u cases that fail against the old halo. Recorded as amendment 125.
+
+**Cross-model agreement picture:** both models agreed on the dazzle divergence and the out-of-domain fail-open, and both independently cleared the highest-risk invariant — that exactly three rows moved to `pointDetected` and the other six `pointSighted` consumers are untouched. Fable alone found the wire-resolution surplus and the owner-cull regression, both of which I confirmed against the code before dispatching. Codex alone graded the dazzle divergence as fix-first, which I adopted. Every fix shipped with a regression test proven red against the pre-fix code.
 
 ## Design Notes
 

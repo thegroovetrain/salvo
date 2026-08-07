@@ -210,6 +210,29 @@ describe('chevronWeight — the visual twin rides the SAME band curve', () => {
     expect(F).not.toHaveProperty('tierGain');
     expect(CH).not.toHaveProperty('tiers');
   });
+
+  // REVIEW FIX — FAIL CLOSED, NEVER `undefined`. `bandGain` has always guarded
+  // with `?? 1`; `chevronWeight` did not, so ANY value outside 1..8 came back
+  // undefined and `drawChevron` then threw on `w.size` — a render-loop crash
+  // triggered by one malformed field. No honest current server can send one
+  // (hornBandFor now fails closed on its side too), which is exactly why this
+  // side must degrade rather than throw: the two guards are independent.
+  it('resolves an OUT-OF-DOMAIN band to a valid weight rather than undefined', () => {
+    for (const bad of [0, 9, -1, 99, 1.5, NaN, Infinity] as unknown as HornBand[]) {
+      const w = chevronWeight(bad);
+      expect(w).toBeDefined();
+      expect(Object.keys(w).sort()).toEqual(['alpha', 'size', 'thickness']);
+      expect(w.size).toBeGreaterThan(0);
+      expect(w.thickness).toBeGreaterThan(0);
+      expect(w.alpha).toBeGreaterThan(0);
+    }
+  });
+
+  it('the ADAPTER survives one too — an out-of-domain band draws a chevron instead of throwing', () => {
+    const fh = new Foghorn(new Container());
+    expect(() => fh.onHonk(0, 99 as HornBand, 0)).not.toThrow();
+    expect(fh.liveMarks).toBe(1); // the mark still lands: information, not juice
+  });
 });
 
 // --- THE EDGE CONVENTION -----------------------------------------------------
