@@ -1417,7 +1417,8 @@ range model Eric wants every future cycle to think in.
      | 4/8 | 330 | truesight | YES — `CONFIG.vision.sight` |
      | 2/8 | 165 | visually see nearby mines + incoming torpedoes | **CONFLICTS — see below** |
 
-     **TWO CONFLICTS WITH SHIPPED CONSTANTS, BOTH UNRESOLVED. Do not silently pick a side.**
+     **TWO CONFLICTS WITH SHIPPED CONSTANTS — BOTH NOW RESOLVED BY AMENDMENT 119. Read it before
+     acting on either bullet below; the bullets are kept verbatim as the statement of the problem.**
 
      - **Muzzle/smoke is at 6/8 today, not 5/8.** `CONFIG.vision.muzzleFlash = SIGHT * 1.5` = 495u,
        which is exactly 6/8 of 660. Smoke reach is that same number reused verbatim (amendment 42 —
@@ -1524,4 +1525,47 @@ range model Eric wants every future cycle to think in.
      crossover is a CONSEQUENCE of the 1/d⁴ curve, never a hard-coded radius, so 7/8 is a target the
      curve is fitted to hit, not a threshold branch in the code. Writing an `if (d > 577.5)` anywhere
      in the paint path violates amendment 105 and is the wrong implementation of this amendment.
+
+119. **THE TWO LADDER CONFLICTS ARE RULED — amendment 113's open bullets are CLOSED.** Both bands
+     were put to Eric with the shipped values and the consequences named; both answers are his.
+
+     - **MUZZLE / SMOKE MOVES TO 5/8.** Eric: *"5/8 for muzzle/smoke."* So `CONFIG.vision.muzzleFlash`
+       goes `SIGHT * 1.5` → `SIGHT * 1.25` (495u → 412.5u) — the ladder is RETUNING the halo, not
+       describing it. **This drags a second signal with it, deliberately:** amendment 42 reuses this
+       one constant for wounded-smoke reach rather than forking a fourth vision constant, so the
+       plume's reach drops to 412.5u in the same edit. Eric named the band "muzzle/smoke", so the
+       coupling is doing exactly what it was designed to do. A THIRD consumer must be re-examined in
+       the same story: the foghorn's volume tiers derive from `max(1.5 * sight, muzzleFlash)`
+       (amendment 53), and that `max()` exists to keep the tiers monotone so an intel build hears
+       farther and a dazzle cannot also deafen — verify that property still holds at the new value.
+     - **MINES AND TORPEDOES DROP TO 3/8, NOT 2/8.** Eric: *"lets split the difference and say its
+       3/8, and i can tweak from there. Torpedoes and mines especially need buffs. 3/8 will probably
+       help them."* So detect range is `SIGHT * 0.75` (247.5u), replacing the truesight gate the two
+       share today through `pointSighted`. This is a REAL COMBAT BUFF to the torpedo and the Mine
+       Layer, taken knowingly and expected to be tweaked from there.
+
+       **SHELLS DO NOT MOVE.** Eric named mines and torpedoes only; shells keep materializing at the
+       truesight boundary. The rationale that makes this coherent rather than arbitrary: a torpedo is
+       a wake just under the surface and a mine sits in the water, while a shell is in the air. Under
+       amendment 115 that is exactly the right kind of reasoning — physics supplying a justification
+       for a choice made on gameplay grounds, not dictating it.
+
+       Eric also flagged a possible future that this story must NOT pre-build: *"Maybe 'detect range'
+       could be a stat each could get separately in the future, but for now this is fine."* One
+       shared constant now; a per-weapon `detectRange` stat is parked under amendment 112's rule.
+
+     Every eighth lands on a clean `SIGHT` multiple, so the ladder ADDS no new derivation style — it
+     extends the one `radar = SIGHT * 2` and `muzzleFlash` already use: 8/8 = `SIGHT * 2`, 7/8 =
+     `SIGHT * 1.75`, 5/8 = `SIGHT * 1.25`, 4/8 = `SIGHT`, 3/8 = `SIGHT * 0.75`.
+
+120. **THE ARC IS FOUR EPIC-4 STORIES, NOT AN INTERSTITIAL CYCLE.** Eric: *"I think we have used a
+     lot of context on planning, so instead I'd like you to add these as epic 4 stories, so that the
+     next agents who get to them can start from fresh context... they are nonblocking on anything
+     left as far as I know. And I am 100% doing them next, before anything else."*
+
+     Landed as **4.9 The Eighths Ladder → 4.10 The Physical Return Model → 4.11 Height-Aware Radar
+     Shadows → 4.12 Radar Wakes** in `planning-artifacts/epics.md`, with both trackers updated. This
+     SUPERSEDES amendment 111's cycle-60/61/62 framing as to *vehicle* only — the three-cycle content
+     split and its sequencing rationale are unchanged, and 4.9 is new work that 111 did not cover
+     (the ladder post-dates it). 4-6/4-7/4-8 are deferred behind the arc, not cancelled.
 
