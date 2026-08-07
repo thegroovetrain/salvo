@@ -908,6 +908,87 @@ So that at the climax, amber still means "look here" and the hunt is never burie
 **And** the epic guardrail is verified: a squint-test on a staged worst-case fight (multiple contacts, torpedoes inbound, storm closing, bounty active) confirms threat channels read first — the documented readability check every E6 feature must pass
 **And** all Epic 4 effects have been costed against the render budget on the reference device as they landed (per-epic budget DoD).
 
+### Story 4.9: The Eighths Ladder
+
+As a captain,
+I want every sensor boundary to sit on one ruler measured from my hull,
+So that "how far can I see it" has a single answer I can hold in my head instead of five unrelated numbers.
+
+**Design contract:** amendments 112-118 in `_bmad-output/implementation-artifacts/epic-4-context-amendments.md`, and amendment 113 in particular. Those amendments are the rulings; a spec derives from them and reports any conflict rather than resolving it.
+
+**Acceptance Criteria:**
+
+**Given** `CONFIG.vision`
+**When** the ladder lands
+**Then** INTEL RANGE is the whole ruler and radar range is its full extent (8/8); every sensor boundary derives as an eighth of it and stays SIGHT-anchored exactly as `radar` and `muzzleFlash` already are — 7/8 = `SIGHT * 1.75` (577.5u), 5/8 = `SIGHT * 1.25` (412.5u), 4/8 = `SIGHT` (330u), 3/8 = `SIGHT * 0.75` (247.5u)
+**And** muzzle-flash carry MOVES from 6/8 to 5/8 (`SIGHT * 1.5` → `SIGHT * 1.25`, 495u → 412.5u), and because amendment 42 deliberately reuses that one constant rather than forking a fourth, WOUNDED SMOKE reach moves with it — this is intended, Eric ruled the band as "muzzle/smoke"
+**And** the foghorn's volume tiers, which derive from `max(1.5 * sight, muzzleFlash)` (amendment 53), are re-examined against the new value so an intel build still hears farther and a dazzle still cannot deafen
+**And** mines and incoming torpedoes gain their own DETECT range at 3/8 (247.5u), replacing the truesight gate they share today via `pointSighted` in `server/src/game/signals.ts` — Eric's rationale of record is that both weapons need the buff, and a per-weapon `detectRange` stat is a possible future, not this story
+**And** SHELLS DO NOT MOVE: they keep materializing at the truesight boundary (a torpedo is a wake just under the surface, a shell is in the air), so this story narrows an existing gate rather than widening a rule
+**And** the constraint tests in `shared/src/__tests__/zone.test.ts` are updated to pin the NEW derivations and the full ordering `detect < sight < muzzleFlash < radar`
+**And** `PROTOCOL_VERSION` is bumped if and only if a stale client would misrender the change — assessed during the spec, never assumed either way.
+
+### Story 4.10: The Physical Return Model
+
+As a captain,
+I want the scope's three colours to fall out of one physical model instead of a lookup table,
+So that a strong echo looks strong for a reason, and objects nobody wrote a rule for still paint correctly.
+
+**Design contract:** amendments 105, 106 and 118. Cycle 60 of the radar physics arc (amendment 111).
+
+**Acceptance Criteria:**
+
+**Given** the `return`-grammar heatmap
+**When** a paint is stamped
+**Then** intensity comes from ONE model — a per-material reflectivity coefficient × a falloff chosen by the target's GEOMETRY (point 1/d⁴, surface 1/d³, volume 1/d²) — and colour stays INTENSITY, never category (amendment 105); the coefficient table in amendment 106 is an explicit handwave and is expected to be tuned, not adopted
+**And** the falloff is CALIBRATED so a mid-size hull crosses red→blue at 7/8 intel range (577.5u), with the crossover emerging from the curve — a range threshold branch anywhere in the paint path fails this AC (amendment 118)
+**And** coastline return strength reads terrain HEIGHT from the cycle-59 raster, so a low mudflat and a steep headland no longer paint identically
+**And** surf paints a weak fringe along the seaward face of the coastline polygon — pure client presentation, no server involvement and no wire field, the same posture island returns already hold
+**And** sea clutter paints as a weak near-ship haze, its near-field concentration falling out of the surface falloff rather than a hand-placed radius
+**And** the storm's closing wall paints as a volume return
+**And** it is CLIENT-ONLY: no wire change, no server change, `PROTOCOL_VERSION` unchanged, and the `silhouette` grammar untouched
+**And** per-frame cost is measured at both zoom extremes on the reference device and reported, not assumed (the standing rule from amendment 99).
+
+### Story 4.11: Height-Aware Radar Shadows
+
+As a captain,
+I want islands to cast real radar shadows whose length depends on how tall they are and how close I am,
+So that terrain is something I read and use, not a wall that deletes contacts.
+
+**Design contract:** amendments 102, 104, 107, 114, and the resolution of open amendments 103 and 109. Cycle 61 of the radar physics arc (amendment 111).
+
+**Acceptance Criteria:**
+
+**Given** the cycle-59 height raster and max-height pyramid
+**When** shadowing lands
+**Then** occlusion stops being binary: `shadowLength = (radarRange² / 4) · (1 − h₀/H) / d₀`, infinite when `h₀ ≥ H`, with `R` and `H` FIXED tuning constants chosen so the horizon lands on intel range — never derived from a map's terrain distribution (amendment 114)
+**And** the formula lives in exactly ONE shared pure function, called by BOTH `server/src/game/signals.ts` and `client/src/render/radarHeatmap.ts`; a second implementation is a desync or a leak, and this is the story's central architectural constraint
+**And** the shadow edge is SOFT: a hull is masked from the waterline up, so returns fade through the weakest band rather than cutting at a line (amendment 104)
+**And** the shadow RENDERS, and renders as NO DATA rather than as empty water — a wedge drawn as clear sea is a lie that can hide a battleship in a region the player was shown as safe
+**And** ships never shadow ships; only terrain occludes, and that behaviour is DESIGNED rather than omitted (amendment 107)
+**And** open amendment 103 is RESOLVED — radar range either derives from the horizon or stays a literal — and whichever is chosen, the pin `2RH = radarRange² / 4` is a BUILD-FAILING assertion, because `radarRange` drives `gun.rangeU` / `cannon.rangeU` / `starShells.rangeU` and an unpinned `R` would let a shadow-feel tweak silently rebalance every gun in the game
+**And** the server cost is MEASURED, not assumed: at `sweepRpm` 15 the beam advances ~4.5° per tick, so only the swept wedge needs marching (~9 rays per observer per tick at half-degree spacing) and the pyramid exists so open water skips cheaply — budget it on the reference device
+**And** the master perception invariant still holds: nothing reaches a client that its sight or this-tick paints have not legitimately revealed.
+
+### Story 4.12: Radar Wakes
+
+As a captain,
+I want a ship's wake to paint on my scope,
+So that I can find a track with nothing attached to it and work out which way it ran and how long ago.
+
+**Design contract:** amendments 109 and 110. Cycle 62 of the radar physics arc (amendment 111).
+
+**Acceptance Criteria:**
+
+**Given** ships under way
+**When** the sweep crosses a wake
+**Then** the wake paints as a weak SURFACE return under Story 4.10's model, carrying course and recency but NO identity
+**And** open amendment 109's fork is resolved EXPLICITLY, with the choice and its perception consequences recorded — a client-synthesized trail behind paints the client already holds (no wire, no server, and a wake never outlives its ship), versus server-owned wake state with its own lifetime (a genuinely new information channel, a new wire row, and a new perception surface)
+**And** if the server-owned option is taken, wake is a declared signal-registry row with its own independently reimplemented invariant case, and nothing on the wire identifies the ship that made it
+**And** the on-water wake render is extended per Eric — longer wakes, and displaced water at the hull sides
+**And** TORPEDO wakes stay OUT (amendment 110): `CONFIG.torpedo`'s "Never painted by radar" is unchanged by this story, and reversing it is a balance ruling Eric owns separately
+**And** the perception invariants still hold.
+
 ## Epic 5: The Living Ocean (GDD E4)
 
 The water itself creates stories — fog banks, hemisphered whirlpools, huntable PvE fleets — and dying becomes learning: sinking window, omniscient reveal, results.
