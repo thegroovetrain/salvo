@@ -12,9 +12,13 @@
 //       gun range / torpedo speed become upgradeable (Stage D). This bounds a
 //       reveal whose boom we never see (fired at us from fog, then it leaves and
 //       detonates unseen);
-//   (c) sight-bubble cull: its dead-reckoned position leaves the own ship's
-//       sight bubble (+ margin). It is invisible under fog out there anyway, and
-//       culling stops a ghost shell from rendering past its true splash point.
+//   (c) reveal-ring cull: its dead-reckoned position leaves the ring the server
+//       reveals it within (+ margin) — the SIGHT bubble for a shell, the shorter
+//       DETECT ring (3/8 of intel range) for a TORPEDO, since Story 4.9's
+//       eighths ladder stopped both the reveal and the `torpU` corrections at
+//       detect. It is invisible under fog out there anyway, and culling stops a
+//       ghost from rendering past its true splash point — or, for a fish, from
+//       dead-reckoning on past the range the server stopped correcting it.
 //       Applies to everyone incl. the owner — a shell outrunning the bubble
 //       (gun range 480 > sight 220) fades into fog, which is thematic.
 // Each shell draws as a bright dot with an additive glow, pooled.
@@ -38,7 +42,7 @@ const C = CLIENT_CONFIG.colors;
 const O = CLIENT_CONFIG.ordnance;
 import { insideAnyZone, type OwnZone } from './litZones.js';
 
-type Kind = BallisticEvent['k'];
+export type Kind = BallisticEvent['k'];
 
 /**
  * The painted identities a track can carry (Story 2.9). The two WIRE kinds are
@@ -184,8 +188,32 @@ export function maxLifetimeMs(mapRadius: number, speed: number): number {
   return ((2 * mapRadius + LIFETIME_MARGIN) / speed) * 1000;
 }
 
-/** Cull a dead-reckoned shell once it is this far outside the sight bubble (u). */
+/** Cull a dead-reckoned shell once it is this far outside its reveal ring (u). */
 const SIGHT_CULL_MARGIN = 40; // u
+
+/**
+ * Pure: the SQUARED dead-reckoning cull radius for one ordnance kind, given the
+ * observer's own effective sight range (`stats.sightRange`, dazzle-scaled and
+ * boon-widened — plumbed in by main.applyOwnStats → `setSightRange`).
+ *
+ * THE TWO KINDS NO LONGER SHARE A RING (Story 4.9, the eighths ladder). A shell
+ * is still first revealed at the TRUESIGHT boundary, so it still culls there.
+ * A torpedo is now revealed — and, crucially, CORRECTED (`torpU`) — only out to
+ * the DETECT rung, 3/8 of intel range, which the server resolves as
+ * `sightOf(me, now) * CONFIG.vision.detectFactor` (amendments 119/121). Culling
+ * a fish at the old truesight ring would leave the client dead-reckoning an
+ * un-corrected ghost across the 82.5u (at base stats) the server has already
+ * stopped updating — the client inventing information it does not have.
+ *
+ * `detectFactor` is applied to the SAME plumbed `sightRange`, never to a second
+ * copy of the rung: `CONFIG.vision.detect === CONFIG.vision.sight *
+ * CONFIG.vision.detectFactor` is pinned shared-side precisely so there is one
+ * derivation, and an observer's detect ring must scale with their own sight.
+ */
+export function cullRadiusSq(sightRange: number, kind: Kind): number {
+  const reveal = kind === 'torp' ? sightRange * CONFIG.vision.detectFactor : sightRange;
+  return (reveal + SIGHT_CULL_MARGIN) ** 2;
+}
 
 /** Pure: dead-reckoned shell position at server time `now` (ms). */
 export function shellPosition(
@@ -282,8 +310,11 @@ export class Projectiles {
    * `trail` drops a torpedo-wake particle at a world point (wired to the effects
    * pool in main.ts); omitted in tests. Called throttled by travelled distance.
    */
-  /** Squared cull radius — follows the EFFECTIVE sight range (upgradeable). */
-  private cull2 = (CONFIG.vision.sight + SIGHT_CULL_MARGIN) ** 2;
+  /** Squared cull radius — follows the EFFECTIVE sight range (upgradeable).
+   *  TWO of them since Story 4.9: shells cull at the truesight ring, torpedoes
+   *  at the shorter DETECT ring the server reveals and corrects them within. */
+  private cull2 = cullRadiusSq(CONFIG.vision.sight, 'shell');
+  private torpCull2 = cullRadiusSq(CONFIG.vision.sight, 'torp');
 
   constructor(
     private readonly mapRadius: number,
@@ -298,9 +329,12 @@ export class Projectiles {
    *  identity. Stock until the first authoritative `you` lands. */
   private ownModes: OwnModes = { cannon: 'standard', torpedo: 'standard' };
 
-  /** Track the own ship's effective sight range so reveals don't pop early. */
+  /** Track the own ship's effective sight range so reveals don't pop early.
+   *  ONE plumbed value, TWO rings — the torpedo ring is `detectFactor` of it
+   *  (see `cullRadiusSq`), never a second plumbing path. */
   setSightRange(sightRange: number): void {
-    this.cull2 = (sightRange + SIGHT_CULL_MARGIN) ** 2;
+    this.cull2 = cullRadiusSq(sightRange, 'shell');
+    this.torpCull2 = cullRadiusSq(sightRange, 'torp');
   }
 
   /** Set the own loadout's doctrine modes (main.applyOwnStats). Affects only
@@ -515,11 +549,13 @@ export class Projectiles {
   /**
    * Advance all live projectiles to `serverNow` (ms). Retire any past their
    * per-kind max lifetime, or (when `ownPos` is known) once their dead-reckoned
-   * position leaves the own ship's sight bubble — invisible under fog there
-   * anyway — UNLESS it lies inside an own active lit zone (`keepZones`, Story
-   * 1.7: truesight parity keeps revealing it; culling would blind the firer
-   * permanently, the reveal is exactly-once). Torpedoes drop a throttled wake
-   * trail along their dead-reckoned path.
+   * position leaves the ring the server reveals them within — the sight bubble
+   * for a shell, the shorter DETECT ring for a torpedo (Story 4.9; see
+   * `cullRadiusSq`) — invisible under fog there anyway, UNLESS it lies inside
+   * an own active lit zone (`keepZones`, Story 1.7: truesight parity keeps
+   * revealing it; culling would blind the firer permanently, the reveal is
+   * exactly-once). The lit-zone exemption is IDENTICAL for both kinds.
+   * Torpedoes drop a throttled wake trail along their dead-reckoned path.
    */
   render(serverNow: number, ownPos?: { x: number; y: number }, keepZones: readonly OwnZone[] = []): void {
     // Resolved ONCE per frame, not per shell: the plunging-fire swell is juice,
@@ -532,7 +568,8 @@ export class Projectiles {
         continue;
       }
       const p = shellPosition({ x: s.x0, y: s.y0 }, s, s.t0, serverNow);
-      if (ownPos && shellCulledBeyondSight(p, ownPos, this.cull2, keepZones)) {
+      const cull2 = s.kind === 'torp' ? this.torpCull2 : this.cull2;
+      if (ownPos && shellCulledBeyondSight(p, ownPos, cull2, keepZones)) {
         this.remove(id);
         continue;
       }

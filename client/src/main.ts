@@ -1616,6 +1616,10 @@ function applyOwnStats(g: Game, cls: ShipClassId, boons: readonly string[]): voi
   g.radar.setRanges(stats.sightRange, stats.radarRange, stats.sweepPeriodMs);
   g.camera.setRadarRange(stats.radarRange);
   g.fog.setSightRange(stats.sightRange);
+  // ONE plumbed value, TWO dead-reckoning cull rings: shells cull at truesight,
+  // torpedoes at the shorter DETECT ring the server reveals and corrects them
+  // within (Story 4.9). Projectiles derives the second from this same number —
+  // adding a `setDetectRange` here would be a second source of truth.
   g.projectiles.setSightRange(stats.sightRange);
   // Zoom and/or hole radius may have moved: rebake the fog against the current
   // viewport at the new zoom (exactly what the resize handler does).

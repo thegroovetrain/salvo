@@ -5,19 +5,26 @@
 // OWNS (Story 1.7 — plus the self-directed events: own dmg/sunk/spawn, own
 // shells; the lit-zone CIRCLE itself is owner-always / radar-gated; Story
 // 4.3's three DECLARED gunnery exceptions: shooter-private sp/hc at any
-// range, and the mz flash inside the constant SIGHT*1.5 halo with island
-// LOS; PV 23's 4th declared exception, the PUBLIC REGISTER `sunk` row:
+// range, and the mz flash inside the constant SIGHT*1.25 halo (Story 4.9
+// moved it from 1.5) with island LOS; PV 23's 4th declared exception, the
+// PUBLIC REGISTER `sunk` row:
 // a human captain's sinking is identity-only public, a drone's reaches only
 // a witness or its killer, and the per-observer `seen` flag may be present
 // only when the witness predicate holds — see verifySunk; plus DAMAGE
 // CONTROL's healer-private `heal` and the owner-only `repairHp` pool,
 // neither of which may ever reach another observer; Story 4.4's FIFTH
 // declared exception, the anonymous `sm` wounded-smoke pulse inside the same
-// constant SIGHT*1.5 halo with island LOS — identity-free for EVERY observer,
-// see the sm verifier; and Story 4.5's SIXTH declared exception, the
-// bearing-only `fh` foghorn — bearing + volume tier from the LISTENER'S own
-// effective ranges, islands muffling by exactly one tier, never a position
-// or id for any fogged observer, see the fh verifier). The checks below
+// constant SIGHT*1.25 halo with island LOS — identity-free for EVERY
+// observer, see the sm verifier; and Story 4.5's SIXTH declared exception,
+// the bearing-only `fh` foghorn — bearing + a 1..8 volume BAND resolved as
+// eighths of the LISTENER'S own intel range (Story 4.9, amendment 122),
+// islands muffling to max(5, band + 2), never a position or id for any
+// fogged observer, see the fh verifier). Story 4.9 also TIGHTENS three rows
+// WITHIN the invariant: mines, torpedoes, and torpU updates now reveal at
+// the DETECT range — 0.75 × the observer's effective sight, a strict subset
+// of the sight bubble — so their oracles below bind them to the narrower
+// gate (see `detected`); shells, decoys, booms, bursts, sunk-witness and
+// spawns stay on truesight. The checks below
 // are a deliberate test-local reimplementation of the
 // visibility predicates so a refactor of perception.ts cannot silently agree
 // with its own bug.
@@ -111,6 +118,17 @@ function sighted(w: World, me: ShipRecord, p: { x: number; y: number }): boolean
   return dist(me.state, p) <= effSight(me, w.now) && clearLos(me.state, p, w.map.islands);
 }
 
+// The Story 4.9 DETECT oracle (amendments 119/121), INDEPENDENTLY RE-DERIVED:
+// 0.75 × the observer's effective sight (the 3/8 rung written out as a
+// LITERAL — deliberately NOT CONFIG.vision.detectFactor and NEVER the
+// production pointDetected), dazzle-scaled and boon-widened through effSight
+// exactly as the ruling scales it, island LOS applied unchanged. Binds mines,
+// torpedoes, and torpU updates; NON-VACUOUS by the directed cases below (a
+// mine/torpedo at 300u — inside sight, outside detect — must be excluded).
+function detected(w: World, me: ShipRecord, p: { x: number; y: number }): boolean {
+  return dist(me.state, p) <= 0.75 * effSight(me, w.now) && clearLos(me.state, p, w.map.islands);
+}
+
 // The Story 1.7 owned-zone reveal source, reimplemented test-locally (NEVER
 // the production ownZoneCovers): a lit zone OWNED by the observer covers `p`
 // iff dist(p, center) ≤ r — deliberately NO island-LOS term ("lit from above")
@@ -161,6 +179,7 @@ function injectShell(
   dir: number,
   distLeft: number,
   targeted = false,
+  kind: 'shell' | 'torp' = 'shell',
 ): void {
   w.shells.set(id, {
     id,
@@ -171,7 +190,7 @@ function injectShell(
     vy: Math.sin(dir) * CONFIG.gun.shellSpeed,
     distLeft,
     bornAt: w.now,
-    kind: 'shell',
+    kind,
     damage: CONFIG.gun.damage,
     hitRadius: CONFIG.gun.shellRadius,
     // `targeted` mirrors the real gun: a burst point distLeft along the
@@ -625,7 +644,11 @@ describe('perception — burst visibility (owner always, else burst point sighte
   });
 });
 
-describe('perception — mine visibility (owner-always, else sight+LOS, never radar)', () => {
+describe('perception — mine visibility (owner-always, else DETECT+LOS — Story 4.9, never radar)', () => {
+  // The 3/8 detect rung, INDEPENDENTLY RE-DERIVED as a literal (never
+  // CONFIG.vision.detect / detectFactor — the oracle rule).
+  const DETECT = SIGHT * 0.75;
+
   it('the owner sees all its own mines everywhere; the enemy never radar-paints them', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
@@ -637,21 +660,52 @@ describe('perception — mine visibility (owner-always, else sight+LOS, never ra
     expect(buildFrame(w, 'b').mines).toEqual([]);
   });
 
-  it('an enemy mine is visible inside sight, invisible just outside it', () => {
+  it('an enemy mine is visible at exactly the detect boundary, invisible just outside it', () => {
     const w = bareWorld();
     place(w, 'a', 0, 0);
-    injectMine(w, 'm1', 'b', SIGHT, 0); // exactly at sight — inclusive
-    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: SIGHT, y: 0, own: false, by: 'b' }]);
+    injectMine(w, 'm1', 'b', DETECT, 0); // exactly at detect — inclusive
+    expect(buildFrame(w, 'a').mines).toEqual([{ id: 'm1', x: DETECT, y: 0, own: false, by: 'b' }]);
     w.mines.clear();
-    injectMine(w, 'm2', 'b', SIGHT + 0.01, 0); // a hair beyond sight
+    injectMine(w, 'm2', 'b', DETECT + 0.01, 0); // a hair beyond detect
     expect(buildFrame(w, 'a').mines).toEqual([]);
+  });
+
+  it('NON-VACUITY of the detect oracle: an enemy mine INSIDE SIGHT but beyond detect is invisible (would have been a contact-tier reveal before Story 4.9)', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectMine(w, 'm1', 'b', 300, 0); // 247.5 < 300 ≤ 330 — sighted, NOT detected
+    expect(buildFrame(w, 'a').mines).toEqual([]);
+    injectMine(w, 'm2', 'b', SIGHT, 0); // the old boundary itself is now fogged
+    expect(buildFrame(w, 'a').mines).toEqual([]);
+  });
+
+  it('detect is OBSERVER-SCALED (amendment 121): dazzle halves it; a sightRange boon widens it', () => {
+    const w = bareWorld();
+    const a = place(w, 'a', 0, 0);
+    injectMine(w, 'm1', 'b', 200, 0); // inside base detect (247.5)
+    expect(buildFrame(w, 'a').mines.map((m) => m.id)).toEqual(['m1']);
+    a.dazzledUntil = w.now + 10_000; // dazzled detect = 0.75 × 165 = 123.75
+    expect(buildFrame(w, 'a').mines).toEqual([]);
+    a.dazzledUntil = 0;
+    a.stats = { ...a.stats, sightRange: 600 }; // boon-widened detect = 450
+    injectMine(w, 'm2', 'b', 440, 0);
+    expect(buildFrame(w, 'a').mines.map((m) => m.id).sort()).toEqual(['m1', 'm2']);
+  });
+
+  it('an enemy mine inside an OWNED lit zone stays visible beyond detect (the OR-path is untouched)', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectMine(w, 'm1', 'b', 300, 0); // beyond detect — fogged on its own
+    expect(buildFrame(w, 'a').mines).toEqual([]);
+    injectZone(w, 'z1', 'a', 300, 0);
+    expect(buildFrame(w, 'a').mines.map((m) => m.id)).toEqual(['m1']);
   });
 
   it('an enemy mine behind an island is invisible (LOS rule)', () => {
     const w = bareWorld();
     w.map.islands.push(circleIsland(60, 0, 25));
     place(w, 'a', 0, 0);
-    injectMine(w, 'm1', 'b', 120, 0); // inside sight range but behind the rock
+    injectMine(w, 'm1', 'b', 120, 0); // inside detect range but behind the rock
     expect(buildFrame(w, 'a').mines).toEqual([]);
   });
 
@@ -661,6 +715,69 @@ describe('perception — mine visibility (owner-always, else sight+LOS, never ra
     injectMine(w, 'armed', 'b', 100, 0, 0);
     injectMine(w, 'unarmed', 'b', 100, 20, w.now + CONFIG.mine.armDelay);
     expect(buildFrame(w, 'a').mines.map((m) => m.id).sort()).toEqual(['armed', 'unarmed']);
+  });
+});
+
+describe('perception — torpedo DETECT gate vs shell truesight (Story 4.9: the sibling fork — SHELLS DO NOT MOVE)', () => {
+  const DETECT = SIGHT * 0.75; // independently re-derived, never CONFIG.vision.detect
+  const torpsOf = (f: FrameMsg) => f.events.filter((e): e is BallisticEvent => e.k === 'torp');
+
+  it('a shell at exactly the truesight boundary reveals; a torpedo at the same point does NOT', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectShell(w, 's1', 'b', SIGHT, 0, Math.PI, 400, false, 'shell');
+    injectShell(w, 't1', 'b', 0, SIGHT, -Math.PI / 2, 400, false, 'torp');
+    const f = buildFrame(w, 'a');
+    expect(shellsOf(f).map((e) => e.id)).toEqual(['s1']); // shells unchanged at 330
+    expect(torpsOf(f)).toEqual([]); // the torpedo is still fogged there
+  });
+
+  it('a torpedo reveals at exactly the detect boundary (inclusive), not a hair beyond', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectShell(w, 't1', 'b', DETECT, 0, Math.PI, 400, false, 'torp');
+    expect(torpsOf(buildFrame(w, 'a')).map((e) => e.id)).toEqual(['t1']);
+    const w2 = bareWorld();
+    place(w2, 'a', 0, 0);
+    injectShell(w2, 't2', 'b', DETECT + 0.01, 0, Math.PI, 400, false, 'torp');
+    expect(torpsOf(buildFrame(w2, 'a'))).toEqual([]);
+  });
+
+  it('NON-VACUITY: a torpedo inside sight but beyond detect (300u) stays hidden — the pre-4.9 gate would have revealed it', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectShell(w, 't1', 'b', 300, 0, Math.PI, 400, false, 'torp');
+    expect(torpsOf(buildFrame(w, 'a'))).toEqual([]);
+  });
+
+  it('the owner-always and owned-zone paths on the torp row are untouched', () => {
+    const w = bareWorld();
+    place(w, 'a', 0, 0);
+    injectShell(w, 'own', 'a', 900, 900, 0, 400, false, 'torp'); // own fish, anywhere
+    expect(torpsOf(buildFrame(w, 'a')).map((e) => e.id)).toEqual(['own']);
+    injectShell(w, 'zoned', 'b', 500, 0, 0, 400, false, 'torp'); // far beyond detect
+    injectZone(w, 'z1', 'a', 500, 0);
+    expect(torpsOf(buildFrame(w, 'a')).map((e) => e.id)).toEqual(['zoned']);
+  });
+});
+
+describe('perception — the mz/sm halo is TIGHT at SIGHT*1.25 (Story 4.9: a case that FAILS if production emitted at the old SIGHT*1.5 halo)', () => {
+  it('an observer at 420u — inside the old 495u halo, outside the new 412.5u one — receives neither mz nor sm', () => {
+    const w = bareWorld();
+    place(w, 'a', 420, 0); // 412.5 < 420 ≤ 495
+    emitWorldEvent(w, { k: 'mz', x: 0, y: 0 });
+    emitWorldEvent(w, { k: 'sm', x: 0, y: 0, tier: 1 });
+    const f = buildFrame(w, 'a');
+    expect(f.events.filter((e) => e.k === 'mz' || e.k === 'sm')).toEqual([]);
+  });
+
+  it('an observer at exactly SIGHT*1.25 receives both (boundary inclusive) — the emission is real, not vacuous', () => {
+    const w = bareWorld();
+    place(w, 'a', SIGHT * 1.25, 0);
+    emitWorldEvent(w, { k: 'mz', x: 0, y: 0 });
+    emitWorldEvent(w, { k: 'sm', x: 0, y: 0, tier: 1 });
+    const kinds = buildFrame(w, 'a').events.map((e) => e.k).sort();
+    expect(kinds).toEqual(['mz', 'sm']);
   });
 });
 
@@ -941,7 +1058,8 @@ function verifyBlipOrdering(f: FrameMsg): void {
   }
 }
 
-/** A mine may reach a frame only if the viewer owns it, it is sighted, OR it
+/** A mine may reach a frame only if the viewer owns it, it is DETECTED
+ *  (Story 4.9: the 0.75×sight rung — strictly tighter than sighted), OR it
  *  sits inside a lit zone the viewer OWNS (Story 1.7). */
 function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean; by: string }): void {
   const mine = w.mines.get(m.id)!;
@@ -949,7 +1067,7 @@ function verifyMine(w: World, me: ShipRecord, m: { id: string; own: boolean; by:
   const own = mine.ownerId === me.id;
   expect(m.own).toBe(own);
   expect(m.by).toBe(mine.ownerId); // Story 1.12: every visible mine carries its dropper id (personal hue)
-  if (!own) expect(sighted(w, me, mine) || zoneCovers(w, me, mine)).toBe(true); // never radar, never fogged
+  if (!own) expect(detected(w, me, mine) || zoneCovers(w, me, mine)).toBe(true); // never radar, never merely sighted
 }
 
 /** The Story 1.8 decoys-channel oracle: a buoy VIEW may reach a fogged frame
@@ -1143,16 +1261,21 @@ function verifyBlip(w: World, me: ShipRecord, e: GameEvent): void {
   expect(blipMatchesDecoy(w, me, ev)).toBe(true);
 }
 
-// shell AND torp share one verifier: torpedoes ride the same first-sight
-// ballistic reveal as shells (both live in world.shells, keyed by projectile id).
+// shell AND torp share one verifier — with the Story 4.9 fork: a shell
+// reveals at first-SIGHT, a torpedo at first-DETECT (0.75×sight, the tighter
+// oracle above). Both live in world.shells, keyed by projectile id.
 function verifyBallistic(w: World, me: ShipRecord, e: GameEvent): void {
   const ev = e as BallisticEvent;
   const sh = w.shells.get(ev.id)!;
   expect(sh).toBeDefined();
   expect({ x: ev.x, y: ev.y }).toEqual({ x: sh.x, y: sh.y }); // current pos, never launch pos
   assertBallisticShape(ev); // no range-derivable field ever leaks
-  // First-sight OR inside an OWNED lit zone (Story 1.7) — never anyone else's.
-  if (sh.ownerId !== me.id) expect(sighted(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
+  // First-sight (shell) / first-detect (torp) OR inside an OWNED lit zone
+  // (Story 1.7) — never anyone else's.
+  if (sh.ownerId !== me.id) {
+    const inRange = sh.kind === 'torp' ? detected(w, me, ev) : sighted(w, me, ev);
+    expect(inRange || zoneCovers(w, me, ev)).toBe(true);
+  }
 }
 
 function verifyBoom(w: World, me: ShipRecord, e: GameEvent): void {
@@ -1230,27 +1353,23 @@ function verifySunk(w: World, me: ShipRecord, e: GameEvent): void {
 }
 
 /**
- * The foghorn VOLUME-TIER oracle (Story 4.5, amendments 53/54), reimplemented
- * test-locally from the amendment text — NEVER the production hornTierFor.
- * Bands from the LISTENER'S own effective ranges (this file's effSight /
- * effRadar reimplementations): tier 1 d ≤ effSight; tier 2 d ≤
- * max(1.5 × effSight, SIGHT × 1.5 — the 495u constant re-derived as a literal,
- * the clamp that stops dazzle from also deafening); tier 3 d ≤ max(effRadar,
- * the tier-2 bound); beyond → inaudible. Islands MUFFLE by exactly one tier
- * (1→2, 2→3, 3→inaudible), applied once after the distance tier resolves.
+ * The foghorn VOLUME-BAND oracle (Story 4.9, amendment 122 — supersedes
+ * amendment 53's three tiers), reimplemented test-locally from the amendment
+ * text — NEVER the production hornBandFor. The band is which eighth of the
+ * LISTENER'S own INTEL range (this file's effRadar reimplementation —
+ * boon-widened, NEVER dazzle-scaled, which is what makes "dazzle cannot
+ * deafen" true by construction) the honker sits in: ceil(8 × d / intel), d ==
+ * 0 → band 1, boundaries inclusive; beyond band 8 → inaudible. Islands MUFFLE
+ * once, post-resolution, to max(5, band + 2) — silent past 8. Amendment 53's
+ * max() clamps are RETIRED; nothing here reads effSight or muzzleFlash.
  */
-function hornTierOracle(w: World, me: ShipRecord, p: { x: number; y: number }): number | null {
+function hornBandOracle(w: World, me: ShipRecord, p: { x: number; y: number }): number | null {
   const d = dist(me.state, p);
-  const sight = effSight(me, w.now);
-  const mid = Math.max(1.5 * sight, SIGHT * 1.5);
-  const far = Math.max(effRadar(me), mid);
-  let tier: number;
-  if (d <= sight) tier = 1;
-  else if (d <= mid) tier = 2;
-  else if (d <= far) tier = 3;
-  else return null;
-  if (clearLos(me.state, p, w.map.islands)) return tier;
-  return tier === 3 ? null : tier + 1;
+  const band = d === 0 ? 1 : Math.ceil((8 * d) / effRadar(me));
+  if (band > 8) return null;
+  if (clearLos(me.state, p, w.map.islands)) return band;
+  const muffled = Math.max(5, band + 2);
+  return muffled > 8 ? null : muffled;
 }
 
 const EVENT_VERIFIERS: Record<string, EventVerifier> = {
@@ -1300,45 +1419,51 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     expect(ev.id).toBe(me.id);
   },
   mz: (w, me, e) => {
-    // MUZZLE FLASH (amendments 15/19/20): the halo is the CONSTANT
-    // SIGHT * 1.5 — independently re-derived here, deliberately NOT the
-    // observer's dazzle-scaled or boon-widened sight and with NO owned-zone
-    // term — plus island LOS (islands block every sensor at all ranges). The
-    // exact key set is the identity oracle: {k,x,y} carries no shooter id,
-    // hue, class, weapon, or heading for ANY observer.
+    // MUZZLE FLASH (amendments 15/19/20; halo MOVED to 5/8 by Story 4.9,
+    // amendment 119): the halo is the CONSTANT SIGHT * 1.25 — independently
+    // re-derived here as a literal (a 1.5 here between 412.5u and 495u would
+    // make this bound silently non-tight — the exact defect Story 4.9's wave
+    // 1 found), deliberately NOT the observer's dazzle-scaled or boon-widened
+    // sight and with NO owned-zone term — plus island LOS (islands block
+    // every sensor at all ranges). The exact key set is the identity oracle:
+    // {k,x,y} carries no shooter id, hue, class, weapon, or heading for ANY
+    // observer.
     const ev = e as { k: 'mz'; x: number; y: number };
     expect(Object.keys(ev).sort()).toEqual(['k', 'x', 'y']);
-    expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.5);
+    expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.25);
     expect(clearLos(me.state, ev, w.map.islands)).toBe(true);
   },
   sm: (w, me, e) => {
-    // WOUNDED SMOKE (Story 4.4, amendments 40-50) — the FIFTH declared
-    // exception. The halo is the CONSTANT SIGHT * 1.5, independently
-    // re-derived here as a literal (deliberately NOT shared with the mz
-    // verifier above, per the header's reimplementation rule) — never the
-    // observer's dazzle-scaled or boon-widened sight, and with NO owned-zone
-    // term — plus island LOS (islands block every sensor at all ranges). The
-    // exact key set IS the identity oracle: {k,x,y,tier} carries no ship id,
-    // hue, class, hp, or fraction for ANY observer — the smoking captain and
-    // spectators included — and `tier` is the two-value enum, never a number
-    // an hp could be recovered from.
+    // WOUNDED SMOKE (Story 4.4, amendments 40-50; reach MOVED with the
+    // muzzle-flash halo to 5/8 by Story 4.9, amendment 119 — the amendment 42
+    // one-constant coupling doing its job) — the FIFTH declared exception.
+    // The halo is the CONSTANT SIGHT * 1.25, independently re-derived here as
+    // a literal (deliberately NOT shared with the mz verifier above, per the
+    // header's reimplementation rule) — never the observer's dazzle-scaled or
+    // boon-widened sight, and with NO owned-zone term — plus island LOS
+    // (islands block every sensor at all ranges). The exact key set IS the
+    // identity oracle: {k,x,y,tier} carries no ship id, hue, class, hp, or
+    // fraction for ANY observer — the smoking captain and spectators included
+    // — and `tier` is the two-value enum, never a number an hp could be
+    // recovered from.
     const ev = e as { k: 'sm'; x: number; y: number; tier: number };
     expect(Object.keys(ev).sort()).toEqual(['k', 'tier', 'x', 'y']);
     expect([1, 2]).toContain(ev.tier);
-    expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.5);
+    expect(dist(me.state, ev)).toBeLessThanOrEqual(SIGHT * 1.25);
     expect(clearLos(me.state, ev, w.map.islands)).toBe(true);
   },
   fh: (w, me, e) => {
-    // THE FOGHORN (Story 4.5, amendments 51-58) — the SIXTH declared
-    // exception, reimplemented here independently of its registry row (see
-    // hornTierOracle below — never the production hornTierFor). The payload
-    // KEY SET is the anti-leak oracle: {k,h,self} for the honker, {k,h,b,v}
-    // for a fogged listener — and NO fogged observer's payload may EVER carry
-    // an `id`, `x`, or `y` key (x/y are the spectator path's alone), nor any
-    // correlation handle (amendment 45's rule verbatim). Every payload must
-    // also be JUSTIFIED by a real honk this tick: a world-internal `fh`
-    // subject whose independently-computed tier and bearing for THIS observer
-    // match the wire exactly.
+    // THE FOGHORN (Story 4.5, amendments 51-58; Story 4.9's eight-band
+    // rebase, amendment 122) — the SIXTH declared exception, reimplemented
+    // here independently of its registry row (see hornBandOracle below —
+    // never the production hornBandFor). The payload KEY SET is the anti-leak
+    // oracle: {k,h,self} for the honker, {k,h,b,v} for a fogged listener —
+    // and NO fogged observer's payload may EVER carry an `id`, `x`, or `y`
+    // key (x/y are the spectator path's alone), nor any correlation handle
+    // (amendment 45's rule verbatim). Every payload must also be JUSTIFIED by
+    // a real honk this tick: a world-internal `fh` subject whose
+    // independently-computed band and bearing for THIS observer match the
+    // wire exactly.
     const ev = e as { k: 'fh'; h: string; self?: true; b?: number; v?: number };
     expect((HORN_IDS as readonly string[]).includes(ev.h)).toBe(true);
     for (const forbidden of ['id', 'x', 'y']) expect(Object.hasOwn(ev, forbidden)).toBe(false);
@@ -1349,14 +1474,14 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
       return;
     }
     expect(Object.keys(ev).sort()).toEqual(['b', 'h', 'k', 'v']);
-    expect([1, 2, 3]).toContain(ev.v);
+    expect([1, 2, 3, 4, 5, 6, 7, 8]).toContain(ev.v);
     expect(ev.b).toBeGreaterThanOrEqual(0);
     expect(ev.b).toBeLessThan(2 * Math.PI);
     const justified = subjects.some(
       (s) =>
         s.id !== me.id &&
         s.h === ev.h &&
-        hornTierOracle(w, me, s) === ev.v &&
+        hornBandOracle(w, me, s) === ev.v &&
         wrapPositive(bearing(me.state, s)) === ev.b,
     );
     expect(justified).toBe(true);
@@ -1374,7 +1499,9 @@ const EVENT_VERIFIERS: Record<string, EventVerifier> = {
     expect(Object.keys(ev).sort()).toEqual(['id', 'k', 't', 'vx', 'vy', 'x', 'y']);
     expect({ x: ev.x, y: ev.y }).toEqual({ x: sh.x, y: sh.y });
     expect(me.seenBallistics.has(ev.id)).toBe(true); // an update only ever follows a reveal
-    if (sh.ownerId !== me.id) expect(sighted(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
+    // Story 4.9: updates ride the DETECT gate, matching the torp reveal —
+    // corrections stop exactly where first reveal starts.
+    if (sh.ownerId !== me.id) expect(detected(w, me, ev) || zoneCovers(w, me, ev)).toBe(true);
   },
   spawn: (w, me, e) => {
     // Spawn point: sighted OR inside a zone the observer OWNS (Story 1.7).

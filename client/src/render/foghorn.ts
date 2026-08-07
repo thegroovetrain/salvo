@@ -3,16 +3,22 @@
 // 4 said this story had to grow when the listening ring was deferred.
 //
 // The server emits `fh` per observer: a fogged listener gets BEARING + VOLUME
-// TIER and nothing else (no position, no id, no correlation handle of any
+// BAND and nothing else (no position, no id, no correlation handle of any
 // kind), the honker gets `self`, a spectator gets `x`/`y`. This module owns the
 // fogged/spectator surface: a chevron pinned near the viewport edge, pointing
-// down the bearing, weighted by tier, fading over ~1.2s. The honker's own honk
+// down the bearing, weighted by band, fading over ~1.2s. The honker's own honk
 // gets an own-hull bloom instead (render/effects.ts `horn`) — a bearing to
 // yourself is meaningless.
 //
+// THE BAND IS AN EIGHTH OF THE LISTENER'S INTEL RANGE (Story 4.9, amendment
+// 122), resolved SERVER-side and already muffled for islands. Nothing in this
+// module recomputes a band, a distance or a range — it looks the band up in a
+// table and draws. That was true of the old three-value tier and it stays true
+// of the eight-value band; only the resolution changed.
+//
 // It follows render/smoke.ts's split, and for the same reasons:
 //   • a PURE core (no Pixi import, unit-tested in __tests__/foghorn.test.ts) —
-//     the bearing→screen point, the tier→weight table, the TTL→alpha ramp and
+//     the bearing→screen point, the band→weight table, the TTL→alpha ramp and
 //     the pop-in scale;
 //   • a thin `Foghorn` adapter that pools Graphics, draws each chevron's
 //     geometry ONCE at acquire, and per frame touches nothing but position,
@@ -27,7 +33,7 @@
 //
 //   1. THE CHEVRON IS INFORMATION, NOT JUICE (UX-DR36, amendment 55; the
 //      ratified house rule at effects.ts:44-53). `motion: 'off'` removes
-//      MOTION, never INFORMATION — so PRESENCE, DIRECTION and TIER WEIGHT are
+//      MOTION, never INFORMATION — so PRESENCE, DIRECTION and BAND WEIGHT are
 //      motion-blind here, and the ONLY motion-scaled knob is the pop-in scale,
 //      which bottoms out at a chevron simply appearing at its true size in its
 //      true place. The TTL fade is not "motion": it is how long the fact stays
@@ -63,10 +69,15 @@ import { clamp01 } from '../util/math.js';
 const F = CLIENT_CONFIG.foghorn;
 const CH = F.chevron;
 
-/** The three volume tiers as they arrive on the wire (`FoghornEvent.v`). */
-export type HornTier = 1 | 2 | 3;
+/**
+ * The eight volume BANDS as they arrive on the wire (`FoghornEvent.v`) — which
+ * eighth of the LISTENER's own intel range the honker sits in, 1 = innermost,
+ * 8 = the radar edge (Story 4.9, amendment 122). An opaque enum: the client
+ * looks it up, never inverts it back into a range.
+ */
+export type HornBand = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
-/** One tier's chevron presentation — see `CLIENT_CONFIG.foghorn.chevron.tiers`. */
+/** One band's chevron presentation — see `CLIENT_CONFIG.foghorn.chevron.bands`. */
 export interface ChevronWeight {
   /** Half-width of the chevron's arms, px. */
   readonly size: number;
@@ -82,26 +93,27 @@ export interface ScreenPoint {
 }
 
 /**
- * Pure: the AUDIO gain for a wire tier — 100% / 75% / 50% (amendment 53). The
- * tier itself is resolved SERVER-side against the listener's own effective
- * ranges; this only says how loud each band plays. An absent or unknown tier
- * (the `self` and spectator shapes carry none) resolves to FULL gain: both of
- * those observers are at the honk, not in a band, and silence would be the one
- * wrong answer.
+ * Pure: the AUDIO gain for a wire BAND — flat at 100% through band 4 (truesight
+ * at base stats), then one step down per band to 50% at band 8 (the radar
+ * edge): 1 / 1 / 1 / 1 / 0.875 / 0.75 / 0.625 / 0.5 (amendment 122). The band
+ * itself is resolved SERVER-side against the listener's own intel range; this
+ * only says how loud each band plays. An absent or unknown band (the `self` and
+ * spectator shapes carry none) resolves to FULL gain: both of those observers
+ * are at the honk, not in a band, and silence would be the one wrong answer.
  */
-export function tierGain(v: HornTier | undefined): number {
-  return v === undefined ? 1 : (F.tierGain[v] ?? 1);
+export function bandGain(v: HornBand | undefined): number {
+  return v === undefined ? 1 : (F.bandGain[v] ?? 1);
 }
 
 /**
- * Pure: a tier's chevron weight. The three bands differ in SIZE, STROKE and
- * ALPHA at once so the volume reads at a glance and survives a colorblind read
- * — hue is identical across all three (the wounded-smoke tier rule). An absent
- * tier (the spectator shape, which carries a position instead) draws at full
- * weight: a spectator is omniscient, so there is no band to under-draw.
+ * Pure: a band's chevron weight. The bands differ in SIZE, STROKE and ALPHA at
+ * once so the volume reads at a glance and survives a colorblind read — hue is
+ * identical across all eight (the wounded-smoke tier rule). An absent band (the
+ * spectator shape, which carries a position instead) draws at full weight: a
+ * spectator is omniscient, so there is no band to under-draw.
  */
-export function chevronWeight(v: HornTier | undefined): ChevronWeight {
-  return CH.tiers[v ?? 1];
+export function chevronWeight(v: HornBand | undefined): ChevronWeight {
+  return CH.bands[v ?? 1];
 }
 
 /**
@@ -292,20 +304,20 @@ export class Foghorn {
   }
 
   /**
-   * A honk arrived from `bearing` (rad, world-space) at server time `t`. `tier`
-   * is the wire's volume tier, or undefined for the spectator path.
+   * A honk arrived from `bearing` (rad, world-space) at server time `t`. `band`
+   * is the wire's volume band, or undefined for the spectator path.
    *
    * NO MOTION GATE LIVES HERE, and no audio gate either: a chevron that failed
    * to spawn at `motion: 'off'` would delete the information UX-DR36 requires,
    * and one that spawned only when the mix had room would lose exactly the
    * honks a crowded room most needs pointing at (amendment 56).
    */
-  onHonk(bearing: number, tier: HornTier | undefined, t: number): void {
+  onHonk(bearing: number, band: HornBand | undefined, t: number): void {
     // Backgrounded tab: skip the spawn entirely rather than let marks pile into
     // the pool while the render loop that ages and retires them is throttled.
     // `capOldest` below is the second line of defence, not the first.
     if (typeof document !== 'undefined' && document.hidden) return;
-    const weight = chevronWeight(tier);
+    const weight = chevronWeight(band);
     const gfx = this.pool.acquire();
     this.drawChevron(gfx, weight);
     gfx.rotation = bearing;

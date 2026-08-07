@@ -1,10 +1,11 @@
 import { afterEach, describe, it, expect } from 'vitest';
 import { Container } from 'pixi.js';
-import type { BallisticEvent, TorpedoUpdateEvent } from '@salvo/shared';
+import { CONFIG, type BallisticEvent, type TorpedoUpdateEvent } from '@salvo/shared';
 import {
   MAX_OWN_CLAIMS,
   Projectiles,
   arcSwellScale,
+  cullRadiusSq,
   lookForReveal,
   pierceOrder,
   shellCulledBeyondSight,
@@ -99,6 +100,88 @@ describe('Projectiles.render — the lit-zone reveal survives the beyond-sight c
     // render() as an EMPTY keep list — the shell is culled.
     enemyOnly.render(1, own, []);
     expect(enemyOnly.liveCount).toBe(0);
+  });
+});
+
+// --- Story 4.9 (THE EIGHTHS LADDER): torpedoes cull at DETECT, shells at SIGHT --
+//
+// The server now stops revealing — and stops sending `torpU` corrections for —
+// torpedoes at the DETECT rung (3/8 of intel range = `detectFactor` × the
+// observer's own dazzle-scaled, boon-widened sight), which is SHORTER than the
+// truesight ring shells still ride. Left sharing one cull, the client would go
+// on dead-reckoning an un-corrected fish across the gap the server abandoned:
+// the client inventing information it does not have. Shells DO NOT MOVE.
+
+describe('cullRadiusSq — two rings from ONE plumbed sight range', () => {
+  const SIGHT = CONFIG.vision.sight;
+
+  it('gives a shell the truesight ring (+ margin), byte-identical to before', () => {
+    expect(cullRadiusSq(SIGHT, 'shell')).toBe((SIGHT + 40) ** 2);
+  });
+
+  it('gives a torpedo the DETECT ring (+ the same margin)', () => {
+    expect(cullRadiusSq(SIGHT, 'torp')).toBeCloseTo((CONFIG.vision.detect + 40) ** 2, 6);
+    // ...and it is derived from `detectFactor` × the plumbed sight, never from
+    // a second copy of the rung (the shared pin `detect === sight * factor`).
+    expect(cullRadiusSq(SIGHT, 'torp')).toBe((SIGHT * CONFIG.vision.detectFactor + 40) ** 2);
+  });
+
+  it('keeps the torpedo ring strictly INSIDE the shell ring', () => {
+    expect(cullRadiusSq(SIGHT, 'torp')).toBeLessThan(cullRadiusSq(SIGHT, 'shell'));
+  });
+
+  it('scales BOTH rings with the observer — a dazzle shrinks them together', () => {
+    const dazzled = SIGHT / 2;
+    expect(cullRadiusSq(dazzled, 'shell')).toBe((dazzled + 40) ** 2);
+    expect(cullRadiusSq(dazzled, 'torp')).toBe((dazzled * CONFIG.vision.detectFactor + 40) ** 2);
+    expect(cullRadiusSq(dazzled, 'torp')).toBeLessThan(cullRadiusSq(SIGHT, 'torp'));
+  });
+});
+
+describe('Projectiles.render — the torpedo cull is genuinely separate from the shell cull', () => {
+  const own = { x: 0, y: 0 };
+  // The detect ring + margin at BASE stats: 247.5 + 40 = 287.5u.
+  const DETECT_CULL = CONFIG.vision.detect + 40;
+  const justInside = DETECT_CULL - 1;
+  const justOutside = DETECT_CULL + 1;
+
+  const torpAt = (x: number): BallisticEvent => ({ k: 'torp', id: 't1', x, y: 0, vx: 0, vy: 0, t: 0 });
+  const shellAt = (x: number): BallisticEvent => ({ k: 'shell', id: 's1', x, y: 0, vx: 0, vy: 0, t: 0 });
+
+  const live = (ev: BallisticEvent, zones: OwnZone[] = []): number => {
+    const p = new Projectiles(900, new Container());
+    p.onShell(ev);
+    p.render(1, own, zones);
+    return p.liveCount;
+  };
+
+  it('KEEPS a torpedo just inside the detect-derived radius', () => {
+    expect(live(torpAt(justInside))).toBe(1);
+  });
+
+  it('CULLS a torpedo just outside it', () => {
+    expect(live(torpAt(justOutside))).toBe(0);
+  });
+
+  it('KEEPS a SHELL at the very same distance — the two culls are separate', () => {
+    // The proof the fork is real: one distance, two outcomes. A shell out here
+    // is still inside its own truesight ring (330 + 40 = 370u).
+    expect(live(shellAt(justOutside))).toBe(1);
+    expect(live(shellAt(CONFIG.vision.sight + 40 - 1))).toBe(1);
+    expect(live(shellAt(CONFIG.vision.sight + 40 + 1))).toBe(0); // ...and still culls at ITS ring
+  });
+
+  it('leaves the lit-zone exemption applying to torpedoes exactly as it does today', () => {
+    const zone: OwnZone = { x: justOutside, y: 0, r: 110, until: 10_000 };
+    expect(live(torpAt(justOutside), [zone])).toBe(1);
+  });
+
+  it('follows the ONE plumbed sight range — setSightRange moves both rings', () => {
+    const p = new Projectiles(900, new Container());
+    p.setSightRange(CONFIG.vision.sight * 2); // a boon-widened bubble
+    p.onShell(torpAt(justOutside));
+    p.render(1, own, []);
+    expect(p.liveCount).toBe(1); // now well inside the widened detect ring
   });
 });
 

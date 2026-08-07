@@ -1,5 +1,5 @@
 // THE FOGHORN CHEVRON (render/foghorn.ts) — the pure core the Pixi adapter
-// animates: the tier→gain table, the tier→weight table, the bearing→screen
+// animates: the band→gain table, the band→weight table, the bearing→screen
 // placement, the TTL fade, the motion-scaled pop, and the spectator bearing.
 //
 // Four things in here are CONTRACT, not coverage:
@@ -12,7 +12,7 @@
 //     would catch it.
 //   • `motion: 'off'` must remove MOTION and never INFORMATION (the ratified
 //     house rule, effects.ts:44-53; UX-DR36 via amendment 55). PRESENCE,
-//     DIRECTION and TIER WEIGHT survive intact; only the pop-in scale goes.
+//     DIRECTION and BAND WEIGHT survive intact; only the pop-in scale goes.
 //   • THE MARK OUTLIVES THE SOUND (amendment 56). The audio mix drops honks at
 //     its concurrency cap; the chevron never rides on that.
 //   • THE CAP IS GLOBAL ONLY. Amendment 51 applies amendment 45's rule — no
@@ -32,12 +32,13 @@ import {
   chevronPoint,
   chevronPop,
   chevronWeight,
-  tierGain,
+  bandGain,
+  type HornBand,
 } from '../render/foghorn.js';
 import { isFogImmuneEffect, isJuiceEffect, effectPeakAlpha } from '../render/effects.js';
 import { bindRoom, type RoomBindingDeps } from '../net/roomBindings.js';
 import type { Connection } from '../net/connection.js';
-import { motionIntensity } from '../settings/store.js';
+import { motionIntensity, settings } from '../settings/store.js';
 
 const F = CLIENT_CONFIG.foghorn;
 const CH = F.chevron;
@@ -72,30 +73,58 @@ describe('the foghorn cooldown is NOT copied client-side', () => {
   });
 });
 
-// --- tier → gain (amendment 53) ---------------------------------------------
+// --- band → gain (THE EIGHTHS LADDER, amendment 122) -------------------------
+//
+// The wire's `v` is which EIGHTH of the LISTENER's own intel range the honker
+// sits in — server-resolved, already muffled for islands. The client looks it
+// up and plays; it never recomputes a band, a distance or a range.
 
-describe('tierGain — the three earshot bands Eric named', () => {
-  it('maps 1/2/3 to 100% / 75% / 50%', () => {
-    expect(tierGain(1)).toBe(1);
-    expect(tierGain(2)).toBe(0.75);
-    expect(tierGain(3)).toBe(0.5);
+/** Every band, in order — the one place the 1..8 domain is written down. */
+const BANDS = [1, 2, 3, 4, 5, 6, 7, 8] as const satisfies readonly HornBand[];
+
+describe('bandGain — the eighths ladder, both of Eric’s anchors intact', () => {
+  it('is FLAT AT FULL VOLUME through band 4 (truesight at base stats)', () => {
+    // Eric's original foghorn ruling: *"within truesight range at full
+    // volume"*. Band 4 IS truesight (330u at base), so the whole plateau plays
+    // at 1 — four bands, not one.
+    for (const v of [1, 2, 3, 4] as const) expect(bandGain(v)).toBe(1);
+  });
+
+  it('steps down one eighth of the 100→50% span per band to the radar edge', () => {
+    expect(bandGain(5)).toBe(0.875);
+    expect(bandGain(6)).toBe(0.75);
+    expect(bandGain(7)).toBe(0.625);
+    expect(bandGain(8)).toBe(0.5); // the second anchor: 50% at 660u
+  });
+
+  it('covers all eight bands with a finite, audible gain', () => {
+    for (const v of BANDS) {
+      expect(Number.isFinite(bandGain(v))).toBe(true);
+      expect(bandGain(v)).toBeGreaterThan(0); // an audible band is audible
+      expect(bandGain(v)).toBeLessThanOrEqual(1);
+    }
   });
 
   it('is monotonically quieter with distance — a farther honk is never louder', () => {
-    expect(tierGain(1)).toBeGreaterThan(tierGain(2));
-    expect(tierGain(2)).toBeGreaterThan(tierGain(3));
-    expect(tierGain(3)).toBeGreaterThan(0); // an audible band is audible
+    for (let i = 1; i < BANDS.length; i++) {
+      expect(bandGain(BANDS[i])).toBeLessThanOrEqual(bandGain(BANDS[i - 1]));
+    }
   });
 
-  it('resolves an ABSENT tier to full gain (the self + spectator shapes)', () => {
+  it('takes even steps across the falloff half — no band is a cliff', () => {
+    const steps = [4, 5, 6, 7].map((b) => bandGain(b as HornBand) - bandGain((b + 1) as HornBand));
+    for (const s of steps) expect(s).toBeCloseTo(steps[0], 9);
+  });
+
+  it('resolves an ABSENT band to full gain (the self + spectator shapes)', () => {
     // Neither carries a `v`: the honker IS the honk and a spectator is
     // omniscient. Silence would be the one wrong answer.
-    expect(tierGain(undefined)).toBe(1);
+    expect(bandGain(undefined)).toBe(1);
   });
 
   it('carries no reach knob — who hears what is resolved server-side', () => {
-    // Amendment 53: the bands derive from the LISTENER's effective ranges
-    // (sightOf / muzzleFlash / radarRange) and arrive pre-decided as `v`.
+    // Amendment 122: the band is which eighth of the LISTENER's own intel range
+    // the honker sits in, resolved server-side and arriving pre-decided as `v`.
     // A distance or radius here would be a second, forkable authority.
     const keys = JSON.stringify(F).toLowerCase();
     expect(keys).not.toContain('range');
@@ -103,34 +132,83 @@ describe('tierGain — the three earshot bands Eric named', () => {
   });
 });
 
-// --- tier → chevron weight ---------------------------------------------------
+// --- band → chevron weight ---------------------------------------------------
 
-describe('chevronWeight — tier separable without hue', () => {
-  it('differs in SIZE, STROKE and ALPHA at once, so volume survives a glance', () => {
-    const [a, b, c] = [chevronWeight(1), chevronWeight(2), chevronWeight(3)];
-    expect(a.size).toBeGreaterThan(b.size);
-    expect(b.size).toBeGreaterThan(c.size);
-    expect(a.thickness).toBeGreaterThan(b.thickness);
-    expect(b.thickness).toBeGreaterThan(c.thickness);
-    expect(a.alpha).toBeGreaterThan(b.alpha);
-    expect(b.alpha).toBeGreaterThan(c.alpha);
+describe('chevronWeight — the visual twin rides the SAME band curve', () => {
+  // TODAY'S SHIPPED LOOK, verbatim. These two literals are the anchors the
+  // eighths rebase had to preserve: the old tier-1 weight and the old tier-3
+  // weight. Written out rather than read from config so a config retune that
+  // moved the look would FAIL here instead of quietly agreeing with itself.
+  const SHIPPED_LOUD = { size: 22, thickness: 3, alpha: 0.95 };
+  const SHIPPED_FAINT = { size: 13, thickness: 1.8, alpha: 0.5 };
+
+  it('keeps bands 1-4 at TODAY’s tier-1 weight, exactly', () => {
+    for (const v of [1, 2, 3, 4] as const) expect(chevronWeight(v)).toEqual(SHIPPED_LOUD);
   });
 
-  it('keeps every tier visible — the quietest band still draws', () => {
-    expect(chevronWeight(3).alpha).toBeGreaterThan(0);
-    expect(chevronWeight(3).size).toBeGreaterThan(0);
+  it('keeps band 8 at TODAY’s tier-3 weight, exactly', () => {
+    expect(chevronWeight(8)).toEqual(SHIPPED_FAINT);
   });
 
-  it('draws an absent tier (the spectator shape) at full weight', () => {
+  it('interpolates 5/6/7 between the anchors on the gain curve’s own fractions', () => {
+    // k = (band - 4) / 4 — the same fractions bandGain steps on, so the mark's
+    // weight and the honk's loudness move together.
+    for (const v of [5, 6, 7] as const) {
+      const k = (v - 4) / 4;
+      const w = chevronWeight(v);
+      expect(w.size).toBeCloseTo(SHIPPED_LOUD.size + (SHIPPED_FAINT.size - SHIPPED_LOUD.size) * k, 9);
+      expect(w.thickness).toBeCloseTo(
+        SHIPPED_LOUD.thickness + (SHIPPED_FAINT.thickness - SHIPPED_LOUD.thickness) * k,
+        9,
+      );
+      expect(w.alpha).toBeCloseTo(SHIPPED_LOUD.alpha + (SHIPPED_FAINT.alpha - SHIPPED_LOUD.alpha) * k, 9);
+    }
+  });
+
+  it('never gets heavier with distance, and separates once the falloff starts', () => {
+    for (let i = 1; i < BANDS.length; i++) {
+      const near = chevronWeight(BANDS[i - 1]);
+      const far = chevronWeight(BANDS[i]);
+      expect(far.size).toBeLessThanOrEqual(near.size);
+      expect(far.thickness).toBeLessThanOrEqual(near.thickness);
+      expect(far.alpha).toBeLessThanOrEqual(near.alpha);
+    }
+    // Past the plateau every one of the three channels genuinely moves, so the
+    // volume survives a colorblind read (the wounded-smoke rule).
+    for (const v of [5, 6, 7, 8] as const) {
+      expect(chevronWeight(v).size).toBeLessThan(chevronWeight((v - 1) as HornBand).size);
+      expect(chevronWeight(v).thickness).toBeLessThan(chevronWeight((v - 1) as HornBand).thickness);
+      expect(chevronWeight(v).alpha).toBeLessThan(chevronWeight((v - 1) as HornBand).alpha);
+    }
+  });
+
+  it('keeps every band visible — the quietest one still draws', () => {
+    for (const v of BANDS) {
+      expect(chevronWeight(v).alpha).toBeGreaterThan(0);
+      expect(chevronWeight(v).size).toBeGreaterThan(0);
+      expect(chevronWeight(v).thickness).toBeGreaterThan(0);
+    }
+  });
+
+  it('draws an absent band (the spectator shape) at full weight', () => {
     expect(chevronWeight(undefined)).toEqual(chevronWeight(1));
   });
 
   it('carries no identity channel of any kind', () => {
-    // Amendment 51: no id, no hue, no class, no correlation handle. The tier
-    // table decides WEIGHT and nothing else; hue is one constant for all three.
-    for (const v of [1, 2, 3] as const) {
+    // Amendment 51: no id, no hue, no class, no correlation handle. The band
+    // table decides WEIGHT and nothing else; hue is one constant for all eight.
+    for (const v of BANDS) {
       expect(Object.keys(chevronWeight(v)).sort()).toEqual(['alpha', 'size', 'thickness']);
     }
+  });
+
+  it('is a THREE-value read no longer — the tier vocabulary is gone', () => {
+    // The regression this pins: a client that still keys a 1|2|3 enum would
+    // resolve bands 4-8 to `undefined` and draw them all at full weight.
+    expect(Object.keys(CH.bands).sort()).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
+    expect(Object.keys(F.bandGain).sort()).toEqual(['1', '2', '3', '4', '5', '6', '7', '8']);
+    expect(F).not.toHaveProperty('tierGain');
+    expect(CH).not.toHaveProperty('tiers');
   });
 });
 
@@ -312,7 +390,7 @@ describe('chevronAlpha — a bearing is a fact with an expiry', () => {
     expect(chevronAlpha(TTL * 5, 1)).toBe(0);
   });
 
-  it('starts at the tier peak and decays monotonically — a honk never re-brightens', () => {
+  it('starts at the band peak and decays monotonically — a honk never re-brightens', () => {
     expect(chevronAlpha(0, 0.9)).toBeCloseTo(0.9, 9);
     let prev = Infinity;
     for (let age = 0; age < TTL; age += TTL / 20) {
@@ -322,7 +400,7 @@ describe('chevronAlpha — a bearing is a fact with an expiry', () => {
     }
   });
 
-  it('scales linearly with the tier peak and never exceeds it', () => {
+  it('scales linearly with the band peak and never exceeds it', () => {
     expect(chevronAlpha(TTL / 2, 1)).toBeCloseTo(0.5, 9);
     expect(chevronAlpha(TTL / 2, 0.5)).toBeCloseTo(0.25, 9);
     for (let age = 0; age <= TTL; age += TTL / 10) {
@@ -391,13 +469,38 @@ describe("motion: 'off' removes MOTION, never INFORMATION (UX-DR36, amendment 55
     expect(off).toEqual(same);
   });
 
-  it('keeps TIER WEIGHT: all three bands stay fully distinguishable at off', () => {
-    const still = (v: 1 | 2 | 3) => ({
+  it('keeps BAND WEIGHT: every band draws at its true weight at off', () => {
+    // `motion: 'off'` must not shrink, thin or fade a single band — the weight
+    // IS the volume reading, and the pop is the only channel allowed to go.
+    const still = (v: HornBand) => ({
       ...chevronWeight(v),
       drawn: chevronWeight(v).size * chevronPop(0, 0),
     });
-    expect(still(1).drawn).toBeGreaterThan(still(2).drawn);
-    expect(still(2).drawn).toBeGreaterThan(still(3).drawn);
+    for (const v of BANDS) expect(still(v).drawn).toBe(chevronWeight(v).size);
+    // ...and the falloff half is still ordered at off, band by band.
+    for (const v of [5, 6, 7, 8] as const) {
+      expect(still(v).drawn).toBeLessThan(still((v - 1) as HornBand).drawn);
+    }
+  });
+
+  it('keeps PRESENCE, DIRECTION and WEIGHT together for a live mark at off', () => {
+    // The whole UX-DR36 contract in one assertion, through the real adapter
+    // with the store ACTUALLY set to off: a honk spawns a mark, it points down
+    // the wire bearing, and it carries the faintest band's true weight — not a
+    // defaulted one, and not a scaled-away one.
+    settings.set({ motion: 'off' });
+    try {
+      const f = new Foghorn(new Container());
+      f.onHonk(Math.PI, 8, 1000);
+      expect(f.liveMarks).toBe(1); // PRESENCE
+      f.render(1000, W / 2, H / 2, W, H);
+      expect(f.liveMarks).toBe(1);
+      expect(chevronPoint(Math.PI, W / 2, H / 2, W, H).x).toBeCloseTo(CH.insetPx, 6); // DIRECTION: π = LEFT
+      expect(chevronWeight(8)).toEqual({ size: 13, thickness: 1.8, alpha: 0.5 }); // WEIGHT
+      expect(chevronPop(0, motionIntensity('off'))).toBe(1); // ...and only the pop is gone
+    } finally {
+      settings.reset();
+    }
   });
 
   it('removes exactly ONE channel and nothing else', () => {
@@ -459,7 +562,7 @@ describe('Foghorn — the pooled chevron list', () => {
   it('has no per-source cap and no key to build one from', () => {
     // Amendment 51 applies amendment 45 verbatim: the wire carries no
     // correlation handle, so marks cannot be grouped by the hull that honked.
-    // onHonk's whole signature is (bearing, tier, t) — there is nothing to key.
+    // onHonk's whole signature is (bearing, band, t) — there is nothing to key.
     const f = mk();
     expect(f.onHonk.length).toBe(3);
   });
@@ -556,18 +659,27 @@ describe("roomBindings case 'fh' — three shapes, three behaviors", () => {
     expect(spawnEffect).not.toHaveBeenCalled();
   });
 
-  it('FOGGED: plays at the tier gain and draws a chevron at the WIRE bearing', () => {
+  it('FOGGED: plays at the band gain and draws a chevron at the WIRE bearing', () => {
     const { sink, playHorn, onHonk } = setupHonk();
-    sink.handler(honkFrame({ k: 'fh', h: 'standard', b: 2.5, v: 2 }));
+    sink.handler(honkFrame({ k: 'fh', h: 'standard', b: 2.5, v: 6 }));
     expect(playHorn).toHaveBeenCalledWith('standard', 0.75);
-    expect(onHonk).toHaveBeenCalledWith(2.5, 2, 200); // bearing, tier, FRAME time
+    expect(onHonk).toHaveBeenCalledWith(2.5, 6, 200); // bearing, band, FRAME time
   });
 
-  it('FOGGED tier 3: the quietest band still draws its mark', () => {
+  it('FOGGED inside the plateau: a band-2 honk still plays at FULL volume', () => {
+    // The eighths rebase's most visible behavior change — the old tier 2 played
+    // at 75%, band 2 is inside truesight and plays at 1.
     const { sink, playHorn, onHonk } = setupHonk();
-    sink.handler(honkFrame({ k: 'fh', h: 'standard', b: 0.25, v: 3 }));
+    sink.handler(honkFrame({ k: 'fh', h: 'standard', b: 1.5, v: 2 }));
+    expect(playHorn).toHaveBeenCalledWith('standard', 1);
+    expect(onHonk).toHaveBeenCalledWith(1.5, 2, 200);
+  });
+
+  it('FOGGED band 8: the quietest band still draws its mark', () => {
+    const { sink, playHorn, onHonk } = setupHonk();
+    sink.handler(honkFrame({ k: 'fh', h: 'standard', b: 0.25, v: 8 }));
     expect(playHorn).toHaveBeenCalledWith('standard', 0.5);
-    expect(onHonk).toHaveBeenCalledWith(0.25, 3, 200);
+    expect(onHonk).toHaveBeenCalledWith(0.25, 8, 200);
   });
 
   it('SPECTATOR: plays at 100% and derives the bearing from the CAMERA centre', () => {
@@ -625,7 +737,7 @@ describe("roomBindings case 'fh' — three shapes, three behaviors", () => {
     expect(onHonk).not.toHaveBeenCalled();
   });
 
-  it('never leaks a position into the chevron call — bearing and tier only', () => {
+  it('never leaks a position into the chevron call — bearing and band only', () => {
     const { sink, onHonk } = setupHonk();
     sink.handler(honkFrame({ k: 'fh', h: 'standard', b: 1.75, v: 1 }));
     expect(onHonk.mock.calls[0]).toHaveLength(3);

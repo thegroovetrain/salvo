@@ -44,7 +44,7 @@ export interface HornSynthVoice {
   attackS: number;
   /** Long tail out, seconds (measured back from `durationS`). */
   releaseS: number;
-  /** 0..1 peak gain before the caller's tier multiplier. */
+  /** 0..1 peak gain before the caller's band multiplier. */
   volume: number;
 }
 
@@ -52,7 +52,7 @@ export interface HornSynthVoice {
 export interface HornSampleVoice {
   kind: 'sample';
   url: string;
-  /** 0..1 peak gain before the caller's tier multiplier. */
+  /** 0..1 peak gain before the caller's band multiplier. */
   volume: number;
 }
 
@@ -130,11 +130,12 @@ function clamp01(v: number): number {
 
 /**
  * Pure: a honk's effective peak gain — the voice's own level times the caller's
- * per-observer tier multiplier (1 / 0.75 / 0.5). Extracted so the ONE piece of
- * arithmetic in the horn path is testable without a WebAudio stack.
+ * per-observer BAND multiplier (the eighths ladder's 1 … 0.5 curve; see
+ * `CLIENT_CONFIG.foghorn.bandGain`). Extracted so the ONE piece of arithmetic
+ * in the horn path is testable without a WebAudio stack.
  */
-export function hornGain(voice: HornVoice, tierGain: number): number {
-  return clamp01(voice.volume) * clamp01(tierGain);
+export function hornGain(voice: HornVoice, bandGain: number): number {
+  return clamp01(voice.volume) * clamp01(bandGain);
 }
 
 /**

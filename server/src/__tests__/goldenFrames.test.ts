@@ -35,6 +35,9 @@ import { circleIsland } from './islandFixture.js';
 const TAU = Math.PI * 2;
 const DT = CONFIG.tick.simDtMs;
 const SIGHT = CONFIG.vision.sight;
+// Story 4.9: the mine/torpedo detect rung, re-derived as a literal (the
+// perception suite's oracle rule — never CONFIG.vision.detect).
+const DETECT = SIGHT * 0.75;
 // One tick's radar paint window width (rad) — a target at bearing δ/2 is painted
 // by the first post-step window [0, δ).
 const SWEEP_DELTA = (TAU * DT * CONFIG.vision.sweepRpm) / 60000;
@@ -84,17 +87,19 @@ const EXPECTED_SUBCASES = [
   'litzone-thirdparty-radar-circle',
   'mine-burst-detonation',
   'mine-trip-blast-multivictim',
-  'muzzle-flash-at-400u',
   'muzzle-flash-beyond-halo-silent',
+  'muzzle-flash-inside-halo',
   'muzzle-flash-island-blocked',
   'nonowner-hidden-at-launch',
   'nonowner-reveal-current-params',
   'nonowner-reveal-once',
+  'shell-reveal-beyond-detect',
   'slowed-victim-private',
   'spectator-ballistic-reveal',
   'spectator-dmg-passthrough',
   'spectator-raw-boom',
   'spectator-reveal-once',
+  'torp-reveal-inside-detect',
   'torpedo-launch-no-muzzle',
   'torpu-sighted-update',
   'torpu-unsighted-silent',
@@ -255,13 +260,16 @@ function scnPtBn(g: Golden): void {
   cap(g, w, 'a'); // spawn(a) + pt + bn + the unseen sunk(b) (b's spawn stays out of sight)
 }
 
-/** mine channel: own mine always, enemy mine in sight, enemy mine in fog hidden. */
+/** mine channel: own mine always, enemy mine at the DETECT boundary (Story
+ *  4.9 — mines re-aimed from the truesight gate to the 3/8 rung), enemy mine
+ *  inside sight but beyond detect hidden, enemy mine in deep fog hidden. */
 function scnMines(g: Golden): void {
   const w = bareWorld(1004);
   place(w, 'a', 0, 0);
   injectMine(w, 'own', 'a', 900, 900); // owner sees own mines everywhere
-  injectMine(w, 'seen', 'b', SIGHT, 0); // enemy mine at the sight boundary
-  injectMine(w, 'fog', 'b', 900, -900); // enemy mine beyond sight -> excluded
+  injectMine(w, 'seen', 'b', DETECT, 0); // enemy mine at the detect boundary (inclusive)
+  injectMine(w, 'nearFog', 'b', 300, 0); // inside sight (330) but beyond detect -> excluded (the 4.9 tightening)
+  injectMine(w, 'fog', 'b', 900, -900); // enemy mine in deep fog -> excluded
   cap(g, w, 'a');
 }
 
@@ -333,23 +341,26 @@ function scnIslandLos(g: Golden): void {
 }
 
 /**
- * Non-owner ballistic reveal — a shell AND a torpedo fired by phantom owner `a`
- * OUTSIDE observer `b`'s sight, each closing on b's bubble. At LAUNCH (pre-step)
- * b's frame carries neither: the reveal is FIRST-SIGHT, never launch-state. The
- * tick each crosses the sight boundary, b's frame reveals it with CURRENT
+ * Non-owner ballistic reveal — a shell AND a torpedo fired by phantom owner
+ * `a` OUTSIDE observer `b`'s reveal gate, each closing on b. The gates FORK
+ * as of Story 4.9: the shell rides FIRST-SIGHT (just outside 330u — SHELLS DO
+ * NOT MOVE) while the torpedo rides FIRST-DETECT (just outside 247.5u, the
+ * 3/8 rung). At LAUNCH (pre-step) b's frame carries neither. The next tick
+ * each crosses ITS OWN boundary, and b's frame reveals both with CURRENT
  * pos/velocity and t = reveal tick (ctx.now), not the hidden launch point or
- * bornAt (=0). The next tick — still in flight — b's frame is empty again:
- * exactly-once per observer (seenBallistics). Three consecutive b frames pin all
- * three states (hidden -> revealed -> silent).
+ * bornAt (=0) — the shell revealing BEYOND detect (proving shells were not
+ * narrowed) and the torpedo inside it. The next tick — still in flight — b's
+ * frame is empty again: exactly-once per observer (seenBallistics). Three
+ * consecutive b frames pin all three states (hidden -> revealed -> silent).
  */
 function scnBallisticReveal(g: Golden): void {
   const w = bareWorld(1008);
   place(w, 'b', 0, 0); // the lone observer; `a` is a phantom owner (no ship needed)
-  injectShell(w, 'sh', 'a', SIGHT + 6, 0, Math.PI, 500, 'shell'); // just outside, closing -x
-  injectShell(w, 'tp', 'a', 0, SIGHT + 6, -Math.PI / 2, 500, 'torp'); // just outside, closing -y
-  const pre = cap(g, w, 'b'); // launch tick: neither revealed (both outside sight)
+  injectShell(w, 'sh', 'a', SIGHT + 6, 0, Math.PI, 500, 'shell'); // just outside SIGHT, closing -x
+  injectShell(w, 'tp', 'a', 0, DETECT + 6, -Math.PI / 2, 500, 'torp'); // just outside DETECT, closing -y
+  const pre = cap(g, w, 'b'); // launch tick: neither revealed (each outside its gate)
   prove(g, 'nonowner-hidden-at-launch', !pre.events.some(isBallistic));
-  w.step(); // both cross into b's sight this tick
+  w.step(); // each crosses its own boundary this tick
   const reveal = cap(g, w, 'b');
   const sh = reveal.events.find((e) => e.k === 'shell') as BallisticEvent | undefined;
   const tp = reveal.events.find((e) => e.k === 'torp') as BallisticEvent | undefined;
@@ -359,6 +370,11 @@ function scnBallisticReveal(g: Golden): void {
     'nonowner-reveal-current-params',
     !!sh && !!tp && sh.x === live.x && sh.t === w.now && sh.t !== 0,
   );
+  // The Story 4.9 fork, proven on the same frame: the shell's reveal point is
+  // BEYOND the detect rung (a detect-gated shell would still be hidden here),
+  // the torpedo's is inside it.
+  prove(g, 'shell-reveal-beyond-detect', !!sh && Math.hypot(sh.x, sh.y) > DETECT && Math.hypot(sh.x, sh.y) <= SIGHT);
+  prove(g, 'torp-reveal-inside-detect', !!tp && Math.hypot(tp.x, tp.y) <= DETECT);
   w.step(); // still airborne, but already seen
   const after = cap(g, w, 'b');
   prove(g, 'nonowner-reveal-once', !after.events.some(isBallistic));
@@ -720,27 +736,29 @@ function scnDebuffs(g: Golden): void {
 }
 
 /**
- * The gunnery conversation (Story 4.3) — a REAL gun click driving all three
- * new channels through the wire. Shooter `a` fires into empty water 560u out:
- * on the launch tick the muzzle flash `mz` reaches o1 (≈370u from the muzzle,
- * inside the 495u SIGHT*1.5 halo), never o2 (≈630u — beyond the halo) and
- * never o3 (≈370u but island-blocked: islands block every sensor at all
- * ranges); on the burst tick the shooter alone receives the self-private
- * fall-of-shot `sp` at the true burst point (o1, captured the same tick, gets
- * neither sp nor burst — the point is outside its sight). A torpedo launch
- * next proves the quiet weapon: o1's frame carries NO mz (amendment 20).
- * After the gun reload, a second click centered on fogged hull `b` (500u out
- * — beyond sight, no boom rides a burst outcome) delivers exactly one Hit
- * Call `hc` carrying only {k,id,x,y} with id = the SHOOTER — no victim id, no
- * severity, and no sp for the same shell.
+ * The gunnery conversation (Story 4.3; halo re-aimed to SIGHT*1.25 = 412.5u
+ * by Story 4.9) — a REAL gun click driving all three new channels through the
+ * wire. Shooter `a` fires into empty water 560u out: on the launch tick the
+ * muzzle flash `mz` reaches o1 (≈275u from the muzzle — unambiguously inside
+ * the 412.5u halo; the shipped 400u placement would have sat 12.5u under it),
+ * never o2 (≈630u — beyond the halo) and never o3 (≈275u but island-blocked:
+ * islands block every sensor at all ranges); on the burst tick the shooter
+ * alone receives the self-private fall-of-shot `sp` at the true burst point
+ * (o1, captured the same tick, gets neither sp nor burst — the point is
+ * outside its sight). A torpedo launch next proves the quiet weapon: o1's
+ * frame carries NO mz (amendment 20). After the gun reload, a second click
+ * centered on fogged hull `b` (500u out — beyond sight, no boom rides a
+ * burst outcome) delivers exactly one Hit Call `hc` carrying only {k,id,x,y}
+ * with id = the SHOOTER — no victim id, no severity, and no sp for the same
+ * shell.
  */
 function scnGunnery(g: Golden): void {
   const w = bareWorld(1019);
   w.map.islands.push(circleIsland(200, 0, 40)); // the o3 LOS blocker
   place(w, 'a', 0, 0); // the shooter
-  place(w, 'o1', 0, 400); // inside the muzzle halo
-  place(w, 'o2', 0, -600); // beyond the 495u halo
-  place(w, 'o3', 400, 0); // inside the halo but behind the island
+  place(w, 'o1', 0, 300); // unambiguously inside the 412.5u muzzle halo
+  place(w, 'o2', 0, -600); // beyond the 412.5u halo
+  place(w, 'o3', 300, 0); // inside the halo but behind the island
   place(w, 'b', -500, 0); // the fogged victim of the second shot
   // Shot 1 — a miss into empty water at bearing pi/4 (clear of the island).
   w.submitInput('a', { seq: 1, throttle: 0, rudder: 0, aim: Math.PI / 4, fireSeq: 1, aimDist: 560, slot: 0, fireT: 0, actSeq: 0, actSlot: 0, hornSeq: 0 });
@@ -749,7 +767,7 @@ function scnGunnery(g: Golden): void {
   const fo1 = cap(g, w, 'o1');
   const fo2 = cap(g, w, 'o2');
   const fo3 = cap(g, w, 'o3');
-  prove(g, 'muzzle-flash-at-400u', fo1.events.some((e) => e.k === 'mz'));
+  prove(g, 'muzzle-flash-inside-halo', fo1.events.some((e) => e.k === 'mz'));
   prove(g, 'muzzle-flash-beyond-halo-silent', !fo2.events.some((e) => e.k === 'mz'));
   prove(g, 'muzzle-flash-island-blocked', !fo3.events.some((e) => e.k === 'mz'));
   // Flight to the burst (no frame builds), then the burst/splash tick.

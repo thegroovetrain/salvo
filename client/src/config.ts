@@ -1549,25 +1549,32 @@ export const CLIENT_CONFIG = {
   },
 
   /**
-   * THE FOGHORN's presentation (Story 4.5, amendments 51-58). Every knob here
-   * is CLIENT-ONLY. The one gameplay-authoritative foghorn number —
+   * THE FOGHORN's presentation (Story 4.5, amendments 51-58; rebased onto the
+   * EIGHTHS LADDER by Story 4.9, amendment 122). Every knob here is
+   * CLIENT-ONLY. The one gameplay-authoritative foghorn number —
    * `CONFIG.foghorn.cooldownMs` — is DELIBERATELY ABSENT: the press gate in
    * main.ts reads it straight off shared CONFIG, because a second copy of a
    * gameplay number is exactly what amendment 41 (the `damageBands` precedent)
-   * forbids. Reach is absent for the same reason — the volume tiers are
-   * resolved SERVER-side from the listener's own effective ranges (amendment
-   * 53) and arrive pre-decided as `v`; nothing here may decide who hears what.
+   * forbids. Reach is absent for the same reason — the volume BANDS are
+   * resolved SERVER-side from the listener's own intel range (amendment 122)
+   * and arrive pre-decided as `v`; nothing here may decide who hears what.
    */
   foghorn: {
     /**
-     * WIRE TIER → AUDIO GAIN. The three bands Eric named (amendment 53):
-     * 100% inside truesight, 75% out to the muzzle-flash halo, 50% out to
-     * radar. The tier is an ENUM resolved by the server against the LISTENER's
-     * ranges; this table only says how loud each band plays. An unknown/absent
-     * tier is the caller's problem (roomBindings falls back to full gain for
-     * the self and spectator shapes, which carry no tier at all).
+     * WIRE BAND → AUDIO GAIN. Which eighth of the LISTENER's own intel range
+     * the honker sits in (1 = innermost, 8 = the radar edge), resolved by the
+     * server; this table only says how loud each band plays.
+     *
+     * THE CURVE IS FLAT AT FULL VOLUME THROUGH TRUESIGHT (band 4 = 330u at
+     * base stats) and then steps down one eighth of the 100→50% span per band
+     * to the radar edge (band 8 = 660u at base). BOTH ANCHORS ARE ERIC'S
+     * ORIGINAL FOGHORN RULING — *"within truesight range at full volume"* and
+     * 50% at the radar edge — and must survive any retune of the middle.
+     *
+     * An unknown/absent band is the caller's problem (roomBindings falls back
+     * to full gain for the self and spectator shapes, which carry no band).
      */
-    tierGain: { 1: 1, 2: 0.75, 3: 0.5 },
+    bandGain: { 1: 1, 2: 1, 3: 1, 4: 1, 5: 0.875, 6: 0.75, 7: 0.625, 8: 0.5 },
     /**
      * THE SCREEN-EDGE CHEVRON (amendment 55) — the honk's visual twin and the
      * bearing surface amendment 4 said this story had to grow. Rejected
@@ -1577,12 +1584,12 @@ export const CLIENT_CONFIG = {
      *
      * UX-DR36 BINDING, and it is why `popMs`/`popScale` are the ONLY
      * motion-scaled knobs in this block: the chevron's PRESENCE, DIRECTION and
-     * TIER WEIGHT are INFORMATION and survive `motion: 'off'` intact. The TTL
+     * BAND WEIGHT are INFORMATION and survive `motion: 'off'` intact. The TTL
      * fade is not "motion" either — it is how long the fact stays true.
      */
     chevron: {
       /** How far in from the viewport edge the mark is pinned, px. Big enough
-       *  that the whole glyph clears the edge at every tier size below. */
+       *  that the whole glyph clears the edge at every band size below. */
       insetPx: 54,
       /** How long one chevron lives, ms — the ~1.2s amendment 55 named. Aged
        *  against SERVER time (the smoke.ts precedent), never accumulated dt. */
@@ -1603,15 +1610,31 @@ export const CLIENT_CONFIG = {
       popMs: 140,
       popScale: 1.4,
       /**
-       * PER-TIER WEIGHT. The three bands must be separable at a glance without
-       * hue (the wounded-smoke rule: severity survives a colorblind read), so
-       * they differ in SIZE, STROKE and ALPHA at once. Size is the half-width
-       * of the chevron's arms in px.
+       * PER-BAND WEIGHT — the foghorn's VISUAL TWIN, derived from the SAME
+       * curve as `bandGain` above (Story 4.9). The bands must be separable at
+       * a glance without hue (the wounded-smoke rule: severity survives a
+       * colorblind read), so they differ in SIZE, STROKE and ALPHA at once.
+       * Size is the half-width of the chevron's arms in px.
+       *
+       * THE TWO ANCHORS ARE TODAY'S SHIPPED LOOK, UNCHANGED. Bands 1-4 carry
+       * the old tier-1 weight EXACTLY (22 / 3 / 0.95) — flat through truesight,
+       * exactly as the gain is — and band 8 carries the old tier-3 weight
+       * EXACTLY (13 / 1.8 / 0.5) at the radar edge. Bands 5-7 are the linear
+       * interpolation between them at the gain curve's own fractions
+       * (k = (band - 4) / 4), so the mark's weight and the honk's loudness
+       * step together. Only the MIDDLE gained resolution; nothing about the
+       * shipped grammar moved. `__tests__/foghorn.test.ts` pins both anchors
+       * and the interpolation, so a retune cannot drift one without the other.
        */
-      tiers: {
+      bands: {
         1: { size: 22, thickness: 3, alpha: 0.95 },
-        2: { size: 17, thickness: 2.4, alpha: 0.72 },
-        3: { size: 13, thickness: 1.8, alpha: 0.5 },
+        2: { size: 22, thickness: 3, alpha: 0.95 },
+        3: { size: 22, thickness: 3, alpha: 0.95 },
+        4: { size: 22, thickness: 3, alpha: 0.95 },
+        5: { size: 19.75, thickness: 2.7, alpha: 0.8375 },
+        6: { size: 17.5, thickness: 2.4, alpha: 0.725 },
+        7: { size: 15.25, thickness: 2.1, alpha: 0.6125 },
+        8: { size: 13, thickness: 1.8, alpha: 0.5 },
       },
     },
   },
