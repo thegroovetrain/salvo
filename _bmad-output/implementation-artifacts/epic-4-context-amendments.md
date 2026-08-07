@@ -1996,3 +1996,116 @@ four times in a row.
      a `from` argument, so the bug is unrepresentable rather than merely corrected. Recorded because
      the failure was invisible to every pure-rasterizer test and is precisely the class amendment 98
      was written for.
+
+## 2026-08-07 — Eric rulings, THE BEAM MARCH (cycle 62, corrective, on seeing 4.10 live)
+
+Source: Eric, live, on the shipped 0.17.61 build, with a screenshot. Four complaints and a governing
+sentence, verbatim:
+
+> *"What I wanted you to accomplish was to have the radar correctly paint **everything** it sweeps
+> over."*
+
+> *"You're basically supposed to be raycasting or ray something, im not sure the proper term. but as
+> the sweep line sweeps, you're supposed to be radar painting that entire line from the ship to the
+> terminus according to how its supposed to show up on radar."*
+
+138. **THE PER-OBJECT BAKE IS RETIRED; THE BEAM MARCH REPLACES IT.** Radar stops asking each object
+     what it looks like and starts asking each BEARING what is out there. As the beam advances, rays
+     are marched from own hull to the radar terminus, sampling a world raster, and every sample paints
+     according to the return model. This SUPERSEDES the paint-generation half of amendments 69, 76, 78
+     and 88 — coverage bakes, `IslandPaint.cover`, the near-face criterion and the per-object kernel
+     all go. **What is NOT superseded and still governs verbatim: amendment 83** (a paint is a
+     historical record — the march freezes its observer and its samples at creation and only alpha
+     changes afterwards), **amendment 97** (nothing viewport-derived reaches paint creation or
+     retirement), **amendment 98** (placement is pinned at the Pixi adapter), **amendment 105** (colour
+     is intensity, never category) and **amendment 106** (reflectivity × falloff by geometry).
+
+     Note this is the architecture amendment 109 floated and left open — Eric: *"Part of me feels like
+     it might make sense to transfer the ships and wakes to the raster in each frame and use that for
+     radar calculation"* — now ruled IN, and the reason it arrives early is that cycle 61 proved the
+     per-object primitive cannot express what the story asked for.
+
+139. **THE `faceShadow` DEFECT OF RECORD, and why the fix is deletion rather than correction.** Eric's
+     screenshot showed large stretches of coastline unpainted, cut off along an arbitrary diagonal.
+     Cause: `faceShadow` scores a point as `m = (t − ρ²/d)/r`, where `t` is the projection toward the
+     observer and `ρ` is the distance from the island's BOUNDING-CIRCLE CENTRE. It is the exact
+     near-face criterion **for a disc**. On an elongated polygon a point at a LATERAL extremity — side
+     on to the observer, not on the far side at all — has `t = 0`, so `m = −ρ²/(d·r)`, which on a
+     typical stretched island is ≈ −0.6 against a 0.3 terminator ramp and clamps to ZERO. **Every long
+     tail and lateral tip of every stretched island was being suppressed regardless of facing.** The
+     math was correct for the capsule islands it was written against (cycle 51) and was invalidated by
+     the cycle-59 fractal generator without anyone noticing, because it degrades gradually rather than
+     failing loudly.
+
+140. **NOTHING OCCLUDES ANYTHING IN THIS CYCLE — PAINT EVERYTHING THE BEAM CROSSES.** Eric: *"the
+     'height aware radar shadows' story is going to address all LOS concerns as well as radar shadow."*
+     So the near-face terminator, the cross-island `islandBlocksSegment` filter added at cycle 51's
+     review gate, and clutter's occluder mask (added at cycle 61's gate) are ALL removed from the paint
+     path. A ray paints every sample along its length, near side and far side alike, and an island
+     behind an island paints too.
+
+     **This is a KNOWING, TEMPORARY regression against the 2026-08-02 "islands block every sensor"
+     ruling, scoped to the radar PAINT LAYER only and accepted by Eric on the explicit promise that
+     Story 4.11 restores it properly** — as a height-derived shadow length rather than a binary segment
+     test, which is a strictly better answer than what is being removed. **It does NOT touch any
+     server-side sensor gate**: `blipGate`, `pointSighted`, `pointDetected`, the muzzle-flash halo, the
+     smoke halo and the foghorn muffle are all UNCHANGED and still enforce LOS. Nothing about what the
+     server discloses moves in this cycle; only what the client draws from what it already holds.
+
+141. **SHIPS ARE STAMPED INTO THE SAME RASTER AND PAINTED BY THE SAME RULES — but they never occlude.**
+     Eric: *"ships do not cast radar shadows and every ship's radar is assumed to be above the level
+     that ships are tracked on, all I want you to do is paint everything in the raymarch."* This
+     RATIFIES amendment 107 a second time and on a second premise (mast height above the tracked
+     plane), and it retires the bespoke `stampShip` ellipse kernel: a hull's return now falls out of
+     its actual footprint in the raster the same way terrain's does. The wire is UNCHANGED — both paint
+     sources (`ReturnBlipEvent` beyond truesight, `contactEcho` inside it) still feed the same list, and
+     `blipGate` is untouched.
+
+142. **CONTINUOUS HEIGHT, NOT TERRACES — and the perf premise for terracing is FALSE.** Eric asked
+     whether radar should clamp to the contour terraces, and gave the deciding rule himself: *"if
+     there's no performance cost to have the entire range of heights and just clamp them to radar
+     return strength ranges and calculate radar shadow based on that instead of clamped terraces, then
+     we should do that."*
+
+     There is no performance cost, and terracing is strictly MORE work: `sampleHeight` is an O(1)
+     `Uint8Array` read that already returns **256 levels**, so terracing means taking that byte and
+     mapping it down to **4 bands** (`contourLevels: 3` plus the coastline) via an extra comparison
+     chain on an identical array read. It costs a little more and discards 98% of the elevation data.
+
+     **Terracing would also actively damage Story 4.11.** Shadow length is
+     `(radarRange²/4)·(1 − h₀/H)/d₀`; with four discrete `h₀` values terrain collapses into four kinds
+     of obstacle, shadow lengths step rather than grade as you sail past a headland, and the hard-cover
+     threshold `H` lands ON a terrace boundary — so an entire band of the map would flip from soft
+     cover to absolute cover at once. Amendment 102's ratified distinction between SOFT cover
+     (situational, range-dependent) and HARD cover depends on that gradient existing.
+
+     **And the look terracing promised comes free anyway:** on a continuous height field a colour-band
+     boundary IS an iso-height line, which is a contour. The regions land on the contours by
+     construction. The reason cycle 61 did not look that way is amendment 143's noise and the
+     `solidity` depth term smearing intensity off the iso-height lines — not the height model.
+
+143. **NOISE SCALES WITH WEAKNESS — SNR, not a flat jitter.** Eric, on the speckle: *"I want whatever
+     is realistic. Does the garmin radar display, with its 3 colors, do this at all? Do that."* On a
+     real set a solid landmass returns a stable, solid block of the strongest colour with a graded
+     fringe; the grain lives in LOW SIGNAL-TO-NOISE returns — sea clutter, rain, distant small targets,
+     and the partially-illuminated edges of any target. Cycle 61's flat ±30% is backwards: it puts
+     static in the interior of an island, the one place a real scope is rock-steady.
+
+     RULING: noise amplitude is a function of the sample's own strength, largest at the detection floor
+     and vanishing toward saturation. Strong cores go solid; fringes, clutter and weak distant returns
+     stay grainy. This is a straight consequence of amendment 105 (colour is intensity) rather than a
+     new channel — the grain is now telling you the return is MARGINAL, which is information a real
+     operator reads. **Sea clutter is deliberately tuned to straddle the visibility threshold
+     (amendments 133, 136), so it sits at the noisy end BY CONSTRUCTION and needs no special case** —
+     but its bound must be re-derived against whatever the new noise envelope is, since amendment 135's
+     rule (a bound proved at nominal is not proved) binds every coefficient here.
+
+144. **Presentation and scope.** The palette goes slightly MORE TRANSLUCENT (Eric: *"I definitely agree
+     with the translucency, might make it a tad more translucent"*) — a band-alpha tuning, no structural
+     change. This lands as **its own corrective cycle BEFORE Story 4.11** (Eric's explicit pick over
+     folding it into 4.11), so the march exists and is verified on the water before shadows are added
+     to it; 4.11 then contributes a term to a march that already works rather than building one.
+     Expected to stay CLIENT-ONLY with `PROTOCOL_VERSION` unchanged — but the march is a genuine
+     rewrite of the paint path, so per-frame cost must be re-measured at both zoom extremes and
+     reported (amendment 99), and the adapter-level placement pins (amendment 98) must be re-derived
+     against the new primitive rather than assumed to carry over.
